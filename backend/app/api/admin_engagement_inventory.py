@@ -1,6 +1,6 @@
 """GET /api/admin/engagement-inventory — read-only raport anomalii lifecycle
 współpracy (kontrakt / dokument / podpis / zamówienie / stawki / zakończenie /
-sprzęt / faktury).
+sprzęt).
 
 Moduł 5 (kontrakty/engagement/onboarding/billing/offboarding), plan PR-00:
 zmierzyć produkcyjny stan lifecycle ZANIM wprowadzimy kanoniczny Engagement
@@ -12,14 +12,14 @@ Rozłączność z Modułem 4: `/api/admin/pipeline-inventory` (PR-00 M4) pokrywa
 relację stage↔contract (`hired_no_contract`, `multiple_live_contracts`,
 `contract_no_hired`). Ten raport ich NIE dubluje — patrzy wyłącznie na
 WEWNĘTRZNY stan współpracy po stronie kontraktu (dokument, podpis, zamówienie,
-harmonogram stawek, zakończenie, sprzęt, faktura). Operator zestawia oba raporty
+harmonogram stawek, zakończenie, sprzęt). Operator zestawia oba raporty
 po `query_version`/`generated_at`.
 
 Kontrakt (identyczny jak pipeline-inventory, świadomie reużyty):
 - WYŁĄCZNIE odczyt (SELECT) — endpoint niczego nie naprawia i nie mutuje.
 - Zero PII i zero sekretów w output: sample zawiera tylko numeryczne ID
-  (contract/candidate/client/job/order/equipment/signature/invoice) oraz
-  identyfikatory dokumentów (numer umowy/faktury) i daty progu (effective_from).
+  (contract/candidate/client/job/order/equipment/signature) oraz
+  identyfikatory dokumentów (numer umowy) i daty progu (effective_from).
   Nigdy nazwisk, e-maili, telefonów, treści ani surowego tokenu linku podpisu.
 - Sample ograniczone do SAMPLE_LIMIT pozycji per check.
 - Każdy check ma własny timeout; błąd jednego checku nie wywala raportu
@@ -48,7 +48,7 @@ router = APIRouter()
 
 # Bump przy każdej zmianie definicji zapytań — raporty porównujemy tylko
 # w obrębie tej samej wersji.
-QUERY_VERSION = "m5-pr00-v5"
+QUERY_VERSION = "m5-pr00-v6"
 
 SAMPLE_LIMIT = 20
 CHECK_TIMEOUT_SECONDS = 20.0
@@ -370,23 +370,6 @@ _CHECKS: list[tuple[str, str, str, str]] = [
         LIMIT :sample_limit
         """,
     ),
-    (
-        "duplicate_invoice_number",
-        "P2",
-        "Powtórzony invoice_number — brak twardej unikalności numeru faktury (P1.12).",
-        """
-        SELECT invoice_number, occurrences,
-               COUNT(*) OVER () AS total_count
-        FROM (
-            SELECT invoice_number, COUNT(*) AS occurrences
-            FROM invoices
-            GROUP BY invoice_number
-            HAVING COUNT(*) > 1
-        ) dups
-        ORDER BY occurrences DESC, invoice_number DESC
-        LIMIT :sample_limit
-        """,
-    ),
     # ── Audyt 18.09.2026: wiersze do ręcznego rozstrzygnięcia przez Delivery ──
     # Każdy z nich wymaga DECYZJI BIZNESOWEJ (którą wersję zostawić, jaka jest
     # prawdziwa data), więc świadomie nie ma dla nich automatu — raport tak,
@@ -505,8 +488,7 @@ _TOTALS_SQL = f"""
         (SELECT COUNT(*) FROM contracts WHERE status = 'draft') AS draft,
         (SELECT COUNT(*) FROM contracts WHERE status = 'ended') AS ended,
         (SELECT COUNT(*) FROM client_orders) AS client_orders_total,
-        (SELECT COUNT(*) FROM document_signatures) AS signatures_total,
-        (SELECT COUNT(*) FROM invoices) AS invoices_total
+        (SELECT COUNT(*) FROM document_signatures) AS signatures_total
 """
 
 

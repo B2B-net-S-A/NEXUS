@@ -498,6 +498,7 @@ export function JobInterviewsTab({
           pending={terminalMutation.isPending}
           onOpenChange={(o) => !o && setPendingTerminal(null)}
           terminalType={pendingTerminal.terminal}
+          canWithdraw={rejectedColumn !== null && withdrawnColumn !== null}
           reasons={rejectionReasons}
           previousStageCategory={
             pendingTerminal.entry.col.category === "external"
@@ -535,7 +536,7 @@ export function JobInterviewsTab({
             sendRejectionEmail,
             offerResponse,
             freeReason,
-            _endedBy,
+            endedBy,
             _cancelAgreementId,
             emailText,
             workMode,
@@ -546,7 +547,12 @@ export function JobInterviewsTab({
           ) =>
             terminalMutation.mutate({
               item: pendingTerminal.entry.item,
-              col: pendingTerminal.col,
+              // „Kto kończy?” (19.11.2026) decyduje o etapie: „Kandydat
+              // rezygnuje” idzie na „Zrezygnował”, reszta na „Odrzucony”.
+              col:
+                (endedBy === "candidate") === (pendingTerminal.terminal === "withdrawn")
+                  ? pendingTerminal.col
+                  : (endedBy === "candidate" ? withdrawnColumn : rejectedColumn) ?? pendingTerminal.col,
               reasonId,
               notes,
               sendRejectionEmail,

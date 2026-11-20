@@ -315,7 +315,7 @@ export function MandateAgreementForm() {
     },
     onSuccess: (result) => {
       toast.showSuccess(
-        `${result.label} pobrana (DOCX) i zapisana w rejestrze „Umowy bieżące”.`,
+        `${result.label} pobrana (DOCX) i zapisana w zakładce „Umowy” (bieżące).`,
       );
       queryClient.invalidateQueries({ queryKey: ["kanban"] });
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });

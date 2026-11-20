@@ -52,8 +52,6 @@ const SCOPES: ScopeInfoDto[] = [
   { value: "md:write", label: "Zużycie MD: zapis (import, przypisanie wiersza, korekta miesiąca)" },
   { value: "finance:read", label: "Finanse: odczyt (zmiany w zamówieniach, PDF-y, wyniki)" },
   { value: "finance:write", label: "Finanse: zapis („Zrobione”, import wyników)" },
-  { value: "invoices:read", label: "Faktury: odczyt (rejestr, DSO)" },
-  { value: "invoices:write", label: "Faktury: zapis (wystawienie, zmiana, anulowanie)" },
   {
     value: "sales_amounts:read",
     label: "Kwoty sprzedaży: stawki do klienta, wartości i budżety zamówień, przychód, faktury do klientów",
@@ -124,7 +122,6 @@ function seedAccounts(now: Date): ServiceAccountDto[] {
         "orders:read",
         "md:write",
         "finance:write",
-        "invoices:read",
         "sales_amounts:read",
       ],
       is_active: true,

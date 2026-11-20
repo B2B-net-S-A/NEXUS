@@ -204,12 +204,14 @@ def test_seed_is_one_shot_and_weak_interview_disqualifies() -> None:
 
 
 def test_front_shows_weak_interview_only_when_the_client_ends() -> None:
-    # Od 19.11.2026 (jeden słownik) inny dostawca to „Pracuje u klienta /
-    # zgłoszona przez inną firmę” — wybieramy go też my, nie tylko klient.
-    client_only = _FRONT_MIRROR[_FRONT_MIRROR.index("const CLIENT_ONLY_REASONS") :]
-    client_only = client_only[: client_only.index("]);")]
-    assert "CLIENT_OTHER_VENDOR_REASON" not in client_only
-    assert "CLIENT_INTERVIEW_WEAK_REASON" in client_only
+    # Od 19.11.2026 (jeden słownik) kto wybiera powód, mówi `close_reasons`;
+    # inny dostawca to „Pracuje u klienta / zgłoszona przez inną firmę”.
+    from app.services import close_reasons as cr
+
+    weak = next(r for r in cr.CLOSE_REASONS if r.rejected == CLIENT_INTERVIEW_WEAK)
+    vendor = next(r for r in cr.CLOSE_REASONS if r.rejected == CLIENT_OTHER_VENDOR)
+    assert weak.who == {cr.CLIENT}
+    assert vendor.who == {cr.RECRUITER, cr.CLIENT}
     assert f'"{CLIENT_OTHER_VENDOR}"' in _FRONT_MIRROR
     assert f'"{CLIENT_INTERVIEW_WEAK}"' in _FRONT_MIRROR
 

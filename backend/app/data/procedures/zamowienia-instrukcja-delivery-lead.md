@@ -396,6 +396,25 @@ i różnica między nimi jest istotna:
 Data w przyszłości w obu przypadkach zapisuje się od razu, ale **nie wyłącza
 niczego dzisiaj** — zamówienie obowiązuje do jej nadejścia.
 
+**Klient zamówił okres po zakończeniu współpracy.** Gdy po „Zakończ
+współpracę” zostaje zamówienie, które sięga dalej niż koniec projektu (szkic
+z maila na kolejny okres, linia zamówienia zbiorczego, zamówienie bez daty
+końca), kontrakt pokazuje to na górze, w „Co się dzieje”. Lista kontraktów ma
+wtedy pigułkę **„Zamówione po końcu”**, a Delivery Lead klienta dostaje jeden
+dzwonek na każde takie zamówienie. Zamówienie z maila na okres po wypowiedzeniu
+zostaje szkicem, bo mail nie cofa decyzji o zakończeniu. Decyzja należy do
+Ciebie:
+
+* osoba zostaje — **Cofnij zakończenie** (przy umowie zlecenie albo o pracę:
+  **Przedłuż aneksem**);
+* zamówienie jest dla kogoś innego — **Przypisz innej osobie** (zamiana
+  kontraktora w zamówieniu zbiorczym) albo **Edytuj zamówienie** (zamówienie
+  okresowe nie przepina się na inną osobę);
+* zamówienie jest niepotrzebne — **Anuluj szkic**.
+
+Zamówienia zakończone, które wychodzą poza koniec projektu, są historią i nie
+dają tej sprawy.
+
 Trzecia akcja, **Usuń zamówienie** (w panelu: menu **„⋯"** przy bieżącym
 zamówieniu, kosz przy każdym zamówieniu przyszłym oraz historycznym), służy do wycofania
 **pomyłki**: kasuje trwale **tylko to jedno zamówienie**. Status umowy
@@ -530,6 +549,14 @@ wznawia niczego po cichu — decydujesz Ty:
 * **Zastąp kimś innym** — wybierasz inną osobę; karta zapamiętuje, za kogo jest
   zastępstwem.
 * **Usuń z zamówienia** — karta znika.
+
+**Umowa zlecenie i umowa o pracę nie wracają z zamówieniem.** Ich data końca
+jest w treści umowy. Dlatego „Wznów współpracę”, dodanie osoby, zamiana
+i przejęcie na takiej umowie, gdy jest zakończona albo kończy się przed startem
+osoby na zamówieniu, kończą się komunikatem „Umowa zlecenie zakończyła się
+31.10.2026 — przedłuż ją aneksem albo załóż nowy kontrakt”. Najpierw aneks
+przedłużenia w kontrakcie albo nowy kontrakt, potem zamówienie. „Zostaw jako
+historię” działa jak dotąd.
 
 **Ta sama reguła obowiązuje u każdego klienta rozliczanego w MD albo kwotą
 budżetową i na każdej ścieżce odczytu PDF-a** — w oknie **Nowe zamówienie**,

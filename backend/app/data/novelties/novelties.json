@@ -77,7 +77,7 @@
     "tier": "dot",
     "shipped_on": "2026-11-16",
     "audience": { "roles": ["finance", "delivery_lead", "admin"] },
-    "where": "Generator umów → Generator aneksów → „Aneks — inna zmiana”",
+    "where": "Generator umów → Nowy aneks → „Aneks — inna zmiana”",
     "href": "/contracts/b2b-generator",
     "practice_href": "/contracts/b2b-generator?tab=annexes",
     "section": "sourcing",
@@ -1219,6 +1219,71 @@
     ]
   },
   {
+    "id": "nowy-kontrakt-podsumowanie",
+    "pr": 3665,
+    "title": "Nowy kontrakt: podsumowanie z marżą obok formularza",
+    "why": "Formularz ma trzy sekcje, a karta po prawej na bieżąco mówi, co powstanie: kto u kogo, od kiedy, marża i status. Waluty, zmiany stawki, zużycie i status są w „Zaawansowanych”.",
+    "tier": "tour",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "permissions": [
+        "contracts_orders_edit"
+      ]
+    },
+    "where": "Kontrakty → Nowy kontrakt",
+    "href": "/contracts/new",
+    "section": "delivery",
+    "dot_anchor": "contracts.new.summary",
+    "steps": [
+      {
+        "anchor": "contracts.new.summary",
+        "text": "Karta „Podsumowanie” mówi, co powstanie, zanim klikniesz.",
+        "hint": "Z uprawnieniem do kwot liczy marżę na godzinę i w miesiącu ze stawek z formularza. Przycisk mówi, czy powstanie szkic.",
+        "ack": true
+      },
+      {
+        "anchor": "contracts.new.advanced",
+        "text": "Kliknij „Zaawansowane”.",
+        "hint": "Tu są waluty i jednostka stawek, stawka ramowa, zmiany stawki w czasie, zużycie zamówienia i status przy utworzeniu."
+      }
+    ]
+  },
+  {
+    "id": "analityka-kontraktow-90-dni",
+    "pr": 3665,
+    "title": "Analityka kontraktów: co zmieni się w 90 dni i kto ile przynosi",
+    "why": "Na górze cztery liczby, pod nimi kto kończy i kto startuje w 90 dni i ile marży to zmienia, prognoza marży i jedna tabela klientów albo konsultantów z sortowaniem.",
+    "tier": "tour",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "permissions": [
+        "company_results"
+      ]
+    },
+    "where": "Kontrakty → Analityka",
+    "href": "/contracts/analytics",
+    "section": "finance",
+    "dot_anchor": "contracts.analytics.next90",
+    "steps": [
+      {
+        "anchor": "contracts.analytics.next90",
+        "text": "„Najbliższe 3 miesiące”: kto kończy, kto startuje i ile marży to zmienia.",
+        "hint": "Kwoty z bieżących stawek kontraktów, tylko w złotych. Nazwisko otwiera kontrakt.",
+        "ack": true
+      },
+      {
+        "anchor": "contracts.analytics.sort",
+        "text": "Kliknij nagłówek „Marża” w tabeli.",
+        "hint": "Każdy nagłówek sortuje tabelę; strzałka stoi przy aktywnej kolumnie, drugi klik odwraca kolejność."
+      },
+      {
+        "anchor": "contracts.analytics.view",
+        "text": "Przełącz tabelę na „Konsultanci”.",
+        "hint": "Ta sama tabela pokazuje klientów albo osoby z najwyższą marżą i ich koniec umowy w 90 dni."
+      }
+    ]
+  },
+  {
     "id": "rekrutacje-bez-ruchu",
     "title": "Rekrutacje bez ruchu: 14 dni DL, 21 dni HoR, po 28 NEXUS zamyka",
     "why": "Bez CV do klienta i odpowiedzi klienta po 14 dniach przypomnienie dostaje DL, po 21 także HoR, a po 28 NEXUS zamyka rekrutację jako przegraną.",
@@ -1953,6 +2018,22 @@
     "dot_anchor": "settings.team.automat"
   },
   {
+    "id": "kontrakt-zamowienie-po-koncu-wspolpracy",
+    "title": "Klient zamówił okres po zakończeniu współpracy",
+    "why": "Gdy klient zamówił okres po końcu współpracy, kontrakt pokazuje w „Co się dzieje” wyjścia: cofnij zakończenie, przypisz zamówienie innej osobie albo anuluj szkic. Listę zbiera nowa pigułka.",
+    "tier": "dot",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "permissions": [
+        "delivery_view"
+      ]
+    },
+    "where": "Kontrakty → pigułka „Zamówione po końcu” → kontrakt",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contracts.order-after-end"
+  },
+  {
     "id": "karta-przed-cv-do-klienta",
     "pr": 2835,
     "title": "Karta przed CV wypełnia się sama",
@@ -2160,10 +2241,23 @@
     "tier": "dot",
     "shipped_on": "2026-11-06",
     "audience": { "roles": ["recruiter", "delivery_lead", "talent_community_manager"] },
-    "where": "Generator umów → Szczegóły administracyjne",
+    "where": "Generator umów → Nowa umowa → Szczegóły administracyjne",
     "href": "/contracts/b2b-generator",
     "section": "sourcing",
-    "dot_anchor": "b2b-generator.client-referral"
+    "dot_anchor": "b2b-generator.client-referral",
+    "steps": [
+      {
+        "anchor": "b2b-generator.step-admin",
+        "text": "Kliknij krok „Szczegóły administracyjne”.",
+        "hint": "Nowa umowa idzie krokami — to drugi krok na liście po lewej."
+      },
+      {
+        "anchor": "b2b-generator.client-referral",
+        "text": "To „Kandydat wskazany przez klienta”.",
+        "hint": "Gdy klient sam wskazał osobę, a my tylko przepuszczamy ją przez siebie, zaznacz „Tak” — premii z placementu wtedy nie ma.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "szczegoly-administracyjne-kontraktu",
@@ -2581,6 +2675,44 @@
     "where": "Sprzedaż → Szanse → lejek Fabryki IT → kolumna „Mapa po kontakcie”",
     "href": "/sales/opportunities",
     "dot_anchor": "sales.factories.contacted"
+  },
+  {
+    "id": "generator-umow-kroki-kartka-pasek",
+    "pr": 3666,
+    "title": "Generator umów: umowa krokami, z kartką i paskiem braków",
+    "why": "Nowa umowa idzie krokami. Obok widać jej pierwszy akapit z brakami jako „[REGON]”, a pasek na dole mówi, czego brakuje do pobrania. Rejestry umów są w jednej zakładce „Umowy”.",
+    "tier": "tour",
+    "shipped_on": "2026-11-20",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "talent_community_manager", "admin"] },
+    "where": "Kontrakty → Generator Umów B2B → Nowa umowa",
+    "href": "/contracts/b2b-generator",
+    "section": "sourcing",
+    "dot_anchor": "b2b-generator.steps",
+    "steps": [
+      {
+        "anchor": "b2b-generator.steps",
+        "text": "Umowa idzie krokami — kliknij dowolny krok na liście.",
+        "hint": "Pod nazwą kroku widać braki albo to, co już wpisano. Pola i sprawdzenia są te same co dotąd."
+      },
+      {
+        "anchor": "b2b-generator.paper",
+        "text": "Obok jest pierwszy akapit umowy.",
+        "hint": "Wypełnia się tym, co wpisujesz. Brak stoi w tekście jako „[REGON]” — kliknij go, a przejdziesz do pola.",
+        "ack": true
+      },
+      {
+        "anchor": "b2b-generator.readiness",
+        "text": "Na dole pasek: ile pól brakuje i które.",
+        "hint": "Klik w brak prowadzi do pola. „Pobierz DOCX” włącza się przy komplecie — umowy z brakami, jak dotąd, nie pobierzesz.",
+        "ack": true
+      },
+      {
+        "anchor": "b2b-generator.tabs",
+        "text": "Rejestry umów są w jednej zakładce „Umowy”.",
+        "hint": "Bieżące, bez projektu i zakończone wybierasz nad listą. Aneksy przygotujesz w zakładce „Nowy aneks”.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "insights-termin-rozmowy",
@@ -3753,6 +3885,25 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "rejection.close-reasons"
+  },
+  {
+    "id": "rezygnacja-w-oknie-zamknij-proces",
+    "title": "Rezygnacja w tym samym oknie co odrzucenie",
+    "why": "„Kto kończy?” ma trzecią odpowiedź: „Kandydat rezygnuje”. Karta idzie wtedy na „Zrezygnował”, a powody są te same co przy odrzuceniu. Przycisk „Zrezygnował” otwiera to okno.",
+    "tier": "dot",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → Odrzuć z powodem → Kto kończy? → Kandydat rezygnuje",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "rejection.who-candidate"
   },
   {
     "id": "kontrakt-co-sie-dzieje-7-zakladek",

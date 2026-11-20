@@ -247,7 +247,7 @@ export function DocumentsTabContent({
                 href={annexRegisterHref(null)}
                 className="font-medium text-primary hover:underline"
               >
-                Generator aneksów
+                Nowy aneks
               </Link>
               .
             </CardDescription>
@@ -426,7 +426,7 @@ export function DocumentsListView({
         description={
           filtered
             ? "Zmień filtry albo wyczyść wyszukiwanie."
-            : "Porozumienie albo wypowiedzenie przygotujesz przyciskiem „Nowy dokument” albo z wiersza umowy w rejestrze. Aneksy są w zakładce „Generator aneksów”."
+            : "Porozumienie albo wypowiedzenie przygotujesz przyciskiem „Nowy dokument” albo z wiersza umowy w rejestrze. Aneksy są w zakładce „Nowy aneks”."
         }
       />
     );

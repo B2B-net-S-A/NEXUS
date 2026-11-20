@@ -237,21 +237,21 @@
    "opis": "Rejestr aneksów: lista, jeden status, oznaczenie podpisu, skan, powiązanie z kontraktem, historia",
    "file": "components/v2/b2b-generator/documents/AnnexRegister.tsx",
    "marker": "Rejestr aneksów",
-   "b_home": "Generator umów: zakładka „Generator aneksów”"
+   "b_home": "Generator umów: zakładka „Nowy aneks”"
   },
   {
    "id": "k.annex.subject",
    "opis": "Nowy aneks: wybór osoby — umowa z rejestru albo kontrakt bez umowy w rejestrze",
    "file": "components/v2/b2b-generator/documents/AnnexSubjectPicker.tsx",
    "marker": "Dla kogo jest aneks?",
-   "b_home": "Generator umów: zakładka „Generator aneksów”"
+   "b_home": "Generator umów: zakładka „Nowy aneks”"
   },
   {
    "id": "k.annex.row-label",
    "opis": "Etykieta najnowszego aneksu i data startu przed/po na wierszu umowy",
    "file": "components/v2/b2b-generator/RegisterAnnexLabel.tsx",
    "marker": "RegisterAnnexLabel",
-   "b_home": "Generator umów: zakładka „Umowy bieżące”"
+   "b_home": "Generator umów: zakładka „Umowy”, faza „Bieżące”"
   },
   {
    "id": "k.annex.contract-tab",
@@ -925,6 +925,153 @@
    "file": "components/v2/pages/ContractsListV2.tsx",
    "marker": "+ Rozwiązanie",
    "b_home": "Tabela, kolumna Status"
+  },
+  {
+   "id": "k.gen.steps",
+   "opis": "Nowa umowa B2B krokami: lista 7 kroków ze stanem (braki albo to, co wpisano)",
+   "file": "components/v2/b2b-generator/wizard/AgreementWizard.tsx",
+   "marker": "Kroki umowy",
+   "b_home": "Generator umów: „Nowa umowa”, lista kroków po lewej"
+  },
+  {
+   "id": "k.gen.paper",
+   "opis": "Kartka: pierwszy akapit umowy wypełniany na żywo, braki jako „[REGON]” prowadzą do pola",
+   "file": "components/v2/b2b-generator/wizard/AgreementWizard.tsx",
+   "marker": "Pierwszy akapit umowy",
+   "b_home": "Generator umów: „Nowa umowa”, po prawej"
+  },
+  {
+   "id": "k.gen.readiness",
+   "opis": "Pasek braków: ile pól brakuje i które, „Podgląd”, „Pobierz DOCX” (wyłączone do kompletu)",
+   "file": "components/v2/b2b-generator/wizard/AgreementWizard.tsx",
+   "marker": "Gotowość umowy",
+   "b_home": "Generator umów: „Nowa umowa”, przyklejony na dole"
+  },
+  {
+   "id": "k.gen.source",
+   "opis": "Źródło danych: kandydat, rekrutacja i język umowy",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Rekrutacja (klient z rekrutacji)",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Źródło danych”"
+  },
+  {
+   "id": "k.gen.admin",
+   "opis": "Szczegóły administracyjne: rekruter i DL z reguły premii, replacement, FTE, kandydat wskazany przez klienta",
+   "file": "components/v2/b2b-generator/AgreementAdminDetailsCard.tsx",
+   "marker": "Kandydat wskazany przez klienta",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Szczegóły administracyjne”"
+  },
+  {
+   "id": "k.gen.registry-lookup",
+   "opis": "Dane Partnera z rejestru po NIP (CEIDG, Biała Lista, KRS)",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "NIP (auto z rejestru)",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Partner”"
+  },
+  {
+   "id": "k.gen.company-variant",
+   "opis": "Umowa JDG / Umowa spółka z danymi z KRS",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Umowa spółka",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Partner”"
+  },
+  {
+   "id": "k.gen.address-kind",
+   "opis": "Adres z CEIDG: stałe miejsce albo tylko adres do doręczeń",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Tylko adres do doręczeń",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Partner”"
+  },
+  {
+   "id": "k.gen.correspondence",
+   "opis": "Adres do korespondencji (opcjonalny)",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Adres do korespondencji (opcjonalnie)",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Partner” (link „+ adres do korespondencji”)"
+  },
+  {
+   "id": "k.gen.special-clauses",
+   "opis": "Ostrzeżenie o kliencie ze specyficznymi zapisami umowy",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Ten klient ma specyficzne zapisy umowy",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Klient i projekt”"
+  },
+  {
+   "id": "k.gen.uop-check",
+   "opis": "Sprawdzenie opisu projektu pod kątem umowy o pracę (AI)",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Sprawdź pod kątem umowy o pracę (AI)",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Klient i projekt”"
+  },
+  {
+   "id": "k.gen.area",
+   "opis": "Obszar usług (§ 1 umowy) z katalogu ról",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Wybierz obszar…",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Obszar usług”"
+  },
+  {
+   "id": "k.gen.rate-stages",
+   "opis": "Warunki: numer, data podpisania, start (z dniem / nie wcześniej / nie później), stawka progresywna, waluta",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Dodaj etap stawki",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Warunki umowy”"
+  },
+  {
+   "id": "k.gen.preview",
+   "opis": "Podgląd całej umowy (bez numeru w rejestrze) i wydruk",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Drukuj podgląd",
+   "b_home": "Generator umów: „Nowa umowa”, pasek → „Podgląd”"
+  },
+  {
+   "id": "k.gen.registry-check",
+   "opis": "Sprawdzenie firmy w CEIDG/KRS przy każdym pobraniu (ostrzeżenia nie blokują)",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "<RegistryCheckDialog",
+   "b_home": "Generator umów: „Nowa umowa”, pasek → „Pobierz DOCX”"
+  },
+  {
+   "id": "k.gen.correction",
+   "opis": "Poprawka zapisanej umowy pod tym samym numerem i „Nowa umowa”",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Popraw i pobierz ponownie",
+   "b_home": "Generator umów: „Nowa umowa”, baner nad krokami i pasek"
+  },
+  {
+   "id": "k.gen.existing-agreement",
+   "opis": "Ostrzeżenie: ta osoba ma już umowę w tej rekrutacji (link do poprawki albo rejestru)",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Ta osoba ma już umowę",
+   "b_home": "Generator umów: „Nowa umowa”, nad krokami"
+  },
+  {
+   "id": "k.gen.mandate",
+   "opis": "Umowa zlecenia (ten sam rejestr, własny formularz)",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "<MandateAgreementForm",
+   "b_home": "Generator umów: „Nowa umowa” → „Umowa zlecenia”"
+  },
+  {
+   "id": "k.gen.register-phases",
+   "opis": "Rejestr umów w trzech fazach: bieżące, bez projektu, zakończone",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Faza umowy",
+   "b_home": "Generator umów: zakładka „Umowy”"
+  },
+  {
+   "id": "k.gen.documents",
+   "opis": "Dokumenty do umów: rozwiązania, wypowiedzenia, umowy przedwstępne, oświadczenia do zlecenia",
+   "file": "components/v2/b2b-generator/documents/DocumentsTab.tsx",
+   "marker": "Dokumenty do umów",
+   "b_home": "Generator umów: zakładka „Dokumenty”"
+  },
+  {
+   "id": "k.gen.roles",
+   "opis": "Zakresy ról umownych (admin)",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "<RoleScopeEditor",
+   "b_home": "Generator umów: zakładka „Zakresy ról”"
   }
  ]
 }

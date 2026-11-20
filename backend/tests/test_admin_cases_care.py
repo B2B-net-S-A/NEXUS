@@ -64,6 +64,14 @@ async def care_on():
     await set_modules(previous or {key: False for key in HR_MODULE_KEYS})
 
 
+@pytest_asyncio.fixture
+async def care_on_lead_owner(care_on):
+    """Bez modułu back office DL klienta jest opiekunem z łańcucha (do 20.11.2026
+    także przy kolejce) — testy opiekuna na sprawach i „Moich podopiecznych”."""
+    await set_modules({key: key != "back_office" for key in HR_MODULE_KEYS})
+    yield
+
+
 @pytest.fixture
 def mailbox(monkeypatch, care_on) -> str:
     upn = f"administracja-{uuid.uuid4().hex[:8]}@example.com"
@@ -255,7 +263,9 @@ async def _case(app_client, actor, **payload) -> dict:
     return response.json()
 
 
-async def test_card_carries_care_owner_and_mine_care_chip(app_client, care_on) -> None:
+async def test_card_carries_care_owner_and_mine_care_chip(
+    app_client, care_on_lead_owner
+) -> None:
     admin = await make_user(UserRole.admin)
     dl = await make_user(UserRole.delivery_lead)
     await _grant_cases(dl.id)
@@ -283,7 +293,9 @@ async def test_card_carries_care_owner_and_mine_care_chip(app_client, care_on) -
     assert created["id"] not in {item["id"] for item in as_admin.json()["items"]}
 
 
-async def test_mine_care_alone_shows_cases_led_by_others(app_client, care_on) -> None:
+async def test_mine_care_alone_shows_cases_led_by_others(
+    app_client, care_on_lead_owner
+) -> None:
     """„Moi podopieczni” bez „Moje”: sprawy moich konsultantów, kto by nie prowadził.
 
     Opiekun bez uprawnienia „Sprawy” widzi taką kartę bez treści: tytuł
@@ -335,7 +347,7 @@ async def test_mine_care_alone_shows_cases_led_by_others(app_client, care_on) ->
 
 
 async def test_mine_care_for_carer_without_cases_permission_or_own_case(
-    app_client, care_on
+    app_client, care_on_lead_owner
 ) -> None:
     """Audyt 22.10, F11: „Moi podopieczni” u opiekuna bez „Spraw” i bez żadnej
     własnej sprawy — lista spraw podopiecznych (bez treści cudzych), nie 403.
@@ -374,7 +386,7 @@ async def test_mine_care_for_carer_without_cases_permission_or_own_case(
 
 
 async def test_mine_care_search_does_not_reveal_hidden_case_text(
-    app_client, care_on
+    app_client, care_on_lead_owner
 ) -> None:
     """Szukanie przy „Moi podopieczni” nie zgaduje treści cudzej sprawy.
 
@@ -481,7 +493,9 @@ async def test_consultant_card_shows_order_extension_in_progress(
     assert "order_extension_pending" not in queries.CARE_ONLY_FIELDS
 
 
-async def test_detail_consultant_section_without_amounts(app_client, care_on) -> None:
+async def test_detail_consultant_section_without_amounts(
+    app_client, care_on_lead_owner
+) -> None:
     admin = await make_user(UserRole.admin)
     dl = await make_user(UserRole.delivery_lead)
     client_id = await make_client(dl=dl)
@@ -508,7 +522,9 @@ async def test_detail_consultant_section_without_amounts(app_client, care_on) ->
     assert "100.0" not in dumped and "130.0" not in dumped  # stawki kontraktu
 
 
-async def test_out_of_portfolio_contract_hides_care_data(app_client, care_on) -> None:
+async def test_out_of_portfolio_contract_hides_care_data(
+    app_client, care_on_lead_owner
+) -> None:
     """DL z „Sprawami” widzi sprawę obcego klienta bez opiekuna i zdrowia."""
 
     admin = await make_user(UserRole.admin)

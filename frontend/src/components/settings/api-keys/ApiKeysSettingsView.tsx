@@ -65,7 +65,7 @@ export function ApiKeysSettingsView({
         <p className="text-sm text-muted-foreground">
           Klucze dla automatyzacji (n8n, Power Automate, Make, skrypty), które wołają API integracyjne{" "}
           <code className="font-mono text-foreground">/api/integrations/v1</code> — klienci, kontrakty, zamówienia,
-          zużycie MD, finanse i faktury. Klucz wysyła się w nagłówku{" "}
+          zużycie MD i finanse. Klucz wysyła się w nagłówku{" "}
           <code className="font-mono text-foreground">X-API-Key</code> i widać go tylko raz, przy wydaniu.
         </p>
         <p className="text-xs text-muted-foreground">Dokumentacja: docs/api/integracje-v1.md w repo</p>
