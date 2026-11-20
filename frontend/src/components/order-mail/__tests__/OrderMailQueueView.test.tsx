@@ -13,7 +13,8 @@ import { describe, expect, it, vi } from "vitest";
 const openAuthenticatedFile = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/authenticated-files", () => ({ openAuthenticatedFile }));
 
-import { failedRetryNote, OrderMailQueueView, selectOrderMailDocument } from "@/components/order-mail/OrderMailQueue";
+import { OrderMailQueueView, selectOrderMailDocument } from "@/components/order-mail/OrderMailQueue";
+import { failedRetryNote } from "@/lib/order-mail-points";
 import type { OrderMailDocument, OrderMailRecheckRun, OrderMailSyncStatus } from "@/lib/api/orderMail";
 
 function doc(over: Partial<OrderMailDocument> = {}): OrderMailDocument {
@@ -290,6 +291,8 @@ describe("OrderMailQueueView", () => {
 
 
 describe("Historia automatycznej weryfikacji", () => {
+  // Od 20.11.2026 (wariant A) historia jest zwinięta do jednej linii na dole —
+  // tabela biegów otwiera się przyciskiem „Pokaż historię (n)”.
   it("rozwija bieg do konkretnych dokumentów z powodem i linkiem", () => {
     render(
       <OrderMailQueueView
@@ -300,11 +303,13 @@ describe("Historia automatycznej weryfikacji", () => {
       />,
     );
     const history = screen.getByTestId("recheck-history");
-    expect(history).toHaveTextContent("Sprawdzonych");
+    expect(history).not.toHaveTextContent("Sprawdzono");
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż historię (1)" }));
+    expect(history).toHaveTextContent("Sprawdzono");
     expect(screen.queryByTestId("recheck-entries")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Pokaż (2)" }));
     const entries = screen.getByTestId("recheck-entries");
-    expect(entries).toHaveTextContent("Zaakceptowane");
+    expect(entries).toHaveTextContent("Zapisane");
     expect(entries).toHaveTextContent("Wstrzymane");
     expect(entries).toHaveTextContent("Czeka na podpis umowy");
     expect(entries).toHaveTextContent("bez trwającej współpracy");
@@ -337,7 +342,7 @@ describe("Historia automatycznej weryfikacji", () => {
     );
     // To właśnie historia mówi, czy system w ogóle próbuje dokończyć te wpisy —
     // schowanie jej razem z padniętą listą zabierałoby jedyny sygnał.
-    expect(screen.getByTestId("recheck-history")).toHaveTextContent("Sprawdzonych");
+    expect(screen.getByTestId("recheck-history")).toHaveTextContent("Pokaż historię (1)");
   });
 
   it("pusty stan pojawia się dopiero po udanym odczycie", () => {
@@ -574,5 +579,140 @@ describe("Audyt 25.09 — wpisy „Nieudane”", () => {
     fireEvent.click(screen.getByRole("radio", { name: "#70 bez zmian do 31.12.2031, 10/2031 od 01.01.2032" }));
     fireEvent.click(screen.getByRole("button", { name: /Zastosuj: zapisz 10\/2031 od 01.01.2032/ }));
     expect(onApply).toHaveBeenLastCalledWith(1, { 0: { choice: "start_after", ...seen } });
+  });
+});
+
+describe("Wariant A (20.11.2026) — podstrona Kontraktów, punkty „Do sprawdzenia”", () => {
+  const NEW_PERSON =
+    "„Jan Kowalski”: nie ma jej wśród konsultantów tego klienta ani w bazie — zamówienie czeka na podpisaną umowę B2B";
+  const UNCERTAIN = [
+    "Odczyt niepewny: „Jan Kowalski”: osoby z tabeli Consultant(s) nie potwierdził odczyt modelu — sprawdź imię i nazwisko",
+    "Odczyt niepewny: „Jan Kowalski Nowak”: pozycja z odczytu modelu nie ma wiersza w tabeli Consultant(s) PDF — sprawdź",
+  ];
+
+  it("„← Kontrakty” to link do listy, a zwykłe kliknięcie wraca przez onBack", () => {
+    const onBack = vi.fn();
+    render(<OrderMailQueueView {...base} onBack={onBack} state="ready" items={[doc()]} />);
+    const back = screen.getByRole("link", { name: /Kontrakty/ });
+    expect(back).toHaveAttribute("href", "/contracts");
+    fireEvent.click(back);
+    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Zamówienia z maila");
+  });
+
+  it("zakładki mają liczniki; aktywna bierze świeże `total` z listy, nieznany licznik się nie pokazuje", () => {
+    render(
+      <OrderMailQueueView
+        {...base}
+        state="ready"
+        items={[doc()]}
+        total={3}
+        counts={{ needs_review: 9, auto_applied: 171, applied: null, failed: 0 }}
+      />,
+    );
+    expect(screen.getByRole("tab", { name: /Do weryfikacji/ })).toHaveTextContent("Do weryfikacji3");
+    expect(screen.getByRole("tab", { name: /Zapisane automatycznie/ })).toHaveTextContent("171");
+    expect(screen.getByRole("tab", { name: /Zapisane ręcznie/ })).toHaveTextContent(/^Zapisane ręcznie$/);
+    expect(screen.getByRole("tab", { name: /Nieudane/ })).toHaveTextContent("Nieudane0");
+  });
+
+  it("powody to punkty z podpowiedzią; uwagi odczytu zwinięte; wiersz kolejki mówi pierwszy punkt", () => {
+    render(<OrderMailQueueView {...base} state="ready" items={[doc({ gate_reasons: [NEW_PERSON, ...UNCERTAIN] })]} />);
+    const points = screen.getByTestId("gate-reasons");
+    expect(points).toHaveTextContent("Do sprawdzenia · 2");
+    expect(points).toHaveTextContent("Jan Kowalski — nowa osoba bez umowy");
+    expect(points).toHaveTextContent("Co zrobić: Zamówienie zapisze się samo w ciągu godziny od podpisania umowy B2B");
+    expect(points).toHaveTextContent("Niepewny odczyt PDF — „Jan Kowalski” czy „Jan Kowalski Nowak”");
+    expect(points).not.toHaveTextContent("nie potwierdził odczyt modelu");
+    fireEvent.click(screen.getByRole("button", { name: "Uwagi odczytu (2)" }));
+    expect(points).toHaveTextContent("nie potwierdził odczyt modelu");
+    expect(screen.getByTestId("order-mail-list")).toHaveTextContent("Nowa osoba bez umowy+1");
+  });
+
+  it("bez prawa decyzji punkty nie każą klikać — mówią, kto decyduje", () => {
+    render(<OrderMailQueueView {...base} state="ready" items={[doc({ can_apply: false, gate_reasons: [NEW_PERSON] })]} />);
+    const points = screen.getByTestId("gate-reasons");
+    expect(points).not.toHaveTextContent("Co zrobić");
+    expect(points).toHaveTextContent("Decyzję podejmuje admin albo Delivery Lead klienta.");
+  });
+
+  it("zapisany wpis: przeszłe powody bez podpowiedzi, numer zamówienia i link do zamówień klienta", () => {
+    render(
+      <OrderMailQueueView
+        {...base}
+        outcome="applied"
+        state="ready"
+        items={[doc({ outcome: "applied", applied_order_id: 936, applied_at: "2031-03-04T09:00:00Z", gate_reasons: [NEW_PERSON] })]}
+      />,
+    );
+    expect(screen.getByTestId("gate-reasons")).toHaveTextContent("Dlaczego czekało na sprawdzenie");
+    expect(screen.getByTestId("gate-reasons")).not.toHaveTextContent("Co zrobić");
+    expect(screen.getByTestId("order-mail-list")).toHaveTextContent("Zamówienie #936");
+    expect(screen.getByRole("link", { name: "Zamówienia klienta" })).toHaveAttribute("href", "/clients/1?tab=zamowienia");
+    expect(screen.queryByRole("button", { name: /Zastosuj/ })).toBeNull();
+  });
+
+  it("powód wiersza powtórzony w punktach nie stoi drugi raz w tabeli planu", () => {
+    const reason = "Powrót po 1 dniu od zakończenia poprzedniego zamówienia";
+    const base0 = doc();
+    render(
+      <OrderMailQueueView
+        {...base}
+        state="ready"
+        items={[
+          doc({
+            gate_reasons: [`„Jan Kowalski”: ${reason}`],
+            proposal: { ...base0.proposal!, rows: [{ ...base0.proposal!.rows[0], action: "reactivate", reasons: [reason] }] },
+          }),
+        ]}
+      />,
+    );
+    expect(screen.getAllByText(new RegExp(reason, "i"))).toHaveLength(1);
+  });
+
+  it("bez pliku nie ma przycisku PDF, jest zdanie; lista dłuższa niż limit mówi, ile pokazano", () => {
+    render(<OrderMailQueueView {...base} state="ready" items={[doc({ has_file: false })]} total={171} />);
+    expect(screen.queryByRole("button", { name: /PDF/ })).toBeNull();
+    expect(screen.getByTestId("order-mail-detail")).toHaveTextContent("Bez zapisanego pliku PDF");
+    expect(screen.getByText("Pokazano 1 najnowszych z 171.")).toBeInTheDocument();
+  });
+
+  it("pusty stan Delivery Leada nie twierdzi, że nierozpoznanych nie ma — tylko że to nie jego portfel", () => {
+    const { rerender } = render(
+      <OrderMailQueueView {...base} outcome="unrecognized_client" state="ready" items={[]} total={0} />,
+    );
+    expect(screen.getByText("Każdy mail z zamówieniem trafił do znanego klienta.")).toBeInTheDocument();
+    rerender(
+      <OrderMailQueueView
+        {...base}
+        outcome="unrecognized_client"
+        state="ready"
+        items={[]}
+        total={0}
+        recheck={{ ...noRecheck, scoped: true }}
+      />,
+    );
+    expect(screen.getByText(/nie należą do żadnego portfela/)).toBeInTheDocument();
+  });
+
+  it("nadawca to imię i nazwisko z adresu osoby, nie adres", () => {
+    render(<OrderMailQueueView {...base} state="ready" items={[doc({ sender_email: "jan.nadawca@bank.example" })]} />);
+    expect(screen.getByTestId("order-mail-detail")).toHaveTextContent("od Jan Nadawca");
+  });
+
+  it("historia chowa wiersze, w których zmienił się tylko stan powiadomień — z przełącznikiem", () => {
+    const held = recheckRun().entries[1];
+    const runs = [
+      recheckRun({ id: 3, entries: [{ ...held, alerted: false }] }),
+      recheckRun({ id: 2, entries: [{ ...held, alerted: true }] }),
+      recheckRun({ id: 1, entries: [{ ...held, alerted: false }] }),
+    ];
+    render(<OrderMailQueueView {...base} state="ready" items={[doc()]} recheck={{ ...noRecheck, runs }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż historię (3)" }));
+    expect(screen.getAllByTestId("recheck-run")).toHaveLength(2);
+    expect(screen.getByTestId("recheck-history")).toHaveTextContent("karta do Delivery Leada: 8/2031");
+    fireEvent.click(screen.getByRole("button", { name: /Pokaż też 1 wiersz/ }));
+    expect(screen.getAllByTestId("recheck-run")).toHaveLength(3);
+    expect(screen.getByTestId("recheck-history")).toHaveTextContent("zmienił się tylko stan powiadomień");
   });
 });

@@ -5,10 +5,12 @@
  * (warunek `PUBLIC_PATHS` w middleware.ts). Renderuje ten sam
  * `OrderMailQueueView`, którego używa ekran produkcyjny.
  *
- * Trzy dokumenty obok siebie, bo różnicę między nimi łatwo zepsuć niezauważenie:
+ * Dokumenty obok siebie, bo różnicę między nimi łatwo zepsuć niezauważenie:
  * werdykt „automat: pewne" (tryb cienia), „wymaga weryfikacji" z powodami
- * bramki i kwotami ZREDAGOWANYMI (rola bez finansów widzi „—"), oraz rewizja
- * istniejącego zamówienia.
+ * bramki i kwotami ZREDAGOWANYMI (rola bez finansów widzi „—"), rewizja
+ * istniejącego zamówienia, nowa osoba z niepewnym odczytem i powrót po
+ * przerwie z imiennikiem (punkty „Do sprawdzenia”, 20.11.2026), a na
+ * zakładkach „Nierozpoznane” i „Nieudane” po jednym wpisie.
  */
 
 import { useEffect, useState } from "react";
@@ -119,24 +121,108 @@ const ITEMS: OrderMailDocument[] = [
       rows: [{ row_index: 0, row_name: "Wzorcowy, Maciej", action: "revision", candidate_id: 7, contract_id: 9, target_order_id: 88, title: "WO-0000999", start_date: "2031-09-01", end_date: "2031-12-31", rate_client: "220.00", rate_unit: "hour", md_total: null, reasons: ["Zamówienie o tym numerze już istnieje (#88, 2031-07-01 – 2031-08-31) — porównaj"] }],
     },
   }),
+  // 20.11.2026: nowa osoba bez umowy i niepewny odczyt — dwa punkty „Do
+  // sprawdzenia”, uwagi odczytu zwinięte, zdanie o automacie pod listą.
+  doc(8, {
+    client_name: "Bank Lambda S.A.", client_policy: "Bank Lambda", sender_email: "jan.nadawca@bank-lambda.example",
+    subject: "Zamówienie 2031/77 — administrator baz danych", attachment_name: "2031-77.pdf",
+    gate_reasons: [
+      "„Zenon Przykładowy”: nie ma jej wśród konsultantów tego klienta ani w bazie — zamówienie czeka na podpisaną umowę B2B",
+      "Odczyt niepewny: Niejasny fragment 'Przykładowa Warszawa' - niepewne, czy to osobny konsultant czy część adresu",
+      "Odczyt niepewny: „Przykładowa Warszawa”: pozycja z odczytu modelu nie ma wiersza w tabeli Consultant(s) PDF — sprawdź",
+    ],
+    document_meta: { page_count: 3, ocr_used: false, ocr_capped: false, recheck: { attempts: 16, category: "other", last_at: "2031-03-03T16:25:00Z" } },
+    extraction: {
+      title: "2031/77", start_date: "2031-12-01", end_date: "2032-03-31", rate_client: "160.00", rate_unit: "hour", md_total: null, currency: "PLN", uncertain: true,
+      uncertain_reasons: [], source: "claude",
+      consultant_rows: [{ consultant_name: "Zenon Przykładowy", start_date: "2031-12-01", end_date: "2032-03-31", rate_client: "160.00", rate_unit: "hour", md_total: null, uncertain: false, uncertain_reason: null }],
+    },
+    proposal: {
+      client_id: 8, order_number: "2031/77", is_group_client: false, blocking: [],
+      rows: [{ row_index: 0, row_name: "Zenon Przykładowy", action: "new_draft", candidate_id: null, contract_id: null, target_order_id: null, title: "2031/77", start_date: "2031-12-01", end_date: "2032-03-31", rate_client: "160.00", rate_unit: "hour", md_total: null, reasons: [], existing_person_ids: [] }],
+    },
+  }),
+  // Powrót po przerwie z imiennikiem w bazie: jeden powód bramki, dwa punkty.
+  doc(9, {
+    client_name: "Bank Lambda S.A.", client_policy: "Bank Lambda", subject: "Zamówienie 2031/81", attachment_name: "2031-81.pdf",
+    gate_reasons: [
+      "„Wiesław Powracający”: Powrót po 1 dniu od zakończenia poprzedniego zamówienia; W bazie jest też inna osoba o tym imieniu i nazwisku (#9001) — potwierdź, że to powrót tej samej osoby, i zastosuj ręcznie",
+    ],
+    document_meta: { page_count: 3, ocr_used: false, ocr_capped: false, recheck: { attempts: 150, category: "other", last_at: "2031-03-03T16:26:00Z" } },
+    extraction: {
+      title: "2031/81", start_date: "2031-11-01", end_date: "2032-05-31", rate_client: "175.00", rate_unit: "hour", md_total: null, currency: "PLN", uncertain: false,
+      uncertain_reasons: [], source: "claude",
+      consultant_rows: [{ consultant_name: "Wiesław Powracający", start_date: "2031-11-01", end_date: "2032-05-31", rate_client: "175.00", rate_unit: "hour", md_total: null, uncertain: false, uncertain_reason: null }],
+    },
+    proposal: {
+      client_id: 8, order_number: "2031/81", is_group_client: false, blocking: [],
+      rows: [{
+        row_index: 0, row_name: "Wiesław Powracający", action: "reactivate", candidate_id: 9000, contract_id: 135, target_order_id: 329, title: "2031/81",
+        start_date: "2031-11-01", end_date: "2032-05-31", rate_client: "175.00", rate_unit: "hour", md_total: null,
+        reasons: ["Powrót po 1 dniu od zakończenia poprzedniego zamówienia", "W bazie jest też inna osoba o tym imieniu i nazwisku (#9001) — potwierdź, że to powrót tej samej osoby, i zastosuj ręcznie"],
+        existing_person_ids: [9001], previous_rate_client: "175.000", previous_rate_unit: "hour",
+      }],
+    },
+  }),
 ];
 
-/** Ostatnie sprawdzenie skrzynki — trzy liczby z ticketu plus przycisk „Pobierz". */
-const SYNC_STATUS: OrderMailSyncStatus = {
-  enabled: true,
-  interval_minutes: 60,
-  autoapply_enabled: false,
-  running: false,
-  started_at: "2031-03-03T08:02:00Z",
-  interrupted: false,
-  can_trigger: true,
-  last_completed: {
-    reason: "scheduled", started_at: "2031-03-03T08:02:00Z", finished_at: new Date(Date.now() - 12 * 60_000).toISOString(),
-    status: "ok", error: null, messages: 4, new_messages: 2, attachments: 3, auto_applied: 1, needs_review: 1,
-    unrecognized: 0, duplicates: 1, skipped_existing: 2, ignored_no_pdf: 0, ignored_sender: 0, failed: 0,
-    rechecked: 3, recheck_applied: 1, recheck_held: 2, recheck_alerts: 1, errors: [],
-  },
+/** Zakładka „Nierozpoznane”: mail bez rozpoznanego klienta (odrzuca admin). */
+const UNRECOGNIZED: OrderMailDocument[] = [
+  doc(6, {
+    outcome: "unrecognized_client", client_id: null, client_name: null, client_policy: null, identification_method: null,
+    identification_reason: "Żaden numer rejestrowy z dokumentu nie pasuje do klienta w NEXUSIE.",
+    sender_email: "biuro@firma-nieznana.example", subject: "Zamówienie prac", attachment_name: "zamowienie-prac.pdf",
+    gate_verdict: null, gate_reasons: [], can_apply: false, can_dismiss: true, proposal: null,
+    document_meta: { page_count: 1, ocr_used: false, ocr_capped: false, recheck: { attempts: 0, category: "unrecognized", last_at: "2031-03-03T16:26:00Z" } },
+    extraction: {
+      title: "ZP/0042/2031", start_date: "2031-11-01", end_date: "2032-04-30", rate_client: null, rate_unit: null, md_total: null, currency: "PLN", uncertain: true,
+      uncertain_reasons: ["Brak jawnej stawki za dzień albo godzinę."], source: "claude",
+      consultant_rows: [{ consultant_name: "Krystyna Fikcyjna", start_date: "2031-11-01", end_date: "2032-04-30", rate_client: null, rate_unit: null, md_total: null, uncertain: true, uncertain_reason: "Tylko łączna wartość zamówienia." }],
+    },
+  }),
+];
+
+/** Zakładka „Nieudane”: błąd przetwarzania, system ponawia sam. */
+const FAILED: OrderMailDocument[] = [
+  doc(7, {
+    outcome: "failed", gate_verdict: null, gate_reasons: [], can_apply: false, can_dismiss: true, proposal: null, extraction: null,
+    error: "Błąd przetwarzania: przekroczony czas odczytu PDF", failed_retry_pending: true,
+    document_meta: { failed_retry: { attempts: 1 } },
+  }),
+];
+
+const ITEMS_BY_OUTCOME: Partial<Record<OrderMailOutcome, OrderMailDocument[]>> = {
+  needs_review: ITEMS,
+  unrecognized_client: UNRECOGNIZED,
+  failed: FAILED,
 };
+
+/** Liczniki zakładek — tyle, ile wpisów ma każda lista harnessu. */
+const COUNTS = { needs_review: ITEMS.length, auto_applied: 0, applied: 0, unrecognized_client: UNRECOGNIZED.length, failed: FAILED.length };
+
+/**
+ * Ostatnie sprawdzenie skrzynki — trzy liczby z ticketu plus przycisk „Pobierz".
+ * „12 min temu” liczone przy renderze, nie przy wczytaniu modułu: serwer dev
+ * trzyma moduł od startu, więc stała dawała inny wiek niż przeglądarka
+ * i błąd hydratacji.
+ */
+function syncStatus(now: number): OrderMailSyncStatus {
+  return {
+    enabled: true,
+    interval_minutes: 60,
+    autoapply_enabled: false,
+    running: false,
+    started_at: "2031-03-03T08:02:00Z",
+    interrupted: false,
+    can_trigger: true,
+    last_completed: {
+      reason: "scheduled", started_at: "2031-03-03T08:02:00Z", finished_at: new Date(now - 12 * 60_000).toISOString(),
+      status: "ok", error: null, messages: 4, new_messages: 2, attachments: 3, auto_applied: 1, needs_review: 1,
+      unrecognized: 0, duplicates: 1, skipped_existing: 2, ignored_no_pdf: 0, ignored_sender: 0, failed: 0,
+      rechecked: 3, recheck_applied: 1, recheck_held: 2, recheck_alerts: 1, errors: [],
+    },
+  };
+}
 
 /** Trzy stany sekcji historii obok siebie: zapis, czekanie na podpis, eskalacja. */
 const RECHECK_RUNS: OrderMailRecheckRun[] = [
@@ -210,6 +296,7 @@ export default function OrderMailPreviewPage() {
   const [outcome, setOutcome] = useState<OrderMailOutcome>("needs_review");
   const [selectedId, setSelectedId] = useState<number | null>(1);
   const [checking, setChecking] = useState(false);
+  const [status] = useState(() => syncStatus(Date.now()));
   // `?empty=1` pokazuje sekcję historii bez wierszy, ale ze znacznikiem —
   // wariant „nic się nie zmieniło od tygodnia". Czytane w efekcie, nie przy
   // renderze: `window` nie istnieje przy SSR, a rozjazd wywala hydrację.
@@ -217,14 +304,15 @@ export default function OrderMailPreviewPage() {
   useEffect(() => {
     setEmptyHistory(new URLSearchParams(window.location.search).has("empty"));
   }, []);
-  const items = outcome === "needs_review" ? ITEMS : [];
+  const items = ITEMS_BY_OUTCOME[outcome] ?? [];
   return (
     // Ekran produkcyjny dostaje margines od powłoki; harness jej nie ma.
     <div className="p-4 sm:p-6">
     <OrderMailQueueView
       loadPdf={loadStaticPdf}
+      counts={COUNTS}
       mailbox={{
-        status: SYNC_STATUS,
+        status,
         statusError: false,
         checking,
         checkError: null,
@@ -232,7 +320,10 @@ export default function OrderMailPreviewPage() {
         onCheckNow: () => { setChecking(true); setTimeout(() => setChecking(false), 2000); },
       }}
       outcome={outcome}
-      onOutcomeChange={setOutcome}
+      onOutcomeChange={(o) => {
+        setOutcome(o);
+        setSelectedId(null);
+      }}
       state="ready"
       items={items}
       total={items.length}
