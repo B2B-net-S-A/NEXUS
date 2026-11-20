@@ -2837,15 +2837,15 @@ export function GeneratedContractsTab({
       <CardHeader>
         <CardTitle className="text-base">Umowy bieżące</CardTitle>
         <CardDescription>
-          Umowy obowiązujące, czekające na podpis obu stron oraz anulowane (te,
-          które nie doszły do skutku — numer został zużyty, więc wpis zostaje) —
-          sprawdź, czy sugerowany / wpisany numer nie powtarza istniejącego.
-          Umowę można pobrać ponownie, a nazwę Klienta poprawić („Edytuj").
-          Potwierdzenie podpisania uruchamia jednorazowo proces zatrudnienia.
-          Niepodpisany wpis może edytować lub usunąć osoba, która go
-          wygenerowała, albo administrator. Zawieszenie lub zakończenie umowy
-          („Zmień status") nie usuwa jej z systemu — przenosi ją do fazy
-          „Bez projektu" albo „Zakończone".
+          {/* Krócej niż przed 20.11.2026: przy 1280 × 720 opis na pięć linii
+              spychał tabelę poniżej 60% wysokości okna. Numeru nikt już nie
+              sprawdza ręcznie — serwer nie wyda go drugi raz. */}
+          Umowy obowiązujące, czekające na podpis obu stron i anulowane (numer
+          został zużyty, więc wpis zostaje). Umowę można pobrać ponownie,
+          a nazwę Klienta poprawić („Edytuj"). Potwierdzenie podpisania
+          uruchamia jednorazowo proces zatrudnienia. Niepodpisany wpis usuwa
+          autor albo administrator. „Zmień status" nie usuwa umowy — przenosi
+          ją do fazy „Bez projektu" albo „Zakończone".
         </CardDescription>
       </CardHeader>
       <CardContent>
