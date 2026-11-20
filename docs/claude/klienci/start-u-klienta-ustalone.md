@@ -48,6 +48,9 @@ protokołów w całym systemie, menedżer klienta wpisany w 20 z 512 kontraktów
   `services/start_documents.py`. Zapis i zdjęcie idą do historii klienta
   (`activities`, `start_documents_not_required_set` / `_cleared`).
 - Scalenie klientów znacznika nie przenosi — tak jak samej listy dokumentów.
+- „Klient nie wymaga dokumentów” pisze się wyłącznie przy jawnej decyzji. Pusta
+  lista „Dokumenty od konsultanta” w pakiecie pisała to samo zdanie z samego
+  braku pozycji, więc od 20.11.2026 ma „Brak dokumentów na liście.”.
 
 ## Kto widzi licznik
 
