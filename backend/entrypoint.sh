@@ -1574,7 +1574,7 @@ try:
     from app.services import start_documents_schema as _start_documents_schema
 
     _START_DOCUMENTS_TABLE_DDL = list(_start_documents_schema.TABLE_DDL)
-    # 0746: „Klient nie wymaga dokumentów” (kolumny przy kliencie).
+    # 0747: „Klient nie wymaga dokumentów” (kolumny przy kliencie).
     _START_DOCUMENTS_NOT_REQUIRED_DDL = list(_start_documents_schema.NOT_REQUIRED_DDL)
 except Exception as _start_documents_schema_err:  # noqa: BLE001
     print(f"start documents schema unavailable: {_start_documents_schema_err!r}")

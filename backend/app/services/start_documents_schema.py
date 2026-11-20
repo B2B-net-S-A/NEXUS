@@ -84,7 +84,7 @@ TABLE_DDL: tuple[str, ...] = (
     PLACEMENT_DOCUMENTS_INDEX,
     PLACEMENT_DOCUMENTS_JOB_INDEX,
 )
-#: 0746: „Klient nie wymaga dokumentów” — jawna decyzja przy pustej liście, bo
+#: 0747: „Klient nie wymaga dokumentów” — jawna decyzja przy pustej liście, bo
 #: sama pusta lista znaczy też „nikt jeszcze nie ustalił” (licznik „Start
 #: u klienta”, ``docs/claude/klienci/start-u-klienta-ustalone.md``). Kolumny
 #: przy kliencie poza modelem ORM, jak ``clients.equipment_provider``: czyta

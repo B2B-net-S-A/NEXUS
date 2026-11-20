@@ -31,7 +31,7 @@ Kod: `services/start_documents.py`, `api/start_documents.py`,
   także w trasach (`/pair` zwraca `null`). Listę ustawia Delivery Lead w „Wejście
   u klienta” (uprawnienie „Klienci: dodawanie i edycja”, w swoim portfelu). Nie
   wymaga modułu „Wejście i odejście”. Start: tylko Nordea.
-  „Klient nie wymaga dokumentów” (0746, 20.11.2026) to jawna decyzja przy pustej
+  „Klient nie wymaga dokumentów” (0747, 20.11.2026) to jawna decyzja przy pustej
   liście dla licznika „Start u klienta” — przełącznika nie zmienia: pary
   i przypomnienia dalej zależą wyłącznie od pozycji na liście
   (`klienci/start-u-klienta-ustalone.md`).

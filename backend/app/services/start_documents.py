@@ -545,7 +545,7 @@ async def next_position(db: AsyncSession, client_id: int) -> int:
 
 @dataclass(frozen=True)
 class NotRequired:
-    """„Klient nie wymaga dokumentów” (0746): kiedy i kto to zaznaczył.
+    """„Klient nie wymaga dokumentów” (0747): kiedy i kto to zaznaczył.
 
     Pusta lista znaczy też „nikt jeszcze nie ustalił”, więc licznik „Start
     u klienta” liczy dokumenty jako ustalone dopiero z pozycją na liście albo

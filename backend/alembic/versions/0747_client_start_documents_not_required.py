@@ -1,7 +1,7 @@
 """„Klient nie wymaga dokumentów” przy liście dokumentów do startu (20.11.2026).
 
-Revision ID: 0746_client_start_documents_not_required
-Revises: 0745_one_close_reason_dictionary
+Revision ID: 0747_client_start_documents_not_required
+Revises: 0746_back_office_one_team
 
 Licznik „Start u klienta: N z M ustalone” (decyzja Artura z 20.11.2026) liczy
 dokumenty jako ustalone, gdy lista ma pozycję albo ktoś jawnie zaznaczył, że
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services.start_documents_schema import NOT_REQUIRED_DDL
 
-revision = "0746_client_start_documents_not_required"
-down_revision = "0745_one_close_reason_dictionary"
+revision = "0747_client_start_documents_not_required"
+down_revision = "0746_back_office_one_team"
 branch_labels = None
 depends_on = None
 

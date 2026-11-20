@@ -24,7 +24,7 @@ export interface ClientStartDoc {
 
 export type ClientStartDocInput = Omit<ClientStartDoc, "id" | "template_name">;
 
-/** „Klient nie wymaga dokumentów” (0746) — jawna decyzja przy pustej liście. */
+/** „Klient nie wymaga dokumentów” (0747) — jawna decyzja przy pustej liście. */
 export interface StartDocsNotRequired {
   at: string;
   by_name: string | null;

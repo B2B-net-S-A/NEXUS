@@ -1,5 +1,5 @@
 # „Start u klienta: N z M ustalone” — ustalone to jawny wybór, nie wartość domyślna (20.11.2026)
-<!-- indeks: `lib/client-start-readiness.ts` (`startReadiness`), `ClientStartReadiness` nad zakładką `?tab=wejscie`, „Klient nie wymaga dokumentów” = `clients.start_documents_not_required_at/_by` (0746, poza ORM), `PUT /api/start-documents/clients/{id}/not-required`, cztery pola, wzory protokołów poza licznikiem, licznik od 2 widocznych części -->
+<!-- indeks: `lib/client-start-readiness.ts` (`startReadiness`), `ClientStartReadiness` nad zakładką `?tab=wejscie`, „Klient nie wymaga dokumentów” = `clients.start_documents_not_required_at/_by` (0747, poza ORM), `PUT /api/start-documents/clients/{id}/not-required`, cztery pola, wzory protokołów poza licznikiem, licznik od 2 widocznych części -->
 
 Decyzja Artura z 20.11.2026 (pytanie z liczbami w sesji, rekomendowane warianty
 obu pytań). Makieta przebudowy Klientów (19.11.2026, ekran 7, wariant A)
@@ -42,7 +42,7 @@ protokołów w całym systemie, menedżer klienta wpisany w 20 z 512 kontraktów
 - Znacznik stoi wyłącznie przy pustej liście: zaznaczenie przy pozycjach na
   liście = 409. Dodanie pierwszej pozycji go zdejmuje, więc usunięcie
   wszystkich pozycji wraca do „nieustalone”, a nie do starej decyzji.
-- Kolumny `clients.start_documents_not_required_at` i `_by` (migracja 0746,
+- Kolumny `clients.start_documents_not_required_at` i `_by` (migracja 0747,
   lustro w `entrypoint.sh` z `services/start_documents_schema.py`) są poza
   modelem ORM, jak `equipment_provider`: czyta je i pisze
   `services/start_documents.py`. Zapis i zdjęcie idą do historii klienta

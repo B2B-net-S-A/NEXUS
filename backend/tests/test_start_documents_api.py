@@ -661,7 +661,7 @@ async def test_client_list_edit_needs_permission_and_scope(client: AsyncClient) 
 async def test_not_required_is_an_explicit_decision_on_an_empty_list(
     client: AsyncClient,
 ) -> None:
-    """0746: pusta lista to „nikt nie ustalił” albo „klient nic nie wymaga”.
+    """0747: pusta lista to „nikt nie ustalił” albo „klient nic nie wymaga”.
 
     Licznik „Start u klienta” rozróżnia to tylko jawnym znacznikiem, więc
     znacznik stoi wyłącznie przy pustej liście, a pierwsza pozycja go zdejmuje.
