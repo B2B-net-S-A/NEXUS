@@ -602,16 +602,16 @@
     "title": "Skrzynka zamówień",
     "section": "delivery",
     "roles": ["delivery_lead", "finance", "back_office", "admin"],
-    "what": "Tu trafiają zamówienia z maila zamowienia@: pewne zapisują się same, a te wymagające decyzji czekają w „Do weryfikacji” z powodem wstrzymania.",
+    "what": "Tu trafiają zamówienia z maila zamowienia@: pewne zapisują się same, a te wymagające decyzji czekają w „Do weryfikacji”. Przy każdym wpisie lista „Do sprawdzenia” mówi, co jest nie tak i co zrobić.",
     "tasks": [
       {
         "q": "Jak pobrać zamówienia teraz, bez czekania?",
-        "a": "Kliknij „Pobierz zamówienia z maila”. Skrzynka i tak jest sprawdzana co godzinę; liczby pod przyciskiem dotyczą całej skrzynki.",
+        "a": "Kliknij „Pobierz zamówienia z maila” obok tytułu. Skrzynka i tak jest sprawdzana co godzinę; zdanie pod tytułem mówi, kiedy ostatnio i co przyszło — te liczby dotyczą całej skrzynki.",
         "anchor": "contracts.order_mail.check"
       },
       {
         "q": "Co zrobić z wpisem „Do weryfikacji”?",
-        "a": "Otwórz wpis: obok planu masz podgląd PDF-a. Przeczytaj powód wstrzymania. Gdy plan jest dobry — „Zastosuj”; gdy dotyczy osoby do rozstrzygnięcia — „Rozstrzygnij w oknie zamówienia”; gdy to nie zamówienie — „Odrzuć”.",
+        "a": "Kliknij wpis w kolejce po lewej. Po prawej masz to, co odczytano z PDF-a, i punkty „Do sprawdzenia” z podpowiedzią „Co zrobić”. Plan dobry — „Zastosuj”; osoba do rozstrzygnięcia — „Rozstrzygnij w oknie zamówienia”; to nie zamówienie — „Odrzuć”. PDF otwiera przycisk „PDF” albo podgląd obok.",
         "anchor": "contracts.order_mail.detail"
       },
       {
@@ -621,7 +621,7 @@
       },
       {
         "q": "Kiedy system ostatnio sprawdzał wstrzymane wpisy?",
-        "a": "Na dole ekranu jest historia sprawdzeń i zdanie „Sprawdzone ostatnio”. Wstrzymane wpisy są sprawdzane co godzinę między 8 a 18; historia pokazuje tylko sprawdzenia, które coś zmieniły.",
+        "a": "Na dole ekranu jest linia „Historia automatycznej weryfikacji” ze zdaniem „Sprawdzone ostatnio”. Wstrzymane wpisy są sprawdzane co godzinę między 8 a 18; „Pokaż historię” rozwija sprawdzenia, które coś zmieniły, z opisem zmiany.",
         "anchor": "contracts.order_mail.history"
       },
       {
@@ -643,13 +643,14 @@
         "describe": "Ręczne sprawdzenie skrzynki i wynik ostatniego biegu.",
         "requires": {"roles": ["admin", "finance", "back_office", "delivery_lead"]}
       },
-      {"id": "contracts.order_mail.tabs", "label": "Zakładki kolejki", "describe": "Do weryfikacji, Zapisane automatycznie, Zapisane ręcznie, Nierozpoznane, Nieudane."},
-      {"id": "contracts.order_mail.detail", "label": "Szczegóły wpisu", "describe": "Odczyt, plan, podgląd PDF-a obok i przyciski decyzji dla wybranego zamówienia."},
-      {"id": "contracts.order_mail.history", "label": "Historia sprawdzeń", "describe": "Kiedy system ostatnio sprawdzał wstrzymane wpisy."}
+      {"id": "contracts.order_mail.tabs", "label": "Zakładki kolejki", "describe": "Do weryfikacji, Zapisane automatycznie, Zapisane ręcznie, Nierozpoznane, Nieudane — z liczbą wpisów."},
+      {"id": "contracts.order_mail.detail", "label": "Szczegóły wpisu", "describe": "Co odczytano, plan, punkty „Do sprawdzenia” z podpowiedzią i przyciski decyzji dla wybranego zamówienia."},
+      {"id": "contracts.order_mail.history", "label": "Historia sprawdzeń", "describe": "Linia na dole: kiedy system ostatnio sprawdzał wstrzymane wpisy; rozwija się do historii."}
     ],
     "help_slug": "zamowienia-instrukcja-delivery-lead",
     "sources": [
       "frontend/src/components/order-mail/OrderMailQueue.tsx",
+      "frontend/src/components/order-mail/OrderMailDetail.tsx",
       "backend/app/services/order_mail_gate.py"
     ]
   },

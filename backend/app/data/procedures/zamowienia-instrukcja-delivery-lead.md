@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 19.11.2026
+> **Zgodność z systemem sprawdzona:** 20.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -1059,15 +1059,27 @@ Liczba MD jest wielkością operacyjną, nie finansową.
 
 ## Zamówienia ze skrzynki — „Osoby i plan zapisu"
 
-Kolejka dokumentów z maila jest w **Kontrakty → „Skrzynka zamówień"**. Liczba
-przy „Kontraktach" w menu to dokumenty czekające na sprawdzenie. Do 22.09.2026
+Kolejka dokumentów z maila jest w **Kontrakty → „Zamówienia z maila"** (przycisk
+z liczbą nad listą kontraktów; „← Kontrakty" wraca do listy). Liczba przy
+„Kontraktach" w menu to dokumenty czekające na sprawdzenie. Do 22.09.2026
 kolejka miała w menu własną pozycję „Zamówienia z maila", a stare linki
 z powiadomień nadal do niej prowadzą.
 
+Pod tytułem jedno zdanie mówi, kiedy skrzynka była ostatnio sprawdzana i co
+z tego wyszło, a zakładki („Do weryfikacji", „Zapisane automatycznie", „Zapisane
+ręcznie", „Nierozpoznane", „Nieudane") mają liczbę wpisów. Kolejka stoi po
+lewej — przy każdym wpisie pierwszy punkt do sprawdzenia, np. „Nowa osoba bez
+umowy" — a po prawej szczegół wybranego wpisu: **co odczytano** (klient i sposób
+rozpoznania, okres, plik, osoby ze stawką i tym, co zrobi „Zastosuj") oraz
+**„Do sprawdzenia"** — każdy powód wstrzymania jako osobny punkt z podpowiedzią
+„Co zrobić". Długie uwagi z odczytu PDF-a są zwinięte pod „Uwagi odczytu".
+Podpowiedzi widzi tylko ten, kto może podjąć decyzję; pozostali widzą, że
+decyduje admin albo Delivery Lead klienta.
+
 Po kliknięciu dokumentu w kolejce jego **PDF otwiera się obok planu** — nie
 trzeba przełączać kart, żeby porównać plan z dokumentem. „Ukryj podgląd" go
-chowa, link „PDF" otwiera plik w nowej karcie. Na węższym ekranie podgląd stoi
-pod planem, za przyciskiem „Pokaż podgląd".
+chowa, przycisk „PDF" otwiera plik w nowej karcie. Na węższym ekranie podgląd
+stoi pod planem, za przyciskiem „Pokaż podgląd".
 
 Automatyczny odczyt załączników ze skrzynki **zamowienia@b2bnetwork.pl**
 przygotowuje plan dla osób rozpoznanych w dokumencie (czytane są także PDF-y
@@ -1315,8 +1327,8 @@ Lead takiego dokumentu nie widzi — nie należy do żadnego portfela).
 **Pocztę system sprawdza dalej całą dobę** — nowe zamówienie przysłane
 wieczorem pojawia się w kolejce tego samego dnia. Gdy przy sprawdzeniu nie da się
 pobrać załącznika maila (chwilowa awaria skrzynki), mail nie przepada: kolejne
-sprawdzenie pyta o niego ponownie, a do tego czasu pasek pod „Pobierz zamówienia
-z maila” pokazuje sprawdzenie jako częściowe. Jeśli załącznika nie da się pobrać
+sprawdzenie pyta o niego ponownie, a do tego czasu zdanie pod tytułem kolejki
+pokazuje sprawdzenie jako częściowe. Jeśli załącznika nie da się pobrać
 przez dobę, mail trafia do zakładki **„Nieudane”** (jeden wpis na mail, nawet
 gdy miał kilka PDF-ów — pozostałe nazwy plików są w opisie błędu) — otwórz go
 w Outlooku i wprowadź zamówienie ręcznie w oknie zamówienia klienta. Tak samo
@@ -1355,24 +1367,28 @@ Zmiana przyczyny zaczyna liczenie od nowa — trzy próby dotyczą **tego samego
 problemu. **Automatyczne dokończenie zamówienia nie wysyła powiadomienia**:
 widać je w historii poniżej.
 
-**„Historia automatycznej weryfikacji"** na dole widoku pokazuje **tylko te
-sprawdzenia, które coś zmieniły**: zapisały zamówienie, zmieniły powód
-wstrzymania albo wysłały kartę Delivery Leadowi. Wiersz niesie datę i godzinę,
-liczbę wpisów sprawdzonych, zaakceptowanych i wstrzymanych, a rozwija się do
-konkretnych dokumentów — każdy z powodem i linkiem do wpisu. Delivery Lead widzi
-w niej wpisy swojego portfela klientów.
+**„Historia automatycznej weryfikacji"** to jedna linia na dole widoku;
+„Pokaż historię" rozwija tabelę, która pokazuje **tylko te sprawdzenia, które
+coś zmieniły**: zapisały zamówienie, zmieniły powód wstrzymania albo wysłały
+kartę Delivery Leadowi. Wiersz niesie datę i godzinę, liczbę wpisów
+sprawdzonych, zapisanych i wstrzymanych oraz opis, co się zmieniło (np.
+„zapisano: 7/2026", „karta do Delivery Leada: 8/2026"), a „Pokaż" rozwija go do
+konkretnych dokumentów — każdy z powodem i linkiem do wpisu. Wiersze, w których
+zmienił się tylko stan powiadomień, są schowane pod osobnym przyciskiem.
+Delivery Lead widzi w niej wpisy swojego portfela klientów.
 
-Nad tabelą stoi zdanie **„Sprawdzone ostatnio: [data, godzina]"**. To ono mówi,
+W tej linii stoi zdanie **„Sprawdzone ostatnio: [data, godzina]"**. To ono mówi,
 czy mechanizm działa — sprawdzenie, po którym nic się nie zmieniło, przesuwa
-tylko ten znacznik i nie dopisuje wiersza. Pusta tabela pod aktualnym
-znacznikiem znaczy „nic nie wymagało zmiany", a nie „nie działa". Wpisy sprzed
+tylko ten znacznik i nie dopisuje wiersza. Pusta historia przy aktualnym
+znaczniku („Brak zmian do pokazania") znaczy „nic nie wymagało zmiany", a nie
+„nie działa". Wpisy sprzed
 wdrożenia tej zasady zostają w historii i znikają same po 30 dniach.
 
 **Wpis z odczytem awaryjnym (AI było chwilowo niedostępne przy odczycie maila)
 system próbuje przeczytać AI ponownie sam** — przy kolejnych sprawdzeniach
 skrzynki, najwyżej 3 razy. Gdy się uda, wpis przechodzi zwykłą ścieżkę: pewny
 plan zapisuje się automatycznie, plan z wątpliwością zostaje w weryfikacji z
-aktualnymi powodami. Powód awarii AI widać w banerze, np. „Odczyt awaryjny (AI:
+aktualnymi powodami. Powód awarii AI widać w punktach „Do sprawdzenia", np. „Odczyt awaryjny (AI:
 przekroczony czas odpowiedzi AI) — sprawdź zgodność pól z PDF". Po trzech
 nieudanych próbach dochodzi komunikat „Ponowny odczyt AI nie powiódł się 3×" —
 wtedy sprawdź pola z PDF i zastosuj ręcznie albo odrzuć.
