@@ -1,9 +1,11 @@
 "use client";
 
 /**
- * Lista „Dokumenty do startu” u klienta (zakładka „Wejście u klienta”).
+ * Lista „Dokumenty do startu” u klienta (zakładka „Start u klienta”).
  * Pusta lista znaczy, że NEXUS o nic nie pyta. Wzory plików leżą w plikach
- * klienta, bo repozytorium jest publiczne.
+ * klienta, bo repozytorium jest publiczne. „Klient nie wymaga dokumentów”
+ * odróżnia decyzję od listy, której nikt jeszcze nie ustalił (licznik
+ * „Start u klienta”, 20.11.2026).
  */
 
 import { useRef, useState, type ChangeEvent } from "react";
@@ -30,11 +32,14 @@ import {
   useArchiveClientStartDoc,
   useClientStartDocs,
   useSaveClientStartDoc,
+  useSetStartDocsNotRequired,
   useUploadStartDocTemplate,
   type ClientStartDoc,
   type ClientStartDocInput,
   type StartDocKind,
+  type StartDocsNotRequired,
 } from "@/lib/api/start-documents";
+import { formatIsoDatePl } from "@/lib/date-pl";
 import { offsetText } from "@/lib/start-docs-format";
 import { resolveViewState } from "@/lib/view-state";
 
@@ -180,6 +185,54 @@ function EditDialog({
   );
 }
 
+function EmptyList({
+  notRequired,
+  canEdit,
+  busy,
+  onChange,
+}: {
+  notRequired: StartDocsNotRequired | null;
+  canEdit: boolean;
+  busy: boolean;
+  onChange: (notRequired: boolean) => void;
+}) {
+  if (notRequired) {
+    const who = notRequired.by_name ? `${notRequired.by_name}, ` : "";
+    return (
+      <div className="flex flex-wrap items-center gap-2 py-1">
+        <p className="min-w-0 text-sm text-foreground">
+          Klient nie wymaga dokumentów do startu.{" "}
+          <span className="text-xs text-muted-foreground">
+            Zaznaczono: {who}
+            {formatIsoDatePl(notRequired.at)}
+          </span>
+        </p>
+        {canEdit ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs"
+            disabled={busy}
+            onClick={() => onChange(false)}
+          >
+            Cofnij
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 py-1">
+      <p className="min-w-0 text-sm text-muted-foreground">Ten klient nie ma jeszcze listy.</p>
+      {canEdit ? (
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => onChange(true)}>
+          Klient nie wymaga dokumentów
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 export function ClientStartDocsPanel({
   clientId,
   canEdit,
@@ -193,6 +246,7 @@ export function ClientStartDocsPanel({
   const save = useSaveClientStartDoc(clientId);
   const archive = useArchiveClientStartDoc(clientId);
   const upload = useUploadStartDocTemplate(clientId);
+  const notRequired = useSetStartDocsNotRequired(clientId);
   const [editing, setEditing] = useState<ClientStartDoc | "new" | null>(null);
   const [templateFor, setTemplateFor] = useState<number | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -209,7 +263,15 @@ export function ClientStartDocsPanel({
   if (state === "error" || !query.data) {
     return <QueryStateNotice state="error" onRetry={() => void query.refetch()} />;
   }
-  const items = query.data;
+  const items = query.data.items;
+
+  const onNotRequired = async (value: boolean) => {
+    try {
+      await notRequired.mutateAsync(value);
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się zapisać decyzji o dokumentach."));
+    }
+  };
 
   const onTemplate = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -340,7 +402,12 @@ export function ClientStartDocsPanel({
           </table>
         </div>
       ) : (
-        <p className="py-2 text-sm text-muted-foreground">Ten klient nie ma jeszcze listy.</p>
+        <EmptyList
+          notRequired={query.data.not_required}
+          canEdit={canEdit}
+          busy={notRequired.isPending}
+          onChange={(value) => void onNotRequired(value)}
+        />
       )}
       {editing ? (
         <EditDialog

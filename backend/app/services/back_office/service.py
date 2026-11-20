@@ -23,6 +23,7 @@ from app.services.admin_cases import service as cases
 from app.services.back_office import steps
 from app.services.back_office.access import Viewer
 from app.services.back_office_schema import LANES, NOTE_MAX, TEAM_LANES, TEAMS
+from app.services.back_office_team_schema import OUTSIDE_TEAMS
 from app.services.hr.notify import notify_each
 
 #: Limit kart „W toku” na osobę (decyzja 02.11).
@@ -191,6 +192,7 @@ async def take(
     card.assignee_user_id = actor.id
     card.substituting = not own_team
     card.state = "in_progress"
+    card.outside_team = None
     card.taken_at = now
     card.escalated_at = None
     card.updated_at = now
@@ -218,6 +220,7 @@ async def release(
     card.assignee_user_id = None
     card.substituting = False
     card.state = "new"
+    card.outside_team = None
     card.taken_at = None
     card.updated_at = now
     _event(db, card, actor_id=actor.id, action="released", now=now)
@@ -289,8 +292,57 @@ async def set_state(
     card.waiting_on = (
         (waiting_on or "").strip()[:200] or None if state == "waiting" else None
     )
+    card.outside_team = None
     card.updated_at = now
     _event(db, card, actor_id=actor.id, action=f"state_{state}", now=now)
+    await db.flush()
+
+
+async def send_outside(
+    db: AsyncSession,
+    card: BoCard,
+    *,
+    actor: User,
+    viewer: Viewer,
+    team: str,
+    note: str,
+    expected_updated_at: Optional[datetime],
+) -> None:
+    """„Na zewnątrz”: sprawa czeka na dział poza back office'em (decyzja 10.11).
+
+    Osoba prowadząca zostaje przy sprawie i pilnuje odpowiedzi; kolumna
+    „Na zewnątrz” pokazuje, na kogo czeka cały zespół.
+    """
+
+    if card.assignee_user_id != actor.id and not viewer.owns(card.team):
+        raise CardForbidden("Na zewnątrz przekazuje osoba prowadząca albo zespół.")
+    if team not in OUTSIDE_TEAMS:
+        raise CardError("Wybierz dział, do którego idzie sprawa.")
+    _check_version(card, expected_updated_at)
+    if card.state == "done":
+        raise CardConflict("Ta karta jest już zamknięta.", code="closed")
+    reason = (note or "").replace("\x00", "").strip()
+    if not reason:
+        raise CardError("Napisz krótko, o co prosisz dział.")
+    now = _now()
+    await _mirror_case(db, card, actor=actor, changes={"status": "waiting"})
+    card.state = "waiting"
+    card.outside_team = team
+    card.waiting_on = reason[:200]
+    if card.assignee_user_id is None:
+        # Bez osoby nikt nie pilnowałby odpowiedzi działu.
+        card.assignee_user_id = actor.id
+        card.taken_at = now
+    card.escalated_at = None
+    card.updated_at = now
+    _event(
+        db,
+        card,
+        actor_id=actor.id,
+        action="outside",
+        details={"team": team, "note": reason[:NOTE_MAX]},
+        now=now,
+    )
     await db.flush()
 
 
@@ -307,6 +359,7 @@ async def dismiss(
     now = _now()
     await _mirror_case(db, card, actor=actor, changes={"status": "closed"})
     card.state = "done"
+    card.outside_team = None
     card.closed_at = now
     card.updated_at = now
     card.meta = {**(card.meta or {}), "dismissed": True}
@@ -455,6 +508,183 @@ async def review(
         now=now,
     )
     await db.flush()
+
+
+#: Karty, których „Weź następną” nie podaje: akcept na miejscu albo krok sprawy.
+NOT_TAKEN_KINDS = frozenset({"timesheet", "bonus", "changes", "step"})
+NOTHING_TO_TAKE = "Nie ma teraz nic do wzięcia."
+
+
+async def take_next(
+    db: AsyncSession, *, actor: User, viewer: Viewer, today: date
+) -> Optional[BoCard]:
+    """„Weź następną”: najstarszy termin, potem najdłużej bez osoby (19.11.2026).
+
+    Nikt nie wybiera łatwych spraw: kolejność liczy serwer. Karty z cudzym
+    ważnym pierwszeństwem i sprawy, których osoba nie może czytać, przeskakuje.
+    Kolizja z kimś szybszym to po prostu następna karta; limit 5 przerywa.
+    """
+
+    exiting = set(
+        (
+            await db.scalars(
+                select(BoCard.contract_id).where(
+                    BoCard.source_kind == "case",
+                    BoCard.lane == "exit",
+                    BoCard.state != "done",
+                    BoCard.contract_id.is_not(None),
+                )
+            )
+        ).all()
+    )
+    candidates = (
+        await db.scalars(
+            select(BoCard.id)
+            .where(
+                BoCard.state == "new",
+                BoCard.assignee_user_id.is_(None),
+                BoCard.lane != "triage",
+                BoCard.source_kind.not_in(NOT_TAKEN_KINDS),
+            )
+            .order_by(
+                BoCard.due_on.asc().nulls_last(),
+                BoCard.created_at.asc(),
+                BoCard.id.asc(),
+            )
+            .limit(200)
+        )
+    ).all()
+    for card_id in candidates:
+        card = await db.scalar(
+            select(BoCard)
+            .where(BoCard.id == card_id)
+            .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+        if card is None or card.assignee_user_id is not None or card.state != "new":
+            continue
+        if card.source_kind == "bench" and card.contract_id in exiting:
+            continue
+        if card.source_kind == "case" and not reads_case(
+            card, viewer=viewer, user=actor
+        ):
+            continue
+        try:
+            await take(
+                db,
+                card,
+                actor=actor,
+                viewer=viewer,
+                substitute=False,
+                override_priority=False,
+                expected_updated_at=None,
+                today=today,
+            )
+        except CardConflict as exc:
+            if exc.code == "limit":
+                raise
+            continue
+        except CardForbidden:
+            continue
+        return card
+    return None
+
+
+async def release_outsiders(
+    db: AsyncSession, *, actor: User, member_ids: list[int], keep: set[int]
+) -> int:
+    """Sprawy osób spoza zespołu wracają do kolejki (decyzja Artura 19.11.2026).
+
+    Działa tylko przy wpisanym składzie: bez niego „spoza” nie znaczy nic.
+    ``keep`` to skład, kierownicy i admini — ich sprawy zostają. Sprawa
+    zamknięta po drugiej stronie zostaje, jak jest.
+    """
+
+    if not member_ids:
+        raise CardError("Najpierw wpisz skład zespołu.")
+    cards = (
+        await db.scalars(
+            select(BoCard)
+            .where(
+                BoCard.state != "done",
+                BoCard.assignee_user_id.is_not(None),
+                BoCard.assignee_user_id.not_in(sorted(keep | set(member_ids))),
+            )
+            .order_by(BoCard.id)
+            .with_for_update()
+        )
+    ).all()
+    now = _now()
+    released = 0
+    for card in cards:
+        previous = card.assignee_user_id
+        try:
+            async with db.begin_nested():
+                await _mirror_case(
+                    db,
+                    card,
+                    actor=actor,
+                    changes={"assignee_user_id": None, "status": "new"},
+                )
+        except (CardConflict, CardError):
+            continue
+        card.assignee_user_id = None
+        card.substituting = False
+        card.state = "new"
+        card.outside_team = None
+        card.waiting_on = None
+        card.taken_at = None
+        card.escalated_at = None
+        card.updated_at = now
+        _event(
+            db,
+            card,
+            actor_id=actor.id,
+            action="released_outsider",
+            details={"user_id": previous},
+            now=now,
+        )
+        released += 1
+    await db.flush()
+    return released
+
+
+async def review_many(
+    db: AsyncSession,
+    card_ids: list[int],
+    *,
+    actor: User,
+    viewer: Viewer,
+    decision: str,
+    note: Optional[str],
+) -> dict[str, int]:
+    """Przegląd hurtem: ta sama decyzja dla wielu kart, każda z wpisem w historii."""
+
+    if decision not in ("current", "close"):
+        raise CardError("Hurtem można tylko zostawić albo zamknąć.")
+    done = skipped = 0
+    for card_id in sorted(set(card_ids)):
+        card = await locked_card(db, card_id)
+        if card is None or card.state == "done":
+            skipped += 1
+            continue
+        try:
+            async with db.begin_nested():
+                await review(
+                    db,
+                    card,
+                    actor=actor,
+                    viewer=viewer,
+                    decision=decision,
+                    team=None,
+                    lane=None,
+                    note=note,
+                )
+        except (CardConflict, CardError, CardForbidden):
+            skipped += 1
+            continue
+        done += 1
+    return {"done": done, "skipped": skipped}
 
 
 async def apply_priorities(db: AsyncSession, *, today: date) -> int:

@@ -40,7 +40,6 @@ vi.mock("@/lib/contract-access", () => {
     canManageFinance: false,
     canViewBenchmark: true,
     canViewInvoices: true,
-    canManageInvoices: true,
     canEditContract: true,
     financeAmountsOnly: false,
     canEditContractStatus: true,

@@ -236,7 +236,8 @@ async function personPanel(page: Page, w: Walk, mention: string) {
   await w.next();
   await page.getByRole("button", { name: /Odrzuć z powodem/ }).first().click();
   const reject = page.getByRole("dialog");
-  await reject.getByText("Za wysokie oczekiwania finansowe", { exact: true }).click();
+  // W „Nowych”/„Screeningu” lista okna („Za droga”), dalej lista z szablonu.
+  await reject.getByText(/^(Za droga|Za wysokie oczekiwania finansowe)$/).first().click();
   const rate = reject.locator('input[type="number"], input[inputmode="decimal"], input[inputmode="numeric"]').first();
   if (await rate.count()) await rate.fill("160");
   await reject.getByRole("button", { name: "Potwierdź" }).click();

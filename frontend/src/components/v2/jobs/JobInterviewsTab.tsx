@@ -17,6 +17,7 @@
  * którym strona karmi tablicę. Zero zapytań per wiersz.
  */
 
+import { closeTemplateOptions } from "@/lib/close-reasons";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -62,7 +63,6 @@ import {
 import { isInterviewStage } from "@/lib/job-flow-stages";
 import {
   loadJobRejectionReasons,
-  reasonFitsEndedBy,
   type RejectionReasonOption,
 } from "@/lib/rejection-reasons";
 import {
@@ -858,8 +858,10 @@ function InterviewCard({
   const [note, setNote] = useState<string>(feedback?.note ?? "");
 
   // Karta rozmowy zapisuje głos klienta, więc lista jak przy „Odrzuca klient”.
-  const rejectedReasons = reasons.filter(
-    (r) => r.applies_to.includes("rejected") && reasonFitsEndedBy(r, "client"),
+  // Od 19.11.2026 w kolejności i z etykietami jednego słownika powodów.
+  const rejectedReasons = closeTemplateOptions(
+    reasons.filter((r) => r.applies_to.includes("rejected")),
+    "client",
   );
   const chosenReason = rejectedReasons.find((r) => r.id === reasonId) ?? null;
 

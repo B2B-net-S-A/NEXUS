@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Download } from "lucide-react";
 
-import { InlineStats } from "@/components/ds/InlineStats";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
 import { useToast } from "@/components/Toast";
@@ -45,9 +44,10 @@ import {
   rowInvoiceText,
   rowStatusNote,
   splitPeriod,
-  summaryStats,
   targetsText,
 } from "./invoicing-format";
+import { MonthStepsStrip, useMonthRcp } from "./MonthSteps";
+import { frontierStep, monthSteps } from "./month-steps";
 
 /**
  * „Klienci → klient → Faktury” (E8): co zafakturować za miesiąc (z zamówień,
@@ -67,6 +67,8 @@ export function ClientInvoicingTab({
   const { year, month } = splitPeriod(period);
   const query = useClientInvoicing(clientId, year, month);
   const data = query.data;
+  const rcp = useMonthRcp(clientId, period);
+  const steps = data ? monthSteps(data, rcp) : [];
   const state = resolveViewState({
     isLoading: query.isLoading,
     error: query.error,
@@ -137,11 +139,9 @@ export function ClientInvoicingTab({
         </p>
       ) : null}
 
-      {data ? (
-        <InlineStats
-          id="client-invoicing-stats"
-          stats={summaryStats(data.summary, period, data.summary.overdue)}
-        />
+      {steps.length ? (
+        // Kroki miesiąca zamiast liczb (makieta 6A z 19.11, wariant A z 20.11.2026).
+        <MonthStepsStrip steps={steps} frontier={frontierStep(steps)} />
       ) : null}
 
       {state === "loading" ? (

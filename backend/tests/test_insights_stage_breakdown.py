@@ -157,7 +157,7 @@ def test_catalog_codes_get_polish_labels_and_legacy_means_no_reason() -> None:
     assert by_key["candidate"]["top_reasons"] == [
         _reason("Kontroferta od obecnego pracodawcy", 3),
         _reason("Rezygnacja przez Kandydata", 2),
-        _reason("Stracił zainteresowanie", 2),
+        _reason("Straciła zainteresowanie / za długi proces", 2),
         _reason("Bez podanego powodu", 6, "none"),
     ]
     assert by_key["recruiter"]["top_reasons"] == [
@@ -171,12 +171,12 @@ def test_catalog_codes_get_polish_labels_and_legacy_means_no_reason() -> None:
 @pytest.mark.parametrize(
     ("code", "label"),
     [
-        ("accepted_other_offer", "Przyjął inną ofertę"),
+        ("accepted_other_offer", "Przyjęła inną ofertę"),
         ("counter_offer", "Kontroferta od obecnego pracodawcy"),
         ("personal_reasons", "Powody osobiste"),
-        ("lost_interest", "Stracił zainteresowanie"),
-        ("salary_mismatch", "Rozbieżność oczekiwań finansowych"),
-        ("process_too_long", "Za długi proces"),
+        ("lost_interest", "Straciła zainteresowanie / za długi proces"),
+        ("salary_mismatch", "Za droga"),
+        ("process_too_long", "Straciła zainteresowanie / za długi proces"),
         ("Inne (rejected)", "Inne"),
         ("legacy_unknown", None),
         ("  ", None),

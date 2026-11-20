@@ -40,26 +40,39 @@ export const CLIENT_CHOSE_OTHER_REASON = "client_chose_other";
 /** Dwa powody klienta z odczytu maili CPro (19.11.2026, 0740, sprawa B7). */
 export const CLIENT_OTHER_VENDOR_REASON = "client_other_vendor";
 export const CLIENT_INTERVIEW_WEAK_REASON = "client_interview_weak";
+/** Jeden słownik powodów zamknięcia procesu (19.11.2026, 0745). */
+export const CLIENT_PROJECT_CLOSED_REASON = "client_project_closed";
+export const CLIENT_AFTER_DEADLINE_REASON = "client_after_deadline";
+export const IN_OTHER_PROCESS_REASON = "in_other_process";
+export const CLIENT_REFUSED_REASON = "client_refused";
 
 /** Końce procesu bez decyzji klienta o osobie (08.11.2026, 0663): zapisuje je
  *  zamknięcie rekrutacji albo brak odpowiedzi klienta, nikt ich nie wybiera. */
 const SYSTEM_ONLY_REASONS: ReadonlySet<string> = new Set([
   "request_closed",
   "client_no_response",
+  // Dane w bazie (0745): tylko w „Nowych”/„Screeningu”, gdzie okno pyta
+  // z listy powodów dla systemu, nie z szablonu.
+  "outdated_cv",
+  "profile_mismatch",
+  "wrong_phone",
 ]);
 
 /** Tylko przy „Odrzuca klient”: my ani DL nie mówimy w imieniu klienta. */
 const CLIENT_ONLY_REASONS: ReadonlySet<string> = new Set([
   CLIENT_NO_REASON_REASON,
   CLIENT_CHOSE_OTHER_REASON,
-  CLIENT_OTHER_VENDOR_REASON,
   CLIENT_INTERVIEW_WEAK_REASON,
+  CLIENT_PROJECT_CLOSED_REASON,
+  CLIENT_AFTER_DEADLINE_REASON,
 ]);
 /** Nie przy „Odrzuca klient”: na 104 opisach klienta od 12.10 żaden tak nie
  *  mówi, bo to sprawa osoby, nie decyzja klienta. */
 const NOT_CLIENT_REASONS: ReadonlySet<string> = new Set([
   NOT_LOOKING_FOR_WORK_REASON,
   NO_CONTACT_REASON,
+  IN_OTHER_PROCESS_REASON,
+  CLIENT_REFUSED_REASON,
 ]);
 
 /**
@@ -75,65 +88,6 @@ export function reasonFitsEndedBy(
   if (CLIENT_ONLY_REASONS.has(name)) return endedBy === "client";
   if (NOT_CLIENT_REASONS.has(name)) return endedBy !== "client";
   return true;
-}
-
-/** Grupy okna odrzucenia (04.11.2026): przy 1280 × 720 płaska lista 12 powodów
- *  chowała nowe pod zgięciem. Klucze szablonu domyślnego; powód spoza grup
- *  (także „Inne” i dopisane przez admina) stoi pod nimi w kolejności listy. */
-const REJECTED_REASON_GROUPS: { title: string; names: readonly string[] }[] = [
-  {
-    title: "Klient",
-    names: [
-      CLIENT_NO_REASON_REASON,
-      CLIENT_CHOSE_OTHER_REASON,
-      CLIENT_OTHER_VENDOR_REASON,
-      CLIENT_INTERVIEW_WEAK_REASON,
-    ],
-  },
-  {
-    title: "Wymagania",
-    names: ["Brak doświadczenia", "Nie spełnia wymagań technicznych", "Nie pasuje kulturowo"],
-  },
-  {
-    title: "Warunki",
-    names: ["Za wysokie oczekiwania finansowe", WORK_MODE_MISMATCH_REASON, CONTRACT_FORM_REASON],
-  },
-  {
-    title: "Sprawa osoby",
-    names: [
-      NOT_LOOKING_FOR_WORK_REASON,
-      "Zatrudniony gdzie indziej",
-      CLIENT_CONFLICT_REASON,
-      NO_CONTACT_REASON,
-      HM_ALREADY_INTERVIEWED_REASON,
-    ],
-  },
-];
-
-export interface RejectionReasonGroup<T> {
-  /** `null` — żaden powód nie trafił do grupy (np. szablon z własną listą). */
-  title: string | null;
-  reasons: T[];
-}
-
-export function groupRejectedReasons<T extends { name?: string }>(
-  reasons: readonly T[],
-): RejectionReasonGroup<T>[] {
-  const byName = new Map(reasons.map((r) => [r.name?.trim() ?? "", r]));
-  const grouped = new Set<T>();
-  const groups: RejectionReasonGroup<T>[] = [];
-  for (const { title, names } of REJECTED_REASON_GROUPS) {
-    const members = names.flatMap((name) => {
-      const reason = byName.get(name);
-      return reason ? [reason] : [];
-    });
-    if (members.length === 0) continue;
-    members.forEach((r) => grouped.add(r));
-    groups.push({ title, reasons: members });
-  }
-  const rest = reasons.filter((r) => !grouped.has(r));
-  if (rest.length === 0) return groups;
-  return [...groups, { title: groups.length > 0 ? "Pozostałe" : null, reasons: rest }];
 }
 
 /**

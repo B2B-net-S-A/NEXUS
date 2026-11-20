@@ -6,6 +6,7 @@
  * ze stałej listy i „skąd wiesz”, inaczej 422 `AUTOFILL_REASON_REQUIRED`.
  */
 import type { BoardColumnKey } from "@/lib/board-stages";
+import { closeReason } from "@/lib/close-reasons";
 import { warsawToday } from "@/lib/warsaw-date";
 
 export type AutofillReason =
@@ -29,6 +30,16 @@ export type AutofillReason =
   | "weak_english"
   | "contract_form"
   | "cleanup"
+  // Jeden słownik powodów zamknięcia procesu (19.11.2026, 0745).
+  | "culture"
+  | "available_too_late"
+  | "accepted_other_offer"
+  | "hm_already_interviewed"
+  | "client_chose_other"
+  | "client_interview_weak"
+  | "client_project_closed"
+  | "client_after_deadline"
+  | "client_no_reason"
   | "other";
 
 export type AutofillLearnedFrom = "profile" | "call";
@@ -143,104 +154,58 @@ export const CLIENT_WIDE_REASONS: ReadonlySet<AutofillReason> = new Set([
   "client_other_vendor",
 ]);
 
-export const AUTOFILL_REASON_GROUPS: {
-  title: string;
-  reasons: { value: AutofillReason; label: string }[];
-}[] = [
-  {
-    title: "Nie pasuje do wymagań",
-    reasons: [
-      { value: "missing_skill", label: "Brak kluczowej umiejętności" },
-      { value: "too_junior", label: "Za mało doświadczenia" },
-      { value: "overqualified", label: "Za wysoki poziom (overqualified)" },
-      { value: "other_level_or_role", label: "Inny poziom lub inna rola" },
-      { value: "location_mode", label: "Lokalizacja lub tryb pracy" },
-      { value: "no_polish", label: "Brak polskiego" },
-      { value: "weak_english", label: "Angielski za słaby" },
-    ],
-  },
-  {
-    title: "Pieniądze i dane",
-    reasons: [
-      { value: "too_expensive", label: "Za droga" },
-      { value: "outdated_cv", label: "CV nieaktualne" },
-      { value: "profile_mismatch", label: "Profil w bazie się nie zgadza" },
-      { value: "wrong_phone", label: "Błędny numer telefonu" },
-    ],
-  },
-  {
-    title: "Sprawa osoby",
-    reasons: [
-      { value: "not_looking", label: "Nie szuka pracy" },
-      { value: "no_answer", label: "Nie odbiera (3 próby)" },
-      { value: "in_other_process", label: "Już u nas w innym procesie" },
-      { value: "client_employed", label: "Pracuje u tego klienta (też przez inną firmę)" },
-      { value: "client_refused", label: "Nie chce do tego klienta" },
-      { value: "client_other_vendor", label: "Zgłoszony do klienta przez inną firmę" },
-      { value: "contract_form", label: "Forma umowy (UoP / B2B)" },
-      { value: "other", label: "Inne — opisz" },
-    ],
-  },
-];
-
 /**
  * Powód z szablonu procesu dla powodu dla systemu (27.10.2026): przy osobie od
  * systemu okno pyta o powód raz, a powód do raportu lejka liczy się z tej mapy.
- * Klucz `rejection_reasons.name` szablonu domyślnego; `null` — „Inne” z nazwą
- * powodu jako opisem, bo w szablonie nie ma odpowiednika. Od 04.11.2026 (0646)
- * sprawy osoby mają własne powody; koszyki raportu liczy serwer z powodu dla
- * systemu (`autofill_feedback.bucket_for`), więc ta mapa ich nie zmienia.
+ * Od 19.11.2026 (jeden słownik, 0745) każdy powód ma w szablonie własny klucz,
+ * więc mapa jest 1:1 — lustro `backend/app/services/close_reasons.py`. `null`
+ * — „Inne” z nazwą powodu jako opisem (stary „Język”, „Porządki” z porcji).
+ * Koszyki raportu liczy serwer z powodu dla systemu (`autofill_feedback.bucket_for`).
  */
 export const AUTOFILL_TEMPLATE_REASON: Record<AutofillReason, string | null> = {
   missing_skill: "Nie spełnia wymagań technicznych",
   too_junior: "Brak doświadczenia",
-  overqualified: null,
-  other_level_or_role: "Nie spełnia wymagań technicznych",
+  overqualified: "overqualified",
+  other_level_or_role: "other_level_or_role",
   location_mode: "work_mode_mismatch",
   language: null,
   too_expensive: "Za wysokie oczekiwania finansowe",
-  outdated_cv: null,
-  profile_mismatch: null,
-  wrong_phone: "no_contact",
+  outdated_cv: "outdated_cv",
+  profile_mismatch: "profile_mismatch",
+  wrong_phone: "wrong_phone",
   not_looking: "not_looking_for_work",
   no_answer: "no_contact",
-  in_other_process: null,
-  client_employed: "client_conflict",
-  client_refused: "client_conflict",
-  client_other_vendor: "client_conflict",
-  no_polish: null,
-  weak_english: null,
-  contract_form: null,
+  in_other_process: "in_other_process",
+  client_employed: "client_other_vendor",
+  client_refused: "client_refused",
+  client_other_vendor: "client_other_vendor",
+  no_polish: "no_polish",
+  weak_english: "weak_english",
+  contract_form: "contract_form",
   cleanup: null,
+  culture: "Nie pasuje kulturowo",
+  available_too_late: "available_too_late",
+  accepted_other_offer: "Zatrudniony gdzie indziej",
+  hm_already_interviewed: "hm_already_interviewed",
+  client_chose_other: "client_chose_other",
+  client_interview_weak: "client_interview_weak",
+  client_project_closed: "client_project_closed",
+  client_after_deadline: "client_after_deadline",
+  client_no_reason: "client_no_reason",
   other: null,
 };
 
-/**
- * Powód z szablonu jest tu szerszy niż wybór w oknie („Brak kontaktu” przy
- * złym numerze), więc nazwa powodu zostaje w opisie, żeby historia nie straciła
- * szczegółu, który dotąd niosło „Inne”.
- */
-const COARSER_TEMPLATE_REASON: ReadonlySet<AutofillReason> = new Set([
-  "wrong_phone",
-  "client_employed",
-  "client_refused",
-  "client_other_vendor",
-]);
-
-export function autofillReasonKeepsLabel(reason: AutofillReason): boolean {
-  return COARSER_TEMPLATE_REASON.has(reason);
-}
-
 export function autofillReasonLabel(reason: AutofillReason): string {
-  for (const group of AUTOFILL_REASON_GROUPS) {
-    const found = group.reasons.find((r) => r.value === reason);
-    if (found) return found.label;
-  }
+  // Od 19.11.2026 etykiety z jednego słownika powodów (`lib/close-reasons.ts`).
+  const fromDictionary = closeReason(reason);
+  if (fromDictionary) return fromDictionary.label;
   // „Język” zastąpiły 12.11.2026 „Brak polskiego” i „Angielski za słaby”;
   // stare wpisy dalej mają tę nazwę.
   if (reason === "language") return "Język";
   // „Porządki” (16.11.2026) są tylko w porcji, poza listą okna odrzucenia.
   if (reason === "cleanup") return "Porządki (nie ocena osoby)";
+  // Od 19.11.2026 część „Pracuje u klienta / zgłoszona przez inną firmę”.
+  if (reason === "client_other_vendor") return "Zgłoszony do klienta przez inną firmę";
   return reason;
 }
 
@@ -266,12 +231,21 @@ export function templateReasonFor<T extends { name?: string; label: string }>(
 
 const DECISION_COLUMNS: ReadonlySet<BoardColumnKey> = new Set(["new", "screening"]);
 
+/**
+ * Czy odrzucenie z tej kolumny pyta o powód z listy okna („Nie pasuje do
+ * wymagań” / „Pieniądze i dane” / „Sprawa osoby”). Od 19.11.2026 tak samo przy
+ * karcie dodanej ręcznie — zespół wolał tę listę od krótkiej z szablonu.
+ */
+export function isDecisionColumn(fromColumn: BoardColumnKey | null | undefined): boolean {
+  return fromColumn != null && DECISION_COLUMNS.has(fromColumn);
+}
+
 /** Czy ruch na „Odrzucony” tej osoby wymaga powodu dla systemu. */
 export function needsAutofillReason(
   item: { entry_source?: string | null },
   fromColumn: BoardColumnKey | null | undefined,
 ): boolean {
-  return item.entry_source === "system" && fromColumn != null && DECISION_COLUMNS.has(fromColumn);
+  return item.entry_source === "system" && isDecisionColumn(fromColumn);
 }
 
 /** Pola żądania `/api/pipeline/move` dla wybranego powodu. */
@@ -316,6 +290,12 @@ export function autofillBucketHint(reason: AutofillReason | null, rateKnown: boo
   if (reason === "client_employed" || reason === "client_other_vendor") {
     return "Do raportu: „Brak danych” — system nie wiedział, że pracuje u klienta albo zgłosiła go inna firma.";
   }
+  if (reason === "hm_already_interviewed") {
+    return "Do raportu: „Brak danych” — system nie wiedział o rozmowie u tego managera.";
+  }
+  if (reason.startsWith("client_") && reason !== "client_refused") {
+    return "Do raportu: decyzja klienta — nie liczymy jako błędu wyszukiwania.";
+  }
   if (reason === "wrong_phone") {
     return "Do raportu: „Brak danych” — numer w profilu trzeba poprawić.";
   }
@@ -324,7 +304,10 @@ export function autofillBucketHint(reason: AutofillReason | null, rateKnown: boo
     reason === "no_answer" ||
     reason === "in_other_process" ||
     reason === "client_refused" ||
-    reason === "contract_form"
+    reason === "contract_form" ||
+    reason === "culture" ||
+    reason === "available_too_late" ||
+    reason === "accepted_other_offer"
   ) {
     return "Do raportu: „Sprawa osoby” — nie liczymy jako błędu wyszukiwania.";
   }

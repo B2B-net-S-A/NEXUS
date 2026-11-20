@@ -28,7 +28,7 @@ from app.models.consultant_portal import CpFaqItem
 from app.models.contract import Contract
 from app.models.user import User
 from app.services.admin_cases import rules
-from app.services.admin_cases.hooks import _care_owner_id
+from app.services.admin_cases.hooks import automatic_assignee
 from app.services.admin_cases.service import (
     AutomaticCase,
     module_enabled,
@@ -176,8 +176,11 @@ async def open_portal_case(
     title: str,
     description: Optional[str],
     now: datetime,
+    host_user_id: Optional[int] = None,
 ) -> AdminCase:
-    assignee = await _care_owner_id(db, contract_id)
+    # Rozmowa prowadzi osoba wybrana przez konsultanta; pisemne zgłoszenie bierze
+    # pierwsza wolna osoba (z modułem back office) albo dawny opiekun (bez niego).
+    assignee = host_user_id or await automatic_assignee(db, contract_id)
     case, _created = await open_automatic_case(
         db,
         AutomaticCase(
