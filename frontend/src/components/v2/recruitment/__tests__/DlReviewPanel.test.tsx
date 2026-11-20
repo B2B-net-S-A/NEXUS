@@ -272,7 +272,7 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     renderDocxSafely.mockResolvedValue(undefined);
     post.mockResolvedValue({ data: {} });
     loadJobRejectionReasons.mockResolvedValue([
-      { id: "5", label: "Za wysoka stawka", applies_to: ["rejected"], disqualifies_person: false },
+      { id: "5", name: "Brak doświadczenia", label: "Brak doświadczenia", applies_to: ["rejected"], disqualifies_person: false },
       { id: "6", label: "Kandydat zrezygnował", applies_to: ["withdrawn"], disqualifies_person: false },
     ]);
   });
@@ -631,7 +631,7 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
   it("„Nie akceptuje trybu pracy” pyta o dni w biurze i wysyła je z ruchem (14.10.2026)", async () => {
     mockApi();
     loadJobRejectionReasons.mockResolvedValue([
-      { id: "5", label: "Za wysoka stawka", applies_to: ["rejected"], disqualifies_person: false },
+      { id: "5", name: "Brak doświadczenia", label: "Brak doświadczenia", applies_to: ["rejected"], disqualifies_person: false },
       {
         id: "9",
         name: "work_mode_mismatch",
@@ -1334,7 +1334,7 @@ describe("DlReviewPanel — odrzucenie z uzasadnieniem i rozmowa u tego managera
     },
   ];
   const REASONS = [
-    { id: "5", label: "Za wysoka stawka", applies_to: ["rejected"], disqualifies_person: false },
+    { id: "5", name: "Brak doświadczenia", label: "Brak doświadczenia", applies_to: ["rejected"], disqualifies_person: false },
     { id: "8", name: "Inne (rejected)", label: "Inne", applies_to: ["rejected"], disqualifies_person: false },
     {
       id: "12",
@@ -1365,9 +1365,15 @@ describe("DlReviewPanel — odrzucenie z uzasadnieniem i rozmowa u tego managera
     await userEvent.click(screen.getByRole("button", { name: /^Odrzuć…/ }));
     const group = screen.getByRole("group", { name: "Odrzucenie przez DL" });
     const select = await within(group).findByRole("combobox");
-    await within(select).findByRole("option", { name: "Brak kontaktu" });
-    expect(within(select).queryByRole("option", { name: "Klient nie podał powodu" })).toBeNull();
-    expect(within(select).queryByRole("option", { name: "Klient wybrał kogoś innego" })).toBeNull();
+    // Etykiety ze słownika powodów (19.11.2026): DL wybiera jak my.
+    await within(select).findByRole("option", { name: "Nie odbiera / brak kontaktu" });
+    expect(within(select).queryByRole("option", { name: "Nie podał powodu" })).toBeNull();
+    expect(within(select).queryByRole("option", { name: "Wybrał innego kandydata" })).toBeNull();
+    const values = within(select)
+      .getAllByRole("option")
+      .map((o) => (o as HTMLOptionElement).value);
+    expect(values).not.toContain("20");
+    expect(values).not.toContain("21");
   });
 
   it("„Inne” wymaga opisu, a opis jedzie jako notatka ruchu", async () => {

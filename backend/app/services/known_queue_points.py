@@ -37,6 +37,10 @@ SETTING_KEY = "queue_known_points"
 RECENT_NOTE_DAYS = 30
 OLDER_NOTE_DAYS = 90
 MAX_POINTS = 15
+# Wysłany do klienta w innej rekrutacji w ostatnim roku (Z1, 20.11.2026):
+# wśród kart od systemu 12,2% do klienta wobec 7,9% wszystkich. Stała, nie
+# suwak panelu: skala jak „u klienta” (6) i świeża notatka (8).
+SENT_POINTS = 8
 
 
 @dataclass(frozen=True)
@@ -56,6 +60,8 @@ class KnownFacts:
     note_points: int
     verified_at_client: int
     last_note_days: Optional[int]
+    sent_elsewhere: int = 0
+    sent_points: int = 0
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -207,6 +213,24 @@ async def facts_for_jobs(
     )
     note_days = {int(cid): (now - at).days for cid, at in rows.all() if at is not None}
     rejected_rows = await _rejected_by_client(db, client_ids, all_ids)
+    # Wysyłki do klienta w ostatnim roku: (kandydat) → rekrutacje (20.11.2026).
+    from datetime import timedelta
+
+    from app.services import sent_before
+
+    sent_rows = await db.execute(
+        text(
+            """
+            SELECT DISTINCT candidate_id, job_id FROM candidate_stages
+            WHERE candidate_id = ANY(:ids) AND stage::text = 'cv_sent'
+              AND moved_at >= :since
+            """
+        ),
+        {"ids": all_ids, "since": now - timedelta(days=sent_before.DAYS)},
+    )
+    sent_jobs: dict[int, set[int]] = {}
+    for cid, jid in sent_rows.all():
+        sent_jobs.setdefault(int(cid), set()).add(int(jid))
     for job_id, (client_id, candidate_ids) in boards.items():
         rejected = (
             {
@@ -228,9 +252,17 @@ async def facts_for_jobs(
             )
             last_note = note_days.get(candidate_id)
             client, note = points_for(weights, client_jobs, last_note)
-            if client + note > 0:
+            sent_count = len(sent_jobs.get(candidate_id, set()) - {job_id})
+            sent = SENT_POINTS if sent_count > 0 else 0
+            if client + note + sent > 0:
                 facts[candidate_id] = KnownFacts(
-                    client + note, client, note, client_jobs, last_note
+                    client + note + sent,
+                    client,
+                    note,
+                    client_jobs,
+                    last_note,
+                    sent_count,
+                    sent,
                 )
         out[job_id] = facts
     return out

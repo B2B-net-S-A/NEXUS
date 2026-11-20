@@ -20,7 +20,7 @@ import type { RejectionReasonDef } from "@/lib/api";
 import { mapRejectionReasons, rejectionReasonLabel } from "@/lib/rejection-reasons";
 
 const reasons = [
-  { id: "7", label: "Za wysoka stawka", applies_to: ["rejected" as const] },
+  { id: "7", label: "Brak doświadczenia", name: "Brak doświadczenia", applies_to: ["rejected" as const] },
 ];
 
 /** Okno ma podgląd maila na react-query (13.10.2026) — klient w każdym teście. */
@@ -54,7 +54,7 @@ describe("RejectionV2 — mail odrzucenia opt-in", () => {
     const checkbox = screen.getByRole("checkbox");
     expect(checkbox).not.toBeChecked();
 
-    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
 
     expect(onConfirm).toHaveBeenCalledTimes(1);
@@ -64,7 +64,7 @@ describe("RejectionV2 — mail odrzucenia opt-in", () => {
   it("zaznaczony checkbox wysyła true", () => {
     const onConfirm = renderRejection();
     fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
 
     expect(onConfirm.mock.calls[0][2]).toBe(true);
@@ -89,10 +89,11 @@ describe("RejectionV2 — „Zatrudniony gdzie indziej” (04.11.2026)", () => {
     );
     expect(screen.queryByTestId("rejection-employed-elsewhere")).toBeNull();
 
-    fireEvent.click(screen.getByText("Brak doświadczenia"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     expect(screen.queryByTestId("rejection-employed-elsewhere")).toBeNull();
 
-    fireEvent.click(screen.getByText("Zatrudniony gdzie indziej"));
+    // Od 19.11.2026 etykieta ze słownika powodów; wiersz szablonu ten sam.
+    fireEvent.click(screen.getByText("Przyjęła inną ofertę"));
     expect(screen.getByTestId("rejection-employed-elsewhere")).toHaveTextContent(
       "„Nie szuka” na 3 miesiące i system nie doda tej osoby",
     );
@@ -139,7 +140,7 @@ describe("RejectionV2 — kto zakończył proces (Pipeline v4)", () => {
     // Bez uprawnień DL opcji „Odrzuca Delivery Lead" nie ma.
     expect(screen.queryByText("Odrzuca Delivery Lead")).toBeNull();
     fireEvent.click(screen.getByText("Odrzuca klient"));
-    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[0][5]).toBe("client");
   });
@@ -157,7 +158,7 @@ describe("RejectionV2 — kto zakończył proces (Pipeline v4)", () => {
         canEndAsDeliveryLead
       />,
     );
-    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[0][5]).toBe("delivery_lead");
 
@@ -249,7 +250,7 @@ describe("RejectionV2 — notatka startowa", () => {
     const notes = screen.getByRole("textbox");
     expect(notes).toHaveValue("Odpada, gdy: brak Javy");
 
-    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[0][1]).toBe("Odpada, gdy: brak Javy");
   });
@@ -445,7 +446,7 @@ describe("RejectionV2 — podgląd maila odrzucenia (13.10.2026)", () => {
 
     fireEvent.change(body, { target: { value: "Cześć Anna,\n\nKlient wstrzymał projekt." } });
     expect(screen.getByText("Zmieniona ręcznie")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
 
     expect(onConfirm.mock.calls[0][2]).toBe(true);
@@ -467,7 +468,7 @@ describe("RejectionV2 — podgląd maila odrzucenia (13.10.2026)", () => {
     expect(subject).toHaveValue("Informacja zwrotna — Senior Dev");
     expect(screen.queryByText("Zmieniona ręcznie")).toBeNull();
 
-    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[0][2]).toBe(true);
     expect(onConfirm.mock.calls[0][7]).toBeNull();
@@ -478,7 +479,7 @@ describe("RejectionV2 — podgląd maila odrzucenia (13.10.2026)", () => {
       previewResponse([{ candidate_id: 5, to_email: "anna@example.com", skip_reason: null }]),
     );
     renderWithPreview(ONE);
-    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     fireEvent.click(screen.getByRole("checkbox"));
     const body = await screen.findByLabelText("Treść");
     fireEvent.change(body, { target: { value: "   " } });
@@ -498,7 +499,7 @@ describe("RejectionV2 — podgląd maila odrzucenia (13.10.2026)", () => {
       await screen.findByText(/nie masz podłączonej skrzynki Microsoft 365/),
     ).toBeInTheDocument();
     expect(screen.getByRole("checkbox")).toBeDisabled();
-    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[0][2]).toBe(false);
   });
@@ -524,7 +525,7 @@ describe("RejectionV2 — podgląd maila odrzucenia (13.10.2026)", () => {
     expect(screen.getByText("bez maila: przed weryfikacją")).toBeInTheDocument();
     expect(screen.queryByLabelText("Treść")).toBeNull();
 
-    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[0][2]).toBe(true);
     expect(onConfirm.mock.calls[0][7]).toBeNull();
@@ -578,7 +579,7 @@ describe("RejectionV2 — podgląd maila odrzucenia (13.10.2026)", () => {
     expect(screen.getByText("Java TL · Rozmowa u klienta")).toBeInTheDocument();
 
     // Bez zmian: domyślnie dopisek, nic nie idzie w 8. argumencie.
-    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[0][2]).toBe(true);
     expect(onConfirm.mock.calls[0][7]).toBeNull();
@@ -719,7 +720,7 @@ describe("RejectionV2 — podgląd maila odrzucenia (13.10.2026)", () => {
     );
     expect(screen.getByText("Podgląd wspólnego maila")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[0][7]).toBeNull();
 
@@ -738,7 +739,7 @@ describe("RejectionV2 — podgląd maila odrzucenia (13.10.2026)", () => {
     const onConfirm = renderWithPreview(ONE);
     fireEvent.click(screen.getByRole("checkbox"));
     expect(await screen.findByText(/Mail wyjdzie z treścią domyślną/)).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Potwierdź" })).toBeEnabled(),
     );
@@ -764,7 +765,7 @@ describe("RejectionV2 — zapis w toku", () => {
         pending
       />,
     );
-    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     const confirm = screen.getByRole("button", { name: "Potwierdź" });
     expect(confirm).toBeDisabled();
     fireEvent.click(confirm);
@@ -774,7 +775,7 @@ describe("RejectionV2 — zapis w toku", () => {
 
 describe("RejectionV2 — „Nie akceptuje trybu pracy” (14.10.2026)", () => {
   const workModeReasons = [
-    { id: "7", label: "Za wysoka stawka", applies_to: ["rejected" as const] },
+    { id: "7", label: "Brak doświadczenia", name: "Brak doświadczenia", applies_to: ["rejected" as const] },
     {
       id: "9",
       name: "work_mode_mismatch",
@@ -804,13 +805,13 @@ describe("RejectionV2 — „Nie akceptuje trybu pracy” (14.10.2026)", () => {
   it("pyta o dni w biurze dopiero po wybraniu powodu", () => {
     renderWorkMode();
     expect(screen.queryByTestId("rejection-work-mode")).toBeNull();
-    fireEvent.click(screen.getByText("Nie akceptuje trybu pracy (biuro / hybryda)"));
+    fireEvent.click(screen.getByText("Lokalizacja lub tryb pracy"));
     expect(screen.getByTestId("rejection-work-mode")).toBeInTheDocument();
   });
 
   it("pokazuje tylko mniej dni, niż wymaga rekrutacja, i jej tryb pracy", () => {
     renderWorkMode({ workModeJob: { remotePolicy: "hybrid", onsiteDaysPerWeek: 2 } });
-    fireEvent.click(screen.getByText("Nie akceptuje trybu pracy (biuro / hybryda)"));
+    fireEvent.click(screen.getByText("Lokalizacja lub tryb pracy"));
     const choices = screen.getByRole("radiogroup", {
       name: "Ile dni w biurze kandydat akceptuje",
     });
@@ -824,7 +825,7 @@ describe("RejectionV2 — „Nie akceptuje trybu pracy” (14.10.2026)", () => {
 
   it("domyślnie „Tylko zdalnie” z zapisem na profilu — idzie w 9. argumencie", () => {
     const onConfirm = renderWorkMode();
-    fireEvent.click(screen.getByText("Nie akceptuje trybu pracy (biuro / hybryda)"));
+    fireEvent.click(screen.getByText("Lokalizacja lub tryb pracy"));
     expect(screen.getByText(/Tryb pracy → Tylko zdalnie/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[0][0]).toBe("9");
@@ -833,7 +834,7 @@ describe("RejectionV2 — „Nie akceptuje trybu pracy” (14.10.2026)", () => {
 
   it("wybrany dzień i odznaczony zapis trafiają do ruchu", () => {
     const onConfirm = renderWorkMode();
-    fireEvent.click(screen.getByText("Nie akceptuje trybu pracy (biuro / hybryda)"));
+    fireEvent.click(screen.getByText("Lokalizacja lub tryb pracy"));
     fireEvent.click(screen.getByText("Do 1 dnia"));
     expect(
       screen.getByText(/Tryb pracy → Hybrydowo lub zdalnie · do 1 dnia w biurze/),
@@ -845,7 +846,7 @@ describe("RejectionV2 — „Nie akceptuje trybu pracy” (14.10.2026)", () => {
 
   it("przy jednej osobie pokazuje, co jest teraz na profilu", () => {
     renderWorkMode({ profileWorkMode: { modes: ["remote", "hybrid"], days: 3 } });
-    fireEvent.click(screen.getByText("Nie akceptuje trybu pracy (biuro / hybryda)"));
+    fireEvent.click(screen.getByText("Lokalizacja lub tryb pracy"));
     expect(screen.getByTestId("rejection-work-mode-current")).toHaveTextContent(
       "Teraz na profilu: Hybrydowo lub zdalnie · do 3 dni w biurze w tygodniu",
     );
@@ -853,7 +854,7 @@ describe("RejectionV2 — „Nie akceptuje trybu pracy” (14.10.2026)", () => {
 
   it("pusty profil to „Nie uzupełniono”", () => {
     renderWorkMode({ profileWorkMode: { modes: [], days: null } });
-    fireEvent.click(screen.getByText("Nie akceptuje trybu pracy (biuro / hybryda)"));
+    fireEvent.click(screen.getByText("Lokalizacja lub tryb pracy"));
     expect(screen.getByTestId("rejection-work-mode-current")).toHaveTextContent(
       "Teraz na profilu: Nie uzupełniono",
     );
@@ -871,14 +872,14 @@ describe("RejectionV2 — „Nie akceptuje trybu pracy” (14.10.2026)", () => {
         ],
       },
     });
-    fireEvent.click(screen.getByText("Nie akceptuje trybu pracy (biuro / hybryda)"));
+    fireEvent.click(screen.getByText("Lokalizacja lub tryb pracy"));
     expect(screen.getByText(/Zapisz na profilach kandydatów/)).toBeInTheDocument();
     expect(screen.queryByTestId("rejection-work-mode-current")).toBeNull();
   });
 
   it("inny powód nie wysyła trybu pracy", () => {
     const onConfirm = renderWorkMode();
-    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[0][8]).toBeNull();
   });
@@ -902,7 +903,7 @@ describe("RejectionV2 — „Nie akceptuje trybu pracy” (14.10.2026)", () => {
 
 describe("RejectionV2 — opis przy powodzie, który sam nic nie mówi (20.10.2026)", () => {
   const vague = [
-    { id: "7", label: "Za wysoka stawka", applies_to: ["rejected" as const] },
+    { id: "7", label: "Brak doświadczenia", name: "Brak doświadczenia", applies_to: ["rejected" as const] },
     { id: "8", label: "Inne", name: "Inne (rejected)", applies_to: ["rejected" as const] },
     {
       id: "9",
@@ -929,7 +930,7 @@ describe("RejectionV2 — opis przy powodzie, który sam nic nie mówi (20.10.20
 
   it("„Inne” bez opisu blokuje Potwierdź, opis odblokowuje i idzie jako notatka", () => {
     const onConfirm = renderVague();
-    fireEvent.click(screen.getByText("Inne"));
+    fireEvent.click(screen.getByText("Inne — opisz"));
     expect(screen.getByText("Opisz powód")).toBeInTheDocument();
     const confirm = screen.getByRole("button", { name: "Potwierdź" });
     expect(confirm).toBeDisabled();
@@ -954,7 +955,7 @@ describe("RejectionV2 — opis przy powodzie, który sam nic nie mówi (20.10.20
 
   it("zwykły powód zostawia notatkę opcjonalną", () => {
     const onConfirm = renderVague();
-    fireEvent.click(screen.getByText("Za wysoka stawka"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     expect(screen.getByText("Notatka (opcjonalnie)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm).toHaveBeenCalledTimes(1);

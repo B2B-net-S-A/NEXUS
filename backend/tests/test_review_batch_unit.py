@@ -445,6 +445,30 @@ def test_only_fresh_cards_from_threshold_are_the_batch(score, age, inside):
     assert rb.in_batch(_dated(1, score, age), NOW) is inside
 
 
+@pytest.mark.parametrize(
+    "score, sent, min_score, inside",
+    [
+        (50, True, None, True),  # wysłany wcześniej: od 50%
+        (49.9, True, None, False),
+        (60, False, None, False),  # reszta od progu porcji (65)
+        (55, True, 70, True),  # wyższy próg HoR nie podnosi progu wysłanych
+        (45, True, 45, True),  # niższy próg HoR działa także dla wysłanych
+    ],
+)
+def test_sent_before_counts_from_fifty(score, sent, min_score, inside):
+    """Z1, 20.11.2026: 53 z 89 sprawdzonych wysłanych ręcznie miało 50–100%."""
+    card = rb.PendingCard(
+        process_id=1,
+        job_id=1,
+        candidate_id=1001,
+        owner_id=None,
+        score=score,
+        opened_at=NOW - timedelta(days=1),
+        sent_before=sent,
+    )
+    assert rb.in_batch(card, NOW, min_score) is inside
+
+
 def test_card_without_open_date_is_not_the_batch():
     card = rb.PendingCard(1, 1, 1001, None, 90, None)
     assert not rb.in_batch(card, NOW)

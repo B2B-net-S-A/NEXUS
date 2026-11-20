@@ -58,6 +58,7 @@
  */
 
 import Link from "next/link";
+import { closeTemplateOptions } from "@/lib/close-reasons";
 import { forwardRef, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Loader2, X, XCircle } from "lucide-react";
@@ -115,7 +116,6 @@ import { hasPermission, permissionLabel } from "@/lib/permissions";
 import {
   HM_ALREADY_INTERVIEWED_REASON,
   loadJobRejectionReasons,
-  reasonFitsEndedBy,
   reasonNeedsDescription,
   WORK_MODE_MISMATCH_REASON,
 } from "@/lib/rejection-reasons";
@@ -537,8 +537,11 @@ export function DlReviewBody({
   });
   const rejectedReasons = useMemo(
     () =>
-      (reasons.data ?? []).filter(
-        (r) => r.applies_to.includes("rejected") && reasonFitsEndedBy(r, "delivery_lead"),
+      // Jeden słownik powodów (19.11.2026): DL mówi jak my, w kolejności
+      // i z etykietami słownika.
+      closeTemplateOptions(
+        (reasons.data ?? []).filter((r) => r.applies_to.includes("rejected")),
+        "recruiter",
       ),
     [reasons.data],
   );
