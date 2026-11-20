@@ -107,11 +107,7 @@ export function totalsText(totals: MoneyTotal[]): string {
   return totals.map((total) => formatMoney(total.amount, total.currency)).join(" · ");
 }
 
-export function summaryStats(
-  summary: InvoicingSummary,
-  period: string,
-  overdue?: number,
-): InlineStat[] {
+export function summaryStats(summary: InvoicingSummary, period: string): InlineStat[] {
   const outside = [
     summary.unknown
       ? `Bez ${countPl(summary.unknown, "zamówienia", "zamówień", "zamówień")} — czekają na zużycie MD.`
@@ -144,17 +140,8 @@ export function summaryStats(
   if (summary.differences) {
     stats.push({ id: "differences", label: "różnice do sprawdzenia", value: summary.differences });
   }
-  if (overdue !== undefined) {
-    const unknown = summary.payment_unknown ?? 0;
-    const title = unknown
-      ? unknownPaymentsText(unknown, summary.payment_unknown_reasons)
-      : undefined;
-    stats.push(
-      unknown && overdue === 0
-        ? { id: "overdue", label: "o zapłatach", value: "brak danych", title }
-        : { id: "overdue", label: "po terminie", value: overdue, title },
-    );
-  }
+  // Zakładka klienta od 20.11.2026 pokazuje kroki miesiąca (`month-steps.ts`)
+  // zamiast tych liczb; zapłaty i „po terminie” są w kroku „Zapłata”.
   return stats;
 }
 
