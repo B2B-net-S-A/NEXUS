@@ -582,7 +582,12 @@ export function B2BContractGeneratorV2() {
     if (tab === "roles" && !isAdmin) return null;
     return tab;
   };
-  const requestedTab = allowedTab(generatorTabFromParam(tabParam));
+  // Sam `?q=<numer>` bez zakładki (dzienne podsumowanie, „Umowy B2B czekają
+  // na podpis” na pulpicie) szuka umowy w rejestrze — do 20.11.2026 osoba
+  // z prawem generowania lądowała na pustym formularzu, a fraza przepadała.
+  const requestedTab =
+    allowedTab(generatorTabFromParam(tabParam)) ??
+    (qParam && !tabParam ? "generated" : null);
   const [activeTab, setActiveTab] = useState<GeneratorTab>(
     requestedTab ?? defaultTab,
   );

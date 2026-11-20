@@ -226,6 +226,15 @@ describe("Generator umów — pięć zakładek", () => {
     await waitFor(() => expect(screen.getByText("Umowy bieżące")).toBeInTheDocument());
   });
 
+  it("sam `?q=<numer>` (podsumowanie dnia, pulpit) szuka umowy w „Umowach”, nie otwiera formularza", async () => {
+    renderPage("q=1520%2F2026");
+    expect(selectedTab()).toBe("Umowy");
+    expect(checkedPhase()).toBe("Bieżące");
+    expect(
+      await screen.findByRole("textbox", { name: "Szukaj wygenerowanych umów" }),
+    ).toHaveValue("1520/2026");
+  });
+
   it("bez generowania link `?tab=generator` nie otwiera formularza", () => {
     state.canGenerate = false;
     renderPage("tab=generator");
