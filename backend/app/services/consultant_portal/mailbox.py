@@ -277,14 +277,19 @@ async def _ingest_message(
     ):
         inner = await _forwarded(mailbox, message)
         files.extend(inner.files if inner else ())
+    # Osoba nie z nadawcy (pierwotny nadawca przekazanego maila, nazwisko w temacie
+    # albo nazwie pliku) dostaje tylko pliki, które z nazwy są raportem albo fakturą.
+    indirect = None
     if contract is None and inner is not None:
-        contract = await _forwarded_contract(
+        indirect = await _forwarded_contract(
             db, inner.senders, state=state, today=today
         )
-    by_name = None
-    if contract is None:
+    if contract is None and indirect is None and identity.is_company_address(sender):
+        # Nazwisko z tematu tylko od adresu firmy (koordynator, skrzynka firmowa):
+        # temat może napisać każdy, więc obcy adres nie wskazuje nim osoby.
         names = " ".join([subject, *(str(f.get("name") or "") for f in files)])
-        by_name = await identity.resolve_named_in_text(db, names, today=today)
+        indirect = await identity.resolve_named_in_text(db, names, today=today)
+    indirect_created = 0
     contract_id = contract.id if contract else None
     received = _parse_time(message.get("receivedDateTime")) or now
     created = skipped = 0
@@ -321,11 +326,10 @@ async def _ingest_message(
             continue
         year, month, guessed = period_for(subject, name, received.date())
         owner = contract_id
-        if owner is None and by_name is not None and _named_kind(subject, name):
-            # Po samym nazwisku tylko plik, który z nazwy jest raportem albo fakturą:
-            # porozumienie o rozwiązaniu czy certyfikat z nazwiskiem w temacie
-            # nie może wejść do rozliczenia jako faktura kontraktora.
-            owner = by_name.id
+        if owner is None and indirect is not None and _named_kind(subject, name):
+            # Wypowiedzenie, zaświadczenie czy oferta przekazane z łańcuchem konsultanta
+            # nie mogą wejść do rozliczenia jako faktura kontraktora (próba IX–XI 2026).
+            owner = indirect.id
         try:
             stored = await documents.store(
                 db,
@@ -346,9 +350,19 @@ async def _ingest_message(
             skipped += 1
             continue
         created += 0 if stored.duplicate else 1
-    if created and contract is not None and kesu.parse_jira(subject, "") is None:
+        if owner is not None and owner != contract_id and not stored.duplicate:
+            indirect_created += 1
+    body_owner = contract or (indirect if indirect_created else None)
+    if created and body_owner is not None and kesu.parse_jira(subject, "") is None:
+        # Akceptacja klienta przekazana dalej (PKO): treść maila to dowód godzin.
         created += await _store_mail_body(
-            db, mailbox, message, contract, subject=subject, received=received, now=now
+            db,
+            mailbox,
+            message,
+            body_owner,
+            subject=subject,
+            received=received,
+            now=now,
         )
     return created, skipped
 

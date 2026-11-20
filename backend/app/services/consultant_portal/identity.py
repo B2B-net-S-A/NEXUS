@@ -134,6 +134,10 @@ def _company_domains() -> frozenset[str]:
     )
 
 
+def is_company_address(address: str) -> bool:
+    return normalize_email(address).rpartition("@")[2] in _company_domains()
+
+
 def _address_forms(first: Optional[str], last: Optional[str]) -> set[str]:
     """Lokalne części adresu firmowego osoby: ``jan.kowalski``, ``j.kowalski``,
     ``jan_kowalski``, ``jankowalski``; nazwisko dwuczłonowe także po członie."""
@@ -200,10 +204,9 @@ async def resolve_named_in_text(
 ) -> Optional[Contract]:
     """Kontrakt osoby, której imię i nazwisko stoi w temacie albo nazwie pliku.
 
-    Ostatnia deska, gdy nadawca nikogo nie wskazuje: koordynator przesyła cudze
-    pliki, klient akceptuje „Odbiór usług … Nazwisko Imię”, konsultant pisze
-    z drugiego prywatnego adresu („TimeSheet … Nazwisko Imię.xls”). W próbie IX–XI
-    2026 to było ok. 570 dokumentów bez osoby. Kolejność słów dowolna, imię
+    Ostatnia deska, gdy nadawca z adresu firmy nikogo nie wskazuje: koordynator
+    przesyła cudze pliki („TimeSheet … Nazwisko Imię.xls”). Czytnik pyta tylko dla
+    nadawców z domeny firmy, bo temat może napisać każdy. Kolejność słów dowolna, imię
     i każdy człon nazwiska muszą stać w tekście. Dwie osoby w tekście albo jedna
     z dwoma działającymi kontraktami = ``None`` (karta do ręcznego przypisania).
     """
