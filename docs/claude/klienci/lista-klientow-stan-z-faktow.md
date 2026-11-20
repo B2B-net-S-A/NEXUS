@@ -30,6 +30,14 @@ zakresy umów), a 6 z 33 „Aktywnych” nie miało nikogo.
   klienta), „Marża / mc” (= „Aktywne MRR” profilu, „niepełna” przy kontrakcie
   bez stawki), „Umowa ramowa”, „Wymaga uwagi”, DL pod nazwą (w szerokiej
   tabeli własna kolumna).
+- **„Umowa ramowa” bierze też zakresy scalonych duplikatów** (20.11.2026).
+  Scalenie przenosi umowę na klienta docelowego, a zakres portfela zostaje
+  na duplikacie (inwariant manifestu), więc bez tego wiersz celu tracił umowę
+  i jej termin w „Wymaga uwagi”. Umowa liczy się, gdy należy do klienta
+  wiersza albo do klienta zakresu; zakres z umową przeniesioną do kogoś
+  innego nie udaje umowy bez terminu. Zakładka („Bez bieżącej pracy” /
+  „Archiwum”) zostaje przy własnych zakresach klienta, tak jak wybór klienta
+  w Rekrutacjach i Kontraktach.
 - **Marża na liście wielu klientów** idzie regułą `list_finance_client_ids`
   (`api/financial_access.py`): wiersz po wierszu `can_read_client_finance`,
   a bez uprawnienia „Wyniki firmy” kwoty widzi tylko konto rządzone portfelem
