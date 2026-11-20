@@ -30,7 +30,7 @@ def drop_statements() -> list[str]:
 
 
 def upgrade() -> None:
-    # zgodne-wstecz: tabeli nie czyta kod od #3661 (wdrożony przed zdjęciem szkicu)
+    # zgodne-wstecz: tabeli nie czyta kod od #3661 (wdrożony 20.11.2026)
     for statement in drop_statements():
         op.execute(statement)
 
