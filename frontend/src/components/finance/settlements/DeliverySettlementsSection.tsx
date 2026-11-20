@@ -4,9 +4,8 @@
 // Decyzja Artura z 09.11.2026: marżę w zł i % widzą Finanse i DL swoich klientów
 // (kwoty według `can_read_client_finance`). Tu DL przyjmuje albo odrzuca koszty
 // integracji, które wpisały Finanse. Moduł rozliczeń wyłączony = sekcji nie ma (404).
-import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-
+// Miesiąc trzyma zakładka (`ClientInvoicesAndSettlementTab`): jedna strzałka nad
+// sekcją i tabelą faktur, bez osobnej tutaj.
 import { QueryStateNotice, StatusDot } from "@/components/ds";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
@@ -18,25 +17,15 @@ import {
   type IntegrationCost,
 } from "@/lib/api/client-settlements";
 import { resolveViewState } from "@/lib/view-state";
-import { warsawToday } from "@/lib/warsaw-date";
 
-import { CLIENT_INVOICE, INTEGRATION_STATUS, defaultMonth, integrationUsageText, mdText, monthLabel, pctText, pln } from "./format";
-
-function shift(month: string, delta: number): string {
-  const [y, m] = month.split("-").map(Number);
-  const index = y * 12 + (m - 1) + delta;
-  return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}`;
-}
+import { CLIENT_INVOICE, INTEGRATION_STATUS, integrationUsageText, mdText, monthLabel, pctText, pln } from "./format";
 
 function quantity(positions: { quantity: string; kind: string }[]): string {
   const md = positions.filter((p) => p.kind !== "correction").reduce((sum, p) => sum + Number(p.quantity), 0);
   return mdText(String(md));
 }
 
-export function DeliverySettlementsSection({ clientId }: { clientId: number }) {
-  const today = warsawToday();
-  const latest = useMemo(() => defaultMonth(today), [today]);
-  const [month, setMonth] = useState(latest);
+export function DeliverySettlementsSection({ clientId, month }: { clientId: number; month: string }) {
   const query = useDeliverySettlements(clientId, month);
   const decide = useDecideIntegrationCost(clientId, month);
   const { askConfirm, confirmDialog } = useConfirmV2();
@@ -82,26 +71,9 @@ export function DeliverySettlementsSection({ clientId }: { clientId: number }) {
   return (
     <section className="space-y-3 rounded-xl border bg-card p-4" aria-label="Rozliczenie miesiąca i marża">
       {confirmDialog}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">Rozliczenie miesiąca i marża</h3>
-          <p className="text-xs text-muted-foreground">Z przyjętych RCP. Marża po kosztach integracji ze zgodą DL-a.</p>
-        </div>
-        <div className="flex items-center gap-1">
-          <Button size="icon" variant="ghost" aria-label="Poprzedni miesiąc" onClick={() => setMonth(shift(month, -1))}>
-            <ChevronLeft aria-hidden className="size-4" />
-          </Button>
-          <span className="min-w-28 text-center text-sm font-medium">{monthLabel(month)}</span>
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="Następny miesiąc"
-            disabled={month >= latest}
-            onClick={() => setMonth(shift(month, 1))}
-          >
-            <ChevronRight aria-hidden className="size-4" />
-          </Button>
-        </div>
+      <div>
+        <h3 className="text-sm font-semibold text-foreground">Rozliczenie miesiąca i marża</h3>
+        <p className="text-xs text-muted-foreground">Z przyjętych RCP. Marża po kosztach integracji ze zgodą DL-a.</p>
       </div>
       {!data ? (
         <p className="py-6 text-center text-sm text-muted-foreground">Ładowanie…</p>
