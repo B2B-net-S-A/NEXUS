@@ -1,6 +1,7 @@
 """Minimum porcji rośnie osobno dla każdego (decyzja Artura 08.11.2026).
 
-Kto zrobił swoje minimum, następnego dnia roboczego ma o 10 więcej, do 50.
+Kto zrobił swoje minimum, następnego dnia roboczego ma o 10 więcej, do 20
+(do 20.11.2026: do 50).
 Baza testowa jest wspólna: wiersz stanu poziomów czyści fixture, a asercje
 dotyczą własnych kont.
 """
@@ -41,9 +42,8 @@ _WAW = ZoneInfo("Europe/Warsaw")
     [
         (10, 10, 20),
         (10, 37, 20),
-        (40, 40, 50),
-        (45, 45, 50),
-        (50, 80, 50),
+        (15, 15, 20),
+        (20, 80, 20),
         (10, 9, 10),
         (30, 0, 30),
     ],
@@ -52,13 +52,22 @@ def test_next_level(level, done, expected):
     assert levels.next_level(level, done) == expected
 
 
-def test_level_above_the_cap_set_by_hand_stays():
-    assert levels.next_level(60, 60) == 60
+def test_cap_is_twenty():
+    """20.11.2026: decyzje 21–50 dnia dawały 0,9% osób u klienta."""
+    assert levels.CAP == 20
 
 
 @pytest.mark.parametrize(
     ("stored", "base", "expected"),
-    [({}, 10, 10), ({7: 30}, 10, 30), ({7: 20}, 40, 40), ({8: 30}, 10, 10)],
+    [
+        ({}, 10, 10),
+        ({7: 20}, 10, 20),
+        ({7: 20}, 40, 40),
+        ({8: 30}, 10, 10),
+        # Poziomy zapisane przed 20.11.2026 (do 50) spadają do 20.
+        ({7: 50}, 10, 20),
+        ({7: 30}, 10, 20),
+    ],
 )
 def test_level_of(stored, base, expected):
     assert levels.level_of(stored, 7, base) == expected
@@ -252,11 +261,12 @@ async def test_second_roll_the_same_day_changes_nothing(batch_on, clean_state):
     assert (await _roll())[a] == 20
 
 
-async def test_minimum_stops_at_fifty(batch_on, clean_state):
+async def test_minimum_stops_at_twenty_and_old_fifty_drops(batch_on, clean_state):
+    """20.11.2026: poziom zapisany jako 50 po przeliczeniu wynosi 20."""
     a = await _user()
     await _state(levels.previous_business_day(business_today()), {a: 50})
     await _rejected(a, 50, _yesterday())
-    assert (await _roll())[a] == 50
+    assert (await _roll())[a] == 20
 
 
 async def test_decisions_before_yesterday_do_not_count(batch_on, clean_state):
@@ -269,24 +279,34 @@ async def test_decisions_before_yesterday_do_not_count(batch_on, clean_state):
 async def test_person_with_a_few_cards_is_not_blocked_by_a_high_level(
     batch_on, clean_state
 ):
-    """Poziom 40, w porcji 2 karty: wymagane 2, bo nie ma z czego zrobić więcej."""
+    """Poziom 20, w porcji 2 karty: wymagane 2, bo nie ma z czego zrobić więcej."""
     a = await _user()
-    await _state(business_today(), {a: 40})
+    await _state(business_today(), {a: 20})
     await _cards(a, 2, opened=_now() - timedelta(hours=1))
     status = await _status(a)
-    assert status.minimum == 40
+    assert status.minimum == 20
     assert status.required == 2
+
+
+async def test_stored_level_above_the_cap_reads_as_twenty(batch_on, clean_state):
+    """Stan z 19.11.2026: siedem osób miało zapisane 50."""
+    a = await _user()
+    await _state(business_today(), {a: 50})
+    await _cards(a, 30, opened=_now() - timedelta(hours=1))
+    status = await _status(a)
+    assert status.minimum == 20
+    assert status.required == 20
 
 
 async def test_team_view_reads_each_persons_level(batch_on, clean_state):
     a = await _user()
-    await _state(business_today(), {a: 30})
-    await _cards(a, 35, opened=_now() - timedelta(hours=1))
+    await _state(business_today(), {a: 20})
+    await _cards(a, 25, opened=_now() - timedelta(hours=1))
     async with AsyncSessionLocal() as db:
         view = await team.team_view(db, now=_now())
     row = next(r for r in view["rows"] if r["user_id"] == a)
-    assert row["minimum"] == 30
-    assert row["required"] == 30
+    assert row["minimum"] == 20
+    assert row["required"] == 20
 
 
 async def test_first_tick_of_the_day_rolls_the_levels(batch_on, clean_state):
