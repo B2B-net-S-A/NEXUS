@@ -3736,6 +3736,37 @@
     ]
   },
   {
+    "id": "zamowienia-z-maila-do-sprawdzenia",
+    "pr": 0,
+    "title": "Zamówienia z maila: „Do sprawdzenia” z podpowiedzią",
+    "why": "Zamiast żółtej ramki z powodami każdy wpis ma listę punktów: co jest nie tak i co zrobić. Zakładki mają liczniki, a historia automatu to jedna linia na dole.",
+    "tier": "tour",
+    "shipped_on": "2026-11-20",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Kontrakty → Zamówienia z maila",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "order-mail.queue",
+    "steps": [
+      {
+        "anchor": "contracts.order-mail.open",
+        "text": "Kliknij „Zamówienia z maila” nad listą kontraktów.",
+        "hint": "Liczba przy przycisku to wpisy czekające na weryfikację."
+      },
+      {
+        "anchor": "order-mail.queue",
+        "text": "Kliknij wpis w kolejce po lewej.",
+        "hint": "Pod numerem zamówienia stoi pierwszy punkt do sprawdzenia, np. „Nowa osoba bez umowy”."
+      },
+      {
+        "anchor": "order-mail.detail",
+        "text": "Po prawej: co odczytano z PDF-a i „Do sprawdzenia”.",
+        "hint": "Każdy punkt mówi, co zrobić. „Zastosuj” zapisuje plan, „Odrzuć” zdejmuje wpis z kolejki.",
+        "ack": true
+      }
+    ]
+  },
+  {
     "id": "nie-szuka-data-kazda-karta",
     "pr": 3621,
     "title": "„Nie szuka pracy”: wybierz, do kiedy",

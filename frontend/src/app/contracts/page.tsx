@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Inbox } from "lucide-react";
+import { Inbox } from "lucide-react";
 import { ContractsListV2 } from "@/components/v2/pages/ContractsListV2";
 import {
   ContractsClientPicker,
@@ -141,7 +141,12 @@ function ContractsWorkspace({
 
   // „Zamówienia z maila” w rzędzie szybkich filtrów zamiast trzeciej zakładki.
   const orderMailButton = canSeeOrderMail ? (
-    <Button size="sm" variant="outline" onClick={() => changeView("order-mail")}>
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={() => changeView("order-mail")}
+      data-tour="contracts.order-mail.open"
+    >
       <Inbox className="h-4 w-4" aria-hidden="true" />
       Zamówienia z maila
       {orderMailPending ? (
@@ -154,14 +159,6 @@ function ContractsWorkspace({
       ) : null}
     </Button>
   ) : null;
-  const backToList = (
-    <div>
-      <Button size="sm" variant="ghost" onClick={() => changeView("register")}>
-        <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-        Wróć do listy kontraktów
-      </Button>
-    </div>
-  );
   const clientPicker = (
     <ContractsClientPicker
       compact
@@ -182,7 +179,9 @@ function ContractsWorkspace({
     <div className="space-y-4">
       {/* Jedna lista z szybkimi filtrami; kolejka zamówień z maila z przycisku. */}
       {showOrderMail ? (
-        <OrderMailQueue modeTabs={backToList} />
+        // „← Kontrakty” wraca do listy bez nowego wpisu w historii (jak przycisk,
+        // który kolejkę otwiera).
+        <OrderMailQueue onBack={() => changeView("register")} />
       ) : null}
       {showOrderMail ? null : (
         <Suspense

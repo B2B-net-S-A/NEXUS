@@ -6,6 +6,7 @@ import {
   checkOutcome,
   formatAge,
   formatLastRunSummary,
+  mailboxSentence,
   plural,
   reasonLabel,
 } from "@/lib/order-mail-sync";
@@ -113,5 +114,59 @@ describe("errorOutsideReasons (UAT B49 — jeden komunikat, nie dwa)", () => {
     expect(errorOutsideReasons("RuntimeError('padł odczyt')", [])).toBe("padł odczyt");
     expect(errorOutsideReasons(null, ["x"])).toBeNull();
     expect(errorOutsideReasons("", ["x"])).toBeNull();
+  });
+});
+
+describe("mailboxSentence — stan skrzynki jednym zdaniem (20.11.2026)", () => {
+  const idle = { statusError: false, checking: false };
+  const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
+
+  it("mówi o ostatnim sprawdzeniu i jego wyniku, nie o bieżących zaległościach", () => {
+    const s = mailboxSentence(status({ last_completed: run({ reason: "manual", finished_at: minutesAgo(5) }) }), idle);
+    expect(s.tone).toBe("success");
+    expect(s.title).toBe("Skrzynka sprawdzana automatycznie co 60 min, ostatnio 5 min temu (ręcznie).");
+    expect(s.detail).toBe("W ostatnim sprawdzeniu: 2 nowe wiadomości · 1 zapisane automatycznie · 1 do weryfikacji.");
+    expect(s.detailIsError).toBe(false);
+  });
+
+  it("Delivery Lead dowiaduje się, że zakładki liczą jego portfel", () => {
+    expect(mailboxSentence(status(), { ...idle, scoped: true }).detail).toContain(
+      "Zakładki niżej liczą Twój portfel klientów.",
+    );
+    expect(mailboxSentence(status(), idle).detail).not.toContain("portfel");
+  });
+
+  it("wyłączona skrzynka mówi to bez nazwy zmiennej środowiskowej", () => {
+    const s = mailboxSentence(status({ enabled: false }), idle);
+    expect(s.title).toBe("Pobieranie zamówień z maila jest wyłączone.");
+    expect(`${s.title} ${s.detail}`).not.toMatch(/ORDER_MAIL|=false/);
+    expect(s.detail).toContain("Ostatnie sprawdzenie:");
+    expect(mailboxSentence(status({ enabled: false, last_completed: null }), idle).detail).not.toContain("Ostatnie");
+  });
+
+  it("nieudany bieg jest czerwony, przerwany i trwający mówią to wprost", () => {
+    const failed = mailboxSentence(status({ last_completed: run({ status: "error", error: "Graph 401" }) }), idle);
+    expect(failed.tone).toBe("danger");
+    expect(failed.detailIsError).toBe(true);
+    expect(failed.detail).toBe("Sprawdzenie nie powiodło się: Graph 401.");
+    expect(mailboxSentence(status({ interrupted: true }), idle).detail).toContain("przerwane");
+    // Trwający bieg (własny klik albo planowy) zasłania wynik poprzedniego.
+    expect(mailboxSentence(status({ running: true }), idle).title).toBe("Sprawdzam skrzynkę zamowienia@…");
+    expect(mailboxSentence(status(), { ...idle, checking: true }).tone).toBe("info");
+    expect(mailboxSentence(status({ running: true, interrupted: true }), idle).detail).not.toContain("przerwane");
+  });
+
+  it("awaria stanu to nie „sprawdzam”, a brak danych to nie awaria", () => {
+    expect(mailboxSentence(null, { ...idle, statusError: true })).toMatchObject({
+      tone: "warning",
+      title: "Nie udało się pobrać stanu skrzynki.",
+    });
+    expect(mailboxSentence(null, idle)).toMatchObject({ tone: "neutral", title: "Sprawdzam stan skrzynki…" });
+  });
+
+  it("częściowe sprawdzenie dokleja opis, a skrzynka bez historii zaprasza do pierwszego", () => {
+    const partial = run({ status: "partial", error: "1 mail bez załącznika" });
+    expect(mailboxSentence(status({ last_completed: partial }), idle).detail).toContain("· 1 mail bez załącznika.");
+    expect(mailboxSentence(status({ last_completed: null }), idle).title).toContain("jeszcze nie sprawdzana");
   });
 });
