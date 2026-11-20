@@ -5,12 +5,11 @@ import { ArrowRight, Info } from "lucide-react";
 import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
 import { Button } from "@/components/ui/button";
 import { formatIsoDatePl } from "@/lib/date-pl";
-import { formatMoney, formatWholeMoney } from "@/lib/money";
+import { formatMoney, formatPctPl, formatWholeMoney } from "@/lib/money";
 import {
   CREATE_STATUS_LABEL,
   createButtonLabel,
   createOutcome,
-  formatPctPl,
   type ContractMoneyFacts,
   type CreateStatus,
 } from "@/lib/new-contract-summary";

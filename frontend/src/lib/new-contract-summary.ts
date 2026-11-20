@@ -139,12 +139,6 @@ export function contractMoney(input: ContractMoneyInput): ContractMoneyFacts {
   };
 }
 
-/** „29,9 %” — procent z jednym miejscem po przecinku. */
-export function formatPctPl(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return `${value.toLocaleString("pl-PL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
-}
-
 /** „157,00” — wartość do pola stawki (przecinek, bez spacji tysięcy). */
 export function rateToInput(value: number | string | null | undefined): string {
   if (value == null || value === "") return "";

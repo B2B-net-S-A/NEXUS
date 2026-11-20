@@ -95,6 +95,12 @@ export function formatWholeNumber(
   return `${sign}${digits}`;
 }
 
+/** „29,9 %” — udział marży w podsumowaniach, jedno miejsce po przecinku; brak → „—”. */
+export function formatPctPl(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${value.toLocaleString("pl-PL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
+}
+
 /** „26 376 zł”, „1 200 EUR”, z `signed` „+47 321 zł” — `formatWholeNumber` z walutą. */
 export function formatWholeMoney(
   value: number | string | null | undefined,

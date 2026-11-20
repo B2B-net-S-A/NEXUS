@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { RecruitmentRate } from "@/lib/api/recruitmentRates";
-import { formatWholeMoney, formatWholeNumber } from "@/lib/money";
+import { formatPctPl, formatWholeMoney, formatWholeNumber } from "@/lib/money";
 import {
   advancedSummary,
   candidateRateOnStart,
   contractMoney,
   createButtonLabel,
   createOutcome,
-  formatPctPl,
   laterFields,
   rateToInput,
   recruitmentRateHint,
@@ -109,7 +108,7 @@ describe("contractMoney — marża w podsumowaniu", () => {
   it("godzinowo: marża na godzinę, procent i miesiąc × godziny", () => {
     const m = contractMoney(base);
     expect(m.marginPerUnit).toBe(47);
-    expect(formatPctPl(m.marginPct)).toBe("29,9 %");
+    expect(formatPctPl(m.marginPct)).toBe(`29,9${NBSP}%`);
     expect(m.monthlyRevenue).toBe(26376);
     expect(m.monthlyCost).toBe(18480);
     expect(m.monthlyMargin).toBe(7896);
