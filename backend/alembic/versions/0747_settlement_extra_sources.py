@@ -2,8 +2,8 @@
 weryfikacja techniczna, szkolenie, delegacja) — źródło zgłoszenia, karta sprawy,
 fakturowanie klientowi, powód decyzji i dokumenty dodatku.
 
-Revision ID: 0746_settlement_extra_sources
-Revises: 0745_one_close_reason_dictionary
+Revision ID: 0747_settlement_extra_sources
+Revises: 0746_back_office_one_team
 
 Tabelę ``client_settlement_extras`` zakłada 0691 (koszty integracji BNP); tu
 kolumny pozostałych rodzajów. SQL i powody:
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services import client_settlement_extras_schema as schema
 
-revision = "0746_settlement_extra_sources"
-down_revision = "0745_one_close_reason_dictionary"
+revision = "0747_settlement_extra_sources"
+down_revision = "0746_back_office_one_team"
 branch_labels = None
 depends_on = None
 
