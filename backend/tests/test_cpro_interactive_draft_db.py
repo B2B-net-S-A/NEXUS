@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import os
 from dataclasses import replace
@@ -272,6 +273,7 @@ async def test_closed_token_pipe_revokes_only_the_new_committed_draft(
         async with AsyncSessionLocal() as db:
             db.add(old)
             await db.commit()
+
             ids.append(old.id)
         result = await cli.interactive_draft(
             interactive_ready.stage_id,
@@ -296,6 +298,168 @@ async def test_closed_token_pipe_revokes_only_the_new_committed_draft(
         httpx.AsyncClient.post.assert_not_called()
     finally:
         os.close(write_fd)
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(CproBotRun).where(CproBotRun.id.in_(ids)))
+            await db.commit()
+
+
+def _completed_draft(item, **over):
+    run, _ = runs.new_run(
+        [copy.deepcopy(item.payload)], now=datetime.now(timezone.utc), submit=False
+    )
+    run.status = "received"
+    run.token_hash = None
+    run.report = {
+        "items": {
+            str(item.stage_id): {
+                "outcome": "draft",
+                "cpro_status": "DRAFT",
+                "offer_url": "https://nordea.onevms.se/nordea/vendor/OfferController?id=42",
+            }
+        }
+    }
+    for name, value in over.items():
+        setattr(run, name, value)
+    return run
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "offer_url",
+    [
+        "https://nordea.onevms.se/nordea/vendor/OfferController?id=42",
+        None,
+        "https://evil.example/offer",
+        "https://user@nordea.onevms.se/offer",
+    ],
+)
+async def test_repair_creates_only_an_edit_instruction_for_the_same_confirmed_draft(
+    interactive_ready, offer_url
+):
+    source = _completed_draft(interactive_ready)
+    source.report["items"]["101"]["offer_url"] = offer_url
+    ids = []
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(source)
+            await db.commit()
+            ids.append(source.id)
+            before = copy.deepcopy(source.request), copy.deepcopy(source.report)
+            repaired, token = await _create(
+                db, interactive_ready, repair_draft_run_id=source.id
+            )
+            ids.append(repaired.id)
+            assert repaired.id != source.id and repaired.submit is False
+            assert repaired.stage_ids == [interactive_ready.stage_id]
+            payload = repaired.request["items"][0]
+            assert payload["edit_existing_draft_only"] is True
+            assert payload["repair_draft_run_id"] == source.id
+            assert payload["request_number"] == "42511"
+            assert payload["cpro_account"] == interactive_ready.payload["cpro_account"]
+            if offer_url and offer_url.startswith("https://nordea.onevms.se/"):
+                assert payload["existing_offer_url"] == offer_url
+            else:
+                assert "existing_offer_url" not in payload
+            assert runs.token_matches(repaired, token, datetime.now(timezone.utc))
+            await db.refresh(source)
+            assert (source.request, source.report) == before
+            assert source.status == "received" and source.token_hash is None
+            httpx.AsyncClient.post.assert_not_called()
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(CproBotRun).where(CproBotRun.id.in_(ids)))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mismatch",
+    [
+        "missing_run",
+        "wrong_stage",
+        "wrong_ref",
+        "wrong_request",
+        "wrong_dl",
+        "not_received",
+        "submit_enabled",
+        "not_draft",
+        "duplicate_items",
+    ],
+)
+async def test_repair_rejects_unconfirmed_or_mismatched_drafts_without_a_new_run(
+    interactive_ready, mismatch
+):
+    source = _completed_draft(interactive_ready)
+    if mismatch == "wrong_stage":
+        source.stage_ids = [999]
+    elif mismatch == "wrong_ref":
+        source.request["items"][0]["ref"] = 999
+    elif mismatch == "wrong_request":
+        source.request["items"][0]["request_number"] = "42512"
+    elif mismatch == "wrong_dl":
+        source.request["items"][0]["cpro_account"] = {
+            "delivery_lead_id": 14,
+            "delivery_lead_name": "Igor",
+            "vault_entry": "Nordea Cpro – Igor",
+        }
+    elif mismatch == "not_received":
+        source.status = "failed"
+    elif mismatch == "submit_enabled":
+        source.submit = True
+    elif mismatch == "not_draft":
+        source.report["items"]["101"]["cpro_status"] = "SELECTION"
+    elif mismatch == "duplicate_items":
+        source.request["items"].append(copy.deepcopy(source.request["items"][0]))
+    source_id = None
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(source)
+            await db.commit()
+            source_id = source.id
+            before = list((await db.scalars(select(CproBotRun.id))).all())
+            with pytest.raises(flow.NotReady):
+                await _create(
+                    db,
+                    interactive_ready,
+                    repair_draft_run_id=source.id + 100000
+                    if mismatch == "missing_run"
+                    else source.id,
+                )
+            assert list((await db.scalars(select(CproBotRun.id))).all()) == before
+            httpx.AsyncClient.post.assert_not_called()
+    finally:
+        if source_id is not None:
+            async with AsyncSessionLocal() as db:
+                await db.execute(delete(CproBotRun).where(CproBotRun.id == source_id))
+                await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_repair_cannot_hide_an_older_submitted_offer(interactive_ready):
+    source = _completed_draft(interactive_ready)
+    submitted = _completed_draft(interactive_ready)
+    submitted.report["items"]["101"]["outcome"] = "submitted"
+    submitted.report["items"]["101"]["cpro_status"] = "SELECTION"
+    ids = []
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add_all([submitted, source])
+            await db.commit()
+            ids = [submitted.id, source.id]
+            with pytest.raises(flow.NotReady):
+                await _create(db, interactive_ready, repair_draft_run_id=source.id)
+            assert (
+                set(
+                    (
+                        await db.scalars(
+                            select(CproBotRun.id).where(CproBotRun.id.in_(ids))
+                        )
+                    ).all()
+                )
+                == set(ids)
+            )
+            httpx.AsyncClient.post.assert_not_called()
+    finally:
         async with AsyncSessionLocal() as db:
             await db.execute(delete(CproBotRun).where(CproBotRun.id.in_(ids)))
             await db.commit()

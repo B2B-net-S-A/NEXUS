@@ -243,11 +243,17 @@ def citizenship(raw: Optional[str]) -> Optional[str]:
     return text[:60]
 
 
-def safe_filename(name: Optional[str], fallback: str = "CV.docx") -> str:
-    """Nazwa pliku do Cpro: bez ``#`` (inaczej CV się nie otworzy) i bez ścieżki."""
+def safe_filename(
+    name: Optional[str], fallback: str = "CV.pdf", *, extension: str = ".pdf"
+) -> str:
+    """Nazwa PDF do Cpro; jawne DOCX tylko dla historycznego zlecenia.
+
+    Bez ``#`` i ścieżki; limit nigdy nie ucina rozszerzenia pliku.
+    """
 
     base = (name or "").replace("\\", "/").rsplit("/", 1)[-1]
-    base = " ".join(base.replace("#", "").split())
-    if not base.lower().endswith(".docx"):
-        base = f"{base}.docx" if base else fallback
-    return base[:180]
+    base = " ".join(base.replace("#", "").split()).strip(" .")
+    if not base:
+        base = fallback
+    base = re.sub(r"\.(?:docx|pdf)$", "", base, flags=re.IGNORECASE).strip(" .")
+    return f"{(base or 'CV')[: 180 - len(extension)]}{extension}"

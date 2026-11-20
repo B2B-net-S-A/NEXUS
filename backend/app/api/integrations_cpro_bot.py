@@ -3,8 +3,8 @@
 * ``GET /api/integrations/cpro-bot/runs/{run_id}/task`` — pełne zlecenie,
   pobierane po krótkiej kopercie webhooka (Grok może obciąć długi webhook).
 * ``GET /api/integrations/cpro-bot/runs/{run_id}/cv/{stage_id}`` — zatwierdzone
-  CV firmowe karty z biegu (DOCX, nazwa bez ``#``), to samo, co Sandra
-  pobierała z NEXUSA.
+  CV firmowe karty z biegu (PDF, nazwa bez ``#``); historyczne zlecenia
+  zachowują swój plik DOCX.
 * ``POST /api/integrations/cpro-bot/runs/{run_id}`` — raport biegu.
 
 Poświadczeniem tras jest jednorazowy token biegu z webhooka (nagłówek
@@ -36,7 +36,12 @@ from app.services import candidate_audit
 from app.services.cv_approved_docx import without_empty_underline
 from app.services.cv_download_log import log_cv_download
 from app.models.cpro_bot import CproBotRun
-from app.services.cpro_bot import ingest, runs
+from app.services.cpro_bot import ingest, offer_text, runs
+from app.services.cv_pdf_preview import (
+    MSG_UNAVAILABLE,
+    PdfPreviewUnavailable,
+    pdf_from_docx,
+)
 from app.services.sales.bot_tasks.base import numbers_only
 from app.core.http_headers import content_disposition_attachment
 
@@ -112,13 +117,51 @@ async def download_cv(
             CandidateStageCV.candidate_stage_id == int(cv_stage_id or 0)
         )
     )
-    if item is None or csv is None or csv.branded_status != "finalized":
+    if item is None or csv is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Brak zatwierdzonego CV.")
-    version = await approved_version_for_download(db, csv, csv.branded_version)
-    filename = (item.get("offer") or {}).get("cv_file_name") or "CV.docx"
-    # Ten sam plik co „Pobierz” na ekranie: wersje sprzed `approved-html-4`
-    # bez czyszczenia podkreśleń Cpro pokazuje z każdym zdaniem podkreślonym.
-    content, run_id = without_empty_underline(version.docx_content), run.id
+    offer = item.get("offer") or {}
+    file_format = offer.get("cv_format", "docx")
+    if file_format not in ("pdf", "docx"):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="Nieznany format CV biegu."
+        )
+    version_number = offer.get("cv_version")
+    if version_number is None and file_format == "docx":
+        # Stare zlecenia nie zamrażały numeru: zachowują dotychczasowe
+        # pobranie bieżącej zatwierdzonej wersji, zamiast zgadywania z dat.
+        if csv.branded_status != "finalized":
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, detail="Brak zatwierdzonego CV."
+            )
+        version_number = csv.branded_version
+    elif type(version_number) is not int or version_number <= 0:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="Niepoprawna wersja CV biegu."
+        )
+    version = await approved_version_for_download(db, csv, version_number)
+    filename = offer_text.safe_filename(
+        offer.get("cv_file_name"), extension=f".{file_format}"
+    )
+    run_id = run.id
+    if file_format == "pdf":
+        # Ten sam firmowy PDF co podgląd zatwierdzonej wersji. Link dostępowy
+        # do osobnego panelu klienta nie jest częścią załącznika oferty w Cpro.
+        docx = version.docx_content
+        # Konwersja może potrwać kilkadziesiąt sekund: nie trzymamy w tym
+        # czasie połączenia i blokady biegu. Żadnego wpisu pobrania jeszcze.
+        await db.commit()
+        try:
+            content = await pdf_from_docx(docx)
+        except PdfPreviewUnavailable as error:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, detail=MSG_UNAVAILABLE
+            ) from error
+        # Raport lub wygaśnięcie tokenu w czasie konwersji odbiera dostęp;
+        # ponownie blokujemy bieg przed wydaniem CV i wpisem audytu.
+        await require_cpro_run_token(run_id, request.headers.get("X-Run-Token"), db)
+    else:
+        # Historyczny DOCX zachowuje własny format i czyszczenie podkreśleń.
+        content = without_empty_underline(version.docx_content)
     # Ślad wydania CV jak w API v1: dziennik pobrań i audyt kandydata, dopiero
     # przy oddanym pliku (odmowa zgody 409 nie jest pobraniem). To transfer do
     # bota poza EOG — musi być widoczny w „kto dostał moje CV”.
@@ -129,7 +172,7 @@ async def download_cv(
         entity_type="candidate_stage_cv",
         entity_id=csv.id,
         user=SimpleNamespace(id=None),
-        file_format="docx",
+        file_format=file_format,
         state="approved",
         version=version.version,
     )
@@ -138,17 +181,18 @@ async def download_cv(
         action=candidate_audit.CV_DOWNLOADED,
         user_id=None,
         entity_id=csv.candidate_id,
-        details={"endpoint": AUDIT_ENDPOINT, "format": "docx", "run_id": run_id},
+        details={"endpoint": AUDIT_ENDPOINT, "format": file_format, "run_id": run_id},
     )
     # Bieg trzyma blokadę wiersza z poświadczenia; plik nie potrzebuje transakcji.
     await db.commit()
     logger.info("cpro_bot run=%s cv served", run_id)
     return Response(
         content=content,
-        media_type=DOCX_MEDIA_TYPE,
+        media_type="application/pdf" if file_format == "pdf" else DOCX_MEDIA_TYPE,
         headers={
             "Content-Disposition": content_disposition_attachment(filename),
             "Cache-Control": "private, no-store",
+            "X-CV-Version": str(version.version),
         },
     )
 

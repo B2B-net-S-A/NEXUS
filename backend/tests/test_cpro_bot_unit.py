@@ -32,7 +32,7 @@ def _cv(**over) -> bot_items.CvFile:
     base = dict(
         candidate_stage_id=11,
         version=2,
-        filename="B2B_KYC – Tester_Thomas Feest.docx",
+        filename="B2B_KYC – Tester_Thomas Feest.pdf",
         why_points=("Over 6 years at Nordea Bank", "SQL skills"),
         job_id=5,
     )
@@ -114,6 +114,8 @@ def test_location_cheat_sheet_matches_the_recording() -> None:
     assert (offer["former_employee"], offer["former_consultant"]) == (True, False)
     assert payload["request_number"] == "42511"
     assert payload["candidate"]["citizenship"] == "Austria"
+    assert offer["cv_format"] == "pdf" and offer["cv_version"] == 2
+    assert offer["cv_file_name"].endswith(".pdf")
 
 
 @pytest.mark.parametrize(
@@ -200,8 +202,15 @@ def test_motivation_dashes_without_blank_lines() -> None:
 
 
 def test_filename_without_hash_and_citizenship_mapping() -> None:
-    assert offer_text.safe_filename("CV_#C#_Dev.docx") == "CV_C_Dev.docx"
-    assert offer_text.safe_filename(None) == "CV.docx"
+    assert offer_text.safe_filename("CV_#C#_Dev.docx") == "CV_C_Dev.pdf"
+    assert offer_text.safe_filename(None) == "CV.pdf"
+    assert (
+        offer_text.safe_filename("CV_#C#_Dev.docx", extension=".docx")
+        == "CV_C_Dev.docx"
+    )
+    assert offer_text.safe_filename("CV_#C#_Dev.PDF") == "CV_C_Dev.pdf"
+    assert len(offer_text.safe_filename("x" * 200)) == 180
+    assert offer_text.safe_filename("x" * 200).endswith(".pdf")
     assert offer_text.citizenship("polskie") == "Poland"
     assert offer_text.citizenship("Polak") == "Poland"
     assert offer_text.citizenship("Austria") == "Austria"
