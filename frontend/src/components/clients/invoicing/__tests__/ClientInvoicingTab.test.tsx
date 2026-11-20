@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -29,11 +30,17 @@ import { ClientInvoicingTab } from "@/components/clients/invoicing/ClientInvoici
 import { CLIENT_MONTH, DELIVERY_MONTH } from "@/app/preview/client-invoicing/fixtures";
 import type { ClientInvoicing } from "@/lib/api/client-invoicing";
 
+/** Miesiąc trzyma zakładka klienta (`ClientInvoicesAndSettlementTab`); tu sama tabela. */
+function Tab() {
+  const [period, setPeriod] = useState("2026-10");
+  return <ClientInvoicingTab clientId={7} period={period} onPeriodChange={setPeriod} />;
+}
+
 function renderTab() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <ClientInvoicingTab clientId={7} initialPeriod="2026-10" />
+      <Tab />
     </QueryClientProvider>,
   );
 }

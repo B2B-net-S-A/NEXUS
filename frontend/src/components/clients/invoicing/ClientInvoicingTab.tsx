@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight, Download } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -28,6 +28,7 @@ import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/li
 import { formatDayMonthPl, monthTitlePl, monthYearPl, shiftMonth } from "@/lib/date-pl";
 import { formatMoney } from "@/lib/money";
 import { resolveViewState } from "@/lib/view-state";
+import { warsawToday } from "@/lib/warsaw-date";
 
 import {
   CHECK_TONE,
@@ -35,7 +36,6 @@ import {
   budgetText,
   buyerText,
   checkText,
-  defaultPeriod,
   looseInvoices,
   paymentNote,
   paymentText,
@@ -54,17 +54,27 @@ import { frontierStep, monthSteps } from "./month-steps";
  * stawek i zużycia MD), które faktury z KSeF już są, ile wpłynęło i co jest
  * po terminie. Widzą Finanse i Delivery Lead tego klienta; decyzje (przypisz,
  * pomiń, uznaj różnicę) są w module Finanse.
+ *
+ * Miesiąc trzyma `ClientInvoicesAndSettlementTab`: listwa z jedną strzałką
+ * stoi na górze zakładki i przełącza też sekcję marży (`children`).
  */
 export function ClientInvoicingTab({
   clientId,
-  initialPeriod,
+  period,
+  onPeriodChange,
+  children,
 }: {
   clientId: number;
-  initialPeriod?: string;
+  period: string;
+  onPeriodChange: (period: string) => void;
+  /** Pod listwą miesiąca, nad krokami: sekcja „Rozliczenie miesiąca i marża”. */
+  children?: ReactNode;
 }) {
   const { showToast } = useToast();
-  const [period, setPeriod] = useState(() => initialPeriod ?? defaultPeriod());
   const { year, month } = splitPeriod(period);
+  // Dalej niż bieżący miesiąc nie ma czego rozliczać: bez RCP i bez faktur w KSeF,
+  // a „do faktury” byłoby prognozą z eksportem „do wystawienia”.
+  const current = warsawToday().slice(0, 7);
   const query = useClientInvoicing(clientId, year, month);
   const data = query.data;
   const rcp = useMonthRcp(clientId, period);
@@ -101,7 +111,7 @@ export function ClientInvoicingTab({
             size="sm"
             variant="ghost"
             aria-label="Poprzedni miesiąc"
-            onClick={() => setPeriod(shiftMonth(period, -1))}
+            onClick={() => onPeriodChange(shiftMonth(period, -1))}
           >
             <ChevronLeft className="h-4 w-4" aria-hidden />
           </Button>
@@ -112,7 +122,8 @@ export function ClientInvoicingTab({
             size="sm"
             variant="ghost"
             aria-label="Następny miesiąc"
-            onClick={() => setPeriod(shiftMonth(period, 1))}
+            disabled={period >= current}
+            onClick={() => onPeriodChange(shiftMonth(period, 1))}
           >
             <ChevronRight className="h-4 w-4" aria-hidden />
           </Button>
@@ -132,6 +143,8 @@ export function ClientInvoicingTab({
           </Button>
         </div>
       </div>
+
+      {children}
 
       {data && !data.module_enabled ? (
         <p className="rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">

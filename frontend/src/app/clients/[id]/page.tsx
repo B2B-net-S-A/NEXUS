@@ -135,8 +135,7 @@ import { useTabsStore } from "@/store/tabs";
 import { canViewClientFinance, hasAnalyticsCapability, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { useCanonicalClientRedirect } from "@/hooks/useCanonicalClientRedirect";
-import { ClientInvoicingTab } from "@/components/clients/invoicing/ClientInvoicingTab";
-import { DeliverySettlementsSection } from "@/components/finance/settlements/DeliverySettlementsSection";
+import { ClientInvoicesAndSettlementTab } from "@/components/clients/invoicing/ClientInvoicesAndSettlementTab";
 import { useInvoicingModule } from "@/lib/api/client-invoicing";
 
 import { formatPhone } from "@/lib/phone-format";
@@ -1784,13 +1783,9 @@ export default function ClientDetailPage() {
               onFocusHandled={clearFocusParams}
             />
           )}
+          {/* Jeden miesiąc dla rozliczenia z marżą i tabeli faktur. */}
           {invoicingOpen && activeTab === "faktury" && (
-            <div className="space-y-4">
-              {/* Najpierw rozliczenie z marżą: tu DL daje zgodę na koszty integracji,
-                  a tabela faktur pod spodem ma kilkadziesiąt wierszy. */}
-              <DeliverySettlementsSection clientId={Number(id)} />
-              <ClientInvoicingTab clientId={Number(id)} />
-            </div>
+            <ClientInvoicesAndSettlementTab clientId={Number(id)} />
           )}
           {activeTab === "importy-md" && (
             <ClientMdImportsTab

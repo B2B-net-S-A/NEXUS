@@ -71,6 +71,13 @@ rozsiane po pięciu kartach.
   drobny druk jest tylko w dymku i w pasku zakładki. Ten sam pasek kroków stoi
   w „Faktury i rozliczenie” zamiast pięciu liczb nad tabelą, dla miesiąca
   ze strzałek (makieta 6A). Logika: `components/clients/invoicing/month-steps.ts`.
+- **Jedna strzałka miesiąca dla całej zakładki „Faktury i rozliczenie”**
+  (20.11.2026, `ClientInvoicesAndSettlementTab`). Sekcja „Rozliczenie miesiąca
+  i marża” miała własną strzałkę, więc po przejściu tabeli na wrzesień pokazywała
+  dalej październik. Listwa miesiąca z eksportem stoi nad sekcją, a strzałka
+  kończy się na bieżącym miesiącu: bieżący ma już faktury z KSeF (kopia z 19.11:
+  5 za listopad) i RCP z planu (`cl.estimate`), a w kolejnych nie ma czego
+  rozliczać — „do faktury” jest tam prognozą z zamówień z odblokowanym eksportem.
 - **Krok mówi tylko to, co potwierdzają dane.** RCP bez przyjętego RCP w
   rozliczeniach to „brak w NEXUSIE”, nie „czeka” (19.11.2026 żaden klient nie
   miał reguł rozliczeń ani przyjętego RCP). Zapłata: „zapłacone” tylko z
