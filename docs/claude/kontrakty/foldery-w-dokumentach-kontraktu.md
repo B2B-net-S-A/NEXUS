@@ -8,8 +8,14 @@ podpowiedź, nie automat. Kod: `services/contract_document_folders.py`,
 + `components/contracts/documents/`, logika `lib/contract-document-folders.ts`,
 harness `/preview/contract-documents-folders`.
 
-- **Plik bez folderu = sekcja „Aktualna umowa”, zawsze na górze.** Foldery
-  pod nią, jeden poziom (bez podfolderów). `contract_documents.folder_id`,
+- **Plik bez folderu = „Aktualna umowa”, zawsze na górze.** Od 20.11.2026
+  (etap 1b przebudowy strony kontraktu, wariant A) zakładka zaczyna się od kart
+  „Obowiązuje teraz” (umowa — najpierw plik z numerem bieżącej umowy w nazwie,
+  ostatni aneks, najnowsze zamówienie), pod nimi pliki poza folderami w grupach
+  po rodzaju (`components/contracts/documents/document-groups.ts`), w grupie od
+  najnowszej daty z nazwy pliku; bez daty — dzień dodania, a plik z SharePointa
+  bez daty na końcu grupy. Przenoszenie: pole wyboru i pasek albo „⋯ → Przenieś
+  do folderu”. Foldery pod grupami (domyślnie zwinięte), jeden poziom (bez podfolderów). `contract_documents.folder_id`,
   FK `ON DELETE SET NULL` — usunięcie folderu oddaje pliki, nie kasuje ich.
   Nazwa unikalna w kontrakcie bez względu na wielkość liter (409).
 - **Folder „Zamówienia” wynika z typu dokumentu (`order`), nie z `folder_id`.**

@@ -1,14 +1,27 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, FolderPlus, Loader2, Plus } from "lucide-react";
+import { AlertCircle, ChevronDown, CloudDownload, FolderPlus, Loader2, Plus, Search } from "lucide-react";
 
-import { DocumentFileRow } from "@/components/contracts/documents/DocumentFileRow";
-import { FolderHeaderRow } from "@/components/contracts/documents/FolderHeaderRow";
+import { DocumentGroupHeader } from "@/components/contracts/documents/DocumentGroupHeader";
+import { DocumentItemRow } from "@/components/contracts/documents/DocumentItemRow";
+import { DocumentSelectionBar } from "@/components/contracts/documents/DocumentSelectionBar";
+import { DocumentsNowCards } from "@/components/contracts/documents/DocumentsNowCards";
+import {
+  batchKey,
+  batchSentence,
+  buildDocumentsView,
+  DEFAULT_ORDERS_FOLDER_NAME,
+  fmtSize,
+  folderSectionKey,
+  groupLabel,
+  matchesQuery,
+  type DocItem,
+  type DocSection,
+} from "@/components/contracts/documents/document-groups";
 import { FolderSuggestionBanner } from "@/components/contracts/documents/FolderSuggestionBanner";
 import { NewFolderDialog } from "@/components/contracts/documents/NewFolderDialog";
-import { SelectionBar } from "@/components/contracts/documents/SelectionBar";
 import {
   UploadDocumentDialog,
   type UploadRequest,
@@ -21,18 +34,21 @@ import {
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useOptionalToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { contractsApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { CALM_HEAD, CALM_ROW } from "@/lib/calm-table";
 import {
-  buildDocumentSections,
   complianceRelevantDocs,
   filesLabel,
   folderNameSuggestions,
   pluralForm,
   type ContractDocument,
-  type FolderSection,
 } from "@/lib/contract-document-folders";
+import { formatIsoDatePl } from "@/lib/date-pl";
+import { cn } from "@/lib/utils";
+import { warsawDateOf } from "@/lib/warsaw-date";
 
 export { DOC_TYPE_LABEL } from "@/components/contracts/documents/doc-types";
 export type { ContractDocument } from "@/lib/contract-document-folders";
@@ -106,19 +122,43 @@ function writeDismissed(contractId: number, values: Set<string>) {
   }
 }
 
-function sectionKey(folder: FolderSection): string {
-  return String(folder.id);
+function toggledSet(set: ReadonlySet<string>, key: string): Set<string> {
+  const next = new Set(set);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  return next;
 }
 
-const TH = "px-4 py-2 text-left";
+function docIdOf(item: DocItem): number | null {
+  return item.row.kind === "doc" ? item.row.doc.id : null;
+}
 
+/** Długa grupa pokazuje pięć najnowszych plików i „Pokaż starsze”. */
+const LONG_GROUP = 7;
+const LONG_GROUP_VISIBLE = 5;
+
+/**
+ * Zakładka „Dokumenty” kontraktu w wariancie A (decyzja Artura 19.11.2026):
+ * „Obowiązuje teraz” (umowa, ostatni aneks, najnowsze zamówienie), pasek
+ * z wyszukiwarką, „Nowy folder” i „Dodaj plik”, a pod nim jedna tabela
+ * z grupami po rodzaju (pliki poza folderami) i folderami pod spodem
+ * (`components/contracts/documents/document-groups.ts`). Funkcje z 0494
+ * zostają: foldery, przenoszenie (pole wyboru i pasek albo „⋯” przy pliku),
+ * podpowiedź „Poprzednia umowa”, automatyczna grupa zamówień.
+ */
 export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
   const queryClient = useQueryClient();
   const toast = useOptionalToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
+  const headingId = useId();
+  const searchId = useId();
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  // Sekcje w stanie innym niż domyślny: grupy po rodzaju są rozwinięte,
+  // foldery (archiwum) zwinięte — jak przed przebudową.
+  const [toggled, setToggled] = useState<Set<string>>(() => new Set());
+  const [showAll, setShowAll] = useState<Set<string>>(() => new Set());
+  const [query, setQuery] = useState("");
   const [newFolderFiles, setNewFolderFiles] = useState<number[] | null>(null);
   const [newFolderError, setNewFolderError] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -139,10 +179,12 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
 
   const docs = useMemo(() => docsQuery.data ?? [], [docsQuery.data]);
   const folders = useMemo(() => foldersQuery.data?.folders ?? [], [foldersQuery.data]);
-  const ordersName = foldersQuery.data?.orders_folder_name ?? "Zamówienia";
-  const sections = useMemo(
-    () => buildDocumentSections(docs, folders, orderFilesQuery.data ?? [], ordersName),
-    [docs, folders, orderFilesQuery.data, ordersName],
+  const ordersName = foldersQuery.data?.orders_folder_name ?? DEFAULT_ORDERS_FOLDER_NAME;
+  const ordersLabel = groupLabel("zamowienia", ordersName);
+  const currentNumber = foldersQuery.data?.current_contract_number ?? null;
+  const view = useMemo(
+    () => buildDocumentsView(docs, folders, orderFilesQuery.data ?? [], currentNumber),
+    [docs, folders, orderFilesQuery.data, currentNumber],
   );
   const docsById = useMemo(() => new Map(docs.map((d) => [d.id, d])), [docs]);
   const suggestion = (foldersQuery.data?.suggestions ?? []).find(
@@ -167,6 +209,13 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
     if (toast) toast.showToast(message, "success");
   };
 
+  const unselect = (ids: readonly number[]) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+
   const uploadMutation = useMutation({
     mutationFn: (fd: FormData) => contractsApi.uploadDocument(contractId, fd),
     onSuccess: () => {
@@ -179,16 +228,26 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
     },
   });
 
-  const deleteDocument = async (documentId: number) => {
+  const deleteFile = async (item: DocItem) => {
+    if (item.row.kind !== "doc") return;
+    const doc = item.row.doc;
+    const linkedToSharePoint =
+      doc.source === "sharepoint" || doc.source === "sharepoint_import" || Boolean(doc.sharepoint_item_id);
+    const ok = await askConfirm({
+      title: `Usunąć plik „${doc.filename}”?`,
+      description: linkedToSharePoint
+        ? "Plik zniknie z kontraktu w NEXUSIE. Kopia w SharePoincie zostaje — usunięcie po jednej stronie nie kasuje drugiej."
+        : "Plik zniknie z kontraktu w NEXUSIE.",
+      confirmLabel: "Usuń plik",
+      variant: "destructive",
+    });
+    if (!ok) return;
     try {
-      await contractsApi.deleteDocument(contractId, documentId);
+      await contractsApi.deleteDocument(contractId, doc.id);
       setError("");
-      setSelected((prev) => {
-        const next = new Set(prev);
-        next.delete(documentId);
-        return next;
-      });
+      unselect([doc.id]);
       refreshDocs();
+      notify(`Usunięto plik „${doc.filename}”`);
     } catch (err) {
       // Odmowa usunięcia nie może kończyć się ciszą (audyt 24.09, N10).
       setError(apiErrorMessage(err, "Nie udało się usunąć pliku."));
@@ -212,25 +271,39 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
       return next;
     });
 
-  const toggleExpanded = (key: string) =>
-    setExpanded((prev) => {
+  const isOpen = (section: DocSection) =>
+    section.kind === "folder" ? toggled.has(section.key) : !toggled.has(section.key);
+
+  const expandFolder = (folderId: number) =>
+    setToggled((prev) => new Set(prev).add(folderSectionKey(folderId)));
+
+  /** Pliki z podpowiedzi „Zaznacz te pliki” mają być widać: rozwiń ich sekcje i starsze pliki. */
+  const revealDocs = (ids: ReadonlySet<number>) => {
+    const hit = view.sections.filter((s) =>
+      s.items.some((i) => {
+        const id = docIdOf(i);
+        return id != null && ids.has(id);
+      }),
+    );
+    setToggled((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      for (const s of hit) {
+        if (s.kind === "folder") next.add(s.key);
+        else next.delete(s.key);
+      }
       return next;
     });
+    setShowAll((prev) => new Set([...prev, ...hit.map((s) => s.key)]));
+  };
 
-  const expand = (key: string) => setExpanded((prev) => new Set(prev).add(key));
-
-  const moveSelected = (folderId: number | null) => {
-    const ids = [...selected];
+  const moveFiles = (ids: number[], folderId: number | null) => {
     mutations.moveDocuments.mutate(
       { document_ids: ids, folder_id: folderId },
       {
         onSuccess: (res) => {
-          setSelected(new Set());
+          unselect(ids);
           setError("");
-          if (folderId != null) expand(String(folderId));
+          if (folderId != null) expandFolder(folderId);
           const target =
             folderId == null
               ? "„Aktualnej umowy”"
@@ -242,6 +315,11 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
     );
   };
 
+  const openNewFolder = (ids: number[]) => {
+    setNewFolderError("");
+    setNewFolderFiles(ids);
+  };
+
   const createFolder = (name: string) => {
     const ids = newFolderFiles ?? [];
     mutations.createFolder.mutate(
@@ -250,8 +328,8 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
         onSuccess: (res) => {
           setNewFolderFiles(null);
           setNewFolderError("");
-          setSelected(new Set());
-          expand(String(res.folder.id));
+          unselect(ids);
+          expandFolder(res.folder.id);
           notify(
             res.moved > 0
               ? `Utworzono folder „${res.folder.name}” i przeniesiono ${filesLabel(res.moved)}`
@@ -264,10 +342,13 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
     );
   };
 
-  const renameFolder = async (folder: FolderSection, name: string): Promise<boolean> => {
+  const renameSection = async (section: DocSection, name: string): Promise<boolean> => {
     try {
-      if (folder.auto) await mutations.renameOrdersFolder.mutateAsync(name);
-      else await mutations.renameFolder.mutateAsync({ folderId: Number(folder.id), name });
+      if (section.folder) {
+        await mutations.renameFolder.mutateAsync({ folderId: section.folder.id, name });
+      } else {
+        await mutations.renameOrdersFolder.mutateAsync(name);
+      }
       setError("");
       return true;
     } catch (err) {
@@ -276,19 +357,24 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
     }
   };
 
-  const deleteFolder = async (folder: FolderSection) => {
-    const docIds = folder.rows.flatMap((r) => (r.kind === "doc" ? [r.doc.id] : []));
+  const deleteFolder = async (section: DocSection) => {
+    const folder = section.folder;
+    if (!folder) return;
+    const docIds = section.items.flatMap((i) => {
+      const id = docIdOf(i);
+      return id == null ? [] : [id];
+    });
     const ok = await askConfirm({
       title: `Usunąć folder „${folder.name}”?`,
       description:
         docIds.length > 0
-          ? `Usuwasz tylko folder. ${filesLabel(docIds.length)} ${pluralForm(docIds.length, "zostaje i wraca", "zostają i wracają", "zostaje i wraca")} do sekcji „Aktualna umowa”. Niczego nie kasujemy w SharePoincie.`
+          ? `Usuwasz tylko folder. ${filesLabel(docIds.length)} ${pluralForm(docIds.length, "zostaje i wraca", "zostają i wracają", "zostaje i wraca")} do „Aktualnej umowy” — to pliki poza folderami, w grupach po rodzaju. Niczego nie kasujemy w SharePoincie.`
           : "Folder jest pusty. Niczego nie kasujemy w SharePoincie.",
       confirmLabel: "Usuń folder",
       variant: "destructive",
     });
     if (!ok) return;
-    mutations.deleteFolder.mutate(Number(folder.id), {
+    mutations.deleteFolder.mutate(folder.id, {
       onSuccess: (res) => {
         setError("");
         const message =
@@ -323,7 +409,7 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
         { document_ids: suggestion.document_ids, folder_id: folderId },
         {
           onSuccess: (res) => {
-            expand(String(folderId));
+            expandFolder(folderId);
             notify(`Przeniesiono ${filesLabel(res.moved)} do folderu „${suggestion.folder_name}”`);
           },
           onError,
@@ -335,7 +421,7 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
       { name: suggestion.folder_name, document_ids: suggestion.document_ids },
       {
         onSuccess: (res) => {
-          expand(String(res.folder.id));
+          expandFolder(res.folder.id);
           notify(`Utworzono folder „${res.folder.name}” i przeniesiono ${filesLabel(res.moved)}`);
         },
         onError,
@@ -350,221 +436,309 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
     writeDismissed(contractId, next);
   };
 
-  const showSelect = !readOnly;
-  const colCount = showSelect ? 7 : 6;
-  const hasAnything = sections.current.length > 0 || sections.folders.length > 0;
+  const sectionLabel = (section: DocSection) =>
+    section.folder ? section.folder.name : groupLabel(section.group ?? "inne", ordersName);
+
+  const sectionNote = (section: DocSection): string | undefined => {
+    if (section.folder) {
+      return [
+        "archiwum · pliki nie zapalają alarmu wygasania",
+        section.totalBytes > 0 ? fmtSize(section.totalBytes) : null,
+        `założony ${formatIsoDatePl(warsawDateOf(section.folder.created_at))}`,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
+    if (section.group === "zamowienia") return "automatyczny folder · nowe zamówienia trafiają tu same";
+    return undefined;
+  };
+
+  const needle = query.trim();
+  const searching = needle.length > 0;
+  const loading = docsQuery.isLoading || foldersQuery.isLoading;
+  const hasAnything = view.items.length > 0 || folders.length > 0;
+  const isFolded = (item: DocItem) => view.batch != null && batchKey(item) === view.batch.key;
+  const showAdded = view.items.some((i) => !isFolded(i));
+  const showExpiry = view.hasExpiry;
+  const colCount = 4 + (showAdded ? 1 : 0) + (showExpiry ? 1 : 0);
+  const selectionMode = !readOnly && selected.size > 0;
+  const anyMatch = !searching || view.items.some((i) => matchesQuery(i, needle));
   const selectedNames = (newFolderFiles ?? []).map((id) => docsById.get(id)?.filename ?? "");
 
   return (
     <div className="space-y-4">
-      {error && (
-        <div
-          role="alert"
-          className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-        >
-          <AlertCircle className="h-4 w-4" /> {error}
+      {loading ? (
+        <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground shadow-xs">
+          <Loader2 className="mr-2 inline-block h-5 w-5 animate-spin" aria-hidden="true" />
+          Ładowanie dokumentów…
         </div>
-      )}
+      ) : docsQuery.isError ? (
+        <QueryStateNotice
+          state="error"
+          description="Nie udało się wczytać dokumentów."
+          onRetry={() => docsQuery.refetch()}
+        />
+      ) : (
+        <>
+          {hasAnything && (
+            <section aria-labelledby={headingId}>
+              <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <h2 id={headingId} className="text-[13.5px] font-semibold text-foreground">
+                  Obowiązuje teraz
+                </h2>
+                {folders.length > 0 && (
+                  <span className="text-[12px] text-muted-foreground">
+                    liczą się pliki poza folderami — foldery to archiwum
+                  </span>
+                )}
+              </div>
+              <DocumentsNowCards
+                contractId={contractId}
+                current={view.current}
+                contractNumber={currentNumber}
+                readOnly={readOnly}
+                onError={setError}
+              />
+            </section>
+          )}
 
-      <div className="rounded-2xl bg-card shadow-xs dark:bg-muted">
-        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
-          <h3 className="text-sm font-semibold">Dokumenty</h3>
-          {!readOnly && (
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setNewFolderError("");
-                  setNewFolderFiles([]);
-                }}
-              >
-                <FolderPlus className="h-4 w-4" /> Nowy folder
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setUploadError("");
-                  setUploadOpen(true);
-                }}
-              >
-                <Plus className="h-4 w-4" /> Dodaj plik
-              </Button>
+          {(view.items.length > 0 || !readOnly) && (
+            <div className="flex flex-wrap items-center gap-2">
+              {view.items.length > 0 && (
+                <div className="w-full sm:w-80">
+                  <label htmlFor={searchId} className="sr-only">
+                    Szukaj w dokumentach
+                  </label>
+                  <Input
+                    id={searchId}
+                    type="search"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Szukaj w dokumentach"
+                    leadingIcon={<Search className="size-4" />}
+                    className="h-8 text-[13px]"
+                  />
+                </div>
+              )}
+              {!readOnly && (
+                <div className="ml-auto flex items-center gap-1.5">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => openNewFolder([])}>
+                    <FolderPlus className="size-4" aria-hidden="true" />
+                    Nowy folder
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      setUploadError("");
+                      setUploadOpen(true);
+                    }}
+                  >
+                    <Plus className="size-4" aria-hidden="true" />
+                    Dodaj plik
+                  </Button>
+                </div>
+              )}
             </div>
           )}
-        </div>
 
-        {foldersQuery.isError && (
-          <div className="px-4 pb-3">
+          {error && (
+            <div
+              role="alert"
+              className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            >
+              <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" /> {error}
+            </div>
+          )}
+
+          {foldersQuery.isError && (
             <QueryStateNotice
               state="error"
-              description="Nie udało się wczytać folderów — pliki widać na jednej liście."
+              description="Nie udało się wczytać folderów — pliki z folderów widać w grupach po rodzaju."
               onRetry={() => foldersQuery.refetch()}
             />
-          </div>
-        )}
-        {orderFilesQuery.isError && orderFilesStatus !== 403 && (
-          <div className="px-4 pb-3">
+          )}
+          {orderFilesQuery.isError && orderFilesStatus !== 403 && (
             <QueryStateNotice
               state="error"
-              description="Nie udało się wczytać plików z zakładki Zamówienia."
+              description="Nie udało się wczytać plików z zakładki Zamówienia — grupa zamówień może być niepełna."
               onRetry={() => orderFilesQuery.refetch()}
             />
-          </div>
-        )}
+          )}
 
-        {suggestion && (
-          <FolderSuggestionBanner
-            suggestion={suggestion}
-            currentNumber={foldersQuery.data?.current_contract_number ?? null}
-            readOnly={readOnly}
-            pending={mutations.createFolder.isPending || mutations.moveDocuments.isPending}
-            onApply={applySuggestion}
-            onSelect={() => setSelected(new Set(suggestion.document_ids))}
-            onDismiss={dismissSuggestion}
-          />
-        )}
+          {selectionMode && (
+            <DocumentSelectionBar
+              count={selected.size}
+              folders={folders}
+              pending={mutations.moveDocuments.isPending}
+              onMove={(folderId) => moveFiles([...selected], folderId)}
+              onNewFolder={() => openNewFolder([...selected])}
+              onCancel={() => setSelected(new Set())}
+            />
+          )}
 
-        {!readOnly && selected.size > 0 && (
-          <SelectionBar
-            count={selected.size}
-            folders={folders}
-            pending={mutations.moveDocuments.isPending}
-            onMove={moveSelected}
-            onNewFolder={() => {
-              setNewFolderError("");
-              setNewFolderFiles([...selected]);
-            }}
-            onCancel={() => setSelected(new Set())}
-          />
-        )}
-
-        <div className="relative overflow-x-auto">
-          {docsQuery.isLoading || foldersQuery.isLoading ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">
-              <Loader2 className="mr-2 inline-block h-5 w-5 animate-spin" />
-              Ładowanie dokumentów…
-            </div>
-          ) : docsQuery.isError ? (
-            <div className="p-4">
-              <QueryStateNotice
-                state="error"
-                description="Nie udało się wczytać dokumentów."
-                onRetry={() => docsQuery.refetch()}
-              />
-            </div>
-          ) : docsQuery.isSuccess && !hasAnything ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">
+          {docsQuery.isSuccess && !hasAnything ? (
+            <div className="rounded-xl border border-border bg-card px-5 py-6 text-[13px] text-muted-foreground shadow-xs">
               Brak załączonych dokumentów.
+              {!readOnly && " Dodaj podpisaną umowę przyciskiem „Dodaj plik”."}
             </div>
           ) : (
-            <table className="w-full min-w-[44rem] text-sm">
-              <thead className="bg-muted text-xs uppercase text-muted-foreground dark:bg-muted/40">
-                <tr>
-                  {showSelect && (
-                    <th className="w-10 pl-4 pr-0">
-                      <span className="sr-only">Zaznacz</span>
-                    </th>
-                  )}
-                  <th className={`sticky left-0 z-10 bg-muted ${TH}`}>Plik</th>
-                  <th className={TH}>Typ</th>
-                  <th className={TH}>Rozmiar</th>
-                  <th className={TH}>Ważny do</th>
-                  <th className={TH}>Dodano</th>
-                  <th className="px-4 py-2 text-right">Akcje</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <th
-                    scope="colgroup"
-                    colSpan={colCount}
-                    className="px-4 pb-1.5 pt-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                  >
-                    Aktualna umowa
-                    <span className="ml-2 font-normal normal-case tracking-normal">
-                      pliki poza folderami
-                    </span>
-                  </th>
-                </tr>
-                {sections.current.length === 0 && (
-                  <tr className="border-t border-border">
-                    <td colSpan={colCount} className="px-4 py-3 text-sm text-muted-foreground">
-                      Wszystkie pliki są w folderach.
-                    </td>
-                  </tr>
-                )}
-                {sections.current.map((row) => (
-                  <DocumentFileRow
-                    key={row.key}
-                    row={row}
-                    contractId={contractId}
-                    indented={false}
+            <div className="rounded-xl border border-border bg-card shadow-xs">
+              {suggestion && (
+                <div className="pt-3">
+                  <FolderSuggestionBanner
+                    suggestion={suggestion}
+                    currentNumber={currentNumber}
                     readOnly={readOnly}
-                    selected={row.kind === "doc" && selected.has(row.doc.id)}
-                    onToggle={toggleSelected}
-                    onDelete={deleteDocument}
-                    onError={setError}
+                    pending={mutations.createFolder.isPending || mutations.moveDocuments.isPending}
+                    onApply={applySuggestion}
+                    onSelect={() => {
+                      const ids = new Set(suggestion.document_ids);
+                      setSelected(ids);
+                      revealDocs(ids);
+                    }}
+                    onDismiss={dismissSuggestion}
                   />
-                ))}
-              </tbody>
-              {sections.folders.length > 0 && (
-                <tbody>
-                  <tr>
-                    <th
-                      scope="colgroup"
-                      colSpan={colCount}
-                      className="border-t border-border px-4 pb-1.5 pt-4 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                    >
-                      Foldery
-                    </th>
-                  </tr>
-                  {sections.folders.map((folder) => {
-                    const key = sectionKey(folder);
-                    const isOpen = expanded.has(key);
+                </div>
+              )}
+              {view.batch && (
+                <p className="flex items-start gap-2 border-b border-border/60 px-4 py-2 text-[12px] leading-4 text-muted-foreground">
+                  <CloudDownload className="mt-px size-3.5 shrink-0" aria-hidden="true" />
+                  <span>
+                    {batchSentence(view.batch)}
+                    {view.batch.count < view.batch.total
+                      ? " — w kolumnie „Dodano” są tylko pozostałe."
+                      : "."}
+                  </span>
+                </p>
+              )}
+              <div className="relative overflow-x-auto rounded-xl">
+                <table aria-label="Dokumenty kontraktu" className="w-full min-w-[50rem] table-fixed">
+                  <colgroup>
+                    <col />
+                    <col className="w-[132px]" />
+                    {showAdded && <col className="w-[168px]" />}
+                    {showExpiry && <col className="w-[112px]" />}
+                    <col className="w-[88px]" />
+                    <col className={readOnly ? "w-[56px]" : "w-[88px]"} />
+                  </colgroup>
+                  <thead>
+                    <tr className="border-b border-border text-left">
+                      <th scope="col" className={cn(CALM_HEAD, "sticky left-0 z-10 bg-card py-2 pl-4 pr-4")}>
+                        Nazwa
+                      </th>
+                      <th scope="col" className={cn(CALM_HEAD, "py-2 pr-4")}>
+                        Data dokumentu
+                      </th>
+                      {showAdded && (
+                        <th scope="col" className={cn(CALM_HEAD, "py-2 pr-4")}>
+                          Dodano
+                        </th>
+                      )}
+                      {showExpiry && (
+                        <th scope="col" className={cn(CALM_HEAD, "py-2 pr-4")}>
+                          Ważny do
+                        </th>
+                      )}
+                      <th scope="col" className={cn(CALM_HEAD, "py-2 pr-4 text-right")}>
+                        Rozmiar
+                      </th>
+                      <th scope="col" className="py-2 pr-3">
+                        <span className="sr-only">Akcje</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  {view.sections.map((section) => {
+                    const visible = searching
+                      ? section.items.filter((i) => matchesQuery(i, needle))
+                      : section.items;
+                    if (searching && visible.length === 0) return null;
+                    const open = searching || isOpen(section);
+                    const long = !searching && visible.length > LONG_GROUP && !showAll.has(section.key);
+                    const shown = long ? visible.slice(0, LONG_GROUP_VISIBLE) : visible;
+                    const isFolder = section.folder != null;
                     return (
-                      <Fragment key={key}>
-                        <FolderHeaderRow
-                          folder={folder}
-                          expanded={isOpen}
-                          readOnly={readOnly}
-                          onToggle={() => toggleExpanded(key)}
-                          onRename={(name) => renameFolder(folder, name)}
-                          onDelete={() => void deleteFolder(folder)}
+                      <tbody key={section.key}>
+                        <DocumentGroupHeader
+                          label={sectionLabel(section)}
+                          isFolder={isFolder}
+                          colSpan={colCount}
+                          open={open}
+                          total={section.items.length}
+                          matching={searching ? visible.length : null}
+                          hint={
+                            section.namedCount > 0
+                              ? `${section.namedCount} z ${section.items.length} rozpoznano po nazwie pliku — w bazie mają typ „Inne”.`
+                              : undefined
+                          }
+                          note={sectionNote(section)}
+                          canRename={!readOnly && (isFolder || section.group === "zamowienia")}
+                          canDelete={!readOnly && isFolder}
+                          onToggle={() => setToggled((prev) => toggledSet(prev, section.key))}
+                          onRename={(name) => renameSection(section, name)}
+                          onDelete={() => void deleteFolder(section)}
                         />
-                        {isOpen &&
-                          folder.rows.map((row) => (
-                            <DocumentFileRow
-                              key={row.key}
-                              row={row}
-                              contractId={contractId}
-                              indented
-                              readOnly={readOnly}
-                              selected={row.kind === "doc" && selected.has(row.doc.id)}
-                              onToggle={toggleSelected}
-                              onDelete={deleteDocument}
-                              onError={setError}
-                            />
-                          ))}
-                        {isOpen && folder.rows.length === 0 && (
-                          <tr className="border-t border-border">
-                            <td
-                              colSpan={colCount}
-                              className="py-3 pl-16 pr-4 text-sm text-muted-foreground"
-                            >
-                              Pusty folder — zaznacz pliki na liście i wybierz „Przenieś do”.
+                        {open && section.items.length === 0 && (
+                          <tr className={CALM_ROW}>
+                            <td colSpan={colCount} className="py-2.5 pl-11 pr-4 text-[12.5px] text-muted-foreground">
+                              {readOnly
+                                ? "Pusty folder."
+                                : "Pusty folder — zaznacz pliki na liście albo wybierz „Przenieś do folderu” w menu „⋯” przy pliku."}
                             </td>
                           </tr>
                         )}
-                      </Fragment>
+                        {open &&
+                          shown.map((item) => {
+                            const id = docIdOf(item);
+                            return (
+                              <DocumentItemRow
+                                key={item.key}
+                                item={item}
+                                contractId={contractId}
+                                readOnly={readOnly}
+                                showAdded={showAdded}
+                                folded={isFolded(item)}
+                                showExpiry={showExpiry}
+                                selectionMode={selectionMode}
+                                selected={id != null && selected.has(id)}
+                                duplicateOf={view.duplicates.get(item.key)}
+                                folders={folders}
+                                onToggle={toggleSelected}
+                                onMove={moveFiles}
+                                onNewFolder={openNewFolder}
+                                onDelete={(row) => void deleteFile(row)}
+                                onError={setError}
+                              />
+                            );
+                          })}
+                        {open && long && (
+                          <tr className={cn(CALM_ROW, "h-10")}>
+                            <td colSpan={colCount} className="py-1.5 pl-10 pr-4">
+                              <button
+                                type="button"
+                                onClick={() => setShowAll((prev) => new Set(prev).add(section.key))}
+                                className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[12.5px] font-medium text-primary hover:bg-primary/5"
+                              >
+                                <ChevronDown className="size-3.5" aria-hidden="true" />
+                                Pokaż starsze ({visible.length - LONG_GROUP_VISIBLE})
+                              </button>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
                     );
                   })}
-                </tbody>
-              )}
-            </table>
+                </table>
+                {searching && !anyMatch && (
+                  <p className="px-4 py-4 text-[13px] text-muted-foreground">
+                    Żaden plik nie pasuje do „{needle}”.
+                  </p>
+                )}
+              </div>
+            </div>
           )}
-        </div>
-      </div>
+        </>
+      )}
 
       <NewFolderDialog
         open={newFolderFiles !== null}
@@ -581,7 +755,7 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
         open={uploadOpen}
         onOpenChange={setUploadOpen}
         folders={folders}
-        ordersFolderName={ordersName}
+        ordersFolderName={ordersLabel}
         pending={uploadMutation.isPending}
         error={uploadError}
         onSubmit={handleUpload}
