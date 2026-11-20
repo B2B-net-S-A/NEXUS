@@ -17,6 +17,8 @@
 * **Nowy kontrakt** (hak ``contract_hooks.contract_started`` i dzienny
   przebieg opieki) dostaje opiekuna tą samą regułą, gdy
   ``auto_new_contracts`` jest włączone — a jest dopiero po zapisie puli.
+  Z modułem ``back_office`` ten automat stoi (kolejka zamiast opiekunów,
+  decyzja Artura z 20.11.2026); ręczny przydział z podglądem zostaje.
 * **Powiadomienie opiekuna** tylko przy włączonym module ``care`` — przy
   wyłączonym (tryb cienia) link prowadziłby na 404. Typ ``care_contact_due``
   (sekcja Delivery, kategoria kontraktów) — jeden dzwonek na kontrakt przy
@@ -341,10 +343,17 @@ def _people(count: int) -> str:
 async def assign_new(
     db: AsyncSession, contract_ids: Sequence[int], *, today: date
 ) -> int:
-    """Nowe kontrakty bez opiekuna → automat (hak startu, dzienny przebieg)."""
+    """Nowe kontrakty bez opiekuna → automat (hak startu, dzienny przebieg).
+
+    Z modułem ``back_office`` automat stoi: nikt nie ma przypisanych
+    konsultantów, sprawę bierze pierwsza wolna osoba z kolejki (Artur
+    19–20.11.2026). Wpisanych wcześniej opiekunów nie zdejmuje.
+    """
 
     config = await owner_pool.load_config(db)
     if not config.auto_new_contracts or config.manager_user_id is None:
+        return 0
+    if await care_access.back_office_on(db):
         return 0
     live = await care_access.live_contracts(db)
     wanted = set(contract_ids)

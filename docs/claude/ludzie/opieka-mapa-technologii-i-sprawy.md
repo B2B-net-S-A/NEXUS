@@ -400,6 +400,19 @@ back office, admin). Karta „Pula opiekunów” na górze zakładki „Przydzia
   `contract_hooks.contract_started` (krok `care`, także przy wyłączonym
   module — tryb cienia) i dzienny przebieg opieki (tylko starty z ostatnich
   14 dni; starsze bez opiekuna przydziela człowiek z podglądem).
+- **Z modułem `back_office` automat nowych kontraktów stoi** (decyzja Artura
+  z 20.11.2026, `assign_new` zwraca 0 dla haka i przebiegu dziennego): nikt nie
+  ma przypisanych konsultantów, sprawę bierze kolejka (`back-office-jeden-zespol.md`,
+  `opieka-dl-bez-podopiecznych-przy-back-office.md`). Ustawienie
+  `auto_new_contracts` zostaje w puli i wraca do pracy po wyłączeniu modułu.
+  Wpisanych opiekunów nikt nie zdejmuje, a ręczny „Przypisz wg obłożenia”
+  z podglądem działa dalej. Dowód ze stagingu (kopia produkcji z 19.11):
+  `app_settings['hr_modules']` z `back_office: true` bez zmian od 18.10 01:52 UTC,
+  a po tej chwili automat wpisał 46 opiekunów (`hr_audit_events`,
+  `care.owner_set`, powód `auto_load`, 18.10–11.11; 44 z nich to dziś wszyscy
+  opiekunowie aktywnych kontraktów). 12–18.11 `auto_owners` = 0, bo nie było
+  świeżych kontraktów bez opiekuna; cztery z 18.11 dostałyby opiekuna
+  w najbliższym przebiegu.
 - **Powiadomienie opiekuna tylko przy włączonym module `care`** (przy
   wyłączonym link prowadziłby na 404). Typ `care_contact_due`: hak — dzwonek
   na kontrakt („Nowy podopieczny”), zapis hurtem — jeden zbiorczy na osobę.

@@ -25,8 +25,12 @@ dotyczy konsultanta, kolejka ma u siebie („Kontakt 7. dnia”, „Co dalej po 
   własną eskalację), „Zespół opiekunów”, opiekun na kafelkach spraw i grupa „opiekun”
   w komunikatach. `{opiekun}` w komunikacie bez opiekuna podstawia adres skrzynki,
   a mail powitalny wychodzi bez podpisu — oba zapasy już były.
-- Opiekun wpisany ręcznie albo z importu zostaje (20.11: 44 kontrakty, TCM i Finanse).
-  Ręczny przydział DL-a jako opiekuna działa jak dotąd.
+- Opiekun wpisany na kontrakcie zostaje (20.11: 44 kontrakty, TCM i Finanse — wszystkie
+  wpisał automat puli, `auto_load`, 18.10–11.11). Ręczny przydział DL-a jako opiekuna
+  działa jak dotąd.
+- Automat puli (`auto_new_contracts`) przy module nie wpisuje opiekunów nowym
+  kontraktom — ani hakiem startu, ani w dziennym przebiegu (sekcja „Pula opiekunów”
+  w `opieka-mapa-technologii-i-sprawy.md`).
 - Uprawnienia się nie zmieniają: kartę opinii, popytu i rytm DL zmienia jako DL klienta
   (portfel), nie jako opiekun.
 

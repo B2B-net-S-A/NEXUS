@@ -33,6 +33,7 @@ from app.services.care import access as care_access
 from app.services.care import auto_assign
 from app.services.care.owner_pool import POOL_SETTING
 from app.services.hr import contract_hooks
+from app.services.hr_foundation_schema import HR_MODULE_KEYS
 from tests.test_care_api import (
     care_off,  # noqa: F401  (fixture)
     care_on,  # noqa: F401  (fixture)
@@ -40,6 +41,7 @@ from tests.test_care_api import (
     make_client,
     make_contract,
     make_user,
+    set_modules,
 )
 from tests.test_care_assignment import _explicit_owner
 from tests.test_care_cadence import (
@@ -383,6 +385,40 @@ async def test_without_saved_pool_the_start_hook_assigns_nobody(app_client) -> N
     config = preview.json()["config"]
     assert config["saved"] is False and config["auto_new_contracts"] is False
     assert config["manager"]["id"] == manager.id and config["manager_from_division"]
+
+
+@pytest.mark.usefixtures("care_on", "divisions_reset", "pool_reset")
+async def test_back_office_stops_the_pool_automat_for_new_contracts(app_client) -> None:
+    """Decyzja Artura 19–20.11.2026: z modułem back office nikt nie ma
+    przypisanych konsultantów, więc ani hak startu, ani dzienny przebieg nie
+    wpisują opiekuna z puli. Wpisany wcześniej opiekun zostaje, a wyłączenie
+    modułu przywraca automat."""
+
+    head, manager, first, second, tcm, accountant, *_ = await pool_team()
+    await configure(app_client, head, manager, accountant)
+    await set_modules({key: True for key in HR_MODULE_KEYS})
+    client_id = await make_client()
+    fresh, _ = await make_contract(client_id, started_days_ago=0)
+    kept, _ = await make_contract(client_id, started_days_ago=2)
+    await set_owner(kept, first.id)
+
+    async with AsyncSessionLocal() as db:
+        outcome = await contract_hooks.contract_started(
+            db, await db.get(Contract, fresh)
+        )
+        swept = await auto_assign.sweep(db, today=business_today())
+        await db.commit()
+    assert outcome["care"] == "ok"
+    assert swept == 0
+    assert await _explicit_owner(fresh) is None
+    assert await _explicit_owner(kept) == first.id
+
+    await set_modules({key: key != "back_office" for key in HR_MODULE_KEYS})
+    async with AsyncSessionLocal() as db:
+        assert await auto_assign.sweep(db, today=business_today()) >= 1
+        await db.commit()
+    assert await _explicit_owner(fresh) in {first.id, second.id, tcm.id}
+    assert await _explicit_owner(kept) == first.id
 
 
 async def test_daily_sweep_takes_only_fresh_contracts(monkeypatch) -> None:
