@@ -7,8 +7,9 @@
  * odcina sieć). Klient „Bank Testowy S.A.”, październik 2026.
  *
  * Stany (`?state=`):
- * - `dl` (domyślnie) — zakładka „Faktury” klienta oczami jego Delivery Leada:
- *   kroki miesiąca (RCP → do faktury → KSeF → zapłata), do faktury z zamówień
+ * - `dl` (domyślnie) — zakładka „Faktury i rozliczenie” klienta oczami jego
+ *   Delivery Leada: jedna strzałka miesiąca nad rozliczeniem z marżą, kroki
+ *   miesiąca (RCP → do faktury → KSeF → zapłata), do faktury z zamówień
  *   obok faktur z KSeF, różnica, zaległość, brak faktury;
  * - `finance` — Finanse: faktury z KSeF z decyzjami (przypisz, pomiń, uznaj różnicę);
  * - `to-invoice` — Finanse: „Do faktury” wszystkich klientów z eksportem;
@@ -16,7 +17,7 @@
  * Zapisy i pobrania blokuje harness.
  */
 
-import { ClientInvoicingTab } from "@/components/clients/invoicing/ClientInvoicingTab";
+import { ClientInvoicesAndSettlementTab } from "@/components/clients/invoicing/ClientInvoicesAndSettlementTab";
 import { FinanceSalesInvoicesTab } from "@/components/clients/invoicing/FinanceSalesInvoicesTab";
 import { invoicingKeys } from "@/lib/api/client-invoicing";
 import { settlementKeys } from "@/lib/api/client-settlements";
@@ -68,7 +69,7 @@ function prepare(params: URLSearchParams) {
       ...CLIENT_MONTH,
       overdue: CLIENT_MONTH.invoices.filter((invoice) => invoice.overdue_days > 0),
     });
-    // Krok „RCP” paska kroków czyta rozliczenia miesiąca.
+    // Sekcja „Rozliczenie miesiąca i marża” i krok „RCP” paska kroków czytają rozliczenia miesiąca.
     client.setQueryData(settlementKeys.delivery(CLIENT_ID, PERIOD), DELIVERY_MONTH);
   } else {
     user = { ...HR_CAST.piotr, role: "finance" };
@@ -105,7 +106,7 @@ export default function ClientInvoicingPreviewPage() {
       current={state}
     >
       {state === "dl" ? (
-        <ClientInvoicingTab clientId={CLIENT_ID} initialPeriod={PERIOD} />
+        <ClientInvoicesAndSettlementTab clientId={CLIENT_ID} initialPeriod={PERIOD} />
       ) : (
         <FinanceSalesInvoicesTab
           key={state}

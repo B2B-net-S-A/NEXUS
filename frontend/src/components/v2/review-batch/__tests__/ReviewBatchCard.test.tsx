@@ -216,7 +216,7 @@ describe("ReviewBatchCard: szczegół powodu (runda 5)", () => {
     fireEvent.keyDown(window, { key: "Backspace" });
     expect(screen.queryByTestId("review-reject-role")).not.toBeInTheDocument();
     fireEvent.keyDown(window, { key: "4" });
-    expect(screen.getByRole("radio", { name: /Za drogi/ })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: /Za droga/ })).toHaveAttribute("aria-checked", "true");
   });
 
   it("„Szukamy:” podpowiada rolę z profilu, a linia mówi, kiedy silnik przestanie", async () => {
@@ -427,6 +427,21 @@ describe("rememberLine", () => {
   });
   it("puste pole milczy", () => {
     expect(rememberLine("  ", base)).toBeNull();
+  });
+});
+
+describe("ReviewBatchCard: nazwy powodów z jednego słownika (19.11.2026)", () => {
+  it("klawisze 1–9 mają nazwy z okna „Zamknij proces”", async () => {
+    const { QUICK_REASONS } = await import("@/components/v2/review-batch/ReviewBatchCard");
+    expect(Object.fromEntries(QUICK_REASONS.map((r) => [r.key, r.label]))).toMatchObject({
+      "1": "Brak kluczowej umiejętności",
+      "2": "Za mało doświadczenia",
+      "3": "Lokalizacja lub tryb pracy",
+      "4": "Za droga",
+      "7": "Inny poziom lub inna rola",
+      "8": "Nie szuka pracy",
+      "0": "Inne — opisz",
+    });
   });
 });
 

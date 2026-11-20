@@ -44,6 +44,7 @@ import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { useContractFeedback } from "@/lib/api/client-people";
 import { countPl } from "@/lib/plural-pl";
 
+import { careWithoutRhythm, nearestPlanItem, planItemOverdue } from "../back-office-care";
 import { CadenceDialog } from "../CadenceDialog";
 import { ClientFeedbackDialog } from "../ClientFeedbackDialog";
 import { ConversationDialog } from "../ConversationDialog";
@@ -241,10 +242,13 @@ function PlanRow({
   onSkip,
   onRestore,
   restoring,
+  withoutRhythm,
   compact = false,
 }: {
   item: CardPlanItem;
   today: string;
+  /** Moduł back office: rozmowa z rytmu sprzed modułu nie jest „po terminie”. */
+  withoutRhythm: boolean;
   canEdit: boolean;
   onRecord: () => void;
   onSkip: () => void;
@@ -253,7 +257,7 @@ function PlanRow({
   /** Wąska prawa kolumna kontraktu: data w drugiej linii, przyciski obok etykiety. */
   compact?: boolean;
 }) {
-  const overdue = item.status === "open" && item.due_on < today;
+  const overdue = planItemOverdue(item, today, withoutRhythm);
   const status =
     item.status === "done"
       ? "zrobiony"
@@ -353,8 +357,10 @@ interface ConsultantCardProps {
  * i menu „Więcej” (opiekun, rytm, pominięcie punktu planu, kontrakt) — tak
  * w panelu `/care?contract=<id>`. Na kontrakcie (`layout="page"`) te same dane
  * i akcje w układzie wariantu A; zdrowie i „dlaczego” pokazuje tam pas
- * „Co się dzieje” nad zakładkami. Bez stawek i danych o zdrowiu — serwer ich
- * nie wysyła.
+ * „Co się dzieje” nad zakładkami. Z modułem back office (20.11.2026) w obu
+ * układach bez rytmu: bez „Rytm kontaktu” i „Zmień rytm”, a rozmowa z rytmu
+ * sprzed modułu nie jest „po terminie”. Bez stawek i danych o zdrowiu — serwer
+ * ich nie wysyła.
  */
 export function ConsultantCard({
   contractId,
@@ -507,6 +513,9 @@ function CardBody({
     .filter((item) => item.status === "open")
     .sort((a, b) => (a.due_on < b.due_on ? -1 : a.due_on > b.due_on ? 1 : 0));
   const nextPlan = openPlan[0] ?? null;
+  // Do czasu wczytania konfiguracji karta jak bez modułu (menu jest zamknięte).
+  const withoutRhythm = hr.data ? careWithoutRhythm(hr.data) : false;
+  const nearestPlan = nearestPlanItem(openPlan, today, withoutRhythm);
   const casesOpen = Boolean(hr.data?.open_modules.cases);
   const canOpenCase = casesOpen && Boolean(hr.data?.me.cases || hr.data?.me.is_admin);
   const name = card.candidate_name ?? "Konsultant";
@@ -579,7 +588,7 @@ function CardBody({
         </Button>
       );
     }
-    if (step.kind === "raise_cadence") {
+    if (step.kind === "raise_cadence" && !withoutRhythm) {
       return (
         <Button size="sm" variant={stepVariant} onClick={() => setCadenceOpen(true)}>
           Zmień rytm
@@ -630,6 +639,7 @@ function CardBody({
           item={item}
           today={today}
           compact={compact}
+          withoutRhythm={withoutRhythm}
           canEdit={card.can_edit}
           onRecord={() => startTalk(item)}
           onSkip={() => setSkipping(item)}
@@ -661,8 +671,8 @@ function CardBody({
         Plan kontaktów
         <span className="text-xs font-normal text-muted-foreground">
           {openPlan.length ? `${openPlan.length} otwarte` : "bez otwartych"}
-          {openPlan.some((item) => item.due_on < today) ? " · po terminie" : ""}
-          {nextPlan ? ` · najbliższy ${formatDayMonthPl(nextPlan.due_on)}` : ""}
+          {openPlan.some((item) => planItemOverdue(item, today, withoutRhythm)) ? " · po terminie" : ""}
+          {nearestPlan ? ` · najbliższy ${formatDayMonthPl(nearestPlan.due_on)}` : ""}
         </span>
       </CollapsibleTrigger>
       <CollapsibleContent className="border-t border-border/60 px-3 py-1">{renderPlanRows(false)}</CollapsibleContent>
@@ -676,7 +686,9 @@ function CardBody({
       {card.can_change_owner ? (
         <DropdownMenuItem onSelect={() => setOwnerOpen(true)}>Zmień opiekuna</DropdownMenuItem>
       ) : null}
-      <DropdownMenuItem onSelect={() => setCadenceOpen(true)}>Rytm kontaktu</DropdownMenuItem>
+      {withoutRhythm ? null : (
+        <DropdownMenuItem onSelect={() => setCadenceOpen(true)}>Rytm kontaktu</DropdownMenuItem>
+      )}
       {card.can_edit && nextPlan ? (
         <DropdownMenuItem onSelect={() => setSkipping(nextPlan)}>
           Pomiń punkt planu ({formatDayMonthPl(nextPlan.due_on)})
@@ -760,7 +772,7 @@ function CardBody({
           }}
         />
       ) : null}
-      {cadenceOpen ? (
+      {cadenceOpen && !withoutRhythm ? (
         <CadenceDialog contractId={card.contract_id} open onOpenChange={setCadenceOpen} />
       ) : null}
       {ownerOpen ? <OwnerDialog card={card} open onOpenChange={setOwnerOpen} /> : null}
@@ -809,6 +821,7 @@ function CardBody({
         today={today}
         openPlan={openPlan}
         nextPlan={nextPlan}
+        withoutRhythm={withoutRhythm}
         manager={manager}
         clientFeedback={clientFeedback}
         stream={stream}
@@ -942,6 +955,7 @@ function ContractCareLayout({
   today,
   openPlan,
   nextPlan,
+  withoutRhythm,
   manager,
   clientFeedback,
   stream,
@@ -967,6 +981,7 @@ function ContractCareLayout({
   today: string;
   openPlan: CardPlanItem[];
   nextPlan: CardPlanItem | null;
+  withoutRhythm: boolean;
   manager: { contact_id: number; name: string } | null;
   clientFeedback: ReturnType<typeof useContractFeedback>;
   stream?: (actions: CareStreamActions | null) => ReactNode;
@@ -988,7 +1003,7 @@ function ContractCareLayout({
   onOpenFeedback: (note: string, onSaved?: () => void) => void;
   dialogs: ReactNode;
 }) {
-  const overduePlan = openPlan.filter((item) => item.due_on < today).length;
+  const overduePlan = openPlan.filter((item) => planItemOverdue(item, today, withoutRhythm)).length;
   const sat = satisfactionKpi(card.kpis.satisfaction);
   const mgr = managerFeedbackKpi(card.kpis.manager_feedback, card.can_see_feedback);
   const feedbackItems = clientFeedback.data?.items ?? [];
@@ -1000,7 +1015,7 @@ function ContractCareLayout({
   const actions: CareStreamActions = {
     canTalk: card.can_edit,
     startTalk: onStartTalk,
-    nextPlan: nextPlan ? { label: nextPlan.label, due_on: nextPlan.due_on, overdue: nextPlan.due_on < today } : null,
+    nextPlan: nextPlan ? { label: nextPlan.label, due_on: nextPlan.due_on, overdue: planItemOverdue(nextPlan, today, withoutRhythm) } : null,
     canFeedback: card.can_see_feedback,
     managerName: manager?.name ?? null,
     openFeedback: onOpenFeedback,
@@ -1017,11 +1032,16 @@ function ContractCareLayout({
           {card.owner.source ? ` (${OWNER_SOURCE_LABELS[card.owner.source]})` : ""}
         </span>
         <span aria-hidden>·</span>
-        <span>
-          rytm: <span className="font-medium text-foreground">{card.cadence?.label ?? "nie ustalono"}</span>
-          {card.cadence?.until_on ? ` do ${formatIsoDatePl(card.cadence.until_on)}` : ""}
-        </span>
-        <span aria-hidden>·</span>
+        {/* Z modułem back office rytmu rozmów nie ma (#3674) — bez „rytm: …”. */}
+        {withoutRhythm ? null : (
+          <>
+            <span>
+              rytm: <span className="font-medium text-foreground">{card.cadence?.label ?? "nie ustalono"}</span>
+              {card.cadence?.until_on ? ` do ${formatIsoDatePl(card.cadence.until_on)}` : ""}
+            </span>
+            <span aria-hidden>·</span>
+          </>
+        )}
         <span>
           {lastContact ? (
             <>

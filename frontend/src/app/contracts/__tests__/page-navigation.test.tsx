@@ -40,9 +40,12 @@ vi.mock("@/components/contracts/ContractsClientPicker", () => ({
 }));
 
 vi.mock("@/components/order-mail/OrderMailQueue", () => ({
-  OrderMailQueue: (props: { modeTabs?: React.ReactNode }) => (
+  // Kolejka od 20.11.2026 sama rysuje „← Kontrakty” i woła `onBack`.
+  OrderMailQueue: (props: { onBack?: () => void }) => (
     <div>
-      {props.modeTabs}
+      <button type="button" onClick={() => props.onBack?.()}>
+        ← Kontrakty
+      </button>
       Skrzynka zamówień z maila
     </div>
   ),
@@ -94,7 +97,7 @@ describe("ContractsPage — jedna lista (18.11.2026)", () => {
     expect(screen.getByLabelText("3 do weryfikacji")).toBeInTheDocument();
   });
 
-  it("przycisk otwiera kolejkę pod ?view=order-mail, a „Wróć do listy kontraktów” wraca", async () => {
+  it("przycisk otwiera kolejkę pod ?view=order-mail, a „← Kontrakty” wraca", async () => {
     window.history.replaceState({ next: "preserved" }, "", "/contracts?status=draft&page=4");
     render(<ContractsPage />);
 
@@ -105,7 +108,7 @@ describe("ContractsPage — jedna lista (18.11.2026)", () => {
     expect(screen.getByText("Skrzynka zamówień z maila")).toBeInTheDocument();
     expect(window.history.state).toEqual({ next: "preserved" });
 
-    fireEvent.click(screen.getByRole("button", { name: /Wróć do listy kontraktów/ }));
+    fireEvent.click(screen.getByRole("button", { name: "← Kontrakty" }));
     await waitFor(() =>
       expect(`${window.location.pathname}${window.location.search}`).toBe("/contracts"),
     );

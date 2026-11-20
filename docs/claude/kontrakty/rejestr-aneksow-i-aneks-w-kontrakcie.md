@@ -120,7 +120,9 @@ spoza Nexusa — nie był zapisywany wcale. Raport:
   zapisuje się pod kluczem z treści, stary znika dopiero po commicie —
   `signed_scan.discard`; skan wysłany już do SharePointa wraca do wysyłki
   i podmienia tam ten sam plik — `dokumenty-kontraktow-z-sharepointa.md`);
-  wygenerowany DOCX zostaje obok. `signed_scan_document_id` na liście
+  wygenerowany DOCX zostaje obok. Skan, który kontrakt już ma (ten sam
+  SHA-256), wskazuje istniejący dokument, a „Podmień skan” go nie nadpisuje
+  (20.11.2026, `jeden-plik-raz-w-dokumentach-kontraktu.md`). `signed_scan_document_id` na liście
   oddajemy tylko, gdy ten dokument kontraktu nadal istnieje
   (`signed_scan.existing_scan_ids`, 14.10.2026) — skan usunięty z Dokumentów
   albo z kontraktem dawał „Podmień skan” przy skanie, którego nie ma. Okno

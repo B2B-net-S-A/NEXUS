@@ -273,6 +273,11 @@ export interface OrderDocumentItem {
   /** Null dla plików wgranych przed migracją 0227 (brak atrybucji w bazie). */
   uploaded_by_email: string | null;
   uploaded_at: string | null;
+  /**
+   * Id kopii PDF-u grupy w Dokumentach kontraktu, gdy to ten sam plik co PDF
+   * tej linii (serwer porównuje SHA-256). Tylko trasa by-contract (20.11.2026).
+   */
+  same_file_document_id?: number | null;
 }
 
 export interface OrderDocumentsResponse {

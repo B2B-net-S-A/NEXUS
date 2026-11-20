@@ -178,14 +178,22 @@ const NOTE: ContractTimelineItem = {
   duration_seconds: null,
 };
 
-function serve(data: ConsultantCardData, notes: ContractTimelineItem[] = [NOTE]) {
+/** Konfiguracja HR z modułem back office (bez rytmu rozmów, #3674). */
+const BACK_OFFICE_CONFIG = {
+  open_modules: { care: true, cases: false, back_office: true },
+  me: { cases: false, is_admin: false },
+};
+
+function serve(data: ConsultantCardData, notes: ContractTimelineItem[] = [NOTE], hrConfig: unknown = null) {
   mocks.get.mockImplementation((url: string) => {
     if (url.endsWith("/card")) return Promise.resolve({ data });
     if (url.endsWith("/timeline")) return Promise.resolve({ data: timeline() });
     if (url.endsWith("/client-state")) return Promise.resolve({ data: STATE });
     if (url.endsWith("/feedback")) return Promise.resolve({ data: { items: [], client_id: 3, can_write: true } });
     if (url === "/api/contracts/5/notes") return Promise.resolve({ data: notes });
-    if (url === "/api/hr/config") return Promise.reject(httpError(403));
+    if (url === "/api/hr/config") {
+      return hrConfig ? Promise.resolve({ data: hrConfig }) : Promise.reject(httpError(403));
+    }
     if (url.endsWith("/api/care/contracts/5")) return Promise.resolve({ data: contractCare() });
     if (url.includes("/areas")) return Promise.resolve({ data: { items: [] } });
     return Promise.resolve({ data: { items: [] } });
@@ -286,6 +294,46 @@ describe("ContractCareTab — wariant A", () => {
     expect(within(plan).getByText(/po terminie/)).toBeInTheDocument();
     expect(within(plan).queryByRole("button")).toBeNull();
     expect(screen.getByText(/Opinie klienta widzą opiekun/)).toBeInTheDocument();
+  });
+
+  it("moduł back office w układzie strony: bez rytmu i „Zmień rytm”, rozmowa z rytmu nie jest „po terminie”", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const plan: ConsultantCardData["plan"] = [
+      { id: 21, kind: "cadence", label: "Rozmowa według rytmu", due_on: "2026-10-05", status: "open", skip_reason: null },
+      { id: 22, kind: "pre_end", label: "Przed końcem zamówienia", due_on: "2099-01-15", status: "open", skip_reason: null },
+    ];
+    serve(
+      card({ cadence: null, plan, next_step: { kind: "raise_cadence", label: "Częstszy kontakt", detail: null } }),
+      [NOTE],
+      BACK_OFFICE_CONFIG,
+    );
+    renderTab();
+    const owner = await screen.findByRole("group", { name: "Opiekun i rytm" });
+    const plans = screen.getByRole("region", { name: "Plan kontaktów" });
+    await waitFor(() => expect(owner).not.toHaveTextContent("rytm:"));
+    expect(plans).toHaveTextContent("2 otwarte");
+    expect(plans).not.toHaveTextContent("po terminie");
+    expect(within(screen.getByRole("region", { name: "Następny krok" })).queryByRole("button", { name: "Zmień rytm" })).toBeNull();
+    await user.click(within(owner).getByRole("button", { name: /Zmień/ }));
+    expect(await screen.findByRole("menuitem", { name: "Zmień opiekuna" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Rytm kontaktu" })).toBeNull();
+  });
+
+  it("bez modułu back office w układzie strony rytm jak dotąd: „rytm:”, „Zmień rytm”, „Rytm kontaktu”, „po terminie”", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const plan: ConsultantCardData["plan"] = [
+      { id: 21, kind: "cadence", label: "Rozmowa według rytmu", due_on: "2026-10-05", status: "open", skip_reason: null },
+    ];
+    serve(card({ plan, next_step: { kind: "raise_cadence", label: "Częstszy kontakt", detail: null } }));
+    renderTab();
+    const owner = await screen.findByRole("group", { name: "Opiekun i rytm" });
+    expect(owner).toHaveTextContent("rytm: co 2 tygodnie");
+    const plans = screen.getByRole("region", { name: "Plan kontaktów" });
+    expect(plans).toHaveTextContent("1 zaległy");
+    expect(within(plans).getByText(/po terminie/)).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Następny krok" })).getByRole("button", { name: "Zmień rytm" })).toBeInTheDocument();
+    await user.click(within(owner).getByRole("button", { name: /Zmień/ }));
+    expect(await screen.findByRole("menuitem", { name: "Rytm kontaktu" })).toBeInTheDocument();
   });
 
   it("„Zapisz” przy punkcie planu wysyła rozmowę zamykającą ten punkt", async () => {

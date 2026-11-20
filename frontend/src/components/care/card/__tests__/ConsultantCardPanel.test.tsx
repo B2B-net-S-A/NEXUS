@@ -8,7 +8,7 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -79,11 +79,18 @@ const TIMELINE: Pick<ContractTimeline, "events" | "feedback_visible" | "can_edit
   can_edit: true,
 };
 
-function renderPanel() {
+const BACK_OFFICE_CONFIG = {
+  open_modules: { care: true, cases: false, back_office: true },
+  me: { cases: false, is_admin: false },
+};
+
+function renderPanel(card: ConsultantCardData = CARD, hrConfig: unknown = null) {
   mocks.get.mockImplementation((url: string) => {
-    if (url.endsWith("/card")) return Promise.resolve({ data: CARD });
+    if (url.endsWith("/card")) return Promise.resolve({ data: card });
     if (url.endsWith("/timeline")) return Promise.resolve({ data: TIMELINE });
-    if (url === "/api/hr/config") return Promise.reject(httpError(403));
+    if (url === "/api/hr/config") {
+      return hrConfig ? Promise.resolve({ data: hrConfig }) : Promise.reject(httpError(403));
+    }
     return Promise.resolve({ data: { items: [] } });
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -130,5 +137,21 @@ describe("ConsultantCard w panelu /care", () => {
       "/contracts/5?tab=care",
     );
     expect(screen.getByRole("menuitem", { name: "Zmień opiekuna" })).toBeInTheDocument();
+  });
+
+  it("moduł back office (#3674): bez „Rytm kontaktu”, rozmowa z rytmu nie jest „po terminie”, kamień tak", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const plan: ConsultantCardData["plan"] = [
+      { id: 21, kind: "cadence", label: "Rozmowa według rytmu", due_on: "2026-10-05", status: "open", skip_reason: null },
+      { id: 22, kind: "pre_end", label: "Przed końcem zamówienia", due_on: "2099-01-15", status: "open", skip_reason: null },
+    ];
+    renderPanel({ ...CARD, cadence: null, plan, next_step: null }, BACK_OFFICE_CONFIG);
+    await screen.findByRole("heading", { name: "Anna Przykładowa" });
+    const trigger = await screen.findByRole("button", { name: /Plan kontaktów/ });
+    await waitFor(() => expect(trigger).toHaveTextContent("2 otwarte · najbliższy 15.01"));
+    expect(trigger).not.toHaveTextContent("po terminie");
+    await user.click(screen.getByRole("button", { name: "Więcej akcji" }));
+    expect(await screen.findByRole("menuitem", { name: "Zmień opiekuna" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Rytm kontaktu" })).toBeNull();
   });
 });

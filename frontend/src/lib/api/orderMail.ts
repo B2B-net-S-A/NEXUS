@@ -316,16 +316,3 @@ export function needsPersonDecision(doc: Pick<OrderMailDocument, "proposal">): b
 export function orderWindowHref(doc: Pick<OrderMailDocument, "id" | "client_id">): string | null {
   return doc.client_id ? `/clients/${doc.client_id}?tab=zamowienia&orderMailDoc=${doc.id}` : null;
 }
-
-export const ORDER_MAIL_OUTCOME_LABEL: Record<OrderMailOutcome, string> = {
-  received: "Odebrane",
-  ignored_no_pdf: "Bez PDF-a",
-  ignored_sender: "Nadawca poza listą",
-  duplicate_attachment: "Duplikat",
-  unrecognized_client: "Nierozpoznany klient",
-  needs_review: "Do weryfikacji",
-  auto_applied: "Zapisane automatycznie",
-  applied: "Zapisane",
-  dismissed: "Odrzucone",
-  failed: "Błąd",
-};

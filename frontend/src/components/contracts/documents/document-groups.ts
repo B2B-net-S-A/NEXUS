@@ -390,6 +390,12 @@ export function nameHasContractNumber(name: string, contractNumber: string | nul
  * puste), karty „Obowiązuje teraz” i opis importu z SharePointa. Karta
  * „Umowa” woli plik z numerem bieżącej umowy w nazwie — starsza umowa
  * dodana później (jeszcze nie w folderze) nie stanie pod „nr …”.
+ *
+ * PDF linii zamówienia zbiorczego i kopia PDF-u jej grupy bywają tym samym
+ * plikiem (19.11.2026: 14 par w 13 kontraktach). Gdy serwer to potwierdzi
+ * (`same_file_document_id`, SHA-256 pliku), zostaje jeden wiersz: PDF
+ * z zakładki Zamówienia, bo niesie numer i status zamówienia, a bez „Usuń”
+ * nie wraca po usunięciu kopii (`jeden-plik-raz-w-dokumentach-kontraktu.md`).
  */
 export function buildDocumentsView(
   docs: readonly ContractDocument[],
@@ -398,7 +404,13 @@ export function buildDocumentsView(
   currentContractNumber: string | null = null,
 ): DocumentsView {
   const known = new Set(folders.map((f) => f.id));
-  const items = [...docs.map((d) => fromDoc(d, known)), ...orderFiles.map(fromOrderFile)].sort(
+  const sameAsOrderFile = new Set(
+    orderFiles
+      .map((order) => order.same_file_document_id)
+      .filter((id): id is number => id != null),
+  );
+  const shownDocs = docs.filter((d) => !(d.doc_type === "order" && sameAsOrderFile.has(d.id)));
+  const items = [...shownDocs.map((d) => fromDoc(d, known)), ...orderFiles.map(fromOrderFile)].sort(
     byDocDateDesc,
   );
   const loose = items.filter((i) => i.folderId == null);

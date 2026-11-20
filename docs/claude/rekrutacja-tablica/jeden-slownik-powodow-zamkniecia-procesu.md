@@ -65,6 +65,8 @@ u klienta (108 z 397).
   pytanie o reakcję na ofertę po akceptacji zostaje. Formularz screeningu
   zapisuje tylko „Odrzucony”, więc odpowiedzi „Kandydat rezygnuje” tam nie ma.
   `reasonFitsEndedBy` usunięte — kto wybiera powód, mówi pole `who` słownika.
+- **Porcja dnia (etap 4):** `QUICK_REASONS` w `ReviewBatchCard.tsx` biorą
+  nazwy ze słownika (`closeReason(...).label`), klawisze i klucze bez zmian.
 - Nowy powód = wpis w `close_reasons.py`, wiersz w nowej migracji z lustrem,
   klucz w `autofill_feedback_schema.REASONS` i lustro na froncie
   (`test_close_reasons.py` pilnuje zgodności).
