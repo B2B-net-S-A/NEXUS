@@ -22,21 +22,24 @@ Faktury, które naprawdę istnieją, przychodzą z KSeF: sprzedaż do
   `invoices_total` w `/api/admin/engagement-inventory`, licznik
   `blast_invoices_via_candidate_contracts` w `/api/admin/candidate-pii-orphans`.
 
-## Co zostało i dlaczego
+## Usunięcie tabeli (0748)
 
-- **Tabela i enumy `invoicedirection`, `invoicestatus`.** `DROP` to osobna
-  migracja w kolejnym wdrożeniu (`podstawy/migracje-zgodne-wstecz.md`), tylko
-  za zgodą Artura, bo jest nieodwracalny.
-- **Wpis `("invoices", "contract_id")` w `contract_merge._KNOWN_CONTRACT_FKS`.**
-  Scalanie kontraktów porównuje listę z żywym katalogiem Postgresa i blokuje
-  scalenie zarówno przy nieznanym, jak i przy brakującym kluczu obcym. Wpis
-  wychodzi więc w tym samym PR-ze co `DROP`, ani wcześniej, ani później.
-- **Lustro migracji 0394 w `entrypoint.sh`** (`ALTER TABLE invoices …
-  NUMERIC(14, 2)`; komentarz w pliku nazywa je „0391”) i jego test
-  w `tests/test_audit_r10_money.py`. Za `IF EXISTS` jest bezczynne na bazie bez
-  tabeli; usuwa je PR z `DROP`.
-- **Napis `invoices:read` w koncie serwisowym, które go miało.** Nie otwiera już
-  niczego; ekran „Klucze API” pokazuje go w grupie „Inne”, a zapis konta go usuwa.
+Kod przestał czytać tabelę w #3661, a migracja 0748 w kolejnym wdrożeniu
+(`podstawy/migracje-zgodne-wstecz.md`, zgoda Artura z 20.11.2026) usunęła
+`invoices` i enumy `invoicedirection`, `invoicestatus`, bez CASCADE. Razem
+z nią zniknęły:
+
+- wpis `("invoices", "contract_id")` w `contract_merge._KNOWN_CONTRACT_FKS`.
+  Audyt scalania kontraktów porównuje tę listę z żywym katalogiem Postgresa
+  i blokuje scalenie zarówno przy nieznanym, jak i przy brakującym kluczu
+  obcym, więc wpis wychodzi w tym samym PR-ze co `DROP`;
+- lustro migracji 0394 w `entrypoint.sh` (`ALTER TABLE invoices …
+  NUMERIC(14, 2)`) i jego test.
+
+Lustro `DROP` jest w `entrypoint.sh`; pilnuje go
+`tests/test_drop_invoices_register_mirror.py`. Napis `invoices:read` w koncie
+serwisowym, które go miało, nie otwiera już niczego: ekran „Klucze API”
+pokazuje go w grupie „Inne”, a zapis konta go usuwa.
 
 ## Na przyszłość
 

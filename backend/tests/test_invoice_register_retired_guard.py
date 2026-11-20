@@ -1,9 +1,9 @@
 """Rejestr faktur ``invoices`` wygaszony 20.11.2026 — nie wraca starym merge'em.
 
-Tabela zostaje w bazie do migracji z ``DROP`` (reguła:
-``docs/claude/kontrakty/rejestr-faktur-invoices-wygaszony.md``). Do tego czasu
-ORM nie może jej znać, bo ``entrypoint.sh`` woła ``create_all`` i po ``DROP``
-założyłby ją z powrotem, a trasy, scope'y i zdarzenia nie mogą do niej wrócić.
+Tabelę usunęła migracja 0748 (reguła:
+``docs/claude/kontrakty/rejestr-faktur-invoices-wygaszony.md``). ORM nie może
+jej znać, bo ``entrypoint.sh`` woła ``create_all`` i założyłby ją z powrotem,
+a trasy, scope'y i zdarzenia nie mogą wrócić.
 """
 
 from __future__ import annotations
