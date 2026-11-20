@@ -38,10 +38,37 @@ describe("contracts list navigation state", () => {
         startTo: "",
         orderEndFrom: "",
         orderEndTo: "",
+        groupByClient: false,
+        endingTimeline: false,
         sortBy: null,
         sortDir: "asc",
         page: 1,
       },
+    });
+  });
+
+  // Przebudowa 20.11.2026: „Grupuj: klient” i oś czasu „Kończących się” żyją
+  // w adresie, a adres niesie tylko to, co dotyczy widocznego widoku.
+  it("round-trips „Grupuj: klient” i oś czasu, każde tylko w swoim widoku", () => {
+    const grouped = parseContractsListState("status=active&status=ending&group=client");
+    expect(grouped.explicit).toBe(true);
+    expect(grouped.state.groupByClient).toBe(true);
+    expect(buildContractsListUrl(grouped.state)).toBe("/contracts?status=active&status=ending&group=client");
+    // W „Kończących się” grupowania nie ma — adres go pomija.
+    expect(buildContractsListUrl({ ...grouped.state, statusFilter: [], endingSoon: true })).toBe(
+      "/contracts?status=all&ending=30",
+    );
+
+    const timeline = parseContractsListState("status=all&ending=30&timeline=1");
+    expect(timeline.state.endingTimeline).toBe(true);
+    expect(buildContractsListUrl(timeline.state)).toBe("/contracts?status=all&ending=30&timeline=1");
+    // Poza „Kończącymi się” oś czasu nic nie znaczy.
+    expect(
+      buildContractsListUrl({ ...timeline.state, endingSoon: false, statusFilter: ["active", "ending"] }),
+    ).toBe("/contracts?status=active&status=ending");
+    expect(parseContractsListState("group=tak&timeline=0").state).toMatchObject({
+      groupByClient: false,
+      endingTimeline: false,
     });
   });
 

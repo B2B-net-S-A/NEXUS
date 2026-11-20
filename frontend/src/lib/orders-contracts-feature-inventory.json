@@ -122,10 +122,10 @@
   },
   {
    "id": "k.future-start",
-   "opis": "„startuje DD.MM”, koniec zamówienia",
-   "file": "components/v2/pages/ContractsListV2.tsx",
-   "marker": "startuje",
-   "b_home": "Kolumny Status i Koniec zamówienia"
+   "opis": "„Startuje DD.MM.RRRR — za N dni” w „Co dalej”, koniec zamówienia w drugiej linii „Okresu” (20.11.2026; dawniej dopisek pod statusem)",
+   "file": "lib/contract-list-next.ts",
+   "marker": "Startuje",
+   "b_home": "Kolumny „Okres” i „Co dalej”"
   },
   {
    "id": "k.row-panel",
@@ -227,10 +227,10 @@
   },
   {
    "id": "k.p.annex",
-   "opis": "Aneksy",
+   "opis": "Aneksy: to samo menu „Dodaj aneks” co na stronie kontraktu (zmiana stawki, zakresu, przedłużenie, zakończenie wcześniej, dokument aneksu); wybór otwiera zakładkę „Aneksy” od razu z oknem (20.11.2026)",
    "file": "components/contracts/ContractSidePanel.tsx",
-   "marker": "Wygeneruj dokument",
-   "b_home": "Panel: menu „Aneks”"
+   "marker": "<AddAnnexMenu",
+   "b_home": "Panel: stopka, „Dodaj aneks”"
   },
   {
    "id": "k.annex.register",
@@ -1072,6 +1072,41 @@
    "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
    "marker": "<RoleScopeEditor",
    "b_home": "Generator umów: zakładka „Zakresy ról”"
+  },
+  {
+   "id": "k.next-steps",
+   "opis": "Kolumna „Co dalej”: odejście, koniec zamówienia w 60 dni (czerwone do 14) z decyzją o przedłużeniu, nierozwiązana umowa B2B, brak stawki klienta, brak zamówienia i start w przyszłości — te same progi co pas „Co się dzieje” (20.11.2026); typ i status drobnym drukiem tylko przy wartości innej niż B2B/Aktywny",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "listNextSteps",
+   "b_home": "Tabela, ostatnia kolumna"
+  },
+  {
+   "id": "k.more-filters",
+   "opis": "„Więcej filtrów”: status, typ umowy i daty w jednym okienku, chipy aktywnych wyborów; status nie dubluje pigułek (20.11.2026)",
+   "file": "components/contracts/list/ContractsMoreFilters.tsx",
+   "marker": "Status umowy",
+   "b_home": "Pasek filtrów"
+  },
+  {
+   "id": "k.group-by-client",
+   "opis": "„Grupuj: klient”: nagłówek grupy z liczbą osób, marżą miesięczną (z wglądem w kwoty), kto odchodzi i startuje, link do „Konsultantów” klienta; stan w adresie `?group=client` (20.11.2026)",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "Grupuj: klient",
+   "b_home": "Pasek filtrów, przełącznik"
+  },
+  {
+   "id": "k.ending-view",
+   "opis": "„Kończące się” jako odejścia do domknięcia: ostatni dzień i ile zostało, powód, stan umowy B2B, marża miesięczna, niespójność z zamówieniem, „Zapisz rozwiązanie umowy”; ten sam zbiór na osi czasu (`?timeline=1`, 20.11.2026)",
+   "file": "components/contracts/list/ContractsEndingView.tsx",
+   "marker": "Oś czasu",
+   "b_home": "Pigułka „Kończące się”"
+  },
+  {
+   "id": "k.p.warning",
+   "opis": "Panel: jedno ostrzeżenie z akcją zamiast kilku o tym samym (sprawy z paska strony kontraktu, szkic, przywrócenie, brak zamówienia), pieniądze w jednej linii, okres z „ile zostało”, trzy ostatnie zmiany ludzi (20.11.2026)",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "contractPanelWarnings",
+   "b_home": "Panel: góra"
   }
  ]
 }

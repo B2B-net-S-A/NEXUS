@@ -117,7 +117,7 @@
       },
       {
         "anchor": "contract.panel.open",
-        "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
+        "text": "Kliknij „Otwórz kontrakt” w stopce panelu.",
         "hint": "Pełna karta kontraktu otworzy się na „Przeglądzie”."
       },
       {
@@ -1049,8 +1049,13 @@
         "hint": "Kliknij w wierszu poza nazwiskiem — otworzy się panel kontraktu. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
       },
       {
+        "anchor": "contract.panel.more",
+        "text": "Kliknij „⋯” w stopce panelu.",
+        "hint": "Rzadsze akcje kontraktu są w tym menu; zakończenie współpracy stoi na jego dole."
+      },
+      {
         "anchor": "contract.panel.end",
-        "text": "Kliknij „Zakończ współpracę”.",
+        "text": "Kliknij „Zakończ współpracę…”.",
         "hint": "Okno zakończenia otworzy się bez zapisywania czegokolwiek."
       },
       {
@@ -3369,7 +3374,7 @@
       },
       {
         "anchor": "contract.panel.open",
-        "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
+        "text": "Kliknij „Otwórz kontrakt” w stopce panelu.",
         "hint": "Pełna karta kontraktu otworzy się na „Przeglądzie”."
       },
       {
@@ -3454,7 +3459,7 @@
       },
       {
         "anchor": "contract.panel.open",
-        "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
+        "text": "Kliknij „Otwórz kontrakt” w stopce panelu.",
         "hint": "Pełna karta kontraktu otworzy się na „Przeglądzie”."
       },
       {
@@ -3551,7 +3556,7 @@
       },
       {
         "anchor": "contract.panel.open",
-        "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
+        "text": "Kliknij „Otwórz kontrakt” w stopce panelu.",
         "hint": "Pełna karta kontraktu otworzy się na „Przeglądzie”."
       },
       {
@@ -3649,6 +3654,42 @@
     "href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contracts.quick-filters"
+  },
+  {
+    "id": "kontrakty-lista-co-dalej",
+    "pr": 0,
+    "title": "Kontrakty: „Co dalej” w wierszu, grupy klientów i odejścia na osi czasu",
+    "why": "Wiersz mówi, co zrobić: koniec zamówienia, odejście, nierozwiązana umowa. „Grupuj: klient” zbiera osoby pod klientem, a „Kończące się” pokazuje odejścia do domknięcia i oś czasu.",
+    "tier": "tour",
+    "shipped_on": "2026-11-20",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Kontrakty → lista i pigułka „Kończące się”",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contracts.list.next",
+    "steps": [
+      {
+        "anchor": "contracts.list.next",
+        "text": "Kolumna „Co dalej” mówi, co trzeba zrobić przy osobie.",
+        "hint": "Te same progi co pas na kontrakcie: zamówienie w 60 dni (czerwone do 14), odejście, nierozwiązana umowa, brak stawki.",
+        "ack": true
+      },
+      {
+        "anchor": "contracts.group-by-client",
+        "text": "Kliknij „Grupuj: klient”.",
+        "hint": "Nagłówek grupy pokazuje liczbę osób, marżę miesięczną i kto odchodzi albo startuje. Drugi klik wraca do zwykłej listy."
+      },
+      {
+        "anchor": "contracts.ending-pill",
+        "text": "Kliknij pigułkę „Kończące się”.",
+        "hint": "Odejścia do domknięcia: ostatni dzień, powód, czy umowa B2B jest rozwiązana i co się nie zgadza z zamówieniem."
+      },
+      {
+        "anchor": "contracts.ending.timeline",
+        "text": "Kliknij „Oś czasu”.",
+        "hint": "Kto odchodzi kiedy, w grupach po miesiącu. Przerywany pasek to zamówienie klienta trwające po odejściu."
+      }
+    ]
   },
   {
     "id": "klient-konsultanci",
@@ -3894,7 +3935,7 @@
       },
       {
         "anchor": "contract.panel.open",
-        "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
+        "text": "Kliknij „Otwórz kontrakt” w stopce panelu.",
         "hint": "Gdy coś czeka na ruch, stoi pod nagłówkiem w pasie „Co się dzieje”, z przyciskiem: koniec współpracy, zamówienie, rozmowa."
       },
       {
@@ -3957,7 +3998,7 @@
       },
       {
         "anchor": "contract.panel.open",
-        "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
+        "text": "Kliknij „Otwórz kontrakt” w stopce panelu.",
         "hint": "Pełna karta kontraktu otworzy się na „Przeglądzie”."
       },
       {
