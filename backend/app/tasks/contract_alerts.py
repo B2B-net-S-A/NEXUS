@@ -428,11 +428,19 @@ async def _compliance_already_notified(db: AsyncSession) -> set[tuple[int, str]]
 
 
 async def _equipment_due_for_return(db: AsyncSession) -> list[ContractEquipment]:
+    """Wpisy ręczne zakładki „Sprzęt” z terminem zwrotu w ciągu 14 dni.
+
+    Sprzęt z rejestru „Sprzęt” — z importu plików recepcji i z kreatora
+    (wiersz z ``assignment_id``) — nie dzwoni Delivery Leadowi: odbiór to
+    zadanie recepcji „Odbierz sprzęt”, także po terminie (decyzja Artura
+    20.11.2026, ``ludzie/sprzet-i-protokoly-recepcji.md``).
+    """
     today = business_today()
     cutoff = today + timedelta(days=EQUIPMENT_RETURN_THRESHOLD_DAYS)
     res = await db.execute(
         select(ContractEquipment).where(
             ContractEquipment.return_status == EquipmentReturnStatus.pending,
+            ContractEquipment.assignment_id.is_(None),
             ContractEquipment.return_due_date.isnot(None),
             ContractEquipment.return_due_date <= cutoff,
         )
