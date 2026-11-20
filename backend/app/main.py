@@ -4184,7 +4184,13 @@ async def api_health_deep_check(request: Request):
         ClientSalesInvoicePayment,
     )
     from app.models.client_structure import ClientStructureSkip
-    from app.models.back_office import BoCard, BoCardEvent, BoTeamMember
+    from app.models.back_office import (
+        BoCard,
+        BoCardEvent,
+        BoClientNote,
+        BoMember,
+        BoTeamMember,
+    )
     from app.models.consultant_portal import (
         CpDocument,
         CpFaqItem,
@@ -4878,6 +4884,9 @@ async def api_health_deep_check(request: Request):
         ("bo_cards", BoCard),
         ("bo_card_events", BoCardEvent),
         ("bo_team_members", BoTeamMember),
+        # 0746: jeden zespół back office'u i ściąga klienta.
+        ("bo_members", BoMember),
+        ("bo_client_notes", BoClientNote),
         # 0643: portal konsultanta.
         ("cp_meetings", CpMeeting),
         ("cp_links", CpLink),
