@@ -16,7 +16,10 @@ import { AddProjectDialog } from "@/components/contracts/AddProjectDialog";
 import { StartDocsCard } from "@/components/v2/start-docs/StartDocsCard";
 import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
 import { UploadOnlyDocuments } from "@/components/contracts/documents/UploadOnlyDocuments";
-import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
+import { ContractAmendmentsTab, NOTICE_WITHDRAWAL_HINT } from "@/components/ContractAmendmentsTab";
+import { AddAnnexMenu } from "@/components/contracts/amendments/AddAnnexMenu";
+import { annexIntentHref } from "@/components/contracts/amendments/annex-intent";
+import { canAmendContractRates } from "@/lib/contract-rate-amendment";
 import { ConsultantPanelCard } from "@/components/hr/onboarding/ConsultantPanelCard";
 import { ContractEntryTab } from "@/components/hr/onboarding/ContractEntryTab";
 import { ContractInvoicesTab } from "@/components/ContractInvoicesTab";
@@ -35,7 +38,13 @@ import { canReadClientPeople, type ManagerHint } from "@/lib/api/client-people";
 import type { HiringManagerChoice } from "@/lib/hiring-manager";
 import { useHrConfig } from "@/lib/api/hr";
 import { useConsultantCard } from "@/lib/api/care";
-import { buildContractHappening, type HappeningActionId } from "@/lib/contract-happening";
+import {
+  buildContractHappening,
+  type HappeningActionId,
+  type HappeningItem,
+  type HappeningOrderAfterEnd,
+} from "@/lib/contract-happening";
+import { CancelOrderDraftButton } from "@/components/contracts/detail/CancelOrderDraftButton";
 import { warsawToday } from "@/lib/warsaw-date";
 import { ContractHappeningStrip } from "@/components/contracts/detail/ContractHappeningStrip";
 import { ContractPeriodBar } from "@/components/contracts/detail/ContractPeriodBar";
@@ -84,6 +93,7 @@ import {
 import { formatDateTimePl, formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import {
   B2B_END_DATE_HOW,
+  B2B_EXTENSION_HINT,
   b2bEndDateLocked,
   b2bExtensionLocked,
   terminationSeedDate,
@@ -142,7 +152,6 @@ import {
   Loader2,
   Building2,
   FileText,
-  FilePlus2,
   MoreHorizontal,
 } from "lucide-react";
 
@@ -256,6 +265,8 @@ interface ContractDetail {
   can_return_after_break?: boolean;
   termination_reversed_at?: string | null;
   termination_reversed_by_name?: string | null;
+  /** „Klient zamówił okres po zakończeniu” (19.11.2026) — liczy serwer. */
+  order_after_end?: HappeningOrderAfterEnd[];
 }
 
 interface ActivityEntry {
@@ -614,12 +625,14 @@ export default function ContractDetailPage() {
   // i klucz co zakładka „Opieka i rozmowy”.
   const careCard = useConsultantCard(id, careOpen).data;
   const [careTalkRequested, setCareTalkRequested] = useState(false);
-  // Licznik przy zakładce „Aneksy” — ten sam klucz i odczyt co zakładka.
-  const amendmentsCount = useQuery<unknown[]>({
+  // Licznik przy zakładce „Aneksy” i podpowiedź przy „Przedłużeniu” w menu
+  // „Dodaj aneks” nagłówka — ten sam klucz i odczyt co zakładka.
+  const amendmentsList = useQuery<{ withdrawable?: boolean }[]>({
     queryKey: ["contract-amendments", id],
     queryFn: () => api.get(`/api/contracts/${id}/amendments`).then((r) => r.data),
     enabled: !Number.isNaN(id),
-  }).data?.length;
+  }).data;
+  const amendmentsCount = amendmentsList?.length;
   const [editing, setEditing] = useState(false);
   const [recordAgreementOpen, setRecordAgreementOpen] = useState(false);
   const [form, setForm] = useState<EditForm | null>(null);
@@ -1010,6 +1023,16 @@ export default function ContractDetailPage() {
     );
   }
 
+  // „Zakończenie wcześniej…” z menu „Dodaj aneks” (nagłówek i zakładka) to też
+  // zakończenie kontraktu — to samo okno i to samo uprawnienie co „Zakończ
+  // współpracę” (edycja kontraktu go nie daje; bez callbacku pozycji nie ma).
+  const terminateFromAmendments = canEditContractStatus
+    ? () => {
+        setTerminationDate(undefined);
+        setShowTerminationDialog(true);
+      }
+    : undefined;
+
   // „Opieka i rozmowy” zostaje zawsze (notatki); karta opieki wewnątrz tylko
   // przy włączonym module. „Pieniądze”: stawki, faktury albo premie (Płace).
   const visibleTabs = TABS.filter(
@@ -1030,6 +1053,7 @@ export default function ContractDetailPage() {
       prolongation_status: contract.prolongation_status ?? null,
       rate_client: contract.rate_client,
       can_reverse_termination: contract.can_reverse_termination ?? false,
+      order_after_end: contract.order_after_end ?? [],
     },
     careOpen && careCard?.health
       ? { level: careCard.health.level, reasons: careCard.health.reasons, ownerName: careCard.owner?.name ?? null }
@@ -1046,7 +1070,8 @@ export default function ContractDetailPage() {
     setActiveTab(tab);
     window.scrollTo({ top: 0 });
   };
-  const renderHappeningAction = (action: HappeningActionId) => {
+  const renderHappeningAction = (action: HappeningActionId, item?: HappeningItem) => {
+    const order = item?.order;
     switch (action) {
       case "record_agreement":
         return canEditContractStatus ? (
@@ -1100,6 +1125,43 @@ export default function ContractDetailPage() {
           >
             Zapisz rozmowę
           </Button>
+        ) : null;
+      case "extend_agreement":
+        return canEditContract ? (
+          <Button size="sm" variant="outline" onClick={() => openTab("amendments")}>
+            Przedłuż aneksem
+          </Button>
+        ) : null;
+      case "reassign_order":
+        // Linię zamówienia zbiorczego przepina „Zamień kontraktora” w panelu
+        // zamówienia. Zamówienia pojedynczego nie da się przepiąć na inną
+        // osobę, więc prowadzimy do jego edycji.
+        return canEditContract && order ? (
+          <Button size="sm" variant="outline" asChild>
+            <Link
+              href={
+                order.order_group_id != null
+                  ? `/clients/${order.client_id}?tab=zamowienia&group=${order.order_group_id}`
+                  : `/clients/${order.client_id}?tab=zamowienia&order=${order.order_id}`
+              }
+              title={
+                order.order_group_id != null
+                  ? "Otwiera zamówienie — zamianę osoby robi „Zamień kontraktora” w wierszu konsultanta."
+                  : "Zamówienia nie da się przepiąć na inną osobę — otwórz je i popraw albo załóż zamówienie dla następcy."
+              }
+            >
+              {order.order_group_id != null ? "Przypisz innej osobie" : "Edytuj zamówienie"}
+            </Link>
+          </Button>
+        ) : null;
+      case "cancel_order_draft":
+        return canEditContract && order ? (
+          <CancelOrderDraftButton
+            contractId={contract.id}
+            clientId={order.client_id}
+            orderId={order.order_id}
+            orderNumber={order.order_number}
+          />
         ) : null;
       case "fill_rate":
         return canEditContract || financeAmountsOnly ? (
@@ -1406,10 +1468,25 @@ export default function ContractDetailPage() {
         )}
         {canEditContract && (
           <div className="flex flex-wrap items-center gap-1.5">
+            {/* To samo menu i te same bramki co w zakładce „Aneksy”: wybór
+                otwiera zakładkę od razu z oknem (`?aneks=`), zakończenie —
+                okno „Zakończ współpracę”, dokument — Generator aneksów. */}
             {!editing && (
-              <Button size="sm" variant="outline" onClick={() => openTab("amendments")}>
-                <FilePlus2 className="w-3.5 h-3.5" /> Dodaj aneks
-              </Button>
+              <AddAnnexMenu
+                canAmendRates={canAmendContractRates(user, contract.client_id)}
+                extensionLocked={b2bExtensionLocked(contract)}
+                extensionHint={
+                  canRecoverTermination && (amendmentsList ?? []).some((a) => a.withdrawable)
+                    ? NOTICE_WITHDRAWAL_HINT
+                    : B2B_EXTENSION_HINT
+                }
+                onPick={(type) =>
+                  replaceUrl(annexIntentHref(window.location.pathname, window.location.search, type))
+                }
+                onRequestTermination={terminateFromAmendments}
+                documentHref={documentsHref({ newType: "annex_rate_change", contractId: id })}
+                tourAnchor={false}
+              />
             )}
             {!editing && (
               <Button
@@ -1620,7 +1697,7 @@ export default function ContractDetailPage() {
               type="button"
               onClick={() => setActiveTab(t.key)}
               aria-current={active ? "page" : undefined}
-              data-tour={t.key === "amendments" ? "contract.tabs.amendments" : t.key === "money" ? "contract.tabs.money" : undefined}
+              data-tour={t.key === "amendments" ? "contract.tabs.amendments" : t.key === "money" ? "contract.tabs.money" : t.key === "documents" ? "contract.tabs.documents" : undefined}
               className={`-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-[13px] transition-colors ${
                 active
                   ? "border-primary text-foreground font-semibold"
@@ -2056,8 +2133,8 @@ export default function ContractDetailPage() {
                     />
                     {contract.client_rate_schedule.length > 0 && (
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Stawka klienta ma harmonogram — zmień ją przez aneks
-                        „Zmień stawkę” (z datą wejścia w życie).
+                        Stawka klienta ma harmonogram — zmień ją aneksem:
+                        „Dodaj aneks” → „Zmiana stawki” (z datą wejścia w życie).
                       </p>
                     )}
                   </div>
@@ -2854,17 +2931,7 @@ export default function ContractDetailPage() {
           readOnly={!canEditContract}
           extensionLocked={b2bExtensionLocked(contract)}
           canWithdrawNotice={canRecoverTermination}
-          // „Zakończ wcześniej" to też zakończenie kontraktu — przez to samo
-          // okno i za tym samym uprawnieniem co „Zakończ współpracę" (edycja
-          // kontraktu go nie daje; bez callbacku przycisku nie ma).
-          onRequestTermination={
-            canEditContractStatus
-              ? () => {
-                  setTerminationDate(undefined);
-                  setShowTerminationDialog(true);
-                }
-              : undefined
-          }
+          onRequestTermination={terminateFromAmendments}
         />
       )}
 

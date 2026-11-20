@@ -60,6 +60,12 @@ describe("groupScopes — grupy uprawnień na ekranie", () => {
     ]);
   });
 
+  it("wycofany „invoices:read” (rejestr faktur, 20.11.2026) zostaje w koncie tylko w „Inne”", () => {
+    const groups = groupScopes(["clients:read", "invoices:read"], CATALOG);
+    expect(groups.map((g) => g.title)).toEqual(["Rozliczenia — odczyt", "Inne"]);
+    expect(groups[1].scopes).toEqual([{ value: "invoices:read", label: "invoices:read" }]);
+  });
+
   it("„Kwoty”: najpierw kwoty sprzedaży, potem wszystkie kwoty — niezależnie od kolejności w koncie", () => {
     const groups = groupScopes(["amounts:read", "sales_amounts:read"], CATALOG);
     expect(groups.map((g) => g.title)).toEqual(["Kwoty"]);
@@ -75,7 +81,7 @@ describe("groupScopes — grupy uprawnień na ekranie", () => {
     const groups = groupScopeCatalog(CATALOG);
     const values = groups.flatMap((g) => g.scopes.map((s) => s.value));
     expect(values.sort()).toEqual(CATALOG.map((s) => s.value).sort());
-    expect(values).not.toContain("invoices:write");
+    expect(values).not.toContain("finance:write");
   });
 
   it("rekrutacja i kandydaci mają własne grupy, dane kontaktowe i CV osobno", () => {

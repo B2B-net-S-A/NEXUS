@@ -503,13 +503,6 @@ class Contract(Base, TimestampMixin):
         passive_deletes=True,
         order_by="ContractOnboardingItem.order",
     )
-    invoices = relationship(
-        "Invoice",
-        back_populates="contract",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-        order_by="Invoice.issue_date.desc()",
-    )
     # Klient-poziomowe zamówienia (Order = PDF od klienta z okresem/stawką).
     # 1 Contract ma N Orderów w czasie (np. przedłużenia 3msc → 6msc → 6msc
     # to 3 osobne Ordery pod 1 Contractem). Refactor 2026-05-11.

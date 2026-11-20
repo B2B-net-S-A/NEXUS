@@ -77,7 +77,8 @@ integratora: `docs/api/integracje-v1.md` (bez nazwisk — repo jest publiczne).
   kontraktowe przestałyby widzieć trasy). Trasy ekranów dla klucza nadal 401.
 - **Scope'y v1** w `ServiceScope`: `clients:read`, `contracts:read|write`,
   `orders:read|write`, `md:read|write`, `finance:read|write`,
-  `invoices:read|write`, `sales_amounts:read`, `amounts:read|write`.
+  `sales_amounts:read`, `amounts:read|write`. `invoices:read|write` wycofane
+  20.11.2026 razem z rejestrem faktur (`kontrakty/rejestr-faktur-invoices-wygaszony.md`).
   `X:write` obejmuje `X:read`, a `amounts:read` obejmuje `sales_amounts:read`
   (`implied_scopes`, liczone przy budowie `ServicePrincipal`, nie w `granted_scopes()`).
 - **Kwoty w dwóch poziomach (decyzja Artura 14.10.2026):** `sales_amounts:read` =
@@ -86,8 +87,8 @@ integratora: `docs/api/integracje-v1.md` (bez nazwisk — repo jest publiczne).
   bo automatyzacja rozliczająca faktury klientów nie ma widzieć kosztów. Każde pole
   z kwotą w v1 idzie przez `common.amount_level` (`AmountLevel.none|sales|all`),
   nie przez sprawdzenie scope'u w trasie. Ukryte pole = `null`; `amounts_redacted`
-  (żadnych kwot) i `costs_redacted` (bez kosztów i marży). Finanse i faktury
-  pokazują sprzedaż z samego `finance:read`/`invoices:read`, koszty dopiero
+  (żadnych kwot) i `costs_redacted` (bez kosztów i marży). Finanse
+  pokazują sprzedaż z samego `finance:read`, koszty dopiero
   z `amounts:read` — także w napisach: klucz pozycji szkicu w Zmianach (skrót HMAC)
   i opisy historii (`finance._summary_without_costs`, test buduje opisy prawdziwymi
   funkcjami ekranu). Klasyfikacja pól: tabela „Kwoty” w `docs/api/integracje-v1.md`.
@@ -104,7 +105,7 @@ integratora: `docs/api/integracje-v1.md` (bez nazwisk — repo jest publiczne).
   tabela `integration_write_receipts`): paragon `pending` w tej samej transakcji co zmiana,
   4xx nie jest zapamiętywane, `dry_run` nie zostawia paragonu (`dry_run_response` = 200
   i `rollback`). `dry_run` tylko tam, gdzie skutki są wyłącznie w bazie (import MD po
-  wyjęciu commita do `run_md_import`, faktury); import arkusza wyników zapisuje plik
+  wyjęciu commita do `run_md_import`); import arkusza wyników zapisuje plik
   PRZED wierszem, więc jego `dry_run` to tylko odczyt arkusza i konflikt okresu.
 - **Autor zapisu = konto serwisowe.** `_authenticate_service_key` stempluje sesję
   (`integration_actor.stamp_integration`): `order_change_events.source='integration'`
@@ -114,8 +115,8 @@ integratora: `docs/api/integracje-v1.md` (bez nazwisk — repo jest publiczne).
   (`critical_events.record_executed`, `order_change_checks.set_check`, handlery ekranu
   czytające wyłącznie `user.id`), idzie `IntegrationActor` — bez ról, więc każda bramka
   uprawnień na nim pada, zamiast przepuścić. **Nigdy syntetyczny `User`.**
-- **Czego v1 świadomie nie robi:** twarde usuwanie
-  (faktura → `cancel`), zatwierdzanie przekroczeń salda MD i wspólnych pul
+- **Czego v1 świadomie nie robi:** twarde usuwanie,
+  zatwierdzanie przekroczeń salda MD i wspólnych pul
   (`409 requires_screen_approval`), status „Pobrane” PDF-ów ludzi, historia grupy zamówień.
 - **Zapis zamówień i kontraktów (PR 2B, 14.10.2026) = jedno ciało, dwie polityki.**
   Ciała tras ekranu są wydzielone obok tras jako `apply_*`

@@ -136,24 +136,8 @@ export interface HeadOfRecruitmentDashboardData extends DashboardDataBase {
 
 export type MyWorkDashboardData = DashboardDataBase;
 
-export interface FinanceExceptionBoardRow {
-  id: string;
-  severity: DashboardSeverity;
-  kind: string;
-  client_id: number | null;
-  client_name: string | null;
-  contract_id: number | null;
-  invoice_id: number | null;
-  invoice_number: string | null;
-  amount: string | null;
-  currency: string | null;
-  due_at: string | null;
-  next_action_href: string | null;
-}
-
 export interface FinanceDashboardData extends DashboardDataBase {
   tab: "operations" | "executive";
-  exceptions_board: FinanceExceptionBoardRow[];
 }
 
 export interface DashboardV2ResponseMap {

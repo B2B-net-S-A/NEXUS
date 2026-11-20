@@ -62,7 +62,9 @@ osobie z kartoteki i uczestniku Akademii.
   przed modułem; awaria rejestru to komunikat, nie „Brak pozycji”. Tak samo liczą
   okno zakończenia współpracy, zadanie „Odbierz sprzęt” (`tasks_for_contract_end`)
   i raport anomalii admina (`ended_with_assigned_equipment`). Nowe miejsce, które
-  liczy sprzęt kontraktu, czyta oba źródła.
+  liczy sprzęt kontraktu, czyta oba źródła. Wyjątek z decyzji: dzwonek Delivery
+  Leada „Sprzęt do zwrotu” liczy tylko wpisy ręczne bez wydania (niżej,
+  „Zadania recepcji”).
 
 ## Wydanie, zwrot, protokół
 
@@ -133,6 +135,24 @@ osobie z kartoteki i uczestniku Akademii.
 - Haki kontraktu (`app/services/hr/contract_hooks.py`) biegną w savepoincie:
   awaria sprzętu nie blokuje zmiany kontraktu. Źródłem prawdy jest przegląd
   `reconcile_upcoming` w pętli HR (kontrakt zmienia stan wieloma ścieżkami).
+- **Kontrakt po terminie z naszym niezwróconym sprzętem dostaje „Odbierz sprzęt”
+  po terminie** (decyzja Artura 20.11.2026). Przegląd patrzył tylko 14 dni
+  naprzód, więc kontrakt zakończony, zanim jego sprzęt trafił do rejestru
+  (import plików recepcji 18.10), nie miał zadania niczyjego: na kopii produkcji
+  z 19.11 dwa kontrakty i trzy urządzenia, widoczne tylko w raporcie anomalii
+  admina. Przegląd bierze też kontrakty `active`, `ending` i `ended` z datą
+  końca w przeszłości i naszym niezwróconym sprzętem — z rejestru albo z wpisu
+  ręcznego, ten sam warunek co `tasks_for_contract_end`. Termin zadania to
+  data końca kontraktu. Zadanie zrobione albo anulowane przez człowieka nie
+  wraca (`upsert_task`). Sam sprzęt klienta zadania nie zakłada.
+- **Delivery Lead nie dostaje dzwonka o sprzęcie z rejestru** (ta sama decyzja,
+  `powiadomienia/dl-tylko-dzwonki-z-zadaniem.md`): odbiór to praca recepcji,
+  a DL w zakładce widzi „zwrot przyjmuje recepcja”. „Sprzęt do zwrotu”
+  (`equipment_return_due_14d`, 14 dni przed terminem,
+  `contract_alerts._equipment_due_for_return`) liczy wyłącznie wpisy ręczne
+  zakładki bez `assignment_id`. Wiersz z kreatora też nie dzwoni: niesie termin
+  z chwili wydania, którego przedłużenie kontraktu nie zmienia. Na produkcji
+  ten dzwonek nie wyszedł nigdy (19.11: 0 wpisów zakładki).
 - Przypomnienie (`equipment_task`, raz dziennie, gdy są zadania po terminie albo
   na dziś i najbliższe dni) i podpis protokołu linkiem (`equipment_protocol_signed`)
   to dymek i mail „Czas i ludzie” (liczba zadań albo numer protokołu i nazwisko

@@ -521,7 +521,7 @@ async def test_return_of_two_people_needs_two_protocols(
     assert mixed.status_code == 422
 
 
-async def test_issue_to_contract_links_tab_rows_and_keeps_return_alert(
+async def test_issue_to_contract_links_tab_rows_and_leaves_return_to_reception(
     app_client, app_auth_headers, modules_on, people
 ) -> None:
     from app.tasks.contract_alerts import _equipment_due_for_return
@@ -559,9 +559,11 @@ async def test_issue_to_contract_links_tab_rows_and_keeps_return_alert(
         )
         assert row["item_type"] == "laptop" and row["owner"] == "ours"
 
+        # Sprzęt z rejestru, także z kreatora, nie dzwoni Delivery Leadowi:
+        # odbiór to zadanie recepcji niżej (decyzja Artura 20.11.2026).
         async with AsyncSessionLocal() as db:
             due = await _equipment_due_for_return(db)
-        assert row["id"] in {item.id for item in due}  # stary dzwonek 14 dni działa
+        assert row["id"] not in {item.id for item in due}
 
         bypass = await app_client.patch(
             f"/api/contracts/{ids['id']}/equipment/{row['id']}",

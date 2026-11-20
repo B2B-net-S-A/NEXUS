@@ -84,7 +84,7 @@ def _pending_areas() -> dict[tuple[int, str], int]:
         ("jobs", "/api/candidates/export", EKSPORTY),
         (None, "/api/contracts/register/export", EKSPORTY),
         ("clients", "/api/clients/5/orders/export", EKSPORTY),
-        ("finance", "/api/invoices/export.csv", EKSPORTY),
+        ("finance", "/api/hr/payments/finance/export.csv", EKSPORTY),
         (None, "/api/export/candidates", EKSPORTY),
     ],
 )
