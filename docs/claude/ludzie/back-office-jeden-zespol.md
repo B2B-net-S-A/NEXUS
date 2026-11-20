@@ -1,5 +1,5 @@
 # Back office jako jeden zespół — etykiety, „Weź następną”, „Na zewnątrz”, bez opiekunów
-<!-- indeks: bo_members, rola w zespole, przyjmuje rozmowy, etykiety zamiast zespołów, folded, Weź następną, Na zewnątrz, outside_team, automatic_assignee, sprawy osób spoza zespołu, ściąga klienta, bo_client_notes, przegląd hurtem, bez Tablicy Opieki (20.11), stare linki ?card= / ?filter=, legacyCareLink, 0746 -->
+<!-- indeks: bo_members, rola w zespole, przyjmuje rozmowy, etykiety zamiast zespołów, folded, Weź następną, Na zewnątrz, outside_team, automatic_assignee, sprawy osób spoza zespołu, ściąga klienta, bo_client_notes, przegląd hurtem, bez Tablicy Opieki (20.11), stare linki ?card= / ?filter=, legacyCareLink, 0746, Ławka a koniec zamówienia, Przedłużenie bez grupy, extend:client -->
 
 Decyzje Artura z 10.11 i 19.11.2026 (makiety: https://claude.ai/artifact/3fRpacW9KwiZyGWkanPPWj).
 Ta reguła ma pierwszeństwo przed opisem czterech zespołów w `back-office-kolejka-spraw.md`.
@@ -38,6 +38,23 @@ Ta reguła ma pierwszeństwo przed opisem czterech zespołów w `back-office-kol
   zalicza go każdy z zespołu, a eskaluje się sprawa, nie krok. Ławka konsultanta z otwartą
   sprawą wyjścia jest jej pierwszym krokiem i znika z tablicy (`board.folded`); panel sprawy
   pokazuje inne otwarte karty tego kontraktu (`related`).
+
+## Ławka a koniec zamówienia (20.11.2026)
+
+- „Ławka: karta 60 dni przed końcem” (`back-office-kolejka-spraw.md`) liczy koniec **umowy**
+  (`contracts.end_date`) i aktywne wpisy „Do przepięcia”. Koniec samego **zamówienia**
+  (dla Opieki `CareContract.end_date` = bliższy z `contracts.end_date` i
+  `client_order_end_date`, karta „Decyzja: koniec zamówienia”) niesie „Przedłużenie”, 45 dni
+  przed końcem: grupa zamówień jak dotąd, a zamówienia bez grupy jedną kartą na klienta
+  i datę końca (`extend:client:<klient>:<data>`, „N os. na zamówieniu”). Zamówienie osoby,
+  która ma już zamówienie z dalszym końcem, jest przedłużone i się nie liczy.
+- Nie przenoś efektywnego końca na ławkę „dla zgodności z Opieką”. Na kopii produkcji z 19.11
+  dało to 285 kart na osobę, 240 z nich w grudniu (82 osoby jednego klienta na 31.12),
+  a każdą trzeba by zamykać „Nie dotyczy” osobno. Dawnych „Decyzji” nikt nie rozstrzygał:
+  `redeploy_queue_items` miało 6 wpisów, wszystkie otwarte. Przedłużenia bez grupy to
+  25 kart na 225 osób, a z 218 osób bez żadnej karty zostało 5.
+- Osoba, której klient nie przedłuża, wraca na ławkę zwykłą drogą: koniec umowy albo wpis
+  „Do przepięcia”. Na `/care` dla DL-i karta „Decyzja” zostaje bez zmian.
 
 ## Praca na kolejce
 
