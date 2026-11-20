@@ -2243,7 +2243,7 @@
   },
   {
     "id": "kontrakt-start-i-opieka-nowy-uklad",
-    "pr": 0,
+    "pr": 3673,
     "title": "Kontrakt: opieka jednym strumieniem, start jako checklista",
     "why": "Rozmowy, notatki i opinie klienta są w jednym strumieniu z polem zapisu, obok plan kontaktów i sprawy. „Start i sprzęt” to lista z postępem, sprzętem i panelem.",
     "tier": "tour",
