@@ -106,9 +106,9 @@ describe("RejectionV2 — „Za wysokie oczekiwania finansowe” (26.10.2026)", 
     expect(onConfirm.mock.calls[0][10]).toEqual({ rateHourly: 120, isMinimum: true });
   });
 
-  it("rezygnacja z „Rozbieżność oczekiwań finansowych” też pyta", () => {
+  it("rezygnacja z „Za droga” (`salary_mismatch`) też pyta", () => {
     renderRate({ terminalType: "withdrawn" });
-    fireEvent.click(screen.getByText("Rozbieżność oczekiwań finansowych"));
+    fireEvent.click(screen.getByText(RATE_LABEL));
     expect(screen.getByTestId("rejection-rate")).toBeInTheDocument();
   });
 

@@ -53,6 +53,18 @@ u klienta (108 z 397).
   klient” tylko przy osobie od systemu. Opis obowiązkowy przy „Inne”
   i „Już po rozmowie u tego HM”. Panel DL i karta rozmowy u klienta biorą
   wiersze szablonu przez `closeTemplateOptions` (bez wierszy spoza słownika).
+- **Rezygnacja (etap 3):** osobnego okna „Kandydat zrezygnował” nie ma.
+  „Kto kończy?” ma trzecią odpowiedź „Kandydat rezygnuje” (prop
+  `canWithdraw` — tylko tam, gdzie wywołujący umie wysłać ruch na
+  „Zrezygnował”: Tablica i panel osoby w `usePipelineMove`, zakładka rozmów).
+  Okno zwraca wtedy `endedBy = "candidate"`, a wywołujący wybiera etap
+  rezygnacji (`rejectionDestination`); przycisk „Zrezygnował” otwiera okno
+  z tą odpowiedzią wybraną i da się z niej wrócić do odrzucenia. Lista
+  kandydata: Warunki i Sprawa osoby (kontroferta, straciła zainteresowanie,
+  powody osobiste tylko tu). Bez maila odrzucenia i bez powodu dla systemu;
+  pytanie o reakcję na ofertę po akceptacji zostaje. Formularz screeningu
+  zapisuje tylko „Odrzucony”, więc odpowiedzi „Kandydat rezygnuje” tam nie ma.
+  `reasonFitsEndedBy` usunięte — kto wybiera powód, mówi pole `who` słownika.
 - Nowy powód = wpis w `close_reasons.py`, wiersz w nowej migracji z lustrem,
   klucz w `autofill_feedback_schema.REASONS` i lustro na froncie
   (`test_close_reasons.py` pilnuje zgodności).

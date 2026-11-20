@@ -46,49 +46,9 @@ export const CLIENT_AFTER_DEADLINE_REASON = "client_after_deadline";
 export const IN_OTHER_PROCESS_REASON = "in_other_process";
 export const CLIENT_REFUSED_REASON = "client_refused";
 
-/** Końce procesu bez decyzji klienta o osobie (08.11.2026, 0663): zapisuje je
- *  zamknięcie rekrutacji albo brak odpowiedzi klienta, nikt ich nie wybiera. */
-const SYSTEM_ONLY_REASONS: ReadonlySet<string> = new Set([
-  "request_closed",
-  "client_no_response",
-  // Dane w bazie (0745): tylko w „Nowych”/„Screeningu”, gdzie okno pyta
-  // z listy powodów dla systemu, nie z szablonu.
-  "outdated_cv",
-  "profile_mismatch",
-  "wrong_phone",
-]);
-
-/** Tylko przy „Odrzuca klient”: my ani DL nie mówimy w imieniu klienta. */
-const CLIENT_ONLY_REASONS: ReadonlySet<string> = new Set([
-  CLIENT_NO_REASON_REASON,
-  CLIENT_CHOSE_OTHER_REASON,
-  CLIENT_INTERVIEW_WEAK_REASON,
-  CLIENT_PROJECT_CLOSED_REASON,
-  CLIENT_AFTER_DEADLINE_REASON,
-]);
-/** Nie przy „Odrzuca klient”: na 104 opisach klienta od 12.10 żaden tak nie
- *  mówi, bo to sprawa osoby, nie decyzja klienta. */
-const NOT_CLIENT_REASONS: ReadonlySet<string> = new Set([
-  NOT_LOOKING_FOR_WORK_REASON,
-  NO_CONTACT_REASON,
-  IN_OTHER_PROCESS_REASON,
-  CLIENT_REFUSED_REASON,
-]);
-
-/**
- * Czy powód pasuje do tego, kto kończy proces. Pozostałe powody (także dopisane
- * przez admina w szablonie) pasują zawsze.
- */
-export function reasonFitsEndedBy(
-  reason: Pick<RejectionReasonOption, "name">,
-  endedBy: "candidate" | "recruiter" | "delivery_lead" | "client",
-): boolean {
-  const name = reason.name?.trim() ?? "";
-  if (SYSTEM_ONLY_REASONS.has(name)) return false;
-  if (CLIENT_ONLY_REASONS.has(name)) return endedBy === "client";
-  if (NOT_CLIENT_REASONS.has(name)) return endedBy !== "client";
-  return true;
-}
+// Kto może wybrać który powód, mówi od 19.11.2026 jeden słownik
+// (`lib/close-reasons.ts`, pole `who`); `request_closed`
+// i `client_no_response` (0663) zapisuje system i słownik ich nie ma.
 
 /**
  * Czy powód bez opisu nic nie mówi (20.10.2026) — lustro

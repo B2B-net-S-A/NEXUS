@@ -47,8 +47,8 @@ export function AutofillFeedbackField({
 }: {
   learnedFrom: AutofillLearnedFrom | null;
   onLearnedFromChange: (value: AutofillLearnedFrom) => void;
-  reason: AutofillReason | null;
-  onReasonChange: (value: AutofillReason) => void;
+  reason: CloseReasonKey | null;
+  onReasonChange: (value: CloseReasonKey) => void;
   rate: string;
   onRateChange: (value: string) => void;
   /** Czy system znał stawkę w chwili dodania (jedna osoba). */
@@ -71,7 +71,9 @@ export function AutofillFeedbackField({
   groups: CloseReasonGroup[];
   children?: React.ReactNode;
 }) {
-  const hint = fromSystem ? autofillBucketHint(reason, rateKnown) : null;
+  // Przy osobie od systemu (tylko odrzucenie) słownik daje powody dla systemu.
+  const systemReason = fromSystem ? (reason as AutofillReason | null) : null;
+  const hint = systemReason ? autofillBucketHint(systemReason, rateKnown) : null;
   return (
     <div className="space-y-3" data-testid="autofill-feedback">
       <FormField
@@ -85,7 +87,7 @@ export function AutofillFeedbackField({
       >
         <RadioGroup
           value={reason ?? ""}
-          onValueChange={(v) => onReasonChange(v as AutofillReason)}
+          onValueChange={(v) => onReasonChange(v as CloseReasonKey)}
           className="grid gap-x-4 gap-y-2 sm:grid-cols-3"
           data-tour="rejection.close-reasons"
         >
@@ -111,7 +113,7 @@ export function AutofillFeedbackField({
         </RadioGroup>
       </FormField>
       {children}
-      {fromSystem && reason && CLIENT_WIDE_REASONS.has(reason) && !several && onWholeClientChange ? (
+      {systemReason && CLIENT_WIDE_REASONS.has(systemReason) && !several && onWholeClientChange ? (
         <label
           htmlFor="autofill-whole-client"
           className="flex cursor-pointer items-start gap-2 rounded-md border border-primary/30 bg-primary/5 p-2 text-sm"
