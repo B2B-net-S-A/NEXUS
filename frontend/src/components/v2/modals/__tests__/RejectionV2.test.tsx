@@ -167,12 +167,13 @@ describe("RejectionV2 — kto zakończył proces (Pipeline v4)", () => {
         open
         onOpenChange={() => {}}
         terminalType="withdrawn"
-        reasons={[{ id: "9", label: "Lepsza oferta", applies_to: ["withdrawn"] }]}
+        reasons={[{ id: "9", name: "counter_offer", label: "Kontroferta", applies_to: ["withdrawn"] }]}
         onConfirm={onConfirm}
       />,
     );
+    // Bez `canWithdraw` wywołujący nie umie zamienić rezygnacji w odrzucenie.
     expect(screen.queryByText("Kto kończy?")).toBeNull();
-    fireEvent.click(screen.getByText("Lepsza oferta"));
+    fireEvent.click(screen.getByText("Kontroferta od obecnego pracodawcy"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[1][5]).toBe("candidate");
   });
@@ -184,10 +185,9 @@ describe("RejectionV2 — powody po polsku (test na produkcji 23.09.2026)", () =
   const SEEDED: [string, string, "rejected" | "withdrawn"][] = [
     ["counter_offer", "Kontroferta od obecnego pracodawcy", "withdrawn"],
     ["personal_reasons", "Powody osobiste", "withdrawn"],
-    ["lost_interest", "Stracił zainteresowanie", "withdrawn"],
-    ["accepted_other_offer", "Przyjął inną ofertę", "withdrawn"],
-    ["salary_mismatch", "Rozbieżność oczekiwań finansowych", "withdrawn"],
-    ["process_too_long", "Za długi proces", "withdrawn"],
+    ["lost_interest", "Straciła zainteresowanie / za długi proces", "withdrawn"],
+    ["accepted_other_offer", "Przyjęła inną ofertę", "withdrawn"],
+    ["salary_mismatch", "Za droga", "withdrawn"],
     ["Inne (withdrawn)", "Inne", "withdrawn"],
     ["Inne (rejected)", "Inne", "rejected"],
   ];
@@ -205,7 +205,7 @@ describe("RejectionV2 — powody po polsku (test na produkcji 23.09.2026)", () =
     updated_at: "2026-09-23T00:00:00Z",
   }));
 
-  it("okno „Kandydat zrezygnował” pokazuje etykiety, nigdy surowe kody", () => {
+  it("okno rezygnacji pokazuje etykiety słownika, nigdy surowe kody", () => {
     renderUi(
       <RejectionV2
         open
@@ -215,10 +215,10 @@ describe("RejectionV2 — powody po polsku (test na produkcji 23.09.2026)", () =
         onConfirm={vi.fn()}
       />,
     );
-    expect(screen.getByText("Kandydat zrezygnował")).toBeInTheDocument();
+    expect(screen.getByText("Zamknij proces — kandydat rezygnuje")).toBeInTheDocument();
     for (const [name, label, category] of SEEDED) {
       if (category !== "withdrawn") continue;
-      expect(screen.getByText(label)).toBeInTheDocument();
+      expect(screen.getByText(label === "Inne" ? "Inne — opisz" : label)).toBeInTheDocument();
       expect(screen.queryByText(name)).toBeNull();
     }
   });
@@ -295,7 +295,7 @@ describe("RejectionV2 — umowa z Generatora (04.10.2026)", () => {
         open
         onOpenChange={() => {}}
         terminalType="withdrawn"
-        reasons={[{ id: "8", label: "Inna oferta", applies_to: ["withdrawn"] }]}
+        reasons={[{ id: "8", name: "accepted_other_offer", label: "Inna oferta", applies_to: ["withdrawn"] }]}
         onConfirm={onConfirm}
         agreement={agreement as never}
       />,
@@ -306,7 +306,7 @@ describe("RejectionV2 — umowa z Generatora (04.10.2026)", () => {
   it("niepodpisaną umowę domyślnie anulujemy", () => {
     const onConfirm = renderWith(unsigned);
     expect(screen.getByRole("checkbox", { name: /Anuluj umowę 1601\/2026/ })).toBeChecked();
-    fireEvent.click(screen.getByText("Inna oferta"));
+    fireEvent.click(screen.getByText("Przyjęła inną ofertę"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[0][6]).toBe(55);
   });
@@ -314,7 +314,7 @@ describe("RejectionV2 — umowa z Generatora (04.10.2026)", () => {
   it("odznaczone — umowa zostaje", () => {
     const onConfirm = renderWith(unsigned);
     fireEvent.click(screen.getByRole("checkbox", { name: /Anuluj umowę 1601\/2026/ }));
-    fireEvent.click(screen.getByText("Inna oferta"));
+    fireEvent.click(screen.getByText("Przyjęła inną ofertę"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[0][6]).toBeNull();
   });

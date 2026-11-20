@@ -3856,6 +3856,25 @@
     "dot_anchor": "rejection.close-reasons"
   },
   {
+    "id": "rezygnacja-w-oknie-zamknij-proces",
+    "title": "Rezygnacja w tym samym oknie co odrzucenie",
+    "why": "„Kto kończy?” ma trzecią odpowiedź: „Kandydat rezygnuje”. Karta idzie wtedy na „Zrezygnował”, a powody są te same co przy odrzuceniu. Przycisk „Zrezygnował” otwiera to okno.",
+    "tier": "dot",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → Odrzuć z powodem → Kto kończy? → Kandydat rezygnuje",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "rejection.who-candidate"
+  },
+  {
     "id": "kontrakt-co-sie-dzieje-7-zakladek",
     "pr": 3639,
     "title": "Kontrakt: „Co się dzieje” na górze i 7 zakładek",

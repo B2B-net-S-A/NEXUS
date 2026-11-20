@@ -16,7 +16,6 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 
 import { RejectionV2 } from "@/components/v2/modals/RejectionV2";
 import { AUTOFILL_TEMPLATE_REASON } from "@/lib/autofill-feedback";
-import { reasonFitsEndedBy } from "@/lib/rejection-reasons";
 
 /** Wiersz szablonu (`name`) → etykieta okna ze słownika powodów. */
 const LABELS = {
@@ -126,15 +125,6 @@ describe("RejectionV2 — lista powodów zależy od „Kto kończy?”", () => {
     expect(document.activeElement?.tagName).not.toBe("TEXTAREA");
     fireEvent.click(screen.getByText("Inne — opisz"));
     expect(document.activeElement?.tagName).toBe("TEXTAREA");
-  });
-
-  it("powód dopisany przez admina jest widoczny zawsze", () => {
-    const custom = { name: "Klauzula konkurencji" };
-    for (const who of ["candidate", "recruiter", "delivery_lead", "client"] as const) {
-      expect(reasonFitsEndedBy(custom, who)).toBe(true);
-    }
-    expect(reasonFitsEndedBy({ name: " client_no_reason " }, "recruiter")).toBe(false);
-    expect(reasonFitsEndedBy({ name: "no_contact" }, "client")).toBe(false);
   });
 });
 
