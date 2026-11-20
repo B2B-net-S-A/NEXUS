@@ -244,6 +244,10 @@ async def test_grouped_member_carries_next_step_facts(app_client, app_auth_heade
         ending.termination_reason = ContractTerminationReason.project_ended
         ending.termination_lessons = "Klient — koniec projektu"
         ending.agreement_termination_mode = "notice"
+        # ck_contracts_agreement_termination_coherence: tryb tylko z pełnym kompletem.
+        ending.agreement_termination_party = "consultant"
+        ending.agreement_termination_signed_on = last_day - timedelta(days=30)
+        ending.agreement_last_day = last_day
         ending.prolongation_status = ProlongationStatus.no
         ending.billing_hours_per_month = 160
         await db.commit()
