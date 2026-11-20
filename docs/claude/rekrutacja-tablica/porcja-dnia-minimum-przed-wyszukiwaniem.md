@@ -1,4 +1,4 @@
-# Porcja dnia od Nexusa: porcja na osobę (poziom 10→50), tylko jej rekrutacje, P0 najpierw, decyzje przed ręcznym wyszukiwaniem
+# Porcja dnia od Nexusa: porcja na osobę (poziom 10→20, do 20.11.2026 →50), tylko jej rekrutacje, P0 najpierw, decyzje przed ręcznym wyszukiwaniem
 <!-- indeks: `services/review_batch.py`, `services/review_batch_plan.py`, `/api/review-batch`, `REVIEW_BATCH_ENABLED`, 423 `REVIEW_MINIMUM_PENDING`, `entry_meta.review_owner_id`, `/porcja`, „Dla: …” na karcie, „Dodaj 20 kolejnych”, „Pasuje” / „Nie pasuje”, „Masz tę osobę, bo” -->
 
 Decyzje Artura z 07.11.2026, raport i makiety M1–M11:
@@ -153,7 +153,13 @@ i 147 poniżej 65%. Artur wstrzymał obie flagi do tych zmian:
   (porcja dalej się rozdziela) albo zawęża ją do zaznaczonych osób. Pusta lista
   = wszyscy rekruterzy. Env `REVIEW_BATCH_ENABLED` zostaje wyłącznikiem głównym.
 
-## Narastanie minimum (decyzja Artura 08.11.2026)
+## Narastanie minimum (decyzja Artura 08.11.2026, sufit 20 od 20.11.2026)
+
+**20.11.2026: sufit 50 → 20** (decyzja Artura, `review_batch_levels.CAP`).
+Pomiar 16–19.11: decyzje 1–10 dnia dawały 7,7% osób u klienta w 48 h, 21–50
+tylko 0,9% (6 z 677), a 520 osób po „Pasuje” czekało na telefon. Poziomy
+zapisane wyżej czyta się jako 20 (`level_of`), więc nikt nie zostaje na 50.
+Szczegóły: `porcja-wyslani-wczesniej-i-sufit-20.md`.
 
 Porcja rusza 09.11.2026 dla wszystkich rekruterów, bez pilota, z minimum 10.
 Artur: „jak ktoś zrobi 10 to dajesz 10 więcej kolejnego dnia aż będzie 50 i

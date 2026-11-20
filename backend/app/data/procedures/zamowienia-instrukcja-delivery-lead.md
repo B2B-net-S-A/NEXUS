@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 19.11.2026
+> **Zgodność z systemem sprawdzona:** 20.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -262,8 +262,8 @@ przy pierwszym zamówieniu osoby** u klienta — przedłużenie porównują
 z poprzednim zamówieniem tej osoby, więc rekrutacji sprzed lat nie poprawiasz.
 
 **Klient zmienia stawkę w trakcie zamówienia (aneks od jakiegoś dnia)** —
-wpisz to aneksem w kontrakcie: kontrakt → zakładka „Aneksy” → **„Zmień
-stawkę”**, data wejścia w życie i **„Nowa stawka klienta”**. Zanim zapiszesz,
+wpisz to aneksem w kontrakcie: kontrakt → zakładka „Aneksy” → **„Dodaj
+aneks” → „Zmiana stawki”**, data wejścia w życie i **„Nowa stawka klienta”**. Zanim zapiszesz,
 okno pokaże, które zamówienia się zmienią (np. „1615,050 → 1775,050 zł/MD
 od 01.11.2026”). Po zapisie wiersz osoby w zamówieniu pokazuje nową stawkę
 z dopiskiem „od …” i „wcześniej …”, a w Historii zamówienia jest wpis.
@@ -273,7 +273,7 @@ następnego miesiąca. Nie poprawiaj stawki przychodowej w zamówieniu ręcznie:
 przeliczyłoby to także miesiące sprzed aneksu.
 
 **Partner zmienia stawkę w trakcie zamówienia (aneks albo progresja z umowy)** —
-też aneksem w kontrakcie („Zmień stawkę”, „Nowa stawka Partnera”), nigdy
+też aneksem w kontrakcie („Dodaj aneks” → „Zmiana stawki”, „Nowa stawka kandydata”), nigdy
 w zamówieniu. Zamówienie, które trwa w dniu zmiany, dostaje koszt w częściach:
 w tabeli zamówień pod stawką „My płacimy” stoi np. „120 zł/h do 31.08 · 130 zł/h
 od 01.09 · 140 zł/h od 01.11”. Numer, PDF, przychód i faktury zostają przy

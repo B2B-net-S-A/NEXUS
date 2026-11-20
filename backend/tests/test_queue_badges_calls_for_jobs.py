@@ -196,7 +196,9 @@ async def test_facts_for_jobs_match_single_board_and_count_per_job():
     assert bulk[j["b"]][i["x"]].points == 8
     # Odrzucenie przez klienta A nie dotyczy Tablicy C innego klienta.
     assert set(bulk[j["c"]]) == {i["w"]}
-    assert bulk[j["c"]][i["w"]].points == 2
+    # Notatka sprzed 40 dni (2) + wysyłka CV do klienta A w ostatnim roku (20.11.2026).
+    assert bulk[j["c"]][i["w"]].sent_elsewhere == 1
+    assert bulk[j["c"]][i["w"]].points == 2 + known.SENT_POINTS
     async with AsyncSessionLocal() as db:
         empty = await known.facts_for_jobs(
             db, boards={j["a"]: (w["client"], []), j["c"]: (None, [i["z"]])}, now=now
@@ -216,7 +218,8 @@ async def test_facts_for_jobs_query_count_does_not_grow():
     async with AsyncSessionLocal() as db:
         with count_statements() as three:
             await known.facts_for_jobs(db, boards=boards, now=now)
-    assert len(one) == len(three) == 4
+    # 5 = ustawienia, etapy u klientów, notatki, odrzucenia, wysyłki (20.11.2026).
+    assert len(one) == len(three) == 5
 
 
 async def test_without_process_for_jobs_excludes_only_own_board():

@@ -11,6 +11,7 @@
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -87,6 +88,13 @@ function renderWith(ui: React.ReactElement) {
   return { client, invalidate };
 }
 
+/** Aneks z zakładki: menu „Dodaj aneks” → pozycja → okno formularza. */
+async function openAmendmentForm(item: string) {
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: /Dodaj aneks/ }));
+  await user.click(await screen.findByRole("menuitem", { name: item }));
+}
+
 const SEED = /Wygeneruj domyślny checklist/;
 const FAILURE = "Nie udało się pobrać danych";
 
@@ -159,8 +167,8 @@ describe("ContractAmendmentsTab", () => {
       <ContractAmendmentsTab contractId={5} clientId={2} />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Zmień zakres/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Zapisz aneks/ }));
+    await openAmendmentForm("Zmiana zakresu");
+    fireEvent.click(await screen.findByRole("button", { name: /Zapisz aneks/ }));
 
     await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
     await waitFor(() => {
@@ -279,8 +287,8 @@ describe("audyt 24.09 (blok D) — zakładki kontraktu", () => {
     });
     renderWith(<ContractAmendmentsTab contractId={5} clientId={2} readOnly />);
 
-    expect(await screen.findByText(/→ 30\.09\.2026/)).toBeInTheDocument();
-    expect(screen.getByText(/→ Aktywny/)).toBeInTheDocument();
+    expect(await screen.findByText(/koniec projektu 30\.06\.2026 → 30\.09\.2026/)).toBeInTheDocument();
+    expect(screen.getByText(/status kończący się → aktywny/)).toBeInTheDocument();
     expect(screen.queryByText(/"end_date"/)).not.toBeInTheDocument();
   });
 
@@ -322,7 +330,8 @@ describe("audyt 24.09 (blok D) — zakładki kontraktu", () => {
   it("formularz aneksu nie ma już gałęzi „wcześniejsze zakończenie” (S5)", async () => {
     mocks.get.mockResolvedValue({ data: [] });
     renderWith(<ContractAmendmentsTab contractId={5} clientId={2} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Zmień zakres/ }));
+    await openAmendmentForm("Zmiana zakresu");
+    expect(await screen.findByRole("dialog", { name: "Zmiana zakresu" })).toBeInTheDocument();
     expect(screen.queryByText("Data faktycznego zakończenia")).not.toBeInTheDocument();
   });
 

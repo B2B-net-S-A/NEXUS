@@ -372,3 +372,82 @@ async def test_claim_alert_rearms_per_family_episode():
             # New episode → re-arms (was permanently suppressed before F-29).
             assert await _claim_alert(db, f"{prefix}:{ent}:{e2}") is True
         await db.commit()
+
+
+async def test_equipment_bell_reads_only_manual_tab_rows():
+    """Dzwonek DL „Sprzęt do zwrotu” liczy tylko wpisy ręczne zakładki.
+
+    Decyzja Artura z 20.11.2026: sprzęt z rejestru „Sprzęt” — z importu plików
+    recepcji i z kreatora „Wydaj sprzęt” (wiersz zakładki z ``assignment_id``) —
+    obsługuje zadanie recepcji „Odbierz sprzęt”, a nie dzwonek Delivery Leada.
+    Kreator zapisuje termin z chwili wydania, więc po przedłużeniu kontraktu
+    dzwonek alarmowałby o starej dacie.
+    """
+    from sqlalchemy import delete
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract_equipment import (
+        ContractEquipment,
+        EquipmentItemType,
+        EquipmentOwner,
+    )
+    from app.models.equipment import (
+        EquipmentAssignment,
+        EquipmentItem,
+        EquipmentModel,
+    )
+    from app.tasks.contract_alerts import _equipment_due_for_return
+    from tests.test_equipment_api import _contract, _drop_contract
+
+    due_on = business_today() + timedelta(days=10)
+    ids = await _contract(start=business_today() - timedelta(days=30), end=due_on)
+    tag = uuid.uuid4().hex[:10].upper()
+    created: dict[str, int] = {}
+    try:
+        async with AsyncSessionLocal() as db:
+            model = EquipmentModel(category="laptop", name=f"Laptop Fikcyjny {tag}")
+            db.add(model)
+            await db.flush()
+            created["model"] = model.id
+            item = EquipmentItem(
+                model_id=model.id, serial_number=f"TEST{tag}", status="wydany"
+            )
+            db.add(item)
+            await db.flush()
+            created["item"] = item.id
+            assignment = EquipmentAssignment(item_id=item.id, contract_id=ids["id"])
+            db.add(assignment)
+            await db.flush()
+            manual = ContractEquipment(
+                contract_id=ids["id"],
+                item_type=EquipmentItemType.headset,
+                owner=EquipmentOwner.ours,
+                return_due_date=due_on,
+            )
+            from_wizard = ContractEquipment(
+                contract_id=ids["id"],
+                item_type=EquipmentItemType.laptop,
+                owner=EquipmentOwner.ours,
+                return_due_date=due_on,
+                item_id=item.id,
+                assignment_id=assignment.id,
+            )
+            db.add_all([manual, from_wizard])
+            await db.commit()
+            manual_id, wizard_id = manual.id, from_wizard.id
+        async with AsyncSessionLocal() as db:
+            due = {row.id for row in await _equipment_due_for_return(db)}
+        assert manual_id in due
+        assert wizard_id not in due
+    finally:
+        await _drop_contract(ids)  # kaskada: wydanie i wiersze zakładki
+        async with AsyncSessionLocal() as db:
+            if "item" in created:
+                await db.execute(
+                    delete(EquipmentItem).where(EquipmentItem.id == created["item"])
+                )
+            if "model" in created:
+                await db.execute(
+                    delete(EquipmentModel).where(EquipmentModel.id == created["model"])
+                )
+            await db.commit()

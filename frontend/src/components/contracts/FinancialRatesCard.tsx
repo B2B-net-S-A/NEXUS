@@ -1,12 +1,42 @@
-import { AlertCircle, Banknote, RefreshCw, TrendingUp } from "lucide-react";
+"use client";
+// Karta „Stawki finansowe” — zakładka „Pieniądze” i okno edycji w „Przeglądzie”
+// (wariant A, decyzja Artura z 19.11.2026). Na górze trzy liczby „Klient płaci
+// · Konsultant dostaje · Marża” z odpowiednikiem miesięcznym, obok stawka
+// z umowy ramowej i kurs NBP; pod spodem „Stawki w czasie” (`rates/`).
+import { useId, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { AlertCircle } from "lucide-react";
 
+import api from "@/lib/api";
 import type { RecruitmentRate } from "@/lib/api/recruitmentRates";
-import { normalizeRateUnit } from "@/lib/recruitment-rate-check";
-import { formatCurrency, formatDate as formatTimestamp } from "@/lib/utils";
+import { PlnConversion } from "@/components/contracts/rates/PlnConversion";
+import { RateTimeline } from "@/components/contracts/rates/RateTimeline";
+import { buildRateFigures, frameworkVerdict } from "@/components/contracts/rates/rate-figures";
+import {
+  formatNbpDate,
+  formatNbpRate,
+  formatPercent,
+  formatPlnAmount,
+  formatRateNumber,
+  formatWholeAmount,
+  rateUnitLabel,
+} from "@/components/contracts/rates/rate-format";
+import {
+  buildChartModel,
+  buildStepRows,
+  entryInEffect,
+  liveSchedule,
+  type AmendmentRef,
+} from "@/components/contracts/rates/rate-steps";
 // Daty ISO bez przesunięcia strefy (audyt 24.09, N8).
 import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
-import { HOURS_PER_MONTH, MD_PER_MONTH } from "@/lib/work-time";
+import { currencySymbol, formatMoney, rateUnitSuffix } from "@/lib/money";
+import { normalizeRateUnit } from "@/lib/recruitment-rate-check";
+import { cn, formatDate as formatTimestamp } from "@/lib/utils";
+import { MD_PER_MONTH } from "@/lib/work-time";
 import { warsawToday } from "@/lib/warsaw-date";
+
+export { formatNbpDate, formatNbpRate, formatPlnAmount } from "@/components/contracts/rates/rate-format";
 
 export interface EurPlnRate {
   rate: number;
@@ -20,15 +50,28 @@ interface RateScheduleEntry {
   id: number;
   rate: number;
   effective_from: string;
+  /** Notatka kroku (powód aneksu, „Stawka początkowa”…). */
+  note?: string | null;
   /** Krok z zamówienia klienta (tylko harmonogram stawki klienta). */
   source_order_id?: number | null;
 }
 
+interface FrameworkRateEntry {
+  id: number;
+  rate: number;
+  effective_from: string;
+  effective_to?: string | null;
+}
+
 export interface FinancialRatesContract {
+  /** Klucz odczytu aneksów — po nim krok bez zamówienia dostaje źródło „aneks” albo „ręcznie”. */
+  id?: number;
   rate_candidate: number | null;
   rate_client: number | null;
   candidate_rate_schedule: RateScheduleEntry[];
   client_rate_schedule: RateScheduleEntry[];
+  /** Harmonogram stawki ramowej — data „do” przy stawce z umowy ramowej. */
+  framework_rate_schedule?: FrameworkRateEntry[];
   framework_rate: number | null;
   currency: string | null;
   rate_client_currency?: string | null;
@@ -38,96 +81,19 @@ export interface FinancialRatesContract {
   margin: number | null;
   client_name: string | null;
   eur_pln_rate?: EurPlnRate | null;
+  /** Start umowy — podpis osi i zdanie, gdy harmonogram zaczyna się później. */
+  start_date?: string | null;
+  /** Koniec umowy — gdy minął, oś wykresu kończy się na nim. */
+  end_date?: string | null;
+  /** Koniec zamówienia klienta — koniec osi wykresu. */
+  client_order_end_date?: string | null;
+  latest_order_end_date?: string | null;
 }
 
-const RATE_UNIT_SUFFIX: Record<FinancialRatesContract["rate_unit"], string> = {
-  monthly: "/mies.",
-  daily: "/dz.",
-  hourly: "/h",
-};
-
-const RATE_UNIT_LABELS: Record<FinancialRatesContract["rate_unit"], string> = {
-  monthly: "Miesięcznie",
-  daily: "Dziennie",
-  hourly: "Godzinowo",
-};
-
-const PLN_AMOUNT_FORMATTER = new Intl.NumberFormat("pl-PL", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
-const NBP_RATE_FORMATTER = new Intl.NumberFormat("pl-PL", {
-  minimumFractionDigits: 4,
-  maximumFractionDigits: 4,
-});
-
-export function formatPlnAmount(amount: number): string {
-  return `${PLN_AMOUNT_FORMATTER.format(amount)} zł`;
-}
-
-export function formatNbpRate(rate: number): string {
-  return `${NBP_RATE_FORMATTER.format(rate)} zł`;
-}
-
-export function formatNbpDate(date: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  if (!match) return formatDate(date);
-  return `${match[3]}.${match[2]}.${match[1]}`;
-}
-
-function monthlyMultiplier(
-  rateUnit: FinancialRatesContract["rate_unit"],
-  billingHoursPerMonth: number,
-): number {
-  if (rateUnit === "daily") return MD_PER_MONTH;
-  if (rateUnit === "hourly") return billingHoursPerMonth || HOURS_PER_MONTH;
-  return 1;
-}
-
-function amountInPln(
-  amount: number | null,
-  currency: string,
-  eurPlnRate: EurPlnRate | null,
-): number | null {
-  if (amount === null) return null;
-  const normalizedCurrency = currency.toUpperCase();
-  if (normalizedCurrency === "PLN") return amount;
-  if (normalizedCurrency === "EUR" && eurPlnRate !== null) {
-    return amount * eurPlnRate.rate;
-  }
-  return null;
-}
-
-function PlnConversion({
-  amount,
-  exchangeRate,
-  unitSuffix = "",
-  testId,
-}: {
-  amount: number | null;
-  exchangeRate: EurPlnRate | null;
-  unitSuffix?: string;
-  testId: string;
-}) {
-  if (amount === null || exchangeRate === null) return null;
-
-  return (
-    <span
-      className="whitespace-nowrap text-xs font-normal text-muted-foreground"
-      data-testid={testId}
-    >
-      <span className="sr-only">W przybliżeniu </span>
-      <span aria-hidden="true">≈</span> {formatPlnAmount(amount * exchangeRate.rate)}
-      {unitSuffix}
-    </span>
-  );
-}
-
-const RECRUITMENT_UNIT_SUFFIX: Record<"hour" | "day" | "month", string> = {
-  hour: "/h",
-  day: "/MD",
-  month: "/mies.",
+const UNIT_PHRASE: Record<FinancialRatesContract["rate_unit"], string> = {
+  hourly: "Stawki godzinowe",
+  daily: "Stawki dzienne (MD)",
+  monthly: "Stawki miesięczne",
 };
 
 const CONTRACT_UNIT_KIND: Record<FinancialRatesContract["rate_unit"], "hour" | "day" | "month"> = {
@@ -135,6 +101,25 @@ const CONTRACT_UNIT_KIND: Record<FinancialRatesContract["rate_unit"], "hour" | "
   daily: "day",
   monthly: "month",
 };
+
+/**
+ * Aneksy kontraktu — ten sam klucz i odczyt co licznik zakładki „Aneksy”
+ * w `app/contracts/[id]/page.tsx`, więc zwykle z pamięci podręcznej. `null`
+ * (brak id, ładowanie, błąd) = nie odróżniamy aneksu od wpisu ręcznego.
+ */
+function useContractAmendments(contractId: number | undefined): AmendmentRef[] | null {
+  const query = useQuery<AmendmentRef[]>({
+    queryKey: ["contract-amendments", contractId],
+    queryFn: () => api.get(`/api/contracts/${contractId}/amendments`).then((r) => r.data),
+    enabled: typeof contractId === "number",
+    staleTime: 60_000,
+  });
+  return query.isSuccess && Array.isArray(query.data) ? query.data : null;
+}
+
+function validExchangeRate(rate: EurPlnRate | null | undefined): EurPlnRate | null {
+  return rate != null && Number.isFinite(rate.rate) && rate.rate > 0 ? rate : null;
+}
 
 /**
  * Stawka do klienta z rekrutacji, gdy kontrakt jeszcze jej nie ma
@@ -155,11 +140,7 @@ function ClientRateFromRecruitment({
   const value = Number(rate.client_rate_value);
   const currency = rate.client_rate_currency || "PLN";
   const kind = normalizeRateUnit(rate.client_rate_unit);
-  const suffix = kind ? RECRUITMENT_UNIT_SUFFIX[kind] : "";
-  const who = [
-    rate.client_rate_by_name,
-    rate.client_rate_at ? formatTimestamp(rate.client_rate_at) : null,
-  ]
+  const who = [rate.client_rate_by_name, rate.client_rate_at ? formatTimestamp(rate.client_rate_at) : null]
     .filter((item): item is string => Boolean(item))
     .join(", ");
   // Marża tylko przy tej samej jednostce i walucie co stawka kandydata —
@@ -169,11 +150,11 @@ function ClientRateFromRecruitment({
     currency.toUpperCase() === candidateCurrency.toUpperCase() &&
     contract.rate_candidate != null;
   const margin = comparable ? value - (contract.rate_candidate as number) : null;
-  const marginPct = margin !== null && value > 0 ? ((margin / value) * 100).toFixed(1) : null;
+  const marginPct = margin !== null && value > 0 ? (margin / value) * 100 : null;
 
   return (
     <div
-      className="rounded-md border border-dashed border-border bg-muted/50 px-2.5 py-2 text-xs space-y-1"
+      className="space-y-1 rounded-lg border border-dashed border-border bg-muted/40 px-3 py-2 text-xs"
       data-testid="client-rate-from-recruitment"
     >
       <div className="flex justify-between gap-3">
@@ -181,25 +162,73 @@ function ClientRateFromRecruitment({
           Z rekrutacji{rate.job_title ? ` „${rate.job_title}”` : ""}
           {who ? ` (${who})` : ""}
         </span>
-        <span className="whitespace-nowrap font-medium tabular-nums">
-          {formatCurrency(value, currency)}
-          <span className="opacity-70">{suffix}</span>
+        <span className="whitespace-nowrap font-medium tabular-nums text-foreground">
+          {formatMoney(value, currency, kind)}
         </span>
       </div>
       {margin !== null && (
         <div className="flex justify-between gap-3 text-muted-foreground">
           <span>Marża wg rekrutacji</span>
           <span className="whitespace-nowrap tabular-nums">
-            {formatCurrency(margin, currency)}
-            {suffix}
-            {marginPct ? ` (${marginPct}%)` : ""}
+            {formatMoney(margin, currency, kind)}
+            {marginPct !== null ? ` (${formatPercent(marginPct)})` : ""}
           </span>
         </div>
       )}
-      <p className="text-muted-foreground">
-        Stawka przychodowa wejdzie do kontraktu z zamówieniem klienta.
-      </p>
+      <p className="text-muted-foreground">Stawka przychodowa wejdzie do kontraktu z zamówieniem klienta.</p>
     </div>
+  );
+}
+
+const FIGURE_TONE = {
+  default: "text-foreground",
+  positive: "text-success-muted-foreground",
+  negative: "text-destructive",
+  empty: "text-muted-foreground",
+} as const;
+
+/** Jedna z trzech liczb: etykieta, kwota z jednostką, odpowiednik miesięczny. */
+function RateFigure({
+  label,
+  value,
+  unit,
+  extra,
+  monthly,
+  tone = "default",
+  testId,
+}: {
+  label: string;
+  value: string;
+  unit?: ReactNode;
+  extra?: ReactNode;
+  monthly?: ReactNode;
+  tone?: keyof typeof FIGURE_TONE;
+  testId: string;
+}) {
+  return (
+    <div className="min-w-0" data-testid={testId}>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      {/* Spacje między częściami: w flexie się nie rysują, a czytnik i schowek
+          dostają „163,00 zł/h”, nie „163,00zł/h”. */}
+      <dd className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+        <span className={cn("text-[26px] font-semibold leading-8 tracking-tight", FIGURE_TONE[tone])}>{value}</span>
+        {unit ? <> <span className="text-xs text-muted-foreground">{unit}</span></> : null}
+        {extra ? <> {extra}</> : null}
+      </dd>
+      {monthly ? <dd className="text-[13px] text-foreground">{monthly}</dd> : null}
+    </div>
+  );
+}
+
+/** Odpowiednik miesięczny („27 384 zł / mies.”); bez kwoty — bez linii. */
+function monthlyLine(amount: number | null, currency: string, extra?: ReactNode): ReactNode {
+  if (amount === null) return null;
+  return (
+    <>
+      {formatWholeAmount(amount)} {currencySymbol(currency)}
+      <span className="text-muted-foreground"> / mies.</span>
+      {extra ? <> {extra}</> : null}
+    </>
   );
 }
 
@@ -211,6 +240,9 @@ export function FinancialRatesCard({
   /** Para z rekrutacji kontraktu — pokazywana tylko, gdy kontrakt nie ma stawki klienta. */
   recruitmentRate?: RecruitmentRate | null;
 }) {
+  const headingId = useId();
+  const amendments = useContractAmendments(contract.id);
+  const today = warsawToday();
   // The API redacts this field to null for non-finance callers and historical
   // rows can also predate the PLN default. The parent currently gates the card,
   // but keeping the component null-safe prevents a legacy row from crashing the
@@ -218,315 +250,275 @@ export function FinancialRatesCard({
   const legacyCurrency = contract.currency || "PLN";
   const clientCurrency = contract.rate_client_currency || legacyCurrency;
   const candidateCurrency = contract.rate_candidate_currency || legacyCurrency;
-  const normalizedClientCurrency = clientCurrency.toUpperCase();
-  const normalizedCandidateCurrency = candidateCurrency.toUpperCase();
-  const unitSuffix = RATE_UNIT_SUFFIX[contract.rate_unit];
-  const exchangeRateCandidate = contract.eur_pln_rate ?? null;
-  const eurPlnRate =
-    exchangeRateCandidate !== null &&
-    Number.isFinite(exchangeRateCandidate.rate) &&
-    exchangeRateCandidate.rate > 0
-      ? exchangeRateCandidate
-      : null;
-  const clientExchangeRate = normalizedClientCurrency === "EUR" ? eurPlnRate : null;
-  const candidateExchangeRate =
-    normalizedCandidateCurrency === "EUR" ? eurPlnRate : null;
-  const currenciesDiffer = normalizedClientCurrency !== normalizedCandidateCurrency;
-  const clientRatePln = amountInPln(
-    contract.rate_client,
+  const clientIsEur = clientCurrency.toUpperCase() === "EUR";
+  const candidateIsEur = candidateCurrency.toUpperCase() === "EUR";
+  const unitSuffix = rateUnitSuffix(contract.rate_unit);
+  const clientUnit = rateUnitLabel(clientCurrency, contract.rate_unit);
+  const candidateUnit = rateUnitLabel(candidateCurrency, contract.rate_unit);
+  const eurPln = validExchangeRate(contract.eur_pln_rate);
+  const eurRate = eurPln?.rate ?? null;
+  const clientExchangeRate = clientIsEur ? eurRate : null;
+  const candidateExchangeRate = candidateIsEur ? eurRate : null;
+
+  const figures = buildRateFigures({
+    rateClient: contract.rate_client,
+    rateCandidate: contract.rate_candidate,
+    margin: contract.margin,
     clientCurrency,
-    eurPlnRate,
-  );
-  const candidateRatePln = amountInPln(
-    contract.rate_candidate,
     candidateCurrency,
-    eurPlnRate,
-  );
-  // The API intentionally returns margin=null for unlike currencies. Calculate
-  // it only when both rates can be compared in PLN; unsupported currencies stay
-  // empty instead of producing a plausible-looking but false value.
-  const mixedCurrencyMargin =
-    currenciesDiffer && clientRatePln !== null && candidateRatePln !== null
-      ? clientRatePln - candidateRatePln
-      : null;
-  const displayedMargin = currenciesDiffer ? mixedCurrencyMargin : contract.margin;
-  const marginCurrency = currenciesDiffer ? "PLN" : clientCurrency;
-  const marginExchangeRate =
-    !currenciesDiffer && normalizedClientCurrency === "EUR" ? eurPlnRate : null;
-  const monthlyMargin =
-    displayedMargin === null
-      ? null
-      : displayedMargin *
-        monthlyMultiplier(contract.rate_unit, contract.billing_hours_per_month);
-  const comparableClientRate = currenciesDiffer ? clientRatePln : contract.rate_client;
-  const marginPct =
-    comparableClientRate && comparableClientRate > 0 && displayedMargin !== null
-      ? ((displayedMargin / comparableClientRate) * 100).toFixed(1)
-      : null;
+    rateUnit: contract.rate_unit,
+    billingHoursPerMonth: contract.billing_hours_per_month,
+    eurPln: eurRate,
+  });
+  const marginExchangeRate = figures.sameCurrency && clientIsEur ? eurRate : null;
 
-  // Ostrzeżenie o przekroczeniu stawki z umowy ramowej — tylko dla klienta Nordea
-  // (u innych klientów świeciłoby się wszędzie; sygnalizujemy wyłącznie dla Nordei).
-  const isNordeaClient = (contract.client_name ?? "").toLowerCase().includes("nordea");
-  const frameworkRatePln = amountInPln(
-    contract.framework_rate,
-    candidateCurrency,
-    eurPlnRate,
-  );
-  const frameworkRateExceeded =
-    isNordeaClient &&
-    contract.framework_rate != null &&
-    contract.rate_client != null &&
-    (normalizedClientCurrency === normalizedCandidateCurrency
-      ? contract.rate_client > contract.framework_rate
-      : clientRatePln !== null &&
-        frameworkRatePln !== null &&
-        clientRatePln > frameworkRatePln);
+  const client = liveSchedule(contract.client_rate_schedule);
+  const candidate = liveSchedule(contract.candidate_rate_schedule);
+  const rows = buildStepRows({
+    client,
+    candidate,
+    fallbackClient: contract.rate_client,
+    fallbackCandidate: contract.rate_candidate,
+    today,
+    amendments,
+  });
+  const chart = figures.sameCurrency
+    ? buildChartModel({
+        rows,
+        today,
+        contractStart: contract.start_date ?? null,
+        contractEnd: contract.end_date ?? null,
+        orderEnd: contract.latest_order_end_date ?? contract.client_order_end_date ?? null,
+      })
+    : null;
+  const currentRow = rows.find((row) => row.state === "current") ?? null;
+  const footnote = [
+    UNIT_PHRASE[contract.rate_unit],
+    contract.rate_unit === "hourly" ? `miesięcznie przy ${figures.multiplier} h` : null,
+    contract.rate_unit === "daily" ? `miesięcznie przy ${MD_PER_MONTH} MD` : null,
+    currentRow ? `obowiązują od ${formatDate(currentRow.date)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const showRecruitmentHint =
+    contract.rate_client == null &&
+    recruitmentRate != null &&
+    !recruitmentRate.client_rate_redacted &&
+    recruitmentRate.client_rate_value != null &&
+    recruitmentRate.client_rate_value !== "";
+
+  // Stawka z umowy ramowej jedną linią. Jest w walucie stawki kandydata, jak
+  // na karcie od początku; ocena (limit) tylko u Nordei — `frameworkVerdict`.
+  const frameworkRate = contract.framework_rate;
+  const frameworkStep = entryInEffect(contract.framework_rate_schedule, today);
+  const frameworkUntil =
+    frameworkStep && frameworkStep.rate === frameworkRate ? (frameworkStep.effective_to ?? null) : null;
+  const verdict = frameworkVerdict({
+    frameworkRate,
+    rateClient: contract.rate_client,
+    clientCurrency,
+    frameworkCurrency: candidateCurrency,
+    eurPln: eurRate,
+    clientName: contract.client_name,
+  });
+  const showNbp = eurPln !== null && (clientIsEur || candidateIsEur);
+  const hasAside = frameworkRate != null || showNbp;
+
+  const marginTone =
+    figures.margin === null ? "empty" : figures.margin > 0 ? "positive" : "negative";
 
   return (
-    <div className="space-y-3">
-      <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-        <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-          <Banknote className="w-4 h-4" /> Stawki finansowe
+    <div className="@container space-y-4" data-testid="financial-rates-card">
+      <section aria-labelledby={headingId} className="rounded-xl border border-border bg-card p-4 shadow-xs">
+        <h2 id={headingId} className="sr-only">
+          Stawki finansowe
         </h2>
-        <div className="text-xs text-muted-foreground dark:text-muted-foreground flex items-center justify-between">
-          <span>Jednostka: {RATE_UNIT_LABELS[contract.rate_unit]}</span>
-          {contract.rate_unit === "hourly" && (
-            <span>{contract.billing_hours_per_month} h/mies.</span>
-          )}
-        </div>
-        <div className="space-y-1 text-sm">
-          <div className="flex justify-between gap-4">
-            <span className="text-muted-foreground dark:text-muted-foreground">Klient</span>
-            <span className="flex flex-wrap items-baseline justify-end gap-x-2 gap-y-0.5 text-right tabular-nums">
-              <span className="whitespace-nowrap font-medium">
-                {formatCurrency(contract.rate_client, clientCurrency)}
-                <span className="text-xs opacity-70">{unitSuffix}</span>
-              </span>
-              <PlnConversion
-                amount={contract.rate_client}
-                exchangeRate={clientExchangeRate}
-                unitSuffix={unitSuffix}
-                testId="rate-client-pln"
-              />
-            </span>
-          </div>
-          {contract.rate_client == null &&
-            recruitmentRate != null &&
-            !recruitmentRate.client_rate_redacted &&
-            recruitmentRate.client_rate_value != null &&
-            recruitmentRate.client_rate_value !== "" && (
-              <ClientRateFromRecruitment
-                rate={recruitmentRate}
-                contract={contract}
-                candidateCurrency={candidateCurrency}
-              />
-            )}
-          {/* Także przy JEDNYM kroku (UAT B53): zakładka „Historia stawek" odsyła
-              tu po kroki z datami i pochodzeniem, a przy `> 1` karta pokazywała
-              samą kwotę — wskazówka prowadziła do czegoś, czego nie było.
-              Edycja i tak blokuje stawkę klienta już od pierwszego kroku. */}
-          {contract.client_rate_schedule.length > 0 && (
-            <RateSchedule
-              currency={clientCurrency}
-              entries={contract.client_rate_schedule}
-              unitSuffix={unitSuffix}
-              exchangeRate={clientExchangeRate}
-              testIdPrefix="client-rate-schedule"
-              showSource
-            />
-          )}
-          <div className="flex justify-between gap-4">
-            <span className="text-muted-foreground dark:text-muted-foreground">Kandydat</span>
-            <span className="flex flex-wrap items-baseline justify-end gap-x-2 gap-y-0.5 text-right tabular-nums">
-              <span className="whitespace-nowrap font-medium">
-                {formatCurrency(contract.rate_candidate, candidateCurrency)}
-                <span className="text-xs opacity-70">{unitSuffix}</span>
-              </span>
-              <PlnConversion
-                amount={contract.rate_candidate}
-                exchangeRate={candidateExchangeRate}
-                unitSuffix={unitSuffix}
-                testId="rate-candidate-pln"
-              />
-            </span>
-          </div>
-          {contract.candidate_rate_schedule.length > 0 && (
-            <RateSchedule
-              currency={candidateCurrency}
-              entries={contract.candidate_rate_schedule}
-              unitSuffix={unitSuffix}
-              exchangeRate={candidateExchangeRate}
-              testIdPrefix="candidate-rate-schedule"
-            />
-          )}
-          <div className="flex justify-between gap-4 pt-2 border-t border-border dark:border-border">
-            <span className="text-muted-foreground dark:text-muted-foreground flex items-center gap-1">
-              <TrendingUp className="w-3.5 h-3.5" /> Marża
-            </span>
-            <span
-              className={`flex flex-wrap items-baseline justify-end gap-x-2 gap-y-0.5 text-right tabular-nums ${
-                displayedMargin === null
-                  ? "text-muted-foreground"
-                  : displayedMargin > 0
-                    ? "text-success-muted-foreground"
-                    : "text-destructive"
-              }`}
-            >
-              <span className="whitespace-nowrap font-bold">
-                {displayedMargin === null
-                  ? "—"
-                  : formatCurrency(displayedMargin, marginCurrency)}
-                {displayedMargin !== null && (
-                  <span className="text-xs opacity-70">{unitSuffix}</span>
-                )}
-                {marginPct && <span className="ml-1 text-xs opacity-70">({marginPct}%)</span>}
-              </span>
-              <PlnConversion
-                amount={displayedMargin}
-                exchangeRate={marginExchangeRate}
-                unitSuffix={unitSuffix}
-                testId="margin-pln"
-              />
-            </span>
-          </div>
-          {contract.rate_unit !== "monthly" && monthlyMargin !== null && (
-            <div className="flex justify-between gap-4 pt-1 text-xs text-muted-foreground dark:text-muted-foreground">
-              <span>Marża miesięcznie (≈)</span>
-              <span className="flex flex-wrap items-baseline justify-end gap-x-2 gap-y-0.5 text-right tabular-nums">
-                <span className="whitespace-nowrap">
-                  {formatCurrency(monthlyMargin, marginCurrency)}
-                </span>
-                <PlnConversion
-                  amount={monthlyMargin}
-                  exchangeRate={marginExchangeRate}
-                  testId="monthly-margin-pln"
-                />
-              </span>
-            </div>
-          )}
-          {contract.framework_rate != null && (
-            <div
-              className={
-                frameworkRateExceeded
-                  ? "flex justify-between items-center gap-2 mt-2 rounded-lg bg-destructive/10 border border-destructive/20 px-2.5 py-2 text-xs text-destructive"
-                  : "flex justify-between pt-2 mt-1 border-t border-border dark:border-border text-xs text-muted-foreground dark:text-muted-foreground"
-              }
-              title={
-                frameworkRateExceeded
-                  ? `Stawka klienta (${formatCurrency(contract.rate_client, clientCurrency)}${unitSuffix}) przekracza stawkę z umowy ramowej`
-                  : undefined
-              }
-            >
-              <span className="flex items-center gap-1.5">
-                {frameworkRateExceeded && (
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                )}
-                Z umowy ramowej
-              </span>
-              <span
-                className={`flex flex-wrap items-baseline justify-end gap-x-2 ${
-                  frameworkRateExceeded ? "font-semibold" : ""
-                }`}
-              >
-                <span className="whitespace-nowrap">
-                  {formatCurrency(contract.framework_rate, candidateCurrency)}
-                  <span className="opacity-70">{unitSuffix}</span>
-                </span>
-                <PlnConversion
-                  amount={contract.framework_rate}
-                  exchangeRate={candidateExchangeRate}
-                  unitSuffix={unitSuffix}
-                  testId="framework-rate-pln"
-                />
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
-      {eurPlnRate &&
-        (normalizedClientCurrency === "EUR" || normalizedCandidateCurrency === "EUR") && (
         <div
-          className="flex items-start gap-2 rounded-lg border border-border bg-card px-4 py-3 text-[11px] leading-relaxed text-muted-foreground"
-          data-testid="eur-pln-rate-note"
+          className={cn(
+            "grid grid-cols-1 gap-4",
+            hasAside && "@3xl:grid-cols-[minmax(0,1fr)_minmax(0,21rem)] @3xl:gap-6",
+          )}
         >
-          <RefreshCw className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
-          <p>
-            Kurs EUR/PLN z tabeli A NBP na dzień {formatNbpDate(eurPlnRate.effective_date)}:
-            1 € = {formatNbpRate(eurPlnRate.rate)}
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
+          <div className="min-w-0">
+            {/* Szerokość liczb jak przy kolumnie z umową ramową — bez niej nie
+                rozjeżdżają się na całą kartę. */}
+            <dl className="grid grid-cols-1 gap-3 @md:max-w-[40rem] @md:grid-cols-3 @md:gap-4">
+              <RateFigure
+                testId="figure-client"
+                label="Klient płaci"
+                value={formatRateNumber(contract.rate_client)}
+                tone={contract.rate_client == null ? "empty" : "default"}
+                unit={contract.rate_client == null ? null : clientUnit}
+                extra={
+                  <PlnConversion
+                    amount={contract.rate_client}
+                    exchangeRate={clientExchangeRate}
+                    unitSuffix={unitSuffix}
+                    testId="rate-client-pln"
+                  />
+                }
+                monthly={monthlyLine(figures.clientMonthly, clientCurrency)}
+              />
+              <RateFigure
+                testId="figure-candidate"
+                label="Konsultant dostaje"
+                value={formatRateNumber(contract.rate_candidate)}
+                tone={contract.rate_candidate == null ? "empty" : "default"}
+                unit={contract.rate_candidate == null ? null : candidateUnit}
+                extra={
+                  <PlnConversion
+                    amount={contract.rate_candidate}
+                    exchangeRate={candidateExchangeRate}
+                    unitSuffix={unitSuffix}
+                    testId="rate-candidate-pln"
+                  />
+                }
+                monthly={monthlyLine(figures.candidateMonthly, candidateCurrency)}
+              />
+              <RateFigure
+                testId="figure-margin"
+                label="Marża"
+                value={formatRateNumber(figures.margin)}
+                tone={marginTone}
+                unit={
+                  !figures.sameCurrency
+                    ? "różne waluty"
+                    : figures.margin === null
+                      ? null
+                      : `${clientUnit}${figures.marginPct !== null ? ` · ${formatPercent(figures.marginPct)}` : ""}`
+                }
+                extra={
+                  <PlnConversion
+                    amount={figures.margin}
+                    exchangeRate={marginExchangeRate}
+                    unitSuffix={unitSuffix}
+                    testId="margin-pln"
+                  />
+                }
+                monthly={monthlyLine(
+                  figures.marginMonthly,
+                  clientCurrency,
+                  <PlnConversion
+                    amount={figures.marginMonthly}
+                    exchangeRate={marginExchangeRate}
+                    testId="monthly-margin-pln"
+                    whole
+                  />,
+                )}
+              />
+            </dl>
+            <p className="mt-3 text-xs text-muted-foreground" data-testid="rates-footnote">
+              {footnote}
+            </p>
+            {!figures.sameCurrency ? (
+              <p className="mt-1 text-xs leading-5 text-muted-foreground" data-testid="margin-mixed-currency">
+                Klient płaci w {currencySymbol(clientCurrency)}, konsultant dostaje w{" "}
+                {currencySymbol(candidateCurrency)} — marży w jednej walucie nie liczymy.
+                {figures.approxPlnDifference !== null ? (
+                  <>
+                    {" "}
+                    Orientacyjnie po kursie NBP różnica to{" "}
+                    <span className="whitespace-nowrap text-foreground" data-testid="margin-approx-pln">
+                      ≈ {formatPlnAmount(figures.approxPlnDifference)}
+                      {unitSuffix}
+                      {figures.approxPlnDifferencePct !== null
+                        ? ` (${formatPercent(figures.approxPlnDifferencePct)})`
+                        : ""}
+                    </span>
+                    {figures.approxPlnDifferenceMonthly !== null ? (
+                      <>
+                        , czyli{" "}
+                        <span className="whitespace-nowrap text-foreground">
+                          ≈ {formatWholeAmount(figures.approxPlnDifferenceMonthly)} zł
+                        </span>{" "}
+                        miesięcznie
+                      </>
+                    ) : null}
+                    .
+                  </>
+                ) : null}
+              </p>
+            ) : null}
+            {showRecruitmentHint && recruitmentRate ? (
+              <div className="mt-3 @md:max-w-[40rem]">
+                <ClientRateFromRecruitment
+                  rate={recruitmentRate}
+                  contract={contract}
+                  candidateCurrency={candidateCurrency}
+                />
+              </div>
+            ) : null}
+          </div>
 
-function RateSchedule({
-  currency,
-  entries,
-  unitSuffix,
-  exchangeRate,
-  testIdPrefix,
-  showSource = false,
-}: {
-  currency: string;
-  entries: RateScheduleEntry[];
-  unitSuffix: string;
-  exchangeRate: EurPlnRate | null;
-  testIdPrefix: string;
-  /** Oznacz pochodzenie kroku: z zamówienia klienta albo ręczny/z aneksu. */
-  showSource?: boolean;
-}) {
-  const today = warsawToday();
-  // Sortowanie stabilne: przy tej samej dacie zostaje kolejność z API
-  // (effective_from, id), a backend przy remisie bierze krok dodany jako
-  // ostatni — więc wcześniejszy krok z tą samą datą nigdy nie obowiązuje.
-  const sorted = [...entries].sort((a, b) => a.effective_from.localeCompare(b.effective_from));
-  const past = sorted.filter((entry) => entry.effective_from <= today);
-  // Gdy żaden krok jeszcze nie obowiązuje, żaden nie jest „aktualny” — dotąd
-  // etykietę dostawał pierwszy PRZYSZŁY krok (retest prod 15.09.2026, B53).
-  const currentId = past.length ? past[past.length - 1].id : null;
-  const supersededIds = new Set(
-    sorted
-      .filter((entry, index) => sorted[index + 1]?.effective_from === entry.effective_from)
-      .map((entry) => entry.id),
-  );
-
-  return (
-    <div className="pt-1 pl-2 border-l-2 border-border space-y-1">
-      {sorted.map((entry) => (
-        <div
-          key={entry.id}
-          className={`flex justify-between text-xs ${
-            entry.id === currentId ? "text-foreground font-medium" : "text-muted-foreground"
-          }`}
-        >
-          <span>
-            od {formatDate(entry.effective_from)}
-            {entry.id === currentId && <span className="ml-1 opacity-70">(aktualna)</span>}
-            {entry.effective_from > today && <span className="ml-1 opacity-70">(zaplanowana)</span>}
-            {showSource && (
-              <span className="ml-1 opacity-70" data-testid={`${testIdPrefix}-${entry.id}-source`}>
-                · {entry.source_order_id != null ? "z zamówienia" : "ręcznie / aneks"}
-              </span>
-            )}
-            {supersededIds.has(entry.id) && (
-              <span className="ml-1 opacity-70">· nieobowiązująca (zastąpiona krokiem z tą samą datą)</span>
-            )}
-          </span>
-          <span className="flex flex-wrap items-baseline justify-end gap-x-2">
-            <span className="whitespace-nowrap">
-              {formatCurrency(entry.rate, currency)}
-              <span className="opacity-70">{unitSuffix}</span>
-            </span>
-            <PlnConversion
-              amount={entry.rate}
-              exchangeRate={exchangeRate}
-              unitSuffix={unitSuffix}
-              testId={`${testIdPrefix}-${entry.id}-pln`}
-            />
-          </span>
+          {hasAside ? (
+            <dl className="space-y-2.5 border-t border-border/70 pt-3 text-[12.5px] leading-5 @3xl:border-l @3xl:border-t-0 @3xl:pl-5 @3xl:pt-0">
+              {frameworkRate != null ? (
+                <div data-testid="framework-rate">
+                  <dt className="text-[11.5px] text-muted-foreground">Z umowy ramowej</dt>
+                  <dd className="text-foreground">
+                    <span className="font-medium tabular-nums">
+                      {formatRateNumber(frameworkRate)} {candidateUnit}
+                    </span>{" "}
+                    <PlnConversion
+                      amount={frameworkRate}
+                      exchangeRate={candidateExchangeRate}
+                      unitSuffix={unitSuffix}
+                      testId="framework-rate-pln"
+                    />
+                    {frameworkUntil ? (
+                      <span className="text-muted-foreground"> do {formatDate(frameworkUntil)}</span>
+                    ) : null}
+                    {verdict?.kind === "within" ? (
+                      <span className="text-muted-foreground"> · stawka klienta w limicie</span>
+                    ) : null}
+                    {verdict?.kind === "over" ? (
+                      <span
+                        className="mt-0.5 flex items-center gap-1 font-medium text-destructive"
+                        title={`Stawka klienta (${formatRateNumber(contract.rate_client)} ${clientUnit}) przekracza stawkę z umowy ramowej`}
+                        data-testid="framework-rate-exceeded"
+                      >
+                        <AlertCircle className="size-3.5 shrink-0" aria-hidden="true" />
+                        {verdict.overBy !== null
+                          ? `Stawka klienta wyższa o ${formatRateNumber(verdict.overBy)} ${clientUnit}`
+                          : "Stawka klienta przekracza stawkę ramową"}
+                      </span>
+                    ) : null}
+                  </dd>
+                </div>
+              ) : null}
+              {showNbp && eurPln ? (
+                <div data-testid="eur-pln-rate-note">
+                  <dt className="text-[11.5px] text-muted-foreground">Kurs EUR/PLN</dt>
+                  <dd className="text-foreground">
+                    1 € = {formatNbpRate(eurPln.rate)}
+                    <span className="text-muted-foreground">
+                      {" "}
+                      (tabela A NBP z {formatNbpDate(eurPln.effective_date)})
+                    </span>
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          ) : null}
         </div>
-      ))}
+      </section>
+
+      <RateTimeline
+        rows={rows}
+        chart={chart}
+        sameCurrency={figures.sameCurrency}
+        clientCurrency={clientCurrency}
+        candidateCurrency={candidateCurrency}
+        clientUnit={clientUnit}
+        candidateUnit={candidateUnit}
+        clientExchangeRate={clientExchangeRate}
+        candidateExchangeRate={candidateExchangeRate}
+        superseded={{ client: client.superseded, candidate: candidate.superseded }}
+        contractStart={contract.start_date ?? null}
+        hasAnyRate={contract.rate_client != null || contract.rate_candidate != null}
+        today={today}
+      />
     </div>
   );
 }
