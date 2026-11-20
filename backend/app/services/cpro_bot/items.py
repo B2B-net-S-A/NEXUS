@@ -261,7 +261,9 @@ def build_payload(
             "former_employee": former.employee,
             "former_consultant": former.consultant,
             "motivation": offer_text.motivation(points),
-            "cv_file_name": cv.filename,
+            "cv_file_name": offer_text.safe_filename(cv.filename),
+            "cv_format": "pdf",
+            "cv_version": cv.version,
         },
     }
     return (), payload

@@ -100,9 +100,11 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
 - **Motivation** i opis nowego profilu = punkty „Why our candidate?” z HTML
   zatwierdzonej wersji CV (`data-cv-section="why_points"`), każdy od myślnika,
   bez pustych linii.
-- **CV** = DOCX zatwierdzonej wersji, nazwa bez `#` (z `#` plik nie otwiera się
-  ani u nas, ani w Nordei). Bot pobiera go z
-  `GET /api/integrations/cpro-bot/runs/{id}/cv/{stage_id}` na token biegu.
+- **CV do oferty** to firmowy PDF z zatwierdzonej wersji zapisanej w zleceniu.
+  Bot pobiera go z `GET /api/integrations/cpro-bot/runs/{id}/cv/{stage_id}`
+  na token biegu. Nazwa pliku ma końcówkę `.pdf` i nie zawiera `#`.
+  Po zapisaniu szkicu bot otwiera ofertę ponownie i sprawdza zaznaczony PDF
+  w podglądzie Cpro, w tym firmowy układ strony.
 - Stałe pola (w poleceniu rutyny, `cpro_bot/task_text.py`): Self-employed
   (B2B), subcontractor `B2B.net S.A.`, subcontractor rate 0,00, UK tax No,
   Gender Other, pięć suwaków Matching na „Perfect”, imiennik w Cpro → Title =

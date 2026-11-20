@@ -19,6 +19,8 @@ Uruchomienie (z ``backend/``)::
 ``--interactive-draft`` tworzy zlecenie jednego szkicu bez webhooka przy wyłączonej fladze.
 Świeży token przekazuje wyłącznie wcześniej podłączonemu prywatnemu pipe/socketowi
 ``--token-fd``. Nie ma opcji wypisania lub odzyskania tokenu.
+``--repair-draft-run-id`` pozwala wyłącznie poprawić szkic potwierdzony
+raportem wskazanego biegu dla tej samej karty, konta i requestu.
 
 Wynik to identyfikatory, liczby i braki, bez nazwisk i stawek (logi są publiczne).
 """
@@ -109,7 +111,12 @@ def deliver_token(fd: int, token: str) -> None:
 
 
 async def interactive_draft(
-    stage_id: int, *, delivery_lead_id: int, request_number: str, token_fd: int
+    stage_id: int,
+    *,
+    delivery_lead_id: int,
+    request_number: str,
+    token_fd: int,
+    repair_draft_run_id: Optional[int] = None,
 ) -> dict[str, object]:
     """Utwórz zlecenie szkicu i przekaż świeży token poza stdout/stderr."""
 
@@ -125,6 +132,7 @@ async def interactive_draft(
                     request_number=request_number,
                     now=now,
                     today=business_date(now),
+                    repair_draft_run_id=repair_draft_run_id,
                 )
             except flow.NotReady:
                 return {"started": False, "status": "not_ready"}
@@ -231,6 +239,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--delivery-lead-id", type=_positive_int)
     parser.add_argument("--request-number", type=_request_number)
     parser.add_argument("--token-fd", type=_positive_int)
+    parser.add_argument("--repair-draft-run-id", type=_positive_int)
     args = parser.parse_args(raw_args)
     if args.interactive_draft:
         if (
@@ -263,6 +272,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     delivery_lead_id=args.delivery_lead_id,
                     request_number=args.request_number,
                     token_fd=args.token_fd,
+                    repair_draft_run_id=args.repair_draft_run_id,
                 )
             )
         except Exception:
@@ -273,7 +283,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 0 if result.get("started") else 1
     if any(
         value is not None
-        for value in (args.delivery_lead_id, args.request_number, args.token_fd)
+        for value in (
+            args.delivery_lead_id,
+            args.request_number,
+            args.token_fd,
+            args.repair_draft_run_id,
+        )
     ):
         parser.error("Opcje wymagają --interactive-draft.")
     if not args.start:

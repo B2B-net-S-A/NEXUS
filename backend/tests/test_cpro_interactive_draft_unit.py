@@ -184,3 +184,28 @@ def test_interactive_cli_never_prints_sensitive_exception_details(
     finally:
         os.close(read_fd)
         os.close(write_fd)
+
+
+def test_repair_cli_binds_the_source_run_without_enabling_submit(
+    fake_interactive_flow, capsys
+):
+    create, token = fake_interactive_flow
+    read_fd, write_fd = os.pipe()
+    try:
+        assert cli.main([*_argv(write_fd), "--repair-draft-run-id", "42"]) == 0
+        assert os.read(read_fd, 256) == token.encode("ascii") + b"\n"
+        assert create.await_args.kwargs["repair_draft_run_id"] == 42
+        output = capsys.readouterr()
+        assert json.loads(output.out)["submit"] is False
+        assert token not in output.out + output.err
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
+
+
+def test_repair_mode_cannot_be_used_with_the_webhook_start(fake_interactive_flow):
+    create, _ = fake_interactive_flow
+    with pytest.raises(SystemExit) as caught:
+        cli.main(["--start", "--stage-ids", "101", "--repair-draft-run-id", "42"])
+    assert caught.value.code == 2
+    create.assert_not_called()

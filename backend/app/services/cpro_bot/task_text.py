@@ -37,18 +37,36 @@ Dla KAŻDEJ pozycji z listy items (po kolei, każda osobno):
    "login_failed". W każdym z tych przypadków NIE otwieraj formularza,
    nie pobieraj CV i nie zapisuj profilu, szkicu ani oferty. Przejdź do
    następnej pozycji. Nie przełączaj na inne konto, żeby obejść brak dostępu.
+   Gdy edit_existing_draft_only = true, jest to WYŁĄCZNIE poprawienie
+   istniejącego szkicu wskazanego przez repair_draft_run_id. submit musi
+   być false. Nigdy nie twórz profilu ani oferty, nie klikaj „Offer…” ani
+   „Add Consultant” i nigdy „Submit Offer”, również gdy późniejsze pole
+   lub ekran sugeruje wysyłkę. Nie da się potwierdzić tego trybu → failed,
+   reason "draft_identity_mismatch", bez zmian.
 1. Requests → wyszukaj request_number, otwórz request. Request nie istnieje
    albo jest zamknięty (Closed/Cancelled) → wynik failed, reason
    "request_not_found" albo "request_closed". Nic nie dodawaj.
 2. W sekcji „Our offers” sprawdź tę osobę (imię i nazwisko). Ma już ofertę
    w stanie innym niż DRAFT (SELECTION, SUBMITTED, REJECTED itd.) → wynik
-   skipped, reason "already_offered", podaj status. Ma DRAFT → otwórz ten
-   szkic (View → Edit) i przejdź do kroku 5.
-3. „Profiles”: wyszukaj imię i nazwisko. Jest dokładnie jeden profil tej
+   skipped, reason "already_offered", podaj status. Poza trybem naprawy:
+   ma DRAFT → otwórz ten szkic (View → Edit) i przejdź do kroku 5.
+   W trybie edit_existing_draft_only najpierw można otworzyć
+   existing_offer_url, jeśli jest w zleceniu, ale i tak potwierdź W PORTALU
+   to samo konto, request_number, tę samą osobę i status DRAFT. Sam link
+   nie jest dowodem tożsamości oferty. Bez linku wyszukaj tę osobę wyłącznie
+   w „Our offers” wskazanego requestu: musi istnieć dokładnie JEDEN DRAFT.
+   Brak szkicu → failed, reason "draft_not_found"; kilka pasujących szkiców
+   → failed, reason "ambiguous_draft"; niezgodna osoba, request lub konto
+   → failed, reason "draft_identity_mismatch". W tych sytuacjach NIC nie
+   twórz ani nie zapisuj. Po znalezieniu właściwego DRAFT otwórz go do
+   edycji i przejdź bezpośrednio do kroku 5, pomijając kroki 3 i 4.
+3. Tylko gdy edit_existing_draft_only NIE jest true: „Profiles” → wyszukaj
+   imię i nazwisko. Jest dokładnie jeden profil tej
    osoby → kliknij „Offer…” i przejdź do kroku 5. Kilka profili o tym
    imieniu i nazwisku i nie da się wskazać właściwego → failed, reason
    "ambiguous_profile".
-4. Brak profilu → „Add Consultant”: First name = candidate.first_name,
+4. Tylko gdy edit_existing_draft_only NIE jest true i brak profilu →
+   „Add Consultant”: First name = candidate.first_name,
    Last name = candidate.last_name; Title puste, chyba że portal pokazuje już
    inną osobę o tym samym imieniu i nazwisku — wtedy Title =
    candidate.profile_title; Country of citizenship = candidate.citizenship
@@ -58,12 +76,15 @@ Dla KAŻDEJ pozycji z listy items (po kolei, każda osobno):
    Focus skills, Industries, Best roles puste; Description =
    candidate.profile_description dokładnie jak w zleceniu. Save, potem
    „Offer…” przy tym profilu.
-5. Formularz oferty:
+5. Formularz oferty. Przy edit_existing_draft_only = true zmień wyłącznie
+   zaznaczone CV. Pozostałe wartości istniejącego DRAFT zachowaj dokładnie
+   jak w portalu. Poniższe pola inne niż CV wypełniaj tylko w zwykłym biegu:
    - Frame agreement — Vendor: zostaw wybraną; gdy pusta, wybierz jedyną
      aktywną umowę ramową.
    - Offered rate = offer.rate (liczba), Currency = PLN.
-   - CV: wgraj plik z kroku 6 („Upload new CV”) i zaznacz TYLKO ten nowy plik
-     (odznacz starsze CV tej osoby).
+   - CV: wgraj zatwierdzony PDF firmowy z kroku 6 („Upload new CV”) i zaznacz
+     TYLKO ten nowy PDF (odznacz starsze CV tej osoby, w tym DOCX).
+     Nie zmieniaj pliku w DOCX ani nie używaj oryginalnego CV kandydata.
    - Motivation = offer.motivation dokładnie jak w zleceniu (każdy punkt od
      myślnika, bez pustych linii).
    - Available from = offer.available_from (RRRR-MM-DD).
@@ -79,11 +100,25 @@ Dla KAŻDEJ pozycji z listy items (po kolei, każda osobno):
      Is the consultant a UK tax resident? = No.
    - Matching: wszystkie pięć suwaków (Experience & Education, Profile,
      Bank and Finance Industry, Assignment, Total) na „Perfect”.
-   - Zapisz jako szkic (Save). Otwórz wgrane CV podglądem w ofercie: musi się
-     otworzyć. Nie otwiera się → failed, reason "cv_not_opening".
+   - Przed Save w trybie naprawy ponownie potwierdź, że edytujesz ten sam
+     istniejący DRAFT tej osoby na wskazanym requeście i koncie. Status
+     zmienił się z DRAFT → przerwij bez zapisu, skipped, reason "already_offered".
+   - Zapisz jako szkic (Save). Otwórz właśnie wgrany PDF podglądem W OFERCIE.
+     Sprawdź pierwszą stronę: firmowy nagłówek/logo, właściwa osoba i czytelna
+     treść; przejrzyj następne strony, czy układ nie jest ucięty lub pusty.
+     Nie wystarcza nazwa pliku, komunikat uploadu ani podgląd starego CV.
+     Podgląd nie otwiera się albo plik/treść jest nieprawidłowa → failed,
+     reason "cv_not_opening". Nie zastępuj PDF plikiem DOCX, żeby obejść błąd.
 6. Plik CV pobierz przed formularzem: GET offer.cv_url z nagłówkiem
-   X-Run-Token: <token>. Zapisz go pod nazwą offer.cv_file_name.
-7. submit = true → kliknij „Submit Offer” i wróć na request: w „Our offers”
+   X-Run-Token: <token>. Wymagane offer.cv_format = "pdf", nazwa
+   offer.cv_file_name kończąca się .pdf, Content-Type application/pdf
+   i sygnatura %PDF- w pobranych bajtach.
+   Zapisz go pod dokładną nazwą offer.cv_file_name. Inny format, DOCX albo
+   niepoprawny plik → failed, reason "cv_not_pdf", bez uploadu i bez zmian.
+7. edit_existing_draft_only = true → ZAWSZE zostaw istniejącą ofertę jako
+   DRAFT, nigdy nie wysyłaj. Dopiero po udanym podglądzie nowego PDF i
+   potwierdzeniu statusu DRAFT zgłoś outcome "draft" i cpro_status "DRAFT".
+   Poza trybem naprawy: submit = true → kliknij „Submit Offer” i wróć na request: w „Our offers”
    ta osoba ma status SELECTION (albo inny niż DRAFT). Zapisz status.
    submit = false → zostaw szkic (DRAFT), nic nie wysyłaj.
 
@@ -118,7 +153,9 @@ def report_format() -> dict[str, Any]:
                 "offer_url": "<adres oferty w Cpro, https://nordea.onevms.se/...>",
                 "reason": "request_not_found | request_closed | already_offered "
                 "| ambiguous_profile | cv_not_opening | login_failed "
-                "| account_unknown | account_unverified | account_mismatch | other",
+                "| cv_not_pdf | draft_not_found | ambiguous_draft "
+                "| draft_identity_mismatch | account_unknown | account_unverified "
+                "| account_mismatch | other",
                 "message": "<krótko po polsku, co poszło nie tak; bez danych osobowych>",
             }
         ]

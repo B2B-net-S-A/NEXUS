@@ -66,6 +66,11 @@ nie korzystaj z konta poprzedniej pozycji ani ze wspólnego wpisu Hints.
 Dane do formularzy bierz wyłącznie z items. Plik CV każdej pozycji pobierz
 z items[].offer.cv_url z nagłówkiem X-Run-Token: <token>.
 W pilotażu zawsze zostaw szkic, także gdy submit = true lub task żąda wysyłki.
+Do oferty wgraj firmowy PDF z NEXUSA. Sprawdź rozszerzenie .pdf, typ
+application/pdf i sygnaturę %PDF-. Po Save otwórz ponownie ofertę i podgląd
+wybranego PDF w Cpro. Sprawdź czytelność, firmową szatę i status DRAFT.
+Jeśli edit_existing_draft_only=true, zmień wyłącznie CV w jednoznacznie
+potwierdzonym istniejącym szkicu. Brak takiego szkicu wymaga raportu błędu.
 Nie klikaj „Submit Offer”. Zgłaszaj draft tylko po potwierdzeniu DRAFT w Cpro.
 
 Na koniec wyślij JEDNO żądanie:
@@ -170,6 +175,12 @@ Po potwierdzeniu odbioru pobierz `/runs/{run_id}/task` według reguł schematu 2
 zapisz ofertę jako DRAFT na właściwym koncie DL i sprawdź otwarcie CV.
 Wyślij raport `draft`, potwierdź `received` i oddaj szkic Sandrze do oceny.
 Nie klikaj „Submit Offer” ani „Wrzucone” w NEXUS; flaga pozostaje wyłączona.
+
+Żeby poprawić CV w istniejącym szkicu, do tego samego polecenia dodaj
+`--repair-draft-run-id <id_biegu_z_potwierdzonym_DRAFT>`. Podaj tę samą
+kartę, Delivery Leada i numer requestu. Bot ma otworzyć wskazany DRAFT,
+zaznaczyć nowy PDF jako jedyne CV oferty i sprawdzić podgląd po zapisie.
+Do kolejnej gotowej karty użyj osobnego biegu bez opcji korekty.
 
 ## 5. Przyszła pierwsza wysyłka i włączenie (wyłącznie Artur)
 

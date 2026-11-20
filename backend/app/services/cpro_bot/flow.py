@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Iterable, Optional
+from urllib.parse import urlsplit
 
 import httpx
 from sqlalchemy import select
@@ -19,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.cpro_bot import CproBotRun
 from app.services.cpro_bot import items as bot_items
-from app.services.cpro_bot import runs
+from app.services.cpro_bot import ingest, runs
 
 
 def _cards(chosen: list[bot_items.BotItem]) -> dict[str, dict]:
@@ -133,6 +134,7 @@ async def create_interactive_draft(
     request_number: str,
     now: datetime,
     today: date,
+    repair_draft_run_id: Optional[int] = None,
 ) -> tuple[CproBotRun, str]:
     """Nowe zlecenie jednej karty dla operatora, bez webhooka i wysyłki.
 
@@ -146,6 +148,10 @@ async def create_interactive_draft(
         raise NotReady("Wskaż dokładnie jedną kartę Cpro.")
     if type(delivery_lead_id) is not int:
         raise NotReady("Wskaż obsługiwanego Delivery Leada rekrutacji.")
+    if repair_draft_run_id is not None and (
+        type(repair_draft_run_id) is not int or repair_draft_run_id <= 0
+    ):
+        raise NotReady("Wskaż bieg z potwierdzonym szkicem tej karty.")
     account = bot_items.CPRO_ACCOUNTS.get(delivery_lead_id)
     if account is None:
         raise NotReady("Delivery Lead rekrutacji nie ma konta Cpro bota.")
@@ -189,8 +195,66 @@ async def create_interactive_draft(
         )
         .limit(1)
     )
-    if recorded is not None:
+    if recorded is not None and repair_draft_run_id is None:
         raise NotReady("Ta karta ma już szkic albo wysłaną ofertę w Cpro.")
+    if repair_draft_run_id is not None:
+        submitted = await db.scalar(
+            select(CproBotRun.id)
+            .where(
+                CproBotRun.stage_ids.contains([stage_id]),
+                CproBotRun.report["items"][str(stage_id)]["outcome"].astext
+                == "submitted",
+            )
+            .limit(1)
+        )
+        if submitted is not None:
+            raise NotReady("Ta karta ma już wysłaną ofertę w Cpro.")
+        source = await db.get(CproBotRun, repair_draft_run_id)
+        source_items = ((source.request or {}).get("items") or []) if source else []
+        matching = [
+            entry
+            for entry in source_items
+            if isinstance(entry, dict) and entry.get("ref") == stage_id
+        ]
+        outcome = (
+            ((source.report or {}).get("items") or {}).get(str(stage_id))
+            if source
+            else None
+        )
+        if (
+            source is None
+            or source.status != "received"
+            or source.submit is not False
+            or stage_id not in (source.stage_ids or [])
+            or len(matching) != 1
+            or matching[0].get("request_number") != request_number
+            or matching[0].get("cpro_account") != payload["cpro_account"]
+            or not isinstance(outcome, dict)
+            or outcome.get("outcome") != "draft"
+            or outcome.get("cpro_status") != "DRAFT"
+        ):
+            raise NotReady(
+                "Bieg nie potwierdza szkicu tej karty na tym koncie i requeście."
+            )
+        payload = {
+            **payload,
+            "edit_existing_draft_only": True,
+            "repair_draft_run_id": source.id,
+        }
+        try:
+            link = ingest.offer_link(outcome.get("offer_url"))
+            if link:
+                parsed = urlsplit(link)
+                if (
+                    parsed.hostname == "nordea.onevms.se"
+                    and parsed.username is None
+                    and parsed.password is None
+                    and parsed.port in (None, 443)
+                ):
+                    payload["existing_offer_url"] = link
+        except ValueError:
+            # Wtedy bot potwierdza szkic na liście ofert właściwego requestu.
+            pass
 
     run, token = runs.new_run([payload], now=now, submit=False, cards=_cards([item]))
     db.add(run)
