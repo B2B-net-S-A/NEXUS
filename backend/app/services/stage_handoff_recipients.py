@@ -362,6 +362,22 @@ def _handed_over_by(
     return previous_stage.moved_by if column in _BEFORE_SEND_COLUMNS else None
 
 
+def _card_added_to_new(
+    previous_stage: Optional[CandidateStage], previous_def: Optional[PipelineStageDef]
+) -> bool:
+    """Czy karta przed „CV wysłane” stała w „Nowych” (autor tylko ją dodał)."""
+
+    if previous_stage is None:
+        return False
+    code = _value(previous_stage.stage)
+    column = (
+        _column(previous_def, code)
+        if previous_def is not None
+        else board_column_for(None, code)
+    )
+    return column == "new"
+
+
 async def handoff_recipients(
     db: AsyncSession,
     *,
@@ -411,7 +427,18 @@ async def handoff_recipients(
         recruiter = await pair_recruiter_id(
             db, candidate_id=candidate_id, job_id=job.id
         )
-        ids = (recruiter, _handed_over_by(previous_stage, previous_def))
+        handed = _handed_over_by(previous_stage, previous_def)
+        if (
+            handed is not None
+            and handed != recruiter
+            and _card_added_to_new(previous_stage, previous_def)
+            and handed in await _dl_reviewers(db, job)
+        ):
+            # Delivery Lead tylko wstawił kartę do „Nowych” (Match, „Wyślij też
+            # do”), a CV wysłał rekruter: DL nie ma przy tym nic do zrobienia
+            # (decyzja Artura 19.11.2026, 203 z 206 takich dzwonków w 14 dni).
+            handed = None
+        ids = (recruiter, handed)
         return kind, [uid for uid in dict.fromkeys(ids) if uid is not None]
     if kind == REASON_STAGE_REACHED:
         recruiter = await pair_recruiter_id(

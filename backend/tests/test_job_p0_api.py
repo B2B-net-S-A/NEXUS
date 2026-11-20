@@ -114,8 +114,9 @@ async def test_head_of_recruitment_sets_p0_and_team_gets_bell(
                 )
             ).all()
         )
-        # Zespół: rekruter i DL; bez osoby, która ustawiła.
-        assert bells == {world["recruiter_id"], world["dl_id"]}
+        # Rekruterzy rekrutacji, bez osoby, która ustawiła; od 19.11.2026 bez
+        # DL-a (dl-tylko-dzwonki-z-zadaniem.md) — P0 widzi na pulpicie.
+        assert bells == {world["recruiter_id"]}
         job = await db.get(Job, world["job"])
         # Priorytet zostaje — P0 to nakładka z terminem.
         assert job.priority == JobPriority.medium

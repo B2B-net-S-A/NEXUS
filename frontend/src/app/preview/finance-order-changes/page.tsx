@@ -306,6 +306,35 @@ const DATA: OrderChangesResponse = {
       verdict: "ended_intent",
       verdict_label: "Zastąpiony innym konsultantem na zamówieniu",
       intent: "replaced",
+      // Zejście liczy się raz na osobę — pozostałe zamówienia stoją przy niej.
+      other_orders: [
+        {
+          order_id: 21,
+          order_group_id: null,
+          order_number: "SAP 4500333333",
+          end_date: "2026-09-30",
+          start_date: "2026-04-01",
+          order_start: "2026-04-01",
+          order_end: "2026-09-30",
+          pdf: {
+            kind: "order",
+            id: 21,
+            month: "2026-09",
+            client_id: 11,
+            download_name: "Zamowienie_21.pdf",
+          },
+        },
+        {
+          order_id: 22,
+          order_group_id: null,
+          order_number: "SAP 4500444444",
+          end_date: "2026-09-30",
+          start_date: "2026-07-22",
+          order_start: "2026-07-22",
+          order_end: "2026-09-30",
+          pdf: null,
+        },
+      ],
     },
   ],
   ending_orders: [

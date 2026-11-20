@@ -129,9 +129,11 @@ async def test_before_verified_rate_change_is_recorded_without_notifications(
     assert await _notes(change["id"]) == {}
 
 
-async def test_from_verified_dl_and_hor_get_information_not_a_task(
+async def test_from_verified_hor_gets_information_and_dl_nothing(
     app_client: AsyncClient,
 ):
+    """Od 19.11.2026 DL dostaje tylko zadanie (decyzja o stawce po wysłaniu CV),
+    nie informację o zmianie — docs/claude/powiadomienia/dl-tylko-dzwonki-z-zadaniem.md."""
     p = await _pair(PipelineStage.verified)
     res = await app_client.post(
         URL, headers=p["rec_h"], json=_body(p, "125", note="ma drugą ofertę")
@@ -140,12 +142,12 @@ async def test_from_verified_dl_and_hor_get_information_not_a_task(
     change = res.json()["change"]
     assert change["status"] == "noted"
     notes = await _notes(change["id"])
-    assert notes[p["dl_id"]].notification_type == NotificationType.candidate_rate_change
+    assert p["dl_id"] not in notes
     assert (
         notes[p["hor_id"]].notification_type == NotificationType.candidate_rate_change
     )
-    assert "110 zł/h → 125 zł/h" in notes[p["dl_id"]].message
-    assert "ma drugą ofertę" in notes[p["dl_id"]].message
+    assert "110 zł/h → 125 zł/h" in notes[p["hor_id"]].message
+    assert "ma drugą ofertę" in notes[p["hor_id"]].message
     # Autor (rekruter kandydata) nie dostaje dzwonka o własnej zmianie.
     assert p["rec_id"] not in notes
 
@@ -198,7 +200,10 @@ async def test_drop_and_typo_are_information_only(app_client: AsyncClient):
     change = typo.json()["change"]
     assert change["requires_decision"] is False
     notes = await _notes(change["id"])
-    assert notes[p["dl_id"]].notification_type == NotificationType.candidate_rate_change
+    assert p["dl_id"] not in notes
+    assert (
+        notes[p["hor_id"]].notification_type == NotificationType.candidate_rate_change
+    )
 
 
 async def test_same_rate_changes_nothing(app_client: AsyncClient):

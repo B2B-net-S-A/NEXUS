@@ -40,7 +40,8 @@ describe("formularz edycji kontraktu — etykiety dostępności", () => {
     // Retest 14.09: select „Generuj z szablonu…" nie miał żadnej nazwy —
     // pierwsza opcja nie jest etykietą kontrolki.
     const selects = SRC.match(/<select\b[^>]*>/g) ?? [];
-    expect(selects.length).toBeGreaterThanOrEqual(9);
+    // 19.11.2026: „Generuj z szablonu…” jest podmenu w „Więcej akcji”, nie listą.
+    expect(selects.length).toBeGreaterThanOrEqual(8);
     const htmlForTargets = new Set([...SRC.matchAll(/htmlFor="([^"]+)"/g)].map((m) => m[1]));
     const unnamed = selects.filter((tag) => {
       if (/\baria-label(ledby)?=/.test(tag)) return false;

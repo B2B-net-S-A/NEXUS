@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   AlertTriangle,
   Download,
@@ -12,6 +13,7 @@ import {
 import type { OrderHistoryEntry, OrderPdfRef } from "@/lib/api/finance";
 import type { BoardCard, BoardItem } from "@/lib/finance-order-board";
 import { formatDay, formatMoment } from "@/lib/finance-order-changes";
+import { cn } from "@/lib/utils";
 
 import { ChangeRow, pdfKey } from "./OrderChangeRow";
 import { OrderPdfViewer, type OrderPdfLoader } from "./OrderPdfViewer";
@@ -80,10 +82,15 @@ export function OrderChangePreviewPanel({
   loadPdf,
   onOpenInPdfs,
 }: OrderChangePreviewProps) {
-  const period = `${card.orderStart ? formatDay(card.orderStart) : "—"} – ${
-    card.orderEnd ? formatDay(card.orderEnd) : "bezterminowo"
+  // Zejście osoby z kilkoma zamówieniami: pokazany PDF wybiera przełącznik.
+  // Rodzic montuje panel z `key` karty, więc wybór nie przechodzi na inną.
+  const orders = [card, ...card.otherOrders];
+  const [shown, setShown] = useState(0);
+  const order = orders[shown] ?? card;
+  const period = `${order.orderStart ? formatDay(order.orderStart) : "—"} – ${
+    order.orderEnd ? formatDay(order.orderEnd) : "bezterminowo"
   }`;
-  const downloading = card.pdf ? downloadingPdf === pdfKey(card.pdf) : false;
+  const downloading = order.pdf ? downloadingPdf === pdfKey(order.pdf) : false;
 
   return (
     // Nagłówek, przewijana treść w sekcjach i stopka z akcjami — jak boczny
@@ -100,7 +107,7 @@ export function OrderChangePreviewPanel({
         <div className="min-w-0 flex-1">
           <h3 className={SECTION_HEAD}>Podgląd zamówienia</h3>
           <p className="mt-0.5 text-sm font-semibold text-foreground">
-            Zam. {card.orderNumber} · {card.consultantName}
+            Zam. {order.orderNumber} · {card.consultantName}
           </p>
           <p className="text-xs text-muted-foreground">
             {card.clientName} · {period}
@@ -118,9 +125,33 @@ export function OrderChangePreviewPanel({
       </header>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3 xl:flex-none xl:overflow-visible">
+        {orders.length > 1 ? (
+          <div
+            role="group"
+            aria-label={`Zamówienia osoby (${orders.length})`}
+            className="flex flex-wrap gap-1"
+          >
+            {orders.map((item, index) => (
+              <button
+                key={item.orderNumber}
+                type="button"
+                aria-pressed={index === shown}
+                onClick={() => setShown(index)}
+                className={cn(
+                  "inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-medium transition-colors pointer-coarse:min-h-10",
+                  index === shown
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-background text-foreground hover:bg-muted",
+                )}
+              >
+                Zam. {item.orderNumber}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="h-[380px]">
-          {card.pdf ? (
-            <OrderPdfViewer file={card.pdf} loadPdf={loadPdf} />
+          {order.pdf ? (
+            <OrderPdfViewer file={order.pdf} loadPdf={loadPdf} />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-warning/40 bg-warning-muted/40 p-4 text-center text-sm text-warning-muted-foreground">
               <AlertTriangle className="h-5 w-5" aria-hidden />
@@ -184,8 +215,8 @@ export function OrderChangePreviewPanel({
       <footer className="flex flex-wrap items-center gap-2 border-t border-border bg-muted/40 px-4 py-2.5 xl:rounded-b-[10px]">
         <button
           type="button"
-          disabled={!card.pdf || downloading}
-          onClick={() => card.pdf && onDownloadPdf(card.pdf)}
+          disabled={!order.pdf || downloading}
+          onClick={() => order.pdf && onDownloadPdf(order.pdf)}
           className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 pointer-coarse:min-h-10"
         >
           {downloading ? (
@@ -197,8 +228,8 @@ export function OrderChangePreviewPanel({
         </button>
         <button
           type="button"
-          disabled={!card.pdf}
-          onClick={() => card.pdf && onOpenInPdfs(card.pdf)}
+          disabled={!order.pdf}
+          onClick={() => order.pdf && onOpenInPdfs(order.pdf)}
           className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50 pointer-coarse:min-h-10"
         >
           <ExternalLink className="h-3.5 w-3.5" aria-hidden />
