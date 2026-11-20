@@ -228,7 +228,7 @@ async def _client_list_out(db: AsyncSession, client_id: int) -> dict[str, Any]:
     mark = await svc.not_required_mark(db, client_id)
     return {
         "items": [_document_out(d) for d in lists.get(client_id, [])],
-        # „Klient nie wymaga dokumentów” (0745); ``None`` = nikt tego nie zaznaczył.
+        # „Klient nie wymaga dokumentów” (0746); ``None`` = nikt tego nie zaznaczył.
         "not_required": (
             {"at": _iso(mark.at), "by_name": mark.by_name} if mark else None
         ),
@@ -251,7 +251,7 @@ class NotRequiredIn(BaseModel):
 async def set_client_not_required(
     client_id: int, payload: NotRequiredIn, current_user: ClientsEditUser, db: Db
 ) -> dict[str, Any]:
-    """„Klient nie wymaga dokumentów” — jawna decyzja przy pustej liście (0745)."""
+    """„Klient nie wymaga dokumentów” — jawna decyzja przy pustej liście (0746)."""
 
     await _client_in_scope(db, current_user, client_id)
     if payload.not_required:

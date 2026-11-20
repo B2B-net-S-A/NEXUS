@@ -382,7 +382,7 @@ def test_entrypoint_and_migration_use_one_source_of_ddl() -> None:
 
 
 def test_not_required_mark_has_one_source_and_stays_additive() -> None:
-    """0745: znacznik „Klient nie wymaga dokumentów” — kolumny przy kliencie.
+    """0746: znacznik „Klient nie wymaga dokumentów” — kolumny przy kliencie.
 
     Siatka w entrypoincie biegnie przy żywym ruchu, więc tylko dodanie
     kolumn z ``IF NOT EXISTS`` (``podstawy/migracje-zgodne-wstecz.md``)."""
@@ -391,7 +391,7 @@ def test_not_required_mark_has_one_source_and_stays_additive() -> None:
     assert "list(_start_documents_schema.NOT_REQUIRED_DDL)" in entrypoint
     assert "*_START_DOCUMENTS_NOT_REQUIRED_DDL," in entrypoint
     migration = (
-        BACKEND / "alembic/versions/0745_client_start_documents_not_required.py"
+        BACKEND / "alembic/versions/0746_client_start_documents_not_required.py"
     ).read_text(encoding="utf-8")
     assert "from app.services.start_documents_schema import NOT_REQUIRED_DDL" in (
         migration
