@@ -202,7 +202,7 @@ function PlanTable({ doc }: { doc: OrderMailDocument }) {
   return (
     // Kwoty z twardą spacją — na telefonie tabela przewija się w bok.
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[420px] text-[13px]">
+      <table className="w-full min-w-[360px] text-[13px]">
         <thead>
           <tr className="border-b border-border">
             <th className={cn(CALM_HEAD, "py-1.5 pr-3 text-left")}>Osoba</th>
@@ -219,9 +219,9 @@ function PlanTable({ doc }: { doc: OrderMailDocument }) {
             const gross = ex?.consultant_rows[r.row_index]?.rate_client_gross ?? null;
             return (
               <tr key={r.row_index} className={cn(CALM_ROW, "align-top last:border-b-0")}>
-                <td className="whitespace-nowrap py-2 pr-3 font-medium text-foreground">{r.row_name}</td>
+                <td className="py-2 pr-3 font-medium text-foreground">{r.row_name}</td>
                 {showPeriod ? (
-                  <td className="whitespace-nowrap py-2 pr-3 tabular-nums">{period(r.start_date, r.end_date)}</td>
+                  <td className="py-2 pr-3 tabular-nums">{period(r.start_date, r.end_date)}</td>
                 ) : null}
                 <td className={cn(CALM_AMOUNT, "py-2 pr-3")}>
                   {/* Waluta z odczytu dokumentu — 110 EUR nie jest „110 zł” (audyt 24.09, S5). */}
@@ -255,9 +255,9 @@ function PlanTable({ doc }: { doc: OrderMailDocument }) {
           {rows.length === 0
             ? extracted.map((r, i) => (
                 <tr key={i} className={cn(CALM_ROW, "align-top last:border-b-0")}>
-                  <td className="whitespace-nowrap py-2 pr-3 font-medium text-foreground">{r.consultant_name}</td>
+                  <td className="py-2 pr-3 font-medium text-foreground">{r.consultant_name}</td>
                   {showPeriod ? (
-                    <td className="whitespace-nowrap py-2 pr-3 tabular-nums">{period(r.start_date, r.end_date)}</td>
+                    <td className="py-2 pr-3 tabular-nums">{period(r.start_date, r.end_date)}</td>
                   ) : null}
                   <td className={cn(CALM_AMOUNT, "py-2 pr-3")}>{formatMoney(r.rate_client, ex?.currency, r.rate_unit)}</td>
                   <td className="py-2 text-muted-foreground">bez planu zapisu</td>
@@ -502,7 +502,8 @@ export function OrderMailDetail({ doc, onApply, onDismiss, onRefreshPlan, busy, 
               Przelicz plan
             </Button>
           ) : null}
-          {blocked ? <span className="min-w-0 text-xs text-muted-foreground">{blocked}</span> : null}
+          {/* Przy „Rozstrzygnij w oknie zamówienia” powód mówi sam przycisk — zdanie zostaje w `title`. */}
+          {blocked && !decideHref ? <span className="min-w-0 text-xs text-muted-foreground">{blocked}</span> : null}
           <Button size="sm" variant="quiet" className="ml-auto" onClick={onDismiss} disabled={!doc.can_apply || busy}>
             <X className="size-3.5" aria-hidden /> Odrzuć
           </Button>

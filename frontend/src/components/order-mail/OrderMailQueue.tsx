@@ -78,6 +78,16 @@ export const ORDER_MAIL_TABS: Array<{ outcome: OrderMailOutcome; label: string; 
   { outcome: "failed", label: "Nieudane", empty: "Brak nieudanych — każdy załącznik udało się przeczytać." },
 ];
 
+/**
+ * Pusty stan dla Delivery Leada (`scoped`): kolejka jest zawężona do jego
+ * portfela, a wpis bez rozpoznanego klienta nie należy do żadnego — „każdy mail
+ * trafił do znanego klienta” byłoby wtedy nieprawdą.
+ */
+const SCOPED_EMPTY: Partial<Record<OrderMailOutcome, string>> = {
+  needs_review: "Nic nie czeka na weryfikację w Twoim portfelu klientów.",
+  unrecognized_client: "Maile bez rozpoznanego klienta widzą admin i Finanse — nie należą do żadnego portfela.",
+};
+
 /** Liczniki, które wymagają uwagi, gdy nie są zerem. */
 const WARN_TABS: ReadonlySet<OrderMailOutcome> = new Set(["needs_review", "failed"]);
 
@@ -416,7 +426,7 @@ export function OrderMailQueueView(p: OrderMailQueueViewProps) {
               className="rounded-xl border border-border bg-card py-8"
               icon={Inbox}
               title="Nic do pokazania"
-              description={tab?.empty}
+              description={(p.recheck.scoped ? SCOPED_EMPTY[p.outcome] : undefined) ?? tab?.empty}
             />
           ) : (
             // Kolumny liczone po szerokości KONTENERA (menu boczne zabiera miejsce):

@@ -197,25 +197,32 @@ const ITEMS_BY_OUTCOME: Partial<Record<OrderMailOutcome, OrderMailDocument[]>> =
   failed: FAILED,
 };
 
-/** Liczniki zakładek — zapisane mają więcej wpisów niż harness pokazuje. */
+/** Liczniki zakładek — tyle, ile wpisów ma każda lista harnessu. */
 const COUNTS = { needs_review: ITEMS.length, auto_applied: 0, applied: 0, unrecognized_client: UNRECOGNIZED.length, failed: FAILED.length };
 
-/** Ostatnie sprawdzenie skrzynki — trzy liczby z ticketu plus przycisk „Pobierz". */
-const SYNC_STATUS: OrderMailSyncStatus = {
-  enabled: true,
-  interval_minutes: 60,
-  autoapply_enabled: false,
-  running: false,
-  started_at: "2031-03-03T08:02:00Z",
-  interrupted: false,
-  can_trigger: true,
-  last_completed: {
-    reason: "scheduled", started_at: "2031-03-03T08:02:00Z", finished_at: new Date(Date.now() - 12 * 60_000).toISOString(),
-    status: "ok", error: null, messages: 4, new_messages: 2, attachments: 3, auto_applied: 1, needs_review: 1,
-    unrecognized: 0, duplicates: 1, skipped_existing: 2, ignored_no_pdf: 0, ignored_sender: 0, failed: 0,
-    rechecked: 3, recheck_applied: 1, recheck_held: 2, recheck_alerts: 1, errors: [],
-  },
-};
+/**
+ * Ostatnie sprawdzenie skrzynki — trzy liczby z ticketu plus przycisk „Pobierz".
+ * „12 min temu” liczone przy renderze, nie przy wczytaniu modułu: serwer dev
+ * trzyma moduł od startu, więc stała dawała inny wiek niż przeglądarka
+ * i błąd hydratacji.
+ */
+function syncStatus(now: number): OrderMailSyncStatus {
+  return {
+    enabled: true,
+    interval_minutes: 60,
+    autoapply_enabled: false,
+    running: false,
+    started_at: "2031-03-03T08:02:00Z",
+    interrupted: false,
+    can_trigger: true,
+    last_completed: {
+      reason: "scheduled", started_at: "2031-03-03T08:02:00Z", finished_at: new Date(now - 12 * 60_000).toISOString(),
+      status: "ok", error: null, messages: 4, new_messages: 2, attachments: 3, auto_applied: 1, needs_review: 1,
+      unrecognized: 0, duplicates: 1, skipped_existing: 2, ignored_no_pdf: 0, ignored_sender: 0, failed: 0,
+      rechecked: 3, recheck_applied: 1, recheck_held: 2, recheck_alerts: 1, errors: [],
+    },
+  };
+}
 
 /** Trzy stany sekcji historii obok siebie: zapis, czekanie na podpis, eskalacja. */
 const RECHECK_RUNS: OrderMailRecheckRun[] = [
@@ -289,6 +296,7 @@ export default function OrderMailPreviewPage() {
   const [outcome, setOutcome] = useState<OrderMailOutcome>("needs_review");
   const [selectedId, setSelectedId] = useState<number | null>(1);
   const [checking, setChecking] = useState(false);
+  const [status] = useState(() => syncStatus(Date.now()));
   // `?empty=1` pokazuje sekcję historii bez wierszy, ale ze znacznikiem —
   // wariant „nic się nie zmieniło od tygodnia". Czytane w efekcie, nie przy
   // renderze: `window` nie istnieje przy SSR, a rozjazd wywala hydrację.
@@ -304,7 +312,7 @@ export default function OrderMailPreviewPage() {
       loadPdf={loadStaticPdf}
       counts={COUNTS}
       mailbox={{
-        status: SYNC_STATUS,
+        status,
         statusError: false,
         checking,
         checkError: null,

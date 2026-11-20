@@ -677,6 +677,24 @@ describe("Wariant A (20.11.2026) — podstrona Kontraktów, punkty „Do sprawdz
     expect(screen.getByText("Pokazano 1 najnowszych z 171.")).toBeInTheDocument();
   });
 
+  it("pusty stan Delivery Leada nie twierdzi, że nierozpoznanych nie ma — tylko że to nie jego portfel", () => {
+    const { rerender } = render(
+      <OrderMailQueueView {...base} outcome="unrecognized_client" state="ready" items={[]} total={0} />,
+    );
+    expect(screen.getByText("Każdy mail z zamówieniem trafił do znanego klienta.")).toBeInTheDocument();
+    rerender(
+      <OrderMailQueueView
+        {...base}
+        outcome="unrecognized_client"
+        state="ready"
+        items={[]}
+        total={0}
+        recheck={{ ...noRecheck, scoped: true }}
+      />,
+    );
+    expect(screen.getByText(/nie należą do żadnego portfela/)).toBeInTheDocument();
+  });
+
   it("nadawca to imię i nazwisko z adresu osoby, nie adres", () => {
     render(<OrderMailQueueView {...base} state="ready" items={[doc({ sender_email: "jan.nadawca@bank.example" })]} />);
     expect(screen.getByTestId("order-mail-detail")).toHaveTextContent("od Jan Nadawca");
