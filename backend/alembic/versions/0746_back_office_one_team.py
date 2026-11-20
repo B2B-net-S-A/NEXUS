@@ -1,7 +1,7 @@
 """Jeden zespół back office'u, sprawy „na zewnątrz” i ściąga klienta (19.11.2026).
 
-Revision ID: 0745_back_office_one_team
-Revises: 0744_b2b_document_preliminary_b2b
+Revision ID: 0746_back_office_one_team
+Revises: 0745_one_close_reason_dictionary
 
 Decyzje Artura z 10.11 i 19.11.2026: back office to jeden zespół bez podziału
 na Opiekę, Finanse, Umowy i Zamówienia; sprawę bierze pierwsza wolna osoba,
@@ -17,8 +17,8 @@ from alembic import op
 
 from app.services import back_office_team_schema as schema
 
-revision = "0745_back_office_one_team"
-down_revision = "0744_b2b_document_preliminary_b2b"
+revision = "0746_back_office_one_team"
+down_revision = "0745_one_close_reason_dictionary"
 branch_labels = None
 depends_on = None
 

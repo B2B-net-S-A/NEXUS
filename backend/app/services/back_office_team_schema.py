@@ -1,6 +1,6 @@
-"""Jeden zespół back office'u (decyzje Artura 10.11 i 19.11.2026): SQL migracji ``0745``.
+"""Jeden zespół back office'u (decyzje Artura 10.11 i 19.11.2026): SQL migracji ``0746``.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0745_back_office_one_team.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0746_back_office_one_team.py``
 i lustra entrypointu (przez ``app/services/hr_schema_bundle.py``). Każda
 instrukcja idempotentna.
 
