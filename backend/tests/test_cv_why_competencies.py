@@ -150,13 +150,17 @@ _DEVOPS = [
 
 
 def test_role_subfigure_too_low_is_raised_to_role_dates():
-    """Sol napisał „w tym ponad 1 rok jako DevOps” przy 5,5 roku w rolach DevOps."""
+    """Sol napisał „w tym ponad 1 rok jako DevOps” przy 5,5 roku w rolach DevOps.
+
+    Od 20.11.2026 zawód obejmuje też Cloud Operations Engineer (przykład z promptu):
+    08.2019 – 11.2026 = 88 mies.; Support Engineer nie wchodzi.
+    """
     data = _data(
         "Ponad 8 lat doświadczenia w IT, w tym ponad 1 rok jako DevOps", _DEVOPS
     )
     _helpers._fix_experience_years(data, "pl")
     assert data["why_points"][0] == (
-        "Ponad 8 lat doświadczenia w IT, w tym ponad 5 lat jako DevOps"
+        "Ponad 8 lat doświadczenia w IT, w tym ponad 7 lat jako DevOps"
     )
 
 
