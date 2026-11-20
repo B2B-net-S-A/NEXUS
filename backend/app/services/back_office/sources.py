@@ -525,6 +525,58 @@ async def gap_cards(db: AsyncSession, today: date) -> list[CardSpec]:
 
 
 async def extend_cards(db: AsyncSession, today: date) -> list[CardSpec]:
+    """Przedłużenie: grupa zamówień albo zamówienia bez grupy (klient + data końca).
+
+    Większość zamówień nie ma grupy (19.11: 462 z 556 aktywnych), a ich koniec
+    to dla Opieki „Decyzja: koniec zamówienia” (``CareContract.end_date`` —
+    bliższy z końca umowy i zamówienia). Zamówienia bez grupy dostają jedną
+    kartę na klienta i datę końca, nie kartę ławki na osobę: 82 osoby jednego
+    klienta na 31.12 to jedna rozmowa z klientem. Zamówienie osoby, która ma
+    już zamówienie z dalszym końcem, jest przedłużone i nie liczy się.
+    """
+
+    cards = await _group_extend_cards(db, today)
+    rows = await _rows(
+        db,
+        f"""
+        SELECT o.client_id, o.end_date, {_CLIENT} AS client,
+               count(DISTINCT o.contract_id) AS people
+        FROM client_orders o
+        JOIN contracts k ON k.id = o.contract_id
+        LEFT JOIN clients cl ON cl.id = o.client_id
+        WHERE o.status = 'active' AND o.order_group_id IS NULL
+          AND k.status IN ('active', 'ending')
+          AND o.end_date BETWEEN :today AND :horizon
+          AND NOT EXISTS (
+              SELECT 1 FROM client_orders n
+              WHERE n.contract_id = o.contract_id AND n.id <> o.id
+                AND n.status IN ('active', 'draft', 'paused')
+                AND n.end_date > o.end_date
+          )
+        GROUP BY o.client_id, o.end_date, cl.display_name, cl.name
+        """,
+        today=today,
+        horizon=today + timedelta(days=EXTEND_DAYS),
+    )
+    cards += [
+        CardSpec(
+            source_kind="extend",
+            source_key=f"extend:client:{row['client_id']}:{row['end_date'].isoformat()}",
+            team="orders",
+            lane="extend",
+            title=f"Przedłużenie do {row['end_date']:%d.%m.%Y}",
+            person=row["client"],
+            client_label=f"{row['people']} os. na zamówieniu",
+            due_on=row["end_date"],
+            href=f"/clients/{row['client_id']}?tab=zamowienia",
+            client_id=row["client_id"],
+        )
+        for row in rows
+    ]
+    return cards
+
+
+async def _group_extend_cards(db: AsyncSession, today: date) -> list[CardSpec]:
     rows = await _rows(
         db,
         f"""

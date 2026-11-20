@@ -81,7 +81,8 @@ stawki, Zakończenia. Zamówienia: Poczta zamówień, Przerwy, Przedłużenia (4
   zostaje wyłączony. Krok zalicza się sam ze źródła albo ręcznie i odhacza checklistę;
   wszystkie zrobione = sprawa `done`. Krok własnego zespołu widać w panelu sprawy,
   cudzego także w kolumnie zespołu.
-- **Ławka**: karta 60 dni przed końcem. **Bezpiecznik 14 dni**: sprawa wyjścia powstaje też
+- **Ławka**: karta 60 dni przed końcem umowy; koniec samego zamówienia niesie
+  „Przedłużenie” (`back-office-jeden-zespol.md`, 20.11). **Bezpiecznik 14 dni**: sprawa wyjścia powstaje też
   bez decyzji, bo dostępy nie mogą czekać na rozmowę. „Nie przepinamy” zakłada ją od razu.
 - **Rytm** przy włączonym module: tylko 7. dzień i 60 dni przed końcem (`important_only`),
   plus karta po rozmowie z oceną 1–2.
