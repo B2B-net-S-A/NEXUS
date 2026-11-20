@@ -76,27 +76,3 @@ def test_past_day_still_decided_by_dates_only():
 
     assert ended in running_on([ended], date(2025, 3, 1))
     assert ended not in running_on([ended], date(2025, 7, 1))
-
-
-# ── R10-X1-1 ────────────────────────────────────────────────────────────────
-
-
-# Rejestr ``invoices`` wygaszony 20.11.2026 (trasy, schematy i model zdjęte).
-# Lustro 0394 w ``entrypoint.sh`` zostaje do migracji z ``DROP TABLE invoices``
-# i znika razem z nią (``IF EXISTS`` robi z niego no-op na bazie bez tabeli).
-
-
-def test_invoice_amount_migration_is_mirrored_in_entrypoint():
-    from pathlib import Path
-
-    # Moduł migracji zaczyna się cyfrą — czytamy stałą z pliku wprost.
-    backend = Path(__file__).resolve().parents[1]
-    source = (
-        backend / "alembic" / "versions" / "0394_money_invoice_amount_grosze.py"
-    ).read_text()
-    namespace: dict = {}
-    start = source.index("WIDEN_INVOICE_AMOUNT = ")
-    end = source.index('END $$"""', start) + len('END $$"""')
-    exec(source[start:end], namespace)
-    ddl = namespace["WIDEN_INVOICE_AMOUNT"]
-    assert ddl in (backend / "entrypoint.sh").read_text()

@@ -10,6 +10,8 @@ BACKEND = Path(__file__).resolve().parents[1]
 VERSIONS = BACKEND / "alembic/versions"
 MIGRATION = VERSIONS / "0714_drop_traffit_sync_cortex_trace.py"
 EARLIER = VERSIONS / "0667_drop_abandoned_tables.py"
+# Późniejsze usunięcie z lustrem w tej samej liście (pusty rejestr faktur).
+LATER = VERSIONS / "0748_drop_invoices_register.py"
 ENTRYPOINT = BACKEND / "entrypoint.sh"
 
 
@@ -49,7 +51,9 @@ def test_migration_drops_exactly_the_decided_tables() -> None:
 
 
 def test_every_entrypoint_drop_comes_from_a_decided_migration() -> None:
-    assert _entrypoint_drops() == _names(_load(EARLIER)) | _names(_load(MIGRATION))
+    assert _entrypoint_drops() == (
+        _names(_load(EARLIER)) | _names(_load(MIGRATION)) | _names(_load(LATER))
+    )
     assert "CASCADE" not in " ".join(_load(MIGRATION).drop_statements())
 
 
