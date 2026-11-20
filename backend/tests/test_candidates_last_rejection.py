@@ -32,11 +32,11 @@ from app.services import candidate_last_rejection as lr
 @pytest.mark.parametrize(
     ("reason", "note", "key"),
     [
-        ("Brak doświadczenia", None, "r:Brak doświadczenia"),
+        ("Brak doświadczenia", None, "r:Za mało doświadczenia"),
         # Oba „Inne (…)” to jedno „Inne” — etykieta, nie nazwa w bazie.
         ("Inne (rejected)", "Po CV", "r:Inne"),
         ("Inne (withdrawn)", None, "r:Inne"),
-        ("work_mode_mismatch", None, "r:Nie akceptuje trybu pracy (biuro / hybryda)"),
+        ("work_mode_mismatch", None, "r:Lokalizacja lub tryb pracy"),
         # Zaślepka importu Traffita to brak powodu — liczy się kategoria.
         (
             "legacy_unknown",
@@ -307,8 +307,11 @@ async def test_filter_reads_the_last_rejection_of_each_person(
         everyone = _ids(await _list(app_client, app_auth_headers, cohort))
         assert everyone == {a, b, c, d}
 
-        no_exp = [("rejection_key", "r:Brak doświadczenia")]
+        no_exp = [("rejection_key", "r:Za mało doświadczenia")]
         assert _ids(await _list(app_client, app_auth_headers, cohort, no_exp)) == {c}
+        # Link sprzed jednego słownika (19.11.2026) niesie starą etykietę = nazwę.
+        old_link = [("rejection_key", "r:Brak doświadczenia")]
+        assert _ids(await _list(app_client, app_auth_headers, cohort, old_link)) == {c}
 
         hide = [*no_exp, ("rejection_exclude", "true")]
         assert _ids(await _list(app_client, app_auth_headers, cohort, hide)) == {

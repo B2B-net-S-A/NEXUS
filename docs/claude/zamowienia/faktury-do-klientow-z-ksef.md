@@ -177,8 +177,9 @@ lustro eBI24 nie ruszyło (`EBI24_MODE` ≠ `prod`; 13.11 konto API na produkcji
 oznacza (w archiwum z 2026 r. zapłatę ma 8 z 5 117 faktur sprzedaży).
 
 - **Bez dowodu z wyciągów NEXUS nie liczy zaległości** (dowód — sekcja niżej, od 0742). Faktura z terminem za sobą
-  i bez pełnej zapłaty ma wtedy `payment_unknown: true` i `overdue_days: 0`: przy fakturze „brak danych o zapłacie” z terminem pod spodem, w nagłówku zakładki klienta
-  i w karcie „Rozliczenie” w Przeglądzie „brak danych o zapłatach” zamiast liczby (liczba faktur w dymku),
+  i bez pełnej zapłaty ma wtedy `payment_unknown: true` i `overdue_days: 0`: przy fakturze „brak danych o zapłacie” z terminem pod spodem,
+  w kroku „Zapłata” paska zakładki klienta i karty „Rozliczenie” w Przeglądzie (kroki miesiąca od 20.11.2026,
+  `klienci/profil-klienta-piec-sekcji.md`) „brak danych o zapłacie” albo „N bez danych o zapłacie”,
   w Finansach → „Po terminie” zdanie z liczbą takich faktur, bez licznika „0” na zakładce. Trasy zaległości
   zwracają w zakresie konta `invoices` (tylko faktury z dowodem), `payment_unknown` i `payment_unknown_reasons`.
 - Częściowa wpłata z wyciągu zostaje „zapłacono część”: część jest faktem, o reszcie NEXUS nie wie.
@@ -232,8 +233,10 @@ z korektami) z terminem za sobą i czymś do zapłaty jest „po terminie” tyl
   nie do dziś: po nim NEXUS o wpłatach nie wie. Częściowa wpłata z dowodem dla reszty: „po terminie” z „zapłacono
   część · zostało …”.
 - Finanse → „Po terminie”: lista z dowodem i zdanie o fakturach bez danych z powodami (`payment_unknown_reasons`:
-  powód, końcówka rachunku, liczba faktur). Zakładka klienta: „po terminie N” albo „brak danych o zapłatach”
-  z powodami w dymku.
+  powód, końcówka rachunku, liczba faktur). Zakładka klienta i karta „Rozliczenie” w Przeglądzie: krok „Zapłata”
+  faktur miesiąca — „N z M po terminie” tylko z dowodem (decyzja Artura z 20.11.2026), bez dowodu „brak danych
+  o zapłacie” z powodem w drobnym druku, gdy wszystkie faktury mają ten sam; faktury z dowodem z wcześniejszych
+  miesięcy są listą „Po terminie z wcześniejszych miesięcy” pod tabelą.
 - **Salda wyciągu** (`opening_balance`, `opening_day`, `closing_balance`, `closing_day`, `first_number`,
   `last_number` w `ledger_bank_statements`) zapisuje import w Księdze z `ParsedStatement.balances` (parser czyta też
   daty sald i numer wyciągu), tylko gdy plik sam jest ciągły: każda część ma oba salda z datami, suma operacji =

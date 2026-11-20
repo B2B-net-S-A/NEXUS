@@ -339,3 +339,68 @@ def test_good_model_answer_is_parsed() -> None:
         '{"team": "care", "lane": "help", "confidence": 0.9}'
     )
     assert route == triage.Route("care", "help") and confidence == 0.9
+
+
+# ── Jeden zespół (decyzje Artura z 19.11.2026) ───────────────────────────────
+
+
+def test_one_event_is_one_card_on_the_board() -> None:
+    """Kroki sprawy i ławka konsultanta z otwartym wyjściem nie są osobnymi kartami."""
+
+    exit_case = _card(id=1, lane="exit", source_kind="case", contract_id=10)
+    step = _card(
+        id=2,
+        team="orders",
+        lane="extend",
+        source_kind="step",
+        parent_card_id=1,
+        contract_id=10,
+    )
+    folded_bench = _card(id=3, lane="bench", source_kind="bench", contract_id=10)
+    other_bench = _card(id=4, lane="bench", source_kind="bench", contract_id=11)
+    triage = _card(id=5, lane="triage")
+    help_case = _card(id=6, lane="help", source_kind="case", contract_id=10)
+    shown = board.folded(
+        [exit_case, step, folded_bench, other_bench, triage, help_case]
+    )
+    assert [card.id for card in shown] == [1, 4, 6]
+
+
+def test_closed_exit_case_does_not_hide_the_bench() -> None:
+    """Rozmowa o ławce wraca na tablicę, gdy sprawy wyjścia już nie ma."""
+
+    bench = _card(id=3, lane="bench", source_kind="bench", contract_id=10)
+    assert board.folded([bench]) == [bench]
+
+
+def test_steps_do_not_escalate_on_their_own() -> None:
+    now = datetime(2026, 11, 3, 10, 0, tzinfo=ZONE)
+    assert not escalation.should_escalate(
+        _card(source_kind="step"), now=now, calendar=WorkCalendar()
+    )
+
+
+def test_every_lane_has_a_label() -> None:
+    lanes = {lane for team in TEAM_LANES.values() for lane in team}
+    assert set(board.LABELS) == lanes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("module_on", "expected"), [(True, None), (False, 7)])
+async def test_automatic_cases_go_to_the_queue_with_the_module(
+    monkeypatch, module_on: bool, expected
+) -> None:
+    """Z modułem back office automat nie daje sprawy opiekunowi (czyli DL-owi)."""
+
+    from app.services.admin_cases import hooks
+    from app.services.hr import modules as hr_modules
+
+    async def _modules(_db):
+        return {hr_modules.HrModule.back_office: module_on}
+
+    async def _owner(_db, _contract_id):
+        return 7
+
+    monkeypatch.setattr(hr_modules, "load_modules", _modules)
+    monkeypatch.setattr(hooks, "_care_owner_id", _owner)
+    assert await hooks.automatic_assignee(None, 1) == expected

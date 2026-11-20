@@ -1569,6 +1569,164 @@ async def test_client_list_derives_state_from_facts_one_row_per_client(
         await _cleanup_client_list(seed)
 
 
+async def test_client_list_takes_framework_period_from_merged_duplicate_scope(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    """Porządki klientów 20.11.2026: scalenie przenosi umowę ramową na klienta
+    docelowego, a zakres portfela zostaje na duplikacie (inwariant manifestu).
+    Wiersz klienta docelowego tracił przez to umowę, a zakres z umową, która
+    należy już do innego klienta, wyglądał jak umowa bez terminu."""
+
+    suffix = uuid.uuid4().hex[:10]
+    today = business_today()
+    archived_at = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        canonical = Client(
+            name=f"Docelowy {suffix}",
+            display_name=f"Docelowy {suffix}",
+            status=ClientStatus.active,
+        )
+        dated = Client(
+            name=f"Daty {suffix}",
+            display_name=f"Daty {suffix}",
+            status=ClientStatus.active,
+        )
+        moved_away = Client(
+            name=f"Bez umowy {suffix}",
+            display_name=f"Bez umowy {suffix}",
+            status=ClientStatus.inactive,
+        )
+        db.add_all((canonical, dated, moved_away))
+        await db.flush()
+        duplicate = Client(
+            name=f"Duplikat {suffix}",
+            display_name=f"Duplikat {suffix}",
+            status=ClientStatus.active,
+            merged_into_client_id=canonical.id,
+            archived_at=archived_at,
+        )
+        dated_duplicate = Client(
+            name=f"Duplikat dat {suffix}",
+            display_name=f"Duplikat dat {suffix}",
+            status=ClientStatus.active,
+            merged_into_client_id=dated.id,
+            archived_at=archived_at,
+        )
+        db.add_all((duplicate, dated_duplicate))
+        await db.flush()
+        # Umowa poszła za scaleniem na klienta docelowego.
+        msa = ClientFrameworkContract(
+            client_id=canonical.id,
+            name=f"MSA {suffix}",
+            status=FrameworkContractStatus.active,
+            effective_date=today - timedelta(days=150),
+            expiry_date=today + timedelta(days=570),
+        )
+        # Umowa przeniesiona korektą na innego klienta; zakres został u siebie.
+        foreign = ClientFrameworkContract(
+            client_id=canonical.id,
+            name=f"MSA przeniesiona {suffix}",
+            status=FrameworkContractStatus.active,
+            effective_date=today - timedelta(days=300),
+            expiry_date=today + timedelta(days=900),
+        )
+        db.add_all((msa, foreign))
+        await db.flush()
+        db.add_all(
+            [
+                ClientPortfolioScope(
+                    client_id=canonical.id,
+                    category=PortfolioCategory.active,
+                    source_system="test",
+                    source_key=f"{suffix}:c",
+                ),
+                ClientPortfolioScope(
+                    client_id=duplicate.id,
+                    framework_contract_id=msa.id,
+                    category=PortfolioCategory.active,
+                    source_system="test",
+                    source_key=f"{suffix}:d",
+                ),
+                ClientPortfolioScope(
+                    client_id=dated.id,
+                    category=PortfolioCategory.active,
+                    source_system="test",
+                    source_key=f"{suffix}:t",
+                ),
+                # Ręczne daty umowy ustawione na zakresie duplikatu (jak Energa).
+                ClientPortfolioScope(
+                    client_id=dated_duplicate.id,
+                    category=PortfolioCategory.active,
+                    contract_start_override=today - timedelta(days=50),
+                    contract_end_override=today + timedelta(days=400),
+                    source_system="test",
+                    source_key=f"{suffix}:td",
+                ),
+                ClientPortfolioScope(
+                    client_id=moved_away.id,
+                    framework_contract_id=foreign.id,
+                    category=PortfolioCategory.inactive,
+                    source_system="test",
+                    source_key=f"{suffix}:m",
+                ),
+            ]
+        )
+        await db.commit()
+        canonical_id, dated_id, moved_away_id = canonical.id, dated.id, moved_away.id
+        duplicate_ids = [duplicate.id, dated_duplicate.id]
+    try:
+        response = await app_client.get(
+            "/api/clients/directory/clients",
+            params={"q": suffix, "page_size": 50},
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 200, response.text
+        rows = {item["client_id"]: item for item in response.json()["items"]}
+        assert set(rows) == {canonical_id, dated_id, moved_away_id}
+
+        assert rows[canonical_id]["has_framework_period"] is True
+        assert (
+            rows[canonical_id]["framework_effective_date"]
+            == (today - timedelta(days=150)).isoformat()
+        )
+        assert (
+            rows[canonical_id]["framework_expiry_date"]
+            == (today + timedelta(days=570)).isoformat()
+        )
+        assert rows[canonical_id]["framework_count"] == 1
+
+        assert (
+            rows[dated_id]["framework_expiry_date"]
+            == (today + timedelta(days=400)).isoformat()
+        )
+        assert rows[dated_id]["framework_count"] == 1
+
+        assert rows[moved_away_id]["has_framework_period"] is False
+        assert rows[moved_away_id]["framework_expiry_date"] is None
+        assert rows[moved_away_id]["framework_count"] == 0
+    finally:
+        async with AsyncSessionLocal() as db:
+            all_ids = [canonical_id, dated_id, moved_away_id, *duplicate_ids]
+            await db.execute(
+                delete(ClientPortfolioScope).where(
+                    ClientPortfolioScope.client_id.in_(all_ids)
+                )
+            )
+            await db.execute(
+                delete(ClientFrameworkContract).where(
+                    ClientFrameworkContract.client_id.in_(all_ids)
+                )
+            )
+            await db.execute(delete(Client).where(Client.id.in_(duplicate_ids)))
+            await db.execute(
+                delete(Client).where(
+                    Client.id.in_([canonical_id, dated_id, moved_away_id])
+                )
+            )
+            await db.commit()
+
+
 async def test_client_list_state_filter_keeps_counts_independent_of_search(
     app_client: AsyncClient,
     app_auth_headers: dict[str, str],

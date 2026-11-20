@@ -95,6 +95,7 @@ import { FrameworkRatesTab } from "@/components/clients/FrameworkRatesTab";
 import { useFrameworkTerms } from "@/lib/api/framework-rates";
 import { MaterialsTab } from "./MaterialsTab";
 import { ClientSettlementCard } from "./ClientSettlementCard";
+import { ClientStartReadiness } from "./ClientStartReadiness";
 import { OnboardingPackTab } from "./OnboardingPackTab";
 import { ClientStartDocsPanel } from "@/components/v2/start-docs/ClientStartDocsPanel";
 import { ClientEquipmentProviderField } from "@/components/equipment/ClientEquipmentProviderField";
@@ -1677,6 +1678,11 @@ export default function ClientDetailPage() {
 
           {activeTab === "zasady" && <ClientPlaybookTab clientId={Number(id)} />}
 
+          {activeTab === "wejscie" && (
+            // Licznik „N z M ustalone” z części widocznych dla tej osoby
+            // (decyzja Artura z 20.11.2026, `klienci/start-u-klienta-ustalone.md`).
+            <ClientStartReadiness clientId={Number(id)} docsOn={startDocsOpen} packOn={packOpen} />
+          )}
           {startDocsOpen && activeTab === "wejscie" && (
             <div className="mb-3">
               <ClientStartDocsPanel

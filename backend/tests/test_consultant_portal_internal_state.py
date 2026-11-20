@@ -76,6 +76,10 @@ def test_invoice_still_wins_over_report_words() -> None:
         ("Faktura", "faktura.xlsx", "invoice"),
         ("Dzień dobry", "fv_10.jpg", "invoice"),
         ("Dzień dobry", "skan.pdf", "invoice"),
+        # Raport BIK wyeksportowany do PDF (próba IX–XI 2026), temat z „TS”.
+        ("Faktura i TS za wrzesień", "Jan_Testowy_TS_wrzesien_2026.pdf", "report"),
+        ("TS wrzesien", "wrzesien.pdf", "report"),
+        ("Dzień dobry", "Testsy.pdf", "invoice"),
     ],
 )
 def test_kcp_sheets_and_screenshots_are_work_proof(

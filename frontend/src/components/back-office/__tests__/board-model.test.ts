@@ -4,9 +4,11 @@ import type { BoCard } from "@/lib/api/back-office";
 
 import {
   amountLabel,
-  defaultTeam,
+  columnOf,
   dueTone,
+  labelCounts,
   matchesFilter,
+  matchesLabels,
   matchesSearch,
   othersPriority,
   stepSummary,
@@ -42,6 +44,8 @@ function card(fields: Partial<BoCard> = {}): BoCard {
     count: null,
     steps: null,
     parent_title: null,
+    contract_id: null,
+    outside_team: null,
     meta: {},
     ...fields,
   };
@@ -82,10 +86,13 @@ describe("filtry", () => {
     ).toBe(false);
   });
 
-  it("Na ten tydzień pomija kartę bez terminu", () => {
+  it("Do piątku pomija kartę bez terminu i zaległe, które są w Po terminie", () => {
     expect(matchesFilter(card({ due_on: "2026-11-06" }), "week", 7, "2026-11-02")).toBe(true);
     expect(matchesFilter(card({ due_on: "2026-11-07" }), "week", 7, "2026-11-02")).toBe(false);
     expect(matchesFilter(card(), "week", 7, "2026-11-02")).toBe(false);
+    expect(matchesFilter(card({ due_on: "2026-10-30" }), "week", 7, "2026-11-02")).toBe(false);
+    expect(matchesFilter(card({ due_on: "2026-10-30" }), "overdue", 7, "2026-11-02")).toBe(true);
+    expect(matchesFilter(card({ due_on: "2026-11-02" }), "overdue", 7, "2026-11-02")).toBe(false);
   });
 
   it("szukanie bez wielkości liter, po tytule, osobie, kliencie i prowadzącym", () => {
@@ -127,10 +134,24 @@ describe("opis na karcie", () => {
     expect(othersPriority(card({ priority }), 5, "2026-11-05")).toBe(false);
   });
 
-  it("kierownik startuje od całości, zespół od swojej tablicy", () => {
-    const teams = [{ id: "care", label: "Opieka", lanes: [] }] as never;
-    const me = { user_id: 1, name: "A", in_progress: 0, limit: 5, sees_amounts: false, cases_handler: false };
-    expect(defaultTeam({ teams, me: { ...me, teams: [], is_lead: true } })).toBe("all");
-    expect(defaultTeam({ teams, me: { ...me, teams: ["finance"], is_lead: false } })).toBe("finance");
+});
+
+describe("jeden zespół: kolumny stanu i etykiety (19.11.2026)", () => {
+  it("czekanie na dział poza back office'em to osobna kolumna", () => {
+    expect(columnOf(card())).toBe("new");
+    expect(columnOf(card({ state: "in_progress" }))).toBe("in_progress");
+    expect(columnOf(card({ state: "waiting" }))).toBe("waiting");
+    expect(columnOf(card({ state: "waiting", outside_team: "it" }))).toBe("outside");
+    // Dział z karty bez stanu „czeka” (np. po zamknięciu) nie trzyma jej w kolumnie.
+    expect(columnOf(card({ state: "in_progress", outside_team: "it" }))).toBe("in_progress");
+  });
+
+  it("pusty filtr etykiet przepuszcza wszystko, a liczniki liczą kolumny", () => {
+    expect(matchesLabels(card(), new Set())).toBe(true);
+    expect(matchesLabels(card({ lane: "help" }), new Set(["exit"]))).toBe(false);
+    expect(matchesLabels(card({ lane: "exit" }), new Set(["exit"]))).toBe(true);
+    const counts = labelCounts([card({ lane: "exit" }), card({ lane: "exit" }), card({ lane: "help" })]);
+    expect(counts.get("exit")).toBe(2);
+    expect(counts.get("help")).toBe(1);
   });
 });

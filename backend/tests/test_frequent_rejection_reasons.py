@@ -33,13 +33,14 @@ _FRONT_MIRROR = (
     _BACKEND.parent / "frontend" / "src" / "lib" / "rejection-reasons.ts"
 ).read_text(encoding="utf-8")
 
+# Etykiety od 19.11.2026 z jednego słownika powodów (`close_reasons.py`).
 NEW_REASONS = {
-    NOT_LOOKING_FOR_WORK: "Nie szuka pracy lub niezainteresowany",
+    NOT_LOOKING_FOR_WORK: "Nie szuka pracy",
     CLIENT_CONFLICT: "Pracuje u klienta lub nie chce do klienta",
-    CONTRACT_FORM: "Forma umowy (UoP, B2B, etat)",
-    NO_CONTACT: "Brak kontaktu",
+    CONTRACT_FORM: "Forma umowy (UoP / B2B)",
+    NO_CONTACT: "Nie odbiera / brak kontaktu",
     CLIENT_NO_REASON: "Klient nie podał powodu",
-    CLIENT_CHOSE_OTHER: "Klient wybrał kogoś innego",
+    CLIENT_CHOSE_OTHER: "Klient wybrał innego kandydata",
 }
 
 
@@ -123,7 +124,7 @@ def test_insights_show_the_label_not_the_key():
     client = next(row for row in summary if row["key"] == "client")
     assert [(r["label"], r["count"]) for r in client["top_reasons"]] == [
         ("Klient nie podał powodu", 5),
-        ("Klient wybrał kogoś innego", 3),
+        ("Klient wybrał innego kandydata", 3),
     ]
 
 
@@ -146,4 +147,4 @@ def test_new_reason_outside_the_top_three_stays_named_in_the_other_row():
         row for row in summarize_closed_by(groups) if row["key"] == "recruiter"
     )
     other = next(r for r in recruiter["top_reasons"] if r["kind"] == "other")
-    assert other["details"] == ["Brak kontaktu (2)"]
+    assert other["details"] == ["Nie odbiera / brak kontaktu (2)"]

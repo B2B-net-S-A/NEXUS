@@ -105,6 +105,15 @@ class StageMove(BaseModel):
             "weak_english",
             "contract_form",
             "cleanup",
+            "culture",
+            "available_too_late",
+            "accepted_other_offer",
+            "hm_already_interviewed",
+            "client_chose_other",
+            "client_interview_weak",
+            "client_project_closed",
+            "client_after_deadline",
+            "client_no_reason",
             "other",
         ]
     ] = None

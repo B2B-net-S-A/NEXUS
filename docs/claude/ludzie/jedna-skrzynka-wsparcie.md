@@ -123,6 +123,26 @@ wysłano. Pełne nagłówki: Plik → Właściwości → Nagłówki internetowe.
 `wsparcie@` albo adres `onmicrosoft.com`, przekierowanie przepisało nagłówek — wtedy router E8 nie
 rozróżni rozliczeń i trzeba zmienić sposób z tabeli 1b.
 
+### 1e. Uwierzytelnienie nadawcy po przekierowaniu (sprawdzone 20.11.2026)
+
+Czytnik spraw (`contract_links.sender_authenticated`) i CPro czytają pierwszy nagłówek
+`Authentication-Results` z Graph. Na pięciu mailach w `wsparcie@` odebranych po przekierowaniu
+z home.pl (konsultant z poczty home.pl na `rozliczenia@` i `administracja@`, nadawca zewnętrzny
+z DKIM, konsultant z gmaila) kształt był zawsze ten sam:
+
+- na górze jeden nagłówek M365 `mx.microsoft.com 1; spf=…; dkim=…; dmarc=…`; SPF po
+  przekierowaniu bywa `fail`/`softfail`, ale DKIM przetrwa, więc `dmarc=pass`;
+- wszystkie wcześniejsze `Authentication-Results` (home.pl pisze spf, dmarc i dkim w trzech
+  osobnych nagłówkach, nadawca z M365 dokłada swój) M365 przemianowuje na
+  `Authentication-Results-Original`, więc nadawca nie podłoży nagłówka nad werdyktem M365;
+- home.pl nie pieczętuje ARC, więc nie ma zachowanego werdyktu home.pl, któremu dałoby się ufać.
+
+Dlatego nie łącz werdyktów z niższych nagłówków ani z ARC: sfałszowany mail z `dmarc=fail`
+w M365 przeszedłby wtedy na nagłówkach podpisanych „home.pl”. Pracownik z M365 piszący na
+stary adres dochodzi wewnątrz M365 (`dkim=none; dmarc=none`, `AuthAs: Internal`) i nie jest
+uwierzytelniony (konsultanci z próby pisali z poczty home.pl albo prywatnej). Kształty pilnuje
+`tests/test_admin_cases_contract_rules.py` (`test_forwarded_*`).
+
 ## 2. Zmienne (workflow „Coolify set env”)
 
 | Zmienna | Dziś czyta | Rola |
