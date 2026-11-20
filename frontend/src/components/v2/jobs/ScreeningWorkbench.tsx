@@ -82,7 +82,7 @@ import {
   type ScreeningMemoryLink,
 } from "@/lib/screening-memory";
 import { placeStage } from "@/lib/board-stages";
-import { needsAutofillReason } from "@/lib/autofill-feedback";
+import { isDecisionColumn, needsAutofillReason } from "@/lib/autofill-feedback";
 import { terminalOf } from "@/lib/kanban-terminal";
 import { VERIFIED_STAGE, findStageColumn, isNewColumn, itemFullName } from "@/lib/pipeline-flow";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
@@ -322,6 +322,7 @@ export function ScreeningWorkbench({
           autofill: needsAutofillReason(item, placeStage(col).column)
             ? { rateKnown: Boolean(item.entry_autofill?.rate_known), several: false }
             : null,
+          decisionColumn: isDecisionColumn(placeStage(col).column),
         }
       : null;
   const afterCvSent = state?.board_column != null && AFTER_CV_SENT_COLUMNS.has(state.board_column);
