@@ -188,7 +188,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="grid gap-3 px-5 py-4 md:grid-cols-[132px_minmax(0,1fr)] md:gap-5">
+    <section className="grid grid-cols-1 gap-3 px-5 py-4 md:grid-cols-[132px_minmax(0,1fr)] md:gap-5">
       <div>
         <h2 className="flex items-baseline gap-1.5 text-[13.5px] font-semibold text-foreground">
           <span className="tabular-nums text-muted-foreground">{n}</span>
@@ -628,11 +628,11 @@ function NewContractForm() {
       <form
         onSubmit={handleSubmit}
         noValidate
-        className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px]"
+        className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px]"
       >
         <div className="divide-y divide-border/70 rounded-xl border border-border bg-card shadow-xs">
           <Section n={1} title="Strony umowy" note="Kandydat i klient są wymagane, reszta pomaga później.">
-            <div className="grid gap-x-3.5 gap-y-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-x-3.5 gap-y-3 sm:grid-cols-2">
               {/* Kandydat */}
               <div className="min-w-0">
                 <FieldHead
@@ -900,7 +900,7 @@ function NewContractForm() {
           </Section>
 
           <Section n={2} title="Okres" note="Od kiedy osoba pracuje u klienta.">
-            <div className="grid gap-x-3.5 gap-y-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-x-3.5 gap-y-3 sm:grid-cols-2">
               <div className="min-w-0">
                 <FieldLabel required={wantsLive}>Typ umowy</FieldLabel>
                 <Select
@@ -981,7 +981,7 @@ function NewContractForm() {
           >
             {canManageFinance ? (
               <>
-                <div className="grid gap-x-3.5 gap-y-3 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-x-3.5 gap-y-3 sm:grid-cols-2">
                   <div className="min-w-0">
                     <FieldLabel htmlFor="new-contract-rate-client" required={wantsLive}>
                       Klient płaci
@@ -1078,7 +1078,7 @@ function NewContractForm() {
             {showAdvanced ? (
               <div id="new-contract-advanced" className="space-y-4 border-t border-border/70 px-5 py-4">
                 {canManageFinance ? (
-                  <div className="grid gap-x-4 gap-y-3.5 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
                     <div className="min-w-0">
                       <FieldLabel>Waluta stawki klienta</FieldLabel>
                       <Select value={rateClientCurrency} onValueChange={setRateClientCurrency}>

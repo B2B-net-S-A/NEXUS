@@ -184,7 +184,8 @@ function ClientsTable({
   ending: WindowContract[];
   starting: WindowContract[];
   windowsReady: boolean;
-  totals: MarginTotals;
+  /** Sumy firmy; `null` = jeszcze się wczytują albo padły — wiersz „Razem” ma wtedy „—”. */
+  totals: MarginTotals | null;
 }) {
   const [sort, setSort] = useState<SortState<ClientSortKey>>({ key: "margin", dir: "desc" });
   const rows = useMemo(
@@ -192,7 +193,8 @@ function ClientsTable({
     [clients, ending, starting, windowsReady, sort],
   );
   const onSort = (k: ClientSortKey) => setSort((s) => nextSort(s, k));
-  const totalMargin = totals.fx_missing ? null : totals.total_monthly_margin;
+  const known = totals && !totals.fx_missing ? totals : null;
+  const totalMargin = known ? known.total_monthly_margin : null;
   const onlyStarting = rows.filter((r) => r.contracts == null).length;
   const endingSummary = summarizeWindow(ending);
   const startingSummary = summarizeWindow(starting);
@@ -258,24 +260,28 @@ function ClientsTable({
             <td className={cn("py-2.5 pl-4 pr-3", STICKY_CELL, "bg-muted")}>
               Razem
               <span className={cn(CALM_SUBLINE, "font-normal")}>
-                {countPl(totals.clients, "klient", "klientów", "klientów")} z aktywnym kontraktem
+                {totals
+                  ? `${countPl(totals.clients, "klient", "klientów", "klientów")} z aktywnym kontraktem`
+                  : "sumy firmy niedostępne"}
                 {onlyStarting ? ` + ${onlyStarting} ze startem` : ""}
               </span>
             </td>
-            <td className={cn(CALM_AMOUNT, "px-3 py-2.5")}>{totals.active_contracts}</td>
             <td className={cn(CALM_AMOUNT, "px-3 py-2.5")}>
-              {totals.fx_missing ? <span className={CALM_EMPTY}>—</span> : formatWholeNumber(totals.total_monthly_revenue)}
+              {totals ? totals.active_contracts : <span className={CALM_EMPTY}>—</span>}
+            </td>
+            <td className={cn(CALM_AMOUNT, "px-3 py-2.5")}>
+              {known ? formatWholeNumber(known.total_monthly_revenue) : <span className={CALM_EMPTY}>—</span>}
             </td>
             <td className={cn(CALM_AMOUNT, "px-3 py-2.5")}>
               <span className="inline-block min-w-[76px]">
-                {totals.fx_missing ? <span className={CALM_EMPTY}>—</span> : formatWholeNumber(totals.total_monthly_margin)}
+                {known ? formatWholeNumber(known.total_monthly_margin) : <span className={CALM_EMPTY}>—</span>}
               </span>
             </td>
             <td className={cn(CALM_AMOUNT, "px-3 py-2.5")}>
-              {totals.fx_missing || totals.margin_pct == null ? (
-                <span className={CALM_EMPTY}>—</span>
+              {known && known.margin_pct != null ? (
+                formatPctPl(known.margin_pct)
               ) : (
-                formatPctPl(totals.margin_pct)
+                <span className={CALM_EMPTY}>—</span>
               )}
             </td>
             {windowsReady ? (
@@ -470,9 +476,7 @@ export function AnalyticsReport({
   if (view === "clients") {
     if (failed(clientsState)) {
       body = <QueryStateNotice state={clientsState} className="border-0" onRetry={() => void clients.refetch()} />;
-    } else if (totals.isError) {
-      body = <Message tone="error">Nie udało się pobrać sum firmy — odśwież stronę.</Message>;
-    } else if (!clients.isSuccess || !t) {
+    } else if (!clients.isSuccess) {
       body = <Message>Ładowanie zestawienia…</Message>;
     } else if ((clients.data ?? []).length === 0 && endingItems.length + startingItems.length === 0) {
       body = <Message>Żaden klient nie ma dziś aktywnego kontraktu.</Message>;
@@ -483,7 +487,7 @@ export function AnalyticsReport({
           ending={endingItems}
           starting={startingItems}
           windowsReady={windowsReady}
-          totals={t}
+          totals={t ?? null}
         />
       );
       footer = windowsReady

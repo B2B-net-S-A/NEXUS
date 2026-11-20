@@ -172,6 +172,32 @@ describe("ContractAnalyticsPage — liczby pieniężne", () => {
   });
 });
 
+describe("ContractAnalyticsPage — tabela bez sum firmy", () => {
+  it("gdy margin-totals pada, tabela klientów zostaje, a „Razem” mówi, że sum nie ma", async () => {
+    routes({
+      "margin-totals": fail(500),
+      "margin-by-client": ok([
+        {
+          client_id: 1,
+          client_name: "Klient Alfa",
+          active_contracts: 2,
+          total_monthly_margin: 111,
+          total_monthly_revenue: 222,
+          margin_pct: 50,
+        },
+      ]),
+    });
+
+    renderPage();
+
+    expect(await screen.findByRole("link", { name: "Klient Alfa" })).toBeInTheDocument();
+    const totalRow = screen.getByText("Razem").closest("tr");
+    expect(totalRow).toHaveTextContent("sumy firmy niedostępne");
+    // Suma nie jest składana z wierszy rankingu.
+    expect(plain(totalRow)).not.toContain("111");
+  });
+});
+
 describe("ContractAnalyticsPage — marża bez stawki kosztowej", () => {
   it("procent marży idzie z serwera, a liczba mówi o kontraktach bez kosztu", async () => {
     // Serwer liczy procent z przychodu kontraktów o ZNANEJ marży (33,3%),
@@ -358,7 +384,7 @@ const WINDOW_ITEM = {
 };
 
 describe("ContractAnalyticsPage — najbliższe 3 miesiące", () => {
-  function windowRoutes(ending: unknown, starting: unknown) {
+  function windowRoutes(ending: () => Promise<unknown>, starting: () => Promise<unknown>) {
     mocks.get.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) => {
       if (url === "/api/contracts") {
         return config?.params?.expiring_in_days ? ending() : starting();

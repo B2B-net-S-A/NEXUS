@@ -110,14 +110,14 @@ function WindowCard({ kind, query, today }: { kind: "ending" | "starting"; query
   return (
     <section className="flex min-w-0 flex-col rounded-xl border border-border bg-card shadow-xs">
       <div className="border-b border-border/60 px-4 py-3">
-        <div className="flex items-baseline justify-between gap-3">
-          <h3 className="flex items-center gap-1.5 self-center text-[13.5px] font-semibold text-foreground">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+          <h3 className="flex items-center gap-1.5 self-center whitespace-nowrap text-[13.5px] font-semibold text-foreground">
             <Icon className={cn("size-4", kind === "ending" ? "text-warning" : "text-success")} aria-hidden />
             {kind === "ending" ? "Kończą się" : "Startują"}
           </h3>
           {query.isSuccess ? (
             <p className="text-right">
-              <span className="font-display text-[20px] font-semibold leading-7 tabular-nums text-foreground">
+              <span className="whitespace-nowrap font-display text-[20px] font-semibold leading-7 tabular-nums text-foreground">
                 {people(summary.people)}
               </span>
               <span className="ml-2 whitespace-nowrap text-[12.5px] tabular-nums text-muted-foreground">
@@ -212,7 +212,7 @@ export function AnalyticsNextQuarter({
           </p>
         ) : null}
       </div>
-      <div className="grid items-start gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <WindowCard kind="ending" query={ending} today={today} />
         <WindowCard kind="starting" query={starting} today={today} />
       </div>
