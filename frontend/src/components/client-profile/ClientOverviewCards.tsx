@@ -13,17 +13,15 @@ import {
 
 import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
 import { ReportStateDot } from "@/components/client-reports/ReportStateDot";
-import {
-  defaultPeriod,
-  splitPeriod,
-  totalsText,
-} from "@/components/clients/invoicing/invoicing-format";
+import { defaultPeriod, splitPeriod } from "@/components/clients/invoicing/invoicing-format";
+import { MonthStepsList, useMonthRcp } from "@/components/clients/invoicing/MonthSteps";
+import { monthSteps } from "@/components/clients/invoicing/month-steps";
 import { api } from "@/lib/api";
 import { getClientCatalog, type ReportDefinition } from "@/lib/api/client-reports";
 import { useClientInvoicing } from "@/lib/api/client-invoicing";
 import { dlPortalApi, type FrameworkContractRead } from "@/lib/api/dlPortal";
 import type { ClientTab } from "@/lib/client-tab";
-import { formatIsoDatePl, monthYearPl } from "@/lib/date-pl";
+import { formatIsoDatePl, monthTitlePl, monthYearPl } from "@/lib/date-pl";
 import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 import { warsawToday } from "@/lib/warsaw-date";
@@ -201,49 +199,80 @@ export function ReportsCard({ clientId, onOpen }: { clientId: number; onOpen: Op
 }
 
 /**
- * Rozliczenie poprzedniego miesiąca jako liczba u góry Przeglądu. Bez „po
- * terminie”: 19.11.2026 żadna z 2 741 takich faktur nie miała zapisanej
- * zapłaty, więc liczba nie mówiła o zaległościach (pełne dane w „Fakturach”).
+ * Rozliczenie poprzedniego miesiąca jako cztery kroki: RCP → do faktury →
+ * KSeF → zapłata (makieta 20.11.2026, wariant A, decyzja Artura). Krok mówi
+ * tylko to, co potwierdzają dane: bez przyjętego RCP „brak w NEXUSIE”, termin
+ * za sobą bez dowodu z wyciągów „brak danych o zapłacie”, „po terminie” tylko
+ * z dowodem z ciągłych wyciągów (#3623). Szczegół kroku w dymku i w pasku
+ * „Faktur i rozliczenia”; te same klucze zapytań co zakładka.
  */
 export function InvoicingStatCard({ clientId, onOpen }: { clientId: number; onOpen: OpenTab }) {
   const period = defaultPeriod();
   const { year, month } = splitPeriod(period);
   const query = useClientInvoicing(clientId, year, month);
-  const summary = query.data?.summary;
-  const empty = summary ? summary.rows === 0 && (query.data?.invoices.length ?? 0) === 0 : false;
+  const rcp = useMonthRcp(clientId, period);
+  const steps = query.data ? monthSteps(query.data, rcp) : [];
 
   return (
-    <StatCard
-      icon={<Receipt className="h-3.5 w-3.5" />}
-      title="Rozliczenie"
-      action="Faktury"
-      onAction={() => onOpen("faktury")}
-      value={
-        query.isLoading
-          ? "…"
-          : !summary
-            ? "—"
-            : empty
-              ? "0"
-              : summary.totals_hidden
-                ? String(summary.rows)
-                : totalsText(summary.expected)
-      }
-      sub={
-        query.isError || (!query.isLoading && !summary)
-          ? "Nie udało się wczytać rozliczenia."
-          : summary
-            ? empty
-              ? `${monthYearPl(period)}: nie ma zamówień do zafakturowania.`
-              : `${monthYearPl(period)}: ${summary.totals_hidden ? "" : "netto do faktury, "}${countPl(
-                  summary.rows,
-                  "zamówienie",
-                  "zamówienia",
-                  "zamówień",
-                )}, ${summary.invoiced} w KSeF`
-            : undefined
-      }
-    />
+    // Kotwica nowości „Rozliczenie miesiąca w czterech krokach” (novelties.json).
+    <section
+      data-tour="client.overview.settlement"
+      className="flex min-w-0 flex-col gap-1 rounded-xl border border-border bg-card px-4 py-3 shadow-xs"
+    >
+      <StatCardHeader
+        icon={<Receipt className="h-3.5 w-3.5" />}
+        title="Rozliczenie"
+        action="Faktury"
+        onAction={() => onOpen("faktury")}
+      />
+      {steps.length ? (
+        <>
+          <p className="text-xs text-muted-foreground">{monthTitlePl(period)}</p>
+          <MonthStepsList steps={steps} />
+        </>
+      ) : (
+        <StatCardBody
+          value={query.isLoading ? "…" : query.data ? "0" : "—"}
+          sub={
+            query.isLoading
+              ? undefined
+              : query.data
+                ? `${monthYearPl(period)}: nie ma zamówień do zafakturowania.`
+                : "Nie udało się wczytać rozliczenia."
+          }
+        />
+      )}
+    </section>
+  );
+}
+
+function StatCardHeader({
+  icon,
+  title,
+  action,
+  onAction,
+}: {
+  icon: ReactNode;
+  title: string;
+  action: string;
+  onAction: () => void;
+}) {
+  return (
+    <header className="flex items-center justify-between gap-2">
+      <h3 className="flex min-w-0 items-center gap-1.5 truncate text-xs font-medium text-muted-foreground">
+        <span aria-hidden>{icon}</span>
+        {title}
+      </h3>
+      <button
+        type="button"
+        onClick={onAction}
+        aria-label={`${title}: otwórz „${action}”`}
+        className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline"
+      >
+        {action}
+        <ArrowRight className="h-3 w-3" aria-hidden />
+      </button>
+    </header>
   );
 }
 
@@ -341,21 +370,15 @@ export function StatCard({
 }) {
   return (
     <section className="flex min-w-0 flex-col gap-1 rounded-xl border border-border bg-card px-4 py-3 shadow-xs">
-      <header className="flex items-center justify-between gap-2">
-        <h3 className="flex min-w-0 items-center gap-1.5 truncate text-xs font-medium text-muted-foreground">
-          <span aria-hidden>{icon}</span>
-          {title}
-        </h3>
-        <button
-          type="button"
-          onClick={onAction}
-          aria-label={`${title}: otwórz „${action}”`}
-          className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline"
-        >
-          {action}
-          <ArrowRight className="h-3 w-3" aria-hidden />
-        </button>
-      </header>
+      <StatCardHeader icon={icon} title={title} action={action} onAction={onAction} />
+      <StatCardBody value={value} sub={sub} tone={tone} />
+    </section>
+  );
+}
+
+function StatCardBody({ value, sub, tone }: { value: string; sub?: string; tone?: StatusDotTone }) {
+  return (
+    <>
       <p
         className={cn(
           // Kwoty w kilku walutach („9475,20 EUR · 8 600 000,00 zł”) się zawijają.
@@ -368,7 +391,7 @@ export function StatCard({
         {value}
       </p>
       {sub ? <p className="text-xs text-muted-foreground">{sub}</p> : null}
-    </section>
+    </>
   );
 }
 

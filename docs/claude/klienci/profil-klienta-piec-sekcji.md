@@ -1,5 +1,5 @@
 # Profil klienta: pięć sekcji, nagłówek ze stanem i Przegląd od „Wymaga uwagi” (19.11.2026)
-<!-- indeks: `lib/client-tab-groups.ts` (5 grup), `ClientStateChip`, `useClientFrameworkMeta` (dopisek przy „Umowie i pieniądzach”), `ClientHeaderStats` (Marża / mc, Wymaga uwagi — w pasku sekcji, `SectionNav.trailing`), `useClientOverviewAttention`, `ProfileTab` = Przegląd -->
+<!-- indeks: `lib/client-tab-groups.ts` (5 grup), `ClientStateChip`, `useClientFrameworkMeta` (dopisek przy „Umowie i pieniądzach”), `ClientHeaderStats` (Marża / mc, Wymaga uwagi — w pasku sekcji, `SectionNav.trailing`), `useClientOverviewAttention`, `ProfileTab` = Przegląd, kroki miesiąca RCP → do faktury → KSeF → zapłata (`clients/invoicing/month-steps.ts`, `MonthSteps.tsx`) -->
 
 Decyzja Artura z 19.11.2026 (makiety „Klienci: nowe ekrany”, warianty A ekranów
 „Nagłówek i sekcje” oraz „Przegląd”). Zastępuje „osiem grup” z
@@ -63,15 +63,35 @@ rozsiane po pięciu kartach.
   brak bieżącego zamówienia, wypowiedzenie), kontrakty bez stawki, otwarte
   raporty z katalogu, decydenci i kluczowe relacje bez kontaktu ponad 30 dni.
   Więcej niż dwa raporty albo osoby zbijają się w jedną pozycję.
-- **Bez „po terminie” z rozliczenia** — ani w „Wymaga uwagi”, ani na karcie
-  rozliczenia. 19.11.2026 żadna z 2 741 faktur „po terminie” nie miała
-  zapisanej zapłaty. Wraca, gdy NEXUS zacznie zapisywać zapłaty.
+- **Karta „Rozliczenie” to cztery kroki poprzedniego miesiąca** (decyzja Artura
+  z 20.11.2026, wariant A z makiety
+  https://claude.ai/artifact/45qzs2Qnn4RPQcoHdP7Qdd): RCP → do faktury → KSeF →
+  zapłata, jeden wiersz na krok (stan i kropka), szczegół w dymku. Z drobnym
+  drukiem w karcie rząd czterech liczb rósł przy 1280 px do ok. 450 px, więc
+  drobny druk jest tylko w dymku i w pasku zakładki. Ten sam pasek kroków stoi
+  w „Faktury i rozliczenie” zamiast pięciu liczb nad tabelą, dla miesiąca
+  ze strzałek (makieta 6A). Logika: `components/clients/invoicing/month-steps.ts`.
+- **Krok mówi tylko to, co potwierdzają dane.** RCP bez przyjętego RCP w
+  rozliczeniach to „brak w NEXUSIE”, nie „czeka” (19.11.2026 żaden klient nie
+  miał reguł rozliczeń ani przyjętego RCP). Zapłata: „zapłacone” tylko z
+  zapisaną zapłatą, „zapłacone w części” z wpłatą części, „przed terminem”,
+  a termin za sobą bez dowodu z wyciągów to „brak danych o zapłacie”. Nigdy
+  „niezapłacona”. 404 i 403 z rozliczeń to „bez dostępu do rozliczeń RCP”,
+  awaria to „nie udało się wczytać RCP”, a nie „0 przyjętych”.
+- **„Po terminie” tylko z dowodem** z ciągłych wyciągów rachunku odbioru
+  (`payment_proof`, #3623; decyzja Artura z 20.11.2026): w kroku zapłaty
+  „N z M po terminie”. Do 20.11.2026 nie było go na karcie wcale, bo 19.11
+  żadna z 2 741 faktur „po terminie” nie miała zapisanej zapłaty.
+  **„Wymaga uwagi” zostaje bez „po terminie”.**
 - Wszystkie karty używają kluczy zakładek (`client-profile`,
   `framework-contracts`, `client-reports`, `client-contacts`, faktury) —
   przejście do zakładki niczego nie pobiera drugi raz.
 - Testy: `app/clients/[id]/__tests__/ClientConsultantsTab.test.tsx` (Przegląd
   i nagłówek), `lib/__tests__/client-tab-groups.test.ts`,
-  `components/client-profile/SummaryBar.test.tsx`.
+  `components/client-profile/SummaryBar.test.tsx`,
+  `components/client-profile/__tests__/invoicing-stat-card.test.tsx` (karta
+  „Rozliczenie”), `components/clients/invoicing/__tests__/month-steps.test.ts`
+  (kroki z przypadkami brzegowymi).
 
 ## Ekrany sekcji (etap 3a, 19.11.2026)
 
