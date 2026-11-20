@@ -1020,7 +1020,7 @@ export function ContractSidePanel({
                 <span className="tabular-nums text-muted-foreground">
                   {formatIsoDatePl(warsawDateOf(event.at) ?? event.at.slice(0, 10))}
                 </span>
-                <span className="min-w-0 truncate text-foreground" title={event.detail ?? undefined}>
+                <span className="min-w-0 truncate text-foreground" title={event.detail === null ? undefined : event.detail}>
                   {event.title}
                   {event.who ? <span className="text-muted-foreground"> · {event.who}</span> : null}
                 </span>
