@@ -5,6 +5,10 @@ pierwszego pobrania i synchronizacji (ticket 9).
 treści na tym kontrakcie albo ten sam plik SharePointa (``sharepoint_item_id``).
 Dokumenty sprzed 0402 nie mają skrótu — liczymy go z pliku na dysku przy
 pierwszym dotknięciu kontraktu i zapisujemy.
+
+Ten sam test „kontrakt ma już ten plik” (``same_content_documents``) stoi od
+20.11.2026 przed ręcznym uploadem, kopią PDF-u zamówienia zbiorczego i skanem
+podpisanego aneksu (decyzja Artura 19.11: blokada uploadu + jedna kopia).
 """
 
 from __future__ import annotations
@@ -13,9 +17,10 @@ import hashlib
 import io
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.log_safety import safe_storage_key
@@ -60,6 +65,83 @@ def requeue_replaced_content(
 
 def sha256_hex(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+async def lock_contract_documents(db: AsyncSession, contract_id: int) -> None:
+    """Blokada doradcza dokumentów jednego kontraktu do końca transakcji.
+
+    Ta sama co w ``attach_file``: dwa zapisy tego samego pliku naraz (podwójne
+    kliknięcie, plik z SharePointa w tej samej chwili) nie mogą oba uznać, że
+    kontrakt go jeszcze nie ma. Bierz ją, ZANIM transakcja zablokuje wiersz
+    kontraktu: wstawienie dokumentu czeka na ten wiersz (klucz obcy), więc
+    odwrotna kolejność może się zakleszczyć z importem z SharePointa."""
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(:ns, :id)"),
+        {"ns": _LOCK_NAMESPACE, "id": contract_id},
+    )
+
+
+def file_sha256(path: Path) -> Optional[str]:
+    """SHA-256 pliku czytanego po 64 KB; ``None``, gdy pliku nie da się czytać."""
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 64), b""):
+                digest.update(chunk)
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
+def _document_sha256(file_path: str) -> Optional[str]:
+    try:
+        return file_sha256(storage_service.get_contract_document_path(file_path))
+    except FileNotFoundError:
+        return None
+
+
+async def same_content_documents(
+    db: AsyncSession,
+    contract_id: int,
+    content_sha256: str,
+    *,
+    size_bytes: Optional[int] = None,
+) -> list[ContractDocument]:
+    """Dokumenty kontraktu z tym samym plikiem, od najstarszego (20.11.2026).
+
+    „Kontrakt ma już ten plik” = ten sam SHA-256 treści, jak przy imporcie
+    z SharePointa. Skrót w bazie tylko zawęża szukanie, a rozstrzyga plik na
+    dysku. Kopia PDF-u zamówienia zbiorczego do 20.11.2026 nie dostawała
+    skrótu przy zapisie, więc import z SharePointa dopisywał go
+    (``_backfill_missing_hashes``), a zamówienie podmieniało potem plik
+    w miejscu i skrót zostawał stary. Dlatego kopie grup i wiersze bez skrótu
+    porównujemy z plikiem zawsze. Wiersz, którego pliku nie ma na dysku, się
+    nie liczy, bo zgubiony plik musi dać się wgrać z powrotem.
+
+    Skrótów tu NIE zapisujemy. Skan aneksu i zapis linii zamówienia trzymają
+    już blokadę wiersza kontraktu, a aktualizacja innych wierszy dokumentów
+    mogłaby się wtedy zakleszczyć z ``attach_file``. ``size_bytes`` pomija
+    czytanie plików o innym rozmiarze."""
+    candidates = (
+        await db.scalars(
+            select(ContractDocument)
+            .where(
+                ContractDocument.contract_id == contract_id,
+                or_(
+                    ContractDocument.content_sha256 == content_sha256,
+                    ContractDocument.content_sha256.is_(None),
+                    ContractDocument.source_order_group_id.is_not(None),
+                ),
+            )
+            .order_by(ContractDocument.id)
+        )
+    ).all()
+    return [
+        doc
+        for doc in candidates
+        if (size_bytes is None or doc.size_bytes in (None, size_bytes))
+        and _document_sha256(doc.file_path) == content_sha256
+    ]
 
 
 async def _backfill_missing_hashes(db: AsyncSession, contract_id: int) -> None:
@@ -111,10 +193,7 @@ async def attach_file(
     a zapis zostawia z niej tylko ostatni człon, więc dwa pliki „umowa.pdf”
     z różnych podfolderów nadpisywałyby się na dysku.
     """
-    await db.execute(
-        text("SELECT pg_advisory_xact_lock(:ns, :id)"),
-        {"ns": _LOCK_NAMESPACE, "id": contract_id},
-    )
+    await lock_contract_documents(db, contract_id)
     digest = sha256_hex(content)
     await _backfill_missing_hashes(db, contract_id)
     # Sesje mają `autoflush=False` — bez tego zapytanie niżej nie widzi

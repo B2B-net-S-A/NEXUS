@@ -408,6 +408,10 @@ class OrderDocumentItem(BaseModel):
     # NULL dla plików wgranych przed migracją 0227, która dodała te kolumny.
     uploaded_by_email: Optional[str] = None
     uploaded_at: Optional[datetime] = None
+    # 20.11.2026: id kopii PDF-u grupy tej linii w Dokumentach kontraktu, gdy
+    # to ten sam plik (SHA-256) — folder „Zamówienia” pokazuje wtedy jeden
+    # wiersz (``services/order_document_copies.py``). Tylko trasa by-contract.
+    same_file_document_id: Optional[int] = None
 
 
 class OrderDocumentsResponse(BaseModel):

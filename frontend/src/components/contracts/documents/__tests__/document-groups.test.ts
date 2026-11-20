@@ -269,6 +269,36 @@ describe("buildDocumentsView", () => {
     expect(view.hasExpiry).toBe(true);
     expect(buildDocumentsView([doc(1, "a.pdf", "contract")], [], []).hasExpiry).toBe(false);
   });
+
+  it("shows the order-line PDF once when the server says the group copy is the same file", () => {
+    // 19.11.2026: PDF linii i kopia PDF-u grupy jako dwa wiersze (14 par na produkcji).
+    const view = buildDocumentsView(
+      [doc(1, "Umowa.pdf", "contract"), doc(2, "445.pdf", "order", { size_bytes: 2048 })],
+      [],
+      [orderFile(7, { same_file_document_id: 2 })],
+    );
+    expect(view.items.map((i) => i.key)).toEqual(["doc-1", "order-7"]);
+    expect(view.current.order?.key).toBe("order-7");
+    expect(view.duplicates.size).toBe(0);
+    const orders = view.sections.find((s) => s.group === "zamowienia");
+    expect(orders?.items.map((i) => i.key)).toEqual(["order-7"]);
+    expect(orders?.totalBytes).toBe(2048);
+  });
+
+  it("keeps both rows without the server's word, and never hides a non-order file", () => {
+    const sameSize = buildDocumentsView(
+      [doc(2, "445.pdf", "order", { size_bytes: 2048 })],
+      [],
+      [orderFile(7, { same_file_document_id: null })],
+    );
+    expect(sameSize.items.map((i) => i.key).sort()).toEqual(["doc-2", "order-7"]);
+    const contract = buildDocumentsView(
+      [doc(2, "Umowa.pdf", "contract")],
+      [],
+      [orderFile(7, { same_file_document_id: 2 })],
+    );
+    expect(contract.items.map((i) => i.key).sort()).toEqual(["doc-2", "order-7"]);
+  });
 });
 
 describe("SharePoint import described once", () => {

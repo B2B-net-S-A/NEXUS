@@ -98,6 +98,19 @@ export function folderNameSuggestions(
   return out;
 }
 
+/**
+ * 409 `document_duplicate`: kontrakt ma już ten plik (ten sam SHA-256,
+ * 20.11.2026). Okno „Dodaj plik” pokazuje zdanie z serwera; załącznik z okien
+ * zakończenia współpracy jest wtedy już w Dokumentach, więc to nie błąd.
+ */
+export function isDocumentDuplicate(error: unknown): boolean {
+  const response = (error as { response?: { status?: number; data?: unknown } } | null)
+    ?.response;
+  const detail = (response?.data as { detail?: { code?: unknown } } | null | undefined)
+    ?.detail;
+  return response?.status === 409 && detail?.code === "document_duplicate";
+}
+
 /** Dokumenty, które liczą się do alarmu „dokument wygasł” — bez archiwum. */
 export function complianceRelevantDocs(
   docs: readonly ContractDocument[],

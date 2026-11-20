@@ -110,6 +110,7 @@ from app.schemas.new_contractor_order import (
 )
 from app.services import nordea_invoice_lines, recruitment_rates, storage_service
 from app.services import order_cost_steps
+from app.services.order_document_copies import same_file_group_copies
 from app.services.order_gaps import close_gaps_of_deleted_orders
 from app.services.shared_md_orders import client_uses_shared_md_pool
 from app.services.order_continuation import ending_without_successor
@@ -3632,7 +3633,9 @@ async def download_order_po(
 # LISTUJĄ te pliki dla kontraktu / osoby. Zero kopii, zero migracji dokumentów.
 
 
-def _order_to_document_item(order: ClientOrder) -> OrderDocumentItem:
+def _order_to_document_item(
+    order: ClientOrder, *, same_file_document_id: Optional[int] = None
+) -> OrderDocumentItem:
     # `file_uploader` musi być eager-loadowany przez wywołującego — lazy-load
     # relacji na sesji async to MissingGreenlet (500 bez CORS), a nie None.
     uploader = order.file_uploader
@@ -3648,6 +3651,7 @@ def _order_to_document_item(order: ClientOrder) -> OrderDocumentItem:
         order_status=order.status,
         uploaded_by_email=uploader.email if uploader else None,
         uploaded_at=order.file_uploaded_at,
+        same_file_document_id=same_file_document_id,
     )
 
 
@@ -3662,7 +3666,11 @@ async def list_contract_order_documents(
 ):
     """PO PDF-y zamówień danego kontraktu — sekcja „Dokumenty zamówień" w
     zakładce Dokumenty kontraktu. Read-only widok tego samego pliku, pobierany
-    istniejącym ``GET /orders/{id}/file`` (nie kopiuje pliku)."""
+    istniejącym ``GET /orders/{id}/file`` (nie kopiuje pliku).
+
+    Linia zamówienia zbiorczego, której PDF to ten sam plik co kopia PDF-u
+    grupy na kontrakcie, niesie id tej kopii (``same_file_document_id``) —
+    folder „Zamówienia” pokazuje wtedy jeden wiersz (20.11.2026)."""
     contract = await db.scalar(select(Contract).where(Contract.id == contract_id))
     if contract is None:
         raise HTTPException(404, detail="Contract not found")
@@ -3689,7 +3697,7 @@ async def list_contract_order_documents(
     # klienta) wychodziło bez sprawdzenia. Każdy inny klient — ta sama bramka co
     # pobranie pliku (`GET /{client_id}/orders/{id}/file`).
     access_cache: dict[int, bool] = {contract.client_id: True}
-    visible: list[OrderDocumentItem] = []
+    visible: list[ClientOrder] = []
     for o in orders:
         can = access_cache.get(o.client_id)
         if can is None:
@@ -3700,8 +3708,14 @@ async def list_contract_order_documents(
                 can = False
             access_cache[o.client_id] = can
         if can:
-            visible.append(_order_to_document_item(o))
-    return OrderDocumentsResponse(documents=visible)
+            visible.append(o)
+    same_files = await same_file_group_copies(db, contract_id, visible)
+    return OrderDocumentsResponse(
+        documents=[
+            _order_to_document_item(o, same_file_document_id=same_files.get(o.id))
+            for o in visible
+        ]
+    )
 
 
 @router.get(

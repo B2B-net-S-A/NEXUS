@@ -603,7 +603,9 @@ Wgrany PDF pojawia się nie tylko w panelu zamówienia: znajdziesz go też
 w automatycznym folderze **„Zamówienia"** w zakładce Dokumenty umowy konsultanta
 (razem z zamówieniami z SharePointa i dodanymi tam ręcznie) i w jego plikach.
 Rola bez dostępu do zamówień tego klienta tych plików po prostu nie
-zobaczy — bez żadnego komunikatu.
+zobaczy — bez żadnego komunikatu. Jeżeli ten sam plik leży już w Dokumentach
+umowy (np. wgrany wcześniej ręcznie), druga kopia nie powstaje — zostaje tamten
+plik, z typem i folderem, które już ma.
 
 **Dokładanie konsultanta do istniejącego zamówienia.** Kliknij wiersz
 zamówienia i w panelu wybierz **Dodaj konsultanta**. Tak samo działa ręczny wybór osoby

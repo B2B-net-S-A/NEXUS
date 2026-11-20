@@ -4,6 +4,7 @@ import {
   complianceRelevantDocs,
   filesLabel,
   folderNameSuggestions,
+  isDocumentDuplicate,
   type ContractDocument,
 } from "@/lib/contract-document-folders";
 
@@ -27,6 +28,23 @@ function doc(
     folder_id,
   };
 }
+
+describe("isDocumentDuplicate", () => {
+  const refusal = (status: number, code: string) => ({
+    response: { status, data: { detail: { code, message: "Ten plik jest już…" } } },
+  });
+
+  it("recognises only the 409 document_duplicate refusal", () => {
+    expect(isDocumentDuplicate(refusal(409, "document_duplicate"))).toBe(true);
+    expect(isDocumentDuplicate(refusal(409, "duplicate_contractor"))).toBe(false);
+    expect(isDocumentDuplicate(refusal(413, "document_duplicate"))).toBe(false);
+    expect(isDocumentDuplicate({ response: { status: 409, data: { detail: "x" } } })).toBe(
+      false,
+    );
+    expect(isDocumentDuplicate(new Error("network"))).toBe(false);
+    expect(isDocumentDuplicate(null)).toBe(false);
+  });
+});
 
 describe("filesLabel", () => {
   it.each([

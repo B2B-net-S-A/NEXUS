@@ -37,7 +37,7 @@ from app.core.printable_html import (
 )
 from app.core.database import get_db
 from app.core.export_safety import safe_row
-from app.core.scheduling import business_today
+from app.core.scheduling import business_date, business_today
 from app.core.upload_filename import fit_filename_column
 from app.core.work_time import HOURS_PER_MONTH, MD_PER_MONTH
 from app.models.activity import Activity
@@ -130,6 +130,7 @@ from app.schemas.contract_onboarding import (
     OnboardingItemUpdate,
 )
 from app.services import contract_document_folders, storage_service
+from app.services.contract_folder_docs import store as contract_doc_store
 from app.services.b2b_contract_generator.notices import (
     LEGACY_NOTICES_EMAIL,
     contract_notices_email,
@@ -5735,6 +5736,36 @@ def _stored_file_sha256(relative_path: str) -> Optional[str]:
     return digest.hexdigest()
 
 
+async def _duplicate_document_detail(
+    db: AsyncSession,
+    contract: Contract,
+    current_user: User,
+    existing: ContractDocument,
+) -> dict[str, Any]:
+    """Treść 409 ``document_duplicate``: który dokument ma już ten plik.
+
+    Nazwę pliku dostaje tylko osoba, która widzi listę Dokumentów (podgląd
+    kwot w zakresie klienta). Dodanie pliku jest otwarte szerzej (22.10.2026)
+    i nie może odsłaniać listy — wtedy zostaje sama data."""
+    added = business_date(existing.created_at).strftime("%d.%m.%Y")
+    visible = await _can_read_contract_finance(contract, current_user, db)
+    where = (
+        f": „{existing.filename}”, dodany {added}" if visible else f" (dodany {added})"
+    )
+    return {
+        "code": "document_duplicate",
+        "message": (
+            f"Ten plik jest już w Dokumentach kontraktu{where}. "
+            "Drugiej kopii nie dodajemy."
+        ),
+        "document": {
+            "id": existing.id,
+            "filename": existing.filename if visible else None,
+            "created_at": existing.created_at.isoformat(),
+        },
+    }
+
+
 async def _assert_contract(
     db: AsyncSession,
     contract_id: int,
@@ -5812,7 +5843,7 @@ async def upload_contract_document(
     # w zakresie konta (DL: klient z przypisania). Lista, pobranie, zmiana
     # i usunięcie zostają za podglądem kwot (zgłoszenie 22.10.2026:
     # wypowiedzenie przy „Zakończ współpracę” nie trafiało do Dokumentów).
-    await _assert_contract(db, contract_id, current_user)
+    contract = await _assert_contract(db, contract_id, current_user)
     # 0494: zamówienie zawsze leży w folderze „Zamówienia” — o tym decyduje
     # typ, więc wybrany folder pomijamy. Inny folder musi być tego kontraktu.
     if doc_type == ContractDocumentType.order:
@@ -5834,6 +5865,29 @@ async def upload_contract_document(
             status_code=413,
             detail=f"File exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MB",
         )
+    # 0402: skrót treści — synchronizacja z SharePointem nie dokłada drugiej
+    # kopii tego samego pliku.
+    digest = _stored_file_sha256(relative_path)
+    if digest is not None:
+        # 19.11.2026 (Artur: blokada uploadu + jedna kopia): 17 zbędnych kopii
+        # w 12 kontraktach to plik ściągnięty już z SharePointa albo wgrany
+        # drugi raz, a 13 z nich poszło też do SharePointa jako osobne pliki.
+        try:
+            await contract_doc_store.lock_contract_documents(db, contract_id)
+            same = await contract_doc_store.same_content_documents(
+                db, contract_id, digest, size_bytes=size
+            )
+        except Exception:
+            storage_service.delete_contract_document(relative_path)
+            raise
+        if same:
+            storage_service.delete_contract_document(relative_path)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=await _duplicate_document_detail(
+                    db, contract, current_user, same[0]
+                ),
+            )
 
     doc = ContractDocument(
         contract_id=contract_id,
@@ -5846,9 +5900,7 @@ async def upload_contract_document(
         doc_type=doc_type,
         expiry_date=expiry_date,
         uploaded_by=current_user.id,
-        # 0402: skrót treści — synchronizacja z SharePointem nie dokłada
-        # drugiej kopii tego samego pliku.
-        content_sha256=_stored_file_sha256(relative_path),
+        content_sha256=digest,
         source="upload",
         folder_id=folder_id,
     )

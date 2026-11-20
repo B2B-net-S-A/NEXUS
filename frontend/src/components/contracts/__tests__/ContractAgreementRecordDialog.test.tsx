@@ -125,6 +125,33 @@ describe("ContractAgreementRecordDialog — umowa rozwiązana poza NEXUSEM", () 
     expect(mocks.uploadDocument).not.toHaveBeenCalled();
   });
 
+  it("skan, który już jest w Dokumentach kontraktu, nie jest błędem", async () => {
+    mocks.uploadDocument.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: "document_duplicate",
+            message: "Ten plik jest już w Dokumentach kontraktu (dodany 19.11.2026).",
+          },
+        },
+      },
+    });
+    const { onClose } = renderDialog();
+    await userEvent.click(screen.getByLabelText("Konsultant"));
+    fireEvent.change(dateInput(/Data zawarcia porozumienia/), {
+      target: { value: "2026-09-15" },
+    });
+    await userEvent.upload(
+      screen.getByLabelText(/Skan porozumienia/),
+      new File(["%PDF"], "porozumienie.pdf", { type: "application/pdf" }),
+    );
+    await userEvent.click(save());
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(screen.queryByText(/Rozwiązanie umowy jest zapisane/)).toBeNull();
+  });
+
   it("padnięty skan mówi, że rozwiązanie jest zapisane", async () => {
     mocks.uploadDocument.mockRejectedValue(new Error("upload"));
     const { onClose } = renderDialog();
