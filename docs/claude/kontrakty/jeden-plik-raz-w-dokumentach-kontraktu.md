@@ -55,18 +55,23 @@ wariant „Blokada uploadu + jedna kopia”.
   leży już gdzie indziej w Dokumentach, nadpisuje w miejscu jak dotąd.
   Inaczej trzeba by kasować wiersz skanu razem z jego stanem w SharePoincie
   i odczytem stawek.
-- **Folder „Zamówienia”:** gdy PDF linii zamówienia zbiorczego i kopia PDF-u
-  jej grupy (`source_order_group_id == order_group_id`) to ten sam plik, folder
-  pokazuje jeden wiersz, czyli linię z zakładki Zamówienia. Kopia nie niesie
-  nic więcej, a linia nie ma „Usuń”, więc wiersz nie wraca po usunięciu.
+- **Grupa zamówień („Zamówienia klienta”, dawny folder „Zamówienia”):** gdy PDF
+  linii zamówienia zbiorczego i kopia PDF-u jej grupy
+  (`source_order_group_id == order_group_id`) to ten sam plik, zakładka pokazuje
+  jeden wiersz, czyli PDF z zakładki Zamówienia (z numerem i statusem
+  zamówienia, liczy się też do karty „Obowiązuje teraz”). Kopia nie niesie nic
+  więcej, a PDF zamówienia nie ma „Usuń”, więc wiersz nie wraca po usunięciu.
   O tożsamości decyduje serwer: `services/order_document_copies.py`, pole
-  `same_file_document_id` w `order-documents/by-contract`, SHA-256 liczony
-  tylko przy równym rozmiarze. Front scala wiersze w `buildDocumentSections`.
-  Sam rozmiar nie wystarcza, bo dwa różne PO bywają tej samej wielkości.
+  `same_file_document_id` w `order-documents/by-contract`, SHA-256 z pliku
+  liczony tylko przy równym rozmiarze. Front pomija kopię w `buildDocumentsView`
+  (`components/contracts/documents/document-groups.ts`), więc para nie dostaje
+  też plakietki „możliwy duplikat”. Sam rozmiar nie wystarcza, bo dwa różne PO
+  bywają tej samej wielkości.
 - **Czego tu nie ma:** sprzątania istniejących par (#527, #621 zostały dla DL),
   kasowania czegokolwiek w SharePoincie i tej samej blokady dla podpisanej
   umowy B2B z Generatora (`b2b_contract_generator/signed_file.py`).
 - Testy: `tests/test_contract_document_duplicates.py`,
+  `components/contracts/documents/__tests__/document-groups.test.ts`,
   `src/lib/__tests__/contract-document-folders.test.ts`,
   `ContractDocumentsTabFolders.test.tsx`, `ContractTerminationDialog.test.tsx`,
   `ContractAgreementRecordDialog.test.tsx`.

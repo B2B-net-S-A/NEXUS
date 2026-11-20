@@ -40,6 +40,12 @@ export interface ContractsListState {
    * (`bucket=rate_document`).
    */
   rateDocument?: boolean;
+  /**
+   * „Zamówione po końcu” (`?after_end=1`, 19.11.2026): kończący się albo
+   * zakończony kontrakt z zamówieniem po końcu projektu. Filtruje serwer
+   * (`bucket=order_after_end`).
+   */
+  orderAfterEnd?: boolean;
   /** Zakres daty rozpoczęcia umowy (ISO `YYYY-MM-DD`, pusty = bez granicy). */
   startFrom: string;
   startTo: string;
@@ -95,6 +101,7 @@ const LIST_PARAM_NAMES = [
   "ending",
   "agreement",
   "rate_doc",
+  "after_end",
   "start_from",
   "start_to",
   "order_end_from",
@@ -172,6 +179,7 @@ export function parseContractsListState(
   const endingSoon = params.get("ending") === "30";
   const agreementNotTerminated = params.get("agreement") === "not_terminated";
   const rateDocument = params.get("rate_doc") === "1";
+  const orderAfterEnd = params.get("after_end") === "1";
   const rawSort = params.get("sort");
 
   return {
@@ -182,7 +190,7 @@ export function parseContractsListState(
         ? []
         : validStatuses.length > 0
           ? validStatuses
-          : endingSoon || agreementNotTerminated || rateDocument
+          : endingSoon || agreementNotTerminated || rateDocument || orderAfterEnd
             ? []
             : [...DEFAULT_CONTRACT_STATUS_FILTER],
       typeFilter: uniqueValues(
@@ -195,6 +203,7 @@ export function parseContractsListState(
       endingSoon,
       agreementNotTerminated,
       rateDocument,
+      orderAfterEnd,
       startFrom: validIsoDate(params.get("start_from")),
       startTo: validIsoDate(params.get("start_to")),
       orderEndFrom: validIsoDate(params.get("order_end_from")),
@@ -234,6 +243,7 @@ export function buildContractsListUrl(
   if (state.endingSoon) params.set("ending", "30");
   if (state.agreementNotTerminated) params.set("agreement", "not_terminated");
   if (state.rateDocument) params.set("rate_doc", "1");
+  if (state.orderAfterEnd) params.set("after_end", "1");
   if (state.startFrom) params.set("start_from", state.startFrom);
   if (state.startTo) params.set("start_to", state.startTo);
   if (state.orderEndFrom) params.set("order_end_from", state.orderEndFrom);

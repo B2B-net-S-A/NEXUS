@@ -3507,8 +3507,8 @@ describe("KanbanBoardV2 — po zamknięciu osoby z panelu następna osoba (13.10
     return screen.findByRole("complementary", { name: "Panel osoby" });
   }
 
-  // Odrzucenie z „Nowych” pyta o powód z listy okna (19.11.2026, także karta
-  // ręczna); rezygnacja bez powodów w szablonie — wolnym tekstem.
+  /** Odrzucenie: powód z listy słownika (19.11.2026). Rezygnacja przy
+   *  szablonie bez powodów: pole tekstowe jak dotąd. */
   async function confirmClosing(dialog: HTMLElement, reason = "Brak kluczowej umiejętności") {
     const free = within(dialog).queryByPlaceholderText(/brak wymaganych kompetencji/);
     if (free) fireEvent.change(free, { target: { value: reason } });
@@ -3564,12 +3564,26 @@ describe("KanbanBoardV2 — po zamknięciu osoby z panelu następna osoba (13.10
     fireEvent.click(within(panel).getByRole("button", { name: "Zrezygnował" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Dalej: Anna Wiśniewska · Nowi")).toBeInTheDocument();
-    await confirmClosing(dialog, "Przyjął inną ofertę");
+    // Od 19.11.2026 „Zrezygnował” otwiera to samo okno z wybranym
+    // „Kandydat rezygnuje” i listą słownika.
+    expect(within(dialog).getByRole("radio", { name: /Kandydat rezygnuje/ })).toBeChecked();
+    await confirmClosing(dialog, "Przyjęła inną ofertę");
 
     const notice = await within(panel).findByRole("status", { name: "Poprzednia osoba" });
-    expect(notice).toHaveTextContent("Rezygnacja: Michał Zieliński · Przyjął inną ofertę");
+    expect(notice).toHaveTextContent("Rezygnacja: Michał Zieliński · Przyjęła inną ofertę");
     expect(within(panel).getByText("1 z 1")).toBeInTheDocument();
     expect(moveCalls()[0][1]).toMatchObject({ candidate_id: 61, stage_def_id: 509 });
+  });
+
+  it("„Odrzuć z powodem” → „Kandydat rezygnuje” wysyła ruch na „Zrezygnował”, nie „Odrzucony”", async () => {
+    renderBoard(closingColumns());
+    const panel = await openPerson("Michał Zieliński");
+    fireEvent.click(within(panel).getByRole("button", { name: /Odrzuć z powodem/ }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("radio", { name: /Kandydat rezygnuje/ }));
+    await confirmClosing(dialog, "Kontroferta od obecnego pracodawcy");
+    await waitFor(() => expect(moveCalls().length).toBe(1));
+    expect(moveCalls()[0][1]).toMatchObject({ candidate_id: 61, stage_def_id: 509, ended_by: "candidate" });
   });
 
   it("ostatnia osoba w kolejności: okno to zapowiada, panel się zamyka, komunikat ma „Pokaż”", async () => {

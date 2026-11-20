@@ -224,6 +224,8 @@ _KNOWN_CONTRACT_FKS = {
     # Gwarancja premii DL (0653): dług wisi na premii (``bonus_id``), kontrakt to
     # tylko odnośnik — bez unikatu, idzie za kontraktem zachowanym.
     ("hr_bonus_clawbacks", "contract_id"),
+    # Rejestr faktur wygaszony 20.11.2026, tabela czeka na DROP. Wpis wychodzi
+    # razem z DROP-em: audyt porównuje tę listę z katalogiem w obie strony.
     ("invoices", "contract_id"),
     ("notes", "contract_id"),
     # „Do przepięcia”: jeden aktywny wpis na kontrakt i powód (indeks

@@ -31,6 +31,7 @@ from app.api.candidate_access import CandidateDocumentAccess, CandidateWriteAcce
 from app.api.deps import get_db
 from app.api.recruitment_access import ensure_job_membership, ensure_job_read_access
 from app.core.http_headers import content_disposition
+from app.core.scheduling import business_today
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -45,7 +46,7 @@ from app.services import (
     client_form_structure,
     job_files,
 )
-from app.services import client_score_structure
+from app.services import client_form_years, client_score_structure
 from app.services.client_form_schema import CLIENT_FORM, KIND_FORM, KIND_SCORE
 from app.services.cv_generator_b2b.standalone_service import (
     collect_screening_notes_text,
@@ -72,6 +73,13 @@ VALUE_MAX = client_form_fill.VALUE_MAX
 class ClientFormEdit(BaseModel):
     # id pola → wartość; pusta wartość = pole do uzupełnienia.
     fields: dict[str, str] = Field(default_factory=dict, max_length=500)
+
+
+class ClientFormYearsEdit(BaseModel):
+    # id pola lat → klucze stanowisk, które się liczą (reszta zdjęta w siatce).
+    roles: dict[str, list[str]] = Field(default_factory=dict, max_length=200)
+    # Pola, których braki idą do ściągi screeningu; ``None`` = bez zmiany.
+    ask: Optional[list[str]] = Field(default=None, max_length=200)
 
 
 async def _pair(
@@ -160,6 +168,8 @@ def _view(
             "value": (values.get(item["id"]) or {}).get("value"),
             "source": (values.get(item["id"]) or {}).get("source"),
             "quote": (values.get(item["id"]) or {}).get("quote"),
+            # Siatka lat: stanowiska z CV, z których kod policzył wartość.
+            "years": (values.get(item["id"]) or {}).get("years"),
         }
         for item in structure.get("fields") or []
     ]
@@ -247,8 +257,9 @@ async def fill_client_form(
     notes = await collect_screening_notes_text(
         db, candidate_id=candidate.id, stage=stage, job=job
     )
-    # Tabela punktowa liczy punkty według zasad oceny z Plików (zał. 5 CEZ).
-    rules = await job_files.scoring_rules_text(db, job.id) if kind == KIND_SCORE else ""
+    # Tabela punktowa liczy punkty według zasad oceny z Plików (zał. 5 CEZ);
+    # formularz bierze z nich minimum stażu („ponad minimalne wymagania”).
+    rules = await job_files.scoring_rules_text(db, job.id)
     sources = client_form_fill.Sources(
         cv=candidate.raw_cv_text or "", notes=notes or "", rules=rules
     )
@@ -273,7 +284,27 @@ async def fill_client_form(
         for field_id, value in (form.fields or {}).items()
         if (value or {}).get("source") == client_form_fill.SOURCE_RECRUITER
     }
+    asked = {
+        field_id
+        for field_id, value in (form.fields or {}).items()
+        if ((value or {}).get("years") or {}).get("ask")
+    }
+    previous = dict(form.fields or {})
     form.fields = {**result["fields"], **kept}
+    today = business_today()
+    for field_id, entry in list(form.fields.items()):
+        # Role zdjęte w siatce zostają zdjęte po „Wypełnij ponownie”.
+        if field_id not in kept and (previous.get(field_id) or {}).get("years"):
+            form.fields[field_id] = client_form_years.carry_selection(
+                previous[field_id], entry, today
+            )
+    for field_id in asked & set(form.fields):
+        years = form.fields[field_id].get("years")
+        if years:
+            form.fields[field_id] = {
+                **form.fields[field_id],
+                "years": {**years, "ask": True},
+            }
     form.extra_rows = result["extra_rows"]
     form.job_file_id = template_id
     form.template_sha256 = template_sha
@@ -346,11 +377,21 @@ async def save_client_form(
         if value == before:
             continue
         changed += 1
+        # Siatka lat zostaje przy polu — rekruter może wrócić do wyliczenia.
+        years = (fields.get(field_id) or {}).get("years")
         if value:
             fields[field_id] = {
                 "value": value,
                 "source": client_form_fill.SOURCE_RECRUITER,
                 "quote": None,
+                **({"years": years} if years else {}),
+            }
+        elif years:
+            fields[field_id] = {
+                "value": None,
+                "source": None,
+                "quote": None,
+                "years": years,
             }
         else:
             fields.pop(field_id, None)
@@ -371,6 +412,62 @@ async def save_client_form(
                 },
             )
         )
+    await db.flush()
+    await db.refresh(form)
+    return _view(
+        kind=kind,
+        client_document=await job_files.client_document_of_job(db, job.id),
+        template=template,
+        structure=structure,
+        form=form,
+    )
+
+
+MSG_NOT_YEARS = "To pole nie ma wyliczenia lat — wypełnij formularz ponownie."
+
+
+@router.put("/candidates/stages/{stage_id}/client-form/years")
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def save_client_form_years(
+    request: Request,
+    stage_id: int,
+    payload: ClientFormYearsEdit,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+    kind: DocumentKind = KIND_QUERY,
+) -> dict:
+    """Siatka lat: które stanowiska się liczą i które braki idą do screeningu.
+
+    Wartość liczy kod z zapisanych stanowisk (``client_form_years.recompute``) —
+    przeglądarka nie przysyła liczby lat. Pole, które rekruter wpisał ręcznie,
+    po zmianie ról dostaje wyliczenie z powrotem.
+    """
+    job, candidate, _ = await _pair(db, stage_id, current_user, write=True)
+    template, structure = await _template(db, job.id, kind)
+    if template is None:
+        raise HTTPException(status_code=409, detail=MSG_NO_TEMPLATE)
+    form = await _form(db, job.id, candidate.id, kind)
+    fields = dict((form.fields if form else None) or {})
+    touched = set(payload.roles) | set(payload.ask or [])
+    if form is None or any(not (fields.get(f) or {}).get("years") for f in touched):
+        raise HTTPException(status_code=422, detail=MSG_NOT_YEARS)
+    today = business_today()
+    for field_id, keys in payload.roles.items():
+        fields[field_id] = client_form_years.recompute(
+            fields[field_id], set(keys), today
+        )
+    if payload.ask is not None:
+        wanted = set(payload.ask)
+        for field_id, entry in fields.items():
+            years = (entry or {}).get("years")
+            if years and bool(years.get("ask")) != (field_id in wanted):
+                fields[field_id] = {
+                    **entry,
+                    "years": {**years, "ask": field_id in wanted},
+                }
+    form.fields = fields
+    form.updated_by = current_user.id
+    form.missing_count = len(client_form_fill.missing_ids(structure, fields))
     await db.flush()
     await db.refresh(form)
     return _view(

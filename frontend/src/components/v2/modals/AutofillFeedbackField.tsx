@@ -6,7 +6,6 @@ import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
-  AUTOFILL_REASON_GROUPS,
   CLIENT_WIDE_REASONS,
   NOT_LOOKING_SPANS,
   autofillBucketHint,
@@ -14,16 +13,19 @@ import {
   type AutofillLearnedFrom,
   type AutofillReason,
 } from "@/lib/autofill-feedback";
+import { OTHER_CLOSE_REASON, type CloseReasonGroup, type CloseReasonKey } from "@/lib/close-reasons";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { warsawToday } from "@/lib/warsaw-date";
 import { cn } from "@/lib/utils";
 
 /**
- * Powód odrzucenia osoby od systemu w oknie odrzucenia (makieta A3,
- * 23.10.2026): powód z trzech grup, przy „Za droga” — ile chce, skąd to
- * wiesz. Od 27.10.2026 to jedyne pytanie o powód przy takiej osobie — powód
- * z szablonu do raportu lejka liczy okno (`templateReasonFor`). Stan trzyma
- * okno (`RejectionV2`); `children` — pola pod powodem (stawka, tryb pracy).
+ * Powód zamknięcia procesu w oknie odrzucenia. Od 19.11.2026 jeden słownik
+ * (`lib/close-reasons.ts`) w każdej kolumnie: grupy liczy okno z „Kto
+ * kończy?” i etapu (`groups`), „Inne” stoi zawsze na końcu. Przy osobie od
+ * systemu (makieta A3, 23.10.2026) dochodzą „Skąd to wiesz?”, „Ile chce?”,
+ * „na cały klient” i podpowiedź raportu. Powód z szablonu do raportu lejka
+ * liczy okno (`closeTemplateReason`). Stan trzyma okno (`RejectionV2`);
+ * `children` — pola pod powodem (stawka, tryb pracy, data „Nie szuka”).
  */
 export function AutofillFeedbackField({
   learnedFrom,
@@ -40,12 +42,13 @@ export function AutofillFeedbackField({
   notLookingUntil = null,
   onNotLookingUntilChange,
   fromSystem = true,
+  groups,
   children,
 }: {
   learnedFrom: AutofillLearnedFrom | null;
   onLearnedFromChange: (value: AutofillLearnedFrom) => void;
-  reason: AutofillReason | null;
-  onReasonChange: (value: AutofillReason) => void;
+  reason: CloseReasonKey | null;
+  onReasonChange: (value: CloseReasonKey) => void;
   rate: string;
   onRateChange: (value: string) => void;
   /** Czy system znał stawkę w chwili dodania (jedna osoba). */
@@ -64,9 +67,13 @@ export function AutofillFeedbackField({
    *  sama lista powodów, ale bez „Skąd to wiesz?” i podpowiedzi raportu
    *  wyszukiwania — powód idzie tylko do raportu lejka. */
   fromSystem?: boolean;
+  /** Grupy słownika dla tego, kto kończy, i etapu (`closeReasonGroups`). */
+  groups: CloseReasonGroup[];
   children?: React.ReactNode;
 }) {
-  const hint = fromSystem ? autofillBucketHint(reason, rateKnown) : null;
+  // Przy osobie od systemu (tylko odrzucenie) słownik daje powody dla systemu.
+  const systemReason = fromSystem ? (reason as AutofillReason | null) : null;
+  const hint = systemReason ? autofillBucketHint(systemReason, rateKnown) : null;
   return (
     <div className="space-y-3" data-testid="autofill-feedback">
       <FormField
@@ -80,28 +87,33 @@ export function AutofillFeedbackField({
       >
         <RadioGroup
           value={reason ?? ""}
-          onValueChange={(v) => onReasonChange(v as AutofillReason)}
-          className="grid gap-3 sm:grid-cols-3"
+          onValueChange={(v) => onReasonChange(v as CloseReasonKey)}
+          className="grid gap-x-4 gap-y-2 sm:grid-cols-3"
+          data-tour="rejection.close-reasons"
         >
-          {AUTOFILL_REASON_GROUPS.map((group) => (
-            <fieldset key={group.title} className="space-y-1">
-              <legend className="pb-1 text-xs font-semibold text-muted-foreground">{group.title}</legend>
-              {group.reasons.map((r) => (
-                <label
-                  key={r.value}
-                  className="flex cursor-pointer items-start gap-2 rounded-md p-1 text-sm hover:bg-primary/10"
-                  data-tour={r.value === "not_looking" ? "rejection.not-looking" : undefined}
-                >
-                  <RadioGroupItem value={r.value} className="mt-0.5" />
-                  <span>{r.label}</span>
-                </label>
-              ))}
-            </fieldset>
+          {reasonColumns(groups).map((column, index) => (
+            <div key={index} className="min-w-0 space-y-2">
+              {column.map((group) =>
+                group ? (
+                  <fieldset key={group.title} className="min-w-0 space-y-0.5">
+                    <legend className="pb-0.5 text-xs font-semibold text-muted-foreground">{group.title}</legend>
+                    {group.reasons.map((r) => (
+                      <ReasonOption key={r.key} value={r.key} label={r.label} />
+                    ))}
+                  </fieldset>
+                ) : (
+                  <fieldset key="other" className="min-w-0 space-y-0.5">
+                    <legend className="sr-only">Inne</legend>
+                    <ReasonOption value={OTHER_CLOSE_REASON.key} label={OTHER_CLOSE_REASON.label} />
+                  </fieldset>
+                ),
+              )}
+            </div>
           ))}
         </RadioGroup>
       </FormField>
       {children}
-      {fromSystem && reason && CLIENT_WIDE_REASONS.has(reason) && !several && onWholeClientChange ? (
+      {systemReason && CLIENT_WIDE_REASONS.has(systemReason) && !several && onWholeClientChange ? (
         <label
           htmlFor="autofill-whole-client"
           className="flex cursor-pointer items-start gap-2 rounded-md border border-primary/30 bg-primary/5 p-2 text-sm"
@@ -170,6 +182,39 @@ export function AutofillFeedbackField({
       </FormField>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Grupy w trzech kolumnach, każda do najkrótszej (liczą się wiersze z
+ * nagłówkiem), „Inne” (`null`) na końcu najkrótszej. Przy 1280 × 720 siatka
+ * wierszami zostawiała dziurę pod krótkimi „Warunkami” i spychała „Dane
+ * w bazie” i „Inne” pod zgięcie okna.
+ */
+export function reasonColumns(groups: CloseReasonGroup[]): (CloseReasonGroup | null)[][] {
+  const columns: (CloseReasonGroup | null)[][] = [[], [], []];
+  const heights = [0, 0, 0];
+  const shortest = () => heights.indexOf(Math.min(...heights));
+  for (const group of groups) {
+    const i = shortest();
+    columns[i].push(group);
+    heights[i] += group.reasons.length + 1;
+  }
+  columns[shortest()].push(null);
+  return columns.filter((column) => column.length > 0);
+}
+
+function ReasonOption({ value, label }: { value: CloseReasonKey; label: string }) {
+  return (
+    <label
+      className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-0.5 text-sm hover:bg-primary/10"
+      // Kropki „Nowość” przy powodach (`novelties.json`, `dot_anchor`); kotwica
+      // musi stać dosłownie w tej linii (`novelty-anchors.test.ts`).
+      data-tour={value === "accepted_other_offer" ? "rejection.employed-elsewhere" : value === "not_looking" ? "rejection.not-looking" : undefined}
+    >
+      <RadioGroupItem value={value} className="mt-0.5" />
+      <span>{label}</span>
+    </label>
   );
 }
 

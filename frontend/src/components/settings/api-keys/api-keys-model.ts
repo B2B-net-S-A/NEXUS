@@ -30,7 +30,6 @@ export const SCOPE_GROUPS: readonly ScopeGroupDefinition[] = [
       "orders:read",
       "md:read",
       "finance:read",
-      "invoices:read",
     ],
   },
   {
@@ -42,7 +41,6 @@ export const SCOPE_GROUPS: readonly ScopeGroupDefinition[] = [
       "contracts:status",
       "md:write",
       "finance:write",
-      "invoices:write",
     ],
   },
   // Rekrutacja i kandydaci (15.10.2026). Dane osobowe w osobnych pozycjach:

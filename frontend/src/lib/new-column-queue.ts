@@ -33,6 +33,9 @@ export type KnownFacts = {
   note_points: number;
   verified_at_client: number;
   last_note_days: number | null;
+  /** Rekrutacje, w których osoba poszła do klienta w ostatnim roku (20.11.2026). */
+  sent_elsewhere?: number;
+  sent_points?: number;
 };
 
 type QueueItem = {
@@ -72,6 +75,7 @@ export function daysAgoText(days: number): string {
 export function knownFactLabels(known: KnownFacts | null | undefined): string[] {
   if (!known) return [];
   const labels: string[] = [];
+  if ((known.sent_points ?? 0) > 0) labels.push(`Wysłany do klienta · ${known.sent_elsewhere}×`);
   if (known.client_points > 0) labels.push(`U klienta · ${known.verified_at_client}×`);
   if (known.note_points > 0 && known.last_note_days != null) {
     labels.push(`Notatka ${daysAgoText(known.last_note_days)}`);

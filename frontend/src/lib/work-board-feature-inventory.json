@@ -1,5 +1,5 @@
 {
-  "_comment": "Warunek Artura z 22.10.2026: z kanbanu spraw nic nie znika. Od 02.11.2026 kanban stoi w kolejce Back office pod przełącznikiem „Po statusie” (komponent WorkBoard 1:1). Wpis znika wyłącznie z removed_reason, czyli z zapisaną decyzją.",
+  "_comment": "Warunek Artura z 22.10.2026: z kanbanu spraw nic nie znika. Od 02.11.2026 kanban stał w kolejce Back office pod przełącznikiem (komponent WorkBoard 1:1, od 19.11 widok „Tablica Opieki”), a 20.11.2026 Artur zdjął go z kolejki: w jednym zespole tylko dublował te same sprawy. Kanban zostaje 1:1 na /care poza modułem back office (moduł wyłączony, osoby spoza składu, np. DL-e). Wpis znika wyłącznie z removed_reason, czyli z zapisaną decyzją.",
   "features": [
     {
       "id": "scope-mine-all",
@@ -69,15 +69,28 @@
     },
     {
       "id": "kanban-under-toggle",
-      "label": "Kanban pod przełącznikiem Po statusie",
+      "label": "Kanban pod przełącznikiem w kolejce Back office („Po statusie”, od 19.11 „Tablica Opieki”)",
       "file": "src/components/care/CareScreen.tsx",
-      "marker": "careStatusBoard"
+      "marker": "careStatusBoard",
+      "removed_reason": "Decyzja Artura z 20.11.2026: w jednej kolejce Spraw stary kanban Opieki tylko dublował te same sprawy, więc widok „Tablica Opieki” zniknął z modułu back office; kanban 1:1 zostaje na /care poza modułem (wpis kanban-outside-back-office)."
+    },
+    {
+      "id": "kanban-outside-back-office",
+      "label": "Kanban 1:1 w „Do zrobienia” na /care poza modułem back office (moduł wyłączony, osoby spoza składu)",
+      "file": "src/components/care/CareScreen.tsx",
+      "marker": "!backOffice ? kanban"
     },
     {
       "id": "old-links",
-      "label": "Stare linki z ?card= i ?filter= otwierają kanban",
+      "label": "Stare linki z ?card= i ?filter= otwierają kanban poza modułem back office",
       "file": "src/components/care/CareScreen.tsx",
-      "marker": "kanbanLink"
+      "marker": "initialSelectedKey={cardKey}"
+    },
+    {
+      "id": "old-links-back-office",
+      "label": "W module back office stare linki z ?card= i ?filter= prowadzą na tablicę Spraw (sprawa → jej karta, Po terminie / Do piątku → filtr)",
+      "file": "src/components/back-office/QueueBoard.tsx",
+      "marker": "legacyCareLink"
     }
   ]
 }

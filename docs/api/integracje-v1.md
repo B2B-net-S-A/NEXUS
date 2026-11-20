@@ -1,7 +1,7 @@
 # NEXUS — API integracyjne v1
 
 API dla automatyzacji procesów firmy: **rozliczanie klientów** (klienci,
-kontrakty, zamówienia, zużycie MD, Finanse, faktury), **rekrutacja
+kontrakty, zamówienia, zużycie MD, Finanse), **rekrutacja
 i kandydaci** (rekrutacje, Tablica, kandydaci, CV, notatki) oraz zakładanie
 rekrutacji z requestu, CV dla klienta, rozmowy u klienta, zgłoszenia z linku,
 Insights, nieobecności, wydania sprzętu i zdarzenia z webhookami.
@@ -52,8 +52,6 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
 | `md:write` | Import raportu MD, przypisanie wiersza, korekta MD za miesiąc |
 | `finance:read` | Finanse → Zmiany w zamówieniach, Zamówienia PDF, wyniki miesiąca — **z kwotami sprzedaży** (stawka do klienta, przychód, faktura, PDF-y zamówień); koszty i marża tylko z `amounts:read` |
 | `finance:write` | „Zrobione” w Zmianach, import arkusza wyników |
-| `invoices:read` | Rejestr faktur, DSO — **z kwotami faktur do klientów**; kwota faktury od kontraktora tylko z `amounts:read` |
-| `invoices:write` | Wystawienie, zmiana i anulowanie faktury |
 | `sales_amounts:read` | **Kwoty sprzedaży** — to, co płaci klient: stawka do klienta, wartość i budżet zamówienia, przychód, kwoty faktur w importach MD |
 | `amounts:read` | **Wszystkie kwoty** — kwoty sprzedaży oraz stawki konsultantów, koszty i marża; obejmuje `sales_amounts:read` |
 | `orders:write` | Zamówienia: zakończenie, przedłużenie i anulowanie zamówienia MD/kosztowego, zakończenie zamówienia okresowego, data końca i notatka, PDF zamówienia |
@@ -95,16 +93,15 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
   | Importy MD | `invoice_amount` i „Uwagi” wierszy, pominięte wiersze | — |
   | Finanse → Zmiany w zamówieniach (`finance:read`) | `rate_revenue`, kwoty zmiany stawki przychodowej | `rate_cost`, kwoty zmiany stawki kosztowej, koszt w opisach historii |
   | Finanse → wyniki (`finance:read`) | `revenue_rate_md`, `invoice_amount`, kafel `revenue` | `cost_rate_md`, `compensation`, `margin_pln`, `margin_pct`, `margin_percent`, kafle `cost`, `margin`, `avg_margin_pct`, `cost_without_margin` |
-  | Faktury (`invoices:read`) | `amount` faktur do klientów, DSO | `amount` faktur od kontraktorów |
 
-  W Finansach i fakturach kwoty sprzedaży są widoczne już z `finance:read`
-  i `invoices:read` (to moduły rozliczeń).
+  W Finansach kwoty sprzedaży są widoczne już z `finance:read` (to moduł
+  rozliczeń).
 - **Pola ukryte mają wartość `null`.** Dwie flagi mówią, co ukryto:
   - `amounts_redacted: true` — klucz nie widzi żadnych kwot (zamówienia, zamówienia
     MD/kosztowe, kontrakty); bez kwot `rates` kontraktu jest `null`;
   - `costs_redacted: true` — klucz nie widzi kosztów i marży (kontrakty, historia
-    stawek, zamówienia, Zmiany w zamówieniach i ich historia, wyniki miesiąca,
-    faktury). W historii stawek lista `candidate` jest wtedy pusta.
+    stawek, zamówienia, Zmiany w zamówieniach i ich historia, wyniki
+    miesiąca). W historii stawek lista `candidate` jest wtedy pusta.
 
   Wiersze importu MD bez kwot sprzedaży nie mają kwot faktur ani „Uwag”.
 - **Dane osobowe:** kontrakty i zamówienia podają konsultanta — imię i nazwisko,
@@ -289,29 +286,15 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
 - **Import arkusza wyników:** miesiąc z istniejącym importem bez `replace=true`
   daje 409. `dry_run=true` sprawdza arkusz i konflikt okresu, nic nie zapisując.
 
-### Faktury
+### Faktury — wycofane 20.11.2026
 
-| Metoda | Ścieżka | Scope |
-|---|---|---|
-| GET | `/invoices?contract_id=&status=&direction=&issued_from=&issued_to=&overdue_only=&updated_since=` | `invoices:read` |
-| GET | `/invoices/dso` | `invoices:read` |
-| GET | `/invoices/{invoice_id}` | `invoices:read` |
-| POST | `/invoices` (`?dry_run=`) | `invoices:write` |
-| PATCH | `/invoices/{invoice_id}` | `invoices:write` |
-| POST | `/invoices/{invoice_id}/cancel` (`{"reason": …}`) | `invoices:write` |
-
-- `direction`: `to_client` | `from_contractor`.
-- Kwota faktury od kontraktora (`from_contractor`) to koszt — bez `amounts:read`
-  jest `null` (`costs_redacted: true`), także w odpowiedzi na zapis. DSO liczy
-  wyłącznie faktury do klientów.
-- Zmiana kierunku (`direction`) faktury od kontraktora albo na `from_contractor`
-  wymaga `amounts:read` — bez niego `403 insufficient_scope`.
-- `status`: `issued` | `sent` | `paid` | `overdue` | `cancelled`.
-- Kwota: > 0, najwyżej 2 miejsca po przecinku.
-- Ten sam numer, kierunek i kontrakt drugi raz daje `409 duplicate_invoice`.
-- Faktury się **nie usuwa** — anuluje się je z powodem.
-- Każdy zapis zostawia wpis w Historii zdarzeń NEXUSA, z kontem serwisowym
-  jako autorem.
+Trasy `/invoices` (lista, `/dso`, odczyt, zapis, zmiana, anulowanie), scope'y
+`invoices:read` i `invoices:write` oraz zdarzenia `invoice.created` /
+`invoice.updated` zniknęły razem z ręcznym rejestrem faktur NEXUSA, który od
+powstania nie dostał ani jednego wpisu. Wywołanie daje `404`. Klucz, który miał
+`invoices:read`, zachowuje pozostałe scope'y; sam wpis nie otwiera już niczego.
+Faktury sprzedaży i faktury konsultantów NEXUS czyta z KSeF (Finanse →
+Rozliczenia); API v1 ich na razie nie udostępnia.
 
 ### Rekrutacje
 
@@ -632,7 +615,6 @@ scope; zdarzeń rekrutacji klientów ukrytych i usuniętych nie ma (jak w
 | `order.changed` | zmiana w zamówieniu (jak w Finanse → Zmiany) | `order_change_id`, `order_id`, `order_group_id`, `contract_id`, `client_id` | `orders:read` |
 | `contract.status_changed` | zmiana statusu kontraktu | `contract_id`, `status`, `previous_status` | `contracts:read` |
 | `md_import.created` | nowy import raportu MD | `md_import_id`, `period_month` | `md:read` |
-| `invoice.created` / `.updated` | faktura wystawiona / zmieniona | `invoice_id`, `contract_id` | `invoices:read` |
 | `leave.approved` | nieobecność zatwierdzona (akceptacja, L4 zgłoszone od razu, wpis za pracownika, zgłoszenie z autoodpowiedzi Outlooka) albo zmiana dat zatwierdzonej — to samo `leave_request_id`, aktualne daty (traktuj jak upsert) | `leave_request_id`, `user_id`, `start_date`, `end_date` — **bez rodzaju** | `absences:read` |
 | `leave.cancelled` | anulowana nieobecność, która była zatwierdzona | jak wyżej | `absences:read` |
 | `equipment.issued` | wydanie sprzętu z protokołem | `assignment_id`, `item_id`, `holder_kind`, `holder_id` | `equipment:read` |
@@ -690,8 +672,8 @@ tej samej operacji. Paragony z kluczami są przechowywane 90 dni.
 
 **`dry_run=true`** liczy wszystko, ale nic nie zapisuje (odpowiedź `200`
 z `"dry_run": true`). Używaj go do budowy i testów automatyzacji — NEXUS nie ma
-środowiska testowego. Działa na: `POST /md/imports`, `POST /finance/imports`,
-`POST /invoices`. Zapis zamówień i kontraktów `dry_run` nie ma. Uwaga: `dry_run` importu MD na kilka sekund blokuje
+środowiska testowego. Działa na: `POST /md/imports`, `POST /finance/imports`.
+Zapis zamówień i kontraktów `dry_run` nie ma. Uwaga: `dry_run` importu MD na kilka sekund blokuje
 przeliczane linie zamówień.
 
 ---
@@ -717,7 +699,7 @@ Każdy błąd ma ten sam kształt:
 | 403 | `insufficient_scope` | Konto nie ma scope'u (`details.missing`) |
 | 403 | `requires_screen_decision` | Ruch karty, który podejmuje człowiek na ekranie (`details.reason`) |
 | 404 | `not_found` | Rekord nie istnieje |
-| 409 | `conflict`, `duplicate_import`, `duplicate_invoice`, `idempotency_key_reused`, `idempotency_in_progress`, `idempotency_outcome_unknown`, `item_not_in_month`, `requires_screen_approval`, `conflict_retry`, `order_belongs_to_group`, `order_is_draft`, `order_already_closed`, `order_group_has_settlements`, `offboarding_decision_required`, `duplicate_candidate`, `candidate_erased`, `not_in_recruitment` | Konflikt — szczegóły w `message` i `details` |
+| 409 | `conflict`, `duplicate_import`, `idempotency_key_reused`, `idempotency_in_progress`, `idempotency_outcome_unknown`, `item_not_in_month`, `requires_screen_approval`, `conflict_retry`, `order_belongs_to_group`, `order_is_draft`, `order_already_closed`, `order_group_has_settlements`, `offboarding_decision_required`, `duplicate_candidate`, `candidate_erased`, `not_in_recruitment` | Konflikt — szczegóły w `message` i `details` |
 | 413 | `payload_too_large` | Plik za duży (MD: 10 MB, wyniki: 15 MB, PDF zamówienia: 25 MB) |
 | 415 | — | Zły typ pliku (importy: XLSX, zamówienie: PDF) |
 | 422 | `validation_error` | Złe dane (`details.errors`) |
@@ -814,10 +796,8 @@ def all_pages(path, **params):
 orders = list(all_pages("/orders", active_on="2026-10-14"))
 
 key = str(uuid.uuid4())  # jeden klucz na operację, ten sam przy ponowieniach
-r = call("POST", "/invoices", idempotency_key=key, json={
-    "contract_id": 123, "direction": "to_client", "invoice_number": "FV/10/2026/001",
-    "issue_date": "2026-10-14", "due_date": "2026-11-13",
-    "amount": "12300.00", "currency": "PLN",
+r = call("POST", "/finance/order-changes/checks", idempotency_key=key, json={
+    "year": 2026, "month": 10, "item_key": item_key, "done": True,
 })
 r.raise_for_status()
 ```

@@ -1,7 +1,8 @@
 /**
  * Sześć powodów zamiast ręcznego opisu pod „Inne” (0646, 04.11.2026). Lista
  * zależy od „Kto kończy?”, wybór nie wymaga opisu, a powód dla systemu trafia
- * do nowego powodu zamiast do „Inne”.
+ * do nowego powodu zamiast do „Inne”. Od 19.11.2026 okno pokazuje etykiety
+ * jednego słownika (`lib/close-reasons.ts`), a wiersz szablonu wynika z klucza.
  */
 import type * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -15,15 +16,15 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 
 import { RejectionV2 } from "@/components/v2/modals/RejectionV2";
 import { AUTOFILL_TEMPLATE_REASON } from "@/lib/autofill-feedback";
-import { groupRejectedReasons, reasonFitsEndedBy } from "@/lib/rejection-reasons";
 
+/** Wiersz szablonu (`name`) → etykieta okna ze słownika powodów. */
 const LABELS = {
-  not_looking_for_work: "Nie szuka pracy lub niezainteresowany",
-  client_conflict: "Pracuje u klienta lub nie chce do klienta",
-  contract_form: "Forma umowy (UoP, B2B, etat)",
-  no_contact: "Brak kontaktu",
-  client_no_reason: "Klient nie podał powodu",
-  client_chose_other: "Klient wybrał kogoś innego",
+  not_looking_for_work: "Nie szuka pracy",
+  client_other_vendor: "Pracuje u klienta / zgłoszona przez inną firmę",
+  contract_form: "Forma umowy (UoP / B2B)",
+  no_contact: "Nie odbiera / brak kontaktu",
+  client_no_reason: "Nie podał powodu",
+  client_chose_other: "Wybrał innego kandydata",
 } as const;
 
 const reasons = [
@@ -68,7 +69,7 @@ describe("RejectionV2 — lista powodów zależy od „Kto kończy?”", () => {
     fireEvent.click(screen.getByText(who));
     expect(visible(LABELS.not_looking_for_work)).toBe(true);
     expect(visible(LABELS.no_contact)).toBe(true);
-    expect(visible(LABELS.client_conflict)).toBe(true);
+    expect(visible(LABELS.client_other_vendor)).toBe(true);
     expect(visible(LABELS.contract_form)).toBe(true);
     expect(visible(LABELS.client_no_reason)).toBe(false);
     expect(visible(LABELS.client_chose_other)).toBe(false);
@@ -78,12 +79,12 @@ describe("RejectionV2 — lista powodów zależy od „Kto kończy?”", () => {
     renderWindow({ initialEndedBy: "client" });
     expect(visible(LABELS.client_no_reason)).toBe(true);
     expect(visible(LABELS.client_chose_other)).toBe(true);
-    expect(visible(LABELS.client_conflict)).toBe(true);
+    expect(visible(LABELS.client_other_vendor)).toBe(true);
     expect(visible(LABELS.contract_form)).toBe(true);
     expect(visible(LABELS.not_looking_for_work)).toBe(false);
     expect(visible(LABELS.no_contact)).toBe(false);
-    expect(visible("Brak doświadczenia")).toBe(true);
-    expect(visible("Inne")).toBe(true);
+    expect(visible("Za mało doświadczenia")).toBe(true);
+    expect(visible("Inne — opisz")).toBe(true);
   });
 
   it("powód, którego nie ma na nowej liście, nie zostaje wybrany po cichu", () => {
@@ -109,7 +110,7 @@ describe("RejectionV2 — lista powodów zależy od „Kto kończy?”", () => {
 
   it("wybór zastępuje pisanie: bez opisu, a „Inne” nadal go wymaga", () => {
     const onConfirm = renderWindow({ initialEndedBy: "client" });
-    fireEvent.click(screen.getByText("Inne"));
+    fireEvent.click(screen.getByText("Inne — opisz"));
     expect(confirm()).toBeDisabled();
     fireEvent.click(screen.getByText(LABELS.client_no_reason));
     expect(confirm()).toBeEnabled();
@@ -122,41 +123,8 @@ describe("RejectionV2 — lista powodów zależy od „Kto kończy?”", () => {
     renderWindow();
     fireEvent.click(screen.getByText(LABELS.no_contact));
     expect(document.activeElement?.tagName).not.toBe("TEXTAREA");
-    fireEvent.click(screen.getByText("Inne"));
+    fireEvent.click(screen.getByText("Inne — opisz"));
     expect(document.activeElement?.tagName).toBe("TEXTAREA");
-  });
-
-  it("powód dopisany przez admina jest widoczny zawsze", () => {
-    const custom = { name: "Klauzula konkurencji" };
-    for (const who of ["candidate", "recruiter", "delivery_lead", "client"] as const) {
-      expect(reasonFitsEndedBy(custom, who)).toBe(true);
-    }
-    expect(reasonFitsEndedBy({ name: " client_no_reason " }, "recruiter")).toBe(false);
-    expect(reasonFitsEndedBy({ name: "no_contact" }, "client")).toBe(false);
-  });
-});
-
-describe("groupRejectedReasons", () => {
-  it("„Inne” i powód admina nie giną poza grupami", () => {
-    const groups = groupRejectedReasons([
-      { name: "Brak doświadczenia" },
-      { name: "Klauzula konkurencji" },
-      { name: "Inne (rejected)" },
-    ]);
-    expect(groups.map((g) => g.title)).toEqual(["Wymagania", "Pozostałe"]);
-    expect(groups[1].reasons.map((r) => r.name)).toEqual(["Klauzula konkurencji", "Inne (rejected)"]);
-  });
-
-  it("szablon bez znanych powodów: płaska lista bez nagłówka", () => {
-    expect(groupRejectedReasons([{ name: "Własny" }])).toEqual([
-      { title: null, reasons: [{ name: "Własny" }] },
-    ]);
-  });
-
-  it("każdy powód jest na liście dokładnie raz", () => {
-    const flat = groupRejectedReasons(reasons).flatMap((g) => g.reasons);
-    expect(flat).toHaveLength(reasons.length);
-    expect(new Set(flat).size).toBe(reasons.length);
   });
 });
 
@@ -193,14 +161,15 @@ describe("RejectionV2 — osoba od systemu trafia do nowych powodów", () => {
   });
 
   it("„Nie odbiera” idzie do „Brak kontaktu”", () => {
-    expect(chooseAndConfirm("Nie odbiera (3 próby)")[0]).toBe("13");
+    expect(chooseAndConfirm("Nie odbiera / brak kontaktu")[0]).toBe("13");
   });
 
   it("powód bez wiersza w szablonie idzie jako „Inne” z nazwą w opisie", () => {
-    // Szablon z testu nie ma `client_other_vendor` (0740).
-    const call = chooseAndConfirm("Zgłoszony do klienta przez inną firmę");
+    // Szablon z testu nie ma `wrong_phone` (0745) — stary szablon albo admin skasował.
+    const call = chooseAndConfirm("Błędny numer telefonu");
     expect(call[0]).toBe("99");
-    expect(call[1]).toBe("Zgłoszony do klienta przez inną firmę");
+    expect(call[1]).toBe("Błędny numer telefonu");
+    expect(call[9].reason).toBe("wrong_phone");
   });
 
   it("szablon bez nowych powodów: nadal „Inne” z nazwą w opisie", () => {
@@ -210,9 +179,9 @@ describe("RejectionV2 — osoba od systemu trafia do nowych powodów", () => {
       previousStage: "new",
     });
     fireEvent.click(screen.getByText("Z rozmowy z osobą"));
-    fireEvent.click(screen.getByText("Nie odbiera (3 próby)"));
+    fireEvent.click(screen.getByText("Nie odbiera / brak kontaktu"));
     fireEvent.click(confirm());
     expect(onConfirm.mock.calls[0][0]).toBe("99");
-    expect(onConfirm.mock.calls[0][1]).toBe("Nie odbiera (3 próby)");
+    expect(onConfirm.mock.calls[0][1]).toBe("Nie odbiera / brak kontaktu");
   });
 });

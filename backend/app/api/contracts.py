@@ -105,6 +105,7 @@ from app.schemas.contract import (
     ContractTimelineItem,
     ContractUpdate,
     ContractVoidRequest,
+    OrderAfterEndRead,
     RegisterSubcategoriesResponse,
 )
 from app.schemas.contract_amendment import (
@@ -183,6 +184,11 @@ from app.services.contract_amendment_guard import (
     find_redundant_amendment,
 )
 from app.services.contractor_identity import contractor_identity_sql_expression
+from app.services.contract_order_after_end import (
+    attach_order_after_end,
+    order_after_end_contracts,
+    orders_after_end,
+)
 from app.services.contract_rate_documents.listing import (
     attach_rate_document_changes,
     open_rate_document_contracts,
@@ -1594,6 +1600,11 @@ async def _fill_client_manager(
     detail.client_pm_contact_hint = ClientManagerHint(**hint) if hint else None
 
 
+# Zbiory szybkich filtrów listy liczone przez serwer: „Kończące się”,
+# „Stawka z dokumentu” (0739) i „Zamówione po końcu” (19.11.2026).
+ContractBucket = Literal["ending", "rate_document", "order_after_end"]
+
+
 def _apply_contract_list_filters(
     query,
     *,
@@ -1616,7 +1627,7 @@ def _apply_contract_list_filters(
     order_end_from: Optional[date] = None,
     order_end_to: Optional[date] = None,
     agreement_not_terminated: bool = False,
-    bucket: Optional[Literal["ending", "rate_document"]] = None,
+    bucket: Optional[ContractBucket] = None,
 ):
     """Apply the shared contract list/export filters to ``query`` and return it.
 
@@ -1657,6 +1668,10 @@ def _apply_contract_list_filters(
         query = query.where(ending_bucket_clause())
     if bucket == "rate_document":
         query = query.where(Contract.id.in_(open_rate_document_contracts()))
+    if bucket == "order_after_end":
+        # „Klient zamówił okres po zakończeniu” (19.11.2026): kończące się
+        # i zakończone kontrakty z żywym zamówieniem po końcu projektu.
+        query = query.where(Contract.id.in_(order_after_end_contracts()))
     if status:
         query = query.where(Contract.status.in_(status))
     else:
@@ -2328,14 +2343,15 @@ async def list_contracts(
             "(`agreement_termination_mode` puste). Łączy się ze `status` (AND)."
         ),
     ),
-    bucket: Optional[Literal["ending", "rate_document"]] = Query(
+    bucket: Optional[ContractBucket] = Query(
         None,
         description=(
             "Szybki filtr „Kończące się” (18.11.2026): status `ending` albo żywa "
             "umowa z końcem w 30 dni — ta sama reguła co „Obsługa kontraktorów” "
             "(`contract_service.ending_bucket_clause`). `rate_document` = umowa "
             "albo aneks w Dokumentach podaje stawkę, której nie ma w harmonogramie "
-            "(0739). Łączy się ze `status` (AND)."
+            "(0739). `order_after_end` = kończący się albo zakończony kontrakt "
+            "z zamówieniem po końcu projektu (19.11.2026). Łączy się ze `status` (AND)."
         ),
     ),
     sort_by: Optional[ContractSortKey] = Query(
@@ -2579,6 +2595,7 @@ async def list_contracts(
         items = [_contract_list_item(c, latest_order_dates, _today) for c in contracts]
 
     await attach_rate_document_changes(db, items)
+    await attach_order_after_end(db, items)
     if not global_finance:
         for item in items:
             _redact_contract_finance(item, finance_client_ids)
@@ -2753,7 +2770,7 @@ async def export_contracts(
     order_end_from: Optional[date] = Query(None),
     order_end_to: Optional[date] = Query(None),
     agreement_not_terminated: bool = Query(False),
-    bucket: Optional[Literal["ending", "rate_document"]] = Query(None),
+    bucket: Optional[ContractBucket] = Query(None),
     limit: int = Query(10000, ge=1, le=50000),
 ):
     """Export contracts to CSV or Excel — client, rates, order dates and more.
@@ -4066,6 +4083,10 @@ async def get_contract(
     await _fill_client_manager(db, contract, detail)
     detail.related_contracts = await _related_contracts_for(db, contract, current_user)
     await _fill_termination_recovery(db, contract, detail)
+    detail.order_after_end = [
+        OrderAfterEndRead.model_validate(item.as_dict())
+        for item in await orders_after_end(db, contract.id)
+    ]
     can_view_finance = can_read_client_finance(
         current_user,
         client_id=contract.client_id,

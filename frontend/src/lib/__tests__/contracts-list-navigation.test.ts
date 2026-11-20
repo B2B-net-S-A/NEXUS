@@ -33,6 +33,7 @@ describe("contracts list navigation state", () => {
         endingSoon: false,
         agreementNotTerminated: false,
         rateDocument: false,
+        orderAfterEnd: false,
         startFrom: "",
         startTo: "",
         orderEndFrom: "",
@@ -42,6 +43,14 @@ describe("contracts list navigation state", () => {
         page: 1,
       },
     });
+  });
+
+  it("„Zamówione po końcu” (?after_end=1) to zbiór serwera bez listy statusów", () => {
+    const parsed = parseContractsListState("after_end=1");
+    expect(parsed.explicit).toBe(true);
+    expect(parsed.state.orderAfterEnd).toBe(true);
+    expect(parsed.state.statusFilter).toEqual([]);
+    expect(buildContractsListUrl({ ...parsed.state })).toBe("/contracts?status=all&after_end=1");
   });
 
   it("keeps a single explicitly chosen status", () => {

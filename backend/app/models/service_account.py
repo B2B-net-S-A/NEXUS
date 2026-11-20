@@ -97,8 +97,6 @@ class ServiceScope(str, enum.Enum):
     md_write = "md:write"
     finance_read = "finance:read"
     finance_write = "finance:write"
-    invoices_read = "invoices:read"
-    invoices_write = "invoices:write"
     # Kwoty w dwóch poziomach (decyzja Artura 14.10.2026): automatyzacja
     # rozliczająca faktury klientów potrzebuje tylko kwot sprzedaży — tego, co
     # płaci klient (stawka do klienta, wartość i budżet zamówienia, przychód,
@@ -177,8 +175,6 @@ SCOPE_LABELS: dict[ServiceScope, str] = {
     ServiceScope.md_write: "Zużycie MD: zapis (import, przypisanie wiersza, korekta miesiąca)",
     ServiceScope.finance_read: "Finanse: odczyt (zmiany w zamówieniach, PDF-y, wyniki)",
     ServiceScope.finance_write: "Finanse: zapis („Zrobione”, import wyników)",
-    ServiceScope.invoices_read: "Faktury: odczyt (rejestr, DSO)",
-    ServiceScope.invoices_write: "Faktury: zapis (wystawienie, zmiana, anulowanie)",
     ServiceScope.sales_amounts_read: (
         "Kwoty sprzedaży: stawki do klienta, wartości i budżety zamówień, "
         "przychód, faktury do klientów"

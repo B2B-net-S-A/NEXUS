@@ -17,6 +17,7 @@
  * którym strona karmi tablicę. Zero zapytań per wiersz.
  */
 
+import { closeTemplateOptions } from "@/lib/close-reasons";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -62,7 +63,6 @@ import {
 import { isInterviewStage } from "@/lib/job-flow-stages";
 import {
   loadJobRejectionReasons,
-  reasonFitsEndedBy,
   type RejectionReasonOption,
 } from "@/lib/rejection-reasons";
 import {
@@ -498,6 +498,7 @@ export function JobInterviewsTab({
           pending={terminalMutation.isPending}
           onOpenChange={(o) => !o && setPendingTerminal(null)}
           terminalType={pendingTerminal.terminal}
+          canWithdraw={rejectedColumn !== null && withdrawnColumn !== null}
           reasons={rejectionReasons}
           previousStageCategory={
             pendingTerminal.entry.col.category === "external"
@@ -535,7 +536,7 @@ export function JobInterviewsTab({
             sendRejectionEmail,
             offerResponse,
             freeReason,
-            _endedBy,
+            endedBy,
             _cancelAgreementId,
             emailText,
             workMode,
@@ -546,7 +547,12 @@ export function JobInterviewsTab({
           ) =>
             terminalMutation.mutate({
               item: pendingTerminal.entry.item,
-              col: pendingTerminal.col,
+              // „Kto kończy?” (19.11.2026) decyduje o etapie: „Kandydat
+              // rezygnuje” idzie na „Zrezygnował”, reszta na „Odrzucony”.
+              col:
+                (endedBy === "candidate") === (pendingTerminal.terminal === "withdrawn")
+                  ? pendingTerminal.col
+                  : (endedBy === "candidate" ? withdrawnColumn : rejectedColumn) ?? pendingTerminal.col,
               reasonId,
               notes,
               sendRejectionEmail,
@@ -858,8 +864,10 @@ function InterviewCard({
   const [note, setNote] = useState<string>(feedback?.note ?? "");
 
   // Karta rozmowy zapisuje głos klienta, więc lista jak przy „Odrzuca klient”.
-  const rejectedReasons = reasons.filter(
-    (r) => r.applies_to.includes("rejected") && reasonFitsEndedBy(r, "client"),
+  // Od 19.11.2026 w kolejności i z etykietami jednego słownika powodów.
+  const rejectedReasons = closeTemplateOptions(
+    reasons.filter((r) => r.applies_to.includes("rejected")),
+    "client",
   );
   const chosenReason = rejectedReasons.find((r) => r.id === reasonId) ?? null;
 

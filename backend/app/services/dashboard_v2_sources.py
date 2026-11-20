@@ -31,12 +31,10 @@ from app.api import (
     admin_snapshot,
     candidate_contact,
     contract_analytics,
-    invoices,
     priority_work,
 )
 from app.services import kpi_catalog
 from app.models.client import Client
-from app.models.invoice import InvoiceDirection
 from app.models.job import Job, JobStatus
 from app.models.recruitment_priority import RecruitmentPriorityDemand
 from app.models.user import User, UserRole
@@ -414,21 +412,6 @@ async def load_finance_clients(
     db: AsyncSession, *, as_of
 ) -> tuple[dict[str, Any], list[str], str]:
     return await metrics.finance_clients(db, as_of=as_of)
-
-
-async def load_finance_dso(user: User, db: AsyncSession) -> list[Any]:
-    return await invoices.dso_by_client(user, db)
-
-
-async def load_overdue_invoices(user: User, db: AsyncSession) -> list[Any]:
-    return await invoices.list_invoices(
-        current_user=user,
-        db=db,
-        contract_id=None,
-        status_filter=None,
-        direction=InvoiceDirection.to_client,
-        overdue_only=True,
-    )
 
 
 async def load_revenue_forecast(user: User, db: AsyncSession) -> Any:
