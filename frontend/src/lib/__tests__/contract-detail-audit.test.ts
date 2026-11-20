@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   contractDetailTabHref,
   isContractDetailTab,
+  resolveContractDetailTab,
 } from "@/lib/contract-detail-tab";
 import {
   buildScheduleEditSteps,
@@ -38,6 +39,38 @@ describe("zakładka szczegółów kontraktu w adresie (S9)", () => {
     );
     expect(contractDetailTabHref("/contracts/5", "?tab=notes&note=9", "equipment")).toBe(
       "/contracts/5?tab=equipment",
+    );
+  });
+});
+
+describe("7 zakładek zamiast 10 (przebudowa 19.11.2026, wariant A)", () => {
+  it("dawne klucze z linków w bazie trafiają na nowe zakładki", () => {
+    expect(resolveContractDetailTab("details")).toBe("overview");
+    expect(resolveContractDetailTab("notes")).toBe("care");
+    expect(resolveContractDetailTab("equipment")).toBe("start");
+    expect(resolveContractDetailTab("onboarding")).toBe("start");
+    expect(resolveContractDetailTab("invoices")).toBe("money");
+    expect(resolveContractDetailTab("rateHistory")).toBe("money");
+    expect(resolveContractDetailTab("timeline")).toBe("history");
+    // Te klucze się nie zmieniły.
+    expect(resolveContractDetailTab("documents")).toBe("documents");
+    expect(resolveContractDetailTab("amendments")).toBe("amendments");
+    expect(resolveContractDetailTab("care")).toBe("care");
+  });
+
+  it("nieznany klucz nie jest zakładką", () => {
+    expect(resolveContractDetailTab("zamowienia")).toBeNull();
+    expect(resolveContractDetailTab("")).toBeNull();
+    expect(resolveContractDetailTab(undefined)).toBeNull();
+  });
+
+  it("„Przegląd” zdejmuje parametr, a wzmianka zostaje przy notatkach w „Opiece”", () => {
+    expect(contractDetailTabHref("/contracts/5", "?tab=history", "overview")).toBe("/contracts/5");
+    expect(contractDetailTabHref("/contracts/5", "?tab=notes&note=9", "care")).toBe(
+      "/contracts/5?tab=care&note=9",
+    );
+    expect(contractDetailTabHref("/contracts/5", "?tab=care&note=9", "money")).toBe(
+      "/contracts/5?tab=money",
     );
   });
 });
