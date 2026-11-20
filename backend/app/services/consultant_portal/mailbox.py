@@ -41,7 +41,12 @@ from app.models.user import User
 from app.services import support_mail_route
 from app.services.admin_cases.mailbox import m365_mailbox as cases_mailbox
 from app.services.client_settlements import kesu
-from app.services.consultant_portal import documents, identity, portal_settings
+from app.services.consultant_portal import (
+    documents,
+    forwarded,
+    identity,
+    portal_settings,
+)
 from app.services.consultant_portal.auth import PortalError
 from app.services.m365.app_graph_client import AppGraphClient, AppOnlyTokenUnavailable
 from app.services.m365.graph_client import GraphRequestError
@@ -160,6 +165,18 @@ def classify_kind(subject: str, file_name: str) -> str:
     return "report" if _PROOF_EXTENSIONS.search(file_name.strip()) else "invoice"
 
 
+def _named_kind(subject: str, file_name: str) -> bool:
+    """Rodzaj wynika z nazwy pliku albo tematu, a nie z domyślnej „faktury”."""
+
+    if _PROOF_EXTENSIONS.search(file_name.strip()):
+        return True
+    return any(
+        pattern.search(text)
+        for pattern in (_INVOICE, _REPORT)
+        for text in (file_name, subject)
+    )
+
+
 def find_period(text: str) -> Optional[tuple[int, int]]:
     """(rok, miesiąc) z tekstu: „10/2026”, „2026-10”, „październik 2026”."""
 
@@ -253,6 +270,21 @@ async def _ingest_message(
     )
     if contract is None and not state.any_sender:
         return 0, 1
+    files = list(await mailbox.attachments(str(message["id"])))
+    inner = None
+    if contract is None or any(
+        f.get("@odata.type") == forwarded.ITEM_ATTACHMENT for f in files
+    ):
+        inner = await _forwarded(mailbox, message)
+        files.extend(inner.files if inner else ())
+    if contract is None and inner is not None:
+        contract = await _forwarded_contract(
+            db, inner.senders, state=state, today=today
+        )
+    by_name = None
+    if contract is None:
+        names = " ".join([subject, *(str(f.get("name") or "") for f in files)])
+        by_name = await identity.resolve_named_in_text(db, names, today=today)
     contract_id = contract.id if contract else None
     received = _parse_time(message.get("receivedDateTime")) or now
     created = skipped = 0
@@ -268,7 +300,7 @@ async def _ingest_message(
             sender=sender,
         )
         created += made
-    for attachment in await mailbox.attachments(str(message["id"])):
+    for attachment in files:
         if attachment.get("@odata.type") != _FILE_ATTACHMENT or attachment.get(
             "isInline"
         ):
@@ -288,10 +320,16 @@ async def _ingest_message(
             skipped += 1
             continue
         year, month, guessed = period_for(subject, name, received.date())
+        owner = contract_id
+        if owner is None and by_name is not None and _named_kind(subject, name):
+            # Po samym nazwisku tylko plik, który z nazwy jest raportem albo fakturą:
+            # porozumienie o rozwiązaniu czy certyfikat z nazwiskiem w temacie
+            # nie może wejść do rozliczenia jako faktura kontraktora.
+            owner = by_name.id
         try:
             stored = await documents.store(
                 db,
-                contract_id=contract_id,
+                contract_id=owner,
                 kind=classify_kind(subject, name),
                 year=year,
                 month=month,
@@ -313,6 +351,39 @@ async def _ingest_message(
             db, mailbox, message, contract, subject=subject, received=received, now=now
         )
     return created, skipped
+
+
+async def _forwarded(
+    mailbox: SettlementsMailbox, message: dict[str, Any]
+) -> Optional[forwarded.Forwarded]:
+    fetch = getattr(mailbox, "mime", None)
+    if fetch is None:
+        return None
+    try:
+        raw = await fetch(str(message["id"]))
+    except (GraphRequestError, AppOnlyTokenUnavailable) as exc:
+        logger.info("rozliczenia@: MIME pominięty (%s)", type(exc).__name__)
+        return None
+    return forwarded.parse(raw) if raw else None
+
+
+async def _forwarded_contract(
+    db: AsyncSession,
+    senders: tuple[str, ...],
+    *,
+    state: portal_settings.PortalSettings,
+    today: date,
+) -> Optional[Contract]:
+    """Kontrakt pierwotnego nadawcy przekazanego maila; dwie osoby w łańcuchu = nikt."""
+
+    found: dict[int, Contract] = {}
+    for address in senders:
+        contract = await identity.resolve_sender(
+            db, address, settings=state, today=today
+        )
+        if contract is not None:
+            found[contract.id] = contract
+    return next(iter(found.values())) if len(found) == 1 else None
 
 
 async def _kesu_contract(

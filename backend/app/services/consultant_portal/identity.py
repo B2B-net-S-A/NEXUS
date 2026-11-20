@@ -8,6 +8,7 @@ da się powiedzieć, czyje sprawy pokazać. Kontrakt zakończony działa jeszcze
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -192,6 +193,45 @@ async def _by_company_address(
     if len({c.candidate_id for c in hits}) != 1:
         return []
     return hits
+
+
+async def resolve_named_in_text(
+    db: AsyncSession, text: str, *, today: date
+) -> Optional[Contract]:
+    """Kontrakt osoby, której imię i nazwisko stoi w temacie albo nazwie pliku.
+
+    Ostatnia deska, gdy nadawca nikogo nie wskazuje: koordynator przesyła cudze
+    pliki, klient akceptuje „Odbiór usług … Nazwisko Imię”, konsultant pisze
+    z drugiego prywatnego adresu („TimeSheet … Nazwisko Imię.xls”). W próbie IX–XI
+    2026 to było ok. 570 dokumentów bez osoby. Kolejność słów dowolna, imię
+    i każdy człon nazwiska muszą stać w tekście. Dwie osoby w tekście albo jedna
+    z dwoma działającymi kontraktami = ``None`` (karta do ręcznego przypisania).
+    """
+
+    words = set(_fold(re.sub(r"[^\w]+|_", " ", text)).split())
+    if len(words) < 2:
+        return None
+    rows = (
+        await db.execute(
+            select(Contract, Candidate.name, Candidate.lastname)
+            .join(Candidate, Candidate.id == Contract.candidate_id)
+            .where(
+                Contract.status.in_(_LIVE)
+                | (
+                    (Contract.status == ContractStatus.ended)
+                    & (Contract.end_date >= today - timedelta(days=ENDED_GRACE_DAYS))
+                )
+            )
+        )
+    ).all()
+    hits = []
+    for contract, first, last in rows:
+        person = _fold(first).split()[:1] + _fold(last).split()
+        if len(person) >= 2 and set(person) <= words and eligible(contract, today):
+            hits.append(contract)
+    if len(hits) != 1:
+        return None
+    return hits[0]
 
 
 def _fold(text: Optional[str]) -> str:
