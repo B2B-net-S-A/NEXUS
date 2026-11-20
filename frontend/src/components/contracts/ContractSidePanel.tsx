@@ -38,7 +38,12 @@ import {
   contractPanelPrimary,
   type ContractPanelFacts,
 } from "@/lib/contract-panel";
-import { contractDetailTabHref, type ContractDetailTab } from "@/lib/contract-detail-tab";
+import {
+  contractDetailTabHref,
+  resolveContractDetailTab,
+  type ContractDetailTab,
+  type LegacyContractDetailTab,
+} from "@/lib/contract-detail-tab";
 import { canAmendContractRates } from "@/lib/contract-rate-amendment";
 import { permissionLabel } from "@/lib/permissions";
 import {
@@ -293,11 +298,11 @@ export function ContractSidePanel({
   const [openingDocId, setOpeningDocId] = useState<number | null>(null);
   const [openingOrderId, setOpeningOrderId] = useState<number | null>(null);
 
-  const detailHref = (tab?: ContractDetailTab) => {
+  const detailHref = (tab?: ContractDetailTab | LegacyContractDetailTab) => {
     const base = returnTarget
       ? buildContractDetailHref(contractId, returnTarget, source)
       : `/contracts/${contractId}`;
-    if (!tab || tab === "details") return base;
+    if (!tab || resolveContractDetailTab(tab) === "overview") return base;
     const [path, query = ""] = base.split("?");
     return contractDetailTabHref(path, query, tab);
   };

@@ -126,7 +126,11 @@ async def test_extension_amendment_moves_end_date(
         return
     cid = contracts[0]["id"]
     old_end = contracts[0].get("end_date")
-    target = (business_today() + timedelta(days=365)).isoformat()
+    target_day = business_today() + timedelta(days=365)
+    # Przedłużenie musi wydłużać umowę (19.11.2026, `contract_amendment_guard`).
+    if old_end is not None and date.fromisoformat(old_end) >= target_day:
+        target_day = date.fromisoformat(old_end) + timedelta(days=365)
+    target = target_day.isoformat()
 
     payload = {
         "amendment_type": "extension",
@@ -150,19 +154,17 @@ async def test_extension_amendment_moves_end_date(
     ).json()
     assert after["end_date"] == target
 
-    # Revert so re-running tests doesn't drift real data.
+    # Revert so re-running tests doesn't drift real data. „Przedłużenie” do
+    # wcześniejszej daty to od 19.11.2026 odmowa 422 `extension_shortens`
+    # (tak powstał mylny aneks w zgłoszeniu), więc powrót idzie edycją umowy
+    # nie-B2B, w której data końca jest częścią umowy.
     if old_end is not None:
-        revert = await app_client.post(
-            f"/api/contracts/{cid}/amendments",
-            json={
-                "amendment_type": "extension",
-                "effective_date": business_today().isoformat(),
-                "new_end_date": old_end,
-                "reason": "revert E2E",
-            },
+        revert = await app_client.patch(
+            f"/api/contracts/{cid}",
+            json={"end_date": old_end},
             headers=app_auth_headers,
         )
-        assert revert.status_code == 201
+        assert revert.status_code == 200, revert.text
 
 
 async def test_rate_change_requires_at_least_one_field(

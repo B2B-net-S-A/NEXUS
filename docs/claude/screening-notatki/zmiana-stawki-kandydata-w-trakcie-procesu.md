@@ -16,8 +16,9 @@ Kod: `services/candidate_rate_change.py` (reguła), `api/candidate_rate_changes.
 - **Jeden wiersz `candidate_rate_changes` = jedna sprawa** z cyklem
   `noted | requested → negotiating → agreed → closed`, `superseded` przy
   kolejnej zmianie. Jedna OTWARTA sprawa na parę (częściowy UNIQUE).
-  Przed „Zweryfikowany” wpis bez powiadomień (D1); od niego dzwonek DL
-  (`_dl_reviewers`) i każdego Head of Recruitment (D2); wzrost od „CV wysłane”
+  Przed „Zweryfikowany” wpis bez powiadomień (D1); od niego dzwonek każdego
+  Head of Recruitment (D2; DL dostawał go do 19.11.2026, od tej daty tylko
+  zadanie — `powiadomienia/dl-tylko-dzwonki-z-zadaniem.md`); wzrost od „CV wysłane”
   = zadanie DL `candidate_rate_change_task` (kategoria obowiązkowa) z mailem
   (rodzaj `rate_change`, opt-in w Ustawieniach) (D3); spadek i pomyłka = info (D5).
 - **Otwarta sprawa czekająca na DL porównuje się ze stawką, z którą CV poszło

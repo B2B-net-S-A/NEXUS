@@ -379,10 +379,19 @@ async def change_rate(
 
 
 async def _recipients(
-    db: AsyncSession, *, job: Job, candidate_id: int, actor_id: int
+    db: AsyncSession,
+    *,
+    job: Job,
+    candidate_id: int,
+    actor_id: int,
+    requires_decision: bool = True,
 ) -> list[tuple[int, str]]:
     """``[(user_id, rola_w_sprawie)]`` — DL, HoR, rekruter; bez autora i
-    bez powtórzeń (osoba z dwiema rolami dostaje ważniejszy wpis)."""
+    bez powtórzeń (osoba z dwiema rolami dostaje ważniejszy wpis).
+
+    Delivery Lead tylko wtedy, gdy zmiana czeka na jego decyzję (po wysłaniu
+    CV): sama informacja o stawce do niego nie idzie (decyzja Artura
+    19.11.2026)."""
 
     from app.services.notification_triggers import (  # noqa: PLC0415 — cykl
         _hor_user_ids,
@@ -394,7 +403,7 @@ async def _recipients(
 
     out: list[tuple[int, str]] = []
     seen: set[int] = {actor_id}
-    for uid in await _dl_reviewers(db, job):
+    for uid in await _dl_reviewers(db, job) if requires_decision else ():
         if uid not in seen:
             seen.add(uid)
             out.append((uid, "dl"))
@@ -424,7 +433,11 @@ async def _notify(
     if job is None:
         return
     recipients = await _recipients(
-        db, job=job, candidate_id=change.candidate_id, actor_id=actor.id
+        db,
+        job=job,
+        candidate_id=change.candidate_id,
+        actor_id=actor.id,
+        requires_decision=bool(change.requires_decision),
     )
     if not recipients:
         return

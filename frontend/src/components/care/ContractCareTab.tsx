@@ -66,7 +66,16 @@ function TechCardEditor({
  * sama co w panelu `/care?contract=`). Historię opinii klienta (D11)
  * dokłada strona kontraktu pod kartą (`ContractFeedbackHistory`).
  */
-export function ContractCareTab({ contractId }: { contractId: number }) {
+export function ContractCareTab({
+  contractId,
+  autoStartTalk = false,
+  onAutoStartTalkDone,
+}: {
+  contractId: number;
+  /** Otwórz od razu okno zapisu rozmowy (pas „Co się dzieje” strony kontraktu). */
+  autoStartTalk?: boolean;
+  onAutoStartTalkDone?: () => void;
+}) {
   const card = useConsultantCard(contractId);
   const [editTarget, setEditTarget] = useState<{ id: number | null; on: string } | null>(null);
   const canEdit = card.data?.can_edit ?? false;
@@ -85,7 +94,13 @@ export function ContractCareTab({ contractId }: { contractId: number }) {
 
   return (
     <div className="space-y-3 rounded-lg border border-border bg-card p-4">
-      <ConsultantCard contractId={contractId} layout="page" historyAction={historyAction} />
+      <ConsultantCard
+        contractId={contractId}
+        layout="page"
+        historyAction={historyAction}
+        autoStartTalk={autoStartTalk}
+        onAutoStartTalkDone={onAutoStartTalkDone}
+      />
       {editTarget && card.data ? (
         <TechCardEditor
           contractId={contractId}

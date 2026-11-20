@@ -275,7 +275,9 @@ async function requestDelete() {
   renderPage();
 
   await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
-  await user.click(screen.getByRole("button", { name: /^Usuń$/ }));
+  // Od przebudowy 19.11.2026 „Usuń” jest w menu „Więcej akcji” nagłówka.
+  await user.click(screen.getByRole("button", { name: "Więcej akcji" }));
+  await user.click(await screen.findByRole("menuitem", { name: /Usuń kontrakt/ }));
 
   const firstDialog = screen.getByRole("dialog", {
     name: "Usunąć kontrakt?",
@@ -364,6 +366,8 @@ describe("ContractDetailPage — sama zmiana kwot edytuje tylko kwoty (audyt 22.
     // Bez edycji kontraktów nie ma pełnej edycji ani usuwania.
     expect(screen.queryByRole("button", { name: /^Edytuj$/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Usuń$/ })).not.toBeInTheDocument();
+    // Menu z usunięciem, przepięciem i szablonami też jest tylko dla edycji kontraktów.
+    expect(screen.queryByRole("button", { name: "Więcej akcji" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^Edytuj stawki$/ }));
     expect(screen.getByText("Edycja stawek")).toBeInTheDocument();
@@ -408,6 +412,8 @@ describe("ContractDetailPage — bez edycji kontraktów strona jest do odczytu",
     await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     expect(screen.queryByRole("button", { name: /Edytuj/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Usuń$/ })).not.toBeInTheDocument();
+    // Menu z usunięciem, przepięciem i szablonami też jest tylko dla edycji kontraktów.
+    expect(screen.queryByRole("button", { name: "Więcej akcji" })).not.toBeInTheDocument();
     expect(
       screen.queryByRole("combobox", { name: "Zmień status kontraktu" }),
     ).not.toBeInTheDocument();
@@ -545,14 +551,14 @@ describe("ContractDetailPage — wymuszone usunięcie podpisanego kontraktu", ()
   });
 });
 
-describe("ContractDetailPage — Timeline (retest UAT B23)", () => {
+describe("ContractDetailPage — Historia, dawny Timeline (retest UAT B23)", () => {
   it("błąd pobrania historii nie udaje pustej historii", async () => {
     mocks.activities.mockRejectedValue({ response: { status: 500 } });
     const user = userEvent.setup({ delay: null });
     renderPage();
 
     await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
-    await user.click(screen.getByRole("button", { name: /Timeline/ }));
+    await user.click(screen.getByRole("button", { name: /^Historia$/ }));
 
     expect(await screen.findByText("Nie udało się pobrać danych")).toBeInTheDocument();
     expect(screen.queryByText("Brak wpisów w historii.")).not.toBeInTheDocument();
@@ -564,7 +570,7 @@ describe("ContractDetailPage — Timeline (retest UAT B23)", () => {
     renderPage();
 
     await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
-    await user.click(screen.getByRole("button", { name: /Timeline/ }));
+    await user.click(screen.getByRole("button", { name: /^Historia$/ }));
 
     expect(await screen.findByText("Brak wpisów w historii.")).toBeInTheDocument();
   });
@@ -577,10 +583,10 @@ describe("ContractDetailPage — audyt 24.09 (blok D)", () => {
     renderPage();
 
     expect(await screen.findByText("zakładka aneksów")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Timeline/ }));
+    await user.click(screen.getByRole("button", { name: /^Historia$/ }));
     // Natywna historia, nie router — ten przewijałby stronę na górę.
     expect(window.location.pathname).toBe("/contracts/563");
-    expect(window.location.search).toContain("tab=timeline");
+    expect(window.location.search).toContain("tab=history");
     expect(window.location.search).toContain("from=contracts");
     expect(mocks.replace).not.toHaveBeenCalled();
   });
@@ -621,12 +627,15 @@ describe("ContractDetailPage — audyt 24.09 (blok D)", () => {
   });
 
   it("benchmark tylko z `view_finance` — ta sama bramka co backend (S1)", async () => {
+    // Od przebudowy 19.11.2026 karta porównania stoi w zakładce „Pieniądze”.
+    mocks.search = "tab=money";
     renderPage();
     expect(await screen.findByText("karta benchmarku")).toBeInTheDocument();
   });
 
   it("konto bez `view_finance` nie dostaje karty kończącej się 403 (S1)", async () => {
     mocks.access = { canViewBenchmark: false };
+    mocks.search = "tab=money";
     renderPage();
     await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     expect(screen.queryByText("karta benchmarku")).not.toBeInTheDocument();
@@ -720,5 +729,74 @@ describe("ContractDetailPage — odmowa dostępu to nie awaria", () => {
     mocks.getContract.mockRejectedValue({ response: { status: 500 } });
     renderPage();
     expect(await screen.findByText("Nie udało się wczytać kontraktu.")).toBeInTheDocument();
+  });
+});
+
+/**
+ * Przebudowa 19.11.2026 (wariant A): pas „Co się dzieje” pod nagłówkiem zbiera
+ * koniec współpracy, koniec zamówienia, opiekę i brak stawki. Akcje w pasie
+ * mają te same bramki co reszta strony.
+ */
+describe("ContractDetailPage — pas „Co się dzieje”", () => {
+  const ending = {
+    ...contract,
+    status: "ending",
+    rate_client: 165,
+    rate_client_currency: "PLN",
+    end_date: "2099-11-30",
+    terminated_at: "2099-11-30",
+    termination_reason: "client_budget_cut",
+    agreement_termination_mode: null,
+  };
+
+  it("zakończenie z nierozwiązaną umową B2B stoi na górze z „Zapisz rozwiązanie umowy”", async () => {
+    mocks.getContract.mockResolvedValue({ data: ending });
+    renderPage();
+    const strip = await screen.findByTestId("contract-happening");
+    expect(within(strip).getByText(/Współpraca kończy się 30\.11\.2099/)).toBeInTheDocument();
+    expect(within(strip).getByText(/Umowa B2B nie jest rozwiązana/)).toBeInTheDocument();
+    expect(within(strip).getByRole("button", { name: "Zapisz rozwiązanie umowy" })).toBeInTheDocument();
+  });
+
+  it("bez prawa zmiany statusu pas mówi o końcu, ale nie daje akcji", async () => {
+    mocks.getContract.mockResolvedValue({ data: ending });
+    mocks.access = { canEditContractStatus: false, canRecoverTermination: false };
+    renderPage();
+    const strip = await screen.findByTestId("contract-happening");
+    expect(within(strip).getByText(/Współpraca kończy się/)).toBeInTheDocument();
+    expect(within(strip).queryByRole("button", { name: "Zapisz rozwiązanie umowy" })).not.toBeInTheDocument();
+    expect(within(strip).queryByRole("button", { name: /Cofnij zakończenie/ })).not.toBeInTheDocument();
+  });
+
+  it("brak stawki klienta: „Uzupełnij stawkę” tylko dla edycji kontraktu albo kwot", async () => {
+    mocks.getContract.mockResolvedValue({ data: { ...contract, rate_client: null } });
+    renderPage();
+    const strip = await screen.findByTestId("contract-happening");
+    expect(within(strip).getByText("Brak stawki klienta")).toBeInTheDocument();
+    expect(within(strip).getByRole("button", { name: "Uzupełnij stawkę" })).toBeInTheDocument();
+  });
+
+  it("konto bez edycji widzi brak stawki bez przycisku", async () => {
+    mocks.getContract.mockResolvedValue({ data: { ...contract, rate_client: null } });
+    mocks.access = { canEditContract: false, financeAmountsOnly: false, canEditContractStatus: false };
+    renderPage();
+    const strip = await screen.findByTestId("contract-happening");
+    expect(within(strip).queryByRole("button", { name: "Uzupełnij stawkę" })).not.toBeInTheDocument();
+  });
+
+  it("konto bez widoku kwot nie widzi fałszywego „Brak stawki klienta” (serwer zeruje stawki)", async () => {
+    mocks.getContract.mockResolvedValue({ data: { ...contract, rate_client: null } });
+    mocks.access = { canViewFinance: false, canViewBenchmark: false };
+    renderPage();
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    expect(screen.queryByText("Brak stawki klienta")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Uzupełnij stawkę" })).not.toBeInTheDocument();
+  });
+
+  it("spokojny kontrakt nie ma pasa", async () => {
+    mocks.getContract.mockResolvedValue({ data: { ...contract, rate_client: 165, rate_client_currency: "PLN" } });
+    renderPage();
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    expect(screen.queryByTestId("contract-happening")).not.toBeInTheDocument();
   });
 });

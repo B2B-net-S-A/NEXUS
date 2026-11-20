@@ -214,20 +214,20 @@ async def _fresh_top_matches(
 
 
 async def _digest_recipients(db, job: Job) -> set[int]:
-    """Prowadzący przez zastępstwo z COMPASS; bez nikogo — DL rekrutacji
-    (a bez niego Head of Recruitment). Lustro ``similar_job_notify._recipients``
-    (R8-X1-6). TAC wypadł — funkcji TAC nie używamy (22.09.2026)."""
-    from app.services.job_previous_recruiters import working_owner_id
-    from app.services.notification_triggers import (
-        _delivery_lead_targets,
-        _operational_recipient,
-    )
+    """Prowadzący przez zastępstwo z COMPASS; bez nikogo — nikt.
 
-    # „Poprzedni rekruter” (14.10.2026) nie dostaje digestu — idzie do DL-a.
+    Do 19.11.2026 rekrutacja bez prowadzącego dawała digest DL-owi (a bez niego
+    Head of Recruitment): 181 dzwonków u DL-i w 14 dni. Decyzja Artura: DL
+    dostaje tylko to, przy czym ma coś do zrobienia, a dopasowania przegląda
+    rekruter. Brak prowadzącego zgłasza tygodniowy wpis „przypisz rekrutera”
+    (``check_stage_stuck_7d``). TAC wypadł — funkcji TAC nie używamy
+    (22.09.2026)."""
+    from app.services.job_previous_recruiters import working_owner_id
+    from app.services.notification_triggers import _operational_recipient
+
+    # „Poprzedni rekruter” (14.10.2026) nie dostaje digestu.
     performer = await _operational_recipient(db, [await working_owner_id(db, job)])
-    if performer is not None:
-        return {performer}
-    return set(await _delivery_lead_targets(db, job))
+    return {performer} if performer is not None else set()
 
 
 async def run_match_digest() -> dict[str, Any]:

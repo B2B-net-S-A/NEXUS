@@ -303,6 +303,76 @@ describe("zmieniono ponownie", () => {
   });
 });
 
+describe("zejście osoby z kilkoma zamówieniami", () => {
+  // Zgłoszenie 19.11.2026: konsultant z trzema zamówieniami u klienta stał
+  // w Zejściach trzy razy. Serwer zwraca jeden wiersz z `other_orders`.
+  const exit: OrderExitItem = {
+    order_id: 11,
+    order_group_id: null,
+    contract_id: 7,
+    client_id: 15,
+    client_name: "Telekom Demo",
+    consultant_name: "Robert Fikcyjny",
+    order_number: "SAP 4500111111",
+    item_key: "exit:11:2026-10-30",
+    order_start: "2026-01-01",
+    order_end: "2026-10-30",
+    end_date: "2026-10-30",
+    start_date: "2026-01-01",
+    rate_cost: null,
+    rate_revenue: null,
+    rate_unit: null,
+    currency: null,
+    order_type: "periodic",
+    verdict: "ended_intent",
+    verdict_label: "Współpraca zakończona (umowa wypowiedziana)",
+    intent: "contract_ended",
+    other_orders: [
+      {
+        order_id: 12,
+        order_group_id: null,
+        order_number: "SAP 4500222222",
+        end_date: "2026-10-30",
+        start_date: "2026-04-01",
+        order_start: "2026-04-01",
+        order_end: "2026-10-30",
+        pdf: null,
+      },
+      {
+        order_id: 13,
+        order_group_id: null,
+        order_number: "SAP 4500333333",
+        end_date: "2026-10-30",
+        start_date: "2026-07-22",
+        order_start: "2026-07-22",
+        order_end: "2026-10-30",
+        pdf: null,
+      },
+    ],
+  };
+
+  it("jedna karta i jedna pozycja do zrobienia, numery wszystkich zamówień", () => {
+    const items = boardItems(data([], { exits: [exit] }), "exits");
+    expect(statusCounts(items)).toEqual({ todo: 1, done: 0, all: 1 });
+    expect(clientTiles(items).map((tile) => tile.total)).toEqual([1]);
+    const [card] = buildCards(items, "todo");
+    expect(card.orderNumber).toBe("SAP 4500111111");
+    expect(card.otherOrders.map((order) => order.orderNumber)).toEqual([
+      "SAP 4500222222",
+      "SAP 4500333333",
+    ]);
+  });
+
+  it("zwykłe zejście nie ma dołączonych zamówień", () => {
+    const { other_orders: _, ...single } = exit;
+    const [card] = buildCards(
+      boardItems(data([], { exits: [single] }), "exits"),
+      "todo",
+    );
+    expect(card.otherOrders).toEqual([]);
+  });
+});
+
 describe("liczniki i klienci", () => {
   const response = data([
     change({ item_key: "a", client_id: 1, client_name: "Beta", done: DONE }),

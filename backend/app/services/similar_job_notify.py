@@ -36,7 +36,6 @@ from app.models.notification import NotificationType
 from app.services.contract_availability import without_live_contract_clause
 from app.services.job_previous_recruiters import working_owner_id
 from app.services.notification_triggers import (
-    _delivery_lead_targets,
     _operational_recipient,
     emit,
 )
@@ -218,10 +217,12 @@ async def notify_similar_job_candidates(db: AsyncSession, job_id: int) -> int:
 async def _recipients(db: AsyncSession, job: Job) -> list[int]:
     """Prowadzący i twórca rekrutacji — każdy przez zastępstwo z COMPASS.
 
-    Runda 8 (R8-X1-6): konto nieaktywne to brak osoby. Gdy nie zostaje nikt,
-    dzwonek idzie do DL-a rekrutacji (a bez niego do Head of Recruitment),
-    zamiast przepaść w ``emit``. TAC wypadł z adresatów — funkcji TAC nie
-    używamy (decyzja Artura 22.09.2026).
+    Runda 8 (R8-X1-6): konto nieaktywne to brak osoby. TAC wypadł z adresatów
+    — funkcji TAC nie używamy (decyzja Artura 22.09.2026).
+
+    Delivery Lead nie dostaje dzwonka ani jako twórca rekrutacji, ani jako
+    zapas, gdy nie zostaje nikt (decyzja Artura 19.11.2026: DL tylko wtedy,
+    gdy ma coś do zrobienia; przepięcie kandydatów robi rekruter).
     """
     owner_id = await working_owner_id(db, job)
     # „Poprzedni rekruter” (14.10.2026) nie dostaje dzwonka — także wtedy,
@@ -231,12 +232,12 @@ async def _recipients(db: AsyncSession, job: Job) -> list[int]:
     for owner in (owner_id, job.created_by):
         if parked_id is not None and owner == parked_id:
             continue
+        if owner != owner_id and owner == job.delivery_lead_id:
+            continue
         performer = await _operational_recipient(db, [owner])
         if performer is not None and performer not in out:
             out.append(performer)
-    if out:
-        return out
-    return await _delivery_lead_targets(db, job)
+    return out
 
 
 async def run_similar_job_notify_safe(job_id: int) -> None:
