@@ -314,25 +314,6 @@ async def _seed_b2b_generated(contract_number: str, year: int, seq: int) -> None
         await db.commit()
 
 
-async def _seed_invoice(contract_id: int, invoice_number: str) -> None:
-    from app.core.database import AsyncSessionLocal
-    from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
-
-    async with AsyncSessionLocal() as db:
-        db.add(
-            Invoice(
-                contract_id=contract_id,
-                direction=InvoiceDirection.to_client,
-                invoice_number=invoice_number,
-                issue_date=business_today(),
-                amount=1000,
-                currency="PLN",
-                status=InvoiceStatus.issued,
-            )
-        )
-        await db.commit()
-
-
 async def _contracts_count() -> int:
     """Policz WSZYSTKIE kontrakty.
 
@@ -379,10 +360,8 @@ _ALLOWED_SAMPLE_FIELDS = {
     # Egzemplarz z rejestru „Sprzęt” (`equipment_items.id`) — numer, nie nazwa.
     "item_id",
     "signature_id",
-    "invoice_id",
     "occurrences",
     "contract_number",
-    "invoice_number",
     "effective_from",
     # Numer zamówienia MD/kosztowego — identyfikator dokumentu od klienta,
     # tej samej klasy co `contract_number`. Kwoty i nazwiska NIE wchodzą:
@@ -529,12 +508,6 @@ async def test_inventory_detects_anomalies_and_does_not_mutate(
     await _seed_b2b_generated(dup_num, 9999, 1)
     await _seed_b2b_generated(dup_num, 9999, 2)
 
-    # duplicate invoice number
-    dup_inv = f"DUP-{uuid.uuid4().hex[:8]}"
-    c_inv = await _seed_contract(client_id=client_id, job_id=job_id)
-    await _seed_invoice(c_inv, dup_inv)
-    await _seed_invoice(c_inv, dup_inv)
-
     rows_before = await _contracts_count()
     r = await app_client.get(URL, headers=app_auth_headers)
     assert r.status_code == 200, r.text
@@ -591,8 +564,8 @@ async def test_inventory_detects_anomalies_and_does_not_mutate(
 
     dupnum_check = _check(report, "duplicate_contract_number")
     assert dup_num in {row.get("contract_number") for row in dupnum_check["sample"]}
-    dupinv_check = _check(report, "duplicate_invoice_number")
-    assert dup_inv in {row.get("invoice_number") for row in dupinv_check["sample"]}
+    assert "duplicate_invoice_number" not in {c["key"] for c in report["checks"]}
+    assert "invoices_total" not in report["totals"]
 
     # A well-formed contract with document/rates/job/coverage must NOT surface
     # in the P0 document/start checks.

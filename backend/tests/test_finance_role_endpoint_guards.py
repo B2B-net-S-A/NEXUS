@@ -33,7 +33,6 @@ from app.api import (
     contracts,
     financial_adjustments,
     hiring_managers_analytics,
-    invoices,
     job_chat,
     jobs,
     my_clients,
@@ -96,9 +95,6 @@ def _user(role: UserRole) -> User:
     "endpoint",
     [
         financial_adjustments.list_adjustments,
-        invoices.list_invoices,
-        invoices.export_invoices_csv,
-        invoices.get_invoice,
         rate_cards.list_rate_cards,
         rate_cards.suggest_rate,
         rate_cards.get_rate_card,
@@ -112,7 +108,6 @@ def test_financial_reads_require_finance_read(endpoint):
 @pytest.mark.parametrize(
     "endpoint",
     [
-        invoices.dso_by_client,
         reports.report_sales,
         contract_analytics.margin_by_client,
         contract_analytics.revenue_forecast,
@@ -132,9 +127,6 @@ def test_company_wide_results_require_the_company_results_permission(endpoint):
     "endpoint",
     [
         financial_adjustments.create_adjustment,
-        invoices.create_invoice,
-        invoices.update_invoice,
-        invoices.delete_invoice,
         rate_cards.create_rate_card,
         rate_cards.update_rate_card,
         rate_cards.delete_rate_card,
