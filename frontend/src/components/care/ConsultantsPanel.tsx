@@ -64,6 +64,8 @@ const FILTERS: { value: ConsultantsFilter; label: string }[] = [
   { value: "redeploy", label: "Do przepięcia" },
   { value: "ending", label: `Kończą w ${ENDING_DAYS} dni` },
 ];
+/** Filtry samego rytmu — przy module back office rytmu nie ma (20.11.2026). */
+const RHYTHM_FILTERS: ReadonlySet<ConsultantsFilter> = new Set(["biweekly", "paused"]);
 
 const REASONS = Object.keys(OWNER_REASON_LABELS) as OwnerReason[];
 
@@ -183,6 +185,13 @@ interface ConsultantsPanelProps {
   /** Filtr startowy (dawne `?tab=redeploy` → „Do przepięcia”). */
   initialFilter?: ConsultantsFilter;
   selectedId?: number | null;
+  /** Rytm rozmów (filtry, kolumna, licznik); `false` przy module back office. */
+  rhythm?: boolean;
+  /**
+   * Czytający ma podopiecznych. `false` (Delivery Lead przy module back office):
+   * bez kolumn „Następna rozmowa” i „Opiekun” — tych konsultantów prowadzi kolejka.
+   */
+  wards?: boolean;
 }
 
 /**
@@ -202,10 +211,15 @@ export function ConsultantsPanel({
   canAssign,
   initialFilter = "all",
   selectedId = null,
+  rhythm = true,
+  wards = true,
 }: ConsultantsPanelProps) {
   const { showToast } = useToast();
   const query = useCareConsultants();
-  const [filter, setFilter] = useState<ConsultantsFilter>(initialFilter);
+  const [filter, setFilter] = useState<ConsultantsFilter>(
+    rhythm || !RHYTHM_FILTERS.has(initialFilter) ? initialFilter : "all",
+  );
+  const filters = rhythm ? FILTERS : FILTERS.filter((item) => !RHYTHM_FILTERS.has(item.value));
   // „Decyzje zamknięte” to osobna lista wpisów „Do przepięcia”, nie filtr
   // kontraktów (decyzja Artura 22.10.2026, audyt F107).
   const [closedDecisions, setClosedDecisions] = useState(false);
@@ -334,7 +348,7 @@ export function ConsultantsPanel({
               <X className="size-3" aria-hidden />
             </button>
           ) : null}
-          {FILTERS.map((item) => (
+          {filters.map((item) => (
             <button
               key={item.value}
               type="button"
@@ -347,7 +361,7 @@ export function ConsultantsPanel({
                   : "border-border text-muted-foreground hover:bg-muted",
               )}
             >
-              {item.label}
+              {!rhythm && item.value === "all" ? "Wszyscy" : item.label}
               {query.isSuccess && item.value !== "all" ? (
                 <>
                   {" "}
@@ -370,7 +384,7 @@ export function ConsultantsPanel({
             Decyzje zamknięte
           </button>
         </div>
-        {query.isSuccess && !closedDecisions ? (
+        {query.isSuccess && !closedDecisions && rhythm ? (
           <span className="text-xs text-muted-foreground" title="Kamienie i rozmowy według rytmu osób na liście">
             Rozmów w tym miesiącu według rytmów:{" "}
             <span className="font-semibold tabular-nums">{monthTalks(rows)}</span>
@@ -475,7 +489,7 @@ export function ConsultantsPanel({
         />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border bg-card">
-          <table className="w-full text-sm" aria-label="Konsultanci i rytm kontaktu">
+          <table className="w-full text-sm" aria-label={rhythm ? "Konsultanci i rytm kontaktu" : "Konsultanci"}>
             <thead>
               <tr className={CALM_ROW}>
                 {selectable ? (
@@ -492,10 +506,10 @@ export function ConsultantsPanel({
                 <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Konsultant</th>
                 <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Klient · menedżer u klienta</th>
                 <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Zdrowie</th>
-                <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Rytm</th>
-                <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Następna rozmowa</th>
+                {rhythm ? <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Rytm</th> : null}
+                {wards ? <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Następna rozmowa</th> : null}
                 <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Ostatnio</th>
-                {scope === "all" ? <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Opiekun</th> : null}
+                {scope === "all" && wards ? <th className={cn(CALM_HEAD, "px-3 py-2 text-left")}>Opiekun</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -537,35 +551,37 @@ export function ConsultantsPanel({
                     <td className="max-w-56 px-3 py-1.5 align-top">
                       <HealthCell row={row} />
                     </td>
-                    <td className="px-3 py-1.5 align-top">
-                      <span className="flex items-center gap-1.5">
-                        <Badge variant={CADENCE_BADGE[row.cadence.level]} size="md">
-                          {cadenceLabel(row.cadence.level)}
-                        </Badge>
-                        {row.can_change_cadence ? (
-                          <Button
-                            size="sm"
-                            variant="quiet"
-                            className="h-6 px-1.5 text-xs"
-                            aria-label={`Zmień rytm: ${name}`}
-                            onClick={() => setCadenceFor(row.contract_id)}
-                          >
-                            Zmień
-                          </Button>
-                        ) : null}
-                      </span>
-                      {subline ? <span className={cn(CALM_SUBLINE, "max-w-44")}>{subline}</span> : null}
-                      {row.suggested_level ? (
-                        <span className={CALM_SUBLINE}>podnieść rytm?</span>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-1.5 align-top">
-                      <NextTalk row={row} />
-                    </td>
+                    {rhythm ? (
+                      <td className="px-3 py-1.5 align-top">
+                        <span className="flex items-center gap-1.5">
+                          <Badge variant={CADENCE_BADGE[row.cadence.level]} size="md">
+                            {cadenceLabel(row.cadence.level)}
+                          </Badge>
+                          {row.can_change_cadence ? (
+                            <Button
+                              size="sm"
+                              variant="quiet"
+                              className="h-6 px-1.5 text-xs"
+                              aria-label={`Zmień rytm: ${name}`}
+                              onClick={() => setCadenceFor(row.contract_id)}
+                            >
+                              Zmień
+                            </Button>
+                          ) : null}
+                        </span>
+                        {subline ? <span className={cn(CALM_SUBLINE, "max-w-44")}>{subline}</span> : null}
+                        {row.suggested_level ? <span className={CALM_SUBLINE}>podnieść rytm?</span> : null}
+                      </td>
+                    ) : null}
+                    {wards ? (
+                      <td className="px-3 py-1.5 align-top">
+                        <NextTalk row={row} />
+                      </td>
+                    ) : null}
                     <td className="max-w-52 px-3 py-1.5 align-top">
                       <LastTalk row={row} />
                     </td>
-                    {scope === "all" ? (
+                    {scope === "all" && wards ? (
                       <td className="px-3 py-1.5 align-top">
                         {row.owner?.name ?? <span className={CALM_EMPTY}>—</span>}
                       </td>

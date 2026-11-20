@@ -21,7 +21,7 @@ import app.models  # noqa: F401  (rejestracja wszystkich mapperów)
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
 from app.models.contract import Contract
-from app.models.contract_care import RedeployQueueItem
+from app.models.contract_care import CONTRACTS_CARE, RedeployQueueItem
 from app.models.notification import Notification, NotificationType
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import UserRole
@@ -47,7 +47,9 @@ pytestmark = pytest.mark.asyncio
 @pytest_asyncio.fixture
 async def care_on():
     previous = await _previous_modules()
-    await set_modules({key: True for key in HR_MODULE_KEYS})
+    # Bez back office DL klienta jest opiekunem z łańcucha — te testy pilnują
+    # tablicy sprzed kolejki; tryb z kolejką mają testy ``test_back_office_*``.
+    await set_modules({key: key != "back_office" for key in HR_MODULE_KEYS})
     yield
     await set_modules(previous or {key: False for key in HR_MODULE_KEYS})
 
@@ -711,3 +713,69 @@ async def test_clients_mine_counts_lead_of_a_merged_duplicate(
     row = next((r for r in resp.json()["rows"] if r["client_id"] == canonical_id), None)
     assert row is not None
     assert row["delivery_leads"] == [dl.name]
+
+
+async def test_back_office_board_leaves_lead_only_client_cards(
+    app_client, care_on
+) -> None:
+    """Decyzja Artura 20.11.2026: z modułem back office DL nie jest opiekunem
+    z automatu — rozmowy i decyzje jego konsultantów są w kolejce, a na tablicy
+    zostaje mu opinia menedżera (prowadzi ją DL klienta)."""
+
+    await set_modules({key: True for key in HR_MODULE_KEYS})
+    lead, client_id, _area, manager_id, contract_id, _c = await _setup()
+    ending, _ = await make_contract(client_id, started_days_ago=300, end_in_days=20)
+    await set_manager(ending, manager_id)
+    await nightly_plan(contract_id)
+
+    for scope in ("mine", "all"):
+        board = await app_client.get(
+            f"/api/care/board?scope={scope}", headers=headers(lead)
+        )
+        assert board.status_code == 200, board.text
+        cards = board.json()["cards"]
+        mine = [c for c in cards if c.get("client_id") == client_id]
+        assert not [c for c in mine if c["kind"] in ("contact", "decision")], scope
+        feedback = [c for c in mine if c["kind"] == "feedback"]
+        assert [c["manager"]["contact_id"] for c in feedback] == [manager_id], scope
+        assert feedback[0]["owner_user_id"] == lead.id
+
+    async with AsyncSessionLocal() as db:
+        contracts = await care_access.contracts_by_id(db, [contract_id, ending])
+        owners = await care_access.effective_owners(db, list(contracts.values()))
+    assert {owner.user_id for owner in owners.values()} == {None}
+
+    # Opiekun wpisany na kontrakt zostaje — jego karty są na tablicy.
+    tcm = await make_user(UserRole.talent_community_manager)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(CONTRACTS_CARE)
+            .where(CONTRACTS_CARE.c.id == contract_id)
+            .values(care_owner_user_id=tcm.id)
+        )
+        await db.commit()
+    board = await app_client.get("/api/care/board?scope=mine", headers=headers(tcm))
+    assert board.status_code == 200, board.text
+    assert any(
+        c["kind"] == "contact" and c["contract_id"] == contract_id
+        for c in board.json()["cards"]
+    )
+
+
+async def test_back_office_health_skips_rhythm_rules(app_client, care_on) -> None:
+    """Bez rytmu rozmów (moduł back office) zaległy dzień 7 nie daje „Uwagi”."""
+
+    lead, _client_id, _area, _manager, contract_id, _c = await _setup()
+    await nightly_plan(contract_id)
+    before = await app_client.get("/api/care/consultants", headers=headers(lead))
+    assert before.status_code == 200, before.text
+    row = next(r for r in before.json()["items"] if r["contract_id"] == contract_id)
+    assert row["health"]["level"] == "watch"
+    assert row["health"]["reasons"] == ["rozmowa zaległa 3 dni"]
+
+    await set_modules({key: True for key in HR_MODULE_KEYS})
+    after = await app_client.get("/api/care/consultants", headers=headers(lead))
+    assert after.status_code == 200, after.text
+    row = next(r for r in after.json()["items"] if r["contract_id"] == contract_id)
+    assert row["health"]["level"] == "ok"
+    assert row["is_mine"] is False

@@ -1037,7 +1037,7 @@
     "title": "Opieka nad konsultantami",
     "section": null,
     "roles": [],
-    "what": "Praca opiekuna i Delivery Leada: „Do zrobienia” to tablica spraw z kartami opieki (rozmowy, opinie menedżerów, decyzje o przepięciu, u DL popyt u klienta), dalej konsultanci ze zdrowiem relacji, klienci i zespół opiekunów.",
+    "what": "Opiekun i Delivery Lead: „Do zrobienia” to tablica z kartami opieki (rozmowy, opinie menedżerów, decyzje o przepięciu, popyt), dalej konsultanci ze zdrowiem relacji i klienci. Przy back office DL ma tu tylko sprawy klienta.",
     "tasks": [
       {
         "q": "Od czego zacząć dzień?",
