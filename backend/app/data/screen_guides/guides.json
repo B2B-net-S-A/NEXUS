@@ -1036,7 +1036,7 @@
     "title": "Opieka nad konsultantami",
     "section": null,
     "roles": [],
-    "what": "Praca opiekuna i Delivery Leada: „Do zrobienia” to tablica spraw z kartami opieki (rozmowy, opinie menedżerów, decyzje o przepięciu, u DL popyt u klienta), dalej konsultanci ze zdrowiem relacji, klienci i zespół opiekunów. Z modułem back office Delivery Lead nie ma podopiecznych z automatu: zostają mu opinie menedżerów, popyt i dane klienta, a rozmowy i decyzje konsultantów bez opiekuna prowadzi kolejka back office'u.",
+    "what": "Opiekun i Delivery Lead: „Do zrobienia” to tablica z kartami opieki (rozmowy, opinie menedżerów, decyzje o przepięciu, popyt), dalej konsultanci ze zdrowiem relacji i klienci. Przy back office DL ma tu tylko sprawy klienta.",
     "tasks": [
       {
         "q": "Od czego zacząć dzień?",
@@ -1064,7 +1064,6 @@
       }
     ],
     "pitfalls": [
-      "Przy włączonym back office DL nie widzi „Moich podopiecznych” ani rytmu rozmów — ma tylko sprawy klienta; konsultanci są w „Konsultantach” do wglądu.",
       "Rozmowy nie przeniesiesz na „Zrobione” bez zapisu — przeciągnięcie tam otwiera okno rozmowy.",
       "Zdrowie relacji widzą opiekun, Delivery Lead, Head of Recruitment i admin; inni widzą Opiekę bez tej etykiety.",
       "Sprawy negocjacji pokazują się przy konsultancie bez treści — szczegóły są tylko w Sprawach.",
