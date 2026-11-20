@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Hand, Plus, RefreshCw, Search } from "lucide-react";
 
@@ -27,6 +27,7 @@ import {
   columnOf,
   isOverdue,
   labelCounts,
+  legacyCareLink,
   matchesFilter,
   matchesLabels,
   matchesSearch,
@@ -200,23 +201,22 @@ function ListView({
   );
 }
 
-interface QueueBoardProps {
-  /**
-   * Dotychczasowy kanban Opieki 1:1 (warunek Artura z 22.10.2026) jako trzeci
-   * widok „Tablica Opieki”; `null`, gdy osoba nie ma do niego dostępu.
-   */
-  careStatusBoard?: ReactNode | null;
-}
+type View = "tablica" | "lista";
 
-type View = "tablica" | "lista" | "opieka";
+const VIEWS: [View, string][] = [
+  ["tablica", "Tablica"],
+  ["lista", "Lista"],
+];
 
 /**
  * Sprawy całego back office'u (jeden zespół, decyzje Artura z 19.11.2026):
  * tablica stanów Nowe · W toku · Czeka na kogoś · Na zewnątrz, etykiety zamiast
- * zespołów i „Weź następną”. `?filtr=`, `?etykiety=help,exit`,
- * `?widok=lista|opieka`, `?karta=<id>` (dzwonki, linki).
+ * zespołów i „Weź następną”. `?filtr=`, `?etykiety=help,exit`, `?widok=lista`,
+ * `?karta=<id>` (dzwonki, linki). Dawnej „Tablicy Opieki” tu nie ma (decyzja
+ * Artura z 20.11.2026), a jej stare linki `?card=` / `?filter=` tłumaczy
+ * `legacyCareLink`.
  */
-export function QueueBoard({ careStatusBoard = null }: QueueBoardProps) {
+export function QueueBoard() {
   const params = useSearchParams();
   const { replaceUrl } = useUrlWriter();
   const { showToast } = useToast();
@@ -227,6 +227,21 @@ export function QueueBoard({ careStatusBoard = null }: QueueBoardProps) {
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const board = query.data;
+
+  // Stary link tablicy Opieki (dzwonek, kafelek pulpitu): po odczycie tablicy
+  // sprawa dostaje swoją kartę (`?karta=`), chip — filtr, a reszta samą tablicę.
+  const legacyLink = Boolean(params?.has("card") || params?.has("filter"));
+  useEffect(() => {
+    if (!legacyLink || !board) return;
+    const next = legacyCareLink(window.location.search, [
+      ...board.cards,
+      ...board.triage,
+    ]);
+    if (next === null) return;
+    replaceUrl(
+      next ? `${window.location.pathname}?${next}` : window.location.pathname,
+    );
+  }, [legacyLink, board, replaceUrl]);
 
   const write = (change: (next: URLSearchParams) => void) => {
     const next = new URLSearchParams(window.location.search);
@@ -260,21 +275,9 @@ export function QueueBoard({ careStatusBoard = null }: QueueBoardProps) {
   const rawFilter = params?.get("filtr");
   const filter: BoFilter =
     rawFilter && rawFilter in FILTER_LABELS ? (rawFilter as BoFilter) : "all";
-  const rawView = params?.get("widok");
-  const view: View =
-    rawView === "lista"
-      ? "lista"
-      : rawView === "opieka" && careStatusBoard
-        ? "opieka"
-        : "tablica";
+  // Dawne `?widok=opieka` (zakładka z linku sprzed 20.11.2026) to zwykła tablica.
+  const view: View = params?.get("widok") === "lista" ? "lista" : "tablica";
   const list = view === "lista";
-  const views: [View, string][] = [
-    ["tablica", "Tablica"],
-    ["lista", "Lista"],
-    ...(careStatusBoard
-      ? ([["opieka", "Tablica Opieki"]] as [View, string][])
-      : []),
-  ];
   const cardParam = Number(params?.get("karta"));
   const openId =
     Number.isInteger(cardParam) && cardParam > 0 ? cardParam : null;
@@ -336,36 +339,33 @@ export function QueueBoard({ careStatusBoard = null }: QueueBoardProps) {
           role="group"
           aria-label="Filtr spraw"
         >
-          {/* Kanban Opieki ma własne filtry i szukanie; dwa paski obok siebie mylą. */}
-          {view === "opieka"
-            ? null
-            : filters.map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  aria-pressed={filter === id}
-                  onClick={() =>
-                    write((next) => {
-                      if (id === "all") next.delete("filtr");
-                      else next.set("filtr", id);
-                    })
-                  }
-                  className={cn(
-                    "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs",
-                    filter === id
-                      ? "border-primary bg-primary/10 font-medium text-primary"
-                      : "border-border bg-card text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {FILTER_LABELS[id]}
-                  <span className="text-[11px] tabular-nums opacity-80">
-                    {filterCount(id)}
-                  </span>
-                </button>
-              ))}
+          {filters.map((id) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={filter === id}
+              onClick={() =>
+                write((next) => {
+                  if (id === "all") next.delete("filtr");
+                  else next.set("filtr", id);
+                })
+              }
+              className={cn(
+                "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs",
+                filter === id
+                  ? "border-primary bg-primary/10 font-medium text-primary"
+                  : "border-border bg-card text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {FILTER_LABELS[id]}
+              <span className="text-[11px] tabular-nums opacity-80">
+                {filterCount(id)}
+              </span>
+            </button>
+          ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className={cn("relative", view === "opieka" && "hidden")}>
+          <div className="relative">
             <Search
               aria-hidden
               className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
@@ -383,7 +383,7 @@ export function QueueBoard({ careStatusBoard = null }: QueueBoardProps) {
             role="group"
             aria-label="Widok"
           >
-            {views.map(([id, label]) => (
+            {VIEWS.map(([id, label]) => (
               <button
                 key={id}
                 type="button"
@@ -445,90 +445,81 @@ export function QueueBoard({ careStatusBoard = null }: QueueBoardProps) {
         </div>
       </div>
 
-      {view === "opieka" ? null : (
-        <>
-          <div
-            className="flex flex-wrap items-center gap-1.5"
-            role="group"
-            aria-label="Etykiety"
-          >
-            <span className="text-[11px] text-muted-foreground">Etykiety:</span>
-            {board.labels
-              .filter(
-                (label) =>
-                  (counts.get(label.id) ?? 0) > 0 || picked.has(label.id),
-              )
-              .sort((a, b) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0))
-              .map((label) => (
-                <button
-                  key={label.id}
-                  type="button"
-                  aria-pressed={picked.has(label.id)}
-                  title={label.description}
-                  onClick={() => toggleLabel(label.id)}
-                  className={cn(
-                    "inline-flex h-6 items-center gap-1 rounded-full border px-2 text-[11px]",
-                    picked.has(label.id)
-                      ? "border-primary bg-primary/10 font-medium text-primary"
-                      : "border-border bg-card text-foreground hover:border-primary/40",
-                  )}
-                >
-                  <FamilyDot family={label.family} />
-                  {label.label}
-                  <span className="tabular-nums text-muted-foreground">
-                    {counts.get(label.id) ?? 0}
-                  </span>
-                </button>
-              ))}
-            {picked.size ? (
-              <button
-                type="button"
-                className="text-[11px] text-primary hover:underline"
-                onClick={() => write((next) => next.delete("etykiety"))}
-              >
-                Wszystkie etykiety
-              </button>
-            ) : null}
-          </div>
-
-          <p className="text-[11.5px] text-muted-foreground">
-            Bez osoby:{" "}
-            <span className="font-medium text-foreground">
-              {board.counts.unassigned}
-            </span>{" "}
-            · po terminie i bez osoby:{" "}
-            <span className="font-medium text-destructive">{overdueFree}</span>
-            {board.me.is_lead ? (
-              <>
-                {" "}
-                · u kierownika po dniu roboczym:{" "}
-                <span className="font-medium text-foreground">
-                  {board.counts.escalated}
-                </span>
-              </>
-            ) : null}{" "}
-            · moje w toku:{" "}
-            <span
+      <div
+        className="flex flex-wrap items-center gap-1.5"
+        role="group"
+        aria-label="Etykiety"
+      >
+        <span className="text-[11px] text-muted-foreground">Etykiety:</span>
+        {board.labels
+          .filter(
+            (label) => (counts.get(label.id) ?? 0) > 0 || picked.has(label.id),
+          )
+          .sort((a, b) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0))
+          .map((label) => (
+            <button
+              key={label.id}
+              type="button"
+              aria-pressed={picked.has(label.id)}
+              title={label.description}
+              onClick={() => toggleLabel(label.id)}
               className={cn(
-                "font-medium",
-                board.me.in_progress > board.me.limit
-                  ? "text-destructive"
-                  : "text-foreground",
+                "inline-flex h-6 items-center gap-1 rounded-full border px-2 text-[11px]",
+                picked.has(label.id)
+                  ? "border-primary bg-primary/10 font-medium text-primary"
+                  : "border-border bg-card text-foreground hover:border-primary/40",
               )}
             >
-              {board.me.in_progress} z {board.me.limit}
+              <FamilyDot family={label.family} />
+              {label.label}
+              <span className="tabular-nums text-muted-foreground">
+                {counts.get(label.id) ?? 0}
+              </span>
+            </button>
+          ))}
+        {picked.size ? (
+          <button
+            type="button"
+            className="text-[11px] text-primary hover:underline"
+            onClick={() => write((next) => next.delete("etykiety"))}
+          >
+            Wszystkie etykiety
+          </button>
+        ) : null}
+      </div>
+
+      <p className="text-[11.5px] text-muted-foreground">
+        Bez osoby:{" "}
+        <span className="font-medium text-foreground">
+          {board.counts.unassigned}
+        </span>{" "}
+        · po terminie i bez osoby:{" "}
+        <span className="font-medium text-destructive">{overdueFree}</span>
+        {board.me.is_lead ? (
+          <>
+            {" "}
+            · u kierownika po dniu roboczym:{" "}
+            <span className="font-medium text-foreground">
+              {board.counts.escalated}
             </span>
-          </p>
-        </>
-      )}
+          </>
+        ) : null}{" "}
+        · moje w toku:{" "}
+        <span
+          className={cn(
+            "font-medium",
+            board.me.in_progress > board.me.limit
+              ? "text-destructive"
+              : "text-foreground",
+          )}
+        >
+          {board.me.in_progress} z {board.me.limit}
+        </span>
+      </p>
 
-      {board.me.is_lead && view !== "opieka" ? (
-        <TriageStrip board={board} />
-      ) : null}
+      {board.me.is_lead ? <TriageStrip board={board} /> : null}
 
-      {view === "opieka" ? (
-        careStatusBoard
-      ) : list ? (
+      {list ? (
         <ListView
           cards={shown}
           board={board}

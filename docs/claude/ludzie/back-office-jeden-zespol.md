@@ -1,5 +1,5 @@
 # Back office jako jeden zespół — etykiety, „Weź następną”, „Na zewnątrz”, bez opiekunów
-<!-- indeks: bo_members, rola w zespole, przyjmuje rozmowy, etykiety zamiast zespołów, folded, Weź następną, Na zewnątrz, outside_team, automatic_assignee, sprawy osób spoza zespołu, ściąga klienta, bo_client_notes, przegląd hurtem, Tablica Opieki, 0746 -->
+<!-- indeks: bo_members, rola w zespole, przyjmuje rozmowy, etykiety zamiast zespołów, folded, Weź następną, Na zewnątrz, outside_team, automatic_assignee, sprawy osób spoza zespołu, ściąga klienta, bo_client_notes, przegląd hurtem, bez Tablicy Opieki (20.11), stare linki ?card= / ?filter=, legacyCareLink, 0746 -->
 
 Decyzje Artura z 10.11 i 19.11.2026 (makiety: https://claude.ai/artifact/3fRpacW9KwiZyGWkanPPWj).
 Ta reguła ma pierwszeństwo przed opisem czterech zespołów w `back-office-kolejka-spraw.md`.
@@ -53,9 +53,17 @@ Ta reguła ma pierwszeństwo przed opisem czterech zespołów w `back-office-kol
   (`AREA_LANE`): Pomoc, Wejście, Wyjście, Aneks / stawka. Reszta etykiet przychodzi z automatów.
 - Przegląd przed startem: grupy po etykiecie, sprawy starsze niż 60 dni zamyka się hurtem
   (`POST /review/bulk`, każda z powodem w historii).
-- **Dotychczasowy kanban Opieki** (warunek z 22.10) zostaje 1:1 jako trzeci widok Spraw
-  „Tablica Opieki” (`?widok=opieka`), a stare linki `?card=` / `?filter=` dalej go otwierają.
-  Usunięcie wymaga decyzji Artura.
+- **W Sprawach nie ma kanbanu Opieki** (decyzja Artura z 20.11.2026). Od 19.11 stał tam jako
+  trzeci widok „Tablica Opieki”, ale w jednej kolejce tylko dublował te same sprawy, więc warunek
+  z 22.10 („kanban zostaje 1:1 pod przełącznikiem”) przy włączonym module nie obowiązuje.
+  Nie przywracaj go „dla porządku”: z jednej kolejki znowu zrobiłyby się dwie.
+- Stare linki kanbanu w module prowadzą na tablicę Spraw (`legacyCareLink` w
+  `components/back-office/board-model.ts`, po odczycie tablicy): `?card=case:<id>` otwiera kartę
+  tej sprawy (`?karta=<id karty>`, szukana po `case_id` w `cards` i `triage`), `?filter=po-terminie`
+  i `do-piatku` włączają „Po terminie” i „Do piątku”, a karta Opieki bez odpowiednika (popyt
+  z dzwonka DL-a `?card=demand:…&area=`, dane klienta) i dawne `?widok=opieka` to sama tablica.
+- Kanban 1:1 zostaje na `/care` poza modułem: przy wyłączonym module i dla osób spoza składu
+  (DL-e z popytem i opiniami menedżerów). Pilnuje tego `frontend/src/lib/work-board-feature-inventory.json`.
 
 ## Ekrany i portal
 
