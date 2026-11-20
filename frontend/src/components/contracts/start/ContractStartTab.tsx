@@ -231,7 +231,6 @@ export function ContractStartTab({
   return (
     <div className="rounded-xl border border-border bg-card shadow-xs">
       <header
-        data-tour="contract.start.progress"
         className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border px-4 py-3.5"
       >
         <div className="min-w-0">

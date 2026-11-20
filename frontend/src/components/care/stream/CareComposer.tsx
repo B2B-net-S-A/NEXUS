@@ -112,7 +112,6 @@ export function CareComposer({ contractId, canAddNote, care }: CareComposerProps
 
   return (
     <form
-      data-tour="contract.care.composer"
       onSubmit={(event) => {
         event.preventDefault();
         submit();

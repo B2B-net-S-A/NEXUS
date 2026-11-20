@@ -2242,6 +2242,47 @@
     "dot_anchor": "contract.admin-details"
   },
   {
+    "id": "kontrakt-start-i-opieka-nowy-uklad",
+    "pr": 0,
+    "title": "Kontrakt: opieka jednym strumieniem, start jako checklista",
+    "why": "Rozmowy, notatki i opinie klienta są w jednym strumieniu z polem zapisu, obok plan kontaktów i sprawy. „Start i sprzęt” to lista z postępem, sprzętem i panelem.",
+    "tier": "tour",
+    "shipped_on": "2026-11-20",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Kontrakty → kontrakt → Opieka i rozmowy, Start i sprzęt",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contract.tabs.care",
+    "steps": [
+      {
+        "anchor": "contracts.list.row",
+        "text": "Kliknij wiersz dowolnego kontraktu.",
+        "hint": "Kliknij poza nazwiskiem — otworzy się panel kontraktu. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "contract.panel.open",
+        "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
+        "hint": "Pełna karta kontraktu otworzy się na „Przeglądzie”."
+      },
+      {
+        "anchor": "contract.tabs.care",
+        "text": "Kliknij zakładkę „Opieka i rozmowy”.",
+        "hint": "Po lewej strumień rozmów i notatek, po prawej następny krok, plan kontaktów, zadowolenie, sprawy i projekt."
+      },
+      {
+        "anchor": "contract.care.stream",
+        "text": "Rozmowy, notatki i opinie klienta są w jednym strumieniu.",
+        "hint": "Nowy wpis zapisujesz w polu nad strumieniem — rodzaj wybierasz pigułką: notatka, rozmowa z konsultantem albo z klientem.",
+        "ack": true
+      },
+      {
+        "anchor": "contract.tabs.start",
+        "text": "Kliknij zakładkę „Start i sprzęt”.",
+        "hint": "Postęp listy startowej, formalności, sprzęt u konsultanta i panel konsultanta w jednej karcie."
+      }
+    ]
+  },
+  {
     "id": "kandydaci-ostatnie-odrzucenie",
     "pr": 3101,
     "title": "Filtr po powodzie odrzucenia na liście kandydatów",
