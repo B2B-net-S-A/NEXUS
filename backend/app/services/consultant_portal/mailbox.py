@@ -24,6 +24,7 @@ from __future__ import annotations
 import base64
 import logging
 import re
+import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional, Protocol
 from urllib.parse import quote
@@ -66,7 +67,12 @@ _FILE_ATTACHMENT = "#microsoft.graph.fileAttachment"
 # KCP: karta pracy Banku Pocztowego („KCP 10/2026”, plik z nazwiskiem).
 _REPORT = re.compile(
     r"raport|time[\s_-]*sheet|ewidencj|godzin|ke[sś]u|rozliczenie\s+kontraktora"
-    r"|rcp|arkusz|protok[oó][lł]|(?<![a-z])kcp(?![a-z])",
+    r"|rcp|arkusz|protok[oó][lł]|(?<![a-z])kcp(?![a-z])"
+    # Próba IX–XI 2026: RCP BNP jako „Nazwisko_TS_09.2026.pdf”, „KP-…-sig.pdf”,
+    # „Karta pracy …”, „Dokument rozliczający czas świadczonych usług” szły jako
+    # faktury, więc 40 osobo-miesięcy BNP nie miało rozliczenia.
+    r"|(?<![a-z])(?:ts|kp)(?![a-z])|karta\s+pracy|dokument\s+rozliczaj"
+    r"|monthly\s+confirmation",
     re.IGNORECASE,
 )
 # Arkusz albo zrzut ekranu bez słów-kluczy to dowód pracy: w próbie na archiwum
@@ -74,7 +80,9 @@ _REPORT = re.compile(
 _PROOF_EXTENSIONS = re.compile(
     r"\.(xlsx|xlsm|xls|ods|csv|png|jpe?g|heic|gif|bmp|webp)$", re.IGNORECASE
 )
-_INVOICE = re.compile(r"faktur|invoice|(?:^|[^a-z])fv(?:[^a-z]|$)", re.IGNORECASE)
+_INVOICE = re.compile(
+    r"faktur|invoice|(?:^|[^a-z])fv(?:at)?(?:[^a-z]|$)", re.IGNORECASE
+)
 _PERIOD_NUMERIC = re.compile(r"(?<!\d)(0?[1-9]|1[0-2])[./_-](20\d{2})(?!\d)")
 _PERIOD_ISO = re.compile(r"(?<!\d)(20\d{2})[./_-](0?[1-9]|1[0-2])(?!\d)")
 _MONTH_STEMS = (
@@ -94,6 +102,33 @@ _MONTH_STEMS = (
 _PERIOD_WORD = re.compile(
     r"(" + "|".join(_MONTH_STEMS) + r")\w*\s+(20\d{2})", re.IGNORECASE
 )
+# Formy z próby IX–XI 2026: „202609_TS”, „Pazdziernik_2026”, „sierpien26”, „TS 09.26”,
+# „F/001/26/09”, „TS_wrzesień” i „timesheet August” (bez roku: rok z daty maila).
+_PERIOD_COMPACT = re.compile(r"(?<!\d)(20\d{2})(0[1-9]|1[0-2])(?!\d)")
+_PERIOD_SHORT = re.compile(r"(?<![\d./])(0?[1-9]|1[0-2])[._-](\d{2})(?!\d|[./]\d)")
+_PERIOD_SLASHED = re.compile(r"/(\d{2})/(0[1-9]|1[0-2])(?!\d)")
+# Całe słowa, nie rdzenie: „Mariusz” to nie marzec, „Majewski” to nie maj.
+_MONTH_WORDS = {
+    word: month
+    for month, words in enumerate(
+        (
+            "styczen stycznia styczniu january",
+            "luty lutego lutym february",
+            "marzec marca marcu march",
+            "kwiecien kwietnia kwietniu april",
+            "maja maju",
+            "czerwiec czerwca czerwcu june",
+            "lipiec lipca lipcu july",
+            "sierpien sierpnia sierpniu august",
+            "wrzesien wrzesnia wrzesniu september",
+            "pazdziernik pazdziernika pazdzierniku october",
+            "listopad listopada listopadzie november",
+            "grudzien grudnia grudniu december",
+        ),
+        start=1,
+    )
+    for word in words.split()
+}
 
 
 class SettlementsMailbox(Protocol):
@@ -177,8 +212,29 @@ def _named_kind(subject: str, file_name: str) -> bool:
     )
 
 
-def find_period(text: str) -> Optional[tuple[int, int]]:
-    """(rok, miesiąc) z tekstu: „10/2026”, „2026-10”, „październik 2026”."""
+def _month_of(word: str) -> Optional[int]:
+    lowered = word.lower()
+    for index, pattern in enumerate(_MONTH_STEMS, start=1):
+        if re.fullmatch(pattern, lowered):
+            return index
+    return None
+
+
+def _folded_tokens(text: str) -> list[str]:
+    raw = unicodedata.normalize("NFKD", text.replace("ł", "l").replace("Ł", "L"))
+    folded = raw.encode("ascii", "ignore").decode().lower()
+    return re.findall(r"[a-z]+|\d+", folded)
+
+
+def find_period(
+    text: str, received: Optional[date] = None
+) -> Optional[tuple[int, int]]:
+    """(rok, miesiąc) z tekstu: „10/2026”, „2026-10”, „październik 2026”.
+
+    Z ``received`` także formy bez pełnego roku („09.26”, „TS_wrzesień”): rok
+    dwucyfrowy musi być bieżący albo zeszły, a okres nie późniejszy niż miesiąc
+    maila, bo „10.25” w treści to częściej data niż okres.
+    """
 
     match = _PERIOD_ISO.search(text)
     if match:
@@ -188,20 +244,61 @@ def find_period(text: str) -> Optional[tuple[int, int]]:
         return int(match.group(2)), int(match.group(1))
     match = _PERIOD_WORD.search(text)
     if match:
-        stem = match.group(1).lower()
-        for index, pattern in enumerate(_MONTH_STEMS, start=1):
-            if re.fullmatch(pattern, stem):
-                return int(match.group(2)), index
+        month = _month_of(match.group(1))
+        if month:
+            return int(match.group(2)), month
+    match = _PERIOD_COMPACT.search(text)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    if received is None:
+        return None
+    return _loose_period(text, received)
+
+
+def _loose_period(text: str, received: date) -> Optional[tuple[int, int]]:
+    def plausible(year: int, month: int) -> Optional[tuple[int, int]]:
+        months_back = (received.year - year) * 12 + received.month - month
+        return (year, month) if 0 <= months_back <= 12 else None
+
+    century = received.year - received.year % 100
+    for match in _PERIOD_SHORT.finditer(text):
+        found = plausible(century + int(match.group(2)), int(match.group(1)))
+        if found:
+            return found
+    for match in _PERIOD_SLASHED.finditer(text):
+        found = plausible(century + int(match.group(1)), int(match.group(2)))
+        if found:
+            return found
+    tokens = _folded_tokens(text)
+    for index, token in enumerate(tokens):
+        month = _MONTH_WORDS.get(token)
+        if month is None:
+            continue
+        after = tokens[index + 1] if index + 1 < len(tokens) else ""
+        if after.isdigit() and len(after) in (2, 4):
+            year = int(after) if len(after) == 4 else century + int(after)
+        else:
+            year = received.year if month <= received.month else received.year - 1
+        found = plausible(year, month)
+        if found:
+            return found
     return None
 
 
 def period_for(subject: str, file_name: str, received: date) -> tuple[int, int, bool]:
-    """Okres pliku; bez znaku w treści: miesiąc przed datą maila, z flagą „zgadnięty”."""
+    """Okres pliku; bez znaku w treści: z daty maila, z flagą „zgadnięty”."""
 
-    found = find_period(file_name) or find_period(subject)
+    found = (
+        find_period(file_name)
+        or find_period(subject)
+        or find_period(file_name, received)
+        or find_period(subject, received)
+    )
     if found:
         return found[0], found[1], False
-    total = received.year * 12 + received.month - 2
+    # Raport z końca miesiąca jest za ten miesiąc (próba IX–XI 2026: karty pracy
+    # z 30.09 szły na sierpień), z początku miesiąca za poprzedni.
+    total = received.year * 12 + received.month - (1 if received.day >= 25 else 2)
     return total // 12, total % 12 + 1, True
 
 
