@@ -46,6 +46,13 @@ export interface ContractsListState {
   /** Zakres daty zakończenia zamówienia u klienta. */
   orderEndFrom: string;
   orderEndTo: string;
+  /**
+   * „Grupuj: klient” (`?group=client`, przebudowa 20.11.2026): wiersze pod
+   * nagłówkami klientów. Nie dotyczy „Kończących się” — tam adres go pomija.
+   */
+  groupByClient?: boolean;
+  /** „Kończące się” na osi czasu zamiast tabeli (`?timeline=1`). */
+  endingTimeline?: boolean;
   /** `null` = domyślna kolejność serwera (najnowsze kontrakty najpierw). */
   sortBy: ContractSortKey | null;
   sortDir: ContractSortDir;
@@ -99,6 +106,8 @@ const LIST_PARAM_NAMES = [
   "start_to",
   "order_end_from",
   "order_end_to",
+  "group",
+  "timeline",
   "sort",
   "dir",
   "page",
@@ -199,6 +208,8 @@ export function parseContractsListState(
       startTo: validIsoDate(params.get("start_to")),
       orderEndFrom: validIsoDate(params.get("order_end_from")),
       orderEndTo: validIsoDate(params.get("order_end_to")),
+      groupByClient: params.get("group") === "client",
+      endingTimeline: params.get("timeline") === "1",
       sortBy: CONTRACT_SORT_KEY_SET.has(rawSort ?? "")
         ? (rawSort as ContractSortKey)
         : null,
@@ -238,6 +249,11 @@ export function buildContractsListUrl(
   if (state.startTo) params.set("start_to", state.startTo);
   if (state.orderEndFrom) params.set("order_end_from", state.orderEndFrom);
   if (state.orderEndTo) params.set("order_end_to", state.orderEndTo);
+  // Grupowanie dotyczy tabeli, oś czasu — „Kończących się” (sam bucket, bez
+  // statusów); adres niesie tylko to, co widać.
+  const endingView = state.endingSoon && state.statusFilter.length === 0;
+  if (state.groupByClient && !endingView) params.set("group", "client");
+  if (state.endingTimeline && endingView) params.set("timeline", "1");
   if (state.sortBy) {
     params.set("sort", state.sortBy);
     if (state.sortDir === "desc") params.set("dir", "desc");
