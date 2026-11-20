@@ -178,10 +178,10 @@
   },
   {
    "id": "k.order-mail",
-   "opis": "Skrzynka zamówień z maila",
-   "file": "components/order-mail/OrderMailQueue.tsx",
+   "opis": "Skrzynka zamówień z maila (wariant A, 20.11.2026: kolejka i szczegół z punktami „Do sprawdzenia”; Zastosuj, Przelicz plan, Odrzuć, Rozstrzygnij w oknie zamówienia, podgląd PDF)",
+   "file": "components/order-mail/OrderMailDetail.tsx",
    "marker": "Przelicz plan",
-   "b_home": "Bez zmian"
+   "b_home": "Kontrakty → Zamówienia z maila, szczegół wpisu"
   },
   {
    "id": "k.p.facts",
