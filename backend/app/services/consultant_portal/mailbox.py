@@ -59,9 +59,10 @@ _FILE_ATTACHMENT = "#microsoft.graph.fileAttachment"
 # Dowód pracy: RCP (BNP), Time Sheet (Bosch, PKO), arkusz (Velo), protokół (PKO), KEŚU (Alior).
 # Bez tego plik „RCP_10_2026.pdf” szedł jako faktura i omijał kontrole RCP (16.11.2026).
 # KCP: karta pracy Banku Pocztowego („KCP 10/2026”, plik z nazwiskiem).
+# TS: raport BIK w PDF („<nazwisko>_TS_wrzesien_2026.pdf”) szedł jako faktura.
 _REPORT = re.compile(
     r"raport|time[\s_-]*sheet|ewidencj|godzin|ke[sś]u|rozliczenie\s+kontraktora"
-    r"|rcp|arkusz|protok[oó][lł]|(?<![a-z])kcp(?![a-z])",
+    r"|rcp|arkusz|protok[oó][lł]|(?<![a-z])kcp(?![a-z])|(?<![a-z])ts(?![a-z])",
     re.IGNORECASE,
 )
 # Arkusz albo zrzut ekranu bez słów-kluczy to dowód pracy: w próbie na archiwum
