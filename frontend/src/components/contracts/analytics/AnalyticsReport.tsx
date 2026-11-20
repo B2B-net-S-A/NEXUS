@@ -509,7 +509,7 @@ export function AnalyticsReport({
   }
 
   return (
-    <section aria-label="Kto ile przynosi" data-tour="contracts.analytics.report" className="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
+    <section aria-label="Kto ile przynosi" className="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
       <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border/60 px-4 py-2.5">
         <div className="min-w-0">
           <h2 className="text-[14px] font-semibold text-foreground">Kto ile przynosi</h2>
