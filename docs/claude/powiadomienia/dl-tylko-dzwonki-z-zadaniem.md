@@ -33,6 +33,12 @@ Wybrany wariant A: wyciszyć informacje, które nie miały wcześniejszej decyzj
 - **„Deadline rekrutacji za N dni”** (`job_deadline_alerts._assigned_user_ids`,
   12): bez `jobs.delivery_lead_id`; DL ręcznie dopisany jako współpracownik
   dostaje go dalej.
+- **„Sprzęt do zwrotu” za sprzęt z rejestru „Sprzęt”** (decyzja Artura
+  20.11.2026): ani import plików recepcji, ani kreator wydania nie dzwonią
+  DL-owi, bo odbiór robi recepcja z zadania „Odbierz sprzęt”, także po terminie
+  końca kontraktu. Dzwonek został tylko dla wpisów ręcznych zakładki bez wydania
+  (`contract_alerts._equipment_due_for_return`), których na produkcji 19.11 było
+  0, więc nie wyszedł nigdy. → `ludzie/sprzet-i-protokoly-recepcji.md`
 - **„Zmiana stawki kandydata”, gdy zmiana nie czeka na decyzję**
   (`candidate_rate_change._recipients(requires_decision=False)`, 5). Zadanie
   „Kandydat podniósł stawkę po wysłaniu CV” zostaje. Zmienia D2 z 04.10

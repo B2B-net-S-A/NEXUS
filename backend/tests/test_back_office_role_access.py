@@ -69,7 +69,6 @@ def test_opens_the_work_on_orders_and_contracts(route: str) -> None:
         "GET /api/finance/sales-invoices",
         # Wyniki firmy.
         "GET /api/dashboard/v2/finance",
-        "GET /api/invoices/dso",
     ],
 )
 def test_keeps_company_money_closed(route: str) -> None:

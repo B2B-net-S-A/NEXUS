@@ -36,7 +36,7 @@ import {
   type PanelActionId,
   type PanelWarning,
 } from "@/lib/contract-panel";
-import { relativeDays } from "@/lib/contract-happening";
+import { relativeDays, type HappeningOrderAfterEnd } from "@/lib/contract-happening";
 import { humanizeActivity } from "@/lib/contract-history";
 import { B2B_EXTENSION_HINT, b2bExtensionLocked } from "@/lib/contract-end-date";
 import {
@@ -122,6 +122,8 @@ interface ContractPanelDetail extends ContractPanelFacts {
   candidate_email_source?: "contract" | "candidate_profile" | null;
   candidate_phone_source?: "contract" | "candidate_profile" | null;
   related_contracts?: ContractSiblingRef[];
+  /** Zamówienia na okres po końcu współpracy (konflikt do decyzji, #3664). */
+  order_after_end?: HappeningOrderAfterEnd[];
   returned_from_contract_id?: number | null;
   return_contract_id?: number | null;
 }
@@ -590,6 +592,29 @@ export function ContractSidePanel({
             Uzupełnij stawkę
           </Link>
         ) : null;
+      // Zamówienie po końcu współpracy rozstrzyga się na stronie kontraktu
+      // (te same okna co w jej pasku „Co się dzieje”).
+      case "extend_agreement":
+        return access.canEditContract ? (
+          <Link
+            href={(() => {
+              const [path, query = ""] = detailHref().split("?");
+              return annexIntentHref(path, query, "extension");
+            })()}
+            onClick={rememberScroll}
+            className={buttonVariants({ size: "sm", variant: "outline" })}
+          >
+            Przedłuż umowę aneksem
+          </Link>
+        ) : null;
+      case "reassign_order":
+        return (
+          <Link href={detailHref()} onClick={rememberScroll} className={buttonVariants({ size: "sm", variant: "outline" })}>
+            Rozstrzygnij na kontrakcie
+          </Link>
+        );
+      case "cancel_order_draft":
+        return null;
       case "log_conversation":
         return (
           <Link href={detailHref("care")} onClick={rememberScroll} className={buttonVariants({ size: "sm", variant: "outline" })}>

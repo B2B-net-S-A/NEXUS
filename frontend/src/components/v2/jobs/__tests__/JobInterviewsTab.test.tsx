@@ -243,11 +243,13 @@ describe("JobInterviewsTab", () => {
   });
 
   /** Słownik powodów dociąga się osobnym zapytaniem — bez tego `select` ma
-   *  wyłącznie opcję „Wczytywanie słownika…". */
+   *  wyłącznie opcję „Wczytywanie słownika…". Etykiety opcji są ze słownika
+   *  powodów (19.11.2026): „Nie spełnia wymagań technicznych” to „Brak
+   *  kluczowej umiejętności”. */
   async function reasonSelect() {
     const select = await screen.findByLabelText("Powód (gdy odrzuca)");
     await screen.findByRole("option", {
-      name: "Nie spełnia wymagań technicznych",
+      name: "Brak kluczowej umiejętności",
     });
     await editableForm();
     return select;
@@ -280,12 +282,16 @@ describe("JobInterviewsTab", () => {
     });
     renderTab();
     const select = await screen.findByLabelText("Powód (gdy odrzuca)");
-    await within(select).findByRole("option", { name: "Klient nie podał powodu" });
-    expect(within(select).getByRole("option", { name: "Klient wybrał kogoś innego" })).toBeInTheDocument();
-    expect(within(select).queryByRole("option", { name: "Brak kontaktu" })).toBeNull();
-    expect(
-      within(select).queryByRole("option", { name: "Nie szuka pracy lub niezainteresowany" }),
-    ).toBeNull();
+    // Etykiety ze słownika powodów (19.11.2026), w kolejności słownika.
+    await within(select).findByRole("option", { name: "Nie podał powodu" });
+    expect(within(select).getByRole("option", { name: "Wybrał innego kandydata" })).toBeInTheDocument();
+    expect(within(select).queryByRole("option", { name: "Nie odbiera / brak kontaktu" })).toBeNull();
+    expect(within(select).queryByRole("option", { name: "Nie szuka pracy" })).toBeNull();
+    const values = within(select)
+      .getAllByRole("option")
+      .map((o) => (o as HTMLOptionElement).value);
+    expect(values).not.toContain("22");
+    expect(values).not.toContain("23");
   });
 
   it("powód-werdykt o osobie mówi, że weto POWSTANIE — nie że już jest", async () => {

@@ -226,6 +226,7 @@ from app.services.contract_lifecycle import (
     lock_order_group_lines,
     sync_contract_to_live_order,
 )
+from app.services.contract_order_after_end import ended_agreement_block
 from app.services.contract_order_sync import (
     detach_order_rate_steps,
     skip_sync_for_contract,
@@ -1992,6 +1993,8 @@ async def _build_line(
     if payload.historical:
         _assert_historical_line_allowed(contract, payload)
         skip_sync_for_contract(db, contract.id)
+    else:
+        _assert_agreement_accepts_line(contract, line_start=payload.start_date)
     # Osoba wchodzi na linię grupy — pusty szkic-zaślepka po hooku zatrudnienia
     # przestaje być „do uzupełnienia" i staje się DRUGIM zapisem tej samej
     # współpracy. Zostawiony na kontrakcie sprawiał, że wypowiedzenie z karty
@@ -2218,6 +2221,22 @@ def _contract_cooperation_end(contract: Contract) -> Optional[date]:
     ):
         return contract.end_date
     return None
+
+
+def _assert_agreement_accepts_line(
+    contract: Contract, *, line_start: Optional[date]
+) -> None:
+    """Żywa linia na zakończonej umowie nie-B2B = 422 (decyzja Artura 19.11.2026).
+
+    Zamówienie nie wskrzesza umowy zlecenie ani o pracę z datą końca, więc
+    linia dodana, zamieniona albo aktywowana po końcu takiej umowy pracowała
+    na umowie, której nie ma: osoby nie było w aktywnych kontraktach ani
+    w MRR (kontrakt #436, linia od 02.11.2026 po końcu umowy 31.10.2026).
+    Zapis historyczny tej bramki nie przechodzi — opisuje przeszłość.
+    """
+    reason = ended_agreement_block(contract, line_start=line_start)
+    if reason is not None:
+        raise HTTPException(422, detail=reason)
 
 
 def _assert_historical_line_allowed(
@@ -5796,6 +5815,9 @@ async def update_line(
         and line.md_rate_revenue > 0
         and (has_group_budget or line.md_total is not None)
     ):
+        line_contract = await db.get(Contract, line.contract_id)
+        if line_contract is not None:
+            _assert_agreement_accepts_line(line_contract, line_start=line.start_date)
         line.status = ClientOrderStatus.active
         line.filled_at = datetime.now(timezone.utc)
         activated_draft = True
@@ -6372,6 +6394,7 @@ async def take_over_consultant(
         raise HTTPException(exc.status, detail=str(exc)) from exc
 
     incoming = await _resolve_contract(db, client_id, payload.contract_id)
+    _assert_agreement_accepts_line(incoming, line_start=payload.entry_date)
     incoming_status = getattr(incoming.status, "value", incoming.status)
     if incoming_status in (ContractStatus.ended.value, ContractStatus.void.value):
         raise HTTPException(
@@ -6767,6 +6790,7 @@ async def swap_consultant(
             raise HTTPException(422, detail=str(exc)) from exc
 
     new_contract = await _resolve_contract(db, client_id, payload.contract_id)
+    _assert_agreement_accepts_line(new_contract, line_start=payload.swap_date)
     # S1: te same bramki co „Wejdź za konsultanta". Kontrakt zakończony albo
     # unieważniony zostałby wskrzeszony przez `_sync_contract_after_live_group_line`,
     # a osoba, która już jest na zamówieniu, dostałaby drugi budżet MD.

@@ -213,8 +213,6 @@ MdRead = Annotated[Caller, _scoped(ServiceScope.md_read)]
 MdWrite = Annotated[Caller, _scoped(ServiceScope.md_write)]
 FinanceRead = Annotated[Caller, _scoped(ServiceScope.finance_read)]
 FinanceWrite = Annotated[Caller, _scoped(ServiceScope.finance_write)]
-InvoicesRead = Annotated[Caller, _scoped(ServiceScope.invoices_read)]
-InvoicesWrite = Annotated[Caller, _scoped(ServiceScope.invoices_write)]
 # Rekrutacja i kandydaci (15.10.2026). Dane kontaktowe nie mają własnych tras —
 # to pola profilu, które pokazuje ``sees_candidate_contact``.
 RecruitmentsRead = Annotated[Caller, _scoped(ServiceScope.recruitments_read)]

@@ -10,6 +10,11 @@
   Delivery Lead kontraktu (prowadzący rekrutację, z której przyszedł
   konsultant, albo główny DL klienta). Ogniwo z kontem nieaktywnym przepuszcza
   do następnego — dzwonek do wyłączonego konta nikomu by się nie pokazał.
+* **Z modułem back office** (decyzja Artura 20.11.2026) Delivery Lead nie jest
+  opiekunem z automatu: łańcuch kończy się na polu kontraktu i domyślnym
+  opiekunie klienta. Konsultanta bez nich prowadzi kolejka back office'u
+  („Kontakt 7. dnia”, „Co dalej po projekcie”), a DL-owi zostają sprawy klienta.
+  Wyłączenie modułu przywraca dawny łańcuch.
 """
 
 from __future__ import annotations
@@ -324,6 +329,8 @@ def _named_owner(
     contract: CareContract,
     active: set[int],
     lead_scopes: Optional[dict[int, Optional[frozenset[int]]]] = None,
+    *,
+    with_leads: bool = True,
 ) -> Optional[OwnerChoice]:
     """Pierwsze aktywne ogniwo: kontrakt → domyślny opiekun klienta → DL rekrutacji.
 
@@ -331,6 +338,7 @@ def _named_owner(
     rekrutacje widać w całej firmie, więc DL bywa prowadzącym u cudzego
     klienta — jako opiekun dostawałby dzwonki z linkiem kończącym się 403
     (audyt 19.10.2026). Ręczny przydział sprawdza to samo (``owner_problem``).
+    ``with_leads=False`` (moduł back office): bez ogniwa DL-a.
     """
 
     scopes = lead_scopes or {}
@@ -340,6 +348,8 @@ def _named_owner(
         (contract.job_delivery_lead_id, "delivery_lead"),
     ):
         if user_id is None or user_id not in active:
+            continue
+        if source == "delivery_lead" and not with_leads:
             continue
         if source == "delivery_lead" and user_id in scopes:
             scope = scopes[user_id]
@@ -361,9 +371,24 @@ async def _lead_scopes(
     return {user.id: await allowed_client_ids(user, db) for user in users}
 
 
+async def back_office_on(db: AsyncSession) -> bool:
+    """Moduł ``back_office`` włączony: konsultantów bez opiekuna prowadzi kolejka."""
+
+    from app.services.hr import modules as hr_modules  # noqa: PLC0415
+
+    return bool(
+        (await hr_modules.load_modules(db)).get(hr_modules.HrModule.back_office, False)
+    )
+
+
 async def effective_owners(
     db: AsyncSession, contracts: Sequence[CareContract]
 ) -> dict[int, OwnerChoice]:
+    """Faktyczny opiekun każdego kontraktu; z modułem back office bez ogniw DL-a."""
+
+    if not contracts:
+        return {}
+    with_leads = not await back_office_on(db)
     active = await _active_user_ids(
         db,
         (
@@ -372,24 +397,34 @@ async def effective_owners(
             for user_id in (
                 c.explicit_owner_id,
                 c.client_default_owner_id,
-                c.job_delivery_lead_id,
+                c.job_delivery_lead_id if with_leads else None,
             )
             if user_id is not None
         ),
     )
-    scopes = await _lead_scopes(
-        db,
-        (
-            c.job_delivery_lead_id
-            for c in contracts
-            if c.job_delivery_lead_id is not None and c.job_delivery_lead_id in active
-        ),
+    scopes = (
+        await _lead_scopes(
+            db,
+            (
+                c.job_delivery_lead_id
+                for c in contracts
+                if c.job_delivery_lead_id is not None
+                and c.job_delivery_lead_id in active
+            ),
+        )
+        if with_leads
+        else {}
     )
     named = {
-        contract.id: _named_owner(contract, active, scopes) for contract in contracts
+        contract.id: _named_owner(contract, active, scopes, with_leads=with_leads)
+        for contract in contracts
     }
-    heads = await _client_head_leads(
-        db, (c.client_id for c in contracts if named[c.id] is None)
+    heads = (
+        await _client_head_leads(
+            db, (c.client_id for c in contracts if named[c.id] is None)
+        )
+        if with_leads
+        else {}
     )
     out: dict[int, OwnerChoice] = {}
     for contract in contracts:

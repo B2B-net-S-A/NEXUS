@@ -21,6 +21,7 @@ from app.models.equipment import ConsultantWelcomeMail
 from app.models.hr_ops import HrAuditEvent
 from app.models.user import UserRole
 from app.services.hr import client_pack, welcome_mail
+from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
 from tests.client_onboarding_support import (
     PREFIX,
     ensure_router_mounted,
@@ -211,6 +212,10 @@ async def test_care_owner_sends_once_from_administration_mailbox(
     app_client, modules_on, mail_switch, mailbox, fake_sender
 ) -> None:
     await mail_switch(True)
+    # Bez modułu back office podpisuje DL klienta (opiekun z łańcucha, 20.11.2026).
+    await set_setting(
+        HR_MODULES_SETTING, {key: key != "back_office" for key in HR_MODULE_KEYS}
+    )
     dl = await make_user(UserRole.delivery_lead)
     client_id = await make_client(dl=dl)
     manager = await _pack(client_id)

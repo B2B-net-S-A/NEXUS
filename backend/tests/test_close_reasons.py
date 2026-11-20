@@ -218,3 +218,49 @@ def test_template_name_for_unknown_key_is_none():
     assert cr.template_name("nie_ma_takiego", withdrawn=False) is None
     assert cr.template_name("too_expensive", withdrawn=True) == "salary_mismatch"
     assert cr.template_name("other", withdrawn=True) == "Inne (withdrawn)"
+
+
+_FRONT_DICTIONARY = (
+    _BACKEND.parent / "frontend" / "src" / "lib" / "close-reasons.ts"
+).read_text(encoding="utf-8")
+_FRONT_WHO = {
+    "ALL": {cr.RECRUITER, cr.CLIENT, cr.CANDIDATE},
+    "US_CLIENT": {cr.RECRUITER, cr.CLIENT},
+    "US_CANDIDATE": {cr.RECRUITER, cr.CANDIDATE},
+    "CLIENT": {cr.CLIENT},
+    "CANDIDATE": {cr.CANDIDATE},
+    '["recruiter"]': {cr.RECRUITER},
+}
+
+
+def _front_entries() -> dict[str, dict]:
+    entries = {}
+    for line in _FRONT_DICTIONARY.splitlines():
+        found = re.match(
+            r'\s*\{ key: "(\w+)", label: "[^"]+", who: ([^,]+),(.*)\},?$', line
+        )
+        if not found:
+            continue
+        key, who, rest = found.groups()
+        rejected = re.search(r'rejected: "([^"]+)"', rest)
+        withdrawn = re.search(r'withdrawn: "([^"]+)"', rest)
+        entries[key] = {
+            "who": _FRONT_WHO[who.strip()],
+            "rejected": rejected.group(1) if rejected else None,
+            "withdrawn": withdrawn.group(1) if withdrawn else None,
+            "early_only": "earlyOnly: true" in rest,
+        }
+    return entries
+
+
+def test_front_dictionary_mirrors_the_backend_one():
+    front = _front_entries()
+    back = {r.key: r for r in cr.CLOSE_REASONS if r.key != "other"}
+    assert set(front) == set(back)
+    for key, reason in back.items():
+        assert front[key] == {
+            "who": set(reason.who),
+            "rejected": reason.rejected,
+            "withdrawn": reason.withdrawn,
+            "early_only": reason.early_only,
+        }, key

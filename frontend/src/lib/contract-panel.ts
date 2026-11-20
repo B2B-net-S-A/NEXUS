@@ -15,6 +15,7 @@ import {
   type HappeningActionId,
   type HappeningCare,
   type HappeningContract,
+  type HappeningItem,
 } from "@/lib/contract-happening";
 import type { ContractEndDateState } from "@/lib/contract-end-date";
 
@@ -53,7 +54,9 @@ export function lacksActiveOrder(c: ContractPanelFacts, today: string): boolean 
 export type PanelActionId = HappeningActionId | "complete_draft" | "recover";
 
 export interface PanelWarning {
-  id: "end" | "order_end" | "care" | "rate" | "draft" | "ended" | "no_order" | "contract_end";
+  id: HappeningItem["id"] | "draft" | "ended" | "no_order" | "contract_end";
+  /** Kilka zamówień po końcu to kilka spraw tego samego rodzaju. */
+  key?: string;
   tone: "danger" | "warning" | "info";
   lead: string;
   detail: string | null;
@@ -73,7 +76,12 @@ function dayDiff(fromIso: string, toIso: string): number {
 }
 
 export type PanelContract = ContractPanelFacts &
-  Partial<Pick<HappeningContract, "termination_lessons" | "agreement_termination_mode" | "prolongation_status">> & {
+  Partial<
+    Pick<
+      HappeningContract,
+      "termination_lessons" | "agreement_termination_mode" | "prolongation_status" | "order_after_end"
+    >
+  > & {
     contract_type: string;
   };
 
@@ -121,12 +129,20 @@ export function contractPanelWarnings(
       prolongation_status: c.prolongation_status ?? null,
       rate_client: c.rate_client ?? null,
       can_reverse_termination: c.can_reverse_termination ?? false,
+      order_after_end: c.order_after_end ?? [],
     },
     care,
     today,
     { canSeeRates: options.canViewFinance },
   );
-  const items: PanelWarning[] = happening.map((item) => ({ ...item, actions: [...item.actions] }));
+  const items: PanelWarning[] = happening.map((item) => ({
+    id: item.id,
+    key: item.key,
+    tone: item.tone,
+    lead: item.lead,
+    detail: item.detail,
+    actions: [...item.actions],
+  }));
 
   if (c.status === "ended") {
     const end = c.end_date ?? c.terminated_at ?? null;

@@ -93,7 +93,6 @@ from app.models.b2b_generated_contract_status_event import (
 )
 from app.models.cv_generation_job import CvGenerationJob  # noqa: F401
 from app.models.cv_generated_document import CvGeneratedDocument
-from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
 from app.models.fx_rate import FxRate
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity
@@ -433,9 +432,6 @@ __all__ = [
     "ContractDocSpRunItem",
     "B2BGeneratedContractStatusEvent",
     "CvGeneratedDocument",
-    "Invoice",
-    "InvoiceDirection",
-    "InvoiceStatus",
     "FxRate",
     "Activity",
     "UserActivity",

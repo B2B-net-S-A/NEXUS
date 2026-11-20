@@ -1,6 +1,10 @@
 "use client";
 
 import { RateDocumentRowNote } from "@/components/contracts/rate-documents/RateDocumentRowNote";
+import {
+ OrderAfterEndRowNote,
+ type OrderAfterEndSummary,
+} from "@/components/contracts/OrderAfterEndRowNote";
 import type { RateDocumentChange } from "@/lib/api/contractRateDocuments";
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from"react";
 import Link from"next/link";
@@ -174,6 +178,8 @@ interface ContractRow {
  missing_fields?: string[];
  // Stawka z dokumentu, której nie ma w harmonogramie (0739, redagowana z kwotami).
  rate_document_change?: RateDocumentChange | null;
+ // „Klient zamówił okres po zakończeniu” (19.11.2026): pierwsze takie zamówienie.
+ order_after_end?: OrderAfterEndSummary | null;
  candidate_name?: string;
  client_name?: string;
  job_title?: string;
@@ -289,13 +295,21 @@ const RUNNING_CONTRACT_STATUSES: ReadonlySet<ContractStatusValue> = new Set(
  * `contract_service.ending_bucket_clause`): status `ending` albo żywa umowa
  * z końcem w 30 dni — ta sama, którą liczyła „Obsługa kontraktorów”.
  */
-type QuickFilterKey = "pending" | "running" | "ending" | "all" | "rate_document";
+type QuickFilterKey =
+ | "pending"
+ | "running"
+ | "ending"
+ | "order_after_end"
+ | "all"
+ | "rate_document";
 const QUICK_FILTERS: ReadonlyArray<{
  key: QuickFilterKey;
  label: string;
  statuses: ContractStatusValue[];
  /** Zbiór liczy serwer (`bucket`), nie lista statusów. */
- bucket?: "ending" | "rate_document";
+ bucket?: "ending" | "rate_document" | "order_after_end";
+ /** Pigułka tylko wtedy, gdy zbiór nie jest pusty (albo jest wybrany). */
+ onlyWhenNotEmpty?: boolean;
  hint: string;
 }> = [
  {
@@ -316,6 +330,14 @@ const QUICK_FILTERS: ReadonlyArray<{
  statuses: [],
  bucket: "ending",
  hint: "Wypowiedziane i te, którym zostało 30 dni lub mniej.",
+ },
+ {
+ key: "order_after_end",
+ label: "Zamówione po końcu",
+ statuses: [],
+ bucket: "order_after_end",
+ onlyWhenNotEmpty: true,
+ hint: "Kończące się i zakończone kontrakty, u których klient zamówił okres po końcu współpracy.",
  },
  {
  key: "all",
@@ -828,6 +850,11 @@ export function ContractsListV2({
  const [rateDocument, setRateDocument] = useState(
  initialListState.state.rateDocument ?? false,
  );
+ // „Zamówione po końcu” (19.11.2026): kończący się albo zakończony kontrakt
+ // z zamówieniem po końcu projektu — zbiór liczy serwer (`bucket=order_after_end`).
+ const [orderAfterEnd, setOrderAfterEnd] = useState(
+ initialListState.state.orderAfterEnd ?? false,
+ );
  // „Umowa nierozwiązana” (decyzja Artura 28.10.2026): zakończone i kończące się
  // projekty B2B bez zapisanego rozwiązania umowy — lista zaległych porozumień.
  const [agreementNotTerminated, setAgreementNotTerminated] = useState(
@@ -878,6 +905,7 @@ export function ContractsListV2({
  endingSoon,
  agreementNotTerminated,
  rateDocument,
+ orderAfterEnd,
  ...dateRange,
  groupByClient,
  endingTimeline,
@@ -893,6 +921,7 @@ export function ContractsListV2({
  endingSoon,
  agreementNotTerminated,
  rateDocument,
+ orderAfterEnd,
  dateRange,
  groupByClient,
  endingTimeline,
@@ -931,6 +960,7 @@ export function ContractsListV2({
  setTypeFilter(next.typeFilter);
  setEndingSoon(next.endingSoon);
  setRateDocument(next.rateDocument ?? false);
+ setOrderAfterEnd(next.orderAfterEnd ?? false);
  setAgreementNotTerminated(next.agreementNotTerminated);
  setDateRange({
  startFrom: next.startFrom,
@@ -990,6 +1020,7 @@ export function ContractsListV2({
  endingSoon,
  agreementNotTerminated,
  rateDocument,
+ orderAfterEnd,
  appliedDates,
  sort,
  page,
@@ -1016,6 +1047,7 @@ export function ContractsListV2({
  typeFilter.forEach((t) => params.append("contract_type", t));
  if (endingSoon) params.set("bucket", "ending");
  else if (rateDocument) params.set("bucket", "rate_document");
+ else if (orderAfterEnd) params.set("bucket", "order_after_end");
  if (agreementNotTerminated) params.set("agreement_not_terminated", "true");
  if (appliedDates.startFrom) params.set("start_from", appliedDates.startFrom);
  if (appliedDates.startTo) params.set("start_to", appliedDates.startTo);
@@ -1134,6 +1166,10 @@ export function ContractsListV2({
  ? statusFilter.length === 0
  ? "rate_document"
  : null
+ : orderAfterEnd
+ ? statusFilter.length === 0
+ ? "order_after_end"
+ : null
  : endingSoon
  ? statusFilter.length === 0
  ? "ending"
@@ -1150,7 +1186,13 @@ export function ContractsListV2({
  status: statusFilter.length ? statusFilter : undefined,
  contract_type: typeFilter.length ? typeFilter : undefined,
  // „Kończące się” (18.11.2026): jedna reguła z serwera, nie sama data końca.
- bucket: endingSoon ? "ending" : rateDocument ? "rate_document" : undefined,
+ bucket: endingSoon
+ ? "ending"
+ : rateDocument
+ ? "rate_document"
+ : orderAfterEnd
+ ? "order_after_end"
+ : undefined,
  agreement_not_terminated: agreementNotTerminated || undefined,
  start_from: appliedDates.startFrom || undefined,
  start_to: appliedDates.startTo || undefined,
@@ -1169,6 +1211,7 @@ export function ContractsListV2({
  typeFilter,
  endingSoon,
  rateDocument,
+ orderAfterEnd,
  appliedDates,
  sort,
  page,
@@ -1206,6 +1249,7 @@ export function ContractsListV2({
  typeFilter,
  endingSoon,
  rateDocument,
+ orderAfterEnd,
  appliedDates,
  sort,
  agreementNotTerminated,
@@ -1261,6 +1305,7 @@ export function ContractsListV2({
  setStatusFilter([...filter.statuses]);
  setEndingSoon(filter.bucket === "ending");
  setRateDocument(filter.bucket === "rate_document");
+ setOrderAfterEnd(filter.bucket === "order_after_end");
  setAgreementNotTerminated(false);
  setPage(1);
  };
@@ -1398,6 +1443,7 @@ export function ContractsListV2({
  endingSoon,
  agreementNotTerminated,
  rateDocument,
+ orderAfterEnd,
  appliedDates,
  ]);
  const previousFilters = useRef(filtersSignature);
@@ -1532,6 +1578,7 @@ export function ContractsListV2({
  {c.candidate_name ?? `#${c.id}`}
  </Link>
  <RateDocumentRowNote change={c.rate_document_change} />
+ <OrderAfterEndRowNote summary={c.order_after_end} />
  {liveClientCount > 1 && (
  <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
  pracuje u {liveClientCount} klientów
@@ -1906,11 +1953,14 @@ export function ContractsListV2({
  {QUICK_FILTERS.map((filter) => {
  const selected = activeQuickFilter === filter.key;
  const count = quickCounts.data?.[filter.key];
+ if (filter.onlyWhenNotEmpty && !selected && !count) return null;
+ const alarming = filter.key === "order_after_end" && !selected;
  return (
  <button
  key={filter.key}
  type="button"
- data-tour={filter.key === "rate_document" ? "contracts.rate-document" : filter.key === "ending" ? "contracts.ending-pill" : undefined}
+ // Strażnik kotwic nowości czyta kotwicę z linii `data-tour` — jedna linia.
+ data-tour={filter.key === "rate_document" ? "contracts.rate-document" : filter.key === "order_after_end" ? "contracts.order-after-end" : filter.key === "ending" ? "contracts.ending-pill" : undefined}
  aria-pressed={selected}
  title={filter.hint}
  onClick={() => selectQuickFilter(filter.key)}
@@ -1927,7 +1977,11 @@ export function ContractsListV2({
  <span
  className={cn(
  "rounded-full px-1.5 text-[11px] font-semibold leading-5 tabular-nums",
- selected ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
+ selected
+ ? "bg-primary text-primary-foreground"
+ : alarming
+ ? "bg-destructive/10 text-destructive"
+ : "bg-muted text-foreground",
  )}
  >
  {count}

@@ -1,12 +1,11 @@
 """FX normalisation + Decimal precision for finance reporting.
 
-Covers three financial-correctness findings:
+Covers two financial-correctness findings (finding 2, ``/api/invoices/dso``,
+left with the retired invoice register on 20.11.2026):
 
 1. ``/api/reports/sales`` — MRR / margin / top-clients summed non-PLN contracts
    at face value (no FX). Now every per-currency amount is converted to PLN;
    a currency with no cached rate is excluded and flagged, never counted 1:1.
-2. ``/api/invoices/dso`` — outstanding/paid summed raw ``Invoice.amount`` ints
-   across currencies. Now aggregated per client × currency and folded to PLN.
 3. ``reports._monthly`` truncated the fractional per-unit rate with ``int()``
    before multiplying by hours (135.50/h → 135 → ×160 = 21600 instead of
    21680). Now keeps full ``Decimal`` precision.
@@ -248,35 +247,6 @@ async def _seed_rate(currency: str, rate: str, on: date | None = None) -> Decima
     return resolved
 
 
-async def _seed_invoice(
-    contract_id: int,
-    *,
-    amount: int,
-    currency: str,
-    paid: bool = False,
-    suffix: str = "",
-) -> None:
-    from app.core.database import AsyncSessionLocal
-    from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
-
-    today = business_today()
-    async with AsyncSessionLocal() as db:
-        db.add(
-            Invoice(
-                contract_id=contract_id,
-                direction=InvoiceDirection.to_client,
-                invoice_number=f"FX/{suffix}/{uuid.uuid4().hex[:6]}",
-                issue_date=today - timedelta(days=20),
-                due_date=today + timedelta(days=10),
-                paid_date=(today - timedelta(days=5)) if paid else None,
-                amount=amount,
-                currency=currency,
-                status=InvoiceStatus.paid if paid else InvoiceStatus.issued,
-            )
-        )
-        await db.commit()
-
-
 async def _clear_reports_cache() -> None:
     from app.core.cache import cache_invalidate
 
@@ -331,60 +301,3 @@ async def test_sales_flags_missing_fx_rate(
     body = resp.json()
     assert body["finance_quality"] == "unavailable"
     assert any("ZZZ" in w for w in body["finance_warnings"])
-
-
-# ── Finding 2 (integration): /invoices/dso folds currencies to PLN ───────────
-
-
-async def test_dso_totals_are_fx_converted_and_numeric(
-    app_client: AsyncClient, app_auth_headers: dict
-):
-    suffix = uuid.uuid4().hex[:6]
-    canonical_name = f"Canonical DSO Client {suffix}"
-    client_id, cand_id = await _seed_client_and_candidate(
-        suffix,
-        display_name=f"  {canonical_name}  ",
-    )
-    contract_id = await _seed_contract(
-        client_id, cand_id, currency="PLN", rate_client=1000
-    )
-    rate = await _seed_rate("AUD", "4")
-
-    await _seed_invoice(contract_id, amount=1000, currency="PLN", suffix="pln")
-    await _seed_invoice(contract_id, amount=500, currency="AUD", suffix="aud")
-
-    resp = await app_client.get("/api/invoices/dso", headers=app_auth_headers)
-    assert resp.status_code == 200
-    row = next(r for r in resp.json() if r["client_id"] == client_id)
-    assert row["client_name"] == canonical_name
-
-    expected_total = 1000 + 500 * float(rate)  # PLN + AUD→PLN, NOT raw 1500
-    assert abs(row["total_amount"] - expected_total) < 0.01
-    assert abs(row["total_amount"] - 1500) > 0.01  # not the raw-int sum
-    assert row["invoices"] == 2
-    assert row["fx_incomplete"] is False
-    # Guard the Pydantic-Decimal-string trap: amounts MUST be JSON numbers so the
-    # frontend can do arithmetic on them (a JSON string would parse to `str`).
-    assert isinstance(row["total_amount"], (int, float))
-    assert not isinstance(row["total_amount"], str)
-    assert isinstance(row["outstanding"], (int, float))
-
-
-async def test_dso_missing_rate_excluded_and_flagged(
-    app_client: AsyncClient, app_auth_headers: dict
-):
-    suffix = uuid.uuid4().hex[:6]
-    client_id, cand_id = await _seed_client_and_candidate(suffix)
-    contract_id = await _seed_contract(
-        client_id, cand_id, currency="PLN", rate_client=1000
-    )
-    await _seed_invoice(contract_id, amount=1000, currency="PLN", suffix="pln")
-    # QQQ has no rate — its amount must be excluded from the PLN total, flagged.
-    await _seed_invoice(contract_id, amount=999, currency="QQQ", suffix="qqq")
-
-    resp = await app_client.get("/api/invoices/dso", headers=app_auth_headers)
-    assert resp.status_code == 200
-    row = next(r for r in resp.json() if r["client_id"] == client_id)
-
-    assert abs(row["total_amount"] - 1000) < 0.01  # QQQ excluded
-    assert row["fx_incomplete"] is True

@@ -1644,7 +1644,12 @@ export function usePipelineMove({
     notLookingUntil?: string | null
   ) => {
     if (!pendingRejection) return;
-    const { entries, destCol, followUp } = pendingRejection;
+    const { entries, followUp } = pendingRejection;
+    // „Kandydat rezygnuje” w tym samym oknie (19.11.2026): wybór „Kto kończy?”
+    // decyduje o etapie — rezygnacja idzie na „Zrezygnował”, odrzucenie
+    // otwarte z przycisku „Zrezygnował” wraca na „Odrzucony”.
+    const destCol = rejectionDestination(pendingRejection, endedBy);
+    if (!destCol) return;
     setPendingRejection(null);
     const reasonLabel =
       job.rejectionReasons.find((r) => r.id === reasonId)?.label ?? (freeReason?.trim() || null);
@@ -1741,6 +1746,17 @@ export function usePipelineMove({
       )
     : null;
 
+  const withdrawnColumn = columns.find((c) => terminalOf(c) === "withdrawn") ?? null;
+  const rejectedColumn = columns.find((c) => terminalOf(c) === "rejected") ?? null;
+  function rejectionDestination(
+    pending: { destCol: KanbanColumn; terminalType: "rejected" | "withdrawn" },
+    endedBy: EndedBy | undefined,
+  ): KanbanColumn | null {
+    const wanted = endedBy === "candidate" ? "withdrawn" : "rejected";
+    if (pending.terminalType === wanted) return pending.destCol;
+    return wanted === "withdrawn" ? withdrawnColumn : rejectedColumn;
+  }
+
   // Osoba od systemu z „Nowych”/„Screeningu” (23.10.2026): okno pyta
   // o powód dla systemu; ten sam wybór idzie do każdej takiej osoby.
   function rejectionNeedsAutofill(item: KanbanItem, srcColId: string): boolean {
@@ -1749,8 +1765,10 @@ export function usePipelineMove({
   }
   // Wszystkie odrzucane z „Nowych”/„Screeningu” (19.11.2026): ta sama lista
   // powodów co przy osobie od systemu, także przy kartach dodanych ręcznie.
+  // Od 19.11.2026 także okno otwarte jako rezygnacja: „Kto kończy?” może je
+  // zamienić w odrzucenie.
   const rejectionFromDecisionColumns =
-    pendingRejection?.terminalType === "rejected" &&
+    pendingRejection != null &&
     pendingRejection.entries.length > 0 &&
     pendingRejection.entries.every((entry) => {
       const src = columns.find((c) => colId(c) === entry.srcColId);
@@ -1760,7 +1778,7 @@ export function usePipelineMove({
     rejectionNeedsAutofill(entry.item, entry.srcColId)
   );
   const rejectionAutofill =
-    pendingRejection?.terminalType === "rejected" && autofillEntries.length > 0
+    pendingRejection != null && autofillEntries.length > 0
       ? {
           rateKnown:
             autofillEntries.length === 1 &&
@@ -1776,6 +1794,7 @@ export function usePipelineMove({
         onOpenChange={(v) => !v && setPendingRejection(null)}
         terminalType={pendingRejection?.terminalType ?? "rejected"}
         reasons={job.rejectionReasons}
+        canWithdraw={withdrawnColumn !== null && rejectedColumn !== null}
         meetingsPair={
           pendingRejection?.entries.length === 1
             ? { jobId, candidateId: pendingRejection.entries[0].item.candidate_id }

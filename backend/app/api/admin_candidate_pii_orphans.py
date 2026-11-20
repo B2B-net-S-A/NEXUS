@@ -14,7 +14,7 @@ changing anything:
 - **Evidence is detached, not destroyed** (since migration 0225, 2026-08-12).
   ``contracts.candidate_id`` is ``ON DELETE SET NULL`` and the delete endpoint
   stamps every contract with a pseudonymous ``candidate_subject_ref`` first, so
-  contracts — and with them ``invoices``, ``document_signatures`` and
+  contracts — and with them ``document_signatures`` and
   ``client_orders`` — survive an erasure, unlinked. The ``blast_*`` counts below
   therefore measure REACH ("how many retention-worthy rows lose their link to a
   person"), NOT destruction. Until 2026-08-12 the same counts really did mean
@@ -54,7 +54,7 @@ from app.core.database import get_db
 
 router = APIRouter()
 
-QUERY_VERSION = "candidate-pii-orphans-v3"
+QUERY_VERSION = "candidate-pii-orphans-v4"
 CHECK_TIMEOUT_SECONDS = 20.0
 
 
@@ -125,20 +125,12 @@ _CHECKS: tuple[tuple[str, str, str, str], ...] = (
         "SELECT count(*) AS n FROM contracts WHERE candidate_id IS NOT NULL",
     ),
     (
-        "blast_invoices_via_candidate_contracts",
-        "high",
-        "Invoices hanging off a live candidate's contracts. They have no "
-        "candidate FK of their own, so they survive an erasure untouched — the "
-        "contract above keeps them reconcilable via candidate_subject_ref.",
-        "SELECT count(*) AS n FROM invoices i "
-        "JOIN contracts c ON c.id = i.contract_id "
-        "WHERE c.candidate_id IS NOT NULL",
-    ),
-    (
         "blast_signatures_via_candidate_contracts",
         "high",
         "Signed-document / e-signature records hanging off a live candidate's "
-        "contracts. Retained across an erasure for the same reason as invoices.",
+        "contracts. They have no candidate FK of their own, so they survive an "
+        "erasure untouched — the contract above keeps them reconcilable via "
+        "candidate_subject_ref.",
         "SELECT count(*) AS n FROM document_signatures s "
         "JOIN contracts c ON c.id = s.contract_id "
         "WHERE c.candidate_id IS NOT NULL",

@@ -31,6 +31,11 @@ Inaczej **Dobrze**. Kontrakt młodszy niż 14 dni bez żadnej rozmowy = Dobrze
 z powodem „brak rozmów”. Powody to powody poziomu, który wygrał (najwyżej 3).
 Zakończony kontrakt nie ma etykiety (``None``).
 
+Z modułem back office (decyzja Artura 20.11.2026) rytmu rozmów nie ma, więc
+dwie reguły rytmu — zaległa rozmowa i brak rozmowy ponad odstęp rytmu — nie
+liczą się (``HealthSignals.rhythm``). Zostają opinia menedżera, zadowolenie,
+„Do przepięcia” i koniec bez decyzji.
+
 Zadowolenie bierze się z rozmów opiekuna (od 22.10.2026 okno „Rozmowa”
 zapisuje kartę z tej samej rozmowy, więc karta nie jest drugim źródłem).
 Odczyt niczego nie zapisuje.
@@ -98,6 +103,8 @@ class HealthSignals:
     overdue_days: int = 0
     last_conversation_on: Optional[date] = None
     cadence_level: Optional[str] = None
+    #: Reguły rytmu (zaległa rozmowa, cisza ponad rytm); ``False`` przy module back office.
+    rhythm: bool = True
 
 
 @dataclass(frozen=True)
@@ -157,7 +164,7 @@ def assess(s: HealthSignals) -> Optional[Health]:
         return Health("risk", tuple(risk[:MAX_REASONS]))
 
     watch: list[str] = []
-    if s.overdue_days > 0:
+    if s.rhythm and s.overdue_days > 0:
         watch.append(f"rozmowa zaległa {_days(s.overdue_days)}")
     if s.satisfaction is not None:
         dropped = (
@@ -177,7 +184,8 @@ def assess(s: HealthSignals) -> Optional[Health]:
     silence = _silence_days(s)
     interval = CADENCE_INTERVAL_DAYS.get(s.cadence_level or "")
     if (
-        silence is not None
+        s.rhythm
+        and silence is not None
         and interval is not None
         and silence > SILENCE_FACTOR * interval
     ):
@@ -311,9 +319,13 @@ async def health_for(
     ids = [contract.id for contract in contracts]
     if not ids:
         return {}
+    # Moduł back office: bez rytmu rozmów nie ma zaległej rozmowy ani ciszy.
+    rhythm = not await care_access.back_office_on(db)
     if periods is None:
         periods = await care_plan.periods_by_contract(db, ids)
-    if overdue_days is None:
+    if not rhythm:
+        overdue_days = {}
+    elif overdue_days is None:
         items = await care_plan.open_items(db, ids)
         latest = await care_plan.latest_conversations(db, ids)
         overdue_days = {}
@@ -361,6 +373,7 @@ async def health_for(
                 overdue_days=overdue_days.get(contract.id, 0),
                 last_conversation_on=talked.get(contract.id),
                 cadence_level=level,
+                rhythm=rhythm,
             )
         )
         out[contract.id] = result.as_dict() if result is not None else None

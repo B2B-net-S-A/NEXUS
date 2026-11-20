@@ -201,6 +201,9 @@ class PendingCard:
     # Surowa blokada procesu (``claimed_by_user_id`` / ``claimed_until``).
     claimed_by: Optional[int] = None
     claimed_until: Optional[datetime] = None
+    # Wysłana wcześniej do klienta (``entry_meta.sent_before``, 20.11.2026):
+    # w porcji od ``sent_before.MIN_SCORE`` zamiast progu porcji.
+    sent_before: bool = False
 
 
 async def _other_column_def_ids(db: AsyncSession) -> list[int]:
@@ -265,8 +268,14 @@ def in_batch(
 ) -> bool:
     """Karta należy do porcji: od progu (``BatchSettings.min_score``) i nie
     starsza niż ``MAX_AGE_DAYS``. Starsze i słabsze karty zostają na Tablicy,
-    ale nikogo nie blokują i nie zajmują miejsca w porcji."""
-    if card.score < (MIN_SCORE if min_score is None else min_score):
+    ale nikogo nie blokują i nie zajmują miejsca w porcji. Osoba wysłana
+    wcześniej do klienta liczy się od ``sent_before.MIN_SCORE`` (20.11.2026)."""
+    from app.services import sent_before
+
+    threshold = MIN_SCORE if min_score is None else min_score
+    if card.sent_before:
+        threshold = min(threshold, sent_before.MIN_SCORE)
+    if card.score < threshold:
         return False
     if card.opened_at is None:
         return False
@@ -387,6 +396,7 @@ async def pending_cards(
             ),
             claimed_by=claimed_by,
             claimed_until=claimed_until,
+            sent_before=bool((meta or {}).get("sent_before")),
         )
         key = (card.job_id, card.candidate_id)
         prev = by_pair.get(key)

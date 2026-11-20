@@ -26,6 +26,7 @@ w Finanse → Rozliczenia, miesiąc po miesiącu. Decyzje Artura 19.11.2026:
 - **Bez ręcznego „Dodaj fakturę”** w kontrakcie. Nie przywracaj formularza
   ani odczytu z `invoices` w tej zakładce: dwa źródła faktur dla jednego
   kontraktu rozjechałyby się przy pierwszej korekcie.
-- Tabela `invoices` i jej trasy (`/api/invoices`, API v1 `/api/v1/invoices`,
-  kafle DSO i „faktury po terminie” pulpitu v2) zostały na razie bez zmian;
-  ich wygaszenie to osobne zadanie, a `DROP` wymaga zgody Artura.
+- Rejestr `invoices` wygaszony 20.11.2026: trasy `/api/invoices`
+  i `/api/integrations/v1/invoices` oraz kafle DSO i „faktury po terminie”
+  pulpitu v2 zniknęły, a `DROP` tabeli idzie osobną migracją
+  (`rejestr-faktur-invoices-wygaszony.md`).

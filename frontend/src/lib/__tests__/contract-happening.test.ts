@@ -135,6 +135,99 @@ describe("„Co się dzieje” na stronie kontraktu", () => {
   });
 });
 
+describe("„Klient zamówił okres po zakończeniu” (19.11.2026)", () => {
+  const heldDraft = {
+    order_id: 894,
+    client_id: 12,
+    order_group_id: null,
+    order_number: "4500123456",
+    status: "draft",
+    start_date: "2026-12-01",
+    end_date: "2027-05-31",
+    held_by_termination: true,
+  };
+
+  it("szkic z maila po wypowiedzeniu: osobna pozycja z trzema wyjściami", () => {
+    const items = buildContractHappening(
+      {
+        ...base,
+        status: "ending",
+        end_date: "2026-11-30",
+        terminated_at: "2026-11-30",
+        agreement_termination_mode: "agreement",
+        can_reverse_termination: true,
+        order_after_end: [heldDraft],
+      },
+      null,
+      TODAY,
+    );
+    expect(items.map((item) => item.id)).toEqual(["end", "order_after_end"]);
+    // „Cofnij zakończenie” stoi przy konflikcie, nie dwa razy.
+    expect(items[0].actions).toEqual([]);
+    expect(items[1]).toMatchObject({
+      key: "order_after_end:894",
+      tone: "danger",
+      lead: "Klient zamówił okres po zakończeniu współpracy",
+      actions: ["reverse_termination", "reassign_order", "cancel_order_draft"],
+      order: heldDraft,
+    });
+    expect(items[1].detail).toBe(
+      "Szkic zamówienia 4500123456: 01.12.2026 – 31.05.2027, a współpraca kończy się 30.11.2026. " +
+        "NEXUS nie aktywuje go sam, bo zakończenie współpracy to decyzja człowieka.",
+    );
+  });
+
+  it("aktywna linia na zakończonej umowie zlecenie: przedłużenie aneksem zamiast cofnięcia", () => {
+    const items = buildContractHappening(
+      {
+        ...base,
+        status: "ended",
+        contract_type: "uzlecenie",
+        end_date: "2026-10-31",
+        can_reverse_termination: true,
+        order_after_end: [
+          {
+            order_id: 951,
+            client_id: 12,
+            order_group_id: 108,
+            order_number: "108/2026",
+            status: "active",
+            start_date: "2026-11-02",
+            end_date: null,
+            held_by_termination: false,
+          },
+        ],
+      },
+      null,
+      TODAY,
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0].actions).toEqual(["extend_agreement", "reassign_order"]);
+    expect(items[0].detail).toBe(
+      "Linia zamówienia zbiorczego 108/2026: od 02.11.2026 bez daty końca, a współpraca " +
+        "zakończyła się 31.10.2026. Umowa zlecenie nie przedłuża się zamówieniem — przedłuż ją " +
+        "aneksem albo załóż nowy kontrakt.",
+    );
+  });
+
+  it("bez zamówienia po końcu nic nie dochodzi, a żywy kontrakt pozycji nie dostaje", () => {
+    const ending = {
+      ...base,
+      status: "ending",
+      end_date: "2026-11-30",
+      terminated_at: "2026-11-30",
+      agreement_termination_mode: "agreement",
+      can_reverse_termination: true,
+    };
+    const items = buildContractHappening({ ...ending, order_after_end: [] }, null, TODAY);
+    expect(items.map((item) => item.id)).toEqual(["end"]);
+    expect(items[0].actions).toEqual(["reverse_termination"]);
+    expect(
+      buildContractHappening({ ...base, order_after_end: [heldDraft] }, null, TODAY),
+    ).toEqual([]);
+  });
+});
+
 describe("dni po polsku", () => {
   it("dziś, jutro, za N dni, N dni temu", () => {
     expect(relativeDays(0)).toBe("dziś");

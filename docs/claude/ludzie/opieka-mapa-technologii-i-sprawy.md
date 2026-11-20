@@ -191,7 +191,8 @@ popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opi
   Rola „Automatyzacje” (0446) ma podgląd Delivery, ale opieki nie widzi wcale
   (`care_gates.refuse_automation`, decyzja Artura 19.10.2026).
 - Opiekun kontraktu: pole kontraktu, gdy puste — domyślny opiekun klienta,
-  gdy i tego brak — Delivery Lead kontraktu.
+  gdy i tego brak — Delivery Lead kontraktu. Z modułem `back_office` bez ogniwa
+  DL-a (20.11.2026, `opieka-dl-bez-podopiecznych-przy-back-office.md`).
 - Plan kontaktów od startu kontraktu (etap 3, 17.10.2026): kamienie — dzień 7
   i 30 dni przed końcem zamówienia albo umowy, przy KAŻDYM rytmie, także
   wstrzymanym — i rozmowy według rytmu konsultanta (rodzaj `cadence`, niżej).

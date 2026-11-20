@@ -38,7 +38,13 @@ import { canReadClientPeople, type ManagerHint } from "@/lib/api/client-people";
 import type { HiringManagerChoice } from "@/lib/hiring-manager";
 import { useHrConfig } from "@/lib/api/hr";
 import { useConsultantCard } from "@/lib/api/care";
-import { buildContractHappening, type HappeningActionId } from "@/lib/contract-happening";
+import {
+  buildContractHappening,
+  type HappeningActionId,
+  type HappeningItem,
+  type HappeningOrderAfterEnd,
+} from "@/lib/contract-happening";
+import { CancelOrderDraftButton } from "@/components/contracts/detail/CancelOrderDraftButton";
 import { warsawToday } from "@/lib/warsaw-date";
 import { ContractHappeningStrip } from "@/components/contracts/detail/ContractHappeningStrip";
 import { ContractPeriodBar } from "@/components/contracts/detail/ContractPeriodBar";
@@ -259,6 +265,8 @@ interface ContractDetail {
   can_return_after_break?: boolean;
   termination_reversed_at?: string | null;
   termination_reversed_by_name?: string | null;
+  /** „Klient zamówił okres po zakończeniu” (19.11.2026) — liczy serwer. */
+  order_after_end?: HappeningOrderAfterEnd[];
 }
 
 interface ActivityEntry {
@@ -1045,6 +1053,7 @@ export default function ContractDetailPage() {
       prolongation_status: contract.prolongation_status ?? null,
       rate_client: contract.rate_client,
       can_reverse_termination: contract.can_reverse_termination ?? false,
+      order_after_end: contract.order_after_end ?? [],
     },
     careOpen && careCard?.health
       ? { level: careCard.health.level, reasons: careCard.health.reasons, ownerName: careCard.owner?.name ?? null }
@@ -1061,7 +1070,8 @@ export default function ContractDetailPage() {
     setActiveTab(tab);
     window.scrollTo({ top: 0 });
   };
-  const renderHappeningAction = (action: HappeningActionId) => {
+  const renderHappeningAction = (action: HappeningActionId, item?: HappeningItem) => {
+    const order = item?.order;
     switch (action) {
       case "record_agreement":
         return canEditContractStatus ? (
@@ -1115,6 +1125,43 @@ export default function ContractDetailPage() {
           >
             Zapisz rozmowę
           </Button>
+        ) : null;
+      case "extend_agreement":
+        return canEditContract ? (
+          <Button size="sm" variant="outline" onClick={() => openTab("amendments")}>
+            Przedłuż aneksem
+          </Button>
+        ) : null;
+      case "reassign_order":
+        // Linię zamówienia zbiorczego przepina „Zamień kontraktora” w panelu
+        // zamówienia. Zamówienia pojedynczego nie da się przepiąć na inną
+        // osobę, więc prowadzimy do jego edycji.
+        return canEditContract && order ? (
+          <Button size="sm" variant="outline" asChild>
+            <Link
+              href={
+                order.order_group_id != null
+                  ? `/clients/${order.client_id}?tab=zamowienia&group=${order.order_group_id}`
+                  : `/clients/${order.client_id}?tab=zamowienia&order=${order.order_id}`
+              }
+              title={
+                order.order_group_id != null
+                  ? "Otwiera zamówienie — zamianę osoby robi „Zamień kontraktora” w wierszu konsultanta."
+                  : "Zamówienia nie da się przepiąć na inną osobę — otwórz je i popraw albo załóż zamówienie dla następcy."
+              }
+            >
+              {order.order_group_id != null ? "Przypisz innej osobie" : "Edytuj zamówienie"}
+            </Link>
+          </Button>
+        ) : null;
+      case "cancel_order_draft":
+        return canEditContract && order ? (
+          <CancelOrderDraftButton
+            contractId={contract.id}
+            clientId={order.client_id}
+            orderId={order.order_id}
+            orderNumber={order.order_number}
+          />
         ) : null;
       case "fill_rate":
         return canEditContract || financeAmountsOnly ? (
