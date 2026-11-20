@@ -222,6 +222,18 @@ describe("znamy tę osobę", () => {
       knownFactLabels({ points: 8, client_points: 0, note_points: 8, verified_at_client: 0, last_note_days: 1 }),
     ).toEqual(["Notatka wczoraj"]);
     expect(knownFactLabels(null)).toEqual([]);
+    // 20.11.2026: wysyłka do klienta w innej rekrutacji idzie pierwsza.
+    expect(
+      knownFactLabels({
+        points: 14,
+        client_points: 6,
+        note_points: 0,
+        verified_at_client: 1,
+        last_note_days: null,
+        sent_elsewhere: 2,
+        sent_points: 8,
+      }),
+    ).toEqual(["Wysłany do klienta · 2×", "U klienta · 1×"]);
     expect(daysAgoText(0)).toBe("dziś");
   });
 });

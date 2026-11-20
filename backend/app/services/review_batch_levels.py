@@ -6,7 +6,7 @@ zostaje do odwołania. Od 10.11.2026 poziom to też wielkość porcji osoby
 (``review_batch_plan``), a liczy się sama decyzja, bez domknięcia screeningu. Kto nie zrobił, zostaje na swoim poziomie: poziom nie
 spada. Stan siedzi w ``app_settings['review_batch_levels']``, a przelicza go
 pierwszy tick nowego dnia (``new_column_autofill._batch_tick``), w tej samej
-transakcji co plan dnia.
+transakcji co plan dnia. Od 20.11.2026 ``CAP`` = 20 (wcześniej 50).
 """
 
 from __future__ import annotations
@@ -23,7 +23,10 @@ from app.models.app_setting import AppSetting
 
 LEVELS_KEY = "review_batch_levels"
 STEP = 10
-CAP = 50
+# 20.11.2026: 50 → 20 (decyzja Artura). Decyzje 21–50 dnia dawały 0,9% osób
+# u klienta (6 z 677 w 16–19.11), pierwsze dziesięć 7,7%, a 520 osób po
+# „Pasuje” czekało na telefon. Zapisane wyżej poziomy też spadają do 20.
+CAP = 20
 
 
 def next_level(level: int, done: int) -> int:
@@ -34,8 +37,9 @@ def next_level(level: int, done: int) -> int:
 
 
 def level_of(stored: dict[int, int], user_id: int, base: int) -> int:
-    """Minimum osoby: jej poziom, nigdy niższy niż minimum z ustawień HoR."""
-    return max(stored.get(user_id, base), base)
+    """Minimum osoby: jej poziom (najwyżej ``CAP``), nigdy niższy niż minimum
+    z ustawień HoR."""
+    return max(min(stored.get(user_id, base), CAP), base)
 
 
 def previous_business_day(day: date) -> date:

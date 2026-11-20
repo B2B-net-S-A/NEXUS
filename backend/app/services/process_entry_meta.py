@@ -173,14 +173,19 @@ def autofill_badge(
         "awaiting_decision": in_new_column and not decided(meta),
         "waiting_days": days,
         "decision_due": decision_due(days),
-        "cautions": [
-            c
-            for c in (_caution(raw) for raw in (meta.get("cautions") or []))
-            if c is not None
-        ]
-        if isinstance(meta.get("cautions"), list)
-        else [],
+        "cautions": caution_views(meta.get("cautions")),
     }
+
+
+def caution_views(raw: Any) -> list[dict]:
+    """Ostrzeżenia z migawki jako napis i dymek (Tablica i porcja dnia).
+
+    20.11.2026: porcja oddawała surowe ``entry_meta.cautions`` (``key``,
+    ``city``, ``over_pct``), a karta pokazuje ``label`` — na produkcji 382
+    ostrzeżenia od 16.11 były pustym prostokątem."""
+    if not isinstance(raw, list):
+        return []
+    return [c for c in (_caution(item) for item in raw) if c is not None]
 
 
 # 0404: zgłoszenie z linku rekrutacji po przeglądzie AI — plakietka na karcie
