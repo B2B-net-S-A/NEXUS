@@ -22,6 +22,13 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
   „✓ Wrzucone”. Obecny pilotaż obejmuje wyłącznie szkic (`--start` bez
   `--submit`), przy `CPRO_BOT_ENABLED=false`. Najpierw Sandra ocenia szkic;
   pierwszą wysyłkę i późniejsze włączenie wykonuje Artur.
+- Gdy rutyna w tle nie może zalogować się wpisem właściwego Delivery Leada,
+  operator może przekazać aktywnej rozmowie Grok Bota jedno nowe zlecenie
+  przez `--interactive-draft`. NEXUS sprawdza aktualną gotowość karty,
+  numer requestu i konto. Jednorazowy token trafia do chronionego pola sesji.
+  Potwierdzeniem próby są status DRAFT po ponownym otwarciu oferty w Cpro
+  oraz raport tego samego biegu w NEXUSIE. Procedurę opisuje
+  [instrukcja konfiguracji](../../cpro-grok-bot-setup.md).
 - **Osoba na kilku requestach bez screeningu** (Marcin wrzuca ludzi do „Do
   Cpro” bez arkusza i bez rekrutera): brakujące Warunki i brakujące CV bot
   bierze z najnowszej karty tej osoby w **innej rekrutacji tego samego
