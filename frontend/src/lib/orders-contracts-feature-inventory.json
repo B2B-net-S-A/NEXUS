@@ -858,7 +858,7 @@
   },
   {
    "id": "k.docs.sections",
-   "opis": "Dokumenty kontraktu: sekcja „Aktualna umowa” (pliki poza folderami) zawsze nad folderami",
+   "opis": "Dokumenty kontraktu: karty „Obowiązuje teraz” i pliki poza folderami w grupach po rodzaju, zawsze nad folderami",
    "file": "components/ContractDocumentsTab.tsx",
    "marker": "pliki poza folderami",
    "b_home": "Strona kontraktu: zakładka „Dokumenty”"
@@ -866,21 +866,21 @@
   {
    "id": "k.docs.folders",
    "opis": "Foldery w Dokumentach: „Nowy folder”, zwijanie, liczba plików, rozmiar, data, „Zmień nazwę”, „Usuń” (pliki wracają na listę główną)",
-   "file": "components/contracts/documents/FolderHeaderRow.tsx",
+   "file": "components/contracts/documents/DocumentGroupHeader.tsx",
    "marker": "Zmień nazwę",
    "b_home": "Strona kontraktu: zakładka „Dokumenty”, sekcja „Foldery”"
   },
   {
    "id": "k.docs.move",
    "opis": "Checkbox przy pliku i pasek: „Przenieś do”, „Nowy folder z zaznaczonych”, „Anuluj”",
-   "file": "components/contracts/documents/SelectionBar.tsx",
+   "file": "components/contracts/documents/DocumentSelectionBar.tsx",
    "marker": "Nowy folder z zaznaczonych",
    "b_home": "Strona kontraktu: zakładka „Dokumenty”, pasek nad listą"
   },
   {
    "id": "k.docs.orders-folder",
    "opis": "Automatyczny folder „Zamówienia”: dokumenty typu Zamówienie i PDF-y z zakładki Zamówienia (dawna sekcja „Dokumenty zamówień”)",
-   "file": "components/contracts/documents/FolderHeaderRow.tsx",
+   "file": "components/ContractDocumentsTab.tsx",
    "marker": "automatyczny",
    "b_home": "Strona kontraktu: zakładka „Dokumenty”, folder „Zamówienia”"
   },

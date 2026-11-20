@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
@@ -33,6 +33,9 @@ vi.mock("@/lib/api", () => ({
       },
     }),
   },
+  // Etykiety historii kontraktu (`personFromEmail` z `lib/contract-history`).
+  CONTRACT_FIELD_LABELS: {},
+  CONTRACT_TERMINATION_REASONS: [],
 }));
 vi.mock("@/lib/api/dlPortal", () => ({
   dlPortalApi: {
@@ -58,11 +61,36 @@ describe("ContractDocumentsTab section access", () => {
   it("keeps downloads but hides upload and delete in read-only mode", async () => {
     renderTab(true);
 
-    expect(await screen.findByText("umowa.pdf")).toBeInTheDocument();
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("umowa.pdf")).toBeInTheDocument();
     expect(screen.getByTitle("Pobierz")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pobierz umowę: umowa.pdf" })).toBeInTheDocument();
     expect(screen.queryByText("Dodaj plik")).not.toBeInTheDocument();
     expect(screen.queryByText("Nowy folder")).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Więcej akcji/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("Usuń plik…")).not.toBeInTheDocument();
+  });
+
+  it("with write access deletion sits in the file menu, not as a bin on top", async () => {
+    renderTab(false);
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("umowa.pdf")).toBeInTheDocument();
+    expect(screen.getByText("Dodaj plik")).toBeInTheDocument();
     expect(screen.queryByTitle("Usuń")).not.toBeInTheDocument();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Więcej akcji: umowa.pdf" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(await screen.findByRole("menuitem", { name: "Usuń plik…" })).toBeInTheDocument();
+  });
+
+  it("shows the uploader's name, never the e-mail address", async () => {
+    renderTab(true);
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("Admin")).toBeInTheDocument();
+    expect(screen.queryByText(/admin@example\.com/)).not.toBeInTheDocument();
   });
 });

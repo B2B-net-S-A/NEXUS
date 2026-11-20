@@ -15401,6 +15401,9 @@
   "GET /api/candidates/stages/990305/cv/branded/versions": {
    "versions": []
   },
+  "GET /api/candidates/stages/990305/client-form": {
+   "@status": 404
+  },
   "GET /api/candidates/stages/990305/cv/ai-sources": {
    "original_cv": {
     "document_id": 992786,

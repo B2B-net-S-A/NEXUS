@@ -221,7 +221,9 @@ async def test_model_answer_goes_through_the_code_checks(monkeypatch) -> None:
         user_id=1,
     )
     assert result["status"] == "ok"
-    assert set(result["fields"]) == {"p2", "p4", "t2.r2.c2"}
+    # Pola lat mają wpis z siatką (bez stanowisk — puste, z pytaniem).
+    valued = {key for key, value in result["fields"].items() if value["value"]}
+    assert valued == {"p2", "p4", "t2.r2.c2"}
     assert result["dropped"] == 1
 
 
