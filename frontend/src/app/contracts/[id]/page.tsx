@@ -562,14 +562,14 @@ export default function ContractDetailPage() {
   const user = useAuthStore((state) => state.user);
   const impersonating = useAuthStore((state) => state.realUser !== null);
   // Bramki akcji — wspólne z bocznym panelem rejestru (`lib/contract-access.ts`).
-  // Benchmark i faktury: `view_finance`/`manage_finance` bez wyjątku portfela
-  // DL (audyt 24.09, S1/S10); konto ze zmianą kwot, ale bez edycji kontraktów,
-  // edytuje wyłącznie kwoty (backend: `finance_amounts_only`).
+  // Benchmark i faktury: `view_finance` bez wyjątku portfela DL (audyt 24.09,
+  // S1/S10; faktury KSeF tylko do odczytu od 19.11.2026); konto ze zmianą
+  // kwot, ale bez edycji kontraktów, edytuje wyłącznie kwoty (backend:
+  // `finance_amounts_only`).
   const {
     canManageFinance,
     canViewBenchmark,
     canViewInvoices,
-    canManageInvoices,
     isAdmin,
     canEditContract,
     financeAmountsOnly,
@@ -2907,10 +2907,11 @@ export default function ContractDetailPage() {
         </div>
       )}
 
-      {/* Pieniądze, ciąg dalszy: faktury konsultanta. */}
+      {/* Pieniądze, ciąg dalszy: faktury konsultanta z KSeF (tylko do odczytu,
+          źródło jak w Finanse → Rozliczenia; decyzja Artura 19.11.2026). */}
       {canViewInvoices && activeTab === "money" && (
         <div className="mt-4">
-          <ContractInvoicesTab contractId={id} readOnly={!canManageInvoices} />
+          <ContractInvoicesTab contractId={id} />
         </div>
       )}
 
