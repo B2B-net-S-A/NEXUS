@@ -306,6 +306,11 @@ function seededClient(): QueryClient {
       "",
       DEFAULT_CONTRACT_STATUS_FILTER,
       [],
+      // „Kończące się”, „Stawka z dokumentu”, „Zamówione po końcu” — wyłączone.
+      // Klucz bez nich przestał pasować (0739, #3664) i lista harnessu
+      // pokazywała błąd zamiast wierszy.
+      false,
+      false,
       false,
       { startFrom: "", startTo: "", orderEndFrom: "", orderEndTo: "" },
       { by: null, dir: "asc" },

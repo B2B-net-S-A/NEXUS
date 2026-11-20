@@ -170,7 +170,7 @@ describe("ContractsListV2 — boczny panel kontraktu", () => {
     renderList();
     await screen.findByText("Paweł Przykładowy");
 
-    fireEvent.click(memberRow(512).querySelector('[data-label="Typ"]') as HTMLElement);
+    fireEvent.click(memberRow(512).querySelector('[data-label="Okres"]') as HTMLElement);
     const panel = await screen.findByTestId("contract-side-panel", {}, PANEL_LOAD);
     expect(panel).toBeInTheDocument();
     await waitFor(() => expect(mocks.contractGet).toHaveBeenCalledWith(512));

@@ -2136,6 +2136,12 @@ def _group_member_from_contract(
         currency=eff["currency"],
         rate_client_currency=eff["rate_client_currency"],
         rate_candidate_currency=eff["rate_candidate_currency"],
+        terminated_at=c.terminated_at,
+        termination_reason=c.termination_reason,
+        termination_lessons=c.termination_lessons,
+        agreement_termination_mode=c.agreement_termination_mode,
+        prolongation_status=c.prolongation_status or ProlongationStatus.unknown,
+        billing_hours_per_month=c.billing_hours_per_month,
     )
 
 

@@ -376,6 +376,17 @@ class ContractGroupMember(BaseModel):
     currency: Optional[str] = None
     rate_client_currency: Optional[str] = None
     rate_candidate_currency: Optional[str] = None
+    # Fakty kolumny „Co dalej” (lista kontraktów, 20.11.2026) — te same, które
+    # wiersz główny ma z ``ContractResponse``, żeby każdy klient osoby dostał
+    # zdanie z tych samych progów co pas „Co się dzieje” na stronie kontraktu.
+    # Bez kwot, więc bez redakcji; godziny rozliczeniowe przeliczają marżę
+    # godzinową na miesięczną.
+    terminated_at: Optional[date] = None
+    termination_reason: Optional[ContractTerminationReason] = None
+    termination_lessons: Optional[str] = None
+    agreement_termination_mode: Optional[AgreementTerminationMode] = None
+    prolongation_status: ProlongationStatus = ProlongationStatus.unknown
+    billing_hours_per_month: Optional[int] = None
 
 
 class ContractResponse(BaseModel):

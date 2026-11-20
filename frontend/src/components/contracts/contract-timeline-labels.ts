@@ -27,6 +27,10 @@ const ACTION_LABELS: Record<string, string> = {
   termination_data_cleared: "Usunięto datę i powód cofniętego zakończenia",
   end_date_cleared: "Wyczyszczono datę zakończenia (umowa bezterminowa)",
   synced_with_orders: "Zsynchronizowano z zamówieniami klienta",
+  // 20.11.2026: z generatora umów i aktywacji szły jako „Zdarzenie systemowe”.
+  auto_drafted_from_generated_contract: "Założono szkic z wygenerowanej umowy B2B",
+  linked_to_generated_contract: "Powiązano z wygenerowaną umową B2B",
+  contract_activated: "Aktywowano kontrakt",
   bulk_marked_ended: "Zakończono współpracę (operacja zbiorcza)",
   agreement_termination_recorded: "Zapisano rozwiązanie umowy podpisane poza NEXUSEM",
   // 0367 — okno „Zakończ współpracę" i synchronizacja z Generatorem B2B.

@@ -10,6 +10,16 @@ import {
 // `terminated`, `updated` i wieloliniowy JSON z `null`, `source_order_id`
 // i identyfikatorem korekty `0307_…`.
 describe("contract timeline labels", () => {
+  it("umowa z generatora i aktywacja mają etykiety zamiast „Zdarzenie systemowe”", () => {
+    expect(contractActivityLabel("auto_drafted_from_generated_contract")).toBe(
+      "Założono szkic z wygenerowanej umowy B2B",
+    );
+    expect(contractActivityLabel("linked_to_generated_contract")).toBe(
+      "Powiązano z wygenerowaną umową B2B",
+    );
+    expect(contractActivityLabel("contract_activated")).toBe("Aktywowano kontrakt");
+  });
+
   it("tłumaczy slugi zdarzeń widoczne na osi czasu kontraktu", () => {
     expect(contractActivityLabel("synced_with_orders")).toBe(
       "Zsynchronizowano z zamówieniami klienta",
