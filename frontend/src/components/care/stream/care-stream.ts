@@ -197,7 +197,8 @@ function techCardItem(card: TechCard): StreamItem {
     facts: compact([
       card.area ? `dział ${card.area.name}` : null,
       card.skills.length ? `technologie: ${card.skills.length}` : null,
-      card.team_size ? `zespół ${card.team_size} osób` : null,
+      // Rozmiar bywa liczbą („10-15”) albo już ze słowem („9 osób”).
+      card.team_size ? `zespół ${card.team_size}${/\d$/.test(card.team_size.trim()) ? " osób" : ""}` : null,
       card.satisfaction != null ? `zadowolenie ${card.satisfaction} / 5` : null,
     ]),
     author: card.author?.name ?? null,

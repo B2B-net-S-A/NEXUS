@@ -169,6 +169,13 @@ describe("buildCareStream", () => {
     expect(items.map((item) => item.title)).toEqual(["Notatka · e-mail", "Notatka"]);
   });
 
+  it("rozmiar zespołu bez podwójnego „osób”", () => {
+    const [range] = buildCareStream({ techCards: [techCard({ team_size: "10-15" })] });
+    const [worded] = buildCareStream({ techCards: [techCard({ team_size: "9 osób" })] });
+    expect(range.facts).toContain("zespół 10-15 osób");
+    expect(worded.facts).toContain("zespół 9 osób");
+  });
+
   it("puste źródła to pusty strumień", () => {
     expect(buildCareStream({})).toEqual([]);
     expect(buildCareStream({ notes: null, conversations: undefined })).toEqual([]);
