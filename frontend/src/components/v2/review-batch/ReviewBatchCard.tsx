@@ -33,6 +33,7 @@ import {
 } from "@/lib/autofill-feedback";
 import { warsawToday } from "@/lib/warsaw-date";
 import { knownFactLabels } from "@/lib/new-column-queue";
+import { closeReason } from "@/lib/close-reasons";
 import { reasonNeedsDescription, WORK_MODE_MISMATCH_REASON } from "@/lib/rejection-reasons";
 import { cn } from "@/lib/utils";
 
@@ -49,18 +50,26 @@ import { hasKeyFacts, ReviewBatchKeyFactsBlock } from "./ReviewBatchKeyFacts";
  * „Język” rozdzielony na polski i angielski (19 z 20 opisów to było samo
  * „Język”), „Forma umowy” zamiast „Inne” (3 takie opisy).
  */
-export const QUICK_REASONS: { key: string; value: AutofillReason; label: string }[] = [
-  { key: "1", value: "missing_skill", label: "Brak umiejętności" },
-  { key: "2", value: "too_junior", label: "Za junior" },
-  { key: "3", value: "location_mode", label: "Lokalizacja / tryb" },
-  { key: "4", value: "too_expensive", label: "Za drogi" },
-  { key: "5", value: "no_polish", label: "Brak polskiego" },
-  { key: "6", value: "weak_english", label: "Angielski za słaby" },
-  { key: "7", value: "other_level_or_role", label: "Inna rola" },
-  { key: "8", value: "not_looking", label: "Nie szuka / niedostępny" },
-  { key: "9", value: "contract_form", label: "Forma umowy" },
-  { key: "0", value: "other", label: "Inne" },
+/**
+ * Powody pod klawiszami 0–9. Od 19.11.2026 nazwy z jednego słownika powodów
+ * (`lib/close-reasons.ts`) — te same co w oknie „Zamknij proces”, żeby ten
+ * sam klucz nie miał w porcji innej nazwy niż na Tablicy.
+ */
+const QUICK_KEYS: { key: string; value: AutofillReason }[] = [
+  { key: "1", value: "missing_skill" },
+  { key: "2", value: "too_junior" },
+  { key: "3", value: "location_mode" },
+  { key: "4", value: "too_expensive" },
+  { key: "5", value: "no_polish" },
+  { key: "6", value: "weak_english" },
+  { key: "7", value: "other_level_or_role" },
+  { key: "8", value: "not_looking" },
+  { key: "9", value: "contract_form" },
+  { key: "0", value: "other" },
 ];
+export const QUICK_REASONS: { key: string; value: AutofillReason; label: string }[] = QUICK_KEYS.map(
+  (r) => ({ ...r, label: closeReason(r.value)?.label ?? r.value }),
+);
 
 /** Najwyżej tyle pozycji wymagań pod „Brak umiejętności”: najpierw te, których system nie znalazł. */
 export const GAP_ROWS = 8;
