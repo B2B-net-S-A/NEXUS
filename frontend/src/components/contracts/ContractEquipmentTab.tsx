@@ -11,25 +11,60 @@ import {
 } from "@/lib/api";
 import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import { apiErrorMessage } from "@/lib/api-error";
-import { warsawToday } from "@/lib/warsaw-date";
+import { warsawDateOf, warsawToday } from "@/lib/warsaw-date";
 import { useToast } from "@/components/Toast";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { useHrConfig } from "@/lib/api/hr";
 import {
+  useClientProvider,
   useContractEquipmentRegister,
   useHolderEquipment,
   type AssignmentRow,
   type HolderEquipment,
 } from "@/lib/api/equipment";
-import { CATEGORY_LABELS, itemIdentifier } from "@/components/equipment/equipment-format";
+import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
+import { CATEGORY_LABELS, CONDITION_LABELS, itemIdentifier } from "@/components/equipment/equipment-format";
+import { categoryIcon } from "@/components/equipment/equipment-visuals";
 import { IssueWizard } from "@/components/equipment/IssueWizard";
 import { ReturnWizard } from "@/components/equipment/ReturnWizard";
-import { Laptop, Plus, Trash2, Check, AlertTriangle, X, PackagePlus, PackageMinus } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  Cable,
+  Check,
+  Cpu,
+  FileText,
+  Headphones,
+  IdCard,
+  KeyRound,
+  Laptop,
+  Monitor,
+  Package,
+  PackageMinus,
+  PackagePlus,
+  Plus,
+  Smartphone,
+  Trash2,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 
 interface Props {
   contractId: number;
   readOnly?: boolean;
+  /** Klient kontraktu — „kto daje sprzęt” w pustym stanie (sprzęt klienta = nic tu nie dodajemy). */
+  clientId?: number | null;
+  /** Nazwy plików z dokumentów kontraktu — podpowiedź o protokole sprzętu poza rejestrem. */
+  documentNames?: readonly string[];
 }
 
 const ITEM_TYPE_LABELS: Record<EquipmentItemType, string> = {
@@ -37,11 +72,23 @@ const ITEM_TYPE_LABELS: Record<EquipmentItemType, string> = {
   phone: "Telefon",
   monitor: "Monitor",
   headset: "Słuchawki",
-  docking_station: "Docking station",
+  docking_station: "Stacja dokująca",
   security_token: "Token",
   keycard: "Karta dostępu",
   sim_card: "Karta SIM",
   other: "Inne",
+};
+
+const ITEM_TYPE_ICONS: Record<EquipmentItemType, LucideIcon> = {
+  laptop: Laptop,
+  phone: Smartphone,
+  monitor: Monitor,
+  headset: Headphones,
+  docking_station: Cable,
+  security_token: KeyRound,
+  keycard: IdCard,
+  sim_card: Cpu,
+  other: Package,
 };
 
 const OWNER_LABELS: Record<EquipmentOwner, string> = {
@@ -49,19 +96,18 @@ const OWNER_LABELS: Record<EquipmentOwner, string> = {
   client: "Klienta",
 };
 
-const STATUS_STYLES: Record<EquipmentReturnStatus, string> = {
-  pending: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
-  returned: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
-  lost: "bg-destructive/15 text-red-800 dark:bg-red-900 dark:text-red-200",
-  written_off:
-    "bg-muted text-foreground dark:bg-muted dark:text-muted-foreground",
+const STATUS_LABELS: Record<EquipmentReturnStatus, string> = {
+  pending: "u konsultanta",
+  returned: "zwrócony",
+  lost: "zgubiony",
+  written_off: "spisany",
 };
 
-const STATUS_LABELS: Record<EquipmentReturnStatus, string> = {
-  pending: "Oczekuje",
-  returned: "Zwrócony",
-  lost: "Zgubiony",
-  written_off: "Spisany",
+const STATUS_TONE: Record<EquipmentReturnStatus, StatusDotTone> = {
+  pending: "info",
+  returned: "success",
+  lost: "danger",
+  written_off: "neutral",
 };
 
 /** Pozycja wydana z magazynu (rejestr „Sprzęt”, 0464) — zwrot przyjmuje recepcja. */
@@ -154,13 +200,56 @@ function registerStatus(row: AssignmentRow): EquipmentReturnStatus {
   return row.return_condition === "zgubiony" ? "lost" : "returned";
 }
 
-/** Numer, po którym konsultant i recepcja poznają rzecz (S/N, IMEI, karta, numer ewidencyjny). */
-function registerIdentifier(row: AssignmentRow): string {
-  const number = row.inventory_number ? ` · nr ewid. ${row.inventory_number}` : "";
-  return `${itemIdentifier(row)}${number} · z magazynu`;
+/** Rzecz jest jeszcze u konsultanta (do licznika w nagłówku sekcji). */
+function stillOut(row: TabRow): boolean {
+  return row.kind === "register"
+    ? row.assignment.returned_at == null
+    : row.entry.return_status === "pending";
 }
 
-export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
+/** Zwrot w jednej kropce: stan, a pod nim termin albo dzień i stan zwrotu. */
+function returnView(
+  status: EquipmentReturnStatus,
+  due: string | null,
+  overdue: boolean,
+  returnedOn: string | null,
+  condition: string | null,
+): { tone: StatusDotTone; label: string; note: string } {
+  if (status === "pending") {
+    if (overdue && due) return { tone: "danger", label: "zwrot po terminie", note: `termin ${formatDate(due)}` };
+    return { tone: "info", label: STATUS_LABELS.pending, note: due ? `zwrot do ${formatDate(due)}` : "bez terminu zwrotu" };
+  }
+  return {
+    tone: STATUS_TONE[status],
+    label: STATUS_LABELS[status],
+    note: [returnedOn ? formatDate(returnedOn) : null, condition].filter(Boolean).join(" · "),
+  };
+}
+
+function DeviceCell({ icon: Icon, title, sub }: { icon: LucideIcon; title: string; sub: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2.5">
+      <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+        <Icon className="size-4" aria-hidden />
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate font-medium text-foreground" title={title}>
+          {title}
+        </span>
+        {sub ? <span className={CALM_SUBLINE}>{sub}</span> : null}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * „Sprzęt u konsultanta” w zakładce „Start i sprzęt” (wariant A, 20.11.2026):
+ * spokojna tabela urządzeń z rejestru „Sprzęt” i wpisów ręcznych — co, numer,
+ * kiedy wydano (z protokołem) i stan zwrotu kropką. Wydanie z magazynu
+ * i zwrot przez recepcję kreatorem, wpisy ręczne z „Zwrócono” i usunięciem
+ * jak dotąd.
+ */
+export function ContractEquipmentTab({ contractId, readOnly = false, clientId = null, documentNames = [] }: Props) {
   const qc = useQueryClient();
   const [adding, setAdding] = useState(false);
   // Potwierdzenie w wierszu zamiast natywnego `confirm("Usunąć pozycję ? ")`
@@ -211,6 +300,9 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
   });
   const viewState = registerState === "loading" ? "loading" : manualState;
   const blocked = viewState === "loading" || isBlockingViewState(viewState);
+  // Kto daje sprzęt u klienta — tylko do zdania w pustym stanie.
+  const provider = useClientProvider(clientId ?? 0, clientId != null && !blocked && rows.length === 0).data;
+  const protocolDoc = documentNames.find((name) => /sprz[eę]t/i.test(name)) ?? null;
 
   const createMut = useMutation({
     mutationFn: (payload: Partial<ContractEquipmentItem>) =>
@@ -242,45 +334,116 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
     onError: onMutationError("Nie udało się usunąć pozycji sprzętu."),
   });
 
+  const out = rows.filter(stillOut).length;
+  const back = rows.length - out;
+
+  const manualActions = (item: ContractEquipmentItem) =>
+    issuedFromRegister(item) ? (
+      canUseRegister ? (
+        <button
+          type="button"
+          onClick={() => setWizard("return")}
+          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+        >
+          <PackageMinus className="h-3.5 w-3.5" aria-hidden />
+          Przyjmij zwrot
+        </button>
+      ) : (
+        <span className="text-xs text-muted-foreground">zwrot przyjmuje recepcja</span>
+      )
+    ) : (
+      <div className="inline-flex items-center gap-1">
+        {item.return_status === "pending" && (
+          <button
+            type="button"
+            onClick={() =>
+              updateMut.mutate({
+                id: item.id,
+                payload: {
+                  return_status: "returned",
+                  returned_date: warsawToday(),
+                },
+              })
+            }
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-foreground hover:bg-muted"
+          >
+            <Check className="h-3.5 w-3.5" aria-hidden />
+            Zwrócono
+          </button>
+        )}
+        {confirmDeleteId === item.id ? (
+          <span className="inline-flex items-center gap-1 text-xs">
+            <span className="text-muted-foreground">Usunąć pozycję?</span>
+            <button
+              type="button"
+              onClick={() =>
+                deleteMut.mutate(item.id, {
+                  onSettled: () => setConfirmDeleteId(null),
+                })
+              }
+              disabled={deleteMut.isPending}
+              aria-label={`Potwierdź usunięcie: ${ITEM_TYPE_LABELS[item.item_type]}`}
+              className="rounded px-2 py-1 font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
+            >
+              Usuń
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmDeleteId(null)}
+              aria-label="Anuluj usuwanie"
+              className="hit-area rounded p-1 hover:bg-muted"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirmDeleteId(item.id)}
+            aria-label={`Usuń pozycję: ${ITEM_TYPE_LABELS[item.item_type]}`}
+            className="hit-area inline-flex items-center rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+    );
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-foreground dark:text-foreground">
+    <section aria-label="Sprzęt" className="space-y-2 px-4 py-3">
+      <div className="flex min-h-8 flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-baseline gap-2 text-[13.5px] font-semibold text-foreground">
+          Sprzęt u konsultanta
           {/* Liczba tylko z pełnej odpowiedzi — przy ładowaniu i awarii byłaby zaniżona. */}
-          Sprzęt kontraktora{blocked || registerFailed ? "" : ` (${rows.length})`}
+          {blocked || registerFailed || rows.length === 0 ? null : (
+            <>
+              {" "}
+              <span className="text-[12px] font-normal tabular-nums text-muted-foreground">
+                {out} u konsultanta{back ? ` · ${back} zwrócone` : ""}
+              </span>
+            </>
+          )}
         </h3>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           {canUseRegister && register.data ? (
             <>
               {register.data.active.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setWizard("return")}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-border hover:bg-muted text-xs px-3 py-1.5"
-                >
-                  <PackageMinus className="w-3.5 h-3.5" aria-hidden />
+                <Button type="button" size="sm" variant="ghost" onClick={() => setWizard("return")}>
+                  <PackageMinus className="h-3.5 w-3.5" aria-hidden />
                   Przyjmij zwrot
-                </button>
+                </Button>
               ) : null}
-              <button
-                type="button"
-                onClick={() => setWizard("issue")}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border hover:bg-muted text-xs px-3 py-1.5"
-              >
-                <PackagePlus className="w-3.5 h-3.5" aria-hidden />
+              <Button type="button" size="sm" variant="outline" onClick={() => setWizard("issue")}>
+                <PackagePlus className="h-3.5 w-3.5" aria-hidden />
                 Wydaj z magazynu
-              </button>
+              </Button>
             </>
           ) : null}
           {!readOnly && (
-            <button
-              type="button"
-              onClick={() => setAdding(true)}
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary hover:bg-primary/90 text-white text-xs px-3 py-1.5"
-            >
-              <Plus className="w-3.5 h-3.5" />
+            <Button type="button" size="sm" variant="ghost" onClick={() => setAdding(true)}>
+              <Plus className="h-3.5 w-3.5" aria-hidden />
               Dodaj sprzęt
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -302,7 +465,7 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
       ) : null}
 
       {viewState === "loading" ? (
-        <p className="text-sm text-muted-foreground">Ładowanie…</p>
+        <p className="text-[13px] text-muted-foreground">Wczytywanie sprzętu…</p>
       ) : viewState === "forbidden" ||
         viewState === "not_found" ||
         viewState === "error" ? (
@@ -312,26 +475,35 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
         />
       ) : rows.length === 0 ? (
         registerFailed ? null : (
-          <p className="text-sm text-muted-foreground italic">
-            Brak pozycji. Dodaj laptop, telefon, token itp. aby śledzić zwrot.
-          </p>
+          <div className="space-y-1.5 rounded-lg bg-muted/50 px-3 py-2.5 text-[13px] text-muted-foreground">
+            <p>
+              {provider === "klienta"
+                ? "Nic nie wydano z magazynu — u tego klienta konsultanci pracują na sprzęcie klienta, więc to normalne."
+                : "Nic nie wydano z magazynu. Jeśli konsultant pracuje na sprzęcie klienta, nic tu nie dodawaj."}
+            </p>
+            {protocolDoc ? (
+              <p className="flex items-center gap-1.5">
+                <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                W dokumentach jest „{protocolDoc}” — sprawdź, czy ten sprzęt nie powinien być w rejestrze.
+              </p>
+            ) : null}
+          </div>
         )
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border dark:border-border">
-          <table className="w-full text-sm">
-            <thead className="bg-muted dark:bg-muted text-xs uppercase text-muted-foreground">
-              <tr>
-                <th className="text-left px-3 py-2">Typ</th>
-                <th className="text-left px-3 py-2">Model / serial</th>
-                <th className="text-left px-3 py-2">Właściciel</th>
-                <th className="text-left px-3 py-2">Termin zwrotu</th>
-                <th className="text-left px-3 py-2">Status</th>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[40rem] table-fixed text-[13px]">
+            <thead>
+              <tr className={CALM_ROW}>
+                <th className={cn(CALM_HEAD, "pb-1.5 text-left")}>Urządzenie</th>
+                <th className={cn(CALM_HEAD, "w-[24%] pb-1.5 text-left")}>Numer</th>
+                <th className={cn(CALM_HEAD, "w-[20%] pb-1.5 text-left")}>Wydano</th>
+                <th className={cn(CALM_HEAD, "w-[18%] pb-1.5 text-left")}>Zwrot</th>
                 {!readOnly && (
-                  <th className="text-right px-3 py-2">Akcje</th>
+                  <th className={cn(CALM_HEAD, "w-[17%] pb-1.5 text-right")}>Akcje</th>
                 )}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+            <tbody>
               {rows.map((row) => {
                 if (row.kind === "register") {
                   return (
@@ -346,125 +518,44 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
                   );
                 }
                 const item = row.entry;
+                const kind = ITEM_TYPE_LABELS[item.item_type];
+                const title = item.brand_model || kind;
+                const ret = returnView(item.return_status, item.return_due_date, isOverdue(item), item.returned_date, null);
                 return (
-                <tr
-                  key={`m-${item.id}`}
-                  className={
-                    isOverdue(item)
-                      ? "bg-destructive/10 dark:bg-red-950/30"
-                      : "bg-card dark:bg-card"
-                  }
-                >
-                  <td className="px-3 py-2">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Laptop className="w-3.5 h-3.5 text-muted-foreground" />
-                      {ITEM_TYPE_LABELS[item.item_type]}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="font-medium">{item.brand_model || "—"}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {item.serial_number || "—"}
-                      {fromRegister(item) ? " · z magazynu" : ""}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">{OWNER_LABELS[item.owner]}</td>
-                  <td className="px-3 py-2">
-                    {item.return_due_date ? (
-                      <span className="flex items-center gap-1">
-                        {isOverdue(item) && (
-                          <AlertTriangle className="w-3.5 h-3.5 text-destructive" />
-                        )}
-                        {formatDate(item.return_due_date)}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    <span
-                      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[item.return_status]}`}
-                    >
-                      {STATUS_LABELS[item.return_status]}
-                    </span>
-                  </td>
-                  {!readOnly && (
-                    <td className="px-3 py-2 text-right">
-                      {issuedFromRegister(item) ? (
-                        canUseRegister ? (
-                          <button
-                            type="button"
-                            onClick={() => setWizard("return")}
-                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                          >
-                            <PackageMinus className="w-3.5 h-3.5" aria-hidden />
-                            Przyjmij zwrot
-                          </button>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            zwrot przyjmuje recepcja
-                          </span>
-                        )
+                  <tr key={`m-${item.id}`} className={cn(CALM_ROW, "last:border-b-0")}>
+                    <td className="py-2 pr-3">
+                      <DeviceCell
+                        icon={ITEM_TYPE_ICONS[item.item_type] ?? Package}
+                        title={title}
+                        sub={[title === kind ? null : kind, item.owner === "client" ? "sprzęt klienta" : "nasz", fromRegister(item) ? "z magazynu" : null]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      />
+                    </td>
+                    <td className="py-2 pr-3 tabular-nums">
+                      {item.serial_number ? (
+                        <span className="block truncate text-foreground" title={item.serial_number}>
+                          S/N {item.serial_number}
+                        </span>
                       ) : (
-                      <div className="inline-flex gap-1">
-                        {item.return_status === "pending" && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateMut.mutate({
-                                id: item.id,
-                                payload: {
-                                  return_status: "returned",
-                                  returned_date: warsawToday(),
-                                },
-                              })
-                            }
-                            className="inline-flex items-center gap-1 text-xs text-green-700 hover:underline"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            Zwrócono
-                          </button>
-                        )}
-                        {confirmDeleteId === item.id ? (
-                          <span className="inline-flex items-center gap-1 text-xs">
-                            <span className="text-muted-foreground">Usunąć pozycję?</span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                deleteMut.mutate(item.id, {
-                                  onSettled: () => setConfirmDeleteId(null),
-                                })
-                              }
-                              disabled={deleteMut.isPending}
-                              aria-label={`Potwierdź usunięcie: ${ITEM_TYPE_LABELS[item.item_type]}`}
-                              className="rounded px-2 py-1 font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
-                            >
-                              Usuń
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDeleteId(null)}
-                              aria-label="Anuluj usuwanie"
-                              className="rounded p-1 hover:bg-muted"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setConfirmDeleteId(item.id)}
-                            aria-label={`Usuń pozycję: ${ITEM_TYPE_LABELS[item.item_type]}`}
-                            className="inline-flex items-center text-xs text-destructive hover:underline"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
+                        <span className={CALM_EMPTY}>—</span>
                       )}
                     </td>
-                  )}
-                </tr>
+                    <td className="py-2 pr-3">
+                      {item.handed_over_date ? (
+                        <span className="block tabular-nums text-foreground">{formatDate(item.handed_over_date)}</span>
+                      ) : (
+                        <span className={CALM_EMPTY}>—</span>
+                      )}
+                      <span className={CALM_SUBLINE}>wpis ręczny</span>
+                    </td>
+                    <td className="py-2 pr-3">
+                      <StatusDot tone={ret.tone} note={ret.note || undefined}>
+                        {ret.label}
+                      </StatusDot>
+                    </td>
+                    {!readOnly && <td className="py-2 text-right">{manualActions(item)}</td>}
+                  </tr>
                 );
               })}
             </tbody>
@@ -477,7 +568,7 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
       {wizard === "return" && register.data ? (
         <ReturnWizard presetHolder={register.data.holder} onClose={() => setWizard(null)} />
       ) : null}
-    </div>
+    </section>
   );
 }
 
@@ -501,47 +592,59 @@ function RegisterRow({
   const status = registerStatus(assignment);
   const dueDate = entry?.return_due_date ?? null;
   const overdue = status === "pending" && entry != null && isOverdue(entry);
+  const kind = CATEGORY_LABELS[assignment.category];
+  const title = assignment.model_name || kind;
+  const number = itemIdentifier(assignment);
+  const ret = returnView(
+    status,
+    dueDate,
+    overdue,
+    warsawDateOf(assignment.returned_at),
+    assignment.return_condition ? CONDITION_LABELS[assignment.return_condition].toLowerCase() : null,
+  );
   return (
-    <tr className={overdue ? "bg-destructive/10 dark:bg-red-950/30" : "bg-card dark:bg-card"}>
-      <td className="px-3 py-2">
-        <span className="inline-flex items-center gap-1.5">
-          <Laptop className="w-3.5 h-3.5 text-muted-foreground" />
-          {CATEGORY_LABELS[assignment.category]}
-        </span>
+    <tr className={cn(CALM_ROW, "last:border-b-0")}>
+      <td className="py-2 pr-3">
+        <DeviceCell
+          icon={categoryIcon(assignment.category, assignment.model_name)}
+          title={title}
+          sub={[title === kind ? null : kind, assignment.ownership === "klienta" ? "sprzęt klienta" : "nasz"]
+            .filter(Boolean)
+            .join(" · ")}
+        />
       </td>
-      <td className="px-3 py-2">
-        <div className="font-medium">{assignment.model_name || "—"}</div>
-        <div className="text-xs text-muted-foreground">{registerIdentifier(assignment)}</div>
-      </td>
-      <td className="px-3 py-2">
-        {OWNER_LABELS[assignment.ownership === "klienta" ? "client" : "ours"]}
-      </td>
-      <td className="px-3 py-2">
-        {dueDate ? (
-          <span className="flex items-center gap-1">
-            {overdue && <AlertTriangle className="w-3.5 h-3.5 text-destructive" />}
-            {formatDate(dueDate)}
+      <td className="py-2 pr-3 tabular-nums">
+        {number !== "—" ? (
+          <span className="block truncate text-foreground" title={number}>
+            {number}
           </span>
         ) : (
-          "—"
+          <span className={CALM_EMPTY}>—</span>
         )}
+        {assignment.inventory_number ? (
+          <span className={CALM_SUBLINE}>nr ewid. {assignment.inventory_number}</span>
+        ) : null}
       </td>
-      <td className="px-3 py-2">
-        <span
-          className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[status]}`}
-        >
-          {STATUS_LABELS[status]}
+      <td className="py-2 pr-3">
+        <span className="block tabular-nums text-foreground">{formatDate(warsawDateOf(assignment.issued_at))}</span>
+        <span className={CALM_SUBLINE}>
+          z magazynu · {assignment.issue_protocol ? `protokół ${assignment.issue_protocol}` : "bez protokołu"}
         </span>
       </td>
+      <td className="py-2 pr-3">
+        <StatusDot tone={ret.tone} note={ret.note || undefined}>
+          {ret.label}
+        </StatusDot>
+      </td>
       {!readOnly && (
-        <td className="px-3 py-2 text-right">
+        <td className="py-2 text-right">
           {status !== "pending" ? null : canUseRegister ? (
             <button
               type="button"
               onClick={onReturn}
               className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
             >
-              <PackageMinus className="w-3.5 h-3.5" aria-hidden />
+              <PackageMinus className="h-3.5 w-3.5" aria-hidden />
               Przyjmij zwrot
             </button>
           ) : (
@@ -558,6 +661,8 @@ interface EquipmentFormProps {
   onCancel: () => void;
   submitting: boolean;
 }
+
+const FIELD = "mt-1 w-full rounded-md border border-border bg-card px-2 py-1.5 text-sm";
 
 function EquipmentForm({ onSubmit, onCancel, submitting }: EquipmentFormProps) {
   const [form, setForm] = useState({
@@ -586,44 +691,45 @@ function EquipmentForm({ onSubmit, onCancel, submitting }: EquipmentFormProps) {
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-lg border border-border dark:border-border p-4 space-y-3 bg-muted dark:bg-muted"
+      className="space-y-3 rounded-lg border border-border bg-muted/40 p-3"
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <label className="block">
+        <div className="block">
           <span className="text-xs text-muted-foreground">Typ</span>
-          <select
+          <Select
             value={form.item_type}
-            onChange={(e) =>
-              setForm((f) => ({
-                ...f,
-                item_type: e.target.value as EquipmentItemType,
-              }))
-            }
-            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-card"
+            onValueChange={(value) => setForm((f) => ({ ...f, item_type: value as EquipmentItemType }))}
           >
-            {Object.entries(ITEM_TYPE_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block">
+            <SelectTrigger aria-label="Typ" className="mt-1">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(ITEM_TYPE_LABELS).map(([k, v]) => (
+                <SelectItem key={k} value={k}>
+                  {v}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="block">
           <span className="text-xs text-muted-foreground">Właściciel</span>
-          <select
+          <Select
             value={form.owner}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, owner: e.target.value as EquipmentOwner }))
-            }
-            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-card"
+            onValueChange={(value) => setForm((f) => ({ ...f, owner: value as EquipmentOwner }))}
           >
-            {Object.entries(OWNER_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </label>
+            <SelectTrigger aria-label="Właściciel" className="mt-1">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(OWNER_LABELS).map(([k, v]) => (
+                <SelectItem key={k} value={k}>
+                  {v}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <label className="block">
           <span className="text-xs text-muted-foreground">Model</span>
           <input
@@ -631,7 +737,7 @@ function EquipmentForm({ onSubmit, onCancel, submitting }: EquipmentFormProps) {
             onChange={(e) =>
               setForm((f) => ({ ...f, brand_model: e.target.value }))
             }
-            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-card"
+            className={FIELD}
             placeholder="ThinkPad X1 Carbon Gen 11"
           />
         </label>
@@ -642,7 +748,7 @@ function EquipmentForm({ onSubmit, onCancel, submitting }: EquipmentFormProps) {
             onChange={(e) =>
               setForm((f) => ({ ...f, serial_number: e.target.value }))
             }
-            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-card"
+            className={FIELD}
           />
         </label>
         <label className="block">
@@ -653,7 +759,7 @@ function EquipmentForm({ onSubmit, onCancel, submitting }: EquipmentFormProps) {
             onChange={(e) =>
               setForm((f) => ({ ...f, handed_over_date: e.target.value }))
             }
-            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-card"
+            className={FIELD}
           />
         </label>
         <label className="block">
@@ -664,7 +770,7 @@ function EquipmentForm({ onSubmit, onCancel, submitting }: EquipmentFormProps) {
             onChange={(e) =>
               setForm((f) => ({ ...f, return_due_date: e.target.value }))
             }
-            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-card"
+            className={FIELD}
           />
         </label>
       </div>
@@ -675,25 +781,17 @@ function EquipmentForm({ onSubmit, onCancel, submitting }: EquipmentFormProps) {
           onChange={(e) =>
             setForm((f) => ({ ...f, description: e.target.value }))
           }
-          className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-card"
+          className={FIELD}
           rows={2}
         />
       </label>
       <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="text-sm text-muted-foreground hover:underline"
-        >
+        <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
           Anuluj
-        </button>
-        <button
-          type="submit"
-          disabled={submitting}
-          className="text-sm bg-primary hover:bg-primary/90 disabled:opacity-50 text-white rounded-md px-3 py-1.5"
-        >
+        </Button>
+        <Button type="submit" size="sm" disabled={submitting}>
           {submitting ? "Zapisywanie…" : "Zapisz"}
-        </button>
+        </Button>
       </div>
     </form>
   );

@@ -20,19 +20,15 @@ import { ContractAmendmentsTab, NOTICE_WITHDRAWAL_HINT } from "@/components/Cont
 import { AddAnnexMenu } from "@/components/contracts/amendments/AddAnnexMenu";
 import { annexIntentHref } from "@/components/contracts/amendments/annex-intent";
 import { canAmendContractRates } from "@/lib/contract-rate-amendment";
-import { ConsultantPanelCard } from "@/components/hr/onboarding/ConsultantPanelCard";
-import { ContractEntryTab } from "@/components/hr/onboarding/ContractEntryTab";
+import { ContractStartTab } from "@/components/contracts/start/ContractStartTab";
 import { ContractInvoicesTab } from "@/components/ContractInvoicesTab";
-import { ContractEquipmentTab } from "@/components/contracts/ContractEquipmentTab";
 import {
   FinancialRatesCard,
   type EurPlnRate,
 } from "@/components/contracts/FinancialRatesCard";
 import { FrameworkCategoryCard } from "@/components/contracts/FrameworkCategoryCard";
 import { fetchRecruitmentRates } from "@/lib/api/recruitmentRates";
-import { ContractNotesTab } from "@/components/contracts/ContractNotesTab";
 import { ContractCareTab } from "@/components/care/ContractCareTab";
-import { ContractFeedbackHistory } from "@/components/care/ContractFeedbackHistory";
 import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
 import { canReadClientPeople, type ManagerHint } from "@/lib/api/client-people";
 import type { HiringManagerChoice } from "@/lib/hiring-manager";
@@ -1697,7 +1693,7 @@ export default function ContractDetailPage() {
               type="button"
               onClick={() => setActiveTab(t.key)}
               aria-current={active ? "page" : undefined}
-              data-tour={t.key === "amendments" ? "contract.tabs.amendments" : t.key === "money" ? "contract.tabs.money" : t.key === "documents" ? "contract.tabs.documents" : undefined}
+              data-tour={t.key === "amendments" ? "contract.tabs.amendments" : t.key === "money" ? "contract.tabs.money" : t.key === "documents" ? "contract.tabs.documents" : t.key === "care" ? "contract.tabs.care" : t.key === "start" ? "contract.tabs.start" : undefined}
               className={`-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-[13px] transition-colors ${
                 active
                   ? "border-primary text-foreground font-semibold"
@@ -2935,43 +2931,38 @@ export default function ContractDetailPage() {
         />
       )}
 
-      {/* Tab: Start i sprzęt — dawne „Wejście” (dawniej „Onboarding”: lista
-          wejścia konsultanta, stara lista przy wyłączonym module, panel
-          konsultanta) i „Sprzęt”. */}
+      {/* Tab: Start i sprzęt (wariant A, 20.11.2026) — jedna checklista:
+          postęp, formalności, lista startowa (dawne „Wejście”, dawniej
+          „Onboarding”: lista wejścia konsultanta albo stara lista przy
+          wyłączonym module), sprzęt u konsultanta i panel konsultanta. */}
       {activeTab === "start" && (
-        <div className="space-y-4">
-          <ConsultantPanelCard contractId={id} />
-          <ContractEntryTab
-            contractId={id}
-            readOnly={!canEditContract}
-          />
-          <section aria-label="Sprzęt" className="rounded-xl border border-border bg-card p-4 shadow-xs">
-            <ContractEquipmentTab
-              contractId={id}
-              readOnly={!canEditContract}
-            />
-          </section>
-        </div>
+        <ContractStartTab
+          contractId={id}
+          clientId={contract.client_id}
+          candidateId={contract.candidate_id ?? null}
+          jobId={contract.job_id ?? null}
+          startDate={contract.start_date ?? null}
+          readOnly={!canEditContract}
+          documents={canViewContractDocuments ? contractDocs : undefined}
+          canViewDocuments={canViewContractDocuments}
+          onOpenDocuments={() => openTab("documents")}
+        />
       )}
 
-      {/* Tab: Opieka i rozmowy — karta opieki (moduł „care” z „Ludzi
-          w NEXUSIE”, tylko przy włączonym module) i notatki z rozmów. */}
+      {/* Tab: Opieka i rozmowy (wariant A, 20.11.2026) — jeden strumień
+          rozmów, notatek i opinii klienta (dawne osobne karty „Opinie
+          klienta” i „Notatki i rozmowy”) z polem zapisu, obok plan,
+          zadowolenie, sprawy i projekt z karty opieki (moduł „care”
+          z „Ludzi w NEXUSIE”). Bez modułu — same notatki kontraktu. */}
       {activeTab === "care" && (
-        <div className="space-y-4">
-          {careOpen ? (
-            <ContractCareTab
-              contractId={id}
-              autoStartTalk={careTalkRequested}
-              onAutoStartTalkDone={() => setCareTalkRequested(false)}
-            />
-          ) : null}
-          {careOpen && canReadClientPeople(user) ? (
-            <ContractFeedbackHistory contractId={id} clientId={contract.client_id} />
-          ) : null}
-          <section aria-label="Notatki i rozmowy" className="rounded-xl border border-border bg-card p-4 shadow-xs">
-            <ContractNotesTab contractId={id} canAddNote={canEditContract} />
-          </section>
-        </div>
+        <ContractCareTab
+          contractId={id}
+          careOpen={careOpen}
+          canAddNote={canEditContract}
+          canReadFeedback={canReadClientPeople(user)}
+          autoStartTalk={careTalkRequested}
+          onAutoStartTalkDone={() => setCareTalkRequested(false)}
+        />
       )}
 
       {/* Pieniądze, ciąg dalszy: faktury konsultanta z KSeF (tylko do odczytu,

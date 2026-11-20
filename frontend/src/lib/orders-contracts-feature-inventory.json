@@ -704,38 +704,38 @@
   },
   {
    "id": "k.care-tab",
-   "opis": "Zakładka „Opieka” kontraktu = karta konsultanta (22.10.2026): zdrowie relacji z „dlaczego”, cztery liczby, „Następny krok”, „Co wiemy o projekcie”, sprawy, jedna „Historia” z filtrami, plan kontaktów, „Więcej” (opiekun, rytm, pominięcie punktu) — moduł „care”",
+   "opis": "Zakładka „Opieka i rozmowy” kontraktu (wariant A, 20.11.2026): wiersz z opiekunem, rytmem i ostatnim kontaktem z menu „Zmień” (opiekun, rytm, pominięcie punktu), po lewej strumień rozmów i notatek z filtrami (dawna „Historia”), po prawej „Następny krok”, plan kontaktów, zadowolenie i opinie, sprawy, „Co wiemy o projekcie” — moduł „care”. Zdrowie relacji z „dlaczego” stoi w pasie „Co się dzieje”, koniec zamówienia w nagłówku i pasie",
    "file": "app/contracts/[id]/page.tsx",
    "marker": "ContractCareTab",
-   "b_home": "Strona kontraktu: zakładka „Opieka”"
+   "b_home": "Strona kontraktu: zakładka „Opieka i rozmowy”"
   },
   {
    "id": "k.care-tab.conversation",
    "opis": "Okno „Rozmowa” z karty konsultanta: dzisiejsza rozmowa, „Co u klienta” (dawna karta technologiczna), pytania z mapy klienta, „Coś do załatwienia?”",
    "file": "components/care/ConversationDialog.tsx",
    "marker": "ClientStateSection",
-   "b_home": "Strona kontraktu: zakładka „Opieka”, „Zapisz rozmowę”"
+   "b_home": "Strona kontraktu: zakładka „Opieka i rozmowy” — „Zapisz” przy punkcie planu, „Następny krok” albo pole strumienia („Rozmowa z konsultantem”)"
   },
   {
    "id": "k.care-tab.tech-card-edit",
-   "opis": "Edycja starej karty technologicznej — „Edytuj” przy karcie w „Historii” (przycisk „Karta technologiczna” zastąpiło okno „Rozmowa”, 22.10.2026)",
+   "opis": "Edycja starej karty technologicznej — „Edytuj” przy karcie w strumieniu rozmów (przycisk „Karta technologiczna” zastąpiło okno „Rozmowa”, 22.10.2026)",
    "file": "components/care/ContractCareTab.tsx",
    "marker": "TechCardDialog",
-   "b_home": "Strona kontraktu: zakładka „Opieka”, „Historia”"
+   "b_home": "Strona kontraktu: zakładka „Opieka i rozmowy”, strumień rozmów"
   },
   {
    "id": "k.care-tab.owner",
    "opis": "Zmiana opiekuna kontraktu (dawny wybór w zakładce „Opieka”) — „Więcej” → „Zmień opiekuna” z powodem",
    "file": "components/care/card/ConsultantCard.tsx",
    "marker": "Zmień opiekuna",
-   "b_home": "Karta konsultanta: menu „Więcej”"
+   "b_home": "Karta konsultanta: menu „Więcej” (/care), na kontrakcie menu „Zmień” przy opiekunie"
   },
   {
    "id": "k.care-tab.cases",
    "opis": "Sprawy konsultanta w karcie i „+ Nowa sprawa” z kontraktem",
    "file": "components/care/card/ConsultantCard.tsx",
    "marker": "Nowa sprawa",
-   "b_home": "Karta konsultanta: sekcja „Sprawy”"
+   "b_home": "Karta konsultanta: sekcja „Sprawy” (/care i prawa kolumna „Opieki i rozmów”)"
   },
   {
    "id": "c.tech-tab",
@@ -816,10 +816,10 @@
   },
   {
    "id": "k.client-feedback",
-   "opis": "Historia opinii klienta o konsultancie w zakładce „Opieka” kontraktu",
-   "file": "app/contracts/[id]/page.tsx",
-   "marker": "ContractFeedbackHistory",
-   "b_home": "Strona kontraktu: zakładka „Opieka”"
+   "opis": "Historia opinii klienta o konsultancie: wpisy „Rozmowa z klientem” w strumieniu zakładki „Opieka i rozmowy” (filtr „Opinie klienta”) i liczba w „Zadowoleniu i opiniach”",
+   "file": "components/care/stream/CareStream.tsx",
+   "marker": "useContractFeedback(contractId",
+   "b_home": "Strona kontraktu: zakładka „Opieka i rozmowy”, strumień"
   },
   {
    "id": "k.equipment-tab",

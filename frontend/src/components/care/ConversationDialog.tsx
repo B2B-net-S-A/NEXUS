@@ -67,6 +67,10 @@ interface ConversationDialogProps {
   planItem?: { id: CarePlanItem["id"]; label?: string | null } | null;
   /** Klient kontraktu — bez niego okno bierze go z karty konsultanta. */
   clientId?: number | null;
+  /** Tekst wpisany w strumieniu kontraktu — startowa treść pola „Notatka”. */
+  initialNote?: string;
+  /** Po udanym zapisie (strumień kontraktu czyści wtedy swoje pole). */
+  onSaved?: () => void;
 }
 
 const CHANNELS = Object.keys(CHANNEL_LABELS) as CareChannel[];
@@ -163,6 +167,8 @@ export function ConversationDialog({
   onOpenChange,
   planItem,
   clientId,
+  initialNote,
+  onSaved,
 }: ConversationDialogProps) {
   const { showToast } = useToast();
   const ids = {
@@ -181,7 +187,7 @@ export function ConversationDialog({
   const card = useConsultantCard(contractId, open);
   const clientState = useClientState(contractId, open);
   const hr = useHrConfig(open);
-  const [talk, setTalk] = useState<TalkForm>(() => emptyTalk(today));
+  const [talk, setTalk] = useState<TalkForm>(() => ({ ...emptyTalk(today), note: initialNote ?? "" }));
   const [stateForm, setStateForm] = useState(emptyClientState);
   const [answers, setAnswers] = useState<Record<string, GapAnswerForm>>({});
   const [cases, setCases] = useState<CaseDraft[]>([]);
@@ -236,6 +242,7 @@ export function ConversationDialog({
     save.mutate(payload, {
       onSuccess: (result) => {
         showToast(savedToast(result), "success");
+        onSaved?.();
         onOpenChange(false);
       },
       onError: (err) => setError(apiErrorMessage(err, "Nie udało się zapisać rozmowy.")),
