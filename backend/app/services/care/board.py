@@ -33,6 +33,12 @@ zapisanych z ilu (bez pominiętych), dla kontraktów z zakresu tablicy.
 ``mine`` = kontrakty, których czytający jest opiekunem (popyt — zawsze
 klienci DL, prośby — jak „Ten tydzień”); ``all`` = cały zakres czytającego.
 Odczyt niczego nie zapisuje. Bez stawek.
+
+Z modułem back office (decyzja Artura 20.11.2026) karty rozmów i decyzji
+dostają tylko kontrakty z opiekunem (pole kontraktu albo domyślny opiekun
+klienta) — konsultanta bez opiekuna prowadzi kolejka back office'u, więc
+Delivery Leadowi zostają opinie menedżerów, popyt i dane klienta. Kartę
+opinii bez opiekuna konsultantów prowadzi DL klienta.
 """
 
 from __future__ import annotations
@@ -303,11 +309,22 @@ async def _feedback_cards(
         items = [item for item in items if user.id in item["owner_ids"]]
     keys = [f"feedback:{item['contact_id']}" for item in items]
     states = await board_state.states_for(db, keys)
-    missing = {oid for item in items for oid in item["owner_ids"]} - set(names)
-    names = {**names, **await care_access.user_names(db, missing)}
+    # Bez opiekuna konsultantów (moduł back office) opinię prowadzi DL klienta.
+    leads = await structure_proposals.client_leads(
+        db, sorted({item["client_id"] for item in items if not item["owner_ids"]})
+    )
+    lead_of = {client_id: ids[0] for client_id, ids in leads.items() if ids}
+    missing = {oid for item in items for oid in item["owner_ids"]} | set(
+        lead_of.values()
+    )
+    names = {**names, **await care_access.user_names(db, missing - set(names))}
     cards = []
     for key, item in zip(keys, items):
-        owner_id = item["owner_ids"][0] if item["owner_ids"] else None
+        owner_id = (
+            item["owner_ids"][0]
+            if item["owner_ids"]
+            else lead_of.get(item["client_id"])
+        )
         cards.append(
             {
                 "key": key,
@@ -839,10 +856,16 @@ async def board(
     include_feedback = care_access.reads_client_people(user)
     live = await care_access.live_contracts(db, allowed=allowed)
     owners = await care_access.effective_owners(db, live)
-    mine = (
-        [c for c in live if owners[c.id].user_id == user.id]
-        if scope == "mine"
+    # Moduł back office: rozmowy i decyzje konsultantów bez opiekuna są w kolejce.
+    owned = (
+        [c for c in live if owners[c.id].user_id is not None]
+        if await care_access.back_office_on(db)
         else live
+    )
+    mine = (
+        [c for c in owned if owners[c.id].user_id == user.id]
+        if scope == "mine"
+        else owned
     )
     names = await care_access.user_names(db, [owners[c.id].user_id for c in mine])
     healths: dict[int, Optional[dict[str, Any]]] = (

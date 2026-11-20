@@ -7,6 +7,7 @@ import { Plus, Search } from "lucide-react";
 
 import { CaseFormDialog } from "@/components/admin-cases/CaseFormDialog";
 import { casePatchError } from "@/components/admin-cases/CaseConsultant";
+import { BACK_OFFICE_CARE_NOTE, careWithoutRhythm, showMineCareChip } from "@/components/care/back-office-care";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -212,6 +213,9 @@ export function WorkBoard({
   const user = useAuthStore((s) => s.user);
   const me = user?.id ?? null;
   const careAccess = canSeeCareBoard(user, config);
+  // Moduł back office (decyzja Artura 20.11.2026): konsultantów bez opiekuna prowadzi
+  // kolejka, więc Delivery Lead nie ma tu „Moich podopiecznych” ani ich rozmów.
+  const careByQueue = boardScope === "care" && careAccess && careWithoutRhythm(config);
   const canManageFromConfig = config.me.cases || config.me.is_admin;
   const casesAllowed =
     boardScope === "cases" ||
@@ -572,6 +576,8 @@ export function WorkBoard({
         (card) => card.owner_user_id === me,
       ).length
     : 0;
+  const mineCareCount =
+    counts?.mine_care != null || careBoard.isSuccess ? (counts?.mine_care ?? 0) + careMine : null;
   const unassignedCases = canManage && showCaseControlsFor(casesAllowed, casesQuiet);
   const haveCounts = Boolean(counts) || (careAccess && careBoard.isSuccess);
   const areaChips = CASE_AREAS.filter((key) => (counts?.areas[key] ?? 0) > 0 || key === area);
@@ -619,6 +625,11 @@ export function WorkBoard({
 
   return (
     <div className="space-y-3">
+      {careByQueue ? (
+        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          {BACK_OFFICE_CARE_NOTE}
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         {showScope ? (
           <SegmentedRadio
@@ -667,12 +678,10 @@ export function WorkBoard({
             ) : null}
           </Chip>
         ) : null}
-        {careAccess ? (
+        {careAccess && showMineCareChip(careByQueue, mineCareCount, mineCare) ? (
           <Chip active={mineCare} onClick={() => setMineCare((v) => !v)}>
             Moi podopieczni{" "}
-            {counts?.mine_care != null || careBoard.isSuccess ? (
-              <span className="tabular-nums opacity-70">{(counts?.mine_care ?? 0) + careMine}</span>
-            ) : null}
+            {mineCareCount != null ? <span className="tabular-nums opacity-70">{mineCareCount}</span> : null}
           </Chip>
         ) : null}
         {view === "board" && listFilter !== "all" ? (

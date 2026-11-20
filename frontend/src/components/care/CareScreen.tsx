@@ -26,6 +26,7 @@ import { useUrlWriter } from "@/lib/url-selection";
 import { useAuthStore } from "@/store/auth";
 
 import { AnnouncementsTab } from "./announcements/AnnouncementsTab";
+import { BACK_OFFICE_CARE_DESCRIPTION, careWithoutRhythm, withoutWards } from "./back-office-care";
 import { consultantsIn } from "./cadence-format";
 import { ConsultantCardPanel } from "./card/ConsultantCardPanel";
 import { FrontOfficeDialog } from "./card/FrontOfficeDialog";
@@ -217,6 +218,13 @@ function CareTabs({ config }: { config: HrConfig }) {
   const todoCount = useCareBoard("mine", careCounts);
   const consultantsCount = useCareConsultants(careCounts);
   const clientsCount = useCareClients(scope, careCounts);
+  // Moduł back office (decyzja Artura 20.11.2026): bez rytmu rozmów, a kto nie ma
+  // podopiecznych (Delivery Lead), widzi cały swój zakres — bez pustego „Moi”.
+  const rhythmOff = careWithoutRhythm(config);
+  const noWards = withoutWards(rhythmOff, consultantsCount.isSuccess ? consultantsCount.data.items : null);
+  useEffect(() => {
+    if (noWards) setScope("all");
+  }, [noWards]);
   // `?filter=` — chip kolejki „Do zrobienia” z linku (dzwonki).
   const listFilter = listFilterFromParam(searchParams?.get("filter"));
 
@@ -298,7 +306,7 @@ function CareTabs({ config }: { config: HrConfig }) {
 
   const actions = (
     <div className="flex flex-wrap items-center gap-2">
-      {scoped ? (
+      {scoped && !noWards ? (
         <SegmentedRadio
           label="Zakres"
           size="sm"
@@ -351,7 +359,15 @@ function CareTabs({ config }: { config: HrConfig }) {
     <div className="space-y-4">
       <PageHeader
         title={backOffice ? BACK_OFFICE_TITLE : TITLE}
-        description={backOffice ? BACK_OFFICE_DESCRIPTION : careRole ? DESCRIPTION : CASES_ONLY_DESCRIPTION}
+        description={
+          backOffice
+            ? BACK_OFFICE_DESCRIPTION
+            : careRole
+              ? rhythmOff
+                ? BACK_OFFICE_CARE_DESCRIPTION
+                : DESCRIPTION
+              : CASES_ONLY_DESCRIPTION
+        }
         density="compact"
         actions={careRole ? actions : undefined}
       />
@@ -378,6 +394,8 @@ function CareTabs({ config }: { config: HrConfig }) {
               canAssign={teamOpen}
               initialFilter={route.filter}
               selectedId={contractId}
+              rhythm={!rhythmOff}
+              wards={!noWards}
             />
           ) : null}
           {!backOffice && tab === "clients" ? <ClientsPanel scope={scope} onOpenContract={openContract} /> : null}
