@@ -7,6 +7,7 @@ import {
   columnOf,
   dueTone,
   labelCounts,
+  legacyCareLink,
   matchesFilter,
   matchesLabels,
   matchesSearch,
@@ -153,5 +154,41 @@ describe("jeden zespół: kolumny stanu i etykiety (19.11.2026)", () => {
     const counts = labelCounts([card({ lane: "exit" }), card({ lane: "exit" }), card({ lane: "help" })]);
     expect(counts.get("exit")).toBe(2);
     expect(counts.get("help")).toBe(1);
+  });
+});
+
+describe("stare linki tablicy Opieki w Sprawach (20.11.2026)", () => {
+  const cards = [card({ id: 7, case_id: 42 }), card({ id: 8, case_id: null })];
+
+  it("adres bez ?card= i ?filter= zostaje bez zmian", () => {
+    expect(legacyCareLink("", cards)).toBeNull();
+    expect(legacyCareLink("?karta=7&filtr=mine", cards)).toBeNull();
+  });
+
+  it("sprawa z ?card=case:<id> otwiera swoją kartę, a nieznana — samą tablicę", () => {
+    expect(legacyCareLink("?card=case:42", cards)).toBe("karta=7");
+    expect(legacyCareLink("?card=case%3A42", cards)).toBe("karta=7");
+    expect(legacyCareLink("?card=case:43", cards)).toBe("");
+    expect(legacyCareLink("?card=case:0", cards)).toBe("");
+    expect(legacyCareLink("?card=case:abc", cards)).toBe("");
+  });
+
+  it("karta Opieki bez odpowiednika (popyt z dzwonka DL-a, dane klienta) to sama tablica", () => {
+    expect(legacyCareLink("?card=demand:3:9&area=2", cards)).toBe("");
+    expect(legacyCareLink("?card=data:3", cards)).toBe("");
+  });
+
+  it("chipy przypomnień prowadzą do najbliższego filtra, reszta — do wszystkich spraw", () => {
+    expect(legacyCareLink("?filter=po-terminie", cards)).toBe("filtr=overdue");
+    expect(legacyCareLink("?filter=do-piatku", cards)).toBe("filtr=week");
+    expect(legacyCareLink("?filter=rozmowy", cards)).toBe("");
+    expect(legacyCareLink("?filter=constructor", cards)).toBe("");
+  });
+
+  it("inne parametry i jawny nowy wybór zostają", () => {
+    expect(legacyCareLink("?contract=5&card=case:42", cards)).toBe("contract=5&karta=7");
+    expect(legacyCareLink("?karta=8&card=case:42&filtr=mine&filter=po-terminie", cards)).toBe(
+      "karta=8&filtr=mine",
+    );
   });
 });

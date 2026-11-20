@@ -1073,7 +1073,7 @@
       {
         "id": "hr.care.queue",
         "label": "Kolejka",
-        "describe": "Sprawy jednego zespołu: kolumny Nowe, W toku, Czeka na kogoś, Na zewnątrz; etykiety zamiast zespołów, „Weź następną”, widok Lista i Tablica Opieki."
+        "describe": "Sprawy jednego zespołu: kolumny Nowe, W toku, Czeka na kogoś, Na zewnątrz; etykiety zamiast zespołów, „Weź następną” i widok Lista."
       },
       {
         "id": "hr.care.board",
