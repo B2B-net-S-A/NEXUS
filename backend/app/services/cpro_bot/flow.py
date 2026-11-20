@@ -14,6 +14,7 @@ from datetime import date, datetime
 from typing import Iterable, Optional
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.cpro_bot import CproBotRun
@@ -73,6 +74,7 @@ async def start_due(
 ) -> Optional[CproBotRun]:
     """Krok pętli: bieg dla kart czekających, gdy żaden bieg nie trwa."""
 
+    await runs.lock_new_run(db)
     if await runs.has_open_run(db):
         return None
     chosen = await due_items(db, now=now, today=today)
@@ -97,6 +99,7 @@ async def start_chosen(
     """„Ponów botem” albo próba: wskazane karty, z polskim powodem odmowy."""
 
     wanted = [int(s) for s in stage_ids]
+    await runs.lock_new_run(db)
     if await runs.has_open_run(db):
         raise NotReady("Bot właśnie wypełnia Cpro — spróbuj za kilka minut.")
     found = await bot_items.load_items(db, now=now, today=today, stage_ids=wanted)
@@ -120,3 +123,77 @@ async def start_chosen(
     if run is None:
         raise NotReady("Nie udało się zlecić biegu bota.")
     return run
+
+
+async def create_interactive_draft(
+    db: AsyncSession,
+    stage_id: int,
+    *,
+    delivery_lead_id: int,
+    request_number: str,
+    now: datetime,
+    today: date,
+) -> tuple[CproBotRun, str]:
+    """Nowe zlecenie jednej karty dla operatora, bez webhooka i wysyłki.
+
+    Token istnieje jawnie tylko w wyniku tej funkcji; baza przechowuje hash.
+    Nie odzyskuje ani nie odnawia dostępu do wcześniejszego biegu.
+    """
+
+    if runs.enabled():
+        raise NotReady("Próba interaktywna wymaga CPRO_BOT_ENABLED=false.")
+    if type(stage_id) is not int or stage_id <= 0:
+        raise NotReady("Wskaż dokładnie jedną kartę Cpro.")
+    if type(delivery_lead_id) is not int:
+        raise NotReady("Wskaż obsługiwanego Delivery Leada rekrutacji.")
+    account = bot_items.CPRO_ACCOUNTS.get(delivery_lead_id)
+    if account is None:
+        raise NotReady("Delivery Lead rekrutacji nie ma konta Cpro bota.")
+    if (
+        not isinstance(request_number, str)
+        or bot_items.request_number(request_number) != request_number
+    ):
+        raise NotReady("Podaj dokładny numer requestu Cpro.")
+
+    await runs.lock_new_run(db)
+    if await runs.has_open_run(db):
+        raise NotReady("Bot właśnie wypełnia Cpro — spróbuj za kilka minut.")
+    found = await bot_items.load_items(
+        db, now=now, today=today, stage_ids=[stage_id]
+    )
+    if len(found) != 1 or found[0].stage_id != stage_id:
+        raise NotReady("Tej osoby nie ma już w kolejce Cpro.")
+    item = found[0]
+    if item.blockers or item.payload is None:
+        raise NotReady("Karta nie jest gotowa do próby Cpro.")
+    payload = item.payload
+    if payload.get("ref") != stage_id or payload.get("request_number") != request_number:
+        raise NotReady("Karta nie odpowiada wskazanemu requestowi Cpro.")
+    if payload.get("cpro_account") != {
+        "delivery_lead_id": delivery_lead_id,
+        "delivery_lead_name": account[0],
+        "vault_entry": account[1],
+    }:
+        raise NotReady("Delivery Lead karty nie odpowiada wskazanemu kontu Cpro.")
+
+    # Nie tylko najnowszy bieg i nie tylko okno 30 dni: późniejsze failed
+    # nie może zasłonić szkicu lub wysyłki, która już powstała dla tej karty.
+    recorded = await db.scalar(
+        select(CproBotRun.id)
+        .where(
+            CproBotRun.stage_ids.contains([stage_id]),
+            CproBotRun.report["items"][str(stage_id)]["outcome"].astext.in_(
+                ("draft", "submitted")
+            ),
+        )
+        .limit(1)
+    )
+    if recorded is not None:
+        raise NotReady("Ta karta ma już szkic albo wysłaną ofertę w Cpro.")
+
+    run, token = runs.new_run(
+        [payload], now=now, submit=False, cards=_cards([item])
+    )
+    db.add(run)
+    await db.commit()
+    return run, token
