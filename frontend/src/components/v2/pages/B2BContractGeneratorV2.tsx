@@ -1901,14 +1901,14 @@ export function ContractStatusDialog({
     onSuccess: (updated) => {
       toast.showSuccess(
         updated.contract_status === "closed"
-          ? "Umowa zakończona — wpis przeszedł do „Zakończone umowy”."
+          ? "Umowa zakończona — wpis jest teraz w zakładce „Umowy”, w fazie „Zakończone”."
           : updated.contract_status === "suspended"
-            ? "Umowa zawieszona — kontraktor jest teraz w „Umowy bez projektu”."
+            ? "Umowa zawieszona — kontraktor jest teraz w zakładce „Umowy”, w fazie „Bez projektu”."
             : updated.contract_status === "cancelled"
               ? "Umowa anulowana — wpis zostaje w rejestrze, numer nie wraca do puli."
               : updated.contract_status === "in_progress"
                 ? row.contract_status === "closed"
-                  ? "Zakończenie cofnięte — umowa wróciła do „Umowy bieżące” jako „W trakcie”."
+                  ? "Zakończenie cofnięte — umowa wróciła do fazy „Bieżące” jako „W trakcie”."
                   : "Umowa wróciła do podpisu — możesz ją oznaczyć jako podpisaną."
                 : "Umowa oznaczona jako aktywna.",
       );
@@ -2002,7 +2002,8 @@ export function ContractStatusDialog({
             {status === "suspended" ? (
               <p className="text-xs text-muted-foreground">
                 Umowa nadal obowiązuje — kontraktor tylko nie ma przypisanego
-                projektu. Wpis przejdzie do zakładki „Umowy bez projektu”.
+                projektu. Wpis przejdzie do fazy „Bez projektu” w zakładce
+                „Umowy”.
               </p>
             ) : null}
             {status === "cancelled" ? (
@@ -2016,7 +2017,7 @@ export function ContractStatusDialog({
             {status === "in_progress" && canReturnToProgress ? (
               <p className="text-xs text-muted-foreground">
                 {row.contract_status === "closed"
-                  ? "Cofa pomyłkowe zakończenie niepodpisanej umowy — wpis wróci do „Umowy bieżące”, a powód i data zakończenia zostaną wyczyszczone (zostają w historii statusów)."
+                  ? "Cofa pomyłkowe zakończenie niepodpisanej umowy — wpis wróci do fazy „Bieżące”, a powód i data zakończenia zostaną wyczyszczone (zostają w historii statusów)."
                   : "Umowa wraca do podpisu — przycisk „Oznacz jako podpisaną” pojawi się ponownie."}
               </p>
             ) : null}
@@ -2176,7 +2177,7 @@ export function ReactivateContractDialog({
       }),
     onSuccess: () => {
       toast.showSuccess(
-        "Umowa wróciła do zakładki „Umowy bieżące”. Notatkę " +
+        "Umowa wróciła do fazy „Bieżące” w zakładce „Umowy”. Notatkę " +
           "o poprzednim projekcie dopisano w Kontraktach.",
       );
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
@@ -2843,8 +2844,8 @@ export function GeneratedContractsTab({
           Potwierdzenie podpisania uruchamia jednorazowo proces zatrudnienia.
           Niepodpisany wpis może edytować lub usunąć osoba, która go
           wygenerowała, albo administrator. Zawieszenie lub zakończenie umowy
-          („Zmień status") nie usuwa jej z systemu — przenosi ją do zakładki
-          „Umowy bez projektu" albo „Zakończone umowy".
+          („Zmień status") nie usuwa jej z systemu — przenosi ją do fazy
+          „Bez projektu" albo „Zakończone".
         </CardDescription>
       </CardHeader>
       <CardContent>

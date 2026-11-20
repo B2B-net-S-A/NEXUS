@@ -658,11 +658,11 @@
     "title": "Generator umów B2B",
     "section": null,
     "roles": ["recruiter", "delivery_lead", "admin"],
-    "what": "Tu generujesz umowę B2B albo zlecenia w DOCX, prowadzisz rejestr umów (bieżące, bez projektu, zakończone), w „Generatorze aneksów” przygotowujesz aneksy i ich rejestr, a w „Dokumentach” porozumienia, wypowiedzenia i umowę przedwstępną.",
+    "what": "W „Nowej umowie” generujesz umowę B2B albo zlecenia w DOCX, w „Nowym aneksie” aneksy i ich rejestr, w „Umowach” rejestr umów (bieżące, bez projektu, zakończone), a w „Dokumentach” porozumienia, wypowiedzenia i przedwstępne.",
     "tasks": [
       {
         "q": "Jak wygenerować umowę?",
-        "a": "W „Generatorze” wybierz „B2B” albo „Zlecenie”, kandydata i rekrutację (stawka i start podpowiedzą się). W „Szczegółach administracyjnych” zaznacz replacement i FTE — rekruter i DL z premią wynikają z rekrutacji. B2B: „Umowa JDG” albo „Umowa spółka”, „Podgląd”, „Pobierz DOCX”; dane firmy przyjdą z CEIDG/KRS. Zlecenie: PESEL i dowód tylko w pliku.",
+        "a": "W „Nowej umowie” wybierz „Umowa B2B” albo „Umowa zlecenia”. B2B idzie krokami: kandydat i rekrutacja (podpowiedzą stawkę i start), replacement i FTE, „Umowa JDG” albo „Umowa spółka” (dane firmy z CEIDG/KRS po NIP). Obok widać pierwszy akapit umowy, na dole pasek braków; „Pobierz DOCX” działa przy komplecie. Zlecenie: PESEL i dowód tylko w pliku.",
         "anchor": "contracts.b2b_generator.docx"
       },
       {
@@ -676,34 +676,35 @@
       },
       {
         "q": "Partner się wycofał przed podpisem — co zrobić?",
-        "a": "Zmień status umowy na „Anulowana”. Wpis zostaje w „Umowy bieżące”, numer nie wraca do puli, a powrót na „W trakcie” to jedno kliknięcie."
+        "a": "Zmień status umowy na „Anulowana”. Wpis zostaje w „Umowach” w fazie „Bieżące”, numer nie wraca do puli, a powrót na „W trakcie” to jedno kliknięcie."
       },
       {
         "q": "Jak przygotować aneks?",
-        "a": "W „Generatorze aneksów” wybierz typ, wpisz nazwisko osoby i wskaż jej umowę. Kontrakt bez umowy w rejestrze widzi osoba prowadząca kontrakty; pozostali zapisują aneks „Bez kontraktu”. Pobierz DOCX — aneks trafia do rejestru pod kreatorem. Po podpisie kliknij tam „Oznacz jako podpisany” i dołącz skan — dopiero wtedy zmienia się kontrakt.",
+        "a": "W „Nowym aneksie” wybierz typ, wpisz nazwisko osoby i wskaż jej umowę. Kontrakt bez umowy w rejestrze widzi osoba prowadząca kontrakty; pozostali zapisują aneks „Bez kontraktu”. Pobierz DOCX — aneks trafia do rejestru pod kreatorem. Po podpisie kliknij tam „Oznacz jako podpisany” i dołącz skan — dopiero wtedy zmienia się kontrakt.",
         "anchor": "contracts.b2b_generator.tabs"
       }
     ],
     "pitfalls": [
       "Umowy podpisanej obustronnie nie da się anulować — kończy się ją statusem „Zakończona”.",
       "PESEL, numer dowodu i adres zamieszkania nie są zapisywane — przy ponownym pobraniu takiego dokumentu formularz poprosi o nie jeszcze raz.",
-      "Zawiesić („Umowy bez projektu”) można tylko umowę aktywną. Zakończenie kontraktu w module Kontrakty przestawia umowę samo: z rozwiązaniem umowy trafia do „Zakończonych umów”, bez rozwiązania — do „Umów bez projektu”.",
+      "Zawiesić (faza „Bez projektu” w „Umowach”) można tylko umowę aktywną. Zakończenie kontraktu w module Kontrakty przestawia umowę samo: z rozwiązaniem umowy trafia do fazy „Zakończone”, bez rozwiązania — do „Bez projektu”.",
       "Notka pod „Stawka godz. (netto)” mówi, że wpisana stawka różni się od stawki kandydata z rekrutacji. To tylko sprawdzenie — umowę wygenerujesz z każdą stawką; do umowy idzie stawka kandydata, a stawka do klienta jest punktem odniesienia dla zamówienia."
     ],
     "anchors": [
-      {"id": "contracts.b2b_generator.tabs", "label": "Zakładki generatora", "describe": "Generator, Umowy bieżące, Umowy bez projektu, Zakończone umowy, Generator aneksów, Dokumenty."},
+      {"id": "contracts.b2b_generator.tabs", "label": "Zakładki generatora", "describe": "Nowa umowa, Nowy aneks, Umowy (fazy: bieżące, bez projektu, zakończone), Dokumenty."},
       {"id": "contracts.b2b_generator.search", "label": "Szukaj umowy", "describe": "Wyszukiwanie po numerze i nazwisku."},
       {
         "id": "contracts.b2b_generator.docx",
         "label": "Pobierz DOCX",
-        "describe": "Wygenerowanie dokumentu umowy.",
+        "describe": "Wygenerowanie dokumentu umowy — przycisk na pasku na dole, włączony przy komplecie pól.",
         "requires": {"section": "sourcing"}
       }
     ],
     "help_slug": null,
     "sources": [
       "frontend/src/components/v2/pages/B2BContractGeneratorV2.tsx",
-      "frontend/src/components/v2/b2b-generator/MandateAgreementForm.tsx"
+      "frontend/src/components/v2/b2b-generator/MandateAgreementForm.tsx",
+      "frontend/src/components/v2/b2b-generator/wizard/AgreementWizard.tsx"
     ]
   },
   {

@@ -77,7 +77,7 @@
     "tier": "dot",
     "shipped_on": "2026-11-16",
     "audience": { "roles": ["finance", "delivery_lead", "admin"] },
-    "where": "Generator umów → Generator aneksów → „Aneks — inna zmiana”",
+    "where": "Generator umów → Nowy aneks → „Aneks — inna zmiana”",
     "href": "/contracts/b2b-generator",
     "practice_href": "/contracts/b2b-generator?tab=annexes",
     "section": "sourcing",
@@ -2129,10 +2129,23 @@
     "tier": "dot",
     "shipped_on": "2026-11-06",
     "audience": { "roles": ["recruiter", "delivery_lead", "talent_community_manager"] },
-    "where": "Generator umów → Szczegóły administracyjne",
+    "where": "Generator umów → Nowa umowa → Szczegóły administracyjne",
     "href": "/contracts/b2b-generator",
     "section": "sourcing",
-    "dot_anchor": "b2b-generator.client-referral"
+    "dot_anchor": "b2b-generator.client-referral",
+    "steps": [
+      {
+        "anchor": "b2b-generator.step-admin",
+        "text": "Kliknij krok „Szczegóły administracyjne”.",
+        "hint": "Nowa umowa idzie krokami — to drugi krok na liście po lewej."
+      },
+      {
+        "anchor": "b2b-generator.client-referral",
+        "text": "To „Kandydat wskazany przez klienta”.",
+        "hint": "Gdy klient sam wskazał osobę, a my tylko przepuszczamy ją przez siebie, zaznacz „Tak” — premii z placementu wtedy nie ma.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "szczegoly-administracyjne-kontraktu",
@@ -3731,6 +3744,44 @@
         "anchor": "contract.tabs",
         "text": "Zakładek jest 7 zamiast 10.",
         "hint": "Notatki są w „Opiece i rozmowach”, faktury i historia stawek w „Pieniądzach”, sprzęt w „Starcie i sprzęcie”.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "generator-umow-kroki-kartka-pasek",
+    "pr": 0,
+    "title": "Generator umów: umowa krokami, z kartką i paskiem braków",
+    "why": "Nowa umowa idzie krokami. Obok widać jej pierwszy akapit z brakami jako „[REGON]”, a pasek na dole mówi, czego brakuje do pobrania. Rejestry umów są w jednej zakładce „Umowy”.",
+    "tier": "tour",
+    "shipped_on": "2026-11-20",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "talent_community_manager", "admin"] },
+    "where": "Kontrakty → Generator Umów B2B → Nowa umowa",
+    "href": "/contracts/b2b-generator",
+    "section": "sourcing",
+    "dot_anchor": "b2b-generator.steps",
+    "steps": [
+      {
+        "anchor": "b2b-generator.steps",
+        "text": "Umowa idzie krokami — kliknij dowolny krok na liście.",
+        "hint": "Pod nazwą kroku widać braki albo to, co już wpisano. Pola i sprawdzenia są te same co dotąd."
+      },
+      {
+        "anchor": "b2b-generator.paper",
+        "text": "Obok jest pierwszy akapit umowy.",
+        "hint": "Wypełnia się tym, co wpisujesz. Brak stoi w tekście jako „[REGON]” — kliknij go, a przejdziesz do pola.",
+        "ack": true
+      },
+      {
+        "anchor": "b2b-generator.readiness",
+        "text": "Na dole pasek: ile pól brakuje i które.",
+        "hint": "Klik w brak prowadzi do pola. „Pobierz DOCX” włącza się przy komplecie — umowy z brakami, jak dotąd, nie pobierzesz.",
+        "ack": true
+      },
+      {
+        "anchor": "b2b-generator.tabs",
+        "text": "Rejestry umów są w jednej zakładce „Umowy”.",
+        "hint": "Bieżące, bez projektu i zakończone wybierasz nad listą. Aneksy przygotujesz w zakładce „Nowy aneks”.",
         "ack": true
       }
     ]
