@@ -31,9 +31,10 @@ Faktury, które naprawdę istnieją, przychodzą z KSeF: sprzedaż do
   Scalanie kontraktów porównuje listę z żywym katalogiem Postgresa i blokuje
   scalenie zarówno przy nieznanym, jak i przy brakującym kluczu obcym. Wpis
   wychodzi więc w tym samym PR-ze co `DROP`, ani wcześniej, ani później.
-- **Lustro 0391 w `entrypoint.sh`** (`ALTER TABLE invoices … NUMERIC(14, 2)`)
-  i jego test w `tests/test_audit_r10_money.py`. Za `IF EXISTS` jest bezczynne
-  na bazie bez tabeli; usuwa je PR z `DROP`.
+- **Lustro migracji 0394 w `entrypoint.sh`** (`ALTER TABLE invoices …
+  NUMERIC(14, 2)`; komentarz w pliku nazywa je „0391”) i jego test
+  w `tests/test_audit_r10_money.py`. Za `IF EXISTS` jest bezczynne na bazie bez
+  tabeli; usuwa je PR z `DROP`.
 - **Napis `invoices:read` w koncie serwisowym, które go miało.** Nie otwiera już
   niczego; ekran „Klucze API” pokazuje go w grupie „Inne”, a zapis konta go usuwa.
 
