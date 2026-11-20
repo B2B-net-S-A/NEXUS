@@ -275,6 +275,76 @@ def test_only_the_topmost_header_counts() -> None:
     assert not sender_authenticated(headers, "anna@example.com")
 
 
+def _forwarded(m365: str, *, earlier: list[tuple[str, str]]) -> list[dict[str, str]]:
+    """Kolejność z Graph dla maila przekierowanego z home.pl do wsparcie@ (20.11.2026).
+
+    M365 stawia na górze JEDEN własny nagłówek, a wszystkie wcześniejsze
+    ``Authentication-Results`` (home.pl pisze spf, dmarc i dkim w trzech osobnych
+    nagłówkach, nadawca z M365 dokłada swój) przemianowuje na
+    ``Authentication-Results-Original``. Kształt z pięciu maili na produkcji.
+    """
+
+    return [
+        {"name": "Received", "value": "from relay by mx"},
+        {"name": "Authentication-Results", "value": m365},
+        {"name": "Received-SPF", "value": "Fail (protection.outlook.com: ...)"},
+        *({"name": name, "value": value} for name, value in earlier),
+        {"name": "From", "value": "Anna <anna@example.com>"},
+    ]
+
+
+_FORWARDER_SPLIT = [
+    (
+        "Authentication-Results-Original",
+        "mx.forwarder.example; spf=pass (sender SPF authorized) smtp.mailfrom=example.com",
+    ),
+    (
+        "Authentication-Results-Original",
+        "mx.forwarder.example; dmarc=pass (p=none dis=none) header.from=example.com",
+    ),
+    (
+        "Authentication-Results-Original",
+        "mx.forwarder.example; dkim=pass (2048-bit key) header.d=example.com",
+    ),
+]
+
+
+def test_forwarded_mail_is_judged_by_the_m365_header() -> None:
+    """Przekierowanie psuje SPF, DKIM zostaje — DMARC z nagłówka M365 wystarcza."""
+
+    for spf in ("pass", "fail", "softfail"):
+        m365 = (
+            f"mx.microsoft.com 1; spf={spf} (sender IP is 192.0.2.10) "
+            "smtp.mailfrom=example.com; dkim=pass (signature was verified) "
+            "header.d=example.com;dmarc=pass action=none header.from=example.com;"
+        )
+        assert sender_authenticated(
+            _forwarded(m365, earlier=_FORWARDER_SPLIT), "anna@example.com"
+        )
+
+
+def test_forwarded_forgery_is_not_saved_by_earlier_hops() -> None:
+    """Werdykt home.pl i ARC przechodzą, ale M365 mówi „fail” — nie ufamy niższym."""
+
+    m365 = (
+        "mx.microsoft.com 1; spf=fail (sender IP is 192.0.2.66) "
+        "smtp.mailfrom=example.com; dkim=none (message not signed) "
+        "header.d=none;dmarc=fail action=none header.from=example.com;"
+    )
+    earlier = [
+        *_FORWARDER_SPLIT,
+        (
+            "ARC-Authentication-Results",
+            "i=1; mx.forwarder.example; dmarc=pass header.from=example.com; arc=none",
+        ),
+        # Nagłówek wstawiony przez nadawcę, gdyby M365 go nie przemianował.
+        ("Authentication-Results", "dmarc=pass header.from=example.com"),
+    ]
+    assert not sender_authenticated(
+        _forwarded(m365, earlier=earlier), "anna@example.com"
+    )
+
+
 # ── Zakres czytającego i tytuły spraw w opiece (audyt 22.10.2026) ────────────
 
 
