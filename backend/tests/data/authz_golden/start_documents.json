@@ -47,6 +47,7 @@
   "POST /api/start-documents/pair/{candidate_id}/{job_id}/items/{document_id}/return": "PDPPPPDDPPPPPPPPPPPDDPPPPDDDD",
   "POST /api/start-documents/pair/{candidate_id}/{job_id}/list-mail": "PDPPPPDDPPPPPPPPPPPDDPPPPDDDD",
   "POST /api/start-documents/pair/{candidate_id}/{job_id}/remind": "PDPPPPDDPPPPPPPPPPPDDPPPPDDDD",
+  "PUT /api/start-documents/clients/{client_id}/not-required": "PDDPDDDDPPPDDDPDDDDDDDDDDDDDP",
   "PUT /api/start-documents/items/{document_id}/template": "PDDPDDDDPPPDDDPDDDDDDDDDDDDDP",
   "PUT /api/start-documents/pair/{candidate_id}/{job_id}/items/{document_id}/file": "PDPPPPDDPPPPPPPPPPPDDPPPPDDDD",
   "PUT /api/start-documents/pair/{candidate_id}/{job_id}/items/{document_id}/pesel": "PDPPPPDDPPPPPPPPPPPDDPPPPDDDD"
