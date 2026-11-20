@@ -341,6 +341,58 @@ def test_wydruk_kcp_czyta_sie_z_powrotem_jak_karta() -> None:
     assert again.total_hours == Decimal("16")
 
 
+def _long_month_card() -> kcp.ParsedKcp:
+    """22 dni robocze po 8 h, każdy z wieloma długimi zagadnieniami z Redmine:
+    wydruk ma co najmniej 6 stron jak prawdziwa karta, ostatnie dni i sumy są
+    za czwartą stroną."""
+
+    issue = (
+        "Task #{n}: Migracja modułu {n} do nowego frameworka — Implementacja zmian"
+        " w kodzie, testy lokalne, weryfikacja poprawki oraz sprawdzenie regresji"
+    )
+    weekdays = [d for d in range(1, 31) if date(2026, 9, d).weekday() < 5]
+    days = tuple(
+        kcp.KcpDay(
+            d, "; ".join(issue.format(n=d * 10 + i) for i in range(10)), Decimal("8")
+        )
+        for d in weekdays
+    )
+    return kcp.ParsedKcp(person="Testowy Jan", month="2026-09", days=days)
+
+
+def test_kcp_z_pdf_dluzszego_niz_cztery_strony_czytana_do_konca() -> None:
+    card = _long_month_card()
+    assert card.worked_days == 22
+    pdf = redmine_timelog.render_pdf(card)
+    import pdfplumber
+
+    with pdfplumber.open(io.BytesIO(pdf)) as doc:
+        assert len(doc.pages) >= 6
+    again = kcp.parse(pdf, kcp.PDF)
+    assert again is not None
+    assert again.worked_days == 22
+    assert again.total_hours == Decimal("176")
+    assert again.declared_days == Decimal("22.0")
+    assert again.declared_hours == Decimal("176")
+    result = kcp.evaluate(
+        again, month="2026-09", person_name=PERSON, rules=ON, working_days=22
+    )
+    assert result.md_regular == Decimal("22")
+
+
+def test_kcp_bez_sum_karty_nie_przechodzi_po_cichu() -> None:
+    # Karta od konsultanta zawsze ma sumy; ich brak znaczy, że część pliku
+    # się nie odczytała (np. ucięte strony), więc dni mogą być niepełne.
+    rows = [r for r in _card_rows() if not (r[1] or "").startswith(("Suma", "Liczba"))]
+    parsed = kcp.parse_rows(rows)
+    assert parsed is not None and parsed.declared_days is None
+    result = kcp.evaluate(
+        parsed, month="2026-10", person_name=PERSON, rules=ON, working_days=22
+    )
+    assert _titles(result)["Nie odczytano sum z KCP"] == "warn"
+    assert result.warn
+
+
 # ── Odpowiedź klienta ────────────────────────────────────────────────────────
 
 

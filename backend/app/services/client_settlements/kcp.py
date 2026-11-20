@@ -43,7 +43,9 @@ XLSM = timesheet_pko.XLSM
 TITLE = "karta ewidencji swiadczenia uslug"
 GROUP_KCP = "KCP (karta ewidencji świadczenia usług)"
 GROUP_REDMINE = "Raport godzin z Redmine"
-MAX_PAGES = 4
+#: Karta z eksportu Redmine ma po kilka zagadnień dziennie: miesiąc to zwykle
+#: 6 stron, a sumy są na ostatniej. Limit tylko chroni przed nie-kartą.
+MAX_PAGES = 40
 MAX_ROWS = 120
 MAX_COLS = 8
 #: Miesiąc słownie w mianowniku, jak w arkuszu „slownik” wzoru banku.
@@ -313,6 +315,17 @@ def evaluate(
             "proof.month",
             "KCP za inny miesiąc",
             f"Na karcie: {parsed.month or 'brak miesiąca i roku'}.",
+        )
+    if (
+        not redmine
+        and parsed.days
+        and parsed.declared_days is None
+        and parsed.declared_hours is None
+    ):
+        card.warn(
+            "Nie odczytano sum z KCP",
+            "Brak „Suma dni przepracowanych” i „Liczba godzin czas podstawowy”;"
+            " dni mogły się nie odczytać w całości. Sprawdź plik.",
         )
     if outside_month:
         card.fail(
