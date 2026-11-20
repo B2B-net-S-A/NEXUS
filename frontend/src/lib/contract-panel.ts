@@ -1,10 +1,22 @@
 /**
- * Reguły bocznego panelu kontraktu w rejestrze (wersja B, 29.09.2026):
- * która akcja jest główna i jakie ostrzeżenia stoją nad sekcjami. Czyste
+ * Reguły bocznego panelu kontraktu w rejestrze (wariant A, 20.11.2026): jedno
+ * ostrzeżenie na górze zamiast kilku o tym samym, z akcją do zrobienia. Czyste
  * funkcje — panel tylko je renderuje, testy sprawdzają je bez DOM-u.
+ *
+ * Sprawy z paska „Co się dzieje” strony kontraktu (`buildContractHappening`)
+ * idą bez zmian; panel dokłada to, co widać tylko z listy: szkic do
+ * uzupełnienia, zakończony kontrakt z przywróceniem i brak aktywnego zamówienia.
  */
 import { formatIsoDatePl } from "@/lib/date-pl";
-import { b2bExtensionLocked, type ContractEndDateState } from "@/lib/contract-end-date";
+import {
+  buildContractHappening,
+  relativeDays,
+  URGENT_DAYS,
+  type HappeningActionId,
+  type HappeningCare,
+  type HappeningContract,
+} from "@/lib/contract-happening";
+import type { ContractEndDateState } from "@/lib/contract-end-date";
 
 export interface ContractPanelFacts extends ContractEndDateState {
   status: string;
@@ -18,19 +30,7 @@ export interface ContractPanelFacts extends ContractEndDateState {
   can_return_after_break?: boolean;
 }
 
-export type ContractPanelPrimary =
-  | "recover"
-  | "complete_draft"
-  | "add_order"
-  | "open";
-
 const LIVE_STATUSES = new Set(["active", "ending"]);
-
-function addDaysIso(iso: string, days: number): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
 
 /** Zamówienie u klienta skończyło się (koniec przed dziś). */
 export function orderEnded(c: ContractPanelFacts, today: string): boolean {
@@ -49,45 +49,15 @@ export function lacksActiveOrder(c: ContractPanelFacts, today: string): boolean 
   return orderEnded(c, today);
 }
 
-/**
- * Najnowsze zamówienie kończy się w ciągu 30 dni — skoro jest najnowsze, nie
- * ma po nim kolejnego.
- */
-export function orderEndsWithoutSuccessor(c: ContractPanelFacts, today: string): boolean {
-  if (!LIVE_STATUSES.has(c.status)) return false;
-  const end = c.client_order_end_date?.slice(0, 10);
-  if (!end || end < today) return false;
-  return end <= addDaysIso(today, 30);
-}
+/** Akcje ostrzeżenia: te z paska strony i dwie, które ma tylko panel. */
+export type PanelActionId = HappeningActionId | "complete_draft" | "recover";
 
-export function contractPanelPrimary(
-  c: ContractPanelFacts,
-  access: { canRecoverTermination: boolean; canEditContract: boolean },
-  today: string,
-): ContractPanelPrimary {
-  if (c.status === "ended") {
-    return access.canRecoverTermination &&
-      (c.can_reverse_termination || c.can_return_after_break)
-      ? "recover"
-      : "open";
-  }
-  if (c.status === "draft") return access.canEditContract ? "complete_draft" : "open";
-  if (lacksActiveOrder(c, today) || orderEndsWithoutSuccessor(c, today)) return "add_order";
-  return "open";
-}
-
-/**
- * Aneks „Przedłużenie” — NIGDY dla bezterminowej umowy B2B (nie ma czego
- * przedłużać; przedłuża się zamówienie klienta).
- */
-export function canOfferExtension(c: ContractPanelFacts): boolean {
-  if (c.status === "ended" || c.status === "void") return false;
-  return !b2bExtensionLocked(c);
-}
-
-export interface ContractPanelAlert {
-  tone: "warning" | "danger" | "info";
-  text: string;
+export interface PanelWarning {
+  id: "end" | "order_end" | "care" | "rate" | "draft" | "ended" | "no_order" | "contract_end";
+  tone: "danger" | "warning" | "info";
+  lead: string;
+  detail: string | null;
+  actions: PanelActionId[];
 }
 
 const ACTIVATION_FIELD_LABEL: Record<string, string> = {
@@ -96,60 +66,111 @@ const ACTIVATION_FIELD_LABEL: Record<string, string> = {
   rate_client: "stawka przychodowa",
 };
 
-export function contractPanelAlerts(
-  c: ContractPanelFacts,
+function dayDiff(fromIso: string, toIso: string): number {
+  const a = Date.parse(`${fromIso.slice(0, 10)}T00:00:00Z`);
+  const b = Date.parse(`${toIso.slice(0, 10)}T00:00:00Z`);
+  return Math.round((b - a) / 86_400_000);
+}
+
+export type PanelContract = ContractPanelFacts &
+  Partial<Pick<HappeningContract, "termination_lessons" | "agreement_termination_mode" | "prolongation_status">> & {
+    contract_type: string;
+  };
+
+/**
+ * Sprawy panelu w kolejności pilności. Pierwsza stoi w ramce z akcją, reszta
+ * jednym zdaniem pod nią („Także: …”).
+ */
+export function contractPanelWarnings(
+  c: PanelContract,
+  care: HappeningCare | null,
   today: string,
-  canViewFinance: boolean,
-): ContractPanelAlert[] {
-  const alerts: ContractPanelAlert[] = [];
-  if (c.status === "ended") {
-    const end = c.end_date ?? c.terminated_at ?? null;
-    alerts.push({
-      tone: "info",
-      text: end
-        ? `Kontrakt zakończony ${formatIsoDatePl(end.slice(0, 10))}.`
-        : "Kontrakt zakończony.",
-    });
-    return alerts;
-  }
+  options: { canViewFinance: boolean },
+): PanelWarning[] {
   if (c.status === "draft") {
     // Lustro `ACTIVATION_REQUIRED_FIELDS` (backend) — stawki tylko, gdy je widać:
     // zredagowane `null` nie jest brakiem.
     const missing = [
       !c.start_date && "start_date",
-      canViewFinance && c.rate_candidate == null && "rate_candidate",
-      canViewFinance && c.rate_client == null && "rate_client",
+      options.canViewFinance && c.rate_candidate == null && "rate_candidate",
+      options.canViewFinance && c.rate_client == null && "rate_client",
     ].filter(Boolean) as string[];
-    alerts.push({
-      tone: "warning",
-      text: missing.length
-        ? `Draft — brakuje: ${missing.map((f) => ACTIVATION_FIELD_LABEL[f]).join(", ")}.`
-        : "Draft — uzupełnij i aktywuj, żeby kontrakt zaczął obowiązywać.",
-    });
-    return alerts;
+    return [
+      {
+        id: "draft",
+        tone: "warning",
+        lead: missing.length
+          ? `Szkic — brakuje: ${missing.map((f) => ACTIVATION_FIELD_LABEL[f]).join(", ")}`
+          : "Szkic — uzupełnij i aktywuj, żeby kontrakt zaczął obowiązywać",
+        detail: null,
+        actions: ["complete_draft"],
+      },
+    ];
   }
-  if (c.status === "ending" && c.end_date) {
-    alerts.push({
-      tone: "warning",
-      text: `Zaplanowane zakończenie współpracy: ${formatIsoDatePl(c.end_date.slice(0, 10))}.`,
+
+  const happening = buildContractHappening(
+    {
+      status: c.status,
+      contract_type: c.contract_type,
+      end_date: c.end_date ?? null,
+      terminated_at: c.terminated_at ?? null,
+      termination_reason: c.termination_reason ?? null,
+      termination_lessons: c.termination_lessons ?? null,
+      agreement_termination_mode: c.agreement_termination_mode ?? null,
+      client_order_end_date: c.client_order_end_date ?? null,
+      prolongation_status: c.prolongation_status ?? null,
+      rate_client: c.rate_client ?? null,
+      can_reverse_termination: c.can_reverse_termination ?? false,
+    },
+    care,
+    today,
+    { canSeeRates: options.canViewFinance },
+  );
+  const items: PanelWarning[] = happening.map((item) => ({ ...item, actions: [...item.actions] }));
+
+  if (c.status === "ended") {
+    const end = c.end_date ?? c.terminated_at ?? null;
+    const endItem = items.find((item) => item.id === "end");
+    if (endItem) {
+      endItem.actions = [...endItem.actions.filter((a) => a !== "reverse_termination"), "recover"];
+    } else {
+      items.unshift({
+        id: "ended",
+        tone: "info",
+        lead: end ? `Kontrakt zakończony ${formatIsoDatePl(end.slice(0, 10))}` : "Kontrakt zakończony",
+        detail: null,
+        actions: ["recover"],
+      });
+    }
+    return items;
+  }
+
+  // Koniec umowy z datą (np. umowa zlecenie w 30 dni), bez zapisanego
+  // zakończenia współpracy — pasek go nie liczy, a panel mówił o nim zawsze.
+  const end = c.end_date?.slice(0, 10);
+  if (c.status === "ending" && end && !items.some((item) => item.id === "end") && dayDiff(today, end) >= 0) {
+    const days = dayDiff(today, end);
+    items.unshift({
+      id: "contract_end",
+      tone: days <= URGENT_DAYS ? "danger" : "warning",
+      lead: `Umowa kończy się ${formatIsoDatePl(end)} — ${relativeDays(days)}`,
+      detail: null,
+      actions: ["terminate"],
     });
   }
-  if (lacksActiveOrder(c, today)) {
-    alerts.push({
+
+  if (lacksActiveOrder(c, today) && !items.some((item) => item.id === "order_end")) {
+    const ended = orderEnded(c, today);
+    const at = items.findIndex((item) => item.id !== "end" && item.id !== "contract_end");
+    items.splice(at === -1 ? items.length : at, 0, {
+      id: "no_order",
       tone: "danger",
-      text: orderEnded(c, today)
-        ? `Brak aktywnego zamówienia — ostatnie skończyło się ${formatIsoDatePl(
-            (c.client_order_end_date ?? "").slice(0, 10),
-          )}.`
-        : "Brak aktywnego zamówienia u klienta.",
-    });
-  } else if (orderEndsWithoutSuccessor(c, today)) {
-    alerts.push({
-      tone: "warning",
-      text: `Zamówienie kończy się ${formatIsoDatePl(
-        (c.client_order_end_date ?? "").slice(0, 10),
-      )} i nie ma kolejnego.`,
+      lead: "Brak aktywnego zamówienia",
+      detail: ended
+        ? `Ostatnie zamówienie skończyło się ${formatIsoDatePl((c.client_order_end_date ?? "").slice(0, 10))}.`
+        : "Kontrakt nie ma uzupełnionego zamówienia u klienta.",
+      actions: ["add_order"],
     });
   }
-  return alerts;
+  return items;
 }
