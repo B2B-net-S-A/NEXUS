@@ -5,53 +5,28 @@
  */
 import { describe, expect, it } from "vitest";
 
-import {
-  CLIENT_INTERVIEW_WEAK_REASON,
-  CLIENT_OTHER_VENDOR_REASON,
-  groupRejectedReasons,
-  reasonFitsEndedBy,
-} from "@/lib/rejection-reasons";
+import { closeReasonGroups, closeTemplateName, type CloseWho } from "@/lib/close-reasons";
+import { CLIENT_INTERVIEW_WEAK_REASON, CLIENT_OTHER_VENDOR_REASON } from "@/lib/rejection-reasons";
+
+const templateNames = (who: CloseWho, early: boolean) =>
+  closeReasonGroups(who, early).flatMap((g) => g.reasons.map((r) => closeTemplateName(r.key, who)));
 
 describe("powody klienta z CPro", () => {
   it("słabą rozmowę widać tylko przy „Odrzuca klient”", () => {
-    const name = CLIENT_INTERVIEW_WEAK_REASON;
-    expect(reasonFitsEndedBy({ name }, "client")).toBe(true);
-    expect(reasonFitsEndedBy({ name }, "recruiter")).toBe(false);
-    expect(reasonFitsEndedBy({ name }, "delivery_lead")).toBe(false);
-    expect(reasonFitsEndedBy({ name }, "candidate")).toBe(false);
+    expect(templateNames("client", false)).toContain(CLIENT_INTERVIEW_WEAK_REASON);
+    expect(templateNames("recruiter", true)).not.toContain(CLIENT_INTERVIEW_WEAK_REASON);
+    expect(templateNames("candidate", true)).not.toContain(CLIENT_INTERVIEW_WEAK_REASON);
   });
 
   it("„Pracuje u klienta / zgłoszona przez inną firmę” wybieramy też my", () => {
-    const name = CLIENT_OTHER_VENDOR_REASON;
-    expect(reasonFitsEndedBy({ name }, "client")).toBe(true);
-    expect(reasonFitsEndedBy({ name }, "recruiter")).toBe(true);
+    expect(templateNames("client", false)).toContain(CLIENT_OTHER_VENDOR_REASON);
+    expect(templateNames("recruiter", false)).toContain(CLIENT_OTHER_VENDOR_REASON);
   });
 
-  it("słaba rozmowa w „Kliencie”, inny dostawca w „Sprawie osoby”", () => {
-    const groups = groupRejectedReasons(
-      [
-        "client_no_reason",
-        "client_chose_other",
-        CLIENT_OTHER_VENDOR_REASON,
-        CLIENT_INTERVIEW_WEAK_REASON,
-        "Inne (rejected)",
-      ].map((name) => ({ name })),
-    );
-    expect(groups[0]).toEqual({
-      title: "Klient",
-      reasons: [
-        { name: "client_no_reason" },
-        { name: "client_chose_other" },
-        { name: CLIENT_INTERVIEW_WEAK_REASON },
-      ],
-    });
-    expect(groups[1]).toEqual({ title: "Sprawa osoby", reasons: [{ name: CLIENT_OTHER_VENDOR_REASON }] });
-    expect(groups.at(-1)).toEqual({ title: "Pozostałe", reasons: [{ name: "Inne (rejected)" }] });
-  });
-
-  it("dane w bazie nie pojawiają się na liście z szablonu", () => {
+  it("dane w bazie tylko w „Nowych” i „Screeningu”", () => {
     for (const name of ["outdated_cv", "profile_mismatch", "wrong_phone"]) {
-      expect(reasonFitsEndedBy({ name }, "recruiter")).toBe(false);
+      expect(templateNames("recruiter", false)).not.toContain(name);
+      expect(templateNames("recruiter", true)).toContain(name);
     }
   });
 });

@@ -8,6 +8,7 @@ da się powiedzieć, czyje sprawy pokazać. Kontrakt zakończony działa jeszcze
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -133,6 +134,10 @@ def _company_domains() -> frozenset[str]:
     )
 
 
+def is_company_address(address: str) -> bool:
+    return normalize_email(address).rpartition("@")[2] in _company_domains()
+
+
 def _address_forms(first: Optional[str], last: Optional[str]) -> set[str]:
     """Lokalne części adresu firmowego osoby: ``jan.kowalski``, ``j.kowalski``,
     ``jan_kowalski``, ``jankowalski``; nazwisko dwuczłonowe także po członie."""
@@ -192,6 +197,44 @@ async def _by_company_address(
     if len({c.candidate_id for c in hits}) != 1:
         return []
     return hits
+
+
+async def resolve_named_in_text(
+    db: AsyncSession, text: str, *, today: date
+) -> Optional[Contract]:
+    """Kontrakt osoby, której imię i nazwisko stoi w temacie albo nazwie pliku.
+
+    Ostatnia deska, gdy nadawca z adresu firmy nikogo nie wskazuje: koordynator
+    przesyła cudze pliki („TimeSheet … Nazwisko Imię.xls”). Czytnik pyta tylko dla
+    nadawców z domeny firmy, bo temat może napisać każdy. Kolejność słów dowolna, imię
+    i każdy człon nazwiska muszą stać w tekście. Dwie osoby w tekście albo jedna
+    z dwoma działającymi kontraktami = ``None`` (karta do ręcznego przypisania).
+    """
+
+    words = set(_fold(re.sub(r"[^\w]+|_", " ", text)).split())
+    if len(words) < 2:
+        return None
+    rows = (
+        await db.execute(
+            select(Contract, Candidate.name, Candidate.lastname)
+            .join(Candidate, Candidate.id == Contract.candidate_id)
+            .where(
+                Contract.status.in_(_LIVE)
+                | (
+                    (Contract.status == ContractStatus.ended)
+                    & (Contract.end_date >= today - timedelta(days=ENDED_GRACE_DAYS))
+                )
+            )
+        )
+    ).all()
+    hits = []
+    for contract, first, last in rows:
+        person = _fold(first).split()[:1] + _fold(last).split()
+        if len(person) >= 2 and set(person) <= words and eligible(contract, today):
+            hits.append(contract)
+    if len(hits) != 1:
+        return None
+    return hits[0]
 
 
 def _fold(text: Optional[str]) -> str:

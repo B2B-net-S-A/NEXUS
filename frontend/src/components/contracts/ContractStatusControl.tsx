@@ -1,9 +1,25 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { ChevronDown } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { contractsApi, extractErrorMsg } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { CONTRACT_STATUS_LABELS, contractStatusLabel } from "@/lib/status-labels";
+import {
+  CONTRACT_STATUS_LABELS,
+  contractStatusLabel,
+  contractStatusVariant,
+  type StatusVariant,
+} from "@/lib/status-labels";
 
 /**
  * Statusy, które da się WYBRAĆ w rejestrze. „Do podpisu” i „Anulowany” mają
@@ -15,6 +31,14 @@ export const RECOVERY_HINT_ALLOWED =
   "Zakończony kontrakt przywracasz jedną z dwóch akcji poniżej: „Cofnij zakończenie” (pomyłka) albo „Powrót po przerwie” (nowy kontrakt).";
 export const RECOVERY_HINT_FORBIDDEN =
   "Zakończony kontrakt przywraca Admin, Finanse albo Talent Community Manager: „Cofnij zakończenie” (pomyłka) albo „Powrót po przerwie”.";
+
+const DOT: Record<StatusVariant, string> = {
+  success: "bg-success",
+  warning: "bg-warning",
+  danger: "bg-destructive",
+  soft: "bg-info",
+  neutral: "bg-muted-foreground/50",
+};
 
 export interface ContractStatusControlProps {
   contractId: number;
@@ -29,11 +53,12 @@ export interface ContractStatusControlProps {
 }
 
 /**
- * Lista „Zmień status kontraktu” — ta sama na karcie kontraktu i w bocznym
+ * Status kontraktu jako kropka z etykietą i menu (przebudowa strony kontraktu
+ * 19.11.2026; dawniej natywna lista) — ta sama na karcie kontraktu i w bocznym
  * panelu rejestru. Wybór „Zakończony” otwiera okno zakończenia współpracy,
  * a zakończonego kontraktu nie przywraca zwykła zmiana statusu (nie
- * przywróciłaby zamówień — zgłoszenie 09.2026). Lista jest kontrolowana
- * wartością z serwera, więc „Anuluj” w oknie zostawia poprzedni status.
+ * przywróciłaby zamówień — zgłoszenie 09.2026). Menu pokazuje wartość
+ * z serwera, więc „Anuluj” w oknie zostawia poprzedni status.
  */
 export function ContractStatusControl({
   contractId,
@@ -59,45 +84,59 @@ export function ContractStatusControl({
     onError: (err: unknown) => onError(extractErrorMsg(err)),
   });
 
+  const choose = (next: string) => {
+    if (next === status) return;
+    if (next === "ended") {
+      onRecoveryHint("");
+      onRequestTermination();
+      return;
+    }
+    // „Zakończony → Aktywny” przestało być jedną akcją: pomyłka i powrót
+    // po przerwie to dwie różne operacje.
+    if (status === "ended") {
+      onRecoveryHint(canRecoverTermination ? RECOVERY_HINT_ALLOWED : RECOVERY_HINT_FORBIDDEN);
+      return;
+    }
+    onRecoveryHint("");
+    statusMutation.mutate(next);
+  };
+
+  const selectable = (SELECTABLE_CONTRACT_STATUSES as readonly string[]).includes(status);
+
   return (
-    <select
-      aria-label="Zmień status kontraktu"
-      value={status}
-      disabled={statusMutation.isPending}
-      onChange={(event) => {
-        const next = event.target.value;
-        if (next === "ended") {
-          onRecoveryHint("");
-          onRequestTermination();
-          return;
-        }
-        // „Zakończony → Aktywny” przestało być jedną akcją: pomyłka i powrót
-        // po przerwie to dwie różne operacje.
-        if (status === "ended") {
-          onRecoveryHint(
-            canRecoverTermination ? RECOVERY_HINT_ALLOWED : RECOVERY_HINT_FORBIDDEN,
-          );
-          return;
-        }
-        onRecoveryHint("");
-        statusMutation.mutate(next);
-      }}
-      className={cn(
-        "rounded-md border border-border bg-card px-2 py-1 text-sm font-medium",
-        className,
-      )}
-    >
-      {SELECTABLE_CONTRACT_STATUSES.map((value) => (
-        <option key={value} value={value}>
-          {CONTRACT_STATUS_LABELS[value]}
-        </option>
-      ))}
-      {/* „Do podpisu” / „Anulowany” — wyświetlane, nie do wyboru. */}
-      {!(SELECTABLE_CONTRACT_STATUSES as readonly string[]).includes(status) && (
-        <option value={status} disabled>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Zmień status kontraktu (teraz: ${contractStatusLabel(status)})`}
+          disabled={statusMutation.isPending}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-0.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-60",
+            className,
+          )}
+        >
+          <span aria-hidden className={cn("size-1.5 rounded-full", DOT[contractStatusVariant(status)])} />
           {contractStatusLabel(status)}
-        </option>
-      )}
-    </select>
+          <ChevronDown className="size-3 text-muted-foreground" aria-hidden />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuLabel className="text-xs text-muted-foreground">Zmień status</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={status} onValueChange={choose}>
+          {SELECTABLE_CONTRACT_STATUSES.map((value) => (
+            <DropdownMenuRadioItem key={value} value={value}>
+              {value === "ended" ? `${CONTRACT_STATUS_LABELS[value]}…` : CONTRACT_STATUS_LABELS[value]}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        {/* „Do podpisu” / „Anulowany” — wyświetlane, nie do wyboru. */}
+        {!selectable ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled>{contractStatusLabel(status)} (bieżący)</DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

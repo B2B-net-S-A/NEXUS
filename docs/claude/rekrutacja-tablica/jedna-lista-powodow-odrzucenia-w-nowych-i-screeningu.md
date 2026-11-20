@@ -9,7 +9,7 @@ ręcznie krótką listę z szablonu. Zespół porównał oba okna i wybrał rozb
 a Artur kazał je ujednolicić.
 
 - Odrzucenie z „Nowych” albo „Screeningu” zawsze pokazuje rozbudowaną listę
-  (`AUTOFILL_REASON_GROUPS`), niezależnie od tego, kto dodał kartę
+  (od 19.11.2026 słownik z `lib/close-reasons.ts`), niezależnie od tego, kto dodał kartę
   (`isDecisionColumn` w `lib/autofill-feedback.ts`, prop `decisionColumn`
   w `RejectionV2`). Przy kilku osobach naraz — gdy wszystkie są z tych kolumn.
 - Karta ręczna: bez „Skąd to wiesz?”, bez podpowiedzi koszyka raportu
@@ -17,8 +17,13 @@ a Artur kazał je ujednolicić.
   Serwer odrzuca `autofill_*` przy osobie spoza systemu (422), więc idzie tylko
   powód z szablonu z `templateReasonFor`; powód bez odpowiednika to „Inne”
   z nazwą powodu w opisie, a „Nie szuka pracy” niesie datę w `not_looking_until`.
-- Od „Zweryfikowanego” dalej zostaje lista z szablonu (z grupą „Klient”
-  i powodami po rozmowie u klienta) — tam pytanie o powód jest inne.
-- Nie wracaj do krótkiej listy dla kart ręcznych w tych kolumnach i nie dodawaj
-  trzeciej wersji okna. Zmiana listy = zmiana `AUTOFILL_REASON_GROUPS`
-  i jej lustra w `backend/app/services/autofill_feedback.py`.
+- Od 19.11.2026 (etap 2 jednego słownika, `jeden-slownik-powodow-zamkniecia-procesu.md`)
+  ta sama lista jest w każdej kolumnie, nie tylko w „Nowych”/„Screeningu”.
+  Grupy liczy `closeReasonGroups` z „Kto kończy?” i etapu: „Klient” tylko
+  przy „Odrzuca klient”, „Dane w bazie” tylko w „Nowych”/„Screeningu”, „Inne”
+  zawsze na końcu. Listy z szablonu w oknie odrzucenia już nie ma; panel DL
+  i karta rozmowy u klienta pokazują wiersze szablonu w kolejności i z
+  etykietami słownika (`closeTemplateOptions`).
+- Nie wracaj do listy z szablonu i nie dodawaj osobnej wersji okna. Zmiana
+  listy = zmiana `frontend/src/lib/close-reasons.ts` i jej lustra
+  `backend/app/services/close_reasons.py` (`test_close_reasons.py`).

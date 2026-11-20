@@ -7,6 +7,7 @@
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -191,15 +192,27 @@ describe("opcje daty końca po wycofaniu", () => {
   });
 });
 
+/** Menu „Dodaj aneks” — tam stoi wyłączone „Przedłużenie” z podpowiedzią. */
+async function openAddAnnexMenu() {
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: /Dodaj aneks/ }));
+  return screen.findByRole("menu");
+}
+
 describe("Aneksy: wycofanie wypowiedzenia", () => {
-  it("przy wypowiedzeniu jest przycisk, a podpowiedź „Przedłuż” nie odsyła w kółko", async () => {
+  it("przy wypowiedzeniu jest przycisk, a podpowiedź „Przedłużenie” nie odsyła w kółko", async () => {
     serve([NOTICE]);
     renderTab({ extensionLocked: true, canWithdrawNotice: true });
 
     expect(
       await screen.findByRole("button", { name: "Wycofaj wypowiedzenie" }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Konsultant wycofał wypowiedzenie\?/)).toBeInTheDocument();
+    const menu = await openAddAnnexMenu();
+    expect(within(menu).getByRole("menuitem", { name: "Przedłużenie" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(within(menu).getByText(/Konsultant wycofał wypowiedzenie\?/)).toBeInTheDocument();
     expect(screen.queryByText(/nie ma czego przedłużać/)).not.toBeInTheDocument();
   });
 
@@ -210,17 +223,18 @@ describe("Aneksy: wycofanie wypowiedzenia", () => {
     expect(
       screen.queryByRole("button", { name: "Wycofaj wypowiedzenie" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText(/nie ma czego przedłużać/)).toBeInTheDocument();
+    const menu = await openAddAnnexMenu();
+    expect(within(menu).getByText(/nie ma czego przedłużać/)).toBeInTheDocument();
   });
 
   it("po wycofaniu: aneks „Wycofany”, wpis z nazwą i umową bezterminową", async () => {
     serve([WITHDRAWAL, { ...NOTICE, withdrawn: true, withdrawable: false }]);
     renderTab({ canWithdrawNotice: true });
 
-    const entry = (await screen.findByText("Wycofanie wypowiedzenia")).closest("tr")!;
+    const entry = (await screen.findByText("Wycofanie wypowiedzenia")).closest("li")!;
     expect(within(entry).getByText(/bezterminowo/)).toBeInTheDocument();
     expect(within(entry).queryByText(/withdrawn_amendment_id|annex_title/)).toBeNull();
-    const notice = screen.getByText("Wcześniejsze zakończenie").closest("tr")!;
+    const notice = screen.getByText("Wcześniejsze zakończenie").closest("li")!;
     expect(within(notice).getByText("Wycofany")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Wycofaj wypowiedzenie" }),

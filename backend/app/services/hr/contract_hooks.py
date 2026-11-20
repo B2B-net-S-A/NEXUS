@@ -37,7 +37,7 @@ po których została otwarta sprawa albo zadanie startu (hak padł w savepoincie
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any, Awaitable, Callable
 
 from sqlalchemy import and_, or_, select, union
@@ -46,7 +46,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.scheduling import business_today
 from app.models.admin_case import AdminCase
 from app.models.contract import Contract, ContractStatus
-from app.models.equipment import EquipmentTask
+from app.models.contract_equipment import (
+    ContractEquipment,
+    EquipmentOwner,
+    EquipmentReturnStatus,
+)
+from app.models.equipment import EquipmentAssignment, EquipmentItem, EquipmentTask
 from app.models.hr_lifecycle import LifecycleCase
 from app.services.admin_cases_schema import TERMINAL_STATUSES
 from app.services.hr_lifecycle_schema import LIVE_CASE_STATUSES
@@ -262,7 +267,8 @@ _UPCOMING = (
 
 
 async def reconcile_upcoming(db: AsyncSession) -> dict[str, int]:
-    """Przegląd: starty i końce w ciągu ``LOOKAHEAD_DAYS`` (idempotentnie).
+    """Przegląd: starty i końce w ciągu ``LOOKAHEAD_DAYS`` (idempotentnie),
+    a do tego kontrakty po terminie z naszym niezwróconym sprzętem.
 
     Premie z placementów uzgadnia osobno pętla Płac (``payroll_jobs``).
     """
@@ -303,6 +309,9 @@ async def reconcile_upcoming(db: AsyncSession) -> dict[str, int]:
         )
     for contract in ending:
         await _run(db, contract, "reconcile_end", [("equipment", _equipment_end)])
+    overdue = await _ended_with_our_equipment(db, today)
+    for contract in overdue:
+        await _run(db, contract, "reconcile_overdue", [("equipment", _equipment_end)])
     voided = await _voided_with_open_start(db)
     for contract in voided:
         await _run(
@@ -325,9 +334,53 @@ async def reconcile_upcoming(db: AsyncSession) -> dict[str, int]:
     return {
         "starting": len(starting),
         "ending": len(ending),
+        "overdue": len(overdue),
         "voided": len(voided),
         "packs_repaired": packs,
     }
+
+
+async def _ended_with_our_equipment(db: AsyncSession, today: date) -> list[Contract]:
+    """Kontrakty po dacie końca, u których został nasz niezwrócony sprzęt.
+
+    Okno ``LOOKAHEAD_DAYS`` patrzy tylko naprzód, więc kontrakt zakończony,
+    zanim jego sprzęt trafił do rejestru (import plików recepcji 18.10.2026),
+    nie miał zadania „Odbierz sprzęt”: na kopii produkcji z 19.11 dwa
+    kontrakty, trzy urządzenia. Decyzja Artura z 20.11.2026: zadanie recepcji
+    „po terminie”, bez dzwonka Delivery Leada. Warunek jak w
+    ``tasks_for_contract_end`` (rejestr albo wpis ręczny, sprzęt nasz);
+    zadanie zamknięte przez człowieka nie wraca (``upsert_task``).
+    """
+    register = (
+        select(EquipmentAssignment.id)
+        .join(EquipmentItem, EquipmentItem.id == EquipmentAssignment.item_id)
+        .where(
+            EquipmentAssignment.contract_id == Contract.id,
+            EquipmentAssignment.returned_at.is_(None),
+            EquipmentItem.ownership == "nasz",
+        )
+        .exists()
+    )
+    manual = (
+        select(ContractEquipment.id)
+        .where(
+            ContractEquipment.contract_id == Contract.id,
+            ContractEquipment.assignment_id.is_(None),
+            ContractEquipment.return_status == EquipmentReturnStatus.pending,
+            ContractEquipment.owner == EquipmentOwner.ours,
+        )
+        .exists()
+    )
+    return list(
+        await db.scalars(
+            select(Contract).where(
+                Contract.status.in_((*_LIVE, ContractStatus.ended)),
+                Contract.end_date.is_not(None),
+                Contract.end_date < today,
+                or_(register, manual),
+            )
+        )
+    )
 
 
 async def _voided_with_open_start(db: AsyncSession) -> list[Contract]:

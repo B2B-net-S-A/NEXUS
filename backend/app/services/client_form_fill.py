@@ -21,11 +21,13 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Optional
 
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_today
 from app.models.ai_feature import AIFeatureKey
 from app.services.ai_models import model_chain_for
 from app.services.ai_quota import ai_feature
@@ -308,11 +310,13 @@ def check_parse(
     sources: Sources,
     candidate_name: str,
     candidate_city: str = "",
+    today: Optional[date] = None,
 ) -> dict[str, Any]:
     """Odpowiedź modelu → wartości, które przeszły kontrolę kodu. Czysta funkcja.
 
     Imię i nazwisko oraz miejsce zamieszkania (gdy profil je zna) wpisuje kod
-    z profilu — model ich nie nadpisuje.
+    z profilu — model ich nie nadpisuje. Lata doświadczenia (i punkty z lat)
+    liczy ``client_form_years`` ze stanowisk, które model zacytował.
     """
     labels = {
         item["id"]: item.get("label") or "" for item in structure.get("fields") or []
@@ -373,6 +377,23 @@ def check_parse(
             continue
         fields[field_id] = {"value": checked, "source": source, "quote": quote}
 
+    # Bez odpowiedzi modelu nie ma stanowisk — siatki lat też nie ma.
+    years, years_dropped = (
+        _years(data, structure, sources, today or business_today()) if data else ({}, 0)
+    )
+    dropped += years_dropped
+    for field_id, entry in years.items():
+        if field_id in names:
+            continue
+        model_value = fields.get(field_id)
+        if entry["value"] is None and model_value:
+            # Kod nie policzył stażu z ról, a model ma wartość z cytatem
+            # (np. „0” z notatki „nie pracował w służbie zdrowia”) — zostaje
+            # wartość modelu, siatka obok.
+            fields[field_id] = {**model_value, "years": entry["years"]}
+        else:
+            fields[field_id] = entry
+
     tables = {table["table"]: table for table in extendable_tables(structure)}
     extra_rows: list[dict[str, Any]] = []
     for row in (data.get("extra_rows") or [])[:ROWS_PARSED_MAX]:
@@ -409,6 +430,39 @@ def check_parse(
         per_table[row["table"]] = per_table.get(row["table"], 0) + 1
         kept.append(row)
     return {"fields": fields, "extra_rows": kept, "dropped": dropped}
+
+
+def _years(
+    data: dict[str, Any], structure: dict[str, Any], sources: Sources, today: date
+) -> tuple[dict[str, dict[str, Any]], int]:
+    """Pola lat ze stanowisk zacytowanych przez model (``client_form_years``)."""
+    from app.services import client_form_years  # noqa: PLC0415
+
+    labels = " \n ".join(
+        f"{item.get('row_label') or ''} {item.get('label') or ''}"
+        for item in structure.get("fields") or []
+    )
+
+    def grounded(quote: Any) -> tuple[Optional[str], Optional[str]]:
+        return _grounded(quote, sources)
+
+    def grounded_rules(quote: Any) -> tuple[Optional[str], Optional[str]]:
+        # Próg punktów albo minimum stażu: z zasad oceny albo z wymagań wzoru.
+        for text in (sources.rules, labels):
+            found = _quote_in_text(quote, text)
+            if found is not None:
+                return "rules", found
+        return None, None
+
+    return client_form_years.build(
+        data,
+        structure=structure,
+        grounded=grounded,
+        grounded_rules=grounded_rules,
+        date_in_quote=_date_in_quote,
+        ongoing=_ONGOING,
+        today=today,
+    )
 
 
 def _into_free_rows(
@@ -462,6 +516,19 @@ def missing_ids(structure: dict[str, Any], fields: dict[str, Any]) -> list[str]:
     ]
 
 
+def _years_prompt_fields(structure: dict[str, Any]) -> list[dict[str, str]]:
+    """Pola lat z nazwą wiersza — model bez tej listy pomijał „Kompetencje
+    dodatkowe” (staging 20.11.2026: dokumentacja, NFZ, rejestry bez wpisu)."""
+    from app.services.client_form_years import years_fields  # noqa: PLC0415
+
+    ids = years_fields(structure)
+    return [
+        {"id": item["id"], "row": item.get("row_label") or item.get("label") or ""}
+        for item in structure.get("fields") or []
+        if item["id"] in ids
+    ]
+
+
 def build_prompt(structure: dict[str, Any], sources: Sources) -> str:
     fields = [
         {
@@ -482,6 +549,7 @@ def build_prompt(structure: dict[str, Any], sources: Sources) -> str:
     return CLIENT_FORM_FILL.render(
         fields=json_for_prompt(fields),
         tables=json_for_prompt(extendable_tables(structure)),
+        years_fields=json_for_prompt(_years_prompt_fields(structure)),
         cv=fence("cv", sources.cv[:CV_MAX]),
         notes=fence("screening_notes", sources.notes[:NOTES_MAX]),
         rules=fence("scoring_rules", sources.rules[:RULES_MAX]),
@@ -494,7 +562,7 @@ def _call_model(system: str, prompt: str, chain: tuple[str, ...]) -> str:
     message = call_claude(
         model=chain[0],
         fallback_models=list(chain[1:]) or None,
-        max_tokens=8000,
+        max_tokens=12000,
         thinking={"type": "disabled"},
         system=system,
         messages=[{"role": "user", "content": prompt}],

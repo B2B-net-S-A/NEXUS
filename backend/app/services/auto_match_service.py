@@ -600,7 +600,14 @@ async def _write_pool(
                             func.count(),
                             func.min(JobAutofillPool.score),
                         )
-                        .where(JobAutofillPool.job_id.in_(job_ids))
+                        .where(
+                            JobAutofillPool.job_id.in_(job_ids),
+                            # Dołożeni „wysłani wcześniej” (20.11.2026) są ponad
+                            # pulą 150 i nie obniżają poprzeczki dla nowego CV.
+                            JobAutofillPool.evidence["sent_before"]
+                            .as_boolean()
+                            .is_not(True),
+                        )
                         .group_by(JobAutofillPool.job_id)
                     )
                 ).all()

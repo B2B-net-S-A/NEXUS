@@ -32,11 +32,13 @@ jednej kolejce. Ta reguła ma pierwszeństwo przed opisem „Do zrobienia” w
   ta się otworzy; sprawa otwarta po komplecie kroków czeka na człowieka.
 - **Przy sprawie osoba i stan są w `admin_cases`.** Karta je lustruje, przejęcie idzie
   przez `update_case` w tej samej transakcji.
-- **Kanban zostaje 1:1 pod „Po statusie”** (warunek z 22.10). Pilnuje
-  `frontend/src/lib/work-board-feature-inventory.json`. Stare linki `?card=` i
-  `?filter=` dalej otwierają kanban, a `/care` działa obok `/back-office`.
+- **Kanbanu Opieki nie ma w kolejce** (decyzja Artura z 20.11.2026, uchyla warunek z 22.10
+  „kanban zostaje 1:1 pod „Po statusie””): w jednej kolejce dublował te same sprawy. Stare linki
+  `?card=` i `?filter=` w module prowadzą na tablicę Spraw (szczegóły w
+  `back-office-jeden-zespol.md`), a kanban 1:1 zostaje na `/care` poza modułem i dla osób spoza
+  składu. Pilnuje `frontend/src/lib/work-board-feature-inventory.json`.
 - **„Zrobione” przy rozmowie daje wyłącznie jej zapis, a zamkniętą decyzję da się
-  cofnąć.** Oba warunki z 22.10 żyją w kanbanie i ich nie ruszamy.
+  cofnąć.** Oba warunki z 22.10 żyją w kanbanie na `/care` i ich nie ruszamy.
 
 ## Moduł i dostęp
 

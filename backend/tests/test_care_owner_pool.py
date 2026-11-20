@@ -474,3 +474,9 @@ def test_recruitment_lead_outside_portfolio_is_not_the_owner() -> None:
     assert access._named_owner(contract, {7}, {7: None}) == (
         access.OwnerChoice(7, "delivery_lead")
     )
+    # Moduł back office (20.11.2026): DL nie jest opiekunem z automatu.
+    assert access._named_owner(contract, {7}, {7: None}, with_leads=False) is None
+    owned = dataclasses.replace(contract, explicit_owner_id=8)
+    assert access._named_owner(owned, {7, 8}, {7: None}, with_leads=False) == (
+        access.OwnerChoice(8, "contract")
+    )
