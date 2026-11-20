@@ -83,7 +83,7 @@ Odpowiedzi to listy dozwolonych pól (`services/consultant_portal/panel.py`), pi
 
 ## Rozmowy
 
-Konsultant wybiera osobę z zespołów `care`, `finance`, `contracts` i termin. Organizatorem jest
+Konsultant wybiera osobę ze składu back office'u, która przyjmuje rozmowy (`bo_members.takes_calls`, od 19.11.2026), i termin. Organizatorem jest
 `CONSULTANT_PORTAL_MAILBOX` przez rejestrację „NEXUS Teams Prep”, więc konto musi być w grupie
 `NEXUS-Meetings-Scope`. Termin rezerwuje wiersz `pending` zatwierdzony przed Graphem (częściowy unikat na osobę
 i początek). Kalendarz nieczytelny = brak terminów. Własna tabela `cp_meetings`, bo `prep_meetings` wymaga

@@ -4,12 +4,10 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Megaphone } from "lucide-react";
 
-import { PortalFaqTab } from "@/components/back-office/PortalFaqTab";
-import { QualityTab } from "@/components/back-office/QualityTab";
+import { ClientsTab } from "@/components/back-office/ClientsTab";
+import { ConsultantPanel, ConsultantsTab } from "@/components/back-office/ConsultantsTab";
 import { QueueBoard } from "@/components/back-office/QueueBoard";
-import { ReviewPanel } from "@/components/back-office/ReviewPanel";
-import { TeamsPanel } from "@/components/back-office/TeamsPanel";
-import { TalksTab } from "@/components/back-office/TalksTab";
+import { TeamTab, type TeamSection } from "@/components/back-office/TeamTab";
 import { PageHeader } from "@/components/ds/PageHeader";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { TabbedNav } from "@/components/ds/TabbedNav";
@@ -133,7 +131,29 @@ const DESCRIPTION =
 const CASES_ONLY_DESCRIPTION = "Sprawy wsparcie@ na jednej tablicy.";
 const BACK_OFFICE_TITLE = "Back office";
 const BACK_OFFICE_DESCRIPTION =
-  "Kolejka spraw czterech zespołów: każdy bierze swoje, a kierownik widzi całość.";
+  "Sprawy konsultantów, umów, rozliczeń i zamówień w jednej kolejce: bierze pierwsza wolna osoba.";
+
+/** Stare zakładki modułu (Rozmowy, Jakość, FAQ, Przegląd, Zespoły) → sekcja „Zespołu”. */
+const TEAM_SECTION_OF: Partial<Record<CareTab, TeamSection>> = {
+  teams: "team",
+  team: "team",
+  review: "review",
+  talks: "talks",
+  quality: "quality",
+  faq: "faq",
+};
+
+/**
+ * Zakładka w module back office (jeden zespół, decyzje Artura z 19.11.2026):
+ * Sprawy · Konsultanci · Klienci · Zespół (kierownik). Komunikaty zostają
+ * przyciskiem w nagłówku.
+ */
+export function backOfficeTab(tab: CareTab, { lead, careRole }: { lead: boolean; careRole: boolean }): CareTab {
+  if (tab === "consultants" || tab === "clients") return tab;
+  if (tab === "announcements") return careRole ? "announcements" : "todo";
+  if (TEAM_SECTION_OF[tab]) return lead ? "teams" : "todo";
+  return "todo";
+}
 
 type FeedbackTarget = Omit<ClientFeedbackDialogProps, "open" | "onOpenChange">;
 
@@ -181,21 +201,23 @@ function CareTabs({ config }: { config: HrConfig }) {
   const leadTab = route.tab === "teams" || route.tab === "review";
   // Zakładki portalu konsultanta stoją za modułem `back_office`; serwer ma własne bramki.
   const portalTab = route.tab === "talks" || route.tab === "quality" || route.tab === "faq";
-  const tab: CareTab =
-    (leadTab && leadOpen) || (portalTab && backOffice)
-      ? route.tab
-      : leadTab || portalTab || !careRole || (route.tab === "team" && !teamOpen)
-        ? "todo"
-        : route.tab;
+  const tab: CareTab = backOffice
+    ? backOfficeTab(route.tab, { lead: leadOpen, careRole })
+    : leadTab || portalTab || !careRole || (route.tab === "team" && !teamOpen)
+      ? "todo"
+      : route.tab;
+  const teamSection: TeamSection = TEAM_SECTION_OF[route.tab] ?? "team";
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const announcements = useAnnouncements(careRole);
   const pendingApprovals = (announcements.data?.items ?? []).filter((row) => row.can_approve).length;
   // Liczniki zakładek (P1: „Do zrobienia 7 · Konsultanci 42 · Klienci 9”) — te same
   // zapytania co zakładki (wspólny cache), liczba dopiero po udanym odczycie.
   // Bez roli opieki nie pytamy (serwer odmawia) — zakładki i tak ich nie ma.
-  const todoCount = useCareBoard("mine", careRole);
-  const consultantsCount = useCareConsultants(careRole);
-  const clientsCount = useCareClients(scope, careRole);
+  // W module back office zakładki mają własne odczyty; liczniki Opieki nie są potrzebne.
+  const careCounts = careRole && !backOffice;
+  const todoCount = useCareBoard("mine", careCounts);
+  const consultantsCount = useCareConsultants(careCounts);
+  const clientsCount = useCareClients(scope, careCounts);
   // `?filter=` — chip kolejki „Do zrobienia” z linku (dzwonki).
   const listFilter = listFilterFromParam(searchParams?.get("filter"));
 
@@ -244,11 +266,17 @@ function CareTabs({ config }: { config: HrConfig }) {
       params.delete("contract");
     });
 
-  const tabs = [
+  const backOfficeTabs = [
+    { value: "todo", label: "Sprawy" },
+    { value: "consultants", label: "Konsultanci" },
+    { value: "clients", label: "Klienci" },
+    ...(leadOpen ? [{ value: "teams", label: "Zespół" }] : []),
+  ];
+  const careTabs = [
     {
       value: "todo",
-      label: backOffice ? "Kolejka" : "Do zrobienia",
-      count: !backOffice && careRole && todoCount.isSuccess ? todoCount.data.cards.length : undefined,
+      label: "Do zrobienia",
+      count: careRole && todoCount.isSuccess ? todoCount.data.cards.length : undefined,
     },
     ...(careRole
       ? [
@@ -265,21 +293,9 @@ function CareTabs({ config }: { config: HrConfig }) {
           ...(teamOpen ? [{ value: "team", label: "Zespół opiekunów" }] : []),
         ]
       : []),
-    ...(backOffice
-      ? [
-          { value: "talks", label: "Rozmowy" },
-          { value: "quality", label: "Jakość" },
-          { value: "faq", label: "FAQ portalu" },
-        ]
-      : []),
-    ...(leadOpen
-      ? [
-          { value: "teams", label: "Zespoły" },
-          { value: "przeglad", label: "Przegląd" },
-        ]
-      : []),
   ];
-  const scoped = tab === "consultants" || tab === "clients";
+  const tabs = backOffice ? backOfficeTabs : careTabs;
+  const scoped = !backOffice && (tab === "consultants" || tab === "clients");
 
   const actions = (
     <div className="flex flex-wrap items-center gap-2">
@@ -342,7 +358,7 @@ function CareTabs({ config }: { config: HrConfig }) {
       />
       <TabbedNav
         ariaLabel={backOffice ? "Back office" : "Opieka nad konsultantami"}
-        value={tab === "review" ? "przeglad" : tab}
+        value={!backOffice && tab === "review" ? "przeglad" : tab}
         onValueChange={select}
         tabs={tabs}
       >
@@ -351,7 +367,10 @@ function CareTabs({ config }: { config: HrConfig }) {
             <QueueBoard careStatusBoard={careRole || casesInCare(config) ? kanban : null} />
           ) : null}
           {tab === "todo" && (!backOffice || kanbanLink) ? kanban : null}
-          {tab === "consultants" ? (
+          {backOffice && tab === "consultants" ? <ConsultantsTab /> : null}
+          {backOffice && tab === "clients" ? <ClientsTab /> : null}
+          {backOffice && tab === "teams" ? <TeamTab key={teamSection} initialSection={teamSection} /> : null}
+          {!backOffice && tab === "consultants" ? (
             <ConsultantsPanel
               key={route.filter ?? "all"}
               scope={scope}
@@ -364,17 +383,16 @@ function CareTabs({ config }: { config: HrConfig }) {
               selectedId={contractId}
             />
           ) : null}
-          {tab === "clients" ? <ClientsPanel scope={scope} onOpenContract={openContract} /> : null}
-          {tab === "team" ? <CareTeamPanel /> : null}
-          {tab === "teams" ? <TeamsPanel /> : null}
-          {tab === "review" ? <ReviewPanel /> : null}
+          {!backOffice && tab === "clients" ? <ClientsPanel scope={scope} onOpenContract={openContract} /> : null}
+          {!backOffice && tab === "team" ? <CareTeamPanel /> : null}
           {tab === "announcements" ? <AnnouncementsTab /> : null}
-          {tab === "talks" ? <TalksTab /> : null}
-          {tab === "quality" ? <QualityTab /> : null}
-          {tab === "faq" ? <PortalFaqTab /> : null}
         </div>
       </TabbedNav>
-      <ConsultantCardPanel contractId={contractId} onClose={() => openContract(null)} />
+      {backOffice ? (
+        <ConsultantPanel contractId={contractId} onClose={() => openContract(null)} />
+      ) : (
+        <ConsultantCardPanel contractId={contractId} onClose={() => openContract(null)} />
+      )}
       {talk ? (
         <ConversationDialog
           contractId={talk.contractId}
