@@ -112,7 +112,6 @@ import { readDocumentError } from "@/lib/b2b-documents";
 import {
   boardFunctions,
   boardSummary,
-  companyVariantMissing,
   representationPl,
   seatLocativePl,
 } from "@/lib/b2b-company-variant";
@@ -181,13 +180,19 @@ import {
   existingContractFor,
   generatedIdFromHeaders,
   generatorEditHref,
+  generatorSectionOf,
   generatorTabFromParam,
+  generatorTabOfSection,
+  isRegisterPhase,
   mergeRegisterPages,
   nextRegisterOffset,
   registerRowWarnings,
   needsContractLink,
   registerSearchHref,
+  REGISTER_PHASES,
+  type GeneratorSection,
   type GeneratorTab,
+  type RegisterPhase,
 } from "@/lib/b2b-generator-register";
 import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
 import {
@@ -196,6 +201,31 @@ import {
   prefillRateSource,
 } from "@/lib/b2b-agreement";
 import { contractRateNote } from "@/lib/recruitment-rate-hint";
+import {
+  AgreementDownloadSummary,
+  AgreementPaperPreview,
+  AgreementReadinessBar,
+  AgreementStepList,
+  AgreementStepPanel,
+  type WizardStepItem,
+} from "@/components/v2/b2b-generator/wizard/AgreementWizard";
+import { agreementPaper, paperGapCount } from "@/lib/b2b-agreement-paper";
+import {
+  GENERATOR_STEPS,
+  b2bFormMissing,
+  generatorStepFromParam,
+  missingInStep,
+  missingInStepOrder,
+  nextStep,
+  parseRateInput,
+  previousStep,
+  stepIndex,
+  stepLabel,
+  stepSummary,
+  validationMissingLabels,
+  type GeneratorFormStep,
+  type GeneratorStep,
+} from "@/lib/b2b-generator-wizard";
 
 // Router generatora ma szeroką bramkę Sourcing, ale operacje na dokumentach
 // ze stawką mają osobne, konfigurowalne uprawnienie. Poziom `view` dostaje
@@ -318,14 +348,6 @@ const MAX_RATE_STAGES = 6;
 const CONTRACT_NUMBER_TAKEN = "contract_number_taken";
 
 const emptyRateStage = (): RateStageForm => ({ rate: "", from: "", to: "" });
-
-/** Stawka bywa ułamkowa wpisana po polsku (135,5) — przecinek→kropka. */
-function parseRate(raw: string): number | null {
-  const v = raw.trim();
-  if (!v) return null;
-  const n = Number(v.replace(",", "."));
-  return Number.isFinite(n) ? n : null;
-}
 
 function todayISO(): string {
   return warsawToday();
@@ -535,7 +557,7 @@ export function B2BContractGeneratorV2() {
 
   // Zakładka, fraza rejestru i para (kandydat, rekrutacja) żyją w adresie:
   // link z kroku „Umowa” rekrutacji i ostrzeżenie „popraw ją w rejestrze”
-  // prowadzą wprost na miejsce, a F5 nie wraca na „Generator”.
+  // prowadzą wprost na miejsce, a F5 nie wraca na „Nową umowę”.
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const { replaceUrl } = useUrlWriter();
@@ -548,20 +570,36 @@ export function B2BContractGeneratorV2() {
   // `?edit=<id>` — „Popraw umowę” z wiersza rejestru: formularz wczytuje
   // zapisany payload i poprawia ten sam wiersz pod tym samym numerem.
   const editParam = positiveIntParam(searchParams?.get("edit") ?? null);
+  // `?krok=` — krok „Nowej umowy” (link z Nowości, F5 po zmianie kroku).
+  const stepParam = generatorStepFromParam(searchParams?.get("krok") ?? null);
   const defaultTab: GeneratorTab = canGenerate ? "generator" : "generated";
   const allowedTab = (tab: GeneratorTab | null): GeneratorTab | null => {
     if (!tab) return null;
-    // „Generator aneksów” widzi każdy: rejestr aneksów jest tam, a aneks
+    // „Nowy aneks” widzi każdy: rejestr aneksów jest tam, a aneks
     // potwierdzają osoby bez prawa generowania (podpis, Finanse). Sam kreator
     // w zakładce nadal wymaga uprawnienia „Generowanie”.
     if (tab === "generator" && !canGenerate) return null;
     if (tab === "roles" && !isAdmin) return null;
     return tab;
   };
-  const requestedTab = allowedTab(generatorTabFromParam(tabParam));
+  // Sam `?q=<numer>` bez zakładki (dzienne podsumowanie, „Umowy B2B czekają
+  // na podpis” na pulpicie) szuka umowy w rejestrze — do 20.11.2026 osoba
+  // z prawem generowania lądowała na pustym formularzu, a fraza przepadała.
+  const requestedTab =
+    allowedTab(generatorTabFromParam(tabParam)) ??
+    (qParam && !tabParam ? "generated" : null);
   const [activeTab, setActiveTab] = useState<GeneratorTab>(
     requestedTab ?? defaultTab,
   );
+  // Pięć zakładek (etap 3b, 20.11.2026): trzy rejestry umów to fazy zakładki
+  // „Umowy”, a klucze `?tab=` zostają te same — stare linki trafiają na miejsce.
+  const section = generatorSectionOf(activeTab);
+  const [phase, setPhase] = useState<RegisterPhase>(
+    isRegisterPhase(activeTab) ? activeTab : "generated",
+  );
+  useEffect(() => {
+    if (isRegisterPhase(activeTab)) setPhase(activeTab);
+  }, [activeTab]);
   // Umowa zlecenia (26.10.2026) — ten sam rejestr, własny formularz. Wejście
   // z rekrutacji (`?candidate=`, `?edit=`) dotyczy umowy B2B.
   const [agreementKind, setAgreementKind] = useState<"b2b" | "mandate">("b2b");
@@ -584,35 +622,47 @@ export function B2BContractGeneratorV2() {
     // Fraza dotyczy zakładki, z której przyszła — w innej zawęziłaby listę
     // po cichu. Para (kandydat, rekrutacja) należy do formularza i zostaje.
     params.delete("q");
+    // Krok formularz pamięta sam (zakładka nie odmontowuje formularza).
+    params.delete("krok");
+    replaceUrl(`${pathname ?? ""}?${params.toString()}`);
+  };
+  const selectSection = (value: string) =>
+    selectTab(generatorTabOfSection(value as GeneratorSection, phase));
+  const writeStep = (step: GeneratorStep) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    if (params.get("krok") === step) return;
+    params.set("krok", step);
     replaceUrl(`${pathname ?? ""}?${params.toString()}`);
   };
 
   return (
-    // max-w-7xl (nie 4xl): zakładka „Wygenerowane umowy" ma szeroką tabelę
-    // (9 kolumn + akcje: status podpisu / status umowy / Edytuj / Pobierz /
-    // Usuń). Przy 4xl kolumna akcji wychodziła poza wąski kontener i „Usuń"
-    // było ucięte poza ekranem — użytkownik nie widział opcji usunięcia.
-    // Kolumna „Status umowy" (PR: status + wyszukiwarka) dołożyła szerokości,
-    // stąd 6xl → 7xl. Szerszy kontener mieści wszystkie akcje w widocznym
-    // obszarze.
-    // `p-0 md:p-6`: shell daje już `p-4` — na telefonie podwójny margines
-    // zostawiał ~295 px na treść.
-    <div className="mx-auto max-w-7xl p-0 md:p-6">
-      <div className="mb-6 flex items-center gap-3">
-        <FileSignature className="h-7 w-7 shrink-0 text-primary" />
-        <div>
-          <h1 className="text-2xl font-semibold">Generator Umów B2B</h1>
-          <p className="text-sm text-muted-foreground">
-            Wpisz dane ręcznie lub zaciągnij z kandydata/rekrutacji, wybierz
-            rolę z gotowym zakresem usług → pobierz DOCX / PDF.
-          </p>
-        </div>
-      </div>
+    // Bez `max-w`: rejestr umów to lista, a listy idą do krawędzi okna
+    // (`ui/responsywnosc-reguly-po-audycie-23-09-2026.md`); formularz kroków
+    // ma własny limit szerokości. Bez dodatkowego `p-6` — shell daje już
+    // margines, a przy 1280 px treść ma wtedy ok. 990 px jak w makietach.
+    <div className="space-y-3">
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <h1 className="text-[22px] font-semibold leading-7 tracking-tight text-foreground">
+          Generator Umów B2B
+        </h1>
+        {canView && canGenerate && section === "new" ? (
+          <SegmentedRadio<"b2b" | "mandate">
+            label="Rodzaj umowy"
+            size="sm"
+            value={agreementKind}
+            onChange={setAgreementKind}
+            options={[
+              { value: "b2b", label: "Umowa B2B" },
+              { value: "mandate", label: "Umowa zlecenia" },
+            ]}
+          />
+        ) : null}
+      </header>
 
       {!canView ? (
         <Alert title={NO_ACCESS_TITLE} description={NO_ACCESS_DESC} />
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {!canGenerate ? (
             <Alert
               variant="info"
@@ -621,46 +671,27 @@ export function B2BContractGeneratorV2() {
             />
           ) : null}
 
-          <Tabs value={activeTab} onValueChange={selectTab}>
+          <Tabs value={section} onValueChange={selectSection}>
             <TabsList
-              className="mb-4 overflow-x-auto"
+              className="mb-3 flex w-full overflow-x-auto"
               data-help="contracts.b2b_generator.tabs"
+              data-tour="b2b-generator.tabs"
             >
               {canGenerate ? (
-                <TabsTrigger
-                  value="generator"
-                  className="shrink-0 whitespace-nowrap"
-                >
-                  Generator
+                <TabsTrigger value="new" className="shrink-0 whitespace-nowrap">
+                  Nowa umowa
                 </TabsTrigger>
               ) : null}
-              {/* „Umowy bieżące", nie „aktywne i w trakcie podpisu": od 0328
-                  siedzą tu także umowy anulowane (wiersz zostaje pod ręką, żeby
-                  dało się go cofnąć na „W trakcie", gdy Partner wróci).
-                  Nagłówek wyliczający statusy przestałby być prawdziwy. */}
-              <TabsTrigger
-                value="generated"
-                className="shrink-0 whitespace-nowrap"
-              >
-                Umowy bieżące
+              {/* Rejestr aneksów widzi każdy (podpis aneksu, Finanse) — bez
+                  prawa generowania zakładka nie obiecuje nowego aneksu. */}
+              <TabsTrigger value="annex" className="shrink-0 whitespace-nowrap">
+                {canGenerate ? "Nowy aneks" : "Aneksy"}
               </TabsTrigger>
               <TabsTrigger
-                value="no-project"
+                value="agreements"
                 className="shrink-0 whitespace-nowrap"
               >
-                Umowy bez projektu
-              </TabsTrigger>
-              <TabsTrigger
-                value="closed"
-                className="shrink-0 whitespace-nowrap"
-              >
-                Zakończone umowy
-              </TabsTrigger>
-              <TabsTrigger
-                value="annexes"
-                className="shrink-0 whitespace-nowrap"
-              >
-                Generator aneksów
+                Umowy
               </TabsTrigger>
               <TabsTrigger
                 value="documents"
@@ -673,7 +704,7 @@ export function B2BContractGeneratorV2() {
                   value="roles"
                   className="shrink-0 whitespace-nowrap"
                 >
-                  Zakresy ról (admin)
+                  Zakresy ról
                 </TabsTrigger>
               ) : null}
             </TabsList>
@@ -681,84 +712,86 @@ export function B2BContractGeneratorV2() {
                 zakładkę — inaczej wpisane dane znikają (zgłoszone przez Artura). */}
             {canGenerate ? (
               <TabsContent
-                value="generator"
+                value="new"
                 forceMount
-                className="data-[state=inactive]:hidden"
+                className="mt-0 data-[state=inactive]:hidden"
               >
-                <div className="mb-4 flex flex-wrap items-center gap-3">
-                  <span
-                    id="b2b-agreement-kind-label"
-                    className="text-sm font-medium"
-                  >
-                    Rodzaj umowy
-                  </span>
-                  <SegmentedRadio<"b2b" | "mandate">
-                    labelledBy="b2b-agreement-kind-label"
-                    value={agreementKind}
-                    onChange={setAgreementKind}
-                    options={[
-                      { value: "b2b", label: "B2B" },
-                      { value: "mandate", label: "Zlecenie" },
-                    ]}
-                  />
-                </div>
                 <div className={agreementKind === "mandate" ? undefined : "hidden"}>
                   <MandateAgreementForm />
                 </div>
                 <div className={agreementKind === "b2b" ? undefined : "hidden"}>
-                <GeneratorForm
-                  prefillCandidateId={candidateParam}
-                  prefillJobId={jobParam}
-                  editGeneratedId={editParam}
-                  onEditConsumed={() => {
-                    // Po wczytaniu (albo odmowie) parametr znika — F5 nie może
-                    // nadpisać poprawek wczytanym ponownie stanem z serwera.
-                    const params = new URLSearchParams(
-                      searchParams?.toString() ?? "",
-                    );
-                    if (!params.has("edit")) return;
-                    params.delete("edit");
-                    const query = params.toString();
-                    replaceUrl(query ? `${pathname ?? ""}?${query}` : (pathname ?? ""));
-                  }}
-                  onClearPrefill={() => {
-                    if (!candidateParam && !jobParam) return;
-                    const params = new URLSearchParams(
-                      searchParams?.toString() ?? "",
-                    );
-                    params.delete("candidate");
-                    params.delete("job");
-                    const query = params.toString();
-                    replaceUrl(query ? `${pathname ?? ""}?${query}` : (pathname ?? ""));
-                  }}
-                />
+                  <GeneratorForm
+                    layout="wizard"
+                    stepParam={stepParam}
+                    onStepChange={writeStep}
+                    prefillCandidateId={candidateParam}
+                    prefillJobId={jobParam}
+                    editGeneratedId={editParam}
+                    onEditConsumed={() => {
+                      // Po wczytaniu (albo odmowie) parametr znika — F5 nie może
+                      // nadpisać poprawek wczytanym ponownie stanem z serwera.
+                      const params = new URLSearchParams(
+                        searchParams?.toString() ?? "",
+                      );
+                      if (!params.has("edit")) return;
+                      params.delete("edit");
+                      const query = params.toString();
+                      replaceUrl(query ? `${pathname ?? ""}?${query}` : (pathname ?? ""));
+                    }}
+                    onClearPrefill={() => {
+                      if (!candidateParam && !jobParam) return;
+                      const params = new URLSearchParams(
+                        searchParams?.toString() ?? "",
+                      );
+                      params.delete("candidate");
+                      params.delete("job");
+                      const query = params.toString();
+                      replaceUrl(query ? `${pathname ?? ""}?${query}` : (pathname ?? ""));
+                    }}
+                  />
                 </div>
               </TabsContent>
             ) : null}
-            <TabsContent value="generated">
-              <GeneratedContractsTab
-                searchParam={activeTab === "generated" ? qParam : null}
-                canCorrect={canGenerate}
-              />
-            </TabsContent>
-            <TabsContent value="no-project">
-              <NoProjectContractsTab
-                searchParam={activeTab === "no-project" ? qParam : null}
-              />
-            </TabsContent>
-            <TabsContent value="closed">
-              <ClosedContractsTab
-                searchParam={activeTab === "closed" ? qParam : null}
-              />
-            </TabsContent>
-            <TabsContent value="annexes">
+            <TabsContent value="annex" className="mt-0">
               <AnnexGeneratorTab canGenerate={canGenerate} />
             </TabsContent>
-            <TabsContent value="documents">
+            <TabsContent value="agreements" className="mt-0 space-y-3">
+              {/* Jedna zakładka zamiast trzech: faza to filtr (makieta A).
+                  Wiersz jest w JEDNEJ fazie naraz — decyduje filtr statusu
+                  wysyłany na serwer, jak w dawnych trzech zakładkach. */}
+              <SegmentedRadio<RegisterPhase>
+                label="Faza umowy"
+                size="sm"
+                value={phase}
+                onChange={(next) => selectTab(next)}
+                options={REGISTER_PHASES.map((p) => ({
+                  value: p.tab,
+                  label: p.label,
+                }))}
+              />
+              {/* „Umowy bieżące”, nie „aktywne i w trakcie podpisu”: od 0328
+                  siedzą tam także umowy anulowane (wiersz zostaje pod ręką,
+                  żeby dało się go cofnąć na „W trakcie”, gdy Partner wróci). */}
+              {phase === "generated" ? (
+                <GeneratedContractsTab
+                  searchParam={activeTab === "generated" ? qParam : null}
+                  canCorrect={canGenerate}
+                />
+              ) : phase === "no-project" ? (
+                <NoProjectContractsTab
+                  searchParam={activeTab === "no-project" ? qParam : null}
+                />
+              ) : (
+                <ClosedContractsTab
+                  searchParam={activeTab === "closed" ? qParam : null}
+                />
+              )}
+            </TabsContent>
+            <TabsContent value="documents" className="mt-0">
               <DocumentsTab canGenerate={canGenerate} />
             </TabsContent>
             {isAdmin ? (
-              <TabsContent value="roles">
+              <TabsContent value="roles" className="mt-0">
                 <RoleScopeEditor />
               </TabsContent>
             ) : null}
@@ -1873,14 +1906,14 @@ export function ContractStatusDialog({
     onSuccess: (updated) => {
       toast.showSuccess(
         updated.contract_status === "closed"
-          ? "Umowa zakończona — wpis przeszedł do „Zakończone umowy”."
+          ? "Umowa zakończona — wpis jest teraz w zakładce „Umowy”, w fazie „Zakończone”."
           : updated.contract_status === "suspended"
-            ? "Umowa zawieszona — kontraktor jest teraz w „Umowy bez projektu”."
+            ? "Umowa zawieszona — kontraktor jest teraz w zakładce „Umowy”, w fazie „Bez projektu”."
             : updated.contract_status === "cancelled"
               ? "Umowa anulowana — wpis zostaje w rejestrze, numer nie wraca do puli."
               : updated.contract_status === "in_progress"
                 ? row.contract_status === "closed"
-                  ? "Zakończenie cofnięte — umowa wróciła do „Umowy bieżące” jako „W trakcie”."
+                  ? "Zakończenie cofnięte — umowa wróciła do fazy „Bieżące” jako „W trakcie”."
                   : "Umowa wróciła do podpisu — możesz ją oznaczyć jako podpisaną."
                 : "Umowa oznaczona jako aktywna.",
       );
@@ -1974,7 +2007,8 @@ export function ContractStatusDialog({
             {status === "suspended" ? (
               <p className="text-xs text-muted-foreground">
                 Umowa nadal obowiązuje — kontraktor tylko nie ma przypisanego
-                projektu. Wpis przejdzie do zakładki „Umowy bez projektu”.
+                projektu. Wpis przejdzie do fazy „Bez projektu” w zakładce
+                „Umowy”.
               </p>
             ) : null}
             {status === "cancelled" ? (
@@ -1988,7 +2022,7 @@ export function ContractStatusDialog({
             {status === "in_progress" && canReturnToProgress ? (
               <p className="text-xs text-muted-foreground">
                 {row.contract_status === "closed"
-                  ? "Cofa pomyłkowe zakończenie niepodpisanej umowy — wpis wróci do „Umowy bieżące”, a powód i data zakończenia zostaną wyczyszczone (zostają w historii statusów)."
+                  ? "Cofa pomyłkowe zakończenie niepodpisanej umowy — wpis wróci do fazy „Bieżące”, a powód i data zakończenia zostaną wyczyszczone (zostają w historii statusów)."
                   : "Umowa wraca do podpisu — przycisk „Oznacz jako podpisaną” pojawi się ponownie."}
               </p>
             ) : null}
@@ -2148,7 +2182,7 @@ export function ReactivateContractDialog({
       }),
     onSuccess: () => {
       toast.showSuccess(
-        "Umowa wróciła do zakładki „Umowy bieżące”. Notatkę " +
+        "Umowa wróciła do fazy „Bieżące” w zakładce „Umowy”. Notatkę " +
           "o poprzednim projekcie dopisano w Kontraktach.",
       );
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
@@ -2808,15 +2842,15 @@ export function GeneratedContractsTab({
       <CardHeader>
         <CardTitle className="text-base">Umowy bieżące</CardTitle>
         <CardDescription>
-          Umowy obowiązujące, czekające na podpis obu stron oraz anulowane (te,
-          które nie doszły do skutku — numer został zużyty, więc wpis zostaje) —
-          sprawdź, czy sugerowany / wpisany numer nie powtarza istniejącego.
-          Umowę można pobrać ponownie, a nazwę Klienta poprawić („Edytuj").
-          Potwierdzenie podpisania uruchamia jednorazowo proces zatrudnienia.
-          Niepodpisany wpis może edytować lub usunąć osoba, która go
-          wygenerowała, albo administrator. Zawieszenie lub zakończenie umowy
-          („Zmień status") nie usuwa jej z systemu — przenosi ją do zakładki
-          „Umowy bez projektu" albo „Zakończone umowy".
+          {/* Krócej niż przed 20.11.2026: przy 1280 × 720 opis na pięć linii
+              spychał tabelę poniżej 60% wysokości okna. Numeru nikt już nie
+              sprawdza ręcznie — serwer nie wyda go drugi raz. */}
+          Umowy obowiązujące, czekające na podpis obu stron i anulowane (numer
+          został zużyty, więc wpis zostaje). Umowę można pobrać ponownie,
+          a nazwę Klienta poprawić („Edytuj"). Potwierdzenie podpisania
+          uruchamia jednorazowo proces zatrudnienia. Niepodpisany wpis usuwa
+          autor albo administrator. „Zmień status" nie usuwa umowy — przenosi
+          ją do fazy „Bez projektu" albo „Zakończone".
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -4029,6 +4063,24 @@ function splitPhone(value: string | null | undefined): {
     : { prefix: "+48", number: v };
 }
 
+/** Jedno zdanie pod nazwą kroku w układzie kroków Generatora. */
+const STEP_INTRO: Record<GeneratorStep, string> = {
+  zrodlo:
+    "Kandydat i rekrutacja — z nich zaciągną się dane, a po podpisie umowa połączy się z kontraktem bez zgadywania po nazwisku.",
+  admin:
+    "Rekruter i Delivery Lead dostaną placement i premię po 168 h pracy kontraktora — wynikają z rekrutacji. Tu uzupełniasz replacement i wymiar etatu.",
+  partner:
+    "Wpisz NIP — nazwa firmy, REGON i adres zaciągną się z rejestru (CEIDG i Biała Lista MF, dla spółki odpis KRS). Każde pole można poprawić.",
+  klient:
+    "Nazwa i miasto Klienta oraz opis projektu trafiają do Załącznika nr 3 umowy.",
+  obszar:
+    "Obszar specjalizacji Partnera w § 1 umowy. Wypełni też opis projektu, jeśli nikt go nie zmieniał.",
+  warunki:
+    "Numer i data podpisania, rozpoczęcie usług i stawka godzinowa (§ 6).",
+  pobierz:
+    "Sprawdź braki i pobierz umowę — pobranie zapisuje ją w rejestrze umów.",
+};
+
 export function GeneratorForm({
   prefillCandidateId = null,
   prefillJobId = null,
@@ -4037,12 +4089,26 @@ export function GeneratorForm({
   onEditConsumed,
   lockedPair = false,
   onSaved,
+  layout = "stacked",
+  stepParam = null,
+  onStepChange,
 }: {
   /**
    * Panel osoby w rekrutacji (04.10.2026): kandydat i rekrutacja są ustalone
    * z panelu — pickerów nie da się zmienić, „Nowa umowa” znika.
    */
   lockedPair?: boolean;
+  /**
+   * `wizard` — strona Generatora (etap 3b, 20.11.2026): lista kroków, jeden
+   * krok formularza, „kartka” z pierwszym akapitem i pasek braków na dole.
+   * `stacked` — wszystkie karty jedna pod drugą (panel osoby w rekrutacji).
+   * Pola, walidacja i pobranie są te same w obu układach.
+   */
+  layout?: "stacked" | "wizard";
+  /** `?krok=` z adresu — krok, na którym otworzyć formularz (`wizard`). */
+  stepParam?: GeneratorStep | null;
+  /** Zmiana kroku — strona zapisuje ją w adresie (`?krok=`). */
+  onStepChange?: (step: GeneratorStep) => void;
   /** Po zapisie w rejestrze (pobranie albo poprawka) — panel pokazuje stan umowy. */
   onSaved?: (saved: { id: number; number: string }) => void;
   /** `?candidate=` z adresu — link „Otwórz w Generatorze” z kroku „Umowa”. */
@@ -4102,6 +4168,8 @@ export function GeneratorForm({
   >(null);
   const [partnerCorrespondenceAddress, setPartnerCorrespondenceAddress] =
     useState("");
+  // Układ kroków: pole adresu do korespondencji otwiera link pod adresem.
+  const [correspondenceOpen, setCorrespondenceOpen] = useState(false);
   const [partnerEmail, setPartnerEmail] = useState("");
   const [partnerPhone, setPartnerPhone] = useState("");
   const [phonePrefix, setPhonePrefix] = useState("+48");
@@ -4752,6 +4820,15 @@ export function GeneratorForm({
     savedContract?.id ?? null,
   );
 
+  // Telefon tak, jak trafia do umowy: z prefiksem z listy, chyba że ktoś
+  // wpisał numer zaczynający się od „+”.
+  const trimmedPhone = partnerPhone.trim();
+  const payloadPhone = trimmedPhone
+    ? trimmedPhone.startsWith("+")
+      ? trimmedPhone
+      : `${phonePrefix} ${trimmedPhone}`
+    : "";
+
   const buildPayload = (lang: Lang): B2BRenderPayload => ({
     candidate_id: candidate?.id ?? null,
     job_id: selectedRecruitment?.job_id ?? null,
@@ -4782,11 +4859,7 @@ export function GeneratorForm({
     // Osoba skierowana = kandydat z rekrutacji (serwer i tak to wymusza).
     assigned_person_name:
       candidate?.full_name?.trim() || partnerName.trim() || null,
-    partner_phone: partnerPhone.trim()
-      ? partnerPhone.trim().startsWith("+")
-        ? partnerPhone.trim()
-        : `${phonePrefix} ${partnerPhone.trim()}`
-      : null,
+    partner_phone: payloadPhone || null,
     client_name: clientName.trim() || null,
     project_city: projectCity.trim() || null,
     project_description: projectDescription.trim() || null,
@@ -4796,13 +4869,13 @@ export function GeneratorForm({
     start_date_mode: startDateMode,
     // Stawka bywa ułamkowa (135,5); normalizuj przecinek→kropka. Backend
     // przyjmuje float i formatuje do „135,50" w umowie.
-    rate_candidate: parseRate(rateStages[0]?.rate ?? ""),
+    rate_candidate: parseRateInput(rateStages[0]?.rate ?? ""),
     // Stawka progresywna: wysyłana tylko przy >1 etapach; pojedyncza stawka
     // idzie starym polem `rate_candidate` (pełna zgodność wstecz).
     rate_stages:
       rateStages.length > 1
         ? rateStages.map((s) => ({
-            rate: parseRate(s.rate) ?? 0,
+            rate: parseRateInput(s.rate) ?? 0,
             effective_from: s.from || null,
             effective_to: s.to || null,
           }))
@@ -4819,54 +4892,86 @@ export function GeneratorForm({
     setPreviewHtml("");
   }, [previewKey]);
 
-  const validate = (): boolean => {
-    const missing: string[] = [];
-    if (!candidate) missing.push("Kandydat");
-    if (!selectedRecruitment) missing.push("Rekrutacja");
-    if (!selectedRole) missing.push("Rola / stanowisko");
-    if (isCompany) {
-      missing.push(
-        ...companyVariantMissing({
-          krs: partnerKrs,
-          seatLocative: partnerSeatLocative,
-          registryCourt: partnerRegistryCourt,
-          shareCapital: partnerShareCapital,
-          representativeName,
-          representativeFunction,
-          representation,
-        }),
+  // ── Braki i kroki (etap 3b) ───────────────────────────────────────────────
+  // Jedna reguła braków dla komunikatu walidacji, listy kroków, kartki
+  // i paska na dole (`lib/b2b-generator-wizard.ts`) — pasek nie może blokować
+  // więcej ani mniej niż „Pobierz DOCX”.
+  const missingAll = b2bFormMissing({
+    hasCandidate: !!candidate,
+    hasRecruitment: !!selectedRecruitment,
+    hasRole: !!selectedRole,
+    isCompany,
+    partnerName,
+    partnerInstrumental,
+    partnerLegalName,
+    partnerNip,
+    partnerRegon,
+    partnerBusinessAddress,
+    partnerEmail,
+    partnerPhone,
+    company: {
+      krs: partnerKrs,
+      seatLocative: partnerSeatLocative,
+      registryCourt: partnerRegistryCourt,
+      shareCapital: partnerShareCapital,
+      representativeName,
+      representativeFunction,
+      representation,
+    },
+    clientName,
+    projectCity,
+    projectDescription,
+    contractNumber,
+    signingDate,
+    startDate,
+    rateStages,
+    admin: adminValue,
+  });
+
+  const wizard = layout === "wizard";
+  const [step, setStep] = useState<GeneratorStep>(stepParam ?? "zrodlo");
+  // Efekt na WARTOŚCI parametru — link do kroku (np. z Nowości) to miękka
+  // nawigacja, a formularz bywa już zamontowany.
+  useEffect(() => {
+    if (stepParam) setStep(stepParam);
+  }, [stepParam]);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [pendingFocus, setPendingFocus] = useState<{ field: string } | null>(
+    null,
+  );
+  /** Przejście do kroku; z brakiem — fokus na jego polu. */
+  const goToStep = (next: GeneratorStep, field?: string) => {
+    setStep(next);
+    onStepChange?.(next);
+    if (field && next === "admin") setShowAdminErrors(true);
+    setPendingFocus(field ? { field } : null);
+    if (field) return;
+    // „Dalej” pod długim krokiem: nowy krok zaczyna się od góry, nie w połowie.
+    requestAnimationFrame(() => {
+      const panel = rootRef.current?.querySelector<HTMLElement>(
+        "[data-gen-panel]",
       );
-    } else {
-      if (!partnerName.trim()) missing.push("Imię i nazwisko Partnera");
-      if (!partnerInstrumental.trim())
-        missing.push("Imię i nazwisko (narzędnik)");
-    }
-    if (!partnerLegalName.trim()) missing.push("Nazwa Firmy");
-    if (!partnerNip.trim()) missing.push("NIP");
-    if (!partnerRegon.trim()) missing.push("REGON");
-    if (!partnerBusinessAddress.trim())
-      missing.push(isCompany ? "Adres siedziby firmy" : "Adres z CEIDG");
-    if (!partnerEmail.trim()) missing.push("E-mail");
-    if (!partnerPhone.trim()) missing.push("Telefon");
-    if (!clientName.trim()) missing.push("Pełna nazwa Klienta");
-    if (!projectCity.trim()) missing.push("Miasto Klienta");
-    if (!projectDescription.trim()) missing.push("Opis projektu");
-    if (!contractNumber.trim()) missing.push("Numer umowy");
-    if (!signingDate) missing.push("Data podpisania");
-    if (!startDate) missing.push("Data rozpoczęcia");
-    if (rateStages.length === 1) {
-      const rate = parseRate(rateStages[0]?.rate ?? "");
-      if (!rate || rate <= 0) missing.push("Stawka godzinowa");
-    } else {
-      // Stawka progresywna: każdy etap z kwotą; etapy 2+ muszą mieć
-      // „Obowiązuje od" (inaczej okresy w umowie są nierozstrzygalne).
-      rateStages.forEach((s, i) => {
-        const rate = parseRate(s.rate);
-        if (!rate || rate <= 0)
-          missing.push(`Stawka godzinowa (etap ${i + 1})`);
-        if (i > 0 && !s.from) missing.push(`„Obowiązuje od” (etap ${i + 1})`);
-      });
-    }
+      if (panel && panel.getBoundingClientRect().top < 56) {
+        panel.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      }
+    });
+  };
+  useEffect(() => {
+    if (!pendingFocus) return;
+    setPendingFocus(null);
+    const box = rootRef.current?.querySelector<HTMLElement>(
+      `[data-gen-field="${pendingFocus.field}"]`,
+    );
+    if (!box) return;
+    const target =
+      box.querySelector<HTMLElement>("input:not([type=hidden]), textarea") ??
+      box.querySelector<HTMLElement>("button, [role=combobox]");
+    target?.focus({ preventScroll: true });
+    box.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  }, [pendingFocus]);
+
+  const validate = (): boolean => {
+    const missing = validationMissingLabels(missingAll);
     if (missing.length) {
       toast.showError(`Uzupełnij wymagane pola: ${missing.join(", ")}.`);
       return false;
@@ -5102,6 +5207,7 @@ export function GeneratorForm({
     setPartnerBusinessAddress("");
     setPartnerAddressForService(false);
     setPartnerCorrespondenceAddress("");
+    setCorrespondenceOpen(false);
     setPartnerEmail("");
     setPartnerPhone("");
     setPhonePrefix("+48");
@@ -5173,9 +5279,11 @@ export function GeneratorForm({
       toast.showError(
         "Uzupełnij „Szczegóły administracyjne”: replacement i wymiar FTE.",
       );
-      document
-        .querySelector('[data-testid="agreement-admin-details"]')
-        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (wizard) goToStep("admin");
+      else
+        document
+          .querySelector('[data-testid="agreement-admin-details"]')
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
     let verification: CompanyVerification;
@@ -5235,85 +5343,1224 @@ export function GeneratorForm({
     );
   }
 
+  // Siatka pól: w układzie kroków dwie kolumny od 28rem (krok ma ok. 430–470 px
+  // przy 1280 px), w panelu osoby (kolumna 460–520 px) — jedno pole w rzędzie,
+  // dwa od 36rem jak dotąd.
+  const grid = wizard
+    ? "grid gap-x-3.5 gap-y-3 @md:grid-cols-2"
+    : "grid gap-4 @xl:grid-cols-2";
+  const fullSpan = wizard ? "@md:col-span-2" : "@xl:col-span-2";
+
+  const savedAlert = activeSaved ? (
+    <Alert
+      variant="success"
+      title={`Umowa ${activeSaved.number} zapisana w rejestrze (W trakcie)`}
+    >
+      <p className="mt-0.5 text-xs opacity-90">
+        Poprawki zapiszesz pod tym samym numerem — także w drugim języku
+        (przełącz „Język umowy”). Zmiana kandydata albo rekrutacji zaczyna
+        nową umowę.
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {/* W układzie kroków „Popraw i pobierz ponownie” stoi na pasku. */}
+        {wizard ? null : (
+          <Button
+            type="button"
+            size="sm"
+            disabled={docxBusy}
+            onClick={onDocx}
+          >
+            {docxBusy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            Popraw i pobierz ponownie
+          </Button>
+        )}
+        {lockedPair ? null : (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={docxBusy}
+            onClick={resetForm}
+          >
+            <Plus className="h-4 w-4" />
+            Nowa umowa
+          </Button>
+        )}
+      </div>
+    </Alert>
+  ) : null;
+
+  const existingAlert = existingContract ? (
+    /* Nie blokuje generowania: druga umowa bywa świadoma (aneks, nowy
+       zakres). Mówi tylko, że poprawka pierwszej jest w rejestrze. */
+    <Alert
+      variant="warning"
+      title={`Ta osoba ma już umowę ${existingContract.contract_number} (${
+        B2B_CONTRACT_STATUS_LABEL[existingContract.contract_status]
+      }) w tej rekrutacji`}
+    >
+      <p className="mt-0.5 text-xs opacity-90">
+        {canCorrectInForm(existingContract)
+          ? "Popraw ją pod tym samym numerem zamiast generować nową — każde pobranie tutaj zajmuje kolejny numer."
+          : "Sprawdź ją w rejestrze, zanim wygenerujesz nową — każde pobranie tutaj zajmuje kolejny numer."}{" "}
+        {/* Link obiecuje tylko to, co da się zrobić: poprawkę w formularzu
+            dla autora/admina i umowy „W trakcie”, w innym razie rejestr
+            z wyszukaną umową. */}
+        <Link
+          href={
+            canCorrectInForm(existingContract)
+              ? generatorEditHref(existingContract.id)
+              : registerSearchHref(
+                  existingContract.contract_number,
+                  existingContract.contract_status,
+                )
+          }
+          className="font-semibold underline underline-offset-2"
+        >
+          {canCorrectInForm(existingContract)
+            ? `Popraw umowę ${existingContract.contract_number}`
+            : `Otwórz umowę ${existingContract.contract_number} w rejestrze`}
+        </Link>
+      </p>
+    </Alert>
+  ) : null;
+
+  // ── Treść kroków (te same pola w obu układach) ────────────────────────────
+
+  const sourceBody = (
+    <div className="space-y-4">
+      {/* W kroku kandydat i rekrutacja jeden pod drugim — w pół kolumny
+          nazwisko kandydata było ucięte. */}
+      <div className={wizard ? "grid gap-y-3" : grid}>
+        <div data-gen-field="candidate">
+          <Label className="mb-1.5 block" htmlFor={candidatePickerId}>
+            Kandydat <span className="text-destructive">*</span>
+          </Label>
+          <div className="flex gap-2">
+            <Popover open={candidateOpen} onOpenChange={setCandidateOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  id={candidatePickerId}
+                  variant="outline"
+                  role="combobox"
+                  disabled={lockedPair}
+                  aria-expanded={candidateOpen}
+                  className="w-full min-w-0 justify-between font-normal"
+                >
+                  <span className="flex items-center gap-2 truncate">
+                    <Search className="h-4 w-4 shrink-0 opacity-60" />
+                    {candidate ? candidate.full_name : "Wybierz kandydata…"}
+                  </span>
+                  <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="w-(--radix-popover-trigger-width) p-0"
+              >
+                <Command shouldFilter={false}>
+                  <CommandInput
+                    placeholder="Szukaj kandydata…"
+                    value={candidateQuery}
+                    onValueChange={setCandidateQuery}
+                  />
+                  <CommandList>
+                    {/* Awaria wyszukiwania ≠ „nikogo nie ma”: pusty stan tylko przy sukcesie. */}
+                    <PickerQueryState
+                      isPending={candidatesQuery.isLoading}
+                      isError={candidatesQuery.isError}
+                      onRetry={() => void candidatesQuery.refetch()}
+                      loadingLabel="Szukam…"
+                      errorLabel="Nie udało się wyszukać kandydatów."
+                    />
+                    {candidatesQuery.isSuccess && (
+                      <CommandEmpty>Brak wyników.</CommandEmpty>
+                    )}
+                    <CommandGroup>
+                      {(candidatesQuery.data ?? []).map((c) => (
+                        <CommandItem
+                          key={c.id}
+                          value={String(c.id)}
+                          onSelect={() => {
+                            selectCandidate(c);
+                            setCandidateOpen(false);
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              candidate?.id === c.id
+                                ? "opacity-100"
+                                : "opacity-0",
+                            )}
+                          />
+                          <span className="truncate">
+                            {c.full_name}
+                            {c.email ? (
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                {c.email}
+                              </span>
+                            ) : null}
+                          </span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {candidate ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Wyczyść kandydata"
+                aria-label="Wyczyść kandydata"
+                onClick={() => selectCandidate(null)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        <div data-gen-field="recruitment">
+          <Label className="mb-1.5 block" htmlFor={recruitmentId}>
+            Rekrutacja (klient z rekrutacji){" "}
+            <span className="text-destructive">*</span>
+          </Label>
+          <Select
+            value={stageId}
+            onValueChange={selectStage}
+            disabled={
+              lockedPair ||
+              !candidate ||
+              !recruitmentsQuery.isSuccess ||
+              recruitmentsQuery.data.length === 0
+            }
+          >
+            <SelectTrigger id={recruitmentId}>
+              <SelectValue
+                placeholder={
+                  !candidate
+                    ? "Najpierw wybierz kandydata"
+                    : recruitmentsQuery.isLoading
+                      ? "Wczytywanie rekrutacji…"
+                      : "Wybierz rekrutację…"
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {(recruitmentsQuery.data ?? []).map((r) => (
+                <SelectItem key={r.stage_id} value={String(r.stage_id)}>
+                  {r.job_title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <RecruitmentOptionsNotice
+            hasCandidate={!!candidate}
+            isError={recruitmentsQuery.isError}
+            isEmpty={
+              recruitmentsQuery.isSuccess &&
+              recruitmentsQuery.data.length === 0
+            }
+            onRetry={() => void recruitmentsQuery.refetch()}
+          />
+        </div>
+      </div>
+
+      <div>
+        <Label className="mb-1.5 block">Język umowy</Label>
+        <div className="flex gap-2">
+          {(["pl", "en"] as Lang[]).map((l) => (
+            <Button
+              key={l}
+              type="button"
+              size="sm"
+              variant={language === l ? "primary" : "outline"}
+              aria-pressed={language === l}
+              onClick={() => setLanguage(l)}
+            >
+              {l === "pl" ? "Polski" : "English"}
+            </Button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const adminBody = (
+    <AgreementAdminDetailsCard
+      candidateId={candidate?.id ?? null}
+      jobId={selectedRecruitment?.job_id ?? null}
+      value={adminValue}
+      onChange={setAdminValue}
+      showErrors={showAdminErrors}
+      restoredPair={restoredAdminPair}
+      bare={wizard}
+    />
+  );
+
+  const variantButtons = (
+    <div className="flex flex-wrap gap-2">
+      {(
+        [
+          ["jdg", "Umowa JDG"],
+          ["company", "Umowa spółka"],
+        ] as const
+      ).map(([v, lbl]) => (
+        <Button
+          key={v}
+          type="button"
+          size="sm"
+          variant={contractVariant === v ? "primary" : "outline"}
+          aria-pressed={contractVariant === v}
+          onClick={() => setContractVariant(v)}
+        >
+          {lbl}
+        </Button>
+      ))}
+    </div>
+  );
+  const variantHint = isCompany
+    ? "Komparycja z danymi z KRS, § 12 „Osoby skierowane do realizacji Usług” (kolejne paragrafy przesuwają się o jeden) i osoba skierowana w Załączniku nr 3."
+    : "Wzór dla jednoosobowej działalności gospodarczej. Zmiana wariantu nie usuwa wpisanych danych.";
+  const companyInRegistry =
+    !isCompany && partnerEntityType === "company" ? (
+      <p className="mt-1 text-xs text-warning-muted-foreground">
+        Rejestr wskazuje, że Partner jest spółką.{" "}
+        <button
+          type="button"
+          className="underline underline-offset-2"
+          onClick={() => setContractVariant("company")}
+        >
+          Przełącz na „Umowa spółka”
+        </button>
+      </p>
+    ) : null;
+  const genderLabel = (
+    <Label className="mb-1.5 block">
+      {isCompany ? "Płeć osoby reprezentującej spółkę" : "Płeć Partnera"}
+      <span className="text-destructive"> *</span>
+    </Label>
+  );
+  const genderButtons = (
+    <div className="flex gap-2">
+      {(
+        [
+          ["m", "Mężczyzna"],
+          ["k", "Kobieta"],
+        ] as const
+      ).map(([v, lbl]) => (
+        <Button
+          key={v}
+          type="button"
+          size="sm"
+          variant={gender === v ? "primary" : "outline"}
+          aria-pressed={gender === v}
+          onClick={() => setGender(v)}
+        >
+          {lbl}
+        </Button>
+      ))}
+    </div>
+  );
+  const genderHint = isCompany
+    ? "Dobiera formy „Pana/Panią” w reprezentacji i „zapoznałem/am” w deklaracji poufności."
+    : "Dobiera formy w umowie (Panem/ią, prowadzącym/cą, zwany/a, zapoznałem/am).";
+  // Adres do korespondencji jest opcjonalny: w układzie kroków pole otwiera
+  // link pod adresem, chyba że coś już w nim jest (wczytana umowa).
+  const correspondenceShown =
+    !wizard || correspondenceOpen || partnerCorrespondenceAddress.trim() !== "";
+
+  const partnerBody = (
+    <div className={grid}>
+      {wizard ? (
+        /* Wariant i płeć w jednym rzędzie; formy płci widać na kartce obok. */
+        <div className={fullSpan}>
+          <div className="flex flex-wrap gap-x-6 gap-y-3">
+            <div>
+              <Label className="mb-1.5 block">Wariant umowy</Label>
+              {variantButtons}
+            </div>
+            <div>
+              {genderLabel}
+              {genderButtons}
+            </div>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">{variantHint}</p>
+          {companyInRegistry}
+        </div>
+      ) : (
+        <>
+          <div className={fullSpan}>
+            <Label className="mb-1.5 block">Wariant umowy</Label>
+            {variantButtons}
+            <p className="mt-1 text-xs text-muted-foreground">{variantHint}</p>
+            {companyInRegistry}
+          </div>
+          <div className={fullSpan}>
+            {genderLabel}
+            {genderButtons}
+            <p className="mt-1 text-xs text-muted-foreground">{genderHint}</p>
+          </div>
+        </>
+      )}
+      {isCompany ? (
+        <div className={cn(fullSpan, "rounded-md border bg-muted/40 px-3 py-2 text-sm")}>
+          <span className="text-muted-foreground">
+            Osoba skierowana do realizacji usług (Załącznik nr 3, z
+            rekrutacji):{" "}
+          </span>
+          <span className="font-medium">
+            {candidate?.full_name || "wybierz kandydata i rekrutację"}
+          </span>
+        </div>
+      ) : null}
+      {!isCompany ? (
+        <>
+          <Field label="Imię i nazwisko" required fieldKey="partnerName">
+            <Input
+              value={partnerName}
+              onChange={(e) => setPartnerName(e.target.value)}
+              placeholder="np. Jan Kowalski"
+            />
+          </Field>
+          <Field
+            label={
+              wizard
+                ? "W umowie (narzędnik)"
+                : "Imię i nazwisko — narzędnik (komparycja)"
+            }
+            required
+            fieldKey="partnerInstrumental"
+          >
+            <Input
+              value={partnerInstrumental}
+              onChange={(e) => {
+                instrTouched.current = true;
+                setPartnerInstrumental(e.target.value);
+              }}
+              placeholder="np. Janem Kowalskim"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              {wizard
+                ? "„z Panem/ią …” — odmienia się samo; popraw przy nietypowym nazwisku."
+                : "„z Panem/ią …\" — auto-odmiana; popraw przy nietypowych nazwiskach."}
+            </p>
+          </Field>
+        </>
+      ) : null}
+      <Field label="Nazwa Firmy" required full={wizard} fieldKey="legalName">
+        <Input
+          value={partnerLegalName}
+          onChange={(e) => setPartnerLegalName(e.target.value)}
+          placeholder="np. JK Software Jan Kowalski"
+        />
+      </Field>
+      <Field label="NIP (auto z rejestru)" required fieldKey="nip">
+        <Input
+          value={partnerNip}
+          onChange={(e) => setPartnerNip(e.target.value)}
+          placeholder="10 cyfr → auto-pobranie"
+        />
+        <div className="mt-1 h-4">{lookupHint(partnerLookup)}</div>
+      </Field>
+      {isCompany ? (
+        <Field label="KRS" required fieldKey="krs">
+          <Input
+            value={partnerKrs}
+            onChange={(e) => setPartnerKrs(e.target.value)}
+            placeholder="np. 0000123456"
+          />
+          <div className="mt-1 h-4">{lookupHint(krsLookup)}</div>
+        </Field>
+      ) : null}
+      <Field label="REGON" required fieldKey="regon">
+        <Input
+          value={partnerRegon}
+          onChange={(e) => setPartnerRegon(e.target.value)}
+        />
+      </Field>
+      <Field
+        label={isCompany ? "Adres siedziby firmy" : "Adres z CEIDG"}
+        full
+        required
+        fieldKey="address"
+      >
+        <Input
+          value={partnerBusinessAddress}
+          onChange={(e) => setPartnerBusinessAddress(e.target.value)}
+          placeholder="ul., kod, miasto"
+        />
+        {!isCompany ? (
+          <AddressKindSwitch
+            forService={partnerAddressForService}
+            fromRegistry={addressKindFromRegistry}
+            onChange={setPartnerAddressForService}
+          />
+        ) : null}
+        {correspondenceShown ? null : (
+          <button
+            type="button"
+            onClick={() => {
+              setCorrespondenceOpen(true);
+              setPendingFocus({ field: "correspondence" });
+            }}
+            className="mt-1.5 text-xs font-medium text-primary hover:underline"
+          >
+            + adres do korespondencji
+          </button>
+        )}
+      </Field>
+      {isCompany ? (
+        <>
+          <Field label="Siedziba spółki (miejscowość)" required fieldKey="seat">
+            <Input
+              value={partnerSeat}
+              onChange={(e) => setPartnerSeat(e.target.value)}
+              placeholder="np. Warszawa"
+            />
+          </Field>
+          <Field
+            label="Siedziba w umowie („z siedzibą …”)"
+            required
+            fieldKey="seatLocative"
+          >
+            <Input
+              value={partnerSeatLocative}
+              onChange={(e) => {
+                seatLocativeTouched.current = true;
+                setPartnerSeatLocative(e.target.value);
+              }}
+              placeholder="np. w Warszawie"
+            />
+            {partnerSeat.trim() && !seatLocativePl(partnerSeat).known ? (
+              <p className="mt-1 text-xs text-warning-muted-foreground">
+                Sprawdź odmianę nazwy miejscowości.
+              </p>
+            ) : null}
+          </Field>
+          <Field
+            label="Sąd rejestrowy i wydział"
+            full
+            required
+            fieldKey="registryCourt"
+          >
+            <Input
+              value={partnerRegistryCourt}
+              onChange={(e) => setPartnerRegistryCourt(e.target.value)}
+              placeholder="np. Sąd Rejonowy dla m.st. Warszawy w Warszawie, XII Wydział Gospodarczy Krajowego Rejestru Sądowego"
+            />
+          </Field>
+          <Field label="Kapitał zakładowy (zł)" required fieldKey="shareCapital">
+            <Input
+              value={partnerShareCapital}
+              onChange={(e) => setPartnerShareCapital(e.target.value)}
+              placeholder="np. 5.000,00"
+            />
+          </Field>
+          <div className="hidden sm:block" />
+          <Field
+            label="Osoba reprezentująca spółkę"
+            required
+            fieldKey="representativeName"
+          >
+            <Input
+              value={representativeName}
+              onChange={(e) => setRepresentativeName(e.target.value)}
+              placeholder="np. Jan Kowalski"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Członek zarządu / prokurent — nie musi być osobą skierowaną.
+            </p>
+          </Field>
+          <Field label="Funkcja" required fieldKey="representativeFunction">
+            <Input
+              value={representativeFunction}
+              onChange={(e) => setRepresentativeFunction(e.target.value)}
+              placeholder="np. Prezes Zarządu"
+            />
+            {krsBoard && boardFunctions(krsBoard.people).length ? (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {boardFunctions(krsBoard.people).map((fn) => (
+                  <Button
+                    key={fn}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setRepresentativeFunction(fn)}
+                  >
+                    {fn}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+          </Field>
+          {krsBoard ? (
+            <p className={cn(fullSpan, "text-xs text-muted-foreground")}>
+              W KRS: {boardSummary(krsBoard.people) || "brak składu organu"}
+              {krsBoard.people.some((p) => !p.name)
+                ? " (imiona i nazwiska są ukryte w publicznym API KRS — wpisz osobę ręcznie)"
+                : ""}
+              .
+              {krsBoard.method
+                ? ` Sposób reprezentacji: ${krsBoard.method}.`
+                : ""}
+            </p>
+          ) : null}
+          <Field
+            label="Reprezentacja w komparycji („reprezentowaną przez …”)"
+            full
+            required
+            fieldKey="representation"
+          >
+            <Input
+              value={representation}
+              onChange={(e) => {
+                representationTouched.current = true;
+                setRepresentation(e.target.value);
+              }}
+              placeholder="np. Pana Jana Kowalskiego – Prezesa Zarządu"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Auto-odmiana (biernik); popraw przy nietypowych nazwiskach
+              albo reprezentacji łącznej.
+            </p>
+          </Field>
+        </>
+      ) : null}
+      {correspondenceShown ? (
+        <Field
+          label="Adres do korespondencji (opcjonalnie)"
+          full
+          fieldKey="correspondence"
+        >
+          <Input
+            value={partnerCorrespondenceAddress}
+            onChange={(e) => setPartnerCorrespondenceAddress(e.target.value)}
+          />
+        </Field>
+      ) : null}
+      {/* W kroku pola kontaktu idą na całą szerokość — numer z prefiksem
+          w pół kolumny był ucięty. */}
+      <Field label="E-mail" required full={wizard} fieldKey="email">
+        <Input
+          value={partnerEmail}
+          onChange={(e) => setPartnerEmail(e.target.value)}
+        />
+      </Field>
+      <Field
+        label="Telefon"
+        required
+        full={wizard}
+        htmlFor={phoneId}
+        fieldKey="phone"
+      >
+        <div className="flex gap-2">
+          <Select value={phonePrefix} onValueChange={setPhonePrefix}>
+            <SelectTrigger className="w-[92px] shrink-0">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PHONE_PREFIXES.map((p) => (
+                <SelectItem key={p} value={p}>
+                  {p}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            id={phoneId}
+            value={partnerPhone}
+            onChange={(e) => setPartnerPhone(e.target.value)}
+            placeholder="600 100 200"
+          />
+        </div>
+      </Field>
+    </div>
+  );
+
+  const clientBody = (
+    <div className={grid}>
+      <Field
+        label="Pełna nazwa Klienta"
+        required
+        htmlFor={clientPickerId}
+        fieldKey="client"
+      >
+        <Popover open={clientOpen} onOpenChange={setClientOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              id={clientPickerId}
+              variant="outline"
+              role="combobox"
+              aria-expanded={clientOpen}
+              className="w-full justify-between font-normal"
+            >
+              <span className="truncate">
+                {clientName || "Wybierz lub wpisz klienta…"}
+              </span>
+              <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            className="w-(--radix-popover-trigger-width) p-0"
+          >
+            <Command shouldFilter={false}>
+              <CommandInput
+                placeholder="Szukaj klienta…"
+                value={clientQuery}
+                onValueChange={setClientQuery}
+              />
+              <CommandList>
+                {/* Awaria listy klientów ≠ „brak klientów”: pusty stan tylko przy sukcesie. */}
+                <PickerQueryState
+                  isPending={clientsQuery.isPending}
+                  isError={clientsQuery.isError}
+                  onRetry={() => void clientsQuery.refetch()}
+                  loadingLabel="Ładowanie klientów…"
+                  errorLabel="Nie udało się pobrać listy klientów."
+                />
+                {clientsQuery.isSuccess && (
+                  <CommandEmpty>Brak klientów na liście.</CommandEmpty>
+                )}
+                {clientQuery.trim() ? (
+                  <CommandGroup heading="Własna nazwa">
+                    <CommandItem
+                      value={`__custom__${clientQuery}`}
+                      onSelect={() => {
+                        setClientName(clientQuery.trim());
+                        setClientOpen(false);
+                      }}
+                    >
+                      Użyj: „{clientQuery.trim()}"
+                    </CommandItem>
+                  </CommandGroup>
+                ) : null}
+                <CommandGroup heading="Klienci">
+                  {filteredClients.map((c) => (
+                    <CommandItem
+                      key={c.id}
+                      value={`${c.id}-${c.name}`}
+                      onSelect={() => {
+                        setClientName(c.name);
+                        setClientOpen(false);
+                      }}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          clientName === c.name
+                            ? "opacity-100"
+                            : "opacity-0",
+                        )}
+                      />
+                      <span className="truncate">{c.name}</span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+        {hasSpecialClauses(clientName) ? (
+          <p className="mt-1 text-xs text-warning-muted-foreground">
+            Ten klient ma specyficzne zapisy umowy (np. zmieniony paragraf,
+            dodatkowy załącznik lub klauzule) — zostaną automatycznie
+            wstawione do umowy (PL i EN).
+          </p>
+        ) : null}
+      </Field>
+      <Field label="Miasto Klienta" required fieldKey="city">
+        <Input
+          value={projectCity}
+          onChange={(e) => setProjectCity(e.target.value)}
+          placeholder="np. Warszawa"
+        />
+      </Field>
+      <Field
+        label="Opis projektu i zakres usług"
+        full
+        required
+        fieldKey="description"
+      >
+        <Textarea
+          value={projectDescription}
+          onChange={(e) => {
+            descTouched.current = true;
+            setProjectDescription(e.target.value);
+            // Wynik AI-sprawdzenia ZOSTAJE przy edycji opisu — czyści się
+            // tylko przy ponownym kliknięciu „Sprawdź…" (onMutate uopMut).
+          }}
+          rows={4}
+          placeholder="Auto z obszaru/rekrutacji — możesz nadpisać. Po wklejeniu sprawdź AI…"
+        />
+        <div className="mt-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!projectDescription.trim() || uopMut.isPending}
+            onClick={() => uopMut.mutate()}
+          >
+            {uopMut.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="mr-2 h-4 w-4" />
+            )}
+            Sprawdź pod kątem umowy o pracę (AI)
+          </Button>
+        </div>
+        {uop ? (
+          <UopPanel
+            uop={uop}
+            onApply={() => {
+              setProjectDescription(uop.rewritten);
+              descTouched.current = true;
+              setUop(null);
+            }}
+            onClose={() => setUop(null)}
+          />
+        ) : null}
+      </Field>
+    </div>
+  );
+
+  const areaBody = (
+    <div data-gen-field="role">
+      <Label className="mb-1.5 block" htmlFor={roleSelectId}>
+        Obszar *
+      </Label>
+      <Select value={roleId} onValueChange={setRoleId}>
+        <SelectTrigger id={roleSelectId}>
+          <SelectValue placeholder="Wybierz obszar…" />
+        </SelectTrigger>
+        <SelectContent>
+          {groupedRoles.map((g) => (
+            <SelectGroup key={g.label}>
+              <SelectLabel>{g.label}</SelectLabel>
+              {g.items.map((r) => (
+                <SelectItem key={r.id} value={String(r.id)}>
+                  {language === "pl" ? r.name_pl : r.name_en}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
+  const termsBody = (
+    <div className={grid}>
+      <Field label="Numer umowy (auto)" required fieldKey="number">
+        <Input
+          value={activeSaved ? activeSaved.number : contractNumber}
+          onChange={(e) => setContractNumber(e.target.value)}
+          placeholder="np. 1435/2026"
+          // Numer zapisanej umowy jest już wydany — poprawka idzie pod
+          // ten sam numer, więc edycja pola nic by nie zmieniła.
+          readOnly={!!activeSaved}
+          disabled={!!activeSaved}
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          {activeSaved
+            ? "Numer zapisanej umowy — nowy numer dostaniesz przyciskiem „Nowa umowa”."
+            : `Format: liczba/rok. System podpowiada kolejny wolny numer${
+                nextNumberQuery.data?.contract_number
+                  ? ` (${nextNumberQuery.data.contract_number})`
+                  : ""
+              }; ten sam numer nie może być użyty dwa razy, także po usunięciu umowy.`}
+        </p>
+      </Field>
+      <Field label="Data podpisania" required fieldKey="signingDate">
+        <Input
+          type="date"
+          value={signingDate}
+          onChange={(e) => setSigningDate(e.target.value)}
+        />
+      </Field>
+      <Field
+        label="Data rozpoczęcia usług"
+        required
+        htmlFor={startDateId}
+        fieldKey="startDate"
+      >
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Select
+            value={startDateMode}
+            onValueChange={(v) =>
+              setStartDateMode(v as "exact" | "not_earlier" | "not_later")
+            }
+          >
+            <SelectTrigger className="w-full sm:w-[150px] sm:shrink-0">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="exact">z dniem</SelectItem>
+              <SelectItem value="not_earlier">nie wcześniej niż</SelectItem>
+              <SelectItem value="not_later">nie później niż</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            id={startDateId}
+            type="date"
+            value={startDate}
+            onChange={(e) => {
+              startTouched.current = true;
+              setStartDate(e.target.value);
+            }}
+          />
+        </div>
+        {prefillQuery.data?.availability_text ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Dostępność ze screeningu: {prefillQuery.data.availability_text}
+          </p>
+        ) : null}
+      </Field>
+      <div className={cn("space-y-3", fullSpan)}>
+        {rateStages.length === 1 ? (
+          <div className={wizard ? "grid grid-cols-1 gap-3 @md:grid-cols-2" : "grid grid-cols-1 gap-3 @xl:grid-cols-2"}>
+            <Field label="Stawka godz. (netto)" required fieldKey="rate-0">
+              <Input
+                type="number"
+                value={rateStages[0]?.rate ?? ""}
+                onChange={(e) => setRateStage(0, { rate: e.target.value })}
+                placeholder="np. 150"
+              />
+              {prefillRateHint ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Stawka {prefillRateHint}
+                </p>
+              ) : null}
+              {recruitmentRateNote ? (
+                <p
+                  role="status"
+                  data-testid="b2b-recruitment-rate-note"
+                  className="mt-1 text-xs text-warning"
+                >
+                  {recruitmentRateNote}
+                </p>
+              ) : null}
+            </Field>
+            <Field label="Waluta" htmlFor={currencyId}>
+              <CurrencySelect
+                id={currencyId}
+                value={currency}
+                onChange={setCurrency}
+              />
+            </Field>
+          </div>
+        ) : (
+          <>
+            {rateStages.map((stage, i) => (
+              <div key={i} className="flex items-end gap-2">
+                <div className={wizard ? "grid min-w-0 flex-1 grid-cols-1 gap-3 @md:grid-cols-3" : "grid min-w-0 flex-1 grid-cols-1 gap-3 @xl:grid-cols-3"}>
+                  <Field
+                    label={`Stawka godz. (netto) — etap ${i + 1}`}
+                    required
+                    fieldKey={`rate-${i}`}
+                  >
+                    <Input
+                      type="number"
+                      value={stage.rate}
+                      onChange={(e) =>
+                        setRateStage(i, { rate: e.target.value })
+                      }
+                      placeholder="np. 150"
+                    />
+                    {i === 0 && recruitmentRateNote ? (
+                      <p
+                        role="status"
+                        data-testid="b2b-recruitment-rate-note"
+                        className="mt-1 text-xs text-warning"
+                      >
+                        {recruitmentRateNote}
+                      </p>
+                    ) : null}
+                  </Field>
+                  {/* Pierwszy etap bez „od" obowiązuje od rozpoczęcia usług. */}
+                  <Field
+                    label="Obowiązuje od"
+                    required={i > 0}
+                    fieldKey={`rateFrom-${i}`}
+                  >
+                    <Input
+                      type="date"
+                      value={stage.from}
+                      onChange={(e) =>
+                        setRateStage(i, { from: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="Obowiązuje do">
+                    <Input
+                      type="date"
+                      value={stage.to}
+                      onChange={(e) =>
+                        setRateStage(i, { to: e.target.value })
+                      }
+                    />
+                  </Field>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => removeRateStage(i)}
+                  title="Usuń etap stawki"
+                  aria-label={`Usuń etap stawki ${i + 1}`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+            <div className={wizard ? "grid grid-cols-1 gap-3 @md:grid-cols-3" : "grid grid-cols-1 gap-3 @xl:grid-cols-3"}>
+              <Field label="Waluta" htmlFor={currencyId}>
+                <CurrencySelect
+                  id={currencyId}
+                  value={currency}
+                  onChange={setCurrency}
+                />
+              </Field>
+            </div>
+          </>
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={addRateStage}
+          disabled={rateStages.length >= MAX_RATE_STAGES}
+        >
+          <Plus className="mr-1.5 h-4 w-4" />
+          Dodaj etap stawki
+        </Button>
+      </div>
+      <p className={cn("text-xs text-muted-foreground", fullSpan)}>
+        „Stawka słownie" liczy się automatycznie z kwoty.
+        {rateStages.length > 1
+          ? " Stawka progresywna: umowa wypisze każdy etap z okresem obowiązywania; etap 1 bez „od” obowiązuje od rozpoczęcia usług."
+          : ""}
+      </p>
+    </div>
+  );
+
+  const registryDialog = (
+    <RegistryCheckDialog
+      verification={registryCheck?.verification ?? null}
+      diffs={registryCheck?.diffs ?? []}
+      applyRegistry={applyRegistry}
+      onApplyRegistryChange={setApplyRegistry}
+      onConfirm={confirmRegistryCheck}
+      onCancel={() => setRegistryCheck(null)}
+    />
+  );
+
+  const downloadLabel = activeSaved
+    ? "Popraw i pobierz ponownie"
+    : `Pobierz DOCX (${language === "pl" ? "PL" : "EN"})`;
+
+  if (wizard) {
+    const sectionBodies: Record<GeneratorFormStep, React.ReactNode> = {
+      zrodlo: sourceBody,
+      admin: adminBody,
+      partner: partnerBody,
+      klient: clientBody,
+      obszar: areaBody,
+      warunki: termsBody,
+    };
+    const shownNumber = activeSaved ? activeSaved.number : contractNumber.trim();
+    const paper = agreementPaper({
+      language,
+      variant: contractVariant,
+      gender,
+      contractNumber: shownNumber,
+      signingDate,
+      partnerName,
+      partnerInstrumental,
+      partnerLegalName,
+      partnerBusinessAddress,
+      addressForService: !isCompany && partnerAddressForService,
+      correspondenceAddress: partnerCorrespondenceAddress,
+      partnerNip,
+      partnerRegon,
+      phone: payloadPhone,
+      email: partnerEmail,
+      seat: partnerSeat,
+      seatLocative: partnerSeatLocative,
+      registryCourt: partnerRegistryCourt,
+      krs: partnerKrs,
+      shareCapital: partnerShareCapital,
+      representation,
+      representativeName,
+      representativeFunction,
+    });
+    const orderedMissing = missingInStepOrder(missingAll);
+    const stepItems: WizardStepItem[] = GENERATOR_STEPS.map((s) => ({
+      key: s.key,
+      label: s.label,
+      summary: stepSummary(
+        s.key,
+        {
+          candidateName: candidate?.full_name ?? null,
+          jobTitle: selectedRecruitment?.job_title ?? null,
+          language,
+          admin: adminValue,
+          hasRecruitment: !!selectedRecruitment,
+          partnerLegalName,
+          partnerName,
+          clientName,
+          projectCity,
+          roleName: selectedRole
+            ? language === "pl"
+              ? selectedRole.name_pl
+              : selectedRole.name_en
+            : null,
+          contractNumber: shownNumber,
+          startDate,
+          rateStages,
+          currency,
+        },
+        missingAll,
+      ),
+      gaps:
+        s.key === "pobierz"
+          ? missingAll.length
+          : missingInStep(missingAll, s.key).length,
+      waiting: s.key === "admin" && !selectedRecruitment,
+    }));
+    const index = stepIndex(step);
+    const prev = previousStep(step);
+    const next = nextStep(step);
+    const downloadNotes = [
+      activeSaved
+        ? `Poprawiasz umowę ${activeSaved.number}: pobranie zapisze poprawkę pod tym samym numerem. Nowy numer daje „Nowa umowa”.`
+        : `Pobranie zapisze umowę w rejestrze pod numerem ${shownNumber || "z pola „Numer umowy”"} (status „W trakcie”). Kolejne pobrania tej umowy poprawiają ją pod tym samym numerem. „Podgląd” numeru nie zajmuje.`,
+      "Przed pobraniem NEXUS sprawdzi firmę w CEIDG albo KRS. Ostrzeżenia rejestru niczego nie blokują — umowę można wygenerować mimo nich.",
+      "Pobranie nie zakłada kontraktu: kontrakt i szkic zamówienia powstaną po „Oznacz jako podpisaną” w zakładce „Umowy”.",
+    ];
+    return (
+      <FieldSpanContext.Provider value="@md:col-span-2">
+      <div ref={rootRef} className="@container mx-auto max-w-[1400px] space-y-3">
+        {savedAlert}
+        {existingAlert}
+        <div className="grid items-start gap-4 @4xl:grid-cols-[176px_minmax(0,1fr)_300px] @4xl:gap-5">
+          <div className="min-w-0 @4xl:sticky @4xl:top-4">
+            <AgreementStepList steps={stepItems} current={step} onGo={(s) => goToStep(s)} />
+          </div>
+          <AgreementStepPanel
+            title={stepLabel(step)}
+            index={index}
+            total={GENERATOR_STEPS.length}
+            intro={STEP_INTRO[step]}
+            previousLabel={prev ? stepLabel(prev) : null}
+            nextLabel={next ? stepLabel(next) : null}
+            onPrevious={() => prev && goToStep(prev)}
+            onNext={() => next && goToStep(next)}
+          >
+            {(Object.keys(sectionBodies) as GeneratorFormStep[]).map((key) => (
+              // Wszystkie kroki zostają zamontowane: efekty pól (podpowiedzi
+              // z rekrutacji, lookup NIP-u, domyślne szczegóły administracyjne)
+              // działają jak w jednym formularzu, a wpisane dane nie znikają.
+              <div key={key} hidden={key !== step} data-gen-step={key}>
+                {sectionBodies[key]}
+              </div>
+            ))}
+            <div hidden={step !== "pobierz"} data-gen-step="pobierz">
+              <AgreementDownloadSummary
+                steps={stepItems}
+                missing={orderedMissing}
+                onGo={(s, field) => goToStep(s, field)}
+                notes={downloadNotes}
+              />
+            </div>
+          </AgreementStepPanel>
+          <aside className="min-w-0 @4xl:sticky @4xl:top-4">
+            <AgreementPaperPreview
+              paragraphs={paper}
+              gaps={paperGapCount(paper)}
+              onGap={(s, field) => goToStep(s, field)}
+            />
+          </aside>
+        </div>
+        <AgreementReadinessBar
+          missing={orderedMissing}
+          onGo={(s, field) => goToStep(s, field)}
+          readyText={
+            activeSaved
+              ? `Wszystko uzupełnione — poprawka umowy ${activeSaved.number} pod tym samym numerem.`
+              : `Wszystko uzupełnione — umowę nr ${shownNumber || "…"} można pobrać.`
+          }
+          status={
+            verifyMut.isPending
+              ? "Sprawdzam firmę w rejestrze (CEIDG / KRS)…"
+              : null
+          }
+          previewBusy={previewMut.isPending}
+          onPreview={onPreview}
+          downloadLabel={downloadLabel}
+          downloadBusy={docxBusy}
+          onDownload={onDocx}
+        />
+        {registryDialog}
+        <Dialog
+          open={!!previewHtml}
+          onOpenChange={(open) => {
+            if (!open) setPreviewHtml("");
+          }}
+        >
+          <DialogContent size="xl">
+            <DialogHeader>
+              {/* Podgląd nie zapisuje umowy — numer w nim to tylko propozycja,
+                  a wydruk nie jest dokumentem z rejestru. */}
+              <DialogTitle>Podgląd umowy (bez numeru w rejestrze)</DialogTitle>
+              <DialogDescription>
+                Cała umowa z danymi z formularza. Podgląd nie zajmuje numeru.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogBody>
+              {/* `sandbox=""`: treść idzie z danych wpisanych w formularz,
+                  więc ramka nie wykonuje skryptów ani nie ma dostępu do strony. */}
+              <iframe
+                title="Podgląd umowy"
+                sandbox=""
+                className="h-[65dvh] w-full rounded-lg border bg-white"
+                srcDoc={`<style>${PREVIEW_STYLE}</style>${previewHtml}`}
+              />
+            </DialogBody>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => printHtml(previewHtml, "Podgląd umowy B2B")}
+              >
+                <Printer className="mr-2 h-4 w-4" />
+                Drukuj podgląd
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+      </FieldSpanContext.Provider>
+    );
+  }
+
   return (
     // `@container`: pola układają się po szerokości formularza, nie okna —
     // w panelu osoby (kolumna 460–520 px) jedno pole w rzędzie, na stronie
     // Generatora dwa albo trzy jak dotąd.
-    <div className="@container space-y-4">
-      {activeSaved ? (
-        <Alert
-          variant="success"
-          title={`Umowa ${activeSaved.number} zapisana w rejestrze (W trakcie)`}
-        >
-          <p className="mt-0.5 text-xs opacity-90">
-            Poprawki zapiszesz pod tym samym numerem — także w drugim języku
-            (przełącz „Język umowy”). Zmiana kandydata albo rekrutacji zaczyna
-            nową umowę.
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              disabled={docxBusy}
-              onClick={onDocx}
-            >
-              {docxBusy ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4" />
-              )}
-              Popraw i pobierz ponownie
-            </Button>
-            {lockedPair ? null : (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={docxBusy}
-                onClick={resetForm}
-              >
-                <Plus className="h-4 w-4" />
-                Nowa umowa
-              </Button>
-            )}
-          </div>
-        </Alert>
-      ) : null}
-
-      {existingContract ? (
-        /* Nie blokuje generowania: druga umowa bywa świadoma (aneks, nowy
-           zakres). Mówi tylko, że poprawka pierwszej jest w rejestrze. */
-        <Alert
-          variant="warning"
-          title={`Ta osoba ma już umowę ${existingContract.contract_number} (${
-            B2B_CONTRACT_STATUS_LABEL[existingContract.contract_status]
-          }) w tej rekrutacji`}
-        >
-          <p className="mt-0.5 text-xs opacity-90">
-            {canCorrectInForm(existingContract)
-              ? "Popraw ją pod tym samym numerem zamiast generować nową — każde pobranie tutaj zajmuje kolejny numer."
-              : "Sprawdź ją w rejestrze, zanim wygenerujesz nową — każde pobranie tutaj zajmuje kolejny numer."}{" "}
-            {/* Link obiecuje tylko to, co da się zrobić: poprawkę w formularzu
-                dla autora/admina i umowy „W trakcie”, w innym razie rejestr
-                z wyszukaną umową. */}
-            <Link
-              href={
-                canCorrectInForm(existingContract)
-                  ? generatorEditHref(existingContract.id)
-                  : registerSearchHref(
-                      existingContract.contract_number,
-                      existingContract.contract_status,
-                    )
-              }
-              className="font-semibold underline underline-offset-2"
-            >
-              {canCorrectInForm(existingContract)
-                ? `Popraw umowę ${existingContract.contract_number}`
-                : `Otwórz umowę ${existingContract.contract_number} w rejestrze`}
-            </Link>
-          </p>
-        </Alert>
-      ) : null}
+    <div ref={rootRef} className="@container space-y-4">
+      {savedAlert}
+      {existingAlert}
 
       {/* Źródło danych */}
       <Card>
@@ -5325,173 +6572,10 @@ export function GeneratorForm({
             lub nazwie klienta.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 @xl:grid-cols-2">
-            <div>
-              <Label className="mb-1.5 block" htmlFor={candidatePickerId}>
-                Kandydat <span className="text-destructive">*</span>
-              </Label>
-              <div className="flex gap-2">
-                <Popover open={candidateOpen} onOpenChange={setCandidateOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      id={candidatePickerId}
-                      variant="outline"
-                      role="combobox"
-                      disabled={lockedPair}
-                      aria-expanded={candidateOpen}
-                      className="w-full justify-between font-normal"
-                    >
-                      <span className="flex items-center gap-2 truncate">
-                        <Search className="h-4 w-4 shrink-0 opacity-60" />
-                        {candidate ? candidate.full_name : "Wybierz kandydata…"}
-                      </span>
-                      <ChevronsUpDown className="h-4 w-4 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    align="start"
-                    className="w-(--radix-popover-trigger-width) p-0"
-                  >
-                    <Command shouldFilter={false}>
-                      <CommandInput
-                        placeholder="Szukaj kandydata…"
-                        value={candidateQuery}
-                        onValueChange={setCandidateQuery}
-                      />
-                      <CommandList>
-                        {/* Awaria wyszukiwania ≠ „nikogo nie ma”: pusty stan tylko przy sukcesie. */}
-                        <PickerQueryState
-                          isPending={candidatesQuery.isLoading}
-                          isError={candidatesQuery.isError}
-                          onRetry={() => void candidatesQuery.refetch()}
-                          loadingLabel="Szukam…"
-                          errorLabel="Nie udało się wyszukać kandydatów."
-                        />
-                        {candidatesQuery.isSuccess && (
-                          <CommandEmpty>Brak wyników.</CommandEmpty>
-                        )}
-                        <CommandGroup>
-                          {(candidatesQuery.data ?? []).map((c) => (
-                            <CommandItem
-                              key={c.id}
-                              value={String(c.id)}
-                              onSelect={() => {
-                                selectCandidate(c);
-                                setCandidateOpen(false);
-                              }}
-                            >
-                              <Check
-                                className={cn(
-                                  "mr-2 h-4 w-4",
-                                  candidate?.id === c.id
-                                    ? "opacity-100"
-                                    : "opacity-0",
-                                )}
-                              />
-                              <span className="truncate">
-                                {c.full_name}
-                                {c.email ? (
-                                  <span className="ml-1 text-xs text-muted-foreground">
-                                    {c.email}
-                                  </span>
-                                ) : null}
-                              </span>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-                {candidate ? (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    title="Wyczyść kandydata"
-                    aria-label="Wyczyść kandydata"
-                    onClick={() => selectCandidate(null)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-
-            <div>
-              <Label className="mb-1.5 block" htmlFor={recruitmentId}>
-                Rekrutacja (klient z rekrutacji){" "}
-                <span className="text-destructive">*</span>
-              </Label>
-              <Select
-                value={stageId}
-                onValueChange={selectStage}
-                disabled={
-                  lockedPair ||
-                  !candidate ||
-                  !recruitmentsQuery.isSuccess ||
-                  recruitmentsQuery.data.length === 0
-                }
-              >
-                <SelectTrigger id={recruitmentId}>
-                  <SelectValue
-                    placeholder={
-                      !candidate
-                        ? "Najpierw wybierz kandydata"
-                        : recruitmentsQuery.isLoading
-                          ? "Wczytywanie rekrutacji…"
-                          : "Wybierz rekrutację…"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {(recruitmentsQuery.data ?? []).map((r) => (
-                    <SelectItem key={r.stage_id} value={String(r.stage_id)}>
-                      {r.job_title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <RecruitmentOptionsNotice
-                hasCandidate={!!candidate}
-                isError={recruitmentsQuery.isError}
-                isEmpty={
-                  recruitmentsQuery.isSuccess &&
-                  recruitmentsQuery.data.length === 0
-                }
-                onRetry={() => void recruitmentsQuery.refetch()}
-              />
-            </div>
-          </div>
-
-          <div>
-            <Label className="mb-1.5 block">Język umowy</Label>
-            <div className="flex gap-2">
-              {(["pl", "en"] as Lang[]).map((l) => (
-                <Button
-                  key={l}
-                  type="button"
-                  size="sm"
-                  variant={language === l ? "primary" : "outline"}
-                  aria-pressed={language === l}
-                  onClick={() => setLanguage(l)}
-                >
-                  {l === "pl" ? "Polski" : "English"}
-                </Button>
-              ))}
-            </div>
-          </div>
-        </CardContent>
+        <CardContent>{sourceBody}</CardContent>
       </Card>
 
-      <AgreementAdminDetailsCard
-        candidateId={candidate?.id ?? null}
-        jobId={selectedRecruitment?.job_id ?? null}
-        value={adminValue}
-        onChange={setAdminValue}
-        showErrors={showAdminErrors}
-        restoredPair={restoredAdminPair}
-      />
+      {adminBody}
 
       {/* Dane Partnera (firma) */}
       <Card>
@@ -5504,302 +6588,7 @@ export function GeneratorForm({
             edytowalne.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 @xl:grid-cols-2">
-          <div className="@xl:col-span-2">
-            <Label className="mb-1.5 block">Wariant umowy</Label>
-            <div className="flex flex-wrap gap-2">
-              {(
-                [
-                  ["jdg", "Umowa JDG"],
-                  ["company", "Umowa spółka"],
-                ] as const
-              ).map(([v, lbl]) => (
-                <Button
-                  key={v}
-                  type="button"
-                  size="sm"
-                  variant={contractVariant === v ? "primary" : "outline"}
-                  aria-pressed={contractVariant === v}
-                  onClick={() => setContractVariant(v)}
-                >
-                  {lbl}
-                </Button>
-              ))}
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {isCompany
-                ? "Komparycja z danymi z KRS, § 12 „Osoby skierowane do realizacji Usług” (kolejne paragrafy przesuwają się o jeden) i osoba skierowana w Załączniku nr 3."
-                : "Wzór dla jednoosobowej działalności gospodarczej. Zmiana wariantu nie usuwa wpisanych danych."}
-            </p>
-            {!isCompany && partnerEntityType === "company" ? (
-              <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
-                Rejestr wskazuje, że Partner jest spółką.{" "}
-                <button
-                  type="button"
-                  className="underline underline-offset-2"
-                  onClick={() => setContractVariant("company")}
-                >
-                  Przełącz na „Umowa spółka”
-                </button>
-              </p>
-            ) : null}
-          </div>
-          <div className="@xl:col-span-2">
-            <Label className="mb-1.5 block">
-              {isCompany
-                ? "Płeć osoby reprezentującej spółkę"
-                : "Płeć Partnera"}
-              <span className="text-destructive"> *</span>
-            </Label>
-            <div className="flex gap-2">
-              {(
-                [
-                  ["m", "Mężczyzna"],
-                  ["k", "Kobieta"],
-                ] as const
-              ).map(([v, lbl]) => (
-                <Button
-                  key={v}
-                  type="button"
-                  size="sm"
-                  variant={gender === v ? "primary" : "outline"}
-                  aria-pressed={gender === v}
-                  onClick={() => setGender(v)}
-                >
-                  {lbl}
-                </Button>
-              ))}
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {isCompany
-                ? "Dobiera formy „Pana/Panią” w reprezentacji i „zapoznałem/am” w deklaracji poufności."
-                : "Dobiera formy w umowie (Panem/ią, prowadzącym/cą, zwany/a, zapoznałem/am)."}
-            </p>
-          </div>
-          {isCompany ? (
-            <div className="@xl:col-span-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
-              <span className="text-muted-foreground">
-                Osoba skierowana do realizacji usług (Załącznik nr 3, z
-                rekrutacji):{" "}
-              </span>
-              <span className="font-medium">
-                {candidate?.full_name || "wybierz kandydata i rekrutację"}
-              </span>
-            </div>
-          ) : null}
-          {!isCompany ? (
-            <>
-              <Field label="Imię i nazwisko" required>
-                <Input
-                  value={partnerName}
-                  onChange={(e) => setPartnerName(e.target.value)}
-                  placeholder="np. Jan Kowalski"
-                />
-              </Field>
-              <Field label="Imię i nazwisko — narzędnik (komparycja)" required>
-                <Input
-                  value={partnerInstrumental}
-                  onChange={(e) => {
-                    instrTouched.current = true;
-                    setPartnerInstrumental(e.target.value);
-                  }}
-                  placeholder="np. Janem Kowalskim"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  „z Panem/ią …" — auto-odmiana; popraw przy nietypowych
-                  nazwiskach.
-                </p>
-              </Field>
-            </>
-          ) : null}
-          <Field label="Nazwa Firmy" required>
-            <Input
-              value={partnerLegalName}
-              onChange={(e) => setPartnerLegalName(e.target.value)}
-              placeholder="np. JK Software Jan Kowalski"
-            />
-          </Field>
-          <Field label="NIP (auto z rejestru)" required>
-            <Input
-              value={partnerNip}
-              onChange={(e) => setPartnerNip(e.target.value)}
-              placeholder="10 cyfr → auto-pobranie"
-            />
-            <div className="mt-1 h-4">{lookupHint(partnerLookup)}</div>
-          </Field>
-          {isCompany ? (
-            <Field label="KRS" required>
-              <Input
-                value={partnerKrs}
-                onChange={(e) => setPartnerKrs(e.target.value)}
-                placeholder="np. 0000123456"
-              />
-              <div className="mt-1 h-4">{lookupHint(krsLookup)}</div>
-            </Field>
-          ) : null}
-          <Field label="REGON" required>
-            <Input
-              value={partnerRegon}
-              onChange={(e) => setPartnerRegon(e.target.value)}
-            />
-          </Field>
-          <Field
-            label={isCompany ? "Adres siedziby firmy" : "Adres z CEIDG"}
-            full
-            required
-          >
-            <Input
-              value={partnerBusinessAddress}
-              onChange={(e) => setPartnerBusinessAddress(e.target.value)}
-              placeholder="ul., kod, miasto"
-            />
-            {!isCompany ? (
-              <AddressKindSwitch
-                forService={partnerAddressForService}
-                fromRegistry={addressKindFromRegistry}
-                onChange={setPartnerAddressForService}
-              />
-            ) : null}
-          </Field>
-          {isCompany ? (
-            <>
-              <Field label="Siedziba spółki (miejscowość)" required>
-                <Input
-                  value={partnerSeat}
-                  onChange={(e) => setPartnerSeat(e.target.value)}
-                  placeholder="np. Warszawa"
-                />
-              </Field>
-              <Field label="Siedziba w umowie („z siedzibą …”)" required>
-                <Input
-                  value={partnerSeatLocative}
-                  onChange={(e) => {
-                    seatLocativeTouched.current = true;
-                    setPartnerSeatLocative(e.target.value);
-                  }}
-                  placeholder="np. w Warszawie"
-                />
-                {partnerSeat.trim() && !seatLocativePl(partnerSeat).known ? (
-                  <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
-                    Sprawdź odmianę nazwy miejscowości.
-                  </p>
-                ) : null}
-              </Field>
-              <Field label="Sąd rejestrowy i wydział" full required>
-                <Input
-                  value={partnerRegistryCourt}
-                  onChange={(e) => setPartnerRegistryCourt(e.target.value)}
-                  placeholder="np. Sąd Rejonowy dla m.st. Warszawy w Warszawie, XII Wydział Gospodarczy Krajowego Rejestru Sądowego"
-                />
-              </Field>
-              <Field label="Kapitał zakładowy (zł)" required>
-                <Input
-                  value={partnerShareCapital}
-                  onChange={(e) => setPartnerShareCapital(e.target.value)}
-                  placeholder="np. 5.000,00"
-                />
-              </Field>
-              <div className="hidden sm:block" />
-              <Field label="Osoba reprezentująca spółkę" required>
-                <Input
-                  value={representativeName}
-                  onChange={(e) => setRepresentativeName(e.target.value)}
-                  placeholder="np. Jan Kowalski"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Członek zarządu / prokurent — nie musi być osobą skierowaną.
-                </p>
-              </Field>
-              <Field label="Funkcja" required>
-                <Input
-                  value={representativeFunction}
-                  onChange={(e) => setRepresentativeFunction(e.target.value)}
-                  placeholder="np. Prezes Zarządu"
-                />
-                {krsBoard && boardFunctions(krsBoard.people).length ? (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {boardFunctions(krsBoard.people).map((fn) => (
-                      <Button
-                        key={fn}
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => setRepresentativeFunction(fn)}
-                      >
-                        {fn}
-                      </Button>
-                    ))}
-                  </div>
-                ) : null}
-              </Field>
-              {krsBoard ? (
-                <p className="@xl:col-span-2 text-xs text-muted-foreground">
-                  W KRS: {boardSummary(krsBoard.people) || "brak składu organu"}
-                  {krsBoard.people.some((p) => !p.name)
-                    ? " (imiona i nazwiska są ukryte w publicznym API KRS — wpisz osobę ręcznie)"
-                    : ""}
-                  .
-                  {krsBoard.method
-                    ? ` Sposób reprezentacji: ${krsBoard.method}.`
-                    : ""}
-                </p>
-              ) : null}
-              <Field
-                label="Reprezentacja w komparycji („reprezentowaną przez …”)"
-                full
-                required
-              >
-                <Input
-                  value={representation}
-                  onChange={(e) => {
-                    representationTouched.current = true;
-                    setRepresentation(e.target.value);
-                  }}
-                  placeholder="np. Pana Jana Kowalskiego – Prezesa Zarządu"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Auto-odmiana (biernik); popraw przy nietypowych nazwiskach
-                  albo reprezentacji łącznej.
-                </p>
-              </Field>
-            </>
-          ) : null}
-          <Field label="Adres do korespondencji (opcjonalnie)" full>
-            <Input
-              value={partnerCorrespondenceAddress}
-              onChange={(e) => setPartnerCorrespondenceAddress(e.target.value)}
-            />
-          </Field>
-          <Field label="E-mail" required>
-            <Input
-              value={partnerEmail}
-              onChange={(e) => setPartnerEmail(e.target.value)}
-            />
-          </Field>
-          <Field label="Telefon" required htmlFor={phoneId}>
-            <div className="flex gap-2">
-              <Select value={phonePrefix} onValueChange={setPhonePrefix}>
-                <SelectTrigger className="w-[92px] shrink-0">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PHONE_PREFIXES.map((p) => (
-                    <SelectItem key={p} value={p}>
-                      {p}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input
-                id={phoneId}
-                value={partnerPhone}
-                onChange={(e) => setPartnerPhone(e.target.value)}
-                placeholder="600 100 200"
-              />
-            </div>
-          </Field>
-        </CardContent>
+        <CardContent>{partnerBody}</CardContent>
       </Card>
 
       {/* Klient i projekt */}
@@ -5807,140 +6596,7 @@ export function GeneratorForm({
         <CardHeader>
           <CardTitle className="text-base">Klient i projekt</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 @xl:grid-cols-2">
-          <Field label="Pełna nazwa Klienta" required htmlFor={clientPickerId}>
-            <Popover open={clientOpen} onOpenChange={setClientOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  id={clientPickerId}
-                  variant="outline"
-                  role="combobox"
-                  aria-expanded={clientOpen}
-                  className="w-full justify-between font-normal"
-                >
-                  <span className="truncate">
-                    {clientName || "Wybierz lub wpisz klienta…"}
-                  </span>
-                  <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                align="start"
-                className="w-(--radix-popover-trigger-width) p-0"
-              >
-                <Command shouldFilter={false}>
-                  <CommandInput
-                    placeholder="Szukaj klienta…"
-                    value={clientQuery}
-                    onValueChange={setClientQuery}
-                  />
-                  <CommandList>
-                    {/* Awaria listy klientów ≠ „brak klientów”: pusty stan tylko przy sukcesie. */}
-                    <PickerQueryState
-                      isPending={clientsQuery.isPending}
-                      isError={clientsQuery.isError}
-                      onRetry={() => void clientsQuery.refetch()}
-                      loadingLabel="Ładowanie klientów…"
-                      errorLabel="Nie udało się pobrać listy klientów."
-                    />
-                    {clientsQuery.isSuccess && (
-                      <CommandEmpty>Brak klientów na liście.</CommandEmpty>
-                    )}
-                    {clientQuery.trim() ? (
-                      <CommandGroup heading="Własna nazwa">
-                        <CommandItem
-                          value={`__custom__${clientQuery}`}
-                          onSelect={() => {
-                            setClientName(clientQuery.trim());
-                            setClientOpen(false);
-                          }}
-                        >
-                          Użyj: „{clientQuery.trim()}"
-                        </CommandItem>
-                      </CommandGroup>
-                    ) : null}
-                    <CommandGroup heading="Klienci">
-                      {filteredClients.map((c) => (
-                        <CommandItem
-                          key={c.id}
-                          value={`${c.id}-${c.name}`}
-                          onSelect={() => {
-                            setClientName(c.name);
-                            setClientOpen(false);
-                          }}
-                        >
-                          <Check
-                            className={cn(
-                              "mr-2 h-4 w-4",
-                              clientName === c.name
-                                ? "opacity-100"
-                                : "opacity-0",
-                            )}
-                          />
-                          <span className="truncate">{c.name}</span>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-            {hasSpecialClauses(clientName) ? (
-              <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
-                Ten klient ma specyficzne zapisy umowy (np. zmieniony paragraf,
-                dodatkowy załącznik lub klauzule) — zostaną automatycznie
-                wstawione do umowy (PL i EN).
-              </p>
-            ) : null}
-          </Field>
-          <Field label="Miasto Klienta" required>
-            <Input
-              value={projectCity}
-              onChange={(e) => setProjectCity(e.target.value)}
-              placeholder="np. Warszawa"
-            />
-          </Field>
-          <Field label="Opis projektu i zakres usług" full required>
-            <Textarea
-              value={projectDescription}
-              onChange={(e) => {
-                descTouched.current = true;
-                setProjectDescription(e.target.value);
-                // Wynik AI-sprawdzenia ZOSTAJE przy edycji opisu — czyści się
-                // tylko przy ponownym kliknięciu „Sprawdź…" (onMutate uopMut).
-              }}
-              rows={4}
-              placeholder="Auto z obszaru/rekrutacji — możesz nadpisać. Po wklejeniu sprawdź AI…"
-            />
-            <div className="mt-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!projectDescription.trim() || uopMut.isPending}
-                onClick={() => uopMut.mutate()}
-              >
-                {uopMut.isPending ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="mr-2 h-4 w-4" />
-                )}
-                Sprawdź pod kątem umowy o pracę (AI)
-              </Button>
-            </div>
-            {uop ? (
-              <UopPanel
-                uop={uop}
-                onApply={() => {
-                  setProjectDescription(uop.rewritten);
-                  descTouched.current = true;
-                  setUop(null);
-                }}
-                onClose={() => setUop(null)}
-              />
-            ) : null}
-          </Field>
-        </CardContent>
+        <CardContent>{clientBody}</CardContent>
       </Card>
 
       {/* Obszar (§1 umowy) */}
@@ -5952,28 +6608,7 @@ export function GeneratorForm({
             projektu i zakres usług" (możesz go nadpisać powyżej).
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <Label className="mb-1.5 block" htmlFor={roleSelectId}>
-            Obszar *
-          </Label>
-          <Select value={roleId} onValueChange={setRoleId}>
-            <SelectTrigger id={roleSelectId}>
-              <SelectValue placeholder="Wybierz obszar…" />
-            </SelectTrigger>
-            <SelectContent>
-              {groupedRoles.map((g) => (
-                <SelectGroup key={g.label}>
-                  <SelectLabel>{g.label}</SelectLabel>
-                  {g.items.map((r) => (
-                    <SelectItem key={r.id} value={String(r.id)}>
-                      {language === "pl" ? r.name_pl : r.name_en}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              ))}
-            </SelectContent>
-          </Select>
-        </CardContent>
+        <CardContent>{areaBody}</CardContent>
       </Card>
 
       {/* Warunki */}
@@ -5981,189 +6616,7 @@ export function GeneratorForm({
         <CardHeader>
           <CardTitle className="text-base">Warunki umowy</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 @xl:grid-cols-2">
-          <Field label="Numer umowy (auto)" required>
-            <Input
-              value={activeSaved ? activeSaved.number : contractNumber}
-              onChange={(e) => setContractNumber(e.target.value)}
-              placeholder="np. 1435/2026"
-              // Numer zapisanej umowy jest już wydany — poprawka idzie pod
-              // ten sam numer, więc edycja pola nic by nie zmieniła.
-              readOnly={!!activeSaved}
-              disabled={!!activeSaved}
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              {activeSaved
-                ? "Numer zapisanej umowy — nowy numer dostaniesz przyciskiem „Nowa umowa”."
-                : `Format: liczba/rok. System podpowiada kolejny wolny numer${
-                    nextNumberQuery.data?.contract_number
-                      ? ` (${nextNumberQuery.data.contract_number})`
-                      : ""
-                  }; ten sam numer nie może być użyty dwa razy, także po usunięciu umowy.`}
-            </p>
-          </Field>
-          <Field label="Data podpisania" required>
-            <Input
-              type="date"
-              value={signingDate}
-              onChange={(e) => setSigningDate(e.target.value)}
-            />
-          </Field>
-          <Field label="Data rozpoczęcia usług" required htmlFor={startDateId}>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Select
-                value={startDateMode}
-                onValueChange={(v) =>
-                  setStartDateMode(v as "exact" | "not_earlier" | "not_later")
-                }
-              >
-                <SelectTrigger className="w-full sm:w-[150px] sm:shrink-0">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="exact">z dniem</SelectItem>
-                  <SelectItem value="not_earlier">nie wcześniej niż</SelectItem>
-                  <SelectItem value="not_later">nie później niż</SelectItem>
-                </SelectContent>
-              </Select>
-              <Input
-                id={startDateId}
-                type="date"
-                value={startDate}
-                onChange={(e) => {
-                  startTouched.current = true;
-                  setStartDate(e.target.value);
-                }}
-              />
-            </div>
-            {prefillQuery.data?.availability_text ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Dostępność ze screeningu: {prefillQuery.data.availability_text}
-              </p>
-            ) : null}
-          </Field>
-          <div className="space-y-3 @xl:col-span-2">
-            {rateStages.length === 1 ? (
-              <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2">
-                <Field label="Stawka godz. (netto)" required>
-                  <Input
-                    type="number"
-                    value={rateStages[0]?.rate ?? ""}
-                    onChange={(e) => setRateStage(0, { rate: e.target.value })}
-                    placeholder="np. 150"
-                  />
-                  {prefillRateHint ? (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Stawka {prefillRateHint}
-                    </p>
-                  ) : null}
-                  {recruitmentRateNote ? (
-                    <p
-                      role="status"
-                      data-testid="b2b-recruitment-rate-note"
-                      className="mt-1 text-xs text-warning"
-                    >
-                      {recruitmentRateNote}
-                    </p>
-                  ) : null}
-                </Field>
-                <Field label="Waluta" htmlFor={currencyId}>
-                  <CurrencySelect
-                    id={currencyId}
-                    value={currency}
-                    onChange={setCurrency}
-                  />
-                </Field>
-              </div>
-            ) : (
-              <>
-                {rateStages.map((stage, i) => (
-                  <div key={i} className="flex items-end gap-2">
-                    <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 @xl:grid-cols-3">
-                      <Field
-                        label={`Stawka godz. (netto) — etap ${i + 1}`}
-                        required
-                      >
-                        <Input
-                          type="number"
-                          value={stage.rate}
-                          onChange={(e) =>
-                            setRateStage(i, { rate: e.target.value })
-                          }
-                          placeholder="np. 150"
-                        />
-                        {i === 0 && recruitmentRateNote ? (
-                          <p
-                            role="status"
-                            data-testid="b2b-recruitment-rate-note"
-                            className="mt-1 text-xs text-warning"
-                          >
-                            {recruitmentRateNote}
-                          </p>
-                        ) : null}
-                      </Field>
-                      {/* Pierwszy etap bez „od" obowiązuje od rozpoczęcia usług. */}
-                      <Field label="Obowiązuje od" required={i > 0}>
-                        <Input
-                          type="date"
-                          value={stage.from}
-                          onChange={(e) =>
-                            setRateStage(i, { from: e.target.value })
-                          }
-                        />
-                      </Field>
-                      <Field label="Obowiązuje do">
-                        <Input
-                          type="date"
-                          value={stage.to}
-                          onChange={(e) =>
-                            setRateStage(i, { to: e.target.value })
-                          }
-                        />
-                      </Field>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="shrink-0 text-muted-foreground hover:text-destructive"
-                      onClick={() => removeRateStage(i)}
-                      title="Usuń etap stawki"
-                      aria-label={`Usuń etap stawki ${i + 1}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-                <div className="grid grid-cols-1 gap-3 @xl:grid-cols-3">
-                  <Field label="Waluta" htmlFor={currencyId}>
-                    <CurrencySelect
-                      id={currencyId}
-                      value={currency}
-                      onChange={setCurrency}
-                    />
-                  </Field>
-                </div>
-              </>
-            )}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={addRateStage}
-              disabled={rateStages.length >= MAX_RATE_STAGES}
-            >
-              <Plus className="mr-1.5 h-4 w-4" />
-              Dodaj etap stawki
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground @xl:col-span-2">
-            „Stawka słownie" liczy się automatycznie z kwoty.
-            {rateStages.length > 1
-              ? " Stawka progresywna: umowa wypisze każdy etap z okresem obowiązywania; etap 1 bez „od” obowiązuje od rozpoczęcia usług."
-              : ""}
-          </p>
-        </CardContent>
+        <CardContent>{termsBody}</CardContent>
       </Card>
 
       <div className="flex flex-wrap items-center justify-end gap-2">
@@ -6188,9 +6641,7 @@ export function GeneratorForm({
           ) : (
             <Download className="mr-2 h-4 w-4" />
           )}
-          {activeSaved
-            ? "Popraw i pobierz ponownie"
-            : `Pobierz DOCX (${language === "pl" ? "PL" : "EN"})`}
+          {downloadLabel}
         </Button>
         {activeSaved && !lockedPair ? (
           <Button
@@ -6209,14 +6660,7 @@ export function GeneratorForm({
           </span>
         ) : null}
       </div>
-      <RegistryCheckDialog
-        verification={registryCheck?.verification ?? null}
-        diffs={registryCheck?.diffs ?? []}
-        applyRegistry={applyRegistry}
-        onApplyRegistryChange={setApplyRegistry}
-        onConfirm={confirmRegistryCheck}
-        onCancel={() => setRegistryCheck(null)}
-      />
+      {registryDialog}
 
       {/* Podgląd */}
       {previewHtml ? (
@@ -6288,13 +6732,13 @@ function AddressKindSwitch({
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
         {registryMatches ? (
-          <span className="text-emerald-600">
+          <span className="text-success-muted-foreground">
             {fromRegistry === "service"
               ? "✓ CEIDG: brak stałego miejsca wykonywania działalności, wpisany tylko adres do doręczeń. "
               : "✓ CEIDG: wpisane stałe miejsce wykonywania działalności. "}
           </span>
         ) : fromRegistry !== null ? (
-          <span className="text-amber-600">
+          <span className="text-warning-muted-foreground">
             Zmienione ręcznie — CEIDG mówi co innego.{" "}
           </span>
         ) : null}
@@ -6314,11 +6758,11 @@ function lookupHint(status: LookupStatus) {
     );
   if (status === "ok")
     return (
-      <span className="text-xs text-emerald-600">✓ pobrano z rejestru</span>
+      <span className="text-xs text-success-muted-foreground">✓ pobrano z rejestru</span>
     );
   if (status === "none")
     return (
-      <span className="text-xs text-amber-600">
+      <span className="text-xs text-warning-muted-foreground">
         Nie znaleziono — wpisz ręcznie
       </span>
     );
@@ -6338,16 +6782,16 @@ function UopPanel({
 }) {
   if (uop.ok) {
     return (
-      <div className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300">
+      <div className="mt-3 rounded-lg border border-success/30 bg-success-muted p-3 text-sm text-success-muted-foreground">
         ✓ AI nie wykryło znamion umowy o pracę
         {uop.summary ? ` — ${uop.summary}` : "."}
       </div>
     );
   }
   return (
-    <div className="mt-3 space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
+    <div className="mt-3 space-y-3 rounded-lg border border-warning/30 bg-warning-muted p-3">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+        <p className="text-sm font-medium text-warning-muted-foreground">
           AI wykryło {uop.issues.length}{" "}
           {uop.issues.length === 1
             ? "ryzykowne sformułowanie"
@@ -6400,19 +6844,29 @@ function UopPanel({
  * Pojedyncze `Input`/`Textarea` dostaje id automatycznie; złożone pola (select
  * z prefiksem, wybór klienta) przekazują `htmlFor` i same nadają id kontrolce.
  */
+/**
+ * Klasa pola na całą szerokość siatki. Układ kroków Generatora ma dwie kolumny
+ * od węższego kontenera (`@md`) niż panel osoby (`@xl`), więc podaje swoją.
+ */
+const FieldSpanContext = React.createContext("@xl:col-span-2");
+
 function Field({
   label,
   full,
   required,
   htmlFor,
+  fieldKey,
   children,
 }: {
   label: string;
   full?: boolean;
   required?: boolean;
   htmlFor?: string;
+  /** `data-gen-field` — klik w brak na pasku przenosi fokus do tego pola. */
+  fieldKey?: string;
   children: React.ReactNode;
 }) {
+  const fullSpan = React.useContext(FieldSpanContext);
   const autoId = useId();
   let linkedId = htmlFor;
   let assigned = false;
@@ -6433,7 +6887,7 @@ function Field({
           : React.cloneElement(child, { id: autoId });
       });
   return (
-    <div className={full ? "@xl:col-span-2" : undefined}>
+    <div className={full ? fullSpan : undefined} data-gen-field={fieldKey}>
       <Label className="mb-1.5 block" htmlFor={linkedId}>
         {label}
         {required ? <span className="text-destructive"> *</span> : null}
