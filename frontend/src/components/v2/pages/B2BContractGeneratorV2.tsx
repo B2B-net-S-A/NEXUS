@@ -4940,6 +4940,16 @@ export function GeneratorForm({
     onStepChange?.(next);
     if (field && next === "admin") setShowAdminErrors(true);
     setPendingFocus(field ? { field } : null);
+    if (field) return;
+    // „Dalej” pod długim krokiem: nowy krok zaczyna się od góry, nie w połowie.
+    requestAnimationFrame(() => {
+      const panel = rootRef.current?.querySelector<HTMLElement>(
+        "[data-gen-panel]",
+      );
+      if (panel && panel.getBoundingClientRect().top < 56) {
+        panel.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      }
+    });
   };
   useEffect(() => {
     if (!pendingFocus) return;

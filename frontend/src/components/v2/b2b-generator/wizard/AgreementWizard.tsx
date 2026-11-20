@@ -163,7 +163,8 @@ export function AgreementStepPanel({
   return (
     <section
       aria-label={title}
-      className="@container min-w-0 rounded-xl border border-border bg-card shadow-xs"
+      data-gen-panel
+      className="@container min-w-0 scroll-mt-4 rounded-xl border border-border bg-card shadow-xs"
     >
       <header className="border-b border-border/70 px-4 py-2.5">
         <div className="flex items-baseline justify-between gap-3">
