@@ -1,6 +1,10 @@
 # Back office jako kolejka spraw — karty, zespoły, kroki, eskalacja, poczta, start
 <!-- indeks: moduł `back_office`, `bo_cards`, adaptery źródeł, Biorę/Zastępuję, limit 5, eskalacja po dniu roboczym, kroki wejścia i wyjścia, Ławka 60/14, reguły + AI + Do rozdzielenia, odpowiedź ze sprawy, przegląd przed startem, runbook włączenia -->
 
+> **Od 19.11.2026 jeden zespół:** skład, etykiety zamiast zespołów, „Weź następną”, „Na zewnątrz”
+> i brak opiekunów opisuje `back-office-jeden-zespol.md` — ma pierwszeństwo przed opisem
+> czterech zespołów, „Zastępuję” i `bo_team_members` poniżej.
+
 Decyzje Artura z 02.11.2026 (makiety: https://claude.ai/artifact/5ZaNZYJvVHJz1cKqAH1E2W,
 plan: https://claude.ai/artifact/HUabikQpDcGioAiPpiEEAy). Cały back office pracuje na
 jednej kolejce. Ta reguła ma pierwszeństwo przed opisem „Do zrobienia” w

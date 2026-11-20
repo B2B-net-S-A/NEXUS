@@ -1,5 +1,10 @@
 """Kolejka back office'u: dostęp, „Biorę”, limit, zastępstwo, kroki, kwoty.
 
+Ten plik sprawdza tryb przejściowy: skład jednego zespołu (``bo_members``) jest
+pusty, więc zespoły liczą się z uprawnień (``access.default_teams``) i działa
+„Zastępuję”. Testy podmieniają ``default_teams`` na mapę osoba → zespoły.
+Jeden zespół (decyzja 19.11.2026) sprawdza ``test_back_office_one_team.py``.
+
 Baza testowa nie jest czyszczona między testami: asercje dotyczą wyłącznie kart
 i kont założonych w danym teście. Dane fikcyjne (repo jest publiczne).
 """
@@ -18,12 +23,16 @@ from app.core.scheduling import business_today
 from app.core.security import create_access_token
 from app.models.admin_case import AdminCase
 from app.models.app_setting import AppSetting
-from app.models.back_office import BoCard, BoTeamMember
+from app.models.back_office import BoCard, BoMember, BoTeamMember
 from app.models.user import User, UserRole
-from app.services.back_office import steps
+from app.services.back_office import access, steps
 from app.services.back_office.sync import sync_kinds
 from app.services.back_office_schema import BACK_OFFICE_SETTING
 from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
+
+
+#: Zespoły z uprawnień w trybie przejściowym: osoba → zespoły (podmiana w fixture).
+_FALLBACK_TEAMS: dict[int, frozenset[str]] = {}
 
 
 def _headers(user: User) -> dict[str, str]:
@@ -43,12 +52,10 @@ async def _user(role: str = "recruiter", *, teams: tuple[str, ...] = ()) -> User
             profile_completed=True,
         )
         db.add(user)
-        await db.flush()
-        for team in teams:
-            db.add(BoTeamMember(team=team, user_id=user.id))
         await db.commit()
         await db.refresh(user)
-        return user
+    _FALLBACK_TEAMS[user.id] = frozenset(teams)
+    return user
 
 
 async def _card(**fields) -> BoCard:
@@ -81,17 +88,24 @@ async def _set_modules(value: dict) -> None:
 
 
 @pytest_asyncio.fixture
-async def modules_on():
+async def modules_on(monkeypatch):
+    monkeypatch.setattr(
+        access,
+        "default_teams",
+        lambda user: _FALLBACK_TEAMS.get(user.id, frozenset()),
+    )
     async with AsyncSessionLocal() as db:
         previous = await db.scalar(
             select(AppSetting.value).where(AppSetting.key == HR_MODULES_SETTING)
         )
+        await db.execute(delete(BoMember))
         await db.execute(delete(BoTeamMember))
         await db.commit()
     await _set_modules({key: True for key in HR_MODULE_KEYS})
     yield
     await _set_modules(previous or {key: False for key in HR_MODULE_KEYS})
     async with AsyncSessionLocal() as db:
+        await db.execute(delete(BoMember))
         await db.execute(delete(BoTeamMember))
         await db.execute(delete(BoCard).where(BoCard.source_key.like("test:%")))
         await db.commit()
@@ -116,7 +130,7 @@ async def test_module_off_is_404_even_for_admin(app_client) -> None:
 
 @pytest.mark.asyncio
 async def test_people_outside_teams_get_403(app_client, modules_on) -> None:
-    await _user("recruiter", teams=("care",))  # skład wpisany: bez domyślnych
+    await _user("recruiter", teams=("care",))
     outsider = await _user("recruiter")
     response = await app_client.get(
         "/api/back-office/board", headers=_headers(outsider)
@@ -132,9 +146,16 @@ async def test_member_cannot_use_lead_routes(app_client, modules_on) -> None:
         ("post", f"/api/back-office/cards/{target.id}/assign", {"user_id": member.id}),
         ("post", "/api/back-office/sync", {}),
         ("get", "/api/back-office/team", None),
-        ("put", "/api/back-office/team/care", {"user_ids": []}),
-        ("put", "/api/back-office/deputy", {"user_id": None}),
+        ("put", f"/api/back-office/team/members/{member.id}", {"role": "deputy"}),
+        ("delete", f"/api/back-office/team/members/{member.id}", None),
+        ("put", "/api/back-office/team/outside-contacts", {"contacts": {}}),
+        ("post", "/api/back-office/team/release-outsiders", {}),
         ("post", f"/api/back-office/cards/{target.id}/review", {"decision": "current"}),
+        (
+            "post",
+            "/api/back-office/review/bulk",
+            {"card_ids": [target.id], "decision": "close"},
+        ),
     ):
         kwargs = {"headers": _headers(member)}
         if body is not None:

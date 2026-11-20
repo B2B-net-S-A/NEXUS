@@ -668,11 +668,15 @@ async def test_only_accepted_invoice_can_be_paid(app_client, monkeypatch) -> Non
 
 
 @pytest.mark.usefixtures("portal_all", "care_on", "clean_team", "divisions_restored")
-async def test_finance_routes_refuse_other_teams(app_client, monkeypatch) -> None:
+async def test_finance_routes_refuse_people_outside_the_team(
+    app_client, monkeypatch
+) -> None:
+    """Jeden zespół (19.11.2026): faktury konsultantów bierze każdy z zespołu."""
+
     person = await make_person()
     uploaded = await _upload(app_client, await session_headers(app_client, person))
-    care_member = await make_member("care")
-    finance_member = await make_member("finance")
+    outsider = await make_user(UserRole.recruiter)
+    finance_member = await make_member()
     url = f"{STAFF}/documents/{uploaded.json()['id']}"
     for method, path, body in (
         ("post", "/accept", None),
@@ -683,7 +687,7 @@ async def test_finance_routes_refuse_other_teams(app_client, monkeypatch) -> Non
     ):
         response = await getattr(app_client, method)(
             f"{url}{path}",
-            headers=staff_headers(care_member),
+            headers=staff_headers(outsider),
             **({"json": body} if body else {}),
         )
         assert response.status_code == 403, path

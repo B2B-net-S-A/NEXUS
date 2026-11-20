@@ -1073,7 +1073,7 @@
       {
         "id": "hr.care.queue",
         "label": "Kolejka",
-        "describe": "Karty czterech zespołów po typie pracy, filtry Do wzięcia i Moje, przełącznik Po typie / Po statusie, lista Wszystko dla kierownika."
+        "describe": "Sprawy jednego zespołu: kolumny Nowe, W toku, Czeka na kogoś, Na zewnątrz; etykiety zamiast zespołów, „Weź następną”, widok Lista i Tablica Opieki."
       },
       {
         "id": "hr.care.board",
