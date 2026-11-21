@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from app.core.export_safety import FORMULA_PREFIXES
 from app.core.zip_guard import UnsafeArchive, assert_safe_ooxml
 from app.services.finance_ledger import identifiers
 from app.services.finance_ledger_schema import (
@@ -157,7 +158,12 @@ def _cell(value: Any) -> str:
     if isinstance(value, float) and value.is_integer():
         # Excel trzyma NIP i ID jako liczbę: 5260300517.0 → „5260300517”.
         value = int(value)
-    return " ".join(str(value).split())
+    text = " ".join(str(value).split())
+    # Apostrof, którym eksport chroni komórkę przed formułą (``safe_cell``),
+    # nie jest częścią nazwy — odesłana kartka „Czeka na Symfonię” wraca czysta.
+    if text[:1] == "'" and text[1:2] in FORMULA_PREFIXES:
+        return text[1:]
+    return text
 
 
 def _sheet_rows(content: bytes) -> list[list[str]]:

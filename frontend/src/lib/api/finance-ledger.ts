@@ -151,6 +151,37 @@ export interface ImportSummary {
   linked_entries: number;
 }
 
+export interface PendingCounterparty {
+  key: string;
+  name: string;
+  id_type: string | null;
+  id_type_label: string | null;
+  id_value: string | null;
+  street: string | null;
+  postal_code: string | null;
+  city: string | null;
+  country: string | null;
+  sources: string[];
+  counterparty_id: number | null;
+  receivable_prefix: string;
+  payable_prefix: string;
+  problems: string[];
+  warnings: string[];
+  ready: boolean;
+}
+
+export interface PendingCounterparties {
+  items: PendingCounterparty[];
+  total: number;
+  ready: number;
+  without_address: number;
+  with_problems: number;
+  /** Kontrahenci kartoteki z ID Symfonii; zero = kartoteka z eBI24 jeszcze niewgrana. */
+  registered: number;
+}
+
+export const PENDING_FILE_PATH = "/api/finance/counterparties/pending/file";
+
 export const ledgerKeys = {
   module: ["finance-ledger", "module"] as const,
   costs: ["finance-ledger", "costs"] as const,
@@ -251,6 +282,14 @@ export function useCounterparties(q: string, role: CounterpartyRole | null, offs
         })
       ).data,
     placeholderData: (previous) => previous,
+  });
+}
+
+/** Kontrahenci bez ID Symfonii: kartoteka, sprzedawcy i nabywcy spoza niej. */
+export function usePendingCounterparties() {
+  return useQuery({
+    queryKey: [...ledgerKeys.parties, "pending"] as const,
+    queryFn: async () => (await api.get<PendingCounterparties>(`${PARTIES}/pending`)).data,
   });
 }
 
