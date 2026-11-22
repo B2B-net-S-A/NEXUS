@@ -539,6 +539,14 @@ class Settings(BaseSettings):
     # Okno tekstu CV dla pełnego odczytu (prompt v7). Dłuższe CV jest cięte
     # 70% początek / 30% koniec, bo wykształcenie i certyfikaty są na końcu.
     CV_PARSER_INPUT_CHAR_CAP: int = 24_000
+    # Odczyt CV wsadem (Message Batches API, −50%; decyzja Artura 22.11.2026):
+    # CV wgrane przez integrację (scrapery pracuj.pl/JJIT) do istniejącego
+    # profilu czeka w `cv_parse_batch_items`, a pętla `cv_parse_batch` wysyła
+    # paczki i zapisuje wyniki. Wyłączenie = odczyt na żywo jak przed zmianą.
+    # Brak wyniku po `CV_PARSER_BATCH_FALLBACK_HOURS` = odczyt na żywo.
+    CV_PARSER_BATCH_ENABLED: bool = True
+    CV_PARSER_BATCH_FALLBACK_HOURS: float = 6.0
+    CV_PARSER_BATCH_TICK_SECONDS: int = 300
 
     # ── Autonomiczne dopasowanie CV ↔ rekrutacje (17.09.2026) ─────────────────
     # Po odczycie nowego/odświeżonego CV system sam sprawdza otwarte rekrutacje;

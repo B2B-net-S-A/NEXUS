@@ -264,6 +264,19 @@ def _record_health(
         pass
 
 
+def batch_request_params(params: dict[str, Any]) -> dict[str, Any]:
+    """Treść żądania na żywo → ``params`` jednej pozycji Message Batches API.
+
+    Ta sama translacja co przed `messages.create` (`_sdk_request_kwargs`): bez
+    niej `thinking: disabled` na Sonnecie 5.5 dostaje w paczce 400, a parametry
+    próbkowania lądują tam, gdzie model ich nie przyjmuje. Paczka nie ma
+    `extra_body`, więc jego klucze idą wprost do treści.
+    """
+    sdk_kwargs = _sdk_request_kwargs(params, model=str(params.get("model") or ""))
+    extra_body = sdk_kwargs.pop("extra_body", None) or {}
+    return {**sdk_kwargs, **extra_body}
+
+
 def record_batch_message_usage(message: Any, *, model: str) -> None:
     """Dolicz tokeny odpowiedzi z Message Batches API do aktywnej operacji AI.
 

@@ -154,8 +154,9 @@ export function formatExperienceDate(value: unknown): string {
 export interface CvProjectionNotice {
   tone: "warning" | "info";
   text: string;
-  /** `not_parsed` = plik jest, danych brak — profil proponuje ponowny odczyt (UAT B12). */
-  kind: "quarantine" | "not_parsed";
+  /** `not_parsed` = plik jest, danych brak — profil proponuje ponowny odczyt (UAT B12).
+   *  `queued` = nowe CV z portalu czeka na odczyt wsadem (22.11.2026). */
+  kind: "quarantine" | "queued" | "not_parsed";
 }
 
 /** Czy wgrane CV zasiliło profil — sygnał dla sekcji „CV” (UAT M01-B01).
@@ -166,10 +167,14 @@ export interface CvProjectionNotice {
  *  - kwarantanna tożsamości — backend zostawia w `cv_extracted_data`
  *    znacznik `_identity_quarantine_source`, gdy imię i nazwisko w pliku
  *    należą do innej osoby (plik przestaje być głównym CV);
+ *  - nowe CV z portalu czeka w kolejce odczytu wsadem (`cv_read_queued_at`):
+ *    profil do wyniku pokazuje dane z poprzedniego CV, a ponowny odczyt
+ *    na żywo nie jest potrzebny;
  *  - plik jest, a odczytu brak (`cv_parsed_at` puste) — w toku albo nieudany. */
 export function getCvProjectionNotice(candidate: {
   cv_filename?: string | null;
   cv_parsed_at?: string | null;
+  cv_read_queued_at?: string | null;
   cv_extracted_data?: unknown;
 }): CvProjectionNotice | null {
   const extracted =
@@ -184,6 +189,16 @@ export function getCvProjectionNotice(candidate: {
         "Wgrane CV nie zasiliło profilu: imię i nazwisko w dokumencie nie " +
         "zgadzają się z kandydatem. Plik zostaje w zakładce „Dokumenty”; " +
         "zwolnić go może administrator albo Head of Recruitment.",
+    };
+  }
+  if (candidate.cv_read_queued_at) {
+    return {
+      tone: "info",
+      kind: "queued",
+      text:
+        "Czytamy nowe CV z portalu. Odczyt idzie w kolejce, zwykle do godziny, " +
+        "najpóźniej w kilka godzin. Do tego czasu profil pokazuje dane z " +
+        "poprzedniego CV.",
     };
   }
   if (candidate.cv_filename && !candidate.cv_parsed_at) {

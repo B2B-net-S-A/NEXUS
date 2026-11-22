@@ -170,6 +170,34 @@ describe("getCvProjectionNotice (UAT M01-B01)", () => {
     ).toBeNull();
     expect(getCvProjectionNotice({ cv_filename: null })).toBeNull();
   });
+
+  it("shows a CV waiting for the batch read instead of the old parse", () => {
+    const queued = getCvProjectionNotice({
+      cv_filename: "cv-nowe.pdf",
+      cv_parsed_at: "2026-09-13T18:00:00Z",
+      cv_read_queued_at: "2026-11-22T10:00:00Z",
+      cv_extracted_data: { skills: ["Java"] },
+    });
+    expect(queued?.kind).toBe("queued");
+    expect(queued?.tone).toBe("info");
+    expect(queued?.text).toContain("Czytamy nowe CV");
+    // Bez odczytu w profilu też „czytamy”, nie „ponów odczyt”.
+    expect(
+      getCvProjectionNotice({
+        cv_filename: "cv.pdf",
+        cv_parsed_at: null,
+        cv_read_queued_at: "2026-11-22T10:00:00Z",
+      })?.kind,
+    ).toBe("queued");
+    // Kwarantanna wygrywa: plik nie zasili profilu.
+    expect(
+      getCvProjectionNotice({
+        cv_filename: null,
+        cv_read_queued_at: "2026-11-22T10:00:00Z",
+        cv_extracted_data: { _identity_quarantine_source: { kind: "document", id: 5 } },
+      })?.kind,
+    ).toBe("quarantine");
+  });
 });
 
 describe("pełny profil z odczytu CV v7", () => {
