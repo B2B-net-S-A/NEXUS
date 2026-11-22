@@ -51,6 +51,7 @@ def test_allowlist_reads_scoring_inputs_without_importing_backend():
         | set(sync.RANKING_POOL_FLAGS)
         | set(sync.CLIENT_LIST_FLAGS)
         | set(sync.SALES_FLAGS)
+        | set(sync.CANDIDATE_TERMS_FLAGS)
     )
 
 
@@ -120,6 +121,20 @@ def test_sales_flags_do_not_start_the_sales_loop_on_staging():
     from app.core.staging import STAGING_BLOCKED_TASKS
 
     assert "sales_signals" in STAGING_BLOCKED_TASKS
+
+
+def test_candidate_terms_limit_follows_production():
+    # 19.11.2026 produkcja miała 20, a staging domyślne 400 z `config.py`.
+    assert (
+        sync.flag_lines({"CANDIDATE_TERMS_DAILY_LIMIT": 20}, ALLOWED)
+        == "CANDIDATE_TERMS_DAILY_LIMIT=20\n"
+    )
+
+
+def test_candidate_terms_limit_does_not_start_sending_on_staging():
+    from app.core.staging import STAGING_BLOCKED_TASKS
+
+    assert "candidate_terms_sender" in STAGING_BLOCKED_TASKS
 
 
 def _pinned_copy(
