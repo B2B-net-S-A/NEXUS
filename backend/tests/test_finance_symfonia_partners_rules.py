@@ -244,3 +244,12 @@ def test_apostrof_ochrony_formuly_znika_przy_powrocie_kartki() -> None:
     assert parsed.rows[0].values["name"] == "=Firma z formułą"
     # Apostrof w środku albo przed zwykłym tekstem zostaje.
     assert importer._cell("'Firma") == "'Firma"
+
+
+def test_druga_linia_adresu_faktury_to_kod_i_miasto() -> None:
+    split = sp.split_postal_city
+    assert split("00-001  Warszawa") == ("00-001", "Warszawa")
+    assert split("10115 Berlin") == ("10115", "Berlin")
+    assert split("Londyn") == (None, "Londyn")
+    assert split("  ") == (None, None)
+    assert split(None) == (None, None)

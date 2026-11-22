@@ -14,7 +14,13 @@ zakładka Finanse → Kontrahenci → „Czeka na Symfonię”. Jeden wiersz na 
 - **kartoteka** — wiersz `finance_counterparties` bez `symfonia_partner_id`
   (np. dostawca z formularza zakupu zagranicznego),
 - **faktura sprzedaży** — nabywca `client_sales_invoices` (NIP albo VAT UE), którego
-  numeru nie ma w kartotece; adres z karty klienta (`clients.address`, jedno pole),
+  numeru nie ma w kartotece; adres z najnowszej faktury nabywcy (`Podmiot2/Adres`
+  z KSeF, kolumny z #3553: `AdresL1` → ulica, `AdresL2` → kod i miasto), a bez niego z karty
+  klienta (`clients.address`, jedno pole). `KodKraju` z adresu uzupełnia kraj tylko
+  nabywcy bez polskiego NIP-u (NIP = konta krajowe, także z adresem za granicą).
+  Faktury sprzed tych kolumn dostają adres z doczytania w pętli KSeF (reguła
+  `zamowienia/faktury-do-klientow-z-ksef.md`), więc przez 2–3 doby po wdrożeniu
+  część nabywców może jeszcze nie mieć adresu,
 - **faktura kosztowa** — sprzedawca z kolejki kosztów bez kontrahenta (nie
   odrzucony); NEXUS zna tylko nazwę i numer, adresu nie.
 - Faktury osób zespołu widzą tylko Płace i admin (D2) — ta sama bramka
