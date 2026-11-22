@@ -44,7 +44,13 @@ i `PracujUnpairedAds.tsx` (kolejka „Ogłoszenia do nadrobienia”). Scraper:
 - **„Na portalu” = widziane przez ostatni bieg importu z zapasem 3 dni**
   (`LIVE_SLACK`): bieg idzie raz dziennie i stoi, gdy Mac jest wyłączony.
 - **„Rekrutacja wewnętrzna”** (np. „IT Rekruter / IT Rekruterka”) zdejmuje
-  ogłoszenie z kolejki braków i nie łączy go z niczym.
+  ogłoszenie z kolejki braków, z potwierdzeniem. Połączonego ogłoszenia nie
+  oznaczy (409 `pracuj_ad_taken`) — odłącza tylko DL tej rekrutacji. Ogłoszenie
+  wewnętrzne zostaje do wyboru w karcie Pracuj.pl, a połączenie cofa oznaczenie.
+- **Dociąganie bierze blokady kandydatów rosnąco przed pętlą**
+  (`lock_candidates_stmt`, globalna kolejność z `recruitment_process_commands`),
+  a `job_for_ad` czyta z FOR SHARE, więc aplikacja z chwili łączenia czeka na
+  jego koniec zamiast dostać `no_job`. Brak daty w TXT = data wpisu w dzienniku.
 - **Historia sprzed wdrożenia:** dziennik zaczyna się od pierwszego biegu
   scrapera po wdrożeniu. Starsze aplikacje dociąga jednorazowy bieg
   `nexus_replay` scrapera (od daty z argumentu).

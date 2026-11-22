@@ -137,10 +137,13 @@ async def record_application(
 
 
 async def job_for_ad(db: AsyncSession, strefa_id: str) -> Optional[int]:
+    """Rekrutacja ogłoszenia. FOR SHARE czeka na trwające łączenie (``pair``
+    trzyma FOR UPDATE przez dociąganie): bez tego aplikacja z tej chwili
+    widziała stare ``job_id = NULL``, a dociąganie jej jeszcze nie znało."""
     job_id = await db.scalar(
-        select(PracujAd.job_id).where(
-            PracujAd.strefa_id == strefa_id, PracujAd.internal_at.is_(None)
-        )
+        select(PracujAd.job_id)
+        .where(PracujAd.strefa_id == strefa_id, PracujAd.internal_at.is_(None))
+        .with_for_update(read=True)
     )
     return int(job_id) if job_id is not None else None
 
@@ -174,6 +177,7 @@ def _ad_dict(ad: PracujAd, logged: int, *, live: bool, suggested: bool = False) 
         "live": live,
         "suggested": suggested,
         "paired_at": ad.paired_at,
+        "internal": ad.internal_at is not None,
     }
 
 
@@ -195,11 +199,9 @@ async def panel_for_job(db: AsyncSession, job: Job) -> dict:
             (
                 await db.scalars(
                     select(PracujAd)
-                    .where(
-                        PracujAd.job_id.is_(None),
-                        PracujAd.internal_at.is_(None),
-                        PracujAd.last_seen_at >= since,
-                    )
+                    # „Rekrutacja wewnętrzna” zostaje do wyboru: to jedyna
+                    # droga cofnięcia pomyłki z kolejki braków.
+                    .where(PracujAd.job_id.is_(None), PracujAd.last_seen_at >= since)
                     .order_by(PracujAd.first_seen_at.desc())
                     .limit(OPTIONS_LIMIT)
                 )
@@ -215,7 +217,7 @@ async def panel_for_job(db: AsyncSession, job: Job) -> dict:
         )
         for a in options
     ]
-    marked.sort(key=lambda d: (not d["suggested"],))
+    marked.sort(key=lambda d: (d["internal"], not d["suggested"]))
     return {
         "paired": [
             _ad_dict(
@@ -254,6 +256,9 @@ class PairResult:
 async def pair(db: AsyncSession, *, job: Job, strefa_id: str, user: User) -> PairResult:
     """Połącz ogłoszenie z rekrutacją i dociągnij zaległe aplikacje. Bez commita."""
     from app.services import portal_application  # noqa: PLC0415
+    from app.services.recruitment_process_commands import (  # noqa: PLC0415
+        lock_candidates_stmt,
+    )
 
     ad = await db.get(PracujAd, strefa_id, with_for_update=True)
     if ad is None:
@@ -272,12 +277,23 @@ async def pair(db: AsyncSession, *, job: Job, strefa_id: str, user: User) -> Pai
     result = PairResult(strefa_id=strefa_id)
     rows = (
         await db.execute(
-            select(PracujAdApplication.candidate_id, PracujAdApplication.applied_at)
+            # Bez daty w TXT liczy się dzień wpisu w dzienniku, nie „teraz”:
+            # kolejka warunków pomija aplikacje starsze niż 3 dni.
+            select(
+                PracujAdApplication.candidate_id,
+                func.coalesce(
+                    PracujAdApplication.applied_at, PracujAdApplication.created_at
+                ),
+            )
             .where(PracujAdApplication.strefa_id == strefa_id)
-            .order_by(PracujAdApplication.applied_at.asc().nulls_last())
+            .order_by(PracujAdApplication.candidate_id)
             .limit(BACKFILL_LIMIT)
         )
     ).all()
+    if rows:
+        # Globalna kolejność blokad (``canonical_candidate_lock_order``):
+        # wszyscy kandydaci rosnąco, zanim pierwsze dodanie zablokuje rekrutację.
+        await db.execute(lock_candidates_stmt([cid for cid, _ in rows]))
     for candidate_id, applied_at in rows:
         placed = await portal_application.place_application(
             db,
@@ -315,13 +331,15 @@ async def mark_internal(
     db: AsyncSession, *, strefa_id: str, user: User, internal: bool
 ) -> bool:
     """„Rekrutacja wewnętrzna” — ogłoszenie znika z kolejki braków."""
-    ad = await db.get(PracujAd, strefa_id)
+    ad = await db.get(PracujAd, strefa_id, with_for_update=True)
     if ad is None:
         return False
     if internal:
+        if ad.job_id is not None:
+            # Odłączenie należy do DL-a tej rekrutacji (``unpair`` z bramką).
+            raise AdTaken(ad.job_id, (await db.get(Job, ad.job_id)).title)
         ad.internal_at = datetime.now(timezone.utc)
         ad.internal_by = user.id
-        ad.job_id = None
     else:
         ad.internal_at = None
         ad.internal_by = None

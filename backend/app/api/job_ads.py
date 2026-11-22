@@ -1022,9 +1022,23 @@ async def _set_internal(
             status_code=403,
             detail="Ogłoszenia na portalach prowadzi Delivery Lead, Head of Recruitment albo admin.",
         )
-    if not await pracuj_ads.mark_internal(
-        db, strefa_id=strefa_id, user=current_user, internal=internal
-    ):
+    try:
+        found = await pracuj_ads.mark_internal(
+            db, strefa_id=strefa_id, user=current_user, internal=internal
+        )
+    except pracuj_ads.AdTaken as taken:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "pracuj_ad_taken",
+                "message": (
+                    f"To ogłoszenie jest połączone z rekrutacją „{taken.job_title}”. "
+                    "Odłączyć je może Delivery Lead tej rekrutacji."
+                ),
+                "job_id": taken.job_id,
+            },
+        )
+    if not found:
         raise HTTPException(
             status_code=404, detail="Nie ma takiego ogłoszenia z Pracuj.pl."
         )

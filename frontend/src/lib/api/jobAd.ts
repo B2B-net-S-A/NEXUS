@@ -279,6 +279,8 @@ export interface PracujAd {
   live: boolean;
   suggested: boolean;
   paired_at: string | null;
+  /** Oznaczone jako rekrutacja wewnętrzna; połączenie z rekrutacją to cofa. */
+  internal?: boolean;
 }
 
 export interface PracujAdsPanel {

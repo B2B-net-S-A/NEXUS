@@ -308,6 +308,8 @@ class PracujAdRead(BaseModel):
     # Tytuł pasuje do rekrutacji — podpowiedź, nie decyzja.
     suggested: bool = False
     paired_at: Optional[datetime] = None
+    # Oznaczone jako rekrutacja wewnętrzna — połączenie to cofa.
+    internal: bool = False
 
 
 class PracujAdsPanel(BaseModel):

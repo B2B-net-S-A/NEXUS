@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/components/Toast";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import { jobAdApi, missingAdsQueryKey, pracujUnpairedQueryKey } from "@/lib/api/jobAd";
 import { formatDate } from "@/lib/utils";
@@ -28,6 +29,7 @@ export type PracujUnpairedApi = Pick<
 export function PracujUnpairedAds({ api = jobAdApi }: { api?: PracujUnpairedApi }) {
   const queryClient = useQueryClient();
   const { showError, showSuccess } = useToast();
+  const { askConfirm, confirmDialog } = useConfirmV2();
   const query = useQuery({ queryKey: pracujUnpairedQueryKey, queryFn: () => api.pracujUnpaired() });
 
   const refresh = () => {
@@ -70,6 +72,16 @@ export function PracujUnpairedAds({ api = jobAdApi }: { api?: PracujUnpairedApi 
     0,
   );
   const busy = pair.isPending || internal.isPending;
+
+  const confirmInternal = async (strefaId: string, title: string) => {
+    const confirmed = await askConfirm({
+      title: `„${title}” to rekrutacja wewnętrzna?`,
+      description:
+        "Ogłoszenie zniknie z tej listy, a aplikacje z niego nie trafią do żadnej rekrutacji w NEXUSIE. Pomyłkę cofniesz, wskazując to ogłoszenie w karcie Pracuj.pl okna „Ogłoszenie” rekrutacji.",
+      confirmLabel: "Rekrutacja wewnętrzna",
+    });
+    if (confirmed) internal.mutate(strefaId);
+  };
 
   return (
     <section
@@ -140,13 +152,14 @@ export function PracujUnpairedAds({ api = jobAdApi }: { api?: PracujUnpairedApi 
               variant="ghost"
               className="h-7 justify-self-start px-2 md:justify-self-end"
               disabled={busy}
-              onClick={() => internal.mutate(item.strefa_id)}
+              onClick={() => void confirmInternal(item.strefa_id, item.title)}
             >
               Rekrutacja wewnętrzna
             </Button>
           </li>
         ))}
       </ul>
+      {confirmDialog}
     </section>
   );
 }

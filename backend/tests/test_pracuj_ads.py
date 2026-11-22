@@ -58,7 +58,11 @@ def test_normalize_title(title, normalized):
         ("Tester Manualny (k/m/x)", "Tester Manualny (ZOB-3241)", True),
         ("Tester Manualny (k/m/x)", "Tester Manualny x4", True),
         ("Młodszy Kierownik Projektu (k/m/x)", "Młodszy Kierownik Projektu", True),
-        ("IT Developer - Senior (k/m/x)", "Nordea: IT Developer - Senior (42961)", True),
+        (
+            "IT Developer - Senior (k/m/x)",
+            "Nordea: IT Developer - Senior (42961)",
+            True,
+        ),
         # Krótszy tytuł nie podpowiada dłuższego, który znaczy co innego.
         ("Tester Automatyczny (k/m/x)", "Tester", False),
         ("Młodszy Kierownik Projektu (k/m/x)", "Starszy Kierownik Projektu", False),
@@ -189,7 +193,10 @@ async def test_application_after_pairing_goes_straight_to_job(app_client):
     await _sync(pracuj_ads.AdIn(sid, "Tester Manualny (k/m/x)"))
     async with AsyncSessionLocal() as db:
         await pracuj_ads.pair(
-            db, job=await db.get(Job, job_id), strefa_id=sid, user=await db.get(User, uid)
+            db,
+            job=await db.get(Job, job_id),
+            strefa_id=sid,
+            user=await db.get(User, uid),
         )
         await db.commit()
     cand = await _seed_candidate()
@@ -219,7 +226,9 @@ async def test_ad_paired_elsewhere_is_refused(app_client):
     await _sync(pracuj_ads.AdIn(sid, "Tester Manualny (k/m/x)"))
     async with AsyncSessionLocal() as db:
         user = await db.get(User, uid)
-        await pracuj_ads.pair(db, job=await db.get(Job, job_a), strefa_id=sid, user=user)
+        await pracuj_ads.pair(
+            db, job=await db.get(Job, job_a), strefa_id=sid, user=user
+        )
         await db.commit()
     async with AsyncSessionLocal() as db:
         user = await db.get(User, uid)
@@ -300,3 +309,101 @@ async def test_ad_list_route_only_for_integration(app_client):
         headers=headers,
     )
     assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_internal_refuses_ad_paired_with_a_job(app_client):
+    """„Rekrutacja wewnętrzna” nie może po cichu odłączyć cudzej rekrutacji."""
+    from app.models.job import Job
+    from app.models.user import User
+
+    _, uid, job_id = await _dl_job(app_client)
+    other_headers, _ = await _seed_recruiter(app_client, role="delivery_lead")
+    sid = _strefa_id()
+    await _sync(pracuj_ads.AdIn(sid, "Tester Manualny (k/m/x)"))
+    async with AsyncSessionLocal() as db:
+        await pracuj_ads.pair(
+            db,
+            job=await db.get(Job, job_id),
+            strefa_id=sid,
+            user=await db.get(User, uid),
+        )
+        await db.commit()
+
+    resp = await app_client.put(
+        f"/api/job-ads/pracuj-ads/{sid}/internal", headers=other_headers
+    )
+
+    assert resp.status_code == 409, resp.text
+    async with AsyncSessionLocal() as db:
+        assert await pracuj_ads.job_for_ad(db, sid) == job_id
+
+
+@pytest.mark.asyncio
+async def test_internal_ad_stays_pickable_and_pairing_clears_it(app_client):
+    from app.models.job import Job
+    from app.models.user import User
+
+    _, uid, job_id = await _dl_job(app_client)
+    sid = _strefa_id()
+    await _sync(pracuj_ads.AdIn(sid, "Tester Manualny (k/m/x)"))
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, uid)
+        await pracuj_ads.mark_internal(db, strefa_id=sid, user=user, internal=True)
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        panel = await pracuj_ads.panel_for_job(db, await db.get(Job, job_id))
+        option = next(o for o in panel["options"] if o["strefa_id"] == sid)
+        assert option["internal"] is True
+        await pracuj_ads.pair(
+            db,
+            job=await db.get(Job, job_id),
+            strefa_id=sid,
+            user=await db.get(User, uid),
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        assert await pracuj_ads.job_for_ad(db, sid) == job_id
+
+
+@pytest.mark.asyncio
+async def test_backfill_without_application_date_uses_log_date(app_client):
+    """Brak daty w TXT: dociąganie bierze datę wpisu w dzienniku, nie „teraz”."""
+    from sqlalchemy import update
+
+    from app.models.candidate_terms_request import CandidateTermsRequest
+    from app.models.job import Job
+    from app.models.pracuj_ad import PracujAdApplication
+    from app.models.user import User
+
+    _, uid, job_id = await _dl_job(app_client)
+    sid = _strefa_id()
+    await _sync(pracuj_ads.AdIn(sid, "Tester Manualny (k/m/x)"))
+    cand = await _seed_candidate()
+    old = datetime.now(timezone.utc) - timedelta(days=21)
+    async with AsyncSessionLocal() as db:
+        await pracuj_ads.record_application(
+            db, strefa_id=sid, candidate_id=cand, applied_at=None
+        )
+        await db.execute(
+            update(PracujAdApplication)
+            .where(PracujAdApplication.candidate_id == cand)
+            .values(created_at=old)
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await pracuj_ads.pair(
+            db,
+            job=await db.get(Job, job_id),
+            strefa_id=sid,
+            user=await db.get(User, uid),
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        queued = await db.scalar(
+            select(CandidateTermsRequest).where(
+                CandidateTermsRequest.candidate_id == cand
+            )
+        )
+    assert queued is not None
+    assert queued.applied_at < datetime.now(timezone.utc) - timedelta(days=20)

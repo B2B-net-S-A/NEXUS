@@ -239,6 +239,7 @@ export function PracujAdPairing({
                         <span className="text-xs text-muted-foreground">
                           {adMeta(ad)}
                           {ad.suggested ? " · pasuje tytułem" : ""}
+                          {ad.internal ? " · oznaczone jako rekrutacja wewnętrzna" : ""}
                         </span>
                       </span>
                     </button>
