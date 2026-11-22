@@ -541,9 +541,9 @@ async def purge_closed(*, now: datetime) -> int:
 
 
 def make_client() -> Any:
-    import anthropic
+    from app.services.claude_client import batch_client
 
-    return anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY, max_retries=3)
+    return batch_client()
 
 
 async def run_tick(client: Any, *, now: Optional[datetime] = None) -> TickStats:

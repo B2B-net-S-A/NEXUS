@@ -264,6 +264,17 @@ def _record_health(
         pass
 
 
+def batch_client() -> Any:
+    """Klient Message Batches API (`client.messages.batches`) dla kolejki odczytu CV.
+
+    Paczka nie przechodzi przez `call_claude` (żądanie jest asynchroniczne,
+    wynik przychodzi po godzinach), więc klient powstaje tutaj, na jedynej
+    granicy dostawcy: ponowienia SDK, klucz z ustawień, a telemetria wyniku
+    przez `record_batch_message_usage` w `ai_feature`.
+    """
+    return anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY, max_retries=3)
+
+
 def batch_request_params(params: dict[str, Any]) -> dict[str, Any]:
     """Treść żądania na żywo → ``params`` jednej pozycji Message Batches API.
 
