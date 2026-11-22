@@ -1038,11 +1038,23 @@ class CognismPerson(BaseModel):
         return f"https://app.cognism.com{match[1]}{profile_id}"
 
 
+CognismBlockedReason = Literal[
+    "session_expired",
+    "login_failed",
+    "mfa_required",
+    "captcha_required",
+    "payment_required",
+    "panel_unavailable",
+    "time_limit",
+]
+
+
 class CognismFirm(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     company_ref: int = Field(gt=0)
     status: Literal["matched", "no_people", "not_found", "ambiguous", "not_processed"]
+    blocked_reason: Optional[CognismBlockedReason] = None
     company_name: Optional[RequiredText] = Field(default=None, max_length=500)
     company_domain: Optional[str] = Field(default=None, max_length=255)
     people: list[CognismPerson] = Field(
@@ -1055,6 +1067,8 @@ class CognismFirm(BaseModel):
             raise ValueError("Przy dopasowaniu podaj nazwę pracodawcy z Cognism.")
         if bool(self.people) != (self.status == "matched"):
             raise ValueError("Lista osób jest wymagana wyłącznie dla matched.")
+        if self.blocked_reason is not None and self.status != "not_processed":
+            raise ValueError("Podaj blocked_reason wyłącznie dla not_processed.")
         return self
 
 
@@ -1093,9 +1107,11 @@ def _cognism_task_text(run: SalesSignalRun, ctx: TaskContext) -> str:
         "aktualnych decydentów IT, danych/AI, inżynierii, zakupów i zarządu. Najpierw "
         "sprawdź Revealed. Reveal pojedynczo tylko dla dopasowanych osób, do pięciu "
         "odsłonięć na firmę z istniejącej puli kredytów. Nie kupuj kredytów, nie eksportuj "
-        "i nie obchodź blokad. Gdy sesja wygasła, użyj wpisu Cognism z Vault. Jeśli "
-        "logowanie się nie powiedzie albo panel wymaga MFA, CAPTCHA lub opłaty, "
-        "zwróć not_processed dla niedokończonych firm. Przy "
+        "i nie obchodź blokad. Gdy sesja wygasła, użyj wpisu Cognism z Vault. "
+        "Zwróć not_processed dla każdej niedokończonej firmy i podaj blocked_reason, "
+        "jeśli powód jest znany: session_expired (brak dostępu po wygaśnięciu sesji), "
+        "login_failed, mfa_required, captcha_required, payment_required, "
+        "panel_unavailable lub time_limit. Przy "
         "niejednoznacznej spółce zwróć ambiguous; przy braku spółki not_found; przy "
         "potwierdzonej spółce bez osób no_people. Dane osoby tylko z otwartego profilu "
         "Cognism: bez zgadywania, prywatnych skrzynek i numerów centrali. Ustaw "
@@ -1115,6 +1131,10 @@ def _cognism_format() -> dict[str, Any]:
             {
                 "company_ref": "<ref z firms>",
                 "status": "matched|no_people|not_found|ambiguous|not_processed",
+                "blocked_reason": (
+                    "session_expired|login_failed|mfa_required|captcha_required|"
+                    "payment_required|panel_unavailable|time_limit|null"
+                ),
                 "company_name": "<dokładna nazwa pracodawcy w Cognism albo null>",
                 "company_domain": "<domena profilu pracodawcy albo null>",
                 "people": [
@@ -1400,6 +1420,7 @@ async def _ingest_cognism(
     ambiguous: set[int] = set()
     no_people: set[int] = set()
     not_found: set[int] = set()
+    firm_issues: dict[str, str] = {}
     unknown = stored = suppressed = contact_changes = 0
     for firm in report.firms:
         cid = firm.company_ref
@@ -1407,6 +1428,7 @@ async def _ingest_cognism(
             unknown += 1
         elif cid in received:
             ambiguous.add(cid)
+            firm_issues[str(cid)] = "duplicate_result"
         else:
             received[cid] = firm
     rows = await db.execute(
@@ -1428,8 +1450,11 @@ async def _ingest_cognism(
     names, emails, phones = await _cognism_objections(db, set(companies))
     for cid, firm in received.items():
         company = companies.get(cid)
-        if cid in ambiguous or firm.status == "ambiguous":
+        if cid in ambiguous:
+            continue
+        if firm.status == "ambiguous":
             ambiguous.add(cid)
+            firm_issues[str(cid)] = "employer_unconfirmed"
             continue
         if (
             company is None
@@ -1437,8 +1462,11 @@ async def _ingest_cognism(
             or company.status == COMPANY_DO_NOT_CONTACT
             or cid in clients
             or company_aliases.is_own_company(company.normalized_name)
-            or firm.status == "not_processed"
         ):
+            continue
+        if firm.status == "not_processed":
+            if firm.blocked_reason is not None:
+                firm_issues[str(cid)] = firm.blocked_reason
             continue
         if firm.status == "not_found":
             processed.add(cid)
@@ -1447,6 +1475,7 @@ async def _ingest_cognism(
         hint = hints.get(cid)
         if not _cognism_employer_matches(company, firm, hint):
             ambiguous.add(cid)
+            firm_issues[str(cid)] = "employer_mismatch"
             continue
         if firm.status == "no_people":
             processed.add(cid)
@@ -1547,6 +1576,7 @@ async def _ingest_cognism(
         "not_found_company_ids": sorted(not_found),
         "ambiguous_company_ids": sorted(ambiguous),
         "unprocessed_company_ids": sorted(allowed - processed - ambiguous),
+        "firm_issues": firm_issues,
     }
 
 
