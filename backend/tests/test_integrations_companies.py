@@ -1,10 +1,10 @@
-"""Company-people integration endpoint — matching logic (ATLAS integration).
+"""Company-people lookup („Kogo znamy” w Sprzedaży) — matching logic.
 
 Pure unit tests against the normaliser and the relationship resolver; no DB
-and no live FastAPI client. The DB-facing parts (`_resolve_client`, the route)
+and no live FastAPI client. The DB-facing parts (`_resolve_client`, the lookup)
 are thin wiring over predicates already covered by the candidate search tests.
 
-The behaviour worth pinning here is the one the endpoint exists to guarantee:
+The behaviour worth pinning here is the one the lookup exists to guarantee:
 a substring prefilter hit that does NOT survive canonical comparison must be
 dropped. That is what keeps "IT Kontrakt" out of a lookup for "IT".
 """
@@ -15,7 +15,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.api import integrations_companies
 from app.api.integrations_companies import (
     _match_experience,
     _normalize_nip,
@@ -272,64 +271,3 @@ class TestUnknownPeriod:
             linkedin_current_company="Shoper S.A.",
         )
         assert _match_experience(candidate, {"shoper", "shoper s.a."})[0] == "current"
-
-
-class TestScheduleMissingDates:
-    """Kartoteka firmy kolejkuje dopisanie dat tylko dla kubełka „unknown”.
-
-    To jest cała ekonomia tej ścieżki: `unknown` = „CV wymienia firmę, ale bez
-    dat”, czyli dokładnie te wiersze, które backfill umie naprawić. Wysłanie
-    tam kogokolwiek innego to zapłata za wiersz, którego nie da się poprawić.
-    """
-
-    def _person(self, candidate_id: int, relationship: str):
-        return SimpleNamespace(candidate_id=candidate_id, relationship=relationship)
-
-    def _result(self, people):
-        return SimpleNamespace(people=people)
-
-    def test_only_unknown_ids_are_scheduled(self, monkeypatch):
-        captured: list[list[int]] = []
-        monkeypatch.setattr(
-            "app.services.experience_backfill.schedule_on_demand",
-            lambda ids: captured.append(list(ids)) or list(ids),
-        )
-        integrations_companies._schedule_missing_dates(
-            self._result(
-                [
-                    self._person(1, "via_us"),
-                    self._person(2, "current"),
-                    self._person(3, "past"),
-                    self._person(4, "unknown"),
-                    self._person(5, "unknown"),
-                ]
-            )
-        )
-        assert captured == [[4, 5]]
-
-    def test_nothing_unknown_means_no_call(self, monkeypatch):
-        called = False
-
-        def _spy(ids):
-            nonlocal called
-            called = True
-            return list(ids)
-
-        monkeypatch.setattr("app.services.experience_backfill.schedule_on_demand", _spy)
-        integrations_companies._schedule_missing_dates(
-            self._result([self._person(1, "current")])
-        )
-        assert called is False
-
-    def test_scheduler_failure_never_breaks_the_answer(self, monkeypatch):
-        """Daty to dodatek; odpowiedź o ludziach musi przeżyć ich awarię."""
-
-        def _boom(ids):
-            raise RuntimeError("kolejka padła")
-
-        monkeypatch.setattr(
-            "app.services.experience_backfill.schedule_on_demand", _boom
-        )
-        integrations_companies._schedule_missing_dates(
-            self._result([self._person(4, "unknown")])
-        )  # nie rzuca

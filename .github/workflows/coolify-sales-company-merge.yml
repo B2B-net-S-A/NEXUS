@@ -6,10 +6,10 @@ name: Coolify sales company merge
 # `docs/claude/sprzedaz/scalanie-kart-firm-i-domeny.md`.
 #
 # Dlaczego osobny plik, a nie akcja w `coolify-ops.yml`: `workflow_dispatch` mieści
-# 25 wejść, a „Coolify Ops” ma ich dokładnie 25. Dwudzieste szóste unieważnia cały
-# plik razem z `list` i `cancel`. Mechanizm jest ten sam co w jobie `atlas` tamtego
-# pliku: zadanie Coolify odpalane co minutę, katalog-blokada `--lock`, odczyt
-# wykonania, kasacja zadania.
+# 25 wejść, a „Coolify Ops” miał ich wtedy dokładnie 25. Dwudzieste szóste unieważnia
+# cały plik razem z `list` i `cancel`. Mechanizm jest ten sam co w jobach eval tamtego
+# pliku (i w usuniętym 22.11.2026 jobie `atlas`): zadanie Coolify odpalane co minutę,
+# katalog-blokada `--lock`, odczyt wykonania, kasacja zadania.
 #
 # Kolejność:
 #   1. mode=dry-run (transakcja READ ONLY) → raport z liczbami.
