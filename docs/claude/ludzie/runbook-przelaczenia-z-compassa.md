@@ -174,11 +174,19 @@ admina, nie robi masowego `exited`). W NEXUSIE `COMPASS_LIFECYCLE_ENABLED=false`
 
 Po tygodniu bez błędów: crony przeniesionych modułów wyłączone przez
 `Coolify Ops cron-disable-task` (nigdy `cron-enable`), wszystkie eksporty
-w `HR_EXPORTS_OFF`. Tabel Compassa nie kasujemy (wyzwalacz
-`block_employment_reversal_after_exit` zostaje — odmowa liczona w cronie
-jako `blocked_by_trigger`).
+w `HR_EXPORTS_OFF`.
+
+**Stan od 22.11.2026: Compass wygaszony.** Artur potwierdził, że Compass nie
+jest używany. Serwer usunięto po snapshocie, a projekt Supabase Compassa
+skasowano po pełnym eksporcie (baza i pliki, liczby zgodne). Eksport trzyma
+Artur lokalnie, poza repo i chmurą. Dawna reguła „tabel Compassa nie
+kasujemy” już nie obowiązuje. Nic w NEXUSIE nie czyta tej bazy:
+`COMPASS_*_ENABLED=false`, a import HR był jednorazową paczką.
 
 ## 6. Wycofanie
+
+Nieaktualne od 22.11.2026, bo Compassa nie ma do czego przywrócić. Dane da się
+odtworzyć tylko z eksportu, w nowym projekcie. Opis poniżej zostaje jako historia.
 
 Do kroku 5 Compass ma dane i kod: moduł wraca usunięciem go z
 `HR_MOVED_TO_NEXUS` (i `HR_EXPORTS_OFF`), wyłączeniem modułu w NEXUSIE,
