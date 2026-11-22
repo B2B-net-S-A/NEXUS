@@ -42,6 +42,7 @@ export function CostPdfButton({ entryId, invoiceNumber, look = "full" }: CostPdf
         variant="ghost"
         aria-label={label}
         title="Podgląd PDF"
+        data-tour="finance.cost-pdf"
         loading={busy}
         onClick={() => void open()}
       >
@@ -50,7 +51,14 @@ export function CostPdfButton({ entryId, invoiceNumber, look = "full" }: CostPdf
     );
   }
   return (
-    <Button size="sm" variant="outline" aria-label={label} loading={busy} onClick={() => void open()}>
+    <Button
+      size="sm"
+      variant="outline"
+      aria-label={label}
+      loading={busy}
+      data-tour="finance.cost-pdf"
+      onClick={() => void open()}
+    >
       {busy ? null : <FileText className="h-4 w-4" aria-hidden />}
       Podgląd PDF
     </Button>
