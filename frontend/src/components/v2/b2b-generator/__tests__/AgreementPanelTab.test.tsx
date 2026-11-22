@@ -128,6 +128,22 @@ describe("AgreementPanelTab", () => {
     expect(await screen.findByRole("dialog")).toHaveTextContent("okno wysyłki 501");
   });
 
+  it("22.11.2026: przy wysyłce w NEXUSIE główna jest wysyłka, „Oznacz jako podpisaną…” obrysowane", async () => {
+    generated.mockResolvedValue([{ ...ROW, can_send_esign: true, can_confirm_signed: true }]);
+    renderTab();
+    await screen.findByText("Umowa 1506/2026");
+    expect(screen.getByRole("button", { name: "Wyślij do podpisu" }).className).toContain("bg-primary");
+    const confirm = screen.getByRole("button", { name: "Oznacz jako podpisaną…" });
+    expect(confirm.className).not.toContain("bg-primary");
+  });
+
+  it("bez wysyłki „Oznacz jako podpisaną…” zostaje główną akcją", async () => {
+    generated.mockResolvedValue([{ ...ROW, can_confirm_signed: true }]);
+    renderTab();
+    await screen.findByText("Umowa 1506/2026");
+    expect(screen.getByRole("button", { name: "Oznacz jako podpisaną…" }).className).toContain("bg-primary");
+  });
+
   it("przełącznik wyłączony (can_send_esign brak): bez „Wyślij do podpisu”", async () => {
     generated.mockResolvedValue([ROW]);
     renderTab();

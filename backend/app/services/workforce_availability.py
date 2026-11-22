@@ -2,7 +2,7 @@
 
 Ownership is never rewritten for a leave: every read and command can resolve
 the same original owner. A valid cached delegation expires at its known end
-even if COMPASS is temporarily unreachable. New allocation requires fresh data.
+even if the snapshot refresh fails. New allocation requires fresh data.
 """
 
 from __future__ import annotations
@@ -13,14 +13,12 @@ from typing import Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-import httpx
 from pydantic import BaseModel, Field, ValidationError, model_validator
 from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only, object_session
 
-from app.core.config import settings
 from app.models.recruitment_allocation import (
     RecruitmentAllocationEvent,
     WorkforceAvailabilityState,
@@ -277,12 +275,9 @@ async def workforce_context(
         refresh_source,
     )
 
-    # Źródło lokalne (urlopy NEXUSA) przełącza admin w `app_settings`
+    # Źródło (urlopy NEXUSA) włącza admin w `app_settings`
     # (`hr_availability_source`); odczyt najwyżej raz na minutę na proces.
-    # Przy włączonym Compassie kontekst czyta ten sam zapisany snapshot,
-    # więc przełącznika nie trzeba sprawdzać.
-    if not settings.COMPASS_AVAILABILITY_ENABLED:
-        await refresh_source(db)
+    await refresh_source(db)
     if not availability_enabled():
         return WorkforceContext()
     key = "workforce_context"
@@ -296,8 +291,8 @@ async def workforce_context(
             else None
         )
     except ValidationError:
-        # This is local persisted-data corruption, not a failed COMPASS read
-        # (sync never replaces a valid snapshot with an invalid response).
+        # This is local persisted-data corruption, not a failed refresh
+        # (sync never replaces a valid snapshot with an invalid one).
         # Preserve every nominal owner and expose the error without breaking
         # unrelated authenticated screens or trusting malformed delegation data.
         context = WorkforceContext(issues=[{"code": "availability_invalid"}])
@@ -516,27 +511,12 @@ async def sync_availability(db: AsyncSession) -> bool:
             local_source_active,
         )
 
-        if local_source_active():
-            # Urlopy żyją w NEXUSIE — ten sam kontrakt snapshotu co z Compassa.
-            snapshot = AvailabilitySnapshot.model_validate(
-                await build_local_snapshot(db, now)
-            )
-        else:
-            if (
-                not settings.COMPASS_AVAILABILITY_URL
-                or not settings.COMPASS_AVAILABILITY_SECRET
-            ):
-                raise ValueError("availability_not_configured")
-            async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
-                response = await client.get(
-                    settings.COMPASS_AVAILABILITY_URL,
-                    headers={
-                        "Authorization": f"Bearer {settings.COMPASS_AVAILABILITY_SECRET}",
-                        "User-Agent": "dynaminds-smoke-test/1.0 (+nexus-availability)",
-                    },
-                )
-                response.raise_for_status()
-                snapshot = AvailabilitySnapshot.model_validate(response.json())
+        if not local_source_active():
+            # Compass (dawne drugie źródło) wygaszony 22.11.2026.
+            raise ValueError("availability_not_configured")
+        snapshot = AvailabilitySnapshot.model_validate(
+            await build_local_snapshot(db, now)
+        )
         if (
             snapshot.date != now.astimezone(WARSAW).date()
             or not -60 <= (now - snapshot.generated_at).total_seconds() <= STALE_SECONDS

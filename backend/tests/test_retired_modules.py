@@ -19,6 +19,8 @@ from app.api.retired_modules import install_retired_modules, retired_message
         "/api/calls/webhook",
         "/api/calls/cloudtalk-status",
         "/api/admin/traffit/transfer",
+        "/api/integrations/compass/contractors",
+        "/api/integrations/compass/roster",
     ],
 )
 def test_retired_addresses_are_recognised(path: str) -> None:
@@ -79,3 +81,9 @@ def test_ordinary_404_keeps_its_own_detail(client: TestClient) -> None:
     assert response.status_code == 404
     assert response.json() == {"detail": "Brak kandydata 7"}
     assert client.get("/api/nieznane").status_code == 404
+
+
+def test_compass_exports_answer_410_with_reason(client: TestClient) -> None:
+    response = client.get("/api/integrations/compass/roster")
+    assert response.status_code == 410
+    assert "Compass" in response.json()["detail"]

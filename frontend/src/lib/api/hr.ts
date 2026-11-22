@@ -475,6 +475,7 @@ export function useSetHrModules() {
   });
 }
 
+/** „compass” = wyłączone: Compass wygaszony 22.11.2026, jedynym źródłem są urlopy NEXUSA. */
 export type AvailabilitySource = "compass" | "local";
 
 /** Skąd zastępstwa i dni robocze biorą urlopy (admin; krok runbooka). */

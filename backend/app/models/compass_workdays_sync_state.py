@@ -1,39 +1,11 @@
-"""Stan pętli zaciągania dni roboczych z COMPASSA (decyzja D5).
+"""Stan dawnej pętli dni roboczych z COMPASSA (decyzja D5, migracja 0276).
 
-PO CO TA TABELA ISTNIEJE
-------------------------
-Do 09.2026 ``compass_workdays_sync`` był JEDYNYM integratorem, którego awarii
-nie dało się wykryć żadnym kanałem:
-
-* pętla ``return``uje czysto przy wyłączonej fladze i przy braku sekretu, więc
-  ``classify_background_tasks`` klasyfikuje ją jako ``exited_cleanly`` — stan
-  CICHY (alarmy Slack obejmują tylko ``ai_spend_alerts`` i ``slack_sla_alerts``);
-* ciało pętli łyka każdy wyjątek, więc nigdy nie osiągnie ``crashed``;
-* wynik ``sync_workdays`` — w tym ``fetch_failed:`` i ``basis_mismatch:`` —
-  trafiał wyłącznie do logu INFO i przepadał.
-
-Skutkiem cichej awarii jest regres dokładnie tego defektu, który D5 usuwał:
-``workdays_source`` wraca na ``"unavailable"``, mianownikiem znów jest stała 5,
-a osoba na urlopie ląduje na IMIENNEJ liście „poniżej progu".
-
-DLACZEGO TABELA, A NIE ``MAX(synced_at)`` Z ``user_workday_periods``
--------------------------------------------------------------------
-Tamten znacznik wykrywa przestój, ale nie odróżnia „COMPASS nie odpowiada" od
-„żaden aktywny user się nie dopasował" — a to dwie różne naprawy. Jest też
-zapisywany per (user, okres), więc bieg, który nic nie zapisał, nie zostawia
-po sobie ŻADNEGO śladu.
-
-``stats`` NIESIE NIEDOPASOWANIA I TO NIE JEST OZDOBA
-----------------------------------------------------
-``WorkdaySyncResult.as_payload()`` zawiera ``unmatched_compass_emails`` oraz
-``nexus_users_without_compass``. Docstring ``insights_workdays`` ostrzega, że
-join po e-mailu przestanie trafiać w dniu migracji domenowej (konta
-``@inframinds.eu`` już istnieją, dziś nieaktywne). **Wzrost tej liczby jest
-jedynym sygnałem, że ten dzień nadszedł** — a sygnał trzymany wyłącznie
-w logach nie przetrwa rotacji.
-
-Kalka ``OrderMailSyncState`` (jeden wiersz, ``id = 1``), nie
-``TraffitSyncState`` (wiersz per faza): ta pętla ma jedną fazę.
+Compass jest wygaszony od 22.11.2026 (serwer usunięty), a pętla
+``compass_workdays_sync`` i sonda ``checks.compass_workdays`` zniknęły z kodu.
+Nikt już tu nie pisze. Tabela, lustro w ``entrypoint.sh`` i sonda schematu
+w ``/api/health/deep`` zostają do osobnej migracji z ``DROP TABLE`` —
+model trzyma tabelę w ``Base.metadata``, żeby „Rozjazd schematu” nie
+pokazywał jej jako tabeli bez modelu.
 """
 
 from __future__ import annotations

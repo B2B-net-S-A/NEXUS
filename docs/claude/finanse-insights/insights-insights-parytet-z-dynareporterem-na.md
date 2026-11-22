@@ -213,14 +213,15 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   (`insights_scoring_config`), więc żyją w TRZECH kopiach — kod, migracje
   (`0256` + `0260`), lustro w `entrypoint.sh` — pilnowanych przez
   `test_insights_scoring_config.py`.
-- **Dni robocze (D5) idą z COMPASSA** (`nexus_workdays_export` →
-  `/api/internal/workdays` → `user_workday_periods`). Metryka to **dni robocze
-  minus zatwierdzony urlop**, NIE „dni przepracowane" — chorobowego w źródle nie
-  ma (trigger B2B go blokuje). Bez sekretów (`WORKDAYS_EXPORT_SECRET`,
-  `COMPASS_WORKDAYS_*`) endpoint zwraca 503, a (usunięty 23.09.2026) Power
-  Calling raportował `not_assessable` — mówił wprost, że nie wie, zamiast dzielić przez zmyśloną
-  stałą (usunięte `POWER_CALLING_WORKDAYS = 5` stawiało osoby na urlopie
-  na imiennej liście „poniżej progu").
+- **Dni robocze (D5) idą z urlopów NEXUSA** (pętla `hr_workdays` →
+  `local_workdays_payload` → `user_workday_periods`, źródło `nexus`). Do
+  przełączenia szły z COMPASSA; Compass jest wygaszony od 22.11.2026, a jego
+  pętla i ustawienia `COMPASS_WORKDAYS_*` zniknęły z kodu. Metryka to **dni
+  robocze minus zatwierdzony urlop**, NIE „dni przepracowane". Bez danych
+  (usunięty 23.09.2026) Power Calling raportował `not_assessable` — mówił
+  wprost, że nie wie, zamiast dzielić przez zmyśloną stałą (usunięte
+  `POWER_CALLING_WORKDAYS = 5` stawiało osoby na urlopie na imiennej liście
+  „poniżej progu").
 - **Plakietki wygaszamy, nie kasujemy** (`user_performance_flags`, 0258):
   `is_active=false` + data i autor. Jedna AKTYWNA plakietka danego typu na osobę
   — częściowy UNIQUE `WHERE is_active`, bo pełny zablokowałby historię.

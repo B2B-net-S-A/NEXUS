@@ -21,7 +21,10 @@ na wymyślonych danych.
 - **Blokuje pracę nowej osoby.** `GET /api/novelties/start` zwraca `poligon`
   i `redirect`. Osoba z poligonem wymaganym jest zatrzymana (`useStartGate`)
   i prowadzona na `/poligon`, dopóki nie zaliczy wymaganych ćwiczeń
-  (`poligon.exercise_ids`). Poligon zastępuje jej przeklikania Startu
+  (`poligon.exercise_ids`). Po „Zakończ onboarding” na `/onboarding` idzie
+  od razu na `/poligon`, nie na pulpit (`afterOnboardingPath`, 22.11.2026) —
+  pulpit zostaje wolny od blokady, więc inaczej Poligon widziała dopiero po
+  kliknięciu innego ekranu. Poligon zastępuje jej przeklikania Startu
   z `replaces` (mapa rola → przeklikania). Obecne osoby mogą wejść na mapę,
   ale poligon ich nie blokuje.
 - **Wymagany od nadania roli, nie od założenia konta** (Artur, 15.11.2026:

@@ -29,6 +29,7 @@ from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.job_work_assignment import JobWorkAssignment
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
+from tests._leave_source import use_nexus_leave_source
 
 pytestmark = pytest.mark.asyncio
 
@@ -754,7 +755,7 @@ async def test_automat_proposes_once_notifies_hor_and_withdraws_when_someone_wor
     from app.services.request_allocation_notices import PROPOSALS_LINK
     from app.services.request_allocation_proposals import load_pending
 
-    monkeypatch.setattr(settings, "COMPASS_AVAILABILITY_ENABLED", False)
+    use_nexus_leave_source(monkeypatch, False)
     hor_id, _ = await _user(UserRole.head_of_recruitment)
     category = await _category()
     person, _ = await _user(UserRole.recruiter)
@@ -870,7 +871,7 @@ async def test_automat_proposes_only_to_p1_requests(monkeypatch) -> None:
     from app.services.recruitment_allocation import allocation_lock
     from app.services.request_allocation import _requests, run_request_allocation
 
-    monkeypatch.setattr(settings, "COMPASS_AVAILABILITY_ENABLED", False)
+    use_nexus_leave_source(monkeypatch, False)
     category = await _category()
     person, _ = await _user(UserRole.recruiter)
     await _give_category(person, category)
@@ -957,10 +958,10 @@ async def test_automat_assignment_rings_the_person_right_away() -> None:
     assert activated.title == "Nowy request do pracy"
 
 
-async def test_auto_mode_assigns_without_compass_and_waits_for_stale_compass(
+async def test_auto_mode_assigns_without_leave_source_and_waits_for_stale_leave(
     monkeypatch,
 ) -> None:
-    """Cały przebieg w trybie ``auto``. Urlopy z Compassa włączone, ale
+    """Cały przebieg w trybie ``auto``. Źródło urlopów włączone, ale
     nieaktualne — automat czeka; wyłączone — przydziela od razu, wpisuje
     prowadzącego i dzwoni. Przebiegi idą w transakcji wycofanej na końcu."""
     from app.services.recruitment_allocation import allocation_lock
@@ -1002,12 +1003,12 @@ async def test_auto_mode_assigns_without_compass_and_waits_for_stale_compass(
     async with AsyncSessionLocal() as db:
         try:
             await allocation_lock(db)
-            monkeypatch.setattr(settings, "COMPASS_AVAILABILITY_ENABLED", True)
+            use_nexus_leave_source(monkeypatch, True)
             stats = await run(db)
             assert stats["leave_blocks_auto"] is True
             assert await rows(db) == []
 
-            monkeypatch.setattr(settings, "COMPASS_AVAILABILITY_ENABLED", False)
+            use_nexus_leave_source(monkeypatch, False)
             stats = await run(db)
             assert stats["leave_blocks_auto"] is False
             assert await rows(db) == [(person, "auto", "active")]

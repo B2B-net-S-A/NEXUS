@@ -42,7 +42,9 @@ MSG_INVALID = (
 )
 MSG_NOT_QUALIFIED = (
     "Ta umowa wymaga kwalifikowanego podpisu elektronicznego (przenosi prawa "
-    "autorskie). Podpis zwykły, zaawansowany ani profil zaufany nie wystarczą."
+    "autorskie). Podpis osobisty z e-dowodu (mObywatel z kodem PIN2), profil "
+    "zaufany ani inny podpis niekwalifikowany nie wystarczą. Pobierz PDF jeszcze "
+    "raz i podpisz go podpisem kwalifikowanym."
 )
 
 
@@ -94,6 +96,19 @@ def name_matches(expected: str, certificate_subject: str | None) -> bool:
     return bool(wanted) and wanted <= have
 
 
+def _only_untrusted_issuers(report: ValidationReport) -> bool:
+    """Każdy nieudany podpis ma wystawcę spoza listy zaufanych UE.
+
+    Taki podpis może być cały, ale nie jest kwalifikowany (podpis osobisty
+    z e-dowodu, 22.11.2026), więc powód odmowy to „niekwalifikowany”, a nie
+    „nie przeszedł weryfikacji”. Gdy pękło coś jeszcze, zostaje ``invalid``."""
+    results = report.signature_results
+    if report.signature_count is not None and report.signature_count != len(results):
+        return False
+    failed = [r for r in results if not is_positive_indication(r.get("indication"))]
+    return bool(failed) and all(r.get("untrusted_issuer") is True for r in failed)
+
+
 def _is_qualified(level: object) -> bool:
     """Tylko ``QESig`` — pieczęć (``QESeal``), poziom niepewny
     (``Indeterminate QESig``, ``QESig?``) ani podpis zaawansowany nie wystarczą."""
@@ -135,6 +150,8 @@ def judge(
     if not results:
         return Verdict.no("no_signature", MSG_NOT_SIGNED)
     if not report.all_signatures_passed:
+        if _only_untrusted_issuers(report):
+            return Verdict.no("not_qualified", MSG_NOT_QUALIFIED)
         return Verdict.no("invalid", MSG_INVALID)
     if not all(_is_qualified(r.get("level")) for r in results):
         return Verdict.no("not_qualified", MSG_NOT_QUALIFIED)

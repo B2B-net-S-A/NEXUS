@@ -3,7 +3,7 @@
  * nigdy błąd na ekranie ani blokada (to dodatek do pracy, nie jej warunek).
  */
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
@@ -120,6 +120,23 @@ export function useStartStatus(enabled: boolean): StartStatus | null {
     staleTime: 60_000,
   });
   return mounted ? (query.data ?? null) : null;
+}
+
+/**
+ * Świeży stan Startu do decyzji „dokąd teraz” (po onboardingu). Wpisuje się
+ * w pamięć `useStartGate`, więc bramka na następnym ekranie nie czeka na drugie
+ * zapytanie. Awaria = `null` (brak blokady, jak w `useStartStatus`).
+ */
+export async function fetchStartStatus(queryClient: QueryClient): Promise<StartStatus | null> {
+  try {
+    return await queryClient.fetchQuery({
+      queryKey: startKey,
+      queryFn: async () => (await api.get<StartStatus>("/api/novelties/start")).data,
+      staleTime: 0,
+    });
+  } catch {
+    return null;
+  }
 }
 
 /** Wyłącznik blokady Startu dla całej firmy (admin, Head of Recruitment). */

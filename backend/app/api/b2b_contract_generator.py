@@ -931,6 +931,36 @@ def _may_confirm_row_signature(
     return job_id in team_job_ids
 
 
+async def may_confirm_row_signature(
+    db: AsyncSession, user: User, row: B2BGeneratedContract
+) -> bool:
+    """Czy konto mogłoby oznaczyć podpis tego wiersza — bez warunku stanu umowy.
+
+    Te same bramki co „Oznacz jako podpisaną” w rejestrze: uprawnienie
+    „Oznaczanie podpisu”, zakres klienta i zakres wiersza. Używa jej wysyłka
+    do podpisu w NEXUSIE (22.11.2026): kto potwierdza podpis umowy, ten może
+    ją też wysłać, zamiast pobierać DOCX i słać go mailem.
+    """
+
+    if not _has_signature_permission(user):
+        return False
+    if row.client_id is not None:
+        try:
+            await _assert_signature_client_access(db, user, row.client_id)
+        except HTTPException as exc:
+            if exc.status_code != 403:
+                raise
+            return False
+    team_job_ids = (
+        set()
+        if user.has_any_role(*_SIGNS_EVERY_CONTRACT_ROLES) or row.job_id is None
+        else await _jobs_run_by(db, user, {row.job_id})
+    )
+    return _may_confirm_row_signature(
+        user, created_by=row.created_by, job_id=row.job_id, team_job_ids=team_job_ids
+    )
+
+
 async def _require_signature_row_scope(
     db: AsyncSession, user: User, row: B2BGeneratedContract, job_id: int
 ) -> None:
@@ -1391,11 +1421,30 @@ async def _serialize_generated_contracts(
         can_correct = can_correct and not esign_open
         # Przełącznik dotyczy tylko wysyłki: wniosek z pilotażu musi dać się
         # wycofać także po wyłączeniu (trasa withdraw go nie sprawdza).
+        # Wysyła ten, kto poprawia umowę, albo ten, kto mógłby oznaczyć jej
+        # podpis (22.11.2026: Administracja potwierdzała cudze umowy, a wysłać
+        # ich nie mogła) — lustro ``may_send_for_signature``.
+        may_confirm_row = (
+            _has_signature_permission(current_user)
+            and (
+                row.client_id is None
+                or signature_client_access.get(row.client_id, False)
+            )
+            and _may_confirm_row_signature(
+                current_user,
+                created_by=row.created_by,
+                job_id=row.job_id,
+                team_job_ids=scoped_job_ids,
+            )
+        )
         may_handle_esign = (
             not from_excel
             and can_generate_documents
             and can_write_client
-            and _may_correct_generated(current_user, row, team_job_ids)
+            and (
+                _may_correct_generated(current_user, row, team_job_ids)
+                or may_confirm_row
+            )
             and rate_visibility.visible(
                 client_id=row.client_id, created_by=row.created_by, job_id=row.job_id
             )

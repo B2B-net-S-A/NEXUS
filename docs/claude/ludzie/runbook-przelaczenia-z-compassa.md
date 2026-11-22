@@ -1,5 +1,18 @@
 # Runbook przełączenia z Compassa na „Ludzi w NEXUSIE” (17.10.2026)
 
+> **Compass wygaszony 22.11.2026.** Artur potwierdził, że Compass nie jest
+> używany; serwer usunięto po snapshocie, `compass.dynaminds.pl` nie ma rekordu
+> DNS. Przełączenie jest zakończone, a kroki niżej, które coś robią w Compassie
+> albo z nim (zmienne Compassa, eksport paczki, konto serwisowe i trasy
+> `/api/integrations/compass/*`, `COMPASS_*_ENABLED`, źródło dostępności
+> `compass`, „powrót do Compassa” w §6), są nieaktualne — zostają jako historia.
+> Z NEXUSA usunięto pętle `compass_lifecycle_sync` i `compass_workdays_sync`,
+> sondy `checks.compass_*`, ustawienia `COMPASS_*` i obie trasy dla Compassa
+> (stare adresy dają 410). Jedynym źródłem urlopów dla zastępstw i dni pracy
+> są urlopy NEXUSA; przełącznik w Ustawieniach HR → Moduły tylko je włącza
+> albo wyłącza. Import paczki z Compassa (`scripts/hr_compass_import.py`,
+> ekran „Import z Compassa”) zostaje na wypadek odtworzenia danych ze snapshotu.
+
 Moduły wchodzą na produkcję „ciemne” (`app_settings['hr_modules']` puste, M365
 `off`, pętle bez pracy) i są włączane bez kolejnych wdrożeń. Kolejność kroków
 ma znaczenie: **najpierw Compass przestaje pisać, potem NEXUS zaczyna**. Dwa
@@ -174,11 +187,19 @@ admina, nie robi masowego `exited`). W NEXUSIE `COMPASS_LIFECYCLE_ENABLED=false`
 
 Po tygodniu bez błędów: crony przeniesionych modułów wyłączone przez
 `Coolify Ops cron-disable-task` (nigdy `cron-enable`), wszystkie eksporty
-w `HR_EXPORTS_OFF`. Tabel Compassa nie kasujemy (wyzwalacz
-`block_employment_reversal_after_exit` zostaje — odmowa liczona w cronie
-jako `blocked_by_trigger`).
+w `HR_EXPORTS_OFF`.
+
+**Stan od 22.11.2026: Compass wygaszony.** Artur potwierdził, że Compass nie
+jest używany. Serwer usunięto po snapshocie, a projekt Supabase Compassa
+skasowano po pełnym eksporcie (baza i pliki, liczby zgodne). Eksport trzyma
+Artur lokalnie, poza repo i chmurą. Dawna reguła „tabel Compassa nie
+kasujemy” już nie obowiązuje. Nic w NEXUSIE nie czyta tej bazy:
+`COMPASS_*_ENABLED=false`, a import HR był jednorazową paczką.
 
 ## 6. Wycofanie
+
+Nieaktualne od 22.11.2026, bo Compassa nie ma do czego przywrócić. Dane da się
+odtworzyć tylko z eksportu, w nowym projekcie. Opis poniżej zostaje jako historia.
 
 Do kroku 5 Compass ma dane i kod: moduł wraca usunięciem go z
 `HR_MOVED_TO_NEXUS` (i `HR_EXPORTS_OFF`), wyłączeniem modułu w NEXUSIE,

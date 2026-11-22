@@ -51,7 +51,10 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   `uq_b2b_signing_requests_open_per_row`). Wycofanie (`withdraw`) kasuje link
   i pozwala wysłać ponownie albo wrócić do drogi zwykłej.
 - **Wysyła i wycofuje** ten, kto poprawia umowę (`_may_correct_generated`),
-  z poziomem „Generowanie”, widocznymi stawkami i dostępem do klienta.
+  albo ten, kto mógłby oznaczyć jej podpis (`may_confirm_row_signature`: te
+  same bramki co „Oznacz jako podpisaną”, od 22.11.2026), zawsze z poziomem
+  „Generowanie”, widocznymi stawkami i dostępem do klienta. Rejestr
+  (`can_send_esign`) i trasy (`_assert_row_sender`) liczą to jedną regułą.
 - **Mail z linkiem idzie ze skrzynki nadawcy** (M365, `services/b2b_esign/mail.py`);
   bez połączonej skrzynki okno pokazuje link do skopiowania. Przypomnienia
   (`tasks/b2b_esign_sweeper.py`, co 30 min): kontraktor milczy → JEDNO
@@ -208,6 +211,59 @@ startu” (`dokumenty-do-startu.md`), zamiast dostawać NDA osobnym mailem.
   certyfikat „multi” na kilka podpisów po jednym potwierdzeniu tożsamości)
   paczka zostaje bez zmian: dostawca zastępuje tylko „pobierz i wgraj”.
 
+## mObywatel na stronie kontraktora: podpis osobisty nie jest kwalifikowany (22.11.2026)
+
+Strona `/sign/b2b/{token}` radziła „Najszybciej mObywatel z e-dowodem (za darmo)”
+i w zakładce „mObywatel” kazała „wybrać podpis kwalifikowany”. Odczyt listopadowych
+PDF-ów z produkcji (22.11.2026): 1 z 7 umów z e-podpisem kontraktora miała podpis
+osobisty z e-dowodu (wystawca MSWiA „pl.ID Authorization CA”, polityka
+`1.2.616.1.101.5.2.1.1.1.2`, bez QcStatements). NEXUS by ją odrzucił.
+
+Co daje mObywatel (stan 22.11.2026):
+- **Podpis osobisty** (usługa „Podpisz dokument” od 25.02.2025, e-dowód, NFC,
+  kod PIN2): podpis zaawansowany, nie kwalifikowany. Równoważny odręcznemu
+  tylko w kontaktach z administracją, z firmą tylko po umowie stron (gov.pl).
+  MSWiA nie jest kwalifikowanym dostawcą (rejestr NCCert). W pliku: wystawca
+  MSWiA, bez QcStatements.
+- **Podpis kwalifikowany** (Usługi → Sprawy urzędowe → „Podpis kwalifikowany”,
+  od 23.10.2025): certyfikat od dostawcy (Cencert, SimplySign, Sigillum, mSzafir,
+  doPodpisu), tożsamość przez e-dowód i NFC. W pliku wystawca to kwalifikowane CA
+  dostawcy z QcStatements, więc NEXUS go przyjmie. 5 darmowych na miesiąc, ale
+  **tylko w sprawach prywatnych, niezwiązanych z działalnością zawodową**
+  (Ministerstwo Cyfryzacji, FAQ Certum). Umowa B2B dotyczy firmy kontraktora.
+  Kolejne podpisy są płatne u dostawcy.
+
+Reguły:
+- **Strona nie poleca mObywatela jako drogi do podpisu kwalifikowanego.**
+  Zakładka „mObywatel” zostaje, bo kontraktorzy jej szukają, ale mówi: PIN2 to
+  podpis osobisty i NEXUS go nie przyjmie, darmowe kwalifikowane są do spraw
+  prywatnych, a do umowy jednorazowy podpis kwalifikowany (mSzafir przez bank,
+  ok. 15 zł). Zdanie pod ramką PAdES: „Najszybciej jednorazowy podpis mSzafir
+  przez bank… Podpis osobisty z e-dowodu i profil zaufany nie wystarczą.”
+  Pilnuje tego test „mObywatel nie obiecuje podpisu kwalifikowanego”
+  w `esign.test.tsx`.
+- **Podpis od wystawcy spoza listy UE to „niekwalifikowany”, nie „nie przeszedł
+  weryfikacji”.** pyHanko zwraca wtedy podpis cały i ważny, ale `trusted` = false
+  z `NO_CERTIFICATE_CHAIN_FOUND`; `qualified._untrusted_issuer` dopisuje
+  `untrusted_issuer`, a `verdict.judge` daje `not_qualified` z `MSG_NOT_QUALIFIED`
+  (podpis osobisty, PIN2, „Pobierz PDF jeszcze raz”). Wcześniej kontraktor
+  dostawał `invalid` i podpisywał drugi raz tak samo. Gdy obok pękł inny podpis,
+  zostaje `invalid`.
+- **„Pobierz PDF jeszcze raz” jest celowe:** podpis kwalifikowany dołożony do
+  pliku, który ma już podpis osobisty, nie przejdzie, bo kwalifikowany musi być
+  każdy podpis w pliku.
+- Ten sam walidator ma umowa szkoleniowa trenera (`services/trainings/signing.py`),
+  więc w portalu konsultanta „Jak podpisać” też nie podsuwa mObywatela.
+- Sprawdzone 22.11.2026 na pliku testowym o tym samym kształcie (CA spoza listy,
+  bez QcStatements), z prawdziwą listą UE: przed zmianą `invalid`, po zmianie
+  `not_qualified`. Test bez sieci:
+  `test_issuer_outside_the_eu_list_is_not_qualified_rather_than_broken`.
+
+Źródła: gov.pl „Podpisz dokument w aplikacji mObywatel” (11.03.2025) i „Podpis
+osobisty – zaawansowany podpis elektroniczny”, KIR o mSzafir w mObywatelu
+(23.10.2025), rp.pl o 5 darmowych podpisach (23.10.2025), Certum o SimplySign
+w mObywatelu (05.11.2025), rejestr kwalifikowanych dostawców NCCert.
+
 ## Reszta systemu przy umowie w podpisie (etap 1b, 21.10.2026)
 
 - **Dzwonki `signature_*` stoją za sekcją Sourcing** (bramka Generatora), nie
@@ -245,12 +301,30 @@ startu” (`dokumenty-do-startu.md`), zamiast dostawać NDA osobnym mailem.
   w `label` i ujemnym `id`.
 - **Strona kontraktora ma zakładki narzędzi** (mObywatel, SimplySign, Szafir,
   inne) i stałą ramkę „podpis w pliku PDF (PAdES)”.
-- **„Wyślij do podpisu” jest w dwóch miejscach** (26.10.2026): w wierszu
-  rejestru Generatora i w zakładce „Umowa” panelu osoby / rekrutacji
-  (`AgreementPanelTab`) — to samo okno `SendForSignatureDialog`, widoczne,
-  gdy serwer zwróci `can_send_esign`. Rekruterzy generują umowę w panelu,
-  więc przycisk tylko w Generatorze był dla nich niewidoczny. Obok zostaje
-  „Pobierz DOCX” i „Oznacz jako podpisaną” (droga mailowa, podpis offline).
+- **„Wyślij do podpisu” jest w trzech miejscach i jest główną akcją**
+  (26.10 i 22.11.2026): w przyklejonej kolumnie „Akcje” rejestru Generatora,
+  w kroku „Podpisana obustronnie” wąskiego panelu osoby (`EsignSendStep`)
+  i w zakładce „Umowa” (`AgreementPanelTab`) — to samo okno
+  `SendForSignatureDialog`, widoczne, gdy serwer zwróci `can_send_esign`.
+  Obok zostaje „Pobierz DOCX” i „Oznacz jako podpisaną” (droga mailowa,
+  podpis offline), obrysowane (`AgreementSignatureAction secondary`).
+  Nie chowaj ich i nie pytaj „dlaczego mailem” przed pomiarem: DL potwierdza
+  też umowy, które wróciły mailem.
+
+## Dlaczego wysyłka jest na wierzchu (22.11.2026)
+
+Od włączenia trybu `all` (26.10) do 22.11 przez NEXUS nie poszła żadna z 19
+umów, choć każdy autor miał uprawnienia i skrzynkę M365. Przeszkody były
+w interfejsie: przy 1280 px przyklejona kolumna „Akcje” zasłaniała przycisk
+w kolumnie „Status podpisu” do ikony, wąski panel osoby nie miał wysyłki,
+zielonym przyciskiem było „Oznacz jako podpisaną”, a konto Administracji
+(Finanse z „Oznaczaniem podpisu”, autor 8 z 19 umów) nie mogło wysłać cudzej
+umowy, którą potwierdzało. W listopadzie 5 z 7 kontraktorów podpisało umowę
+podpisem kwalifikowanym (odczyt PDF-ów z produkcji), więc to nie brak podpisu
+blokował drogę. Makiety i plan pomiaru przed decyzją o dostawcy podpisu
+w przeglądarce: https://claude.ai/artifact/UyyBZKNWJKia9ekX357r8W.
+Akcje podpisu w rejestrze stoją w kolumnie „Akcje”, nie w „Status podpisu”:
+przyklejona kolumna zasłania to, co pod nią leży (por. #1346).
 - **Wysyłka NIE przesuwa karty na „Umowa wysłana”** (świadomie): to ruch na etap
   szablonu, który Insights liczy jako kamień milowy; plakietka karty mówi to samo.
 

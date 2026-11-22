@@ -75,12 +75,9 @@ class ServiceScope(str, enum.Enum):
 
     traffit_read = "traffit:read"
     ops_snapshot = "ops:snapshot"
-    # Eksport kontraktorów dla COMPASSA. Nazwa CELOWO nie brzmi
-    # ``candidate:read`` ani ``client:read`` — te dwie są przez
-    # `test_no_candidate_data_scope_exists` jawnie zakazane w tym słowniku,
-    # bo klucz API nie ma sięgać po dane domenowe. Ten scope otwiera JEDNĄ
-    # wąską trasę: tożsamość i zaangażowanie osób pracujących u klientów,
-    # bez stawek i bez marż.
+    # Eksport kontraktorów dla COMPASSA. Trasa usunięta 22.11.2026 razem
+    # z Compassem (stare adresy dają 410, `api/retired_modules.py`); scope nic
+    # już nie otwiera i zostaje tylko dla kluczy, które go mają w bazie.
     contractors_read = "contractors:read"
     # ── API integracyjne v1 (`/api/integrations/v1`, decyzja Artura 14.10.2026) ──
     # Automatyzacje procesów firmy, zaczynając od rozliczania klientów. Scope'y
@@ -146,8 +143,8 @@ class ServiceScope(str, enum.Enum):
     events_read = "events:read"
     webhooks_manage = "webhooks:manage"
     # ── „Ludzie w NEXUSIE” (16.10.2026) ──
-    # Lista osób dla COMPASSA (zostaje z Akademią): e-mail, imię, status
-    # zatrudnienia, przełożony, dział, daty — bez stawek i nieobecności.
+    # Lista osób dla COMPASSA. Trasa usunięta 22.11.2026 razem z Compassem;
+    # scope nic już nie otwiera i zostaje tylko dla kluczy, które go mają.
     people_roster_read = "people_roster:read"
     # Sygnały sprzedażowe z kart technologicznych dla ATLASA (zastępuje
     # `/api/internal/sales-signals` Compassa) i zwrot ich statusu.
@@ -164,8 +161,8 @@ class ServiceScope(str, enum.Enum):
 SCOPE_LABELS: dict[ServiceScope, str] = {
     ServiceScope.traffit_read: "Odczyt statusu synchronizacji Traffit",
     ServiceScope.ops_snapshot: "Odczyt migawki operacyjnej (/api/admin/snapshot)",
-    ServiceScope.contractors_read: "Eksport kontraktorów dla COMPASSA (bez kwot)",
-    ServiceScope.people_roster_read: "Lista osób dla COMPASSA (bez stawek i nieobecności)",
+    ServiceScope.contractors_read: "Eksport kontraktorów dla COMPASSA (wyłączony 22.11.2026)",
+    ServiceScope.people_roster_read: "Lista osób dla COMPASSA (wyłączona 22.11.2026)",
     ServiceScope.sales_signals_read: "Sygnały sprzedażowe z kart technologicznych (ATLAS)",
     ServiceScope.sales_signals_write: "Zwrot statusu sygnałów sprzedażowych (ATLAS)",
     ServiceScope.clients_read: "Klienci: odczyt (nazwa, NIP, Delivery Lead)",

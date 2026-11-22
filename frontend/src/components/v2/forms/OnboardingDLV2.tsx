@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from"react"
 import { useRouter } from"next/navigation"
-import { useMutation, useQuery } from"@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from"@tanstack/react-query"
 import { ArrowLeft, ArrowRight, Building2, Check, MapPin, Search, Sparkles } from"lucide-react"
 
 import api from"@/lib/api"
@@ -12,6 +12,8 @@ import { Button } from"@/components/ui/button"
 import { Checkbox } from"@/components/ui/checkbox"
 import { Input } from"@/components/ui/input"
 import { markOnboardingCompleted } from "@/lib/onboarding-storage"
+import { fetchStartStatus } from "@/lib/novelties/api"
+import { afterOnboardingPath } from "@/lib/novelties/logic"
 
 interface JobListItem {
  id: number
@@ -42,6 +44,7 @@ type Step ="priority" |"sourcing"
 
 export function OnboardingDLV2() {
  const router = useRouter()
+ const queryClient = useQueryClient()
  const token = useAuthStore((s) => s.token)
  const setAuth = useAuthStore((s) => s.setAuth)
 
@@ -59,7 +62,7 @@ export function OnboardingDLV2() {
  staleTime: 60_000,
  })
 
- const mutation = useMutation<User, unknown, void>({
+ const mutation = useMutation<{ user: User; next: string }, unknown, void>({
  mutationFn: async () => {
  await api.post("/api/users/me/onboarding",
  {
@@ -71,14 +74,16 @@ export function OnboardingDLV2() {
  // smaller onboarding response here would drop hybrid roles, presets, scope
  // and authorization_version from the persisted Zustand session.
  const { data: refreshedUser } = await api.get<User>("/api/auth/me")
- return refreshedUser
+ // Nowa osoba z Poligonem wymaganym idzie od razu na `/poligon`, nie na pulpit.
+ const next = afterOnboardingPath(await fetchStartStatus(queryClient))
+ return { user: refreshedUser, next }
  },
- onSuccess: (refreshedUser) => {
+ onSuccess: ({ user: refreshedUser, next }) => {
  if (!token) return
  setAuth(refreshedUser)
  // Auto-dismiss the old tutorial walkthrough so it does not pile on top.
  markOnboardingCompleted()
- router.replace("/")
+ router.replace(next)
  },
  })
 

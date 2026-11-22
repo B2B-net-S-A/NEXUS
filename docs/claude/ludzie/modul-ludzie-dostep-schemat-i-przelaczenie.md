@@ -484,7 +484,7 @@ miesiącu liczonym równolegle w obu systemach. Danych Compassa nie kasujemy.
   Finanse dostały pełną kartotekę (`viewer_scope`). Podpowiedź 20/26 w odpowiedzi „Zmień
   pulę” idzie przez tę samą regułę. Były przełożony osoby, która odeszła (`exited`), widzi
   już tylko wizytówkę — jak `direct_report_ids` (audyt A4). Jarvis nie ma osobnego narzędzia o ludziach
-  — czyta te same trasy. Lista dla Compassa (`roster_export`) formy nie miała i nie ma.
+  — czyta te same trasy. Lista dla Compassa (`roster_export`) formy nie miała; usunięta 22.11.2026.
 - **Zmiana formy: admin, Finanse i Kadry** (Kadry zapisują bez podglądu: w „Edytuj kartotekę”
   pole „Bez zmian (forma ukryta)”, zapis bez wybranej formy jej nie wysyła; pól zależnych
   od formy Kadry bez Płac nie widzą). Finanse zmieniają formę osobną trasą

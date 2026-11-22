@@ -64,8 +64,6 @@ services:
       # próbowałyby sięgać do usług zewnętrznych.
       TRAFFIT_SYNC_ENABLED: "false"
       ORDER_MAIL_INGEST_ENABLED: "false"
-      COMPASS_LIFECYCLE_ENABLED: "false"
-      COMPASS_WORKDAYS_ENABLED: "false"
       SMTP_ENABLED: "false"
       SELF_REGISTRATION_ENABLED: "false"
       SENTRY_DSN: ""

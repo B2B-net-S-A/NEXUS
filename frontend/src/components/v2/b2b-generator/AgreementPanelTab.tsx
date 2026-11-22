@@ -234,7 +234,8 @@ export function AgreementPanelTab({
           </Button>
         ) : null}
         {canSendEsign ? (
-          <Button size="sm" variant="outline" onClick={() => setSending(true)} data-tour="b2b.esign.send">
+          // 22.11.2026: wysyłka jest główną akcją, „Oznacz jako podpisaną” obok.
+          <Button size="sm" onClick={() => setSending(true)} data-tour="b2b.esign.send">
             <Send className="h-3.5 w-3.5" aria-hidden />
             Wyślij do podpisu
           </Button>
@@ -244,6 +245,7 @@ export function AgreementPanelTab({
           jobId={jobId}
           requestedAt={agreement?.signature_requested_at ?? null}
           readOnly={readOnly}
+          secondary={canSendEsign}
         />
       </div>
       {/* Link wygasł (27.10.2026): „Wyślij nowy link” na tym samym PDF-ie. */}

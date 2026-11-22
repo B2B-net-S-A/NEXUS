@@ -499,8 +499,8 @@ export function SigningGuide() {
       <ol className="list-decimal space-y-1.5 pl-4 text-xs text-muted-foreground">
         <li>Pobierz PDF umowy z Załącznikiem nr 1 i nr 2.</li>
         <li>
-          Podpisz plik kwalifikowanym podpisem elektronicznym w formacie PAdES (podpis w samym PDF), np. w mObywatelu,
-          SimplySign albo Szafirze.
+          Podpisz plik kwalifikowanym podpisem elektronicznym w formacie PAdES (podpis w samym PDF), np. SimplySign,
+          Szafirem albo jednorazowym mSzafirem. Podpis osobisty z e-dowodu (mObywatel z kodem PIN2) nie wystarczy.
         </li>
         <li>Wgraj podpisany PDF tutaj. Potem podpisuje B2Bnetwork i dostaniesz komplet.</li>
       </ol>

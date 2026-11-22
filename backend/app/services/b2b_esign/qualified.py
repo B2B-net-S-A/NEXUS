@@ -129,6 +129,25 @@ def _passed(status: Any) -> bool:
     return level is None or level <= ModificationLevel.FORM_FILLING
 
 
+def _untrusted_issuer(status: Any) -> bool:
+    """Podpis cały i ważny, ale jego certyfikatu nie da się połączyć z żadnym
+    wystawcą z listy UE (np. podpis osobisty z e-dowodu, wystawca MSWiA).
+
+    Taki podpis nie jest kwalifikowany, więc kontraktor ma to usłyszeć wprost,
+    a nie „nie przeszedł weryfikacji” (22.11.2026). Rzadko to też podpis
+    kwalifikowany bez certyfikatu pośredniego w pliku; odmowa jest ta sama."""
+    from pyhanko.sign.ades.report import AdESIndeterminate
+
+    return (
+        status is not None
+        and status.intact
+        and status.valid
+        and not status.trusted
+        and getattr(status, "trust_problem_indic", None)
+        == AdESIndeterminate.NO_CERTIFICATE_CHAIN_FOUND
+    )
+
+
 class QualifiedValidator:
     """Walidator kwalifikowanego podpisu PAdES na liście zaufanych UE."""
 
@@ -210,13 +229,14 @@ class QualifiedValidator:
                     assessor.check_entity_cert_qualified(status.validation_path, moment)
                 )
                 level = level_of(qualification)
-            results.append(
-                {
-                    "signer": _subject(getattr(status, "signing_cert", None)),
-                    "indication": "TOTAL_PASSED" if passed else "TOTAL_FAILED",
-                    "level": level,
-                }
-            )
+            result: dict[str, Any] = {
+                "signer": _subject(getattr(status, "signing_cert", None)),
+                "indication": "TOTAL_PASSED" if passed else "TOTAL_FAILED",
+                "level": level,
+            }
+            if _untrusted_issuer(status):
+                result["untrusted_issuer"] = True
+            results.append(result)
         return ValidationReport(
             is_qes=bool(results) and all(r["level"] == "QESig" for r in results),
             signature_count=len(approvals),

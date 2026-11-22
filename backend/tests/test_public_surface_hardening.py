@@ -60,13 +60,6 @@ _RATE_LIMITED_MODULES = (
     "api/public_share.py",
     "api/public_engagement.py",
     "api/oauth_token.py",
-    # Eksport dla COMPASSA: trasa wystawiona drugiej aplikacji, uwierzytelniana
-    # kluczem API. Ta lista jest hard-kodowana, więc nowy moduł NIE jest
-    # chroniony domyślnie — bez tego wpisu nikt nie zauważy ani zdjęcia
-    # `@limiter.limit`, ani dopisania `from __future__ import annotations`
-    # (to drugie zamienia guard `Annotated` w parametr QUERY, czyli 422 na
-    # poprawnym żądaniu).
-    "api/integrations_compass.py",
     # „Ludzie w NEXUSIE”: publiczny link do podpisu protokołu sprzętu (token).
     "api/equipment_public.py",
     "api/champion_intake.py",

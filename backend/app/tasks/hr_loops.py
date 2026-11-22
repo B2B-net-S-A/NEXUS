@@ -61,8 +61,8 @@ WORKDAYS_WEEKS_BACK = 6
 async def workdays_job(db: AsyncSession) -> dict[str, Any] | None:
     """Wiersze ``user_workday_periods`` ze źródłem ``nexus``.
 
-    Tylko gdy dostępność liczy się z urlopów NEXUSA — do przełączenia robi to
-    synchronizacja z Compassa (``compass_workdays_sync``).
+    Tylko gdy dostępność liczy się z urlopów NEXUSA (przełącznik w Ustawieniach
+    HR); wyłączony przełącznik = brak nowych wierszy.
     """
     from app.services.hr.availability_local import local_source_active, refresh_source
     from app.services.insights_workdays import sync_workdays
@@ -74,9 +74,9 @@ async def workdays_job(db: AsyncSession) -> dict[str, Any] | None:
     month_to = today.replace(day=1)
     total = month_to.year * 12 + month_to.month - 1 - (WORKDAYS_LOOKBACK_MONTHS - 1)
     month_from = month_to.replace(year=total // 12, month=total % 12 + 1)
-    months = await sync_workdays(db, month_from, month_to, "month", source="nexus")
+    months = await sync_workdays(db, month_from, month_to, "month")
     weeks = await sync_workdays(
-        db, today - timedelta(weeks=WORKDAYS_WEEKS_BACK), today, "week", source="nexus"
+        db, today - timedelta(weeks=WORKDAYS_WEEKS_BACK), today, "week"
     )
     return {"months": months.rows_written, "weeks": weeks.rows_written}
 

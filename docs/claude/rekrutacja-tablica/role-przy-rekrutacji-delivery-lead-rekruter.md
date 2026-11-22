@@ -237,15 +237,15 @@ tylko `recruiter_id`), a Head of Recruitment nie mógł zmienić rekrutera.
   i `Activity handed_off_to_search` jak ręczna; przy trybie `off` odmawia 409.
 - **Flaga `RECRUITMENT_ALLOCATION_ENABLED` nie dokłada już bramki ani ciężkich
   zapytań:** gałąź `sourcing_paused` w `priority_work_policy` stoi pod powrotem
-  `mode off` („Kanban bez bramek”); przebieg bez Compassa pomija
-  `load_workloads`/`allocation_issues` i alert `availability_stale`,
-  z Compassem liczy je najwyżej co 10 min; przetworzone zdarzenia starsze niż
+  `mode off` („Kanban bez bramek”); przebieg przy wyłączonym źródle urlopów
+  pomija `load_workloads`/`allocation_issues` i alert `availability_stale`,
+  przy włączonym liczy je najwyżej co 10 min; przetworzone zdarzenia starsze niż
   doba są kasowane.
-- **Start bez urlopów (decyzja Artura 02.10.2026):** `COMPASS_AVAILABILITY_ENABLED`
-  nie jest ustawione, więc automat może zaproponować osobę na urlopie — panel
-  mówi „Brak danych o urlopach — propozycje ich nie uwzględniają”, a każdą
-  propozycję i tak zatwierdza człowiek. Włączenie urlopów = wspólny sekret
-  w Compassie i NEXUSIE (osobny krok).
+- **Start bez urlopów (decyzja Artura 02.10.2026):** przy wyłączonym źródle
+  urlopów automat może zaproponować osobę na urlopie — panel mówi „Brak danych
+  o urlopach — propozycje ich nie uwzględniają”, a każdą propozycję i tak
+  zatwierdza człowiek. Od przełączenia urlopy daje NEXUS (Ustawienia HR →
+  Moduły); `COMPASS_AVAILABILITY_*` usunięte 22.11.2026 razem z Compassem.
 - **Poza zakresem:** podkategorie. Tryb `auto` (automat przydziela sam, bez
   akceptacji) to decyzja Artura z wieczora 02.10.2026 — sekcja „`/jobs/new`
   w sześciu sekcjach”; opis propozycji wyżej dotyczy trybu `shadow`.

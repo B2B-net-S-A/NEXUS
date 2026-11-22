@@ -150,6 +150,12 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
 
 ## Import z Atlasa
 
+**Zamknięty 22.11.2026.** Ostatni pełny bieg (dry-run → apply → pliki)
+przeszedł 13.11.2026, już po ostatnim zapisie w Atlasie. Projekt Supabase
+Atlasa skasowano 22.11 po pełnym eksporcie, który trzyma Artur lokalnie.
+`atlas-import` w Coolify Ops i zmienne `ATLAS_*` nie mają już źródła, więc
+nie uruchamiaj importu. Opis niżej zostaje jako historia.
+
 - `backend/scripts/import_atlas_sales.py` — połączenie **tylko do odczytu**
   z `ATLAS_DATABASE_URL`, domyślnie na sucho, `--apply` zatwierdza.
   Idempotentny po `external_ref` / `fingerprint`; drugi bieg nie nadpisuje

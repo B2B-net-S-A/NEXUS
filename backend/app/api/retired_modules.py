@@ -1,7 +1,8 @@
 """Adresy usuniętych modułów odpowiadają 410 z komunikatem zamiast 404.
 
 D1 z audytu 07.11.2026: Akademia, Praktykant, Traffit, telefonia i Analytics v1
-zniknęły z kodu, tabele zostały. 410 mówi klientowi (stara karta przeglądarki,
+zniknęły z kodu, tabele zostały. 22.11.2026 doszły eksporty dla Compassa
+(serwer Compassa usunięty). 410 mówi klientowi (stara karta przeglądarki,
 skrypt, klucz API), że adresu nie będzie, i podaje powód po polsku.
 
 Handler działa tylko wtedy, gdy żadna trasa nie pasuje do adresu. Trasa, która
@@ -21,6 +22,7 @@ _CLOUDTALK = "Integracja CloudTalk została usunięta z NEXUSA."
 _TRAFFIT = (
     "Traffit jest wyłączony od 14.10.2026 — NEXUS nie importuje już danych z Traffita."
 )
+_COMPASS = "Integracja z Compassem została wyłączona 22.11.2026 — Compass nie działa."
 
 RETIRED_PREFIXES: tuple[tuple[str, str], ...] = (
     ("/api/academy", _ACADEMY),
@@ -29,6 +31,7 @@ RETIRED_PREFIXES: tuple[tuple[str, str], ...] = (
     ("/api/analytics/v1", _ANALYTICS),
     ("/api/cloudtalk", _CLOUDTALK),
     ("/api/admin/traffit", _TRAFFIT),
+    ("/api/integrations/compass", _COMPASS),
 )
 
 RETIRED_EXACT: dict[str, str] = {
