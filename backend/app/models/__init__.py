@@ -151,7 +151,6 @@ from app.models.order_change_event import OrderChangeEvent
 from app.models.order_gap import OrderGap
 from app.models.insights_scoring_config import InsightsScoringConfig
 from app.models.user_workday_period import UserWorkdayPeriod
-from app.models.compass_workdays_sync_state import CompassWorkdaysSyncState
 from app.models.insights_seniority_snapshot import (  # noqa: F401
     InsightsSenioritySnapshot,
 )
@@ -478,7 +477,6 @@ __all__ = [
     "OrderGap",
     "InsightsScoringConfig",
     "UserWorkdayPeriod",
-    "CompassWorkdaysSyncState",
     "InsightsSenioritySnapshot",
     "UserPerformanceFlag",
     "PerformanceFlagType",

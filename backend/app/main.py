@@ -97,7 +97,6 @@ from app.api import emails
 from app.api import user_email_templates as user_email_templates_api
 from app.api import calls
 from app.api import reports
-from app.models.compass_workdays_sync_state import CompassWorkdaysSyncState
 from app.models.user_workday_period import UserWorkdayPeriod
 from app.models.insights_seniority_snapshot import InsightsSenioritySnapshot
 from app.models.user_performance_flag import UserPerformanceFlag
@@ -4468,10 +4467,6 @@ async def api_health_deep_check(request: Request):
         # 0257: mianownik wskaznikow „na dzien" (D5). Prod alembic bywa
         # osierocony, wiec to jest jedyny realny dowod, ze tabela powstala.
         ("user_workday_periods", UserWorkdayPeriod),
-        # 0276: stan pętli dni roboczych z Compassa. Pętla zniknęła 22.11.2026
-        # razem z Compassem; tabela i lustro w entrypoincie zostają do
-        # osobnej migracji z DROP, więc sonda schematu zostaje z nimi.
-        ("compass_workdays_sync_state", CompassWorkdaysSyncState),
         # 0258/0259: plakietki ostrzeżeń i baner kampanii. Bez tych sond
         # zielony deploy nic nie mówi o tym, czy tabele powstały — a brak
         # którejkolwiek wywala CAŁĄ zakładkę Rekrutacja na UndefinedTable
