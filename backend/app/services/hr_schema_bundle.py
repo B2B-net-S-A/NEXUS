@@ -189,7 +189,7 @@ MODULES = (
     order_cost_steps,
     # 0746: jeden zespół back office'u, „Na zewnątrz” i ściąga klienta (19.11.2026).
     back_office_team,
-    # 0749: dodatki do rozliczenia kontraktora — źródła, karta sprawy, dokumenty (13.11.2026).
+    # 0750: dodatki do rozliczenia kontraktora — źródła, karta sprawy, dokumenty (13.11.2026).
     settlement_extras,
 )
 
