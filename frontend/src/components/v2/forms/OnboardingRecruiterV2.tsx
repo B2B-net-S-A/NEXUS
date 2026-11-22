@@ -70,7 +70,7 @@ export function OnboardingRecruiterV2() {
  },
  onSuccess: (refreshedUser) => {
  if (!token) return
- setAuth(refreshedUser, token)
+ setAuth(refreshedUser)
  markOnboardingCompleted()
  router.replace("/")
  },

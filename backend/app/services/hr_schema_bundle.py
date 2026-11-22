@@ -27,6 +27,9 @@ from app.services import client_einvoices_schema as client_einvoices
 from app.services import client_invoice_issue_schema as client_invoice_issue
 from app.services import client_invoice_templates_schema as client_invoice_templates
 from app.services import client_invoice_series_ext_schema as client_invoice_series_ext
+from app.services import (
+    client_invoice_collective_correction_schema as client_invoice_collective_correction,
+)
 from app.services import finance_archive_schema as finance_archive
 from app.services import order_revenue_steps_schema as order_revenue_steps
 from app.services import order_cost_steps_schema as order_cost_steps
@@ -189,6 +192,8 @@ MODULES = (
     order_cost_steps,
     # 0746: jeden zespół back office'u, „Na zewnątrz” i ściąga klienta (19.11.2026).
     back_office_team,
+    # 0749: korekta zbiorcza rabatu od obrotu — kolumna i CHECK korekty (22.11.2026).
+    client_invoice_collective_correction,
     # 0750: dodatki do rozliczenia kontraktora — źródła, karta sprawy, dokumenty (13.11.2026).
     settlement_extras,
 )

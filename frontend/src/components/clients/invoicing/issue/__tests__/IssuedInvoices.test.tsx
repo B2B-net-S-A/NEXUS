@@ -142,6 +142,7 @@ const CARD: IssuedInvoiceCard = {
   notes: null,
   correction_reason: null,
   corrects: null,
+  collective: null,
   ksef_status_code: null,
   ksef_environment: null,
   has_upo: false,

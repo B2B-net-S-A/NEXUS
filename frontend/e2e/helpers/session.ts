@@ -4,10 +4,11 @@
  * Produkcja działa w trybie SSO-only (`PASSWORD_LOGIN_ENABLED=false`) i ekran
  * `/login` nie renderuje wtedy formularza hasła. Konto E2E z listy
  * `PASSWORD_LOGIN_BREAK_GLASS_EMAILS` nadal loguje się przez
- * `POST /api/auth/login`, więc token pobieramy przez API i oddajemy go sondzie
- * sesji ekranu logowania (`src/app/login/page.tsx`). Sonda sprawdza JWT przez
- * `/api/auth/me`, zapisuje użytkownika i odtwarza cookie `nexus_access`
- * czytane przez middleware — tak samo jak po zwykłym logowaniu formularzem.
+ * `POST /api/auth/login`, więc token pobieramy przez API. Front nie przyjmuje
+ * tokenu z JS (od 22.11.2026), dlatego harness wymienia go na ciasteczko
+ * HttpOnly przez `POST /api/auth/session` z karty frontu (przeglądarka dostaje
+ * ciasteczko z właściwym `Origin`, jak po zwykłym logowaniu), a sesję
+ * potwierdza sonda ekranu logowania (`src/app/login/page.tsx`).
  */
 import { expect, request as playwrightRequest, type Page } from "@playwright/test";
 
@@ -57,12 +58,38 @@ export async function openSessionViaApi(
   }
   expect(token, "POST /api/auth/login nie zwrócił access_token").not.toBe("");
 
-  // Przewodnik onboardingowy pamięta zamknięcie w localStorage — ustawiamy go
-  // przed pierwszym renderem zamiast ścigać się z nakładką (jak w setupie).
-  await page.addInitScript((accessToken: string) => {
-    window.localStorage.setItem("onboarding_completed", "true");
-    window.localStorage.setItem("access_token", accessToken);
-  }, token);
-  await page.goto("/login");
+  await adoptBrowserSession(page, token);
   await page.waitForURL(/\/(?:$|dashboard)/, { timeout: 20_000 });
+}
+
+/**
+ * Wymienia token (Bearer) na sesję przeglądarki w ciasteczku HttpOnly i otwiera
+ * `/login`, którego sonda kończy logowanie. `frontUrl` — gdy kontekst nie ma
+ * `baseURL`. Token żyje tylko w tym wywołaniu; aplikacja go nie widzi.
+ */
+export async function adoptBrowserSession(
+  page: Page,
+  token: string,
+  frontUrl?: string
+): Promise<void> {
+  const loginUrl = frontUrl ? new URL("/login", frontUrl).toString() : "/login";
+  await page.goto(loginUrl);
+  await page.evaluate(
+    async ({ api, accessToken }) => {
+      const adopted = await fetch(`${api}/api/auth/session`, {
+        method: "POST",
+        credentials: "include",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!adopted.ok) throw new Error(`POST /api/auth/session: HTTP ${adopted.status}`);
+      const me = await fetch(`${api}/api/auth/me`, { credentials: "include" });
+      if (!me.ok) throw new Error(`GET /api/auth/me (ciasteczko): HTTP ${me.status}`);
+      // Zapamiętany profil uruchamia sondę sesji na /login; przewodnik
+      // onboardingowy zamknięty, żeby nie zasłaniał ekranu.
+      window.localStorage.setItem("nexus_user", JSON.stringify(await me.json()));
+      window.localStorage.setItem("onboarding_completed", "true");
+    },
+    { api: API_URL, accessToken: token }
+  );
+  await page.goto(loginUrl);
 }

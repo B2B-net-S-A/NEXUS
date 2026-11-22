@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
 
+import * as session from "@/lib/session";
 import {
   clearSessionArtifacts,
-  hasAuthCookie,
-  writeAuthCookie,
+  COOKIE_SESSION,
+  getAuthenticatedRequestHeaders,
 } from "@/lib/session";
+import { useAuthStore, type User } from "@/store/auth";
 
 describe("clearSessionArtifacts", () => {
   beforeEach(() => {
@@ -85,38 +87,44 @@ describe("clearSessionArtifacts", () => {
   });
 });
 
-describe("writeAuthCookie / hasAuthCookie", () => {
+describe("stara ścieżka tokenu w JS jest zamknięta (11.2026)", () => {
+  // Od PR #3407 sesja przeglądarki żyje w ciasteczku HttpOnly. Bezpiecznik
+  // na API sprzed ciasteczka (token w localStorage, ciasteczko pisane z JS,
+  // Bearer z frontu, adopcja na /login) usunięty po tygodniu na produkcji.
   beforeEach(() => {
     clearSessionArtifacts();
   });
 
-  it("zapisuje cookie i potwierdza zapis", () => {
-    expect(hasAuthCookie()).toBe(false);
-    expect(writeAuthCookie("token-abc")).toBe(true);
-    expect(hasAuthCookie()).toBe(true);
-    expect(document.cookie).toContain("nexus_access=token-abc");
-  });
-
-  it("zwraca false, gdy przeglądarka blokuje cookies (cichy no-op)", () => {
-    // Bez tego sygnału warstwa kliencka uznaje sesję za kompletną, a middleware
-    // widzi brak cookie — i mamy nieskończoną pętlę /login ↔ chroniona trasa.
-    const descriptor = Object.getOwnPropertyDescriptor(Document.prototype, "cookie");
-    Object.defineProperty(document, "cookie", {
-      configurable: true,
-      get: () => "",
-      set: () => {},
-    });
-    try {
-      expect(writeAuthCookie("token-abc")).toBe(false);
-      expect(hasAuthCookie()).toBe(false);
-    } finally {
-      delete (document as unknown as Record<string, unknown>).cookie;
-      if (descriptor) Object.defineProperty(Document.prototype, "cookie", descriptor);
+  it("moduł sesji nie wystawia już zapisu ani odczytu tokenu", () => {
+    for (const name of [
+      "writeAuthCookie",
+      "hasAuthCookie",
+      "getAccessToken",
+      "storeLegacyAccessToken",
+      "adoptLegacySession",
+    ]) {
+      expect(session, name).not.toHaveProperty(name);
     }
   });
 
-  it("nie myli cookie o nazwie będącej sufiksem", () => {
-    document.cookie = "other_nexus_access=x; path=/";
-    expect(hasAuthCookie()).toBe(false);
+  it("natywny fetch dostaje CSRF, nigdy Bearer z localStorage", () => {
+    localStorage.setItem("access_token", "PLANTED");
+    const headers = getAuthenticatedRequestHeaders();
+    expect(headers.Authorization).toBeUndefined();
+    expect(headers["X-Nexus-CSRF"]).toBe("1");
+  });
+
+  it("setAuth nie zapisuje tokenu w localStorage ani w ciasteczku z JS", () => {
+    const user = { id: 1, email: "a@b2bnetwork.pl", role: "recruiter" } as unknown as User;
+    useAuthStore.getState().setAuth(user);
+    expect(localStorage.getItem("access_token")).toBeNull();
+    expect(document.cookie).not.toContain("nexus_access=");
+    expect(useAuthStore.getState().token).toBe(COOKIE_SESSION);
+  });
+
+  it("hydrate nie bierze tokenu z localStorage", () => {
+    localStorage.setItem("access_token", "PLANTED");
+    useAuthStore.getState().hydrate();
+    expect(useAuthStore.getState().token).toBeNull();
   });
 });

@@ -4,10 +4,11 @@
  * Kryteria:
  *  (a) logowanie formularzem → ani `localStorage`, ani `document.cookie`
  *      nie trzymają tokenu; `/me` idzie bez nagłówka Authorization;
- *  (b) API sprzed ciasteczka (`/me` z ciasteczkiem = 401) → bezpiecznik ze
- *      starą ścieżką, żeby wdrożenie frontu przed API nikogo nie zablokowało;
- *  (c) token starej ścieżki w localStorage → `POST /api/auth/session`
- *      (adopcja) i token znika z localStorage;
+ *  (b) `/me` z ciasteczkiem = 401 po udanym logowaniu → komunikat
+ *      o zablokowanych ciasteczkach; front NIE sięga po token z odpowiedzi
+ *      (bezpiecznik starej ścieżki usunięty 22.11.2026);
+ *  (c) token w localStorage (resztka albo podłożony) → zero adopcji, zero
+ *      sondy, token sprzątnięty;
  *  (d) zapamiętany profil + ciasteczko → jedna sonda `/me` i przejście;
  *  (e) drugie odbicie /login w ciągu 15 s → komunikat zamiast pętli.
  */
@@ -122,49 +123,39 @@ describe("logowanie z sesją w ciasteczku HttpOnly", () => {
     expect(meCalls()[0][1]).toBeUndefined();
   });
 
-  it("(b) API sprzed ciasteczka: /me z ciasteczkiem 401 → stara ścieżka", async () => {
+  it("(b) /me z ciasteczkiem 401 po logowaniu → komunikat, bez Bearera z odpowiedzi", async () => {
     apiPost.mockResolvedValue({ data: { access_token: TOKEN } });
-    apiGet.mockImplementation((url: string, config?: { headers?: Record<string, string> }) => {
+    apiGet.mockImplementation((url: string) => {
       if (url === "/api/auth/methods") return Promise.resolve({ data: METHODS });
-      if (url === "/api/auth/me") {
-        return config?.headers?.Authorization === `Bearer ${TOKEN}`
-          ? Promise.resolve({ data: ME })
-          : Promise.reject(unauthorized());
-      }
+      if (url === "/api/auth/me") return Promise.reject(unauthorized());
       return Promise.reject(new Error(`unexpected GET ${url}`));
     });
 
     render(<LoginPage />);
     await submitForm();
 
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/"));
-    expect(localStorage.getItem("access_token")).toBe(TOKEN);
-    expect(useAuthStore.getState().token).toBe(TOKEN);
+    expect(await screen.findByText(/blokuje pliki cookie/i)).toBeTruthy();
+    expect(pushMock).not.toHaveBeenCalled();
+    expect(meCalls()).toHaveLength(1);
+    expect(meCalls()[0][1]).toBeUndefined();
+    expect(localStorage.getItem("access_token")).toBeNull();
+    expect(useAuthStore.getState().token).toBeNull();
   });
 
-  it("(c) token starej ścieżki → adopcja do ciasteczka i znika z localStorage", async () => {
+  it("(c) token w localStorage → bez adopcji i bez sondy, token sprzątnięty", async () => {
     localStorage.setItem("access_token", TOKEN);
     searchParams = new URLSearchParams("next=/jobs");
-    apiGet.mockImplementation((url: string, config?: { headers?: Record<string, string> }) => {
+    apiGet.mockImplementation((url: string) => {
       if (url === "/api/auth/methods") return Promise.resolve({ data: METHODS });
-      if (url === "/api/auth/me" && !config?.headers?.Authorization) {
-        return Promise.resolve({ data: ME });
-      }
       return Promise.reject(new Error(`unexpected GET ${url}`));
     });
 
     render(<LoginPage />);
 
-    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/jobs"));
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(String(url)).toMatch(/\/api\/auth\/session$/);
-    expect(init).toMatchObject({
-      method: "POST",
-      credentials: "include",
-      headers: { Authorization: `Bearer ${TOKEN}` },
-    });
-    expect(localStorage.getItem("access_token")).toBeNull();
-    expect(useAuthStore.getState().token).toBe(COOKIE_SESSION);
+    await waitFor(() => expect(localStorage.getItem("access_token")).toBeNull());
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(meCalls()).toHaveLength(0);
+    expect(replaceMock).not.toHaveBeenCalled();
   });
 
   it("(d) zapamiętany profil + żywe ciasteczko → jedna sonda i przejście", async () => {

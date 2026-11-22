@@ -72,7 +72,7 @@ describe("role sprzed połączenia (`tac`, `sourcer`) w store", () => {
   })
 
   it("setAuth zapisuje profil już po zamianie", () => {
-    useAuthStore.getState().setAuth(legacyUser("tac", ["tac", "recruiter"]), "token")
+    useAuthStore.getState().setAuth(legacyUser("tac", ["tac", "recruiter"]))
 
     expect(useAuthStore.getState().user?.role).toBe("recruiter")
     expect(useAuthStore.getState().user?.roles).toEqual(["recruiter"])
@@ -81,7 +81,7 @@ describe("role sprzed połączenia (`tac`, `sourcer`) w store", () => {
   })
 
   it("syncUser nie traktuje samej zamiany roli jako zmiany profilu", () => {
-    useAuthStore.getState().setAuth(legacyUser("recruiter", ["recruiter"]), "token")
+    useAuthStore.getState().setAuth(legacyUser("recruiter", ["recruiter"]))
     const current = useAuthStore.getState().user
 
     useAuthStore.getState().syncUser(legacyUser("sourcer", ["sourcer"]))

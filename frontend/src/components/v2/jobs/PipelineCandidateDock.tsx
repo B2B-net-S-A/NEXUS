@@ -2094,6 +2094,7 @@ export function PipelineCandidateDock({
                   size="sm"
                   variant="outline"
                   onClick={() => onReject()}
+                  data-tour="person.dock.reject"
                   disabled={Boolean(rejectBlockedReason)}
                   title={rejectBlockedReason ?? undefined}
                   className="text-destructive hover:bg-destructive/10 hover:text-destructive"

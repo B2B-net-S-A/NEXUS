@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { AppModal } from "@/components/ds/AppModal";
@@ -17,6 +19,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   downloadIssuedFile,
   issuedPaths,
+  useIssueRebateCorrection,
   useRebateCorrection,
   type RebateCorrectionQuery,
 } from "@/lib/api/issued-invoices";
@@ -30,8 +33,10 @@ function percent(rate: string): string {
 /**
  * „Szkic korekty rabatu za <miesiąc>” (decyzja Artura 16.11.2026): jedna korekta
  * zbiorcza za miesiąc przekroczenia progu — różnica stawek od części obrotu
- * ponad próg, faktury korygowane z KSeF i XML FA(3) do pobrania. Nic się nie
- * zapisuje i nic nie idzie do KSeF.
+ * ponad próg, faktury korygowane z KSeF i XML FA(3) do pobrania. Podgląd nic nie
+ * zapisuje; „Wystaw korektę” (22.11.2026) zapisuje go jako szkic korekty bez
+ * numeru i otwiera kartę — numer z serii KOR i wysyłka do KSeF idą przyciskiem
+ * na karcie, jak przy każdej fakturze.
  */
 export function RebateCorrectionDialog({
   query: q,
@@ -41,6 +46,9 @@ export function RebateCorrectionDialog({
   onClose: () => void;
 }) {
   const query = useRebateCorrection(q);
+  const router = useRouter();
+  const create = useIssueRebateCorrection();
+  const [issueError, setIssueError] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const draft = query.data;
@@ -61,21 +69,39 @@ export function RebateCorrectionDialog({
     }
   };
 
+  const issueCorrection = () => {
+    setIssueError(null);
+    create.mutate(q, {
+      onSuccess: (card) => router.push(`/finance/faktury/${card.id}`),
+      onError: (err) => setIssueError(apiErrorMessage(err, "Nie udało się wystawić korekty.")),
+    });
+  };
+  const issued = draft?.issued ?? null;
+
   return (
     <AppModal
       open
       onOpenChange={(open) => (open ? undefined : onClose())}
       title={title}
-      description="Korekta zbiorcza za miesiąc (art. 106j ust. 3). Szkic — NEXUS go nie zapisuje i nie wysyła do KSeF."
+      description="Korekta zbiorcza za miesiąc (art. 106j ust. 3). „Wystaw korektę” zapisuje ją jako szkic bez numeru; do KSeF idzie przyciskiem na karcie."
       size="lg"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
             Zamknij
           </Button>
-          <Button onClick={download} disabled={!draft?.xml_ready || downloading}>
+          <Button variant="outline" onClick={download} disabled={!draft?.xml_ready || downloading}>
             {downloading ? "Pobieranie…" : "Pobierz XML (szkic)"}
           </Button>
+          {issued ? (
+            <Button asChild>
+              <Link href={`/finance/faktury/${issued.id}`}>Otwórz korektę</Link>
+            </Button>
+          ) : (
+            <Button onClick={issueCorrection} disabled={!draft?.xml_ready || create.isPending}>
+              {create.isPending ? "Wystawianie…" : "Wystaw korektę"}
+            </Button>
+          )}
         </>
       }
     >
@@ -130,6 +156,17 @@ export function RebateCorrectionDialog({
               {draft.fx_rate && draft.fx_date
                 ? `Kurs NBP ${draft.currency} z ${formatIsoDatePl(draft.fx_date)}: ${draft.fx_rate} zł — do sprawdzenia z księgową.`
                 : `Brak kursu NBP ${draft.currency} z dnia roboczego przed końcem miesiąca.`}
+            </p>
+          ) : null}
+          {issued ? (
+            <p className="rounded-md bg-muted/50 px-2 py-1 text-sm text-foreground">
+              Korekta za ten miesiąc już jest: {issued.invoice_number ?? "szkic bez numeru"} ({issued.status_label.toLowerCase()}).
+              Drugiej NEXUS nie wystawi — popraw albo wycofaj tę na jej karcie.
+            </p>
+          ) : null}
+          {issueError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {issueError}
             </p>
           ) : null}
           {draft.xml_error ? (

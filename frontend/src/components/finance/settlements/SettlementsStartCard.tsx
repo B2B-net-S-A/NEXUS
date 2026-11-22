@@ -23,6 +23,7 @@ import {
   useSavePanelSwitches,
   type PanelState,
 } from "@/lib/api/consultant-panel";
+import { hasRole, useAuthStore } from "@/store/auth";
 
 interface Check {
   key: string;
@@ -138,7 +139,9 @@ export function startChecks(start: SettlementsStart): Check[] {
 }
 
 export function SettlementsStartCard() {
-  const start = useSettlementsStart(true);
+  // `GET …/settlements/start` jest tylko dla admina; Finanse dostawały 403 w konsoli.
+  const isAdmin = useAuthStore((state) => hasRole(state.user, "admin"));
+  const start = useSettlementsStart(isAdmin);
   const setModule = useSetSettlementsModule();
   const savePanel = useSavePanelSwitches();
   const client = useQueryClient();
