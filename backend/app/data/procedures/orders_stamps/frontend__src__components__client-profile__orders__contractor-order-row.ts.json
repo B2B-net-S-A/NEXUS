@@ -1,4 +1,4 @@
 {
-  "sha256": "e14473f0e5952eba98c65901f6bc81cd907f8d662a737373410696d18924306e",
+  "sha256": "bf545ea1db6853fd150f502e843eb51f92e456c179097fe2cee45d032d5cebb1",
   "source": "frontend/src/components/client-profile/orders/contractor-order-row.ts"
 }

@@ -16,7 +16,7 @@ import {
 
 const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
 
-const MONTHS = [
+export const MONTHS = [
   "Styczeń",
   "Luty",
   "Marzec",

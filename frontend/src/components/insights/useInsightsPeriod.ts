@@ -32,7 +32,10 @@ export function useInsightsPeriod(fallback: InsightsPeriodParams): {
   const setPeriod = useCallback(
     (next: InsightsPeriodParams) => {
       const params = writePeriodToParams(searchParams, next);
-      pushUrl(`/insights?${params.toString()}`);
+      // Bieżąca ścieżka: ten sam widok Firma stoi też w „Radzie” (/rada?tab=firma).
+      // Czytana przy kliknięciu, nie hookiem — testy mockują `next/navigation`.
+      const path = typeof window === "undefined" ? "/insights" : window.location.pathname;
+      pushUrl(`${path}?${params.toString()}`);
     },
     [pushUrl, searchParams],
   );

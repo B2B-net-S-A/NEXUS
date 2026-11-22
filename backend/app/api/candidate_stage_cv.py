@@ -2517,6 +2517,17 @@ async def select_stage_cv(
             404, "Nie znaleziono gotowego CV tej osoby w tamtej rekrutacji."
         )
     await copy_stage_cv(db, csv, source, user_id=current_user.id)
+    if payload.consent_screenshot_token:
+        # W tej samej transakcji co kopia: zły zrzut = brak kopii, a nie CV
+        # ze zgodą z innej rekrutacji (bliźniaki PKO BP, 17.11.2026).
+        from app.services.cv_consent_attach import attach_to_stage_copy
+
+        await attach_to_stage_copy(
+            db,
+            csv,
+            token=payload.consent_screenshot_token,
+            user_id=current_user.id,
+        )
     await db.commit()
     await db.refresh(csv)
     _schedule_qc_after_attach(background_tasks, stage_id, current_user.id)

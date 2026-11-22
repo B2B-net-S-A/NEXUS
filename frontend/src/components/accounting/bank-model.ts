@@ -5,6 +5,7 @@
 import type { StatusDotTone } from "@/components/ds";
 import type {
   BankCurrency,
+  BankDeleteResult,
   BankLine,
   BankPostResult,
   BankStatement,
@@ -77,6 +78,13 @@ export function postMessage(result: BankPostResult): string {
   if (result.created + result.rebuilt === 0) return `WB bez zmian: ${numbers}.`;
   if (result.rebuilt && !result.created) return `Przebudowano WB w buforze: ${numbers}.`;
   return `WB w buforze: ${numbers}. Zatwierdza osoba z listy „Księgowi”.`;
+}
+
+/** Toast po „Usuń wyciąg”: ile operacji i ile zapłat faktur zniknęło razem z plikiem. */
+export function deleteMessage(result: BankDeleteResult): string {
+  const paid = result.cost_matched + result.sales_matched;
+  const lines = operationsLabel(result.lines);
+  return paid ? `Usunięto wyciąg (${lines}) i zapłaty faktur z tego pliku: ${paid}.` : `Usunięto wyciąg (${lines}).`;
 }
 
 /** `?statement=12` — wyciąg otwarty z innego ekranu (np. ze źródła dokumentu WB). */

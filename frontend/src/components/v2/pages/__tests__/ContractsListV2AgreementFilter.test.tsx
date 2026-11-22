@@ -30,7 +30,9 @@ function renderList() {
 }
 
 function lastListParams(): Record<string, unknown> {
-  const calls = getMock.mock.calls.filter((c) => c[0] === "/api/contracts");
+  const calls = getMock.mock.calls.filter(
+    (c) => c[0] === "/api/contracts" && c[1]?.params?.page_size !== 1,
+  );
   return (calls[calls.length - 1]?.[1] as { params: Record<string, unknown> })
     .params;
 }

@@ -1,11 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { ComplianceBanner } from "@/components/compliance/ComplianceBanner";
+import { FinanceAreaNav, ledgerItemKey } from "@/components/finance/FinanceAreaNav";
 import { QueryStateNotice } from "@/components/ds";
 import { RequirePermission } from "@/components/RequirePermission";
 import { useLedgerConfig, type LedgerConfig } from "@/lib/api/accounting";
@@ -17,7 +17,6 @@ import {
   monthTitle,
   readPeriod,
   shiftPeriod,
-  visibleTabs,
   type PeriodRef,
 } from "./ledger-model";
 
@@ -63,7 +62,6 @@ function ShellBody({ config, children }: { config: LedgerConfig; children: React
     setPeriodState(next);
     writePeriod(next);
   }, []);
-  const tabs = visibleTabs(config);
   const current = activeTab(pathname);
   const { year } = findPeriod(config, period);
   const value = useMemo(() => ({ config, period, setPeriod }), [config, period, setPeriod]);
@@ -76,7 +74,7 @@ function ShellBody({ config, children }: { config: LedgerConfig; children: React
       <div className="space-y-3.5 pb-16">
         <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h1 className="font-display text-xl font-semibold leading-tight tracking-tight">Księgowość</h1>
+            <h1 className="font-display text-xl font-semibold leading-tight tracking-tight">Finanse</h1>
             <p className="min-w-0 text-[13px] text-muted-foreground">{current.description}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -110,26 +108,9 @@ function ShellBody({ config, children }: { config: LedgerConfig; children: React
             </span>
           </div>
         </header>
-        <nav aria-label="Księgowość" className="flex max-w-full gap-0.5 overflow-x-auto border-b border-border">
-          {tabs.map((tab) => {
-            const active = tab.href === current.href;
-            return (
-              <Link
-                key={tab.href}
-                href={`${tab.href}${query}`}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "-mb-px inline-flex shrink-0 items-center whitespace-nowrap border-b-2 px-3 py-1.5 text-[13px] transition-colors pointer-coarse:min-h-10",
-                  active
-                    ? "border-primary font-semibold text-foreground"
-                    : "border-transparent font-medium text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {tab.label}
-              </Link>
-            );
-          })}
-        </nav>
+        {/* Makieta 18.11.2026: Księga to grupa modułu „Finanse” — ta sama
+            nawigacja co na `/finance`, miesiąc zostaje w adresie. */}
+        <FinanceAreaNav active={ledgerItemKey(current.href)} ledgerQuery={query} />
         {/* „Przepisy” (15.11.2026): zmiany dla Księgowości do decyzji; bez nich pasek znika. */}
         <ComplianceBanner role="accounting" />
         {children}

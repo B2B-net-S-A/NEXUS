@@ -569,9 +569,12 @@ z odnośnikiem `hr_documents.leave_request_id`.
     i przycisk „Ustaw kwotę z reguły”. Uwaga z arkusza (`settlement_note`) jest
     w migawce, którą widzą tylko Płace.
   - Domknięcie po rekruterze z wyłączonym kontem nie daje premii rekrutera nikomu:
-    osobę zweryfikowała u tego klienta osoba, która odeszła
+    osobę zweryfikowała w tej rekrutacji osoba, która odeszła
     (`PlacementContext.closed_after_departure`). DL dostaje swoją premię DL
     (02.11.2026), rekruter, który domknął, nic (decyzja Artura 06.11.2026).
+    Weryfikacja przez osobę, która odeszła, w innej rekrutacji u tego klienta
+    zabiera premię rekrutera tylko DL-owi, który sam zweryfikował
+    (`departed_at_client`, doprecyzowanie 17.11.2026, `premia-200-tcm-gwarancja.md`).
 - Zamknięcie miesiąca: propozycje premii muszą mieć decyzję, ostrzeżenia wymagają
   potwierdzenia, linie zamrożone w `payroll_lines`, timesheety zablokowane.
   Ponowne otwarcie tylko admin, z powodem. Zamknięcie blokuje okres i timesheety

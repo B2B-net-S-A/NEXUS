@@ -716,7 +716,7 @@ function CardBody({
               </p>
             ) : null}
           </section>
-          {card.rebate ? <InvoiceRebateBox rebate={card.rebate} /> : null}
+          {card.rebate ? <InvoiceRebateBox rebate={card.rebate} clientId={card.client_id} /> : null}
           {card.ksef_number ? (
             <section
               className="rounded-lg border border-border bg-card px-4 py-3 text-sm"

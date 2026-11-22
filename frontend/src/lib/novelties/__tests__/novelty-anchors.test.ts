@@ -10,15 +10,11 @@ import { describe, expect, it } from "vitest";
 import {
   acknowledgeStep,
   advanceTour,
-  cardCandidate,
-  dotNovelties,
-  eventForClick,
   onEveryClick,
   intersectRects,
-  pendingCount,
   placeBeside,
-  requiredForPath,
   startAllows,
+  TOUR_STEP_CARD,
   withinAnchor,
   type Novelty,
 } from "@/lib/novelties/logic";
@@ -112,6 +108,7 @@ function novelty(overrides: Partial<Novelty> = {}): Novelty {
     shipped_on: "2026-10-28",
     where: "Rekrutacja",
     href: "/jobs",
+    practice_href: null,
     dot_anchor: "jobs.sources.search",
     used_anchor: "candidate.profile.pick",
     path_prefix: null,
@@ -138,66 +135,6 @@ function element(anchor: string): HTMLElement {
 }
 
 describe("logika nowości", () => {
-  it("licznik ✦ pomija drobiazgi i zaliczone", () => {
-    expect(
-      pendingCount([
-        novelty(),
-        novelty({ id: "b", tier: "dot" }),
-        novelty({ id: "c", done: true }),
-      ]),
-    ).toBe(1);
-  });
-
-  it("karta tylko przy widocznej kropce nowości do przeklikania", () => {
-    const list = [novelty({ id: "proc", tier: "process" }), novelty()];
-    expect(cardCandidate(list, new Set(["jobs.sources.search"]))?.id).toBe(
-      "wybieram",
-    );
-    expect(cardCandidate(list, new Set())).toBeNull();
-    expect(
-      cardCandidate(
-        [novelty({ show_card: false })],
-        new Set(["jobs.sources.search"]),
-      ),
-    ).toBeNull();
-  });
-
-  it("okno zmiany procesu tylko na swoim ekranie i tylko gdy wymagane", () => {
-    const proc = novelty({
-      id: "umowa",
-      tier: "process",
-      path_prefix: "/contracts",
-      required_now: true,
-    });
-    expect(requiredForPath([proc], "/contracts")?.id).toBe("umowa");
-    expect(requiredForPath([proc], "/jobs/1")).toBeNull();
-    expect(
-      requiredForPath([{ ...proc, required_now: false }], "/contracts"),
-    ).toBeNull();
-  });
-
-  it("nowość do przeklikania wymaga okna na swoim ekranie (href), drobiazg nie (30.10.2026)", () => {
-    const tour = novelty({ required_now: true });
-    expect(requiredForPath([tour], "/jobs/12")?.id).toBe("wybieram");
-    expect(requiredForPath([tour], "/candidates")).toBeNull();
-    const dot = novelty({ id: "kropka", tier: "dot", required_now: true });
-    expect(requiredForPath([dot], "/jobs")).toBeNull();
-    // Ekran „/” to tylko pulpit, nie każdy adres.
-    const home = novelty({ id: "pulpit", href: "/", required_now: true });
-    expect(requiredForPath([home], "/")?.id).toBe("pulpit");
-    expect(requiredForPath([home], "/jobs")).toBeNull();
-  });
-
-  it("w trakcie Startu i na liście Startu żadna nowość nie wyskakuje", () => {
-    const tour = novelty({ required_now: true });
-    const startPending = novelty({ id: "start-x", start: true, done: false });
-    expect(requiredForPath([tour, startPending], "/jobs")).toBeNull();
-    expect(requiredForPath([tour], "/start")).toBeNull();
-    expect(
-      requiredForPath([tour, { ...startPending, done: true }], "/jobs")?.id,
-    ).toBe("wybieram");
-  });
-
   it("krok przechodzi po kliknięciu w kotwicę (także w jej środek), a ostatni kończy", () => {
     const n = novelty();
     expect(
@@ -235,29 +172,10 @@ describe("logika nowości", () => {
     expect(acknowledgeStep(n, { noveltyId: n.id, step: 1 })).toBe("finished");
   });
 
-  it("użycie w pracy zalicza nowość, drobiazg — klik w jego element", () => {
-    expect(eventForClick(novelty(), element("candidate.profile.pick"))).toBe(
-      "used",
-    );
-    expect(
-      eventForClick(novelty({ done: true }), element("candidate.profile.pick")),
-    ).toBeNull();
-    const dot = novelty({
-      tier: "dot",
-      dot_anchor: "jarvis.mascot.hide",
-      used_anchor: null,
-      steps: [],
-    });
-    expect(eventForClick(dot, element("jarvis.mascot.hide"))).toBe(
-      "dot_clicked",
-    );
-    expect(eventForClick(dot, element("inne"))).toBeNull();
-  });
-
   // „Zmień plik” (14.11.2026: 23 osoby widziały kropkę, 0 zaliczeń). Menu Radix
   // otwiera się na `pointerdown` i ustawia `body { pointer-events: none }`, więc
   // `click` przychodzi na `<html>`, a nie na przycisk.
-  it("klik w wyzwalacz menu Radix (click na <html>) zalicza kropkę przycisku", () => {
+  it("klik w wyzwalacz menu Radix (click na <html>) trafia w kotwicę przycisku", () => {
     document.body.innerHTML =
       '<button data-tour="person.cv.change-original"><span>Zmień plik</span></button><p>obok</p>';
     const targets: (EventTarget | null)[] = [];
@@ -272,16 +190,9 @@ describe("logika nowości", () => {
     label.dispatchEvent(new Event("pointerdown", { bubbles: true }));
     other.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     stop();
-    const dot = novelty({
-      tier: "dot",
-      dot_anchor: "person.cv.change-original",
-      used_anchor: null,
-      steps: [],
-    });
-    expect(targets.map((t) => eventForClick(dot, t))).toEqual([
-      "dot_clicked",
-      null,
-    ]);
+    expect(
+      targets.map((t) => withinAnchor(t, "person.cv.change-original")),
+    ).toEqual([true, false]);
     document.body.innerHTML = "";
   });
 });
@@ -316,6 +227,18 @@ describe("miejsce karty kroku", () => {
     }
   });
 
+  it("szacunek karty mieści najwyższą kartę: „Rozumiem” nie wychodzi pod dolną krawędź", () => {
+    // Tester 19.11.2026, 1280 × 720: „+ Czy szuka?” na liście kandydatów
+    // (cel 507/364, 90 × 28). Karta z dwulinijkowym tytułem ma 210 px, a krok
+    // „Rozumiem” z dopiskiem „Tutaj tego miejsca nie widać…” 240 px. Przy
+    // szacunku 170 px karta szła pod cel i kończyła się na 757 px.
+    const tallest = 240;
+    const target = { top: 507, left: 364, width: 90, height: 28 };
+    const at = placeBeside(target, TOUR_STEP_CARD, viewport);
+    expect(TOUR_STEP_CARD.height).toBeGreaterThanOrEqual(tallest);
+    expect(at.top + tallest).toBeLessThanOrEqual(viewport.height);
+  });
+
   it("cel prawie na cały ekran: karta zostaje w oknie, choć wchodzi na cel", () => {
     const at = placeBeside(
       { top: 20, left: 100, width: 1100, height: 680 },
@@ -345,12 +268,6 @@ describe("widoczna część kotwicy", () => {
 });
 
 describe("Start w NEXUSIE", () => {
-  it("przeklikanie Startu nie ma kropki ani licznika ✦", () => {
-    const list = [novelty(), novelty({ id: "start-x", start: true, show_card: false })];
-    expect(dotNovelties(list).map((n) => n.id)).toEqual(["wybieram"]);
-    expect(pendingCount(list)).toBe(1);
-  });
-
   it("zatrzymana osoba wchodzi tylko na Start, pulpit i panel z wyłącznikiem", () => {
     for (const path of ["/", "/start", "/dashboard", "/dashboard/delivery-lead", "/settings/nowosci", "/onboarding"])
       expect(startAllows(path, false), path).toBe(true);

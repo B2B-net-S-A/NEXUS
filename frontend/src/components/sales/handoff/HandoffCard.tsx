@@ -203,7 +203,11 @@ export function HandoffCard({
       {showVerdict && <VerdictPanel handoff={handoff} onSaved={(kind) => onVerdict?.(kind)} />}
       <ContactLine handoff={handoff} />
       <FromCall handoff={handoff} />
-      {!embedded && <TalkingPoints companyId={handoff.company.id} className="border-t border-border pt-3" />}
+      {!embedded && (
+        <div data-tour="sales.my-day.prep-points" className="empty:hidden">
+          <TalkingPoints companyId={handoff.company.id} className="border-t border-border pt-3" />
+        </div>
+      )}
       {!embedded && <WhoWeKnow companyId={handoff.company.id} companyName={handoff.company.name} />}
       <div className="flex flex-wrap items-center gap-1 border-t border-border pt-3">
         {acting && !handoff.from_calendar && !showTerm && (

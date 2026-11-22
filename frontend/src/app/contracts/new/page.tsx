@@ -1,34 +1,22 @@
 "use client";
 
+// „Nowy kontrakt” w wariancie B (decyzja Artura z 19.11.2026, makiety modułu
+// Kontrakty): po lewej zwarty formularz w trzech sekcjach (Strony umowy, Okres,
+// Stawki) i zwinięte „Zaawansowane”, po prawej przyklejona karta
+// „Podsumowanie”, która na bieżąco mówi, co powstanie, i trzyma jedyny
+// przycisk główny. Pola, walidacja, zapis i bramki — bez zmian.
+
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import {
-  AlertCircle,
-  ArrowLeft,
-  Check,
-  ChevronsUpDown,
-  Save,
-  Search,
-  X,
-} from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, ChevronsUpDown, Search, X } from "lucide-react";
 import { AxiosError } from "axios";
-import api, {
-  contractsApi,
-  extractErrorMsg,
-  CONTRACT_FIELD_LABELS,
-} from "@/lib/api";
+import api, { contractsApi, extractErrorMsg, CONTRACT_FIELD_LABELS } from "@/lib/api";
+import { fetchRecruitmentRates } from "@/lib/api/recruitmentRates";
 import { RequirePermission } from "@/components/RequirePermission";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   Command,
   CommandEmpty,
@@ -40,26 +28,33 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { B2B_END_DATE_HOW, b2bEndDateLocked } from "@/lib/contract-end-date";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
 import { CandidateRateScheduleFields } from "@/components/contracts/CandidateRateScheduleFields";
+import { NewContractSummaryCard } from "@/components/contracts/new/NewContractSummaryCard";
 import {
   buildCandidateRateSchedule,
   scheduleHasBackwardsRange,
   type RateScheduleRow,
 } from "@/lib/contract-rate-schedule";
+import { relativeDays } from "@/lib/contract-happening";
+import { formatIsoDatePl } from "@/lib/date-pl";
+import { currencySymbol, rateUnitSuffix } from "@/lib/money";
 import {
-  canManageCandidateFinance,
-  useAuthStore,
-} from "@/store/auth";
+  advancedSummary,
+  candidateRateOnStart,
+  contractMoney,
+  CREATE_STATUS_LABEL,
+  laterFields,
+  recruitmentRateHint,
+  type CreateStatus,
+  type RecruitmentRateHint,
+} from "@/lib/new-contract-summary";
+import { CONTRACT_TYPE_OPTIONS } from "@/lib/filter-options";
+import { canManageCandidateFinance, useAuthStore } from "@/store/auth";
 import { warsawToday } from "@/lib/warsaw-date";
 import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
 import { permissionLabel } from "@/lib/permissions";
@@ -82,8 +77,157 @@ type RecruitmentOption = {
 
 type ClientOption = { id: number; name: string };
 
+const CURRENCIES = ["PLN", "EUR", "USD", "GBP"] as const;
+
+const WORK_MODE_OPTIONS = [
+  { value: "remote", label: "Zdalnie" },
+  { value: "hybrid", label: "Hybrydowo" },
+  { value: "onsite", label: "Stacjonarnie" },
+] as const;
+
+/**
+ * Pola, które mieszkają w „Zaawansowanych”. Błąd któregoś z nich (z walidacji
+ * albo z 409 serwera) rozwija sekcję, żeby komunikat nie stał pod zwiniętym
+ * nagłówkiem.
+ */
+const ADVANCED_FIELDS = new Set([
+  "status",
+  "currency",
+  "rate_client_currency",
+  "rate_candidate_currency",
+  "rate_unit",
+  "billing_hours_per_month",
+  "framework_rate",
+  "framework_rate_schedule",
+  "candidate_rate_schedule",
+  "order_consumption",
+  "order_consumption_unit",
+]);
+
 function todayISO(): string {
   return warsawToday();
+}
+
+function daysFromToday(iso: string): number | null {
+  const a = Date.parse(`${todayISO()}T00:00:00Z`);
+  const b = Date.parse(`${iso.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(a) || Number.isNaN(b)) return null;
+  return Math.round((b - a) / 86_400_000);
+}
+
+function FieldLabel({
+  htmlFor,
+  children,
+  required,
+  optional,
+  className,
+}: {
+  htmlFor?: string;
+  children: React.ReactNode;
+  required?: boolean;
+  optional?: boolean;
+  className?: string;
+}) {
+  return (
+    <Label htmlFor={htmlFor} className={cn("mb-1 block text-[12.5px] font-medium text-foreground", className)}>
+      {children}
+      {required ? <span className="text-destructive"> *</span> : null}
+      {optional ? <span className="ml-1 font-normal text-muted-foreground">(opcjonalnie)</span> : null}
+    </Label>
+  );
+}
+
+/**
+ * Etykieta z „Wyczyść” po prawej. Przycisk stoi w wierszu etykiety, a nie obok
+ * pola — w dwóch kolumnach przy 1280 px zabierał miejsce i ucinał nazwisko.
+ */
+function FieldHead({
+  label,
+  required,
+  optional,
+  clearLabel,
+  onClear,
+}: {
+  label: string;
+  required?: boolean;
+  optional?: boolean;
+  clearLabel: string;
+  onClear: (() => void) | null;
+}) {
+  return (
+    <div className="mb-1 flex items-center justify-between gap-2">
+      <FieldLabel required={required} optional={optional} className="mb-0">
+        {label}
+      </FieldLabel>
+      {onClear ? (
+        <button
+          type="button"
+          title={clearLabel}
+          aria-label={clearLabel}
+          onClick={onClear}
+          className="hit-area inline-flex items-center gap-1 text-[11.5px] text-muted-foreground hover:text-foreground"
+        >
+          <X className="size-3" aria-hidden />
+          Wyczyść
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Sekcja formularza: numer, tytuł i jedno zdanie po lewej, pola po prawej. */
+function Section({
+  n,
+  title,
+  note,
+  children,
+}: {
+  n: number;
+  title: string;
+  note: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="grid grid-cols-1 gap-3 px-5 py-4 md:grid-cols-[132px_minmax(0,1fr)] md:gap-5">
+      <div>
+        <h2 className="flex items-baseline gap-1.5 text-[13.5px] font-semibold text-foreground">
+          <span className="tabular-nums text-muted-foreground">{n}</span>
+          {title}
+        </h2>
+        <p className="mt-1 text-[11.5px] leading-4 text-muted-foreground">{note}</p>
+      </div>
+      <div className="min-w-0">{children}</div>
+    </section>
+  );
+}
+
+function Hint({ children }: { children: React.ReactNode }) {
+  return <p className="mt-1 text-[11.5px] leading-4 text-muted-foreground">{children}</p>;
+}
+
+/** Podpis pod polem stawki: stawka z rekrutacji i — przy stawce konsultanta — „Użyj”. */
+function RecruitmentHintLine({
+  hint,
+  onUse,
+}: {
+  hint: RecruitmentRateHint | null;
+  onUse?: (value: string) => void;
+}) {
+  if (!hint) return null;
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[11.5px] leading-4 text-muted-foreground">
+      <span>{hint.text}</span>
+      {hint.useValue && onUse ? (
+        <button
+          type="button"
+          onClick={() => onUse(hint.useValue as string)}
+          className="font-medium text-primary hover:underline"
+        >
+          Użyj
+        </button>
+      ) : null}
+    </p>
+  );
 }
 
 function NewContractForm() {
@@ -120,6 +264,7 @@ function NewContractForm() {
   const [billingHours, setBillingHours] = useState(String(HOURS_PER_MONTH));
   // Effective-dated candidate-rate schedule. First row = stawka od startu
   // (effective_from puste ⇒ data rozpoczęcia). Kolejne wiersze = zmiany w czasie.
+  // Pierwszy wiersz edytuje pole „Konsultant dostaje”, kolejne — „Zaawansowane”.
   const [rateSchedule, setRateSchedule] = useState<RateScheduleRow[]>([
     { rate: "", effectiveFrom: "" },
   ]);
@@ -137,11 +282,14 @@ function NewContractForm() {
   const [orderConsumption, setOrderConsumption] = useState("");
   const [orderConsumptionUnit, setOrderConsumptionUnit] = useState("rbh");
 
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [error, setError] = useState("");
   // Błędy per pole: klucz = nazwa pola z API (candidate_id, end_date, …).
-  // Pole z wpisem dostaje czerwone obramowanie + opis pod spodem; baner na
-  // górze mówi zbiorczo „Uzupełnij brakujące pola".
+  // Pole z wpisem dostaje czerwone obramowanie + opis pod spodem; karta
+  // „Podsumowanie” mówi zbiorczo „Uzupełnij brakujące pola” przy przycisku.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const advancedHasError = Object.keys(fieldErrors).some((field) => ADVANCED_FIELDS.has(field));
+  const showAdvanced = advancedOpen || advancedHasError;
 
   const clearField = (field: string) =>
     setFieldErrors((prev) => {
@@ -220,12 +368,26 @@ function NewContractForm() {
     [clientsQuery.data, clientId],
   );
 
-  const selectedJobId = useMemo(
-    () =>
-      recruitmentsQuery.data?.find((r) => String(r.stage_id) === stageId)
-        ?.job_id ?? null,
+  const selectedRecruitment = useMemo(
+    () => recruitmentsQuery.data?.find((r) => String(r.stage_id) === stageId) ?? null,
     [recruitmentsQuery.data, stageId],
   );
+  const selectedJobId = selectedRecruitment?.job_id ?? null;
+
+  // Stawki z rekrutacji (D7): podpowiedź pod polami stawek. Tylko odczyt —
+  // nic się nie wpisuje samo, różnica nie blokuje zapisu, a awaria zapytania
+  // chowa podpis (jak w „Nowym kontraktorze”). Tylko przy wybranej rekrutacji:
+  // bez niej API oddaje najnowszą parę u klienta, która bywa sprzed lat
+  // (ta sama reguła co karta „Stawki finansowe” kontraktu).
+  const recruitmentRatesQuery = useQuery({
+    queryKey: ["recruitment-rates", Number(clientId), candidate?.id ?? null, selectedJobId],
+    queryFn: () =>
+      fetchRecruitmentRates(Number(clientId), candidate?.id as number, selectedJobId),
+    enabled: canManageFinance && !!candidate && !!clientId && selectedJobId != null,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const recruitmentRate = recruitmentRatesQuery.data?.rate ?? null;
 
   // Status „Aktywny"/„Kończący się" podnosi wymagalność pól aktywacyjnych —
   // etykiety dostają gwiazdkę dynamicznie, walidacja w handleSubmit.
@@ -366,16 +528,20 @@ function NewContractForm() {
       return;
     }
     if (canManageFinance) {
+      // Błędy harmonogramów dotyczą pól z „Zaawansowanych” — rozwijamy je,
+      // żeby było widać, który etap poprawić.
       const steps = rateSchedule
         .filter((r) => r.rate.trim() !== "")
         .map((r) => r.effectiveFrom || startDate);
       if (new Set(steps).size !== steps.length) {
+        setAdvancedOpen(true);
         setError(
           "Każda zmiana stawki musi mieć inną datę „Obowiązuje od”.",
         );
         return;
       }
       if (scheduleHasBackwardsRange(rateSchedule, startDate)) {
+        setAdvancedOpen(true);
         setError('„Obowiązuje do” nie może być wcześniejsze niż „Obowiązuje od”.');
         return;
       }
@@ -383,12 +549,14 @@ function NewContractForm() {
         .filter((r) => r.rate.trim() !== "")
         .map((r) => r.effectiveFrom || startDate);
       if (new Set(frameworkSteps).size !== frameworkSteps.length) {
+        setAdvancedOpen(true);
         setError(
           "Każdy etap stawki z umowy ramowej musi mieć inną datę „Obowiązuje od”.",
         );
         return;
       }
       if (scheduleHasBackwardsRange(frameworkRateSchedule, startDate)) {
+        setAdvancedOpen(true);
         setError('„Obowiązuje do” nie może być wcześniejsze niż „Obowiązuje od”.');
         return;
       }
@@ -396,73 +564,117 @@ function NewContractForm() {
     createMutation.mutate();
   };
 
+  // ── Podsumowanie ──────────────────────────────────────────────────────────
+  const rateClientNum = parseDecimalInput(rateClient);
+  const rateCandidateNum = candidateRateOnStart(rateSchedule, startDate);
+  const money = contractMoney({
+    clientRate: rateClientNum,
+    candidateRate: rateCandidateNum,
+    clientCurrency: rateClientCurrency,
+    candidateCurrency: rateCandidateCurrency,
+    rateUnit,
+    billingHours: Number(billingHours) || null,
+  });
+  const contractTypeLabel =
+    CONTRACT_TYPE_OPTIONS.find((o) => o.value === contractType)?.label ?? contractType;
+  const startDays = startDate ? daysFromToday(startDate) : null;
+  const endLabel = endDateLocked
+    ? "bezterminowo"
+    : endDate
+      ? `do ${formatIsoDatePl(endDate)}`
+      : "bez daty końca";
+  const statusOptions = (["draft", "active", "ending", "ended"] as const)
+    // „Kończący się” wymaga daty końca, a nowa umowa B2B jej nie ma (N3).
+    .filter((value) => value !== "ending" || contractType !== "b2b")
+    .map((value) => ({ value, label: CREATE_STATUS_LABEL[value] }));
+  const rateSuffix = (currency: string) => `${currencySymbol(currency)}${rateUnitSuffix(rateUnit)}`;
+  const clientHint = recruitmentRateHint(recruitmentRate, "client", {
+    value: rateClient,
+    unit: rateUnit,
+    currency: rateClientCurrency,
+  });
+  const candidateHint = recruitmentRateHint(recruitmentRate, "candidate", {
+    value: rateSchedule[0]?.rate ?? "",
+    unit: rateUnit,
+    currency: rateCandidateCurrency,
+  });
+  const setFirstCandidateRate = (value: string) => {
+    setRateSchedule((rows) =>
+      rows.map((row, i) => (i === 0 ? { ...row, rate: sanitizeDecimalInput(value) } : row)),
+    );
+    clearField("rate_candidate");
+  };
+  const laterCandidateSteps = rateSchedule.slice(1).filter((r) => r.rate.trim() !== "").length;
+
   return (
-    <div className="max-w-3xl mx-auto space-y-4">
-      {/* Header */}
-      <div className="space-y-1">
+    <div className="mx-auto max-w-6xl space-y-3.5">
+      <header className="space-y-1">
         <Link
           href="/contracts"
-          className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
         >
-          <ArrowLeft className="h-3.5 w-3.5" /> Kontrakty
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Kontrakty
         </Link>
-        <h1 className="text-2xl font-bold tracking-heading-tight text-foreground">
+        <h1 className="text-[22px] font-semibold leading-7 tracking-heading-tight text-foreground">
           Nowy kontrakt
         </h1>
-        <p className="text-sm text-muted-foreground">
-          Powiąż kandydata z klientem. Resztę szczegółów (dokumenty, draft umowy,
-          aneksy) uzupełnisz po utworzeniu.
+        <p className="text-[13px] text-muted-foreground">
+          Powiąż kandydata z klientem. Podsumowanie po prawej mówi, co powstanie;
+          umowę, dokumenty i aneksy dodasz po utworzeniu.
         </p>
-      </div>
+      </header>
 
       {/* noValidate: walidację prowadzi handleSubmit (polskie komunikaty per
           pole) — natywne dymki przeglądarki mówiłyby w jej języku i tylko
           o pierwszym polu. */}
-      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-        {error && (
-          <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-4 py-2 text-sm text-destructive">
-            <AlertCircle className="h-4 w-4 shrink-0" /> {error}
-          </div>
-        )}
-
-        {/* Strony umowy */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Strony umowy</CardTitle>
-            <CardDescription>
-              Kandydat i klient są wymagane. Rekrutację możesz dobrać z listy
-              kandydata.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
+      <form
+        onSubmit={handleSubmit}
+        noValidate
+        className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px]"
+      >
+        <div className="divide-y divide-border/70 rounded-xl border border-border bg-card shadow-xs">
+          <Section n={1} title="Strony umowy" note="Kandydat i klient są wymagane, reszta pomaga później.">
+            <div className="grid grid-cols-1 gap-x-3.5 gap-y-3 sm:grid-cols-2">
               {/* Kandydat */}
-              <div>
-                <Label className="mb-1.5 block">
-                  Kandydat <span className="text-destructive">*</span>
-                </Label>
-                <div className="flex gap-2">
+              <div className="min-w-0">
+                <FieldHead
+                  label="Kandydat"
+                  required
+                  clearLabel="Wyczyść kandydata"
+                  onClear={
+                    candidate
+                      ? () => {
+                          setCandidate(null);
+                          setStageId("");
+                        }
+                      : null
+                  }
+                />
+                <div>
                   <Popover open={candidateOpen} onOpenChange={setCandidateOpen}>
                     <PopoverTrigger asChild>
                       <Button
                         type="button"
                         variant="outline"
+                        title={candidate?.full_name}
                         className={cn(
-                          "w-full justify-between font-normal",
+                          "w-full justify-between px-3 font-normal",
                           fieldErrors.candidate_id &&
                             "border-destructive focus-visible:ring-destructive",
                         )}
                       >
-                        <span className="flex items-center gap-2 truncate">
-                          <Search className="h-4 w-4 shrink-0 opacity-60" />
-                          {candidate ? candidate.full_name : "Wybierz kandydata…"}
+                        <span className="flex min-w-0 items-center gap-2">
+                          <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                          <span className={cn("truncate", !candidate && "text-muted-foreground")}>
+                            {candidate ? candidate.full_name : "Wybierz kandydata…"}
+                          </span>
                         </span>
-                        <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                        <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent
                       align="start"
-                      className="w-(--radix-popover-trigger-width) p-0"
+                      className="w-(--radix-popover-trigger-width) min-w-72 p-0"
                     >
                       <Command shouldFilter={false}>
                         <CommandInput
@@ -515,51 +727,43 @@ function NewContractForm() {
                       </Command>
                     </PopoverContent>
                   </Popover>
-                  {candidate ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      title="Wyczyść kandydata"
-                      onClick={() => {
-                        setCandidate(null);
-                        setStageId("");
-                      }}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  ) : null}
                 </div>
                 {fieldError("candidate_id")}
               </div>
 
               {/* Klient */}
-              <div>
-                <Label className="mb-1.5 block">
-                  Klient <span className="text-destructive">*</span>
-                </Label>
-                <div className="flex gap-2">
+              <div className="min-w-0">
+                <FieldHead
+                  label="Klient"
+                  required
+                  clearLabel="Wyczyść klienta"
+                  onClear={clientId ? () => setClientId("") : null}
+                />
+                <div>
                   <Popover open={clientOpen} onOpenChange={setClientOpen}>
                     <PopoverTrigger asChild>
                       <Button
                         type="button"
                         variant="outline"
+                        title={selectedClientName ?? undefined}
                         className={cn(
-                          "w-full justify-between font-normal",
+                          "w-full justify-between px-3 font-normal",
                           fieldErrors.client_id &&
                             "border-destructive focus-visible:ring-destructive",
                         )}
                       >
-                        <span className="flex items-center gap-2 truncate">
-                          <Search className="h-4 w-4 shrink-0 opacity-60" />
-                          {selectedClientName ?? "Wybierz klienta…"}
+                        <span className="flex min-w-0 items-center gap-2">
+                          <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                          <span className={cn("truncate", !selectedClientName && "text-muted-foreground")}>
+                            {selectedClientName ?? "Wybierz klienta…"}
+                          </span>
                         </span>
-                        <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                        <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent
                       align="start"
-                      className="w-(--radix-popover-trigger-width) p-0"
+                      className="w-(--radix-popover-trigger-width) min-w-72 p-0"
                     >
                       <Command shouldFilter={false}>
                         <CommandInput
@@ -615,125 +819,92 @@ function NewContractForm() {
                       </Command>
                     </PopoverContent>
                   </Popover>
-                  {clientId ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      title="Wyczyść klienta"
-                      onClick={() => setClientId("")}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  ) : null}
                 </div>
                 {fieldError("client_id")}
               </div>
-            </div>
 
-            {/* Rekrutacja (opcjonalna, daje job_id) */}
-            <div>
-              <Label className="mb-1.5 block">Rekrutacja (opcjonalnie)</Label>
-              <div className="flex gap-2">
-                <Select value={stageId} onValueChange={setStageId} disabled={!candidate}>
-                  <SelectTrigger aria-label="Rekrutacja">
-                    <SelectValue
-                      placeholder={
-                        candidate
-                          ? "Wybierz rekrutację kandydata…"
-                          : "Najpierw wybierz kandydata"
-                      }
-                    />
+              {/* Rekrutacja (opcjonalna, daje job_id) */}
+              <div className="min-w-0 sm:col-span-2">
+                <FieldHead
+                  label="Rekrutacja"
+                  optional
+                  clearLabel="Wyczyść rekrutację"
+                  onClear={stageId ? () => setStageId("") : null}
+                />
+                <div>
+                  <Select value={stageId} onValueChange={setStageId} disabled={!candidate}>
+                    <SelectTrigger
+                      aria-label="Rekrutacja"
+                      className="h-9 [&>span]:truncate [&>span]:text-left"
+                      title={selectedRecruitment?.job_title}
+                    >
+                      <SelectValue
+                        placeholder={
+                          candidate
+                            ? "Wybierz rekrutację kandydata…"
+                            : "Najpierw wybierz kandydata"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {visibleRecruitments.map((r) => (
+                        <SelectItem key={r.stage_id} value={String(r.stage_id)}>
+                          {r.job_title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Line Manager — osoba po stronie klienta, pod którą raportuje kontraktor */}
+              <div className="min-w-0">
+                <FieldLabel htmlFor="new-contract-line-manager" optional>
+                  Line manager
+                </FieldLabel>
+                <Input
+                  id="new-contract-line-manager"
+                  type="text"
+                  value={lineManager}
+                  onChange={(e) => setLineManager(e.target.value)}
+                  placeholder="Osoba po stronie klienta"
+                  className="h-9"
+                />
+              </div>
+
+              <div className="min-w-0">
+                <FieldLabel optional>Tryb pracy</FieldLabel>
+                <Select
+                  value={workMode}
+                  onValueChange={(v) => {
+                    setWorkMode(v === "none" ? "" : v);
+                    clearField("work_mode");
+                  }}
+                >
+                  <SelectTrigger
+                    aria-label="Tryb pracy"
+                    className={cn("h-9", fieldErrors.work_mode && "border-destructive")}
+                  >
+                    <SelectValue placeholder="Nie określono" />
                   </SelectTrigger>
                   <SelectContent>
-                    {visibleRecruitments.map((r) => (
-                      <SelectItem key={r.stage_id} value={String(r.stage_id)}>
-                        {r.job_title}
+                    <SelectItem value="none">Nie określono</SelectItem>
+                    {WORK_MODE_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {stageId ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    title="Wyczyść rekrutację"
-                    aria-label="Wyczyść rekrutację"
-                    onClick={() => setStageId("")}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                ) : null}
+                {fieldError("work_mode")}
               </div>
             </div>
+          </Section>
 
-            {/* Line Manager — osoba po stronie klienta, pod którą raportuje kontraktor */}
-            <div>
-              <Label className="mb-1.5 block">Line Manager</Label>
-              <Input
-                type="text"
-                value={lineManager}
-                onChange={(e) => setLineManager(e.target.value)}
-                placeholder="Imię i nazwisko (po stronie klienta)"
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Warunki */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Warunki</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <Label className="mb-1.5 block">
-                  Data rozpoczęcia <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => {
-                    setStartDate(e.target.value);
-                    clearField("start_date");
-                  }}
-                  className={cn(fieldErrors.start_date && "border-destructive")}
-                />
-                {fieldError("start_date")}
-              </div>
-              <div>
-                <Label className="mb-1.5 block">
-                  Data zakończenia{" "}
-                  <span className="text-xs text-muted-foreground">
-                    (opcjonalna)
-                  </span>
-                </Label>
-                {endDateLocked ? (
-                  <p
-                    className="rounded-md border border-dashed border-border px-3 py-2 text-sm text-muted-foreground"
-                    data-testid="end-date-b2b-indefinite"
-                  >
-                    Bezterminowo. {B2B_END_DATE_HOW}
-                  </p>
-                ) : (
-                  <Input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => {
-                      setEndDate(e.target.value);
-                      clearField("end_date");
-                    }}
-                    className={cn(fieldErrors.end_date && "border-destructive")}
-                  />
-                )}
-                {fieldError("end_date")}
-              </div>
-              <div>
-                <Label className="mb-1.5 block">
-                  Typ kontraktu{wantsLive && <span className="text-destructive"> *</span>}
-                </Label>
+          <Section n={2} title="Okres" note="Od kiedy osoba pracuje u klienta.">
+            <div className="grid grid-cols-1 gap-x-3.5 gap-y-3 sm:grid-cols-2">
+              <div className="min-w-0">
+                <FieldLabel required={wantsLive}>Typ umowy</FieldLabel>
                 <Select
                   value={contractType}
                   onValueChange={(v) => {
@@ -746,145 +917,79 @@ function NewContractForm() {
                   }}
                 >
                   <SelectTrigger
-                    className={cn(fieldErrors.contract_type && "border-destructive")}
+                    aria-label="Typ umowy"
+                    className={cn("h-9", fieldErrors.contract_type && "border-destructive")}
                   >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="b2b">B2B</SelectItem>
-                    <SelectItem value="uop">Umowa o pracę</SelectItem>
-                    <SelectItem value="uzlecenie">Zlecenie</SelectItem>
+                    {CONTRACT_TYPE_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 {fieldError("contract_type")}
               </div>
-              <div>
-                <Label className="mb-1.5 block">Status</Label>
-                <Select
-                  value={statusVal}
-                  onValueChange={(v) => {
-                    setStatusVal(v);
-                    clearField("status");
+              <div className="min-w-0">
+                <FieldLabel htmlFor="new-contract-start" required>
+                  Data startu
+                </FieldLabel>
+                <Input
+                  id="new-contract-start"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    clearField("start_date");
                   }}
-                >
-                  <SelectTrigger
-                    className={cn(fieldErrors.status && "border-destructive")}
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="draft">Szkic</SelectItem>
-                    <SelectItem value="active">Aktywny</SelectItem>
-                    {contractType !== "b2b" && (
-                      <SelectItem value="ending">Kończący się</SelectItem>
-                    )}
-                    <SelectItem value="ended">Zakończony</SelectItem>
-                  </SelectContent>
-                </Select>
-                {fieldError("status")}
+                  className={cn("h-9 tabular-nums", fieldErrors.start_date && "border-destructive")}
+                />
+                {fieldError("start_date")}
               </div>
-              <div>
-                <Label className="mb-1.5 block">Tryb pracy (opcjonalnie)</Label>
-                <Select
-                  value={workMode}
-                  onValueChange={(v) => {
-                    setWorkMode(v === "none" ? "" : v);
-                    clearField("work_mode");
-                  }}
+              {endDateLocked ? (
+                <p
+                  className="text-[12px] leading-4 text-muted-foreground sm:col-span-2"
+                  data-testid="end-date-b2b-indefinite"
                 >
-                  <SelectTrigger
-                    className={cn(fieldErrors.work_mode && "border-destructive")}
-                  >
-                    <SelectValue placeholder="—" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Nie określono</SelectItem>
-                    <SelectItem value="remote">Zdalnie</SelectItem>
-                    <SelectItem value="hybrid">Hybrydowo</SelectItem>
-                    <SelectItem value="onsite">Stacjonarnie</SelectItem>
-                  </SelectContent>
-                </Select>
-                {fieldError("work_mode")}
-              </div>
-            </div>
-
-            {canManageFinance && (
-              <>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  <div>
-                    <Label className="mb-1.5 block">Jednostka stawki</Label>
-                    <Select value={rateUnit} onValueChange={setRateUnit}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {/* Stawki w Kontraktach są godzinowe (zł/h) albo
-                            ryczałtowe — bez MD. Zamówienie w MD prowadzi się
-                            w module Klienci; kontrakt przelicza je ÷ 8. */}
-                        <SelectItem value="hourly">Godzinowo</SelectItem>
-                        <SelectItem value="monthly">Miesięcznie</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="mb-1.5 block">
-                      Waluta stawki przychodowej (klienta)
-                    </Label>
-                    <Select
-                      value={rateClientCurrency}
-                      onValueChange={setRateClientCurrency}
-                    >
-                      <SelectTrigger aria-label="Waluta stawki przychodowej (klienta)">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="PLN">PLN</SelectItem>
-                        <SelectItem value="EUR">EUR</SelectItem>
-                        <SelectItem value="USD">USD</SelectItem>
-                        <SelectItem value="GBP">GBP</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="mb-1.5 block">
-                      Waluta stawki kosztowej (kandydata / umowy ramowej)
-                    </Label>
-                    <Select
-                      value={rateCandidateCurrency}
-                      onValueChange={setRateCandidateCurrency}
-                    >
-                      <SelectTrigger aria-label="Waluta stawki kosztowej (kandydata / umowy ramowej)">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="PLN">PLN</SelectItem>
-                        <SelectItem value="EUR">EUR</SelectItem>
-                        <SelectItem value="USD">USD</SelectItem>
-                        <SelectItem value="GBP">GBP</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {rateUnit === "hourly" && (
-                    <div>
-                      <Label className="mb-1.5 block">Godziny / miesiąc</Label>
-                      <Input
-                        type="number"
-                        min="1"
-                        step="1"
-                        value={billingHours}
-                        onChange={(e) => setBillingHours(e.target.value)}
-                      />
-                    </div>
-                  )}
+                  Bezterminowo. {B2B_END_DATE_HOW}
+                </p>
+              ) : (
+                <div className="min-w-0 sm:col-start-2">
+                  <FieldLabel htmlFor="new-contract-end" optional>
+                    Data końca
+                  </FieldLabel>
+                  <Input
+                    id="new-contract-end"
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => {
+                      setEndDate(e.target.value);
+                      clearField("end_date");
+                    }}
+                    className={cn("h-9 tabular-nums", fieldErrors.end_date && "border-destructive")}
+                  />
                 </div>
+              )}
+              {fieldError("end_date")}
+            </div>
+          </Section>
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <Label className="mb-1.5 block">
-                      Stawka przychodowa (klienta)
-                      {wantsLive && <span className="text-destructive"> *</span>}
-                    </Label>
+          <Section
+            n={3}
+            title="Stawki"
+            note={canManageFinance ? "Netto, z umowy. Pod polem: stawka z rekrutacji." : "Kwoty kontraktu."}
+          >
+            {canManageFinance ? (
+              <>
+                <div className="grid grid-cols-1 gap-x-3.5 gap-y-3 sm:grid-cols-2">
+                  <div className="min-w-0">
+                    <FieldLabel htmlFor="new-contract-rate-client" required={wantsLive}>
+                      Klient płaci
+                    </FieldLabel>
                     <Input
+                      id="new-contract-rate-client"
                       type="text"
                       inputMode="decimal"
                       value={rateClient}
@@ -893,86 +998,264 @@ function NewContractForm() {
                         clearField("rate_client");
                       }}
                       placeholder="np. 215,60"
-                      className={cn(fieldErrors.rate_client && "border-destructive")}
+                      trailingIcon={<span className="text-xs">{rateSuffix(rateClientCurrency)}</span>}
+                      className={cn("h-9 pr-14 tabular-nums", fieldErrors.rate_client && "border-destructive")}
                     />
                     {fieldError("rate_client")}
+                    <RecruitmentHintLine hint={clientHint} />
+                  </div>
+                  <div className="min-w-0">
+                    <FieldLabel htmlFor="new-contract-rate-candidate" required={wantsLive}>
+                      Konsultant dostaje
+                    </FieldLabel>
+                    <Input
+                      id="new-contract-rate-candidate"
+                      type="text"
+                      inputMode="decimal"
+                      value={rateSchedule[0]?.rate ?? ""}
+                      onChange={(e) => setFirstCandidateRate(e.target.value)}
+                      placeholder="np. 160,00"
+                      trailingIcon={<span className="text-xs">{rateSuffix(rateCandidateCurrency)}</span>}
+                      className={cn("h-9 pr-14 tabular-nums", fieldErrors.rate_candidate && "border-destructive")}
+                    />
+                    {fieldError("rate_candidate")}
+                    <RecruitmentHintLine hint={candidateHint} onUse={setFirstCandidateRate} />
+                    {laterCandidateSteps > 0 ? (
+                      <Hint>
+                        Od startu; zaplanowane zmiany ({laterCandidateSteps}) są w „Zaawansowanych”.
+                      </Hint>
+                    ) : null}
                   </div>
                 </div>
-
-                {/* Stawka z umowy ramowej — OPCJONALNA: nie blokuje zapisu
-                    w żadnym statusie (nie ma jej w ACTIVATION_REQUIRED_FIELDS). */}
-                <CandidateRateScheduleFields
-                  rows={frameworkRateSchedule}
-                  onChange={setFrameworkRateSchedule}
-                  startDate={startDate}
-                  label="Stawka z umowy ramowej (opcjonalna)"
-                  hint="Możesz zaplanować zmianę stawki ramowej — system zastosuje aktualną od wskazanej daty."
-                  addLabel="+ Dodaj etap stawki ramowej"
-                />
-
-                {/* Stawka progresywna kandydata — kolejne etapy OPCJONALNE;
-                    dla statusu „Aktywny" wymagany jest tylko pierwszy wpis
-                    stawki (kosztowej). */}
-                <CandidateRateScheduleFields
-                  rows={rateSchedule}
-                  onChange={(rows) => {
-                    setRateSchedule(rows);
-                    clearField("rate_candidate");
-                  }}
-                  startDate={startDate}
-                />
-                {fieldError("rate_candidate")}
+                {money.marginPerUnit != null && money.marginPerUnit < 0 ? (
+                  <p
+                    role="status"
+                    className="mt-2.5 rounded-lg border border-current/25 bg-destructive/10 px-3 py-2 text-[12.5px] text-destructive"
+                  >
+                    Konsultant kosztuje więcej, niż płaci klient — sprawdź stawki.
+                  </p>
+                ) : null}
               </>
+            ) : (
+              <p className="text-[12.5px] leading-[18px] text-muted-foreground">
+                Stawki u tego klienta wpisuje osoba z uprawnieniem „{permissionLabel("amounts_edit")}”
+                — tu kontrakt powstaje bez kwot.
+              </p>
             )}
+          </Section>
 
-            {/* Zużycie zamówienia — ilość + jednostka (RBH / MD) */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <Label className="mb-1.5 block">Zużycie zamówienia</Label>
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  value={orderConsumption}
-                  onChange={(e) =>
-                    setOrderConsumption(sanitizeDecimalInput(e.target.value))
-                  }
-                  placeholder="—"
-                />
-              </div>
-              <div>
-                <Label className="mb-1.5 block">Jednostka zużycia</Label>
-                <Select
-                  value={orderConsumptionUnit}
-                  onValueChange={setOrderConsumptionUnit}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="rbh">RBH</SelectItem>
-                    <SelectItem value="md">MD</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+          <div>
+            <button
+              type="button"
+              aria-expanded={showAdvanced}
+              aria-controls="new-contract-advanced"
+              onClick={() => setAdvancedOpen(!showAdvanced)}
+              title="W środku: waluty i jednostka stawek, godziny w miesiącu, stawka z umowy ramowej, zmiany stawki w czasie, zużycie zamówienia i status przy utworzeniu."
+              data-tour="contracts.new.advanced"
+              className="flex w-full items-center gap-2 px-5 py-2.5 text-left hover:bg-muted/40"
+            >
+              <ChevronRight
+                className={cn(
+                  "size-4 shrink-0 text-muted-foreground transition-transform",
+                  showAdvanced && "rotate-90",
+                )}
+                aria-hidden
+              />
+              <span className="shrink-0 text-[13px] font-medium text-foreground">Zaawansowane</span>
+              <span className="min-w-0 truncate text-[12px] text-muted-foreground">
+                {advancedSummary({
+                  canManageFinance,
+                  clientCurrency: rateClientCurrency,
+                  candidateCurrency: rateCandidateCurrency,
+                  rateUnit,
+                  billingHours,
+                  frameworkRows: frameworkRateSchedule,
+                  candidateRows: rateSchedule,
+                  consumption: orderConsumption,
+                  consumptionUnit: orderConsumptionUnit,
+                  status: statusVal,
+                })}
+              </span>
+            </button>
+            {showAdvanced ? (
+              <div id="new-contract-advanced" className="space-y-4 border-t border-border/70 px-5 py-4">
+                {canManageFinance ? (
+                  <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
+                    <div className="min-w-0">
+                      <FieldLabel>Waluta stawki klienta</FieldLabel>
+                      <Select value={rateClientCurrency} onValueChange={setRateClientCurrency}>
+                        <SelectTrigger aria-label="Waluta stawki przychodowej (klienta)" className="h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CURRENCIES.map((cur) => (
+                            <SelectItem key={cur} value={cur}>
+                              {cur}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="min-w-0">
+                      <FieldLabel>Waluta stawki konsultanta</FieldLabel>
+                      <Select value={rateCandidateCurrency} onValueChange={setRateCandidateCurrency}>
+                        <SelectTrigger
+                          aria-label="Waluta stawki kosztowej (kandydata / umowy ramowej)"
+                          className="h-9"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CURRENCIES.map((cur) => (
+                            <SelectItem key={cur} value={cur}>
+                              {cur}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Hint>Ta sama waluta obowiązuje stawkę z umowy ramowej.</Hint>
+                    </div>
+                    <div className="min-w-0">
+                      <FieldLabel>Jednostka stawki</FieldLabel>
+                      {/* Stawki w Kontraktach są godzinowe (zł/h) albo
+                          ryczałtowe — bez MD. Zamówienie w MD prowadzi się
+                          w module Klienci; kontrakt przelicza je ÷ 8. */}
+                      <SegmentedRadio<"hourly" | "monthly">
+                        label="Jednostka stawki"
+                        size="sm"
+                        value={rateUnit === "monthly" ? "monthly" : "hourly"}
+                        onChange={setRateUnit}
+                        options={[
+                          { value: "hourly", label: "Za godzinę" },
+                          { value: "monthly", label: "Ryczałt miesięczny" },
+                        ]}
+                      />
+                    </div>
+                    {rateUnit === "hourly" ? (
+                      <div className="min-w-0">
+                        <FieldLabel htmlFor="new-contract-hours">Godziny w miesiącu</FieldLabel>
+                        <Input
+                          id="new-contract-hours"
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={billingHours}
+                          onChange={(e) => setBillingHours(e.target.value)}
+                          className="h-9 tabular-nums"
+                        />
+                        <Hint>Do przeliczeń miesięcznych, też marży w podsumowaniu.</Hint>
+                      </div>
+                    ) : null}
+                    <div className="min-w-0 sm:col-span-2">
+                      {/* Stawka z umowy ramowej — OPCJONALNA: nie blokuje zapisu
+                          w żadnym statusie (nie ma jej w ACTIVATION_REQUIRED_FIELDS). */}
+                      <CandidateRateScheduleFields
+                        rows={frameworkRateSchedule}
+                        onChange={setFrameworkRateSchedule}
+                        startDate={startDate}
+                        label="Stawka z umowy ramowej (opcjonalna)"
+                        hint="Pułap z cennika klienta; nie wchodzi do marży. Zmianę możesz zaplanować od daty."
+                        addLabel="+ Dodaj etap stawki ramowej"
+                      />
+                    </div>
+                    <div className="min-w-0 sm:col-span-2">
+                      {/* Stawka progresywna kandydata — kolejne etapy OPCJONALNE;
+                          dla statusu „Aktywny" wymagany jest tylko pierwszy wpis
+                          stawki (kosztowej). Pierwszy etap to „Konsultant dostaje”. */}
+                      <CandidateRateScheduleFields
+                        rows={rateSchedule}
+                        onChange={(rows) => {
+                          setRateSchedule(rows);
+                          clearField("rate_candidate");
+                        }}
+                        startDate={startDate}
+                        label="Stawka konsultanta w czasie"
+                        hint="Pierwszy etap to „Konsultant dostaje”; kolejny przełączy stawkę sam od wskazanej daty."
+                        addLabel="+ Zaplanuj zmianę stawki"
+                      />
+                    </div>
+                  </div>
+                ) : null}
 
-        <div className="flex justify-end gap-2">
-          <Link href="/contracts">
-            <Button type="button" variant="ghost">
-              Anuluj
-            </Button>
-          </Link>
-          <Button
-            type="submit"
-            variant="primary"
-            loading={createMutation.isPending}
-          >
-            {createMutation.isPending ? null : <Save className="h-4 w-4" />}
-            Utwórz kontrakt
-          </Button>
+                {/* Zużycie zamówienia — ilość + jednostka (RBH / MD) */}
+                <div className={cn(canManageFinance && "border-t border-border/60 pt-3")}>
+                  <FieldLabel htmlFor="new-contract-consumption" optional>
+                    Zużycie zamówienia
+                  </FieldLabel>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      id="new-contract-consumption"
+                      type="text"
+                      inputMode="decimal"
+                      value={orderConsumption}
+                      onChange={(e) => setOrderConsumption(sanitizeDecimalInput(e.target.value))}
+                      placeholder="—"
+                      className="h-9 w-40 tabular-nums"
+                    />
+                    <SegmentedRadio<"rbh" | "md">
+                      label="Jednostka zużycia"
+                      size="sm"
+                      value={orderConsumptionUnit === "md" ? "md" : "rbh"}
+                      onChange={setOrderConsumptionUnit}
+                      options={[
+                        { value: "rbh", label: "RBH (roboczogodziny)" },
+                        { value: "md", label: "MD (osobodni)" },
+                      ]}
+                    />
+                  </div>
+                  <Hint>
+                    Ile z zamówienia klienta zużywa ten kontrakt — tylko u klientów rozliczanych per
+                    zamówienie. U pozostałych zostaw puste.
+                  </Hint>
+                </div>
+
+                <div className="border-t border-border/60 pt-3">
+                  <FieldLabel>Status przy utworzeniu</FieldLabel>
+                  <SegmentedRadio<CreateStatus>
+                    label="Status przy utworzeniu"
+                    size="sm"
+                    value={statusVal as CreateStatus}
+                    onChange={(v) => {
+                      setStatusVal(v);
+                      clearField("status");
+                    }}
+                    options={statusOptions}
+                  />
+                  {fieldError("status")}
+                  <Hint>Zwykle szkic. „Aktywny” i „Zakończony” tylko przy wpisie umowy już podpisanej.</Hint>
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
+
+        <aside className="lg:sticky lg:top-4">
+          <NewContractSummaryCard
+            candidateName={candidate?.full_name ?? null}
+            clientName={selectedClientName}
+            recruitmentTitle={selectedRecruitment?.job_title ?? null}
+            contractTypeLabel={contractTypeLabel}
+            startDate={startDate}
+            startRelative={startDays != null ? relativeDays(startDays) : null}
+            endLabel={endLabel}
+            status={statusVal}
+            money={
+              canManageFinance
+                ? {
+                    facts: money,
+                    clientRate: rateClientNum,
+                    candidateRate: rateCandidateNum,
+                    clientCurrency: rateClientCurrency,
+                    candidateCurrency: rateCandidateCurrency,
+                    rateUnit,
+                  }
+                : null
+            }
+            later={laterFields({ lineManager, workMode })}
+            error={error}
+            submitting={createMutation.isPending}
+          />
+        </aside>
       </form>
     </div>
   );

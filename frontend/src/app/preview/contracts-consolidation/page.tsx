@@ -31,7 +31,6 @@ import { api } from "@/lib/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ContractsListV2 } from "@/components/v2/pages/ContractsListV2";
 import { ContractsClientPicker } from "@/components/contracts/ContractsClientPicker";
-import { WorkspaceModeTabs } from "@/components/ds/WorkspaceModeTabs";
 import { AddProjectDialog } from "@/components/contracts/AddProjectDialog";
 import { ToastProvider } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
@@ -307,6 +306,11 @@ function seededClient(): QueryClient {
       "",
       DEFAULT_CONTRACT_STATUS_FILTER,
       [],
+      // „Kończące się”, „Stawka z dokumentu”, „Zamówione po końcu” — wyłączone.
+      // Klucz bez nich przestał pasować (0739, #3664) i lista harnessu
+      // pokazywała błąd zamiast wierszy.
+      false,
+      false,
       false,
       { startFrom: "", startTo: "", orderEndFrom: "", orderEndTo: "" },
       { by: null, dir: "asc" },
@@ -315,7 +319,15 @@ function seededClient(): QueryClient {
     ],
     LIST_PAYLOAD,
   );
-  qc.setQueryData(["contracts-expiring-v2"], []);
+  // Pigułki szybkich filtrów i ostrzeżenie o szkicach (liczby fikcyjne).
+  qc.setQueryData(["contracts-quick-counts"], { pending: 1, running: 2, ending: 1, all: 3 });
+  qc.setQueryData(["contractors-stats-v2"], {
+    draft: 1,
+    drafts_incomplete: 1,
+    active: 2,
+    active_contracts: 3,
+    ending: 1,
+  });
   // Boczny panel: szczegóły, dokumenty i historia KAŻDEGO kontraktu z listy
   // (te same klucze co karta kontraktu).
   for (const item of LIST_PAYLOAD.items) {
@@ -429,20 +441,13 @@ export default function ContractsConsolidationPreview() {
               Sigma + Bank Omega)
             </h2>
             <ContractsListV2
-              modeTabs={
-                <WorkspaceModeTabs
-                  label="Tryb modułu Kontrakty"
-                  modes={[
-                    { value: "operations", label: "Obsługa kontraktorów" },
-                    { value: "register", label: "Rejestr kontraktów" },
-                    { value: "order-mail", label: "Skrzynka zamówień", count: 3 },
-                  ]}
-                  value="register"
-                  onChange={() => {}}
-                />
-              }
               toolbarLead={
                 <ContractsClientPicker compact value={null} onChange={() => {}} />
+              }
+              trailingActions={
+                <Button size="sm" variant="outline">
+                  Zamówienia z maila
+                </Button>
               }
             />
           </section>

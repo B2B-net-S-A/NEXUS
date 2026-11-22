@@ -37,6 +37,42 @@ class StatementLine:
 
 
 @dataclass(frozen=True)
+class BalanceCheck:
+    """Saldo jednego wyciągu z pliku: otwarcie + operacje ma dać zamknięcie banku.
+
+    Powstaje tylko, gdy wyciąg ma oba salda (MT940 ``:60F:``/``:60M:`` i
+    ``:62F:``/``:62M:``, CAMT.053 ``OPBD``/``PRCD`` i ``CLBD``). Kwoty ze
+    znakiem: obciążenie i saldo debetowe są ujemne.
+
+    Daty sald i numer wyciągu banku służą ciągłości wyciągów rachunku
+    (``ledger/bank_continuity.py``); ``None`` = bank ich nie podał albo nie
+    umiemy ich przeczytać.
+    """
+
+    #: Numer wyciągu (części wyciągu) w pliku, od 1.
+    statement: int
+    opening: Decimal
+    movement: Decimal
+    closing: Decimal
+    #: Data salda otwarcia (MT940 ``:60F:``, CAMT ``Bal/Dt``). Santander
+    #: (eBI24) podaje dzień samego wyciągu, standard SWIFT — dzień poprzedniego.
+    opening_day: Optional[date] = None
+    #: Data salda zamknięcia (MT940 ``:62F:``, CAMT ``CLBD``).
+    closing_day: Optional[date] = None
+    #: Numer wyciągu banku bez numeru części (MT940 ``:28C:`` „26101/1” → 26101,
+    #: CAMT ``LglSeqNb``, a bez niego ``ElctrncSeqNb``).
+    number: Optional[int] = None
+
+    @property
+    def expected(self) -> Decimal:
+        return self.opening + self.movement
+
+    @property
+    def ok(self) -> bool:
+        return self.expected == self.closing
+
+
+@dataclass(frozen=True)
 class ParsedStatement:
     format: Literal["mt940", "camt053"]
     account: Optional[str]
@@ -45,6 +81,15 @@ class ParsedStatement:
     #: Rachunki wszystkich wyciągów w pliku (``:25:`` / ``Stmt/Acct``), po kolei;
     #: ``account`` to tylko jeden z nich. Księga (K4a) odrzuca plik z kilkoma.
     accounts: tuple[str, ...] = ()
+    #: Salda wyciągów, które je mają. Księga (K4a) odrzuca plik, w którym saldo
+    #: się nie zgadza (plik ucięty albo uszkodzony).
+    balances: tuple[BalanceCheck, ...] = ()
 
 
-__all__ = ["Direction", "ParsedStatement", "StatementError", "StatementLine"]
+__all__ = [
+    "BalanceCheck",
+    "Direction",
+    "ParsedStatement",
+    "StatementError",
+    "StatementLine",
+]

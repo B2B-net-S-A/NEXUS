@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Mapping, Optional
 
 from sqlalchemy import select
 
@@ -32,18 +32,41 @@ if TYPE_CHECKING:
 ACTIVE_BONUS = 5
 IN_BUDGET_BONUS = 3
 ACTIVE_STATUS = "actively_looking"
+# Polski nieojczysty i „brak danych” w rekrutacji wymagającej polskiego idą dalej
+# (pomiar 16.11.2026 na 1 948 decyzjach od 15.10: ojczysty 61% „Pasuje”, poziom
+# w profilu 34%, brak danych 42%; w obrębie rekrutacji-dnia górna połowa kart
+# 13.11 i 16.11 z 50,2% do 57,1%). Nikt nie wypada: od 15.10 19 takich osób
+# doszło do klienta. Kara nasyca się przy tych wartościach.
+POLISH_LEVEL_PENALTY = 8
+POLISH_UNKNOWN_PENALTY = 5
+# Rekrutacja na lidera, osoba wykonawca: dalej w kolejce (``role_family.leader_gap``).
+# Na decyzjach od 15.10 „Pasuje” w górnej połowie bez zmian, do klienta 83 → 85.
+LEADER_GAP_PENALTY = 5
 
 
 @dataclass(frozen=True)
 class Bonus:
     active: bool = False
     in_budget: bool = False
+    polish: Optional[str] = None
+    leader_gap: bool = False
 
     @property
     def points(self) -> int:
-        return (ACTIVE_BONUS if self.active else 0) + (
-            IN_BUDGET_BONUS if self.in_budget else 0
+        return (
+            (ACTIVE_BONUS if self.active else 0)
+            + (IN_BUDGET_BONUS if self.in_budget else 0)
+            - polish_penalty(self.polish)
+            - (LEADER_GAP_PENALTY if self.leader_gap else 0)
         )
+
+
+def polish_penalty(state: Optional[str]) -> int:
+    if state in ("level", "no"):
+        return POLISH_LEVEL_PENALTY
+    if state == "unknown":
+        return POLISH_UNKNOWN_PENALTY
+    return 0
 
 
 @dataclass(frozen=True)
@@ -71,7 +94,12 @@ def rate_in_budget(rate, currency, budget_hourly: Optional[float]) -> bool:
 
 
 def bonus_for(
-    availability_status, rate, currency, budget_hourly: Optional[float]
+    availability_status,
+    rate,
+    currency,
+    budget_hourly: Optional[float],
+    polish: Optional[str] = None,
+    leader_gap: bool = False,
 ) -> Bonus:
     from app.services import review_batch
 
@@ -81,6 +109,8 @@ def bonus_for(
     return Bonus(
         active=status == ACTIVE_STATUS,
         in_budget=rate_in_budget(rate, currency, budget_hourly),
+        polish=polish,
+        leader_gap=leader_gap,
     )
 
 
@@ -134,21 +164,24 @@ async def with_order_facts(
         db, job_id=job.id, candidate_ids=candidate_ids
     )
     threshold = await proposal_threshold(db)
+    people = (
+        await db.execute(
+            select(
+                Candidate.id,
+                Candidate.created_at,
+                Candidate.source_created_at,
+                Candidate.external_source,
+                *_SIGNAL_COLUMNS,
+            ).where(Candidate.id.in_(candidate_ids))
+        )
+    ).all()
     added = {
         row.id: added_to_base(
             row.created_at, row.source_created_at, row.external_source
         )
-        for row in (
-            await db.execute(
-                select(
-                    Candidate.id,
-                    Candidate.created_at,
-                    Candidate.source_created_at,
-                    Candidate.external_source,
-                ).where(Candidate.id.in_(candidate_ids))
-            )
-        ).all()
+        for row in people
     }
+    signals = await order_signals_if_enabled(db, job, people)
     budget = resolve_job_budget_hourly(job)
     enriched = []
     for card in cards:
@@ -160,6 +193,7 @@ async def with_order_facts(
                 card.rate_from_hourly,
                 card.rate_currency,
                 budget,
+                *signals.get(card.candidate_id, (None, False)),
             ),
             fresh_first=in_base is not None
             and new_column_autofill.has_fresh_first(
@@ -194,12 +228,105 @@ async def pick_bonuses(db, job_id: int, picks: list) -> dict[int, int]:
                 Candidate.availability_status,
                 effective_rate_sql(Candidate).label("rate"),
                 effective_currency_sql(Candidate).label("currency"),
+                *_SIGNAL_COLUMNS,
             ).where(Candidate.id.in_([p.candidate_id for p in picks]))
         )
     ).all()
+    signals = await order_signals_if_enabled(db, job, rows) if job is not None else {}
     out: dict[int, int] = {}
     for row in rows:
         out[row.id] = bonus_for(
-            row.availability_status, row.rate, row.currency, budget
+            row.availability_status,
+            row.rate,
+            row.currency,
+            budget,
+            *signals.get(row.id, (None, False)),
         ).points
+    return out
+
+
+# Kolumny osoby potrzebne do sygnałów kolejności (polski, lider/wykonawca).
+_SIGNAL_COLUMNS = (
+    Candidate.name,
+    Candidate.lastname,
+    Candidate.cv_language,
+    Candidate.cv_extracted_data,
+    Candidate.linkedin_current_title,
+    Candidate.linkedin_current_company,
+    Candidate.experience,
+)
+
+
+async def order_signals_if_enabled(
+    db, job, people
+) -> dict[int, tuple[Optional[str], bool]]:
+    """``{candidate_id: (stan polskiego, lider/wykonawca)}`` tylko przy włączonej
+    porcji — bez niej kolejność jak przed 16.11.2026."""
+    from app.services import review_batch
+    from app.services.review_batch_facts import polish_states
+    from app.services.role_family import current_position, leader_gap
+
+    if not review_batch.enabled():
+        return {}
+    people = list(people)
+    polish = await polish_states(db, job, people)
+    title = getattr(job, "title", None)
+    return {
+        p.id: (polish.get(p.id), leader_gap(title, current_position(p))) for p in people
+    }
+
+
+async def order_signals_for_ids(
+    db, job, candidate_ids: list[int]
+) -> dict[int, tuple[Optional[str], bool]]:
+    """Jak ``order_signals_if_enabled``, gdy w ręku są same id (Tablica)."""
+    if job is None:
+        return {}
+    return (await order_signals_for_jobs(db, {job.id: (job, candidate_ids)}))[job.id]
+
+
+async def order_signals_for_jobs(
+    db, boards: Mapping[int, tuple[Job, list[int]]]
+) -> dict[int, dict[int, tuple[Optional[str], bool]]]:
+    """``order_signals_for_ids`` dla wielu Tablic: ``{rekrutacja: (job, id)}``.
+
+    Osoby i polski z profilu czytane raz dla wszystkich Tablic, więc liczba
+    zapytań nie rośnie z liczbą rekrutacji (``my-next-steps``)."""
+    from app.services import review_batch
+    from app.services.review_batch_facts import polish_states_for_jobs
+    from app.services.role_family import current_position, leader_gap
+
+    out: dict[int, dict[int, tuple[Optional[str], bool]]] = {
+        job_id: {} for job_id in boards
+    }
+    live = {
+        job_id: (job, ids)
+        for job_id, (job, ids) in boards.items()
+        if job is not None and ids
+    }
+    if not review_batch.enabled() or not live:
+        return out
+    rows = (
+        await db.execute(
+            select(Candidate.id, *_SIGNAL_COLUMNS).where(
+                Candidate.id.in_(
+                    sorted({cid for _, ids in live.values() for cid in ids})
+                )
+            )
+        )
+    ).all()
+    by_id = {row.id: row for row in rows}
+    people = {
+        job_id: [by_id[cid] for cid in dict.fromkeys(ids) if cid in by_id]
+        for job_id, (_, ids) in live.items()
+    }
+    polish = await polish_states_for_jobs(
+        db, {job_id: (job, people[job_id]) for job_id, (job, _) in live.items()}
+    )
+    for job_id, (job, _) in live.items():
+        title = getattr(job, "title", None)
+        out[job_id] = {
+            p.id: (polish[job_id].get(p.id), leader_gap(title, current_position(p)))
+            for p in people[job_id]
+        }
     return out

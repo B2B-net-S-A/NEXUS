@@ -22,13 +22,22 @@ Artura 05.11.2026); dawna trasa DL/TCM zostaje. Szkic kontraktu nie aktywuje si�
 
 ## Wyłącznik
 
-`app_settings['consultant_portal']` = `{"state": "off"|"pilot"|"all"}`, zmienia admin przez
-`PUT /api/consultant-panel/settings` (przełącznik jest w karcie panelu na kontrakcie). Brak wiersza = `off`:
+`app_settings['consultant_portal']` = `{"state": "off"|"internal"|"pilot"|"all"}`, zmienia admin przez
+`PUT /api/consultant-panel/settings` (przełącznik jest w karcie panelu na kontrakcie i w karcie
+„Start rozliczeń” w Finanse → Rozliczenia). Brak wiersza = `off`:
 każda publiczna trasa odpowiada 404, także przy poprawnej sesji, a pętle nic nie robią. Każdy mail do
 konsultanta idzie przez `portal_mail.send`, który sprawdza wyłącznik dla kontraktu, bo to wysyłka do ludzi
 spoza firmy. `pilot` działa bez modułu `back_office`, żeby sprawdzić panel na jednej osobie przed startem
 tablicy; dokumenty nie mają wtedy kart u Finansów, a sprawy idą na dzisiejszy kanban Opieki. `all` bez
-modułu działa jak `off`. Stan `off` kasuje sesje, więc ponowne włączenie ich nie ożywia. Pakiet klienta
+modułu działa jak `off`.
+
+`internal` („Tylko zespół”, decyzja Artura 16.11.2026): zespół testuje rozliczenia na produkcji,
+a konsultant nic nie dostaje. Czytnik rozliczenia@ działa, panel, link i każdy mail do konsultanta
+są zamknięte (`is_on` = fałsz, więc `open_for` odmawia także przy aktywacji), a pakiet klienta
+i mail powitalny traktują ten stan jak `off`. Wymaga modułu `back_office` jak `all`. Finanse widzą
+panel oczami konsultanta przez „Zobacz panel jak konsultant” na karcie osoby
+(`GET /api/finance/settlements/contract/{id}/panel-preview`, tylko odczyt, te same listy pól co
+panel). Nie dopisuj do tego stanu żadnej wysyłki: konsultantów wpuszcza dopiero `pilot` albo `all`. Stan `off` kasuje sesje, więc ponowne włączenie ich nie ożywia. Pakiet klienta
 i mail powitalny stoją za modułem „Wejście i odejście”, który ma zostać wyłączony, dlatego ich bramka
 przepuszcza też przy włączonym panelu.
 
@@ -74,7 +83,7 @@ Odpowiedzi to listy dozwolonych pól (`services/consultant_portal/panel.py`), pi
 
 ## Rozmowy
 
-Konsultant wybiera osobę z zespołów `care`, `finance`, `contracts` i termin. Organizatorem jest
+Konsultant wybiera osobę ze składu back office'u, która przyjmuje rozmowy (`bo_members.takes_calls`, od 19.11.2026), i termin. Organizatorem jest
 `CONSULTANT_PORTAL_MAILBOX` przez rejestrację „NEXUS Teams Prep”, więc konto musi być w grupie
 `NEXUS-Meetings-Scope`. Termin rezerwuje wiersz `pending` zatwierdzony przed Graphem (częściowy unikat na osobę
 i początek). Kalendarz nieczytelny = brak terminów. Własna tabela `cp_meetings`, bo `prep_meetings` wymaga
@@ -96,4 +105,11 @@ Przegląd miesięczny pokazuje zbiorcze liczby od 3 ocen.
 Portal i czytnik `CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX` kończą w `documents.store`. Karta to
 (kontrakt, okres, rodzaj), kolumna `invoice` zespołu `finance` (`sources.document_cards`). Ten sam plik z drugiego
 kanału to ten sam wiersz. Raport przyjęty przez Finanse daje sygnał „wystaw fakturę”. W pilotażu czytnik bierze
-tylko nadawców z aktywowanych kontraktów, a nieznany nadawca dostaje kartę do przypisania dopiero w stanie `all`.
+tylko nadawców z aktywowanych kontraktów. W `internal` i `all` bierze każdego nadawcę z działającym kontraktem,
+także bez aktywacji panelu (`identity.resolve_sender`: adres z kontraktu, potem z kartoteki; więcej niż jeden
+działający kontrakt pod adresem, np. zmiana kontraktu w ostatnich 60 dniach, = brak dopasowania, bo
+przypisanego dokumentu Finanse nie przepną), a nieznany nadawca dostaje kartę do przypisania. Odczyt maila nie otwiera nikomu panelu.
+
+Moduł rozliczeń klientów (`app_settings['client_settlements']`) włącza admin przełącznikiem w karcie
+„Start rozliczeń” (`PUT /api/finance/settlements/module`). Na czas testów zespołu reguła klienta
+`order.charge_on_accept` stoi na „Wyłączone”, bo przyjęcie RCP nadpisuje zużycie MD miesiąca z importu.

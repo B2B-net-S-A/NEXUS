@@ -45,6 +45,7 @@ const PAGES = [
   "/preview/client-orders?order=5015",
   "/preview/client-playbook",
   "/preview/client-profile-tabs",
+  "/preview/client-profile-tabs?tab=konsultanci",
   "/preview/client-profile-tabs?tab=zasady",
   "/preview/client-profile-tabs?tab=projekty",
   "/preview/client-profile-tabs?tab=importy-md&import=3302",
@@ -53,8 +54,10 @@ const PAGES = [
   "/preview/client-profile-tabs?tab=umowy-ramowe&framework=7001",
   "/preview/client-profile-tabs?tab=analityka",
   "/preview/clients-list",
-  "/preview/clients-list?category=inactive&page=1",
+  "/preview/clients-list?state=archive&page=1",
   "/preview/clients-list?view=contacts",
+  // „Porządki portfela” (dawna lista zakresów, 19.11.2026).
+  "/preview/clients-list?harness=portfolio&category=inactive&page=1",
   "/preview/contact-queue",
   "/preview/contract-candidate-contact",
   "/preview/contracts-consolidation",
@@ -318,8 +321,17 @@ const PRIMARY_CONTENT = [
   { path: "/preview/order-mail", selector: "[data-testid='order-mail-detail']", maxTop: 0.45, shell: false },
   { path: "/preview/clients-list", selector: "tbody tr", maxTop: 0.55, shell: false },
   { path: "/preview/clients-list?view=contacts", selector: "tbody tr", maxTop: 0.5, shell: false },
-  // Profil klienta: pierwszy wiersz tabeli konsultantów (0,61).
-  { path: "/preview/client-profile-tabs", selector: "tbody tr", maxTop: 0.68, shell: false },
+  // Profil klienta (18.11.2026): tabela konsultantów przeszła z Przeglądu do
+  // zakładki „Konsultanci”. Pierwsza wersja z nagłówkiem i opisem nad listą
+  // dała na runnerze CI 0,73 przy 1280 × 720 (Mac 0,62) — przyciski stoją
+  // teraz w rzędzie podzakładek: Mac 0,55 / 0,52 / 0,46 (z ramką); z pigułkami
+  // stanu i „Lista / Oś czasu” (etap 3, 19.11.2026) 0,59 / 0,50 / 0,45. Przegląd
+  // zaczyna się od „Wymaga uwagi” (pięć sekcji, 19.11.2026; wcześniej karta
+  // „Konsultanci”, 0,38 / 0,35 / 0,31). Nagłówek z czterema liczbami i umową
+  // ramową miał przy 1280 px dwa rzędy (0,42 / 0,40 / 0,35); liczby stoją
+  // teraz w pasku sekcji, nagłówek w jednym rzędzie: 0,37 / 0,35 / 0,31.
+  { path: "/preview/client-profile-tabs?tab=konsultanci", selector: "tbody tr", maxTop: 0.72, shell: false },
+  { path: "/preview/client-profile-tabs", selector: "[aria-labelledby='client-overview-attention']", maxTop: 0.45, shell: false },
   // Finanse → Wyniki: pierwszy wiersz tabeli pod kaflami i paskiem importu (0,71).
   { path: "/preview/finance-results", selector: "tbody tr", maxTop: 0.77, shell: false },
   // Finanse → Import MD: pierwszy wiersz importu pod paskiem wgrywania (0,77).

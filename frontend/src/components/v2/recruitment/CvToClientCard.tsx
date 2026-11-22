@@ -108,7 +108,12 @@ import {
   stageCvOrigin,
   type ForwardStep,
 } from "@/lib/cv-to-client";
-import { bestReadyCv, otherReadyCvCount, type StageCvOption } from "@/lib/stage-cv-options";
+import {
+  bestReadyCv,
+  consentSwapSentence,
+  otherReadyCvCount,
+  type StageCvOption,
+} from "@/lib/stage-cv-options";
 import {
   BACKGROUND_EVENTS_STEP,
   autoCvSkipReason,
@@ -133,7 +138,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import { ConsentRequestButton } from "@/components/v2/recruitment/ConsentRequestButton";
-import { ConsentRequestNotice } from "@/components/v2/recruitment/ConsentRequestNotice";
+import {
+  ConsentRequestNotice,
+  useClientConsentRequired,
+} from "@/components/v2/recruitment/ConsentRequestNotice";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { StageCvUploadTile, useStageCvUpload } from "@/components/v2/person/StageCvUpload";
@@ -149,6 +157,7 @@ import { CvToClientChecks, useCvChecksCount } from "@/components/v2/recruitment/
 import { CvFileNameRow } from "@/components/v2/recruitment/CvFileNameRow";
 import { UseOtherCvDialog } from "@/components/v2/recruitment/UseOtherCvDialog";
 import { useReadyCvChoice } from "@/components/v2/recruitment/useReadyCvChoice";
+import { ConsentScreenshotField } from "@/components/v2/cv/ConsentScreenshotField";
 
 // Edytor CV to TipTap — za granicą `dynamic()`, jak w doku kanbana.
 const CVBrandedEditModal = dynamic(
@@ -273,20 +282,31 @@ function ForwardProgressBlock({
  * „Ta osoba ma już gotowe CV” — podpowiedź zamiast generacji. Pokazuje
  * najlepsze z gotowych CV (CV etapu z innej rekrutacji, potem plik Word,
  * potem generację spoza tej rekrutacji); resztę otwiera okno wyboru.
+ *
+ * U klienta ze zrzutem zgody (PKO BP) CV etapu z innej rekrutacji idzie
+ * z NOWĄ zgodą (17.11.2026, wariant A): zgoda z tamtej rekrutacji ma inny
+ * numer ZOB, więc przy bliźniakach rekruter generował drugie CV. Zrzut
+ * wgrywa się w pasku, a serwer kopiuje treść i dołącza go w jednym żądaniu.
  */
 function ReadyCvHint({
   best,
   count,
   busy,
+  consent,
   onUse,
+  onUseWithConsent,
   onShowAll,
 }: {
   best: StageCvOption;
   count: number;
   busy: boolean;
+  /** Kontekst zrzutu zgody; `null` = klient zgody nie wymaga albo to nie CV etapu. */
+  consent: { candidateId: number; stageId: number; jobTitle?: string } | null;
   onUse: () => void;
+  onUseWithConsent: (consentToken: string) => void;
   onShowAll: () => void;
 }) {
+  const [consentToken, setConsentToken] = useState<string | null>(null);
   return (
     <div
       role="note"
@@ -302,13 +322,42 @@ function ReadyCvHint({
             {best.origin ? ` · ${best.origin}` : ""}
           </p>
           {best.detail ? <p className="break-words">{best.detail}</p> : null}
-          {best.note ? <p className="mt-0.5">{best.note}</p> : null}
+          {consent ? (
+            <p className="mt-0.5">{consentSwapSentence(best.title, consent.jobTitle)}</p>
+          ) : best.note ? (
+            <p className="mt-0.5">{best.note}</p>
+          ) : null}
         </div>
       </div>
+      {consent ? (
+        <div
+          data-tour="cv.ready-cv-new-consent"
+          className="rounded-md border border-border bg-card p-2 text-foreground"
+        >
+          <ConsentScreenshotField
+            context={{ candidateId: consent.candidateId, stageId: consent.stageId }}
+            value={consentToken}
+            onChange={(token) => setConsentToken(token)}
+            required
+            disabled={busy}
+          />
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-1.5">
-        <Button size="sm" loading={busy} disabled={busy} onClick={onUse}>
-          Użyj tego CV
-        </Button>
+        {consent ? (
+          <Button
+            size="sm"
+            loading={busy}
+            disabled={busy || !consentToken}
+            onClick={() => consentToken && onUseWithConsent(consentToken)}
+          >
+            Użyj tego CV z nową zgodą
+          </Button>
+        ) : (
+          <Button size="sm" loading={busy} disabled={busy} onClick={onUse}>
+            Użyj tego CV
+          </Button>
+        )}
         <Button size="sm" variant="ghost" disabled={busy} onClick={onShowAll}>
           {count > 1 ? `Pokaż wszystkie (${count})` : "Inne źródło albo plik z dysku"}
         </Button>
@@ -513,13 +562,22 @@ export function CvToClientCard({
       openGenerator();
     },
   });
+  // Wymóg zgody liczony jak na serwerze (polityka centralna albo aktywna reguła
+  // klienta) — ta sama odpowiedź co pasek prośby o zgodę nad tym paskiem.
+  const consentRequired = useClientConsentRequired(jobId);
   const bestReady = hintWanted && !choice.isPending ? bestReadyCv(choice.options) : null;
   const readyHint = bestReady ? (
     <ReadyCvHint
       best={bestReady}
       count={otherReadyCvCount(choice.options)}
       busy={choice.busyKey != null || choice.uploading}
+      consent={
+        consentRequired && bestReady.kind === "stage"
+          ? { candidateId, stageId: cvStageId, jobTitle }
+          : null
+      }
       onUse={() => void choice.choose(bestReady)}
+      onUseWithConsent={(token) => void choice.chooseWithConsent(bestReady, token)}
       onShowAll={() => setOtherOpen(true)}
     />
   ) : null;

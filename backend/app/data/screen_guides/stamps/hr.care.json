@@ -1,9 +1,9 @@
 {
-  "entry": "120edb75ca609c77161a0b6f479f7bdc17b8ee7576f4efa763ff13ca1528183f",
+  "entry": "430f9278c781fb8b3bdac62ff168363902c22e528f3fe9fdc91e387aa6e993ea",
   "guide": "hr.care",
   "sources": {
-    "frontend/src/components/back-office/QueueBoard.tsx": "7d1914670255d697a3b178cb68e3b9777459e0a3cc20ac06ca22ef28e3d0f72a",
-    "frontend/src/components/care/CareScreen.tsx": "467b094545c42b4a719663ae266278d4f28af980d15528385b742ff817ab1b23",
-    "frontend/src/components/care/card/ConsultantCard.tsx": "1cf67b41a482b04231c5ef8e1cc04ecb870fb6af86f6bed177271ad7bf26e50a"
+    "frontend/src/components/back-office/QueueBoard.tsx": "6de2aa245b463c495ce6c5b642491e9f727de8335a083d03944851d428e5ae2c",
+    "frontend/src/components/care/CareScreen.tsx": "9cd987ca65c6125ca249b424000071545a357cb57c2c2844ce3931491385eb35",
+    "frontend/src/components/care/card/ConsultantCard.tsx": "4b4a1f3502251ce7eb56c644959cd4271f90776b58562af0d5f2a198b702750c"
   }
 }

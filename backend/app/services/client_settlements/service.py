@@ -52,13 +52,16 @@ from app.services.client_settlements import (
     contractor_invoices,
     extras as settlement_extras,
     kesu,
+    kcp,
     kesu_flow,
     mail_text,
     rcp_bnp,
     rcp_checks,
     rules_catalog,
+    redmine_timelog,
     signoffs,
     timesheet,
+    timesheet_bik,
     timesheet_pko,
 )
 from app.services.client_settlements import settings as module_settings
@@ -89,6 +92,8 @@ ORDER_STATUSES = (
 MD_MAX = Decimal("31")
 #: Zapłata konsultanta po mailowej akceptacji, gdy podpisujący KEŚU jest nieobecny.
 PAY_ON_MAIL = "pay_on_mail"
+#: Wysyłka KCP do klienta i jego akceptacja mailem (E6.5, `client_acceptance`).
+CLIENT_ACCEPTANCE = "client_acceptance"
 #: „Imię Nazwisko” jak na liście kontraktów; puste części pomija.
 _FULL_NAME = func.nullif(func.concat_ws(" ", Candidate.name, Candidate.lastname), "")
 
@@ -320,14 +325,31 @@ def _is_mail_printout(doc: CpDocument) -> bool:
     return bool(acceptance_mail.read(content, doc.mime))
 
 
+def _is_blank_sheet(doc: CpDocument) -> bool:
+    """Pusty szablon raportu BIK, np. wzór od rozliczeń w cytowanym wątku: przy
+    innym pliku miesiąca nie jest RCP (IX 2026: wygrywał z tabelą 176 h)."""
+
+    if doc.mime != timesheet_bik.XLSX:
+        return False
+    try:
+        content = portal_documents.path_for(doc.file_path).read_bytes()
+    except OSError:
+        return False
+    return timesheet_bik.is_blank(content, doc.mime)
+
+
+def _not_report(doc: CpDocument) -> bool:
+    return _is_mail_printout(doc) or _is_blank_sheet(doc)
+
+
 async def _pick_report(reports: list[CpDocument]) -> Optional[CpDocument]:
     """RCP spośród plików miesiąca (najnowsze pierwsze): PDF albo XLSX, ale nie
-    wydruk maila — konsultant często dosyła go po RCP."""
+    wydruk maila — konsultant często dosyła go po RCP — ani pusty szablon."""
 
     candidates = [d for d in reports if d.mime in RCP_MIMES]
     if len(candidates) > 1:
         for doc in candidates:
-            if not await asyncio.to_thread(_is_mail_printout, doc):
+            if not await asyncio.to_thread(_not_report, doc):
                 return doc
     return candidates[0] if candidates else (reports[0] if reports else None)
 
@@ -497,6 +519,9 @@ async def month_view(
     )
     numbers = await _order_numbers(db, ids, month)
     rules = await rules_for(db, client_id, month)
+    from app.services.client_settlements import client_acceptance
+
+    acceptance = client_acceptance.params(rules)
     invoices = await contractor_invoices.for_month(db, ids, month)
     extra_items = await settlement_extras.for_contracts(db, ids, month)
     added = {cid: settlement_extras.totals(items) for cid, items in extra_items.items()}
@@ -545,6 +570,13 @@ async def month_view(
             settlement, rules
         ):
             row["client_invoice"] = "awaiting_signature"
+        elif row["client_invoice"] == "ready" and client_acceptance.waiting(
+            settlement, rules
+        ):
+            row["client_invoice"] = "awaiting_client"
+        row["client_acceptance"] = (
+            client_acceptance.summary(settlement) if acceptance is not None else None
+        )
         row["kesu"] = kesu_summary(settlement)
         rows.append(row)
     return {
@@ -688,6 +720,9 @@ async def detail(
     extra_items = (await settlement_extras.for_contracts(db, [contract_id], month)).get(
         contract_id, []
     )
+    from app.services.client_settlements import client_acceptance
+
+    acceptance = client_acceptance.params(rules)
     estimate = (
         await _settlement(db, contract_id, month, kind=ESTIMATE)
         if kind == ACTUAL
@@ -731,10 +766,21 @@ async def detail(
         "total_md": total_md,
         "total_net": _dec(s.amount_cost, 2) if s and amounts else None,
         "checks": [
-            c
-            for c in (s.checks if s else [])
-            if "remaining_after" not in c and signoffs.SIGNED_KEY not in c
+            *(
+                c
+                for c in (s.checks if s else [])
+                if "remaining_after" not in c and signoffs.SIGNED_KEY not in c
+            ),
+            *(
+                [client_acceptance.check_group(s, acceptance)]
+                if acceptance is not None and kind == ACTUAL
+                else []
+            ),
         ],
+        # KCP w PDF do pobrania (E6.5): od konsultanta albo złożona z Redmine.
+        "kcp_pdf": bool(
+            acceptance is not None and s is not None and s.report_document_id
+        ),
         "order": None
         if state is None
         else {
@@ -792,6 +838,7 @@ def meta_of(s: Optional[ClientSettlement]) -> dict[str, Any]:
 
 def _store(s: ClientSettlement, result: Result, order: Optional[OrderState]) -> None:
     kept = meta_of(s).get(PAY_ON_MAIL)
+    accepted_by_client = meta_of(s).get(CLIENT_ACCEPTANCE)
     signed = signoffs.marker(s.checks)
     s.status = result.status
     s.md_onboarding = result.md_onboarding
@@ -809,6 +856,9 @@ def _store(s: ClientSettlement, result: Result, order: Optional[OrderState]) -> 
     if kept:
         # Decyzja Finansów o zapłacie po mailu przeżywa przeliczenie (E6.3).
         meta[PAY_ON_MAIL] = kept
+    if accepted_by_client:
+        # Wysyłka KCP do klienta i jego akceptacja (E6.5) też.
+        meta[CLIENT_ACCEPTANCE] = accepted_by_client
     s.checks = [*result.checks, meta]
     # Podpisany arkusz albo protokół (E6) zostaje przy przeliczeniu.
     s.checks = signoffs.with_marker(s.checks, signed)
@@ -964,6 +1014,21 @@ async def _proof(
     has_mail = any(d.mime in MAIL_MIMES for d in reports) or bool(mails)
     working_days = len(business_days(*month_bounds(month)))
     if parsed is None:
+        # KCP Banku Pocztowego albo eksport Redmine, z którego KCP składa NEXUS (E6.5).
+        card = await asyncio.to_thread(
+            redmine_timelog.read_card, content, report.mime, month
+        )
+        if card is not None:
+            found, outside = card
+            return kcp.evaluate(
+                found,
+                month=month,
+                person_name=person_name,
+                rules=rules,
+                working_days=working_days,
+                other_md=other_md,
+                outside_month=outside,
+            )
         # Szablon klienta w godzinach z makrami (E6.1, PKO).
         pko = await asyncio.to_thread(timesheet_pko.parse, content, report.mime)
         if pko is not None:
@@ -999,6 +1064,24 @@ async def _proof(
                 reports,
                 month=month,
                 hours=sheet.total_hours if sheet.entries else None,
+                rules=rules,
+            )
+        # Raport godzin BIK: szablon klienta, jego PDF albo tabela dni.
+        bik = await asyncio.to_thread(timesheet_bik.parse, content, report.mime)
+        if bik is not None:
+            result = timesheet_bik.evaluate(
+                bik,
+                month=month,
+                person_name=person_name,
+                rules=rules,
+                working_days=working_days,
+                other_md=other_md,
+            )
+            return await _acceptance(
+                result,
+                reports,
+                month=month,
+                hours=bik.total_hours if bik.total_hours > 0 else None,
                 rules=rules,
             )
     return rcp_checks.evaluate(
@@ -1453,6 +1536,10 @@ async def refresh_for_document(db: AsyncSession, document: CpDocument) -> None:
     if await signoffs.apply(db, document, now=now):
         return
     if document.contract_id is None:
+        # Odpowiedź klienta na paczkę KCP (E6.5): akceptacja wysłanych osób.
+        from app.services.client_settlements import client_acceptance
+
+        await client_acceptance.apply(db, document, now=now)
         return
     month = f"{document.period_year}-{document.period_month:02d}"
     # Domyślna data z bazy nie zawsze jest już w obiekcie po flush.

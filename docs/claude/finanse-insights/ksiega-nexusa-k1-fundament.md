@@ -11,6 +11,10 @@ zgodnych z Symfonią. eBI24 (E0–E5) to osobny plan:
 
 ## Moduły i dostęp
 
+- **Nawigacja (18.11.2026):** Księga to grupa modułu Finanse (`FinanceAreaNav`,
+  `ui/klienci-i-finanse-jedna-lista.md`); pozycji „Księgowość” nie ma w menu,
+  a „Miesiąc” jest Przeglądem Finansów. Trasy `/accounting/*` się nie zmieniły.
+
 - Przełączniki w `app_settings['ledger']` (`services/ledger/settings.py`):
   `ledger`, `automations`, `bank`, `vat`, `assets`, `payroll`, `reports`.
   Włączyć da się tylko moduł z ekranami (`BUILT`), reszta = 409 z etapem.
@@ -88,6 +92,23 @@ zgodnych z Symfonią. eBI24 (E0–E5) to osobny plan:
   nie przyjmuje zapisów.
 - Konta użytego w aktywnej regule dekretu E2 nie wyłącza się i nie zmienia mu
   się rodzaju (409).
+- **Konta modułów w Ustawieniach muszą przyjmować zapisy** (17.11.2026). Zapis
+  każdej grupy kont (sprzedaż, rozliczenie na „5”, płace, środki trwałe, VAT,
+  wyciągi i rachunki firmy) sprawdza `settings.account_problem` tą samą regułą
+  co `engine.resolve`: konto aktywne, bez kont pod sobą i bez słownika; inaczej
+  422 z numerem i podpowiedzią („Konto 229 ma konta analityczne — wybierz np.
+  229-1-1”). Wyjątek to pola z `COUNTERPARTY_FIELDS` — moduł księguje na nie
+  `konto-ID kontrahenta` (FVS i wyciąg: `sources.receivable_account`, zakup
+  zagraniczny: `foreign.py`), więc wymagają słownika „kontrahenci” (np. `200-1`
+  zamiast syntetycznego `200`). Nowe pole w Ustawieniach, które księguje
+  analitykę, dopisz do `COUNTERPARTY_FIELDS`, a nową grupę kont do
+  `ACCOUNT_GROUPS`. Samo sprawdzenie przy zapisie nie wystarcza, bo po imporcie
+  pełnego planu kont z Symfonii zapisane wcześniej (i domyślne: 200, 229, 231,
+  401, 761, 080) konta przestają być księgowalne bez zapisu w Ustawieniach —
+  dlatego `/api/accounting/config` zwraca `account_problems`, a Ustawienia
+  pokazują kartę „Konta do przestawienia” z polem, kontem, powodem i kartą,
+  na której się je zmienia. Puste pole nie trafia na tę listę (brak konta
+  zgłasza moduł przy pracy).
 
 ## Raporty
 
@@ -105,3 +126,45 @@ zgodnych z Symfonią. eBI24 (E0–E5) to osobny plan:
 - Kolejne etapy (K2 źródła, K3 automaty, K4 bank, K5 VAT, K6 ŚT, K7 płace,
   K8 sprawozdania) dopisują swoje zakładki w `ACCOUNTING_TABS`
   (`components/accounting/ledger-model.ts`) i klucz w `BUILT`.
+
+## Import planu kont i bilansu otwarcia z Symfonii (17.11.2026)
+
+Księgowa nie zakłada ok. 930 kont ręcznie. Plan kont wczytuje się jednym plikiem,
+potem bilans otwarcia (Ustawienia). Pliki z danymi firmy nie trafiają do repo:
+testy mają sfabrykowany XML i CSV (`test_ledger_chart_import_rules.py`,
+`test_ledger_opening_rules.py`).
+
+- **Plan kont**: `POST /api/accounting/chart/import?save=` (`services/ledger/chart_import.py`),
+  przycisk „Wczytaj plan z Symfonii” w `/accounting/chart` (lista „Księgowi” albo admin,
+  jak import BO). Plik to eksport „Model księgowy” (`DokumentXML`); czytamy `plankont`
+  i `znacznik`. Numer = `syntet` do trzech cyfr + `wartN` do pary 0/0 (`10`, `wart1=3` →
+  `010-3`); węzeł z segmentem `wart=0` („Kontrahenci”, „Pracownicy”) nie jest kontem,
+  tylko ustawia słownik kontrahentów na koncie przed zerem (`200-2-0` → `200-2`).
+  Słownika „Pracownicy” (234, 249-3) import nie przenosi (decyzja Artura 17.11.2026):
+  słownik kontrahentów wiąże analitykę z kontrahentem po numerze ID Symfonii, a numery
+  pracowników i kontrahentów w Symfonii się pokrywają, więc dług pracownika trafiłby
+  w BO i rozrachunkach do obcego kontrahenta. Import to zgłasza; konta analityczne
+  pracowników (234-N) księgowa zakłada ręcznie przed bilansem otwarcia.
+- **Typ konta**: `typ` 1 bilansowe, 2 wynikowe, 0 pozabilansowe; strona bilansowych
+  wynika z zespołu (0, 1, 3, 6 aktywne; 8 pasywne; 2 aktywno-pasywne) — to heurystyka,
+  pojedyncze konta poprawia księgowa. Znacznik MF z `znacznik` → `report_line`; para
+  znaczników konta wynikowego (753, 756, 761) i znaczniki dłuższe niż 32 znaki idą do
+  jednego komunikatu „nie zapisano”, bo K8a ich nie obsługuje.
+- **Nie nadpisuj i nie kasuj**: istniejące konto zostaje z nazwą, rodzajem i wyłączeniem;
+  dostaje tylko puste pola (konto nadrzędne, typ, pozycja sprawozdania, słownik — ten
+  ostatni tylko gdy konto nie jest w regule dekretu i nie ma zapisów). Nowe konto pod
+  kontem z aktywnej reguły dekretu E2 jest pomijane z komunikatem, bo konto
+  z analityką pod spodem przestaje być księgowalne. Nowe konta dostają rodzaj `other`.
+  Import jest powtarzalny: drugi raz niczego nie dodaje.
+- **Plik XML czytaj bezpiecznie**: lxml bez encji i sieci, odrzucony DOCTYPE, limit 10 MB.
+- **Bilans otwarcia z ZOiS** (`opening.parse`): zestawienie ma wiersz syntetyczny (`010`)
+  i jego analitykę (`010-3`) — liczone oba podwoiłyby bilans, więc zostają konta końcowe
+  (bez potomków z kwotą), a kwota syntetyki musi równać się sumie potomków (inaczej błąd
+  wiersza, bo część salda nie miałaby analityki). Plik z obiema parami kolumn (BO i saldo
+  końcowe) otwiera rok kolumnami BO; `basis=saldo` bierze saldo końcowe (zestawienie za
+  poprzedni rok), na ekranie jest wtedy wybór „Kolumny salda z pliku”. Sprawdzone
+  17.11.2026 na ZOiS z 30.09.2026 (plik poza repo): konta końcowe z niezerowym BO
+  zbilansowane (Wn = Ma), syntetyki zgodne z sumą analityki, wszystkie konta
+  rozpoznaje plan z importu XML (analityka kontrahentów przez słownik).
+- Kolejność dla księgowej: Plan kont → „Wczytaj plan z Symfonii” → Ustawienia → bilans
+  otwarcia → „Sprawdź plik” → „Zapisz jako BO” → zatwierdzenie w Dokumentach.

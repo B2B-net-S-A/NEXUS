@@ -49,10 +49,12 @@ import { PracujTab } from "./PracujTab";
 import {
   withDraft,
   withEdited,
+  withTechNames,
   withoutExcerpt,
   type AdDrafts,
   type AdEditKey,
   type AdFieldKey,
+  type AdTechKey,
 } from "./job-ad-edit";
 
 export type JobAdTab = "pracuj" | "jjit";
@@ -234,6 +236,13 @@ export function JobAdWindow({
       setDraft(key, null);
       if (hidden !== undefined) setDraft("offer_hidden", null);
     }
+    return saved;
+  };
+
+  const saveTechNames = async (key: AdTechKey, text: string): Promise<boolean> => {
+    if (!ad) return false;
+    const saved = await saveAd(ad.content, withTechNames(ad.tech, key, text));
+    if (saved) setDraft(key, null);
     return saved;
   };
 
@@ -488,6 +497,7 @@ export function JobAdWindow({
                             onCopy={(key, html, text) => void copy(key, html, text)}
                             onDraftChange={setDraft}
                             onSaveField={saveField}
+                            onSaveTechNames={saveTechNames}
                           />
                         </TabsContent>
                         <TabsContent value="jjit" className="mt-0">

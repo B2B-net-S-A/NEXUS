@@ -90,6 +90,134 @@ const HEAD_CELL = cn(CALM_HEAD, "py-2 pr-4");
 const HEAD_AMOUNT = cn(CALM_HEAD, "py-2 pr-4 text-right");
 const AMOUNT_CELL = cn(CALM_AMOUNT, "py-2 pr-4");
 
+/**
+ * Osoba w wierszu: awatar, nazwisko (profil kandydata), kategoria, umowa
+ * wykonawcza e-Zdrowia, koniec umowy i rekrutacja. Wspólna dla Archiwum
+ * i listy roboczej zakładki „Konsultanci” (18.11.2026).
+ */
+/**
+ * `compact` (zakładka Konsultanci, 19.11.2026): kategoria kompetencji idzie
+ * do dymka przy nazwisku zamiast plakietki — wiersz ma dwie linie, nie cztery.
+ */
+export function ConsultantIdentity({ r, compact = false }: { r: ConsultantTableRow; compact?: boolean }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      {r.candidate.avatar_url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={r.candidate.avatar_url}
+          alt={r.candidate.name}
+          className="h-7 w-7 shrink-0 rounded-lg object-cover"
+        />
+      ) : (
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted">
+          <span className="text-[10.5px] font-semibold text-muted-foreground">
+            {initialsOf(r.candidate.name)}
+          </span>
+        </div>
+      )}
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          {r.candidate.id != null ? (
+            <Link
+              href={`/candidates/${r.candidate.id}`}
+              className="truncate font-semibold text-foreground hover:text-primary"
+              title={compact && r.candidate.competence_category ? r.candidate.competence_category : undefined}
+            >
+              {r.candidate.name}
+            </Link>
+          ) : (
+            // Kandydat usunięty (RODO) — kontrakt został, profilu
+            // nie ma (audyt S6). Wiersz zostaje, bo jego marża
+            // wchodzi do „Aktywnego MRR” w nagłówku.
+            <span className="truncate font-semibold text-muted-foreground">
+              {r.candidate.name}
+            </span>
+          )}
+          {r.candidate.competence_category && !compact ? (
+            <span className="rounded-md bg-muted px-1.5 text-[11px] leading-[18px] text-muted-foreground">
+              <CompetenceCategoryName slug={r.candidate.competence_category} />
+            </span>
+          ) : null}
+          {/* e-Zdrowie: NUMER umowy wykonawczej, część w tooltipie.
+              Fallback na samą część = wiersz sprzed wdrożenia
+              struktury (do przeglądu w sekcji „Struktura umów") —
+              ukrycie go czytałoby się jak brak przypisania w ogóle. */}
+          {r.executive_contract ? (
+            <span
+              className="rounded-md bg-info-muted px-1.5 text-[11px] font-medium leading-[18px] text-info-muted-foreground"
+              title={
+                projectPartLabel(r.executive_contract.project_part) ??
+                "Umowa wykonawcza"
+              }
+            >
+              {r.executive_contract.number}
+            </span>
+          ) : r.project_part ? (
+            <span
+              className="rounded-md bg-info-muted px-1.5 text-[11px] font-medium leading-[18px] text-info-muted-foreground"
+              title="Bez umowy wykonawczej — do przypisania w sekcji „Struktura umów”"
+            >
+              {projectPartLabel(r.project_part)}
+            </span>
+          ) : null}
+          {/* Koniec za mniej niż 30 dni wymaga uwagi — plakietka;
+              dalszy termin to zwykła informacja. */}
+          {r.days_to_end != null ? (
+            r.days_to_end < 30 ? (
+              <Badge size="sm" variant={r.days_to_end < 7 ? "danger" : "warning"}>
+                {r.days_to_end < 0
+                  ? "po terminie"
+                  : `kończy się za ${r.days_to_end}d`}
+              </Badge>
+            ) : (
+              <span className="text-[11px] text-muted-foreground">
+                kończy się za {r.days_to_end}d
+              </span>
+            )
+          ) : null}
+        </div>
+        {/* Rekrutacja pod nazwiskiem. Brak powiązania = PUSTY
+            wiersz (wymóg ticketu), nie „brak powiązanej
+            rekrutacji" — komunikat zastępczy w kolumnie danych
+            czyta się jak wartość, a nie jak jej brak. */}
+        <p
+          className={cn(CALM_SUBLINE, "mt-0 max-w-[380px] truncate")}
+          title={
+            r.job_from_order
+              ? "Rekrutacja z bieżącego zamówienia — kontrakt nie ma własnego powiązania"
+              : undefined
+          }
+        >
+          {r.job_title ? (
+            r.job_id ? (
+              <Link
+                href={`/jobs/${r.job_id}`}
+                className="hover:text-primary"
+              >
+                {r.job_title}
+              </Link>
+            ) : (
+              r.job_title
+            )
+          ) : (
+            " "
+          )}
+          {/* Tekst rekrutacji jest ten sam, ale PROWENIENCJA inna:
+              `Contract.job_id` mówi „z tej rekrutacji wziął się ten
+              placement", a fallback — „z tej rekrutacji wzięło się
+              bieżące zamówienie". Przy kontrakcie przedłużanym to
+              bywa inna rekrutacja, więc milczące zlanie obu znaczeń
+              w jednej kolumnie byłoby przemilczeniem. */}
+          {r.job_from_order ? (
+            <span className="ml-1 opacity-60">· z zamówienia</span>
+          ) : null}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function ConsultantsTable({ rows, showEndDate, renderActions }: Props) {
   return (
     // `min-w` + przyklejona kolumna „Konsultant": na telefonie tabela
@@ -117,119 +245,7 @@ export function ConsultantsTable({ rows, showEndDate, renderActions }: Props) {
           {rows.map((r) => (
             <tr key={r.contract_id} className={cn(CALM_ROW, "h-[52px] last:border-b-0")}>
               <td className="sticky left-0 z-10 bg-card py-2 pr-4 dark:bg-muted">
-                <div className="flex items-center gap-2.5">
-                  {r.candidate.avatar_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={r.candidate.avatar_url}
-                      alt={r.candidate.name}
-                      className="h-7 w-7 shrink-0 rounded-lg object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted">
-                      <span className="text-[10.5px] font-semibold text-muted-foreground">
-                        {initialsOf(r.candidate.name)}
-                      </span>
-                    </div>
-                  )}
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                      {r.candidate.id != null ? (
-                        <Link
-                          href={`/candidates/${r.candidate.id}`}
-                          className="truncate font-semibold text-foreground hover:text-primary"
-                        >
-                          {r.candidate.name}
-                        </Link>
-                      ) : (
-                        // Kandydat usunięty (RODO) — kontrakt został, profilu
-                        // nie ma (audyt S6). Wiersz zostaje, bo jego marża
-                        // wchodzi do „Aktywnego MRR” w nagłówku.
-                        <span className="truncate font-semibold text-muted-foreground">
-                          {r.candidate.name}
-                        </span>
-                      )}
-                      {r.candidate.competence_category ? (
-                        <span className="rounded-md bg-muted px-1.5 text-[11px] leading-[18px] text-muted-foreground">
-                          <CompetenceCategoryName slug={r.candidate.competence_category} />
-                        </span>
-                      ) : null}
-                      {/* e-Zdrowie: NUMER umowy wykonawczej, część w tooltipie.
-                          Fallback na samą część = wiersz sprzed wdrożenia
-                          struktury (do przeglądu w sekcji „Struktura umów") —
-                          ukrycie go czytałoby się jak brak przypisania w ogóle. */}
-                      {r.executive_contract ? (
-                        <span
-                          className="rounded-md bg-info-muted px-1.5 text-[11px] font-medium leading-[18px] text-info-muted-foreground"
-                          title={
-                            projectPartLabel(r.executive_contract.project_part) ??
-                            "Umowa wykonawcza"
-                          }
-                        >
-                          {r.executive_contract.number}
-                        </span>
-                      ) : r.project_part ? (
-                        <span
-                          className="rounded-md bg-info-muted px-1.5 text-[11px] font-medium leading-[18px] text-info-muted-foreground"
-                          title="Bez umowy wykonawczej — do przypisania w sekcji „Struktura umów”"
-                        >
-                          {projectPartLabel(r.project_part)}
-                        </span>
-                      ) : null}
-                      {/* Koniec za mniej niż 30 dni wymaga uwagi — plakietka;
-                          dalszy termin to zwykła informacja. */}
-                      {r.days_to_end != null ? (
-                        r.days_to_end < 30 ? (
-                          <Badge size="sm" variant={r.days_to_end < 7 ? "danger" : "warning"}>
-                            {r.days_to_end < 0
-                              ? "po terminie"
-                              : `kończy się za ${r.days_to_end}d`}
-                          </Badge>
-                        ) : (
-                          <span className="text-[11px] text-muted-foreground">
-                            kończy się za {r.days_to_end}d
-                          </span>
-                        )
-                      ) : null}
-                    </div>
-                    {/* Rekrutacja pod nazwiskiem. Brak powiązania = PUSTY
-                        wiersz (wymóg ticketu), nie „brak powiązanej
-                        rekrutacji" — komunikat zastępczy w kolumnie danych
-                        czyta się jak wartość, a nie jak jej brak. */}
-                    <p
-                      className={cn(CALM_SUBLINE, "mt-0 max-w-[380px] truncate")}
-                      title={
-                        r.job_from_order
-                          ? "Rekrutacja z bieżącego zamówienia — kontrakt nie ma własnego powiązania"
-                          : undefined
-                      }
-                    >
-                      {r.job_title ? (
-                        r.job_id ? (
-                          <Link
-                            href={`/jobs/${r.job_id}`}
-                            className="hover:text-primary"
-                          >
-                            {r.job_title}
-                          </Link>
-                        ) : (
-                          r.job_title
-                        )
-                      ) : (
-                        " "
-                      )}
-                      {/* Tekst rekrutacji jest ten sam, ale PROWENIENCJA inna:
-                          `Contract.job_id` mówi „z tej rekrutacji wziął się ten
-                          placement", a fallback — „z tej rekrutacji wzięło się
-                          bieżące zamówienie". Przy kontrakcie przedłużanym to
-                          bywa inna rekrutacja, więc milczące zlanie obu znaczeń
-                          w jednej kolumnie byłoby przemilczeniem. */}
-                      {r.job_from_order ? (
-                        <span className="ml-1 opacity-60">· z zamówienia</span>
-                      ) : null}
-                    </p>
-                  </div>
-                </div>
+                <ConsultantIdentity r={r} />
               </td>
               <td className="py-2 pr-4 tabular-nums whitespace-nowrap">
                 {r.start_date ? (

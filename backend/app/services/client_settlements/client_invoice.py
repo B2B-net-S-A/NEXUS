@@ -45,7 +45,7 @@ from app.models.client_order import ClientOrder
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
 from app.models.client_settlement import ClientSettlement
 from app.services.client_settlements import extras as settlement_extras
-from app.services.client_settlements import service, signoffs
+from app.services.client_settlements import client_acceptance, service, signoffs
 from app.services.client_settlements.rcp_checks import name_tokens
 from app.services.consultant_portal import documents as portal_documents
 from app.services.hr.payroll_periods import add_months
@@ -180,6 +180,23 @@ def _multiplier(s: ClientSettlement) -> Decimal:
             except ArithmeticError:
                 break
     return Decimal("1")
+
+
+def item_name(
+    rules: dict[str, dict[str, Any]], order_number: Optional[str], person: str
+) -> Optional[str]:
+    """Opis pozycji ze wzoru ``cl.item_name`` (``{zamowienie}``, ``{osoba}``)."""
+
+    rule = rules.get("cl.item_name")
+    if not rule or rule["level"] == "off":
+        return None
+    pattern = str(rule["params"].get("template") or "").strip()
+    if not pattern:
+        return None
+    text = pattern.replace("{zamowienie}", order_number or "—").replace(
+        "{osoba}", person
+    )
+    return " ".join(text.split())
 
 
 def positions(
@@ -415,6 +432,9 @@ async def invoice_month(
             ),
             None,
         )
+        # Wzór z reguły (E6.5) wygrywa z historią: u Banku Pocztowego linie nie
+        # mają grup zamówień, a opisy w KSeF mają kilka pisowni.
+        template = item_name(rules, row["order_number"], row["person"]) or template
         name = template or (
             f"Usługi informatyczne; {row['person']}; nr zamówienia: {row['order_number'] or '—'}"
         )
@@ -462,6 +482,8 @@ async def invoice_month(
             if issued
             else "awaiting_signature"
             if service.waits_for_signature(chosen, rules)
+            else "awaiting_client"
+            if client_acceptance.waiting(actual, rules)
             else "ready",
             positions=[p.as_dict() for p in items]
             if amounts

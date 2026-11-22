@@ -233,10 +233,12 @@ function BriefSection({
   card,
   onOpenCase,
   canCreateCase,
+  withoutRhythm,
 }: {
   card: CareBoardCard;
   onOpenCase: (item: CardCase) => void;
   canCreateCase: boolean;
+  withoutRhythm: boolean;
 }) {
   const query = useCareContractCardSummary(card.contract_id ?? null);
   const [creating, setCreating] = useState(false);
@@ -260,7 +262,7 @@ function BriefSection({
     <>
       <section>
         <SectionTitle>Konsultant w skrócie</SectionTitle>
-        {consultantBriefRows(card, data).map((row) => (
+        {consultantBriefRows(card, data, withoutRhythm).map((row) => (
           <Row key={row.label} label={row.label}>
             {row.value}
           </Row>
@@ -382,6 +384,7 @@ function CarePanelBody({
   onOpenCase,
   onOpenContract,
   canCreateCase,
+  withoutRhythm,
 }: {
   card: CareBoardCard;
   onMove: (target: WorkColumn) => void;
@@ -389,6 +392,7 @@ function CarePanelBody({
   onOpenCase: (item: CardCase) => void;
   onOpenContract?: (contractId: number) => void;
   canCreateCase: boolean;
+  withoutRhythm: boolean;
 }) {
   const state = careStateText(card);
   const subtitle = carePanelSubtitle(card);
@@ -462,7 +466,12 @@ function CarePanelBody({
           </section>
         ) : null}
         {card.kind === "contact" || card.kind === "decision" ? (
-          <BriefSection card={card} onOpenCase={onOpenCase} canCreateCase={canCreateCase} />
+          <BriefSection
+            card={card}
+            onOpenCase={onOpenCase}
+            canCreateCase={canCreateCase}
+            withoutRhythm={withoutRhythm}
+          />
         ) : null}
         <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
           {contractId ? (
@@ -487,7 +496,7 @@ function CarePanelBody({
               </Link>
             </Button>
           ) : null}
-          {contractId && card.kind === "contact" ? (
+          {contractId && card.kind === "contact" && !withoutRhythm ? (
             <Button size="sm" variant="ghost" onClick={() => setCadenceOpen(true)}>
               Zmień rytm
             </Button>
@@ -499,7 +508,7 @@ function CarePanelBody({
           ) : null}
         </div>
       </SheetBody>
-      {cadenceOpen && contractId ? (
+      {cadenceOpen && contractId && !withoutRhythm ? (
         <CadenceDialog contractId={contractId} open onOpenChange={setCadenceOpen} />
       ) : null}
       {skipping && contractId && planItemId != null ? (
@@ -522,7 +531,8 @@ function CarePanelBody({
  * „OPIEKA · ROZMOWA · DZIEŃ 30 · 3 DNI PO TERMINIE”, akcja, „Przenieś na
  * tablicy” (trzy pola z podpowiedzią), „Konsultant w skrócie”, „Sprawy tej
  * osoby” z „+ Nowa sprawa” (klik w sprawę otwiera ten sam panel), stopka
- * „Otwórz pełną kartę konsultanta” · „Zmień rytm” · „Pomiń z powodem”.
+ * „Otwórz pełną kartę konsultanta” · „Zmień rytm” · „Pomiń z powodem”. Z modułem
+ * back office (`withoutRhythm`) bez wiersza „Rytm” i bez „Zmień rytm”.
  */
 export function WorkItemPanel({
   item,
@@ -534,6 +544,7 @@ export function WorkItemPanel({
   onOpenCase,
   onOpenContract,
   canCreateCase = false,
+  withoutRhythm = false,
 }: {
   item: WorkItem | null;
   onClose: () => void;
@@ -550,6 +561,8 @@ export function WorkItemPanel({
   onOpenContract?: (contractId: number) => void;
   /** „+ Nowa sprawa” — obsługa skrzynki (uprawnienie „Sprawy”) i admin. */
   canCreateCase?: boolean;
+  /** Moduł back office (`careWithoutRhythm`): bez rytmu rozmów. */
+  withoutRhythm?: boolean;
 }) {
   return (
     <Sheet open={item !== null} onOpenChange={(open) => (open ? null : onClose())}>
@@ -586,6 +599,7 @@ export function WorkItemPanel({
                 : undefined
             }
             canCreateCase={canCreateCase}
+            withoutRhythm={withoutRhythm}
           />
         ) : null}
       </SheetContent>

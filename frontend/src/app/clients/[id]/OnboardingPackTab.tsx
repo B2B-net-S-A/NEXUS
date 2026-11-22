@@ -416,7 +416,9 @@ function PackEditor({ clientId, pack }: { clientId: number; pack: ClientPack }) 
             addLabel="Dodaj dokument"
             namePlaceholder="np. zaświadczenie o niekaralności"
             notePlaceholder="uwagi (np. nie starsze niż 3 miesiące)"
-            emptyText="Klient nie wymaga dokumentów."
+            // Nie „Klient nie wymaga dokumentów.” — to zdanie znaczy jawną
+            // decyzję w „Dokumentach do startu” (licznik „Start u klienta”).
+            emptyText="Brak dokumentów na liście."
           />
           <p className="text-xs text-muted-foreground">
             Konsultant nie ma konta, więc dokumenty odhacza opiekun. Lista trafia do maila

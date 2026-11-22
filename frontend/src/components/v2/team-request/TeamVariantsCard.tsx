@@ -246,7 +246,7 @@ export function TeamVariantsCard({ team }: { team: TeamDetail }) {
             );
           })}
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" disabled={save.isPending} onClick={approve}>
+            <Button size="sm" disabled={save.isPending} onClick={approve} data-tour="jobs.team.variants-approve">
               Zatwierdź i pokaż klientowi
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setDrafts(null)}>

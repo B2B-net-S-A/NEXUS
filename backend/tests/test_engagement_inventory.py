@@ -218,6 +218,50 @@ async def _seed_equipment(contract_id: int) -> int:
         return e.id
 
 
+async def _seed_register_equipment(
+    contract_id: int, *, with_tab_entry: bool = False
+) -> int:
+    """Niezwrócone wydanie z rejestru „Sprzęt” (0464), jak z importu plików recepcji.
+
+    Import zakłada same wydania, bez wpisu zakładki — na kopii produkcji
+    z 19.11.2026 wpisów zakładki było 0. ``with_tab_entry`` = wydanie kreatorem,
+    które zakłada też wpis zakładki (``assignment_id``): to ta sama rzecz.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract_equipment import (
+        ContractEquipment,
+        EquipmentItemType,
+        EquipmentOwner,
+        EquipmentReturnStatus,
+    )
+    from app.models.equipment import EquipmentAssignment, EquipmentItem, EquipmentModel
+
+    async with AsyncSessionLocal() as db:
+        model = EquipmentModel(category="laptop", name=f"Laptop {uuid.uuid4().hex[:8]}")
+        db.add(model)
+        await db.flush()
+        item = EquipmentItem(model_id=model.id, status="wydany")
+        db.add(item)
+        await db.flush()
+        assignment = EquipmentAssignment(item_id=item.id, contract_id=contract_id)
+        db.add(assignment)
+        await db.flush()
+        if with_tab_entry:
+            db.add(
+                ContractEquipment(
+                    contract_id=contract_id,
+                    item_type=EquipmentItemType.laptop,
+                    owner=EquipmentOwner.ours,
+                    handed_over_date=_past(),
+                    return_status=EquipmentReturnStatus.pending,
+                    item_id=item.id,
+                    assignment_id=assignment.id,
+                )
+            )
+        await db.commit()
+        return item.id
+
+
 async def _seed_candidate_rate(contract_id: int, effective_from: date) -> None:
     from app.core.database import AsyncSessionLocal
     from app.models.contract_candidate_rate import ContractCandidateRate
@@ -270,25 +314,6 @@ async def _seed_b2b_generated(contract_number: str, year: int, seq: int) -> None
         await db.commit()
 
 
-async def _seed_invoice(contract_id: int, invoice_number: str) -> None:
-    from app.core.database import AsyncSessionLocal
-    from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
-
-    async with AsyncSessionLocal() as db:
-        db.add(
-            Invoice(
-                contract_id=contract_id,
-                direction=InvoiceDirection.to_client,
-                invoice_number=invoice_number,
-                issue_date=business_today(),
-                amount=1000,
-                currency="PLN",
-                status=InvoiceStatus.issued,
-            )
-        )
-        await db.commit()
-
-
 async def _contracts_count() -> int:
     """Policz WSZYSTKIE kontrakty.
 
@@ -332,11 +357,11 @@ _ALLOWED_SAMPLE_FIELDS = {
     "job_id",
     "order_id",
     "equipment_id",
+    # Egzemplarz z rejestru „Sprzęt” (`equipment_items.id`) — numer, nie nazwa.
+    "item_id",
     "signature_id",
-    "invoice_id",
     "occurrences",
     "contract_number",
-    "invoice_number",
     "effective_from",
     # Numer zamówienia MD/kosztowego — identyfikator dokumentu od klienta,
     # tej samej klasy co `contract_number`. Kwoty i nazwiska NIE wchodzą:
@@ -469,17 +494,19 @@ async def test_inventory_detects_anomalies_and_does_not_mutate(
     # ended + wydany sprzęt nierozliczony
     c_asset = await _seed_contract(status=ContractStatus.ended, terminated_at=_past())
     await _seed_equipment(c_asset)
+    # ended + niezwrócone wydanie z rejestru „Sprzęt” (import, bez wpisu zakładki)
+    c_register = await _seed_contract(
+        status=ContractStatus.ended, terminated_at=_past()
+    )
+    item_register = await _seed_register_equipment(c_register)
+    # ended + wydanie kreatorem: wpis zakładki i wydanie to jedna rzecz, liczona raz
+    c_issued = await _seed_contract(status=ContractStatus.ended, terminated_at=_past())
+    await _seed_register_equipment(c_issued, with_tab_entry=True)
 
     # duplicate b2b contract number
     dup_num = f"TEST-{uuid.uuid4().hex[:6]}/9999"
     await _seed_b2b_generated(dup_num, 9999, 1)
     await _seed_b2b_generated(dup_num, 9999, 2)
-
-    # duplicate invoice number
-    dup_inv = f"DUP-{uuid.uuid4().hex[:8]}"
-    c_inv = await _seed_contract(client_id=client_id, job_id=job_id)
-    await _seed_invoice(c_inv, dup_inv)
-    await _seed_invoice(c_inv, dup_inv)
 
     rows_before = await _contracts_count()
     r = await app_client.get(URL, headers=app_auth_headers)
@@ -529,12 +556,16 @@ async def test_inventory_detects_anomalies_and_does_not_mutate(
         _check(report, "completed_signature_without_artifact")
     )
     assert sig_stuck in _signature_ids(_check(report, "stuck_signature"))
-    assert c_asset in _contract_ids(_check(report, "ended_with_assigned_equipment"))
+    asset_check = _check(report, "ended_with_assigned_equipment")
+    assert c_asset in _contract_ids(asset_check)
+    assert c_register in _contract_ids(asset_check)
+    assert item_register in {row.get("item_id") for row in asset_check["sample"]}
+    assert [row["contract_id"] for row in asset_check["sample"]].count(c_issued) == 1
 
     dupnum_check = _check(report, "duplicate_contract_number")
     assert dup_num in {row.get("contract_number") for row in dupnum_check["sample"]}
-    dupinv_check = _check(report, "duplicate_invoice_number")
-    assert dup_inv in {row.get("invoice_number") for row in dupinv_check["sample"]}
+    assert "duplicate_invoice_number" not in {c["key"] for c in report["checks"]}
+    assert "invoices_total" not in report["totals"]
 
     # A well-formed contract with document/rates/job/coverage must NOT surface
     # in the P0 document/start checks.

@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 
 import { SectionCard, useAccounting } from "./AccountingShell";
 import { findPeriod, gr, monthTitle } from "./ledger-model";
+import { RevenueChoiceForm } from "./RevenueChoice";
 
 const DOC_TYPE: Record<SourceKind, "FVZ" | "FVS" | "PK" | "AM"> = {
   costs: "FVZ",
@@ -202,7 +203,8 @@ function SourceCard({
         {salesAccounts ? (
           <p className="text-[12px] leading-5 text-muted-foreground">
             Konta: rozrachunki {salesAccounts.receivable_account}-ID Symfonii (albo konto z kartoteki
-            kontrahenta) · przychód {salesAccounts.revenue_account || "— nie ustawiono"} · VAT{" "}
+            kontrahenta) · przychód {salesAccounts.revenue_account ||
+              "jak w Symfonii (dekret z eBI24, poprzednia faktura nabywcy albo konto wskazane dla nabywcy bez historii)"} · VAT{" "}
             {salesAccounts.vat_account}
             {config.me.admin ? " · zmienisz je w Ustawieniach" : " · zmienia administrator"}
           </p>
@@ -284,6 +286,13 @@ function SourceCard({
                     </span>
                     {problem.problems.length > 1 ? (
                       <span className={CALM_SUBLINE}>i jeszcze {problem.problems.length - 1}</span>
+                    ) : null}
+                    {problem.revenue_buyer && open ? (
+                      <RevenueChoiceForm
+                        key={`${problem.revenue_buyer.counterparty_id}-${problem.revenue_buyer.account ?? ""}`}
+                        buyer={problem.revenue_buyer}
+                        canEdit={config.me.approver}
+                      />
                     ) : null}
                   </td>
                 </tr>

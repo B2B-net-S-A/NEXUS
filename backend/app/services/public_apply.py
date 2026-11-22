@@ -496,7 +496,16 @@ async def _confirm_to_applicant(
     więc treść nie zdradza, że adres był już w bazie. Nigdy nie rzuca.
     """
     from app.services.application_confirmation_email import schedule_confirmation
+    from app.services.candidate_terms import KIND as TERMS_KIND
+    from app.services.notification_delivery import load_policy
 
+    # 17.11.2026: włączone „Podziękowanie i prośba o warunki” zastępuje to
+    # potwierdzenie — kandydat nie dostaje dwóch maili po jednym zgłoszeniu.
+    try:
+        if (await load_policy(db)).kind_enabled(TERMS_KIND):
+            return
+    except Exception:  # noqa: BLE001 — potwierdzenie nie cofa zgłoszenia
+        pass
     await schedule_confirmation(
         db,
         background_tasks=background_tasks,
@@ -677,6 +686,11 @@ async def _record_duplicate_application(
             utm_term=applicant.utm.get("term"),
             utm_content=applicant.utm.get("content"),
         )
+    )
+    from app.services.candidate_terms_queue import enqueue as enqueue_terms
+
+    await enqueue_terms(
+        db, candidate_id=existing.id, job_id=link.job_id, source="career"
     )
     link.use_count += 1
     link.last_used_at = datetime.now(timezone.utc)
@@ -873,6 +887,11 @@ async def _create_candidate(
             utm_term=applicant.utm.get("term"),
             utm_content=applicant.utm.get("content"),
         )
+    )
+    from app.services.candidate_terms_queue import enqueue as enqueue_terms
+
+    await enqueue_terms(
+        db, candidate_id=candidate.id, job_id=link.job_id, source="career"
     )
     return candidate
 

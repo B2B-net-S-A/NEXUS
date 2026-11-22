@@ -243,6 +243,10 @@ export function useCvTopic(enabled: boolean) {
     enabled,
     refetchInterval: enabled ? WS_BACKED_SAFETY_POLL_MS : false,
     staleTime: 30_000,
+    // Ramka gniazda w ukrytej karcie tylko oznacza ikonę jako nieaktualną
+    // (`lib/cv-topic-refresh.ts`) — pobieramy ją przy powrocie na kartę.
+    // Zwykły powrót bez takiej ramki nie odpytuje serwera.
+    refetchOnWindowFocus: (query) => query.state.isInvalidated,
   });
 }
 
@@ -829,6 +833,45 @@ export interface CproQueueItem {
   accepted_at?: string | null;
   /** Uwaga Delivery Leada zapisana przy akceptacji. */
   dl_note?: string | null;
+  /** Bot Cpro (17.11.2026); brak = bot wyłączony. */
+  bot?: CproBotItem | null;
+}
+
+/**
+ * Bot Cpro przy osobie (`services/cpro_bot`): `blocked` — braki w NEXUSIE,
+ * `ready` — bot weźmie osobę w najbliższym biegu, `working` — wypełnia Cpro,
+ * `submitted` — oferta wysłana (`moved: false` = kartę trzeba przesunąć ręcznie),
+ * `draft` — szkic z próby, `failed`/`skipped` — bot nie wrzucił, `retry` — bieg
+ * padł, bot spróbuje jeszcze raz.
+ */
+export type CproBotState =
+  | "blocked"
+  | "ready"
+  | "working"
+  | "submitted"
+  | "draft"
+  | "failed"
+  | "skipped"
+  | "retry";
+
+export interface CproBotItem {
+  state: CproBotState;
+  blockers: string[];
+  message: string | null;
+  offer_url: string | null;
+  cpro_status: string | null;
+  at: string | null;
+  moved: boolean | null;
+  /** Rekrutacje, z których bot wziął brakujące Warunki albo CV. */
+  data_from: string[];
+}
+
+export interface CproBotSummary {
+  configured: boolean;
+  working: boolean;
+  last_run_at: string | null;
+  sent_today: number;
+  can_retry: boolean;
 }
 
 export interface CproQueueJob {
@@ -846,6 +889,7 @@ export interface CproQueueResponse {
   sender: CproSender;
   jobs: CproQueueJob[];
   sent_today: number;
+  bot?: CproBotSummary | null;
 }
 
 export const CPRO_SENDER_QUERY_KEY = ["board-tasks", "cpro", "sender"] as const;
@@ -873,6 +917,13 @@ export function useCproQueue(enabled = true) {
       return reviewing ? CPRO_CV_REVIEW_POLL_MS : WS_BACKED_SAFETY_POLL_MS;
     },
   });
+}
+
+/** „Ponów botem” — bot Cpro bierze tę jedną osobę od razu. */
+export function retryCproBot(stageId: number) {
+  return api
+    .post<{ run_id: number; status: string }>(`/api/board-tasks/cpro/bot/${stageId}/retry`)
+    .then((r) => r.data);
 }
 
 /** Osoba od Cpro dla CAŁEJ firmy; `until` = zastępstwo (potem wraca poprzednia). */

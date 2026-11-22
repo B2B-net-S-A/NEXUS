@@ -38,7 +38,7 @@ from app.models.equipment import (
 )
 from app.models.user import User
 from app.services.admin_cases import rules
-from app.services.admin_cases.hooks import _care_owner_id
+from app.services.admin_cases.hooks import automatic_assignee
 from app.services.admin_cases.service import AutomaticCase, open_automatic_case
 from app.services.consultant_panel_schema import (
     MATERIAL_URL_MAX,
@@ -161,20 +161,29 @@ async def overview_extra(
 
 
 async def todo(
-    db: AsyncSession, context: PortalContext, *, today: date, now: datetime
+    db: AsyncSession,
+    context: PortalContext,
+    *,
+    today: date,
+    now: datetime,
+    since: Optional[tuple[int, int]] = None,
 ) -> list[dict[str, str]]:
+    """``since`` podaje podgląd dla Finansów (miesiąc „jakby aktywacji”); panel bierze
+    miesiąc prawdziwej aktywacji."""
+
     items: list[dict[str, str]] = []
     months = await documents.overview(db, context, today=today)
-    activation = await db.scalar(
-        select(CpActivation).where(
-            CpActivation.contract_id == context.consultant.contract_id
+    if since is None:
+        activation = await db.scalar(
+            select(CpActivation).where(
+                CpActivation.contract_id == context.consultant.contract_id
+            )
         )
-    )
-    since = (
-        (activation.activated_at.year, activation.activated_at.month)
-        if activation
-        else (today.year, today.month)
-    )
+        since = (
+            (activation.activated_at.year, activation.activated_at.month)
+            if activation
+            else (today.year, today.month)
+        )
     from app.services.client_settlements import consultant as settlement_view
 
     contract = await db.get(Contract, context.consultant.contract_id)
@@ -584,7 +593,7 @@ async def save_trainer_application(
                 source_key=f"{CASE_KEY_PREFIX}trainer:{uuid4().hex}",
                 description=description,
                 contract_id=contract_id,
-                assignee_user_id=await _care_owner_id(db, contract_id),
+                assignee_user_id=await automatic_assignee(db, contract_id),
             ),
         )
         application.case_id = case.id

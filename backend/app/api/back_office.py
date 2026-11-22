@@ -1,4 +1,4 @@
-"""Kolejka back office'u: tablica, przejęcia, przydział, stan, kroki, zespoły.
+"""Kolejka back office'u: tablica, przejęcia, przydział, stan, kroki, zespół.
 
 Prefiks ``/api/back-office`` (wpięty w ``app/main.py`` za ``_HR_PROGRAM``). Moduł
 ``back_office`` wyłączony = 404 dla każdego, także admina. Dostęp ma kierownik
@@ -15,7 +15,6 @@ from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,15 +23,23 @@ from app.api.hr_gates import ensure_module
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.app_setting import AppSetting
-from app.models.back_office import BoCard, BoTeamMember
+from app.models.back_office import BoCard
 from app.models.user import User
-from app.services.back_office import access, board, service, steps, sync
+from app.services.back_office import (
+    access,
+    board,
+    people_view,
+    service,
+    steps,
+    sync,
+    team,
+)
 from app.services.back_office import settlement_extras as card_extras
 from app.services.client_settlements import extras as settlement_extras
 from app.services.client_settlements import settings as settlements_module
 from app.services.back_office.sources import ADAPTERS
 from app.services.back_office_schema import BACK_OFFICE_SETTING, NOTE_MAX
-from app.services.hr import people
+from app.services.back_office_team_schema import CLIENT_NOTE_MAX
 from app.services.hr.modules import HrModule
 
 router = APIRouter()
@@ -42,6 +49,8 @@ LEAD_ONLY_DETAIL = "To może zrobić kierownik back office."
 CARD_NOT_FOUND_DETAIL = "Nie ma takiej karty."
 
 Team = Literal["care", "finance", "contracts", "orders"]
+OutsideTeam = Literal["recruitment", "sales", "it", "hr", "accounting", "legal"]
+NoteBlock = Literal["settlement", "onboarding", "orders", "contacts"]
 
 
 def require_hr_back_office_member():
@@ -479,90 +488,227 @@ async def add_card_settlement_extra(
 async def get_team(
     current_user: BackOfficeLead, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    members = await access.team_members(db)
-    names = await board.user_names(db, [uid for ids in members.values() for uid in ids])
-    settings_value = await access.load_settings(db)
-    integration_ids = await people.integration_account_ids(db)
-    candidates = [
-        {"id": person.id, "name": person.name}
-        for person in (
-            await db.scalars(
-                select(User).where(User.is_active.is_(True)).order_by(User.name)
-            )
-        ).all()
-        if people.is_staff_account(person, integration_ids=integration_ids)
-    ]
-    return {
-        "candidates": candidates,
-        "teams": [
-            {
-                "id": team,
-                "label": board.TEAM_LABELS[team],
-                "members": [{"id": uid, "name": names.get(uid)} for uid in ids],
-            }
-            for team, ids in members.items()
-        ],
-        "deputy_user_id": settings_value.get("deputy_user_id"),
-    }
+    """Jeden zespół z rolami (decyzja 19.11.2026), działy na zewnątrz, osoby spoza."""
+
+    return await team.team_view(db, today=business_today())
 
 
-class TeamBody(BaseModel):
-    user_ids: list[int] = Field(max_length=100)
+class MemberBody(BaseModel):
+    role: Literal["deputy", "reception", "accountant", "member"] = "member"
+    takes_calls: bool = True
 
 
-@router.put("/team/{team}")
-async def put_team(
-    team: Team,
-    body: TeamBody,
+@router.put("/team/members/{user_id}")
+async def put_member(
+    user_id: int,
+    body: MemberBody,
     current_user: BackOfficeLead,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    wanted = set(body.user_ids)
-    found = set(
-        (
-            await db.scalars(
-                select(User.id).where(User.id.in_(wanted), User.is_active.is_(True))
-            )
-        ).all()
-    )
-    if wanted - found:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "Nie ma takiego aktywnego konta."
+    try:
+        await team.set_member(
+            db,
+            actor=current_user,
+            user_id=user_id,
+            role=body.role,
+            takes_calls=body.takes_calls,
         )
-    current = set(
-        (
-            await db.scalars(
-                select(BoTeamMember.user_id).where(BoTeamMember.team == team)
-            )
-        ).all()
-    )
-    for user_id in current - wanted:
-        member = await db.get(BoTeamMember, (team, user_id))
-        if member is not None:
-            await db.delete(member)
-    for user_id in wanted - current:
-        db.add(BoTeamMember(team=team, user_id=user_id, added_by=current_user.id))
+    except team.TeamError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     await db.commit()
-    return await get_team(current_user, db)
+    return await team.team_view(db, today=business_today())
 
 
-class DeputyBody(BaseModel):
-    user_id: Optional[int] = None
+@router.delete("/team/members/{user_id}")
+async def delete_member(
+    user_id: int, current_user: BackOfficeLead, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    try:
+        await team.remove_member(db, user_id=user_id)
+    except team.TeamError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    await db.commit()
+    return await team.team_view(db, today=business_today())
 
 
-@router.put("/deputy")
-async def put_deputy(
-    body: DeputyBody,
+class OutsideContactsBody(BaseModel):
+    contacts: dict[OutsideTeam, Optional[int]]
+
+
+@router.put("/team/outside-contacts")
+async def put_outside_contacts(
+    body: OutsideContactsBody,
     current_user: BackOfficeLead,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    if body.user_id is not None:
-        person = await db.get(User, body.user_id)
-        if person is None or not person.is_active:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "Nie ma takiego aktywnego konta.",
-            )
-    await _save_setting(db, {"deputy_user_id": body.user_id}, actor=current_user)
+    try:
+        value = await team.outside_contacts_value(db, dict(body.contacts))
+    except team.TeamError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    await _save_setting(db, {"outside_contacts": value}, actor=current_user)
     await db.commit()
-    return {"deputy_user_id": body.user_id}
+    return await team.team_view(db, today=business_today())
+
+
+@router.post("/team/release-outsiders")
+async def release_outsiders(
+    current_user: BackOfficeLead, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Sprawy osób spoza zespołu wracają do kolejki (decyzja Artura 19.11.2026)."""
+
+    try:
+        released = await service.release_outsiders(
+            db,
+            actor=current_user,
+            member_ids=await access.member_ids(db),
+            keep=await access.keep_ids(db),
+        )
+    except _CARD_ERRORS as exc:
+        raise _translate(exc) from exc
+    await db.commit()
+    return {"released": released}
+
+
+class OutsideBody(BaseModel):
+    team: OutsideTeam
+    note: str = Field(min_length=1, max_length=200)
+    expected_updated_at: Optional[datetime] = None
+
+
+@router.post("/cards/{card_id}/outside")
+async def send_outside(
+    card_id: int,
+    body: OutsideBody,
+    current_user: BackOfficeMember,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """„Na zewnątrz”: sprawa czeka na dział poza back office'em (decyzja 10.11)."""
+
+    card = await _card(db, card_id)
+    viewer = await access.load_viewer(db, current_user)
+    try:
+        await service.send_outside(
+            db,
+            card,
+            actor=current_user,
+            viewer=viewer,
+            team=body.team,
+            note=body.note,
+            expected_updated_at=body.expected_updated_at,
+        )
+    except _CARD_ERRORS as exc:
+        raise _translate(exc) from exc
+    return await _detail(db, card, current_user)
+
+
+@router.post("/next")
+async def take_next(
+    current_user: BackOfficeMember, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """„Weź następną”: kolejność liczy serwer — najstarszy termin, potem najdłużej bez osoby."""
+
+    viewer = await access.load_viewer(db, current_user)
+    try:
+        card = await service.take_next(
+            db, actor=current_user, viewer=viewer, today=business_today()
+        )
+    except _CARD_ERRORS as exc:
+        raise _translate(exc) from exc
+    if card is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, service.NOTHING_TO_TAKE)
+    return await _detail(db, card, current_user)
+
+
+class BulkReviewBody(BaseModel):
+    card_ids: list[int] = Field(min_length=1, max_length=500)
+    decision: Literal["current", "close"]
+    note: Optional[str] = Field(default=None, max_length=NOTE_MAX)
+
+
+@router.post("/review/bulk")
+async def review_bulk(
+    body: BulkReviewBody,
+    current_user: BackOfficeLead,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Przegląd przed startem hurtem: ta sama decyzja, każda karta z wpisem w historii."""
+
+    viewer = await access.load_viewer(db, current_user)
+    try:
+        result = await service.review_many(
+            db,
+            body.card_ids,
+            actor=current_user,
+            viewer=viewer,
+            decision=body.decision,
+            note=body.note,
+        )
+    except _CARD_ERRORS as exc:
+        raise _translate(exc) from exc
+    await db.commit()
+    return result
+
+
+@router.get("/consultants")
+async def get_consultants(
+    current_user: BackOfficeMember, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Wszyscy konsultanci z trwającym kontraktem — bez opiekuna i bez kwot."""
+
+    return await people_view.consultants(db)
+
+
+@router.get("/consultants/{contract_id}")
+async def get_consultant(
+    contract_id: int, current_user: BackOfficeMember, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    viewer = await access.load_viewer(db, current_user)
+    out = await people_view.consultant_card(
+        db, contract_id, viewer=viewer, user=current_user, today=business_today()
+    )
+    if out is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiego kontraktu.")
+    return out
+
+
+@router.get("/clients")
+async def get_clients(
+    current_user: BackOfficeMember, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    return await people_view.clients(db, today=business_today())
+
+
+@router.get("/clients/{client_id}")
+async def get_client_sheet(
+    client_id: int, current_user: BackOfficeMember, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    out = await people_view.client_sheet(db, client_id, today=business_today())
+    if out is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiego klienta.")
+    return out
+
+
+class ClientNoteBody(BaseModel):
+    body: str = Field(default="", max_length=CLIENT_NOTE_MAX)
+
+
+@router.put("/clients/{client_id}/notes/{block}")
+async def put_client_note(
+    client_id: int,
+    block: NoteBlock,
+    body: ClientNoteBody,
+    current_user: BackOfficeMember,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Ściąga klienta: każdy z zespołu poprawia to, co wie (19.11.2026)."""
+
+    try:
+        await people_view.save_note(
+            db, client_id=client_id, block=block, body=body.body, actor=current_user
+        )
+    except people_view.SheetError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    await db.commit()
+    out = await people_view.client_sheet(db, client_id, today=business_today())
+    assert out is not None
+    return out

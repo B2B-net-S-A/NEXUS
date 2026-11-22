@@ -108,7 +108,9 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
     suma wszystkich ról, jak dotąd;
   - „N lat doświadczenia jako X” = `min(cała kariera, max(liczba modelu,
     role X))` — kod nigdy nie dopisuje lat z cudzych ról („3 lata jako Data
-    Engineer” przy latach w sklepie nie staje się „13 lat”);
+    Engineer” przy latach w sklepie nie staje się „13 lat”). Od 20.11.2026
+    role X to role tego samego zawodu, nie tylko o tej nazwie, a zawód liczbę
+    wyłącznie podnosi: `lata-jako-x-rodzina-zawodu.md`;
   - **od 02.11.2026 bez zaokrąglania w górę** (decyzja Artura po audycie CV
     wgrywanych ręcznie, 19 z 67 plików zmieniało tę liczbę, najczęściej w dół):
     `_tenure_text` pisze pełne lata w dół, a od 3 dodatkowych miesięcy „Ponad N
@@ -336,7 +338,8 @@ https://claude.ai/artifact/P6xe6hTbFptKcPsUNk7VAD. Zastępuje limit „3–5 pun
 z sekcji z 02.11. Pomiar na kopii produkcji: 1. punkt od lat w 95% CV do 01.11, w 84% od 03.11
 (43 CV), a 171 z 481 CV etapu miało tę sekcję poprawioną ręcznie.
 
-- **Układ (`legacy_v7/prompts.py`, wersja 12):** punkt 1 lata doświadczenia na stanowisku,
+- **Układ (`legacy_v7/prompts.py`, wersja 12; od wersji 14 punkty 2–5 inaczej, zob.
+  `dlaczego-kompetencje-zamiast-osiagniec.md`):** punkt 1 lata doświadczenia na stanowisku,
   punkt 2 specjalizacja w technologiach, punkty 3–5 po jednym must-have z Championa. Bez
   Championa albo przy mniej niż trzech potwierdzonych must-have punkty 3–5 opisują
   doświadczenie najważniejsze dla roli.
@@ -388,6 +391,8 @@ Makiety: https://claude.ai/artifact/E3xpCnq7o7PqG8TRHJdMzW
 - **Punkty 3–5 to zdania od czasownika** (prompt), a etykietę „X: …” do 5 słów zdejmuje
   `_drop_why_labels`. Na Solu etykiety miało 44 z 54 punktów, po zmianie 0. Przykład w schemacie
   z 05.11 („[must-have]: co robił”) sam ją podsuwał. Punkt 2 „Specjalizacja: …” zostaje.
+  Od 17.11.2026 (prompt 14) punkty 2–5 to kompetencje bez „Specjalizacji”:
+  `dlaczego-kompetencje-zamiast-osiagniec.md`.
 - **Umiejętności to umiejętności** (prompt reguły 4a i 4b): bez trybu pracy, cech osobistych,
   prawa jazdy i języków obcych; metodyka to sposób pracy zespołu, wzorce projektowe to praktyka.
   `clean_skill_sections` usuwa pozycje z zamkniętej listy i kategorie miękkie, a język obcy
@@ -453,3 +458,24 @@ Krok `cv-service-title-repair` w `entrypoint.sh`, kod `services/cv_service_title
 - Ponad 40 CV krok niczego nie zmienia i nie stawia markera. Stare wartości są
   w `activities` (`branded_cv_service_title_repair`), paragon ma same liczby.
 - `cv_generated_documents` zostają historią generacji.
+
+## Bez dopisków o poziomie w umiejętnościach (17.11.2026, wariant A+B)
+
+Zgłoszenie z zespołu: „Cucumber (krótkie doświadczenie praktyczne)”, „Java
+(podstawy)”. Klient czyta to jako „nie umie”. Kopia produkcji z 16.11: 64 z 958
+CV z 30 dni, ok. 70% dopisków nie stało w CV kandydata. Makiety:
+https://claude.ai/artifact/LUCSApnhPsHE2WUJdgdGDk
+
+- Prompt (PL i EN) zakazuje dopisków stopnia w SKILLS; słabiej znana
+  umiejętność stoi bez dopisku na końcu kategorii, nawias tylko dla zakresu.
+- Strażnik `legacy_v7._helpers._without_level_note` w `strip_unsupported_terms`:
+  z nawiasu znika tylko część ze stopniem („Docker (basic, Docker Compose)” →
+  „Docker (Docker Compose)”, „basic DAX” → „DAX”, „SQL and Splunk basics” →
+  „SQL and Splunk”), tak samo ogon po myślniku, osobno w każdym członie po
+  średniku. Pozycja schodzi na koniec kategorii, chyba że jest wymaganiem
+  klienta (must-have zostaje na początku). Uwaga „WERYFIKUJ: zdjęto dopiski…”
+  pozwala rekruterowi dopisać poziom w edytorze, gdy klient go wymaga.
+- Zostają: lata („10+ lat”), „zaawansowana znajomość”, nazwy z tymi słowami
+  („Visual Basic”, „Identity Awareness”). „Brak doświadczenia” dalej usuwa całą
+  pozycję (`_NEGATED_SKILL_RE`). Przebieg po 36 017 pozycjach ze stagingu:
+  138 zmian, bez utraty technologii.

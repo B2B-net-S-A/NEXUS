@@ -17,6 +17,7 @@ from __future__ import annotations
 from app.services import admin_cases_schema as admin_cases
 from app.services import back_office_schema as back_office
 from app.services import back_office_role_schema as back_office_role
+from app.services import back_office_team_schema as back_office_team
 from app.services import board_role_schema as board_role
 from app.services import viewer_role_schema as viewer_role
 from app.services import care_announcements_schema as care_announcements
@@ -28,6 +29,13 @@ from app.services import client_invoice_templates_schema as client_invoice_templ
 from app.services import client_invoice_series_ext_schema as client_invoice_series_ext
 from app.services import finance_archive_schema as finance_archive
 from app.services import order_revenue_steps_schema as order_revenue_steps
+from app.services import order_cost_steps_schema as order_cost_steps
+from app.services import board_documents_schema as board_documents
+from app.services import board_budget_schema as board_budgets
+from app.services import board_statements_schema as board_statements
+from app.services import board_meetings_schema as board_meetings
+from app.services import board_votes_schema as board_votes
+from app.services import board_reports_schema as board_reports
 from app.services import client_settlements_schema as client_settlements
 from app.services import client_settlement_extras_schema as settlement_extras
 from app.services import client_structure_schema as client_structure
@@ -43,6 +51,7 @@ from app.services import finance_ledger_schema as finance_ledger
 from app.services import finance_payments_schema as finance_payments
 from app.services import ledger_assets_schema as ledger_assets
 from app.services import ledger_automation_schema as ledger_automation
+from app.services import ledger_bank_balance_schema as ledger_bank_balances
 from app.services import ledger_bank_schema as ledger_bank
 from app.services import ledger_export_schema as ledger_export
 from app.services import ledger_fx_schema as ledger_fx
@@ -71,6 +80,8 @@ from app.services import hr_settlement_schema as settlement
 from app.services import hr_time_schema as time_
 from app.services import trainings_schema as trainings
 from app.services.law_radar import schema as law_radar
+from app.services.cpro_bot import schema as cpro_bot
+from app.services.contract_rate_documents import schema_sql as contract_rate_documents
 
 #: Moduły po fundamencie, w kolejności migracji 0458–0476 (0467 i 0472 to statystyki z maina) (kontrakt każdego:
 #: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
@@ -142,6 +153,8 @@ MODULES = (
     ledger_fx,
     # 0708: pliki JPK_V7M K5b — ewidencja VAT z deklaracją (15.11.2026).
     ledger_vat,
+    # 0742: salda i numery wyciągów — ciągłość rachunku dla „po terminie” (19.11.2026).
+    ledger_bank_balances,
     # 0709: szablony faktur cykliczne, refaktury benefitów, faktura z ręki (E6, 15.11.2026).
     client_invoice_templates,
     # 0712: katalog raportów klienta — definicje i historia wysyłek (15.11.2026).
@@ -156,6 +169,26 @@ MODULES = (
     finance_archive,
     # 0724: kroki stawki przychodowej zamówienia z aneksu (16.11.2026).
     order_revenue_steps,
+    # 0727: dokumenty Rady nadzorczej i odpisy KRS spółki (R1, 16.11.2026).
+    board_documents,
+    # 0732: bot Cpro — biegi rutyny Grok Bota (17.11.2026).
+    cpro_bot,
+    # 0733: budżet Rady — plan miesięczny sprzedaży i kosztów (R3, 16.11.2026).
+    board_budgets,
+    # 0734: sprawozdania roczne dla Rady — bilans i RZiS (R4, 18.11.2026).
+    board_statements,
+    # 0735: posiedzenia Rady z zamrażanym pakietem (R5, 18.11.2026).
+    board_meetings,
+    # 0736: uchwały Rady w trybie pisemnym (R6, 18.11.2026).
+    board_votes,
+    # 0737: gotówka i archiwum raportów Rady (R7, 18.11.2026).
+    board_reports,
+    # 0739: stawki Partnera z umów i aneksów kontraktu (18.11.2026).
+    contract_rate_documents,
+    # 0741: koszt zamówienia od dnia zmiany stawki Partnera (19.11.2026).
+    order_cost_steps,
+    # 0746: jeden zespół back office'u, „Na zewnątrz” i ściąga klienta (19.11.2026).
+    back_office_team,
     # 0749: dodatki do rozliczenia kontraktora — źródła, karta sprawy, dokumenty (13.11.2026).
     settlement_extras,
 )

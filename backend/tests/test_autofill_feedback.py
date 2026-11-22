@@ -774,6 +774,35 @@ def test_detail_keys_follow_the_reason():
     }
     assert feedback.clean_detail("too_junior", None) is None
     assert feedback.clean_detail("other_level_or_role", {"role_wanted": " "}) is None
+    # 16.11.2026 („Kogo szukamy”): 8 odpowiedzi i „Osoba to:”; stare wartości ważne.
+    for kind in (
+        "profession",
+        "specialty",
+        "technology",
+        "lead_not_ic",
+        "ic_not_lead",
+        "past_role",
+        "side_role",
+        "domain",
+        "level",
+    ):
+        assert feedback.clean_detail("other_level_or_role", {"role_kind": kind}) == {
+            "role_kind": kind
+        }
+    assert feedback.clean_detail(
+        "other_level_or_role",
+        {
+            "role_kind": "past_role",
+            "person_role": "  Data   Engineer ",
+            "role_wanted": "analityk",
+        },
+    ) == {
+        "role_kind": "past_role",
+        "person_role": "Data Engineer",
+        "role_wanted": "analityk",
+    }
+    with pytest.raises(HTTPException):
+        feedback.clean_detail("too_junior", {"person_role": "Tester"})
     for reason, raw in [
         ("too_junior", {"role_kind": "level"}),  # klucz innego powodu
         ("other_level_or_role", {"role_kind": "manager"}),  # spoza listy

@@ -183,6 +183,8 @@ export interface OrderEntryItem extends OrderRef {
   status: string;
   /** Tylko Nordea: gotowa pozycja faktury; `null`/brak = inny klient. */
   invoice_lines?: InvoiceLine[] | null;
+  /** Przejście od innego klienta (19.11.2026): u kogo osoba była wcześniej. */
+  previous_client_name?: string | null;
 }
 
 /**
@@ -193,6 +195,18 @@ export interface OrderEntryItem extends OrderRef {
  * `ending_pending` / `no_successor` → Zamówienia bez kontynuacji (klucz `ending`).
  */
 export type OrderExitVerdict = "ended_intent" | "no_successor" | "ending_pending";
+
+/** Kolejne zamówienie tej samej osoby u klienta w jednym zejściu (19.11.2026). */
+export interface ExitOtherOrder {
+  order_id: number | null;
+  order_group_id: number | null;
+  order_number: string;
+  end_date: string;
+  start_date: string | null;
+  order_start?: string | null;
+  order_end?: string | null;
+  pdf?: OrderPdfRef | null;
+}
 
 export interface OrderExitItem extends OrderRef {
   end_date: string;
@@ -205,6 +219,9 @@ export interface OrderExitItem extends OrderRef {
   verdict: OrderExitVerdict;
   verdict_label: string;
   intent: string | null;
+  /** Zejście liczy się raz na osobę: pozostałe jej zamówienia u tego klienta
+   *  kończące się w miesiącu. W „Kończących się zamówieniach" zawsze puste. */
+  other_orders?: ExitOtherOrder[];
 }
 
 export type OrderChangeKind =

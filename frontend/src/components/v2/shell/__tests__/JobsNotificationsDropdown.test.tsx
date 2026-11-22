@@ -4,10 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobThreadList } from "@/lib/api/jobTopic";
 
 const push = vi.hoisted(() => vi.fn());
-const apiMock = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn() }));
+const apiMock = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), post: vi.fn() }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
-vi.mock("@/lib/api", () => ({ api: apiMock }));
+vi.mock("@/lib/api", () => ({ api: apiMock, default: apiMock }));
 vi.mock("@/store/auth", () => ({
   useAuthStore: (selector: (state: unknown) => unknown) =>
     selector({ user: { id: 5, authorization_version: 1 } }),
@@ -74,6 +74,8 @@ beforeEach(() => {
   push.mockReset();
   apiMock.get.mockReset();
   apiMock.put.mockReset();
+  apiMock.post.mockReset();
+  apiMock.post.mockResolvedValue({ data: null });
   apiMock.get.mockResolvedValue({ data: THREADS });
   apiMock.put.mockResolvedValue({ data: { success: true, updated: 1 } });
 });
@@ -155,6 +157,63 @@ describe("JobsNotificationsDropdown — ikona „Rekrutacje” (16.10.2026)", ()
     fireEvent.click(screen.getByRole("button", { name: "Rekrutacje" }));
     expect(await screen.findByText("Nie udało się wczytać rekrutacji.")).toBeInTheDocument();
     expect(screen.queryByText(/nic nowego/)).not.toBeInTheDocument();
+  });
+});
+
+describe("„Dałem znać” u zastępcy (16.11.2026)", () => {
+  const closed = (handled: boolean): JobThreadList => ({
+    unread_jobs: 0,
+    items: [
+      {
+        job_id: 21,
+        title: "Tester Manualny",
+        subtitle: "Klient Beta",
+        // Cichy wiersz: zastępca sam zamknął rekrutację, więc jest przeczytany.
+        unread_count: 0,
+        has_task: false,
+        last_title: "Rekrutacja zamknięta — daj znać 1 osobie",
+        last_message: "Osoba A (Rozmowa u klienta)",
+        last_at: new Date().toISOString(),
+        link: "/jobs/21",
+        away_case: {
+          id: 77,
+          on_behalf_of_name: "Rekruterka Testowa",
+          handled_at: handled ? new Date().toISOString() : null,
+          handled_by_name: handled ? "Zastępca Testowy" : null,
+        },
+      },
+    ],
+  });
+
+  it("przy zamknięciu w zastępstwie zapisuje „Dałem znać” i nie otwiera rekrutacji", async () => {
+    apiMock.get.mockResolvedValue({ data: closed(false) });
+    renderDropdown();
+    fireEvent.click(await findTrigger());
+    expect(await screen.findByText("W zastępstwie za Rekruterka Testowa")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Dałem znać — Tester Manualny" }));
+    await waitFor(() =>
+      expect(apiMock.post).toHaveBeenCalledWith("/api/notifications/while-away/77/handled"),
+    );
+    expect(push).not.toHaveBeenCalled();
+    expect(apiMock.put).not.toHaveBeenCalled();
+    // Po zapisie okienko pyta serwer od nowa — stan widzą oboje.
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledTimes(2));
+  });
+
+  it("załatwiona sprawa pokazuje kto, bez przycisku", async () => {
+    apiMock.get.mockResolvedValue({ data: closed(true) });
+    renderDropdown();
+    fireEvent.click(await findTrigger());
+    expect(await screen.findByText("Załatwione · Zastępca Testowy")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Dałem znać/ })).not.toBeInTheDocument();
+  });
+
+  it("wątek bez sprawy z zastępstwa nie ma przycisku", async () => {
+    renderDropdown();
+    fireEvent.click(await findTrigger());
+    await screen.findByRole("button", { name: /Rekrutacja: Analityk danych/ });
+    expect(screen.queryByRole("button", { name: /Dałem znać/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/W zastępstwie/)).not.toBeInTheDocument();
   });
 });
 

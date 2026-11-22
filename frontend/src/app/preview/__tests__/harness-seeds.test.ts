@@ -934,16 +934,28 @@ function missingLiteralKeys(harness: string, components: string[]): string[] {
   return missing;
 }
 
-describe("/preview/clients-list zasiewa listę klientów i kluczowe relacje", () => {
+describe("/preview/clients-list zasiewa listę klientów i kolumnę „Wymaga uwagi”", () => {
   const harness = flat("app/preview/clients-list/page.tsx");
 
   it("nie zostawia stałego klucza bez zasiewu", () => {
     expect(
       missingLiteralKeys(harness, [
+        "components/clients/ClientsList.tsx",
         "components/v2/pages/ClientsListV2.tsx",
-        "components/clients/KeyRelationshipsPanel.tsx",
+        "components/clients/ClientAttention.tsx",
       ]),
     ).toEqual([]);
+  });
+
+  it("zasiewa kalendarz raportów miesiąca kluczem z `useClientAttention`", () => {
+    expect(harness).toContain('qc.setQueryData(["client-reports-calendar", warsawToday().slice(0, 7), false]');
+  });
+
+  it("zasiewa pierwszą stronę każdego stanu listy „Klienci” (19.11.2026)", () => {
+    // Klucz: stan, fraza, strona, „moi” — przełączenie stanu to jedno kliknięcie.
+    for (const state of ["working", "idle", "archive"]) {
+      expect(harness).toContain(`["clients-directory", "clients", "${state}", "", 1, false]`);
+    }
   });
 
   it("zasiewa pierwszą stronę każdej zakładki portfela i odcina sieć", () => {

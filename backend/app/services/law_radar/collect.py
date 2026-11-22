@@ -56,8 +56,16 @@ SOURCE_GUIDE: tuple[tuple[str, str], ...] = (
     ("x", "Serwis X: konta ministerstw, ZUS, KAS, UODO, PIP i doradców"),
     (
         "lex",
-        "LEX (sip.lex.pl): zaloguj się do LEX (sip.lex.pl) loginem zapisanym w Vault; "
+        "LEX (sip.lex.pl): użyj bieżącej sesji przeglądarki. Jeśli LEX przekieruje do "
+        "logowania Wolters Kluwer (borg.wolterskluwer.pl), użyj wpisu Vault dla "
+        "tej domeny wyłącznie w oficjalnym formularzu; "
         "z LEX odsyłasz tylko tytuł, link i cytat do 500 znaków",
+    ),
+    (
+        "gofin",
+        "Gofin (www.gofin.pl, Serwis Głównego Księgowego, Gazeta Podatkowa): użyj "
+        "bieżącej sesji; jeśli portal wymaga logowania, wpis Vault jest dla "
+        "logowanie.gofin.pl. Z Gofina odsyłasz tylko tytuł, link i cytat do 500 znaków",
     ),
     ("other", "Inne oficjalne źródło, gdy żadne z powyższych nie pasuje"),
 )
@@ -116,6 +124,8 @@ class CollectReport(BaseModel):
     items: list[CollectItem] = Field(default_factory=list, max_length=MAX_ITEMS)
     #: LEX poprosił o kod 2FA albo weryfikację urządzenia i bot go pominął.
     lex_skipped: bool = False
+    #: Gofin nie wpuścił bota (brak loginu w Vault, kod, blokada) i bot go pominął.
+    gofin_skipped: bool = False
 
 
 def build_request(since: date) -> dict[str, Any]:
@@ -150,6 +160,10 @@ def task_text(request: dict[str, Any]) -> str:
         "bez kopiowania komentarzy i opracowań.\n"
         "- Gdy LEX poprosi o kod logowania albo weryfikację urządzenia, nie czekaj na "
         "człowieka: pomiń LEX, przejrzyj pozostałe źródła i ustaw lex_skipped = true.\n"
+        "- Z Gofina odsyłasz tylko tytuł, link i cytat do 500 znaków (source = gofin), "
+        "bez kopiowania artykułów, porad i odpowiedzi ekspertów. Gdy Gofin nie wpuści "
+        "(brak loginu w Vault, kod, weryfikacja albo blokada), pomiń go i ustaw "
+        "gofin_skipped = true.\n"
         "- Nie zapisuj nazwisk osób prywatnych ani danych kontaktowych.\n"
         f"- Najwyżej {request.get('max_items', MAX_ITEMS)} pozycji. Ta sama zmiana "
         "z kilku źródeł może być kilkoma pozycjami.\n"
@@ -172,6 +186,7 @@ def report_format() -> dict[str, Any]:
             }
         ],
         "lex_skipped": False,
+        "gofin_skipped": False,
     }
 
 
@@ -232,6 +247,7 @@ async def ingest(
         "duplicates": duplicates,
         "by_class": by_class,
         "lex_skipped": report.lex_skipped,
+        "gofin_skipped": report.gofin_skipped,
     }
     mark_received(run, summary, now)
     logger.info(

@@ -34,6 +34,9 @@ import { positiveIntParam } from "@/lib/client-tab";
 import { resolveUrlTab } from "@/lib/url-tab";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 import { jobHeaderFacts } from "@/lib/job-header-facts";
+import { JobDatesFact } from "@/components/v2/jobs/JobDatesFact";
+import { storedProcess } from "@/lib/job-client-process";
+import { JobClientProcessFact } from "@/components/v2/jobs/JobClientProcessFact";
 import { recruitersOf, workingRecruiters } from "@/lib/job-team";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
 import {
@@ -50,6 +53,7 @@ import { useClearJobTopic } from "@/lib/api/jobTopic";
 import { shortlistApi } from "@/lib/candidate-search-api";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
+import { ChampionChangeNoteHost } from "@/components/champion/ChampionChanges";
 import { ChampionWorkspace } from "@/components/champion/ChampionWorkspace";
 import {
   resolveChampionTab,
@@ -992,8 +996,11 @@ export default function JobDetailPage() {
           </>
         }
         // Klient · Budżet · Tryb pracy (02.10.2026) i od 14.10.2026 „Rekruter”
-        // z okienkiem zespołu. DL, hiring manager i termin — „Profil Championa”.
+        // z okienkiem zespołu. DL i hiring manager — „Profil Championa”; termin
+        // wrócił do nagłówka 19.11.2026 (`dates`).
         facts={jobHeaderFacts(job)}
+        // „Dodana → Termin” obok faktów (19.11.2026, makieta wariant B).
+        dates={<JobDatesFact job={job} />}
         // P0 — ultrapilne przez 24 h (27.10.2026): do kiedy, kto i po co.
         p0Strip={
           <JobP0Strip jobId={jobId} job={job} canSet={job.can_set_p0 === true} />
@@ -1021,6 +1028,15 @@ export default function JobDetailPage() {
         recruiter={recruiterFact(false)}
         recruiterCompact={recruiterFact(true)}
         // Liczba osób (07.11.2026) — edycja jak w Profilu Championa › Zespół.
+        processFact={
+          <JobClientProcessFact
+            jobId={jobId}
+            clientId={job.client_id ?? null}
+            clientName={job.client_name ?? null}
+            process={storedProcess(job.champion_profile?.client_process)}
+            canEdit={canEditChampion}
+          />
+        }
         headcount={
           <JobHeadcountFact
             jobId={jobId}
@@ -1519,6 +1535,9 @@ export default function JobDetailPage() {
             </div>
           ) : null}
 
+          {/* Okno „Na co klient kładzie nacisk?” po zapisie zmiany w profilu
+              rekrutacji w pracy — z szuflady bloku i z pełnego formularza. */}
+          <ChampionChangeNoteHost jobId={Number(id)} />
           {/* Edytor zostaje zamontowany po pierwszym wejściu — powrót do zakładek
               go tylko chowa, więc niezapisany szkic nie ginie. */}
           {renderChampionEditor ? (

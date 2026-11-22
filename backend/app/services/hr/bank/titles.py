@@ -21,6 +21,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
+from functools import lru_cache
 from typing import Optional
 
 LINE_LENGTH = 35
@@ -111,6 +112,34 @@ def ksef_title_problem(invoices: Sequence[InvoiceRef], pay_date: date) -> Option
     return None
 
 
+_DIGIT_RUN = re.compile(r"[0-9]+")
+
+
+@lru_cache(maxsize=4096)
+def _number_pattern(number: str) -> re.Pattern[str]:
+    body = r"\s*".join(re.escape(part) for part in number.split())
+    return re.compile(r"(?<![0-9A-Za-z])" + body + r"(?![0-9A-Za-z])", re.IGNORECASE)
+
+
+def number_in_title(number: Optional[str], title: str) -> bool:
+    """Numer faktury w tytule jako całe słowo (odstępy dowolne, wielkość liter bez znaczenia).
+
+    Wzorzec kompiluje się dopiero, gdy każdy ciąg cyfr numeru stoi w tytule
+    dosłownie — cyfry nie mają wielkich liter, więc bez tego wzorzec i tak
+    nie trafi. 18.11.2026 import wyciągu kompilował wzorzec dla każdej pary
+    (operacja × faktura): przy tysiącach faktur pamięć podręczna ``re``
+    (512 wzorców) nic nie trzymała, ok. 0,2 ms na parę, a proces web stał
+    ponad minutę.
+    """
+
+    parts = (number or "").split()
+    if not parts:
+        return False
+    if any(run not in title for part in parts for run in _DIGIT_RUN.findall(part)):
+        return False
+    return _number_pattern(" ".join(parts)).search(title) is not None
+
+
 def ksef_numbers_in(text: str) -> list[str]:
     """Numery KSeF z tytułu wyciągu (wielkie litery jak w KSeF)."""
 
@@ -126,6 +155,7 @@ __all__ = [
     "MAX_LINES",
     "clean",
     "ksef_numbers_in",
+    "number_in_title",
     "ksef_title_problem",
     "title_lines",
     "transfer_title",

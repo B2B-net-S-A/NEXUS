@@ -1,4 +1,5 @@
-"""Środki trwałe (K6) bez bazy: dokument AM (Wn 401 z MPK / Ma 070-071 i podział
+"""Środki trwałe (K6) bez bazy: dokument AM (Wn 400-x z mapy umorzeń albo jedno
+konto, z MPK / Ma 070-075 i podział
 na „5”), zapisy OT, ulepszenia, likwidacji i sprzedaży, MPK po zmianie (MT),
 import ewidencji z Symfonii po aliasach nagłówków. Kwoty i konta fikcyjne."""
 
@@ -17,8 +18,9 @@ from app.services.ledger import assets, assets_import
 from app.services.ledger.allocation import Mpk
 from app.services.ledger.settings import AllocationAccounts, AssetsAccounts
 
+#: Bez mapy umorzeń — każde umorzenie idzie na jedno konto amortyzacji.
 ACCOUNTS = AssetsAccounts(
-    cost_account="401", intake_account="080", disposal_account="761"
+    cost_account="401", intake_account="080", disposal_account="761", cost_map=()
 )
 ALLOCATION = AllocationAccounts(
     settlement_account="490",
@@ -82,17 +84,57 @@ def test_am_document_posts_cost_by_mpk_depreciation_by_account_and_split():
 
 
 def test_am_needs_cost_and_split_accounts():
-    items = [assets.AmItem(asset_id=1, account="070", mpk="OG", amount=100)]
+    items = [
+        assets.AmItem(asset_id=1, account="070", mpk="OG", amount=100),
+        assets.AmItem(asset_id=2, account="070", mpk="FO", amount=100),
+    ]
     spec, problems = assets.depreciation_spec(
         date(2026, 10, 1),
         items,
-        AssetsAccounts(cost_account="", intake_account="080", disposal_account=""),
+        AssetsAccounts(
+            cost_account="", intake_account="080", disposal_account="", cost_map=()
+        ),
         AllocationAccounts(),
         LABELS,
     )
     assert spec is None
-    assert assets.NO_COST_ACCOUNT in problems and assets.NO_ALLOCATION in problems
+    assert assets.NO_COST_ACCOUNT.format(account="070") in problems
+    assert assets.NO_ALLOCATION in problems
     assert len(problems) == len(set(problems))
+
+
+def test_am_cost_follows_depreciation_account_map_like_symfonia():
+    """Umorzenie środka wyznacza konto amortyzacji (070-3 → 400-4, 075 → 400-1),
+    a konto „spoza mapy” nie jest cichym zapasem, gdy jest puste."""
+
+    items = [
+        assets.AmItem(asset_id=1, account="070-3", mpk="FO", amount=30_000),
+        assets.AmItem(asset_id=2, account="070-6", mpk="FO", amount=20_000),
+        assets.AmItem(asset_id=3, account="075-3", mpk="OG", amount=5_000),
+        assets.AmItem(asset_id=4, account="070-3", mpk="OG", amount=1_000),
+    ]
+    mapped = AssetsAccounts(intake_account="085", disposal_account="761-2")
+    spec, problems = assets.depreciation_spec(
+        date(2026, 10, 1), items, mapped, ALLOCATION, LABELS
+    )
+    assert problems == []
+    assert _lines(spec)[:4] == [
+        ("debit", "400-1", 5_000, "OG"),
+        ("debit", "400-4", 30_000, "FO"),
+        ("debit", "400-4", 1_000, "OG"),
+        ("debit", "400-7", 20_000, "FO"),
+    ]
+    assert _lines(spec)[4:7] == [
+        ("credit", "070-3", 31_000, None),
+        ("credit", "070-6", 20_000, None),
+        ("credit", "075-3", 5_000, None),
+    ]
+    unknown = [assets.AmItem(asset_id=5, account="079", mpk="OG", amount=100)]
+    spec, problems = assets.depreciation_spec(
+        date(2026, 10, 1), unknown, mapped, ALLOCATION, LABELS
+    )
+    assert spec is None
+    assert problems == [assets.NO_COST_ACCOUNT.format(account="079")]
 
 
 def test_am_without_amounts_is_nothing():

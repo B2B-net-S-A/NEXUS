@@ -8,10 +8,11 @@
  * przeglądarki (`fixtures.ts`, kontrakt Michała w 45. dniu współpracy).
  *
  * Stany (`?state=`):
- * - `tab` (domyślnie) — zakładka „Opieka” kontraktu = karta konsultanta na
- *   pełną szerokość: zdrowie, cztery liczby, „Następny krok”, „Co wiemy
- *   o projekcie”, sprawy, „Historia” z filtrami, plan kontaktów zwinięty;
- * - `techcard` — edycja starej karty technologicznej z „Historii”
+ * - `tab` (domyślnie) — zakładka „Opieka i rozmowy” kontraktu w wariancie A
+ *   (20.11.2026): wiersz z opiekunem i rytmem, po lewej strumień rozmów,
+ *   notatek i opinii klienta z polem zapisu, po prawej „Następny krok”, plan,
+ *   zadowolenie i opinie, sprawy i „Co wiemy o projekcie”;
+ * - `techcard` — edycja starej karty technologicznej ze strumienia
  *   (`TechCardDialog` — przycisk „Karta technologiczna” zniknął);
  * - `conversation` — okno „Rozmowa” Michała: lewa kolumna dzisiejsza rozmowa,
  *   prawa „Co u klienta”, pytania z mapy klienta, „Coś do załatwienia?”;
@@ -55,7 +56,7 @@ import {
   pickState,
   useHrHarness,
 } from "../hr-harness";
-import { cardTimeline, careClients, clientStateFor, consultantCards } from "./card-fixtures";
+import { cardTimeline, careClients, clientStateFor, consultantCards, contractFeedback, contractNotes } from "./card-fixtures";
 import {
   CARE_CLIENT,
   CARE_CONTRACT_ID,
@@ -102,6 +103,9 @@ function prepare(params: URLSearchParams) {
   const head = state === "team";
   client.setQueryData(hrKeys.config, hrConfig(head ? { back_office_head: true } : {}));
   client.setQueryData(careKeys.contract(CARE_CONTRACT_ID), contractCare(today));
+  // Strumień „Rozmowy i notatki” zakładki kontraktu: notatki kontraktu i opinie klienta.
+  client.setQueryData(["contract-notes-timeline", CARE_CONTRACT_ID], contractNotes(today));
+  client.setQueryData(clientPeopleKeys.contractFeedback(CARE_CONTRACT_ID), contractFeedback(today));
   client.setQueryData(careKeys.owners, CARE_OWNERS);
   client.setQueryData(careKeys.summary, CARE_SUMMARY);
   client.setQueryData(careKeys.consultants, careConsultants(today));
@@ -221,7 +225,7 @@ function body(state: State, today: string) {
   return (
     <div className="space-y-4">
       <ContractHeader start={contractStart(today)} />
-      <ContractCareTab contractId={CARE_CONTRACT_ID} />
+      <ContractCareTab contractId={CARE_CONTRACT_ID} canReadFeedback />
       {state === "techcard" ? <OpenTechCard today={today} /> : null}
       {state === "conversation" ? <OpenConversation /> : null}
     </div>

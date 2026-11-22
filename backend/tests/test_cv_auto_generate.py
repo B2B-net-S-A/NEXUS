@@ -728,8 +728,8 @@ async def test_discarded_auto_cv_is_not_ready_for_review_on_the_board():
 
 def test_kanban_flag_is_one_batched_query():
     source = (_BACKEND / "app" / "api" / "pipeline.py").read_text("utf-8")
-    # Jedno zapytanie na tablicę, poza pętlą po kartach.
-    assert source.count("await job_stages_with_ready_auto_cv(db, job_id)") == 1
+    # Jedno zapytanie dla wszystkich tablic żądania, poza pętlą po kartach.
+    assert source.count("await job_stages_auto_cv_for_jobs(") == 1
     assert 'payload["auto_cv_ready"] = e.id in auto_cv_stage_ids' in source
 
 

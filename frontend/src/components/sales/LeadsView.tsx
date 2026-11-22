@@ -235,7 +235,9 @@ export function LeadsView() {
         ]
       : []),
     { value: "leads", label: "Wszystkie leady" },
-    ...(canEdit ? [{ value: "research" as const, label: "Lista z researchu" }] : []),
+    ...(canEdit
+      ? [{ value: "research" as const, label: <span data-tour="sales.leads.mode.research">Lista z researchu</span> }]
+      : []),
   ];
   const fallback: LeadsMode = signalsOn ? "signals" : "leads";
   const mode = picked && options.some((option) => option.value === picked) ? picked : fallback;

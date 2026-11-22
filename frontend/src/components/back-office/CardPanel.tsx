@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Check, Hand } from "lucide-react";
+import { ArrowUpRight, Check, Hand, Send } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -25,17 +25,20 @@ import {
   useCardNote,
   useDismissCard,
   useReleaseCard,
+  useSendOutside,
   useSetCardState,
   useStepDone,
   type BoBoard,
   type BoCard,
+  type BoOutsideTeam,
 } from "@/lib/api/back-office";
 import { cn } from "@/lib/utils";
 
-import { amountLabel, dueTone, formatDay } from "./board-model";
+import { COLUMN_LABELS, amountLabel, columnOf, formatDay } from "./board-model";
 import { CardDocuments } from "./CardDocuments";
 import { CardSettlementExtras } from "./CardSettlementExtras";
-import { ACTION_LABELS } from "./CardTile";
+import { ACTION_LABELS, DueChip, LabelChip, labelText } from "./CardTile";
+import { OutsideDialog } from "./OutsideDialog";
 import { ReasonDialog } from "./ReasonDialog";
 import type { CardCommands } from "./use-card-commands";
 
@@ -60,7 +63,43 @@ const EVENT_LABELS: Record<string, string> = {
   reviewed: "przegląd przed startem",
   routed: "Rozdzielona przez reguły",
   triaged: "Do rozdzielenia u kierownika",
+  outside: "przekazał(a) na zewnątrz",
+  released_outsider: "Wróciła do kolejki: osoba spoza zespołu",
 };
+
+/** Pasek etapów: gdzie jest sprawa, bez czytania historii (wariant A, 19.11.2026). */
+function StageBar({ card }: { card: Pick<BoCard, "state" | "outside_team"> }) {
+  const column = columnOf(card);
+  const stages = [
+    { id: "new", label: COLUMN_LABELS.new },
+    { id: "in_progress", label: COLUMN_LABELS.in_progress },
+    { id: column === "outside" ? "outside" : "waiting", label: column === "outside" ? COLUMN_LABELS.outside : COLUMN_LABELS.waiting },
+    { id: "done", label: "Zrobione" },
+  ];
+  const current = card.state === "done" ? 3 : column === "new" ? 0 : column === "in_progress" ? 1 : 2;
+  return (
+    <ol className="flex flex-wrap items-center gap-1 text-[11px]" aria-label="Etap sprawy">
+      {stages.map((stage, index) => (
+        <li key={stage.id} className="flex items-center gap-1">
+          <span
+            aria-current={index === current ? "step" : undefined}
+            className={cn(
+              "inline-flex h-6 items-center rounded-full px-2",
+              index === current
+                ? "bg-primary font-medium text-primary-foreground"
+                : index < current
+                  ? "bg-primary/10 text-primary"
+                  : "bg-muted text-muted-foreground",
+            )}
+          >
+            {stage.label}
+          </span>
+          {index < stages.length - 1 ? <span className="text-muted-foreground">›</span> : null}
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 /** Sprawy z wątkiem maila: tylko na nie da się odpowiedzieć ze sprawy. */
 const MAIL_SOURCES = new Set(["mail"]);
@@ -79,9 +118,11 @@ interface CardPanelProps {
   board: BoBoard;
   commands: CardCommands;
   onClose: () => void;
+  /** Otwórz inną kartę (powiązane z tym samym kontraktem). */
+  onOpenCard?: (id: number) => void;
 }
 
-export function CardPanel({ cardId, board, commands, onClose }: CardPanelProps) {
+export function CardPanel({ cardId, board, commands, onClose, onOpenCard }: CardPanelProps) {
   const { showToast } = useToast();
   const query = useBoCard(cardId);
   const team = useBoTeam(board.me.is_lead);
@@ -92,8 +133,9 @@ export function CardPanel({ cardId, board, commands, onClose }: CardPanelProps) 
   const dismiss = useDismissCard();
   const stepDone = useStepDone();
   const reply = useCaseReply();
+  const outside = useSendOutside();
   const [draft, setDraft] = useState("");
-  const [dialog, setDialog] = useState<"waiting" | "dismiss" | "reply" | null>(null);
+  const [dialog, setDialog] = useState<"waiting" | "dismiss" | "reply" | "outside" | null>(null);
   const card = query.data;
 
   const run = async (work: Promise<unknown>, fallback: string, success?: string) => {
@@ -113,13 +155,21 @@ export function CardPanel({ cardId, board, commands, onClose }: CardPanelProps) 
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>
       <SheetContent side="right" className="w-[460px] max-w-full" aria-label="Sprawa">
-        <SheetHeader>
+        <SheetHeader className="space-y-2">
+          {card ? (
+            <div className="flex items-center gap-1.5">
+              <LabelChip board={board} card={card} />
+              <DueChip due={card.due_on} today={board.today} />
+              <span className="text-[11px] text-muted-foreground">#{card.id}</span>
+            </div>
+          ) : null}
           <SheetTitle className="pr-8">{heading}</SheetTitle>
           <SheetDescription asChild>
             <div className="truncate text-sm">
               {card ? [card.person ? card.title : null, card.client].filter(Boolean).join(" · ") : ""}
             </div>
           </SheetDescription>
+          {card ? <StageBar card={card} /> : null}
         </SheetHeader>
         <SheetBody className="space-y-4">
           {query.isError ? (
@@ -128,16 +178,20 @@ export function CardPanel({ cardId, board, commands, onClose }: CardPanelProps) 
           {card ? (
             <>
               <div className="flex flex-wrap gap-2 text-xs">
-                <Badge variant={dueTone(card.due_on, board.today)}>Termin: {formatDay(card.due_on)}</Badge>
                 {card.assignee ? (
                   <Badge variant="soft">
                     Prowadzi: {card.assignee.name}
                     {card.substituting ? " (zastępuje)" : ""}
                   </Badge>
                 ) : (
-                  <Badge variant="neutral">Bez osoby</Badge>
+                  <Badge variant="neutral">Bez osoby — weźmie pierwsza wolna</Badge>
                 )}
-                {card.state === "waiting" && card.waiting_on ? (
+                {card.state === "waiting" && card.outside_team ? (
+                  <Badge variant="warning">
+                    Czeka na dział: {board.outside_teams.find((row) => row.id === card.outside_team)?.label ?? card.outside_team}
+                    {card.waiting_on ? ` — ${card.waiting_on}` : ""}
+                  </Badge>
+                ) : card.state === "waiting" && card.waiting_on ? (
                   <Badge variant="warning">Czeka na: {card.waiting_on}</Badge>
                 ) : null}
                 {amount ? <Badge variant="neutral">Razem {amount}</Badge> : null}
@@ -167,73 +221,6 @@ export function CardPanel({ cardId, board, commands, onClose }: CardPanelProps) 
                     </Button>
                   ))}
                 </div>
-              ) : null}
-
-              {card.bonuses?.length ? (
-                <section>
-                  <h4 className="pb-1.5 text-sm font-semibold">Premie w okresie</h4>
-                  <ul className="max-h-60 divide-y overflow-y-auto rounded-lg border text-sm">
-                    {card.bonuses.map((row) => (
-                      <li key={row.id} className="flex items-center justify-between gap-2 px-3 py-1.5">
-                        <span className="min-w-0 truncate">
-                          {row.person}
-                          {row.category ? <span className="text-muted-foreground"> · {row.category}</span> : null}
-                        </span>
-                        <span className="shrink-0 tabular-nums">
-                          {Number(row.amount).toLocaleString("pl-PL")} {row.currency}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-
-              {card.step_cards.length > 0 ? (
-                <section>
-                  <h4 className="pb-1.5 text-sm font-semibold">Kroki</h4>
-                  <ol className="divide-y rounded-lg border">
-                    {card.step_cards.map((step) => {
-                      const done = step.state === "done";
-                      return (
-                        <li key={step.id} className="flex items-center gap-2 px-3 py-2 text-sm">
-                          <span
-                            className={cn(
-                              "inline-flex size-4 shrink-0 items-center justify-center rounded-sm border",
-                              done && "border-success bg-success text-success-foreground",
-                            )}
-                          >
-                            {done ? <Check aria-hidden className="size-3" /> : null}
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className={cn("block truncate", done && "text-muted-foreground line-through")}>
-                              {step.label}
-                            </span>
-                            <span className="block text-xs text-muted-foreground">
-                              {step.team_label}
-                              {step.assignee ? ` · ${step.assignee.name}` : ""}
-                            </span>
-                          </span>
-                          {!done && step.can_act ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2.5 text-xs"
-                              disabled={stepDone.isPending}
-                              onClick={() =>
-                                run(stepDone.mutateAsync({ id: step.id }), "Nie udało się zaliczyć kroku.", "Krok zaliczony")
-                              }
-                            >
-                              Zrobione
-                            </Button>
-                          ) : null}
-                          {!done && !step.can_act ? (
-                            <span className="text-xs text-muted-foreground">czeka na zespół</span>
-                          ) : null}
-                        </li>
-                      );
-                    })}
-                  </ol>
-                </section>
               ) : null}
 
               {card.actions.length === 0 && card.state !== "done" ? (
@@ -278,7 +265,12 @@ export function CardPanel({ cardId, board, commands, onClose }: CardPanelProps) 
                   ) : null}
                   {own && card.state !== "waiting" ? (
                     <Button size="sm" variant="outline" onClick={() => setDialog("waiting")}>
-                      Czeka na kogoś
+                      Czeka na…
+                    </Button>
+                  ) : null}
+                  {own && card.source_kind !== "step" && !(card.state === "waiting" && card.outside_team) ? (
+                    <Button size="sm" variant="outline" className="gap-1" onClick={() => setDialog("outside")}>
+                      <Send aria-hidden className="size-3.5" /> Na zewnątrz
                     </Button>
                   ) : null}
                   {own && card.state === "waiting" ? (
@@ -300,11 +292,102 @@ export function CardPanel({ cardId, board, commands, onClose }: CardPanelProps) 
                     </Button>
                   ) : null}
                   {own ? (
-                    <Button size="sm" variant="outline" onClick={() => setDialog("dismiss")}>
+                    <Button size="sm" variant="quiet" onClick={() => setDialog("dismiss")}>
                       Nie dotyczy
                     </Button>
                   ) : null}
                 </div>
+              ) : null}
+
+              {card.bonuses?.length ? (
+                <section>
+                  <h4 className="pb-1.5 text-sm font-semibold">Premie w okresie</h4>
+                  <ul className="max-h-60 divide-y overflow-y-auto rounded-lg border text-sm">
+                    {card.bonuses.map((row) => (
+                      <li key={row.id} className="flex items-center justify-between gap-2 px-3 py-1.5">
+                        <span className="min-w-0 truncate">
+                          {row.person}
+                          {row.category ? <span className="text-muted-foreground"> · {row.category}</span> : null}
+                        </span>
+                        <span className="shrink-0 tabular-nums">
+                          {Number(row.amount).toLocaleString("pl-PL")} {row.currency}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+
+              {card.step_cards.length > 0 ? (
+                <section>
+                  <h4 className="pb-1.5 text-sm font-semibold">Kroki</h4>
+                  <ol className="divide-y rounded-lg border">
+                    {card.step_cards.map((step) => {
+                      const done = step.state === "done";
+                      return (
+                        <li key={step.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+                          <span
+                            className={cn(
+                              "inline-flex size-4 shrink-0 items-center justify-center rounded-sm border",
+                              done && "border-success bg-success text-success-foreground",
+                            )}
+                          >
+                            {done ? <Check aria-hidden className="size-3" /> : null}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className={cn("block truncate", done && "text-muted-foreground line-through")}>
+                              {step.label}
+                            </span>
+                            <span className="block text-xs text-muted-foreground">
+                              {done ? "zrobione" : step.assignee ? step.assignee.name : "pierwsza wolna osoba"}
+                            </span>
+                          </span>
+                          {!done && step.can_act ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2.5 text-xs"
+                              disabled={stepDone.isPending}
+                              onClick={() =>
+                                run(stepDone.mutateAsync({ id: step.id }), "Nie udało się zaliczyć kroku.", "Krok zaliczony")
+                              }
+                            >
+                              Zrobione
+                            </Button>
+                          ) : null}
+                          {!done && !step.can_act ? (
+                            <span className="text-xs text-muted-foreground">poza Twoim dostępem</span>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </section>
+              ) : null}
+
+              {card.related?.length ? (
+                <section>
+                  <h4 className="pb-1.5 text-sm font-semibold">Inne sprawy tego konsultanta</h4>
+                  <ul className="divide-y rounded-lg border">
+                    {card.related.map((row) => (
+                      <li key={row.id} className="flex items-center gap-2 px-3 py-1.5 text-sm">
+                        <span className="inline-flex h-5 shrink-0 items-center rounded-full border border-border px-2 text-[11px]">
+                          {labelText(board, row.lane)}
+                        </span>
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 truncate text-left hover:underline"
+                          onClick={() => onOpenCard?.(row.id)}
+                        >
+                          {row.title}
+                        </button>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {row.assignee?.name ?? "do wzięcia"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               ) : null}
 
               {board.me.is_lead && team.data && card.actions.length === 0 ? (
@@ -321,11 +404,17 @@ export function CardPanel({ cardId, board, commands, onClose }: CardPanelProps) 
                     }}
                   >
                     <option value="">wybierz osobę…</option>
-                    {team.data.candidates.map((person) => (
-                      <option key={person.id} value={person.id}>
-                        {person.name}
-                      </option>
-                    ))}
+                    {team.data.members.length > 0
+                      ? team.data.members.map((person) => (
+                          <option key={person.user_id} value={person.user_id}>
+                            {person.name}
+                          </option>
+                        ))
+                      : team.data.candidates.map((person) => (
+                          <option key={person.id} value={person.id}>
+                            {person.name}
+                          </option>
+                        ))}
                   </select>
                 </label>
               ) : null}
@@ -399,6 +488,21 @@ export function CardPanel({ cardId, board, commands, onClose }: CardPanelProps) 
                 expected_updated_at: card.updated_at,
               }),
               "Nie udało się zmienić stanu.",
+            );
+            setDialog(null);
+          }}
+        />
+      ) : null}
+      {dialog === "outside" && card ? (
+        <OutsideDialog
+          teams={board.outside_teams}
+          busy={outside.isPending}
+          onCancel={() => setDialog(null)}
+          onConfirm={async (team: BoOutsideTeam, text: string) => {
+            await run(
+              outside.mutateAsync({ id: card.id, team, note: text, expected_updated_at: card.updated_at }),
+              "Nie udało się przekazać sprawy.",
+              "Sprawa czeka na dział",
             );
             setDialog(null);
           }}

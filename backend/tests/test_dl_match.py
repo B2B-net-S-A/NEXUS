@@ -114,6 +114,19 @@ def test_only_a_qc_refusal_triggers_the_override() -> None:
     assert not _is_qc_failure(HTTPException(403, detail="Brak uprawnień"))
 
 
+def test_match_bell_skips_the_lead_of_b_unless_they_chose_all_moves() -> None:
+    """19.11.2026: prowadzący B i DL rekrutacji B dostawali „<DL> wysłał(a)
+    <osoba> do klienta” o osobie, która nie jest ich kandydatem i nie daje im
+    nic do zrobienia. Zostaje tylko prowadzący z wyborem „Wszyscy kandydaci…”."""
+    from app.api.dl_match import target_recipients
+
+    assert target_recipients(recruiter_id=5, sender_id=9, lead_wants_all=False) == []
+    assert target_recipients(recruiter_id=5, sender_id=9, lead_wants_all=True) == [5]
+    # Prowadzący sam wysłał — siebie nie powiadamia.
+    assert target_recipients(recruiter_id=9, sender_id=9, lead_wants_all=True) == []
+    assert target_recipients(recruiter_id=None, sender_id=9, lead_wants_all=True) == []
+
+
 @pytest.mark.asyncio
 async def test_month_match_handoffs_counts_processes_from_match() -> None:
     from app.services.kpi_panel import month_match_handoffs
@@ -136,7 +149,11 @@ async def test_month_match_handoffs_counts_processes_from_match() -> None:
 
 
 async def _second_job(
-    world: dict, *, delivery_lead_id: int | None, title: str | None = None
+    world: dict,
+    *,
+    delivery_lead_id: int | None,
+    title: str | None = None,
+    recruiter_id: int | None = None,
 ) -> int:
     async with AsyncSessionLocal() as db:
         job = Job(
@@ -147,6 +164,7 @@ async def _second_job(
             client_id=world["client_id"],
             pipeline_template_id=world["template_id"],
             delivery_lead_id=delivery_lead_id,
+            recruiter_id=recruiter_id,
         )
         db.add(job)
         await db.commit()
@@ -283,11 +301,12 @@ async def test_nordea_target_lands_in_the_cpro_queue(
 
 
 @pytest.mark.asyncio
-async def test_job_of_another_dl_is_sent_and_its_dl_is_told(
+async def test_job_of_another_dl_is_sent_without_a_bell_for_its_dl(
     api_client: AsyncClient, dl_skips_on, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Od 27.10.2026 (prośba Igora, decyzja Artura) DL wysyła też do cudzej
-    rekrutacji, którą dodał ręcznie; DL tamtej rekrutacji dostaje dzwonek."""
+    rekrutacji, którą dodał ręcznie. Od 19.11.2026 DL tamtej rekrutacji nie
+    dostaje dzwonka: nie ma przy tej osobie nic do zrobienia."""
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
     world = await _seed_world()
     rec_id, _ = await _seed_user(UserRole.recruiter)
@@ -305,12 +324,58 @@ async def test_job_of_another_dl_is_sent_and_its_dl_is_told(
         assert rows[-1].stage == PipelineStage.cv_sent
         async with AsyncSessionLocal() as db:
             told = await db.scalar(
-                select(Notification).where(Notification.user_id == other_dl)
+                select(Notification).where(
+                    Notification.user_id == other_dl,
+                    Notification.title.contains("Match z"),
+                )
             )
-        assert told is not None and "Match z" in told.title
+        assert told is None
     finally:
         await _drop([job_b], [rec_id, dl_id, other_dl])
         await _cleanup(world, [rec_id, dl_id, other_dl])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wants_all", [False, True])
+async def test_lead_of_b_is_told_only_when_they_chose_all_moves(
+    api_client: AsyncClient,
+    dl_skips_on,
+    monkeypatch: pytest.MonkeyPatch,
+    wants_all: bool,
+) -> None:
+    """19.11.2026, zgłoszenie rekrutera: Match DL-a dzwonił prowadzącemu B
+    o cudzym kandydacie. Teraz tylko po wyborze „Wszyscy kandydaci…”."""
+    from app.models.user import User
+
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    world = await _seed_world()
+    rec_id, _ = await _seed_user(UserRole.recruiter)
+    lead_id, _ = await _seed_user(UserRole.recruiter)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    dl = await _login(api_client, dl_creds)
+    job_b = await _second_job(world, delivery_lead_id=dl_id, recruiter_id=lead_id)
+    try:
+        async with AsyncSessionLocal() as db:
+            lead = await db.get(User, lead_id)
+            lead.stage_moves_all_led_jobs = wants_all
+            await db.commit()
+        await _verified_in_a(world, rec_id)
+        resp = await _send(api_client, dl, world, job_b)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["results"][0]["status"] == "sent"
+        async with AsyncSessionLocal() as db:
+            told = (
+                await db.scalars(
+                    select(Notification).where(
+                        Notification.user_id == lead_id,
+                        Notification.title.contains("Match z"),
+                    )
+                )
+            ).all()
+        assert len(told) == (1 if wants_all else 0)
+    finally:
+        await _drop([job_b], [rec_id, lead_id, dl_id])
+        await _cleanup(world, [rec_id, lead_id, dl_id])
 
 
 @pytest.mark.asyncio

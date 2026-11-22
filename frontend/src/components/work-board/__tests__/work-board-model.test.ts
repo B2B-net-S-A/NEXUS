@@ -482,6 +482,23 @@ describe("wygląd karty opieki (makiety K1, K2)", () => {
     expect(empty.map((row) => row.value)).toEqual(["jeszcze nie było", "nie wskazano", "bez końca", "—"]);
   });
 
+  it("„Konsultant w skrócie” przy module back office bez wiersza „Rytm” (20.11.2026)", () => {
+    const summary = {
+      cadence: { label: "co miesiąc", until_on: null },
+      kpis: { last_contact: null, satisfaction: null, order_end: null },
+      known_project: null,
+    };
+    const card = careCard({ note_excerpt: null, manager: null, last_satisfaction: null });
+    expect(consultantBriefRows(card, summary, true).map((row) => row.label)).toEqual([
+      "Ostatnia rozmowa",
+      "Menedżer u klienta",
+      "Koniec zamówienia",
+    ]);
+    expect(consultantBriefRows(card, null, true).some((row) => row.label === "Rytm")).toBe(false);
+    // Bez modułu jak dotąd.
+    expect(consultantBriefRows(card, summary).at(-1)).toEqual({ label: "Rytm", value: "co miesiąc" });
+  });
+
   it("dane do uzupełnienia słowami", () => {
     expect(dataSummaryText({ certain: 2, uncertain: 1, gaps: 3, consultants: 6 })).toBe(
       "2 pewne propozycje menedżera + 1 do sprawdzenia · 3 luki w mapie technologii",

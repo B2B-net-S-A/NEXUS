@@ -30,11 +30,46 @@ z Symfonią miesiąc do miesiąca.
   E1 (import z eBI24 — odpowiednik „konta kosztowego”, którego E2 używa jako
   konta rozrachunkowego dostawcy), inaczej konto z Ustawień + `-` + ID Symfonii
   kontrahenta. Nabywcy szukamy po NIP-ie albo VAT UE (`identifiers.normalize`).
+  VAT UE szukamy też jako „inny”, bo eBI24 eksportuje zagraniczne numery jako
+  OTHER (`sources.buyer_keys`, 17.11.2026: bez tego stało 290 FVS z października).
   Nabywca spoza kartoteki = problem: kontrahentów nie zakładamy z faktur,
   przychodzą importem z eBI24 (zasada E1).
 - **Konta faktur sprzedaży** (`app_settings['ledger'].sales`: rozrachunki,
   przychód, VAT należny) ustawia administrator (`PUT /config/sales`); każde musi
-  być w planie kont. Bez konta przychodu sprzedaż czeka z problemem.
+  być w planie kont. Konto przychodów może zostać puste (od 17.11.2026).
+- **Konto przychodu jak w Symfonii** (`services/ledger/revenue.py`, decyzja
+  Artura 17.11.2026). W Symfonii przychód to drzewo analityk
+  `701-<nr klienta>-<rodzaj>` (1 T&M, 2 Pozostałe, 3 New Business), `702-…`
+  Fixed Price, refaktury m.in. 760. Numer klienta to osobna numeracja Symfonii,
+  nie ID kontrahenta, a rodzaju NEXUS nie zna. Dlatego przy pustym koncie
+  przychodów w Ustawieniach konto wybiera się w tej kolejności:
+  (0) FVS tej faktury już w księdze, żeby poprawka księgowej w szkicu
+  przetrwała przebudowę; (1) dekret tej faktury z archiwum eBI24
+  (`meta.externalData.symfonia.accountNumberNet`, po numerze KSeF);
+  (2) dla korekty konto faktury korygowanej; (3) konto ostatniej
+  wcześniejszej faktury nabywcy z archiwum albo z zatwierdzonej FVS. Bez
+  historii, albo gdy konto nie przyjmuje zapisów w planie, faktura idzie do
+  „Do sprawdzenia”, bez konta zapasowego. Na danych 2026 reguła (3) zgadzała
+  się w 99,3% faktur powiązanych z zamówieniem i w 95,3% pozostałych. Pomyłki
+  to zmiana rodzaju, którą księgowa poprawia w szkicu. `meta.revenue_from`
+  dokumentu mówi, skąd wzięto konto. Wpisane konto przychodów oznacza tryb
+  jednego konta dla wszystkich faktur.
+- **Nabywca bez historii — konto wskazuje księgowa** (decyzja Artura
+  18.11.2026). Archiwum eBI24 kończy się na fakturach z 22.10.2026, więc nowi
+  nabywcy (także osoby z faktur serii „/Benefit”, w Symfonii 760-5) stali
+  w „Do sprawdzenia” bez wyjścia. Przy problemie „brak historii” w „Źródłach”
+  jest pole konta i „Zapisz dla nabywcy” (lista „Księgowi” albo admin,
+  `PUT /sources/revenue-accounts/{id kontrahenta}`). Wskazanie leży w
+  `app_settings['ledger'].revenue_accounts` (kontrahent → konto, kto, kiedy),
+  bez migracji, jak znaczniki VAT. **Historia ma pierwszeństwo**: wskazanie
+  działa dopiero jako krok (4), po dekrecie z archiwum, fakturze korygowanej
+  i poprzedniej fakturze nabywcy, więc po pierwszej zatwierdzonej FVS regułę
+  przejmuje krok (3). Konto przechodzi tę samą kontrolę planu co reszta;
+  wskazanie, którego plan już nie przyjmuje, wraca jako problem z polem do
+  poprawy. Listę wskazań z przyciskiem „Usuń” pokazują Ustawienia.
+  `FinanceCounterparty.revenue_account` to **konto rozrachunkowe** z eBI24 —
+  nie używaj go do przychodu. Reguły serii numeracji („/Benefit” → konto)
+  świadomie nie ma: wskazanie per nabywca, po pierwszej FVS przejmuje historia.
 
 ## Księgowanie miesiąca
 

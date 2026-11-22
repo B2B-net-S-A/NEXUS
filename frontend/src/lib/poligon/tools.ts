@@ -564,7 +564,9 @@ export function createTools(ctx: ToolsContext) {
     const chatPath = path.match(/^\/api\/jobs\/(\d+)\/chat\/(messages|pinned|read)$/);
     if (chatPath && Number(chatPath[1]) === meta.job_id) {
       const jobId = Number(chatPath[1]);
-      if (chatPath[2] === "messages" && get) return { status: 200, data: { items: chat, has_more: false, next_before_id: null } };
+      // HTTP odczyt jest migawką: POST nie może zmienić poprzedniej odpowiedzi
+      // w cache React Query, bo structural sharing ukryje nową wiadomość w UI.
+      if (chatPath[2] === "messages" && get) return { status: 200, data: { items: [...chat], has_more: false, next_before_id: null } };
       if (chatPath[2] === "messages" && method === "POST") return postChat(jobId, body, viewerId);
       if (chatPath[2] === "pinned" && get) return { status: 200, data: [] };
       if (chatPath[2] === "read") return { status: 200, data: { job_id: jobId, unread_count: 0, last_read_message_id: chat[0]?.id ?? null, notifications_cleared: 0 } };

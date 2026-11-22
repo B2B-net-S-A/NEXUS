@@ -23,6 +23,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   // Zespół dla klienta: kilka rekrutacji pod jednym zapytaniem (15.11.2026).
   zespoly: "Zespoły",
   clients: "Klienci",
+  // `/clients/portfolio` — „Porządki portfela” (dawna lista zakresów, 19.11.2026).
+  portfolio: "Porządki portfela",
   contacts: "Kontakty",
   contracts: "Kontrakty",
   "client-contracts": "Umowy klientów",
@@ -55,6 +57,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   porcja: "Porcja dnia",
   start: "Start w NEXUSIE",
   poligon: "Poligon NEXUSA",
+  "nowosci-dnia": "Nowości na dziś",
   people: "Ludzie",
   equipment: "Sprzęt",
   hr: "Administracja współpracy",
@@ -129,6 +132,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   accounting: "Księgowość",
   // 15.11.2026: /compliance — Przepisy (zmiany w prawie i terminy).
   compliance: "Przepisy",
+  rada: "Rada",
   documents: "Dokumenty",
   "trial-balance": "Obroty i salda",
   chart: "Plan kont",

@@ -166,7 +166,9 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
         getMock.mock.calls.some((c) => c[0] === "/api/contracts"),
       ).toBe(true),
     );
-    const call = getMock.mock.calls.find((c) => c[0] === "/api/contracts");
+    const call = getMock.mock.calls.find(
+      (c) => c[0] === "/api/contracts" && c[1]?.params?.page_size !== 1,
+    );
     expect(call?.[1]).toMatchObject({
       params: expect.objectContaining({
         group_by_candidate: true,
@@ -220,7 +222,9 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     expect(window.location.search).toBe("?status=active&status=ending");
   });
 
-  it("ma dokładnie 9 kolumn danych w kolejności priorytetu", async () => {
+  // Wariant A (20.11.2026): okres w jednej kolumnie, „Co dalej” słowami
+  // zamiast kolumn „Typ” i „Status” (prawie zawsze „B2B” i „Aktywny”).
+  it("ma 7 kolumn danych w kolejności priorytetu, bez „Typ” i „Status”", async () => {
     const { container } = renderList();
     await screen.findByText("Paweł Makietowy");
 
@@ -235,15 +239,13 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
       header.textContent?.replace(/\s+/g, " ").trim();
     // Jednostka stoi raz, w nagłówku kolumn stawek (spokojna tabela).
     expect(headers.filter((header) => !wideOnly(header)).map(label)).toEqual([
-      "Kandydat",
+      "Osoba",
       "Klient",
-      "Data rozpoczęcia",
-      "Data zakończenia zamówienia",
-      "Stawka kosztowa zł/h",
-      "Stawka przychodowa zł/h",
+      "Okres",
+      "Koszt zł/h",
+      "Przychód zł/h",
       "Marża zł/h",
-      "Typ",
-      "Status",
+      "Co dalej",
     ]);
     expect(headers.filter(wideOnly).map(label)).toEqual([
       "Rekrutacja",
@@ -451,21 +453,19 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
       within(memberRows[1] as HTMLElement).queryByText("Paweł Makietowy"),
     ).not.toBeInTheDocument();
 
-    // Typ i status są danymi konkretnej umowy i pozostają dwiema ostatnimi
-    // komórkami każdego pasa.
-    const firstMemberCells = within(memberRows[0] as HTMLElement).getAllByRole(
-      "cell",
-    );
-    const secondMemberCells = within(memberRows[1] as HTMLElement).getAllByRole(
-      "cell",
-    );
-    expect(firstMemberCells.slice(-2)[0]).toHaveTextContent("b2b");
-    expect(firstMemberCells.slice(-1)[0]).toHaveTextContent("Aktywny");
-    expect(secondMemberCells.slice(-2)[0]).toHaveTextContent("b2b");
-    expect(secondMemberCells.slice(-1)[0]).toHaveTextContent("Aktywny");
+    // Wariant A (20.11.2026): „B2B” i „Aktywny” nie mają już kolumn — każdy
+    // pas kończy się „Co dalej” swojej umowy, a drobny druk typu i statusu
+    // pojawia się tylko przy innej wartości.
+    for (const row of memberRows) {
+      const cells = within(row as HTMLElement).getAllByRole("cell");
+      expect(cells.slice(-1)[0]).toHaveAttribute("data-label", "Co dalej");
+      expect(row.querySelector('[data-testid="contract-row-note"]')).toBeNull();
+    }
   });
 
-  it("pokazuje daty listy jako dd.mm.yy", async () => {
+  // Wariant A (20.11.2026): pełna data dd.mm.rrrr i okres w jednej kolumnie
+  // (start → koniec zamówienia); bez zamówienia druga linia mówi o końcu umowy.
+  it("pokazuje okres jako dd.mm.rrrr w jednej kolumnie", async () => {
     const { container } = renderList();
     await screen.findByText("Paweł Makietowy");
 
@@ -474,17 +474,12 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     ).find((group) => group.textContent?.includes("Paweł Makietowy"));
     expect(multiGroup).toBeDefined();
     const rows = multiGroup!.querySelectorAll("[data-contract-member]");
-    const startOf = (row: Element) =>
-      row.querySelector('[data-label="Data rozpoczęcia"]');
-    const orderEndOf = (row: Element) =>
-      row.querySelector('[data-label="Data zakończenia zamówienia"]');
-    // Data rozpoczęcia i koniec zamówienia to DWIE kolumny; koniec umowy
-    // zostaje jako podlinia, żeby wypowiedzenie nie zniknęło z listy.
-    expect(startOf(rows[0])).toHaveTextContent(/01\.07\.26/);
-    expect(startOf(rows[0])).toHaveTextContent(/umowa do 30\.09\.26/);
-    expect(startOf(rows[1])).not.toHaveTextContent(/umowa do/);
-    expect(orderEndOf(rows[0])).toHaveTextContent("—");
-    expect(multiGroup).not.toHaveTextContent(/2026/);
+    const periodOf = (row: Element) => row.querySelector('[data-label="Okres"]');
+    expect(periodOf(rows[0])).toHaveTextContent(/01\.07\.2026/);
+    expect(periodOf(rows[0])).toHaveTextContent(/umowa do 30\.09\.2026/);
+    expect(periodOf(rows[0])).toHaveAttribute("title", expect.stringContaining("Bez zamówienia klienta"));
+    expect(periodOf(rows[1])).not.toHaveTextContent(/umowa do/);
+    expect(periodOf(rows[1])).toHaveTextContent("—");
   });
 
   it("marża ma tę samą jednostkę co stawki obok (zł/h) — raz, przy nazwie kolumny", async () => {
@@ -555,7 +550,9 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     );
   });
 
-  it("koniec zamówienia ma własną kolumnę: data, bezterminowo albo brak", async () => {
+  // Wariant A (20.11.2026): koniec zamówienia to druga linia „Okresu”,
+  // a okres zamówienia jest w podpowiedzi komórki.
+  it("koniec zamówienia stoi pod startem: data, bezterminowo albo brak", async () => {
     getMock.mockImplementation((url: string) => {
       if (url === "/api/contracts") {
         return Promise.resolve({
@@ -598,12 +595,14 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     });
     const { container } = renderList();
     await screen.findByText("Ola Zamówienie");
-    const cells = container.querySelectorAll(
-      '[data-label="Data zakończenia zamówienia"]',
+    const cells = container.querySelectorAll('[data-label="Okres"]');
+    expect(cells[0]).toHaveTextContent(/10\.01\.2026/);
+    expect(cells[0]).toHaveTextContent(/→ 31\.12\.2026/);
+    expect(cells[0]).toHaveAttribute(
+      "title",
+      expect.stringContaining("Zamówienie: 15.09.2026 – 31.12.2026"),
     );
-    expect(cells[0]).toHaveTextContent(/31\.12\.26/);
-    expect(cells[0]).toHaveTextContent(/zam\. od 15\.09\.26/);
-    expect(cells[1]).toHaveTextContent("bezterminowo");
+    expect(cells[1]).toHaveTextContent("→ bezterminowo");
   });
 
   it("szeroka tabela: rekrutacja, koniec umowy i start zamówienia mają własne komórki", async () => {
@@ -642,16 +641,23 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     const wideHide = "@min-[1700px]:hidden";
     for (const [testId, text] of [
       ["contract-job-cell", "Tester Mobile"],
-      ["contract-end-cell", "30.11.26"],
-      ["contract-order-start-cell", "15.09.26"],
+      ["contract-end-cell", "30.11.2026"],
+      ["contract-order-start-cell", "15.09.2026"],
     ] as const) {
       const cell = screen.getByTestId(testId);
       expect(cell).toHaveClass(wideCell);
       expect(cell).toHaveTextContent(text);
     }
-    // Drobny druk pod klientem i datami znika, gdy ma własną kolumnę.
-    expect(screen.getByText(/umowa do/)).toHaveClass(wideHide);
-    expect(screen.getByText(/zam\. od/)).toHaveClass(wideHide);
+    // Rekrutacja pod klientem znika, gdy ma własną kolumnę; koniec umowy
+    // i start zamówienia są w zwartym układzie w podpowiedzi „Okresu”.
+    const jobUnderClient = screen
+      .getAllByText("Tester Mobile")
+      .find((el) => el.closest('[data-label="Klient"]'));
+    expect(jobUnderClient).toHaveClass(wideHide);
+    expect(document.querySelector('[data-label="Okres"]')).toHaveAttribute(
+      "title",
+      expect.stringContaining("Umowa: 10.01.2026 – 30.11.2026"),
+    );
   });
 
   it("klik w nagłówek sortuje po stronie serwera i przełącza kierunek", async () => {
@@ -659,7 +665,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     await screen.findByText("Paweł Makietowy");
 
     const lastParams = () =>
-      (getMock.mock.calls.filter(([url]) => url === "/api/contracts").at(-1)?.[1] as {
+      (getMock.mock.calls.filter(([url, config]) => url === "/api/contracts" && config?.params?.page_size !== 1).at(-1)?.[1] as {
         params: Record<string, unknown>;
       }).params;
     expect(lastParams().sort_by).toBeUndefined();
@@ -688,7 +694,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     window.history.replaceState({}, "", `/contracts?${query}`);
     renderList(query);
     await screen.findByText("Paweł Makietowy");
-    const params = (getMock.mock.calls.filter(([url]) => url === "/api/contracts").at(-1)?.[1] as {
+    const params = (getMock.mock.calls.filter(([url, config]) => url === "/api/contracts" && config?.params?.page_size !== 1).at(-1)?.[1] as {
       params: Record<string, unknown>;
     }).params;
     expect(params).toMatchObject({
@@ -701,7 +707,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     expect(params.start_to).toBeUndefined();
     expect(
       screen.getByRole("button", { name: /Usuń filtr dat/ }),
-    ).toHaveTextContent("Start 01.01.26 – …");
+    ).toHaveTextContent("Start 01.01.2026 – …");
   });
 
   it("jeden responsywny DOM zachowuje komplet pól każdego klienta", async () => {
@@ -721,13 +727,11 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     const memberRows = multiGroup!.querySelectorAll("[data-contract-member]");
     const expectedLabels = [
       "Klient",
-      "Data rozpoczęcia",
-      "Data zakończenia zamówienia",
+      "Okres",
       "Stawka kosztowa",
       "Stawka przychodowa",
       "Marża",
-      "Typ",
-      "Status",
+      "Co dalej",
     ];
 
     const clientNames = ["Bank Pocztowy", "VeloBank"];
@@ -736,7 +740,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
       const labels = labelledCells
         .map((cell) => cell.getAttribute("data-label"))
         .filter(
-          (label): label is string => Boolean(label) && label !== "Kandydat",
+          (label): label is string => Boolean(label) && label !== "Osoba",
         );
       expect(labels).toEqual(expectedLabels);
 

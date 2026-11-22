@@ -757,10 +757,12 @@ export interface ConsultantBriefSource {
 /**
  * „Konsultant w skrócie” (K2): ostatnia rozmowa z oceną i cytatem, menedżer
  * u klienta z czekającą prośbą o opinię, koniec zamówienia, rytm. Bez stawek.
+ * Z modułem back office (`withoutRhythm`, 20.11.2026) bez wiersza „Rytm”.
  */
 export function consultantBriefRows(
   card: CareBoardCard,
   summary: ConsultantBriefSource | null | undefined,
+  withoutRhythm = false,
 ): { label: string; value: string }[] {
   const lastOn = summary?.kpis.last_contact?.on ?? card.note_on ?? null;
   const score = card.last_satisfaction ?? summary?.kpis.satisfaction?.value ?? null;
@@ -785,12 +787,12 @@ export function consultantBriefRows(
         .filter(Boolean)
         .join(" · ")
     : "—";
-  return [
+  const rows = [
     { label: "Ostatnia rozmowa", value: last },
     { label: "Menedżer u klienta", value: manager },
     { label: "Koniec zamówienia", value: endText },
-    { label: "Rytm", value: cadence },
   ];
+  return withoutRhythm ? rows : [...rows, { label: "Rytm", value: cadence }];
 }
 
 /** Otwarte sprawy osoby (zamknięte i zrobione nie stoją w panelu). */

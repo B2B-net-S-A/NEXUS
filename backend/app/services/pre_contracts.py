@@ -19,12 +19,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pair_filter import in_pairs
 from app.core.scheduling import DEFAULT_TZ, business_today, is_business_day
 from app.models.notification import NotificationType
 from app.models.pre_contract import (
@@ -456,16 +457,27 @@ async def kanban_badges(
 
     Prośba w toku albo zamknięta w ostatnich 14 dniach (żeby „wygasła” /
     „kandydat zrezygnował” nie znikały od razu z karty)."""
-    ids = sorted(set(candidate_ids))
-    if not ids:
-        return {}
+    return (await kanban_badges_for_jobs(db, {job_id: list(candidate_ids)}))[job_id]
+
+
+async def kanban_badges_for_jobs(
+    db: AsyncSession, boards: Mapping[int, list[int]]
+) -> dict[int, dict[int, dict[str, Any]]]:
+    """``{job_id: {candidate_id: plakietka}}`` dla kilku Tablic naraz — te same
+    dwa zapytania co dla jednej (pary z wejścia przez ``in_pairs``)."""
+    wanted = sorted({(int(c), int(job)) for job, ids in boards.items() for c in ids})
+    out: dict[int, dict[int, dict[str, Any]]] = {int(job): {} for job in boards}
+    if not wanted:
+        return out
     since = now_utc() - timedelta(days=14)
     rows = (
         await db.scalars(
             select(PreContractRequest)
             .where(
-                PreContractRequest.job_id == job_id,
-                PreContractRequest.candidate_id.in_(ids),
+                PreContractRequest.job_id.in_(sorted({job for _, job in wanted})),
+                in_pairs(
+                    PreContractRequest.candidate_id, PreContractRequest.job_id, wanted
+                ),
             )
             .where(
                 (PreContractRequest.closed_at.is_(None))
@@ -475,17 +487,17 @@ async def kanban_badges(
         )
     ).all()
     if not rows:
-        return {}
-    latest: dict[int, PreContractRequest] = {}
+        return out
+    latest: dict[tuple[int, int], PreContractRequest] = {}
     for req in rows:
-        current = latest.get(req.candidate_id)
+        key = (req.candidate_id, req.job_id)
+        current = latest.get(key)
         # Prośba w toku wygrywa z zamkniętą; wśród równych — nowsza.
         if current is None or (current.closed_at is not None) or req.closed_at is None:
-            latest[req.candidate_id] = req
-    columns = await pair_columns(db, [(cid, job_id) for cid in latest])
+            latest[key] = req
+    columns = await pair_columns(db, latest)
     day = today()
-    out: dict[int, dict[str, Any]] = {}
-    for cid, req in latest.items():
+    for (cid, job_id), req in latest.items():
         column = columns.get((cid, job_id), (None, None))[0]
         left = (
             business_days_until(day, req.b2b_deadline)
@@ -493,7 +505,7 @@ async def kanban_badges(
             else None
         )
         b = badge(req, column=column, today=day, business_days_left=left)
-        out[cid] = {"id": req.id, **b.as_dict()}
+        out[job_id][cid] = {"id": req.id, **b.as_dict()}
     return out
 
 

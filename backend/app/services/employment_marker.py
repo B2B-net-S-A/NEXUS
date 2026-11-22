@@ -39,7 +39,16 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any, Collection, Iterable, Mapping, Optional, Sequence
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Collection,
+    Iterable,
+    Mapping,
+    Optional,
+    Sequence,
+)
 
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -676,19 +685,26 @@ async def load_employment_markers(
     *,
     today: date,
     job_client_id: Optional[int] = None,
+    family_loader: Optional[Callable[[], Awaitable[Optional[set[int]]]]] = None,
 ) -> dict[int, Optional[EmploymentMarker]]:
     """``{candidate_id: znacznik | None}`` — każdy przekazany id jest w wyniku.
 
-    Jedno zapytanie o umowy; zamówienia i Delivery Leadzi dochodzą tylko
-    wtedy, gdy na stronie jest ktoś z umową. ``job_client_id`` włącza
-    ``elsewhere`` (klient spoza rodziny klienta rekrutacji).
+    Jedno zapytanie o umowy; rodzina klienta, zamówienia i Delivery Leadzi
+    dochodzą tylko wtedy, gdy na stronie jest ktoś z umową. ``job_client_id``
+    włącza ``elsewhere`` (klient spoza rodziny klienta rekrutacji);
+    ``family_loader`` podaje tę rodzinę, gdy wołający liczy ją już do czegoś
+    innego (Tablica: też „Zatrudniony bez umowy”).
     """
     ids = sorted({int(cid) for cid in candidate_ids if cid is not None})
     out: dict[int, Optional[EmploymentMarker]] = {cid: None for cid in ids}
     if not ids:
         return out
     contracts = await _load_contract_rows(db, ids)
-    family = await job_client_family(db, job_client_id)
+    if not contracts:
+        return out
+    family = await (
+        family_loader() if family_loader else job_client_family(db, job_client_id)
+    )
     out.update(
         await markers_from_rows(db, contracts, today=today, job_client_ids=family)
     )
@@ -699,11 +715,26 @@ async def job_client_family(
     db: AsyncSession, job_client_id: Optional[int]
 ) -> Optional[set[int]]:
     """Klient rekrutacji ze scalonymi rekordami; ``None`` = bez rekrutacji."""
-    if job_client_id is None:
-        return None
-    from app.services.recruitment_rates import client_family_ids
+    return (await job_client_families(db, [job_client_id]))[job_client_id]
 
-    return await client_family_ids(db, job_client_id)
+
+async def job_client_families(
+    db: AsyncSession, client_ids: Iterable[Optional[int]]
+) -> dict[Optional[int], Optional[set[int]]]:
+    """:func:`job_client_family` dla wielu klientów rekrutacji naraz.
+
+    Klucz dla każdego przekazanego id (``None`` → ``None``); dwa zapytania
+    niezależnie od liczby klientów."""
+    keys = list(dict.fromkeys(client_ids))
+    out: dict[Optional[int], Optional[set[int]]] = {key: None for key in keys}
+    ids = [key for key in keys if key is not None]
+    if ids:
+        from app.services.recruitment_rates import client_family_ids_for_clients
+
+        families = await client_family_ids_for_clients(db, ids)
+        for key in ids:
+            out[key] = families[int(key)]
+    return out
 
 
 # ── Filtr listy kandydatów ──────────────────────────────────────────────────
@@ -797,6 +828,7 @@ __all__ = [
     "contracts_with_current_order",
     "ending_soon_exists",
     "job_client_family",
+    "job_client_families",
     "load_employment_markers",
     "load_order_ends",
     "load_order_rows",

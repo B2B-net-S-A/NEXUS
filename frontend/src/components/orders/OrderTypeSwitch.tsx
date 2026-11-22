@@ -13,6 +13,9 @@ interface OrderTypeSwitchProps {
   onChange: (value: OrderType) => void;
   disabled?: boolean;
   allowedTypes?: readonly OrderType[];
+  /** Typ najczęstszy u klienta. Dopisek pod opcją i zdanie, gdy wybrano
+   *  inny typ (zgłoszenie 18.11.2026: okresowe u klienta rozliczanego w MD). */
+  usualType?: OrderType;
 }
 
 export function OrderTypeSwitch({
@@ -20,6 +23,7 @@ export function OrderTypeSwitch({
   onChange,
   disabled = false,
   allowedTypes = OPTIONS.map((option) => option.value),
+  usualType,
 }: OrderTypeSwitchProps) {
   const visibleOptions = OPTIONS.filter((option) =>
     allowedTypes.includes(option.value),
@@ -54,10 +58,24 @@ export function OrderTypeSwitch({
               }`}
             >
               {option.label}
+              {usualType === option.value ? (
+                <span
+                  aria-hidden="true"
+                  className="block text-[10px] font-normal leading-tight text-muted-foreground"
+                >
+                  zwykle u klienta
+                </span>
+              ) : null}
             </button>
           );
         })}
       </div>
+      {usualType && usualType !== value && !disabled ? (
+        <p className="mt-1 text-xs text-warning-muted-foreground">
+          U tego klienta zamówienia są zwykle typu{" "}
+          {OPTIONS.find((option) => option.value === usualType)?.label}.
+        </p>
+      ) : null}
       {disabled ? (
         <p className="mt-1 text-xs text-muted-foreground">
           Typu nie można zmienić po utworzeniu zamówienia.

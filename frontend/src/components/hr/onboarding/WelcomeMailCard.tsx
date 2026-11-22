@@ -33,7 +33,7 @@ const DELIVERY_NOTE: Record<WelcomeMailSent["delivery"], string | null> = {
   sent: null,
   simulated: "Tryb symulacji Microsoft 365 — mail nie wyszedł do konsultanta.",
   uncertain:
-    "Nie wiadomo, czy mail wyszedł (Microsoft 365 odpowiedział błędem). Sprawdź „Wysłane” w administracja@, zanim napiszesz do konsultanta ponownie.",
+    "Nie wiadomo, czy mail wyszedł (Microsoft 365 odpowiedział błędem). Sprawdź „Wysłane” w skrzynce wsparcie@, zanim napiszesz do konsultanta ponownie.",
 };
 
 function shortDate(iso: string | null): string {
@@ -49,9 +49,9 @@ export function sendBlocker(state: WelcomeMailState): string | null {
       ? "Wysyłka maili powitalnych jest wyłączona. To mail do osoby spoza firmy — włącz ją przełącznikiem niżej, gdy pierwsza wysyłka jest uzgodniona."
       : "Wysyłka maili powitalnych jest jeszcze wyłączona — włącza ją administrator. Podgląd działa.";
   }
-  if (!state.mailbox_ready) return "Skrzynka administracja@ nie jest ustawiona, więc mail nie ma nadawcy.";
+  if (!state.mailbox_ready) return "Skrzynka wsparcie@ nie jest ustawiona, więc mail nie ma nadawcy.";
   if (!state.transport_ready) {
-    return "Wysyłka ze skrzynki administracja@ nie działa (Microsoft 365 dla „Ludzi” jest wyłączony albo brak poświadczeń) — zgłoś to administratorowi.";
+    return "Wysyłka ze skrzynki wsparcie@ nie działa (Microsoft 365 dla „Ludzi” jest wyłączony albo brak poświadczeń) — zgłoś to administratorowi.";
   }
   if (!state.is_sender) {
     return "Mail wysyła opiekun konsultanta: Delivery Lead, Talent Community Manager albo administrator.";
@@ -83,7 +83,7 @@ function SendDialog({
     if (!draft?.recipient_email) return;
     const ok = await askConfirm({
       title: "Wysłać mail powitalny?",
-      description: `Mail trafi do ${draft.recipient_email} ze skrzynki administracja@. Wysłanego maila nie da się cofnąć.`,
+      description: `Mail trafi do ${draft.recipient_email} ze skrzynki wsparcie@. Wysłanego maila nie da się cofnąć.`,
       confirmLabel: "Wyślij",
     });
     if (!ok) return;
@@ -109,7 +109,7 @@ function SendDialog({
       title="Mail powitalny — podgląd"
       description={
         draft?.recipient_email
-          ? `Do: ${draft.recipient_name ? `${draft.recipient_name} · ` : ""}${draft.recipient_email} · od: administracja@ (odpowiedzi trafią do Spraw)`
+          ? `Do: ${draft.recipient_name ? `${draft.recipient_name} · ` : ""}${draft.recipient_email} · od: wsparcie@ (odpowiedzi trafią do Spraw)`
           : "Kontrakt nie ma adresu e-mail konsultanta."
       }
       size="lg"
@@ -171,7 +171,7 @@ function SwitchRow({ enabled }: { enabled: boolean }) {
       const ok = await askConfirm({
         title: "Włączyć wysyłkę maili powitalnych?",
         description:
-          "Opiekunowie zaczną wysyłać maile do konsultantów — osób spoza firmy — ze skrzynki administracja@. Każdy mail wychodzi dopiero po podglądzie i kliknięciu „Wyślij”.",
+          "Opiekunowie zaczną wysyłać maile do konsultantów — osób spoza firmy — ze skrzynki wsparcie@. Każdy mail wychodzi dopiero po podglądzie i kliknięciu „Wyślij”.",
         confirmLabel: "Włącz",
       });
       if (!ok) return;
@@ -237,7 +237,7 @@ export function WelcomeMailCard({ contractId }: { contractId: number }) {
           <p className="text-xs text-muted-foreground">
             Do: {data.sent.recipient_email}
             {data.sent.sent_by_name ? ` · wysłane przez: ${data.sent.sent_by_name}` : ""} · odpowiedzi
-            trafiają do Spraw (administracja@)
+            trafiają do Spraw (wsparcie@)
           </p>
         </>
       ) : (

@@ -10,7 +10,7 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -137,19 +137,24 @@ describe("zakładki kontraktu — zapis rozstrzyga `readOnly`, nie rola", () => 
   it("Dokumenty: wgrywanie i usuwanie widzi każdy, komu karta dała zapis", async () => {
     renderWith(<ContractDocumentsTab contractId={3} />);
 
-    expect(await screen.findByText("umowa.pdf")).toBeInTheDocument();
+    // Wariant A (19.11.2026): „Usuń plik…” w menu „⋯” przy pliku, nie kosz na wierzchu.
+    expect(within(await screen.findByRole("table")).getByText("umowa.pdf")).toBeInTheDocument();
     expect(screen.getByText("Dodaj plik")).toBeInTheDocument();
-    expect(screen.getByTitle("Usuń")).toBeInTheDocument();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Więcej akcji: umowa.pdf" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(await screen.findByRole("menuitem", { name: "Usuń plik…" })).toBeInTheDocument();
   });
 
   it("Dokumenty: `readOnly` zostawia pobieranie, chowa wgrywanie i usuwanie", async () => {
     signIn("admin");
     renderWith(<ContractDocumentsTab contractId={3} readOnly />);
 
-    expect(await screen.findByText("umowa.pdf")).toBeInTheDocument();
+    expect(within(await screen.findByRole("table")).getByText("umowa.pdf")).toBeInTheDocument();
     expect(screen.getByTitle("Pobierz")).toBeInTheDocument();
     expect(screen.queryByText("Dodaj plik")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Usuń")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Więcej akcji/ })).not.toBeInTheDocument();
   });
 
   it("Onboarding: dodawanie, status i usuwanie widzi każdy, komu karta dała zapis", async () => {
@@ -157,9 +162,8 @@ describe("zakładki kontraktu — zapis rozstrzyga `readOnly`, nie rola", () => 
 
     expect(await screen.findByText("Karta dostępu")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Dodaj/ })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /Karta dostępu: zmień status/ }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Karta dostępu/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Nie dotyczy: Karta dostępu" })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Usuń pozycję Karta dostępu" }),
     ).toBeInTheDocument();
@@ -171,25 +175,26 @@ describe("zakładki kontraktu — zapis rozstrzyga `readOnly`, nie rola", () => 
 
     expect(await screen.findByText("Karta dostępu")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Dodaj/ })).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /zmień status/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Karta dostępu/ })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Nie dotyczy/ })).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Usuń pozycję/ }),
     ).not.toBeInTheDocument();
   });
 
-  it("Aneksy: przyciski aneksów widzi każdy, komu karta dała zapis", async () => {
+  // Wariant A (19.11.2026): jedno menu „Dodaj aneks” zamiast pięciu przycisków.
+  it("Aneksy: menu aneksów widzi każdy, komu karta dała zapis", async () => {
     renderWith(<ContractAmendmentsTab contractId={3} clientId={CLIENT_ID} />);
 
-    expect(await screen.findByRole("button", { name: /Przedłuż/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Zmień zakres/ })).toBeInTheDocument();
+    const menu = await openAddAnnexMenu();
+    expect(within(menu).getByRole("menuitem", { name: "Przedłużenie" })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "Zmiana zakresu" })).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: /Wygeneruj dokument aneksu/ }),
-    ).toBeInTheDocument();
+      within(menu).getByRole("menuitem", { name: /Wygeneruj dokument aneksu/ }),
+    ).toHaveAttribute("href");
   });
 
-  it("Aneksy: `readOnly` chowa wszystkie przyciski aneksów", async () => {
+  it("Aneksy: `readOnly` chowa menu aneksów", async () => {
     signIn("admin");
     renderWith(
       <ContractAmendmentsTab
@@ -201,18 +206,18 @@ describe("zakładki kontraktu — zapis rozstrzyga `readOnly`, nie rola", () => 
     );
 
     expect(await screen.findByText(/Brak aneksów/)).toBeInTheDocument();
-    for (const name of [/Przedłuż/, /Zmień stawkę/, /Zmień zakres/, /Zakończ wcześniej/]) {
-      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
-    }
+    expect(screen.queryByRole("button", { name: /Dodaj aneks/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
   });
 
-  it("Aneksy: „Zakończ wcześniej” jest tylko wtedy, gdy karta przekaże zakończenie", async () => {
+  it("Aneksy: „Zakończenie wcześniej” jest tylko wtedy, gdy karta przekaże zakończenie", async () => {
     const first = renderWith(
       <ContractAmendmentsTab contractId={3} clientId={CLIENT_ID} />,
     );
-    expect(await screen.findByRole("button", { name: /Przedłuż/ })).toBeInTheDocument();
+    const menu = await openAddAnnexMenu();
+    expect(within(menu).getByRole("menuitem", { name: "Przedłużenie" })).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: /Zakończ wcześniej/ }),
+      within(menu).queryByRole("menuitem", { name: /Zakończenie wcześniej/ }),
     ).not.toBeInTheDocument();
     first.unmount();
 
@@ -224,17 +229,26 @@ describe("zakładki kontraktu — zapis rozstrzyga `readOnly`, nie rola", () => 
       />,
     );
     expect(
-      await screen.findByRole("button", { name: /Zakończ wcześniej/ }),
+      within(await openAddAnnexMenu()).getByRole("menuitem", { name: /Zakończenie wcześniej/ }),
     ).toBeInTheDocument();
   });
 });
 
-describe("Aneksy — „Zmień stawkę” za uprawnieniem „Stawki i kwoty: zmiana”", () => {
-  const rateButton = () => screen.queryByRole("button", { name: /Zmień stawkę/ });
+/** Menu „Dodaj aneks” zakładki „Aneksy” (Radix otwiera je na `pointerdown`). */
+async function openAddAnnexMenu() {
+  fireEvent.pointerDown(await screen.findByRole("button", { name: /Dodaj aneks/ }), {
+    button: 0,
+    ctrlKey: false,
+  });
+  return screen.findByRole("menu");
+}
+
+describe("Aneksy — „Zmiana stawki” za uprawnieniem „Stawki i kwoty: zmiana”", () => {
+  const rateButton = () => screen.queryByRole("menuitem", { name: "Zmiana stawki" });
 
   async function renderTab() {
     renderWith(<ContractAmendmentsTab contractId={3} clientId={CLIENT_ID} />);
-    await screen.findByRole("button", { name: /Zmień zakres/ });
+    await openAddAnnexMenu();
   }
 
   it.each(["admin", "finance"])("%s ma zmianę kwot domyślnie", async (role) => {
@@ -251,14 +265,14 @@ describe("Aneksy — „Zmień stawkę” za uprawnieniem „Stawki i kwoty: zmi
     expect(rateButton()).not.toBeInTheDocument();
   });
 
-  it("rola spoza domyślnych z nadaną zmianą kwot widzi „Zmień stawkę”", async () => {
+  it("rola spoza domyślnych z nadaną zmianą kwot widzi „Zmiana stawki”", async () => {
     signIn("recruiter", ["contracts_orders_edit", "amounts_edit"]);
     await renderTab();
 
     expect(rateButton()).toBeInTheDocument();
   });
 
-  it("Finanse z wyłączoną zmianą kwot nie widzą „Zmień stawkę”", async () => {
+  it("Finanse z wyłączoną zmianą kwot nie widzą „Zmiana stawki”", async () => {
     signIn("finance", ["contracts_orders_edit", "finance_module"]);
     await renderTab();
 
@@ -280,7 +294,7 @@ describe("Aneksy — „Zmień stawkę” za uprawnieniem „Stawki i kwoty: zmi
     const first = renderWith(
       <ContractAmendmentsTab contractId={3} clientId={CLIENT_ID} />,
     );
-    await screen.findByRole("button", { name: /Zmień zakres/ });
+    await openAddAnnexMenu();
     expect(rateButton()).not.toBeInTheDocument();
     first.unmount();
 

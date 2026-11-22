@@ -568,11 +568,13 @@ async def test_pick_bonuses_read_effective_rate_and_status(batch_on):
         person.availability_status = AvailabilityStatus.actively_looking
         person.expected_rate_hourly = Decimal("150")
         person.expected_rate_currency = "PLN"
+        person.cv_language = "pl"
         await db.commit()
     picks = [autofill.Pick(cid, 80.0, "run", (), ()) for cid in (active, plain)]
     async with AsyncSessionLocal() as db:
         bonus = await order.pick_bonuses(db, world["job_id"], picks)
-    assert bonus == {active: 8, plain: 0}
+    # 16.11.2026: bez danych o polskim −5 (POLISH_UNKNOWN_PENALTY), CV po polsku 0.
+    assert bonus == {active: 8, plain: -5}
 
 
 # ── P8: ślad blokady i widok zespołu ────────────────────────────────────────

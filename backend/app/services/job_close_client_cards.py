@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -89,9 +89,22 @@ async def client_side_rows(
     db: AsyncSession, job: Job
 ) -> dict[int, tuple[str, datetime]]:
     """{kandydat: (kolumna, chwila ruchu)} par u klienta w bieżącym otwarciu."""
+    return (await client_side_rows_for_jobs(db, [job]))[job.id]
+
+
+async def client_side_rows_for_jobs(
+    db: AsyncSession, jobs: Sequence[Job]
+) -> dict[int, dict[int, tuple[str, datetime]]]:
+    """:func:`client_side_rows` dla wielu rekrutacji jednym zapytaniem.
+
+    Klucz dla każdej rekrutacji z wejścia; bez rekrutacji nie ma zapytania."""
+    out: dict[int, dict[int, tuple[str, datetime]]] = {job.id: {} for job in jobs}
+    if not jobs:
+        return out
     rows = (
         await db.execute(
             select(
+                CandidateStage.job_id,
                 CandidateStage.candidate_id,
                 CandidateStage.stage,
                 CandidateStage.moved_at,
@@ -102,16 +115,16 @@ async def client_side_rows(
             .outerjoin(
                 PipelineStageDef, PipelineStageDef.id == CandidateStage.stage_def_id
             )
-            .where(CandidateStage.job_id == job.id)
+            .where(CandidateStage.job_id.in_(sorted(out)))
             .order_by(CandidateStage.moved_at, CandidateStage.id)
         )
     ).all()
-    latest: dict[int, Any] = {}
+    latest: dict[tuple[int, int], Any] = {}
     for row in rows:
-        latest[row.candidate_id] = row
-    cards: dict[int, tuple[str, datetime]] = {}
-    for candidate_id, row in latest.items():
-        if not in_opening(row.moved_at, job.cycle_started_at):
+        latest[(row.job_id, row.candidate_id)] = row
+    cycle_started = {job.id: job.cycle_started_at for job in jobs}
+    for (job_id, candidate_id), row in latest.items():
+        if not in_opening(row.moved_at, cycle_started[job_id]):
             continue
         column = board_column_for(
             row.name,
@@ -120,8 +133,8 @@ async def client_side_rows(
             terminal_type=getattr(row.terminal_type, "value", row.terminal_type),
         )
         if column in CLIENT_SIDE_COLUMNS:
-            cards[candidate_id] = (column, row.moved_at)
-    return cards
+            out[job_id][candidate_id] = (column, row.moved_at)
+    return out
 
 
 async def client_side_cards(db: AsyncSession, job: Job) -> dict[int, str]:

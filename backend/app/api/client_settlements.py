@@ -32,7 +32,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import FinanceModuleUser
+from app.api.deps import AdminUser, FinanceModuleUser
 from app.api.financial_access import can_read_client_finance, has_financial_access
 from app.api.permission_access import DeliveryViewUser
 from app.api.section_access import (
@@ -52,6 +52,7 @@ from app.services.access_scope import (
     resolve_delivery_lead_finance_client_ids,
 )
 from app.services.client_settlements import (
+    client_acceptance,
     client_invoice,
     contractor_invoices,
     integration_costs,
@@ -61,9 +62,12 @@ from app.services.client_settlements import (
 )
 from app.services.client_settlements import extras as settlement_extras
 from app.services.consultant_portal import documents as portal_documents
+from app.services.consultant_portal import preview as panel_preview_service
 from app.services.consultant_portal.auth import PortalError
 from app.services.hr_documents_schema import MAX_FILE_BYTES
 from app.services.client_settlements import settings as module_settings
+from app.services.client_settlements import start_checklist
+from app.services.hr import audit
 from app.services.client_settlements.service import SettlementError
 
 router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
@@ -72,6 +76,10 @@ delivery_router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 MONTH_PATTERN = r"^[0-9]{4}-(0[1-9]|1[0-2])$"
 #: ``estimate`` — plan miesiąca przed jego końcem (E5.3).
 KIND_PATTERN = r"^(actual|estimate)$"
+
+
+class ModuleIn(BaseModel):
+    enabled: bool
 
 
 class MdIn(BaseModel):
@@ -87,6 +95,12 @@ class BatchIn(BaseModel):
     client_id: int
     month: str = Field(pattern=MONTH_PATTERN)
     kind: str = Field(default="actual", pattern=KIND_PATTERN)
+
+
+class AcceptanceIn(BaseModel):
+    client_id: int
+    month: str = Field(pattern=MONTH_PATTERN)
+    contract_ids: list[int] = Field(min_length=1, max_length=500)
 
 
 class RuleIn(BaseModel):
@@ -131,6 +145,36 @@ async def module_state(
     return {"enabled": enabled, "open": module_settings.open_for(current_user, enabled)}
 
 
+@router.put("/module")
+async def set_module(
+    body: ModuleIn, current_user: AdminUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Włącznik modułu (admin). Bez wysyłki do kogokolwiek: zmienia, kto w firmie
+    widzi ekrany i czy NEXUS zapisuje faktury kontraktorów z KSeF."""
+
+    value = await module_settings.set_enabled(db, body.enabled, actor=current_user)
+    audit.record(
+        db,
+        actor_user_id=current_user.id,
+        subject_user_id=None,
+        entity_type="client_settlements",
+        entity_id=0,
+        action="module_switch_changed",
+        details={"enabled": value["enabled"]},
+    )
+    await db.commit()
+    return {**value, "open": module_settings.open_for(current_user, value["enabled"])}
+
+
+@router.get("/start")
+async def start_state(
+    current_user: AdminUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Karta „Start rozliczeń” (admin): przełączniki i to, czego brakuje do startu."""
+
+    return await start_checklist.load(db)
+
+
 @router.get("/clients")
 async def clients(
     current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
@@ -155,6 +199,23 @@ async def month(
         )
     except SettlementError as exc:
         raise _fail(exc) from exc
+
+
+@router.get("/contract/{contract_id}/panel-preview")
+async def panel_preview(
+    contract_id: int,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Panel oczami konsultanta, tylko do odczytu: działa przy zamkniętym panelu."""
+
+    await _open(db, current_user)
+    try:
+        return await panel_preview_service.build(
+            db, contract_id, today=business_today(), now=local_now()
+        )
+    except PortalError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
 
 
 @router.get("/contract/{contract_id}")
@@ -648,6 +709,170 @@ async def client_document_signed(
         )
     await _commit(db)
     return {"document_id": document.id, "recognized": True}
+
+
+# ── Akceptacja klienta po zbiorczej wysyłce KCP (E6.5, Bank Pocztowy) ─────────
+
+
+@router.get("/client-acceptance")
+async def client_acceptance_month(
+    current_user: FinanceModuleUser,
+    client_id: int = Query(..., ge=1),
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Paczki KCP do klienta: kto wysłany, kto zaakceptowany, szkic maila."""
+
+    await _open(db, current_user)
+    try:
+        return await client_acceptance.month_view(db, client_id, month)
+    except SettlementError as exc:
+        raise _fail(exc) from exc
+
+
+@router.get("/client-acceptance/package")
+async def client_acceptance_package(
+    current_user: FinanceModuleUser,
+    client_id: int = Query(..., ge=1),
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    all_people: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Zip z KCP w PDF (nazwy „J. Kowalski.pdf”); domyślnie osoby do wysłania."""
+
+    await _open(db, current_user)
+    try:
+        content, count = await client_acceptance.package(
+            db, client_id, month, only_to_send=not all_people
+        )
+    except SettlementError as exc:
+        raise _fail(exc) from exc
+    if not count:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma KCP do wysłania.")
+    return Response(
+        content,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": content_disposition(f"KCP_{month}.zip", "attachment")
+        },
+    )
+
+
+@router.post("/client-acceptance/sent")
+async def client_acceptance_sent(
+    body: AcceptanceIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Finanse wysłały paczkę z Outlooka: osoby czekają na akceptację klienta."""
+
+    await _open(db, current_user)
+    try:
+        count = await client_acceptance.mark_sent(
+            db,
+            body.client_id,
+            body.month,
+            body.contract_ids,
+            actor=current_user,
+            now=local_now(),
+        )
+    except SettlementError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await _commit(db)
+    return {"sent": count}
+
+
+@router.post("/client-acceptance/accept")
+async def client_acceptance_accept(
+    body: AcceptanceIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """„Klient zaakceptował”, gdy odpowiedzi banku NEXUS nie odczytał sam."""
+
+    await _open(db, current_user)
+    try:
+        count = await client_acceptance.accept(
+            db,
+            body.client_id,
+            body.month,
+            body.contract_ids,
+            actor=current_user,
+            now=local_now(),
+        )
+    except SettlementError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await _commit(db)
+    return {"accepted": count}
+
+
+@router.post("/client-acceptance/reply")
+async def client_acceptance_reply(
+    current_user: FinanceModuleUser,
+    month: Annotated[str, Form(pattern=MONTH_PATTERN)],
+    file: Annotated[UploadFile, File()],
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Odpowiedź klienta (MSG albo EML) wgrana przez Finanse, gdy przyszła na
+    skrzynkę koordynatora, a nie na rozliczenia@."""
+
+    await _open(db, current_user)
+    data = await file.read(portal_documents.MAX_FILE_BYTES + 1)
+    if len(data) > portal_documents.MAX_FILE_BYTES:
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Plik ma ponad 20 MB.")
+    year, mon = (int(x) for x in month.split("-"))
+    now = local_now()
+    try:
+        stored = await portal_documents.store(
+            db,
+            contract_id=None,
+            kind="report",
+            year=year,
+            month=mon,
+            content=data,
+            file_name=file.filename,
+            channel="portal",
+            now=now,
+        )
+    except PortalError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    document = stored.document
+    # Zapis już czyta odpowiedź (jak z rozliczenia@); drugi raz tylko, gdy nie wyszło
+    # (np. ten sam plik wgrany, zanim osoby były wysłane do klienta).
+    if document.status == "received" and not await client_acceptance.apply(
+        db, document, now=now
+    ):
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Nie rozpoznano akceptacji: potrzebny mail z domeny klienta z odpowiedzią "
+            "akceptującą i osoby wysłane do akceptacji. Zaznacz akceptację przyciskiem.",
+        )
+    await _commit(db)
+    return {"document_id": document.id, "recognized": True}
+
+
+@router.get("/contract/{contract_id}/kcp")
+async def contract_kcp(
+    contract_id: int,
+    current_user: FinanceModuleUser,
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """KCP osoby w PDF: od konsultanta albo złożona z eksportu Redmine."""
+
+    await _open(db, current_user)
+    try:
+        content, name = await client_acceptance.card_pdf(db, contract_id, month)
+    except SettlementError as exc:
+        raise _fail(exc) from exc
+    return Response(
+        content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": content_disposition(name, "attachment")},
+    )
 
 
 # ── Koszty integracji (E5.1) ─────────────────────────────────────────────────

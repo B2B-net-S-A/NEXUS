@@ -29,6 +29,7 @@ from app.models.m365 import Email, M365Connection
 from app.models.user import User, UserRole
 from app.services import cpro_mail, cpro_mail_parse
 from app.services.board_stage_badges import cpro_enabled_for_client
+from app.services.cpro_reason_map import reason_label_for as cpro_reason_label
 from app.services.job_closed_notices import CLOSE_REASON_LABELS
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -222,6 +223,7 @@ async def get_job_cpro_events(
                 "at": row.received_at.isoformat(),
                 "person": row.person,
                 "reason": row.reason,
+                "nexus_reason": cpro_reason_label(row.reason),
                 "candidate_id": row.candidate_id,
             }
             for row in rejected_rows[:BANNER_REJECTED_MAX]

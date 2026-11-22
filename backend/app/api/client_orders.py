@@ -18,7 +18,7 @@ import tempfile
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Any, Literal, Optional, Sequence
 
 from fastapi import (
     APIRouter,
@@ -32,7 +32,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-from sqlalchemy import and_, exists, inspect, or_, select
+from sqlalchemy import and_, delete, exists, inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
@@ -75,6 +75,7 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_framework_contract import ClientFrameworkContract
 from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.client_order_cost_step import ClientOrderCostStep
 from app.models.client_order_group import ClientOrderGroup
 from app.models.client_order_offboarding import (
     OFFBOARDING_STATUS_PENDING,
@@ -108,6 +109,8 @@ from app.schemas.new_contractor_order import (
     NewContractorOrderResponse,
 )
 from app.services import nordea_invoice_lines, recruitment_rates, storage_service
+from app.services import order_cost_steps
+from app.services.order_document_copies import same_file_group_copies
 from app.services.order_gaps import close_gaps_of_deleted_orders
 from app.services.shared_md_orders import client_uses_shared_md_pool
 from app.services.order_continuation import ending_without_successor
@@ -1196,6 +1199,7 @@ _ORDER_FINANCE_FIELDS = (
     "currency",
     "rate_client_currency",
     "rate_candidate_currency",
+    "cost_parts",
 )
 # Klucze pól finansowych w fields_confidence odczytu PDF — redagowane dla ról
 # bez VIEW_FINANCE (obecność klucza sama zdradza, że PO zawiera stawkę/wartość).
@@ -1444,6 +1448,7 @@ def _build_order_read(
     contract: Optional[Contract],
     candidate: Optional[Candidate],
     job_title: Optional[str],
+    cost_steps: Sequence[Any] = (),
 ) -> ClientOrderRead:
     """Złożenie ``ClientOrderRead`` z obiektów, które wołający ma już w ręku.
 
@@ -1508,6 +1513,13 @@ def _build_order_read(
             if order.md_input_mode == INPUT_MODE_MD
             else order.md_total
         ),
+        cost_parts=(
+            order_cost_steps.parts_label(
+                order_cost_steps.order_parts(order, cost_steps), order.end_date
+            )
+            if cost_steps
+            else []
+        ),
     )
 
 
@@ -1554,7 +1566,8 @@ async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRea
         # niosła numer, a nie samo id.
         await db.refresh(order, attribute_names=["executive_contract"])
 
-    return _build_order_read(order, contract, candidate, job_title)
+    steps = (await order_cost_steps.load_steps(db, [order.id])).get(order.id, [])
+    return _build_order_read(order, contract, candidate, job_title, steps)
 
 
 # ── Grouped list (main GET) ────────────────────────────────────────────────
@@ -1624,6 +1637,9 @@ async def list_contractors_with_orders(
 
     items: list[ContractWithOrdersRead] = []
     today = business_today()
+    cost_steps_by_order = await order_cost_steps.load_steps(
+        db, (o.id for c in contracts for o in c.client_orders)
+    )
     for c in contracts:
         if card_is_dismissed(c):
             continue
@@ -1663,7 +1679,13 @@ async def list_contractors_with_orders(
         # `selectinload` wyżej. Wcześniej szło tu `_order_to_read`, czyli
         # dwa SELECT-y na KAŻDE zamówienie każdego kontraktora.
         orders_read = [
-            _build_order_read(o, c, c.candidate, o.job.title if o.job else None)
+            _build_order_read(
+                o,
+                c,
+                c.candidate,
+                o.job.title if o.job else None,
+                cost_steps_by_order.get(o.id, ()),
+            )
             for o in orders_list
         ]
         ending = ending_without_successor(orders_list, today=today)
@@ -2927,6 +2949,18 @@ async def apply_order_update(
         _apply_md_order_quantity(order, md_quantity)
         await recompute_remaining(db, order)
     _refresh_md_rate_mirror(order, explicit_fields=payload.model_fields_set)
+    # Ręczna zmiana kosztu, jednostki albo godzin unieważnia części kosztu
+    # (`order_cost_steps`): części są w starej jednostce i przykryłyby nową
+    # kwotę w każdym czytniku „za miesiąc”. Żywe zamówienie dostanie je z powrotem
+    # z harmonogramu kontraktu przy synchronizacji po tym zapisie.
+    if payload.model_fields_set & {
+        "rate_candidate",
+        "rate_unit",
+        "billing_hours_per_month",
+    }:
+        await db.execute(
+            delete(ClientOrderCostStep).where(ClientOrderCostStep.order_id == order.id)
+        )
     if (
         "status" in payload.model_fields_set
         and previous_status == ClientOrderStatus.draft
@@ -3599,7 +3633,9 @@ async def download_order_po(
 # LISTUJĄ te pliki dla kontraktu / osoby. Zero kopii, zero migracji dokumentów.
 
 
-def _order_to_document_item(order: ClientOrder) -> OrderDocumentItem:
+def _order_to_document_item(
+    order: ClientOrder, *, same_file_document_id: Optional[int] = None
+) -> OrderDocumentItem:
     # `file_uploader` musi być eager-loadowany przez wywołującego — lazy-load
     # relacji na sesji async to MissingGreenlet (500 bez CORS), a nie None.
     uploader = order.file_uploader
@@ -3615,6 +3651,7 @@ def _order_to_document_item(order: ClientOrder) -> OrderDocumentItem:
         order_status=order.status,
         uploaded_by_email=uploader.email if uploader else None,
         uploaded_at=order.file_uploaded_at,
+        same_file_document_id=same_file_document_id,
     )
 
 
@@ -3629,7 +3666,11 @@ async def list_contract_order_documents(
 ):
     """PO PDF-y zamówień danego kontraktu — sekcja „Dokumenty zamówień" w
     zakładce Dokumenty kontraktu. Read-only widok tego samego pliku, pobierany
-    istniejącym ``GET /orders/{id}/file`` (nie kopiuje pliku)."""
+    istniejącym ``GET /orders/{id}/file`` (nie kopiuje pliku).
+
+    Linia zamówienia zbiorczego, której PDF to ten sam plik co kopia PDF-u
+    grupy na kontrakcie, niesie id tej kopii (``same_file_document_id``) —
+    folder „Zamówienia” pokazuje wtedy jeden wiersz (20.11.2026)."""
     contract = await db.scalar(select(Contract).where(Contract.id == contract_id))
     if contract is None:
         raise HTTPException(404, detail="Contract not found")
@@ -3656,7 +3697,7 @@ async def list_contract_order_documents(
     # klienta) wychodziło bez sprawdzenia. Każdy inny klient — ta sama bramka co
     # pobranie pliku (`GET /{client_id}/orders/{id}/file`).
     access_cache: dict[int, bool] = {contract.client_id: True}
-    visible: list[OrderDocumentItem] = []
+    visible: list[ClientOrder] = []
     for o in orders:
         can = access_cache.get(o.client_id)
         if can is None:
@@ -3667,8 +3708,14 @@ async def list_contract_order_documents(
                 can = False
             access_cache[o.client_id] = can
         if can:
-            visible.append(_order_to_document_item(o))
-    return OrderDocumentsResponse(documents=visible)
+            visible.append(o)
+    same_files = await same_file_group_copies(db, contract_id, visible)
+    return OrderDocumentsResponse(
+        documents=[
+            _order_to_document_item(o, same_file_document_id=same_files.get(o.id))
+            for o in visible
+        ]
+    )
 
 
 @router.get(

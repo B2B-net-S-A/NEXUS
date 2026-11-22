@@ -18,7 +18,10 @@ vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showToast }),
 }));
 
-import { FinanceSalesInvoicesTab } from "@/components/clients/invoicing/FinanceSalesInvoicesTab";
+import {
+  FinanceSalesInvoicesTab,
+  type SalesInvoicesView,
+} from "@/components/clients/invoicing/FinanceSalesInvoicesTab";
 import type { SalesKsefStatus } from "@/lib/api/client-invoicing";
 
 import { CLIENT_MONTH } from "@/app/preview/client-invoicing/fixtures";
@@ -39,7 +42,7 @@ const STATUS: SalesKsefStatus = {
   problems: [],
 };
 
-function mockApi() {
+function mockApi(overdue: object = { invoices: [CLIENT_MONTH.invoices[1]] }) {
   get.mockImplementation((url: string) => {
     if (url === "/api/finance/sales-invoices/status") return Promise.resolve({ data: STATUS });
     if (url === "/api/finance/sales-invoices") {
@@ -53,18 +56,16 @@ function mockApi() {
       });
     }
     if (url === "/api/finance/sales-invoices/credits") return Promise.resolve({ data: { credits: [] } });
-    if (url === "/api/finance/sales-invoices/overdue") {
-      return Promise.resolve({ data: { invoices: [CLIENT_MONTH.invoices[1]] } });
-    }
+    if (url === "/api/finance/sales-invoices/overdue") return Promise.resolve({ data: overdue });
     return Promise.reject(new Error(`unexpected ${url}`));
   });
 }
 
-function renderTab() {
+function renderTab(initialView?: SalesInvoicesView) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <FinanceSalesInvoicesTab initialPeriod="2026-10" />
+      <FinanceSalesInvoicesTab initialPeriod="2026-10" initialView={initialView} />
     </QueryClientProvider>,
   );
 }
@@ -88,6 +89,40 @@ describe("FinanceSalesInvoicesTab", () => {
     expect(within(paid).queryByRole("button", { name: "Opłacono" })).not.toBeInTheDocument();
     expect(within(paid).queryByRole("button", { name: "Przypisz" })).not.toBeInTheDocument();
     expect(screen.getByText(/Ostatnie pobranie/)).toBeInTheDocument();
+  });
+
+  it("says there is no payment data instead of a false or empty overdue list", async () => {
+    // 19.11.2026: 2 741 faktur „po terminie”, żadna z datą zapłaty — wyciągi tylko z 12.11.
+    get.mockReset();
+    mockApi({ invoices: [], payment_unknown: 2741 });
+    renderTab("overdue");
+    const notice = await screen.findByTestId("overdue-payment-unknown");
+    expect(notice).toHaveTextContent("Brak danych o zapłatach");
+    expect(notice).toHaveTextContent("2741 faktur ma termin za sobą, ale NEXUS nie wie");
+    expect(notice).toHaveTextContent("Księgowość → Bank");
+    expect(screen.queryByText("Żadna faktura nie jest po terminie.")).not.toBeInTheDocument();
+    const tab = screen.getByRole("tab", { name: /Po terminie/ });
+    expect(tab).not.toHaveTextContent("0");
+  });
+
+  it("lists known overdue invoices and still names the ones without payment data", async () => {
+    get.mockReset();
+    mockApi({
+      invoices: [CLIENT_MONTH.invoices[1]],
+      payment_unknown: 3,
+      payment_unknown_reasons: [
+        { reason: "account_outside_ledger", label: "", account: "9022", count: 2 },
+        { reason: "compensation", label: "", account: null, count: 1 },
+      ],
+    });
+    renderTab("overdue");
+    expect(await screen.findByTestId("sales-invoice-2")).toBeInTheDocument();
+    const notice = screen.getByTestId("overdue-payment-unknown");
+    expect(notice).toHaveTextContent("3 faktury mają termin za sobą");
+    // Finanse widzą, czego brakuje: rachunku w Księdze, wyciągów, kompensaty.
+    expect(notice).toHaveTextContent(
+      "Powody: rachunek …9022 poza Księgowość → Ustawienia: 2 · rozliczane kompensatą: 1.",
+    );
   });
 
   it("asks for a reason before skipping an invoice", async () => {

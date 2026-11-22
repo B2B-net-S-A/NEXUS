@@ -1,11 +1,10 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useUrlWriter } from "@/lib/url-selection";
 
 import {
-  CLIENT_MORE_TABS,
   LEGACY_CLIENT_TABS,
   positiveIntParam,
   useClientTab,
@@ -58,13 +57,13 @@ import {
   Crown,
   Pencil,
   DollarSign,
-  FolderOpen,
   Trash2,
-  AlertOctagon,
   Ellipsis,
-  ChevronDown,
+  Search,
 } from "lucide-react";
-import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
+import { contactMatches } from "@/lib/client-contacts-search";
+import { CopyValueButton } from "@/components/clients/CopyValueButton";
+import { StatusDot } from "@/components/ds/StatusDot";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -96,6 +95,7 @@ import { FrameworkRatesTab } from "@/components/clients/FrameworkRatesTab";
 import { useFrameworkTerms } from "@/lib/api/framework-rates";
 import { MaterialsTab } from "./MaterialsTab";
 import { ClientSettlementCard } from "./ClientSettlementCard";
+import { ClientStartReadiness } from "./ClientStartReadiness";
 import { OnboardingPackTab } from "./OnboardingPackTab";
 import { ClientStartDocsPanel } from "@/components/v2/start-docs/ClientStartDocsPanel";
 import { ClientEquipmentProviderField } from "@/components/equipment/ClientEquipmentProviderField";
@@ -113,7 +113,14 @@ import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
 import { ClientPlaybookTab } from "@/components/client-playbook/ClientPlaybookTab";
 import { DeleteClientDialog } from "@/components/client-profile/DeleteClientDialog";
 import { ClientConflictsSection } from "@/components/client-profile/ClientConflictsSection";
-import { ClientHeaderStats } from "@/components/client-profile/SummaryBar";
+import { ClientConsultantsTab } from "@/components/client-profile/ClientConsultantsTab";
+import { ClientHeaderStats, clientSummaryStats } from "@/components/client-profile/SummaryBar";
+import { ClientStateChip, useClientFrameworkMeta } from "@/components/client-profile/ClientHeaderFacts";
+import { useClientOverviewAttention } from "@/components/client-profile/overview-attention";
+import { useClientProfile } from "@/components/client-profile/useClientProfile";
+import { SectionNav } from "@/components/ds/SectionNav";
+import { clientSectionGroups } from "@/lib/client-tab-groups";
+import { contactWeightEntries } from "@/lib/client-contacts-weight";
 import {
   canEditClientLegalDocuments,
   canManageClientDelivery,
@@ -122,14 +129,13 @@ import { TAC_UI_ENABLED } from "@/lib/tac-ui";
 import {
   RELATIONSHIP_STRENGTH_COLORS,
   RELATIONSHIP_STRENGTH_LABELS,
-} from "@/components/clients/KeyRelationshipsPanel";
+} from "@/components/clients/relationship-strength";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
 import { canViewClientFinance, hasAnalyticsCapability, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { useCanonicalClientRedirect } from "@/hooks/useCanonicalClientRedirect";
-import { ClientInvoicingTab } from "@/components/clients/invoicing/ClientInvoicingTab";
-import { DeliverySettlementsSection } from "@/components/finance/settlements/DeliverySettlementsSection";
+import { ClientInvoicesAndSettlementTab } from "@/components/clients/invoicing/ClientInvoicesAndSettlementTab";
 import { useInvoicingModule } from "@/lib/api/client-invoicing";
 
 import { formatPhone } from "@/lib/phone-format";
@@ -170,18 +176,6 @@ interface Contact {
 type KnowledgeCategory = "selling_points" | "interview_questions" | "tech_stack" | "culture" | "general";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-
-const STATUS_TONES: Record<string, StatusDotTone> = {
-  active: "success",
-  inactive: "neutral",
-  prospect: "neutral",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  active: "Aktywny",
-  inactive: "Nieaktywny",
-  prospect: "Prospekt",
-};
 
 const KNOWLEDGE_CATEGORIES: {
   key: KnowledgeCategory;
@@ -452,7 +446,7 @@ function KnowledgeTab({
               </div>
               {stackHref && cat.key === "tech_stack" ? (
                 <Link href={stackHref} className="text-xs font-medium text-primary hover:underline">
-                  Dopisz w Ludziach i technologiach
+                  Dopisz w Działach i technologiach
                 </Link>
               ) : null}
             </div>
@@ -710,6 +704,21 @@ function ContactsTab({ clientId }: { clientId: number }) {
     if (sa !== sb) return sa - sb;
     return a.name.localeCompare(b.name);
   });
+  const [contactQuery, setContactQuery] = useState("");
+  const isFiltering = contactQuery.trim() !== "";
+  const visibleContacts = isFiltering
+    ? contacts.filter((c) => contactMatches(c, contactQuery))
+    : contacts;
+  // Kontakty według wagi (makieta 19.11.2026, wariant A ekranu „Ludzie”):
+  // decydenci i kluczowe relacje, kierownicy, reszta zwinięta. Przy frazie
+  // płaska lista — szukasz konkretnej osoby.
+  const [othersOpen, setOthersOpen] = useState(false);
+  const contactEntries = isFiltering
+    ? visibleContacts.map((contact) => ({ kind: "contact" as const, contact }))
+    : contactWeightEntries(visibleContacts, othersOpen);
+  const withTalk = contacts.filter(
+    (c) => c.last_personal_touchpoint_at || c.last_contacted_at,
+  ).length;
 
   const createMutation = useMutation({
     mutationFn: (data: object) => api.post(`/api/contacts`, { ...data, client_id: clientId }),
@@ -760,17 +769,51 @@ function ContactsTab({ clientId }: { clientId: number }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <h2 className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
           Osoby kontaktowe
           {contactsState === "ready" || contactsState === "empty" ? (
             <span className="rounded-full bg-muted px-1.5 text-[11px] font-semibold leading-[18px] text-muted-foreground tabular-nums">
-              {contacts.length}
+              {isFiltering ? `${visibleContacts.length} z ${contacts.length}` : contacts.length}
             </span>
           ) : null}
         </h2>
+        {contacts.length > 0 ? (
+          <div className="relative ml-3 w-full max-w-xs flex-1 sm:w-auto">
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+            />
+            <input
+              type="search"
+              value={contactQuery}
+              onChange={(e) => setContactQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setContactQuery("");
+              }}
+              placeholder="Szukaj: osoba, e-mail, telefon, stanowisko"
+              aria-label="Szukaj w kontaktach klienta"
+              data-tour="clients.contacts.search"
+              className={cn(
+                "h-8 w-full appearance-none rounded-md border border-input bg-background pl-8 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-hidden focus:ring-2 focus:ring-ring [&::-webkit-search-cancel-button]:hidden",
+                contactQuery ? "pr-8" : "pr-3",
+              )}
+            />
+            {contactQuery ? (
+              <button
+                type="button"
+                onClick={() => setContactQuery("")}
+                aria-label="Wyczyść wyszukiwanie"
+                className="hit-area absolute right-1.5 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                <X aria-hidden className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {canCreateContact && (
           <Button
+            className="ml-auto"
             size="sm"
             variant="primary"
             onClick={() => { setOrgDraft(null); setShowAdd(true); setEditContact(null); }}
@@ -825,16 +868,35 @@ function ContactsTab({ clientId }: { clientId: number }) {
         <p className="py-6 text-center text-sm text-muted-foreground">
           Ładowanie kontaktów…
         </p>
-      ) : contacts.length === 0 && !showAdd ? (
+      ) : null}
+      {contactsState === "ready" && contacts.length >= 5 && !isFiltering ? (
+        <p className="text-xs text-muted-foreground" data-testid="contacts-talk-summary">
+          {withTalk === 0
+            ? `Żaden z ${contacts.length} kontaktów nie ma zapisanej rozmowy — zacznij od decydentów i kierowników.`
+            : `${withTalk} z ${contacts.length} kontaktów ma zapisaną rozmowę.`}
+        </p>
+      ) : null}
+      {contactsState !== "ready" && contactsState !== "empty" ? null : contacts.length === 0 && !showAdd ? (
         <div className="text-center py-12 text-muted-foreground">
           <Users className="w-10 h-10 mx-auto mb-3 opacity-40" />
           <p className="text-sm">Brak kontaktów dla tego klienta</p>
         </div>
-      ) : contacts.length === 0 ? null : (
+      ) : contacts.length === 0 ? null : visibleContacts.length === 0 ? (
+        <div className="py-10 text-center text-sm text-muted-foreground">
+          <p>Żaden kontakt nie pasuje do „{contactQuery.trim()}”.</p>
+          <Button className="mt-2" size="sm" variant="ghost" onClick={() => setContactQuery("")}>
+            Wyczyść wyszukiwanie
+          </Button>
+        </div>
+      ) : (
         <Table density="compact" className="min-w-[900px]">
           <TableHeader>
             <TableRow>
-              <TableHead className={CALM_HEAD}>Osoba</TableHead>
+              {/* 12rem, nie 15rem: od ikon „kopiuj” przy e-mailu i telefonie
+                  (#3541) tabela przy 1280 × 720 miała 972 px w karcie 956 px
+                  i ucinała „Usuń”. Razem z e-mailem 11rem najwęższa treść ma
+                  908 px — zapas na pasek przewijania w Windows. */}
+              <TableHead className={cn(CALM_HEAD, "min-w-[12rem]")}>Osoba</TableHead>
               <TableHead className={CALM_HEAD}>E-mail</TableHead>
               <TableHead className={CALM_HEAD}>Telefon</TableHead>
               <TableHead className={CALM_HEAD}>Siła relacji</TableHead>
@@ -845,7 +907,31 @@ function ContactsTab({ clientId }: { clientId: number }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {contacts.map((contact) => {
+            {contactEntries.map((entry) => {
+              if (entry.kind === "header") {
+                return (
+                  <TableRow key={`group-${entry.group}`} className="hover:bg-transparent">
+                    <TableCell
+                      colSpan={canCreateContact ? 6 : 5}
+                      className="pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      {entry.label} · {entry.count}
+                      {entry.collapsible ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="ml-2 h-6 px-2 text-[11px] normal-case tracking-normal"
+                          onClick={() => setOthersOpen((open) => !open)}
+                          aria-expanded={othersOpen}
+                        >
+                          {othersOpen ? "Zwiń" : `Pokaż ${entry.count}`}
+                        </Button>
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                );
+              }
+              const contact = entry.contact;
               if (editContact?.id === contact.id) {
                 return (
                   <TableRow key={contact.id}>
@@ -917,7 +1003,10 @@ function ContactsTab({ clientId }: { clientId: number }) {
                             )}
                           </div>
                           {contact.position || contact.department ? (
-                            <span className={CALM_SUBLINE}>
+                            <span
+                              className={cn(CALM_SUBLINE, "line-clamp-1")}
+                              title={[contact.position, contact.department].filter(Boolean).join(" · ")}
+                            >
                               {[contact.position, contact.department]
                                 .filter(Boolean)
                                 .join(" · ")}
@@ -928,27 +1017,41 @@ function ContactsTab({ clientId }: { clientId: number }) {
                     </TableCell>
                     <TableCell>
                       {contact.email ? (
-                        <a
-                          href={`mailto:${contact.email}`}
-                          title={contact.email}
-                          // Jedna linia z wielokropkiem — łamany w pół słowa adres
-                          // („…exampl / e”) trudniej przeczytać niż przycięty.
-                          className="block max-w-[19rem] truncate font-medium text-primary hover:underline pointer-coarse:flex pointer-coarse:min-h-10 pointer-coarse:items-center"
-                        >
-                          {contact.email}
-                        </a>
+                        <div className="flex items-center gap-0.5">
+                          <a
+                            href={`mailto:${contact.email}`}
+                            title={contact.email}
+                            // Jedna linia z wielokropkiem — łamany w pół słowa adres
+                            // („…exampl / e”) trudniej przeczytać niż przycięty.
+                            className="block min-w-0 max-w-[11rem] truncate font-medium text-primary hover:underline pointer-coarse:flex pointer-coarse:min-h-10 pointer-coarse:items-center"
+                          >
+                            {contact.email}
+                          </a>
+                          <CopyValueButton value={contact.email} what="adres e-mail" />
+                        </div>
                       ) : (
                         <span className={CALM_EMPTY}>—</span>
                       )}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap tabular-nums">
+                    <TableCell className="tabular-nums">
                       {contact.phone ? (
-                        <a
-                          href={`tel:${contact.phone}`}
-                          className="hover:underline pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center"
-                        >
-                          {formatPhone(contact.phone)}
-                        </a>
+                        <div className="flex items-center gap-0.5">
+                          <a
+                            href={`tel:${contact.phone}`}
+                            className="hover:underline pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center"
+                          >
+                            {/* Dwa numery w jednym polu łamią się na „/”, nigdy w środku numeru. */}
+                            {formatPhone(contact.phone)
+                              .split(/\s*\/\s*/)
+                              .map((part, i) => (
+                                <Fragment key={i}>
+                                  {i > 0 ? "\u00a0/ " : ""}
+                                  <span className="whitespace-nowrap">{part}</span>
+                                </Fragment>
+                              ))}
+                          </a>
+                          <CopyValueButton value={contact.phone} what="numer telefonu" />
+                        </div>
                       ) : (
                         <span className={CALM_EMPTY}>—</span>
                       )}
@@ -986,7 +1089,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <Button
-                            size="sm"
+                            size="icon-sm"
                             variant="outline"
                             onClick={() => setEditingKeyRelationship(contact)}
                             aria-label="Edytuj relację"
@@ -999,16 +1102,15 @@ function ContactsTab({ clientId }: { clientId: number }) {
                               )}
                               aria-hidden="true"
                             />
-                            Relacja
                           </Button>
                           <Button
-                            size="sm"
+                            size="icon-sm"
                             variant="outline"
                             onClick={() => openEdit(contact)}
                             aria-label="Edytuj kontakt"
+                            title="Edytuj kontakt"
                           >
                             <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                            Edytuj
                           </Button>
                           <DeleteButton
                             onConfirm={() => deleteMutation.mutate(contact.id)}
@@ -1252,6 +1354,15 @@ export default function ClientDetailPage() {
     queryFn: () => clientTeamApi.get(Number(id)).then((r) => r.data),
     enabled: Number.isFinite(Number(id)),
   });
+  // Profil (liczby nagłówka i przy grupach) i „Wymaga uwagi” Przeglądu —
+  // te same klucze co zakładki, więc nic nie pobiera się dwa razy.
+  const profileQuery = useClientProfile(Number(id));
+  const overviewAttention = useClientOverviewAttention(Number(id), {
+    showContracts: canViewDeliveryLegal,
+  });
+  // Umowa ramowa jako dopisek przy „Umowie i pieniądzach” — ten sam klucz
+  // co zakładka umów, tylko przy podglądzie dokumentów umów.
+  const frameworkMeta = useClientFrameworkMeta(Number(id), canViewDeliveryLegal);
   const headDeliveryLead = (() => {
     const leads = teamQuery.data?.delivery_leads ?? [];
     const head = leads.find((lead) => lead.is_head) ?? leads[0];
@@ -1259,24 +1370,6 @@ export default function ClientDetailPage() {
     return leads.length > 1 ? `${head.name} +${leads.length - 1}` : head.name;
   })();
 
-  // Pasek 8 zakładek jest na telefonie szerszy niż ekran. Wejście z
-  // powiadomienia (`?tab=zamowienia`) albo klik w częściowo widoczną zakładkę
-  // przewija go do aktywnej — inaczej wybrana zakładka bywa poza kadrem.
-  // Przewijamy WYŁĄCZNIE pasek w poziomie (nie `scrollIntoView`), żeby zmiana
-  // zakładki z wnętrza treści nie podrywała całej strony do góry.
-  const activeTabRef = useRef<HTMLButtonElement | null>(null);
-  useEffect(() => {
-    const tab = activeTabRef.current;
-    const strip = tab?.parentElement;
-    if (!tab || !strip) return;
-    const tabBox = tab.getBoundingClientRect();
-    const stripBox = strip.getBoundingClientRect();
-    if (tabBox.left < stripBox.left) {
-      strip.scrollLeft -= stripBox.left - tabBox.left;
-    } else if (tabBox.right > stripBox.right) {
-      strip.scrollLeft += tabBox.right - stripBox.right;
-    }
-  }, [activeTab, client]);
 
   useEffect(() => {
     if (client && Number(id) === client.id) {
@@ -1321,6 +1414,9 @@ export default function ClientDetailPage() {
   const hasFrameworkTerms = canViewDeliveryLegal && (frameworkTerms.data?.cards.length ?? 0) > 0;
   const allTabs: { key: ClientTab; label: string }[] = [
     { key: "profil", label: "Profil" },
+    // Kto u klienta pracuje (18.11.2026): umowa + bieżące zamówienie w jednym
+    // wierszu; dawniej sekcja w Profilu i rejestr klienta w Kontraktach.
+    { key: "konsultanci", label: "Konsultanci" },
     // Karta klienta — bez filtra po roli: rola `user` dostanie 403 z backendu
     // i karta pokaże „Brak uprawnień", nie pustkę (zamierzone).
     { key: "zasady", label: "Zasady współpracy" },
@@ -1341,29 +1437,71 @@ export default function ClientDetailPage() {
     { key: "faktury", label: "Faktury" },
     { key: "analityka", label: "Analityka" },
     { key: "sprzedaz", label: "Sprzedaż" },
+    { key: "materialy", label: "Materiały dla rekruterów" },
+    { key: "konflikty", label: "Konflikty z kandydatami" },
   ];
+  // „Umowa” na jednej stronie (makieta 19.11.2026, wariant A ekranu „Umowy”):
+  // kto widzi dokumenty umów, ma umowy, stawki i raporty w jednym widoku.
+  // `?tab=stawki-ramowe` i `?tab=raporty` otwierają ten widok przewinięty do
+  // swojej części, a w pasku świeci „Umowa”. Bez podglądu umów zostają same
+  // „Raporty dla klienta”.
+  const contractPageOn = canViewDeliveryLegal;
+  const onContractPage =
+    contractPageOn &&
+    (activeTab === "umowy-ramowe" || activeTab === "stawki-ramowe" || activeTab === "raporty");
   const TABS = allTabs.filter(
     (tab) =>
       (canViewDeliveryLegal || tab.key !== "umowy-ramowe") &&
-      (hasFrameworkTerms || tab.key !== "stawki-ramowe") &&
+      (canViewDeliveryLegal || tab.key !== "stawki-ramowe") &&
+      (!contractPageOn || (tab.key !== "stawki-ramowe" && tab.key !== "raporty")) &&
       (careOpen || tab.key !== "ludzie") &&
       (startDocsOpen || packOpen || tab.key !== "wejscie") &&
       (invoicingOpen || tab.key !== "faktury") &&
       (canViewSales || tab.key !== "sprzedaz"),
   );
-  const moreTabs = TABS.filter((tab) => CLIENT_MORE_TABS.includes(tab.key));
-  // Zakładka wybrana z „Więcej” stoi w pasku, dopóki jest aktywna.
-  const stripTabs = TABS.filter(
-    (tab) => !CLIENT_MORE_TABS.includes(tab.key) || tab.key === activeTab,
-  );
+  // Makieta 19.11.2026: pięć sekcji (`lib/client-tab-groups.ts`) z cichą
+  // liczbą przy nazwie (ile tam jest); klucze `?tab=` bez zmian. „Nasi
+  // ludzie” i „Otwarte rekrutacje” stoją tylko tutaj (nagłówek w jednym
+  // rzędzie) — z dymkiem, który dawniej miały liczby w nagłówku.
+  const profileStats = profileQuery.data
+    ? clientSummaryStats(profileQuery.data.summary, {
+        planned: profileQuery.data.planned_consultants?.length ?? 0,
+      })
+    : [];
+  const statTitle = (statId: string) =>
+    profileStats.find((stat) => stat.id === statId)?.title ?? "";
+  const sectionGroups = clientSectionGroups(TABS.map((tab) => tab.key), {
+    ...(profileQuery.data
+      ? {
+          "nasi-ludzie": {
+            text: String(profileQuery.data.summary.active_consultants),
+            title: `Nasi ludzie: ${statTitle("active-consultants")}`,
+          },
+          rekrutacje: {
+            text: String(profileQuery.data.summary.open_jobs),
+            title: `Otwarte rekrutacje: ${statTitle("open-jobs")}`,
+          },
+        }
+      : {}),
+    ...(overviewAttention.contactsCount !== null
+      ? { "ludzie-klienta": String(overviewAttention.contactsCount) }
+      : {}),
+    ...(frameworkMeta ? { umowa: frameworkMeta } : {}),
+  });
 
   return (
     <div className="space-y-3">
-      <div className="bg-card dark:bg-muted rounded-xl border border-border shadow-xs overflow-hidden">
+      {/* `overflow-clip`, nie `overflow-hidden`: hidden robi z karty kontener
+          przewijania i wyłącza `sticky` panelu szczegółów w Zamówieniach
+          (≥ 1600 px panel stał na górze listy, tysiące px nad klikniętym
+          wierszem). Clip przycina rogi tak samo, ale nie łapie sticky. */}
+      <div className="bg-card dark:bg-muted rounded-xl border border-border shadow-xs overflow-clip">
         {/* Nagłówek w jednej linii (wersja B, 29.09.2026): nazwa, status,
             Delivery Lead i menu. Do 09.2026 karta miała ~130 px (ikona 56 px,
             tytuł 24 px, osobne rzędy WWW i NDA), więc zamówienia zaczynały się
-            w połowie ekranu laptopa. WWW, NDA i „Usuń klienta” są w menu „⋯”. */}
+            w połowie ekranu laptopa. WWW, NDA i „Usuń klienta” są w menu „⋯”.
+            19.11.2026 (decyzja Artura): liczby klienta i umowa ramowa stoją
+            w pasku sekcji — z nimi nagłówek miał przy 1280 px dwa rzędy. */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 sm:px-5" data-client-header>
           <Link
             href="/clients"
@@ -1375,29 +1513,32 @@ export default function ClientDetailPage() {
           </Link>
           <span aria-hidden="true" className="text-xs text-muted-foreground">/</span>
           <h1 className="min-w-0 break-words font-display text-lg font-semibold text-foreground">{client.name}</h1>
-          {client.status && (
-            <StatusDot tone={STATUS_TONES[client.status] ?? "neutral"}>
-              {STATUS_LABELS[client.status] || client.status}
-            </StatusDot>
-          )}
+          {/* Stan współpracy (19.11.2026) — ta sama reguła co lista „Klienci”;
+              „Status klienta” został w edycji firmy. */}
+          <ClientStateChip clientId={Number(id)} />
           {client.industry && (
             <span className="text-xs text-muted-foreground">{client.industry}</span>
           )}
           {headDeliveryLead && (
-            <span
-              className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+            <button
+              type="button"
+              onClick={() => selectTab("zespol")}
+              className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              title="Delivery Lead klienta — zmienisz w „Nasi ludzie › Delivery Lead”"
               data-client-header-dl
             >
               DL: <span className="font-medium text-foreground">{headDeliveryLead}</span>
-            </span>
+            </button>
           )}
-          {/* Liczby klienta na KAŻDEJ zakładce (dawniej dwa kafle w zakładce
-              Profil). To samo zapytanie co `ProfileTab` — jeden klucz. */}
+          {/* Liczby klienta na KAŻDEJ zakładce: od 1280 px w pasku sekcji,
+              na węższych ekranach pod nazwą (w pasku by się nie zmieściły).
+              To samo zapytanie co `ProfileTab`. */}
           <ClientHeaderStats
             clientId={Number(id)}
-            className="ml-auto justify-end max-sm:order-last max-sm:ml-0 max-sm:w-full max-sm:justify-start"
+            attention={overviewAttention.items.length}
+            className="order-last w-full xl:hidden"
           />
-          <div className="flex flex-wrap items-center justify-end gap-1.5 max-sm:ml-auto">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
             {/* „Ludzie i technologie”: akcje zakładki w nagłówku (makieta P5). */}
             {careOpen && activeTab === "ludzie" ? <PeopleTechHeaderActions clientId={Number(id)} /> : null}
             {canUpdateClient && (
@@ -1466,65 +1607,23 @@ export default function ClientDetailPage() {
           </div>
         </div>
 
-        {/* Tabs — horizontal scroll z visible scrollbar (macOS hide by default
-            ukrywa scrollbar i user nie wie że można scrollować). Mniejszy
-            padding px-3 (vs 4) + krótsze labele mieszczą wszystkie 12 tabów. */}
-        <div className="flex min-w-0 items-stretch border-t border-border pr-3 sm:pr-5">
-          <div
-            role="tablist"
-            aria-label="Sekcje klienta"
-            className="flex min-w-0 gap-0.5 overflow-x-auto whitespace-nowrap px-3 pt-0 sm:px-5"
-            style={{ scrollbarWidth: "thin" }}
-          >
-            {stripTabs.map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                role="tab"
-                id={`client-tab-${tab.key}`}
-                aria-selected={activeTab === tab.key}
-                aria-controls="client-tab-panel"
-                ref={activeTab === tab.key ? activeTabRef : undefined}
-                onClick={() => selectTab(tab.key)}
-                className={cn(
-                  "shrink-0 border-b-2 px-3 py-2 text-[13px] transition-colors pointer-coarse:min-h-10",
-                  activeTab === tab.key
-                    ? "border-primary font-semibold text-foreground"
-                    : "border-transparent font-medium text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          {/* „Więcej” poza listą zakładek — to przycisk menu, nie zakładka;
-              Radix daje strzałki, Enter i Escape z klawiatury. */}
-          {moreTabs.length ? (
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  aria-label="Więcej sekcji klienta"
-                  className="flex shrink-0 items-center gap-1 border-b-2 border-transparent px-3 py-2 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground pointer-coarse:min-h-10"
-                >
-                  Więcej
-                  <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48">
-                {moreTabs.map((tab) => (
-                  <DropdownMenuItem
-                    key={tab.key}
-                    onSelect={() => selectTab(tab.key)}
-                    aria-current={activeTab === tab.key ? "page" : undefined}
-                    className={cn(activeTab === tab.key && "font-semibold")}
-                  >
-                    {tab.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
+        {/* Sekcje klienta w grupach (makieta 18.11.2026): grupa z podkreśleniem,
+            pod nią podzakładki aktywnej grupy. Nic nie chowa się pod „Więcej”. */}
+        <div className="border-t border-border pb-1" data-tour="client.sections">
+          <SectionNav
+            label="Sekcje klienta"
+            groups={sectionGroups}
+            activeItem={onContractPage ? "umowy-ramowe" : activeTab}
+            onSelect={(key) => selectTab(key as ClientTab)}
+            insetClassName="px-3 sm:px-5"
+            trailing={
+              <ClientHeaderStats
+                clientId={Number(id)}
+                attention={overviewAttention.items.length}
+                className="hidden flex-nowrap xl:flex"
+              />
+            }
+          />
         </div>
 
         {/* Tab content — po konsolidacji 12→6 tabów reszta sekcji wbudowana
@@ -1539,63 +1638,50 @@ export default function ClientDetailPage() {
           className="p-3 sm:p-4"
         >
           {activeTab === "profil" && (
-            // Od `xl` dwie kolumny: konsultanci po lewej, po prawej rozwinięte
-            // karty (informacje, materiały, konflikty). Węziej — karty pod tabelą.
-            <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start">
-              <ProfileTab clientId={Number(id)} />
-
-              <aside className="@container grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3" aria-label="Informacje o kliencie">
-                {equipmentOpen ? (
-                  <ClientEquipmentProviderField
-                    clientId={Number(id)}
-                    canEdit={canEditDelivery || hrConfig?.me.equipment === true}
-                  />
-                ) : null}
-                <LazyDetails
-                  defaultOpen
-                  icon={<Building2 className="w-4 h-4 text-muted-foreground" />}
-                  title="Informacje + statystyki współpracy"
-                  contentClassName="space-y-4 border-t border-border p-4"
-                >
-                  <CooperationStatsSection clientId={Number(id)} />
-                  <div>
-                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
-                      Notatki
-                    </p>
-                    {client.notes ? (
-                      <p className="text-sm text-foreground whitespace-pre-line">{client.notes}</p>
-                    ) : (
-                      <p className="text-sm text-muted-foreground italic">Brak dodatkowych notatek.</p>
-                    )}
-                  </div>
-                </LazyDetails>
-
-                <LazyDetails
-                  defaultOpen
-                  icon={<FolderOpen className="w-4 h-4 text-muted-foreground" />}
-                  title="Materiały sprzedażowe"
-                >
-                  <MaterialsTab
-                    clientId={Number(id)}
-                    readOnly={!canEditDelivery}
-                    showContractTerms={canViewDeliveryLegal}
-                    contractTermsReadOnly={!canEditDeliveryLegal}
-                  />
-                </LazyDetails>
-
-                <LazyDetails
-                  defaultOpen
-                  icon={<AlertOctagon className="w-4 h-4 text-muted-foreground" />}
-                  title="Konflikty z kandydatami"
-                >
-                  <ClientConflictsSection clientId={Number(id)} />
-                </LazyDetails>
-              </aside>
-            </div>
+            // Przegląd (makieta 19.11.2026): „Wymaga uwagi”, cztery liczby,
+            // najnowsze rekrutacje i ludzie klienta; sprzęt, statystyki
+            // i notatki w dolnym rzędzie.
+            <ProfileTab
+              clientId={Number(id)}
+              onOpen={selectTab}
+              showContracts={canViewDeliveryLegal}
+              showInvoicing={invoicingOpen}
+              deliveryLead={headDeliveryLead}
+            >
+              {equipmentOpen ? (
+                <ClientEquipmentProviderField
+                  clientId={Number(id)}
+                  canEdit={canEditDelivery || hrConfig?.me.equipment === true}
+                />
+              ) : null}
+              <LazyDetails
+                defaultOpen
+                icon={<Building2 className="w-4 h-4 text-muted-foreground" />}
+                title="Statystyki współpracy i notatki"
+                contentClassName="space-y-4 border-t border-border p-4"
+              >
+                <CooperationStatsSection clientId={Number(id)} />
+                <div>
+                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
+                    Notatki
+                  </p>
+                  {client.notes ? (
+                    <p className="text-sm text-foreground whitespace-pre-line">{client.notes}</p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">Brak dodatkowych notatek.</p>
+                  )}
+                </div>
+              </LazyDetails>
+            </ProfileTab>
           )}
 
           {activeTab === "zasady" && <ClientPlaybookTab clientId={Number(id)} />}
 
+          {activeTab === "wejscie" && (
+            // Licznik „N z M ustalone” z części widocznych dla tej osoby
+            // (decyzja Artura z 20.11.2026, `klienci/start-u-klienta-ustalone.md`).
+            <ClientStartReadiness clientId={Number(id)} docsOn={startDocsOpen} packOn={packOpen} />
+          )}
           {startDocsOpen && activeTab === "wejscie" && (
             <div className="mb-3">
               <ClientStartDocsPanel
@@ -1615,40 +1701,68 @@ export default function ClientDetailPage() {
           )}
 
           {activeTab === "projekty" && <ProjectsTab clientId={Number(id)} />}
-          {activeTab === "raporty" && <ClientReportsTab clientId={Number(id)} />}
+          {activeTab === "konsultanci" && (
+            <ClientConsultantsTab
+              clientId={Number(id)}
+              clientName={client?.display_name || client?.name || ""}
+            />
+          )}
+          {activeTab === "materialy" && (
+            <MaterialsTab
+              clientId={Number(id)}
+              readOnly={!canEditDelivery}
+              showContractTerms={canViewDeliveryLegal}
+              contractTermsReadOnly={!canEditDeliveryLegal}
+            />
+          )}
+          {activeTab === "konflikty" && <ClientConflictsSection clientId={Number(id)} />}
+          {!contractPageOn && activeTab === "raporty" && <ClientReportsTab clientId={Number(id)} />}
 
           {activeTab === "kontakty" && <ContactsTab clientId={Number(id)} />}
 
-          {canViewDeliveryLegal && activeTab === "umowy-ramowe" && (
-            <div className="space-y-4">
-              <FrameworkContractsTab
-                clientId={Number(id)}
-                focusContractId={focusFrameworkId}
-                onFocusHandled={clearFocusParams}
-              />
-
-              <LazyDetails
-                defaultOpen
-                icon={<DollarSign className="w-4 h-4 text-muted-foreground" />}
-                title="Cennik (rate cards)"
-              >
-                <RateCardsTab clientId={Number(id)} />
-              </LazyDetails>
-
-              {/* F1 (15.11.2026): cennik umowy ramowej i dopłaty za technologie.
-                  Czyta też DL swojego klienta (bramka kwot z portfela). */}
-              <LazyDetails
-                defaultOpen
-                icon={<DollarSign className="w-4 h-4 text-muted-foreground" />}
-                title="Umowa ramowa: kategorie i dopłaty"
-              >
-                <FrameworkTermsPanel
+          {onContractPage && (
+            <ContractPage
+              target={activeTab}
+              documents={
+                <FrameworkContractsTab
                   clientId={Number(id)}
-                  canImport={hasAnalyticsCapability(user, "manage_finance")}
-                  canRecompute={hasAnyPermission(user, "contracts_orders_edit", "amounts_edit")}
+                  focusContractId={focusFrameworkId}
+                  onFocusHandled={clearFocusParams}
                 />
-              </LazyDetails>
-            </div>
+              }
+              rates={
+                <div className="space-y-4">
+                  {hasFrameworkTerms ? (
+                    <FrameworkRatesTab
+                      clientId={Number(id)}
+                      canImport={hasAnalyticsCapability(user, "manage_finance")}
+                      canRecompute={hasAnyPermission(user, "contracts_orders_edit", "amounts_edit")}
+                    />
+                  ) : null}
+                  {/* F1 (15.11.2026): cennik umowy ramowej i dopłaty za technologie.
+                      Czyta też DL swojego klienta (bramka kwot z portfela). */}
+                  <LazyDetails
+                    defaultOpen
+                    icon={<DollarSign className="w-4 h-4 text-muted-foreground" />}
+                    title="Umowa ramowa: kategorie i dopłaty"
+                  >
+                    <FrameworkTermsPanel
+                      clientId={Number(id)}
+                      canImport={hasAnalyticsCapability(user, "manage_finance")}
+                      canRecompute={hasAnyPermission(user, "contracts_orders_edit", "amounts_edit")}
+                    />
+                  </LazyDetails>
+                  <LazyDetails
+                    defaultOpen
+                    icon={<DollarSign className="w-4 h-4 text-muted-foreground" />}
+                    title="Cennik (rate cards)"
+                  >
+                    <RateCardsTab clientId={Number(id)} />
+                  </LazyDetails>
+                </div>
+              }
+              reports={<ClientReportsTab clientId={Number(id)} />}
+            />
           )}
 
           {/* Jeden rejestr dla wszystkich klientów: tabela zamówień okresowych,
@@ -1669,13 +1783,9 @@ export default function ClientDetailPage() {
               onFocusHandled={clearFocusParams}
             />
           )}
+          {/* Jeden miesiąc dla rozliczenia z marżą i tabeli faktur. */}
           {invoicingOpen && activeTab === "faktury" && (
-            <div className="space-y-4">
-              {/* Najpierw rozliczenie z marżą: tu DL daje zgodę na koszty integracji,
-                  a tabela faktur pod spodem ma kilkadziesiąt wierszy. */}
-              <DeliverySettlementsSection clientId={Number(id)} />
-              <ClientInvoicingTab clientId={Number(id)} />
-            </div>
+            <ClientInvoicesAndSettlementTab clientId={Number(id)} />
           )}
           {activeTab === "importy-md" && (
             <ClientMdImportsTab
@@ -1685,13 +1795,8 @@ export default function ClientDetailPage() {
             />
           )}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}
-          {hasFrameworkTerms && activeTab === "stawki-ramowe" && (
-            <FrameworkRatesTab
-              clientId={Number(id)}
-              canImport={hasAnalyticsCapability(user, "manage_finance")}
-              canRecompute={hasAnyPermission(user, "contracts_orders_edit", "amounts_edit")}
-            />
-          )}
+          {/* Makieta 18.11.2026: „Stawki i cennik” — wszystko o kwotach z umowy
+              w jednym miejscu (dotąd cennik i dopłaty stały pod umowami). */}
           {canViewSales && activeTab === "sprzedaz" && <ClientSalesTab clientId={Number(id)} />}
           {careOpen && activeTab === "ludzie" && (
             <ClientPeopleTechTab
@@ -1970,5 +2075,58 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * „Umowa” klienta na jednej stronie (makieta 19.11.2026): dokumenty, stawki
+ * i obowiązki raportowe jedna pod drugą, zamiast trzech podzakładek, z których
+ * dwie bywały puste. `target` przewija do części, którą otworzył link
+ * (`?tab=stawki-ramowe`, `?tab=raporty`).
+ */
+function ContractPage({
+  target,
+  documents,
+  rates,
+  reports,
+}: {
+  target: ClientTab;
+  documents: React.ReactNode;
+  rates: React.ReactNode;
+  reports: React.ReactNode;
+}) {
+  useEffect(() => {
+    const sectionId =
+      target === "stawki-ramowe" ? "umowa-stawki" : target === "raporty" ? "umowa-raporty" : null;
+    if (!sectionId) return;
+    document.getElementById(sectionId)?.scrollIntoView({ block: "start" });
+  }, [target]);
+  return (
+    <div className="space-y-6">
+      <section id="umowa-dokumenty" aria-labelledby="umowa-dokumenty-h" className="scroll-mt-4 space-y-2">
+        {/* Lista umów ma własny tytuł — nagłówek części tylko dla czytników. */}
+        <h2 id="umowa-dokumenty-h" className="sr-only">
+          Umowy i aneksy
+        </h2>
+        {documents}
+      </section>
+      <section id="umowa-stawki" aria-labelledby="umowa-stawki-h" className="scroll-mt-4 space-y-2">
+        {/* Kotwica wpisu nowości „Stawki ramowe i raport kwartalny” (dawniej podzakładka). */}
+        <h2
+          id="umowa-stawki-h"
+          className="text-sm font-semibold text-foreground"
+          data-tour="client.sections.framework-rates"
+        >
+          Stawki i cennik
+        </h2>
+        {rates}
+      </section>
+      <section id="umowa-raporty" aria-labelledby="umowa-raporty-h" className="scroll-mt-4 space-y-2">
+        <h2 id="umowa-raporty-h" className="sr-only">
+          Raporty dla klienta
+        </h2>
+        {reports}
+      </section>
+    </div>
   );
 }

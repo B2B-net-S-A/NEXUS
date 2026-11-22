@@ -6,6 +6,7 @@ w testach są fikcyjne (repo jest publiczne).
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -77,7 +78,7 @@ async def _map(opportunity_id: int) -> list[dict[str, Any]]:
 
 @pytest.mark.asyncio
 async def test_cognism_callback_saves_the_company_map_without_an_opportunity(
-    app_client, monkeypatch
+    app_client, monkeypatch, caplog
 ) -> None:
     monkeypatch.setattr(settings, "SALES_COGNISM_PEOPLE_ENABLED", True)
     monkeypatch.setattr(settings, "SALES_BOT_TASKS_ENABLED", False)
@@ -134,17 +135,39 @@ async def test_cognism_callback_saves_the_company_map_without_an_opportunity(
             {"company_ref": foreign_id, "status": "not_found"},
         ],
     }
+    private_key = "private-key@example.invalid"
+    private_value = "private-value@example.invalid"
     invalid = await app_client.post(
         f"{RUNS}/{run_id}",
         json={
             "firms": [
-                {**report["firms"][0], "people": [{**first, "secret": "private"}]}
+                {
+                    **report["firms"][0],
+                    "people": [{**first, "title": [private_value], private_key: token}],
+                }
             ]
         },
         headers={"X-Run-Token": token},
     )
     assert invalid.status_code == 422
-    assert "private" not in invalid.text and first["full_name"] not in invalid.text
+    detail = invalid.json()["detail"]
+    assert detail.startswith("Raport osób nie jest zgodny z formatem zlecenia.")
+    assert "body.firms[0].people[0].title: string_type" in detail
+    assert "body.firms[0].people[0].<extra>: extra_forbidden" in detail
+    assert (
+        "app.api.integrations_sales_signals",
+        logging.WARNING,
+        f"sales_bot run={run_id} source=cognism report rejected: {detail}",
+    ) in caplog.record_tuples
+    for private in (
+        private_key,
+        private_value,
+        token,
+        first["full_name"],
+        first["email"],
+    ):
+        assert private not in invalid.text
+        assert private not in caplog.text
     received = await app_client.post(
         f"{RUNS}/{run_id}", json=report, headers={"X-Run-Token": token}
     )
@@ -190,6 +213,27 @@ async def test_cognism_callback_saves_the_company_map_without_an_opportunity(
             )
         ).scalars()
         assert list(kinds) == ["contacts"]
+
+
+@pytest.mark.asyncio
+async def test_cognism_callback_distinguishes_empty_body_from_empty_report(
+    app_client,
+) -> None:
+    company_id = await _company()
+    run_id, token = await _run(
+        [company_id], kind="people", request={"source": "cognism"}
+    )
+    headers = {"X-Run-Token": token, "Content-Type": "application/json"}
+    endpoint = f"{RUNS}/{run_id}"
+    for body in (b"", b" \r\n\t"):
+        missing = await app_client.post(endpoint, content=body, headers=headers)
+        assert missing.status_code == 422
+        assert missing.json()["detail"].endswith("body: missing")
+
+    received = await app_client.post(endpoint, json={"firms": []}, headers=headers)
+    assert received.status_code == 200, received.text
+    assert received.json()["status"] == "received"
+    assert received.json()["not_processed"] == 1
 
 
 @pytest.mark.asyncio

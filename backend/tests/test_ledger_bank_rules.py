@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
+
+import pytest
 
 from app.models.ledger import LedgerBankLine, LedgerBankStatement
 from app.services.ledger import bank
@@ -139,7 +142,7 @@ def test_parser_lists_every_statement_account():
     body = ""
     for account in (first, second):
         body += f":20:X\r\n:25:/PL{account}\r\n:60F:C261101PLN0,00\r\n"
-        body += ":61:2611021102D1,00NTRFNONREF//R1\r\n:86:~00TR~20x\r\n:62F:C261102PLN0,00\r\n-\r\n"
+        body += ":61:2611021102D1,00NTRFNONREF//R1\r\n:86:~00TR~20x\r\n:62F:D261102PLN1,00\r\n-\r\n"
     parsed = mt940.parse(body.encode())
     assert parsed.accounts == (first, second)
     assert parsed.account == second and len(parsed.lines) == 2
@@ -165,3 +168,138 @@ def test_camt_without_iban_counts_as_another_account():
     ).encode()
     parsed = camt053.parse(raw)
     assert parsed.accounts == ("61109010140000071219812874", "RACHUNEK-2")
+
+
+# ── Saldo wyciągu (18.11.2026: plik .eMT z eBI24) ──────────────────────────────
+
+def _valid_nrb(bban: str) -> str:
+    from app.services.hr.bank.accounts import iban_check_digits
+
+    return f"{iban_check_digits(bban)}{bban}"
+
+
+COMPANY_ACCOUNT = _valid_nrb("109010140000000000001234")
+
+
+def _emt(*, drop_last: bool = False) -> bytes:
+    """Układ wyciągu Santandera z eBI24: nagłówki SWIFT, trzy części wyciągu
+    (``:62M:`` → ``:60M:``), opis ``?NN`` w kilku liniach, windows-1250."""
+
+    header = "{1:F01TESTPLPWAXXX0000000000}{2:O9400000000000TESTPLPWAXXX0000000000000000000000N}{4:"
+    parts = [
+        ("60F", "C261006PLN1000,00", [("C", "200,00", "BZ28?00UZNANIE?20FV 1/9/2026?32KLIENT S.A.")], "62M", "C261006PLN1200,00"),
+        ("60M", "C261006PLN1200,00", [("D", "50,50", "51CT?00PRZELEW?20Opłata za usługę?32DOSTAWCA")], "62M", "C261006PLN1149,50"),
+        ("60M", "C261006PLN1149,50", [
+            ("D", "0,71", "PROWIZJA ZA PRZEWALUTOWANIE"),
+            ("D", "1000,00", "51CT?00PRZELEW NA RACHUNEK W NASZYM?20Zasilenie lokaty?32FIRMA"),
+        ], "62F", "C261006PLN148,79"),
+    ]
+    if drop_last:
+        parts[2][2].pop()
+    text = ""
+    for number, (open_tag, opening, ops, close_tag, closing) in enumerate(parts, start=1):
+        text += f"{header}\r\n:20:261006/10901056\r\n:25:PL{COMPANY_ACCOUNT}\r\n:28C:26252/{number}\r\n"
+        text += f":{open_tag}:{opening}\r\n"
+        for mark, amount, details in ops:
+            text += f":61:261006{mark}N{amount}NTRFNONREF\r\n:86:{details[:40]}\r\n"
+            if details[40:]:
+                text += details[40:] + "\r\n"
+        text += f":{close_tag}:{closing}\r\n-}}\r\n"
+    return text.encode("windows-1250")
+
+
+def test_emt_from_ebi24_reads_every_part_and_balances():
+    from app.services.hr.bank import statements
+
+    parsed = statements.parse_file(_emt())
+    assert parsed.format == "mt940"
+    assert len(parsed.lines) == 4
+    assert set(parsed.accounts) == {COMPANY_ACCOUNT}
+    assert [item.ok for item in parsed.balances] == [True, True, True]
+    assert parsed.balances[-1].closing == Decimal("148.79")
+    assert parsed.lines[1].title.startswith("Opłata")
+    lines = tuple(line for line in parsed.lines if bank.grosze(line.amount) > 0)
+    bank._check_file(parsed, lines)
+
+
+def test_truncated_statement_is_refused_by_balance():
+    from app.services.finance_ledger.costs import LedgerError
+    from app.services.hr.bank import statements
+
+    parsed = statements.parse_file(_emt(drop_last=True))
+    gap = [item for item in parsed.balances if not item.ok]
+    assert [item.statement for item in gap] == [3]
+    assert gap[0].expected == Decimal("1148.79")
+    with pytest.raises(LedgerError) as error:
+        bank._check_file(parsed, parsed.lines)
+    assert error.value.status == 422
+    assert "Saldo wyciągu się nie zgadza (wyciąg 3 w pliku)" in str(error.value)
+    assert "1 148,79" in str(error.value) and "148,79" in str(error.value)
+
+
+def test_statement_without_closing_balance_is_not_checked():
+    from app.services.hr.bank import mt940
+
+    raw = (
+        f":20:X\r\n:25:/PL{COMPANY_ACCOUNT}\r\n:60F:C261101PLN10,00\r\n"
+        ":61:2611021102D1,00NTRFNONREF//R1\r\n:86:~00TR~20x\r\n-"
+    ).encode()
+    assert mt940.parse(raw).balances == ()
+
+
+def test_debit_balances_and_reversals_keep_their_sign():
+    from app.services.hr.bank import mt940
+
+    raw = (
+        f":20:X\r\n:25:/PL{COMPANY_ACCOUNT}\r\n:60F:D261101PLN10,00\r\n"
+        ":61:2611021102RC5,00NTRFNONREF//R1\r\n:86:~00storno uznania\r\n"
+        ":61:2611021102RD2,00NTRFNONREF//R2\r\n:86:~00storno obciazenia\r\n"
+        ":62F:D261102PLN13,00\r\n-"
+    ).encode()
+    (balance,) = mt940.parse(raw).balances
+    assert (balance.opening, balance.movement, balance.closing) == (
+        Decimal("-10.00"),
+        Decimal("-3.00"),
+        Decimal("-13.00"),
+    )
+    assert balance.ok
+
+
+def _camt(closing: str, *, pending: bool = False) -> bytes:
+    entries = (
+        '<Ntry><Amt Ccy="PLN">100.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts><Cd>BOOK</Cd></Sts>'
+        "<BookgDt><Dt>2026-11-20</Dt></BookgDt><AcctSvcrRef>A1</AcctSvcrRef></Ntry>"
+        '<Ntry><CdtDbtInd>DBIT</CdtDbtInd><BookgDt><Dt>2026-11-20</Dt></BookgDt><NtryDtls>'
+        '<TxDtls><Amt Ccy="PLN">30.00</Amt></TxDtls><TxDtls><Amt Ccy="PLN">20.00</Amt></TxDtls>'
+        "</NtryDtls></Ntry>"
+    )
+    if pending:
+        entries += (
+            '<Ntry><Amt Ccy="PLN">999.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts><Cd>PDNG</Cd></Sts>'
+            "<BookgDt><Dt>2026-11-20</Dt></BookgDt></Ntry>"
+        )
+
+    def bal(code: str, amount: str) -> str:
+        return (
+            f"<Bal><Tp><CdOrPrtry><Cd>{code}</Cd></CdOrPrtry></Tp>"
+            f'<Amt Ccy="PLN">{amount}</Amt><CdtDbtInd>CRDT</CdtDbtInd></Bal>'
+        )
+
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02"><BkToCstmrStmt><Stmt>'
+        f"<Acct><Id><IBAN>PL{COMPANY_ACCOUNT}</IBAN></Id><Ccy>PLN</Ccy></Acct>"
+        + bal("OPBD", "1000.00")
+        + bal("CLBD", closing)
+        + entries
+        + "</Stmt></BkToCstmrStmt></Document>"
+    ).encode()
+
+
+def test_camt_balance_counts_booked_entries_only():
+    from app.services.hr.bank import camt053
+
+    (balance,) = camt053.parse(_camt("1050.00", pending=True)).balances
+    assert balance.movement == Decimal("50.00") and balance.ok
+    (broken,) = camt053.parse(_camt("1000.00")).balances
+    assert not broken.ok

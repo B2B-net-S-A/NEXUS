@@ -153,3 +153,19 @@ def test_risk_wins_and_reasons_are_capped_at_three() -> None:
     assert len(result.reasons) == 3
     assert result.reasons[0] == "ryzyko odejścia"
     assert result.as_dict()["reasons"][2] == "zamówienie kończy się za 20 dni"
+
+
+def test_back_office_drops_rhythm_rules_but_keeps_the_rest() -> None:
+    # Moduł back office (decyzja Artura 20.11.2026): rytmu rozmów nie ma.
+    quiet = {"overdue_days": 63, "last_conversation_on": TODAY - timedelta(days=400)}
+    with_rhythm = assess(_signals(**quiet))
+    assert with_rhythm.level == "watch"
+    assert with_rhythm.reasons == ("rozmowa zaległa 63 dni", "brak rozmowy od 400 dni")
+    assert _level(rhythm=False, **quiet) == "ok"
+    # Bez rozmów od startu też nie ma „ciszy”.
+    assert _level(rhythm=False, last_conversation_on=None) == "ok"
+    # Koniec bez decyzji, zadowolenie i opinia menedżera liczą się dalej.
+    ending = assess(_signals(rhythm=False, end_on=TODAY + timedelta(days=41), **quiet))
+    assert ending.reasons == ("zamówienie kończy się za 41 dni, bez decyzji",)
+    assert _level(rhythm=False, satisfaction=3, **quiet) == "watch"
+    assert _level(rhythm=False, feedback_average=2.5, **quiet) == "risk"

@@ -84,6 +84,17 @@ export interface PayrollAccounts {
   deductions_account: string;
 }
 
+/** Zapisane konto modułu, na które nie da się księgować (np. po imporcie planu kont). */
+export interface AccountProblem {
+  group: "sales" | "allocation" | "payroll" | "assets" | "vat" | "bank";
+  /** Gdzie je zmienić, np. „Ustawienia → Konta faktur sprzedaży”. */
+  group_label: string;
+  field: string;
+  label: string;
+  account: string;
+  problem: string;
+}
+
 export interface LedgerConfig {
   open: boolean;
   modules: LedgerModule[];
@@ -97,6 +108,8 @@ export interface LedgerConfig {
   payroll_accounts?: PayrollAccounts;
   /** Rachunki firmy i konta reguł wyciągu (K4a); pełne numery widzi administrator. */
   bank_settings?: BankSettings;
+  /** Konta z Ustawień, na które moduły już nie zaksięgują — do przestawienia. */
+  account_problems?: AccountProblem[];
   years: LedgerYear[];
   today: string;
   doc_types: (Option & { manual: boolean })[];
@@ -303,6 +316,35 @@ export interface OpeningPreview {
   preview: { account: string; name: string; side: Side; amount: number }[];
   saved: boolean;
   document_id: number | null;
+  /** Kolumny użyte jako saldo: „bo” (bilans otwarcia) albo „saldo” (saldo końcowe). */
+  basis?: string;
+  /** Plik ma i BO, i saldo końcowe — ekran pozwala wybrać. */
+  both_bases?: boolean;
+  /** Wiersze syntetyczne pominięte, bo ich kwotę niosą konta analityczne. */
+  synthetic_skipped?: number;
+}
+
+export interface ChartImportPreview {
+  saved: boolean;
+  accounts_in_file: number;
+  created: number;
+  existing: number;
+  blocked: number;
+  filled: number;
+  dictionaries: number;
+  markers: number;
+  markers_ignored: number;
+  problems: string[];
+  problems_total: number;
+  notes: string[];
+  preview: {
+    number: string;
+    name: string;
+    account_type: string | null;
+    account_type_label: string | null;
+    dictionary: string | null;
+    report_line: string | null;
+  }[];
 }
 
 export type SourceKind = "costs" | "sales" | "allocation" | "recurring" | "prepayments" | "asset_docs" | "assets";
@@ -382,10 +424,32 @@ export interface AllocationDetail {
   payroll: boolean;
 }
 
+/** Nabywca FVS bez konta przychodu (brak historii) — księgowa wskazuje konto. */
+export interface RevenueBuyer {
+  counterparty_id: number;
+  name: string;
+  /** Wskazane wcześniej konto, którego plan kont już nie przyjmuje. */
+  account: string | null;
+}
+
 export interface SourceProblem {
   source_id: string;
   label: string;
   problems: string[];
+  revenue_buyer?: RevenueBuyer | null;
+}
+
+/** Konto przychodu wskazane dla nabywcy bez historii (18.11.2026). */
+export interface RevenueChoice {
+  counterparty_id: number;
+  name: string | null;
+  id_type: string | null;
+  id_value: string | null;
+  account: string;
+  /** Powód, dla którego plan kont nie przyjmie już tego konta. */
+  problem: string | null;
+  by: string | null;
+  at: string | null;
 }
 
 /** Źródło miesiąca (K2): ile faktur, ile już w księdze, co czeka, co blokuje. */
@@ -590,6 +654,7 @@ export const accountingKeys = {
   chart: ["accounting", "chart"] as const,
   candidates: ["accounting", "candidates"] as const,
   sources: (year: number, month: number) => ["accounting", "sources", year, month] as const,
+  revenueChoices: ["accounting", "sources", "revenue-accounts"] as const,
   automations: ["accounting", "automations"] as const,
   exports: (year: number, month: number) => ["accounting", "exports", year, month] as const,
   closing: (year: number, month: number) => ["accounting", "closing", year, month] as const,
@@ -830,6 +895,30 @@ export function useSyncSources() {
   });
 }
 
+export function useRevenueChoices(enabled = true) {
+  return useQuery({
+    queryKey: accountingKeys.revenueChoices,
+    queryFn: async () =>
+      (await api.get<{ items: RevenueChoice[] }>(`${BASE}/sources/revenue-accounts`)).data.items,
+    enabled,
+  });
+}
+
+/** Wskazanie konta przychodu nabywcy; puste konto zdejmuje wskazanie. */
+export function useSetRevenueChoice() {
+  const invalidate = useInvalidateLedger();
+  return useMutation({
+    mutationFn: async (args: { counterpartyId: number; account: string }) =>
+      (
+        await api.put<{ counterparty_id: number; account: string | null }>(
+          `${BASE}/sources/revenue-accounts/${args.counterpartyId}`,
+          { account: args.account },
+        )
+      ).data,
+    onSuccess: () => invalidate(),
+  });
+}
+
 export function useSetSalesAccounts() {
   return useConfigMutation((args: SalesAccounts) => api.put(`${BASE}/config/sales`, args));
 }
@@ -883,12 +972,31 @@ export function useRemoveAutomation() {
 export function useOpeningImport() {
   const invalidate = useInvalidateLedger();
   return useMutation({
-    mutationFn: async ({ file, year, save }: { file: File; year: number; save: boolean }) => {
+    mutationFn: async ({ file, year, save, basis }: { file: File; year: number; save: boolean; basis?: string }) => {
       const form = new FormData();
       form.append("file", file);
       return (
         await api.post<OpeningPreview>(`${BASE}/opening/import`, form, {
-          params: { year, save },
+          params: basis ? { year, save, basis } : { year, save },
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      ).data;
+    },
+    onSuccess: (data) => {
+      if (data.saved) invalidate();
+    },
+  });
+}
+
+export function useChartImport() {
+  const invalidate = useInvalidateLedger();
+  return useMutation({
+    mutationFn: async ({ file, save }: { file: File; save: boolean }) => {
+      const form = new FormData();
+      form.append("file", file);
+      return (
+        await api.post<ChartImportPreview>(`${BASE}/chart/import`, form, {
+          params: { save },
           headers: { "Content-Type": "multipart/form-data" },
         })
       ).data;

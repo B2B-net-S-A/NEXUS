@@ -30,6 +30,7 @@ import { formatIsoDatePl } from "@/lib/date-pl";
 
 const SKIPPED_LABELS: Record<string, string> = {
   already_in_campaign: "już w kampanii",
+  already_called: "już dzwoniono",
   other_caller: "dzwoni ktoś inny",
   client: "klient NEXUSA",
   do_not_contact: "sprzeciw",

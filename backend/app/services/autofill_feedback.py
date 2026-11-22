@@ -60,10 +60,24 @@ _DATA = frozenset(
         "wrong_phone",
         "client_employed",
         "client_other_vendor",
+        "hm_already_interviewed",
     }
 )
+# Jeden słownik (0745, 19.11.2026): kulturowe dopasowanie, termin dostępności
+# i przyjęta inna oferta to sprawa osoby, nie wyszukiwania; rozmowa u tego
+# hiring managera to dane, których system nie miał. Powody klienta zostają
+# w „other”: mówią o decyzji klienta, nie o tym, kogo system dobrał.
 _PERSON = frozenset(
-    {"not_looking", "no_answer", "in_other_process", "client_refused", "contract_form"}
+    {
+        "not_looking",
+        "no_answer",
+        "in_other_process",
+        "client_refused",
+        "contract_form",
+        "culture",
+        "available_too_late",
+        "accepted_other_offer",
+    }
 )
 # Powody, które mogą dotyczyć osoby u całego klienta (`whole_client`).
 CLIENT_WIDE_REASONS = frozenset(
@@ -98,6 +112,15 @@ REASON_LABELS: dict[str, str] = {
     "weak_english": "Angielski za słaby",
     "contract_form": "Forma umowy (UoP / B2B)",
     "cleanup": "Porządki (nie ocena osoby)",
+    "culture": "Nie pasuje kulturowo",
+    "available_too_late": "Dostępna za późno / wypowiedzenie",
+    "accepted_other_offer": "Przyjęła inną ofertę",
+    "hm_already_interviewed": "Już po rozmowie u tego hiring managera",
+    "client_chose_other": "Klient wybrał innego kandydata",
+    "client_interview_weak": "Rozmowa u klienta wypadła słabo",
+    "client_project_closed": "Klient zamknął projekt / przetarg przegrany",
+    "client_after_deadline": "Wysłany do klienta po terminie",
+    "client_no_reason": "Klient nie podał powodu",
     "other": "Inne",
 }
 assert set(REASON_LABELS) == set(REASONS)
@@ -113,7 +136,19 @@ GAP_LABEL_MAX = 120
 # była 49×, z opisem 0×; 22 z 45 „Inne” to porządki tablicy albo sama kropka.
 CLEANUP_REASON = "cleanup"
 ROLE_REASON = "other_level_or_role"
-ROLE_KINDS = ("profession", "level", "specialty")
+# 16.11.2026 („Kogo szukamy”): 8 odpowiedzi na „Co nie gra z rolą?”. ``level``
+# zostaje ważne dla starych wpisów, ale nie ma go już na ekranie.
+ROLE_KINDS = (
+    "profession",
+    "specialty",
+    "technology",
+    "lead_not_ic",
+    "ic_not_lead",
+    "past_role",
+    "side_role",
+    "domain",
+    "level",
+)
 ROLE_WANTED_MAX = 120
 AVAILABILITY_KINDS = ("not_looking", "notice", "from_date")
 CLEANUP_KINDS = ("duplicate", "stale_process", "cv_broken")
@@ -124,14 +159,15 @@ _UNKNOWN_DETAIL = "Szczegół powodu nie pasuje do wybranego powodu."
 
 def clean_detail(reason: Optional[str], raw: Any) -> Optional[dict]:
     """Szczegół powodu z żądania albo ``None``. Klucze zależą od powodu:
-    „Inna rola” — ``role_kind`` i ``role_wanted``, „Nie szuka” —
+    „Inna rola” — ``role_kind``, ``role_wanted`` i ``person_role`` (z niego
+    uczy się „Nie proponujemy”, ``job_role_profile``), „Nie szuka” —
     ``availability``, „Porządki” — ``cleanup`` (wymagany). Inny klucz albo
     wartość spoza listy = 422."""
     raw = raw or {}
     if not isinstance(raw, dict):
         raise HTTPException(status_code=422, detail=_UNKNOWN_DETAIL)
     allowed = {
-        ROLE_REASON: {"role_kind", "role_wanted"},
+        ROLE_REASON: {"role_kind", "role_wanted", "person_role"},
         NOT_LOOKING_REASON: {"availability"},
         CLEANUP_REASON: {"cleanup"},
     }.get(reason or "", set())
@@ -145,6 +181,9 @@ def clean_detail(reason: Optional[str], raw: Any) -> Optional[dict]:
     wanted = str(raw.get("role_wanted") or "").strip()[:ROLE_WANTED_MAX]
     if wanted:
         out["role_wanted"] = wanted
+    person = " ".join(str(raw.get("person_role") or "").split())[:ROLE_WANTED_MAX]
+    if person:
+        out["person_role"] = person
     if raw.get("availability") is not None:
         if raw["availability"] not in AVAILABILITY_KINDS:
             raise HTTPException(status_code=422, detail=_UNKNOWN_DETAIL)
@@ -221,6 +260,17 @@ async def system_process_in_decision(
     return process
 
 
+def check_not_looking_until(until: date) -> None:
+    """422, gdy „Nie szuka do” nie jest datą od jutra do dwóch lat. Ta sama
+    reguła przy osobie od systemu i przy karcie dodanej ręcznie (19.11.2026)."""
+    today = business_today()
+    if not today < until <= today + timedelta(days=NOT_LOOKING_MAX_DAYS):
+        raise HTTPException(
+            status_code=422,
+            detail="„Nie szuka do” to data w przyszłości, najwyżej za dwa lata.",
+        )
+
+
 def validate(
     *,
     process: Optional[RecruitmentProcess],
@@ -239,16 +289,7 @@ def validate(
                 status_code=422,
                 detail="Datę „Nie szuka do” podaje się tylko przy powodzie „Nie szuka pracy”.",
             )
-        today = business_today()
-        if (
-            not today
-            < not_looking_until
-            <= today + timedelta(days=NOT_LOOKING_MAX_DAYS)
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail="„Nie szuka do” to data w przyszłości, najwyżej za dwa lata.",
-            )
+        check_not_looking_until(not_looking_until)
     if process is None:
         if reason is not None or learned_from is not None:
             raise HTTPException(

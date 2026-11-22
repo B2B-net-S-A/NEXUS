@@ -33,6 +33,8 @@
  "routes": {
   "DELETE /api/finance/settlements/contract/{contract_id}/integration-costs/{cost_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/settlements/client-acceptance": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/settlements/client-acceptance/package": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/client-documents": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/client-documents/file": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/client-invoice": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
@@ -42,12 +44,18 @@
   "GET /api/finance/settlements/contract/{contract_id}/documents/{document_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/contract/{contract_id}/extras/{extra_id}/documents/{document_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/contract/{contract_id}/integration-costs": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/settlements/contract/{contract_id}/kcp": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/contract/{contract_id}/kesu/package": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/settlements/contract/{contract_id}/panel-preview": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/estimates": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/module": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/rules/{client_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/settlements/start": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/my-clients/{client_id}/settlements": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
   "POST /api/finance/settlements/accept-batch": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/finance/settlements/client-acceptance/accept": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/finance/settlements/client-acceptance/reply": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/finance/settlements/client-acceptance/sent": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/client-documents/signed": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/contract/{contract_id}/accept": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/contract/{contract_id}/extras": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
@@ -64,6 +72,7 @@
   "POST /api/my-clients/{client_id}/settlements/integration-costs/{cost_id}/approve": "PPDPPDDDPPPDPPPDDDPDDDDDDDPDP",
   "POST /api/my-clients/{client_id}/settlements/integration-costs/{cost_id}/reject": "PPDPPDDDPPPDPPPDDDPDDDDDDDPDP",
   "PUT /api/finance/settlements/contract/{contract_id}/md": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "PUT /api/finance/settlements/module": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PUT /api/finance/settlements/rules/{client_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD"
  }
 }

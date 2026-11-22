@@ -470,6 +470,15 @@ describe("poligon: postęp i rejestr serwera", () => {
     expect(store.handle({ method: "post", url: "/api/novelties/inna-nowosc/events", body: { event: "seen" } })).toEqual({ status: 204, data: null });
   });
 
+  it("przeklikanie nowości z porcji dnia zalicza się na serwerze, inne zdarzenia nowości nie", () => {
+    const { store } = setup();
+    expect(store.handle({ method: "post", url: "/api/novelties/inna-nowosc/events", body: { event: "toured" } })).toBe("network");
+    for (const event of ["used", "dot_clicked", "postponed"])
+      expect(store.handle({ method: "post", url: "/api/novelties/inna-nowosc/events", body: { event } })).toEqual({ status: 204, data: null });
+    // Gate i panel to nie zdarzenie osoby — zostają w przeglądarce.
+    expect(store.handle({ method: "put", url: "/api/novelties/start/gate", body: { event: "toured" } })).toEqual({ status: 204, data: null });
+  });
+
   it("ćwiczenia frontu i rejestr serwera to te same id i te same role", () => {
     expect(poligonRegistry.exercises.map((e) => e.id)).toEqual(EXERCISES.map((e) => `poligon-${e.id}`));
     expect(new Set(EXERCISES.map((e) => e.id)).size).toBe(EXERCISES.length);
@@ -598,6 +607,20 @@ describe("poligon: narzędzia rekrutera (16.11.2026)", () => {
     expect(acted(actions)).toMatchObject({ type: "chat", mentions: [DATA.meta.trainers.dl.id] });
     expect(judge("zespol-czat", acted(actions)!)).toEqual({ done: true });
     expect((store.handle({ method: "get", url: `/api/jobs/${JOB}/chat/messages?limit=5` }) as { data: { items: unknown[] } }).data.items).toHaveLength(2);
+  });
+
+  it("odczyt czatu jest migawką: wysyłka nie mutuje wiadomości wcześniej oddanych do cache", () => {
+    const { store } = setup();
+    const read = () => store.handle({ method: "get", url: `/api/jobs/${JOB}/chat/messages?limit=50` }) as { data: { items: { content: string }[] } };
+    const empty = read();
+    store.handle({ method: "post", url: `/api/jobs/${JOB}/chat/messages`, body: { content: "Pierwsza wiadomość" } });
+    const first = read();
+    expect(empty.data.items).toHaveLength(0);
+    expect(first.data.items.map((m) => m.content)).toEqual(["Pierwsza wiadomość"]);
+
+    store.handle({ method: "post", url: `/api/jobs/${JOB}/chat/messages`, body: { content: "Druga wiadomość" } });
+    expect(first.data.items.map((m) => m.content)).toEqual(["Pierwsza wiadomość"]);
+    expect(read().data.items.map((m) => m.content)).toEqual(["Druga wiadomość", "Pierwsza wiadomość"]);
   });
 
   it("asystent CV: CV ćwiczebne osoby, stały plan bez modelu i autozapis w pamięci", () => {

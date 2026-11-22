@@ -17,6 +17,7 @@ from jinja2 import Environment
 
 from app.core.docx_metadata import clear_app_properties, clear_author_metadata
 from app.models.contract import Contract
+from app.services.b2b_documents.company_party import NOTICES_EMAIL
 from app.services.b2b_contract_generator.clause_overrides import (
     ClauseOverrideError,
     apply_ops_docx,
@@ -136,6 +137,13 @@ def render_from_context(
     return clear_app_properties(buf.getvalue())
 
 
-def render_contract_docx(contract: Contract, *, language: str | None = "pl") -> bytes:
+def render_contract_docx(
+    contract: Contract,
+    *,
+    language: str | None = "pl",
+    notices_email: str = NOTICES_EMAIL,
+) -> bytes:
     """Wyrenderuj DOCX umowy B2B dla danego kontraktu."""
-    return render_from_context(build_docx_context(contract), language=language)
+    context = build_docx_context(contract)
+    context["b2b_notices_email"] = notices_email
+    return render_from_context(context, language=language)

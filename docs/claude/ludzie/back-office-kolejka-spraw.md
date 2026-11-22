@@ -1,6 +1,10 @@
 # Back office jako kolejka spraw — karty, zespoły, kroki, eskalacja, poczta, start
 <!-- indeks: moduł `back_office`, `bo_cards`, adaptery źródeł, Biorę/Zastępuję, limit 5, eskalacja po dniu roboczym, kroki wejścia i wyjścia, Ławka 60/14, reguły + AI + Do rozdzielenia, odpowiedź ze sprawy, przegląd przed startem, runbook włączenia -->
 
+> **Od 19.11.2026 jeden zespół:** skład, etykiety zamiast zespołów, „Weź następną”, „Na zewnątrz”
+> i brak opiekunów opisuje `back-office-jeden-zespol.md` — ma pierwszeństwo przed opisem
+> czterech zespołów, „Zastępuję” i `bo_team_members` poniżej.
+
 Decyzje Artura z 02.11.2026 (makiety: https://claude.ai/artifact/5ZaNZYJvVHJz1cKqAH1E2W,
 plan: https://claude.ai/artifact/HUabikQpDcGioAiPpiEEAy). Cały back office pracuje na
 jednej kolejce. Ta reguła ma pierwszeństwo przed opisem „Do zrobienia” w
@@ -28,11 +32,13 @@ jednej kolejce. Ta reguła ma pierwszeństwo przed opisem „Do zrobienia” w
   ta się otworzy; sprawa otwarta po komplecie kroków czeka na człowieka.
 - **Przy sprawie osoba i stan są w `admin_cases`.** Karta je lustruje, przejęcie idzie
   przez `update_case` w tej samej transakcji.
-- **Kanban zostaje 1:1 pod „Po statusie”** (warunek z 22.10). Pilnuje
-  `frontend/src/lib/work-board-feature-inventory.json`. Stare linki `?card=` i
-  `?filter=` dalej otwierają kanban, a `/care` działa obok `/back-office`.
+- **Kanbanu Opieki nie ma w kolejce** (decyzja Artura z 20.11.2026, uchyla warunek z 22.10
+  „kanban zostaje 1:1 pod „Po statusie””): w jednej kolejce dublował te same sprawy. Stare linki
+  `?card=` i `?filter=` w module prowadzą na tablicę Spraw (szczegóły w
+  `back-office-jeden-zespol.md`), a kanban 1:1 zostaje na `/care` poza modułem i dla osób spoza
+  składu. Pilnuje `frontend/src/lib/work-board-feature-inventory.json`.
 - **„Zrobione” przy rozmowie daje wyłącznie jej zapis, a zamkniętą decyzję da się
-  cofnąć.** Oba warunki z 22.10 żyją w kanbanie i ich nie ruszamy.
+  cofnąć.** Oba warunki z 22.10 żyją w kanbanie na `/care` i ich nie ruszamy.
 
 ## Moduł i dostęp
 
@@ -75,7 +81,8 @@ stawki, Zakończenia. Zamówienia: Poczta zamówień, Przerwy, Przedłużenia (4
   zostaje wyłączony. Krok zalicza się sam ze źródła albo ręcznie i odhacza checklistę;
   wszystkie zrobione = sprawa `done`. Krok własnego zespołu widać w panelu sprawy,
   cudzego także w kolumnie zespołu.
-- **Ławka**: karta 60 dni przed końcem. **Bezpiecznik 14 dni**: sprawa wyjścia powstaje też
+- **Ławka**: karta 60 dni przed końcem umowy; koniec samego zamówienia niesie
+  „Przedłużenie” (`back-office-jeden-zespol.md`, 20.11). **Bezpiecznik 14 dni**: sprawa wyjścia powstaje też
   bez decyzji, bo dostępy nie mogą czekać na rozmowę. „Nie przepinamy” zakłada ją od razu.
 - **Rytm** przy włączonym module: tylko 7. dzień i 60 dni przed końcem (`important_only`),
   plus karta po rozmowie z oceną 1–2.

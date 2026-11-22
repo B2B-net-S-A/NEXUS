@@ -62,6 +62,7 @@ import {
 } from "@/components/v2/modals/RejectionRateField";
 import {
   autofillMoveFields,
+  isDecisionColumn,
   needsAutofillReason,
   type AutofillFeedbackChoice,
 } from "@/lib/autofill-feedback";
@@ -288,6 +289,9 @@ interface MoveReason {
   // „Za wysokie oczekiwania finansowe” (26.10.2026): nowa stawka — tylko
   // przy jednej osobie (okno nie pyta przy kilku).
   rate?: RejectionRateChoice | null;
+  // „Nie szuka pracy” z listy szablonu (19.11.2026): do kiedy — tylko przy
+  // osobie bez powodu dla systemu (u niej data idzie w `autofill`).
+  notLookingUntil?: string | null;
 }
 
 interface SendMoveOptions {
@@ -704,6 +708,7 @@ export function usePipelineMove({
             : undefined,
           ...autofillMoveFields(reason?.autofill),
           ...rejectionRateMoveFields(reason?.rate),
+          not_looking_until: reason?.notLookingUntil ?? undefined,
           candidate_offer_response: reason?.candidateOfferResponse ?? undefined,
           expected_state_version:
             opts?.checkVersion === false ? undefined : expectedStateVersionOf(item),
@@ -1635,10 +1640,16 @@ export function usePipelineMove({
     workMode?: RejectionWorkModeChoice | null,
     autofill?: AutofillFeedbackChoice | null,
     rate?: RejectionRateChoice | null,
-    meetings?: PairMeetingsChoice | null
+    meetings?: PairMeetingsChoice | null,
+    notLookingUntil?: string | null
   ) => {
     if (!pendingRejection) return;
-    const { entries, destCol, followUp } = pendingRejection;
+    const { entries, followUp } = pendingRejection;
+    // „Kandydat rezygnuje” w tym samym oknie (19.11.2026): wybór „Kto kończy?”
+    // decyduje o etapie — rezygnacja idzie na „Zrezygnował”, odrzucenie
+    // otwarte z przycisku „Zrezygnował” wraca na „Odrzucony”.
+    const destCol = rejectionDestination(pendingRejection, endedBy);
+    if (!destCol) return;
     setPendingRejection(null);
     const reasonLabel =
       job.rejectionReasons.find((r) => r.id === reasonId)?.label ?? (freeReason?.trim() || null);
@@ -1662,6 +1673,11 @@ export function usePipelineMove({
             workMode: workMode ?? null,
             autofill: autofill && rejectionNeedsAutofill(item, srcColId) ? autofill : null,
             rate: entries.length === 1 ? rate ?? null : null,
+            // Osoba dodana ręcznie: data z listy szablonu, a w zbiorczym
+            // odrzuceniu z osobą od systemu — data z jej wyboru „Nie szuka”.
+            notLookingUntil: rejectionNeedsAutofill(item, srcColId)
+              ? null
+              : notLookingUntil ?? autofill?.notLookingUntil ?? null,
           },
           {
             silent: entries.length > 1,
@@ -1730,17 +1746,39 @@ export function usePipelineMove({
       )
     : null;
 
+  const withdrawnColumn = columns.find((c) => terminalOf(c) === "withdrawn") ?? null;
+  const rejectedColumn = columns.find((c) => terminalOf(c) === "rejected") ?? null;
+  function rejectionDestination(
+    pending: { destCol: KanbanColumn; terminalType: "rejected" | "withdrawn" },
+    endedBy: EndedBy | undefined,
+  ): KanbanColumn | null {
+    const wanted = endedBy === "candidate" ? "withdrawn" : "rejected";
+    if (pending.terminalType === wanted) return pending.destCol;
+    return wanted === "withdrawn" ? withdrawnColumn : rejectedColumn;
+  }
+
   // Osoba od systemu z „Nowych”/„Screeningu” (23.10.2026): okno pyta
   // o powód dla systemu; ten sam wybór idzie do każdej takiej osoby.
   function rejectionNeedsAutofill(item: KanbanItem, srcColId: string): boolean {
     const src = columns.find((c) => colId(c) === srcColId);
     return needsAutofillReason(item, src ? placeStage(src).column : null);
   }
+  // Wszystkie odrzucane z „Nowych”/„Screeningu” (19.11.2026): ta sama lista
+  // powodów co przy osobie od systemu, także przy kartach dodanych ręcznie.
+  // Od 19.11.2026 także okno otwarte jako rezygnacja: „Kto kończy?” może je
+  // zamienić w odrzucenie.
+  const rejectionFromDecisionColumns =
+    pendingRejection != null &&
+    pendingRejection.entries.length > 0 &&
+    pendingRejection.entries.every((entry) => {
+      const src = columns.find((c) => colId(c) === entry.srcColId);
+      return isDecisionColumn(src ? placeStage(src).column : null);
+    });
   const autofillEntries = (pendingRejection?.entries ?? []).filter((entry) =>
     rejectionNeedsAutofill(entry.item, entry.srcColId)
   );
   const rejectionAutofill =
-    pendingRejection?.terminalType === "rejected" && autofillEntries.length > 0
+    pendingRejection != null && autofillEntries.length > 0
       ? {
           rateKnown:
             autofillEntries.length === 1 &&
@@ -1756,6 +1794,7 @@ export function usePipelineMove({
         onOpenChange={(v) => !v && setPendingRejection(null)}
         terminalType={pendingRejection?.terminalType ?? "rejected"}
         reasons={job.rejectionReasons}
+        canWithdraw={withdrawnColumn !== null && rejectedColumn !== null}
         meetingsPair={
           pendingRejection?.entries.length === 1
             ? { jobId, candidateId: pendingRejection.entries[0].item.candidate_id }
@@ -1804,6 +1843,7 @@ export function usePipelineMove({
         profileWorkMode={rejectionProfileWorkMode}
         profileRate={rejectionProfileRate}
         autofill={rejectionAutofill}
+        decisionColumn={rejectionFromDecisionColumns}
         emailPreview={
           pendingRejection
             ? {

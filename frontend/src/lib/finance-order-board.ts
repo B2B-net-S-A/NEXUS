@@ -66,6 +66,14 @@ const LABEL_ORDER: BoardLabel[] = [
 
 export const ORDER_MAIL_ADDRESS = "zamowienia@b2bnetwork.pl";
 
+/** Zamówienie dołączone do zejścia osoby (numer, okres, PDF). */
+export interface BoardOrderRef {
+  orderNumber: string;
+  orderStart: string | null;
+  orderEnd: string | null;
+  pdf: OrderPdfRef | null;
+}
+
 export interface BoardItem {
   key: string;
   tab: OrderChangesTab;
@@ -96,6 +104,8 @@ export interface BoardItem {
   sortAt: string;
   /** Nordea, Wejścia: gotowa pozycja faktury cyklicznej (ticket 8). */
   invoiceLines?: InvoiceLine[] | null;
+  /** Zejście: pozostałe zamówienia tej samej osoby u klienta. */
+  otherOrders?: BoardOrderRef[];
 }
 
 function cardKeyOf(item: {
@@ -249,10 +259,20 @@ function entryItem(item: OrderEntryItem, index: number): BoardItem {
     sortAt: item.entered_at ?? item.start_date ?? "",
     label: "new_order",
     field: "new_order",
-    title: "Nowe zamówienie",
+    title: item.previous_client_name
+      ? "Nowe zamówienie (zmiana klienta)"
+      : "Nowe zamówienie",
     before: null,
     after: ratesText(item),
-    note: item.status === "draft" ? "szkic" : null,
+    note:
+      [
+        item.previous_client_name
+          ? `wcześniej u: ${item.previous_client_name}`
+          : null,
+        item.status === "draft" ? "szkic" : null,
+      ]
+        .filter(Boolean)
+        .join(" · ") || null,
     invoiceLines: item.invoice_lines ?? null,
   };
 }
@@ -272,6 +292,12 @@ function exitLikeItem(
     before: null,
     after: formatDay(item.end_date),
     note: item.verdict_label,
+    otherOrders: (item.other_orders ?? []).map((other) => ({
+      orderNumber: other.order_number,
+      orderStart: other.order_start ?? null,
+      orderEnd: other.order_end ?? null,
+      pdf: other.pdf ?? null,
+    })),
   };
 }
 
@@ -407,6 +433,9 @@ export interface BoardCard {
   orderId: number | null;
   orderGroupId: number | null;
   pdf: OrderPdfRef | null;
+  /** Zejście osoby z kilkoma zamówieniami — pozostałe zamówienia
+   *  (zgłoszenie 19.11.2026: jedna osoba stała w Zejściach trzy razy). */
+  otherOrders: BoardOrderRef[];
   labels: BoardLabel[];
   changedAgain: boolean;
   todo: number;
@@ -526,6 +555,7 @@ export function buildCards(
       orderId: first.orderId,
       orderGroupId: first.orderGroupId,
       pdf: ordered.find((item) => item.pdf)?.pdf ?? null,
+      otherOrders: ordered.flatMap((item) => item.otherOrders ?? []),
       labels,
       changedAgain: todo > 0 && (hidden.size > 0 || previous.length > 0),
       todo,

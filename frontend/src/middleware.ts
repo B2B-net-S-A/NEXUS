@@ -378,6 +378,14 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   { prefix: "/insights", roles: INSIGHTS_ROLES, section: "insights" },
+  // Rada (R1, 16.11.2026): dokumenty korporacyjne — Rada nadzorcza i admin
+  // (Zarząd); reszta z Insights tu nie wchodzi. Bramka API: `supervisory_board.py`.
+  {
+    prefix: "/rada",
+    roles: ["admin", "board"],
+    section: "insights",
+    enforceRoles: true,
+  },
   // Podgląd liczb na telefonie: te same bramki co Insights, reszta na trasach API.
   { prefix: "/podglad", roles: INSIGHTS_ROLES, section: "insights" },
   // `/profile`, `/settings` (i każda inna trasa bez wpisu) nie
@@ -455,6 +463,8 @@ const PUBLIC_PATHS = [
   // Rekrutacja własna: wybór terminu z linku w mailu.
   "/t/",
   "/engagement/",
+  // Warunki od kandydata (17.11.2026): link z maila po aplikacji, token w adresie.
+  "/warunki/",
   // Publiczny podpis protokołu sprzętu: token w adresie, bez logowania.
   "/protocol/",
   // Strefa konsultanta: konsultant nie ma konta, API ma własny wyłącznik i sesję.

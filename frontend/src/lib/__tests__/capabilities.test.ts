@@ -1611,6 +1611,10 @@ const SIDEBAR_ROLE_GATED_WITHOUT_CAPABILITY: readonly string[] = [
   // `ContactCaller`), nie wejściem nawigacyjnym do modułu — patrz komentarz
   // przy tym wpisie w middleware.ts.
   "/candidates/contact-queue",
+  // „Rada” (16.11.2026): Rada nadzorcza i admin z roli — to decyzja o tym,
+  // kto czyta dokumenty korporacyjne, nie uprawnienie do przyznania
+  // (Rada nie przyjmuje nadań). Bramka API: `supervisory_board.py`.
+  "/rada",
   // Generator umów B2B: drabinka akcji `b2b_contract_generator`, nie lista
   // ról — „Automatyzacje” (0446) mają w niej „none”, bo rejestr pokazuje
   // stawki konsultantów.
@@ -1632,11 +1636,16 @@ const SIDEBAR_ROLE_GATED_WITHOUT_CAPABILITY: readonly string[] = [
 describe("kontrakt sidebar ↔ rejestr capability", () => {
   for (const [href, capability] of Object.entries(SIDEBAR_HREF_CAPABILITY)) {
     it(`${href} widoczne dokładnie dla ról z ${capability}`, () => {
-      expect(sortRoles(rolesSeeingHref(href))).toEqual(
-        sortRoles(
-          SIDEBAR_ROLES.filter((role) => hasCapability(mkUser(role), capability)),
-        ),
+      const withCapability = SIDEBAR_ROLES.filter((role) =>
+        hasCapability(mkUser(role), capability),
       );
+      // „Umowy klientów” (18.11.2026) stoją w menu tylko u osoby bez „Klientów”
+      // (`MENU_SHADOWED_BY` w `nav-registry.ts`) — reszta ma umowy pod klientem.
+      const expected =
+        href === "/client-contracts"
+          ? withCapability.filter((role) => !hasCapability(mkUser(role), "nav.clients"))
+          : withCapability;
+      expect(sortRoles(rolesSeeingHref(href))).toEqual(sortRoles(expected));
     });
   }
 

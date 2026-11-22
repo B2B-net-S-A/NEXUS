@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.app_setting import AppSetting
 from app.models.client import Client
+from app.models.client_einvoice import ClientSalesInvoiceEinvoice
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
 from app.models.contract import RateUnit
 from app.services.client_invoicing import sync
@@ -247,6 +248,7 @@ async def test_waiting_for_download_budget_does_not_expire_the_queue(env, monkey
     """
 
     monkeypatch.setattr(sync, "MAX_DOWNLOADS", 1)
+    monkeypatch.setattr(sync, "BACKFILL_EXTRA_DOWNLOADS", 0)
     monkeypatch.setattr(sync, "MAX_PENDING_ATTEMPTS", 2)
     for _ in range(6):
         await env.run()
@@ -405,3 +407,276 @@ async def test_correction_before_its_original_waits_and_then_follows_it(env):
     stored = await fx.invoice(fx.KSEF_CORRECTION)
     assert stored.corrects_invoice_id == original.id
     assert (stored.match_status, stored.match_method) == ("matched", "correction")
+
+
+async def test_backfill_walks_old_windows_up_to_the_first_cursor(env, monkeypatch):
+    """Zaległe okna idą od ``BACKFILL_FROM`` do dnia sprzed pierwszego znacznika."""
+
+    monkeypatch.setattr(sync, "BACKFILL_FROM", datetime(2026, 2, 1, tzinfo=sync._ZONE))
+    result = await env.run()
+    assert result["status"] == "ok", result
+    assert result["saved"] == 5
+    assert result["backfill_windows"] == 2
+    key = f"test:{fx.COMPANY_NIP}"
+    mark = (await _state())["backfill"][key]
+    assert mark["done"] is True
+    assert mark["to"] == sync.format_instant(sync.initial_cursor(env.clock()))
+    # Gotowe zaległe okna nie wracają w kolejnych przebiegach.
+    env.clock.advance(hours=1)
+    again = await env.run()
+    assert again.get("backfill_windows", 0) == 0
+
+
+async def test_backfill_saves_invoices_older_than_the_first_cursor(env, monkeypatch):
+    """Faktura z zaległego okna trafia do bazy i nie dubluje się z pętlą bieżącą."""
+
+    key = f"test:{fx.COMPANY_NIP}"
+    start = datetime(2026, 11, 1, tzinfo=sync._ZONE)
+    async with AsyncSessionLocal() as db:
+        await sync._save_state(
+            db,
+            {
+                "cursors": {key: sync.format_instant(env.clock())},
+                "backfill": {
+                    key: {
+                        "from": sync.format_instant(start),
+                        "to": sync.format_instant(start + timedelta(days=10)),
+                        "cursor": sync.format_instant(start),
+                    }
+                },
+            },
+        )
+        await db.commit()
+    result = await env.run()
+    assert result["status"] == "ok", result
+    assert result["saved"] == 5
+    assert result["backfill_windows"] == 1
+    assert (await _state())["backfill"][key]["done"] is True
+
+
+async def test_backfill_keeps_its_place_when_the_budget_runs_out(env, monkeypatch):
+    """Wyczerpany budżet zapytań: znacznik zaległych okien zostaje tam, gdzie doszedł."""
+
+    monkeypatch.setattr(sync, "BACKFILL_FROM", datetime(2026, 2, 1, tzinfo=sync._ZONE))
+    monkeypatch.setattr(sync, "MAX_METADATA_REQUESTS", 3)
+    first = await env.run()
+    assert first["status"] == "ok", first
+    key = f"test:{fx.COMPANY_NIP}"
+    mark = (await _state())["backfill"][key]
+    assert not mark.get("done")
+    assert mark["cursor"] != mark["from"]
+    env.clock.advance(hours=1)
+    await env.run()
+    assert (await _state())["backfill"][key]["done"] is True
+
+
+async def test_backfill_raises_the_download_budget_until_it_is_done(env, monkeypatch):
+    """Dopóki trwają zaległe okna, przebieg ma dodatkowy budżet pobrań; po ``done`` — zwykły."""
+
+    key = f"test:{fx.COMPANY_NIP}"
+    assert sync._backfill_pending({}, key) is True
+    assert sync._backfill_pending({"backfill": {key: {"cursor": "x"}}}, key) is True
+    assert sync._backfill_pending({"backfill": {key: {"done": True}}}, key) is False
+    # Budżet 1 + 3 dodatkowe: pierwszy przebieg pobiera 4 z 5 faktur, drugi resztę.
+    monkeypatch.setattr(sync, "MAX_DOWNLOADS", 1)
+    monkeypatch.setattr(sync, "BACKFILL_EXTRA_DOWNLOADS", 3)
+    first = await env.run()
+    assert first["status"] == "ok", first
+    assert first["saved"] == 4
+
+
+async def _finish_backfill_windows(key: str) -> None:
+    """Zaległe okna wylistowane (``done``), znacznik bieżący od pierwszego przebiegu."""
+
+    async with AsyncSessionLocal() as db:
+        await sync._save_state(
+            db,
+            {
+                "backfill": {
+                    key: {
+                        "from": "2025-01-01T00:00:00+00:00",
+                        "to": "2026-08-01T00:00:00+00:00",
+                        "cursor": "2026-08-01T00:00:00+00:00",
+                        "done": True,
+                    }
+                }
+            },
+        )
+        await db.commit()
+
+
+async def test_download_budget_stays_raised_while_listed_backfill_waits(
+    env, monkeypatch
+):
+    """Okna wylistowane, ale faktury czekają w kolejce na budżet: dodatkowy budżet zostaje.
+
+    Produkcja 19.11.2026: znacznik zaległych okien doszedł do końca w kilka godzin
+    (listowanie to jedno zapytanie na okno), a 494 faktury z czerwca i lipca czekały
+    w kolejce na pobranie po 20 na godzinę, bo ``done`` wyłączało dodatkowe 30.
+    """
+
+    key = f"test:{fx.COMPANY_NIP}"
+    assert (
+        sync._backfill_pending(
+            {
+                "backfill": {key: {"done": True}},
+                "pending": {key: [{"ksef_number": "x", "reason": "budget"}]},
+            },
+            key,
+        )
+        is True
+    )
+    assert (
+        sync._backfill_pending(
+            {
+                "backfill": {key: {"done": True}},
+                "pending": {key: [{"ksef_number": "x", "reason": "not_ready"}]},
+            },
+            key,
+        )
+        is False
+    )
+    await _finish_backfill_windows(key)
+    monkeypatch.setattr(sync, "MAX_DOWNLOADS", 1)
+    monkeypatch.setattr(sync, "BACKFILL_EXTRA_DOWNLOADS", 3)
+    first = await env.run()
+    assert first["status"] == "ok", first
+    assert (first["saved"], first["pending"]) == (1, 4)
+    env.clock.advance(hours=1)
+    second = await env.run()
+    assert second["status"] == "ok", second
+    assert (second["saved"], second["pending"]) == (4, 0)
+
+
+async def test_queue_downloads_the_newest_invoices_first(env, monkeypatch):
+    """Kolejka zaległości nie trzyma bieżących faktur za starymi (najnowsze pierwsze)."""
+
+    key = f"test:{fx.COMPANY_NIP}"
+    await _finish_backfill_windows(key)
+    monkeypatch.setattr(sync, "MAX_DOWNLOADS", 1)
+    monkeypatch.setattr(sync, "BACKFILL_EXTRA_DOWNLOADS", 0)
+    await env.run()
+    env.clock.advance(hours=1)
+    await env.run()
+    async with AsyncSessionLocal() as db:
+        stored = set(
+            await db.scalars(
+                select(ClientSalesInvoice.ksef_number).where(
+                    ClientSalesInvoice.ksef_number.like(f"{fx.COMPANY_NIP}-%")
+                )
+            )
+        )
+    assert stored == {fx.KSEF_118, fx.KSEF_CORRECTION}
+
+
+# ── Adres nabywcy (0730) ─────────────────────────────────────────────────────
+
+
+async def _forget_address(ksef_number: str, **extra) -> int:
+    """Faktura jak sprzed 0730: bez adresu i bez znacznika odczytu."""
+
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(ClientSalesInvoice).where(
+                ClientSalesInvoice.ksef_number == ksef_number
+            )
+        )
+        row.buyer_country = None
+        row.buyer_address_line1 = None
+        row.buyer_address_line2 = None
+        row.buyer_address_read_at = None
+        for name, value in extra.items():
+            setattr(row, name, value)
+        await db.commit()
+        return row.id
+
+
+def _with_address(xml: bytes, address: str) -> bytes:
+    text = xml.decode("utf-8")
+    old = "<Adres><KodKraju>PL</KodKraju><AdresL1>ul. Przykładowa 5</AdresL1></Adres>"
+    assert text.count(old) == 1
+    return text.replace(old, address).encode("utf-8")
+
+
+async def test_buyer_address_is_saved_when_the_invoice_is_downloaded(env):
+    env.fake.xml[fx.KSEF_UNKNOWN] = _with_address(
+        env.fake.xml[fx.KSEF_UNKNOWN],
+        "<Adres><KodKraju>de</KodKraju><AdresL1> Beispielstraße  7 </AdresL1>"
+        "<AdresL2>10115 Berlin</AdresL2></Adres>",
+    )
+    result = await env.run()
+    assert result["status"] == "ok", result
+
+    first = await fx.invoice(fx.KSEF_118)
+    assert (first.buyer_country, first.buyer_address_line1) == (
+        "PL",
+        "ul. Przykładowa 5",
+    )
+    assert first.buyer_address_line2 is None
+    assert first.buyer_address_read_at == env.clock()
+    foreign = await fx.invoice(fx.KSEF_UNKNOWN)
+    assert (
+        foreign.buyer_country,
+        foreign.buyer_address_line1,
+        foreign.buyer_address_line2,
+    ) == ("DE", "Beispielstraße 7", "10115 Berlin")
+
+
+async def test_invoice_without_buyer_address_is_marked_as_read(env):
+    env.fake.xml[fx.KSEF_UNKNOWN] = _with_address(env.fake.xml[fx.KSEF_UNKNOWN], "")
+    await env.run()
+    unknown = await fx.invoice(fx.KSEF_UNKNOWN)
+    assert unknown.buyer_address_line1 is None
+    assert unknown.buyer_address_read_at is not None
+
+
+async def test_old_invoices_get_the_address_from_ksef_once(env):
+    await env.run()
+    old_id = await _forget_address(fx.KSEF_118)
+    # Plik pod numerem inny niż przy pobraniu — nie ta faktura, adresu nie bierzemy.
+    await _forget_address(fx.KSEF_121, xml_sha256="0" * 64)
+
+    env.clock.advance(hours=1)
+    result = await env.run()
+    assert result["status"] == "ok", result
+    assert result["buyer_address"] == 1
+
+    restored = await fx.invoice(fx.KSEF_118)
+    assert restored.id == old_id
+    assert (restored.buyer_country, restored.buyer_address_line1) == (
+        "PL",
+        "ul. Przykładowa 5",
+    )
+    other = await fx.invoice(fx.KSEF_121)
+    assert other.buyer_address_line1 is None
+    assert other.buyer_address_read_at is not None
+    assert env.fake.count("GET", f"/invoices/ksef/{fx.KSEF_118}") == 2
+
+    # Oba oznaczone — następny przebieg niczego nie pobiera drugi raz.
+    env.clock.advance(hours=1)
+    await env.run()
+    assert env.fake.count("GET", f"/invoices/ksef/{fx.KSEF_118}") == 2
+    assert env.fake.count("GET", f"/invoices/ksef/{fx.KSEF_121}") == 2
+
+
+async def test_old_invoice_takes_the_address_from_xml_already_in_the_database(env):
+    await env.run()
+    old_id = await _forget_address(fx.KSEF_124)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            ClientSalesInvoiceEinvoice(
+                invoice_id=old_id,
+                receiver_key="test",
+                status="skipped",
+                fa_xml=env.fake.xml[fx.KSEF_124].decode("utf-8"),
+            )
+        )
+        await db.commit()
+
+    env.clock.advance(hours=1)
+    result = await env.run()
+    assert result["buyer_address"] == 1
+    restored = await fx.invoice(fx.KSEF_124)
+    assert restored.buyer_address_line1 == "ul. Przykładowa 5"
+    # Bez drugiego pobrania z KSeF.
+    assert env.fake.count("GET", f"/invoices/ksef/{fx.KSEF_124}") == 1

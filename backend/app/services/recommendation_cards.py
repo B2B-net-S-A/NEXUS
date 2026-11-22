@@ -272,37 +272,60 @@ async def summaries_for_job(
     Osoba bez wiersza karty i bez stawki na etapie nie ma wpisu (ekran mówi
     wtedy, że pola są puste).
     """
-    if not started_by_candidate:
-        return {}
+    return (
+        await summaries_for_jobs(db, started_by_job={job_id: started_by_candidate})
+    )[job_id]
+
+
+async def summaries_for_jobs(
+    db: AsyncSession,
+    *,
+    started_by_job: Mapping[int, Mapping[int, Optional[datetime]]],
+) -> dict[int, dict[int, dict[str, object]]]:
+    """:func:`summaries_for_job` dla kilku Tablic naraz — te same dwa zapytania.
+
+    ``{job_id: {candidate_id: początek próby}}``; pary z wejścia idą przez
+    ``in_pairs``, więc karta osoby z innej Tablicy nie przecieka.
+    """
+    out: dict[int, dict[int, dict[str, object]]] = {
+        int(job): {} for job in started_by_job
+    }
+    wanted = sorted(
+        {
+            (int(candidate_id), int(job))
+            for job, started in started_by_job.items()
+            for candidate_id in started
+        }
+    )
+    if not wanted:
+        return out
     rows = await db.execute(
         select(
             RecommendationCard.candidate_id,
+            RecommendationCard.job_id,
             RecommendationCard.fields_notes,
             RecommendationCard.fields_manual,
             RecommendationCard.note_answers,
         ).where(
-            RecommendationCard.job_id == job_id,
-            RecommendationCard.candidate_id.in_(sorted(started_by_candidate)),
+            RecommendationCard.job_id.in_(sorted({job for _, job in wanted})),
+            in_pairs(
+                RecommendationCard.candidate_id, RecommendationCard.job_id, wanted
+            ),
         )
     )
-    rated = {
-        candidate_id
-        for candidate_id, _ in await stage_rate_pairs(
-            db, ((candidate_id, job_id) for candidate_id in started_by_candidate)
-        )
-    }
-    out = {
-        candidate_id: card_summary(
+    rated = await stage_rate_pairs(db, wanted)
+    for candidate_id, job_id, notes, manual, answers in rows.all():
+        out[job_id][candidate_id] = card_summary(
             notes or {},
             manual or {},
             answers,
-            started=started_by_candidate.get(candidate_id),
-            stage_rate=candidate_id in rated,
+            started=started_by_job[job_id].get(candidate_id),
+            stage_rate=(candidate_id, job_id) in rated,
         )
-        for candidate_id, notes, manual, answers in rows.all()
-    }
-    for candidate_id in rated - out.keys():
-        out[candidate_id] = card_summary({}, {}, None, stage_rate=True)
+    for candidate_id, job_id in sorted(rated):
+        out[job_id].setdefault(
+            candidate_id, card_summary({}, {}, None, stage_rate=True)
+        )
     return out
 
 

@@ -33,6 +33,7 @@ def _build_message(
     text_body: str,
     html_body: Optional[str] = None,
     reply_to: Optional[str] = None,
+    list_unsubscribe: Optional[str] = None,
 ) -> MIMEMultipart:
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -40,6 +41,9 @@ def _build_message(
     msg["To"] = to
     if reply_to:
         msg["Reply-To"] = reply_to
+    if list_unsubscribe:
+        msg["List-Unsubscribe"] = f"<{list_unsubscribe}>"
+        msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
     msg.attach(MIMEText(text_body, "plain", "utf-8"))
     if html_body:
         msg.attach(MIMEText(html_body, "html", "utf-8"))
@@ -71,8 +75,16 @@ def send_email(
     text_body: str,
     html_body: Optional[str] = None,
     reply_to: Optional[str] = None,
+    sender_upn: Optional[str] = None,
+    list_unsubscribe: Optional[str] = None,
 ) -> bool:
     """Wyślij email. Zwraca True gdy kanał potwierdził, False gdy no-op lub błąd.
+
+    ``sender_upn`` — inna skrzynka Graph niż zespołowa (maile do kandydatów);
+    kanał SMTP (staging → Mailpit) wysyła zawsze z ``SMTP_FROM_EMAIL``.
+
+    ``list_unsubscribe`` — adres wypisu jednym kliknięciem (RFC 8058); dodaje
+    ``List-Unsubscribe`` i ``List-Unsubscribe-Post``, a w Graph wysyłkę MIME.
 
     ``reply_to`` — adres, na który pójdzie odpowiedź (zgody: skrzynka, którą
     czyta NEXUS, ``services/hr/approvals/mail_reader.py``).
@@ -91,6 +103,8 @@ def send_email(
             text_body=text_body,
             html_body=html_body,
             reply_to=reply_to,
+            sender_upn=sender_upn,
+            list_unsubscribe=list_unsubscribe,
         )
 
     if not settings.SMTP_ENABLED:
@@ -115,7 +129,9 @@ def send_email(
         )
         return False
 
-    msg = _build_message(to, subject, text_body, html_body, reply_to)
+    msg = _build_message(
+        to, subject, text_body, html_body, reply_to, list_unsubscribe=list_unsubscribe
+    )
     try:
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as client:
             if settings.SMTP_USE_TLS:

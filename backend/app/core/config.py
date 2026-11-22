@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # żądania z `/api/health/live` = 503, żeby Traefik zdjął go z routingu.
     # 0 = zamknięcie od razu (compose). → app/core/shutdown_drain.py
     NEXUS_SHUTDOWN_DRAIN_SECONDS: float = 0
+    # Progi GC Pythona (`gc.set_threshold`) ustawiane po zamrożeniu sterty startu.
+    # Pusty = domyślne (700, 10, 10), czyli wycofanie bez zmiany kodu.
+    # → app/tasks/runtime_metrics_monitor.py `apply_gc_thresholds`
+    GC_THRESHOLDS: str = "50000,20,10"
     # Skąd web czyta stan pętli do `/api/health` i `/api/admin/snapshot`.
     NEXUS_WORKER_HEALTH_URL: str = "http://worker:8000/api/health/background"
     # Hosty spoza sieci lokalnej dozwolone na stagingu obok dostawców AI
@@ -1250,6 +1254,16 @@ class Settings(BaseSettings):
     # UPN/adres skrzynki, z której wychodzą maile systemowe
     # (prod: "nexus-powiadomienia@b2bnetwork.pl").
     M365_MAIL_SENDER_UPN: str = ""
+    # Skrzynka maili do kandydatów (podziękowanie i prośba o warunki, decyzja
+    # Artura 17.11.2026: osobny adres `kariera@b2bnetwork.pl`). Puste = maile
+    # do kandydatów nie wychodzą przez Graph (nadawca zespołowy nie pisze do
+    # kandydatów). Na stagingu SMTP → Mailpit, więc ta zmienna nie jest potrzebna.
+    CANDIDATE_MAIL_SENDER_UPN: str = ""
+    # Pętla wysyłki próśb o warunki (`tasks/candidate_terms_sender.py`) i jej
+    # dzienny limit. Mail i tak przechodzi przez politykę z Ustawień
+    # (rodzaj `candidate_terms`, domyślnie wyłączony).
+    CANDIDATE_TERMS_ENABLED: bool = True
+    CANDIDATE_TERMS_DAILY_LIMIT: int = 400
     # Tenant dla client_credentials. Pusty → fallback na M365_TENANT_ID; musi
     # być realnym tenantem (GUID lub domena), NIE "common".
     M365_MAIL_TENANT_ID: str = ""
@@ -1377,6 +1391,12 @@ class Settings(BaseSettings):
     GROK_BOT_LAW_COLLECT_WEBHOOK_KEY: str = ""
     GROK_BOT_LAW_ANALYZE_WEBHOOK_URL: str = ""
     GROK_BOT_LAW_ANALYZE_WEBHOOK_KEY: str = ""
+    # Bot Cpro (0732, ``app/services/cpro_bot``): rutyna „NEXUS Cpro” w Grok Bocie
+    # wrzuca kandydatów Nordei z kolejki Cpro do nordea.onevms.se i wysyła ofertę.
+    # OFF: pętla stoi, kolejka nie pokazuje stanu bota; trasy biegu działają zawsze.
+    CPRO_BOT_ENABLED: bool = False
+    GROK_BOT_CPRO_WEBHOOK_URL: str = ""
+    GROK_BOT_CPRO_WEBHOOK_KEY: str = ""
     # Firmy z tym tagiem idą do tygodniowego przeglądu sygnałów (pilot 20 firm).
     SALES_SIGNALS_TAG: str = "sygnały"
     # Zadania bota poza sygnałami i punktami (0684, ``services/sales/bot_tasks``):
@@ -1410,6 +1430,13 @@ class Settings(BaseSettings):
     # tylko dokończenie przerwanych przebiegów pierwszego pobrania.
     CONTRACT_DOCS_SP_SYNC_ENABLED: bool = False
     CONTRACT_DOCS_SP_SYNC_MINUTES: int = 60
+
+    # Stawki z dokumentów kontraktu (0739): pętla czyta każdy plik umowy
+    # i aneksu modelem i liczy różnicę z harmonogramem (karta na kontrakcie).
+    # Wpis automatyczny różnic „oczywistych” — osobno, po tygodniu na karcie
+    # (decyzja Artura 18.11.2026: wariant B, najpierw tryb karty).
+    CONTRACT_RATE_DOCS_READ_ENABLED: bool = True
+    CONTRACT_RATE_DOCS_AUTO_APPLY: bool = False
 
     # Progi oceny prepu (liczy kod, nie model). Udział kandydata = jego czas
     # mówienia / (kandydat + zespół).
@@ -1656,6 +1683,10 @@ class Settings(BaseSettings):
     CONSULTANT_PORTAL_MAILBOX: str = ""
     # Skrzynka rozliczenia@ czytana przez Graph (dokumenty konsultantów).
     CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX: str = ""
+    # Jedna skrzynka wsparcie@ (E8, 18.11.2026): adresy rozliczeń po przecinku. Gdy skrzynka
+    # rozliczeń = skrzynka spraw, mail z załącznikiem na te adresy idzie do rozliczeń,
+    # reszta do spraw (`app/services/support_mail_route.py`).
+    CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES: str = ""
     # Szkolenia w Teams (0697, decyzja Artura 13.11.2026): organizatorem spotkań jest
     # osobne konto szkolenia@ z licencją Teams i OneDrive (nagranie ląduje w OneDrive
     # organizatora). Puste albo OFF = link wkleja TCM ręcznie, jak przed 0697.
@@ -1823,7 +1854,7 @@ class Settings(BaseSettings):
     # bo ``PUT`` 1EP wymaga pełnego kontaktu z telefonem. Wartość wyłącznie przez
     # „Coolify set env” z ``value_from_secret`` (repo i logi Actions są publiczne).
     JJIT_CONTACT_PHONE: str = ""
-    JJIT_CONTACT_NAME: str = "B2B Network"
+    JJIT_CONTACT_NAME: str = "B2Bnetwork"
     PORTAL_JJIT_API_URL: str = "https://jobboardcore-external.justjoin.it/external-api"
     JJIT_OAUTH_CLIENT_ID: str = ""
     JJIT_OAUTH_CLIENT_SECRET: str = ""
@@ -2160,6 +2191,13 @@ class Settings(BaseSettings):
     # „pojawił się następnego dnia" rano, a nie w środku dnia.
     ORDER_GAPS_RUN_HOUR_LOCAL: int = 0
     ORDER_GAPS_RUN_MINUTE_LOCAL: int = 30
+    # Rada (R1, 16.11.2026): odpis pełny KRS spółki co noc — zmiana treści
+    # zapisuje nowy odpis, wzmianki zakładają wiersze w dokumentach Rady,
+    # nowy wpis daje dzwonek Radzie i adminom. `false` → pętla nie startuje,
+    # ekran pokazuje ostatni zapisany odpis.
+    BOARD_KRS_ENABLED: bool = True
+    BOARD_KRS_RUN_HOUR_LOCAL: int = 5
+    BOARD_KRS_RUN_MINUTE_LOCAL: int = 40
 
     @property
     def multi_consultant_order_client_ids(self) -> frozenset[int]:

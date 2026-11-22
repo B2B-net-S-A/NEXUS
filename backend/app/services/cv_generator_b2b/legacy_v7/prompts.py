@@ -28,10 +28,10 @@ EXTRACTION_PROMPT_PL = """Jesteś ekspertem w analizie CV. Przeanalizuj dostarcz
   "why_points": [
     "Dokładnie 5 punktów według ZASAD DLA WHY_POINTS. Kształt:",
     "[X] lat doświadczenia jako [Stanowisko]",
-    "Specjalizacja: [4-6 głównych technologii, najpierw te z wymagań klienta]",
-    "Projektował i rozwijał [pierwszy must-have] w [kontekst, skala], [efekt]",
-    "Prowadził [drugi must-have] dla [kontekst], [co dokładnie robił]",
-    "Wdrożył [trzeci must-have] w [kontekst], [efekt albo skala]"
+    "Praktyczne doświadczenie z [3-6 głównych technologii, najpierw te z wymagań klienta] w [kontekst: firma, projekt, typ systemów]",
+    "Doświadczenie w [pierwszy must-have] w [firma albo projekt] — [co robił, skala, efekt]",
+    "Doświadczenie w [drugi must-have] w [firma albo projekt] — [co robił, skala, efekt]",
+    "Doświadczenie w [trzeci must-have] w [firma albo projekt] — [co robił, skala, efekt]"
   ],
   "education": [
     {
@@ -51,7 +51,7 @@ EXTRACTION_PROMPT_PL = """Jesteś ekspertem w analizie CV. Przeanalizuj dostarcz
     "Nazwa certyfikatu – Wystawca (rok)"
   ],
   "languages": [
-    "Język – poziom (np. Polski – ojczysty, Angielski – biegły)"
+    "Język – poziom (np. Polski – ojczysty, Angielski – C1)"
   ],
   "experience": [
     {
@@ -71,13 +71,13 @@ EXTRACTION_PROMPT_PL = """Jesteś ekspertem w analizie CV. Przeanalizuj dostarcz
 
 KRYTYCZNE ZASADY:
 1. Zwróć TYLKO poprawny JSON, bez żadnego dodatkowego tekstu
-2. Format dat: MM.YYYY dla zakresów (np. 03.2020 – 11.2023), YYYY dla pojedynczych lat. Słowa "obecnie" (NIE "currently", "present" ani "now") użyj tylko wtedy, gdy źródło podaje stanowisko jako trwające. Datę końca ze źródła przepisz bez zmian, także niedawną
+2. Format dat: MM.YYYY dla zakresów (np. 03.2020 – 11.2023), YYYY dla pojedynczych lat. Słowa "obecnie" (NIE "currently", "present" ani "now") użyj tylko wtedy, gdy źródło podaje stanowisko jako trwające. Datę końca ze źródła przepisz bez zmian, także niedawną. Miesiąc ze źródła przepisz zawsze, gdy źródło go podaje przy tej roli (także słownie, np. „kwiecień 2025” → 04.2025); sam rok wpisz tylko wtedy, gdy źródło nie podaje miesiąca
 3. Sekcja "why_points" jest rzeczowa: każdy punkt to fakt ze źródła, bez języka sprzedażowego - NIE używaj edukacji jako argumentu w why_points!
 4. Wyodrębnij tyle kategorii umiejętności, ile realnie wynika ze źródła — NIE dziel jednej kategorii sztucznie na kilka ani nie dodawaj kategorii dla objętości. Jeśli źródło daje jedną sensowną kategorię, zwróć jedną
 4a. SKILLS to wyłącznie umiejętności techniczne i dziedzinowe. NIE wpisuj tam: trybu pracy („praca zdalna”, „praca hybrydowa”), cech osobistych i umiejętności miękkich („praca w zespole”, „komunikatywność”, „zarządzanie czasem”), prawa jazdy ani języków obcych — języki mają osobną sekcję. Metodyka to sposób pracy zespołu (Scrum, Kanban, SAFe); wzorce projektowe i czysty kod to praktyki programistyczne, nie metodyki. NIE twórz kategorii „Pozostałe”, „Inne” ani „Other”: pozycję, która nie pasuje do innych, umieść w kategorii nazwanej jej obszarem (np. „Systemy i domena: KSeF”)
-4b. NAZWY KATEGORII wybieraj z tej listy, w tym brzmieniu: Języki programowania, Frameworki i biblioteki, Frontend, Mobile, Bazy danych, Dane i BI, Chmura i DevOps, Testowanie, Bezpieczeństwo, Integracje i API, Analiza i modelowanie, Narzędzia, Metodyki, Praktyki programistyczne, Systemy operacyjne, Systemy i domena, Wiedza dziedzinowa i regulacje. Użyj tylko tych, które mają pozycje, najwyżej 8; dwie pokrewne grupy połącz, zamiast tworzyć osobne małe kategorie
+4b. NAZWY KATEGORII wybieraj z tej listy, w tym brzmieniu: Języki programowania, Frameworki i biblioteki, Frontend, Mobile, Bazy danych, Dane i BI, AI i uczenie maszynowe (tylko nazwane technologie i narzędzia AI, np. Azure OpenAI, LangChain, RAG — nie ogólniki ani opisy zadań), Chmura i DevOps, Testowanie, Bezpieczeństwo, Integracje i API, Analiza i modelowanie, Narzędzia, Metodyki, Praktyki programistyczne, Systemy operacyjne, Systemy i domena, Wiedza dziedzinowa i regulacje. Użyj tylko tych, które mają pozycje, najwyżej 8; dwie pokrewne grupy połącz, zamiast tworzyć osobne małe kategorie
 5. Jeśli brak certyfikatów, zwróć pustą listę []. NIE wymyślaj certyfikatów ani szkoleń których kandydat nie posiada
-6. Wymień języki podane w źródle. NIE dopisuj żadnego języka (w tym polskiego), jeśli źródło go nie wymienia — jeśli brak języków, zwróć pustą listę []
+6. Wymień języki podane w źródle. NIE dopisuj żadnego języka (w tym polskiego), jeśli źródło go nie wymienia — jeśli brak języków, zwróć pustą listę []. Gdy źródło podaje poziom w skali CEFR (A1–C2), wpisz sam poziom CEFR („Angielski – C1”, nie „Angielski – zaawansowany (C1)”). Opisu słownego bez skali NIE zamieniaj na CEFR — podaj go w języku CV (np. „German basic” → „podstawowy”). Język ojczysty zostaje jako „ojczysty”
 7. Uporządkuj doświadczenie od najnowszego
 8. Używaj polskich znaków (ą, ć, ę, ł, ń, ó, ś, ź, ż)
 9. Edukacja bez dat: pole "dates" zostaw PUSTE ("") — NIE wpisuj tekstów typu "Brak informacji o datach"
@@ -90,9 +90,9 @@ ZASADY DLA WHY_POINTS:
 - Edukacja jest w osobnej sekcji i nie powinna być powtarzana w why_points
 - ZWIĘZŁOŚĆ (KRYTYCZNE): sekcja "Dlaczego nasz kandydat" to samo MIĘSO — konkrety, zero marketingowego lania wody. Twarde reguły:
   • DOKŁADNIE 5 punktów, zawsze w tej kolejności, bez dodatkowych punktów — wliczając punkty oparte na notatkach:
-    1) Liczba lat doświadczenia na stanowisku i nic więcej, np. „7 lat doświadczenia jako Android Developer”. Gdy na tym stanowisku kandydat ma mniej niż rok, podaj lata w pokrewnych rolach, np. „4 lata doświadczenia w operacjach finansowych”.
-    2) Specjalizacja w technologiach: 4-6 głównych technologii kandydata ze źródeł, najpierw te z wymagań klienta, np. „Specjalizacja: Kotlin, Jetpack Compose, Kotlin Multiplatform”.
-    3), 4), 5) Każdy punkt omawia INNE wymaganie MUST-HAVE z profilu Championa, od najważniejszego, które kandydat potwierdza w źródłach: jedno pełne zdanie do ~30 słów o tym, co kandydat z nim robił i w jakim kontekście albo skali. Zdanie zaczyna się od czasownika albo nazwy czynności (np. „Projektował…”, „Migracja…”), a nazwa wymagania stoi w środku zdania. NIE zaczynaj od nazwy technologii i NIE pisz etykiety z dwukropkiem („ETL: …”, „IAM: …”). Must-have bez pokrycia w źródłach pomiń i weź kolejny.
+    1) Liczba lat doświadczenia na stanowisku i nic więcej, np. „7 lat doświadczenia jako Android Developer”. Gdy kandydat ma co najmniej rok więcej w pokrewnych rolach tego samego obszaru zawodowego (np. support IT przed DevOps), podaj obie liczby: „8 lat doświadczenia w IT, w tym 7 lat jako DevOps Engineer”. M to suma dat WSZYSTKICH ról tego zawodu (np. DevOps Engineer, DevOps Consultant i Cloud Operations Engineer razem), nazwanego jednym określeniem, nie listą stanowisk; punkt 1 to najwyżej jedno zdanie do ~20 słów. Role spoza obszaru (np. gastronomia, sprzedaż w sklepie) nie wchodzą do tej liczby. Gdy na tym stanowisku kandydat ma mniej niż rok, podaj lata w pokrewnych rolach, np. „4 lata doświadczenia w operacjach finansowych”.
+    2) Główne technologie w kontekście: jedno zdanie z 3-6 głównymi technologiami kandydata ze źródeł, najpierw te z wymagań klienta, i miejscem, gdzie ich używał, np. „Praktyczne doświadczenie z Kotlinem, Jetpack Compose i Kotlin Multiplatform w aplikacjach mobilnych dla bankowości”. Bez etykiety z dwukropkiem i bez gołej listy.
+    3), 4), 5) Każdy punkt omawia INNE wymaganie MUST-HAVE z profilu Championa, od najważniejszego, które kandydat potwierdza w źródłach, jako KOMPETENCJĘ, nie jedno zadanie: jedno zdanie do ~35 słów, które zaczyna się od „Doświadczenie w…”, „Praktyczne doświadczenie z…” albo „Praktyka w…”, nazywa firmę lub projekt ze źródła i podaje dowód (co robił, skala, wynik). Możesz połączyć fakty z kilku ról o tym samym wymaganiu. Zachowaj stopień udziału ze źródła: gdy źródło mówi „uczestniczył”, „brał udział”, „wspierał”, napisz „Udział w…” albo „Doświadczenie we wspieraniu…”, NIGDY nie zamieniaj udziału na projektowanie, prowadzenie ani samodzielne wykonanie. NIE pisz punktu jako pojedynczego czynu w czasie przeszłym („Projektował…”, „Wdrożył…”), NIE zaczynaj od nazwy technologii i NIE pisz etykiety z dwukropkiem („ETL: …”, „IAM: …”). Must-have bez pokrycia w źródłach pomiń i weź kolejny.
     Gdy nie ma Championa albo potwierdzonych must-have jest mniej niż trzy, punkty 3-5 uzupełnij doświadczeniem najważniejszym dla tej roli. Gdy źródła nie dają faktów na 5 punktów, napisz mniej i niczego nie wypełniaj.
   • Każdy punkt zaczyna od konkretu (liczba lat, technologia, skala, realne osiągnięcie) — nie od ogólnika ani przymiotnika.
   • ZAKAZ frazesów i pustych przymiotników: "doświadczony i zaangażowany", "bogate/szerokie doświadczenie", "wszechstronny/dynamiczny specjalista", "pasjonat", "udokumentowane sukcesy" — jeśli słowo nie niesie konkretnego faktu, usuń je.
@@ -114,6 +114,13 @@ KWANTYFIKACJA I ZWIĘZŁOŚĆ:
 - Soft skills z notatek rekrutera: maksymalnie JEDEN punkt w why_points i tylko cechy
   jawnie potwierdzone przez rekrutera
 
+FORMA OBOWIĄZKÓW (responsibilities):
+- Każdy obowiązek we wszystkich rolach, także obecnej, zaczynaj od nazwy czynności
+  („Wdrażanie…”, „Analiza…”, „Projektowanie…”), nie od czasownika w czasie przeszłym
+  („Wdrażał…”, „Wdrażała…”) ani teraźniejszym („Wdraża…”). Jedna forma w całym CV, także
+  gdy źródło pisze inaczej — forma rzeczownikowa nie zależy od płci kandydata
+- Zmieniasz WYŁĄCZNIE formę gramatyczną: treść, zakres, kolejność i fakty zostają bez zmian
+
 TECHNOLOGIE W DOŚWIADCZENIU:
 - Dla każdej pozycji wyodrębnij technologie, języki programowania, frameworki, narzędzia, bazy danych, platformy chmurowe
 - Wyodrębnij TYLKO technologie jawnie wymienione w CV lub potwierdzone w notatkach ze screeningu. NIE dedukuj ani nie dodawaj technologii z kontekstu branży, firmy lub stanowiska
@@ -131,6 +138,8 @@ Jeśli w kontekście znajdują się notatki ze screeningu (oznaczone jako "NOTAT
 - Linie zaczynające się od "P:" to PYTANIA rekrutera. Treść pytania NIE jest faktem o kandydacie — technologia wymieniona tylko w pytaniu NIE trafia do CV. Faktem jest wyłącznie odpowiedź ("O:")
 - Odpowiedź przecząca ("nie zna", "nie pracował", "brak doświadczenia", "tylko teoretycznie") oznacza, że danej rzeczy NIE ma w CV — nie wpisuj jej nigdzie, także z dopiskiem "podstawowa znajomość"
 - Technologie i umiejętności potwierdzone twierdzącą odpowiedzią dodaj do SKILLS i możesz je wykorzystać w WHY_POINTS
+- ŹRÓDŁO FAKTU NIE TRAFIA DO CV: nigdzie (punkty why_points, obowiązki, umiejętności i nazwy ich kategorii, języki, technologie) nie pisz, skąd pochodzi fakt ani jak go potwierdzono („potwierdzone podczas screeningu”, „według notatek”, „według CV”, „per screening notes”, „zadeklarowane przez kandydata”). NIE dopisuj też „niekomercyjnie”, „bez doświadczenia komercyjnego”, „doświadczenie niekomercyjne” — ani przy pozycji, ani w nazwie kategorii (NIE twórz kategorii typu „Bazy danych (niekomercyjnie)”). Fakt z twierdzącej odpowiedzi wpisz jak każdy inny, bez komentarza; gdy CV i notatki podają różny poziom języka, wpisz jeden poziom — ten z rozmowy
+- W SKILLS NIE dopisuj poziomu ani zastrzeżeń przy umiejętności ("podstawy", "basic", "krótkie doświadczenie praktyczne", "ograniczone doświadczenie", "znajomość teoretyczna", "doświadczenie niekomercyjne"). Umiejętność, którą kandydat zna słabiej, wpisz bez dopisku na końcu jej kategorii. Nawias przy umiejętności służy tylko zakresowi, np. "Power BI (DAX, Power Query)"
 - Do obowiązków (responsibilities) i technologii KONKRETNEJ roli przenoś fakt z rozmowy TYLKO wtedy, gdy odpowiedź wprost nazywa firmę albo projekt tej roli. Wpis „Potwierdzone z kandydatem: X (Firma) — opis” nazywa firmę, więc opisz X w roli tej firmy. Wpis bez opisu nie jest faktem o roli. Słowa „potwierdzone” nie przenoś do CV: opisz sam fakt. Gdy odpowiedź mówi wprost o obecnej pracy ("aktualnie", "obecnie", "w obecnym projekcie"), przypisz fakt do najnowszej roli. Bez takiego wskazania fakt z rozmowy nie trafia do żadnej roli
 - NIE przepisuj sformułowań rekrutera jako obowiązków — opisz fakt własnymi, rzeczowymi słowami
 - Mieść się w 5 punktach why_points, NIE dokładaj punktu ponad limit
@@ -398,10 +407,10 @@ EXTRACTION_PROMPT_EN = """You are an expert in CV analysis. Analyze the provided
   "why_points": [
     "Exactly 5 points by the RULES FOR WHY_POINTS. Shape:",
     "[X] years of experience as [Position]",
-    "Specialization: [4-6 main technologies, client requirements first]",
-    "Designed and developed [first must-have] for [context, scale], [result]",
-    "Led [second must-have] for [context], [what exactly they did]",
-    "Implemented [third must-have] in [context], [result or scale]"
+    "Hands-on experience with [3-6 main technologies, client requirements first] in [context: company, project, kind of systems]",
+    "Experience in [first must-have] at [company or project] — [what they did, scale, result]",
+    "Experience in [second must-have] at [company or project] — [what they did, scale, result]",
+    "Experience in [third must-have] at [company or project] — [what they did, scale, result]"
   ],
   "education": [
     {
@@ -421,7 +430,7 @@ EXTRACTION_PROMPT_EN = """You are an expert in CV analysis. Analyze the provided
     "Certificate name – Issuer (year)"
   ],
   "languages": [
-    "Language – level (e.g., Polish – native, English – fluent)"
+    "Language – level (e.g., Polish – native, English – C1)"
   ],
   "experience": [
     {
@@ -441,13 +450,13 @@ EXTRACTION_PROMPT_EN = """You are an expert in CV analysis. Analyze the provided
 
 CRITICAL RULES:
 1. Return ONLY valid JSON, without any additional text
-2. Date format: MM.YYYY for ranges (e.g., 03.2020 – 11.2023), YYYY for single years. Use "currently" only when the source gives the role as ongoing. Copy an end date from the source unchanged, even a recent one
+2. Date format: MM.YYYY for ranges (e.g., 03.2020 – 11.2023), YYYY for single years. Use "currently" only when the source gives the role as ongoing. Copy an end date from the source unchanged, even a recent one. Always copy the month from the source when it gives one for this role (also in words, e.g. "April 2025" → 04.2025); write the year alone only when the source gives no month
 3. The "why_points" section is factual: every point is a fact from the source, no sales language - NEVER use education as an argument in why_points!
 4. Extract as many skill categories as genuinely follow from the source — do NOT split one category artificially into several and do NOT add categories for volume. If the source yields one sensible category, return one
 4a. SKILLS holds only technical and domain skills. Do NOT put there: work mode ("remote work", "hybrid work"), personal traits and soft skills ("teamwork", "communication", "time management"), a driving licence or human languages — languages have their own section. A methodology is how a team works (Scrum, Kanban, SAFe); design patterns and clean code are programming practices, not methodologies. Do NOT create an "Other", "Miscellaneous" or "Additional" category: put an item that fits nowhere else into a category named after its area (e.g. "Systems and domain: KSeF")
-4b. CATEGORY NAMES come from this list, worded exactly so: Programming languages, Frameworks and libraries, Frontend, Mobile, Databases, Data and BI, Cloud and DevOps, Testing, Security, Integrations and APIs, Analysis and modelling, Tools, Methodologies, Programming practices, Operating systems, Systems and domain, Domain knowledge and regulations. Use only the ones that have items, at most 8; merge two related groups instead of creating separate small categories
+4b. CATEGORY NAMES come from this list, worded exactly so: Programming languages, Frameworks and libraries, Frontend, Mobile, Databases, Data and BI, AI and machine learning (only named AI technologies and tools, e.g. Azure OpenAI, LangChain, RAG — no generic terms or task descriptions), Cloud and DevOps, Testing, Security, Integrations and APIs, Analysis and modelling, Tools, Methodologies, Programming practices, Operating systems, Systems and domain, Domain knowledge and regulations. Use only the ones that have items, at most 8; merge two related groups instead of creating separate small categories
 5. If no certifications, return an empty list []. DO NOT fabricate certifications or training the candidate does not have
-6. List the languages stated in the source. Do NOT add any language (including Polish) the source does not mention — if there are none, return an empty list []
+6. List the languages stated in the source. Do NOT add any language (including Polish) the source does not mention — if there are none, return an empty list []. When the source gives a CEFR level (A1–C2), write the CEFR level alone ("English – C1", not "English – advanced (C1)"). Do NOT turn a verbal description without the scale into CEFR — give it in the CV language (e.g. "niemiecki podstawowy" → "basic"). A native language stays "native"
 7. Sort experience from newest to oldest
 8. Use proper English language
 9. Education without dates: leave the "dates" field EMPTY ("") — do NOT write texts like "No date information"
@@ -459,9 +468,9 @@ RULES FOR WHY_POINTS:
 - Education is in a separate section and should not be repeated in why_points
 - CONCISENESS (CRITICAL): the "Why our candidate" section is pure SUBSTANCE — specifics, zero marketing filler. Hard rules:
   • EXACTLY 5 points, always in this order, no extra points — including points based on the notes:
-    1) Years of experience in the position and nothing else, e.g. "7 years of experience as an Android Developer". If the candidate has less than a year in this position, give the years in related roles, e.g. "4 years of experience in financial operations".
-    2) Technology specialization: 4-6 of the candidate's main technologies from the sources, client requirements first, e.g. "Specialization: Kotlin, Jetpack Compose, Kotlin Multiplatform".
-    3), 4), 5) Each point covers a DIFFERENT MUST-HAVE requirement from the Champion profile, starting with the most important one the sources confirm: one full sentence of up to ~30 words on what the candidate did with it and in what context or scale. The sentence starts with a verb (e.g. "Designed…", "Led…"), and the requirement name sits inside the sentence. Do NOT start with a technology name and do NOT write a label with a colon ("ETL: …", "IAM: …"). Skip a must-have without source coverage and take the next one.
+    1) Years of experience in the position and nothing else, e.g. "7 years of experience as an Android Developer". When the candidate has at least one more year in related roles of the same professional area (e.g. IT support before DevOps), give both figures: "8 years of experience in IT, including 7 years as a DevOps Engineer". M is the sum of the dates of ALL roles in that profession (e.g. DevOps Engineer, DevOps Consultant and Cloud Operations Engineer together), named with one term, not a list of positions; point 1 is at most one sentence of ~20 words. Roles outside the area (e.g. hospitality, retail) do not count towards it. If the candidate has less than a year in this position, give the years in related roles, e.g. "4 years of experience in financial operations".
+    2) Main technologies in context: one sentence with 3-6 of the candidate's main technologies from the sources, client requirements first, and where they used them, e.g. "Hands-on experience with Kotlin, Jetpack Compose and Kotlin Multiplatform in mobile banking apps". No label with a colon and no bare list.
+    3), 4), 5) Each point covers a DIFFERENT MUST-HAVE requirement from the Champion profile, starting with the most important one the sources confirm, as a COMPETENCY, not a single task: one sentence of up to ~35 words that starts with "Experience in…", "Hands-on experience with…" or "Proven practice in…", names the company or project from the source and gives the evidence (what they did, scale, result). You may combine facts from several roles about the same requirement. Keep the degree of involvement from the source: when the source says "participated", "took part", "supported", write "Participation in…" or "Experience supporting…", NEVER upgrade participation to designing, leading or doing it alone. Do NOT write the point as a single past-tense deed ("Designed…", "Implemented…"), do NOT start with a technology name and do NOT write a label with a colon ("ETL: …", "IAM: …"). Skip a must-have without source coverage and take the next one.
     Without a Champion, or with fewer than three confirmed must-haves, fill points 3-5 with the experience most important for this role. If the sources do not give facts for 5 points, write fewer and never pad.
   • Each point opens with the fact (years, technology, scale, real achievement) — not with a generality or an adjective.
   • NO clichés or empty adjectives: "experienced and committed", "rich/broad experience", "versatile/dynamic specialist", "passionate", "proven track record" — if a word carries no concrete fact, delete it.
@@ -484,6 +493,13 @@ QUANTIFICATION AND CONCISENESS:
 - Soft skills from recruiter notes: at most ONE why_point, and only traits explicitly
   confirmed by the recruiter
 
+FORM OF RESPONSIBILITIES:
+- Start every responsibility in every role, including the current one, with a verb in the
+  simple past ("Developed…", "Upgraded…", "Led…"), never the base form ("Develop…",
+  "Upgrade…"), the third person ("Develops…") or a gerund ("Developing…"). One form across
+  the whole CV, also when the source uses another one
+- Change ONLY the grammatical form: content, scope, order and facts stay unchanged
+
 TECHNOLOGIES IN EXPERIENCE:
 - For each position extract technologies, programming languages, frameworks, tools, databases, cloud platforms
 - Extract ONLY technologies explicitly mentioned in the CV or confirmed in screening notes. DO NOT deduce or add technologies from industry, company or position context
@@ -501,6 +517,8 @@ If screening notes are provided in the context (marked as "SCREENING NOTES"), us
 - Lines starting with "P:" are the recruiter's QUESTIONS. The text of a question is NOT a fact about the candidate — a technology named only in a question does NOT go into the CV. Only the answer ("O:") is a fact
 - A negative answer ("does not know", "has not worked with", "no experience", "only theoretically") means the item is NOT in the CV — do not write it anywhere, not even as "basic knowledge"
 - Technologies and skills confirmed by an affirmative answer go into SKILLS and may be used in WHY_POINTS
+- THE SOURCE OF A FACT STAYS OUT OF THE CV: nowhere (why_points, responsibilities, skills and their category names, languages, technologies) write where a fact came from or how it was confirmed ("confirmed during screening", "per screening notes", "according to the CV", "declared by the candidate"). Do NOT add "non-commercial", "no commercial experience" or "without commercial experience" either — neither next to an item nor in a category name (do NOT create a category like "Databases (non-commercial)"). A fact from an affirmative answer goes in like any other, without comment; when the CV and the notes give different language levels, write one level — the one from the conversation
+- In SKILLS do NOT add a level or caveat next to a skill ("basic", "basics", "short practical experience", "limited experience", "theoretical knowledge", "non-commercial experience"). A skill the candidate knows less well goes without a note at the end of its category. Brackets next to a skill are only for scope, e.g. "Power BI (DAX, Power Query)"
 - Carry a fact from the conversation into the responsibilities or technologies of a SPECIFIC role ONLY when the answer explicitly names that role's company or project. An entry "Potwierdzone z kandydatem: X (Company) — description" names the company, so describe X in that company's role. An entry without a description is not a fact about a role. Do not carry the word "confirmed" into the CV: describe the fact itself. When the answer plainly speaks about the current job ("currently", "now", "in my current project"), assign the fact to the newest role. Without such a pointer the fact does not go into any role
 - Do NOT copy the recruiter's wording as a responsibility — describe the fact in your own plain words
 - Stay within the 5 why_points, do NOT add a point beyond the limit

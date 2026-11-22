@@ -36,7 +36,7 @@ import random
 import re
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
@@ -201,6 +201,9 @@ class PendingCard:
     # Surowa blokada procesu (``claimed_by_user_id`` / ``claimed_until``).
     claimed_by: Optional[int] = None
     claimed_until: Optional[datetime] = None
+    # Wysłana wcześniej do klienta (``entry_meta.sent_before``, 20.11.2026):
+    # w porcji od ``sent_before.MIN_SCORE`` zamiast progu porcji.
+    sent_before: bool = False
 
 
 async def _other_column_def_ids(db: AsyncSession) -> list[int]:
@@ -265,8 +268,14 @@ def in_batch(
 ) -> bool:
     """Karta należy do porcji: od progu (``BatchSettings.min_score``) i nie
     starsza niż ``MAX_AGE_DAYS``. Starsze i słabsze karty zostają na Tablicy,
-    ale nikogo nie blokują i nie zajmują miejsca w porcji."""
-    if card.score < (MIN_SCORE if min_score is None else min_score):
+    ale nikogo nie blokują i nie zajmują miejsca w porcji. Osoba wysłana
+    wcześniej do klienta liczy się od ``sent_before.MIN_SCORE`` (20.11.2026)."""
+    from app.services import sent_before
+
+    threshold = MIN_SCORE if min_score is None else min_score
+    if card.sent_before:
+        threshold = min(threshold, sent_before.MIN_SCORE)
+    if card.score < threshold:
         return False
     if card.opened_at is None:
         return False
@@ -387,6 +396,7 @@ async def pending_cards(
             ),
             claimed_by=claimed_by,
             claimed_until=claimed_until,
+            sent_before=bool((meta or {}).get("sent_before")),
         )
         key = (card.job_id, card.candidate_id)
         prev = by_pair.get(key)
@@ -1368,12 +1378,14 @@ async def assert_search_allowed(db: AsyncSession, user: User) -> None:
 
 
 async def review_queue(
-    db: AsyncSession, user: User, *, now: datetime, limit: int = 50
+    db: AsyncSession, user: User, *, now: datetime, limit: Optional[int] = 50
 ) -> list[PendingCard]:
     """Karty osoby w kolejności przeglądu: najpierw wszystkie P0, potem P1 Pilne
-    i niżej (10.11.2026); w obrębie poziomu rekrutacje na zmianę, w każdej
-    w kolejności kolumny „Nowi” na Tablicy (P7)."""
-    from app.services.review_batch_plan import tier_of
+    i niżej (10.11.2026). W obrębie poziomu rekrutacja po rekrutacji, nie na
+    zmianę (zgłoszenie rekrutera 17.11.2026): najpierw najbliższy termin P0,
+    potem rekrutacja z większą liczbą osób. W każdej rekrutacji kolejność
+    kolumny „Nowi” na Tablicy (P7)."""
+    from app.services.review_batch_plan import TIER_P0, tier_of
 
     cards = await _own_cards(db, user.id, now=now)
     if not cards:
@@ -1397,16 +1409,25 @@ async def review_queue(
             if card.process_id in mine
         ]
     tiers = {jid: tier_of(jobs[jid], now) if jid in jobs else 3 for jid in by_job}
-    queue: list[PendingCard] = []
-    for tier in sorted(set(tiers.values())):
-        job_order = sorted(jid for jid in by_job if tiers[jid] == tier)
-        depth = max(len(by_job[jid]) for jid in job_order)
-        for i in range(depth):
-            for jid in job_order:
-                items = by_job[jid]
-                if i < len(items):
-                    queue.append(items[i])
-    return queue[:limit]
+
+    def job_key(jid: int) -> tuple:
+        until = jobs[jid].p0_until if tiers[jid] == TIER_P0 else None
+        return (tiers[jid], until is None, until or now, -len(by_job[jid]), jid)
+
+    queue = [card for jid in sorted(by_job, key=job_key) for card in by_job[jid]]
+    return queue if limit is None else queue[:limit]
+
+
+def queue_runs(queue: Sequence[PendingCard]) -> list[tuple[int, int]]:
+    """Ile osób z której rekrutacji idzie po kolei: ``[(job_id, liczba), …]``.
+    Ekran pokazuje z tego „Rekrutacja 1 z 3 · tu jeszcze 4 · Potem: …”."""
+    runs: list[tuple[int, int]] = []
+    for card in queue:
+        if runs and runs[-1][0] == card.job_id:
+            runs[-1] = (card.job_id, runs[-1][1] + 1)
+        else:
+            runs.append((card.job_id, 1))
+    return runs
 
 
 # ── Czy zapytanie listy kandydatów to ręczne wyszukiwanie ──────────────────

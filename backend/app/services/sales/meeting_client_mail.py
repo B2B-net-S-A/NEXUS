@@ -239,6 +239,7 @@ async def deliver(
     subject: str,
     body: str,
     to: Sequence[str],
+    cc: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Szkic i wysyłka ze skrzynki osoby klikającej; zwraca szkic z Graph.
 
@@ -253,16 +254,18 @@ async def deliver(
             content, images = await m365_sender._signature_body(
                 gc, connection, text_to_html(body)
             )
-            draft = await gc.post(
-                "/me/messages",
-                json={
-                    "subject": subject,
-                    "body": {"contentType": "HTML", "content": content},
-                    "toRecipients": [
-                        {"emailAddress": {"address": address}} for address in to
-                    ],
-                },
-            )
+            message: dict[str, Any] = {
+                "subject": subject,
+                "body": {"contentType": "HTML", "content": content},
+                "toRecipients": [
+                    {"emailAddress": {"address": address}} for address in to
+                ],
+            }
+            if cc:
+                message["ccRecipients"] = [
+                    {"emailAddress": {"address": address}} for address in cc
+                ]
+            draft = await gc.post("/me/messages", json=message)
             message_id = (draft or {}).get("id")
             if not message_id:
                 draft = None
@@ -300,10 +303,38 @@ async def record_sent(
 ) -> int:
     """Mail na osi szansy, z kluczem synchronizacji, żeby kopia z Wysłanych się skleiła."""
 
+    return await record_email(
+        db,
+        company_id=meeting.activity.company_id,
+        opportunity_id=opportunity_id,
+        contact_id=None,
+        user_id=user_id,
+        subject=subject,
+        body=body,
+        internet_message_id=internet_message_id,
+        now=now,
+    )
+
+
+async def record_email(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    opportunity_id: Optional[int],
+    contact_id: Optional[int],
+    user_id: int,
+    subject: str,
+    body: str,
+    internet_message_id: Optional[str],
+    now: datetime,
+) -> int:
+    """Wysłany mail jako aktywność ``email``/``out`` (też mail po umówieniu spotkania)."""
+
     external_id = (internet_message_id or "").strip()[:255] or None
     values = {
-        "company_id": meeting.activity.company_id,
+        "company_id": company_id,
         "opportunity_id": opportunity_id,
+        "contact_id": contact_id,
         "kind": "email",
         "subject": subject[:500],
         "body": body,

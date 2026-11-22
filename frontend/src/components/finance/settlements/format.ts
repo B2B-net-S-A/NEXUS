@@ -1,6 +1,7 @@
 // Wspólne etykiety i formaty ekranów rozliczeń klientów.
 import type { StatusDotTone } from "@/components/ds/StatusDot";
 import type {
+  ClientAcceptanceState,
   ClientInvoiceState,
   ContractorInvoiceState,
   IntegrationCostStatus,
@@ -35,7 +36,29 @@ export const CLIENT_INVOICE: Record<ClientInvoiceState, { label: string; tone: S
   ready: { label: "Do wystawienia", tone: "info" },
   issued: { label: "Wystawiona", tone: "success" },
   awaiting_signature: { label: "Czeka na podpis", tone: "warning" },
+  awaiting_client: { label: "Czeka na klienta", tone: "warning" },
 };
+
+/** Akceptacja klienta po wysyłce KCP (E6.5): drugi stan w kolumnie RCP. */
+export const CLIENT_ACCEPTANCE: Record<ClientAcceptanceState, { label: string; tone: StatusDotTone } | null> = {
+  none: null,
+  to_send: { label: "Klient: do wysłania", tone: "info" },
+  sent: { label: "Klient: wysłana, czeka", tone: "warning" },
+  accepted: { label: "Klient: zaakceptowana", tone: "success" },
+};
+
+/** „2026-11-10T10:30:00+01:00” → „10.11 10:30” (godzina z zapisu, czas firmy). */
+export function dayTime(value: string | null | undefined): string {
+  const day = shortDay(value);
+  const time = value && value.length >= 16 ? value.slice(11, 16) : "";
+  return time ? `${day} ${time}` : day;
+}
+
+/** „2026-11-10T10:30:00+01:00” → „10.11”. */
+export function shortDay(value: string | null | undefined): string {
+  if (!value || value.length < 10) return "";
+  return `${value.slice(8, 10)}.${value.slice(5, 7)}`;
+}
 
 export const KESU: Record<KesuState, { label: string; tone: StatusDotTone }> = {
   to_company: { label: "Do podpisu spółki", tone: "info" },

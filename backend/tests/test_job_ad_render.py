@@ -461,3 +461,23 @@ def test_domain_ending_a_sentence_is_not_a_street():
     assert not has_address(
         "Ogłoszenie wisi na pracuj.pl. Kandydat aplikuje przez portal."
     )
+
+
+def test_own_process_steps_replace_the_fixed_block_on_both_portals():
+    # Zgłoszenie 18.11.2026: „Etapy rekrutacji” nie dało się poprawić
+    # w ogłoszeniu — u części klientów nie ma rozmowy technicznej.
+    own = ["Rozmowa z rekruterem", "Rozmowa z klientem"]
+    view = _render(_content(process=own))
+    process = _field(view, "process")
+    assert process["items"] == own
+    assert process["fixed_count"] == 0
+    assert _section(view, "process")["items"] == own
+    assert _section(view, "process")["fixed_count"] == 0
+    assert DEFAULTS.pl.process[1] not in render.rendered_texts(view)
+
+
+def test_without_own_process_steps_the_fixed_block_is_shown():
+    view = _render(_content())
+    process = _field(view, "process")
+    assert process["items"] == list(DEFAULTS.pl.process)
+    assert process["fixed_count"] == len(DEFAULTS.pl.process)

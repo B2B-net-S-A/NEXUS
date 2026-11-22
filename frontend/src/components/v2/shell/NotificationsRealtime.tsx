@@ -6,7 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/components/Toast";
 import { useHasInterviewsWindow } from "@/hooks/useHasInterviewsWindow";
 import { useNotifications, type WsNotification } from "@/hooks/useNotifications";
-import { CV_TOPIC_QUERY_KEY } from "@/lib/api/boardTasks";
+import { refreshCvTopicFromRealtime } from "@/lib/cv-topic-refresh";
 import { formatNotificationText } from "@/lib/notification-format";
 import { NOTIFICATION_FRAME_EVENT } from "@/lib/notification-topics";
 import { useRealtimeStatus } from "@/store/realtime";
@@ -52,7 +52,8 @@ export function NotificationsRealtime() {
       );
       if (notif.topic === "cv") {
         // Ikona „CV” liczy stan; zdarzenie mówi tylko, że coś się zmieniło.
-        queryClient.invalidateQueries({ queryKey: CV_TOPIC_QUERY_KEY });
+        // Seria ramek = jedno odświeżenie na okno (`lib/cv-topic-refresh.ts`).
+        refreshCvTopicFromRealtime(queryClient);
       }
       if (!shouldToastFrame(notif, useRealtimeStatus.getState().openTopic)) return;
       const { router: nav, showActionToast: action, showInfo: info } = toastRef.current;

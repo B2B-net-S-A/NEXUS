@@ -107,7 +107,9 @@ def test_collect_task_tells_the_bot_about_lex_and_since() -> None:
     request = collect.build_request(date(2026, 11, 12))
     text = collect.task_text(request)
     assert "od 2026-11-12" in text
-    assert "zaloguj się do LEX (sip.lex.pl) loginem zapisanym w Vault" in text
+    assert "sip.lex.pl" in text
+    assert "borg.wolterskluwer.pl" in text
+    assert "logowanie.gofin.pl" in text
     assert "Nigdy nie zgaduj numerów" in text
     # Format przechodzi własny model: bot dostaje przykład, który NEXUS przyjmie.
     collect.CollectReport.model_validate(collect.report_format())
@@ -215,6 +217,8 @@ def test_new_todo_skips_tasks_the_change_already_has() -> None:
         ("zus", "https://www.zus.pl/o-zus", "official"),
         ("eurlex", "https://eur-lex.europa.eu/eli/reg/2022/2554", "official"),
         ("advisor", "https://doradca.example.pl/alert", "practice"),
+        ("gofin", "https://www.gofin.pl/podatki/17,2,8,1.html", "practice"),
+        ("gofin", "https://www.podatki.gov.pl/vat", "official"),
         ("other", "https://gov.pl.evil.example/x", "practice"),
         ("other", "https://notgov.pl/x", "practice"),
         ("x", "https://x.com/MF_GOV_PL/status/1", "practice"),
@@ -368,6 +372,28 @@ def test_analyze_request_has_no_probe_numbers() -> None:
     assert "change_ref" in analyze.task_text(request)
 
 
+def test_analyze_webhook_stays_small_as_the_request_grows() -> None:
+    request = analyze.build_request(
+        [{"id": i, "quote": "ą" * 500} for i in range(analyze.MAX_REQUEST_ITEMS)],
+        [{"id": 2, "title": "Zmiana", "legal_ref": None}],
+        topics=collect.PROFILE_TOPICS,
+    )
+    run, token = runs.new_run(
+        "analyze", request, now=datetime(2026, 11, 17, 15, tzinfo=timezone.utc)
+    )
+    run.id = 42
+    webhook = runs.webhook_body(run, token)
+    assert len(json.dumps(webhook, ensure_ascii=False).encode()) < 1000
+    assert webhook["schema_version"] == 2
+    assert webhook["request_url"] == webhook["callback_url"]
+    assert "request" not in webhook
+    assert "report_format" not in webhook
+    full = runs.analyze_request_body(run)
+    assert full["request"] == request
+    assert "token" not in full
+    analyze.AnalyzeReport.model_validate(full["report_format"])
+
+
 # ── Sondy i terminy pętli ────────────────────────────────────────────────
 
 
@@ -462,3 +488,40 @@ def test_report_examples_pair_act_numbers_with_their_real_titles() -> None:
     assert "PIP" in change["title"] and change["legal_ref"] == "Dz.U. 2026 poz. 473"
     analyze.AnalyzeReport.model_validate(analyze.report_format())
     collect.CollectReport.model_validate(collect.report_format())
+
+
+def test_collect_accepts_gofin_and_flags_when_it_was_skipped() -> None:
+    report = collect.CollectReport.model_validate(
+        {
+            "items": [
+                _item(
+                    source="gofin",
+                    url="https://www.gofin.pl/podatki/17,2,8,1.html",
+                    act_ref=None,
+                )
+            ],
+            "gofin_skipped": False,
+        }
+    )
+    assert report.items[0].source == "gofin"
+    assert collect.CollectReport.model_validate({"items": []}).gofin_skipped is False
+    assert (
+        collect.CollectReport.model_validate(
+            {"items": [], "gofin_skipped": True}
+        ).gofin_skipped
+        is True
+    )
+    text = collect.task_text(collect.build_request(date(2026, 11, 12)))
+    assert "gofin_skipped = true" in text
+    assert "source = gofin" in text
+    assert "gofin" in collect.build_request(date(2026, 11, 12))["sources"]
+    assert collect.report_format()["gofin_skipped"] is False
+
+
+def test_source_check_is_rebuilt_only_when_it_does_not_know_gofin() -> None:
+    from app.services.law_radar import schema
+
+    (stmt,) = schema.CONSTRAINT_DDL
+    assert "NOT LIKE '%gofin%'" in stmt
+    assert "'gofin'" in schema.CK_ITEM_SOURCE
+    assert stmt in schema.ALL_DDL

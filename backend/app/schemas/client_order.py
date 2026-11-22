@@ -139,6 +139,10 @@ class ClientOrderRead(BaseModel):
     days_to_end: Optional[int] = None
     md_quantity: Optional[Decimal] = None
     """Budżet MD wpisany na szkicu przed utworzeniem wspólnej grupy."""
+    cost_parts: Optional[list[dict]] = None
+    """Części kosztu, gdy stawka Partnera zmienia się w okresie zamówienia
+    (0741, ``order_cost_steps``): ``[{from, to, rate}]``; bez części — pusto.
+    Kwota — redagowana razem z ``rate_candidate``."""
 
     model_config = {"from_attributes": True}
 
@@ -404,6 +408,10 @@ class OrderDocumentItem(BaseModel):
     # NULL dla plików wgranych przed migracją 0227, która dodała te kolumny.
     uploaded_by_email: Optional[str] = None
     uploaded_at: Optional[datetime] = None
+    # 20.11.2026: id kopii PDF-u grupy tej linii w Dokumentach kontraktu, gdy
+    # to ten sam plik (SHA-256) — folder „Zamówienia” pokazuje wtedy jeden
+    # wiersz (``services/order_document_copies.py``). Tylko trasa by-contract.
+    same_file_document_id: Optional[int] = None
 
 
 class OrderDocumentsResponse(BaseModel):

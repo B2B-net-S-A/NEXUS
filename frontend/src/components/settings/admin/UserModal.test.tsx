@@ -294,14 +294,14 @@ describe("UserModal — uprawnienia tej osoby", () => {
       "Administracja współpracy: kartoteka, urlopy za innych, wejście i odejście",
       "Rozliczenia: stawki osób, premie, rozliczenie miesiąca",
       "Sprzęt: ewidencja, wydania, zwroty i protokoły",
-      "Sprawy: skrzynka administracja@",
+      "Sprawy: skrzynka wsparcie@",
       "Raporty godzin: akceptacja całej firmy",
       "Sprzedaż: podgląd firm, szans i kontaktów",
       "Sprzedaż: prowadzenie szans i kartoteki firm",
     ]);
     // Rola daje: „Z roli” / „Odebrane”. Nie daje: „Brak” / „Nadane”.
-    expect(option(group, "Sprawy: skrzynka administracja@", "Z roli")).toBeChecked();
-    expect(option(group, "Sprawy: skrzynka administracja@", "Odebrane")).not.toBeChecked();
+    expect(option(group, "Sprawy: skrzynka wsparcie@", "Z roli")).toBeChecked();
+    expect(option(group, "Sprawy: skrzynka wsparcie@", "Odebrane")).not.toBeChecked();
     expect(option(group, "Klienci: dodawanie i edycja", "Brak")).toBeChecked();
     expect(
       option(group, "Kontrakty i zamówienia: tworzenie i edycja", "Nadane"),
@@ -329,7 +329,7 @@ describe("UserModal — uprawnienia tej osoby", () => {
       renderModal({ initial: tcm });
       const group = await personPermissions();
       expect(namesIn(group)).toHaveLength(14);
-      expect(namesIn(group)).not.toContain("Sprawy: skrzynka administracja@");
+      expect(namesIn(group)).not.toContain("Sprawy: skrzynka wsparcie@");
     } finally {
       hrProgram.on = true;
     }
@@ -345,12 +345,12 @@ describe("UserModal — uprawnienia tej osoby", () => {
     const { onSave } = renderModal({ initial: tcm });
 
     const group = await personPermissions();
-    expect(option(group, "Sprawy: skrzynka administracja@", "Odebrane")).toBeChecked();
+    expect(option(group, "Sprawy: skrzynka wsparcie@", "Odebrane")).toBeChecked();
 
     fireEvent.click(option(group, "Klienci: dodawanie i edycja", "Nadane"));
     fireEvent.click(option(group, "Kontrakty i zamówienia: tworzenie i edycja", "Brak"));
     fireEvent.click(option(group, "Umowy B2B: oznaczanie jako podpisane", "Odebrane"));
-    fireEvent.click(option(group, "Sprawy: skrzynka administracja@", "Z roli"));
+    fireEvent.click(option(group, "Sprawy: skrzynka wsparcie@", "Z roli"));
 
     expect(group).toHaveTextContent("Po zapisaniu ta osoba zostanie wylogowana.");
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
@@ -374,13 +374,13 @@ describe("UserModal — uprawnienia tej osoby", () => {
   it("odebranie jest w kolorze ostrzegawczym, reszta aktywnych w głównym", async () => {
     renderModal({ initial: tcm });
     const group = await personPermissions();
-    const fromRole = option(group, "Sprawy: skrzynka administracja@", "Z roli");
+    const fromRole = option(group, "Sprawy: skrzynka wsparcie@", "Z roli");
     const none = option(group, "Klienci: dodawanie i edycja", "Brak");
     expect(fromRole.className).toContain("bg-primary");
     expect(none.className).toContain("bg-primary");
 
-    fireEvent.click(option(group, "Sprawy: skrzynka administracja@", "Odebrane"));
-    const revoked = option(group, "Sprawy: skrzynka administracja@", "Odebrane");
+    fireEvent.click(option(group, "Sprawy: skrzynka wsparcie@", "Odebrane"));
+    const revoked = option(group, "Sprawy: skrzynka wsparcie@", "Odebrane");
     expect(revoked.className).toContain("bg-warning-muted");
     expect(revoked.className).toContain("text-warning-muted-foreground");
     expect(revoked.className).not.toContain("bg-primary");
@@ -396,10 +396,10 @@ describe("UserModal — uprawnienia tej osoby", () => {
     const { onSave } = renderModal({ initial: tcm });
     const group = await personPermissions();
 
-    option(group, "Sprawy: skrzynka administracja@", "Z roli").focus();
+    option(group, "Sprawy: skrzynka wsparcie@", "Z roli").focus();
     await user.keyboard("{ArrowRight}");
 
-    const revoked = option(group, "Sprawy: skrzynka administracja@", "Odebrane");
+    const revoked = option(group, "Sprawy: skrzynka wsparcie@", "Odebrane");
     expect(revoked).toHaveFocus();
     expect(revoked).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));

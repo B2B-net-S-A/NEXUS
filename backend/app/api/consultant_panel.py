@@ -46,7 +46,7 @@ PANEL_CLOSED_FOR_MAIL = "Panel tej osoby jest zamknięty, więc mail powitalny n
 
 SettlementMode = Literal["client_report", "report_with_approval", "own_report"]
 assert set(SettlementMode.__args__) == set(SETTLEMENT_MODES)
-PortalState = Literal["off", "pilot", "all"]
+PortalState = Literal["off", "internal", "pilot", "all"]
 assert set(PortalState.__args__) == set(STATES)
 
 

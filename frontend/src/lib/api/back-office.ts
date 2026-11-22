@@ -1,4 +1,8 @@
-// Kolejka back office'u (moduł `back_office`, decyzje Artura 02.11.2026).
+// Kolejka back office'u (moduł `back_office`, decyzje Artura 02.11 i 19.11.2026).
+//
+// Od 19.11 jeden zespół: dawne kolumny zespołów to etykiety (`labels`), sprawę
+// bierze pierwsza wolna osoba („Weź następną”), a sprawa może czekać na dział
+// poza back office'em („Na zewnątrz”).
 //
 // Lustro `backend/app/api/back_office.py`. Kwoty, tytuły spraw i akcje liczy
 // serwer per czytający. Akcept na karcie woła istniejącą trasę (raporty, premie,
@@ -10,6 +14,16 @@ import { api } from "@/lib/api";
 
 export type BoTeamId = "care" | "finance" | "contracts" | "orders";
 export type BoState = "new" | "in_progress" | "waiting" | "done";
+export type BoOutsideTeam = "recruitment" | "sales" | "it" | "hr" | "accounting" | "legal";
+export type BoMemberRole = "deputy" | "reception" | "accountant" | "member";
+
+export interface BoLabel {
+  id: string;
+  label: string;
+  family: BoTeamId;
+  family_label: string;
+  description: string;
+}
 export type BoAction = "approve" | "return" | "approve_all" | "cancel_all" | "mark_done";
 
 export interface BoPersonRef {
@@ -44,6 +58,11 @@ export interface BoCard {
   count: number | null;
   steps: { done: number; total: number } | null;
   parent_title: string | null;
+  contract_id: number | null;
+  /** Dział poza back office'em, na który sprawa czeka (przy stanie `waiting`). */
+  outside_team: BoOutsideTeam | null;
+  /** Rozmowa z portalu zarezerwowana w tej sprawie (tylko na tablicy). */
+  meeting?: { start_at: string; topic: string; join_url: string | null } | null;
   meta: {
     timesheet_id?: number;
     year?: number;
@@ -80,10 +99,22 @@ export interface BoBonusRow {
   eligible_on: string | null;
 }
 
+export interface BoRelatedCard {
+  id: number;
+  lane: string;
+  label: string;
+  title: string;
+  state: BoState;
+  due_on: string | null;
+  assignee: BoPersonRef | null;
+}
+
 export interface BoCardDetail extends BoCard {
   step_cards: BoStepCard[];
   events: BoEvent[];
   bonuses?: BoBonusRow[];
+  /** Inne otwarte karty tego kontraktu (np. ławka przy sprawie wyjścia). */
+  related: BoRelatedCard[];
 }
 
 export interface BoLane {
@@ -101,6 +132,8 @@ export interface BoTeam {
 export interface BoBoard {
   today: string;
   teams: BoTeam[];
+  labels: BoLabel[];
+  outside_teams: { id: BoOutsideTeam; label: string }[];
   cards: BoCard[];
   triage: BoCard[];
   me: {
@@ -119,13 +152,110 @@ export interface BoBoard {
     overdue_unassigned: number;
     escalated: number;
     review: number;
+    outside: number;
   };
 }
 
+export interface BoTeamMemberRow {
+  user_id: number;
+  name: string | null;
+  role: BoMemberRole;
+  role_label: string;
+  takes_calls: boolean;
+  in_progress: number;
+  open: number;
+  overdue: number;
+}
+
 export interface BoTeamSetup {
+  members: BoTeamMemberRow[];
+  roles: { id: BoMemberRole; label: string }[];
+  head: BoPersonRef | null;
+  outsiders: { user_id: number; name: string | null; cards: number }[];
+  outside_contacts: { id: BoOutsideTeam; label: string; contact: BoPersonRef | null }[];
+  /** Pusty skład: do kolejki wchodzi każdy z uprawnieniami (tryb przejściowy). */
+  from_permissions: boolean;
   candidates: { id: number; name: string }[];
-  teams: { id: BoTeamId; label: string; members: BoPersonRef[] }[];
-  deputy_user_id: number | null;
+}
+
+export interface BoLabelRef {
+  id: number;
+  lane: string;
+  label: string;
+}
+
+export interface BoConsultantRow {
+  contract_id: number;
+  client_id: number;
+  client_name: string;
+  name: string;
+  job_title: string | null;
+  contract_type: string | null;
+  start_date: string | null;
+  /** Koniec współpracy: najbliższy znany koniec umowy albo bieżącego zamówienia. */
+  end_date: string | null;
+  end_source: "order" | "contract" | null;
+  open_cases: BoLabelRef[];
+  last_conversation: { on: string; by: string | null } | null;
+}
+
+export interface BoConsultantCard {
+  contract_id: number;
+  client_id: number;
+  client_name: string;
+  name: string;
+  job_title: string | null;
+  contract_type: string | null;
+  status: string;
+  start_date: string | null;
+  end_date: string | null;
+  end_source: "order" | "contract" | null;
+  days_to_end: number | null;
+  last_conversation: { on: string; by: string | null } | null;
+  open_count: number;
+  cases: (BoLabelRef & {
+    title: string;
+    state: BoState;
+    due_on: string | null;
+    closed_at: string | null;
+    assignee: BoPersonRef | null;
+  })[];
+  conversations: {
+    on: string;
+    by: string | null;
+    channel: string;
+    satisfaction: number | null;
+    note: string | null;
+  }[];
+}
+
+export interface BoClientRow {
+  client_id: number;
+  name: string;
+  consultants: number;
+  ending_60: number;
+  open_cases: number;
+  delivery_leads: string[];
+  has_sheet: boolean;
+}
+
+export type BoSheetBlockId = "settlement" | "onboarding" | "orders" | "contacts";
+
+export interface BoClientSheet {
+  client_id: number;
+  name: string;
+  consultants: number;
+  open_cases: number;
+  ending_60: { contract_id: number; name: string; end_date: string }[];
+  delivery_leads: string[];
+  settlement_rule: { mode: string; instructions: string | null } | null;
+  blocks: {
+    id: BoSheetBlockId;
+    label: string;
+    body: string;
+    updated_by: string | null;
+    updated_at: string | null;
+  }[];
 }
 
 export const boKeys = {
@@ -133,6 +263,10 @@ export const boKeys = {
   board: ["back-office", "board"] as const,
   card: (id: number) => ["back-office", "card", id] as const,
   team: ["back-office", "team"] as const,
+  consultants: ["back-office", "consultants"] as const,
+  consultant: (id: number) => ["back-office", "consultant", id] as const,
+  clients: ["back-office", "clients"] as const,
+  client: (id: number) => ["back-office", "client", id] as const,
 };
 
 export function useBoBoard(enabled = true) {
@@ -251,21 +385,104 @@ export function useBoSyncCases() {
   });
 }
 
-export function useSaveTeam() {
+function useTeamMutation<V>(request: (vars: V) => Promise<BoTeamSetup>) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async ({ team, user_ids }: { team: BoTeamId; user_ids: number[] }) =>
-      (await api.put<BoTeamSetup>(`/api/back-office/team/${team}`, { user_ids })).data,
+    mutationFn: request,
+    onSuccess: (data) => client.setQueryData(boKeys.team, data),
     onSettled: () => client.invalidateQueries({ queryKey: boKeys.all }),
   });
 }
 
-export function useSaveDeputy() {
+export const useSaveMember = () =>
+  useTeamMutation(async ({ user_id, role, takes_calls }: { user_id: number; role: BoMemberRole; takes_calls: boolean }) =>
+    (await api.put<BoTeamSetup>(`/api/back-office/team/members/${user_id}`, { role, takes_calls })).data,
+  );
+
+export const useRemoveMember = () =>
+  useTeamMutation(async (user_id: number) =>
+    (await api.delete<BoTeamSetup>(`/api/back-office/team/members/${user_id}`)).data,
+  );
+
+export const useSaveOutsideContacts = () =>
+  useTeamMutation(async (contacts: Partial<Record<BoOutsideTeam, number | null>>) =>
+    (await api.put<BoTeamSetup>("/api/back-office/team/outside-contacts", { contacts })).data,
+  );
+
+export function useReleaseOutsiders() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async (user_id: number | null) =>
-      (await api.put("/api/back-office/deputy", { user_id })).data,
+    mutationFn: async () => (await api.post<{ released: number }>("/api/back-office/team/release-outsiders", {})).data,
     onSettled: () => client.invalidateQueries({ queryKey: boKeys.all }),
+  });
+}
+
+/** „Na zewnątrz”: sprawa czeka na dział poza back office'em. */
+export const useSendOutside = () =>
+  useCardCommand<{ id: number; team: BoOutsideTeam; note: string; expected_updated_at?: string }>(
+    "outside",
+    ({ team, note, expected_updated_at }) => ({ team, note, expected_updated_at: expected_updated_at ?? null }),
+  );
+
+/** „Weź następną”: kolejność liczy serwer (najstarszy termin, potem najdłużej bez osoby). */
+export function useTakeNext() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async () => (await api.post<BoCardDetail>("/api/back-office/next", {})).data,
+    onSettled: () => client.invalidateQueries({ queryKey: boKeys.all }),
+  });
+}
+
+export function useBulkReview() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { card_ids: number[]; decision: "current" | "close"; note?: string }) =>
+      (await api.post<{ done: number; skipped: number }>("/api/back-office/review/bulk", body)).data,
+    onSettled: () => client.invalidateQueries({ queryKey: boKeys.all }),
+  });
+}
+
+export function useBoConsultants(enabled = true) {
+  return useQuery({
+    queryKey: boKeys.consultants,
+    enabled,
+    queryFn: async () => (await api.get<{ items: BoConsultantRow[] }>("/api/back-office/consultants")).data,
+    staleTime: 60_000,
+  });
+}
+
+export function useBoConsultant(contractId: number | null) {
+  return useQuery({
+    queryKey: boKeys.consultant(contractId ?? 0),
+    enabled: contractId != null,
+    queryFn: async () => (await api.get<BoConsultantCard>(`/api/back-office/consultants/${contractId}`)).data,
+  });
+}
+
+export function useBoClients(enabled = true) {
+  return useQuery({
+    queryKey: boKeys.clients,
+    enabled,
+    queryFn: async () => (await api.get<{ items: BoClientRow[] }>("/api/back-office/clients")).data,
+    staleTime: 60_000,
+  });
+}
+
+export function useBoClientSheet(clientId: number | null) {
+  return useQuery({
+    queryKey: boKeys.client(clientId ?? 0),
+    enabled: clientId != null,
+    queryFn: async () => (await api.get<BoClientSheet>(`/api/back-office/clients/${clientId}`)).data,
+  });
+}
+
+export function useSaveClientNote(clientId: number) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ block, body }: { block: BoSheetBlockId; body: string }) =>
+      (await api.put<BoClientSheet>(`/api/back-office/clients/${clientId}/notes/${block}`, { body })).data,
+    onSuccess: (data) => client.setQueryData(boKeys.client(clientId), data),
+    onSettled: () => client.invalidateQueries({ queryKey: boKeys.clients }),
   });
 }
 

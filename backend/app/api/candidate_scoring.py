@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.candidate_search import _authorized_job
 from app.api.deps import OperationalUser
 from app.core.database import get_db
 from app.core.rate_limit import limiter, user_or_ip_key
@@ -152,6 +153,11 @@ async def get_scoring_justification(
     # back (concurrent first view), which expires every object loaded through
     # it — `current_user` included.
     user_id = current_user.id
+    # Dostęp do REKRUTACJI przed cache'em i przed płatnym modelem: sama sekcja
+    # kandydatów nie wystarcza, bo wynik opisuje cudzą ofertę. Ta sama bramka
+    # co kolumna wyniku C2 (`/api/search/candidates/scores`), więc nie jest
+    # ostrzejsza niż liczba, którą ta osoba i tak widzi.
+    await _authorized_job(db, current_user, job_id)
     try:
         row = await get_or_generate(
             candidate_id, job_id, db, user_id=user_id, force=refresh
@@ -199,6 +205,7 @@ async def rate_scoring_justification(
 ) -> MatchJustificationOut:
     """Record "Oceń ten scoring" feedback on an existing justification."""
     user_id = current_user.id
+    await _authorized_job(db, current_user, job_id)
     row = await get_cached(candidate_id, job_id, db)
     if row is None:
         raise HTTPException(

@@ -32,7 +32,7 @@ export const BOT_COPY: Record<SalesBotKey, BotCopy> = {
     icon: Search,
     job: "Szuka okazji: co dzieje się w obserwowanych firmach, przegrane do odświeżenia i nowe centra IT w Polsce.",
     writes: ["Lead w Leadach z linkiem do źródła"],
-    when: ["poniedziałek 7:00: firmy z tagiem „sygnały”", "pierwszy poniedziałek miesiąca: Warto wrócić, Nowe centra IT"],
+    when: ["od poniedziałku 7:00: firmy z tagiem „sygnały”", "pierwszy poniedziałek miesiąca: Warto wrócić, Nowe centra IT"],
     never: "Nie pisze ani nie dzwoni do nikogo. Firma klienta NEXUSA idzie do Delivery Leada, nie do Leadów.",
   },
   research: {
@@ -53,14 +53,14 @@ export const BOT_COPY: Record<SalesBotKey, BotCopy> = {
     icon: Users,
     job: "Prowadzi ludzi na karcie: decydenci ze źródeł publicznych, z linkiem i datą publikacji.",
     writes: ["Od razu na mapę konta, z e-mailem i telefonem tylko ze źródła"],
-    when: ["poniedziałek 8:00: konta z mapą poniżej 3 osób", "na przycisk „Znajdź decydentów”"],
+    when: ["nowe leady: teczka firmy, najwyżej raz na godzinę", "na przycisk „Znajdź decydentów”"],
     never: "Nie zgaduje e-maili z wzorców, nie czyta LinkedIna, nigdzie się nie loguje.",
   },
   cognism: {
     icon: Database,
     job: "Dopasowuje decydentów z Cognism do mapy karty firmy.",
     writes: ["Od razu na mapę decydentów karty"],
-    when: ["po eksporcie z panelu Cognism"],
+    when: ["po odebranym researchu firmy: osobna rutyna z panelem Cognism"],
     never: "Osobna rutyna z panelem Cognism; NEXUS nie loguje się do Cognism.",
   },
 };
@@ -75,7 +75,18 @@ function stateOf(bot: SalesBot): { label: string; tone: "success" | "warning" | 
   if (!bot.enabled) return { label: "Wyłączony", tone: "neutral" };
   if (bot.webhook === "none") return { label: "Bez rutyny", tone: "danger" };
   if (bot.paused) return { label: "Wstrzymany", tone: "warning" };
-  return { label: "Działa", tone: "success" };
+  if (bot.last_run === undefined) return { label: "Brak danych o biegu", tone: "neutral" };
+  if (bot.last_run === null) return { label: "Brak uruchomień", tone: "neutral" };
+  const states = {
+    waiting: { label: "Czeka na raport", tone: "warning" },
+    failed: { label: "Błąd uruchomienia", tone: "danger" },
+    expired: { label: "Brak raportu", tone: "danger" },
+    saved: { label: "Zapisano wynik", tone: "success" },
+    partial: { label: "Niepełny wynik", tone: "warning" },
+    no_changes: { label: "Raport bez zmian", tone: "neutral" },
+    received: { label: "Raport odebrany", tone: "neutral" },
+  } as const;
+  return states[bot.last_run.outcome] ?? { label: "Brak danych o wyniku", tone: "neutral" };
 }
 
 function formatAt(iso: string): string {
@@ -129,6 +140,14 @@ function BotCard({ bot, canPause }: { bot: SalesBot; canPause: boolean }) {
         </div>
       </div>
       <p className="text-sm text-foreground">{copy.job}</p>
+      {bot.last_run && (
+        <div className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          <p className="font-medium text-foreground">
+            Ostatni bieg #{bot.last_run.id} · {formatAt(bot.last_run.started_at)}
+          </p>
+          <p>{bot.last_run.detail}</p>
+        </div>
+      )}
       <dl className="grid gap-2 text-xs sm:grid-cols-2">
         <div>
           <dt className="font-medium text-foreground">Zapisuje od razu</dt>
@@ -186,6 +205,9 @@ export function BotsView() {
       <p className="max-w-3xl text-sm text-muted-foreground">
         Wynik bota zapisuje się od razu w karcie, bez „Przyjmij”. Każde pole i każdą osobę można poprawić jak zwykle;
         pola firmy poprawionego ręcznie bot już nie zmienia. Skąd przyszła wartość, widać w historii karty (Aktywności).
+      </p>
+      <p className="max-w-3xl text-xs text-muted-foreground">
+        Status i czas na karcie dotyczą ostatniego biegu. Raport może zostać przyjęty bez zmian w danych.
       </p>
       <div className="grid gap-3 lg:grid-cols-2">
         {query.data.items.map((bot) => (

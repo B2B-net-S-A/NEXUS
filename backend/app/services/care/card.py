@@ -16,6 +16,11 @@ Następny krok (pierwszy, który pasuje):
 5. rozmowa w najbliższych 7 dniach,
 6. nic pilnego (``kind: null``).
 
+Z modułem back office (decyzja Artura 20.11.2026, jak ``HealthSignals.rhythm``)
+rytmu rozmów nie ma: karta wysyła ``cadence: null``, nie podpowiada „podnieść
+rytm?”, a otwarte rozmowy z rytmu (punkty sprzed modułu) nie są następnym
+krokiem — zostają w planie jako historia.
+
 Karta, jak zakładka „Opieka”, dopisuje plan żywego kontraktu (świeży kontrakt
 nie czeka na noc); poza tym odczyt niczego nie zapisuje. Bez stawek.
 """
@@ -443,7 +448,12 @@ async def consultant_card(
         )
     ).all()
     latest = (await care_plan.latest_conversations(db, [contract.id])).get(contract.id)
-    upcoming = care_plan.next_contact(plan_items, latest, today)
+    rhythm = not await care_access.back_office_on(db)
+    upcoming = care_plan.next_contact(
+        plan_items if rhythm else [i for i in plan_items if i.kind != "cadence"],
+        latest,
+        today,
+    )
     owners = await care_access.effective_owners(db, [contract])
     owner = owners[contract.id]
     periods = (await care_plan.periods_by_contract(db, [contract.id])).get(
@@ -499,7 +509,7 @@ async def consultant_card(
                 ),
                 "until_on": effective.until_on,
             }
-            if effective is not None
+            if effective is not None and rhythm
             else None
         ),
         "health": health_value,
@@ -531,7 +541,7 @@ async def consultant_card(
             today=today,
             upcoming=upcoming,
             owners=owners,
-            level=effective.level if effective is not None else None,
+            level=effective.level if effective is not None and rhythm else None,
             include_feedback=include_feedback,
             scope_clause=scope_clause,
         ),

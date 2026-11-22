@@ -70,8 +70,7 @@ describe("klucze inwalidacji mają producenta", () => {
     "clients-directory",
     "client-contacts",
     "contracts-v2",
-    "contracts-expiring-v2",
-    "contractors-v2",
+    "contracts-quick-counts",
     "contractors-stats-v2",
     "client-profile",
     "kanban",
@@ -93,7 +92,7 @@ describe("klucze inwalidacji mają producenta", () => {
     const source = read(TERMINATION);
     expect(source).not.toContain('queryKey: ["contracts"]');
     expect(source).toContain('queryKey: ["contracts-v2"]');
-    expect(source).toContain('queryKey: ["contracts-expiring-v2"]');
+    expect(source).toContain('queryKey: ["contracts-quick-counts"]');
   });
 
   it("dodanie championa unieważnia kanban i nagłówek w OBU formach parametru", () => {

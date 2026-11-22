@@ -31,6 +31,7 @@ from app.services.sales.signals import hash_token, token_matches
 logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
+ANALYZE_FETCH_VERSION = 2
 TOKEN_TTL = timedelta(hours=2)
 WEBHOOK_TIMEOUT_SECONDS = 20.0
 INVALID_TOKEN_DETAIL = "Nieważny token biegu."
@@ -87,10 +88,13 @@ def new_run(
     if kind not in KINDS:
         raise ValueError("Nieznany rodzaj biegu radaru.")
     token = secrets.token_urlsafe(32)
+    stored_request = dict(request)
+    if kind == analyze.KIND:
+        stored_request["_schema_version"] = ANALYZE_FETCH_VERSION
     run = LawRadarRun(
         kind=kind,
         status="started",
-        request=dict(request),
+        request=stored_request,
         report={},
         parent_run_id=parent_run_id,
         requested_by_user_id=requested_by_user_id,
@@ -106,16 +110,37 @@ def callback_url(run_id: int) -> str:
     return f"{base}/api/integrations/law-radar/runs/{run_id}"
 
 
-def webhook_body(run: LawRadarRun, token: str) -> dict[str, Any]:
-    """Treść dla bota: polecenie, kształt raportu i zlecenie biegu.
+def uses_analyze_request_fetch(run: LawRadarRun) -> bool:
+    return (
+        run.kind == analyze.KIND
+        and (run.request or {}).get("_schema_version") == ANALYZE_FETCH_VERSION
+    )
 
-    Rutyna robi to, co mówi ``task``, i odsyła jeden ``POST`` w kształcie
-    ``report_format`` na ``callback_url`` z nagłówkiem ``X-Run-Token``.
+
+def analyze_request_body(run: LawRadarRun) -> dict[str, Any]:
+    """Pełne, zapisane zlecenie, pobierane osobno po starcie Analityka."""
+
+    request = {
+        key: value for key, value in run.request.items() if key != "_schema_version"
+    }
+    return {
+        "task": analyze.task_text(request),
+        "report_format": {
+            **analyze.report_format(),
+            "reviewed_item_ids": [1],
+        },
+        "request": request,
+    }
+
+
+def webhook_body(run: LawRadarRun, token: str) -> dict[str, Any]:
+    """Treść dla bota. Analityk pobiera duże zlecenie osobnym GET-em.
+
+    Zbieracz nadal dostaje polecenie, zlecenie i kształt raportu w webhooku.
     """
 
-    request = dict(run.request or {})
-    module = collect if run.kind == collect.KIND else analyze
-    return {
+    address = callback_url(run.id)
+    envelope = {
         "schema_version": SCHEMA_VERSION,
         "run_id": run.id,
         "kind": run.kind,
@@ -123,7 +148,24 @@ def webhook_body(run: LawRadarRun, token: str) -> dict[str, Any]:
         "expires_at": run.token_expires_at.isoformat()
         if run.token_expires_at
         else None,
-        "callback_url": callback_url(run.id),
+        "callback_url": address,
+    }
+    if uses_analyze_request_fetch(run):
+        return {
+            **envelope,
+            "schema_version": ANALYZE_FETCH_VERSION,
+            "request_url": address,
+            "task": (
+                "GET request_url z nagłówkiem X-Run-Token: token. Użyj otrzymanego task, "
+                "report_format i request. Po przejrzeniu wszystkich request.items wyślij "
+                "jeden POST JSON na callback_url z tym samym nagłówkiem i reviewed_item_ids "
+                "zawierającym każde przejrzane id, także gdy changes jest puste."
+            ),
+        }
+    request = dict(run.request or {})
+    module = collect if run.kind == collect.KIND else analyze
+    return {
+        **envelope,
         "task": module.task_text(request),
         "report_format": module.report_format(),
         "request": request,

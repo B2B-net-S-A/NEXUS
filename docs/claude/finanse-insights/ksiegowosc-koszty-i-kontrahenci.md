@@ -178,7 +178,7 @@ Makiety M2 (sekcja dekretu) i M3 (eksport): ten sam artefakt co wyżej.
   Wpisu w paczce nie cofa się (najpierw
   „Anuluj paczkę”, wpisy wracają na listę jako „Gotowe”). „Oznacz jako
   zaksięgowane” przestawia wpisy paczki na `booked`.
-- **Format pliku**: formatu importu Symfonii FK nie znamy (czekamy na próbkę od
+- **Format pliku**: poza formatami neutralnymi jest też „Symfonia FK — import dokumentów (szablon 4)” w paczce K3b (`ksiega-nexusa-k3b-symfonia-szablon-4.md`); paczka E2 zostaje neutralna. Formatu importu Symfonii dla paczki E2 nie znamy (czekamy na próbkę od
   Finansów). Są dwa neutralne (`export_formats.py`): XLSX i CSV (średnik, BOM,
   przecinek dziesiętny), wiersz na pozycję dekretu: rejestr, typ, numer
   faktury, numer KSeF, daty wystawienia i wpływu, kontrahent, NIP, ID Symfonii,
@@ -272,6 +272,16 @@ Serwis `services/finance_ledger/payments.py`, reguły bez bazy
   Elixir wymaga rachunku nadawcy (`app_settings['finance_payments']`, „Rachunek
   nadawcy” na zakładce). **Układ pliku Elixir-O i komunikatu MPP trzeba
   sprawdzić w bankowości firmowej przed pierwszą paczką** (import próbny).
+  **Rachunek nadawcy w Santanderze (numer banku 1090…) = układ pliku z eBI24**
+  (decyzja Artura 18.11.2026, `elixir.render_santander`): 17 pól jak w próbce
+  „Płatności_…pli” z 17.11.2026 — pole 1 puste, numery rozliczeniowe obu
+  banków w polach 4–5 w cudzysłowie, nazwy jednym tekstem, pola 10, 11
+  i 13–17 puste (na próbce identyczny wiersz poza podwójną spacją w nazwie).
+  **MPP w tym układzie jest zablokowane** (409 `santander_mpp` przy „Utwórz
+  paczkę” i przy pliku), dopóki rozliczenia nie przyślą próbki przelewu MPP
+  z eBI24 — wysłanie MPP jako zwykłego przelewu byłoby gorsze niż odmowa.
+  Paczki Płac (`hr/bank/batches.py`, `payroll_lists/transfers.py`) zostają
+  w Elixir-O.
   CSV przez `safe_row` (bez formuł). Dwie równoległe „Utwórz paczkę”: blokada
   doradcza `finance-cost-batch` i indeks częściowy
   `uq_finance_payment_batch_items_active` — druga dostaje 409 „w paczce”.
@@ -280,12 +290,17 @@ Serwis `services/finance_ledger/payments.py`, reguły bez bazy
 - **Wyciąg** (Finanse → Przelewy → „Wgraj wyciąg”, MT940/CAMT.053 przez
   `statements.parse_file`, ta sama blokada pliku co Płace i faktury do
   klientów): tylko obciążenia. Dopasowanie: numer KSeF w tytule; potem numer
-  faktury całym słowem albo `/INV/` (numery powtarzają się u dostawców —
-  rozstrzyga rachunek odbiorcy, bez niego kwota równa pozostałej); potem
+  faktury całym słowem albo `/INV/` (numer zawarty w dłuższym numerze, który
+  też jest w tytule, ustępuje: „1/10/2026” w „FV/1/10/2026”; numery powtarzają
+  się u dostawców — rozstrzyga rachunek odbiorcy, potem NIP sprzedawcy z pola
+  `/IDC/` przelewu MPP, a w zwykłym przelewie co najmniej dwa słowa nazwy
+  sprzedawcy w nazwie odbiorcy; bez nich kwota równa pozostałej); potem
   pozycja aktywnej paczki (ten sam rachunek i kwota). Kwota równa pozostałej =
   zapłacona (MPP: kwota + VAT z `/VAT/` w tytule); mniejsza przy wskazanej
   fakturze = częściowa (po samym numerze faktury tylko z potwierdzonym
-  rachunkiem); większa, faktura zapłacona, kilka pasujących = „do sprawdzenia”
+  rachunkiem albo NIP-em z `/IDC/` — np. potrącenie z faktury; sama nazwa
+  odbiorcy tylko zawęża do „kwota inna”); większa, faktura zapłacona, kilka
+  pasujących = „do sprawdzenia”
   z podpowiedziami („Przypisz” / „Pomiń” z powodem). Ten sam plik drugi raz nic
   nie dopisuje; ta sama operacja z innego pliku = pominięta z powodem.
 - **Ręczne „Opłacono”** na karcie: kwota (domyślnie całość pozostałej, nie

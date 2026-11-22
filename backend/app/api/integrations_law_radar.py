@@ -1,8 +1,10 @@
-"""Przyjęcie raportu bota radaru przepisów (Zbieracz albo Analityk).
+"""Pobranie zlecenia Analityka i przyjęcie raportu bota radaru przepisów.
 
-``POST /api/integrations/law-radar/runs/{run_id}`` z nagłówkiem ``X-Run-Token``.
+``GET /api/integrations/law-radar/runs/{run_id}`` zwraca zlecenie Analityka bez
+zużywania tokenu. ``POST`` na ten sam adres przyjmuje raport. Obie metody wymagają
+nagłówka ``X-Run-Token``.
 Poświadczeniem jest jednorazowy token biegu z webhooka startowego: działa tylko
-dla tego biegu, tylko raz i najwyżej 2 godziny. Brak biegu, zły, zużyty
+dla tego biegu, przy jednym zapisie i najwyżej 2 godziny. Brak biegu, zły, zużyty
 i wygasły token dają tę samą odpowiedź 401. Sesja użytkownika go nie zastępuje.
 
 Treść: najwyżej 512 KB (413), sprawdzana modelem rodzaju biegu (422, token
@@ -20,7 +22,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.integrations_sales_signals import parse_report, read_limited
@@ -59,6 +61,21 @@ async def require_law_run_token(
     raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=runs.INVALID_TOKEN_DETAIL)
 
 
+@router.get("/runs/{run_id}")
+@limiter.limit("30/minute")
+async def get_analyze_request(
+    request: Request,
+    response: Response,
+    run: LawRadarRun = Depends(require_law_run_token),
+) -> dict[str, Any]:
+    if not runs.uses_analyze_request_fetch(run):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail=runs.INVALID_TOKEN_DETAIL
+        )
+    response.headers["Cache-Control"] = "no-store"
+    return runs.analyze_request_body(run)
+
+
 @router.post("/runs/{run_id}")
 @limiter.limit("30/minute")
 async def receive_report(
@@ -77,6 +94,13 @@ async def receive_report(
             spawn(flow.after_collect_in_background(run_id), "law_radar_after_collect")
     else:
         report = parse_report(raw, analyze.AnalyzeReport)
+        if runs.uses_analyze_request_fetch(run) and not analyze.report_covers_request(
+            run, report
+        ):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="reviewed_item_ids musi zawierać dokładnie wszystkie pozycje zlecenia.",
+            )
         summary = await analyze.ingest(db, run, report, now=now)
         await db.commit()
         try:

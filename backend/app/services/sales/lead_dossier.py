@@ -7,7 +7,7 @@ Dane firm (``enrich``), Kontakty ze źródeł publicznych (``people``) i Researc
 nie żądanie tworzenia leada, więc błąd bota nie blokuje leada.
 
 * **Jedna teczka na firmę, nie na lead:** firma z biegiem danego rodzaju z ostatnich
-  7 dni nie wraca (nieudany start webhooka liczy się godzinę, potem ponowienie),
+  7 dni nie wraca (bez raportu ponowienie po godzinie od startu, do trzech prób),
   wynik do przeglądu (``new``/``partial``) i punkty młodsze niż 7 dni też blokują.
 * **Bez zamówienia:** lead bez karty, karta w archiwum, „Nie kontaktować”, nasza
   firma i klient NEXUSA (``signal_targets.eligible_companies``).
@@ -26,12 +26,13 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Iterable, Optional
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, distinct, func, literal, or_, select, union_all
+from sqlalchemy import distinct, func, literal, select, union_all
 from sqlalchemy.dialects.postgresql import aggregate_order_by
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import String
@@ -58,7 +59,7 @@ KINDS: tuple[str, ...] = ("enrich", "people", "briefing")
 LEAD_WITHIN = timedelta(days=7)
 #: Ta sama firma i rodzaj nie wracają do bota częściej niż raz na 7 dni.
 REPEAT_AFTER = timedelta(days=7)
-RETRY_FAILED_AFTER = timedelta(hours=1)
+MAX_ATTEMPTS = 3
 LOOP_EVERY = timedelta(hours=1)
 BATCH = 10
 #: Do tylu stanowisk w wierszu „Decydenci”.
@@ -95,18 +96,6 @@ async def lead_company_ids(
     return [cid for cid in ordered if cid in allowed]
 
 
-def _counted_run(now: datetime):
-    """Bieg blokuje firmę 7 dni; nieudany start webhooka tylko godzinę."""
-
-    return and_(
-        SalesSignalRun.started_at >= now - REPEAT_AFTER,
-        or_(
-            SalesSignalRun.status != "failed",
-            SalesSignalRun.started_at >= now - RETRY_FAILED_AFTER,
-        ),
-    )
-
-
 def _not_cognism():
     return SalesSignalRun.request["source"].astext.is_distinct_from("cognism")
 
@@ -114,20 +103,35 @@ def _not_cognism():
 async def recently_ordered(db: AsyncSession, kind: str, *, now: datetime) -> set[int]:
     """Firmy z biegiem rodzaju z ostatnich 7 dni (w ``briefing`` tylko tryby z punktami)."""
 
-    filters = [SalesSignalRun.kind == kind, _counted_run(now)]
+    filters = [
+        SalesSignalRun.kind == kind,
+        SalesSignalRun.started_at >= now - REPEAT_AFTER,
+    ]
     if kind == "people":
         filters.append(_not_cognism())
     rows = await db.execute(
-        select(SalesSignalRun.company_ids, SalesSignalRun.modes).where(*filters)
+        select(
+            SalesSignalRun.company_ids,
+            SalesSignalRun.modes,
+            SalesSignalRun.status,
+            SalesSignalRun.started_at,
+        ).where(*filters)
     )
     sent: set[int] = set()
-    for ids, modes in rows:
+    failures: Counter[int] = Counter()
+    for ids, modes, status, started_at in rows:
         for raw in ids or []:
             cid = int(raw)
             if kind == "briefing" and (modes or {}).get(str(cid)) not in POINT_MODES:
                 continue
-            sent.add(cid)
-    return sent
+            if (
+                status in ("failed", "expired")
+                and started_at < now - targets.RETRY_WITHOUT_REPORT_AFTER
+            ):
+                failures[cid] += 1
+            else:
+                sent.add(cid)
+    return sent | {cid for cid, count in failures.items() if count >= MAX_ATTEMPTS}
 
 
 async def _blocked(
@@ -150,7 +154,7 @@ async def _blocked(
             SalesCompanyBriefing.generated_at >= now - REPEAT_AFTER,
         )
     )
-    # Każdy bieg ``briefing`` z 24 godzin (też haczyk): ta sama reguła co punkty.
+    # Także haczyk z 24 godzin: ta sama reguła co przy punktach.
     return {int(cid) for cid in rows.scalars()} | await targets.recently_sent(
         db, now=now
     )

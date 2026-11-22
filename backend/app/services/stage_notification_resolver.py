@@ -13,8 +13,9 @@ Logika:
 2. **Override priority** — jeśli istnieje ≥1 aktywny override dla pary
    (job.client_id, stage_def_id), użyj ich; inaczej baseline rules.
 3. **Recipient resolution** — wg ``RecipientType``. „Rekruter rekrutacji” =
-   rekruter kandydata; prowadzący dostaje ruch cudzego kandydata tylko na
-   etapach z ``LEAD_STAGE_CODES`` albo na własne życzenie (10.11.2026).
+   rekruter kandydata (``move_recruiter_id``: bez własnego rekrutera — kto
+   przesunął kartę); prowadzący dostaje ruch cudzego kandydata tylko na
+   własne życzenie (10.11.2026, bez wyjątku etapów od 18.11.2026).
 4. **Self-suppression** — usuń ``mover_user_id``.
 5. **Aktywni** — User.is_active=True.
 6. **Merge** — ten sam user w kilku regułach: OR(in-app), OR(email).
@@ -57,7 +58,7 @@ from app.services.stage_handoff_recipients import (
     TASK_REASONS,
     handoff_recipients,
     is_backward_move,
-    pair_recruiter_id,
+    move_recruiter_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -135,24 +136,22 @@ async def _client_overrides(
 # Etapy, na których prowadzący rekrutację dostaje ruch także cudzego kandydata:
 # zmieniają coś dla całej rekrutacji. Reszta (Screening, Odrzucony…) to praca
 # rekrutera kandydata — prowadzący widzi ją na Tablicy (decyzja Artura 10.11.2026).
-LEAD_STAGE_CODES = frozenset({"client_interview", "acceptance", "hired"})
-
-
 def job_recruiter_ids(
     *,
     owner_id: Optional[int],
     pair_id: Optional[int],
-    stage_code: Optional[str],
     owner_wants_all: bool,
 ) -> list[int]:
     """Odbiorcy reguły „rekruter rekrutacji”: rekruter kandydata, a prowadzący
-    przy własnym kandydacie, kandydacie bez rekrutera, na etapie z
-    ``LEAD_STAGE_CODES`` albo gdy wybrał wszystkie ruchy
-    (``users.stage_moves_all_led_jobs``)."""
+    przy własnym kandydacie, przy ruchu bez rekrutera i bez osoby albo gdy
+    wybrał wszystkie ruchy (``users.stage_moves_all_led_jobs``).
+
+    Bez wyjątku dla Interview Klient, Akceptacji i Zatrudnionego (18.11.2026,
+    decyzja Artura): prowadzący chce informacji tylko o swoich ludziach."""
 
     if pair_id is None or pair_id == owner_id:
         return [owner_id] if owner_id else []
-    if owner_id and (owner_wants_all or stage_code in LEAD_STAGE_CODES):
+    if owner_id and owner_wants_all:
         return [owner_id, pair_id]
     return [pair_id]
 
@@ -169,7 +168,7 @@ async def _resolve_user_ids_for_rule(
     rule: _RuleSnapshot,
     job: Job,
     candidate: Candidate,
-    stage_code: Optional[str] = None,
+    mover_user_id: Optional[int] = None,
 ) -> list[int]:
     """Zwraca listę user_id wynikającą z reguły. Może być pusta (None drop)."""
     rt = rule.recipient_type
@@ -184,9 +183,9 @@ async def _resolve_user_ids_for_rule(
 
     if rt == RecipientType.job_recruiter:
         # Rekruter, który prowadzi tego kandydata (właściciel procesu →
-        # pierwszy weryfikator; od 02.10.2026). Prowadzący rekrutację dostaje
-        # ruch cudzego kandydata tylko na etapach ważnych dla całej rekrutacji
-        # albo gdy sam o to poprosił (10.11.2026, `job_recruiter_ids`).
+        # pierwszy weryfikator; od 02.10.2026; bez nich kto przesunął kartę,
+        # 18.11.2026). Prowadzący rekrutację dostaje ruch cudzego kandydata
+        # tylko wtedy, gdy sam o to poprosił (`job_recruiter_ids`).
         # „Poprzedni rekruter” (14.10.2026) nie pracuje nad rekrutacją —
         # dzwonek dostaje tylko, gdy prowadzi tego kandydata.
         from app.services.job_previous_recruiters import (  # noqa: PLC0415
@@ -194,13 +193,12 @@ async def _resolve_user_ids_for_rule(
         )
 
         owner_id = await working_owner_id(db, job)
-        pair_recruiter = await pair_recruiter_id(
-            db, candidate_id=candidate.id, job_id=job.id
+        pair_recruiter = await move_recruiter_id(
+            db, candidate_id=candidate.id, job_id=job.id, mover_id=mover_user_id
         )
         ids = job_recruiter_ids(
             owner_id=owner_id,
             pair_id=pair_recruiter,
-            stage_code=stage_code,
             owner_wants_all=bool(
                 owner_id
                 and pair_recruiter not in (None, owner_id)
@@ -380,7 +378,7 @@ async def resolve_recipients(
             rule=rule,
             job=job,
             candidate=candidate,
-            stage_code=str(stage_code) if stage_code else None,
+            mover_user_id=mover_user_id,
         )
         for uid in user_ids:
             if uid is None:

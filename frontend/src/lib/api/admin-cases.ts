@@ -15,6 +15,7 @@ export type CaseArea =
   | "offboarding"
   | "negotiation"
   | "administration"
+  | "settlements"
   | "marketing"
   | "other";
 export type CasePriority = "P1" | "P2" | "P3";
@@ -212,6 +213,7 @@ export const CASE_AREA_LABELS: Record<CaseArea, string> = {
   offboarding: "Offboarding",
   negotiation: "Negocjacje",
   administration: "Administracja",
+  settlements: "Rozliczenia",
   marketing: "Marketing",
   other: "Inne",
 };

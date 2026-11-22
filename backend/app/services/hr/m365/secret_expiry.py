@@ -54,7 +54,7 @@ _ROTATE = (
     "„Coolify set env”."
 )
 _STOPS = (
-    "autoodpowiedzi i kopie poczty na czas urlopu, czytnik administracja@, "
+    "autoodpowiedzi i kopie poczty na czas urlopu, czytnik wsparcie@, "
     "odczyt profili i urządzeń z Microsoft 365"
 )
 

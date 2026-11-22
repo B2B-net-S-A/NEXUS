@@ -1,13 +1,15 @@
 """Rabat od obrotu rocznego: obrót netto z faktur sprzedaży i rabat wg progów.
 
-Obrót = suma netto faktur sprzedaży z KSeF wystawionych w okresie (po dacie
-wystawienia), razem z korektami (korekta niesie różnicę, także ujemną)
-i fakturami zaliczkowymi. Rabat liczy się od obrotu w walucie progów
+Obrót = usługi PRZED rabatem (ilość × cena z wierszy, ``client_invoicing.
+rebate.service_base``; decyzja Artura 16.11.2026) z faktur sprzedaży z KSeF za
+miesiące okresu (okres usługi, bez niego — data wystawienia), bez pozycji ze
+słowem wyłączającym z warunków rabatu klienta, razem z korektami (korekta
+niesie różnicę, także ujemną) i fakturami zaliczkowymi. Rabat liczy się od obrotu w walucie progów
 (parametr „Waluta progów”): faktury w innej walucie przeliczamy kursem średnim
 NBP z ostatniej tabeli przed datą sprzedaży, a bez daty sprzedaży — przed
 datą wystawienia (decyzja Artura 16.11.2026, ta sama co przy nocie rabatowej
-w ``client_invoicing``; progi Nordei są w EUR, faktury w PLN). Faktura bez kursu w ``fx_rates`` wypada
-z obrotu i trafia do kontroli.
+w ``client_invoicing``; progi Nordei są w EUR, faktury w PLN). Faktura bez
+kursu w ``fx_rates`` wypada z obrotu i trafia do kontroli.
 
 Progi: ``[{"up_to": 15000000, "rate": 2.5}, {"up_to": null, "rate": 3}]`` —
 ``up_to`` to górna granica włącznie, ``null`` = bez górnej granicy, ``rate``
@@ -42,6 +44,8 @@ from app.services.client_reports.generators.client_data import (
     sheet_amount,
     totals_by_currency,
 )
+from app.services.client_invoicing import issue_settings
+from app.services.client_invoicing.rebate import service_base
 from app.services.fx_service import rates_to_pln_by_date
 from app.services.client_reports.registry import (
     Generator,
@@ -167,6 +171,8 @@ class ConvertedTurnover:
     converted: int
     #: Waluty bez kursu w ``fx_rates`` — te faktury wypadły z obrotu.
     missing: tuple[str, ...]
+    #: Faktury, z których wyjęto pozycje ze słowem wyłączającym (podróże, refaktury).
+    excluded: int = 0
 
 
 def fx_day(day: date) -> date:
@@ -184,17 +190,24 @@ RatesByDate = Mapping[date, Mapping[str, Optional[Decimal]]]
 
 
 def convert_turnover(
-    invoices: Sequence[InvoiceRow], currency: str, rates: RatesByDate
+    invoices: Sequence[InvoiceRow],
+    currency: str,
+    rates: RatesByDate,
+    exclude_words: Sequence[str] = (),
 ) -> ConvertedTurnover:
-    """Suma netto w ``currency``; ``rates`` to kurs waluty → PLN per dzień kursu."""
+    """Obrót usług PRZED rabatem w ``currency`` — tak samo jak faktury
+    (``client_invoicing.rebate.service_base``: netto + opust z wierszy, bez
+    pozycji ze słowem wyłączającym); ``rates`` to kurs waluty → PLN per dzień."""
     target = currency.upper()
     total = Decimal(0)
-    converted = 0
+    converted = excluded = 0
     missing: list[str] = []
     for invoice in invoices:
+        net, touched = service_base(invoice.net_amount, invoice.items, exclude_words)
+        excluded += int(touched)
         source = (invoice.currency or "PLN").upper()
         if source == target:
-            total += invoice.net_amount
+            total += net
             continue
         day = rate_day(invoice)
         snapshot = rates.get(day, {}) if day else {}
@@ -203,13 +216,22 @@ def convert_turnover(
             if source not in missing:
                 missing.append(source)
             continue
-        total += invoice.net_amount * source_rate / target_rate
+        total += net * source_rate / target_rate
         converted += 1
-    return ConvertedTurnover(target, cents(total), converted, tuple(missing))
+    return ConvertedTurnover(target, cents(total), converted, tuple(missing), excluded)
+
+
+async def exclude_words_for(db: AsyncSession, client_id: int) -> tuple[str, ...]:
+    """Słowa wyłączające z warunków rabatu klienta w ustawieniach wystawiania faktur."""
+    terms = issue_settings.client_rebate(await issue_settings.load(db), client_id)
+    return terms.exclude_words if terms else ()
 
 
 async def turnover_in(
-    db: AsyncSession, invoices: Sequence[InvoiceRow], currency: str
+    db: AsyncSession,
+    invoices: Sequence[InvoiceRow],
+    currency: str,
+    exclude_words: Sequence[str] = (),
 ) -> ConvertedTurnover:
     target = currency.upper()
     needed: dict[date, set[str]] = {}
@@ -219,11 +241,20 @@ async def turnover_in(
         if source != target and day is not None:
             needed.setdefault(day, set()).update({source, target})
     rates = await rates_to_pln_by_date(db, needed) if needed else {}
-    return convert_turnover(invoices, target, rates)
+    return convert_turnover(invoices, target, rates, exclude_words)
 
 
-def turnover_checks(converted: ConvertedTurnover) -> list[str]:
-    checks = []
+def turnover_checks(
+    converted: ConvertedTurnover, exclude_words: Sequence[str] = ()
+) -> list[str]:
+    if exclude_words:
+        checks = [
+            f"Z obrotu wyjęto pozycje ze słowami: {', '.join(exclude_words)} "
+            f"({converted.excluded} faktur) — warunki rabatu klienta w ustawieniach "
+            "wystawiania faktur. Inne pozycje nieusługowe wyłącz ręcznie."
+        ]
+    else:
+        checks = [MANUAL_EXCLUSION_NOTE]
     if converted.converted:
         checks.append(
             f"{converted.converted} faktur w innej walucie przeliczono na {converted.currency} "
@@ -268,13 +299,17 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
     tiers = param(ctx, GENERATOR, "tiers") or []
     marginal = bool(param(ctx, GENERATOR, "marginal"))
 
-    invoices = await sales_invoices(db, ctx.client_id, period.start, period.end)
+    # Rok po okresie usługi (bez okresu — data wystawienia), jak rabat na fakturach.
+    invoices = await sales_invoices(
+        db, ctx.client_id, period.start, period.end, by_service_month=True
+    )
     turnovers = turnover_by_currency(invoices)
-    converted = await turnover_in(db, invoices, currency)
+    words = await exclude_words_for(db, ctx.client_id)
+    converted = await turnover_in(db, invoices, currency, words)
     base = converted.amount
     rebate = compute_rebate(base, tiers, marginal=marginal)
 
-    label = f"Obrót netto ({currency}" + (
+    label = f"Obrót usług przed rabatem ({currency}" + (
         ", z przeliczeniem NBP)" if converted.converted else ")"
     )
     lines = [SummaryLine(label, format_amount(base), True)]
@@ -298,12 +333,11 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
             )
         )
 
-    checks: list[str] = [MANUAL_EXCLUSION_NOTE]
+    checks: list[str] = turnover_checks(converted, words)
     if not tiers:
         checks.append(
             "Definicja nie ma progów rabatu — uzupełnij je w ustawieniach raportu."
         )
-    checks += turnover_checks(converted)
     if rebate and rebate.above_top:
         checks.append(
             "Obrót przekracza najwyższy próg — przyjęto stawkę ostatniego progu."
@@ -333,7 +367,7 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
             ),
             widths=(10, 14, 14, 18),
             note=f"Rabat liczony od obrotu w {currency} (inne waluty kursem NBP sprzed daty "
-            f"sprzedaży). {MANUAL_EXCLUSION_NOTE}",
+            "sprzedaży), z usług przed rabatem na wierszach faktur.",
         )
     ]
     if rebate:

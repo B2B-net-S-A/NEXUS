@@ -58,6 +58,10 @@ class _FakeDb:
         # Auto-aktywacja pyta o klienta kontraktu (R9-V1-2); brak = aktywny.
         return None
 
+    async def scalars(self, *_args, **_kwargs):
+        # Części kosztu zamówień (0741): w czystym przebiegu jeszcze ich nie ma.
+        return []
+
 
 def _contract(**overrides) -> Contract:
     """Kontrakt z generatora B2B: godzinowy, 120 zł/h, start 14.09.2026."""

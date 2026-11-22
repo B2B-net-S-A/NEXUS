@@ -1,5 +1,75 @@
 [
   {
+    "id": "proces-u-klienta",
+    "pr": 3586,
+    "title": "Proces u klienta: etapy i ile to trwa",
+    "why": "Kliknij „proces” w nagłówku: etapy po wysłaniu CV (np. rozmowa + zadanie), ile u klienta trwa naprawdę decyzja i zdanie dla kandydata. Etapy wpiszesz też przy zakładaniu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-18",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → nagłówek → proces u klienta",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job.client-process"
+  },
+  {
+    "id": "kandydaci-ostatnio-z-osoba",
+    "pr": 3575,
+    "title": "„Ostatnio z osobą” i „Szuka aktywnie” jednym kliknięciem",
+    "why": "Pod osobą na liście widać dwie ostatnie informacje, najnowszą pierwszą, z datą. Status nieaktualny? Kliknij „Szuka aktywnie” przy nazwisku i wybierz właściwy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-18",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
+    "where": "Kandydaci → lista → „Szuka aktywnie” przy nazwisku",
+    "href": "/candidates",
+    "section": "sourcing",
+    "dot_anchor": "candidates.availability-status"
+  },
+  {
+    "id": "sprzedaz-dzwonienie-mail-po-umowieniu",
+    "pr": 3557,
+    "title": "Dzwonienie: mail do klienta po umówieniu spotkania",
+    "why": "Przy „Umówione spotkanie” wpisujesz adres, tytuł i treść, a „Umów … i wyślij mail” wysyła je z Twojego Outlooka do klienta, z kopią do prowadzącego. Mail zostaje w Wysłanych i na osi szansy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": { "permissions": ["sales_edit"] },
+    "where": "Sprzedaż → Dzwonienie → Umówione spotkanie",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.booking-mail",
+    "steps": [
+      {
+        "anchor": "sales.calling.book",
+        "text": "Kliknij „Umówione spotkanie”",
+        "hint": "Otworzy się formularz spotkania z mailem do klienta."
+      },
+      {
+        "anchor": "sales.calling.booking-mail",
+        "text": "Umów i wyślij mail do klienta",
+        "hint": "Mail wyjdzie z Twojego Outlooka do klienta z kopią do prowadzącego i zostanie w Wysłanych i na osi szansy.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "sprzedaz-dzwonienie-juz-dzwoniono",
+    "pr": 3539,
+    "title": "Dzwonienie: „Już dzwoniono” przy wgrywaniu listy",
+    "why": "Numer, pod który już dzwoniono, dostaje przy imporcie „Już dzwoniono” z datą i wynikiem i nie wraca do kolejki. Listę z oznaczeniami pobierzesz do Excela.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": { "permissions": ["sales_edit"] },
+    "where": "Sprzedaż → Dzwonienie → Importuj listę",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.import"
+  },
+  {
     "id": "aneks-inna-zmiana",
     "pr": 3505,
     "title": "Generator aneksów: aneks z własną nazwą",
@@ -7,10 +77,19 @@
     "tier": "dot",
     "shipped_on": "2026-11-16",
     "audience": { "roles": ["finance", "delivery_lead", "admin"] },
-    "where": "Generator umów → Generator aneksów → „Aneks — inna zmiana”",
+    "where": "Generator umów → Nowy aneks → „Aneks — inna zmiana”",
     "href": "/contracts/b2b-generator",
+    "practice_href": "/contracts/b2b-generator?tab=annexes",
     "section": "sourcing",
-    "dot_anchor": "b2b-generator.annex-custom"
+    "dot_anchor": "b2b-generator.annex-custom",
+    "steps": [
+      {
+        "anchor": "b2b-generator.annex-custom",
+        "text": "To „Aneks — inna zmiana”.",
+        "hint": "Nazwij aneks, wpisz zmiany paragrafów albo wybierz gotową klauzulę. Kontraktu podpis sam nie zmienia.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "doplata-uzasadnienie-z-modelu",
@@ -26,10 +105,33 @@
         "finance"
       ]
     },
-    "where": "Kontrakty → kontrakt → Umowa ramowa → Technologie premium → Uzasadnienie (EN)",
+    "where": "Kontrakty → Pieniądze → Umowa ramowa → Technologie premium → Uzasadnienie (EN)",
     "href": "/contracts",
     "section": "delivery",
-    "dot_anchor": "contracts.premium-justification"
+    "dot_anchor": "contracts.premium-justification",
+    "steps": [
+      {
+        "anchor": "contracts.list.row",
+        "text": "Kliknij wiersz kontraktu u klienta z umową ramową.",
+        "hint": "Kliknij poza nazwiskiem — otworzy się panel kontraktu. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "contract.panel.open",
+        "text": "Kliknij „Otwórz kontrakt” w stopce panelu.",
+        "hint": "Pełna karta kontraktu otworzy się na „Przeglądzie”."
+      },
+      {
+        "anchor": "contract.tabs.money",
+        "text": "Kliknij zakładkę „Pieniądze”.",
+        "hint": "Stawki, umowa ramowa, premie i faktury kontraktu są w jednej zakładce."
+      },
+      {
+        "anchor": "contracts.premium-justification",
+        "text": "To „Uzasadnienie (EN)” przy złożonym wniosku o dopłatę.",
+        "hint": "W oknie „Zaproponuj uzasadnienie” model pisze szkic po angielsku, bez nazwiska i stawek. Przycisk jest tylko przy złożonym wniosku.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "porcja-szczegol-powodu",
@@ -60,7 +162,20 @@
     "where": "Nowa rekrutacja → „Co zamawia klient?” → „Stanowisko w zespole”",
     "href": "/jobs/new",
     "section": "pipeline",
-    "dot_anchor": "jobs.new.team-split"
+    "dot_anchor": "jobs.new.team-split",
+    "steps": [
+      {
+        "anchor": "jobs.new.team-mode",
+        "text": "Przełącz na „Stanowisko w zespole”.",
+        "hint": "Tak zaznaczasz, że klient zamawia kilka stanowisk naraz. Samo przełączenie niczego nie zapisuje."
+      },
+      {
+        "anchor": "jobs.new.team-split",
+        "text": "„Rozbij zapytanie na stanowiska” wypisze role z maila.",
+        "hint": "Najpierw wklej treść zapytania („Wypełnij z: Wklej treść”). „Użyj” wpisze rolę i liczbę osób do tej rekrutacji.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "zespol-gotowe-sklady",
@@ -72,8 +187,22 @@
     "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
     "where": "Zespół → „Gotowe składy dla klienta” → „Zaproponuj składy”",
     "href": "/jobs",
+    "practice_href": "/zespoly/990601",
     "section": "pipeline",
-    "dot_anchor": "jobs.team.variants"
+    "dot_anchor": "jobs.team.variants",
+    "steps": [
+      {
+        "anchor": "jobs.team.variants",
+        "text": "Kliknij „Zaproponuj składy”.",
+        "hint": "Automat ułoży trzy składy z wysłanych osób. Nic się nie zapisze, dopóki nie zatwierdzisz."
+      },
+      {
+        "anchor": "jobs.team.variants-approve",
+        "text": "Po zatwierdzeniu klient zobaczy te składy w linku zespołu.",
+        "hint": "Wcześniej podmienisz osoby i poprawisz nazwę. W linku klient prosi o rozmowy z całym składem jednym kliknięciem.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "zespol-dla-klienta",
@@ -85,8 +214,17 @@
     "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
     "where": "Rekrutacja → pasek nad Tablicą → „Utwórz zespół”",
     "href": "/jobs",
+    "practice_href": "/jobs/990001",
     "section": "pipeline",
-    "dot_anchor": "jobs.board.team"
+    "dot_anchor": "jobs.board.team",
+    "steps": [
+      {
+        "anchor": "jobs.board.team",
+        "text": "„Utwórz zespół” łączy kilka stanowisk klienta w jeden link.",
+        "hint": "Stoi na pasku nad Tablicą. Klient w linku widzi wszystkie stanowiska, wybiera osoby do składu i od razu widzi cenę zespołu.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-dzwonienie-przypomnienia",
@@ -117,7 +255,25 @@
     "where": "Sprzedaż → Firmy → karta firmy → Kontakty",
     "href": "/sales/companies",
     "dot_anchor": "sales.company.contacts",
-    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+    "requires_setting": "SALES_BOT_TASKS_ENABLED",
+    "steps": [
+      {
+        "anchor": "sales.companies.row",
+        "text": "Otwórz kartę firmy",
+        "hint": "Kliknij nazwę firmy na liście."
+      },
+      {
+        "anchor": "sales.company.contacts-tab",
+        "text": "Przejdź do zakładki „Kontakty”",
+        "hint": "Wszystkie osoby firmy w jednym miejscu."
+      },
+      {
+        "anchor": "sales.company.contacts",
+        "text": "Kontakty to jedna lista osób",
+        "hint": "Osoby od bota i z Cognism są od razu tutaj. Kto odszedł, stoi na końcu jako „nie pracuje”.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-leady-teczka",
@@ -186,7 +342,21 @@
     },
     "where": "Sprzedaż → Mój dzień → „Po spotkaniu” albo „Zaplanuj” → pole daty",
     "href": "/sales",
-    "dot_anchor": "sales.myday.custom-date"
+    "practice_href": "/sales/my-day",
+    "dot_anchor": "sales.myday.custom-date",
+    "steps": [
+      {
+        "anchor": "sales.myday.plan",
+        "text": "Otwórz „Po spotkaniu” albo „Zaplanuj”",
+        "hint": "Kliknij przycisk przy dowolnym wierszu dnia."
+      },
+      {
+        "anchor": "sales.myday.custom-date",
+        "text": "Własna data następnego kroku",
+        "hint": "Obok Jutro…Za miesiąc wpiszesz albo wybierzesz z kalendarza dowolny dzień.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-listy-dzwonienia-wszyscy",
@@ -879,8 +1049,13 @@
         "hint": "Kliknij w wierszu poza nazwiskiem — otworzy się panel kontraktu. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
       },
       {
+        "anchor": "contract.panel.more",
+        "text": "Kliknij „⋯” w stopce panelu.",
+        "hint": "Rzadsze akcje kontraktu są w tym menu; zakończenie współpracy stoi na jego dole."
+      },
+      {
         "anchor": "contract.panel.end",
-        "text": "Kliknij „Zakończ współpracę”.",
+        "text": "Kliknij „Zakończ współpracę…”.",
         "hint": "Okno zakończenia otworzy się bez zapisywania czegokolwiek."
       },
       {
@@ -1045,6 +1220,71 @@
         "text": "Tę krawędź przeciągasz, żeby poszerzyć prawą kolumnę.",
         "hint": "Działa, gdy widać CV. Dwuklik wraca do szerokości domyślnej, a NEXUS zapamięta Twój układ.",
         "ack": true
+      }
+    ]
+  },
+  {
+    "id": "nowy-kontrakt-podsumowanie",
+    "pr": 3665,
+    "title": "Nowy kontrakt: podsumowanie z marżą obok formularza",
+    "why": "Formularz ma trzy sekcje, a karta po prawej na bieżąco mówi, co powstanie: kto u kogo, od kiedy, marża i status. Waluty, zmiany stawki, zużycie i status są w „Zaawansowanych”.",
+    "tier": "tour",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "permissions": [
+        "contracts_orders_edit"
+      ]
+    },
+    "where": "Kontrakty → Nowy kontrakt",
+    "href": "/contracts/new",
+    "section": "delivery",
+    "dot_anchor": "contracts.new.summary",
+    "steps": [
+      {
+        "anchor": "contracts.new.summary",
+        "text": "Karta „Podsumowanie” mówi, co powstanie, zanim klikniesz.",
+        "hint": "Z uprawnieniem do kwot liczy marżę na godzinę i w miesiącu ze stawek z formularza. Przycisk mówi, czy powstanie szkic.",
+        "ack": true
+      },
+      {
+        "anchor": "contracts.new.advanced",
+        "text": "Kliknij „Zaawansowane”.",
+        "hint": "Tu są waluty i jednostka stawek, stawka ramowa, zmiany stawki w czasie, zużycie zamówienia i status przy utworzeniu."
+      }
+    ]
+  },
+  {
+    "id": "analityka-kontraktow-90-dni",
+    "pr": 3665,
+    "title": "Analityka kontraktów: co zmieni się w 90 dni i kto ile przynosi",
+    "why": "Na górze cztery liczby, pod nimi kto kończy i kto startuje w 90 dni i ile marży to zmienia, prognoza marży i jedna tabela klientów albo konsultantów z sortowaniem.",
+    "tier": "tour",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "permissions": [
+        "company_results"
+      ]
+    },
+    "where": "Kontrakty → Analityka",
+    "href": "/contracts/analytics",
+    "section": "finance",
+    "dot_anchor": "contracts.analytics.next90",
+    "steps": [
+      {
+        "anchor": "contracts.analytics.next90",
+        "text": "„Najbliższe 3 miesiące”: kto kończy, kto startuje i ile marży to zmienia.",
+        "hint": "Kwoty z bieżących stawek kontraktów, tylko w złotych. Nazwisko otwiera kontrakt.",
+        "ack": true
+      },
+      {
+        "anchor": "contracts.analytics.sort",
+        "text": "Kliknij nagłówek „Marża” w tabeli.",
+        "hint": "Każdy nagłówek sortuje tabelę; strzałka stoi przy aktywnej kolumnie, drugi klik odwraca kolejność."
+      },
+      {
+        "anchor": "contracts.analytics.view",
+        "text": "Przełącz tabelę na „Konsultanci”.",
+        "hint": "Ta sama tabela pokazuje klientów albo osoby z najwyższą marżą i ich koniec umowy w 90 dni."
       }
     ]
   },
@@ -1783,6 +2023,22 @@
     "dot_anchor": "settings.team.automat"
   },
   {
+    "id": "kontrakt-zamowienie-po-koncu-wspolpracy",
+    "title": "Klient zamówił okres po zakończeniu współpracy",
+    "why": "Gdy klient zamówił okres po końcu współpracy, kontrakt pokazuje w „Co się dzieje” wyjścia: cofnij zakończenie, przypisz zamówienie innej osobie albo anuluj szkic. Listę zbiera nowa pigułka.",
+    "tier": "dot",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "permissions": [
+        "delivery_view"
+      ]
+    },
+    "where": "Kontrakty → pigułka „Zamówione po końcu” → kontrakt",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contracts.order-after-end"
+  },
+  {
     "id": "karta-przed-cv-do-klienta",
     "pr": 2835,
     "title": "Karta przed CV wypełnia się sama",
@@ -1798,6 +2054,37 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "dl-review.cover-sheet"
+  },
+  {
+    "id": "zamowienia-z-maila-do-sprawdzenia",
+    "pr": 3667,
+    "title": "Zamówienia z maila: „Do sprawdzenia” z podpowiedzią",
+    "why": "Zamiast żółtej ramki z powodami każdy wpis ma listę punktów: co jest nie tak i co zrobić. Zakładki mają liczniki, a historia automatu to jedna linia na dole.",
+    "tier": "tour",
+    "shipped_on": "2026-11-20",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Kontrakty → Zamówienia z maila",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "order-mail.queue",
+    "steps": [
+      {
+        "anchor": "contracts.order-mail.open",
+        "text": "Kliknij „Zamówienia z maila” nad listą kontraktów.",
+        "hint": "Liczba przy przycisku to wpisy czekające na weryfikację."
+      },
+      {
+        "anchor": "order-mail.queue",
+        "text": "Kliknij wpis w kolejce po lewej.",
+        "hint": "Pod numerem zamówienia stoi pierwszy punkt do sprawdzenia, np. „Nowa osoba bez umowy”."
+      },
+      {
+        "anchor": "order-mail.detail",
+        "text": "Po prawej: co odczytano z PDF-a i „Do sprawdzenia”.",
+        "hint": "Każdy punkt mówi, co zrobić. „Zastosuj” zapisuje plan, „Odrzuć” zdejmuje wpis z kolejki.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "stanowisko-jak-u-klienta",
@@ -1959,10 +2246,23 @@
     "tier": "dot",
     "shipped_on": "2026-11-06",
     "audience": { "roles": ["recruiter", "delivery_lead", "talent_community_manager"] },
-    "where": "Generator umów → Szczegóły administracyjne",
+    "where": "Generator umów → Nowa umowa → Szczegóły administracyjne",
     "href": "/contracts/b2b-generator",
     "section": "sourcing",
-    "dot_anchor": "b2b-generator.client-referral"
+    "dot_anchor": "b2b-generator.client-referral",
+    "steps": [
+      {
+        "anchor": "b2b-generator.step-admin",
+        "text": "Kliknij krok „Szczegóły administracyjne”.",
+        "hint": "Nowa umowa idzie krokami — to drugi krok na liście po lewej."
+      },
+      {
+        "anchor": "b2b-generator.client-referral",
+        "text": "To „Kandydat wskazany przez klienta”.",
+        "hint": "Gdy klient sam wskazał osobę, a my tylko przepuszczamy ją przez siebie, zaznacz „Tak” — premii z placementu wtedy nie ma.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "szczegoly-administracyjne-kontraktu",
@@ -1976,6 +2276,47 @@
     "href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contract.admin-details"
+  },
+  {
+    "id": "kontrakt-start-i-opieka-nowy-uklad",
+    "pr": 3673,
+    "title": "Kontrakt: opieka jednym strumieniem, start jako checklista",
+    "why": "Rozmowy, notatki i opinie klienta są w jednym strumieniu z polem zapisu, obok plan kontaktów i sprawy. „Start i sprzęt” to lista z postępem, sprzętem i panelem.",
+    "tier": "tour",
+    "shipped_on": "2026-11-20",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Kontrakty → kontrakt → Opieka i rozmowy, Start i sprzęt",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contract.tabs.care",
+    "steps": [
+      {
+        "anchor": "contracts.list.row",
+        "text": "Kliknij wiersz dowolnego kontraktu.",
+        "hint": "Kliknij poza nazwiskiem — otworzy się panel kontraktu. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "contract.panel.open",
+        "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
+        "hint": "Pełna karta kontraktu otworzy się na „Przeglądzie”."
+      },
+      {
+        "anchor": "contract.tabs.care",
+        "text": "Kliknij zakładkę „Opieka i rozmowy”.",
+        "hint": "Po lewej strumień rozmów i notatek, po prawej następny krok, plan kontaktów, zadowolenie, sprawy i projekt."
+      },
+      {
+        "anchor": "contract.care.stream",
+        "text": "Rozmowy, notatki i opinie klienta są w jednym strumieniu.",
+        "hint": "Nowy wpis zapisujesz w polu nad strumieniem — rodzaj wybierasz pigułką: notatka, rozmowa z konsultantem albo z klientem.",
+        "ack": true
+      },
+      {
+        "anchor": "contract.tabs.start",
+        "text": "Kliknij zakładkę „Start i sprzęt”.",
+        "hint": "Postęp listy startowej, formalności, sprzęt u konsultanta i panel konsultanta w jednej karcie."
+      }
+    ]
   },
   {
     "id": "kandydaci-ostatnie-odrzucenie",
@@ -2382,6 +2723,44 @@
     "dot_anchor": "sales.factories.contacted"
   },
   {
+    "id": "generator-umow-kroki-kartka-pasek",
+    "pr": 3666,
+    "title": "Generator umów: umowa krokami, z kartką i paskiem braków",
+    "why": "Nowa umowa idzie krokami. Obok widać jej pierwszy akapit z brakami jako „[REGON]”, a pasek na dole mówi, czego brakuje do pobrania. Rejestry umów są w jednej zakładce „Umowy”.",
+    "tier": "tour",
+    "shipped_on": "2026-11-20",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "talent_community_manager", "admin"] },
+    "where": "Kontrakty → Generator Umów B2B → Nowa umowa",
+    "href": "/contracts/b2b-generator",
+    "section": "sourcing",
+    "dot_anchor": "b2b-generator.steps",
+    "steps": [
+      {
+        "anchor": "b2b-generator.steps",
+        "text": "Umowa idzie krokami — kliknij dowolny krok na liście.",
+        "hint": "Pod nazwą kroku widać braki albo to, co już wpisano. Pola i sprawdzenia są te same co dotąd."
+      },
+      {
+        "anchor": "b2b-generator.paper",
+        "text": "Obok jest pierwszy akapit umowy.",
+        "hint": "Wypełnia się tym, co wpisujesz. Brak stoi w tekście jako „[REGON]” — kliknij go, a przejdziesz do pola.",
+        "ack": true
+      },
+      {
+        "anchor": "b2b-generator.readiness",
+        "text": "Na dole pasek: ile pól brakuje i które.",
+        "hint": "Klik w brak prowadzi do pola. „Pobierz DOCX” włącza się przy komplecie — umowy z brakami, jak dotąd, nie pobierzesz.",
+        "ack": true
+      },
+      {
+        "anchor": "b2b-generator.tabs",
+        "text": "Rejestry umów są w jednej zakładce „Umowy”.",
+        "hint": "Bieżące, bez projektu i zakończone wybierasz nad listą. Aneksy przygotujesz w zakładce „Nowy aneks”.",
+        "ack": true
+      }
+    ]
+  },
+  {
     "id": "insights-termin-rozmowy",
     "pr": 3249,
     "title": "Termin rozmowy pod ręką",
@@ -2679,7 +3058,20 @@
     },
     "where": "Sprzedaż → Leady → Lista z researchu",
     "href": "/sales/leads",
-    "dot_anchor": "sales.research.cognism"
+    "dot_anchor": "sales.research.cognism",
+    "steps": [
+      {
+        "anchor": "sales.leads.mode.research",
+        "text": "Przejdź do „Lista z researchu”",
+        "hint": "Tu wgrywasz listę osób z researchu."
+      },
+      {
+        "anchor": "sales.research.cognism",
+        "text": "Eksport z Cognism wgrywasz bez zmian",
+        "hint": "Osoby trafiają na mapy z telefonem komórkowym albo bezpośrednim; niezweryfikowany e-mail jest pomijany z ostrzeżeniem.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-bot-uzupelnia-karte",
@@ -2694,7 +3086,20 @@
     "where": "Sprzedaż → Firmy → karta firmy",
     "href": "/sales/companies",
     "dot_anchor": "sales.company.enrich",
-    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+    "requires_setting": "SALES_BOT_TASKS_ENABLED",
+    "steps": [
+      {
+        "anchor": "sales.companies.row",
+        "text": "Otwórz kartę firmy",
+        "hint": "Kliknij nazwę firmy na liście."
+      },
+      {
+        "anchor": "sales.company.enrich",
+        "text": "„Uzupełnij dane” wypełnia puste pola karty",
+        "hint": "Bot szuka domeny, NIP-u, miasta, branży i wielkości. Pole wpisane ręcznie zostaje, a źródło widać w Aktywnościach.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-zapytaj-bota",
@@ -2709,7 +3114,20 @@
     "where": "Sprzedaż → Firmy → karta firmy → Przegląd",
     "href": "/sales/companies",
     "dot_anchor": "sales.company.ask",
-    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+    "requires_setting": "SALES_BOT_TASKS_ENABLED",
+    "steps": [
+      {
+        "anchor": "sales.companies.row",
+        "text": "Otwórz kartę firmy",
+        "hint": "Kliknij nazwę firmy na liście."
+      },
+      {
+        "anchor": "sales.company.ask",
+        "text": "Zapytaj bota o firmę",
+        "hint": "Odpowiedź ze źródłami przyjdzie w kilka minut. Do bota idzie tylko nazwa, domena i pytanie: bez e-maili i telefonów.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-bot-znajdz-decydentow",
@@ -2725,8 +3143,22 @@
     },
     "where": "Sprzedaż → Szanse → Fabryki IT → konto → Mapa decyzyjna (także karta firmy)",
     "href": "/sales/opportunities",
+    "practice_href": "/sales/companies",
     "dot_anchor": "sales.bot-people.find",
-    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+    "requires_setting": "SALES_BOT_TASKS_ENABLED",
+    "steps": [
+      {
+        "anchor": "sales.companies.row",
+        "text": "Otwórz kartę firmy",
+        "hint": "Kliknij nazwę firmy na liście."
+      },
+      {
+        "anchor": "sales.bot-people.find",
+        "text": "„Znajdź decydentów (bot)”",
+        "hint": "Bot szuka osób decyzyjnych na publicznych stronach firmy, z linkiem do źródła. Jeden bieg na firmę na dobę.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-bot-osoby-do-przegladu",
@@ -2743,7 +3175,20 @@
     "where": "Sprzedaż → Leady → Lista z researchu → Osoby od bota",
     "href": "/sales/leads",
     "dot_anchor": "sales.bot-people.list",
-    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+    "requires_setting": "SALES_BOT_TASKS_ENABLED",
+    "steps": [
+      {
+        "anchor": "sales.leads.mode.research",
+        "text": "Przejdź do „Lista z researchu”",
+        "hint": "Tu są też osoby, które znalazł bot."
+      },
+      {
+        "anchor": "sales.bot-people.list",
+        "text": "Osoby od bota",
+        "hint": "Bot dopisuje decydentów od razu na mapę konta. Tu zostaje tylko wynik, przy którym trzeba wskazać właściwą kartę firmy.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-mapa-decydentow-cognism",
@@ -2813,7 +3258,15 @@
     "where": "Sprzedaż → Dzwonienie → karta rozmowy",
     "href": "/sales/calling",
     "dot_anchor": "sales.calling.hook",
-    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+    "requires_setting": "SALES_BOT_TASKS_ENABLED",
+    "steps": [
+      {
+        "anchor": "sales.calling.hook",
+        "text": "Haczyk na otwarcie rozmowy",
+        "hint": "Pod nazwą firmy bot podsuwa zdanie na otwarcie i do dwóch faktów ze źródłem. Przygotowuje je dzień roboczy wcześniej.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-teczka-przed-spotkaniem",
@@ -2830,7 +3283,15 @@
     "where": "Sprzedaż → Mój dzień → Przygotowanie do spotkania",
     "href": "/sales/my-day",
     "dot_anchor": "sales.my-day.prep-points",
-    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+    "requires_setting": "SALES_BOT_TASKS_ENABLED",
+    "steps": [
+      {
+        "anchor": "sales.my-day.prep-points",
+        "text": "Punkty od bota przed spotkaniem",
+        "hint": "Dzień roboczy przed spotkaniem bot przygotowuje do czterech punktów o firmie, ze źródłami.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "podpis-paczka-umowa-nda",
@@ -2850,8 +3311,27 @@
     },
     "where": "Rekrutacja → panel osoby → Umowa → Wyślij do podpisu (też Generator umów)",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990115",
     "section": "pipeline",
-    "dot_anchor": "b2b.esign.package"
+    "dot_anchor": "b2b.esign.package",
+    "steps": [
+      {
+        "anchor": "person.dock.contract",
+        "text": "W panelu osoby kliknij „Umowa →”.",
+        "hint": "Otworzy się zakładka „Umowa” z umową tej osoby."
+      },
+      {
+        "anchor": "b2b.esign.send",
+        "text": "Kliknij „Wyślij do podpisu”.",
+        "hint": "Okno niczego nie wyśle, dopóki nie zaznaczysz potwierdzenia i nie klikniesz „Wyślij”."
+      },
+      {
+        "anchor": "b2b.esign.package",
+        "text": "NDA i inne dokumenty klienta idą razem z umową.",
+        "hint": "Kontraktor podpisuje wszystko pod jednym linkiem, a podpisane NDA samo odhacza się w dokumentach do startu.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-leady-boty",
@@ -2880,7 +3360,20 @@
     "where": "Sprzedaż → Dzwonienie → Kampanie → Bot Listy",
     "href": "/sales/calling",
     "dot_anchor": "sales.calling.bot-lists",
-    "requires_setting": "SALES_BOT_LISTS_ENABLED"
+    "requires_setting": "SALES_BOT_LISTS_ENABLED",
+    "steps": [
+      {
+        "anchor": "sales.calling.campaigns",
+        "text": "Otwórz „Kampanie”",
+        "hint": "Lista kampanii dzwonienia."
+      },
+      {
+        "anchor": "sales.calling.bot-lists",
+        "text": "Bot Listy buduje listę do dzwonienia",
+        "hint": "Opisz, do kogo dzwonimy, a bot złoży listę z bazy i dosypie ją w poniedziałek.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "czat-wszyscy-przypisani",
@@ -2892,6 +3385,7 @@
     "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "talent_community_manager", "admin"] },
     "where": "Rekrutacja → Historia i czat → Czat zespołu (też notatki w panelu osoby)",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?win=history-chat&wintab=chat",
     "section": "pipeline",
     "dot_anchor": "jobs.chat.compose"
   },
@@ -2917,6 +3411,7 @@
     "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "finance", "recruiter", "back_office", "employee", "automation"] },
     "where": "Menu → Firma → Szkolenia",
     "href": "/trainings",
+    "practice_href": "/trainings?tab=recordings",
     "dot_anchor": "trainings.library"
   },
   {
@@ -2939,23 +3434,46 @@
     "tier": "dot",
     "shipped_on": "2026-11-15",
     "audience": { "roles": ["admin", "delivery_lead", "finance"] },
-    "where": "Kontrakty → kontrakt → Szczegóły → Umowa ramowa",
+    "where": "Kontrakty → kontrakt → Pieniądze → Umowa ramowa",
     "href": "/contracts",
     "section": "delivery",
-    "dot_anchor": "contracts.framework-category"
+    "dot_anchor": "contracts.framework-category",
+    "steps": [
+      {
+        "anchor": "contracts.list.row",
+        "text": "Kliknij wiersz kontraktu u klienta z umową ramową.",
+        "hint": "Kliknij poza nazwiskiem — otworzy się panel kontraktu. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "contract.panel.open",
+        "text": "Kliknij „Otwórz kontrakt” w stopce panelu.",
+        "hint": "Pełna karta kontraktu otworzy się na „Przeglądzie”."
+      },
+      {
+        "anchor": "contract.tabs.money",
+        "text": "Kliknij zakładkę „Pieniądze”.",
+        "hint": "Stawki, umowa ramowa, premie i faktury kontraktu są w jednej zakładce."
+      },
+      {
+        "anchor": "contracts.framework-category",
+        "text": "To karta „Umowa ramowa” i przycisk „Kategoria i dopłata”.",
+        "hint": "Kategoria z zamówienia, limit z cennika i czy stawka się mieści. Dopłatę wpisujesz z potwierdzeniem klienta: podnosi limit, nie stawkę.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "raporty-dla-klientow",
     "pr": 3456,
-    "title": "Raporty dla klientów: co, komu i do kiedy",
-    "why": "W Klientach nowy widok „Raporty dla klientów”: terminy raportów z umów w jednym kalendarzu miesiąca. Pobierzesz plik i zapiszesz, że raport poszedł.",
+    "title": "Klienci: jedna lista i „Wymaga uwagi”",
+    "why": "Klienci to jedna lista. Kolumna „Wymaga uwagi” pokazuje raport do przygotowania, wygasłą umowę ramową i relację bez kontaktu. Kliknięcie prowadzi do zakładki klienta.",
     "tier": "dot",
     "shipped_on": "2026-11-15",
     "audience": { "permissions": ["delivery_view"] },
-    "where": "Klienci → Raporty dla klientów",
+    "where": "Klienci → kolumna „Wymaga uwagi”",
     "href": "/clients",
     "section": "delivery",
-    "dot_anchor": "clients.reports"
+    "dot_anchor": "clients.attention"
   },
   {
     "id": "stawki-ramowe-raport-kwartalny",
@@ -2968,7 +3486,30 @@
     "where": "Klienci → klient → Stawki ramowe → Raport kwartalny",
     "href": "/clients",
     "section": "delivery",
-    "dot_anchor": "clients.framework-rates.report"
+    "dot_anchor": "clients.framework-rates.report",
+    "steps": [
+      {
+        "anchor": "clients.list.row",
+        "text": "Kliknij nazwę klienta z umową ramową.",
+        "hint": "Otworzy się karta klienta. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "client.sections.contracts",
+        "text": "Kliknij grupę „Umowy”.",
+        "hint": "Pod nią są umowy i aneksy, stawki i cennik oraz raporty dla klienta."
+      },
+      {
+        "anchor": "client.sections.framework-rates",
+        "text": "Kliknij „Stawki i cennik”.",
+        "hint": "Tabela stawek z umowy pokazuje się, gdy klient ma wgrany cennik umowy ramowej."
+      },
+      {
+        "anchor": "clients.framework-rates.report",
+        "text": "To „Raport kwartalny”.",
+        "hint": "Kto jest w stawce z umowy, kto dzięki dopłacie, kto ponad i co daje umowa. Excel dla klienta pobierzesz bez marży.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "doplata-wniosek-zna-korzysta",
@@ -2978,10 +3519,33 @@
     "tier": "dot",
     "shipped_on": "2026-11-15",
     "audience": { "roles": ["admin", "delivery_lead", "finance"] },
-    "where": "Kontrakty → kontrakt → Umowa ramowa → Technologie premium",
+    "where": "Kontrakty → kontrakt → Pieniądze → Umowa ramowa → Technologie premium",
     "href": "/contracts",
     "section": "delivery",
-    "dot_anchor": "contracts.premium-skills"
+    "dot_anchor": "contracts.premium-skills",
+    "steps": [
+      {
+        "anchor": "contracts.list.row",
+        "text": "Kliknij wiersz kontraktu u klienta z umową ramową.",
+        "hint": "Kliknij poza nazwiskiem — otworzy się panel kontraktu. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "contract.panel.open",
+        "text": "Kliknij „Otwórz kontrakt” w stopce panelu.",
+        "hint": "Pełna karta kontraktu otworzy się na „Przeglądzie”."
+      },
+      {
+        "anchor": "contract.tabs.money",
+        "text": "Kliknij zakładkę „Pieniądze”.",
+        "hint": "Stawki, umowa ramowa, premie i faktury kontraktu są w jednej zakładce."
+      },
+      {
+        "anchor": "contracts.premium-skills",
+        "text": "To „Oceń i złóż wniosek” w „Technologiach premium z umowy”.",
+        "hint": "NEXUS pokazuje, czy osoba zna i korzysta z technologii z umowy. Sekcja stoi w karcie „Umowa ramowa”, gdy umowa ma dopłaty.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "nowa-osoba-przechodzi-poligon",
@@ -3005,6 +3569,7 @@
     "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "talent_community_manager", "admin"] },
     "where": "Rekrutacja → Tablica → fakt „Rekruter” w nagłówku → Kto ilu dodał",
     "href": "/jobs",
+    "practice_href": "/jobs/990001",
     "section": "pipeline",
     "dot_anchor": "job.recruiter-team"
   },
@@ -3018,7 +3583,528 @@
     "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead", "finance", "talent_community_manager"] },
     "where": "Pulpit → Aktywność rekrutacyjna → Wyniki osób",
     "href": "/dashboard",
-    "dot_anchor": "dashboard.team-table.fullscreen"
+    "practice_href": "/insights?tab=raporty&report=aktywnosc-zespolu",
+    "dot_anchor": "dashboard.team-table.fullscreen",
+    "steps": [
+      {
+        "anchor": "insights.team-activity.added",
+        "text": "To kolumna „Dodani do rekrutacji”.",
+        "hint": "Ile osób każdy dodał do rekrutacji, także już będących w bazie. Na pulpicie to samo w „Dodali dziś” i „Dodali 7 dni”.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "porcja-kogo-szukamy",
+    "pr": 3526,
+    "title": "Porcja dnia: „Kogo szukamy” i czego nie proponować",
+    "why": "Nad kartą: kogo szuka rekrutacja i jakich ról system w niej nie proponuje — „Popraw” zmienia to od razu. Przy „Inna rola” wybierasz, co nie gra (1–8).",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": { "roles": ["recruiter"] },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia → Kogo szukamy → Popraw",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.role-profile",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
+    "id": "aneks-stawki-zmienia-zamowienie",
+    "pr": 3504,
+    "title": "Aneks stawki klienta zmienia też zamówienie",
+    "why": "Nowa stawka klienta z aneksu wchodzi do trwającego zamówienia od dnia aneksu. Okno „Zmiana stawki” pokazuje to przed zapisem. Wcześniejsze miesiące zostają po starej stawce.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": { "permissions": ["amounts_edit"] },
+    "where": "Kontrakty → kontrakt → Aneksy → Dodaj aneks → Zmiana stawki",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contract.amendments.rate-change",
+    "steps": [
+      {
+        "anchor": "contracts.list.row",
+        "text": "Kliknij wiersz dowolnego kontraktu.",
+        "hint": "Kliknij poza nazwiskiem — otworzy się panel kontraktu. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "contract.panel.open",
+        "text": "Kliknij „Otwórz kontrakt” w stopce panelu.",
+        "hint": "Pełna karta kontraktu otworzy się na „Przeglądzie”."
+      },
+      {
+        "anchor": "contract.tabs.amendments",
+        "text": "Kliknij zakładkę „Aneksy”.",
+        "hint": "Przedłużenia, zmiany stawki i zakresu kontraktu. Nic tu nie zapiszesz."
+      },
+      {
+        "anchor": "contract.amendments.rate-change",
+        "text": "Tu jest „Dodaj aneks”, a w nim „Zmiana stawki”.",
+        "hint": "Okno pokaże przed zapisem, że nowa stawka klienta wejdzie do trwającego zamówienia od dnia aneksu. Wcześniejsze miesiące zostają.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "kontakty-klienta-szukaj",
+    "title": "Szukanie i kopiowanie w kontaktach klienta",
+    "why": "Pole szukania: nazwisko, kawałek e-maila, telefonu albo stanowiska, polskie znaki opcjonalne. Przy e-mailu i telefonie ikona „kopiuj” jak u kandydatów. Tabela mieści się na ekranie laptopa.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Klienci → klient → Kontakty klienta",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "clients.contacts.search",
+    "steps": [
+      {
+        "anchor": "clients.list.row",
+        "text": "Kliknij nazwę dowolnego klienta.",
+        "hint": "Otworzy się karta klienta. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "client.sections.people",
+        "text": "Kliknij grupę „Ludzie”.",
+        "hint": "Otworzą się „Kontakty i relacje”."
+      },
+      {
+        "anchor": "clients.contacts.search",
+        "text": "To pole szukania w kontaktach klienta.",
+        "hint": "Nazwisko, kawałek e-maila, telefonu albo stanowiska; polskie znaki opcjonalne. Przy e-mailu i telefonie jest ikona „kopiuj”.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "lata-w-punkcie-1-i-daty-stanowisk",
+    "pr": 3544,
+    "title": "Lata w punkcie 1 i daty stanowisk w „Do poprawy”",
+    "why": "Widzisz, z których ról wyszły lata w punkcie 1 i ile daje cały staż. Przy różnicy ponad roku wpiszesz „N lat w IT, w tym M jako X” albo zostawisz liczbę. Są też uwagi o datach ról.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → CV do klienta → Otwórz i popraw → Do poprawy",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv-editor.tenure-split"
+  },
+  {
+    "id": "gotowe-cv-z-nowa-zgoda",
+    "pr": 3548,
+    "title": "Gotowe CV z nową zgodą RODO",
+    "why": "Gotowe CV z innej rekrutacji PKO BP użyjesz bez generowania nowego: wgraj w pasku zrzut zgody do tej rekrutacji i kliknij „Użyj tego CV z nową zgodą”. Treść zostaje.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → osoba → CV do klienta → Ta osoba ma już gotowe CV",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv.ready-cv-new-consent"
+  },
+  {
+    "id": "kontrakty-jedna-lista",
+    "pr": 3574,
+    "title": "Kontrakty: jedna lista z szybkimi filtrami",
+    "why": "Kontrakty to jedna lista. Pigułki „Do uzupełnienia”, „Aktywne”, „Kończące się” i „Wszystkie” mają liczniki, a szkic uzupełnisz albo aktywujesz wprost z wiersza.",
+    "tier": "dot",
+    "shipped_on": "2026-11-18",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Kontrakty → szybkie filtry nad listą",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contracts.quick-filters"
+  },
+  {
+    "id": "kontrakty-lista-co-dalej",
+    "pr": 3672,
+    "title": "Kontrakty: „Co dalej” w wierszu, grupy klientów i odejścia na osi czasu",
+    "why": "Wiersz mówi, co zrobić: koniec zamówienia, odejście, nierozwiązana umowa. „Grupuj: klient” zbiera osoby pod klientem, a „Kończące się” pokazuje odejścia do domknięcia i oś czasu.",
+    "tier": "tour",
+    "shipped_on": "2026-11-20",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Kontrakty → lista i pigułka „Kończące się”",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contracts.list.next",
+    "steps": [
+      {
+        "anchor": "contracts.list.next",
+        "text": "Kolumna „Co dalej” mówi, co trzeba zrobić przy osobie.",
+        "hint": "Te same progi co pas na kontrakcie: zamówienie w 60 dni (czerwone do 14), odejście, nierozwiązana umowa, brak stawki.",
+        "ack": true
+      },
+      {
+        "anchor": "contracts.group-by-client",
+        "text": "Kliknij „Grupuj: klient”.",
+        "hint": "Nagłówek grupy pokazuje liczbę osób, marżę miesięczną i kto odchodzi albo startuje. Drugi klik wraca do zwykłej listy."
+      },
+      {
+        "anchor": "contracts.ending-pill",
+        "text": "Kliknij pigułkę „Kończące się”.",
+        "hint": "Odejścia do domknięcia: ostatni dzień, powód, czy umowa B2B jest rozwiązana i co się nie zgadza z zamówieniem."
+      },
+      {
+        "anchor": "contracts.ending.timeline",
+        "text": "Kliknij „Oś czasu”.",
+        "hint": "Kto odchodzi kiedy, w grupach po miesiącu. Przerywany pasek to zamówienie klienta trwające po odejściu."
+      }
+    ]
+  },
+  {
+    "id": "klient-konsultanci",
+    "pr": 3584,
+    "title": "Klient: zakładka Konsultanci",
+    "why": "Kto u klienta pracuje, na jakiej umowie i do kiedy ma zamówienie — w jednym wierszu. „Wymaga uwagi” pokazuje brak zamówienia, koniec bez kontynuacji i wypowiedzenie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-18",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Klienci → klient → Konsultanci",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "client.consultants"
+  },
+  {
+    "id": "profil-championa-co-sie-zmienilo",
+    "pr": 3551,
+    "title": "Co się zmieniło w Profilu Championa",
+    "why": "Gdy DL zmieni profil rekrutacji, w której szukasz, na górze Briefu zobaczysz, co się zmieniło i na co klient kładzie nacisk. Historia zostaje w zakładce „Zmiany”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → Profil Championa → Brief",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?tab=champion",
+    "section": "pipeline",
+    "dot_anchor": "champion.changes.seen",
+    "steps": [
+      {
+        "anchor": "champion.changes.seen",
+        "text": "Na górze Briefu widzisz, co DL zmienił w profilu.",
+        "hint": "„Przeczytane” zwija kartę do jednej linii. Całą historię zmian znajdziesz w zakładce „Zmiany”.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "klient-profil-w-grupach",
+    "title": "Profil klienta w ośmiu grupach",
+    "why": "Wszystko o kliencie jest pod nim: umowy, stawki i raporty w „Umowach”, faktury w „Rozliczeniach”, kontakty w „Ludziach”. Przegląd pokazuje umowę, raport, rozliczenie i kluczowe osoby.",
+    "tier": "dot",
+    "shipped_on": "2026-11-18",
+    "audience": {
+      "permissions": [
+        "delivery_view"
+      ]
+    },
+    "where": "Klienci → klient",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "client.sections"
+  },
+  {
+    "id": "finanse-jeden-modul",
+    "title": "Finanse i Księga w jednym module",
+    "why": "Księgowość jest teraz grupą „Księga” w Finansach. Widoki są w grupach: Przegląd, Przychody, Zamówienia, Koszty, Księga, Raporty, Ustawienia. Plan kont jest jeden.",
+    "tier": "dot",
+    "shipped_on": "2026-11-18",
+    "audience": {
+      "permissions": [
+        "finance_module",
+        "orders_work"
+      ]
+    },
+    "where": "Finanse",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "finance.sections"
+  },
+  {
+    "id": "stawka-z-dokumentu",
+    "pr": 3607,
+    "title": "Stawka z umowy i aneksu sprawdzana w kontrakcie",
+    "why": "NEXUS czyta umowy i aneksy kontraktu. Gdy dokument podaje inną stawkę niż kontrakt, kontrakt pokazuje kartę z cytatem i „Wprowadź do harmonogramu”, a lista pigułkę „Stawka z dokumentu”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-19",
+    "audience": {
+      "permissions": [
+        "delivery_view"
+      ]
+    },
+    "where": "Kontrakty → pigułka „Stawka z dokumentu”",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contracts.rate-document"
+  },
+  {
+    "id": "rekrutacja-dodana-termin-w-naglowku",
+    "pr": 3614,
+    "title": "Data dodania i termin w nagłówku rekrutacji",
+    "why": "Obok trybu pracy widzisz, kiedy rekrutację dodano i do kiedy klient czeka: „18.11 → 23.11 · za 4 dni”. Po terminie końcówka jest czerwona, pełne daty są w dymku.",
+    "tier": "dot",
+    "shipped_on": "2026-11-19",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → nagłówek, za trybem pracy",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001",
+    "section": "pipeline",
+    "dot_anchor": "job.header-dates",
+    "steps": [
+      {
+        "anchor": "job.header-dates",
+        "text": "Tu widzisz datę dodania rekrutacji i termin od klienta.",
+        "hint": "Czerwona końcówka znaczy, że termin minął. Najedź, żeby zobaczyć pełne daty z godziną.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "klient-piec-sekcji",
+    "title": "Klient: pięć sekcji i Przegląd zaczynający się od spraw",
+    "why": "Profil klienta ma pięć sekcji: Przegląd, Nasi ludzie, Rekrutacje, Ludzie klienta, Umowa i pieniądze. Przegląd zaczyna się listą „Wymaga uwagi” zebraną ze wszystkich zakładek.",
+    "tier": "dot",
+    "shipped_on": "2026-11-19",
+    "audience": {
+      "permissions": [
+        "delivery_view"
+      ]
+    },
+    "where": "Klienci → klient → Przegląd",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "client.overview.attention"
+  },
+  {
+    "id": "klient-konsultanci-os-czasu",
+    "title": "Konsultanci klienta: filtry w jednym rzędzie i oś czasu",
+    "why": "„Kończy się DD.MM” pokazuje, gdy wiele zamówień kończy się tego samego dnia, a „Oś czasu” rysuje okresy zamówień. Projekty bez przypisanego rekrutera stoją na górze listy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-19",
+    "audience": {
+      "permissions": [
+        "delivery_view"
+      ]
+    },
+    "where": "Klienci → klient → Nasi ludzie → Konsultanci",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "client.consultants.view"
+  },
+  {
+    "id": "klienci-stan-z-faktow",
+    "title": "Klienci: stan współpracy liczy się sam",
+    "why": "Zamiast zakładek „Aktywni / Relacyjni / Nieaktywni” lista pokazuje „Współpracujemy”, gdy pracuje u nich ktoś od nas albo trwa rekrutacja. W wierszu: ludzie, rekrutacje, umowa i DL.",
+    "tier": "dot",
+    "shipped_on": "2026-11-19",
+    "audience": {
+      "permissions": [
+        "delivery_view"
+      ]
+    },
+    "where": "Klienci → Współpracujemy / Bez bieżącej pracy / Archiwum",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "clients.states"
+  },
+  {
+    "id": "koszt-zamowienia-w-czesciach",
+    "pr": 3615,
+    "title": "Koszt zamówienia od dnia zmiany stawki Partnera",
+    "why": "Gdy stawka Partnera zmienia się w trakcie zamówienia, koszt liczy się częściami od dnia zmiany. Zakończone zamówienia ze starym kosztem trafiają na listę „Do korekty po zmianie stawki”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-19",
+    "audience": {
+      "permissions": [
+        "finance_module"
+      ]
+    },
+    "where": "Finanse → Rozjazdy stawek → Do korekty po zmianie stawki",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "finance.rate-divergences"
+  },
+  {
+    "id": "jeden-slownik-powodow-zamkniecia",
+    "title": "Jedna lista powodów zamknięcia procesu",
+    "why": "Ta sama lista powodów w każdej kolumnie. Nowe: „Projekt zamknięty / przetarg przegrany”, „Wysłany po terminie”, „Dostępna za późno / wypowiedzenie” — rzadziej „Inne” z opisem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → Odrzuć z powodem → Powód",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "rejection.close-reasons"
+  },
+  {
+    "id": "rezygnacja-w-oknie-zamknij-proces",
+    "title": "Rezygnacja w tym samym oknie co odrzucenie",
+    "why": "„Kto kończy?” ma trzecią odpowiedź: „Kandydat rezygnuje”. Karta idzie wtedy na „Zrezygnował”, a powody są te same co przy odrzuceniu. Przycisk „Zrezygnował” otwiera to okno.",
+    "tier": "dot",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → Odrzuć z powodem → Kto kończy? → Kandydat rezygnuje",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "rejection.who-candidate"
+  },
+  {
+    "id": "kontrakt-co-sie-dzieje-7-zakladek",
+    "pr": 3639,
+    "title": "Kontrakt: „Co się dzieje” na górze i 7 zakładek",
+    "why": "Pod nagłówkiem kontraktu stoi, co trzeba zrobić: koniec współpracy, kończące się zamówienie, zaległa rozmowa — z przyciskiem. Notatki są teraz w „Opiece”, a faktury w „Pieniądzach”.",
+    "tier": "tour",
+    "shipped_on": "2026-11-20",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Kontrakty → kontrakt",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contract.tabs",
+    "steps": [
+      {
+        "anchor": "contracts.list.row",
+        "text": "Kliknij wiersz dowolnego kontraktu.",
+        "hint": "Kliknij poza nazwiskiem — otworzy się panel kontraktu. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "contract.panel.open",
+        "text": "Kliknij „Otwórz kontrakt” w stopce panelu.",
+        "hint": "Gdy coś czeka na ruch, stoi pod nagłówkiem w pasie „Co się dzieje”, z przyciskiem: koniec współpracy, zamówienie, rozmowa."
+      },
+      {
+        "anchor": "contract.tabs",
+        "text": "Zakładek jest 7 zamiast 10.",
+        "hint": "Notatki są w „Opiece i rozmowach”, faktury i historia stawek w „Pieniądzach”, sprzęt w „Starcie i sprzęcie”.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "klient-rozliczenie-kroki",
+    "pr": null,
+    "title": "Rozliczenie miesiąca w czterech krokach",
+    "why": "Karta „Rozliczenie” w Przeglądzie klienta pokazuje poprzedni miesiąc krokami: RCP, do faktury, KSeF, zapłata. „Brak danych o zapłacie” to brak wyciągów, a nie zaległość.",
+    "tier": "dot",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "roles": [
+        "admin",
+        "delivery_lead",
+        "finance"
+      ]
+    },
+    "where": "Klienci → klient → Przegląd → Rozliczenie",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "client.overview.settlement",
+    "steps": [
+      {
+        "anchor": "clients.list.row",
+        "text": "Kliknij nazwę klienta, u którego pracują nasi ludzie.",
+        "hint": "Otworzy się Przegląd klienta. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "client.overview.settlement",
+        "text": "To rozliczenie poprzedniego miesiąca w czterech krokach.",
+        "hint": "Szczegół kroku pokaże dymek, cały miesiąc „Faktury”. „Po terminie” pojawia się tylko z dowodem z wyciągów rachunku.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "kontrakt-dokumenty-i-aneksy-nowy-uklad",
+    "pr": 3659,
+    "title": "Kontrakt: dokumenty w grupach, aneksy na osi dat",
+    "why": "Dokumenty zaczynają się od kart „Obowiązuje teraz” (umowa, ostatni aneks, zamówienie), a pliki są w grupach po rodzaju. Zmiana stawki, zakresu i przedłużenie są w jednym menu „Dodaj aneks”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-20",
+    "audience": { "permissions": ["amounts_view"] },
+    "where": "Kontrakty → kontrakt → Dokumenty i Aneksy",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contract.tabs.documents",
+    "steps": [
+      {
+        "anchor": "contracts.list.row",
+        "text": "Kliknij wiersz dowolnego kontraktu.",
+        "hint": "Kliknij poza nazwiskiem — otworzy się panel kontraktu. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "contract.panel.open",
+        "text": "Kliknij „Otwórz kontrakt” w stopce panelu.",
+        "hint": "Pełna karta kontraktu otworzy się na „Przeglądzie”."
+      },
+      {
+        "anchor": "contract.tabs.documents",
+        "text": "Kliknij zakładkę „Dokumenty”.",
+        "hint": "Na górze karty „Obowiązuje teraz” do pobrania, niżej pliki w grupach po rodzaju i foldery."
+      },
+      {
+        "anchor": "contract.tabs.amendments",
+        "text": "Aneksy stoją teraz na osi dat wejścia w życie.",
+        "hint": "Zmiana stawki, zakresu, przedłużenie i dokument aneksu są w jednym menu „Dodaj aneks”.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "nie-szuka-data-kazda-karta",
+    "pr": 3621,
+    "title": "„Nie szuka pracy”: wybierz, do kiedy",
+    "why": "Przy „Nie szuka pracy” wybierasz 3 miesiące, 6 miesięcy, rok albo datę — przy każdej karcie, nie tylko od systemu. Do tej daty profil ma „Nie szuka”, a system nie podsuwa tej osoby.",
+    "tier": "dot",
+    "shipped_on": "2026-11-19",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → Odrzuć z powodem → Nie szuka pracy lub niezainteresowany",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "rejection.not-looking"
   },
   {
     "id": "dodatki-do-rozliczenia-kontraktora",
@@ -3026,7 +4112,7 @@
     "title": "Dodatki do faktury kontraktora",
     "why": "Polecenie, weryfikacja, szkolenie albo delegacja w miesiącu. Zgłasza back office, konsultant albo Finanse; zatwierdzony dodatek podnosi fakturę kontraktora, zaznaczony też fakturę klienta.",
     "tier": "dot",
-    "shipped_on": "2026-11-16",
+    "shipped_on": "2026-11-22",
     "audience": { "roles": ["finance", "admin"] },
     "where": "Klienci → klient → Rozliczenia → osoba → Dodatki do faktury",
     "href": "/clients",

@@ -21,8 +21,9 @@
   odpowiedzialność za usługi z zał. 16, np. PKWiU 62.01; jej nie ma przy
   zapłacie w MPP). Bez XML-a kosztów nie znamy PKWiU, więc to tylko wskazówka.
 * **Obciążenie z wyciągu** → wpis: numer KSeF w tytule, potem numer faktury
-  (całym słowem albo pole ``/INV/``), potem pozycja paczki (ten sam rachunek
-  i kwota). Kwota równa pozostałej = zapłacona; mniejsza przy wskazanej
+  (całym słowem albo pole ``/INV/``; wspólny numer wielu dostawców
+  rozstrzyga rachunek, NIP z ``/IDC/`` albo nazwa odbiorcy), potem pozycja
+  paczki (ten sam rachunek i kwota). Kwota równa pozostałej = zapłacona; mniejsza przy wskazanej
   fakturze = częściowa; większa, faktura opłacona albo kilka pasujących =
   „do sprawdzenia”.
 """
@@ -30,6 +31,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date
@@ -46,6 +48,7 @@ from app.services.hr.bank.titles import (
     MAX_LINES,
     clean,
     ksef_numbers_in,
+    number_in_title,
 )
 
 ZERO = Decimal("0.00")
@@ -290,6 +293,10 @@ class CostCandidate:
     #: Kwota aktywnej pozycji paczki (``None`` = poza paczką).
     batch_amount: Optional[Decimal] = None
     batch_account: Optional[str] = None
+    #: NIP i nazwa sprzedawcy — rozstrzygają numer faktury wspólny dla wielu
+    #: dostawców, gdy rachunku odbiorcy nie znamy (faktury z KSeF go nie mają).
+    seller_nip: Optional[str] = None
+    seller_name: Optional[str] = None
 
     @property
     def remaining(self) -> Decimal:
@@ -310,14 +317,13 @@ class DebitDecision:
 
 
 _MPP_INV = re.compile(r"/INV/\s*([^/]+?)\s*(?:/|$)", re.IGNORECASE)
-
-
-def _number_pattern(number: str) -> Optional[re.Pattern[str]]:
-    parts = number.split()
-    if not parts:
-        return None
-    body = r"\s*".join(re.escape(part) for part in parts)
-    return re.compile(r"(?<![0-9A-Za-z])" + body + r"(?![0-9A-Za-z])", re.IGNORECASE)
+_MPP_IDC = re.compile(r"/IDC/\s*(\d{10})\s*/", re.IGNORECASE)
+_WORD = re.compile(r"[a-z]{3,}")
+#: Forma prawna i słowa z nazw wielu firm — nie odróżniają sprzedawców.
+_NAME_NOISE = frozenset(
+    "spolka akcyjna ograniczona odpowiedzialnoscia komandytowa jawna cywilna "
+    "firma uslugi uslugowa consulting konsulting services group polska".split()
+)
 
 
 def _number_in_title(
@@ -327,8 +333,33 @@ def _number_in_title(
         return False
     if mpp_number and " ".join(number.split()).lower() == mpp_number.lower():
         return True
-    pattern = _number_pattern(number)
-    return bool(pattern and pattern.search(title))
+    return number_in_title(number, title)
+
+
+def _shadowed(found: CostCandidate, others: Sequence[CostCandidate]) -> bool:
+    """Numer zawarty w dłuższym numerze, który też jest w tytule („1/10/2026”
+    w „FV/1/10/2026”) — tytuł wskazuje dłuższy."""
+
+    mine = " ".join((found.invoice_number or "").split()).lower()
+    return any(
+        mine != theirs and mine in theirs
+        for theirs in (
+            " ".join((other.invoice_number or "").split()).lower() for other in others
+        )
+    )
+
+
+def _name_words(name: Optional[str]) -> set[str]:
+    plain = unicodedata.normalize("NFKD", (name or "").lower())
+    text = "".join(ch for ch in plain if not unicodedata.combining(ch))
+    return set(_WORD.findall(text.replace("ł", "l"))) - _NAME_NOISE
+
+
+def _same_seller(found: CostCandidate, counterparty_name: str) -> bool:
+    """Co najmniej dwa słowa nazwy sprzedawcy w nazwie odbiorcy przelewu
+    (imię i nazwisko jednoosobowej firmy) — jedno słowo to za mało."""
+
+    return len(_name_words(found.seller_name) & _name_words(counterparty_name)) >= 2
 
 
 def _settle(
@@ -384,16 +415,33 @@ def decide_debit(
         and _number_in_title(c.invoice_number, title, mpp_number)
     ]
     if by_number:
+        by_number = [c for c in by_number if not _shadowed(c, by_number)]
         # Numery faktur powtarzają się u różnych dostawców — rozstrzyga rachunek
-        # odbiorcy, a bez niego kwota równa pozostałej do zapłaty.
-        if account:
-            same_account = [c for c in by_number if account in c.accounts]
-            if same_account:
-                by_number = same_account
+        # odbiorcy, potem NIP sprzedawcy z pola /IDC/ (MPP), a w zwykłym
+        # przelewie nazwa odbiorcy; bez nich kwota równa pozostałej do zapłaty.
+        # Rachunek i NIP potwierdzają dostawcę, więc pozwalają na zapłatę
+        # częściową (np. potrącenie z faktury); sama nazwa tylko zawęża.
+        idc = _MPP_IDC.search(title)
+        nip = idc.group(1) if idc else None
+        confirmed = False
+        same_account = (
+            [c for c in by_number if account in c.accounts] if account else []
+        )
+        same_nip = [c for c in by_number if nip and c.seller_nip == nip]
+        same_name = (
+            [c for c in by_number if _same_seller(c, line.counterparty_name)]
+            if nip is None
+            else []
+        )
+        if same_account:
+            by_number, confirmed = same_account, True
+        elif same_nip:
+            by_number, confirmed = same_nip, True
+        elif same_name:
+            by_number = same_name
         open_ = [c for c in by_number if c.remaining > ZERO] or by_number
         if len(open_) == 1:
             found = open_[0]
-            confirmed = bool(account and account in found.accounts)
             return _settle(found, amount, title, "invoice_number", partial_ok=confirmed)
         fitting = [c for c in open_ if c.remaining == amount]
         if len(fitting) == 1:

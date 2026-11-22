@@ -29,7 +29,7 @@ Reguła: ``docs/claude/rekrutacja-tablica/odejscie-rekrutera-opieka-delivery-lea
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -655,7 +655,13 @@ async def open_care(
     departed_id: Optional[int] = None,
     pairs: Optional[list[tuple[int, int]]] = None,
     job_id: Optional[int] = None,
+    job_ids: Optional[Sequence[int]] = None,
 ) -> list[CareRow]:
+    """Opieka nad parami osób, które odeszły — filtry łączone przez AND.
+
+    ``job_ids`` — kilka Tablic naraz („Moje następne kroki”); wołający dzieli
+    wiersze po ``CareRow.job_id``. Pusta lista = nic (bez zapytania).
+    """
     clauses: list[str] = []
     params: dict[str, Any] = {}
     if caretaker_id is not None:
@@ -667,6 +673,11 @@ async def open_care(
     if job_id is not None:
         clauses.append("d.job_id = :job")
         params["job"] = job_id
+    if job_ids is not None:
+        if not job_ids:
+            return []
+        clauses.append("d.job_id = ANY(CAST(:jobs AS int[]))")
+        params["jobs"] = sorted({int(j) for j in job_ids})
     if pairs is not None:
         if not pairs:
             return []

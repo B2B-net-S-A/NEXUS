@@ -74,6 +74,7 @@ import {
 } from "@/components/v2/screening/ScreeningForm";
 import { ScreeningSuggestionChips } from "@/components/v2/screening/ScreeningSuggestionChips";
 import { VerifiedRateFields } from "@/components/v2/screening/VerifiedRateFields";
+import { ClientFormScreeningAsks } from "@/components/v2/screening-form/ClientFormScreeningAsks";
 import { ScreeningProfileFields } from "@/components/v2/screening-form/ScreeningProfileFields";
 import { useCapability } from "@/hooks/useCapability";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
@@ -1106,6 +1107,8 @@ export function ScreeningFullFormView({
           )}
         </section>
 
+        {state.stage_id != null ? <ClientFormScreeningAsks stageId={state.stage_id} /> : null}
+
         {/* ── Ocena ───────────────────────────────────────────────────── */}
         <section aria-label="Ocena" className="space-y-3">
           <SectionTitle>Ocena</SectionTitle>
@@ -1172,6 +1175,8 @@ export interface ScreeningFullFormProps {
         previousCategory: "internal" | "external";
         /** Osoba od systemu (23.10.2026) — okno pyta o powód dla systemu. */
         autofill?: { rateKnown: boolean; several: boolean } | null;
+        /** Z „Nowych”/„Screeningu” — lista powodów okna także przy karcie ręcznej. */
+        decisionColumn?: boolean;
       })
     | null;
   /** Panel osoby (13.10.2026): po udanym „Odrzuć” panel pokazuje następną
@@ -1573,6 +1578,7 @@ export function ScreeningFullForm({
       workMode?: RejectionWorkModeChoice | null;
       autofill?: AutofillFeedbackChoice | null;
       rate?: RejectionRateChoice | null;
+      notLookingUntil?: string | null;
     }) => {
       if (!reject || !state) throw new Error("Brak etapu docelowego.");
       return moveCore.send(
@@ -1591,6 +1597,7 @@ export function ScreeningFullForm({
           work_mode_save_to_profile: vars.workMode?.saveToProfile,
           ...autofillMoveFields(vars.autofill),
           ...rejectionRateMoveFields(vars.rate),
+          not_looking_until: vars.notLookingUntil ?? undefined,
           candidate_offer_response: vars.offerResponse ?? undefined,
           expected_state_version: state.process_state_version,
         },
@@ -1855,6 +1862,7 @@ export function ScreeningFullForm({
           profileWorkMode={rejectProfileWorkMode}
           profileRate={rejectProfileRate}
           autofill={reject.autofill ?? null}
+          decisionColumn={reject.decisionColumn ?? false}
           onConfirm={(
             reasonId,
             notes,
@@ -1867,6 +1875,8 @@ export function ScreeningFullForm({
             workMode,
             autofill,
             rate,
+            _meetings,
+            notLookingUntil,
           ) =>
             rejectMut.mutate({
               reasonId,
@@ -1879,6 +1889,7 @@ export function ScreeningFullForm({
               workMode,
               autofill,
               rate,
+              notLookingUntil,
             })
           }
         />

@@ -19,8 +19,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const metadataBase = careerMetadataBase(await headers());
   return {
     ...(metadataBase ? { metadataBase } : {}),
-    title: { default: "Kariera — B2B Network", template: "%s — B2B Network" },
-    description: "Rekrutacje IT prowadzone przez zespół B2B Network (B2B.NET S.A.).",
+    title: { default: "Kariera — B2Bnetwork", template: "%s — B2Bnetwork" },
+    description: "Rekrutacje IT prowadzone przez zespół B2Bnetwork (B2B.NET S.A.).",
     robots: { index: true, follow: true },
   };
 }

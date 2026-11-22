@@ -63,8 +63,8 @@ class NotificationType(str, enum.Enum):
     # delivery_lead/head_of_recruitment/admin (migracja 0056).
     pending_verification = "pending_verification"
     # Job Chat — wewnętrzny czat zespołu per rekrutacja (migracja 0061).
-    # `job_chat_message` — każda nowa wiadomość → notyfikacja dla każdego
-    # członka projektu poza autorem.
+    # `job_chat_message` — każda nowa wiadomość → notyfikacja dla każdej
+    # osoby przypisanej do rekrutacji poza autorem (`list_job_assigned_ids`).
     # `job_chat_mention` — bezpośrednie @mention; wyższy priorytet w UI.
     job_chat_message = "job_chat_message"
     job_chat_mention = "job_chat_mention"
@@ -472,6 +472,18 @@ class NotificationType(str, enum.Enum):
     # kategoria „Raporty dla klientów”, bez maila.
     # ``tasks/client_report_reminders.py``.
     client_report_due = "client_report_due"
+    # 0727 (16.11.2026): nowy wpis w KRS spółki (odpis pełny co noc) — do Rady
+    # nadzorczej i adminów; related_entity=(board_krs_snapshot, id). Sekcja
+    # Insights (Rada ma tylko ją), kategoria „Systemowe”. ``tasks/board_krs.py``.
+    board_krs_entry = "board_krs_entry"
+    # 0735 (18.11.2026): Zarząd zamroził pakiet na posiedzenie Rady — do Rady
+    # i adminów; related_entity=(board_meeting, id). Sekcja Insights,
+    # kategoria „Systemowe”. ``services/board/meetings.py``.
+    board_meeting_pack = "board_meeting_pack"
+    # 0736 (18.11.2026): uchwała Rady w trybie pisemnym — projekt do głosu
+    # (do członków Rady) i wynik (Rada i admini); related_entity=(board_vote, id).
+    # Sekcja Insights, kategoria „Systemowe”. ``services/board/votes.py``.
+    board_vote = "board_vote"
 
 
 class Notification(Base, TimestampMixin):

@@ -24,7 +24,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from sqlalchemy import Boolean, bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -233,6 +233,9 @@ class InvoiceRow:
     net_amount: Decimal
     #: Data sprzedaży z faktury — dzień kursu NBP przy przeliczaniu obrotu.
     sale_date: Optional[date] = None
+    #: Pozycje z KSeF (ilość, cena przed rabatem, netto) — obrót rabatu
+    #: liczy się z usług przed rabatem (``client_invoicing.rebate.service_base``).
+    items: tuple[dict[str, Any], ...] = ()
 
     @property
     def is_correction(self) -> bool:
@@ -246,7 +249,7 @@ _INVOICES_BY_ISSUE_SQL = text(
     SELECT invoice_number, invoice_type, invoice_kind, issue_date,
            coalesce(make_date(period_year, period_month, 1),
                     date_trunc('month', issue_date)::date) AS service_month,
-           upper(currency), coalesce(net_amount, 0), sale_date
+           upper(currency), coalesce(net_amount, 0), sale_date, items
       FROM client_sales_invoices
      WHERE client_id = :client_id
        AND issue_date BETWEEN :start AND :end
@@ -259,7 +262,7 @@ _INVOICES_BY_SERVICE_SQL = text(
     SELECT invoice_number, invoice_type, invoice_kind, issue_date,
            coalesce(make_date(period_year, period_month, 1),
                     date_trunc('month', issue_date)::date) AS service_month,
-           upper(currency), coalesce(net_amount, 0), sale_date
+           upper(currency), coalesce(net_amount, 0), sale_date, items
       FROM client_sales_invoices
      WHERE client_id = :client_id
        AND coalesce(make_date(period_year, period_month, 1),
@@ -285,7 +288,9 @@ async def sales_invoices(
     sql = _INVOICES_BY_SERVICE_SQL if by_service_month else _INVOICES_BY_ISSUE_SQL
     result = await db.execute(sql, {"client_id": client_id, "start": start, "end": end})
     return [
-        InvoiceRow(r[0], r[1], r[2], r[3], r[4], r[5], Decimal(r[6]), r[7])
+        InvoiceRow(
+            r[0], r[1], r[2], r[3], r[4], r[5], Decimal(r[6]), r[7], tuple(r[8] or ())
+        )
         for r in result.all()
     ]
 

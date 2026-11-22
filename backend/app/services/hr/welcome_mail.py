@@ -61,12 +61,10 @@ DISABLED_DETAIL = (
     "Wysyłka maili powitalnych jest jeszcze wyłączona — to mail do osoby spoza "
     "firmy, więc włącza ją administrator. Podgląd działa."
 )
-NO_MAILBOX_DETAIL = (
-    "Skrzynka administracja@ nie jest ustawiona, więc mail nie ma nadawcy."
-)
+NO_MAILBOX_DETAIL = "Skrzynka wsparcie@ nie jest ustawiona, więc mail nie ma nadawcy."
 SEND_FAILED_DETAIL = "Nie udało się wysłać maila — spróbuj ponownie za chwilę."
 NO_TRANSPORT_DETAIL = (
-    "Wysyłka ze skrzynki administracja@ nie działa: Microsoft 365 dla „Ludzi” jest "
+    "Wysyłka ze skrzynki wsparcie@ nie działa: Microsoft 365 dla „Ludzi” jest "
     "wyłączony albo brak poświadczeń rejestracji. Zgłoś to administratorowi."
 )
 CONTRACT_NOT_FOUND = "Nie ma takiego kontraktu."
@@ -329,7 +327,7 @@ async def draft_for(
         issues.append(
             Issue(
                 "no_pack",
-                "Klient nie ma pakietu „Wejście u klienta” — mail ma tylko datę startu.",
+                "Klient nie ma pakietu „Start u klienta” — mail ma tylko datę startu.",
                 False,
             )
         )

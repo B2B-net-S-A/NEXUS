@@ -21,6 +21,7 @@ admin (403). Dokumenty płacowe (D2) — tylko Płace i admin (404 dla reszty).
 * ``POST /opening/import?year=&save=`` (K2) — bilans otwarcia z pliku
   zestawienia sald Symfonii: podgląd albo zapis BO (lista „Księgowi”, admin),
 * ``GET /bank``, ``POST /bank/import``, ``GET /bank/statements/{id}``,
+  ``DELETE /bank/statements/{id}`` (admin: cofnięcie importu przed WB),
   ``PATCH /bank/lines/{id}``, ``POST /bank/statements/{id}/post`` (K4a, moduł
   „bank”) — jeden import wyciągu (E3, R9/E8 bez zmian ich kodu) i WB w buforze;
   ``PUT /config/bank`` (admin: rachunki firmy i konta reguł),
@@ -30,6 +31,9 @@ admin (403). Dokumenty płacowe (D2) — tylko Płace i admin (404 dla reszty).
   ``POST /exports/{id}/book`` i ``/cancel`` (K3b) — paczka zatwierdzonych
   dokumentów do Symfonii FK; paczkę, „zaksięgowaną” i anulowanie robi lista
   „Księgowi” albo admin, paczkę płacową tylko Płace i admin (D2),
+* ``GET /sources/revenue-accounts``, ``PUT /sources/revenue-accounts/{id}``
+  (18.11.2026, lista „Księgowi” albo admin) — konto przychodu wskazane dla
+  nabywcy bez historii w Symfonii i w księdze,
 * ``GET /sources``, ``POST /sources/sync`` (K2) — faktury kosztowe z dekretem
   E2 i faktury sprzedaży z KSeF jako dokumenty FVZ / FVS w buforze, PK
   rozliczenia kosztów na „5” z MPK; przy otwartym module ``assets`` także
@@ -39,9 +43,11 @@ admin (403). Dokumenty płacowe (D2) — tylko Płace i admin (404 dla reszty).
 * ``GET/POST /documents``, ``GET/PATCH/DELETE /documents/{id}``,
   ``POST /documents/approve``, ``POST /documents/{id}/reverse``,
 * ``GET /trial-balance``, ``GET /accounts/card``,
-* ``GET/POST /chart``, ``PATCH /chart/{id}``.
+* ``GET/POST /chart``, ``PATCH /chart/{id}``, ``POST /chart/import?save=``
+  (plan kont z XML „Model księgowy” Symfonii — dokłada brakujące konta).
 """
 
+import logging
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Literal, Optional
@@ -51,6 +57,7 @@ from fastapi import (
     Depends,
     File,
     HTTPException,
+    Path,
     Query,
     Response,
     UploadFile,
@@ -76,6 +83,7 @@ from app.services.ledger import (
     automations,
     bank,
     chart,
+    chart_import,
     closing,
     documents,
     engine,
@@ -111,10 +119,12 @@ from app.services.ledger_schema import (
     YEAR_MODES,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
 
 AMOUNT_MAX = Decimal("1000000000000")
 ADMIN_ONLY = "To ustawienie zmienia tylko administrator."
+COUNTERPARTY_ID_MAX = 2**31 - 1
 
 
 class LineBody(BaseModel):
@@ -231,6 +241,11 @@ class PrepaymentBody(BaseModel):
     total_amount: Decimal = Field(max_digits=15, decimal_places=2, gt=0)
     start_month: date
     months: int = Field(ge=1, le=MONTHS_MAX)
+
+
+class RevenueChoiceBody(BaseModel):
+    #: Puste = zdejmij wskazanie.
+    account: str = Field(default="", max_length=64)
 
 
 class SourcesSyncBody(BaseModel):
@@ -413,6 +428,13 @@ async def get_config(
     )
     payload = _config_payload(current_user, current, viewer, year_list)
     payload["open"] = open_
+    # Konta z Ustawień, na które moduły już nie zaksięgują (np. po imporcie
+    # planu kont z Symfonii) — karta na ekranie Ustawień.
+    payload["account_problems"] = (
+        ledger_settings.account_problems(current, await ledger_settings.load_plan(db))
+        if open_
+        else []
+    )
     return payload
 
 
@@ -528,6 +550,44 @@ async def get_sources(
         )
     except LedgerError as exc:
         raise _fail(exc) from exc
+
+
+@router.get("/sources/revenue-accounts")
+async def get_revenue_choices(
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, _ = await _context(db, current_user)
+    return {"items": await ledger_settings.revenue_choices(db, current)}
+
+
+@router.put("/sources/revenue-accounts/{counterparty_id}")
+async def set_revenue_choice(
+    body: RevenueChoiceBody,
+    current_user: FinanceModuleUser,
+    counterparty_id: int = Path(ge=1, le=COUNTERPARTY_ID_MAX),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    if not viewer.approver:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Konto przychodu nabywcy wskazuje osoba z listy „Księgowi” "
+            "albo administrator.",
+        )
+    try:
+        current = await ledger_settings.set_revenue_choice(
+            db, counterparty_id, body.account, actor=current_user
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    choice = current.revenue_accounts.get(counterparty_id)
+    return {
+        "counterparty_id": counterparty_id,
+        "account": choice.account if choice else None,
+    }
 
 
 @router.post("/sources/sync")
@@ -850,6 +910,31 @@ async def bank_statement(
         raise _fail(exc) from exc
 
 
+@router.delete("/bank/statements/{statement_id}")
+async def bank_delete(
+    statement_id: int,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, int]:
+    """Cofnięcie importu wyciągu przed WB (administrator) — plik wczytuje się od nowa."""
+
+    _, viewer = await _bank_context(db, current_user)
+    _require_admin(current_user)
+    try:
+        result = await bank.delete_statement(db, statement_id, viewer=viewer)
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    logger.info(
+        "[ledger-bank] wyciąg %s usunięty przez %s: %s",
+        statement_id,
+        current_user.id,
+        result,
+    )
+    return result
+
+
 @router.patch("/bank/lines/{line_id}")
 async def bank_assign(
     line_id: int,
@@ -1004,6 +1089,9 @@ async def import_opening(
     current_user: FinanceModuleUser,
     year: int = Query(ge=years.YEAR_MIN, le=years.YEAR_MAX),
     save: bool = Query(False),
+    basis: Optional[Literal["bo", "saldo"]] = Query(
+        None, description="Kolumny salda, gdy plik ma i BO, i saldo końcowe"
+    ),
     file: UploadFile = File(
         ..., description="Zestawienie sald z Symfonii FK (XLSX albo CSV)"
     ),
@@ -1013,7 +1101,7 @@ async def import_opening(
     _require_approver(viewer)
     content = await file.read(opening.MAX_BYTES + 1)
     try:
-        parsed = opening.parse(content)
+        parsed = opening.parse(content, basis=basis)
     except ImportFileError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     try:
@@ -1315,6 +1403,36 @@ async def create_account(
         raise _fail(exc) from exc
     await db.commit()
     return {"items": await chart.list_chart(db, include_payroll=viewer.payroll)}
+
+
+@router.post("/chart/import")
+async def import_chart(
+    current_user: FinanceModuleUser,
+    save: bool = Query(False),
+    file: UploadFile = File(
+        ..., description="Eksport „Model księgowy” z Symfonii FK (XML)"
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    _require_approver(viewer)
+    content = await file.read(chart_import.MAX_BYTES + 1)
+    try:
+        parsed = chart_import.parse(content)
+    except ImportFileError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    try:
+        summary = await chart_import.apply(
+            db, parsed, save=save, actor_id=current_user.id
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    if save:
+        await db.commit()
+    else:
+        await db.rollback()
+    return summary
 
 
 @router.patch("/chart/{account_id}")

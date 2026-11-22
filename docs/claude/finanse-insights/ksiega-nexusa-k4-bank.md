@@ -40,6 +40,24 @@ dopisuj czwartej ścieżki dopasowania ani kopii logiki E3/R9/E8 w Księdze.
   przełom miesiąca → 422, wgrać miesięczny albo dzienny). Pozycje 0,00
   pomijamy. Bez tego obce waluty i drugi rachunek szły na jedno konto 130-x
   w PLN, a marzec lądował w kwietniu (przegląd 14.11.2026).
+- **Saldo musi się zgadzać** (od 18.11.2026): każdy wyciąg w pliku, który ma
+  oba salda (MT940 `:60F:`/`:60M:` → `:62F:`/`:62M:`, CAMT.053 `OPBD`/`PRCD`
+  → `CLBD`), daje `ParsedStatement.balances`; otwarcie + operacje ≠ saldo
+  końcowe banku → 422 (plik ucięty albo uszkodzony). Wyciąg bez salda
+  końcowego przechodzi bez tej kontroli. Odrzuca tylko Księga — parser i stare
+  ekrany importu (Przelewy, Płace, faktury do klientów) zostają bez zmian.
+  Santander przez eBI24 daje plik `.eMT`: MT940 z nagłówkami SWIFT
+  `{1:}{2:}{4:` … `-}`, trzy części wyciągu dnia, windows-1250 — pola wyboru
+  pliku przyjmują `.emt`. Próbka 06.10.2026: 30/30 operacji, saldo zgodne.
+  Fikstury testów z MT940 do Księgi muszą mieć saldo końcowe zgodne
+  z operacjami (`_mt940_balance` w `test_ledger_sources_db.py`).
+- **Salda i numery wyciągu zostają w bazie** (0742, 19.11.2026): saldo otwarcia
+  i zamknięcia pliku w groszach ze znakiem, ich daty, numer wyciągu banku
+  pierwszej i ostatniej części (`:28C:`) i `credits_matched` (uznania przeszły
+  przez E8). Z nich „po terminie” faktur do klientów liczy ciągłość rachunku
+  (`docs/claude/zamowienia/faktury-do-klientow-z-ksef.md`). Plik, który sam nie
+  jest ciągły, wchodzi jak dotąd, tylko bez sald. Ten sam plik wgrany drugi raz
+  uzupełnia puste salda (wyciągi sprzed 0742) — bez drugiego importu operacji.
 - **Rozpoznanie**, po kolei: duplikat (ten sam rachunek, referencja banku,
   data i kwota w innym wyciągu — dzienny i miesięczny) → wypłata dla zespołu
   **tak jak w E3**: każdy wiersz R9 tego pliku (też „unmatched”/„ignored”)
@@ -84,6 +102,13 @@ dopisuj czwartej ścieżki dopasowania ani kopii logiki E3/R9/E8 w Księdze.
   kont swojej grupy (409) — poprawka to storno dokumentu.
 - Przypisanie i księgowanie idą po kolei (blokada wiersza wyciągu `FOR
   UPDATE`). Duplikatu nie da się przypisać — nie wchodzi do WB.
+- **„Usuń wyciąg”** (`DELETE /bank/statements/{id}`, tylko administrator, od
+  17.11.2026): cofnięcie importu po złym dopasowaniu — znikają linie wyciągu
+  i zapłaty E3/E8 z tego pliku (po skrócie), stan zapłaty faktur kosztowych
+  liczy się od nowa, plik wczytuje się potem od zera. Odmowa (409), gdy wyciąg
+  ma jakikolwiek WB (też po stornie), gdy z pliku są wypłaty R9 albo gdy import
+  zostawił skutek, którego nie odtworzymy (zamknięta pozycja paczki, zapłata
+  eBI24 zastąpiona zapłatą z wyciągu) — to rozstrzygają Finanse.
 - Pełnego rachunku kontrahenta nie trzymamy (tylko cztery ostatnie cyfry, jak
   E3 i R9), a tytuły mają zamaskowane numery rachunków z parsera.
 - Rachunki walutowe (EUR, USD) i kurs NBP operacji — K4c-1
@@ -91,6 +116,31 @@ dopisuj czwartej ścieżki dopasowania ani kopii logiki E3/R9/E8 w Księdze.
   WB z fakturą robią rozrachunki K4b (`ksiega-nexusa-k4b-rozrachunki.md`) —
   WB pamięta w `meta.bank_lines`, która jego pozycja jest którą operacją
   wyciągu (poza odciskiem dokumentu).
+
+## Koszt importu (19.11.2026)
+
+18.11.2026 18:42 jeden import trwał 66,6 s przy 1057 zapytaniach, a jedyny
+proces web stał (`loop_lag_ms_p99` 1111 ms, `/api/health` 12,8 s). Zasady:
+
+- **Numer faktury w tytule tylko przez `hr.bank.titles.number_in_title`.**
+  Wzorzec kompilowany dla każdej pary operacja × faktura (E3 `decide_debit`,
+  E8 `decide_credit`) kosztował ok. 0,2 ms, bo przy tysiącach faktur pamięć
+  podręczna `re` (512 wzorców) nic nie trzyma: 100 obciążeń × 3000 faktur =
+  63,9 s, po zmianie 0,4 s. Helper najpierw sprawdza ciągi cyfr numeru
+  w tytule, a wzorce trzyma w `lru_cache`.
+- **Na operację nie ma zapytań w E3, E8 ani w Księdze.** Duplikat z innego
+  pliku sprawdza jedno zapytanie (`hr.bank.duplicates.seen_elsewhere`), E3
+  zamyka pozycje paczek i liczy `refresh` raz po wszystkich operacjach (kolejne
+  operacje biorą stan faktury z pamięci), kontrahentów faktur sprzedaży Księga
+  czyta jednym zapytaniem. R9 płaci osobno tylko za każde opłacone rozliczenie
+  (`mark_paid`: blokada, status, ślad HR, powiadomienie osoby — ok. 17 zapytań,
+  jak „Opłacono” na karcie).
+- Księga parsuje plik raz, w `asyncio.to_thread`, i podaje E3 i R9 `parsed`
+  oraz `team` (rachunki osób i rozliczenia), które ma już z tego żądania.
+  Stare ekrany importu wołają te funkcje bez nich i liczą je same.
+- Sufit pilnuje `tests/test_ledger_bank_import_query_budget.py` (dwie długości
+  wyciągu, osoba z Płacami i bez), a wynik dopasowania numeru
+  `tests/test_bank_title_number_match.py`.
 
 ## Testy
 

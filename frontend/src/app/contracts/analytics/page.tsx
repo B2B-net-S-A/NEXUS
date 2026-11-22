@@ -1,467 +1,139 @@
 "use client";
 
+// Analityka kontraktów — wariant A z tabelą z wariantu B (decyzja Artura
+// z 19.11.2026, makiety modułu Kontrakty): cztery liczby, „Najbliższe
+// 3 miesiące”, smukła linia prognozy marży, tabela „kto ile przynosi”
+// (Klienci · Konsultanci) i zwinięte rzadsze zestawienia na dole.
+// Źródła danych i bramka „Wyniki firmy” bez zmian; okno 90 dni czyta listę
+// kontraktów tymi samymi filtrami co ekran `/contracts`.
+
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import api, {
-  contractAnalyticsExpansionApi,
-  CONTRACT_TERMINATION_REASONS,
-  type RoleClientMix,
-  type LocationDistribution,
-  type TerminationAnalysis,
-} from "@/lib/api";
-import { formatCurrency } from "@/lib/utils";
-import { countPl } from "@/lib/plural-pl";
+import { AlertTriangle, ArrowLeft } from "lucide-react";
+import api from "@/lib/api";
 import { RequirePermission } from "@/components/RequirePermission";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { resolveViewState, type ViewState } from "@/lib/view-state";
-import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_UNIT } from "@/lib/calm-table";
-import { ArrowLeft, Loader2, AlertTriangle } from "lucide-react";
+import { AnalyticsForecast } from "@/components/contracts/analytics/AnalyticsForecast";
+import { AnalyticsKeyFigures } from "@/components/contracts/analytics/AnalyticsKeyFigures";
+import { AnalyticsMoreReports } from "@/components/contracts/analytics/AnalyticsMoreReports";
+import {
+  AnalyticsNextQuarter,
+  type WindowPage,
+} from "@/components/contracts/analytics/AnalyticsNextQuarter";
+import { AnalyticsReport } from "@/components/contracts/analytics/AnalyticsReport";
+import {
+  addDaysIso,
+  WINDOW_DAYS,
+  type Forecast,
+  type MarginRow,
+  type MarginTotals,
+  type UtilizationData,
+} from "@/lib/contract-analytics";
+import { formatIsoDatePl } from "@/lib/date-pl";
+import { warsawToday } from "@/lib/warsaw-date";
 
-interface MarginRow {
-  candidate_id?: number;
-  candidate_name?: string;
-  client_id?: number;
-  client_name?: string;
-  active_contracts: number;
-  total_monthly_margin: number;
-  total_monthly_revenue: number;
-  margin_pct: number | null;
-  // Gdy true, backend pominął co najmniej jedną nogę bez kursu FX. Kwoty są
-  // wtedy częściowe i nie wolno prezentować ich jak kompletnego agregatu.
-  fx_missing?: boolean;
-  // Kontrakty z przychodem bez stawki kosztowej — w przychodzie, poza marżą.
-  contracts_without_cost_leg?: number;
-  // Kontrakty bez stawki przychodowej — poza każdą kwotą wiersza (runda 10).
-  contracts_without_revenue_leg?: number;
+/** Lista kontraktów w oknie: `status=active&status=ending` jak na `/contracts`. */
+function fetchWindow(params: Record<string, unknown>): Promise<WindowPage> {
+  return api
+    .get("/api/contracts", {
+      params: { status: ["active", "ending"], page_size: 100, ...params },
+      paramsSerializer: { indexes: null },
+    })
+    .then((r) => r.data);
 }
 
-interface MarginTotals {
-  clients: number;
-  active_contracts: number;
-  total_monthly_revenue: number;
-  total_monthly_margin: number;
-  // Liczy serwer: marża / przychód kontraktów ze ZNANĄ marżą. Front nie
-  // dzieli kafla marży przez kafel przychodu — przychód obejmuje też
-  // kontrakty bez stawki kosztowej, więc procent wychodził zaniżony.
-  margin_pct: number | null;
-  fx_missing: boolean;
-  contracts_without_cost_leg?: number;
-  contracts_without_revenue_leg?: number;
-}
+function ContractAnalytics() {
+  const today = warsawToday();
+  const until = addDaysIso(today, WINDOW_DAYS);
 
-interface UtilizationData {
-  total_candidates: number;
-  candidates_active: number;
-  active_contracts: number;
-  candidates_on_bench: number;
-  utilization_pct: number | null;
-  avg_bench_days: number | null;
-}
+  // Kafle sum pytają o SUMY, nie o ranking: `margin-by-client` oddaje ranking
+  // przycięty po marży, więc klient o wysokim przychodzie i niskiej marży
+  // wypadał z sumy PRZYCHODU (audyt 18.09.2026: brakowało 217 060 zł).
+  const totalsQ = useQuery<MarginTotals>({
+    queryKey: ["contract-analytics-margin-totals"],
+    queryFn: () => api.get("/api/contract-analytics/margin-totals").then((r) => r.data),
+  });
+  // Tabela pokazuje wszystkich klientów (do 100), nie pierwszą dwudziestkę.
+  const clientQ = useQuery<MarginRow[]>({
+    queryKey: ["contract-analytics-margin-client", 100],
+    queryFn: () =>
+      api.get("/api/contract-analytics/margin-by-client", { params: { limit: 100 } }).then((r) => r.data),
+  });
+  const utilQ = useQuery<UtilizationData>({
+    queryKey: ["contract-analytics-utilization"],
+    queryFn: () => api.get("/api/contract-analytics/utilization").then((r) => r.data),
+  });
+  const forecastQ = useQuery<Forecast>({
+    queryKey: ["contract-analytics-forecast"],
+    queryFn: () => api.get("/api/contract-analytics/revenue-forecast").then((r) => r.data),
+  });
+  const endingQ = useQuery<WindowPage>({
+    queryKey: ["contract-analytics-window", "ending", today],
+    queryFn: () => fetchWindow({ expiring_in_days: WINDOW_DAYS }),
+  });
+  const startingQ = useQuery<WindowPage>({
+    queryKey: ["contract-analytics-window", "starting", today],
+    queryFn: () => fetchWindow({ start_from: addDaysIso(today, 1), start_to: until }),
+  });
 
-interface ForecastMonth {
-  month: string;
-  month_label: string;
-  revenue: number;
-  margin: number;
-  active_count: number;
-}
+  // Brak kursu FX w sumie albo w którymkolwiek wierszu: kwoty zależne od tych
+  // pozycji pokazujemy jako „—”, a ekran mówi to wprost.
+  const fxMissing =
+    totalsQ.data?.fx_missing === true || (clientQ.data ?? []).some((row) => row.fx_missing === true);
 
-interface Forecast {
-  horizon_months: number;
-  months: ForecastMonth[];
-  // Backend CELOWO degraduje prognozę, gdy brakuje kursu NBP: kwoty w tych
-  // walutach są POMIJANE, nie przeliczane 1:1. Bez tych dwóch pól we froncie
-  // wykres wyglądał na kompletny mimo wyrzuconych kontraktów w EUR/USD.
-  fx_missing?: boolean;
-  fx_warnings?: string[];
-}
-
-/** Stany blokujące, w których wolno renderować `QueryStateNotice`. */
-/** Kubełek backendu dla kontraktów bez rekrutacji i bez kategorii kompetencji. */
-const UNKNOWN_ROLE = "Unknown";
-
-/**
- * Etykieta miesiąca prognozy po polsku („wrz 2026”). Backend składa
- * `month_label` przez `strftime("%b %Y")`, czyli w locale procesu — na
- * produkcji po angielsku („Sep 2026”). `month` (RRRR-MM) jest stabilny.
- */
-function forecastMonthLabel(month: string, fallback: string): string {
-  const match = /^(\d{4})-(\d{2})$/.exec(month);
-  if (!match) return fallback;
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, 1);
-  return new Intl.DateTimeFormat("pl-PL", { month: "short", year: "numeric" })
-    .format(date)
-    .replace(".", "");
-}
-
-/** Zdanie o kontraktach bez stawki przychodowej — poza każdą sumą (runda 10). */
-function withoutRevenueNote(count: number | undefined): string | undefined {
-  const n = count ?? 0;
-  if (n <= 0) return undefined;
-  return `Niepełne: ${countPl(n, "kontrakt", "kontrakty", "kontraktów")} bez stawki przychodowej poza sumą`;
-}
-
-/** Podpis kafla marży: procent od serwera i kontrakty bez jednej ze stawek. */
-function marginTileSub(
-  totals:
-    | Pick<
-        MarginTotals,
-        "margin_pct" | "contracts_without_cost_leg" | "contracts_without_revenue_leg"
-      >
-    | undefined,
-): string | undefined {
-  if (!totals) return undefined;
-  const parts: string[] = [];
-  if (totals.margin_pct != null) {
-    parts.push(`${totals.margin_pct.toFixed(1)}% z przychodu`);
-  }
-  const withoutCost = totals.contracts_without_cost_leg ?? 0;
-  if (withoutCost > 0) {
-    parts.push(
-      `${countPl(withoutCost, "kontrakt", "kontrakty", "kontraktów")} bez stawki kosztowej poza marżą`,
-    );
-  }
-  const withoutRevenue = withoutRevenueNote(totals.contracts_without_revenue_leg);
-  if (withoutRevenue) parts.push(withoutRevenue);
-  return parts.length > 0 ? parts.join(" · ") : undefined;
-}
-
-function isFailedState(
-  state: ViewState,
-): state is "forbidden" | "not_found" | "error" {
-  return state === "forbidden" || state === "not_found" || state === "error";
-}
-
-/** Zwarta liczba: etykieta, wartość, jedno zdanie. */
-function MetricCard({
-  label,
-  value,
-  sub,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-}) {
   return (
-    <div className="rounded-lg border border-border bg-card px-3.5 py-2.5">
-      <div className="text-[11.5px] leading-4 text-muted-foreground">{label}</div>
-      <div className="font-display text-lg font-semibold leading-7 tabular-nums text-foreground">
-        {value}
-      </div>
-      {sub && (
-        <div className="text-[11.5px] leading-4 text-muted-foreground">{sub}</div>
-      )}
-    </div>
-  );
-}
+    <div className="space-y-4">
+      <header className="space-y-1">
+        <Link
+          href="/contracts"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-3.5" aria-hidden />
+          Kontrakty
+        </Link>
+        <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
+          <div className="min-w-0">
+            <h1 className="text-[22px] font-semibold leading-7 tracking-tight text-foreground">
+              Analityka kontraktów
+            </h1>
+            <p className="text-[13px] text-muted-foreground">
+              Ile zarabiamy dziś i co zmieni się w najbliższych 3 miesiącach — aktywne i kończące się kontrakty.
+            </p>
+          </div>
+          <p className="text-[12.5px] text-muted-foreground">Stan na {formatIsoDatePl(today)}</p>
+        </div>
+      </header>
 
-/** Nagłówek sekcji na karcie. */
-const SECTION_TITLE = "text-[13px] font-semibold text-foreground";
-
-function MarginLeaderboard({
-  title,
-  rows,
-  isLoading,
-  viewState,
-  onRetry,
-  nameKey,
-  linkPrefix,
-}: {
-  title: string;
-  rows: MarginRow[] | undefined;
-  isLoading: boolean;
-  viewState: ViewState;
-  onRetry: () => void;
-  nameKey: "candidate_name" | "client_name";
-  linkPrefix: string;
-}) {
-  return (
-    <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">
-      <h2 className={`px-3.5 py-2.5 border-b border-border ${SECTION_TITLE}`}>
-        {title}
-      </h2>
-      {isLoading ? (
-        <div className="p-6 text-sm text-muted-foreground flex items-center gap-2">
-          <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie…
-        </div>
-      ) : isFailedState(viewState) ? (
-        <QueryStateNotice
-          state={viewState}
-          className="border-0"
-          onRetry={onRetry}
-        />
-      ) : !rows || rows.length === 0 ? (
-        <div className="p-6 text-sm text-muted-foreground italic">
-          Brak danych.
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-        <table className="w-full min-w-[34rem] text-sm">
-          <thead className={CALM_HEAD}>
-            <tr className="border-b border-border">
-              <th className="text-left px-3 py-2">#</th>
-              <th className="text-left px-3 py-2">
-                {nameKey === "candidate_name" ? "Kontraktor" : "Klient"}
-              </th>
-              <th className="text-right px-3 py-2">Aktywne</th>
-              <th className="text-right px-3 py-2">
-                Przychód <span className={CALM_UNIT}>/ mies.</span>
-              </th>
-              <th className="text-right px-3 py-2">
-                Marża <span className={CALM_UNIT}>/ mies.</span>
-              </th>
-              <th className="text-right px-3 py-2">Marża %</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => {
-              const linkId = (r.candidate_id ?? r.client_id) as number;
-              const name = (r[nameKey] ?? "—") as string;
-              const fxMissing = r.fx_missing === true;
-              return (
-                <tr key={linkId} className={`${CALM_ROW} last:border-b-0`}>
-                  <td className="px-3 py-2 text-muted-foreground tabular-nums">{i + 1}</td>
-                  <td className="px-3 py-2">
-                    <Link
-                      href={`${linkPrefix}${linkId}`}
-                      title={name}
-                      className="inline-block max-w-[12rem] truncate align-bottom font-medium text-primary hover:underline"
-                    >
-                      {name}
-                    </Link>
-                    {fxMissing && (
-                      <span
-                        role="alert"
-                        className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-warning-muted-foreground"
-                        title="Kwoty pomijają pozycje bez dostępnego kursu FX"
-                      >
-                        <AlertTriangle
-                          className="h-3.5 w-3.5"
-                          aria-hidden="true"
-                        />
-                        Brak kursu FX
-                      </span>
-                    )}
-                    {(r.contracts_without_revenue_leg ?? 0) > 0 && (
-                      <span
-                        className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-warning-muted-foreground"
-                        title={withoutRevenueNote(r.contracts_without_revenue_leg)}
-                      >
-                        <AlertTriangle
-                          className="h-3.5 w-3.5"
-                          aria-hidden="true"
-                        />
-                        Niepełne
-                      </span>
-                    )}
-                  </td>
-                  <td className={`px-3 py-2 ${CALM_AMOUNT}`}>{r.active_contracts}</td>
-                  <td className={`px-3 py-2 ${CALM_AMOUNT}`}>
-                    {fxMissing ? (
-                      <span className={CALM_EMPTY}>—</span>
-                    ) : (
-                      formatCurrency(r.total_monthly_revenue, "PLN")
-                    )}
-                  </td>
-                  <td className={`px-3 py-2 font-semibold text-success-muted-foreground ${CALM_AMOUNT}`}>
-                    {fxMissing ? (
-                      <span className={CALM_EMPTY}>—</span>
-                    ) : (
-                      formatCurrency(r.total_monthly_margin, "PLN")
-                    )}
-                  </td>
-                  <td className={`px-3 py-2 text-muted-foreground ${CALM_AMOUNT}`}>
-                    {!fxMissing && r.margin_pct !== null ? (
-                      `${r.margin_pct}%`
-                    ) : (
-                      <span className={CALM_EMPTY}>—</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ForecastChart({
-  forecast,
-  isLoading,
-  viewState,
-  onRetry,
-}: {
-  forecast: Forecast | undefined;
-  isLoading: boolean;
-  viewState: ViewState;
-  onRetry: () => void;
-}) {
-  // Wcześniej komponent nie przyjmował w ogóle stanu zapytania i wnioskował
-  // „brak danych" z `!forecast` — czyli wypisywał „Brak danych prognozy."
-  // także przy pierwszym renderze i przy każdej awarii.
-  if (isLoading) {
-    return (
-      <div className="p-6 text-sm text-muted-foreground flex items-center gap-2">
-        <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie prognozy…
-      </div>
-    );
-  }
-  if (isFailedState(viewState)) {
-    return <QueryStateNotice state={viewState} onRetry={onRetry} />;
-  }
-  if (!forecast || forecast.months.length === 0) {
-    return (
-      <div className="p-6 text-sm text-muted-foreground italic">
-        Brak danych prognozy.
-      </div>
-    );
-  }
-  const maxRev = Math.max(...forecast.months.map((m) => m.revenue), 1);
-  const fxWarnings = forecast.fx_warnings ?? [];
-  return (
-    <div className="relative overflow-x-auto rounded-lg border border-border bg-card p-4">
-      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1">
-        <h2 className={SECTION_TITLE}>Prognoza przychodu i marży (12 mies.)</h2>
-        <div className="ml-auto flex gap-4 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-primary/20" />
-            Przychód
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-success" />
-            Marża
-          </span>
-        </div>
-      </div>
-      {(forecast.fx_missing || fxWarnings.length > 0) && (
+      {fxMissing ? (
         <div
           role="alert"
-          className="mb-4 flex items-start gap-2 rounded-lg border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+          className="flex items-start gap-2 rounded-lg border border-warning/25 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
         >
-          <AlertTriangle
-            className="w-4 h-4 shrink-0 mt-0.5"
-            aria-hidden="true"
-          />
-          <div className="space-y-0.5">
-            {fxWarnings.length > 0 ? (
-              fxWarnings.map((w) => <p key={w}>{w}</p>)
-            ) : (
-              <p>
-                Prognoza jest niepełna — dla części walut brakuje kursu NBP, a
-                te kwoty zostały POMINIĘTE w sumach.
-              </p>
-            )}
-          </div>
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>
+            Dane finansowe są niepełne — pozycje bez kursu FX zostały pominięte. Kwoty i sumy zależne od tych
+            pozycji pokazujemy jako „—”.
+          </span>
         </div>
-      )}
-      <div className="flex items-end gap-2 h-52 min-w-fit">
-        {forecast.months.map((m) => {
-          const revHeight = (m.revenue / maxRev) * 100;
-          const marHeight = m.revenue ? (m.margin / maxRev) * 100 : 0;
-          return (
-            <div
-              key={m.month}
-              className="flex flex-1 flex-col items-center gap-1 min-w-16"
-            >
-              <div className="text-[10px] text-muted-foreground mb-1 whitespace-nowrap">
-                {countPl(m.active_count, "kontrakt", "kontrakty", "kontraktów")}
-              </div>
-              <div className="relative w-full h-40 bg-muted/50 rounded-t">
-                <div
-                  className="absolute bottom-0 left-0 right-0 bg-primary/20 rounded-t"
-                  style={{ height: `${revHeight}%` }}
-                  title={`Przychód: ${formatCurrency(m.revenue, "PLN")}`}
-                />
-                <div
-                  className="absolute bottom-0 left-0 right-0 bg-success rounded-t"
-                  style={{ height: `${marHeight}%` }}
-                  title={`Marża: ${formatCurrency(m.margin, "PLN")}`}
-                />
-              </div>
-              <div className="text-[11px] text-muted-foreground whitespace-nowrap">
-                {forecastMonthLabel(m.month, m.month_label)}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      ) : null}
+
+      <AnalyticsKeyFigures totals={totalsQ} util={utilQ} fxMissing={fxMissing} />
+      <AnalyticsNextQuarter ending={endingQ} starting={startingQ} today={today} until={until} />
+      <AnalyticsForecast query={forecastQ} />
+      <AnalyticsReport
+        clients={clientQ}
+        totals={totalsQ}
+        util={utilQ}
+        ending={endingQ}
+        starting={startingQ}
+        today={today}
+      />
+      <AnalyticsMoreReports />
     </div>
   );
 }
 
 export default function ContractAnalyticsPage() {
-  const contractorQ = useQuery<MarginRow[]>({
-    queryKey: ["contract-analytics-margin-contractor"],
-    queryFn: () =>
-      api
-        .get("/api/contract-analytics/margin-by-contractor")
-        .then((r) => r.data),
-  });
-  const clientQ = useQuery<MarginRow[]>({
-    queryKey: ["contract-analytics-margin-client"],
-    queryFn: () =>
-      api.get("/api/contract-analytics/margin-by-client").then((r) => r.data),
-  });
-  // Kafle sum pytają o SUMY, nie o ranking: `margin-by-client` oddaje 20
-  // wierszy przyciętych po marży, więc klient o wysokim przychodzie i niskiej
-  // marży wypadał z kafla PRZYCHODU (audyt 18.09.2026: brakowało 217 060 zł).
-  const totalsQ = useQuery<MarginTotals>({
-    queryKey: ["contract-analytics-margin-totals"],
-    queryFn: () =>
-      api.get("/api/contract-analytics/margin-totals").then((r) => r.data),
-  });
-  const utilQ = useQuery<UtilizationData>({
-    queryKey: ["contract-analytics-utilization"],
-    queryFn: () =>
-      api.get("/api/contract-analytics/utilization").then((r) => r.data),
-  });
-  const forecastQ = useQuery<Forecast>({
-    queryKey: ["contract-analytics-forecast"],
-    queryFn: () =>
-      api.get("/api/contract-analytics/revenue-forecast").then((r) => r.data),
-  });
-
-  const byContractor = contractorQ.data;
-  const byClient = clientQ.data;
-  const util = utilQ.data;
-  const forecast = forecastQ.data;
-
-  const contractorState = resolveViewState({
-    isLoading: contractorQ.isLoading,
-    isError: contractorQ.isError,
-    error: contractorQ.error,
-  });
-  const clientState = resolveViewState({
-    isLoading: clientQ.isLoading,
-    isError: clientQ.isError,
-    error: clientQ.error,
-  });
-  const forecastState = resolveViewState({
-    isLoading: forecastQ.isLoading,
-    isError: forecastQ.isError,
-    error: forecastQ.error,
-  });
-
-  // Kafle „Miesięczna marża" / „Miesięczny przychód" liczą się z listy
-  // margin-by-client. Gdy jej pobranie padnie, `?? []` dawało pewne siebie
-  // „0,00 zł" — nieodróżnialne od prawdziwego wyniku na ekranie, na którym
-  // admin odpowiada sobie na pytanie „ile zarabiamy w tym miesiącu".
-  // Dlatego bez sukcesu renderujemy „—", a nie sformatowane zero.
-  const totals = totalsQ.data;
-  const clientFxMissing =
-    totals?.fx_missing === true ||
-    (byClient ?? []).some((row) => row.fx_missing === true);
-  const anyLeaderboardFxMissing =
-    clientFxMissing ||
-    (byContractor ?? []).some((row) => row.fx_missing === true);
-  const marginTotalsKnown =
-    totalsQ.isSuccess && totals !== undefined && !totals.fx_missing;
-  const totalMonthlyMargin = totals?.total_monthly_margin ?? 0;
-  const totalMonthlyRevenue = totals?.total_monthly_revenue ?? 0;
-
   return (
     // Lustro backendu: endpointy stoją za uprawnieniem „Wyniki firmy”, nie za
     // rolą. Bez tego osoba z Finansów widziałaby serię kart błędu 403 zamiast
@@ -475,445 +147,7 @@ export default function ContractAnalyticsPage() {
         />
       }
     >
-      <div className="space-y-4">
-        <div>
-          <Link
-            href="/contracts"
-            className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" /> Kontrakty
-          </Link>
-          <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-            <h1 className="text-lg font-semibold text-foreground">Analityka kontraktów</h1>
-            <p className="text-xs text-muted-foreground">
-              Marża, utylizacja i prognoza dla aktywnych i kończących się
-              kontraktów.
-            </p>
-          </div>
-        </div>
-
-        {anyLeaderboardFxMissing && (
-          <div
-            role="alert"
-            className="flex items-start gap-2 rounded-lg border border-warning/25 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
-          >
-            <AlertTriangle
-              className="mt-0.5 h-4 w-4 shrink-0"
-              aria-hidden="true"
-            />
-            <span>
-              Dane finansowe są niepełne — pozycje bez kursu FX zostały
-              pominięte. Kwoty i sumy zależne od tych pozycji pokazujemy jako
-              „—”.
-            </span>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-          <MetricCard
-            label="Miesięczna marża"
-            value={
-              marginTotalsKnown
-                ? formatCurrency(totalMonthlyMargin, "PLN")
-                : "—"
-            }
-            sub={
-              !marginTotalsKnown
-                ? totalsQ.isLoading
-                  ? "Ładowanie…"
-                  : clientFxMissing
-                    ? "Niepełne dane — brak kursu FX"
-                    : "Nie udało się pobrać marży"
-                : marginTileSub(totals)
-            }
-          />
-          <MetricCard
-            label="Miesięczny przychód"
-            value={
-              marginTotalsKnown
-                ? formatCurrency(totalMonthlyRevenue, "PLN")
-                : "—"
-            }
-            sub={
-              marginTotalsKnown
-                ? withoutRevenueNote(totals?.contracts_without_revenue_leg)
-                : totalsQ.isLoading
-                  ? "Ładowanie…"
-                  : clientFxMissing
-                    ? "Niepełne dane — brak kursu FX"
-                    : "Nie udało się pobrać przychodu"
-            }
-          />
-          <MetricCard
-            label="Utylizacja"
-            value={
-              util && util.utilization_pct !== null
-                ? `${util.utilization_pct}%`
-                : "—"
-            }
-            sub={
-              util
-                ? util.utilization_pct === null
-                  ? "Brak konsultantów do policzenia"
-                  : `${util.candidates_active} z ${util.total_candidates} konsultantów pracuje`
-                : utilQ.isError
-                  ? "Nie udało się pobrać utylizacji"
-                  : undefined
-            }
-          />
-          <MetricCard
-            label="Śr. dni na bench"
-            value={
-              util?.avg_bench_days !== null &&
-              util?.avg_bench_days !== undefined
-                ? `${util.avg_bench_days}`
-                : "—"
-            }
-            sub={
-              util
-                ? `${util.candidates_on_bench} osób bez kontraktu`
-                : utilQ.isError
-                  ? "Nie udało się pobrać danych bench"
-                  : undefined
-            }
-          />
-        </div>
-
-        <ForecastChart
-          forecast={forecast}
-          isLoading={forecastQ.isLoading}
-          viewState={forecastState}
-          onRetry={() => void forecastQ.refetch()}
-        />
-
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <MarginLeaderboard
-            title="Top kontraktorzy wg marży"
-            rows={byContractor}
-            isLoading={contractorQ.isLoading}
-            viewState={contractorState}
-            onRetry={() => void contractorQ.refetch()}
-            nameKey="candidate_name"
-            linkPrefix="/candidates/"
-          />
-          <MarginLeaderboard
-            title="Top klienci wg marży"
-            rows={byClient}
-            isLoading={clientQ.isLoading}
-            viewState={clientState}
-            onRetry={() => void clientQ.refetch()}
-            nameKey="client_name"
-            linkPrefix="/clients/"
-          />
-        </div>
-
-        <RoleClientMixCard />
-        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
-          <LocationDistributionCard />
-          <TerminationAnalysisCard />
-        </div>
-      </div>
+      <ContractAnalytics />
     </RequirePermission>
-  );
-}
-
-// ── Role × Client heatmap ───────────────────────────────────────────────────
-
-function RoleClientMixCard() {
-  const { data, isLoading, isError, error, refetch } = useQuery<RoleClientMix>({
-    queryKey: ["contract-analytics-role-client-mix"],
-    queryFn: async () =>
-      (await contractAnalyticsExpansionApi.roleClientMix()).data,
-  });
-  const viewState = resolveViewState({ isLoading, isError, error });
-
-  if (isLoading) {
-    return (
-      <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
-        <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie rola ×
-        klient…
-      </div>
-    );
-  }
-  // „Brak aktywnych kontraktów do analizy." było dotąd wypisywane także dla
-  // awarii — trzecie z rzędu twierdzenie na tym ekranie, że firma nie ma kontraktów.
-  if (isFailedState(viewState)) {
-    return (
-      <QueryStateNotice
-        state={viewState}
-        className="bg-card rounded-lg border-solid"
-        onRetry={() => void refetch()}
-      />
-    );
-  }
-  if (!data || data.rows.length === 0) {
-    return (
-      <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
-        <h3 className={`mb-2 ${SECTION_TITLE}`}>Rola × Klient</h3>
-        Brak aktywnych kontraktów do analizy.
-      </div>
-    );
-  }
-
-  // Build a matrix map: role → clientId → count.
-  const matrix: Record<string, Record<number, number>> = {};
-  for (const row of data.rows) {
-    matrix[row.role] ??= {};
-    matrix[row.role][row.client_id] = row.active_count;
-  }
-
-  return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <h3 className={`mb-3 ${SECTION_TITLE}`}>
-        Rola × Klient ({data.total_active}{" "}
-        {data.total_active === 1 ? "kontraktor" : "kontraktorów"} /{" "}
-        {data.total_active_contracts}{" "}
-        {data.total_active_contracts === 1 ? "kontrakt" : "kontraktów"})
-      </h3>
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-xs tabular-nums">
-          <thead className="text-left text-muted-foreground">
-            <tr>
-              <th className="px-2 py-1 sticky left-0 bg-card">
-                Rola
-              </th>
-              {data.clients.map((c) => (
-                <th key={c.id} className="px-2 py-1 whitespace-nowrap">
-                  {c.name}
-                </th>
-              ))}
-              <th className="px-2 py-1">Σ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.roles.map((role) => {
-              // One person may be visible in several client cells. Σ is the
-              // distinct person total for the role, not the sum of engagements.
-              const rowSum = data.role_totals[role] ?? 0;
-              return (
-                <tr key={role} className="border-t border-border/60">
-                  <td className="px-2 py-1 font-medium sticky left-0 bg-card">
-                    {role === UNKNOWN_ROLE ? "Brak roli" : role}
-                  </td>
-                  {data.clients.map((c) => {
-                    const cnt = matrix[role]?.[c.id] ?? 0;
-                    const intensity = rowSum ? Math.min(1, cnt / rowSum) : 0;
-                    return (
-                      <td
-                        key={c.id}
-                        className="px-2 py-1 text-center"
-                        style={{
-                          backgroundColor:
-                            cnt > 0
-                              ? `hsl(var(--primary) / ${0.1 + intensity * 0.4})`
-                              : undefined,
-                        }}
-                      >
-                        {cnt || "·"}
-                      </td>
-                    );
-                  })}
-                  <td className="px-2 py-1 text-center font-medium">
-                    {rowSum}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-// ── Consultant location distribution ────────────────────────────────────────
-
-function LocationDistributionCard() {
-  const { data, isLoading, isError, error, refetch } =
-    useQuery<LocationDistribution>({
-      queryKey: ["contract-analytics-location-distribution"],
-      queryFn: async () =>
-        (await contractAnalyticsExpansionApi.locationDistribution()).data,
-    });
-  const viewState = resolveViewState({ isLoading, isError, error });
-
-  if (isLoading) {
-    return (
-      <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
-        <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie
-        lokalizacji…
-      </div>
-    );
-  }
-  // `return null` na awarii kasowało całą kartę bez śladu — sekcja po prostu
-  // znikała z raportu i nikt nie miał jak zauważyć, że czegoś brakuje.
-  if (isFailedState(viewState)) {
-    return (
-      <QueryStateNotice
-        state={viewState}
-        className="bg-card rounded-lg border-solid"
-        onRetry={() => void refetch()}
-      />
-    );
-  }
-  if (!data) return null;
-
-  return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <h3 className={`mb-3 ${SECTION_TITLE}`}>
-        Lokalizacja konsultantów ({data.total_with_hub}/{data.total} z hubem)
-      </h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <h4 className="text-xs font-semibold text-muted-foreground mb-2">
-            Huby
-          </h4>
-          <ul className="space-y-1 text-sm">
-            {data.hubs.map((h) => (
-              <li
-                key={h.hub_city ?? "unknown"}
-                className="flex items-center justify-between"
-              >
-                <span className="text-foreground">
-                  {h.hub_city ?? (
-                    <em className="text-muted-foreground">Brak hubu</em>
-                  )}
-                </span>
-                <span className="font-medium tabular-nums">{h.count}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div>
-          <h4 className="text-xs font-semibold text-muted-foreground mb-2">
-            Regiony
-          </h4>
-          <ul className="space-y-1 text-sm">
-            {data.regions.map((r) => (
-              <li
-                key={r.region ?? "unknown"}
-                className="flex items-center justify-between"
-              >
-                <span className="text-foreground">
-                  {r.region ?? (
-                    <em className="text-muted-foreground">Brak regionu</em>
-                  )}
-                </span>
-                <span className="font-medium tabular-nums">{r.count}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Termination analysis ────────────────────────────────────────────────────
-
-function TerminationAnalysisCard() {
-  const { data, isLoading, isError, error, refetch } =
-    useQuery<TerminationAnalysis>({
-      queryKey: ["contract-analytics-termination-analysis"],
-      queryFn: async () =>
-        (await contractAnalyticsExpansionApi.terminationAnalysis(12)).data,
-    });
-  const viewState = resolveViewState({ isLoading, isError, error });
-
-  if (isLoading) {
-    return (
-      <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
-        <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie analizy
-        zakończeń…
-      </div>
-    );
-  }
-  if (isFailedState(viewState)) {
-    return (
-      <QueryStateNotice
-        state={viewState}
-        className="bg-card rounded-lg border-solid"
-        onRetry={() => void refetch()}
-      />
-    );
-  }
-  if (!data) return null;
-
-  const reasonLabel = (v: string) =>
-    CONTRACT_TERMINATION_REASONS.find((r) => r.value === v)?.label ?? v;
-  const maxCount = Math.max(1, ...data.by_reason.map((r) => r.count));
-
-  return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <h3 className={`mb-3 ${SECTION_TITLE}`}>
-        Analiza zakończeń ({data.total_terminated} w ostatnich{" "}
-        {data.window_months} mies.)
-      </h3>
-
-      {data.by_reason.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Brak zakończeń w oknie.</p>
-      ) : (
-        <>
-          <h4 className="text-xs font-semibold text-muted-foreground mt-2 mb-2">
-            Powody
-          </h4>
-          <ul className="space-y-1 mb-5">
-            {data.by_reason.map((r) => (
-              <li key={r.reason} className="text-sm">
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>{reasonLabel(r.reason)}</span>
-                  <span>
-                    {r.count}
-                    {r.avg_contract_days != null && (
-                      <> · śr. {Math.round(r.avg_contract_days)} dni</>
-                    )}
-                  </span>
-                </div>
-                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-warning"
-                    style={{ width: `${(r.count / maxCount) * 100}%` }}
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
-
-          <h4 className="text-xs font-semibold text-muted-foreground mb-2">
-            Retencja per klient
-          </h4>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs tabular-nums">
-              <thead className="text-left text-muted-foreground">
-                <tr>
-                  <th className="px-2 py-1">Klient</th>
-                  <th className="px-2 py-1 text-right">Zakończone</th>
-                  <th className="px-2 py-1 text-right">Do końca</th>
-                  <th className="px-2 py-1 text-right">Przedwczesne</th>
-                  <th className="px-2 py-1 text-right">Retencja</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.client_retention.map((c) => (
-                  <tr key={c.client_id} className="border-t border-border/60">
-                    <td className="px-2 py-1">{c.client_name}</td>
-                    <td className="px-2 py-1 text-right">{c.total_ended}</td>
-                    <td className="px-2 py-1 text-right text-success-muted-foreground">
-                      {c.kept_to_end}
-                    </td>
-                    <td className="px-2 py-1 text-right text-destructive">
-                      {c.ended_early}
-                    </td>
-                    <td className="px-2 py-1 text-right font-medium">
-                      {c.retention_pct}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-    </div>
   );
 }

@@ -29,6 +29,14 @@
    "v3_home": "panel → CV → karta „CV do klienta”"
   },
   {
+   "id": "cv.client-form",
+   "area": "cv",
+   "opis": "Formularz CV klienta (0521) i tabela punktowa (0525): „Wypełnij z CV i screeningu”, braki, „Pobierz Word/Excel” — u klienta z formularzem na górze zakładki „CV” (rozwinięty panel, 19.11.2026) i sekcji CV zwiniętego panelu",
+   "file": "components/v2/jobs/CvHandoffWorkbench.tsx",
+   "marker": "ClientFormCard",
+   "v3_home": "panel → CV → karta „Formularz CV klienta”"
+  },
+  {
    "id": "cv.client-rate",
    "area": "cv",
    "opis": "Stawka do klienta",
@@ -1344,7 +1352,7 @@
   {
    "id": "cv.to-client-ready-hint",
    "area": "cv",
-   "opis": "Pasek „Ta osoba ma już gotowe CV” — podpowiedź najlepszego gotowego CV, gdy CV jeszcze nie ma albo leży nieprzejrzane auto-CV; „Użyj tego CV” podmienia jednym kliknięciem",
+   "opis": "Pasek „Ta osoba ma już gotowe CV” — podpowiedź najlepszego gotowego CV, gdy CV jeszcze nie ma albo leży nieprzejrzane auto-CV; „Użyj tego CV” podmienia jednym kliknięciem; od 17.11.2026 u klienta ze zrzutem zgody (PKO BP) CV etapu z innej rekrutacji idzie z nową zgodą: pole zrzutu w pasku i „Użyj tego CV z nową zgodą”",
    "file": "components/v2/recruitment/CvToClientCard.tsx",
    "marker": "Ta osoba ma już gotowe CV",
    "v3_home": "panel → CV → karta „CV do klienta”"
@@ -1574,6 +1582,14 @@
    "file": "components/v2/jobs/JobHeadcountFact.tsx",
    "marker": "job-header-headcount",
    "v3_home": "nagłówek rekrutacji → linia faktów, po „Rekruter” (też Profil Championa › Zespół)"
+  },
+  {
+   "id": "header.client-process",
+   "area": "naglowek",
+   "opis": "Fakt „Proces u klienta” („2 etapy · ~4 tyg.”): etapy po wysłaniu CV i obiecany termin decyzji, czas zmierzony u klienta (mediany z ruchów kart), zdanie „Powiedz kandydatowi”; zapis i zmiana w okienku dla osób edytujących Championa (18.11.2026)",
+   "file": "components/v2/jobs/JobClientProcessFact.tsx",
+   "marker": "job-header-fact-process",
+   "v3_home": "nagłówek rekrutacji → linia faktów, po Trybie pracy (też /jobs/new → Warunki)"
   },
   {
    "id": "header.collapse",
@@ -2188,6 +2204,30 @@
    "file": "components/champion/ChampionTodoStrip.tsx",
    "marker": "ChampionVerificationChecklist",
    "v3_home": "Profil Championa → Brief (na górze)"
+  },
+  {
+   "id": "champion.changes-card",
+   "area": "zlecenie",
+   "opis": "Karta „Co się zmieniło od przekazania” nad Briefem: ostatnia nieprzeczytana zmiana profilu, zdanie DL „Na co klient kładzie nacisk”, „Przeczytane” per osoba zwija ją do jednej linii (17.11.2026)",
+   "file": "components/champion/ChampionChanges.tsx",
+   "marker": "champion-changes-card",
+   "v3_home": "Profil Championa → Brief (pod „Do dopięcia”)"
+  },
+  {
+   "id": "champion.changes-tab",
+   "area": "zlecenie",
+   "opis": "Zakładka „Zmiany”: każda zmiana Profilu Championa po przekazaniu do searchu, kto i kiedy, zdanie DL, lista zmian; licznik nowych dla osoby (17.11.2026)",
+   "file": "components/champion/ChampionChanges.tsx",
+   "marker": "champion-changes-timeline",
+   "v3_home": "Profil Championa → Zmiany (?ptab=changes)"
+  },
+  {
+   "id": "champion.change-note",
+   "area": "zlecenie",
+   "opis": "Okno po zapisie zmiany profilu rekrutacji w pracy: lista zmian i pole „Na co klient teraz kładzie nacisk?” dla rekruterów, można pominąć (17.11.2026)",
+   "file": "components/champion/ChampionChanges.tsx",
+   "marker": "champion-change-note-dialog",
+   "v3_home": "Profil Championa → zapis w szufladzie albo pełnym formularzu"
   },
   {
    "id": "champion.client-questions-all",

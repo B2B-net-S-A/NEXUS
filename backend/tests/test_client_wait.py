@@ -329,7 +329,10 @@ async def test_broken_silence_query_does_not_take_the_board_down(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:
     job_id, candidate_id = await _job_with_waiting(app_client, app_auth_headers)
-    with patch.object(client_wait, "client_clocks", side_effect=RuntimeError("awaria")):
+    # Tablica i jej hurtowy wariant idą przez `client_clocks_for_jobs`.
+    with patch.object(
+        client_wait, "client_clocks_for_jobs", side_effect=RuntimeError("awaria")
+    ):
         board = await app_client.get(
             f"/api/pipeline/kanban/{job_id}", headers=app_auth_headers
         )

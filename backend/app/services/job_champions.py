@@ -177,15 +177,25 @@ async def live_briefs(
 
 async def live_candidate_ids(db: AsyncSession, job_id: int) -> set[int]:
     """Żywi championi jednej rekrutacji — karty Tablicy."""
-    return set(
-        (
-            await db.execute(
-                select(JobChampion.candidate_id).where(
-                    JobChampion.job_id == job_id, JobChampion.cleared_at.is_(None)
-                )
-            )
-        ).scalars()
+    return (await live_candidate_ids_for_jobs(db, [job_id]))[job_id]
+
+
+async def live_candidate_ids_for_jobs(
+    db: AsyncSession, job_ids: Iterable[int]
+) -> dict[int, set[int]]:
+    """``{job_id: żywi championi}`` dla kilku Tablic naraz — jedno zapytanie."""
+    ids = sorted({int(j) for j in job_ids})
+    out: dict[int, set[int]] = {job: set() for job in ids}
+    if not ids:
+        return out
+    rows = await db.execute(
+        select(JobChampion.job_id, JobChampion.candidate_id).where(
+            JobChampion.job_id.in_(ids), JobChampion.cleared_at.is_(None)
+        )
     )
+    for job_id, candidate_id in rows.all():
+        out[job_id].add(candidate_id)
+    return out
 
 
 def _hired_ids(

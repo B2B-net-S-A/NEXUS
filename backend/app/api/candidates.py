@@ -81,6 +81,7 @@ from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import SYSTEM_NOTE_SOURCE, Note
 from app.services import candidate_recruitment_filter as recruitment_filter
 from app.services import candidate_last_rejection as last_rejection
+from app.services import candidate_recent_facts as recent_facts
 from app.services import candidate_stage_column as stage_column_filter
 from app.services import note_kinds
 from app.services import review_batch
@@ -106,6 +107,7 @@ from app.schemas.candidate import (
     ActiveRecruitmentBrief,
     StageMatchBrief,
     LastRejectionBrief,
+    RecentFact,
     RejectionFacets,
     AvailabilityFromNotes,
     CandidateFromCVDuplicate,
@@ -2569,6 +2571,14 @@ async def list_candidates(
             "per page; no N+1."
         ),
     ),
+    include_recent_facts: bool = Query(
+        False,
+        description=(
+            "When true, each candidate gets `recent_facts` — the two newest "
+            "pieces of information (talk, note or rejection), newest first, "
+            "for the „Ostatnio z osobą” line. Two queries per page."
+        ),
+    ),
     include_last_rejection: bool = Query(
         False,
         description=(
@@ -3602,6 +3612,13 @@ async def list_candidates(
     stage_match_by_candidate = await _stage_matches(
         db, await _resolve_stage_filter(db, filters), [c.id for c in items]
     )
+    recent_facts_by_id: dict[int, list[dict]] = {}
+    if include_recent_facts and items:
+        recent_facts_by_id = await recent_facts.page_rows(
+            db,
+            [c.id for c in items],
+            viewer=current_user,
+        )
     last_rejection_by_id: dict[int, dict] = {}
     if include_last_rejection and items:
         last_rejection_by_id = await last_rejection.page_rows(db, [c.id for c in items])
@@ -3664,6 +3681,15 @@ async def list_candidates(
                     "last_talk_by": talk[1] if talk else None,
                     "last_talk_preview": talk[2] if talk else None,
                     "contact_attempts": contact_attempts_by_candidate.get(cand.id, 0),
+                }
+            )
+        if include_recent_facts:
+            payload = payload.model_copy(
+                update={
+                    "recent_facts": [
+                        RecentFact(**fact)
+                        for fact in recent_facts_by_id.get(cand.id, [])
+                    ]
                 }
             )
         if include_last_rejection:
@@ -7622,7 +7648,9 @@ async def _enrich_candidate_from_document_task(
             # Background task bez bramki to dokładnie przypadek z docstringa
             # `_assert_declared`. `db=` włącza kwotę na PŁATNYM kroku wewnątrz
             # parsera — wyczerpana gasi tylko Claude'a, fallbacki zostają.
-            parsed = await parse_cv(raw_text, db=db, user_id=actor_user_id)
+            parsed = await parse_cv(
+                raw_text, db=db, user_id=actor_user_id, release_db_during_model=True
+            )
             # Runda 9 (R9-N8-4): odczyt modelu trwa, a rekruter w tym czasie
             # edytuje profil — zapis idzie na świeżo odczytanym, zablokowanym
             # wierszu, nie na kopii sprzed wywołania modelu.
@@ -8138,7 +8166,9 @@ async def _read_cv_for_new_candidate(
                     content, safe_name=safe_name, client_filename=client_filename
                 )
                 await _free_sieve(raw_text)
-                parsed = await parse_cv(raw_text, db=db, user_id=user_id)
+                parsed = await parse_cv(
+                    raw_text, db=db, user_id=user_id, release_db_during_model=True
+                )
                 if remember:
                     preview_cache.set(sha256, parsed=parsed, raw_text=raw_text)
                 return raw_text, parsed

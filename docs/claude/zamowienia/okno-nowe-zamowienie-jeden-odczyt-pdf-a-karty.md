@@ -20,8 +20,9 @@ Tryb edycji istniejącego zamówienia zostaje przy starym „Zczytaj dane z doku
   poprawne zamówienia. Nie „naprawiaj" tego blokera.
 - **Domyślny typ = NAJCZĘSTSZY u klienta** (`most_common_order_type`: grupy +
   samodzielne bez anulowanych; remis → ostatni typ; brak historii → typ legacy).
-  Zasila `OrderGroupListResponse.suggested_order_type`. Automaty (szkic po zatrudnieniu,
-  poczta) nadal biorą OSTATNI typ (`suggested_order_type`) — świadomie nie ruszone.
+  Zasila `OrderGroupListResponse.suggested_order_type`. Szkic po zatrudnieniu bierze
+  od 18.11.2026 też NAJCZĘSTSZY typ (`typ-zamowienia-u-klienta-md.md`); poczta
+  i „Dodaj kolejny projekt” nadal biorą OSTATNI (`suggested_order_type`).
 - **Odczyt = ten sam pipeline co poczta zamówień**: `extract_order_text` → polityki →
   `parse_order_document(all_rows=True)` (dokument jednoosobowy BNP → tryb zwykły, jedna
   karta bez osoby) → `apply_policies` → `apply_rate_kind`. Pola dokumentu (stawka/MD

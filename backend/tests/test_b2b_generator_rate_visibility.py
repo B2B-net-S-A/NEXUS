@@ -165,6 +165,13 @@ async def test_docx_of_someone_elses_contract_is_not_issued(app_client, world):
         for url in (contract_docx, generated_docx):
             resp = await app_client.get(url, headers=world[who])
             assert resp.status_code == 403, (who, url, resp.text)
+        preview = await app_client.post(
+            "/api/b2b-generator/render",
+            headers=world[who],
+            params={"format": "html", "preview_generated_id": world["generated_id"]},
+            json={"partner_name": "Partner Testowy"},
+        )
+        assert preview.status_code == 403, (who, preview.text)
     # Autor przechodzi bramkę stawek — wpis bez payloadu kończy się dopiero 422.
     resp = await app_client.get(generated_docx, headers=world["author"])
     assert resp.status_code == 422, resp.text

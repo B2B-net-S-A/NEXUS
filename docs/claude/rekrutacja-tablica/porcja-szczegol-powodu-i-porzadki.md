@@ -15,6 +15,8 @@ a urosły trzy powody, z których nie wyciągał nic: „Inna rola” (21%, 49 o
   szukamy zamiast?”, obok roli osoby z profilu. Kliknięcie jest opcjonalne, żeby
   powód dalej szedł jednym klawiszem. Zapis: `autofill_feedback.detail`
   (`role_kind`, `role_wanted`), do historii procesu idzie to samo słowami.
+  Od 16.11.2026 wieczorem 8 odpowiedzi z klawiszami 1–8, „Osoba to:” i lista
+  „Nie proponujemy”: `porcja-kogo-szukamy.md` (ta sekcja w tym punkcie jest starsza).
 - **„Za drogi” (4) ma pole „Ile chce?”** (opcjonalne). Kwota idzie jako
   `autofill_rate_hourly`, a serwer zapisuje ją w „Stawce od” tą samą drogą co
   okno odrzucenia na Tablicy. Do 16.11 porcja wysyłała `rateHourly: null`.
@@ -52,3 +54,9 @@ a urosły trzy powody, z których nie wyciągał nic: „Inna rola” (21%, 49 o
 Testy: `backend/tests/test_autofill_feedback.py` (sekcja „Runda 5”),
 `frontend/src/components/v2/review-batch/__tests__/ReviewBatchCard.test.tsx`
 („szczegół powodu (runda 5)”).
+
+Od 19.11.2026 nazwy pod klawiszami biorą się z jednego słownika powodów
+(`jeden-slownik-powodow-zamkniecia-procesu.md`): 1 „Brak kluczowej
+umiejętności”, 2 „Za mało doświadczenia”, 3 „Lokalizacja lub tryb pracy”,
+4 „Za droga”, 7 „Inny poziom lub inna rola”, 8 „Nie szuka pracy”. Klucze
+i zachowanie klawiszy bez zmian; nazwy w tym pliku są sprzed tej zmiany.

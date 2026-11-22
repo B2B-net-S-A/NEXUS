@@ -72,6 +72,8 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F48 | duty_search_judge                | gpt-6-luna (z Sonnet 5)  |
 | F49 | client_report_requirements       | claude-sonnet-5 (z Haiku)|
 | F50 | premium_skill_justification      | claude-sonnet-5-5 (z Haiku)|
+| F51 | board_document_read              | claude-sonnet-5 (z Haiku)|
+| F52 | contract_document_rate_read      | claude-sonnet-5 (z Haiku)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -617,6 +619,24 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "przeinaczone na 8 szkiców — Sonnet 5.5 1, Sol 0 (sztywny), Haiku 5.5 3, Sonnet 5 4; Luna "
         "6 krótsza niż 90 słów w 5 z 8. Koszt na wywołanie 0,0036 USD, mediana 2 s (Haiku 0,0002 "
         "USD). Dodatek: bez modelu DL ma szablon z F4 i komunikat; szkic nie jest zapisywany.",
+    ),
+    AIFeatureKey.board_document_read: ModelChoice(
+        default=SONNET_5,
+        env_vars=("BOARD_DOCUMENT_READ_MODEL",),
+        fallbacks=(HAIKU_55,),
+        rationale="F51 (decyzja Artura 16.11.2026, POZA badaniem 16.09). Odczyt numeru, daty, "
+        "organu i przedmiotu ze skanu uchwały albo protokołu — to samo czytanie dokumentu co "
+        "odczyt kosztu (F33), więc jego model. Rzadko (wgranie dokumentu Rady). Dodatek: bez "
+        "modelu admin wpisuje pola sam; propozycja nie nadpisuje pól.",
+    ),
+    AIFeatureKey.contract_document_rate_read: ModelChoice(
+        default=SONNET_5,
+        env_vars=("CONTRACT_DOCUMENT_RATE_READ_MODEL",),
+        fallbacks=(HAIKU_55,),
+        rationale="F52 (decyzja Artura 18.11.2026, POZA badaniem 16.09). Stawka Partnera i jej "
+        "kroki z umowy albo aneksu (tekst PDF-u albo skan) — to samo czytanie dokumentu co F33 "
+        "i F51. Pomiar 18.11 na 1164 plikach kopii produkcji: 27 z 27 różnic potwierdzonych "
+        "cytatem. Dodatek: bez modelu kontrakt działa jak dotąd, stawkę zmienia aneks.",
     ),
 }
 

@@ -2,6 +2,9 @@
 
 Zgłoszenie: prowadzący rekrutację dostawał „Kandydat X → Odrzucony” o kandydacie
 innego rekrutera. Na kopii produkcji z 14 dni to 1 751 z 3 579 dzwonków ruchu.
+18.11.2026: dalej 808 z 1 320 (61%), bo kandydat w „Nowych” bez rekrutera był
+liczony jako kandydat prowadzącego. Od tej daty prowadzący dostaje tylko swoich
+kandydatów, bez wyjątku na Interview Klient, Akceptację i Zatrudnionego.
 Reguła w ``docs/claude/powiadomienia/ruch-etapu-do-rekrutera-kandydata.md``.
 """
 
@@ -20,35 +23,78 @@ OWNER, JULIA = 91, 184
 
 
 @pytest.mark.parametrize(
-    ("owner", "pair", "stage", "wants_all", "expected"),
+    ("owner", "pair", "wants_all", "expected"),
     [
-        # Cudzy kandydat na codziennym etapie: tylko jego rekruter.
-        (OWNER, JULIA, "rejected", False, [JULIA]),
-        (OWNER, JULIA, "screening", False, [JULIA]),
-        (OWNER, JULIA, "cv_sent", False, [JULIA]),
-        # Etapy ważne dla całej rekrutacji: prowadzący też.
-        (OWNER, JULIA, "client_interview", False, [OWNER, JULIA]),
-        (OWNER, JULIA, "acceptance", False, [OWNER, JULIA]),
-        (OWNER, JULIA, "hired", False, [OWNER, JULIA]),
+        # Cudzy kandydat: tylko jego rekruter, na każdym etapie (18.11.2026).
+        (OWNER, JULIA, False, [JULIA]),
         # Prowadzący wybrał „wszyscy kandydaci w rekrutacjach, które prowadzę”.
-        (OWNER, JULIA, "rejected", True, [OWNER, JULIA]),
-        # Własny kandydat albo kandydat bez rekrutera: prowadzący, jak dotąd.
-        (OWNER, OWNER, "rejected", False, [OWNER]),
-        (OWNER, None, "rejected", False, [OWNER]),
+        (OWNER, JULIA, True, [OWNER, JULIA]),
+        # Własny kandydat albo ruch bez rekrutera i bez osoby: prowadzący.
+        (OWNER, OWNER, False, [OWNER]),
+        (OWNER, None, False, [OWNER]),
         # Rekrutacja bez prowadzącego.
-        (None, JULIA, "rejected", False, [JULIA]),
-        (None, None, "rejected", False, []),
+        (None, JULIA, False, [JULIA]),
+        (None, None, False, []),
     ],
 )
 def test_job_recruiter_rule_targets_the_candidate_recruiter(
-    owner, pair, stage, wants_all, expected
+    owner, pair, wants_all, expected
 ) -> None:
     assert (
         resolver.job_recruiter_ids(
-            owner_id=owner, pair_id=pair, stage_code=stage, owner_wants_all=wants_all
+            owner_id=owner, pair_id=pair, owner_wants_all=wants_all
         )
         == expected
     )
+
+
+@pytest.mark.parametrize("stage", ["client_interview", "acceptance", "hired"])
+def test_important_stages_of_someone_elses_candidate_skip_the_owner(stage) -> None:
+    # 10.11.2026 prowadzący dostawał te etapy cudzych kandydatów; 18.11.2026
+    # decyzja Artura: „nawet jak ktoś prowadzi rekrutację, chce info tylko
+    # o swoich ludziach”.
+    assert not hasattr(resolver, "LEAD_STAGE_CODES")
+    assert resolver.job_recruiter_ids(
+        owner_id=OWNER, pair_id=JULIA, owner_wants_all=False
+    ) == [JULIA]
+
+
+@pytest.mark.parametrize(
+    ("own", "mover", "expected"),
+    [
+        # Kandydat w „Nowych” bez rekrutera, odrzucony przez Julię: jej kandydat,
+        # nie prowadzącego (zgłoszenie z 18.11.2026, rekrutacja 789202).
+        (None, JULIA, JULIA),
+        # „Prowadzi”, właściciel procesu albo weryfikator wygrywa z ruszającym.
+        (OWNER, JULIA, OWNER),
+        (JULIA, OWNER, JULIA),
+        # Ruch bez osoby (system) i bez rekrutera: prowadzący rekrutacji.
+        (None, None, OWNER),
+    ],
+)
+@pytest.mark.asyncio
+async def test_candidate_without_recruiter_belongs_to_whoever_moved_it(
+    monkeypatch, own, mover, expected
+) -> None:
+    from app.services import interview_slots
+    from app.services import stage_handoff_recipients as handoff
+
+    calls: list[bool] = []
+
+    async def chain(_db, pairs, *, job_fallback=True):
+        calls.append(job_fallback)
+        pair = list(pairs)[0]
+        return {pair: own if not job_fallback else (own or OWNER)}
+
+    monkeypatch.setattr(interview_slots, "default_recruiter_ids", chain)
+
+    assert (
+        await handoff.move_recruiter_id(
+            None, candidate_id=7, job_id=789202, mover_id=mover
+        )
+        == expected
+    )
+    assert calls[0] is False
 
 
 def _rule() -> resolver._RuleSnapshot:
@@ -62,13 +108,16 @@ def _rule() -> resolver._RuleSnapshot:
 
 
 @pytest.mark.asyncio
-async def test_rule_resolution_skips_the_owner_for_someone_elses_rejection(
+async def test_rule_resolution_skips_the_owner_for_someone_elses_candidate(
     monkeypatch,
 ) -> None:
     async def owner(_db, _job):
         return OWNER
 
-    async def pair(_db, *, candidate_id, job_id):
+    movers: list[int | None] = []
+
+    async def pair(_db, *, candidate_id, job_id, mover_id):
+        movers.append(mover_id)
         return JULIA
 
     wants: list[int] = []
@@ -80,21 +129,18 @@ async def test_rule_resolution_skips_the_owner_for_someone_elses_rejection(
     import app.services.job_previous_recruiters as previous
 
     monkeypatch.setattr(previous, "working_owner_id", owner)
-    monkeypatch.setattr(resolver, "pair_recruiter_id", pair)
+    monkeypatch.setattr(resolver, "move_recruiter_id", pair)
     monkeypatch.setattr(resolver, "_owner_wants_all_moves", wants_all)
     job = SimpleNamespace(id=789202, recruiter_id=OWNER)
     candidate = SimpleNamespace(id=7)
 
     rejected = await resolver._resolve_user_ids_for_rule(
-        None, rule=_rule(), job=job, candidate=candidate, stage_code="rejected"
-    )
-    interview = await resolver._resolve_user_ids_for_rule(
-        None, rule=_rule(), job=job, candidate=candidate, stage_code="client_interview"
+        None, rule=_rule(), job=job, candidate=candidate, mover_user_id=JULIA
     )
 
     assert rejected == [JULIA]
-    assert interview == [OWNER, JULIA]
-    assert wants == [OWNER, OWNER]
+    assert movers == [JULIA]
+    assert wants == [OWNER]
 
 
 def _plain(**extra):

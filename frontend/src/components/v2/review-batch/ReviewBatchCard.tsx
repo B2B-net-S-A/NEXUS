@@ -9,7 +9,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { RejectionWorkModeField } from "@/components/v2/modals/RejectionWorkModeField";
 import { useJobPipelineTemplate } from "@/hooks/useJobPipelineTemplate";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
-import type { ReviewBatchItem } from "@/lib/api/reviewBatch";
+import type {
+  ReviewBatchItem,
+  ReviewBatchRoleProfile,
+  ReviewBatchSentBefore,
+} from "@/lib/api/reviewBatch";
 import {
   autofillMoveFields,
   autofillReasonLabel,
@@ -19,6 +23,7 @@ import {
   notLookingUntil,
   NOT_LOOKING_DEFAULT_MONTHS,
   otherNoteHasWords,
+  ROLE_KIND_CHOICES,
   ROLE_KIND_LABEL,
   templateReasonFor,
   type AutofillAvailability,
@@ -32,6 +37,7 @@ import {
 } from "@/lib/autofill-feedback";
 import { warsawToday } from "@/lib/warsaw-date";
 import { knownFactLabels } from "@/lib/new-column-queue";
+import { closeReason } from "@/lib/close-reasons";
 import { reasonNeedsDescription, WORK_MODE_MISMATCH_REASON } from "@/lib/rejection-reasons";
 import { cn } from "@/lib/utils";
 
@@ -48,18 +54,26 @@ import { hasKeyFacts, ReviewBatchKeyFactsBlock } from "./ReviewBatchKeyFacts";
  * „Język” rozdzielony na polski i angielski (19 z 20 opisów to było samo
  * „Język”), „Forma umowy” zamiast „Inne” (3 takie opisy).
  */
-export const QUICK_REASONS: { key: string; value: AutofillReason; label: string }[] = [
-  { key: "1", value: "missing_skill", label: "Brak umiejętności" },
-  { key: "2", value: "too_junior", label: "Za junior" },
-  { key: "3", value: "location_mode", label: "Lokalizacja / tryb" },
-  { key: "4", value: "too_expensive", label: "Za drogi" },
-  { key: "5", value: "no_polish", label: "Brak polskiego" },
-  { key: "6", value: "weak_english", label: "Angielski za słaby" },
-  { key: "7", value: "other_level_or_role", label: "Inna rola" },
-  { key: "8", value: "not_looking", label: "Nie szuka / niedostępny" },
-  { key: "9", value: "contract_form", label: "Forma umowy" },
-  { key: "0", value: "other", label: "Inne" },
+/**
+ * Powody pod klawiszami 0–9. Od 19.11.2026 nazwy z jednego słownika powodów
+ * (`lib/close-reasons.ts`) — te same co w oknie „Zamknij proces”, żeby ten
+ * sam klucz nie miał w porcji innej nazwy niż na Tablicy.
+ */
+const QUICK_KEYS: { key: string; value: AutofillReason }[] = [
+  { key: "1", value: "missing_skill" },
+  { key: "2", value: "too_junior" },
+  { key: "3", value: "location_mode" },
+  { key: "4", value: "too_expensive" },
+  { key: "5", value: "no_polish" },
+  { key: "6", value: "weak_english" },
+  { key: "7", value: "other_level_or_role" },
+  { key: "8", value: "not_looking" },
+  { key: "9", value: "contract_form" },
+  { key: "0", value: "other" },
 ];
+export const QUICK_REASONS: { key: string; value: AutofillReason; label: string }[] = QUICK_KEYS.map(
+  (r) => ({ ...r, label: closeReason(r.value)?.label ?? r.value }),
+);
 
 /** Najwyżej tyle pozycji wymagań pod „Brak umiejętności”: najpierw te, których system nie znalazł. */
 export const GAP_ROWS = 8;
@@ -148,11 +162,13 @@ export function rejectDetail(
   roleWanted: string,
   availability: AutofillAvailability,
   cleanup: AutofillCleanupKind | null,
+  personRole = "",
 ): AutofillDetail | null {
   if (reason === "other_level_or_role") {
     const detail: AutofillDetail = {};
     if (roleKind) detail.role_kind = roleKind;
     if (roleWanted.trim()) detail.role_wanted = roleWanted.trim();
+    if (personRole.trim()) detail.person_role = personRole.trim();
     return Object.keys(detail).length ? detail : null;
   }
   if (reason === "not_looking") return { availability };
@@ -167,10 +183,12 @@ export function historyNote(
   roleKind: AutofillRoleKind | null,
   roleWanted: string,
   cleanup: AutofillCleanupKind | null,
+  personRole = "",
 ): string {
   if (reason === "other_level_or_role") {
     return [
       roleKind ? ROLE_KIND_LABEL[roleKind] : null,
+      personRole.trim() ? `osoba: ${personRole.trim()}` : null,
       roleWanted.trim() ? `szukamy: ${roleWanted.trim()}` : null,
     ]
       .filter(Boolean)
@@ -178,6 +196,33 @@ export function historyNote(
   }
   if (reason === "other" && cleanup) return [CLEANUP_KIND_LABEL[cleanup], note.trim()].filter(Boolean).join(". ");
   return note;
+}
+
+function roleKey(label: string): string {
+  return label.split(/\s+/).filter(Boolean).join(" ").toLocaleLowerCase("pl");
+}
+
+/**
+ * „Silnik zapamięta: …” pod „Osoba to:” (16.11.2026): ile razy ta etykieta
+ * już padła w tej rekrutacji i że od progu (`exclude_min`, 3) silnik przestaje
+ * dokładać osoby z takim stanowiskiem. `null`, gdy pole jest puste.
+ */
+export function rememberLine(personRole: string, profile?: ReviewBatchRoleProfile | null): string | null {
+  const label = personRole.trim();
+  const key = roleKey(label);
+  if (!key) return null;
+  if (profile?.excluded.some((e) => roleKey(e.label) === key)) {
+    return `„${label}” już jest w „Nie proponujemy”: silnik nie dokłada takich osób do tej rekrutacji.`;
+  }
+  const learning = profile?.learning.find((l) => roleKey(l.label) === key);
+  const next = (learning?.count ?? 0) + 1;
+  if (learning?.dismissed) {
+    return `Silnik zapamięta: „${label}” po raz ${next}. Ktoś zdjął to z „Nie proponujemy”, więc dalej będzie proponować.`;
+  }
+  const min = profile?.exclude_min ?? 3;
+  return next >= min
+    ? `Silnik zapamięta: „${label}” po raz ${next}. Od teraz nie proponuje takich osób w tej rekrutacji.`
+    : `Silnik zapamięta: „${label}” po raz ${next}. Od ${min}. razu przestaje proponować takie osoby w tej rekrutacji.`;
 }
 
 /** „Ile chce?” — dodatnia liczba zł/h albo `null`. */
@@ -224,7 +269,33 @@ export function orderLine(item: ReviewBatchItem): string | null {
     item.order_active ? "aktywnie szuka" : null,
     item.order_in_budget ? "stawka w budżecie" : null,
   ].filter(Boolean);
-  return parts.length ? `Kolejność: ${Math.round(item.score)}% + ${parts.join(" + ")}` : null;
+  const later = [
+    item.order_polish_later ? "polski nie ojczysty" : null,
+    item.order_leader_gap ? "szukamy lidera" : null,
+  ].filter(Boolean);
+  const laterText = later.length ? ` · ${later.join(", ")} → dalej` : "";
+  if (!parts.length) return laterText ? `Kolejność: ${Math.round(item.score)}%${laterText}` : null;
+  return `Kolejność: ${Math.round(item.score)}% + ${parts.join(" + ")}${laterText}`;
+}
+
+/** „Wysłany do klienta 2× · ostatnio 7 dni temu: …” (Z1, 20.11.2026). */
+export function sentBeforeText(sent: ReviewBatchSentBefore): string {
+  const when = sent.last_days <= 0 ? "dziś" : sent.last_days === 1 ? "wczoraj" : `${sent.last_days} dni temu`;
+  const title = sent.last_job_title.trim();
+  return `Wysłany do klienta ${sent.count}× · ostatnio ${when}${title ? `: ${title}` : ""}`;
+}
+
+function SentBeforeLine({ sent }: { sent: ReviewBatchSentBefore }) {
+  const text = sentBeforeText(sent);
+  return (
+    <p
+      className="truncate rounded-md border border-success/40 bg-success/10 px-2.5 py-1.5 text-xs text-success"
+      title={text}
+      data-testid="review-sent-before"
+    >
+      {text}
+    </p>
+  );
 }
 
 function rateLine(item: ReviewBatchItem): string | null {
@@ -238,10 +309,13 @@ export function ReviewBatchCard({
   onDecided,
   hideJob = false,
   onPickRequirement,
+  profile = null,
 }: {
   item: ReviewBatchItem;
   onDecided: () => void;
   hideJob?: boolean;
+  /** Profil „Kogo szukamy” rekrutacji: podpowiedź „Szukamy:” i licznik „Nie proponujemy”. */
+  profile?: ReviewBatchRoleProfile | null;
   /** Klik w pozycję „Kluczowe”: CV po prawej szuka tej frazy. */
   onPickRequirement?: (label: string) => void;
 }) {
@@ -257,7 +331,8 @@ export function ReviewBatchCard({
   const [saveWorkMode, setSaveWorkMode] = useState(true);
   const [busy, setBusy] = useState(false);
   const [roleKind, setRoleKind] = useState<AutofillRoleKind | null>(null);
-  const [roleWanted, setRoleWanted] = useState("");
+  const [roleWanted, setRoleWanted] = useState(profile?.role ?? "");
+  const [personRole, setPersonRole] = useState(item.position ?? "");
   const [askedRate, setAskedRate] = useState("");
   const [availability, setAvailability] = useState<AutofillAvailability>("not_looking");
   const [noticeMonths, setNoticeMonths] = useState<number>(3);
@@ -282,6 +357,7 @@ export function ReviewBatchCard({
     templates.some((r) => r.name?.trim() === WORK_MODE_MISMATCH_REASON);
   const rate = rateLine(item);
   const order = orderLine(item);
+  const remember = reason === "other_level_or_role" ? rememberLine(personRole, profile) : null;
   const overBudget =
     item.rate_from_hourly != null &&
     item.budget_hourly != null &&
@@ -310,7 +386,7 @@ export function ReviewBatchCard({
         send_rejection_email: false,
         ...templateMoveFields(
           sent,
-          historyNote(reason, note, roleKind, roleWanted, cleanup),
+          historyNote(reason, note, roleKind, roleWanted, cleanup, personRole),
           officeDays,
           saveWorkMode,
           templates,
@@ -323,7 +399,7 @@ export function ReviewBatchCard({
           notLookingUntil:
             reason === "not_looking" ? availabilityUntil(availability, noticeMonths, availableFrom) : null,
           gaps,
-          detail: rejectDetail(reason, roleKind, roleWanted, availability, cleanup),
+          detail: rejectDetail(reason, roleKind, roleWanted, availability, cleanup, personRole),
         }),
       },
       { candidateName: item.name },
@@ -345,6 +421,7 @@ export function ReviewBatchCard({
     cleanup,
     roleKind,
     roleWanted,
+    personRole,
     askedRate,
     availability,
     noticeMonths,
@@ -356,6 +433,8 @@ export function ReviewBatchCard({
     function onKey(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      // Okno „Kogo szukamy” nad kartą ma własne pola i przyciski.
+      if (target?.closest?.('[role="dialog"]')) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const key = event.key.toLowerCase();
       if (!rejecting && key === "s") {
@@ -365,8 +444,19 @@ export function ReviewBatchCard({
         event.preventDefault();
         setRejecting(true);
       } else if (rejecting) {
+        // Po „7 Inna rola” klawisze 1–8 wybierają, co nie gra z rolą;
+        // Backspace wraca do wyboru powodu.
+        const roleChoice =
+          reason === "other_level_or_role" && /^[1-8]$/.test(key) ? ROLE_KIND_CHOICES[Number(key) - 1] : null;
         const quick = QUICK_REASONS.find((r) => r.key === key);
-        if (quick) {
+        if (roleChoice) {
+          event.preventDefault();
+          setRoleKind((current) => (current === roleChoice ? null : roleChoice));
+        } else if (reason === "other_level_or_role" && key === "backspace") {
+          event.preventDefault();
+          setReason(null);
+          setRoleKind(null);
+        } else if (quick) {
           event.preventDefault();
           setReason(quick.value);
         } else if (key === "r") {
@@ -381,7 +471,7 @@ export function ReviewBatchCard({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rejecting, toScreening, reject]);
+  }, [rejecting, reason, toScreening, reject]);
 
   return (
     <div className="space-y-3" data-testid="review-batch-card">
@@ -415,6 +505,7 @@ export function ReviewBatchCard({
             {Math.round(item.score)}%
           </div>
         </div>
+        {item.sent_before ? <SentBeforeLine sent={item.sent_before} /> : null}
         {order ? <p className="text-xs text-muted-foreground">{order}</p> : null}
         {hasKeyFacts(item.key_facts) ? (
           <ReviewBatchKeyFactsBlock
@@ -546,35 +637,56 @@ export function ReviewBatchCard({
             </div>
           ) : null}
           {reason === "other_level_or_role" ? (
-            <div className="space-y-1" data-testid="review-reject-role">
+            <div className="space-y-1.5" data-testid="review-reject-role">
               <div className="text-xs text-muted-foreground">
-                Co nie pasuje? Osoba: <span className="font-medium text-foreground">{item.position || "rola nieznana"}</span>
+                Co nie gra z rolą? (1–8, opcjonalnie; Backspace: inny powód)
               </div>
-              <div className="flex flex-wrap gap-1 text-xs">
-                {(Object.keys(ROLE_KIND_LABEL) as AutofillRoleKind[]).map((kind) => (
+              <div className="flex flex-wrap gap-1 text-xs" role="group" aria-label="Co nie gra z rolą">
+                {ROLE_KIND_CHOICES.map((kind, index) => (
                   <button
                     key={kind}
                     type="button"
                     aria-pressed={roleKind === kind}
+                    aria-label={ROLE_KIND_LABEL[kind]}
                     onClick={() => setRoleKind(roleKind === kind ? null : kind)}
                     className={cn(
                       "rounded border px-1.5 py-0.5",
                       roleKind === kind ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted",
                     )}
                   >
-                    {ROLE_KIND_LABEL[kind]}
+                    <span className="tabular-nums opacity-70">{index + 1}</span> {ROLE_KIND_LABEL[kind]}
                   </button>
                 ))}
               </div>
-              <input
-                id="review-reject-role-wanted"
-                aria-label="Kogo szukamy zamiast"
-                value={roleWanted}
-                maxLength={120}
-                onChange={(e) => setRoleWanted(e.target.value)}
-                className="w-full rounded border border-border bg-background px-2 py-1 text-xs"
-                placeholder="Kogo szukamy zamiast? np. analityk biznesowy, nie DBA (opcjonalnie)"
-              />
+              <div className="grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1 text-xs">
+                <label htmlFor="review-reject-person-role" className="text-muted-foreground">
+                  Osoba to:
+                </label>
+                <input
+                  id="review-reject-person-role"
+                  value={personRole}
+                  maxLength={120}
+                  onChange={(e) => setPersonRole(e.target.value)}
+                  className="w-full rounded border border-border bg-background px-2 py-1"
+                  placeholder="np. Oracle DBA, tester manualny"
+                />
+                <label htmlFor="review-reject-role-wanted" className="text-muted-foreground">
+                  Szukamy:
+                </label>
+                <input
+                  id="review-reject-role-wanted"
+                  value={roleWanted}
+                  maxLength={120}
+                  onChange={(e) => setRoleWanted(e.target.value)}
+                  className="w-full rounded border border-border bg-background px-2 py-1"
+                  placeholder="np. analityk biznesowy (opcjonalnie)"
+                />
+              </div>
+              {remember ? (
+                <p className="text-xs text-muted-foreground" data-testid="review-reject-remember">
+                  {remember}
+                </p>
+              ) : null}
             </div>
           ) : null}
           {reason === "too_expensive" ? (

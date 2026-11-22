@@ -25,7 +25,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Iterable, Optional
 
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
@@ -379,10 +379,19 @@ async def change_rate(
 
 
 async def _recipients(
-    db: AsyncSession, *, job: Job, candidate_id: int, actor_id: int
+    db: AsyncSession,
+    *,
+    job: Job,
+    candidate_id: int,
+    actor_id: int,
+    requires_decision: bool = True,
 ) -> list[tuple[int, str]]:
     """``[(user_id, rola_w_sprawie)]`` — DL, HoR, rekruter; bez autora i
-    bez powtórzeń (osoba z dwiema rolami dostaje ważniejszy wpis)."""
+    bez powtórzeń (osoba z dwiema rolami dostaje ważniejszy wpis).
+
+    Delivery Lead tylko wtedy, gdy zmiana czeka na jego decyzję (po wysłaniu
+    CV): sama informacja o stawce do niego nie idzie (decyzja Artura
+    19.11.2026)."""
 
     from app.services.notification_triggers import (  # noqa: PLC0415 — cykl
         _hor_user_ids,
@@ -394,7 +403,7 @@ async def _recipients(
 
     out: list[tuple[int, str]] = []
     seen: set[int] = {actor_id}
-    for uid in await _dl_reviewers(db, job):
+    for uid in await _dl_reviewers(db, job) if requires_decision else ():
         if uid not in seen:
             seen.add(uid)
             out.append((uid, "dl"))
@@ -424,7 +433,11 @@ async def _notify(
     if job is None:
         return
     recipients = await _recipients(
-        db, job=job, candidate_id=change.candidate_id, actor_id=actor.id
+        db,
+        job=job,
+        candidate_id=change.candidate_id,
+        actor_id=actor.id,
+        requires_decision=bool(change.requires_decision),
     )
     if not recipients:
         return
@@ -553,19 +566,34 @@ async def open_badges_for_job(
     zostaje sama kwota.
     """
 
+    return (await open_badges_for_jobs(db, job_ids=[job_id], viewer=viewer))[job_id]
+
+
+async def open_badges_for_jobs(
+    db: AsyncSession, *, job_ids: Iterable[int], viewer: Optional[User] = None
+) -> dict[int, dict[int, dict]]:
+    """:func:`open_badges_for_job` dla kilku Tablic naraz — jedno zapytanie.
+
+    Otwarta sprawa pary jest najwyżej jedna (``ux_candidate_rate_changes_open``),
+    więc podział po rekrutacji daje to samo co osobne zapytania.
+    """
+
+    ids = sorted({int(j) for j in job_ids})
+    out: dict[int, dict[int, dict]] = {job: {} for job in ids}
+    if not ids:
+        return out
     rows = (
         await db.execute(
             select(CandidateRateChange, User.name)
             .outerjoin(User, User.id == CandidateRateChange.negotiator_id)
             .where(
-                CandidateRateChange.job_id == job_id,
+                CandidateRateChange.job_id.in_(ids),
                 CandidateRateChange.status.in_(OPEN_STATUSES),
             )
         )
     ).all()
-    out: dict[int, dict] = {}
     for change, negotiator_name in rows:
-        out[change.candidate_id] = {
+        out[change.job_id][change.candidate_id] = {
             "id": change.id,
             "status": change.status,
             "requires_decision": change.requires_decision,

@@ -74,6 +74,24 @@ class QcOlderDocument(BaseModel):
     same_client: bool = False
 
 
+class QcTenureRole(BaseModel):
+    title: str
+    dates: Optional[str] = None
+    months: Optional[int] = None
+    # Nazwa roli stoi w punkcie 1 — jej daty idą do liczby z punktu 1.
+    matched: bool = False
+
+
+class QcTenure(BaseModel):
+    """Z czego wyszła liczba lat w punkcie 1 (R2, 17.11.2026)."""
+
+    quote: str
+    matched_months: Optional[int] = None
+    total_months: int
+    proposal: Optional[str] = None
+    roles: list[QcTenureRole] = []
+
+
 class QcItem(BaseModel):
     # Stały klucz pozycji (sprawdzenie | wymaganie | rola) — dla pominięć.
     key: Optional[str] = None
@@ -94,6 +112,9 @@ class QcItem(BaseModel):
     evidence: Optional[str] = None
     evidence_kind: Optional[Literal["description", "technologies", "title"]] = None
     searched: list[QcSearch] = []
+    # Tekst po poprawce: „Odwróć daty” i propozycja lat w punkcie 1 (R2).
+    proposal: Optional[str] = None
+    tenure: Optional[QcTenure] = None
     # Tylko w `QcCheck.dismissed_items`: pominięcie „To nieprawda”.
     dismissal: Optional[QcDismissalInfo] = None
 
@@ -266,12 +287,15 @@ class QcTransformAction(BaseModel):
         "strip_client_rules",
         "remove_line",
         "languages_lines",
+        # R2 (17.11.2026): lata w punkcie 1 z dat stanowisk i odwrócone daty.
+        "tenure_split",
+        "swap_dates",
     ]
     fix_id: Optional[str] = Field(default=None, max_length=40)
     text: Optional[str] = Field(default=None, max_length=1000)
     scope: Optional[Literal["must", "nice"]] = None
     term: Optional[str] = Field(default=None, max_length=120)
-    # `restore_dates`: numer stanowiska w CV (bez niego wszystkie).
+    # `restore_dates`, `swap_dates`: numer stanowiska w CV (bez niego wszystkie).
     role_index: Optional[int] = Field(default=None, ge=0, le=99)
 
 
@@ -348,7 +372,13 @@ class QcDismissRequest(BaseModel):
     check_key: str = Field(min_length=1, max_length=40)
     key: str = Field(min_length=1, max_length=400)
     reason: Literal[
-        "in_cv", "other_name", "wrong_place", "not_needed", "other", "kept_order"
+        "in_cv",
+        "other_name",
+        "wrong_place",
+        "not_needed",
+        "other",
+        "kept_order",
+        "kept_years",
     ]
     note: Optional[str] = Field(default=None, max_length=500)
     quote: Optional[str] = Field(default=None, max_length=300)

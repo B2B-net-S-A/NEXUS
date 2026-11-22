@@ -633,6 +633,8 @@ export function issueRows(list: IssueList, fixes: readonly QcFix[], fixesPending
           const fixable =
             item.fix === "role_order" ||
             item.fix === "restore_dates" ||
+            item.fix === "tenure_split" ||
+            item.fix === "swap_dates" ||
             (item.fix === "remove_term" && term !== "") ||
             (item.fix === "ai" && (own.length > 0 || fixesPending)) ||
             itemQuickFix(check, item) !== null;
@@ -646,6 +648,16 @@ export function issueRows(list: IssueList, fixes: readonly QcFix[], fixesPending
     if (!used.has(fix.id)) rows.fixable.push({ kind: "proposal", id: `fix:${fix.id}`, fix });
   }
   return rows;
+}
+
+/** „7 lat 4 mies.”, „1 rok”, „5 mies.” — lustro `cv_tenure_checks.months_text`. */
+export function monthsText(months: number): string {
+  const whole = Math.max(0, Math.floor(months));
+  const years = Math.floor(whole / 12);
+  const rest = whole % 12;
+  const parts = years > 0 ? [countForm(years, ["rok", "lata", "lat"])] : [];
+  if (rest > 0 || parts.length === 0) parts.push(`${rest} mies.`);
+  return parts.join(" ");
 }
 
 /** Czy wiersz ma poprawkę, którą bierze „Popraw wszystkie” (lustro `bulkPlan`). */
@@ -697,6 +709,10 @@ export function appliedLabel(action: QcFixAction, checks: readonly QcCheck[], fi
       return "Ułożono stanowiska od najnowszego";
     case "restore_dates":
       return "Przywrócono daty stanowisk z oryginału";
+    case "tenure_split":
+      return "Lata w punkcie 1: cały staż i staż na stanowisku";
+    case "swap_dates":
+      return "Odwrócono daty stanowiska";
     case "years":
       return "Lata doświadczenia według historii";
     case "title": {

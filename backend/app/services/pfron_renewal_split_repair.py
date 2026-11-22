@@ -167,6 +167,10 @@ HANDLED_FOREIGN_KEYS: tuple[tuple[str, str], ...] = (
     # przeszła na produkcji wcześniej (paragon `0306_pfron_renewal_split_repair`),
     # a kroków wtedy nie było, więc nie ma czego przenosić.
     ("client_order_revenue_steps", "order_id"),
+    # Dopisane 19.11.2026 (koszt zamówienia od dnia zmiany stawki, 0741): korekta
+    # przeszła na produkcji dawno, tabel wtedy nie było.
+    ("client_order_cost_steps", "order_id"),
+    ("client_order_cost_reviews", "order_id"),
     # Dopisane 10.11.2026 (rozliczenia klientów, 0679): paragon korekty na
     # kopii produkcji z 11.09.2026 (split=3), rozliczeń wtedy nie było.
     ("client_settlements", "order_id"),

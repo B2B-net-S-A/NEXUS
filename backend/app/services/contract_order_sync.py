@@ -73,6 +73,7 @@ from app.services.contract_lifecycle import (
     lock_contract_then_orders,
 )
 from app.services.order_engagement_separation import AUTO_DRAFT_TITLE_PLACEHOLDER
+from app.services.order_mail_signature import termination_allows
 from app.services.order_rate_snapshots import (
     CONTRACT_RATE_SCALE,
     RATE_SCALE,
@@ -300,6 +301,35 @@ def order_revenue_terms(order: ClientOrder) -> Optional[OrderRevenueTerms]:
 def _latest(terms: Sequence[OrderRevenueTerms]) -> OrderRevenueTerms:
     """Najnowsze zamówienie = najpóźniejszy start; remis rozstrzyga nowszy wiersz."""
     return max(terms, key=lambda t: (t.start, t.order_id))
+
+
+def _held_by_termination(contract: Contract, order: ClientOrder) -> bool:
+    """Szkic, którego wypowiedzenie umowy nie pozwala aktywować.
+
+    Ta sama reguła co bramka automatu poczty (``termination_allows``): szkic
+    na okres po końcu wypowiedzianej umowy czeka na decyzję człowieka
+    (``contract_order_after_end``). Okres z takiego szkicu udawał, że
+    współpraca trwa: kontrakt kończący się 30.11.2026 pokazywał koniec
+    zamówienia u klienta 31.05.2027 (19.11.2026).
+    """
+    return ClientOrderStatus(
+        order.status
+    ) == ClientOrderStatus.draft and not termination_allows(
+        contract, order_start=order.start_date, order_end=order.end_date
+    )
+
+
+def _period_source(
+    contract: Contract,
+    orders: Sequence[ClientOrder],
+    terms: Sequence[OrderRevenueTerms],
+) -> Optional[OrderRevenueTerms]:
+    """Zamówienie, z którego kontrakt bierze okres: najnowsze bez szkicu
+    wstrzymanego wypowiedzeniem. Stawkę i jednostkę nadal niesie ``_latest``
+    ze wszystkich uzupełnionych zamówień."""
+    held = {order.id for order in orders if _held_by_termination(contract, order)}
+    candidates = [t for t in terms if t.order_id not in held]
+    return _latest(candidates) if candidates else None
 
 
 def cost_reference_day(order: ClientOrder, today: date) -> date:
@@ -757,12 +787,15 @@ async def sync_contract_from_orders(
             outcome.revenue_steps_changed += 1
 
     # 5. Okres zamówienia — osobne pole; kolejne zamówienie nadpisuje poprzednie.
-    if (contract.client_order_start_date, contract.client_order_end_date) != (
-        latest.start,
-        latest.end,
-    ):
-        contract.client_order_start_date = latest.start
-        contract.client_order_end_date = latest.end
+    #    Bez szkicu wstrzymanego wypowiedzeniem (``_period_source``): gdy
+    #    zostaje sam taki szkic, okresu nie ma.
+    period = _period_source(contract, orders, terms)
+    wanted_period = (period.start, period.end) if period is not None else (None, None)
+    if (
+        contract.client_order_start_date,
+        contract.client_order_end_date,
+    ) != wanted_period:
+        contract.client_order_start_date, contract.client_order_end_date = wanted_period
         outcome.period_changed = True
 
     _refresh_rate_caches(contract, today)
@@ -857,17 +890,35 @@ async def sync_orders_cost_from_contract(
     if contract.status == ContractStatus.void or not _has_cost(contract):
         return []
 
+    from app.services import order_cost_steps
+
     currency = contract.resolved_rate_candidate_currency
     changed: list[int] = []
-    for order in orders:
-        if order.client_id != contract.client_id or order.order_group_id is not None:
-            continue
-        if ClientOrderStatus(order.status) not in COST_TARGET_ORDER_STATUSES:
-            continue
+    targets = [
+        order
+        for order in orders
+        if order.client_id == contract.client_id
+        and order.order_group_id is None
+        and ClientOrderStatus(order.status) in COST_TARGET_ORDER_STATUSES
+    ]
+    existing_steps = await order_cost_steps.load_steps(db, (o.id for o in targets))
+    for order in targets:
         cost = contract.effective_candidate_rate(cost_reference_day(order, today))
         if cost is None:
             continue
-        touched = False
+        # Części kosztu, gdy stawka Partnera zmienia się w okresie zamówienia
+        # (`services/order_cost_steps.py`). Kolumna niżej zostaje stawką
+        # na dzień odniesienia.
+        touched = await order_cost_steps.write_steps(
+            db,
+            order,
+            order_cost_steps.steps_for(
+                order_cost_steps.contract_parts(contract, order)
+            ),
+            existing_steps.get(order.id, []),
+            source="contract",
+            actor_id=None,
+        )
         # Godziny KONTRAKTU: 125 zł/h kontraktu 168-godzinnego to 21 000 zł/mc
         # w zamówieniu miesięcznym (godziny zamówienia opisują inną kwotę).
         # MD: × 8 niezależnie od godzin.
@@ -1363,15 +1414,18 @@ async def backfill_missing_order_periods(
                 or contract.client_order_end_date is not None
             ):
                 continue
+            contract_orders = orders_by_contract.get(contract.id, [])
             terms = [
                 t
-                for order in orders_by_contract.get(contract.id, [])
+                for order in contract_orders
                 if order.client_id == contract.client_id
                 and (t := order_revenue_terms(order)) is not None
             ]
             if not terms:
                 continue
-            latest = _latest(terms)
+            latest = _period_source(contract, contract_orders, terms)
+            if latest is None:
+                continue
             previous_end = contract.client_order_end_date
             contract.client_order_start_date = latest.start
             contract.client_order_end_date = latest.end

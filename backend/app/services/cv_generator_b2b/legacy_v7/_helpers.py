@@ -12,12 +12,17 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from app.services.cv_generator_b2b.champion_builder import ChampionProfileForPrompt
 from app.services.cv_generator_b2b.docx_renderer import (
     compile_keyword_patterns,
     highlight_spans,
+)
+from app.services.cv_generator_b2b.legacy_v7.role_family import (
+    names_company,
+    same_profession,
 )
 from app.services.cv_generator_b2b.standalone_service import (  # noqa: F401
     StandaloneGenerationError,
@@ -382,7 +387,9 @@ _ROLE_TENURE_LEAD_RE = re.compile(
 )
 
 
-def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None:
+def _fix_experience_years(
+    candidate_data: dict[str, Any], language: str, notes: list[str] | None = None
+) -> None:
     """Popraw liczbę lat w nagłówku kariery (pierwszy punkt z „doświadczenia").
 
     Model liczy staż z dat słabo („ponad 4" przy 5 latach), więc kod liczy go
@@ -393,8 +400,9 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
       wszystkich ról.
     * „N lat doświadczenia jako X" — ``min(cała kariera, max(liczba modelu,
       role pasujące do X))``: liczba rośnie tylko wtedy, gdy potwierdzają to
-      daty ról X, i nigdy ponad całą karierę. Brak pasującej roli albo ułamek,
-      którego nie trzeba zmieniać = bez zmiany.
+      daty ról X, i nigdy ponad całą karierę. Od 20.11.2026 role X to także
+      role tego samego zawodu (`role_family`); doliczone trafiają do ``notes``.
+      Brak pasującej roli albo ułamek, którego nie trzeba zmieniać = bez zmiany.
     * Wszystko inne („2 lata w SQL", „od 2023 roku", „2.5 years combined …")
       zostaje, jak napisał model; sprawdzają to bezpieczniki i kontrola AI.
 
@@ -425,22 +433,48 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
         ):
             continue
         tail = head[match.end() :]
+        found: _ScopedRoles | None = None
         if _GENERIC_TENURE_TAIL_RE.fullmatch(tail):
+            if head != point:
+                # „3 lata w IT, w tym 3 lata jako Analyst”: model policzył obszar
+                # bez ról spoza niego (kelner, sklep). Suma wszystkich ról by je
+                # wliczyła; górną granicę i tak pilnuje `_apply_summary_standard`.
+                points[i] = _fix_role_subfigure(
+                    point, experience, total, figure, language
+                )
+                break
             months = total
         else:
             lead = _ROLE_TENURE_LEAD_RE.match(tail)
-            scoped = (
-                _scoped_months(
-                    tail[lead.end() :], experience, _company_keys(experience)
+            found = (
+                _scoped_roles(
+                    tail[lead.end() :],
+                    experience,
+                    _company_keys(experience),
+                    family=_role_claims(point) < 2,
                 )
                 if lead
                 else None
             )
+            scoped = found.months() if found else None
             if not scoped:
                 continue
             months = min(total, max(int(figure * 12), scoped))
+            if found.added:
+                # Zawód (20.11.2026) tylko podnosi liczbę w tekście. Bez roli o tej
+                # nazwie kod dotąd jej nie ruszał, więc nie przycina jej do dat.
+                named = found.named_months()
+                if named is None:
+                    if not _shows_more(months, match):
+                        continue
+                else:
+                    without = min(total, max(int(figure * 12), named))
+                    if not _raised(months, without, language):
+                        months, found = without, None
         if figure != int(figure) and _fraction_matches(figure, months):
             break  # ułamek modelu jest zgodny z datami — zostaje
+        if found and found.added:
+            _note_added_roles(found, notes)
         lead_space = match.group(0)[
             : len(match.group(0)) - len(match.group(0).lstrip())
         ]
@@ -455,6 +489,46 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
         break
 
 
+def _fix_role_subfigure(
+    point: str,
+    experience: list[dict[str, Any]],
+    total: int,
+    area_figure: float,
+    language: str,
+) -> str:
+    """Podnieś „w tym M lat jako X” do sumy dat ról X (prompt 14, 17.11.2026).
+
+    Pomiar na Solu: „Ponad 8 lat w IT, w tym ponad 1 rok jako DevOps…” przy
+    ponad 5 latach w rolach DevOps. Liczba tylko rośnie (niższa może być
+    prawdziwa), nigdy ponad całą karierę ani ponad liczbę obszaru. Role X to
+    od 20.11.2026 wszystkie role tego zawodu (`role_family`), jak każe prompt.
+    """
+    split = _SUBFIGURE_SPLIT_RE.search(point)
+    if not split:
+        return point
+    sub = point[split.end() :]
+    match = _YEARS_PHRASE_RE.match(sub)
+    figure = _tenure_figure(match) if match else None
+    if figure is None:
+        return point
+    tail = sub[match.end() :]
+    if not _SCOPED_ROLE_CONNECTOR_RE.match(tail):
+        return point
+    scoped = _scoped_months(
+        tail, experience, _company_keys(experience), family=_role_claims(point) < 2
+    )
+    if not scoped:
+        return point
+    months = min(total, scoped, int(area_figure) * 12 + 11)
+    if months // 12 <= int(figure):
+        return point
+    return (
+        point[: split.end()]
+        + _tenure_text(months, language, at_start=False)
+        + point[split.end() + match.end() :]
+    )
+
+
 # Standard „Dlaczego nasz kandydat” (05.11.2026): 5 punktów, punkt 1 to lata.
 WHY_POINTS_STANDARD = 5
 _BELOW_FIGURE_RE = re.compile(r"niemal|prawie|blisko|nearly|almost", re.IGNORECASE)
@@ -463,10 +537,12 @@ _BELOW_FIGURE_RE = re.compile(r"niemal|prawie|blisko|nearly|almost", re.IGNORECA
 # Punkt, który ocenia dopasowanie zamiast podawać fakt. Podmiot musi być kandydatem
 # albo jego profilem: „Meeting SLA requirements” i „zgodnie z wymaganiami klientów”
 # w opisie zadania to fakty (1415 CV: 1 prawdziwe trafienie, reszta szerszego wzorca to fakty).
+# „Zgodne/zgodny z”, nie „zgodności”: od promptu 14 punkty zaczynają się od „Doświadczenie w…”,
+# a „Doświadczenie w zapewnianiu zgodności z wymaganiami DORA” to fakt (AML, compliance).
 _FIT_VERDICT_RE = re.compile(
     r"^\W*(?:(?:core|key|main)\s+)?(?:kandydat\w*|profil\w*|kompetencj\w*|umiejętnoś\w*|"
     r"doświadczeni\w*|candidate\w*|profile|skills?|competenc\w*|experience)\b.{0,25}?"
-    r"(?:spełnia\w*|odpowiada(?:ją)?\b|pasuj\w*|zgodn\w*|dopasowan\w*|"
+    r"(?:spełnia\w*|odpowiada(?:ją)?\b|pasuj\w*|zgodn[eya]\b|zgodnie\b|dopasowan\w*|"
     r"meets?\b|fulfil\w*|match(?:es)?\b|fits?\b|aligned\b).{0,25}?"
     r"(?:wymaga\w*|oczekiwa\w*|profil\w*|rol\w*|stanowisk\w*|"
     r"requirements?|expectations|role|position)",
@@ -480,7 +556,11 @@ _WHY_LABEL_RE = re.compile(r"^\s*([^:.;\d][^:.;]{0,48}?)\s*:\s+(?=\S)")
 
 
 def _drop_why_labels(points: list[Any]) -> list[Any]:
-    """Zdejmij etykietę z dwukropkiem z punktów 3–5; punkt 2 to „Specjalizacja: …”."""
+    """Zdejmij etykietę z dwukropkiem z punktów 3–5.
+
+    Punkt 2 (do 17.11.2026 „Specjalizacja: …”, od wersji 14 promptu zdanie
+    o głównych technologiach) zostaje bez zmian.
+    """
     out = list(points)
     for i in range(2, len(out)):
         point = out[i]
@@ -621,23 +701,60 @@ def _company_keys(roles: list[dict[str, Any]]) -> list[str]:
     )
 
 
-def _scoped_months(
-    tail: str, roles: list[dict[str, Any]], companies: list[str]
-) -> int | None:
-    """Miesiące ról pasujących do frazy po liczbie: „jako X" (stanowisko zawiera X)
-    albo „w/u/at Firma" (dokładnie ta firma). ``None`` = brak dopasowania albo
-    niepełne daty — wtedy liczba zostaje, jak napisał model."""
+@dataclass(frozen=True)
+class _ScopedRoles:
+    """Role pod liczbą lat: o tej nazwie (albo z tej firmy) i dołożone role zawodu."""
+
+    phrase: str
+    named: tuple[dict[str, Any], ...]
+    added: tuple[dict[str, Any], ...]
+
+    def months(self) -> int | None:
+        return _total_experience_months([*self.named, *self.added])
+
+    def named_months(self) -> int | None:
+        return _total_experience_months(list(self.named)) if self.named else None
+
+
+def _scoped_roles(
+    tail: str,
+    roles: list[dict[str, Any]],
+    companies: list[str],
+    *,
+    family: bool = False,
+) -> _ScopedRoles | None:
+    """Role pasujące do frazy po liczbie: „jako X" (stanowisko zawiera X) albo
+    „w/u/at Firma" (dokładnie ta firma). ``None`` = brak dopasowania albo
+    niepełne daty roli o tej nazwie — wtedy liczba zostaje, jak napisał model.
+
+    Z ``family`` „jako X" bierze też role tego samego zawodu z czytelnymi datami
+    (`role_family.same_profession`, decyzja Artura 20.11.2026), ale nie przy
+    „jako X w <Firma>”, bo wtedy liczba mówi o jednej firmie.
+    """
+    added: list[dict[str, Any]] = []
     role = _SCOPED_ROLE_CONNECTOR_RE.match(tail)
     if role:
         rest = tail[role.end() :]
         end = _SCOPED_PHRASE_END_RE.search(rest)
-        phrase = _scope_key(rest[: end.start()] if end else rest)
+        raw = (rest[: end.start()] if end else rest).strip()
+        phrase = _scope_key(raw)
         if len(phrase) < 4:
             return None
         pattern = re.compile(rf"(?:^|\s){re.escape(phrase)}(?:\s|$)")
         matched = [
             job for job in roles if pattern.search(_scope_key(job.get("position")))
         ]
+        if family and not names_company(rest[end.start() :] if end else ""):
+            named_ids = {id(job) for job in matched}
+            added = [
+                job
+                for job in roles
+                if id(job) not in named_ids
+                and _parse_date_range(str(job.get("dates") or "")) is not None
+                and same_profession(
+                    raw, job.get("position"), job.get("technologies") or ()
+                )
+            ]
     else:
         company = _SCOPED_COMPANY_CONNECTOR_RE.match(tail)
         if not company:
@@ -648,15 +765,94 @@ def _scoped_months(
         )
         if name is None:
             return None
+        raw = name
         matched = [job for job in roles if _scope_key(job.get("company")) == name]
-    if not matched or any(
+    if not (matched or added) or any(
         _parse_date_range(str(job.get("dates") or "")) is None for job in matched
     ):
         return None
-    return _total_experience_months(matched)
+    return _ScopedRoles(raw, tuple(matched), tuple(added))
 
 
-def _fix_scoped_years(candidate_data: dict[str, Any], language: str) -> None:
+def _scoped_months(
+    tail: str,
+    roles: list[dict[str, Any]],
+    companies: list[str],
+    *,
+    family: bool = False,
+) -> int | None:
+    """Miesiące ról z `_scoped_roles`; ``None`` = liczba zostaje, jak napisał model."""
+    found = _scoped_roles(tail, roles, companies, family=family)
+    return found.months() if found else None
+
+
+def _role_claims(point: str) -> int:
+    """Ile liczb lat w punkcie stoi przy stanowisku („N lat (doświadczenia) jako X”).
+
+    Punkt z dwiema („7 years as a System Analyst and 2 years as a Business
+    Analyst”) wylicza role osobno, więc rodzina zawodu by je zdublowała.
+    """
+    count = 0
+    for match in _YEARS_PHRASE_RE.finditer(point):
+        if _tenure_figure(match) is None:
+            continue
+        tail = point[match.end() :]
+        if _SCOPED_ROLE_CONNECTOR_RE.match(tail) or _ROLE_TENURE_LEAD_RE.match(tail):
+            count += 1
+    return count
+
+
+def _raised(months: int, without_family: int, language: str) -> bool:
+    """Czy role zawodu zmieniły liczbę w tekście (a nie tylko miesiące)."""
+    return months > without_family and _tenure_text(
+        months, language, at_start=False
+    ) != _tenure_text(without_family, language, at_start=False)
+
+
+_OVER_PREFIX_RE = re.compile(
+    r"(?:ponad|powyżej|przeszło|over|more than)\b|\+", re.IGNORECASE
+)
+
+
+def _shows_more(months: int, match: re.Match[str]) -> bool:
+    """Czy `_tenure_text(months)` mówi więcej niż liczba modelu.
+
+    „Ponad 5 lat”, „5+ years” i „4,5 roku” nie mogą stać się „5 lat” ani
+    „ponad 4 lata”: tam, gdzie kod dotąd liczby nie ruszał, zawód ją tylko podnosi.
+    """
+    figure = _tenure_figure(match) or 0
+    over = OVER_YEARS_FROM_MONTHS if _OVER_PREFIX_RE.search(match.group(0)) else 0
+    shown = months // 12 * 12 + (
+        OVER_YEARS_FROM_MONTHS if months % 12 >= OVER_YEARS_FROM_MONTHS else 0
+    )
+    return shown > figure * 12 + over
+
+
+# Tyle doliczonych ról wypisuje uwaga; resztę podaje liczbą.
+_NOTE_ROLES_LISTED = 4
+
+
+def _note_added_roles(found: _ScopedRoles, notes: list[str] | None) -> None:
+    """Uwaga dla rekrutera: które role o innej nazwie weszły do lat „jako X”."""
+    if notes is None or not found.added:
+        return
+    listed = ", ".join(
+        f"{job.get('position')} ({job.get('dates')})"
+        for job in found.added[:_NOTE_ROLES_LISTED]
+    )
+    more = len(found.added) - _NOTE_ROLES_LISTED
+    note = (
+        f"WERYFIKUJ: lata „jako {found.phrase}” w podsumowaniu liczą też role tego "
+        f"samego zawodu: {listed}{f' i {more} innych' if more > 0 else ''}. "
+        "Popraw liczbę, jeśli któraś z nich to inny zawód."
+    )
+    if note not in notes:
+        notes.append(note)
+
+
+def _fix_scoped_years(
+    candidate_data: dict[str, Any], language: str, notes: list[str] | None = None
+) -> None:
     """Przelicz z dat liczby lat przypięte do KONKRETNEJ roli albo firmy.
 
     Model nie zna dzisiejszej daty i liczył „obecnie" jak rok wcześniej
@@ -668,6 +864,13 @@ def _fix_scoped_years(candidate_data: dict[str, Any], language: str) -> None:
     niepełne daty = liczba zostaje, jak napisał model. Dzięki temu poprawka
     nigdy nie dolicza lat z innej roli ani innej firmy. Daty („od 2023 roku")
     nie są liczbą lat i zostają.
+
+    Od 20.11.2026 (decyzja Artura) „jako X" liczy też role tego samego zawodu
+    (`role_family`): prompt 14 każe pisać w „w tym M lat jako X” sumę
+    wszystkich ról zawodu, a sama nazwa zbijała „16 lat” do „ponad 1 rok”.
+    Zawód tylko podnosi liczbę: nie mniej niż role o tej nazwie, w „w tym M”
+    nie więcej niż liczba obszaru przed „w tym”, a bez roli o tej nazwie nie
+    mniej, niż napisał model. Doliczone role idą do ``notes``.
     """
     roles = [
         job for job in candidate_data.get("experience") or [] if isinstance(job, dict)
@@ -680,16 +883,38 @@ def _fix_scoped_years(candidate_data: dict[str, Any], language: str) -> None:
     for i, point in enumerate(points):
         if not isinstance(point, str):
             continue
+        family = _role_claims(point) < 2
+        head = _SUBFIGURE_SPLIT_RE.split(point, maxsplit=1)[0]
+        area_match = _YEARS_PHRASE_RE.search(head)
+        area = _tenure_figure(area_match) if area_match else None
 
         def replace(match: re.Match[str]) -> str:
             figure = _tenure_figure(match)
             if figure is None:
                 return match.group(0)
-            months = _scoped_months(match.string[match.end() :], roles, companies)
-            if not months or months < MIN_TENURE_MONTHS:
+            found = _scoped_roles(
+                match.string[match.end() :], roles, companies, family=family
+            )
+            months = found.months() if found else None
+            if not found or not months or months < MIN_TENURE_MONTHS:
                 return match.group(0)
+            named = found.named_months()
+            by_family = False
+            if found.added:
+                if area is not None and match.start() >= len(head):
+                    months = min(months, int(area) * 12 + 11)
+                if named is not None and named >= MIN_TENURE_MONTHS:
+                    # Dotąd liczba = role o tej nazwie; zawód ją tylko podnosi.
+                    by_family = _raised(months, named, language)
+                    months = months if by_family else named
+                elif _shows_more(months, match):
+                    by_family = True  # dotąd zostawała liczba modelu
+                else:
+                    return match.group(0)
             if figure != int(figure) and _fraction_matches(figure, months):
                 return match.group(0)  # „4,5 roku w Acme” zgodne z datami
+            if by_family:
+                _note_added_roles(found, notes)
             text = match.group(0)
             lead = text[: len(text) - len(text.lstrip())]
             before = match.string[: match.start()]
@@ -1078,6 +1303,220 @@ def _without_negated_note(item: str) -> str | None:
     return head.strip(" ,;-–—(") or None
 
 
+# Dopisek o stopniu znajomości („Cucumber (krótkie doświadczenie praktyczne)”,
+# „Java (podstawy)”, „Angular (basic)”). Zgłoszenie z zespołu 17.11.2026:
+# klient czyta to jako „nie umie”. Pomiar kopii produkcji z 16.11: 64 z 958 CV
+# z 30 dni, ok. 70% dopisków nie stoi w CV kandydata. Decyzja Artura (A+B):
+# dopisek znika, pozycja zostaje i schodzi na koniec kategorii.
+_LEVEL_NOTE_RE = re.compile(
+    r"\b(?:podstaw\w*|(?<!visual )basics?|beginner\w*|elementar\w*|krótk\w*"
+    r"|short|brief|ograniczon\w*|limited|teoretyczn\w*|theoretical\w*"
+    r"|familiar\w*|exposure|świadomoś\w*|niekomercyjn\w*"
+    r"|non-commercial|początkując\w*|w\s+trakcie\s+nauki|currently\s+learning"
+    r"|rozwijan\w*\s+samodzielnie|self-taught|smaller\s+changes"
+    r"|bez\s+(?:potwierdzon\w*\s+)?(?:użyci\w*|wykorzystani\w*)\s+komercyjn\w*"
+    r"|without\s+commercial\s+use|wskazan\w*\s+w\s+cv"
+    r"|listed\s+(?:in|on)\s+(?:the\s+)?cv)\b",
+    re.IGNORECASE,
+)
+_LEVEL_TAIL_RE = re.compile(r"\s+[-–—]\s+([^()\-–—]*)$")
+# „SQL and Splunk basics” → „SQL and Splunk”, „basic DAX” → „DAX”.
+_LEVEL_SUFFIX_RE = re.compile(r"^(.*\S)\s+(?:basics|podstawy)$", re.IGNORECASE)
+# Nazwa po stopniu zaczyna się wielką literą („basic level” to sam stopień).
+_LEVEL_PREFIX_RE = re.compile(r"^(?i:basic|podstawow\w*)\s+([A-Z].*)$")
+
+
+def _split_outside_brackets(text: str, separators: str) -> list[str]:
+    parts: list[str] = []
+    depth = 0
+    current: list[str] = []
+    for ch in text:
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth = max(0, depth - 1)
+        if ch in separators and depth == 0:
+            parts.append("".join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+    parts.append("".join(current).strip())
+    return parts
+
+
+def _without_level_phrase(text: str) -> str | None:
+    """Fraza bez stopnia znajomości; ``None``, gdy cała jest stopniem."""
+    tail = _LEVEL_TAIL_RE.search(text)
+    if tail and _LEVEL_NOTE_RE.search(tail.group(1)):
+        return text[: tail.start()].strip() or None
+    if not _LEVEL_NOTE_RE.search(text):
+        return text
+    for pattern in (_LEVEL_SUFFIX_RE, _LEVEL_PREFIX_RE):
+        match = pattern.match(text)
+        if match and not _LEVEL_NOTE_RE.search(match.group(1)):
+            return match.group(1)
+    return None
+
+
+def _without_level_note(item: str) -> tuple[str, bool]:
+    """Pozycja bez dopisku o stopniu znajomości i informacja, czy był.
+
+    Z nawiasu znikają tylko części ze stopniem, zakres zostaje:
+    „Docker (basic, Docker Compose)” → „Docker (Docker Compose)”. Pozycja
+    złożona ze średników traci dopisek tylko w swoim członie.
+    """
+    found = False
+
+    def clean_group(match: re.Match[str]) -> str:
+        nonlocal found
+        parts = [p for p in _split_outside_brackets(match.group(1), ",;") if p]
+        kept = [c for c in map(_without_level_phrase, parts) if c]
+        if kept == parts:
+            return match.group(0)
+        found = True
+        return f" ({', '.join(kept)})" if kept else ""
+
+    segments: list[str] = []
+    for segment in _split_outside_brackets(item, ";"):
+        cleaned = re.sub(r"\s*\(([^()]*)\)", clean_group, segment).strip()
+        tail = _LEVEL_TAIL_RE.search(cleaned)
+        if tail and _LEVEL_NOTE_RE.search(tail.group(1)) and tail.start() > 0:
+            found = True
+            cleaned = cleaned[: tail.start()].strip()
+        if cleaned:
+            segments.append(cleaned)
+    return ("; ".join(segments) or item), found
+
+
+# Źródło faktu i zastrzeżenie „bez doświadczenia komercyjnego” (zgłoszenie Artura
+# 17.11.2026: „Bazy danych (niekomercyjnie): MongoDB - znajomość potwierdzona
+# podczas screeningu, bez doświadczenia komercyjnego”). Klient nie ma wiedzieć,
+# skąd wzięliśmy fakt, a zastrzeżenie czyta jako „nie umie”. Kopia z 16.11: to samo
+# w zadaniach („per screening notes”), językach i punktach „Dlaczego”. Same słowa
+# „screening” (AML: „sanctions screening”) i „deklaracje” (podatkowe) to fakty.
+_SOURCE_NOTE_RE = re.compile(
+    r"\bpotwierdz\w*\s+(?:podczas|w\s+trakcie|na|w)\s+(?:rozmow\w*|screening\w*)"
+    r"|\b(?:według|wg|na\s+podstawie)\s+(?:notat\w*|screening\w*|rozmow\w*|kandydat\w*|cv)\b"
+    r"|\b(?:z|ze)\s+(?:notatek|screeningu)\b"
+    r"|\bniekomercyjn\w*"
+    r"|\bbez\s+(?:doświadczeni\w*\s+)?komercyjn\w*"
+    r"|\b(?:confirmed|stated|mentioned|declared|reported)\s+(?:during|in|at|by)\s+"
+    r"(?:the\s+)?(?:screening|interview|call|candidate|recruit\w*)"
+    r"|\b(?:per|according\s+to|from)\s+(?:the\s+)?(?:screening\s+)?"
+    r"(?:notes?|screening|interview|candidate|cv)\b"
+    r"|\bscreening\s+notes?\b"
+    r"|\bnon-commercial\b"
+    r"|\b(?:without|no)\s+commercial\s+(?:experience|use)\b",
+    re.IGNORECASE,
+)
+_CLAUSE_SEP_RE = re.compile(r"\s*(?:;|,|\s[-–—])\s+")
+_SOURCE_PAREN_RE = re.compile(r"\s*\(([^()]*)\)")
+
+
+def _without_source_note(text: str) -> str:
+    """Tekst bez wtrącenia o źródle faktu; pusty, gdy cały był takim wtrąceniem.
+
+    Nawias z wtrąceniem znika; inaczej zdanie kończy się na ostatnim separatorze
+    (średnik, przecinek, myślnik) przed wtrąceniem, bo to, co po nim, jest
+    zwykle dalszym ciągiem zastrzeżenia.
+    """
+    out = _SOURCE_PAREN_RE.sub(
+        lambda m: "" if _SOURCE_NOTE_RE.search(m.group(1)) else m.group(0), text
+    ).strip()
+    match = _SOURCE_NOTE_RE.search(out)
+    if not match:
+        return out
+    cuts = [m for m in _CLAUSE_SEP_RE.finditer(out) if m.end() <= match.start()]
+    cut = out[: cuts[-1].start()] if cuts else out[: match.start()]
+    cut = cut.rstrip(" ,;:-–—")
+    if cut and text.rstrip().endswith(".") and not cut.endswith("."):
+        cut += "."
+    return cut
+
+
+def strip_source_mentions(candidate_data: dict[str, Any]) -> list[str]:
+    """Usuń z CV wzmianki o źródle faktu i o braku doświadczenia komercyjnego.
+
+    Kategoria „Bazy danych (niekomercyjnie)” łączy się z „Bazy danych” (pozycje
+    na końcu). Zwraca uwagę WERYFIKUJ z tym, co zniknęło, żeby rekruter mógł
+    przywrócić fakt bez zastrzeżenia.
+    """
+    removed: list[str] = []
+
+    def clean(text: Any) -> str:
+        value = str(text)
+        cleaned = _without_source_note(value)
+        if cleaned != value.strip():
+            removed.append(value.strip())
+        return cleaned
+
+    points = candidate_data.get("why_points")
+    if isinstance(points, list):
+        candidate_data["why_points"] = [
+            c for c in (clean(p) if isinstance(p, str) else p for p in points) if c
+        ]
+    for job in candidate_data.get("experience") or []:
+        if isinstance(job, dict) and isinstance(job.get("responsibilities"), list):
+            job["responsibilities"] = [
+                c for c in map(clean, job["responsibilities"]) if c
+            ]
+    languages = candidate_data.get("languages")
+    if isinstance(languages, list):
+        kept_languages: list[str] = []
+        for line in languages:
+            value = str(line)
+            if not _SOURCE_NOTE_RE.search(value):
+                kept_languages.append(value)
+                continue
+            removed.append(value.strip())
+            for segment in value.split(";"):
+                match = _SOURCE_NOTE_RE.search(segment)
+                head = segment[: match.start()] if match else segment
+                head = head.strip().rstrip(" ,;:-–—")
+                if head:
+                    kept_languages.append(head)
+                    break
+        candidate_data["languages"] = kept_languages
+
+    skills: list[dict[str, Any]] = []
+    by_label: dict[str, dict[str, Any]] = {}
+    for cat in candidate_data.get("skills") or []:
+        if not isinstance(cat, dict):
+            continue
+        label = str(cat.get("label") or "")
+        clean_label = re.sub(r"\s+(?=:)", "", _without_source_note(label.rstrip(":")))
+        clean_label = f"{clean_label}:" if label.rstrip().endswith(":") else clean_label
+        if clean_label != label:
+            removed.append(label.strip())
+        items = [
+            c for c in map(clean, _split_skills(str(cat.get("content") or ""))) if c
+        ]
+        key = clean_label.rstrip(":").strip().casefold()
+        if key in by_label and clean_label != label:
+            target = by_label[key]
+            known = {i.casefold() for i in _split_skills(target["content"])}
+            extra = [i for i in items if i.casefold() not in known]
+            if extra:
+                target["content"] = ", ".join([target["content"], *extra])
+            continue
+        if not items:
+            continue
+        entry = {**cat, "label": clean_label, "content": ", ".join(items)}
+        by_label.setdefault(key, entry)
+        skills.append(entry)
+    if "skills" in candidate_data:
+        candidate_data["skills"] = skills
+
+    if not removed:
+        return []
+    shown = "; ".join(f"„{r[:120]}”" for r in removed[:3])
+    more = f" i {len(removed) - 3} więcej" if len(removed) > 3 else ""
+    return [
+        "WERYFIKUJ: usunięto z CV wzmianki o źródle faktu albo o braku doświadczenia "
+        f"komercyjnego: {shown}{more}. Klient nie widzi, skąd mamy fakt."
+    ]
+
+
 def strip_unsupported_terms(
     candidate_data: dict[str, Any],
     *,
@@ -1111,6 +1550,7 @@ def strip_unsupported_terms(
     removed: list[str] = []
     doubtful: list[str] = []
     negated: list[str] = []
+    level_noted: list[str] = []
 
     def from_ad(term: str) -> bool:
         tokens = _term_tokens(term)
@@ -1129,15 +1569,33 @@ def strip_unsupported_terms(
         techs = job.get("technologies") or []
         job["technologies"] = [t for t in techs if not from_ad(str(t))]
 
+    required = _source_tokens("\n".join(requirements))
+
+    def is_required(term: str) -> bool:
+        tokens = _term_tokens(term)
+        return bool(tokens) and all(tok in required for tok in tokens)
+
     skills: list[dict[str, str]] = []
     for cat in candidate_data.get("skills") or []:
         kept: list[str] = []
+        weaker: list[str] = []
         for item in _split_skills(str(cat.get("content") or "")):
             cleaned = _without_negated_note(item)
             if cleaned is None:
                 negated.append(item)
-            elif not from_ad(cleaned):
-                kept.append(cleaned)
+                continue
+            cleaned, had_level = _without_level_note(cleaned)
+            if from_ad(cleaned):
+                continue
+            if had_level:
+                level_noted.append(item)
+                # Wymaganie klienta zostaje na swoim miejscu (must-have na
+                # początku kategorii), reszta za tym, co kandydat zna dobrze.
+                if not is_required(cleaned):
+                    weaker.append(cleaned)
+                    continue
+            kept.append(cleaned)
+        kept.extend(weaker)
         if kept:
             skills.append({**cat, "content": ", ".join(kept)})
     candidate_data["skills"] = skills
@@ -1172,6 +1630,17 @@ def strip_unsupported_terms(
             if language == "en"
             else f"{prefix}: usunięto umiejętności z dopiskiem o braku "
             f"doświadczenia: {names}"
+        )
+    if level_noted:
+        names = ", ".join(dict.fromkeys(level_noted))
+        notes.append(
+            f"{prefix}: removed level notes from skills (the skill stays, moved "
+            f"to the end of its category); add the level in the editor if the "
+            f"client asks for it: {names}"
+            if language == "en"
+            else f"{prefix}: zdjęto dopiski o poziomie znajomości (umiejętność "
+            f"została, na końcu kategorii); jeśli klient wymaga poziomu, dopisz "
+            f"go w edytorze: {names}"
         )
     return notes
 

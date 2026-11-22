@@ -234,7 +234,7 @@ export function AgreementPanelTab({
           </Button>
         ) : null}
         {canSendEsign ? (
-          <Button size="sm" variant="outline" onClick={() => setSending(true)}>
+          <Button size="sm" variant="outline" onClick={() => setSending(true)} data-tour="b2b.esign.send">
             <Send className="h-3.5 w-3.5" aria-hidden />
             Wyślij do podpisu
           </Button>

@@ -37,12 +37,14 @@
   "DELETE /api/jobs/{job_id}/owner": "PDPPDDDDPPPPDDDDPDDDDDDDDDDDD",
   "DELETE /api/jobs/{job_id}/previous-recruiters/{user_id}": "PDPPDDDDPPPPDDDDPDDDDDDDDDDDD",
   "GET /api/jobs": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/client-process": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/jobs/hiring-manager-options": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "GET /api/jobs/quick-counts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/jobs/train-names": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/jobs/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/jobs/{job_id}/champion-profile": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/jobs/{job_id}/champion-profile/briefing/audio-url": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/{job_id}/champion-profile/changes": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/jobs/{job_id}/champion-profile/consultant-suggestions": "PPDPDDDDPPPDDDDDDDDDDDDDDDPDD",
   "GET /api/jobs/{job_id}/champion-profile/historical-matches": "PPDPDDDDPPPDDDDDDDDDDDDDDDPDD",
   "GET /api/jobs/{job_id}/champion-profile/suggestions": "PPDPDDDDPPPDDDDDDDDDDDDDDDPDD",
@@ -54,6 +56,7 @@
   "GET /api/jobs/{job_id}/requirement-sent-gaps": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/jobs/{job_id}/unassigned-workers": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "PATCH /api/jobs/{job_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PATCH /api/jobs/{job_id}/champion-profile/changes/{revision_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "PATCH /api/jobs/{job_id}/close-reason": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
   "POST /api/jobs": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
   "POST /api/jobs/champion-profile/historical-matches": "PPDPDDDDPPPDDDDDDDDDDDDDDDPDD",
@@ -62,6 +65,7 @@
   "POST /api/jobs/{job_id}/cc-override": "PDDPDDDDPPPDDDDDDDDDDDDDDDDDD",
   "POST /api/jobs/{job_id}/champion-profile/apply-import": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/jobs/{job_id}/champion-profile/briefing": "PDDPDDDDPPPDDDDDDDDDDDDDDDDDD",
+  "POST /api/jobs/{job_id}/champion-profile/changes/seen": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/jobs/{job_id}/champion-profile/client-history": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/jobs/{job_id}/champion-profile/generate-from-history": "PDDPDDDDPPPDDDDDDDDDDDDDDDDDD",
   "POST /api/jobs/{job_id}/champion-profile/generate-from-jd": "PDDPDDDDPPPDDDDDDDDDDDDDDDDDD",
@@ -80,6 +84,7 @@
   "PUT /api/jobs/{job_id}/champion-profile": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "PUT /api/jobs/{job_id}/channel-plan": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "PUT /api/jobs/{job_id}/channels/{user_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/jobs/{job_id}/client-process": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "PUT /api/jobs/{job_id}/hiring-manager": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

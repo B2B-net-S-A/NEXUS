@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const get = vi.fn();
 const post = vi.fn();
 const patch = vi.fn();
+const del = vi.fn();
 const showToast = vi.fn();
 vi.mock("@/lib/api", () => ({
   __esModule: true,
@@ -14,7 +15,7 @@ vi.mock("@/lib/api", () => ({
     post: (...a: unknown[]) => post(...a),
     put: vi.fn(),
     patch: (...a: unknown[]) => patch(...a),
-    delete: vi.fn(),
+    delete: (...a: unknown[]) => del(...a),
   },
 }));
 vi.mock("@/components/Toast", () => ({
@@ -174,6 +175,7 @@ beforeEach(() => {
   get.mockReset();
   post.mockReset();
   patch.mockReset();
+  del.mockReset();
   showToast.mockReset();
   window.history.replaceState(null, "", "/accounting/bank?year=2026&month=11");
   useAuthStore.setState({
@@ -232,6 +234,53 @@ describe("Księgowość — Bank", () => {
     await waitFor(() =>
       expect(showToast).toHaveBeenCalledWith("WB w buforze: WB 1/11/2026. Zatwierdza osoba z listy „Księgowi”."),
     );
+  });
+
+  it("administrator usuwa wyciąg bez WB po potwierdzeniu; inni nie widzą przycisku", async () => {
+    const admin = config();
+    admin.me = { ...admin.me, admin: true };
+    route(admin);
+    // Po usunięciu serwer odpowiada na wyciąg 404, a na miesiąc — pustą listą (jak na produkcji).
+    let deleted = false;
+    let refetchedDeleted = 0;
+    const routed = get.getMockImplementation()!;
+    get.mockImplementation(async (url: string, ...rest: unknown[]) => {
+      if (deleted && url === "/api/accounting/bank/statements/7") {
+        refetchedDeleted += 1;
+        throw Object.assign(new Error("404"), { response: { status: 404, data: { detail: "Nie ma takiego wyciągu." } } });
+      }
+      if (deleted && url === "/api/accounting/bank") return { data: overview({ statements: [] }) };
+      return routed(url, ...rest);
+    });
+    del.mockImplementation(async () => {
+      deleted = true;
+      return { data: { lines: 3, cost_records: 2, cost_matched: 1, sales_records: 1, sales_matched: 1 } };
+    });
+    const user = userEvent.setup();
+    renderView();
+    await user.click(await screen.findByRole("button", { name: "…2875" }));
+    expect(window.location.search).toContain("statement=7");
+    await user.click(await screen.findByRole("button", { name: "Usuń wyciąg" }));
+    expect(del).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Usuń wyciąg" }));
+    await waitFor(() => expect(del).toHaveBeenCalledWith("/api/accounting/bank/statements/7"));
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith("Usunięto wyciąg (3 operacje) i zapłaty faktur z tego pliku: 2."),
+    );
+    // Panel usuniętego wyciągu się zamyka, zamiast pokazać błąd zapytania o nieistniejący wyciąg.
+    await waitFor(() => expect(window.location.search).not.toContain("statement="));
+    expect(screen.queryByRole("button", { name: "Zamknij wyciąg" })).not.toBeInTheDocument();
+    expect(refetchedDeleted).toBe(0);
+  });
+
+  it("bez uprawnień administratora nie ma „Usuń wyciąg”", async () => {
+    route(config());
+    const user = userEvent.setup();
+    renderView();
+    await user.click(await screen.findByRole("button", { name: "…2875" }));
+    await screen.findByRole("button", { name: "Zaksięguj wyciąg" });
+    expect(screen.queryByRole("button", { name: "Usuń wyciąg" })).not.toBeInTheDocument();
   });
 
   it("import pokazuje wyciąg od razu i mówi, gdy plik był już wczytany", async () => {

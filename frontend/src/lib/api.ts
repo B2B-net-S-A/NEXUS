@@ -1,3 +1,4 @@
+import type { ClientProcess } from "@/lib/job-client-process";
 import { forgetCvGenerationRequest } from "./cv-generation-request";
 import type { PipelineMovePayload, PipelineMoveResult } from "@/lib/pipeline-move-core";
 import { reviewBeforeFinalize, type CvReviewState } from "./cv-approval-request";
@@ -477,6 +478,71 @@ export interface ClientDirectoryParams {
   /** `true` = tylko klienci z przypisaniem DL/TAC osoby („Moi klienci"). */
   mine?: boolean;
 }
+
+/**
+ * Lista „Klienci” (makieta 19.11.2026, wariant A): jeden wiersz na klienta,
+ * stan liczony z faktów zamiast zakładek portfela. `working` = ktoś od nas
+ * pracuje albo zaczyna u klienta, albo trwa rekrutacja; bez tego zakładka
+ * portfela decyduje: aktywni i relacyjni → `idle`, nieaktywni → `archive`.
+ */
+export type ClientListState = "working" | "idle" | "archive";
+
+export interface ClientListConsultantAttention {
+  /** Obecni konsultanci z jakimkolwiek znacznikiem „Wymaga uwagi”. */
+  total: number;
+  order_ending: number;
+  order_ending_first: string | null;
+  no_current_order: number;
+  notice: number;
+}
+
+export interface ClientListItem {
+  client_id: number;
+  display_name: string;
+  legal_name: string | null;
+  industry: string | null;
+  state: ClientListState;
+  active_consultants: number;
+  planned_consultants: number;
+  open_jobs: number;
+  /** Marża miesięczna w PLN (= „Aktywne MRR” profilu); `null` = niewidoczna. */
+  monthly_margin: number | null;
+  monthly_margin_unpriced: number;
+  delivery_leads: { name: string; is_head: boolean }[];
+  framework_effective_date: string | null;
+  framework_expiry_date: string | null;
+  has_framework_period: boolean;
+  framework_count: number;
+  consultant_attention: ClientListConsultantAttention;
+  manually_placed: boolean;
+}
+
+export interface ClientListResponse {
+  items: ClientListItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  state_counts: Record<ClientListState, number>;
+  amounts_visible: boolean;
+  manually_placed_count: number;
+  as_of: string;
+}
+
+export interface ClientListParams {
+  state: ClientListState;
+  q?: string;
+  page: number;
+  page_size: number;
+  mine?: boolean;
+}
+
+export const clientListApi = {
+  list: (params: ClientListParams, signal?: AbortSignal) =>
+    api.get<ClientListResponse>("/api/clients/directory/clients", {
+      params,
+      signal,
+    }),
+};
 
 /**
  * Manual placement of a directory scope — moves a client between the
@@ -2329,6 +2395,31 @@ export interface ContractTerminationReversalOrder {
   removes_decision_case: boolean;
 }
 
+/** „Wycofaj wypowiedzenie” (17.11.2026) — okno w zakładce Aneksy. */
+export interface ContractNoticeWithdrawalPreview {
+  contract_id: number;
+  contract_type: string;
+  status: string;
+  end_date: string | null;
+  notice: {
+    amendment_id: number;
+    effective_date: string;
+    notice_end: string;
+    end_before_notice: string | null;
+    reason: string | null;
+  };
+  earliest_end_date: string;
+  indefinite_allowed: boolean;
+  /** Plan przywrócenia zamówień, gdy zakończenie już je ruszyło. */
+  reversal: ContractTerminationReversalPlan | null;
+}
+
+export interface ContractNoticeWithdrawalRequest {
+  end_date: string | null;
+  note?: string | null;
+  document_id?: number | null;
+}
+
 export interface ContractTerminationReversalPlan {
   contract_id: number;
   source: "snapshot" | "history";
@@ -2348,6 +2439,7 @@ export interface ContractTerminationReversalPlan {
     order_id?: number;
     order_label?: string;
     decision?: string;
+    notice_amendment_id?: number | null;
   }[];
   md_imports: {
     import_id: number;
@@ -2423,6 +2515,13 @@ export const contractsApi = {
     api.post<ContractTerminationReversalPlan>(
       `/api/contracts/${id}/termination-reversal`,
     ),
+  // „Wycofaj wypowiedzenie” — konsultant wycofał wypowiedzenie (aneks).
+  noticeWithdrawalPreview: (id: number) =>
+    api.get<ContractNoticeWithdrawalPreview>(
+      `/api/contracts/${id}/notice-withdrawal`,
+    ),
+  withdrawNotice: (id: number, payload: ContractNoticeWithdrawalRequest) =>
+    api.post(`/api/contracts/${id}/notice-withdrawal`, payload),
   // „Powrót po przerwie" — nowy kontrakt (szkic) powiązany z tym.
   returnAfterBreak: (id: number, startDate: string) =>
     api.post<ContractReturnAfterBreakResult>(
@@ -3727,8 +3826,15 @@ export interface B2BAgreementAdminDefaults {
   /** Klient rekrutacji — „Replacement za kogo” zaczyna od jego kontraktorów. */
   client_id: number | null;
   client_name: string | null;
+  /** Osoba prowadząca („Prowadzi”, bez przypisania pierwszy weryfikujący). */
   recruiter: B2BPlacementPerson | null;
   delivery_lead: B2BPlacementPerson | null;
+  /**
+   * Prowadzący jest, ale premii rekrutera nie dostanie nikt: `departed` —
+   * u klienta weryfikowała wcześniej osoba, która odeszła; `dl_verified` —
+   * zweryfikował DL bez roli rekrutera. Brak pola = premia jest.
+   */
+  recruiter_bonus_withheld?: "departed" | "dl_verified" | null;
   /** Tytuł rekrutacji mówi o zastępstwie. */
   replacement_from_title: boolean;
   /** Jedyny pasujący kontraktor u klienta — inaczej null. */
@@ -3912,12 +4018,12 @@ export const b2bGeneratorApi = {
         { params: { format: "html" } },
       )
       .then((r) => r.data),
-  renderHtml: (body: B2BRenderPayload) =>
+  renderHtml: (body: B2BRenderPayload, generatedId?: number) =>
     api
       .post<{ html: string; contract_number: string | null }>(
         "/api/b2b-generator/render",
         body,
-        { params: { format: "html" } },
+        { params: { format: "html", preview_generated_id: generatedId } },
       )
       .then((r) => r.data),
   companyLookup: (params: { nip?: string; krs?: string }) =>
@@ -5643,6 +5749,8 @@ export interface ChampionProfile {
   client_history?: ClientHistorySummary;
   verification?: ChampionVerification;
   briefing?: ChampionBriefing;
+  /** Proces u klienta (18.11.2026) — osobna trasa zapisu, `lib/job-client-process.ts`. */
+  client_process?: ClientProcess | null;
   /**
    * Ingest provenance (`app/schemas/champion.py::ChampionProfile.provenance`,
    * flattened back onto the top level by its custom `model_dump`). Present
@@ -5754,6 +5862,35 @@ export interface ChampionProfileResponse {
   profile_hash?: string;
   /** Tylko odpowiedź `PUT`: uwagi zapisu (np. krytyczna, która przestała być technologią). */
   notices?: string[];
+  /**
+   * Tylko odpowiedź `PUT` (17.11.2026): zmiana rekrutacji w pracy zostawiła
+   * wersję — edytor pyta autora o zdanie dla rekruterów.
+   */
+  change_revision?: { id: number; changes: ChampionChangeItem[] } | null;
+}
+
+/** Pozycja „Co się zmieniło” (`champion_profile_changes.describe_changes`). */
+export interface ChampionChangeItem {
+  kind: "added" | "removed" | "moved" | "set";
+  text: string;
+  detail: string;
+}
+
+export interface ChampionProfileRevision {
+  id: number;
+  created_at: string | null;
+  author_id: number | null;
+  author_name: string | null;
+  note: string | null;
+  changes: ChampionChangeItem[];
+  /** Zmiana zapisana przez czytającego — nie jest dla niego „nowa”. */
+  mine: boolean;
+}
+
+export interface ChampionChangesResponse {
+  job_id: number;
+  revisions: ChampionProfileRevision[];
+  last_seen_revision_id: number | null;
 }
 
 export interface ChampionVerificationRequest {
@@ -5781,6 +5918,18 @@ export interface ChampionConsultantSuggestion {
 }
 
 export const championApi = {
+  changes: (jobId: number) =>
+    api.get<ChampionChangesResponse>(`/api/jobs/${jobId}/champion-profile/changes`),
+  markChangesSeen: (jobId: number, revisionId: number) =>
+    api.post<{ last_seen_revision_id: number | null }>(
+      `/api/jobs/${jobId}/champion-profile/changes/seen`,
+      { revision_id: revisionId },
+    ),
+  setChangeNote: (jobId: number, revisionId: number, note: string | null) =>
+    api.patch<ChampionProfileRevision>(
+      `/api/jobs/${jobId}/champion-profile/changes/${revisionId}`,
+      { note },
+    ),
   get: (jobId: number) =>
     api.get<ChampionProfileResponse>(`/api/jobs/${jobId}/champion-profile`),
   // Ładunek bywa częściowy (serwer scala sekcje) i niesie `expected_profile_hash`.
@@ -7164,9 +7313,16 @@ export const candidateStageCvApi = {
     sources: (stageId: number) =>
       api.get<{ items: StageCvSourceItem[] }>(`/api/candidates/stages/${stageId}/cv/branded/sources`),
     /** CV etapu z innej rekrutacji (z poprawkami rekrutera) → szkic tej. */
-    selectStageCv: (stageId: number, source_job_id: number, expected_revision: number) =>
+    selectStageCv: (
+      stageId: number,
+      source_job_id: number,
+      expected_revision: number,
+      /** Zrzut zgody do TEJ rekrutacji — zastępuje ten, który jechałby z kopią (17.11.2026). */
+      consent_screenshot_token?: string,
+    ) =>
       api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/select-stage-cv`, {
         source_job_id, expected_revision,
+        ...(consent_screenshot_token ? { consent_screenshot_token } : {}),
       }),
     /** Plik Word z dysku → szkic (bez AI; plik nie trafia do plików kandydata). */
     uploadDocx: (stageId: number, file: File, expected_revision: number) => {

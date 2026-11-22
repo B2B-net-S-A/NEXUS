@@ -179,6 +179,55 @@ def test_elixir_line_has_pli_layout():
     assert all(len(part) <= 35 for part in sender_field.split("|"))
 
 
+def _santander_nrb(bban: str) -> str:
+    return accounts.iban_check_digits(bban) + bban
+
+
+def test_santander_line_matches_ebi24_layout_byte_for_byte():
+    # Układ próbki „Płatności_…pli” z eBI24 (17.11.2026) na fikcyjnych danych.
+    sender_account = _santander_nrb("109010140000000000001111")
+    recipient = _santander_nrb("114020040000000000002222")
+    sender = elixir.Sender(
+        name="SPÓŁKA PRZYKŁADOWA S.A. Aleje Testowe 1 00-001 Warszawa",
+        account=sender_account,
+    )
+    row = _row(
+        recipient_name="ODBIORCA TESTOWY JAN KOWALSKI",
+        recipient_account=recipient,
+        amount=Decimal("12398.40"),
+        title_lines=("1/10/2026",),
+        execution_date=date(2026, 11, 17),
+    )
+    assert elixir.uses_santander_layout(sender_account)
+    expected = (
+        ',20261117,1239840,"10901014","11402004",'
+        f'"{sender_account}","{recipient}",'
+        '"SPÓŁKA PRZYKŁADOWA S.A. Aleje Testowe 1 00-001 Warszawa",'
+        '"ODBIORCA TESTOWY JAN KOWALSKI","","","1/10/2026","","","","",""'
+    )
+    assert elixir.santander_line(row, sender) == expected
+    content = elixir.render_santander([row], sender)
+    assert content == (expected + "\r\n").encode("windows-1250")
+
+
+def test_santander_layout_keeps_title_lines_and_refuses_mpp():
+    sender = elixir.Sender(
+        name="Spółka", account=_santander_nrb("109010140000000000001111")
+    )
+    line = elixir.santander_line(_row(), sender)
+    import csv
+
+    (fields,) = list(csv.reader([line]))
+    assert len(fields) == 17 and fields[0] == "" and fields[14:] == ["", "", ""]
+    assert f'"FV 10/2026|{KSEF}"' in line
+    with pytest.raises(elixir.SantanderLayoutError, match="MPP"):
+        elixir.santander_line(
+            _row(classification=elixir.CLASSIFICATION_MPP), sender
+        )
+    # Inny bank nadawcy = dotychczasowy Elixir-O.
+    assert not elixir.uses_santander_layout(COMPANY)
+
+
 def test_elixir_file_is_windows_1250_with_crlf():
     content = elixir.render_elixir([_row(), _row(amount=Decimal("1.05"))], SENDER)
     text = content.decode("windows-1250")
@@ -313,6 +362,21 @@ def test_full_account_numbers_are_masked_in_titles():
     )
     # Numer KSeF (z myślnikami) zostaje w całości.
     assert accounts.mask_accounts(KSEF) == KSEF
+
+
+def test_mt940_numer_operacji_z_podpola_63_nie_skleja_sie_z_tytulem():
+    # Santander: tytuł w ?20–?25 (pocięty w pół słowa), w ?63 numer operacji
+    # banku. Sklejony wprost dawał „FV/1/10/2026823973257” i numer faktury
+    # przestawał pasować (wyciąg 12.11.2026).
+    raw = (
+        ":20:X\r\n:25:/PL72999900010000000000001234\r\n:60F:C261112PLN100,00\r\n"
+        ":61:261112DN10,00FCHGNONREF\r\n"
+        ":86:B130?00PRZELEW ELIXIR?20FV/1/10/20?2126?32JAN PRZYKLADOWY\r\n"
+        "?63823973257\r\n-"
+    ).encode()
+    (line,) = mt940.parse(raw).lines
+    assert line.title == "FV/1/10/2026 823973257"
+    assert line.counterparty_name == "JAN PRZYKLADOWY"
 
 
 def test_camt053_refuses_doctype_hidden_in_utf16():

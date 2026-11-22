@@ -49,5 +49,7 @@ Decyzja Artura 07.10.2026: mail ma nieść tylko to, co wymaga ruchu odbiorcy.
 - Wszystko za polityką z Ustawień → Powiadomienia (domyślnie OFF, włączenie
   nie wysyła zaległości); maile obowiązkowe włączają się same przy starcie
   (`maile-obowiazkowe.md`, 26.10.2026). Bez maili do kandydatów (`application_confirmation`
-  zostaje wyłączone — decyzja Artura). Wyłączniki pętli:
+  zostaje wyłączone — decyzja Artura) — od 17.11.2026 z wyjątkiem
+  „Podziękowanie i prośba o warunki” (`candidate_terms`, nowa skrzynka
+  `kariera@`), `kandydaci-wyszukiwanie/warunki-od-kandydata-formularz-po-aplikacji.md`. Wyłączniki pętli:
   `DAILY_DIGEST_EMAIL_ENABLED`, `NOTIFICATION_EMAIL_OUTBOX_ENABLED`.

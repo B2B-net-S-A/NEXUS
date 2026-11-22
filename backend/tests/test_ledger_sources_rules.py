@@ -120,6 +120,29 @@ def test_buyer_key_is_nip_or_eu_vat_number():
     )
 
 
+def test_eu_buyer_found_when_dictionary_keeps_vat_number_as_other():
+    # Kartoteka z importu eBI24 ma zagraniczne numery jako „inny” (OTHER).
+    party = SimpleNamespace(id=7, revenue_account=None, symfonia_partner_id="40")
+    dictionary = {("other", "FI28583949"): party}
+    invoice = SimpleNamespace(buyer_nip=None, buyer_foreign_id="FI28583949")
+    assert sources.find_buyer(dictionary, invoice) is party
+    # VAT UE zapisany jako VAT UE wygrywa z „innym”.
+    exact = SimpleNamespace(id=8)
+    both = {**dictionary, ("vat_eu", "FI28583949"): exact}
+    assert sources.find_buyer(both, invoice) is exact
+
+
+def test_buyer_keys_fall_back_to_other_only_for_eu_vat():
+    assert sources.buyer_keys(
+        SimpleNamespace(buyer_nip=None, buyer_foreign_id="DE 123456789")
+    ) == (("vat_eu", "DE123456789"), ("other", "DE123456789"))
+    nip_buyer = SimpleNamespace(buyer_nip="5260250274", buyer_foreign_id=None)
+    assert sources.buyer_keys(nip_buyer) == (("nip", "5260250274"),)
+    nobody = SimpleNamespace(buyer_nip=None, buyer_foreign_id=None)
+    assert sources.buyer_keys(nobody) == ()
+    assert sources.find_buyer({("other", "5260250274"): object()}, nip_buyer) is None
+
+
 def test_advance_invoice_and_its_correction_wait_for_the_advance_rule():
     for invoice_type in ("ZAL", "KOR_ZAL"):
         invoice = SimpleNamespace(invoice_type=invoice_type)

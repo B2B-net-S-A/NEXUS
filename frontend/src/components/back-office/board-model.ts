@@ -1,16 +1,34 @@
-// Reguły tablicy bez Reacta: filtry, termin, „czeka od”, liczniki.
+// Reguły tablicy bez Reacta: kolumny stanu, filtry, termin, „czeka od”, liczniki.
+// Jeden zespół (decyzje Artura z 19.11.2026): kolumny to stan sprawy, a dawne
+// kolumny zespołów są etykietami na kartach.
 
-import type { BoBoard, BoCard, BoTeam } from "@/lib/api/back-office";
+import type { BoCard } from "@/lib/api/back-office";
 
-export type BoFilter = "all" | "free" | "mine" | "week" | "nobody" | "escalated";
+export type BoFilter = "all" | "free" | "mine" | "overdue" | "week" | "escalated";
 export const FILTER_LABELS: Record<BoFilter, string> = {
   all: "Wszystkie",
   free: "Do wzięcia",
   mine: "Moje",
-  week: "Na ten tydzień",
-  nobody: "Bez osoby",
+  overdue: "Po terminie",
+  week: "Do piątku",
   escalated: "Do przydzielenia",
 };
+
+/** Kolumny tablicy: stan sprawy. „Na zewnątrz” = czeka na dział poza back office'em. */
+export type BoColumn = "new" | "in_progress" | "waiting" | "outside";
+export const COLUMNS: BoColumn[] = ["new", "in_progress", "waiting", "outside"];
+export const COLUMN_LABELS: Record<BoColumn, string> = {
+  new: "Nowe",
+  in_progress: "W toku",
+  waiting: "Czeka na kogoś",
+  outside: "Na zewnątrz",
+};
+
+export function columnOf(card: Pick<BoCard, "state" | "outside_team">): BoColumn {
+  if (card.state === "waiting") return card.outside_team ? "outside" : "waiting";
+  if (card.state === "in_progress") return "in_progress";
+  return "new";
+}
 
 export type DueTone = "danger" | "warning" | "neutral";
 
@@ -54,20 +72,37 @@ export function waitLabel(card: BoCard, today: string): string {
   return `${waited} ${waited === 1 ? "dzień" : "dni"} bez osoby`;
 }
 
+export function isOverdue(card: Pick<BoCard, "due_on">, today: string): boolean {
+  return card.due_on != null && card.due_on.slice(0, 10) < today;
+}
+
 export function matchesFilter(card: BoCard, filter: BoFilter, me: number, today: string): boolean {
   switch (filter) {
     case "free":
-    case "nobody":
       return card.assignee == null;
     case "mine":
       return card.assignee?.id === me;
     case "escalated":
       return card.escalated && card.assignee == null;
+    case "overdue":
+      return isOverdue(card, today);
     case "week":
-      return card.due_on != null && card.due_on.slice(0, 10) <= weekEnd(today);
+      // „Do piątku” bez zaległych: te są w „Po terminie”.
+      return card.due_on != null && !isOverdue(card, today) && card.due_on.slice(0, 10) <= weekEnd(today);
     default:
       return true;
   }
+}
+
+/** Etykiety wybrane w filtrze; pusty zbiór = wszystkie. */
+export function matchesLabels(card: Pick<BoCard, "lane">, labels: ReadonlySet<string>): boolean {
+  return labels.size === 0 || labels.has(card.lane);
+}
+
+export function labelCounts(cards: readonly Pick<BoCard, "lane">[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const card of cards) out.set(card.lane, (out.get(card.lane) ?? 0) + 1);
+  return out;
 }
 
 export function matchesSearch(card: BoCard, search: string): boolean {
@@ -78,14 +113,6 @@ export function matchesSearch(card: BoCard, search: string): boolean {
     .some((value) => (value as string).toLocaleLowerCase("pl").includes(needle));
 }
 
-export function teamCount(team: BoTeam, cards: readonly BoCard[]): number {
-  return cards.filter((card) => card.team === team.id).length;
-}
-
-export function defaultTeam(board: Pick<BoBoard, "me" | "teams">): string {
-  if (board.me.is_lead) return "all";
-  return board.me.teams[0] ?? board.teams[0]?.id ?? "all";
-}
 
 /** Pierwszeństwo cudze i jeszcze ważne: „Biorę” wymaga świadomego „mimo to”. */
 export function othersPriority(card: BoCard, me: number, today: string): boolean {
@@ -106,4 +133,34 @@ export function stepSummary(card: BoCard): string | null {
   if (!card.steps) return null;
   const word = card.lane === "exit" ? "Wyjście" : card.lane === "entry" ? "Wejście" : "Kroki";
   return `${word} · ${card.steps.done} z ${card.steps.total} kroków`;
+}
+
+/** Chipy dawnej tablicy Opieki z dzwonków przypomnień (`?filter=`) → filtr Spraw. */
+const CARE_LINK_FILTERS = new Map<string, BoFilter>([
+  ["po-terminie", "overdue"],
+  ["do-piatku", "week"],
+]);
+
+/**
+ * Stary link tablicy Opieki (`?card=<klucz>`, `?filter=<chip>` — dzwonki, kafelki
+ * pulpitu) w module back office, gdzie tej tablicy nie ma od 20.11.2026 (decyzja
+ * Artura): `?card=case:<id>` otwiera kartę tej sprawy, `po-terminie` i `do-piatku`
+ * włączają najbliższy filtr, a karta Opieki bez odpowiednika (popyt, dane klienta)
+ * zostaje samą tablicą. Zwraca nowe parametry adresu albo `null` bez starego linku.
+ */
+export function legacyCareLink(search: string, cards: readonly Pick<BoCard, "id" | "case_id">[]): string | null {
+  const params = new URLSearchParams(search);
+  const key = params.get("card");
+  const filter = params.get("filter");
+  if (key === null && filter === null) return null;
+  params.delete("card");
+  params.delete("filter");
+  // `area` niesie tylko link dzwonka popytu (`?card=demand:…&area=`).
+  if (key !== null) params.delete("area");
+  const caseId = Number(/^case:(\d+)$/.exec(key ?? "")?.[1]);
+  const card = caseId > 0 ? cards.find((row) => row.case_id === caseId) : undefined;
+  if (card && !params.has("karta")) params.set("karta", String(card.id));
+  const mapped = filter === null ? undefined : CARE_LINK_FILTERS.get(filter);
+  if (mapped && !params.has("filtr")) params.set("filtr", mapped);
+  return params.toString();
 }

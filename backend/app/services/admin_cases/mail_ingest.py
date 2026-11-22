@@ -42,7 +42,16 @@ Reguły:
 * **mail od konsultanta** (nadawca = e-mail z kontraktu) z dokładnie jednym
   aktywnym kontraktem — nowa sprawa dostaje ``contract_id``
   (``admin_cases/contract_links.link_new_mail_case``); kilka kontraktów
-  i mail z firmy klienta to tylko propozycje przy odczycie.
+  i mail z firmy klienta to tylko propozycje przy odczycie,
+* **jedna skrzynka wsparcie@ (E8)**: gdy ta skrzynka jest też skrzynką czytnika rozliczeń
+  (``CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX``) i ten czytnik działa, mail z załącznikiem na
+  adres rozliczeń zostawiamy rozliczeniom (``support_mail_route``): wynik
+  ``routed_settlements``, bez sprawy,
+* **obszar „Rozliczenia”** (decyzja Artura z 19.11.2026): nowa sprawa z maila z adresem
+  z ``CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES`` w „Do” albo „DW” (pytanie o fakturę czy
+  godziny bez załącznika) dostaje ``settlements``, a nie obszar z tematu. Ukryta kopia nie
+  zostawia adresu w nagłówkach, więc taki mail zostaje przy obszarze z tematu. Odpowiedź
+  w wątku istniejącej sprawy nie zmienia jej obszaru.
 
 Klient Graph jest wstrzykiwany (``AdminMailbox``); testy podają fałszywą
 skrzynkę. Prawdziwa skrzynka idzie przez rejestrację HR (``acquire_hr_token``)
@@ -65,8 +74,10 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.admin_case import AdminCase, AdminCaseMessage, AdminMailIngestState
 from app.models.hr_ops import HrJobRun
+from app.services import support_mail_route
 from app.services.admin_cases import rules
 from app.services.admin_cases.service import (
     AutomaticCase,
@@ -97,7 +108,8 @@ RESUME_KEY = "resume_from"
 
 _MESSAGE_SELECT = (
     "id,internetMessageId,conversationId,subject,from,sender,receivedDateTime,"
-    "hasAttachments,body,uniqueBody,internetMessageHeaders"
+    "hasAttachments,body,uniqueBody,internetMessageHeaders,"
+    + support_mail_route.RECIPIENT_FIELDS
 )
 _MESSAGE_ID = re.compile(r"<[^<>\s]+>")
 
@@ -302,6 +314,15 @@ def _attachment_meta(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return meta
 
 
+def _new_case_area(msg: dict[str, Any], subject: Optional[str]) -> str:
+    """Obszar nowej sprawy: adres rozliczeń w „Do”/„DW” wygrywa z tematem."""
+
+    addresses = support_mail_route.settlements_addresses()
+    if addresses and support_mail_route.recipients(msg) & addresses:
+        return rules.SETTLEMENTS_AREA
+    return rules.area_from_subject(subject)
+
+
 def mail_source_key(graph_message_id: str) -> str:
     digest = hashlib.sha256(graph_message_id.encode("utf-8")).hexdigest()[:40]
     return f"mail:{digest}"
@@ -330,12 +351,35 @@ async def _thread_case(db: AsyncSession, msg: dict[str, Any]) -> Optional[AdminC
     return None
 
 
+async def settlements_route(db: AsyncSession, upn: str) -> Optional[frozenset[str]]:
+    """Adresy rozliczeń, gdy czytnik rozliczeń czyta tę samą skrzynkę (E8); inaczej ``None``.
+
+    Tylko przy działającym czytniku rozliczeń: przy wyłączonym portalu raport na rozliczenia@
+    zostaje sprawą, zamiast nie trafić nigdzie.
+    """
+
+    route = support_mail_route.shared_route(
+        settings.CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX, upn
+    )
+    if not route:
+        return None
+    from app.services.consultant_portal import portal_settings
+
+    return route if (await portal_settings.load(db)).reads_mailbox else None
+
+
 async def _ingest_message(
-    db: AsyncSession, mailbox: AdminMailbox, upn: str, msg: dict[str, Any]
+    db: AsyncSession,
+    mailbox: AdminMailbox,
+    upn: str,
+    msg: dict[str, Any],
+    route: Optional[frozenset[str]] = None,
 ) -> str:
     graph_id = _nul_free(msg.get("id"), 512)
     if not graph_id:
         return "skipped"
+    if route and support_mail_route.is_settlements_mail(msg, route):
+        return "routed_settlements"
     known = await db.scalar(
         select(AdminCaseMessage.id).where(AdminCaseMessage.graph_message_id == graph_id)
     )
@@ -362,7 +406,7 @@ async def _ingest_message(
             db,
             AutomaticCase(
                 title=rules.case_title_from_subject(subject),
-                area=rules.area_from_subject(subject),
+                area=_new_case_area(msg, subject),
                 priority="P2",
                 source="mail",
                 source_key=mail_source_key(graph_id),
@@ -565,18 +609,19 @@ async def run_once(
         state.last_run_started_at = started
         since = _since(state, started)
         attempts = _stored_attempts(state)
+        route = await settlements_route(db, upn)
         if graph is None:
             from app.services.hr.m365.auth import acquire_hr_token
 
             async with GraphAdminMailbox(token_provider=acquire_hr_token) as real:
                 messages = await real.list_messages(upn, since)
                 attempts, resume = await _ingest_all(
-                    db, real, upn, messages, state, counts, attempts
+                    db, real, upn, messages, state, counts, attempts, route
                 )
         else:
             messages = await graph.list_messages(upn, since)
             attempts, resume = await _ingest_all(
-                db, graph, upn, messages, state, counts, attempts
+                db, graph, upn, messages, state, counts, attempts, route
             )
         if counts["failed"]:
             status = "partial"
@@ -624,6 +669,7 @@ async def _ingest_all(
     state: AdminMailIngestState,
     counts: Counter[str],
     attempts: dict[str, int],
+    route: Optional[frozenset[str]] = None,
 ) -> tuple[dict[str, int], Optional[datetime]]:
     """Zapisuje wiadomości; zwraca liczniki porażek wiadomości z tego odczytu
     i — po pełnej paczce — punkt startu następnego odczytu (bez nakładki).
@@ -658,7 +704,7 @@ async def _ingest_all(
         else:
             try:
                 async with db.begin_nested():
-                    outcome = await _ingest_message(db, mailbox, upn, msg)
+                    outcome = await _ingest_message(db, mailbox, upn, msg, route)
             except Exception:  # noqa: BLE001 — jedna wiadomość nie zatrzymuje reszty
                 logger.exception("[admin_cases] wiadomość nie zapisana")
                 counts["failed"] += 1

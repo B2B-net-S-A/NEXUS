@@ -35,6 +35,12 @@ export interface ContractCandidateContactRowProps {
   onSaveEmail: (raw: string) => Promise<void>;
   onSavePhone: (raw: string) => Promise<void>;
   onError: (message: string) => void;
+  /**
+   * Zwięźle (boczny panel listy, 20.11.2026): bez etykiet nad wartością (ikona
+   * mówi, co to jest), jedna pod drugą, „z profilu” obok wartości — panel ma
+   * ok. 360 px, więc odznaka nie przycina numeru.
+   */
+  compact?: boolean;
 }
 
 const FROM_PROFILE_TITLE =
@@ -62,6 +68,7 @@ function ContactField({
   onError,
   placeholder,
   format = (v) => v,
+  compact = false,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
@@ -73,6 +80,7 @@ function ContactField({
   placeholder: string;
   /** Tylko to, co widać; edycja dostaje numer tak, jak go zapisano. */
   format?: (value: string) => string;
+  compact?: boolean;
 }) {
   const display = value ? (
     // `min-w-0` na obu poziomach jest load-bearing: bez niego długi adres
@@ -87,8 +95,8 @@ function ContactField({
 
   return (
     <div className="min-w-0">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
+      <div className={compact ? "sr-only" : "text-xs text-muted-foreground"}>{label}</div>
+      <div className={compact ? "flex min-w-0 items-center gap-1.5 text-[13px] text-foreground" : "flex min-w-0 items-center gap-1.5 text-sm text-foreground"}>
         <Icon className="w-3.5 h-3.5 shrink-0 text-muted-foreground" aria-hidden />
         {/* Ograniczenie szerokości MUSI siedzieć na własnym opakowaniu, a nie
             na całym wierszu: korzeń `InlineText` to `inline-flex`, więc bez
@@ -107,12 +115,13 @@ function ContactField({
             onError={onError}
           />
         </div>
+        {compact && source === "candidate_profile" ? <FromProfileBadge /> : null}
       </div>
       {/* Odznaka w OSOBNEJ linii, nie obok wartości: kolumna ma tu ~170 px,
           więc odznaka obok zjadała tyle miejsca, że przycinany był nawet numer
           telefonu — a ucięty numer wygląda na kompletny i nie da się go
           odróżnić od błędnego. */}
-      {source === "candidate_profile" ? (
+      {!compact && source === "candidate_profile" ? (
         <div className="mt-0.5 pl-5">
           <FromProfileBadge />
         </div>
@@ -130,11 +139,12 @@ export function ContractCandidateContactRow({
   onSaveEmail,
   onSavePhone,
   onError,
+  compact = false,
 }: ContractCandidateContactRowProps) {
   return (
     // Jeden wiersz, dwie kolumny — na wąskim ekranie (~400 px) stackują się,
     // żeby karta nie wymuszała poziomego przewijania.
-    <div className="grid grid-cols-1 gap-x-6 gap-y-2 py-2 pl-7 sm:grid-cols-2">
+    <div className={compact ? "grid grid-cols-1 gap-1" : "grid grid-cols-1 gap-x-6 gap-y-2 py-2 pl-7 sm:grid-cols-2"}>
       <ContactField
         icon={Mail}
         label="E-mail"
@@ -144,6 +154,7 @@ export function ContractCandidateContactRow({
         onSave={onSaveEmail}
         onError={onError}
         placeholder="jan.kowalski@example.com"
+        compact={compact}
       />
       <ContactField
         icon={Phone}
@@ -155,6 +166,7 @@ export function ContractCandidateContactRow({
         onError={onError}
         placeholder="+48 600 100 200"
         format={formatPhone}
+        compact={compact}
       />
     </div>
   );

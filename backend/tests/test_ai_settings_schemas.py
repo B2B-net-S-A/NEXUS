@@ -133,6 +133,10 @@ class TestFeatureKeyEnum:
             "client_report_requirements",
             # 0725: szkic uzasadnienia dopłaty za technologię premium.
             "premium_skill_justification",
+            # 0727: Rada — odczyt skanu uchwały i protokołu.
+            "board_document_read",
+            # 0739: stawka Partnera z umowy i aneksu kontraktu.
+            "contract_document_rate_read",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

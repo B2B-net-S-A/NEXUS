@@ -59,6 +59,7 @@ import {
   summaryStats,
   targetsText,
   totalsText,
+  unknownPaymentsText,
 } from "./invoicing-format";
 import {
   AssignInvoiceDialog,
@@ -229,7 +230,7 @@ export function FinanceSalesInvoicesTab({
           <input
             ref={fileInput}
             type="file"
-            accept=".sta,.txt,.mt940,.xml"
+            accept=".sta,.txt,.mt940,.emt,.xml"
             className="sr-only"
             aria-label="Wyciąg MT940 albo CAMT.053"
             onChange={(event) => onStatement(event.target.files?.[0])}
@@ -288,7 +289,15 @@ export function FinanceSalesInvoicesTab({
           { value: "issue-settings", label: "Ustawienia wystawiania" },
           { value: "unknown-buyers", label: "Nieznani nabywcy", count: unknownBuyers.data?.summary.buyers },
           { value: "credits", label: "Wpłaty do sprawdzenia", count: credits.data?.credits.length },
-          { value: "overdue", label: "Po terminie", count: overdue.data?.invoices.length },
+          // „0” przy fakturach bez danych o zapłacie znaczyłoby „nic po terminie”.
+          {
+            value: "overdue",
+            label: "Po terminie",
+            count:
+              overdue.data?.invoices.length || !overdue.data?.payment_unknown
+                ? overdue.data?.invoices.length
+                : undefined,
+          },
         ]}
       />
 
@@ -406,18 +415,36 @@ export function FinanceSalesInvoicesTab({
       {view === "overdue" ? (
         overdue.isError ? (
           <QueryStateNotice state="error" onRetry={() => overdue.refetch()} />
-        ) : overdue.isSuccess && overdue.data.invoices.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-            Żadna faktura nie jest po terminie.
-          </div>
         ) : (
-          <InvoiceTable
-            invoices={overdue.data?.invoices ?? []}
-            onAssign={(invoice) => setDialog({ kind: "assign", invoice })}
-            onReason={(invoice, action) => setDialog({ kind: "reason", invoice, action })}
-            onPaid={(invoice) => setDialog({ kind: "paid", invoice })}
-            onUndo={undo}
-          />
+          <>
+            {overdue.data?.payment_unknown ? (
+              <p
+                data-testid="overdue-payment-unknown"
+                className="rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground"
+              >
+                <span className="font-medium text-foreground">Brak danych o zapłatach. </span>
+                {unknownPaymentsText(
+                  overdue.data.payment_unknown,
+                  overdue.data.payment_unknown_reasons,
+                )}
+              </p>
+            ) : null}
+            {overdue.isSuccess && overdue.data.invoices.length === 0 ? (
+              overdue.data.payment_unknown ? null : (
+                <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+                  Żadna faktura nie jest po terminie.
+                </div>
+              )
+            ) : (
+              <InvoiceTable
+                invoices={overdue.data?.invoices ?? []}
+                onAssign={(invoice) => setDialog({ kind: "assign", invoice })}
+                onReason={(invoice, action) => setDialog({ kind: "reason", invoice, action })}
+                onPaid={(invoice) => setDialog({ kind: "paid", invoice })}
+                onUndo={undo}
+              />
+            )}
+          </>
         )
       ) : null}
 

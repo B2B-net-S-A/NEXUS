@@ -12,7 +12,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
+from app.models.client_sales_invoice import (
+    ClientSalesInvoice,
+    ClientSalesInvoiceLink,
+    ClientSalesInvoicePayment,
+)
 from app.services.client_invoicing import billing, clients, fa_sales
 from app.services.client_invoicing.billing import (
     COST_NOTE,
@@ -22,7 +26,7 @@ from app.services.client_invoicing.billing import (
     OrderRef,
     period_fraction,
 )
-from app.services.client_invoicing.ledger import Chain, check
+from app.services.client_invoicing.ledger import Chain, ChainCheck, check
 from app.services.client_invoicing.line_gaps import GAP_REASONS
 from app.services.client_invoicing.matching import (
     REASON_LABELS,
@@ -32,7 +36,7 @@ from app.services.client_invoicing.matching import (
     decide,
     numbers_found,
 )
-from app.services.client_invoicing.views import row_status
+from app.services.client_invoicing.views import chain_payload, row_status
 from app.services.client_invoicing.payments import (
     OpenInvoice,
     decide_credit,
@@ -500,6 +504,35 @@ def test_invoice_number_in_title_is_matched_as_a_whole_word():
     assert spaced.invoice_id == 1
 
 
+def test_number_inside_a_longer_number_from_the_title_gives_way():
+    # „2/10/2026” krajowej faktury siedzi w „2/10/2026/UE” — wpłata za UE.
+    invoices = [_open(1, "2/10/2026", "8265.60"), _open(2, "2/10/2026/UE", "31449.60")]
+    decision = decide_credit(
+        _credit("31449.60", "REF: 1 /INNE PROW./PLN0,00 2/10/2026/UE 225789781"),
+        invoices,
+    )
+    assert (decision.invoice_id, decision.reason) == (2, "invoice_number")
+    domestic = decide_credit(_credit("8265.60", "Zapłata 2/10/2026"), invoices)
+    assert domestic.invoice_id == 1
+
+
+def test_vat_leg_of_our_own_supplier_payment_is_not_a_customer_payment():
+    # Santander: płacąc dostawcy w MPP, bank przenosi VAT z naszego rachunku
+    # VAT na główny („UZNANIE VAT (SP)”). /IDC/ to NIP sprzedawcy — dostawcy,
+    # nie nasz — więc to nie wpłata za naszą fakturę o tym samym numerze
+    # (wyciąg 12.11.2026: 13 takich uznań przypiętych do faktur sprzedaży).
+    ours = _open(1, "1/11/2026", "48302.10", "1234563218-20261105-0A1B2C3D4E5F-AB")
+    leg = _credit("3643.20", "/VAT/3643,20/IDC/1111111111/INV/1/11/2026/TXT/1/11/2026")
+    decision = decide_credit(leg, [ours])
+    assert (decision.invoice_id, decision.related) == (None, False)
+    # Wpłata klienta w MPP ma w /IDC/ nasz NIP — dopasowanie bez zmian.
+    paid = decide_credit(
+        _credit("39271.63", "/VAT/9030,47/IDC/1234563218/INV/1/11/2026/TXT/1/11/2026"),
+        [ours],
+    )
+    assert (paid.invoice_id, paid.amount) == (1, Decimal("48302.10"))
+
+
 def test_split_payment_counts_vat_paid_to_the_vat_account():
     assert mpp_vat("/VAT/5157,75/IDC/1111111111/INV/FS 10/124/2026/TXT/X") == Decimal(
         "5157.75"
@@ -858,3 +891,42 @@ async def test_auto_match_blocks_by_the_number_written_on_the_invoice(monkeypatc
         "unmatched",
         "unknown_order_number",
     )
+
+
+# ── Zapłata a termin ─────────────────────────────────────────────────────────
+
+
+def test_unpaid_after_due_date_is_missing_payment_data_not_overdue():
+    """19.11.2026: 2 741 faktur „po terminie”, żadna z datą zapłaty (wyciągi z 12.11)."""
+
+    today = date(2026, 11, 19)
+
+    def payload(due, *paid):
+        head = ClientSalesInvoice(
+            id=1,
+            currency="PLN",
+            issue_date=date(2026, 9, 3),
+            due_date=due,
+            net_amount=Decimal("1000.00"),
+            gross_amount=Decimal("1230.00"),
+            match_status="unmatched",
+        )
+        chain = Chain(
+            head=head,
+            payments=[
+                ClientSalesInvoicePayment(amount=Decimal(value), booked_on=today)
+                for value in paid
+            ],
+        )
+        result = chain_payload(chain, ChainCheck("unmatched", None, None), today)
+        return (
+            result["payment_status"],
+            result["overdue_days"],
+            result["payment_unknown"],
+        )
+
+    assert payload(date(2026, 10, 2)) == ("unpaid", 0, True)
+    assert payload(date(2026, 10, 2), "230.00") == ("partial", 0, True)
+    assert payload(date(2026, 10, 2), "1230.00") == ("paid", 0, False)
+    assert payload(date(2026, 11, 19)) == ("unpaid", 0, False)
+    assert payload(None) == ("unpaid", 0, False)

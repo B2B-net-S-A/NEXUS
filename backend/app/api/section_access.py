@@ -47,12 +47,13 @@ from app.services.section_permissions import (
 
 
 _TERMINATION_RECOVERY_COMMANDS = frozenset(
-    {"termination-reversal", "return-after-break"}
+    {"termination-reversal", "return-after-break", "notice-withdrawal"}
 )
 
 
 def _is_contract_termination_recovery(request: Request, current_user: User) -> bool:
-    """„Cofnij zakończenie" / „Powrót po przerwie" dla Finansów i TCM.
+    """„Cofnij zakończenie" / „Powrót po przerwie" / „Wycofaj wypowiedzenie”
+    dla Finansów i TCM.
 
     Obie role czytają Delivery, ale nie mają w nim zapisu. Ticket 09.2026
     daje im te dwie korekty wprost — i TYLKO je: rola na samym endpoincie

@@ -105,17 +105,22 @@ class PricedOrder:
     Pozostałe pola czyta z zamówienia. Zapis jest zablokowany — to widok do
     liczenia pieniędzy, nie obiekt sesji."""
 
-    __slots__ = ("_order", "rate_client", "md_rate_revenue")
+    __slots__ = ("_order", "rate_client", "md_rate_revenue", "rate_candidate")
 
     def __init__(
         self,
         order: ClientOrder,
         rate_client: Optional[Decimal],
         md_rate_revenue: Optional[Decimal],
+        rate_candidate: Optional[Decimal] = None,
     ) -> None:
         object.__setattr__(self, "_order", order)
         object.__setattr__(self, "rate_client", rate_client)
         object.__setattr__(self, "md_rate_revenue", md_rate_revenue)
+        # Koszt z części zamówienia (0741, `order_cost_steps`). Bez części slot
+        # zostaje pusty i `__getattr__` czyta kolumnę zamówienia.
+        if rate_candidate is not None:
+            object.__setattr__(self, "rate_candidate", rate_candidate)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._order, name)
@@ -143,15 +148,34 @@ async def load_steps(
 async def priced_for_month(
     db: AsyncSession, orders: Sequence[ClientOrder], month_first: date
 ) -> list[Any]:
-    """Zamówienia ze stawką na miesiąc. Bez kroków — ten sam obiekt."""
+    """Zamówienia ze stawkami na miesiąc. Bez kroków — ten sam obiekt.
+
+    Nakłada kroki przychodu (aneks stawki klienta) i części kosztu (zmiana
+    stawki Partnera w okresie zamówienia, `order_cost_steps`)."""
+
+    from app.services import order_cost_steps
 
     steps = await load_steps(db, (o.id for o in orders))
-    if not steps:
+    cost_steps = await order_cost_steps.load_steps(db, (o.id for o in orders))
+    if not steps and not cost_steps:
         return list(orders)
-    return [
-        PricedOrder(o, *rates_on(o, steps[o.id], month_first)) if o.id in steps else o
-        for o in orders
-    ]
+    out: list[Any] = []
+    for o in orders:
+        if o.id not in steps and o.id not in cost_steps:
+            out.append(o)
+            continue
+        rate_client, md_rate_revenue = (
+            rates_on(o, steps[o.id], month_first)
+            if o.id in steps
+            else (o.rate_client, o.md_rate_revenue)
+        )
+        cost = (
+            order_cost_steps.rate_on(o, cost_steps[o.id], month_first)
+            if o.id in cost_steps
+            else None
+        )
+        out.append(PricedOrder(o, rate_client, md_rate_revenue, cost))
+    return out
 
 
 async def priced_one(

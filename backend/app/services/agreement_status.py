@@ -11,11 +11,12 @@ w NEXUSIE — etap 1b, 21.10.2026). Wiersze z Excela działu pomijamy
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 from sqlalchemy import case, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pair_filter import in_pairs
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_signing_request import B2BSigningRequest
 from app.models.pipeline_template import PipelineStageDef
@@ -78,9 +79,23 @@ async def agreement_status_for_pairs(
     db: AsyncSession, *, job_id: int, candidate_ids: Iterable[int]
 ) -> dict[int, dict[str, Any]]:
     """``{candidate_id: agreement}`` dla jednej rekrutacji."""
-    ids = sorted({int(c) for c in candidate_ids})
-    if not ids:
-        return {}
+    boards = {job_id: list(candidate_ids)}
+    return (await agreement_status_for_jobs(db, boards=boards))[job_id]
+
+
+async def agreement_status_for_jobs(
+    db: AsyncSession, *, boards: Mapping[int, list[int]]
+) -> dict[int, dict[int, dict[str, Any]]]:
+    """``{job_id: {candidate_id: agreement}}`` dla kilku Tablic naraz.
+
+    Te same dwa zapytania co dla jednej rekrutacji: pary z wejścia jako
+    dwie tablice (``in_pairs``), więc umowa osoby z innej Tablicy nie trafia
+    na kartę, a liczba kart nie zbliża się do limitu parametrów.
+    """
+    wanted = sorted({(int(c), int(job)) for job, ids in boards.items() for c in ids})
+    out: dict[int, dict[int, dict[str, Any]]] = {int(job): {} for job in boards}
+    if not wanted:
+        return out
     live_first = case(
         (B2BGeneratedContract.contract_status.in_(LIVE_STATUSES), 0), else_=1
     )
@@ -88,6 +103,7 @@ async def agreement_status_for_pairs(
         select(
             B2BGeneratedContract.id,
             B2BGeneratedContract.candidate_id,
+            B2BGeneratedContract.job_id,
             B2BGeneratedContract.contract_number,
             B2BGeneratedContract.contract_status,
             B2BGeneratedContract.signature_status,
@@ -97,25 +113,27 @@ async def agreement_status_for_pairs(
             B2BGeneratedContract.contract_id,
         )
         .where(
-            B2BGeneratedContract.job_id == job_id,
-            B2BGeneratedContract.candidate_id.in_(ids),
+            B2BGeneratedContract.job_id.in_(sorted({job for _, job in wanted})),
+            in_pairs(
+                B2BGeneratedContract.candidate_id, B2BGeneratedContract.job_id, wanted
+            ),
             B2BGeneratedContract.source != "excel",
         )
         .order_by(
+            B2BGeneratedContract.job_id,
             B2BGeneratedContract.candidate_id,
             live_first,
             B2BGeneratedContract.created_at.desc(),
             B2BGeneratedContract.id.desc(),
         )
     )
-    chosen: dict[int, Any] = {}
+    chosen: dict[tuple[int, int], Any] = {}
     for row in rows.all():
-        chosen.setdefault(row.candidate_id, row)
+        chosen.setdefault((row.job_id, row.candidate_id), row)
     esign = await latest_esign_for_rows(db, (row.id for row in chosen.values()))
-    return {
-        candidate_id: agreement_badge(row, esign.get(row.id))
-        for candidate_id, row in chosen.items()
-    }
+    for (job, candidate_id), row in chosen.items():
+        out[job][candidate_id] = agreement_badge(row, esign.get(row.id))
+    return out
 
 
 async def pair_columns(

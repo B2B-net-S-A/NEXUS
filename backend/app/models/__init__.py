@@ -93,7 +93,6 @@ from app.models.b2b_generated_contract_status_event import (
 )
 from app.models.cv_generation_job import CvGenerationJob  # noqa: F401
 from app.models.cv_generated_document import CvGeneratedDocument
-from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
 from app.models.fx_rate import FxRate
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity
@@ -433,9 +432,6 @@ __all__ = [
     "ContractDocSpRunItem",
     "B2BGeneratedContractStatusEvent",
     "CvGeneratedDocument",
-    "Invoice",
-    "InvoiceDirection",
-    "InvoiceStatus",
     "FxRate",
     "Activity",
     "UserActivity",
@@ -746,6 +742,12 @@ from app.models.candidate_conversation_fact import (  # noqa: F401
     CandidateConversationFact,
 )
 from app.models.autofill_feedback import AutofillFeedback  # noqa: F401
+from app.models.job_role_profile import JobRoleProfile  # noqa: F401
+from app.models.candidate_terms_request import CandidateTermsRequest  # noqa: F401
+from app.models.champion_profile_revision import (  # noqa: F401
+    ChampionProfileChangeRead,
+    ChampionProfileRevision,
+)
 from app.models.autofill_quality_report import AutofillQualityReport  # noqa: F401
 from app.models.own_hiring import (  # noqa: F401
     OwnHiringApplication,
@@ -903,6 +905,9 @@ from app.models import client_einvoice as _client_einvoice_models  # noqa: F401,
 from app.models import client_issued_invoice as _client_issued_invoice_models  # noqa: F401,E402
 from app.models import finance_archive as _finance_archive_models  # noqa: F401,E402
 from app.models import client_order_revenue_step as _client_order_revenue_step_models  # noqa: F401,E402
+from app.models import board_document as _board_document_models  # noqa: F401,E402
+from app.models import contract_document_rate_read as _rate_read_models  # noqa: F401,E402
+from app.models import client_order_cost_step as _order_cost_step_models  # noqa: F401,E402
 from app.models import admin_case as _admin_case_models  # noqa: F401,E402
 from app.models import equipment as _equipment_models  # noqa: F401,E402
 from app.models import equipment_intune as _equipment_intune_models  # noqa: F401,E402
@@ -941,3 +946,6 @@ from app.models import job_team_panel as _job_team_panel_models  # noqa: F401,E4
 
 # 0713: radar przepisów (dwa Grok Boty, bramka NEXUSA, zmiany w prawie).
 from app.models import law_radar as _law_radar_models  # noqa: F401,E402
+
+# 0732: bot Cpro (Grok Bot wrzuca kandydatów Nordei do Cpro).
+from app.models import cpro_bot as _cpro_bot_models  # noqa: F401,E402

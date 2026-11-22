@@ -11,9 +11,9 @@ wsparcia na czas przejścia są aliasami albo przekierowaniami do `wsparcie@`, a
   `administracja@`.
 - NEXUS rozróżnia rozliczenia od spraw po adresie, na który ktoś napisał (nagłówek `To`/`Cc`),
   dlatego przejście musi ten adres zachować (niżej).
-- Czytniki łączy jeden router: etap E8 roadmapy rozliczeń (`docs/rozliczenia-klientow-roadmapa.md`
-  na gałęzi `claude/nexus-rozliczenia-przejecie-804835`). Do tego czasu na jedną skrzynkę patrzy
-  najwyżej jeden czytnik.
+- Czytniki łączy router E8 (`app/services/support_mail_route.py`, od 18.11.2026, decyzja Artura:
+  „od razu jedna skrzynka”): oba czytniki mogą czytać `wsparcie@`, a każdą wiadomość bierze
+  dokładnie jeden (sekcja „Router E8” niżej). Bez routera na jedną skrzynkę patrzy najwyżej jeden czytnik.
 - Stary adres znika dopiero wtedy, gdy nie podaje go żaden kod, szablon ani **obowiązująca umowa**.
   Podpisane umowy B2B wskazują `administracja@` jako adres zawiadomień, a część z nich
   `rozliczenia@` jako adres raportów. Alias nic nie kosztuje, więc zostaje, dopóki takie umowy działają.
@@ -123,6 +123,26 @@ wysłano. Pełne nagłówki: Plik → Właściwości → Nagłówki internetowe.
 `wsparcie@` albo adres `onmicrosoft.com`, przekierowanie przepisało nagłówek — wtedy router E8 nie
 rozróżni rozliczeń i trzeba zmienić sposób z tabeli 1b.
 
+### 1e. Uwierzytelnienie nadawcy po przekierowaniu (sprawdzone 20.11.2026)
+
+Czytnik spraw (`contract_links.sender_authenticated`) i CPro czytają pierwszy nagłówek
+`Authentication-Results` z Graph. Na pięciu mailach w `wsparcie@` odebranych po przekierowaniu
+z home.pl (konsultant z poczty home.pl na `rozliczenia@` i `administracja@`, nadawca zewnętrzny
+z DKIM, konsultant z gmaila) kształt był zawsze ten sam:
+
+- na górze jeden nagłówek M365 `mx.microsoft.com 1; spf=…; dkim=…; dmarc=…`; SPF po
+  przekierowaniu bywa `fail`/`softfail`, ale DKIM przetrwa, więc `dmarc=pass`;
+- wszystkie wcześniejsze `Authentication-Results` (home.pl pisze spf, dmarc i dkim w trzech
+  osobnych nagłówkach, nadawca z M365 dokłada swój) M365 przemianowuje na
+  `Authentication-Results-Original`, więc nadawca nie podłoży nagłówka nad werdyktem M365;
+- home.pl nie pieczętuje ARC, więc nie ma zachowanego werdyktu home.pl, któremu dałoby się ufać.
+
+Dlatego nie łącz werdyktów z niższych nagłówków ani z ARC: sfałszowany mail z `dmarc=fail`
+w M365 przeszedłby wtedy na nagłówkach podpisanych „home.pl”. Pracownik z M365 piszący na
+stary adres dochodzi wewnątrz M365 (`dkim=none; dmarc=none`, `AuthAs: Internal`) i nie jest
+uwierzytelniony (konsultanci z próby pisali z poczty home.pl albo prywatnej). Kształty pilnuje
+`tests/test_admin_cases_contract_rules.py` (`test_forwarded_*`).
+
 ## 2. Zmienne (workflow „Coolify set env”)
 
 | Zmienna | Dziś czyta | Rola |
@@ -131,7 +151,8 @@ rozróżni rozliczeń i trzeba zmienić sposób z tabeli 1b.
 | `ADMIN_CASES_MAILBOX` (`config.py:1638`) | `admin_cases/mailbox.public_address` | adres widoczny: autoodpowiedź urlopowa, Reply-To komunikatów i maila powitalnego, ekrany |
 | `ADMIN_CASES_M365_MAILBOX` (`config.py:1639`) | `admin_cases/mailbox.m365_mailbox`, czytnik spraw (`hr_loops.py:96`) | skrzynka, którą czyta czytnik spraw i z której wysyłają komunikaty i odpowiedzi; pusta = `ADMIN_CASES_MAILBOX` |
 | `ADMIN_CASES_MAIL_INGEST_ENABLED` | czytnik spraw | wyłącznik czytnika spraw (dziś `false`) |
-| `CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX` (`config.py:1605`) | czytnik rozliczeń (`consultant_portal/mailbox.py`) | skrzynka dokumentów; czytnik działa tylko przy portalu `pilot`/`all` |
+| `CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX` (`config.py:1605`) | czytnik rozliczeń (`consultant_portal/mailbox.py`) | skrzynka dokumentów; czytnik działa tylko przy portalu `internal`/`pilot`/`all` |
+| `CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES` | router E8 (`support_mail_route.py`) | adresy rozliczeń po przecinku (`rozliczenia@b2bnetwork.pl`); działa tylko, gdy skrzynka rozliczeń = skrzynka spraw |
 
 ### Ryzyko: dwa czytniki na jednej skrzynce
 
@@ -146,7 +167,54 @@ Jeśli `ADMIN_CASES_M365_MAILBOX` i `CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX` wska
 - czytnik spraw zakłada sprawę z **każdej** nowej wiadomości, więc wszystkie raporty i faktury
   zrobią się sprawami.
 
-### Bezpieczny stan przejściowy (do routera E8)
+### Router E8 (od 18.11.2026)
+
+Gdy `CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX` i skrzynka spraw (`ADMIN_CASES_M365_MAILBOX`, pusta =
+`ADMIN_CASES_MAILBOX`) to ta sama skrzynka, oba czytniki pytają `support_mail_route.is_settlements_mail`:
+
+- mail **z załącznikiem** i z adresem z `CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES` w „Do” albo „DW”
+  → czytnik rozliczeń (dokument, dalej jak dotąd), a czytnik spraw liczy go jako `routed_settlements`;
+- każdy inny mail (także pytanie na rozliczenia@ bez załącznika i mail w ukrytej kopii) → sprawa.
+
+**Obszar „Rozliczenia”** (decyzja Artura z 19.11.2026, migracja 0743): nowa sprawa z maila
+z adresem z `CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES` w „Do” albo „DW” dostaje obszar
+`settlements`, a nie obszar ze słów w temacie (`mail_ingest._new_case_area`). Wynika to z próby na sucho
+na archiwum IX–XI: 997 pytań konsultantów o faktury i godziny trafiłoby do „Administracji” (1121
+z 1182 spraw). Mail w ukrytej kopii nie ma tego adresu w nagłówkach, więc dostaje obszar z tematu.
+Odpowiedź w wątku istniejącej sprawy nie zmienia jej obszaru. Uprawnienia i kolumna back office
+(Opieka → Pomoc) są jak przy „Administracji”. Bez ustawionych adresów rozliczeń nic się nie zmienia.
+
+Czytnik spraw oddaje maile rozliczeniom tylko wtedy, gdy czytnik rozliczeń czyta (portal `internal`,
+`pilot` albo `all`); przy portalu `off` raport na rozliczenia@ zostaje sprawą.
+
+Dwa stany to błąd konfiguracji. Czytnik rozliczeń stoi wtedy bez ruszania znacznika, więc po poprawce
+nic nie przepada, a karta „Start rozliczeń” pokazuje, co poprawić:
+- wspólna skrzynka bez adresów rozliczeń: `last_error = 'shared_without_route'`, sprawy biorą wszystko;
+- adresy rozliczeń przy osobnych skrzynkach: `last_error = 'route_not_shared'`, np. wsparcie@ ustawiona
+  dla rozliczeń, zanim `ADMIN_CASES_M365_MAILBOX` dostała tę samą wartość.
+
+Osobne skrzynki bez adresów: router nie działa, każdy czytnik bierze swoją skrzynkę w całości, jak przed E8.
+
+Mail na rozliczenia@, którego czytnik rozliczeń nie przypisze (nadawca bez kontraktu w `internal`
+albo spoza pilotażu w `pilot`), nie staje się sprawą. Na czas przejścia kopia zostaje na home.pl.
+Odpowiedź w wątku sprawy z rozliczenia@ w kopii i załącznikiem trafia do rozliczeń, nie do sprawy.
+
+Start jednej skrzynki (po kroku 1 i próbie 1d):
+
+```bash
+env -u GH_TOKEN gh workflow run "Coolify set env" --repo B2B-net-S-A/NEXUS --ref main -f key=CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES -f value=rozliczenia@b2bnetwork.pl -f redeploy=false
+```
+
+```bash
+env -u GH_TOKEN gh workflow run "Coolify set env" --repo B2B-net-S-A/NEXUS --ref main -f key=CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX -f value=wsparcie@b2bnetwork.pl -f redeploy=false
+```
+
+Do tego samego wdrożenia `ADMIN_CASES_M365_MAILBOX=wsparcie@b2bnetwork.pl` (polecenie w stanie
+przejściowym niżej): dopiero wtedy czytnik spraw wie, że skrzynka jest wspólna. Kolejność nie jest
+groźna: dopóki trzy zmienne do siebie nie pasują, czytnik rozliczeń stoi na `route_not_shared` albo
+`shared_without_route` i nie rusza znacznika. `ADMIN_CASES_MAIL_INGEST_ENABLED=true` włączasz osobno, po próbie 1d.
+
+### Bez routera (stan przejściowy sprzed E8)
 
 Na `wsparcie@` patrzy najwyżej jeden czytnik — **czytnik spraw**:
 
@@ -172,7 +240,7 @@ Zmienne wchodzą przy najbliższym zwykłym wdrożeniu w oknie (pon–pt 18:00�
 porze); `emergency` i `redeploy=true` nie są potrzebne. Wycofanie: `ADMIN_CASES_MAIL_INGEST_ENABLED=false`
 + wdrożenie.
 
-Po routerze E8 wszystkie trzy role czytają jedną zmienną; opis zmiennych zmieni wtedy PR etapu E8.
+Router E8 zostawia osobne zmienne skrzynek; jedną skrzynkę daje ta sama wartość w obu.
 
 ## 3. Sprawdzenie po wdrożeniu
 
@@ -203,8 +271,10 @@ adresów z aktywowanych kontraktów; `all` bez modułu `back_office` działa jak
 
 Decyzja Artura z 12.11.2026: czytnik rozliczeń rusza od rozliczenia listopada dla wszystkich
 klientów (panel `all`), kroki w E7 roadmapy rozliczeń (`docs/rozliczenia-klientow-roadmapa.md`).
-`CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX` wskazuje wtedy skrzynkę rozliczenia@, **nigdy** `wsparcie@`,
-dopóki nie ma routera E8. Jeśli rozliczenia@ jest już tylko aliasem `wsparcie@`, start czeka na E8.
+Od 18.11.2026 (router E8) `CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX` może wskazywać `wsparcie@`,
+ale tylko razem z `CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES`. Po starcie: `cp_mailbox_state.last_status
+= 'ok'`, dokumenty tylko z maili na rozliczenia@ z załącznikiem, `admin_mail_ingest_state.stats`
+z licznikiem `routed_settlements`, a mail próbny bez załącznika na rozliczenia@ = sprawa.
 
 ## 4. Wygaszenie starych adresów — co zmienić wcześniej
 

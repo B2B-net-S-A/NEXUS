@@ -28,8 +28,12 @@ export interface ContractAccess {
   canManageFinance: boolean;
   /** Benchmark stawek — backend trzyma go za `view_finance` bez wyjątku portfela DL. */
   canViewBenchmark: boolean;
+  /**
+   * Faktury konsultanta z KSeF w zakładce „Pieniądze” (tylko do odczytu) — jak
+   * Finanse → Rozliczenia: „Moduł Finanse”, bez Delivery Leada i Back office
+   * (decyzja Artura 19.11.2026).
+   */
   canViewInvoices: boolean;
-  canManageInvoices: boolean;
   /** Edycja pól operacyjnych, dokumentów, aneksów, usunięcie („Kontrakty i zamówienia: tworzenie i edycja”). */
   canEditContract: boolean;
   /** Sama zmiana kwot, bez edycji kontraktu: formularz ograniczony do kwot (`finance_amounts_only`). */
@@ -75,7 +79,6 @@ export function contractAccess(
     canManageFinance,
     canViewBenchmark,
     canViewInvoices: canViewBenchmark,
-    canManageInvoices: hasAnalyticsCapability(user, "manage_finance"),
     canEditContract,
     financeAmountsOnly: !impersonating && !canEditContract && canManageFinance,
     canEditContractStatus: !impersonating && canManageContractStatus(user),

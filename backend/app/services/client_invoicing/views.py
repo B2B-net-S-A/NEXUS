@@ -36,9 +36,17 @@ from app.services.client_identity import (
     client_display_name,
     visible_client_predicates,
 )
-from app.services.client_invoicing import billing, clients, ledger, matching, payments
+from app.services.client_invoicing import (
+    billing,
+    clients,
+    ledger,
+    matching,
+    payment_proof,
+    payments,
+)
 from app.services.client_invoicing.billing import BillingRow, money, plain
 from app.services.client_invoicing.ledger import ZERO, Chain, ChainCheck
+from app.services.client_invoicing.payment_proof import Proof, Verdict
 from app.services.order_client_identity import is_eu_buyer_number
 
 ROW_STATUS_LABELS = {
@@ -93,9 +101,15 @@ def chain_payload(
     *,
     names: Optional[dict[int, str]] = None,
     labels: Optional[dict[str, str]] = None,
+    verdict: Optional[Verdict] = None,
 ) -> dict[str, Any]:
+    """Faktura (łańcuch) do ekranu; ``verdict`` z ``payment_proof`` — bez niego
+    termin za sobą bez zapłaty to brak danych, nigdy zaległość."""
+
     head = chain.head
     reason = chain.match_reason
+    if verdict is None:
+        verdict = Verdict(unknown=chain.overdue_days(today) > 0)
     return {
         "id": head.id,
         "invoice_number": head.invoice_number,
@@ -163,7 +177,13 @@ def chain_payload(
         "paid": _amount(chain.paid),
         "to_pay": _amount(chain.to_pay),
         "paid_on": _iso(chain.paid_on),
-        "overdue_days": chain.overdue_days(today),
+        # „Po terminie” tylko z dowodem z wyciągów (``payment_proof``): dni do
+        # ostatniego dnia ich ciągłości. Bez dowodu — brak danych z powodem.
+        "overdue_days": verdict.overdue_days,
+        "payment_unknown": verdict.unknown,
+        "payment_unknown_reason": verdict.reason,
+        "payment_account": verdict.account,
+        "statements_until": _iso(verdict.until),
     }
 
 
@@ -311,9 +331,11 @@ async def month_view(
     month: int,
     client_ids: Optional[Collection[int]],
     today: date,
+    proof: Optional[Proof] = None,
 ) -> dict[str, Any]:
     """Wiersze „do faktury” z fakturami i faktury miesiąca (klient albo wszyscy)."""
 
+    proof = proof or await payment_proof.load(db)
     rows = await billing.billing_rows(db, year=year, month=month, client_ids=client_ids)
     row_map = {row.key: row for row in rows}
     chains = await ledger.chains_for_period(
@@ -344,7 +366,14 @@ async def month_view(
     for item in row_items:
         item["client_name"] = names.get(item["client_id"])
     invoice_items = [
-        chain_payload(chain, checks[chain.head.id], today, names=names, labels=labels)
+        chain_payload(
+            chain,
+            checks[chain.head.id],
+            today,
+            names=names,
+            labels=labels,
+            verdict=proof.verdict(chain, today),
+        )
         for chain in chains
     ]
     statuses = defaultdict(int)
@@ -376,34 +405,69 @@ async def month_view(
 
 
 async def overdue(
-    db: AsyncSession, *, client_ids: Optional[Collection[int]], today: date
-) -> list[dict[str, Any]]:
-    chains = [
+    db: AsyncSession,
+    *,
+    client_ids: Optional[Collection[int]],
+    today: date,
+    proof: Optional[Proof] = None,
+) -> dict[str, Any]:
+    """Zaległości z dowodem z wyciągów i liczba faktur bez danych o zapłacie.
+
+    Zapłatę NEXUS zna tylko z uznań na wyciągach (E8), ręcznego „opłacono”
+    i lustra eBI24. 19.11.2026 firma miała 2 741 faktur „po terminie”, żadnej
+    z datą zapłaty, bo wyciągi były z jednego dnia. Teraz faktura jest na liście
+    tylko wtedy, gdy ``payment_proof`` to udowodni (rachunek odbioru w Księdze,
+    ciągłe wyciągi od wystawienia do dnia po terminie, bez kompensaty i bez
+    wpłaty do sprawdzenia); reszta jest w ``payment_unknown`` z powodami
+    (``docs/claude/zamowienia/faktury-do-klientow-z-ksef.md``).
+    """
+
+    proof = proof or await payment_proof.load(db)
+    late = [
         chain
         for chain in await ledger.open_chains(db, client_ids=client_ids)
         if chain.overdue_days(today) > 0
     ]
-    names = await clients.names(
-        db, {c.head.client_id for c in chains if c.head.client_id}
+    verdicts = {chain.head.id: proof.verdict(chain, today) for chain in late}
+    proven = sorted(
+        (chain for chain in late if verdicts[chain.head.id].overdue_days > 0),
+        key=lambda c: (-verdicts[c.head.id].overdue_days, c.head.id),
     )
-    rows = await ledger.rows_by_period(db, chains)
-    out = []
-    for chain in sorted(chains, key=lambda c: (-c.overdue_days(today), c.head.id)):
-        result = ledger.check(chain, rows.get(chain.period or (0, 0), {}))
-        out.append(chain_payload(chain, result, today, names=names))
-    return out
+    names = await clients.names(
+        db, {c.head.client_id for c in proven if c.head.client_id}
+    )
+    rows = await ledger.rows_by_period(db, proven)
+    invoices = [
+        chain_payload(
+            chain,
+            ledger.check(chain, rows.get(chain.period or (0, 0), {})),
+            today,
+            names=names,
+            verdict=verdicts[chain.head.id],
+        )
+        for chain in proven
+    ]
+    unknown = [verdict for verdict in verdicts.values() if verdict.unknown]
+    return {
+        "invoices": invoices,
+        "payment_unknown": len(unknown),
+        "payment_unknown_reasons": payment_proof.reasons_summary(unknown),
+    }
 
 
 async def client_view(
     db: AsyncSession, *, client_id: int, year: int, month: int, today: date
 ) -> dict[str, Any]:
     members = await clients.family(db, [client_id])
+    proof = await payment_proof.load(db)
     payload = await month_view(
-        db, year=year, month=month, client_ids=members, today=today
+        db, year=year, month=month, client_ids=members, today=today, proof=proof
     )
-    late = await overdue(db, client_ids=members, today=today)
-    payload["overdue"] = late
-    payload["summary"]["overdue"] = len(late)
+    late = await overdue(db, client_ids=members, today=today, proof=proof)
+    payload["overdue"] = late["invoices"]
+    payload["summary"]["overdue"] = len(late["invoices"])
+    payload["summary"]["payment_unknown"] = late["payment_unknown"]
+    payload["summary"]["payment_unknown_reasons"] = late["payment_unknown_reasons"]
     return payload
 
 
@@ -509,12 +573,14 @@ async def invoice_detail(
     names = await clients.names(
         db, [chain.head.client_id] if chain.head.client_id else []
     )
+    proof = await payment_proof.load(db)
     payload = chain_payload(
         chain,
         ledger.check(chain, row_map),
         today,
         names=names,
         labels=_labels(row_map.values()),
+        verdict=proof.verdict(chain, today),
     )
     payload["items"] = chain.head.items
     payload["order_refs"] = chain.head.order_refs

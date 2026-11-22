@@ -8,6 +8,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import type { PanelState } from "@/lib/api/consultant-panel";
+import type {
+  PortalMe,
+  PortalMonth,
+  PortalSettlement,
+  PortalTodoItem,
+} from "@/lib/api/consultant-portal";
 
 const BASE = "/api/finance/settlements";
 
@@ -26,7 +33,18 @@ export type ContractorInvoiceState =
   "none" | "can_issue" | "in_ksef" | "differs" | "nip_check" | "extra_pending";
 /** `awaiting_signature` — czeka na podpis klienta: KEŚU (E6.3), protokół albo arkusze (E6.1, E6.2); reguła `cl.after_signed_document`. */
 export type ClientInvoiceState =
-  "waiting" | "ready" | "issued" | "awaiting_signature";
+  "waiting" | "ready" | "issued" | "awaiting_signature" | "awaiting_client";
+/** Akceptacja dowodu pracy przez klienta po zbiorczej wysyłce (E6.5, Bank Pocztowy). */
+export type ClientAcceptanceState = "none" | "to_send" | "sent" | "accepted";
+
+export interface ClientAcceptanceSummary {
+  state: ClientAcceptanceState;
+  sent_at: string | null;
+  accepted_at: string | null;
+  /** Pierwsza linia odpowiedzi klienta, gdy akceptacja przyszła mailem. */
+  reply: string | null;
+  source: "mail" | "manual" | null;
+}
 /** Stan KEŚU osoby w miesiącu (E6.3, klient z Jirą). */
 export type KesuState = "to_company" | "awaiting_client" | "signed";
 export type CheckState = "ok" | "warn" | "fail" | "none";
@@ -65,6 +83,8 @@ export interface SettlementRow {
   kesu?: KesuSummary | null;
   /** Dodatki zgłoszone, a jeszcze niezatwierdzone przez Finanse. */
   extras_pending?: number;
+  /** Akceptacja klienta po wysyłce KCP (E6.5); `null`, gdy klient nie ma tej reguły. */
+  client_acceptance?: ClientAcceptanceSummary | null;
 }
 
 export interface KesuSummary {
@@ -185,6 +205,8 @@ export interface SettlementDetail {
   } | null;
   contractor_invoice?: ContractorInvoiceBlock;
   kesu?: KesuBlock | null;
+  /** KCP w PDF do pobrania (E6.5): od konsultanta albo złożona z eksportu Redmine. */
+  kcp_pdf?: boolean;
   extras?: SettlementExtrasBlock;
 }
 
@@ -282,8 +304,40 @@ export interface ClientRules {
   sections: SettlementRuleSection[];
 }
 
+/** Karta „Start rozliczeń” (admin): przełączniki i to, czego brakuje do startu. */
+export interface SettlementsStart {
+  module_enabled: boolean;
+  portal_state: PanelState;
+  back_office: boolean;
+  mailbox: {
+    configured: boolean;
+    last_run_at: string | null;
+    last_status: string | null;
+    last_error: string | null;
+  };
+  rule_clients: {
+    client_id: number;
+    name: string;
+    effective_from: string;
+    md_charged_on_accept: boolean;
+  }[];
+  active_panels: number;
+}
+
+/** Panel oczami konsultanta (tylko odczyt), te same dane co ekrany panelu. */
+export interface PanelPreview {
+  activated: boolean;
+  me: PortalMe;
+  todo: { items: PortalTodoItem[] };
+  settlement: PortalSettlement;
+  finance: { months: PortalMonth[] };
+}
+
 export const settlementKeys = {
   module: ["client-settlements", "module"] as const,
+  start: ["client-settlements", "start"] as const,
+  preview: (contractId: number) =>
+    ["client-settlements", "preview", contractId] as const,
   clients: ["client-settlements", "clients"] as const,
   month: (clientId: number, month: string) =>
     ["client-settlements", "month", clientId, month] as const,
@@ -298,6 +352,8 @@ export const settlementKeys = {
     ["client-settlements", "estimates", clientId, month] as const,
   clientDocuments: (clientId: number, month: string) =>
     ["client-settlements", "client-documents", clientId, month] as const,
+  clientAcceptance: (clientId: number, month: string) =>
+    ["client-settlements", "client-acceptance", clientId, month] as const,
   rules: (clientId: number, month: string) =>
     ["client-settlements", "rules", clientId, month] as const,
   integration: (contractId: number, month: string) =>
@@ -314,6 +370,46 @@ export function useSettlementsModule(enabled = true) {
         .data,
     staleTime: 5 * 60 * 1000,
     enabled,
+  });
+}
+
+export function useSettlementsStart(enabled: boolean) {
+  return useQuery({
+    queryKey: settlementKeys.start,
+    queryFn: async () =>
+      (await api.get<SettlementsStart>(`${BASE}/start`)).data,
+    enabled,
+    retry: false,
+  });
+}
+
+export function useSetSettlementsModule() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (enabled: boolean) =>
+      (
+        await api.put<{ enabled: boolean; open: boolean }>(`${BASE}/module`, {
+          enabled,
+        })
+      ).data,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: settlementKeys.module });
+      void client.invalidateQueries({ queryKey: settlementKeys.start });
+    },
+  });
+}
+
+export function usePanelPreview(contractId: number | null) {
+  return useQuery({
+    queryKey: settlementKeys.preview(contractId ?? 0),
+    queryFn: async () =>
+      (
+        await api.get<PanelPreview>(
+          `${BASE}/contract/${contractId}/panel-preview`,
+        )
+      ).data,
+    enabled: contractId != null,
+    retry: false,
   });
 }
 
@@ -964,6 +1060,112 @@ export async function fetchExtraDocument(contractId: number, extraId: number, do
   ).data;
 }
 
+// ── Akceptacja klienta po zbiorczej wysyłce KCP (E6.5, Bank Pocztowy) ─────────
+
+export interface ClientAcceptancePerson extends ClientAcceptanceSummary {
+  contract_id: number;
+  person: string;
+}
+
+export interface ClientAcceptanceBatch {
+  sent_at: string;
+  people: number;
+  accepted: number;
+  accepted_at: string | null;
+  reply: string | null;
+}
+
+export interface ClientAcceptanceMonth {
+  enabled: boolean;
+  client_id: number;
+  month: string;
+  email?: string;
+  subject?: string;
+  /** Treść maila do skopiowania (osoby do wysłania). */
+  body?: string;
+  people?: ClientAcceptancePerson[];
+  batches?: ClientAcceptanceBatch[];
+  counts?: Record<ClientAcceptanceState, number>;
+}
+
+export function useClientAcceptance(clientId: number | null, month: string) {
+  return useQuery({
+    queryKey: settlementKeys.clientAcceptance(clientId ?? 0, month),
+    queryFn: async () =>
+      (
+        await api.get<ClientAcceptanceMonth>(`${BASE}/client-acceptance`, {
+          params: { client_id: clientId, month },
+        })
+      ).data,
+    enabled: clientId != null,
+  });
+}
+
+interface AcceptanceChange {
+  clientId: number;
+  month: string;
+  contractIds: number[];
+}
+
+function useAcceptanceChange(path: "sent" | "accept") {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ clientId, month, contractIds }: AcceptanceChange) =>
+      (
+        await api.post<Record<string, number>>(
+          `${BASE}/client-acceptance/${path}`,
+          { client_id: clientId, month, contract_ids: contractIds },
+        )
+      ).data,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["client-settlements"] }),
+  });
+}
+
+/** Paczka wysłana z Outlooka: osoby czekają na akceptację klienta. */
+export function useMarkAcceptanceSent() {
+  return useAcceptanceChange("sent");
+}
+
+/** „Klient zaakceptował”, gdy NEXUS nie odczytał odpowiedzi sam. */
+export function useAcceptByClient() {
+  return useAcceptanceChange("accept");
+}
+
+/** Odpowiedź klienta (MSG albo EML) wgrana ręcznie. */
+export function useUploadAcceptanceReply(month: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append("month", month);
+      form.append("file", file);
+      return (
+        await api.post<{ document_id: number; recognized: boolean }>(
+          `${BASE}/client-acceptance/reply`,
+          form,
+          { headers: { "Content-Type": "multipart/form-data" } },
+        )
+      ).data;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["client-settlements"] }),
+  });
+}
+
+/** Zip z KCP w PDF; domyślnie osoby jeszcze niewysłane do klienta. */
+export async function fetchAcceptancePackage(
+  clientId: number,
+  month: string,
+): Promise<Blob> {
+  return (
+    await api.get<Blob>(`${BASE}/client-acceptance/package`, {
+      params: { client_id: clientId, month },
+      responseType: "blob",
+    })
+  ).data;
+}
+
 export interface NewExtraInput {
   contractId: number;
   kind: SettlementExtraKind;
@@ -1024,4 +1226,17 @@ export function useUploadExtraDocument(month: string) {
     },
     onSuccess: invalidate,
   });
+}
+
+/** KCP osoby w PDF (od konsultanta albo złożona z eksportu Redmine). */
+export async function fetchContractKcp(
+  contractId: number,
+  month: string,
+): Promise<Blob> {
+  return (
+    await api.get<Blob>(`${BASE}/contract/${contractId}/kcp`, {
+      params: { month },
+      responseType: "blob",
+    })
+  ).data;
 }

@@ -179,6 +179,16 @@ async def place_application(
         ad_title=ad_title,
         applied_at=applied_at,
     )
+    from app.services.candidate_terms_queue import enqueue  # noqa: PLC0415
+
+    await enqueue(
+        db,
+        candidate_id=candidate_id,
+        job_id=job.id,
+        source="jjit" if portal == "justjoinit" else portal,
+        applied_at=applied_at,
+        ad_title=ad_title,
+    )
     if job.status != JobStatus.published:
         return PortalApplicationResult(outcome="job_not_open", job_id=job.id)
 
@@ -212,7 +222,7 @@ async def place_application(
 async def notify_recruiter(
     db: AsyncSession, *, job_id: int, candidate_id: int, portal: str
 ) -> None:
-    """Dzwonek „nowe zgłoszenie” dla prowadzącego, w razie braku — dla DL. Nie rzuca."""
+    """Dzwonek „nowe zgłoszenie” dla prowadzącego; bez niego nikt. Nie rzuca."""
     try:
         from app.models.candidate import Candidate  # noqa: PLC0415
         from app.models.notification import NotificationType  # noqa: PLC0415
@@ -224,7 +234,9 @@ async def notify_recruiter(
         job = await db.scalar(select(Job).where(Job.id == job_id))
         if job is None:
             return
-        user_id = await working_owner_id(db, job) or job.delivery_lead_id
+        # Bez prowadzącego nikt (19.11.2026): DL-owi nie ma czego zrobić
+        # z aplikacją, a brak rekrutera zgłasza tygodniowe „przypisz rekrutera”.
+        user_id = await working_owner_id(db, job)
         if user_id is None:
             return
         candidate = await db.scalar(

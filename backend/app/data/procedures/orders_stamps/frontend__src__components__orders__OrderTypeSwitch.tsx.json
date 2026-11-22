@@ -1,4 +1,4 @@
 {
-  "sha256": "c945cf8167010eaeb36f0592877127639dc86a48a98c6e1692a0df6ca6ba85a5",
+  "sha256": "2c06c7e0d223a2a5a8ad5bacb58db510c278e752d191e7d23fd79fe35c3ff3a3",
   "source": "frontend/src/components/orders/OrderTypeSwitch.tsx"
 }

@@ -151,6 +151,7 @@ import {
   type OfficeDaysPeriod,
 } from "@/lib/office-days";
 import { blurNumberInputOnWheel } from "@/lib/number-input";
+import { emitChampionChangeRecorded } from "@/components/champion/ChampionChanges";
 
 interface ChampionProfileEditorProps {
   jobId: number;
@@ -529,6 +530,11 @@ export function ChampionProfileEditor({
       setPendingServer(null);
       setRegressionBlockers(null);
       for (const notice of body?.notices ?? []) toast?.showInfo(notice);
+      // Zmiana rekrutacji w pracy (17.11.2026) → okno „Na co klient kładzie
+      // nacisk?” (`ChampionChangeNoteHost` na stronie rekrutacji).
+      if (body?.change_revision) {
+        emitChampionChangeRecorded({ jobId, revision: body.change_revision });
+      }
       // Profil, zlecenie (sync stacku do `must_skills`) i werdykt gotowości
       // „Przekaż do searchu" — patrz `invalidateChampionDependents`.
       invalidateChampionDependents(qc, jobId);

@@ -79,13 +79,26 @@ async def owner_ids(
 async def owners_for_job(db: AsyncSession, job_id: int) -> dict[int, PairOwner]:
     """Przypisania jednej rekrutacji z nazwami — dla Tablicy (dwa zapytania)."""
 
+    return (await owners_for_jobs(db, [job_id]))[job_id]
+
+
+async def owners_for_jobs(
+    db: AsyncSession, job_ids: Iterable[int]
+) -> dict[int, dict[int, PairOwner]]:
+    """``{job_id: {candidate_id: PairOwner}}`` — dwa zapytania na dowolnie
+    wiele rekrutacji (kilka Tablic naraz, „Moje następne kroki”)."""
+
+    jobs = sorted({int(j) for j in job_ids})
+    out: dict[int, dict[int, PairOwner]] = {job: {} for job in jobs}
+    if not jobs:
+        return out
     rows = (
         await db.scalars(
-            select(CandidateJobOwner).where(CandidateJobOwner.job_id == job_id)
+            select(CandidateJobOwner).where(CandidateJobOwner.job_id.in_(jobs))
         )
     ).all()
     if not rows:
-        return {}
+        return out
     user_ids = {
         uid
         for row in rows
@@ -97,8 +110,8 @@ async def owners_for_job(db: AsyncSession, job_id: int) -> dict[int, PairOwner]:
             await db.execute(select(User.id, User.name).where(User.id.in_(user_ids)))
         ).all()
     )
-    return {
-        row.candidate_id: PairOwner(
+    for row in rows:
+        out[row.job_id][row.candidate_id] = PairOwner(
             owner_user_id=row.owner_user_id,
             owner_name=names.get(row.owner_user_id),
             assigned_by_name=names.get(row.assigned_by) if row.assigned_by else None,
@@ -107,8 +120,7 @@ async def owners_for_job(db: AsyncSession, job_id: int) -> dict[int, PairOwner]:
                 names.get(row.previous_owner_id) if row.previous_owner_id else None
             ),
         )
-        for row in rows
-    }
+    return out
 
 
 async def implicit_owner_id(

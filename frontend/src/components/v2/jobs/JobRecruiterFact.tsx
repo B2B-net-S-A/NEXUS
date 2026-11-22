@@ -145,9 +145,11 @@ export function JobRecruiterFact({
           )}
         >
           {compact ? null : (
+            // Słowo „Rekruter” dopiero od `2xl` (19.11.2026): przy 1280 px
+            // linia faktów ma też „Dodana → Termin”; nazwa jest w aria-label.
             <span
               className={cn(
-                "text-xs font-medium",
+                "hidden text-xs font-medium 2xl:inline",
                 view.kind === "none" ? "text-warning-muted-foreground" : "text-muted-foreground",
               )}
             >

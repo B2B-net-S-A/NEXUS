@@ -9,6 +9,12 @@
  * przycisk aktywny, który kończy się 422 z serwera, albo odwrotnie.
  */
 
+import {
+  STEP_LABEL,
+  toInput as toProcessInput,
+  type ClientProcessInput,
+  type ProcessStep,
+} from "@/lib/job-client-process";
 import type { ChampionExperience, ExperienceItem, ExperienceKind } from "@/lib/api";
 import {
   hiringManagerRequestBody,
@@ -223,6 +229,11 @@ export interface IntakeForm {
   categoryConfirmed: boolean;
   /** Sekcje pliku Profilu Championa bez pola w formularzu; `null` = brak. */
   championExtras: ChampionExtras | null;
+  /**
+   * Proces u klienta (18.11.2026): etapy po wysłaniu CV; `null` = nie wpisano.
+   * Idzie w `POST /api/jobs` jako `client_process`, poza profilem Championa.
+   */
+  clientProcess: ClientProcessInput | null;
   provenance: Partial<Record<ProvenanceKey, FieldBasis>>;
 }
 
@@ -375,6 +386,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   suggestedCategoryId: null,
   categoryConfirmed: false,
   championExtras: null,
+  clientProcess: null,
   provenance: {},
 };
 
@@ -511,6 +523,7 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
     categoryConfirmed: false,
     // Sekcje pliku Championa przychodzą obok odczytu — dokłada je strona.
     championExtras: null,
+    clientProcess: null,
     provenance,
     title: intake.role_name ?? "",
     clientTitle: clientTitleWithReference(
@@ -1168,6 +1181,10 @@ export function buildCreateJobPayload(
       : null,
     intake_form_id: opts.intakeFormId,
     ...(opts.deliveryLeadId != null ? { delivery_lead_id: opts.deliveryLeadId } : {}),
+    client_process:
+      form.clientProcess && form.clientProcess.steps.length > 0
+        ? toProcessInput(form.clientProcess)
+        : null,
   };
 }
 
@@ -1182,6 +1199,24 @@ export function intakeFormLabel(form: IntakeForm): string {
  * Formularz zapisany przed zmianą kształtu (nowe pola) — brakujące pola
  * dostają wartości z pustego formularza, więc stary zapis da się dokończyć.
  */
+/** Zapisany w autozapisie proces — zepsuty wpis = brak (formularz ma się otworzyć). */
+function restoreClientProcess(value: unknown): ClientProcessInput | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<ClientProcessInput>;
+  if (!Array.isArray(raw.steps)) return null;
+  const steps = raw.steps.filter(
+    (s): s is ProcessStep =>
+      !!s &&
+      typeof s === "object" &&
+      typeof s.kind === "string" &&
+      s.kind in STEP_LABEL &&
+      (s.format === "remote" || s.format === "onsite") &&
+      typeof s.duration === "string",
+  );
+  const days = typeof raw.decision_workdays === "number" ? raw.decision_workdays : null;
+  return { steps, decision_workdays: days };
+}
+
 export function restoreIntakeForm(saved: unknown): IntakeForm {
   if (!saved || typeof saved !== "object") return { ...EMPTY_INTAKE_FORM };
   const raw = saved as Partial<IntakeForm>;
@@ -1190,6 +1225,7 @@ export function restoreIntakeForm(saved: unknown): IntakeForm {
     ...raw,
     experience: { ...EMPTY_EXPERIENCE_FORM, ...(raw.experience ?? {}) },
     championExtras: championExtrasFrom(raw.championExtras),
+    clientProcess: restoreClientProcess(raw.clientProcess),
     provenance: raw.provenance ?? {},
     rows: Array.isArray(raw.rows) ? raw.rows : [],
     questions: Array.isArray(raw.questions) ? raw.questions : [],

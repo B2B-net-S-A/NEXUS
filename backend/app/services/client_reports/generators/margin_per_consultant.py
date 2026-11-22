@@ -36,6 +36,7 @@ from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.rate_card import RateCard
 from app.services.client_reports.generators.annual_spend import (
     compute_rebate,
+    exclude_words_for,
     first_invoice_date,
     incomplete_from,
     rate_text,
@@ -245,8 +246,11 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
 
     year_start = date(period.end.year, 1, 1)
     until = min(period.end, ctx.today)
-    invoices = await sales_invoices(db, ctx.client_id, year_start, until)
-    turnover = await turnover_in(db, invoices, currency)
+    invoices = await sales_invoices(
+        db, ctx.client_id, year_start, until, by_service_month=True
+    )
+    words = await exclude_words_for(db, ctx.client_id)
+    turnover = await turnover_in(db, invoices, currency, words)
     marginal = bool(param(ctx, GENERATOR, "marginal"))
     rebate_percent = year_rebate_percent(turnover.amount, tiers, marginal=marginal)
 
@@ -279,7 +283,7 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
     checks: list[str] = []
     if not tiers:
         checks.append("Definicja nie ma progów rabatu — marża liczona bez rabatu.")
-    checks += turnover_checks(turnover)
+    checks += turnover_checks(turnover, words)
     first = await first_invoice_date(db, ctx.client_id)
     if first is not None and incomplete_from(first, year_start):
         checks.append(

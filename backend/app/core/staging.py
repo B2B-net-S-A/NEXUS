@@ -91,6 +91,10 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "sales_signals",
         # Webhooki Grok Zbieracza i Analityka (radar przepisów) i API Sejmu.
         "law_radar",
+        # Bot Cpro: dane kandydatów do bota w USA i wysyłka ofert do Nordei.
+        "cpro_bot",
+        # Rada: odpis KRS z api-krs.ms.gov.pl i dzwonki do Rady (staging ma kopię odpisów).
+        "board_krs",
         "consultant_portal_transcripts",
         "consultant_portal_ratings",
         "consultant_portal_mailbox",
@@ -143,6 +147,7 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "kpi_email_reports",
         "daily_digest_email",
         "notification_email_outbox",
+        "candidate_terms_sender",
         "dl_alerts",
         "integration_stale_alerts",
         "integration_webhooks",
@@ -150,6 +155,8 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "order_mail_ingest",
         "teams_prep_transcripts",
         "contract_docs_sharepoint",
+        # Woła model dla każdego pliku teczki (koszt) i może zapisać stawki.
+        "contract_rate_documents",
         "compass_workdays_sync",
         "compass_lifecycle_sync",
         "m365_account_sweep",

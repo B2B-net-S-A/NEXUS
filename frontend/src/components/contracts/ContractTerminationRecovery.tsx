@@ -46,7 +46,7 @@ function dateOrIndefinite(value: string | null): string {
   return value ? formatIsoDatePl(value) : "bezterminowo";
 }
 
-function invalidateAfterRecovery(
+export function invalidateAfterRecovery(
   qc: ReturnType<typeof useQueryClient>,
   contractId: number,
 ) {
@@ -54,8 +54,7 @@ function invalidateAfterRecovery(
   qc.invalidateQueries({ queryKey: ["contract-activities", contractId] });
   qc.invalidateQueries({ queryKey: ["contracts-v2"] });
   qc.invalidateQueries({ queryKey: ["client-register"] });
-  qc.invalidateQueries({ queryKey: ["contracts-expiring-v2"] });
-  qc.invalidateQueries({ queryKey: ["contractors-v2"] });
+  qc.invalidateQueries({ queryKey: ["contracts-quick-counts"] });
   qc.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
   qc.invalidateQueries({ queryKey: ["client-profile"] });
   qc.invalidateQueries({ queryKey: ["client-order-groups"] });
@@ -138,8 +137,11 @@ export function ContractTerminationRecoveryPanel({
 
 export function ReverseTerminationPlanView({
   plan,
+  showContract = true,
 }: {
   plan: ContractTerminationReversalPlan;
+  /** „Wycofaj wypowiedzenie” pokazuje kontrakt sam — z wybraną datą końca. */
+  showContract?: boolean;
 }) {
   const c = plan.contract;
   return (
@@ -159,6 +161,7 @@ export function ReverseTerminationPlanView({
           </ul>
         </div>
       )}
+      {showContract && (
       <section>
         <h4 className="text-xs font-semibold uppercase text-muted-foreground">Kontrakt</h4>
         <ul className="mt-1 space-y-0.5">
@@ -175,6 +178,7 @@ export function ReverseTerminationPlanView({
           )}
         </ul>
       </section>
+      )}
       <section>
         <h4 className="text-xs font-semibold uppercase text-muted-foreground">
           Zamówienia do przywrócenia

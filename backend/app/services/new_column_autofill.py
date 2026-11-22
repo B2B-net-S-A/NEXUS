@@ -325,6 +325,9 @@ class Pick:
     cautions: tuple[dict, ...] = ()
     # Weszła z pierwszeństwem „nowa w bazie” — migawka ``entry_meta.fresh_first``.
     fresh: bool = False
+    # Wysłana wcześniej do klienta w innej rekrutacji (``sent_before``,
+    # 20.11.2026) — migawka ``entry_meta.sent_before``; próg porcji 50%.
+    sent_before: bool = False
 
 
 def _names(evidence: Optional[dict], key: str) -> tuple[str, ...]:
@@ -476,7 +479,21 @@ async def ranked_picks(
             )
         )
     if min_score is not None:
-        narrowing.append(both.c.score >= min_score)
+        # Osoba wysłana wcześniej do klienta wchodzi od 50% (20.11.2026).
+        from app.services import sent_before
+
+        floor = min(min_score, sent_before.MIN_SCORE)
+        narrowing.append(
+            or_(
+                both.c.score >= min_score,
+                (both.c.score >= floor)
+                & both.c.candidate_id.in_(
+                    sent_before.sent_elsewhere_select(
+                        job_id, now=datetime.now(timezone.utc)
+                    )
+                ),
+            )
+        )
     rows = (
         await db.execute(
             select(both.c.candidate_id, both.c.score, both.c.run_id, both.c.evidence)
@@ -509,6 +526,16 @@ async def ranked_picks(
             matched_must=_names(evidence, "matched_must"),
             missing_must=_names(evidence, "missing_must"),
         )
+    from app.services import sent_before
+
+    sent = await sent_before.ids_for(
+        db, job_id=job_id, candidate_ids=list(best), now=datetime.now(timezone.utc)
+    )
+    if sent:
+        best = {
+            cid: replace(pick, sent_before=True) if cid in sent else pick
+            for cid, pick in best.items()
+        }
     job = await db.get(Job, job_id)
     ordered = list(best.values())
     picks: list[Pick] = []
@@ -785,11 +812,24 @@ async def _by_rules(
         if job.client_id
         else []
     )
+    # Osoba wysłana wcześniej do klienta (Z3, 20.11.2026): budżet i odległość
+    # od biura nie wycinają, tylko ostrzegają. 20 z 42 wysłanych, które ta
+    # funkcja wycięła w 09–19.11, było już wcześniej wysyłanych, a stawkę
+    # rekruter i tak uzgadnia przy wysyłce. Pracuje teraz u klienta — dalej odpada.
+    from app.services import sent_before
+
+    sent = await sent_before.ids_for(
+        db,
+        job_id=job.id,
+        candidate_ids=[p.candidate_id for p in picks],
+        now=datetime.now(timezone.utc),
+    )
     tiered: list[tuple[int, Pick]] = []
     for pick in picks:
         person = people.get(pick.candidate_id)
         if person is None:
             continue
+        lenient = keep_all or pick.candidate_id in sent
         tier = _rate_tier(
             person.rate,
             person.currency,
@@ -797,14 +837,14 @@ async def _by_rules(
             budget_hourly=budget,
         )
         if tier is None:
-            if not keep_all:
+            if not lenient:
                 continue
             tier = 1
         off_limits = client_off_limits.find_hit(person, labels, undated_counts=True)
         if off_limits and not keep_all:
             continue
         km = office_km(person, inputs.office_tokens) if inputs.wants_office else None
-        if km is not None and km > OFFICE_FAR_KM and not keep_all:
+        if km is not None and km > OFFICE_FAR_KM and not lenient:
             continue
         cautions = [
             c
@@ -834,8 +874,9 @@ async def _by_rules(
 
 
 async def _allowed(db, job: Job, picks: list[Pick], now: datetime) -> list[Pick]:
-    """Tylko „brak przeciwwskazań”, bez off-limits u klienta i zgodnie z regułą
-    rekrutacji z powtarzanych braków (``job_learned_rules``)."""
+    """Tylko „brak przeciwwskazań”, bez off-limits u klienta, zgodnie z regułą
+    rekrutacji z powtarzanych braków (``job_learned_rules``) i bez ról
+    z „Nie proponujemy” (``job_role_profile``)."""
     from app.services import client_off_limits
     from app.services.candidate_job_eligibility import EligibilityReason
     from app.services.pipeline_eligibility import (
@@ -875,7 +916,16 @@ async def _allowed(db, job: Job, picks: list[Pick], now: datetime) -> list[Pick]
     passing = await keep_passing(
         db, job.id, [candidates[p.candidate_id] for p in allowed]
     )
-    return [p for p in allowed if p.candidate_id in passing]
+    # „Nie proponujemy” z profilu „Kogo szukamy” (16.11.2026): obecne
+    # stanowisko osoby z etykietą z listy nie wchodzi do „Nowych”.
+    from app.services.job_role_profile import keep_role_allowed
+
+    role_ok = await keep_role_allowed(
+        db,
+        job,
+        [candidates[p.candidate_id] for p in allowed if p.candidate_id in passing],
+    )
+    return [p for p in allowed if p.candidate_id in role_ok]
 
 
 def entry_meta(pick: Pick, candidate: Candidate) -> dict:
@@ -899,6 +949,8 @@ def entry_meta(pick: Pick, candidate: Candidate) -> dict:
     }
     if pick.fresh:
         meta["fresh_first"] = True
+    if pick.sent_before:
+        meta["sent_before"] = True
     return meta
 
 

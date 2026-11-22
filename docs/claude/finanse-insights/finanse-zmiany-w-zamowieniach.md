@@ -20,6 +20,24 @@ wypowiedziana umowa, szkic następnego zamówienia ani decyzja offboardingu MD /
   umowa); **Zejścia** = zapisany koniec współpracy; **Kończące się zamówienia**
   = zamówienie bez kolejnego przy żywej współpracy; **Zmiany** = wszystko, co
   dzieje się w trwającej współpracy; **Braki** bez zmian.
+- **Przejście do innego klienta jest WEJŚCIEM u nowego klienta (decyzja Artura
+  19.11.2026).** Zgłoszenie: osoba po przerwie u nowego klienta od 02.11 nie stała
+  w Wejściach za listopad, bo była „Zmianą klienta” w Zmianach. Zejścia od dawna
+  liczą odejście od klienta A jako zejście z rozliczeń A, więc start u B jest
+  wejściem w rozliczenia B. `ENTRY_KINDS = {new, client_change}` w
+  `services/finance_order_changes.py` rozdziela Wejścia i Zmiany jednym zbiorem;
+  wiersz Wejścia niesie `previous_client_name` („wcześniej u: X”, plakietka
+  „Zmiana klienta”, kolumna w eksporcie). Kontynuacja u tego samego klienta
+  i dodatkowy projekt (praca równolegle u innego klienta) zostają w Zmianach.
+  Akapity niżej opisują stan sprzed tej decyzji tam, gdzie mówią o „Zmianie
+  klienta” w Zmianach.
+- **Szkic zamówienia ze startem z hooka „Zatrudniony” idzie za startem umowy
+  (19.11.2026).** Hook zakłada umowę i szkic ze startem „dziś”; po zmianie
+  startu umowy szkic zostawał przy starej dacie i osoba z wejściem w lutym
+  stała w Wejściach za listopad. `_move_order_drafts_with_contract_start`
+  w `api/contracts.py` (PATCH umowy) przesuwa szkic bez daty końca, którego
+  start jest pusty albo równy staremu startowi umowy; szkicu z datą ustawioną
+  ręcznie nie rusza.
 - **Rejestr zamówień jest MŁODSZY niż współpraca, którą opisuje** — i to była
   przyczyna zgłoszenia z 09.2026 (konsultantka z umową bezterminową od grudnia,
   pierwszy wiersz zamówienia z września, w Wejściach jako „Nowy konsultant").
@@ -70,6 +88,17 @@ wypowiedziana umowa, szkic następnego zamówienia ani decyzja offboardingu MD /
   osoba schodzi. Nie zawężaj tego do samego `INTENT_CONTRACT_ENDED`.
   Zakres następcy per (osoba, klient) ZOSTAJE: przejście konsultanta do innego
   klienta JEST zejściem z punktu widzenia rozliczeń klienta A.
+- **Zejście to OSOBA, nie zamówienie (zgłoszenie 19.11.2026, decyzja Artura).**
+  Konsultant z trzema zamówieniami u klienta, z których „zjadano” środki, stał
+  w Zejściach trzy razy, a liczniki mówiły, że zeszło trzech konsultantów
+  (staging na kopii produkcji: październik 12 wierszy = 10 osób, wrzesień
+  17 = 15). `_one_exit_per_person` skleja zejścia tego samego `sibling_key`
+  (osoba × klient) w jeden wiersz: głównym jest zamówienie kończące się
+  najpóźniej, przy remisie najstarsze — jego klucz odhaczenia się nie zmienia.
+  Reszta idzie do `other_orders` (numer, okres, PDF z `decorate`); karta
+  pokazuje je pod nazwiskiem, panel podglądu przełącza PDF, szukajka i eksport
+  znają wszystkie numery. „Kończące się zamówienia” zostają per zamówienie.
+  Rada i Insights liczą zejścia z umów (`departure_day`) i dubli nie miały.
 - **`ending_pending` i `no_successor` to „Kończące się zamówienia"** — osobna
   zakładka (`?sub=ending`, `?tab=ending`), ten sam `OrderExitItem` i ten sam
   render co Zejścia. Bliźniaczy typ różniący się wyłącznie nazwą byłby drugim

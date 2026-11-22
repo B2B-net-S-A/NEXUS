@@ -23,8 +23,9 @@ from app.services.hr.notify import notify_each
 
 logger = logging.getLogger(__name__)
 
-#: Karty, które zamyka akcept, a nie osoba prowadząca.
-NO_ESCALATION_KINDS = frozenset({"timesheet", "bonus", "changes"})
+#: Karty, które zamyka akcept, a nie osoba prowadząca, oraz kroki: krok idzie
+#: z całą sprawą (jedna karta na zdarzenie, 19.11.2026), eskaluje się sprawa.
+NO_ESCALATION_KINDS = frozenset({"timesheet", "bonus", "changes", "step"})
 _LOOKBACK_DAYS = 45
 
 
@@ -91,7 +92,7 @@ async def run(
             ntype=NotificationType.back_office_escalated,
             related_entity_type="back_office",
             related_entity_id=today.toordinal(),
-            link="/back-office?zespol=all&filtr=escalated",
+            link="/back-office?filtr=escalated",
             log_tag="back_office",
         )
     return {"escalated": len(escalated)}

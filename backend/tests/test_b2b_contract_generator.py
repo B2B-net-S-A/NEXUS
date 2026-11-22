@@ -153,6 +153,16 @@ class TestRoleCatalog:
                 )
 
 
+def _assert_contract_mailboxes(rendered: str, lang: str) -> None:
+    from app.services.b2b_documents.company_party import company_party
+
+    notices = company_party(lang)["notices_email"]
+    assert notices == "wsparcie@b2bnetwork.pl"
+    assert f"B2BNET: {notices}" in rendered
+    report_label = "e-mail" if lang == "pl" else "e-mail address"
+    assert f"{report_label}: rozliczenia@b2bnetwork.pl" in rendered
+
+
 @pytest.mark.parametrize("lang", ["pl", "en"])
 class TestDocxRender:
     def test_template_present(self, lang):
@@ -173,6 +183,7 @@ class TestDocxRender:
             + "\n"
             + "\n".join(c.text for t in d.tables for r in t.rows for c in r.cells)
         )
+        _assert_contract_mailboxes(full, lang)
         # wszystkie tagi skonsumowane
         assert "{{" not in full and "{%" not in full
         # pola wypełnione (& poprawnie zescapowane do XML → czyta się z &)
@@ -194,6 +205,7 @@ def test_html_template_renders(lang):
     rendered = _jinja_env.from_string(html_path.read_text(encoding="utf-8")).render(
         **ctx
     )
+    _assert_contract_mailboxes(rendered, lang)
     assert "{{" not in rendered and "{%" not in rendered
     assert "42/2026" in rendered
     assert "05.06.2026" in rendered

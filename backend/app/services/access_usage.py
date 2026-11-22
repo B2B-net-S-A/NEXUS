@@ -112,7 +112,8 @@ AREA_BY_SCREEN: dict[str, str] = {
     # Kadry, Umowy i HoR, ale ekran stoi w sekcji Finanse menu.
     **_screens(FINANSE, "accounting", "compliance", "finance"),
     # Podgląd na telefonie stoi za tą samą bramką sekcji co Insights.
-    **_screens(INSIGHTS, "insights", "podglad"),
+    # „Rada” (16.11.2026): ekran startowy Rady nadzorczej — jej raporty i dokumenty.
+    **_screens(INSIGHTS, "insights", "podglad", "rada"),
     # „trainings” — szkolenia i biblioteka nagrań (13.11.2026), moduł grupy „Ludzie”.
     **_screens(HR, "equipment", "people", "trainings"),
     **_screens(SPRZEDAZ, "sales"),
@@ -136,6 +137,8 @@ UNTRACKED_SCREENS: frozenset[str] = frozenset(
         "start",
         # Poligon NEXUSA: ćwiczenia na rekrutacji ćwiczebnej, nie praca w obszarze.
         "poligon",
+        # Poranna porcja nowości: każdy zalogowany, lista przeklikań, nie praca.
+        "nowosci-dnia",
         # Umowy klientów: nadawane imiennie, poza sekcjami, które mierzy przegląd.
         "client-contracts",
         # Rekrutacja własna: proces dwóch osób, poza sekcjami, które mierzy przegląd.
@@ -155,6 +158,8 @@ UNTRACKED_SCREENS: frozenset[str] = frozenset(
         "register",
         "share",
         "sign",
+        # Formularz warunków kandydata z linku w mailu (17.11.2026).
+        "warunki",
         "wypis",
         # Wtyczka i harnessy.
         "extension",

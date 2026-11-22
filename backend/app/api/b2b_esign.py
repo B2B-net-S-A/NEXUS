@@ -91,10 +91,10 @@ MSG_MANDATE = (
     "Podpis w NEXUSIE działa dla umów B2B. Umowę zlecenia podpiszcie poza "
     "NEXUSEM i oznacz ją jako podpisaną w rejestrze."
 )
-MSG_SIGNER = "Wybierz osobę, która podpisze za B2B Network, z listy w ustawieniach."
+MSG_SIGNER = "Wybierz osobę, która podpisze za B2Bnetwork, z listy w ustawieniach."
 MSG_TAKE_OVER_MAILBOX = (
     "Połącz swoją skrzynkę Microsoft 365 z NEXUSEM, zanim przejmiesz obsługę: "
-    "przypomnienia, mail do podpisu za B2B Network i kopia umowy idą ze skrzynki "
+    "przypomnienia, mail do podpisu za B2Bnetwork i kopia umowy idą ze skrzynki "
     "osoby, która obsługuje wysyłkę."
 )
 MSG_CC = (
@@ -770,7 +770,7 @@ async def take_over_esign(
             user_id=previous,
             title=f"{current_user.name} obsługuje teraz umowę {row.contract_number}",
             message=(
-                "Przypomnienia, mail do podpisu za B2B Network i kopia umowy pójdą "
+                "Przypomnienia, mail do podpisu za B2Bnetwork i kopia umowy pójdą "
                 "z tamtej skrzynki, a dzwonki o tej wysyłce do tej osoby."
             ),
             ntype=NotificationType.signature_sent,
@@ -979,7 +979,7 @@ async def _after_contractor_signed(db: AsyncSession, request_id: int) -> None:
         title=f"Umowa {number} czeka na Twój podpis",
         message=(
             f"{request.contractor_name} podpisał(a) umowę {number} podpisem "
-            "kwalifikowanym. Podpisz ją za B2B Network."
+            "kwalifikowanym. Podpisz ją za B2Bnetwork."
         ),
         ntype=NotificationType.signature_sent,
         request_id=request_id,

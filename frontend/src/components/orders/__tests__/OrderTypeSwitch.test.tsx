@@ -24,4 +24,33 @@ describe("OrderTypeSwitch", () => {
     await user.click(screen.getByRole("radio", { name: "MD" }));
     expect(onChange).toHaveBeenCalledWith("md");
   });
+
+  it("podpowiada typ najczęstszy u klienta i ostrzega przy innym wyborze", () => {
+    const { rerender } = render(
+      <OrderTypeSwitch value="periodic" usualType="md" onChange={vi.fn()} />,
+    );
+
+    // Nazwa radia zostaje bez dopisku — inne testy i czytniki szukają „MD".
+    expect(screen.getByRole("radio", { name: "MD" })).toBeInTheDocument();
+    expect(screen.getByText("zwykle u klienta")).toBeInTheDocument();
+    expect(
+      screen.getByText(/U tego klienta zamówienia są zwykle typu\s+MD\./),
+    ).toBeInTheDocument();
+
+    rerender(<OrderTypeSwitch value="md" usualType="md" onChange={vi.fn()} />);
+    expect(screen.queryByText(/U tego klienta zamówienia są zwykle/)).not.toBeInTheDocument();
+  });
+
+  it("bez podpowiedzi klienta nie pokazuje dopisku ani ostrzeżenia", () => {
+    render(<OrderTypeSwitch value="periodic" onChange={vi.fn()} />);
+    expect(screen.queryByText("zwykle u klienta")).not.toBeInTheDocument();
+    expect(screen.queryByText(/U tego klienta/)).not.toBeInTheDocument();
+  });
+
+  it("zablokowany przełącznik nie ostrzega o typie klienta", () => {
+    render(
+      <OrderTypeSwitch value="periodic" usualType="md" disabled onChange={vi.fn()} />,
+    );
+    expect(screen.queryByText(/U tego klienta/)).not.toBeInTheDocument();
+  });
 });

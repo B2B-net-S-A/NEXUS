@@ -320,6 +320,31 @@ async def pair_recruiter_id(
     return await default_recruiter_id(db, candidate_id=candidate_id, job_id=job_id)
 
 
+async def move_recruiter_id(
+    db: AsyncSession, *, candidate_id: int, job_id: int, mover_id: Optional[int]
+) -> Optional[int]:
+    """Rekruter kandydata przy ruchu etapu (18.11.2026).
+
+    „Prowadzi” → właściciel procesu → weryfikator → osoba, która przesunęła
+    kartę → prowadzący rekrutację. Kandydat w „Nowych” nie ma jeszcze
+    rekrutera; odrzuca go albo przesuwa ktoś z zespołu i to jego kandydat.
+    Wcześniej łańcuch kończył się na prowadzącym, więc prowadzący dostawał
+    ruchy innych rekruterów jak o swoich ludziach (808 z 1 320 dzwonków
+    w 11–18.11.2026)."""
+
+    from app.services import interview_slots  # noqa: PLC0415 — cykl importu
+
+    pair = (candidate_id, job_id)
+    own = (
+        await interview_slots.default_recruiter_ids(db, [pair], job_fallback=False)
+    ).get(pair)
+    if own is not None:
+        return own
+    if mover_id is not None:
+        return mover_id
+    return (await interview_slots.default_recruiter_ids(db, [pair])).get(pair)
+
+
 def _handed_over_by(
     previous_stage: Optional[CandidateStage], previous_def: Optional[PipelineStageDef]
 ) -> Optional[int]:
@@ -335,6 +360,22 @@ def _handed_over_by(
         else board_column_for(None, code)
     )
     return previous_stage.moved_by if column in _BEFORE_SEND_COLUMNS else None
+
+
+def _card_added_to_new(
+    previous_stage: Optional[CandidateStage], previous_def: Optional[PipelineStageDef]
+) -> bool:
+    """Czy karta przed „CV wysłane” stała w „Nowych” (autor tylko ją dodał)."""
+
+    if previous_stage is None:
+        return False
+    code = _value(previous_stage.stage)
+    column = (
+        _column(previous_def, code)
+        if previous_def is not None
+        else board_column_for(None, code)
+    )
+    return column == "new"
 
 
 async def handoff_recipients(
@@ -386,7 +427,18 @@ async def handoff_recipients(
         recruiter = await pair_recruiter_id(
             db, candidate_id=candidate_id, job_id=job.id
         )
-        ids = (recruiter, _handed_over_by(previous_stage, previous_def))
+        handed = _handed_over_by(previous_stage, previous_def)
+        if (
+            handed is not None
+            and handed != recruiter
+            and _card_added_to_new(previous_stage, previous_def)
+            and handed in await _dl_reviewers(db, job)
+        ):
+            # Delivery Lead tylko wstawił kartę do „Nowych” (Match, „Wyślij też
+            # do”), a CV wysłał rekruter: DL nie ma przy tym nic do zrobienia
+            # (decyzja Artura 19.11.2026, 203 z 206 takich dzwonków w 14 dni).
+            handed = None
+        ids = (recruiter, handed)
         return kind, [uid for uid in dict.fromkeys(ids) if uid is not None]
     if kind == REASON_STAGE_REACHED:
         recruiter = await pair_recruiter_id(
@@ -508,5 +560,6 @@ __all__ = [
     "is_client_acceptance",
     "handoff_kind",
     "handoff_recipients",
+    "move_recruiter_id",
     "pair_recruiter_id",
 ]

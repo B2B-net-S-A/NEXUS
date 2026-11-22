@@ -8,6 +8,7 @@ da się powiedzieć, czyje sprawy pokazać. Kontrakt zakończony działa jeszcze
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
+from app.models.user import User
 from app.services.consultant_portal.portal_settings import PortalSettings
 
 ENDED_GRACE_DAYS = 60
@@ -78,12 +80,172 @@ async def resolve_by_email(
     return contracts[0] if len(people) == 1 else None
 
 
-def _tokens(text: Optional[str]) -> set[str]:
+async def resolve_sender(
+    db: AsyncSession, email: str, *, settings: PortalSettings, today: date
+) -> Optional[Contract]:
+    """Kontrakt nadawcy maila na rozliczenia@ albo ``None`` (karta do przypisania).
+
+    W pilotażu tylko osoby z aktywnym panelem (jak link). W ``internal`` i ``all`` każdy
+    działający kontrakt: najpierw adres z kontraktu, potem adres z kartoteki kandydata.
+    Dopasowanie nie otwiera panelu ani nie wysyła maila, a dokument z maila i tak czeka
+    na decyzję Finansów. Więcej niż jeden działający kontrakt pod adresem = ``None``.
+    """
+
+    if not settings.any_sender:
+        return await resolve_by_email(db, email, settings=settings, today=today)
+    address = normalize_email(email)
+    if not address:
+        return None
+    by_contract = (
+        await db.scalars(
+            select(Contract)
+            .where(func.lower(func.btrim(Contract.candidate_email)) == address)
+            .order_by(Contract.start_date.desc().nulls_last(), Contract.id.desc())
+        )
+    ).all()
+    rows = [row for row in by_contract if eligible(row, today)]
+    if not rows:
+        by_card = (
+            await db.scalars(
+                select(Contract)
+                .join(Candidate, Candidate.id == Contract.candidate_id)
+                .where(func.lower(func.btrim(Candidate.email)) == address)
+                .order_by(Contract.start_date.desc().nulls_last(), Contract.id.desc())
+            )
+        ).all()
+        rows = [row for row in by_card if eligible(row, today)]
+    if not rows:
+        rows = await _by_company_address(db, address, today=today)
+    # Jeden działający kontrakt = jedno dopasowanie. Dwa (zmiana kontraktu w ostatnich
+    # 60 dniach, dwóch klientów naraz) albo dwie osoby = karta do ręcznego przypisania:
+    # przypisanego dokumentu Finanse nie przepną, a RCP od razu liczy rozliczenie.
+    return rows[0] if len(rows) == 1 else None
+
+
+def _company_domains() -> frozenset[str]:
+    """Domeny adresów rozliczeń: konsultanci mają w nich skrzynki firmowe."""
+
+    from app.services import support_mail_route
+
+    return frozenset(
+        address.rsplit("@", 1)[1]
+        for address in support_mail_route.settlements_addresses()
+        if "@" in address
+    )
+
+
+def is_company_address(address: str) -> bool:
+    return normalize_email(address).rpartition("@")[2] in _company_domains()
+
+
+def _address_forms(first: Optional[str], last: Optional[str]) -> set[str]:
+    """Lokalne części adresu firmowego osoby: ``jan.kowalski``, ``j.kowalski``,
+    ``jan_kowalski``, ``jankowalski``; nazwisko dwuczłonowe także po członie."""
+
+    given = _fold(first).split()[:1]
+    parts = _fold(last).split()
+    if not given or not parts:
+        return set()
+    name = given[0]
+    forms: set[str] = set()
+    for surname in {"".join(parts), "-".join(parts), *parts}:
+        for sep in (".", "_", "-", ""):
+            forms.add(name + sep + surname)
+        forms.add(name[0] + "." + surname)
+        forms.add(name[0] + surname)
+    return forms
+
+
+async def _by_company_address(
+    db: AsyncSession, address: str, *, today: date
+) -> list[Contract]:
+    """Działające kontrakty osoby z adresu firmowego ``imie.nazwisko@<domena>``.
+
+    Kontrakt i kartoteka mają adres prywatny, a konsultanci piszą ze skrzynek
+    firmowych (próba IX–XI 2026: bez tego 14% dokumentów z nadawcą). Konto
+    NEXUSA pod tym adresem = pracownik przesyła cudze pliki, więc nikt. Dwie
+    osoby o tej samej formie adresu = nikt (karta do ręcznego przypisania).
+    """
+
+    local, _, domain = address.partition("@")
+    if not local or domain not in _company_domains():
+        return []
+    staff = await db.scalar(
+        select(User.id).where(func.lower(func.btrim(User.email)) == address).limit(1)
+    )
+    if staff is not None:
+        return []
+    rows = (
+        await db.execute(
+            select(Contract, Candidate.name, Candidate.lastname)
+            .join(Candidate, Candidate.id == Contract.candidate_id)
+            .where(
+                Contract.status.in_(_LIVE)
+                | (
+                    (Contract.status == ContractStatus.ended)
+                    & (Contract.end_date >= today - timedelta(days=ENDED_GRACE_DAYS))
+                )
+            )
+            .order_by(Contract.start_date.desc().nulls_last(), Contract.id.desc())
+        )
+    ).all()
+    hits = [
+        contract
+        for contract, first, last in rows
+        if local in _address_forms(first, last) and eligible(contract, today)
+    ]
+    if len({c.candidate_id for c in hits}) != 1:
+        return []
+    return hits
+
+
+async def resolve_named_in_text(
+    db: AsyncSession, text: str, *, today: date
+) -> Optional[Contract]:
+    """Kontrakt osoby, której imię i nazwisko stoi w temacie albo nazwie pliku.
+
+    Ostatnia deska, gdy nadawca z adresu firmy nikogo nie wskazuje: koordynator
+    przesyła cudze pliki („TimeSheet … Nazwisko Imię.xls”). Czytnik pyta tylko dla
+    nadawców z domeny firmy, bo temat może napisać każdy. Kolejność słów dowolna, imię
+    i każdy człon nazwiska muszą stać w tekście. Dwie osoby w tekście albo jedna
+    z dwoma działającymi kontraktami = ``None`` (karta do ręcznego przypisania).
+    """
+
+    words = set(_fold(re.sub(r"[^\w]+|_", " ", text)).split())
+    if len(words) < 2:
+        return None
+    rows = (
+        await db.execute(
+            select(Contract, Candidate.name, Candidate.lastname)
+            .join(Candidate, Candidate.id == Contract.candidate_id)
+            .where(
+                Contract.status.in_(_LIVE)
+                | (
+                    (Contract.status == ContractStatus.ended)
+                    & (Contract.end_date >= today - timedelta(days=ENDED_GRACE_DAYS))
+                )
+            )
+        )
+    ).all()
+    hits = []
+    for contract, first, last in rows:
+        person = _fold(first).split()[:1] + _fold(last).split()
+        if len(person) >= 2 and set(person) <= words and eligible(contract, today):
+            hits.append(contract)
+    if len(hits) != 1:
+        return None
+    return hits[0]
+
+
+def _fold(text: Optional[str]) -> str:
     raw = unicodedata.normalize(
         "NFKD", (text or "").replace("ł", "l").replace("Ł", "L")
     )
-    folded = raw.encode("ascii", "ignore").decode().lower().replace("-", " ")
-    return {token for token in folded.split() if token}
+    return raw.encode("ascii", "ignore").decode().lower().replace("-", " ")
+
+
+def _tokens(text: Optional[str]) -> set[str]:
+    return {token for token in _fold(text).split() if token}
 
 
 async def resolve_by_name(
@@ -115,7 +277,7 @@ async def resolve_by_name(
         and eligible(contract, today)
         # Osoba z KEŚU nic nie wysyła i nie musi mieć aktywnego panelu; w pilotażu
         # czytnik bierze jednak tylko osoby z pilotażu.
-        and (settings.state == "all" or settings.open_for(contract.id))
+        and (settings.any_sender or settings.open_for(contract.id))
     ]
     if not matches or len({c.candidate_id for c in matches}) != 1:
         return None

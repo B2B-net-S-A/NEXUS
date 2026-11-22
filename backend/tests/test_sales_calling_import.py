@@ -258,18 +258,19 @@ async def test_preview_shows_the_fate_of_every_row_and_saves_nothing(
     silenced_id = await _named_company(f"Krogulec {tag}", status="do_not_contact")
     assert silenced_id
 
+    base = _phone()[:8]  # numery tylko tego testu: import zapisuje rekordy
     payload = _csv(
-        f"Nowa Firma {tag};Adam Nowy;CTO;600 400 001;adam@nowa-{tag}.example;",
-        f"Bielik Systemy {tag} sp. z o.o.;Ola Znana;CIO;600 400 002;;",
-        f"Sokół {tag};Piotr Domena;IT;600 400 003;piotr@sokol-{tag}.example;",
+        f"Nowa Firma {tag};Adam Nowy;CTO;{base}1;adam@nowa-{tag}.example;",
+        f"Bielik Systemy {tag} sp. z o.o.;Ola Znana;CIO;{base}2;;",
+        f"Sokół {tag};Piotr Domena;IT;{base}3;piotr@sokol-{tag}.example;",
         f"Czajka {tag};;;600300300;;",
-        f"Nowa Firma {tag};Adam Nowy;CTO;600 400 001;;",
-        f"Derkacz {tag};Jan Mój;CTO;600 400 004;;",
-        f"Dudek {tag};Jan Cudzy;CTO;600 400 005;;",
-        f"Gil {tag};Jan Prowadzony;CTO;600 400 006;;",
-        f"{client_name};Jan Klient;CTO;600 400 007;;",
-        f"Kowalik {tag};Ewa Sprzeciw;CFO;600 400 008;;",
-        f"Krogulec {tag};Jan Cichy;CTO;600 400 009;;",
+        f"Nowa Firma {tag};Adam Nowy;CTO;{base}1;;",
+        f"Derkacz {tag};Jan Mój;CTO;{base}4;;",
+        f"Dudek {tag};Jan Cudzy;CTO;{base}5;;",
+        f"Gil {tag};Jan Prowadzony;CTO;{base}6;;",
+        f"{client_name};Jan Klient;CTO;{base}7;;",
+        f"Kowalik {tag};Ewa Sprzeciw;CFO;{base}8;;",
+        f"Krogulec {tag};Jan Cichy;CTO;{base}9;;",
         f"Łozówka {tag};Jan Bez;CTO;;;",
     )
     body, fates = await _fates(app_client, caller, campaign_id, payload)
@@ -304,6 +305,7 @@ async def test_preview_shows_the_fate_of_every_row_and_saves_nothing(
         "new_company": 1,
         "linked": 2,
         "already_in_campaign": 3,
+        "already_called": 0,
         "other_caller": 2,
         "client": 1,
         "do_not_contact": 2,
@@ -338,11 +340,12 @@ async def test_import_adds_only_rows_that_passed_the_gates(app_client) -> None:
     async with AsyncSessionLocal() as db:
         db.add(Client(name=client_name))
         await db.commit()
+    base = _phone()[:8]  # numery tylko tego testu: import zapisuje rekordy
     payload = _csv(
-        f"Nowa Firma {tag};Adam Nowy;CTO;600 400 001;adam@nowa-{tag}.example;",
-        f"Nowa Firma {tag};Beata Druga;CFO;600 400 002;;",
-        f"Bielik Systemy {tag};Ola Znana;CIO;600 400 003;ola@bielik-{tag}.example;",
-        f"{client_name};Jan Klient;CTO;600 400 007;;",
+        f"Nowa Firma {tag};Adam Nowy;CTO;{base}1;adam@nowa-{tag}.example;",
+        f"Nowa Firma {tag};Beata Druga;CFO;{base}2;;",
+        f"Bielik Systemy {tag};Ola Znana;CIO;{base}3;ola@bielik-{tag}.example;",
+        f"{client_name};Jan Klient;CTO;{base}7;;",
         f"Łozówka {tag};Jan Bez;CTO;;;",
     )
     resp = await _post(app_client, caller, campaign_id, payload, preview=False)
@@ -489,10 +492,11 @@ async def test_joined_alias_and_linked_client_card_are_recognised(app_client) ->
         )
         db.add(linked)
         await db.commit()
+    base = _phone()[:8]  # numery tylko tego testu: import zapisuje rekordy
     payload = _csv(
-        f"{alias};Jan Alias;CTO;600 400 001;;",
-        f"Rybitwa {tag};Jan Powiązany;CTO;600 400 002;;",
-        "B2B NET;Jan Nasz;CTO;600 400 003;;",
+        f"{alias};Jan Alias;CTO;{base}1;;",
+        f"Rybitwa {tag};Jan Powiązany;CTO;{base}2;;",
+        f"B2B NET;Jan Nasz;CTO;{base}3;;",
     )
     _body, fates = await _fates(app_client, caller, campaign_id, payload)
     assert [fate for fate, _ in fates] == ["linked", "client", "client"]

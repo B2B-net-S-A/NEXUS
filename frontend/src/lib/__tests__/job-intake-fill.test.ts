@@ -87,6 +87,10 @@ const offerOf = (offers: IntakeOffer[], unit: IntakeUnit) => offers.find((o) => 
 describe("isPristineIntake", () => {
   it("pusty formularz jest nietknięty — także z pustym wierszem i pustym pytaniem", () => {
     expect(isPristineIntake(EMPTY_INTAKE_FORM)).toBe(true);
+    // Sam wpisany proces u klienta to już treść: odczyt nie może go nadpisać.
+    expect(
+      isPristineIntake({ ...EMPTY_INTAKE_FORM, clientProcess: { steps: [], decision_workdays: null } }),
+    ).toBe(false);
     expect(
       isPristineIntake(
         form({

@@ -14,6 +14,7 @@ import {
 } from "@/lib/api";
 import { AppModal } from "@/components/ds/AppModal";
 import { apiErrorMessage } from "@/lib/api-error";
+import { isDocumentDuplicate } from "@/lib/contract-document-folders";
 import {
   AGREEMENT_PLANS,
   AGREEMENT_TERMINATION_MODES,
@@ -173,8 +174,7 @@ export function ContractTerminationDialog({
     // zakończony kontrakt dalej wisiał jako aktywny w oknie 30 dni.
     qc.invalidateQueries({ queryKey: ["contracts-v2"] });
     qc.invalidateQueries({ queryKey: ["client-register"] });
-    qc.invalidateQueries({ queryKey: ["contracts-expiring-v2"] });
-    qc.invalidateQueries({ queryKey: ["contractors-v2"] });
+    qc.invalidateQueries({ queryKey: ["contracts-quick-counts"] });
     qc.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
     // Profil klienta (kafle MRR, Konsultanci) i zamówienia — terminacja je
     // przycina. Prefiksem: zamontowany profil jest najwyżej jeden.
@@ -229,6 +229,9 @@ export function ContractTerminationDialog({
           try {
             await contractsApi.uploadDocument(id, body);
           } catch (error: unknown) {
+            // Ten plik już jest w Dokumentach kontraktu (20.11.2026) —
+            // załącznik jest na miejscu, drugiej kopii serwer nie dokłada.
+            if (isDocumentDuplicate(error)) continue;
             uploadError = apiErrorMessage(error, "Nie udało się dodać załącznika.");
           }
         }

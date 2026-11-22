@@ -32,7 +32,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_followups import FollowupRow, serialize_rows
@@ -51,6 +51,9 @@ from app.services.workforce_availability import operational_owner_ids
 from app.services import agreement_tasks, rate_change_tasks
 from app.services import board_tasks as svc
 from app.services.stage_client_rate import latest_client_rates
+from app.services.cpro_bot import items as cpro_bot_items
+from app.services.cpro_bot import runs as cpro_bot_runs
+from app.core.scheduling import business_date, local_day_start_utc
 from app.services.contract_availability import load_contract_free
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
@@ -639,6 +642,43 @@ class CproQueueCv(BaseModel):
     review_pending: bool = False
 
 
+class CproBotItem(BaseModel):
+    """Bot Cpro przy osobie (``services/cpro_bot``), gdy ``CPRO_BOT_ENABLED``.
+
+    ``blocked`` — braki w NEXUSIE (lista w ``blockers``), ``ready`` — bot
+    weźmie osobę w najbliższym biegu, ``working`` — bot wypełnia Cpro,
+    ``submitted`` — oferta wysłana (``moved=False``: kartę trzeba przesunąć
+    ręcznie), ``draft`` — szkic z próby, ``failed``/``skipped`` — bot nie
+    wrzucił (``message``), ``retry`` — bieg padł, bot spróbuje jeszcze raz.
+    """
+
+    state: Literal[
+        "blocked",
+        "ready",
+        "working",
+        "submitted",
+        "draft",
+        "failed",
+        "skipped",
+        "retry",
+    ]
+    blockers: list[str] = Field(default_factory=list)
+    message: Optional[str] = None
+    offer_url: Optional[str] = None
+    cpro_status: Optional[str] = None
+    at: Optional[datetime] = None
+    moved: Optional[bool] = None
+    data_from: list[str] = Field(default_factory=list)
+
+
+class CproBotSummary(BaseModel):
+    configured: bool
+    working: bool
+    last_run_at: Optional[datetime] = None
+    sent_today: int = 0
+    can_retry: bool = False
+
+
 class CproQueueItem(BaseModel):
     stage_id: int
     candidate_id: int
@@ -664,6 +704,8 @@ class CproQueueItem(BaseModel):
     accepted_at: Optional[datetime] = None
     # Uwaga Delivery Leada zapisana przy akceptacji (`stage_remarks`).
     dl_note: Optional[str] = None
+    # Bot Cpro (17.11.2026); ``None`` przy wyłączonym ``CPRO_BOT_ENABLED``.
+    bot: Optional[CproBotItem] = None
 
 
 class CproQueueJob(BaseModel):
@@ -680,6 +722,7 @@ class CproQueueResponse(BaseModel):
     sender: CproSenderRead
     jobs: list[CproQueueJob]
     sent_today: int
+    bot: Optional[CproBotSummary] = None
 
 
 @router.get("", response_model=BoardTasksResponse)
@@ -1628,6 +1671,11 @@ async def get_cpro_queue(
         if t.kind == svc.KIND_CPRO_SENT and t.since.astimezone(tz).date() == today
     )
     sender = await cpro_sender.effective_sender(db, now)
+    bot_summary: Optional[CproBotSummary] = None
+    if cpro_bot_runs.enabled():
+        bot_summary = await _attach_bot(
+            db, jobs, to_send, now=now, today=today, user=current_user
+        )
     return CproQueueResponse(
         sender=CproSenderRead(
             **await cpro_sender.describe(db, sender),
@@ -1635,7 +1683,117 @@ async def get_cpro_queue(
         ),
         jobs=sorted(jobs.values(), key=lambda g: g.oldest_since),
         sent_today=sent_today,
+        bot=bot_summary,
     )
+
+
+def bot_item_view(
+    item: Optional["cpro_bot_items.BotItem"], state: Optional["cpro_bot_runs.ItemState"]
+) -> Optional[CproBotItem]:
+    """Stan bota przy osobie: braki wygrywają, potem wynik ostatniego biegu."""
+
+    if item is None:
+        return None
+    data_from = list(item.data_from)
+    if item.payload is None:
+        return CproBotItem(
+            state="blocked", blockers=list(item.blockers), data_from=data_from
+        )
+    if state is None:
+        return CproBotItem(state="ready", data_from=data_from)
+    return CproBotItem(
+        state=state.state,  # type: ignore[arg-type]
+        message=state.message,
+        offer_url=state.offer_url,
+        cpro_status=state.cpro_status,
+        at=state.at,
+        moved=state.moved if state.state == "submitted" else None,
+        data_from=data_from,
+    )
+
+
+async def _attach_bot(
+    db: AsyncSession,
+    jobs: dict[int, "CproQueueJob"],
+    tasks: list,
+    *,
+    now: datetime,
+    today: date,
+    user: User,
+) -> CproBotSummary:
+    """Stan bota przy każdej osobie kolejki i linia o bocie nad listą."""
+
+    from app.models.cpro_bot import CproBotRun  # noqa: PLC0415
+
+    bot_items = {
+        i.stage_id: i
+        for i in await cpro_bot_items.load_items(db, now=now, today=today, tasks=tasks)
+    }
+    states = await cpro_bot_runs.item_states(db, list(bot_items), now=now)
+    for group in jobs.values():
+        for queued in group.items:
+            queued.bot = bot_item_view(
+                bot_items.get(queued.stage_id), states.get(queued.stage_id)
+            )
+    last = await db.scalar(select(func.max(CproBotRun.started_at)))
+    day_start = local_day_start_utc(today)
+    sent_runs = (
+        await db.scalars(
+            select(CproBotRun).where(
+                CproBotRun.received_at >= day_start, CproBotRun.submit.is_(True)
+            )
+        )
+    ).all()
+    sent_today = sum(
+        int(((run.report or {}).get("counts") or {}).get("submitted", 0))
+        for run in sent_runs
+    )
+    return CproBotSummary(
+        configured=cpro_bot_runs.configured(),
+        working=await cpro_bot_runs.has_open_run(db),
+        last_run_at=last,
+        sent_today=sent_today,
+        can_retry=await cpro_sender.can_send_to_cpro(db, user, now),
+    )
+
+
+class CproBotRetryResponse(BaseModel):
+    run_id: int
+    status: str
+
+
+@router.post("/cpro/bot/{stage_id}/retry", response_model=CproBotRetryResponse)
+async def retry_cpro_bot(
+    stage_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> CproBotRetryResponse:
+    """„Ponów botem”: osoba od Cpro, admin, DL albo HoR zleca botowi jedną kartę.
+
+    Odmowa (braki, bot już wysłał, bieg trwa) to 409 z polskim powodem.
+    """
+
+    from app.services.cpro_bot import flow as cpro_bot_flow  # noqa: PLC0415
+
+    if not cpro_bot_runs.enabled():
+        raise HTTPException(status_code=409, detail="Bot Cpro jest wyłączony.")
+    now = datetime.now(timezone.utc)
+    if not await cpro_sender.can_send_to_cpro(db, current_user, now):
+        raise HTTPException(
+            status_code=403,
+            detail="Bota zleca osoba od Cpro, Delivery Lead, Head of Recruitment albo admin.",
+        )
+    try:
+        run = await cpro_bot_flow.start_chosen(
+            db,
+            [stage_id],
+            now=now,
+            today=business_date(now),
+            requested_by_user_id=current_user.id,
+        )
+    except cpro_bot_flow.NotReady as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from None
+    return CproBotRetryResponse(run_id=run.id, status=run.status)
 
 
 async def _availability(db: AsyncSession, candidate_ids: set[int]) -> dict[int, date]:

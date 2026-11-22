@@ -100,7 +100,7 @@ function SignRow({ request }: { request: EsignRequest }) {
         ) : (
           <FileSignature className="h-4 w-4" aria-hidden />
         )}
-        Wgraj podpisaną za B2B Network
+        Wgraj podpisaną za B2Bnetwork
       </Button>
     </li>
   );
@@ -118,7 +118,7 @@ export function CompanySignaturesPanel() {
         className="mb-4"
         title={apiErrorMessage(
           mine.error,
-          "Nie udało się wczytać umów do podpisu za B2B Network.",
+          "Nie udało się wczytać umów do podpisu za B2Bnetwork.",
         )}
       >
         <Button
@@ -138,11 +138,11 @@ export function CompanySignaturesPanel() {
   return (
     <section
       className="mb-4 overflow-hidden rounded-xl border border-primary/30 bg-card"
-      aria-label="Umowy do podpisu za B2B Network"
+      aria-label="Umowy do podpisu za B2Bnetwork"
     >
       <div className="border-b border-border bg-primary/5 px-4 py-3">
         <h2 className="text-sm font-semibold text-foreground">
-          Do podpisu za B2B Network ({mine.data.length})
+          Do podpisu za B2Bnetwork ({mine.data.length})
         </h2>
         <p className="text-xs text-muted-foreground">
           Pobierz plik, podpisz go swoim podpisem kwalifikowanym (podpis dołoży się do podpisu

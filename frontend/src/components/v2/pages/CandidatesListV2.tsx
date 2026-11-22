@@ -49,13 +49,13 @@ import { filtersFromCandidateSavedSearch } from "@/lib/candidate-saved-search";
 import { cn } from "@/lib/utils";
 import { addedToBaseView } from "@/lib/added-to-base";
 import { lastTalkCell } from "@/lib/candidate-last-talk";
+import { rejectionFilterCount, type RejectionFacets } from "@/lib/candidate-last-rejection";
+import type { RecentFact } from "@/lib/candidate-recent-facts";
 import {
-  hasLaterLiveProcess,
-  lastRejectionCell,
-  rejectionFilterCount,
-  type LastRejection,
-  type RejectionFacets,
-} from "@/lib/candidate-last-rejection";
+  RECENT_FACTS_LINE_HEIGHT,
+  RecentFactsLine,
+} from "@/components/v2/candidates/RecentFactsLine";
+import { AvailabilityStatusPicker } from "@/components/v2/candidates/AvailabilityStatusPicker";
 import { RejectionFacetBar } from "@/components/v2/candidates/RejectionFilter";
 import { AddCandidateModal } from "@/components/AppShell";
 import { ImportCandidatesV2 } from "@/components/v2/modals/ImportCandidatesV2";
@@ -124,7 +124,6 @@ import {
 } from "@/components/v2/candidates/CandidateCvBrowser";
 import { CandidatePhoneCell } from "@/components/v2/candidates/CandidatePhoneCell";
 import { CandidateProcessCell } from "@/components/v2/candidates/CandidateProcessCell";
-import { AvailabilityPill } from "@/components/ds/AvailabilityPill";
 import { EmploymentPill } from "@/components/ds/EmploymentMarker";
 import { BlacklistBadge } from "@/components/v2/candidate-profile/BlacklistDialogs";
 import { UnknownFieldBadges } from "@/components/v2/candidates/UnknownFieldBadges";
@@ -342,8 +341,8 @@ interface Candidate {
   last_talk_by?: string | null;
   last_talk_preview?: string | null;
   contact_attempts?: number | null;
-  /** „Ostatnie odrzucenie” — tylko przy `include_last_rejection` (lista je wysyła). */
-  last_rejection?: LastRejection | null;
+  /** „Ostatnio z osobą” — tylko przy `include_recent_facts` (lista je wysyła). */
+  recent_facts?: RecentFact[] | null;
   years_it_experience?: number | null;
   /** Nazwa pliku głównego CV — kolumna „CV” (podgląd po kliknięciu). */
   cv_filename?: string | null;
@@ -430,8 +429,8 @@ export function candidatesListApiParams(
     include_last_activity: includeLastActivity || undefined,
     // Kolumna „Ostatnia rozmowa”: dwa lekkie zapytania na stronę.
     include_last_talk: true,
-    // Kolumna „Ostatnie odrzucenie” (06.11.2026): jedno zapytanie na stronę.
-    include_last_rejection: true,
+    // Linia „Ostatnio z osobą” pod wierszem (18.11.2026): dwa zapytania na stronę.
+    include_recent_facts: true,
   });
 }
 
@@ -448,7 +447,7 @@ export function rejectionFacetsApiParams(
     sort: _sort,
     include_active_recruitments: _ar,
     include_last_talk: _lt,
-    include_last_rejection: _lr,
+    include_recent_facts: _rf,
     include_match_stats: _ms,
     include_last_activity: _la,
     ...criteria
@@ -526,45 +525,6 @@ function CandidateLastTalkCell({
   );
 }
 
-const REJECTION_WHO_CLASSES: Record<string, string> = {
-  client: "bg-warning-muted text-warning-muted-foreground",
-  us: "bg-primary/10 text-primary",
-  candidate: "bg-muted text-foreground",
-  traffit: "bg-muted text-muted-foreground",
-};
-
-/**
- * „Ostatnie odrzucenie” (06.11.2026): powód (albo opis z Traffita), kto
- * zakończył, klient i data; „potem: w toku”, gdy osoba weszła potem w proces,
- * który trwa. Dymek ma rekrutację, autora i pełny opis.
- */
-function CandidateLastRejectionCell({
-  candidate,
-}: {
-  candidate: Pick<Candidate, "last_rejection" | "active_recruitments">;
-}) {
-  const row = candidate.last_rejection;
-  if (!row) return <span className="text-xs text-muted-foreground/80">—</span>;
-  const view = lastRejectionCell(row);
-  const later = hasLaterLiveProcess(row, candidate.active_recruitments);
-  return (
-    <div className="min-w-0 text-sm" title={view.title}>
-      <div className={cn("truncate", view.primaryIsNote ? "italic text-foreground" : "font-medium text-foreground")}>
-        {view.primary}
-      </div>
-      <div className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-        <span className={cn("shrink-0 rounded px-1 text-[11px] font-medium", REJECTION_WHO_CLASSES[view.who])}>
-          {view.whoLabel}
-        </span>
-        <span className="truncate">
-          {view.secondary}
-          {later ? <span className="text-success"> · potem: w toku</span> : null}
-        </span>
-      </div>
-    </div>
-  );
-}
-
 function subscribeWideViewport(onChange: () => void): () => void {
   const query = window.matchMedia?.(CANDIDATE_WIDE_DEFAULT_QUERY);
   if (!query) return () => undefined;
@@ -572,7 +532,7 @@ function subscribeWideViewport(onChange: () => void): () => void {
   return () => query.removeEventListener("change", onChange);
 }
 
-/** Czy okno jest na tyle szerokie, żeby domyślnie pokazać dodatkową kolumnę. */
+/** Szeroki ekran — „Dodany na etap” nie musi zastępować „Ostatniego stanowiska”. */
 function useWideViewport(): boolean {
   return useSyncExternalStore(
     subscribeWideViewport,
@@ -1606,6 +1566,7 @@ function CandidatesListBody({ onRequestSearch, embed }: CandidatesListV2Props) {
  const c = items[index];
  return (
  rowHeight +
+ RECENT_FACTS_LINE_HEIGHT +
  (hasSearchTerms ? snippetAreaFor(c) : 0) +
  (index === unknownDividerAt ? UNKNOWN_DIVIDER_HEIGHT : 0)
  );
@@ -2917,7 +2878,11 @@ function CandidatesListBody({ onRequestSearch, embed }: CandidatesListV2Props) {
                                 {candidate.status === "blacklisted" ? (
                                   <BlacklistBadge />
                                 ) : hidesAvailabilityStatus(candidate.employment_marker) ? null : (
-                                  <AvailabilityPill status={candidate.availability_status} appearance="text" />
+                                  <AvailabilityStatusPicker
+                                    candidateId={candidate.id}
+                                    status={candidate.availability_status}
+                                    appearance="text"
+                                  />
                                 )}
                                 {candidate.employment_marker ? (
                                   <EmploymentPill marker={candidate.employment_marker} appearance="text" />
@@ -3106,10 +3071,6 @@ function CandidatesListBody({ onRequestSearch, embed }: CandidatesListV2Props) {
                                   return (
 <CandidateLastTalkCell candidate={candidate} />
                                   );
-                                case "last_rejection":
-                                  return (
-<CandidateLastRejectionCell candidate={candidate} />
-                                  );
                                 case "added":
                                   return (
 <AddedToBaseCell candidate={candidate} />
@@ -3119,6 +3080,9 @@ function CandidatesListBody({ onRequestSearch, embed }: CandidatesListV2Props) {
                             return <Fragment key={col.id}>{cell}</Fragment>;
                           })}
                         </div>
+                        {/* „Ostatnio z osobą” (18.11.2026): dwie ostatnie informacje,
+                            najnowsza pierwsza — stały wiersz, wysokość w estimateSize. */}
+                        <RecentFactsLine facts={candidate.recent_facts} onOpen={openDetail} />
                         {/* Fragment CV, który dopasował wyszukiwanie — pod nazwiskiem. */}
                         {fieldSnippets.length > 0 ? (
                           <button

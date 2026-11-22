@@ -750,7 +750,7 @@ export function TrainerScreen() {
       <div className="min-w-0 space-y-4">
         <ScreenTitle
           title="Zostań trenerem"
-          lead="Szkolenia prowadzisz zdalnie dla konsultantów B2B Network. Na każde szkolenie dostaniesz od nas zamówienie z terminem i wycenisz je przed podpisaniem umowy."
+          lead="Szkolenia prowadzisz zdalnie dla konsultantów B2Bnetwork. Na każde szkolenie dostaniesz od nas zamówienie z terminem i wycenisz je przed podpisaniem umowy."
         />
         <Panel>
           <form className="space-y-4" onSubmit={submit}>

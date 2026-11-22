@@ -4,7 +4,8 @@ Czytamy pola: ``:25:`` (rachunek), ``:60F:`` (waluta), ``:61:`` (operacja:
 data waluty, znak C/D/RC/RD, kwota, referencje) i ``:86:`` (opis operacji).
 Opis w polskich bankach ma podpola ``~NN`` (albo ``^NN``, ``<NN``, ``>NN``,
 ``?NN``): 20–26 i 60–63 to tytuł (pocięty na kawałki stałej długości, więc
-sklejamy je bez spacji), 27–28 i 32–33 nazwa kontrahenta, 30 + 31 numer banku
+każdą grupę sklejamy bez spacji, a grupy oddziela spacja — w 63 Santander
+podaje numer operacji), 27–28 i 32–33 nazwa kontrahenta, 30 + 31 numer banku
 i rachunek, 38 IBAN. Opis bez podpól = cały tekst jest tytułem, a rachunek
 szukamy jako 26 cyfr (z ``PL`` albo bez).
 
@@ -14,6 +15,14 @@ dopiero przy następnym ``:61:`` albo na końcu pliku, a do tego czasu ``:60F:``
 kolejnego wyciągu zdążyłby podmienić walutę (audyt A2, 19.10.2026). Rachunek
 ``:25:`` nie jest cechą operacji (dopasowanie idzie po rachunku kontrahenta
 z ``:86:``), a ``ParsedStatement.account`` to rachunek ostatniego wyciągu.
+
+Saldo: każdy wyciąg (część wyciągu) od ``:60F:``/``:60M:`` do
+``:62F:``/``:62M:`` daje ``BalanceCheck`` — otwarcie + operacje = zamknięcie
+banku, z datami obu sald i numerem wyciągu z ``:28C:``. Parser sam nie odrzuca
+pliku (stare ekrany importu bez zmian), robi to Księga (K4a). Wyciąg Santandera
+przez eBI24 (``.eMT``, 06.10.2026) ma trzy części z ``:62M:``/``:60M:``
+i nagłówki SWIFT ``{1:}{2:}{4:`` … ``-}``; saldo otwarcia ma datę dnia
+samego wyciągu, a ``:28C:`` to rok i numer wyciągu w roku („26101/1”).
 
 Storno: ``RC`` (reversal of credit) to obciążenie, ``RD`` (reversal of debit)
 — uznanie. Znak opisuje więc kierunek samego wpisu, tak jak ``CdtDbtInd``
@@ -36,7 +45,12 @@ from app.services.hr.bank.accounts import (
     normalize_nrb,
     nrb_from_parts,
 )
-from app.services.hr.bank.parsed import ParsedStatement, StatementError, StatementLine
+from app.services.hr.bank.parsed import (
+    BalanceCheck,
+    ParsedStatement,
+    StatementError,
+    StatementLine,
+)
 
 _TAG = re.compile(r"^:(\d{2}[A-Z]?):", re.M)
 _LINE_61 = re.compile(
@@ -44,9 +58,17 @@ _LINE_61 = re.compile(
     r"(?P<amount>\d{1,15},\d{0,2})(?P<type>[NSF][A-Z0-9]{3})"
     r"(?P<cref>[^/\r\n]{0,16})(?://(?P<bref>[^\r\n]{0,16}))?"
 )
+_BALANCE = re.compile(
+    r"^(?P<mark>[CD])(?P<date>\d{6})(?P<currency>[A-Z]{3})(?P<amount>\d{1,15},\d{0,2})"
+)
+#: ``:28C:`` numer wyciągu i część: Santander „26101/1” (rok + numer w roku).
+_STATEMENT_NUMBER = re.compile(r"^(?P<number>\d{1,15})(?:/\d{1,10})?\s*$")
 _SUBFIELD = re.compile(r"[~^<>?](\d{2})")
 _ACCOUNT_IN_TEXT = re.compile(r"(?:PL)?(\d{2}(?:\s?\d{4}){6})")
-_TITLE_FIELDS = ("20", "21", "22", "23", "24", "25", "26", "60", "61", "62", "63")
+_TITLE_GROUPS = (
+    ("20", "21", "22", "23", "24", "25", "26"),
+    ("60", "61", "62", "63"),
+)
 _NAME_FIELDS = ("32", "33", "27", "28")
 #: Za duży plik to nie wyciąg miesiąca dla Płac.
 MAX_LINES = 20_000
@@ -87,6 +109,33 @@ def _date(yymmdd: str) -> date:
         return date(year, int(yymmdd[2:4]), int(yymmdd[4:6]))
     except ValueError as exc:
         raise StatementError("Wyciąg MT940 ma niepoprawną datę operacji.") from exc
+
+
+def _balance(body: str) -> Optional[tuple[str, Decimal, Optional[date]]]:
+    """``:60F:``/``:62F:`` → (waluta, saldo ze znakiem, data salda); ``None`` = nie umiem.
+
+    Zła data salda nie odrzuca pliku (stare ekrany importu jej nie czytały) —
+    wyciąg bez niej po prostu nie dowodzi ciągłości.
+    """
+
+    match = _BALANCE.match(body.strip())
+    if match is None:
+        return None
+    try:
+        amount = Decimal(match.group("amount").replace(",", "."))
+    except InvalidOperation:
+        return None
+    try:
+        day: Optional[date] = _date(match.group("date"))
+    except StatementError:
+        day = None
+    signed = -amount if match.group("mark") == "D" else amount
+    return match.group("currency"), signed, day
+
+
+def _statement_number(body: str) -> Optional[int]:
+    match = _STATEMENT_NUMBER.match(body.strip())
+    return int(match.group("number")) if match else None
 
 
 def _booking_date(value_date: date, entry: Optional[str]) -> date:
@@ -137,7 +186,19 @@ def _details(text: str) -> tuple[str, str, Optional[str]]:
         flat = " ".join(part.strip() for part in text.splitlines())
         # Rachunek odczytany przed maskowaniem; tytuł bez pełnych numerów.
         return mask_accounts(flat.strip()), "", _account_from_text(flat)
-    title = "".join(fields.get(key, "") for key in _TITLE_FIELDS).strip()
+    # Kawałki 20–26 i 60–63 sklejamy bez spacji (pocięte w pół słowa), ale obie
+    # grupy oddziela spacja: Santander wpisuje w 63 swój numer operacji,
+    # a doklejony wprost do tytułu psuł numer faktury („1/10/2026” +
+    # „823973257”) — wyciąg 12.11.2026, 96 operacji bez pary. Tytuł przelewu
+    # (4 × 35 znaków) mieści się w 20–25, więc spacja nie tnie jego słów.
+    title = " ".join(
+        part
+        for part in (
+            "".join(fields.get(key, "") for key in group).strip()
+            for group in _TITLE_GROUPS
+        )
+        if part
+    )
     name = " ".join(
         fields[key].strip() for key in _NAME_FIELDS if fields.get(key, "").strip()
     )
@@ -164,6 +225,15 @@ def parse(raw: bytes) -> ParsedStatement:
     lines: list[StatementLine] = []
     accounts: list[str] = []
     pending: Optional[dict] = None
+    balances: list[BalanceCheck] = []
+    #: Saldo otwarcia bieżącego wyciągu i suma jego operacji (ze znakiem).
+    opening: Optional[Decimal] = None
+    opening_day: Optional[date] = None
+    movement = Decimal("0")
+    statement_no = 0
+    #: ``:28C:`` bieżącego wyciągu (stoi przed jego ``:60F:``).
+    number: Optional[int] = None
+    opening_number: Optional[int] = None
 
     def flush() -> None:
         nonlocal pending
@@ -193,10 +263,32 @@ def parse(raw: bytes) -> ParsedStatement:
             except AccountError:
                 account = None
             accounts.append(account or raw_account)
+        elif tag in ("28C", "28"):
+            number = _statement_number(body)
         elif tag in ("60F", "60M"):
-            match = re.match(r"^[CD]\d{6}([A-Z]{3})", body.strip())
-            if match:
-                currency = match.group(1)
+            statement_no += 1
+            found = _balance(body)
+            if found:
+                currency = found[0]
+            opening = found[1] if found else None
+            opening_day = found[2] if found else None
+            opening_number, number = number, None
+            movement = Decimal("0")
+        elif tag in ("62F", "62M"):
+            found = _balance(body)
+            if opening is not None and found is not None:
+                balances.append(
+                    BalanceCheck(
+                        statement=statement_no,
+                        opening=opening,
+                        movement=movement,
+                        closing=found[1],
+                        opening_day=opening_day,
+                        closing_day=found[2],
+                        number=opening_number,
+                    )
+                )
+            opening = None
         elif tag == "61":
             flush()
             match = _LINE_61.match(body.strip())
@@ -213,6 +305,7 @@ def parse(raw: bytes) -> ParsedStatement:
             # Storno: RC (zwrot uznania) obciąża rachunek, RD (zwrot obciążenia)
             # go uznaje — kierunek samego wpisu, jak CdtDbtInd w CAMT.053.
             direction = "debit" if mark in ("D", "RC") else "credit"
+            movement += -amount if direction == "debit" else amount
             reference = (match.group("bref") or "").strip() or (
                 (match.group("cref") or "").strip()
                 if (match.group("cref") or "").strip() not in ("", "NONREF")
@@ -238,6 +331,7 @@ def parse(raw: bytes) -> ParsedStatement:
         currency=currency,
         lines=tuple(lines),
         accounts=tuple(accounts),
+        balances=tuple(balances),
     )
 
 

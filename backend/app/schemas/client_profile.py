@@ -125,6 +125,25 @@ class ActiveConsultantItem(BaseModel):
     # Umowa wykonawcza CeZ z tego samego reprezentatywnego zamówienia (ticket
     # 09.2026). Gdy jest, ``project_part`` wyżej to część JEJ umowy ramowej.
     executive_contract: Optional[ExecutiveContractBrief] = None
+    # Zakładka „Konsultanci” (18.11.2026): bieżące zamówienie (obowiązujące
+    # dziś, a bez niego najnowsze) i znaczniki „Wymaga uwagi” z reguł
+    # `services/consultant_order_state.py` — `notice` (umowa wypowiedziana),
+    # `no_current_order`, `order_ending` (zamówienie okresowe bez kontynuacji
+    # w 30 dni, ta sama reguła co pigułka w Zamówieniach).
+    order_start_date: Optional[date] = None
+    order_end_date: Optional[date] = None
+    # `draft` = zamówienie w szkicu (liczy się jako pokrycie, do uzupełnienia).
+    order_status: Optional[str] = None
+    order_ending_on: Optional[date] = None
+    attention: List[str] = []
+    # Pola dawnego rejestru klienta w module Kontrakty — wypełnia je tylko
+    # część klientów (nr projektu, prolongata), więc front pokazuje kolumnę,
+    # gdy którykolwiek wiersz ma wartość.
+    project_code: Optional[str] = None
+    project_name: Optional[str] = None
+    prolongation_status: Optional[str] = None
+    hours_pool_total: Optional[float] = None
+    hours_pool_consumed: Optional[float] = None
 
 
 class HistoricalPlacementItem(BaseModel):
@@ -161,6 +180,9 @@ class HistoricalPlacementItem(BaseModel):
     hourly_rate_client: Optional[GroszePLN] = None
     hourly_rate_candidate: Optional[GroszePLN] = None
     total_revenue: Optional[int] = None  # monthly_rate_client * duration_months (PLN)
+    # Nr i nazwa projektu dawnego rejestru klienta (18.11.2026).
+    project_code: Optional[str] = None
+    project_name: Optional[str] = None
 
 
 class LostJobItem(BaseModel):
@@ -189,4 +211,8 @@ class ClientProfileResponse(BaseModel):
     # start albo brak daty startu). Poza „Obecnymi", licznikami i „Aktywnym
     # MRR" — ta sama definicja obecności co w katalogu klientów (UAT B46).
     planned_consultants: List[ActiveConsultantItem] = []
+    # Szkice i umowy do podpisu (18.11.2026): rejestr klienta w Kontraktach
+    # pokazywał wszystkie statusy, więc zakładka „Konsultanci” też. Poza
+    # licznikami i „Aktywnym MRR”, jak planowani.
+    pending_consultants: List[ActiveConsultantItem] = []
     historical: ClientProfileHistory

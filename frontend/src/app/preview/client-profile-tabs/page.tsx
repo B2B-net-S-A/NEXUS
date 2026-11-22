@@ -35,6 +35,7 @@ import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared
 import { PathParamsContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
 
 import ClientDetailPage from "@/app/clients/[id]/page";
+import type { ClientCatalog, ReportDefinition } from "@/lib/api/client-reports";
 import { ToastProvider } from "@/components/Toast";
 import { CLIENT_CONFLICTS_LIMIT } from "@/components/client-profile/ClientConflictsSection";
 import { clientMdImportsQueryKey } from "@/components/client-profile/orders/ClientMdImportsTab";
@@ -127,6 +128,9 @@ function seededClient(data: ClientProfileFixtures): QueryClient {
     seed(["amendments", CLIENT_ID, Number(frameworkId)], amendments);
   }
   seed(["rate-cards", CLIENT_ID], data.rateCards);
+
+  // Raporty dla klienta — karta „Przeglądu” i Umowy › Raporty (18.11.2026).
+  seed(["client-reports", CLIENT_ID], previewReportsCatalog());
 
   // Analityka i importy MD (lista + każdy import).
   seed(dashboardQueryKey(PREVIEW_USER), data.dashboard);
@@ -284,6 +288,45 @@ function ClientProfileTabsHarness() {
       </ToastProvider>
     </QueryClientProvider>
   );
+}
+
+/** Fikcyjny katalog raportów: jeden raport miesięczny z umowy, termin 5. dnia. */
+function previewReportsCatalog(): ClientCatalog {
+  const today = warsawToday();
+  const month = today.slice(0, 7);
+  const definition: ReportDefinition = {
+    id: 9101,
+    client_id: CLIENT_ID,
+    name: "Zestawienie godzin konsultantów",
+    family: "settlement",
+    family_label: "Rozliczenie",
+    generator_key: null,
+    generator_label: null,
+    needs_amounts: false,
+    params: {},
+    rhythm: "monthly",
+    due_rule: { type: "day_of_month", day: 5 },
+    due_label: "5. dnia następnego miesiąca",
+    recipient: "Dział zakupów klienta",
+    channel: "e-mail",
+    file_format: "xlsx",
+    preparer: "dl",
+    preparer_user_id: null,
+    preparer_label: "Delivery Lead",
+    source_kind: "contract",
+    source_contract_id: null,
+    source_chunk_id: null,
+    source_ref: "umowa ramowa, § 6 ust. 2",
+    status: "active",
+    valid_from: null,
+    valid_to: null,
+    notes: null,
+    confirmed_at: null,
+    can_confirm: true,
+    next: { state: "todo", due: `${month}-28`, period_key: month, period_label: "ten miesiąc" },
+    last_sent: null,
+  };
+  return { client_id: CLIENT_ID, can_edit: true, can_confirm: true, definitions: [definition] };
 }
 
 export default function ClientProfileTabsPreview() {

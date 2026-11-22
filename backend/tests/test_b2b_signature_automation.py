@@ -2137,7 +2137,8 @@ async def test_generate_without_id_reuses_and_updates_only_the_existing_draft(
     )
     role_id = await _seed_generator_dependencies()
 
-    def render_with_loaded_detail(_template, contract):
+    def render_with_loaded_detail(_template, contract, *, b2b_notices_email):
+        assert b2b_notices_email == "wsparcie@b2bnetwork.pl"
         assert contract.b2b_detail is not None
         assert contract.b2b_detail.contract_number == scenario["contract_number"]
         assert contract.b2b_detail.b2b_role_id == role_id

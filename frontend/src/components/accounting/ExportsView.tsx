@@ -29,6 +29,8 @@ import { datePl, findPeriod, gr, monthTitle } from "./ledger-model";
 
 const CONTROL = "h-8 rounded-md border border-border bg-background px-2.5 text-sm pointer-coarse:h-10";
 const DOCS_SHOWN = 12;
+/** Klucz formatu „Symfonia FK — import dokumentów (szablon 4)” z backendu. */
+const SYMFONIA_TEMPLATE_FORMAT = "symfonia_fk_txt4";
 const STATUS_TONE: Record<LedgerExportItem["status"], StatusDotTone> = {
   exported: "warning",
   booked: "success",
@@ -219,8 +221,9 @@ function NewExportCard({ data }: { data: ExportsOverview }) {
             })}
           </ul>
           <p className="text-[12px] leading-5 text-muted-foreground">
-            Format neutralny (wiersz na pozycję dekretu, jak paczka E2) — format importu Symfonii dopiszemy po
-            próbce pliku od Finansów.
+            {format === SYMFONIA_TEMPLATE_FORMAT
+              ? "Szablon 4 Symfonii przyjmuje tylko faktury w złotych z jedną stawką VAT: sprzedaż krajową (FVS), usługi dla UE (WDT) i korektę zakupu (FKZ). PK, RMK i listy płac pobierz formatem neutralnym."
+              : "Format neutralny: wiersz na pozycję dekretu, jak paczka E2."}
           </p>
         </div>
         <div className="min-w-0 border-t border-border/70 xl:border-t-0">

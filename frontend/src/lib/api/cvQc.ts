@@ -27,7 +27,32 @@ export type QcFixKind =
   /** „Ułóż od najnowszego” — kolejność stanowisk (16.10.2026). */
   | "role_order"
   /** „Przywróć daty z oryginału” — okres stanowiska inny niż w oryginale (02.11.2026). */
-  | "restore_dates";
+  | "restore_dates"
+  /** R2 (17.11.2026), tylko edytor: „Ponad N lat w IT, w tym…” w punkcie 1. */
+  | "tenure_split"
+  /** R2: „Odwróć daty” — koniec stanowiska przed startem. */
+  | "swap_dates"
+  /** R3: rola z samym rokiem, a oryginał ma miesiąc — „Pokaż oryginał”. */
+  | "show_original";
+
+/** Rola przy uwadze „Lata w punkcie 1” — lustro `cv_qc._tenure_view`. */
+export interface QcTenureRole {
+  title: string;
+  dates: string | null;
+  /** `null`: rola bez dat albo z odwróconymi datami — nie wchodzi do sumy. */
+  months: number | null;
+  /** Nazwa roli stoi w punkcie 1 — jej daty liczy liczba z punktu 1. */
+  matched: boolean;
+}
+
+/** Z czego wyszła liczba lat w punkcie 1 „Dlaczego nasz kandydat” (R2, 17.11.2026). */
+export interface QcTenure {
+  quote: string;
+  matched_months: number | null;
+  total_months: number;
+  proposal: string | null;
+  roles: QcTenureRole[];
+}
 
 /** Na czym w odczycie oryginału stoi „oryginał ma tę umiejętność w tej roli”. */
 export type QcEvidenceKind = "description" | "technologies" | "title";
@@ -71,15 +96,27 @@ export interface QcItem {
   document?: { document_id: number; filename: string; at: string | null; same_client: boolean } | null;
   /** Tylko w `QcCheck.dismissed_items`: kto, kiedy i dlaczego oznaczył „To nieprawda”. */
   dismissal?: QcDismissal | null;
+  /** Tekst po poprawce: „Odwróć daty” i propozycja lat w punkcie 1 (R2, 17.11.2026). */
+  proposal?: string | null;
+  tenure?: QcTenure | null;
 }
 
 /**
  * Powód „To nieprawda” — lustro `cv_finding_dismissals.REASONS` (13.10.2026, D5).
  * `kept_order` to „Zostaw tę kolejność” przy uwadze „Stanowiska od najnowszego”
  * (16.10.2026), a `kept` — „OK” / „Zostaw” przy uwadze generatora albo kontroli
- * AI w panelu „Do poprawy” (17.10.2026). Żadnego z nich nie ma w formularzu.
+ * AI w panelu „Do poprawy” (17.10.2026), `kept_years` — „Zostaw” przy „Lata
+ * w punkcie 1” (17.11.2026). Żadnego z nich nie ma w formularzu.
  */
-export type QcDismissReason = "in_cv" | "other_name" | "wrong_place" | "not_needed" | "other" | "kept_order" | "kept";
+export type QcDismissReason =
+  | "in_cv"
+  | "other_name"
+  | "wrong_place"
+  | "not_needed"
+  | "other"
+  | "kept_order"
+  | "kept"
+  | "kept_years";
 
 /** Pominięcie uwagi („To nieprawda”) — pary kandydat × rekrutacja, nie pliku. */
 export interface QcDismissal {
@@ -245,7 +282,10 @@ export type QcFixAction =
   | { action: "strip_client_rules" }
   | { action: "remove_line"; text: string }
   // „Szybkie poprawki” edytora (E1, 07.11.2026) — tylko `qc/transform`.
-  | { action: "languages_lines" };
+  | { action: "languages_lines" }
+  // R2 (17.11.2026) — tylko `qc/transform`, pojedynczo (nie w „Popraw wszystkie”).
+  | { action: "tenure_split" }
+  | { action: "swap_dates"; role_index?: number };
 
 export type QcApplyBody = QcFixAction & { expected_revision?: number };
 

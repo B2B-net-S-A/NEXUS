@@ -77,6 +77,7 @@ from app.models.order_gap import GAP_STATUS_FILLED_LATE, GAP_STATUS_OPEN, OrderG
 from app.models.service_account import ServiceAccount
 from app.models.user import User
 from app.schemas.finance_order_changes import (
+    ExitOtherOrder,
     InvoiceLine,
     OrderChangeItem,
     OrderChangesCounts,
@@ -176,6 +177,11 @@ def _sort_key(item) -> tuple:
 # ── Wejścia ──────────────────────────────────────────────────────────────────
 
 EntryKind = Literal["new", "additional_project", "order_continuation", "client_change"]
+
+#: Klasy, które idą do Wejść. Przejście od innego klienta jest wejściem
+#: u nowego klienta (decyzja Artura 19.11.2026 — lustro Zejść, które liczą
+#: odejście od klienta A jako zejście z rozliczeń A).
+ENTRY_KINDS: frozenset[str] = frozenset({"new", "client_change"})
 
 
 @dataclass(frozen=True)
@@ -494,9 +500,10 @@ async def _entries(
             currency=fact.currency,
             order_type=fact.order_type,
             status=fact.status,
+            previous_client_name=classes[fact.order_id].previous_client_name,
         )
         for fact in facts
-        if classes[fact.order_id].kind == "new"
+        if classes[fact.order_id].kind in ENTRY_KINDS
     ]
     # Nordea: gotowa pozycja faktury cyklicznej z PDF-a (ticket 8).
     invoice = await nordea_invoice_lines.entry_lines(
@@ -562,9 +569,8 @@ async def _exits(
         if facts
         else set()
     )
-    exits: list[OrderExitItem] = []
+    exits_by_person: dict[SiblingKey, list[OrderExitItem]] = {}
     ending: list[OrderExitItem] = []
-    exit_keys: set[SiblingKey] = set()
     for fact in facts:
         if fact.end is None:
             continue
@@ -594,25 +600,67 @@ async def _exits(
             # zdjąć z rozliczeń kogoś, kto nadal świadczy usługi.
             verdict = "no_successor"
             label = "Zamówienie się skończyło, brak kolejnego — współpraca trwa"
-        bucket = exits if verdict == "ended_intent" else ending
-        if verdict == "ended_intent":
-            exit_keys.add(sibling_key(fact))
-        bucket.append(
-            OrderExitItem(
-                **_ref(fact),
-                end_date=fact.end,
-                start_date=fact.start,
-                rate_cost=fact.rate_cost,
-                rate_revenue=fact.rate_revenue,
-                rate_unit=fact.rate_unit,
-                currency=fact.currency,
-                order_type=fact.order_type,
-                verdict=verdict,
-                verdict_label=label,
-                intent=intent,
-            )
+        item = OrderExitItem(
+            **_ref(fact),
+            end_date=fact.end,
+            start_date=fact.start,
+            rate_cost=fact.rate_cost,
+            rate_revenue=fact.rate_revenue,
+            rate_unit=fact.rate_unit,
+            currency=fact.currency,
+            order_type=fact.order_type,
+            verdict=verdict,
+            verdict_label=label,
+            intent=intent,
         )
-    return sorted(exits, key=_sort_key), sorted(ending, key=_sort_key), exit_keys
+        if verdict == "ended_intent":
+            exits_by_person.setdefault(sibling_key(fact), []).append(item)
+        else:
+            ending.append(item)
+    exits = [_one_exit_per_person(items) for items in exits_by_person.values()]
+    return (
+        sorted(exits, key=_sort_key),
+        sorted(ending, key=_sort_key),
+        set(exits_by_person),
+    )
+
+
+def _one_exit_per_person(items: list[OrderExitItem]) -> OrderExitItem:
+    """Jedno zejście na osobę u klienta (zgłoszenie 19.11.2026).
+
+    Konsultant z trzema zamówieniami, z których klient „zjadał” środki, stał
+    w Zejściach trzy razy, a liczniki mówiły, że zeszło trzech konsultantów.
+    Wierszem głównym jest zamówienie kończące się NAJPÓŹNIEJ (dzień zejścia
+    osoby), przy remisie najstarsze — jego klucz odhaczenia się nie zmienia,
+    więc wcześniejsze „Zrobione” zostaje. Reszta idzie do ``other_orders``.
+    """
+
+    ordered = sorted(
+        items,
+        key=lambda item: (
+            -item.end_date.toordinal(),
+            item.start_date or date.min,
+            item.order_id or 0,
+        ),
+    )
+    main, rest = ordered[0], ordered[1:]
+    if not rest:
+        return main
+    rest.sort(key=lambda item: (item.start_date or date.min, item.order_id or 0))
+    return main.model_copy(
+        update={
+            "other_orders": [
+                ExitOtherOrder(
+                    order_id=item.order_id,
+                    order_group_id=item.order_group_id,
+                    order_number=item.order_number,
+                    end_date=item.end_date,
+                    start_date=item.start_date,
+                )
+                for item in rest
+            ]
+        }
+    )
 
 
 # ── Zmiany ───────────────────────────────────────────────────────────────────
@@ -762,12 +810,12 @@ async def _changes(
         )
 
     # Nowe zamówienia osób, które już z nami pracują: kontynuacja u tego samego
-    # klienta, przejście do innego klienta i dodatkowy projekt. To są zmiany
-    # w trwającej współpracy, a nie wejścia — Finanse i tak potrzebują tu
-    # nowego numeru zamówienia do faktury.
+    # klienta i dodatkowy projekt. To są zmiany w trwającej współpracy, a nie
+    # wejścia — Finanse i tak potrzebują tu nowego numeru zamówienia do faktury.
+    # Przejście do innego klienta jest od 19.11.2026 w Wejściach (``ENTRY_KINDS``).
     for fact in entry_facts:
         entry_class = classes.get(fact.order_id)
-        if entry_class is None or entry_class.kind == "new":
+        if entry_class is None or entry_class.kind in ENTRY_KINDS:
             continue
         previous = entry_class.previous
         items.append(
@@ -990,8 +1038,17 @@ def fold_text(value: str) -> str:
     return _COMBINING_MARKS.sub("", lowered).replace("ł", "l")
 
 
+def _order_numbers(item) -> str:
+    """Numer zamówienia wiersza, a w zejściu osoby — wszystkie jej numery."""
+
+    others = [other.order_number for other in getattr(item, "other_orders", ())]
+    return ", ".join([item.order_number, *others])
+
+
 def _haystack(item) -> str:
-    return fold_text(f"{item.consultant_name} {item.client_name} {item.order_number}")
+    return fold_text(
+        f"{item.consultant_name} {item.client_name} {_order_numbers(item)}"
+    )
 
 
 def _filtered(
@@ -1285,7 +1342,7 @@ def _exit_like_sheet(
             [
                 item.consultant_name,
                 item.client_name,
-                item.order_number,
+                _order_numbers(item),
                 item.end_date,
                 ORDER_TYPE_LABELS.get(item.order_type, item.order_type),
                 item.verdict_label,
@@ -1350,6 +1407,7 @@ def build_order_changes_workbook(
             [
                 "Konsultant",
                 "Klient",
+                "Wcześniej u klienta",
                 "Numer zamówienia",
                 "Data rozpoczęcia",
                 "Data zakończenia",
@@ -1367,6 +1425,7 @@ def build_order_changes_workbook(
                 [
                     item.consultant_name,
                     item.client_name,
+                    item.previous_client_name or "",
                     item.order_number,
                     item.start_date,
                     item.end_date,
@@ -1383,7 +1442,7 @@ def build_order_changes_workbook(
                 ]
                 for item in data.entries
             ],
-            [28, 28, 22, 16, 16, 16, 18, 11, 9, 15, 10, 22, 70, 11, 22, 18],
+            [28, 28, 28, 22, 16, 16, 16, 18, 11, 9, 15, 10, 22, 70, 11, 22, 18],
         )
     if "exits" in wanted:
         _exit_like_sheet(workbook, f"Zejścia ({data.counts.exits})", data.exits, zone)

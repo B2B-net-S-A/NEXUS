@@ -119,6 +119,10 @@ interface JobDetailCompactHeaderProps {
   recruiterCompact?: ReactNode;
   /** „Szukamy N osób ✎” za faktem „Rekruter” (`JobHeadcountFact`, 07.11.2026). */
   headcount?: ReactNode;
+  /** MAKIETA 18.11.2026: „Proces u klienta”. */
+  processFact?: ReactNode;
+  /** „Dodana → Termin” za faktami (`JobDatesFact`, 19.11.2026). */
+  dates?: ReactNode;
   /**
    * Trzecia linia, tylko na Tablicy: „Kandydaci do dodania”
    * (`CandidateSourcesStrip`) — do 14.10.2026 osobny pasek nad Tablicą.
@@ -221,10 +225,20 @@ const FACT_ICON: Record<JobHeaderFactKey, LucideIcon> = {
  * najpierw nazwa klienta (najwyżej 15rem), potem tryb pracy; budżet nigdy.
  */
 const FACT_SHRINK: Record<JobHeaderFactKey, string> = {
-  client: "max-w-60 shrink-[4]",
+  client: "max-w-60 min-w-28 shrink-[4]",
   budget: "shrink-0",
   work_mode: "shrink",
 };
+
+/**
+ * Jednowyrazowy tryb pracy („Zdalnie”) nie kurczy się wcale (19.11.2026):
+ * z „Dodana → Termin” w linii ścinał się o kilka pikseli do „Zdal…”, a
+ * miejsce może oddać nazwa klienta.
+ */
+function factShrink(fact: JobHeaderFact): string {
+  if (fact.key === "work_mode" && fact.value && !fact.value.includes(" · ")) return "shrink-0";
+  return FACT_SHRINK[fact.key];
+}
 
 function deferMenuAction(action: () => void) {
   window.setTimeout(action, 0);
@@ -321,6 +335,8 @@ export function JobDetailCompactHeader({
   recruiter,
   recruiterCompact,
   headcount,
+  processFact,
+  dates,
   sources,
   sourcesTrailing,
   collapsed = false,
@@ -747,8 +763,8 @@ export function JobDetailCompactHeader({
 
       {collapsed ? null : (
         <>
-          {/* Klient · Budżet · Tryb pracy · Rekruter — rzeczy, które rekruter
-              sprawdza przed każdym telefonem. Ikona zamiast etykiety (K-D2):
+          {/* Klient · Budżet · Tryb pracy · Dodana → Termin · Rekruter — rzeczy,
+              które rekruter sprawdza przed każdym telefonem. Ikona zamiast etykiety (K-D2):
               jedna linia przy 1280 px; etykieta w dymku i dla czytnika ekranu.
               Pierwsza kurczy się nazwa klienta, budżet nigdy. Brak wartości to
               „nie podano”, nie pustka. */}
@@ -764,7 +780,7 @@ export function JobDetailCompactHeader({
                     key={fact.key}
                     className={cn(
                       "flex h-7 min-w-0 items-center gap-1.5 rounded-md border border-primary/20 bg-primary/5 px-2.5",
-                      FACT_SHRINK[fact.key],
+                      factShrink(fact),
                     )}
                     data-testid={`job-header-fact-${fact.key}`}
                     title={`${fact.label}: ${fact.value ?? "nie podano"}`}
@@ -779,12 +795,21 @@ export function JobDetailCompactHeader({
                         fact.value ? "text-foreground" : "font-normal text-muted-foreground",
                       )}
                     >
-                      {fact.value ?? "nie podano"}
+                      {fact.value && fact.short && fact.short !== fact.value ? (
+                        <>
+                          <span className="2xl:hidden">{fact.short}</span>
+                          <span className="hidden 2xl:inline">{fact.value}</span>
+                        </>
+                      ) : (
+                        (fact.value ?? "nie podano")
+                      )}
                     </dd>
                   </div>
                 );
               })}
             </dl>
+            {dates}
+            {processFact}
             {recruiter}
             {headcount}
           </div>

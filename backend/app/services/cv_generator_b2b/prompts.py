@@ -91,6 +91,13 @@ KWANTYFIKACJA I ZWIĘZŁOŚĆ:
 - Soft skills z notatek rekrutera: maksymalnie JEDEN punkt w why_points i tylko cechy
   jawnie potwierdzone przez rekrutera
 
+FORMA OBOWIĄZKÓW (responsibilities):
+- Każdy obowiązek we wszystkich rolach, także obecnej, zaczynaj od nazwy czynności
+  („Wdrażanie…”, „Analiza…”, „Projektowanie…”), nie od czasownika w czasie przeszłym
+  („Wdrażał…”, „Wdrażała…”) ani teraźniejszym („Wdraża…”). Jedna forma w całym CV, także
+  gdy źródło pisze inaczej — forma rzeczownikowa nie zależy od płci kandydata
+- Zmieniasz WYŁĄCZNIE formę gramatyczną: treść, zakres, kolejność i fakty zostają bez zmian
+
 TECHNOLOGIE W DOŚWIADCZENIU:
 - Dla każdej pozycji wyodrębnij technologie, języki programowania, frameworki, narzędzia, bazy danych, platformy chmurowe
 - Wyodrębnij TYLKO technologie jawnie wymienione w CV lub potwierdzone w notatkach ze screeningu. NIE dedukuj ani nie dodawaj technologii z kontekstu branży, firmy lub stanowiska
@@ -451,6 +458,13 @@ QUANTIFICATION AND CONCISENESS:
   absent from the source
 - Soft skills from recruiter notes: at most ONE why_point, and only traits explicitly
   confirmed by the recruiter
+
+FORM OF RESPONSIBILITIES:
+- Start every responsibility in every role, including the current one, with a verb in the
+  simple past ("Developed…", "Upgraded…", "Led…"), never the base form ("Develop…",
+  "Upgrade…"), the third person ("Develops…") or a gerund ("Developing…"). One form across
+  the whole CV, also when the source uses another one
+- Change ONLY the grammatical form: content, scope, order and facts stay unchanged
 
 TECHNOLOGIES IN EXPERIENCE:
 - For each position extract technologies, programming languages, frameworks, tools, databases, cloud platforms

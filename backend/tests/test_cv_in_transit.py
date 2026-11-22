@@ -227,7 +227,7 @@ def test_transit_row_carries_the_review_state_to_the_api() -> None:
 def test_rejection_reason_comes_from_the_dictionary_or_the_note() -> None:
     assert (
         svc.rejection_reason_text("salary_mismatch", "cokolwiek")
-        == "Rozbieżność oczekiwań finansowych"
+        == "Za droga"
     )
     assert (
         svc.rejection_reason_text(None, "Powód (rejected): stawka ponad budżet\nreszta")

@@ -15,10 +15,12 @@ import {
 } from "@/components/ui/dialog";
 import {
   useChart,
+  useChartImport,
   useCreateAccount,
   useUpdateAccount,
   type AccountInput,
   type ChartAccount,
+  type ChartImportPreview,
   type LedgerConfig,
 } from "@/lib/api/accounting";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -48,6 +50,7 @@ export function ChartView() {
   const [needle, setNeedle] = useState("");
   const [cls, setCls] = useState("");
   const [editing, setEditing] = useState<ChartAccount | "new" | null>(null);
+  const [importing, setImporting] = useState(false);
   const rows = useMemo(() => {
     const text = needle.trim().toLowerCase();
     return (chart.data ?? []).filter(
@@ -81,11 +84,18 @@ export function ChartView() {
           className={cn(CONTROL, "w-56")}
         />
         <span className="text-[12px] text-muted-foreground">
-          Ten sam plan kont co dekret faktur w Finansach. Pełny plan przyjdzie importem z Symfonii FK.
+          Ten sam plan kont co dekret faktur w Finansach. Pełny plan wczytasz z eksportu „Model księgowy” Symfonii FK.
         </span>
-        <Button size="sm" className="ml-auto" onClick={() => setEditing("new")}>
-          Dodaj konto
-        </Button>
+        <div className="ml-auto flex items-center gap-2">
+          {config.me.approver ? (
+            <Button size="sm" variant="outline" onClick={() => setImporting(true)}>
+              Wczytaj plan z Symfonii
+            </Button>
+          ) : null}
+          <Button size="sm" onClick={() => setEditing("new")}>
+            Dodaj konto
+          </Button>
+        </div>
       </div>
       {chart.isLoading ? (
         <p className="py-6 text-sm text-muted-foreground">Wczytywanie planu kont…</p>
@@ -142,6 +152,7 @@ export function ChartView() {
           </table>
         </div>
       )}
+      {importing ? <ChartImportDialog onClose={() => setImporting(false)} /> : null}
       {editing ? (
         <AccountDialog
           key={editing === "new" ? "new" : editing.id}
@@ -149,6 +160,147 @@ export function ChartView() {
           config={config}
           onClose={() => setEditing(null)}
         />
+      ) : null}
+    </div>
+  );
+}
+
+const IMPORT_PREVIEW_SHOWN = 12;
+
+/**
+ * Plan kont z eksportu „Model księgowy” Symfonii FK (XML): najpierw sprawdzenie
+ * bez zapisu, potem dodanie brakujących kont. Istniejących kont nie nadpisuje
+ * ani nie kasuje — uzupełnia im tylko puste pola.
+ */
+function ChartImportDialog({ onClose }: { onClose: () => void }) {
+  const { showToast } = useToast();
+  const run = useChartImport();
+  const [file, setFile] = useState<File | null>(null);
+  const [result, setResult] = useState<ChartImportPreview | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const send = (save: boolean) => {
+    if (!file) return;
+    setSaving(save);
+    run.mutate(
+      { file, save },
+      {
+        onSuccess: (data) => {
+          setResult(data);
+          if (data.saved) showToast(`Dodano ${data.created} kont do planu.`);
+        },
+        onError: (error) => showToast(apiErrorMessage(error, "Nie udało się wczytać pliku."), "error"),
+      },
+    );
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Wczytaj plan kont z Symfonii</DialogTitle>
+        </DialogHeader>
+        <DialogBody className="space-y-3 text-[13px]">
+          <p className="text-muted-foreground">
+            Plik XML „Model księgowy” (Symfonia FK → eksport modelu księgowego). Dodajemy brakujące konta z kontem
+            nadrzędnym, typem, słownikiem kontrahentów i pozycją sprawozdania; konta, które już są w planie, zostają
+            z nazwą i rodzajem, jakie mają. Najpierw sprawdzenie, potem zapis.
+          </p>
+          <input
+            type="file"
+            accept=".xml,text/xml,application/xml"
+            aria-label="Plik planu kont z Symfonii"
+            className="max-w-full text-[12px]"
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null);
+              setResult(null);
+            }}
+          />
+          {result ? <ChartImportSummary result={result} /> : null}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {result?.saved ? "Zamknij" : "Anuluj"}
+          </Button>
+          <Button variant="outline" disabled={!file} loading={run.isPending && !saving} onClick={() => send(false)}>
+            Sprawdź plik
+          </Button>
+          <Button
+            disabled={!result || result.saved || result.created === 0}
+            loading={run.isPending && saving}
+            onClick={() => send(true)}
+          >
+            {result && !result.saved && result.created > 0 ? `Dodaj ${result.created} kont` : "Dodaj konta"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ChartImportSummary({ result }: { result: ChartImportPreview }) {
+  return (
+    <div className="space-y-2.5">
+      <p className="tabular-nums">
+        W pliku: {result.accounts_in_file} kont ·{" "}
+        {result.saved ? `dodano: ${result.created}` : `do dodania: ${result.created}`} · już w planie: {result.existing}
+        {result.filled ? ` (uzupełniono puste pola: ${result.filled})` : ""} · słowniki kontrahentów: {result.dictionaries} ·
+        pozycje sprawozdania: {result.markers}
+      </p>
+      {result.saved ? (
+        <p className="text-success">Plan kont jest zaktualizowany. Teraz możesz wczytać bilans otwarcia w Ustawieniach.</p>
+      ) : result.created === 0 ? (
+        <p className="text-muted-foreground">Wszystkie konta z pliku już są w planie — nie ma czego dodawać.</p>
+      ) : (
+        <p className="text-muted-foreground">Plik jest czytelny — możesz dodać brakujące konta.</p>
+      )}
+      {result.problems.length ? (
+        <ul className="space-y-1">
+          {result.problems.map((problem) => (
+            <li key={problem} className="flex items-start gap-1.5">
+              <span aria-hidden className="mt-[7px] size-1.5 shrink-0 rounded-full bg-warning" />
+              <span className="min-w-0 break-words">{problem}</span>
+            </li>
+          ))}
+          {result.problems_total > result.problems.length ? (
+            <li className="text-[12px] text-muted-foreground">…i jeszcze {result.problems_total - result.problems.length}.</li>
+          ) : null}
+        </ul>
+      ) : null}
+      {result.notes.length ? (
+        <ul className="space-y-1 text-[12px] text-muted-foreground">
+          {result.notes.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
+      ) : null}
+      {result.preview.length ? (
+        <table className="w-full table-fixed text-sm">
+          <thead>
+            <tr className="border-b border-border/70">
+              <th className={cn(CALM_HEAD, "w-[20%] py-1.5 text-left")}>Konto</th>
+              <th className={cn(CALM_HEAD, "py-1.5 text-left")}>Nazwa</th>
+              <th className={cn(CALM_HEAD, "w-[28%] py-1.5 text-left")}>Typ · analityka</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.preview.slice(0, IMPORT_PREVIEW_SHOWN).map((item) => (
+              <tr key={item.number} className={cn(CALM_ROW, "last:border-0")}>
+                <td className="py-1.5 font-mono text-[12px]">{item.number}</td>
+                <td className="min-w-0 truncate py-1.5" title={item.name}>
+                  {item.name}
+                </td>
+                <td className="py-1.5 text-[12px]">
+                  {item.account_type_label ?? "—"}
+                  {item.dictionary ? " · słownik kontrahentów" : ""}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {result.created > IMPORT_PREVIEW_SHOWN ? (
+        <p className="text-[12px] text-muted-foreground">Pokazano {IMPORT_PREVIEW_SHOWN} z {result.created} nowych kont.</p>
       ) : null}
     </div>
   );

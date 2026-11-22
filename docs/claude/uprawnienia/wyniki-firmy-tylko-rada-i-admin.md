@@ -37,7 +37,7 @@ Makiety i audyt: https://claude.ai/artifact/P9J4Zgecx7B9D9S9VQvQoN.
   `/board/flows`, `/clients/ranking`, raport Ranking klientów.
 - `CompanyResultsUser` (uprawnienie, bez Rady, która ma te liczby w Firmie):
   Analityka kontraktów, Przegląd klientów, `/api/dashboard/v2/finance`,
-  `/api/reports/sales`, `/api/invoices/dso`.
+  `/api/reports/sales`.
 - **Rok do roku:** „Moduł Finanse” wchodzi, ale dostaje tabelę bez kwot, jak
   Head of Recruitment (`BoardTrendReader` + `reads_board_money`).
 - **Kreator metryk i pulpit** (`custom_metrics/engine`): źródło „finance” liczy

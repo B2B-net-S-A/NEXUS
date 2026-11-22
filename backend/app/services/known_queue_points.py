@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Mapping, Optional
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +37,10 @@ SETTING_KEY = "queue_known_points"
 RECENT_NOTE_DAYS = 30
 OLDER_NOTE_DAYS = 90
 MAX_POINTS = 15
+# Wysłany do klienta w innej rekrutacji w ostatnim roku (Z1, 20.11.2026):
+# wśród kart od systemu 12,2% do klienta wobec 7,9% wszystkich. Stała, nie
+# suwak panelu: skala jak „u klienta” (6) i świeża notatka (8).
+SENT_POINTS = 8
 
 
 @dataclass(frozen=True)
@@ -56,6 +60,8 @@ class KnownFacts:
     note_points: int
     verified_at_client: int
     last_note_days: Optional[int]
+    sent_elsewhere: int = 0
+    sent_points: int = 0
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -102,38 +108,42 @@ def points_for(
 
 
 async def _rejected_by_client(
-    db: AsyncSession, client_id: Optional[int], job_id: int, candidate_ids: list[int]
-) -> set[int]:
-    """Najnowszy wiersz pary z innej rekrutacji klienta to jawne odrzucenie przez niego."""
-    if client_id is None:
+    db: AsyncSession, client_ids: list[int], candidate_ids: list[int]
+) -> set[tuple[int, int, int]]:
+    """Najnowszy wiersz pary z innej rekrutacji klienta to jawne odrzucenie przez niego.
+
+    ``{(kandydat, rekrutacja, klient)}`` — wołający odrzuca wiersze swojej
+    rekrutacji (``DISTINCT ON`` liczy się per para, więc wynik jest ten sam,
+    co z ``job_id <> :job`` w zapytaniu)."""
+    if not client_ids or not candidate_ids:
         return set()
     rows = await db.execute(
         text(
             """
             WITH last AS (
               SELECT DISTINCT ON (cs.candidate_id, cs.job_id)
-                     cs.candidate_id, cs.stage::text AS stage, cs.ended_by,
+                     cs.candidate_id, cs.job_id, j.client_id,
+                     cs.stage::text AS stage, cs.ended_by,
                      rr.name AS reason
               FROM candidate_stages cs
               JOIN jobs j ON j.id = cs.job_id
               LEFT JOIN rejection_reasons rr ON rr.id = cs.rejection_reason_id
-              WHERE j.client_id = :client AND cs.job_id <> :job
+              WHERE j.client_id = ANY(:clients)
                 AND cs.candidate_id = ANY(:ids)
               ORDER BY cs.candidate_id, cs.job_id, cs.moved_at DESC, cs.id DESC
             )
-            SELECT DISTINCT candidate_id FROM last
+            SELECT candidate_id, job_id, client_id FROM last
             WHERE stage = 'rejected' AND ended_by = 'client'
               AND COALESCE(reason, '') <> ALL(CAST(:not_verdict AS text[]))
             """
         ),
         {
-            "client": client_id,
-            "job": job_id,
+            "clients": client_ids,
             "ids": candidate_ids,
             "not_verdict": list(CLIENT_NOT_A_VERDICT),
         },
     )
-    return {int(cid) for cid in rows.scalars()}
+    return {(int(cid), int(jid), int(client)) for cid, jid, client in rows.all()}
 
 
 async def facts_for(
@@ -145,31 +155,51 @@ async def facts_for(
     now: datetime,
 ) -> dict[int, KnownFacts]:
     """Fakty i punkty osób ze znanym śladem; reszty nie ma w wyniku."""
-    if not candidate_ids:
-        return {}
+    return (
+        await facts_for_jobs(db, boards={job_id: (client_id, candidate_ids)}, now=now)
+    )[job_id]
+
+
+async def facts_for_jobs(
+    db: AsyncSession,
+    *,
+    boards: Mapping[int, tuple[Optional[int], list[int]]],
+    now: datetime,
+) -> dict[int, dict[int, KnownFacts]]:
+    """``facts_for`` dla wielu Tablic naraz: ``{rekrutacja: (klient, kandydaci)}``.
+
+    Te same zapytania co dla jednej rekrutacji (``my-next-steps`` składa do 25
+    Tablic), wiersze rozdzielone w Pythonie per Tablica."""
+    out: dict[int, dict[int, KnownFacts]] = {job_id: {} for job_id in boards}
+    all_ids = sorted({cid for _, ids in boards.values() for cid in ids})
+    if not all_ids:
+        return out
     weights = await read_points(db)
-    verified: dict[int, int] = {}
-    if client_id is not None:
+    client_ids = sorted(
+        {client for client, ids in boards.values() if client is not None and ids}
+    )
+    # (kandydat, klient) → rekrutacje klienta z pozytywnym etapem osoby.
+    verified_jobs: dict[tuple[int, int], set[int]] = {}
+    if client_ids:
         rows = await db.execute(
             text(
                 """
-                SELECT cs.candidate_id, COUNT(DISTINCT cs.job_id) AS jobs
+                SELECT DISTINCT cs.candidate_id, j.client_id, cs.job_id
                 FROM candidate_stages cs
                 JOIN jobs j ON j.id = cs.job_id
-                WHERE j.client_id = :client AND cs.job_id <> :job
+                WHERE j.client_id = ANY(:clients)
                   AND cs.candidate_id = ANY(:ids)
                   AND cs.stage::text = ANY(:stages)
-                GROUP BY 1
                 """
             ),
             {
-                "client": client_id,
-                "job": job_id,
-                "ids": candidate_ids,
+                "clients": client_ids,
+                "ids": all_ids,
                 "stages": list(POSITIVE_STAGES),
             },
         )
-        verified = {int(cid): int(jobs) for cid, jobs in rows.all()}
+        for cid, client, jid in rows.all():
+            verified_jobs.setdefault((int(cid), int(client)), set()).add(int(jid))
     rows = await db.execute(
         text(
             """
@@ -179,21 +209,62 @@ async def facts_for(
             GROUP BY 1
             """
         ),
-        {"ids": candidate_ids},
+        {"ids": all_ids},
     )
     note_days = {int(cid): (now - at).days for cid, at in rows.all() if at is not None}
-    rejected = await _rejected_by_client(db, client_id, job_id, candidate_ids)
-    out: dict[int, KnownFacts] = {}
-    for candidate_id in candidate_ids:
-        if candidate_id in rejected:
-            continue
-        client_jobs = verified.get(candidate_id, 0)
-        last_note = note_days.get(candidate_id)
-        client, note = points_for(weights, client_jobs, last_note)
-        if client + note > 0:
-            out[candidate_id] = KnownFacts(
-                client + note, client, note, client_jobs, last_note
+    rejected_rows = await _rejected_by_client(db, client_ids, all_ids)
+    # Wysyłki do klienta w ostatnim roku: (kandydat) → rekrutacje (20.11.2026).
+    from datetime import timedelta
+
+    from app.services import sent_before
+
+    sent_rows = await db.execute(
+        text(
+            """
+            SELECT DISTINCT candidate_id, job_id FROM candidate_stages
+            WHERE candidate_id = ANY(:ids) AND stage::text = 'cv_sent'
+              AND moved_at >= :since
+            """
+        ),
+        {"ids": all_ids, "since": now - timedelta(days=sent_before.DAYS)},
+    )
+    sent_jobs: dict[int, set[int]] = {}
+    for cid, jid in sent_rows.all():
+        sent_jobs.setdefault(int(cid), set()).add(int(jid))
+    for job_id, (client_id, candidate_ids) in boards.items():
+        rejected = (
+            {
+                cid
+                for cid, jid, client in rejected_rows
+                if client == client_id and jid != job_id
+            }
+            if client_id is not None
+            else set()
+        )
+        facts: dict[int, KnownFacts] = {}
+        for candidate_id in candidate_ids:
+            if candidate_id in rejected:
+                continue
+            client_jobs = (
+                len(verified_jobs.get((candidate_id, client_id), set()) - {job_id})
+                if client_id is not None
+                else 0
             )
+            last_note = note_days.get(candidate_id)
+            client, note = points_for(weights, client_jobs, last_note)
+            sent_count = len(sent_jobs.get(candidate_id, set()) - {job_id})
+            sent = SENT_POINTS if sent_count > 0 else 0
+            if client + note + sent > 0:
+                facts[candidate_id] = KnownFacts(
+                    client + note + sent,
+                    client,
+                    note,
+                    client_jobs,
+                    last_note,
+                    sent_count,
+                    sent,
+                )
+        out[job_id] = facts
     return out
 
 
@@ -201,15 +272,35 @@ async def without_process(
     db: AsyncSession, *, job_id: int, candidate_ids: list[int]
 ) -> set[int]:
     """Osoby bez żadnego wiersza etapu w innej rekrutacji."""
-    if not candidate_ids:
-        return set()
+    return (await without_process_for_jobs(db, boards={job_id: candidate_ids}))[job_id]
+
+
+async def without_process_for_jobs(
+    db: AsyncSession, *, boards: Mapping[int, list[int]]
+) -> dict[int, set[int]]:
+    """``without_process`` dla wielu Tablic jednym zapytaniem.
+
+    Najmniejsza i największa rekrutacja osoby wystarczą: dwie różne znaczą
+    proces poza każdą Tablicą, jedna — proces poza wszystkimi oprócz niej."""
+    out: dict[int, set[int]] = {job_id: set() for job_id in boards}
+    all_ids = sorted({cid for ids in boards.values() for cid in ids})
+    if not all_ids:
+        return out
     rows = await db.execute(
         text(
             """
-            SELECT DISTINCT candidate_id FROM candidate_stages
-            WHERE candidate_id = ANY(:ids) AND job_id <> :job
+            SELECT candidate_id, MIN(job_id), MAX(job_id) FROM candidate_stages
+            WHERE candidate_id = ANY(:ids) AND job_id IS NOT NULL
+            GROUP BY 1
             """
         ),
-        {"ids": candidate_ids, "job": job_id},
+        {"ids": all_ids},
     )
-    return set(candidate_ids) - {int(cid) for cid in rows.scalars()}
+    spans = {int(cid): (int(low), int(high)) for cid, low, high in rows.all()}
+    for job_id, candidate_ids in boards.items():
+        out[job_id] = {
+            cid
+            for cid in candidate_ids
+            if cid not in spans or spans[cid] == (job_id, job_id)
+        }
+    return out

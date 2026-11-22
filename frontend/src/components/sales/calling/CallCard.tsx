@@ -27,9 +27,12 @@ import {
   useSaveOutcome,
   type CallCard as CallCardData,
   type CallHistoryEntry,
+  type CrmOpportunity,
+  type EarlierCall,
   type QueueItem,
   type QueueOutcome,
 } from "@/lib/api/sales-calling";
+import { formatDayMonthPl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
@@ -294,6 +297,7 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
                 key={outcome}
                 size="sm"
                 className="h-8 justify-start gap-1.5 px-2"
+                data-tour="sales.calling.book"
                 disabled={blocked || pending || meetingBlocked}
                 title={card.client_refusal ?? undefined}
                 onClick={bookMeeting}
@@ -563,6 +567,43 @@ function ContactEditor({ item, card, onDone }: ContactEditorProps) {
   );
 }
 
+function InCrmNote({ opportunity }: { opportunity: CrmOpportunity }) {
+  return (
+    <div
+      role="note"
+      className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 rounded-md border border-warning/25 bg-warning-muted px-2.5 py-1.5 text-xs text-warning-muted-foreground"
+    >
+      <p className="min-w-0">
+        <span className="font-medium">Ta firma jest już w CRM:</span> szansa „{opportunity.title}”, etap{" "}
+        {opportunity.stage_name}, od {formatDayMonthPl(opportunity.created_at)}
+        {opportunity.owner_name ? `, prowadzi ${opportunity.owner_name}` : ""}. Z kolejki dzwoni się przez szansę.
+      </p>
+      <Button size="sm" variant="outline" className="h-7 shrink-0" asChild>
+        <Link href={`/sales/opportunities/${opportunity.id}`}>Otwórz szansę</Link>
+      </Button>
+    </div>
+  );
+}
+
+function EarlierCallsNote({ calls }: { calls: EarlierCall[] }) {
+  return (
+    <div
+      role="note"
+      className="rounded-md border border-warning/25 bg-warning-muted px-2.5 py-1.5 text-xs text-warning-muted-foreground"
+    >
+      <p className="font-medium">Pod ten numer już dzwoniono:</p>
+      <ul className="mt-0.5 space-y-0.5">
+        {calls.map((call) => (
+          <li key={call.record_id}>
+            {call.label}
+            {call.company.name ? ` · ${call.company.name}` : ""}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /** Karta wybranej pozycji: kto, haczyk z bota, co już było, skrypt, punkty z researchu i wynik jednym kliknięciem. */
 export function CallCard(props: CallCardProps) {
   const { item, position } = props;
@@ -631,6 +672,9 @@ export function CallCard(props: CallCardProps) {
           onDone={() => setEditing(false)}
         />
       )}
+      {/* Zgłoszenie dzwoniących 17.11.2026: powtórka z innej listy i firma już w CRM, nad numerem. */}
+      {card?.crm_opportunity && <InCrmNote opportunity={card.crm_opportunity} />}
+      {card?.earlier_calls && card.earlier_calls.length > 0 && <EarlierCallsNote calls={card.earlier_calls} />}
       <CallHook companyId={item.company.id} />
       <div className="flex flex-wrap items-center gap-2">
         {card?.do_not_contact ? (

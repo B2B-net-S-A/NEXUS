@@ -104,6 +104,11 @@ class ReversalUnavailable(Exception):
     """Kontrakt nie ma zakończenia, które dałoby się cofnąć."""
 
 
+#: Domyślnie plan bierze datę końca ze stanu „przed”. Inna wartość (także
+#: ``None`` = bezterminowo) nadpisuje ją — tylko „Wycofaj wypowiedzenie”.
+KEEP_END_DATE: Any = object()
+
+
 def _value(raw: Any) -> Any:
     return getattr(raw, "value", raw)
 
@@ -574,13 +579,29 @@ async def _add_blockers(db: AsyncSession, plan: ReversalPlan) -> None:
         and plan.end_date_target is not None
         and plan.end_date_target < business_today()
     ):
+        # Data końca z wypowiedzenia aneksem: aneks przedłużający nic tu nie
+        # da (zamyka migawkę, zamówienia zostają zakończone, a przycisk
+        # „Przedłuż” dla B2B i tak jest wyłączony) — zgłoszenie Finansów
+        # 17.11.2026. Właściwa akcja to „Wycofaj wypowiedzenie”.
+        from app.services.contract_notice_withdrawal import withdrawable_notice
+
+        notice = await withdrawable_notice(db, contract)
+        ended_on = plan.end_date_target.strftime("%d.%m.%Y")
         plan.blockers.append(
             {
                 "code": "end_date_passed",
                 "end_date": plan.end_date_target.isoformat(),
+                "notice_amendment_id": (
+                    notice.amendment.id if notice is not None else None
+                ),
                 "message": (
-                    "Umowa skończyła się "
-                    f"{plan.end_date_target.strftime('%d.%m.%Y')} — przedłuż ją "
+                    f"Umowa skończyła się {ended_on}. Jeśli konsultant wycofał "
+                    "wypowiedzenie (aneks „Wcześniejsze zakończenie” z "
+                    f"{notice.amendment.effective_date.strftime('%d.%m.%Y')}), "
+                    "użyj „Wycofaj wypowiedzenie” w zakładce Aneksy — tam "
+                    "ustawisz nową datę końca."
+                    if notice is not None
+                    else f"Umowa skończyła się {ended_on} — przedłuż ją "
                     "aneksem, zanim cofniesz zakończenie."
                 ),
             }
@@ -671,7 +692,11 @@ async def _add_blockers(db: AsyncSession, plan: ReversalPlan) -> None:
 
 
 async def build_reversal_plan(
-    db: AsyncSession, contract: Contract, *, lock: bool = False
+    db: AsyncSession,
+    contract: Contract,
+    *,
+    lock: bool = False,
+    end_date_override: Any = KEEP_END_DATE,
 ) -> ReversalPlan:
     if not await reversal_available(db, contract):
         raise ReversalUnavailable(
@@ -728,6 +753,17 @@ async def build_reversal_plan(
             termination_lessons_target=None,
         )
         await _plan_from_history(db, plan)
+
+    if end_date_override is not KEEP_END_DATE:
+        # „Wycofaj wypowiedzenie” (`contract_notice_withdrawal`): stan „przed”
+        # z migawki to już stan PO wypowiedzeniu (aneks skrócił umowę, nocny
+        # cron ją zakończył), więc datę końca podaje człowiek, a zakończenie
+        # przestaje obowiązywać w całości. Zamówienia wracają jak zwykle.
+        plan.end_date_target = end_date_override
+        plan.status_target = ContractStatus.active
+        plan.terminated_at_target = None
+        plan.termination_reason_target = None
+        plan.termination_lessons_target = None
 
     # Umowa „Zakończona" bez daty końca nie istnieje (patrz
     # `_status_after_end_date_change`) — stan przed, który tak wygląda, to
@@ -829,12 +865,18 @@ def _describe_restore(item: OrderRestore, contract_id: int) -> str:
 
 
 async def execute_reversal(
-    db: AsyncSession, contract: Contract, *, actor_id: Optional[int]
+    db: AsyncSession,
+    contract: Contract,
+    *,
+    actor_id: Optional[int],
+    end_date_override: Any = KEEP_END_DATE,
 ) -> ReversalPlan:
     """Cofnij zakończenie. Wołający trzyma blokadę kontraktu i commituje
     (``commit_order_write`` — synchronizacja kontrakt ↔ zamówienia i braki)."""
 
-    plan = await build_reversal_plan(db, contract, lock=True)
+    plan = await build_reversal_plan(
+        db, contract, lock=True, end_date_override=end_date_override
+    )
     if plan.blockers:
         raise ReversalBlocked(plan)
     now = datetime.now(timezone.utc)

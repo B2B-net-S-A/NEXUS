@@ -1,4 +1,4 @@
-"""Wyłącznik ``app_settings['consultant_portal']``: off, pilot, all (wzór ``b2b_esign``).
+"""Wyłącznik ``app_settings['consultant_portal']``: off, internal, pilot, all (wzór ``b2b_esign``).
 
 Brak wiersza = ``off``: publiczne trasy odpowiadają 404, a do ludzi spoza firmy nic
 nie wychodzi. W stanach ``pilot`` i ``all`` panel otwiera się wyłącznie kontraktom
@@ -7,6 +7,10 @@ z aktywną aktywacją (``cp_activations``), bo panel powstaje ręcznie po podpis
 ``pilot`` działa bez modułu ``back_office``: to test na pojedynczych osobach, zanim
 tablica ruszy. ``all`` wymaga modułu, bo bez niego dokumenty nie mają odbiorcy, i dopiero
 w nim czytnik poczty zakłada karty nieznanym nadawcom.
+
+``internal`` („Tylko zespół”) też wymaga modułu: czytnik bierze każdego nadawcę z kontraktem
+(po adresie z kontraktu, potem z kartoteki), a panel, link i każdy mail do konsultanta są
+zamknięte, bo ``open_for`` zwraca ``False`` bez względu na aktywacje.
 """
 
 from __future__ import annotations
@@ -33,7 +37,19 @@ class PortalSettings:
 
     @property
     def is_on(self) -> bool:
+        """Panel otwarty dla konsultantów (logowanie, maile). ``internal`` go nie otwiera."""
         return self.state in ("pilot", "all")
+
+    @property
+    def reads_mailbox(self) -> bool:
+        """Czytnik rozliczenia@ działa: także w ``internal``, gdzie panel jest zamknięty."""
+        return self.state in ("internal", "pilot", "all")
+
+    @property
+    def any_sender(self) -> bool:
+        """Czytnik bierze każdego nadawcę z kontraktem, nie tylko osoby z aktywacją,
+        a nieznany nadawca dostaje kartę do przypisania."""
+        return self.state in ("internal", "all")
 
     def open_for(self, contract_id: int) -> bool:
         return self.is_on and contract_id in self.activated_contract_ids
@@ -60,9 +76,9 @@ async def load(db: AsyncSession) -> PortalSettings:
             select(AppSetting.value).where(AppSetting.key == PORTAL_SETTING)
         )
     )
-    if not state.is_on or not hr_modules.program_enabled():
+    if not state.reads_mailbox or not hr_modules.program_enabled():
         return PortalSettings()
-    if state.state == "all" and not (await hr_modules.load_modules(db)).get(
+    if state.any_sender and not (await hr_modules.load_modules(db)).get(
         hr_modules.HrModule.back_office
     ):
         return PortalSettings()

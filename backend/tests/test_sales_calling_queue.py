@@ -89,7 +89,9 @@ async def _record(
             campaign_id=campaign_id,
             company_id=company_id,
             assigned_user_id=user_id,
-            phone=fields.pop("phone", "600 100 200"),
+            # Numer na rekord: ten sam numer w dwóch testach to dla kolejki powtórka
+            # z kolejnej listy (17.11.2026) i rekord znikałby z cudzego testu.
+            phone=fields.pop("phone", f"6{uuid.uuid4().int % 10**8:08d}"),
             **fields,
         )
         db.add(record)

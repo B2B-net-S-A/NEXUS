@@ -45,11 +45,15 @@ async def current_employment_client_ids(
     candidate_ids: Iterable[int],
     *,
     client_id: Optional[int] = None,
+    client_ids: Optional[Iterable[int]] = None,
     today: date,
 ) -> dict[int, set[int]]:
     """``{candidate_id: {client_id, ...}}`` — każdy przekazany id jest w wyniku,
     także bez umów (pusty zbiór), żeby „brak wpisu" nie mylił się
-    z „nie sprawdzono". Jedno zapytanie ``IN (...)``."""
+    z „nie sprawdzono". Jedno zapytanie ``IN (...)``.
+
+    ``client_ids`` zawęża do kilku klientów naraz — dopuszczalność wielu
+    Tablic jednym zapytaniem (``evaluate_candidates_for_jobs_with_verdicts``)."""
     ids = sorted({int(cid) for cid in candidate_ids if cid is not None})
     out: dict[int, set[int]] = {cid: set() for cid in ids}
     if not ids:
@@ -62,6 +66,8 @@ async def current_employment_client_ids(
     )
     if client_id is not None:
         stmt = stmt.where(Contract.client_id == client_id)
+    if client_ids is not None:
+        stmt = stmt.where(Contract.client_id.in_(sorted({int(c) for c in client_ids})))
     for cand_id, cl_id in (await db.execute(stmt)).all():
         out.setdefault(cand_id, set()).add(cl_id)
     return out

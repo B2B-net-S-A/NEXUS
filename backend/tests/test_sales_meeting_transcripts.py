@@ -118,6 +118,71 @@ async def test_only_organizer_new_meeting_enters_the_queue(monkeypatch) -> None:
     assert await _row(off["iCalUId"]) is None
 
 
+class _CalendarGraph:
+    """Podmienia ``paginate``: jedna strona z podanymi wydarzeniami albo błąd Graph."""
+
+    def __init__(self, events: list[dict], error: int | None = None) -> None:
+        self.events = events
+        self.error = error
+        self.urls: list[str] = []
+
+    async def paginate(self, url: str, params=None):
+        self.urls.append(url)
+        if self.error:
+            raise GraphRequestError(self.error, "x")
+        yield {"value": self.events}
+
+
+@pytest.mark.asyncio
+async def test_backfill_queues_meetings_saved_before_the_flag_once() -> None:
+    rep = await _user("employee", "sales_view")
+    domain = f"teams-{_tag()}.example"
+    await _company(f"Firma {domain}", domain)
+    conn = _conn(rep)
+    start = datetime.now(timezone.utc) + timedelta(days=1)
+    mine = _graph_event(f"klient@{domain}", start=start)
+    mine["organizer"] = {"emailAddress": {"address": rep.email}}
+    guest = _graph_event(f"klient@{domain}", start=start)
+    guest["organizer"] = {"emailAddress": {"address": f"klient@{domain}"}}
+    cancelled = _graph_event(f"klient@{domain}", start=start)
+    cancelled["organizer"] = {"emailAddress": {"address": rep.email}}
+    cancelled["isCancelled"] = True
+    gc = _CalendarGraph([mine, guest, cancelled])
+
+    async with AsyncSessionLocal() as db:
+        await sync_mod._sales_transcript_backfill(db, gc, conn, SALES_ONLY)
+
+    assert (await _row(mine["iCalUId"])).status == "waiting"
+    assert await _row(guest["iCalUId"]) is None
+    assert await _row(cancelled["iCalUId"]) is None
+
+    async with AsyncSessionLocal() as db:
+        await sync_mod._sales_transcript_backfill(db, gc, conn, SALES_ONLY)
+    assert len(gc.urls) == 1  # marker: drugi przebieg nie pyta Graph
+
+
+@pytest.mark.asyncio
+async def test_backfill_retries_after_graph_error_and_stays_off_when_disabled(
+    monkeypatch,
+) -> None:
+    rep = await _user("employee", "sales_view")
+    conn = _conn(rep)
+    failing = _CalendarGraph([], error=503)
+    async with AsyncSessionLocal() as db:
+        await sync_mod._sales_transcript_backfill(db, failing, conn, SALES_ONLY)
+    working = _CalendarGraph([])
+    async with AsyncSessionLocal() as db:
+        await sync_mod._sales_transcript_backfill(db, working, conn, SALES_ONLY)
+    assert len(working.urls) == 1  # błąd nie zostawił markera
+
+    monkeypatch.setattr(settings, "SALES_TEAMS_TRANSCRIPTS_ENABLED", False)
+    other = _conn(await _user("employee", "sales_view"))
+    off = _CalendarGraph([])
+    async with AsyncSessionLocal() as db:
+        await sync_mod._sales_transcript_backfill(db, off, other, SALES_ONLY)
+    assert off.urls == []
+
+
 @pytest.mark.asyncio
 async def test_cancelled_upcoming_meeting_takes_its_queue_row() -> None:
     rep = await _user("employee", "sales_view")

@@ -526,7 +526,14 @@ Decyzje Artura z 21.10.2026 (migracja 0503):
   klient (także PANSA) → wyłącznie „Umowa o udziale w procesie
   rekrutacyjnym” w dwóch wariantach: `preliminary_participation_jdg`
   (kandydat z jednoosobową działalnością) i `preliminary_participation_person`
-  (osoba fizyczna; adres, dowód i PESEL są wrażliwe — tylko w pliku). Regułę
+  (osoba fizyczna; adres, dowód i PESEL są wrażliwe — tylko w pliku),
+  a od 19.11.2026 także `preliminary_b2b` — „Umowa przedwstępna na współpracę
+  B2B” (wzór działu z 06.05.2026: osoba fizyczna, która dopiero założy
+  działalność, zawarcie umowy B2B do dnia z § 2 ust. 1 = pole `valid_until`,
+  domyślnie +14 dni; stawka tylko zł/h netto; kara umowna z pola
+  `penalty_amount`, domyślnie 10 000 zł — decyzje Artura 19.11.2026). To typ
+  rodziny `preliminary` w „Dokumentach”, NIE `contract_kind` wiersza „Umów
+  bieżących” (tam mieszka tylko umowa, która ma kontrakt). Regułę
   trzyma `DocumentType.preliminary_scope` (`cez` / `general`) i
   `_preliminary_types_for` w `api/b2b_documents.py`; zły wzór = 422 przy
   zapisie. Kreator pyta `GET /documents/preliminary-options?candidate_id=&job_id=`
@@ -556,6 +563,10 @@ Decyzje Artura z 21.10.2026 (migracja 0503):
   `backend/scripts/build_preliminary_participation_templates.py` (treść umowy
   o udziale jest w skrypcie, styl z wzoru CeZ; każdy akapit to jeden run na
   segment formatowania, żeby docxtpl widział znaczniki Jinja).
+  Wyjątek: `preliminary_b2b_pl.*` z `backend/scripts/build_preliminary_b2b_template.py
+  <wzór.docx>` (podstawienia na wzorze Worda działu, jak umowa zlecenia; wzoru
+  nie commitujemy). § 6 ust. 1 i 3 wzoru (tylko pisemna albo kwalifikowany)
+  skrypt zamienia na klauzulę każdej formy podpisu z umowy o udziale.
 - **PDF:** `POST /documents/{id}/pdf` — te same bramki i to samo ciało z danymi
   wrażliwymi co `/docx`, PDF z LibreOffice (`cv_pdf_preview.pdf_from_docx`);
   awaria = 503 „Nie udało się przygotować PDF — pobierz DOCX.”. Zakładka

@@ -53,6 +53,7 @@ NEW_WITHIN = timedelta(days=7)
 STEP_WITHIN = timedelta(days=14)
 STALE_AFTER = timedelta(days=6)
 RESEND_AFTER = timedelta(hours=24)
+RETRY_WITHOUT_REPORT_AFTER = timedelta(hours=1)
 MAX_BRIEFING_FIRMS = 25
 MAX_REFRESH_FIRMS = 100
 MAX_PILOT_FIRMS = 100
@@ -86,6 +87,10 @@ async def recently_sent(db: AsyncSession, *, now: datetime) -> set[int]:
         select(SalesSignalRun.company_ids).where(
             SalesSignalRun.kind == "briefing",
             SalesSignalRun.started_at >= now - RESEND_AFTER,
+            or_(
+                SalesSignalRun.status.notin_(("failed", "expired")),
+                SalesSignalRun.started_at >= now - RETRY_WITHOUT_REPORT_AFTER,
+            ),
         )
     )
     return {int(cid) for ids in runs.scalars() for cid in ids}
@@ -411,6 +416,16 @@ async def people_recently_sent(
     return {int(cid) for ids in runs.scalars() for cid in ids}
 
 
+def researched_refs(
+    ids: list[int], researched: Optional[list[int]], checked: Optional[int]
+) -> set[int]:
+    """Potwierdzone firmy. Stary raport bez referencji liczy się tylko, gdy był pełny."""
+
+    if researched is None:
+        return set(ids) if isinstance(checked, int) and checked >= len(ids) else set()
+    return {int(ref) for ref in researched}.intersection(ids)
+
+
 async def _research_evidence(
     db: AsyncSession, *, since: datetime, canonical: dict[int, int]
 ) -> dict[int, datetime]:
@@ -453,10 +468,7 @@ async def _research_evidence(
     )
     evidence: dict[int, datetime] = {}
     for ids, received_at, researched, checked, kind, modes in completed:
-        if researched is None:
-            # Starszy pełny raport potwierdza wszystkie wejściowe firmy.
-            researched = ids if isinstance(checked, int) and checked >= len(ids) else []
-        for raw_id in {int(ref) for ref in researched} & {int(ref) for ref in ids}:
+        for raw_id in researched_refs(ids, researched, checked):
             if kind == "briefing" and (modes or {}).get(str(raw_id)) != "first_call":
                 continue
             cid = canonical.get(raw_id, raw_id)

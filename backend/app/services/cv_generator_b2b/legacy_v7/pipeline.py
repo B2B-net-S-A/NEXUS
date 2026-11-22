@@ -62,6 +62,7 @@ from app.services.cv_generator_b2b.legacy_v7._helpers import (
     clean_skill_sections,
     keep_source_methodologies,
     screening_text_without_questions,
+    strip_source_mentions,
     strip_unsupported_terms,
 )
 from app.services.cv_generator_b2b.legacy_v7.champion import build_champion_section
@@ -115,7 +116,9 @@ PIPELINE_ID = "legacy_v7"
 # 11 (04.11.2026): why_points bez numeracji, kategorie umiejętności bez „must-have”.
 # 12 (05.11.2026): standard 5 punktów why_points: lata, specjalizacja, 3 × must-have.
 # 13 (06.11.2026): punkty 3–5 jako zdania, umiejętności bez trybu pracy i języków, stałe kategorie.
-PROMPT_VERSION = 13
+# 14 (17.11.2026): punkty 2–5 jako kompetencje bez „Specjalizacji”, lata „w IT, w tym jako X”,
+#     miesiące dat ze źródła, kategoria AI, poziom języka w CEFR, gdy źródło go podaje.
+PROMPT_VERSION = 14
 
 
 def build_generation_date_block(language: Language, today: date) -> str:
@@ -403,9 +406,11 @@ def run_legacy_generation(
     _cap_role_technologies(candidate_data, candidate_data.get("highlight_keywords"))
 
     # Exact years of experience recomputed from the extracted dates.
-    _fix_experience_years(candidate_data, language)
-    # Not part of 2bc6b14f: role/company-bound figures recomputed from dates.
-    _fix_scoped_years(candidate_data, language)
+    years_notes: list[str] = []
+    _fix_experience_years(candidate_data, language, years_notes)
+    # Not part of 2bc6b14f: role/company-bound figures recomputed from dates;
+    # „jako X” counts every role of that profession (20.11.2026).
+    _fix_scoped_years(candidate_data, language, years_notes)
     # Standard 5 punktów: model bywa nieposłuszny, więc kod domyka limit i lata.
     summary_notes = _apply_summary_standard(candidate_data, language, client_rule)
     if sector_block and apply_client_sector(
@@ -433,6 +438,7 @@ def run_legacy_generation(
         requirements=requirements,
         language=language,
     )
+    question_notes = list(question_notes) + strip_source_mentions(candidate_data)
 
     role_title = (job_title or "").strip()
     explicit_position = (position_ref or "").strip()
@@ -463,6 +469,7 @@ def run_legacy_generation(
     source_text = f"{cv_text}\n{answers_text}"
     guard_warnings = list(question_notes)
     guard_warnings.extend(summary_notes)
+    guard_warnings.extend(years_notes)
     if removed_skills:
         guard_warnings.append(
             "WERYFIKUJ: usunięto z umiejętności pozycje, które nie są umiejętnościami: "

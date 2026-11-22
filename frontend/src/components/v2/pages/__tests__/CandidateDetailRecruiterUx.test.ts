@@ -192,10 +192,10 @@ describe("profil kandydata — każdy fakt w jednym miejscu", () => {
     expect(ALL).not.toContain("MapPin");
     // Jedyny wyjątek (D4, 13.10.2026): status „szuka aktywnie” jest pigułką
     // przy nazwisku — wiersz „Dostępność” w karcie pokazuje wtedy sam termin.
-    expect(occurrences("availability_status")).toBe(
-      occurrences("<AvailabilityPill status={candidate.availability_status}"),
-    );
-    expect(occurrences("<AvailabilityPill status={candidate.availability_status}")).toBe(1);
+    // Od 18.11.2026 pigułkę da się kliknąć i zmienić (`AvailabilityStatusPicker`).
+    const pill = "<AvailabilityStatusPicker candidateId={candidateId} status={candidate.availability_status}";
+    expect(occurrences("availability_status")).toBe(occurrences(pill));
+    expect(occurrences(pill)).toBe(1);
     expect(occurrences("<CandidateProfileFactsBar")).toBe(1);
     expect(ROOT).toContain('layout="proposal"');
   });

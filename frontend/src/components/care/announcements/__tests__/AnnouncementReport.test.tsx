@@ -66,7 +66,7 @@ describe("AnnouncementReport", () => {
   it("niepewni są na liście do sprawdzenia ręcznie", () => {
     const announcement = sentWithProblems();
     renderReport(announcement);
-    const list = screen.getByRole("list", { name: "Sprawdź ręcznie w skrzynce administracja@" });
+    const list = screen.getByRole("list", { name: "Sprawdź ręcznie w skrzynce wsparcie@" });
     const uncertain = announcement.recipients[1];
     expect(within(list).getByText(new RegExp(uncertain.name))).toBeInTheDocument();
     expect(within(list).queryByText(new RegExp(announcement.recipients[0].name))).not.toBeInTheDocument();

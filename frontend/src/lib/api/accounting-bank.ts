@@ -201,6 +201,34 @@ export function usePostBankStatement() {
   });
 }
 
+export interface BankDeleteResult {
+  lines: number;
+  cost_records: number;
+  cost_matched: number;
+  sales_records: number;
+  sales_matched: number;
+}
+
+/** Cofnięcie importu przed WB (administrator): znikają linie i zapłaty E3/E8 z pliku. */
+/**
+ * ``onDeleted`` biegnie na poziomie mutacji, przed odświeżeniem list: zamyka
+ * panel, zanim zapytanie o usunięty wyciąg wróciłoby 404. Callback z
+ * ``mutate()`` nie przychodzi, gdy panel zdąży się odmontować przez ten błąd,
+ * a wtedy na ekranie zostawał błąd serwera zamiast zamkniętego panelu.
+ */
+export function useDeleteBankStatement(onDeleted?: (result: BankDeleteResult) => void) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (statementId: number) =>
+      (await api.delete<BankDeleteResult>(`${BASE}/bank/statements/${statementId}`)).data,
+    onSuccess: (result, statementId) => {
+      onDeleted?.(result);
+      client.removeQueries({ queryKey: bankKeys.statement(statementId), exact: true });
+    },
+    onSettled: () => client.invalidateQueries({ queryKey: accountingKeys.all }),
+  });
+}
+
 export function useSetBankSettings() {
   const client = useQueryClient();
   return useMutation({

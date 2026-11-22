@@ -23,6 +23,7 @@ import { EinvoicesView } from "./EinvoicesView";
 import { EstimatesView } from "./EstimatesView";
 import { SettlementCard } from "./SettlementCard";
 import { SettlementMonthView } from "./SettlementMonthView";
+import { SettlementsStartCard } from "./SettlementsStartCard";
 import { TimeReportIdsPanel } from "./TimeReportIdsPanel";
 import { TimeReportPersonCard } from "./TimeReportPersonCard";
 import { TimeReportView } from "./TimeReportView";
@@ -76,9 +77,13 @@ export function SettlementsTab({ canWrite }: { canWrite: boolean }) {
     if (p && /^[A-Za-z0-9]{2,16}$/.test(p)) setPersonKey(p);
   }, []);
 
-  // Domyślnie klient z największą liczbą rzeczy do zrobienia.
+  // Domyślnie klient z największą liczbą rzeczy do zrobienia — chyba że adres
+  // wskazuje klienta (link z zakładki „Faktury” kontraktu albo z raportów
+  // klienta). Oba efekty biegną w tym samym cyklu, więc przy liście klientów
+  // już w pamięci ten widział jeszcze `clientId == null` i nadpisywał klienta
+  // z adresu.
   useEffect(() => {
-    if (clientId != null || !clients.data?.length) return;
+    if (clientId != null || !clients.data?.length || Number(readParam("stClient"))) return;
     const first = [...clients.data].sort((a, b) => b.todo - a.todo || b.active_contracts - a.active_contracts)[0];
     setClientId(first.client_id);
   }, [clients.data, clientId]);
@@ -136,6 +141,7 @@ export function SettlementsTab({ canWrite }: { canWrite: boolean }) {
 
   return (
     <div className="space-y-3">
+      <SettlementsStartCard />
       <div className="flex flex-wrap items-center gap-2">
         <select
           aria-label="Klient"

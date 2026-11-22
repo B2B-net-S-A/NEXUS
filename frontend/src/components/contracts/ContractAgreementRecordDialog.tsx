@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppModal } from "@/components/ds/AppModal";
 import { apiErrorMessage } from "@/lib/api-error";
+import { isDocumentDuplicate } from "@/lib/contract-document-folders";
 import {
   AGREEMENT_TERMINATION_MODES,
   AGREEMENT_TERMINATION_PARTIES,
@@ -83,6 +84,8 @@ export function ContractAgreementRecordDialog({
         await contractsApi.uploadDocument(contractId, body);
         return null;
       } catch (error: unknown) {
+        // Ten skan już jest w Dokumentach kontraktu (20.11.2026).
+        if (isDocumentDuplicate(error)) return null;
         return apiErrorMessage(error, "Nie udało się dodać skanu.");
       }
     },

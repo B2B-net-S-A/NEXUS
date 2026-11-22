@@ -38,6 +38,9 @@ REASONS: dict[str, tuple[str, bool]] = {
     # „Zostaw tę kolejność” przy uwadze „Stanowiska od najnowszego” (D6,
     # 16.10.2026): wybór rekrutera, nie błąd QC — i tylko przy tej uwadze.
     "kept_order": ("Kolejność stanowisk celowo inna", False),
+    # „Zostaw” przy „Lata w punkcie 1” (R2, 17.11.2026): rekruter liczy staż
+    # bez ról spoza obszaru — decyzja, nie błąd QC.
+    "kept_years": ("Liczba lat zostaje", False),
     # „OK” / „Zostaw” przy uwadze generatora albo kontroli AI w panelu „Do
     # poprawy” (17.10.2026): rekruter sprawdził i zostawia treść, jednym
     # kliknięciem, bez formularza — decyzja, nie dowód, że uwaga kłamie.
@@ -51,6 +54,7 @@ REASONS: dict[str, tuple[str, bool]] = {
 # w edytorze („generator”, „review”).
 REASON_CHECKS: dict[str, frozenset[str]] = {
     "kept_order": frozenset({"role_order"}),
+    "kept_years": frozenset({"years_breakdown"}),
     "kept": frozenset({"generator", "review"}),
 }
 QC_WRONG_REASONS = frozenset(code for code, (_, wrong) in REASONS.items() if wrong)

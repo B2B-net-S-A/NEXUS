@@ -17,7 +17,8 @@ ewidencja i to, co z niej trafia do księgi.
   netto / Ma 010 wartość początkowa; przychód ze sprzedaży księguje faktura).
   Dokumenty w księdze robi „Zaksięguj miesiąc” (źródło ``asset_operation``).
 * **AM miesiąca** (źródło ``assets_month`` / ``RRRR-MM``): odpisy bilansowe
-  wszystkich środków — Wn 401 z MPK, Ma 070/071, i od razu podział na „5”:
+  wszystkich środków — Wn 400-x z mapy umorzeń (konto umorzenia środka →
+  konto amortyzacji, jak w Symfonii) z MPK, Ma 070/075, i od razu podział na „5”:
   Wn konta „5” z MPK (konta z rozliczenia kosztów K2), Ma 490. ``meta.assets``
   zatwierdzonego AM to trwały zapis, ile i na jakie MPK poszło z każdego środka.
 * **Zatwierdzona przeszłość jest nietykalna**: zmiana, która przestawiłaby
@@ -114,7 +115,8 @@ LOCKED = (
     "zmienia. Popraw go stornem tego zapisu albo dokumentem (ulepszenie, likwidacja)."
 )
 NO_COST_ACCOUNT = (
-    "Ustaw konto amortyzacji w Ustawieniach środków trwałych (administrator)."
+    "Umorzenie {account} nie ma konta amortyzacji — dopisz je do mapy umorzeń "
+    "w „Konta środków trwałych” (administrator)."
 )
 NO_ALLOCATION = (
     "Ustaw konta rozliczenia kosztów na „5” w Ustawieniach Księgowości "
@@ -268,33 +270,40 @@ def depreciation_spec(
     allocation: AllocationAccounts,
     labels: dict[str, Mpk],
 ) -> tuple[Optional[DocumentSpec], list[str]]:
-    """Dokument AM miesiąca: Wn 401 (MPK) / Ma 070-071 i podział na „5” / Ma 490."""
+    """Dokument AM miesiąca: Wn 400-x z mapy umorzeń (MPK) / Ma 070-075
+    i podział na „5” / Ma 490."""
 
     items = [item for item in items if item.amount]
     if not items:
         return None, []
     problems: list[str] = []
-    if not accounts.cost_account:
-        problems.append(NO_COST_ACCOUNT)
     by_mpk: dict[str, int] = defaultdict(int)
     by_account: dict[str, int] = defaultdict(int)
+    by_cost: dict[tuple[str, str], int] = defaultdict(int)
     for item in items:
         by_mpk[item.mpk] += item.amount
         by_account[item.account] += item.amount
+        cost = accounts.cost_for(item.account)
+        if cost is None:
+            problems.append(NO_COST_ACCOUNT.format(account=item.account))
+            continue
+        by_cost[(cost, item.mpk)] += item.amount
     total = sum(by_mpk.values())
     cost_lines: list[LineIn] = []
     split_lines: list[LineIn] = []
-    for code in sorted(by_mpk):
+    for cost, code in sorted(by_cost):
         mpk = labels.get(code) or Mpk(code, "unknown", code)
         cost_lines.append(
             LineIn(
                 side="debit",
-                account=accounts.cost_account,
-                amount=by_mpk[code],
+                account=cost,
+                amount=by_cost[(cost, code)],
                 mpk=code,
                 description=f"Amortyzacja — {mpk.label}"[:LINE_TEXT_MAX],
             )
         )
+    for code in sorted(by_mpk):
+        mpk = labels.get(code) or Mpk(code, "unknown", code)
         field_name = KIND_ACCOUNT.get(mpk.kind)
         if field_name is None:
             problems.append(

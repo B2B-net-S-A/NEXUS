@@ -76,7 +76,6 @@ from app.api import (
     contract_analytics,
     contract_templates,
     fx,
-    invoices,
     framework_rates,
     rate_cards,
     dashboard,
@@ -117,6 +116,7 @@ from app.api import insights_charts
 from app.api import insights_reconciliation
 from app.api import integrations_compass
 from app.api import integrations_law_radar
+from app.api import integrations_cpro_bot
 from app.api import integrations_sales_signals
 from app.api import integrations_v1
 from app.api.integrations_v1.common import (
@@ -188,6 +188,7 @@ from app.api import contacts
 from app.api import prep_kit
 from app.api import talent_pools
 from app.api import public_engagement
+from app.api import public_candidate_terms
 from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
 from app.api import b2b_documents
@@ -254,6 +255,7 @@ from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
 from app.api import client_reports as client_reports_api
 from app.api import law_radar as law_radar_api
+from app.api import supervisory_board as supervisory_board_api
 from app.api import client_einvoices as client_einvoices_api
 from app.api import finance_ledger as finance_ledger_api
 from app.api import finance_archive as finance_archive_api
@@ -382,6 +384,7 @@ from app.api import service_accounts as service_accounts_api
 from app.api import linkedin_extension as linkedin_extension_api
 from app.api import candidate_sources as candidate_sources_api
 from app.api import contract_client_reassign as contract_client_reassign_api
+from app.api import contract_contractor_invoices as contract_contractor_invoices_api
 from app.api import contract_document_folders as contract_document_folders_api
 from app.api import job_board_connection as job_board_connection_api
 from app.api import job_portals as job_portals_api
@@ -859,6 +862,8 @@ async def lifespan(app: FastAPI):
     from app.tasks.sales_archive_shadow import sales_archive_shadow_loop
     from app.tasks.sales_signals import sales_signals_loop
     from app.tasks.law_radar import law_radar_loop
+    from app.tasks.cpro_bot import cpro_bot_loop
+    from app.tasks.board_krs import board_krs_loop
     from app.tasks.jjit_import import jjit_import_loop
     from app.tasks.integration_stale_alerts import (
         integration_stale_alerts_loop,
@@ -877,6 +882,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.daily_digest_email import daily_digest_email_loop
     from app.tasks.notification_email_outbox import notification_email_outbox_loop
+    from app.tasks.candidate_terms_sender import candidate_terms_sender_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
     from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
     from app.tasks.m365_account_sweep import m365_account_sweep_loop
@@ -884,6 +890,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.order_mail_ingest import order_mail_ingest_loop
     from app.tasks.teams_prep_transcripts import teams_prep_transcripts_loop
     from app.tasks.contract_docs_sharepoint import contract_docs_sharepoint_loop
+    from app.tasks.contract_rate_documents import contract_rate_documents_loop
     from app.tasks.notes_insights_sync import notes_insights_sync_loop
     from app.tasks.weekly_eval import weekly_eval_loop
     from app.tasks.match_digest import match_digest_loop
@@ -1088,6 +1095,11 @@ async def lifespan(app: FastAPI):
             "notification_email_outbox": asyncio.create_task(
                 notification_email_outbox_loop()
             ),
+            # 17.11.2026: podziękowanie i prośba o warunki do kandydatów po
+            # aplikacji z ogłoszenia; rodzaj `candidate_terms` włącza admin.
+            "candidate_terms_sender": asyncio.create_task(
+                candidate_terms_sender_loop()
+            ),
             # Powiadomienia Delivery Leada (0233). Kill-switch sprawdzany PRZED
             # pętlą — wyłączona funkcja kończy zadanie, a nie budzi procesu co
             # 24 h po to, żeby sprawdzić tę samą flagę.
@@ -1102,6 +1114,11 @@ async def lifespan(app: FastAPI):
             # Radar przepisów: Grok Zbieracz od 5:30, bramka, Analityk, sondy;
             # wyłącznik LAW_RADAR_ENABLED przed pętlą.
             "law_radar": asyncio.create_task(law_radar_loop()),
+            # Bot Cpro: karty z kolejki Cpro do Grok Bota (Nordea, nordea.onevms.se);
+            # wyłącznik CPRO_BOT_ENABLED przed pętlą.
+            "cpro_bot": asyncio.create_task(cpro_bot_loop()),
+            # Rada: odpis pełny KRS spółki co noc (05:40); wyłącznik BOARD_KRS_ENABLED.
+            "board_krs": asyncio.create_task(board_krs_loop()),
             "insights_seniority_journal": asyncio.create_task(
                 insights_seniority_journal_loop()
             ),
@@ -1127,6 +1144,11 @@ async def lifespan(app: FastAPI):
             # kończy się przed pętlą.
             "contract_docs_sharepoint": asyncio.create_task(
                 contract_docs_sharepoint_loop()
+            ),
+            # 0739: stawka Partnera z umów i aneksów — odczyt modelem, różnica
+            # z harmonogramem, wpis automatyczny za flagą.
+            "contract_rate_documents": asyncio.create_task(
+                contract_rate_documents_loop()
             ),
             # D5: mianownik wskaznikow „na dzien". Petla KONCZY sie przed
             # pierwszym odczekaniem, gdy wylaczona — nie budzi sie co interwal
@@ -1554,6 +1576,9 @@ app.include_router(
     tags=["candidate-activity-summary"],
 )
 app.include_router(public_engagement.router, prefix="/api", tags=["public-engagement"])
+app.include_router(
+    public_candidate_terms.router, prefix="/api", tags=["public-candidate-terms"]
+)
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 # Static `/directory` must be registered before `clients`' catch-all
 # `/{client_id}` route.
@@ -1595,6 +1620,17 @@ app.include_router(
 )
 # Radar przepisów (0713, decyzje Artura 15.11.2026): ekran „Przepisy”.
 app.include_router(law_radar_api.router, prefix="/api/compliance", tags=["compliance"])
+# Rada nadzorcza (R1, decyzje Artura 16.11.2026): dokumenty korporacyjne i odpis KRS.
+app.include_router(
+    supervisory_board_api.router,
+    prefix="/api/supervisory-board",
+    tags=["supervisory-board"],
+)
+app.include_router(
+    supervisory_board_api.ballot_router,
+    prefix="/api/supervisory-board",
+    tags=["supervisory-board"],
+)
 app.include_router(
     client_framework_contracts.router,
     prefix="/api/clients",
@@ -1807,6 +1843,10 @@ app.include_router(
 app.include_router(
     contract_document_folders_api.router, prefix="/api/contracts", tags=["contracts"]
 )
+# Zakładka „Faktury” kontraktu: faktury konsultanta z KSeF (19.11.2026).
+app.include_router(
+    contract_contractor_invoices_api.router, prefix="/api/contracts", tags=["contracts"]
+)
 app.include_router(contractors.router, prefix="/api/contractors", tags=["contractors"])
 app.include_router(rate_cards.router, prefix="/api/rate-cards", tags=["rate-cards"])
 # 0710: cennik umowy ramowej, dopłaty i kategoria na kontrakcie (F1, 15.11.2026).
@@ -1853,7 +1893,6 @@ app.include_router(
     prefix="/api/contract-docs-sharepoint",
     tags=["contracts"],
 )
-app.include_router(invoices.router, prefix="/api/invoices", tags=["invoices"])
 app.include_router(fx.router, prefix="/api/fx", tags=["fx"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
@@ -2032,6 +2071,12 @@ app.include_router(
 app.include_router(
     integrations_law_radar.router,
     prefix="/api/integrations/law-radar",
+    tags=["integrations"],
+)
+# Bot Cpro (Grok Bot): plik CV i raport biegu; jednorazowy token biegu.
+app.include_router(
+    integrations_cpro_bot.router,
+    prefix="/api/integrations/cpro-bot",
     tags=["integrations"],
 )
 # API integracyjne v1 (0443, decyzja Artura 14.10.2026): automatyzacje
@@ -4142,7 +4187,13 @@ async def api_health_deep_check(request: Request):
         ClientSalesInvoicePayment,
     )
     from app.models.client_structure import ClientStructureSkip
-    from app.models.back_office import BoCard, BoCardEvent, BoTeamMember
+    from app.models.back_office import (
+        BoCard,
+        BoCardEvent,
+        BoClientNote,
+        BoMember,
+        BoTeamMember,
+    )
     from app.models.consultant_portal import (
         CpDocument,
         CpFaqItem,
@@ -4173,6 +4224,7 @@ async def api_health_deep_check(request: Request):
         ClientTimeReportRow,
     )
     from app.models.client_einvoice import ClientSalesInvoiceEinvoice
+    from app.models.cpro_bot import CproBotRun
     from app.models.client_report import ClientReportDefinition, ClientReportRun
     from app.models.law_radar import (
         LawChange,
@@ -4192,6 +4244,23 @@ async def api_health_deep_check(request: Request):
     )
     from app.models.finance_archive import FinanceArchiveDocument
     from app.models.client_order_revenue_step import ClientOrderRevenueStep
+    from app.models.contract_document_rate_read import ContractDocumentRateRead
+    from app.models.client_order_cost_step import (
+        ClientOrderCostReview,
+        ClientOrderCostStep,
+    )
+    from app.models.board_document import (
+        BoardBudget,
+        BoardBudgetLine,
+        BoardCashPosition,
+        BoardDocument,
+        BoardFinancialStatement,
+        BoardMeeting,
+        BoardReport,
+        BoardVote,
+        BoardVoteBallot,
+        BoardKrsSnapshot,
+    )
     from app.models.client_issued_invoice import (
         ClientInvoiceSeries,
         ClientInvoiceTemplate,
@@ -4287,6 +4356,12 @@ async def api_health_deep_check(request: Request):
     from app.models.job_champion import JobChampion
     from app.models.job_autofill_pool import JobAutofillPool
     from app.models.autofill_feedback import AutofillFeedback
+    from app.models.job_role_profile import JobRoleProfile
+    from app.models.candidate_terms_request import CandidateTermsRequest
+    from app.models.champion_profile_revision import (
+        ChampionProfileChangeRead,
+        ChampionProfileRevision,
+    )
     from app.models.autofill_quality_report import AutofillQualityReport
     from app.models.candidate_job_owner import CandidateJobOwnerEvent
     from app.models.sales import (
@@ -4813,6 +4888,9 @@ async def api_health_deep_check(request: Request):
         ("bo_cards", BoCard),
         ("bo_card_events", BoCardEvent),
         ("bo_team_members", BoTeamMember),
+        # 0746: jeden zespół back office'u i ściąga klienta.
+        ("bo_members", BoMember),
+        ("bo_client_notes", BoClientNote),
         # 0643: portal konsultanta.
         ("cp_meetings", CpMeeting),
         ("cp_links", CpLink),
@@ -4853,6 +4931,8 @@ async def api_health_deep_check(request: Request):
         ("law_change_tasks", LawChangeTask),
         ("law_change_events", LawChangeEvent),
         ("law_change_probes", LawChangeProbe),
+        # 0732: bot Cpro — biegi rutyny Grok Bota.
+        ("cpro_bot_runs", CproBotRun),
         # 0692: e-faktury Peppol do klientów.
         ("client_sales_invoice_einvoices", ClientSalesInvoiceEinvoice),
         # 0694 (+0697): szkolenia i trenerzy.
@@ -4871,6 +4951,21 @@ async def api_health_deep_check(request: Request):
         ("finance_archive_documents", FinanceArchiveDocument),
         # 0724: kroki stawki przychodowej zamówienia (aneks stawki klienta).
         ("client_order_revenue_steps", ClientOrderRevenueStep),
+        ("board_documents", BoardDocument),
+        # 0739: odczyty stawki Partnera z umów i aneksów kontraktu.
+        ("contract_document_rate_reads", ContractDocumentRateRead),
+        # 0741: koszt zamówienia od dnia zmiany stawki Partnera.
+        ("client_order_cost_steps", ClientOrderCostStep),
+        ("client_order_cost_reviews", ClientOrderCostReview),
+        ("board_krs_snapshots", BoardKrsSnapshot),
+        ("board_budgets", BoardBudget),
+        ("board_budget_lines", BoardBudgetLine),
+        ("board_financial_statements", BoardFinancialStatement),
+        ("board_meetings", BoardMeeting),
+        ("board_votes", BoardVote),
+        ("board_vote_ballots", BoardVoteBallot),
+        ("board_cash_positions", BoardCashPosition),
+        ("board_reports", BoardReport),
         # Tabele spoza paczki, które tworzy siatka `entrypoint.sh` albo moduł DDL
         # w `app/services` (reguła z 22.10, F79). Pomiar 15.11.2026: 111 z nich
         # było bez sondy. Każdą nową łapie `test_every_entrypoint_table_is_probed`.
@@ -5004,6 +5099,13 @@ async def api_health_deep_check(request: Request):
         ("job_autofill_pool", JobAutofillPool),
         ("autofill_feedback", AutofillFeedback),
         ("autofill_quality_reports", AutofillQualityReport),
+        # 0728: profil „Kogo szukamy” rekrutacji w porcji.
+        ("job_role_profiles", JobRoleProfile),
+        # 0729: prośby o warunki kandydata po aplikacji.
+        ("candidate_terms_requests", CandidateTermsRequest),
+        # 0731: wersje Profilu Championa i „Przeczytane”.
+        ("champion_profile_revisions", ChampionProfileRevision),
+        ("champion_profile_change_reads", ChampionProfileChangeRead),
         # 0519: historia „Prowadzi”.
         ("candidate_job_owner_events", CandidateJobOwnerEvent),
         # 0601–0683: Sprzedaż — lejki, kontakty, pliki, leady, historia szansy,
