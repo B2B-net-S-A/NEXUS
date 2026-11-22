@@ -22,7 +22,6 @@ from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.job_work_assignment import JobWorkAssignment
 from app.models.user import User, UserRole
 from app.core.config import settings
-from app.services.hr.availability_local import availability_enabled
 from app.services.job_team import working_assignment_job_ids
 from app.services.workforce_availability import (
     workforce_context,
@@ -240,8 +239,12 @@ async def list_job_member_ids(
         for (uid,) in admins.all():
             member_ids.add(uid)
 
-    if availability_enabled():
-        context = await workforce_context(db)
+    # Bez warunku na `availability_enabled()`: to `workforce_context` odświeża
+    # przełącznik źródła urlopów, a zimna pamięć świeżego procesu `web`
+    # pomijała zastępców w powiadomieniach (22.11.2026). Wyłączone źródło daje
+    # pusty kontekst, więc nic się nie zmienia.
+    context = await workforce_context(db)
+    if context.delegations:
         # Notifications use the same resource boundary as interactive access.
         # An observer's absence alone must not subscribe the substitute.
         for owner_id in member_ids & context.delegations.keys():
