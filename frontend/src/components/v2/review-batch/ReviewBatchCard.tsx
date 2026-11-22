@@ -300,6 +300,7 @@ function ClientRecentLine({ recent }: { recent: ReviewBatchClientRecent }) {
       className="rounded-md bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary"
       title={text}
       data-testid="review-client-recent"
+      data-tour="review-batch.client-recent"
     >
       {text}
     </p>

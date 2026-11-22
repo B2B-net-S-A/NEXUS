@@ -4315,6 +4315,24 @@
     "requires_setting": "REVIEW_BATCH_ENABLED"
   },
   {
+    "id": "porcja-wyslany-do-tego-klienta",
+    "pr": 3726,
+    "title": "Porcja dnia: „Wysłany do tego klienta” na początku",
+    "why": "Osoba wysłana w ostatnich 14 dniach do tego klienta w innej jego rekrutacji idzie na początek porcji. Karta mówi, kiedy i do której rekrutacji poszła.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia → karta osoby",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.client-recent",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",
