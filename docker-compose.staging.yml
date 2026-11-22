@@ -202,6 +202,10 @@ services:
       # Pętla `sales_signals` stoi na stagingu, więc zmieniają tylko trasy.
       SALES_BOT_TASKS_ENABLED:
       SALES_REGISTRY_ENABLED:
+      # Dzienny limit próśb o warunki od kandydata, też z produkcji (20, decyzja
+      # Artura z 19.11.2026). Pętla wysyłki stoi na stagingu, więc limit zmienia
+      # tylko liczby kolejki warunków.
+      CANDIDATE_TERMS_DAILY_LIMIT:
     volumes:
       - uploads_data:/tmp/nexus/uploads
     ports:
