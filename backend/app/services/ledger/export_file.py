@@ -430,7 +430,7 @@ def _purchase_document(
     foreign = invoice.currency != "PLN"
     if foreign and invoice.fx_rate is None:
         raise SymfoniaFormatError(f"faktura w {invoice.currency} bez kursu w dekrecie")
-    if foreign and not invoice.registers:
+    if not invoice.registers and (foreign or invoice.symbol == "IU"):
         # Dekret sprzed opisu wg księgowej nie zna kwot rejestru w walucie.
         raise SymfoniaFormatError(
             f"faktura w {invoice.currency} bez rejestru VAT z opisu — przelicz "
@@ -455,14 +455,35 @@ def _purchase_document(
         net_head, vat_head, gross_head = net_pln, vat_pln, gross_pln
     country, country_name = _country(invoice)
     out = ["Dokument{", _field("rodzaj_dok", "zakupu")]
-    if head.ksef_number:
+    if head.ksef_number or kind.correction:
         out += [
-            _field("KsefNumber", head.ksef_number),
+            _field("KsefNumber", head.ksef_number or ""),
             _field("KSeFDate", _day(invoice.ksef_date or invoice.issue_date)),
         ]
+    if kind.correction:
+        # Próbka FKZ z 17.11.2026: faktura korygowana przed kwotami do zapłaty.
+        parent = _text(invoice.corrects_number)
+        out += [
+            "\tDokument korygowany{",
+            _field("kod", parent, 2),
+            "\t}",
+            "\tDokument nadrzędny{",
+            _field("kod", parent, 2),
+            "\t}",
+            _field("opis", ""),
+            _field("NazwaKor", parent),
+            _field("DataKor", _day(invoice.issue_date)),
+            _field("DataObcyKor", _day(invoice.issue_date)),
+        ]
+    # Próbki FVZP i IU: 0.00; korekta in minus 0.00, korekta in plus — dopłata.
+    to_pay = (
+        _amount(Decimal(0) if invoice.negative else gross_head)
+        if kind.correction
+        else "0.00"
+    )
     out += [
-        _field("dozaplaty", "0.00"),
-        _field("wdozaplaty", "0.00"),
+        _field("dozaplaty", to_pay),
+        _field("wdozaplaty", to_pay),
         _field("kod_obcy", invoice.number),
     ]
     if invoice.jpk_procedure:
@@ -590,14 +611,21 @@ def _purchase_document(
         out.append(_field("pozycja", group, 2))
         if parallel:
             out.append(_field("ZapisRownolegly", _PARALLEL_CODE, 2))
+        elif kind.correction and line.account == invoice.settlement_account:
+            out.append(_field("IdDlaRozliczen", "1", 2))
         out.append("\t}")
     out += [
         "\tTransakcja{",
-        _field("IdDlaRozliczen", "-1", 2),
+        _field("IdDlaRozliczen", "1" if kind.correction else "-1", 2),
         _field("termin", _day(invoice.due_date), 2),
     ]
     if invoice.payment_account:
-        out.append(_field("rachunek", invoice.payment_account, 2))
+        account = (
+            _nrb(invoice.payment_account)
+            if kind.correction
+            else invoice.payment_account
+        )
+        out.append(_field("rachunek", account, 2))
     out += ["\t}", "}"]
     return out
 
@@ -626,7 +654,9 @@ def _document(lines: list[ExportLine]) -> list[str]:
             f"brak próbki Symfonii dla typu {invoice.symbol} "
             f"(obsługiwane: {', '.join(_SYMFONIA_TYPES)})"
         )
-    if kind.described:
+    if kind.described or (kind.purchase and invoice.registers):
+        # Korekta z opisem faktury (rejestry, „5”, JPK) — ten sam układ zakupu,
+        # z blokiem faktury korygowanej z próbki FKZ.
         return _purchase_document(lines, invoice, kind)
     if invoice.currency != "PLN":
         raise SymfoniaFormatError(

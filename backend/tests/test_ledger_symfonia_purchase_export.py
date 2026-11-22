@@ -576,3 +576,85 @@ def test_purchase_invoice_reads_registers_jpk_and_rate_from_the_decree() -> None
     assert invoice.line_kinds == {1: "cost", 2: "counterparty", 3: "vat", 4: "vat_due"}
     assert invoice.payment_account == "50200000000001"
     assert invoice.party_country == "IN"
+
+
+def test_car_correction_from_compute_renders_both_correction_registers() -> None:
+    """compute → FKZ → plik: korekta z opisem idzie układem zakupu, nie starym FKZ."""
+
+    from datetime import datetime, timezone
+
+    from app.services.finance_ledger import posting
+    from app.services.finance_ledger import posting_options as options
+
+    plan = {
+        number: posting.AccountView(number, number, kind, True)
+        for number, kind in (
+            ("402-203", "cost"), ("221", "vat"), ("510-5", "other"), ("490", "other"),
+        )
+    }  # fmt: skip
+    entries = {k: options.PlanEntry(v.number, v.kind, True) for k, v in plan.items()}
+    decree = posting.compute(
+        posting.DecreeInput(
+            category="contractor",
+            counterparty_id=7,
+            counterparty_name="Dostawca",
+            counterparty_account=None,
+            counterparty_symfonia_id="55",
+            currency="PLN",
+            net=Decimal("-100.00"),
+            vat=Decimal("-23.00"),
+            gross=Decimal("-123.00"),
+            invoice_number="FK/1",
+            period=date(2026, 10, 1),
+            issue_date=date(2026, 10, 2),
+            choices=options.clean_choices(
+                {"car": True, "net_account": "402-203", "allocation_account": "510-5",
+                 "description": "Korekta leasingu"},
+                entries,
+            ),
+        ),
+        [],
+        plan,
+        now=datetime(2026, 11, 22, tzinfo=timezone.utc),
+    )  # fmt: skip
+    assert decree["problems"] == [] and decree["doc_type"] == "FKZ"
+    row = SimpleNamespace(
+        gross_amount=Decimal("-123.00"),
+        vat_amount=Decimal("-23.00"),
+        net_amount=Decimal("-100.00"),
+        issue_date=date(2026, 10, 2),
+        invoice_number="FK/1",
+        source_due=None,
+        currency="PLN",
+    )
+    doc = SimpleNamespace(
+        op_date=date(2026, 10, 3), doc_date=date(2026, 10, 2), number="FK/1"
+    )
+    entry = SimpleNamespace(due_date=None, decree=decree)
+    party = FinanceCounterparty(
+        id=7, id_type="nip", id_value="1234567890", name="Dostawca", country="PL"
+    )
+    invoice = exports.purchase_invoice(entry, row, doc, party, corrects_number="F/1")
+    assert isinstance(invoice, ExportInvoice)
+    lines = [
+        _line(
+            invoice,
+            no,
+            item["account"],
+            posting.money(item["amount"]) if item["side"] == "debit" else None,
+            posting.money(item["amount"]) if item["side"] == "credit" else None,
+            ksef_number="1234567890-20261002-AAAAAA000001-01",
+        )
+        for no, item in enumerate(decree["positions"], start=1)
+    ]
+    text = FORMAT.render(lines).decode("cp1250")
+    assert "\tsymbol FK =FKZ\r\n" in text and "\tNazwaKor =F/1\r\n" in text
+    assert "\t\tSkrot =Korekta Zakupu\r\n" in text
+    assert "\t\tSkrot =Korekta Zakupu NP. VAT\r\n" in text
+    assert text.count("\t\tvat =-11.50\r\n") == 2
+    assert "\t\tkonto =221\r\n\t\tkwota =-11.50\r\n" in text
+    assert text.count("ZapisRownolegly =33") == 2
+    assert (
+        "\t\tkonto =201-2-55\r\n\t\tkwota =-123.00\r\n\t\tpozycja =0\r\n\t\tIdDlaRozliczen =1"
+        in text
+    )

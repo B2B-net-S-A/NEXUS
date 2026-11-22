@@ -85,7 +85,7 @@ KIND_LABELS = {
     "vat": "VAT",
     "counterparty": "Rozrachunek z kontrahentem",
     "vat_due": "VAT należny",
-    "allocation": "Zapis równoległy „5”",
+    "allocation": "Konto „5”",
     "allocation_offset": "Rozliczenie kosztów (490)",
     "offbalance": "Pozabilansowo (999)",
     "offbalance_offset": "Pozabilansowo (902–903)",
@@ -863,6 +863,11 @@ def compute(
         "registers": registers,
         "negative": negative,
         "self_assessed": self_assessed,
+        **(
+            {"source_gross": str(inp.gross)}
+            if self_assessed and inp.gross is not None
+            else {}
+        ),
         "car": car,
         "jpk_procedure": jpk,
         "service_date": service_date,
@@ -924,6 +929,11 @@ def amount_issue(
 
     if not decree or gross is None:
         return None
+    if decree.get("self_assessed") and decree.get("source_gross") is not None:
+        # Import usług: rozrachunek = netto (VAT liczy nabywca), więc porównujemy
+        # brutto źródła z tym, z którego dekret powstał.
+        same = Decimal(str(decree["source_gross"])) == Decimal(gross)
+        return None if same else AMOUNTS_CHANGED
     positions = [
         item
         for item in decree.get("positions") or []
@@ -969,6 +979,18 @@ MANUAL_KEPT: tuple[str, ...] = (
     "vat_rate",
     "fx_table",
 )
+
+
+#: Pozycje, z których liczą się rejestry VAT (bez „5” i pozabilansowych).
+_REGISTER_KINDS: tuple[str, ...] = ("cost", "vat", "vat_due", "counterparty")
+
+
+def _amount_signature(positions: Any) -> list[tuple[str, str, int]]:
+    return sorted(
+        (str(item.get("kind")), str(item.get("side")), int(item.get("amount") or 0))
+        for item in positions or []
+        if item.get("kind") in _REGISTER_KINDS
+    )
 
 
 def manual_decree(
@@ -1044,6 +1066,11 @@ def manual_decree(
         )
     previous = previous or {}
     kept = {key: previous.get(key) for key in MANUAL_KEPT if key in previous}
+    if _amount_signature(positions) != _amount_signature(previous.get("positions")):
+        # Inne kwoty niż w wyliczonym dekrecie: rejestry VAT i połowy samochodu
+        # z opisu już nie pasują — plik bierze wtedy jeden rejestr z kwot faktury.
+        kept.pop("registers", None)
+        kept.pop("car", None)
     return {
         **kept,
         "manual": True,

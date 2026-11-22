@@ -526,3 +526,30 @@ def test_manual_decree_checks_the_5_account_kind() -> None:
     }  # fmt: skip
     with pytest.raises(LedgerError):
         posting.manual_decree(body, PLAN, previous=None, now=NOW)
+
+
+def test_import_amount_check_compares_the_source_gross_not_the_net() -> None:
+    decree = _compute(_import_input(choices=_choices(doc_type="IU")))
+    # Rozrachunek = netto po kursie, VAT liczy nabywca — to nie jest zmiana kwot.
+    assert posting.amount_issue(decree, Decimal("1000.00"), "EUR") is None
+    assert posting.amount_issue(decree, Decimal("1100.00"), "EUR") == (
+        posting.AMOUNTS_CHANGED
+    )
+
+
+def test_manual_decree_with_other_amounts_drops_car_registers() -> None:
+    computed = _compute(_input(choices=_choices(car=True)))
+    body = {
+        "register": "purchase",
+        "doc_type": "FVZ",
+        "description": "Opis",
+        "positions": [
+            {"kind": "cost", "account": "402-203", "side": "debit", "amount": "1000.01"},
+            {"kind": "vat", "account": "221", "side": "debit", "amount": "230.01"},
+            {"kind": "counterparty", "account": "201-2-4321", "side": "credit",
+             "amount": "1230.02"},
+        ],
+    }  # fmt: skip
+    manual = posting.manual_decree(body, PLAN, previous=computed, now=NOW)
+    assert "registers" not in manual and "car" not in manual
+    assert manual["choices"] == computed["choices"]

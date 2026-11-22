@@ -138,7 +138,7 @@ function YesNo({
 }: {
   label: string;
   value: "" | "yes" | "no";
-  hint: boolean | null | undefined;
+  hint: string;
   onChange: (value: "" | "yes" | "no") => void;
 }) {
   return (
@@ -149,7 +149,7 @@ function YesNo({
         onChange={(event) => onChange(event.target.value as "" | "yes" | "no")}
         className={CONTROL}
       >
-        <option value="">{`podpowiedź: ${hint ? "tak" : "nie"}`}</option>
+        <option value="">{`podpowiedź: ${hint}`}</option>
         <option value="yes">tak</option>
         <option value="no">nie</option>
       </select>
@@ -298,13 +298,19 @@ export function DescriptionForm({
             <YesNo
               label="UE"
               value={draft.eu}
-              hint={effective?.eu}
+              hint={
+                section.self_assessed
+                  ? effective?.eu
+                    ? "tak"
+                    : "nie"
+                  : "kontrahent z VAT UE"
+              }
               onChange={(value) => set("eu", value)}
             />
             <YesNo
               label="Usługa"
               value={draft.service}
-              hint={effective?.service}
+              hint={(draft.doc_type || effective?.doc_type) === "WNT" ? "nie (WNT)" : "tak"}
               onChange={(value) => set("service", value)}
             />
             <Field label="Stawka VAT">

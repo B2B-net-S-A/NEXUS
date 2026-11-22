@@ -19,6 +19,11 @@ i `GET /api/finance/posting/choice-lists`, karta faktury → „Dekret do Symfon
   dekret z reguły **i** z wyborów, więc ich nie gubi; ręczna korekta pozycji
   zostawia wybory i rejestry VAT (`posting.MANUAL_KEPT`). Zapis opisu liczy
   dekret od nowa (także w miejsce ręcznego, zdarzenie `decree` z `choices`).
+- Ręczna korekta z innymi kwotami (koszt, VAT, VAT należny, rozrachunek) niż
+  w wyliczonym dekrecie gubi rejestry VAT i flagę samochodu — plik bierze wtedy
+  jeden rejestr z kwot faktury (przegląd 22.11: stare połowy szły do JPK
+  i do Symfonii obok pełnego VAT na 221). Import usług bez rejestrów nie
+  wychodzi do pliku („przelicz dekret”).
 - Puste pole = podpowiedź z reguły (konto kosztu, VAT, typ, opis ze wzoru).
   Bez reguły dekret powstaje, gdy Finanse wybrały konto netto (inne kategorie
   niż Kontraktorzy nie muszą mieć reguły).
@@ -94,6 +99,16 @@ z MPK (`ledger/allocation.py`). Żeby nie było dwa razy:
   takiej faktury), reszta faktur idzie PK jak dotąd;
 - „Usuń linię „5” z dekretu” na karcie = puste konto „5” i zapis opisu; faktura
   wraca do PK. Zostaje to, co jest w Symfonii: „5” z pliku, PK NEXUSA jest kopią.
+
+## Korekta (FKZ) w pliku
+
+Korekta z dekretem po opisie (ma rejestry) idzie tym samym układem zakupu co
+FVZ/FVZP/IU, z blokiem faktury korygowanej, `IdDlaRozliczen =1` na zapisie
+rozrachunkowym i w `Transakcja` oraz rachunkiem w grupach — jak próbka FKZ
+z 17.11.2026 (render z niej równy próbce, razem z zapisami równoległymi „5”,
+które stary układ FKZ gubił). Bez tego korekta samochodu szła jednym rejestrem
+z pełnym VAT obok 1/2 VAT na 221 (przegląd 22.11). FKZ z dekretu sprzed opisu
+zostaje w starym układzie.
 
 ## Rejestr VAT księgi (K5) z opisu
 
