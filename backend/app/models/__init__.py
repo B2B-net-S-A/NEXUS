@@ -924,6 +924,7 @@ from app.models import ledger as _ledger_models  # noqa: F401,E402  (0700 księg
 from app.models import ledger_assets as _ledger_assets_models  # noqa: F401,E402  (0703 środki trwałe)
 from app.models import hr_payroll_lists as _hr_payroll_lists_models  # noqa: F401,E402  (0704 płace K7a)
 from app.models import hr_payroll_k7b as _hr_payroll_k7b_models  # noqa: F401,E402  (0719 płace K7b)
+from app.models import back_office as _back_office_models  # noqa: F401,E402  (FK dodatków do bo_cards)
 from app.models import client_settlement_extra as _client_settlement_extra_models  # noqa: F401,E402
 from app.models import academy_logistics as _academy_logistics_models  # noqa: F401,E402
 
