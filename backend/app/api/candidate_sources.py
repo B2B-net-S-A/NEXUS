@@ -37,6 +37,8 @@ from app.schemas.candidate_source_event import (
     CandidateSourceEventOut,
     PortalApplicationCreate,
     PortalApplicationOut,
+    PracujAdsSync,
+    PracujAdsSyncOut,
     SourceFunnelRow,
     SourceReportResponse,
 )
@@ -172,6 +174,11 @@ async def add_portal_application(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Tę trasę woła tylko import z portalu.",
         )
+    if payload.portal == portal_application.PRACUJ and not payload.ad_id.isdigit():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Pracuj.pl: ad_id to numer ogłoszenia ze strefy (same cyfry).",
+        )
     candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
     if candidate is None:
         raise HTTPException(
@@ -198,6 +205,38 @@ async def add_portal_application(
         stage_id=result.stage_id,
         reason=result.reason,
     )
+
+
+@router.put("/portal-ads/pracuj", response_model=PracujAdsSyncOut)
+async def sync_pracuj_ads(
+    request: Request,
+    payload: PracujAdsSync,
+    _: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> PracujAdsSyncOut:
+    """Opublikowane ogłoszenia ze strefy Pracuj.pl z biegu importu (23.11.2026).
+
+    Tylko token integracji (scraper strefy). Z tej listy Delivery Lead wybiera,
+    które ogłoszenie należy do rekrutacji (``services/pracuj_ads``).
+    """
+    from app.services import candidate_claim, pracuj_ads  # noqa: PLC0415
+
+    if not candidate_claim.is_integration_request(request):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tę trasę woła tylko import z portalu.",
+        )
+    saved = await pracuj_ads.upsert_ads(
+        db,
+        [
+            pracuj_ads.AdIn(
+                strefa_id=a.strefa_id, title=a.title, applications=a.applications
+            )
+            for a in payload.ads
+        ],
+    )
+    await db.commit()
+    return PracujAdsSyncOut(saved=saved)
 
 
 # ── /reports/sources aggregation ─────────────────────────────────────────────

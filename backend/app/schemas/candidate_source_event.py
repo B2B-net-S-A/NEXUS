@@ -102,11 +102,28 @@ class PortalApplicationCreate(BaseModel):
     ręcznie po linku z „Oznacz jako opublikowane”.
     """
 
-    portal: Literal["justjoinit", "rocketjobs"]
+    portal: Literal["justjoinit", "rocketjobs", "pracuj"]
+    #: Pracuj.pl: numer ogłoszenia ze strefy pracodawcy (same cyfry).
     ad_id: str = Field(..., min_length=1, max_length=64)
     ad_slug: Optional[str] = Field(None, max_length=500)
     ad_title: Optional[str] = Field(None, max_length=255)
     applied_at: Optional[datetime] = None
+
+
+class PracujAdIn(BaseModel):
+    strefa_id: str = Field(..., pattern=r"^[0-9]{3,32}$")
+    title: str = Field(..., min_length=1, max_length=255)
+    applications: int = Field(0, ge=0, le=100000)
+
+
+class PracujAdsSync(BaseModel):
+    """Lista opublikowanych ogłoszeń ze strefy Pracuj.pl z biegu importu (23.11.2026)."""
+
+    ads: list[PracujAdIn] = Field(..., max_length=1000)
+
+
+class PracujAdsSyncOut(BaseModel):
+    saved: int
 
 
 class PortalApplicationOut(BaseModel):

@@ -3946,6 +3946,7 @@ async def api_health_deep_check(request: Request):
     from app.models.job_ad import JobAd
     from app.models.job_ad_channel_skip import JobAdChannelSkip
     from app.models.job_ad_publication import JobAdPublication
+    from app.models.pracuj_ad import PracujAd, PracujAdApplication
     from app.models.integration_event import (
         IntegrationEvent,
         IntegrationEventOutbox,
@@ -4599,6 +4600,10 @@ async def api_health_deep_check(request: Request):
         # „Przygotuj ogłoszenie” w rekrutacji.
         ("job_ads", JobAd),
         ("job_ad_publications", JobAdPublication),
+        # 0754: ogłoszenia ze strefy Pracuj.pl — brak tabeli = 500 w oknie
+        # „Ogłoszenie” i aplikacje z Pracuj.pl bez rekrutacji.
+        ("pracuj_ads", PracujAd),
+        ("pracuj_ad_applications", PracujAdApplication),
         # 0526: „Nie publikujemy” i codzienne przypomnienia o ogłoszeniach.
         ("job_ad_channel_skips", JobAdChannelSkip),
         # 0438: „Wymagania do poprawy” — zatwierdzenie i odrzucenie propozycji

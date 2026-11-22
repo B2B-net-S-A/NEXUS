@@ -258,7 +258,49 @@ export interface JobAdState {
   jjit_api: AdJjitApi | null;
   /** Oznaczanie portali: DL rekrutacji, Head of Recruitment, admin (08.11.2026). */
   can_mark_publications: boolean;
+  /** Ogłoszenia ze strefy Pracuj.pl: połączone i do wyboru (23.11.2026). */
+  pracuj_ads: PracujAdsPanel;
 }
+
+/**
+ * Ogłoszenie ze strefy pracodawcy Pracuj.pl (23.11.2026). Aplikacje z niego
+ * trafiają do „Nowi” rekrutacji, z którą połączy je Delivery Lead — tytuły
+ * się powtarzają, więc NEXUS tylko podpowiada (`suggested`).
+ */
+export interface PracujAd {
+  strefa_id: string;
+  title: string;
+  /** Liczba z listy strefy (wszystkie aplikacje na ogłoszenie). */
+  applications: number;
+  /** Aplikacje przekazane do NEXUSA przez import. */
+  logged_applications: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  live: boolean;
+  suggested: boolean;
+  paired_at: string | null;
+}
+
+export interface PracujAdsPanel {
+  paired: PracujAd[];
+  options: PracujAd[];
+  last_import_at: string | null;
+}
+
+export interface PracujPairResult {
+  strefa_id: string;
+  added: number;
+  already: number;
+  skipped: number;
+  job_not_open: boolean;
+}
+
+export interface PracujQueueItem extends PracujAd {
+  suggestions: { job_id: number; title: string; delivery_lead_name: string | null }[];
+  more_suggestions: number;
+}
+
+export const pracujUnpairedQueryKey = ["job-ad", "pracuj-unpaired"] as const;
 
 /** Publikacja na JustJoin.IT przez kolejkę portali; `status` = ostatnie zlecenie. */
 export interface AdJjitApi {
@@ -376,10 +418,33 @@ function normalize(data: unknown): JobAdState {
     pracuj_request: d.pracuj_request ?? null,
     jjit_api: d.jjit_api ?? null,
     can_mark_publications: d.can_mark_publications === true,
+    pracuj_ads: {
+      paired: Array.isArray(d.pracuj_ads?.paired) ? d.pracuj_ads.paired : [],
+      options: Array.isArray(d.pracuj_ads?.options) ? d.pracuj_ads.options : [],
+      last_import_at: d.pracuj_ads?.last_import_at ?? null,
+    },
   };
 }
 
 export const jobAdApi = {
+  pairPracujAd: async (jobId: number, strefaId: string): Promise<PracujPairResult> => {
+    const res = await api.put<PracujPairResult>(
+      `/api/jobs/${jobId}/portal-ad/pracuj-ads/${encodeURIComponent(strefaId)}`,
+      undefined,
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
+    );
+    return res.data;
+  },
+  unpairPracujAd: async (jobId: number, strefaId: string): Promise<void> => {
+    await api.delete(`/api/jobs/${jobId}/portal-ad/pracuj-ads/${encodeURIComponent(strefaId)}`);
+  },
+  pracujUnpaired: async (): Promise<PracujQueueItem[]> => {
+    const res = await api.get<{ items?: PracujQueueItem[] }>("/api/job-ads/pracuj-unpaired");
+    return Array.isArray(res.data?.items) ? res.data.items : [];
+  },
+  markPracujInternal: async (strefaId: string): Promise<void> => {
+    await api.put(`/api/job-ads/pracuj-ads/${encodeURIComponent(strefaId)}/internal`);
+  },
   get: async (jobId: number): Promise<JobAdState> => {
     const res = await api.get(`/api/jobs/${jobId}/portal-ad`);
     return normalize(res.data);

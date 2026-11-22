@@ -34,6 +34,7 @@ import {
   type PracujRequest,
 } from "@/lib/api/jobAd";
 import { pendingActionLabel } from "@/lib/api/jobPortals";
+import { PracujAdPairing } from "@/components/v2/job-ad/PracujAdPairing";
 import { copyHtmlToClipboard } from "@/lib/clipboard";
 import { cn, formatDate } from "@/lib/utils";
 
@@ -501,6 +502,14 @@ export function AdPublications({
                 </form>
               ) : null}
               {!active && !viaApi ? renderExtra?.(key) : null}
+              {key === "pracuj" ? (
+                <PracujAdPairing
+                  jobId={jobId}
+                  panel={state.pracuj_ads}
+                  canPair={canMark}
+                  jobClosed={jobClosed}
+                />
+              ) : null}
             </li>
           );
         })}

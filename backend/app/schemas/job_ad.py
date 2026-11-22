@@ -292,6 +292,54 @@ class AdJjitApi(BaseModel):
     career_required: bool = True
 
 
+class PracujAdRead(BaseModel):
+    """Ogłoszenie ze strefy Pracuj.pl (23.11.2026, ``services/pracuj_ads``)."""
+
+    strefa_id: str
+    title: str
+    # Liczba z listy strefy (wszystkie aplikacje na ogłoszenie).
+    applications: int = 0
+    # Aplikacje, które import przekazał do NEXUSA (z nich karty w „Nowi”).
+    logged_applications: int = 0
+    first_seen_at: datetime
+    last_seen_at: datetime
+    # Ostatni bieg importu widział je w strefie.
+    live: bool = True
+    # Tytuł pasuje do rekrutacji — podpowiedź, nie decyzja.
+    suggested: bool = False
+    paired_at: Optional[datetime] = None
+
+
+class PracujAdsPanel(BaseModel):
+    paired: list[PracujAdRead] = Field(default_factory=list)
+    options: list[PracujAdRead] = Field(default_factory=list)
+    last_import_at: Optional[datetime] = None
+
+
+class PracujPairResponse(BaseModel):
+    strefa_id: str
+    added: int = 0
+    already: int = 0
+    skipped: int = 0
+    job_not_open: bool = False
+
+
+class PracujQueueSuggestion(BaseModel):
+    job_id: int
+    title: str
+    delivery_lead_name: Optional[str] = None
+
+
+class PracujQueueItem(PracujAdRead):
+    suggestions: list[PracujQueueSuggestion] = Field(default_factory=list)
+    more_suggestions: int = 0
+
+
+class PracujQueueResponse(BaseModel):
+    items: list[PracujQueueItem]
+    last_import_at: Optional[datetime] = None
+
+
 class JobAdResponse(BaseModel):
     ad: Optional[AdRead] = None
     career: AdCareerState = Field(default_factory=AdCareerState)
@@ -310,6 +358,8 @@ class JobAdResponse(BaseModel):
     jjit_api: Optional[AdJjitApi] = None
     # Oznaczanie portali: DL rekrutacji, Head of Recruitment, admin (08.11.2026).
     can_mark_publications: bool = False
+    # Ogłoszenia ze strefy Pracuj.pl: połączone i do wyboru (23.11.2026).
+    pracuj_ads: Optional[PracujAdsPanel] = None
 
 
 class CareerQueueItem(BaseModel):

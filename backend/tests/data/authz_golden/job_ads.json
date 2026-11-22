@@ -31,11 +31,14 @@
   "back_office"
  ],
  "routes": {
+  "DELETE /api/job-ads/pracuj-ads/{strefa_id}/internal": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "DELETE /api/jobs/{job_id}/portal-ad/pracuj-ads/{strefa_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "DELETE /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "DELETE /api/jobs/{job_id}/portal-ad/skips/{channel}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "GET /api/job-ads/career-queue": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "GET /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
   "GET /api/job-ads/missing": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/job-ads/pracuj-unpaired": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "GET /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "POST /api/jobs/{job_id}/portal-ad/career": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/jobs/{job_id}/portal-ad/generate": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
@@ -44,7 +47,9 @@
   "POST /api/jobs/{job_id}/portal-ad/pracuj-mail/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/jobs/{job_id}/portal-ad/remind": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "PUT /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "PUT /api/job-ads/pracuj-ads/{strefa_id}/internal": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "PUT /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/jobs/{job_id}/portal-ad/pracuj-ads/{strefa_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "PUT /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "PUT /api/jobs/{job_id}/portal-ad/skips/{channel}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }

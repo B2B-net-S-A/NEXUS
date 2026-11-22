@@ -54,7 +54,7 @@ from app.models.m365 import M365Connection
 from app.models.job_posting import JobPosting, Portal
 from app.models.job_public_profile import JobPublicProfile
 from app.models.notification import NotificationType
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.job_ad import (
     AdCareerRequest,
     AdJjitApi,
@@ -72,10 +72,13 @@ from app.schemas.job_ad import (
     PracujMailPreview,
     PracujMailPreviewRequest,
     PracujMailRequest,
+    PracujAdsPanel,
+    PracujPairResponse,
+    PracujQueueResponse,
     PracujRequestRead,
 )
 from app.schemas.job_ad_publication import AdPortal, AdPublishRequest
-from app.services import job_portals
+from app.services import job_portals, pracuj_ads
 from app.services import job_public_profile as jpp
 from app.services.job_ad import (
     career,
@@ -158,6 +161,7 @@ async def _response(
         "pracuj_request": await _pracuj_request(db, job.id),
         "jjit_api": await _jjit_api(db, job.id),
         "can_mark_publications": await _can_mark(db, job, user_id),
+        "pracuj_ads": PracujAdsPanel(**await pracuj_ads.panel_for_job(db, job)),
     }
     if ad is None:
         return JobAdResponse(**base)
@@ -912,6 +916,138 @@ async def get_missing_ads(
             for s in statuses
         ]
     )
+
+
+# ── Ogłoszenia ze strefy Pracuj.pl ↔ rekrutacja (23.11.2026) ────────────────
+
+
+@router.put(
+    "/jobs/{job_id}/portal-ad/pracuj-ads/{strefa_id}",
+    response_model=PracujPairResponse,
+)
+async def pair_pracuj_ad(
+    job_id: int,
+    strefa_id: str,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> PracujPairResponse:
+    """To ogłoszenie ze strefy należy do tej rekrutacji — i zaległe do „Nowi”.
+
+    Wybiera człowiek (DL rekrutacji, HoR, admin), bo tytuły ogłoszeń się
+    powtarzają. ``services/pracuj_ads``.
+    """
+    from app.services.pipeline_realtime import broadcast_pipeline_changed  # noqa: PLC0415
+
+    job = await _load_job(db, current_user, job_id)
+    _require_can_mark(current_user, job)
+    if not pracuj_ads.valid_strefa_id(strefa_id):
+        raise HTTPException(
+            status_code=404, detail="Nie ma takiego ogłoszenia z Pracuj.pl."
+        )
+    try:
+        result = await pracuj_ads.pair(
+            db, job=job, strefa_id=strefa_id, user=current_user
+        )
+    except pracuj_ads.AdNotFound:
+        raise HTTPException(
+            status_code=404,
+            detail="Nie ma takiego ogłoszenia z Pracuj.pl — import go jeszcze nie widział.",
+        )
+    except pracuj_ads.AdTaken as taken:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "pracuj_ad_taken",
+                "message": (
+                    f"To ogłoszenie jest już połączone z rekrutacją „{taken.job_title}”. "
+                    "Odłącz je tam, jeśli to pomyłka."
+                ),
+                "job_id": taken.job_id,
+            },
+        )
+    await db.commit()
+    if result.added:
+        await broadcast_pipeline_changed(db, job.id, None)
+        await pracuj_ads.notify_backfill(db, job_id=job.id, added=result.added)
+    return PracujPairResponse(
+        strefa_id=result.strefa_id,
+        added=result.added,
+        already=result.already,
+        skipped=result.skipped,
+        job_not_open=result.job_not_open,
+    )
+
+
+@router.delete("/jobs/{job_id}/portal-ad/pracuj-ads/{strefa_id}", status_code=204)
+async def unpair_pracuj_ad(
+    job_id: int,
+    strefa_id: str,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Odłącz ogłoszenie. Karty, które już powstały, zostają."""
+    job = await _load_job(db, current_user, job_id)
+    _require_can_mark(current_user, job)
+    if not await pracuj_ads.unpair(db, job=job, strefa_id=strefa_id):
+        raise HTTPException(
+            status_code=404, detail="To ogłoszenie nie jest połączone z tą rekrutacją."
+        )
+    await db.commit()
+
+
+@router.get("/job-ads/pracuj-unpaired", response_model=PracujQueueResponse)
+async def get_pracuj_unpaired(
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> PracujQueueResponse:
+    """Ogłoszenia na Pracuj.pl bez rekrutacji w NEXUSIE (kolejka braków).
+
+    Pusta lista dla osoby, która nie łączy ogłoszeń (rekruter): przypisać może
+    tylko DL rekrutacji, Head of Recruitment albo admin.
+    """
+    if not current_user.has_any_role(
+        UserRole.head_of_recruitment, UserRole.admin, UserRole.delivery_lead
+    ):
+        return PracujQueueResponse(items=[])
+    return PracujQueueResponse(**await pracuj_ads.unpaired_queue(db))
+
+
+async def _set_internal(
+    db: AsyncSession, current_user: User, strefa_id: str, internal: bool
+) -> None:
+    if not current_user.has_any_role(
+        UserRole.head_of_recruitment, UserRole.admin, UserRole.delivery_lead
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Ogłoszenia na portalach prowadzi Delivery Lead, Head of Recruitment albo admin.",
+        )
+    if not await pracuj_ads.mark_internal(
+        db, strefa_id=strefa_id, user=current_user, internal=internal
+    ):
+        raise HTTPException(
+            status_code=404, detail="Nie ma takiego ogłoszenia z Pracuj.pl."
+        )
+    await db.commit()
+
+
+@router.put("/job-ads/pracuj-ads/{strefa_id}/internal", status_code=204)
+async def mark_pracuj_ad_internal(
+    strefa_id: str,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """„Rekrutacja wewnętrzna” — ogłoszenie nie dotyczy rekrutacji w NEXUSIE."""
+    await _set_internal(db, current_user, strefa_id, True)
+
+
+@router.delete("/job-ads/pracuj-ads/{strefa_id}/internal", status_code=204)
+async def unmark_pracuj_ad_internal(
+    strefa_id: str,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await _set_internal(db, current_user, strefa_id, False)
 
 
 # ── Pracuj.pl mailem do opiekuna (27.10.2026) ────────────────────────────────

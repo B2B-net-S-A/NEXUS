@@ -34,6 +34,7 @@
   "GET /api/candidates/{candidate_id}/sources": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/reports/sources": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "POST /api/candidates/{candidate_id}/portal-application": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
-  "POST /api/candidates/{candidate_id}/sources": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
+  "POST /api/candidates/{candidate_id}/sources": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/portal-ads/pracuj": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

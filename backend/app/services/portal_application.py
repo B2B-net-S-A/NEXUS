@@ -45,7 +45,15 @@ logger = logging.getLogger(__name__)
 #: ogłoszenie rozpoznajemy wyłącznie po id z publikacji przez API.
 PORTALS = {"justjoinit": Portal.justjoinit, "rocketjobs": Portal.rocketjobs}
 _PUBLICATION_PORTAL = {"justjoinit": "jjit"}
-_PORTAL_LABEL = {"justjoinit": "JustJoin.IT", "rocketjobs": "RocketJobs"}
+_PORTAL_LABEL = {
+    "justjoinit": "JustJoin.IT",
+    "rocketjobs": "RocketJobs",
+    "pracuj": "Pracuj.pl",
+}
+#: Pracuj.pl (23.11.2026): numer ogłoszenia ze strefy pracodawcy, rekrutację
+#: wybiera Delivery Lead (``services/pracuj_ads``) — nie ma API ani linku,
+#: z którego dałoby się ją wyliczyć.
+PRACUJ = "pracuj"
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,299}$")
 
 
@@ -83,6 +91,10 @@ async def resolve_job_id(
     db: AsyncSession, *, portal: str, ad_id: str, ad_slug: Optional[str]
 ) -> Optional[int]:
     """Rekrutacja ogłoszenia: najpierw id z publikacji przez API, potem slug."""
+    if portal == PRACUJ:
+        from app.services import pracuj_ads  # noqa: PLC0415
+
+        return await pracuj_ads.job_for_ad(db, ad_id)
     job_id = await db.scalar(
         select(JobPosting.job_id)
         .where(JobPosting.portal == PORTALS[portal], JobPosting.external_id == ad_id)
@@ -165,6 +177,16 @@ async def place_application(
         portal_application_entry_meta,
     )
 
+    if portal == PRACUJ:
+        from app.services import pracuj_ads  # noqa: PLC0415
+
+        await pracuj_ads.record_application(
+            db,
+            strefa_id=ad_id,
+            candidate_id=candidate_id,
+            applied_at=applied_at,
+            ad_title=ad_title,
+        )
     job_id = await resolve_job_id(db, portal=portal, ad_id=ad_id, ad_slug=ad_slug)
     if job_id is None:
         return PortalApplicationResult(outcome="no_job")

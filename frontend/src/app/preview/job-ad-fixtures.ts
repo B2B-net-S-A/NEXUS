@@ -344,6 +344,7 @@ export function stateOf(
     pracuj_request: null,
     jjit_api: patch.jjit_api ?? null,
     can_mark_publications: true,
+    pracuj_ads: { paired: [], options: [], last_import_at: null },
   };
 }
 
@@ -362,6 +363,7 @@ function initial(state: HarnessState): JobAdState {
       pracuj_request: null,
       jjit_api: null,
       can_mark_publications: true,
+      pracuj_ads: { paired: [], options: [], last_import_at: null },
     };
   }
   if (state === "published") {

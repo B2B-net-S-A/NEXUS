@@ -77,6 +77,7 @@ const JOB_AD: JobAdState = {
   rendered: null,
   can_copy: true,
   can_mark_publications: true,
+  pracuj_ads: { paired: [], options: [], last_import_at: null },
   publications: [
     {
       portal: "pracuj",

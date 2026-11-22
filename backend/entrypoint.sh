@@ -1233,6 +1233,16 @@ except Exception as _cv_layout_err:  # noqa: BLE001
     print(f"cv layout DDL unavailable: {_cv_layout_err!r}")
     _CV_LAYOUT_DDL = []
 
+# Ogłoszenia ze strefy Pracuj.pl i aplikacje na nie (migracja 0754) — JEDNO
+# źródło z migracją (`app/services/pracuj_ad_schema.py`).
+try:
+    from app.services import pracuj_ad_schema as _pracuj_ad_schema
+
+    _PRACUJ_ADS_DDL = list(_pracuj_ad_schema.ALL_DDL)
+except Exception as _pracuj_ads_err:  # noqa: BLE001
+    print(f"pracuj ads DDL unavailable: {_pracuj_ads_err!r}")
+    _PRACUJ_ADS_DDL = []
+
 # Pula dopełniania „Nowych” (migracja 0513) — JEDNO źródło z migracją
 # (`app/services/job_autofill_pool_schema.py`).
 try:
@@ -1651,6 +1661,7 @@ _COLUMN_STATEMENTS = [
     *_PREP_REVIEW_CONFIG_DDL,
     *_AUTOFILL_POOL_DDL,
     *_CV_LAYOUT_DDL,
+    *_PRACUJ_ADS_DDL,
     *_CONVERSATION_FACTS_DDL,
     *_AUTOFILL_FEEDBACK_DDL,
     *_JOB_ROLE_PROFILE_DDL,

@@ -94,6 +94,8 @@ OAUTH_ROUTE_RESOURCES: dict[str, RouteResources] = {
     # 06.11.2026: aplikacja z formularza JustJoin.IT do rekrutacji ogłoszenia
     # (``services/portal_application``) — import z panelu pracodawcy.
     "/api/candidates/{candidate_id}/portal-application": {"POST": ("candidate",)},
+    # 23.11.2026: lista ogłoszeń ze strefy Pracuj.pl (``services/pracuj_ads``).
+    "/api/portal-ads/pracuj": {"PUT": ("candidate",)},
 }
 
 

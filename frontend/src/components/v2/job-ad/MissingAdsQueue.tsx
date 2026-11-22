@@ -29,8 +29,11 @@ import { cn, formatDate } from "@/lib/utils";
 
 import type { JobAdWindowApi } from "./JobAdWindow";
 import { ownersText } from "./AdReminderControls";
+import { PracujUnpairedAds, type PracujUnpairedApi } from "./PracujUnpairedAds";
 
-export type MissingAdsQueueApi = Pick<typeof jobAdApi, "missing"> & JobAdWindowApi;
+export type MissingAdsQueueApi = Pick<typeof jobAdApi, "missing"> &
+  JobAdWindowApi &
+  Partial<PracujUnpairedApi>;
 
 // Kolejność jak w mailu: najpierw portale, potem strona kariery.
 const FOCUS_ORDER: readonly AdChannel[] = ["jjit", "pracuj", "kariera"];
@@ -113,6 +116,8 @@ export function MissingAdsQueue({ api = jobAdApi }: { api?: MissingAdsQueueApi }
 
   return (
     <div className="flex flex-col gap-4" data-testid="missing-ads-queue">
+      {/* Harness i testy podają własne api bez tej listy — wtedy sekcji nie ma. */}
+      {"pracujUnpaired" in api ? <PracujUnpairedAds api={api as PracujUnpairedApi} /> : null}
       <div role="group" aria-label="Zakres" className="flex flex-wrap gap-1">
         <Button
           type="button"
