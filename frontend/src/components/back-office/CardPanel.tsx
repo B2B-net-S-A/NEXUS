@@ -36,6 +36,7 @@ import { cn } from "@/lib/utils";
 
 import { COLUMN_LABELS, amountLabel, columnOf, formatDay } from "./board-model";
 import { CardDocuments } from "./CardDocuments";
+import { CardSettlementExtras } from "./CardSettlementExtras";
 import { ACTION_LABELS, DueChip, LabelChip, labelText } from "./CardTile";
 import { OutsideDialog } from "./OutsideDialog";
 import { ReasonDialog } from "./ReasonDialog";
@@ -58,6 +59,7 @@ const EVENT_LABELS: Record<string, string> = {
   dismissed: "„Nie dotyczy”",
   moved: "przeniósł(a) kartę",
   note: "notatka",
+  settlement_extra: "zgłosił(a) dodatek do rozliczenia",
   reviewed: "przegląd przed startem",
   routed: "Rozdzielona przez reguły",
   triaged: "Do rozdzielenia u kierownika",
@@ -195,6 +197,9 @@ export function CardPanel({ cardId, board, commands, onClose, onOpenCard }: Card
                 {amount ? <Badge variant="neutral">Razem {amount}</Badge> : null}
               </div>
               {card.source_kind === "document" ? <CardDocuments cardId={card.id} /> : null}
+              {card.source_kind === "case" ? (
+                <CardSettlementExtras cardId={card.id} today={board.today} canAdd={own || mine} />
+              ) : null}
               {card.priority ? (
                 <p className="text-sm text-muted-foreground">
                   Ostatnio rozmawiał(a): {card.priority.name ?? "inna osoba"}

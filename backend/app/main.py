@@ -4241,6 +4241,7 @@ async def api_health_deep_check(request: Request):
         ClientSettlementExtra,
         ClientSettlementRuleSet,
     )
+    from app.models.client_settlement_extra import ClientSettlementExtraDocument
     from app.models.client_time_report import (
         ClientExternalId,
         ClientTimeReport,
@@ -4939,6 +4940,8 @@ async def api_health_deep_check(request: Request):
         ("client_settlement_rule_sets", ClientSettlementRuleSet),
         ("client_contractor_invoices", ClientContractorInvoice),
         ("client_settlement_extras", ClientSettlementExtra),
+        # 0751: pliki dodatków do rozliczenia kontraktora.
+        ("client_settlement_extra_documents", ClientSettlementExtraDocument),
         # 0689: rozliczenia Nordei N1 — kartoteka i wersje raportu T4T.
         ("client_external_ids", ClientExternalId),
         ("client_time_reports", ClientTimeReport),

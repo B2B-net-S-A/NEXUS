@@ -41,6 +41,7 @@ from app.services import board_meetings_schema as board_meetings
 from app.services import board_votes_schema as board_votes
 from app.services import board_reports_schema as board_reports
 from app.services import client_settlements_schema as client_settlements
+from app.services import client_settlement_extras_schema as settlement_extras
 from app.services import client_structure_schema as client_structure
 from app.services import client_time_reports_schema as client_time_reports
 from app.services import client_reports_schema as client_reports
@@ -196,6 +197,8 @@ MODULES = (
     client_invoice_collective_correction,
     # 0750: kolejka odczytów CV wsadem (Message Batches API, 22.11.2026).
     cv_parse_batch,
+    # 0751: dodatki do rozliczenia kontraktora — źródła, karta sprawy, dokumenty (13.11.2026).
+    settlement_extras,
 )
 
 COLUMN_DDL: tuple[str, ...] = (
