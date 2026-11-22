@@ -16,8 +16,10 @@ name: Queue failure feedback
 #
 # Czerwone E2E w kolejce nie wyrzuca PR-a (nie jest wymaganym kontekstem), więc
 # ma własny status „E2E w kolejce” i własny komentarz, które mówią, że PR wejdzie
-# na main, jeśli sesja nic nie zrobi. Bez tego zepsute harnessy z 27.10.2026
-# (#2692, #2732) widać by było dopiero nocą.
+# na main, jeśli sesja nic nie zrobi. Od 22.11.2026 dotyczy to tylko scenariuszy
+# `@stack` (`ci-chromium`). Harnessy `/preview/*` biegną w kolejce w CI pod
+# „Frontend (typecheck + build)”: ich czerwień wyrzuca PR i trafia do statusu
+# „Kolejka merge'ów” z listą testów Playwrighta z logu joba.
 #
 # `workflow_run` biegnie z definicji z maina i robi checkout maina — kod
 # z gałęzi kolejki nie jest tu wykonywany. Do ręcznej próby / uzupełnienia:

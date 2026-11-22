@@ -632,7 +632,8 @@ const PUBLIC_EXACT_PATHS = ["/kariera", "/konsultant", "/wtyczka/prywatnosc"];
  * Runda 10 (R10-N10-1): harnessy `/preview/*` są publiczne wyłącznie poza
  * buildem produkcyjnym (`next dev`, vitest) albo przy jawnej fladze builda
  * `NEXT_PUBLIC_PREVIEW_PUBLIC=1` (stack E2E w `docker-compose.e2e.yml`, na nim
- * chodzi nocny `preview-chromium`). Do 27.09.2026 każdy bez sesji oglądał
+ * chodzi nocny `preview-chromium`, i drugi build w kolejce merge'ów w `ci.yml`,
+ * na którym harnessy są bramką scalenia). Do 27.09.2026 każdy bez sesji oglądał
  * nazwiska, klientów i stawki z danych harnessów. Od 08.11.2026 obraz
  * produkcyjny w ogóle nie ma tych stron (`frontend/Dockerfile`), a to sprawdzenie
  * zostaje jako druga warstwa. Czytane przy wywołaniu (nie stała modułu), żeby

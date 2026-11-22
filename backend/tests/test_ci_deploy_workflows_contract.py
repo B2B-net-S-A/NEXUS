@@ -1030,31 +1030,57 @@ def test_queue_failure_feedback_reports_ejected_merge_group_runs() -> None:
     )
 
 
-def test_preview_harnesses_run_in_queue_when_group_touches_frontend() -> None:
-    """27.10.2026 #2692 i #2732 zepsuły testy harnessów, a krok był w kolejce
-    wyłączony: zielona kolejka, 5 czerwonych nocy (#2745). Filtr ma złapać obie
-    zmiany i odpuścić grupę bez frontendu (102 z 361 grup z 26.10–02.11)."""
-    steps = _load("e2e.yml")["jobs"]["stack"]["steps"]
-    scope = _step(steps, "Czy grupa dotyka frontendu?")
+def test_preview_harnesses_gate_the_merge_queue() -> None:
+    """22.11.2026 (wariant „Bramka”): harnessy w `e2e.yml` nie blokowały
+    scalenia i 75 z 111 prawdziwych czerwieni E2E z 03–22.11 weszło na `main`
+    (lista kandydatów #3101→#3114, scroll przy 360 px do #3201). Teraz biegną
+    w kolejce w jobie, z którego `frontend-gate` robi wymagany kontekst."""
+    ci = _load("ci.yml")
+    jobs = ci["jobs"]
+    assert "frontend-lint-build" in jobs["frontend-gate"]["needs"]
+    steps = jobs["frontend-lint-build"]["steps"]
+    names = [s.get("name") for s in steps]
+
+    build = _step(steps, "Build z harnessami /preview/* (NEXT_PUBLIC_PREVIEW_PUBLIC=1)")
+    assert build["env"]["NEXT_PUBLIC_PREVIEW_PUBLIC"] == "1"
+    assert "git checkout -- src/app/preview" in build["run"]
+    harness = _step(steps, "Harnessy /preview/* — preview-chromium (Playwright)")
+    assert "--project=preview-chromium" in harness["run"]
+    for step in (build, harness):
+        assert step["if"] == "steps.preview-scope.outputs.run == 'true'"
+    # Build produkcyjny (bez harnessów) i Poligon idą pierwsze.
+    assert names.index("Build") < names.index("Poligon NEXUSA — cała ścieżka onboardingu (Playwright)")
+    assert names.index("Poligon NEXUSA — cała ścieżka onboardingu (Playwright)") < names.index(build["name"])
+    assert "rm -rf src/app/preview" in _step(steps, "Build")["run"]
+
+    scope = _step(steps, "Czy wpis kolejki dotyka frontendu? (harnessy)")
     assert scope["id"] == "preview-scope"
+    assert "github.event_name != 'pull_request'" in scope["if"]
     assert "github.event.merge_group.base_sha" in scope["env"]["BASE_SHA"]
-
-    preview = _step(steps, "Playwright — harnessy /preview/* (preview-chromium)")
-    condition = preview["if"]
-    assert "github.event_name != 'merge_group'" in condition
-    assert "steps.preview-scope.outputs.run == 'true'" in condition
-
     pattern = re.search(r"grep -E '([^']+)'", scope["run"]).group(1)
     for touched in (
         "frontend/src/components/v2/request-board/RequestBoardFilters.tsx",  # #2692
         "frontend/src/components/QueryProvider.tsx",  # #2732
         "frontend/e2e/responsive-preview.spec.ts",
-        "docker-compose.e2e.yml",
-        ".github/workflows/e2e.yml",
+        ".github/workflows/ci.yml",
     ):
         assert re.search(pattern, touched), touched
     for untouched in ("backend/app/main.py", "docs/claude/podstawy/ci-gotchas.md"):
         assert not re.search(pattern, untouched), untouched
+
+    # Awaria CDN Chromium (17 biegów 11.11.2026) nie może zatrzymać kolejki.
+    install = _step(steps, "Chromium dla Playwrighta (z ponowieniami)")
+    assert "for attempt in 1 2 3" in install["run"]
+    assert "apt_mirror_fallback.sh" in install["run"]
+    assert names.index(install["name"]) < names.index("Poligon NEXUSA — cała ścieżka onboardingu (Playwright)")
+    installs = [s["name"] for s in steps if "playwright install" in str(s.get("run", ""))]
+    assert installs == [install["name"]], installs
+
+    # W kolejce harnessy biegną raz: `e2e.yml` zostawia je na noc i bieg ręczny.
+    e2e_steps = _load("e2e.yml")["jobs"]["stack"]["steps"]
+    e2e_preview = _step(e2e_steps, "Playwright — harnessy /preview/* (preview-chromium)")
+    assert e2e_preview["if"] == "${{ github.event_name != 'merge_group' }}"
+    assert "preview-scope" not in str(e2e_steps)
 
 
 # ── Runda 6 audytu (26.09.2026) — artefakty biegów przeciw produkcji ──────
