@@ -5,9 +5,6 @@ import {
   COOKIE_SESSION,
   dropLegacyAccessToken,
   endServerSession,
-  isCookieSession,
-  storeLegacyAccessToken,
-  writeAuthCookie,
 } from "@/lib/session"
 import {
   hasPermission,
@@ -636,7 +633,7 @@ export function canViewClientFinance(
 interface AuthState {
   user: User | null
   /** Uchwyt sesji: `COOKIE_SESSION` (ciasteczko HttpOnly, JS nie zna tokenu)
-   *  albo JWT starej ścieżki (bezpiecznik na API sprzed ciasteczka). */
+   *  albo `null`. Od 22.11.2026 nigdy JWT — stara ścieżka usunięta. */
   token: string | null
   /** Admin „podgląd jako użytkownik": gdy aktywny, ``user`` to user podglądany,
    *  a ``realUser`` to zalogowany admin (do przywrócenia i do baneru).
@@ -646,7 +643,8 @@ interface AuthState {
   hydrated: boolean
   /** Ładuje user + token z localStorage. Wołać raz w root provider. */
   hydrate: () => void
-  setAuth: (user: User, token: string) => void
+  /** Zapisz potwierdzoną (`GET /api/auth/me`) sesję z ciasteczka HttpOnly. */
+  setAuth: (user: User) => void
   /** Nadpisuje zapamiętany profil świeżą odpowiedzią `GET /api/auth/me`.
    *
    *  Uprawnienia nadane przez admina (rola, `allowed_sections`, imienne
@@ -688,8 +686,7 @@ function readInitialToken(): string | null {
   // że jest, mówi zapamiętany profil. Bramka routingu i 401 z API pilnują,
   // czy ciasteczko jeszcze żyje.
   return (
-    safeGet("access_token") ??
-    (safeGet(USER_STORAGE_KEY) ? COOKIE_SESSION : null)
+    safeGet(USER_STORAGE_KEY) ? COOKIE_SESSION : null
   )
 }
 
@@ -841,23 +838,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       hydrated: true,
     })
   },
-  setAuth: (user, token) => {
-    if (isCookieSession(token)) {
-      // Token żyje wyłącznie w ciasteczku HttpOnly z API — w JS nic nie
-      // zapisujemy, a resztki starej ścieżki sprzątamy.
-      dropLegacyAccessToken()
-    } else {
-      // Bezpiecznik: API sprzed ciasteczka (front wdrożony przed backendem).
-      storeLegacyAccessToken(token)
-      writeAuthCookie(token)
-    }
+  setAuth: (user) => {
+    // Token żyje wyłącznie w ciasteczku HttpOnly z API — w JS nic nie
+    // zapisujemy, a resztki starej ścieżki sprzątamy.
+    dropLegacyAccessToken()
     // Świeży login zawsze kończy ewentualny stan podglądu (defensywnie).
     clearImpersonation()
     // Backfill roles for fresh logins where the API response predates
     // migration 0110 (cached at the edge or old build still up).
     const safe = withStoredRoles(user)
     persistUser(safe)
-    set({ user: safe, token, realUser: null, hydrated: true })
+    set({ user: safe, token: COOKIE_SESSION, realUser: null, hydrated: true })
   },
   syncUser: (user) => {
     const current = get().user

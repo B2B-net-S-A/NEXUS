@@ -75,7 +75,7 @@ export function OnboardingDLV2() {
  },
  onSuccess: (refreshedUser) => {
  if (!token) return
- setAuth(refreshedUser, token)
+ setAuth(refreshedUser)
  // Auto-dismiss the old tutorial walkthrough so it does not pile on top.
  markOnboardingCompleted()
  router.replace("/")

@@ -83,7 +83,6 @@ import {
   type ChatBusEvent,
   type ChatNotifyEvent,
 } from "@/types/job-chat";
-import { isCookieSession } from "@/lib/session";
 
 /** Ruch zespołu na tablicy rekrutacji przychodzi jako `pipeline_changed`.
  *  Ruch zbiorczy potrafi wysłać serię zdarzeń tej samej rekrutacji w ciągu
@@ -263,19 +262,14 @@ export function useNotifications({
       wsRef.current = null;
     }
 
-    // Carry the JWT on the WS subprotocol instead of the query string so it
-    // never lands in access/proxy/trace logs (P1-WS-01). The server reads the
-    // token from the second offered subprotocol and echoes the "access_token"
-    // sentinel back as the negotiated subprotocol.
+    // Sesja w ciasteczku HttpOnly: przeglądarka dokleja je do handshake'u
+    // sama, a API sprawdza Origin (`backend/app/api/ws.py`). Tokenu w JS nie
+    // ma (stara ścieżka z podprotokołem usunięta 22.11.2026).
     const url = `${WS_BASE}/ws/notifications`;
     let ws: WebSocket;
 
     try {
-      // Sesja w ciasteczku HttpOnly: przeglądarka dokleja je do handshake'u
-      // sama, a API sprawdza Origin (`backend/app/api/ws.py`).
-      ws = isCookieSession(token)
-        ? new WebSocket(url)
-        : new WebSocket(url, ["access_token", token]);
+      ws = new WebSocket(url);
     } catch {
       // WebSocket not supported or URL invalid — fall back to polling
       startPolling();

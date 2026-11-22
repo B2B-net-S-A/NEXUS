@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from jose import JWTError
 from uvicorn.protocols.utils import ClientDisconnected
 from sqlalchemy import select
@@ -450,22 +450,19 @@ async def _stamp_last_seen(user_id: int) -> None:
 _WS_TOKEN_SUBPROTOCOL = "access_token"
 
 
-def _extract_ws_token(
-    websocket: WebSocket, query_token: Optional[str]
-) -> Tuple[Optional[str], Optional[str]]:
-    """Resolve the WS auth token, preferring the subprotocol over the query string.
+def _extract_ws_token(websocket: WebSocket) -> Tuple[Optional[str], Optional[str]]:
+    """Resolve a WS auth token offered on the subprotocol.
 
     NEXUS-P1-WS-01: a JWT in the ``?token=`` query string leaks into access /
-    proxy / trace logs. The client instead offers two subprotocols —
+    proxy / trace logs. Non-browser clients offer two subprotocols —
     ``[_WS_TOKEN_SUBPROTOCOL, "<jwt>"]`` — so the token rides an ``Upgrade``
-    request header that is not logged as a URL. We read it from there and echo
-    the sentinel as the accepted subprotocol.
+    request header that is not logged as a URL; we echo the sentinel as the
+    accepted subprotocol. Przeglądarka nie zna tokenu (sesja w ciasteczku
+    HttpOnly), a tymczasowy fallback ``?token=`` usunięto 22.11.2026 — token
+    z URL-a jest ignorowany.
 
-    Returns ``(token, accepted_subprotocol)``. ``accepted_subprotocol`` is the
-    sentinel only when the token actually came from the subprotocol (so it can be
-    echoed on accept); it is ``None`` on the legacy query-param fallback, where no
-    subprotocol must be echoed. The ``?token=`` path is retained as a temporary
-    rollout fallback so in-flight clients on the old bundle keep working.
+    Returns ``(token, accepted_subprotocol)``; both ``None`` when no token was
+    offered on the subprotocol.
     """
     subprotocols = list(websocket.scope.get("subprotocols") or [])
     if _WS_TOKEN_SUBPROTOCOL in subprotocols:
@@ -475,7 +472,7 @@ def _extract_ws_token(
             token = subprotocols[idx + 1]
             if token:
                 return token, _WS_TOKEN_SUBPROTOCOL
-    return query_token, None
+    return None, None
 
 
 def _ws_payload_authorizes_user(payload: dict, user: User) -> bool:
@@ -578,22 +575,13 @@ async def _handle_presence_message(user: User, websocket: WebSocket, msg: dict) 
 
 
 @router.websocket("/ws/notifications")
-async def ws_notifications(
-    websocket: WebSocket,
-    token: Optional[str] = Query(
-        None,
-        description=(
-            "JWT access token (legacy fallback; prefer the WS subprotocol "
-            "['access_token', <jwt>] which keeps the token out of URLs/logs)"
-        ),
-    ),
-):
+async def ws_notifications(websocket: WebSocket):
     """
     WebSocket endpoint for real-time notifications + presence.
 
-    Auth: connect with subprotocols ``["access_token", "<jwt>"]`` (preferred —
-    keeps the token off the URL) or, as a temporary rollout fallback, with
-    ``ws://host/ws/notifications?token=<access_token>``.
+    Auth: the browser session cookie (``nexus_access``, Origin from CORS) or,
+    for non-browser clients, subprotocols ``["access_token", "<jwt>"]``.
+    A token in the query string is ignored (removed 22.11.2026).
 
     Events sent to client:
       {type: "notification", data: {id, title, message, link, created_at}}
@@ -606,7 +594,7 @@ async def ws_notifications(
       {type: "presence:unsubscribe", resource_type, resource_id}
       {type: "presence:editing", resource_type, resource_id, field, active}
     """
-    raw_token, accepted_subprotocol = _extract_ws_token(websocket, token)
+    raw_token, accepted_subprotocol = _extract_ws_token(websocket)
     if not raw_token:
         # Sesja przeglądarki w ciasteczku HttpOnly (``core/session_cookie``).
         # Przeglądarka dokleja je do handshake'u z KAŻDEJ strony, a WebSocket
