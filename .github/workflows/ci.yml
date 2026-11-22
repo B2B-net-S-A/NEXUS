@@ -1080,10 +1080,11 @@ jobs:
       # wyżej celowo je usuwa (wykrywa kod produkcyjny zależny od harnessu).
       # Zmierzone 22.11 na biegach kolejki 45044939765, 45044846083,
       # 45041305468: ten job 410–602 s, backend (najdłuższy shard + scalenie
-      # pokrycia) 1650–1850 s, Vitest z pokryciem 1038–1784 s. Build z
-      # harnessami (~4 min) i `preview-chromium` (390–440 s na stacku E2E)
-      # mieszczą się w tym zapasie, więc czas kolejki się nie zmienia, a osobny
-      # job płaciłby drugi raz checkout, setup-node i `npm ci`. Gdy ten job
+      # pokrycia) 1650–1850 s, Vitest z pokryciem 1038–1784 s. Bieg ręczny
+      # 45053010308 z tymi krokami: build z harnessami 249 s, `preview-chromium`
+      # 464 s, job 1355 s; skończył się o 18:27, ostatni shard backendu o 18:37.
+      # Czas kolejki się więc nie zmienia, a osobny job płaciłby drugi raz
+      # checkout, setup-node i `npm ci`. Gdy ten job
       # zacznie kończyć się po backendzie, wydziel kroki do osobnego joba
       # w `needs` bramki `frontend-gate`.
       #
