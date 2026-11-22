@@ -580,7 +580,8 @@ async def _write_pool(
 ) -> None:
     """Dopisz wyniki CV do pul rekrutacji, które już je mają. Dodatek do
     zdarzenia: błąd zostaje w savepoincie i nie cofa propozycji."""
-    from sqlalchemy import func
+    from sqlalchemy import case, cast, func
+    from sqlalchemy.dialects.postgresql import JSONB
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     from app.models.job_autofill_pool import JobAutofillPool
@@ -616,6 +617,9 @@ async def _write_pool(
             if not rows:
                 return
             insert = pg_insert(JobAutofillPool).values(rows)
+            # Nowy wynik osoby dołożonej jako „wysłana wcześniej” nie zdejmuje
+            # z niej flagi — bez niej wpadałaby do 150 i odpadała przy cięciu.
+            keep_flag = JobAutofillPool.evidence["sent_before"].as_boolean().is_(True)
             await db.execute(
                 insert.on_conflict_do_update(
                     index_elements=["job_id", "candidate_id"],
@@ -623,16 +627,29 @@ async def _write_pool(
                         "score": insert.excluded.score,
                         "run_id": insert.excluded.run_id,
                         "cv_revision": insert.excluded.cv_revision,
-                        "evidence": insert.excluded.evidence,
+                        "evidence": case(
+                            (
+                                keep_flag,
+                                insert.excluded.evidence.op("||")(
+                                    cast({"sent_before": True}, JSONB)
+                                ),
+                            ),
+                            else_=insert.excluded.evidence,
+                        ),
                     },
                 )
             )
+            # Cięcie do 150 tylko w zwykłej puli. 22.11.2026: bez tego warunku
+            # każde nowe CV wycinało dołożonych „wysłanych wcześniej” (mają
+            # niższe wyniki) i 27 z 33 pilnych pul nie miało ani jednej takiej
+            # osoby, choć przegląd znalazł ich od 79 do 3 406.
             await db.execute(
                 text(
                     "DELETE FROM job_autofill_pool p USING ("
                     "  SELECT job_id, candidate_id, row_number() OVER ("
                     "    PARTITION BY job_id ORDER BY score DESC, candidate_id"
                     "  ) AS place FROM job_autofill_pool WHERE job_id = ANY(:jobs)"
+                    "  AND (evidence->>'sent_before') IS DISTINCT FROM 'true'"
                     ") r WHERE p.job_id = r.job_id AND p.candidate_id = r.candidate_id "
                     "AND r.place > :size"
                 ),
