@@ -1383,8 +1383,14 @@ def _build_branded_response(
         docx_filename=csv.branded_docx_filename
         if csv.branded_status == "finalized"
         else None,
-        current_filename=csv.branded_docx_filename,
-        pattern_filename=metadata.get(CV_PATTERN_FILENAME_KEY),
+        # Nazwa pliku do klienta: przy „Nowym CV” ten sam wzór z .pdf
+        # (`docx_filename` zostaje nazwą pliku Word — ten jest klasyczny).
+        current_filename=layout_service.filename_for(
+            csv.branded_docx_filename, csv.cv_layout
+        ),
+        pattern_filename=layout_service.filename_for(
+            metadata.get(CV_PATTERN_FILENAME_KEY), csv.cv_layout
+        ),
         edit_revision=csv.edit_revision or 0,
         version=csv.branded_version or 1,
         status=csv.branded_status,  # type: ignore[arg-type]
@@ -2759,10 +2765,14 @@ _CV_FILENAME_FORBIDDEN = re.compile(r'[\x00-\x1f\x7f\\/:*?"<>|]')
 
 
 def clean_cv_filename(raw: str) -> Optional[str]:
-    """Nazwa pliku CV wpisana przez człowieka: ``nazwa.docx`` albo ``None``."""
+    """Nazwa pliku CV wpisana przez człowieka: ``nazwa.docx`` albo ``None``.
+
+    Zapisana nazwa zawsze kończy się ``.docx`` (plik Word); przy „Nowym CV”
+    ekran pokazuje i odsyła ją z ``.pdf`` — obie końcówki odpadają tak samo.
+    """
     stem = _CV_FILENAME_FORBIDDEN.sub("", raw)
     stem = " ".join(stem.split())
-    stem = re.sub(r"\.docx$", "", stem, flags=re.IGNORECASE).strip(" .")
+    stem = re.sub(r"\.(?:docx|pdf)$", "", stem, flags=re.IGNORECASE).strip(" .")
     return f"{stem}.docx" if stem else None
 
 
@@ -2823,7 +2833,10 @@ async def rename_branded_cv(
     )
     await db.commit()
     return CVFilenameResponse(
-        filename=filename, pattern_filename=metadata.get(CV_PATTERN_FILENAME_KEY)
+        filename=layout_service.filename_for(filename, csv.cv_layout),
+        pattern_filename=layout_service.filename_for(
+            metadata.get(CV_PATTERN_FILENAME_KEY), csv.cv_layout
+        ),
     )
 
 
@@ -2843,6 +2856,13 @@ async def draft_docx_for_download(
     samą odmowę: etap bez CV i CV zatwierdzone — 409, brak zrzutu zgody
     RODO — 409 ``consent_required``. Wołający sprawdził dostęp do etapu.
     """
+    await ensure_draft_downloadable(db, csv)
+    docx, _ = await _render_editor_docx(csv, content_html)
+    return docx
+
+
+async def ensure_draft_downloadable(db: AsyncSession, csv: CandidateStageCV) -> None:
+    """Odmowy pobrania szkicu wspólne dla pliku Word i PDF „Nowego CV”."""
     if csv.branded_status == "none":
         raise HTTPException(409, NO_GENERATED_CV_MESSAGE)
     if csv.branded_status != "draft":
@@ -2851,8 +2871,6 @@ async def draft_docx_for_download(
         )
     # DOCX renderuje się z obrazu zgody KOPII etapu (R7-X4-4).
     consent_gate.ensure_copy_downloadable(await _generated_for_stage_cv(db, csv), csv)
-    docx, _ = await _render_editor_docx(csv, content_html)
-    return docx
 
 
 @router.post("/candidates/stages/{stage_id}/cv/branded/preview-docx")

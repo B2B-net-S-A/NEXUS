@@ -2,7 +2,9 @@
 
 /**
  * Nazwa pliku CV do klienta z „Zmień nazwę” — bez pobierania i wgrywania od nowa.
- * Rozszerzenie zostaje .docx, a znaki niedozwolone w nazwie pliku odpadają na serwerze.
+ * Rozszerzenie zostaje to, które przyszło z serwera: .docx, a w układzie „Nowe CV”
+ * .pdf (22.11.2026 — serwer trzyma nazwę Worda i odcina obie końcówki). Znaki
+ * niedozwolone w nazwie pliku odpadają na serwerze.
  */
 
 import { useEffect, useId, useState } from "react";
@@ -15,7 +17,8 @@ import { Input } from "@/components/ui/input";
 import { candidateStageCvApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 
-const stem = (name: string): string => name.replace(/\.docx$/i, "");
+const stem = (name: string): string => name.replace(/\.(?:docx|pdf)$/i, "");
+const extension = (name: string): string => (/\.pdf$/i.test(name) ? ".pdf" : ".docx");
 
 interface CvFileNameRowProps {
   stageId: number;
@@ -43,7 +46,7 @@ export function CvFileNameRow({ stageId, filename, patternFilename, readOnly }: 
   const save = async () => {
     setSaving(true);
     try {
-      const { data } = await candidateStageCvApi.branded.rename(stageId, `${value.trim()}.docx`);
+      const { data } = await candidateStageCvApi.branded.rename(stageId, `${value.trim()}${extension(current)}`);
       setCurrent(data.filename);
       setPattern(data.pattern_filename ?? null);
       setOpen(false);
@@ -88,7 +91,7 @@ export function CvFileNameRow({ stageId, filename, patternFilename, readOnly }: 
               </label>
               <span className="flex items-center gap-1.5">
                 <Input id={inputId} value={value} maxLength={194} onChange={(event) => setValue(event.target.value)} />
-                <span className="text-muted-foreground">.docx</span>
+                <span className="text-muted-foreground">{extension(current)}</span>
               </span>
             </div>
             {pattern && pattern !== current ? (

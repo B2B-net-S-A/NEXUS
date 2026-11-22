@@ -26,6 +26,8 @@
 import { CentralPolicyView, useCentralPolicy } from "./CentralPolicyView";
 // 29.10.2026: wzór „Karty przed CV” jest spoza katalogu zasad centralnych.
 import { CoverSheetTemplateSection } from "./CoverSheetTemplateSection";
+// 22.11.2026: układ CV też jest spoza katalogu — własny zapis przy zasadach centralnych.
+import { CvRuleLayoutSection } from "./CvRuleLayoutField";
 import { Button } from "@/components/ui/button";
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -287,7 +289,7 @@ export function CvRuleEditor({
     }
   };
 
-  if (central.data?.managed) return <div className="space-y-4"><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setTab("settings")}>Zasady i historia CV</Button><Button variant="outline" onClick={() => setTab("playbook")}>Karta klienta</Button></div>{tab === "playbook" ? <CvRulePlaybookTab clientId={clientId} /> : <><CoverSheetTemplateSection clientId={clientId} /><CentralPolicyView clientId={clientId} /></>}</div>;
+  if (central.data?.managed) return <div className="space-y-4"><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setTab("settings")}>Zasady i historia CV</Button><Button variant="outline" onClick={() => setTab("playbook")}>Karta klienta</Button></div>{tab === "playbook" ? <CvRulePlaybookTab clientId={clientId} /> : <><CvRuleLayoutSection clientId={clientId} /><CoverSheetTemplateSection clientId={clientId} /><CentralPolicyView clientId={clientId} /></>}</div>;
   if (central.isLoading) return <p>Ładowanie zasad CV…</p>;
   if (central.isError) return <p>Nie udało się odczytać zasad CV.</p>;
 
@@ -334,6 +336,9 @@ export function CvRuleEditor({
         <div className="flex flex-wrap gap-2">
           <SummaryFact k="Plik" v={summary.file} />
           <SummaryFact k="Język" v={summary.language} />
+          {rule?.new_layout_enabled ? (
+            <SummaryFact k="Układ" v={form.cv_layout === "new" ? "Nowe CV (PDF)" : "Klasyczne (Word)"} />
+          ) : null}
           <SummaryFact k="Tryb" v={summary.mode} />
           <SummaryFact k="Instrukcje AI" v={summary.instructions} />
           <SummaryFact
@@ -353,6 +358,7 @@ export function CvRuleEditor({
                 clientId={clientId}
                 glossaryOptions={rule?.glossary_options ?? []}
                 filenamePreview={!dirty && !rule?.draft_payload ? rule?.filename_preview : null}
+                newLayoutEnabled={rule?.new_layout_enabled === true}
               />
               <div className="rounded-md border border-dashed p-3">
                 <p className="mb-2 text-xs font-medium">Skopiuj regułę z innego klienta</p>

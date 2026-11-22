@@ -13,7 +13,7 @@ vi.mock("@/lib/authenticated-files", () => ({
   postAuthenticatedDownload: (...a: unknown[]) => postAuthenticatedDownload(...a),
 }));
 
-import { fetchStageCvFile } from "@/lib/stage-cv-file";
+import { fetchStageCvFile, fetchStageCvForClient } from "@/lib/stage-cv-file";
 
 describe("fetchStageCvFile — plik CV etapu (runda 7, R7-X4-2)", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -59,5 +59,53 @@ describe("fetchStageCvFile — plik CV etapu (runda 7, R7-X4-2)", () => {
       "/api/candidates/stages/12/cv/branded/preview-docx?intent=download&surface=preview",
       { content_html: "<p>szkic</p>", expected_revision: 2 },
     );
+  });
+});
+
+describe("fetchStageCvForClient — plik do klienta w układzie CV (22.11.2026)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("Nowe CV: zatwierdzona wersja idzie jako PDF tej wersji, nie Word", async () => {
+    get.mockResolvedValue({
+      data: { status: "finalized", version: 4, cv_layout: "new", new_layout_enabled: true },
+    });
+    fetchAuthenticatedDownload.mockResolvedValue({ blob: new Blob(["%PDF"]), filename: "B2B_Tester.pdf" });
+    const file = await fetchStageCvForClient(12, { download: "cpro" });
+    expect(fetchAuthenticatedDownload).toHaveBeenCalledWith(
+      "/api/candidates/stages/12/cv/branded/versions/4/pdf?intent=download&surface=cpro",
+    );
+    expect(file.filename).toBe("B2B_Tester.pdf");
+  });
+
+  it("Nowe CV, szkic: PDF z bieżącej treści etapu", async () => {
+    get.mockResolvedValue({
+      data: {
+        status: "draft",
+        version: 1,
+        content_html: "<p>po QC</p>",
+        edit_revision: 3,
+        cv_layout: "new",
+        new_layout_enabled: true,
+      },
+    });
+    postAuthenticatedDownload.mockResolvedValue({ blob: new Blob(["%PDF"]), filename: null });
+    const file = await fetchStageCvForClient(12);
+    expect(postAuthenticatedDownload).toHaveBeenCalledWith(
+      "/api/candidates/stages/12/cv/branded/preview-pdf",
+      { content_html: "<p>po QC</p>", expected_revision: 3 },
+    );
+    expect(file.filename).toBe("SZKIC_CV.pdf");
+  });
+
+  it("klasyczne albo wyłączona flaga: plik Word jak dotąd", async () => {
+    get.mockResolvedValue({
+      data: { status: "finalized", version: 2, cv_layout: "new", new_layout_enabled: false, docx_filename: "CV_B.docx" },
+    });
+    fetchAuthenticatedDownload.mockResolvedValue({ blob: new Blob(["w"]), filename: null });
+    const file = await fetchStageCvForClient(12, { download: "cpro" });
+    expect(fetchAuthenticatedDownload).toHaveBeenCalledWith(
+      "/api/candidates/stages/12/cv/branded/versions/2/docx?intent=download&surface=cpro",
+    );
+    expect(file.filename).toBe("CV_B.docx");
   });
 });

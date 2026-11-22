@@ -168,6 +168,8 @@ class QcCv(BaseModel):
     filename: Optional[str] = None
     # Szkic etapu wczytany z pliku Word bez AI (`source: document` w metadanych).
     from_word_file: bool = False
+    # Układ pliku do klienta (22.11.2026); `None` = flaga wyłączona / CV spoza etapu.
+    cv_layout: Optional[Literal["classic", "new"]] = None
     bold_known: bool = True
     updated_at: Optional[datetime] = None
     # Wersja szkicu CV etapu, na której policzono QC (brak dla CV bez szkicu).

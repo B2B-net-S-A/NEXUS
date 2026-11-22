@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/Toast";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
+import { CvLayoutBadge } from "@/components/v2/cv-generator/CvLayoutBadge";
 import { CvPagesPreview } from "@/components/v2/cv/CvPagesPreview";
 import { ConsentRequestButton } from "@/components/v2/recruitment/ConsentRequestButton";
 import {
@@ -405,6 +406,8 @@ export function StageCvPreview({
             {origin.badge}
           </Badge>
         ) : null}
+        {/* Jaki plik dostanie klient (22.11.2026): przegląd DL i panel osoby. */}
+        {fromStage ? <CvLayoutBadge branded={branded} /> : null}
         {!hideDownload && !stageConsentMissing && (fromStage || (cv?.status === "ready" && !consentMissing)) ? (
           <Button size="sm" variant="outline" className="ml-auto" onClick={() => void download()}>
             <Download className="h-3.5 w-3.5" />

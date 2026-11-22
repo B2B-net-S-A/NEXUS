@@ -51,9 +51,10 @@ from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User
 from app.services import client_panel_evidence as evidence_service
+from app.services import cv_layout as layout_service
 from app.services.board_stage_badges import board_column_for
 from app.services.client_panel_schema import VIEW_ACTIONS
-from app.services.client_panel_stamp import stamp_panel_link
+from app.services.client_panel_stamp import append_panel_page, stamp_panel_link
 from app.services.notes_profile_fill import availability_origin
 from app.services.stage_client_rate import latest_client_rates
 
@@ -767,11 +768,27 @@ async def candidate_pdf(db: AsyncSession, visible: VisiblePerson) -> tuple[bytes
     if downloadable is None or visible.cv is None:
         raise HTTPException(status_code=404, detail=MSG_CV_UNAVAILABLE)
     csv, version = downloadable
+    name = _pdf_name(visible.cv)
+    if layout_service.is_new(version.cv_layout if version is not None else csv.cv_layout):
+        # „Nowe CV” (22.11.2026): zatwierdzona wersja z jej zamrożonej treści,
+        # szkic z bieżącej. Bez strony z linkiem do panelu — klient już w nim jest.
+        from app.services import cv_new_pdf
+
+        try:
+            if version is not None:
+                result = await cv_new_pdf.approved_version_pdf(db, version)
+            else:
+                result = await cv_new_pdf.stage_draft_pdf(db, csv)
+        except cv_new_pdf.NewCvPdfError as error:
+            raise HTTPException(
+                status_code=503,
+                detail="Podgląd CV jest chwilowo niedostępny. Spróbuj za chwilę.",
+            ) from error
+        return result.pdf, name
     if version is not None:
         docx = version.docx_content
     else:
         docx, _ = await render_stage_editor_docx(csv, csv.branded_draft_html or "")
-    name = _pdf_name(visible.cv)
     # Zamiana trwa sekundy: bez blokad i połączenia z bazą (jak `cv_pdf_preview`).
     await db.commit()
     try:
@@ -1037,29 +1054,63 @@ async def stamp_for_download(
     Zapisane bajty dokumentu zostają nietknięte. Żadna awaria nie zatrzymuje
     pobrania: najwyżej plik wychodzi bez ramki.
     """
-    if not job_id or not candidate_id:
+    link = await _panel_link(db, job_id, candidate_id)
+    if link is None:
         return docx
+    url, short_url, expires_at = link
+    return await run_in_threadpool(
+        stamp_panel_link, docx, url, short_url, expires_at, language=language or "pl"
+    )
+
+
+async def stamp_pdf_for_download(
+    db: AsyncSession,
+    *,
+    job_id: Optional[int],
+    candidate_id: Optional[int],
+    pdf: bytes,
+    language: Optional[str] = None,
+) -> bytes:
+    """PDF „Nowego CV” z ostatnią stroną panelu (te same dane co ramka w Wordzie).
+
+    Strona 1 nowego układu musi się zmieścić na jednej kartce, więc ramki nie
+    ma pod tytułem — panel dostaje osobną, ostatnią stronę. Awaria = PDF bez
+    tej strony, jak przy ramce.
+    """
+    link = await _panel_link(db, job_id, candidate_id)
+    if link is None:
+        return pdf
+    url, short_url, expires_at = link
+    return await run_in_threadpool(
+        append_panel_page, pdf, url, short_url, expires_at, language=language or "pl"
+    )
+
+
+async def _panel_link(
+    db: AsyncSession, job_id: Optional[int], candidate_id: Optional[int]
+) -> Optional[tuple[str, str, Optional[datetime]]]:
+    """Link osoby w działającym panelu rekrutacji albo ``None`` (bez ramki)."""
+    if not job_id or not candidate_id:
+        return None
     try:
         # Savepoint, nie rollback: pełne wycofanie wygasiłoby obiekty trasy,
         # która po tej funkcji czyta jeszcze nazwę pliku.
         async with db.begin_nested():
             panel = await panel_for_job(db, job_id)
             if panel is None or not panel.enabled or is_expired(panel):
-                return docx
+                return None
             job = await db.get(Job, job_id)
             if job is None or job.status == JobStatus.closed:
-                return docx
+                return None
             token = current_token(panel)
             if token is None:
-                return docx
+                return None
             rows = await ensure_candidate_rows(db, panel.id, [candidate_id])
             public_id = rows[candidate_id].public_id
             expires_at = panel.expires_at
         await db.commit()
     except Exception:  # noqa: BLE001 — ramka to dodatek do pliku
         logger.exception("client panel: stamp lookup failed for job %s", job_id)
-        return docx
+        return None
     url, short_url = panel_urls(token, public_id)
-    return await run_in_threadpool(
-        stamp_panel_link, docx, url, short_url, expires_at, language=language or "pl"
-    )
+    return url, short_url, expires_at

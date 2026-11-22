@@ -50,6 +50,21 @@ describe("CvFileNameRow", () => {
     expect(screen.getByRole("dialog")).toBeTruthy();
   });
 
+  it("Nowe CV (22.11.2026): nazwa z .pdf, zmiana zachowuje końcówkę", async () => {
+    rename.mockResolvedValue({ data: { filename: "Nowa.pdf", pattern_filename: "Wzor.pdf" } } as never);
+    render(<CvFileNameRow stageId={7} filename="Wzor.pdf" />);
+    expect(screen.getByText("Wzor.pdf")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Zmień nazwę" }));
+    const input = screen.getByLabelText("Nazwa pliku");
+    expect(input).toHaveValue("Wzor");
+    expect(screen.getByText(".pdf")).toBeTruthy();
+    await userEvent.clear(input);
+    await userEvent.type(input, "Nowa");
+    await userEvent.click(screen.getByRole("button", { name: "Zapisz nazwę" }));
+    await waitFor(() => expect(rename).toHaveBeenCalledWith(7, "Nowa.pdf"));
+    expect(await screen.findByText("Nowa.pdf")).toBeTruthy();
+  });
+
   it("w trybie tylko do odczytu nie daje zmiany", () => {
     render(<CvFileNameRow stageId={7} filename="Wzor.docx" readOnly />);
     expect(screen.queryByRole("button", { name: "Zmień nazwę" })).toBeNull();
