@@ -83,3 +83,41 @@ def page1_why(extras: Optional[dict]) -> Optional[list[str]]:
         return None
     texts = [str(item).strip() for item in why if str(item or "").strip()]
     return texts[:3] or None
+
+
+def chosen_result(extras: Optional[dict]) -> Optional[str]:
+    """„Najmocniejszy wynik” wybrany do strony 1 — tylko zdanie sprawdzone
+    z cytatem z CV (`results[i].verified`)."""
+    if not isinstance(extras, dict):
+        return None
+    results = extras.get("results")
+    if not isinstance(results, list) or not results:
+        return None
+    index = extras.get("result_index", 0)
+    if not isinstance(index, int) or not 0 <= index < len(results):
+        index = 0
+    item = results[index]
+    if not isinstance(item, dict) or item.get("verified") is not True:
+        return None
+    text = str(item.get("text") or "").strip()
+    return text or None
+
+
+def compose_page1_why(
+    why_points: list[str], extras: Optional[dict]
+) -> Optional[list[str]]:
+    """Trzy zdania „Dlaczego nasz kandydat” na stronie 1 (wariant E2, 22.11.2026).
+
+    Zdania poprawione w edytorze wygrywają. Inaczej: lata (punkt 1 generatora),
+    technologie (punkt 2) i najmocniejszy wynik z całego CV; bez sprawdzonego
+    wyniku — trzeci punkt generatora (najważniejsze wymaganie). ``None`` =
+    render bierze pierwsze trzy punkty sam.
+    """
+    edited = page1_why(extras)
+    if edited:
+        return edited
+    result = chosen_result(extras)
+    if result is None:
+        return None
+    points = [str(p).strip() for p in why_points if str(p or "").strip()]
+    return points[:2] + [result]

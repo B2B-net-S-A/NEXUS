@@ -15,7 +15,7 @@ from typing import Any, Optional
 
 from starlette.concurrency import run_in_threadpool
 
-from app.services.cv_layout import page1_why
+from app.services.cv_layout import compose_page1_why
 from app.services.cv_new_content import cv_json_from_editor_html
 
 MSG_RENDER_FAILED = (
@@ -80,7 +80,7 @@ def _render(
     mime = _image_mime(consent)
     document = NewCvDocument.from_cv_json(
         content.cv_json,
-        why=page1_why(extras),
+        why=compose_page1_why(content.cv_json.get("why_points") or [], extras),
         rodo_clause_html=content.rodo_clause or None,
         consent_image=consent if mime else None,
         consent_image_mime=mime,

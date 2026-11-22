@@ -52,6 +52,36 @@ def test_page1_why_takes_three_non_empty_sentences():
     assert cv_layout.page1_why({"why": ["a", "", "b", "c", "d"]}) == ["a", "b", "c"]
 
 
+def test_page1_composition_e2_result_replaces_third_point():
+    points = ["Lata.", "Technologie.", "Wymaganie.", "Czwarty."]
+    assert cv_layout.compose_page1_why(points, None) is None
+    unverified = {"results": [{"text": "Wynik bez cytatu.", "verified": False}]}
+    assert cv_layout.compose_page1_why(points, unverified) is None
+    extras = {
+        "results": [
+            {"text": "Wynik A.", "verified": True},
+            {"text": "Wynik B.", "verified": True},
+        ],
+        "result_index": 1,
+    }
+    assert cv_layout.compose_page1_why(points, extras) == [
+        "Lata.",
+        "Technologie.",
+        "Wynik B.",
+    ]
+    assert cv_layout.compose_page1_why(points, {**extras, "result_index": 9}) == [
+        "Lata.",
+        "Technologie.",
+        "Wynik A.",
+    ]
+    edited = {**extras, "why": ["Moje 1.", "Moje 2.", "Moje 3."]}
+    assert cv_layout.compose_page1_why(points, edited) == [
+        "Moje 1.",
+        "Moje 2.",
+        "Moje 3.",
+    ]
+
+
 def test_pdf_route_layout_choice(flag_on, monkeypatch):
     from app.api.cv_pdf_preview import _wanted_layout
 
