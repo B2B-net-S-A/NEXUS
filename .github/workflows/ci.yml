@@ -1006,6 +1006,27 @@ jobs:
         run: |
           rm -rf src/app/preview
           npm run build
+      # Jedno pobranie Chromium dla Poligonu i harnessów niżej. Pobranie z CDN
+      # Playwrighta i pakiety systemowe z apt dawały czerwień środowiska:
+      # 17 biegów `e2e.yml` 11.11.2026 (brak DNS runnera dla *.ubuntu.com).
+      # W wymaganym kontekście taka awaria zatrzymywałaby kolejkę, stąd
+      # zapasowe mirrory apt i trzy próby z przerwą, jak w `e2e.yml`.
+      - name: Chromium dla Playwrighta (z ponowieniami)
+        if: steps.scope.outputs.run == 'true' && github.event_name != 'pull_request'
+        run: |
+          bash "$GITHUB_WORKSPACE/.github/scripts/apt_mirror_fallback.sh"
+          for attempt in 1 2 3; do
+            if npx playwright install --with-deps chromium; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::Playwright nie zainstalował przeglądarki po 3 próbach"
+              exit 1
+            fi
+            echo "::warning::instalacja Playwrighta nie przeszła (próba $attempt/3), ponawiam za $((attempt * 30)) s"
+            bash "$GITHUB_WORKSPACE/.github/scripts/apt_mirror_fallback.sh" --force
+            sleep $((attempt * 30))
+          done
       # Poligon NEXUSA (15.11.2026): nowa osoba ma zablokowany NEXUS, dopóki nie
       # zaliczy ćwiczeń swojej roli (rekruter 19, Delivery Lead 15, TCM 11) na
       # rekrutacji ćwiczebnej, a odczyty tej rekrutacji
@@ -1022,7 +1043,6 @@ jobs:
           E2E_BASE_URL: http://localhost:3000
           E2E_API_ORIGIN: http://localhost:8000
         run: |
-          npx playwright install --with-deps chromium
           # Jak w `frontend/Dockerfile`: serwer standalone + statyczne pliki obok.
           cp -r .next/static .next/standalone/.next/static
           cp -r public .next/standalone/public
@@ -1046,6 +1066,108 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: poligon-walk-failure
+          path: frontend/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+      # Harnessy `/preview/*` (projekt `preview-chromium`) jako bramka kolejki
+      # (decyzja Artura 22.11.2026, wariant „Bramka”). Do tej zmiany chodziły
+      # w `e2e.yml`, który nie jest wymaganym kontekstem: 03–22.11 z 111
+      # prawdziwych czerwieni E2E 75 weszło na `main`, m.in. lista kandydatów
+      # #3101→#3114 i poziomy scroll przy 360 px do #3201 (ok. 21 h).
+      #
+      # Drugi build w tym jobie, nie osobny job. Harnessy potrzebują builda
+      # z `NEXT_PUBLIC_PREVIEW_PUBLIC=1` i z `src/app/preview`, a krok „Build”
+      # wyżej celowo je usuwa (wykrywa kod produkcyjny zależny od harnessu).
+      # Zmierzone 22.11 na biegach kolejki 45044939765, 45044846083,
+      # 45041305468: ten job 410–602 s, backend (najdłuższy shard + scalenie
+      # pokrycia) 1650–1850 s, Vitest z pokryciem 1038–1784 s. Bieg ręczny
+      # 45053010308 z tymi krokami: build z harnessami 249 s, `preview-chromium`
+      # 464 s, job 1355 s; skończył się o 18:27, ostatni shard backendu o 18:37.
+      # Czas kolejki się więc nie zmienia, a osobny job płaciłby drugi raz
+      # checkout, setup-node i `npm ci`. Gdy ten job
+      # zacznie kończyć się po backendzie, wydziel kroki do osobnego joba
+      # w `needs` bramki `frontend-gate`.
+      #
+      # Tylko gdy wpis kolejki dotyka `frontend/` albo tego pliku: harnessy to
+      # sam frontend z fikcyjnymi danymi, bez zapytań do API. `base_sha` to
+      # HEAD poprzedniego wpisu, więc porównanie widzi zmianę tego wpisu.
+      # Niepewna lista plików = bieg.
+      - name: Czy wpis kolejki dotyka frontendu? (harnessy)
+        id: preview-scope
+        if: steps.scope.outputs.run == 'true' && github.event_name != 'pull_request'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: |
+          set -eu
+          if [ "$EVENT" != "merge_group" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; echo "Zdarzenie $EVENT — harnessy biegną."; exit 0
+          fi
+          files=$(gh api "/repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" \
+            --jq 'if (.files | length) >= 300 then "LIMIT" else .files[].filename end') || files=""
+          if [ -z "$files" ] || printf '%s\n' "$files" | grep -qx LIMIT; then
+            echo "::warning::Niepewna lista plików wpisu — harnessy biegną."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if hit=$(printf '%s\n' "$files" | grep -E '^frontend/|^\.github/workflows/ci\.yml$' | head -1) && [ -n "$hit" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Harnessy: zmieniony $hit"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Wpis nie dotyka frontendu — harnessy pominięte."
+          fi
+      - name: Build z harnessami /preview/* (NEXT_PUBLIC_PREVIEW_PUBLIC=1)
+        if: steps.preview-scope.outputs.run == 'true'
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+          # Otwiera `/preview/*` bez logowania (middleware). Ten build nigdzie
+          # nie jest wdrażany — obraz produkcyjny buduje `frontend/Dockerfile`.
+          NEXT_PUBLIC_PREVIEW_PUBLIC: "1"
+        run: |
+          git checkout -- src/app/preview
+          rm -rf .next/standalone
+          npm run build
+      - name: Harnessy /preview/* — preview-chromium (Playwright)
+        id: preview
+        if: steps.preview-scope.outputs.run == 'true'
+        env:
+          # Port 3001, bo na 3000 dalej stoi serwer Poligonu. Zatrzymanie go
+          # przez `pkill -f "node server.js"` nie działa: serwer standalone
+          # zmienia nazwę procesu na `next-server`, a nowy serwer na tym samym
+          # porcie padał na EADDRINUSE i testy szły na buildzie bez harnessów
+          # (bieg 45048730759: 48 czerwonych, 29,7 min na timeoutach).
+          E2E_BASE_URL: http://localhost:3001
+        run: |
+          cp -r .next/static .next/standalone/.next/static
+          cp -r public .next/standalone/public
+          (cd .next/standalone && PORT=3001 HOSTNAME=127.0.0.1 node server.js > "$RUNNER_TEMP/next-preview.log" 2>&1 &)
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://localhost:3001/preview/contact-queue && break
+            sleep 1
+          done
+          # Bez strony harnessu każdy test czekałby na timeout. Lepiej paść od razu.
+          if ! curl -sf -o /dev/null http://localhost:3001/preview/contact-queue; then
+            echo "::error::Serwer z harnessami nie odpowiada na /preview/contact-queue — build bez src/app/preview albo serwer nie wstał."
+            tail -50 "$RUNNER_TEMP/next-preview.log"
+            exit 1
+          fi
+          npx playwright test --project=preview-chromium --reporter=list || {
+            echo "::error::Harnessy /preview/* nie przechodzą (preview-chromium). Zrzut, wideo i trace w artefakcie preview-harness-failure."
+            tail -50 "$RUNNER_TEMP/next-preview.log"
+            exit 1
+          }
+      # Harnessy mają wyłącznie fikcyjne dane i nie wysyłają zapytań, więc
+      # artefakt nie niesie tokenów ani danych osób.
+      - name: Harnessy /preview/* — zrzuty i trace porażki
+        if: failure() && steps.preview.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: preview-harness-failure
           path: frontend/test-results/
           if-no-files-found: ignore
           retention-days: 7
@@ -1118,7 +1240,7 @@ jobs:
           build="${{ needs.frontend-lint-build.result }}"
           echo "Lint + type-check + build: $build"
           if [ "$build" != "success" ]; then
-            echo "::error::Lint, type-check albo build frontendu nie przeszły (result=$build) — szczegóły w jobie „Frontend (lint + typecheck + build)”."
+            echo "::error::Lint, type-check, build, Poligon albo harnessy /preview/* nie przeszły (result=$build) — szczegóły w jobie „Frontend (lint + typecheck + build)”."
             exit 1
           fi
           # Na PR-ze Vitest z pokryciem nie biegnie (sito jest w jobie wyżej).

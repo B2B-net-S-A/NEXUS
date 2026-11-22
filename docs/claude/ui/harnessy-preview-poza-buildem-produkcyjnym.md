@@ -7,7 +7,10 @@ wyłącznie testom, więc obraz produkcyjny ich nie zawiera.
   build dostał `NEXT_PUBLIC_PREVIEW_PUBLIC=1`. Flagę przekazuje tylko
   `docker-compose.e2e.yml`, na którym chodzi `preview-chromium`.
 - Krok `Build` w `ci.yml` usuwa je tak samo, żeby wykrył kod produkcyjny
-  zależny od harnessu.
+  zależny od harnessu. Po nim, tylko w kolejce merge'ów, ten sam job przywraca
+  `src/app/preview`, buduje drugi raz z `NEXT_PUBLIC_PREVIEW_PUBLIC=1`
+  i uruchamia `preview-chromium` (bramka od 22.11.2026, `podstawy/ci-gotchas.md`).
+  Ten build nie jest nigdzie wdrażany.
 - `next dev`, Vitest i `tsc` dalej widzą te pliki. Na produkcji i na stagingu
   z obrazu produkcyjnego adres `/preview/*` daje 404 po zalogowaniu.
 - Nowa zmiana UI nie dostaje nowego harnessu: makietę pokazuje się na stagingu
