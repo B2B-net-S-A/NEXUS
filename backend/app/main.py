@@ -114,7 +114,6 @@ from app.api import insights_scoring
 from app.api import insights_campaigns
 from app.api import insights_charts
 from app.api import insights_reconciliation
-from app.api import integrations_compass
 from app.api import integrations_law_radar
 from app.api import integrations_cpro_bot
 from app.api import integrations_sales_signals
@@ -904,8 +903,6 @@ async def lifespan(app: FastAPI):
     from app.tasks.daily_digest_email import daily_digest_email_loop
     from app.tasks.notification_email_outbox import notification_email_outbox_loop
     from app.tasks.candidate_terms_sender import candidate_terms_sender_loop
-    from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
-    from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
     from app.tasks.m365_account_sweep import m365_account_sweep_loop
     from app.tasks.job_portal_worker import job_portal_worker_loop
     from app.tasks.order_mail_ingest import order_mail_ingest_loop
@@ -946,22 +943,6 @@ async def lifespan(app: FastAPI):
 
     register_allocation_events()
     from app.services.fx_service import fx_refresh_loop
-
-    # Provisioning klucza konta serwisowego dla integracji z COMPASSEM (Etap 2).
-    # Jednorazowo, bramkowane env-em, idempotentne, nie wywraca startu. Puste
-    # `COMPASS_INTEGRATION_BOOTSTRAP_KEY` = no-op (stan domyślny).
-    try:
-        from app.core.database import AsyncSessionLocal as _BootstrapSession
-        from app.services.compass_service_account_bootstrap import (
-            ensure_bootstrap_service_account,
-        )
-
-        async with _BootstrapSession() as _bootstrap_db:
-            _bootstrap_status = await ensure_bootstrap_service_account(_bootstrap_db)
-        if _bootstrap_status is not None:
-            logger.info("compass_bootstrap status=%s", _bootstrap_status)
-    except Exception as _bootstrap_exc:  # noqa: BLE001 — nie może ubić startu
-        logger.warning("compass_bootstrap: pominięty po wyjątku: %s", _bootstrap_exc)
 
     freeze_startup_heap()
 
@@ -1173,13 +1154,6 @@ async def lifespan(app: FastAPI):
             # z harmonogramem, wpis automatyczny za flagą.
             "contract_rate_documents": asyncio.create_task(
                 contract_rate_documents_loop()
-            ),
-            # D5: mianownik wskaznikow „na dzien". Petla KONCZY sie przed
-            # pierwszym odczekaniem, gdy wylaczona — nie budzi sie co interwal
-            # tylko po to, zeby sprawdzic te sama flage.
-            "compass_workdays_sync": asyncio.create_task(compass_workdays_sync_loop()),
-            "compass_lifecycle_sync": asyncio.create_task(
-                compass_lifecycle_sync_loop()
             ),
             # 22.10.2026: konto NEXUSA idzie za kontem M365 (404 / accountEnabled
             # = false → wyłączone). Niezależna od HR_PROGRAM_ENABLED; kończy się
@@ -2075,15 +2049,6 @@ app.include_router(
     insights_reconciliation.router,
     prefix="/api/insights/reconciliation",
     tags=["insights"],
-)
-# Eksport dla COMPASSA. Uwierzytelnienie żyje w `require_service_scope`
-# na endpointach, nie na routerze — jak przy kontach serwisowych Traffita.
-# Ścieżka CELOWO obok `/api/candidates|jobs|clients|users`, nie pod nimi:
-# `test_key_cannot_reach_domain_data` wymaga, żeby klucz API dostawał tam 401.
-app.include_router(
-    integrations_compass.router,
-    prefix="/api/integrations/compass",
-    tags=["integrations"],
 )
 # Raport bota researchu (Grok Bot): poświadczeniem jest jednorazowy token biegu.
 app.include_router(
@@ -3269,58 +3234,6 @@ async def api_health_check():
         except Exception:
             checks["order_mail"] = "degraded"
 
-    # COMPASS: dni robocze (D5). Ta sama drabina co traffit/order_mail.
-    #
-    # Do 09.2026 była to JEDYNA integracja bez sondy — i jedyna, której awarii
-    # nie dało się wykryć niczym innym: pętla `return`uje czysto przy
-    # wyłączonej fladze i przy braku sekretu (`classify_background_tasks` →
-    # `exited_cleanly`, stan cichy), a jej ciało łyka każdy wyjątek, więc nigdy
-    # nie osiąga `crashed`.
-    #
-    # `healthy` WYMAGA `last_status == "ok"`. `fetch_failed:` i
-    # `basis_mismatch:` nie rzucają wyjątku — `sync_workdays` wraca z nich
-    # normalnie, nic nie zapisawszy — więc gdyby liczyła się tylko świeżość
-    # biegu, niedostępny COMPASS raportowałby `healthy`. Cicha awaria oznacza
-    # regres do stanu sprzed D5: mianownikiem znów jest stała 5, a osoba na
-    # urlopie ląduje na IMIENNEJ liście „poniżej progu".
-    if not settings.COMPASS_WORKDAYS_ENABLED:
-        checks["compass_workdays"] = "unconfigured"
-    elif not (settings.COMPASS_WORKDAYS_URL and settings.COMPASS_WORKDAYS_SECRET):
-        checks["compass_workdays"] = "misconfigured"
-    else:
-        try:
-            from datetime import datetime as _dt
-            from datetime import timezone as _tz
-
-            async with AsyncSessionLocal() as session:
-                row = await asyncio.wait_for(
-                    session.execute(
-                        text(
-                            "SELECT last_run_finished_at, last_status "
-                            "FROM compass_workdays_sync_state WHERE id = 1"
-                        )
-                    ),
-                    timeout=1.0,
-                )
-            r = row.fetchone()
-            from app.services.insights_workdays import workdays_sync_verdict
-
-            checks["compass_workdays"] = workdays_sync_verdict(
-                finished_at=r[0] if r is not None else None,
-                last_status=r[1] if r is not None else None,
-                interval_seconds=settings.COMPASS_WORKDAYS_SYNC_INTERVAL_SECONDS,
-                now=_dt.now(_tz.utc),
-            )
-        except Exception:
-            checks["compass_workdays"] = "degraded"
-
-    # COMPASS: cykl życia kont (Etap 5). Ta sama drabina co `compass_workdays`.
-    # Do 09.2026 jedynym śladem tej pętli w health było `running` z rejestru
-    # zadań — a ona łyka każdy wyjątek i wraca z `fetch_failed`/`empty_roster`
-    # normalnie, więc niedostępny COMPASS był nie do odróżnienia od zdrowej
-    # instalacji, a osoba `exited` zachowywała dostęp. Stempel ostatniego
-    # biegu żyje w `app_settings['compass_lifecycle_state']`
-    # (`record_sync_outcome`). Sonda informacyjna — nigdy `unhealthy`.
     # 0360/0381: multiposting — informacyjne, nie zmienia `status`. Przy
     # wyłączonych flagach `unconfigured`; konto JustJoin.IT/RocketJobs do
     # ponownego połączenia albo nieudane publikacje = `degraded`.
@@ -3341,35 +3254,6 @@ async def api_health_check():
             )
     except Exception:  # noqa: BLE001 — sonda informacyjna
         checks["job_portals"] = "unknown"
-    if not settings.COMPASS_LIFECYCLE_ENABLED:
-        checks["compass_lifecycle"] = "unconfigured"
-    elif not (settings.COMPASS_LIFECYCLE_URL and settings.COMPASS_LIFECYCLE_SECRET):
-        checks["compass_lifecycle"] = "misconfigured"
-    else:
-        try:
-            from datetime import datetime as _dt
-            from datetime import timezone as _tz
-
-            async with AsyncSessionLocal() as session:
-                row = await asyncio.wait_for(
-                    session.execute(
-                        text(
-                            "SELECT value FROM app_settings "
-                            "WHERE key = 'compass_lifecycle_state'"
-                        )
-                    ),
-                    timeout=1.0,
-                )
-            r = row.fetchone()
-            from app.services.compass_lifecycle import lifecycle_sync_verdict
-
-            checks["compass_lifecycle"] = lifecycle_sync_verdict(
-                r[0] if r is not None else None,
-                interval_seconds=settings.COMPASS_LIFECYCLE_SYNC_INTERVAL_SECONDS,
-                now=_dt.now(_tz.utc),
-            )
-        except Exception:
-            checks["compass_lifecycle"] = "degraded"
 
     # Runda 9 (R9-N9-9): klucze kont serwisowych — aktywne konto bez ważnego
     # klucza albo z kluczem wygasającym w 14 dni = `degraded`. Informacyjna,
@@ -4570,10 +4454,9 @@ async def api_health_deep_check(request: Request):
         # 0257: mianownik wskaznikow „na dzien" (D5). Prod alembic bywa
         # osierocony, wiec to jest jedyny realny dowod, ze tabela powstala.
         ("user_workday_periods", UserWorkdayPeriod),
-        # 0276: stan pętli D5. Sonda SCHEMATU, nie żywotności COMPASSA —
-        # `/api/health/deep` blokuje deploy, więc awaria cudzej aplikacji nie
-        # może tu trafić. O tym, czy integracja działa, mówi
-        # `checks.compass_workdays` w płytkim `/api/health`.
+        # 0276: stan pętli dni roboczych z Compassa. Pętla zniknęła 22.11.2026
+        # razem z Compassem; tabela i lustro w entrypoincie zostają do
+        # osobnej migracji z DROP, więc sonda schematu zostaje z nimi.
         ("compass_workdays_sync_state", CompassWorkdaysSyncState),
         # 0258/0259: plakietki ostrzeżeń i baner kampanii. Bez tych sond
         # zielony deploy nic nie mówi o tym, czy tabele powstały — a brak

@@ -279,11 +279,13 @@ def test_interview_milestone_is_labelled_qc_cv_on_both_sides():
     assert 'interview: "QC CV"' in describe
 
 
-# ── R9-N9-8: Compass — „bez projektu” liczy okres grupy ─────────────────────
+# ── R9-N9-8: „bez projektu” liczy okres grupy ───────────────────────────────
 
 
 def test_lacks_current_order_reads_the_group_period_of_a_dateless_line():
-    from app.api.integrations_compass import _lacks_current_order
+    from app.services.consultant_order_state import (
+        lacks_current_order as _lacks_current_order,
+    )
 
     today = date(2026, 9, 27)
     old_group = SimpleNamespace(start_date=date(2025, 1, 1), end_date=date(2025, 6, 30))

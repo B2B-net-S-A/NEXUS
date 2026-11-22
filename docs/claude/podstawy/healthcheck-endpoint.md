@@ -74,13 +74,12 @@
   odpowiedzi/crashu. Nie czyścić tej flagi bez ustalenia wyniku dostawy.
   `unknown` nie jest sukcesem; sonda nie zmienia liveness ani routingu HTTP.
 
-- **`checks.compass_lifecycle` (od 14.09.2026, MON-04/INT-10):** pętla
-  `compass_lifecycle_sync` stempluje każdy bieg w `app_settings['compass_lifecycle_state']`
-  (`last_run_at`, `last_status`, `last_success_at`, `last_error` = kod + klasa
-  wyjątku, bez URL/treści); sonda: `unconfigured` (wyłączona) / `misconfigured`
-  (brak URL/sekretu) / `degraded` (ostatni bieg padł albo brak sukcesu > 2
-  odstępy pętli) / `healthy`. Informacyjna — nie daje `unhealthy`. Zapis jest
-  scaleniem jsonb, więc nie kasuje mapy `exit_since` per osoba.
+- **`checks.compass_lifecycle` i `checks.compass_workdays` usunięte 22.11.2026**
+  razem z pętlami Compassa (serwer Compassa wyłączony). Wcześniej były
+  informacyjne (`unconfigured` przy wyłączonej fladze). Tabela
+  `compass_workdays_sync_state` i jej sonda schematu w `/api/health/deep`
+  zostają do osobnej migracji z `DROP TABLE`; klucz
+  `app_settings['compass_lifecycle_state']` nikt już nie czyta.
 - **`GET /api/admin/traffit/sync/status` niesie `freshness` per faza i
   `phases_stale`** (INT-09): progi po TYPIE fazy (zwykłe 36 h, kursorowane/
   budżetowane 72 h, znacznik `__full__` 8 dni); `checks.traffit` nadal czyta

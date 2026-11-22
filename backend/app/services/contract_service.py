@@ -170,8 +170,7 @@ def live_not_ending_clause(today: Optional[date] = None):
 
 # --- Kontraktor i placement — jedna definicja „żywej" umowy -------------------
 #
-# Rejestr kontraktorów (`/api/contractors`) i eksport dla COMPASSA
-# (`/api/integrations/compass/contractors`) liczą jako kontraktora umowę żywą
+# Rejestr kontraktorów (`/api/contractors`) liczy jako kontraktora umowę żywą
 # ORAZ umowę „w drodze" (szkic, umowa do podpisu): zatrudnienie zakłada szkic
 # kontraktu razem ze szkicem zamówienia, a Delivery uzupełnia go później —
 # osoba już pracuje, tylko umowa nie jest domknięta w NEXUSIE.

@@ -25,6 +25,7 @@ from app.api.calendar_access import (
     user_can_view_event,
     personal_event_visibility_filter,
 )
+from tests._leave_source import use_nexus_leave_source
 
 NOW = datetime(2026, 9, 7, 10, tzinfo=timezone.utc)
 
@@ -254,9 +255,7 @@ async def test_corrupt_persisted_snapshot_preserves_owners_and_stops_allocation(
     from unittest.mock import AsyncMock
     from app.services import workforce_availability
 
-    monkeypatch.setattr(
-        workforce_availability.settings, "COMPASS_AVAILABILITY_ENABLED", True
-    )
+    use_nexus_leave_source(monkeypatch, True)
     corrupted = {"schema_version": 999, "people": "invalid"}
     record = SimpleNamespace(snapshot=corrupted)
     db = SimpleNamespace(info={}, get=AsyncMock(return_value=record))
@@ -438,9 +437,9 @@ def test_cover_scope_requires_open_work_and_the_same_owners_membership():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("compass_enabled", "fresh", "leave_policy", "allowed"),
+    ("leave_source_on", "fresh", "leave_policy", "allowed"),
     [
-        # Urlopy z Compassa wyłączone: danych nie będzie, automat rusza bez nich.
+        # Źródło urlopów wyłączone: danych nie będzie, automat rusza bez nich.
         (False, False, "wait", True),
         # Włączone, ale nieaktualne: request mógłby dostać ktoś na urlopie.
         (True, False, "wait", False),
@@ -449,8 +448,8 @@ def test_cover_scope_requires_open_work_and_the_same_owners_membership():
         (True, False, "ignore", True),
     ],
 )
-async def test_auto_mode_waits_for_compass_only_when_compass_is_enabled(
-    monkeypatch, compass_enabled: bool, fresh: bool, leave_policy: str, allowed: bool
+async def test_auto_mode_waits_for_leave_data_only_when_leave_source_is_on(
+    monkeypatch, leave_source_on: bool, fresh: bool, leave_policy: str, allowed: bool
 ):
     from unittest.mock import AsyncMock, MagicMock
 
@@ -465,7 +464,7 @@ async def test_auto_mode_waits_for_compass_only_when_compass_is_enabled(
         AsyncMock(return_value=AllocationRules(leave_policy=leave_policy)),
     )
     monkeypatch.setattr(api.settings, "RECRUITMENT_ALLOCATION_ENABLED", True)
-    monkeypatch.setattr(api.settings, "COMPASS_AVAILABILITY_ENABLED", compass_enabled)
+    use_nexus_leave_source(monkeypatch, leave_source_on)
     monkeypatch.setattr(api, "allocation_lock", AsyncMock())
     monkeypatch.setattr(
         api, "workforce_context", AsyncMock(return_value=SimpleNamespace(fresh=fresh))

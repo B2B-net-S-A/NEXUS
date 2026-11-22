@@ -136,9 +136,9 @@ miejsce, nie zbiór funkcji.
     `useRequestBoard`, wczytywane dopiero po otwarciu), od najmniej obłożonej;
     osoby spoza puli
     automatu bez liczby na końcu. Lista wisi na katalogu `/api/users` (jego
-    awaria = błąd); awaria obłożenia nie blokuje przypisania. Urlopy pokaże
-    dopiero `COMPASS_AVAILABILITY_ENABLED` — do tego czasu stopka „Brak danych
-    o urlopach”.
+    awaria = błąd); awaria obłożenia nie blokuje przypisania. Urlopy pokazuje
+    źródło urlopów NEXUSA (Ustawienia HR → Moduły; Compass wygaszony
+    22.11.2026) — przy wyłączonym stopka „Brak danych o urlopach”.
   - **Okienko jest `modal`** (klik obok tylko zamyka, nie otwiera wiersza),
     a korzeń edytora zatrzymuje kliknięcia — zdarzenia React z portali idą do
     `<tr>`. Fokus po otwarciu w polu szukania, nie na „×”. Okno potwierdzenia

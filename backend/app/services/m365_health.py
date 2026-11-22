@@ -4,9 +4,8 @@ UAT M11-B07: sonda liczyła wyłącznie AKTYWNE połączenia (``is_active``), wi
 skrzynka, której synchronizacja od tygodni kończyła się błędem, dawała
 ``m365 = healthy``. Połączenie „jest" nie znaczy, że „działa".
 
-Werdykt jest czystą funkcją (``m365_sync_verdict``) — testowalną bez bazy,
-wzorem ``insights_workdays.workdays_sync_verdict``. Sonda pozostaje
-informacyjna: nie wpływa na bramkę 503.
+Werdykt jest czystą funkcją (``m365_sync_verdict``) — testowalną bez bazy.
+Sonda pozostaje informacyjna: nie wpływa na bramkę 503.
 
 Dwa stany, które znaczą „skrzynka nie działa", i dlaczego NIE da się ich
 rozpoznać po wieku ``last_sync_at``:

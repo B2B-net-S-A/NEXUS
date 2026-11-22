@@ -51,11 +51,10 @@ def _issues_check_due(checked_at: object, now: datetime) -> bool:
 
 
 async def availability_loop():
-    # Źródło dostępności: Compass (flaga env) albo urlopy NEXUSA
-    # (`app_settings['hr_availability_source']`, krok 6 „Ludzi w NEXUSIE”).
-    # To drugie przełącza admin bez wdrożenia, więc pętla żyje, gdy działają
-    # pętle HR, i co minutę sprawdza przełącznik.
-    if not settings.COMPASS_AVAILABILITY_ENABLED and not settings.HR_LOOPS_ENABLED:
+    # Źródło dostępności: urlopy NEXUSA (`app_settings['hr_availability_source']`,
+    # krok 6 „Ludzi w NEXUSIE”). Przełącza je admin bez wdrożenia, więc pętla
+    # żyje, gdy działają pętle HR, i co minutę sprawdza przełącznik.
+    if not settings.HR_LOOPS_ENABLED:
         return
     while True:
         try:
@@ -245,7 +244,7 @@ async def run_allocation_sweep(db):
     previous = state.stats or {}
     issues_checked_at = previous.get("issues_checked_at")
     if not availability_enabled():
-        # Compass celowo wyłączony: bez urlopów nie ma zastępstw do
+        # Źródło urlopów wyłączone: bez urlopów nie ma zastępstw do
         # sprawdzenia, a „brak świeżych danych” nie jest wtedy awarią, o której
         # trzeba kogoś budzić. `load_workloads` czyta wszystkie otwarte procesy
         # (ok. 70 tys. na produkcji) — nie liczymy ich co 30 s na darmo.

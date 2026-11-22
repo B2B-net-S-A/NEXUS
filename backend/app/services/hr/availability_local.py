@@ -42,8 +42,8 @@ _SOURCE: dict[str, Any] = {"local": False, "checked": None}
 
 
 def availability_enabled() -> bool:
-    """Czy działa jakiekolwiek źródło dostępności (Compass albo NEXUS)."""
-    return bool(settings.COMPASS_AVAILABILITY_ENABLED or _SOURCE["local"])
+    """Czy działa źródło dostępności — od 22.11.2026 tylko urlopy NEXUSA."""
+    return bool(_SOURCE["local"])
 
 
 def local_source_active() -> bool:
@@ -269,6 +269,9 @@ async def days_off_for(
     return frozenset(row[0] for row in rows)
 
 
+# „compass” to dziś po prostu „wyłączone”: Compass wygaszony 22.11.2026, więc
+# bez `local` nie ma urlopów, zastępstw ani dni pracy z urlopów. Wartość
+# zostaje na drucie, bo zapisuje ją przełącznik w Ustawieniach HR.
 SOURCES = ("compass", "local")
 
 

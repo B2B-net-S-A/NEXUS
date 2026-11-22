@@ -191,13 +191,15 @@ function ModulesCard({ config }: { config: HrConfig }) {
   const setSource = useSetAvailabilitySource();
 
   const toggleSource = async (local: boolean) => {
+    // Wyłączenie zapisuje na drucie „compass”, ale innego źródła już nie ma:
+    // Compass jest wygaszony od 22.11.2026.
     const ok = await askConfirm({
-      title: local ? "Zastępstwa z urlopów NEXUSA?" : "Wrócić do urlopów z Compassa?",
+      title: local ? "Zastępstwa z urlopów NEXUSA?" : "Wyłączyć zastępstwa z urlopów?",
       description: local
-        ? "Zastępcy przejmą pracę osób na urlopie według wniosków z NEXUSA, a cele i dni pracy policzą się z tych urlopów. Przełącz dopiero po imporcie kartotek i urlopów z Compassa."
-        : "Zastępstwa i dni pracy znów będą liczone z danych Compassa.",
-      confirmLabel: local ? "Przełącz na NEXUS" : "Wróć do Compassa",
-      variant: "default",
+        ? "Zastępcy przejmą pracę osób na urlopie według wniosków z NEXUSA, a cele i dni pracy policzą się z tych urlopów."
+        : "Innego źródła urlopów nie ma (Compass nie działa od 22.11.2026): zastępstwa staną, a cele i dni pracy policzą się bez urlopów.",
+      confirmLabel: local ? "Włącz" : "Wyłącz",
+      variant: local ? "default" : "destructive",
     });
     if (!ok) return;
     setSource.mutate(local ? "local" : "compass", {
@@ -213,7 +215,7 @@ function ModulesCard({ config }: { config: HrConfig }) {
       description: next
         ? key === "approvals"
           ? "Każdy z kartoteką poprosi o zgodę w „Moja współpraca → Zgody i wydatki”, a koordynatorzy i zatwierdzający dostaną je w „Do potwierdzenia”. Najpierw ustaw zasady niżej."
-          : `„${HR_MODULE_LABELS[key]}” zobaczą wszyscy uprawnieni. Wcześniej zaimportuj dane z Compassa i przełącz Compass w tryb tylko do odczytu.`
+          : `„${HR_MODULE_LABELS[key]}” zobaczą wszyscy uprawnieni.`
         : `„${HR_MODULE_LABELS[key]}” zniknie wszystkim poza administratorem. Dane zostają.`,
       confirmLabel: next ? "Włącz" : "Wyłącz",
       variant: next ? "default" : "destructive",
@@ -234,8 +236,7 @@ function ModulesCard({ config }: { config: HrConfig }) {
       <div>
         <h2 className="text-base font-semibold text-foreground">Moduły</h2>
         <p className="text-sm text-muted-foreground">
-          Moduł wyłączony widzi tylko administrator. Włączaj według planu przełączenia
-          z Compassa.
+          Moduł wyłączony widzi tylko administrator.
         </p>
       </div>
       <ul className="divide-y divide-border/60">
@@ -255,7 +256,7 @@ function ModulesCard({ config }: { config: HrConfig }) {
             <span>
               Zastępstwa i dni pracy z urlopów NEXUSA
               <span className="block text-xs text-muted-foreground">
-                {source.data === "local" ? "Teraz: NEXUS" : "Teraz: Compass"}
+                {source.data === "local" ? "Teraz: włączone" : "Teraz: wyłączone"}
               </span>
             </span>
             <Switch
