@@ -21,6 +21,7 @@ import {
   useCounterparties,
   useCounterpartyImport,
   useCounterpartyPatch,
+  usePendingCounterparties,
   type Counterparty,
   type CounterpartyRole,
   type ImportSummary,
@@ -29,6 +30,7 @@ import { CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table"
 import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 
+import { PendingCounterparties } from "./PendingCounterparties";
 import { ROLE_LABELS } from "./ledger-model";
 
 const CONTROL =
@@ -169,11 +171,13 @@ export function CounterpartiesTab({ canWrite = true }: { canWrite?: boolean }) {
   const [role, setRole] = useState<CounterpartyRole | null>(null);
   const [offset, setOffset] = useState(0);
   const [editing, setEditing] = useState<number | null>(null);
+  const [view, setView] = useState<"registry" | "pending">("registry");
   const [file, setFile] = useState<File | null>(null);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const list = useCounterparties(q, role, offset);
   const importer = useCounterpartyImport();
+  const pending = usePendingCounterparties();
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -201,6 +205,30 @@ export function CounterpartiesTab({ canWrite = true }: { canWrite?: boolean }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
+        <div role="tablist" aria-label="Widok kontrahentów" className="flex gap-1">
+          <Button
+            size="sm"
+            role="tab"
+            aria-selected={view === "registry"}
+            variant={view === "registry" ? "primary" : "outline"}
+            onClick={() => setView("registry")}
+          >
+            Kartoteka
+          </Button>
+          <Button
+            size="sm"
+            role="tab"
+            aria-selected={view === "pending"}
+            variant={view === "pending" ? "primary" : "outline"}
+            data-tour="finance.counterparties-pending"
+            onClick={() => setView("pending")}
+          >
+            Czeka na Symfonię
+            {pending.data && pending.data.total > 0 ? ` (${pending.data.total})` : ""}
+          </Button>
+        </div>
+        {view === "registry" ? (
+          <>
         <input
           type="search"
           value={search}
@@ -232,6 +260,8 @@ export function CounterpartiesTab({ canWrite = true }: { canWrite?: boolean }) {
             kosztowego: {data.without_account}
           </span>
         ) : null}
+          </>
+        ) : null}
         <div className={cn("ml-auto", !canWrite && "hidden")}>
           <input
             ref={input}
@@ -253,7 +283,7 @@ export function CounterpartiesTab({ canWrite = true }: { canWrite?: boolean }) {
             loading={importer.isPending && !importer.variables?.save}
             onClick={() => input.current?.click()}
           >
-            Wgraj plik z eBI24
+            {view === "pending" ? "Wgraj plik z ID Symfonii" : "Wgraj plik z eBI24"}
           </Button>
         </div>
       </div>
@@ -270,7 +300,9 @@ export function CounterpartiesTab({ canWrite = true }: { canWrite?: boolean }) {
         />
       ) : null}
 
-      {list.isLoading ? (
+      {view === "pending" ? (
+        <PendingCounterparties canWrite={canWrite} />
+      ) : list.isLoading ? (
         <p className="py-6 text-sm text-muted-foreground">Wczytywanie kartoteki…</p>
       ) : list.isError ? (
         <QueryStateNotice state="error" onRetry={() => list.refetch()} />
