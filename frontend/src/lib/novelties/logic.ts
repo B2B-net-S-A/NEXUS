@@ -315,6 +315,9 @@ export function lukiLeft(poligon: PoligonStatus | null | undefined): number {
 /** Ekran Startu. */
 export const START_PATH = "/start";
 
+/** Mapa ćwiczeń Poligonu NEXUSA. */
+export const POLIGON_PATH = "/poligon";
+
 /**
  * Tu zatrzymana osoba wchodzi zawsze: Start, pulpit, logowanie i wybór
  * rekrutacji po pierwszym logowaniu, a także panel „kto już umie” z
@@ -327,10 +330,21 @@ const START_FREE_PREFIXES = [
   "/onboarding",
   "/settings/nowosci",
   // Poligon NEXUSA: mapa ćwiczeń (same ćwiczenia przepuszcza `useStartGate`).
-  "/poligon",
+  POLIGON_PATH,
   // Sam odczyt liczb na telefonie; przeklikania Startu i tak robi się na laptopie.
   "/podglad",
 ];
+
+/**
+ * Dokąd po „Zakończ onboarding”. Nowa osoba z Poligonem wymaganym idzie od razu
+ * na `/poligon` (22.11.2026: lądowała na pulpicie, wolnym od blokady, i Poligon
+ * widziała dopiero po kliknięciu innego ekranu). Sam Start i brak stanu
+ * (awaria = brak blokady) zostawiają pulpit.
+ */
+export function afterOnboardingPath(status: StartStatus | null): string {
+  if (status?.enforced && status.redirect === POLIGON_PATH) return POLIGON_PATH;
+  return "/";
+}
 
 /** Czy ekran jest dostępny przed zaliczeniem Startu. */
 export function startAllows(pathname: string, touringStart: boolean): boolean {

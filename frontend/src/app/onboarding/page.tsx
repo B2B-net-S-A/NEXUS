@@ -2,6 +2,7 @@
 
 import { useEffect } from"react"
 import { useRouter } from"next/navigation"
+import { useQueryClient } from"@tanstack/react-query"
 
 import {
  onboardingPersona,
@@ -10,6 +11,8 @@ import {
 } from"@/store/auth"
 import { OnboardingDLV2 } from"@/components/v2/forms/OnboardingDLV2"
 import { OnboardingRecruiterV2 } from"@/components/v2/forms/OnboardingRecruiterV2"
+import { startKey } from"@/lib/novelties/api"
+import { afterOnboardingPath, type StartStatus } from"@/lib/novelties/logic"
 
 function FullScreenLoader() {
  return (
@@ -21,6 +24,7 @@ function FullScreenLoader() {
 
 export default function OnboardingPage() {
  const router = useRouter()
+ const queryClient = useQueryClient()
  const user = useAuthStore((s) => s.user)
  const hydrated = useAuthStore((s) => s.hydrated)
  const hydrate = useAuthStore((s) => s.hydrate)
@@ -36,9 +40,12 @@ export default function OnboardingPage() {
  return
  }
  if (!requiresOnboarding(user)) {
- router.replace("/")
+ // Po „Zakończ onboarding” formularz odświeża sesję i stan Startu; ten efekt
+ // odpala zaraz po nim, więc idzie tam samo — nowa osoba z Poligonem
+ // wymaganym na `/poligon`, nie na pulpit (22.11.2026).
+ router.replace(afterOnboardingPath(queryClient.getQueryData<StartStatus>(startKey) ?? null))
  }
- }, [hydrated, user, router])
+ }, [hydrated, user, router, queryClient])
 
  if (!hydrated) return <FullScreenLoader />
  if (!user || !requiresOnboarding(user)) return <FullScreenLoader />
