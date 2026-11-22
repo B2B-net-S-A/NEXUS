@@ -16,8 +16,16 @@
     },
     "where": "Rekrutacja → nagłówek → proces u klienta",
     "href": "/jobs",
+    "practice_href": "/jobs/990001",
     "section": "pipeline",
-    "dot_anchor": "job.client-process"
+    "dot_anchor": "job.client-process",
+    "steps": [
+      {
+        "anchor": "job.client-process",
+        "text": "Kliknij „proces” w nagłówku rekrutacji.",
+        "hint": "Zobaczysz etapy po wysłaniu CV, ile u klienta trwa decyzja i zdanie dla kandydata. Tu nic się nie zapisze."
+      }
+    ]
   },
   {
     "id": "kandydaci-ostatnio-z-osoba",
@@ -3965,8 +3973,22 @@
     },
     "where": "Rekrutacja → Odrzuć z powodem → Powód",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990105",
     "section": "pipeline",
-    "dot_anchor": "rejection.close-reasons"
+    "dot_anchor": "rejection.close-reasons",
+    "steps": [
+      {
+        "anchor": "person.dock.reject",
+        "text": "W panelu osoby kliknij „Odrzuć z powodem”.",
+        "hint": "Otworzy się okno „Zamknij proces”. Na Poligonie nic nie zostanie zapisane."
+      },
+      {
+        "anchor": "rejection.close-reasons",
+        "text": "To jedna lista powodów, taka sama w każdej kolumnie.",
+        "hint": "Powody są w grupach. Szukaj najpierw tu, zanim wybierzesz „Inne” z opisem.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "rezygnacja-w-oknie-zamknij-proces",
@@ -3984,8 +4006,22 @@
     },
     "where": "Rekrutacja → Odrzuć z powodem → Kto kończy? → Kandydat rezygnuje",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990105",
     "section": "pipeline",
-    "dot_anchor": "rejection.who-candidate"
+    "dot_anchor": "rejection.who-candidate",
+    "steps": [
+      {
+        "anchor": "person.dock.reject",
+        "text": "W panelu osoby kliknij „Odrzuć z powodem”.",
+        "hint": "Otworzy się okno „Zamknij proces”. Na Poligonie nic nie zostanie zapisane."
+      },
+      {
+        "anchor": "rejection.who-candidate",
+        "text": "Gdy to kandydat rezygnuje, wybierz tu „Kandydat rezygnuje”.",
+        "hint": "Karta pójdzie na „Zrezygnował”, a powody są te same co przy odrzuceniu.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "kontrakt-co-sie-dzieje-7-zakladek",
@@ -4103,7 +4139,21 @@
     },
     "where": "Rekrutacja → Odrzuć z powodem → Nie szuka pracy lub niezainteresowany",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990105",
     "section": "pipeline",
-    "dot_anchor": "rejection.not-looking"
+    "dot_anchor": "rejection.not-looking",
+    "steps": [
+      {
+        "anchor": "person.dock.reject",
+        "text": "W panelu osoby kliknij „Odrzuć z powodem”.",
+        "hint": "Otworzy się okno z powodami odrzucenia. Na Poligonie nic nie zostanie zapisane."
+      },
+      {
+        "anchor": "rejection.not-looking",
+        "text": "Przy „Nie szuka pracy” wybierzesz, do kiedy.",
+        "hint": "3 miesiące, 6 miesięcy, rok albo data. Do tego dnia profil ma „Nie szuka”, a system nie podsuwa tej osoby.",
+        "ack": true
+      }
+    ]
   }
 ]
