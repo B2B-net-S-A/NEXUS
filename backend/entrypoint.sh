@@ -1223,6 +1223,16 @@ except Exception as _prep_review_config_err:  # noqa: BLE001
     print(f"prep review config DDL unavailable: {_prep_review_config_err!r}")
     _PREP_REVIEW_CONFIG_DDL = []
 
+# Układ CV klasyczny / „Nowe CV” (migracja 0752) — JEDNO źródło z migracją
+# (`app/services/cv_layout_schema.py`).
+try:
+    from app.services import cv_layout_schema as _cv_layout_schema
+
+    _CV_LAYOUT_DDL = list(_cv_layout_schema.ALL_DDL)
+except Exception as _cv_layout_err:  # noqa: BLE001
+    print(f"cv layout DDL unavailable: {_cv_layout_err!r}")
+    _CV_LAYOUT_DDL = []
+
 # Pula dopełniania „Nowych” (migracja 0513) — JEDNO źródło z migracją
 # (`app/services/job_autofill_pool_schema.py`).
 try:
@@ -1638,6 +1648,7 @@ _COLUMN_STATEMENTS = [
     *_RANKING_WEIGHT_CHANGES_DDL,
     *_PREP_REVIEW_CONFIG_DDL,
     *_AUTOFILL_POOL_DDL,
+    *_CV_LAYOUT_DDL,
     *_CONVERSATION_FACTS_DDL,
     *_AUTOFILL_FEEDBACK_DDL,
     *_JOB_ROLE_PROFILE_DDL,

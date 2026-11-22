@@ -15,6 +15,7 @@ import { CvResultLive } from "./CvResult";
 import { ClientRulesCard, GenerateBar } from "./GenerateBar";
 import { StepCard } from "./GeneratorParts";
 import { LanguageChoice } from "./LanguageChoice";
+import { LayoutChoice } from "./LayoutChoice";
 import { PersonStep } from "./PersonStep";
 import { ProcessStep } from "./ProcessStep";
 import { ContentModeNote } from "./ContentModeNote";
@@ -113,6 +114,15 @@ function ContentStep({ g }: { g: CvGeneratorState }) {
           policy={g.languagePolicy}
           clientName={g.clientName}
         />
+        {g.layoutEnabled ? (
+          <LayoutChoice
+            place="generator"
+            value={g.layoutChoice}
+            onChange={g.setLayoutChoice}
+            clientName={g.clientName}
+            clientDefault={g.layoutDefault}
+          />
+        ) : null}
       </div>
       <AdvancedOptions
         open={g.advancedOpen}

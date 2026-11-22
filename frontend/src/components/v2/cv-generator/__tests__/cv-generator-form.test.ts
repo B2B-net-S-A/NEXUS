@@ -235,6 +235,23 @@ describe("treść żądania", () => {
     expect(payload.sources).toEqual(sources);
     expect(payload.sources).not.toBe(sources);
   });
+  it("22.11.2026: układ CV jedzie tylko przy włączonej flagze (`layout` ≠ null)", () => {
+    const base = {
+      candidateId: 2,
+      recruitment: recruitment(),
+      cvDocumentId: 9,
+      projectRef: "",
+      language: "pl" as const,
+      blind: false,
+      contentMode: "tailored" as const,
+      position: "",
+      championProfile: null,
+      consentToken: null,
+    };
+    expect(buildGeneratePayload({ ...base, layout: "new" }).cv_layout).toBe("new");
+    expect(buildGeneratePayload({ ...base, layout: null })).not.toHaveProperty("cv_layout");
+    expect(buildGeneratePayload(base)).not.toHaveProperty("cv_layout");
+  });
 });
 
 describe("pozostałe", () => {

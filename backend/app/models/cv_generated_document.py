@@ -65,6 +65,9 @@ class CvGeneratedDocument(Base, TimestampMixin):
     content_mode: Mapped[str] = mapped_column(
         String(16), server_default="tailored", default="polished", nullable=False
     )
+    # Układ wybrany przy „Generuj” (0752): przechodzi na CV etapu, gdy wynik
+    # staje się szkicem. NULL = jak reguła klienta / klasyczny.
+    cv_layout: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     filename: Mapped[str] = mapped_column(String(500), nullable=False)
     # Async-generation status. Generacja leci w tle (BackgroundTasks), więc wynik
     # nie ginie gdy rekruter zamknie kartę w trakcie tych 60-90 s:

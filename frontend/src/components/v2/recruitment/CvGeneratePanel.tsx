@@ -37,6 +37,7 @@ import { consentClientLabel } from "@/lib/consent-mail";
 import { AdvancedOptions } from "@/components/v2/cv-generator/AdvancedOptions";
 import { AiSourcesRows } from "@/components/v2/cv-generator/AiSourcesRows";
 import { LanguageChoice } from "@/components/v2/cv-generator/LanguageChoice";
+import { LayoutChoice, cvLayoutFact } from "@/components/v2/cv-generator/LayoutChoice";
 import { ContentModeNote } from "@/components/v2/cv-generator/ContentModeNote";
 import {
   advancedNeedsAttention,
@@ -306,6 +307,17 @@ function CvGeneratePanelForm({
             disabled={g.generating}
             compact
           />
+          {g.layoutEnabled ? (
+            <LayoutChoice
+              place="generator"
+              value={g.layoutChoice}
+              onChange={g.setLayoutChoice}
+              clientName={g.clientName}
+              clientDefault={g.layoutDefault}
+              disabled={g.generating}
+              compact
+            />
+          ) : null}
         </div>
         <AdvancedOptions
           open={g.advancedOpen}
@@ -331,6 +343,7 @@ function CvGeneratePanelForm({
       aiSourcesSentence(g.aiSourcesQuery.data, g.aiSources),
       modeLabel,
       LANGUAGE_IN_SENTENCE[g.languageChoice],
+      g.layoutEnabled ? cvLayoutFact(g.layoutChoice) : null,
     ].filter((fact): fact is string => !!fact);
     choices = (
       <p data-testid="cv-generate-summary" className="text-xs text-foreground [overflow-wrap:anywhere]">

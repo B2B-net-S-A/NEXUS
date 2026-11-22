@@ -143,6 +143,7 @@ from app.schemas.candidate_stage_cv import (
     CVBrandedFinalizeResponse,
     CVBrandedResponse,
     CVBrandedUpdate,
+    CVLayoutUpdate,
     CVBrandedSelectDocument,
     CVEditorDismissRequest,
     CVEditorIssues,
@@ -176,6 +177,7 @@ from app.services.candidate_stage_cv_service import (
     snapshot_exists,
 )
 from app.services import cv_consent_gate as consent_gate
+from app.services import cv_layout as layout_service
 from app.services.hiring_manager_verdicts import veto_for_candidate_stage
 from app.services.stage_cv_copy import (
     copy_origin,
@@ -1397,6 +1399,8 @@ def _build_branded_response(
         finalized_by_name=finalized_by_name,
         snapshot_filename=csv.branded_snapshot_filename,
         rendered_from_default=rendered_from_default,
+        cv_layout=layout_service.effective(csv.cv_layout),
+        new_layout_enabled=layout_service.enabled(),
     )
 
 
@@ -1478,11 +1482,17 @@ async def get_branded_cv(
     candidate_id, job_id, csv = row
     await ensure_job_read_access(db, current_user, job_id)
 
+    layout_flags = {
+        "new_layout_enabled": layout_service.enabled(),
+        "default_layout": await layout_service.default_for_job(db, job_id),
+    }
     if csv is None or csv.branded_status == "none":
         return with_pair_source(
-            _build_empty_branded_response(csv)
-            if csv is not None
-            else CVBrandedResponse(candidate_stage_id=stage_id, status="none"),
+            (
+                _build_empty_branded_response(csv)
+                if csv is not None
+                else CVBrandedResponse(candidate_stage_id=stage_id, status="none")
+            ).model_copy(update=layout_flags),
             await _branded_cv_summary_for_pair(db, candidate_id, job_id),
         )
 
@@ -1501,7 +1511,62 @@ async def get_branded_cv(
         csv,
         updated_by_name=updated_by_name,
         finalized_by_name=finalized_by_name,
-    )
+    ).model_copy(update={"default_layout": layout_flags["default_layout"]})
+
+
+@router.patch(
+    "/candidates/stages/{stage_id}/cv/layout",
+    response_model=CVBrandedResponse,
+)
+async def update_stage_cv_layout(
+    stage_id: int,
+    payload: CVLayoutUpdate,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CVBrandedResponse:
+    """Przełącz układ CV (klasyczny Word / Nowe CV) bez generowania od nowa.
+
+    Jedno ustawienie CV: karta, edytor i generator pokazują ten sam układ.
+    Zatwierdzona, niewysłana wersja przełącza się razem z CV etapu — to ta sama
+    treść, zmienia się tylko wygląd PDF. Po „CV wysłane” 409, tak jak podmiana.
+    """
+    from app.services.new_cv_company_cv import locked_after_send
+
+    if not layout_service.enabled():
+        raise HTTPException(409, layout_service.MSG_DISABLED)
+    csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    if csv.branded_status == "none":
+        raise HTTPException(409, layout_service.MSG_NO_CV)
+    if await locked_after_send(db, csv):
+        raise HTTPException(409, layout_service.MSG_LOCKED)
+    previous = layout_service.normalized(csv.cv_layout)
+    if previous != payload.cv_layout:
+        csv.cv_layout = payload.cv_layout
+        if csv.branded_status == "finalized":
+            version = await db.scalar(
+                select(CvDocumentVersion).where(
+                    CvDocumentVersion.candidate_stage_cv_id == csv.id,
+                    CvDocumentVersion.version == csv.branded_version,
+                )
+            )
+            if version is not None:
+                version.cv_layout = payload.cv_layout
+        db.add(
+            Activity(
+                entity_type="candidate_stage_cv",
+                entity_id=csv.id,
+                action="cv_layout_changed",
+                user_id=current_user.id,
+                details={
+                    "candidate_stage_id": csv.candidate_stage_id,
+                    "from": previous,
+                    "to": payload.cv_layout,
+                    "version": csv.branded_version,
+                },
+            )
+        )
+        await db.commit()
+    return _build_branded_response(csv)
 
 
 @router.get(
@@ -1685,6 +1750,11 @@ async def apply_generated_to_stage_cv(
         previous = await _generated_document_html(db, csv.generated_document_id)
         merge = merge_rewrite(previous, csv.branded_draft_html, html)
         html = sanitize_cv_html(merge.html)
+    if layout_service.enabled():
+        # Układ wybrany przy „Generuj”; automaty i stare generacje — reguła klienta.
+        csv.cv_layout = generated.cv_layout or await layout_service.default_for_client(
+            db, generated.client_id
+        )
     # Runda 7 (R7-X4-1): wymóg zgody zamrożony na kopii — usunięcie
     # wygenerowanego CV (FK SET NULL) nie może zdjąć blokady pobrania.
     await _write_stage_draft(

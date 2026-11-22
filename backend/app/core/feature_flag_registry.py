@@ -53,6 +53,12 @@ REGISTERED_FLAGS: tuple[FeatureFlag, ...] = (
         expires=date(2027, 1, 12),
     ),
     FeatureFlag(
+        name="CV_NEW_LAYOUT_ENABLED",
+        purpose="Układ „Nowe CV” (PDF) obok klasycznego Worda w generatorze, karcie i edytorze; włącza się po stagingu.",
+        decided=date(2026, 11, 22),
+        expires=date(2027, 1, 21),
+    ),
+    FeatureFlag(
         name="SALES_REGISTRY_ENABLED",
         purpose="Dane firm Sprzedaży z białej listy VAT i KRS (noc i po zapisie NIP-u); włącza Artur po próbie na stagingu.",
         decided=date(2026, 11, 13),

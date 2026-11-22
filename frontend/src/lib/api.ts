@@ -7099,7 +7099,18 @@ export interface CVBrandedState {
   /** Etap bez własnego CV: wiersz etapu tej pary z CV firmowym (runda 11, F23). */
   pair_source_stage_id?: number | null;
   pair_source_status?: CVBrandedStatus | null;
+  /**
+   * Układ CV (22.11.2026): `classic` = szablon Word, `new` = Nowe CV w PDF.
+   * Jedno ustawienie CV — generator, karta i edytor pokazują to samo.
+   * `new_layout_enabled` = flaga serwera; wyłączona — bez wyboru układu.
+   * `default_layout` — układ, który generator zaznacza na start (reguła klienta).
+   */
+  cv_layout?: CvLayout;
+  new_layout_enabled?: boolean;
+  default_layout?: CvLayout;
 }
+
+export type CvLayout = "classic" | "new";
 
 /**
  * Wynik „Wgraj nowe CV” w rekrutacji (`…/cv/original/upload`, 15.10.2026).
@@ -7314,6 +7325,9 @@ export const candidateStageCvApi = {
       }, { timeout: SLOW_ENDPOINT_TIMEOUT_MS }),
     get: (stageId: number) =>
       api.get<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded`),
+    /** Przełącz układ CV bez generowania od nowa (po „CV wysłane” 409). */
+    setLayout: (stageId: number, cv_layout: CvLayout) =>
+      api.patch<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/layout`, { cv_layout }),
     rename: (stageId: number, filename: string) =>
       api.patch<{ filename: string; pattern_filename?: string | null }>(
         `/api/candidates/stages/${stageId}/cv/branded/filename`,
@@ -7493,6 +7507,8 @@ export interface CvGeneratePayload {
   sources?: { answers: boolean; notes: boolean; transcripts: boolean; prep: boolean };
   /** „Napisz od nowa: krócej, więcej o Kafce” — forma i akcenty, nie fakty (PR 5). */
   instruction?: string;
+  /** Układ CV (22.11.2026); brak = domyślny z reguły klienta. */
+  cv_layout?: CvLayout;
 }
 
 export const cvGeneratorApi = {

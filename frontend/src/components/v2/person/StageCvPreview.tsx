@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/Toast";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
+import { CvPagesPreview } from "@/components/v2/cv/CvPagesPreview";
 import { ConsentRequestButton } from "@/components/v2/recruitment/ConsentRequestButton";
 import {
   DocumentSearchBar,
@@ -46,7 +47,7 @@ import {
   hasSearchableText,
   highlightDocumentMatches,
 } from "@/lib/document-text-search";
-import { fetchStageCvFile } from "@/lib/stage-cv-file";
+import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useDocumentFindShortcut } from "@/lib/use-document-find-shortcut";
 
@@ -165,9 +166,16 @@ export function StageCvPreview({
   // renderować, tylko prosimy o zrzut.
   const consentMissing = !fromStage && cv?.status === "ready" && cv.consent_missing === true;
   const stageConsentMissing = branded?.consent_missing === true;
+  // Układ „Nowe CV” (22.11.2026) istnieje tylko jako PDF — podgląd pokazuje
+  // strony PDF zamiast pliku Word, żeby DL widział to, co dostanie klient.
+  const pdfLayout =
+    fromStage &&
+    !stageConsentMissing &&
+    branded?.new_layout_enabled === true &&
+    branded.cv_layout === "new";
   const readyId = cv?.status === "ready" && !consentMissing ? cv.id : null;
   const sourceKey = fromStage
-    ? stageConsentMissing
+    ? stageConsentMissing || pdfLayout
       ? null
       : `stage:${cvStageId}`
     : readyId != null
@@ -256,6 +264,11 @@ export function StageCvPreview({
 
   const download = async () => {
     try {
+      if (pdfLayout) {
+        const file = await fetchStageCvPdf(cvStageId as number, { download: "preview" });
+        downloadBlob(file.blob, file.filename || "CV.pdf");
+        return;
+      }
       if (fromStage) {
         const file = await loadStageCvFile(cvStageId as number, { download: "preview" });
         downloadBlob(file.blob, file.filename || "CV.docx");
@@ -274,7 +287,23 @@ export function StageCvPreview({
 
   const shownFindResult = findQuery === debouncedQuery ? findResult : { ...findResult, pending: true };
 
-  const previewBox = (
+  const previewBox = pdfLayout ? (
+    <div
+      data-testid="stage-cv-pdf-preview"
+      className={
+        fill
+          ? "relative min-h-[28rem] flex-1 overflow-hidden rounded-lg border border-border bg-muted/30"
+          : "relative h-[28rem] overflow-hidden rounded-lg border border-border bg-muted/30"
+      }
+    >
+      <CvPagesPreview
+        key={`${cvStageId}:${branded?.status}:${branded?.version}:${revision ?? branded?.edit_revision ?? 0}`}
+        loadPdf={() => fetchStageCvPdf(cvStageId as number).then((file) => file.blob)}
+        loadDocx={() => loadStageCvFile(cvStageId as number).then((file) => file.blob)}
+        className="absolute inset-0"
+      />
+    </div>
+  ) : (
     <>
       {searchable && render === "ready" ? (
         <DocumentSearchTerms terms={terms} availability={availability} result={shownFindResult} />
@@ -379,7 +408,7 @@ export function StageCvPreview({
         {!hideDownload && !stageConsentMissing && (fromStage || (cv?.status === "ready" && !consentMissing)) ? (
           <Button size="sm" variant="outline" className="ml-auto" onClick={() => void download()}>
             <Download className="h-3.5 w-3.5" />
-            Pobierz DOCX
+            {pdfLayout ? "Pobierz PDF" : "Pobierz DOCX"}
           </Button>
         ) : null}
       </header>
