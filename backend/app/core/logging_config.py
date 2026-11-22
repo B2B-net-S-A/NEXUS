@@ -92,6 +92,21 @@ _QUERY_PII_RE = re.compile(
     r"(?i)([?&](?:email|phone|q|q_all|q_any|q_any_group|q_none|name|first_name"
     r"|last_name|lastname|full_name|search|nip)=)[^&\s\"'#]+"
 )
+# Podmiot certyfikatu podpisu w formie, w jakiej wypisują go pyHanko i asn1crypto
+# (``Name.human_friendly``): „Failed to build path for Common Name: <imię
+# i nazwisko>; Serial Number: PNOPL-<PESEL>; Given Name: …” na WARNING przy
+# każdym podpisie spoza listy zaufanych UE, plus ten sam podmiot w tracebacku
+# (22.11.2026). Wartość kończy się na „;”, cudzysłowie albo końcu linii; przecinek
+# do niej należy („Given Name: JAN, ADAM”). Wielkie litery etykiet jak
+# w asn1crypto, żeby nie ruszać zwykłego tekstu.
+_CERT_SUBJECT_RE = re.compile(
+    r"\b(Common Name|Serial Number|Given Name|Surname|Pseudonym|Initials"
+    r"|Organization Identifier|Organization)(: )[^;\"'\n]++"
+)
+# Identyfikatory osób z semantyki ETSI EN 319 412-1 w numerze seryjnym
+# certyfikatu (PESEL, dowód, paszport, NIP), w dowolnym zapisie podmiotu
+# (np. „serialNumber=PNOPL-…” w RFC 4514).
+_ETSI_PERSON_ID_RE = re.compile(r"\b(?:PNO|IDC|PAS|TIN)[A-Z]{2}-[A-Za-z0-9]++")
 
 
 # Runda 7 (R7-V5-1): górny limit długości redagowanego tekstu. Wzorce są
@@ -134,6 +149,8 @@ def redact_sensitive(text: str) -> str:
     text = _ICAL_URL_RE.sub(_mask_ical_url, text)
     text = _QUERY_PII_RE.sub(r"\1[redacted]", text)
     text = _EMAIL_RE.sub("[email]", text)
+    text = _CERT_SUBJECT_RE.sub(r"\1\2[redacted]", text)
+    text = _ETSI_PERSON_ID_RE.sub("[redacted-id]", text)
     text = _KEY_PREFIX_RE.sub("[redacted-key]", text)
     text = _BEARER_RE.sub(r"\1 [redacted]", text)
     text = _LABELED_SECRET_RE.sub(
