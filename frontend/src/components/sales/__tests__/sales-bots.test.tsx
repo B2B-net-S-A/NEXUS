@@ -77,6 +77,25 @@ describe("BotsView", () => {
     expect(screen.getByText(/bez „Przyjmij”/)).toBeInTheDocument();
   });
 
+  it("pokazuje brak raportu haczyków mimo udanego późniejszego researchu", () => {
+    query = ok({ items: [bot({
+      key: "research",
+      name: "Bot Research",
+      last_call_hook_run: {
+        ...BOTS[0].last_run!,
+        id: 24,
+        kind: "briefing",
+        status: "expired",
+        outcome: "expired",
+        detail: "Minął czas na raport.",
+      },
+    })], can_pause: false });
+    render(<BotsView />);
+    expect(screen.getByText("Zapisano wynik")).toBeInTheDocument();
+    expect(screen.getByText(/Haczyki do rozmów #24/)).toBeInTheDocument();
+    expect(screen.getByText("Brak raportu")).toBeInTheDocument();
+  });
+
   it.each([
     ["waiting", "Czeka na raport"],
     ["failed", "Błąd uruchomienia"],

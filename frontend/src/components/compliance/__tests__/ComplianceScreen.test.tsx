@@ -152,12 +152,13 @@ afterEach(() => {
 
 describe("Przepisy — ekran", () => {
   it("lista z API, szczegół z sondą „U nas”, źródła po klasach i bez linku spoza http(s)", async () => {
-    route([change(), change({ id: 2, title: "Druga zmiana", urgency: "watch", probes: [], tasks: { open: 0, done: 0 } })]);
+    route([change(), change({ id: 2, title: "Druga zmiana", urgency: "watch", verified_sources: 0, probes: [], tasks: { open: 0, done: 0 } })]);
     renderScreen();
 
     const list = await screen.findByRole("list", { name: "Zmiany w prawie" });
     expect(within(list).getByText("Przykładowa zmiana w ustawie o VAT")).toBeInTheDocument();
     expect(within(list).getByText("Druga zmiana")).toBeInTheDocument();
+    expect(within(list).getByText("Numer aktu lub druku do potwierdzenia")).toBeInTheDocument();
 
     const card = await screen.findByRole("article", { name: "Przykładowa zmiana w ustawie o VAT" });
     expect(within(card).getByText("Co to znaczy dla nas (dane z NEXUSA)")).toBeInTheDocument();
@@ -167,6 +168,7 @@ describe("Przepisy — ekran", () => {
       "https://example.gov.pl/akt",
     );
     expect(within(card).getByText("Urzędowe")).toBeInTheDocument();
+    expect(within(card).getByText("Numer aktu lub druku potwierdzony w API Sejmu")).toBeInTheDocument();
     expect(within(card).getByText("Praktyka")).toBeInTheDocument();
     expect(within(card).queryByRole("link", { name: /Wpis doradcy/ })).toBeNull();
     expect(within(card).getByText("Sprawdzić numerację")).toBeInTheDocument();

@@ -77,6 +77,10 @@ function stateOf(bot: SalesBot): { label: string; tone: "success" | "warning" | 
   if (bot.paused) return { label: "Wstrzymany", tone: "warning" };
   if (bot.last_run === undefined) return { label: "Brak danych o biegu", tone: "neutral" };
   if (bot.last_run === null) return { label: "Brak uruchomień", tone: "neutral" };
+  return runState(bot.last_run.outcome);
+}
+
+function runState(outcome: NonNullable<SalesBot["last_run"]>["outcome"]) {
   const states = {
     waiting: { label: "Czeka na raport", tone: "warning" },
     failed: { label: "Błąd uruchomienia", tone: "danger" },
@@ -86,7 +90,7 @@ function stateOf(bot: SalesBot): { label: string; tone: "success" | "warning" | 
     no_changes: { label: "Raport bez zmian", tone: "neutral" },
     received: { label: "Raport odebrany", tone: "neutral" },
   } as const;
-  return states[bot.last_run.outcome] ?? { label: "Brak danych o wyniku", tone: "neutral" };
+  return states[outcome] ?? { label: "Brak danych o wyniku", tone: "neutral" as const };
 }
 
 function formatAt(iso: string): string {
@@ -103,6 +107,8 @@ function BotCard({ bot, canPause }: { bot: SalesBot; canPause: boolean }) {
   const copy = BOT_COPY[bot.key];
   const Icon = copy.icon;
   const state = stateOf(bot);
+  const hookRun = bot.last_call_hook_run;
+  const hookState = hookRun && runState(hookRun.outcome);
   const setPaused = useSetBotPaused();
   const { showError, showSuccess } = useToast();
   return (
@@ -146,6 +152,19 @@ function BotCard({ bot, canPause }: { bot: SalesBot; canPause: boolean }) {
             Ostatni bieg #{bot.last_run.id} · {formatAt(bot.last_run.started_at)}
           </p>
           <p>{bot.last_run.detail}</p>
+        </div>
+      )}
+      {hookRun && hookState && (
+        <div className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-medium text-foreground">
+              Haczyki do rozmów #{hookRun.id} · {formatAt(hookRun.started_at)}
+            </p>
+            <Badge variant={hookState.tone}>
+              {hookState.label}
+            </Badge>
+          </div>
+          <p>{hookRun.detail}</p>
         </div>
       )}
       <dl className="grid gap-2 text-xs sm:grid-cols-2">

@@ -47,6 +47,7 @@ export interface LawChangeRow {
 }
 
 export interface LawChangeListItem extends LawChangeRow {
+  verified_sources?: number;
   probes: ChangeProbe[];
   tasks: { open: number; done: number };
 }
@@ -131,8 +132,8 @@ export type ComplianceSummary =
       top: SummaryTop[];
     };
 
-/** Podsumowanie biegu: same liczby (bez tytułów i nazw), klucze zależne od rodzaju. */
-export type RunSummary = Record<string, number | boolean | Record<string, number | boolean>>;
+/** Liczniki i kody przyczyn pominięcia źródeł, bez treści raportu. */
+export type RunSummary = Record<string, number | boolean | string | Record<string, number | boolean>>;
 
 export interface RadarRun {
   id: number;

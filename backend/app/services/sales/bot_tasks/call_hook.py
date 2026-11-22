@@ -115,10 +115,14 @@ async def save(
     *,
     today: date,
     now: datetime,
-) -> dict[str, int]:
+) -> dict[str, Any]:
     rows, dropped = plan_hooks(run, hooks, today=today)
     await save_results(db, run, rows, now, kind=CALL_HOOK)
-    return {"hooks": len(rows), "hooks_dropped": dropped}
+    return {
+        "hooks": len(rows),
+        "hooks_dropped": dropped,
+        "hook_saved_company_ids": sorted(row["company_id"] for row in rows),
+    }
 
 
 def task_text(refs: list[int]) -> str:
@@ -133,7 +137,9 @@ def task_text(refs: list[int]) -> str:
         "(wdrożenia, programy, inwestycje, zespoły IT). Bierz informacje z ostatnich "
         "12 miesięcy. Zdanie niczego nie sprzedaje i nie obiecuje, tylko pokazuje, "
         "że wiemy, co się w firmie dzieje. Bez nazwisk osób. Firmę bez sprawdzonego "
-        "faktu pomiń."
+        "faktu wpisz do no_signal, ale tylko jeśli faktycznie ją sprawdzono. W checked_firms "
+        "podaj liczbę rzeczywiście sprawdzonych firm. Nie wpisuj firmy, której nie "
+        "udało się sprawdzić."
     )
 
 

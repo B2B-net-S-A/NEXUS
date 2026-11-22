@@ -10,7 +10,7 @@ osobna flaga zadań uruchamia uzupełnianie kart firm bez domeny, a w pierwszy
 poniedziałek miesiąca od 7:00 (albo przy pierwszym obrocie po nim) „Warto wrócić”
 i „Nowe centra IT” (``SALES_BOT_TASKS_ENABLED``). Z obiema flagami
 (``SALES_SIGNALS_ENABLED`` i ``SALES_BOT_TASKS_ENABLED``) w dzień roboczy od 16:00
-jeszcze haczyk przed telefonem i teczka przed spotkaniem na następny dzień roboczy
+startuje przygotowanie haczyków przed telefonem i teczek przed spotkaniem
 (``services/sales/hook_prep_targets.py``). Przy flagze zadań co godzinę teczka leada:
 Dane firm, Kontakty i Research dla firm nowych leadów (``services/sales/lead_dossier.py``).
 Logi są publiczne: same liczby. → docs/claude/sprzedaz/sygnaly-grok-bot.md
@@ -191,6 +191,7 @@ async def _night_enrich(db: AsyncSession, *, now: datetime, local: datetime) -> 
     night = local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(
         timezone.utc
     )
+    await enrich.lock_enrich_starts(db)
     # Tylko biegi pętli: przycisk na karcie ma własny limit i nie zjada nocy.
     started, last = (
         await db.execute(
@@ -204,11 +205,13 @@ async def _night_enrich(db: AsyncSession, *, now: datetime, local: datetime) -> 
     if started >= enrich.NIGHT_MAX_RUNS or (
         last is not None and last > now - enrich.NIGHT_EVERY
     ):
+        await db.commit()
         return 0
     ids = await enrich.night_company_ids(db, now=now)
-    if ids and _started(await signals.start_run(db, enrich.KIND, ids, now=now)):
-        return len(ids)
-    return 0
+    run = await signals.start_run(db, enrich.KIND, ids, now=now) if ids else None
+    if run is None:
+        await db.commit()
+    return len(ids) if _started(run) else 0
 
 
 def first_monday_start(local: datetime) -> datetime:
@@ -274,7 +277,7 @@ async def _legacy_tick(
 async def hooks_and_prep(
     db: AsyncSession, *, now: datetime, local: datetime
 ) -> dict[str, int]:
-    """Dzień roboczy od 16:00: haczyki i teczki na następny dzień roboczy, raz dziennie."""
+    """Dzień roboczy od 16:00: haczyki w paczkach, teczki raz dziennie."""
 
     done = {CALL_HOOK: 0, MEETING_PREP: 0}
     if (
@@ -286,17 +289,21 @@ async def hooks_and_prep(
     since = local.replace(
         hour=hook_prep.START_HOUR, minute=0, second=0, microsecond=0
     ).astimezone(timezone.utc)
+    await hook_prep.lock_hook_starts(db)
     runs = await hook_prep.runs_since(db, since)
     today = local.date()
 
-    if not hook_prep.opened_today(runs, CALL_HOOK, now=now):
-        ids = await hook_prep.hook_company_ids(db, now=now, today=today)
-        if ids:
-            run = await signals.start_run(
-                db, "briefing", ids, now=now, modes={cid: CALL_HOOK for cid in ids}
-            )
-            if _started(run):
-                done[CALL_HOOK] = len(ids)
+    candidates = await hook_prep.hook_company_ids(db, now=now, today=today)
+    ids = hook_prep.next_hook_batch(candidates, runs, now=now)
+    run = None
+    if ids:
+        run = await signals.start_run(
+            db, "briefing", ids, now=now, modes={cid: CALL_HOOK for cid in ids}
+        )
+    if run is None:
+        await db.commit()  # Zwolnij blokadę także wtedy, gdy nie rozpoczęto biegu.
+    elif _started(run):
+        done[CALL_HOOK] = len(run.company_ids)
 
     if not hook_prep.opened_today(runs, MEETING_PREP, now=now):
         ids = await hook_prep.prep_company_ids(db, now=now, today=today)
