@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
+from unittest.mock import AsyncMock
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -56,20 +57,53 @@ def test_opened_today_counts_failed_runs_only_for_an_hour() -> None:
     now = _local(TODAY, 18).astimezone(timezone.utc)
     hook = {"1": "call_hook"}
     assert hook_prep_targets.opened_today(
-        [("started", now - timedelta(hours=2), hook)], "call_hook", now=now
+        [("started", now - timedelta(hours=2), hook, {})], "call_hook", now=now
     )
     assert hook_prep_targets.opened_today(
-        [("failed", now - timedelta(minutes=30), hook)], "call_hook", now=now
+        [("failed", now - timedelta(minutes=30), hook, {})], "call_hook", now=now
     )
     assert not hook_prep_targets.opened_today(
-        [("failed", now - timedelta(hours=2), hook)], "call_hook", now=now
+        [("failed", now - timedelta(hours=2), hook, {})], "call_hook", now=now
     )
     # Bieg punktów albo teczki nie zastępuje haczyka.
     assert not hook_prep_targets.opened_today(
-        [("received", now, {"1": "meeting_prep"}), ("received", now, {"2": "ongoing"})],
+        [
+            ("received", now, {"1": "meeting_prep"}, {}),
+            ("received", now, {"2": "ongoing"}, {}),
+        ],
         "call_hook",
         now=now,
     )
+
+
+def test_hook_batches_cover_new_firms_then_retry_only_missing_results() -> None:
+    now = _local(TODAY, 20).astimezone(timezone.utc)
+    batch = hook_prep_targets.next_hook_batch
+    assert batch(range(1, 41), [], now=now) == [1, 2, 3, 4, 5]
+    runs = [
+        (
+            "received",
+            now,
+            {str(ref): "call_hook" for ref in range(1, 6)},
+            {"hook_covered_company_ids": [1, 2, 3, 4]},
+        ),
+        ("expired", now, {"6": "call_hook"}, {}),
+        ("failed", now - timedelta(minutes=15), {"7": "call_hook"}, {}),
+        ("started", now, {"8": "meeting_prep"}, {}),
+    ]
+    assert batch(range(1, 13), runs, now=now) == [8, 9, 10, 11, 12]
+    assert batch(range(1, 10), runs, now=now) == [8, 9, 5, 6]
+    runs.append(("expired", now, {"5": "call_hook"}, {}))
+    assert batch(range(1, 10), runs, now=now) == [8, 9, 6]
+
+
+def test_hook_daily_limit_counts_companies_even_after_their_hooks_get_fresh() -> None:
+    now = _local(TODAY, 20).astimezone(timezone.utc)
+    covered = dict.fromkeys(map(str, range(1, 41)), "call_hook")
+    runs = [
+        ("received", now, covered, {"hook_covered_company_ids": list(range(2, 41))})
+    ]
+    assert hook_prep_targets.next_hook_batch([1, 41, 42], runs, now=now) == [1]
 
 
 @pytest.mark.asyncio
@@ -133,6 +167,9 @@ def _patch_loop(monkeypatch, started: list, runs: list | None = None) -> None:
     async def runs_since(_db, since):
         return list(runs or [])
 
+    async def lock(_db):
+        return None
+
     async def hooks(_db, **_k):
         return [1, 2]
 
@@ -149,8 +186,11 @@ def _patch_loop(monkeypatch, started: list, runs: list | None = None) -> None:
         started.append(
             (kind, list(company_ids), kwargs.get("modes"), kwargs.get("request"))
         )
-        return _Run()
+        run = _Run()
+        run.company_ids = company_ids
+        return run
 
+    monkeypatch.setattr(loop.hook_prep, "lock_hook_starts", lock)
     monkeypatch.setattr(loop.hook_prep, "runs_since", runs_since)
     monkeypatch.setattr(loop.hook_prep, "hook_company_ids", hooks)
     monkeypatch.setattr(loop.hook_prep, "prep_company_ids", preps)
@@ -160,7 +200,7 @@ def _patch_loop(monkeypatch, started: list, runs: list | None = None) -> None:
 
 async def _run_at(local: datetime) -> dict[str, int]:
     return await loop.hooks_and_prep(
-        None, now=local.astimezone(timezone.utc), local=local
+        AsyncMock(), now=local.astimezone(timezone.utc), local=local
     )
 
 
@@ -187,8 +227,8 @@ async def test_friday_at_four_starts_hooks_and_prep_once(monkeypatch) -> None:
         monkeypatch,
         started,
         runs=[
-            ("started", now, {"1": "call_hook"}),
-            ("received", now, {"3": "meeting_prep"}),
+            ("started", now, {"1": "call_hook"}, {}),
+            ("received", now, {"3": "meeting_prep"}, {}),
         ],
     )
     assert await _run_at(_local(date(2026, 11, 13), 16, 20)) == {
@@ -317,6 +357,8 @@ async def test_briefing_ingest_keeps_points_of_hook_firms_out_of_briefings(
     )
     assert seen == {"refs": [2], "saved": ("call_hook", [1])}
     assert (summary["hooks"], summary["hooks_dropped"]) == (1, 0)
+    assert summary["hook_covered_company_ids"] == [1]
+    assert summary["hook_missing"] == 0
 
 
 def _text(firms: list[dict[str, Any]], request: dict[str, Any] | None = None) -> str:

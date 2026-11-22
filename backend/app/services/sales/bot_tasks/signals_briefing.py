@@ -17,6 +17,7 @@ robi dla tych rodzajów to, co robił dotąd.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any, Optional
 
@@ -30,6 +31,7 @@ from app.services.sales.bot_tasks import call_hook
 from app.services.sales.bot_tasks.base import BotTask, TaskContext
 
 MEETING_PREP = "meeting_prep"
+logger = logging.getLogger(__name__)
 
 
 class BriefingRequest(BaseModel):
@@ -75,6 +77,9 @@ def _signals_text(run: SalesSignalRun, ctx: TaskContext) -> str:
 
 
 def _briefing_text(run: SalesSignalRun, ctx: TaskContext) -> str:
+    hooks = _refs_with(ctx, call_hook.CALL_HOOK)
+    if hooks and len(hooks) == len(ctx.firms):
+        return call_hook.task_text(hooks) + " Pola signals i briefings zostaw puste."
     text = (
         "Dla każdej firmy z listy firms przygotuj od 1 do "
         f"{signals.MAX_POINTS} krótkich punktów, do których handlowiec może nawiązać "
@@ -107,7 +112,6 @@ def _briefing_text(run: SalesSignalRun, ctx: TaskContext) -> str:
                 f"{', '.join(map(str, later))}): zmiany z ostatnich tygodni, które "
                 "mogą dotyczyć współpracy."
             )
-    hooks = _refs_with(ctx, call_hook.CALL_HOOK)
     if hooks:
         text += " " + call_hook.task_text(hooks)
     else:
@@ -169,9 +173,25 @@ async def _briefing_ingest(
         }
     )
     summary = await signals.ingest(db, run, points, now=now)
-    summary.update(
-        await call_hook.save(db, run, report.hooks, today=business_date(now), now=now)
+    hook_summary = await call_hook.save(
+        db, run, report.hooks, today=business_date(now), now=now
     )
+    saved = set(hook_summary.pop("hook_saved_company_ids"))
+    summary.update(hook_summary)
+    if hook_refs:
+        # Nie uznawaj wadliwego haczyka za sprawdzoną firmę, nawet gdy jest w no_signal.
+        submitted = {hook.company_ref for hook in report.hooks}
+        covered = saved | (hook_refs.intersection(report.no_signal) - submitted)
+        summary["hook_covered_company_ids"] = sorted(covered)
+        summary["hook_missing"] = len(hook_refs - covered)
+        if summary["hook_missing"]:
+            logger.warning(
+                "sales_research call_hook run=%s report missing results for %d/%d firms",
+                run.id,
+                summary["hook_missing"],
+                len(hook_refs),
+            )
+    run.report = summary
     return summary
 
 

@@ -52,7 +52,9 @@ def received_outcome(
         incomplete += max(
             0, _count(report, "sent_firms") - _count(report, "checked_firms")
         )
-        if isinstance(report.get("researched_company_ids"), list):
+        if "hook_missing" in report:
+            incomplete += _count(report, "hook_missing")
+        elif isinstance(report.get("researched_company_ids"), list):
             incomplete += max(
                 0,
                 _count(report, "sent_firms")
@@ -60,6 +62,8 @@ def received_outcome(
                 - _count(report, "hooks"),
             )
         detail = f"Zapisano leadów: {_count(report, 'leads')}, zestawów punktów: {_count(report, 'briefings')}, haczyków: {_count(report, 'hooks')}."
+        if _count(report, "hook_missing"):
+            detail += f" Brak wyniku haczyka dla firm: {report['hook_missing']}."
     elif kind == "enrich" and "applied_fields" in report:
         written = _count(report, "applied_fields")
         incomplete = _count(report, "invalid_fields") + _count(

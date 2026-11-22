@@ -19,6 +19,7 @@ from app.models.sales import (
     SalesActivity,
     SalesBotResult,
     SalesCompanyBriefing,
+    SalesSignalRun,
 )
 from app.services.sales import calling, hook_prep_targets, my_day
 from tests.test_sales_calling_queue import _campaign, _record
@@ -81,6 +82,9 @@ async def test_hook_lands_in_bot_results_and_never_overwrites_points(
     assert (body["briefings"], body["hooks"], body["hooks_dropped"]) == (1, 1, 1)
 
     async with AsyncSessionLocal() as db:
+        run = await db.get(SalesSignalRun, run_id)
+        assert run.report["hook_covered_company_ids"] == [hooked]
+        assert run.report["hook_missing"] == 0
         kept = await db.get(SalesCompanyBriefing, hooked)
         assert (kept.mode, kept.points[0]["text"]) == ("ongoing", "Punkt do szansy")
         prep = await db.get(SalesCompanyBriefing, prepped)
