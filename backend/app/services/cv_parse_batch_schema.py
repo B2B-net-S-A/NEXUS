@@ -1,5 +1,5 @@
 """Kolejka odczytów CV przez Message Batches API (22.11.2026): SQL migracji
-``0750_cv_parse_batch_items`` i lustra entrypointu.
+``0751_cv_parse_batch_items`` i lustra entrypointu.
 
 Decyzja Artura z 22.11.2026: CV wgrane przez integrację (scrapery pracuj.pl
 i JJIT) do istniejącego profilu czytamy wsadem (−50% ceny), a nie na żywo.
