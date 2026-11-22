@@ -1566,6 +1566,12 @@ async def update_stage_cv_layout(
                 },
             )
         )
+        if payload.cv_layout == layout_service.LAYOUT_NEW:
+            # „Najmocniejszy wynik” na stronę 1 — w tle, po commicie, tylko
+            # przy nieaktualnym `results_source_sha` (`cv_page1_results`).
+            from app.services.cv_page1_results import refresh_after_commit
+
+            refresh_after_commit(db, csv.id)
         await db.commit()
     return _build_branded_response(csv)
 
@@ -1756,6 +1762,11 @@ async def apply_generated_to_stage_cv(
         csv.cv_layout = generated.cv_layout or await layout_service.default_for_client(
             db, generated.client_id
         )
+        if csv.cv_layout == layout_service.LAYOUT_NEW:
+            # Wołający commituje; bieg w tle startuje po commicie nowego szkicu.
+            from app.services.cv_page1_results import refresh_after_commit
+
+            refresh_after_commit(db, csv.id)
     # Runda 7 (R7-X4-1): wymóg zgody zamrożony na kopii — usunięcie
     # wygenerowanego CV (FK SET NULL) nie może zdjąć blokady pobrania.
     await _write_stage_draft(

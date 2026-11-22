@@ -46,6 +46,8 @@ _SCOPED_MODULES = {
     "app.api.cv_pdf_preview",
     # „Najmocniejszy wynik” strony 1 nowego CV (22.11.2026).
     "app.api.cv_page1",
+    # „Nowe CV”, strona 1: najmocniejszy wynik z CV etapu (płatny model, zapis dodatków).
+    "app.api.cv_page1_results",
     # AI w edytorze CV etapu (zaznaczenie, polecenie): CV pary i płatny model.
     # Poza listą do 14.10.2026 — trasy miały bramkę, ale nowa przeszłaby bez niej.
     "app.api.cv_editor_ai",
