@@ -10,11 +10,12 @@ uruchamiamy makr. Dwa warianty szablonu z próbek z 13.11.2026:
   (pierwsza data w nagłówku to 1. dzień miesiąca).
 
 Godziny w formacie [GG]:MM (Excel trzyma je jako ułamek doby: 176 h to 7 dni
-8:00). Miesiąc bierzemy z widocznego nagłówka. Ten sam miesiąc stoi też
-w kolumnie „Miesiąc realizacji usług”, zwykle ukrytej: w próbce za październik
-miała „czerwiec”. Rozbieżność daje ostrzeżenie, nigdy odwrotnie (odpowiedź
-rozliczeń z 12.11.2026). Tabela kończy się wierszem „Całkowity czas”; to, co
-niżej (wiersze „Przykład”), nie jest pracą konsultanta.
+8:00). Miesiąc bierzemy z widocznego nagłówka. Ukrytej kolumny miesiąca nie
+czytamy: w starszym szablonie „Miesiąc realizacji usług” to wpisany na stałe
+„czerwiec” (57 z 58 Time Sheetów z próby IX–X 2026, za VII–X), w nowszym
+„Miesiąc rozliczenia” to formuła z dat nagłówka. Ostrzeżenie z niej wisiało
+przy każdym rozliczeniu PKO i niczego nie mówiło. Tabela kończy się wierszem
+„Całkowity czas”; to, co niżej (wiersze „Przykład”), nie jest pracą konsultanta.
 
 Plik spoza szablonu daje ``None``: dalej próbujemy innych odczytów.
 """
@@ -89,9 +90,6 @@ class ParsedPko:
     coordinator: Optional[str]
     #: Miesiąc z widocznego nagłówka tabeli (``RRRR-MM``).
     month: Optional[str]
-    #: Wartości kolumny „Miesiąc realizacji usług” z wierszy z godzinami.
-    month_column: tuple[str, ...]
-    month_column_hidden: bool
     entries: tuple[PkoEntry, ...]
     declared_total: Optional[Decimal]
     header_row: int
@@ -228,9 +226,7 @@ def parse_rows(
     days: list[tuple[int, date]] = []
     month = None
     for i, (cell, label) in enumerate(zip(head, labels)):
-        if label.startswith("miesiąc"):
-            col.setdefault("month", i)
-        elif label.startswith("numer projektu"):
+        if label.startswith("numer projektu"):
             col.setdefault("project", i)
         elif label.startswith("numer zadania"):
             col.setdefault("task", i)
@@ -252,7 +248,6 @@ def parse_rows(
         first = days[0][1]
         month = f"{first.year}-{first.month:02d}"
     entries: list[PkoEntry] = []
-    month_values: list[str] = []
     declared = None
     for row in table[header_at + 1 : header_at + 1 + MAX_ROWS]:
         if any(_label(c).startswith("całkowity czas") for c in row):
@@ -286,18 +281,11 @@ def parse_rows(
                 days=per_day,
             )
         )
-        found = _month_of(cell("month"))
-        if found:
-            month_values.append(found)
-    month_col = col.get("month")
     return ParsedPko(
         consultant=header.get("consultant"),
         pz=header.get("pz"),
         coordinator=header.get("coordinator"),
         month=month,
-        month_column=tuple(dict.fromkeys(month_values)),
-        month_column_hidden=month_col is not None
-        and _column_letter(month_col) in hidden,
         entries=tuple(entries),
         declared_total=declared,
         header_row=header_at + 1,
@@ -359,25 +347,6 @@ def md_from_hours(hours: Decimal, per_md: Decimal) -> Decimal:
     return (hours / per_md).quantize(MD_Q, rounding=ROUND_HALF_UP)
 
 
-def _hidden_month_text(parsed: ParsedPko, month: str) -> Optional[str]:
-    """Opis rozbieżności kolumny miesiąca z nagłówkiem albo ``None``."""
-
-    _year, mon = month.split("-")
-    other = [
-        value
-        for value in parsed.month_column
-        if value[-2:] != mon or (not value.startswith("????") and value != month)
-    ]
-    if not other:
-        return None
-    names = ", ".join(
-        MONTHS_NOMINATIVE[int(v[-2:]) - 1] if v.startswith("????") else month_label(v)
-        for v in other
-    )
-    where = "ukrytej kolumnie" if parsed.month_column_hidden else "kolumnie"
-    return f"W {where} „Miesiąc realizacji usług” jest: {names}"
-
-
 def evaluate(
     parsed: ParsedPko,
     *,
@@ -415,10 +384,6 @@ def evaluate(
             "Time Sheet za inny miesiąc",
             f"W nagłówku: {month_label(parsed.month) if parsed.month else 'brak miesiąca'}.",
         )
-    mismatch = _hidden_month_text(parsed, month)
-    if mismatch:
-        # Tylko ostrzeżenie: miesiąc bierzemy z widocznego nagłówka (12.11.2026).
-        sheet.warn(mismatch, "Miesiąc liczymy z widocznego nagłówka tabeli.")
 
     consultant = name_tokens(parsed.consultant)
     person = name_tokens(person_name)
