@@ -501,6 +501,25 @@ def _sentry_before_send(event: dict, hint: dict) -> dict | None:
     return scrub_event(event)
 
 
+_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1"))
+
+
+def _traces_sampler(sampling_context: dict) -> float:
+    """Sondy zdrowia bez śladów; decyzję przeglądarki z `sentry-trace` dziedziczymy.
+
+    Spany Sentry mają limit miesięczny na całą organizację (17.11.2026: 80% w 10 dni).
+    Sonda Dockera co 15 s, uptime-probe i Grafana nie mówią w śladzie nic nowego.
+    Żądanie bez rodzica (webhook, integracja) dostaje stawkę ze zmiennej.
+    """
+    path = (sampling_context.get("asgi_scope") or {}).get("path") or ""
+    if path == "/health" or path.startswith("/api/health"):
+        return 0.0
+    parent_sampled = sampling_context.get("parent_sampled")
+    if parent_sampled is not None:
+        return 1.0 if parent_sampled else 0.0
+    return _TRACES_SAMPLE_RATE
+
+
 if settings.SENTRY_DSN:
     try:
         import sentry_sdk
@@ -512,7 +531,8 @@ if settings.SENTRY_DSN:
             dsn=settings.SENTRY_DSN,
             environment=settings.SENTRY_ENVIRONMENT,
             release=os.getenv("GIT_SHA"),
-            traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+            traces_sample_rate=_TRACES_SAMPLE_RATE,
+            traces_sampler=_traces_sampler,
             profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.1")),
             send_default_pii=False,
             include_local_variables=False,
