@@ -209,7 +209,9 @@ async def _plan_account(
             f"{label}: konta {number} nie ma w planie kont albo jest wyłączone.",
             status=422,
         )
-    if account.kind != kind:
+    if not posting.account_fits(
+        kind, posting.AccountView(account.number, account.name, account.kind, True)
+    ):
         raise LedgerError(
             f"{label}: konto {number} ma w planie rodzaj "
             f"„{posting.ACCOUNT_KIND_LABELS[account.kind]}”, potrzebny "

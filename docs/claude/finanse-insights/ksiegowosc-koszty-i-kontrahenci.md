@@ -148,6 +148,10 @@ Finanse opisywały w eBI24 każdą fakturę dekretem do Symfonii FK i eksportowa
 plikiem. Wzorce z pomiaru 13.11.2026 (1 442 dokumenty): koszt kontraktora
 `402-203`, VAT naliczony `221`, rozrachunek = konto kontrahenta z kartoteki.
 Makiety M2 (sekcja dekretu) i M3 (eksport): ten sam artefakt co wyżej.
+Opis faktury wg arkusza głównej księgowej z 18.11.2026 (typ, rejestr, konta
+4/7 o rodzaju „inne”, „5” jako zapis równoległy, samochód, import usług, JPK,
+kurs z tabelą NBP, konto brutto 201/203/205-2-<nr>) — `ksiegowosc-opis-faktury-wg-ksiegowej.md`;
+tamten plik wygrywa z tym tam, gdzie się różnią.
 
 - **Plan kont** (`finance_accounts`, Finanse → „Plan kont”): numer, nazwa,
   rodzaj (koszt, VAT, rozrachunek, przychód), aktywne. Zasiew tylko kontami

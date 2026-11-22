@@ -221,10 +221,11 @@ def test_waluta_obca_po_kursie_nbp_w_groszach_i_zbilansowana() -> None:
     assert decree["currency"] == "EUR"
     assert (decree["fx_rate"], decree["fx_date"]) == ("4.2512", "2026-11-03")
     # brutto 1230 × 4,2512 = 5228,98; VAT 230 × 4,2512 = 977,78; netto = różnica.
+    # Krajowy dostawca z fakturą w walucie: konto 205-2-<nr> (arkusz księgowej).
     assert _sides(decree) == [
         ("cost", "402-203", "debit", 425_120),
         ("vat", "221", "debit", 97_778),
-        ("counterparty", "201-2-901", "credit", 522_898),
+        ("counterparty", "205-2-901", "credit", 522_898),
     ]
     assert posting.check(decree, PLAN) == []
 

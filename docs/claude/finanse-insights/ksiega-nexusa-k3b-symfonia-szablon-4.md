@@ -6,6 +6,19 @@ próbek, które 17.11.2026 przysłała księgowa (eksport z eBI24: faktura krajo
 dla kontrahenta z UE, korekta zakupu). Próbki leżą u Artura, nie w repo (dane firmy);
 testy używają zmyślonych faktur (`tests/test_ledger_symfonia_export.py`).
 
+**22.11.2026**: odblokowane FVZ, FVZP i IU oraz waluta obca dla tych typów — próbki
+FVZP (samochód) i IU (import usług w EUR) z 18.11.2026, układ w
+`export_file._purchase_document`, dane z opisu faktury (`ksiegowosc-opis-faktury-wg-ksiegowej.md`).
+Render z danych tych próbek daje tekst równy próbce po wyzerowaniu `kodKH`/`khid`
+(sprawdzone lokalnie, testy na zmyślonych fakturach w `tests/test_ledger_symfonia_purchase_export.py`).
+Różnice FVZ/FVZP/IU od FKZ: nagłówek ze znakiem przeciwnym do rejestru, `dozaplaty =0.00`,
+`KsefNumber` tylko przy numerze KSeF, rejestry z opisu (dwa przy samochodzie
+i imporcie, `UE`/`Naliczony`/`usluga`, kwoty w walucie), `AtrybutWaluta` (kurs VAT
+i CIT/PIT), zapisy z `wkwota`/`kurs`/`tabela`/`Waluta`, `pozycja` (PLN: 0, równoległy 1;
+waluta: 1, VAT 2), `ZapisRownolegly =33` na „5”/490, `Transakcja.IdDlaRozliczen =-1`
+bez znacznika na zapisie, `rachunek` tak, jak na fakturze. Pytania 6 i 14 niżej są
+rozstrzygnięte próbkami; FKZ dostaje teraz `rachunek` (E3: ręczny > KSeF > kartoteka).
+
 ## Co jest w pliku
 
 - Windows-1250, końce wierszy CRLF, bez BOM-u, wcięcia tabulatorami, pole to `nazwa =wartość`
@@ -54,10 +67,12 @@ dokumentów ze źródeł sprzedaż i koszty) składa `exports._invoices`:
 Komunikat wymienia numery faktur i powody (do ośmiu w jednym zdaniu):
 
 - dokument, który nie jest fakturą (PK, RMK, listy płac, BO) — szablon 4 to import faktur;
-- typ bez próbki: FVZ, FKS, WSU, eksport poza UE, import (obsługiwane: **FVS, WDT, FKZ**);
+- typ bez próbki: FKS, WSU, WNT, DP, FZBO, eksport poza UE (obsługiwane: **FVS, WDT, FKZ,
+  FVZ, FVZP, IU**);
   dopisanie typu = jeden wiersz w `_SYMFONIA_TYPES` po odpowiedzi księgowej;
-- faktura w walucie obcej (brak próbki: nie wiadomo, czy `netto`/`vat` idą w PLN, a
-  `walnetto`/`walbrutto` w walucie, ani jaki jest `kursdoch`);
+- faktura w walucie obcej typu FVS, WDT albo FKZ (próbka waluty jest tylko dla zakupu
+  IU) i faktura zakupu w walucie z dekretem sprzed opisu (bez rejestru w walucie —
+  „przelicz dekret”);
 - kilka stawek VAT na jednej fakturze (szablon wymaga osobnego `Rejestr{}` na stawkę,
   a kwot VAT per stawka NEXUS nie trzyma — nie ma też próbki);
 - stawka bez odpowiednika: „oo”, „np I”, „0 WDT”, „0 EX”, archiwalne; nabywca z VAT UE

@@ -5,11 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const post = vi.fn();
 const put = vi.fn();
+const get = vi.fn();
 const showToast = vi.fn();
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   api: {
-    get: vi.fn(),
+    get: (...a: unknown[]) => get(...a),
     post: (...a: unknown[]) => post(...a),
     put: (...a: unknown[]) => put(...a),
     patch: vi.fn(),
@@ -80,6 +81,45 @@ const SECTION: DecreeSection = {
   fx_date: null,
 };
 
+const LISTS = {
+  doc_types: [
+    { value: "FVZ", label: "Faktura VAT zakup" },
+    { value: "IU", label: "Import usług" },
+  ],
+  registers: [{ value: "Zakup", label: "Zakup" }],
+  output_registers: [{ value: "Import usług VAT należny", label: "Import usług VAT należny" }],
+  vat_accounts: [{ value: "221", label: "VAT naliczony", in_plan: true }],
+  output_vat_accounts: [{ value: "226", label: "VAT należny import usług", in_plan: false }],
+  jpk_procedures: [{ value: "MK", label: "Metoda kasowa" }],
+  import_rates: [23, 8, 5],
+  net_accounts: [{ value: "402-215", label: "402-215 Usługi obce" }],
+  allocation_accounts: [{ value: "510-5", label: "510-5 Koszty" }],
+  offbalance_accounts: [{ value: "902", label: "902 Pozabilansowe" }],
+  allocation_offset: "490",
+  offbalance_debit: "999",
+};
+
+const EFFECTIVE = {
+  description: "Usługi IT 10/2026",
+  doc_type: "FVZ",
+  register: "Zakup",
+  net_account: "402-203",
+  vat_account: "221",
+  output_register: null,
+  output_vat_account: null,
+  eu: false,
+  service: false,
+  import_rate: null,
+  allocation_account: null,
+  car: false,
+  offbalance_account: null,
+  jpk_procedure: null,
+  fx_date: null,
+  fx_rate: null,
+  fx_table: null,
+  service_date: "2026-10-31",
+};
+
 function renderPanel(section: DecreeSection = SECTION, readOnly = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -93,6 +133,8 @@ describe("DecreePanel", () => {
   beforeEach(() => {
     post.mockReset();
     put.mockReset();
+    get.mockReset();
+    get.mockResolvedValue({ data: LISTS });
     showToast.mockReset();
   });
 
@@ -163,5 +205,62 @@ describe("DecreePanel", () => {
     await user.click(screen.getByRole("button", { name: "Przelicz" }));
     await waitFor(() => expect(post).toHaveBeenCalledWith("/api/finance/posting/entries/42/recalculate"));
     await waitFor(() => expect(showToast).toHaveBeenCalledWith(expect.any(String), "error"));
+  });
+
+  it("opis: rejestry, procedura JPK i data usługi na karcie", () => {
+    renderPanel({
+      ...SECTION,
+      jpk_procedure: "MK",
+      service_date: "2026-10-31",
+      car: true,
+      registers: [
+        { name: "Zakup", rate: "23", net: "50.00", vat: "11.50", gross: "61.50", net_cur: null,
+          vat_cur: null, gross_cur: null, output: false, eu: false, service: false },
+        { name: "Rejestr NP VAT", rate: "23", net: "50.00", vat: "11.50", gross: "61.50",
+          net_cur: null, vat_cur: null, gross_cur: null, output: false, eu: false, service: false },
+      ],
+    });
+    expect(screen.getByText(/Rejestr NP VAT · 23% · netto 50,00/)).toBeInTheDocument();
+    expect(screen.getByText("MK")).toBeInTheDocument();
+    expect(screen.getByText("31.10.2026")).toBeInTheDocument();
+    expect(screen.getByText(/½ VAT do odliczenia/)).toBeInTheDocument();
+  });
+
+  it("„Opisz do księgowania”: import usług odsłania rejestr należny, zapis woła serwer", async () => {
+    put.mockResolvedValue({ data: { id: 42, decree: SECTION } });
+    const user = userEvent.setup();
+    renderPanel({ ...SECTION, effective: EFFECTIVE, choices: {} });
+    await user.click(screen.getByRole("button", { name: "Opisz do księgowania" }));
+    await waitFor(() => expect(get).toHaveBeenCalledWith("/api/finance/posting/choice-lists"));
+    expect(screen.queryByRole("combobox", { name: "Rejestr VAT należnego" })).not.toBeInTheDocument();
+    await screen.findByRole("option", { name: "Import usług" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Typ dokumentu" }), "IU");
+    expect(screen.getByRole("combobox", { name: "Rejestr VAT należnego" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "VAT należny import usług (brak w planie)" })).toBeInTheDocument();
+    await user.type(screen.getByRole("combobox", { name: /Konto „5”/ }), "510-5");
+    await user.click(screen.getByRole("button", { name: "Zapisz opis" }));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    const [url, body] = put.mock.calls[0];
+    expect(url).toBe("/api/finance/posting/entries/42/description");
+    expect(body).toMatchObject({
+      doc_type: "IU",
+      allocation_account: "510-5",
+      net_account: null,
+      car: false,
+      eu: null,
+      service: null,
+    });
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith("Opis zapisany, dekret przeliczony.", "success"),
+    );
+  });
+
+  it("waluta: pola kursu i tabeli; zła tabela blokuje zapis", async () => {
+    const user = userEvent.setup();
+    renderPanel({ ...SECTION, currency: "EUR", effective: EFFECTIVE, choices: {} });
+    await user.click(screen.getByRole("button", { name: "Opisz do księgowania" }));
+    await user.type(screen.getByRole("textbox", { name: "Tabela NBP" }), "kwiecień");
+    expect(screen.getByText("Tabela NBP: numer jak 211/A/NBP/2026.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zapisz opis" })).toBeDisabled();
   });
 });
