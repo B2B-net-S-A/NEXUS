@@ -113,11 +113,36 @@ def _dec(raw: Any) -> Optional[Decimal]:
         return None
 
 
+def _valid(year: int, month: int, day: int) -> bool:
+    try:
+        date(year, month, day)
+    except ValueError:
+        return False
+    return True
+
+
 def _month(raw: Any) -> Optional[str]:
+    """Miesiąc z pola „Rozliczenie”: data Excela albo tekst RRRR-MM-DD,
+    DD/MM/RRRR, DD.MM.RRRR, M/D/RR (Excel z ustawieniami amerykańskimi).
+
+    Kolejność dnia i miesiąca rozstrzyga tylko data, która ma jedno poprawne
+    odczytanie (dzień > 12, np. 30/09/2026 i 10/30/26). Dwuznaczne 01/02/26
+    to brak miesiąca, jak w pliku bez pola: nie zgadujemy.
+    """
+
     if isinstance(raw, (datetime, date)):
         return f"{raw.year}-{raw.month:02d}"
-    match = re.search(r"(\d{4})-(\d{2})-\d{2}", str(raw or ""))
-    return f"{match.group(1)}-{match.group(2)}" if match else None
+    text = str(raw or "")
+    if match := re.search(r"(\d{4})-(\d{2})-\d{2}", text):
+        return f"{match.group(1)}-{match.group(2)}"
+    match = re.search(r"\b(\d{1,2})([./])(\d{1,2})\2(\d{4}|\d{2})\b", text)
+    if not match:
+        return None
+    a, b = int(match.group(1)), int(match.group(3))
+    year = int(match.group(4))
+    year += 2000 if year < 100 else 0
+    months = {m for d, m in ((a, b), (b, a)) if _valid(year, m, d)}
+    return f"{year}-{months.pop():02d}" if len(months) == 1 else None
 
 
 def _clean(raw: Any) -> Optional[str]:
@@ -144,7 +169,7 @@ def parse_pdf_text(text: str) -> Optional[ParsedRcp]:
     in_summary = in_travel = False
 
     for line in lines:
-        if month is None and (m := re.match(r"^Rozliczenie (\d{4}-\d{2}-\d{2})", line)):
+        if month is None and (m := re.match(r"^Rozliczenie (\d[\d./-]*\d)", line)):
             month = _month(m.group(1))
             continue
         if m := re.match(r"^Check\s+(\S+)", line):

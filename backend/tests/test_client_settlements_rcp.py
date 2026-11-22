@@ -413,3 +413,45 @@ def test_arkusz_z_samym_tytulem_rcp_to_brak_odczytu():
         *[[None, f"2026-10-{d:02d}", 8, "praca"] for d in range(1, 23)],
     ]
     assert parse_xlsx_rows(rows) is None
+
+
+# ── Data „Rozliczenie” w formatach z poczty (próba IX–X 2026) ────────────────
+
+
+@pytest.mark.parametrize(
+    ("raw", "month"),
+    [
+        ("30/09/2026", "2026-09"),
+        ("31.10.2026", "2026-10"),
+        # Excel z ustawieniami amerykańskimi: M/D/RR.
+        ("10/30/26", "2026-10"),
+        ("2026-10-01", "2026-10"),
+    ],
+)
+def test_pdf_miesiac_z_daty_w_formacie_z_poczty(raw, month):
+    """RCP z poczty mają datę „Rozliczenie” DD/MM/RRRR, DD.MM.RRRR albo M/D/RR.
+    NEXUS czytał tylko RRRR-MM-DD i blokował rozliczenie „RCP za inny miesiąc —
+    brak pola Rozliczenie”, choć MD były zgodne z fakturą."""
+
+    text = PDF_TEXT.replace("Rozliczenie 2026-10-01", f"Rozliczenie {raw}")
+    p = parse_pdf_text(text)
+    assert p is not None and p.month == month
+    r = _eval(p, month=month)
+    assert _states(r)[f"Miesiąc z RCP: {month}"] == "ok"
+    assert not r.blocking
+
+
+@pytest.mark.parametrize("raw", ["01/02/26", "05.06.2026", "31/31/2026"])
+def test_pdf_dwuznaczna_albo_zla_data_to_brak_miesiaca(raw):
+    """01/02/26 to 1 lutego albo 2 stycznia: nie zgadujemy, Finanse widzą
+    „brak pola Rozliczenie” jak dotąd."""
+
+    p = parse_pdf_text(PDF_TEXT.replace("Rozliczenie 2026-10-01", f"Rozliczenie {raw}"))
+    assert p is not None and p.month is None
+
+
+def test_xlsx_miesiac_z_daty_jako_tekst():
+    rows = _sheet([[None, "Prace", 7, None, None, "ORD", None, "SX1"]])
+    rows[1][2] = "30/09/2026"
+    p = parse_xlsx_rows(rows)
+    assert p is not None and p.month == "2026-09"

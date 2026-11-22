@@ -153,7 +153,7 @@ class TestReadScopes:
     async def test_other_scope_is_403_insufficient_scope(
         self, app_client: AsyncClient, app_auth_headers: dict, scope: str, path: str
     ):
-        other = "contractors:read"
+        other = "traffit:read"
         _, api_key = await _key(app_client, app_auth_headers, [other])
         resp = await app_client.get(f"{V1}{path}", headers=_h(api_key))
         assert resp.status_code == 403, resp.text
