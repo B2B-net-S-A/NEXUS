@@ -57,7 +57,6 @@ def test_mail_and_sync_loops_stay_blocked():
         "rejection_email",
         "microsoft365_sync",
         "m365_webhook_renewal",
-        "compass_lifecycle_sync",
         "hr_m365_outbox",
         "integration_webhooks",
         "auto_full_review",

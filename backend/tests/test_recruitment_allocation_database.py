@@ -37,6 +37,7 @@ from app.services.recruitment_allocation import (
 from app.services.workforce_availability import WorkforceContext, Delegation
 from app.core.scheduling import business_today
 from tests.test_job_handoff_and_champion_stale import _READY_CHAMPION
+from tests._leave_source import use_nexus_leave_source
 
 pytestmark = pytest.mark.asyncio
 
@@ -189,7 +190,7 @@ async def test_substitute_reads_both_source_queues_past_twenty_and_cannot_act_on
     from app.models.job_collaborator import JobCollaborator
     from app.services.job_membership import is_member_of_job, list_job_member_ids
 
-    monkeypatch.setattr(settings, "COMPASS_AVAILABILITY_ENABLED", True)
+    use_nexus_leave_source(monkeypatch, True)
     monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ENABLED", True)
     users, jobs = await seed()
     cover = Delegation(
@@ -356,7 +357,7 @@ async def test_open_and_new_calendar_onboarding_and_reminders_follow_cover_with_
         resolve_effective_section_access_for_users,
     )
 
-    monkeypatch.setattr(settings, "COMPASS_AVAILABILITY_ENABLED", True)
+    use_nexus_leave_source(monkeypatch, True)
     users, jobs = await seed()
     cover = Delegation(
         users[0], users[1], date(2026, 9, 7), date(2026, 9, 8), ("ci-leave",)
@@ -614,7 +615,7 @@ async def test_outbox_is_atomic_and_failed_sweep_is_retryable(monkeypatch):
             event.remove(Session, "after_flush", _after_flush)
 
 
-# ── Przebieg przy wyłączonym Compassie i sprzątanie outboxa (02.10.2026) ────
+# ── Przebieg przy wyłączonym źródle urlopów i sprzątanie outboxa (02.10.2026)
 
 
 async def test_issue_check_runs_at_most_once_per_ten_minutes():
@@ -644,10 +645,10 @@ def _sweep_doubles(monkeypatch, worker, *, issues):
     return workloads, found
 
 
-async def test_sweep_skips_workloads_when_compass_is_off_and_purges_old_events(
+async def test_sweep_skips_workloads_when_leave_source_is_off_and_purges_old_events(
     monkeypatch,
 ):
-    """Przy wyłączonym Compassie przebieg nie czyta 70 tys. procesów co 30 s
+    """Przy wyłączonym źródle urlopów przebieg nie czyta 70 tys. procesów co 30 s
     i nie budzi nikogo alertem „brak danych o urlopach”, a obsłużone zdarzenia
     starsze niż doba znikają z outboxa."""
     from datetime import timedelta
@@ -655,7 +656,7 @@ async def test_sweep_skips_workloads_when_compass_is_off_and_purges_old_events(
     from app.models.recruitment_allocation import RecruitmentAllocationEvent
     from app.tasks import recruitment_allocation as worker
 
-    monkeypatch.setattr(settings, "COMPASS_AVAILABILITY_ENABLED", False)
+    use_nexus_leave_source(monkeypatch, False)
     workloads, found = _sweep_doubles(
         monkeypatch, worker, issues=[{"reason": "availability_stale"}]
     )
@@ -690,7 +691,9 @@ async def test_sweep_skips_workloads_when_compass_is_off_and_purges_old_events(
         ).processed_at is not None
 
 
-async def test_sweep_checks_issues_once_per_interval_when_compass_is_on(monkeypatch):
+async def test_sweep_checks_issues_once_per_interval_when_leave_source_is_on(
+    monkeypatch,
+):
     from datetime import timedelta
     from unittest.mock import AsyncMock
 
@@ -698,7 +701,7 @@ async def test_sweep_checks_issues_once_per_interval_when_compass_is_on(monkeypa
 
     from app.tasks import recruitment_allocation as worker
 
-    monkeypatch.setattr(settings, "COMPASS_AVAILABILITY_ENABLED", True)
+    use_nexus_leave_source(monkeypatch, True)
     workloads, found = _sweep_doubles(monkeypatch, worker, issues=[])
     monkeypatch.setattr(
         worker, "workforce_context", AsyncMock(return_value=WorkforceContext(fresh=True))

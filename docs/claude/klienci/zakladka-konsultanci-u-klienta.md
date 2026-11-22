@@ -15,8 +15,8 @@ Przeglądzie), a obok niej „Zamówienia” i „Importy MD” pod dawnymi kluc
   Planowani · Szkice (tylko gdy są) · Zakończeni (stara tabela archiwum).
 - **„Wymaga uwagi” liczy serwer, istniejącymi regułami** (`services/consultant_order_state.py`):
   `notice` = status `ending`; `no_current_order` = reguła flagi „bez projektu”
-  dla COMPASS (`lacks_current_order`, przeniesiona z `integrations_compass.py`,
-  linia MD bez dat bierze okres grupy); `order_ending` = `ending_without_successor`,
+  (`lacks_current_order`, z dawnego eksportu dla Compassa, usuniętego
+  22.11.2026; linia MD bez dat bierze okres grupy); `order_ending` = `ending_without_successor`,
   ta sama co pigułka „Bez kontynuacji 30 dni” w Zamówieniach. Planowanej umowy nie
   oznaczamy brakiem zamówienia. Nie dokładaj trzeciej definicji „bez zamówienia”;
   raport Finansów „Kontrakty bez zamówienia” mierzy co innego (brak PDF-u).

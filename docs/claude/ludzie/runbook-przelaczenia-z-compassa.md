@@ -1,5 +1,18 @@
 # Runbook przełączenia z Compassa na „Ludzi w NEXUSIE” (17.10.2026)
 
+> **Compass wygaszony 22.11.2026.** Artur potwierdził, że Compass nie jest
+> używany; serwer usunięto po snapshocie, `compass.dynaminds.pl` nie ma rekordu
+> DNS. Przełączenie jest zakończone, a kroki niżej, które coś robią w Compassie
+> albo z nim (zmienne Compassa, eksport paczki, konto serwisowe i trasy
+> `/api/integrations/compass/*`, `COMPASS_*_ENABLED`, źródło dostępności
+> `compass`, „powrót do Compassa” w §6), są nieaktualne — zostają jako historia.
+> Z NEXUSA usunięto pętle `compass_lifecycle_sync` i `compass_workdays_sync`,
+> sondy `checks.compass_*`, ustawienia `COMPASS_*` i obie trasy dla Compassa
+> (stare adresy dają 410). Jedynym źródłem urlopów dla zastępstw i dni pracy
+> są urlopy NEXUSA; przełącznik w Ustawieniach HR → Moduły tylko je włącza
+> albo wyłącza. Import paczki z Compassa (`scripts/hr_compass_import.py`,
+> ekran „Import z Compassa”) zostaje na wypadek odtworzenia danych ze snapshotu.
+
 Moduły wchodzą na produkcję „ciemne” (`app_settings['hr_modules']` puste, M365
 `off`, pętle bez pracy) i są włączane bez kolejnych wdrożeń. Kolejność kroków
 ma znaczenie: **najpierw Compass przestaje pisać, potem NEXUS zaczyna**. Dwa

@@ -39,7 +39,7 @@ def program_enabled() -> bool:
     return bool(settings.HR_PROGRAM_ENABLED)
 
 
-#: Zakresy kluczy API programu (API v1 i roster dla Compassa) — przy
+#: Zakresy kluczy API programu (API v1 i dawny roster dla Compassa) — przy
 #: wyłączonym programie nie ma ich w pickerze kluczy w Ustawieniach.
 API_SCOPES: frozenset[str] = frozenset(
     {"people_roster:read", "absences:read", "equipment:read"}

@@ -124,7 +124,7 @@ def test_set_env_refuses_a_multiline_value():
 @pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
 def test_set_env_refuses_a_plain_value_for_a_secret_looking_key():
     for key in (
-        "COMPASS_INTEGRATION_BOOTSTRAP_KEY",
+        "VOYAGE_API_KEY",
         "M365_CLIENT_SECRET",
         "SMTP_PASSWORD",
     ):

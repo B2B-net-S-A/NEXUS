@@ -37,6 +37,7 @@ from tests.test_audit_r7_jobs import _seed_job as _seed_published_job
 from tests.test_jobs_ownership import _assignment_bells, _drop_jobs, _login
 from tests.test_jobs_ownership import _seed_job as _seed_draft_job
 from tests.test_jobs_ownership import _seed_user as _seed_login_user
+from tests._leave_source import use_nexus_leave_source
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -209,7 +210,7 @@ async def test_planner_pass_releases_the_assignment_but_not_the_role(
     from app.services.recruitment_allocation import allocation_lock
     from app.services.request_allocation import run_request_allocation
 
-    monkeypatch.setattr(settings, "COMPASS_AVAILABILITY_ENABLED", False)
+    use_nexus_leave_source(monkeypatch, False)
     first = await _seed_user()
     second = await _seed_user()
     job_id = await _seed_job("RolePlanner", work_state="searching")

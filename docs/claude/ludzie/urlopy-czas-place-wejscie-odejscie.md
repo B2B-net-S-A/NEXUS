@@ -896,12 +896,10 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   (`exit_note`, do 500 znaków) widoczna Kadrom i przełożonemu, z podpowiedzią
   „Bez informacji o zdrowiu” — wolnego tekstu powodu z Compassa
   (`exit_reason_detail`, ankieta) nie importujemy.
-- Lista osób dla Compassa: `GET /api/integrations/compass/roster` (zakres
-  `people_roster:read`) — bez stawek, premii, nieobecności, powodu odejścia
-  i telefonu. Osoby, które odeszły, zostają ze statusem `exited`; pusta lista to
-  awaria (503), nie „wszyscy odeszli”. Przy włączonym module `lifecycle` przepływ
-  `compass_lifecycle` (NEXUS ciągnął roster Compassa) zwraca
-  `superseded_by_hr_lifecycle`.
+- Lista osób dla Compassa (`GET /api/integrations/compass/roster`) i przepływ
+  `compass_lifecycle` (NEXUS ciągnął roster Compassa) usunięte 22.11.2026 razem
+  z Compassem; stary adres daje 410. Konta po odejściu wyłącza wyłącznie
+  sprawa odejścia (`services/hr/deactivation.py`).
 
 ### Ekrany wejścia i odejścia (makiety 19.10.2026)
 

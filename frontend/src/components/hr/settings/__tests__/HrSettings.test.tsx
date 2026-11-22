@@ -7,6 +7,7 @@ import type { HrConfig } from "@/lib/api/hr";
 import { HrSettings, availableHrSettingsTabs } from "../HrSettings";
 
 const nav = vi.hoisted(() => ({ params: new URLSearchParams(), replaceUrl: vi.fn() }));
+const leaveSource = vi.hoisted(() => ({ value: { data: "compass" } as { data: string; isSuccess?: boolean } }));
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => nav.params,
@@ -32,7 +33,7 @@ vi.mock("@/lib/api/hr", async (importOriginal) => {
   return {
     ...actual,
     useCompanyDaysOff: () => ({ isLoading: false, isError: false, isSuccess: true, data: [], refetch: vi.fn() }),
-    useAvailabilitySource: () => ({ data: "compass" }),
+    useAvailabilitySource: () => leaveSource.value,
     useAddDayOff: () => idle,
     useRemoveDayOff: () => idle,
     useSetAvailabilitySource: () => idle,
@@ -136,5 +137,25 @@ describe("HrSettings — zakładki zamiast ośmiu kart (20.10.2026)", () => {
     render(<HrSettings config={config({ back_office_head: true })} />);
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
     expect(screen.getByText("Karta: ścieżki wejścia i odejścia")).toBeInTheDocument();
+  });
+});
+
+describe("HrSettings — przełącznik źródła urlopów po wygaszeniu Compassa (22.11.2026)", () => {
+  beforeEach(() => {
+    nav.params = new URLSearchParams("zakladka=moduly");
+  });
+
+  it("wyłączony przełącznik mówi „wyłączone”, nie „Compass”", () => {
+    leaveSource.value = { isSuccess: true, data: "compass" };
+    render(<HrSettings config={config({ is_admin: true })} />);
+    expect(screen.getByText("Teraz: wyłączone")).toBeInTheDocument();
+    expect(screen.queryByText(/Compass/)).not.toBeInTheDocument();
+  });
+
+  it("włączony przełącznik mówi „włączone”", () => {
+    leaveSource.value = { isSuccess: true, data: "local" };
+    render(<HrSettings config={config({ is_admin: true })} />);
+    expect(screen.getByText("Teraz: włączone")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Zastępstwa i dni pracy z urlopów NEXUSA" })).toBeChecked();
   });
 });

@@ -82,7 +82,7 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
     }
 )
 
-# Wysyłki (maile, Slack, Teams), synchronizacje z M365/Compassem/
+# Wysyłki (maile, Slack, Teams), synchronizacje z M365/
 # KSeF/Autenti/portalami oraz nocne przebiegi AI na całej bazie (koszt modeli
 # drugi raz dziennie, a wynik i tak jest na produkcji).
 STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
@@ -157,8 +157,6 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "contract_docs_sharepoint",
         # Woła model dla każdego pliku teczki (koszt) i może zapisać stawki.
         "contract_rate_documents",
-        "compass_workdays_sync",
-        "compass_lifecycle_sync",
         "m365_account_sweep",
         "job_portal_worker",
         "notes_insights_sync",
