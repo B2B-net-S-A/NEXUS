@@ -20,12 +20,11 @@ import { StepCard } from "@/components/v2/cv-generator/GeneratorParts";
 import { LanguageChoice } from "@/components/v2/cv-generator/LanguageChoice";
 import { PersonStep } from "@/components/v2/cv-generator/PersonStep";
 import { ProcessStep } from "@/components/v2/cv-generator/ProcessStep";
-import { ProcessingTiles } from "@/components/v2/cv-generator/ProcessingTiles";
+import { ContentModeNote } from "@/components/v2/cv-generator/ContentModeNote";
 import { ProcessSources } from "@/components/v2/cv-generator/SourcesPanel";
 import {
   NO_RECRUITMENT_MISSING,
   type CvLanguageChoice,
-  type CvProcessingMode,
   type LanguagePolicy,
 } from "@/components/v2/cv-generator/cv-generator-form";
 import type { CvCandidateOption } from "@/components/v2/cv-generator/useCvGenerator";
@@ -117,14 +116,14 @@ const RESULT_DOCS: GeneratedCvItem[] = [
 const KAPPA_POLICY: LanguagePolicy = { forced: null, requiresBoth: false };
 const PLAIN_POLICY: LanguagePolicy = { forced: null, requiresBoth: false };
 
-function Content({ mode, hasChampion, language, policy, clientName, advancedOpen = false, projectRefFromJob = null, position }: {
-  mode: CvProcessingMode; hasChampion: boolean; language: CvLanguageChoice; policy: LanguagePolicy;
+function Content({ hasChampion, language, policy, clientName, advancedOpen = false, projectRefFromJob = null, position }: {
+  hasChampion: boolean; language: CvLanguageChoice; policy: LanguagePolicy;
   clientName: string | null; advancedOpen?: boolean; projectRefFromJob?: string | null; position: string;
 }) {
   return (
     <StepCard step={3} title="Treść CV">
       <div className="space-y-5">
-        <ProcessingTiles value={mode} onChange={noop} hasChampion={hasChampion} />
+        <ContentModeNote hasChampion={hasChampion} />
         <LanguageChoice value={language} onChange={noop} policy={policy} clientName={clientName} />
       </div>
       <AdvancedOptions
@@ -173,7 +172,7 @@ function renderState(state: HarnessState): ReactNode {
             <ProcessStep recruitments={[KAPPA, POLNOCNY]} loading={false} error={false} value="11" onChange={noop}>
               <ProcessSourcesFixture />
             </ProcessStep>
-            <Content mode="tailored" hasChampion language="en" policy={KAPPA_POLICY} clientName="Bank Kappa" position="Senior Java Developer" />
+            <Content hasChampion language="en" policy={KAPPA_POLICY} clientName="Bank Kappa" position="Senior Java Developer" />
           </>}
           aside={<>
             <Rules clientName="Bank Kappa" clientSource="process" languageLabel={languageSummary("en", KAPPA_POLICY)}
@@ -192,7 +191,7 @@ function renderState(state: HarnessState): ReactNode {
             <ProcessStep recruitments={[BANK_SIGMA]} loading={false} error={false} value="21" onChange={noop}>
               <ProcessSourcesFixture jobId={601} hasChampion={false} hasNotes={false} notesChars={0} sources={SOURCES_MARTA} cvDocumentId={3} />
             </ProcessStep>
-            <Content mode="polished" hasChampion={false} language="pl" policy={PLAIN_POLICY} clientName="Bank Sigma" advancedOpen position="Java Developer" />
+            <Content hasChampion={false} language="pl" policy={PLAIN_POLICY} clientName="Bank Sigma" advancedOpen position="Java Developer" />
           </>}
           aside={<>
             <Rules clientName="Bank Sigma" clientSource="process" languageLabel="PL" filename="Zielinska_Java_Developer.docx" />

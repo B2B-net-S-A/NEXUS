@@ -832,6 +832,52 @@ describe("GeneratedContractsTab — umowa anulowana", () => {
     ).toBeInTheDocument();
   });
 
+  it("22.11.2026: „Wyślij do podpisu” i „Oznacz jako podpisaną” stoją w przyklejonej kolumnie „Akcje”", async () => {
+    // Przy 1280 px przyklejona kolumna zasłaniała przycisk wysyłki w kolumnie
+    // „Status podpisu” do samej ikony; od 26.10 nikt z niego nie skorzystał.
+    renderTab([
+      generatedRow({
+        contract_status: "in_progress",
+        can_send_esign: true,
+        can_confirm_signed: true,
+      }),
+    ]);
+
+    const send = await screen.findByRole("button", { name: /Wyślij do podpisu/ });
+    const confirm = screen.getByRole("button", { name: /Oznacz jako podpisaną/ });
+    expect(send.closest("td")?.className).toContain("md:sticky");
+    expect(confirm.closest("td")?.className).toContain("md:sticky");
+    // Wysyłka jest główną akcją, potwierdzenie mailowe obok.
+    expect(send.className).toContain("bg-primary");
+    expect(confirm.className).not.toContain("bg-primary");
+    // Kolumna statusu mówi tylko, w jakim stanie jest podpis.
+    expect(screen.getByText("Niepodpisana").closest("td")?.className).not.toContain("sticky");
+  });
+
+  it("wysyłka w toku: w „Akcjach” nie ma „Oznacz jako podpisaną”, akcje daje stan wysyłki", async () => {
+    // Szeroki przycisk w przyklejonej kolumnie zasłaniał „Przedłuż termin”
+    // i „Przejdź na zwykłą drogę”; ręczne potwierdzenie wraca po przejściu
+    // na zwykłą drogę, jak w panelu osoby.
+    renderTab([
+      generatedRow({
+        contract_status: "in_progress",
+        can_confirm_signed: true,
+        can_withdraw_esign: true,
+        esign: {
+          request_id: 9,
+          status: "sent",
+          contractor_signed_at: null,
+          completed_at: null,
+          expires_at: new Date(Date.now() + 3 * 86_400_000).toISOString(),
+          company_signer_name: "Reprezentant",
+        },
+      }),
+    ]);
+
+    expect(await screen.findByRole("button", { name: /Przejdź na zwykłą drogę/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Oznacz jako podpisaną/ })).toBeNull();
+  });
+
   it("pyta serwer o trzy statusy — anulowana zostaje w tej zakładce", async () => {
     renderTab([generatedRow({ contract_status: "cancelled" })]);
     await screen.findByText("1471/2026");

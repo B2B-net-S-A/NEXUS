@@ -37,7 +37,7 @@ import { consentClientLabel } from "@/lib/consent-mail";
 import { AdvancedOptions } from "@/components/v2/cv-generator/AdvancedOptions";
 import { AiSourcesRows } from "@/components/v2/cv-generator/AiSourcesRows";
 import { LanguageChoice } from "@/components/v2/cv-generator/LanguageChoice";
-import { ProcessingTiles } from "@/components/v2/cv-generator/ProcessingTiles";
+import { ContentModeNote } from "@/components/v2/cv-generator/ContentModeNote";
 import {
   advancedNeedsAttention,
   type CvLanguageChoice,
@@ -286,8 +286,10 @@ function CvGeneratePanelForm({
       disabled={g.generating}
     />
   );
-  const modeLabel =
-    CV_CONTENT_MODES.find((mode) => mode.value === (g.capBasic ? "basic" : g.contentMode))?.label ?? null;
+  // Bez Championa serwer robi CV bez dopasowania — zdanie nie może mówić „Pod rekrutację”.
+  const modeLabel = g.capBasic || g.hasChampion
+    ? (CV_CONTENT_MODES.find((mode) => mode.value === (g.capBasic ? "basic" : g.contentMode))?.label ?? null)
+    : "bez dopasowania";
 
   let choices: React.ReactNode;
   if (open) {
@@ -295,15 +297,7 @@ function CvGeneratePanelForm({
       <>
         {sourcesRows}
         <div className="space-y-3">
-          <ProcessingTiles
-            value={g.contentMode}
-            onChange={g.setContentMode}
-            hasChampion={g.hasChampion}
-            capBasic={g.capBasic}
-            disabled={g.generating}
-            canAddChampion={false}
-            compact
-          />
+          <ContentModeNote hasChampion={g.hasChampion} capBasic={g.capBasic} canAddChampion={false} compact />
           <LanguageChoice
             value={g.languageChoice}
             onChange={g.setLanguageChoice}

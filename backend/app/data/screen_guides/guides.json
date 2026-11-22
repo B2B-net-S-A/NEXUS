@@ -189,7 +189,7 @@
       },
       {
         "q": "Gdzie są rozmowa u klienta i umowa?",
-        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma termin, prepy i debrief; bez terminu — „Pytania z rozmowy”. „Zaznacz akceptację klienta” zapisuje akceptację. Sekcja „Do „Zatrudnionego””: umowa i podpis; zamówienie po zatrudnieniu. Umowa przedwstępna: „⋯ → Umowa przedwstępna…” albo zakładka „Umowa” — prośba, wystawienie, podpisy, ważność.",
+        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma termin, prepy i debrief; bez terminu — „Pytania z rozmowy”. „Zaznacz akceptację klienta” zapisuje akceptację. „Do „Zatrudnionego””: „Wyślij do podpisu w NEXUSIE”, pod nim droga mailowa. Przedwstępna: „⋯ → Umowa przedwstępna…” albo zakładka „Umowa”.",
         "anchor": "jobs.person.expand"
       }
     ],
@@ -668,7 +668,7 @@
       },
       {
         "q": "Jak podpisać umowę i co dalej?",
-        "a": "„Wyślij do podpisu”: link do kontraktora, potem podpis za B2Bnetwork; kontrakt i plik powstaną same. Termin mija? „Przedłuż termin” albo „Wyślij nowy link”. Droga mailowa: „Oznacz jako podpisaną” (bez „Podpis B2B” poproś DL) z podpisanym PDF-em; dzień podpisu z podpisu konsultanta, przy skanie data i powód. Kandydat idzie na „Zatrudniony”.",
+        "a": "„Wyślij do podpisu” (kolumna „Akcje”): link do kontraktora, potem podpis za B2Bnetwork; kontrakt i plik powstaną same. Termin mija? „Przedłuż termin” albo „Wyślij nowy link”. Droga mailowa: „Oznacz jako podpisaną” (bez „Podpis B2B” poproś DL) z podpisanym PDF-em; dzień podpisu z podpisu konsultanta, przy skanie data i powód.",
         "anchor": "contracts.b2b_generator.tabs"
       },
       {
