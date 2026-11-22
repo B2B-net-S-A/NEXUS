@@ -128,7 +128,7 @@ class CandidateStageCV(Base):
     )
     branded_template: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     branded_language: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
-    # Układ CV (0752, 22.11.2026): „classic” = szablon Word, „new” = Nowe CV
+    # Układ CV (0753, 22.11.2026): „classic” = szablon Word, „new” = Nowe CV
     # w PDF. Jedno ustawienie tego CV — generator, karta i edytor pokazują to
     # samo (`cv_layout_schema.py`). `page1_extras` — dodatki strony 1 nowego CV.
     cv_layout: Mapped[str] = mapped_column(

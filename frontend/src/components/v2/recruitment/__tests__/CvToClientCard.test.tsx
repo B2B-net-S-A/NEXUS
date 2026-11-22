@@ -726,7 +726,7 @@ describe("CvToClientCard — CV gotowe", () => {
     rows = [{ id: 5, status: "ready" }];
     renderCard();
     const choice = await screen.findByTestId("cv-layout-choice-card");
-    expect(within(choice).getByRole("button", { name: "Klasyczne (Word)" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(choice).getByRole("button", { name: "Klasyczne" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("cv-ready-facts")).toHaveTextContent("Klasyczne · Word");
     await userEvent.click(within(choice).getByRole("button", { name: "Nowe CV" }));
     await waitFor(() => expect(mocks.setLayout).toHaveBeenCalledWith(21, "new"));
@@ -751,7 +751,7 @@ describe("CvToClientCard — CV gotowe", () => {
     rows = [{ id: 5, status: "ready" }];
     renderCard({ lockedAfterSend: true });
     const choice = await screen.findByTestId("cv-layout-choice-card");
-    expect(within(choice).getByRole("button", { name: "Klasyczne (Word)" })).toBeDisabled();
+    expect(within(choice).getByRole("button", { name: "Klasyczne" })).toBeDisabled();
     expect(within(choice).getByText(/po wysyłce do klienta/)).toBeInTheDocument();
   });
 

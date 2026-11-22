@@ -2,7 +2,7 @@
 
 D1 z audytu 07.11.2026: Akademia, Praktykant, Traffit, telefonia i Analytics v1
 zniknęły z kodu, tabele zostały. 22.11.2026 doszły eksporty dla Compassa
-(serwer Compassa usunięty). 410 mówi klientowi (stara karta przeglądarki,
+i trasy dla Atlasa (serwery obu usunięte). 410 mówi klientowi (stara karta przeglądarki,
 skrypt, klucz API), że adresu nie będzie, i podaje powód po polsku.
 
 Handler działa tylko wtedy, gdy żadna trasa nie pasuje do adresu. Trasa, która
@@ -23,6 +23,7 @@ _TRAFFIT = (
     "Traffit jest wyłączony od 14.10.2026 — NEXUS nie importuje już danych z Traffita."
 )
 _COMPASS = "Integracja z Compassem została wyłączona 22.11.2026 — Compass nie działa."
+_ATLAS = "Integracja z Atlasem została wyłączona 22.11.2026 — Atlas nie działa."
 
 RETIRED_PREFIXES: tuple[tuple[str, str], ...] = (
     ("/api/academy", _ACADEMY),
@@ -32,11 +33,13 @@ RETIRED_PREFIXES: tuple[tuple[str, str], ...] = (
     ("/api/cloudtalk", _CLOUDTALK),
     ("/api/admin/traffit", _TRAFFIT),
     ("/api/integrations/compass", _COMPASS),
+    ("/api/care/atlas", _ATLAS),
 )
 
 RETIRED_EXACT: dict[str, str] = {
     "/api/calls/webhook": _CLOUDTALK,
     "/api/calls/cloudtalk-status": _CLOUDTALK,
+    "/api/integrations/companies/people": _ATLAS,
 }
 
 

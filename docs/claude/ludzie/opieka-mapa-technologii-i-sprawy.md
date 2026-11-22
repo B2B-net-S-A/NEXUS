@@ -101,7 +101,7 @@ popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opi
   admin w oknie „Rozmowa z menedżerem” (`POST /clients/{id}/feedback` z `demand`): potwierdzona →
   `jobs_new_url` (`/jobs/new?client=&hm=&skills=&title=&dept=&headcount=&start=`, odczyt tylko
   pustych pól; dział trafia do opisu jako „Dział u klienta: X.”, start = pierwszy dzień miesiąca), nie teraz →
-  wraca za 30 dni, nieaktualne → znika. **ATLAS (`/api/care/atlas/*`) bez rozbudowy.**
+  wraca za 30 dni, nieaktualne → znika. **ATLAS (`/api/care/atlas/*`) usunięty 22.11.2026.**
 - **Osobny dzwonek na każdy nowy sygnał** (decyzja Artura 22.10.2026, audyt F5): inny dział albo
   inne role u tego samego klienta dają DL nowy dzwonek także tego samego dnia. Encja dzwonka to
   rozmowa (`related_entity_type="care_demand"`, `related_entity_id=<rozmowa>`), nie klient —
@@ -224,8 +224,8 @@ popyt u klienta idzie do **Delivery Leada, nie do ATLAS-a**. Starsze reguły opi
   sprzed 30 dni (rozmowy z importu niosą terminy sprzed lat). Nie licz go
   w trasie ani w serwisie po swojemu.
 - Trasy: `api/contract_care.py` (bramki w `api/care_gates.py`, odczyt zakładki
-  i listy w `care/overview.py`), kolejka technologii `api/care_skills.py`,
-  ATLAS `api/care_atlas.py` — wszystkie pod `/api/care`.
+  i listy w `care/overview.py`), kolejka technologii `api/care_skills.py`
+  — wszystkie pod `/api/care` (`api/care_atlas.py` usunięty 22.11.2026).
 
 ## Opieka · „Ten tydzień”, oś konsultanta, front office (etap 2, D15, 17.10.2026)
 
@@ -734,7 +734,15 @@ zapełnić.
 - `clients.default_care_owner_user_id` i `clients.equipment_provider` stoją
   w bocznym panelu zakładki.
 
-## ATLAS (sygnały sprzedażowe)
+## ATLAS (sygnały sprzedażowe) — usunięte 22.11.2026
+
+> Atlas wygaszony 22.11.2026 (serwer i Supabase usunięte). Trasy niżej, serwis
+> `services/care/signals.py` i bramki `AtlasReader`/`AtlasAdmin` usunięte
+> (decyzja Artura); stare adresy → 410 (`api/retired_modules.py`). Żaden klucz
+> nie ma zakresów `sales_signals:*` (odczyt produkcji 22.11.2026), więc znikają
+> z enumu osobnym PR-em, jak zakresy Compassa w #3708. Kolumny
+> `tech_cards.sales_*` zostają z danymi (zakładka technologii pokazuje
+> „sprzedaż: szansa”), ale nic ich już nie uzupełnia. Opis to historia.
 
 - `GET /api/care/atlas/sales-signals` i `POST …/status` zastępują
   `/api/internal/sales-signals` Compassa. Zakresy kluczy `sales_signals:read`

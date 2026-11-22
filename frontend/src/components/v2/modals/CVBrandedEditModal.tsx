@@ -178,7 +178,9 @@ export interface CvEditorFiles {
 export type CvEditorApi = Pick<
   typeof candidateStageCvApi.branded,
   "get" | "update" | "newDraft" | "finalize"
->;
+> &
+  /** Układ CV (22.11.2026) — tylko CV etapu; wynik generatora nie ma układu. */
+  Partial<Pick<typeof candidateStageCvApi.branded, "setLayout">>;
 
 function networkFiles(basePath: string): CvEditorFiles {
   return {
@@ -372,14 +374,15 @@ function CVBrandedEditContent({
 
   // Układ CV (22.11.2026): ten sam wybór co w karcie; zmiana nie dotyka
   // treści w edytorze (z odpowiedzi serwera bierzemy tylko układ).
-  const layoutEnabled = !isGenerated && data?.new_layout_enabled === true;
+  const setLayoutApi = isGenerated ? undefined : editorApi.setLayout;
+  const layoutEnabled = !!setLayoutApi && data?.new_layout_enabled === true;
   const layout: CvLayout = data?.cv_layout ?? "classic";
   const [layoutSaving, setLayoutSaving] = useState(false);
   const changeLayout = async (next: CvLayout) => {
-    if (next === layout || layoutSaving) return;
+    if (next === layout || layoutSaving || !setLayoutApi) return;
     setLayoutSaving(true);
     try {
-      const response = await candidateStageCvApi.branded.setLayout(stageId, next);
+      const response = await setLayoutApi(stageId, next);
       queryClient.setQueryData<CVBrandedState>([scopeKey, stageId], (current) =>
         current ? { ...current, cv_layout: response.data.cv_layout ?? next } : current,
       );

@@ -51,7 +51,7 @@ prywatne; projekt strony 1: https://claude.ai/artifact/5iLRazHADMeQZHhes3BTNS, r
 
 ## Schemat
 
-Migracja 0752, SQL w `services/cv_layout_schema.py` (czyta go też
+Migracja 0753, SQL w `services/cv_layout_schema.py` (czyta go też
 `entrypoint.sh`): `candidate_stage_cvs.cv_layout` (NOT NULL, domyślnie
 `classic`), `candidate_stage_cvs.page1_extras`, `cv_document_versions.cv_layout`
 i `page1_extras` (NULL w starych wierszach = klasyczny),

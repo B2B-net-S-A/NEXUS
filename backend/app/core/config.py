@@ -355,17 +355,13 @@ class Settings(BaseSettings):
     # advisory i wyścigowe, więc bieg ma własny bezpiecznik.
     CV_BACKFILL_MAX_CALLS: int = 45_000
 
-    # ── Daty zatrudnienia na żądanie (kartoteka firmy w ATLAS-ie) ───────────
+    # ── Daty zatrudnienia na żądanie (kartoteka firmy w Sprzedaży) ──────────
     # Domyślnie WŁĄCZONE od 17.09.2026 (decyzja Artura: NEXUS bez limitów AI,
-    # maksymalnie autonomiczny). To jedyna ścieżka, w której ruch użytkownika
-    # w INNEJ aplikacji (ATLAS) uruchamia płatne wywołanie modelu — koszt widać
+    # maksymalnie autonomiczny). Otwarcie firmy w Sprzedaży uruchamia płatne
+    # wywołanie modelu (``services/sales/company_dates.py``) — koszt widać
     # w Ustawieniach → AI i w alarmie wydatków. Flaga zostaje jako wyłącznik
-    # awaryjny w Coolify.
+    # awaryjny w Coolify. Do 22.11.2026 to samo robiła trasa dla ATLAS-a.
     EXPERIENCE_DATES_ON_DEMAND_ENABLED: bool = True
-    # Sufit osób na JEDNO zapytanie o firmę. Kartoteka pokazuje kilka-kilkanaście
-    # osób; setka to znak, że ktoś trafił w konglomerat — wtedy lepiej nie
-    # zapłacić za ogon niż uzupełnić wszystko.
-    EXPERIENCE_DATES_ON_DEMAND_MAX_PER_REQUEST: int = 10
 
     CV_CENTRAL_POLICIES_ENABLED: bool = False
     # Interaktywne CV (kafelki wymagań z cytatami, przełącznik widoku na

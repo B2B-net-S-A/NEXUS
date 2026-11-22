@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.finance_ledger import FinanceCounterparty
 from app.models.hr_settlement import EmployeeBillingDetails
 from app.services.finance_ledger import counterparty_import as importer
-from app.services.finance_ledger import identifiers
+from app.services.finance_ledger import identifiers, symfonia_partners
 from app.services.finance_ledger_schema import LINK_COUNTERPARTIES
 from app.services.order_client_identity import normalize_buyer_number
 
@@ -204,6 +204,30 @@ async def update(
 # ── Import ───────────────────────────────────────────────────────────────────
 
 
+def _derive_accounts(
+    item: importer.ParsedRow, row: Optional[FinanceCounterparty]
+) -> None:
+    """Plik z samym ID Symfonii dostaje konta z ID i kraju (``200/201-2`` krajowi,
+    ``202/203-2`` zagraniczni), o ile ani plik, ani kartoteka ich nie mają.
+    Dekret kosztu czyta ``cost_account``, więc bez tego kontrahent założony
+    po ID zostawałby „bez konta rozrachunkowego”."""
+
+    partner = item.values.get("symfonia_partner_id")
+    if not partner or (row is not None and row.symfonia_partner_id == partner):
+        return
+    country = symfonia_partners.country_of(
+        item.id_type,
+        item.id_value,
+        item.values.get("country") or (row.country if row is not None else None),
+    )
+    accounts = symfonia_partners.derived_accounts(partner, country)
+    if accounts is None:
+        return
+    for key, value in zip(("cost_account", "revenue_account"), accounts):
+        if not item.values.get(key) and not (row is not None and getattr(row, key)):
+            item.values[key] = value
+
+
 @dataclass
 class ImportResult:
     created: int = 0
@@ -278,6 +302,7 @@ async def apply_import(
                 }
             )
             continue
+        _derive_accounts(item, row)
         if row is None:
             twin = (
                 None

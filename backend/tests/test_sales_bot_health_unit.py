@@ -97,6 +97,27 @@ def test_checked_counter_does_not_hide_missing_company_results():
     assert outcome == "saved"
 
 
+def test_cognism_status_distinguishes_expired_session_and_search_results():
+    outcome, detail = received_outcome(
+        "people",
+        "cognism",
+        {
+            "processed": 2,
+            "not_found": 1,
+            "no_people": 1,
+            "ambiguous": 1,
+            "not_processed": 2,
+            "firm_issues": {"1": "session_expired", "2": "session_expired"},
+        },
+    )
+    assert outcome == "partial"
+    assert detail.count("Sesja Cognism wygasła.") == 1
+    assert "Nie znaleziono firm (1)." in detail
+    assert "Firmy bez decydentów (1)." in detail
+    assert "Niejednoznaczne dopasowania (1)." in detail
+    assert "Niesprawdzone firmy (2)." in detail
+
+
 def test_on_demand_success_remains_a_dated_attempt_not_a_guessed_health_deadline():
     now = datetime(2026, 11, 17, 20, tzinfo=timezone.utc)
     started = now - timedelta(days=30)

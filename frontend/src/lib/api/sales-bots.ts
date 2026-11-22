@@ -34,6 +34,7 @@ export interface SalesBot {
   last_received_at: string | null;
   /** Optional while frontend/backend versions roll independently. Null = never run. */
   last_run?: SalesBotRun | null;
+  last_call_hook_run?: SalesBotRun | null;
 }
 
 export interface SalesBots {

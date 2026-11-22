@@ -19,7 +19,6 @@ from typing import Optional
 
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient
 from sqlalchemy import select
 
 import app.models  # noqa: F401  (rejestracja wszystkich mapperów)
@@ -31,12 +30,7 @@ from app.models.candidate import Candidate
 from app.models.candidate_skill_usage import CandidateSkillUsage
 from app.models.client import Client, ClientStatus
 from app.models.contract import Contract, ContractStatus, RateUnit
-from app.models.contract_care import (
-    CareConversation,
-    RedeployQueueItem,
-    SkillReviewItem,
-    TechCard,
-)
+from app.models.contract_care import CareConversation, SkillReviewItem
 from app.models.job import Job, JobStatus
 from app.models.skill import Skill, SkillAlias
 from app.models.team_structure import DeliveryLeadClientAssignment
@@ -882,155 +876,3 @@ async def test_tech_map_combines_four_sources(app_client, care_on) -> None:
     assert by_id[note_skill]["counts"]["notes"] == 1
     assert by_id[card_skill]["source_count"] == 3
     assert second.json()["technologies"][0]["skill_id"] == card_skill
-
-
-# ── ATLAS ───────────────────────────────────────────────────────────────────
-
-
-ATLAS = "/api/care/atlas/sales-signals"
-
-
-async def test_atlas_signals_need_the_sales_signals_scope(
-    app_client: AsyncClient, app_auth_headers: dict, care_on
-) -> None:
-    from tests.test_service_accounts import _account_with_key
-
-    tcm = await make_user(UserRole.talent_community_manager)
-    client_id = await make_client()
-    contract_id, _ = await make_contract(client_id)
-    skill_id, _name = await make_skill("sygnal")
-    hiring = await app_client.post(
-        f"/api/care/contracts/{contract_id}/tech-cards",
-        headers=headers(tcm),
-        json=_card(
-            skill_ids=[skill_id],
-            hiring=True,
-            hiring_source="slyszal",
-            hiring_roles=["Tester"],
-        ),
-    )
-    card_id = hiring.json()["tech_cards"][0]["id"]
-    draft = await app_client.post(
-        f"/api/care/contracts/{contract_id}/tech-cards",
-        headers=headers(tcm),
-        json=_card(finalize=False, status=None, hiring=True),
-    )
-    draft_id = next(c["id"] for c in draft.json()["tech_cards"] if c["is_draft"])
-
-    anonymous = await app_client.get(ATLAS)
-    assert anonymous.status_code == 401
-    as_tcm = await app_client.get(ATLAS, headers=headers(tcm))
-    assert as_tcm.status_code == 403
-
-    # Dawny zestaw Compassa (klienci + kontrakty) nie otwiera sygnałów.
-    _, narrow_key, _ = await _account_with_key(
-        app_client, app_auth_headers, ["clients:read", "contracts:read"]
-    )
-    narrow = await app_client.get(ATLAS, headers={"X-API-Key": narrow_key})
-    assert narrow.status_code == 403
-
-    _, key, _ = await _account_with_key(
-        app_client, app_auth_headers, ["sales_signals:read"]
-    )
-    ok = await app_client.get(ATLAS, headers={"X-API-Key": key})
-    assert ok.status_code == 200, ok.text
-    ids = {signal["id"] for signal in ok.json()["signals"]}
-    assert card_id in ids and draft_id not in ids
-    signal = next(s for s in ok.json()["signals"] if s["id"] == card_id)
-    assert signal["hiring_roles"] == ["Tester"]
-    assert "consultant_email" not in signal
-    assert ok.json()["count"] == len(ok.json()["signals"])
-
-    bad_since = await app_client.get(
-        f"{ATLAS}?since=wczoraj", headers={"X-API-Key": key}
-    )
-    assert bad_since.status_code == 422
-
-    await set_modules({key_: False for key_ in HR_MODULE_KEYS})
-    switched_off = await app_client.get(ATLAS, headers={"X-API-Key": key})
-    assert switched_off.status_code == 404
-    admin_jwt = await app_client.get(ATLAS, headers=app_auth_headers)
-    assert admin_jwt.status_code == 200
-
-
-async def test_atlas_status_updates_card_and_ignores_stale_ones(
-    app_client: AsyncClient, app_auth_headers: dict, care_on
-) -> None:
-    tcm = await make_user(UserRole.talent_community_manager)
-    client_id = await make_client()
-    contract_id, _ = await make_contract(client_id)
-    skill_id, _name = await make_skill("status")
-    created = await app_client.post(
-        f"/api/care/contracts/{contract_id}/tech-cards",
-        headers=headers(tcm),
-        json=_card(skill_ids=[skill_id], hiring=True, hiring_source="plotka"),
-    )
-    card_id = created.json()["tech_cards"][0]["id"]
-    url = f"{ATLAS}/status"
-    payload = {
-        "updates": [
-            {
-                "signal_id": str(card_id),
-                "status": "converted",
-                "handled_at": "2026-10-10T10:00:00Z",
-                "deal_title": "Szansa A",
-            },
-            {
-                "signal_id": "nie-istnieje",
-                "status": "archived",
-                "handled_at": "2026-10-10T10:00:00Z",
-            },
-        ]
-    }
-    denied = await app_client.post(url, headers=headers(tcm), json=payload)
-    assert denied.status_code == 403
-    from tests.test_service_accounts import _account_with_key
-
-    _, read_key, _ = await _account_with_key(
-        app_client, app_auth_headers, ["sales_signals:read"]
-    )
-    read_only = await app_client.post(
-        url, headers={"X-API-Key": read_key}, json=payload
-    )
-    assert read_only.status_code == 403
-    _, write_key, _ = await _account_with_key(
-        app_client, app_auth_headers, ["sales_signals:write"]
-    )
-    by_key = await app_client.post(
-        url,
-        headers={"X-API-Key": write_key},
-        json={"updates": []},
-    )
-    assert by_key.status_code == 200, by_key.text
-    accepted = await app_client.post(url, headers=app_auth_headers, json=payload)
-    assert accepted.status_code == 200, accepted.text
-    assert accepted.json() == {
-        "accepted": 1,
-        "ignored_stale": 0,
-        "unknown": ["nie-istnieje"],
-    }
-    stale = await app_client.post(
-        url,
-        headers=app_auth_headers,
-        json={
-            "updates": [
-                {
-                    "signal_id": str(card_id),
-                    "status": "archived",
-                    "handled_at": "2026-10-01T10:00:00Z",
-                }
-            ]
-        },
-    )
-    assert stale.json()["ignored_stale"] == 1
-    async with AsyncSessionLocal() as db:
-        card = await db.get(TechCard, card_id)
-        assert (card.sales_status, card.sales_deal_title) == ("converted", "Szansa A")
-        assert (
-            await db.scalar(
-                select(RedeployQueueItem.id).where(
-                    RedeployQueueItem.contract_id == contract_id
-                )
-            )
-            is None
-        )

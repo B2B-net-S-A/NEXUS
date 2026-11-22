@@ -24,6 +24,7 @@ from app.services.person_workdays import (
     prorated_target,
     worked_days,
 )
+from tests._leave_source import use_nexus_leave_source
 
 OCT_1 = date(2026, 10, 1)
 OCT_28 = date(2026, 10, 28)
@@ -162,10 +163,10 @@ async def _absence(
 
 
 @pytest.fixture
-def local_source():
-    availability_local.reset_source_cache(local=True)
-    yield
-    availability_local.reset_source_cache(local=False)
+def local_source(monkeypatch):
+    # Ze znacznikiem czasu: `nexus_absences_known` odświeża przełącznik
+    # z `app_settings`, a sam `reset_source_cache` zostawia pamięć do odczytu.
+    use_nexus_leave_source(monkeypatch, True)
 
 
 @pytest.mark.asyncio
@@ -186,8 +187,10 @@ async def test_approved_absence_reduces_workdays(local_source) -> None:
 
 
 @pytest.mark.asyncio
-async def test_without_nexus_absences_everyone_has_full_business_days() -> None:
-    availability_local.reset_source_cache(local=False)
+async def test_without_nexus_absences_everyone_has_full_business_days(
+    monkeypatch,
+) -> None:
+    use_nexus_leave_source(monkeypatch, False)
     async with AsyncSessionLocal() as db:
         away = await _person(db, "compass")
         await _absence(db, away, date(2026, 10, 1), date(2026, 10, 7))
@@ -293,9 +296,9 @@ async def _poligon_done(db, user: User, moment: datetime) -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("local", [True, False])
 async def test_onboarding_day_is_not_a_workday_under_any_source(
-    poligon_for_everyone, local: bool
+    poligon_for_everyone, local: bool, monkeypatch
 ) -> None:
-    availability_local.reset_source_cache(local=local)
+    use_nexus_leave_source(monkeypatch, local)
     try:
         async with AsyncSessionLocal() as db:
             new = await _person(db, "onboarding")

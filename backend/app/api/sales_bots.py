@@ -15,7 +15,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, case, cast, func, select
+from sqlalchemy.dialects.postgresql import JSONPATH
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.sales_gates import SalesEditUser, SalesViewUser, is_admin
@@ -60,6 +61,7 @@ class BotOut(BaseModel):
     last_received_at: Optional[datetime] = None
     #: All-time latest attempt, independent of the seven-day summary window.
     last_run: Optional[BotRunOut] = None
+    last_call_hook_run: Optional[BotRunOut] = None
 
 
 class BotsOut(BaseModel):
@@ -192,6 +194,17 @@ async def _state(db: AsyncSession, *, can_pause: bool) -> BotsOut:
         elif run_status in ("failed", "expired"):
             item["failed"] += count
     latest = await _latest_runs(db, now=now)
+    last_hook = await db.scalar(
+        select(SalesSignalRun)
+        .where(
+            SalesSignalRun.kind == "briefing",
+            SalesSignalRun.modes.path_exists(
+                cast('$.* ? (@ == "call_hook")', JSONPATH)
+            ),
+        )
+        .order_by(SalesSignalRun.started_at.desc(), SalesSignalRun.id.desc())
+        .limit(1)
+    )
     paused = await bots.paused_bots(db)
     return BotsOut(
         can_pause=can_pause,
@@ -208,6 +221,11 @@ async def _state(db: AsyncSession, *, can_pause: bool) -> BotsOut:
                 failed_7d=stats[bot]["failed"],
                 last_received_at=stats[bot]["last"],
                 last_run=latest.get(bot),
+                last_call_hook_run=(
+                    _run_out(last_hook, now=now)
+                    if bot == bots.RESEARCH and last_hook
+                    else None
+                ),
             )
             for bot in bots.BOTS
         ],

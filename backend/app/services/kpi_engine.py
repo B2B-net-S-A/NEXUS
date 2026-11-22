@@ -547,7 +547,7 @@ async def personal_days_off(
     (``onboarding_day``) dochodzi przy każdym źródle; ``onboarding=False``,
     gdy wołający wie, że osoba go nie ma (bez zapytania).
     """
-    from app.services.hr.availability_local import days_off_for, local_source_active
+    from app.services.hr.availability_local import days_off_for, refresh_source
     from app.services.onboarding_day import onboarding_days
 
     now_w = _as_warsaw(now)
@@ -563,7 +563,9 @@ async def personal_days_off(
         if onboarding
         else frozenset()
     )
-    if not local_source_active():
+    # Odświeżenie przed odczytem: w ``web`` przełącznika nie odświeża żadna
+    # pętla, a „Mój miesiąc” po wdrożeniu liczył się bez urlopu (22.11.2026).
+    if not await refresh_source(db):
         return onboarding_off
     return await days_off_for(db, user_id, start, end) | onboarding_off
 

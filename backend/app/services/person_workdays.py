@@ -74,12 +74,13 @@ def target_for_window(
 async def nexus_absences_known(db: AsyncSession) -> bool:
     """Czy nieobecności liczą się z urlopów NEXUSA.
 
-    Stan przełącznika z pamięci procesu, jak w ``kpi_engine.personal_days_off``
-    — odświeżają go pętle dostępności i dni roboczych.
+    Przełącznik odświeżany przed odczytem (najwyżej raz na minutę na proces):
+    pętle dostępności biegną tylko w ``worker``, a ``web`` po wdrożeniu ma
+    zimną pamięć — cele liczyły się wtedy bez urlopów (22.11.2026).
     """
-    from app.services.hr.availability_local import local_source_active
+    from app.services.hr.availability_local import refresh_source
 
-    return local_source_active()
+    return await refresh_source(db)
 
 
 async def absence_by_user(

@@ -3829,6 +3829,23 @@
     "dot_anchor": "client.consultants"
   },
   {
+    "id": "kontrahenci-czeka-na-symfonie",
+    "pr": 3549,
+    "title": "Kontrahenci do założenia w Symfonii",
+    "why": "Lista firm z faktur, które nie mają jeszcze ID Symfonii. Pobierz plik dla księgowej, a gdy wpisze ID, wgraj go z powrotem — konta uzupełnią się same.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": {
+      "permissions": [
+        "finance_module"
+      ]
+    },
+    "where": "Finanse → Kontrahenci → Czeka na Symfonię",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "finance.counterparties-pending"
+  },
+  {
     "id": "profil-championa-co-sie-zmienilo",
     "pr": 3551,
     "title": "Co się zmieniło w Profilu Championa",

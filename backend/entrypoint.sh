@@ -1223,7 +1223,7 @@ except Exception as _prep_review_config_err:  # noqa: BLE001
     print(f"prep review config DDL unavailable: {_prep_review_config_err!r}")
     _PREP_REVIEW_CONFIG_DDL = []
 
-# Układ CV klasyczny / „Nowe CV” (migracja 0752) — JEDNO źródło z migracją
+# Układ CV klasyczny / „Nowe CV” (migracja 0753) — JEDNO źródło z migracją
 # (`app/services/cv_layout_schema.py`).
 try:
     from app.services import cv_layout_schema as _cv_layout_schema
@@ -5413,22 +5413,6 @@ _COLUMN_STATEMENTS = [
         ADD COLUMN IF NOT EXISTS is_open BOOLEAN NOT NULL DEFAULT false""",
     "CREATE INDEX IF NOT EXISTS ix_jobs_opened_at ON jobs (opened_at)",
     "CREATE INDEX IF NOT EXISTS ix_jobs_is_open ON jobs (is_open) WHERE is_open",
-    # 0276: stan pętli dni roboczych z COMPASSA. Bez tej tabeli sonda
-    # `checks.compass_workdays` nie ma czego czytać, a cicha awaria integracji
-    # wraca do stanu sprzed D5 (mianownik = stała 5, osoba na urlopie na
-    # imiennej liście „poniżej progu").
-    """CREATE TABLE IF NOT EXISTS compass_workdays_sync_state (
-        id INTEGER PRIMARY KEY,
-        last_run_started_at TIMESTAMPTZ NULL,
-        last_run_finished_at TIMESTAMPTZ NULL,
-        last_status VARCHAR(20) NULL,
-        last_error TEXT NULL,
-        stats JSONB NULL,
-        updated_at TIMESTAMPTZ NULL
-    )""",
-    # Wiersz-kotwica: odróżnia „pętla nigdy nie wystartowała" (wiersz jest,
-    # kolumny NULL) od „migracja nie doszła" (brak wiersza).
-    "INSERT INTO compass_workdays_sync_state (id) VALUES (1) ON CONFLICT (id) DO NOTHING",
     # 0278: trzecia rubryka rekrutacji — obecność w biurze. Kandydat dostaje
     # własny limit dni/tydz. (0 = wyłącznie zdalnie), oferta dostaje wymaganą
     # liczbę dni. `remote_policy` traci NOT NULL i domyślną 'hybrid' — importer
@@ -7238,6 +7222,10 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "DROP TABLE IF EXISTS invoices",
     "DROP TYPE IF EXISTS invoicedirection",
     "DROP TYPE IF EXISTS invoicestatus",
+    # 0752 (22.11.2026): stan dawnej pętli dni roboczych z Compassa (0276).
+    # Pętlę i sondę zdjął #3696 po wygaszeniu Compassa. Lustro 1:1
+    # z migracją; pilnuje `test_drop_compass_workdays_sync_state_mirror.py`.
+    "DROP TABLE IF EXISTS compass_workdays_sync_state",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

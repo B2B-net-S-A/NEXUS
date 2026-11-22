@@ -443,6 +443,9 @@ def test_collect_report_flags_skipped_lex_and_task_says_when() -> None:
     text = collect.task_text(collect.build_request(date(2026, 11, 12)))
     assert "lex_skipped = true" in text
     assert collect.report_format()["lex_skipped"] is False
+    assert "device_approval" in text
+    with pytest.raises(ValidationError):
+        collect.CollectReport.model_validate({"lex_skip_reason": "arbitrary pasted text"})
 
 
 @pytest.mark.parametrize(

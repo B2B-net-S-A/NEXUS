@@ -741,6 +741,58 @@ async def test_failed_refresh_keeps_the_last_good_eu_list(monkeypatch):
     assert calls == ["ok", "down"]
 
 
+@pytest.mark.asyncio
+async def test_czech_and_estonian_lists_download_through_pyhanko():
+    """22.11.2026: listy CZ i EE nie schodziły ani lokalnie, ani na produkcji
+    (50 błędów list przy starcie workera), więc podpis kwalifikowany z Czech
+    i Estonii nie miał zaufanego wystawcy. ``tsl.gov.cz`` podaje listę jako
+    ``text/plain`` i odpowiada 406 na ``Accept`` z samymi typami XML, o które
+    prosi pyHanko; ``sr.riik.ee`` odpowiada 403 na ``User-Agent`` ze słowem
+    „aiohttp”. Serwer na 127.0.0.1 udaje oba, a żądanie wysyła funkcja
+    pobierająca z pyHanko, ta sama co w ``lotl_to_registry``."""
+    import aiohttp
+    from aiohttp import web
+    from pyhanko.sign.validation.qualified import eutl_fetch
+
+    from app.services.b2b_esign import qualified
+
+    async def _cz(request: web.Request) -> web.Response:
+        accept = request.headers.get("Accept", "")
+        if "*/*" not in accept and "text/plain" not in accept:
+            raise web.HTTPNotAcceptable()
+        return web.Response(text="<TrustServiceStatusList/>", content_type="text/plain")
+
+    async def _ee(request: web.Request) -> web.Response:
+        if "aiohttp" in request.headers.get("User-Agent", "").lower():
+            raise web.HTTPForbidden()
+        return web.Response(
+            text="<TrustServiceStatusList/>", content_type="application/xml"
+        )
+
+    app = web.Application()
+    app.router.add_get("/TSL_CZ.xtsl", _cz)
+    app.router.add_get("/estonian-tsl.xml", _ee)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    host, port = runner.addresses[0][:2]
+    base = f"http://{host}:{port}"
+    try:
+        # Kontrola: zwykła sesja aiohttp dostaje to, co produkcja.
+        async with aiohttp.ClientSession() as plain:
+            for path, status in (("/TSL_CZ.xtsl", 406), ("/estonian-tsl.xml", 403)):
+                with pytest.raises(aiohttp.ClientResponseError) as refused:
+                    await eutl_fetch._get(base + path, plain)
+                assert refused.value.status == status
+        async with qualified._client_session() as client:
+            for path in ("/TSL_CZ.xtsl", "/estonian-tsl.xml"):
+                text = await eutl_fetch._get(base + path, client)
+                assert text == "<TrustServiceStatusList/>"
+    finally:
+        await runner.cleanup()
+
+
 # ── po podpisie obu stron (PR 5) ─────────────────────────────────────────────
 
 

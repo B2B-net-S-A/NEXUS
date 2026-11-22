@@ -2844,6 +2844,7 @@ export default function ContractDetailPage() {
                   clientSchedule={contract.client_rate_schedule}
                   candidateSchedule={contract.candidate_rate_schedule}
                   showBenchmark={canViewBenchmark}
+                  eurPlnRate={contract.eur_pln_rate ?? null}
                   onOpenMoney={() => openTab("money")}
                 />
               ) : (

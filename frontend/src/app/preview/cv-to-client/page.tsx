@@ -258,8 +258,20 @@ function issues(person: Person): CvEditorIssuesData {
   };
 }
 
+/**
+ * Układ CV (22.11.2026): `?layout=new` / `?layout=classic` włącza wybór układu
+ * (flaga serwera) i ustawia układ na starcie; bez parametru — jak przy
+ * wyłączonej fladze.
+ */
+function harnessLayout(): "new" | "classic" | null {
+  if (typeof window === "undefined") return null;
+  const value = new URLSearchParams(window.location.search).get("layout");
+  return value === "new" || value === "classic" ? value : null;
+}
+
 /** CV etapu: szkic z generatora albo brak. */
 function branded(person: Person, hasCv: boolean) {
+  const layout = harnessLayout();
   const generatedId = 9000 + person.stageId;
   return {
     status: hasCv ? "draft" : "none",
@@ -281,6 +293,9 @@ function branded(person: Person, hasCv: boolean) {
     finalized_by_name: null,
     snapshot_filename: null,
     rendered_from_default: false,
+    new_layout_enabled: layout !== null,
+    cv_layout: layout ?? "classic",
+    default_layout: layout ?? "classic",
   };
 }
 
@@ -418,6 +433,13 @@ function rewriteAnswer(qc: QueryClient, config: InternalAxiosRequestConfig): unk
 }
 
 function memoryAnswer(qc: QueryClient, config: InternalAxiosRequestConfig): unknown {
+  const layoutMatch = /^\/api\/candidates\/stages\/(\d+)\/cv\/layout$/.exec(config.url ?? "");
+  if ((config.method ?? "get").toLowerCase() === "patch" && layoutMatch) {
+    const key = stageBrandedQueryKey(Number(layoutMatch[1]));
+    const body = typeof config.data === "string" ? JSON.parse(config.data) : config.data;
+    const current = qc.getQueryData<Record<string, unknown>>(key);
+    return current ? { ...current, cv_layout: body?.cv_layout ?? current.cv_layout } : undefined;
+  }
   if ((config.method ?? "get").toLowerCase() === "post") return rewriteAnswer(qc, config);
   if ((config.method ?? "get").toLowerCase() !== "get") return undefined;
   const url = config.url ?? "";

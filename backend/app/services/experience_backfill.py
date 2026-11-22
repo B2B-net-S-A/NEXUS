@@ -4,8 +4,8 @@ Po co? ~44k kandydatów z Traffita dostało ``experience`` z gołej listy
 pracodawców (``traffit_previous_employers`` → ``scripts/backfill_candidate_experience.py``):
 każdy wpis bez ``start`` i bez ``end``. ``end IS NULL`` jest kanonicznym
 znacznikiem bieżącej pracy, więc KAŻDA firma z takiego CV liczyła się jako
-obecny pracodawca — w filtrze „Obecna firma" i w panelu ATLAS-a „pracują tam
-teraz". Masowy bieg Fali 3 (``cv_field_backfill``) tego nie naprawia: jego
+obecny pracodawca — w filtrze „Obecna firma" i w „Kogo znamy” Sprzedaży
+(dawniej panel ATLAS-a) jako „pracują tam teraz". Masowy bieg Fali 3 (``cv_field_backfill``) tego nie naprawia: jego
 prompt celowo nie prosi o ``experience``, a polityka FILL_EMPTY nie dotyka
 niepustej listy.
 
@@ -146,7 +146,7 @@ def merge_experience(
     Odczyt modelu idzie w całości (stanowiska + daty, najnowsze pierwsze), a za
     nim — bez dat — te stare firmy, których model nie wymienił. Stara firma
     obecna w odczycie NIE jest dublowana: podwójny wpis (datowany + pusty)
-    dawałby w ATLAS-ie tę samą osobę raz jako „wcześniej", raz jako „okres
+    dawałby w „Kogo znamy” tę samą osobę raz jako „wcześniej", raz jako „okres
     nieznany".
     """
     if not any(entry_is_dated(e) for e in parsed_entries):
@@ -226,7 +226,7 @@ async def backfill_experience_dates(
     """Przetwórz scope sekwencyjnie; zwróć (i aktualizuj) statystyki.
 
     `candidate_ids` zawęża bieg do wskazanych osób (tryb na żądanie z kartoteki
-    firmy w ATLAS-ie). Scope filter NADAL obowiązuje — płacą tylko wiersze
+    firmy w Sprzedaży, ``services/sales/company_dates.py``). Scope filter NADAL obowiązuje — płacą tylko wiersze
     z tekstem CV i bez dat, więc lista z panelu nie jest obietnicą zapłaty.
 
     `feature_key` wybiera kubełek kwoty. Bieg masowy i ścieżka na żądanie MUSZĄ
@@ -382,72 +382,3 @@ async def backfill_experience_dates(
     finally:
         await _flush_reindex()
         await db.commit()
-
-
-# ── Tryb na żądanie: osoby pokazane właśnie na kartotece firmy w ATLAS-ie ───
-# Pełny bieg to ~50 tys. wierszy i kilkaset dolarów, a handlowiec ogląda
-# dziesiątki firm. Płacimy więc za tych, na których ktoś naprawdę patrzy.
-#
-# Dlaczego W TLE, a nie w odpowiedzi: jedno wywołanie modelu to sekundy, więc
-# doklejenie ich do zapytania o kartotekę zamieniłoby panel w poczekalnię.
-# Daty pojawiają się przy następnym otwarciu firmy — to jest akceptowalne,
-# bo alternatywą jest ich brak na zawsze.
-
-# Kandydaci, dla których zadanie już leci. Bez tego dwa otwarcia tej samej
-# kartoteki (albo dwie osoby patrzące na tego samego klienta) płacą dwa razy
-# za ten sam wiersz — znacznik w bazie powstaje dopiero PO odpowiedzi modelu.
-# Pamięć procesu wystarcza: NEXUS chodzi w jednym kontenerze web, a restart
-# i tak czyści stan w locie.
-_IN_FLIGHT: set[int] = set()
-# Silna referencja do zadań — bez niej pętla zdarzeń może je zebrać w połowie.
-_TASKS: set[asyncio.Task] = set()
-
-
-async def _run_on_demand(candidate_ids: list[int]) -> None:
-    from app.core.database import AsyncSessionLocal
-
-    try:
-        async with AsyncSessionLocal() as db:
-            stats = await backfill_experience_dates(
-                db,
-                candidate_ids=candidate_ids,
-                feature_key=AIFeatureKey.experience_dates_on_demand,
-            )
-        logger.info(
-            "[experience-dates/on-demand] ids=%s updated=%s no_dates=%s reason=%s",
-            len(candidate_ids),
-            stats.get("updated"),
-            stats.get("skipped_no_dates"),
-            stats.get("stopped_reason"),
-        )
-    except Exception:  # noqa: BLE001 — zadanie w tle nie może ubić procesu
-        logger.exception("[experience-dates/on-demand] zadanie padło")
-    finally:
-        _IN_FLIGHT.difference_update(candidate_ids)
-
-
-def schedule_on_demand(candidate_ids: Sequence[int]) -> list[int]:
-    """Zakolejkuj dopisanie dat dla tych osób. Zwraca faktycznie zakolejkowane.
-
-    Nie rzuca: to jest efekt uboczny odczytu kartoteki, więc każda jego awaria
-    musi zostawić odpowiedź o ludziach nietkniętą.
-    """
-    if not settings.EXPERIENCE_DATES_ON_DEMAND_ENABLED:
-        return []
-    fresh = [cid for cid in dict.fromkeys(candidate_ids) if cid not in _IN_FLIGHT]
-    if not fresh:
-        return []
-    fresh = fresh[: max(0, int(settings.EXPERIENCE_DATES_ON_DEMAND_MAX_PER_REQUEST))]
-    if not fresh:
-        return []
-    _IN_FLIGHT.update(fresh)
-    try:
-        task = asyncio.create_task(_run_on_demand(fresh))
-    except RuntimeError:
-        # Brak działającej pętli (np. wywołanie z kodu synchronicznego) —
-        # zwolnij rezerwację, inaczej te osoby nigdy nie dostaną dat.
-        _IN_FLIGHT.difference_update(fresh)
-        return []
-    _TASKS.add(task)
-    task.add_done_callback(_TASKS.discard)
-    return fresh

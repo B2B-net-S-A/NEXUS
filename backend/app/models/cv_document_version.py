@@ -60,7 +60,7 @@ class CvDocumentVersion(Base):
     content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     template: Mapped[str | None] = mapped_column(String(20))
     language: Mapped[str | None] = mapped_column(String(10))
-    # Układ i dodatki strony 1 zamrożone przy zatwierdzeniu (0752); NULL = klasyczny.
+    # Układ i dodatki strony 1 zamrożone przy zatwierdzeniu (0753); NULL = klasyczny.
     cv_layout: Mapped[str | None] = mapped_column(String(16), nullable=True)
     page1_extras: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     candidate_first_name: Mapped[str | None] = mapped_column(String(300))

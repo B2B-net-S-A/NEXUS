@@ -10,7 +10,6 @@ Trzy rzeczy, które ten plik przybija:
   odczycie zostają bez dat, a firma obecna w obu nie jest dublowana.
 """
 
-import asyncio
 import inspect
 from types import SimpleNamespace
 
@@ -147,81 +146,11 @@ class TestMergeExperience:
 
 
 class TestOnDemand:
-    """Tryb na żądanie: płacimy za osoby, na które ktoś naprawdę patrzy.
+    """Tryb na żądanie (kartoteka firmy w Sprzedaży, ``sales/company_dates.py``).
 
-    Pełny bieg to ~50 tys. CV i kilkaset dolarów; kartoteka firmy w ATLAS-ie
-    pokazuje kilka osób naraz. Te testy przybijają trzy rzeczy, każda kosztowna
-    przy pomyłce: bramka domyślnie zamknięta, brak podwójnej zapłaty za tę samą
-    osobę i sufit osób na jedno zapytanie.
+    Do 22.11.2026 kolejkę „na żądanie” miała też trasa dla ATLAS-a — usunięta
+    z Atlasem. Zostaje reguła o kubełku kwoty.
     """
-
-    @pytest.fixture(autouse=True)
-    def _clean_state(self):
-        experience_backfill._IN_FLIGHT.clear()
-        yield
-        experience_backfill._IN_FLIGHT.clear()
-
-    def test_disabled_by_default_schedules_nothing(self, monkeypatch):
-        """Deploy nie może zacząć wydawać pieniędzy bez świadomej decyzji."""
-        monkeypatch.setattr(
-            experience_backfill.settings,
-            "EXPERIENCE_DATES_ON_DEMAND_ENABLED",
-            False,
-            raising=False,
-        )
-        assert experience_backfill.schedule_on_demand([1, 2, 3]) == []
-        assert experience_backfill._IN_FLIGHT == set()
-
-    @pytest.mark.asyncio
-    async def test_enabled_schedules_once_per_candidate(self, monkeypatch):
-        """Dwa otwarcia tej samej kartoteki = jedna zapłata.
-
-        Znacznik w bazie powstaje dopiero PO odpowiedzi modelu, więc bez
-        rezerwacji w pamięci drugie zapytanie zapłaciłoby za ten sam wiersz.
-        """
-        monkeypatch.setattr(
-            experience_backfill.settings,
-            "EXPERIENCE_DATES_ON_DEMAND_ENABLED",
-            True,
-            raising=False,
-        )
-        seen: list[list[int]] = []
-
-        async def _fake_run(ids):
-            seen.append(list(ids))
-
-        monkeypatch.setattr(experience_backfill, "_run_on_demand", _fake_run)
-
-        first = experience_backfill.schedule_on_demand([7, 7, 9])
-        second = experience_backfill.schedule_on_demand([7, 9])
-        assert first == [7, 9]
-        assert second == []  # obie już w locie
-
-        await asyncio.gather(*list(experience_backfill._TASKS))
-        assert seen == [[7, 9]]
-
-    @pytest.mark.asyncio
-    async def test_per_request_cap(self, monkeypatch):
-        monkeypatch.setattr(
-            experience_backfill.settings,
-            "EXPERIENCE_DATES_ON_DEMAND_ENABLED",
-            True,
-            raising=False,
-        )
-        monkeypatch.setattr(
-            experience_backfill.settings,
-            "EXPERIENCE_DATES_ON_DEMAND_MAX_PER_REQUEST",
-            3,
-            raising=False,
-        )
-
-        async def _fake_run(ids):
-            return None
-
-        monkeypatch.setattr(experience_backfill, "_run_on_demand", _fake_run)
-        scheduled = experience_backfill.schedule_on_demand(list(range(50)))
-        assert scheduled == [0, 1, 2]
-        await asyncio.gather(*list(experience_backfill._TASKS))
 
     def test_on_demand_uses_its_own_quota_bucket(self):
         """Osobny kubełek od `cv_backfill` — to jest cała lekcja z 16.09.
@@ -229,8 +158,10 @@ class TestOnDemand:
         Gaszenie ścieżki użytkownika nie może ubijać nocnego syncu Traffita,
         który chodzi pod `cv_backfill`.
         """
+        from app.services.sales import company_dates
+
         assert AIFeatureKey.experience_dates_on_demand != AIFeatureKey.cv_backfill
-        src = inspect.getsource(experience_backfill._run_on_demand)
+        src = inspect.getsource(company_dates.run_company_dates)
         assert "experience_dates_on_demand" in src
         # Bieg masowy (admin endpoint) zostaje na swoim kluczu.
         sig = inspect.signature(experience_backfill.backfill_experience_dates)

@@ -282,7 +282,12 @@ nie pokazuje.
    do pierwszej rozmowy oraz po zaakceptowaniu odkrytej firmy. Każdy kolejny
    raport z researchu może odświeżyć mapę.
 
-Stan biegu i liczniki są w `sales_signal_runs`. Dane osoby są widoczne
+Stan biegu i liczniki są w `sales_signal_runs`. Dla firmy ze statusem
+`not_processed` bot może podać `blocked_reason` z formatu biegu, np. `session_expired`.
+NEXUS zapisuje rozpoznane przyczyny w `report.firm_issues` według identyfikatora
+firmy. W panelu Sprzedaż → Leady → Boty opis ostatniego biegu pokazuje osobno
+brak firmy w Cognism, brak decydentów, niejednoznaczne dopasowania i firmy,
+których nie sprawdzono, z przyczyną, jeśli jest znana. Dane osoby są widoczne
 w zakładce „Mapa decydentów” na karcie firmy dla osób z prawem edycji Sprzedaży.
 
 Jeśli Cognism używa innej nazwy tej samej spółki, operator może po niezależnym

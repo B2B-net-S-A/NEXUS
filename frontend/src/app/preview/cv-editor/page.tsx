@@ -178,7 +178,15 @@ function brandedState(state: HarnessState): CVBrandedState {
     finalized_by_name: finalized ? "Marta Testowa" : null,
     snapshot_filename: finalized ? "cv-v2.html" : null,
     rendered_from_default: false,
+    // `?layout=new|classic` — wybór układu jak przy włączonej fladze (22.11.2026).
+    ...harnessLayout(),
   };
+}
+
+function harnessLayout(): Pick<CVBrandedState, "new_layout_enabled" | "cv_layout"> {
+  if (typeof window === "undefined") return {};
+  const value = new URLSearchParams(window.location.search).get("layout");
+  return value === "new" || value === "classic" ? { new_layout_enabled: true, cv_layout: value } : {};
 }
 
 function respond<T>(data: T): Promise<AxiosResponse<T>> {
@@ -190,6 +198,10 @@ function memoryApi(initial: CVBrandedState): { api: CvEditorApi; savedHtml: () =
   let current = initial;
   const api: CvEditorApi = {
     get: () => respond(current),
+    setLayout: (_id, cv_layout) => {
+      current = { ...current, cv_layout };
+      return respond(current);
+    },
     update: (_id, payload) => {
       if ("content_html" in payload) {
         current = { ...current, content_html: payload.content_html, edit_revision: current.edit_revision + 1 };
