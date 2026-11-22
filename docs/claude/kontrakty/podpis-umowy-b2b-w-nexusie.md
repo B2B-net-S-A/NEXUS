@@ -208,6 +208,59 @@ startu” (`dokumenty-do-startu.md`), zamiast dostawać NDA osobnym mailem.
   certyfikat „multi” na kilka podpisów po jednym potwierdzeniu tożsamości)
   paczka zostaje bez zmian: dostawca zastępuje tylko „pobierz i wgraj”.
 
+## mObywatel na stronie kontraktora: podpis osobisty nie jest kwalifikowany (22.11.2026)
+
+Strona `/sign/b2b/{token}` radziła „Najszybciej mObywatel z e-dowodem (za darmo)”
+i w zakładce „mObywatel” kazała „wybrać podpis kwalifikowany”. Odczyt listopadowych
+PDF-ów z produkcji (22.11.2026): 1 z 7 umów z e-podpisem kontraktora miała podpis
+osobisty z e-dowodu (wystawca MSWiA „pl.ID Authorization CA”, polityka
+`1.2.616.1.101.5.2.1.1.1.2`, bez QcStatements). NEXUS by ją odrzucił.
+
+Co daje mObywatel (stan 22.11.2026):
+- **Podpis osobisty** (usługa „Podpisz dokument” od 25.02.2025, e-dowód, NFC,
+  kod PIN2): podpis zaawansowany, nie kwalifikowany. Równoważny odręcznemu
+  tylko w kontaktach z administracją, z firmą tylko po umowie stron (gov.pl).
+  MSWiA nie jest kwalifikowanym dostawcą (rejestr NCCert). W pliku: wystawca
+  MSWiA, bez QcStatements.
+- **Podpis kwalifikowany** (Usługi → Sprawy urzędowe → „Podpis kwalifikowany”,
+  od 23.10.2025): certyfikat od dostawcy (Cencert, SimplySign, Sigillum, mSzafir,
+  doPodpisu), tożsamość przez e-dowód i NFC. W pliku wystawca to kwalifikowane CA
+  dostawcy z QcStatements, więc NEXUS go przyjmie. 5 darmowych na miesiąc, ale
+  **tylko w sprawach prywatnych, niezwiązanych z działalnością zawodową**
+  (Ministerstwo Cyfryzacji, FAQ Certum). Umowa B2B dotyczy firmy kontraktora.
+  Kolejne podpisy są płatne u dostawcy.
+
+Reguły:
+- **Strona nie poleca mObywatela jako drogi do podpisu kwalifikowanego.**
+  Zakładka „mObywatel” zostaje, bo kontraktorzy jej szukają, ale mówi: PIN2 to
+  podpis osobisty i NEXUS go nie przyjmie, darmowe kwalifikowane są do spraw
+  prywatnych, a do umowy jednorazowy podpis kwalifikowany (mSzafir przez bank,
+  ok. 15 zł). Zdanie pod ramką PAdES: „Najszybciej jednorazowy podpis mSzafir
+  przez bank… Podpis osobisty z e-dowodu i profil zaufany nie wystarczą.”
+  Pilnuje tego test „mObywatel nie obiecuje podpisu kwalifikowanego”
+  w `esign.test.tsx`.
+- **Podpis od wystawcy spoza listy UE to „niekwalifikowany”, nie „nie przeszedł
+  weryfikacji”.** pyHanko zwraca wtedy podpis cały i ważny, ale `trusted` = false
+  z `NO_CERTIFICATE_CHAIN_FOUND`; `qualified._untrusted_issuer` dopisuje
+  `untrusted_issuer`, a `verdict.judge` daje `not_qualified` z `MSG_NOT_QUALIFIED`
+  (podpis osobisty, PIN2, „Pobierz PDF jeszcze raz”). Wcześniej kontraktor
+  dostawał `invalid` i podpisywał drugi raz tak samo. Gdy obok pękł inny podpis,
+  zostaje `invalid`.
+- **„Pobierz PDF jeszcze raz” jest celowe:** podpis kwalifikowany dołożony do
+  pliku, który ma już podpis osobisty, nie przejdzie, bo kwalifikowany musi być
+  każdy podpis w pliku.
+- Ten sam walidator ma umowa szkoleniowa trenera (`services/trainings/signing.py`),
+  więc w portalu konsultanta „Jak podpisać” też nie podsuwa mObywatela.
+- Sprawdzone 22.11.2026 na pliku testowym o tym samym kształcie (CA spoza listy,
+  bez QcStatements), z prawdziwą listą UE: przed zmianą `invalid`, po zmianie
+  `not_qualified`. Test bez sieci:
+  `test_issuer_outside_the_eu_list_is_not_qualified_rather_than_broken`.
+
+Źródła: gov.pl „Podpisz dokument w aplikacji mObywatel” (11.03.2025) i „Podpis
+osobisty – zaawansowany podpis elektroniczny”, KIR o mSzafir w mObywatelu
+(23.10.2025), rp.pl o 5 darmowych podpisach (23.10.2025), Certum o SimplySign
+w mObywatelu (05.11.2025), rejestr kwalifikowanych dostawców NCCert.
+
 ## Reszta systemu przy umowie w podpisie (etap 1b, 21.10.2026)
 
 - **Dzwonki `signature_*` stoją za sekcją Sourcing** (bramka Generatora), nie

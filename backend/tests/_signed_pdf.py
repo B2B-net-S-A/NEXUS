@@ -78,7 +78,75 @@ def signer_for(common_name: str) -> signers.SimpleSigner:
     )
 
 
-async def sign(data: bytes, common_name: str, at: datetime, *, field: str) -> bytes:
+def signer_from_ca_outside_the_eu_list(common_name: str) -> signers.SimpleSigner:
+    """Certyfikat wydany przez CA spoza listy zaufanych UE, bez QcStatements.
+
+    Kształt podpisu osobistego z e-dowodu (wystawca MSWiA): pyHanko nie zbuduje
+    ścieżki do zaufanego wystawcy (``NO_CERTIFICATE_CHAIN_FOUND``). Samopodpisany
+    certyfikat z ``signer_for`` daje inny powód (``CHAIN_CONSTRAINTS_FAILURE``),
+    więc tu jest osobne CA."""
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    ca_key = ec.generate_private_key(ec.SECP256R1())
+    ca_name = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, "Testowe CA spoza listy UE"),
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "PL"),
+        ]
+    )
+    ca = (
+        x509.CertificateBuilder()
+        .subject_name(ca_name)
+        .issuer_name(ca_name)
+        .public_key(ca_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(start)
+        .not_valid_after(start + timedelta(days=3650))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+        .sign(ca_key, hashes.SHA256())
+    )
+    key = ec.generate_private_key(ec.SECP256R1())
+    leaf = (
+        x509.CertificateBuilder()
+        .subject_name(
+            x509.Name(
+                [
+                    x509.NameAttribute(NameOID.COMMON_NAME, common_name),
+                    x509.NameAttribute(NameOID.COUNTRY_NAME, "PL"),
+                ]
+            )
+        )
+        .issuer_name(ca_name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(start)
+        .not_valid_after(start + timedelta(days=3650))
+        .sign(ca_key, hashes.SHA256())
+    )
+
+    def asn1(cert: x509.Certificate) -> asn1_x509.Certificate:
+        return asn1_x509.Certificate.load(cert.public_bytes(serialization.Encoding.DER))
+
+    return signers.SimpleSigner(
+        signing_cert=asn1(leaf),
+        signing_key=asn1_keys.PrivateKeyInfo.load(
+            key.private_bytes(
+                serialization.Encoding.DER,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            )
+        ),
+        cert_registry=SimpleCertificateStore.from_certs([asn1(ca)]),
+    )
+
+
+async def sign(
+    data: bytes,
+    common_name: str,
+    at: datetime,
+    *,
+    field: str,
+    signer: signers.SimpleSigner | None = None,
+) -> bytes:
     """Dopisz podpis (aktualizacja przyrostowa) z czasem ``at``."""
 
     class _Fixed(datetime):
@@ -91,7 +159,7 @@ async def sign(data: bytes, common_name: str, at: datetime, *, field: str) -> by
     with mock.patch.object(pdf_signer, "datetime", _Fixed):
         await pdf_signer.PdfSigner(
             pdf_signer.PdfSignatureMetadata(field_name=field),
-            signer=signer_for(common_name),
+            signer=signer or signer_for(common_name),
         ).async_sign_pdf(writer, output=out)
     return out.getvalue()
 

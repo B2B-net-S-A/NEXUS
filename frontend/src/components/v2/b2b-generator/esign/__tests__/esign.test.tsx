@@ -294,11 +294,29 @@ describe("strona kontraktora — instrukcja per narzędzie (etap 1b)", () => {
     const { default: B2BSignForm } = await import("@/app/sign/b2b/[token]/B2BSignForm");
     render(<B2BSignForm token="t" initialState="waiting" />);
     expect(screen.getByRole("tab", { name: "mObywatel" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tabpanel")).toHaveTextContent("numer CAN");
+    expect(screen.getByRole("tabpanel")).toHaveTextContent("podpis osobisty");
     await userEvent.click(screen.getByRole("tab", { name: "SimplySign" }));
     expect(screen.getByRole("tab", { name: "SimplySign" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel")).toHaveTextContent("SimplySign na telefonie");
     expect(screen.getByText(/zostanie odrzucony/)).toBeInTheDocument();
+  });
+
+  it("mObywatel nie obiecuje podpisu kwalifikowanego (22.11.2026)", async () => {
+    // Listopadowa umowa z podpisem osobistym z e-dowodu (MSWiA, bez QcStatements):
+    // NEXUS go odrzuca, a strona polecała mObywatel jako najszybszy kwalifikowany.
+    // Darmowy kwalifikowany z mObywatela jest tylko do spraw prywatnych.
+    const { default: B2BSignForm } = await import("@/app/sign/b2b/[token]/B2BSignForm");
+    render(<B2BSignForm token="t" initialState="waiting" />);
+    const panel = screen.getByRole("tabpanel");
+    expect(panel).toHaveTextContent("PIN2");
+    expect(panel).toHaveTextContent("podpis osobisty, nie kwalifikowany");
+    expect(panel).toHaveTextContent("tylko do spraw prywatnych");
+    expect(panel).toHaveTextContent("jednorazowy podpis kwalifikowany");
+    expect(panel).not.toHaveTextContent("wybierz podpis kwalifikowany");
+    const text = document.body.textContent ?? "";
+    expect(text).not.toMatch(/mObywatel[^.]*za darmo/);
+    expect(text).not.toContain("Najszybciej mObywatel");
+    expect(text).toContain("Podpis osobisty z e-dowodu i profil zaufany nie wystarczą");
   });
 
   it("po podpisie obu stron kontraktor pobiera swoją kopię z linku (26.10.2026)", async () => {

@@ -663,6 +663,58 @@ async def test_without_the_eu_list_the_validator_is_not_authoritative(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_issuer_outside_the_eu_list_is_not_qualified_rather_than_broken():
+    """22.11.2026: jedna z listopadowych umów miała podpis osobisty z e-dowodu
+    (certyfikat MSWiA bez QcStatements, mObywatel z PIN2). Wystawcy nie ma na
+    liście zaufanych UE, więc pyHanko nie zbuduje ścieżki certyfikatu.
+    Kontraktor ma usłyszeć, że podpis nie jest kwalifikowany i co zrobić,
+    a nie „nie przeszedł weryfikacji”, po którym podpisuje drugi raz tak samo."""
+    from datetime import datetime, timezone
+
+    from pyhanko.sign.validation.qualified.tsp import TSPRegistry
+
+    from app.services.b2b_esign import qualified
+    from app.services.b2b_esign.verdict import MSG_NOT_QUALIFIED
+    from tests._signed_pdf import blank_pdf, sign, signer_from_ca_outside_the_eu_list
+
+    data = await sign(
+        blank_pdf(),
+        "Jan Kowalski",
+        datetime(2026, 11, 3, tzinfo=timezone.utc),
+        field="Podpis1",
+        signer=signer_from_ca_outside_the_eu_list("Jan Kowalski"),
+    )
+    validator = qualified.QualifiedValidator()
+    validator._registry = TSPRegistry()  # lista bez wystawcy podpisu, bez sieci
+    report = await validator.validate(data)
+    assert report.signature_results[0]["untrusted_issuer"] is True
+    verdict = judge(report, authoritative=True, required_signers=["Jan Kowalski"])
+    assert verdict.code == "not_qualified"
+    assert verdict.message == MSG_NOT_QUALIFIED
+    assert "podpis osobisty" in MSG_NOT_QUALIFIED.lower()
+    assert "Pobierz PDF jeszcze raz" in MSG_NOT_QUALIFIED
+
+
+def test_untrusted_issuer_beside_a_broken_signature_stays_invalid():
+    """Wystawca spoza listy zmienia tylko powód, gdy nic innego nie pękło."""
+    report = ValidationReport(
+        is_qes=False,
+        signature_count=2,
+        signature_results=[
+            {
+                "signer": "CN=Jan Kowalski",
+                "indication": "TOTAL_FAILED",
+                "level": None,
+                "untrusted_issuer": True,
+            },
+            {"signer": "CN=Olaf Firma", "indication": "TOTAL_FAILED", "level": None},
+        ],
+    )
+    verdict = judge(report, authoritative=True, required_signers=["Jan Kowalski"])
+    assert verdict.code == "invalid"
+
+
+@pytest.mark.asyncio
 async def test_failed_refresh_keeps_the_last_good_eu_list(monkeypatch):
     from app.services.b2b_esign import qualified
 
@@ -880,6 +932,8 @@ def test_messages_for_the_contractor_have_no_em_dash():
         verdict.MSG_NOT_PDF,
         verdict.MSG_CHANGED,
         verdict.MSG_NOT_SIGNED,
+        verdict.MSG_INVALID,
+        verdict.MSG_NOT_QUALIFIED,
     ]
     assert [m for m in contractor_messages if "—" in m] == []
 

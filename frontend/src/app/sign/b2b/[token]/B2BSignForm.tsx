@@ -62,15 +62,32 @@ async function errorText(res: Response): Promise<string> {
 
 type Tool = "mobywatel" | "simplysign" | "szafir" | "other";
 
-const TOOLS: { id: Tool; label: string; title: string; steps: string[] }[] = [
+interface ToolTab {
+  id: Tool;
+  label: string;
+  title: string;
+  /** Akapit przed krokami: czego to narzędzie nie da. */
+  note?: string;
+  steps: string[];
+}
+
+// 22.11.2026: podpis z e-dowodu w mObywatelu (PIN2) to podpis osobisty
+// (MSWiA, bez QcStatements), którego walidator nie przyjmie, a darmowy
+// kwalifikowany z mObywatela jest tylko do spraw prywatnych. Zakładka zostaje,
+// bo kontraktorzy jej szukają, ale nie obiecuje podpisu kwalifikowanego.
+const TOOLS: ToolTab[] = [
   {
     id: "mobywatel",
     label: "mObywatel",
-    title: "mObywatel: za darmo, e-dowód i telefon z NFC",
+    title: "mObywatel: podpis osobisty tu nie wystarczy",
+    note:
+      "Podpis w mObywatelu z kodem PIN2 z e-dowodu to podpis osobisty, nie kwalifikowany. " +
+      "NEXUS go nie przyjmie. Darmowe podpisy kwalifikowane w mObywatelu są według zasad " +
+      "usługi tylko do spraw prywatnych, a umowa B2B dotyczy Twojej firmy.",
     steps: [
-      "Prześlij sobie pobrany PDF na telefon.",
-      "W aplikacji mObywatel wybierz podpis kwalifikowany i wskaż ten plik.",
-      "Wpisz numer CAN z dowodu i przyłóż dowód do telefonu.",
+      "Kup jednorazowy podpis kwalifikowany, np. mSzafir przez bank (ok. 15 zł).",
+      "Podpisz pobrany PDF bez zmian w treści.",
+      "Jako format wybierz PAdES (podpis w pliku PDF).",
       "Zapisz podpisany PDF i wgraj go w kroku 3.",
     ],
   },
@@ -140,6 +157,7 @@ function ToolGuide() {
         className="rounded-lg bg-muted/60 px-4 py-3 text-sm"
       >
         <p className="font-medium text-foreground">{current.title}</p>
+        {current.note ? <p className="mt-1 text-foreground">{current.note}</p> : null}
         <ol className="mt-1 list-decimal space-y-0.5 pl-5 text-foreground">
           {current.steps.map((step) => (
             <li key={step}>{step}</li>
@@ -151,9 +169,9 @@ function ToolGuide() {
         z podpisem (.xades, .sig) zostanie odrzucony, bo umową ma zostać ten sam PDF.
       </p>
       <p className="text-sm text-muted-foreground">
-        Nie masz podpisu kwalifikowanego? Najszybciej mObywatel z e-dowodem (za darmo) albo
-        jednorazowy podpis mSzafir przez bank (ok. 15 zł). Wolisz podpisać ręcznie? Napisz do
-        osoby, która wysłała link. Wyśle umowę mailem jak dotąd.
+        Nie masz podpisu kwalifikowanego? Najszybciej jednorazowy podpis mSzafir przez bank
+        (ok. 15 zł). Podpis osobisty z e-dowodu i profil zaufany nie wystarczą. Wolisz podpisać
+        ręcznie? Napisz do osoby, która wysłała link. Wyśle umowę mailem jak dotąd.
       </p>
     </div>
   );
