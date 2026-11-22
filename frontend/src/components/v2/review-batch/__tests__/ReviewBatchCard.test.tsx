@@ -15,6 +15,7 @@ import {
   rememberLine,
   ReviewBatchCard,
   rejectMissing,
+  clientRecentText,
   sentBeforeText,
 } from "@/components/v2/review-batch/ReviewBatchCard";
 import type { ReviewBatchItem } from "@/lib/api/reviewBatch";
@@ -465,6 +466,49 @@ describe("wysłany wcześniej (20.11.2026)", () => {
     expect(sentBeforeText({ count: 1, last_days: 0, last_job_title: "" })).toBe("Wysłany do klienta 1× · ostatnio dziś");
     expect(sentBeforeText({ count: 1, last_days: 1, last_job_title: " QA " })).toBe(
       "Wysłany do klienta 1× · ostatnio wczoraj: QA",
+    );
+  });
+});
+
+describe("wysłany do tego klienta (R4, 22.11.2026)", () => {
+  const recentKnown = {
+    points: 20,
+    client_points: 0,
+    note_points: 0,
+    verified_at_client: 0,
+    last_note_days: null,
+    client_recent_days: 1,
+    client_recent_job_id: 9,
+    client_recent_points: 20,
+  };
+
+  it("karta mówi, kiedy i do której rekrutacji klienta osoba już poszła", () => {
+    render(
+      <ReviewBatchCard
+        item={{
+          ...item,
+          client_recent: { days: 1, job_id: 9, job_title: "Senior Java Developer" },
+          known: recentKnown,
+        }}
+        onDecided={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("review-client-recent")).toHaveTextContent(
+      "Wysłany wczoraj do tego klienta: Senior Java Developer. Klient zna już to CV.",
+    );
+    expect(orderLine({ ...item, score: 66, known: recentKnown })).toBe(
+      "Kolejność: 66% + wysłany do tego klienta wczoraj",
+    );
+  });
+
+  it("bez takiej wysyłki linii nie ma", () => {
+    render(<ReviewBatchCard item={{ ...item, client_recent: null }} onDecided={() => {}} />);
+    expect(screen.queryByTestId("review-client-recent")).toBeNull();
+  });
+
+  it("bez tytułu i dnia nadal czytelnie", () => {
+    expect(clientRecentText({ days: null, job_id: 9, job_title: " " })).toBe(
+      "Wysłany niedawno do tego klienta. Klient zna już to CV.",
     );
   });
 });

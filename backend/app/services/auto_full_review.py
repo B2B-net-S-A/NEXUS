@@ -1183,33 +1183,48 @@ async def _sent_before_extras(
     from app.services import sent_before
     from app.services.auto_match_outbox import candidate_revision
 
-    rows = (
-        await db.execute(
-            select(
-                CandidateSearchResult.candidate_id,
-                CandidateSearchResult.fit_score,
-                CandidateSearchResult.evidence,
+    now = datetime.now(timezone.utc)
+
+    async def fetch(people) -> list:
+        return (
+            await db.execute(
+                select(
+                    CandidateSearchResult.candidate_id,
+                    CandidateSearchResult.fit_score,
+                    CandidateSearchResult.evidence,
+                )
+                .where(
+                    CandidateSearchResult.run_id == run.id,
+                    CandidateSearchResult.state == "evaluated",
+                    CandidateSearchResult.eligible.is_(True),
+                    CandidateSearchResult.measurement == "measured",
+                    CandidateSearchResult.fit_score >= sent_before.MIN_SCORE,
+                    CandidateSearchResult.candidate_id.in_(people),
+                )
+                .order_by(
+                    CandidateSearchResult.fit_score.desc(),
+                    CandidateSearchResult.candidate_id,
+                )
+                .limit(sent_before.POOL_EXTRA * 3)
             )
-            .where(
-                CandidateSearchResult.run_id == run.id,
-                CandidateSearchResult.state == "evaluated",
-                CandidateSearchResult.eligible.is_(True),
-                CandidateSearchResult.measurement == "measured",
-                CandidateSearchResult.fit_score >= sent_before.MIN_SCORE,
-                CandidateSearchResult.candidate_id.in_(
-                    sent_before.sent_elsewhere_select(
-                        run.job_id, now=datetime.now(timezone.utc)
-                    )
-                ),
-            )
-            .order_by(
-                CandidateSearchResult.fit_score.desc(),
-                CandidateSearchResult.candidate_id,
-            )
-            .limit(sent_before.POOL_EXTRA * 3)
-        )
-    ).all()
-    rows = [r for r in rows if r[0] not in taken]
+        ).all()
+
+    # R4 (22.11.2026): najpierw osoby wysłane w ostatnich 14 dniach do tego
+    # klienta w innej jego rekrutacji — w 789217 stały na miejscach 545–3 237
+    # i nie mieściły się w 30 najlepszych z 1 752 „wysłanych wcześniej”.
+    first = (
+        await fetch(sent_before.sent_to_client_select(job, now=now))
+        if job is not None and job.client_id is not None
+        else []
+    )
+    rest = await fetch(sent_before.sent_elsewhere_select(run.job_id, now=now))
+    seen: set[int] = set()
+    rows = []
+    for row in [*first, *rest]:
+        if row[0] in taken or row[0] in seen:
+            continue
+        seen.add(row[0])
+        rows.append(row)
     if not rows:
         return []
     candidates = {

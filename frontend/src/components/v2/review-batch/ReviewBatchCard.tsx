@@ -12,6 +12,7 @@ import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import type {
   ReviewBatchItem,
   ReviewBatchRoleProfile,
+  ReviewBatchClientRecent,
   ReviewBatchSentBefore,
 } from "@/lib/api/reviewBatch";
 import {
@@ -36,7 +37,7 @@ import {
   type AutofillRoleKind,
 } from "@/lib/autofill-feedback";
 import { warsawToday } from "@/lib/warsaw-date";
-import { knownFactLabels } from "@/lib/new-column-queue";
+import { daysAgoText, knownFactLabels } from "@/lib/new-column-queue";
 import { closeReason } from "@/lib/close-reasons";
 import { reasonNeedsDescription, WORK_MODE_MISMATCH_REASON } from "@/lib/rejection-reasons";
 import { cn } from "@/lib/utils";
@@ -285,6 +286,26 @@ export function sentBeforeText(sent: ReviewBatchSentBefore): string {
   return `Wysłany do klienta ${sent.count}× · ostatnio ${when}${title ? `: ${title}` : ""}`;
 }
 
+/** „Wysłany wczoraj do tego klienta: Java Developer. Klient zna już to CV.” (R4) */
+export function clientRecentText(recent: ReviewBatchClientRecent): string {
+  const when = recent.days == null ? "niedawno" : daysAgoText(recent.days);
+  const title = recent.job_title.trim();
+  return `Wysłany ${when} do tego klienta${title ? `: ${title}` : ""}. Klient zna już to CV.`;
+}
+
+function ClientRecentLine({ recent }: { recent: ReviewBatchClientRecent }) {
+  const text = clientRecentText(recent);
+  return (
+    <p
+      className="rounded-md bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary"
+      title={text}
+      data-testid="review-client-recent"
+    >
+      {text}
+    </p>
+  );
+}
+
 function SentBeforeLine({ sent }: { sent: ReviewBatchSentBefore }) {
   const text = sentBeforeText(sent);
   return (
@@ -505,6 +526,7 @@ export function ReviewBatchCard({
             {Math.round(item.score)}%
           </div>
         </div>
+        {item.client_recent ? <ClientRecentLine recent={item.client_recent} /> : null}
         {item.sent_before ? <SentBeforeLine sent={item.sent_before} /> : null}
         {order ? <p className="text-xs text-muted-foreground">{order}</p> : null}
         {hasKeyFacts(item.key_facts) ? (
