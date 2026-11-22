@@ -20,11 +20,12 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from datetime import date, datetime, timedelta
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, exists, func, or_, select
+from sqlalchemy import delete, exists, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.sales import (
@@ -36,7 +37,7 @@ from app.models.sales import (
 from app.services.company_names import normalize_company_name
 from app.services.order_client_identity import nip_checksum_valid
 from app.services.sales import companies as company_service
-from app.services.sales import signals
+from app.services.sales import signal_targets, signals
 from app.services.sales.bot_tasks.base import (
     BotTask,
     CleanText,
@@ -85,6 +86,9 @@ NIGHT_MAX_RUNS = 5
 NIGHT_EVERY = timedelta(hours=1)
 #: Karta sprawdzona nocą nie wraca przez 30 dni, żeby noc nie męczyła tych samych firm.
 NIGHT_RESEND_AFTER = timedelta(days=30)
+NIGHT_RETRY_BATCH = 5
+NIGHT_RETRY_AFTER = timedelta(hours=12)
+NIGHT_ATTEMPTS_PER_COMPANY = 3
 
 
 # ── Raport ───────────────────────────────────────────────────────────────
@@ -542,16 +546,53 @@ async def apply_now(
 # ── Noc ──────────────────────────────────────────────────────────────────
 
 
-async def night_company_ids(db: AsyncSession, *, now: datetime) -> list[int]:
-    """Karty bez domeny z opiekunem albo otwartą szansą, których noc dawno nie sprawdzała."""
+async def lock_enrich_starts(db: AsyncSession) -> None:
+    """Trzymaj od wyboru firm do zatwierdzenia biegu przez start_run."""
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext('sales-bot-enrich-start'))")
+    )
 
+
+async def night_company_ids(
+    db: AsyncSession, *, now: datetime, retry_run_id: int | None = None
+) -> list[int]:
+    """Kwalifikujące się karty; ponowienia tylko dla firm bez potwierdzonego researchu.
+
+    retry_run_id zawęża wybór do jednego wygasłego biegu z ostatnich 30 dni.
+    W obu trybach obowiązują te same limity prób i aktualny stan karty.
+    """
     recent = await db.execute(
-        select(SalesSignalRun.company_ids).where(
+        select(
+            SalesSignalRun.id,
+            SalesSignalRun.status,
+            SalesSignalRun.started_at,
+            SalesSignalRun.company_ids,
+            SalesSignalRun.report["researched_company_ids"],
+            SalesSignalRun.report["checked_firms"],
+        ).where(
             SalesSignalRun.kind == KIND,
             SalesSignalRun.started_at >= now - NIGHT_RESEND_AFTER,
         )
     )
-    skip = sorted({int(cid) for ids in recent.scalars() for cid in ids})
+    blocked: set[int] = set()
+    attempts: Counter[int] = Counter()
+    scope: set[int] = set()
+    for run_id, status, started_at, ids, researched, checked in recent:
+        attempts.update(ids)
+        if run_id == retry_run_id and status == "expired":
+            scope.update(ids)
+        if status == "received":
+            blocked.update(signal_targets.researched_refs(ids, researched, checked))
+        if status == "started" or started_at > now - NIGHT_RETRY_AFTER:
+            blocked.update(ids)
+    blocked.update(
+        cid for cid, count in attempts.items() if count >= NIGHT_ATTEMPTS_PER_COMPANY
+    )
+    retries = attempts.keys() - blocked
+    if retry_run_id is not None:
+        retries &= scope
+        if not retries:
+            return []
     open_opportunity = exists(
         select(SalesOpportunity.id).where(
             SalesOpportunity.company_id == SalesCompany.id, live_opportunity()
@@ -564,19 +605,27 @@ async def night_company_ids(db: AsyncSession, *, now: datetime) -> list[int]:
             SalesBotResult.status.in_(("new", "partial")),
         )
     )
-    rows = await db.execute(
+    eligible = (
         select(SalesCompany.id)
         .where(
             SalesCompany.archived_at.is_(None),
             or_(SalesCompany.domain.is_(None), SalesCompany.domain == ""),
             or_(SalesCompany.owner_user_id.is_not(None), open_opportunity),
             ~open_result,
-            *([SalesCompany.id.notin_(skip)] if skip else []),
         )
         .order_by(SalesCompany.id)
-        .limit(NIGHT_BATCH)
     )
-    return list(rows.scalars())
+    if retries:
+        rows = await db.scalars(
+            eligible.where(SalesCompany.id.in_(retries)).limit(NIGHT_RETRY_BATCH)
+        )
+        retry_ids = list(rows)
+        if retry_ids or retry_run_id is not None:
+            return retry_ids
+    rows = await db.scalars(
+        eligible.where(SalesCompany.id.notin_(attempts.keys())).limit(NIGHT_BATCH)
+    )
+    return list(rows)
 
 
 ENRICH = BotTask(
