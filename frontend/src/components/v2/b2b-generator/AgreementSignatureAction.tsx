@@ -45,6 +45,7 @@ export function AgreementSignatureAction({
   requestedAt,
   readOnly,
   size = "sm",
+  secondary = false,
 }: {
   row: B2BGeneratedContractRow;
   jobId: number;
@@ -52,6 +53,9 @@ export function AgreementSignatureAction({
   requestedAt?: string | null;
   readOnly: boolean;
   size?: "sm" | "md";
+  /** „Oznacz jako podpisaną” obrysowane, gdy główną akcją jest wysyłka do
+   *  podpisu w NEXUSIE (22.11.2026) — inaczej interfejs podsuwa drogę mailową. */
+  secondary?: boolean;
 }) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -81,7 +85,12 @@ export function AgreementSignatureAction({
   if (row.can_confirm_signed) {
     return (
       <>
-        <Button size={size} data-tour="b2b.confirm-signed" onClick={() => setOpen(true)}>
+        <Button
+          size={size}
+          variant={secondary ? "outline" : "primary"}
+          data-tour="b2b.confirm-signed"
+          onClick={() => setOpen(true)}
+        >
           Oznacz jako podpisaną…
         </Button>
         {open ? (

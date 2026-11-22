@@ -1362,6 +1362,55 @@ async def _register_item(app_client, headers, generated_id: int) -> dict[str, An
 
 
 @pytest.mark.asyncio
+async def test_whoever_may_confirm_the_signature_may_send_it_too(
+    app_client: AsyncClient, esign_env
+):
+    """Administracja wysyła cudzą umowę, którą i tak potwierdza (22.11.2026).
+
+    Od 26.10 żadna umowa nie poszła przez NEXUS: konto Administracji (Finanse
+    z „Oznaczaniem podpisu”) mogło pobrać umowę rekrutera i oznaczyć ją jako
+    podpisaną, ale wysłać jej do podpisu nie mogło. Rekruter spoza zespołu
+    i bez tego uprawnienia dalej nie wyśle."""
+    from app.models.user import UserRole
+    from tests._permission_grants import grant_permissions, role_permission
+    from tests.test_b2b_signature_automation import _headers_for_role
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    finance = await _headers_for_role(app_client, UserRole.finance)
+    outsider = await _headers_for_role(app_client, UserRole.recruiter)
+
+    stranger = await _send(
+        app_client, outsider, scenario["generated_id"], esign_env["signer_id"]
+    )
+    assert stranger.status_code == 403, stranger.text
+
+    async with role_permission("finance", "b2b_signature_confirmation", granted=False):
+        item = await _register_item(app_client, finance, scenario["generated_id"])
+        assert item["can_send_esign"] is False
+        denied = await _send(
+            app_client, finance, scenario["generated_id"], esign_env["signer_id"]
+        )
+        assert denied.status_code == 403, denied.text
+
+    await grant_permissions(
+        int(finance["X-Test-User-Id"]), "b2b_signature_confirmation"
+    )
+    item = await _register_item(app_client, finance, scenario["generated_id"])
+    assert item["can_confirm_signed"] is True, item["blocked_reason"]
+    assert item["can_send_esign"] is True
+    defaults = await app_client.get(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/esign/defaults",
+        headers=finance,
+    )
+    assert defaults.status_code == 200, defaults.text
+    sent = await _send(
+        app_client, finance, scenario["generated_id"], esign_env["signer_id"]
+    )
+    assert sent.status_code == 200, sent.text
+    assert sent.json()["request"]["status"] == "sent"
+
+
+@pytest.mark.asyncio
 async def test_contract_in_nexus_signing_or_signed_there_cannot_be_deleted(
     app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
 ):

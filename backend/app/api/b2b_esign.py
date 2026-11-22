@@ -8,9 +8,10 @@ pod ``/api/public/b2b-sign/{token}`` (bez konta, z limitem żądań).
 Kto co może:
 
 * wysyła i wycofuje — ten, kto poprawia umowę (``_may_correct_generated``:
-  autor, zespół rekrutacji, TCM, admin), z poziomem „Generowanie”, widocznymi
-  stawkami (PDF niesie stawkę) i dostępem do klienta; w pilotażu tylko wybrane
-  konta,
+  autor, zespół rekrutacji, TCM, admin) albo mógłby oznaczyć jej podpis
+  (``may_confirm_row_signature``, od 22.11.2026), z poziomem „Generowanie”,
+  widocznymi stawkami (PDF niesie stawkę) i dostępem do klienta; w pilotażu
+  tylko wybrane konta,
 * podpisuje za B2B Network — osoba wskazana przy wysyłce, z listy reprezentantów
   w ustawieniach,
 * ustawienia zmienia admin.
@@ -47,6 +48,7 @@ from app.api.b2b_contract_generator import (
     _render_generated_row_docx,
     _require_contract_generation,
     _require_generator_rate_content,
+    may_confirm_row_signature,
 )
 from app.api.contract_access import B2BGeneratorAccess
 from app.api.deps import AdminUser
@@ -376,14 +378,19 @@ async def _assert_row_sender(
         db, user, row.client_id, created_by=row.created_by, job_id=row.job_id
     )
     team = await _jobs_led_by(db, user, {row.job_id} if row.job_id else set())
-    if not _may_correct_generated(user, row, team):
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "Do podpisu wysyła osoba, która wygenerowała umowę, zespół "
-                "rekrutacji, TCM albo admin."
-            ),
-        )
+    if _may_correct_generated(user, row, team):
+        return
+    # 22.11.2026: kto potwierdza podpis tej umowy (np. Administracja przy
+    # umowie rekrutera), ten może ją też wysłać do podpisu.
+    if await may_confirm_row_signature(db, user, row):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "Do podpisu wysyła osoba, która wygenerowała umowę, zespół "
+            "rekrutacji, TCM, admin albo osoba, która może oznaczyć jej podpis."
+        ),
+    )
 
 
 async def _fresh(db: AsyncSession, request_id: int) -> B2BSigningRequest:
