@@ -10,7 +10,7 @@ export function cvFictionHtml(fullName: string): string {
     `<h1>Senior Project Manager – ${fullName}</h1>` +
     "<p><strong>Rozważany na stanowisko:</strong> Senior Project Manager (bankowość)</p><hr>" +
     '<h2 data-cv-section="why_points">DLACZEGO NASZ KANDYDAT?</h2>' +
-    "<ul><li><p>9 lat prowadzenia projektów IT w bankowości, w tym program migracji płatności.</p></li>" +
+    "<ul><li><p>9 lat jako Project Manager w bankowości: migracja systemu płatności i bankowość mobilna.</p></li>" +
     "<li><p>Prowadziła cztery zespoły i raportowała do komitetu sterującego.</p></li></ul>" +
     '<h2 data-cv-section="skills">UMIEJĘTNOŚCI</h2>' +
     "<p><strong>Metodyki: </strong>Scrum, SAFe, PRINCE2</p>" +
@@ -29,6 +29,13 @@ export function cvFictionHtml(fullName: string): string {
     '<p data-cv-section="duties_label">Zakres zadań:</p>' +
     "<ul><li><p>Wdrożenie nowej bankowości mobilnej dla klienta z sektora finansowego.</p></li>" +
     "<li><p>Planowanie sprintów i przeglądy z klientem.</p></li></ul>" +
-    '<p data-cv-section="technologies">Technologie: Jira, Confluence</p>'
+    '<p data-cv-section="technologies">Technologie: Jira, Confluence</p>' +
+    // Starsza rola spoza zawodu z punktu 1: QC liczy z niej cały staż i
+    // proponuje „N lat w IT, w tym M jako Project Manager” (nowość „Lata
+    // w punkcie 1”, `backend/scripts/poligon_cv_practice.py`).
+    '<p data-cv-section="role"><strong>Analityk biznesowy</strong> 09.2013 – 12.2016</p>' +
+    '<p data-cv-section="employer">Firma Przykładowa S.A. · Bankowość</p>' +
+    '<p data-cv-section="duties_label">Zakres zadań:</p>' +
+    "<ul><li><p>Analiza wymagań do systemu płatności i odbiory z biznesem.</p></li></ul>"
   );
 }

@@ -12,6 +12,9 @@
 import { forViewer, NO_AMOUNTS, type PoligonViewer } from "./amounts";
 import { createTools } from "./tools";
 
+/** Odczyt narzędzia do własnych obliczeń: bez zdejmowania kwot (wynik nie idzie na ekran wprost). */
+const ALL_AMOUNTS: PoligonViewer = { amounts: true, companyMargin: true };
+
 export interface PoligonPerson {
   candidate_id: number;
   entry_id: number;
@@ -525,7 +528,10 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     if (path === "/api/hr/leave/absence") return { status: 200, data: { on: new Date(now).toISOString().slice(0, 10), items: [] } };
 
     const raw = `${path}?${new URLSearchParams(query).toString()}`;
-    const { text, person } = toTemplate(raw);
+    // Odpowiedź zapisana dla tej osoby (np. etap bez CV do klienta,
+    // `poligon_cv_practice.py`) wygrywa z osobą-szablonem.
+    const own = datasetKey(method, path, query);
+    const { text, person } = own in responses ? { text: raw, person: null } : toTemplate(raw);
     const [tPath, tQuery = ""] = text.split("?");
     const tParams = [...new URLSearchParams(tQuery).entries()];
     const key = datasetKey(method, tPath, tParams);
@@ -639,7 +645,9 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     findItem,
     addToNew,
     relocate,
-    recorded: (method, path, query = []) => read(method, path, query, { quiet: true }),
+    // `unredacted` tylko do obliczeń narzędzia (np. cytat z uwagi QC), nigdy do odpowiedzi ekranu.
+    recorded: (method, path, query = [], unredacted = false) =>
+      read(method, path, query, { quiet: true, viewer: unredacted ? ALL_AMOUNTS : undefined }),
     people,
     template,
   });

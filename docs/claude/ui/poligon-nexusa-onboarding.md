@@ -1,5 +1,5 @@
 # Poligon NEXUSA — onboarding pierwszego dnia na rekrutacji ćwiczebnej
-<!-- indeks: `/poligon`, ścieżki per rola (rekruter 27, DL 17, TCM 13), narzędzia rekrutera z 16.11 (telefon, termin u klienta, CV z pliku, zapisane wyszukiwanie, lista, czat, asystent CV, Jarvis bez modelu — `lib/poligon/tools.ts`), terminy od klienta DL-a (wklejony mail bez modelu), wymagany od nadania roli, blokada nowej osoby zamiast Startu, poligon dla obecnych „tylko luki” (`poligon_luki`, „Kto zna NEXUS”), dzień onboardingu poza statystykami (`onboarding_day`), tryb w przeglądarce (`lib/poligon/`), zapisy nie wychodzą do API poza postępem `poligon-*`, zestaw z `build_poligon_dataset.py`, klient ćwiczebny 990501 (`poligon_client_practice.py`, kwoty wg roli w `amounts.ts`, 22.11.2026), strażnik `poligon-dataset.test.ts` -->
+<!-- indeks: `/poligon`, ścieżki per rola (rekruter 27, DL 17, TCM 13), narzędzia rekrutera z 16.11 (telefon, termin u klienta, CV z pliku, zapisane wyszukiwanie, lista, czat, asystent CV, Jarvis bez modelu — `lib/poligon/tools.ts`), terminy od klienta DL-a (wklejony mail bez modelu), wymagany od nadania roli, blokada nowej osoby zamiast Startu, poligon dla obecnych „tylko luki” (`poligon_luki`, „Kto zna NEXUS”), dzień onboardingu poza statystykami (`onboarding_day`), tryb w przeglądarce (`lib/poligon/`), zapisy nie wychodzą do API poza postępem `poligon-*`, zestaw z `build_poligon_dataset.py`, klient ćwiczebny 990501 (`poligon_client_practice.py`, kwoty wg roli w `amounts.ts`, 22.11.2026), CV z nowości: lata w punkcie 1 i gotowe CV z nową zgodą (`poligon_cv_practice.py`, odczyt osoby przed szablonem), strażnik `poligon-dataset.test.ts` -->
 
 Decyzje Artura z 14.11.2026 (makiety: https://claude.ai/artifact/FQGjXqm7T4Bpoi4fYCpmsk).
 Co miesiąc dochodzi 7–14 nowych kont i każdą osobę HoR szkolił osobno. Start
@@ -255,6 +255,47 @@ Nowości zgłaszał ok. 15 takich wpisów co noc).
   przeklikany w trybie Poligonu: adapter pisze w konsoli
   `[poligon] brak odpowiedzi w zestawie`, a zły kształt kończy się błędem
   ekranu (22.11: notatki opieki bez `at`).
+
+## CV z nowości: lata w punkcie 1 i gotowe CV z nową zgodą (22.11.2026)
+
+Strażnik Nowości zgłaszał dwa wpisy z rekrutacji bez drogi do elementu:
+„Lata w punkcie 1 i daty stanowisk” (`cv-editor.tenure-split`) i „Gotowe CV
+z nową zgodą RODO” (`cv.ready-cv-new-consent`). Odczyty są wymyślone
+w `backend/scripts/poligon_cv_practice.py`, a `--practice-only` nakłada je na
+zestaw razem z klientem ćwiczebnym.
+
+- **Lata w punkcie 1.** CV ćwiczebne (`cv-fiction.ts`) ma od 22.11 punkt 1
+  „9 lat jako Project Manager…” i starszą rolę „Analityk biznesowy”, więc
+  cały staż z dat ról jest o ponad rok dłuższy. Uwaga `years_breakdown`
+  w QC edytora to wynik serwera na tym CV; test
+  `tests/test_poligon_cv_practice.py` liczy ją od nowa kodem `cv_qc`, a punkt
+  i role muszą stać w `cv-fiction.ts`. Propozycję klikniesz naprawdę:
+  `POST …/qc/transform` z samym `tenure_split` podmienia frazę w pamięci
+  (`tools.ts`); inne poprawki QC dalej dostają 409.
+- **Lista „Do poprawy” w edytorze widoczna od 22.11.** Edytor chowa listę QC,
+  gdy `qc.cv.stage_id` nie jest otwartym etapem. Odczyty edytora nagrano na
+  etapie innej osoby (`--cv-stage`), więc do 22.11 lista na Poligonie nigdy się
+  nie pokazywała. Wymyślone QC edytora ma etap osoby-szablonu.
+- **Gotowe CV z nową zgodą.** Bartosz Brzozowski (990106, Screening) nie ma
+  CV do klienta (`status: none`, bez wierszy generatora), a jego „sources”
+  mają zatwierdzone CV z innej rekrutacji u tego klienta
+  (`consent_carried: false`). Klient ćwiczebny ma w regule CV „Zrzut zgody
+  RODO” jak PKO BP, więc karta „CV do klienta” i screening pokazują też żółty
+  pasek prośby o zgodę (każdej osobie; generacji i wysyłki na Poligonie nikt
+  nie robi).
+- **Odczyt zapisany dla osoby wygrywa z osobą-szablonem** (`store.read`).
+  Do 22.11 każda osoba dostawała odczyty Heleny ze swoim imieniem; klucz
+  z `entry_id` albo `candidate_id` konkretnej osoby pozwala dać jej inny stan
+  bez zmian w kodzie ekranów.
+- **QC edytora jest w `meta.fiction_responses`**, bo uwaga ma klucze spoza
+  słownika nagrania (`term`, `proposal`, `quote`, `dates`). `quote` jest też
+  na liście kwot w `amounts.ts`, więc osoba bez kwot dostaje uwagę bez cytatu
+  (ekran go nie używa); narzędzie czyta QC bez zdejmowania kwot.
+- **Kroki** prowadzą przez dok: nagłówek sekcji „CV” (`person.dock.cv`),
+  potem „Edytuj CV” (`person.cv.edit`) albo „CV do klienta: strony i wersje”
+  (`person.dock.cv-to-client`). Adres `?candidate=…&panel=cv` miał od razu
+  otwierać warsztat na zakładce CV, ale 22.11 na Tablicy gubił `panel`
+  i otwierał zwykły dok.
 
 ## Ścieżka per rola: rekruter, Delivery Lead, TCM (15.11.2026)
 

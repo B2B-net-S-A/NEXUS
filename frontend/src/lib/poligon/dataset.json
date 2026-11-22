@@ -192,11 +192,13 @@
    "GET /api/order-mail/queue?limit=100&outcome=needs_review",
    "GET /api/order-mail/recheck-runs?limit=20",
    "GET /api/order-mail/sync/status",
+   "GET /api/pipeline/stages/990305/qc?transient=true",
    "GET /api/reports/clients/990501/trend?months=6",
    "GET /api/reports/clients?min_closed=0&period=year",
    "GET /api/start-documents/clients/990501",
    "GET /api/start-documents/pair?candidate_id=990105&job_id=990001"
-  ]
+  ],
+  "ready_cv_candidate_id": 990106
  },
  "responses": {
   "GET /api/jobs/quick-counts": {
@@ -7577,7 +7579,7 @@
    "cv_language": "en",
    "requires_en_copy": false,
    "auto_second_language": false,
-   "requires_rodo_consent_block": false,
+   "requires_rodo_consent_block": true,
    "content_mode": null,
    "content_mode_locked": false,
    "require_screening_notes_min_chars": null,
@@ -13988,9 +13990,9 @@
    "job_id": 990001,
    "job_title": "Senior Project Manager (bankowość)",
    "client_name": "Bank Północny",
-   "passed": true,
+   "passed": false,
    "blocking_failed": 0,
-   "warnings_count": 2,
+   "warnings_count": 3,
    "override": null,
    "qc_state": {
     "kind": "checked",
@@ -14023,7 +14025,7 @@
    "cv": {
     "source": "branded_finalized",
     "editable": true,
-    "stage_id": 992784,
+    "stage_id": 990305,
     "generated_document_id": 992785,
     "document_id": null,
     "filename": null,
@@ -15341,6 +15343,56 @@
      "status": "fail",
      "summary": "27 — do sprawdzenia",
      "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": "years_breakdown",
+     "label": "Lata w punkcie 1 z dat stanowisk",
+     "severity": "warning",
+     "status": "fail",
+     "summary": "Do decyzji",
+     "items": [
+      {
+       "requirement": null,
+       "role": null,
+       "detail": "„9 lat” — role z punktu 1: 9 lat 11 mies., cały staż z dat ról: 13 lat 3 mies.",
+       "fix": "tenure_split",
+       "term": "9 lat",
+       "role_index": null,
+       "evidence": null,
+       "evidence_kind": null,
+       "proposal": "Ponad 13 lat w IT, w tym ponad 9 lat jako Project Manager",
+       "tenure": {
+        "quote": "9 lat jako Project Manager w bankowości",
+        "matched_months": 119,
+        "total_months": 159,
+        "proposal": "Ponad 13 lat w IT, w tym ponad 9 lat jako Project Manager",
+        "roles": [
+         {
+          "title": "Senior Project Manager",
+          "dates": "03.2021 – obecnie",
+          "months": 69,
+          "matched": true
+         },
+         {
+          "title": "Project Manager",
+          "dates": "01.2017 – 02.2021",
+          "months": 50,
+          "matched": true
+         },
+         {
+          "title": "Analityk biznesowy",
+          "dates": "09.2013 – 12.2016",
+          "months": 40,
+          "matched": false
+         }
+        ]
+       }
+      }
+     ],
      "roles": [],
      "info": [],
      "dismissed_items": [],
@@ -22362,6 +22414,58 @@
   "GET /api/order-mail/queue?limit=1&outcome=failed": {
    "total": 0,
    "items": []
-  }
+  },
+  "GET /api/candidates/stages/990306/cv/branded": {
+   "presentation_review": null,
+   "text_align": "justify",
+   "docx_available": false,
+   "docx_filename": null,
+   "current_filename": null,
+   "pattern_filename": null,
+   "generated_document_id": null,
+   "from_generator": false,
+   "source": null,
+   "origin": null,
+   "consent_required": true,
+   "consent_attached": false,
+   "consent_missing": false,
+   "edit_revision": 0,
+   "version": 0,
+   "candidate_stage_id": 990306,
+   "status": "none",
+   "content_html": null,
+   "template": "standard",
+   "language": "pl",
+   "updated_at": null,
+   "updated_by": null,
+   "updated_by_name": null,
+   "finalized_at": null,
+   "finalized_by": null,
+   "finalized_by_name": null,
+   "snapshot_filename": null,
+   "rendered_from_default": false,
+   "pair_source_stage_id": null,
+   "pair_source_status": null,
+   "rewrite": null
+  },
+  "GET /api/candidates/stages/990306/cv/branded/sources": {
+   "items": [
+    {
+     "job_id": 991399,
+     "stage_id": 991422,
+     "job_title": "Senior Project Manager (bankowość)",
+     "reference_number": "ĆW-02",
+     "client_name": "Bank Północny",
+     "status": "finalized",
+     "version": 2,
+     "language": "pl",
+     "blind": false,
+     "updated_at": "@rel:-21.2",
+     "updated_by_name": "Jakub Szkoleniowy",
+     "consent_carried": false
+    }
+   ]
+  },
+  "GET /api/cv-generator/generated?candidate_id=990106&job_id=990001&limit=10": []
  }
 }
