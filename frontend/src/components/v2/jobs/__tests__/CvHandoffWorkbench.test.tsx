@@ -885,8 +885,8 @@ describe("centralne reguły CV — tryb obróbki", () => {
     centralPolicy = { managed: true, content_mode: "tailored", default_mode: "tailored", content_mode_locked: false, effective_policy: { cv_language: "pl", requires_en_copy: false, filename_pattern: "X" } };
     cvRule = { is_active: true, client_name: "Credit Agricole", cv_language: "pl" };
     renderWorkbench();
-    expect(await screen.findByText("Tryb: domyślnie „Pod rekrutację”")).toBeTruthy();
-    expect(screen.getByText(/można zmienić w generatorze/)).toBeTruthy();
+    expect(await screen.findByText("Tryb: Pod rekrutację")).toBeTruthy();
+    expect(screen.getByText(/bez Profilu Championa powstanie CV bez dopasowania/)).toBeTruthy();
     expect(screen.queryByText(/Tryb: automatyczny/)).toBeNull();
     expect(screen.queryByText(/ustalony z kontekstu rekrutacji/)).toBeNull();
   });

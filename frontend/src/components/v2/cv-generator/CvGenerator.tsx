@@ -17,7 +17,7 @@ import { StepCard } from "./GeneratorParts";
 import { LanguageChoice } from "./LanguageChoice";
 import { PersonStep } from "./PersonStep";
 import { ProcessStep } from "./ProcessStep";
-import { ProcessingTiles } from "./ProcessingTiles";
+import { ContentModeNote } from "./ContentModeNote";
 import { ProcessSources } from "./SourcesPanel";
 import { useCvGenerator, type CvGeneratorState } from "./useCvGenerator";
 
@@ -106,12 +106,7 @@ function ContentStep({ g }: { g: CvGeneratorState }) {
   return (
     <StepCard step={3} title="Treść CV">
       <div className="space-y-5">
-        <ProcessingTiles
-          value={g.contentMode}
-          onChange={g.setContentMode}
-          hasChampion={g.hasChampion}
-          capBasic={g.capBasic}
-        />
+        <ContentModeNote hasChampion={g.hasChampion} capBasic={g.capBasic} />
         <LanguageChoice
           value={g.languageChoice}
           onChange={g.setLanguageChoice}

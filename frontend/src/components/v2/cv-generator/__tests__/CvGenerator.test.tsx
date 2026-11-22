@@ -154,7 +154,8 @@ describe("generacja w rekrutacji", () => {
     expect(screen.getByRole("button", { name: /Generuj CV/ })).toBeDisabled();
     expect(await screen.findByText("Jedyny proces tej osoby, więc wybraliśmy go sami.")).toBeInTheDocument();
     await waitForGenerateEnabled();
-    expect(screen.getByRole("button", { name: "Pod rekrutację" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("cv-content-mode-note")).toHaveTextContent("Pod rekrutację");
+    expect(screen.queryByRole("button", { name: "Redakcja" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Generuj CV/ }));
     await waitFor(() => expect(generatePosts("/api/cv-generator/generate")).toHaveLength(1), { timeout: 10000 });
@@ -269,7 +270,7 @@ describe("generacja w rekrutacji", () => {
     drop(fileInput(".docx,.pdf"), new File(["x"], "Champion.docx"));
     fireEvent.click(await screen.findByRole("button", { name: "Zastosuj / zapisz szkic" }));
     expect(await screen.findByText(/nie zapisał się w rekrutacji \(Brak uprawnień do edycji Championa\) — użyjemy go tylko do tego CV/)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Pod rekrutację" })).toHaveAttribute("aria-pressed", "true"));
+    await waitFor(() => expect(screen.getByTestId("cv-content-mode-note")).toHaveTextContent("Pod rekrutację"));
     fireEvent.click(screen.getByRole("button", { name: /Generuj CV/ }));
     await waitFor(() => expect(generatePosts("/api/cv-generator/generate")).toHaveLength(1), { timeout: 10000 });
     expect(generatePosts("/api/cv-generator/generate")[0][1]).toHaveProperty("champion_profile");
@@ -312,10 +313,12 @@ describe("CvGenerator — the AI champion preview is an aid, not a gate", () => 
     drop(fileInput(".docx,.pdf"), new File(["x"], "ProfilChampiona.docx"));
     expect(await screen.findByText(/Nie udało się odczytać pliku Championa \(Nie udało się odczytać profilu: nieparsowalny JSON profilu\)/)).toBeInTheDocument();
     await waitForGenerateEnabled();
-    expect(screen.getByRole("button", { name: "Redakcja" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("cv-content-mode-note")).toHaveTextContent("Bez dopasowania");
     fireEvent.click(screen.getByRole("button", { name: /Generuj CV/ }));
     await waitFor(() => expect(generatePosts("/api/cv-generator/generate")).toHaveLength(1), { timeout: 10000 });
     expect(generatePosts("/api/cv-generator/generate")[0][1]).not.toHaveProperty("champion_profile");
+    // Formularz prosi o „Pod rekrutację”; bez Championa serwer sam robi Redakcję z uwagą.
+    expect(generatePosts("/api/cv-generator/generate")[0][1]).toMatchObject({ content_mode: "tailored" });
   });
 });
 

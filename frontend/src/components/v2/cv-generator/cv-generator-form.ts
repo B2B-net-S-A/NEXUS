@@ -124,10 +124,12 @@ export function autoProcessChoice(
   return "";
 }
 
-/** Domyślna obróbka: jest Champion → „Pod rekrutację”, nie ma → „Redakcja”. */
-export function defaultProcessingMode(hasChampion: boolean): CvProcessingMode {
-  return hasChampion ? "tailored" : "polished";
-}
+/**
+ * Każde CV powstaje pod rekrutację (22.11.2026: kafle „Redakcja / Pod
+ * rekrutację” zdjęte, Redakcję wybierano ręcznie w ok. 1% CV). Bez kompletnego
+ * Championa serwer sam robi CV bez dopasowania i dopisuje uwagę.
+ */
+export const GENERATE_CONTENT_MODE: CvProcessingMode = "tailored";
 
 export interface LanguagePolicy {
   /** Język wymuszony regułą klienta (np. Nordea — tylko EN). */

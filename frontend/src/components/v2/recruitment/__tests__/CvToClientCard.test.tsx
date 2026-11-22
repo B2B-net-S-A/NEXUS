@@ -358,8 +358,9 @@ describe("CvToClientCard — brak CV", () => {
     const rate = within(sources).getByRole("switch", { name: "Notatki ze stawką — zawsze wycinane" });
     expect(rate).not.toBeChecked();
     expect(rate).toBeDisabled();
-    // Obróbka i język — te same przełączniki co w oknie generatora.
-    expect(within(panel).getByRole("group", { name: "Obróbka treści" })).toBeInTheDocument();
+    // Treść zawsze pod rekrutację (bez kafli obróbki), język — ten sam przełącznik co w oknie generatora.
+    expect(within(panel).getByTestId("cv-content-mode-note")).toHaveTextContent("Pod rekrutację");
+    expect(within(panel).queryByRole("group", { name: "Obróbka treści" })).toBeNull();
     expect(within(panel).getByRole("group", { name: "Język CV" })).toBeInTheDocument();
     expect(mocks.apiGet).toHaveBeenCalledWith("/api/candidates/stages/21/cv/ai-sources");
   });
@@ -581,7 +582,7 @@ describe("CvToClientCard — brak CV", () => {
     expect(within(panel).getByRole("button", { name: /^Generuj$/ })).toBeDisabled();
     // Brak do uzupełnienia = panel rozwinięty od razu.
     expect(within(panel).queryByTestId("cv-generate-summary")).toBeNull();
-    expect(within(panel).getByRole("group", { name: "Obróbka treści" })).toBeInTheDocument();
+    expect(within(panel).getByTestId("cv-content-mode-note")).toBeInTheDocument();
   });
 
   it("awaria odczytu źródeł rozwija panel z komunikatem, a „Generuj” działa (domyślne serwera)", async () => {
