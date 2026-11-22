@@ -4,6 +4,10 @@
  * Kontraktor bez konta pobiera PDF, podpisuje go swoim podpisem kwalifikowanym
  * i wgrywa z powrotem; NEXUS sprawdza podpis na liście zaufanych UE. Strona
  * nie pokazuje kwot. Odmowa i awaria linku mają własne komunikaty.
+ *
+ * K1 (22.11.2026): przy skonfigurowanym dostawcy podpisu w chmurze
+ * (`remote_signing.available`) kontraktor podpisuje w NEXUSIE i wraca od
+ * dostawcy z `?remote={session_id}`; formularz pyta wtedy o stan tej sesji.
  */
 import { FileSignature } from "lucide-react";
 
@@ -16,6 +20,7 @@ import B2BSignForm from "./B2BSignForm";
 
 interface PageProps {
   params: Promise<{ token: string }>;
+  searchParams?: Promise<{ remote?: string | string[] }>;
 }
 
 function apiBase(): string {
@@ -41,8 +46,10 @@ async function fetchView(
   }
 }
 
-export default async function B2BSignPage({ params }: PageProps) {
+export default async function B2BSignPage({ params, searchParams }: PageProps) {
   const { token } = await params;
+  const { remote } = (await searchParams) ?? {};
+  const remoteSessionId = (Array.isArray(remote) ? remote[0] : remote) || null;
   const result = await fetchView(token);
   if (!("view" in result)) {
     return <PublicLinkUnavailable failure={publicLinkFailure(result.status)} />;
@@ -75,7 +82,9 @@ export default async function B2BSignPage({ params }: PageProps) {
         <strong>kwalifikowanego podpisu elektronicznego</strong>. Zwykły podpis, zaawansowany
         (także podpis osobisty z e-dowodu) ani profil zaufany nie wystarczą.
         {view.documents?.some((d) => d.requirement === "any")
-          ? " Pozostałe dokumenty nie wymagają podpisu kwalifikowanego: zaakceptujesz je kodem z maila."
+          ? view.remote_signing?.available
+            ? " Pozostałe dokumenty nie wymagają podpisu kwalifikowanego: podpiszesz je razem z umową albo zaakceptujesz kodem z maila."
+            : " Pozostałe dokumenty nie wymagają podpisu kwalifikowanego: zaakceptujesz je kodem z maila."
           : ""}
         {expires && view.status === "waiting" ? ` Link ważny do ${expires}.` : ""}
       </p>
@@ -89,6 +98,8 @@ export default async function B2BSignPage({ params }: PageProps) {
         contractSigned={Boolean(view.contract_signed)}
         documents={view.documents ?? []}
         acceptEmail={view.accept_code_email ?? null}
+        remoteSigning={view.remote_signing ?? null}
+        remoteSessionId={remoteSessionId}
       />
     </div>
   );
