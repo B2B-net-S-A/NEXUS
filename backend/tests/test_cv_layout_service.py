@@ -74,6 +74,8 @@ def test_page1_composition_e2_result_replaces_third_point():
         "Technologie.",
         "Wynik A.",
     ]
+    manual = {**extras, "result_text": "Mój wynik."}
+    assert cv_layout.compose_page1_why(points, manual)[2] == "Mój wynik."
     edited = {**extras, "why": ["Moje 1.", "Moje 2.", "Moje 3."]}
     assert cv_layout.compose_page1_why(points, edited) == [
         "Moje 1.",

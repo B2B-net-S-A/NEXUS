@@ -86,10 +86,14 @@ def page1_why(extras: Optional[dict]) -> Optional[list[str]]:
 
 
 def chosen_result(extras: Optional[dict]) -> Optional[str]:
-    """„Najmocniejszy wynik” wybrany do strony 1 — tylko zdanie sprawdzone
-    z cytatem z CV (`results[i].verified`)."""
+    """„Najmocniejszy wynik” do strony 1: zdanie wpisane przez rekrutera
+    (`result_text`) albo wybrane z listy modelu — tylko sprawdzone z cytatem
+    z CV (`results[i].verified`)."""
     if not isinstance(extras, dict):
         return None
+    manual = str(extras.get("result_text") or "").strip()
+    if manual:
+        return manual
     results = extras.get("results")
     if not isinstance(results, list) or not results:
         return None
