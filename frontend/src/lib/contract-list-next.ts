@@ -115,7 +115,13 @@ export function listNextSteps(
       const agreementNote = doc
         ? `${terminationDocKind(doc)} w Dokumentach, niezapisane`
         : "umowa B2B nierozwiązana";
-      const short = [reason, status !== "ended" && agreementOpen(f) ? agreementNote : null]
+      // Plik w Dokumentach idzie na początek także przy zakończonej współpracy:
+      // przy 1280 px zdanie główne ucina się przed tą informacją (22.11.2026).
+      const short = (
+        doc
+          ? [agreementNote, reason]
+          : [reason, status !== "ended" && agreementOpen(f) ? agreementNote : null]
+      )
         .filter(Boolean)
         .join(" · ");
       first.push({ id: "end", tone: item.tone, text: item.lead, detail: short || null, hint: item.detail });

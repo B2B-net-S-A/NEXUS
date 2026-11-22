@@ -181,7 +181,10 @@ i kończących się umów B2B bez zapisanego rozwiązania.
   jest w Dokumentach, rozwiązanie niezapisane” z nazwą pliku i datą dodania,
   w tonie `info` zamiast ostrzeżenia. Akcja zostaje: „Zapisz rozwiązanie umowy”.
   To samo zdanie dostają panel boczny, kolumna „Co dalej” listy i stan umowy
-  w widoku „Kończące się” (`agreementStateLabel`).
+  w widoku „Kończące się” (`agreementStateLabel`). W „Co dalej” dopisek
+  „wypowiedzenie w Dokumentach, niezapisane” stoi na początku drugiej linii
+  także przy zakończonej współpracy, bo przy 1280 px zdanie główne ucina się
+  przed tą informacją.
 - **`ContractAgreementRecordDialog` z `existingDocument`:** tryb z typu pliku
   (wypowiedzenie → „Wypowiedzenie”, porozumienie → „Porozumienie stron”),
   „Otwórz dokument” zamiast pola skanu (drugi skan tylko po „Dodaj inny skan”),

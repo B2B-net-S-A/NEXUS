@@ -153,7 +153,7 @@ describe("„Co dalej” z wypowiedzeniem w Dokumentach (22.11.2026)", () => {
       TODAY,
       rates,
     );
-    expect(steps[0].detail).toBe("Koniec projektu · wypowiedzenie w Dokumentach, niezapisane");
+    expect(steps[0].detail).toBe("wypowiedzenie w Dokumentach, niezapisane · Koniec projektu");
     expect(steps[0].hint).toContain("Wypowiedzenie umowy B2B jest w Dokumentach");
   });
 
@@ -164,6 +164,8 @@ describe("„Co dalej” z wypowiedzeniem w Dokumentach (22.11.2026)", () => {
       rates,
     );
     expect(steps[0].text).toContain("wypowiedzenie umowy B2B jest w Dokumentach");
+    // Zdanie główne ucina się przy 1280 px — plik stoi też w drugiej linii.
+    expect(steps[0].detail).toBe("wypowiedzenie w Dokumentach, niezapisane");
   });
 });
 
