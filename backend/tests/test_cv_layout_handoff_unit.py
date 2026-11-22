@@ -5,7 +5,9 @@
   układu (z treści wersji), nie z pliku Word; awaria renderu = 503 bez śladu
   pobrania,
 - strona panelu doklejana na końcu PDF-u; awaria = PDF bez zmian,
-- wspólny render zatwierdzonej wersji czyta jej zamrożone pola.
+- wspólny render zatwierdzonej wersji czyta jej zamrożone pola,
+- API v1: ``format=pdf`` przy „Nowym CV” = PDF tego układu, ``docx`` zostaje
+  klasycznym Wordem, stan CV mówi o układzie.
 """
 
 from __future__ import annotations
@@ -103,7 +105,9 @@ def cpro(monkeypatch, flag_on):
     version = SimpleNamespace(
         version=3, docx_content=b"PK-word", cv_layout="new", generated_document_id=None
     )
-    csv = SimpleNamespace(id=9, candidate_id=102, branded_status="finalized", branded_version=3)
+    csv = SimpleNamespace(
+        id=9, candidate_id=102, branded_status="finalized", branded_version=3
+    )
     run, token = runs.new_run(
         [
             {
@@ -125,7 +129,9 @@ def cpro(monkeypatch, flag_on):
     audit = Mock()
     revalidate = AsyncMock(return_value=run)
     monkeypatch.setattr(
-        candidate_stage_cv, "approved_version_for_download", AsyncMock(return_value=version)
+        candidate_stage_cv,
+        "approved_version_for_download",
+        AsyncMock(return_value=version),
     )
     monkeypatch.setattr(routes, "log_cv_download", log)
     monkeypatch.setattr(routes.candidate_audit, "record_candidate_audit", audit)
@@ -136,7 +142,13 @@ def cpro(monkeypatch, flag_on):
         AsyncMock(side_effect=AssertionError("klasyczny PDF przy Nowym CV")),
     )
     return SimpleNamespace(
-        version=version, run=run, token=token, db=db, log=log, audit=audit, revalidate=revalidate
+        version=version,
+        run=run,
+        token=token,
+        db=db,
+        log=log,
+        audit=audit,
+        revalidate=revalidate,
     )
 
 
@@ -164,7 +176,9 @@ async def test_cpro_gets_the_new_layout_pdf_of_the_approved_version(cpro, monkey
 
 
 @pytest.mark.asyncio
-async def test_cpro_new_layout_render_failure_is_503_without_a_download(cpro, monkeypatch):
+async def test_cpro_new_layout_render_failure_is_503_without_a_download(
+    cpro, monkeypatch
+):
     monkeypatch.setattr(
         routes.new_cv_pdf,
         "approved_version_pdf",
@@ -226,7 +240,11 @@ def test_panel_page_goes_after_the_cv(monkeypatch):
 
     monkeypatch.setattr(client_panel_stamp, "_panel_page_pdf", fake_page)
     out = client_panel_stamp.append_panel_page(
-        _blank_pdf(2), "https://example.test/p/abc", "example.test/p/abc", None, language="en"
+        _blank_pdf(2),
+        "https://example.test/p/abc",
+        "example.test/p/abc",
+        None,
+        language="en",
     )
     assert _page_count(out) == 3
     assert seen == {
@@ -259,3 +277,183 @@ def test_panel_page_html_carries_the_frame_information():
     assert "data:image/svg+xml" in html
     # Adres trafia do HTML-a renderera zeskejpowany.
     assert "<1>" not in html
+
+
+# ── API v1 (atrapa sesji, jak `test_integrations_v1_cv`) ────────────────────
+
+
+async def test_v1_pdf_of_a_new_layout_version_is_the_new_cv(flag_on, monkeypatch):
+    from app.api.integrations_v1 import cv as v1_cv
+    from app.services import integration_cv
+    from tests.test_integrations_v1_cv import V1, _call, _csv, _pair_mocks, _wired_app
+
+    db = AsyncMock()
+    db.add = Mock()
+    db.info = {}
+    _pair_mocks(monkeypatch)
+    csv = _csv(id=17, branded_status="finalized", branded_version=3, cv_layout="new")
+    version = SimpleNamespace(
+        version=3,
+        docx_content=b"PK-word",
+        docx_filename="B2B_Tester.docx",
+        cv_layout="new",
+    )
+    monkeypatch.setattr(integration_cv, "pair_stage_cv", AsyncMock(return_value=csv))
+    monkeypatch.setattr(
+        candidate_stage_cv,
+        "approved_version_for_download",
+        AsyncMock(return_value=version),
+    )
+    render = AsyncMock(return_value=NewCvPdf(b"%PDF-new", True, 10.0, (), ()))
+    monkeypatch.setattr(v1_cv.new_cv_pdf, "approved_version_pdf", render)
+    monkeypatch.setattr(
+        v1_cv, "_pdf", AsyncMock(side_effect=AssertionError("PDF z Worda"))
+    )
+    log = AsyncMock()
+    monkeypatch.setattr(v1_cv, "log_cv_download", log)
+    app = _wired_app(monkeypatch, db, {"cv:generate", "candidates:cv"})
+
+    resp = await _call(
+        app, "GET", V1 + "/recruitments/4/candidates/2/cv/file?format=pdf"
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.content == b"%PDF-new"
+    assert resp.headers["x-cv-layout"] == "new"
+    assert "B2B_Tester.pdf" in resp.headers["content-disposition"]
+    render.assert_awaited_once_with(db, version)
+    assert log.await_args.kwargs["file_format"] == "pdf"
+
+
+async def test_v1_docx_of_a_new_layout_version_stays_the_classic_word(
+    flag_on, monkeypatch
+):
+    from app.api.integrations_v1 import cv as v1_cv
+    from app.services import integration_cv
+    from tests.test_integrations_v1_cv import V1, _call, _csv, _pair_mocks, _wired_app
+
+    db = AsyncMock()
+    db.add = Mock()
+    db.info = {}
+    _pair_mocks(monkeypatch)
+    csv = _csv(id=17, branded_status="finalized", branded_version=3, cv_layout="new")
+    version = SimpleNamespace(
+        version=3,
+        docx_content=b"PK-word",
+        docx_filename="B2B_Tester.docx",
+        docx_sha256="0" * 64,
+        content_sha256="1" * 64,
+        cv_layout="new",
+    )
+    monkeypatch.setattr(integration_cv, "pair_stage_cv", AsyncMock(return_value=csv))
+    monkeypatch.setattr(
+        candidate_stage_cv,
+        "approved_version_for_download",
+        AsyncMock(return_value=version),
+    )
+    monkeypatch.setattr(
+        v1_cv.new_cv_pdf,
+        "approved_version_pdf",
+        AsyncMock(side_effect=AssertionError("Word nie ma nowego układu")),
+    )
+    monkeypatch.setattr(v1_cv, "log_cv_download", AsyncMock())
+    app = _wired_app(monkeypatch, db, {"cv:generate", "candidates:cv"})
+
+    resp = await _call(app, "GET", V1 + "/recruitments/4/candidates/2/cv/file")
+    assert resp.status_code == 200, resp.text
+    assert resp.content.startswith(b"PK")
+    assert resp.headers["x-cv-layout"] == "classic"
+    assert "B2B_Tester.docx" in resp.headers["content-disposition"]
+
+
+async def test_v1_new_layout_draft_pdf_checks_the_draft_and_renders_it(
+    flag_on, monkeypatch
+):
+    from app.api.integrations_v1 import cv as v1_cv
+    from app.services import integration_cv
+    from tests.test_integrations_v1_cv import V1, _call, _csv, _pair_mocks, _wired_app
+
+    db = AsyncMock()
+    db.add = Mock()
+    db.info = {}
+    _pair_mocks(monkeypatch)
+    csv = _csv(id=17, branded_version=2, cv_layout="new", branded_draft_html="<p>A</p>")
+    monkeypatch.setattr(integration_cv, "pair_stage_cv", AsyncMock(return_value=csv))
+    gate = AsyncMock()
+    monkeypatch.setattr(candidate_stage_cv, "ensure_draft_downloadable", gate)
+    render = AsyncMock(side_effect=NewCvPdfError(cv_new_pdf.MSG_RENDER_FAILED))
+    monkeypatch.setattr(v1_cv.new_cv_pdf, "stage_draft_pdf", render)
+    log = AsyncMock()
+    monkeypatch.setattr(v1_cv, "log_cv_download", log)
+    app = _wired_app(monkeypatch, db, {"cv:generate", "candidates:cv"})
+
+    resp = await _call(
+        app, "GET", V1 + "/recruitments/4/candidates/2/cv/file?format=pdf"
+    )
+    assert resp.status_code == 503, resp.text
+    gate.assert_awaited_once_with(db, csv)
+    render.assert_awaited_once_with(db, csv)
+    log.assert_not_awaited()
+
+
+# ── Panel klienta ────────────────────────────────────────────────────────────
+
+
+async def test_client_panel_pdf_of_a_new_layout_version(flag_on, monkeypatch):
+    from app.services import client_panel
+
+    csv = SimpleNamespace(cv_layout="new", branded_draft_html="<p>A</p>")
+    version = SimpleNamespace(cv_layout="new", docx_content=b"PK")
+    monkeypatch.setattr(
+        client_panel, "_downloadable_cv_row", AsyncMock(return_value=(csv, version))
+    )
+    render = AsyncMock(return_value=NewCvPdf(b"%PDF-new", True, 10.0, (), ()))
+    monkeypatch.setattr(cv_new_pdf, "approved_version_pdf", render)
+    db = SimpleNamespace(commit=AsyncMock())
+    visible = SimpleNamespace(
+        cv=SimpleNamespace(blind=False, filename="B2B_Tester.docx")
+    )
+    pdf, name = await client_panel.candidate_pdf(db, visible)
+    assert (pdf, name) == (b"%PDF-new", "B2B_Tester.pdf")
+    render.assert_awaited_once_with(db, version)
+
+
+async def test_client_panel_draft_in_new_layout_renders_the_draft(flag_on, monkeypatch):
+    from app.services import client_panel
+
+    csv = SimpleNamespace(cv_layout="new", branded_draft_html="<p>A</p>")
+    monkeypatch.setattr(
+        client_panel, "_downloadable_cv_row", AsyncMock(return_value=(csv, None))
+    )
+    monkeypatch.setattr(
+        cv_new_pdf,
+        "stage_draft_pdf",
+        AsyncMock(side_effect=NewCvPdfError(cv_new_pdf.MSG_RENDER_FAILED)),
+    )
+    visible = SimpleNamespace(cv=SimpleNamespace(blind=True, filename="x.docx"))
+    with pytest.raises(HTTPException) as caught:
+        await client_panel.candidate_pdf(SimpleNamespace(commit=AsyncMock()), visible)
+    assert caught.value.status_code == 503
+    assert "chwilowo niedostępny" in caught.value.detail
+
+
+async def test_client_panel_classic_version_still_converts_word(flag_on, monkeypatch):
+    from app.services import client_panel, cv_pdf_preview
+
+    csv = SimpleNamespace(cv_layout="new", branded_draft_html="")
+    version = SimpleNamespace(cv_layout="classic", docx_content=b"PK-word")
+    monkeypatch.setattr(
+        client_panel, "_downloadable_cv_row", AsyncMock(return_value=(csv, version))
+    )
+    convert = AsyncMock(return_value=b"%PDF-word")
+    monkeypatch.setattr(cv_pdf_preview, "pdf_from_docx", convert)
+    monkeypatch.setattr(
+        cv_new_pdf,
+        "approved_version_pdf",
+        AsyncMock(side_effect=AssertionError("wersja klasyczna")),
+    )
+    visible = SimpleNamespace(cv=SimpleNamespace(blind=False, filename="CV.docx"))
+    pdf, name = await client_panel.candidate_pdf(
+        SimpleNamespace(commit=AsyncMock()), visible
+    )
+    assert (pdf, name) == (b"%PDF-word", "CV.pdf")
+    convert.assert_awaited_once_with(b"PK-word")

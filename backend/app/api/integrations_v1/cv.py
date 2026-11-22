@@ -386,7 +386,11 @@ async def client_cv_status(
         finalized_at=csv.branded_finalized_at if cv_state == "finalized" else None,
         consent_required=consent_required,
         consent_missing=consent_missing,
-        cv_layout=layout_service.effective(csv.cv_layout) if has_cv else "classic",
+        cv_layout=(
+            layout_service.effective(getattr(csv, "cv_layout", None))
+            if has_cv
+            else "classic"
+        ),
         versions=[
             CvVersionOut(
                 version=item["version"],
@@ -472,14 +476,14 @@ async def download_client_cv(
         )
         version_number = version.version
         pdf_name = _pdf_name(version.docx_filename, "CV")
-        new_layout = layout_service.is_new(version.cv_layout)
+        new_layout = layout_service.is_new(getattr(version, "cv_layout", None))
     else:
         state = "draft"
         version_number = csv.branded_version
         pdf_name = "SZKIC_" + _pdf_name(
             csv.branded_docx_filename, f"CV_v{csv.branded_version}"
         )
-        new_layout = layout_service.is_new(csv.cv_layout)
+        new_layout = layout_service.is_new(getattr(csv, "cv_layout", None))
     layout = "new" if new_layout and file_format == "pdf" else "classic"
     csv_id = csv.id
     docx_headers: dict[str, str] = {}

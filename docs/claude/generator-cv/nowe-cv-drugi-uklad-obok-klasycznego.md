@@ -65,3 +65,54 @@ i `page1_extras` (NULL w starych wierszach = klasyczny),
   zapadła po makietach obu wariantów.
 - Nie blokuj ścieżki CV na wyniku modelu: zdanie „najmocniejszy wynik” jest
   dodatkiem, bez niego strona 1 bierze trzeci punkt „Dlaczego”.
+
+## Gdzie idzie układ (22.11.2026, PR 2)
+
+Każde miejsce, które oddaje CV dalej, patrzy na układ zatwierdzonej wersji
+(`cv_document_versions.cv_layout`), a szkic — na układ CV etapu. Wspólny
+render: `cv_new_pdf.approved_version_pdf` / `stage_draft_pdf` (treść, język,
+szablon, dodatki strony 1 i zrzut zgody zamrożone w wersji; przed renderem
+koniec transakcji; awaria = `NewCvPdfError` → 503 z polskim komunikatem).
+
+- **Bot Cpro** (`GET /integrations/cpro-bot/runs/{run}/cv/{stage}`): zlecenie
+  `cv_format = "pdf"` i wersja „Nowe CV” → PDF nowego układu, nagłówek
+  `X-CV-Layout: new`; token biegu sprawdzany ponownie po renderze. Historyczny
+  DOCX zostaje Wordem. Bez strony panelu (jak dotąd).
+- **Kolejka Cpro na pulpicie** (`CproQueueDialog`): „CV” pobiera
+  `fetchStageCvForClient` — PDF przy „Nowym CV”, inaczej Word.
+- **Panel klienta** (`client_panel.candidate_pdf`, `…/cv.pdf`): PDF nowego
+  układu z wersji albo szkicu. Bez strony z linkiem — klient już jest w panelu.
+- **Pobranie PDF „Nowego CV” dla klienta** (`…/versions/{n}/pdf` i
+  `…/preview-pdf` z `intent=download`): ramka panelu z pliku Word (QR, link,
+  krótki adres, ważność) idzie na **ostatnią stronę** PDF
+  (`client_panel.stamp_pdf_for_download` → `client_panel_stamp.append_panel_page`:
+  WeasyPrint + scalenie pypdfium2). Strona 1 musi się mieścić na jednej kartce,
+  więc pod tytułem ramki nie ma. Awaria = PDF bez tej strony. Podgląd
+  w NEXUSIE — bez niej. Do decyzji Artura: ostatnia strona, pierwsza albo wcale
+  (zrzut zgody PKO BP stoi wtedy przed stroną panelu).
+- **API v1** (`…/cv/file`): `format=pdf` przy „Nowym CV” = PDF nowego układu;
+  `docx` zostaje domyślne i zawsze klasyczne — zmiana domyślnego formatu
+  zmieniłaby znaczenie wywołania bez parametru (v2). Nagłówek `X-CV-Layout`
+  mówi o oddanym pliku, stan CV (`GET …/cv`) ma pole `cv_layout`.
+- **Nazwa pliku**: zapis (`branded_docx_filename`, `docx_filename`) zostaje
+  `.docx` — to nazwa pliku Word. Odpowiedź CV etapu (`current_filename`,
+  `pattern_filename`) i zmiana nazwy pokazują przy „Nowym CV” ten sam wzór
+  z `.pdf` (`cv_layout.filename_for`); `clean_cv_filename` odcina `.docx`
+  i `.pdf`, a `CvFileNameRow` zostawia końcówkę z serwera.
+- **Przegląd DL, panel osoby, QC**: odznaka „Nowe CV · PDF” / „Klasyczne · Word”
+  (`CvLayoutBadge` w `StageCvPreview`; w oknie QC z pola `cv.cv_layout` wyniku
+  QC, bez osobnego żądania). QC czyta HTML CV etapu — ten sam w obu układach,
+  zrzut zgody z tej samej kopii — więc nie zakłada pliku Word.
+- **Reguła klienta „Układ CV”** (`client_cv_rules.cv_layout`, NULL = klasyczny):
+  pole recepty (`RULE_FIELDS`) — wersja, diff w historii, publikacja, kopia
+  z innego klienta. Wiersz w „Plik i język” i fakt „Układ” w pasku reguły tylko
+  przy fladze (`new_layout_enabled` w `GET …/cv-rule` i `/settings/cv-rules`);
+  ukryty wiersz i tak wysyła układ (pełny zapis). Przy zasadach centralnych
+  (zapis reguły = 403) układ ma własny zapis `PUT /clients/{id}/cv-rule/layout`
+  z `central_lock=False` — jak wzór „Karty przed CV”: od razu nowa wersja,
+  publikacja i wpis historii; bez zasad centralnych ta trasa daje 409.
+  Domyślny układ czyta `cv_layout.default_for_client` wprost z zatwierdzonego
+  wiersza (resolver zasad centralnych buduje regułę spoza katalogu w pamięci,
+  bez układu). Generator (baner, „Reguły CV klienta” w warsztacie) pokazuje
+  układ z `rule-for-generation` (`cv_layout`, `null` przy wyłączonej fladze).
+

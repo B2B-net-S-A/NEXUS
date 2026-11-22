@@ -238,9 +238,7 @@ def append_panel_page(
 ) -> bytes:
     """PDF z ostatnią stroną panelu; przy jakiejkolwiek awarii oryginalne bajty."""
     try:
-        return _merged(
-            pdf_bytes, _panel_page_pdf(url, short_url, expires_at, language)
-        )
+        return _merged(pdf_bytes, _panel_page_pdf(url, short_url, expires_at, language))
     except Exception:  # noqa: BLE001 — strona panelu to dodatek, PDF ma wyjść
         logger.exception("client panel: appending the panel page failed")
         return pdf_bytes
