@@ -7692,7 +7692,7 @@ async def _enrich_candidate_from_document_task(
     replaced_primary: Optional[ReplacedPrimaryCv] = None,
     force_read: bool = False,
     defer_to_batch: bool = False,
-) -> None:
+) -> Optional[bool]:
     """Extract and enrich from the still-current primary CV version.
 
     Plik, którego odczyt profil już ma, nie idzie do modelu drugi raz (03.11.2026):
@@ -7704,6 +7704,9 @@ async def _enrich_candidate_from_document_task(
     sprawdzeniach tekst idzie do kolejki odczytu wsadem (`cv_parse_batch`), a
     zapis robi `_apply_batch_document_read`. Kolejka wyłączona albo model spoza
     Anthropic = odczyt na żywo jak dotąd.
+
+    `False` = zadanie padło wyjątkiem (połknięty i zalogowany). Kolejka wsadu
+    zostawia wtedy CV do ponowienia; wgranie przez człowieka wyniku nie czyta.
     """
 
     from app.core.database import AsyncSessionLocal
@@ -7821,12 +7824,14 @@ async def _enrich_candidate_from_document_task(
                 exc,
             )
             await db.rollback()
+            return False
         finally:
             if temp_path:
                 try:
                     os.remove(temp_path)
                 except OSError:
                     pass
+    return True
 
 
 async def _enrich_candidate_cv_task(

@@ -15,6 +15,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     func,
@@ -66,6 +67,10 @@ class CvParseBatchItem(Base):
     batch_id: Mapped[Optional[str]] = mapped_column(String(80))
     model: Mapped[Optional[str]] = mapped_column(String(80))
     error: Mapped[Optional[str]] = mapped_column(String(255))
+    #: Nieudane odczyty na żywo (wyjątek w zadaniu); po `MAX_LIVE_ATTEMPTS` koniec.
+    live_attempts: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=0, server_default=text("0")
+    )
     queued_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

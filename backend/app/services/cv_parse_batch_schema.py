@@ -48,6 +48,7 @@ TABLE_DDL: tuple[str, ...] = (
     batch_id VARCHAR(80) NULL,
     model VARCHAR(80) NULL,
     error VARCHAR(255) NULL,
+    live_attempts SMALLINT NOT NULL DEFAULT 0,
     queued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     submitted_at TIMESTAMPTZ NULL,
     finished_at TIMESTAMPTZ NULL,

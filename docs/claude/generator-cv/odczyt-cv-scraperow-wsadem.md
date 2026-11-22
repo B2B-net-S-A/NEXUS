@@ -29,7 +29,15 @@ zostają natychmiastowe.
   `CV_PARSER_BATCH_FALLBACK_HOURS` (domyślnie 6 h, API daje paczce do 24 h).
   Paczka, w której nic już nie czeka, jest anulowana. Pętla czyta najwyżej
   20 CV na żywo na tick. Status `live` dostają dopiero po odczycie, więc
-  proces zabity w trakcie czyta je jeszcze raz.
+  proces zabity w trakcie czyta je jeszcze raz. Odczyt na żywo, który padł
+  wyjątkiem (zadanie zwraca `False`), wraca najwyżej 3 razy (`live_attempts`),
+  potem `live` z powodem `live_failed`.
+- **Wynik opłaconej paczki wygrywa z limitem czasu.** Tick najpierw odbiera
+  wyniki, potem liczy limit, a paczka zakończona (`ended`), której wyników nie
+  udało się pobrać, w limit nie wpada. Twardy koniec to 25 h: API trzyma
+  paczkę najwyżej 24 h. Paczka ma najwyżej 100 CV, bo paczka zgubiona między
+  API a bazą (zerwana odpowiedź, padnięty commit) oznacza płatny odczyt
+  drugi raz.
 - **Nowsze CV i odczyt przez człowieka zamykają wiersz** (`superseded`). Wynik
   dla pliku, który przestał być głównym CV, niczego nie zapisuje
   (`done` + `not_applied`).

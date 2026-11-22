@@ -291,6 +291,67 @@ async def test_no_result_after_the_limit_reads_live_and_cancels(wired):
         await _cleanup(candidate_id)
 
 
+async def test_batch_ended_after_the_limit_still_wins_over_a_live_read(wired):
+    """Paczka zakończona tuż po limicie jest opłacona: jej wynik, bez odczytu na żywo."""
+    candidate_id, document_id, digest = await _seed()
+    try:
+        item_id = await _queue(candidate_id, document_id, digest)
+        client, batches = _client()
+        await cv_parse_batch.run_tick(client)
+        batch_id = (await _item(item_id)).batch_id
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(CvParseBatchItem)
+                .where(CvParseBatchItem.id == item_id)
+                .values(queued_at=datetime.now(timezone.utc) - timedelta(hours=7))
+            )
+            await db.commit()
+        batches.status = "ended"
+        batches.results_by_batch[batch_id] = [
+            _succeeded(f"cvp-{item_id}", _parsed("Batch Developer"))
+        ]
+
+        stats = await cv_parse_batch.run_tick(client)
+
+        assert stats.timed_out == 0
+        assert batches.cancelled == []
+        assert (await _item(item_id)).status == "done"
+        assert wired == []
+    finally:
+        await _cleanup(candidate_id)
+
+
+async def test_failed_live_read_is_retried_then_closed(wired, monkeypatch):
+    """Wyjątek w odczycie na żywo nie zamyka CV jako przeczytanego."""
+    candidate_id, document_id, digest = await _seed()
+
+    async def _broken_ingest(*_a: Any, **_kw: Any):
+        raise RuntimeError("zapis padł")
+
+    monkeypatch.setattr(
+        "app.services.cv_ingest_service.finish_cv_ingest", _broken_ingest
+    )
+    try:
+        item_id = await _queue(candidate_id, document_id, digest)
+        client, batches = _client()
+        batches.fail_create = RuntimeError("503")
+
+        await cv_parse_batch.run_tick(client)
+        item = await _item(item_id)
+        assert (item.status, item.live_attempts) == ("fallback", 1)
+        assert item.raw_text == CV_TEXT
+        async with AsyncSessionLocal() as db:
+            assert await cv_parse_batch.queued_since(db, candidate_id) is not None
+
+        for _ in range(cv_parse_batch.MAX_LIVE_ATTEMPTS - 1):
+            await cv_parse_batch.run_tick(client)
+        item = await _item(item_id)
+        assert (item.status, item.error) == ("live", "live_failed")
+        assert len(wired) == cv_parse_batch.MAX_LIVE_ATTEMPTS
+    finally:
+        await _cleanup(candidate_id)
+
+
 async def test_newer_cv_closes_the_older_one_in_the_queue(wired):
     candidate_id, document_id, digest = await _seed()
     try:

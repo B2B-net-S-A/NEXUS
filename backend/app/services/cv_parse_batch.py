@@ -45,10 +45,16 @@ from app.services.ai_models import model_for
 logger = logging.getLogger(__name__)
 
 CUSTOM_ID_PREFIX = "cvp"
-#: Najwięcej CV w jednej paczce (limit API: 100 000 żądań i 256 MB).
-MAX_ITEMS_PER_BATCH = 500
+#: Najwięcej CV w jednej paczce (limit API: 100 000 żądań i 256 MB). Mało, bo
+#: paczka zgubiona między API a bazą (zerwana odpowiedź, padnięty commit) to
+#: odczyt płatny drugi raz; scrapery dają ok. 3 CV na godzinę.
+MAX_ITEMS_PER_BATCH = 100
 #: Najwięcej odczytów na żywo w jednym ticku pętli (każdy ok. 20 s).
 LIVE_READS_PER_TICK = 20
+#: Odczyt na żywo, który padł wyjątkiem, wraca w kolejnych tickach tyle razy.
+MAX_LIVE_ATTEMPTS = 3
+#: Paczka żyje w API najwyżej 24 h; zapas na tick i zegar.
+BATCH_MAX_HOURS = 25
 #: Zamknięte wiersze (bez tekstu CV) zostają do pomiaru udziału wsadu.
 RETENTION_DAYS = 60
 
@@ -397,6 +403,8 @@ async def collect_ended(client: Any, stats: TickStats) -> None:
 async def fallback_timed_out(client: Any, stats: TickStats, *, now: datetime) -> None:
     """CV bez wyniku po `CV_PARSER_BATCH_FALLBACK_HOURS` → odczyt na żywo.
 
+    Biegnie PO `collect_ended`, a paczka zakończona, której wyników nie udało
+    się jeszcze pobrać, nie wpada w limit: jej odczyt jest już opłacony.
     Paczka, w której nic już nie czeka, jest anulowana (odczyt na żywo idzie
     i tak, a anulowane żądania bez wyniku nie są płatne).
     """
@@ -406,14 +414,35 @@ async def fallback_timed_out(client: Any, stats: TickStats, *, now: datetime) ->
     async with AsyncSessionLocal() as db:
         rows = (
             await db.execute(
-                select(CvParseBatchItem.id, CvParseBatchItem.batch_id).where(
+                select(
+                    CvParseBatchItem.id,
+                    CvParseBatchItem.batch_id,
+                    CvParseBatchItem.queued_at,
+                ).where(
                     CvParseBatchItem.status.in_(("queued", "submitted")),
                     CvParseBatchItem.queued_at < cutoff,
                 )
             )
         ).all()
-        if not rows:
-            return
+    ended: set[str] = set()
+    for batch_id in {row.batch_id for row in rows if row.batch_id}:
+        try:
+            batch = await asyncio.to_thread(client.messages.batches.retrieve, batch_id)
+        except Exception as exc:  # noqa: BLE001 — bez stanu paczki nie ruszamy
+            stats.errors.append(f"retrieve_failed:{type(exc).__name__}")
+            ended.add(batch_id)
+            continue
+        if getattr(batch, "processing_status", None) == "ended":
+            ended.add(batch_id)
+    # API trzyma paczkę najwyżej 24 h: po tym czasie wynik już nie przyjdzie,
+    # także gdy paczki nie da się nawet odpytać.
+    hard_cutoff = now - timedelta(hours=BATCH_MAX_HOURS)
+    rows = [
+        row for row in rows if row.batch_id not in ended or row.queued_at < hard_cutoff
+    ]
+    if not rows:
+        return
+    async with AsyncSessionLocal() as db:
         await _to_fallback(db, [row.id for row in rows], "timeout")
         await db.commit()
         stats.timed_out += len(rows)
@@ -447,7 +476,9 @@ async def read_fallbacks_live(
     Ta sama funkcja co wgranie przez człowieka (bez `defer_to_batch`), więc
     sprawdza wszystko od nowa: plik nadal główny, ten sam skrót, kwarantanna.
     Status `live` dopiero po odczycie: proces zabity w trakcie zostawia
-    wiersz w `fallback` i następny tick czyta go jeszcze raz.
+    wiersz w `fallback` i następny tick czyta go jeszcze raz. Zadanie, które
+    padło wyjątkiem (`False`), też zostawia wiersz w `fallback`, najwyżej
+    `MAX_LIVE_ATTEMPTS` razy; potem `live` z powodem `live_failed`.
     """
     from app.api.candidates import _enrich_candidate_from_document_task
     from app.core.database import AsyncSessionLocal
@@ -465,7 +496,7 @@ async def read_fallbacks_live(
         )
         db.expunge_all()
     for item in items:
-        await _enrich_candidate_from_document_task(
+        outcome = await _enrich_candidate_from_document_task(
             item.candidate_id,
             item.document_id,
             item.content_sha256,
@@ -473,11 +504,24 @@ async def read_fallbacks_live(
             actor_user_id=item.actor_user_id,
             replaced_primary=_replaced_from_json(item.replaced_primary),
         )
+        if outcome is False and item.live_attempts + 1 < MAX_LIVE_ATTEMPTS:
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    update(CvParseBatchItem)
+                    .where(CvParseBatchItem.id == item.id)
+                    .values(live_attempts=CvParseBatchItem.live_attempts + 1)
+                    .execution_options(synchronize_session=False)
+                )
+                await db.commit()
+            stats.errors.append("live_failed")
+            continue
         async with AsyncSessionLocal() as db:
             # Odczyt na żywo zamknął wiersz jako `superseded` (zapis do profilu)
             # albo nie dotknął go (plik już nie główny, odczyt bez zmian) —
             # w obu razach to odczyt zamiast paczki.
-            await _close(db, item.id, "live", item.error)
+            await _close(
+                db, item.id, "live", "live_failed" if outcome is False else item.error
+            )
             await db.commit()
         stats.live += 1
 
@@ -503,15 +547,18 @@ def make_client() -> Any:
 
 
 async def run_tick(client: Any, *, now: Optional[datetime] = None) -> TickStats:
-    """Jeden obrót pętli. Kolejność: limit czasu, wyniki, wysyłka, odczyt na żywo.
+    """Jeden obrót pętli. Kolejność: wyniki, limit czasu, wysyłka, odczyt na żywo.
+
+    Wyniki przed limitem czasu: paczka zakończona tuż po limicie jest już
+    opłacona, więc jej wynik wygrywa z odczytem na żywo.
 
     Odczyt na żywo idzie także przy wyłączonej kolejce: CV już w niej będące
     nie mogą czekać na ponowne włączenie.
     """
     now = now or _utcnow()
     stats = TickStats()
-    await fallback_timed_out(client, stats, now=now)
     await collect_ended(client, stats)
+    await fallback_timed_out(client, stats, now=now)
     if enabled():
         await submit_queued(client, stats)
     else:
