@@ -4123,6 +4123,36 @@
     ]
   },
   {
+    "id": "koszty-podglad-pdf-ksef",
+    "pr": 3690,
+    "title": "Podgląd PDF faktury z KSeF",
+    "why": "Faktura kosztowa z KSeF otwiera się jako czytelny PDF: strony, pozycje, stawki VAT, płatność i kod QR. Przycisk „Podgląd PDF” jest na karcie faktury, a ikona — przy numerze w kolejce.",
+    "tier": "dot",
+    "shipped_on": "2026-11-22",
+    "audience": {
+      "permissions": [
+        "finance_module"
+      ]
+    },
+    "where": "Finanse → Faktury kosztowe → ikona przy numerze faktury",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "finance.cost-pdf",
+    "steps": [
+      {
+        "anchor": "finance.costs-nav",
+        "text": "Otwórz „Faktury kosztowe”.",
+        "hint": "Kolejka faktur kosztowych z KSeF i PDF."
+      },
+      {
+        "anchor": "finance.cost-pdf",
+        "text": "Ikona przy numerze otwiera fakturę jako PDF.",
+        "hint": "Pierwsze otwarcie pobiera plik z KSeF, kolejne są od razu. Ten sam przycisk jest na karcie faktury.",
+        "ack": true
+      }
+    ]
+  },
+  {
     "id": "koszty-opis-do-ksiegowania",
     "title": "Faktura kosztowa: opis do księgowania jak w eBI24",
     "why": "„Opisz do księgowania” na karcie faktury: typ, rejestr, konta netto, VAT i „5”, samochód (½ VAT), import usług, procedura JPK, kurs NBP. Plik do Symfonii przyjmuje też FVZ, FVZP i IU.",
@@ -4137,7 +4167,7 @@
       ]
     },
     "section": "finance",
-    "dot_anchor": "finance.costs"
+    "dot_anchor": "finance.costs-nav"
   },
   {
     "id": "nie-szuka-data-kazda-karta",

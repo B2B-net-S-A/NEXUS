@@ -118,7 +118,7 @@ export function FinanceAreaNav({
       key: "costs",
       label: "Koszty",
       items: items(
-        fin("costs", "Faktury kosztowe", accountingOpen, 0, "finance.costs"), // data-tour="finance.costs"
+        fin("costs", "Faktury kosztowe", accountingOpen, undefined, "finance.costs-nav"), // data-tour="finance.costs-nav"
         fin("approved-expenses", "Wydatki ze zgodą", approvalsOpen),
         fin("booking", "Księgowanie faktur", accountingOpen),
         fin("payments", "Przelewy", accountingOpen),

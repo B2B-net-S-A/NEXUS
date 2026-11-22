@@ -262,7 +262,13 @@ def _sum(fa: Any, fields: tuple[str, ...]) -> Optional[Decimal]:
     return sum(present, Decimal("0")) if present else None
 
 
-def parse_invoice(xml: bytes) -> ParsedInvoice:
+def load_root(xml: bytes) -> Any:
+    """Bezpieczny odczyt pliku FA(2)/FA(3) — korzeń ``Faktura`` albo ``InvoiceParseError``.
+
+    Wspólne dla ``parse_invoice`` i wizualizacji (``fa_visual``): limit rozmiaru,
+    bez DTD i encji, bez sieci, właściwy formularz i wariant.
+    """
+
     if len(xml) > MAX_XML_BYTES:
         raise InvoiceParseError("too_large")
     lowered = xml.lower()
@@ -274,12 +280,17 @@ def parse_invoice(xml: bytes) -> ParsedInvoice:
         raise InvoiceParseError("malformed") from None
     if etree.QName(root).localname != "Faktura":
         raise InvoiceParseError("not_invoice")
-    variant = _text(root, "Naglowek", "WariantFormularza")
     if (
         _text(root, "Naglowek", "KodFormularza") != "FA"
-        or variant not in SUPPORTED_VARIANTS
+        or _text(root, "Naglowek", "WariantFormularza") not in SUPPORTED_VARIANTS
     ):
         raise InvoiceParseError("unsupported_form")
+    return root
+
+
+def parse_invoice(xml: bytes) -> ParsedInvoice:
+    root = load_root(xml)
+    variant = _text(root, "Naglowek", "WariantFormularza")
     fa = _child(root, "Fa")
     if fa is None:
         raise InvoiceParseError("not_invoice")
