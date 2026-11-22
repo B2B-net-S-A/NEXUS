@@ -101,6 +101,12 @@ REGISTERED_FLAGS: tuple[FeatureFlag, ...] = (
         expires=date(2027, 1, 6),
     ),
     FeatureFlag(
+        name="B2B_ESIGN_ADD_LTV",
+        purpose="Umowa B2B po podpisie obu stron dostaje dane do długiej weryfikacji (PAdES-LT: DSS z OCSP i CRL); włącza Artur po sprawdzeniu na prawdziwej umowie (KIR, Certum).",
+        decided=date(2026, 11, 23),
+        expires=date(2027, 1, 22),
+    ),
+    FeatureFlag(
         name="AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED",
         purpose="Pierwszy przegląd nowej rekrutacji w dzień; włącza się razem z porcją dnia.",
         decided=date(2026, 11, 7),

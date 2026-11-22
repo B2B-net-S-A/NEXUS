@@ -331,6 +331,45 @@ tylko kontraktor, podpisem kwalifikowanym” z sekcji o paczce.
   kontraktor z podpisem w chmurze podpisze dokumenty `any` tym samym
   zatwierdzeniem co umowę; kod z maila zostaje dla tych, którzy wolą.
 
+## Dane do długiej weryfikacji (PAdES-LT) w umowie po podpisie obu stron (E6, 23.11.2026)
+
+Dostawcy (np. KIR) dają podpis PAdES-BES albo PAdES-T: w pliku nie ma odpowiedzi
+OCSP ani list CRL z chwili podpisu, więc za kilka lat, gdy responder przestanie
+odpowiadać, a certyfikaty wygasną, podpisu nie da się sprawdzić. Umowa przenosi
+prawa autorskie (oba podpisy kwalifikowane), więc NEXUS dopisuje te dane sam,
+bez opłat: słownik DSS (certyfikaty ścieżek, OCSP, CRL, wpis VRI każdego
+podpisu, także znacznika czasu podpisu) jako jedną aktualizację przyrostową,
+bez nowego podpisu (`services/b2b_esign/long_term.py`).
+
+- **Za przełącznikiem `B2B_ESIGN_ADD_LTV`, domyślnie wyłączonym**, dopóki Artur
+  nie zdecyduje (zmiana zmiennej tylko workflow „Coolify set env”). Działa
+  tylko z `B2B_ESIGN_VALIDATOR=pyhanko`; z sidecarem DSS nic nie dopisuje,
+  bo nie ma listy UE w procesie.
+- **Gdzie:** `service.company_submit`, po przyjęciu pliku reprezentanta, przed
+  `SELECT … FOR UPDATE` (sieć i druga walidacja bez blokad i bez transakcji).
+  Zapisany jest jeden plik końcowy (`final_pdf_path`), więc Dokumenty
+  kontraktu (`_after_both_signed`), kopia kontraktora
+  (`_send_contractor_copy`) i oba pobrania „podpisana” dostają ten sam plik.
+  `validation.long_term` = chwila i `size_before`: wgrany plik to pierwsze
+  `size_before` bajtów pliku końcowego.
+- **To samo pobieranie co walidacja:** `QualifiedValidator.revocation_context`
+  (lista UE, `hard-fail`, adresy OCSP/CRL tylko z certyfikatów, bez nowych
+  hostów) i `fetcher_backend` (jeden na bieg, zamykany w `finally`). Limit
+  całości `long_term.TIMEOUT_S` = 60 s (pojedyncze żądanie 10 s).
+- **Najlepszy wysiłek:** awaria pobrania, przekroczenie czasu albo wynik, który
+  nie zaczyna się bajtami wgranego pliku (`builds_on`) lub nie przechodzi tej
+  samej walidacji i `judge` z tymi samymi osobami, zostawia wgrany plik bez
+  zmian i jedno ostrzeżenie `LT: umowa zostaje bez danych…`. Komunikat
+  przechodzi przez `redact_sensitive` (pyHanko wpisuje tam podmiot
+  certyfikatu). Podpisu obu stron to nie blokuje i nie cofa. Brak danych
+  samego znacznika czasu (TSA spoza listy) zostawia dane podpisującego.
+- Testy: `test_b2b_esign_long_term.py` z testowym kwalifikowanym CA
+  i serwerem OCSP/CRL na 127.0.0.1 (`tests/_qualified_ca.py`), w tym PAdES-T
+  i przebieg na bazie.
+- Przed włączeniem: sprawdzić na prawdziwej umowie (KIR, Certum), że plik
+  z DSS otwiera się w Acrobacie z „LTV włączone”, a walidator dalej daje
+  `QESig` obu podpisom.
+
 ## Reszta systemu przy umowie w podpisie (etap 1b, 21.10.2026)
 
 - **Dzwonki `signature_*` stoją za sekcją Sourcing** (bramka Generatora), nie

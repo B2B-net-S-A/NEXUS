@@ -32,9 +32,11 @@ from app.models.b2b_signing_request import OPEN_STATUSES, B2BSigningRequest
 from app.models.hr_leave import LeaveRequest
 from app.models.user import User
 from app.services import storage_service
+from app.services.b2b_esign import long_term
 from app.services.b2b_esign.verdict import (
     MSG_NOT_PDF,
     Fingerprint,
+    Verdict,
     judge,
     upload_problem,
 )
@@ -669,17 +671,35 @@ async def company_submit(
     if problem:
         raise HTTPException(status_code=422, detail=problem)
     await db.commit()  # jak wyżej — bez transakcji na czas walidacji
+
+    def _verdict(report: ValidationReport) -> Verdict:
+        return judge(
+            report,
+            authoritative=validator.authoritative,
+            required_signers=[contractor_name],
+            # Za firmę: podpis kwalifikowany jednej z osób z listy reprezentantów,
+            # niekoniecznie osoby, która wgrywa plik (26.10.2026).
+            any_of_signers=representative_names,
+        )
+
     report = await validator.validate(data)
-    verdict = judge(
-        report,
-        authoritative=validator.authoritative,
-        required_signers=[contractor_name],
-        # Za firmę: podpis kwalifikowany jednej z osób z listy reprezentantów,
-        # niekoniecznie osoby, która wgrywa plik (26.10.2026).
-        any_of_signers=representative_names,
-    )
+    verdict = _verdict(report)
     if not verdict.accepted:
         raise HTTPException(status_code=422, detail=verdict.message)
+
+    async def _still_accepted(candidate: bytes) -> bool:
+        """Plik z danymi LT przechodzi to samo co wgrany: początek pliku
+        kontraktora i ta sama walidacja z tymi samymi osobami."""
+        if upload_problem(candidate, contractor_version):
+            return False
+        return _verdict(await validator.validate(candidate)).accepted
+
+    # E6: dane do długiej weryfikacji (PAdES-LT) przed blokadą — to sieć
+    # (OCSP/CRL) i druga walidacja. Najlepszy wysiłek: bez nich zostaje
+    # wgrany plik, a podpis obu stron przechodzi jak dotąd.
+    final = await long_term.with_long_term_data(
+        data, validator=validator, still_accepted=_still_accepted
+    )
 
     row, locked = await lock_row_then_request(db, row_id, request_id)
     if not row_still_signable(row):
@@ -689,12 +709,20 @@ async def company_submit(
         or locked.contractor_sha256 != contractor_version.sha256
     ):
         raise HTTPException(status_code=409, detail=MSG_RACE)
+    # Jeden plik końcowy: z niego biorą Dokumenty kontraktu, kopia kontraktora
+    # i pobranie podpisanej umowy.
     path, _ = storage_service.save_b2b_signing_pdf(
-        locked.id, "podpisana_przez_obie_strony.pdf", data
+        locked.id, "podpisana_przez_obie_strony.pdf", final
     )
     locked.final_pdf_path = path
     locked.completed_at = now
     locked.validation = _with_report(locked, "company", report)
+    if final is not data:
+        # Wgrany plik to pierwsze ``size_before`` bajtów pliku końcowego.
+        locked.validation = {
+            **locked.validation,
+            "long_term": {"added_at": now.isoformat(), "size_before": len(data)},
+        }
     locked.status = "completed"
     # Link kontraktora zostaje na ``SIGNED_COPY_DAYS`` dni — tylko do pobrania
     # kopii (pętla przypomnień kasuje go potem).
