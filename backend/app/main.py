@@ -3334,7 +3334,20 @@ async def api_health_check():
         except Exception:
             checks["priority_work"] = "degraded"
 
-    from app.services.hr.availability_local import availability_enabled
+    from app.services.hr import availability_local as _availability_local
+
+    # Przełącznik źródła urlopów żyje w pamięci procesu i odświeżają go tylko
+    # żądania przez `workforce_context` oraz pętla lidera. Bez odczytu tutaj
+    # świeży proces po wdrożeniu raportował `disabled` przy włączonym źródle
+    # (22.11.2026). Odczyt najwyżej raz na minutę na proces.
+    try:
+        async with AsyncSessionLocal() as session:
+            await asyncio.wait_for(
+                _availability_local.refresh_source(session), timeout=1.0
+            )
+    except Exception:  # noqa: BLE001 — sonda informacyjna, zostaje ostatni stan
+        pass
+    availability_enabled = _availability_local.availability_enabled
 
     for flag, key, model_name in (
         (availability_enabled(), "workforce_availability", "source"),
