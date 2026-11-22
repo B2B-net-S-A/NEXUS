@@ -6,14 +6,23 @@ Kontrakty:
 - tylko rekrutacje, do których osoba jest przypisana;
 - najpierw wszystkie P0, potem P1 Pilne, „Bez priorytetu”, „Przyjmujemy”;
 - wspólna pula dzieli się na zmianę między przypisanych;
-- własne czekające karty liczą się najpierw i nie zabierają miejsca innym.
+- własne czekające karty liczą się najpierw i nie zabierają miejsca innym;
+- od 22.11.2026 (R2) 8 z 20 miejsc czeka na rekrutacje niepilne, a czego one
+  nie wezmą, wraca do pilnych.
 """
 
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
+
 from app.models.job import JobPriority, JobStatus
-from app.services.review_batch_plan import plan_portions, tier_key, tier_of
+from app.services.review_batch_plan import (
+    plan_portions,
+    rest_seats,
+    tier_key,
+    tier_of,
+)
 
 NOW = datetime(2026, 11, 10, 9, 0, tzinfo=timezone.utc)
 P0, P1, P2, ACCEPTING = 0, 1, 2, 3
@@ -79,6 +88,40 @@ def test_decisions_today_shrink_what_still_comes():
 
 def test_empty_pool_gives_nothing():
     assert _plan({7: 10}, {1: [7]}, {1: P0}, {1: 0}) == {7: {}}
+
+
+def test_twenty_is_twelve_urgent_and_eight_other():
+    """R2: 20.11 rekrutacje niepilne dostały 0 kart, a dają 62% CV."""
+    teams = {1: [7], 2: [7], 3: [7]}
+    tiers = {1: P0, 2: P1, 3: P2}
+    want = _plan({7: 20}, teams, tiers, {1: 50, 2: 50, 3: 50})
+    assert want == {7: {1: 12, 3: 8}}  # P0 przed P1, 8 miejsc na niepilne
+
+
+def test_other_seats_go_back_to_urgent_when_other_jobs_are_empty():
+    want = _plan({7: 20}, {1: [7], 2: [7]}, {1: P1, 2: ACCEPTING}, {1: 50, 2: 3})
+    assert want == {7: {1: 17, 2: 3}}
+
+
+def test_without_other_jobs_the_whole_portion_is_urgent():
+    assert _plan({7: 20}, {1: [7]}, {1: P0}, {1: 50}) == {7: {1: 20}}
+
+
+def test_only_other_jobs_take_the_whole_portion():
+    assert _plan({7: 20}, {1: [7]}, {1: P2}, {1: 50}) == {7: {1: 20}}
+
+
+def test_urgent_leftover_goes_to_other_jobs():
+    want = _plan({7: 20}, {1: [7], 2: [7]}, {1: P0, 2: P2}, {1: 5, 2: 50})
+    assert want == {7: {1: 5, 2: 15}}
+
+
+@pytest.mark.parametrize(
+    "cap, has_rest, seats",
+    [(20, True, 8), (10, True, 4), (15, True, 6), (1, True, 0), (20, False, 0)],
+)
+def test_rest_seats_scale_with_the_portion(cap, has_rest, seats):
+    assert rest_seats(cap, has_rest) == seats
 
 
 def _job(priority, p0_until=None):

@@ -24,6 +24,7 @@ from app.api.recruitment_access import (
 )
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.scheduling import business_date
 from app.models.candidate import Candidate
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
@@ -210,6 +211,13 @@ async def my_queue(
                     else None
                 ),
                 **_order_note(card),
+                # Odłożona na koniec porcji: bez decyzji od 2 dni roboczych (R5).
+                "stale": svc.is_stale(card, now),
+                "opened_on": (
+                    business_date(card.opened_at).isoformat()
+                    if card.opened_at is not None
+                    else None
+                ),
                 "key_facts": key_facts.get(card.process_id),
                 "why": {
                     "source": tier_key(tier_of(job, now)),

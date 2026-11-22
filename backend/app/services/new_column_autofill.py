@@ -479,21 +479,10 @@ async def ranked_picks(
             )
         )
     if min_score is not None:
-        # Osoba wysłana wcześniej do klienta wchodzi od 50% (20.11.2026).
-        from app.services import sent_before
-
-        floor = min(min_score, sent_before.MIN_SCORE)
-        narrowing.append(
-            or_(
-                both.c.score >= min_score,
-                (both.c.score >= floor)
-                & both.c.candidate_id.in_(
-                    sent_before.sent_elsewhere_select(
-                        job_id, now=datetime.now(timezone.utc)
-                    )
-                ),
-            )
-        )
+        # 22.11.2026 (R3): osoba wysłana wcześniej od tego samego progu co inni.
+        # Od 50% siedzi w puli (lista kandydatów), ale w porcji 60–64% dawało
+        # 0 CV z 40 decyzji. Kolejność dalej podnosi ``SENT_POINTS``.
+        narrowing.append(both.c.score >= min_score)
     rows = (
         await db.execute(
             select(both.c.candidate_id, both.c.score, both.c.run_id, both.c.evidence)

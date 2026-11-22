@@ -33,9 +33,12 @@ do tego bez nowego faktu.
   30 takich osób z tego samego przeglądu od 50%, tym samym filtrem (dopuszczony,
   oceniony, zmierzony, bez innej roli, bez osób z rekrutacji), z
   `evidence.sent_before`.
-- **Próg:** `ranked_picks(min_score=…)` i `in_batch` liczą osobę wysłaną
-  wcześniej od 50% zamiast progu porcji (65%). Niższy próg HoR działa dalej
-  dla wszystkich. Migawka karty ma `entry_meta.sent_before`.
+- **Próg (od 22.11.2026, R3):** w porcji osoba wysłana wcześniej liczy się od
+  progu porcji jak inni (`in_batch`, `ranked_picks(min_score=…)`). Od 20.11
+  liczyła się od 50%, ale porcja 20.11 pokazała: karty „wysłany wcześniej”
+  60–64% zajęły 116 z 301 miejsc i dały 0 CV z 40 decyzji, od 65% 4 CV
+  z 9 decyzji. W puli zostają od 50% (lista kandydatów), a w kolejce dostają
+  `SENT_POINTS`. Raport: https://claude.ai/artifact/Ec7UJD6UbQqwe4HgSiebZW.
 - **Kolejność:** `known_queue_points.SENT_POINTS` = 8 (stała, nie suwak panelu),
   ta sama skala co „u klienta” 6 i świeża notatka 8. Działa na Tablicy, w porcji
   i w dobieraniu (`facts_for_jobs`). Odrzucenie przez tego klienta dalej zeruje
@@ -52,6 +55,7 @@ do tego bez nowego faktu.
 ## Czego nie robić
 
 - Nie dawaj punktów ani niższego progu za sam screening bez wysyłki.
+- Nie przywracaj progu 50% w porcji bez nowego pomiaru (R3, 22.11.2026).
 - Nie podnoś sufitu porcji bez nowego pomiaru decyzji dnia (21+ dawały 0,9%).
 - Nie zastępuj telefonu mailem z pytaniem do kandydata w porcji (decyzja 20.11).
 - Pomiar po wdrożeniu: tygodniowy udział wysłanych, których system pokazał

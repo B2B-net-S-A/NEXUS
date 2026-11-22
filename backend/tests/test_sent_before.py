@@ -9,7 +9,8 @@ Kontrakty:
 - kolejka dostaje za nią ``SENT_POINTS``;
 - budżet ponad 15% i miasto dalej niż 100 km od biura jej nie wycinają, tylko
   dają ostrzeżenie; osoba bez wysyłki dalej odpada;
-- przy progu porcji (65%) wchodzi od 50% i ma ``sent_before`` w migawce.
+- przy progu porcji (65%) wchodzi od 65% jak inni (od 22.11.2026) i ma
+  ``sent_before`` w migawce.
 
 Baza testowa jest wspólna i nieczyszczona: asercje dotyczą własnych wierszy.
 """
@@ -179,13 +180,14 @@ async def test_budget_and_distance_do_not_cut_a_person_sent_before(monkeypatch):
     assert metas[pricey_sent]["sent_before"] is True
 
 
-async def test_batch_threshold_lets_a_sent_person_in_from_fifty():
-    """Z1: przy progu porcji 65% osoba wysłana wcześniej wchodzi od 50%."""
+async def test_batch_threshold_is_the_same_for_a_sent_person():
+    """R3, 22.11.2026: przy progu porcji 65% osoba wysłana wcześniej wchodzi
+    od 65% jak inni (60–64% dawało 0 CV z 40 decyzji), ale z flagą."""
     world = await _world(3)
     sent, below, weak_sent = world["ids"]
     await _sent(sent, world["earlier_id"], days_ago=10)
     await _sent(weak_sent, world["earlier_id"], days_ago=10)
-    await _pool(world["job_id"], {sent: 55, below: 60, weak_sent: 45})
+    await _pool(world["job_id"], {sent: 66, below: 60, weak_sent: 62})
 
     async with AsyncSessionLocal() as db:
         picks = await autofill.ranked_picks(
