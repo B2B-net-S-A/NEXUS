@@ -555,10 +555,11 @@ describe("GeneratedContractsTab — kolumny rejestru", () => {
       .getAllByRole("columnheader")
       .map((th) => th.textContent?.trim());
 
+    // Bez kolumny „NIP” (22.11.2026): przy 1280 px przyklejona kolumna
+    // „Akcje” zasłaniała cały „Status podpisu”, NIP jest pod Partnerem.
     expect(headers).toEqual([
       "Numer",
       "Partner",
-      "NIP",
       "Data rozpoczęcia",
       "Klient",
       "Status umowy",
@@ -569,12 +570,25 @@ describe("GeneratedContractsTab — kolumny rejestru", () => {
     expect(screen.queryByRole("columnheader", { name: "Język" })).toBeNull();
   });
 
-  it("pokazuje NIP i datę rozpoczęcia usług", async () => {
+  it("pokazuje NIP pod nazwą Partnera i datę rozpoczęcia usług", async () => {
     renderTab([generatedRow()]);
-    expect(await screen.findByText("1234563218")).toBeInTheDocument();
+    const nip = await screen.findByText("NIP 1234563218");
+    expect(nip.closest("td")?.textContent).toContain("JK Software Jan Kowalski");
+    expect(screen.queryByRole("columnheader", { name: "NIP" })).toBeNull();
     // DD.MM.RRRR bez godziny — w odróżnieniu od kolumny „Wygenerowano" (UAT M08-B06).
     expect(screen.getByText("25.08.2026")).toBeInTheDocument();
     expect(screen.queryByText("2026-08-25")).toBeNull();
+  });
+
+  it("„Zmień status” to sama ikona, nazwana dla czytników ekranu", async () => {
+    renderTab([generatedRow()]);
+    const button = await screen.findByRole("button", {
+      name: "Zmień status umowy 1471/2026",
+    });
+    expect(button).toHaveAttribute("title", "Zmień status umowy");
+    // Napis trzymał kolumnę „Status umowy” szeroką i spychał „Status
+    // podpisu” pod przyklejone „Akcje”.
+    expect(button.textContent?.trim()).toBe("");
   });
 
   it("pokazuje autora pod datą w kolumnie Wygenerowano zamiast osobnej kolumny", async () => {
@@ -645,6 +659,8 @@ describe("GeneratedContractsTab — kolumny rejestru", () => {
       }),
     ]);
     expect(await screen.findByText("Historyczny Partner")).toBeInTheDocument();
+    // Bez NIP-u nie ma pustej linii „NIP” pod nazwą.
+    expect(screen.queryByText(/^NIP\b/)).toBeNull();
   });
 });
 

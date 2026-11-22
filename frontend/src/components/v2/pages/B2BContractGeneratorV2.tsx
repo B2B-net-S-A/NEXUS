@@ -2966,14 +2966,20 @@ export function GeneratedContractsTab({
         ) : (
           <div className="overflow-x-auto">
             {/* `text-xs`, nie `text-sm`: przy 10 kolumnach rejestr nie mieści
-                się na typowej szerokości i tabela uciekała w poziomy scroll. */}
+                się na typowej szerokości i tabela uciekała w poziomy scroll.
+                Przy 1280 px z przypiętym menu tabela i tak stoi na minimalnej
+                szerokości treści, a przyklejona kolumna „Akcje” zasłania
+                to, co się nie mieści. Żeby „Status podpisu” był cały
+                (22.11.2026): NIP jest drugą linią pod Partnerem, „Zmień
+                status” samą ikoną, odstęp `pr-3`. Pomiar: zapas ok. 13 px
+                przy 1280 px — nowa szeroka treść przed „Statusem podpisu”
+                znów schowa go pod „Akcjami”. */}
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b text-left text-muted-foreground">
-                  <th className="py-2 pr-4 font-medium">Numer</th>
-                  <th className="py-2 pr-4 font-medium">Partner</th>
-                  <th className="py-2 pr-4 font-medium">NIP</th>
-                  <th className="py-2 pr-4 font-medium">
+                  <th className="py-2 pr-3 font-medium">Numer</th>
+                  <th className="py-2 pr-3 font-medium">Partner</th>
+                  <th className="py-2 pr-3 font-medium">
                     <span className="inline-flex items-center gap-1.5">
                       Data rozpoczęcia
                       <StartDateRangeFilter
@@ -2986,16 +2992,16 @@ export function GeneratedContractsTab({
                       />
                     </span>
                   </th>
-                  <th className="py-2 pr-4 font-medium">Klient</th>
-                  <th className="py-2 pr-4 font-medium">Status umowy</th>
-                  <th className="py-2 pr-4 font-medium">Status podpisu</th>
+                  <th className="py-2 pr-3 font-medium">Klient</th>
+                  <th className="py-2 pr-3 font-medium">Status umowy</th>
+                  <th className="py-2 pr-3 font-medium">Status podpisu</th>
                   {/* „Wygenerowano" niesie datę I autora (druga linia) —
                       jedna kolumna zamiast dwóch. Kontener jest przycięty do
                       `max-w-7xl`, więc rejestr o 10 kolumnach przelewał się
                       na KAŻDYM monitorze, a przyklejona kolumna akcji
                       zasłaniała wtedy to, co pod nią leżało: „Status podpisu"
                       z uciętym „Oznacz jako…". */}
-                  <th className="py-2 pr-4 font-medium">Wygenerowano</th>
+                  <th className="py-2 pr-3 font-medium">Wygenerowano</th>
                   {/* `sticky right-0`: przy tylu kolumnach tabela przelewa się
                       w poziomy scroll i akcje lądowały za prawą krawędzią —
                       ucięty przycisk czyta się jak brak możliwości („nie da
@@ -3023,7 +3029,7 @@ export function GeneratedContractsTab({
                   const cancelled = r.contract_status === "cancelled";
                   return (
                     <tr key={r.id} className="border-b">
-                      <td className="py-2 pr-4 font-medium">
+                      <td className="py-2 pr-3 font-medium">
                         {r.contract_number}
                       </td>
                       {/* Kolumna „Partner": NAZWA FIRMY z rejestru, nie nazwisko.
@@ -3032,7 +3038,7 @@ export function GeneratedContractsTab({
                           w dwóch kopiach, bo ta sama reguła decyduje o zapisie snapshotu.
                           `|| r.partner_name` to fallback na wypadek starszego backendu
                           (rollback jednej strony) — bez niego cała kolumna dałaby „—". */}
-                      <td className="py-2 pr-4">
+                      <td className="py-2 pr-3">
                         <div className="flex flex-col gap-0.5">
                           <span>
                             {r.partner_display_name || r.partner_name || "—"}
@@ -3040,6 +3046,11 @@ export function GeneratedContractsTab({
                           {r.partner_secondary_line ? (
                             <span className="text-xs text-muted-foreground">
                               {r.partner_secondary_line}
+                            </span>
+                          ) : null}
+                          {r.partner_nip ? (
+                            <span className="tabular-nums text-muted-foreground">
+                              NIP {r.partner_nip}
                             </span>
                           ) : null}
                           {/* Aneks zmienia wiersz już przy wygenerowaniu —
@@ -3057,15 +3068,12 @@ export function GeneratedContractsTab({
                           ) : null}
                         </div>
                       </td>
-                      <td className="py-2 pr-4 tabular-nums">
-                        {r.partner_nip || "—"}
-                      </td>
                       {/* Data ROZPOCZĘCIA USŁUG — surowe ISO, bez godziny (kontrast:
                           „Wygenerowano" niżej celowo pokazuje czas). */}
-                      <td className="py-2 pr-4 tabular-nums">
+                      <td className="py-2 pr-3 tabular-nums">
                         <RegisterStartDate row={r} />
                       </td>
-                      <td className="py-2 pr-4">
+                      <td className="py-2 pr-3">
                         {editing ? (
                           <Input
                             autoFocus
@@ -3087,8 +3095,8 @@ export function GeneratedContractsTab({
                           r.client_name || "—"
                         )}
                       </td>
-                      <td className="py-2 pr-4">
-                        <div className="flex min-w-44 flex-col items-start gap-1.5">
+                      <td className="py-2 pr-3">
+                        <div className="flex flex-col items-start gap-1.5">
                           <Badge
                             variant={
                               B2B_CONTRACT_STATUS_VARIANT[r.contract_status]
@@ -3137,6 +3145,9 @@ export function GeneratedContractsTab({
                           <RegisterRowWarnings row={r} />
                           <LinkContractAction row={r} />
 
+                          {/* Sama ikona, jak w „Bez projektu” i „Zakończonych”
+                              (22.11.2026): napis „Zmień status” trzymał kolumnę
+                              szeroką i spychał „Status podpisu” pod „Akcje”. */}
                           <div className="flex items-center gap-1">
                             {r.can_change_status ? (
                               <Button
@@ -3149,7 +3160,6 @@ export function GeneratedContractsTab({
                                 aria-label={`Zmień status umowy ${r.contract_number}`}
                               >
                                 <Pencil className="h-4 w-4" />
-                                <span className="ml-1">Zmień status</span>
                               </Button>
                             ) : null}
                             <Button
@@ -3166,7 +3176,7 @@ export function GeneratedContractsTab({
                           </div>
                         </div>
                       </td>
-                      <td className="py-2 pr-4">
+                      <td className="py-2 pr-3">
                         <div className="flex flex-col items-start gap-1.5">
                           {/* Anulowana umowa NIE zmienia etykiety — podpisu
                               nadal nie ma, więc „Niepodpisana" jest prawdą.
@@ -3305,7 +3315,7 @@ export function GeneratedContractsTab({
                           ) : null}
                         </div>
                       </td>
-                      <td className="py-2 pr-4">
+                      <td className="py-2 pr-3">
                         <div className="flex flex-col gap-0.5">
                           <span className="whitespace-nowrap text-muted-foreground">
                             {formatDateTimePl(r.created_at)}
@@ -3753,8 +3763,8 @@ function LifecycleContractsTab({
               <thead>
                 <tr className="border-b text-left text-muted-foreground">
                   <th className="py-2 pr-4 font-medium">Numer umowy</th>
+                  {/* NIP pod Partnerem — jak w „Umowach bieżących”. */}
                   <th className="py-2 pr-4 font-medium">Partner</th>
-                  <th className="py-2 pr-4 font-medium">NIP</th>
                   <th className="py-2 pr-4 font-medium">
                     <span className="inline-flex items-center gap-1.5">
                       Data rozpoczęcia
@@ -3805,10 +3815,12 @@ function LifecycleContractsTab({
                             {r.partner_secondary_line}
                           </span>
                         ) : null}
+                        {r.partner_nip ? (
+                          <span className="tabular-nums text-muted-foreground">
+                            NIP {r.partner_nip}
+                          </span>
+                        ) : null}
                       </div>
-                    </td>
-                    <td className="py-2 pr-4 tabular-nums">
-                      {r.partner_nip || "—"}
                     </td>
                     <td className="py-2 pr-4 tabular-nums">
                       {formatIsoDatePl(r.start_date)}
