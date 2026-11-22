@@ -24,7 +24,6 @@ from app.models.sales import (
     SalesPipeline,
     SalesPipelineStage,
 )
-from app.services.sales.atlas_import import PROTECTED
 from app.services.sales.decision_map import IT_FACTORIES_PIPELINE_KEY
 from app.services.sales.summary import build_summary
 from app.services.sales.touch import last_touch_at
@@ -390,14 +389,6 @@ async def test_summary_stale_count_uses_the_same_definition() -> None:
 
     row = next(o for o in summary.by_owner if o.owner_id == owner.id)
     assert (row.open, row.stale) == (2, 1)
-
-
-# ── Import ───────────────────────────────────────────────────────────────
-
-
-def test_second_import_keeps_decisions_made_in_nexus() -> None:
-    assert {"keep_open_until", "archived_reason"} <= PROTECTED["sales_opportunities"]
-    assert "kind" in PROTECTED["sales_activities"]
 
 
 # ── Tryb cienia ──────────────────────────────────────────────────────────

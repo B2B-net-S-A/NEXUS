@@ -1,4 +1,4 @@
-"""Bramki tras opieki (``/api/care``): ``contract_care``, ``care_skills``, ``care_atlas``.
+"""Bramki tras opieki (``/api/care``): ``contract_care`` i ``care_skills``.
 
 Dostęp (decyzja D7 i zadanie E5, 16.10.2026):
 
@@ -11,9 +11,6 @@ Dostęp (decyzja D7 i zadanie E5, 16.10.2026):
 
 * **kolejka technologii** — czytają ją też osoby od słownika umiejętności
   (Head of Recruitment); decyzje: admin, Head of Recruitment, TCM,
-* **ATLAS** — klucz konta serwisowego (``X-API-Key``) z ``clients:read``
-  i ``contracts:read`` (najbliższe istniejące zakresy; własnego zakresu
-  sygnałów nie ma), zwrot statusów — na razie tylko admin.
 * **Rytm kontaktu i przydział opiekunów** (etap 3, O8 i O10, 17.10.2026) —
   rytm czytają czytelnicy opieki, a zmienia go opiekun kontraktu, DL klienta,
   head back office i admin (sprawdza serwis ``care/cadence`` per kontrakt);
@@ -45,13 +42,11 @@ from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
-    Caller,
     require_onboarded_user,
     require_permission_or_roles,
     require_roles,
-    require_service_scope,
 )
-from app.api.hr_gates import MODULE_DISABLED_DETAIL, ensure_module
+from app.api.hr_gates import ensure_module
 from app.api.permission_access import (
     ClientContractsEditUser,
     ClientsEditUser,
@@ -63,12 +58,10 @@ from app.api.section_access import (
     require_section_access_any_read,
 )
 from app.core.database import get_db
-from app.models.service_account import ServiceScope
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction
 from app.services.care import access as care_access
 from app.services.care import cadence as care_cadence
-from app.services.hr import modules as hr_modules
 from app.services.hr.modules import HrModule
 from app.services.permission_denial import ensure_permission
 from app.services.section_permissions import ProductSection
@@ -122,8 +115,6 @@ PEOPLE_DENIED = (
 MANAGER_APPROVER_DENIED = (
     "Menedżera u klienta zatwierdza Delivery Lead klienta albo administrator."
 )
-_ATLAS_SCOPE = require_service_scope(ServiceScope.sales_signals_read)
-_ATLAS_WRITE_SCOPE = require_service_scope(ServiceScope.sales_signals_write)
 
 
 def require_hr_care_reader():
@@ -239,36 +230,6 @@ def require_hr_care_skill_curator():
     return _check
 
 
-def require_hr_care_atlas_reader():
-    """ATLAS: klucz z ``sales_signals:read`` albo admin z JWT.
-
-    Klucz konta serwisowego nie ma osoby, więc przełącznik modułu czyta się
-    wprost (admin z JWT przechodzi jak w ``ensure_module``).
-    """
-
-    async def _check(
-        caller: Caller = Depends(_ATLAS_SCOPE),
-        db: AsyncSession = Depends(get_db),
-    ) -> Caller:
-        if caller.user is not None:
-            return caller
-        loaded = await hr_modules.load_modules(db)
-        if not loaded.get(HrModule.care):
-            raise HTTPException(status.HTTP_404_NOT_FOUND, MODULE_DISABLED_DETAIL)
-        return caller
-
-    return _check
-
-
-def require_hr_care_atlas_admin():
-    """Zwrot statusów sygnałów: klucz z ``sales_signals:write`` albo admin z JWT."""
-
-    async def _check(caller: Caller = Depends(_ATLAS_WRITE_SCOPE)) -> Caller:
-        return caller
-
-    return _check
-
-
 def require_hr_client_people_reader():
     """Struktura u klienta i opinie (D11): opiekun, DL klienta, HoR, admin.
 
@@ -376,8 +337,6 @@ CareAssigner = require_hr_care_assigner()
 RhythmReader = require_hr_care_rhythm_reader()
 ReviewReader = require_hr_care_review_reader()
 SkillCurator = require_hr_care_skill_curator()
-AtlasReader = require_hr_care_atlas_reader()
-AtlasAdmin = require_hr_care_atlas_admin()
 PeopleReader = require_hr_client_people_reader()
 OrgEditor = require_hr_client_org_editor()
 ManagerApprover = require_hr_client_manager_approver()

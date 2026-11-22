@@ -41,7 +41,7 @@ from app.services.b2b_contract_generator.registry_lookup import lookup_company
 from app.services.sales import calls as sales_calls
 from app.services.sales import companies as service
 from app.services.sales import registry_cards
-from app.services.sales.atlas_import import ATLAS_REVIEW_TAG
+from app.services.sales.companies import ATLAS_REVIEW_TAG
 from app.services.sales.merge import merge_companies
 
 router = APIRouter()

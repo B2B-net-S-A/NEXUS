@@ -18,13 +18,6 @@ from app.models.sales import (
     SalesPipelineStage,
 )
 from app.services.sales.decision_map import IT_FACTORIES_PIPELINE_KEY
-from tests.test_sales_atlas_import_gaps import (
-    LATER,
-    FakeAtlas,
-    _import,
-    _one,
-    _sales_pipeline,
-)
 from tests.test_sales_companies_api import _headers, _user
 from tests.test_sales_opportunities_api import URL, _company, _stages
 
@@ -464,75 +457,3 @@ async def test_values_from_contact_are_marked_and_not_stored_on_the_map(
     assert entry["email"] == "kontakt@example.com"
     assert entry["notes"] == "Z mapy"
     assert entry["from_contact"] == ["email"]
-
-
-@pytest.mark.asyncio
-async def test_reimport_keeps_edited_map_and_refreshes_untouched_one(
-    app_client,
-) -> None:
-    rep = await _user("sales_edit")
-    tag = uuid.uuid4().hex[:8]
-    edited_ref, untouched_ref = f"atlas:deals:d1-{tag}", f"atlas:deals:d2-{tag}"
-
-    def atlas(person: str) -> FakeAtlas:
-        def deal(number: int) -> dict[str, Any]:
-            return {
-                "id": f"d{number}-{tag}",
-                "title": f"Fabryka {number}",
-                "company_id": f"c1-{tag}",
-                "stage_id": "stage-lead",
-                "status": "open",
-                "custom_fields": {
-                    "it_factory": {
-                        "decision_map": [{"name": person, "contact_id": f"p1-{tag}"}]
-                    }
-                },
-            }
-
-        return FakeAtlas(
-            {
-                **_sales_pipeline(tag),
-                "companies": [{"id": f"c1-{tag}", "name": f"Mapa Import {tag}"}],
-                "contacts": [
-                    {
-                        "id": f"p1-{tag}",
-                        "full_name": "Osoba Atlas",
-                        "primary_company_id": f"c1-{tag}",
-                    }
-                ],
-                "deals": [deal(1), deal(2)],
-            }
-        )
-
-    await _import(atlas("Osoba Atlas"))
-    opportunity_id = (await _one(SalesOpportunity, edited_ref)).id
-    detail = (
-        await app_client.get(f"{URL}/{opportunity_id}", headers=_headers(rep))
-    ).json()
-    resp = await app_client.patch(
-        f"{URL}/{opportunity_id}/decision-map/{_map(detail)[0]['key']}",
-        json={
-            "notes": "Poprawione w NEXUSIE",
-            "linkedin_url": "https://linkedin.com/in/osoba",
-        },
-        headers=_headers(rep),
-    )
-    assert resp.status_code == 200, resp.text
-    contact_ref = f"atlas:contacts:p1-{tag}"
-    assert (await _one(SalesContact, contact_ref)).linkedin_url is not None
-
-    await _import(atlas("Osoba Atlas Nowa"), now=LATER)
-
-    edited = (await _one(SalesOpportunity, edited_ref)).custom_fields
-    [person] = edited["atlas"]["it_factory"]["decision_map"]
-    assert (person["name"], person["notes"]) == ("Osoba Atlas", "Poprawione w NEXUSIE")
-    # Kontakt uzupełniony z mapy też przeżywa bieg (Atlas nie ma tam LinkedIna).
-    contact = await _one(SalesContact, contact_ref)
-    assert contact.linkedin_url == "https://linkedin.com/in/osoba"
-    assert contact.notes == "Poprawione w NEXUSIE"
-
-    untouched = (await _one(SalesOpportunity, untouched_ref)).custom_fields
-    assert (
-        untouched["atlas"]["it_factory"]["decision_map"][0]["name"]
-        == "Osoba Atlas Nowa"
-    )
