@@ -45,7 +45,9 @@ from app.core.scheduling import (
 from app.models.user import UserRole
 from app.schemas.dashboard_v2 import FirstCvSummary
 from app.services import competition_history
+from app.schemas.insights_ai_card import AiCardCvShare
 from app.services.client_response_metrics import compute_first_cv
+from app.services.insights_ai_card_cv_share import compute_ai_card_cv_share
 from app.services.funnel_coverage import STAGES_WITHOUT_TRAFFIT_COVERAGE
 from app.services.team_filters import TeamRoleFilter, team_role_user_ids
 from app.services.insights_competence_matrix import compute_competence_matrix
@@ -510,6 +512,29 @@ async def insights_recruitment_first_cv(
         if cached is not None:
             return FirstCvSummary.model_validate(cached)
         result = await compute_first_cv(db, today)
+        await cache_set(
+            cache_key, result.model_dump(mode="json"), ttl_seconds=CACHE_TTL_SECONDS
+        )
+        return result
+
+
+@router.get("/cv-from-ai-card", response_model=AiCardCvShare)
+async def insights_recruitment_cv_from_ai_card(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> AiCardCvShare:
+    """Kafelek „CV do klienta z karty AI” w Zespole (decyzja Artura 22.11.2026).
+
+    Bieżący tydzień i 4 poprzednie, cała firma, cel 100%. Same liczby, bez
+    nazwisk i kwot, więc widzi go każdy z dostępem do Insights, jak lejek.
+    """
+    today = business_today()
+    cache_key = f"insights:recruitment:cv-from-ai-card:v1:{today.isoformat()}"
+    async with cache_single_flight(cache_key, db=db):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return AiCardCvShare.model_validate(cached)
+        result = await compute_ai_card_cv_share(db, today)
         await cache_set(
             cache_key, result.model_dump(mode="json"), ttl_seconds=CACHE_TTL_SECONDS
         )

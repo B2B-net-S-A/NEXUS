@@ -36,7 +36,11 @@ import {
   type PanelActionId,
   type PanelWarning,
 } from "@/lib/contract-panel";
-import { relativeDays, type HappeningOrderAfterEnd } from "@/lib/contract-happening";
+import {
+  relativeDays,
+  type HappeningOrderAfterEnd,
+  type TerminationDocumentRef,
+} from "@/lib/contract-happening";
 import { humanizeActivity } from "@/lib/contract-history";
 import { B2B_EXTENSION_HINT, b2bExtensionLocked } from "@/lib/contract-end-date";
 import {
@@ -124,6 +128,8 @@ interface ContractPanelDetail extends ContractPanelFacts {
   related_contracts?: ContractSiblingRef[];
   /** Zamówienia na okres po końcu współpracy (konflikt do decyzji, #3664). */
   order_after_end?: HappeningOrderAfterEnd[];
+  /** Wypowiedzenie/porozumienie w Dokumentach przy niezapisanym rozwiązaniu (22.11.2026). */
+  termination_document?: TerminationDocumentRef | null;
   returned_from_contract_id?: number | null;
   return_contract_id?: number | null;
 }
@@ -1045,6 +1051,7 @@ export function ContractSidePanel({
           contractId={contract.id}
           candidateName={contract.candidate_name}
           projectEnd={contract.end_date ?? null}
+          existingDocument={contract.termination_document ?? null}
           onClose={() => setDialog(null)}
         />
       )}

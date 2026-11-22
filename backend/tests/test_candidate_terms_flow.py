@@ -389,3 +389,48 @@ async def test_blacklisted_and_stale_get_no_mail(
     finally:
         await _cleanup(banned)
         await _cleanup(stale)
+
+
+@pytest.mark.asyncio
+async def test_daily_limit_sends_newest_applications_first(
+    app_client: AsyncClient, app_auth_headers: dict, outbox, monkeypatch
+):
+    """Limit 20 przy ~270 zgłoszeniach dziennie: najstarsze najpierw dawało mail
+    „Zgłoszenie przyjęte” 2–3 dni po aplikacji (pomiar 22.11.2026). Idą najnowsze,
+    starsze czekają i po 3 dniach odpadają."""
+    from app.core.config import settings
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate_terms_request import CandidateTermsRequest
+    from app.services.candidate_terms_queue import _sent_today
+
+    older = await _seed()
+    newer = await _seed()
+    try:
+        for cid in (older, newer):
+            await app_client.post(
+                f"/api/candidates/{cid}/sources",
+                json={"channel": "posting", "utm_source": "pracuj"},
+                headers=app_auth_headers,
+            )
+        real_now = datetime.now(timezone.utc)
+        async with AsyncSessionLocal() as db:
+            for cid, queued in (
+                (older, real_now - timedelta(hours=1)),
+                (newer, real_now + timedelta(hours=1)),
+            ):
+                await db.execute(
+                    update(CandidateTermsRequest)
+                    .where(CandidateTermsRequest.candidate_id == cid)
+                    .values(queued_at=queued)
+                )
+            await db.commit()
+            # Miejsce na jeden mail dziś, niezależnie od wierszy innych testów.
+            room_for_one = await _sent_today(db, _window_now()) + 1
+        monkeypatch.setattr(settings, "CANDIDATE_TERMS_DAILY_LIMIT", room_for_one)
+        await _send_queue()
+        assert len(await _mails_for(outbox, newer)) == 1
+        assert await _mails_for(outbox, older) == []
+        assert [r.status for r in await _rows(older)] == ["queued"]
+    finally:
+        await _cleanup(older)
+        await _cleanup(newer)

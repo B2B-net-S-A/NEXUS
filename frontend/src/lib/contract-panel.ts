@@ -79,7 +79,11 @@ export type PanelContract = ContractPanelFacts &
   Partial<
     Pick<
       HappeningContract,
-      "termination_lessons" | "agreement_termination_mode" | "prolongation_status" | "order_after_end"
+      | "termination_lessons"
+      | "agreement_termination_mode"
+      | "prolongation_status"
+      | "order_after_end"
+      | "termination_document"
     >
   > & {
     contract_type: string;
@@ -130,6 +134,7 @@ export function contractPanelWarnings(
       rate_client: c.rate_client ?? null,
       can_reverse_termination: c.can_reverse_termination ?? false,
       order_after_end: c.order_after_end ?? [],
+      termination_document: c.termination_document ?? null,
     },
     care,
     today,
