@@ -97,8 +97,6 @@ export const SCOPE_GROUPS: readonly ScopeGroupDefinition[] = [
     scopes: [
       "traffit:read",
       "ops:snapshot",
-      "contractors:read",
-      "people_roster:read",
       "sales_signals:read",
       "sales_signals:write",
     ],
