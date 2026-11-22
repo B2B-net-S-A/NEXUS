@@ -39,6 +39,13 @@ logger = logging.getLogger(__name__)
 
 MSG_DOC_NOT_FOUND = "Tego dokumentu nie ma w paczce do podpisu."
 MSG_DOC_SIGNED = "Ten dokument jest już przez Ciebie podpisany."
+# Dokument bez wymogu kwalifikowanego (0754): podpis niekwalifikowany w pliku
+# nie przejdzie walidatora, ale ten sam dokument można zaakceptować kodem.
+MSG_ANY_NOT_QUALIFIED = (
+    "Ten plik nie ma podpisu kwalifikowanego. Ten dokument nie wymaga go: "
+    "zaakceptuj go kodem z maila na tej stronie albo podpisz plik podpisem "
+    "kwalifikowanym."
+)
 MSG_DOC_CHOICE = (
     "Do paczki dodasz tylko dokumenty z listy klienta, których jeszcze brakuje."
 )
@@ -100,10 +107,25 @@ async def render_pdf(
     return await pdf_from_docx(data)
 
 
+def choose_qualified(
+    chosen: list[ClientStartDocument], qualified_ids: Optional[list[int]]
+) -> set[int]:
+    """Dokumenty, przy których klient wymaga podpisu kwalifikowanego (0754).
+
+    Reszta dostaje wymóg ``any``: kwalifikowany jest obowiązkowy tylko przy
+    umowie z przeniesieniem praw autorskich (decyzja Artura 22.11.2026).
+    Id spoza wybranych dokumentów = 422."""
+    wanted = set(qualified_ids or [])
+    if not wanted <= {d.id for d in chosen}:
+        raise HTTPException(status_code=422, detail=MSG_DOC_CHOICE)
+    return wanted
+
+
 async def attach(
     db: AsyncSession,
     request: B2BSigningRequest,
     prepared: list[tuple[ClientStartDocument, bytes]],
+    qualified_ids: set[int] | frozenset[int] = frozenset(),
 ) -> list[B2BSigningDocument]:
     """Zamroź PDF-y dokumentów przy wniosku (po ``service.send``)."""
     out: list[B2BSigningDocument] = []
@@ -120,6 +142,7 @@ async def attach(
             source_pdf_path=path,
             source_sha256=source.sha256,
             source_size=source.size,
+            requirement="qualified" if document.id in qualified_ids else "any",
         )
         db.add(item)
         out.append(item)
@@ -183,7 +206,10 @@ async def contractor_submit(
     if not verdict.accepted:
         if verdict.code != "no_validator":
             await service.count_failed_attempt(db, request_id)
-        raise HTTPException(status_code=422, detail=verdict.message)
+        message = verdict.message
+        if verdict.code == "not_qualified" and item.requirement == "any":
+            message = MSG_ANY_NOT_QUALIFIED
+        raise HTTPException(status_code=422, detail=message)
 
     row, locked = await service.lock_row_then_request(db, row_id, request_id)
     if not service.row_still_signable(row):
@@ -204,6 +230,7 @@ async def contractor_submit(
     item.signed_pdf_path = path
     item.signed_sha256 = Fingerprint.of(data).sha256
     item.signed_at = now
+    item.signed_via = "qualified"
     item.validation = report.as_db_report()
     service.push_event(locked, "document_signed", now, title=item.title)
     await db.flush()
@@ -212,8 +239,14 @@ async def contractor_submit(
 
 
 def pair_file_name(item: B2BSigningDocument) -> str:
-    """Nazwa pliku w „Dokumentach do startu”: DL widzi, skąd przyszedł."""
-    return f"{item.title} (podpis w NEXUSIE).pdf"[:255]
+    """Nazwa pliku w „Dokumentach do startu”: DL widzi, skąd przyszedł
+    i czy to podpis, czy akceptacja kodem z maila (0754)."""
+    how = (
+        "zaakceptowane w NEXUSIE"
+        if item.signed_via == "email_code"
+        else "podpis w NEXUSIE"
+    )
+    return f"{item.title} ({how}).pdf"[:255]
 
 
 async def deliver_to_pair(

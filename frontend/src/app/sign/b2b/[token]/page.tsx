@@ -74,6 +74,9 @@ export default async function B2BSignPage({ params }: PageProps) {
         Umowa przenosi autorskie prawa majątkowe, dlatego prawo wymaga{" "}
         <strong>kwalifikowanego podpisu elektronicznego</strong>. Zwykły podpis, zaawansowany
         (także podpis osobisty z e-dowodu) ani profil zaufany nie wystarczą.
+        {view.documents?.some((d) => d.requirement === "any")
+          ? " Pozostałe dokumenty nie wymagają podpisu kwalifikowanego: zaakceptujesz je kodem z maila."
+          : ""}
         {expires && view.status === "waiting" ? ` Link ważny do ${expires}.` : ""}
       </p>
       <B2BSignForm
@@ -85,6 +88,7 @@ export default async function B2BSignPage({ params }: PageProps) {
         contractNumber={view.contract_number}
         contractSigned={Boolean(view.contract_signed)}
         documents={view.documents ?? []}
+        acceptEmail={view.accept_code_email ?? null}
       />
     </div>
   );

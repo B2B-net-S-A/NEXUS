@@ -1574,7 +1574,9 @@ except Exception as _premium_skill_schema_err:  # noqa: BLE001
 try:
     from app.services.b2b_esign import documents_schema as _b2b_signing_documents_schema
 
-    _B2B_SIGNING_DOCUMENTS_DDL = list(_b2b_signing_documents_schema.TABLE_DDL)
+    _B2B_SIGNING_DOCUMENTS_DDL = list(_b2b_signing_documents_schema.TABLE_DDL) + list(
+        _b2b_signing_documents_schema.ACCEPT_CODE_DDL
+    )
 except Exception as _b2b_signing_documents_schema_err:  # noqa: BLE001
     print(f"b2b signing documents schema unavailable: {_b2b_signing_documents_schema_err!r}")
     _B2B_SIGNING_DOCUMENTS_DDL = []

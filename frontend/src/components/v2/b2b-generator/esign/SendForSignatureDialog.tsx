@@ -54,6 +54,9 @@ export function SendForSignatureDialog({
   const [cc, setCc] = useState<number[]>([]);
   // Paczka (13.11.2026): wzory z listy klienta „Dokumenty do startu”, wszystkie zaznaczone.
   const [docIds, setDocIds] = useState<number[]>([]);
+  // 0754 (22.11.2026): kwalifikowany tylko przy umowie; klient może go wymagać
+  // także przy dokumencie, wtedy kodem z maila się go nie zaakceptuje.
+  const [qualifiedIds, setQualifiedIds] = useState<number[]>([]);
 
   useEffect(() => {
     if (!defaults.data) return;
@@ -71,6 +74,7 @@ export function SendForSignatureDialog({
         days,
         cc_user_ids: cc,
         start_document_ids: docIds,
+        qualified_document_ids: qualifiedIds.filter((id) => docIds.includes(id)),
       }),
     onSuccess: (data) => {
       setResult(data);
@@ -237,28 +241,75 @@ export function SendForSignatureDialog({
                         data-tour="b2b.esign.package"
                       >
                         <legend className="text-sm font-medium">Do podpisu razem z umową</legend>
-                        <div className="flex flex-col gap-1">
-                          {(defaults.data.documents ?? []).map((document) => (
-                            <label key={document.id} className="flex items-center gap-2 text-sm">
-                              <Checkbox
-                                checked={docIds.includes(document.id)}
-                                onCheckedChange={(value) =>
-                                  setDocIds((prev) =>
-                                    value === true
-                                      ? [...prev, document.id]
-                                      : prev.filter((id) => id !== document.id),
-                                  )
-                                }
-                              />
-                              {document.name}
-                            </label>
-                          ))}
+                        <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+                          <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+                            <span className="font-medium text-foreground">
+                              Umowa B2B {row.contract_number}
+                            </span>
+                            <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                              kwalifikowany · przenosi prawa autorskie
+                            </span>
+                          </div>
+                          {(defaults.data.documents ?? []).map((document) => {
+                            const included = docIds.includes(document.id);
+                            const qualified = qualifiedIds.includes(document.id);
+                            return (
+                              <div
+                                key={document.id}
+                                className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"
+                              >
+                                <label className="flex items-center gap-2">
+                                  <Checkbox
+                                    checked={included}
+                                    onCheckedChange={(value) =>
+                                      setDocIds((prev) =>
+                                        value === true
+                                          ? [...prev, document.id]
+                                          : prev.filter((id) => id !== document.id),
+                                      )
+                                    }
+                                  />
+                                  {document.name}
+                                </label>
+                                <span className="ml-auto flex flex-wrap items-center gap-3">
+                                  <span
+                                    className={
+                                      qualified
+                                        ? "rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"
+                                        : "rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                                    }
+                                  >
+                                    {qualified
+                                      ? "kwalifikowany (wymóg klienta)"
+                                      : "dowolny podpis · wybiera kontraktor"}
+                                  </span>
+                                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                    <Checkbox
+                                      checked={qualified}
+                                      disabled={!included}
+                                      onCheckedChange={(value) =>
+                                        setQualifiedIds((prev) =>
+                                          value === true
+                                            ? [...prev, document.id]
+                                            : prev.filter((id) => id !== document.id),
+                                        )
+                                      }
+                                      aria-label={`Klient wymaga podpisu kwalifikowanego: ${document.name}`}
+                                    />
+                                    klient wymaga kwalifikowanego
+                                  </label>
+                                </span>
+                              </div>
+                            );
+                          })}
                         </div>
                         <p id={`esign-docs-help-${row.id}`} className="text-xs text-muted-foreground">
                           Wzory z listy klienta „Dokumenty do startu”, których jeszcze brakuje.
-                          Kontraktor podpisuje wszystko pod jednym linkiem, a podpisany dokument od
-                          razu trafia do jego dokumentów do startu. Umowa przejdzie do podpisu za
-                          B2Bnetwork po ostatnim podpisanym pliku.
+                          Kwalifikowany jest wymagany tylko przy umowie. Pozostałe dokumenty
+                          kontraktor podpisze tym samym podpisem albo zaakceptuje kodem z maila,
+                          chyba że zaznaczysz wymóg klienta. Gotowy dokument od razu trafia do
+                          jego dokumentów do startu, a umowa przejdzie do podpisu za B2Bnetwork po
+                          ostatnim gotowym pliku.
                         </p>
                       </fieldset>
                     ) : null}
