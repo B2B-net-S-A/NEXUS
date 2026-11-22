@@ -677,7 +677,7 @@
       },
       {
         "q": "Partner się wycofał przed podpisem — co zrobić?",
-        "a": "Zmień status umowy na „Anulowana”. Wpis zostaje w „Umowach” w fazie „Bieżące”, numer nie wraca do puli, a powrót na „W trakcie” to jedno kliknięcie."
+        "a": "Kliknij ołówek przy statusie umowy („Zmień status umowy”) i wybierz „Anulowana”. Wpis zostaje w „Umowach” w fazie „Bieżące”, numer nie wraca do puli, a powrót na „W trakcie” to jedno kliknięcie."
       },
       {
         "q": "Jak przygotować aneks?",

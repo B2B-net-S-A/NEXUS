@@ -175,10 +175,10 @@ describe("Umowy bez projektu", () => {
     const headers = Array.from(document.querySelectorAll("th")).map((th) =>
       (th.textContent ?? "").trim(),
     );
+    // NIP pod Partnerem, nie w osobnej kolumnie — jak w „Umowach bieżących”.
     expect(headers).toEqual([
       "Numer umowy",
       "Partner",
-      "NIP",
       "Data rozpoczęcia",
       "Data zakończenia projektu",
       "Klient",
@@ -186,6 +186,9 @@ describe("Umowy bez projektu", () => {
       "Powód zakończenia projektu",
       "Akcje",
     ]);
+    expect(
+      screen.getByText("NIP 1234563218").closest("td")?.textContent,
+    ).toContain("JK Software Jan Kowalski");
   });
 
   it("pokazuje status, datę i powód zakończenia projektu", async () => {
@@ -349,7 +352,6 @@ describe("Zakończone umowy", () => {
     expect(headers).toEqual([
       "Numer umowy",
       "Partner",
-      "NIP",
       "Data rozpoczęcia",
       "Data zakończenia umowy",
       "Data zakończenia zamówienia",
