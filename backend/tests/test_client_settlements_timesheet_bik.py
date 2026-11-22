@@ -238,6 +238,48 @@ def test_day_table_without_title_and_name() -> None:
     assert "Raport godzin bez imienia i nazwiska" in _titles(result)
 
 
+def test_day_table_total_row_with_label_is_not_an_entry() -> None:
+    """Tabela dni „Dzień · Data · Liczba godzin” z wierszem „Łącznie” pod nią
+    (próba rozliczeń 22.11.2026: suma liczona jako wpis, MD podwójne)."""
+
+    rows: list[list[object]] = [
+        ["Jan Testowy"],
+        ["Klient projektu:", "Klient Testowy"],
+        ["Dzień", "Data", "Liczba godzin"],
+    ]
+    for day in range(1, 8):
+        stamp = datetime(2026, 10, day)
+        weekend = stamp.weekday() >= 5
+        rows.append(["sobota" if weekend else "dzień", stamp, 0 if weekend else 8])
+    rows.append([None, "Łącznie", 40])
+
+    parsed = timesheet_bik.parse_rows(rows)
+    result = _evaluate(parsed, _rules(proof__name_match="warn"))
+
+    assert parsed.rows_hours == Decimal("40")
+    assert parsed.declared_total == Decimal("40.00")
+    assert result.md_regular == Decimal("5.000")
+
+
+def test_template_sum_row_without_label_is_not_an_entry() -> None:
+    """Suma pod tabelą szablonu bez etykiety (sama liczba w kolumnie godzin)."""
+
+    rows: list[list[object]] = [
+        ["Rozliczenie czasu pracy"],
+        ["Imię i nazwisko", "Jan Testowy"],
+        ["Miesiąc", datetime(2026, 10, 1)],
+        ["Numer jiry", "Nazwa zadania", "Data", "Liczba godzin"],
+        ["ABC-1", "Zadanie", datetime(2026, 10, 1), 8],
+        ["ABC-2", "Zadanie", datetime(2026, 10, 2), 8],
+        [None, None, None, 16],
+    ]
+
+    parsed = timesheet_bik.parse_rows(rows)
+
+    assert parsed.rows_hours == Decimal("16")
+    assert parsed.declared_total == Decimal("16.00")
+
+
 def test_sheet_with_data_column_but_no_bik_layout_is_not_read() -> None:
     rows = [["Data", "Opis", "Liczba godzin"], [datetime(2026, 10, 1), "x", 8]]
 
