@@ -870,7 +870,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
     from app.tasks.signature_reconciler import signature_reconciler_loop
-    from app.tasks.b2b_esign_sweeper import b2b_esign_sweeper_loop
+    from app.tasks.b2b_esign_sweeper import b2b_esign_sweeper_loop, prewarm_trusted_list
     from app.tasks.pre_contract_sweeper import pre_contract_sweeper_loop
     from app.tasks.start_documents_sweeper import start_documents_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
@@ -1067,6 +1067,9 @@ async def lifespan(app: FastAPI):
             "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
             "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
             "b2b_esign_sweeper": asyncio.create_task(b2b_esign_sweeper_loop()),
+            # Lista zaufanych UE w pamięci web, bo tam trasa waliduje podpis.
+            # Jednorazowe, bez czekania startu; potem odświeża ją sama walidacja.
+            "trusted_list_prewarm": asyncio.create_task(prewarm_trusted_list()),
             # 0506: umowa przedwstępna — wygasanie, przypomnienia, termin B2B.
             "pre_contract_sweeper": asyncio.create_task(pre_contract_sweeper_loop()),
             "start_documents_sweeper": asyncio.create_task(
