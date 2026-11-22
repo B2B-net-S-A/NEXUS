@@ -1016,6 +1016,7 @@ jobs:
       # i pada na każdy brak w zestawie (~2 min z pobraniem Chromium).
       # Tylko w kolejce, po buildzie — na PR-ze builda nie ma.
       - name: Poligon NEXUSA — cała ścieżka onboardingu (Playwright)
+        id: poligon
         if: steps.scope.outputs.run == 'true' && github.event_name != 'pull_request'
         env:
           E2E_BASE_URL: http://localhost:3000
@@ -1035,6 +1036,19 @@ jobs:
             tail -50 "$RUNNER_TEMP/next.log"
             exit 1
           }
+      # Zrzut, wideo i trace porażki (Playwright nagrywa je przy localhost).
+      # Bez nich czerwony teamChat z 16–17.11.2026 dało się rozłożyć tylko
+      # z historii commitów: log mówił „element(s) not found” i nic więcej.
+      # Dane poligonu są fikcyjne, a backend podstawiony, więc artefakt nie
+      # niesie tokenów ani danych osób.
+      - name: Poligon NEXUSA — zrzuty i trace porażki
+        if: failure() && steps.poligon.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: poligon-walk-failure
+          path: frontend/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
   frontend-vitest:
     # Pełny Vitest z pokryciem, równolegle do lint/type-check/build — tylko
