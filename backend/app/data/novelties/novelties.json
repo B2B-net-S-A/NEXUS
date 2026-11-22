@@ -4123,6 +4123,23 @@
     ]
   },
   {
+    "id": "koszty-opis-do-ksiegowania",
+    "title": "Faktura kosztowa: opis do księgowania jak w eBI24",
+    "why": "„Opisz do księgowania” na karcie faktury: typ, rejestr, konta netto, VAT i „5”, samochód (½ VAT), import usług, procedura JPK, kurs NBP. Plik do Symfonii przyjmuje też FVZ, FVZP i IU.",
+    "where": "Finanse → Faktury kosztowe → faktura → Dekret do Symfonii FK",
+    "href": "/finance",
+    "shipped_on": "2026-11-22",
+    "pr": 3692,
+    "tier": "dot",
+    "audience": {
+      "permissions": [
+        "finance_module"
+      ]
+    },
+    "section": "finance",
+    "dot_anchor": "finance.costs"
+  },
+  {
     "id": "nie-szuka-data-kazda-karta",
     "pr": 3621,
     "title": "„Nie szuka pracy”: wybierz, do kiedy",
