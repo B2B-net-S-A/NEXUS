@@ -297,7 +297,13 @@ async def process_queue(db: AsyncSession, *, now: Optional[datetime] = None) -> 
         row = await db.scalar(
             select(CandidateTermsRequest)
             .where(CandidateTermsRequest.status == "queued")
-            .order_by(CandidateTermsRequest.queued_at)
+            # Najnowsze najpierw: przy limicie 20 i ~270 zgłoszeniach dziennie
+            # najstarsze najpierw dawało mail 2–3 dni po aplikacji (22.11.2026).
+            # Starsze czekają i po 3 dniach odpadają w ``expire_stale``.
+            .order_by(
+                CandidateTermsRequest.queued_at.desc(),
+                CandidateTermsRequest.id.desc(),
+            )
             .limit(1)
             .with_for_update(skip_locked=True)
         )

@@ -98,3 +98,6 @@ Pomiar na kopii z 15.11: 5 066 osób z ogłoszeń w 30 dni, 94% bez stawki i try
 - Nie dodawaj do formularza zgody na inne rekrutacje.
 - Nie włączaj rodzaju bez T3 (próbny mail na Gmail i skrzynkę firmową,
   nagłówki SPF/DKIM/DMARC = PASS) i T4 (pilot do 20 dziennie przez 5 dni). T4 dopiero po wdrożeniu ekranów z 19.11 i obejrzeniu próbnego maila na telefonie (decyzja Artura 19.11.2026).
+- Nie wracaj do kolejności „najstarsze najpierw” w `process_queue`. Przy limicie 20 i około 270
+  zgłoszeniach dziennie mail „Zgłoszenie przyjęte” szedłby 2–3 dni po aplikacji (pomiar 22.11.2026).
+  Idą najnowsze, starsze odpadają po 3 dniach (decyzja Artura 22.11.2026).
