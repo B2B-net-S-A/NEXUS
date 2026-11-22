@@ -31,16 +31,22 @@
   "back_office"
  ],
  "routes": {
+  "GET /api/b2b-generator/esign/company-remote/available": "PPPBPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/b2b-generator/esign/company-remote/callback": "PPPBPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/b2b-generator/esign/company-remote/{session_id}": "PPPBPPDDPPPPPPPPPPPDDPPPPDPDP",
   "GET /api/b2b-generator/esign/mine": "PPPBPPDDPPPPPPPPPPPDDPPPPDPDP",
   "GET /api/b2b-generator/esign/settings": "PPPBPPDDPPPPPPPPPPPDDPPPPDPDP",
   "GET /api/b2b-generator/esign/{request_id}/pdf": "PPPBPPDDPPPPPPPPPPPDDPPPPDPDP",
   "GET /api/b2b-generator/esign/{request_id}/signed-pdf": "PPPBPPDDPPPPPPPPPPPDDPPPPDPDP",
   "GET /api/b2b-generator/generated/{generated_id}/esign": "PPPBPPDDPPPPPPPPPPPDDPPPPDPDP",
   "GET /api/b2b-generator/generated/{generated_id}/esign/defaults": "PPPBPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/public/b2b-sign/remote/callback": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
   "GET /api/public/b2b-sign/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
   "GET /api/public/b2b-sign/{token}/documents/{document_id}/pdf": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
   "GET /api/public/b2b-sign/{token}/pdf": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/b2b-sign/{token}/remote/{session_id}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
   "GET /api/public/b2b-sign/{token}/signed-pdf": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/b2b-generator/esign/company-remote/start": "PPPBPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/b2b-generator/esign/{request_id}/company-sign": "PPPBPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/b2b-generator/esign/{request_id}/extend": "PPPBPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/b2b-generator/esign/{request_id}/relink": "PPPBPPDDPPPPPPPPPPPDDPPPPDPDP",
@@ -51,6 +57,7 @@
   "POST /api/public/b2b-sign/{token}/accept": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
   "POST /api/public/b2b-sign/{token}/accept-code": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
   "POST /api/public/b2b-sign/{token}/documents/{document_id}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/b2b-sign/{token}/remote/start": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
   "POST /api/public/b2b-sign/{token}/renewal": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
   "PUT /api/b2b-generator/esign/settings": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }

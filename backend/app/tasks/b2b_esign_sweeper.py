@@ -15,6 +15,8 @@
   nadawcy. Pierwszy mail idzie od razu po podpisie kontraktora (API).
 * Link kontraktora po podpisie obu stron służy do pobrania kopii przez
   ``SIGNED_COPY_DAYS`` dni; potem pętla go kasuje.
+* Sesje podpisu u dostawcy (E1) po czasie: ``cancelled``, bez zaszyfrowanego
+  tokenu linku i bez PKCE; zawieszone w podpisie: ``failed``.
 
 Działa także przy wyłączonym przełączniku — wnioski z pilotażu muszą wygasnąć.
 Każdy wniosek w osobnej transakcji z blokadą (``SKIP LOCKED``), więc
@@ -42,6 +44,7 @@ from app.models.notification import NotificationType
 from app.models.user import User
 from app.services import loop_heartbeat
 from app.services.b2b_esign import mail as esign_mail
+from app.services.b2b_esign import remote as esign_remote
 from app.services.b2b_esign.service import (
     EXPIRED_LINK_DAYS,
     SIGNED_COPY_DAYS,
@@ -269,6 +272,13 @@ async def sweep(now: datetime | None = None) -> dict[str, int]:
         await _close_old_copy_links(moment)
     except Exception:  # noqa: BLE001 — przypomnienia idą mimo to
         logger.exception("[b2b_esign] zamykanie linków do kopii nie wyszło")
+    try:
+        # E1: sesje podpisu u dostawcy po czasie tracą token linku i PKCE.
+        async with AsyncSessionLocal() as db:
+            await esign_remote.expire_sessions(db, moment)
+            await db.commit()
+    except Exception:  # noqa: BLE001 — przypomnienia idą mimo to
+        logger.exception("[b2b_esign] zamykanie sesji podpisu u dostawcy nie wyszło")
     for request_id in await _due_ids(moment):
         try:
             outcome = await _handle(request_id, moment)

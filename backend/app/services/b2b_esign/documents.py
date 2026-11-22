@@ -32,8 +32,9 @@ from app.services import start_documents as start_docs
 from app.services import start_documents_fill as fill
 from app.services import storage_service
 from app.services.b2b_esign import service
-from app.services.b2b_esign.verdict import Fingerprint, judge, upload_problem
+from app.services.b2b_esign.verdict import Fingerprint
 from app.services.cv_pdf_preview import pdf_from_docx
+from app.services.signing.provider import ValidationReport
 
 logger = logging.getLogger(__name__)
 
@@ -186,31 +187,54 @@ async def contractor_submit(
     walidacja bez blokady, potem blokada wiersza rejestru, wniosku i dokumentu."""
     request_id = request.id
     row_id = request.generated_contract_id
-    contractor_name = request.contractor_name
+    item = await signable_document(db, request_id, document_id)
+    source = Fingerprint(item.source_sha256, item.source_size)
+    report = await service.validate_upload(
+        db,
+        request_id=request_id,
+        data=data,
+        previous=source,
+        validator=validator,
+        required_signers=[request.contractor_name],
+        not_qualified_message=(
+            MSG_ANY_NOT_QUALIFIED if item.requirement == "any" else None
+        ),
+    )
+    return await store_document(
+        db,
+        request_id=request_id,
+        row_id=row_id,
+        document_id=document_id,
+        source_sha256=source.sha256,
+        data=data,
+        report=report,
+        now=now,
+    )
+
+
+async def signable_document(
+    db: AsyncSession, request_id: int, document_id: int
+) -> B2BSigningDocument:
+    """Dokument tej paczki, jeszcze niepodpisany."""
     item = await get_in_request(db, request_id, document_id)
     if item.signed_pdf_path:
         raise HTTPException(status_code=409, detail=MSG_DOC_SIGNED)
-    source = Fingerprint(item.source_sha256, item.source_size)
-    service.check_pdf_upload(data)
-    problem = upload_problem(data, source)
-    if problem:
-        await service.count_failed_attempt(db, request_id)
-        raise HTTPException(status_code=422, detail=problem)
-    await db.commit()  # bez transakcji na czas walidacji (jak umowa)
-    report = await validator.validate(data)
-    verdict = judge(
-        report,
-        authoritative=validator.authoritative,
-        required_signers=[contractor_name],
-    )
-    if not verdict.accepted:
-        if verdict.code != "no_validator":
-            await service.count_failed_attempt(db, request_id)
-        message = verdict.message
-        if verdict.code == "not_qualified" and item.requirement == "any":
-            message = MSG_ANY_NOT_QUALIFIED
-        raise HTTPException(status_code=422, detail=message)
+    return item
 
+
+async def store_document(
+    db: AsyncSession,
+    *,
+    request_id: int,
+    row_id: int,
+    document_id: int,
+    source_sha256: str,
+    data: bytes,
+    report: ValidationReport,
+    now: datetime,
+) -> tuple[B2BSigningRequest, B2BSigningDocument]:
+    """Zapis podpisanego dokumentu pod blokadą wiersza rejestru, wniosku
+    i dokumentu (po ``service.validate_upload``). Commit robi wołający."""
     row, locked = await service.lock_row_then_request(db, row_id, request_id)
     if not service.row_still_signable(row):
         raise HTTPException(status_code=409, detail=service.MSG_CLOSED)
@@ -222,7 +246,7 @@ async def contractor_submit(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    if item is None or item.signed_pdf_path or item.source_sha256 != source.sha256:
+    if item is None or item.signed_pdf_path or item.source_sha256 != source_sha256:
         raise HTTPException(status_code=409, detail=service.MSG_RACE)
     path, _ = storage_service.save_b2b_signing_pdf(
         locked.id, f"dokument_{item.position}_podpisany.pdf", data

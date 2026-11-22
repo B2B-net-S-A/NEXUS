@@ -20,7 +20,7 @@ import json
 import secrets
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Iterable, Protocol
+from typing import Iterable, Protocol, Sequence
 
 from fastapi import HTTPException
 from sqlalchemy import func, select, update
@@ -552,6 +552,15 @@ async def contractor_precheck(
     zmusza serwera do przyjęcia 20 MB). ``for_contract=False``: wgranie
     dokumentu z paczki (0687)."""
     request = await load_by_token(db, token)
+    check_contractor_open(request, now, for_contract=for_contract)
+    return request
+
+
+def check_contractor_open(
+    request: B2BSigningRequest, now: datetime, *, for_contract: bool = True
+) -> None:
+    """Stan i limit prób z ``contractor_precheck`` — także dla zdalnego
+    podpisu (E1), który zna wniosek, a nie token."""
     if request.status in ("contractor_signed", "completed"):
         raise HTTPException(status_code=409, detail=MSG_ALREADY_SIGNED)
     if for_contract and request.contractor_pdf_path:
@@ -562,13 +571,59 @@ async def contractor_precheck(
         raise HTTPException(status_code=410, detail=MSG_CLOSED)
     if request.contractor_failed_attempts >= MAX_FAILED_ATTEMPTS:
         raise HTTPException(status_code=429, detail=MSG_TOO_MANY_ATTEMPTS)
-    return request
 
 
 async def count_failed_attempt(db: AsyncSession, request_id: int) -> None:
     locked = await _lock(db, request_id)
     locked.contractor_failed_attempts = (locked.contractor_failed_attempts or 0) + 1
     await db.commit()
+
+
+async def validate_upload(
+    db: AsyncSession,
+    *,
+    request_id: int,
+    data: bytes,
+    previous: Fingerprint,
+    validator: Validator,
+    required_signers: list[str],
+    any_of_signers: Sequence[str] = (),
+    count_failures: bool = True,
+    not_qualified_message: str | None = None,
+) -> ValidationReport:
+    """Wspólne sito każdego podpisanego pliku: wgranego z linku, wgranego
+    przez reprezentanta i podpisanego zdalnie przez API CSC (E1).
+
+    Plik zaczyna się bajtami poprzedniej wersji, walidacja bez otwartej
+    transakcji, ``verdict.judge``. ``count_failures`` = nieudana próba liczy
+    się do limitu linku kontraktora. Zwraca raport do zapisu przy wniosku."""
+    check_pdf_upload(data)
+    problem = upload_problem(data, previous)
+    if problem:
+        if count_failures:
+            await count_failed_attempt(db, request_id)
+        raise HTTPException(status_code=422, detail=problem)
+    # Walidacja trwa do 30 s — bez otwartej transakcji i bez połączenia z puli.
+    # ``commit`` (nic nie zmieniono), nie ``rollback``: sesja ma
+    # ``expire_on_commit=False``, a rollback wygasiłby też zalogowanego
+    # użytkownika z tej samej sesji (odczyt jego pól w async = MissingGreenlet).
+    await db.commit()
+    report = await validator.validate(data)
+    verdict = judge(
+        report,
+        authoritative=validator.authoritative,
+        required_signers=required_signers,
+        any_of_signers=any_of_signers,
+    )
+    if not verdict.accepted:
+        # Awaria walidatora to nie wina kontraktora — nie zużywa prób.
+        if count_failures and verdict.code != "no_validator":
+            await count_failed_attempt(db, request_id)
+        message = verdict.message
+        if verdict.code == "not_qualified" and not_qualified_message:
+            message = not_qualified_message
+        raise HTTPException(status_code=422, detail=message)
+    return report
 
 
 async def contractor_submit(
@@ -580,38 +635,46 @@ async def contractor_submit(
     now: datetime,
 ) -> B2BSigningRequest:
     """Wołać po ``contractor_precheck`` z tym samym wnioskiem."""
+    source = Fingerprint(request.source_sha256, request.source_size)
     request_id = request.id
     row_id = request.generated_contract_id
-    source = Fingerprint(request.source_sha256, request.source_size)
-    contractor_name = request.contractor_name
-    check_pdf_upload(data)
-    problem = upload_problem(data, source)
-    if problem:
-        await count_failed_attempt(db, request_id)
-        raise HTTPException(status_code=422, detail=problem)
-    # Walidacja trwa do 30 s — bez otwartej transakcji i bez połączenia z puli.
-    # ``commit`` (nic nie zmieniono), nie ``rollback``: sesja ma
-    # ``expire_on_commit=False``, a rollback wygasiłby też zalogowanego
-    # użytkownika z tej samej sesji (odczyt jego pól w async = MissingGreenlet).
-    await db.commit()
-    report = await validator.validate(data)
-    verdict = judge(
-        report,
-        authoritative=validator.authoritative,
-        required_signers=[contractor_name],
+    report = await validate_upload(
+        db,
+        request_id=request_id,
+        data=data,
+        previous=source,
+        validator=validator,
+        required_signers=[request.contractor_name],
     )
-    if not verdict.accepted:
-        # Awaria walidatora to nie wina kontraktora — nie zużywa prób.
-        if verdict.code != "no_validator":
-            await count_failed_attempt(db, request_id)
-        raise HTTPException(status_code=422, detail=verdict.message)
+    return await store_contract(
+        db,
+        request_id=request_id,
+        row_id=row_id,
+        source_sha256=source.sha256,
+        data=data,
+        report=report,
+        now=now,
+    )
 
+
+async def store_contract(
+    db: AsyncSession,
+    *,
+    request_id: int,
+    row_id: int,
+    source_sha256: str,
+    data: bytes,
+    report: ValidationReport,
+    now: datetime,
+) -> B2BSigningRequest:
+    """Zapis umowy podpisanej przez kontraktora pod blokadą wiersza i wniosku
+    (po ``validate_upload``). Commit robi wołający."""
     row, locked = await lock_row_then_request(db, row_id, request_id)
     if not row_still_signable(row):
         raise HTTPException(status_code=409, detail=MSG_CLOSED)
     if (
         not is_link_live(locked, now)
-        or locked.source_sha256 != source.sha256
+        or locked.source_sha256 != source_sha256
         or locked.contractor_pdf_path
     ):
         raise HTTPException(status_code=409, detail=MSG_RACE)
@@ -660,33 +723,50 @@ async def company_submit(
     """Wołać po ``company_precheck`` z tym samym wnioskiem."""
     request_id = request.id
     row_id = request.generated_contract_id
-    contractor_name = request.contractor_name
     contractor_version = Fingerprint(
         request.contractor_sha256 or "", request.contractor_size or 0
     )
-    check_pdf_upload(data)
-    problem = upload_problem(data, contractor_version)
-    if problem:
-        raise HTTPException(status_code=422, detail=problem)
-    await db.commit()  # jak wyżej — bez transakcji na czas walidacji
-    report = await validator.validate(data)
-    verdict = judge(
-        report,
-        authoritative=validator.authoritative,
-        required_signers=[contractor_name],
+    report = await validate_upload(
+        db,
+        request_id=request_id,
+        data=data,
+        previous=contractor_version,
+        validator=validator,
+        required_signers=[request.contractor_name],
         # Za firmę: podpis kwalifikowany jednej z osób z listy reprezentantów,
         # niekoniecznie osoby, która wgrywa plik (26.10.2026).
         any_of_signers=representative_names,
+        count_failures=False,
     )
-    if not verdict.accepted:
-        raise HTTPException(status_code=422, detail=verdict.message)
+    return await store_company(
+        db,
+        request_id=request_id,
+        row_id=row_id,
+        contractor_sha256=contractor_version.sha256,
+        data=data,
+        report=report,
+        now=now,
+    )
 
+
+async def store_company(
+    db: AsyncSession,
+    *,
+    request_id: int,
+    row_id: int,
+    contractor_sha256: str,
+    data: bytes,
+    report: ValidationReport,
+    now: datetime,
+) -> B2BSigningRequest:
+    """Zapis umowy podpisanej przez obie strony pod blokadą (po
+    ``validate_upload``). Commit robi wołający."""
     row, locked = await lock_row_then_request(db, row_id, request_id)
     if not row_still_signable(row):
         raise HTTPException(status_code=409, detail=MSG_CLOSED)
     if (
         locked.status != "contractor_signed"
-        or locked.contractor_sha256 != contractor_version.sha256
+        or locked.contractor_sha256 != contractor_sha256
     ):
         raise HTTPException(status_code=409, detail=MSG_RACE)
     path, _ = storage_service.save_b2b_signing_pdf(

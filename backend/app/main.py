@@ -4301,6 +4301,7 @@ async def api_health_deep_check(request: Request):
     from app.models.candidate_conversation_fact import CandidateConversationFact
     from app.models.duty_search_run import DutySearchResult, DutySearchRun
     from app.models.b2b_signing_document import B2BSigningDocument
+    from app.models.b2b_esign_remote_session import B2BEsignRemoteSession
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -5055,6 +5056,8 @@ async def api_health_deep_check(request: Request):
         ("duty_search_results", DutySearchResult),
         # 0687: paczka do podpisu B2B.
         ("b2b_signing_documents", B2BSigningDocument),
+        # 0757: sesje zdalnego podpisu przez API CSC.
+        ("b2b_esign_remote_sessions", B2BEsignRemoteSession),
     ]
 
     checks: dict[str, str] = {}

@@ -331,6 +331,74 @@ tylko kontraktor, podpisem kwalifikowanym” z sekcji o paczce.
   kontraktor z podpisem w chmurze podpisze dokumenty `any` tym samym
   zatwierdzeniem co umowę; kod z maila zostaje dla tych, którzy wolą.
 
+## Podpis u dostawcy przez API CSC (E1, 0757, kierunek K1 z 22.11.2026)
+
+Decyzja Artura z 22.11.2026 (kierunek „K1”): NEXUS zostaje przy swoich
+ekranach podpisu, a od kwalifikowanego dostawcy usług zaufania kupuje tylko
+potwierdzenie tożsamości, certyfikat (własny w chmurze albo jednorazowy)
+i podpis skrótu. Dostawca nie jest wybrany (SIGNIUS, Certum, KIR; pytamy,
+czy mają API Cloud Signature Consortium), więc klient zna tylko specyfikację
+CSC v1, nie dostawcę z nazwy.
+
+- **Wyłączone, dopóki konfiguracja jest pusta.** `B2B_ESIGN_CSC_BASE_URL`
+  (adres przed `/csc/v1/...`), `B2B_ESIGN_CSC_CLIENT_ID`,
+  `B2B_ESIGN_CSC_CLIENT_SECRET`, `B2B_ESIGN_CSC_PROVIDER_LABEL` (nazwa na
+  ekranie) i opcjonalnie `B2B_ESIGN_CSC_SCOPES` (puste = `service`). Brak
+  któregoś = `remote_signing.available: false` i 404 na trasach startu
+  i powrotu. Zmienne ustawia tylko workflow „Coolify set env”. U dostawcy
+  rejestruje się dwa adresy powrotu z `PUBLIC_API_BASE_URL`:
+  `/api/public/b2b-sign/remote/callback` (kontraktor) i
+  `/api/b2b-generator/esign/company-remote/callback` (reprezentant).
+- **Przebieg** (`services/b2b_esign/csc.py`, `remote.py`): `POST /csc/v1/info`
+  (adres OAuth `oauth2`), przekierowanie na `{oauth2}/oauth2/authorize` z
+  `state` i PKCE S256, powrót do NEXUSA, `oauth2/token` (formularz RFC 6749),
+  `credentials/list` + `credentials/info` (certyfikat osoby: pierwszy, którego
+  podmiot pasuje do nazwiska z umowy), `credentials/authorize` RAZ ze skrótami
+  wszystkich plików (SCAL 2) i `signatures/signHash` RAZ dla całej paczki.
+  CMS i PAdES składa pyHanko (`CSCSigner` z `batch_size` = liczba plików):
+  podpis dopisuje się przyrostowo na końcu zamrożonych bajtów, więc
+  `verdict.builds_on` zachodzi jak przy pliku z dysku.
+- **Te same bramki co wgranie pliku.** Każdy podpisany plik idzie przez
+  `service.validate_upload` (walidator z listą UE i `verdict.judge`) i zapis
+  pod blokadą (`service.store_contract`, `documents.store_document`,
+  `service.store_company`), potem `_after_contractor_files` (Dokumenty do
+  startu, `_after_contractor_signed`) albo `_after_both_signed`. Trasy wgrania
+  z dysku używają tych samych funkcji. Nieudana walidacja pliku od dostawcy
+  nie zużywa prób linku (pliku nie przygotował kontraktor).
+- **Kontraktor: umowa zawsze w paczce.** `POST /api/public/b2b-sign/{token}/remote/start`
+  z `include_document_ids` (dokumenty `any` i `qualified` tej paczki) i
+  `method` (`own_certificate` / `one_time`, na razie tylko zapisywane: jak
+  dostawca je rozróżnia, wyjdzie po wyborze dostawcy). Po wgraniu umowy
+  z dysku `available` = false, a reszta paczki idzie dotychczasową drogą.
+  Wszystko albo nic: najpierw walidacja wszystkich plików, potem zapis
+  w jednej transakcji.
+- **Reprezentant: kilka umów jednym zatwierdzeniem.**
+  `POST /api/b2b-generator/esign/company-remote/start` z `request_ids`; każdy
+  wniosek przechodzi `company_precheck` (czeka na podpis tej osoby). Każda
+  umowa przechodzi bramki osobno, więc zła jedna nie cofa pozostałych
+  (`done_request_ids`, powód reszty w `message`).
+- **Sesja** (`b2b_esign_remote_sessions`, 0757): `state` w bazie tylko jako
+  SHA-256, ważna 15 minut, jednorazowa; obcy `state` = 400, drugi powrót = 409,
+  powrót po czasie albo z `error` (rezygnacja u dostawcy) = `cancelled`
+  i wniosek bez zmian. Token linku kontraktora potrzebny do adresu powrotu
+  (`/sign/b2b/{token}?remote={session_id}`) leży przy sesji zaszyfrowany
+  kluczem z `state` i znika przy powrocie albo w pętli przypomnień po czasie.
+  Kod autoryzacji i token dostępu dostawcy nie trafiają do bazy, a sekret
+  klienta idzie tylko do `oauth2/token`. Podpis biegnie w tle po
+  przekierowaniu (`BackgroundTasks`); front pyta o stan
+  (`GET …/remote/{session_id}`), a sesja „w podpisie” dłużej niż 30 minut
+  (restart procesu) kończy się `failed`. `evidence`: dostawca, metoda,
+  `credentialID`, odcisk certyfikatu, liczba plików (bez podmiotu
+  certyfikatu).
+- **Powrót reprezentanta wymaga zalogowania** (ciasteczko sesji, `SameSite=Lax`
+  przechodzi przy przekierowaniu); sesja należy do konta, które ją zaczęło.
+- Testy: `tests/test_b2b_esign_remote.py` z lokalnym udawanym dostawcą CSC
+  i testowym CA. Niesprawdzone na prawdziwym dostawcy: tryb `authMode`
+  (PIN/OTP albo drugie przekierowanie `scope=credential` zamiast samego
+  `credentials/authorize`), forma `oauth2/token` (formularz czy JSON)
+  i rozróżnienie `own_certificate` / `one_time`. Do sprawdzenia po wyborze
+  dostawcy, przed włączeniem konfiguracji.
+
 ## Reszta systemu przy umowie w podpisie (etap 1b, 21.10.2026)
 
 - **Dzwonki `signature_*` stoją za sekcją Sourcing** (bramka Generatora), nie

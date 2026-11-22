@@ -1626,6 +1626,19 @@ class Settings(BaseSettings):
     # ``pyhanko`` (domyślnie, decyzja Artura 21.10.2026) — lista zaufanych UE
     # w procesie backendu; ``dss`` — sidecar EU DSS pod DSS_VALIDATION_URL.
     B2B_ESIGN_VALIDATOR: str = "pyhanko"
+    # Zdalny podpis kwalifikowany przez API Cloud Signature Consortium (E1,
+    # kierunek K1 Artura z 22.11.2026): NEXUS zostaje przy swoich ekranach,
+    # a od dostawcy usług zaufania bierze tylko potwierdzenie tożsamości,
+    # certyfikat i podpis skrótu. Dostawca niewybrany (SIGNIUS, Certum, KIR),
+    # więc wszystko puste = droga wyłączona. ``…_BASE_URL`` to adres przed
+    # ``/csc/v1/...``; adresy OAuth podaje dostawca w ``/csc/v1/info``.
+    # Zakresy rozdzielone spacją (puste = ``service`` ze specyfikacji CSC),
+    # nazwa dostawcy widoczna dla kontraktora i reprezentanta.
+    B2B_ESIGN_CSC_BASE_URL: str = ""
+    B2B_ESIGN_CSC_CLIENT_ID: str = ""
+    B2B_ESIGN_CSC_CLIENT_SECRET: str = ""
+    B2B_ESIGN_CSC_SCOPES: str = ""
+    B2B_ESIGN_CSC_PROVIDER_LABEL: str = ""
 
     # ── Proxycurl LinkedIn tracking (Phase: LinkedIn sync) ──────────────────
     # Kill-switch: when False OR API key empty, sync loop exits immediately
