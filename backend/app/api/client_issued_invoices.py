@@ -596,6 +596,19 @@ async def rebate_correction_draft(
     return data
 
 
+COLLECTIVE_MONTH_INDEX = "uq_client_issued_invoices_collective_month"
+
+
+def _constraint(exc: IntegrityError) -> Optional[str]:
+    """Nazwa naruszonego ograniczenia (asyncpg: w ``orig`` albo jego przyczynie)."""
+
+    for source in (exc.orig, getattr(exc.orig, "__cause__", None)):
+        name = getattr(source, "constraint_name", None)
+        if name:
+            return str(name)
+    return None
+
+
 @router.post("/rebate-correction", status_code=status.HTTP_201_CREATED)
 async def rebate_correction_issue(
     body: RebateCorrectionIn,
@@ -622,8 +635,14 @@ async def rebate_correction_issue(
             )
         await db.commit()
     except IntegrityError as exc:
-        # Drugie kliknięcie w tym samym czasie — unikalny indeks miesiąca.
         await db.rollback()
+        if _constraint(exc) != COLLECTIVE_MONTH_INDEX:
+            logger.exception(
+                "[issued-invoices] zapis korekty rabatu odrzucony (%s)",
+                _constraint(exc) or type(exc.orig).__name__,
+            )
+            raise
+        # Drugie kliknięcie w tym samym czasie — unikalny indeks miesiąca.
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             "Korekta rabatu za ten miesiąc już powstała — odśwież kartę.",

@@ -115,6 +115,9 @@ jego kartę.
   miesiąca, a nie pierwszej faktury z listy. Inaczej „Do faktury” pokazałby różnicę na tamtej
   fakturze. Pozycja zaczyna się od `rebate.REBATE_LINE_PREFIX` („Opust (rabat od obrotu)”), więc
   `service_base` pomija ją w obrocie do progu: opust jest rabatem, nie obrotem.
+  Dlatego edycja szkicu nie może zmienić tego początku nazwy: zapis kończy się wtedy odmową 422.
+- Inny błąd zapisu niż drugi szkic za ten sam miesiąc (np. stary CHECK, gdy krok lustra
+  pominął `lock_timeout`) trafia do logu jako 500. Nie udaje „korekta już powstała”.
 
 ## Czego jeszcze nie ma
 

@@ -1245,3 +1245,41 @@ async def test_collective_correction_check_and_unique_month_in_database(seed):
         db.add(kor(collective_correction=collective, currency="EUR"))
         await db.flush()
         await db.rollback()
+
+
+async def test_rebate_correction_other_integrity_error_is_not_already_exists(
+    client, seed, caplog
+):
+    """Stary CHECK (krok lustra pominięty przez lock_timeout) to 500 z logiem,
+    nie „korekta już powstała”."""
+
+    from app.services import client_invoice_collective_correction_schema as schema
+
+    await _settings(
+        client, seed, clients={str(seed.client_id): {"rebate": REBATE_TERMS}}
+    )
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                _discounted_sales(seed.client_id, 11, date(2026, 9, 30), "900"),
+                _discounted_sales(seed.client_id, 12, date(2026, 10, 31), "300"),
+            ]
+        )
+        found = await db.get(Client, seed.client_id)
+        found.address = BUYER["address_l1"]
+        await db.execute(text(schema.DOWNGRADE_DDL[1]))
+        await db.execute(text(schema.DOWNGRADE_DDL[2]))
+        await db.commit()
+    query = {"client_id": seed.client_id, **OCTOBER, "currency": "PLN"}
+    try:
+        # Transport testowy przepuszcza wyjątek aplikacji (w produkcji: 500).
+        with pytest.raises(
+            IntegrityError, match="ck_client_issued_invoices_correction"
+        ):
+            await client.post(f"{BASE}/rebate-correction", json=query, headers=_h(seed))
+        assert "ck_client_issued_invoices_correction" in caplog.text
+    finally:
+        async with AsyncSessionLocal() as db:
+            for stmt in schema.CONSTRAINT_DDL:
+                await db.execute(text(stmt))
+            await db.commit()

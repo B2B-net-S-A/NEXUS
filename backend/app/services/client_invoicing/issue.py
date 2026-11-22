@@ -657,7 +657,18 @@ async def update(
         lines = payload["lines"]
         if not isinstance(lines, list) or len(lines) > MAX_LINES:
             raise IssueError("Pozycje: lista do 200 wierszy.", 422)
-        invoice.lines = [clean_line(line) for line in lines if isinstance(line, dict)]
+        cleaned = [clean_line(line) for line in lines if isinstance(line, dict)]
+        if invoice.collective_correction is not None and not all(
+            rebate.is_rebate_line(line) for line in cleaned
+        ):
+            # Po nazwie obrót rozpoznaje opust: inna nazwa = przyjęta korekta
+            # zaniżyłaby obrót do progu (``rebate.service_base``).
+            raise IssueError(
+                "Pozycja korekty rabatu musi zaczynać się od "
+                f"„{rebate.REBATE_LINE_PREFIX}”.",
+                422,
+            )
+        invoice.lines = cleaned
     recompute(invoice)
     await _refresh_fx(db, invoice)
     _note(invoice, "edited", actor_id)

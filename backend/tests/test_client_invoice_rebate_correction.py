@@ -556,3 +556,22 @@ def test_pdf_lists_corrected_invoices():
     assert "Korekta zbiorcza (art. 106j ust. 3" in html
     assert "Faktury korygowane" in html
     assert "20/10/2026" in html and "31.10.2026" in html and KSEF in html
+
+
+@pytest.mark.asyncio
+async def test_collective_lines_keep_rebate_name_when_edited(monkeypatch):
+    """Nazwa pozycji odróżnia opust od obrotu: edycja jej nie zgubi
+    (inaczej przyjęta korekta zaniżyłaby obrót do progu)."""
+
+    _patch_create(monkeypatch)
+    db = _SaveDb(_client())
+    invoice = await _create(db)
+    renamed = {**invoice.lines[0], "name": "Rabat od obrotu 10/2026"}
+    with pytest.raises(issue.IssueError, match="Opust \\(rabat od obrotu\\)") as err:
+        await issue.update(db, invoice, {"lines": [renamed]}, actor_id=7)
+    assert err.value.status_code == 422
+    assert invoice.lines[0]["name"].startswith(rebate.REBATE_LINE_PREFIX)
+
+    cheaper = {**invoice.lines[0], "unit_price": "-0.50"}
+    await issue.update(db, invoice, {"lines": [cheaper]}, actor_id=7)
+    assert invoice.net_amount == Decimal("-0.50")
