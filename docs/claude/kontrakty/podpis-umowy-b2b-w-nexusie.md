@@ -43,6 +43,15 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   podpisie dozwolone do poziomu „wypełnianie formularza” (kolejne podpisy).
   `B2B_ESIGN_VALIDATOR=dss` przełącza na sidecar EU DSS (`DSS_VALIDATION_URL`).
   Przed pilotażem sprawdzić na prawdziwych plikach (Certum, KIR, mObywatel).
+- **Listy krajowe pobiera się z własnymi nagłówkami** (22.11.2026): `User-Agent`
+  `qualified.USER_AGENT` bez słowa „aiohttp” i `Accept` z `*/*;q=0.1`
+  (middleware `_accept_any_type`, bo pyHanko ustawia `Accept` przy każdym
+  żądaniu). Z domyślnymi nagłówkami aiohttp lista estońska dawała 403, a czeska
+  (`text/plain`) 406, także z serwera produkcji. Podpis kwalifikowany z Czech
+  albo Estonii nie miał wtedy zaufanego wystawcy i był odrzucany jako
+  niekwalifikowany. Start workera loguje `lista zaufanych UE: N błędów list`;
+  około 49 to historyczne wpisy usług z `TakenOverBy` (IT, SK, CZ) bez znaczenia.
+  Nieudana lista kraju ma osobną linię `nie pobrano list krajowych`.
 - **Walidacja bez blokady, zapis pod blokadą.** DSS trwa do 30 s, więc
   walidacja idzie bez blokady wiersza, a potem `SELECT … FOR UPDATE` sprawdza
   stan i odcisk jeszcze raz — wycofanie w trakcie walidacji wygrywa (w torze
