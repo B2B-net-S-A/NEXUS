@@ -32,6 +32,8 @@ const ROW: CostRow = {
   flags: ["mpp"],
   category: "team",
   category_label: "Zespół",
+  journal: "contractors",
+  journal_label: "Kontraktorzy",
   received_at: "2026-11-12T08:00:00+00:00",
   seller_name: "Jan Przykładowy IT",
   seller_nip: "1234563218",
@@ -56,6 +58,25 @@ const ROW: CostRow = {
   own: false,
   reject_reason: null,
   note: null,
+  can: { verify: true, ready: true },
+  settlement: null,
+};
+
+const CONTRACTOR: CostRow = {
+  ...ROW,
+  id: 13,
+  source_type: "contractor_invoice",
+  category: "contractor",
+  category_label: "Kontraktorzy",
+  invoice_number: "K/3/11/2026",
+  flags: [],
+  settlement: {
+    state: "differs",
+    label: "Inna kwota niż wyliczenie z RCP",
+    tone: "fail",
+    month: "10.2026",
+    rcp: "RCP przyjęte",
+  },
 };
 
 const OWN: CostRow = {
@@ -68,12 +89,17 @@ const OWN: CostRow = {
   own: true,
 };
 
-function queue(items: CostRow[]): CostQueue {
+function queue(
+  items: CostRow[],
+  can: CostQueue["can"] = { verify_contractors: true, ready: true },
+): CostQueue {
   return {
     stage: "received",
     items,
     total: items.length,
     counts: { received: items.length, new: 4, verified: 0, ready: 0, booked: 0, rejected: 2 },
+    journal_counts: { contractors: 5, purchases: 2, office: 1 },
+    can,
     limit: 100,
     offset: 0,
   };
@@ -95,11 +121,11 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/finance?view=costs");
 });
 
-function answer(items: CostRow[]) {
+function answer(items: CostRow[], can?: CostQueue["can"]) {
   get.mockImplementation((url: string) =>
     url.endsWith("/module")
       ? Promise.resolve({ data: { enabled: true, open: true } })
-      : Promise.resolve({ data: queue(items) }),
+      : Promise.resolve({ data: queue(items, can) }),
   );
 }
 
@@ -153,6 +179,63 @@ describe("CostsTab", () => {
         reason: "Nie dotyczy firmy",
       }),
     );
+  });
+
+  it("dzienniki: zakładki z licznikami, filtr w zapytaniu i adresie", async () => {
+    answer([ROW, CONTRACTOR]);
+    const user = userEvent.setup();
+    renderTab();
+    expect(await screen.findByRole("tab", { name: /Wszystkie\s*8/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("tab", { name: /Zakupy pozostałe\s*2/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /Kontraktorzy\s*5/ }));
+    await waitFor(() =>
+      expect(get).toHaveBeenCalledWith(
+        "/api/finance/costs",
+        expect.objectContaining({ params: expect.objectContaining({ journal: "contractors" }) }),
+      ),
+    );
+    expect(window.location.search).toContain("costJournal=contractors");
+  });
+
+  it("pokazuje zgodność faktury kontraktora z rozliczeniem miesiąca", async () => {
+    answer([CONTRACTOR]);
+    renderTab();
+    const badge = await screen.findByText("Inna kwota niż wyliczenie z RCP");
+    expect(badge).toHaveAttribute(
+      "title",
+      "Rozliczenie 10.2026 · RCP przyjęte · Inna kwota niż wyliczenie z RCP",
+    );
+  });
+
+  it("„Gotowa do księgowania” wyłączona dla osoby spoza „Księgowych”", async () => {
+    window.history.replaceState(null, "", "/finance?view=costs&costStage=verified");
+    answer([{ ...ROW, stage: "verified" }], { verify_contractors: true, ready: false });
+    const user = userEvent.setup();
+    renderTab();
+    await user.click(await screen.findByRole("checkbox", { name: "Zaznacz 7/11/2026" }));
+    const ready = screen.getByRole("button", { name: "Gotowa do księgowania zaznaczone (1)" });
+    expect(ready).toBeDisabled();
+    expect(ready).toHaveAttribute("title", expect.stringContaining("„Księgowi”"));
+    expect(screen.getByRole("button", { name: "Cofnij o krok zaznaczone (1)" })).toBeEnabled();
+  });
+
+  it("w dzienniku „Kontraktorzy” „Zweryfikuj” tylko dla listy", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/finance?view=costs&costStage=new&costJournal=contractors",
+    );
+    answer([{ ...CONTRACTOR, stage: "new" }], { verify_contractors: false, ready: false });
+    const user = userEvent.setup();
+    renderTab();
+    await user.click(await screen.findByRole("checkbox", { name: "Zaznacz K/3/11/2026" }));
+    const verify = screen.getByRole("button", { name: "Zweryfikuj zaznaczone (1)" });
+    expect(verify).toBeDisabled();
+    expect(verify).toHaveAttribute("title", expect.stringContaining("Weryfikujący kontraktorów"));
+    expect(screen.getByRole("button", { name: "Odrzuć zaznaczone (1)" })).toBeEnabled();
   });
 
   it("pusta poczekalnia tylko po udanym odczycie", async () => {

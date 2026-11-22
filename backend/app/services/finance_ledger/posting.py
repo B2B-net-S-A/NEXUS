@@ -26,6 +26,16 @@ faktury zmieniły się po dekrecie”: źródło potrafi zmienić kwoty po dekre
 dekret wyliczany liczy się od nowa, a ręczny zostaje. Niekompletny dekret
 blokuje „Gotowa do księgowania”. Po „Gotowa” i po zaksięgowaniu dekretu się
 nie zmienia (najpierw „Cofnij”).
+
+Opis faktury wg „Ogólnych założeń” głównej księgowej (18.11.2026,
+``posting_options``): wybory z karty (typ, rejestr, konta netto / VAT / „5”,
+procedura JPK, kurs i tabela NBP, data usługi) leżą w ``decree["choices"]``
+i wygrywają z regułą. Samochód („Paliwo i leasingi”): koszt = netto + 1/2 VAT,
+VAT = 1/2, rejestr w dwóch połowach (Zakup i „Rejestr NP VAT”), opcjonalnie
+Wn 999 / Ma 902–903 na 1/2 brutto. Import usług i WNT: VAT liczony od netto
+w PLN (Wn VAT naliczony / Ma VAT należny), rozrachunek = netto, dwa rejestry.
+„5” to zapis równoległy na dokumencie (Wn 5xx / Ma 490); PK rozliczenia
+kosztów (``ledger/allocation.py``) pomija takie faktury.
 """
 
 from __future__ import annotations
@@ -61,6 +71,7 @@ from app.services.finance_ledger.costs import (
     _own_entry_ids,
     _payroll_scope,
 )
+from app.services.finance_ledger import posting_options as options
 from app.services.finance_posting_schema import (
     ACCOUNT_MAX,
     DOC_TYPE_MAX,
@@ -68,12 +79,19 @@ from app.services.finance_posting_schema import (
 )
 
 REGISTER_LABELS = {"purchase": "Zakup", "sale": "Sprzedaż"}
-DEDUCTION_LABELS = {"full": "100%", "none": "brak"}
+DEDUCTION_LABELS = {"full": "100%", "none": "brak", "partial": "50% (samochód)"}
 KIND_LABELS = {
     "cost": "Koszt",
     "vat": "VAT",
     "counterparty": "Rozrachunek z kontrahentem",
+    "vat_due": "VAT należny",
+    "allocation": "Konto „5”",
+    "allocation_offset": "Rozliczenie kosztów (490)",
+    "offbalance": "Pozabilansowo (999)",
+    "offbalance_offset": "Pozabilansowo (902–903)",
 }
+#: Zapis równoległy (``ZapisRownolegly`` w szablonie 4 Symfonii): Wn „5”, Ma 490.
+PARALLEL_KINDS: tuple[str, ...] = ("allocation", "allocation_offset")
 ACCOUNT_KIND_LABELS = {
     "cost": "koszt",
     "vat": "VAT",
@@ -83,7 +101,11 @@ ACCOUNT_KIND_LABELS = {
     "other": "inne",
 }
 SIDE_LABELS = {"debit": "Wn", "credit": "Ma"}
-POSITION_KINDS: tuple[str, ...] = ("cost", "vat", "counterparty")
+POSITION_KINDS: tuple[str, ...] = tuple(KIND_LABELS)
+#: Rodzaje pozycji, których konto sprawdzamy w planie (rozrachunek to analityka).
+PLAN_KINDS: tuple[str, ...] = tuple(
+    kind for kind in KIND_LABELS if kind != "counterparty"
+)
 SIDES: tuple[str, ...] = ("debit", "credit")
 PLACEHOLDERS: tuple[str, ...] = ("usługa", "MM", "RRRR", "numer", "kontrahent")
 STANDARD_RATES: tuple[int, ...] = (23, 8, 5, 0)
@@ -150,9 +172,21 @@ class DecreeInput:
     #: Pierwszy dzień miesiąca usługi (źródło, potem data wystawienia, wpływu).
     period: Optional[date]
     issue_date: Optional[date] = None
-    #: Kurs NBP waluty z dnia ``rate_day(issue_date)`` (``None`` = brak w tabeli).
+    #: Kurs NBP waluty z dnia ``rate_day(issue_date)`` albo z dnia wybranego
+    #: na karcie; kurs wpisany na karcie wygrywa (``None`` = brak w tabeli).
     fx_rate: Optional[Decimal] = None
     fx_date: Optional[date] = None
+    #: Numer kontrahenta w kartotece Symfonii (końcówka konta 201-2-<nr>).
+    counterparty_symfonia_id: Optional[str] = None
+    #: Kontrahent zagraniczny (VAT UE, numer zagraniczny albo kraj ≠ PL).
+    counterparty_foreign: bool = False
+    counterparty_eu: bool = False
+    #: Faktura z KSeF z adnotacją „metoda kasowa” (``Adnotacje/P_16``).
+    cash_method: bool = False
+    #: Data zakończenia dostawy/usługi (XML ``P_6``, koniec miesiąca usługi).
+    service_date: Optional[date] = None
+    #: Wybory z karty faktury (``posting_options.clean_choices``).
+    choices: Optional[dict[str, Any]] = None
 
 
 def rate_day(issued: date) -> date:
@@ -291,6 +325,36 @@ def _amounts(inp: DecreeInput) -> Optional[tuple[Decimal, Decimal, Decimal]]:
     return Decimal(net), Decimal(vat), Decimal(gross)
 
 
+def _plan_problem(
+    number: Optional[str], plan: dict[str, AccountView], label: str, ok: Any
+) -> Optional[str]:
+    if not number:
+        return f"{label}: brak konta."
+    account = plan.get(number)
+    if account is None or not account.active:
+        return f"Konta {number} ({label}) nie ma w planie kont albo jest wyłączone."
+    if ok is not None and not ok(account.number, account.kind):
+        return (
+            f"Konto {number} ma w planie rodzaj "
+            f"„{ACCOUNT_KIND_LABELS[account.kind]}” — nie pasuje do pola „{label}”."
+        )
+    return None
+
+
+def account_fits(kind: str, account: AccountView, *, car: bool = False) -> bool:
+    """Czy konto z planu pasuje do rodzaju pozycji dekretu."""
+
+    if kind == "cost":
+        return options.net_account_ok(account.number, account.kind, car=car)
+    if kind in ("vat", "vat_due"):
+        return options.vat_account_ok(account.number, account.kind)
+    if kind == "allocation":
+        return options.allocation_account_ok(account.number, account.kind)
+    if kind == "offbalance_offset":
+        return options.offbalance_account_ok(account.number)
+    return True
+
+
 def _rule_problems(rule: RuleView, plan: dict[str, AccountView]) -> list[str]:
     problems = []
     wanted = [("cost", rule.cost_account)]
@@ -302,13 +366,113 @@ def _rule_problems(rule: RuleView, plan: dict[str, AccountView]) -> list[str]:
             problems.append(
                 f"Konta {number} z reguły nie ma w planie kont albo jest wyłączone."
             )
-        elif account.kind != kind:
+        elif not account_fits(kind, account):
             problems.append(
                 f"Konto {number} z reguły ma w planie rodzaj "
                 f"„{ACCOUNT_KIND_LABELS[account.kind]}”, a reguła używa go jako "
                 f"„{ACCOUNT_KIND_LABELS[kind]}”."
             )
     return problems
+
+
+#: Konta rozrachunkowe z arkusza księgowej (``<prefiks>-2-<nr kontrahenta>``).
+DOMESTIC_PLN = "201"
+FOREIGN_SUPPLIER = "203"
+DOMESTIC_CURRENCY = "205"
+SETTLEMENT_PREFIXES: tuple[str, ...] = (
+    DOMESTIC_PLN,
+    FOREIGN_SUPPLIER,
+    DOMESTIC_CURRENCY,
+)
+
+
+def settlement_account(
+    stored: Optional[str],
+    symfonia_id: Optional[str],
+    *,
+    foreign: bool,
+    currency: str,
+) -> Optional[str]:
+    """Konto brutto (rozrachunek) z kartoteki kontrahenta.
+
+    Arkusz księgowej: 201-2-<nr> dostawcy krajowi w PLN, 203-2-<nr> zagraniczni,
+    205-2-<nr> krajowi w walucie; <nr> = numer kontrahenta w kartotece Symfonii
+    (``symfonia_partner_id``). Konto z kartoteki spoza tych trzech (np. leasing
+    244-1, dostawca z formularza K5b-2 pod 202-1) wygrywa — to świadome konto
+    z Symfonii.
+    """
+
+    prefix = (
+        FOREIGN_SUPPLIER
+        if foreign
+        else DOMESTIC_CURRENCY
+        if currency != "PLN"
+        else DOMESTIC_PLN
+    )
+    parts = (stored or "").split("-")
+    if stored and parts[0] not in SETTLEMENT_PREFIXES:
+        return stored
+    number = (symfonia_id or "").strip()
+    if number.isdigit():
+        return f"{prefix}-2-{number}"
+    if stored and len(parts) >= 3:
+        return "-".join([prefix, *parts[1:]])
+    return stored or None
+
+
+def _half(value: int) -> tuple[int, int]:
+    """Kwota na dwie połowy: pierwsza w dół (jak eBI24 przy 1/2 VAT)."""
+
+    first = value // 2
+    return first, value - first
+
+
+def _position(
+    kind: str,
+    account: Optional[str],
+    side: str,
+    amount: int,
+    *,
+    amount_cur: Optional[int] = None,
+    vat_rate: Optional[str] = None,
+    deduction: Optional[str] = None,
+) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "account": account,
+        "side": side,
+        "amount": amount,
+        "amount_cur": amount_cur,
+        "vat_rate": vat_rate,
+        "deduction": deduction,
+        "parallel": kind in PARALLEL_KINDS,
+    }
+
+
+def _register(
+    name: str,
+    rate: Optional[str],
+    net: int,
+    vat: int,
+    *,
+    cur: Optional[tuple[int, int]] = None,
+    output: bool = False,
+    eu: bool = False,
+    service: bool = False,
+) -> dict[str, Any]:
+    return {
+        "name": name,
+        "rate": rate,
+        "net": net,
+        "vat": vat,
+        "gross": net + vat,
+        "net_cur": cur[0] if cur else None,
+        "vat_cur": cur[1] if cur else None,
+        "gross_cur": cur[0] + cur[1] if cur else None,
+        "output": output,
+        "eu": eu,
+        "service": service,
+    }
 
 
 def compute(
@@ -318,114 +482,396 @@ def compute(
     *,
     now: datetime,
 ) -> dict[str, Any]:
-    """Dekret z reguły; to, czego nie da się wyliczyć, trafia do ``problems``."""
+    """Dekret z reguły i wyborów z karty; braki trafiają do ``problems``.
 
+    Wybory (``inp.choices``, ``posting_options.clean_choices``) wygrywają
+    z regułą. Bez reguły dekret powstaje, gdy Finanse wybrały konto netto.
+    """
+
+    choices = dict(inp.choices or {})
     base: dict[str, Any] = {
         "manual": False,
         "computed_at": now.isoformat(),
         "currency": inp.currency,
         "period": inp.period.isoformat() if inp.period else None,
+        "choices": choices,
     }
     rule = match_rule(rules, inp.category, inp.counterparty_id)
-    if rule is None:
+    if rule is None and not choices.get("net_account"):
         label = CATEGORY_LABELS.get(inp.category, inp.category)
         return {
             **base,
             "rule_id": None,
             "register": "purchase",
-            "doc_type": "",
-            "description": "",
+            "doc_type": choices.get("doc_type") or "",
+            "description": choices.get("description") or "",
             "positions": [],
+            "registers": [],
             "problems": [
                 f"Brak aktywnej reguły dekretu dla kategorii „{label}” — dodaj ją "
-                "w „Plan kont”."
+                "w „Plan kont” albo wybierz konto netto na karcie."
             ],
         }
-    problems = _rule_problems(rule, plan)
+    amounts = _amounts(inp)
+    negative = bool(
+        amounts and (amounts[2] < 0 or (amounts[2] == 0 and amounts[0] < 0))
+    )
+    rule_doc = rule.doc_type if rule else "FVZ"
+    doc_type = choices.get("doc_type") or (
+        "FKZ" if negative and rule_doc == "FVZ" else rule_doc
+    )
+    importing = doc_type in options.IMPORT_TYPES
+    deduction = (
+        "none"
+        if doc_type in options.NO_DEDUCTION_TYPES
+        else (rule.deduction if rule else "full")
+    )
+    car = bool(choices.get("car"))
+    net_account = choices.get("net_account") or (rule.cost_account if rule else None)
+    vat_account = choices.get("vat_account") or (
+        rule.vat_account if rule and rule.vat_account else "221"
+    )
+    register = choices.get("register") or (
+        options.DEFAULT_INPUT_REGISTER[doc_type]
+        if importing
+        else options.CORRECTION_REGISTER
+        if negative
+        else options.PURCHASE_REGISTER
+    )
+    output_register = choices.get("output_register") or (
+        options.DEFAULT_OUTPUT_REGISTER[doc_type] if importing else None
+    )
+    output_vat_account = (
+        choices.get("output_vat_account") or options.DEFAULT_OUTPUT_VAT_ACCOUNT
+        if output_register
+        else None
+    )
+    self_assessed = output_register is not None
+    eu = choices.get("eu")
+    eu = inp.counterparty_eu if eu is None else bool(eu)
+    service = choices.get("service")
+    service = (doc_type != "WNT") if service is None else bool(service)
+
+    problems: list[str] = []
+    if rule is not None and not choices.get("net_account"):
+        problems += _rule_problems(rule, plan)
+    elif choices.get("net_account"):
+        if issue := _plan_problem(
+            net_account,
+            plan,
+            "Konto netto",
+            lambda number, kind: options.net_account_ok(number, kind, car=car),
+        ):
+            problems.append(issue)
+    if deduction == "full" and (choices.get("vat_account") or rule is None):
+        if issue := _plan_problem(
+            vat_account, plan, "Konto VAT", options.vat_account_ok
+        ):
+            problems.append(issue)
+    if self_assessed:
+        if issue := _plan_problem(
+            output_vat_account, plan, "Konto VAT należnego", options.vat_account_ok
+        ):
+            problems.append(issue)
+    allocation = choices.get("allocation_account")
+    if allocation:
+        for number, label, ok in (
+            (allocation, "Konto „5”", options.allocation_account_ok),
+            (options.ALLOCATION_OFFSET, "Rozliczenie kosztów", None),
+        ):
+            if issue := _plan_problem(number, plan, label, ok):
+                problems.append(issue)
+    offbalance = choices.get("offbalance_account") if car else None
+    if offbalance:
+        for number, label in (
+            (options.OFFBALANCE_DEBIT, "Pozabilansowo Wn"),
+            (offbalance, "Pozabilansowo Ma"),
+        ):
+            if issue := _plan_problem(number, plan, label, None):
+                problems.append(issue)
+    if importing and not inp.counterparty_foreign and inp.counterparty_id is not None:
+        problems.append(
+            f"{doc_type} od kontrahenta z Polski — import usług i WNT są od "
+            "kontrahentów zagranicznych; wybierz FVZ."
+        )
+    if car and self_assessed:
+        problems.append("„Paliwo i leasingi” nie łączy się z importem usług ani WNT.")
+    if car and deduction != "full":
+        problems.append("„Paliwo i leasingi” wymaga odliczenia (50% VAT) — nie FZBO.")
+    if amounts and self_assessed and amounts[1] != 0:
+        problems.append(
+            "Faktura ma VAT od sprzedawcy, a import usług i WNT liczą VAT po stronie "
+            "nabywcy — sprawdź typ dokumentu."
+        )
+    counterparty_account = settlement_account(
+        inp.counterparty_account,
+        inp.counterparty_symfonia_id,
+        foreign=inp.counterparty_foreign,
+        currency=inp.currency,
+    )
     if inp.counterparty_id is None:
         problems.append(NO_COUNTERPARTY)
-    elif not inp.counterparty_account:
+    elif not counterparty_account:
         problems.append(
             f"Kontrahent „{inp.counterparty_name or '—'}” nie ma konta "
-            "rozrachunkowego w kartotece — uzupełnij je w „Kontrahenci”."
+            "rozrachunkowego ani numeru Symfonii w kartotece — uzupełnij je "
+            "w „Kontrahenci”."
         )
     fx: dict[str, Any] = {}
     multiplier: Optional[Decimal] = Decimal("1")
-    if inp.currency != "PLN":
+    foreign_currency = inp.currency != "PLN"
+    if foreign_currency:
         multiplier = None
-        if inp.issue_date is None:
+        if inp.issue_date is None and inp.fx_date is None:
             problems.append(
-                f"Faktura w {inp.currency} bez daty wystawienia — nie da się ustalić "
-                "kursu NBP."
+                f"Faktura w {inp.currency} bez daty wystawienia — wybierz datę kursu."
             )
         elif inp.fx_rate is None:
-            day = inp.fx_date or rate_day(inp.issue_date)
+            day = inp.fx_date or rate_day(inp.issue_date)  # type: ignore[arg-type]
             problems.append(f"Brak kursu NBP {inp.currency} z dnia {day:%d.%m.%Y}")
         else:
             multiplier = Decimal(inp.fx_rate)
             fx = {
                 "fx_rate": _rate_text(multiplier),
                 "fx_date": inp.fx_date.isoformat() if inp.fx_date else None,
+                "fx_table": choices.get("fx_table"),
             }
     positions: list[dict[str, Any]] = []
-    amounts = _amounts(inp)
+    registers: list[dict[str, Any]] = []
+    rate: Optional[str] = None
     if amounts is None:
         problems.append(NO_AMOUNTS)
     elif multiplier is not None:
         net, vat, gross = amounts
-        rate = vat_rate(net, vat)
-        debit, credit = ("credit", "debit") if gross < 0 else ("debit", "credit")
-        # Brutto i VAT po kursie, netto jako różnica — dekret się bilansuje.
-        gross_g = grosze(abs(gross) * multiplier)
-        vat_g = grosze(abs(vat) * multiplier)
-        net_g = gross_g - vat_g if multiplier != 1 else grosze(abs(net))
-        cost_g = gross_g if rule.deduction == "none" else net_g
-        candidates = [
-            {
-                "kind": "cost",
-                "account": rule.cost_account,
-                "side": debit,
-                "amount": cost_g,
-                "vat_rate": rate,
-                "deduction": rule.deduction,
-            }
-        ]
-        if rule.deduction == "full":
-            candidates.append(
-                {
-                    "kind": "vat",
-                    "account": rule.vat_account,
-                    "side": debit,
-                    "amount": vat_g,
-                    "vat_rate": rate,
-                    "deduction": "full",
-                }
+        debit, credit = ("credit", "debit") if negative else ("debit", "credit")
+
+        def cur(value: Decimal) -> Optional[int]:
+            return grosze(abs(value)) if foreign_currency else None
+
+        candidates: list[dict[str, Any]] = []
+        if self_assessed:
+            percent = int(choices.get("import_rate") or 23)
+            rate = str(percent)
+            net_g = grosze(abs(net) * multiplier)
+            vat_g = grosze(Decimal(net_g) * percent / 100 / 100)
+            net_cur = cur(net)
+            vat_cur = grosze(abs(net) * percent / 100) if foreign_currency else None
+            cost_g = net_g if deduction == "full" else net_g + vat_g
+            cost_cur = (
+                net_cur
+                if deduction == "full" or net_cur is None
+                else net_cur + (vat_cur or 0)
             )
-        candidates.append(
-            {
-                "kind": "counterparty",
-                "account": inp.counterparty_account,
-                "side": credit,
-                "amount": gross_g,
-                "vat_rate": None,
-                "deduction": None,
-            }
-        )
+            candidates.append(
+                _position(
+                    "cost",
+                    net_account,
+                    debit,
+                    cost_g,
+                    amount_cur=cost_cur,
+                    vat_rate=rate,
+                    deduction=deduction,
+                )
+            )
+            candidates.append(
+                _position(
+                    "counterparty",
+                    counterparty_account,
+                    credit,
+                    net_g,
+                    amount_cur=net_cur,
+                )
+            )
+            if deduction == "full":
+                candidates.append(
+                    _position(
+                        "vat",
+                        vat_account,
+                        debit,
+                        vat_g,
+                        amount_cur=vat_cur,
+                        vat_rate=rate,
+                        deduction="full",
+                    )
+                )
+            candidates.append(
+                _position(
+                    "vat_due",
+                    output_vat_account,
+                    credit,
+                    vat_g,
+                    amount_cur=vat_cur,
+                    vat_rate=rate,
+                )
+            )
+            pair = (net_cur, vat_cur) if foreign_currency else None
+            if deduction == "full":
+                registers.append(
+                    _register(
+                        register, rate, net_g, vat_g, cur=pair, eu=eu, service=service
+                    )
+                )
+            registers.append(
+                _register(
+                    output_register,
+                    rate,
+                    net_g,
+                    vat_g,
+                    cur=pair,  # type: ignore[arg-type]
+                    output=True,
+                    eu=eu,
+                )
+            )
+        else:
+            rate = vat_rate(net, vat)
+            # Brutto i VAT po kursie, netto jako różnica — dekret się bilansuje.
+            gross_g = grosze(abs(gross) * multiplier)
+            vat_g = grosze(abs(vat) * multiplier)
+            net_g = gross_g - vat_g if multiplier != 1 else grosze(abs(net))
+            gross_cur, vat_cur = cur(gross), cur(vat)
+            net_cur = gross_cur - vat_cur if gross_cur is not None else None
+            if car:
+                vat_kept, vat_lost = _half(vat_g)
+                net_a, net_b = _half(net_g)
+                cost_g, vat_pos = net_g + vat_lost, vat_kept
+                cost_cur = vat_pos_cur = None
+                cur_a = cur_b = None
+                if foreign_currency:
+                    kept_cur, lost_cur = _half(vat_cur or 0)
+                    net_a_cur, net_b_cur = _half(net_cur or 0)
+                    cost_cur, vat_pos_cur = (net_cur or 0) + lost_cur, kept_cur
+                    cur_a, cur_b = (net_a_cur, kept_cur), (net_b_cur, lost_cur)
+                registers.append(_register(register, rate, net_a, vat_kept, cur=cur_a))
+                registers.append(
+                    _register(
+                        options.CAR_SECOND_CORRECTION_REGISTER
+                        if negative
+                        else options.CAR_SECOND_REGISTER,
+                        rate,
+                        net_b,
+                        vat_lost,
+                        cur=cur_b,
+                    )
+                )
+            elif deduction == "none":
+                cost_g, vat_pos = gross_g, 0
+                cost_cur, vat_pos_cur = gross_cur, None
+            else:
+                cost_g, vat_pos = net_g, vat_g
+                cost_cur, vat_pos_cur = net_cur, vat_cur
+                registers.append(
+                    _register(
+                        register,
+                        rate,
+                        net_g,
+                        vat_g,
+                        cur=(net_cur, vat_cur) if foreign_currency else None,  # type: ignore[arg-type]
+                    )
+                )
+            candidates.append(
+                _position(
+                    "cost",
+                    net_account,
+                    debit,
+                    cost_g,
+                    amount_cur=cost_cur,
+                    vat_rate=rate,
+                    deduction="partial" if car else deduction,
+                )
+            )
+            if deduction == "full":
+                candidates.append(
+                    _position(
+                        "vat",
+                        vat_account,
+                        debit,
+                        vat_pos,
+                        amount_cur=vat_pos_cur,
+                        vat_rate=rate,
+                        deduction="partial" if car else "full",
+                    )
+                )
+            candidates.append(
+                _position(
+                    "counterparty",
+                    counterparty_account,
+                    credit,
+                    gross_g,
+                    amount_cur=gross_cur,
+                )
+            )
+            if offbalance:
+                _, half_gross = _half(gross_g)
+                candidates.append(
+                    _position("offbalance", options.OFFBALANCE_DEBIT, debit, half_gross)
+                )
+                candidates.append(
+                    _position("offbalance_offset", offbalance, credit, half_gross)
+                )
+        if allocation:
+            cost = candidates[0]
+            candidates.append(
+                _position(
+                    "allocation",
+                    allocation,
+                    debit,
+                    cost["amount"],
+                    amount_cur=cost["amount_cur"],
+                )
+            )
+            candidates.append(
+                _position(
+                    "allocation_offset",
+                    options.ALLOCATION_OFFSET,
+                    credit,
+                    cost["amount"],
+                    amount_cur=cost["amount_cur"],
+                )
+            )
         positions = [item for item in candidates if item["amount"] != 0]
-    return {
-        **base,
-        **fx,
-        "rule_id": rule.id,
-        "register": rule.register,
-        "doc_type": rule.doc_type,
-        "description": render_description(
+    description = choices.get("description") or (
+        render_description(
             rule.description_template,
             service=rule.service_label,
             period=inp.period,
             number=inp.invoice_number,
             counterparty=inp.counterparty_name,
-        ),
+        )
+        if rule
+        else ""
+    )
+    if not description:
+        problems.append("Wpisz opis księgowy faktury.")
+    jpk = choices.get("jpk_procedure") or (
+        options.IMPORT_JPK
+        if importing
+        else options.CASH_METHOD_JPK
+        if inp.cash_method
+        else None
+    )
+    service_date = choices.get("service_date") or (
+        inp.service_date.isoformat() if inp.service_date else None
+    )
+    return {
+        **base,
+        **fx,
+        "rule_id": rule.id if rule else None,
+        "register": rule.register if rule else "purchase",
+        "doc_type": doc_type,
+        "description": description,
         "positions": positions,
+        "registers": registers,
+        "negative": negative,
+        "self_assessed": self_assessed,
+        **(
+            {"source_gross": str(inp.gross)}
+            if self_assessed and inp.gross is not None
+            else {}
+        ),
+        "car": car,
+        "jpk_procedure": jpk,
+        "service_date": service_date,
+        "vat_rate": rate,
         "problems": problems,
     }
 
@@ -457,12 +903,12 @@ def check(decree: Optional[dict[str, Any]], plan: dict[str, AccountView]) -> lis
             if not stored:
                 issues.append(f"Pozycja „{KIND_LABELS.get(kind, kind)}” nie ma konta.")
             continue
-        if kind not in ("cost", "vat"):
+        if kind not in PLAN_KINDS:
             continue
         account = plan.get(number)
         if account is None or not account.active:
             issues.append(f"Konta {number} nie ma w planie kont albo jest wyłączone.")
-        elif account.kind != kind:
+        elif not account_fits(kind, account, car=bool(decree.get("car"))):
             issues.append(
                 f"Konto {number} ma w planie rodzaj "
                 f"„{ACCOUNT_KIND_LABELS[account.kind]}”, a pozycja to "
@@ -483,6 +929,11 @@ def amount_issue(
 
     if not decree or gross is None:
         return None
+    if decree.get("self_assessed") and decree.get("source_gross") is not None:
+        # Import usług: rozrachunek = netto (VAT liczy nabywca), więc porównujemy
+        # brutto źródła z tym, z którego dekret powstał.
+        same = Decimal(str(decree["source_gross"])) == Decimal(gross)
+        return None if same else AMOUNTS_CHANGED
     positions = [
         item
         for item in decree.get("positions") or []
@@ -516,6 +967,32 @@ def _amount_of(raw: Any) -> int:
     return grosze(value)
 
 
+#: Ręczna korekta pozycji zostawia rejestry VAT i wybory z karty (plik Symfonii).
+MANUAL_KEPT: tuple[str, ...] = (
+    "choices",
+    "registers",
+    "negative",
+    "self_assessed",
+    "car",
+    "jpk_procedure",
+    "service_date",
+    "vat_rate",
+    "fx_table",
+)
+
+
+#: Pozycje, z których liczą się rejestry VAT (bez „5” i pozabilansowych).
+_REGISTER_KINDS: tuple[str, ...] = ("cost", "vat", "vat_due", "counterparty")
+
+
+def _amount_signature(positions: Any) -> list[tuple[str, str, int]]:
+    return sorted(
+        (str(item.get("kind")), str(item.get("side")), int(item.get("amount") or 0))
+        for item in positions or []
+        if item.get("kind") in _REGISTER_KINDS
+    )
+
+
 def manual_decree(
     body: dict[str, Any],
     plan: dict[str, AccountView],
@@ -533,6 +1010,15 @@ def manual_decree(
         raise LedgerError("Dekret musi mieć co najmniej jedną pozycję.", status=422)
     if len(raw_positions) > POSITIONS_MAX:
         raise LedgerError(f"Dekret ma najwyżej {POSITIONS_MAX} pozycji.", status=422)
+    earlier = {
+        (
+            item.get("kind"),
+            item.get("account"),
+            item.get("side"),
+            item.get("amount"),
+        ): item.get("amount_cur")
+        for item in (previous or {}).get("positions") or []
+    }
     positions = []
     for index, raw in enumerate(raw_positions, start=1):
         kind = raw.get("kind")
@@ -542,7 +1028,7 @@ def manual_decree(
                 f"Pozycja {index}: nieznany rodzaj albo strona.", status=422
             )
         number = clean_account(raw.get("account"), f"Pozycja {index}")
-        if kind in ("cost", "vat"):
+        if kind in PLAN_KINDS:
             account = plan.get(number)
             if account is None or not account.active:
                 raise LedgerError(
@@ -550,7 +1036,7 @@ def manual_decree(
                     "jest wyłączone.",
                     status=422,
                 )
-            if account.kind != kind:
+            if not account_fits(kind, account, car=bool((previous or {}).get("car"))):
                 raise LedgerError(
                     f"Pozycja {index}: konto {number} ma w planie rodzaj "
                     f"„{ACCOUNT_KIND_LABELS[account.kind]}”.",
@@ -558,14 +1044,18 @@ def manual_decree(
                 )
         deduction = raw.get("deduction")
         rate = raw.get("vat_rate")
+        amount = _amount_of(raw.get("amount"))
         positions.append(
             {
                 "kind": kind,
                 "account": number,
                 "side": side,
-                "amount": _amount_of(raw.get("amount")),
+                "amount": amount,
+                # Kwota w walucie z wyliczonego dekretu, gdy pozycja się nie zmieniła.
+                "amount_cur": earlier.get((kind, number, side, amount)),
                 "vat_rate": str(rate)[:8] if rate not in (None, "") else None,
-                "deduction": deduction if deduction in ("full", "none") else None,
+                "deduction": deduction if deduction in DEDUCTION_LABELS else None,
+                "parallel": kind in PARALLEL_KINDS,
             }
         )
     debit, credit = totals(positions)
@@ -575,7 +1065,14 @@ def manual_decree(
             status=422,
         )
     previous = previous or {}
+    kept = {key: previous.get(key) for key in MANUAL_KEPT if key in previous}
+    if _amount_signature(positions) != _amount_signature(previous.get("positions")):
+        # Inne kwoty niż w wyliczonym dekrecie: rejestry VAT i połowy samochodu
+        # z opisu już nie pasują — plik bierze wtedy jeden rejestr z kwot faktury.
+        kept.pop("registers", None)
+        kept.pop("car", None)
     return {
+        **kept,
         "manual": True,
         "computed_at": now.isoformat(),
         "currency": previous.get("currency") or "PLN",
@@ -653,6 +1150,8 @@ async def load_inputs(
     for entry in entries:
         by_type.setdefault(entry.source_type, {})[entry.source_id] = entry
     sources: dict[tuple[str, int], tuple[Any, ...]] = {}
+    #: Z XML-a KSeF (tylko faktury kontraktorów): metoda kasowa, data P_6.
+    xml_facts: dict[int, tuple[bool, Optional[date]]] = {}
     if ids := by_type.get("payroll_invoice"):
         rows = await db.execute(
             select(
@@ -694,12 +1193,18 @@ async def load_inputs(
                 ClientContractorInvoice.invoice_number,
                 ClientContractorInvoice.issue_date,
                 ClientContractorInvoice.period_month,
+                ClientContractorInvoice.details,
             ).where(ClientContractorInvoice.id.in_(list(ids)))
         )
         for row in rows.all():
             period = None
             if row.period_month and len(row.period_month) == 7:
                 period = date(int(row.period_month[:4]), int(row.period_month[5:7]), 1)
+            details = row.details or {}
+            xml_facts[row.id] = (
+                details.get("cash_method") is True,
+                _iso_day(details.get("sale_date")),
+            )
             sources[("contractor_invoice", row.id)] = (
                 row.currency,
                 row.net_amount,
@@ -739,10 +1244,22 @@ async def load_inputs(
                 FinanceCounterparty.id,
                 FinanceCounterparty.name,
                 FinanceCounterparty.cost_account,
+                FinanceCounterparty.symfonia_partner_id,
+                FinanceCounterparty.id_type,
+                FinanceCounterparty.country,
             ).where(FinanceCounterparty.id.in_(party_ids))
         )
-        parties = {row.id: (row.name, row.cost_account) for row in rows.all()}
-    rates = await _rates(db, sources.values())
+        parties = {row.id: tuple(row)[1:] for row in rows.all()}
+    wanted: dict[int, tuple[str, date]] = {}
+    for entry in entries:
+        source = sources.get((entry.source_type, entry.source_id))
+        if source is None:
+            continue
+        currency, issued = (source[0] or "PLN").upper(), source[6]
+        chosen = _iso_day(_choices(entry).get("fx_date"))
+        if currency != "PLN" and (chosen or issued):
+            wanted[entry.id] = (currency, chosen or rate_day(issued))
+    rates = await _rates(db, set(wanted.values()))
     result: dict[int, DecreeInput] = {}
     for entry in entries:
         source = sources.get((entry.source_type, entry.source_id))
@@ -756,8 +1273,25 @@ async def load_inputs(
             None,
         )
         currency = (currency or "PLN").upper()
-        fx_date = rate_day(issued) if issued and currency != "PLN" else None
-        name, account = parties.get(entry.counterparty_id or 0, (None, None))
+        choices = _choices(entry)
+        fx_date = wanted[entry.id][1] if entry.id in wanted else None
+        fx_rate = rates.get(wanted[entry.id]) if entry.id in wanted else None
+        if choices.get("fx_rate") and currency != "PLN":
+            fx_rate = Decimal(str(choices["fx_rate"]))
+        name, account, symfonia_id, id_type, country = parties.get(
+            entry.counterparty_id or 0, (None, None, None, None, None)
+        )
+        eu_party = id_type == "vat_eu"
+        foreign_party = (
+            eu_party
+            or id_type == "other"
+            or bool(country and country.strip().upper() not in ("", "PL"))
+        )
+        cash_method, sale_day = (
+            xml_facts.get(entry.source_id, (False, None))
+            if entry.source_type == "contractor_invoice"
+            else (False, None)
+        )
         result[entry.id] = DecreeInput(
             category=entry.category,
             counterparty_id=entry.counterparty_id if name is not None else None,
@@ -770,22 +1304,50 @@ async def load_inputs(
             invoice_number=number,
             period=period or _month_start(business_date(entry.received_at)),
             issue_date=issued,
-            fx_rate=rates.get((currency, fx_date)) if fx_date else None,
+            fx_rate=fx_rate,
             fx_date=fx_date,
+            counterparty_symfonia_id=symfonia_id,
+            counterparty_foreign=foreign_party,
+            counterparty_eu=eu_party,
+            cash_method=cash_method,
+            service_date=sale_day or _service_day(entry.source_type, period, issued),
+            choices=choices,
         )
     return result
 
 
-async def _rates(
-    db: AsyncSession, sources: Iterable[tuple[Any, ...]]
-) -> dict[tuple[str, date], Decimal]:
-    """Kurs NBP dokładnie z dnia ``rate_day`` (bez szukania wstecz i bez sieci)."""
+def _choices(entry: FinanceCostEntry) -> dict[str, Any]:
+    return dict((entry.decree or {}).get("choices") or {})
 
-    wanted: set[tuple[str, date]] = set()
-    for source in sources:
-        currency, issued = (source[0] or "PLN").upper(), source[6]
-        if currency != "PLN" and issued:
-            wanted.add((currency, rate_day(issued)))
+
+def _iso_day(raw: Any) -> Optional[date]:
+    try:
+        return date.fromisoformat(str(raw)) if raw else None
+    except ValueError:
+        return None
+
+
+def _service_day(
+    source_type: str, period: Optional[date], issued: Optional[date]
+) -> Optional[date]:
+    """Data zakończenia usługi bez XML-a: koniec miesiąca usługi źródła
+    (rozliczenie osoby, miesiąc kontraktora), inaczej data wystawienia."""
+
+    if period is not None and source_type in ("payroll_invoice", "contractor_invoice"):
+        following = (
+            date(period.year + 1, 1, 1)
+            if period.month == 12
+            else date(period.year, period.month + 1, 1)
+        )
+        return following - timedelta(days=1)
+    return issued
+
+
+async def _rates(
+    db: AsyncSession, wanted: set[tuple[str, date]]
+) -> dict[tuple[str, date], Decimal]:
+    """Kurs NBP dokładnie z wybranego dnia (bez szukania wstecz i bez sieci)."""
+
     if not wanted:
         return {}
     rows = await db.execute(
@@ -908,6 +1470,145 @@ async def set_manual(
     await db.flush()
 
 
+async def set_choices(
+    db: AsyncSession,
+    entry_id: int,
+    body: dict[str, Any],
+    *,
+    actor_id: int,
+    now: datetime,
+    payroll: bool,
+) -> None:
+    """Opis do księgowania z karty → dekret liczony od nowa z reguły i wyborów."""
+
+    entry = await _editable_entry(db, entry_id, actor_id=actor_id, payroll=payroll)
+    plan = await load_plan(db)
+    try:
+        choices = options.clean_choices(
+            body,
+            {
+                number: options.PlanEntry(item.number, item.kind, item.active)
+                for number, item in plan.items()
+            },
+        )
+    except options.ChoiceError as exc:
+        raise LedgerError(str(exc), status=422) from exc
+    was_manual = bool(entry.decree and entry.decree.get("manual"))
+    entry.decree = {**(entry.decree or {}), "choices": choices}
+    ctx = await load_context(db, [entry])
+    entry.decree = compute(ctx.inputs[entry.id], ctx.rules, ctx.plan, now=now)
+    _event(
+        db,
+        entry,
+        "decree",
+        actor_id=actor_id,
+        now=now,
+        detail={"manual": False, "was_manual": was_manual, "choices": True},
+    )
+    await db.flush()
+
+
+async def choice_lists(db: AsyncSession) -> dict[str, Any]:
+    """Listy wyboru na karcie: konta z planu (zespół 4 i 7, „5”, 902–903)
+    i listy stałe z arkusza księgowej."""
+
+    rows = (
+        await db.execute(
+            select(FinanceAccount.number, FinanceAccount.name, FinanceAccount.kind)
+            .where(FinanceAccount.active.is_(True))
+            .order_by(FinanceAccount.number)
+        )
+    ).all()
+    numbers = {row.number for row in rows}
+    parents = {
+        "-".join(number.split("-")[:cut])
+        for number in numbers
+        for cut in range(1, len(number.split("-")))
+    }
+
+    def pick(ok: Any) -> list[dict[str, str]]:
+        return [
+            {"value": row.number, "label": f"{row.number} {row.name}".strip()}
+            for row in rows
+            if row.number not in parents and ok(row.number, row.kind)
+        ]
+
+    lists = options.static_options()
+    for key in ("vat_accounts", "output_vat_accounts"):
+        lists[key] = [
+            {**item, "in_plan": item["value"] in numbers} for item in lists[key]
+        ]
+    return {
+        **lists,
+        "net_accounts": pick(options.net_account_ok),
+        "allocation_accounts": pick(options.allocation_account_ok),
+        "offbalance_accounts": pick(
+            lambda number, _kind: options.offbalance_account_ok(number)
+        ),
+        "allocation_offset": options.ALLOCATION_OFFSET,
+        "offbalance_debit": options.OFFBALANCE_DEBIT,
+    }
+
+
+def _effective(decree: dict[str, Any]) -> dict[str, Any]:
+    """Wartości pól opisu, jakie dekret dziś ma (wybór albo podpowiedź reguły)."""
+
+    choices = decree.get("choices") or {}
+    positions = decree.get("positions") or []
+
+    def account_of(kind: str) -> Optional[str]:
+        return next(
+            (str(item["account"]) for item in positions if item.get("kind") == kind),
+            None,
+        )
+
+    registers = decree.get("registers") or []
+    inputs = [item for item in registers if not item.get("output")]
+    outputs = [item for item in registers if item.get("output")]
+    return {
+        "description": decree.get("description") or "",
+        "doc_type": decree.get("doc_type") or None,
+        "register": inputs[0]["name"] if inputs else choices.get("register"),
+        "net_account": account_of("cost") or choices.get("net_account"),
+        "vat_account": account_of("vat") or choices.get("vat_account"),
+        "output_register": outputs[0]["name"] if outputs else None,
+        "output_vat_account": account_of("vat_due"),
+        "eu": bool((inputs or outputs or [{}])[0].get("eu")),
+        "service": bool((inputs or [{}])[0].get("service")),
+        "import_rate": choices.get("import_rate"),
+        "allocation_account": account_of("allocation"),
+        "car": bool(decree.get("car")),
+        "offbalance_account": account_of("offbalance_offset"),
+        "jpk_procedure": decree.get("jpk_procedure"),
+        "fx_date": decree.get("fx_date"),
+        "fx_rate": decree.get("fx_rate"),
+        "fx_table": decree.get("fx_table") or choices.get("fx_table"),
+        "service_date": decree.get("service_date"),
+    }
+
+
+def registers_payload(registers: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    def opt(value: Any) -> Optional[str]:
+        return money(int(value)) if value is not None else None
+
+    return [
+        {
+            "name": item.get("name"),
+            "rate": item.get("rate"),
+            "net": money(int(item.get("net") or 0)),
+            "vat": money(int(item.get("vat") or 0)),
+            "gross": money(int(item.get("gross") or 0)),
+            "net_cur": opt(item.get("net_cur")),
+            "vat_cur": opt(item.get("vat_cur")),
+            "gross_cur": opt(item.get("gross_cur")),
+            "output": bool(item.get("output")),
+            "eu": bool(item.get("eu")),
+            "service": bool(item.get("service")),
+        }
+        for item in registers
+    ]
+
+
 def positions_payload(
     positions: Iterable[dict[str, Any]], plan: dict[str, AccountView]
 ) -> list[dict[str, Any]]:
@@ -923,6 +1624,12 @@ def positions_payload(
                 "side": item.get("side"),
                 "side_label": SIDE_LABELS.get(item.get("side"), item.get("side")),
                 "amount": money(int(item.get("amount") or 0)),
+                "amount_cur": (
+                    money(int(item["amount_cur"]))
+                    if item.get("amount_cur") is not None
+                    else None
+                ),
+                "parallel": bool(item.get("parallel")),
                 "vat_rate": item.get("vat_rate"),
                 "deduction": item.get("deduction"),
                 "deduction_label": DEDUCTION_LABELS.get(item.get("deduction") or ""),
@@ -981,6 +1688,14 @@ async def section(
         "issues": issues_for(entry.decree, plan, gross, currency),
         "fx_rate": decree.get("fx_rate"),
         "fx_date": decree.get("fx_date"),
+        "fx_table": decree.get("fx_table"),
+        "registers": registers_payload(decree.get("registers") or []),
+        "jpk_procedure": decree.get("jpk_procedure"),
+        "service_date": decree.get("service_date"),
+        "car": bool(decree.get("car")),
+        "self_assessed": bool(decree.get("self_assessed")),
+        "choices": decree.get("choices") or {},
+        "effective": _effective(decree) if entry.decree else None,
         "editable": entry.stage in EDITABLE_STAGES and not own,
         "batch": batch,
     }

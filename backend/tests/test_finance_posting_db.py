@@ -881,7 +881,8 @@ async def test_waluta_obca_po_kursie_nbp_z_dnia_roboczego_przed_wystawieniem(
         assert [(p["account"], p["amount"]) for p in decree["positions"]] == [
             ("402-202", "4251.20"),
             ("221", "977.78"),
-            ("201-2-914", "5228.98"),
+            # Krajowy dostawca z fakturą w walucie: 205-2-<nr> (arkusz księgowej).
+            ("205-2-914", "5228.98"),
         ]
         assert decree["issues"] == []
     finally:

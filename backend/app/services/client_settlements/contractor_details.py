@@ -96,6 +96,9 @@ def details_from(parsed: fa.ParsedInvoice) -> dict[str, Any]:
         # Rachunki z „Platnosc/RachunekBankowy” — podpowiedź do przelewu (E3).
         "accounts": list(parsed.accounts),
         "factor_accounts": list(parsed.factor_accounts),
+        # Opis faktury do Symfonii (E2): procedura JPK MK i data zakończenia usługi.
+        "cash_method": parsed.cash_method,
+        "sale_date": parsed.sale_date.isoformat() if parsed.sale_date else None,
     }
 
 

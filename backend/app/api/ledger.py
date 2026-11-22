@@ -9,7 +9,9 @@ przełączniki, lista „Księgowi”, tryb roku i ponowne otwarcie okresu — t
 admin (403). Dokumenty płacowe (D2) — tylko Płace i admin (404 dla reszty).
 
 * ``GET /config`` — moduły, rola osoby, lata z okresami,
-  ``PUT /config/modules``, ``PUT /config/accountants``, ``PUT /config/sales``
+  ``PUT /config/modules``, ``PUT /config/accountants``,
+  ``PUT /config/cost-verifiers`` (lista „Weryfikujący kontraktorów” kolejki
+  „Koszty”), ``PUT /config/sales``
   i ``PUT /config/allocation`` (admin; konta sprzedaży i rozliczenia kosztów, K2),
   ``GET /config/candidates`` (admin: konta z „Modułem Finanse”),
 * ``POST /payroll-lists/import?year=&month=&list=&payment_date=&save=`` (K3c,
@@ -387,6 +389,7 @@ def _config_payload(
             "payroll": viewer.payroll,
         },
         "accountants": list(current.accountants) if viewer.admin else None,
+        "cost_verifiers": list(current.cost_verifiers) if viewer.admin else None,
         "sales_accounts": ledger_settings.to_json(current)["sales"],
         "allocation_accounts": ledger_settings.to_json(current)["allocation"],
         "payroll_accounts": ledger_settings.to_json(current)["payroll"],
@@ -465,6 +468,24 @@ async def set_accountants(
     _require_admin(current_user)
     try:
         current = await ledger_settings.set_accountants(
+            db, body.user_ids, actor=current_user
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return ledger_settings.to_json(current)
+
+
+@router.put("/config/cost-verifiers")
+async def set_cost_verifiers(
+    body: AccountantsBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _require_admin(current_user)
+    try:
+        current = await ledger_settings.set_cost_verifiers(
             db, body.user_ids, actor=current_user
         )
     except LedgerError as exc:

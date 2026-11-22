@@ -1,5 +1,5 @@
 # Poligon NEXUSA — onboarding pierwszego dnia na rekrutacji ćwiczebnej
-<!-- indeks: `/poligon`, ścieżki per rola (rekruter 27, DL 17, TCM 13), narzędzia rekrutera z 16.11 (telefon, termin u klienta, CV z pliku, zapisane wyszukiwanie, lista, czat, asystent CV, Jarvis bez modelu — `lib/poligon/tools.ts`), terminy od klienta DL-a (wklejony mail bez modelu), wymagany od nadania roli, blokada nowej osoby zamiast Startu, poligon dla obecnych „tylko luki” (`poligon_luki`, „Kto zna NEXUS”), dzień onboardingu poza statystykami (`onboarding_day`), tryb w przeglądarce (`lib/poligon/`), zapisy nie wychodzą do API poza postępem `poligon-*`, zestaw z `build_poligon_dataset.py`, strażnik `poligon-dataset.test.ts` -->
+<!-- indeks: `/poligon`, ścieżki per rola (rekruter 27, DL 17, TCM 13), narzędzia rekrutera z 16.11 (telefon, termin u klienta, CV z pliku, zapisane wyszukiwanie, lista, czat, asystent CV, Jarvis bez modelu — `lib/poligon/tools.ts`), terminy od klienta DL-a (wklejony mail bez modelu), wymagany od nadania roli, blokada nowej osoby zamiast Startu, poligon dla obecnych „tylko luki” (`poligon_luki`, „Kto zna NEXUS”), dzień onboardingu poza statystykami (`onboarding_day`), tryb w przeglądarce (`lib/poligon/`), zapisy nie wychodzą do API poza postępem `poligon-*`, zestaw z `build_poligon_dataset.py`, klient ćwiczebny 990501 (`poligon_client_practice.py`, kwoty wg roli w `amounts.ts`, 22.11.2026), strażnik `poligon-dataset.test.ts` -->
 
 Decyzje Artura z 14.11.2026 (makiety: https://claude.ai/artifact/FQGjXqm7T4Bpoi4fYCpmsk).
 Co miesiąc dochodzi 7–14 nowych kont i każdą osobę HoR szkolił osobno. Start
@@ -199,6 +199,59 @@ terminy z maila klienta podanego w treści ćwiczenia
   więc DL-a z pracy liczy to tylko przy roli rekrutera.
 - Rekruter sprzed 15.11, który zostaje DL-em, ma do zrobienia cztery
   ćwiczenia DL-a (przegląd, wysyłka, poprawki, terminy).
+
+## Klient ćwiczebny: karta klienta, kontrakty, Finanse (22.11.2026)
+
+Artur 22.11.2026 wybrał „klient ćwiczebny”: wpisy Nowości z ekranów klienta,
+kontraktów i Finansów nie miały na Poligonie drogi do elementu (Strażnik
+Nowości zgłaszał ok. 15 takich wpisów co noc).
+
+- **Dane są wymyślone w `backend/scripts/poligon_client_practice.py`**, bez
+  nagrania: „Bank Północny” (990501) z kartą, Konsultantami i rozliczeniem
+  poprzedniego miesiąca; kontrakt B2B Filipa Bukowca (990521, zamówienie kończy
+  się za 40 dni, aneks 2 z dokumentu ze stawką do wprowadzenia, opieka, start,
+  dokumenty, aneksy); zakończony kontrakt Mai Wierzbickiej (990522) z
+  zamówieniem po końcu; jeden wpis „Zamówienia z maila” do sprawdzenia;
+  w Finansach rozjazd stawki i zamówienie do korekty po zmianie stawki Partnera.
+  Kwoty pasują do rekrutacji ćwiczebnej (Partner 105 zł/h, klient 122 zł/h).
+- **Bez nagrania:** `python3 scripts/build_poligon_dataset.py --practice-only`
+  (z `backend/`) nakłada wymyślone odczyty na zestaw w repo. Pełna przebudowa
+  z nagrania dokłada je sama. Test `tests/test_poligon_client_practice.py`
+  pada, gdy zestaw w repo nie zgadza się z generatorem.
+- **Listy idą z zestawu, nie z API** (`OWNED_PATHS` w `store.ts`): lista
+  klientów, lista kontraktów z licznikami pigułek, kolejka zamówień z maila,
+  rozjazdy stawek i korekty kosztu. Do 22.11 te listy w trybie Poligonu
+  pokazywały prawdziwych klientów osoby, która ćwiczyła. Licznik pigułki ma
+  własny klucz zestawu (`contract_list_keys`); bez niego store wziąłby
+  pierwszą nagraną listę i wszystkie pigułki miałyby tę samą liczbę.
+- **Kwoty tylko dla ról z kwotą.** Zestaw ma kwoty w całości, a
+  `lib/poligon/amounts.ts` zdejmuje je tak jak serwer:
+  - osoba bez „Stawki i kwoty: podgląd” i bez `view_finance` (np. TCM) nie
+    dostaje stawek, marży, waluty kontraktu, harmonogramów, cytatu z dokumentu
+    ani marży klienta (`_redact_contract_finance`, profil klienta);
+  - Finanse bez „Wyników firmy” nie widzą marży w wierszach listy kontraktów
+    (`_hide_company_margin`);
+  - nieznana osoba nie widzi kwot;
+  - redakcja dotyczy tylko odpowiedzi z `meta.fiction_responses`. Rekrutacja
+    ćwiczebna z nagrania zostaje bez zmian.
+- **Klient ćwiczebny jest w portfelu ćwiczącego Delivery Leada.** Adapter
+  dopisuje 990501 do `data_scope` w odpowiedzi `/api/auth/me`, tylko w trybie
+  Poligonu (`withPracticeClient`). Bez tego front liczyłby
+  `canViewClientFinance` jak dla obcego klienta i schował DL-owi rozliczenie
+  i dokumenty. Do `finance_client_ids` trafia tylko u osoby z podglądem kwot.
+- **Sekcji nikt nie omija:** rekruter bez podglądu Delivery dostaje na
+  `/clients/990501` to samo 403 co na prawdziwym kliencie (middleware).
+- **Strażnik zestawu** sprawdza odpowiedzi z `meta.fiction_responses`
+  osobno: identyfikatory 990000+, osoby tylko ćwiczebne, trenerzy i
+  `meta.client_people` (kontakt klienta), bez e-maili i adresów. Słownik kluczy
+  nagrania (`safe-keys.json`) ich nie dotyczy.
+- **Wpisy Nowości** z klienta, kontraktów i Finansów mają `practice_href`
+  na te ekrany (`/clients/990501`, `?tab=konsultanci`, `/contracts`,
+  `/finance?view=rate-divergences`). Nowy ekran klienta albo kontraktu
+  z nowością = odpowiedzi w `poligon_client_practice.py` i jeden ekran
+  przeklikany w trybie Poligonu: adapter pisze w konsoli
+  `[poligon] brak odpowiedzi w zestawie`, a zły kształt kończy się błędem
+  ekranu (22.11: notatki opieki bez `at`).
 
 ## Ścieżka per rola: rekruter, Delivery Lead, TCM (15.11.2026)
 

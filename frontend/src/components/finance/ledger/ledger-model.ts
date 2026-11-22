@@ -9,8 +9,11 @@ import type {
   CostAction,
   CostCategory,
   CostFlag,
+  CostJournal,
+  CostPermissions,
   CostStage,
   CounterpartyRole,
+  SettlementCheck,
 } from "@/lib/api/finance-ledger";
 import { countPl } from "@/lib/plural-pl";
 
@@ -57,6 +60,47 @@ export const CATEGORY_ORDER: readonly CostCategory[] = [
   "proforma",
   "other",
 ];
+
+/** Zakładki dzienników nad etapami (eBI24: foldery; przychody są w Księgowości). */
+export const JOURNAL_TABS: readonly { journal: CostJournal | null; label: string }[] = [
+  { journal: null, label: "Wszystkie" },
+  { journal: "contractors", label: "Kontraktorzy" },
+  { journal: "purchases", label: "Zakupy pozostałe" },
+  { journal: "office", label: "Biuro" },
+];
+
+export const VERIFY_CONTRACTORS_HINT =
+  "Wstępną weryfikację faktur kontraktorów robią osoby z listy „Weryfikujący kontraktorów” albo „Księgowi”.";
+export const READY_HINT = "„Gotowa do księgowania” zatwierdzają osoby z listy „Księgowi”.";
+
+/**
+ * Dlaczego przycisk jest wyłączony (lista osób), albo `null`. Cofnięcie z
+ * „Gotowej” i z „Zweryfikowanej” faktury kontraktora pilnuje ta sama lista
+ * co krok naprzód — tak samo liczy serwer (`costs.stage_refusal`).
+ */
+export function buttonBlock(
+  button: StageButton,
+  stage: CostStage,
+  can: CostPermissions,
+): string | null {
+  if (button.action === "ready" || (button.action === "back" && stage === "ready")) {
+    return can.ready ? null : READY_HINT;
+  }
+  if (button.action === "verify" || (button.action === "back" && stage === "verified")) {
+    return can.verify ? null : VERIFY_CONTRACTORS_HINT;
+  }
+  return null;
+}
+
+/** Plakietka kontroli rozliczenia: ton → wariant. */
+export function checkTone(
+  state: SettlementCheck["state"],
+): "success" | "warning" | "danger" | "outline" {
+  if (state === "ok") return "success";
+  if (state === "fail") return "danger";
+  if (state === "warn") return "warning";
+  return "outline";
+}
 
 export const ROLE_LABELS: Record<CounterpartyRole, string> = {
   client: "klient",

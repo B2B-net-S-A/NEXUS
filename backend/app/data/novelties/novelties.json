@@ -2043,6 +2043,7 @@
     },
     "where": "Kontrakty → pigułka „Zamówione po końcu” → kontrakt",
     "href": "/contracts",
+    "practice_href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contracts.order-after-end"
   },
@@ -2073,6 +2074,7 @@
     "audience": { "permissions": ["delivery_view"] },
     "where": "Kontrakty → Zamówienia z maila",
     "href": "/contracts",
+    "practice_href": "/contracts",
     "section": "delivery",
     "dot_anchor": "order-mail.queue",
     "steps": [
@@ -2295,6 +2297,7 @@
     "audience": { "permissions": ["delivery_view"] },
     "where": "Kontrakty → kontrakt → Opieka i rozmowy, Start i sprzęt",
     "href": "/contracts",
+    "practice_href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contract.tabs.care",
     "steps": [
@@ -3480,6 +3483,7 @@
     "audience": { "permissions": ["delivery_view"] },
     "where": "Klienci → kolumna „Wymaga uwagi”",
     "href": "/clients",
+    "practice_href": "/clients?state=working",
     "section": "delivery",
     "dot_anchor": "clients.attention"
   },
@@ -3732,6 +3736,7 @@
     "audience": { "permissions": ["delivery_view"] },
     "where": "Kontrakty → szybkie filtry nad listą",
     "href": "/contracts",
+    "practice_href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contracts.quick-filters"
   },
@@ -3745,6 +3750,7 @@
     "audience": { "permissions": ["delivery_view"] },
     "where": "Kontrakty → lista i pigułka „Kończące się”",
     "href": "/contracts",
+    "practice_href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contracts.list.next",
     "steps": [
@@ -3781,6 +3787,7 @@
     "audience": { "permissions": ["delivery_view"] },
     "where": "Klienci → klient → Konsultanci",
     "href": "/clients",
+    "practice_href": "/clients/990501?tab=konsultanci",
     "section": "delivery",
     "dot_anchor": "client.consultants"
   },
@@ -3843,6 +3850,7 @@
     },
     "where": "Klienci → klient",
     "href": "/clients",
+    "practice_href": "/clients/990501",
     "section": "delivery",
     "dot_anchor": "client.sections"
   },
@@ -3860,6 +3868,7 @@
     },
     "where": "Finanse",
     "href": "/finance",
+    "practice_href": "/finance?view=rate-divergences",
     "section": "finance",
     "dot_anchor": "finance.sections"
   },
@@ -3877,6 +3886,7 @@
     },
     "where": "Kontrakty → pigułka „Stawka z dokumentu”",
     "href": "/contracts",
+    "practice_href": "/contracts?status=all&rate_doc=1",
     "section": "delivery",
     "dot_anchor": "contracts.rate-document"
   },
@@ -3922,6 +3932,7 @@
     },
     "where": "Klienci → klient → Przegląd",
     "href": "/clients",
+    "practice_href": "/clients/990501",
     "section": "delivery",
     "dot_anchor": "client.overview.attention"
   },
@@ -3938,6 +3949,7 @@
     },
     "where": "Klienci → klient → Nasi ludzie → Konsultanci",
     "href": "/clients",
+    "practice_href": "/clients/990501?tab=konsultanci",
     "section": "delivery",
     "dot_anchor": "client.consultants.view"
   },
@@ -3954,6 +3966,7 @@
     },
     "where": "Klienci → Współpracujemy / Bez bieżącej pracy / Archiwum",
     "href": "/clients",
+    "practice_href": "/clients?state=working",
     "section": "delivery",
     "dot_anchor": "clients.states"
   },
@@ -3971,6 +3984,7 @@
     },
     "where": "Finanse → Rozjazdy stawek → Do korekty po zmianie stawki",
     "href": "/finance",
+    "practice_href": "/finance?view=rate-divergences",
     "section": "finance",
     "dot_anchor": "finance.rate-divergences"
   },
@@ -4087,6 +4101,7 @@
     },
     "where": "Klienci → klient → Przegląd → Rozliczenie",
     "href": "/clients",
+    "practice_href": "/clients?state=working",
     "section": "delivery",
     "dot_anchor": "client.overview.settlement",
     "steps": [
@@ -4113,6 +4128,7 @@
     "audience": { "permissions": ["amounts_view"] },
     "where": "Kontrakty → kontrakt → Dokumenty i Aneksy",
     "href": "/contracts",
+    "practice_href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contract.tabs.documents",
     "steps": [
@@ -4168,6 +4184,23 @@
         "ack": true
       }
     ]
+  },
+  {
+    "id": "koszty-opis-do-ksiegowania",
+    "title": "Faktura kosztowa: opis do księgowania jak w eBI24",
+    "why": "„Opisz do księgowania” na karcie faktury: typ, rejestr, konta netto, VAT i „5”, samochód (½ VAT), import usług, procedura JPK, kurs NBP. Plik do Symfonii przyjmuje też FVZ, FVZP i IU.",
+    "where": "Finanse → Faktury kosztowe → faktura → Dekret do Symfonii FK",
+    "href": "/finance",
+    "shipped_on": "2026-11-22",
+    "pr": 3692,
+    "tier": "dot",
+    "audience": {
+      "permissions": [
+        "finance_module"
+      ]
+    },
+    "section": "finance",
+    "dot_anchor": "finance.costs-nav"
   },
   {
     "id": "nie-szuka-data-kazda-karta",

@@ -11,6 +11,7 @@ import {
   type InternalAxiosRequestConfig,
 } from "axios";
 
+import { viewerFrom, withPracticeClient, type PoligonViewer } from "./amounts";
 import { createPoligonStore, type PoligonAction, type PoligonDataset, type PoligonStore } from "./store";
 
 let storePromise: Promise<PoligonStore> | null = null;
@@ -56,16 +57,29 @@ function parseBody(data: unknown): unknown {
   }
 }
 
-/** Zalogowana osoba z `nexus_user` (`store/auth.ts`) — jej są zapisane wyszukiwania i listy na poligonie. */
-function viewerId(): number | null {
+/** Zalogowana osoba z `nexus_user` (`store/auth.ts`). */
+function storedUser(): Record<string, unknown> | null {
   try {
     const raw = window.localStorage.getItem("nexus_user");
-    const id = raw ? (JSON.parse(raw) as { id?: unknown }).id : null;
-    return typeof id === "number" ? id : null;
+    const user = raw ? (JSON.parse(raw) as unknown) : null;
+    return user && typeof user === "object" ? (user as Record<string, unknown>) : null;
   } catch {
     return null;
   }
 }
+
+/** Jej są zapisane wyszukiwania i listy na poligonie. */
+function viewerId(): number | null {
+  const id = storedUser()?.id;
+  return typeof id === "number" ? id : null;
+}
+
+/** Co osoba widzi z kwot klienta ćwiczebnego — z jej uprawnień (`amounts.ts`). */
+function viewer(): PoligonViewer {
+  return viewerFrom(storedUser());
+}
+
+const AUTH_ME = /^(https?:\/\/[^/]+)?\/api\/auth\/me(\?|$)/;
 
 export const poligonAdapter: AxiosAdapter = async (config: InternalAxiosRequestConfig) => {
   const store = await poligonStore();
@@ -75,9 +89,17 @@ export const poligonAdapter: AxiosAdapter = async (config: InternalAxiosRequestC
     params: config.params as Record<string, unknown> | undefined,
     body: parseBody(config.data),
     viewerId: viewerId(),
+    viewer: viewer(),
   });
   if (result === "network") {
-    return getAdapter(["xhr", "fetch"])(config);
+    const response = await getAdapter(["xhr", "fetch"])(config);
+    // Klient ćwiczebny w portfelu Delivery Leada, który ćwiczy (`withPracticeClient`).
+    if (AUTH_ME.test(config.url ?? "") && response.status === 200) {
+      const data = parseBody(response.data);
+      const me = withPracticeClient(data, store.meta.client_id);
+      if (me !== data) response.data = typeof response.data === "string" ? JSON.stringify(me) : me;
+    }
+    return response;
   }
   const response: AxiosResponse = {
     data: result.data,

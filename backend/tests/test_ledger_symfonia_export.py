@@ -438,7 +438,7 @@ def test_text_is_one_line_and_encodable():
 
 def test_foreign_currency_and_unknown_symbol_are_refused_with_the_number():
     foreign = _invoice(currency="EUR")
-    other = _invoice(symbol="FVZ", number="Z/1")
+    other = _invoice(symbol="WNT", number="Z/1")
     with pytest.raises(SymfoniaFormatError) as caught:
         FORMAT.render(
             [
@@ -448,7 +448,8 @@ def test_foreign_currency_and_unknown_symbol_are_refused_with_the_number():
         )
     message = str(caught.value)
     assert "7/6/2026" in message and "EUR" in message
-    assert "Z/1" in message and "FVZ" in message and "FVS, WDT, FKZ" in message
+    assert "Z/1" in message and "WNT" in message
+    assert "FVS, WDT, FKZ, FVZ, FVZP, IU" in message
     assert "2 dok." in message
 
 

@@ -558,21 +558,28 @@ async def _purchase_rows(
     rows: list[Row] = []
     self_rows: list[Row] = []
     for doc in docs:
+        meta = doc.meta or {}
         found = purchase_amounts(
             lines[doc.id],
             input_account=settings.vat.input_account,
-            output_account=settings.sales.vat_account,
+            # Import usług z kolejki kosztów: konto VAT należnego z dekretu (226).
+            output_account=meta.get("output_account") or settings.sales.vat_account,
             intake_account=settings.assets.intake_account,
         )
         if found is None:
             continue
+        if meta.get("register_net") is not None:
+            # Samochód (50% VAT): netto rejestru = połowa „Zakup” z opisu faktury.
+            found = Purchase(
+                found.key, int(meta["register_net"]), found.vat, found.output
+            )
         party = parties.get(doc.counterparty_id or 0)
         issued = (doc.meta or {}).get("issue_date")
         issue_date = date.fromisoformat(issued) if issued else doc.doc_date
         received = (doc.meta or {}).get("received_date")
         tax_id, country = _party_tax_id(party)
         group = (doc.meta or {}).get("jpk_group")
-        foreign = doc.source_type == FOREIGN_SOURCE and group in IMPORT_GROUPS
+        foreign = doc.source_type in PURCHASE_SOURCES and group in IMPORT_GROUPS
         common = {
             "document_id": doc.id,
             "number": doc.number,

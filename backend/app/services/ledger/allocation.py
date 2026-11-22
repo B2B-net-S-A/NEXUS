@@ -19,6 +19,9 @@ rozliczenia kosztów (490).
   klient wniosku, inaczej pion wnioskującego; reszta — także zakup zagraniczny
   (faktura bez klienta i pionu) → koszty ogólne (``OG``, do czasu klucza
   podziału biura od Finansów).
+* **„5” z opisu faktury** (arkusz księgowej z 18.11.2026): faktura, w której
+  Finanse wybrały konto „5”, ma zapis równoległy Wn 5xx / Ma 490 na samym FVZ
+  (``meta.parallel_lines``) i do PK nie wchodzi — „5” jest raz.
 * **D2**: koszty z faktur osób zespołu idą osobnym PK z wrażliwością
   ``payroll`` na jednym koncie kosztów zespołu, z pionem tylko w MPK pozycji —
   suma pionu bywa kwotą jednej osoby, a obroty kont pokazują sumy każdemu
@@ -56,6 +59,8 @@ COST_SOURCE = "finance_cost_entry"
 #: FVZ, których koszt idzie na „5”: kolejka kosztów i zakup zagraniczny (K5b-2).
 COST_SOURCES = (COST_SOURCE, FOREIGN_PURCHASE_SOURCE)
 OVERHEAD = "OG"
+#: Klucz ``meta`` FVZ z zapisami równoległymi „5” / 490 z opisu faktury (E2).
+PARALLEL_KEY = "parallel_lines"
 DIVISION_CODES: dict[str, str] = {"front_office": "FO", "back_office": "BO"}
 KIND_ACCOUNT: dict[str, str] = {
     "client": "client_account",
@@ -195,6 +200,15 @@ async def _cost_by_entry(
         (LedgerDocument.reverses_id.is_(None), LedgerDocument.source_id),
         else_=original.source_id,
     )
+    # „5” wybrane w opisie faktury (zapis równoległy na FVZ) — tej faktury PK
+    # nie rozlicza drugi raz (decyzja w ``ksiegowosc-opis-faktury-wg-ksiegowej.md``).
+    own_allocation = case(
+        (
+            LedgerDocument.reverses_id.is_(None),
+            LedgerDocument.meta.has_key(PARALLEL_KEY),
+        ),
+        else_=original.meta.has_key(PARALLEL_KEY),
+    )
     rows = await db.execute(
         select(kind, entry, LedgerLine.account, func.sum(signed))
         .select_from(LedgerDocument)
@@ -210,6 +224,7 @@ async def _cost_by_entry(
                     original.source_type.in_(COST_SOURCES),
                 ),
             ),
+            own_allocation.is_not(True),
             (
                 LedgerDocument.sensitivity.is_not(None)
                 if payroll

@@ -9,6 +9,7 @@
 // z 16.11.2026 (telefon, terminy u klienta, CV z pliku, zapisane wyszukiwania,
 // listy, czat, asystent CV, Jarvis) i terminy od klienta Delivery Leada są w `tools.ts`.
 
+import { forViewer, NO_AMOUNTS, type PoligonViewer } from "./amounts";
 import { createTools } from "./tools";
 
 export interface PoligonPerson {
@@ -32,6 +33,10 @@ export interface PoligonDataset {
     cv_candidate_id: number;
     trainers: Record<string, { id: number; name: string }>;
     people: PoligonPerson[];
+    /** Osoby po stronie klienta ćwiczebnego (kontakt klienta), nie kandydaci. */
+    client_people?: string[];
+    /** Odpowiedzi wymyślone w skrypcie (klient ćwiczebny): kwoty zdejmuje `amounts.ts`. */
+    fiction_responses?: string[];
   };
   responses: Record<string, unknown>;
 }
@@ -44,6 +49,8 @@ export interface PoligonRequest {
   body?: unknown;
   /** Zalogowana osoba — jej są zapisane wyszukiwania i listy na poligonie. */
   viewerId?: number | null;
+  /** Co osoba widzi z kwot klienta ćwiczebnego (z jej uprawnień, jak serwer). */
+  viewer?: PoligonViewer;
 }
 
 export interface PoligonResponse {
@@ -124,12 +131,18 @@ function workdayAt(now: number, workdays: number, hh: number, mm: number): strin
 
 /**
  * `@rel:-3.2` → data sprzed 3,2 dnia, `@reld:-3` → sam dzień, `@relt:2T09:00` → za
- * 2 dni robocze o 9:00 UTC (terminy u klienta i prepy: pełne godziny, bez weekendu).
+ * 2 dni robocze o 9:00 UTC (terminy u klienta i prepy: pełne godziny, bez weekendu),
+ * `@relm:-1` → poprzedni miesiąc (`2026-10`; rozliczenie klienta ćwiczebnego).
  */
 export function resolveDates(value: Json, now: number): Json {
   if (typeof value === "string") {
     const at = /^@relt:(\d+)T(\d{2}):(\d{2})$/.exec(value);
     if (at) return workdayAt(now, Number(at[1]), Number(at[2]), Number(at[3]));
+    const month = /^@relm:(-?\d+)$/.exec(value);
+    if (month) {
+      const d = new Date(now);
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + Number(month[1]), 1)).toISOString().slice(0, 7);
+    }
     if (value.startsWith("@rel:")) return new Date(now + Number(value.slice(5)) * DAY_MS).toISOString();
     if (value.startsWith("@reld:")) return new Date(now + Number(value.slice(6)) * DAY_MS).toISOString().slice(0, 10);
     return value;
@@ -176,6 +189,7 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
   const people = new Map(meta.people.map((p) => [p.candidate_id, p]));
   const peopleByEntry = new Map(meta.people.map((p) => [p.entry_id, p]));
   const template = people.get(meta.template_candidate_id);
+  const fiction = new Set(meta.fiction_responses ?? []);
 
   const kanbanKey = `GET /api/pipeline/kanban/${meta.job_id}`;
   const kanban = clone(responses[kanbanKey]) as { columns: KanbanColumn[] } | undefined;
@@ -502,7 +516,7 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     method: string,
     path: string,
     query: Array<[string, string]>,
-    opts: { quiet?: boolean } = {},
+    opts: { quiet?: boolean; viewer?: PoligonViewer } = {},
   ): PoligonResponse {
     if (!opts.quiet && method === "GET") emit({ type: "view", path, query: Object.fromEntries(query) });
     if (path === kanbanKey.slice(4)) return { status: 200, data: clone(kanban) };
@@ -517,11 +531,13 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     const key = datasetKey(method, tPath, tParams);
 
     let data: Json | undefined = responses[key];
+    let matched = key;
     if (data === undefined) {
       // Ten sam adres z innymi parametrami (np. sortowanie listy) — bierzemy pierwszy nagrany.
       const prefix = `${method.toUpperCase()} ${tPath}`;
       const near = Object.keys(responses).find((k) => k === prefix || k.startsWith(`${prefix}?`));
       data = near ? responses[near] : undefined;
+      matched = near ?? key;
     }
     if (data === undefined) {
       emit({ type: "missing", key });
@@ -531,6 +547,8 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     // to odpowiedź, nie brak w zestawie.
     if (isRecordedStatus(data)) return { status: data["@status"], data: { detail: "Brak danych." } };
     data = asPerson(clone(data), person);
+    // Klient ćwiczebny: kwoty tylko dla osoby, która widzi je na prawdziwym kliencie.
+    if (fiction.has(matched)) data = forViewer(path, data, opts.viewer ?? NO_AMOUNTS);
 
     if (path === "/api/screening-form") {
       data = screeningForm(Number(query.find(([k]) => k === "candidate_id")?.[1]), data);
@@ -589,6 +607,22 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     "/api/me/career-link/people",
     // „@” w notatce podpowiada trenerów poligonu, nie prawdziwy zespół.
     "/api/users/mentionable",
+    // Klient ćwiczebny (22.11.2026): listy klientów, kontraktów, zamówień
+    // z maila i widoki Finansów pokazują tylko „Bank Północny”, nie
+    // prawdziwych klientów osoby, która ćwiczy.
+    "/api/clients/directory/clients",
+    "/api/client-reports/calendar",
+    "/api/my-relationships",
+    "/api/clients-lookup",
+    "/api/reports/clients",
+    "/api/contracts",
+    "/api/contractors/stats",
+    "/api/order-mail/queue",
+    "/api/order-mail/recheck-runs",
+    "/api/order-mail/sync/status",
+    "/api/finance/rate-divergences",
+    "/api/finance/order-cost-corrections",
+    "/api/finance/order-changes/summary",
   ]);
   /** Zapisy, które w rzeczywistości są odczytami (wyniki dopasowania, podpowiedzi). */
   const READ_POSTS = new Set([
@@ -626,7 +660,7 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
       OWNED_PATHS.has(path) || mentionsPoligon(`${path}?${new URLSearchParams(query).toString()}`) || mentionsPoligon(JSON.stringify(req.body ?? ""));
 
     if (method === "GET" || method === "HEAD") {
-      return owned ? read("GET", path, query) : "network";
+      return owned ? read("GET", path, query, { viewer: req.viewer }) : "network";
     }
     // Od tego miejsca tylko zapisy. Jedyny, który wychodzi z przeglądarki, to
     // postęp osoby na poligonie (zaliczone ćwiczenie) — dane rekrutacji nie.

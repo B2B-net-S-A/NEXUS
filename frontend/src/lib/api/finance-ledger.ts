@@ -25,6 +25,45 @@ export type CostAction =
   | "flag_add"
   | "flag_remove";
 export type CounterpartyRole = "client" | "team" | "contractor" | "supplier";
+/** Dzienniki jak w eBI24 — z kategorii wpisu (`journals.py`). */
+export type CostJournal = "contractors" | "purchases" | "office";
+
+/** Co osoba może zrobić z fakturą (listy „Weryfikujący kontraktorów” i „Księgowi”). */
+export interface CostPermissions {
+  verify: boolean;
+  ready: boolean;
+}
+
+export type SettlementMatchState =
+  | "match"
+  | "differs"
+  | "waiting"
+  | "unchecked"
+  | "nip_check"
+  | "nip_rejected"
+  | "missing"
+  | "no_contract";
+
+export interface SettlementCheck {
+  state: "ok" | "warn" | "fail" | "none";
+  title: string;
+  detail?: string | null;
+}
+
+/** Faktura kontraktora a rozliczenie jego miesiąca (`settlement_match.py`). */
+export interface SettlementMatch {
+  state: SettlementMatchState;
+  label: string;
+  tone: SettlementCheck["state"];
+  month?: string;
+  rcp?: string;
+  /** Tylko na karcie. */
+  settlement_id?: number;
+  client_id?: number;
+  amount_cost?: string | null;
+  checks?: SettlementCheck[];
+  payment?: (SettlementCheck & { can_pay: boolean }) | null;
+}
 
 export interface CostConcerning {
   kind: "team" | "contractor" | "expense";
@@ -44,6 +83,8 @@ export interface CostRow {
   flags: CostFlag[];
   category: CostCategory;
   category_label: string;
+  journal: CostJournal;
+  journal_label: string;
   received_at: string;
   seller_name: string | null;
   seller_nip: string | null;
@@ -64,6 +105,9 @@ export interface CostRow {
   note: string | null;
   /** Stan zapłaty (E3) — w liście kolejki; karta ma osobny panel płatności. */
   payment?: PaymentSummary | null;
+  can: CostPermissions;
+  /** Tylko faktury z dziennika „Kontraktorzy” (bez faktur osób zespołu). */
+  settlement: SettlementMatch | null;
 }
 
 export interface CostHistoryItem {
@@ -73,7 +117,16 @@ export interface CostHistoryItem {
   from_stage: CostStage | null;
   to_stage: CostStage | null;
   to_stage_label: string | null;
-  detail: { reason?: string; from?: unknown; to?: unknown; batch?: string; manual?: boolean };
+  detail: {
+    reason?: string;
+    from?: unknown;
+    to?: unknown;
+    batch?: string;
+    manual?: boolean;
+    /** Kategoria podpowiedziana z historii sprzedawcy albo z dziennika eBI24. */
+    source?: "history" | "ebi24";
+    folder?: string;
+  };
   actor: string | null;
 }
 
@@ -92,6 +145,8 @@ export interface CostQueue {
   items: CostRow[];
   total: number;
   counts: Record<CostStage, number>;
+  journal_counts: Record<CostJournal, number>;
+  can: { verify_contractors: boolean; ready: boolean };
   limit: number;
   offset: number;
 }
@@ -99,6 +154,7 @@ export interface CostQueue {
 export interface CostFilters {
   stage: CostStage;
   month: string | null;
+  journal?: CostJournal | null;
   category: CostCategory | null;
   flag: CostFlag | "none" | null;
   q: string;
@@ -222,6 +278,7 @@ export function useCostQueue(filters: CostFilters) {
           params: {
             stage: filters.stage,
             month: filters.month ?? undefined,
+            journal: filters.journal ?? undefined,
             category: filters.category ?? undefined,
             flag: filters.flag ?? undefined,
             payment: filters.payment ?? undefined,
