@@ -194,7 +194,7 @@ MODULES = (
     back_office_team,
     # 0749: korekta zbiorcza rabatu od obrotu — kolumna i CHECK korekty (22.11.2026).
     client_invoice_collective_correction,
-    # 0750: dodatki do rozliczenia kontraktora — źródła, karta sprawy, dokumenty (13.11.2026).
+    # 0751: dodatki do rozliczenia kontraktora — źródła, karta sprawy, dokumenty (13.11.2026).
     settlement_extras,
 )
 
