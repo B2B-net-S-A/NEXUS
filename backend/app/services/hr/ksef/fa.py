@@ -116,6 +116,8 @@ class ParsedInvoice:
     #: Rachunek faktora (``Platnosc/RachunekBankowyFaktora/NrRB``) — przy
     #: faktoringu płacimy na niego, nie na rachunek sprzedawcy.
     factor_accounts: tuple[str, ...] = ()
+    #: Adnotacja „metoda kasowa” (``Adnotacje/P_16`` = 1) — procedura JPK MK.
+    cash_method: bool = False
 
 
 def _accounts(fa: Any, node_name: str = "RachunekBankowy") -> tuple[str, ...]:
@@ -260,7 +262,13 @@ def _sum(fa: Any, fields: tuple[str, ...]) -> Optional[Decimal]:
     return sum(present, Decimal("0")) if present else None
 
 
-def parse_invoice(xml: bytes) -> ParsedInvoice:
+def load_root(xml: bytes) -> Any:
+    """Bezpieczny odczyt pliku FA(2)/FA(3) — korzeń ``Faktura`` albo ``InvoiceParseError``.
+
+    Wspólne dla ``parse_invoice`` i wizualizacji (``fa_visual``): limit rozmiaru,
+    bez DTD i encji, bez sieci, właściwy formularz i wariant.
+    """
+
     if len(xml) > MAX_XML_BYTES:
         raise InvoiceParseError("too_large")
     lowered = xml.lower()
@@ -272,12 +280,17 @@ def parse_invoice(xml: bytes) -> ParsedInvoice:
         raise InvoiceParseError("malformed") from None
     if etree.QName(root).localname != "Faktura":
         raise InvoiceParseError("not_invoice")
-    variant = _text(root, "Naglowek", "WariantFormularza")
     if (
         _text(root, "Naglowek", "KodFormularza") != "FA"
-        or variant not in SUPPORTED_VARIANTS
+        or _text(root, "Naglowek", "WariantFormularza") not in SUPPORTED_VARIANTS
     ):
         raise InvoiceParseError("unsupported_form")
+    return root
+
+
+def parse_invoice(xml: bytes) -> ParsedInvoice:
+    root = load_root(xml)
+    variant = _text(root, "Naglowek", "WariantFormularza")
     fa = _child(root, "Fa")
     if fa is None:
         raise InvoiceParseError("not_invoice")
@@ -326,4 +339,5 @@ def parse_invoice(xml: bytes) -> ParsedInvoice:
         correction_reason=_text(fa, "PrzyczynaKorekty", limit=256),
         accounts=_accounts(fa),
         factor_accounts=_accounts(fa, "RachunekBankowyFaktora"),
+        cash_method=_text(fa, "Adnotacje", "P_16") == "1",
     )

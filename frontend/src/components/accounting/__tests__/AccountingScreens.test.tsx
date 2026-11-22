@@ -346,7 +346,32 @@ describe("Księgowość — obszar i ustawienia", () => {
     await waitFor(() =>
       expect(put).toHaveBeenCalledWith("/api/accounting/config/modules", { module: "ledger", enabled: false }),
     );
-    expect(await screen.findByText("Osoba Finansów")).toBeInTheDocument();
+    // Ta sama osoba na liście „Księgowi” i „Weryfikujący kontraktorów” (Koszty).
+    expect(await screen.findAllByText("Osoba Finansów")).toHaveLength(2);
+    expect(screen.getByText("Lista „Weryfikujący kontraktorów”")).toBeInTheDocument();
+  });
+
+  it("administrator zapisuje listę „Weryfikujący kontraktorów”", async () => {
+    pathname = "/accounting/settings";
+    route(
+      config({
+        me: { admin: true, approver: true, payroll: true },
+        accountants: [],
+        cost_verifiers: [],
+      }),
+    );
+    put.mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    renderWith(<SettingsView />);
+    await screen.findAllByText("Osoba Finansów");
+    const card = screen.getByText("Lista „Weryfikujący kontraktorów”").closest("section")!;
+    await user.click(within(card).getByRole("checkbox", { name: /Osoba Finansów/ }));
+    await user.click(within(card).getByRole("button", { name: "Zapisz listę" }));
+    await waitFor(() =>
+      expect(put).toHaveBeenCalledWith("/api/accounting/config/cost-verifiers", {
+        user_ids: [expect.any(Number)],
+      }),
+    );
   });
 
   it("osoba bez admina widzi tylko, czy jest na liście „Księgowi”", async () => {

@@ -4958,6 +4958,8 @@ async def get_candidate(
         else None
     )
     employment_markers = await _page_employment_markers(db, [candidate])
+    from app.services import cv_parse_batch
+
     return payload.model_copy(
         update={
             "invite_source": invite_source,
@@ -4966,6 +4968,7 @@ async def get_candidate(
             "call_facts_verified_by_name": verified_by_name,
             "employment_marker": employment_markers.get(candidate.id),
             "blacklist": await load_blacklist_info(db, candidate),
+            "cv_read_queued_at": await cv_parse_batch.queued_since(db, candidate.id),
         }
     )
 
@@ -7551,6 +7554,135 @@ async def _relock_candidate(db: AsyncSession, candidate_id: int) -> Optional[Can
     )
 
 
+async def _primary_cv_document_id(db: AsyncSession, candidate_id: int) -> Optional[int]:
+    return await db.scalar(
+        select(CandidateDocument.id).where(
+            CandidateDocument.candidate_id == candidate_id,
+            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+            CandidateDocument.is_primary.is_(True),
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+    )
+
+
+async def _apply_document_read(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    document: CandidateDocument,
+    raw_text: str,
+    parsed: dict[str, Any],
+    trigger: str,
+    replaced_primary: Optional[ReplacedPrimaryCv],
+) -> bool:
+    """Odczyt głównego CV → bramka tożsamości → profil. Commituje sam.
+
+    Wspólne dla odczytu na żywo i wyniku paczki (`cv_parse_batch`). `False` =
+    nic nie zapisano w profilu (plik przestał być głównym CV, kandydat zniknął,
+    kwarantanna tożsamości).
+    """
+    from app.services.cv_ingest_service import finish_cv_ingest
+
+    # Runda 9 (R9-N8-4): odczyt modelu trwa, a rekruter w tym czasie
+    # edytuje profil — zapis idzie na świeżo odczytanym, zablokowanym
+    # wierszu, nie na kopii sprzed wywołania modelu.
+    candidate = await _relock_candidate(db, candidate_id)
+    if candidate is None:
+        return False
+
+    if await _primary_cv_document_id(db, candidate_id) != document.id:
+        return False
+    if await _parsed_source_is_quarantined(
+        db,
+        candidate=candidate,
+        parsed=parsed,
+        source_kind="document",
+        source_id=document.id,
+        provenance="cv_parser:document",
+        replaced_primary=replaced_primary,
+    ):
+        # Keep the source available for human review, but do not let a
+        # confirmed different person alter the candidate projection.
+        await db.commit()
+        return False
+    if await _primary_cv_document_id(db, candidate_id) != document.id:
+        # Persist the source review, but never let a superseded upload
+        # win a race and overwrite facts from the newer primary CV.
+        await db.commit()
+        return False
+
+    candidate.raw_cv_text = raw_text
+    candidate.cv_filename = document.filename
+    await finish_cv_ingest(
+        db,
+        candidate=candidate,
+        parsed=parsed,
+        source_document_id=document.id,
+        source_hash=document.content_sha256,
+        # A recruiter just uploaded this file: "use this CV" is an
+        # explicit instruction, so refreshing existing values is the
+        # intent. Manual locks still win.
+        policy=CvWritePolicy.REFRESH,
+        trigger=trigger,
+    )
+    await db.commit()
+    return True
+
+
+async def _apply_batch_document_read(
+    *,
+    candidate_id: int,
+    document_id: int,
+    expected_hash: Optional[str],
+    raw_text: str,
+    parsed: dict[str, Any],
+    trigger: str,
+    replaced_primary: Optional[ReplacedPrimaryCv],
+) -> bool:
+    """Wynik odczytu z paczki → ta sama ścieżka co odczyt na żywo.
+
+    Plik sprawdzany drugi raz, bo od wgrania minęły godziny: musi być dalej
+    głównym CV z tą samą treścią i nie może być kopią pliku z kwarantanny.
+    Błąd idzie w górę — pętla kolejki robi wtedy odczyt na żywo.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.services.cv_source import quarantined_copy_document_ids
+
+    async with AsyncSessionLocal() as db:
+        try:
+            document = await db.scalar(
+                select(CandidateDocument).where(
+                    CandidateDocument.id == document_id,
+                    CandidateDocument.candidate_id == candidate_id,
+                    CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                    CandidateDocument.is_primary.is_(True),
+                    CandidateDocument.source_deleted_at.is_(None),
+                )
+            )
+            if document is None:
+                return False
+            if (
+                expected_hash
+                and document.content_sha256
+                and document.content_sha256 != expected_hash
+            ):
+                return False
+            if document.id in await quarantined_copy_document_ids(db, candidate_id):
+                return False
+            return await _apply_document_read(
+                db,
+                candidate_id=candidate_id,
+                document=document,
+                raw_text=raw_text,
+                parsed=parsed,
+                trigger=trigger,
+                replaced_primary=replaced_primary,
+            )
+        except Exception:
+            await db.rollback()
+            raise
+
+
 async def _enrich_candidate_from_document_task(
     candidate_id: int,
     document_id: int,
@@ -7559,18 +7691,26 @@ async def _enrich_candidate_from_document_task(
     actor_user_id: Optional[int] = None,
     replaced_primary: Optional[ReplacedPrimaryCv] = None,
     force_read: bool = False,
-) -> None:
+    defer_to_batch: bool = False,
+) -> Optional[bool]:
     """Extract and enrich from the still-current primary CV version.
 
     Plik, którego odczyt profil już ma, nie idzie do modelu drugi raz (03.11.2026):
     ten sam plik wgrany ponownie brał 793 z 7853 płatnych odczytów w 30 dni, a na
     profilu nie zmieniał nic. `force_read` = człowiek albo narzędzie prosi o nowy
     odczyt mimo to (`/cv/reparse`, naprawa dokumentów M365).
+
+    `defer_to_batch` (22.11.2026) = CV z integracji (scrapery): po tych samych
+    sprawdzeniach tekst idzie do kolejki odczytu wsadem (`cv_parse_batch`), a
+    zapis robi `_apply_batch_document_read`. Kolejka wyłączona albo model spoza
+    Anthropic = odczyt na żywo jak dotąd.
+
+    `False` = zadanie padło wyjątkiem (połknięty i zalogowany). Kolejka wsadu
+    zostawia wtedy CV do ponowienia; wgranie przez człowieka wyniku nie czyta.
     """
 
     from app.core.database import AsyncSessionLocal
-    from app.services import cv_text_extractor
-    from app.services.cv_ingest_service import finish_cv_ingest
+    from app.services import cv_parse_batch, cv_text_extractor
     from app.services.cv_parser import parse_cv
     from app.services.cv_source import quarantined_copy_document_ids
     from app.services.cv_upload_dedup import profile_holds_read_of_file
@@ -7645,71 +7785,37 @@ async def _enrich_candidate_from_document_task(
             )
             if not raw_text:
                 return
+            if defer_to_batch and await cv_parse_batch.enqueue(
+                db,
+                candidate_id=candidate_id,
+                document_id=document.id,
+                content_sha256=document.content_sha256,
+                raw_text=raw_text,
+                trigger=trigger,
+                actor_user_id=actor_user_id,
+                replaced_primary=replaced_primary,
+            ):
+                await db.commit()
+                return
             # Background task bez bramki to dokładnie przypadek z docstringa
             # `_assert_declared`. `db=` włącza kwotę na PŁATNYM kroku wewnątrz
             # parsera — wyczerpana gasi tylko Claude'a, fallbacki zostają.
             parsed = await parse_cv(
                 raw_text, db=db, user_id=actor_user_id, release_db_during_model=True
             )
-            # Runda 9 (R9-N8-4): odczyt modelu trwa, a rekruter w tym czasie
-            # edytuje profil — zapis idzie na świeżo odczytanym, zablokowanym
-            # wierszu, nie na kopii sprzed wywołania modelu.
-            candidate = await _relock_candidate(db, candidate_id)
-            if candidate is None:
-                return
-
-            current_primary = await db.scalar(
-                select(CandidateDocument.id).where(
-                    CandidateDocument.candidate_id == candidate_id,
-                    CandidateDocument.document_kind == CandidateDocumentKind.cv,
-                    CandidateDocument.is_primary.is_(True),
-                    CandidateDocument.source_deleted_at.is_(None),
-                )
-            )
-            if current_primary != document_id:
-                return
-            if await _parsed_source_is_quarantined(
+            # Odczyt na żywo zastępuje CV czekające w kolejce wsadu (człowiek
+            # wgrał nowsze albo kliknął „Ponów odczyt”). Po modelu, bo zapis
+            # przed nim nie pozwoliłby oddać połączenia na czas odpowiedzi.
+            await cv_parse_batch.supersede_open(db, candidate_id)
+            await _apply_document_read(
                 db,
-                candidate=candidate,
+                candidate_id=candidate_id,
+                document=document,
+                raw_text=raw_text,
                 parsed=parsed,
-                source_kind="document",
-                source_id=document.id,
-                provenance="cv_parser:document",
-                replaced_primary=replaced_primary,
-            ):
-                # Keep the source available for human review, but do not let a
-                # confirmed different person alter the candidate projection.
-                await db.commit()
-                return
-            current_primary_after_review = await db.scalar(
-                select(CandidateDocument.id).where(
-                    CandidateDocument.candidate_id == candidate_id,
-                    CandidateDocument.document_kind == CandidateDocumentKind.cv,
-                    CandidateDocument.is_primary.is_(True),
-                    CandidateDocument.source_deleted_at.is_(None),
-                )
-            )
-            if current_primary_after_review != document_id:
-                # Persist the source review, but never let a superseded upload
-                # win a race and overwrite facts from the newer primary CV.
-                await db.commit()
-                return
-
-            candidate.raw_cv_text = raw_text
-            candidate.cv_filename = document.filename
-            await finish_cv_ingest(
-                db,
-                candidate=candidate,
-                parsed=parsed,
-                source_document_id=document.id,
-                source_hash=document.content_sha256,
-                # A recruiter just uploaded this file: "use this CV" is an
-                # explicit instruction, so refreshing existing values is the
-                # intent. Manual locks still win.
-                policy=CvWritePolicy.REFRESH,
                 trigger=trigger,
+                replaced_primary=replaced_primary,
             )
-            await db.commit()
         except Exception as exc:  # pragma: no cover - defensive background task
             logger.warning(
                 "[cv_enrich] document task failed candidate=%s document=%s: %s",
@@ -7718,12 +7824,14 @@ async def _enrich_candidate_from_document_task(
                 exc,
             )
             await db.rollback()
+            return False
         finally:
             if temp_path:
                 try:
                     os.remove(temp_path)
                 except OSError:
                     pass
+    return True
 
 
 async def _enrich_candidate_cv_task(
@@ -8765,8 +8873,12 @@ async def _after_cv_commit(
     document: CandidateDocument,
     actor_user_id: Optional[int] = None,
     replaced_primary: Optional[ReplacedPrimaryCv] = None,
+    defer_to_batch: bool = False,
 ) -> None:
-    """Schedule identity-gated extraction/enrichment once the row is durable."""
+    """Schedule identity-gated extraction/enrichment once the row is durable.
+
+    `defer_to_batch` — CV z integracji idzie do odczytu wsadem (22.11.2026).
+    """
     candidate_id = candidate.id
     # The task reads the immutable document bytes, extracts identity first and
     # only then updates raw_cv_text, search vectors or profile facts.
@@ -8777,11 +8889,13 @@ async def _after_cv_commit(
         document.content_sha256,
         actor_user_id=actor_user_id,
         replaced_primary=replaced_primary,
+        defer_to_batch=defer_to_batch,
     )
 
 
 @router.post("/{candidate_id}/cv", response_model=CandidateResponse)
 async def upload_cv(
+    request: Request,
     candidate_id: DbIdPath,
     current_user: RecruiterPlus,
     background_tasks: BackgroundTasks,
@@ -8798,7 +8912,14 @@ async def upload_cv(
     Security: validates size + MIME + extension, and strips path components
     from the supplied filename. Same checks as the public_share invite-link
     upload (`_validate_cv_file` in `public_share.py`).
+
+    Wgranie przez integrację (token OAuth scraperów pracuj.pl/JJIT) czyta CV
+    wsadem — Message Batches API, −50% (decyzja Artura 22.11.2026). Nikt nie
+    czeka na ten odczyt: profil ma do wyniku dane z poprzedniego CV i stan
+    „czytamy CV” (`cv_read_queued_at`). Wgranie przez człowieka bez zmian.
     """
+    from app.services import candidate_claim
+
     result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
     candidate = result.scalar_one_or_none()
     if not candidate:
@@ -8836,6 +8957,7 @@ async def upload_cv(
         document=document,
         actor_user_id=current_user.id,
         replaced_primary=replaced_primary,
+        defer_to_batch=candidate_claim.is_integration_request(request),
     )
 
     # Re-fetch with eager-loaded relations so CandidateResponse can build

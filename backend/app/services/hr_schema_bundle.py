@@ -30,6 +30,7 @@ from app.services import client_invoice_series_ext_schema as client_invoice_seri
 from app.services import (
     client_invoice_collective_correction_schema as client_invoice_collective_correction,
 )
+from app.services import cv_parse_batch_schema as cv_parse_batch
 from app.services import finance_archive_schema as finance_archive
 from app.services import order_revenue_steps_schema as order_revenue_steps
 from app.services import order_cost_steps_schema as order_cost_steps
@@ -194,6 +195,8 @@ MODULES = (
     back_office_team,
     # 0749: korekta zbiorcza rabatu od obrotu — kolumna i CHECK korekty (22.11.2026).
     client_invoice_collective_correction,
+    # 0750: kolejka odczytów CV wsadem (Message Batches API, 22.11.2026).
+    cv_parse_batch,
     # 0751: dodatki do rozliczenia kontraktora — źródła, karta sprawy, dokumenty (13.11.2026).
     settlement_extras,
 )

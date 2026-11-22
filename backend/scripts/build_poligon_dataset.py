@@ -29,6 +29,12 @@ Nagranie robi skrypt Playwrighta ze scratchpadu sesji (logowanie
 `python -m scripts.staging_login_as --user-id …`, zapis każdej odpowiedzi API
 z portu 8100 z polem `phase`); opis kroków w `docs/claude/ui/poligon-nexusa-onboarding.md`.
 
+Klient ćwiczebny (karta klienta, kontrakty, zamówienia z maila, Finanse; 22.11.2026)
+jest wymyślony w `scripts/poligon_client_practice.py`. Bez nagrania:
+    python3 scripts/build_poligon_dataset.py --practice-only
+nakłada wymyślone odczyty (nowości z porcji i klienta ćwiczebnego) na zestaw,
+który już jest w repo.
+
 `--report` wypisuje teksty, które zniknęły, pogrupowane po kluczu — z tej listy
 dopisuje się do `vocab.json` etykiety interfejsu (nigdy osoby, firmy, notatki).
 """
@@ -43,6 +49,13 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode
+
+try:
+    from scripts.poligon_client_practice import CLIENT_PEOPLE, client_practice
+except (
+    ModuleNotFoundError
+):  # wywołanie z `backend/`: python3 scripts/build_poligon_dataset.py
+    from poligon_client_practice import CLIENT_PEOPLE, client_practice
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "frontend/src/lib/poligon/dataset.json"
@@ -1338,12 +1351,48 @@ def dl_context(recorded: dict) -> dict:
     }
 
 
+def with_practice(meta: dict, dataset: dict) -> tuple[dict, dict]:
+    """Wymyślone odczyty: nowości z porcji i klient ćwiczebny (bez nagrania)."""
+    dataset = dict(dataset)
+    add_novelty_practice(dataset)
+    practice = client_practice(meta["template_candidate_id"])
+    dataset.update(practice)
+    meta = {
+        **meta,
+        # Osoby po stronie klienta ćwiczebnego (nie kandydaci).
+        "client_people": CLIENT_PEOPLE,
+        # Odpowiedzi w całości wymyślone w skrypcie: strażnik zestawu nie
+        # wymaga dla nich kluczy ze słownika (`poligon-dataset.test.ts`).
+        "fiction_responses": sorted(practice),
+    }
+    return meta, dataset
+
+
+def read_dataset() -> tuple[dict, dict]:
+    data = json.loads(OUT.read_text())
+    return data["meta"], data["responses"]
+
+
+def write_dataset(meta: dict, dataset: dict) -> None:
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    OUT.write_text(
+        json.dumps({"meta": meta, "responses": dataset}, ensure_ascii=False, indent=1)
+        + "\n"
+    )
+    META_OUT.write_text(json.dumps(meta, ensure_ascii=False, indent=1) + "\n")
+    print(
+        f"{len(dataset)} odpowiedzi → {OUT.relative_to(ROOT)} ({OUT.stat().st_size // 1024} KB)"
+    )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("recording", type=Path)
-    ap.add_argument("--job", type=int, required=True)
-    ap.add_argument("--client", type=int, required=True)
-    ap.add_argument("--candidate", type=int, required=True)
+    ap.add_argument("recording", type=Path, nargs="?")
+    ap.add_argument("--job", type=int)
+    ap.add_argument("--client", type=int)
+    ap.add_argument("--candidate", type=int)
+    # Bez nagrania: tylko wymyślone odczyty na zestawie, który już jest w repo.
+    ap.add_argument("--practice-only", action="store_true")
     # Przegląd Delivery Leada (fazy `dl-review*`): inna rekrutacja, osoba i jej
     # wiersz etapu „QC CV” — trafiają pod rekrutację i osobę-szablon poligonu.
     ap.add_argument("--dl-job", type=int)
@@ -1356,6 +1405,11 @@ def main() -> None:
     ap.add_argument("--captured-at", default=datetime.now(timezone.utc).isoformat())
     ap.add_argument("--report", action="store_true")
     args = ap.parse_args()
+    if args.practice_only:
+        write_dataset(*with_practice(*read_dataset()))
+        return
+    if not (args.recording and args.job and args.client and args.candidate):
+        ap.error("nagranie wymaga katalogu oraz --job, --client i --candidate")
 
     b = Builder(
         args.job, args.client, args.candidate, datetime.fromisoformat(args.captured_at)
@@ -1678,15 +1732,7 @@ def main() -> None:
             for i, (first, last) in enumerate(ALL_PEOPLE)
         ],
     }
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(
-        json.dumps({"meta": meta, "responses": dataset}, ensure_ascii=False, indent=1)
-        + "\n"
-    )
-    META_OUT.write_text(json.dumps(meta, ensure_ascii=False, indent=1) + "\n")
-    print(
-        f"{len(dataset)} odpowiedzi → {OUT.relative_to(ROOT)} ({OUT.stat().st_size // 1024} KB)"
-    )
+    write_dataset(*with_practice(meta, dataset))
     if args.report:
         for key, counter in sorted(
             b.dropped.items(), key=lambda kv: -sum(kv[1].values())

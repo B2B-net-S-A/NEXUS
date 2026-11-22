@@ -14,6 +14,11 @@ ten sam plik. Wpis w paczce zostaje „Gotowy”, ale nie cofa się go (najpierw
 następnej paczki; same wadliwe = paczka nie powstaje (409). Kwoty źródła
 zmienione po pobraniu blokują „Oznacz jako zaksięgowane” (409).
 
+Dzienniki jak w eBI24 (``journals.py``, 22.11.2026): lista podaje dziennik każdej
+faktury i sumy per dziennik, plik ma kolumnę „Dziennik” i kolejność rejestr →
+dziennik → data, a „Pobierz plik” może założyć paczkę jednego dziennika (nazwa
+pliku go niesie) — wtedy faktury innych dzienników zostają na liście.
+
 Faktury osób zespołu (D2) widzą tylko Płace i admin: osoba bez Płac nie widzi
 ich na liście, nie wkłada do paczki i nie widzi paczek, które je mają.
 """
@@ -33,7 +38,7 @@ from app.core.scheduling import business_date, local_month_bounds
 from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
 from app.models.finance_posting import FinancePostingBatch
 from app.models.user import User
-from app.services.finance_ledger import posting
+from app.services.finance_ledger import journals, posting
 from app.services.finance_ledger.costs import (
     LedgerError,
     _event,
@@ -74,7 +79,12 @@ def _month_conditions(month: date) -> list[Any]:
 
 
 async def _items(
-    db: AsyncSession, month: date, *, payroll: bool, lock: bool = False
+    db: AsyncSession,
+    month: date,
+    *,
+    payroll: bool,
+    lock: bool = False,
+    journal: Optional[str] = None,
 ) -> list[Item]:
     conditions = [
         FinanceCostEntry.stage == "ready",
@@ -82,6 +92,10 @@ async def _items(
         *_month_conditions(month),
         *_payroll_scope(payroll),
     ]
+    if journal:
+        conditions.append(
+            FinanceCostEntry.category.in_(journals.categories_of(journal))
+        )
     if lock:
         # Blokada osobno: ``FOR UPDATE`` nie przejdzie przez ``UNION`` źródeł.
         await db.execute(
@@ -113,11 +127,51 @@ def _register(item: Item) -> str:
     return register if register in REGISTERS else "purchase"
 
 
+def _journal(item: Item) -> str:
+    return journals.journal_of(item.entry.category)
+
+
+#: Dziennik w nazwie pliku paczki jednego dziennika.
+JOURNAL_SLUGS = {
+    "contractors": "kontraktorzy",
+    "purchases": "zakupy-pozostale",
+    "office": "biuro",
+}
+
+
+def _journals_summary(items: list[Item]) -> list[dict[str, Any]]:
+    """Dzienniki miesiąca: liczba gotowych, ile pójdzie do pliku, sumy Wn/Ma."""
+
+    result = []
+    for journal in journals.JOURNALS:
+        chosen = [item for item in items if _journal(item) == journal]
+        debit = credit = 0
+        for item in chosen:
+            if item.issues:
+                continue
+            d, c = posting.totals((item.entry.decree or {}).get("positions") or [])
+            debit += d
+            credit += c
+        result.append(
+            {
+                "journal": journal,
+                "label": journals.JOURNAL_LABELS[journal],
+                "count": len(chosen),
+                "exportable": sum(1 for item in chosen if not item.issues),
+                "debit_total": posting.money(debit),
+                "credit_total": posting.money(credit),
+            }
+        )
+    return result
+
+
 def _item_payload(item: Item) -> dict[str, Any]:
     decree = item.entry.decree or {}
     debit, credit = posting.totals(decree.get("positions") or [])
     return {
         "id": item.entry.id,
+        "journal": _journal(item),
+        "journal_label": journals.JOURNAL_LABELS[_journal(item)],
         "invoice_number": item.row.invoice_number,
         "seller_name": item.row.seller_name or item.row.counterparty_name,
         "seller_nip": item.entry.seller_nip,
@@ -164,6 +218,7 @@ async def preview(db: AsyncSession, month: date, *, payroll: bool) -> dict[str, 
         "count": len(items),
         "blocked": len(skipped),
         "skipped": skipped,
+        "journals": _journals_summary(items),
         "can_export": len(skipped) < len(items),
         "formats": [
             {"key": fmt.key, "label": fmt.label, "extension": fmt.extension}
@@ -189,12 +244,13 @@ def skipped_payload(items: list[Item]) -> list[dict[str, Any]]:
 
 
 def export_rows(items: list[Item]) -> list[ExportRow]:
-    """Wiersz pliku na pozycję dekretu; kolejność: rejestr, data, numer, wpis."""
+    """Wiersz pliku na pozycję dekretu; kolejność: rejestr, dziennik, data, numer."""
 
     ordered = sorted(
         items,
         key=lambda item: (
             REGISTERS.index(_register(item)),
+            journals.JOURNALS.index(_journal(item)),
             item.row.issue_date or date.min,
             item.row.invoice_number or "",
             item.entry.id,
@@ -210,6 +266,7 @@ def export_rows(items: list[Item]) -> list[ExportRow]:
             rows.append(
                 ExportRow(
                     register=register,
+                    journal=journals.JOURNAL_LABELS[_journal(item)],
                     doc_type=decree.get("doc_type") or "",
                     invoice_number=item.row.invoice_number,
                     ksef_number=item.row.ksef_number,
@@ -300,17 +357,23 @@ async def create_batch(
     actor_id: int,
     now: datetime,
     payroll: bool,
+    journal: Optional[str] = None,
 ) -> tuple[FinancePostingBatch, list[dict[str, Any]]]:
-    """Paczka z faktur bez wady; zwraca też listę pominiętych (z powodami)."""
+    """Paczka z faktur bez wady (opcjonalnie jednego dziennika); zwraca też
+    listę pominiętych (z powodami)."""
 
     fmt = FORMATS.get(file_format)
     if fmt is None:
         raise LedgerError("Nieznany format pliku.", status=422)
+    if journal is not None and journal not in journals.JOURNALS:
+        raise LedgerError("Nieznany dziennik.", status=422)
     await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _NUMBER_LOCK})
-    items = await _items(db, month, payroll=payroll, lock=True)
+    items = await _items(db, month, payroll=payroll, lock=True, journal=journal)
     if not items:
+        where = f" w dzienniku „{journals.JOURNAL_LABELS[journal]}”" if journal else ""
         raise LedgerError(
-            "Za ten miesiąc nie ma faktur „Gotowych do księgowania” spoza paczek."
+            f"Za ten miesiąc{where} nie ma faktur „Gotowych do księgowania” "
+            "spoza paczek."
         )
     skipped = [item for item in items if item.issues]
     items = [item for item in items if not item.issues]
@@ -343,7 +406,11 @@ async def create_batch(
         month=month,
         status="exported",
         file_format=fmt.key,
-        file_name=f"symfonia-{month:%Y-%m}-{sequence}.{fmt.extension}",
+        file_name=(
+            f"symfonia-{month:%Y-%m}-"
+            f"{JOURNAL_SLUGS[journal] + '-' if journal else ''}"
+            f"{sequence}.{fmt.extension}"
+        ),
         file_content=content,
         file_sha256=hashlib.sha256(content).hexdigest(),
         entry_ids=[item.entry.id for item in items],

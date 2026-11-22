@@ -848,6 +848,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.rejection_email_loop import rejection_email_loop
     from app.tasks.linkedin_sync import linkedin_sync_loop
     from app.tasks.m365_cv_parse import m365_cv_parse_loop
+    from app.tasks.cv_parse_batch import cv_parse_batch_loop
     from app.tasks.microsoft365_sync import (
         graph_subscription_renewal_loop,
         meeting_recording_discovery_loop,
@@ -1043,6 +1044,9 @@ async def lifespan(app: FastAPI):
             "linkedin_sync": asyncio.create_task(linkedin_sync_loop()),
             "microsoft365_sync": asyncio.create_task(microsoft365_sync_loop()),
             "m365_cv_parse": asyncio.create_task(m365_cv_parse_loop()),
+            # 0750: CV z integracji (scrapery) czytane wsadem — Message Batches
+            # API, odczyt na żywo przy błędzie albo po limicie czasu.
+            "cv_parse_batch": asyncio.create_task(cv_parse_batch_loop()),
             "m365_rematch": asyncio.create_task(rematch_unlinked_emails_loop()),
             "m365_webhook_renewal": asyncio.create_task(
                 graph_subscription_renewal_loop()
@@ -4245,6 +4249,7 @@ async def api_health_deep_check(request: Request):
     )
     from app.models.client_einvoice import ClientSalesInvoiceEinvoice
     from app.models.cpro_bot import CproBotRun
+    from app.models.cv_parse_batch import CvParseBatchItem
     from app.models.client_report import ClientReportDefinition, ClientReportRun
     from app.models.law_radar import (
         LawChange,
@@ -4953,6 +4958,8 @@ async def api_health_deep_check(request: Request):
         ("law_change_probes", LawChangeProbe),
         # 0732: bot Cpro — biegi rutyny Grok Bota.
         ("cpro_bot_runs", CproBotRun),
+        # 0750: kolejka odczytów CV wsadem.
+        ("cv_parse_batch_items", CvParseBatchItem),
         # 0692: e-faktury Peppol do klientów.
         ("client_sales_invoice_einvoices", ClientSalesInvoiceEinvoice),
         # 0694 (+0697): szkolenia i trenerzy.

@@ -30,6 +30,6 @@ z 16.11 pokazał jedno konto z prawie wszystkimi odczytami.
 - Wniosek: ograniczanie konta scraperów nie obniży kosztu bez gubienia nowych
   kandydatów albo nowych wersji CV. Kod bez zmian. Koszt odczytów konta
   03–22.11 ok. 117 USD, czyli ok. 175 USD na 30 dni.
-- Decyzja o trybie wsadowym zostaje dla Artura. Wsad mógłby objąć tylko drugą
-  trasę, bo na nowym kandydacie odczyt jest potrzebny od razu do reguły telefon +
-  imię i nazwisko (`from-cv`, krok 3b).
+- Decyzja Artura z 22.11.2026: wsad obejmuje tylko drugą trasę, bo na nowym
+  kandydacie odczyt jest potrzebny od razu do reguły telefon + imię i nazwisko
+  (`from-cv`, krok 3b). Opis: `odczyt-cv-scraperow-wsadem.md`.

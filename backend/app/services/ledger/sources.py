@@ -250,9 +250,17 @@ def cost_spec(
                 "Kurs w dekrecie faktury jest nieczytelny — przelicz dekret w Kosztach."
             )
     lines: list[LineIn] = []
-    for item in positions:
+    parallel: list[int] = []
+    for line_no, item in enumerate(positions, start=1):
         is_counterparty = item.get("kind") == "counterparty"
-        foreign = doc_currency != "PLN" and is_counterparty and gross is not None
+        # Kwota w walucie: z pozycji dekretu (opis wg księgowej, 18.11.2026),
+        # starszy dekret ma ją tylko na rozrachunku (brutto źródła).
+        amount_cur = item.get("amount_cur")
+        if amount_cur is None and is_counterparty and gross:
+            amount_cur = posting.grosze(abs(gross))
+        foreign = doc_currency != "PLN" and amount_cur is not None
+        if item.get("parallel"):
+            parallel.append(line_no)
         lines.append(
             LineIn(
                 side=str(item.get("side")),
@@ -260,7 +268,7 @@ def cost_spec(
                 amount=int(item.get("amount") or 0),
                 counterparty_id=entry.counterparty_id if is_counterparty else None,
                 currency=doc_currency if foreign else "PLN",
-                amount_cur=posting.grosze(abs(gross)) if foreign and gross else None,
+                amount_cur=int(amount_cur) if foreign else None,
             )
         )
     received = business_date(entry.received_at)
@@ -284,8 +292,47 @@ def cost_spec(
             "ksef_number": ksef_number,
             "issue_date": issue_date.isoformat() if issue_date else None,
             "e2_doc_type": decree.get("doc_type") or None,
+            # Zapisy równoległe „5” / 490 na dokumencie — PK rozliczenia kosztów
+            # (``allocation.py``) pomija takie faktury, żeby „5” nie było dwa razy.
+            **({"parallel_lines": parallel} if parallel else {}),
+            **_vat_meta(decree, positions, received),
         },
     )
+
+
+def _vat_meta(
+    decree: dict[str, Any], positions: list[dict[str, Any]], received: date
+) -> dict[str, Any]:
+    """Wskazówki dla rejestru VAT księgi (K5) z opisu faktury wg księgowej.
+
+    Import usług z kolejki kosztów: pole JPK (K_29/K_30 od podatnika z UE,
+    inaczej K_27/K_28) i konto VAT należnego z dekretu (226, nie konto
+    sprzedaży). Samochód: netto rejestru = połowa z rejestru „Zakup”, nie
+    brutto minus odliczony VAT.
+    """
+
+    out: dict[str, Any] = {}
+    registers = decree.get("registers") or []
+    inputs = [item for item in registers if not item.get("output")]
+    sign = -1 if decree.get("negative") else 1
+    if decree.get("self_assessed"):
+        output = next(
+            (
+                item.get("account")
+                for item in positions
+                if item.get("kind") == "vat_due"
+            ),
+            None,
+        )
+        if output:
+            out["output_account"] = output
+        if decree.get("doc_type") == "IU":
+            eu = bool((inputs or registers or [{}])[0].get("eu"))
+            out["jpk_group"] = "imp_28b" if eu else "imp_other"
+            out["received_date"] = received.isoformat()
+    if decree.get("car") and inputs:
+        out["register_net"] = sign * int(inputs[0].get("net") or 0)
+    return out
 
 
 async def _cost_candidates(

@@ -14,6 +14,7 @@ import {
   useCreateYear,
   useReopenPeriod,
   useSetAccountants,
+  useSetCostVerifiers,
   useSetModule,
   useOpeningImport,
   useSetAllocationAccounts,
@@ -92,6 +93,7 @@ export function SettingsView() {
 
       <div className="space-y-3.5">
         <Accountants />
+        <CostVerifiers />
         <SalesAccountsCard />
         <RevenueChoicesCard />
         <AllocationAccountsCard />
@@ -164,12 +166,7 @@ export function AccountProblemsCard({ items }: { items: AccountProblem[] }) {
 
 function Accountants() {
   const { config } = useAccounting();
-  const { showToast } = useToast();
-  const candidates = useAccountantCandidates(config.me.admin);
   const save = useSetAccountants();
-  const [chosen, setChosen] = useState<Set<number>>(new Set(config.accountants ?? []));
-  useEffect(() => setChosen(new Set(config.accountants ?? [])), [config.accountants]);
-
   if (!config.me.admin) {
     return (
       <SectionCard title="Kto zatwierdza zapisy">
@@ -185,12 +182,60 @@ function Accountants() {
       </SectionCard>
     );
   }
-  const items = candidates.data ?? [];
-  const dirty =
-    chosen.size !== (config.accountants ?? []).length ||
-    [...chosen].some((id) => !(config.accountants ?? []).includes(id));
   return (
-    <SectionCard title="Lista „Księgowi”" aside="zatwierdzanie, storno, zamknięcie okresu">
+    <PeopleList
+      title="Lista „Księgowi”"
+      aside="zatwierdzanie, storno, zamknięcie okresu, „Gotowa do księgowania” w Kosztach"
+      saved={config.accountants ?? []}
+      saving={save.isPending}
+      onSave={(ids, done) => save.mutate(ids, done)}
+      toast="Zapisano listę „Księgowi”."
+    />
+  );
+}
+
+/**
+ * Wstępna weryfikacja faktur kontraktorów w Finanse → Koszty (prośba księgowej
+ * z 18.11.2026): krok „Zweryfikowane” w dzienniku „Kontraktorzy”. „Księgowi”
+ * też mogą; „Gotowa do księgowania” zostaje przy „Księgowych”.
+ */
+function CostVerifiers() {
+  const { config } = useAccounting();
+  const save = useSetCostVerifiers();
+  if (!config.me.admin) return null;
+  return (
+    <PeopleList
+      title="Lista „Weryfikujący kontraktorów”"
+      aside="krok „Zweryfikowane” faktur kontraktorów w Kosztach"
+      saved={config.cost_verifiers ?? []}
+      saving={save.isPending}
+      onSave={(ids, done) => save.mutate(ids, done)}
+      toast="Zapisano listę „Weryfikujący kontraktorów”."
+    />
+  );
+}
+
+interface PeopleListProps {
+  title: string;
+  aside: string;
+  saved: number[];
+  saving: boolean;
+  onSave: (ids: number[], done: { onSuccess: () => void; onError: (error: unknown) => void }) => void;
+  toast: string;
+}
+
+/** Lista osób z „Modułem Finanse” do zaznaczenia (ustawia administrator). */
+function PeopleList({ title, aside, saved, saving, onSave, toast }: PeopleListProps) {
+  const { showToast } = useToast();
+  const candidates = useAccountantCandidates(true);
+  const [chosen, setChosen] = useState<Set<number>>(new Set(saved));
+  const savedKey = saved.join(",");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- po zapisanej liście
+  useEffect(() => setChosen(new Set(saved)), [savedKey]);
+  const items = candidates.data ?? [];
+  const dirty = chosen.size !== saved.length || [...chosen].some((id) => !saved.includes(id));
+  return (
+    <SectionCard title={title} aside={aside}>
       {candidates.isLoading ? (
         <p className="px-3.5 py-3 text-sm text-muted-foreground">Wczytywanie osób…</p>
       ) : candidates.isError ? (
@@ -225,10 +270,10 @@ function Accountants() {
             <Button
               size="sm"
               disabled={!dirty}
-              loading={save.isPending}
+              loading={saving}
               onClick={() =>
-                save.mutate([...chosen], {
-                  onSuccess: () => showToast("Zapisano listę „Księgowi”."),
+                onSave([...chosen], {
+                  onSuccess: () => showToast(toast),
                   onError: (error) => showToast(apiErrorMessage(error, "Nie udało się zapisać listy."), "error"),
                 })
               }

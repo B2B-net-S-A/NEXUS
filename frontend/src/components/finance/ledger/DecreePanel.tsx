@@ -17,6 +17,8 @@ import {
 } from "@/lib/api/finance-posting";
 import { cn } from "@/lib/utils";
 
+import { DescriptionForm, DescriptionSummary } from "./DecreeDescription";
+
 import {
   KIND_LABELS,
   REGISTER_LABELS,
@@ -66,6 +68,10 @@ function Positions({ section }: { section: DecreeSection }) {
             </td>
             <td className="py-1 pr-2 text-muted-foreground">
               {position.kind_label}
+              {position.parallel ? " · zapis równoległy" : ""}
+              {position.amount_cur && section.currency && section.currency !== "PLN"
+                ? ` · ${position.amount_cur.replace(".", ",")} ${section.currency}`
+                : ""}
               {position.vat_rate ? ` · ${position.vat_rate}%` : ""}
               {position.deduction_label
                 ? ` · odliczenie ${position.deduction_label}`
@@ -319,6 +325,7 @@ export function DecreePanel({
   readOnly: boolean;
 }) {
   const [editing, setEditing] = useState(false);
+  const [describing, setDescribing] = useState(false);
   const recalc = useDecreeRecalculate(entryId);
   const { showToast } = useToast();
   const canEdit = section.editable && !readOnly;
@@ -359,12 +366,22 @@ export function DecreePanel({
           {fxLabel(section) ? (
             <>
               <dt className="text-muted-foreground">Waluta</dt>
-              <dd>{fxLabel(section)}</dd>
+              <dd>
+                {fxLabel(section)}
+                {section.fx_table ? ` · tabela ${section.fx_table}` : ""}
+              </dd>
             </>
           ) : null}
+          <DescriptionSummary section={section} />
         </dl>
       ) : null}
-      {editing ? (
+      {describing ? (
+        <DescriptionForm
+          entryId={entryId}
+          section={section}
+          onDone={() => setDescribing(false)}
+        />
+      ) : editing ? (
         <DecreeEditor
           entryId={entryId}
           section={section}
@@ -373,7 +390,7 @@ export function DecreePanel({
       ) : (
         <Positions section={section} />
       )}
-      {!editing && section.issues.length > 0 ? (
+      {!editing && !describing && section.issues.length > 0 ? (
         <ul
           className="space-y-0.5 rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
           aria-label="Co blokuje księgowanie"
@@ -383,8 +400,11 @@ export function DecreePanel({
           ))}
         </ul>
       ) : null}
-      {canEdit && !editing ? (
+      {canEdit && !editing && !describing ? (
         <div className="flex flex-wrap justify-end gap-2">
+          <Button size="sm" onClick={() => setDescribing(true)}>
+            Opisz do księgowania
+          </Button>
           <Button
             size="sm"
             variant="outline"

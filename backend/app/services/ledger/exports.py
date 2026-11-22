@@ -28,7 +28,7 @@ from __future__ import annotations
 import hashlib
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -38,6 +38,8 @@ from sqlalchemy.orm import aliased
 
 from app.core.scheduling import business_date
 from app.models.client_sales_invoice import ClientSalesInvoice
+from app.models.client_settlement import ClientContractorInvoice
+from app.models.finance_payments import FinanceCostPayment, FinanceCounterpartyAccount
 from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
 from app.models.ledger import (
     LedgerDocument,
@@ -57,6 +59,7 @@ from app.services.ledger.export_file import (
     FORMATS,
     ExportInvoice,
     ExportLine,
+    ExportRegister,
     SymfoniaFormatError,
     money,
 )
@@ -372,17 +375,51 @@ def sales_invoice(
     )
 
 
+def _grosze_money(value: Any) -> Optional[Decimal]:
+    return money(int(value)) if value is not None else None
+
+
+def _registers(decree: dict[str, Any]) -> tuple[ExportRegister, ...]:
+    return tuple(
+        ExportRegister(
+            name=str(item.get("name") or ""),
+            rate=str(item.get("rate") or ""),
+            net=money(int(item.get("net") or 0)),
+            vat=money(int(item.get("vat") or 0)),
+            gross=money(int(item.get("gross") or 0)),
+            net_cur=_grosze_money(item.get("net_cur")),
+            vat_cur=_grosze_money(item.get("vat_cur")),
+            gross_cur=_grosze_money(item.get("gross_cur")),
+            output=bool(item.get("output")),
+            eu=bool(item.get("eu")),
+            service=bool(item.get("service")),
+        )
+        for item in decree.get("registers") or []
+    )
+
+
+def _day(raw: Any) -> Optional[date]:
+    try:
+        return date.fromisoformat(str(raw)) if raw else None
+    except ValueError:
+        return None
+
+
 def purchase_invoice(
     entry: FinanceCostEntry,
     row: Any,
     doc: LedgerDocument,
     party: Optional[FinanceCounterparty],
+    *,
+    payment_account: Optional[str] = None,
+    corrects_number: Optional[str] = None,
 ) -> ExportInvoice | str:
     """Dane faktury kosztowej z wiersza kolejki E2 albo powód, że się nie da.
 
-    Faktury kosztowej NEXUS nie czyta z XML-a, więc nie zna daty sprzedaży
-    (bierzemy datę wystawienia), numeru faktury korygowanej ani rachunku
-    sprzedawcy.
+    Opis faktury wg księgowej (18.11.2026) niesie dekret: typ dokumentu,
+    rejestry VAT (dwie połowy samochodu, naliczony i należny importu usług),
+    procedurę JPK, kurs z tabelą NBP i datę zakończenia usługi. Dekret sprzed
+    opisu nie ma rejestrów — wtedy jeden rejestr z kwot faktury, jak dotąd.
     """
 
     if row.gross_amount is None:
@@ -391,9 +428,17 @@ def purchase_invoice(
     gross = Decimal(row.gross_amount)
     vat = Decimal(row.vat_amount or 0)
     net = Decimal(row.net_amount) if row.net_amount is not None else gross - vat
-    rate = _amount_rate(net, vat)
-    if rate not in KSEF_RATES.values():
-        return rate
+    registers = _registers(decree)
+    if registers:
+        # Stawka z opisu faktury (import usług: VAT liczony przez nabywcę,
+        # faktura sprzedawcy ma VAT 0).
+        rate = str(decree.get("vat_rate") or "")
+        if rate not in ("23", "8", "5", "0"):
+            return "stawka VAT inna niż 23, 8, 5, 0 albo kilka stawek na fakturze"
+    else:
+        rate = _amount_rate(net, vat)
+        if rate not in KSEF_RATES.values():
+            return rate
     positions = decree.get("positions") or []
     if not any(item.get("kind") == "vat" for item in positions):
         # Reguła „bez odliczenia” księguje koszt brutto bez pozycji VAT, a rejestr
@@ -416,7 +461,7 @@ def purchase_invoice(
         purchase=True,
         number=row.invoice_number or doc.number,
         issue_date=issued,
-        sale_date=issued,
+        sale_date=_day(decree.get("service_date")) or issued,
         register_date=doc.op_date,
         period_date=doc.op_date,
         due_date=entry.due_date or row.source_due or issued,
@@ -425,10 +470,99 @@ def purchase_invoice(
         gross=gross,
         vat_rate=rate,
         currency=str(row.currency or "PLN"),
-        negative=gross < 0,
+        negative=bool(decree["negative"]) if "negative" in decree else gross < 0,
+        corrects_number=corrects_number,
         settlement_account=settlement,
+        payment_account=payment_account,
+        registers=registers,
+        jpk_procedure=decree.get("jpk_procedure"),
+        fx_rate=Decimal(str(decree["fx_rate"])) if decree.get("fx_rate") else None,
+        fx_date=_day(decree.get("fx_date")),
+        fx_table=decree.get("fx_table"),
+        line_kinds={
+            line_no: str(item.get("kind") or "")
+            for line_no, item in enumerate(positions, start=1)
+        },
         **_address(party, country),
     )
+
+
+async def _purchase_facts(
+    db: AsyncSession, entries: list[FinanceCostEntry]
+) -> tuple[dict[int, str], dict[int, str]]:
+    """Rachunek do przelewu (jak w E3: ręczny > z KSeF > z kartoteki) i numer
+    faktury korygowanej z XML-a KSeF (faktury kontraktorów) per wpis."""
+
+    ids = [entry.id for entry in entries]
+    manual = {
+        int(entry_id): account
+        for entry_id, account in (
+            await db.execute(
+                select(FinanceCostPayment.entry_id, FinanceCostPayment.account).where(
+                    FinanceCostPayment.entry_id.in_(ids or [0]),
+                    FinanceCostPayment.account.is_not(None),
+                )
+            )
+        ).all()
+        if account
+    }
+    contractor = {
+        entry.source_id: entry.id
+        for entry in entries
+        if entry.source_type == "contractor_invoice"
+    }
+    from_ksef: dict[int, str] = {}
+    corrects: dict[int, str] = {}
+    if contractor:
+        for invoice_id, details in (
+            await db.execute(
+                select(
+                    ClientContractorInvoice.id, ClientContractorInvoice.details
+                ).where(ClientContractorInvoice.id.in_(list(contractor)))
+            )
+        ).all():
+            details = details or {}
+            entry_id = contractor[int(invoice_id)]
+            accounts = details.get("factor_accounts") or details.get("accounts") or []
+            if accounts:
+                from_ksef[entry_id] = str(accounts[0])
+            parent = next(
+                (
+                    str(ref.get("invoice_number"))
+                    for ref in details.get("corrected") or []
+                    if isinstance(ref, dict) and ref.get("invoice_number")
+                ),
+                None,
+            )
+            if parent:
+                corrects[entry_id] = parent
+    party_ids = {entry.counterparty_id for entry in entries if entry.counterparty_id}
+    stored: dict[int, str] = {}
+    if party_ids:
+        stored = {
+            int(counterparty_id): account
+            for counterparty_id, account in (
+                await db.execute(
+                    select(
+                        FinanceCounterpartyAccount.counterparty_id,
+                        FinanceCounterpartyAccount.account,
+                    ).where(FinanceCounterpartyAccount.counterparty_id.in_(party_ids))
+                )
+            ).all()
+        }
+    accounts: dict[int, str] = {}
+    for entry in entries:
+        # Faktury osób zespołu: rachunek prowadzą Płace — nie wypisujemy go (D2).
+        if entry.source_type == "payroll_invoice":
+            continue
+        found = (
+            manual.get(entry.id)
+            or from_ksef.get(entry.id)
+            or stored.get(entry.counterparty_id or 0)
+        )
+        if found:
+            accounts[entry.id] = found
+    return accounts, corrects
 
 
 async def _invoices(
@@ -459,14 +593,24 @@ async def _invoices(
             out[doc.id] = sales_invoice(invoice, parties.get(doc.counterparty_id or 0))
     entries = source_ids(cost_type)
     if entries:
-        rows = await db.execute(
-            costs._select(costs._sources()).where(FinanceCostEntry.id.in_(entries))
+        rows = (
+            await db.execute(
+                costs._select(costs._sources()).where(FinanceCostEntry.id.in_(entries))
+            )
+        ).all()
+        accounts, corrects = await _purchase_facts(
+            db, [row.FinanceCostEntry for row in rows]
         )
-        for row in rows.all():
+        for row in rows:
             entry: FinanceCostEntry = row.FinanceCostEntry
             doc = entries[entry.id]
             out[doc.id] = purchase_invoice(
-                entry, row, doc, parties.get(doc.counterparty_id or 0)
+                entry,
+                row,
+                doc,
+                parties.get(doc.counterparty_id or 0),
+                payment_account=accounts.get(entry.id),
+                corrects_number=corrects.get(entry.id),
             )
     return out
 

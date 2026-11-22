@@ -841,6 +841,22 @@
       "reason": "NO_RESULT_KEY to stały literał modułu (\"_experience_dates_no_result_at\"); brak danych z zewnątrz."
     },
     {
+      "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
+      "path": "backend/app/services/finance_ledger/journals.py",
+      "line": 167,
+      "fingerprint": "772bdbc24084bd7a",
+      "status": "zweryfikowane",
+      "reason": "_FROM_HISTORY i _FROM_EBI24 to stałe modułu sklejone tylko ze stałych słowników kategorii i folderów eBI24 (CATEGORY_JOURNAL, EBI24_FOLDER_CATEGORY); bez parametrów i bez wartości z zewnątrz."
+    },
+    {
+      "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
+      "path": "backend/app/services/finance_ledger/journals.py",
+      "line": 168,
+      "fingerprint": "23758f905f3ede91",
+      "status": "zweryfikowane",
+      "reason": "_FROM_HISTORY i _FROM_EBI24 to stałe modułu sklejone tylko ze stałych słowników kategorii i folderów eBI24 (CATEGORY_JOURNAL, EBI24_FOLDER_CATEGORY); bez parametrów i bez wartości z zewnątrz."
+    },
+    {
       "rule": "python.django.security.injection.raw-html-format.raw-html-format",
       "path": "backend/app/services/hr/approvals/mail.py",
       "line": 170,

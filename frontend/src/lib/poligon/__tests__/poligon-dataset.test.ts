@@ -33,8 +33,14 @@ function strings(value: unknown, key = "", out: Array<[string, string]> = []): A
   return out;
 }
 
+const responses = (dataset as { responses: Record<string, unknown> }).responses;
+/** Klient ćwiczebny (22.11.2026): odpowiedzi w całości wymyślone w `poligon_client_practice.py`. */
+const fiction = new Set<string>((meta as { fiction_responses?: string[] }).fiction_responses ?? []);
+const DATE_MARK = /^@(reld?|relm):-?[\d.]+$|^@relt:\d+T\d{2}:\d{2}$/;
+
 describe("zestaw Poligonu", () => {
   const all = strings(dataset);
+  const recorded = strings(Object.fromEntries(Object.entries(responses).filter(([k]) => !fiction.has(k))));
 
   it("nie ma e-maili, telefonów ani adresów WWW", () => {
     const bad = all.filter(([, v]) => /[\w.+-]+@[\w-]+\.\w+|\+48[\d ]{9,}|https?:\/\//.test(v));
@@ -51,8 +57,8 @@ describe("zestaw Poligonu", () => {
   it("każdy tekst jest kodem, datą, osobą ćwiczebną albo stoi pod dozwolonym kluczem", () => {
     const people = new Set(meta.people.flatMap((p) => [p.name, p.lastname, `${p.name} ${p.lastname}`]));
     Object.values(meta.trainers).forEach((t) => people.add(t.name));
-    const bad = all.filter(([k, v]) => {
-      if (!v || ENUM.test(v) || /^@reld?:-?[\d.]+$/.test(v) || /^@relt:\d+T\d{2}:\d{2}$/.test(v) || /^\d+$/.test(v)) return false;
+    const bad = recorded.filter(([k, v]) => {
+      if (!v || ENUM.test(v) || DATE_MARK.test(v) || /^\d+$/.test(v)) return false;
       if (people.has(v)) return false;
       if (SAFE.has(k) || FICTION_KEYS.has(k) || FIXED_TEXT.get(k) === v) return false;
       if (PERSON_KEY.test(k) && people.has(v)) return false;
@@ -65,8 +71,24 @@ describe("zestaw Poligonu", () => {
     const people = new Set(meta.people.map((p) => `${p.name} ${p.lastname}`));
     Object.values(meta.trainers).forEach((t) => people.add(t.name));
     [meta.job_title, meta.client_name].forEach((v) => people.add(v));
+    ((meta as { client_people?: string[] }).client_people ?? []).forEach((v) => people.add(v));
     const fullNames = all.filter(([k, v]) => PERSON_KEY.test(k) && k !== "name" && !SAFE.has(k) && /^\p{Lu}\p{Ll}+ \p{Lu}\p{Ll}+/u.test(v));
-    expect(fullNames.filter(([, v]) => !people.has(v) && v !== "Ty")).toEqual([]);
+    // Pełna nazwa firmy ćwiczebnej („Bank Północny S.A. …”) to nie osoba.
+    expect(fullNames.filter(([, v]) => !people.has(v) && v !== "Ty" && !v.startsWith(`${meta.client_name} `))).toEqual([]);
+  });
+
+  it("klient ćwiczebny: wymyślone odpowiedzi istnieją, a ich identyfikatory są z zakresu poligonu", () => {
+    expect(fiction.size).toBeGreaterThan(0);
+    const missing = [...fiction].filter((k) => !(k in responses));
+    expect(missing).toEqual([]);
+    const ids: Array<[string, number]> = [];
+    const walk = (v: unknown, key = ""): void => {
+      if (typeof v === "number" && (key === "id" || key.endsWith("_id")) && v >= 1000) ids.push([key, v]);
+      else if (Array.isArray(v)) v.forEach((x) => walk(x, key.endsWith("_ids") ? "x_id" : key));
+      else if (v && typeof v === "object") Object.entries(v).forEach(([k, x]) => walk(x, k));
+    };
+    fiction.forEach((k) => walk(responses[k]));
+    expect(ids.filter(([, n]) => n < 990_000)).toEqual([]);
   });
 
   it("identyfikatory rekrutacji i osób są z zakresu poligonu", () => {

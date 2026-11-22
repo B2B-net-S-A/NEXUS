@@ -38,6 +38,7 @@ from app.models.user import User, UserRole
 from app.services.finance_ledger import costs as ledger
 from app.services.finance_ledger import settings as module_settings
 from app.services.hr.approvals import cost_invoices
+from app.services.ledger import settings as ledger_settings
 from tests._permission_grants import grant_permissions
 
 COSTS = "/api/finance/costs"
@@ -118,7 +119,10 @@ async def _with_posting_rule(entry: FinanceCostEntry, nip: str) -> int:
 
     async with AsyncSessionLocal() as db:
         party = FinanceCounterparty(
-            id_type="nip", id_value=nip, name="Kontrahent Testowy", cost_account="201-2-901"
+            id_type="nip",
+            id_value=nip,
+            name="Kontrahent Testowy",
+            cost_account="201-2-901",
         )
         db.add(party)
         await db.flush()
@@ -171,6 +175,11 @@ async def world():
                 AppSetting.key == module_settings.SETTING_KEY
             )
         )
+        previous_ledger = await db.scalar(
+            select(AppSetting.value).where(
+                AppSetting.key == ledger_settings.SETTING_KEY
+            )
+        )
         admin = await _user(db, "admin")
         accountant = await _user(db, "finance")
         recruiter = await _user(db, "recruiter")
@@ -185,6 +194,16 @@ async def world():
     # Sam „Moduł Finanse” bez Płac (D2: faktur osób zespołu nie widzi).
     await grant_permissions(module_only.id, "finance_module")
     await _set(module_settings.SETTING_KEY, {"enabled": True})
+    # „Gotowa do księgowania” robi lista „Księgowi” (22.11.2026) — księgowy
+    # z testów jest na niej; „Weryfikujący kontraktorów” pusta.
+    await _set(
+        ledger_settings.SETTING_KEY,
+        {
+            **(previous_ledger or {}),
+            "accountants": [accountant.id],
+            "cost_verifiers": [],
+        },
+    )
     async with AsyncSessionLocal() as db:
         await ledger.catch_up(db)
         await db.commit()
@@ -235,6 +254,7 @@ async def world():
         )
         await db.commit()
     await _set(module_settings.SETTING_KEY, previous)
+    await _set(ledger_settings.SETTING_KEY, previous_ledger)
 
 
 @pytest_asyncio.fixture

@@ -34,6 +34,7 @@
   "GET /api/finance/posting/accounts": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/posting/batches": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/posting/batches/{batch_id}/file": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/posting/choice-lists": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/posting/counterparty-options": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/posting/export": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/posting/rules": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
@@ -45,6 +46,7 @@
   "POST /api/finance/posting/batches/{batch_id}/cancel": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/posting/entries/{entry_id}/recalculate": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/posting/rules": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
-  "PUT /api/finance/posting/entries/{entry_id}/decree": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD"
+  "PUT /api/finance/posting/entries/{entry_id}/decree": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "PUT /api/finance/posting/entries/{entry_id}/description": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD"
  }
 }

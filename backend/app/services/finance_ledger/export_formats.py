@@ -42,11 +42,14 @@ class ExportRow:
     description: str
     vat_rate: Optional[str]
     deduction: Optional[str]
+    #: Dziennik jak w eBI24 (Kontraktorzy, Zakupy pozostałe, Biuro).
+    journal: str = ""
 
 
 #: Kolumny formatu neutralnego (kolejność = kolejność w pliku).
 COLUMNS: tuple[tuple[str, str], ...] = (
     ("register", "Rejestr"),
+    ("journal", "Dziennik"),
     ("doc_type", "Typ dokumentu"),
     ("invoice_number", "Numer faktury"),
     ("ksef_number", "Numer KSeF"),

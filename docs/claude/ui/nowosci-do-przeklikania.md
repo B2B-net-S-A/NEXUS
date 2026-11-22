@@ -40,7 +40,10 @@ Nowość ma więc wejść w drogę pracy i zaliczać się z pracy.
   które tam prowadzą. Brakujący element kończy się komunikatem „Nie widzę tego
   miejsca” i po 2 s „Nie mam tego — dalej”: porcja nikogo nie zatrzyma, ale
   taki wpis niczego nie uczy. Kroki do wpisów z dnia pisze i sprawdza nocna
-  rutyna Strażnik Nowości.
+  rutyna Strażnik Nowości. Od 22.11.2026 Poligon ma też klienta ćwiczebnego
+  (`/clients/990501`), kontrakty (`/contracts`, 990521 i 990522) i Finanse
+  (`/finance?view=rate-divergences`) — wpis z tych ekranów prowadzi tam
+  (`poligon-nexusa-onboarding.md`, sekcja „Klient ćwiczebny”).
 - **Wyłączniki na `/settings/nowosci`** (admin i HoR) są trzy i niezależne:
   porcja (`novelty_daily_gate`), Start (`start_gate`) i Poligon nowych osób
   (`poligon_gate`). Start jest wyłączony od 30.10, dlatego porcja ma własny.

@@ -29,6 +29,27 @@ QR_BASES = {
     "prod": "https://qr.ksef.mf.gov.pl/invoice",
     "test": "https://qr-test.ksef.mf.gov.pl/invoice",
 }
+#: Arkusz stylów PDF-u faktury — wspólny z wizualizacją faktury z KSeF
+#: (``hr/ksef/fa_visual.py``), żeby obie wyglądały tak samo.
+STYLE = (
+    "@page{size:A4;margin:14mm 14mm 18mm}"
+    "body{font-family:'DejaVu Sans','Liberation Sans',sans-serif;font-size:9pt;color:#1f2933}"
+    ".head{display:flex;justify-content:space-between;align-items:flex-start}"
+    "h1{font-size:16pt;margin:0}.number{font-size:11pt;margin:2pt 0 6pt}"
+    ".meta{margin:1pt 0;color:#52606d}"
+    ".ksef{text-align:center;font-size:7pt}.ksef img{width:34mm;height:34mm}"
+    ".parties{display:flex;gap:12mm;margin:10pt 0}.party{flex:1}"
+    ".party h3,h3{font-size:9pt;color:#52606d;margin:6pt 0 2pt}.party p{margin:0}"
+    "table{border-collapse:collapse;width:100%;margin-top:4pt}"
+    "th{text-align:left;border-bottom:1px solid #9aa5b1;padding:3pt;font-size:7.5pt;color:#52606d}"
+    "td{border-bottom:0.5px solid #d9e2ec;padding:3pt;vertical-align:top}"
+    ".num{text-align:right;white-space:nowrap}"
+    ".sum{width:60%;margin-left:40%}.total td{font-weight:700;border-bottom:none}"
+    ".gross{text-align:right;font-size:11pt;font-weight:700;margin:6pt 0}"
+    ".note{font-size:8pt;color:#52606d;margin:3pt 0}"
+    ".draft{color:#b42318;font-weight:700;font-size:11pt;border:1px solid #b42318;"
+    "padding:3pt;text-align:center}"
+)
 TITLES = {
     "VAT": "Faktura VAT",
     "KOR": "Faktura korygująca",
@@ -44,7 +65,7 @@ def qr_url(
     return f"{base}/{seller_nip}/{issue_day.strftime('%d-%m-%Y')}/{digest.rstrip('=')}"
 
 
-def _qr_svg(url: str) -> str:
+def qr_svg(url: str) -> str:
     import segno  # leniwy import: tylko przy generowaniu PDF-u
 
     return segno.make(url, error="m").svg_data_uri(scale=3, border=1)
@@ -241,7 +262,7 @@ def render_html(
         )
         ksef = (
             "<div class='ksef'>"
-            f"<img src='{_qr_svg(url)}' alt='Kod QR weryfikacji faktury w KSeF'>"
+            f"<img src='{qr_svg(url)}' alt='Kod QR weryfikacji faktury w KSeF'>"
             f"<p>{escape(invoice.ksef_number)}</p></div>"
         )
     watermark = (
@@ -267,24 +288,7 @@ def render_html(
     )
     return (
         "<!DOCTYPE html><html lang='pl'><head><meta charset='utf-8'>"
-        f"<title>{escape(title)} {escape(number)}</title><style>"
-        "@page{size:A4;margin:14mm 14mm 18mm}"
-        "body{font-family:'DejaVu Sans','Liberation Sans',sans-serif;font-size:9pt;color:#1f2933}"
-        ".head{display:flex;justify-content:space-between;align-items:flex-start}"
-        "h1{font-size:16pt;margin:0}.number{font-size:11pt;margin:2pt 0 6pt}"
-        ".meta{margin:1pt 0;color:#52606d}"
-        ".ksef{text-align:center;font-size:7pt}.ksef img{width:34mm;height:34mm}"
-        ".parties{display:flex;gap:12mm;margin:10pt 0}.party{flex:1}"
-        ".party h3,h3{font-size:9pt;color:#52606d;margin:6pt 0 2pt}.party p{margin:0}"
-        "table{border-collapse:collapse;width:100%;margin-top:4pt}"
-        "th{text-align:left;border-bottom:1px solid #9aa5b1;padding:3pt;font-size:7.5pt;color:#52606d}"
-        "td{border-bottom:0.5px solid #d9e2ec;padding:3pt;vertical-align:top}"
-        ".num{text-align:right;white-space:nowrap}"
-        ".sum{width:60%;margin-left:40%}.total td{font-weight:700;border-bottom:none}"
-        ".gross{text-align:right;font-size:11pt;font-weight:700;margin:6pt 0}"
-        ".note{font-size:8pt;color:#52606d;margin:3pt 0}"
-        ".draft{color:#b42318;font-weight:700;font-size:11pt;border:1px solid #b42318;"
-        "padding:3pt;text-align:center}"
+        f"<title>{escape(title)} {escape(number)}</title><style>{STYLE}"
         "</style></head><body>" + body + "</body></html>"
     )
 
@@ -331,4 +335,4 @@ def filename(invoice: ClientIssuedInvoice) -> str:
     return f"faktura-{stem}.pdf"
 
 
-__all__ = ["filename", "qr_url", "render_html", "render_pdf"]
+__all__ = ["STYLE", "filename", "qr_svg", "qr_url", "render_html", "render_pdf"]
