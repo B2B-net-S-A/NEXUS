@@ -408,11 +408,14 @@ async def _ingest_message(
         indirect = await _forwarded_contract(
             db, inner.senders, state=state, today=today
         )
+    by_file_name = False
     if contract is None and indirect is None and identity.is_company_address(sender):
         # Nazwisko z tematu tylko od adresu firmy (koordynator, skrzynka firmowa):
         # temat może napisać każdy, więc obcy adres nie wskazuje nim osoby.
         names = " ".join([subject, *(str(f.get("name") or "") for f in files)])
         indirect = await identity.resolve_named_in_text(db, names, today=today)
+        # Kilka osób w mailu: każdy plik osobno, po nazwisku z jego nazwy.
+        by_file_name = indirect is None
     indirect_created = 0
     contract_id = contract.id if contract else None
     received = _parse_time(message.get("receivedDateTime")) or now
@@ -454,6 +457,13 @@ async def _ingest_message(
             # Wypowiedzenie, zaświadczenie czy oferta przekazane z łańcuchem konsultanta
             # nie mogą wejść do rozliczenia jako faktura kontraktora (próba IX–XI 2026).
             owner = indirect.id
+        elif owner is None and by_file_name and _named_kind("", name):
+            # Koordynator wysyła protokoły kilku osób jednym mailem („PROTOKÓŁ_ Imię
+            # Nazwisko_WRZESIEŃ 2026.pdf”): plik idzie do jedynej osoby z jego nazwy,
+            # a rodzaj też musi wynikać z nazwy pliku, nie z tematu (próba IX–X 2026:
+            # 3 osobo-miesiące Orlenu bez rozliczenia).
+            named = await identity.resolve_named_in_text(db, name, today=today)
+            owner = named.id if named is not None else None
         # Odczyt PDF-a to praca CPU: poza pętlą zdarzeń, jak odczyt RCP w rozliczeniu.
         kind = await asyncio.to_thread(kind_of_file, subject, name, content)
         try:
