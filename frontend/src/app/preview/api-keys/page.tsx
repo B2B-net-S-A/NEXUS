@@ -44,7 +44,6 @@ const FAKE_KEY = "nxs_v2_PODGLADxxxxxxxxxxxxxxxxx_to-nie-jest-prawdziwy-klucz-ap
 const SCOPES: ScopeInfoDto[] = [
   { value: "traffit:read", label: "Odczyt statusu synchronizacji Traffit" },
   { value: "ops:snapshot", label: "Odczyt migawki operacyjnej (/api/admin/snapshot)" },
-  { value: "contractors:read", label: "Eksport kontraktorów dla COMPASSA (bez kwot)" },
   { value: "clients:read", label: "Klienci: odczyt (nazwa, NIP, Delivery Lead)" },
   { value: "contracts:read", label: "Kontrakty: odczyt (osoba, klient, okres, status)" },
   { value: "orders:read", label: "Zamówienia: odczyt (okresy, linie, PDF-y)" },
