@@ -43,6 +43,7 @@
   "GET /api/finance/issued-invoices/{invoice_id}/xml": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/issued-invoices/advance": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/issued-invoices/drafts": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/finance/issued-invoices/rebate-correction": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/issued-invoices/{invoice_id}/check": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/issued-invoices/{invoice_id}/correction": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/issued-invoices/{invoice_id}/send": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",

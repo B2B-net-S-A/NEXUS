@@ -42,6 +42,7 @@ import { formatDayMonthPl } from "@/lib/date-pl";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
+import { CollectiveCorrectionBox } from "./CollectiveCorrectionBox";
 import { InvoiceRebateBox } from "./InvoiceRebateBox";
 import {
   STATUS_TONE,
@@ -283,6 +284,9 @@ function CardBody({
             {card.period ? ` · usługi za ${card.period}` : ""}
             {card.corrects
               ? ` · korekta faktury ${card.corrects.invoice_number}`
+              : ""}
+            {card.collective
+              ? ` · korekta zbiorcza rabatu: ${card.collective.invoice_count} faktur`
               : ""}
           </p>
           <StatusDot tone={STATUS_TONE[card.status]} className="mt-1">
@@ -717,6 +721,7 @@ function CardBody({
             ) : null}
           </section>
           {card.rebate ? <InvoiceRebateBox rebate={card.rebate} clientId={card.client_id} /> : null}
+          {card.collective ? <CollectiveCorrectionBox collective={card.collective} currency={card.currency} /> : null}
           {card.ksef_number ? (
             <section
               className="rounded-lg border border-border bg-card px-4 py-3 text-sm"

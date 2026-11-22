@@ -21,10 +21,10 @@ Użycie (w kontenerze backendu stagingu)::
     docker exec nexus-staging-backend-1 python -m scripts.staging_login_as --user-id 123
 
 Pierwsza komenda wypisuje aktywne osoby w roli (id, role, imię i nazwisko),
-druga — sam token na stdout. Token wkładasz do karty przeglądarki
-(``localStorage.access_token``) i otwierasz ``/login``: strona sama sprawdza go
-przez ``GET /api/auth/me`` i kończy logowanie (cookie ``nexus_access``,
-``nexus_user``). Wyjście zawiera dane osobowe z kopii produkcji — tylko
+druga — sam token na stdout. Front nie przyjmuje tokenu z JS (od 22.11.2026):
+w konsoli karty stagingu wymieniasz go na ciasteczko HttpOnly przez
+``POST /api/auth/session`` (Bearer) i otwierasz ``/login`` — przepis w
+``docs/claude/podstawy/test-calej-sciezki-na-stagingu.md``. Wyjście zawiera dane osobowe z kopii produkcji — tylko
 terminal na laptopie, nigdy repo ani logi Actions.
 """
 

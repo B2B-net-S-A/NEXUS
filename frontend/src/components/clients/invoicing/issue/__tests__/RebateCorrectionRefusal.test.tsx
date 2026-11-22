@@ -8,6 +8,7 @@ vi.mock("@/lib/api", () => ({
   __esModule: true,
   api: { get: (...a: unknown[]) => get(...a), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 // Okno Radix w jsdom po odrzuconym zapytaniu zgłasza błąd przy sprzątaniu testu
 // (poza kodem ekranu), więc treść okna sprawdzamy bez niego.
 vi.mock("@/components/ds/AppModal", () => ({
@@ -38,5 +39,6 @@ describe("szkic korekty rabatu — odmowa serwera", () => {
     expect(await screen.findByText(/nie przekroczył progu/)).toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Szkic korekty rabatu za październik 2026" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Pobierz XML (szkic)" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Wystaw korektę" })).toBeDisabled();
   });
 });

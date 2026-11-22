@@ -6,7 +6,7 @@
  * wyciekło. Ten plik pada, gdy ktoś podniesie kontu uprawnienia, i pilnuje
  * bramki ekranu admina na żywej produkcji.
  */
-import { request as playwrightRequest, test, expect } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 
 import { API_URL } from "./helpers/api";
 
@@ -17,17 +17,14 @@ test.describe("Konto E2E tylko do odczytu", () => {
 
   test("ma wyłącznie rolę automation", async ({ page }) => {
     await page.goto("/candidates");
-    const token = await page.evaluate(() => window.localStorage.getItem("access_token"));
-    expect(token, "brak tokenu w localStorage").toBeTruthy();
-
-    const api = await playwrightRequest.newContext({
-      baseURL: API_URL,
-      extraHTTPHeaders: { Authorization: `Bearer ${token}` },
-    });
-    const me = await api.get("/api/auth/me");
-    expect(me.status()).toBe(200);
-    const { role, roles } = (await me.json()) as { role: string; roles?: string[] };
-    await api.dispose();
+    // Sesja przeglądarki w ciasteczku HttpOnly — pytamy API z karty, token
+    // nie istnieje w JS (od 22.11.2026).
+    const me = await page.evaluate(async (api) => {
+      const res = await fetch(`${api}/api/auth/me`, { credentials: "include" });
+      return { status: res.status, body: res.ok ? await res.json() : null };
+    }, API_URL);
+    expect(me.status).toBe(200);
+    const { role, roles } = me.body as { role: string; roles?: string[] };
     expect(role).toBe("automation");
     expect(roles ?? [role]).toEqual(["automation"]);
   });

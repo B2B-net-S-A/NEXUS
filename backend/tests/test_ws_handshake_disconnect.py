@@ -17,5 +17,5 @@ async def test_disconnect_during_accept_is_cleaned_up(monkeypatch):
         connect=AsyncMock(side_effect=ClientDisconnected()), disconnect=AsyncMock()
     )
     monkeypatch.setattr(ws, "manager", manager)
-    await ws.ws_notifications(socket, token=None)
+    await ws.ws_notifications(socket)
     manager.disconnect.assert_awaited_once_with(1, socket)

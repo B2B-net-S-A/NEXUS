@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+from datetime import date
 from decimal import Decimal
 from html import escape
 from typing import Any, Optional
@@ -184,6 +185,7 @@ def render_html(
     )
 
     notes: list[str] = []
+    appendix: list[str] = []
     codes = {line.get("vat_rate") for line in invoice.lines or []}
     if codes & fa3_build.REVERSE_CHARGE_RATES:
         notes.append("Odwrotne obciążenie.")
@@ -195,7 +197,19 @@ def render_html(
             f"Kurs średni NBP {currency} z {invoice.fx_date.strftime('%d.%m.%Y') if invoice.fx_date else '—'}: "
             f"{escape(fa3_build.plain(invoice.fx_rate))} zł; VAT w złotych: {escape(_money(fa3_build.money(vat_pln), 'PLN'))}."
         )
-    if invoice.invoice_type == "KOR":
+    collective = (
+        invoice.collective_correction if invoice.invoice_type == "KOR" else None
+    )
+    if collective:
+        corrected = list(collective.get("invoices") or [])
+        notes.append(
+            "Korekta zbiorcza (art. 106j ust. 3 ustawy o VAT) — opust dotyczy "
+            f"{len(corrected)} faktur za okres {escape(str(collective.get('period') or ''))}, "
+            "wymienionych niżej. "
+            f"Przyczyna: {escape(invoice.correction_reason or '')}."
+        )
+        appendix.append(_corrected_table(corrected))
+    elif invoice.invoice_type == "KOR":
         notes.append(
             f"Korekta faktury {escape(corrected_number or '')}. "
             f"Przyczyna: {escape(invoice.correction_reason or '')}."
@@ -249,6 +263,7 @@ def render_html(
         + "".join(tables)
         + totals
         + "".join(f"<p class='note'>{note}</p>" for note in notes)
+        + "".join(appendix)
     )
     return (
         "<!DOCTYPE html><html lang='pl'><head><meta charset='utf-8'>"
@@ -282,6 +297,27 @@ def _table(lines: list[dict[str, Any]], currency: str, start: int) -> str:
         + _rows(lines, currency, start)
         + "</tbody></table>"
     )
+
+
+def _corrected_table(items: list[dict[str, Any]]) -> str:
+    rows = "".join(
+        f"<tr><td>{index}</td><td>{escape(str(item.get('number') or ''))}</td>"
+        f"<td>{escape(_day(item.get('issue_date')))}</td>"
+        f"<td>{escape(str(item.get('ksef_number') or '—'))}</td></tr>"
+        for index, item in enumerate(items, start=1)
+    )
+    return (
+        "<h3>Faktury korygowane</h3><table><thead><tr><th>Lp.</th>"
+        "<th>Numer faktury</th><th>Data wystawienia</th><th>Numer KSeF</th>"
+        f"</tr></thead><tbody>{rows}</tbody></table>"
+    )
+
+
+def _day(raw: Any) -> str:
+    try:
+        return date.fromisoformat(str(raw)[:10]).strftime("%d.%m.%Y")
+    except ValueError:
+        return str(raw or "")
 
 
 def render_pdf(html: str) -> bytes:

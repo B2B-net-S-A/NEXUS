@@ -36,8 +36,12 @@ export function probeTelemetryCapability(): Promise<void> {
         credentials: 'omit', signal: AbortSignal.timeout(5000),
       })
       compatible = response.ok && /^[a-f0-9-]{36}$/i.test(response.headers.get('x-request-id') ?? '')
+      // Cel z adresu, który bundel naprawdę woła. Na sztywno wpisana stara domena po
+      // przeprowadzce API na b2bnetwork.pl (05.11.2026) wyłączyła przekazywanie decyzji
+      // o próbkowaniu i backend próbkował sam 10% żądań (limit spanów Sentry, 17.11).
       if (compatible && apiTraceTargets.length === 0) {
-        apiTraceTargets.push(/^https:\/\/api\.nexus\.dynaminds\.pl(?:\/|$)/)
+        const origin = new URL(base).origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        apiTraceTargets.push(new RegExp(`^${origin}(?:/|$)`))
       }
       rememberUsageCounter(compatible && (await response.json()).usageCounter === true)
     } catch { /* Errors still report; tracing waits for a compatible API. */ }

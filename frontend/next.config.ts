@@ -3,13 +3,11 @@ import { withSentryConfig } from "@sentry/nextjs";
 
 // audyt 22.09 r2 (SEC-01b): Content-Security-Policy.
 //
-// Egzekwujemy MINIMUM, które niczego dziś działającego nie łamie (brak
-// wtyczek, brak <base>, brak ramkowania, formularze tylko do siebie i API).
-// Pełna polityka (skąd skrypty, style, połączenia) idzie równolegle jako
-// Report-Only z raportem do Sentry — zaostrzenie egzekwowanej polityki
-// dopiero po przejrzeniu raportów. Report-Only z nonce składa middleware
-// (`src/lib/csp.ts`); tu egzekwowane minimum z env w czasie buildu
-// (NEXT_PUBLIC_* to build argi), bez importu z `src/`.
+// Tu MINIMUM dla każdej odpowiedzi, także plików statycznych (brak wtyczek,
+// brak <base>, brak ramkowania, formularze tylko do siebie i API). Pełną
+// politykę z nonce (skąd skrypty, style, połączenia) składa i egzekwuje
+// middleware dla dokumentów (`src/lib/csp.ts`, od 22.11.2026). Minimum z env
+// w czasie buildu (NEXT_PUBLIC_* to build argi), bez importu z `src/`.
 type CspEnv = {
   NODE_ENV?: string;
   NEXT_PUBLIC_API_URL?: string;
@@ -55,9 +53,8 @@ export function buildSecurityHeaders(
     { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), interest-cohort=()" },
     { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
     { key: "Content-Security-Policy", value: enforced },
-    // Pełna polityka (Report-Only) idzie z `src/middleware.ts`, bo niesie
-    // nonce per żądanie — `src/lib/csp.ts`. Tu jej nie ma, inaczej dokument
-    // dostałby dwie polityki Report-Only.
+    // Pełna polityka idzie z `src/middleware.ts`, bo niesie nonce per
+    // żądanie — `src/lib/csp.ts`.
   ];
 }
 

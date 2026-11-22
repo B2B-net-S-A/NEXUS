@@ -228,6 +228,16 @@ def cents(value: Decimal) -> Decimal:
     return value.quantize(CENT, rounding=ROUND_HALF_UP)
 
 
+#: Początek nazwy pozycji korekty zbiorczej rabatu (``rebate_correction``). Opust
+#: to rabat, nie obrót: obrót do progu liczy się przed rabatem, więc ta pozycja
+#: nie zmniejsza obrotu (inaczej przyjęta korekta zaniżałaby licznik do progu).
+REBATE_LINE_PREFIX = "Opust (rabat od obrotu)"
+
+
+def is_rebate_line(item: dict[str, Any]) -> bool:
+    return str(item.get("name") or "").startswith(REBATE_LINE_PREFIX)
+
+
 def _excluded(item: dict[str, Any], words: Sequence[str]) -> bool:
     name = str(item.get("name") or "").lower()
     return any(word in name for word in words)
@@ -250,7 +260,8 @@ def service_base(
 
     Faktury z eBI24 mają rabat % na wierszu: cena jednostkowa (``P_9A``) jest
     przed rabatem, a netto (``P_11``) po nim. Od netto faktury doliczamy więc
-    opust każdej pozycji (ilość × cena − netto) i odejmujemy pozycje wyłączone.
+    opust każdej pozycji (ilość × cena − netto) i odejmujemy pozycje wyłączone
+    oraz pozycje korekty zbiorczej rabatu (``REBATE_LINE_PREFIX``).
     Pozycja bez ilości, ceny albo netto niczego nie zmienia. Korekta: stan przed
     ze znakiem minus. Zwraca też, czy coś wyłączono.
     """
@@ -260,6 +271,10 @@ def service_base(
     for item in items or ():
         sign = -1 if item.get("before_correction") else 1
         net = _num(item.get("net"))
+        if is_rebate_line(item):
+            if net is not None:
+                total -= sign * net
+            continue
         if _excluded(item, words):
             touched = True
             if net is not None:
@@ -538,12 +553,14 @@ def payload(
 
 
 __all__ = [
+    "REBATE_LINE_PREFIX",
     "Entry",
     "RebateTermsError",
     "Terms",
     "Tier",
     "YearRebate",
     "due",
+    "is_rebate_line",
     "parse_terms",
     "payload",
     "pre_discount",
