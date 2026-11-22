@@ -416,7 +416,9 @@ async def test_recruiter_sees_a_placeholder_instead_of_the_client_rate(
     assert item["content"] == note_kinds.CLIENT_RATE_PLACEHOLDER
     assert item["content_rendered"] == note_kinds.CLIENT_RATE_PLACEHOLDER
     assert item["content_hidden"] is True
-    assert "161" not in listed.text
+    # Fraza, nie same cyfry: „161” trafiało w id z bazy testowej (author_id
+    # 1615, kolejka merge'ów 22.11.2026), a zakrycie działało.
+    assert "za 161" not in listed.text
 
     single = await app_client.get(f"/api/notes/{note_id}", headers=recruiter)
     assert single.json()["content"] == note_kinds.CLIENT_RATE_PLACEHOLDER
@@ -425,7 +427,7 @@ async def test_recruiter_sees_a_placeholder_instead_of_the_client_rate(
         f"/api/candidates/{cand_id}/timeline", headers=recruiter
     )
     if timeline.status_code == 200:
-        assert "161" not in timeline.text
+        assert "za 161" not in timeline.text
 
     for_lead = await app_client.get(
         "/api/notes", params={"candidate_id": cand_id}, headers=lead
