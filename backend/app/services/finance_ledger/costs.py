@@ -18,6 +18,12 @@ zespołu z jego kontem).
 E2 (``posting.py``): „Zweryfikuj” wylicza dekret, „Gotowa do księgowania”
 wymaga kompletnego dekretu, a faktury w paczce eksportu nie cofa się, dopóki
 paczki nie anulują.
+
+Dzienniki (``journals.py``, 22.11.2026): Kontraktorzy, Zakupy pozostałe, Biuro —
+z kategorii wpisu. Kroki z listy (prośba księgowej z 18.11.2026, ``Approvers``):
+„Zweryfikuj” fakturę z dziennika „Kontraktorzy” — lista „Weryfikujący
+kontraktorów” albo „Księgowi”; „Gotowa do księgowania” i jej cofnięcie — tylko
+„Księgowi” (admin zawsze); reszta „Modułu Finanse” dostaje 403.
 """
 
 from __future__ import annotations
@@ -57,7 +63,7 @@ from app.models.hr_payroll import PayrollPeriod
 from app.models.hr_settlement import PayrollInvoice, PayrollSettlement
 from app.models.user import User
 from app.services.client_identity import client_display_name_expression
-from app.services.finance_ledger import payment_state
+from app.services.finance_ledger import journals, payment_state
 from app.services.finance_ledger_schema import (
     CATEGORIES,
     FLAGS,
@@ -142,11 +148,36 @@ IN_BATCH_DETAIL = (
 )
 
 
+VERIFY_CONTRACTORS_DETAIL = (
+    "Wstępną weryfikację faktur kontraktorów robią osoby z listy „Weryfikujący "
+    "kontraktorów” albo „Księgowi” (Księgowość → Ustawienia)."
+)
+READY_ACCOUNTANTS_DETAIL = (
+    "„Gotowa do księgowania” zatwierdzają osoby z listy „Księgowi” "
+    "(Księgowość → Ustawienia)."
+)
+
+
 class LedgerError(Exception):
     def __init__(self, message: str, status: int = 409) -> None:
         super().__init__(message)
         self.message = message
         self.status = status
+
+
+@dataclass(frozen=True)
+class Approvers:
+    """Kroki kolejki, które robi wskazana lista osób (ustawia trasa)."""
+
+    #: Lista „Księgowi” albo admin: „Gotowa do księgowania” i jej cofnięcie.
+    accountant: bool
+    #: „Weryfikujący kontraktorów”, „Księgowi” albo admin: krok „Zweryfikowane”
+    #: faktur z dziennika „Kontraktorzy”.
+    verifier: bool
+
+
+#: Bez list (wywołania z serwisów i testów reguł): wszystkie kroki dozwolone.
+ANYONE = Approvers(accountant=True, verifier=True)
 
 
 # ── Reguły (bez bazy) ────────────────────────────────────────────────────────
@@ -181,6 +212,39 @@ def next_stage(action: str, stage: str, *, from_ksef: bool) -> str:
             f"tylko w {names}."
         )
     return target
+
+
+def stage_refusal(
+    action: str, stage: str, category: str, approvers: Approvers
+) -> Optional[str]:
+    """Powód 403, gdy ten krok robi lista, na której osoby nie ma; inaczej ``None``.
+
+    Cofnięcie z „Gotowej” to zdjęcie akceptacji księgowej, a z „Zweryfikowanej”
+    faktury kontraktora — zdjęcie wstępnej weryfikacji, więc pilnuje ich ta sama
+    lista co kroku naprzód.
+    """
+
+    if (action == "ready" or (action == "back" and stage == "ready")) and not (
+        approvers.accountant
+    ):
+        return READY_ACCOUNTANTS_DETAIL
+    contractors = journals.journal_of(category) == "contractors"
+    if (
+        contractors
+        and (action == "verify" or (action == "back" and stage == "verified"))
+        and not (approvers.verifier or approvers.accountant)
+    ):
+        return VERIFY_CONTRACTORS_DETAIL
+    return None
+
+
+def permissions(category: str, approvers: Approvers) -> dict[str, bool]:
+    """Co osoba może zrobić z fakturą tej kategorii (przyciski na karcie i liście)."""
+
+    return {
+        "verify": stage_refusal("verify", "new", category, approvers) is None,
+        "ready": approvers.accountant,
+    }
 
 
 def with_flag(flags: Iterable[str], flag: str, *, on: bool) -> list[str]:
@@ -223,6 +287,7 @@ async def enqueue_ksef(db: AsyncSession, ksef_number: str) -> None:
 
     for statement in entry_inserts(by_ksef_number=True):
         await db.execute(text(statement), {"ksef_number": ksef_number})
+    await journals.suggest_categories(db)
 
 
 async def catch_up(db: AsyncSession) -> None:
@@ -231,6 +296,7 @@ async def catch_up(db: AsyncSession) -> None:
     for statement in entry_inserts():
         await db.execute(text(statement))
     await db.execute(text(LINK_COUNTERPARTIES))
+    await journals.suggest_categories(db)
 
 
 # ── Odczyt ───────────────────────────────────────────────────────────────────
@@ -293,6 +359,8 @@ def _sources():
 class Filters:
     month: Optional[date] = None
     category: Optional[str] = None
+    #: Dziennik (``journals.JOURNALS``) — zbiór kategorii.
+    journal: Optional[str] = None
     flag: Optional[str] = None
     q: Optional[str] = None
     #: Stan zapłaty (E3): ``unpaid / in_batch / paid / partially_paid``.
@@ -317,9 +385,11 @@ def _payroll_scope(payroll: bool) -> list[Any]:
     return [] if payroll else [FinanceCostEntry.source_type != "payroll_invoice"]
 
 
-def _conditions(src, filters: Filters) -> list[Any]:
+def _conditions(src, filters: Filters, *, journal: bool = True) -> list[Any]:
     entry = FinanceCostEntry
     conditions: list[Any] = []
+    if journal and filters.journal:
+        conditions.append(entry.category.in_(journals.categories_of(filters.journal)))
     if filters.month is not None:
         bounds = local_month_bounds(filters.month)
         conditions += [
@@ -490,6 +560,8 @@ def _row_payload(row: Any, about: Optional[dict[str, Any]]) -> dict[str, Any]:
         "flags": list(entry.flags or []),
         "category": entry.category,
         "category_label": CATEGORY_LABELS[entry.category],
+        "journal": journals.journal_of(entry.category),
+        "journal_label": journals.label_of(journals.journal_of(entry.category)),
         "received_at": _iso(entry.received_at),
         "seller_name": row.seller_name or row.counterparty_name,
         "seller_nip": entry.seller_nip,
@@ -543,21 +615,28 @@ async def list_view(
     offset: int,
     viewer_id: int,
     payroll: bool,
+    approvers: Approvers = ANYONE,
 ) -> dict[str, Any]:
     src = _sources()
     conditions = [*_conditions(src, filters), *_payroll_scope(payroll)]
     on_source, on_counterparty = _joined(src)
+    # Liczniki dzienników liczą się bez filtra dziennika (zakładki obok siebie).
     counted = await db.execute(
-        select(FinanceCostEntry.stage, func.count())
+        select(FinanceCostEntry.stage, FinanceCostEntry.category, func.count())
         .select_from(FinanceCostEntry)
         .join(src, on_source)
         .outerjoin(FinanceCounterparty, on_counterparty)
-        .where(*conditions)
-        .group_by(FinanceCostEntry.stage)
+        .where(*_conditions(src, filters, journal=False), *_payroll_scope(payroll))
+        .group_by(FinanceCostEntry.stage, FinanceCostEntry.category)
     )
     counts = {name: 0 for name in STAGES}
-    for name, count in counted.all():
-        counts[name] = int(count)
+    journal_counts = {name: 0 for name in journals.JOURNALS}
+    wanted = set(journals.categories_of(filters.journal)) if filters.journal else None
+    for name, category, count in counted.all():
+        if wanted is None or category in wanted:
+            counts[name] += int(count)
+        if name == stage:
+            journal_counts[journals.journal_of(category)] += int(count)
     rows = (
         await db.execute(
             _select(src)
@@ -575,6 +654,11 @@ async def list_view(
         ],
     )
     paid = await payment_state.for_entries(db, [row.FinanceCostEntry for row in rows])
+    from app.services.finance_ledger import settlement_match  # noqa: PLC0415
+
+    matched = await settlement_match.for_entries(
+        db, [row.FinanceCostEntry for row in rows]
+    )
     items = []
     for row in rows:
         entry = row.FinanceCostEntry
@@ -583,19 +667,31 @@ async def list_view(
             row.person_user_id is not None and row.person_user_id == viewer_id
         )
         payload["payment"] = paid.get(entry.id)
+        payload["can"] = permissions(entry.category, approvers)
+        payload["settlement"] = matched.get(entry.id)
         items.append(payload)
     return {
         "stage": stage,
         "items": items,
         "total": counts.get(stage, 0),
         "counts": counts,
+        "journal_counts": journal_counts,
+        "can": {
+            "verify_contractors": approvers.verifier or approvers.accountant,
+            "ready": approvers.accountant,
+        },
         "limit": limit,
         "offset": offset,
     }
 
 
 async def card(
-    db: AsyncSession, entry_id: int, *, viewer_id: int, payroll: bool
+    db: AsyncSession,
+    entry_id: int,
+    *,
+    viewer_id: int,
+    payroll: bool,
+    approvers: Approvers = ANYONE,
 ) -> dict[str, Any]:
     src = _sources()
     row = (
@@ -618,9 +714,15 @@ async def card(
         source_label=SOURCE_LABELS[entry.source_type],
         symfonia_partner_id=row.symfonia_partner_id,
         stage_changed_at=_iso(entry.stage_changed_at),
+        can=permissions(entry.category, approvers),
     )
     from app.services.finance_ledger import posting  # noqa: PLC0415
 
+    from app.services.finance_ledger import settlement_match  # noqa: PLC0415
+
+    payload["settlement"] = (
+        await settlement_match.for_entries(db, [entry], detail=True)
+    ).get(entry.id)
     payload["decree"] = await posting.section(
         db, entry, own=payload["own"], gross=row.gross_amount, currency=row.currency
     )
@@ -641,7 +743,8 @@ async def card(
             "to_stage": event.to_stage,
             "to_stage_label": STAGE_LABELS.get(event.to_stage or ""),
             "detail": event.detail or {},
-            "actor": actor,
+            "actor": actor
+            or journals.SUGGESTION_SOURCES.get((event.detail or {}).get("source")),
         }
         for event, actor in events
     ]
@@ -761,6 +864,7 @@ async def act(
     payroll: bool,
     reason: Optional[str] = None,
     flag: Optional[str] = None,
+    approvers: Approvers = ANYONE,
 ) -> dict[str, Any]:
     """Akcja na zaznaczonych; odmowa jednej faktury nie zatrzymuje reszty.
 
@@ -815,6 +919,9 @@ async def act(
             continue
         try:
             if action in STAGE_ACTIONS:
+                refusal = stage_refusal(action, entry.stage, entry.category, approvers)
+                if refusal:
+                    raise LedgerError(refusal, status=403)
                 if action == "back" and entry.batch_id is not None:
                     raise LedgerError(IN_BATCH_DETAIL)
                 if action == "ready" and entry.stage == "verified":
@@ -849,6 +956,7 @@ async def update(
     actor_id: int,
     now: datetime,
     payroll: bool,
+    approvers: Approvers = ANYONE,
 ) -> None:
     """Kategoria, flagi, termin płatności i notatka jednej faktury."""
 
@@ -885,6 +993,16 @@ async def update(
             raise LedgerError(CATEGORY_IN_BATCH_DETAIL)
         if category != entry.category and entry.stage == "ready":
             raise LedgerError(CATEGORY_READY_DETAIL)
+        # Zweryfikowana faktura nie wchodzi ani nie wychodzi z „Kontraktorów”
+        # bez listy weryfikujących — inaczej zmiana kategorii omijałaby krok.
+        if (
+            category != entry.category
+            and entry.stage == "verified"
+            and "contractors"
+            in (journals.journal_of(category), journals.journal_of(entry.category))
+            and not (approvers.verifier or approvers.accountant)
+        ):
+            raise LedgerError(VERIFY_CONTRACTORS_DETAIL, status=403)
         if category != entry.category:
             _event(
                 db,

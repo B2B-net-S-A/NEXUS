@@ -9,10 +9,13 @@ admin widzi zawsze). Przełącznik modułu zmienia tylko admin.
 Koszty (serwis ``services/finance_ledger/costs.py``):
 
 * ``GET /module``, ``PUT /module`` — stan i przełącznik modułu,
-* ``GET ?stage=&month=&category=&flag=&q=`` — zakładka etapu z licznikami,
+* ``GET ?stage=&month=&journal=&category=&flag=&q=`` — zakładka etapu
+  z licznikami etapów i dzienników (Kontraktorzy, Zakupy pozostałe, Biuro),
 * ``GET /{id}`` — karta faktury z „Kogo dotyczy” i historią,
 * ``POST /actions`` — Przyjmij, Odrzuć (z powodem), Zweryfikuj, Gotowa do
-  księgowania, Cofnij o krok, dodaj/zdejmij flagę; dla zaznaczonych,
+  księgowania, Cofnij o krok, dodaj/zdejmij flagę; dla zaznaczonych.
+  „Zweryfikuj” fakturę kontraktora — lista „Weryfikujący kontraktorów” albo
+  „Księgowi”, „Gotowa” i jej cofnięcie — „Księgowi” (403 dla reszty),
 * ``PATCH /{id}`` — kategoria, flagi, termin płatności, notatka.
 
 Kontrahenci (``counterparties.py``, ``counterparty_import.py``):
@@ -34,6 +37,7 @@ from app.api.section_access import FINANCE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.user import User
+from app.services.finance_ledger import approvers as cost_approvers
 from app.services.finance_ledger import costs, counterparties
 from app.services.finance_ledger import counterparty_import as importer
 from app.services.finance_ledger import settings as module_settings
@@ -49,6 +53,7 @@ Action = Literal[
     "accept", "reject", "verify", "ready", "back", "flag_add", "flag_remove"
 ]
 Category = Literal["contractor", "team", "office", "benefit", "proforma", "other"]
+Journal = Literal["contractors", "purchases", "office"]
 Flag = Literal["mpp", "no_mpp", "hold_payment", "tax_office_account", "duplicate"]
 #: Filtr flag: konkretna flaga albo „bez flag”.
 FlagFilter = Literal[
@@ -133,6 +138,7 @@ async def list_costs(
     db: AsyncSession = Depends(get_db),
     stage: Stage = Query("received"),
     month: Optional[str] = Query(None, pattern=MONTH_PATTERN),
+    journal: Optional[Journal] = Query(None),
     category: Optional[Category] = Query(None),
     flag: Optional[FlagFilter] = Query(None),
     q: Optional[str] = Query(None, max_length=120),
@@ -145,12 +151,18 @@ async def list_costs(
         db,
         stage=stage,
         filters=costs.Filters(
-            month=_month(month), category=category, flag=flag, q=q, payment=payment
+            month=_month(month),
+            category=category,
+            journal=journal,
+            flag=flag,
+            q=q,
+            payment=payment,
         ),
         limit=limit,
         offset=offset,
         viewer_id=current_user.id,
         payroll=is_payroll(current_user),
+        approvers=await cost_approvers.load(db, current_user),
     )
 
 
@@ -171,6 +183,7 @@ async def cost_actions(
             payroll=is_payroll(current_user),
             reason=body.reason,
             flag=body.flag,
+            approvers=await cost_approvers.load(db, current_user),
         )
     except costs.LedgerError as exc:
         await db.rollback()
@@ -186,7 +199,11 @@ async def cost_card(
     await _open(db, current_user)
     try:
         return await costs.card(
-            db, entry_id, viewer_id=current_user.id, payroll=is_payroll(current_user)
+            db,
+            entry_id,
+            viewer_id=current_user.id,
+            payroll=is_payroll(current_user),
+            approvers=await cost_approvers.load(db, current_user),
         )
     except costs.LedgerError as exc:
         raise _ledger_fail(exc) from exc
@@ -200,6 +217,7 @@ async def update_cost(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _open(db, current_user)
+    approvers = await cost_approvers.load(db, current_user)
     try:
         await costs.update(
             db,
@@ -208,13 +226,18 @@ async def update_cost(
             actor_id=current_user.id,
             now=_now(),
             payroll=is_payroll(current_user),
+            approvers=approvers,
         )
     except costs.LedgerError as exc:
         await db.rollback()
         raise _ledger_fail(exc) from exc
     await db.commit()
     return await costs.card(
-        db, entry_id, viewer_id=current_user.id, payroll=is_payroll(current_user)
+        db,
+        entry_id,
+        viewer_id=current_user.id,
+        payroll=is_payroll(current_user),
+        approvers=approvers,
     )
 
 
