@@ -37,6 +37,7 @@ import { cn } from "@/lib/utils";
 import { warsawToday } from "@/lib/warsaw-date";
 import type { PaymentState } from "@/lib/api/finance-payments";
 
+import { CostPdfButton } from "./CostPdfButton";
 import {
   PAYMENT_STATE_LABELS,
   PAYMENT_STATE_ORDER,
@@ -456,15 +457,20 @@ export function CostsTab({ canWrite = true }: { canWrite?: boolean }) {
                     </span>
                   </TableCell>
                   <TableCell className="min-w-0">
-                    <Link
-                      href={`/finance/costs/${row.id}`}
-                      className="block truncate font-medium text-primary hover:underline"
-                    >
-                      {row.invoice_number ?? `Faktura #${row.id}`}
-                    </Link>
-                    <span className={CALM_SUBLINE}>
-                      {row.from_ksef ? "KSeF" : "PDF"} · {row.category_label}
-                    </span>
+                    <div className="flex min-w-0 items-start gap-1">
+                      <div className="min-w-0 flex-1">
+                        <Link
+                          href={`/finance/costs/${row.id}`}
+                          className="block truncate font-medium text-primary hover:underline"
+                        >
+                          {row.invoice_number ?? `Faktura #${row.id}`}
+                        </Link>
+                        <span className={CALM_SUBLINE}>
+                          {row.from_ksef ? "KSeF" : "PDF"} · {row.category_label}
+                        </span>
+                      </div>
+                      <CostPdfButton entryId={row.id} invoiceNumber={row.invoice_number} look="icon" />
+                    </div>
                   </TableCell>
                   <TableCell className="min-w-0">
                     <Concerning row={row} />
