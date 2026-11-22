@@ -30,7 +30,9 @@ Nagranie robi skrypt Playwrighta ze scratchpadu sesji (logowanie
 z portu 8100 z polem `phase`); opis kroków w `docs/claude/ui/poligon-nexusa-onboarding.md`.
 
 Klient ćwiczebny (karta klienta, kontrakty, zamówienia z maila, Finanse; 22.11.2026)
-jest wymyślony w `scripts/poligon_client_practice.py`. Bez nagrania:
+jest wymyślony w `scripts/poligon_client_practice.py`, a odczyty CV z dwóch
+wpisów Nowości (lata w punkcie 1, gotowe CV z nową zgodą) w
+`scripts/poligon_cv_practice.py`. Bez nagrania:
     python3 scripts/build_poligon_dataset.py --practice-only
 nakłada wymyślone odczyty (nowości z porcji i klienta ćwiczebnego) na zestaw,
 który już jest w repo.
@@ -52,10 +54,12 @@ from urllib.parse import parse_qsl, urlencode
 
 try:
     from scripts.poligon_client_practice import CLIENT_PEOPLE, client_practice
+    from scripts.poligon_cv_practice import READY_CV_PERSON, cv_practice
 except (
     ModuleNotFoundError
 ):  # wywołanie z `backend/`: python3 scripts/build_poligon_dataset.py
     from poligon_client_practice import CLIENT_PEOPLE, client_practice
+    from poligon_cv_practice import READY_CV_PERSON, cv_practice
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "frontend/src/lib/poligon/dataset.json"
@@ -1357,13 +1361,18 @@ def with_practice(meta: dict, dataset: dict) -> tuple[dict, dict]:
     add_novelty_practice(dataset)
     practice = client_practice(meta["template_candidate_id"])
     dataset.update(practice)
+    # Edytor i karta „CV do klienta”: lata w punkcie 1, gotowe CV z nową zgodą.
+    cv, cv_fiction = cv_practice(dataset)
+    dataset.update(cv)
     meta = {
         **meta,
         # Osoby po stronie klienta ćwiczebnego (nie kandydaci).
         "client_people": CLIENT_PEOPLE,
+        # Osoba bez CV do klienta z gotowym CV z innej rekrutacji.
+        "ready_cv_candidate_id": READY_CV_PERSON["candidate_id"],
         # Odpowiedzi w całości wymyślone w skrypcie: strażnik zestawu nie
         # wymaga dla nich kluczy ze słownika (`poligon-dataset.test.ts`).
-        "fiction_responses": sorted(practice),
+        "fiction_responses": sorted({*practice, *cv_fiction}),
     }
     return meta, dataset
 

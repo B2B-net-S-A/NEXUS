@@ -654,4 +654,44 @@ describe("poligon: narzędzia rekrutera (16.11.2026)", () => {
   });
 });
 
+
+describe("poligon: CV z nowości (22.11.2026)", () => {
+  const meta = DATA.meta as PoligonDataset["meta"] & { ready_cv_candidate_id: number };
+  const ready = DATA.meta.people.find((p) => p.candidate_id === meta.ready_cv_candidate_id)!;
+  const tpl = DATA.meta.template_entry_id;
+
+  it("odczyt zapisany dla osoby wygrywa z osobą-szablonem, reszta idzie z szablonu", () => {
+    const { store } = setup();
+    const own = store.handle({ method: "get", url: `/api/candidates/stages/${ready.entry_id}/cv/branded` });
+    expect(own).toMatchObject({ status: 200, data: { status: "none", content_html: null, candidate_stage_id: ready.entry_id } });
+    const sources = store.handle({ method: "get", url: `/api/candidates/stages/${ready.entry_id}/cv/branded/sources` }) as { data: { items: unknown[] } };
+    expect(sources.data.items).toHaveLength(1);
+    // Osoba-szablon i inne osoby: CV do klienta jest, gotowego CV z innej rekrutacji nie ma.
+    expect(store.handle({ method: "get", url: `/api/candidates/stages/${second.entry_id}/cv/branded` })).toMatchObject({ data: { status: "draft" } });
+    expect(store.handle({ method: "get", url: `/api/candidates/stages/${tpl}/cv/branded/sources` })).toMatchObject({ data: { items: [] } });
+    const rows = store.handle({ method: "get", url: "/api/cv-generator/generated", params: { candidate_id: ready.candidate_id, job_id: JOB, limit: 10 } });
+    expect(rows).toMatchObject({ status: 200, data: [] });
+    const rule = store.handle({ method: "get", url: `/api/cv-generator/clients/${DATA.meta.client_id}/rule-for-generation` });
+    expect(rule).toMatchObject({ data: { requires_rodo_consent_block: true } });
+  });
+
+  it("„Wpisz w punkcie 1”: podmiana frazy z liczbą lat bez zapisu, inne poprawki QC zablokowane", () => {
+    const { store } = setup();
+    const qc = store.handle({ method: "get", url: `/api/pipeline/stages/${tpl}/qc`, params: { transient: true } }) as {
+      data: { checks: Array<{ key: string; items: Array<{ fix: string; proposal: string }> }> };
+    };
+    const item = qc.data.checks.find((c) => c.key === "years_breakdown")!.items[0];
+    expect(item.fix).toBe("tenure_split");
+    const html = (store.handle({ method: "get", url: `/api/candidates/stages/${second.entry_id}/cv/branded` }) as { data: { content_html: string } }).data.content_html;
+    const url = `/api/pipeline/stages/${second.entry_id}/qc/transform`;
+    const res = store.handle({ method: "post", url, body: { content_html: html, actions: [{ action: "tenure_split" }] } }) as { status: number; data: { changed: boolean; content_html: string } };
+    expect(res.status).toBe(200);
+    expect(res.data.changed).toBe(true);
+    expect(res.data.content_html).toContain(`<p>${item.proposal}: migracja systemu płatności`);
+    const again = store.handle({ method: "post", url, body: { content_html: res.data.content_html, actions: [{ action: "tenure_split" }] } });
+    expect(again).toMatchObject({ status: 200, data: { changed: false, skipped: [{ code: "nothing_to_do" }] } });
+    expect(store.handle({ method: "post", url, body: { content_html: html, actions: [{ action: "spelling" }] } })).toMatchObject({ status: 409 });
+  });
+});
+
 vi.useRealTimers();

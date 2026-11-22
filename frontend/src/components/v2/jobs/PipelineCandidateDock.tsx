@@ -275,6 +275,7 @@ function DockSection({
   onToggle,
   action,
   children,
+  "data-tour": tour,
 }: {
   id: DockTab;
   label: string;
@@ -285,6 +286,8 @@ function DockSection({
   /** Przycisk obok nagłówka, widoczny także po zwinięciu (np. „Wgraj nowe CV”). */
   action?: ReactNode;
   children: ReactNode;
+  /** Kotwica przeklikania nowości na nagłówku sekcji (novelties.json). */
+  "data-tour"?: string;
 }) {
   return (
     <section
@@ -300,6 +303,7 @@ function DockSection({
           id={`dock-section-${id}`}
           onClick={onToggle}
           aria-expanded={open}
+          data-tour={tour}
           className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left"
         >
           <span className="text-xs font-semibold text-foreground">{label}</span>
@@ -2391,6 +2395,8 @@ export function PipelineCandidateDock({
 
         <DockSection
           id="cv"
+          // Nowości „Lata w punkcie 1” i „Gotowe CV z nową zgodą” (novelties.json).
+          data-tour="person.dock.cv"
           label={DOCK_SECTION_LABEL.cv}
           summary={companyBrandedQuery.isSuccess ? companyCv.text : "Oryginał i CV firmowe"}
           isNow={nowSection === "cv"}
@@ -2644,7 +2650,7 @@ export function PipelineCandidateDock({
               </Button>
             )}
             {onOpenWorkbench ? (
-              <WorkbenchLink onClick={() => onOpenWorkbench("cv")}>
+              <WorkbenchLink onClick={() => onOpenWorkbench("cv")} data-tour="person.dock.cv-to-client">
                 {/* Stawka i „Oznacz CV wysłane” są w karcie tylko na „Zweryfikowanym” (D3). */}
                 {item.stage === "verified"
                   ? "Wysyłka CV do klienta (stawka, wersje)"

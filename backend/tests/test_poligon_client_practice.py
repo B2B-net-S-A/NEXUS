@@ -16,6 +16,7 @@ import pytest
 
 from scripts import build_poligon_dataset as build
 from scripts import poligon_client_practice as practice
+from scripts import poligon_cv_practice as cv_practice
 
 ROOT = Path(__file__).resolve().parents[2]
 DATASET = ROOT / "frontend/src/lib/poligon/dataset.json"
@@ -128,7 +129,9 @@ def test_kwoty_sa_wymyslone_i_spojne(responses):
 def test_zestaw_w_repo_jest_aktualny(responses):
     data = json.loads(DATASET.read_text())
     meta, stored = data["meta"], data["responses"]
-    assert set(meta["fiction_responses"]) == set(responses)
+    # Poza klientem ćwiczebnym wymyślone jest tylko QC edytora z nowości CV.
+    _, cv_fiction = cv_practice.cv_practice(stored)
+    assert set(meta["fiction_responses"]) == set(responses) | set(cv_fiction)
     assert meta["client_people"] == practice.CLIENT_PEOPLE
     for key, body in responses.items():
         assert stored[key] == body, (

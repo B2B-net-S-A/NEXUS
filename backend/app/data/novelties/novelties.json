@@ -3703,8 +3703,26 @@
     },
     "where": "Rekrutacja → CV do klienta → Otwórz i popraw → Do poprawy",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990105",
     "section": "pipeline",
-    "dot_anchor": "cv-editor.tenure-split"
+    "dot_anchor": "cv-editor.tenure-split",
+    "steps": [
+      {
+        "anchor": "person.dock.cv",
+        "text": "W panelu osoby rozwiń sekcję „CV”.",
+        "hint": "Tu są oryginał i CV do klienta tej osoby."
+      },
+      {
+        "anchor": "person.cv.edit",
+        "text": "Kliknij „Edytuj CV”.",
+        "hint": "Otworzy się edytor z listą „Do poprawy”. Na Poligonie nic się nie zapisze."
+      },
+      {
+        "anchor": "cv-editor.tenure-split",
+        "text": "„Lata w punkcie 1” pokazują, z których ról wyszła liczba i ile daje cały staż.",
+        "hint": "Różnica przekracza rok, więc NEXUS proponuje „N lat w IT, w tym M jako X”. Kliknij propozycję, a wpisze ją w punkcie 1. Możesz też zostawić liczbę."
+      }
+    ]
   },
   {
     "id": "gotowe-cv-z-nowa-zgoda",
@@ -3723,8 +3741,27 @@
     },
     "where": "Rekrutacja → osoba → CV do klienta → Ta osoba ma już gotowe CV",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990106",
     "section": "pipeline",
-    "dot_anchor": "cv.ready-cv-new-consent"
+    "dot_anchor": "cv.ready-cv-new-consent",
+    "steps": [
+      {
+        "anchor": "person.dock.cv",
+        "text": "W panelu osoby rozwiń sekcję „CV”.",
+        "hint": "Ta osoba nie ma jeszcze CV do klienta w tej rekrutacji."
+      },
+      {
+        "anchor": "person.dock.cv-to-client",
+        "text": "Kliknij „CV do klienta: strony i wersje”.",
+        "hint": "Otworzy się karta „CV do klienta”."
+      },
+      {
+        "anchor": "cv.ready-cv-new-consent",
+        "text": "Gotowe CV z innej rekrutacji użyjesz z nową zgodą.",
+        "hint": "Zgoda z tamtej rekrutacji nie przechodzi. W pracy wgrywasz tu zrzut i klikasz „Użyj tego CV z nową zgodą”. Na Poligonie nic się nie zapisze.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "kontrakty-jedna-lista",

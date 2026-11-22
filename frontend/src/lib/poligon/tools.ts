@@ -40,7 +40,7 @@ export interface ToolsContext {
   /** Karta przechodzi do kolumny etapu bez zdarzenia `move` (jak ruch serwera po terminach od klienta). */
   relocate: (candidateId: number, stage: string) => KanbanItem | null;
   /** Odczyt z zestawu bez zdarzenia `view` (np. profil osoby-szablonu). */
-  recorded: (method: string, path: string, query?: Array<[string, string]>) => PoligonResponse;
+  recorded: (method: string, path: string, query?: Array<[string, string]>, unredacted?: boolean) => PoligonResponse;
   people: Map<number, PoligonPerson>;
   template: PoligonPerson | undefined;
 }
@@ -406,10 +406,43 @@ export function createTools(ctx: ToolsContext) {
   }
 
   // ── CV firmowe i asystent ─────────────────────────────────────────────
+  /**
+   * „Wpisz w punkcie 1” (nowość „Lata w punkcie 1”): podmiana frazy z liczbą
+   * lat na propozycję z uwagi QC, jak `cv_qc.tenure_split_html` — bez zapisu,
+   * edytor zapisuje treść sam. Inne poprawki QC na poligonie zostają wyłączone.
+   */
+  function qcTransform(entryId: number, body: Row): PoligonResponse | null {
+    const actions = Array.isArray(body.actions) ? (body.actions as Row[]) : [];
+    if (!personByEntry(entryId) || actions.length !== 1 || actions[0]?.action !== "tenure_split") return null;
+    const qc = ctx.recorded("GET", `/api/pipeline/stages/${entryId}/qc`, [["transient", "true"]], true);
+    const checks = (qc.data as { checks?: Array<{ key?: string; items?: Row[] }> } | null)?.checks ?? [];
+    const tenure = checks.find((c) => c.key === "years_breakdown")?.items?.[0]?.tenure as Row | undefined;
+    const html = typeof body.content_html === "string" ? body.content_html : "";
+    const quote = typeof tenure?.quote === "string" ? tenure.quote : "";
+    const proposal = typeof tenure?.proposal === "string" ? tenure.proposal : "";
+    if (!quote || !proposal || !html.includes(quote)) {
+      return {
+        status: 200,
+        data: {
+          content_html: html,
+          changed: false,
+          applied: [],
+          skipped: [{ action: "tenure_split", code: "nothing_to_do", message: "W punkcie 1 nie ma już liczby lat do podmiany." }],
+        },
+      };
+    }
+    return {
+      status: 200,
+      data: { content_html: html.replace(quote, proposal), changed: true, applied: [{ action: "tenure_split", count: 1 }], skipped: [] },
+    };
+  }
+
+
   function brandedOf(entryId: number, recorded: Row): Row {
     const saved = branded.get(entryId);
     const person = personByEntry(entryId) ?? ctx.template;
-    const html = saved?.html ?? cvFictionHtml(person ? `${person.name} ${person.lastname}` : "");
+    // Etap bez CV do klienta (osoba z gotowym CV z innej rekrutacji) zostaje bez treści.
+    const html = saved?.html ?? (recorded.status === "none" ? null : cvFictionHtml(person ? `${person.name} ${person.lastname}` : ""));
     return {
       ...recorded,
       candidate_stage_id: entryId,
@@ -577,12 +610,15 @@ export function createTools(ctx: ToolsContext) {
       const entryId = Number(brandedPath[1]);
       if (!personByEntry(entryId)) return null;
       if (get && !brandedPath[2]) {
-        const recorded = ctx.recorded("GET", `/api/candidates/stages/${meta.template_entry_id}/cv/branded`);
+        // Odczyt nagrany dla tej osoby wygrywa z osobą-szablonem (`store.read`).
+        const recorded = ctx.recorded("GET", `/api/candidates/stages/${entryId}/cv/branded`);
         if (recorded.status !== 200) return recorded;
         return { status: 200, data: brandedOf(entryId, recorded.data as Row) };
       }
       if (method === "PATCH" || brandedPath[2]) return saveBranded(entryId, brandedPath[2] ? null : body);
     }
+    const transform = path.match(/^\/api\/pipeline\/stages\/(\d+)\/qc\/transform$/);
+    if (transform && method === "POST") return qcTransform(Number(transform[1]), body);
     const ai = path.match(/^\/api\/pipeline\/stages\/(\d+)\/cv-ai\/(command|applied|confirm-fact)$/);
     if (ai && method === "POST") {
       if (ai[2] === "command") return cvCommand(body);
