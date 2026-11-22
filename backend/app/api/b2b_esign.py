@@ -523,10 +523,47 @@ async def send_for_esign(
         allowed = {p.id for p in await _cc_candidates(db, row, current_user)}
         if not set(body.cc_user_ids) <= allowed:
             raise HTTPException(status_code=422, detail=MSG_CC)
-    chosen = esign_docs.choose(
-        await esign_docs.candidates(db, row), body.start_document_ids
+    request, token = await open_signing_request(
+        db,
+        row,
+        actor_id=current_user.id,
+        contractor_email=str(body.contractor_email),
+        company_signer_id=body.company_signer_id,
+        days=body.days,
+        cc_user_ids=body.cc_user_ids,
+        start_document_ids=body.start_document_ids,
+        qualified_document_ids=body.qualified_document_ids,
     )
-    qualified_ids = esign_docs.choose_qualified(chosen, body.qualified_document_ids)
+    await db.commit()
+    url = _sign_url(token)
+    out = await _out(db, request)
+    mail_sent, problem = await _mail_link(
+        db, sender_id=current_user.id, request=out, row=row, url=url
+    )
+    return EsignSendOut(
+        request=out, sign_url=url, mail_sent=mail_sent, mail_problem=problem
+    )
+
+
+async def open_signing_request(
+    db: AsyncSession,
+    row: B2BGeneratedContract,
+    *,
+    actor_id: int,
+    contractor_email: str,
+    company_signer_id: int,
+    days: int,
+    cc_user_ids: Optional[list[int]] = None,
+    start_document_ids: Optional[list[int]] = None,
+    qualified_document_ids: Optional[list[int]] = None,
+) -> tuple[B2BSigningRequest, str]:
+    """PDF umowy z Worda, PDF-y paczki i otwarty wniosek (bez commita).
+
+    Wspólne dla „Wyślij do podpisu” i masowej wysyłki nowej umowy (E5b).
+    Wołający trzyma blokadę wiersza i sprawdził nadawcę, przełącznik
+    i reprezentanta. Awaria PDF-a = 503, wniosek nie powstaje."""
+    chosen = esign_docs.choose(await esign_docs.candidates(db, row), start_document_ids)
+    qualified_ids = esign_docs.choose_qualified(chosen, qualified_document_ids)
     docx = await _render_generated_row_docx(db, row)
     try:
         pdf = await pdf_from_docx(docx)
@@ -553,23 +590,15 @@ async def send_for_esign(
         db,
         row=row,
         pdf=pdf,
-        actor_id=current_user.id,
-        contractor_email=str(body.contractor_email),
-        company_signer_id=body.company_signer_id,
-        days=body.days,
+        actor_id=actor_id,
+        contractor_email=contractor_email,
+        company_signer_id=company_signer_id,
+        days=days,
         now=_now(),
-        cc_user_ids=body.cc_user_ids,
+        cc_user_ids=cc_user_ids,
     )
     await esign_docs.attach(db, request, prepared, qualified_ids)
-    await db.commit()
-    url = _sign_url(token)
-    out = await _out(db, request)
-    mail_sent, problem = await _mail_link(
-        db, sender_id=current_user.id, request=out, row=row, url=url
-    )
-    return EsignSendOut(
-        request=out, sign_url=url, mail_sent=mail_sent, mail_problem=problem
-    )
+    return request, token
 
 
 async def _mail_link(
