@@ -36,6 +36,8 @@
   "GET /api/finance/costs/{entry_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/costs/{entry_id}/pdf": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/counterparties": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/counterparties/pending": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/counterparties/pending/file": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PATCH /api/finance/costs/{entry_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PATCH /api/finance/counterparties/{counterparty_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/costs/actions": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",

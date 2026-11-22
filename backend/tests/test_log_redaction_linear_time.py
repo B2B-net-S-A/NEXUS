@@ -34,6 +34,9 @@ _MALICIOUS = {
     "key_prefix_chain": lambda n: "sk-" * n,
     "public_path": lambda n: "/public/" + "a-" * n,
     "mixed_prose": lambda n: "a-b.c+d " * n,
+    "cert_label_chain": lambda n: "Common Name: " * n,
+    "cert_long_value": lambda n: "Serial Number: " + "a," * n,
+    "etsi_id_chain": lambda n: "PNOPL-" * n,
 }
 
 

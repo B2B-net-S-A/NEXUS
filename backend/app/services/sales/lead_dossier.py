@@ -49,6 +49,7 @@ from app.models.sales import (
 from app.models.user import User
 from app.services.sales import bot_tasks, signals
 from app.services.sales import signal_targets as targets
+from app.services.sales.bot_tasks import enrich
 from app.services.sales.research_file import fold, level_from_title
 
 logger = logging.getLogger(__name__)
@@ -209,7 +210,11 @@ async def order(
     if not candidates:
         return done
     for kind in KINDS:
+        if kind == "enrich":
+            await enrich.lock_enrich_starts(db)
         if await _loop_ran(db, kind, now=now):
+            if kind == "enrich":
+                await db.rollback()
             continue
         if kind == "people":
             # Ta sama blokada co przycisk „Znajdź decydentów”: sprawdzenie i zapis
@@ -234,7 +239,9 @@ async def order(
                 "lead_dossier kind=%s firms=%d start failed", kind, len(ids)
             )
             continue
-        if run is not None and run.status in ("started", "received"):
+        if run is None and kind == "enrich":
+            await db.rollback()
+        elif run is not None and run.status in ("started", "received"):
             done[kind] = len(ids)
     return done
 

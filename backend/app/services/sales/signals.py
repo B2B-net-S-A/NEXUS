@@ -636,6 +636,7 @@ async def start_run(
     """
 
     from app.services.sales import bot_tasks, bots
+    from app.services.sales.bot_tasks.call_hook import CALL_HOOK
 
     task = bot_tasks.get(kind)
     if task is None:
@@ -673,9 +674,12 @@ async def start_run(
     )
     db.add(run)
     await db.flush()
+    only_hooks = kind == "briefing" and all(
+        (modes or {}).get(cid) == CALL_HOOK for cid in rows
+    )
     feedback = (
         await _feedback(db, list(rows))
-        if task.lead_feedback
+        if task.lead_feedback and not only_hooks
         else {"rejected": [], "seen_urls": []}
     )
     body = webhook_body(run, token, [rows[cid] for cid in sorted(rows)], feedback)
@@ -728,6 +732,7 @@ async def _close_open_run(
 
 async def expire_runs(db: AsyncSession, *, now: datetime) -> int:
     """Bieg bez raportu po terminie tokenu: ``expired`` i ostrzeżenie w logu."""
+    from app.services.sales.bot_tasks.call_hook import CALL_HOOK
 
     rows = (
         await db.execute(
@@ -737,13 +742,14 @@ async def expire_runs(db: AsyncSession, *, now: datetime) -> int:
                 SalesSignalRun.token_expires_at < now,
             )
             .values(status="expired", token_hash=None, error="brak raportu")
-            .returning(SalesSignalRun.id, SalesSignalRun.kind)
+            .returning(SalesSignalRun.id, SalesSignalRun.kind, SalesSignalRun.modes)
         )
     ).all()
     await db.commit()
-    for run_id, kind in rows:
+    for run_id, kind, modes in rows:
+        detail = CALL_HOOK if CALL_HOOK in (modes or {}).values() else kind
         logger.warning(
-            "sales_signals run=%s kind=%s expired without report", run_id, kind
+            "sales_signals run=%s kind=%s expired without report", run_id, detail
         )
     return len(rows)
 

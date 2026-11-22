@@ -142,7 +142,7 @@ function BotsToday({ isAdmin }: { isAdmin: boolean }) {
       </div>
       <p className="border-b border-border/60 px-3.5 py-2 text-xs text-muted-foreground">
         Zbieracz czyta źródła i odsyła surowe pozycje. Bramka NEXUSA sprawdza numery w API Sejmu i usuwa powtórki.
-        Analityk dostaje tylko sprawdzone pozycje i łączy je w zmiany. „U nas” liczy NEXUS na własnych danych —
+        Analityk łączy pozycje w zmiany. Przy każdej karcie widać, czy API Sejmu potwierdziło numer aktu lub druku. „U nas” liczy NEXUS na własnych danych —
         dane firmy nie wychodzą do bota.
       </p>
       {state === "loading" ? (
@@ -160,6 +160,8 @@ function BotsToday({ isAdmin }: { isAdmin: boolean }) {
         <ol className="divide-y divide-border/60">
           {list.map((run) => {
             const status = RUN_STATUS[run.status] ?? { label: run.status, tone: "neutral" as const };
+            const partial = run.kind === "collect" && run.status === "received"
+              && (run.summary.lex_skipped === true || run.summary.gofin_skipped === true);
             const line = runSummaryLine(run);
             return (
               <li key={run.id} className="grid gap-1 px-3.5 py-2">
@@ -167,7 +169,9 @@ function BotsToday({ isAdmin }: { isAdmin: boolean }) {
                   <span className="text-[13px] font-medium">
                     {RUN_KIND_LABEL[run.kind] ?? run.kind} · #{run.id}
                   </span>
-                  <StatusDot tone={status.tone}>{status.label}</StatusDot>
+                  <StatusDot tone={partial ? "warning" : status.tone}>
+                    {partial ? "przyjęty z pominięciem źródła" : status.label}
+                  </StatusDot>
                 </div>
                 <span className="text-xs text-muted-foreground">
                   start {formatMoment(run.started_at)}

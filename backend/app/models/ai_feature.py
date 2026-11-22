@@ -56,8 +56,9 @@ class AIFeatureKey(str, enum.Enum):
     # rekruterów ani nie wymusił podniesienia go do poziomu, na którym przestaje
     # chronić funkcję interaktywną.
     cv_backfill = "cv_backfill"
-    # Dopisywanie DAT do `experience` dla kandydatów, których ATLAS właśnie
-    # pokazał na kartotece firmy (`integrations_companies`). OSOBNY kubełek od
+    # Dopisywanie DAT do `experience` dla kandydatów pokazanych właśnie na
+    # kartotece firmy w Sprzedaży (`services/sales/company_dates.py`; do
+    # 22.11.2026 także trasa dla ATLAS-a). OSOBNY kubełek od
     # `cv_backfill`, choć wołają ten sam moduł: 16.09 zgaszenie `cv_backfill`
     # w celu zatrzymania biegu masowego ubiło rykoszetem fazę
     # `candidates_cv_fields` nocnego syncu Traffita. Ścieżka uruchamiana
@@ -242,7 +243,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.uop_check: "Generator Umów B2B — sprawdzenie znamion umowy o pracę",
     AIFeatureKey.cv_name_backfill: "Uzupełnianie imion z CV (sync Traffita)",
     AIFeatureKey.cv_factual_verification: "Generator CV B2B — niezależna kontrola AI treści CV (drugi model)",
-    AIFeatureKey.experience_dates_on_demand: "Daty zatrudnienia z CV (kartoteka firmy w ATLAS-ie)",
+    AIFeatureKey.experience_dates_on_demand: "Daty zatrudnienia z CV (kartoteka firmy w Sprzedaży)",
     AIFeatureKey.jarvis: "Jarvis — asystent i wykonawca zadań w aplikacji",
     AIFeatureKey.job_public_description: "Opis rekrutacji na stronę kariery",
     AIFeatureKey.screening_reassign_suggest: "Arkusz screeningu — podpowiedzi z wcześniejszych rozmów kandydata",
@@ -320,7 +321,7 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Zapisany tekst CV kandydatów (bieg masowy, tylko puste pola)",
     ],
     AIFeatureKey.experience_dates_on_demand: [
-        "Zapisany tekst CV kandydatów pokazanych na kartotece firmy w ATLAS-ie",
+        "Zapisany tekst CV kandydatów pokazanych na kartotece firmy w Sprzedaży",
         "(tylko ci bez dat w historii zatrudnienia; zapis wyłącznie dat i ról)",
     ],
     AIFeatureKey.notes_extraction: [

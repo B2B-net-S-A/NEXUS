@@ -221,7 +221,7 @@ class ClientCvRule(Base, TimestampMixin):
     cv_title_with_reference: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
-    # Domyślny układ CV klienta (0752): „new” = Nowe CV w PDF; NULL = klasyczny.
+    # Domyślny układ CV klienta (0753): „new” = Nowe CV w PDF; NULL = klasyczny.
     cv_layout: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
 
     # Draft edits never replace the published recipe or live client flags.

@@ -5,6 +5,22 @@ Sekcja „Sprzedaż” zastępuje CRM Atlasa (D1 = budowa w NEXUSIE od nowa
 i import danych). Propozycja z makietami M0–M4:
 https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
 
+> **22.11.2026: Atlas wygaszony.** Serwer Atlasa usunięty po snapshocie, DNS
+> skasowany, projekt Supabase Atlasa usunięty po eksporcie (Artur trzyma go
+> lokalnie). Tego samego dnia z NEXUSA zniknęły integracje z Atlasem (decyzje
+> Artura): trasy `GET /api/care/atlas/sales-signals`, `POST …/status`
+> i `POST /api/integrations/companies/people` (stare adresy → 410,
+> `api/retired_modules.py`), kod importu (`scripts/import_atlas_sales.py`,
+> `services/sales/atlas_import.py`, `atlas_files.py`, akcja `atlas-import`
+> w Coolify Ops) i sekrety repo `ATLAS_*`. Klient OAuth „ATLAS CRM — osoby
+> w firmie” w Ustawieniach → Integracja z API wyłączony (ostatnie użycie
+> ok. 05.11.2026); konta serwisowego z `sales_signals:*` nie było. Klienta
+> „Scrapery pracuj.pl + JJIT” to nie dotyczy. Zostają dane w NEXUSIE
+> (`external_ref` `atlas:…`, tag „atlas: do przejrzenia” w
+> `services/sales/companies.py`, lejki `atlas-*`) i silnik „Kogo znamy”
+> (`api/integrations_companies.lookup_company_people`). Nie proponuj
+> integracji z Atlasem ani nowego importu.
+
 ## Dostęp
 
 - **Dwa uprawnienia, bez roli „Handlowiec”**: „Sprzedaż: podgląd” (`sales_view`)
@@ -30,8 +46,8 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
 
 ## „Kogo znamy w firmie” (D3, D4)
 
-- Panel liczy to samo co endpoint dla CRM (`integrations_companies.lookup_company_people`),
-  prosto w bazie, z nazwą klienta powiązanego i NIP-em; plus liczby dla firmy
+- Panel liczy w `integrations_companies.lookup_company_people` (do 22.11.2026
+  także endpoint dla CRM Atlasa, usunięty), prosto w bazie, z nazwą klienta powiązanego i NIP-em; plus liczby dla firmy
   matki i spółek zależnych.
 - **D4: handlowiec widzi pełny profil kandydata** (kontakt, link do profilu) —
   decyzja Artura 26.10.2026, bez przełącznika i bez czekania na opinię IOD.
@@ -48,12 +64,13 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
   `lookup_company_people`, przed cięciem do `limit`): najpierw role decyzyjne
   (`services/company_people_rank.py`, bez stażu, praktyk i juniorów), potem
   najświeżej dodani do bazy. Przy osobie dodanej ponad 3 lata temu znacznik
-  „CV sprzed 3 lat”. Nowe pola idą tylko do Sprzedaży (`_CRM_EXCLUDE`).
+  „CV sprzed 3 lat”. Nowe pola szły tylko do Sprzedaży (do 22.11.2026 trasa dla CRM
+  ukrywała je przez `_CRM_EXCLUDE`).
 - **„Inne nazwy z CV” na karcie**, tabela `sales_company_aliases` (0671):
   „Dołącz” (`joined`) dolicza nazwę do osób i szukania klienta, „Nie ta firma”
   (`rejected`) tylko przestaje podpowiadać, „Cofnij” kasuje decyzję. Zapis
   `SalesEditUser`. Nazwy dołączone czyta serwer (`extra_names`), poza limitem
-  10 nazw z API dla CRM. Bez modelu AI i bez kolejki. Wariant powstaje na dwa
+  10 nazw z `CompanyPeopleRequest`. Bez modelu AI i bez kolejki. Wariant powstaje na dwa
   sposoby. Pierwszy: nazwa z CV zaczyna się od nazwy karty bez końcówek typu
   „Bank Polska”, „S.A.”; gdy z karty zostaje jeden wyraz („Nordea Bank Abp” →
   „nordea”), dalszy ciąg nazwy z CV może mieć tylko takie końcówki, bo sam
@@ -150,11 +167,14 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
 
 ## Import z Atlasa
 
-**Zamknięty 22.11.2026.** Ostatni pełny bieg (dry-run → apply → pliki)
-przeszedł 13.11.2026, już po ostatnim zapisie w Atlasie. Projekt Supabase
-Atlasa skasowano 22.11 po pełnym eksporcie, który trzyma Artur lokalnie.
-`atlas-import` w Coolify Ops i zmienne `ATLAS_*` nie mają już źródła, więc
-nie uruchamiaj importu. Opis niżej zostaje jako historia.
+**Zamknięty 22.11.2026, kod usunięty tego samego dnia** (decyzja Artura).
+Ostatni pełny bieg (dry-run → apply → pliki) przeszedł 13.11.2026, już po
+ostatnim zapisie w Atlasie. Projekt Supabase Atlasa skasowano 22.11 po pełnym
+eksporcie, który trzyma Artur lokalnie. Skryptu, serwisów importu, akcji
+`atlas-import` i sekretów repo `ATLAS_*` już nie ma; zmienne `ATLAS_*` w env
+Coolify zostały martwe (nikt ich nie czyta). Ponowny import wymagałby
+przywrócenia kodu z gita (ostatni commit z nim: `fd62969f7`) i postawienia
+bazy z eksportu. Opis niżej zostaje jako historia.
 
 - `backend/scripts/import_atlas_sales.py` — połączenie **tylko do odczytu**
   z `ATLAS_DATABASE_URL`, domyślnie na sucho, `--apply` zatwierdza.

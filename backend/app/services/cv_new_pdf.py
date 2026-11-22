@@ -10,6 +10,7 @@ dwa naraz — kosztuje ok. 1–3 s procesora.
 from __future__ import annotations
 
 import asyncio
+import html
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -81,7 +82,8 @@ def _render(
     document = NewCvDocument.from_cv_json(
         content.cv_json,
         why=compose_page1_why(content.cv_json.get("why_points") or [], extras),
-        rodo_clause_html=content.rodo_clause or None,
+        # Renderer wstawia klauzulę jako HTML — tekst z edytora idzie escapowany.
+        rodo_clause_html=html.escape(content.rodo_clause) or None,
         consent_image=consent if mime else None,
         consent_image_mime=mime,
     )

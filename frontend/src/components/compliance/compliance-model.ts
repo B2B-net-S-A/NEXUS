@@ -79,7 +79,7 @@ export const CLASS_HINT: Record<ItemClass, string> = {
 export const GATE_LABEL: Record<ItemGate, string> = {
   pending: "czeka na API Sejmu",
   verified: "zgodne z API Sejmu",
-  unverified: "bez numeru aktu",
+  unverified: "bez potwierdzenia w API Sejmu",
   rejected: "odrzucone przez bramkę",
 };
 
@@ -318,6 +318,15 @@ const SUMMARY_LABELS: Record<RunKind, readonly [string, string][]> = {
   ],
 };
 
+const SKIP_REASON_LABEL: Record<string, string> = {
+  login_required: "wymagane logowanie",
+  device_approval: "wymagane zatwierdzenie urządzenia",
+  mfa: "wymagany kod uwierzytelniający",
+  access_denied: "odmowa dostępu",
+  unavailable: "serwis niedostępny",
+  unknown: "przyczyna nieustalona",
+};
+
 /** Jedna linia liczb biegu („pozycje w raporcie: 14 · nowe: 9”); nieznane klucze pomija. */
 export function runSummaryLine(run: Pick<RadarRun, "kind" | "summary">): string {
   const parts: string[] = [];
@@ -332,10 +341,23 @@ export function runSummaryLine(run: Pick<RadarRun, "kind" | "summary">): string 
       return typeof value === "number" ? value : 0;
     };
     parts.push(
-      `bramka: zgodne z API Sejmu ${n("verified")}, bez numeru ${n("unverified")}, odrzucone ${n("rejected")}`,
+      `bramka: zgodne z API Sejmu ${n("verified")}, bez potwierdzenia ${n("unverified")}, odrzucone ${n("rejected")}`,
     );
   }
-  if (run.kind === "collect" && run.summary.lex_skipped === true) parts.push("LEX pominięty");
-  if (run.kind === "collect" && run.summary.gofin_skipped === true) parts.push("Gofin pominięty");
+  if (run.kind === "collect") {
+    const saved = run.summary.saved_sources;
+    for (const [key, name] of [["lex", "LEX"], ["gofin", "Gofin"]] as const) {
+      const skipped = run.summary[`${key}_skipped`] === true;
+      const reason = run.summary[`${key}_skip_reason`];
+      const count = typeof saved === "object" ? saved[key] : undefined;
+      const details: string[] = [];
+      if (skipped) {
+        const label = typeof reason === "string" ? SKIP_REASON_LABEL[reason] : undefined;
+        details.push(label ? `pominięty (${label})` : "pominięty");
+      }
+      if (typeof count === "number") details.push(`zapisane pozycje: ${count}`);
+      if (details.length) parts.push(`${name} ${details.join(", ")}`);
+    }
+  }
   return parts.join(" · ");
 }

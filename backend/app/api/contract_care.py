@@ -3,7 +3,7 @@
 Prefiks ``/api/care`` (wpięty w ``app/main.py``). Każda trasa ma nazwaną bramkę
 ``require_hr_*`` z ``app/api/care_gates.py`` i sprawdza przełącznik modułu
 w ``app_settings['hr_modules']``. Pod tym samym prefiksem: kolejka technologii
-(``app/api/care_skills.py``) i sygnały dla ATLASA (``app/api/care_atlas.py``);
+(``app/api/care_skills.py``; sygnały dla ATLASA usunięte 22.11.2026);
 odczyt zakładki „Opieka” i listy konsultantów liczy ``services/care/overview.py``.
 
 Dostęp (decyzja D7 i zadanie E5, 16.10.2026):
@@ -15,9 +15,6 @@ Dostęp (decyzja D7 i zadanie E5, 16.10.2026):
   z ludźmi, a nie uprawnienie z ekranu kontraktów,
 * **kolejka technologii** — czytają ją też osoby od słownika umiejętności
   (Head of Recruitment); decyzje: admin, Head of Recruitment, TCM,
-* **ATLAS** — klucz konta serwisowego (``X-API-Key``) z ``clients:read``
-  i ``contracts:read`` (najbliższe istniejące zakresy; własnego zakresu
-  sygnałów nie ma), zwrot statusów — na razie tylko admin.
 * **Struktura u klienta i opinie klienta** (etap 2, D8–D11, 17.10.2026) —
   czytają opiekun (DL, TCM, admin) i Head of Recruitment; Finanse i Kadry
   z samego uprawnienia nie (D11). Opinię zapisują piszący opiekę, a „Podlega

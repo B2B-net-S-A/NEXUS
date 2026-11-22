@@ -1,4 +1,4 @@
-"""Układ CV: klasyczny Word albo „Nowe CV” w PDF (migracja 0752, 22.11.2026).
+"""Układ CV: klasyczny Word albo „Nowe CV” w PDF (migracja 0753, 22.11.2026).
 
 Jedno źródło SQL dla migracji i `entrypoint.sh` (alembic na produkcji bywa
 osierocony, entrypoint jest wtedy wdrożeniem):

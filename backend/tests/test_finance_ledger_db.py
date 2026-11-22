@@ -26,6 +26,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token
 from app.models.app_setting import AppSetting
 from app.models.client import Client
+from app.models.client_sales_invoice import ClientSalesInvoice
 from app.models.finance_ledger import (
     FinanceCostEntry,
     FinanceCostEntryEvent,
@@ -667,3 +668,128 @@ async def test_faktury_osob_zespolu_tylko_dla_plac(world, client) -> None:
     assert (
         await _entry("payroll_invoice", world["person_invoice"].id)
     ).stage == "received"
+
+
+async def _buyer_invoice(nip: str) -> int:
+    issued = date(2026, 11, 3)
+    async with AsyncSessionLocal() as db:
+        invoice = ClientSalesInvoice(
+            ksef_number=f"{nip}-20261103-{uuid.uuid4().hex[:12].upper()}-AB",
+            xml_sha256="0" * 64,
+            buyer_nip=nip,
+            buyer_name="Nabywca Testowy Sp. z o.o.",
+            invoice_number=f"{random.randint(1, 999)}/TEST/2026",
+            issue_date=issued,
+            sale_date=issued,
+            period_year=2026,
+            period_month=11,
+            period_source="invoice",
+            currency="PLN",
+            net_amount=Decimal("100.00"),
+            vat_amount=Decimal("23.00"),
+            gross_amount=Decimal("123.00"),
+            items=[],
+            order_refs=[],
+            match_status="unmatched",
+            fetched_at=datetime.now(timezone.utc),
+        )
+        db.add(invoice)
+        await db.commit()
+        return invoice.id
+
+
+async def test_czekaja_na_symfonie_kartoteka_koszty_sprzedaz_i_plik(world, client) -> None:
+    nips = world["nips"]
+    accountant = _headers(world["accountant"])
+    admin = _headers(world["admin"])
+    invoice_id = await _buyer_invoice(nips["client"])
+    async with AsyncSessionLocal() as db:
+        db.add(
+            FinanceCounterparty(
+                id_type="nip",
+                id_value=nips["supplier"],
+                name="Dostawca Testowy",
+                street="ul. Testowa 1",
+                postal_code="00-001",
+                city="Warszawa",
+                country="PL",
+            )
+        )
+        await db.commit()
+    try:
+        mine = {nips["supplier"], nips["client"], nips["person"]}
+
+        def found(body):
+            return {
+                item["id_value"]: item
+                for item in body["items"]
+                if item["id_value"] in mine
+            }
+
+        listed = await client.get(f"{PARTIES}/pending", headers=accountant)
+        assert listed.status_code == 200, listed.text
+        rows = found(listed.json())
+        assert listed.json()["registered"] >= 0
+        assert rows[nips["supplier"]]["sources"] == ["kartoteka"]
+        assert rows[nips["supplier"]]["warnings"] == []
+        assert rows[nips["client"]]["sources"] == ["faktura sprzedaży"]
+        assert rows[nips["client"]]["ready"] is True
+        # Faktura osoby zespołu (Płace) nie wycieka do „samego” Modułu Finanse.
+        module_only = _headers(world["module_only"])
+        limited = found((await client.get(f"{PARTIES}/pending", headers=module_only)).json())
+        assert nips["person"] not in limited and nips["supplier"] in limited
+
+        as_admin = found((await client.get(f"{PARTIES}/pending", headers=admin)).json())
+        assert as_admin[nips["person"]]["sources"] == ["faktura kosztowa"]
+        assert as_admin[nips["person"]]["warnings"] == ["brak adresu"]
+
+        sheet = await client.get(f"{PARTIES}/pending/file", headers=accountant)
+        assert sheet.status_code == 200
+        assert sheet.headers["content-type"].startswith("text/csv")
+        assert "kontrahenci-do-symfonii-" in sheet.headers["content-disposition"]
+        text = sheet.content.decode("utf-8-sig")
+        assert nips["supplier"] in text and nips["client"] in text
+        assert nips["person"] in text  # finanse z Płacami widzą też faktury osób
+        limited_file = await client.get(f"{PARTIES}/pending/file", headers=module_only)
+        assert nips["person"] not in limited_file.content.decode("utf-8-sig")
+
+        # Księgowa odsyła kartkę z ID: założony kontrahent znika z listy, konta
+        # wynikają z ID, a kartoteka dostaje nabywcę ze sprzedaży.
+        lines = [line.split(";") for line in text.strip().split("\r\n")]
+        for line in lines[1:]:
+            if line[1] == nips["client"]:
+                line[7] = "9001"
+            if line[1] == nips["supplier"]:
+                line[7] = "9002"
+        filled = "\r\n".join(";".join(line) for line in lines)
+        files = {"file": ("kartka.csv", filled.encode("utf-8"), "text/csv")}
+        saved = await client.post(
+            f"{PARTIES}/import", params={"save": "true"}, files=files, headers=accountant
+        )
+        assert saved.status_code == 200, saved.text
+        assert (saved.json()["created"], saved.json()["changed"]) >= (1, 1)
+        after = found((await client.get(f"{PARTIES}/pending", headers=accountant)).json())
+        assert nips["client"] not in after and nips["supplier"] not in after
+        async with AsyncSessionLocal() as db:
+            created = await db.scalar(
+                select(FinanceCounterparty).where(
+                    FinanceCounterparty.id_value == nips["client"]
+                )
+            )
+        assert created is not None
+        assert (created.symfonia_partner_id, created.cost_account, created.revenue_account) == (
+            "9001",
+            "201-2-9001",
+            "200-2-9001",
+        )
+
+        denied = await client.get(
+            f"{PARTIES}/pending/file", headers=_headers(world["recruiter"])
+        )
+        assert denied.status_code == 403
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(ClientSalesInvoice).where(ClientSalesInvoice.id == invoice_id)
+            )
+            await db.commit()

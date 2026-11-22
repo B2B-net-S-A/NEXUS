@@ -51,8 +51,6 @@ _ALLOWED_OUTSIDE_API = {
     "nadzór i anulowanie przy zamknięciu",
     "app/services/order_mail_ingest.py": "`start_ingest_task` zwraca zadanie "
     "(trasa czeka na jego start) i trzyma je w `_bg_tasks`",
-    "app/services/experience_backfill.py": "`_TASKS` + rezerwacja `_IN_FLIGHT` "
-    "zwalniana, gdy pętli nie ma",
     "app/services/cv_approval_worker.py": "worker: heartbeat i zadania w "
     "słowniku `active`, awaitowane/anulowane w pętli",
     "app/services/cv_version_map_jobs.py": "worker: heartbeat i zadania w "

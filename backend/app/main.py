@@ -97,7 +97,6 @@ from app.api import emails
 from app.api import user_email_templates as user_email_templates_api
 from app.api import calls
 from app.api import reports
-from app.models.compass_workdays_sync_state import CompassWorkdaysSyncState
 from app.models.user_workday_period import UserWorkdayPeriod
 from app.models.insights_seniority_snapshot import InsightsSenioritySnapshot
 from app.models.user_performance_flag import UserPerformanceFlag
@@ -268,7 +267,6 @@ from app.api import ledger_reports as ledger_reports_api
 from app.api import ledger_vat as ledger_vat_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
-from app.api import care_atlas as care_atlas_api
 from app.api import care_skills as care_skills_api
 from app.api import care_announcements as care_announcements_api
 from app.api import public_consultant_mail as public_consultant_mail_api
@@ -377,7 +375,6 @@ from app.api import admin_chats as admin_chats_api
 from app.api import stage_notification_rules as stage_notification_rules_api
 from app.api import autenti as autenti_api
 from app.api import ai_settings as ai_settings_api
-from app.api import integrations_companies as integrations_companies_api
 from app.api import oauth_clients as oauth_clients_api
 from app.api import oauth_token as oauth_token_api
 from app.api import service_accounts as service_accounts_api
@@ -2472,9 +2469,6 @@ app.include_router(
     care_skills_api.router, prefix="/api/care", tags=["hr"], dependencies=_HR_PROGRAM
 )
 app.include_router(
-    care_atlas_api.router, prefix="/api/care", tags=["hr"], dependencies=_HR_PROGRAM
-)
-app.include_router(
     care_announcements_api.router,
     prefix="/api/care/announcements",
     tags=["hr"],
@@ -2789,11 +2783,6 @@ app.include_router(autenti_api.router, prefix="/api/autenti", tags=["autenti"])
 app.include_router(ai_settings_api.router, prefix="/api", tags=["ai-settings"])
 
 # OAuth2 client manager (Settings → API integration). Admin-only CRUD.
-app.include_router(
-    integrations_companies_api.router,
-    prefix="/api/integrations",
-    tags=["integrations"],
-)
 app.include_router(oauth_clients_api.router, prefix="/api", tags=["oauth-clients"])
 
 # OAuth2 token endpoint (client_credentials grant). Public — auth is via
@@ -4478,10 +4467,6 @@ async def api_health_deep_check(request: Request):
         # 0257: mianownik wskaznikow „na dzien" (D5). Prod alembic bywa
         # osierocony, wiec to jest jedyny realny dowod, ze tabela powstala.
         ("user_workday_periods", UserWorkdayPeriod),
-        # 0276: stan pętli dni roboczych z Compassa. Pętla zniknęła 22.11.2026
-        # razem z Compassem; tabela i lustro w entrypoincie zostają do
-        # osobnej migracji z DROP, więc sonda schematu zostaje z nimi.
-        ("compass_workdays_sync_state", CompassWorkdaysSyncState),
         # 0258/0259: plakietki ostrzeżeń i baner kampanii. Bez tych sond
         # zielony deploy nic nie mówi o tym, czy tabele powstały — a brak
         # którejkolwiek wywala CAŁĄ zakładkę Rekrutacja na UndefinedTable

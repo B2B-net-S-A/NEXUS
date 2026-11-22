@@ -750,3 +750,33 @@ async def test_unknown_or_archived_card_id_is_refused() -> None:
 
     with pytest.raises(merge.Refused, match="--company-ids"):
         await _dry(company_ids=(archived,))
+
+
+@pytest.mark.asyncio
+async def test_merge_chains_resolve_to_last_target_and_cycles_are_left_alone() -> None:
+    """``merged_into`` A→B→C daje A→C; cykl X↔Y zostaje bez przekierowania.
+
+    Przeniesione z testów importu z Atlasa (import usunięty 22.11.2026) —
+    funkcja służy dalej sygnałom Sprzedaży (``signal_targets``).
+    """
+    from app.services.sales.merge import company_merge_targets
+
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        made = [
+            SalesCompany(
+                name=f"Łańcuch {n} {tag}", normalized_name=f"lancuch {n} {tag}"
+            )
+            for n in range(5)
+        ]
+        db.add_all(made)
+        await db.flush()
+        a, b, c, x, y = (company.id for company in made)
+        for company, target in zip(made, (b, c, None, y, x)):
+            if target is not None:
+                company.custom_fields = {"merged_into": target}
+        await db.flush()
+        targets = await company_merge_targets(db)
+        await db.rollback()
+    assert (targets[a], targets[b]) == (c, c)
+    assert c not in targets and x not in targets and y not in targets

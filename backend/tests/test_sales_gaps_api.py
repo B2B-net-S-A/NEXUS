@@ -33,7 +33,7 @@ from app.models.sales import (
 )
 from app.models.user import User
 from app.services.sales import merge as company_merge
-from app.services.sales.atlas_import import ATLAS_REVIEW_TAG
+from app.services.sales.companies import ATLAS_REVIEW_TAG
 from app.services.sales.summary import period_range
 from tests.test_sales_companies_api import _headers, _user
 from tests.test_sales_opportunities_api import _company

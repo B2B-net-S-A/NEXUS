@@ -21,6 +21,11 @@ const OPTIONS = [
   { value: "new" as const, label: CV_LAYOUT_LABEL.new },
   { value: "classic" as const, label: CV_LAYOUT_LABEL.classic },
 ];
+// Wąska karta (ok. 250 px obok miniatury): krótsze etykiety, pełne w podpowiedzi.
+const COMPACT_OPTIONS = [
+  { value: "new" as const, label: "Nowe CV", title: "Nowe CV — PDF" },
+  { value: "classic" as const, label: "Klasyczne", title: "Klasyczne — szablon Word" },
+];
 
 export interface LayoutChoiceProps {
   value: CvLayout;
@@ -75,7 +80,7 @@ export function LayoutChoice({
             value={value}
             onChange={onChange}
             disabled={disabled || lockedAfterSend}
-            options={OPTIONS}
+            options={compact ? COMPACT_OPTIONS : OPTIONS}
           />
           {lockedAfterSend ? (
             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">

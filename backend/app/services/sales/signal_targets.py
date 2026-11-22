@@ -44,7 +44,7 @@ from app.models.sales import (
     SalesSignalRun,
 )
 from app.services.sales import client_gate, company_aliases, offers
-from app.services.sales.atlas_import import company_merge_targets
+from app.services.sales.merge import company_merge_targets
 from app.services.sales.factories import COMPANY_DO_NOT_CONTACT
 from app.services.sales.task_scope import live_opportunity
 from app.services.sales.touch import not_cancelled

@@ -29,6 +29,10 @@ from app.services.polish_ilike import polish_folded_ilike
 from app.services.sales.outlook_activities import COMPANY_DOMAIN_SQL
 
 #: Ile kart podpowiadamy przy wpisywaniu nazwy.
+#: Tag firm-osób z importu z Atlasa (import wygaszony 22.11.2026 razem z Atlasem).
+#: Filtr „Do przejrzenia” na liście firm dalej go czyta.
+ATLAS_REVIEW_TAG = "atlas: do przejrzenia"
+
 IDENTITY_MATCHES = 6
 _IDENTITY_MIN_CHARS = 2
 _DOMAIN = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}")

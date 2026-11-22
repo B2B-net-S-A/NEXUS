@@ -211,10 +211,14 @@ async def load_pending(db: AsyncSession) -> list[PendingProposal]:
 
 async def leave_data_known(db: AsyncSession) -> bool:
     """Czy urlopy z Compassa są włączone i świeże — bez tego panel nie może
-    twierdzić, że proponowana osoba jest dziś w pracy."""
+    twierdzić, że proponowana osoba jest dziś w pracy.
+
+    ``workforce_context`` odświeża przełącznik źródła, więc pyta się go przed
+    ``availability_enabled()`` — świeży proces ``web`` ma zimną pamięć."""
+    context = await workforce_context(db)
     if not availability_enabled():
         return False
-    return bool((await workforce_context(db)).fresh)
+    return bool(context.fresh)
 
 
 async def load_panel_safely(db: AsyncSession) -> tuple[list[PendingProposal], bool]:
