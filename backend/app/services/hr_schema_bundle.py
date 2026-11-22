@@ -194,7 +194,7 @@ MODULES = (
     back_office_team,
     # 0749: korekta zbiorcza rabatu od obrotu — kolumna i CHECK korekty (22.11.2026).
     client_invoice_collective_correction,
-    # 0751: kolejka odczytów CV wsadem (Message Batches API, 22.11.2026).
+    # 0750: kolejka odczytów CV wsadem (Message Batches API, 22.11.2026).
     cv_parse_batch,
 )
 

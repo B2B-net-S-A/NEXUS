@@ -1,7 +1,7 @@
 """Kolejka odczytów CV wsadem: tabela ``cv_parse_batch_items``.
 
-Revision ID: 0751_cv_parse_batch_items
-Revises: 0750_settlement_extra_sources
+Revision ID: 0750_cv_parse_batch_items
+Revises: 0749_rebate_collective_correction
 
 Decyzja Artura z 22.11.2026: CV wgrane przez integrację (scrapery pracuj.pl
 i JJIT) do istniejącego profilu czytamy przez Message Batches API, a nie na
@@ -14,8 +14,8 @@ from alembic import op
 
 from app.services import cv_parse_batch_schema as schema
 
-revision = "0751_cv_parse_batch_items"
-down_revision = "0750_settlement_extra_sources"
+revision = "0750_cv_parse_batch_items"
+down_revision = "0749_rebate_collective_correction"
 branch_labels = None
 depends_on = None
 

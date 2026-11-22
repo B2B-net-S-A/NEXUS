@@ -1,4 +1,4 @@
-"""Kolejka odczytów CV wsadem (0751, Message Batches API).
+"""Kolejka odczytów CV wsadem (0750, Message Batches API).
 
 CHECK i indeksy jak w ``app/services/cv_parse_batch_schema.py`` (strażnik dryfu
 schematu porównuje model z bazą po migracji).

@@ -1044,7 +1044,7 @@ async def lifespan(app: FastAPI):
             "linkedin_sync": asyncio.create_task(linkedin_sync_loop()),
             "microsoft365_sync": asyncio.create_task(microsoft365_sync_loop()),
             "m365_cv_parse": asyncio.create_task(m365_cv_parse_loop()),
-            # 0751: CV z integracji (scrapery) czytane wsadem — Message Batches
+            # 0750: CV z integracji (scrapery) czytane wsadem — Message Batches
             # API, odczyt na żywo przy błędzie albo po limicie czasu.
             "cv_parse_batch": asyncio.create_task(cv_parse_batch_loop()),
             "m365_rematch": asyncio.create_task(rematch_unlinked_emails_loop()),
@@ -4955,7 +4955,7 @@ async def api_health_deep_check(request: Request):
         ("law_change_probes", LawChangeProbe),
         # 0732: bot Cpro — biegi rutyny Grok Bota.
         ("cpro_bot_runs", CproBotRun),
-        # 0751: kolejka odczytów CV wsadem.
+        # 0750: kolejka odczytów CV wsadem.
         ("cv_parse_batch_items", CvParseBatchItem),
         # 0692: e-faktury Peppol do klientów.
         ("client_sales_invoice_einvoices", ClientSalesInvoiceEinvoice),
