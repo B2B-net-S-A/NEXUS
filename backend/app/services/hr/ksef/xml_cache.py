@@ -2,10 +2,10 @@
 
 Plik pobrany raz na żądanie zostaje pod ``storage_service.STORAGE_ROOT``
 (wolumen uploadów, jak PDF-y Płac w ``pdf_store``):
-``ksef_xml/<sha[:2]>/<numer KSeF>.xml``, gdzie ``sha`` to skrót numeru. Numer
+``ksef_xml/<sha[:2]>/<sha>.xml``, gdzie ``sha`` to SHA-256 numeru KSeF. Numer
 KSeF jest niezmienny i jednoznaczny, a treść faktury w KSeF się nie zmienia,
-więc wpis nie wygasa. Do zapisu trafia tylko numer o poprawnym formacie
-(``numbers.is_valid``) — ścieżka nie wychodzi poza katalog.
+więc wpis nie wygasa. Nazwa pliku to sam skrót — numer z bazy nie trafia do
+ścieżki, więc nie wyjdzie poza katalog niezależnie od formatu.
 """
 
 from __future__ import annotations
@@ -16,24 +16,19 @@ from pathlib import Path
 from typing import Optional
 
 from app.services import storage_service
-from app.services.hr.ksef import numbers
 
 SUBDIR = "ksef_xml"
 
 
 def _path(ksef_number: str) -> Path:
-    if not numbers.is_valid(ksef_number):
-        raise ValueError("zły numer KSeF")
-    digest = hashlib.sha256(ksef_number.encode("ascii")).hexdigest()
-    return (
-        Path(storage_service.STORAGE_ROOT) / SUBDIR / digest[:2] / f"{ksef_number}.xml"
-    )
+    digest = hashlib.sha256(ksef_number.encode("utf-8")).hexdigest()
+    return Path(storage_service.STORAGE_ROOT) / SUBDIR / digest[:2] / f"{digest}.xml"
 
 
 def load(ksef_number: str) -> Optional[bytes]:
     try:
         return _path(ksef_number).read_bytes()
-    except (OSError, ValueError):
+    except OSError:
         return None
 
 

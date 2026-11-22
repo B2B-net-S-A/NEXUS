@@ -753,7 +753,7 @@
       {"id": "finance.export", "label": "Eksport do Excela", "describe": "Eksport bieżącej podzakładki z filtrami."},
       {"id": "finance.md_import", "label": "Import zużycia MD", "describe": "Wgranie miesięcznego raportu MD."},
       {"id": "finance.approved-expenses", "label": "Wydatki ze zgodą", "describe": "Kafle miesiąca, Do rozliczenia, Subskrypcje, Faktury bez zgody i suma miesiąca według rodzaju."},
-      {"id": "finance.costs", "label": "Koszty", "describe": "Faktury kosztowe po etapach: Z KSeF do przyjęcia, Do opisu, Zweryfikowane, Gotowe do księgowania; akcje dla zaznaczonych, na karcie dekret do Symfonii FK."}
+      {"id": "finance.costs", "label": "Koszty", "describe": "Faktury kosztowe po etapach (Z KSeF do przyjęcia → Gotowe do księgowania), akcje dla zaznaczonych, na karcie dekret do Symfonii FK; ikona przy numerze otwiera „Podgląd PDF” faktury."}
     ],
     "help_slug": null,
     "sources": [
