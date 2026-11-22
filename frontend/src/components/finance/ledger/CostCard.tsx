@@ -36,6 +36,8 @@ import {
   CATEGORY_ORDER,
   FLAG_LABELS,
   FLAG_ORDER,
+  buttonBlock,
+  checkTone,
   stageButtons,
   type StageButton,
 } from "./ledger-model";
@@ -108,13 +110,69 @@ function historyText(item: CostCardData["history"][number]): string {
   }
   if (item.action === "category") {
     const to = item.detail.to as CostCategory | undefined;
-    return `Kategoria: ${to ? CATEGORY_LABELS[to] : "—"}`;
+    const label = `Kategoria: ${to ? CATEGORY_LABELS[to] : "—"}`;
+    return item.detail.folder ? `${label} (folder eBI24 „${item.detail.folder}”)` : label;
   }
   if (item.action === "due_date") {
     const to = item.detail.to as string | null | undefined;
     return `Termin płatności: ${to ? formatIsoDatePl(to) : "usunięty"}`;
   }
   return item.action_label;
+}
+
+/**
+ * Faktura kontraktora a rozliczenie jego miesiąca: te same kontrole co karta
+ * osoby w „Rozliczeniach” klienta (kwota z RCP, korekty, NIP nabywcy, biała
+ * lista, termin) i bramka zapłaty. Podstawa wstępnej weryfikacji.
+ */
+function SettlementPanel({ card }: { card: CostCardData }) {
+  const match = card.settlement;
+  if (!match) return null;
+  const checks = [...(match.checks ?? []), ...(match.payment ? [match.payment] : [])];
+  return (
+    <Panel title={match.month ? `Rozliczenie miesiąca ${match.month}` : "Rozliczenie miesiąca"}>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <Badge variant={checkTone(match.tone)}>{match.label}</Badge>
+        {match.rcp ? <span className="text-muted-foreground">{match.rcp}</span> : null}
+        {match.amount_cost ? (
+          <span className="text-muted-foreground">
+            · wyliczenie z RCP {formatMoney(match.amount_cost, "PLN")} netto
+          </span>
+        ) : null}
+      </div>
+      {checks.length > 0 ? (
+        <ul className="space-y-1 text-sm">
+          {checks.map((check, index) => (
+            <li key={`${check.title}-${index}`} className="flex items-start gap-2">
+              <Badge size="sm" variant={checkTone(check.state)} className="mt-0.5 shrink-0">
+                {check.state === "ok"
+                  ? "OK"
+                  : check.state === "fail"
+                    ? "Błąd"
+                    : check.state === "warn"
+                      ? "Uwaga"
+                      : "Info"}
+              </Badge>
+              <span className="min-w-0">
+                {check.title}
+                {check.detail ? (
+                  <span className="block text-xs text-muted-foreground">{check.detail}</span>
+                ) : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {match.client_id ? (
+        <Link
+          href={`/clients/${match.client_id}?tab=faktury`}
+          className="text-sm text-primary hover:underline"
+        >
+          Faktury i rozliczenie klienta
+        </Link>
+      ) : null}
+    </Panel>
+  );
 }
 
 /** Flagi płatności nie zmieniają dekretu — wolno je i po zaksięgowaniu (E3). */
@@ -299,6 +357,7 @@ export function CostCard({ id }: { id: number }) {
         </h1>
         <Badge variant={data.from_ksef ? "info" : "outline"}>{data.from_ksef ? "KSeF" : "PDF"}</Badge>
         <Badge variant="soft">{data.stage_label}</Badge>
+        <Badge variant="outline">Dziennik: {data.journal_label}</Badge>
         <span className="ml-auto self-center">
           <CostPdfButton entryId={data.id} invoiceNumber={data.invoice_number} />
         </span>
@@ -340,6 +399,7 @@ export function CostCard({ id }: { id: number }) {
               <Concerning row={data} />
             </div>
           </Panel>
+          <SettlementPanel card={data} />
           <Panel title="Kontrahent w kartotece">
             {data.counterparty_id ? (
               <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
@@ -367,18 +427,22 @@ export function CostCard({ id }: { id: number }) {
           <CostPaymentPanel entryId={data.id} readOnly={impersonating} />
           {!data.own && !impersonating && stageButtons(data.stage, data.from_ksef).length > 0 ? (
             <div className="flex flex-wrap justify-end gap-2">
-              {stageButtons(data.stage, data.from_ksef).map((button) => (
-                <Button
-                  key={button.action}
-                  size="sm"
-                  variant={button.primary ? "primary" : "outline"}
-                  disabled={action.isPending}
-                  loading={action.isPending && action.variables?.action === button.action}
-                  onClick={() => void run(button)}
-                >
-                  {button.label}
-                </Button>
-              ))}
+              {stageButtons(data.stage, data.from_ksef).map((button) => {
+                const blocked = buttonBlock(button, data.stage, data.can);
+                return (
+                  <Button
+                    key={button.action}
+                    size="sm"
+                    variant={button.primary ? "primary" : "outline"}
+                    disabled={action.isPending || blocked !== null}
+                    title={blocked ?? undefined}
+                    loading={action.isPending && action.variables?.action === button.action}
+                    onClick={() => void run(button)}
+                  >
+                    {button.label}
+                  </Button>
+                );
+              })}
             </div>
           ) : null}
           <Panel title="Historia">

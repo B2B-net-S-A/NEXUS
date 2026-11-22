@@ -15,7 +15,8 @@ zespołu (D2) widzą tylko Płace i admin — także w dekrecie, eksporcie i pac
   „5”, samochód, import usług, JPK, kurs) wg arkusza księgowej z 18.11.2026,
   ``GET /choice-lists`` — listy wyboru do opisu (konta z planu i listy stałe),
 * ``GET /export?month=`` — lista miesiąca per rejestr z kontrolą (M3),
-* ``GET /batches?month=``, ``POST /batches`` (paczka + plik),
+* ``GET /batches?month=``, ``POST /batches`` (paczka + plik; ``journal`` =
+  paczka jednego dziennika),
   ``GET /batches/{id}/file`` (ten sam plik przy każdym pobraniu),
   ``POST /batches/{id}/book`` („Oznacz jako zaksięgowane”),
   ``POST /batches/{id}/cancel`` („Anuluj paczkę”).
@@ -36,6 +37,7 @@ from app.api.section_access import FINANCE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.http_headers import content_disposition
 from app.models.user import User
+from app.services.finance_ledger import approvers as cost_approvers
 from app.services.finance_ledger import costs, posting, posting_export, posting_setup
 from app.services.finance_ledger.export_formats import DEFAULT_FORMAT, FORMATS
 from app.services.finance_posting_schema import (
@@ -138,6 +140,8 @@ class DescriptionIn(BaseModel):
 class BatchIn(BaseModel):
     month: str = Field(pattern=MONTH_PATTERN)
     format: FileFormat = DEFAULT_FORMAT
+    #: Paczka jednego dziennika (Kontraktorzy, Zakupy pozostałe, Biuro).
+    journal: Optional[Literal["contractors", "purchases", "office"]] = None
 
 
 def _fail(exc: costs.LedgerError) -> HTTPException:
@@ -270,7 +274,13 @@ async def update_rule(
 
 
 async def _card(db: AsyncSession, entry_id: int, user: User) -> dict[str, Any]:
-    return await costs.card(db, entry_id, viewer_id=user.id, payroll=is_payroll(user))
+    return await costs.card(
+        db,
+        entry_id,
+        viewer_id=user.id,
+        payroll=is_payroll(user),
+        approvers=await cost_approvers.load(db, user),
+    )
 
 
 @router.post("/entries/{entry_id}/recalculate")
@@ -394,6 +404,7 @@ async def create_batch(
             actor_id=current_user.id,
             now=_now(),
             payroll=is_payroll(current_user),
+            journal=body.journal,
         )
         payload = await posting_export.batch_payload(db, batch)
         payload["skipped"] = skipped

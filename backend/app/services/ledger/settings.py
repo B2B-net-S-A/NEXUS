@@ -44,6 +44,12 @@ wskazuje księgowa na problemie w „Źródłach”: kontrahent → konto przych
 którego reguła ``revenue.pick`` używa, gdy nabywca nie ma ani dekretu
 w archiwum eBI24, ani zatwierdzonej FVS. To nie jest ``revenue_account``
 kontrahenta z kartoteki — tamto to konto rozrachunkowe z eBI24.
+
+Lista „Weryfikujący kontraktorów” (``cost_verifiers``, 22.11.2026, prośba
+księgowej z 18.11.2026): osoby, które robią w kolejce „Koszty” wstępną
+weryfikację faktur z dziennika „Kontraktorzy” (krok „Zweryfikowane”).
+„Gotowa do księgowania” robią tylko „Księgowi” (``can_approve``). Ustawia
+administrator, jak „Księgowych”; nazwisk nie ma w kodzie.
 """
 
 from __future__ import annotations
@@ -109,6 +115,7 @@ BUILT: frozenset[str] = frozenset(
 )
 MODULE_DISABLED_DETAIL = "Moduł Księgowości jest wyłączony."
 ACCOUNTANTS_MAX = 20
+COST_VERIFIERS_LABEL = "Weryfikujący kontraktorów"
 
 
 #: Konta sprzedaży: klucz → (domyślne konto, etykieta w komunikatach). Puste
@@ -403,6 +410,8 @@ class BankSettings:
 class LedgerSettings:
     modules: dict[str, bool]
     accountants: tuple[int, ...]
+    #: Wstępna weryfikacja faktur kontraktorów w kolejce „Koszty”.
+    cost_verifiers: tuple[int, ...] = ()
     sales: SalesAccounts = field(default_factory=SalesAccounts)
     allocation: AllocationAccounts = field(default_factory=AllocationAccounts)
     payroll: PayrollAccounts = field(default_factory=PayrollAccounts)
@@ -575,25 +584,26 @@ def _bank(raw: object) -> BankSettings:
     )
 
 
-def normalize(raw: object) -> LedgerSettings:
-    data = raw if isinstance(raw, dict) else {}
-    modules_raw = data.get("modules") if isinstance(data.get("modules"), dict) else {}
-    modules = {key: modules_raw.get(key) is True and key in BUILT for key in MODULES}
-    accountants_raw = data.get("accountants")
-    accountants = tuple(
+def _user_ids(raw: object) -> tuple[int, ...]:
+    return tuple(
         sorted(
             {
                 item
-                for item in (
-                    accountants_raw if isinstance(accountants_raw, list) else []
-                )
+                for item in (raw if isinstance(raw, list) else [])
                 if isinstance(item, int) and not isinstance(item, bool) and item > 0
             }
         )
     )
+
+
+def normalize(raw: object) -> LedgerSettings:
+    data = raw if isinstance(raw, dict) else {}
+    modules_raw = data.get("modules") if isinstance(data.get("modules"), dict) else {}
+    modules = {key: modules_raw.get(key) is True and key in BUILT for key in MODULES}
     return LedgerSettings(
         modules=modules,
-        accountants=accountants,
+        accountants=_user_ids(data.get("accountants")),
+        cost_verifiers=_user_ids(data.get("cost_verifiers")),
         sales=_sales(data.get("sales")),
         allocation=_allocation(data.get("allocation")),
         payroll=_payroll(data.get("payroll")),
@@ -611,6 +621,7 @@ def to_json(settings: LedgerSettings) -> dict[str, Any]:
     return {
         "modules": dict(settings.modules),
         "accountants": list(settings.accountants),
+        "cost_verifiers": list(settings.cost_verifiers),
         "sales": {
             "receivable_account": settings.sales.receivable_account,
             "revenue_account": settings.sales.revenue_account,
@@ -684,6 +695,13 @@ def can_approve(user: User, settings: LedgerSettings) -> bool:
     return is_admin(user) or user.id in settings.accountants
 
 
+def can_verify_contractors(user: User, settings: LedgerSettings) -> bool:
+    """Wstępna weryfikacja faktur kontraktorów: admin, „Księgowi” albo lista
+    „Weryfikujący kontraktorów”."""
+
+    return can_approve(user, settings) or user.id in settings.cost_verifiers
+
+
 async def _save(db: AsyncSession, settings: LedgerSettings, *, actor: User) -> None:
     value = to_json(settings)
     statement = insert(AppSetting).values(
@@ -716,15 +734,15 @@ async def set_module(
     return settings
 
 
-async def set_accountants(
-    db: AsyncSession, user_ids: list[int], *, actor: User
-) -> LedgerSettings:
-    """Lista „Księgowi” (bez commita): aktywne konta z „Modułem Finanse”."""
+async def _finance_people(
+    db: AsyncSession, user_ids: list[int], *, label: str
+) -> list[int]:
+    """Lista osób (``label`` w komunikatach): aktywne konta z „Modułem Finanse”."""
 
     unique = sorted(set(user_ids))
     if len(unique) > ACCOUNTANTS_MAX:
         raise LedgerError(
-            f"Lista „Księgowi” ma najwyżej {ACCOUNTANTS_MAX} osób.", status=422
+            f"Lista „{label}” ma najwyżej {ACCOUNTANTS_MAX} osób.", status=422
         )
     users = list(
         (await db.scalars(select(User).where(User.id.in_(unique or [0])))).all()
@@ -736,7 +754,7 @@ async def set_accountants(
         user = found.get(user_id)
         if user is None or not user.is_active:
             raise LedgerError(
-                "Na liście „Księgowi” może być tylko aktywne konto.", status=422
+                f"Na liście „{label}” może być tylko aktywne konto.", status=422
             )
         if not (is_admin(user) or has_permission(user, ProductAction.finance_module)):
             raise LedgerError(
@@ -744,8 +762,29 @@ async def set_accountants(
                 "uprawnienie w „Osoby i role”.",
                 status=422,
             )
+    return unique
+
+
+async def set_accountants(
+    db: AsyncSession, user_ids: list[int], *, actor: User
+) -> LedgerSettings:
+    """Lista „Księgowi” (bez commita): aktywne konta z „Modułem Finanse”."""
+
+    unique = await _finance_people(db, user_ids, label="Księgowi")
     current = await load(db)
     settings = replace(current, accountants=tuple(unique))
+    await _save(db, settings, actor=actor)
+    return settings
+
+
+async def set_cost_verifiers(
+    db: AsyncSession, user_ids: list[int], *, actor: User
+) -> LedgerSettings:
+    """Lista „Weryfikujący kontraktorów” (bez commita), zasady jak „Księgowi”."""
+
+    unique = await _finance_people(db, user_ids, label=COST_VERIFIERS_LABEL)
+    current = await load(db)
+    settings = replace(current, cost_verifiers=tuple(unique))
     await _save(db, settings, actor=actor)
     return settings
 

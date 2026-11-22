@@ -7,7 +7,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
-import type { CostCard, CostCategory } from "@/lib/api/finance-ledger";
+import type { CostCard, CostCategory, CostJournal } from "@/lib/api/finance-ledger";
 import { ledgerKeys } from "@/lib/api/finance-ledger";
 import { fetchAuthenticatedDownload, downloadBlob } from "@/lib/authenticated-files";
 
@@ -208,6 +208,9 @@ export interface ExportEntry {
   doc_type: string | null;
   description: string | null;
   manual: boolean;
+  /** Dziennik jak w eBI24 (z kategorii wpisu). */
+  journal?: CostJournal;
+  journal_label?: string;
   /** Bez wady dekretu — pójdzie do pliku. */
   exportable: boolean;
   debit_total: string;
@@ -253,6 +256,15 @@ export interface PostingBatch {
   cancelled_by: string | null;
 }
 
+export interface ExportJournal {
+  journal: CostJournal;
+  label: string;
+  count: number;
+  exportable: number;
+  debit_total: string;
+  credit_total: string;
+}
+
 export interface ExportPreview {
   month: string;
   registers: ExportRegister[];
@@ -261,6 +273,8 @@ export interface ExportPreview {
   /** Faktury z wadą — „Pobierz plik” je pomija, zostają „Gotowe”. */
   skipped: SkippedEntry[];
   can_export: boolean;
+  /** Dzienniki miesiąca: gotowe, ile pójdzie do pliku, sumy. */
+  journals?: ExportJournal[];
   formats: { key: string; label: string; extension: string }[];
   default_format: string;
   batches: PostingBatch[];
@@ -417,7 +431,7 @@ function useBatchInvalidate() {
 export function useBatchCreate() {
   const invalidate = useBatchInvalidate();
   return useMutation({
-    mutationFn: async (body: { month: string; format: string }) =>
+    mutationFn: async (body: { month: string; format: string; journal?: CostJournal | null }) =>
       (await api.post<PostingBatch & { skipped: SkippedEntry[] }>(`${POSTING}/batches`, body)).data,
     onSettled: invalidate,
   });
