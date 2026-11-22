@@ -4297,6 +4297,48 @@
     ]
   },
   {
+    "id": "podpis-dokumenty-kodem-z-maila",
+    "pr": 3727,
+    "title": "Dokumenty do startu: kwalifikowany tylko przy umowie",
+    "why": "Podpis kwalifikowany jest potrzebny tylko przy umowie. NDA i inne dokumenty kontraktor podpisze tym samym podpisem albo zaakceptuje kodem z maila. Gdy klient wymaga kwalifikowanego przy dokumencie, zaznacz to w oknie wysyłki.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "talent_community_manager",
+        "admin",
+        "finance",
+        "back_office"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → Umowa → Wyślij do podpisu (też Generator umów)",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990115",
+    "section": "pipeline",
+    "dot_anchor": "b2b.esign.package",
+    "steps": [
+      {
+        "anchor": "person.dock.contract",
+        "text": "W panelu osoby kliknij „Umowa →”.",
+        "hint": "Otworzy się zakładka „Umowa” z umową tej osoby."
+      },
+      {
+        "anchor": "b2b.esign.send",
+        "text": "Kliknij „Wyślij do podpisu”.",
+        "hint": "Okno niczego nie wyśle, dopóki nie zaznaczysz potwierdzenia i nie klikniesz „Wyślij”."
+      },
+      {
+        "anchor": "b2b.esign.package",
+        "text": "Przy każdym dokumencie widać, jaki podpis jest potrzebny.",
+        "hint": "Umowa zawsze kwalifikowanym. NDA i inne dokumenty kontraktor podpisze tym samym podpisem albo zaakceptuje kodem z maila. Zaznacz „klient wymaga kwalifikowanego”, gdy klient tego chce.",
+        "ack": true
+      }
+    ]
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",
