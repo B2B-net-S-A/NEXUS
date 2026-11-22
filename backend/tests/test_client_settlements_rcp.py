@@ -455,3 +455,151 @@ def test_xlsx_miesiac_z_daty_jako_tekst():
     rows[1][2] = "30/09/2026"
     p = parse_xlsx_rows(rows)
     assert p is not None and p.month == "2026-09"
+
+
+# ── Warianty szablonu i odstępstwa z poczty BNP (próba IX–X 2026) ────────────
+
+
+def test_pdf_nowy_tytul_wykaz_godzin_ten_sam_uklad():
+    """BNP od IX 2026 drukuje „Wykaz godzin w ramach zleconych usług” zamiast
+    „Rozliczenie czasu pracy”, reszta układu bez zmian. NEXUS nie rozpoznawał
+    szablonu i 16 RCP czekało bez MD."""
+
+    text = PDF_TEXT.replace(
+        "Rozliczenie czasu pracy", "Wykaz godzin w ramach zleconych usług", 1
+    )
+    p = parse_pdf_text(text)
+    assert p is not None and p.month == "2026-10"
+    assert p.md_regular == D("17") and p.md_extra == D("4.75")
+
+
+EN_WEEK = "8,0 8,0 8,0 8,0 0,0 0,0 8,0 8,0 8,0 8,0 8,0 0,0 0,0 8,0 8,0 8,0 0,0 8,0 0,0 0,0 8,0 8,0 8,0 8,0 8,0 0,0 0,0 8,0 8,0 0,0 0,0"
+
+EN_PDF = f"""Rozliczenie czasu pracy
+Month 2026-09-30 Number of working days 20,0
+Check OK
+Client company B2B Network
+Last name Testowa
+First name Anna
+Role Konsultant
+Order number ZAM_1_2026
+1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 1 Total MD's
+Working days hours {EN_WEEK} 160,0 20,00
+Saturday hours 0,0 0,0
+Sunday hours 0,0 0,0
+RAZEM {EN_WEEK} 160,0 20,00
+Koszty Delegacji 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 1 Total
+RAZEM 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+WORK SUMMARY
+Work Description* MDs No PRODUCT ID Delegacja (koszty
+Prace utrzymaniowe w produkcie 20,0000 NTO
+Przykładowy opis prac np.: testy, zarządzanie,
+administrowanie 0,0000 np. EBM
+Delegacja 0,0000 ID produktu (np. OER) 0
+Nadgodziny w tygodniu 0,0000 ID produktu (np. OER)
+Total 20,0000
+Przełożony
+"""
+
+
+def test_pdf_angielska_wersja_szablonu():
+    """Wersja angielska: Month, Last/First name, Working days hours, RAZEM,
+    WORK SUMMARY, Total. Tytuł pasował, etykiety nie: 2 RCP bez MD."""
+
+    p = parse_pdf_text(EN_PDF)
+    assert p is not None
+    assert p.month == "2026-09"
+    assert (p.first_name, p.last_name) == ("Anna", "Testowa")
+    assert p.order_number == "ZAM_1_2026"
+    assert p.total_hours == D("160.0") and p.declared_md == D("20.00")
+    assert p.summary_total == D("20.0000")
+    assert p.md_regular == D("20") and p.md_extra == D("0")
+    assert [r.product for r in p.summary] == ["NTO"]
+    r = _eval(p, month="2026-09")
+    assert r.md_regular == D("20") and not r.blocking
+
+
+@pytest.mark.parametrize(
+    ("raw", "month"),
+    [("wrzesień 2026", "2026-09"), ("Październik 2026", "2026-10")],
+)
+def test_pdf_miesiac_slownie(raw, month):
+    """„Rozliczenie wrzesień 2026”: miesiąc wpisany słownie blokował rozliczenie
+    („RCP za inny miesiąc — brak pola Rozliczenie”) przy MD zgodnych z fakturą."""
+
+    p = parse_pdf_text(PDF_TEXT.replace("Rozliczenie 2026-10-01", f"Rozliczenie {raw}"))
+    assert p is not None and p.month == month
+
+
+DELEGATION_PDF = PDF_TEXT.replace(
+    """Prace DevOps 17,0000 ORD SX01929
+Przykładowy opis prac np.: testy, zarządzanie,
+Wyjazd służbowy 0,0000
+Godziny dodatkowe w tygodniu 2,7500 ORD SX01929
+Godziny dodatkowe w sobotę 1,0000 ORD SX01929
+Godziny dodatkowe w niedzielę 1,0000 ORD SX01929
+SUMA: 21,7500""",
+    """Przykładowy opis prac np.: development 21,7500 GCL SX05942 - Phoenix
+Delegacja 718,00
+SUMA: 21,7500""",
+)
+
+
+def test_pdf_wiersz_z_ogonem_i_kwota_delegacji():
+    """Wiersz pracy z ogonem po kodzie CMDB wypadał z odczytu, a kwota delegacji
+    „Delegacja 718,00” wchodziła jako MD: 718 MD zamiast 22 przy statusie „ok”."""
+
+    p = parse_pdf_text(DELEGATION_PDF)
+    assert p is not None
+    assert p.md_regular == D("21.75")
+    assert [(r.product, r.cmdb) for r in p.summary if not r.is_travel] == [
+        ("GCL", "SX05942")
+    ]
+    assert any(r.is_travel and r.md == D("718.00") for r in p.summary)
+    r = _eval(p)
+    assert r.md_regular == D("21.75")
+
+
+def test_pdf_liczba_w_opisie_to_nie_md():
+    text = PDF_TEXT.replace("Prace DevOps 17,0000", "Release 2.5 wdrożenie 17,0000")
+    p = parse_pdf_text(text)
+    assert p is not None and p.md_regular == D("17")
+    assert p.summary[0].label == "Release 2.5 wdrożenie"
+
+
+def test_wiersze_niesumujace_sie_do_sumy_biora_sume_i_ostrzegaja():
+    """Nachodzące napisy w PDF: z wierszy 15 MD, „SUMA: 22”, godziny 176. NEXUS
+    brał 15 MD bez uwagi. Teraz MD z SUMA i uwaga do sprawdzenia podziału."""
+
+    text = PDF_TEXT.replace(
+        "Prace DevOps 17,0000 ORD SX01929", "Prace DevOps 10,0000 ORD SX01929"
+    )
+    p = parse_pdf_text(text)
+    assert p is not None and p.md_regular + p.md_extra == D("14.75")
+    r = _eval(p)
+    assert r.md_regular == D("21.7500") and not r.md_extra
+    assert _states(r)["Wiersze opisu prac nie sumują się do SUMA"] == "warn"
+    assert r.warn
+
+
+def test_xlsx_nowy_tytul_i_angielskie_etykiety():
+    rows = _sheet([[None, "Prace", 7, None, None, "ORD", None, "SX1"]])
+    rows[0][2] = "Wykaz godzin w ramach zleconych usług"
+    p = parse_xlsx_rows(rows)
+    assert p is not None and p.md_regular == D("7")
+
+    en = _sheet([[None, "Prace", 7, None, None, "ORD", None, "SX1"]])
+    en[1][1] = "Month"
+    en[2][1] = "Last name"
+    en[3][1] = "First name"
+    en[4][1] = "Order number"
+    en[6][1] = "Working days hours"
+    en[7][1] = "RAZEM"
+    en[10] = [None, "Work Description*", "MDs No", None, None, "PRODUCT ID", None, None]
+    en[-1] = [None, "Total", 7]
+    p = parse_xlsx_rows(en)
+    assert p is not None
+    assert p.month == "2026-10" and (p.first_name, p.last_name) == ("Anna", "Testowa")
+    assert p.total_hours == D("56") and p.declared_md == D("7")
+    assert p.md_regular == D("7") and p.summary_total == D("7")
+    assert [r.product for r in p.summary] == ["ORD"]

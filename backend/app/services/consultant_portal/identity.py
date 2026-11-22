@@ -134,6 +134,17 @@ def _company_domains() -> frozenset[str]:
     )
 
 
+def _personal_domains() -> frozenset[str]:
+    """Domeny skrzynek od klienta (``imie.nazwisko@external.bnpparibas.pl``)."""
+
+    from app.core.config import settings
+
+    raw = settings.CONSULTANT_PORTAL_PERSONAL_DOMAINS or ""
+    return frozenset(
+        part.strip().lower().lstrip("@") for part in raw.split(",") if part.strip()
+    )
+
+
 def is_company_address(address: str) -> bool:
     return normalize_email(address).rpartition("@")[2] in _company_domains()
 
@@ -165,10 +176,12 @@ async def _by_company_address(
     firmowych (próba IX–XI 2026: bez tego 14% dokumentów z nadawcą). Konto
     NEXUSA pod tym adresem = pracownik przesyła cudze pliki, więc nikt. Dwie
     osoby o tej samej formie adresu = nikt (karta do ręcznego przypisania).
+    Tak samo skrzynka od klienta (``CONSULTANT_PORTAL_PERSONAL_DOMAINS``):
+    BNP zakłada konsultantom ``imie.nazwisko@external.bnpparibas.pl``.
     """
 
     local, _, domain = address.partition("@")
-    if not local or domain not in _company_domains():
+    if not local or domain not in (_company_domains() | _personal_domains()):
         return []
     staff = await db.scalar(
         select(User.id).where(func.lower(func.btrim(User.email)) == address).limit(1)
