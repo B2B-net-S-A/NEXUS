@@ -66,6 +66,13 @@ describe("groupScopes — grupy uprawnień na ekranie", () => {
     expect(groups[1].scopes).toEqual([{ value: "invoices:read", label: "invoices:read" }]);
   });
 
+  it("zakresy Compassa (22.11.2026) nie są w „Operacyjnych”; u wyłączonego konta lądują w „Inne”", () => {
+    const groups = groupScopes(["traffit:read", "contractors:read", "people_roster:read"], CATALOG);
+    expect(groups.map((g) => g.title)).toEqual(["Operacyjne", "Inne"]);
+    expect(groups[0].scopes.map((s) => s.value)).toEqual(["traffit:read"]);
+    expect(groups[1].scopes.map((s) => s.value)).toEqual(["contractors:read", "people_roster:read"]);
+  });
+
   it("„Kwoty”: najpierw kwoty sprzedaży, potem wszystkie kwoty — niezależnie od kolejności w koncie", () => {
     const groups = groupScopes(["amounts:read", "sales_amounts:read"], CATALOG);
     expect(groups.map((g) => g.title)).toEqual(["Kwoty"]);

@@ -1035,9 +1035,3 @@ def require_service_scope_any():
 TraffitReadCaller = Annotated[
     Caller, Depends(require_service_scope(ServiceScope.traffit_read))
 ]
-PeopleRosterReadCaller = Annotated[
-    Caller, Depends(require_service_scope(ServiceScope.people_roster_read))
-]
-ContractorsReadCaller = Annotated[
-    Caller, Depends(require_service_scope(ServiceScope.contractors_read))
-]

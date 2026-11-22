@@ -33,7 +33,7 @@ mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
   „Menedżera u klienta”.
 - Wyłączony program: pętle `hr_loops` nie startują, dostępność nie przechodzi na
   urlopy NEXUSA, kategoria i mail „Czas i ludzie” znikają z ustawień powiadomień,
-  zakresy kluczy API `people_roster:read`, `absences:read`, `equipment:read`
+  zakresy kluczy API `absences:read`, `equipment:read`
   znikają z pickera.
 - Testy backendu działają przy włączonym programie (autouse w `conftest.py`),
   stos E2E też (`docker-compose.e2e.yml`).

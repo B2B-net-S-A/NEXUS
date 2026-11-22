@@ -14,6 +14,11 @@ Co zniknęło z NEXUSA 22.11.2026:
 - zakładanie klucza konta serwisowego przy starcie
   (`COMPASS_INTEGRATION_BOOTSTRAP_KEY`, `compass_service_account_bootstrap.py`)
   razem z nagrobkiem `app_settings['service_account_retired_key_ids']`;
+- zakresy kluczy API `contractors:read` i `people_roster:read` (enum
+  `ServiceScope`, etykiety, picker w Ustawieniach → API). Konto
+  `compass-integration` wyłączone (`is_active=false`, decyzja Artura
+  22.11.2026); w bazie ma `contractors:read` jako napis, ekran pokazuje go
+  w grupie „Inne”. Strażnik: `tests/test_compass_scopes_retired_guard.py`;
 - pętle `compass_lifecycle_sync` i `compass_workdays_sync`, serwis
   `compass_lifecycle.py`, pobieranie dni roboczych z Compassa
   w `insights_workdays.py`, sondy `checks.compass_lifecycle`
@@ -25,8 +30,6 @@ Co zniknęło z NEXUSA 22.11.2026:
 
 Co zostało i dlaczego:
 
-- zakresy `contractors:read` i `people_roster:read` w `ServiceScope` — mogą je
-  mieć klucze w bazie; nic już nie otwierają (etykieta „wyłączony 22.11.2026”);
 - tabela `compass_workdays_sync_state` z modelem, lustrem w `entrypoint.sh`
   i sondą schematu — do osobnej migracji z `DROP TABLE`;
 - import paczki z Compassa (`scripts/hr_compass_import.py`, ekran „Import
