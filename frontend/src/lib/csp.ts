@@ -1,18 +1,22 @@
 /**
- * Pełna polityka CSP frontu w trybie Report-Only, z nonce per żądanie.
+ * Pełna polityka CSP frontu, egzekwowana, z nonce per żądanie.
  *
- * SEC-01b (audyt 22.09 r2) egzekwuje minimum (`next.config.ts`), a pełną
- * politykę wysyła jako Report-Only do Sentry — zaostrzenie egzekwowanej
- * dopiero po przejrzeniu raportów. Od 11.2026 `script-src` nie ma
+ * SEC-01b (audyt 22.09 r2) egzekwował minimum (`next.config.ts`), a pełną
+ * politykę wysyłał jako Report-Only do Sentry. Od 11.2026 `script-src` nie ma
  * `'unsafe-inline'`: skrypty inline Next.js i bootstrap motywu z
  * `app/layout.tsx` dostają nonce, który generuje `src/middleware.ts`
  * (Next 15 czyta go z nagłówka żądania i dokleja do swoich `<script>`).
  * `'strict-dynamic'` przepuszcza chunki ładowane przez skrypty z nonce.
+ * Po tygodniu w Report-Only (15–22.11.2026) polityka jest egzekwowana;
+ * `report-uri` zostaje, więc każda zablokowana rzecz ląduje w Sentry.
  *
- * Beacon Cloudflare Web Analytics wstrzykuje proxy bez nonce — przy
- * `'strict-dynamic'` lista hostów jest ignorowana, więc będzie raportowany.
- * Zostaje w polityce dla przeglądarek bez CSP3. Decyzja o nim przed
- * przeniesieniem `script-src` do polityki egzekwowanej.
+ * Beacon Cloudflare Web Analytics wstrzykiwało proxy bez nonce — Artur
+ * wyłączył Web Analytics (14.11), host zostaje dla przeglądarek bez CSP3
+ * (przy `'strict-dynamic'` lista hostów jest ignorowana).
+ *
+ * Worker pdf.js (`_next/static`) nie dostaje tej polityki — `matcher`
+ * middleware pomija pliki statyczne — więc jego WebAssembly nie potrzebuje
+ * `'wasm-unsafe-eval'` (NEXUS-FE-6C, #3277).
  *
  * JSON-LD (`type="application/ld+json"` na `/kariera/r/[slug]`) to blok
  * danych, nie skrypt — CSP go nie dotyczy.
@@ -56,7 +60,7 @@ export function createNonce(): string {
   return btoa(String.fromCharCode(...bytes));
 }
 
-export function buildReportOnlyCsp(nonce: string, env: CspEnv): string {
+export function buildCsp(nonce: string, env: CspEnv): string {
   const api = originOf(env.NEXT_PUBLIC_API_URL);
   const ws = api ? api.replace(/^http/, "ws") : null;
   const sentryUri = sentryCspReportUri(env.NEXT_PUBLIC_SENTRY_DSN);

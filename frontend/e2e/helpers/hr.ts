@@ -7,7 +7,7 @@
  * uprawnień Kadr i Płac. Dane są fikcyjne, adresy w `example.com`.
  *
  * Sesje przeglądarki logują się formularzem `/login`, jak człowiek: strona
- * zapisuje użytkownika w magazynie sesji i odtwarza cookie `nexus_access`,
+ * zapisuje użytkownika w magazynie sesji (ciasteczko `nexus_access` ustawia API),
  * a ekran docelowy po logowaniu (pracownik → „Mój czas”) wybiera aplikacja.
  */
 import {

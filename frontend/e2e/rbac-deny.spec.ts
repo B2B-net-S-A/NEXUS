@@ -6,6 +6,7 @@
  * (albo odwrotnie — strona otwarta, a API odmawia bez komunikatu).
  */
 import { test, expect, expectStatus } from "./helpers/api";
+import { adoptBrowserSession } from "./helpers/session";
 
 test.describe("Uprawnienia ról @stack", () => {
   test("rekruter nie czyta listy użytkowników, administrator tak", async ({ admin, apiAs }) => {
@@ -26,19 +27,13 @@ test.describe("Uprawnienia ról @stack", () => {
     await expectStatus(login, 200, "logowanie rekrutera do sesji przeglądarki");
     const { access_token: token } = (await login.json()) as { access_token: string };
 
-    // Sesja przeglądarki rekrutera: token w localStorage (klient API) i cookie
-    // `nexus_access` (middleware) — tak jak po zalogowaniu przez UI.
+    // Sesja przeglądarki rekrutera w ciasteczku HttpOnly — tak jak po
+    // zalogowaniu przez UI (front nie przyjmuje tokenu z JS).
     const context = await browser.newContext({ storageState: undefined });
-    const baseURL = process.env.E2E_BASE_URL || "https://nexus.dynaminds.pl";
-    await context.addCookies([{ name: "nexus_access", value: token, url: baseURL }]);
-    await context.addInitScript(
-      ([accessToken]) => {
-        window.localStorage.setItem("access_token", accessToken);
-        window.localStorage.setItem("onboarding_completed", "true");
-      },
-      [token]
-    );
+    const baseURL = process.env.E2E_BASE_URL || "https://nexus.b2bnetwork.pl";
     const page = await context.newPage();
+    await adoptBrowserSession(page, token, baseURL);
+    await expect(page).not.toHaveURL(/\/login/, { timeout: 20_000 });
 
     await page.goto(`${baseURL}/manager`);
     await expect(page).toHaveURL(/\/403/);
