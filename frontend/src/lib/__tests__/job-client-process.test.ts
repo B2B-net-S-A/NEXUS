@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   PROCESS_PRESETS,
   candidateSentence,
+  stepName,
   daysLabel,
   decisionSlowerThanDeclared,
   matchingPreset,
@@ -69,6 +70,28 @@ describe("candidateSentence", () => {
 
   it("bez etapów nie ma zdania", () => {
     expect(candidateSentence(null, MEASURED)).toBeNull();
+  });
+});
+
+// Prośba DL CEZ z 20.11.2026: „nie mam opcji dania testu stacjonarnego” —
+// był „Test online” + „na miejscu”, co brzmiało sprzecznie także dla kandydata.
+describe("test online albo stacjonarny", () => {
+  it("nazwa etapu bierze formę testu, zdanie dla kandydata nie dubluje formy", () => {
+    expect(stepName({ kind: "online_test", format: "onsite" })).toBe("Test stacjonarny");
+    expect(stepName({ kind: "online_test", format: "remote" })).toBe("Test online");
+    expect(stepName({ kind: "tech_interview", format: "onsite" })).toBe("Rozmowa techniczna");
+    expect(
+      candidateSentence(
+        {
+          steps: [
+            { kind: "online_test", format: "onsite", duration: "90 min" },
+            { kind: "tech_interview", format: "remote", duration: "" },
+          ],
+          decision_workdays: null,
+        },
+        null,
+      ),
+    ).toBe("Proces u klienta ma 2 etapy: test stacjonarny (90 min), potem rozmowa techniczna zdalnie.");
   });
 });
 

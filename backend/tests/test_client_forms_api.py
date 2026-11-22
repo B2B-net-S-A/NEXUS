@@ -481,3 +481,107 @@ async def test_years_grid_roles_and_screening_questions(
     assert again["t2.r2.c3"]["value"] is None
     assert [b["on"] for b in again["t2.r2.c3"]["years"]["basis"]] == [False]
     assert again["p3"]["value"] is not None
+
+
+# ── 23.11.2026: na „QC CV” dopiero z formularzem (prośba DL CEZ) ─────────────
+
+
+@pytest.mark.asyncio
+async def test_qc_cv_waits_for_the_client_form(
+    app_client, app_auth_headers, storage, monkeypatch
+):
+    from fastapi import HTTPException
+
+    from app.core.config import settings
+    from app.models.candidate_client_form import CandidateClientForm
+    from app.models.user import User
+    from app.services import pipeline_move_rules
+
+    monkeypatch.setattr(settings, "DL_SKIPS_FILL_GATES", True)
+    job_id, stage_id = await _pair()
+    await _add_template(app_client, app_auth_headers, job_id)
+    recruiter_id, _ = await make_user(UserRole.recruiter)
+    lead_id, _ = await make_user(UserRole.delivery_lead)
+
+    async def gate(user_id: int, target: str = "cv_qc", allow_skip: bool = True):
+        async with AsyncSessionLocal() as db:
+            stage = await db.get(CandidateStage, stage_id)
+            return await pipeline_move_rules.assert_client_form_before_qc(
+                db,
+                candidate_id=stage.candidate_id,
+                job=await db.get(Job, job_id),
+                user=await db.get(User, user_id),
+                target_column=target,
+                allow_skip=allow_skip,
+            )
+
+    with pytest.raises(HTTPException) as refused:
+        await gate(recruiter_id)
+    assert refused.value.status_code == 409
+    assert refused.value.detail["code"] == "CLIENT_FORM_REQUIRED"
+    assert refused.value.detail["missing"] == ["client_form"]
+    assert refused.value.detail["stage_id"] == stage_id
+    assert (
+        refused.value.detail["message"]
+        == "Przed „QC CV” wypełnij formularz CV klienta."
+    )
+    # Skok ponad „QC CV” też czeka; ruch wstecz i na „Zweryfikowany” nie.
+    with pytest.raises(HTTPException):
+        await gate(recruiter_id, "cv_sent")
+    assert await gate(recruiter_id, "verified") == []
+    # Delivery Lead przechodzi i dostaje brak do śladu; ruch zbiorczy — nie.
+    assert await gate(lead_id) == ["client_form"]
+    with pytest.raises(HTTPException):
+        await gate(lead_id, allow_skip=False)
+
+    # Wypełniony formularz z pustymi polami wystarcza.
+    async with AsyncSessionLocal() as db:
+        stage = await db.get(CandidateStage, stage_id)
+        db.add(
+            CandidateClientForm(
+                candidate_id=stage.candidate_id,
+                job_id=job_id,
+                kind="form",
+                fields={},
+                missing_count=9,
+            )
+        )
+        await db.commit()
+    assert await gate(recruiter_id) == []
+
+    monkeypatch.setattr(settings, "CLIENT_FORM_QC_GATE_ENABLED", False)
+    other_job, other_stage = await _pair()
+    await _add_template(app_client, app_auth_headers, other_job)
+    async with AsyncSessionLocal() as db:
+        stage = await db.get(CandidateStage, other_stage)
+        assert (
+            await pipeline_move_rules.assert_client_form_before_qc(
+                db,
+                candidate_id=stage.candidate_id,
+                job=await db.get(Job, other_job),
+                user=await db.get(User, recruiter_id),
+                target_column="cv_qc",
+            )
+            == []
+        )
+
+
+@pytest.mark.asyncio
+async def test_company_cv_client_has_no_form_gate():
+    from app.models.user import User
+    from app.services import pipeline_move_rules
+
+    job_id, stage_id = await _pair("company_cv")
+    recruiter_id, _ = await make_user(UserRole.recruiter)
+    async with AsyncSessionLocal() as db:
+        stage = await db.get(CandidateStage, stage_id)
+        assert (
+            await pipeline_move_rules.assert_client_form_before_qc(
+                db,
+                candidate_id=stage.candidate_id,
+                job=await db.get(Job, job_id),
+                user=await db.get(User, recruiter_id),
+                target_column="cv_qc",
+            )
+            == []
+        )

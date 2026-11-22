@@ -726,6 +726,13 @@ class Settings(BaseSettings):
     # stawki, minimum i debriefu — braki zostają przypomnieniem
     # (`pipeline_move_rules.skips_fill_gates`). False = DL jak rekruter.
     DL_SKIPS_FILL_GATES: bool = True
+    # Formularz klienta przed „QC CV” (prośba DL Centrum e-Zdrowia, decyzja
+    # Artura 23.11.2026, zastępuje „przypomnienie” z 26.10): u klienta
+    # z `cv_client_document = client_form` rekruter przesuwa na „QC CV” i dalej
+    # dopiero, gdy formularz (i tabela punktowa, jeśli rekrutacja ma jej wzór)
+    # jest wypełniony — 409 `CLIENT_FORM_REQUIRED`. Delivery Lead przechodzi
+    # (`skips_fill_gates`). False = wyłącznik awaryjny: znów przypomnienie.
+    CLIENT_FORM_QC_GATE_ENABLED: bool = True
     # D2 (04.10.2026): ręczny ruch na „Zatrudniony” wymaga pola „jak
     # podpisano” (`hired_signed_via`). False = wyłącznik awaryjny.
     HIRED_SIGNED_VIA_REQUIRED: bool = True
