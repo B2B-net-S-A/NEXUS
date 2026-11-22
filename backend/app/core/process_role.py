@@ -11,8 +11,9 @@ import asyncio
 from collections.abc import Mapping
 from typing import Any
 
-# Bufor licznika użycia zbierają trasy; bufory liczników wymagań, flagi korpusu
-# i statystyki krytycznych czytają trasy; „kto jest online” znają gniazda.
+# Bufor licznika użycia zbierają trasy; bufory liczników wymagań, flagi korpusu,
+# statystyki krytycznych i listę zaufanych UE (walidacja podpisu) czytają trasy;
+# „kto jest online” znają gniazda. Worker wczytuje listę w `b2b_esign_sweeper`.
 WEB_ONLY_TASKS: frozenset[str] = frozenset(
     {
         "access_usage",
@@ -20,6 +21,7 @@ WEB_ONLY_TASKS: frozenset[str] = frozenset(
         "critical_stats_cache",
         "keyword_corpus_backfill",
         "requirement_row_counts",
+        "trusted_list_prewarm",
     }
 )
 # Opóźnienie pętli zdarzeń i odbiór zdarzeń z drugiego procesu są per proces.
