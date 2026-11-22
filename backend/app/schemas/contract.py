@@ -376,6 +376,17 @@ class ContractGroupMember(BaseModel):
     currency: Optional[str] = None
     rate_client_currency: Optional[str] = None
     rate_candidate_currency: Optional[str] = None
+    # Fakty kolumny „Co dalej” (lista kontraktów, 20.11.2026) — te same, które
+    # wiersz główny ma z ``ContractResponse``, żeby każdy klient osoby dostał
+    # zdanie z tych samych progów co pas „Co się dzieje” na stronie kontraktu.
+    # Bez kwot, więc bez redakcji; godziny rozliczeniowe przeliczają marżę
+    # godzinową na miesięczną.
+    terminated_at: Optional[date] = None
+    termination_reason: Optional[ContractTerminationReason] = None
+    termination_lessons: Optional[str] = None
+    agreement_termination_mode: Optional[AgreementTerminationMode] = None
+    prolongation_status: ProlongationStatus = ProlongationStatus.unknown
+    billing_hours_per_month: Optional[int] = None
 
 
 class ContractResponse(BaseModel):
@@ -488,6 +499,10 @@ class ContractResponse(BaseModel):
     # {"from", "rate", "kind", "category"} pierwszego kroku otwartej różnicy.
     # Tylko w wierszach listy; redagowane razem z kwotami.
     rate_document_change: Optional[dict] = None
+    # „Klient zamówił okres po zakończeniu” (19.11.2026): pierwsze zamówienie
+    # po końcu projektu {"contract_id", "order_id", "status", "start_date",
+    # "end_date", "count"} — `services/contract_order_after_end.py`.
+    order_after_end: Optional[dict] = None
 
     model_config = {"from_attributes": True}
 
@@ -627,6 +642,21 @@ class ContractEurPlnRate(BaseModel):
     table: str = "A"
 
 
+class OrderAfterEndRead(BaseModel):
+    """Zamówienie złożone na okres po końcu współpracy (bez kwot)."""
+
+    order_id: int
+    client_id: int
+    order_group_id: Optional[int] = None
+    order_number: Optional[str] = None
+    status: str
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    # Szkic, którego wypowiedzenie nie pozwala aktywować — automat poczty
+    # zostawił go do decyzji (`order_mail_signature.termination_allows`).
+    held_by_termination: bool = False
+
+
 class ContractDetailResponse(ContractResponse):
     """Extended response for the contract detail page — includes denormalized names."""
 
@@ -669,6 +699,10 @@ class ContractDetailResponse(ContractResponse):
     termination_reversed_at: Optional[datetime] = None
     termination_reversed_by_name: Optional[str] = None
     return_contract_id: Optional[int] = None
+    # „Klient zamówił okres po zakończeniu” (decyzja Artura 19.11.2026):
+    # zamówienia inne niż anulowane i zakończone, których koniec jest pusty
+    # albo późniejszy od końca projektu. Karta w pasie „Co się dzieje”.
+    order_after_end: list[OrderAfterEndRead] = []
 
     model_config = {"from_attributes": True}
 

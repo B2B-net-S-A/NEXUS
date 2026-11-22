@@ -226,7 +226,12 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "frontend/src/components/client-profile/orders/EndOrderGroupModal.tsx",
     "frontend/src/components/client-profile/orders/NordeaOrderImportPanel.tsx",
     # Kolejka zamówień z maila (ticket zamowienia@): ekran i klient API.
+    # Od 20.11.2026 (wariant A) szczegół, historia i podpowiedzi „Co zrobić”
+    # są w osobnych plikach — instrukcja opisuje każdy z nich.
     "frontend/src/components/order-mail/OrderMailQueue.tsx",
+    "frontend/src/components/order-mail/OrderMailDetail.tsx",
+    "frontend/src/components/order-mail/OrderMailHistory.tsx",
+    "frontend/src/lib/order-mail-points.ts",
     "frontend/src/lib/api/orderMail.ts",
     "frontend/src/lib/order-extraction.ts",
     "frontend/src/components/orders/ExtractedConsultants.tsx",

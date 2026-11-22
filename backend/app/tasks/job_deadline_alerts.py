@@ -4,7 +4,7 @@ Emituje notyfikacje 7/3/1 dni przed ``Job.deadline`` dla otwartych (status=
 ``published``) rekrutacji do **przypisanych/delegowanych** osób projektu:
 
     - ``Job.recruiter_id``     — owner/rekruter prowadzący
-    - ``Job.delivery_lead_id`` — Delivery Lead projektu
+    - (bez ``Job.delivery_lead_id`` od 19.11.2026 — DL tylko przy zadaniu)
     - ``Job.tac_id``           — TAC projektu
     - aktywni ``job_collaborators`` (``removed_from_auto_cc=False``)
 
@@ -101,15 +101,17 @@ def _active_thresholds() -> list[int]:
 async def _assigned_user_ids(db: AsyncSession, job: Job) -> list[int]:
     """user_id przypisanych/delegowanych do joba (bez globalnych adminów).
 
-    owner recruiter + DL + TAC + aktywni collaboratorzy, przefiltrowani do
+    owner recruiter + TAC + aktywni collaboratorzy, przefiltrowani do
     kont aktywnych z dostępem do domeny kandydatów (ten sam kontrakt co Job Chat).
+    Bez Delivery Leada (decyzja Artura 19.11.2026: DL dostaje tylko to, przy
+    czym ma coś do zrobienia; termin widzi na liście i w porannym skrócie).
     """
     # „Poprzedni rekruter” (14.10.2026) nie dostaje alertu o terminie — ani
-    # jako prowadzący, ani jako ręcznie dopisany; DL i TAC zostają.
+    # jako prowadzący, ani jako ręcznie dopisany; TAC zostaje.
     parked = (await load_parked(db, [job.id])).get(job.id, set())
     owner_id = job.recruiter_id if job.recruiter_id not in parked else None
     candidate_ids: set[int] = set()
-    for uid in (owner_id, job.delivery_lead_id, job.tac_id):
+    for uid in (owner_id, job.tac_id):
         if uid:
             candidate_ids.add(uid)
 

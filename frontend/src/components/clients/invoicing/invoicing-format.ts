@@ -11,6 +11,8 @@ import type {
   InvoicingSummary,
   MoneyTotal,
   PaymentStatus,
+  PaymentUnknownCount,
+  PaymentUnknownReason,
   RowStatus,
   SalesInvoice,
 } from "@/lib/api/client-invoicing";
@@ -105,11 +107,7 @@ export function totalsText(totals: MoneyTotal[]): string {
   return totals.map((total) => formatMoney(total.amount, total.currency)).join(" · ");
 }
 
-export function summaryStats(
-  summary: InvoicingSummary,
-  period: string,
-  overdue?: number,
-): InlineStat[] {
+export function summaryStats(summary: InvoicingSummary, period: string): InlineStat[] {
   const outside = [
     summary.unknown
       ? `Bez ${countPl(summary.unknown, "zamówienia", "zamówień", "zamówień")} — czekają na zużycie MD.`
@@ -142,10 +140,59 @@ export function summaryStats(
   if (summary.differences) {
     stats.push({ id: "differences", label: "różnice do sprawdzenia", value: summary.differences });
   }
-  if (overdue !== undefined) {
-    stats.push({ id: "overdue", label: "po terminie", value: overdue });
-  }
+  // Zakładka klienta od 20.11.2026 pokazuje kroki miesiąca (`month-steps.ts`)
+  // zamiast tych liczb; zapłaty i „po terminie” są w kroku „Zapłata”.
   return stats;
+}
+
+/**
+ * Faktury po dacie terminu bez dowodu z wyciągów to brak danych, nie zaległość
+ * (19.11.2026: „62 po terminie” u jednego klienta, żadna z datą zapłaty).
+ */
+export function unknownPaymentsText(count: number, reasons?: PaymentUnknownCount[]): string {
+  const invoices = countPl(count, "faktura ma", "faktury mają", "faktur ma");
+  const paid = count === 1 ? "czy jest zapłacona" : "czy są zapłacone";
+  const why = reasons?.length ? ` Powody: ${unknownReasonsText(reasons).join(" · ")}.` : "";
+  return `${invoices} termin za sobą, ale NEXUS nie wie, ${paid}: zaległość liczy tylko z ciągłych wyciągów rachunku, na który płaci klient (Księgowość → Bank), od dnia wystawienia do dnia po terminie.${why}`;
+}
+
+const UNKNOWN_REASON: Record<PaymentUnknownReason, (account: string | null) => string> = {
+  compensation: () => "rozliczane kompensatą",
+  no_account: () => "bez rachunku odbioru w ustawieniach wystawiania",
+  account_outside_ledger: (account) =>
+    `rachunek ${account ? `…${account} ` : ""}poza Księgowość → Ustawienia`,
+  statements: (account) =>
+    `brak ciągłych wyciągów rachunku${account ? ` …${account}` : ""}`,
+  credit_pending: () => "wpłata do sprawdzenia",
+};
+
+/** Powody braku danych z liczbą faktur: „rozliczane kompensatą: 590”. */
+export function unknownReasonsText(reasons: PaymentUnknownCount[]): string[] {
+  return reasons.map((item) => {
+    const text = UNKNOWN_REASON[item.reason]?.(item.account) ?? item.label;
+    return `${text}: ${item.count}`;
+  });
+}
+
+/** Krótki powód przy fakturze (drobny druk, kolumna ok. 170 px przy 1280). */
+export function unknownReasonNote(invoice: SalesInvoice): string | null {
+  const account = invoice.payment_account ? ` …${invoice.payment_account}` : "";
+  switch (invoice.payment_unknown_reason) {
+    case "compensation":
+      return "kompensata";
+    case "no_account":
+      return "bez rachunku odbioru";
+    case "account_outside_ledger":
+      return `rachunek${account} poza Księgą`;
+    case "statements":
+      return invoice.statements_until
+        ? `wyciągi${account} do ${formatDayMonthPl(invoice.statements_until)}`
+        : `brak wyciągów${account}`;
+    case "credit_pending":
+      return "wpłata do sprawdzenia";
+    default:
+      return null;
+  }
 }
 
 export function rowInvoiceText(row: BillingRow, invoices: SalesInvoice[]): string {
@@ -171,6 +218,9 @@ export function paymentText(invoice: SalesInvoice): string {
     const days = countPl(invoice.overdue_days, "dzień", "dni", "dni");
     return `po terminie ${days}`;
   }
+  if (invoice.payment_unknown && invoice.payment_status === "unpaid") {
+    return "brak danych o zapłacie";
+  }
   switch (invoice.payment_status as PaymentStatus) {
     case "paid":
       return invoice.paid_on ? `zapłacono ${formatDayMonthPl(invoice.paid_on)}` : "zapłacono";
@@ -190,9 +240,23 @@ export function paymentText(invoice: SalesInvoice): string {
  * jest krótka, bo kolumna „Zapłata” ma przy 1280 px ok. 170 px.
  */
 export function paymentNote(invoice: SalesInvoice): string | null {
-  if (invoice.payment_status !== "partial") return null;
+  if (invoice.payment_unknown && invoice.payment_status === "unpaid") {
+    const parts = [
+      invoice.due_date ? `termin ${formatDayMonthPl(invoice.due_date)}` : null,
+      unknownReasonNote(invoice),
+    ].filter(Boolean);
+    return parts.length ? parts.join(" · ") : null;
+  }
+  // Zaległość jest udowodniona do ostatniego dnia ciągłych wyciągów — po nim
+  // NEXUS o wpłatach nie wie.
+  const until =
+    invoice.overdue_days > 0 && invoice.statements_until
+      ? `wyciągi do ${formatDayMonthPl(invoice.statements_until)}`
+      : null;
+  if (invoice.payment_status !== "partial") return until;
   const left = `zostało ${formatMoney(invoice.to_pay, invoice.currency)}`;
-  return invoice.overdue_days > 0 ? `zapłacono część · ${left}` : left;
+  if (invoice.overdue_days <= 0) return left;
+  return ["zapłacono część", left, until].filter(Boolean).join(" · ");
 }
 
 export function paymentTone(invoice: SalesInvoice): StatusDotTone {

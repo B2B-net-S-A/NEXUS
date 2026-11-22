@@ -108,6 +108,7 @@ import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import type { WorkbenchContext } from "@/components/v2/person/PersonWorkbenchTabs";
 import { TabbedNav } from "@/components/ds";
 import { CvToClientCard } from "@/components/v2/recruitment/CvToClientCard";
+import { ClientFormCard } from "@/components/v2/recruitment/client-form/ClientFormCard";
 import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
 
 /**
@@ -233,6 +234,12 @@ export function CvHandoffWorkbench({
     [columns, focusCandidateId, selected, early],
   );
   const laterColumn = later ? placeStage(later.col).column : null;
+  // 19.11.2026: klient bierze swój formularz CV (0521) — karta formularza
+  // (i tabeli punktowej, gdy jest jej wzór) stoi na górze zakładki „CV”, jak
+  // w zwiniętym panelu. Do tej daty była tylko tam, a rozwinięty panel to
+  // domyślny widok pracy rekrutera: widział „Jeszcze nie ma CV do klienta”
+  // zamiast głównego dokumentu dla klienta.
+  const personItem = (selected ?? early ?? later)?.item ?? null;
   const jobLabel = jobTitle?.trim() || `Rekrutacja #${jobId}`;
 
   // `canWriteClientRate` przychodzi z odpowiedzi `GET /api/jobs/{id}` — ta
@@ -1006,6 +1013,21 @@ export function CvHandoffWorkbench({
       {/* Link jednorazowy przeżywa ruch: po „CV wysłane” osoba wypada
           z kolejki tego warsztatu, a adres musi zostać na ekranie. */}
       {resultsSection}
+      {personItem?.client_form ? (
+        <>
+          <ClientFormCard
+            stageId={personItem.id}
+            candidateName={itemFullName(personItem)}
+            readOnly={readOnly}
+          />
+          <ClientFormCard
+            kind="score"
+            stageId={personItem.id}
+            candidateName={itemFullName(personItem)}
+            readOnly={readOnly}
+          />
+        </>
+      ) : null}
       {early ? (
         <>
           <CvToClientCard

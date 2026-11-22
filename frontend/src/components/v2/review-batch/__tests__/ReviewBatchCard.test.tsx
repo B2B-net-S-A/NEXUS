@@ -15,6 +15,7 @@ import {
   rememberLine,
   ReviewBatchCard,
   rejectMissing,
+  sentBeforeText,
 } from "@/components/v2/review-batch/ReviewBatchCard";
 import type { ReviewBatchItem } from "@/lib/api/reviewBatch";
 import { notLookingUntil } from "@/lib/autofill-feedback";
@@ -30,6 +31,8 @@ const template = vi.hoisted(() => {
   const defaultReasons = [
     { id: "41", label: "Nie spełnia wymagań technicznych", name: "Nie spełnia wymagań technicznych", applies_to: ["rejected"] },
     { id: "43", label: "Nie akceptuje trybu pracy (biuro / hybryda)", name: "work_mode_mismatch", applies_to: ["rejected"] },
+    // Od 19.11.2026 (0745) „Inna rola” ma własny powód w szablonie.
+    { id: "44", label: "Inny poziom lub inna rola", name: "other_level_or_role", applies_to: ["rejected"] },
     { id: "49", label: "Inne", name: "Inne (rejected)", applies_to: ["rejected"] },
   ];
   return { defaultReasons, reasons: defaultReasons };
@@ -183,7 +186,7 @@ describe("ReviewBatchCard: szczegół powodu (runda 5)", () => {
         role_wanted: "analityk biznesowy",
         person_role: "Oracle DBA",
       },
-      rejection_reason_id: "41",
+      rejection_reason_id: "44",
       notes: "Inny zawód, osoba: Oracle DBA, szukamy: analityk biznesowy",
     });
   });
@@ -213,7 +216,7 @@ describe("ReviewBatchCard: szczegół powodu (runda 5)", () => {
     fireEvent.keyDown(window, { key: "Backspace" });
     expect(screen.queryByTestId("review-reject-role")).not.toBeInTheDocument();
     fireEvent.keyDown(window, { key: "4" });
-    expect(screen.getByRole("radio", { name: /Za drogi/ })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: /Za droga/ })).toHaveAttribute("aria-checked", "true");
   });
 
   it("„Szukamy:” podpowiada rolę z profilu, a linia mówi, kiedy silnik przestanie", async () => {
@@ -424,5 +427,44 @@ describe("rememberLine", () => {
   });
   it("puste pole milczy", () => {
     expect(rememberLine("  ", base)).toBeNull();
+  });
+});
+
+describe("ReviewBatchCard: nazwy powodów z jednego słownika (19.11.2026)", () => {
+  it("klawisze 1–9 mają nazwy z okna „Zamknij proces”", async () => {
+    const { QUICK_REASONS } = await import("@/components/v2/review-batch/ReviewBatchCard");
+    expect(Object.fromEntries(QUICK_REASONS.map((r) => [r.key, r.label]))).toMatchObject({
+      "1": "Brak kluczowej umiejętności",
+      "2": "Za mało doświadczenia",
+      "3": "Lokalizacja lub tryb pracy",
+      "4": "Za droga",
+      "7": "Inny poziom lub inna rola",
+      "8": "Nie szuka pracy",
+      "0": "Inne — opisz",
+    });
+  });
+});
+
+describe("wysłany wcześniej (20.11.2026)", () => {
+  it("karta mówi, ile razy i gdzie ostatnio osoba poszła do klienta", () => {
+    render(
+      <ReviewBatchCard
+        item={{ ...item, sent_before: { count: 2, last_days: 7, last_job_title: "Backend Java developer – TOR" } }}
+        onDecided={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("review-sent-before")).toHaveTextContent(
+      "Wysłany do klienta 2× · ostatnio 7 dni temu: Backend Java developer – TOR",
+    );
+  });
+  it("bez wysyłki linii nie ma", () => {
+    render(<ReviewBatchCard item={{ ...item, sent_before: null }} onDecided={() => {}} />);
+    expect(screen.queryByTestId("review-sent-before")).toBeNull();
+  });
+  it("dziś i wczoraj słowami", () => {
+    expect(sentBeforeText({ count: 1, last_days: 0, last_job_title: "" })).toBe("Wysłany do klienta 1× · ostatnio dziś");
+    expect(sentBeforeText({ count: 1, last_days: 1, last_job_title: " QA " })).toBe(
+      "Wysłany do klienta 1× · ostatnio wczoraj: QA",
+    );
   });
 });

@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -44,6 +44,7 @@ MAX_ATTEMPTS = 3
 RETRY_AFTER = timedelta(minutes=30)
 #: Z tylu dni wstecz liczy się stan kart (kolejka Cpro żyje dniami, nie tygodniami).
 STATE_WINDOW = timedelta(days=30)
+START_LOCK = "cpro-bot-run-start"
 
 __all__ = [
     "INVALID_TOKEN_DETAIL",
@@ -55,6 +56,7 @@ __all__ = [
     "expire_runs",
     "hash_token",
     "item_states",
+    "lock_new_run",
     "start_run",
     "task_body",
     "token_matches",
@@ -145,6 +147,18 @@ def task_body(run: CproBotRun) -> dict[str, Any]:
     }
 
 
+async def lock_new_run(db: AsyncSession) -> None:
+    """Jeden wybór/zapis biegu naraz przez worker, CLI i próbę interaktywną.
+
+    Blokada transakcyjna trwa do zapisu nowego ``started`` albo zamknięcia
+    sesji przy odmowie. Ponowne wejście w tej samej transakcji jest dozwolone.
+    """
+
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": START_LOCK}
+    )
+
+
 async def start_run(
     db: AsyncSession,
     items: list[dict[str, Any]],
@@ -159,6 +173,11 @@ async def start_run(
 
     webhook_url, webhook_key = webhook()
     if not (webhook_url and webhook_key) or not items:
+        return None
+    # Również dla bezpośredniego wołania, z pominięciem flow: dwa procesy
+    # nie mogą równocześnie sprawdzić pustej kolejki i zapisać dwóch biegów.
+    await lock_new_run(db)
+    if await has_open_run(db):
         return None
     moment = now or datetime.now(timezone.utc)
     run, token = new_run(

@@ -80,6 +80,10 @@ export interface ClientFeedbackDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Karta popytu z tablicy — sekcja „Czego potrzebuje dział?”. */
   demand?: DemandContext | null;
+  /** Tekst wpisany w strumieniu kontraktu — startowa treść pola „Co mówi klient”. */
+  initialNote?: string;
+  /** Po udanym zapisie (strumień kontraktu czyści wtedy swoje pole). */
+  onSaved?: () => void;
 }
 
 function ScorePicker({
@@ -149,6 +153,8 @@ function FeedbackDialogBody({
   onOpenChange,
   demand = null,
   navigate,
+  initialNote,
+  onSaved,
 }: ClientFeedbackDialogProps & { navigate?: (href: string) => void }) {
   const { showToast } = useToast();
   const save = useSaveClientFeedbackWithDemand(clientId);
@@ -220,7 +226,7 @@ function FeedbackDialogBody({
   >({});
   const [skipped, setSkipped] = useState<Set<number>>(new Set());
   const [extension, setExtension] = useState<ExtensionOutlook | null>(null);
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(initialNote ?? "");
   const [error, setError] = useState<string | null>(null);
 
   const nearestEnd = consultants
@@ -300,6 +306,7 @@ function FeedbackDialogBody({
       },
       {
         onSuccess: (saved) => {
+          onSaved?.();
           onOpenChange(false);
           if (!demandBody) {
             showToast("Opinia zapisana", "success");

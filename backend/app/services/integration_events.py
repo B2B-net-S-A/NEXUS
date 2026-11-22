@@ -23,7 +23,6 @@ edycji ekranów: każda ścieżka, która zapisuje przez ORM, daje zdarzenie.
 * ``order_change_events`` INSERT (dziennik ``order_change_audit``) → ``order.changed``
 * ``contracts`` zmiana ``status`` → ``contract.status_changed``
 * ``md_consumption_imports`` INSERT → ``md_import.created``
-* ``invoices`` INSERT → ``invoice.created``; zmiana pól → ``invoice.updated``
 * ``leave.approved`` / ``leave.cancelled`` — z wiersza śladu
   ``hr_audit_events`` (INSERT), nie z ``leave_requests``: decyzje o wniosku
   idą warunkowym ``UPDATE … WHERE status = …`` (Core, flush ich nie widzi),
@@ -95,8 +94,6 @@ EVENT_TYPES: dict[str, str] = {
     "order.changed": ServiceScope.orders_read.value,
     "contract.status_changed": ServiceScope.contracts_read.value,
     "md_import.created": ServiceScope.md_read.value,
-    "invoice.created": ServiceScope.invoices_read.value,
-    "invoice.updated": ServiceScope.invoices_read.value,
     "leave.approved": ServiceScope.absences_read.value,
     "leave.cancelled": ServiceScope.absences_read.value,
     "equipment.issued": ServiceScope.equipment_read.value,
@@ -155,14 +152,6 @@ def _change(obj: Any, key: str) -> Optional[tuple[Any, Any]]:
     if old is not _UNKNOWN and old == new:
         return None
     return old, new
-
-
-def _has_column_changes(obj: Any) -> bool:
-    state = inspect(obj)
-    return any(
-        state.attrs[key].history.has_changes()
-        for key in state.mapper.column_attrs.keys()
-    )
 
 
 def _created_events(obj: Any, table: str) -> list[dict[str, Any]]:
@@ -236,18 +225,6 @@ def _created_events(obj: Any, table: str) -> list[dict[str, Any]]:
             _row(
                 "md_import.created",
                 {"md_import_id": v["id"], "period_month": v["period_month"]},
-            )
-        ]
-    if table == "invoices":
-        v = _values(obj, "id", "contract_id", "status")
-        return [
-            _row(
-                "invoice.created",
-                {
-                    "invoice_id": v["id"],
-                    "contract_id": v["contract_id"],
-                    "status": v["status"],
-                },
             )
         ]
     if table == "hr_audit_events":
@@ -382,20 +359,6 @@ def _updated_events(obj: Any, table: str) -> list[dict[str, Any]]:
                 },
             )
         ]
-    if table == "invoices":
-        if not _has_column_changes(obj):
-            return []
-        v = _values(obj, "id", "contract_id", "status")
-        return [
-            _row(
-                "invoice.updated",
-                {
-                    "invoice_id": v["id"],
-                    "contract_id": v["contract_id"],
-                    "status": v["status"],
-                },
-            )
-        ]
     if table == "equipment_assignments":
         # Zwrot = ``returned_at`` ustawione na wydaniu, które było otwarte;
         # poprawka daty już zwróconego wydania zwrotem nie jest.
@@ -417,14 +380,13 @@ _CREATED_TABLES = frozenset(
         "application_submissions",
         "order_change_events",
         "md_consumption_imports",
-        "invoices",
         "recruitment_processes",
         "hr_audit_events",
         "equipment_assignments",
     }
 )
 _UPDATED_TABLES = frozenset(
-    {"jobs", "contracts", "invoices", "recruitment_processes", "equipment_assignments"}
+    {"jobs", "contracts", "recruitment_processes", "equipment_assignments"}
 )
 
 

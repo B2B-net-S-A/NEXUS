@@ -64,22 +64,28 @@ function range(low: number | null | undefined, high: number | null | undefined):
   return `${low.toLocaleString("pl-PL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}–${mlnShort(high)}`;
 }
 
-/** Podpis bazy wyceny i zdolności (czysta funkcja — test w __tests__). */
+/**
+ * Podpis bazy wyceny i zdolności (czysta funkcja — test w __tests__).
+ * Uwagi Rady z 19.11.2026: liczymy z zysku i sprzedaży z faktur,
+ * amortyzacja stała 1 mln rocznie — bez EBITDA ze sprawozdania.
+ */
 export function basisNote(outlook: BoardOutlook): string {
   const c = outlook.current;
-  if (c.base_year === null) {
-    return "Czeka na sprawozdanie: wgraj e-Sprawozdanie albo wpisz rok w zakładce Analiza.";
+  if (c.ebitda === null || !outlook.profit_window) {
+    return "Czeka na 12 miesięcy faktur z pełnymi kosztami — bez nich nie ma zysku, zdolności ani wyceny.";
   }
-  const shift =
-    outlook.profit_shift_applied && outlook.profit_window && c.ebitda_shift != null
-      ? ` ${c.ebitda_shift >= 0 ? "+" : "−"} ${mlnShort(Math.abs(c.ebitda_shift))} zmiany zysku brutto z faktur (${outlook.profit_window.from}–${outlook.profit_window.to} wobec ${c.base_year})`
-      : "";
-  return `EBITDA ${mlnShort(c.ebitda)} = ${c.base_year} ze sprawozdania ${mlnShort(c.ebitda_base)}${shift}. Dług netto ${mlnShort(c.net_debt)}.`;
+  const debt =
+    c.financial_debt == null
+      ? "bez sprawozdania dług finansowy przyjęty jako 0"
+      : `dług ${mlnShort(c.financial_debt)} ze sprawozdania ${c.base_year}`;
+  const cash =
+    c.cash_source === "entry" ? "gotówka z wpisu Zarządu" : c.cash_source === "statement" ? "gotówka ze sprawozdania" : "bez gotówki";
+  return `Zysk brutto ${mlnShort(c.profit)} z faktur ${outlook.profit_window.from}–${outlook.profit_window.to} + amortyzacja ${mlnShort(c.amortization)} (stała) = ${mlnShort(c.ebitda)}. Dług netto ${mlnShort(c.net_debt)}: ${debt}, ${cash}.`;
 }
 
 function investorSub(view: InvestorView | undefined): string {
-  if (!view || view.ev === null) return "brak EBITDA";
-  return `${view.multiple.toLocaleString("pl-PL")}× EBITDA · przedział ${view.range[0]}–${view.range[1]}×: ${range(view.equity_low, view.equity_high)}`;
+  if (!view || view.ev === null) return "brak zysku z 12 miesięcy";
+  return `${view.multiple.toLocaleString("pl-PL")}× (zysk + amortyzacja) · przedział ${view.range[0]}–${view.range[1]}×: ${range(view.equity_low, view.equity_high)}`;
 }
 
 export function FinancePanel() {
@@ -124,8 +130,8 @@ export function FinancePanel() {
               value={mlnShort(data.current.credit?.headroom)}
               sub={
                 data.current.credit?.max_net_debt != null
-                  ? `nowy dług do ${data.current.credit.debt_to_ebitda}× EBITDA (${mlnShort(data.current.credit.max_net_debt)})`
-                  : "brak EBITDA ze sprawozdania"
+                  ? `dług netto do ${data.current.credit.debt_to_ebitda}× (zysk + amortyzacja) = ${mlnShort(data.current.credit.max_net_debt)}`
+                  : "brak zysku z 12 miesięcy"
               }
             />
             <Mini

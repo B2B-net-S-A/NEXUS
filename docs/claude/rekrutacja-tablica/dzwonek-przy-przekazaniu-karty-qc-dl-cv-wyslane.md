@@ -16,7 +16,8 @@ znało tylko `jobs.recruiter_id` (osobę z automatu przydziału albo nikogo).
   właściciel procesu → pierwszy weryfikator → prowadzący rekrutację) ORAZ
   osoba, która przekazała kartę do wysłania (autor poprzedniego ruchu, gdy
   karta stała w kolumnie sprzed „CV wysłane” — bywa nią ktoś inny niż pierwszy
-  weryfikator). Tylko dzwonek, nigdy mail; osoba, która sama przesunęła kartę,
+  weryfikator). Od 19.11.2026 bez Delivery Leada, który tylko wstawił kartę do
+  „Nowych” (`powiadomienia/dl-tylko-dzwonki-z-zadaniem.md`). Tylko dzwonek, nigdy mail; osoba, która sama przesunęła kartę,
   nic nie dostaje; ruch wstecz nie powiadamia — z dwoma wyjątkami niżej.
 - **Zwrot z kolejki Cpro do „QC CV” (Nordea) dzwoni do osoby, która kartę
   tam przekazała** (`REASON_CPRO_RETURNED`); resolver pomija wtedy reguły

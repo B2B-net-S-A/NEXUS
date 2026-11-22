@@ -122,10 +122,10 @@
   },
   {
    "id": "k.future-start",
-   "opis": "„startuje DD.MM”, koniec zamówienia",
-   "file": "components/v2/pages/ContractsListV2.tsx",
-   "marker": "startuje",
-   "b_home": "Kolumny Status i Koniec zamówienia"
+   "opis": "„Startuje DD.MM.RRRR — za N dni” w „Co dalej”, koniec zamówienia w drugiej linii „Okresu” (20.11.2026; dawniej dopisek pod statusem)",
+   "file": "lib/contract-list-next.ts",
+   "marker": "Startuje",
+   "b_home": "Kolumny „Okres” i „Co dalej”"
   },
   {
    "id": "k.row-panel",
@@ -178,10 +178,10 @@
   },
   {
    "id": "k.order-mail",
-   "opis": "Skrzynka zamówień z maila",
-   "file": "components/order-mail/OrderMailQueue.tsx",
+   "opis": "Skrzynka zamówień z maila (wariant A, 20.11.2026: kolejka i szczegół z punktami „Do sprawdzenia”; Zastosuj, Przelicz plan, Odrzuć, Rozstrzygnij w oknie zamówienia, podgląd PDF)",
+   "file": "components/order-mail/OrderMailDetail.tsx",
    "marker": "Przelicz plan",
-   "b_home": "Bez zmian"
+   "b_home": "Kontrakty → Zamówienia z maila, szczegół wpisu"
   },
   {
    "id": "k.p.facts",
@@ -227,31 +227,31 @@
   },
   {
    "id": "k.p.annex",
-   "opis": "Aneksy",
+   "opis": "Aneksy: to samo menu „Dodaj aneks” co na stronie kontraktu (zmiana stawki, zakresu, przedłużenie, zakończenie wcześniej, dokument aneksu); wybór otwiera zakładkę „Aneksy” od razu z oknem (20.11.2026)",
    "file": "components/contracts/ContractSidePanel.tsx",
-   "marker": "Wygeneruj dokument",
-   "b_home": "Panel: menu „Aneks”"
+   "marker": "<AddAnnexMenu",
+   "b_home": "Panel: stopka, „Dodaj aneks”"
   },
   {
    "id": "k.annex.register",
    "opis": "Rejestr aneksów: lista, jeden status, oznaczenie podpisu, skan, powiązanie z kontraktem, historia",
    "file": "components/v2/b2b-generator/documents/AnnexRegister.tsx",
    "marker": "Rejestr aneksów",
-   "b_home": "Generator umów: zakładka „Generator aneksów”"
+   "b_home": "Generator umów: zakładka „Nowy aneks”"
   },
   {
    "id": "k.annex.subject",
    "opis": "Nowy aneks: wybór osoby — umowa z rejestru albo kontrakt bez umowy w rejestrze",
    "file": "components/v2/b2b-generator/documents/AnnexSubjectPicker.tsx",
    "marker": "Dla kogo jest aneks?",
-   "b_home": "Generator umów: zakładka „Generator aneksów”"
+   "b_home": "Generator umów: zakładka „Nowy aneks”"
   },
   {
    "id": "k.annex.row-label",
    "opis": "Etykieta najnowszego aneksu i data startu przed/po na wierszu umowy",
    "file": "components/v2/b2b-generator/RegisterAnnexLabel.tsx",
    "marker": "RegisterAnnexLabel",
-   "b_home": "Generator umów: zakładka „Umowy bieżące”"
+   "b_home": "Generator umów: zakładka „Umowy”, faza „Bieżące”"
   },
   {
    "id": "k.annex.contract-tab",
@@ -287,6 +287,21 @@
    "file": "app/contracts/[id]/page.tsx",
    "marker": "Onboarding",
    "b_home": "Strona kontraktu"
+  },
+  {
+   "id": "k.invoices-ksef",
+   "opis": "Faktury konsultanta z KSeF w zakładce „Pieniądze” kontraktu (dawniej zakładka „Faktury”, adres ?tab=invoices prowadzi tu): wszystkie miesiące, te same co na karcie osoby w Finanse → Rozliczenia, tylko do odczytu, miesiąc prowadzi do Rozliczeń; widzi „Moduł Finanse” (decyzja Artura 19.11.2026)",
+   "file": "components/ContractInvoicesTab.tsx",
+   "marker": "Faktury konsultanta z KSeF",
+   "b_home": "Strona kontraktu › Pieniądze"
+  },
+  {
+   "id": "k.invoices-manual",
+   "opis": "Ręczne „Dodaj fakturę”, „Oznacz jako zapłacone” i usuwanie w zakładce „Faktury” (rejestr /api/invoices)",
+   "file": "components/ContractInvoicesTab.tsx",
+   "marker": "Dodaj fakturę",
+   "b_home": "Strona kontraktu › Pieniądze",
+   "removed_reason": "Decyzja Artura 19.11.2026: zakładka pokazuje faktury konsultanta z KSeF; rejestr invoices nie miał na produkcji ani jednego wiersza od powstania 17.04.2026, a faktury konsultantów przychodzą z KSeF"
   },
   {
    "id": "c.header",
@@ -689,38 +704,38 @@
   },
   {
    "id": "k.care-tab",
-   "opis": "Zakładka „Opieka” kontraktu = karta konsultanta (22.10.2026): zdrowie relacji z „dlaczego”, cztery liczby, „Następny krok”, „Co wiemy o projekcie”, sprawy, jedna „Historia” z filtrami, plan kontaktów, „Więcej” (opiekun, rytm, pominięcie punktu) — moduł „care”",
+   "opis": "Zakładka „Opieka i rozmowy” kontraktu (wariant A, 20.11.2026): wiersz z opiekunem, rytmem i ostatnim kontaktem z menu „Zmień” (opiekun, rytm, pominięcie punktu), po lewej strumień rozmów i notatek z filtrami (dawna „Historia”), po prawej „Następny krok”, plan kontaktów, zadowolenie i opinie, sprawy, „Co wiemy o projekcie” — moduł „care”. Zdrowie relacji z „dlaczego” stoi w pasie „Co się dzieje”, koniec zamówienia w nagłówku i pasie",
    "file": "app/contracts/[id]/page.tsx",
    "marker": "ContractCareTab",
-   "b_home": "Strona kontraktu: zakładka „Opieka”"
+   "b_home": "Strona kontraktu: zakładka „Opieka i rozmowy”"
   },
   {
    "id": "k.care-tab.conversation",
    "opis": "Okno „Rozmowa” z karty konsultanta: dzisiejsza rozmowa, „Co u klienta” (dawna karta technologiczna), pytania z mapy klienta, „Coś do załatwienia?”",
    "file": "components/care/ConversationDialog.tsx",
    "marker": "ClientStateSection",
-   "b_home": "Strona kontraktu: zakładka „Opieka”, „Zapisz rozmowę”"
+   "b_home": "Strona kontraktu: zakładka „Opieka i rozmowy” — „Zapisz” przy punkcie planu, „Następny krok” albo pole strumienia („Rozmowa z konsultantem”)"
   },
   {
    "id": "k.care-tab.tech-card-edit",
-   "opis": "Edycja starej karty technologicznej — „Edytuj” przy karcie w „Historii” (przycisk „Karta technologiczna” zastąpiło okno „Rozmowa”, 22.10.2026)",
+   "opis": "Edycja starej karty technologicznej — „Edytuj” przy karcie w strumieniu rozmów (przycisk „Karta technologiczna” zastąpiło okno „Rozmowa”, 22.10.2026)",
    "file": "components/care/ContractCareTab.tsx",
    "marker": "TechCardDialog",
-   "b_home": "Strona kontraktu: zakładka „Opieka”, „Historia”"
+   "b_home": "Strona kontraktu: zakładka „Opieka i rozmowy”, strumień rozmów"
   },
   {
    "id": "k.care-tab.owner",
    "opis": "Zmiana opiekuna kontraktu (dawny wybór w zakładce „Opieka”) — „Więcej” → „Zmień opiekuna” z powodem",
    "file": "components/care/card/ConsultantCard.tsx",
    "marker": "Zmień opiekuna",
-   "b_home": "Karta konsultanta: menu „Więcej”"
+   "b_home": "Karta konsultanta: menu „Więcej” (/care), na kontrakcie menu „Zmień” przy opiekunie"
   },
   {
    "id": "k.care-tab.cases",
    "opis": "Sprawy konsultanta w karcie i „+ Nowa sprawa” z kontraktem",
    "file": "components/care/card/ConsultantCard.tsx",
    "marker": "Nowa sprawa",
-   "b_home": "Karta konsultanta: sekcja „Sprawy”"
+   "b_home": "Karta konsultanta: sekcja „Sprawy” (/care i prawa kolumna „Opieki i rozmów”)"
   },
   {
    "id": "c.tech-tab",
@@ -782,7 +797,7 @@
    "id": "c.knowledge-stack",
    "opis": "Delivery Lead → Wiedza o kliencie: notatki „Stack technologiczny” do czytania, dopisuje się je w „Ludziach i technologiach” (jedno wejście, R2 22.10.2026)",
    "file": "app/clients/[id]/page.tsx",
-   "marker": "Dopisz w Ludziach i technologiach",
+   "marker": "Dopisz w Działach i technologiach",
    "b_home": "Profil klienta: „Więcej” → Delivery Lead → Wiedza o kliencie"
   },
   {
@@ -801,10 +816,10 @@
   },
   {
    "id": "k.client-feedback",
-   "opis": "Historia opinii klienta o konsultancie w zakładce „Opieka” kontraktu",
-   "file": "app/contracts/[id]/page.tsx",
-   "marker": "ContractFeedbackHistory",
-   "b_home": "Strona kontraktu: zakładka „Opieka”"
+   "opis": "Historia opinii klienta o konsultancie: wpisy „Rozmowa z klientem” w strumieniu zakładki „Opieka i rozmowy” (filtr „Opinie klienta”) i liczba w „Zadowoleniu i opiniach”",
+   "file": "components/care/stream/CareStream.tsx",
+   "marker": "useContractFeedback(contractId",
+   "b_home": "Strona kontraktu: zakładka „Opieka i rozmowy”, strumień"
   },
   {
    "id": "k.equipment-tab",
@@ -828,6 +843,13 @@
    "b_home": "Zakładka „Sprzęt” kontraktu, wiersz pozycji"
   },
   {
+   "id": "k.equipment-register-list",
+   "opis": "Zakładka „Sprzęt” kontraktu pokazuje urządzenia z rejestru „Sprzęt” (wydane i zwrócone) i liczy je w nagłówku — także dla podglądu Delivery bez uprawnienia „Sprzęt” (zgłoszenie 19.11.2026: import wydań nie zakłada wpisów zakładki)",
+   "file": "components/contracts/ContractEquipmentTab.tsx",
+   "marker": "useContractEquipmentRegister(contractId)",
+   "b_home": "Zakładka „Sprzęt” kontraktu, tabela i licznik w nagłówku"
+  },
+  {
    "id": "k.termination-equipment-return",
    "opis": "Zakończenie współpracy: lista sprzętu do zwrotu i zadanie odbioru dla recepcji",
    "file": "components/contracts/ContractTerminationDialog.tsx",
@@ -836,7 +858,7 @@
   },
   {
    "id": "k.docs.sections",
-   "opis": "Dokumenty kontraktu: sekcja „Aktualna umowa” (pliki poza folderami) zawsze nad folderami",
+   "opis": "Dokumenty kontraktu: karty „Obowiązuje teraz” i pliki poza folderami w grupach po rodzaju, zawsze nad folderami",
    "file": "components/ContractDocumentsTab.tsx",
    "marker": "pliki poza folderami",
    "b_home": "Strona kontraktu: zakładka „Dokumenty”"
@@ -844,21 +866,21 @@
   {
    "id": "k.docs.folders",
    "opis": "Foldery w Dokumentach: „Nowy folder”, zwijanie, liczba plików, rozmiar, data, „Zmień nazwę”, „Usuń” (pliki wracają na listę główną)",
-   "file": "components/contracts/documents/FolderHeaderRow.tsx",
+   "file": "components/contracts/documents/DocumentGroupHeader.tsx",
    "marker": "Zmień nazwę",
    "b_home": "Strona kontraktu: zakładka „Dokumenty”, sekcja „Foldery”"
   },
   {
    "id": "k.docs.move",
    "opis": "Checkbox przy pliku i pasek: „Przenieś do”, „Nowy folder z zaznaczonych”, „Anuluj”",
-   "file": "components/contracts/documents/SelectionBar.tsx",
+   "file": "components/contracts/documents/DocumentSelectionBar.tsx",
    "marker": "Nowy folder z zaznaczonych",
    "b_home": "Strona kontraktu: zakładka „Dokumenty”, pasek nad listą"
   },
   {
    "id": "k.docs.orders-folder",
    "opis": "Automatyczny folder „Zamówienia”: dokumenty typu Zamówienie i PDF-y z zakładki Zamówienia (dawna sekcja „Dokumenty zamówień”)",
-   "file": "components/contracts/documents/FolderHeaderRow.tsx",
+   "file": "components/ContractDocumentsTab.tsx",
    "marker": "automatyczny",
    "b_home": "Strona kontraktu: zakładka „Dokumenty”, folder „Zamówienia”"
   },
@@ -903,6 +925,188 @@
    "file": "components/v2/pages/ContractsListV2.tsx",
    "marker": "+ Rozwiązanie",
    "b_home": "Tabela, kolumna Status"
+  },
+  {
+   "id": "k.gen.steps",
+   "opis": "Nowa umowa B2B krokami: lista 7 kroków ze stanem (braki albo to, co wpisano)",
+   "file": "components/v2/b2b-generator/wizard/AgreementWizard.tsx",
+   "marker": "Kroki umowy",
+   "b_home": "Generator umów: „Nowa umowa”, lista kroków po lewej"
+  },
+  {
+   "id": "k.gen.paper",
+   "opis": "Kartka: pierwszy akapit umowy wypełniany na żywo, braki jako „[REGON]” prowadzą do pola",
+   "file": "components/v2/b2b-generator/wizard/AgreementWizard.tsx",
+   "marker": "Pierwszy akapit umowy",
+   "b_home": "Generator umów: „Nowa umowa”, po prawej"
+  },
+  {
+   "id": "k.gen.readiness",
+   "opis": "Pasek braków: ile pól brakuje i które, „Podgląd”, „Pobierz DOCX” (wyłączone do kompletu)",
+   "file": "components/v2/b2b-generator/wizard/AgreementWizard.tsx",
+   "marker": "Gotowość umowy",
+   "b_home": "Generator umów: „Nowa umowa”, przyklejony na dole"
+  },
+  {
+   "id": "k.gen.source",
+   "opis": "Źródło danych: kandydat, rekrutacja i język umowy",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Rekrutacja (klient z rekrutacji)",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Źródło danych”"
+  },
+  {
+   "id": "k.gen.admin",
+   "opis": "Szczegóły administracyjne: rekruter i DL z reguły premii, replacement, FTE, kandydat wskazany przez klienta",
+   "file": "components/v2/b2b-generator/AgreementAdminDetailsCard.tsx",
+   "marker": "Kandydat wskazany przez klienta",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Szczegóły administracyjne”"
+  },
+  {
+   "id": "k.gen.registry-lookup",
+   "opis": "Dane Partnera z rejestru po NIP (CEIDG, Biała Lista, KRS)",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "NIP (auto z rejestru)",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Partner”"
+  },
+  {
+   "id": "k.gen.company-variant",
+   "opis": "Umowa JDG / Umowa spółka z danymi z KRS",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Umowa spółka",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Partner”"
+  },
+  {
+   "id": "k.gen.address-kind",
+   "opis": "Adres z CEIDG: stałe miejsce albo tylko adres do doręczeń",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Tylko adres do doręczeń",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Partner”"
+  },
+  {
+   "id": "k.gen.correspondence",
+   "opis": "Adres do korespondencji (opcjonalny)",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Adres do korespondencji (opcjonalnie)",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Partner” (link „+ adres do korespondencji”)"
+  },
+  {
+   "id": "k.gen.special-clauses",
+   "opis": "Ostrzeżenie o kliencie ze specyficznymi zapisami umowy",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Ten klient ma specyficzne zapisy umowy",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Klient i projekt”"
+  },
+  {
+   "id": "k.gen.uop-check",
+   "opis": "Sprawdzenie opisu projektu pod kątem umowy o pracę (AI)",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Sprawdź pod kątem umowy o pracę (AI)",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Klient i projekt”"
+  },
+  {
+   "id": "k.gen.area",
+   "opis": "Obszar usług (§ 1 umowy) z katalogu ról",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Wybierz obszar…",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Obszar usług”"
+  },
+  {
+   "id": "k.gen.rate-stages",
+   "opis": "Warunki: numer, data podpisania, start (z dniem / nie wcześniej / nie później), stawka progresywna, waluta",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Dodaj etap stawki",
+   "b_home": "Generator umów: „Nowa umowa”, krok „Warunki umowy”"
+  },
+  {
+   "id": "k.gen.preview",
+   "opis": "Podgląd całej umowy (bez numeru w rejestrze) i wydruk",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Drukuj podgląd",
+   "b_home": "Generator umów: „Nowa umowa”, pasek → „Podgląd”"
+  },
+  {
+   "id": "k.gen.registry-check",
+   "opis": "Sprawdzenie firmy w CEIDG/KRS przy każdym pobraniu (ostrzeżenia nie blokują)",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "<RegistryCheckDialog",
+   "b_home": "Generator umów: „Nowa umowa”, pasek → „Pobierz DOCX”"
+  },
+  {
+   "id": "k.gen.correction",
+   "opis": "Poprawka zapisanej umowy pod tym samym numerem i „Nowa umowa”",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Popraw i pobierz ponownie",
+   "b_home": "Generator umów: „Nowa umowa”, baner nad krokami i pasek"
+  },
+  {
+   "id": "k.gen.existing-agreement",
+   "opis": "Ostrzeżenie: ta osoba ma już umowę w tej rekrutacji (link do poprawki albo rejestru)",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Ta osoba ma już umowę",
+   "b_home": "Generator umów: „Nowa umowa”, nad krokami"
+  },
+  {
+   "id": "k.gen.mandate",
+   "opis": "Umowa zlecenia (ten sam rejestr, własny formularz)",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "<MandateAgreementForm",
+   "b_home": "Generator umów: „Nowa umowa” → „Umowa zlecenia”"
+  },
+  {
+   "id": "k.gen.register-phases",
+   "opis": "Rejestr umów w trzech fazach: bieżące, bez projektu, zakończone",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "Faza umowy",
+   "b_home": "Generator umów: zakładka „Umowy”"
+  },
+  {
+   "id": "k.gen.documents",
+   "opis": "Dokumenty do umów: rozwiązania, wypowiedzenia, umowy przedwstępne, oświadczenia do zlecenia",
+   "file": "components/v2/b2b-generator/documents/DocumentsTab.tsx",
+   "marker": "Dokumenty do umów",
+   "b_home": "Generator umów: zakładka „Dokumenty”"
+  },
+  {
+   "id": "k.gen.roles",
+   "opis": "Zakresy ról umownych (admin)",
+   "file": "components/v2/pages/B2BContractGeneratorV2.tsx",
+   "marker": "<RoleScopeEditor",
+   "b_home": "Generator umów: zakładka „Zakresy ról”"
+  },
+  {
+   "id": "k.next-steps",
+   "opis": "Kolumna „Co dalej”: odejście, koniec zamówienia w 60 dni (czerwone do 14) z decyzją o przedłużeniu, nierozwiązana umowa B2B, brak stawki klienta, brak zamówienia i start w przyszłości — te same progi co pas „Co się dzieje” (20.11.2026); typ i status drobnym drukiem tylko przy wartości innej niż B2B/Aktywny",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "listNextSteps",
+   "b_home": "Tabela, ostatnia kolumna"
+  },
+  {
+   "id": "k.more-filters",
+   "opis": "„Więcej filtrów”: status, typ umowy i daty w jednym okienku, chipy aktywnych wyborów; status nie dubluje pigułek (20.11.2026)",
+   "file": "components/contracts/list/ContractsMoreFilters.tsx",
+   "marker": "Status umowy",
+   "b_home": "Pasek filtrów"
+  },
+  {
+   "id": "k.group-by-client",
+   "opis": "„Grupuj: klient”: nagłówek grupy z liczbą osób, marżą miesięczną (z wglądem w kwoty), kto odchodzi i startuje, link do „Konsultantów” klienta; stan w adresie `?group=client` (20.11.2026)",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "Grupuj: klient",
+   "b_home": "Pasek filtrów, przełącznik"
+  },
+  {
+   "id": "k.ending-view",
+   "opis": "„Kończące się” jako odejścia do domknięcia: ostatni dzień i ile zostało, powód, stan umowy B2B, marża miesięczna, niespójność z zamówieniem, „Zapisz rozwiązanie umowy”; ten sam zbiór na osi czasu (`?timeline=1`, 20.11.2026)",
+   "file": "components/contracts/list/ContractsEndingView.tsx",
+   "marker": "Oś czasu",
+   "b_home": "Pigułka „Kończące się”"
+  },
+  {
+   "id": "k.p.warning",
+   "opis": "Panel: jedno ostrzeżenie z akcją zamiast kilku o tym samym (sprawy z paska strony kontraktu, szkic, przywrócenie, brak zamówienia), pieniądze w jednej linii, okres z „ile zostało”, trzy ostatnie zmiany ludzi (20.11.2026)",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "contractPanelWarnings",
+   "b_home": "Panel: góra"
   }
  ]
 }

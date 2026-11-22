@@ -27,6 +27,10 @@ const ACTION_LABELS: Record<string, string> = {
   termination_data_cleared: "Usunięto datę i powód cofniętego zakończenia",
   end_date_cleared: "Wyczyszczono datę zakończenia (umowa bezterminowa)",
   synced_with_orders: "Zsynchronizowano z zamówieniami klienta",
+  // 20.11.2026: z generatora umów i aktywacji szły jako „Zdarzenie systemowe”.
+  auto_drafted_from_generated_contract: "Założono szkic z wygenerowanej umowy B2B",
+  linked_to_generated_contract: "Powiązano z wygenerowaną umową B2B",
+  contract_activated: "Aktywowano kontrakt",
   bulk_marked_ended: "Zakończono współpracę (operacja zbiorcza)",
   agreement_termination_recorded: "Zapisano rozwiązanie umowy podpisane poza NEXUSEM",
   // 0367 — okno „Zakończ współpracę" i synchronizacja z Generatorem B2B.
@@ -50,6 +54,8 @@ const ACTION_LABELS: Record<string, string> = {
   equipment_removed: "Usunięto sprzęt",
   document_uploaded: "Dodano dokument",
   document_deleted: "Usunięto dokument",
+  // 19.11.2026: jednorazowe usunięcie zdublowanych aneksów i kroków stawki.
+  amendment_history_cleaned: "Usunięto zdublowane aneksy i kroki stawki (kwoty bez zmian)",
   b2b_generated: "Wygenerowano umowę B2B",
   generated_contract_linked: "Powiązano podpisaną umowę B2B z kontraktem",
   admin_details_changed: "Zmieniono szczegóły administracyjne (replacement, kandydat od klienta)",
@@ -59,6 +65,21 @@ const ACTION_LABELS: Record<string, string> = {
   order_line_fields_changed: "Zmiana pól technicznych na zamówieniu",
   deleted: "Usunięto kontrakt",
   force_deleted_signed: "Usunięto podpisany kontrakt (wymuszone)",
+  // Historia kontraktu po ludzku (19.11.2026): aneksy i korekty z migracji
+  // wpadały w „Zdarzenie systemowe”.
+  amendment_rate_change: "Aneks: zmiana stawek",
+  amendment_extension: "Aneks: przedłużenie",
+  amendment_scope_change: "Aneks: zmiana zakresu",
+  amendment_early_termination: "Aneks: zakończenie wcześniej",
+  amendment_start_date_change: "Aneks: zmiana daty startu",
+  amendment_party_data_change: "Aneks: zmiana danych strony",
+  amendment_subcontractor_consent: "Aneks: zgoda na podwykonawcę",
+  amendment_mandate_change: "Aneks: zmiana umowy zlecenia",
+  amendment_custom_change: "Aneks: inna zmiana",
+  amendment_signature_initiated: "Aneks wysłany do podpisu",
+  amendment_signed: "Podpisano aneks",
+  start_date_corrected: "Poprawiono datę startu",
+  rate_unit_converted_to_hourly: "Stawki przeliczone na godzinowe",
 };
 
 const SLUG_RE = /^[a-z0-9_]+$/;
@@ -78,6 +99,8 @@ const DETAIL_LABELS: Record<string, string> = {
   to_status: "Status po",
   previous_status: "Status przed",
   previous_end_date: "Poprzednia data zakończenia",
+  previous_start_date: "Poprzednia data startu",
+  effective_date: "Obowiązuje od",
   client_order_start_date: "Początek zamówienia u klienta",
   client_order_end_date: "Koniec zamówienia u klienta",
   previous_client_order_end_date: "Poprzedni koniec zamówienia u klienta",

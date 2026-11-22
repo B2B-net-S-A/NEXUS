@@ -9,7 +9,7 @@ import type { User } from "@/store/auth"
 const me = { id: 7, role: "recruiter", roles: ["recruiter"] } as unknown as User
 
 describe("sesja po zmianie hasła (runda 12, BACK-2)", () => {
-  it("zapisuje nowy token z odpowiedzi i profil pobrany tym tokenem", async () => {
+  it("po nowej parze odświeża profil z ciasteczka i nie przekazuje tokenu do store'a", async () => {
     const fetchMe = vi.fn().mockResolvedValue(me)
     const setAuth = vi.fn()
     const adopted = await adoptPasswordChangeSession(
@@ -17,8 +17,8 @@ describe("sesja po zmianie hasła (runda 12, BACK-2)", () => {
       { fetchMe, setAuth },
     )
     expect(adopted).toBe(true)
-    expect(fetchMe).toHaveBeenCalledWith("nowy")
-    expect(setAuth).toHaveBeenCalledWith(me, "nowy")
+    expect(fetchMe).toHaveBeenCalledWith()
+    expect(setAuth).toHaveBeenCalledWith(me)
   })
 
   it("pusta odpowiedź (stare API) nie udaje sesji", async () => {
@@ -43,7 +43,6 @@ describe("sesja po zmianie hasła (runda 12, BACK-2)", () => {
     expect(adopted).toBe(true)
     expect(setAuth).toHaveBeenCalledWith(
       expect.objectContaining({ id: 7, force_password_change: false }),
-      "nowy",
     )
   })
 

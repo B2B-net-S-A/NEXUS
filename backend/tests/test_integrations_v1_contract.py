@@ -393,41 +393,6 @@ def test_finance_results_without_costs() -> None:
     assert shown["totals"]["cost"] == 8000.0
 
 
-def test_contractor_invoice_amount_only_with_all_amounts() -> None:
-    from datetime import date, datetime, timezone
-    from decimal import Decimal
-
-    from app.api.integrations_v1.common import AmountLevel
-    from app.api.integrations_v1.invoices import invoice_out
-    from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
-
-    def invoice(direction: InvoiceDirection) -> Invoice:
-        now = datetime(2026, 10, 14, tzinfo=timezone.utc)
-        return Invoice(
-            id=1,
-            contract_id=2,
-            direction=direction,
-            invoice_number="FV/1",
-            issue_date=date(2026, 10, 1),
-            amount=Decimal("999.00"),
-            currency="PLN",
-            status=InvoiceStatus.issued,
-            created_at=now,
-            updated_at=now,
-        )
-
-    cost = invoice(InvoiceDirection.from_contractor)
-    sale = invoice(InvoiceDirection.to_client)
-    for level in (AmountLevel.none, AmountLevel.sales):
-        assert invoice_out(cost, level=level).amount is None
-        assert invoice_out(cost, level=level).costs_redacted is True
-        assert invoice_out(sale, level=level).amount == Decimal("999.00")
-    assert invoice_out(cost, level=AmountLevel.all).amount == Decimal("999.00")
-    assert invoice_out(cost, level=AmountLevel.all).costs_redacted is False
-    # Odpowiedź na zmianę: kierunek sprzed zmiany decyduje o ukryciu kwoty.
-    assert invoice_out(sale, level=AmountLevel.sales, cost=True).amount is None
-
-
 def test_contract_annex_pdfs_need_amounts_read() -> None:
     """Aneks przedłużający umowę bywa aneksem z konsultantem i może podawać
     jego stawkę — lista i ZIP pomijają go bez ``amounts:read``."""

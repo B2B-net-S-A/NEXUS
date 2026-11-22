@@ -25,7 +25,9 @@ w oryginale”: role są wtedy zgadywane.
   z `legacy_v7._helpers`). Rola pasuje, gdy jej nazwa (pogrubiona część linii
   stanowiska) stoi we frazie po liczbie do końca zdania składowego („w rolach
   Cloud Operations Engineer i DevOps Engineer”) albo zawiera stanowisko po
-  „jako” / „as”. Pozycja niesie `tenure`: sumę dat ról pasujących, cały staż
+  „jako” / „as”, a od 20.11.2026 także gdy jest tego samego zawodu co
+  stanowisko po „jako” (jak generator, `lata-jako-x-rodzina-zawodu.md`).
+  Pozycja niesie `tenure`: sumę dat ról pasujących, cały staż
   z dat wszystkich ról (miesiące, nakładki raz, „obecnie” do bieżącego
   miesiąca, rok bez miesiąca od stycznia do grudnia) i listę ról z miesiącami.
   Rola bez dat albo z odwróconymi datami stoi na liście bez miesięcy i nie

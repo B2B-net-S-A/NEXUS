@@ -66,6 +66,11 @@ nie korzystaj z konta poprzedniej pozycji ani ze wspólnego wpisu Hints.
 Dane do formularzy bierz wyłącznie z items. Plik CV każdej pozycji pobierz
 z items[].offer.cv_url z nagłówkiem X-Run-Token: <token>.
 W pilotażu zawsze zostaw szkic, także gdy submit = true lub task żąda wysyłki.
+Do oferty wgraj firmowy PDF z NEXUSA. Sprawdź rozszerzenie .pdf, typ
+application/pdf i sygnaturę %PDF-. Po Save otwórz ponownie ofertę i podgląd
+wybranego PDF w Cpro. Sprawdź czytelność, firmową szatę i status DRAFT.
+Jeśli edit_existing_draft_only=true, zmień wyłącznie CV w jednoznacznie
+potwierdzonym istniejącym szkicu. Brak takiego szkicu wymaga raportu błędu.
 Nie klikaj „Submit Offer”. Zgłaszaj draft tylko po potwierdzeniu DRAFT w Cpro.
 
 Na koniec wyślij JEDNO żądanie:
@@ -133,6 +138,49 @@ pominięcie bez zapisów przy wyborze lub weryfikacji konta. Nie ponawiaj
 na innym koncie i nie usuwaj blokady przez zmianę DL tylko dla próby.
 W publicznych logach zostają same liczby i identyfikatory; bez loginów,
 haseł, tokenów i treści danych kandydatów.
+
+## 4a. Interaktywny szkic jednej karty bez webhooka
+
+Tryb tworzy **zlecenie szkicu**, nie gotowy DRAFT. Wymaga wyłączonego
+`CPRO_BOT_ENABLED`, jednej karty `ready` oraz potwierdzenia DL i requestu
+jej rekrutacji. Nie łącz go z `--start` ani `--submit`. Request pozostaje
+tekstem (4–7 cyfr), także gdy zaczyna się zerem.
+
+Przed uruchomieniem musi istnieć chroniony odbiornik: otwarta natywna karta
+**secret request** Grok Bota, zapisująca wartość do swojej zmiennej środowiskowej,
+oraz zaufany most do jej secure text field. W procesie rodzica **wewnątrz
+kontenera** most tworzy anonimowy pipe i przekazuje CLI deskryptor zapisu
+`>=3`. CLI sprawdza kanał przed utworzeniem biegu; odrzuca plik, terminal,
+niepołączony socket, kanał tylko do odczytu i alias stdin/stdout/stderr.
+Argumenty uruchamiane przez most (ID podstaw z gotowej karty):
+
+```text
+python -m scripts.cpro_bot_run --interactive-draft --stage-ids <jeden_stage_id> --delivery-lead-id <14_albo_27> --request-number <numer_requestu> --token-fd 3
+```
+
+Prywatny FD zwraca tylko świeży token ASCII z końcowym LF. Rodzic odczytuje
+go i natychmiast szyfruje efemerycznym kluczem publicznym odbiorcy:
+RSA-OAEP, SHA-256 oraz MGF1 SHA-256. Między kanałami przenosi wyłącznie
+szyfrogram; odbiorca odszyfrowuje w pamięci, usuwa końcowy LF i wprowadza
+wartość bez schowka do właściwego chronionego pola. Żadnych plików,
+plaintext w argumentach, logach ani czacie. SSH i `docker exec` działają bez
+TTY; most zapewnia rzeczywiste rozdzielenie kanałów, nie `3>&1` / `3>&2`.
+Bez gotowego mostu i właściwego secret request nie twórz biegu.
+
+Stdout zawiera tylko stan, `run_id`, `submit=false`, `items=1`. Sam zapis
+FD nie potwierdza odbioru w secret request. Błąd dostarczenia w CLI zamyka
+warunkowo nowy otwarty bieg jako `failed` i unieważnia token. Nie ma odzysku
+starego tokenu; nie ponawiaj automatycznie po niejednoznacznym wyniku mostu.
+Po potwierdzeniu odbioru pobierz `/runs/{run_id}/task` według reguł schematu 2,
+zapisz ofertę jako DRAFT na właściwym koncie DL i sprawdź otwarcie CV.
+Wyślij raport `draft`, potwierdź `received` i oddaj szkic Sandrze do oceny.
+Nie klikaj „Submit Offer” ani „Wrzucone” w NEXUS; flaga pozostaje wyłączona.
+
+Żeby poprawić CV w istniejącym szkicu, do tego samego polecenia dodaj
+`--repair-draft-run-id <id_biegu_z_potwierdzonym_DRAFT>`. Podaj tę samą
+kartę, Delivery Leada i numer requestu. Bot ma otworzyć wskazany DRAFT,
+zaznaczyć nowy PDF jako jedyne CV oferty i sprawdzić podgląd po zapisie.
+Do kolejnej gotowej karty użyj osobnego biegu bez opcji korekty.
 
 ## 5. Przyszła pierwsza wysyłka i włączenie (wyłącznie Artur)
 

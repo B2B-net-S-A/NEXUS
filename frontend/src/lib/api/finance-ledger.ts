@@ -235,6 +235,11 @@ export function useCostQueue(filters: CostFilters) {
   });
 }
 
+/** „Podgląd PDF” faktury z kolejki (wizualizacja XML-a z KSeF albo wgrany PDF). */
+export function costPdfPath(id: number): string {
+  return `${COSTS}/${id}/pdf`;
+}
+
 export function useCostCard(id: number) {
   return useQuery({
     queryKey: ledgerKeys.card(id),

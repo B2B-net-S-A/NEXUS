@@ -47,11 +47,8 @@ import {
 import {
  CLIENT_WIDE_REASONS,
  NOT_LOOKING_DEFAULT_MONTHS,
- autofillReasonKeepsLabel,
- autofillReasonLabel,
  notLookingUntil,
  otherNoteHasWords,
- templateReasonFor,
  type AutofillFeedbackChoice,
  type AutofillLearnedFrom,
  type AutofillReason,
@@ -60,11 +57,17 @@ import {
  HM_ALREADY_INTERVIEWED_REASON,
  WORK_MODE_MISMATCH_REASON,
  EMPLOYED_ELSEWHERE_REASON,
- groupRejectedReasons,
+ NOT_LOOKING_FOR_WORK_REASON,
  isRateTooHighReason,
- reasonFitsEndedBy,
- reasonNeedsDescription,
 } from "@/lib/rejection-reasons";
+import {
+ closeReason,
+ closeReasonFits,
+ closeReasonGroups,
+ closeTemplateReason,
+ closeWhoFor,
+ type CloseReasonKey,
+} from "@/lib/close-reasons";
 
 interface RejectionReason {
  id: string;
@@ -82,14 +85,15 @@ const POST_ACCEPT_STAGES = new Set<string>(["acceptance","negotiation","onboardi
 
 export type CandidateOfferResponse ="pending" |"accepted" |"declined";
 
-/** Kto zakończył proces (Pipeline v4, 0352) — przy odrzuceniu wybór, przy
- *  rezygnacji zawsze kandydat. */
+/** Kto zakończył proces (Pipeline v4, 0352). Od 19.11.2026 rezygnacja to
+ *  trzecia odpowiedź na „Kto kończy?” w tym samym oknie (`canWithdraw`). */
 export type EndedBy = "candidate" | "recruiter" | "delivery_lead" | "client";
 
-const ENDED_BY_OPTIONS: { value: Exclude<EndedBy, "candidate">; label: string; hint: string }[] = [
+const ENDED_BY_OPTIONS: { value: EndedBy; label: string; hint: string }[] = [
  { value: "recruiter", label: "Odrzucamy my", hint: "decyzja rekrutera" },
  { value: "delivery_lead", label: "Odrzuca Delivery Lead", hint: "przegląd DL" },
  { value: "client", label: "Odrzuca klient", hint: "decyzja po stronie klienta" },
+ { value: "candidate", label: "Kandydat rezygnuje", hint: "decyzja osoby" },
 ];
 
 interface Props {
@@ -131,12 +135,20 @@ interface Props {
   *  `null` przy innym powodzie, kilku osobach albo pustym polu. */
  rate?: RejectionRateChoice | null,
  /** Spotkania tej osoby do odwołania po zamknięciu karty (09.11.2026). */
- meetings?: PairMeetingsChoice | null
+ meetings?: PairMeetingsChoice | null,
+ /** „Nie szuka pracy” z listy szablonu (19.11.2026): do kiedy — „RRRR-MM-DD”;
+  *  `null` przy innym powodzie i przy osobie od systemu (tam data jest
+  *  w `autofill`). */
+ notLookingUntil?: string | null
  ) => void;
  /** Wstępny wybór „kto kończy" (np. upuszczenie na „Odrzucony przez klienta"). */
  initialEndedBy?: Exclude<EndedBy, "candidate"> | null;
  /** „Odrzuca Delivery Lead" widzi tylko admin, DL i Head of Recruitment. */
  canEndAsDeliveryLead?: boolean;
+ /** „Kandydat rezygnuje” jako trzecia odpowiedź na „Kto kończy?” (19.11.2026).
+  *  Tylko gdy wywołujący przy `endedBy === "candidate"` wyśle ruch na etap
+  *  „Zrezygnował”, a nie „Odrzucony”. */
+ canWithdraw?: boolean;
  /** Czy osoba była widoczna dla klienta — ta sama reguła co serwer
   *  (`lib/rejection-email.ts`). Podane wygrywa z `previousStageCategory`,
   *  które mówi o kategorii kolumny, a nie o tym, co widział klient
@@ -181,6 +193,10 @@ interface Props {
   *  (silnik „Nowi na 20”, 23.10.2026) — okno pyta o powód dla systemu.
   *  `rateKnown`: czy system znał stawkę (jedna osoba). */
  autofill?: { rateKnown: boolean; several: boolean } | null;
+ /** Odrzucenie z „Nowych”/„Screeningu” (19.11.2026): okno pyta o powód z tej
+  *  samej listy co przy osobie od systemu, także przy karcie dodanej ręcznie —
+  *  dwie różne listy w tym samym miejscu myliły zespół. */
+ decisionColumn?: boolean;
 }
 
 const EMAIL_STATE_IDLE: RejectionEmailFieldState = {
@@ -189,9 +205,15 @@ const EMAIL_STATE_IDLE: RejectionEmailFieldState = {
  text: null,
 };
 
+const WHO_COLUMNS: Record<number, string> = {
+ 2: "sm:grid-cols-2",
+ 3: "sm:grid-cols-3",
+ 4: "sm:grid-cols-4",
+};
+
 const TYPE_LABEL: Record<string, string> = {
  rejected: "Zamknij proces — odrzucenie",
- withdrawn: "Kandydat zrezygnował",
+ withdrawn: "Zamknij proces — kandydat rezygnuje",
 };
 
 export function RejectionV2({
@@ -204,6 +226,7 @@ export function RejectionV2({
  onConfirm,
  initialEndedBy = null,
  canEndAsDeliveryLead = false,
+ canWithdraw = false,
  emailAvailable: emailAvailableProp,
  initialNotes = null,
  agreement = null,
@@ -217,6 +240,7 @@ export function RejectionV2({
  profileWorkMode,
  profileRate,
  autofill = null,
+ decisionColumn = false,
 }: Props) {
  // Notatkę startową czytamy tylko przy otwarciu (efekt resetu niżej) —
  // zmiana propa przy otwartym oknie nie kasuje tego, co ktoś już wpisał.
@@ -225,10 +249,12 @@ export function RejectionV2({
  useEffect(() => {
  initialNotesRef.current = initialNotes;
  }, [initialNotes]);
- const [reasonId, setReasonId] = useState("");
- const [endedBy, setEndedBy] = useState<Exclude<EndedBy, "candidate">>(
- initialEndedBy ?? "recruiter"
- );
+ const startEndedBy = (): EndedBy =>
+ terminalType === "withdrawn" ? "candidate" : initialEndedBy ?? "recruiter";
+ const [endedBy, setEndedBy] = useState<EndedBy>(startEndedBy);
+ // „Kandydat rezygnuje” (19.11.2026): ten sam wybór zamienia odrzucenie
+ // w rezygnację — wywołujący wyśle ruch na etap „Zrezygnował”.
+ const terminal: "rejected" | "withdrawn" = endedBy === "candidate" ? "withdrawn" : "rejected";
  const [notes, setNotes] = useState("");
  const unsignedAgreement = pendingAgreement(agreement);
  const signedAgreement = signedAgreementWithContract(agreement);
@@ -238,7 +264,7 @@ export function RejectionV2({
  // (wycofanie inicjuje kandydat). Od 17.09.2026 to OPT-IN: checkbox
  // domyślnie ODZNACZONY, serwer planuje wysyłkę wyłącznie przy `true`.
  const emailAvailable =
- terminalType === "rejected" &&
+ terminal === "rejected" &&
  (emailAvailableProp ?? previousStageCategory === "external");
  const [sendEmail, setSendEmail] = useState<boolean>(false);
  const [emailState, setEmailState] =
@@ -246,17 +272,11 @@ export function RejectionV2({
 
  // Phase 17 — show offer response radio only for withdrawn FROM post-accept.
  const offerResponseRequired =
- terminalType === "withdrawn" &&
+ terminal === "withdrawn" &&
  !!previousStage &&
  POST_ACCEPT_STAGES.has(previousStage);
  const [offerResponse, setOfferResponse] =
  useState<CandidateOfferResponse |"">("");
-
- // Wolny tekst powodu — używany TYLKO gdy dla danego typu terminala nie ma
- // żadnych zdefiniowanych powodów (np. job bez pipeline_template_id i bez
- // szablonu domyślnego). Bez tego radio byłoby puste, reasonId zostawałby
- // pusty, a przycisk "Potwierdź" byłby trwale zablokowany.
- const [freeReason, setFreeReason] = useState("");
 
  // „Nie akceptuje trybu pracy” (D2–D3): domyślnie „Tylko zdalnie” i zapis
  // na profilu — najświeższa deklaracja z rozmowy nadpisuje profil.
@@ -267,12 +287,15 @@ export function RejectionV2({
  const [newRateIsMinimum, setNewRateIsMinimum] = useState(true);
  // Osoba od systemu (23.10.2026): powód dla systemu.
  const [autofillLearnedFrom, setAutofillLearnedFrom] = useState<AutofillLearnedFrom | null>(null);
- const [autofillReason, setAutofillReason] = useState<AutofillReason | null>(null);
+ // Powód ze słownika (od 19.11.2026 także przy karcie ręcznej i rezygnacji);
+ // przy osobie od systemu to zarazem powód dla systemu.
+ const [autofillReason, setAutofillReason] = useState<CloseReasonKey | null>(null);
  const [autofillRate, setAutofillRate] = useState("");
  // 27.10.2026: „Pracuje u tego klienta” / „Nie chce do tego klienta” —
  // domyślnie na cały klient.
  const [autofillWholeClient, setAutofillWholeClient] = useState(true);
- // 28.10.2026: „Nie szuka pracy” — domyślnie 3 miesiące.
+ // 28.10.2026: „Nie szuka pracy” — domyślnie 3 miesiące. Od 19.11.2026 ta
+ // sama data przy powodzie z listy szablonu (karta dodana ręcznie).
  const [notLookingUntilValue, setNotLookingUntilValue] = useState(() =>
  notLookingUntil(NOT_LOOKING_DEFAULT_MONTHS),
  );
@@ -280,13 +303,11 @@ export function RejectionV2({
  // Reset defaults when modal re-opens (e.g. user bails, opens again).
  useEffect(() => {
  if (open) {
- setReasonId("");
  setNotes(initialNotesRef.current ?? "");
  setSendEmail(false);
  setEmailState(EMAIL_STATE_IDLE);
  setOfferResponse("");
- setFreeReason("");
- setEndedBy(initialEndedBy ?? "recruiter");
+ setEndedBy(startEndedBy());
  setCancelAgreement(true);
  setOfficeDays(0);
  setSaveWorkMode(true);
@@ -298,46 +319,43 @@ export function RejectionV2({
  setAutofillWholeClient(true);
  setNotLookingUntilValue(notLookingUntil(NOT_LOOKING_DEFAULT_MONTHS));
  }
- }, [open, initialEndedBy]);
- const endedByValue: EndedBy = terminalType === "withdrawn" ? "candidate" : endedBy;
+ // eslint-disable-next-line react-hooks/exhaustive-deps -- startEndedBy czyta te same propsy
+ }, [open, initialEndedBy, terminalType]);
+ const endedByValue: EndedBy = endedBy;
+ // Okno otwarte jako rezygnacja przez wywołującego bez wyboru (stare
+ // miejsca) — bez pytania „Kto kończy?”.
+ const askWho = terminalType === "rejected" || canWithdraw;
  const endedByOptions = ENDED_BY_OPTIONS.filter(
- (o) => o.value !== "delivery_lead" || canEndAsDeliveryLead || initialEndedBy === "delivery_lead"
+ (o) =>
+ (o.value !== "delivery_lead" || canEndAsDeliveryLead || initialEndedBy === "delivery_lead") &&
+ (o.value !== "candidate" || canWithdraw || terminalType === "withdrawn")
  );
 
- const filtered = reasons.filter((r) => r.applies_to.includes(terminalType));
+ const filtered = reasons.filter((r) => r.applies_to.includes(terminal));
  const hasReasons = filtered.length > 0;
- // 04.11.2026: lista zależy od „Kto kończy?”. Powód dla systemu liczy się
- // z pełnej listy, bo tam człowiek nie wybiera powodu z szablonu.
- const visibleReasons = filtered.filter((r) => reasonFitsEndedBy(r, endedByValue));
- const reasonGroups =
- terminalType === "rejected"
- ? groupRejectedReasons(visibleReasons)
- : [{ title: null, reasons: visibleReasons }];
- const autofillAsked = terminalType === "rejected" && autofill != null;
- // Osoba od systemu (27.10.2026): okno pyta o powód raz — powód z szablonu
- // do raportu lejka wynika z powodu dla systemu.
- const effectiveReasonId = autofillAsked
- ? templateReasonFor(autofillReason, filtered)?.id ?? ""
- : reasonId;
- const chosenReason = (autofillAsked ? filtered : visibleReasons).find(
- (r) => r.id === effectiveReasonId,
- );
+ const autofillAsked = terminal === "rejected" && autofill != null;
+ // Jeden słownik powodów (19.11.2026): okno zawsze pyta z listy słownika —
+ // grupy zależą od „Kto kończy?” i etapu („Dane w bazie” tylko
+ // w „Nowych”/„Screeningu”), a powód z szablonu do raportu lejka wynika
+ // z wybranego powodu 1:1, także przy rezygnacji.
+ const closeWho = closeWhoFor(endedByValue);
+ const earlyStage = decisionColumn || autofillAsked;
+ const closeGroups = closeReasonGroups(closeWho, earlyStage);
+ const effectiveReasonId = closeTemplateReason(autofillReason, closeWho, filtered)?.id ?? "";
+ const chosenReason = filtered.find((r) => r.id === effectiveReasonId);
  const workModeReason = chosenReason?.name === WORK_MODE_MISMATCH_REASON;
  const rateReason = isRateTooHighReason(chosenReason);
  // 20.10.2026: „Inne” i „Już po rozmowie u tego hiring managera” bez opisu
  // zostawiały w historii samo słowo — notatka jest wtedy opisem powodu.
  // „Inne” dla systemu też potrzebuje opisu (serwer: 422 bez `notes`).
- const descriptionRequired = autofillAsked
- ? autofillReason === "other"
- : hasReasons && reasonNeedsDescription(chosenReason);
- // Powód bez odpowiednika w szablonie idzie jako „Inne” z nazwą powodu
- // w opisie — inaczej w historii zostaje samo słowo.
+ const descriptionRequired =
+ autofillReason === "other" || autofillReason === "hm_already_interviewed";
+ const reasonLabel = closeReason(autofillReason)?.label ?? "";
+ // Powód bez wiersza w szablonie (admin skasował) idzie jako „Inne” z nazwą
+ // powodu w opisie — inaczej w historii zostaje samo słowo.
  const reasonNotes =
- autofillAsked &&
- autofillReason &&
- autofillReason !== "other" &&
- (reasonNeedsDescription(chosenReason) || autofillReasonKeepsLabel(autofillReason))
- ? [autofillReasonLabel(autofillReason), notes.trim()].filter(Boolean).join(". ")
+ autofillReason && autofillReason !== "other" && chosenReason?.label.trim() === "Inne"
+ ? [reasonLabel, notes.trim()].filter(Boolean).join(". ")
  : notes;
  const several = (emailPreview?.people.length ?? 1) > 1;
  const parsedNewRate = parseRateInput(newRate);
@@ -345,10 +363,12 @@ export function RejectionV2({
  rateReason && !several && parsedNewRate !== null
  ? { rateHourly: parsedNewRate, isMinimum: newRateIsMinimum }
  : null;
+ // Przy odrzuceniu słownik daje wyłącznie powody dla systemu.
+ const systemReason = autofillReason as AutofillReason | null;
  const autofillChoice: AutofillFeedbackChoice | null =
- autofillAsked && autofillReason && autofillLearnedFrom
+ autofillAsked && systemReason && autofillLearnedFrom
  ? {
- reason: autofillReason,
+ reason: systemReason,
  learnedFrom: autofillLearnedFrom,
  rateHourly:
  // Przy powodzie „za drogo” kwotę niesie pole pod powodem — bez
@@ -356,13 +376,15 @@ export function RejectionV2({
  autofillReason === "too_expensive" && !autofill?.several && !rateReason
  ? parseRateInput(autofillRate)
  : null,
- ...(CLIENT_WIDE_REASONS.has(autofillReason) && !autofill?.several
+ ...(CLIENT_WIDE_REASONS.has(systemReason) && !autofill?.several
  ? { wholeClient: autofillWholeClient }
  : {}),
  ...(autofillReason === "not_looking" ? { notLookingUntil: notLookingUntilValue } : {}),
  }
  : null;
  const hmInterviewed = chosenReason?.name === HM_ALREADY_INTERVIEWED_REASON;
+ const notLookingReason =
+ !autofillAsked && chosenReason?.name?.trim() === NOT_LOOKING_FOR_WORK_REASON;
 
  // Przy 1280 × 720 pole opisu stoi pod listą powodów: bez tego „Potwierdź”
  // szarzeje przy „Inne” bez widocznego powodu.
@@ -372,12 +394,12 @@ export function RejectionV2({
  }, [open, descriptionRequired]);
 
  const changeEndedBy = (value: string) => {
- const next = value as Exclude<EndedBy, "candidate">;
+ const next = value as EndedBy;
  setEndedBy(next);
  // Wybrany powód znika z listy innej osoby, która kończy — nie zostaje po
  // cichu wybrany poza ekranem.
- const current = filtered.find((r) => r.id === reasonId);
- if (current && !reasonFitsEndedBy(current, next)) setReasonId("");
+ const current = closeReason(autofillReason);
+ if (current && !closeReasonFits(current, closeWhoFor(next), earlyStage)) setAutofillReason(null);
  };
 
  const handleConfirm = () => {
@@ -403,7 +425,8 @@ export function RejectionV2({
  : null,
  autofillChoice,
  rateChoice,
- meetingsChoice
+ meetingsChoice,
+ notLookingReason ? notLookingUntilValue : null
  );
  return;
  }
@@ -411,8 +434,7 @@ export function RejectionV2({
  // `notes` (zapisywane + widoczne w timeline), a dodatkowo przekazujemy go
  // jako `freeReason` -> backend przyjmuje to jako `rejection_reason`, co
  // spełnia walidację ruchu na etap terminalny. reasonId zostaje pusty.
- const reasonText =
- autofillAsked && autofillReason ? autofillReasonLabel(autofillReason) : freeReason.trim();
+ const reasonText = reasonLabel;
  const combinedNotes = notes.trim()
  ? `${reasonText}\n\n${notes.trim()}`
  : reasonText;
@@ -428,18 +450,16 @@ export function RejectionV2({
  null,
  autofillChoice,
  null,
- meetingsChoice
+ meetingsChoice,
+ null
  );
  };
 
  const submitDisabled =
  pending ||
- (autofillAsked
- ? hasReasons && !effectiveReasonId
- : hasReasons
- ? !chosenReason
- : !freeReason.trim()) ||
- (descriptionRequired && (autofillAsked ? !otherNoteHasWords(notes) : !notes.trim())) ||
+ !autofillReason ||
+ (hasReasons && !effectiveReasonId) ||
+ (descriptionRequired && !otherNoteHasWords(notes)) ||
  (offerResponseRequired && !offerResponse) ||
  (autofillAsked && autofillChoice == null) ||
  (emailAvailable && sendEmail && emailState.invalid);
@@ -450,7 +470,7 @@ export function RejectionV2({
  <DialogHeader>
  <div className="flex items-center gap-2">
  <AlertTriangle className="h-4 w-4 text-primary" />
- <DialogTitle>{TYPE_LABEL[terminalType]}</DialogTitle>
+ <DialogTitle>{TYPE_LABEL[terminal]}</DialogTitle>
  </div>
  <DialogDescription>
  Podaj powód — pomoże to raportom o lejku rekrutacyjnym.
@@ -480,16 +500,17 @@ export function RejectionV2({
  />
  ) : null}
  <div className="space-y-3">
- {terminalType === "rejected" && (
+ {askWho && (
  <FormField label="Kto kończy?" required>
  <RadioGroup
  value={endedBy}
  onValueChange={changeEndedBy}
- className="grid gap-2 sm:grid-cols-3"
+ className={`grid gap-2 ${WHO_COLUMNS[endedByOptions.length] ?? "sm:grid-cols-3"}`}
  >
  {endedByOptions.map((o) => (
  <label
  key={o.value}
+ data-tour={o.value === "candidate" ? "rejection.who-candidate" : undefined}
  className={`flex cursor-pointer flex-col gap-0.5 rounded-md border p-2 text-sm ${
  endedBy === o.value ? "border-primary bg-primary/5" : "border-border hover:bg-accent"
  }`}
@@ -504,7 +525,6 @@ export function RejectionV2({
  </RadioGroup>
  </FormField>
  )}
- {autofillAsked && autofill ? (
  <AutofillFeedbackField
  learnedFrom={autofillLearnedFrom}
  onLearnedFromChange={setAutofillLearnedFrom}
@@ -512,13 +532,19 @@ export function RejectionV2({
  onReasonChange={setAutofillReason}
  rate={autofillRate}
  onRateChange={setAutofillRate}
- rateKnown={autofill.rateKnown}
- several={autofill.several}
+ rateKnown={autofill?.rateKnown ?? false}
+ several={autofill?.several ?? several}
  askRate={!rateReason}
  wholeClient={autofillWholeClient}
  onWholeClientChange={setAutofillWholeClient}
  notLookingUntil={notLookingUntilValue}
- onNotLookingUntilChange={setNotLookingUntilValue}
+ // Karta ręczna: datę niesie powód „Nie szuka pracy” z szablonu — bez
+ // niego w szablonie nie ma gdzie jej zapisać.
+ onNotLookingUntilChange={
+ autofillAsked || notLookingReason ? setNotLookingUntilValue : undefined
+ }
+ fromSystem={autofillAsked}
+ groups={closeGroups}
  >
  {workModeReason ? (
  <RejectionWorkModeField
@@ -540,91 +566,14 @@ export function RejectionV2({
  onIsMinimumChange={setNewRateIsMinimum}
  />
  ) : null}
- </AutofillFeedbackField>
- ) : (
- <FormField
- label="Powód"
- required
- description={
- hasReasons
- ? undefined
- : "Brak zdefiniowanych powodów w szablonie — wpisz powód ręcznie."
- }
- >
- {hasReasons ? (
- <RadioGroup
- value={reasonId}
- onValueChange={setReasonId}
- className="grid gap-x-4 gap-y-2 sm:grid-cols-2"
- >
- {reasonGroups.map((group) => (
- <fieldset
- key={group.title ?? "lista"}
- className={
- group.title
- ? "min-w-0 space-y-0.5"
- : "grid min-w-0 gap-0.5 sm:col-span-2 sm:grid-cols-2 sm:gap-x-4"
- }
- >
- {group.title ? (
- <legend className="pb-0.5 text-xs font-semibold text-muted-foreground">
- {group.title}
- </legend>
- ) : null}
- {group.reasons.map((r) => (
- <React.Fragment key={r.id}>
- <label
- className="flex items-center gap-2 text-sm cursor-pointer rounded-md p-1 hover:bg-primary/10"
- data-tour={r.name?.trim() === EMPLOYED_ELSEWHERE_REASON ? "rejection.employed-elsewhere" : undefined}
- >
- <RadioGroupItem value={r.id} />
- <span>{r.label}</span>
- </label>
- {r.id === reasonId && workModeReason ? (
- <RejectionWorkModeField
- job={workModeJob}
- profile={several ? undefined : profileWorkMode}
- several={several}
- days={officeDays}
- onDaysChange={setOfficeDays}
- saveToProfile={saveWorkMode}
- onSaveToProfileChange={setSaveWorkMode}
- />
- ) : null}
- {r.id === reasonId && rateReason && !several ? (
- <RejectionRateField
- profile={profileRate}
- rate={newRate}
- onRateChange={setNewRate}
- isMinimum={newRateIsMinimum}
- onIsMinimumChange={setNewRateIsMinimum}
- />
- ) : null}
- {r.id === reasonId && r.name?.trim() === EMPLOYED_ELSEWHERE_REASON ? (
- <p
- className="ml-6 text-xs text-muted-foreground"
- data-testid="rejection-employed-elsewhere"
- >
+ {chosenReason?.name?.trim() === EMPLOYED_ELSEWHERE_REASON ? (
+ <p className="text-xs text-muted-foreground" data-testid="rejection-employed-elsewhere">
  W profilu zapiszemy „Nie szuka” na 3 miesiące i system nie doda{" "}
  {several ? "tych osób" : "tej osoby"} do żadnej rekrutacji. Ręcznie można{" "}
  {several ? "je" : "ją"} dodać, a datę zmienisz w profilu.
  </p>
  ) : null}
- </React.Fragment>
- ))}
- </fieldset>
- ))}
- </RadioGroup>
- ) : (
- <Textarea
- value={freeReason}
- onChange={(e) => setFreeReason(e.target.value)}
- rows={2}
- placeholder="Np. brak wymaganych kompetencji technicznych."
- />
- )}
- </FormField>
- )}
+ </AutofillFeedbackField>
  {offerResponseRequired && (
  <FormField
  label="Reakcja kandydata na ofertę"

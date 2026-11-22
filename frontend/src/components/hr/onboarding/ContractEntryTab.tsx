@@ -110,14 +110,17 @@ export function ContractEntryTab({ contractId, readOnly = false }: ContractEntry
 function MissingEntry({ view }: { view: EntryView }) {
   const { showToast } = useToast();
   const create = useCreateContractEntry(view.contract_id);
+  // W zakładce „Start i sprzęt” lista jest sekcją karty — brak listy to
+  // spokojna ramka z jednym zdaniem i przyciskiem, nie osobna karta.
   return (
-    <Card className="space-y-3 p-4">
-      <p className="text-sm text-foreground">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2.5">
+      <p className="text-[13px] text-muted-foreground">
         {missingReasonText(view.missing_reason, view.auto_create_on)}
       </p>
       {view.can_create ? (
         <Button
           size="sm"
+          variant="outline"
           disabled={create.isPending}
           onClick={() =>
             create.mutate(undefined, {
@@ -130,7 +133,7 @@ function MissingEntry({ view }: { view: EntryView }) {
           {createLabel(view.missing_reason)}
         </Button>
       ) : null}
-    </Card>
+    </div>
   );
 }
 

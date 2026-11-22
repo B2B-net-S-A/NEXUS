@@ -17,14 +17,19 @@ Forma w FA(3) (schemat ``crd.gov.pl/wzor/2025/06/25/13775``):
   podaje rodzaj usług objętych opustem, po jednym wierszu na stawkę VAT; kwota
   dzieli się na stawki według obrotu usług w tych stawkach.
 
-To jest SZKIC: nie ma numeru, nie zapisuje się w bazie i NEXUS go nie wysyła.
-Wystawienie i wysyłka do KSeF — dopiero po „tak” Artura.
+Podgląd (``prepare``) niczego nie zapisuje. „Wystaw korektę” (``create``,
+22.11.2026) zapisuje go jako szkic ``ClientIssuedInvoice`` typu ``KOR`` z listą
+faktur w ``collective_correction`` (0749): numer z serii ``KOR`` (``KORUE`` dla
+nabywcy z UE) dostaje dopiero przy wysyłce, a wysyłka idzie tym samym
+przyciskiem Finansów co każda faktura. Jedna korekta na klienta, miesiąc
+i walutę (unikalny indeks; wycofana się nie liczy). Do KSeF na produkcji —
+dopiero po „tak” Artura.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Optional, Sequence
 
@@ -32,10 +37,12 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client import Client
+from app.models.client_issued_invoice import ClientIssuedInvoice
 from app.models.client_sales_invoice import ClientSalesInvoice
 from app.services.client_invoicing import fa3_build, issue, issue_settings, rebate
 from app.services.client_invoicing.export import month_label
 from app.services.client_invoicing.fa3_build import VAT_RATES
+from app.services.client_invoice_issue_schema import REASON_MAX
 from app.services.hr.calendar import month_range
 
 ZERO = Decimal("0.00")
@@ -87,7 +94,7 @@ def rate_weights(
     weights: dict[str, Decimal] = {}
     for invoice in invoices:
         for item in invoice.items:
-            if rebate._excluded(item, words):
+            if rebate.is_rebate_line(item) or rebate._excluded(item, words):
                 continue
             quantity = rebate._num(item.get("quantity"))
             price = rebate._num(item.get("unit_price"))
@@ -156,7 +163,7 @@ def plan(
     if not parts:
         problems.append("Faktury z miesiąca nie mają pozycji usług ze stawką VAT.")
     name = (
-        f"Opust (rabat od obrotu) — usługi za {label}: dodatkowe "
+        f"{rebate.REBATE_LINE_PREFIX} — usługi za {label}: dodatkowe "
         f"{_rate_text(correction.rate_diff)}% od części obrotu ponad próg"
     )
     lines = tuple(
@@ -242,13 +249,22 @@ def document(
             )
             for invoice, _ in draft.corrected
         ),
-        correction_reason=(
-            f"Rabat od obrotu rocznego za {_label(draft.year, draft.month)}: "
-            "wyższa stawka od części obrotu ponad próg z umowy ramowej"
-        ),
+        correction_reason=reason(draft),
         correction_type=CORRECTION_TYPE,
-        corrected_period=f"{first:%d.%m.%Y}-{last:%d.%m.%Y}",
+        corrected_period=period_text(draft.year, draft.month),
     )
+
+
+def reason(draft: Draft) -> str:
+    return (
+        f"Rabat od obrotu rocznego za {_label(draft.year, draft.month)}: "
+        "wyższa stawka od części obrotu ponad próg z umowy ramowej"
+    )[:REASON_MAX]
+
+
+def period_text(year: int, month: int) -> str:
+    first, last = month_range(year, month)
+    return f"{first:%d.%m.%Y}-{last:%d.%m.%Y}"
 
 
 async def _month_invoices(
@@ -374,6 +390,110 @@ async def prepare(
     )
 
 
+def collective_json(draft: Draft) -> dict[str, Any]:
+    """``collective_correction`` wystawionej korekty: faktury z KSeF, okres, typ."""
+
+    return {
+        "kind": "rebate",
+        "year": draft.year,
+        "month": draft.month,
+        "period": period_text(draft.year, draft.month),
+        "correction_type": CORRECTION_TYPE,
+        "threshold_currency": draft.threshold_currency,
+        "rate_diff": format(draft.rate_diff.normalize(), "f"),
+        "excess": _amount(draft.excess),
+        "invoices": [
+            {
+                "number": invoice.number,
+                "issue_date": invoice.issue_date.isoformat(),
+                "ksef_number": invoice.ksef_number,
+                "base": _amount(base),
+            }
+            for invoice, base in draft.corrected
+        ],
+    }
+
+
+def _already(label: str, currency: str, found: ClientIssuedInvoice) -> issue.IssueError:
+    state = (
+        f"{found.invoice_number}, {issue.STATUS_LABELS[found.status].lower()}"
+        if found.invoice_number
+        else "szkic bez numeru"
+    )
+    return issue.IssueError(
+        f"Korekta rabatu za {label} w {currency} już jest ({state}). Druga korekta "
+        "za ten sam miesiąc nie powstanie — popraw tę albo ją wycofaj.",
+        409,
+    )
+
+
+async def create(
+    db: AsyncSession,
+    *,
+    client_id: int,
+    year: int,
+    month: int,
+    currency: str,
+    actor_id: int,
+    today: date,
+) -> ClientIssuedInvoice:
+    """„Wystaw korektę”: szkic ``KOR`` z podglądu (bez numeru i bez commita).
+
+    Odmowa: druga korekta za ten sam miesiąc i walutę (także szkic), podgląd
+    z problemem (brak XML-a). Unikalny indeks łapie wyścig dwóch kliknięć.
+    """
+
+    currency = currency.upper()
+    label = _label(year, month)
+    found = await issue.collective_issued(
+        db, client_id=client_id, year=year, month=month, currency=currency
+    )
+    if found:
+        raise _already(label, currency, found[0])
+    prepared = await prepare(
+        db, client_id=client_id, year=year, month=month, currency=currency, today=today
+    )
+    if prepared.xml is None:
+        raise issue.IssueError(
+            prepared.xml_error or "Szkic korekty nie jest kompletny.", 422
+        )
+    draft = prepared.draft
+    client = await db.get(Client, client_id)
+    settings = await issue_settings.load(db)
+    buyer = issue._buyer_snapshot(client)
+    first, last = month_range(year, month)
+    invoice = ClientIssuedInvoice(
+        client_id=client_id,
+        invoice_type="KOR",
+        series_code="KORUE" if issue._buyer_kind(buyer) == "eu" else "KOR",
+        status="draft",
+        period_year=year,
+        period_month=month,
+        corrects_id=None,
+        correction_reason=reason(draft),
+        currency=currency,
+        issue_date=today,
+        sale_date=None,
+        period_from=first,
+        period_to=last,
+        due_date=today
+        + timedelta(days=issue_settings.client_payment_days(settings, client_id)),
+        buyer=buyer,
+        lines=[issue.clean_line({**line, "unit": "usł."}) for line in draft.lines],
+        lines_before=[],
+        fx_rate=prepared.fx_rate,
+        fx_date=prepared.fx_date,
+        collective_correction=collective_json(draft),
+        history=[],
+        created_by=actor_id,
+    )
+    issue.recompute(invoice)
+    issue._note(invoice, "created", actor_id, source=f"rabat {year}-{month:02d}")
+    db.add(invoice)
+    await db.flush()
+    return invoice
+
+
 def _amount(value: Decimal) -> str:
     return format(rebate.cents(value), "f")
 
@@ -430,6 +550,8 @@ __all__ = [
     "Draft",
     "MonthInvoice",
     "allocate",
+    "collective_json",
+    "create",
     "document",
     "payload",
     "plan",

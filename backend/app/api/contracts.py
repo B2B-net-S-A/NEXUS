@@ -37,7 +37,7 @@ from app.core.printable_html import (
 )
 from app.core.database import get_db
 from app.core.export_safety import safe_row
-from app.core.scheduling import business_today
+from app.core.scheduling import business_date, business_today
 from app.core.upload_filename import fit_filename_column
 from app.core.work_time import HOURS_PER_MONTH, MD_PER_MONTH
 from app.models.activity import Activity
@@ -105,6 +105,7 @@ from app.schemas.contract import (
     ContractTimelineItem,
     ContractUpdate,
     ContractVoidRequest,
+    OrderAfterEndRead,
     RegisterSubcategoriesResponse,
 )
 from app.schemas.contract_amendment import (
@@ -129,6 +130,7 @@ from app.schemas.contract_onboarding import (
     OnboardingItemUpdate,
 )
 from app.services import contract_document_folders, storage_service
+from app.services.contract_folder_docs import store as contract_doc_store
 from app.services.b2b_contract_generator.notices import (
     LEGACY_NOTICES_EMAIL,
     contract_notices_email,
@@ -177,7 +179,16 @@ from app.services import contract_client_manager
 from app.services import contract_placements_export as placements
 from app.services.hr import payroll_access
 from app.services.contract_rates import effective_rate_fields
+from app.services.contract_amendment_guard import (
+    AmendmentBaseline,
+    find_redundant_amendment,
+)
 from app.services.contractor_identity import contractor_identity_sql_expression
+from app.services.contract_order_after_end import (
+    attach_order_after_end,
+    order_after_end_contracts,
+    orders_after_end,
+)
 from app.services.contract_rate_documents.listing import (
     attach_rate_document_changes,
     open_rate_document_contracts,
@@ -415,6 +426,56 @@ def _amendment_step_from(
         if effective_date < step.effective_from <= start_date
     ]
     return max(blocking, default=effective_date)
+
+
+async def _reject_redundant_amendment(
+    db: AsyncSession, contract: Contract, data: ContractAmendmentCreate
+) -> None:
+    """409/422 dla ręcznego aneksu, który niczego nie zmienia.
+
+    Stawka do porównania to stawka z harmonogramu w dniu, od którego aneks
+    dopisałby krok (ta sama data co w ``apply_contract_amendment``). Kontrakt
+    musi mieć wczytane oba harmonogramy (``selectinload``).
+    """
+    existing = (
+        await db.scalars(
+            select(ContractAmendment)
+            .where(
+                ContractAmendment.contract_id == contract.id,
+                ContractAmendment.amendment_type == data.amendment_type,
+                ContractAmendment.effective_date == data.effective_date,
+            )
+            .order_by(ContractAmendment.id)
+        )
+    ).all()
+    baseline = AmendmentBaseline(
+        candidate_rate=contract.effective_candidate_rate(
+            _amendment_step_from(
+                contract.candidate_rate_schedule,
+                contract.start_date,
+                data.effective_date,
+            )
+        ),
+        client_rate=contract.effective_client_rate(
+            _amendment_step_from(
+                contract.client_rate_schedule,
+                contract.start_date,
+                data.effective_date,
+            )
+        ),
+        rate_unit=(
+            contract.rate_unit.value
+            if hasattr(contract.rate_unit, "value")
+            else contract.rate_unit
+        ),
+        billing_hours_per_month=contract.billing_hours_per_month,
+        end_date=contract.end_date,
+        project_name=contract.project_name,
+        team_name=contract.team_name,
+    )
+    refused = find_redundant_amendment(data, baseline, existing)
+    if refused is not None:
+        raise HTTPException(status_code=refused.status_code, detail=refused.detail())
 
 
 def _extension_end_date_passed(contract: Contract, new_end: date) -> bool:
@@ -1322,6 +1383,41 @@ _ORDER_SYNC_INPUTS = frozenset(
 )
 
 
+async def _move_order_drafts_with_contract_start(
+    db: AsyncSession, contract: Contract, *, previous_start: Optional[date]
+) -> int:
+    """Szkic zamówienia ze startem przepisanym z umowy idzie za nowym startem umowy.
+
+    Hook „Zatrudniony” zakłada umowę i szkic zamówienia ze startem „dziś”;
+    prawdziwy start umowy wpisuje się później. Szkic zostawał przy starej
+    dacie, więc osoba z wejściem w lutym stała w Finansach → Wejścia za
+    listopad (zgłoszenie 19.11.2026). Przesuwamy tylko szkic, którego nikt
+    nie ustawił sam: bez daty końca, ze startem pustym albo równym staremu
+    startowi umowy.
+    """
+
+    if contract.start_date is None or contract.start_date == previous_start:
+        return 0
+    result = await db.scalars(
+        select(ClientOrder)
+        .where(
+            ClientOrder.contract_id == contract.id,
+            ClientOrder.status == ClientOrderStatus.draft,
+        )
+        .order_by(ClientOrder.id.asc())
+        .with_for_update()
+    )
+    moved = 0
+    for order in result.all():
+        if order.end_date is not None:
+            continue
+        if order.start_date is not None and order.start_date != previous_start:
+            continue
+        order.start_date = contract.start_date
+        moved += 1
+    return moved
+
+
 async def _inherit_rates_into_unpriced_order_drafts(
     db: AsyncSession, contract: Contract
 ) -> int:
@@ -1504,6 +1600,11 @@ async def _fill_client_manager(
     detail.client_pm_contact_hint = ClientManagerHint(**hint) if hint else None
 
 
+# Zbiory szybkich filtrów listy liczone przez serwer: „Kończące się”,
+# „Stawka z dokumentu” (0739) i „Zamówione po końcu” (19.11.2026).
+ContractBucket = Literal["ending", "rate_document", "order_after_end"]
+
+
 def _apply_contract_list_filters(
     query,
     *,
@@ -1526,7 +1627,7 @@ def _apply_contract_list_filters(
     order_end_from: Optional[date] = None,
     order_end_to: Optional[date] = None,
     agreement_not_terminated: bool = False,
-    bucket: Optional[Literal["ending", "rate_document"]] = None,
+    bucket: Optional[ContractBucket] = None,
 ):
     """Apply the shared contract list/export filters to ``query`` and return it.
 
@@ -1567,6 +1668,10 @@ def _apply_contract_list_filters(
         query = query.where(ending_bucket_clause())
     if bucket == "rate_document":
         query = query.where(Contract.id.in_(open_rate_document_contracts()))
+    if bucket == "order_after_end":
+        # „Klient zamówił okres po zakończeniu” (19.11.2026): kończące się
+        # i zakończone kontrakty z żywym zamówieniem po końcu projektu.
+        query = query.where(Contract.id.in_(order_after_end_contracts()))
     if status:
         query = query.where(Contract.status.in_(status))
     else:
@@ -2031,6 +2136,12 @@ def _group_member_from_contract(
         currency=eff["currency"],
         rate_client_currency=eff["rate_client_currency"],
         rate_candidate_currency=eff["rate_candidate_currency"],
+        terminated_at=c.terminated_at,
+        termination_reason=c.termination_reason,
+        termination_lessons=c.termination_lessons,
+        agreement_termination_mode=c.agreement_termination_mode,
+        prolongation_status=c.prolongation_status or ProlongationStatus.unknown,
+        billing_hours_per_month=c.billing_hours_per_month,
     )
 
 
@@ -2238,14 +2349,15 @@ async def list_contracts(
             "(`agreement_termination_mode` puste). Łączy się ze `status` (AND)."
         ),
     ),
-    bucket: Optional[Literal["ending", "rate_document"]] = Query(
+    bucket: Optional[ContractBucket] = Query(
         None,
         description=(
             "Szybki filtr „Kończące się” (18.11.2026): status `ending` albo żywa "
             "umowa z końcem w 30 dni — ta sama reguła co „Obsługa kontraktorów” "
             "(`contract_service.ending_bucket_clause`). `rate_document` = umowa "
             "albo aneks w Dokumentach podaje stawkę, której nie ma w harmonogramie "
-            "(0739). Łączy się ze `status` (AND)."
+            "(0739). `order_after_end` = kończący się albo zakończony kontrakt "
+            "z zamówieniem po końcu projektu (19.11.2026). Łączy się ze `status` (AND)."
         ),
     ),
     sort_by: Optional[ContractSortKey] = Query(
@@ -2489,6 +2601,7 @@ async def list_contracts(
         items = [_contract_list_item(c, latest_order_dates, _today) for c in contracts]
 
     await attach_rate_document_changes(db, items)
+    await attach_order_after_end(db, items)
     if not global_finance:
         for item in items:
             _redact_contract_finance(item, finance_client_ids)
@@ -2663,7 +2776,7 @@ async def export_contracts(
     order_end_from: Optional[date] = Query(None),
     order_end_to: Optional[date] = Query(None),
     agreement_not_terminated: bool = Query(False),
-    bucket: Optional[Literal["ending", "rate_document"]] = Query(None),
+    bucket: Optional[ContractBucket] = Query(None),
     limit: int = Query(10000, ge=1, le=50000),
 ):
     """Export contracts to CSV or Excel — client, rates, order dates and more.
@@ -3976,6 +4089,10 @@ async def get_contract(
     await _fill_client_manager(db, contract, detail)
     detail.related_contracts = await _related_contracts_for(db, contract, current_user)
     await _fill_termination_recovery(db, contract, detail)
+    detail.order_after_end = [
+        OrderAfterEndRead.model_validate(item.as_dict())
+        for item in await orders_after_end(db, contract.id)
+    ]
     can_view_finance = can_read_client_finance(
         current_user,
         client_id=contract.client_id,
@@ -4477,6 +4594,10 @@ async def apply_contract_update(
         updates["billing_hours_per_month"] = contract.billing_hours_per_month
         updates["orders_in_md"] = contract.orders_in_md
 
+    if "start_date" in data.model_fields_set:
+        await _move_order_drafts_with_contract_start(
+            db, contract, previous_start=previous_start_date
+        )
     draft_orders_inherited = 0
     if data.model_fields_set & _DRAFT_ORDER_RATE_INHERITANCE_INPUTS:
         draft_orders_inherited = await _inherit_rates_into_unpriced_order_drafts(
@@ -5621,6 +5742,36 @@ def _stored_file_sha256(relative_path: str) -> Optional[str]:
     return digest.hexdigest()
 
 
+async def _duplicate_document_detail(
+    db: AsyncSession,
+    contract: Contract,
+    current_user: User,
+    existing: ContractDocument,
+) -> dict[str, Any]:
+    """Treść 409 ``document_duplicate``: który dokument ma już ten plik.
+
+    Nazwę pliku dostaje tylko osoba, która widzi listę Dokumentów (podgląd
+    kwot w zakresie klienta). Dodanie pliku jest otwarte szerzej (22.10.2026)
+    i nie może odsłaniać listy — wtedy zostaje sama data."""
+    added = business_date(existing.created_at).strftime("%d.%m.%Y")
+    visible = await _can_read_contract_finance(contract, current_user, db)
+    where = (
+        f": „{existing.filename}”, dodany {added}" if visible else f" (dodany {added})"
+    )
+    return {
+        "code": "document_duplicate",
+        "message": (
+            f"Ten plik jest już w Dokumentach kontraktu{where}. "
+            "Drugiej kopii nie dodajemy."
+        ),
+        "document": {
+            "id": existing.id,
+            "filename": existing.filename if visible else None,
+            "created_at": existing.created_at.isoformat(),
+        },
+    }
+
+
 async def _assert_contract(
     db: AsyncSession,
     contract_id: int,
@@ -5698,7 +5849,7 @@ async def upload_contract_document(
     # w zakresie konta (DL: klient z przypisania). Lista, pobranie, zmiana
     # i usunięcie zostają za podglądem kwot (zgłoszenie 22.10.2026:
     # wypowiedzenie przy „Zakończ współpracę” nie trafiało do Dokumentów).
-    await _assert_contract(db, contract_id, current_user)
+    contract = await _assert_contract(db, contract_id, current_user)
     # 0494: zamówienie zawsze leży w folderze „Zamówienia” — o tym decyduje
     # typ, więc wybrany folder pomijamy. Inny folder musi być tego kontraktu.
     if doc_type == ContractDocumentType.order:
@@ -5720,6 +5871,29 @@ async def upload_contract_document(
             status_code=413,
             detail=f"File exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MB",
         )
+    # 0402: skrót treści — synchronizacja z SharePointem nie dokłada drugiej
+    # kopii tego samego pliku.
+    digest = _stored_file_sha256(relative_path)
+    if digest is not None:
+        # 19.11.2026 (Artur: blokada uploadu + jedna kopia): 17 zbędnych kopii
+        # w 12 kontraktach to plik ściągnięty już z SharePointa albo wgrany
+        # drugi raz, a 13 z nich poszło też do SharePointa jako osobne pliki.
+        try:
+            await contract_doc_store.lock_contract_documents(db, contract_id)
+            same = await contract_doc_store.same_content_documents(
+                db, contract_id, digest, size_bytes=size
+            )
+        except Exception:
+            storage_service.delete_contract_document(relative_path)
+            raise
+        if same:
+            storage_service.delete_contract_document(relative_path)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=await _duplicate_document_detail(
+                    db, contract, current_user, same[0]
+                ),
+            )
 
     doc = ContractDocument(
         contract_id=contract_id,
@@ -5732,9 +5906,7 @@ async def upload_contract_document(
         doc_type=doc_type,
         expiry_date=expiry_date,
         uploaded_by=current_user.id,
-        # 0402: skrót treści — synchronizacja z SharePointem nie dokłada
-        # drugiej kopii tego samego pliku.
-        content_sha256=_stored_file_sha256(relative_path),
+        content_sha256=digest,
         source="upload",
         folder_id=folder_id,
     )
@@ -6299,7 +6471,11 @@ async def create_contract_amendment(
     db: AsyncSession = Depends(get_db),
 ):
     return await apply_contract_amendment(
-        contract_id=contract_id, data=data, current_user=current_user, db=db
+        contract_id=contract_id,
+        data=data,
+        current_user=current_user,
+        db=db,
+        reject_redundant=True,
     )
 
 
@@ -6379,13 +6555,18 @@ async def apply_contract_amendment(
     current_user: Optional[User],
     db: AsyncSession,
     finance_write_authorized: bool = False,
+    reject_redundant: bool = False,
 ):
     """Aneks kontraktu — ciało trasy ``POST /{id}/amendments``.
 
     ``finance_write_authorized=True`` wyłącznie dla wołającego, który sam
     sprawdził bramkę kwot: podpisany aneks stawki z Generatora potwierdza
     także Delivery Lead u klienta z portfela (decyzja Artura 27.09.2026,
-    ``b2b_documents.effects.can_confirm_rate_annex``)."""
+    ``b2b_documents.effects.can_confirm_rate_annex``).
+
+    ``reject_redundant=True`` tylko dla ręcznego zapisu z okna „Dodaj aneks”:
+    duplikat = 409, aneks bez zmiany i „przedłużenie” skracające umowę = 422.
+    Podpis w Generatorze i wpis stawki z dokumentu idą bez tej reguły."""
     # ``current_user=None`` = automat: wpis stawki odczytanej z umowy albo
     # aneksu w Dokumentach kontraktu (`services/contract_rate_documents`).
     # Tylko aneks stawki i tylko ze zdjętą bramką kwot — bez osoby nie ma
@@ -6449,6 +6630,11 @@ async def apply_contract_amendment(
                     ),
                 },
             )
+    # Ręczny aneks, który niczego nie zmienia, nie powstaje (19.11.2026,
+    # `services/contract_amendment_guard.py`). Po blokadzie FOR UPDATE, więc
+    # podwójne kliknięcie widzi już pierwszy aneks.
+    if reject_redundant:
+        await _reject_redundant_amendment(db, contract, data)
 
     # Snapshot only the fields that might change, for audit.
     old_values: dict = {

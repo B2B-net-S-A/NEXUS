@@ -42,7 +42,7 @@ describe("authenticated-files", () => {
   });
 
   describe("fetchAuthenticatedBlob", () => {
-    it("attaches the Bearer token from localStorage", async () => {
+    it("never attaches a token left in localStorage (old path closed)", async () => {
       localStorage.setItem("access_token", "jwt-123");
       fetchMock.mockResolvedValue(fakeResponse(new Blob(["x"])));
 
@@ -50,12 +50,11 @@ describe("authenticated-files", () => {
 
       expect(fetchMock).toHaveBeenCalledWith(
         "http://localhost:8000/api/emails/1/attachments/2/download",
-        { credentials: "include", headers: { Authorization: "Bearer jwt-123" } },
+        { credentials: "include", headers: { "X-Nexus-CSRF": "1" } },
       );
     });
 
     it("attaches the impersonated user marker to native file requests", async () => {
-      localStorage.setItem("access_token", "jwt-admin");
       localStorage.setItem("nexus_impersonate_id", "42");
       fetchMock.mockResolvedValue(fakeResponse(new Blob(["x"])));
 
@@ -66,7 +65,7 @@ describe("authenticated-files", () => {
         {
           credentials: "include",
           headers: {
-            Authorization: "Bearer jwt-admin",
+            "X-Nexus-CSRF": "1",
             "X-Impersonate-User-Id": "42",
           },
         },
@@ -151,8 +150,7 @@ describe("authenticated-files", () => {
   });
 
   describe("downloadAuthenticatedFile", () => {
-    it("fetches with auth then triggers the download", async () => {
-      localStorage.setItem("access_token", "jwt");
+    it("fetches with the session cookie then triggers the download", async () => {
       fetchMock.mockResolvedValue(fakeResponse(new Blob(["x"])));
       const clickSpy = vi
         .spyOn(HTMLAnchorElement.prototype, "click")
@@ -166,7 +164,7 @@ describe("authenticated-files", () => {
 
       expect(fetchMock).toHaveBeenCalledWith(
         "http://localhost:8000/api/emails/1/attachments/2/download",
-        { credentials: "include", headers: { Authorization: "Bearer jwt" } },
+        { credentials: "include", headers: { "X-Nexus-CSRF": "1" } },
       );
       const anchor = appendSpy.mock.calls[0][0] as HTMLAnchorElement;
       expect(anchor.download).toBe("cv.pdf");

@@ -926,9 +926,6 @@ async def test_partial_finance_summary_marks_every_summary_kpi_partial(
     async def _forecast(*_args: Any, **_kwargs: Any) -> SimpleNamespace:
         return SimpleNamespace(fx_missing=False, fx_warnings=[], months=[])
 
-    async def _rows(*_args: Any, **_kwargs: Any) -> list[Any]:
-        return []
-
     async def _finance_tuple(
         *_args: Any,
         **_kwargs: Any,
@@ -942,8 +939,6 @@ async def test_partial_finance_summary_marks_every_summary_kpi_partial(
         "load_revenue_forecast",
         _forecast,
     )
-    monkeypatch.setattr(dashboard_v2_sources, "load_finance_dso", _rows)
-    monkeypatch.setattr(dashboard_v2_sources, "load_overdue_invoices", _rows)
     monkeypatch.setattr(
         dashboard_v2_sources,
         "load_finance_trend",

@@ -1574,9 +1574,12 @@ try:
     from app.services import start_documents_schema as _start_documents_schema
 
     _START_DOCUMENTS_TABLE_DDL = list(_start_documents_schema.TABLE_DDL)
+    # 0747: „Klient nie wymaga dokumentów” (kolumny przy kliencie).
+    _START_DOCUMENTS_NOT_REQUIRED_DDL = list(_start_documents_schema.NOT_REQUIRED_DDL)
 except Exception as _start_documents_schema_err:  # noqa: BLE001
     print(f"start documents schema unavailable: {_start_documents_schema_err!r}")
     _START_DOCUMENTS_TABLE_DDL = []
+    _START_DOCUMENTS_NOT_REQUIRED_DDL = []
 
 # 0651: pytania pod CV w ściądze do rozmowy (`app/services/cv_call_questions_schema.py`).
 try:
@@ -3255,25 +3258,6 @@ _COLUMN_STATEMENTS = [
             EXECUTE FUNCTION sync_contract_rate_currencies_from_legacy();
         END IF;
     END $$""",
-    # 0391 (runda 10, R10-X1-1): kwota faktury z groszami — INTEGER →
-    # NUMERIC(14,2). Tekst identyczny z migracją (test lustra); ALTER tylko przy
-    # różnicy typu, więc kolejne starty nie biorą zamka tabeli.
-    """DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns c
-        WHERE c.table_schema = current_schema()
-          AND c.table_name = 'invoices'
-          AND c.column_name = 'amount'
-          AND (c.data_type <> 'numeric'
-               OR c.numeric_precision IS DISTINCT FROM 14
-               OR c.numeric_scale IS DISTINCT FROM 2)
-    ) THEN
-        ALTER TABLE invoices
-            ALTER COLUMN amount TYPE NUMERIC(14, 2) USING amount::numeric(14, 2);
-    END IF;
-END $$""",
     # Cortex fact store (0158): na prod `Base.metadata.create_all` potrafi
     # cicho paść (failure-tolerant echo), a alembic bywa multi-head — nowe
     # TABELE też wymagają mirrora tutaj (precedens: saved_search_alert_log).
@@ -7206,6 +7190,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0647: decyzje z zakładki „Wnioski” (po `users`, na które wskazują).
     *_INSIGHT_DECISIONS_TABLE_DDL,
     *_START_DOCUMENTS_TABLE_DDL,
+    *_START_DOCUMENTS_NOT_REQUIRED_DDL,
     # 0687: po `b2b_signing_requests` i `client_start_documents`.
     *_B2B_SIGNING_DOCUMENTS_DDL,
     *_CV_CALL_QUESTIONS_TABLE_DDL,
@@ -7236,6 +7221,12 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE calls DROP COLUMN IF EXISTS cloudtalk_call_id",
     "ALTER TABLE calls DROP COLUMN IF EXISTS cloudtalk_agent_id",
     "ALTER TABLE users DROP COLUMN IF EXISTS cloudtalk_agent_id",
+    # 0748 (20.11.2026): pusty rejestr faktur kontraktu (0026, Phase 9 C1).
+    # Kod przestał go czytać w #3661. Lustro 1:1 z migracją; pilnuje
+    # `test_drop_invoices_register_mirror.py`.
+    "DROP TABLE IF EXISTS invoices",
+    "DROP TYPE IF EXISTS invoicedirection",
+    "DROP TYPE IF EXISTS invoicestatus",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -9577,6 +9568,45 @@ SELECT 'job', id, 'archived',
     "WHERE EXISTS (SELECT 1 FROM marker) "
     "ORDER BY t.id, k.pos "
     "ON CONFLICT (template_id, name, category) DO NOTHING",
+    # 0745 — jednorazowo: jeden słownik powodów zamknięcia procesu (decyzja
+    # Artura 19.11.2026, `app/services/close_reasons.py`). Brakujące powody
+    # słownika w każdym szablonie, w odrzuceniu i rezygnacji, tuż przed „Inne”
+    # tej samej kategorii. Lustro migracji (pilnuje `test_close_reasons.py`).
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('close_reason_dictionary_seeded', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "INSERT INTO rejection_reasons "
+    '(template_id, name, category, "order", active, disqualifies_person, '
+    "external_source, created_at, updated_at) "
+    "SELECT t.id, k.name, k.cat::terminaltype, "
+    "COALESCE((SELECT GREATEST(r.\"order\" - 1, 0) FROM rejection_reasons r "
+    "WHERE r.template_id = t.id AND r.category::text = k.cat "
+    "AND r.name = 'Inne (' || k.cat || ')' LIMIT 1), 99), "
+    "TRUE, k.verdict, 'manual', NOW(), NOW() "
+    "FROM pipeline_templates t "
+    "CROSS JOIN (VALUES "
+    "(1, 'client_project_closed', 'rejected', FALSE), "
+    "(2, 'client_after_deadline', 'rejected', FALSE), "
+    "(3, 'overqualified', 'rejected', FALSE), "
+    "(4, 'other_level_or_role', 'rejected', FALSE), "
+    "(5, 'no_polish', 'rejected', TRUE), "
+    "(6, 'weak_english', 'rejected', TRUE), "
+    "(7, 'available_too_late', 'rejected', FALSE), "
+    "(8, 'in_other_process', 'rejected', FALSE), "
+    "(9, 'client_refused', 'rejected', FALSE), "
+    "(10, 'outdated_cv', 'rejected', FALSE), "
+    "(11, 'profile_mismatch', 'rejected', FALSE), "
+    "(12, 'wrong_phone', 'rejected', FALSE), "
+    "(13, 'contract_form', 'withdrawn', FALSE), "
+    "(14, 'available_too_late', 'withdrawn', FALSE), "
+    "(15, 'not_looking_for_work', 'withdrawn', FALSE), "
+    "(16, 'no_contact', 'withdrawn', FALSE), "
+    "(17, 'client_refused', 'withdrawn', FALSE)"
+    ") AS k(pos, name, cat, verdict) "
+    "WHERE EXISTS (SELECT 1 FROM marker) "
+    "ORDER BY t.id, k.pos "
+    "ON CONFLICT (template_id, name, category) DO NOTHING",
     # 0452: „Pracuje u nas” tylko z umowy (decyzja Artura 17.10.2026) —
     # ręczne wpisy `current_employment` zdjęte raz, z powodem (wiersze zostają
     # w historii). Lustro migracji.
@@ -11740,6 +11770,76 @@ async def repair():
             )
             return
     print(f"cpro rejection reason repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# „Prolongata: Nie” u 12 obecnych konsultantów PKO BP (decyzja Artura 19.11.2026:
+# wszystkie 14 z importu na „Nieznany”): wartość z importu Excela z 26.06.2026
+# (uwaga „brak nowego zamówienia”), nie decyzja — wszyscy dostali potem
+# zamówienia na III i IV kwartał. Logika
+# w `app/services/pko_prolongation_import_repair.py`, przypięta do trójki ID;
+# prolongaty zapisanej po imporcie nie rusza. Marker w `app_settings` + advisory
+# lock; porażka nie zapisuje niczego — następny start ponawia. Log: liczby i ID.
+startup_phase "repair-pko-prolongation-import-2026-11"
+echo "Contracts: PKO BP prolongation values from the 26.06 import (one-shot)..."
+run_unless_marked "pko_prolongation_import_reset_2026_11_19" <<'PY' || echo "pko prolongation import repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.pko_prolongation_import_repair import (
+    run_pko_prolongation_import_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_pko_prolongation_import_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"pko prolongation import repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"pko prolongation import repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# Zdublowane i mylne aneksy kontraktów z wprowadzania wstecz 29.06–10.07.2026
+# (decyzja Artura 19.11.2026): usuwa 6 aneksów i 5 identycznych kroków stawki,
+# kwoty bez zmian. Logika w `app/services/contract_amendment_history_repair.py`,
+# przypięta do stanu z 19.11. Marker w `app_settings` + advisory lock; porażka
+# nie zapisuje niczego — następny start ponawia. Log: wyłącznie liczby i ID.
+startup_phase "repair-contract-amendment-history-2026-11"
+echo "Contracts: duplicate and mistaken amendments from the 06-07.2026 backfill (one-shot)..."
+run_unless_marked "contract_amendment_history_cleanup_2026_11_19" <<'PY' || echo "contract amendment history repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.contract_amendment_history_repair import (
+    run_contract_amendment_history_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_contract_amendment_history_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"contract amendment history repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"contract amendment history repair: {summarize_for_log(summary)}")
 
 asyncio.run(repair())
 PY

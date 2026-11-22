@@ -31,9 +31,18 @@ from app.models.b2b_contract_document import B2BContractDocument
 from app.models.contract_amendment import ContractAmendment
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.services import storage_service
-from app.services.contract_folder_docs.store import requeue_replaced_content
+from app.services.contract_folder_docs.store import (
+    requeue_replaced_content,
+    same_content_documents,
+)
 
 MAX_SCAN_BYTES = 20 * 1024 * 1024
+
+#: Klucze plików, które Generator zapisuje i podmienia w miejscu sam: skan
+#: aneksu (``b2b-document-<id>-skan-…``, tu), DOCX aneksu
+#: (``b2b-document-<id>.docx``, ``effects``), podpisana umowa i jej DOCX
+#: (``b2b-generated-<id>…``, ``b2b_contract_generator``).
+_GENERATOR_KEY_PREFIX = "b2b-"
 
 #: Rozszerzenie → (pierwsze bajty pliku, typ treści). Skan to PDF albo zdjęcie;
 #: DOCX nie jest skanem podpisanego dokumentu.
@@ -120,6 +129,36 @@ async def existing_scan_ids(
     return set(found.all())
 
 
+def _stored_key(record: ContractDocument) -> str:
+    return PurePath(record.file_path or "").name
+
+
+def _owned_scan(doc: B2BContractDocument, record: ContractDocument) -> bool:
+    """Skan zapisany tą funkcją dla TEGO dokumentu (klucz pliku niesie jego id
+    od 13.10.2026) — tylko taki „Podmień skan” nadpisuje w miejscu."""
+    return _stored_key(record).startswith(f"b2b-document-{doc.id}-skan-")
+
+
+async def _existing_copy(
+    db: AsyncSession, contract_id: int, digest: str, size: int
+) -> ContractDocument | None:
+    """Dokument kontraktu z tym samym plikiem, który może zostać skanem.
+
+    Pomijamy pliki, które ktoś inny podmienia w miejscu: kopię PDF-u
+    zamówienia zbiorczego (podmienia ją i usuwa zamówienie) i pliki Generatora
+    (skan innego aneksu — np. jeden PDF z dwoma aneksami — albo podpisana
+    umowa). Ich „Podmień” zmieniłoby skan pod tym aneksem, więc wtedy skan
+    dostaje własną kopię, jak przed 20.11.2026."""
+    same = await same_content_documents(db, contract_id, digest, size_bytes=size)
+    for candidate in same:
+        if candidate.source_order_group_id is not None:
+            continue
+        if _stored_key(candidate).startswith(_GENERATOR_KEY_PREFIX):
+            continue
+        return candidate
+    return None
+
+
 async def attach(
     db: AsyncSession,
     *,
@@ -135,6 +174,16 @@ async def attach(
     bierzemy z aneksów, które podpis utworzył (albo z zapisu skutku) — umowa
     bazowa mogła po podpisie dostać inny kontrakt, a skan należy do tego,
     który aneks faktycznie zmienił. Kolejny skan PODMIENIA poprzedni.
+
+    Plik, który kontrakt już ma (ten sam SHA-256 — np. skan ściągnięty
+    wcześniej z SharePointa albo wgrany ręcznie), nie dostaje drugiej kopii:
+    aneksy wskazują istniejący dokument (20.11.2026, cztery takie pary na
+    produkcji 19.11). Tego dokumentu „Podmień skan” nie nadpisuje — był
+    w Dokumentach przed skanem i należy do tego, kto go dodał; nowy skan
+    zapisuje się wtedy obok jako nowy dokument. W miejscu podmieniamy tylko
+    skan zapisany tu dla tego dokumentu (``_owned_scan``). Bez blokady
+    doradczej dokumentów kontraktu (``store.lock_contract_documents``):
+    wołający trzyma już wiersz kontraktu, a ta blokada musi iść przed nim.
 
     Zwraca ścieżkę podmienionego pliku (albo ``None``). Stary plik usuwa
     wołający PO commicie (``discard``): usunięty wcześniej zostawiałby po
@@ -162,41 +211,51 @@ async def attach(
 
     suffix = PurePath(filename).suffix.lower()
     digest = hashlib.sha256(data).hexdigest()
-    path, size = storage_service.save_contract_document(
-        contract_id,
-        filename,
-        io.BytesIO(data),
-        # Klucz z treści: ponowienie po awarii trafia w ten sam plik, a inny
-        # skan zapisuje się obok — plik, na który wskazuje wiersz, zostaje
-        # nietknięty do commitu.
-        stored_name=f"b2b-document-{doc.id}-skan-{digest[:16]}{suffix}",
-    )
     previous_id = signed_scan_id(doc)
     record = (
         await db.get(ContractDocument, previous_id) if previous_id is not None else None
     )
-    if record is not None and record.contract_id != contract_id:
+    if record is not None and (
+        record.contract_id != contract_id or not _owned_scan(doc, record)
+    ):
         record = None
+    existing = (
+        await _existing_copy(db, contract_id, digest, len(data))
+        if record is None
+        else None
+    )
     replaced_path: str | None = None
-    if record is None:
-        record = ContractDocument(
-            contract_id=contract_id,
-            doc_type=ContractDocumentType.annex,
-            source="upload",
-        )
-        db.add(record)
+    if existing is not None:
+        record = existing
     else:
-        # Skan wysłany już do SharePointa wraca do wysyłki — synchronizacja
-        # podmieni tam treść tego samego pliku.
-        requeue_replaced_content(record, content_sha256=digest, filename=filename)
-        if record.file_path != path:
-            replaced_path = record.file_path
-    record.filename = filename
-    record.file_path = path
-    record.content_type = content_type
-    record.size_bytes = size
-    record.content_sha256 = digest
-    record.uploaded_by = actor_id
+        path, size = storage_service.save_contract_document(
+            contract_id,
+            filename,
+            io.BytesIO(data),
+            # Klucz z treści: ponowienie po awarii trafia w ten sam plik, a inny
+            # skan zapisuje się obok — plik, na który wskazuje wiersz, zostaje
+            # nietknięty do commitu.
+            stored_name=f"b2b-document-{doc.id}-skan-{digest[:16]}{suffix}",
+        )
+        if record is None:
+            record = ContractDocument(
+                contract_id=contract_id,
+                doc_type=ContractDocumentType.annex,
+                source="upload",
+            )
+            db.add(record)
+        else:
+            # Skan wysłany już do SharePointa wraca do wysyłki — synchronizacja
+            # podmieni tam treść tego samego pliku.
+            requeue_replaced_content(record, content_sha256=digest, filename=filename)
+            if record.file_path != path:
+                replaced_path = record.file_path
+        record.filename = filename
+        record.file_path = path
+        record.content_type = content_type
+        record.size_bytes = size
+        record.content_sha256 = digest
+        record.uploaded_by = actor_id
     await db.flush()
 
     for amendment in amendments:
@@ -206,15 +265,24 @@ async def attach(
         **(doc.effect_summary or {}),
         "signed_scan_document_id": record.id,
     }
+    details: dict[str, Any] = {
+        "contract_id": contract_id,
+        "contract_document_id": record.id,
+    }
+    if existing is not None:
+        details["existing_document"] = True
     db.add(
         Activity(
             entity_type="b2b_contract_document",
             entity_id=doc.id,
             action="signed_scan_attached",
             user_id=actor_id,
-            details={"contract_id": contract_id, "contract_document_id": record.id},
+            details=details,
         )
     )
+    if existing is not None:
+        # Do Dokumentów nic nie doszło — skanem został plik, który już tam był.
+        return None
     db.add(
         Activity(
             entity_type="contract",
@@ -224,7 +292,7 @@ async def attach(
             details={
                 "filename": filename,
                 "doc_type": ContractDocumentType.annex.value,
-                "size_bytes": size,
+                "size_bytes": record.size_bytes,
             },
         )
     )

@@ -79,6 +79,17 @@ Reguły, które łatwo cofnąć:
   etapu: rola czyta albo pisze dokumenty kandydata, a do pary wymagany jest
   dostęp do rekrutacji (`ensure_job_read_access` / `ensure_job_membership`).
   Plik do klienta nie ma żółtych „UZUPEŁNIJ” — puste pole zostaje puste.
+- **Daty i certyfikaty kontroluje kod (staging 19.11.2026, „Tester” CEZ).**
+  Model wpisał „1,5 roku” w „Data wydania”, certyfikat „preparing for exam”
+  jako posiadany i dopisywał miesiąc do okresu „2022 – obecnie”. Pole z „Data”
+  w etykiecie przyjmuje tylko „MM.RRRR”/„RRRR”, pole z „Okres” — „data – data”
+  albo „data – obecnie”; rok i miesiąc wartości muszą stać w cytacie, „obecnie”
+  — gdy cytat mówi, że praca trwa. W wierszu certyfikatu (etykieta albo nazwa
+  wiersza z „certyfikat”) wartość z „w trakcie/przygotow/preparing” w wartości
+  lub cytacie odpada; „NIE” i 0 pkt zostają. Wielowierszowy cytat pola z datą
+  liczy się po liniach — dwukolumnowy PDF stawia kolumnę boczną między
+  początkiem a końcem okresu. Prompt F36 od wersji 4 każe wpisać wszystkie
+  stanowiska (Asseco jako 4. wiersz wcześniej nie trafiało do `extra_rows`).
 
 ## Ekrany i bramki (PR 3)
 
@@ -99,7 +110,11 @@ Reguły, które łatwo cofnąć:
   („Wypełnij z CV i screeningu”, „Uzupełnij braki”, „Pobierz Word”, „Wygeneruj
   też CV firmowe”), okno `ClientFormDialog` z brakami najpierw i źródłem
   każdej wartości; pusty opis w „Wiersz N” pokazuje pierwszą wypełnioną komórkę
-  wiersza (firmę). Pliki rekrutacji: plakietka „Wzór formularza”, co NEXUS
+  wiersza (firmę). Ta sama karta (i karta tabeli punktowej) stoi na górze
+  zakładki „CV” rozwiniętego panelu (`CvHandoffWorkbench`, od 19.11.2026,
+  na każdym etapie) — rozwinięty panel to domyślny widok pracy rekrutera,
+  a do tej daty pokazywał tam tylko „Jeszcze nie ma CV do klienta”.
+  Pliki rekrutacji: plakietka „Wzór formularza”, co NEXUS
   rozpoznał, „Ustaw jako wzór” / „To nie jest wzór”. Edytor reguły CV:
   „Dokument do klienta”.
 - **Odczyt cytatów (po próbie na stagingu 26.10.2026):** tekst CV
@@ -107,6 +122,18 @@ Reguły, które łatwo cofnąć:
   cytat z kilku punktów i kod odrzucał opisy projektów. Cytat może być listą
   fragmentów — każdy musi stać w źródle osobno. Miejsce zamieszkania wpisuje
   kod z profilu (`candidates.city`), jak imię i nazwisko.
+- **Fragment z nowymi liniami liczy się po liniach, w każdym polu (staging
+  19.11.2026, Asseco w „Testerze” CEZ).** Kolumna boczna wchodzi w środek
+  punktu (osobną linią albo na początku tej samej: „…based on existing” /
+  „Collaboration & Communication specifications,”), a stopka strony z klauzulą
+  RODO — między dwie linie punktu. Każda linia musi stać w źródle dosłownie,
+  w kolejności cytatu i najwyżej `LINE_GAP_MAX` (400) znaków za poprzednią.
+  Zastępuje to dzielenie po liniach tylko w polach z datą.
+- **Opis nie może być wielokrotnie dłuższy od swoich cytatów** (`QUOTE_SHARE_MIN`
+  = 0,4 dla pól z „Opis” w etykiecie). Opis to przekład, więc kod nie porówna go
+  słowo w słowo; na stagingu model wpisał 7 opisów z jednym krótkim cytatem
+  (11–18 % długości), a rzetelne odpowiedzi mają 51–197 %. Prompt F36 od
+  wersji 5 każe dać fragment na każdą czynność z opisu.
 
 ## Tabela punktowa (Excel) obok formularza (0525, 27.10.2026)
 
@@ -151,3 +178,51 @@ NEXUS jak formularz.
   rekrutacjach i profilach osób CEZ) — odczyt sprawdzony na arkuszu zbudowanym
   według treści zał. 5b (14 pól, maks. 33 pkt jak „Razem” w PDF). Inny układ =
   „nie rozpoznano” przy oznaczeniu, plik zostaje zwykłym plikiem.
+
+## Lata doświadczenia liczy kod ze stanowisk (19.11.2026)
+
+DL CEZ: „nie daje rady odczytać lat doświadczenia w danej technologii i trzeba
+ręcznie”. Pomiar na stagingu (rekrutacja „Tester”, trzy osoby): 0 z 9 pól
+„Liczba lat doświadczenia” u każdej — model nie liczy dat. Decyzja Artura
+(wariant B z makiet + „Dodaj do ściągi screeningu” z wariantu C):
+
+- **Model oddaje stanowiska, kod liczy lata** (`services/client_form_years.py`,
+  prompt F36 od wersji 6). Model w `roles` wypisuje stanowiska z cytatem z datami,
+  a w `years` przy każdym polu z „Liczba lat”/„lat doświadcz” — które stanowiska
+  mają kompetencję: `role` (opis ją nazywa) albo `implied` (praca jej wymagała),
+  z cytatem z opisu. Kod przyjmuje stanowisko tylko, gdy rok (i miesiąc, gdy go
+  podaje) stoi w cytacie, a „obecnie” — gdy cytat mówi, że praca trwa. Miesiące
+  liczy jak `cv_tenure_checks`: nakładki raz, „obecnie” do bieżącego miesiąca
+  (`business_today`), rok bez miesiąca od stycznia do grudnia.
+- **Domyślnie liczą się role „wprost” i „pośrednio”** (Artur woli wyższą liczbę
+  z ról opisujących pracę). Sama lista umiejętności lat nie daje — pole zostaje
+  puste z pytaniem. Łączny staż („Łączna liczba lat”) = wszystkie stanowiska.
+- **„Ponad minimalne wymagania”**: minimum musi stać w cytacie z zasad oceny,
+  w wymaganiach wzoru albo w nazwie wiersza; bez niego pole zostaje puste
+  (`minimum_unknown`) — cały staż w tym wierszu zawyżałby ocenę. Zasady oceny
+  idą od tego dnia także do wypełnienia formularza Word, nie tylko Excela.
+- **Punkty z lat w tabeli punktowej**: model podaje progi (`thresholds`) i cytat
+  z zasad; kod bierze tylko próg, którego obie liczby stoją w cytacie, i nigdy
+  ponad `max_points`.
+- **Siatka zapisuje się w `fields[id]["years"]`** (bez nowej kolumny): stanowiska
+  z dowodem, `on`, pytanie, `ask`. Wpis rekrutera w polu nie gubi siatki,
+  a „Wypełnij ponownie” zostawia pytania wysłane do screeningu i role zdjęte
+  w siatce (`carry_selection`, dopasowanie po okresie i firmie, bo klucze r1/r2
+  zmieniają się między biegami modelu) — inaczej zdjęta praca spoza IT wracała
+  do przetargu bez sygnału.
+- **Odpowiedź ze screeningu wraca do formularza:** stanowisko albo projekt
+  z okresem podany w notatce screeningu model wpisuje do `roles` z cytatem
+  z notatki (prompt od 20.11.2026).
+- **Wiersz testu u klienta i wolne „Wiersz N”** nie są polami lat (`NOT_YEARS_ROW`).
+  Okno formularza po „Zapisz lata” nie kasuje niezapisanych wpisów w innych polach.
+  `PUT …/client-form/years` (`roles`: id pola → klucze ról, `ask`: pola do ściągi)
+  przelicza wartość na serwerze — przeglądarka nie przysyła liczby lat. Gdy kod
+  nie policzył nic, a model dał wartość z cytatem (np. „0” z notatki), zostaje
+  wartość modelu.
+- **Ekrany:** na górze okna formularza siatka „Lata w kompetencjach · z ról w CV”
+  (`ClientFormYearsGrid`, kolumny = stanowiska, ● wprost, ◐ pośrednio, ○ zdjęta)
+  z „Zapisz lata” i listą „Lat nie ma w CV” → „Dodaj do ściągi screeningu”.
+  Wysłane pytania stoją w formularzu screeningu pod pytaniami Profilu Championa
+  („Do dopytania pod formularz klienta”, `ClientFormScreeningAsks`); awaria
+  odczytu go nie pokazuje, jak innych podpowiedzi formularza. Link dla kandydata
+  do samodzielnego uzupełnienia — później (decyzja 19.11.2026).

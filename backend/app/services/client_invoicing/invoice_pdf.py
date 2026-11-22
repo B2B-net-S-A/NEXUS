@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+from datetime import date
 from decimal import Decimal
 from html import escape
 from typing import Any, Optional
@@ -28,6 +29,27 @@ QR_BASES = {
     "prod": "https://qr.ksef.mf.gov.pl/invoice",
     "test": "https://qr-test.ksef.mf.gov.pl/invoice",
 }
+#: Arkusz stylów PDF-u faktury — wspólny z wizualizacją faktury z KSeF
+#: (``hr/ksef/fa_visual.py``), żeby obie wyglądały tak samo.
+STYLE = (
+    "@page{size:A4;margin:14mm 14mm 18mm}"
+    "body{font-family:'DejaVu Sans','Liberation Sans',sans-serif;font-size:9pt;color:#1f2933}"
+    ".head{display:flex;justify-content:space-between;align-items:flex-start}"
+    "h1{font-size:16pt;margin:0}.number{font-size:11pt;margin:2pt 0 6pt}"
+    ".meta{margin:1pt 0;color:#52606d}"
+    ".ksef{text-align:center;font-size:7pt}.ksef img{width:34mm;height:34mm}"
+    ".parties{display:flex;gap:12mm;margin:10pt 0}.party{flex:1}"
+    ".party h3,h3{font-size:9pt;color:#52606d;margin:6pt 0 2pt}.party p{margin:0}"
+    "table{border-collapse:collapse;width:100%;margin-top:4pt}"
+    "th{text-align:left;border-bottom:1px solid #9aa5b1;padding:3pt;font-size:7.5pt;color:#52606d}"
+    "td{border-bottom:0.5px solid #d9e2ec;padding:3pt;vertical-align:top}"
+    ".num{text-align:right;white-space:nowrap}"
+    ".sum{width:60%;margin-left:40%}.total td{font-weight:700;border-bottom:none}"
+    ".gross{text-align:right;font-size:11pt;font-weight:700;margin:6pt 0}"
+    ".note{font-size:8pt;color:#52606d;margin:3pt 0}"
+    ".draft{color:#b42318;font-weight:700;font-size:11pt;border:1px solid #b42318;"
+    "padding:3pt;text-align:center}"
+)
 TITLES = {
     "VAT": "Faktura VAT",
     "KOR": "Faktura korygująca",
@@ -43,7 +65,7 @@ def qr_url(
     return f"{base}/{seller_nip}/{issue_day.strftime('%d-%m-%Y')}/{digest.rstrip('=')}"
 
 
-def _qr_svg(url: str) -> str:
+def qr_svg(url: str) -> str:
     import segno  # leniwy import: tylko przy generowaniu PDF-u
 
     return segno.make(url, error="m").svg_data_uri(scale=3, border=1)
@@ -184,6 +206,7 @@ def render_html(
     )
 
     notes: list[str] = []
+    appendix: list[str] = []
     codes = {line.get("vat_rate") for line in invoice.lines or []}
     if codes & fa3_build.REVERSE_CHARGE_RATES:
         notes.append("Odwrotne obciążenie.")
@@ -195,7 +218,19 @@ def render_html(
             f"Kurs średni NBP {currency} z {invoice.fx_date.strftime('%d.%m.%Y') if invoice.fx_date else '—'}: "
             f"{escape(fa3_build.plain(invoice.fx_rate))} zł; VAT w złotych: {escape(_money(fa3_build.money(vat_pln), 'PLN'))}."
         )
-    if invoice.invoice_type == "KOR":
+    collective = (
+        invoice.collective_correction if invoice.invoice_type == "KOR" else None
+    )
+    if collective:
+        corrected = list(collective.get("invoices") or [])
+        notes.append(
+            "Korekta zbiorcza (art. 106j ust. 3 ustawy o VAT) — opust dotyczy "
+            f"{len(corrected)} faktur za okres {escape(str(collective.get('period') or ''))}, "
+            "wymienionych niżej. "
+            f"Przyczyna: {escape(invoice.correction_reason or '')}."
+        )
+        appendix.append(_corrected_table(corrected))
+    elif invoice.invoice_type == "KOR":
         notes.append(
             f"Korekta faktury {escape(corrected_number or '')}. "
             f"Przyczyna: {escape(invoice.correction_reason or '')}."
@@ -227,7 +262,7 @@ def render_html(
         )
         ksef = (
             "<div class='ksef'>"
-            f"<img src='{_qr_svg(url)}' alt='Kod QR weryfikacji faktury w KSeF'>"
+            f"<img src='{qr_svg(url)}' alt='Kod QR weryfikacji faktury w KSeF'>"
             f"<p>{escape(invoice.ksef_number)}</p></div>"
         )
     watermark = (
@@ -249,27 +284,11 @@ def render_html(
         + "".join(tables)
         + totals
         + "".join(f"<p class='note'>{note}</p>" for note in notes)
+        + "".join(appendix)
     )
     return (
         "<!DOCTYPE html><html lang='pl'><head><meta charset='utf-8'>"
-        f"<title>{escape(title)} {escape(number)}</title><style>"
-        "@page{size:A4;margin:14mm 14mm 18mm}"
-        "body{font-family:'DejaVu Sans','Liberation Sans',sans-serif;font-size:9pt;color:#1f2933}"
-        ".head{display:flex;justify-content:space-between;align-items:flex-start}"
-        "h1{font-size:16pt;margin:0}.number{font-size:11pt;margin:2pt 0 6pt}"
-        ".meta{margin:1pt 0;color:#52606d}"
-        ".ksef{text-align:center;font-size:7pt}.ksef img{width:34mm;height:34mm}"
-        ".parties{display:flex;gap:12mm;margin:10pt 0}.party{flex:1}"
-        ".party h3,h3{font-size:9pt;color:#52606d;margin:6pt 0 2pt}.party p{margin:0}"
-        "table{border-collapse:collapse;width:100%;margin-top:4pt}"
-        "th{text-align:left;border-bottom:1px solid #9aa5b1;padding:3pt;font-size:7.5pt;color:#52606d}"
-        "td{border-bottom:0.5px solid #d9e2ec;padding:3pt;vertical-align:top}"
-        ".num{text-align:right;white-space:nowrap}"
-        ".sum{width:60%;margin-left:40%}.total td{font-weight:700;border-bottom:none}"
-        ".gross{text-align:right;font-size:11pt;font-weight:700;margin:6pt 0}"
-        ".note{font-size:8pt;color:#52606d;margin:3pt 0}"
-        ".draft{color:#b42318;font-weight:700;font-size:11pt;border:1px solid #b42318;"
-        "padding:3pt;text-align:center}"
+        f"<title>{escape(title)} {escape(number)}</title><style>{STYLE}"
         "</style></head><body>" + body + "</body></html>"
     )
 
@@ -284,6 +303,27 @@ def _table(lines: list[dict[str, Any]], currency: str, start: int) -> str:
     )
 
 
+def _corrected_table(items: list[dict[str, Any]]) -> str:
+    rows = "".join(
+        f"<tr><td>{index}</td><td>{escape(str(item.get('number') or ''))}</td>"
+        f"<td>{escape(_day(item.get('issue_date')))}</td>"
+        f"<td>{escape(str(item.get('ksef_number') or '—'))}</td></tr>"
+        for index, item in enumerate(items, start=1)
+    )
+    return (
+        "<h3>Faktury korygowane</h3><table><thead><tr><th>Lp.</th>"
+        "<th>Numer faktury</th><th>Data wystawienia</th><th>Numer KSeF</th>"
+        f"</tr></thead><tbody>{rows}</tbody></table>"
+    )
+
+
+def _day(raw: Any) -> str:
+    try:
+        return date.fromisoformat(str(raw)[:10]).strftime("%d.%m.%Y")
+    except ValueError:
+        return str(raw or "")
+
+
 def render_pdf(html: str) -> bytes:
     from weasyprint import HTML
 
@@ -295,4 +335,4 @@ def filename(invoice: ClientIssuedInvoice) -> str:
     return f"faktura-{stem}.pdf"
 
 
-__all__ = ["filename", "qr_url", "render_html", "render_pdf"]
+__all__ = ["STYLE", "filename", "qr_svg", "qr_url", "render_html", "render_pdf"]

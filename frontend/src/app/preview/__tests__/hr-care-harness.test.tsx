@@ -49,21 +49,27 @@ afterEach(() => {
 });
 
 describe("/preview/hr-care", () => {
-  it("zakładka „Opieka” = karta konsultanta: zdrowie, liczby, wiedza, sprawy, historia, okna bez zapytań", async () => {
+  it("zakładka „Opieka i rozmowy” (wariant A): opiekun, strumień z polem, plan, opinie, sprawy, projekt — bez zapytań", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     window.history.replaceState({}, "", "/preview/hr-care");
     render(<HrCarePreviewPage />);
 
     const card = await screen.findByTestId("consultant-card");
     expect(useAuthStore.getState().user?.role).toBe("talent_community_manager");
-    expect(within(card).getByRole("heading", { name: "Michał Konsultantowy" })).toBeInTheDocument();
-    expect(within(card).getByText("Dobrze")).toBeInTheDocument();
-    expect(within(card).getByRole("region", { name: "Najważniejsze liczby" })).toHaveTextContent("4 / 5");
-    expect(within(card).getByRole("region", { name: "Najważniejsze liczby" })).toHaveTextContent("było 5 / 5");
+    expect(within(card).getByRole("group", { name: "Opiekun i rytm" })).toHaveTextContent("Opiekun: Natalia Opiekuńcza");
+    // Imię i zdrowie stoją w nagłówku kontraktu i w pasie „Co się dzieje”.
+    expect(within(card).queryByRole("heading", { name: "Michał Konsultantowy" })).toBeNull();
+    const stream = within(card).getByRole("list", { name: "Strumień rozmów i notatek" });
+    expect(stream).toHaveTextContent("Trzy dni bez dostępu do VPN");
+    expect(stream).toHaveTextContent("Klient pyta, czy Michał może zostać po lutym");
+    expect(stream).toHaveTextContent("Szybko wszedł w projekt");
+    expect(stream).toHaveTextContent("Kamil Testowy");
+    const opinions = within(card).getByRole("region", { name: "Zadowolenie i opinie" });
+    expect(opinions).toHaveTextContent("4 / 5");
+    expect(opinions).toHaveTextContent("było 5 / 5");
+    expect(opinions).toHaveTextContent("1 opinia");
     expect(within(card).getByRole("list", { name: "Technologie w projekcie" })).toHaveTextContent("Kafka");
-    expect(within(card).getByText("Sprawy · 2 otwarte")).toBeInTheDocument();
-    expect(within(card).getByText("Rozmowa o przedłużeniu")).toBeInTheDocument();
-    expect(within(card).getByRole("list", { name: "Historia konsultanta" })).toHaveTextContent("Dostęp do VPN klienta");
+    expect(within(card).getByRole("region", { name: "Sprawy" })).toHaveTextContent("2 otwarte");
     // Makieta S3: sprawy z obszarem, źródłem i terminem; zamknięte jedną linią.
     const caseRows = within(card).getByRole("list", { name: "Sprawy konsultanta" });
     expect(caseRows).toHaveTextContent("Negocjacje · ręcznie · prowadzi Natalia Opiekuńcza · treść tylko w Sprawach");
@@ -72,22 +78,19 @@ describe("/preview/hr-care", () => {
     // Negocjacje bez treści — wiersz bez linku.
     expect(within(caseRows).queryByRole("link", { name: /Rozmowa o przedłużeniu/ })).toBeNull();
     expect(within(card).getByText(/^Zamknięte: Wejście konsultanta · \d\d\.\d\d · 4\/4$/)).toBeInTheDocument();
-    // Makieta P2: plan na górze historii z „za N dni”.
-    expect(within(card).getByRole("list", { name: "Historia konsultanta" })).toHaveTextContent(/Plan: rozmowa według rytmu · za \d+ dni/);
     expect(screen.queryByRole("button", { name: "Karta technologiczna" })).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
 
-    await user.click(within(card).getByRole("button", { name: "Sprawy 4" }));
-    expect(within(card).getByRole("list", { name: "Historia konsultanta" })).not.toHaveTextContent("Telefon");
-    await user.click(within(card).getByRole("button", { name: "Rozmowy 3" }));
+    await user.click(within(card).getByRole("button", { name: /^Opinie klienta 1$/ }));
+    expect(within(card).getByRole("list", { name: "Strumień rozmów i notatek" })).not.toHaveTextContent("Trzy dni bez dostępu");
+    await user.click(within(card).getByRole("button", { name: /^Rozmowy \d+$/ }));
     await user.click(within(card).getByRole("button", { name: "Edytuj" }));
     expect(await screen.findByRole("dialog", { name: "Karta technologiczna" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Anuluj" }));
 
-    await user.click(within(card).getAllByRole("button", { name: "Zapisz rozmowę" })[0]);
+    await user.click(within(card).getByRole("button", { name: "Zapisz rozmowę…" }));
     const talk = await screen.findByRole("dialog", { name: "Rozmowa · Michał Konsultantowy" });
     await user.click(within(talk).getByRole("button", { name: "Anuluj" }));
-    await user.click(within(card).getByRole("button", { name: /Plan kontaktów/ }));
     await user.click(within(card).getAllByRole("button", { name: "Pomiń" })[0]);
     expect(await screen.findByRole("dialog", { name: "Pomiń kontakt" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Anuluj" }));

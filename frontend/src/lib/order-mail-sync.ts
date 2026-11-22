@@ -89,6 +89,90 @@ export function formatAge(iso: string | null, now: number = Date.now()): string 
   return `${Math.floor(hours / 24)} dni temu`;
 }
 
+export type MailboxTone = "neutral" | "info" | "success" | "warning" | "danger";
+
+export interface MailboxSentence {
+  tone: MailboxTone;
+  /** Stan skrzynki — pierwsza część zdania. */
+  title: string;
+  /** Wynik ostatniego sprawdzenia (albo co dalej) — druga część zdania. */
+  detail: string;
+  /** Szczegół mówi o błędzie biegu — czerwony tekst. */
+  detailIsError: boolean;
+}
+
+/**
+ * Stan skrzynki jednym zdaniem nad kolejką (przebudowa 20.11.2026, wariant A).
+ *
+ * Bez nazw zmiennych środowiskowych — do tej daty wyłączona skrzynka mówiła
+ * „ORDER_MAIL_INGEST_ENABLED=false”. Liczby opisują OSTATNIE sprawdzenie,
+ * nie bieżące zaległości (UAT B75: „0 do weryfikacji” obok „(2)” na zakładce),
+ * a Delivery Lead (`scoped`) dowiaduje się, że zakładki liczą jego portfel.
+ */
+export function mailboxSentence(
+  status: OrderMailSyncStatus | null,
+  opts: { statusError: boolean; checking: boolean; scoped?: boolean },
+): MailboxSentence {
+  const busy = opts.checking || Boolean(status?.running);
+  const last = status?.last_completed ?? null;
+  if (opts.statusError) {
+    return {
+      tone: "warning",
+      title: "Nie udało się pobrać stanu skrzynki.",
+      detail: "Kolejka niżej działa — nie wiadomo tylko, jak jest świeża.",
+      detailIsError: false,
+    };
+  }
+  if (!status) return { tone: "neutral", title: "Sprawdzam stan skrzynki…", detail: "", detailIsError: false };
+  const interrupted =
+    status.interrupted && !busy
+      ? " Poprzednie sprawdzenie zostało przerwane (restart aplikacji) — następne uruchomi się samo."
+      : "";
+  if (!status.enabled) {
+    return {
+      tone: "neutral",
+      title: "Pobieranie zamówień z maila jest wyłączone.",
+      detail: `Skrzynka zamowienia@ nie jest teraz sprawdzana — włącza ją administrator.${
+        last ? ` Ostatnie sprawdzenie: ${formatAge(last.finished_at)}.` : ""
+      }`,
+      detailIsError: false,
+    };
+  }
+  if (busy) {
+    return {
+      tone: "info",
+      title: "Sprawdzam skrzynkę zamowienia@…",
+      detail: "Nowe wiadomości pojawią się w kolejce po zakończeniu sprawdzania.",
+      detailIsError: false,
+    };
+  }
+  if (!last) {
+    return {
+      tone: "success",
+      title: `Skrzynka sprawdzana automatycznie co ${status.interval_minutes} min, jeszcze nie sprawdzana.`,
+      detail: `Pierwsze sprawdzenie uruchomi się samo albo po kliknięciu przycisku.${interrupted}`,
+      detailIsError: false,
+    };
+  }
+  const title = `Skrzynka sprawdzana automatycznie co ${status.interval_minutes} min, ostatnio ${formatAge(last.finished_at)} (${reasonLabel(last.reason)}).`;
+  if (last.status === "error") {
+    return {
+      tone: "danger",
+      title,
+      detail: `Sprawdzenie nie powiodło się: ${last.error ?? "błąd bez opisu"}.${interrupted}`,
+      detailIsError: true,
+    };
+  }
+  const partial = last.status === "partial" && last.error ? ` · ${last.error}` : "";
+  const scope = opts.scoped ? " Zakładki niżej liczą Twój portfel klientów." : "";
+  return {
+    tone: "success",
+    title,
+    detail: `W ostatnim sprawdzeniu: ${formatLastRunSummary(last)}${partial}.${scope}${interrupted}`,
+    detailIsError: false,
+  };
+}
+
 /**
  * Tekst powodu bez reprezentacji wyjątku Pythona.
  *

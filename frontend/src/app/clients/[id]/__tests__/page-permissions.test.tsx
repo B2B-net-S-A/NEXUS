@@ -147,9 +147,11 @@ function renderPage() {
   );
 }
 
-// Sekcje profilu (18.11.2026): grupy i podzakładki to przyciski z `aria-current`.
-const contractsGroup = () => screen.queryByRole("button", { name: "Umowy" });
-const contractsSubTab = () => screen.queryByRole("button", { name: "Umowy i aneksy" });
+// Sekcje profilu (19.11.2026: pięć sekcji): grupy i podzakładki to przyciski
+// z `aria-current`. Umowy stoją w „Umowie i pieniądzach”.
+const contractsGroup = () => screen.queryByRole("button", { name: "Umowa i pieniądze" });
+// Od 19.11.2026 „Umowa” to jedna strona: umowy, stawki i raporty.
+const contractsSubTab = () => screen.queryByRole("button", { name: "Umowa" });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -194,7 +196,7 @@ describe("profil klienta — umowy za podglądem kwot klienta", () => {
     expect(contractsSubTab()).toHaveAttribute("aria-current", "page");
   });
 
-  it("bez kwot tego klienta grupa „Umowy” ma tylko raporty — bez umów i stawek", async () => {
+  it("bez kwot tego klienta „Umowa i pieniądze” nie ma umów ani stawek", async () => {
     mocks.canViewClientFinance.mockReturnValue(false);
     renderPage();
 
@@ -219,6 +221,21 @@ describe("profil klienta — umowy za podglądem kwot klienta", () => {
     renderPage();
 
     expect(await screen.findByText("umowy ramowe")).toBeInTheDocument();
+  });
+
+  it("„Umowa” to jedna strona: link `?tab=raporty` otwiera ją ze stawkami i raportami (19.11.2026)", async () => {
+    // jsdom nie przewija — wystarczy, że wywołanie nie wywraca strony.
+    Element.prototype.scrollIntoView = vi.fn();
+    mocks.search = "tab=raporty";
+    renderPage();
+
+    expect(await screen.findByText("umowy ramowe")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Stawki i cennik" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Raporty dla klienta" })).toBeInTheDocument();
+    expect(contractsSubTab()).toHaveAttribute("aria-current", "page");
+    // Stawki i raporty nie są już osobnymi podzakładkami.
+    expect(screen.queryByRole("button", { name: "Stawki i cennik" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Raporty dla klienta" })).not.toBeInTheDocument();
   });
 });
 

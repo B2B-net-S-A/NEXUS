@@ -10,6 +10,11 @@ osobnymi zakładkami modułu.
 
 ## Klienci: jedna lista
 
+- **Od 19.11.2026 lista ma jeden wiersz na klienta i stan współpracy liczony
+  z faktów** („Współpracujemy / Bez bieżącej pracy / Archiwum”), a dawna lista
+  zakresów w zakładkach portfela to „Porządki portfela” —
+  `klienci/lista-klientow-stan-z-faktow.md`. Opis kolumn niżej dotyczy
+  „Porządków portfela”.
 - `/clients` nie ma trybów. Dawne „Raporty dla klientów” (`?view=reports`)
   i „Kluczowe relacje” (`?view=contacts`, `/my-relationships`) otwierają listę.
 - Kolumna **„Umowa ramowa”**: koniec (`do …` albo „bezterminowa”) i drobnym
@@ -27,6 +32,9 @@ osobnymi zakładkami modułu.
   kafelek pulpitu), a nie tryb modułu Klienci.
 
 ## Profil klienta: osiem grup
+
+> **Od 19.11.2026 nieaktualne — pięć sekcji:** `klienci/profil-klienta-piec-sekcji.md`.
+> Opis niżej zostaje jako historia decyzji z 18.11.2026.
 
 - Grupy i podzakładki (`lib/client-tab-groups.ts`, test pilnuje, że każdy klucz
   `?tab=` ma dokładnie jedną grupę): Przegląd · Konsultanci (konsultanci,

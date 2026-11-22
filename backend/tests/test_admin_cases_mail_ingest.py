@@ -53,6 +53,7 @@ class FakeMailbox:
         attachments: list[dict[str, Any]] | None = None,
         headers: list[dict[str, str]] | None = None,
         to: list[str] | None = None,
+        cc: list[str] | None = None,
     ) -> dict[str, Any]:
         marker = uuid.uuid4().hex
         received = datetime.now(timezone.utc) - timedelta(hours=hours_ago)
@@ -65,6 +66,7 @@ class FakeMailbox:
             "receivedDateTime": received.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "hasAttachments": bool(attachments),
             "toRecipients": [{"emailAddress": {"address": a}} for a in to or []],
+            "ccRecipients": [{"emailAddress": {"address": a}} for a in cc or []],
             "body": {"contentType": "html", "content": f"<p>{subject}</p>"},
             "internetMessageHeaders": [
                 *(headers or []),
@@ -341,6 +343,133 @@ async def test_separate_settlements_mailbox_changes_nothing(
     await _run(fake)
 
     assert report["id"] in await _cases_for(fake)
+
+
+async def _areas_for(fake: FakeMailbox) -> dict[str, str]:
+    """graph_message_id → obszar sprawy, do której trafiła wiadomość."""
+    cases = await _cases_for(fake)
+    async with AsyncSessionLocal() as db:
+        rows = await db.execute(
+            select(AdminCase.id, AdminCase.area).where(
+                AdminCase.id.in_(set(cases.values()))
+            )
+        )
+        area_by_case = {row.id: row.area for row in rows}
+    return {message: area_by_case[case_id] for message, case_id in cases.items()}
+
+
+@pytest.fixture
+def shared_support_mailbox(mailbox_on, monkeypatch) -> str:
+    """wsparcie@ czytają oba czytniki (E8), adres rozliczeń jest znany."""
+    from app.core.config import settings
+
+    _settlements_reader(monkeypatch, "internal")
+    monkeypatch.setattr(settings, "CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX", mailbox_on)
+    monkeypatch.setattr(
+        settings, "CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES", "Rozliczenia@example.com"
+    )
+    return mailbox_on
+
+
+@pytest.mark.asyncio
+async def test_question_to_settlements_address_gets_settlements_area(
+    shared_support_mailbox,
+) -> None:
+    """Decyzja z 19.11: pytanie na rozliczenia@ (Do albo DW) to obszar „Rozliczenia”."""
+    fake = FakeMailbox()
+    in_to = fake.add(
+        subject="Pytanie o fakturę", hours_ago=4, to=["rozliczenia@example.com"]
+    )
+    in_cc = fake.add(
+        subject="Godziny za październik",
+        hours_ago=3,
+        to=["opiekun@example.com"],
+        cc=["ROZLICZENIA@example.com"],
+    )
+    # Temat ze słowem z innego obszaru nie wygrywa z adresem rozliczeń.
+    keyword = fake.add(
+        subject="Aneks do umowy a faktura", hours_ago=2, to=["rozliczenia@example.com"]
+    )
+
+    result = await _run(fake)
+
+    assert result["created"] == 3
+    assert result.get("routed_settlements", 0) == 0
+    areas = await _areas_for(fake)
+    assert areas[in_to["id"]] == "settlements"
+    assert areas[in_cc["id"]] == "settlements"
+    assert areas[keyword["id"]] == "settlements"
+
+
+@pytest.mark.asyncio
+async def test_mail_without_settlements_address_in_headers_keeps_subject_area(
+    shared_support_mailbox,
+) -> None:
+    """Ukryta kopia i administracja@: adresu rozliczeń nie ma w Do/DW, obszar z tematu."""
+    fake = FakeMailbox()
+    # Ukryta kopia: w nagłówkach tylko widoczni adresaci, bez rozliczenia@.
+    blind_copy = fake.add(
+        subject="Pytanie o fakturę", hours_ago=3, to=["opiekun@example.com"]
+    )
+    administration = fake.add(
+        subject="Pytanie o fakturę", hours_ago=2, to=["administracja@example.com"]
+    )
+    offboarding = fake.add(
+        subject="Zwrot sprzętu", hours_ago=1, to=["administracja@example.com"]
+    )
+
+    await _run(fake)
+
+    areas = await _areas_for(fake)
+    assert areas[blind_copy["id"]] == "administration"
+    assert areas[administration["id"]] == "administration"
+    assert areas[offboarding["id"]] == "offboarding"
+
+
+@pytest.mark.asyncio
+async def test_settlements_area_needs_configured_addresses(
+    mailbox_on, monkeypatch
+) -> None:
+    """Bez ``CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES`` nic się nie zmienia."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES", "")
+    fake = FakeMailbox()
+    question = fake.add(
+        subject="Pytanie o fakturę", hours_ago=1, to=["rozliczenia@example.com"]
+    )
+
+    await _run(fake)
+
+    assert (await _areas_for(fake))[question["id"]] == "administration"
+
+
+@pytest.mark.asyncio
+async def test_reply_with_settlements_address_keeps_case_area(
+    shared_support_mailbox,
+) -> None:
+    """„Re:” z rozliczenia@ w DW dołącza do sprawy i nie zmienia jej obszaru."""
+    fake = FakeMailbox()
+    first = fake.add(
+        subject="Pytanie o fakturę", hours_ago=3, to=["administracja@example.com"]
+    )
+    await _run(fake)
+
+    reply = fake.add(
+        subject="Re: Pytanie o fakturę",
+        hours_ago=1,
+        conversation=first["conversationId"],
+        to=["administracja@example.com"],
+        cc=["rozliczenia@example.com"],
+    )
+    second = await _run(fake)
+
+    assert second["attached"] == 1
+    assert second.get("created", 0) == 0
+    cases = await _cases_for(fake)
+    assert cases[reply["id"]] == cases[first["id"]]
+    areas = await _areas_for(fake)
+    assert areas[reply["id"]] == "administration"
 
 
 @pytest.mark.asyncio

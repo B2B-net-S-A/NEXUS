@@ -8,8 +8,14 @@ podpowiedź, nie automat. Kod: `services/contract_document_folders.py`,
 + `components/contracts/documents/`, logika `lib/contract-document-folders.ts`,
 harness `/preview/contract-documents-folders`.
 
-- **Plik bez folderu = sekcja „Aktualna umowa”, zawsze na górze.** Foldery
-  pod nią, jeden poziom (bez podfolderów). `contract_documents.folder_id`,
+- **Plik bez folderu = „Aktualna umowa”, zawsze na górze.** Od 20.11.2026
+  (etap 1b przebudowy strony kontraktu, wariant A) zakładka zaczyna się od kart
+  „Obowiązuje teraz” (umowa — najpierw plik z numerem bieżącej umowy w nazwie,
+  ostatni aneks, najnowsze zamówienie), pod nimi pliki poza folderami w grupach
+  po rodzaju (`components/contracts/documents/document-groups.ts`), w grupie od
+  najnowszej daty z nazwy pliku; bez daty — dzień dodania, a plik z SharePointa
+  bez daty na końcu grupy. Przenoszenie: pole wyboru i pasek albo „⋯ → Przenieś
+  do folderu”. Foldery pod grupami (domyślnie zwinięte), jeden poziom (bez podfolderów). `contract_documents.folder_id`,
   FK `ON DELETE SET NULL` — usunięcie folderu oddaje pliki, nie kasuje ich.
   Nazwa unikalna w kontrakcie bez względu na wielkość liter (409).
 - **Folder „Zamówienia” wynika z typu dokumentu (`order`), nie z `folder_id`.**
@@ -20,7 +26,9 @@ harness `/preview/contract-documents-folders`.
   o folderze, a istniejące zamówienia nie wymagały migracji danych.
   Zamówienia nie przenosi się ręcznie (422), nie da się go usunąć jako
   folderu; wiersz `kind = 'orders'` trzyma tylko własną nazwę po zmianie.
-  Pusty folder „Zamówienia” się nie pokazuje.
+  Pusty folder „Zamówienia” się nie pokazuje. PDF linii i kopia PDF-u jej
+  grupy, które są tym samym plikiem, to jeden wiersz (20.11.2026,
+  `jeden-plik-raz-w-dokumentach-kontraktu.md`).
 - **Podpowiedź „Poprzednia umowa – nr …”** (`build_suggestions`): numer
   z nazwy pliku tylko dla typów umowa/aneks/wypowiedzenie/porozumienie
   („ZUS 03-2026” to miesiąc), bez dat z kropkami i „01-10-2026”. Bieżący

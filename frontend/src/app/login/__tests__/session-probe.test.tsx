@@ -10,10 +10,13 @@
  * nie odpalał.
  *
  * Kryteria akceptacji sprawdzane niżej:
- *  (a) nieważny/odwołany JWT + brak cookie → zero przekierowań ze strony
- *      logowania, sesja wyczyszczona, użytkownik zostaje na /login;
- *  (b) ważny JWT + brak cookie → dokładnie JEDNA walidacja, cookie odtworzone,
- *      dokładnie JEDNO przekierowanie na chronioną trasę.
+ *  (a) martwa sesja (401 z /me) albo sam token starej ścieżki w localStorage
+ *      → zero przekierowań ze strony logowania, sesja wyczyszczona;
+ *  (b) zapamiętany profil + żywe ciasteczko HttpOnly → dokładnie JEDNA
+ *      walidacja i dokładnie JEDNO przekierowanie na chronioną trasę.
+ *
+ * Od 22.11.2026 front nie używa tokenu z JS w ogóle (stara ścieżka usunięta);
+ * zablokowane ciasteczka łapie `recentLoginBounce` (`session-cookie.test.tsx`).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -48,8 +51,6 @@ const HOUR = 60 * 60;
 const nowSec = () => Math.floor(Date.now() / 1000);
 
 const VALID_TOKEN = mkToken({ sub: "7", role: "recruiter", exp: nowSec() + 8 * HOUR });
-const EXPIRED_TOKEN = mkToken({ sub: "7", role: "recruiter", exp: nowSec() - 60 });
-const ROLELESS_TOKEN = mkToken({ sub: "7", exp: nowSec() + 8 * HOUR });
 
 const ME = {
   id: 7,
@@ -83,12 +84,11 @@ describe("LoginPage — walidacja zastanej sesji (F-18)", () => {
     localStorage.clear();
     sessionStorage.clear();
     clearCookies();
-    // Te scenariusze opisują API sprzed ciasteczka HttpOnly: brak
-    // `POST /api/auth/session` (404) → stara ścieżka z tokenem w nagłówku.
-    // Sesję w ciasteczku sprawdza `session-cookie.test.tsx`.
+    // Sesja żyje w ciasteczku HttpOnly; sondę uruchamia zapamiętany profil.
+    // Natywny fetch (np. adopcja starej ścieżki) nie może tu polecieć wcale.
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => Promise.resolve(new Response(null, { status: 404 }))),
+      vi.fn(() => Promise.reject(new Error("unexpected fetch"))),
     );
     searchParams = new URLSearchParams();
     useAuthStore.setState({ user: null, token: null, realUser: null, hydrated: false });
@@ -106,8 +106,8 @@ describe("LoginPage — walidacja zastanej sesji (F-18)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("(b) ważny JWT + brak cookie → jedna walidacja, cookie odtworzone, jedno przekierowanie", async () => {
-    localStorage.setItem("access_token", VALID_TOKEN);
+  it("(b) zapamiętany profil + żywe ciasteczko → jedna walidacja, jedno przekierowanie", async () => {
+    localStorage.setItem("nexus_user", JSON.stringify(ME));
     searchParams = new URLSearchParams("next=/dashboard");
     apiGet.mockImplementation((url: string) => {
       if (String(url) === "/api/auth/methods") {
@@ -123,9 +123,7 @@ describe("LoginPage — walidacja zastanej sesji (F-18)", () => {
     // Dokładnie jedno przekierowanie i dokładnie jedna walidacja — bez pętli.
     expect(replaceMock).toHaveBeenCalledTimes(1);
     expect(meCalls()).toBe(1);
-    // Cookie routingowe odtworzone → middleware przepuści następną nawigację.
-    expect(document.cookie).toContain("nexus_access=");
-    expect(localStorage.getItem("access_token")).toBe(VALID_TOKEN);
+    expect(localStorage.getItem("access_token")).toBeNull();
   });
 
   it("(a) odwołany, ale NIEwygasły JWT (401 z /me) → zero przekierowań, sesja wyczyszczona", async () => {
@@ -152,49 +150,8 @@ describe("LoginPage — walidacja zastanej sesji (F-18)", () => {
     expect(await screen.findByText(/sesja wygasła lub została unieważniona/i)).toBeInTheDocument();
   });
 
-  it("(a) cookies zablokowane przez przeglądarkę → zero przekierowań mimo poprawnego tokenu", async () => {
+  it("(a) sam token w localStorage (stara ścieżka) → nie pyta backendu, sprząta, zostaje na /login", async () => {
     localStorage.setItem("access_token", VALID_TOKEN);
-    // document.cookie jako cichy no-op — dokładnie tak zachowuje się przeglądarka
-    // z zablokowanymi cookies, podczas gdy localStorage nadal działa.
-    const cookieDescriptor = Object.getOwnPropertyDescriptor(Document.prototype, "cookie");
-    Object.defineProperty(document, "cookie", {
-      configurable: true,
-      get: () => "",
-      set: () => {},
-    });
-    apiGet.mockImplementation((url: string) => {
-      if (String(url) === "/api/auth/methods") {
-        return Promise.resolve({ data: { password: true, microsoft: true, self_registration: false } });
-      }
-      if (String(url) === "/api/auth/me") return Promise.resolve({ data: ME });
-      return Promise.reject(new Error(`unexpected GET ${url}`));
-    });
-
-    try {
-      render(<LoginPage />);
-      expect(await screen.findByText(/blokuje pliki cookie/i)).toBeInTheDocument();
-      expect(replaceMock).not.toHaveBeenCalled();
-      expect(localStorage.getItem("access_token")).toBeNull();
-    } finally {
-      delete (document as unknown as Record<string, unknown>).cookie;
-      if (cookieDescriptor) Object.defineProperty(Document.prototype, "cookie", cookieDescriptor);
-    }
-  });
-
-  it("(a) wygasły JWT → nie pyta backendu, czyści sesję, zostaje na /login", async () => {
-    localStorage.setItem("access_token", EXPIRED_TOKEN);
-
-    render(<LoginPage />);
-
-    await waitFor(() => expect(localStorage.getItem("access_token")).toBeNull());
-    expect(meCalls()).toBe(0);
-    expect(replaceMock).not.toHaveBeenCalled();
-  });
-
-  it("(a) JWT bez claim `role` → nie przechodzi (lustro bramki middleware)", async () => {
-    // Middleware odrzuca token bez `role` i KASUJE cookie. Gdyby strona logowania
-    // uznała taki token za dobry, dostalibyśmy pętlę mimo ważnego `exp`.
-    localStorage.setItem("access_token", ROLELESS_TOKEN);
 
     render(<LoginPage />);
 
@@ -204,7 +161,7 @@ describe("LoginPage — walidacja zastanej sesji (F-18)", () => {
   });
 
   it("awaria backendu (5xx) nie niszczy poprawnej sesji i nie przekierowuje", async () => {
-    localStorage.setItem("access_token", VALID_TOKEN);
+    localStorage.setItem("nexus_user", JSON.stringify(ME));
     apiGet.mockImplementation((url: string) => {
       if (String(url) === "/api/auth/methods") {
         return Promise.resolve({ data: { password: true, microsoft: true, self_registration: false } });
@@ -217,8 +174,8 @@ describe("LoginPage — walidacja zastanej sesji (F-18)", () => {
 
     await waitFor(() => expect(meCalls()).toBe(1));
     expect(replaceMock).not.toHaveBeenCalled();
-    // Chwilowa awaria != martwa sesja — token zostaje.
-    expect(localStorage.getItem("access_token")).toBe(VALID_TOKEN);
+    // Chwilowa awaria != martwa sesja — profil zostaje.
+    expect(localStorage.getItem("nexus_user")).not.toBeNull();
   });
 
   it("logowanie formularzem → jedno przejście z postLoginDestination, bez drugiej sondy sesji", async () => {
@@ -250,7 +207,7 @@ describe("LoginPage — walidacja zastanej sesji (F-18)", () => {
     expect(meCalls()).toBe(1);
   });
 
-  it("brak tokenu → żadnej walidacji, zwykły ekran logowania", async () => {
+  it("brak zapamiętanego profilu → żadnej walidacji, zwykły ekran logowania", async () => {
     render(<LoginPage />);
 
     await waitFor(() => expect(apiGet).toHaveBeenCalled());

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -33,6 +34,8 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import UserRole
 from app.services.cpro_bot import flow, runs
 from app.services.cpro_bot import items as bot_items
+from app.services.cv_approved_docx import render_approved_docx
+from app.services.cv_document_assets import default_template
 from tests.test_board_tasks import (
     CPRO_RATE,
     _cleanup,
@@ -108,6 +111,10 @@ async def test_bot_sends_queued_card_and_moves_it_like_wrzucone(
     unique = uuid.uuid4().hex[:6]
     other_job_id = None
     run_ids: list[int] = []
+    frozen_docx = render_approved_docx(WHY_HTML, default_template())
+    pdf_bytes = b"%PDF-1.7\nroute transport fixture"
+    converter = AsyncMock(return_value=pdf_bytes)
+    monkeypatch.setattr("app.api.integrations_cpro_bot.pdf_from_docx", converter)
     async with AsyncSessionLocal() as db:
         await db.execute(
             update(Job)
@@ -198,7 +205,7 @@ async def test_bot_sends_queued_card_and_moves_it_like_wrzucone(
                         version=1,
                         content_html=WHY_HTML,
                         content_sha256="0" * 64,
-                        docx_content=b"PK-docx-bytes",
+                        docx_content=frozen_docx,
                         docx_sha256="1" * 64,
                         docx_filename="B2B_#KYC_Ewa.docx",
                         approved_at=datetime.now(timezone.utc),
@@ -300,7 +307,8 @@ async def test_bot_sends_queued_card_and_moves_it_like_wrzucone(
                 offer["motivation"]
                 == "- Over 6 years at Nordea Bank\n- Practical SQL skills"
             )
-            assert offer["cv_file_name"] == "B2B_KYC_Ewa.docx"
+            assert offer["cv_file_name"] == "B2B_KYC_Ewa.pdf"
+            assert offer["cv_format"] == "pdf" and offer["cv_version"] == 1
             assert "cards" not in body
 
             view = (
@@ -323,8 +331,11 @@ async def test_bot_sends_queued_card_and_moves_it_like_wrzucone(
             assert other_stage.status_code == 404
             cv = await api_client.get(cv_url, headers={"X-Run-Token": token})
             assert cv.status_code == 200, cv.text
-            assert cv.content == b"PK-docx-bytes"
-            assert "B2B_KYC_Ewa.docx" in cv.headers["content-disposition"]
+            assert cv.content == pdf_bytes
+            assert cv.headers["content-type"] == "application/pdf"
+            assert "B2B_KYC_Ewa.pdf" in cv.headers["content-disposition"]
+            assert cv.headers["x-cv-version"] == "1"
+            converter.assert_awaited_once_with(frozen_docx)
             # Wydanie CV botowi zostawia ślad jak API v1: dziennik i audyt osoby.
             async with AsyncSessionLocal() as db:
                 traces = (

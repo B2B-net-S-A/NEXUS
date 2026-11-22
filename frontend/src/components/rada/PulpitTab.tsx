@@ -216,31 +216,21 @@ function Figure({
   );
 }
 
+// Uwagi Rady z 19.11.2026: słupki nie trafiały w kolumny tabeli — sama tabela.
 function YearsPanel({ data }: { data: BoardSummary }) {
-  const max = Math.max(...data.years.flatMap((y) => [y.sales ?? 0, y.costs ?? 0]), 1);
   return (
     <section className="min-w-0 rounded-lg border border-border bg-card p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-foreground">Sprzedaż, koszty i zysk brutto</h2>
         <span className="text-[11px] text-muted-foreground">mln zł netto</span>
       </div>
-      <div className="flex h-[96px] items-end gap-3">
-        {data.years.map((y) => (
-          <div key={y.year} className={cn("flex h-full min-w-0 flex-1 flex-col justify-end", !y.complete && "opacity-60")}>
-            <div className="flex h-full items-end justify-center gap-1">
-              <div className="w-1/2 max-w-5 rounded-t-sm bg-primary" style={{ height: `${((y.sales ?? 0) / max) * 100}%` }} />
-              <div className="w-1/2 max-w-5 rounded-t-sm bg-muted-foreground/35" style={{ height: `${((y.costs ?? 0) / max) * 100}%` }} />
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="mt-2 overflow-x-auto">
-        <table className="w-full min-w-[420px] border-collapse text-[12px]">
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-[12px]">
           <thead>
             <tr className="text-[11px] text-muted-foreground">
               <th className="py-1 text-left font-medium" />
-              {data.years.map((y) => (
-                <th key={y.year} className="py-1 pl-2 text-right font-medium tabular-nums">
+              {data.years.map((y, i) => (
+                <th key={y.year} className={cn("py-1 pl-2 text-right font-medium tabular-nums", phoneHidden(data, i))}>
                   {y.year}
                   {y.complete ? "" : ` (${range(y.result_months ?? 0)})`}
                 </th>
@@ -248,17 +238,19 @@ function YearsPanel({ data }: { data: BoardSummary }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-border tabular-nums">
-            <Row label="Sprzedaż" values={data.years.map((y) => mln(y.sales))} />
-            <Row label="Koszty kontraktorów" values={data.years.map((y) => mln(y.contractors))} />
+            <Row data={data} label="Sprzedaż" values={data.years.map((y) => fmt(y.sales))} />
+            <Row data={data} label="Koszty kontraktorów" values={data.years.map((y) => fmt(y.contractors))} />
             <Row
+              data={data}
               label="Marża na kontraktorach"
-              values={data.years.map((y) => mln(y.contractor_margin))}
+              values={data.years.map((y) => fmt(y.contractor_margin))}
               subs={data.years.map((y) => pct(y.contractor_margin_pct))}
             />
-            <Row label="Koszty biurowe" values={data.years.map((y) => mln(y.office))} />
+            <Row data={data} label="Koszty biurowe" values={data.years.map((y) => fmt(y.office))} />
             <Row
+              data={data}
               label="Zysk brutto"
-              values={data.years.map((y) => mln(y.result))}
+              values={data.years.map((y) => fmt(y.result))}
               subs={data.years.map((y) => pct(y.result_pct))}
               strong
             />
@@ -282,12 +274,19 @@ function currentResult(data: BoardSummary): string {
   return ` Rok ${current.year} liczony za ${range(current.result_months)} — koszty kolejnych miesięcy jeszcze spływają.`;
 }
 
+/** Na telefonie cztery lata się nie mieszczą — najstarszy rok tylko od `sm`. */
+function phoneHidden(data: BoardSummary, index: number): string | false {
+  return data.years.length > 3 && index === 0 && "max-sm:hidden";
+}
+
 function Row({
+  data,
   label,
   values,
   subs,
   strong,
 }: {
+  data: BoardSummary;
   label: string;
   values: string[];
   subs?: string[];
@@ -297,7 +296,7 @@ function Row({
     <tr>
       <td className={cn("py-1.5 pr-2 text-left", strong && "font-semibold")}>{label}</td>
       {values.map((v, i) => (
-        <td key={i} className={cn("py-1.5 pl-2 text-right", strong && "font-semibold")}>
+        <td key={i} className={cn("py-1.5 pl-2 text-right", strong && "font-semibold", phoneHidden(data, i))}>
           {v}
           {subs ? <div className="text-[11px] font-normal text-muted-foreground">{subs[i]}</div> : null}
         </td>
@@ -385,6 +384,64 @@ function MonthRowView({ row }: { row: MonthTableRow }) {
   );
 }
 
+const PHONE_LABELS: Record<string, (row: MonthTableRow) => string> = {
+  previous: (r) => r.label.replace("Wykonanie ", ""),
+  budget: () => "Budżet",
+  current: (r) => r.label.replace("Wykonanie ", ""),
+  "vs-budget": () => "Δ budżet",
+  "vs-previous": (r) => r.label.replace("Odchylenie od ", "Δ "),
+};
+
+/**
+ * Telefon (uwagi Rady z 19.11.2026): dwanaście kolumn miesięcy nie mieści się
+ * na ekranie — miesiące idą wierszami, a wiersze tabeli kolumnami.
+ */
+function MonthsPhone({ rows }: { rows: MonthTableRow[] }) {
+  const cell = "border border-border px-1 py-1 text-right align-top";
+  const body = (pick: (row: MonthTableRow) => MonthCell) =>
+    rows.map((row) => (
+      <td key={row.key} className={cn(cell, row.kind === "budget" && "bg-muted/40", row.key === "current" && "font-semibold")}>
+        {row.kind === "delta" ? (
+          <DeltaCell cell={pick(row)} />
+        ) : (
+          <span className={cn(pick(row).value === null && "text-muted-foreground", pick(row).partial && "italic text-muted-foreground")}>
+            {fmt(pick(row).value)}
+          </span>
+        )}
+      </td>
+    ));
+  return (
+    <table className="w-full border-collapse text-[11px] tabular-nums sm:hidden">
+      <thead>
+        <tr className="text-[10px] text-muted-foreground">
+          <th className="border border-border px-1 py-1 text-left font-medium">mln zł</th>
+          {rows.map((row) => (
+            <th key={row.key} className="border border-border px-1 py-1 text-right font-medium">
+              {(PHONE_LABELS[row.key] ?? ((r: MonthTableRow) => r.label))(row)}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {ROMAN.map((m, i) => (
+          <tr key={m}>
+            <th scope="row" className="border border-border px-1 py-1 text-left align-top font-medium">
+              {m}
+            </th>
+            {body((row) => row.cells[i])}
+          </tr>
+        ))}
+        <tr className="bg-muted/30 font-semibold">
+          <th scope="row" className="border border-border px-1 py-1 text-left align-top">
+            {totalLabel(rows)}
+          </th>
+          {body((row) => row.total)}
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
 /** „Razem I–IX”: suma tylko miesięcy z kompletem faktur roku pokazanego. */
 function totalLabel(rows: MonthTableRow[]): string {
   const current = rows.find((r) => r.key === "current");
@@ -411,7 +468,8 @@ function MonthsPanel({ data, year }: { data: BoardSummary; year: number }) {
           />
         ) : null}
       </div>
-      <div className="overflow-x-auto">
+      <MonthsPhone rows={rows} />
+      <div className="overflow-x-auto max-sm:hidden">
         <table className="w-full min-w-[860px] border-collapse text-[12px] tabular-nums">
           <thead>
             <tr className="text-[11px] text-muted-foreground">

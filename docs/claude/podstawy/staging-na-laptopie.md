@@ -96,7 +96,8 @@ bo stara kopia i inne flagi dawały złe liczby przy działającym stagingu.
 `scripts/staging/nightly_sync.py` (rutyna 00:00, `rutyny-nocne.md`) robi po kolei:
 
 1. Czyta z procesu backendu produkcji przez SSH ustawienia bool i liczbowe oraz
-   listę dozwolonych: `_SCORING_CACHE_INPUTS`, 4 flagi puli i listy klientów. Do
+   listę dozwolonych: `_SCORING_CACHE_INPUTS`, flagi puli, listy klientów, flagi
+   Sprzedaży i dzienny limit próśb o warunki (`CANDIDATE_TERMS_DAILY_LIMIT`). Do
    `.env.staging-flags.local` obok głównego pliku env idzie tylko ta lista. Inne
    różnice trafiają do raportu, bez sekretów: filtr nazw działa już na serwerze.
    Przełączniki integracji i poczty są w compose na sztywno, więc flaga z produkcji

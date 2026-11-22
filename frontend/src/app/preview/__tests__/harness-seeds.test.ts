@@ -940,6 +940,7 @@ describe("/preview/clients-list zasiewa listę klientów i kolumnę „Wymaga uw
   it("nie zostawia stałego klucza bez zasiewu", () => {
     expect(
       missingLiteralKeys(harness, [
+        "components/clients/ClientsList.tsx",
         "components/v2/pages/ClientsListV2.tsx",
         "components/clients/ClientAttention.tsx",
       ]),
@@ -948,6 +949,13 @@ describe("/preview/clients-list zasiewa listę klientów i kolumnę „Wymaga uw
 
   it("zasiewa kalendarz raportów miesiąca kluczem z `useClientAttention`", () => {
     expect(harness).toContain('qc.setQueryData(["client-reports-calendar", warsawToday().slice(0, 7), false]');
+  });
+
+  it("zasiewa pierwszą stronę każdego stanu listy „Klienci” (19.11.2026)", () => {
+    // Klucz: stan, fraza, strona, „moi” — przełączenie stanu to jedno kliknięcie.
+    for (const state of ["working", "idle", "archive"]) {
+      expect(harness).toContain(`["clients-directory", "clients", "${state}", "", 1, false]`);
+    }
   });
 
   it("zasiewa pierwszą stronę każdej zakładki portfela i odcina sieć", () => {

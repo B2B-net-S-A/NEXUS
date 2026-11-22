@@ -60,10 +60,24 @@ _DATA = frozenset(
         "wrong_phone",
         "client_employed",
         "client_other_vendor",
+        "hm_already_interviewed",
     }
 )
+# Jeden słownik (0745, 19.11.2026): kulturowe dopasowanie, termin dostępności
+# i przyjęta inna oferta to sprawa osoby, nie wyszukiwania; rozmowa u tego
+# hiring managera to dane, których system nie miał. Powody klienta zostają
+# w „other”: mówią o decyzji klienta, nie o tym, kogo system dobrał.
 _PERSON = frozenset(
-    {"not_looking", "no_answer", "in_other_process", "client_refused", "contract_form"}
+    {
+        "not_looking",
+        "no_answer",
+        "in_other_process",
+        "client_refused",
+        "contract_form",
+        "culture",
+        "available_too_late",
+        "accepted_other_offer",
+    }
 )
 # Powody, które mogą dotyczyć osoby u całego klienta (`whole_client`).
 CLIENT_WIDE_REASONS = frozenset(
@@ -98,6 +112,15 @@ REASON_LABELS: dict[str, str] = {
     "weak_english": "Angielski za słaby",
     "contract_form": "Forma umowy (UoP / B2B)",
     "cleanup": "Porządki (nie ocena osoby)",
+    "culture": "Nie pasuje kulturowo",
+    "available_too_late": "Dostępna za późno / wypowiedzenie",
+    "accepted_other_offer": "Przyjęła inną ofertę",
+    "hm_already_interviewed": "Już po rozmowie u tego hiring managera",
+    "client_chose_other": "Klient wybrał innego kandydata",
+    "client_interview_weak": "Rozmowa u klienta wypadła słabo",
+    "client_project_closed": "Klient zamknął projekt / przetarg przegrany",
+    "client_after_deadline": "Wysłany do klienta po terminie",
+    "client_no_reason": "Klient nie podał powodu",
     "other": "Inne",
 }
 assert set(REASON_LABELS) == set(REASONS)
@@ -237,6 +260,17 @@ async def system_process_in_decision(
     return process
 
 
+def check_not_looking_until(until: date) -> None:
+    """422, gdy „Nie szuka do” nie jest datą od jutra do dwóch lat. Ta sama
+    reguła przy osobie od systemu i przy karcie dodanej ręcznie (19.11.2026)."""
+    today = business_today()
+    if not today < until <= today + timedelta(days=NOT_LOOKING_MAX_DAYS):
+        raise HTTPException(
+            status_code=422,
+            detail="„Nie szuka do” to data w przyszłości, najwyżej za dwa lata.",
+        )
+
+
 def validate(
     *,
     process: Optional[RecruitmentProcess],
@@ -255,16 +289,7 @@ def validate(
                 status_code=422,
                 detail="Datę „Nie szuka do” podaje się tylko przy powodzie „Nie szuka pracy”.",
             )
-        today = business_today()
-        if (
-            not today
-            < not_looking_until
-            <= today + timedelta(days=NOT_LOOKING_MAX_DAYS)
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail="„Nie szuka do” to data w przyszłości, najwyżej za dwa lata.",
-            )
+        check_not_looking_until(not_looking_until)
     if process is None:
         if reason is not None or learned_from is not None:
             raise HTTPException(

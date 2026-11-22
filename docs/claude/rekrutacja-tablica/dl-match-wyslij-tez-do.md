@@ -67,9 +67,16 @@ Fundament: `dl-przesuwa-bez-blokad.md` (#2581) i „Sam przekazał” (#2582).
   rekrutacja bez stawki wstrzymuje przycisk. Komunikat podsumowuje wysłane,
   kolejkę Cpro, przepuszczone QC i każdą odmowę słowami serwera.
 - **Dzwonki** (typ `stage_changed`, encja = wiersz etapu, żeby dobowy dedup nie
-  zjadał drugiej rekrutacji): prowadzący B i DL rekrutacji B (gdy to nie
-  wysyłający — ważne przy cudzej rekrutacji) — „<DL> wysłał(a) <osoba> do
-  klienta — Match z <A>”; rekruter z A (pierwszy weryfikujący, bez niego prowadzący A,
+  zjadał drugiej rekrutacji): „<DL> wysłał(a) <osoba> do klienta — Match z <A>”
+  dostaje wyłącznie prowadzący B, który w „Moje konto” wybrał „Wszyscy
+  kandydaci…” (`users.stage_moves_all_led_jobs`, `dl_match.target_recipients`).
+  Od 19.11.2026 nie dostaje go ani prowadzący B bez tego wyboru, ani DL
+  rekrutacji B. Zgłoszenie rekrutera („powiadomienia o wysłaniu nie swojego
+  kandydata mam dalej”), decyzje Artura: „nie chcemy, żeby ktoś miał
+  powiadomienia, jak to nie jego kandydat”, a DL „tylko jak jest coś dla niego
+  do zrobienia, inaczej nie”. To informacja bez zadania — nie przywracaj
+  (zastępuje dzwonek DL-a B z 27.10.2026). Zostaje prośba do rekrutera z A:
+  rekruter z A (pierwszy weryfikujący, bez niego prowadzący A,
   nigdy sam DL) — „Daj znać: … poszła też do N rekrutacji” z listą. To prośba,
   nie blokada (decyzja: zadanie dla rekrutera z A); osobnej tabeli zadań nie ma.
 - **Statystyki:** „Sam przekazał” bez zmian w liczeniu; w faktach panelu celów

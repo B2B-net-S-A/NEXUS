@@ -207,10 +207,15 @@ describe("ContractsListV2 — jedna lista z szybkimi filtrami (18.11.2026)", () 
 
     fireEvent.click(pill("Kończące się"));
 
-    // Poprzednia strona zostaje do przyjścia nowej (keepPreviousData).
-    await waitFor(() => expect(screen.queryByText("Paweł Aktywny")).not.toBeInTheDocument());
-    expect(screen.getByText("Jan Wypowiedziany")).toBeInTheDocument();
+    // Wariant A (20.11.2026): „Kończące się” to widok odejść z całym zbiorem
+    // naraz (umowa po umowie), a nie ta sama tabela ze stronami.
+    expect(await screen.findByText("Jan Wypowiedziany")).toBeInTheDocument();
+    expect(screen.getByTestId("contracts-ending-view")).toBeInTheDocument();
+    expect(screen.queryByText("Paweł Aktywny")).not.toBeInTheDocument();
     expect(screen.getByText("Ola Koniecmiesiąca")).toBeInTheDocument();
+    expect(contractCalls()).toContainEqual(
+      expect.objectContaining({ bucket: "ending", group_by_candidate: false, page_size: 100 }),
+    );
     expect(pill("Kończące się")).toHaveAttribute("aria-pressed", "true");
     expect(window.location.search).toBe("?status=all&ending=30");
     // Pigułka już mówi, co jest włączone — bez drugiego chipa w pasku filtrów.

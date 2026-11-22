@@ -26,7 +26,8 @@ Audyt A2 (19.10.2026):
   wyciągu (tylko informacja).
 
 Saldo: wyciąg z ``Bal`` otwarcia (``OPBD``, a bez niego ``PRCD``) i zamknięcia
-(``CLBD``) daje ``BalanceCheck`` z sumą zaksięgowanych pozycji (``Ntry/Amt``).
+(``CLBD``) daje ``BalanceCheck`` z sumą zaksięgowanych pozycji (``Ntry/Amt``),
+datami sald (``Bal/Dt``) i numerem wyciągu (``LglSeqNb`` albo ``ElctrncSeqNb``).
 Odrzuca go Księga (K4a), nie parser.
 
 Plik od użytkownika: parser bez DTD, encji i sieci (lxml ``resolve_entities``
@@ -104,17 +105,36 @@ def _amount(
     return abs(value), (node.get("Ccy") or default_currency).upper()
 
 
-def _balance(statement: etree._Element, codes: tuple[str, ...]) -> Optional[Decimal]:
-    """Saldo wyciągu o pierwszym pasującym kodzie ``Bal/Tp`` (ze znakiem)."""
+def _balance(
+    statement: etree._Element, codes: tuple[str, ...]
+) -> Optional[tuple[Decimal, Optional[date]]]:
+    """Saldo wyciągu o pierwszym pasującym kodzie ``Bal/Tp`` (ze znakiem) i jego data.
 
-    found: dict[str, Decimal] = {}
+    Zła data salda nie odrzuca pliku — wyciąg bez niej nie dowodzi ciągłości.
+    """
+
+    found: dict[str, tuple[Decimal, Optional[date]]] = {}
     for node in statement.findall("{*}Bal"):
         code = _text(node, "{*}Tp/{*}CdOrPrtry/{*}Cd").upper()
         amount = _amount(node.find("{*}Amt"), "")
         if code in codes and code not in found and amount is not None:
             debit = _text(node, "{*}CdtDbtInd") == "DBIT"
-            found[code] = -amount[0] if debit else amount[0]
+            try:
+                day = _date(node, "{*}Dt")
+            except StatementError:
+                day = None
+            found[code] = (-amount[0] if debit else amount[0], day)
     return next((found[code] for code in codes if code in found), None)
+
+
+def _statement_number(statement: etree._Element) -> Optional[int]:
+    """Numer wyciągu banku: ``LglSeqNb``, a bez niego ``ElctrncSeqNb``."""
+
+    for path in ("{*}LglSeqNb", "{*}ElctrncSeqNb"):
+        raw = _text(statement, path)
+        if raw.isdigit():
+            return int(raw)
+    return None
 
 
 def _booked(entry: etree._Element) -> bool:
@@ -265,9 +285,12 @@ def parse(raw: bytes) -> ParsedStatement:
             balances.append(
                 BalanceCheck(
                     statement=number,
-                    opening=opening,
+                    opening=opening[0],
                     movement=movement,
-                    closing=closing,
+                    closing=closing[0],
+                    opening_day=opening[1],
+                    closing_day=closing[1],
+                    number=_statement_number(statement),
                 )
             )
     return ParsedStatement(

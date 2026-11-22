@@ -46,7 +46,12 @@ Reguły:
 * **jedna skrzynka wsparcie@ (E8)**: gdy ta skrzynka jest też skrzynką czytnika rozliczeń
   (``CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX``) i ten czytnik działa, mail z załącznikiem na
   adres rozliczeń zostawiamy rozliczeniom (``support_mail_route``): wynik
-  ``routed_settlements``, bez sprawy.
+  ``routed_settlements``, bez sprawy,
+* **obszar „Rozliczenia”** (decyzja Artura z 19.11.2026): nowa sprawa z maila z adresem
+  z ``CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES`` w „Do” albo „DW” (pytanie o fakturę czy
+  godziny bez załącznika) dostaje ``settlements``, a nie obszar z tematu. Ukryta kopia nie
+  zostawia adresu w nagłówkach, więc taki mail zostaje przy obszarze z tematu. Odpowiedź
+  w wątku istniejącej sprawy nie zmienia jej obszaru.
 
 Klient Graph jest wstrzykiwany (``AdminMailbox``); testy podają fałszywą
 skrzynkę. Prawdziwa skrzynka idzie przez rejestrację HR (``acquire_hr_token``)
@@ -309,6 +314,15 @@ def _attachment_meta(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return meta
 
 
+def _new_case_area(msg: dict[str, Any], subject: Optional[str]) -> str:
+    """Obszar nowej sprawy: adres rozliczeń w „Do”/„DW” wygrywa z tematem."""
+
+    addresses = support_mail_route.settlements_addresses()
+    if addresses and support_mail_route.recipients(msg) & addresses:
+        return rules.SETTLEMENTS_AREA
+    return rules.area_from_subject(subject)
+
+
 def mail_source_key(graph_message_id: str) -> str:
     digest = hashlib.sha256(graph_message_id.encode("utf-8")).hexdigest()[:40]
     return f"mail:{digest}"
@@ -392,7 +406,7 @@ async def _ingest_message(
             db,
             AutomaticCase(
                 title=rules.case_title_from_subject(subject),
-                area=rules.area_from_subject(subject),
+                area=_new_case_area(msg, subject),
                 priority="P2",
                 source="mail",
                 source_key=mail_source_key(graph_id),

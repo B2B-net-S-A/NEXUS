@@ -1,50 +1,60 @@
 "use client";
 
-import { AlertTriangle, ArrowRight, Users } from "lucide-react";
+import type { ReactNode } from "react";
+import { ArrowRight } from "lucide-react";
+
+import {
+  FrameworkStatCard,
+  InvoicingStatCard,
+  JobsStatCard,
+  LatestJobsCard,
+  PeopleCard,
+  PeopleStatCard,
+  ReportsCard,
+} from "@/components/client-profile/ClientOverviewCards";
+import {
+  useClientOverviewAttention,
+  type OverviewAttentionItem,
+} from "@/components/client-profile/overview-attention";
 import { useClientProfile } from "@/components/client-profile/useClientProfile";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { Button } from "@/components/ui/button";
+import { StatusDot } from "@/components/ds/StatusDot";
+import type { ClientTab } from "@/lib/client-tab";
+import { CLIENT_SUBTAB_LABELS } from "@/lib/client-tab-groups";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
-import { formatDate, type ActiveConsultantItem } from "@/types/client-profile";
 
 interface Props {
   clientId: number;
-  /** Przejście do zakładki „Konsultanci” (pełna lista i akcje). */
-  onOpenConsultants?: () => void;
-}
-
-/** Ile osób z „Wymaga uwagi” pokazuje Przegląd; resztę ma zakładka. */
-const ATTENTION_PREVIEW = 5;
-
-function attentionText(row: ActiveConsultantItem): string {
-  const codes = row.attention ?? [];
-  if (codes.includes("no_current_order")) {
-    return row.order_end_date
-      ? `brak bieżącego zamówienia (ostatnie do ${formatDate(row.order_end_date)})`
-      : "brak zamówienia";
-  }
-  if (codes.includes("order_ending")) {
-    return row.order_ending_on
-      ? `zamówienie bez kontynuacji po ${formatDate(row.order_ending_on)}`
-      : "zamówienie bez kontynuacji";
-  }
-  return "umowa wypowiedziana";
+  onOpen: (tab: ClientTab) => void;
+  /** Umowy klienta (podgląd dokumentów): karta umowy ramowej i jej znacznik. */
+  showContracts: boolean;
+  /** Moduł faktur: karta rozliczenia poprzedniego miesiąca. */
+  showInvoicing: boolean;
+  /** Główny Delivery Lead („Imię Nazwisko +1”) — karta „Ludzie klienta”. */
+  deliveryLead?: string | null;
+  /** Sprzęt, statystyki współpracy i notatki — dolny rząd Przeglądu. */
+  children?: ReactNode;
 }
 
 /**
- * Przegląd klienta: karta „Konsultanci” — liczby i osoby, które wymagają
- * uwagi. Pełna lista z umową, zamówieniem, stawkami i akcjami jest w zakładce
- * „Konsultanci” (decyzja Artura 18.11.2026); do 18.11 stała tu cała tabela
- * Obecni / Planowani / Archiwum.
- *
- * Profil NIE pokazuje rekrutacji w żadnej formie — wszystkie rekrutacje klienta
- * żyją w zakładce Projekty. Powód i notatka przegranej (`close_reason` /
- * `close_notes`) nie mają w aplikacji widoku — znany, świadomie odłożony brak.
+ * Przegląd klienta (makieta 19.11.2026, wariant A, decyzja Artura): najpierw
+ * „co zrobić” — sprawy z całego profilu w jednej liście z przejściem do
+ * zakładki — potem stan w czterech liczbach, najnowsze rekrutacje, ludzie
+ * klienta i raporty. Do 19.11.2026 lewa połowa ekranu stała pusta, a sprawy
+ * były rozsiane po pięciu kartach w prawej kolumnie; rekrutacji nie było wcale.
+ * Pełne listy i akcje zostają w zakładkach.
  */
-export function ProfileTab({ clientId, onOpenConsultants }: Props) {
-  // To samo zapytanie czyta nagłówek strony klienta (liczby „Aktywni
-  // konsultanci” i „Aktywne MRR”) i zakładka „Konsultanci” — jeden klucz.
+export function ProfileTab({
+  clientId,
+  onOpen,
+  showContracts,
+  showInvoicing,
+  deliveryLead,
+  children,
+}: Props) {
+  // To samo zapytanie czyta nagłówek strony klienta i zakładka „Konsultanci”.
   const query = useClientProfile(clientId);
+  const attention = useClientOverviewAttention(clientId, { showContracts });
   const { data } = query;
   // 403 ≠ awaria ≠ pusty profil — i awaria ma „Spróbuj ponownie” (audyt S10).
   const viewState = resolveViewState({
@@ -77,71 +87,66 @@ export function ProfileTab({ clientId, onOpenConsultants }: Props) {
     );
   }
 
-  const attention = data.active_consultants.filter((row) => (row.attention?.length ?? 0) > 0);
-  const planned = data.planned_consultants?.length ?? 0;
-  const pending = data.pending_consultants?.length ?? 0;
+  return (
+    <div className="space-y-3">
+      <AttentionPanel items={attention.items} onOpen={onOpen} />
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <PeopleStatCard data={data} onOpen={onOpen} />
+        <JobsStatCard data={data} onOpen={onOpen} />
+        {showInvoicing ? <InvoicingStatCard clientId={clientId} onOpen={onOpen} /> : null}
+        {showContracts ? <FrameworkStatCard clientId={clientId} onOpen={onOpen} /> : null}
+      </div>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-2 lg:items-start">
+        <LatestJobsCard data={data} onOpen={onOpen} />
+        <PeopleCard clientId={clientId} onOpen={onOpen} deliveryLead={deliveryLead} />
+      </div>
+      <div className="@container grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-2 lg:items-start xl:grid-cols-3">
+        <ReportsCard clientId={clientId} onOpen={onOpen} />
+        {children}
+      </div>
+    </div>
+  );
+}
 
+/** „Wymaga uwagi · N” — pusta lista mówi to wprost, zamiast znikać. */
+function AttentionPanel({
+  items,
+  onOpen,
+}: {
+  items: OverviewAttentionItem[];
+  onOpen: (tab: ClientTab) => void;
+}) {
   return (
     <section
-      className="space-y-3 rounded-xl border border-border bg-card p-4 dark:bg-muted"
-      aria-labelledby="client-consultants-summary"
+      className="rounded-xl border border-border bg-card px-4 py-3 shadow-xs dark:bg-muted"
+      aria-labelledby="client-overview-attention"
+      data-tour="client.overview.attention"
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="client-consultants-summary" className="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Users className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-          Konsultanci
-        </h2>
-        {onOpenConsultants ? (
-          <Button size="sm" variant="outline" onClick={onOpenConsultants}>
-            Wszyscy konsultanci <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-          </Button>
-        ) : null}
-      </div>
-      <dl className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-        <div className="flex items-baseline gap-1.5">
-          <dt className="text-muted-foreground">Obecni</dt>
-          <dd className="font-semibold tabular-nums">{data.active_consultants.length}</dd>
-        </div>
-        <div className="flex items-baseline gap-1.5">
-          <dt className="text-muted-foreground">Wymaga uwagi</dt>
-          <dd className={attention.length > 0 ? "font-semibold tabular-nums text-warning-muted-foreground" : "font-semibold tabular-nums"}>
-            {attention.length}
-          </dd>
-        </div>
-        <div className="flex items-baseline gap-1.5">
-          <dt className="text-muted-foreground">Planowani</dt>
-          <dd className="font-semibold tabular-nums">{planned}</dd>
-        </div>
-        {pending > 0 ? (
-          <div className="flex items-baseline gap-1.5">
-            <dt className="text-muted-foreground">Szkice</dt>
-            <dd className="font-semibold tabular-nums">{pending}</dd>
-          </div>
-        ) : null}
-        <div className="flex items-baseline gap-1.5">
-          <dt className="text-muted-foreground">Zakończeni</dt>
-          <dd className="font-semibold tabular-nums">{data.historical.placements_total ?? data.historical.placements.length}</dd>
-        </div>
-      </dl>
-      {attention.length > 0 ? (
-        <ul className="space-y-1 text-sm">
-          {attention.slice(0, ATTENTION_PREVIEW).map((row) => (
-            <li key={row.contract_id} className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
-              <span>
-                <span className="font-medium">{row.candidate.name}</span>
-                <span className="text-muted-foreground"> — {attentionText(row)}</span>
-              </span>
+      <h2 id="client-overview-attention" className="text-sm font-semibold text-foreground">
+        Wymaga uwagi{items.length > 0 ? ` · ${items.length}` : ""}
+      </h2>
+      {items.length === 0 ? (
+        <p className="mt-1 text-sm text-muted-foreground">
+          Nic nie czeka: zamówienia, umowa, raporty i kluczowe osoby są w porządku.
+        </p>
+      ) : (
+        <ul className="mt-1 divide-y divide-border">
+          {items.map((item) => (
+            <li key={item.key} className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 py-1.5">
+              <StatusDot tone={item.tone} note={item.note} className="min-w-0">
+                {item.label}
+              </StatusDot>
+              <button
+                type="button"
+                onClick={() => onOpen(item.tab)}
+                className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline"
+              >
+                {CLIENT_SUBTAB_LABELS[item.tab]}
+                <ArrowRight className="h-3 w-3" aria-hidden />
+              </button>
             </li>
           ))}
-          {attention.length > ATTENTION_PREVIEW ? (
-            <li className="text-xs text-muted-foreground">
-              i {attention.length - ATTENTION_PREVIEW} więcej w zakładce „Konsultanci”
-            </li>
-          ) : null}
         </ul>
-      ) : (
-        <p className="text-sm text-muted-foreground">Nikt u tego klienta nie wymaga teraz uwagi.</p>
       )}
     </section>
   );

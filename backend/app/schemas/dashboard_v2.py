@@ -306,8 +306,6 @@ class FinanceOperationsKpis(DashboardModel):
     mrr_pln: DashboardKpi
     monthly_margin_pln: DashboardKpi
     margin_pct: DashboardKpi
-    outstanding_pln: DashboardKpi
-    overdue_pln: DashboardKpi
     revenue_forecast_3m_pln: DashboardKpi
 
 
@@ -320,27 +318,11 @@ class FinanceExecutiveKpis(DashboardModel):
     mrr_at_risk_90d_pln: DashboardKpi
 
 
-class FinanceExceptionBoardRow(DashboardModel):
-    id: str
-    severity: DashboardSeverity
-    kind: str
-    client_id: int | None = None
-    client_name: str | None = None
-    contract_id: int | None = None
-    invoice_id: int | None = None
-    invoice_number: str | None = None
-    amount: str | None = None
-    currency: str | None = None
-    due_at: datetime | None = None
-    next_action_href: str | None = None
-
-
 class FinanceOperationsDashboardData(DashboardModel):
     tab: Literal["operations"] = "operations"
     kpis: FinanceOperationsKpis
     alerts: list[DashboardAlert] = Field(default_factory=list)
     queue: list[DashboardQueueItem] = Field(default_factory=list)
-    exceptions_board: list[FinanceExceptionBoardRow] = Field(default_factory=list)
 
 
 class FinanceExecutiveDashboardData(DashboardModel):
@@ -348,7 +330,6 @@ class FinanceExecutiveDashboardData(DashboardModel):
     kpis: FinanceExecutiveKpis
     alerts: list[DashboardAlert] = Field(default_factory=list)
     queue: list[DashboardQueueItem] = Field(default_factory=list)
-    exceptions_board: list[FinanceExceptionBoardRow] = Field(default_factory=list)
 
 
 FinanceDashboardData = Union[

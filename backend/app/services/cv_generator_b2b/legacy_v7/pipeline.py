@@ -406,9 +406,11 @@ def run_legacy_generation(
     _cap_role_technologies(candidate_data, candidate_data.get("highlight_keywords"))
 
     # Exact years of experience recomputed from the extracted dates.
-    _fix_experience_years(candidate_data, language)
-    # Not part of 2bc6b14f: role/company-bound figures recomputed from dates.
-    _fix_scoped_years(candidate_data, language)
+    years_notes: list[str] = []
+    _fix_experience_years(candidate_data, language, years_notes)
+    # Not part of 2bc6b14f: role/company-bound figures recomputed from dates;
+    # „jako X” counts every role of that profession (20.11.2026).
+    _fix_scoped_years(candidate_data, language, years_notes)
     # Standard 5 punktów: model bywa nieposłuszny, więc kod domyka limit i lata.
     summary_notes = _apply_summary_standard(candidate_data, language, client_rule)
     if sector_block and apply_client_sector(
@@ -467,6 +469,7 @@ def run_legacy_generation(
     source_text = f"{cv_text}\n{answers_text}"
     guard_warnings = list(question_notes)
     guard_warnings.extend(summary_notes)
+    guard_warnings.extend(years_notes)
     if removed_skills:
         guard_warnings.append(
             "WERYFIKUJ: usunięto z umiejętności pozycje, które nie są umiejętnościami: "

@@ -8,7 +8,7 @@ import {
   requestHost,
   resolveCareerRoute,
 } from "@/lib/career/host";
-import { buildReportOnlyCsp, createNonce, NONCE_HEADER } from "@/lib/csp";
+import { buildCsp, createNonce, NONCE_HEADER } from "@/lib/csp";
 import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
 import { normalizeRoles } from "@/lib/role-normalize";
 import {
@@ -718,23 +718,23 @@ const APP_ORIGIN = "https://nexus.b2bnetwork.pl";
 type Forward = { request: { headers: Headers } };
 
 /**
- * CSP Report-Only z nonce per żądanie (`src/lib/csp.ts`). Next 15 czyta
- * nonce z nagłówka żądania `content-security-policy-report-only` i dokleja
+ * Egzekwowana CSP z nonce per żądanie (`src/lib/csp.ts`, od 22.11.2026).
+ * Next 15 czyta nonce z nagłówka żądania `content-security-policy` i dokleja
  * go do swoich skryptów; layout bierze go z `x-nonce` dla bootstrapu motywu.
  * Przekierowania nie renderują dokumentu, ale nagłówek i tak nie szkodzi.
  */
 export function middleware(request: NextRequest) {
   const nonce = createNonce();
-  const policy = buildReportOnlyCsp(nonce, {
+  const policy = buildCsp(nonce, {
     NODE_ENV: process.env.NODE_ENV,
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
     NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
   });
   const headers = new Headers(request.headers);
   headers.set(NONCE_HEADER, nonce);
-  headers.set("content-security-policy-report-only", policy);
+  headers.set("content-security-policy", policy);
   const response = routeRequest(request, { request: { headers } });
-  response.headers.set("Content-Security-Policy-Report-Only", policy);
+  response.headers.set("Content-Security-Policy", policy);
   return response;
 }
 

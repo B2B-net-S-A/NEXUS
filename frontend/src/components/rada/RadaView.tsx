@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Building2, CalendarDays, FolderOpen, Gauge, Gavel, Landmark, LineChart } from "lucide-react";
 
 import { TabbedNav } from "@/components/ds";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AnalysisTab } from "./AnalysisTab";
 import { BudgetTab } from "./BudgetTab";
 import { DocumentsTab } from "./DocumentsTab";
@@ -31,6 +32,7 @@ export function RadaView() {
   const params = useSearchParams();
   const requested = params.get("tab");
   const tab = TABS.some((t) => t.value === requested) ? (requested as string) : "pulpit";
+  const go = (v: string) => router.replace(`/rada?tab=${v}`);
   return (
     <div className="mx-auto w-full max-w-[1400px] px-4 py-4 sm:px-6">
       <header className="mb-3">
@@ -39,13 +41,30 @@ export function RadaView() {
         </p>
         <h1 className="text-xl font-semibold text-foreground">Rada</h1>
       </header>
+      {/* Uwagi Rady z 19.11.2026: na telefonie siedem zakładek chowało się
+          za krawędzią (widać było trzy) — tam wybór sekcji z listy. */}
+      <div className="mb-2 sm:hidden">
+        <Select value={tab} onValueChange={go}>
+          <SelectTrigger aria-label="Sekcja Rady" className="h-10">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TABS.map((t) => (
+              <SelectItem key={t.value} value={t.value}>
+                {t.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       <TabbedNav
         tabs={TABS}
         value={tab}
-        onValueChange={(v) => router.replace(`/rada?tab=${v}`)}
+        onValueChange={go}
         ariaLabel="Sekcje Rady"
+        className="max-sm:[&>div:first-child]:hidden"
       >
-        <div className="pt-4">
+        <div className="pt-2 sm:pt-4">
           {tab === "pulpit" ? <PulpitTab /> : null}
           {tab === "budzet" ? <BudgetTab /> : null}
           {tab === "analiza" ? <AnalysisTab /> : null}

@@ -64,7 +64,8 @@ function renderWith(autofill: { rateKnown: boolean; several: boolean } | null) {
 describe("RejectionV2 — osoba od systemu", () => {
   it("pyta o powód raz: bez listy z szablonu, bez „skąd wiesz” nie da się potwierdzić", () => {
     const onConfirm = renderWith({ rateKnown: false, several: false });
-    expect(screen.queryByText("Nie pasuje kulturowo")).toBeNull();
+    // Etykieta wiersza szablonu nie stoi w oknie — tylko słownik powodów.
+    expect(screen.queryByText("Nie spełnia wymagań technicznych")).toBeNull();
     expect(screen.getAllByText("Powód")).toHaveLength(1);
     const confirm = screen.getByRole("button", { name: "Potwierdź" });
     fireEvent.click(screen.getByText("Brak kluczowej umiejętności"));
@@ -100,7 +101,7 @@ describe("RejectionV2 — osoba od systemu", () => {
     const onConfirm = renderWith({ rateKnown: false, several: false });
     fireEvent.click(screen.getByText("Brak kluczowej umiejętności"));
     expect(screen.queryByTestId("autofill-whole-client")).toBeNull();
-    fireEvent.click(screen.getByText("Pracuje u tego klienta (też przez inną firmę)"));
+    fireEvent.click(screen.getByText("Pracuje u klienta / zgłoszona przez inną firmę"));
     fireEvent.click(screen.getByRole("checkbox", { name: /Dotyczy wszystkich rekrutacji tego klienta/ }));
     fireEvent.click(screen.getByText("Z CV i profilu, bez kontaktu"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
@@ -133,15 +134,17 @@ describe("RejectionV2 — osoba od systemu", () => {
     expect(autofillMoveFields(choice).autofill_not_looking_until).toBe(notLookingUntil(12));
   });
 
-  it("trzy powody z rundy 3: „Zgłoszony przez inną firmę” pyta o cały klient", () => {
+  it("trzy powody z rundy 3: „zgłoszona przez inną firmę” jest w jednym powodzie z pracą u klienta i pyta o cały klient", () => {
     const onConfirm = renderWith({ rateKnown: false, several: false });
     expect(screen.getByText("Za wysoki poziom (overqualified)")).toBeInTheDocument();
     expect(screen.getByText("Błędny numer telefonu")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Zgłoszony do klienta przez inną firmę"));
+    // Od 19.11.2026 osobnego „Zgłoszony do klienta przez inną firmę” nie ma.
+    expect(screen.queryByText("Zgłoszony do klienta przez inną firmę")).toBeNull();
+    fireEvent.click(screen.getByText("Pracuje u klienta / zgłoszona przez inną firmę"));
     expect(screen.getByRole("checkbox", { name: /Dotyczy wszystkich rekrutacji tego klienta/ })).toBeChecked();
     fireEvent.click(screen.getByText("Z rozmowy z osobą"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
-    expect(onConfirm.mock.calls[0][9]).toMatchObject({ reason: "client_other_vendor", wholeClient: true });
+    expect(onConfirm.mock.calls[0][9]).toMatchObject({ reason: "client_employed", wholeClient: true });
   });
 
   it("„Lokalizacja lub tryb pracy” liczy się jako tryb pracy i pyta o dni w biurze", () => {
@@ -213,17 +216,19 @@ describe("RejectionV2 — osoba od systemu", () => {
       />,
     );
     expect(screen.queryByPlaceholderText(/brak wymaganych kompetencji/)).toBeNull();
-    fireEvent.click(screen.getByText("Nie odbiera (3 próby)"));
+    fireEvent.click(screen.getByText("Nie odbiera / brak kontaktu"));
     fireEvent.click(screen.getByText("Z rozmowy z osobą"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     const args = onConfirm.mock.calls[0];
     expect(args[0]).toBe("");
-    expect(args[4]).toBe("Nie odbiera (3 próby)");
+    expect(args[1]).toBe("Nie odbiera / brak kontaktu");
+    expect(args[4]).toBe("Nie odbiera / brak kontaktu");
   });
 
-  it("zwykła osoba — lista z szablonu, bez pytania o powód dla systemu", () => {
+  it("zwykła osoba — ta sama lista słownika, bez pytania o powód dla systemu", () => {
     const onConfirm = renderWith(null);
-    expect(screen.queryByTestId("autofill-feedback")).toBeNull();
+    expect(screen.queryByText("Skąd to wiesz?")).toBeNull();
+    expect(screen.queryByText(/To osoba od systemu/)).toBeNull();
     fireEvent.click(screen.getByText("Nie pasuje kulturowo"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     const args = onConfirm.mock.calls[0];
@@ -254,7 +259,9 @@ describe("autofill-feedback", () => {
 
   it("powód z szablonu dla powodu dla systemu", () => {
     expect(templateReasonFor("too_junior", reasons)?.id).toBe("1");
-    expect(templateReasonFor("other_level_or_role", reasons)?.id).toBe("2");
+    // Od 19.11.2026 (0745) „Inna rola” ma własny klucz; szablon bez niego → „Inne”.
+    expect(templateReasonFor("missing_skill", reasons)?.id).toBe("2");
+    expect(templateReasonFor("other_level_or_role", reasons)?.id).toBe("9");
     expect(templateReasonFor("no_answer", reasons)?.id).toBe("9");
     expect(templateReasonFor("missing_skill", [])).toBeUndefined();
     expect(templateReasonFor(null, reasons)).toBeUndefined();

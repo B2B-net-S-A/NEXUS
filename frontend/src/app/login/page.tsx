@@ -5,15 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { isAxiosError } from "axios";
 import api, { extractErrorMsg } from "@/lib/api";
-import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
-import {
-  adoptLegacySession,
-  clearSessionArtifacts,
-  COOKIE_SESSION,
-  getAccessToken,
-  hasAuthCookie,
-  isCookieSession,
-} from "@/lib/session";
+import { clearSessionArtifacts, dropLegacyAccessToken } from "@/lib/session";
 import { establishSession } from "@/lib/session-establish";
 import { ssoErrorMessage } from "@/lib/sso-error";
 import { saveSsoBrowserNonce, saveSsoNextPath } from "@/lib/sso-browser-nonce";
@@ -142,13 +134,12 @@ function LoginForm() {
   // bez roli przechodziłby tutaj, a middleware kasowałby cookie i zawracał;
   // (b) token jest walidowany przez GET /api/auth/me, więc JWT unieważniony
   // serwerowo (users.tokens_valid_after, PR #906) nie udaje żywej sesji;
-  // (c) cookie jest odtwarzane RAZ przez setAuth i sprawdzane — bez tego
-  // przeglądarka blokująca cookies dawała pętlę mimo poprawnego tokenu;
-  // (d) każda porażka kończy się sprzątnięciem sesji i POZOSTANIEM na /login;
-  // (e) od 11.2026 sesja żyje w ciasteczku HttpOnly ustawianym przez API
-  // (`lib/session.ts`): token starej ścieżki jest najpierw przenoszony do
-  // ciasteczka (`adoptLegacySession`), a sesję z ciasteczka potwierdza samo
-  // `/me` — JS nie widzi ciasteczka, więc pętlę zamyka `recentLoginBounce`.
+  // (c) każda porażka kończy się sprzątnięciem sesji i POZOSTANIEM na /login;
+  // (d) od 11.2026 sesja żyje w ciasteczku HttpOnly ustawianym przez API
+  // (`lib/session.ts`) i potwierdza ją samo `/me` — JS nie widzi ciasteczka,
+  // więc pętlę (zablokowane ciasteczka) zamyka `recentLoginBounce`. Token
+  // w localStorage (stara ścieżka, usunięta 22.11.2026) jest tylko sprzątany,
+  // nigdy używany.
   const sessionProbed = useRef(false);
   // Odrzucaj wynik sondy TYLKO po realnym odmontowaniu. Sprzątaczka zwykłego
   // efektu odpalałaby się przy każdym ponownym renderze (identyczność `router`
@@ -164,12 +155,9 @@ function LoginForm() {
   );
   useEffect(() => {
     if (sessionProbed.current) return;
-    const storedToken = getAccessToken();
-    const legacyToken =
-      token && !isCookieSession(token) ? token : storedToken;
-    // Bez śladu sesji (ani tokenu starej ścieżki, ani zapamiętanego profilu
-    // przy sesji w ciasteczku) nie pytamy API — zwykłe wejście na /login.
-    if (!legacyToken && !hasStoredUser()) return;
+    dropLegacyAccessToken();
+    // Bez zapamiętanego profilu nie pytamy API — zwykłe wejście na /login.
+    if (!hasStoredUser()) return;
     sessionProbed.current = true;
 
     const expired = () => {
@@ -179,52 +167,7 @@ function LoginForm() {
       );
     };
 
-    void (async () => {
-      if (legacyToken) {
-        const payload = decodeJwtPayload(legacyToken);
-        if (!payload || isJwtExpired(payload.exp) || !payload.role) {
-          clearSessionArtifacts();
-          return;
-        }
-        // Token sprzed ciasteczka HttpOnly (albo „Zaloguj jako” na stagingu)
-        // → przenosimy go do ciasteczka i znika z localStorage.
-        const adopted = await adoptLegacySession(legacyToken);
-        if (disposed.current) return;
-        if (adopted === "dead") {
-          expired();
-          return;
-        }
-        if (adopted !== "adopted") {
-          probeLegacySession(legacyToken);
-          return;
-        }
-      }
-      probeCookieSession();
-    })();
-
-    // Stara ścieżka (API sprzed ciasteczka): token jawnie w nagłówku.
-    function probeLegacySession(activeToken: string) {
-      setCheckingSession(true);
-      api
-        .get("/api/auth/me", {
-          // Jawny nagłówek — request-interceptor go NIE nadpisuje (patrz
-          // komentarz w lib/api.ts) i to jest dokładnie ten kontrakt.
-          headers: { Authorization: `Bearer ${activeToken}` },
-        })
-        .then(({ data }) => {
-          if (disposed.current) return;
-          // Persystuje usera i ODTWARZA cookie `nexus_access`.
-          setAuth(data, activeToken);
-          if (!hasAuthCookie()) {
-            clearSessionArtifacts();
-            setCheckingSession(false);
-            setError(COOKIES_BLOCKED);
-            return;
-          }
-          router.replace(nextPath);
-        })
-        .catch(onProbeError);
-    }
+    probeCookieSession();
 
     // Sesja w ciasteczku HttpOnly: JS go nie widzi, więc pytamy API.
     function probeCookieSession() {
@@ -242,7 +185,7 @@ function LoginForm() {
         .get("/api/auth/me")
         .then(({ data }) => {
           if (disposed.current) return;
-          setAuth(data, COOKIE_SESSION);
+          setAuth(data);
           markLoginBounce();
           router.replace(nextPath);
         })
@@ -319,19 +262,25 @@ function LoginForm() {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await api.post("/api/auth/login", { email, password });
+      await api.post("/api/auth/login", { email, password });
       // Sesja jest już potwierdzona — bez tego `setAuth` (nowy `token`)
       // odpalał sondę, która robiła `router.replace(next)` z pominięciem
       // `postLoginDestination` (onboarding, „Pracownik” → „Mój czas”).
       sessionProbed.current = true;
-      const session = await establishSession(data.access_token);
-      setAuth(session.user, session.handle);
-      if (!isCookieSession(session.handle) && !hasAuthCookie()) {
-        clearSessionArtifacts();
-        setError(COOKIES_BLOCKED);
-        return;
+      let user;
+      try {
+        user = await establishSession();
+      } catch (err: unknown) {
+        // Logowanie przeszło, a `/me` bez ciasteczka = przeglądarka je blokuje.
+        if (isAxiosError(err) && err.response?.status === 401) {
+          clearSessionArtifacts();
+          setError(COOKIES_BLOCKED);
+          return;
+        }
+        throw err;
       }
-      router.push(postLoginDestination(session.user, nextPath));
+      setAuth(user);
+      router.push(postLoginDestination(user, nextPath));
     } catch (err: unknown) {
       setError(extractErrorMsg(err) || "Błąd logowania");
     } finally {

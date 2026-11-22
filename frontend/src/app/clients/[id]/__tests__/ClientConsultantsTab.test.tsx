@@ -73,6 +73,30 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { ProfileTab } from "@/app/clients/[id]/ProfileTab";
+
+/**
+ * Przegląd (19.11.2026) pyta poza profilem o kontakty i katalog raportów —
+ * każde zapytanie dostaje odpowiedź swojego kształtu, a profil `profile`.
+ */
+function answerByUrl(profile: ClientProfileResponse) {
+  return (url: string) => {
+    if (url.endsWith("/contacts")) return Promise.resolve({ data: [] });
+    if (url.includes("client-reports") || url.includes("/reports")) {
+      return Promise.resolve({ data: { definitions: [] } });
+    }
+    return Promise.resolve({ data: profile });
+  };
+}
+
+function renderOverview(clientId = 42, onOpen = vi.fn()) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={queryClient}>
+      <ProfileTab clientId={clientId} onOpen={onOpen} showContracts={false} showInvoicing={false} />
+    </QueryClientProvider>,
+  );
+  return onOpen;
+}
 import { ClientConsultantsTab } from "@/components/client-profile/ClientConsultantsTab";
 import { ClientHeaderStats } from "@/components/client-profile/SummaryBar";
 import { useAuthStore, type User } from "@/store/auth";
@@ -258,7 +282,7 @@ describe("ProfileTab — brak rekrutacji w Profilu", () => {
 
     // Dowód, że profil się wyrenderował.
     expect(
-      await screen.findByRole("tab", { name: /^Obecni/ }),
+      await screen.findByRole("tab", { name: /^Pracują teraz/ }),
     ).toBeInTheDocument();
 
     expect(screen.queryByText("Przegrane rekrutacje")).not.toBeInTheDocument();
@@ -273,50 +297,42 @@ describe("ProfileTab — brak rekrutacji w Profilu", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("nie pokazuje licznika „Otwarte rekrutacje” w liczbach klienta", async () => {
-    // Liczby klienta (aktywni konsultanci, aktywne MRR) stoją od 02.10.2026
-    // w nagłówku strony (`ClientHeaderStats`), nie w zakładce — czytają to
-    // samo zapytanie profilu co `ProfileTab`.
-    mocks.apiGet.mockResolvedValue({ data: PROFILE });
+  it("liczby klienta w pasku sekcji: marża z tego samego zapytania co Przegląd, bez liczb stojących przy sekcjach", async () => {
+    // Liczby klienta stoją w pasku sekcji strony (`ClientHeaderStats`) i czytają
+    // to samo zapytanie profilu co Przegląd. „Nasi ludzie” i „Otwarte
+    // rekrutacje” (tylko opublikowane, jak lista klientów) są przy nazwach
+    // sekcji — nagłówek w jednym rzędzie przy 1280 px (decyzja Artura, 19.11.2026).
+    mocks.apiGet.mockImplementation(answerByUrl(PROFILE));
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
     render(
       <QueryClientProvider client={queryClient}>
         <ClientHeaderStats clientId={42} />
-        <ProfileTab clientId={42} />
+        <ProfileTab clientId={42} onOpen={vi.fn()} showContracts={false} showInvoicing={false} />
       </QueryClientProvider>,
     );
 
-    // Liczby istnieją i mają wartości z profilu…
-    expect(await screen.findByText("Aktywni konsultanci")).toBeInTheDocument();
-    const mrrLabel = screen.getByText("Aktywne MRR");
+    // „Nasi ludzie” stoi też na karcie Przeglądu — liczby paska szukamy od
+    // etykiety marży, która jest tylko tam.
+    const mrrLabel = await screen.findByText("Marża / mc");
     const stats = mrrLabel.closest("dl");
     expect(stats).not.toBeNull();
-    expect(
-      within(stats as HTMLElement).getByText("Aktywni konsultanci").closest("div"),
-    ).toHaveTextContent("3");
+    expect(within(stats as HTMLElement).queryByText("Nasi ludzie")).not.toBeInTheDocument();
+    expect(within(stats as HTMLElement).queryByText("Otwarte rekrutacje")).not.toBeInTheDocument();
     expect(mrrLabel.closest("div")?.textContent?.replace(/\s/g, " ")).toContain(
       "45 000,00 zł",
     );
     // …dymek tłumaczy, czym jest liczba…
     expect(mrrLabel.closest("[title]")).toHaveAttribute("title", "miesięczna marża");
-    // …a zakładka i nagłówek dzielą JEDNO żądanie profilu.
+    // …a Przegląd i nagłówek dzielą JEDNO żądanie profilu.
     expect(
       mocks.apiGet.mock.calls.filter(
         ([url]) => url === "/api/clients/42/profile",
       ),
     ).toHaveLength(1);
-    // Zakładka nie powtarza tych liczb.
-    expect(screen.getAllByText("Aktywne MRR")).toHaveLength(1);
-
-    // Bez duplikatu licznika z zakładki Projekty. `open_jobs: 7` w fixture
-    // jest po to, żeby wyciek tej liczby był widoczny.
-    expect(screen.queryByText("Otwarte rekrutacje")).not.toBeInTheDocument();
-    // Szukamy w LICZBACH KLIENTA, nie w całym dokumencie: przełącznik zakładek
-    // ma własne liczniki, więc globalne `queryByText("7")` fałszywie
-    // czerwieniłoby się przy siedmiu wierszach archiwum.
-    expect(stats?.textContent).not.toContain("7");
+    // Bez spraw do zrobienia nagłówek nie pokazuje licznika „Wymaga uwagi”.
+    expect(within(stats as HTMLElement).queryByText("Wymaga uwagi")).not.toBeInTheDocument();
   });
 
   it("zostawia sekcję Konsultantów — to kontrakty, nie rekrutacje", async () => {
@@ -438,22 +454,23 @@ describe("ProfileTab — tabela konsultantów", () => {
     expect(screen.getByText("155,00 zł")).toBeInTheDocument();
   });
 
-  it("planowani konsultanci mają własną zakładkę i nie siedzą w Obecnych", async () => {
+  it("planowani konsultanci mają własny filtr i nie siedzą w „Pracują teraz”", async () => {
     const user = userEvent.setup({ delay: null });
     renderTab();
     await screen.findByText("Tomasz Sadowski");
 
     // Obecni: osoby z kontraktem, który JUŻ obowiązuje — bez przyszłego startu.
     expect(screen.queryByText("Piotr Planowany")).toBeNull();
-    expect(screen.getByRole("tab", { name: /^Obecni/ })).toHaveTextContent("2");
-    const plannedTab = screen.getByRole("tab", { name: /^Planowani/ });
+    expect(screen.getByRole("tab", { name: /^Pracują teraz/ })).toHaveTextContent("2");
+    // Od 19.11.2026 filtry w jednym rzędzie: „Pracują teraz” i „Zaczynają”.
+    const plannedTab = screen.getByRole("tab", { name: /^Zaczynają/ });
     expect(plannedTab).toHaveTextContent("1");
 
     await user.click(plannedTab);
     expect(await screen.findByText("Piotr Planowany")).toBeInTheDocument();
     expect(screen.getByText(/19\.10\.2099/)).toBeInTheDocument();
     expect(screen.queryByText("Tomasz Sadowski")).toBeNull();
-    expect(screen.getByText(/nie wchodzą do „Obecnych”/i)).toBeInTheDocument();
+    expect(screen.getByText(/nie wchodzą do „Pracują teraz”/i)).toBeInTheDocument();
   });
 
   it("podzakładki są prawdziwymi tabami (rola + aria-selected)", async () => {
@@ -461,7 +478,7 @@ describe("ProfileTab — tabela konsultantów", () => {
     // czytnik ekranu nie wiedział, że to jeden wybór z dwóch.
     renderTab();
     const current = await screen.findByRole("tab", {
-      name: /^Obecni/,
+      name: /^Pracują teraz/,
     });
     expect(current).toHaveAttribute("aria-selected", "true");
     expect(
@@ -566,7 +583,7 @@ describe("ProfileTab — Centrum e-Zdrowia: struktura umów wykonawczych", () =>
   it("sekcja „Struktura umów” stoi NAD konsultantami i pokazuje chipy umów", async () => {
     renderEzdrowie();
     const heading = await screen.findByRole("heading", { name: "Struktura umów" });
-    const consultants = screen.getByRole("tab", { name: /^Obecni/ });
+    const consultants = screen.getByRole("tab", { name: /^Pracują teraz/ });
     expect(heading.compareDocumentPosition(consultants) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     // Nagłówek części z numerem umowy ramowej sprzed myślnika (struktura
@@ -603,7 +620,7 @@ describe("ProfileTab — Centrum e-Zdrowia: struktura umów wykonawczych", () =>
     await user.click(within(filter).getByRole("button", { name: "CeZ/145/2025/UW-1" }));
     expect(screen.getByText("Tomasz Sadowski")).toBeInTheDocument();
     expect(screen.queryByText("Anna Bez Rekrutacji", { selector: "a" })).toBeNull();
-    expect(screen.getByRole("tab", { name: /^Obecni/ })).toHaveTextContent("1");
+    expect(screen.getByRole("tab", { name: /^Pracują teraz/ })).toHaveTextContent("1");
 
     await user.click(within(filter).getByRole("button", { name: "Nieprzypisani (1)" }));
     expect(screen.queryByText("Tomasz Sadowski")).toBeNull();
@@ -744,14 +761,7 @@ describe("ProfileTab — audyt 24.09.2026", () => {
 
   it("awaria profilu ma „Spróbuj ponownie” (S10)", async () => {
     mocks.apiGet.mockRejectedValue({ response: { status: 500 } });
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ProfileTab clientId={42} />
-      </QueryClientProvider>,
-    );
+    renderOverview();
     expect(await screen.findByText("Spróbuj ponownie")).toBeInTheDocument();
   });
 });
@@ -871,25 +881,60 @@ describe("ClientConsultantsTab — zakładka „Konsultanci”", () => {
   });
 });
 
-describe("ProfileTab — karta „Konsultanci” w Przeglądzie", () => {
-  it("pokazuje liczby i osoby wymagające uwagi, a przycisk prowadzi do zakładki", async () => {
+describe("ProfileTab — Przegląd (19.11.2026): „Wymaga uwagi” i liczby", () => {
+  it("zbiera sprawy konsultantów w jedną listę z przejściem do zakładki", async () => {
     const user = userEvent.setup({ delay: null });
-    const onOpen = vi.fn();
-    mocks.apiGet.mockResolvedValue({ data: WITH_STATE });
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ProfileTab clientId={42} onOpenConsultants={onOpen} />
-      </QueryClientProvider>,
-    );
+    mocks.apiGet.mockImplementation(answerByUrl({ ...WITH_STATE, summary: { ...WITH_STATE.summary, active_mrr_unpriced_contracts: 1 } }));
+    const onOpen = renderOverview();
 
-    expect(await screen.findByText("Konsultanci")).toBeInTheDocument();
-    expect(screen.getByText(/zamówienie bez kontynuacji po 30\.11\.2026/)).toBeInTheDocument();
-    expect(screen.getByText(/brak zamówienia/)).toBeInTheDocument();
-    // Pełnej tabeli w Przeglądzie już nie ma.
+    expect(await screen.findByText("Wymaga uwagi · 3")).toBeInTheDocument();
+    expect(
+      screen.getByText("1 zamówienie bez kontynuacji, najbliższe kończy się 30.11.2026"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Brak bieżącego zamówienia")).toBeInTheDocument();
+    expect(screen.getByText("1 kontrakt bez stawki")).toBeInTheDocument();
+    // Pełnej tabeli konsultantów w Przeglądzie nie ma — jest w zakładce.
     expect(document.querySelector("table")).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: /Wszyscy konsultanci/ }));
-    expect(onOpen).toHaveBeenCalledTimes(1);
+    const attention = screen.getByRole("region", { name: /Wymaga uwagi/ });
+    await user.click(within(attention).getAllByRole("button", { name: /Konsultanci/ })[0]);
+    expect(onOpen).toHaveBeenCalledWith("konsultanci");
+  });
+
+  it("pokazuje nas u klienta, otwarte rekrutacje i najnowsze rekrutacje", async () => {
+    mocks.apiGet.mockImplementation(
+      answerByUrl({
+        ...PROFILE,
+        open_jobs: [
+          {
+            id: 901,
+            title: "Analityk Danych",
+            seniority: null,
+            priority: "medium",
+            days_open: 3,
+            candidate_count: 12,
+            salary_min: null,
+            salary_max: null,
+            recruiter: null,
+            created_at: "2026-11-16T09:00:00Z",
+          },
+        ],
+      }),
+    );
+    renderOverview();
+
+    expect(await screen.findByText("Nasi ludzie")).toBeInTheDocument();
+    expect(screen.getByText("Otwarte rekrutacje")).toBeInTheDocument();
+    expect(screen.getByText("Najnowsze rekrutacje")).toBeInTheDocument();
+    expect(screen.getByText("Analityk Danych")).toBeInTheDocument();
+    expect(screen.getByText(/16\.11\.2026 · 12 kand\./)).toBeInTheDocument();
+    expect(screen.getByText("Ludzie klienta")).toBeInTheDocument();
+  });
+
+  it("bez spraw mówi wprost, że nic nie czeka", async () => {
+    mocks.apiGet.mockImplementation(answerByUrl(PROFILE));
+    renderOverview();
+    expect(await screen.findByText("Wymaga uwagi")).toBeInTheDocument();
+    expect(screen.getByText(/Nic nie czeka/)).toBeInTheDocument();
   });
 });

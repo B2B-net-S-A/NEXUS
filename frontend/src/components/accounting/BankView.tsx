@@ -303,7 +303,10 @@ function StatementBody({ statement, onClose }: { statement: BankStatement; onClo
   const { showToast } = useToast();
   const { config } = useAccounting();
   const post = usePostBankStatement();
-  const remove = useDeleteBankStatement();
+  const remove = useDeleteBankStatement((result) => {
+    showToast(deleteMessage(result));
+    onClose();
+  });
   const { askConfirm, confirmDialog } = useConfirmV2();
   const chart = useChart();
   const [onlyOpen, setOnlyOpen] = useState(false);
@@ -341,10 +344,6 @@ function StatementBody({ statement, onClose }: { statement: BankStatement; onClo
     });
     if (!ok) return;
     remove.mutate(statement.id, {
-      onSuccess: (result) => {
-        showToast(deleteMessage(result));
-        onClose();
-      },
       onError: (error) => showToast(apiErrorMessage(error, "Nie udało się usunąć wyciągu."), "error"),
     });
   };

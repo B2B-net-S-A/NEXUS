@@ -47,6 +47,56 @@ export function generatorTabFromParam(
   return TAB_ALIASES[v] ?? null;
 }
 
+// ── Pięć zakładek zamiast siedmiu (etap 3b, 20.11.2026) ─────────────────────
+// Makieta A: „Nowa umowa · Nowy aneks · Umowy · Dokumenty · Zakresy ról”.
+// Trzy rejestry (bieżące, bez projektu, zakończone) to JEDNA zakładka „Umowy”
+// z filtrem fazy. Klucze `?tab=` zostają bez zmian — niosą je linki z kontraktu,
+// rekrutacji, powiadomień i Nowości (`registerSearchHref`, `documentsHref`,
+// `annexesHref`, `generatorEditHref`) — więc stary link trafia w to samo
+// miejsce, a faza rejestru to dalej `generated` / `no-project` / `closed`.
+
+export type GeneratorSection =
+  | "new"
+  | "annex"
+  | "agreements"
+  | "documents"
+  | "roles";
+
+export type RegisterPhase = Extract<
+  GeneratorTab,
+  "generated" | "no-project" | "closed"
+>;
+
+export const REGISTER_PHASES: readonly { tab: RegisterPhase; label: string }[] =
+  [
+    { tab: "generated", label: "Bieżące" },
+    { tab: "no-project", label: "Bez projektu" },
+    { tab: "closed", label: "Zakończone" },
+  ] as const;
+
+export function isRegisterPhase(tab: GeneratorTab): tab is RegisterPhase {
+  return tab === "generated" || tab === "no-project" || tab === "closed";
+}
+
+/** Zakładka ekranu, w której leży klucz `?tab=`. */
+export function generatorSectionOf(tab: GeneratorTab): GeneratorSection {
+  if (isRegisterPhase(tab)) return "agreements";
+  if (tab === "generator") return "new";
+  if (tab === "annexes") return "annex";
+  return tab;
+}
+
+/** Klucz `?tab=` po kliknięciu zakładki; „Umowy” wraca do ostatniej fazy. */
+export function generatorTabOfSection(
+  section: GeneratorSection,
+  phase: RegisterPhase,
+): GeneratorTab {
+  if (section === "agreements") return phase;
+  if (section === "new") return "generator";
+  if (section === "annex") return "annexes";
+  return section;
+}
+
 /** Zakładka rejestru, w której leży wiersz o danym statusie. */
 export function registerTabForStatus(status: B2BContractStatus): GeneratorTab {
   if (status === "suspended") return "no-project";

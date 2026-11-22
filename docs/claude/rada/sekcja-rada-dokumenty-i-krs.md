@@ -220,11 +220,21 @@ Rada przysłała Arturowi uwagi do wersji z produkcji; „rób wszystko”.
   (`GET /outlook`, `services/board/outlook.py`): stan gotówki (wpis Zarządu
   `PUT /cash`, tabela `board_cash_positions`; bez wpisu gotówka ze
   sprawozdania), zdolność kredytowa i wartość spółki dla inwestora
-  finansowego (6×, 4–8×) i branżowego (8×, 6–11×) z EBITDA ostatniego pełnego
-  roku ze sprawozdania (R4) **+ zmiana zysku brutto z faktur** (12 ostatnich
-  miesięcy z pełnymi kosztami wobec roku sprawozdania), symulacja sprzedaży
+  finansowego (6×, 4–8×) i branżowego (8×, 6–11×), symulacja sprzedaży
   i zysku brutto na koniec roku (wykonanie + prognoza z kontraktów z R3, dwa
-  scenariusze). Bez sprawozdania — kreska i odesłanie do Analizy, nie zero.
+  scenariusze). **Od uwag Rady z 19.11.2026 zdolność i wycena nie biorą EBITDA
+  ze sprawozdania**: podstawą jest zysk brutto z faktur z 12 ostatnich miesięcy
+  z pełnymi kosztami + amortyzacja przyjęta na stałe 1 mln zł rocznie
+  (`AMORTIZATION` w `outlook.py`), EV/sprzedaż ze sprzedaży tych 12 miesięcy.
+  Sprawozdanie daje tylko dług finansowy, gotówkę i należności; bez niego dług
+  = 0 i podpis mówi to wprost. Bez 12 miesięcy faktur — kreska, nie zero.
+- **Tabela „Sprzedaż, koszty i zysk brutto”** bez słupków (19.11.2026: nie
+  trafiały w kolumny), kwoty bez „mln” w komórkach (jednostka w nagłówku).
+- **Telefon** (19.11.2026): sekcje Rady z listy zamiast siedmiu zakładek;
+  miesiące na pulpicie wierszami (miesiąc = wiersz); najstarszy rok tabeli lat
+  tylko od `sm`; wiersz dokumentu jako karta; obowiązki korporacyjne
+  w kolumnie. Rada (rola wyłączna) nie dostaje porannej porcji Nowości —
+  middleware nie wpuszcza jej na `/nowosci-dnia`, więc bramka dawała pusty ekran.
 - **Raporty PDF** (`services/board/reports.py`, weasyprint): miesięczny,
   roczny, budżet; `GET /reports/render` liczy z bieżących danych, admin
   zapisuje w archiwum (`POST /reports`, tabela `board_reports`, plik w magazynie
@@ -245,7 +255,7 @@ Rada przysłała Arturowi uwagi do wersji z produkcji; „rób wszystko”.
 
 ## Pilnują
 
-`tests/test_supervisory_board_r7.py` (gotówka, raporty PDF i archiwum, Firma bez nazwisk, filtr dokumentów), `tests/test_supervisory_board_unit.py` (EBITDA z przesunięciem, symulacja roku, opis zejścia bez nazwiska, parser, wiersze z wzmianek, skrót,
+`tests/test_supervisory_board_r7.py` (gotówka, raporty PDF i archiwum, Firma bez nazwisk, filtr dokumentów), `tests/test_supervisory_board_unit.py` (EBITDA = zysk z faktur + stała amortyzacja, symulacja roku, opis zejścia bez nazwiska, parser, wiersze z wzmianek, skrót,
 czytnik, treść dzwonka), `tests/test_supervisory_board_api.py` (bramki ról,
 jeden odpis przy braku zmian, dzwonek tylko przy nowym wpisie, wiersz KRS bez
 usunięcia), `tests/test_supervisory_board_votes.py` (kworum połowy, większość głosów

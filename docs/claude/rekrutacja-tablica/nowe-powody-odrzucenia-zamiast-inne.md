@@ -7,6 +7,10 @@ powody. Wybór z listy zastępuje pisanie, a raporty pokazują prawdziwe przyczy
 Liczba kliknięć nie rośnie i nie ma nowych obowiązkowych pól. Opis przy „Inne”
 zostaje obowiązkowy.
 
+Od 19.11.2026 etykiety w tabeli niżej zastąpił jeden słownik powodów
+zamknięcia procesu (`jeden-slownik-powodow-zamkniecia-procesu.md`); klucze
+zostały te same.
+
 | Klucz (`rejection_reasons.name`) | Etykieta | Odrzucamy my / DL | Odrzuca klient |
 | --- | --- | --- | --- |
 | `not_looking_for_work` | Nie szuka pracy lub niezainteresowany | tak | nie |

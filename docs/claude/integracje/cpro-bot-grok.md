@@ -22,6 +22,13 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
   „✓ Wrzucone”. Obecny pilotaż obejmuje wyłącznie szkic (`--start` bez
   `--submit`), przy `CPRO_BOT_ENABLED=false`. Najpierw Sandra ocenia szkic;
   pierwszą wysyłkę i późniejsze włączenie wykonuje Artur.
+- Gdy rutyna w tle nie może zalogować się wpisem właściwego Delivery Leada,
+  operator może przekazać aktywnej rozmowie Grok Bota jedno nowe zlecenie
+  przez `--interactive-draft`. NEXUS sprawdza aktualną gotowość karty,
+  numer requestu i konto. Jednorazowy token trafia do chronionego pola sesji.
+  Potwierdzeniem próby są status DRAFT po ponownym otwarciu oferty w Cpro
+  oraz raport tego samego biegu w NEXUSIE. Procedurę opisuje
+  [instrukcja konfiguracji](../../cpro-grok-bot-setup.md).
 - **Osoba na kilku requestach bez screeningu** (Marcin wrzuca ludzi do „Do
   Cpro” bez arkusza i bez rekrutera): brakujące Warunki i brakujące CV bot
   bierze z najnowszej karty tej osoby w **innej rekrutacji tego samego
@@ -93,9 +100,11 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
 - **Motivation** i opis nowego profilu = punkty „Why our candidate?” z HTML
   zatwierdzonej wersji CV (`data-cv-section="why_points"`), każdy od myślnika,
   bez pustych linii.
-- **CV** = DOCX zatwierdzonej wersji, nazwa bez `#` (z `#` plik nie otwiera się
-  ani u nas, ani w Nordei). Bot pobiera go z
-  `GET /api/integrations/cpro-bot/runs/{id}/cv/{stage_id}` na token biegu.
+- **CV do oferty** to firmowy PDF z zatwierdzonej wersji zapisanej w zleceniu.
+  Bot pobiera go z `GET /api/integrations/cpro-bot/runs/{id}/cv/{stage_id}`
+  na token biegu. Nazwa pliku ma końcówkę `.pdf` i nie zawiera `#`.
+  Po zapisaniu szkicu bot otwiera ofertę ponownie i sprawdza zaznaczony PDF
+  w podglądzie Cpro, w tym firmowy układ strony.
 - Stałe pola (w poleceniu rutyny, `cpro_bot/task_text.py`): Self-employed
   (B2B), subcontractor `B2B.net S.A.`, subcontractor rate 0,00, UK tax No,
   Gender Other, pięć suwaków Matching na „Perfect”, imiennik w Cpro → Title =

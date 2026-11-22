@@ -1089,10 +1089,14 @@ async def test_continuation_leaves_entries_and_lands_in_changes(
     assert row["previous_end_date"] == (first + timedelta(days=2)).isoformat()
 
 
-async def test_moving_to_another_client_is_a_client_change_not_an_entry(
+async def test_moving_to_another_client_is_an_entry_at_the_new_client(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """Konsultant kończy u klienta A i startuje u B — to zmiana klienta."""
+    """Konsultant kończy u klienta A i startuje u B — wejście u B (19.11.2026).
+
+    Zgłoszenie: osoba po przerwie u nowego klienta od 02.11 nie stała
+    w Wejściach za listopad, bo liczyła się jako „Zmiana klienta”.
+    """
 
     first = _far_day(2054, 2057).replace(day=1)
     ids = await _seed(
@@ -1109,9 +1113,8 @@ async def test_moving_to_another_client_is_a_client_change_not_an_entry(
 
     body = await _month(app_client, app_auth_headers, first)
 
-    assert moved not in {e["order_id"] for e in body["entries"]}
-    row = next(c for c in body["changes"] if c["order_id"] == moved)
-    assert row["kind"] == "client_change"
+    assert moved not in {c["order_id"] for c in body["changes"]}
+    row = next(e for e in body["entries"] if e["order_id"] == moved)
     assert row["previous_client_name"]
     assert row["previous_client_name"] != row["client_name"]
 
@@ -1194,6 +1197,100 @@ async def test_termination_without_a_successor_stays_an_exit(
 
     row = next(e for e in body["exits"] if e["order_id"] == ids["order_id"])
     assert row["verdict"] == "ended_intent"
+
+
+async def test_person_with_three_orders_at_one_client_exits_once(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Zgłoszenie 19.11.2026: konsultant z trzema zamówieniami u klienta,
+    z których „zjadano” środki, stał w Zejściach trzy razy, a statystyki
+    mówiły, że zeszło trzech konsultantów. Zejście to osoba, nie zamówienie:
+    jeden wiersz, pozostałe zamówienia przy nim (numer, okres, PDF)."""
+
+    first = _far_day(2081, 2084).replace(day=1)
+    ends = first + timedelta(days=29)
+    ids = await _seed(
+        contract_rate_client=None,
+        start=first - timedelta(days=300),
+        end=ends,
+    )
+    second = await _add_order(ids, start=first - timedelta(days=200), end=ends)
+    third = await _add_order(ids, start=first - timedelta(days=100), end=ends)
+    await _terminate(ids["contract_id"], ends)
+
+    body = await _month(app_client, app_auth_headers, first, client_id=ids["client_id"])
+
+    rows = [e for e in body["exits"] if e["client_id"] == ids["client_id"]]
+    assert len(rows) == 1
+    assert body["counts"]["exits"] == 1
+    [row] = rows
+    assert row["order_id"] == ids["order_id"]
+    others = row["other_orders"]
+    assert [o["order_id"] for o in others] == [second, third]
+    assert [o["order_start"] for o in others] == [
+        (first - timedelta(days=200)).isoformat(),
+        (first - timedelta(days=100)).isoformat(),
+    ]
+    assert all(o["order_end"] == ends.isoformat() for o in others)
+
+    # Szukanie po numerze dołączonego zamówienia trafia w zejście osoby.
+    found = await _month(
+        app_client,
+        app_auth_headers,
+        first,
+        client_id=ids["client_id"],
+        q=others[-1]["order_number"],
+    )
+    assert [e["order_id"] for e in found["exits"]] == [ids["order_id"]]
+
+
+async def test_two_people_at_one_client_stay_two_exits(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Łączenie idzie po osobie — dwie osoby u tego samego klienta to dwa
+    zejścia, nawet z tą samą datą końca."""
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+
+    first = _far_day(2085, 2088).replace(day=1)
+    ends = first + timedelta(days=10)
+    ids = await _seed(
+        contract_rate_client=None, start=first - timedelta(days=90), end=ends
+    )
+    async with AsyncSessionLocal() as db:
+        suffix = uuid.uuid4().hex[:8]
+        other = Candidate(
+            name="Ewa", lastname=f"Kowal-{suffix}", email=f"foc2-{suffix}@example.com"
+        )
+        db.add(other)
+        await db.flush()
+        contract = Contract(
+            candidate_id=other.id,
+            client_id=ids["client_id"],
+            contract_type=ContractType.b2b,
+            status=ContractStatus.active,
+            start_date=first - timedelta(days=90),
+            rate_candidate=Decimal("960.000"),
+            rate_unit=RateUnit.daily,
+            currency="PLN",
+            rate_candidate_currency="PLN",
+        )
+        db.add(contract)
+        await db.commit()
+        other_contract = contract.id
+    await _add_order(
+        {**ids, "contract_id": other_contract},
+        start=first - timedelta(days=90),
+        end=ends,
+    )
+    await _terminate(ids["contract_id"], ends)
+    await _terminate(other_contract, ends)
+
+    body = await _month(app_client, app_auth_headers, first, client_id=ids["client_id"])
+
+    assert body["counts"]["exits"] == 2
+    assert all(e["other_orders"] == [] for e in body["exits"])
 
 
 async def test_contract_older_than_its_first_order_is_not_a_new_consultant(
@@ -1375,7 +1472,7 @@ async def test_draft_contract_is_not_proof_of_earlier_work(
     assert ids["order_id"] in {e["order_id"] for e in body["entries"]}
 
 
-async def test_earlier_contract_at_another_client_is_a_client_change(
+async def test_earlier_contract_at_another_client_is_an_entry_with_previous_client(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """Zakończona umowa u innego klienta, bez ani jednego zamówienia w NEXUSIE."""
@@ -1411,9 +1508,8 @@ async def test_earlier_contract_at_another_client_is_a_client_change(
 
     body = await _month(app_client, app_auth_headers, first)
 
-    assert ids["order_id"] not in {e["order_id"] for e in body["entries"]}
-    row = next(c for c in body["changes"] if c["order_id"] == ids["order_id"])
-    assert row["kind"] == "client_change"
+    assert ids["order_id"] not in {c["order_id"] for c in body["changes"]}
+    row = next(e for e in body["entries"] if e["order_id"] == ids["order_id"])
     assert row["previous_client_name"] == previous_name
 
 

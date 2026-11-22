@@ -37,6 +37,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ToastProvider } from "@/components/Toast";
 import { ScreeningWorkbench } from "@/components/v2/jobs/ScreeningWorkbench";
+import { clientFormKey, type ClientFormView } from "@/lib/api/clientForms";
 import {
   PersonPanelColumn,
   PersonPanelSide,
@@ -1023,6 +1024,24 @@ function seededClient(state: HarnessState): QueryClient {
   );
   // Odpowiedzi Luny z wcześniejszej rozmowy — bez modelu, z pamięci.
   qc.setQueryData(screeningSuggestionsQueryKey(STAGE_ID), EARLIER_SUGGESTIONS, SEED_FRESH);
+  // Pytania do formularza CV klienta (19.11.2026) — harness bez zapytań: klient bez formularza.
+  qc.setQueryData<ClientFormView>(
+    clientFormKey(STAGE_ID),
+    {
+      client_document: "company_cv",
+      status: "no_template",
+      message: null,
+      template: null,
+      template_changed: false,
+      fields: [],
+      extra_rows: [],
+      missing: [],
+      filled_at: null,
+      updated_at: null,
+      model: null,
+    },
+    SEED_FRESH,
+  );
   qc.setQueryData(candidateQueryKeys.quickView(CANDIDATE_ID), QUICK_VIEW, SEED_FRESH);
   // „Co już wiemy” pyta o INNE rekrutacje (14.10.2026) — klucz z bieżącą.
   qc.setQueryData(

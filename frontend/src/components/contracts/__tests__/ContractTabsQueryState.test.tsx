@@ -1,5 +1,5 @@
 /**
- * Zakładki kontraktu (aneksy, onboarding, sprzęt, notatki) — audyt FE-02..07.
+ * Zakładki kontraktu (aneksy, onboarding, sprzęt, notatki w strumieniu opieki) — audyt FE-02..07.
  *
  * * awaria odczytu NIE może renderować się jak pusta lista (FE-03) — pusta
  *   lista onboardingu zaprasza do „wygenerowania”, czyli do zdublowania
@@ -11,6 +11,7 @@
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -69,7 +70,7 @@ vi.mock("@/store/auth", async () => {
 import { ContractOnboardingTab } from "@/components/ContractOnboardingTab";
 import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
 import { ContractEquipmentTab } from "@/components/contracts/ContractEquipmentTab";
-import { ContractNotesTab } from "@/components/contracts/ContractNotesTab";
+import { CareStream } from "@/components/care/stream/CareStream";
 import { ContractInvoicesTab } from "@/components/ContractInvoicesTab";
 
 function httpError(status: number, detail?: string) {
@@ -87,7 +88,14 @@ function renderWith(ui: React.ReactElement) {
   return { client, invalidate };
 }
 
-const SEED = /Wygeneruj domyślny checklist/;
+/** Aneks z zakładki: menu „Dodaj aneks” → pozycja → okno formularza. */
+async function openAmendmentForm(item: string) {
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: /Dodaj aneks/ }));
+  await user.click(await screen.findByRole("menuitem", { name: item }));
+}
+
+const SEED = /Wygeneruj z szablonu/;
 const FAILURE = "Nie udało się pobrać danych";
 
 beforeEach(() => {
@@ -159,8 +167,8 @@ describe("ContractAmendmentsTab", () => {
       <ContractAmendmentsTab contractId={5} clientId={2} />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Zmień zakres/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Zapisz aneks/ }));
+    await openAmendmentForm("Zmiana zakresu");
+    fireEvent.click(await screen.findByRole("button", { name: /Zapisz aneks/ }));
 
     await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
     await waitFor(() => {
@@ -213,40 +221,46 @@ describe("ContractEquipmentTab", () => {
   });
 });
 
-describe("ContractNotesTab", () => {
-  it("awaria odczytu pokazuje błąd z ponowieniem zamiast zachęty do powiązania", async () => {
+// Notatki kontraktu od 20.11.2026 stoją w strumieniu „Opieki i rozmów”
+// (`CareStream`; bez modułu opieki — same notatki). Reguły zostały: awaria
+// to błąd z ponowieniem, pusty strumień nie każe ustawiać pól technicznych,
+// notatkę dodaje się wprost przy kontrakcie z rodzajem z menu.
+describe("CareStream — notatki kontraktu", () => {
+  it("awaria odczytu pokazuje błąd z ponowieniem zamiast pustego strumienia", async () => {
     mocks.notesTimeline.mockRejectedValueOnce(httpError(500));
-    renderWith(<ContractNotesTab contractId={4} />);
+    renderWith(<CareStream contractId={4} careOpen={false} care={null} canAddNote={false} canReadFeedback={false} />);
 
-    expect(await screen.findByText(FAILURE)).toBeInTheDocument();
-    expect(screen.queryByText(/Brak notatek/)).not.toBeInTheDocument();
+    expect(await screen.findByText("Nie udało się wczytać notatek kontraktu.")).toBeInTheDocument();
+    expect(screen.queryByText(/nie ma jeszcze rozmów/)).not.toBeInTheDocument();
 
     mocks.notesTimeline.mockResolvedValueOnce({ data: [] });
     fireEvent.click(screen.getByRole("button", { name: /Spróbuj ponownie/ }));
-    expect(await screen.findByText(/Brak notatek/)).toBeInTheDocument();
+    expect(await screen.findByText(/nie ma jeszcze rozmów ani notatek/)).toBeInTheDocument();
   });
 
-  it("pusta zakładka nie każe ustawiać pola technicznego (runda 10, F03)", async () => {
+  it("pusty strumień nie każe ustawiać pola technicznego (runda 10, F03)", async () => {
     mocks.notesTimeline.mockResolvedValueOnce({ data: [] });
-    renderWith(<ContractNotesTab contractId={4} />);
-    expect(await screen.findByText(/Brak notatek/)).toBeInTheDocument();
+    renderWith(<CareStream contractId={4} careOpen={false} care={null} canAddNote={false} canReadFeedback={false} />);
+    expect(await screen.findByText(/nie ma jeszcze rozmów ani notatek/)).toHaveTextContent(
+      "Notatkę przy kontrakcie dodaje osoba z edycją kontraktów.",
+    );
     expect(screen.queryByText(/contract_id/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Dodaj notatkę/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Zapisz" })).toBeNull();
   });
 
-  it("notatkę dodaje się wprost przy kontrakcie (runda 10, F03)", async () => {
+  it("notatkę dodaje się wprost przy kontrakcie, rodzaj z menu (runda 10, F03)", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
     mocks.notesTimeline.mockResolvedValue({ data: [] });
     mocks.createNote.mockResolvedValueOnce({ data: { id: 1 } });
-    renderWith(<ContractNotesTab contractId={4} canAddNote />);
+    renderWith(<CareStream contractId={4} careOpen={false} care={null} canAddNote canReadFeedback={false} />);
 
-    const button = await screen.findByRole("button", { name: /Dodaj notatkę/ });
+    const button = await screen.findByRole("button", { name: "Zapisz" });
     expect(button).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/Nowa notatka przy kontrakcie/), {
+    fireEvent.change(screen.getByLabelText("Treść wpisu"), {
       target: { value: "  Ustalenia z rozmowy  " },
     });
-    fireEvent.change(screen.getByLabelText("Rodzaj notatki"), {
-      target: { value: "call" },
-    });
+    await user.click(screen.getByRole("button", { name: "Rodzaj notatki: Notatka" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Telefon" }));
     fireEvent.click(button);
     await waitFor(() =>
       expect(mocks.createNote).toHaveBeenCalledWith(4, {
@@ -279,8 +293,8 @@ describe("audyt 24.09 (blok D) — zakładki kontraktu", () => {
     });
     renderWith(<ContractAmendmentsTab contractId={5} clientId={2} readOnly />);
 
-    expect(await screen.findByText(/→ 30\.09\.2026/)).toBeInTheDocument();
-    expect(screen.getByText(/→ Aktywny/)).toBeInTheDocument();
+    expect(await screen.findByText(/koniec projektu 30\.06\.2026 → 30\.09\.2026/)).toBeInTheDocument();
+    expect(screen.getByText(/status kończący się → aktywny/)).toBeInTheDocument();
     expect(screen.queryByText(/"end_date"/)).not.toBeInTheDocument();
   });
 
@@ -322,7 +336,8 @@ describe("audyt 24.09 (blok D) — zakładki kontraktu", () => {
   it("formularz aneksu nie ma już gałęzi „wcześniejsze zakończenie” (S5)", async () => {
     mocks.get.mockResolvedValue({ data: [] });
     renderWith(<ContractAmendmentsTab contractId={5} clientId={2} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Zmień zakres/ }));
+    await openAmendmentForm("Zmiana zakresu");
+    expect(await screen.findByRole("dialog", { name: "Zmiana zakresu" })).toBeInTheDocument();
     expect(screen.queryByText("Data faktycznego zakończenia")).not.toBeInTheDocument();
   });
 
@@ -349,94 +364,105 @@ describe("audyt 24.09 (blok D) — zakładki kontraktu", () => {
     expect(screen.getByRole("button", { name: /Potwierdź usunięcie/ })).toBeInTheDocument();
     confirmSpy.mockRestore();
   });
-
-  it("faktury: status po polsku, a odmowa usunięcia kończy się toastem (N9, N10)", async () => {
-    mocks.get.mockResolvedValue({
-      data: [
-        {
-          id: 7,
-          contract_id: 5,
-          direction: "to_client",
-          invoice_number: "FV/1",
-          period_month: null,
-          period_year: null,
-          issue_date: "2026-09-01",
-          due_date: "2026-09-15",
-          paid_date: "2026-09-10",
-          amount: 1000,
-          currency: "PLN",
-          status: "paid",
-          notes: null,
-        },
-      ],
-    });
-    mocks.del.mockRejectedValue(httpError(403, "Brak uprawnień do faktur"));
-    renderWith(<ContractInvoicesTab contractId={5} />);
-
-    expect(await screen.findByText("Zapłacona")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Usuń fakturę FV/1" }));
-    fireEvent.click(screen.getByRole("button", { name: "Potwierdź usunięcie faktury FV/1" }));
-    await waitFor(() =>
-      expect(mocks.showToast).toHaveBeenCalledWith(
-        "Brak uprawnień do faktur",
-        "error",
-      ),
-    );
-  });
 });
 
-// Runda 10 (R10-X1-1): puste pole kwoty zapisywało fakturę na 0 zł, a grosze
-// były blokowane domyślnym `step=1`.
-describe("ContractInvoicesTab — kwota faktury", () => {
-  async function openForm() {
-    mocks.get.mockResolvedValue({ data: [] });
+// Zakładka „Faktury” od 19.11.2026: faktury konsultanta z KSeF z Rozliczeń,
+// tylko do odczytu (decyzja Artura). Ręczny rejestr `/api/invoices` z „Dodaj
+// fakturę” zniknął — na produkcji nie miał ani jednego wiersza.
+describe("ContractInvoicesTab — faktury konsultanta z KSeF", () => {
+  const PAYLOAD = {
+    contract_id: 5,
+    client_id: 12,
+    invoices: [
+      {
+        id: 2,
+        ksef_number: "9970000001-20261117-AAAAAAAAAAAA-AB",
+        invoice_number: "FK 2/11/2026",
+        invoice_type: "Kor",
+        is_correction: true,
+        issue_date: "2026-11-17",
+        period_month: "2026-10",
+        nip_state: "known",
+        net_amount: "-1500.00",
+        gross_amount: "-1845.00",
+        currency: "PLN",
+      },
+      {
+        id: 1,
+        ksef_number: "9970000001-20261003-BBBBBBBBBBBB-AB",
+        invoice_number: "FV 9/10/2026",
+        invoice_type: "Vat",
+        is_correction: false,
+        issue_date: "2026-10-03",
+        period_month: "2026-09",
+        nip_state: "suggested",
+        net_amount: "18000.00",
+        gross_amount: "22140.00",
+        currency: "PLN",
+      },
+    ],
+  };
+
+  it("czyta faktury z KSeF kontraktu i linkuje miesiąc do Rozliczeń, bez „Dodaj fakturę”", async () => {
+    mocks.get.mockResolvedValue({ data: PAYLOAD });
     renderWith(<ContractInvoicesTab contractId={5} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Dodaj fakturę/ }));
-    const field = (label: string) =>
-      screen.getByText(label).parentElement!.querySelector("input")!;
-    const form = screen.getByRole("button", { name: "Zapisz" }).closest("form")!;
-    return { input: field("Kwota"), number: field("Numer"), form };
-  }
 
-  it("pola kwoty i numeru są wymagane, kwota przyjmuje grosze", async () => {
-    const { input, number } = await openForm();
-    expect(input).toHaveAttribute("step", "0.01");
-    expect(input).toBeRequired();
-    expect(number).toBeRequired();
-  });
+    // Tytuł sekcji stoi już w stanie ładowania — czekamy na wiersz z danymi.
+    expect(await screen.findByText("Korekta")).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Faktury konsultanta z KSeF" }),
+    ).toBeInTheDocument();
+    expect(mocks.get).toHaveBeenCalledWith("/api/contracts/5/contractor-invoices");
+    expect(screen.getByText("Faktura")).toBeInTheDocument();
+    expect(screen.getByText("FK 2/11/2026")).toBeInTheDocument();
+    expect(screen.getByText("9970000001-20261117-AAAAAAAAAAAA-AB")).toBeInTheDocument();
+    expect(screen.getByText("do zatwierdzenia")).toBeInTheDocument();
 
-  it("UI F01: pusty formularz nie wysyła faktury (najpierw numer)", async () => {
-    const { form } = await openForm();
-    fireEvent.submit(form);
-    expect(mocks.post).not.toHaveBeenCalled();
-    expect(mocks.showToast).toHaveBeenCalledWith("Podaj numer faktury.", "error");
-  });
-
-  it("zerowa albo ujemna kwota nie wysyła faktury", async () => {
-    const { input, number, form } = await openForm();
-    fireEvent.change(number, { target: { value: "FV/9" } });
-    for (const value of ["", "0", "-5"]) {
-      fireEvent.change(input, { target: { value } });
-      fireEvent.submit(form);
-    }
-    expect(mocks.post).not.toHaveBeenCalled();
-    expect(mocks.showToast).toHaveBeenCalledWith(
-      "Podaj kwotę faktury większą od zera.",
-      "error",
+    const october = screen.getByRole("link", { name: "10.2026" });
+    expect(october).toHaveAttribute(
+      "href",
+      "/finance?view=settlements&stClient=12&stMonth=2026-10&stContract=5",
     );
+    expect(
+      screen.getByRole("link", { name: /Otwórz 10\.2026 w Rozliczeniach/ }),
+    ).toHaveAttribute("href", october.getAttribute("href"));
+
+    expect(screen.queryByRole("button", { name: /Dodaj fakturę/ })).not.toBeInTheDocument();
+    expect(mocks.post).not.toHaveBeenCalled();
   });
 
-  it("kwota z groszami idzie do API bez zaokrąglenia", async () => {
-    mocks.post.mockResolvedValue({ data: {} });
-    const { input, number, form } = await openForm();
-    fireEvent.change(number, { target: { value: " FV/2026/09/1 " } });
-    // UI F13: 123,45 PLN.
-    fireEvent.change(input, { target: { value: "123.45" } });
-    fireEvent.submit(form);
-    await waitFor(() => expect(mocks.post).toHaveBeenCalled());
-    expect(mocks.post.mock.calls[0][1]).toMatchObject({
-      amount: 123.45,
-      invoice_number: "FV/2026/09/1",
-    });
+  it("pusty stan dopiero po udanym odczycie", async () => {
+    mocks.get.mockResolvedValue({ data: { ...PAYLOAD, invoices: [] } });
+    renderWith(<ContractInvoicesTab contractId={5} />);
+
+    expect(
+      await screen.findByText("Brak faktur konsultanta w KSeF dla tego kontraktu."),
+    ).toBeInTheDocument();
+  });
+
+  it("awaria odczytu nie udaje braku faktur i daje się ponowić", async () => {
+    mocks.get.mockRejectedValueOnce(httpError(500));
+    renderWith(<ContractInvoicesTab contractId={5} />);
+
+    expect(await screen.findByText(FAILURE)).toBeInTheDocument();
+    expect(
+      screen.queryByText("Brak faktur konsultanta w KSeF dla tego kontraktu."),
+    ).not.toBeInTheDocument();
+
+    mocks.get.mockResolvedValueOnce({ data: PAYLOAD });
+    fireEvent.click(screen.getByRole("button", { name: /Spróbuj ponownie/ }));
+    expect(await screen.findByText("Korekta")).toBeInTheDocument();
+  });
+
+  it("wyłączony moduł rozliczeń: komunikat z API zamiast pustej listy", async () => {
+    mocks.get.mockRejectedValue(httpError(404, "Moduł rozliczeń klientów jest wyłączony."));
+    renderWith(<ContractInvoicesTab contractId={5} />);
+
+    expect(
+      await screen.findByText("Moduł rozliczeń klientów jest wyłączony."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Brak faktur konsultanta w KSeF dla tego kontraktu."),
+    ).not.toBeInTheDocument();
   });
 });

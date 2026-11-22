@@ -15,6 +15,7 @@ if (dsn) {
         sendDefaultPii: false,
         beforeSend: scrubSentryEvent,
         beforeSendTransaction: scrubSentryEvent,
-        tracesSampleRate: parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE ?? '0.1'),
+        // 1%, jak w przeglądarce i na serwerze Nexta (sentry.server.config.ts).
+        tracesSampleRate: 0.01,
     })
 }

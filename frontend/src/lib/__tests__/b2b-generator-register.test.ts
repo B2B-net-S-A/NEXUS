@@ -9,7 +9,11 @@ import {
   generatedIdFromHeaders,
   generatorEditHref,
   generatorPrefillHref,
+  generatorSectionOf,
   generatorTabFromParam,
+  generatorTabOfSection,
+  GENERATOR_TABS,
+  isRegisterPhase,
   mergeRegisterPages,
   needsContractLink,
   nextRegisterOffset,
@@ -354,5 +358,51 @@ describe("stawki z aneksu w wierszu rejestru", () => {
   it("knows the annex generator tab", () => {
     expect(generatorTabFromParam("annexes")).toBe("annexes");
     expect(generatorTabFromParam("aneksy")).toBe("annexes");
+  });
+});
+
+describe("pięć zakładek zamiast siedmiu (etap 3b)", () => {
+  it("każdy dawny klucz `?tab=` trafia do swojej zakładki", () => {
+    expect(
+      Object.fromEntries(GENERATOR_TABS.map((t) => [t, generatorSectionOf(t)])),
+    ).toEqual({
+      generator: "new",
+      generated: "agreements",
+      "no-project": "agreements",
+      closed: "agreements",
+      annexes: "annex",
+      documents: "documents",
+      roles: "roles",
+    });
+  });
+
+  it("aliasy z adresu prowadzą do fazy rejestru", () => {
+    for (const [alias, phase] of [
+      ["current", "generated"],
+      ["without-project", "no-project"],
+      ["ended", "closed"],
+    ] as const) {
+      const tab = generatorTabFromParam(alias);
+      expect(tab).toBe(phase);
+      expect(tab && generatorSectionOf(tab)).toBe("agreements");
+    }
+    expect(generatorTabFromParam("aneksy")).toBe("annexes");
+  });
+
+  it("zakładka „Umowy” wraca do ostatniej fazy, reszta ma stały klucz", () => {
+    expect(generatorTabOfSection("agreements", "closed")).toBe("closed");
+    expect(generatorTabOfSection("agreements", "generated")).toBe("generated");
+    expect(generatorTabOfSection("new", "closed")).toBe("generator");
+    expect(generatorTabOfSection("annex", "closed")).toBe("annexes");
+    expect(generatorTabOfSection("documents", "closed")).toBe("documents");
+    expect(generatorTabOfSection("roles", "closed")).toBe("roles");
+  });
+
+  it("faza rejestru to tylko trzy klucze", () => {
+    expect(GENERATOR_TABS.filter(isRegisterPhase)).toEqual([
+      "generated",
+      "no-project",
+      "closed",
+    ]);
   });
 });

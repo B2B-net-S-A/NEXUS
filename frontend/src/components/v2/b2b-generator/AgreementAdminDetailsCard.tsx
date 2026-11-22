@@ -422,6 +422,11 @@ export interface AgreementAdminDetailsCardProps {
    * („Popraw umowę”) — dla niej kafelek nie nadpisuje ich podpowiedziami.
    */
   restoredPair?: string | null;
+  /**
+   * Bez ramki karty i nagłówka — krok „Szczegóły administracyjne” w układzie
+   * kroków Generatora ma własny tytuł i zdanie wstępu (etap 3b, 20.11.2026).
+   */
+  bare?: boolean;
 }
 
 export function AgreementAdminDetailsCard({
@@ -431,6 +436,7 @@ export function AgreementAdminDetailsCard({
   onChange,
   showErrors = false,
   restoredPair = null,
+  bare = false,
 }: AgreementAdminDetailsCardProps) {
   const meId = useAuthStore((s) =>
     s.user?.id != null ? Number(s.user.id) : null,
@@ -486,26 +492,32 @@ export function AgreementAdminDetailsCard({
     ? `/jobs/${jobId}?candidate=${candidateId}`
     : undefined;
 
+  // W układzie kroków pola idą w dwóch kolumnach już od węższego kroku.
+  const grid = bare ? "@md:grid-cols-2" : "@xl:grid-cols-2";
+  const fullRow = bare ? "@md:col-span-2" : "@xl:col-span-2";
+
   return (
     <div
       className={cn(
-        "rounded-xl border bg-card text-card-foreground shadow-sm",
-        missing && "border-destructive",
+        !bare && "rounded-xl border bg-card text-card-foreground shadow-sm",
+        !bare && missing && "border-destructive",
       )}
       data-testid="agreement-admin-details"
     >
-      <div className="flex flex-col gap-1.5 p-6 pb-4">
-        <h3 className="flex items-center gap-2 text-base font-semibold leading-none">
-          <ClipboardList className="h-4 w-4" aria-hidden /> Szczegóły
-          administracyjne
-        </h3>
-        <p className="text-sm text-muted-foreground">
-          Rekruter i Delivery Lead dostaną placement i premię po {BONUS_HOURS} h
-          pracy kontraktora — wynikają z rekrutacji. Tu uzupełniasz replacement
-          i wymiar etatu.
-        </p>
-      </div>
-      <div className="space-y-4 px-6 pb-6">
+      {bare ? null : (
+        <div className="flex flex-col gap-1.5 p-6 pb-4">
+          <h3 className="flex items-center gap-2 text-base font-semibold leading-none">
+            <ClipboardList className="h-4 w-4" aria-hidden /> Szczegóły
+            administracyjne
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Rekruter i Delivery Lead dostaną placement i premię po {BONUS_HOURS}{" "}
+            h pracy kontraktora — wynikają z rekrutacji. Tu uzupełniasz
+            replacement i wymiar etatu.
+          </p>
+        </div>
+      )}
+      <div className={cn("space-y-4", !bare && "px-6 pb-6")}>
         {hasRecruitment && prefillQuery.isError ? (
           <p className="text-sm text-destructive">
             Nie udało się pobrać osób z rekrutacji.{" "}
@@ -525,7 +537,7 @@ export function AgreementAdminDetailsCard({
             bonusWithheld={admin?.recruiter_bonus_withheld ?? null}
           />
         ) : null}
-        <div className="grid gap-x-6 gap-y-4 @xl:grid-cols-2">
+        <div className={cn("grid gap-x-6 gap-y-4", grid)}>
           <PayeeField
             label="Rekruter (prowadzi kandydata)"
             person={hasRecruitment ? (admin?.recruiter ?? null) : null}
@@ -553,7 +565,7 @@ export function AgreementAdminDetailsCard({
             changeHref={hasRecruitment ? `/jobs/${jobId}` : undefined}
           />
 
-          <div>
+          <div data-gen-field="replacement">
             <FieldLabel
               hint={
                 fromTitle && value.isReplacement === defaults.isReplacement
@@ -588,7 +600,7 @@ export function AgreementAdminDetailsCard({
             </div>
           </div>
 
-          <div>
+          <div data-gen-field="fte">
             <FieldLabel
               hint={
                 hasRecruitment && value.fte === "1"
@@ -627,10 +639,7 @@ export function AgreementAdminDetailsCard({
             ) : null}
           </div>
 
-          <div
-            className="@xl:col-span-2"
-            data-tour="b2b-generator.client-referral"
-          >
+          <div className={fullRow} data-tour="b2b-generator.client-referral">
             <FieldLabel required={false}>
               Kandydat wskazany przez klienta
             </FieldLabel>
@@ -670,7 +679,7 @@ export function AgreementAdminDetailsCard({
           </div>
 
           {value.isReplacement ? (
-            <div className="@xl:col-span-2">
+            <div className={fullRow} data-gen-field="replaced">
               <FieldLabel
                 hint={
                   value.replaced &&

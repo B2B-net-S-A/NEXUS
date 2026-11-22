@@ -113,6 +113,14 @@ describe("bramka porcji a Start i Poligon", () => {
       expect(dailyBlocks({ ...base, pathname, start: { enforced: true } }), pathname).toBe(false);
   });
 
+  // 19.11.2026: Rada nadzorcza wchodzi tylko na swoje ekrany (middleware),
+  // więc `/nowosci-dnia` odbijało na `/rada`, a bramka nie pokazywała `/rada` —
+  // pusty ekran. Rada nie dostaje porcji nowości zespołu.
+  it("nie zatrzymuje Rady nadzorczej", () => {
+    expect(dailyBlocks({ ...base, pathname: "/rada", boardOnly: true })).toBe(false);
+    expect(dailyBlocks({ ...base, pathname: "/rada" })).toBe(true);
+  });
+
   it("nie blokuje, zanim przyjdzie stan Startu, ani na Poligonie i w panelu wyłącznika", () => {
     expect(dailyBlocks({ ...base, start: null })).toBe(false);
     expect(dailyBlocks({ ...base, poligon: true })).toBe(false);

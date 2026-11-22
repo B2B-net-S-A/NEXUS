@@ -254,6 +254,32 @@ export function rateLabel(
   return `${fmtMoney(amount)} ${currency}${rateUnitSuffix(unit)}`;
 }
 
+/** „01.09.2026” z ISO; brak = „bez końca”. */
+function dayLabel(iso: string | null): string {
+  if (!iso) return "bez końca";
+  const [y, m, d] = iso.slice(0, 10).split("-");
+  return `${d}.${m}.${y}`;
+}
+
+/**
+ * Koszt w częściach (`order_cost_steps`): „120 PLN/h do 31.08.2026 · 130 PLN/h od 01.09.2026”.
+ * `null`, gdy zamówienie ma jedną stawkę kosztu.
+ */
+export function costPartsLabel(
+  order: Pick<ClientOrderRead, "cost_parts"> | null,
+  currency: string,
+  unit: string | null | undefined,
+): string | null {
+  const parts = order?.cost_parts ?? [];
+  if (parts.length < 2) return null;
+  return parts
+    .map((part, index) => {
+      const rate = `${fmtMoney(part.rate)} ${currency}${rateUnitSuffix(unit)}`;
+      return index === 0 ? `${rate} do ${dayLabel(part.to)}` : `${rate} od ${dayLabel(part.from)}`;
+    })
+    .join(" · ");
+}
+
 export function periodLabel(
   order: Pick<ClientOrderRead, "start_date" | "end_date"> | null,
 ): string | null {
@@ -299,6 +325,8 @@ export interface ContractorRowSummary {
   /** `null`, gdy stawki nie ma albo rola nie widzi kwot. */
   costLabel: string | null;
   costFromContract: boolean;
+  /** Koszt w częściach bieżącego zamówienia; `null` = jedna stawka. */
+  costPartsLabel: string | null;
   revenueLabel: string | null;
   state: { kind: ContractorRowStateKind; label: string; tone: ContractorRowTone };
   futureCount: number;
@@ -387,6 +415,9 @@ export function contractorRowSummary(
       ? rateLabel(rates.costAmount, rates.costCurrency, rates.unit)
       : null,
     costFromContract: canViewFinance && rates.costFromContract,
+    costPartsLabel: canViewFinance
+      ? costPartsLabel(activeOrder, rates.costCurrency, rates.unit)
+      : null,
     revenueLabel: canViewFinance
       ? rateLabel(rates.revenueAmount, rates.revenueCurrency, rates.unit)
       : null,

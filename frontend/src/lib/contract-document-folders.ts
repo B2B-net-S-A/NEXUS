@@ -54,95 +54,6 @@ export type FileRow =
   | { kind: "doc"; key: string; doc: ContractDocument }
   | { kind: "order"; key: string; order: OrderDocumentItem };
 
-export const ORDERS_FOLDER_ID = "orders" as const;
-
-export interface FolderSection {
-  id: number | typeof ORDERS_FOLDER_ID;
-  name: string;
-  auto: boolean;
-  rows: FileRow[];
-  totalBytes: number;
-  createdAt: string | null;
-}
-
-export interface DocumentSections {
-  current: FileRow[];
-  folders: FolderSection[];
-}
-
-function rowBytes(row: FileRow): number {
-  return (row.kind === "doc" ? row.doc.size_bytes : row.order.size_bytes) ?? 0;
-}
-
-function rowDate(row: FileRow): string {
-  return row.kind === "doc"
-    ? row.doc.created_at
-    : (row.order.uploaded_at ?? row.order.created_at);
-}
-
-function newestFirst(rows: FileRow[]): FileRow[] {
-  return [...rows].sort((a, b) => rowDate(b).localeCompare(rowDate(a)));
-}
-
-/**
- * Układ listy: „Aktualna umowa” (pliki bez folderu) i foldery — najpierw
- * „Zamówienia” (tylko gdy coś w nim jest), potem foldery w kolejności
- * założenia. Plik ze wskazaniem na folder, którego już nie ma (wyścig
- * z usunięciem), ląduje w „Aktualnej umowie”, a nie znika.
- */
-export function buildDocumentSections(
-  docs: readonly ContractDocument[],
-  folders: readonly DocumentFolder[],
-  orderFiles: readonly OrderDocumentItem[],
-  ordersFolderName: string,
-): DocumentSections {
-  const known = new Set(folders.map((f) => f.id));
-  const byFolder = new Map<number, FileRow[]>();
-  const current: FileRow[] = [];
-  const orders: FileRow[] = orderFiles.map((order) => ({
-    kind: "order",
-    key: `order-${order.order_id}`,
-    order,
-  }));
-
-  for (const doc of docs) {
-    const row: FileRow = { kind: "doc", key: `doc-${doc.id}`, doc };
-    if (doc.doc_type === "order") {
-      orders.push(row);
-    } else if (doc.folder_id != null && known.has(doc.folder_id)) {
-      const list = byFolder.get(doc.folder_id) ?? [];
-      list.push(row);
-      byFolder.set(doc.folder_id, list);
-    } else {
-      current.push(row);
-    }
-  }
-
-  const sections: FolderSection[] = [];
-  if (orders.length > 0) {
-    sections.push({
-      id: ORDERS_FOLDER_ID,
-      name: ordersFolderName,
-      auto: true,
-      rows: newestFirst(orders),
-      totalBytes: orders.reduce((sum, r) => sum + rowBytes(r), 0),
-      createdAt: null,
-    });
-  }
-  for (const folder of folders) {
-    const rows = byFolder.get(folder.id) ?? [];
-    sections.push({
-      id: folder.id,
-      name: folder.name,
-      auto: false,
-      rows: newestFirst(rows),
-      totalBytes: rows.reduce((sum, r) => sum + rowBytes(r), 0),
-      createdAt: folder.created_at,
-    });
-  }
-  return { current: newestFirst(current), folders: sections };
-}
-
 /** „1 plik”, „3 pliki”, „5 plików”, „22 pliki”, „12 plików”. */
 export function filesLabel(n: number): string {
   if (n === 1) return "1 plik";
@@ -185,6 +96,19 @@ export function folderNameSuggestions(
     out.push(name);
   }
   return out;
+}
+
+/**
+ * 409 `document_duplicate`: kontrakt ma już ten plik (ten sam SHA-256,
+ * 20.11.2026). Okno „Dodaj plik” pokazuje zdanie z serwera; załącznik z okien
+ * zakończenia współpracy jest wtedy już w Dokumentach, więc to nie błąd.
+ */
+export function isDocumentDuplicate(error: unknown): boolean {
+  const response = (error as { response?: { status?: number; data?: unknown } } | null)
+    ?.response;
+  const detail = (response?.data as { detail?: { code?: unknown } } | null | undefined)
+    ?.detail;
+  return response?.status === 409 && detail?.code === "document_duplicate";
 }
 
 /** Dokumenty, które liczą się do alarmu „dokument wygasł” — bez archiwum. */

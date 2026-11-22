@@ -36,7 +36,6 @@ from app.schemas.dashboard_v2 import (
     DeliveryLeadDashboardResponse,
     DeliveryLeadKpis,
     DeliveryRiskBoardRow,
-    FinanceExceptionBoardRow,
     FinanceExecutiveDashboardData,
     FinanceExecutiveKpis,
     FinanceOperationsDashboardData,
@@ -1393,99 +1392,7 @@ async def build_finance_dashboard(
                 sum((Decimal(month.revenue) for month in forecast.months), Decimal("0"))
             )
 
-    alerts: list[DashboardAlert] = []
-    queue: list[DashboardQueueItem] = []
-    exceptions: list[FinanceExceptionBoardRow] = []
-
     if tab == "operations":
-        dso = await _capture(
-            quality, "invoice_dso", lambda: sources.load_finance_dso(user, db)
-        )
-        overdue_invoices = await _capture(
-            quality,
-            "overdue_invoices",
-            lambda: sources.load_overdue_invoices(user, db),
-        )
-        dso_incomplete = bool(dso and any(bool(row.fx_incomplete) for row in dso))
-        outstanding = None
-        if dso is not None and not dso_incomplete:
-            outstanding = str(
-                sum((Decimal(row.outstanding) for row in dso), Decimal("0"))
-            )
-        elif dso_incomplete:
-            quality.set(
-                "invoice_dso",
-                "unavailable",
-                warnings=[
-                    "Brak FX dla części faktur; outstanding PLN nie jest sumowany."
-                ],
-            )
-
-        overdue_value: str | None = None
-        if overdue_invoices is not None:
-            currencies = {
-                (invoice.currency or "PLN").upper() for invoice in overdue_invoices
-            }
-            if currencies <= {"PLN"}:
-                overdue_value = str(
-                    sum(
-                        (Decimal(invoice.amount) for invoice in overdue_invoices),
-                        Decimal("0"),
-                    )
-                )
-            else:
-                quality.set(
-                    "overdue_invoices",
-                    "unavailable",
-                    warnings=[
-                        "Overdue obejmuje wiele walut; endpoint źródłowy nie "
-                        "udostępnia bezpiecznej sumy PLN."
-                    ],
-                )
-        for invoice in overdue_invoices or []:
-            due = _as_datetime(invoice.due_date)
-            alert = DashboardAlert(
-                id=f"invoice:{invoice.id}",
-                kind="overdue_invoice",
-                severity="critical",
-                title=f"Faktura {invoice.invoice_number} po terminie",
-                source="invoices",
-                due_at=due,
-                entity_type="invoice",
-                entity_id=invoice.id,
-                href=f"/invoices/{invoice.id}",
-            )
-            alerts.append(alert)
-            queue.append(
-                DashboardQueueItem(
-                    id=f"invoice:{invoice.id}",
-                    kind="overdue_invoice",
-                    priority=100,
-                    title=f"Faktura {invoice.invoice_number}",
-                    subtitle=f"{invoice.amount} {invoice.currency}",
-                    source="invoices",
-                    due_at=due,
-                    entity_type="invoice",
-                    entity_id=invoice.id,
-                    href=f"/invoices/{invoice.id}",
-                    action_label="Otwórz fakturę",
-                )
-            )
-            exceptions.append(
-                FinanceExceptionBoardRow(
-                    id=f"invoice:{invoice.id}",
-                    severity="critical",
-                    kind="overdue_invoice",
-                    contract_id=invoice.contract_id,
-                    invoice_id=invoice.id,
-                    invoice_number=invoice.invoice_number,
-                    amount=str(invoice.amount),
-                    currency=invoice.currency,
-                    due_at=due,
-                    next_action_href=f"/invoices/{invoice.id}",
-                )
-            )
-
         summary_values = summary or {}
         data: Any = FinanceOperationsDashboardData(
             kpis=FinanceOperationsKpis(
@@ -1519,18 +1426,6 @@ async def build_finance_dashboard(
                         summary_values.get("margin_pct"),
                     ),
                 ),
-                outstanding_pln=_kpi(
-                    outstanding,
-                    "PLN",
-                    "Należności client-facing po konwersji FX.",
-                    quality="complete" if outstanding is not None else "unavailable",
-                ),
-                overdue_pln=_kpi(
-                    overdue_value,
-                    "PLN",
-                    "Faktury client-facing po terminie; tylko bezpieczna suma PLN.",
-                    quality="complete" if overdue_value is not None else "unavailable",
-                ),
                 revenue_forecast_3m_pln=_kpi(
                     forecast_value,
                     "PLN",
@@ -1538,9 +1433,6 @@ async def build_finance_dashboard(
                     quality="complete" if forecast_value is not None else "unavailable",
                 ),
             ),
-            alerts=alerts,
-            queue=queue[:30],
-            exceptions_board=exceptions,
         )
     else:
         trend_result = await _capture(
@@ -1625,9 +1517,6 @@ async def build_finance_dashboard(
                     "PLN", "MRR kontraktów kończących się w ciągu 90 dni."
                 ),
             ),
-            alerts=alerts,
-            queue=queue,
-            exceptions_board=exceptions,
         )
 
     return FinanceDashboardResponse(

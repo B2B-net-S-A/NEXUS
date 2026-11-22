@@ -41,7 +41,6 @@ describe("contractAccess — domyślne uprawnienia ról", () => {
       canManageFinance: true,
       canViewBenchmark: true,
       canViewInvoices: true,
-      canManageInvoices: true,
       canEditContract: true,
       financeAmountsOnly: false,
       canEditContractStatus: true,
@@ -60,7 +59,6 @@ describe("contractAccess — domyślne uprawnienia ról", () => {
       canManageFinance: false,
       canViewBenchmark: false,
       canViewInvoices: false,
-      canManageInvoices: false,
       canEditContract: true,
       financeAmountsOnly: false,
       canEditContractStatus: true,
@@ -89,7 +87,6 @@ describe("contractAccess — domyślne uprawnienia ról", () => {
       canManageFinance: true,
       canViewBenchmark: true,
       canViewInvoices: true,
-      canManageInvoices: true,
       canEditContract: true,
       // Finanse edytują cały kontrakt, więc formularz nie jest zawężany do kwot.
       financeAmountsOnly: false,
@@ -109,7 +106,6 @@ describe("contractAccess — domyślne uprawnienia ról", () => {
       canManageFinance: false,
       canViewBenchmark: false,
       canViewInvoices: false,
-      canManageInvoices: false,
       canEditContract: false,
       financeAmountsOnly: false,
       canEditContractStatus: true,
@@ -200,14 +196,12 @@ describe("contractAccess — to, co przełączył administrator", () => {
     const withoutModule = access("finance", { revoke: ["finance_module"] });
     expect(withoutModule.canViewBenchmark).toBe(false);
     expect(withoutModule.canViewInvoices).toBe(false);
-    expect(withoutModule.canManageInvoices).toBe(false);
     // Kwoty kontraktu to osobne uprawnienia — zostają.
     expect(withoutModule.canViewFinance).toBe(true);
     expect(withoutModule.canManageFinance).toBe(true);
 
     const granted = access("head_of_recruitment", { grant: ["finance_module"] });
     expect(granted.canViewInvoices).toBe(true);
-    expect(granted.canManageInvoices).toBe(true);
   });
 
   it("„Cofnij zakończenie” i „Przepnij na innego klienta” zostają przy roli", () => {

@@ -206,6 +206,7 @@ class ConversationCaseBody(BaseModel):
         "offboarding",
         "negotiation",
         "administration",
+        "settlements",
         "marketing",
         "other",
     ] = "other"

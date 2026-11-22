@@ -120,7 +120,7 @@ export const AGREEMENT_PLANS: { value: Exclude<AgreementPlan, "">; label: string
   {
     value: "keep",
     label: "Umowa zostaje — osoba wraca na inny projekt",
-    hint: "Umowa trafi do „Umów bez projektu” w generatorze.",
+    hint: "Umowa trafi do fazy „Bez projektu” w Generatorze umów.",
   },
 ];
 

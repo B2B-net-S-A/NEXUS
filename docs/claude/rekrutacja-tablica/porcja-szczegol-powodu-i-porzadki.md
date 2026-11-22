@@ -54,3 +54,9 @@ a urosły trzy powody, z których nie wyciągał nic: „Inna rola” (21%, 49 o
 Testy: `backend/tests/test_autofill_feedback.py` (sekcja „Runda 5”),
 `frontend/src/components/v2/review-batch/__tests__/ReviewBatchCard.test.tsx`
 („szczegół powodu (runda 5)”).
+
+Od 19.11.2026 nazwy pod klawiszami biorą się z jednego słownika powodów
+(`jeden-slownik-powodow-zamkniecia-procesu.md`): 1 „Brak kluczowej
+umiejętności”, 2 „Za mało doświadczenia”, 3 „Lokalizacja lub tryb pracy”,
+4 „Za droga”, 7 „Inny poziom lub inna rola”, 8 „Nie szuka pracy”. Klucze
+i zachowanie klawiszy bez zmian; nazwy w tym pliku są sprzed tej zmiany.

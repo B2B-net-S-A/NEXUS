@@ -25,30 +25,30 @@ export function passwordChangeTokens(data: unknown): PasswordChangeTokens | null
 }
 
 /**
- * Zapisuje nową sesję. `false` = serwer nie oddał tokenu (stara wersja API
- * w trakcie deployu) — bieżący token jest wtedy martwy i trzeba zalogować się
- * ponownie.
+ * Potwierdza nową sesję. Nowy token API ustawia w ciasteczku HttpOnly, więc
+ * front tylko odświeża profil. `false` = serwer nie oddał nowej pary (stara
+ * wersja API w trakcie deployu) — bieżąca sesja jest wtedy martwa i trzeba
+ * zalogować się ponownie.
  */
 export async function adoptPasswordChangeSession(
   data: unknown,
   deps: {
-    fetchMe: (accessToken: string) => Promise<User>
-    setAuth: (user: User, token: string) => void
+    fetchMe: () => Promise<User>
+    setAuth: (user: User) => void
     /** Profil z pamięci, gdy świeży odczyt `/me` się nie uda. */
     currentUser?: User | null
   },
 ): Promise<boolean> {
-  const tokens = passwordChangeTokens(data)
-  if (!tokens) return false
+  if (!passwordChangeTokens(data)) return false
   let me: User
   try {
-    me = await deps.fetchMe(tokens.access_token)
+    me = await deps.fetchMe()
   } catch {
     // Token jest dobry — nie wylogowujemy z powodu nieudanego odczytu
     // profilu. Flaga wymuszonej zmiany hasła jest już zdjęta na serwerze.
     if (!deps.currentUser) return false
     me = { ...deps.currentUser, force_password_change: false }
   }
-  deps.setAuth(me, tokens.access_token)
+  deps.setAuth(me)
   return true
 }

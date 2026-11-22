@@ -96,7 +96,7 @@ class RequestCorrelationMiddleware:
                     tags.get("sampling_policy") != "operation-in-progress"
                     and event.get("type") != "transaction"
                 ):
-                    route = getattr(scope.get("route"), "path", "unmatched-route")
+                    route = route_template(scope)
                     tags.setdefault(
                         "operation", f"{scope.get('method', 'UNKNOWN')} {route}"
                     )
@@ -115,7 +115,7 @@ class RequestCorrelationMiddleware:
             finally:
                 correlation_ids.reset(correlation_token)
                 request_db_usage.reset(db_usage_token)
-                route = getattr(scope.get("route"), "path", "unmatched-route")
+                route = route_template(scope)
                 finished = time.monotonic()
                 extra = {
                     "event_kind": "http_outcome",
@@ -177,3 +177,35 @@ def _service_slug(scope) -> str | None:
     """Slug konta serwisowego uwierzytelnionego kluczem w tym żądaniu."""
     principal = (scope.get("state") or {}).get("service_principal")
     return getattr(principal, "slug", None) or None
+
+
+def route_template(scope) -> str:
+    """Szablon trasy do logu i Sentry, z prefiksami wszystkich routerów.
+
+    FastAPI 0.141 nie kopiuje tras przy `include_router`: `scope["route"]` to
+    trasa z pod-routera, której `path` nie ma prefiksu (`@router.get("")` →
+    `""`). Pełny szablon leży w kontekście dołączonej trasy. Bez niego (inna
+    wersja FastAPI) — ścieżka żądania z nazwami parametrów zamiast wartości.
+    """
+    route = scope.get("route")
+    if route is None:
+        return "unmatched-route"
+    context = (scope.get("fastapi") or {}).get("effective_route_context")
+    template = getattr(context, "path", None)
+    if template:
+        return template
+    template = getattr(route, "path", "")
+    pattern = getattr(route, "path_regex", None)
+    path = scope.get("path", "")
+    if template and pattern is not None and pattern.fullmatch(path):
+        return template
+    return _path_without_ids(path, scope.get("path_params") or {})
+
+
+def _path_without_ids(path: str, path_params: dict) -> str:
+    segments = path.split("/")
+    for name, value in path_params.items():
+        text = str(value)
+        if text in segments:
+            segments[segments.index(text)] = f"{{{name}}}"
+    return "/".join(segments) or "/"

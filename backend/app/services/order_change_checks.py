@@ -323,10 +323,13 @@ async def decorate(
         db, response.period.year, response.period.month, set(keys.values())
     )
 
-    order_ids = {item.order_id for _, item in items if item.order_id is not None}
-    group_ids = {
-        item.order_group_id for _, item in items if item.order_group_id is not None
-    }
+    # Zejście osoby z kilkoma zamówieniami niesie pozostałe w ``other_orders``
+    # — one też potrzebują okresu i PDF-u.
+    refs = [
+        ref for _, item in items for ref in (item, *getattr(item, "other_orders", ()))
+    ]
+    order_ids = {ref.order_id for ref in refs if ref.order_id is not None}
+    group_ids = {ref.order_group_id for ref in refs if ref.order_group_id is not None}
     order_meta = await _order_meta(db, order_ids)
     group_periods = await _group_periods(db, group_ids)
     order_pdfs, group_pdfs = await finance_order_pdfs.entries_for(
@@ -334,27 +337,37 @@ async def decorate(
     )
     mail_orders, mail_groups = await _mail_applications(db, order_ids, group_ids)
 
-    def decorated(tab: str, item):
-        key = keys[id(item)]
-        state = states.get(key)
-        update: dict = {"item_key": key, "done": state.as_done() if state else None}
-
-        meta = order_meta.get(item.order_id) if item.order_id is not None else None
+    def period_and_pdf(ref) -> dict:
+        update: dict = {}
+        meta = order_meta.get(ref.order_id) if ref.order_id is not None else None
         if meta is not None:
             update["order_start"], update["order_end"] = meta[2], meta[3]
-        elif item.order_group_id is not None:
-            period = group_periods.get(item.order_group_id)
+        elif ref.order_group_id is not None:
+            period = group_periods.get(ref.order_group_id)
             if period is not None:
                 update["order_start"], update["order_end"] = period
 
         entry = (
-            order_pdfs.get(item.order_id) if item.order_id is not None else None
+            order_pdfs.get(ref.order_id) if ref.order_id is not None else None
         ) or (
-            group_pdfs.get(item.order_group_id)
-            if item.order_group_id is not None
+            group_pdfs.get(ref.order_group_id)
+            if ref.order_group_id is not None
             else None
         )
         update["pdf"] = _pdf_ref(entry) if entry is not None else None
+        return update
+
+    def decorated(tab: str, item):
+        key = keys[id(item)]
+        state = states.get(key)
+        update: dict = {"item_key": key, "done": state.as_done() if state else None}
+        update.update(period_and_pdf(item))
+        if getattr(item, "other_orders", None):
+            update["other_orders"] = [
+                other.model_copy(update=period_and_pdf(other))
+                for other in item.other_orders
+            ]
+        meta = order_meta.get(item.order_id) if item.order_id is not None else None
 
         mail_moments = [
             *mail_orders.get(item.order_id or 0, ()),

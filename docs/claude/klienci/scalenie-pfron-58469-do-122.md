@@ -20,3 +20,12 @@ Rada bierze nazwę z klienta rekrutacji, a lista kontraktorów z klienta kontrak
   Kontrola tożsamości: nazwy obu rekordów zawierają „pfron”, inaczej korekta pomija krok.
 - Zakres portfela 58469 zostaje na duplikacie (inwariant manifestu w `/api/health/deep`).
 - Po biegu: `/rada?tab=firma` pokazuje PFRON raz (2 placementy łącznie w oknie, jeśli oba mieszczą się w oknie).
+
+## Drugi krok (19.11.2026)
+
+Pierwszy bieg przepiął rekrutacje, kontakt i alerty, ale zatrzymał się przed flagą scalenia:
+na 58469 zostało 11 wygenerowanych CV i 1 dokument poczty zamówień. Pierwszą próbę
+(ta sama zmienna `PFRON_ORDER_EXTRACTION_CLIENT_IDS=58469`) korekta zapisała jako znacznik
+`skipped`, który zablokował ponowienie — dlatego znacznik skasowano ręcznie, a drugi krok
+(`run_repair_pfron_client_merge_documents`, znacznik `0738_pfron_client_merge_documents`)
+nie zapisuje znacznika, gdy bieg został pominięty. Uruchomienie ręczne, po zgodzie Artura.

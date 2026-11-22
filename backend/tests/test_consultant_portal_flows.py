@@ -61,7 +61,7 @@ pytestmark = pytest.mark.asyncio
 
 @pytest.mark.usefixtures("portal_all", "care_on", "clean_team")
 async def test_back_office_edits_faq_and_consultant_reads_published(app_client) -> None:
-    member = await make_member("care")
+    member = await make_member()
     created = await app_client.post(
         f"{STAFF}/faq",
         headers=staff_headers(member),
@@ -113,7 +113,7 @@ async def test_back_office_edits_faq_and_consultant_reads_published(app_client) 
 
 @pytest.mark.usefixtures("care_on", "clean_team")
 async def test_outsider_cannot_edit_faq(app_client) -> None:
-    await make_member("care")
+    await make_member()
     outsider = await make_user(UserRole.recruiter)
     response = await app_client.get(f"{STAFF}/faq", headers=staff_headers(outsider))
     assert response.status_code == 403
@@ -176,7 +176,7 @@ async def test_switching_off_ends_open_sessions(app_client) -> None:
 
 @pytest.mark.usefixtures("portal_restored", "care_on", "clean_team")
 async def test_only_admin_flips_the_switch(app_client) -> None:
-    member = await make_member("care")
+    member = await make_member()
     refused = await app_client.put(
         f"{STAFF}/settings", headers=staff_headers(member), json={"state": "all"}
     )
@@ -420,7 +420,7 @@ async def _first_slot(client, portal, host_id) -> str:
 @pytest.mark.usefixtures("portal_all", "care_on", "clean_team")
 async def test_booking_refused_without_configuration(app_client, monkeypatch) -> None:
     monkeypatch.setattr(meetings.settings, "CONSULTANT_PORTAL_MAILBOX", "")
-    host = await make_member("finance")
+    host = await make_member()
     person = await make_person()
     portal = await session_headers(app_client, person)
     listed = await app_client.get(
@@ -448,7 +448,7 @@ async def test_booking_goes_to_organizer_and_opens_a_case(
 ) -> None:
     _ready(monkeypatch)
     graph = FakeGraph(monkeypatch)
-    host = await make_member("finance")
+    host = await make_member()
     person = await make_person()
     portal = await session_headers(app_client, person)
     slot = await _first_slot(app_client, portal, host.id)
@@ -484,7 +484,7 @@ async def test_booking_goes_to_organizer_and_opens_a_case(
 async def test_same_slot_cannot_be_booked_twice(app_client, monkeypatch) -> None:
     _ready(monkeypatch)
     FakeGraph(monkeypatch)
-    host = await make_member("finance")
+    host = await make_member()
     first = await make_person()
     second = await make_person()
     slot = await _first_slot(
@@ -547,7 +547,7 @@ async def test_booking_refuses_outsider_host_and_invented_slot(
 ) -> None:
     _ready(monkeypatch)
     FakeGraph(monkeypatch)
-    host = await make_member("finance")
+    host = await make_member()
     outsider = await make_user(UserRole.recruiter)
     person = await make_person()
     portal = await session_headers(app_client, person)
@@ -580,7 +580,7 @@ async def test_booking_refuses_outsider_host_and_invented_slot(
 async def test_upcoming_meetings_are_limited(app_client, monkeypatch) -> None:
     _ready(monkeypatch)
     FakeGraph(monkeypatch)
-    host = await make_member("finance")
+    host = await make_member()
     person = await make_person()
     for days in (2, 3, 4):
         await make_meeting(person, host, start_in=timedelta(days=days))
@@ -606,7 +606,7 @@ async def test_graph_failure_frees_the_slot_and_says_so_plainly(
     graph = FakeGraph(
         monkeypatch, create_error=GraphRequestError(403, {"error": "tajny szczegół"})
     )
-    host = await make_member("finance")
+    host = await make_member()
     person = await make_person()
     portal = await session_headers(app_client, person)
     slot = await _first_slot(app_client, portal, host.id)
@@ -640,7 +640,7 @@ async def test_graph_failure_frees_the_slot_and_says_so_plainly(
 @pytest.mark.usefixtures("portal_all", "care_on", "clean_team")
 async def test_cancel_paths(app_client, monkeypatch) -> None:
     graph = FakeGraph(monkeypatch)
-    host = await make_member("finance")
+    host = await make_member()
     person = await make_person()
     other = await make_person()
     portal = await session_headers(app_client, person)
@@ -666,7 +666,7 @@ async def test_cancel_paths(app_client, monkeypatch) -> None:
 @pytest.mark.usefixtures("portal_all", "care_on", "clean_team")
 async def test_failed_cancel_keeps_the_meeting(app_client, monkeypatch) -> None:
     FakeGraph(monkeypatch, cancel_error=GraphRequestError(500, {}))
-    host = await make_member("finance")
+    host = await make_member()
     person = await make_person()
     portal = await session_headers(app_client, person)
     future = await make_meeting(
@@ -871,8 +871,8 @@ async def test_transcript_loop_does_nothing_with_portal_off() -> None:
 @pytest.mark.usefixtures("care_on", "clean_team", "divisions_restored")
 async def test_talks_visibility_and_rating_hidden_from_host(app_client) -> None:
     head = await make_head()
-    host = await make_member("finance", name="Prowadząca")
-    colleague = await make_member("finance", name="Koleżanka")
+    host = await make_member(name="Prowadząca")
+    colleague = await make_member(name="Koleżanka")
     person = await make_person()
     meeting_id = await make_meeting(
         person,
@@ -954,7 +954,7 @@ async def test_quality_totals_do_not_reveal_the_viewers_own_rating(app_client) -
     """Sumy liczą te same wiersze co lista: różnica nie może odsłonić oceny oglądającego."""
 
     head = await make_head()
-    host = await make_member("finance")
+    host = await make_member()
     person = await make_person()
     when = datetime.now(timezone.utc)
     await _rating_row(person, head, score=1, when=when)
@@ -975,8 +975,8 @@ async def test_quality_totals_do_not_reveal_the_viewers_own_rating(app_client) -
 
 @pytest.mark.usefixtures("care_on", "clean_team", "divisions_restored")
 async def test_case_owner_sees_the_talk(app_client) -> None:
-    owner = await make_member("care", name="Opiekun")
-    host = await make_member("finance")
+    owner = await make_member(name="Opiekun")
+    host = await make_member()
     person = await make_person()
     case_id = await _case(person, source="portal", key=f"portal:{tag()}")
     async with AsyncSessionLocal() as db:
@@ -999,7 +999,7 @@ async def test_case_owner_sees_the_talk(app_client) -> None:
 @pytest.mark.usefixtures("portal_all", "care_on", "clean_team", "divisions_restored")
 async def test_low_rating_opens_a_task_for_the_lead(app_client) -> None:
     head = await make_head()
-    host = await make_member("finance")
+    host = await make_member()
     person = await make_person()
     meeting_id = await make_meeting(person, host)
     portal = await session_headers(app_client, person)
@@ -1047,7 +1047,7 @@ async def test_low_rating_opens_a_task_for_the_lead(app_client) -> None:
 @pytest.mark.usefixtures("portal_all", "care_on", "clean_team", "divisions_restored")
 async def test_rated_person_cannot_reach_quality_or_close_tasks(app_client) -> None:
     await make_head()
-    host = await make_member("finance")
+    host = await make_member()
     assert (
         await app_client.get(f"{STAFF}/quality", headers=staff_headers(host))
     ).status_code == 403
@@ -1255,7 +1255,7 @@ def test_previous_month_crosses_the_year() -> None:
 
 @pytest.mark.usefixtures("care_on", "clean_team")
 async def test_my_review_is_aggregated_and_hidden_below_the_minimum(app_client) -> None:
-    host = await make_member("finance")
+    host = await make_member()
     person = await make_person()
     today = ratings.business_today()
     year, month = ratings.previous_month(today)
@@ -1282,7 +1282,7 @@ async def test_my_review_is_aggregated_and_hidden_below_the_minimum(app_client) 
 
 @pytest.mark.usefixtures("portal_all", "care_on", "clean_team")
 async def test_monthly_notice_only_on_the_first_and_once(monkeypatch) -> None:
-    host = await make_member("finance")
+    host = await make_member()
     person = await make_person()
     # Rezerwacja przebiegu zostaje w bazie testowej: każdy bieg ma własny miesiąc.
     year = 2100 + uuid4().int % 7000

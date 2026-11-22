@@ -15,7 +15,7 @@ import { poligonAdapter } from "./poligon/adapter";
 import { isPoligonActive } from "./poligon/mode";
 
 import { FILE_UPLOAD_TIMEOUT_MS, isClientTimeout, SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
-import { clearSessionArtifacts, CSRF_HEADER, getAccessToken } from "./session";
+import { clearSessionArtifacts, CSRF_HEADER } from "./session";
 import type { WorkMode } from "./work-mode";
 import type { CallFactsPatch } from "./candidate-call-facts";
 import type { RequestStatus } from "./request-status";
@@ -127,32 +127,11 @@ export function extractErrorMsg(error: unknown): string {
   return String(error);
 }
 
-// Attach token from localStorage.
-//
-// **Explicit beats implicit**: a call that passes its own `Authorization`
-// header wins over whatever still sits in localStorage. Axios has already
-// merged per-request headers into `config.headers` (an AxiosHeaders instance)
-// by the time this interceptor runs, so an unconditional assignment here
-// silently CLOBBERS the caller's token.
-//
-// That clobbering locked users out of BOTH login paths. Each one authenticates
-// first and then calls `/api/auth/me` with the freshly minted token passed
-// explicitly — BEFORE `setAuth` has persisted it:
-//   - Microsoft SSO   → src/app/login/microsoft/callback/page.tsx (after
-//                       trading the one-time code for a JWT)
-//   - e-mail + hasło  → src/app/login/page.tsx::handleSubmit (after
-//                       /api/auth/login)
-// Anyone who still had an expired token in localStorage got that dead token
-// pinned onto the request instead, so `/api/auth/me` answered 401 "Could not
-// validate credentials" — surfaced as a bounce back to /login (SSO) or as an
-// error banner over a correct password. The lockout was permanent: the 401
-// handler below declines to clear storage while on a `/login*` path, so the
-// stale token survived every retry. A user with no stored token logged in
-// fine, which is why this looked user-specific.
-//
-// It also prevented a subtler identity mix-up: on a shared browser a *valid*
-// token for another user would have made `/api/auth/me` describe THEM while we
-// stored the SSO user's token.
+// Nagłówki żądania. Sesja jedzie w ciasteczku HttpOnly (`withCredentials`),
+// a token z JS nie istnieje (stara ścieżka z localStorage usunięta
+// 22.11.2026). **Jawny nagłówek wygrywa**: wołający, który sam podaje
+// `Authorization`, dostaje go bez zmian i bez nagłówka CSRF — backend
+// sprawdza CSRF tylko przy sesji z ciasteczka.
 api.interceptors.request.use((config) => {
   // Preserve the operation across the existing transport retries.
   if (apiSupportsCorrelation()) {
@@ -161,7 +140,6 @@ api.interceptors.request.use((config) => {
     void probeTelemetryCapability();
   }
   if (typeof window !== "undefined") {
-    const token = getAccessToken();
     const headers = config.headers as unknown as {
       has?: (name: string) => boolean;
       Authorization?: unknown;
@@ -170,14 +148,9 @@ api.interceptors.request.use((config) => {
       typeof headers?.has === "function"
         ? headers.has("Authorization")
         : headers?.Authorization != null;
-    if (token && !hasExplicitAuth) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
     // Sesja z ciasteczka: zapis wymaga nagłówka CSRF (backend
-    // `core/session_cookie.py`). Tylko bez Bearera — API sprzed ciasteczka
-    // nie zna tego nagłówka i odrzuciłoby preflight.
+    // `core/session_cookie.py`).
     if (
-      !token &&
       !hasExplicitAuth &&
       STATE_CHANGING_METHODS.has((config.method ?? "get").toLowerCase())
     ) {
@@ -478,6 +451,71 @@ export interface ClientDirectoryParams {
   /** `true` = tylko klienci z przypisaniem DL/TAC osoby („Moi klienci"). */
   mine?: boolean;
 }
+
+/**
+ * Lista „Klienci” (makieta 19.11.2026, wariant A): jeden wiersz na klienta,
+ * stan liczony z faktów zamiast zakładek portfela. `working` = ktoś od nas
+ * pracuje albo zaczyna u klienta, albo trwa rekrutacja; bez tego zakładka
+ * portfela decyduje: aktywni i relacyjni → `idle`, nieaktywni → `archive`.
+ */
+export type ClientListState = "working" | "idle" | "archive";
+
+export interface ClientListConsultantAttention {
+  /** Obecni konsultanci z jakimkolwiek znacznikiem „Wymaga uwagi”. */
+  total: number;
+  order_ending: number;
+  order_ending_first: string | null;
+  no_current_order: number;
+  notice: number;
+}
+
+export interface ClientListItem {
+  client_id: number;
+  display_name: string;
+  legal_name: string | null;
+  industry: string | null;
+  state: ClientListState;
+  active_consultants: number;
+  planned_consultants: number;
+  open_jobs: number;
+  /** Marża miesięczna w PLN (= „Aktywne MRR” profilu); `null` = niewidoczna. */
+  monthly_margin: number | null;
+  monthly_margin_unpriced: number;
+  delivery_leads: { name: string; is_head: boolean }[];
+  framework_effective_date: string | null;
+  framework_expiry_date: string | null;
+  has_framework_period: boolean;
+  framework_count: number;
+  consultant_attention: ClientListConsultantAttention;
+  manually_placed: boolean;
+}
+
+export interface ClientListResponse {
+  items: ClientListItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  state_counts: Record<ClientListState, number>;
+  amounts_visible: boolean;
+  manually_placed_count: number;
+  as_of: string;
+}
+
+export interface ClientListParams {
+  state: ClientListState;
+  q?: string;
+  page: number;
+  page_size: number;
+  mine?: boolean;
+}
+
+export const clientListApi = {
+  list: (params: ClientListParams, signal?: AbortSignal) =>
+    api.get<ClientListResponse>("/api/clients/directory/clients", {
+      params,
+      signal,
+    }),
+};
 
 /**
  * Manual placement of a directory scope — moves a client between the

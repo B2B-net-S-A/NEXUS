@@ -159,9 +159,9 @@ def test_client_text_strips_only_the_note_prefix() -> None:
 
 
 def test_banner_label_follows_the_reason_and_withdrawal() -> None:
-    assert reason_label_for("Insufficient PM experience") == "Brak doświadczenia"
+    assert reason_label_for("Insufficient PM experience") == "Za mało doświadczenia"
     assert reason_label_for("Duplicated and more expensive offer") == (
-        "Zgłoszony już przez innego dostawcę"
+        "Pracuje u klienta / zgłoszona przez inną firmę"
     )
     assert reason_label_for("Candidate withdrew from the process") == (
         "Kandydat się wycofał"
@@ -171,7 +171,7 @@ def test_banner_label_follows_the_reason_and_withdrawal() -> None:
 def test_new_reasons_have_labels_and_need_no_description() -> None:
     assert (
         rejection_reason_label(CLIENT_OTHER_VENDOR)
-        == "Zgłoszony już przez innego dostawcę"
+        == "Pracuje u klienta / zgłoszona przez inną firmę"
     )
     assert (
         rejection_reason_label(CLIENT_INTERVIEW_WEAK)
@@ -203,11 +203,15 @@ def test_seed_is_one_shot_and_weak_interview_disqualifies() -> None:
     assert "UPDATE " not in seed.upper()
 
 
-def test_front_shows_both_reasons_only_when_the_client_ends() -> None:
-    client_only = _FRONT_MIRROR[_FRONT_MIRROR.index("const CLIENT_ONLY_REASONS") :]
-    client_only = client_only[: client_only.index("]);")]
-    assert "CLIENT_OTHER_VENDOR_REASON" in client_only
-    assert "CLIENT_INTERVIEW_WEAK_REASON" in client_only
+def test_front_shows_weak_interview_only_when_the_client_ends() -> None:
+    # Od 19.11.2026 (jeden słownik) kto wybiera powód, mówi `close_reasons`;
+    # inny dostawca to „Pracuje u klienta / zgłoszona przez inną firmę”.
+    from app.services import close_reasons as cr
+
+    weak = next(r for r in cr.CLOSE_REASONS if r.rejected == CLIENT_INTERVIEW_WEAK)
+    vendor = next(r for r in cr.CLOSE_REASONS if r.rejected == CLIENT_OTHER_VENDOR)
+    assert weak.who == {cr.CLIENT}
+    assert vendor.who == {cr.RECRUITER, cr.CLIENT}
     assert f'"{CLIENT_OTHER_VENDOR}"' in _FRONT_MIRROR
     assert f'"{CLIENT_INTERVIEW_WEAK}"' in _FRONT_MIRROR
 

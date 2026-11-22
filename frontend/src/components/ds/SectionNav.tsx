@@ -25,6 +25,13 @@ export interface SectionNavGroup {
   key: string;
   label: string;
   items: SectionNavItem[];
+  /**
+   * Cicha liczba przy nazwie grupy („Nasi ludzie 32”) — ile tam jest, nie ile
+   * do zrobienia (to `count` pozycji, plakietka w kolorze).
+   */
+  meta?: string;
+  /** Dymek liczby przy nazwie grupy — co dokładnie liczy. */
+  metaTitle?: string;
   /** Kotwica nowości na grupie (zasady jak `SectionNavItem.tourId`). */
   tourId?: string;
 }
@@ -38,6 +45,11 @@ export interface SectionNavProps {
   className?: string;
   /** Wcięcie pasków, gdy nawigacja stoi w karcie (np. `px-3 sm:px-5`). */
   insetClassName?: string;
+  /**
+   * Treść po prawej w pasku grup, np. liczby klienta — żeby nagłówek nad
+   * paskiem mieścił się w jednym rzędzie przy 1280 px. Przewija się z paskiem.
+   */
+  trailing?: ReactNode;
 }
 
 function CountBadge({ count, label }: { count?: number; label?: string }) {
@@ -72,6 +84,7 @@ export function SectionNav({
   onSelect,
   className,
   insetClassName,
+  trailing,
 }: SectionNavProps) {
   const visible = groups.filter((group) => group.items.length > 0);
   const activeGroup =
@@ -133,6 +146,14 @@ export function SectionNav({
             active,
             <>
               {group.label}
+              {group.meta ? (
+                <span
+                  className="text-[11px] font-normal tabular-nums text-muted-foreground"
+                  title={group.metaTitle}
+                >
+                  {group.meta}
+                </span>
+              ) : null}
               <CountBadge count={count} label={groupCountLabel(group)} />
             </>,
             group.key,
@@ -140,6 +161,9 @@ export function SectionNav({
             group.tourId ?? (group.items.length === 1 ? first.tourId : undefined),
           );
         })}
+        {/* `relative`: pozycjonowane dzieci (np. `sr-only` w dymkach liczb)
+            zostają w przewijanym pasku — bez tego poszerzały stronę o 50 px. */}
+        {trailing ? <div className="relative ml-auto flex shrink-0 items-center pl-4">{trailing}</div> : null}
       </div>
       {activeGroup.items.length > 1 ? (
         <div className={cn("pt-2.5", insetClassName)}>

@@ -378,6 +378,10 @@ def parse_xlsx_rows(rows: Iterable[list[Any]]) -> Optional[ParsedRcp]:
             )
             summary.append(SummaryRow(text, md, product, cmdb))
 
+    if _month(header.get("month")) is None and not totals and summary_total is None:
+        # Sam tytuł „Rozliczenie czasu pracy” bez układu BNP (szablon BIK): to nie
+        # jest RCP BNP. Pusty odczyt dawał 0 MD ze statusem „ok” (próba IX–XI 2026).
+        return None
     check = header.get("check")
     return ParsedRcp(
         source="xlsx",

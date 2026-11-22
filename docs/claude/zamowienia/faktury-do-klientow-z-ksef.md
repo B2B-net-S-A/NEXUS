@@ -148,6 +148,14 @@
   `MAX_DOWNLOADS + BACKFILL_EXTRA_DOWNLOADS` (20 + 30 = 50) pobrań faktury; limit KSeF na produkcji to 64 na godzinę
   i dzieli go pętla zakupów (do 40, zwykle kilka). Po `done` wraca 20. Przekroczenie limitu daje blokadę 429
   (`blocked_until`), nie utratę danych.
+- **`done` to koniec listowania, nie pobrań (19.11.2026).** Okno kosztuje jedno zapytanie o metadane, więc
+  znacznik dochodzi do `to` w kilka godzin, a faktury z okien czekają w kolejce (`pending`, powód `budget`).
+  Na produkcji 19.11 czekało tak 494 faktury (405 z lipca, 42 z czerwca, 47 bieżących z listopada) po 20 na
+  godzinę, a w tabeli nie było ani jednej faktury z lipca. Dlatego dodatkowe 30 pobrań zostaje, dopóki w kolejce
+  jest choć jedna faktura z powodem `budget` (`_backfill_pending`), także przy fali bieżących faktur na początku
+  miesiąca. Kolejka idzie od najnowszych (`acquired_at` malejąco), żeby bieżące faktury nie czekały za zaległymi.
+  Brak faktur z jakiegoś miesiąca przy niepustej kolejce to zwykle czekanie, nie luka: sprawdź `pending` w stanie,
+  zanim klikniesz cokolwiek ponownie.
 - **Adres nabywcy z `Podmiot2/Adres` (0730, 17.11.2026).** Lista „Czeka na Symfonię” i plik dla księgowej potrzebują
   adresu nabywcy, a `clients.address` miał go u 11 ze 170 klientów (staging 17.11: 206 z 208 nabywców bez adresu).
   `client_sales_invoices` ma `buyer_country`, `buyer_address_line1`, `buyer_address_line2` (`KodKraju`, `AdresL1`,
@@ -159,3 +167,83 @@
   zgadza albo KSeF odmawia na stałe, żeby jedna faktura nie zjadała budżetu co godzinę; `not_ready`/`unavailable`
   przerywa doczytanie do następnego przebiegu, 429 jak wszędzie. Przy ok. 20 wolnych pobraniach na godzinę ponad
   1000 starych faktur to 2–3 doby.
+
+## „Po terminie” to brak danych o zapłacie, nie zaległość (19.11.2026)
+
+19.11.2026 zakładka jednego klienta pokazywała „62 po terminie”, a cała firma 2 741 faktur po terminie — żadna z datą
+zapłaty. Zapłatę faktury sprzedaży NEXUS zapisuje tylko z uznań na wyciągach (E8), z ręcznego „opłacono” i z lustra
+eBI24, a za 2026 r. żadne z nich nie ma danych: wyciągi w Księgowość → Bank są z jednego dnia (12.11.2026, 8 zapłat),
+lustro eBI24 nie ruszyło (`EBI24_MODE` ≠ `prod`; 13.11 konto API na produkcji nie widziało dokumentów) i nic by nie dało, bo w eBI24 zapłat się nie
+oznacza (w archiwum z 2026 r. zapłatę ma 8 z 5 117 faktur sprzedaży).
+
+- **Bez dowodu z wyciągów NEXUS nie liczy zaległości** (dowód — sekcja niżej, od 0742). Faktura z terminem za sobą
+  i bez pełnej zapłaty ma wtedy `payment_unknown: true` i `overdue_days: 0`: przy fakturze „brak danych o zapłacie” z terminem pod spodem,
+  w kroku „Zapłata” paska zakładki klienta i karty „Rozliczenie” w Przeglądzie (kroki miesiąca od 20.11.2026,
+  `klienci/profil-klienta-piec-sekcji.md`) „brak danych o zapłacie” albo „N bez danych o zapłacie”,
+  w Finansach → „Po terminie” zdanie z liczbą takich faktur, bez licznika „0” na zakładce. Trasy zaległości
+  zwracają w zakresie konta `invoices` (tylko faktury z dowodem), `payment_unknown` i `payment_unknown_reasons`.
+- Częściowa wpłata z wyciągu zostaje „zapłacono część”: część jest faktem, o reszcie NEXUS nie wie.
+- **Nie wracaj do zaległości z samego terminu** ani z samych dni wyciągów. Przegląd z 19.11.2026 pokazał, czego
+  potrzeba, żeby „po terminie” było prawdą: wyciągi rachunku, na który płaci dany klient (domyślny rachunek EUR
+  z faktur nie jest w Księdze, a na rachunek EUR z Księgi płacą tylko dwaj klienci), ciągłe dla każdego rachunku
+  (rachunek EUR nie ma operacji co dzień, więc ciągłość po dniach operacji nie wystarcza — potrzebne saldo otwarcia
+  i zamknięcia wyciągu), wgrane po tym, jak faktura była już w NEXUSIE (E8 dopasowuje uznania tylko do istniejących
+  faktur), i bez faktur rozliczanych kompensatą (seria „Benefit”, 590 faktur w 2026 r.). Ten etap jest w sekcji niżej.
+- Próbka 12.11.2026: wszystkie 102 uznania, których E8 nie przypisało, to nogi VAT zapłat dla dostawców (MPP
+  z cudzym NIP-em w `/IDC/`) — wpłat klientów E8 nie przeoczyło.
+
+## „Po terminie” z ciągłych wyciągów rachunku odbioru (0742, 19.11.2026)
+
+Decyzja Artura z 19.11.2026: Finanse wgrywają w Księgowość → Bank wyciągi wstecz od 04.2026, miesięczne, kontem bez
+Płac (konto z Płacami puszcza R9, które oznaczyłoby stare wypłaty i wysłało ludziom powiadomienia). Faktura (łańcuch
+z korektami) z terminem za sobą i czymś do zapłaty jest „po terminie” tylko z dowodem
+(`client_invoicing/payment_proof.py`); inaczej „brak danych o zapłacie” z powodem (`payment_unknown_reason`):
+
+1. `compensation` — seria „Benefit” (wzór serii BEN z ustawień wystawiania i domyślny `{n}/{m}/{yyyy}/Benefit`
+   dla faktur z eBI24): rozliczenie kompensatą oznacza się „Opłacono” z powodem.
+2. `no_account`, `account_outside_ledger` — rachunek odbioru to nadpisanie przy kliencie dla waluty, a bez niego
+   domyślny rachunek waluty (`issue_settings.account_for`), porównywany jako 26 cyfr NRB. Musi być w Księgowość →
+   Ustawienia → Rachunki w walucie faktury. Domyślnego rachunku EUR z faktur 19.11.2026 tam nie było: dodaje go
+   Artur albo Finanse (Claude numerów rachunków nie wpisuje).
+3. `statements` — łańcuch sald wyciągów tego rachunku (`ledger/bank_continuity.py`) od wyciągu otwartego **przed**
+   dniem wystawienia (przy dacie SWIFT otwarcie z dniem X nie obejmuje operacji z dnia X) do dnia **po** terminie:
+   termin w ostatnim dniu ciągłości to jeszcze brak danych. Wyciąg następuje po poprzednim, gdy jego saldo otwarcia
+   = saldo zamknięcia poprzedniego i nic między nimi nie brakuje: przy znanych numerach wyciągów banku (`:28C:`,
+   `LglSeqNb`) numer jest następny (w nowym roku kończy się na 001; ten sam numer = części jednego wyciągu, tylko
+   w tym samym dniu), a bez numerów otwarcie wypada najpóźniej dzień po zamknięciu poprzedniego. Numery
+   rozstrzygają także przy stykających się datach: przy dacie SWIFT (otwarcie z dniem poprzedniego wyciągu)
+   brakujący wyciąg mieści się między dwoma sąsiednimi dniami (przegląd 19.11.2026: 45 → 47). Santander (eBI24)
+   daje wyciąg tylko w dni z operacjami, a `:28C:` to rok i numer wyciągu w roku, więc dni bez wyciągu mostkuje
+   numer. Równe saldo nad luką nie wystarcza: brakujący wyciąg mógł mieć wpływ i wypływ tej samej kwoty
+   (wpłata w EUR i jej wymiana). Liczą się tylko wyciągi wgrane, gdy cały łańcuch faktury był już
+   w NEXUSIE (`created_at`; E8 dopasowuje uznania tylko do istniejących faktur), i takie, których uznania przeszły
+   przez E8 (`ledger_bank_statements.credits_matched`: moduł faktur do klientów wyłączony albo błąd E8 w ścieżce
+   Płac = wyciąg nie dowodzi).
+4. `credit_pending` — wpłata z wyciągu, której E8 nie przypisało, może być jej zapłatą: wpłata do sprawdzenia
+   (E8 `unmatched`) i duplikat E8 bez oryginału (oryginał skasowało „Usuń wyciąg”) z numerem faktury albo KSeF
+   w tytule albo w tej samej walucie z kwotą równą temu, co zostało do zapłaty (nie sprzed wystawienia), oraz
+   operacja Księgi bez konta albo przypisana ręcznie (`ledger_bank_lines.kind` `unmatched`/`manual`) w tej samej
+   walucie i kwocie, w dniach od wystawienia do końca ciągłości. E8 nie zapisuje uznania bez numeru, którego
+   kwota pasuje do kilku faktur (przegląd 19.11.2026: dwie faktury po tej samej kwocie, wpłata jednego klienta
+   bez numeru). Tytułów operacji Księgi nie porównujemy: nogi VAT zapłat dla dostawców niosą numery cudzych
+   faktur, takie jak nasze (12.11.2026). Przelew zbiorczy za kilka faktur bez numerów w tytule nie pasuje kwotą
+   do żadnej — takie faktury Finanse zamykają „Opłacono”.
+
+- **Dni po terminie liczą się do ostatniego dnia ciągłości** (`statements_until`; przy fakturze „wyciągi do DD.MM”),
+  nie do dziś: po nim NEXUS o wpłatach nie wie. Częściowa wpłata z dowodem dla reszty: „po terminie” z „zapłacono
+  część · zostało …”.
+- Finanse → „Po terminie”: lista z dowodem i zdanie o fakturach bez danych z powodami (`payment_unknown_reasons`:
+  powód, końcówka rachunku, liczba faktur). Zakładka klienta i karta „Rozliczenie” w Przeglądzie: krok „Zapłata”
+  faktur miesiąca — „N z M po terminie” tylko z dowodem (decyzja Artura z 20.11.2026), bez dowodu „brak danych
+  o zapłacie” z powodem w drobnym druku, gdy wszystkie faktury mają ten sam; faktury z dowodem z wcześniejszych
+  miesięcy są listą „Po terminie z wcześniejszych miesięcy” pod tabelą.
+- **Salda wyciągu** (`opening_balance`, `opening_day`, `closing_balance`, `closing_day`, `first_number`,
+  `last_number` w `ledger_bank_statements`) zapisuje import w Księdze z `ParsedStatement.balances` (parser czyta też
+  daty sald i numer wyciągu), tylko gdy plik sam jest ciągły: każda część ma oba salda z datami, suma operacji =
+  suma zmian sald, a części łączą się jak kolejne pliki. Inaczej pola są puste i plik niczego nie dowodzi (nie jest
+  odrzucany). Reguła importu: `docs/claude/finanse-insights/ksiega-nexusa-k4-bank.md`.
+- **Wyciąg wgrany przed 0742** nie ma sald: ponowne wgranie tego samego pliku je uzupełnia, bez drugiego importu
+  operacji (E3, R9, E8 i linie zostają). `credits_matched` takich wyciągów ustawia raz migracja z dowodu w bazie
+  (plik bez uznań albo z zapisem E8; znacznik `ledger_bank_credits_matched_backfill`).
+- Testy: `tests/test_ledger_bank_continuity.py` (parser, plik, łańcuch), `tests/test_client_invoicing_payment_proof.py`
+  (werdykt bez bazy), API w `tests/test_client_invoicing_api.py`, import w `tests/test_ledger_sources_db.py`.

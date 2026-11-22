@@ -42,6 +42,8 @@ export interface DailyGateInput {
   poligon: boolean;
   pathname: string;
   touringBatch: boolean;
+  /** Konto tylko z rolą Rady: middleware nie wpuszcza na `/nowosci-dnia`. */
+  boardOnly?: boolean;
 }
 
 /**
@@ -51,7 +53,7 @@ export interface DailyGateInput {
  * nawzajem (recenzja 18.11.2026).
  */
 export function dailyBlocks(input: DailyGateInput): boolean {
-  if (!input.dailyEnforced || input.poligon) return false;
+  if (!input.dailyEnforced || input.poligon || input.boardOnly) return false;
   if (input.start === null || input.start.enforced) return false;
   if (ALWAYS_OPEN.some((p) => input.pathname.startsWith(p))) return false;
   return !dailyAllows(input.pathname, input.touringBatch);

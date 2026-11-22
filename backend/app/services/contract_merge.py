@@ -224,7 +224,6 @@ _KNOWN_CONTRACT_FKS = {
     # Gwarancja premii DL (0653): dług wisi na premii (``bonus_id``), kontrakt to
     # tylko odnośnik — bez unikatu, idzie za kontraktem zachowanym.
     ("hr_bonus_clawbacks", "contract_id"),
-    ("invoices", "contract_id"),
     ("notes", "contract_id"),
     # „Do przepięcia”: jeden aktywny wpis na kontrakt i powód (indeks
     # częściowy) — nadmiarowy aktywny dostaje ``dismissed``.

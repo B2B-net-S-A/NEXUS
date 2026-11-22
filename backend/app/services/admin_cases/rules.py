@@ -32,6 +32,7 @@ AREA_LABELS: dict[str, str] = {
     "offboarding": "Offboarding",
     "negotiation": "Negocjacje",
     "administration": "Administracja",
+    "settlements": "Rozliczenia",
     "marketing": "Marketing",
     "other": "Inne",
 }
@@ -77,6 +78,8 @@ _AREA_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
 )
 DEFAULT_AREA = "administration"
+#: Mail na adres rozliczeń (To/Cc) — decyzja Artura z 19.11.2026; wybiera czytnik spraw.
+SETTLEMENTS_AREA = "settlements"
 
 _REPLY_PREFIX = re.compile(
     r"^\s*((re|fw|fwd|odp|pd|aw|wg|sv)\s*(\[\d+\])?\s*:\s*)+", re.IGNORECASE

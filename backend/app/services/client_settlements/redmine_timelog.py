@@ -224,6 +224,8 @@ def render_html(kcp: ParsedKcp) -> str:
         "table{border-collapse:collapse;width:100%;margin-top:8pt}"
         "th,td{border:0.6px solid #555;padding:2pt 4pt;vertical-align:top}"
         "th{background:#eee;font-weight:600}"
+        # Dzień w całości na jednej stronie, jak w Excelu wzoru banku.
+        "tr{break-inside:avoid}"
         "td.n,th.n{width:11%;text-align:center}"
         ".sums td{border:none;padding:2pt 4pt}.sums td.v{text-align:right;width:15%}"
         ".sign{margin-top:22pt}"

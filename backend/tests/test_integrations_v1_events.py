@@ -41,7 +41,6 @@ from app.models.application_submission import ApplicationSubmission
 from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
 from app.models.integration_event import IntegrationEvent, IntegrationWebhook
-from app.models.invoice import InvoiceStatus
 from app.models.job import Job, JobStatus
 from app.models.note import Note
 from app.models.order_change_event import OrderChangeEvent
@@ -75,11 +74,11 @@ class TestCatalog:
             "recruitment.reopened",
         }
         assert ie.visible_types({"events:read", "webhooks:manage"}) == []
-        assert set(ie.visible_types({"invoices:read", "md:read"})) == {
-            "invoice.created",
-            "invoice.updated",
-            "md_import.created",
-        }
+        assert ie.visible_types({"md:read"}) == ["md_import.created"]
+        # Rejestr ``invoices`` wygaszony 20.11.2026: zakres zostaje w koncie
+        # jako napis bez znaczenia i nie otwiera żadnego zdarzenia.
+        assert ie.visible_types({"invoices:read"}) == []
+        assert not [name for name in ie.EVENT_TYPES if name.startswith("invoice.")]
 
 
 def _persistent_like(obj: Any, **committed: Any) -> Any:
@@ -324,16 +323,6 @@ class _Job(_Base):
     )
 
 
-class _Invoice(_Base):
-    __tablename__ = "invoices"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    contract_id: Mapped[int] = mapped_column(Integer, default=1)
-    status: Mapped[InvoiceStatus] = mapped_column(
-        SAEnum(InvoiceStatus), default=InvoiceStatus.issued
-    )
-    notes: Mapped[str] = mapped_column(String(50), default="")
-
-
 class _Process(_Base):
     __tablename__ = "recruitment_processes"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -423,23 +412,6 @@ class TestListenerOnFlush:
             session.flush()
             session.rollback()
         assert _outbox(engine) == []
-
-    def test_invoice_update_only_on_real_change(self) -> None:
-        engine = _sqlite()
-        with Session(engine, expire_on_commit=False) as session:
-            invoice = _Invoice()
-            session.add(invoice)
-            session.commit()
-            invoice.status = InvoiceStatus.issued  # ta sama wartość
-            session.commit()
-            invoice.status = InvoiceStatus.paid
-            session.commit()
-        assert [t for t, _ in _outbox(engine)] == ["invoice.created", "invoice.updated"]
-        assert _outbox(engine)[1][1] == {
-            "invoice_id": 1,
-            "contract_id": 1,
-            "status": "paid",
-        }
 
     def test_missing_outbox_never_breaks_the_business_write(
         self, caplog: pytest.LogCaptureFixture

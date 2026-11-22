@@ -98,6 +98,8 @@ export interface IssuedInvoiceCard extends IssuedInvoiceRow {
   notes: string | null;
   correction_reason: string | null;
   corrects: { id: number; invoice_number: string | null } | null;
+  /** Korekta zbiorcza rabatu od obrotu: faktury z KSeF z miesiąca zamiast jednej korygowanej. */
+  collective: CollectiveCorrection | null;
   ksef_status_code: number | null;
   ksef_environment: string | null;
   has_upo: boolean;
@@ -125,6 +127,15 @@ export interface RebateTerms {
   exclude_words: string[];
 }
 
+/** Wystawiona (zapisana) korekta zbiorcza rabatu — szkic albo w KSeF. */
+export interface IssuedCorrectionRef {
+  id: number;
+  currency: string;
+  status: IssuedStatus;
+  status_label: string;
+  invoice_number: string | null;
+}
+
 export interface RebateCorrection {
   /** Miesiąc przekroczenia progu (1–12). */
   month: number;
@@ -132,6 +143,22 @@ export interface RebateCorrection {
   /** Obrót roku ponad próg na koniec tego miesiąca (waluta progu). */
   excess: string;
   amounts: { currency: string; amount: string }[];
+  /** Korekty już zapisane za ten miesiąc (po walucie). */
+  issued: IssuedCorrectionRef[];
+}
+
+export interface CollectiveCorrection {
+  year: number;
+  month: number;
+  /** „01.10.2026-31.10.2026” — `OkresFaKorygowanej`. */
+  period: string;
+  /** `TypKorekty`: 2 = skutek w dacie korekty. */
+  correction_type: string;
+  rate_diff: string;
+  excess: string;
+  threshold_currency: string;
+  invoice_count: number;
+  invoices: { number: string; issue_date: string; ksef_number: string | null }[];
 }
 
 export interface InvoiceRebate {
@@ -185,6 +212,8 @@ export interface RebateCorrectionDraft {
   xml_ready: boolean;
   xml_error: string | null;
   correction_type: string;
+  /** Korekta za ten miesiąc i walutę już zapisana — drugiej NEXUS nie wystawi. */
+  issued: IssuedCorrectionRef | null;
 }
 
 export interface RebateCorrectionQuery {
@@ -412,6 +441,23 @@ export function useRebateCorrection(q: RebateCorrectionQuery) {
           `${BASE}/rebate-correction?${rebateCorrectionParams(q)}`,
         )
       ).data,
+  });
+}
+
+/** „Wystaw korektę”: zapisuje podgląd jako szkic KOR (numer i KSeF dopiero przy wysyłce). */
+export function useIssueRebateCorrection() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (q: RebateCorrectionQuery) =>
+      (
+        await api.post<IssuedInvoiceCard>(`${BASE}/rebate-correction`, {
+          client_id: q.clientId,
+          year: q.year,
+          month: q.month,
+          currency: q.currency,
+        })
+      ).data,
+    onSuccess: invalidate,
   });
 }
 

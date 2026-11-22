@@ -76,7 +76,6 @@ from app.api import (
     contract_analytics,
     contract_templates,
     fx,
-    invoices,
     framework_rates,
     rate_cards,
     dashboard,
@@ -385,6 +384,7 @@ from app.api import service_accounts as service_accounts_api
 from app.api import linkedin_extension as linkedin_extension_api
 from app.api import candidate_sources as candidate_sources_api
 from app.api import contract_client_reassign as contract_client_reassign_api
+from app.api import contract_contractor_invoices as contract_contractor_invoices_api
 from app.api import contract_document_folders as contract_document_folders_api
 from app.api import job_board_connection as job_board_connection_api
 from app.api import job_portals as job_portals_api
@@ -501,6 +501,25 @@ def _sentry_before_send(event: dict, hint: dict) -> dict | None:
     return scrub_event(event)
 
 
+_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1"))
+
+
+def _traces_sampler(sampling_context: dict) -> float:
+    """Sondy zdrowia bez śladów; decyzję przeglądarki z `sentry-trace` dziedziczymy.
+
+    Spany Sentry mają limit miesięczny na całą organizację (17.11.2026: 80% w 10 dni).
+    Sonda Dockera co 15 s, uptime-probe i Grafana nie mówią w śladzie nic nowego.
+    Żądanie bez rodzica (webhook, integracja) dostaje stawkę ze zmiennej.
+    """
+    path = (sampling_context.get("asgi_scope") or {}).get("path") or ""
+    if path == "/health" or path.startswith("/api/health"):
+        return 0.0
+    parent_sampled = sampling_context.get("parent_sampled")
+    if parent_sampled is not None:
+        return 1.0 if parent_sampled else 0.0
+    return _TRACES_SAMPLE_RATE
+
+
 if settings.SENTRY_DSN:
     try:
         import sentry_sdk
@@ -512,7 +531,8 @@ if settings.SENTRY_DSN:
             dsn=settings.SENTRY_DSN,
             environment=settings.SENTRY_ENVIRONMENT,
             release=os.getenv("GIT_SHA"),
-            traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+            traces_sample_rate=_TRACES_SAMPLE_RATE,
+            traces_sampler=_traces_sampler,
             profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.1")),
             send_default_pii=False,
             include_local_variables=False,
@@ -1843,6 +1863,10 @@ app.include_router(
 app.include_router(
     contract_document_folders_api.router, prefix="/api/contracts", tags=["contracts"]
 )
+# Zakładka „Faktury” kontraktu: faktury konsultanta z KSeF (19.11.2026).
+app.include_router(
+    contract_contractor_invoices_api.router, prefix="/api/contracts", tags=["contracts"]
+)
 app.include_router(contractors.router, prefix="/api/contractors", tags=["contractors"])
 app.include_router(rate_cards.router, prefix="/api/rate-cards", tags=["rate-cards"])
 # 0710: cennik umowy ramowej, dopłaty i kategoria na kontrakcie (F1, 15.11.2026).
@@ -1889,7 +1913,6 @@ app.include_router(
     prefix="/api/contract-docs-sharepoint",
     tags=["contracts"],
 )
-app.include_router(invoices.router, prefix="/api/invoices", tags=["invoices"])
 app.include_router(fx.router, prefix="/api/fx", tags=["fx"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
@@ -4184,7 +4207,13 @@ async def api_health_deep_check(request: Request):
         ClientSalesInvoicePayment,
     )
     from app.models.client_structure import ClientStructureSkip
-    from app.models.back_office import BoCard, BoCardEvent, BoTeamMember
+    from app.models.back_office import (
+        BoCard,
+        BoCardEvent,
+        BoClientNote,
+        BoMember,
+        BoTeamMember,
+    )
     from app.models.consultant_portal import (
         CpDocument,
         CpFaqItem,
@@ -4235,6 +4264,10 @@ async def api_health_deep_check(request: Request):
     from app.models.finance_archive import FinanceArchiveDocument
     from app.models.client_order_revenue_step import ClientOrderRevenueStep
     from app.models.contract_document_rate_read import ContractDocumentRateRead
+    from app.models.client_order_cost_step import (
+        ClientOrderCostReview,
+        ClientOrderCostStep,
+    )
     from app.models.board_document import (
         BoardBudget,
         BoardBudgetLine,
@@ -4874,6 +4907,9 @@ async def api_health_deep_check(request: Request):
         ("bo_cards", BoCard),
         ("bo_card_events", BoCardEvent),
         ("bo_team_members", BoTeamMember),
+        # 0746: jeden zespół back office'u i ściąga klienta.
+        ("bo_members", BoMember),
+        ("bo_client_notes", BoClientNote),
         # 0643: portal konsultanta.
         ("cp_meetings", CpMeeting),
         ("cp_links", CpLink),
@@ -4935,6 +4971,9 @@ async def api_health_deep_check(request: Request):
         ("board_documents", BoardDocument),
         # 0739: odczyty stawki Partnera z umów i aneksów kontraktu.
         ("contract_document_rate_reads", ContractDocumentRateRead),
+        # 0741: koszt zamówienia od dnia zmiany stawki Partnera.
+        ("client_order_cost_steps", ClientOrderCostStep),
+        ("client_order_cost_reviews", ClientOrderCostReview),
         ("board_krs_snapshots", BoardKrsSnapshot),
         ("board_budgets", BoardBudget),
         ("board_budget_lines", BoardBudgetLine),

@@ -72,6 +72,10 @@ SALES_FLAGS = (
     "SALES_BOT_TASKS_ENABLED",
     "SALES_REGISTRY_ENABLED",
 )
+# Dzienny limit próśb o warunki jak na produkcji (decyzja Artura z 19.11.2026: 20).
+# Z domyślnym 400 z `config.py` pomiary kolejki warunków na kopii nie zgadzały się
+# z produkcją. Pętla `candidate_terms_sender` stoi w `STAGING_BLOCKED_TASKS`.
+CANDIDATE_TERMS_FLAGS = ("CANDIDATE_TERMS_DAILY_LIMIT",)
 # launchd uruchamia te skrypty z kopii w `~/.claude/nexus-rutyny/bin/kopia`, nie z maina
 # (rutyny-nocne.md). Kopia sprzed #3254 nie znała adaptera zapytania i od 09.11.2026
 # staging liczył inny `ranker_version`, choć main był poprawny.
@@ -181,7 +185,13 @@ def scoring_inputs(source: str) -> tuple[str, ...]:
 
 
 def allowed_flags(source: str) -> tuple[str, ...]:
-    return scoring_inputs(source) + RANKING_POOL_FLAGS + CLIENT_LIST_FLAGS + SALES_FLAGS
+    return (
+        scoring_inputs(source)
+        + RANKING_POOL_FLAGS
+        + CLIENT_LIST_FLAGS
+        + SALES_FLAGS
+        + CANDIDATE_TERMS_FLAGS
+    )
 
 
 def client_list_text(name: str, value: object) -> str:
