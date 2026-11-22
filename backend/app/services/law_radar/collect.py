@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.dialects.postgresql import insert
@@ -84,6 +84,13 @@ PROFILE_TOPICS: tuple[str, ...] = (
 SourceKey = Literal[schema.SOURCES]  # type: ignore[valid-type]
 
 
+SkipReason = Literal[
+    "login_required", "device_approval", "mfa", "access_denied", "unavailable", "unknown"
+]
+SKIP_REASONS = get_args(SkipReason)
+SUBSCRIPTION_SOURCES = ("lex", "gofin")
+
+
 def _optional_text(value: Optional[str]) -> Optional[str]:
     return value or None
 
@@ -126,6 +133,8 @@ class CollectReport(BaseModel):
     lex_skipped: bool = False
     #: Gofin nie wpuścił bota (brak loginu w Vault, kod, blokada) i bot go pominął.
     gofin_skipped: bool = False
+    lex_skip_reason: Optional[SkipReason] = None
+    gofin_skip_reason: Optional[SkipReason] = None
 
 
 def build_request(since: date) -> dict[str, Any]:
@@ -164,6 +173,10 @@ def task_text(request: dict[str, Any]) -> str:
         "bez kopiowania artykułów, porad i odpowiedzi ekspertów. Gdy Gofin nie wpuści "
         "(brak loginu w Vault, kod, weryfikacja albo blokada), pomiń go i ustaw "
         "gofin_skipped = true.\n"
+        "- Przy pominięciu podaj lex_skip_reason lub gofin_skip_reason: login_required "
+        "(potrzebne logowanie), device_approval (zatwierdzenie urządzenia), mfa (kod), "
+        "access_denied (odmowa dostępu), unavailable (awaria strony), unknown "
+        "(nieustalona przyczyna). Dla pozostałych zostaw null. Podawaj tylko kod przyczyny.\n"
         "- Nie zapisuj nazwisk osób prywatnych ani danych kontaktowych.\n"
         f"- Najwyżej {request.get('max_items', MAX_ITEMS)} pozycji. Ta sama zmiana "
         "z kilku źródeł może być kilkoma pozycjami.\n"
@@ -187,6 +200,8 @@ def report_format() -> dict[str, Any]:
         ],
         "lex_skipped": False,
         "gofin_skipped": False,
+        "lex_skip_reason": None,
+        "gofin_skip_reason": None,
     }
 
 
@@ -249,6 +264,11 @@ async def ingest(
         "lex_skipped": report.lex_skipped,
         "gofin_skipped": report.gofin_skipped,
     }
+    for source in SUBSCRIPTION_SOURCES:
+        reason = getattr(report, f"{source}_skip_reason")
+        if reason is not None:
+            summary[f"{source}_skip_reason"] = reason
+            summary[f"{source}_skipped"] = True
     mark_received(run, summary, now)
     logger.info(
         "law_radar run=%s collect received items=%d new=%d known=%d duplicates=%d",
