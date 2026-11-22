@@ -281,7 +281,7 @@ function BatchProgress({ data }: { data: ReviewBatchStatus }) {
       </div>
       <p className="min-w-0 flex-1 text-xs text-muted-foreground">{progressHint(data, open)}</p>
       {data.sources ? (
-        <span className="flex basis-full flex-wrap items-center gap-1 border-t border-border pt-1.5 text-xs" data-testid="review-batch-sources">
+        <span className="flex basis-full flex-wrap items-center gap-1 border-t border-border pt-1.5 text-xs" data-testid="review-batch-sources" data-tour="review-batch.sources">
           <span className="text-muted-foreground">Twoja porcja dziś: {data.required} ·</span>
           {data.sources.urgent !== undefined ? (
             <>
