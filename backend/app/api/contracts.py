@@ -184,6 +184,10 @@ from app.services.contract_amendment_guard import (
     find_redundant_amendment,
 )
 from app.services.contractor_identity import contractor_identity_sql_expression
+from app.services.contract_termination_document import (
+    attach_termination_documents,
+    termination_documents,
+)
 from app.services.contract_order_after_end import (
     attach_order_after_end,
     order_after_end_contracts,
@@ -2602,6 +2606,7 @@ async def list_contracts(
 
     await attach_rate_document_changes(db, items)
     await attach_order_after_end(db, items)
+    await attach_termination_documents(db, items)
     if not global_finance:
         for item in items:
             _redact_contract_finance(item, finance_client_ids)
@@ -4093,6 +4098,13 @@ async def get_contract(
         OrderAfterEndRead.model_validate(item.as_dict())
         for item in await orders_after_end(db, contract.id)
     ]
+    if (
+        contract.contract_type == ContractType.b2b
+        and not contract.agreement_termination_mode
+    ):
+        detail.termination_document = (
+            await termination_documents(db, [contract.id])
+        ).get(contract.id)
     can_view_finance = can_read_client_finance(
         current_user,
         client_id=contract.client_id,
