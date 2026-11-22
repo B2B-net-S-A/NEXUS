@@ -1688,6 +1688,10 @@ class Settings(BaseSettings):
     # umowy B2B (`b2b_contract_generator/clause_override_content.py`); próba IX–X 2026:
     # 32 dokumenty z tej domeny bez kontraktu. Puste = tylko domeny adresów rozliczeń.
     CONSULTANT_PORTAL_PERSONAL_DOMAINS: str = "external.bnpparibas.pl"
+    # Nadawcy raportów godzin klienta (domeny albo adresy, po przecinku): mail z
+    # załącznikiem od nich idzie do czytnika rozliczeń na dowolny adres wsparcie@,
+    # a arkusz Time for Teams wczytuje się jako raport miesiąca (Nordea, 23.11.2026).
+    CONSULTANT_PORTAL_TIME_REPORT_SENDERS: str = "nordea.com"
     # Szkolenia w Teams (0697, decyzja Artura 13.11.2026): organizatorem spotkań jest
     # osobne konto szkolenia@ z licencją Teams i OneDrive (nagranie ląduje w OneDrive
     # organizatora). Puste albo OFF = link wkleja TCM ręcznie, jak przed 0697.

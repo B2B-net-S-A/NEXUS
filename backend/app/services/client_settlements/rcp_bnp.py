@@ -255,11 +255,16 @@ def parse_pdf_text(text: str) -> Optional[ParsedRcp]:
             travel_total = _dec(numbers[-1]) if numbers else None
             in_travel = False
             continue
-        if not totals and total_line.match(line) and not in_summary:
+        if total_hours is None and total_line.match(line) and not in_summary:
             values = [_dec(v) for v in re.findall(_NUM, line.split(None, 1)[1])]
-            if len(values) == DAYS + 2:
-                totals = tuple(v or Decimal("0") for v in values[:DAYS])
-                total_hours, declared_md = values[DAYS], values[DAYS + 1]
+            # Suma godzin i MD to dwie ostatnie liczby wiersza. Puste dni wypadają
+            # z tekstu PDF (32 albo 34 liczby zamiast 33), a wtedy cały wiersz
+            # przepadał: „Nie da się policzyć sum MD” przy zgodnych MD (próba IX–X
+            # 2026, 7 RCP BNP). Dni bierzemy tylko przy pełnych 31 kolumnach.
+            if len(values) >= DAYS - 3 + 2:
+                total_hours, declared_md = values[-2], values[-1]
+                if len(values) == DAYS + 2:
+                    totals = tuple(v or Decimal("0") for v in values[:DAYS])
             continue
         if in_summary:
             if m := re.match(r"^(?:SUMA:|Total:?)\s*(%s)" % _NUM, line):
