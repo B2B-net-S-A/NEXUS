@@ -4,7 +4,8 @@
   pobierane po krótkiej kopercie webhooka (Grok może obciąć długi webhook).
 * ``GET /api/integrations/cpro-bot/runs/{run_id}/cv/{stage_id}`` — zatwierdzone
   CV firmowe karty z biegu (PDF, nazwa bez ``#``); historyczne zlecenia
-  zachowują swój plik DOCX.
+  zachowują swój plik DOCX. Wersja zatwierdzona w układzie „Nowe CV” idzie
+  jako PDF tego układu (``X-CV-Layout: new``), klasyczna — PDF z pliku Word.
 * ``POST /api/integrations/cpro-bot/runs/{run_id}`` — raport biegu.
 
 Poświadczeniem tras jest jednorazowy token biegu z webhooka (nagłówek
@@ -33,6 +34,8 @@ from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.services import candidate_audit
+from app.services import cv_layout as layout_service
+from app.services import cv_new_pdf as new_cv_pdf
 from app.services.cv_approved_docx import without_empty_underline
 from app.services.cv_download_log import log_cv_download
 from app.models.cpro_bot import CproBotRun
@@ -143,19 +146,36 @@ async def download_cv(
         offer.get("cv_file_name"), extension=f".{file_format}"
     )
     run_id = run.id
+    # Układ zamrożony w zatwierdzonej wersji (22.11.2026). Historyczny DOCX
+    # zostaje plikiem Word — ten jest zawsze klasyczny.
+    layout = (
+        "new"
+        if file_format == "pdf"
+        and layout_service.is_new(getattr(version, "cv_layout", None))
+        else "classic"
+    )
     if file_format == "pdf":
         # Ten sam firmowy PDF co podgląd zatwierdzonej wersji. Link dostępowy
         # do osobnego panelu klienta nie jest częścią załącznika oferty w Cpro.
-        docx = version.docx_content
         # Konwersja może potrwać kilkadziesiąt sekund: nie trzymamy w tym
         # czasie połączenia i blokady biegu. Żadnego wpisu pobrania jeszcze.
-        await db.commit()
-        try:
-            content = await pdf_from_docx(docx)
-        except PdfPreviewUnavailable as error:
-            raise HTTPException(
-                status.HTTP_503_SERVICE_UNAVAILABLE, detail=MSG_UNAVAILABLE
-            ) from error
+        if layout == "new":
+            # „Nowe CV” z treści wersji; render sam kończy transakcję.
+            try:
+                content = (await new_cv_pdf.approved_version_pdf(db, version)).pdf
+            except new_cv_pdf.NewCvPdfError as error:
+                raise HTTPException(
+                    status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
+                ) from error
+        else:
+            docx = version.docx_content
+            await db.commit()
+            try:
+                content = await pdf_from_docx(docx)
+            except PdfPreviewUnavailable as error:
+                raise HTTPException(
+                    status.HTTP_503_SERVICE_UNAVAILABLE, detail=MSG_UNAVAILABLE
+                ) from error
         # Raport lub wygaśnięcie tokenu w czasie konwersji odbiera dostęp;
         # ponownie blokujemy bieg przed wydaniem CV i wpisem audytu.
         await require_cpro_run_token(run_id, request.headers.get("X-Run-Token"), db)
@@ -193,6 +213,7 @@ async def download_cv(
             "Content-Disposition": content_disposition_attachment(filename),
             "Cache-Control": "private, no-store",
             "X-CV-Version": str(version.version),
+            "X-CV-Layout": layout,
         },
     )
 

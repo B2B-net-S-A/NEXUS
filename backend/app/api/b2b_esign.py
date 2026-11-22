@@ -71,6 +71,7 @@ from app.schemas.b2b_contract_generator import B2BConfirmFullySignedRequest
 from app.services import storage_service
 from app.services.b2b_contract_filename import contract_file_name
 from app.services.m365 import sender as m365_sender
+from app.services.b2b_esign import accept_code
 from app.services.b2b_esign import documents as esign_docs
 from app.services.b2b_esign import service
 from app.services.b2b_esign import mail as esign_mail
@@ -176,6 +177,10 @@ class EsignSendIn(BaseModel):
     # Paczka (0687): pozycje listy klienta „Dokumenty do startu” obok umowy.
     # ``None`` = wszystkie z ``documents`` okna; lista = wybór nadawcy.
     start_document_ids: Optional[list[int]] = Field(default=None, max_length=20)
+    # 0754: dokumenty, przy których klient wymaga podpisu kwalifikowanego.
+    # Reszta paczki ma wymóg „dowolny podpis” (kontraktor może zaakceptować
+    # kodem z maila); umowa zawsze kwalifikowanym (decyzja Artura 22.11.2026).
+    qualified_document_ids: Optional[list[int]] = Field(default=None, max_length=20)
 
 
 class EsignDocumentOption(BaseModel):
@@ -187,6 +192,9 @@ class EsignDocumentOut(BaseModel):
     id: int
     title: str
     signed_at: Optional[datetime] = None
+    # 0754: ``qualified`` albo ``any``; jak podpisano: ``qualified``/``email_code``.
+    requirement: str = "qualified"
+    signed_via: Optional[str] = None
 
 
 class EsignRequestOut(BaseModel):
@@ -251,6 +259,9 @@ class PublicSignDocument(BaseModel):
     id: int
     title: str
     signed: bool
+    # 0754: ``qualified`` (podpis kwalifikowany) albo ``any`` (także kod z maila).
+    requirement: Literal["qualified", "any"] = "qualified"
+    signed_via: Optional[Literal["qualified", "email_code"]] = None
 
 
 class PublicSignView(BaseModel):
@@ -266,6 +277,14 @@ class PublicSignView(BaseModel):
     # Paczka (0687): umowa już podpisana, a dokumenty obok niej.
     contract_signed: bool = False
     documents: list[PublicSignDocument] = Field(default_factory=list)
+    # 0754: dokąd idzie kod (adres zamaskowany) i kiedy wysłano ostatni.
+    accept_code_email: Optional[str] = None
+    accept_code_sent_at: Optional[datetime] = None
+
+
+class PublicAcceptIn(BaseModel):
+    code: str = Field(min_length=6, max_length=12)
+    document_ids: list[int] = Field(min_length=1, max_length=20)
 
 
 # ── Pomocnicze ──────────────────────────────────────────────────────────────
@@ -309,7 +328,13 @@ async def _out(
         close_reason=request.close_reason,
         cc=[EsignPerson(id=uid, name=names[uid]) for uid in cc_ids if uid in names],
         documents=[
-            EsignDocumentOut(id=d.id, title=d.title, signed_at=d.signed_at)
+            EsignDocumentOut(
+                id=d.id,
+                title=d.title,
+                signed_at=d.signed_at,
+                requirement=d.requirement,
+                signed_via=d.signed_via,
+            )
             for d in await esign_docs.for_request(db, request.id)
         ],
         contract_signed_at=(
@@ -501,6 +526,7 @@ async def send_for_esign(
     chosen = esign_docs.choose(
         await esign_docs.candidates(db, row), body.start_document_ids
     )
+    qualified_ids = esign_docs.choose_qualified(chosen, body.qualified_document_ids)
     docx = await _render_generated_row_docx(db, row)
     try:
         pdf = await pdf_from_docx(docx)
@@ -534,7 +560,7 @@ async def send_for_esign(
         now=_now(),
         cc_user_ids=body.cc_user_ids,
     )
-    await esign_docs.attach(db, request, prepared)
+    await esign_docs.attach(db, request, prepared, qualified_ids)
     await db.commit()
     url = _sign_url(token)
     out = await _out(db, request)
@@ -1196,6 +1222,10 @@ async def _public_view(db: AsyncSession, request: B2BSigningRequest) -> PublicSi
         # obiecuje, że podpisany plik przejdzie.
         status = "closed"
     copy_until = service.signed_copy_until(request)
+    documents = await esign_docs.for_request(db, request.id)
+    can_accept = status == "waiting" and any(
+        d.requirement == "any" and not d.signed_pdf_path for d in documents
+    )
     return PublicSignView(
         contract_number=row.contract_number if row else "",
         contractor_name=request.contractor_name,
@@ -1207,9 +1237,23 @@ async def _public_view(db: AsyncSession, request: B2BSigningRequest) -> PublicSi
         signed_pdf_until=copy_until if copy_until and copy_until > now else None,
         contract_signed=bool(request.contractor_pdf_path),
         documents=[
-            PublicSignDocument(id=d.id, title=d.title, signed=bool(d.signed_pdf_path))
-            for d in await esign_docs.for_request(db, request.id)
+            PublicSignDocument(
+                id=d.id,
+                title=d.title,
+                signed=bool(d.signed_pdf_path),
+                requirement="any" if d.requirement == "any" else "qualified",
+                signed_via=(
+                    d.signed_via
+                    if d.signed_via in ("qualified", "email_code")
+                    else None
+                ),
+            )
+            for d in documents
         ],
+        accept_code_email=(
+            accept_code.mask_email(request.contractor_email) if can_accept else None
+        ),
+        accept_code_sent_at=request.accept_code_sent_at if can_accept else None,
     )
 
 
@@ -1384,6 +1428,87 @@ async def _deliver_to_start_documents(
         return
     if previous:
         storage_service.delete_start_document_file(previous)
+
+
+def _client_ip(request: Request) -> Optional[str]:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip() or None
+    return request.client.host if request.client else None
+
+
+@public_router.post("/b2b-sign/{token}/accept-code", response_model=PublicSignView)
+@limiter.limit("3/minute;10/hour")
+async def public_accept_code(
+    token: str,
+    request: Request,  # wymagane przez slowapi
+    db: AsyncSession = Depends(get_db),
+) -> PublicSignView:
+    """Kod do akceptacji dokumentów bez wymogu kwalifikowanego (0754).
+
+    Mail idzie ze skrzynki osoby, która obsługuje wysyłkę, na adres z wysyłki
+    (jak link). Bez skrzynki kod nie wychodzi: 503 z podpowiedzią."""
+    now = _now()
+    signing = await service.contractor_precheck(db, token, now, for_contract=False)
+    locked, code = await accept_code.issue(db, request=signing, now=now)
+    await db.commit()
+    signing_id = locked.id
+    row = await db.get(B2BGeneratedContract, locked.generated_contract_id)
+    subject, body = esign_mail.contractor_accept_code_message(
+        number=row.contract_number if row else "",
+        code=code,
+        valid_minutes=accept_code.CODE_VALID_MINUTES,
+    )
+    sent, _problem = await esign_mail.send_from(
+        db,
+        user_id=service.handler_id(locked),
+        to=locked.contractor_email or "",
+        subject=subject,
+        body_html=body,
+        candidate_id=row.candidate_id if row else None,
+        request_key=f"b2b-esign-{signing_id}-code-{int(now.timestamp())}",
+    )
+    if not sent:
+        fresh = await service.lock_request(db, signing_id)
+        accept_code.withdraw_code(fresh)
+        await db.commit()
+        raise HTTPException(status_code=503, detail=accept_code.MSG_MAIL_FAILED)
+    return await _public_view(db, await _fresh(db, signing_id))
+
+
+@public_router.post("/b2b-sign/{token}/accept", response_model=PublicSignView)
+@limiter.limit("10/minute;30/hour")
+async def public_accept(
+    token: str,
+    body: PublicAcceptIn,
+    request: Request,  # wymagane przez slowapi
+    db: AsyncSession = Depends(get_db),
+) -> PublicSignView:
+    """Akceptacja dokumentów kodem z maila (0754). Zaakceptowany dokument trafia
+    do „Dokumentów do startu” jak podpisany; ostatni brakujący plik przekazuje
+    umowę reprezentantowi B2Bnetwork."""
+    now = _now()
+    signing = await service.contractor_precheck(db, token, now, for_contract=False)
+    signing, items = await accept_code.accept(
+        db,
+        request=signing,
+        code=body.code,
+        document_ids=body.document_ids,
+        evidence=accept_code.Evidence(
+            ip=_client_ip(request), user_agent=request.headers.get("user-agent")
+        ),
+        now=now,
+    )
+    finished = signing.status == "contractor_signed"
+    await db.commit()
+    signing_id = signing.id
+    delivered = [(i.id, i.signed_pdf_path) for i in items]
+    for item_id, path in delivered:
+        data = storage_service.read_b2b_signing_pdf(path or "")
+        await _deliver_to_start_documents(db, signing_id, item_id, data, now)
+    if finished:
+        await _after_contractor_signed(db, signing_id)
+    return await _public_view(db, await _fresh(db, signing_id))
 
 
 @public_router.post("/b2b-sign/{token}/renewal", response_model=PublicSignView)

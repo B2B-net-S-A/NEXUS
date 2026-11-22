@@ -40,7 +40,14 @@ export interface EsignDocument {
   id: number;
   title: string;
   signed_at: string | null;
+  /** 0754: `qualified` (wymóg klienta) albo `any` (także kod z maila). */
+  requirement?: DocumentRequirement;
+  signed_via?: DocumentSignedVia | null;
 }
+
+/** 0754 (22.11.2026): kwalifikowany wymagany tylko przy umowie z prawami autorskimi. */
+export type DocumentRequirement = "qualified" | "any";
+export type DocumentSignedVia = "qualified" | "email_code";
 
 export interface EsignRequest {
   id: number;
@@ -107,12 +114,17 @@ export interface PublicSignView {
   /** Paczka (0687): umowa już podpisana przez kontraktora. */
   contract_signed?: boolean;
   documents?: PublicSignDocument[];
+  /** 0754: dokąd idzie kod (adres zamaskowany); null = nie ma czego akceptować kodem. */
+  accept_code_email?: string | null;
+  accept_code_sent_at?: string | null;
 }
 
 export interface PublicSignDocument {
   id: number;
   title: string;
   signed: boolean;
+  requirement?: DocumentRequirement;
+  signed_via?: DocumentSignedVia | null;
 }
 
 export const ESIGN_SETTINGS_KEY = ["b2b-esign-settings"] as const;
@@ -150,6 +162,8 @@ export const b2bEsignApi = {
       cc_user_ids?: number[];
       /** Paczka: wybrane pozycje listy klienta; bez pola = wszystkie. */
       start_document_ids?: number[];
+      /** 0754: dokumenty, przy których klient wymaga podpisu kwalifikowanego. */
+      qualified_document_ids?: number[];
     },
   ) =>
     api

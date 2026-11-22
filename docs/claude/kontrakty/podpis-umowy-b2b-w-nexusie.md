@@ -49,9 +49,18 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   żądaniu). Z domyślnymi nagłówkami aiohttp lista estońska dawała 403, a czeska
   (`text/plain`) 406, także z serwera produkcji. Podpis kwalifikowany z Czech
   albo Estonii nie miał wtedy zaufanego wystawcy i był odrzucany jako
-  niekwalifikowany. Start workera loguje `lista zaufanych UE: N błędów list`;
+  niekwalifikowany. Start workera i web loguje `lista zaufanych UE: N błędów list`;
   około 49 to historyczne wpisy usług z `TakenOverBy` (IT, SK, CZ) bez znaczenia.
   Nieudana lista kraju ma osobną linię `nie pobrano list krajowych`.
+- **Lista UE wczytuje się z wyprzedzeniem w obu procesach** (22.11.2026). Plik
+  waliduje trasa w web, a lista jest pamięcią procesu, więc web ma własne
+  jednorazowe zadanie `trusted_list_prewarm` (`WEB_ONLY_TASKS`), a worker robi to
+  na starcie `b2b_esign_sweeper`. Wcześniej web nie miał listy do pierwszego
+  wgrania po wdrożeniu i to żądanie czekało na jej pobranie (ok. 20 s, limit
+  120 s). Start i healthcheck na nie nie czekają (pomiar lokalny: 22 s, z tego
+  3,2 s CPU, najdłuższa przerwa pętli zdarzeń 0,55 s); awaria to ostrzeżenie
+  w logu, a lista pobierze się przy pierwszej walidacji. Udane pobranie loguje
+  `lista zaufanych UE pobrana w N s`. Na stagingu zadanie stoi (zapora wyjścia).
 - **Walidacja bez blokady, zapis pod blokadą.** DSS trwa do 30 s, więc
   walidacja idzie bez blokady wiersza, a potem `SELECT … FOR UPDATE` sprawdza
   stan i odcisk jeszcze raz — wycofanie w trakcie walidacji wygrywa (w torze
@@ -192,7 +201,8 @@ startu” (`dokumenty-do-startu.md`), zamiast dostawać NDA osobnym mailem.
   z danymi z umowy (`fill_from_agreement`) przez ten sam konwerter co umowa.
   Awaria konwersji = 503 z nazwą dokumentu, wysyłka nie powstaje.
 - **Dokument podpisuje tylko kontraktor**, podpisem kwalifikowanym z jego
-  nazwiskiem w certyfikacie (`judge(required_signers=[kontraktor])`); te same
+  nazwiskiem w certyfikacie (`judge(required_signers=[kontraktor])`) albo,
+  od 0754, kodem z maila, gdy dokument nie ma wymogu kwalifikowanego; te same
   bramki co umowa: plik zaczyna się bajtami wydanego PDF-a, limit nieudanych
   prób linku, walidacja bez blokady, zapis pod blokadą wiersza, wniosku
   i dokumentu. Reprezentant B2Bnetwork podpisuje nadal tylko umowę.
@@ -288,6 +298,48 @@ osobisty – zaawansowany podpis elektroniczny”, KIR o mSzafir w mObywatelu
 (23.10.2025), rp.pl o 5 darmowych podpisach (23.10.2025), Certum o SimplySign
 w mObywatelu (05.11.2025), rejestr kwalifikowanych dostawców NCCert.
 
+## Dokumenty bez wymogu kwalifikowanego: akceptacja kodem z maila (0754, 22.11.2026)
+
+Decyzja Artura z 22.11.2026: podpis kwalifikowany jest wymagany tylko przy
+umowie, która przenosi autorskie prawa majątkowe (art. 53 pr. aut.). NDA,
+umowy przedwstępne, oświadczenia i inne dokumenty paczki mogą iść innym
+podpisem, a sposób wybiera kontraktor. Zmienia to zdanie „Dokument podpisuje
+tylko kontraktor, podpisem kwalifikowanym” z sekcji o paczce.
+
+- **Wymóg per dokument:** `b2b_signing_documents.requirement` =
+  `qualified` albo `any`. Przy wysyłce każdy dokument dostaje `any`, chyba że
+  nadawca zaznaczy „klient wymaga kwalifikowanego”
+  (`EsignSendIn.qualified_document_ids`, id spoza wybranych = 422). Umowa
+  zawsze kwalifikowanym. Wiersze sprzed 0754 zostają `qualified`.
+- **Jak podpisano:** `signed_via` = `qualified` (plik z podpisem, jak dotąd)
+  albo `email_code`. Dokument `any` kontraktor może też wgrać podpisany
+  kwalifikowanym; plik z podpisem niekwalifikowanym walidator odrzuca jak
+  dotąd, a komunikat (`documents.MSG_ANY_NOT_QUALIFIED`) podpowiada kod.
+- **Kod z maila** (`services/b2b_esign/accept_code.py`, trasy
+  `POST /api/public/b2b-sign/{token}/accept-code` i `…/accept`): 6 cyfr,
+  ważny 15 minut, jednorazowy, nowy najwcześniej po minucie. W bazie tylko
+  skrót HMAC z `SECRET_KEY` powiązany z wnioskiem
+  (`b2b_signing_requests.accept_code_hash`, `accept_code_expires_at`,
+  `accept_code_sent_at`). Zły albo przeterminowany kod liczy się do
+  `contractor_failed_attempts` (ten sam limit co nieudane wgrania). Mail idzie
+  ze skrzynki osoby obsługującej wysyłkę na adres z wysyłki
+  (`mail.contractor_accept_code_message`); bez skrzynki kod nie wychodzi
+  (503), a niewysłany kod od razu przestaje działać.
+- **Zaakceptowany dokument** dostaje kopię wydanego PDF-a jako plik
+  „podpisany” (te same bajty i odcisk), dowód w `validation` (metoda, chwila,
+  adres, imię i nazwisko z umowy, odcisk pliku, IP, przeglądarka), wpis
+  `document_accepted` w historii i trafia do „Dokumentów do startu” pary jako
+  „… (zaakceptowane w NEXUSIE).pdf”. Liczy się do kompletu tak samo jak
+  podpisany: umowa idzie do reprezentanta po ostatnim gotowym dokumencie.
+- **Strona kontraktora** pokazuje przy każdym pliku „podpis kwalifikowany”
+  albo „dowolny podpis”, krok wgrania tylko dla umowy (i dokumentów z wymogiem
+  klienta) oraz blok „Wyślij kod / Akceptuję” z zamaskowanym adresem
+  (`PublicSignView.accept_code_email`). „Wolę wgrać pozostałe dokumenty
+  podpisane kwalifikowanym” zostawia drogę z plikiem.
+- Przy integracji z dostawcą podpisu w przeglądarce (kierunek K1, 22.11.2026)
+  kontraktor z podpisem w chmurze podpisze dokumenty `any` tym samym
+  zatwierdzeniem co umowę; kod z maila zostaje dla tych, którzy wolą.
+
 ## Reszta systemu przy umowie w podpisie (etap 1b, 21.10.2026)
 
 - **Dzwonki `signature_*` stoją za sekcją Sourcing** (bramka Generatora), nie
@@ -306,7 +358,8 @@ w mObywatelu (05.11.2025), rejestr kwalifikowanych dostawców NCCert.
   „nie przeszedł” (test na akcie z Dz.U. 2025 poz. 1, 21.10.2026). Ukrytą
   treść łapie analiza zmian po podpisie i porównanie z wysłanym plikiem.
   Połączenia OCSP/CRL: jeden backend na walidację, zamykany w `finally`.
-  Lista UE wczytywana przy starcie pętli przypomnień (pierwsze pobranie ok. 20 s).
+  Lista UE wczytywana przy starcie pętli przypomnień w workerze i zadaniem
+  `trusted_list_prewarm` w web (pierwsze pobranie ok. 20 s).
 - **Ekrany znają stan wysyłki** (część „Ważne”): karta Tablicy dostaje
   `agreement.esign` (`agreement_status.latest_esign_for_rows`, jedno zapytanie
   na tablicę) i plakietki „U kontraktora · link do …”, „Czeka na podpis firmy”,

@@ -216,7 +216,8 @@ async def test_delivery_lead_manages_rules_for_all_clients(
         r = await app_client.get(OVERVIEW_URL, headers=headers)
         assert r.status_code == 200, r.text
         overview = r.json()
-        assert set(overview) == {"rules", "unassigned_templates"}
+        # `new_layout_enabled` — czy pokazać wiersz „Układ CV” (flaga, 22.11.2026).
+        assert set(overview) == {"rules", "unassigned_templates", "new_layout_enabled"}
         by_client = {row["client_id"]: row for row in overview["rules"]}
         assert mine in by_client
         assert other in by_client

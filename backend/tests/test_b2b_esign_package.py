@@ -221,7 +221,14 @@ async def test_contractor_signs_the_contract_and_the_nda_on_one_link(
     view = (await app_client.get(f"/api/public/b2b-sign/{token}")).json()
     assert view["status"] == "waiting" and view["contract_signed"] is False
     assert view["documents"] == [
-        {"id": document["id"], "title": "NDA klienta", "signed": False}
+        {
+            "id": document["id"],
+            "title": "NDA klienta",
+            "signed": False,
+            # 0754: NDA bez wymogu klienta to „dowolny podpis”.
+            "requirement": "any",
+            "signed_via": None,
+        }
     ]
     nda_pdf = await app_client.get(
         f"/api/public/b2b-sign/{token}/documents/{document['id']}/pdf"

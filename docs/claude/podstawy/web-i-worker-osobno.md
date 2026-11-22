@@ -34,6 +34,7 @@ na pamięci procesu czytanej przez trasy albo gniazda:
 | `requirement_row_counts` | wypełnia bufory czytane przez edytor wymagań |
 | `keyword_corpus_backfill` | ustawia flagi gotowości korpusu czytane przez wyszukiwarkę |
 | `critical_stats_cache` | statystyki krytycznych dla bramki w trasach |
+| `trusted_list_prewarm` | lista zaufanych UE dla walidacji podpisu w trasie; jednorazowe, worker wczytuje ją w `b2b_esign_sweeper` |
 
 W obu procesach biegną `runtime_metrics` (mierzy własną pętlę zdarzeń, pole `process_role`)
 i `process_bus`.

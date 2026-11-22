@@ -435,7 +435,11 @@ export default function CvRulesSettingsPage() {
                     const confirming =
                       confirmMutation.isPending &&
                       confirmMutation.variables === row.client_id;
+                    // Układ „Nowe CV” widać tylko przy włączonej fladze (22.11.2026).
+                    const newLayout =
+                      query.data?.new_layout_enabled === true && row.cv_layout === "new";
                     const noRequirements =
+                      !newLayout &&
                       !row.requires_en_copy &&
                       !row.requires_rodo_consent_block &&
                       !row.spaces_to_underscores &&
@@ -504,6 +508,11 @@ export default function CvRulesSettingsPage() {
                         <td className="p-3">{languageLabel(row)}</td>
                         <td className="p-3">
                           <div className="flex flex-wrap gap-1">
+                            {newLayout ? (
+                              <Chip title="Nowe CV tego klienta domyślnie w układzie Nowe CV (PDF); Word zostaje klasyczny">
+                                Nowe CV (PDF)
+                              </Chip>
+                            ) : null}
                             {row.requires_en_copy ? (
                               <Chip title="Klient oczekuje CV po polsku oraz po angielsku">
                                 obie wersje

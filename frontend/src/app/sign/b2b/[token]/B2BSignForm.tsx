@@ -13,10 +13,14 @@
  * 13.11.2026 (paczka, 0687): obok umowy mogą być dokumenty do startu (NDA,
  * oświadczenie). Każdy plik pobiera się i wgrywa osobno na tej samej stronie;
  * umowa idzie do B2B Network po ostatnim podpisanym pliku.
+ *
+ * 22.11.2026 (0754): kwalifikowany wymagany tylko przy umowie, która przenosi
+ * prawa autorskie. Dokument z wymogiem „dowolny podpis” kontraktor akceptuje
+ * kodem z maila albo wgrywa podpisany kwalifikowanym, jak dotąd.
  */
 
 import { useState } from "react";
-import { CheckCircle2, Download, Loader2, Send, Upload } from "lucide-react";
+import { CheckCircle2, Download, KeyRound, Loader2, Mail, Send, Upload } from "lucide-react";
 
 import { SignedPdfField } from "@/components/v2/b2b-generator/esign/SignedPdfField";
 import { parseDispositionFilename } from "@/lib/cv-generator";
@@ -24,6 +28,8 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   signedPdfProblem,
+  type DocumentRequirement,
+  type DocumentSignedVia,
   type PublicSignDocument,
   type PublicSignState,
   type PublicSignView,
@@ -179,8 +185,12 @@ function ToolGuide() {
 
 interface PackageEntry {
   key: string;
+  /** Id dokumentu paczki; `null` = umowa. */
+  documentId: number | null;
   title: string;
   signed: boolean;
+  requirement: DocumentRequirement;
+  signedVia: DocumentSignedVia | null;
   pdfUrl: string;
   submitUrl: string;
   fallbackName: string;
@@ -195,16 +205,22 @@ function packageEntries(
   return [
     {
       key: "contract",
+      documentId: null,
       title: `Umowa B2B nr ${contractNumber}`,
       signed: contractSigned,
+      requirement: "qualified" as const,
+      signedVia: contractSigned ? ("qualified" as const) : null,
       pdfUrl: `${base(token)}/pdf`,
       submitUrl: base(token),
       fallbackName: "Umowa B2B.pdf",
     },
     ...documents.map((d) => ({
       key: `document-${d.id}`,
+      documentId: d.id,
       title: d.title,
       signed: d.signed,
+      requirement: d.requirement ?? ("qualified" as const),
+      signedVia: d.signed_via ?? null,
       pdfUrl: `${base(token)}/documents/${d.id}/pdf`,
       submitUrl: `${base(token)}/documents/${d.id}`,
       fallbackName: `${d.title}.pdf`,
@@ -231,7 +247,9 @@ function UploadRow({
       <li className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-3 text-sm">
         <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden />
         <span className="font-medium text-foreground">{entry.title}</span>
-        <span className="ml-auto text-muted-foreground">podpis przyjęty</span>
+        <span className="ml-auto text-muted-foreground">
+          {entry.signedVia === "email_code" ? "zaakceptowane kodem" : "podpis przyjęty"}
+        </span>
       </li>
     );
   }
@@ -283,11 +301,126 @@ function UploadRow({
   );
 }
 
+/**
+ * Dokumenty bez wymogu kwalifikowanego (0754): kod z maila na adres z wysyłki.
+ * Kod działa 15 minut i raz; nowy najwcześniej po minucie.
+ */
+function AcceptByCode({
+  token,
+  entries,
+  email,
+  onView,
+  onExpired,
+}: {
+  token: string;
+  entries: PackageEntry[];
+  email: string | null;
+  onView: (view: PublicSignView) => void;
+  onExpired: () => void;
+}) {
+  const [sent, setSent] = useState(false);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ids = entries.map((e) => e.documentId).filter((id): id is number => id !== null);
+  const digits = code.replace(/\D/g, "");
+
+  const call = async (path: string, body?: unknown): Promise<PublicSignView | null> => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${base(token)}/${path}`, {
+        method: "POST",
+        headers: body ? { "Content-Type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (res.status === 410) {
+        onExpired();
+        return null;
+      }
+      if (!res.ok) {
+        setError(await errorText(res));
+        return null;
+      }
+      return (await res.json()) as PublicSignView;
+    } catch {
+      setError("Brak połączenia z serwerem. Spróbuj ponownie.");
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const requestCode = async () => {
+    const view = await call("accept-code");
+    if (view) setSent(true);
+  };
+  const accept = async () => {
+    const view = await call("accept", { code: digits, document_ids: ids });
+    if (view) onView(view);
+  };
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border bg-card px-4 py-3">
+      <p className="text-sm text-foreground">
+        {entries.map((e) => e.title).join(", ")}: te dokumenty nie wymagają podpisu
+        kwalifikowanego. Zaakceptuj je kodem z maila.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" variant="outline" disabled={busy} onClick={() => void requestCode()}>
+          {busy && !sent ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <Mail className="h-4 w-4" aria-hidden />
+          )}
+          {sent ? "Wyślij kod jeszcze raz" : "Wyślij kod"}
+        </Button>
+        {email ? <span className="text-sm text-muted-foreground">na adres {email}</span> : null}
+      </div>
+      {sent ? (
+        <div className="space-y-1">
+          <label htmlFor="b2b-accept-code" className="block text-sm text-muted-foreground">
+            Kod z maila (6 cyfr, działa 15 minut)
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              id="b2b-accept-code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={7}
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              className="h-10 w-36 rounded-lg border border-border bg-background px-3 font-mono tracking-widest text-foreground"
+            />
+            <Button
+              type="button"
+              disabled={busy || digits.length !== 6}
+              onClick={() => void accept()}
+            >
+              {busy ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <KeyRound className="h-4 w-4" aria-hidden />
+              )}
+              Akceptuję {entries.length === 1 ? "dokument" : `dokumenty (${entries.length})`}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {error ? <Alert variant="error" title="Nie udało się" description={error} /> : null}
+      <p className="text-xs text-muted-foreground">
+        NEXUS zapisze, kto, kiedy i który plik zaakceptował.
+      </p>
+    </div>
+  );
+}
+
 function PackageSteps({
   token,
   contractNumber,
   contractSigned,
   documents,
+  acceptEmail,
   onView,
   onExpired,
 }: {
@@ -295,12 +428,18 @@ function PackageSteps({
   contractNumber: string;
   contractSigned: boolean;
   documents: PublicSignDocument[];
+  acceptEmail: string | null;
   onView: (view: PublicSignView) => void;
   onExpired: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const [uploadAny, setUploadAny] = useState(false);
   const entries = packageEntries(token, contractNumber, contractSigned, documents);
   const done = entries.filter((e) => e.signed).length;
+  const qualified = entries.filter((e) => e.requirement === "qualified");
+  const anyDocs = entries.filter((e) => e.requirement === "any");
+  const anyOpen = anyDocs.filter((e) => !e.signed);
+  const qualifiedTitles = qualified.length === 1 ? "umowę" : "umowę i dokumenty oznaczone „kwalifikowany”";
   return (
     <ol className="space-y-6">
       <li className="space-y-2">
@@ -315,6 +454,15 @@ function PackageSteps({
               className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm"
             >
               <span className="font-medium text-foreground">{entry.title}</span>
+              <span
+                className={
+                  entry.requirement === "qualified"
+                    ? "rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"
+                    : "rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                }
+              >
+                {entry.requirement === "qualified" ? "podpis kwalifikowany" : "dowolny podpis"}
+              </span>
               <Button
                 type="button"
                 variant="outline"
@@ -334,21 +482,45 @@ function PackageSteps({
         {error ? <Alert variant="error" title="Nie udało się pobrać pliku" description={error} /> : null}
       </li>
       <li className="space-y-2">
-        <p className="font-semibold">2. Podpisz każdy plik podpisem kwalifikowanym: wybierz, czym podpisujesz</p>
+        <p className="font-semibold">
+          {anyDocs.length
+            ? `2. Podpisz ${qualifiedTitles} podpisem kwalifikowanym: wybierz, czym podpisujesz`
+            : "2. Podpisz każdy plik podpisem kwalifikowanym: wybierz, czym podpisujesz"}
+        </p>
         <ToolGuide />
       </li>
       <li className="space-y-3">
         <p className="font-semibold">
-          3. Wgraj podpisane pliki · podpisane {done} z {entries.length}
+          3. Wgraj podpisane pliki · gotowe {done} z {entries.length}
         </p>
         <ul className="space-y-3">
-          {entries.map((entry) => (
+          {(uploadAny ? entries : qualified.concat(anyDocs.filter((e) => e.signed))).map((entry) => (
             <UploadRow key={entry.key} entry={entry} onView={onView} onExpired={onExpired} />
           ))}
         </ul>
+        {anyOpen.length && !uploadAny ? (
+          <AcceptByCode
+            token={token}
+            entries={anyOpen}
+            email={acceptEmail}
+            onView={onView}
+            onExpired={onExpired}
+          />
+        ) : null}
+        {anyOpen.length ? (
+          <button
+            type="button"
+            className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+            onClick={() => setUploadAny((v) => !v)}
+          >
+            {uploadAny
+              ? "Wolę zaakceptować pozostałe dokumenty kodem z maila"
+              : "Wolę wgrać pozostałe dokumenty podpisane kwalifikowanym"}
+          </button>
+        ) : null}
         <p className="flex items-center gap-1 text-xs text-muted-foreground">
           <CheckCircle2 className="h-3 w-3" aria-hidden /> Sprawdzenie podpisu może potrwać do
-          pół minuty na plik. Umowa trafi do B2Bnetwork po ostatnim podpisanym pliku.
+          pół minuty na plik. Umowa trafi do B2Bnetwork po ostatnim gotowym dokumencie.
         </p>
       </li>
     </ol>
@@ -364,9 +536,12 @@ export default function B2BSignForm({
   contractNumber = "",
   contractSigned = false,
   documents = [],
+  acceptEmail = null,
 }: {
   token: string;
   initialState: PublicSignState;
+  /** 0754: zamaskowany adres, na który idzie kod; null = nie ma czego akceptować kodem. */
+  acceptEmail?: string | null;
   /** Numer umowy do listy paczki. */
   contractNumber?: string;
   /** Paczka (0687): umowa już podpisana przez kontraktora. */
@@ -381,7 +556,7 @@ export default function B2BSignForm({
   renewalRequestedOn?: string | null;
 }) {
   const [state, setState] = useState<PublicSignState>(initialState);
-  const [packageView, setPackageView] = useState({ contractSigned, documents });
+  const [packageView, setPackageView] = useState({ contractSigned, documents, acceptEmail });
   const [requestedOn, setRequestedOn] = useState<string | null>(renewalRequestedOn);
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -424,7 +599,9 @@ export default function B2BSignForm({
         variant="success"
         title="Dziękujemy, podpis przyjęty"
         description={
-          packageView.documents.length
+          packageView.documents.some((d) => d.signed_via === "email_code")
+            ? "Podpis umowy sprawdzony, pozostałe dokumenty zaakceptowane. Umowa trafia do podpisu B2Bnetwork."
+            : packageView.documents.length
             ? "Wszystkie podpisy kwalifikowane sprawdzone. Umowa trafia do podpisu B2Bnetwork."
             : "Podpis kwalifikowany sprawdzony. Umowa trafia do podpisu B2Bnetwork."
         }
@@ -499,10 +676,12 @@ export default function B2BSignForm({
         contractNumber={contractNumber}
         contractSigned={packageView.contractSigned}
         documents={packageView.documents}
+        acceptEmail={packageView.acceptEmail}
         onView={(view) => {
           setPackageView({
             contractSigned: Boolean(view.contract_signed),
             documents: view.documents ?? [],
+            acceptEmail: view.accept_code_email ?? null,
           });
           setState(view.status);
         }}

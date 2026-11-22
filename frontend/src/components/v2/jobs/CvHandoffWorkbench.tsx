@@ -647,6 +647,18 @@ export function CvHandoffWorkbench({
                         : "bez Profilu Championa powstanie CV bez dopasowania"
                     }
                   />
+                  {rule?.cv_layout ? (
+                    // Układ z reguły klienta (22.11.2026); brak pola = flaga wyłączona.
+                    <ReadyItem
+                      tone={rule.cv_layout === "new" ? "y" : "z"}
+                      title={`Układ CV: ${rule.cv_layout === "new" ? "Nowe CV (PDF)" : "Klasyczne (Word)"}`}
+                      detail={
+                        rule.cv_layout === "new"
+                          ? "domyślny dla klienta — Word zostaje klasyczny"
+                          : "domyślny dla klienta"
+                      }
+                    />
+                  ) : null}
                   {rule?.requires_rodo_consent_block && (
                     <ReadyItem
                       tone="n"

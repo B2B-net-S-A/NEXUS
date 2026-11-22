@@ -109,7 +109,9 @@ pozwala na jeden mail od osoby dziennie.
 ## Paczka do podpisu z umową (13.11.2026)
 
 Wzory z listy klienta (NDA, oświadczenie o niekaralności i inne) idą do
-podpisu kwalifikowanego razem z umową B2B, pod jednym linkiem. Podpisany plik
+podpisu razem z umową B2B, pod jednym linkiem. Od 0754 (22.11.2026)
+kwalifikowanego wymaga tylko umowa; dokument kontraktor może zaakceptować kodem
+z maila, chyba że nadawca zaznaczy wymóg klienta. Podpisany plik
 sam staje się plikiem pozycji pary. Reguły: `podpis-umowy-b2b-w-nexusie.md`,
 sekcja „Paczka do podpisu”. Mail „Wyślij listę konsultantowi” zostaje dla
 reszty (PESEL, KRK, dyplomy) i dla klientów spoza drogi e-podpisu.

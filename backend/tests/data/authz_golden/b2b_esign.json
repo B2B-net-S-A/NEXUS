@@ -48,6 +48,8 @@
   "POST /api/b2b-generator/esign/{request_id}/withdraw": "PPPBPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/b2b-generator/generated/{generated_id}/esign/send": "PPPBPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/public/b2b-sign/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/b2b-sign/{token}/accept": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/b2b-sign/{token}/accept-code": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
   "POST /api/public/b2b-sign/{token}/documents/{document_id}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
   "POST /api/public/b2b-sign/{token}/renewal": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
   "PUT /api/b2b-generator/esign/settings": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"

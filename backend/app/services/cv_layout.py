@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal, Optional
 
 from app.core.config import settings
@@ -42,6 +43,25 @@ def effective(value: Any) -> Layout:
     return LAYOUT_NEW if enabled() and value == LAYOUT_NEW else LAYOUT_CLASSIC
 
 
+def is_new(value: Any) -> bool:
+    """Czy plik do klienta to PDF „Nowego CV” (zapisany układ + flaga)."""
+    return effective(value) == LAYOUT_NEW
+
+
+_DOCUMENT_EXTENSION = re.compile(r"\.(?:docx|pdf)$", re.IGNORECASE)
+
+
+def filename_for(name: Optional[str], layout: Any) -> Optional[str]:
+    """Nazwa pliku do klienta w układzie CV: Nowe CV — ten sam wzór z ``.pdf``.
+
+    Zapisana nazwa (`branded_docx_filename`, `docx_filename`) zostaje ``.docx``,
+    bo z niej idzie pobranie pliku Word — ten jest zawsze klasyczny.
+    """
+    if not name or not is_new(layout):
+        return name
+    return f"{_DOCUMENT_EXTENSION.sub('', name)}.pdf"
+
+
 def requested(value: Optional[str]) -> Optional[Layout]:
     """Układ z żądania (generator, przełącznik); ``None`` = bez zmiany."""
     if value is None or not enabled():
@@ -57,12 +77,28 @@ def rule_layout(rule: Any) -> Layout:
 
 
 async def default_for_client(db, client_id: Optional[int]) -> Layout:
-    """Domyślny układ nowego CV u klienta; klasyczny przy wyłączonej flagze."""
+    """Domyślny układ nowego CV u klienta; klasyczny przy wyłączonej flagze.
+
+    Czyta kolumnę zatwierdzonej reguły wprost, nie przez `resolve_client_rule`:
+    pod zasadami centralnymi klient spoza katalogu dostaje regułę zbudowaną
+    w pamięci (bez układu), a klient czekający na synchronizację — 503, które
+    wywracałoby odczyt CV etapu. Układ ustawia DL w `/settings/cv-rules` także
+    przy zasadach centralnych (`client_cv_rules.set_client_cv_layout`).
+    """
     if not enabled() or not client_id:
         return LAYOUT_CLASSIC
-    from app.services.cv_generator_b2b.client_rules import resolve_client_rule
+    from sqlalchemy import select
 
-    return rule_layout(await resolve_client_rule(db, client_id))
+    from app.models.client_cv_rule import ClientCvRule
+
+    return normalized(
+        await db.scalar(
+            select(ClientCvRule.cv_layout).where(
+                ClientCvRule.client_id == client_id,
+                ClientCvRule.confirmed_at.is_not(None),
+            )
+        )
+    )
 
 
 async def default_for_job(db, job_id: Optional[int]) -> Layout:

@@ -386,6 +386,9 @@ _PUBLIC_BASELINE: set[tuple[str, str]] = {
     ("POST", "/api/public/b2b-sign/{token}/documents/{document_id}"),
     ("GET", "/api/public/b2b-sign/{token}/documents/{document_id}/pdf"),
     ("POST", "/api/public/b2b-sign/{token}/renewal"),
+    # Akceptacja dokumentów bez wymogu kwalifikowanego kodem z maila (0754).
+    ("POST", "/api/public/b2b-sign/{token}/accept-code"),
+    ("POST", "/api/public/b2b-sign/{token}/accept"),
     ("GET", "/api/public/b2b-sign/{token}/signed-pdf"),
     ("POST", "/api/public/career/apply"),
     ("GET", "/api/public/career/jobs"),
