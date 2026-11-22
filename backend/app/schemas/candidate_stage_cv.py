@@ -247,6 +247,9 @@ class CVBrandedResponse(BaseModel):
     cv_layout: Literal["classic", "new"] = "classic"
     new_layout_enabled: bool = False
     default_layout: Literal["classic", "new"] = "classic"
+    # Dodatki strony 1 nowego CV (`result_text`, `result_index`, `results`) —
+    # edytor pokazuje „Najmocniejszy wynik” i „Inny wynik (N)”.
+    page1_extras: Optional[dict] = None
 
 
 class CVLayoutUpdate(BaseModel):

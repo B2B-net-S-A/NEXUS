@@ -99,6 +99,8 @@ export async function fetchAuthenticatedBlob(path: string): Promise<Blob> {
 export interface AuthenticatedDownload {
   blob: Blob;
   filename: string | null;
+  /** Nagłówki odpowiedzi (np. `X-CV-Page1-Fits` podglądu nowego CV). */
+  headers?: Headers;
 }
 
 /**
@@ -127,6 +129,7 @@ export async function postAuthenticatedDownload(
     return {
       blob: await res.blob(),
       filename: encoded ? decodeURIComponent(encoded) : plain ?? null,
+      headers: res.headers,
     };
   });
 }
@@ -157,6 +160,7 @@ export async function fetchAuthenticatedDownload(
     return {
       blob: await res.blob(),
       filename: encoded ? decodeURIComponent(encoded) : plain ?? null,
+      headers: res.headers,
     };
   });
 }

@@ -448,15 +448,17 @@ def test_only_fresh_cards_from_threshold_are_the_batch(score, age, inside):
 @pytest.mark.parametrize(
     "score, sent, min_score, inside",
     [
-        (50, True, None, True),  # wysłany wcześniej: od 50%
-        (49.9, True, None, False),
-        (60, False, None, False),  # reszta od progu porcji (65)
-        (55, True, 70, True),  # wyższy próg HoR nie podnosi progu wysłanych
-        (45, True, 45, True),  # niższy próg HoR działa także dla wysłanych
+        (65, True, None, True),  # wysłany wcześniej: od progu porcji jak inni
+        (62, True, None, False),  # 22.11 (R3): 60–64% dawało 0 CV z 40 decyzji
+        (50, True, None, False),
+        (60, False, None, False),
+        (55, True, 50, True),  # niższy próg HoR działa dla wszystkich
     ],
 )
-def test_sent_before_counts_from_fifty(score, sent, min_score, inside):
-    """Z1, 20.11.2026: 53 z 89 sprawdzonych wysłanych ręcznie miało 50–100%."""
+def test_sent_before_counts_from_the_batch_threshold(score, sent, min_score, inside):
+    """R3, 22.11.2026: w porcji „wysłany wcześniej” liczy się od progu porcji.
+    Karty 60–64% zajęły 116 z 301 miejsc porcji 20.11 i dały 0 CV; od 65%
+    4 CV z 9 decyzji. W puli zostają od 50% (lista kandydatów)."""
     card = rb.PendingCard(
         process_id=1,
         job_id=1,
@@ -467,6 +469,41 @@ def test_sent_before_counts_from_fifty(score, sent, min_score, inside):
         sent_before=sent,
     )
     assert rb.in_batch(card, NOW, min_score) is inside
+
+
+_CET = timezone(timedelta(hours=1))
+
+
+def _opened(day: str) -> rb.PendingCard:
+    y, m, d = (int(x) for x in day.split("-"))
+    return rb.PendingCard(1, 1, 1001, 7, 80, datetime(y, m, d, 9, 0, tzinfo=_CET))
+
+
+@pytest.mark.parametrize(
+    "opened, today, stale",
+    [
+        ("2026-11-16", "2026-11-17", False),  # pon → wt: 1 dzień roboczy
+        ("2026-11-16", "2026-11-18", True),  # pon → śr: 2 dni robocze
+        ("2026-11-20", "2026-11-23", False),  # pt → pon: weekend się nie liczy
+        ("2026-11-20", "2026-11-24", True),  # pt → wt
+        ("2026-11-10", "2026-11-12", False),  # 11.11 święto: 1 dzień roboczy
+        ("2026-11-10", "2026-11-13", True),
+        ("2026-11-18", "2026-11-18", False),
+    ],
+)
+def test_card_without_decision_for_two_business_days_is_stale(opened, today, stale):
+    """R5, 22.11.2026: w 789224 29 kart z 18–19.11 zamykało porcję rekrutacji."""
+    y, m, d = (int(x) for x in today.split("-"))
+    now = datetime(y, m, d, 10, 0, tzinfo=_CET)
+    assert rb.is_stale(_opened(opened), now) is stale
+
+
+def test_stale_cards_do_not_take_seats_but_stay_visible():
+    now = datetime(2026, 11, 20, 10, 0, tzinfo=_CET)
+    old = _opened("2026-11-17")
+    new = rb.PendingCard(2, 1, 1002, 7, 80, now - timedelta(hours=2))
+    assert rb.batch_cards([old, new], now) == [old, new]
+    assert rb.batch_cards([old, new], now, fresh_only=True) == [new]
 
 
 def test_card_without_open_date_is_not_the_batch():

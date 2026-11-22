@@ -60,6 +60,7 @@ import {
 import { ContractsBulkActionsBarV2 } from"@/components/v2/modals/ContractsBulkActionsBar";
 import { PlacementsExportDialog } from "@/components/v2/modals/PlacementsExportDialog";
 import { ContractAgreementRecordDialog } from "@/components/contracts/ContractAgreementRecordDialog";
+import { terminationDocKind, type TerminationDocumentRef } from "@/lib/contract-happening";
 import { ContractNextCell, ContractRowNote } from "@/components/contracts/list/ContractNextCell";
 import { ContractsEndingView, type EndingListRow } from "@/components/contracts/list/ContractsEndingView";
 import {
@@ -167,6 +168,8 @@ interface ContractGroupMemberRow {
  agreement_termination_mode?: string | null;
  prolongation_status?: string | null;
  billing_hours_per_month?: number | null;
+ // Wypowiedzenie/porozumienie w Dokumentach przy niezapisanym rozwiązaniu (22.11.2026).
+ termination_document?: TerminationDocumentRef | null;
 }
 
 interface ContractRow {
@@ -203,6 +206,7 @@ interface ContractRow {
  agreement_termination_mode?: string | null;
  prolongation_status?: string | null;
  billing_hours_per_month?: number | null;
+ termination_document?: TerminationDocumentRef | null;
  // `group_by_candidate=true`: wszystkie umowy tej osoby (żywe najpierw).
  // Wiersz z >1 członkiem renderuje kolumny okresu/stawek/marży per klient.
  group_members?: ContractGroupMemberRow[];
@@ -217,6 +221,7 @@ function primaryFacts(row: ContractRow): ListRowFacts {
   agreement_termination_mode: row.agreement_termination_mode ?? null,
   prolongation_status: row.prolongation_status ?? null,
   billing_hours_per_month: row.billing_hours_per_month ?? null,
+  termination_document: row.termination_document ?? null,
  };
 }
 
@@ -821,6 +826,7 @@ export function ContractsListV2({
  id: number;
  candidateName: string | null;
  projectEnd: string | null;
+ existingDocument: TerminationDocumentRef | null;
  } | null>(null);
  // Queryless `/contracts` is a fresh module entry (Active by default). Every
  // in-module change is encoded back into the URL, including an explicit
@@ -1812,10 +1818,15 @@ export function ContractsListV2({
  id: m.id,
  candidateName: c.candidate_name ?? null,
  projectEnd: m.end_date ?? null,
+ existingDocument: facts.termination_document ?? null,
  });
  }}
  className="shrink-0 whitespace-nowrap rounded-md border border-border bg-card px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-muted"
- title="Porozumienie albo wypowiedzenie podpisane poza NEXUSEM"
+ title={
+ facts.termination_document
+ ? `${terminationDocKind(facts.termination_document)} jest w Dokumentach („${facts.termination_document.filename}”) — zapisz daty z pliku`
+ : "Porozumienie albo wypowiedzenie podpisane poza NEXUSEM"
+ }
  >
  + Rozwiązanie
  </button>
@@ -1909,6 +1920,7 @@ export function ContractsListV2({
  contractId={recordAgreementFor.id}
  candidateName={recordAgreementFor.candidateName}
  projectEnd={recordAgreementFor.projectEnd}
+ existingDocument={recordAgreementFor.existingDocument}
  onClose={() => setRecordAgreementFor(null)}
  />
  )}
@@ -2200,6 +2212,7 @@ export function ContractsListV2({
  id: row.id,
  candidateName: row.candidate_name ?? null,
  projectEnd: row.end_date ?? null,
+ existingDocument: row.termination_document ?? null,
  })
  }
  truncated={Boolean(allRowsQuery.data?.truncated)}

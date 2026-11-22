@@ -15,6 +15,7 @@ import {
   invalidateReviewBatch,
   useReviewBatchQueue,
   useReviewBatchStatus,
+  type ReviewBatchItem,
   type ReviewBatchJob,
   type ReviewBatchQueueRun,
   type ReviewBatchSource,
@@ -172,6 +173,43 @@ function hasNoJobs(data: ReviewBatchStatus): boolean {
 
 type BatchTab = "decide" | "close" | "jobs";
 
+function shortDate(iso: string): string {
+  const [, month, day] = iso.split("-");
+  return `${Number(day)}.${month}`;
+}
+
+/**
+ * „Na końcu porcji: 29 kart z 18–19.11 bez decyzji od 2 dni roboczych” (R5,
+ * 22.11.2026). Takie karty nie zajmują miejsca, więc system dokłada świeże.
+ */
+function StaleLine({ items }: { items: readonly ReviewBatchItem[] }) {
+  const stale = items.filter((item) => item.stale);
+  if (stale.length === 0) return null;
+  const days = stale
+    .map((item) => item.opened_on)
+    .filter((day): day is string => Boolean(day))
+    .sort();
+  const span =
+    days.length === 0
+      ? ""
+      : days[0] === days[days.length - 1]
+        ? ` z ${shortDate(days[0])}`
+        : ` z ${shortDate(days[0])}–${shortDate(days[days.length - 1])}`;
+  return (
+    <p
+      className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-1.5 text-xs text-foreground"
+      title="Nie zajmują miejsca w porcji, więc system dokłada świeże osoby."
+      data-testid="review-queue-stale"
+    >
+      <span className="font-semibold">
+        Na końcu porcji: {stale.length} {pluralPl(stale.length, "karta", "karty", "kart")}
+        {span}
+      </span>{" "}
+      <span className="text-muted-foreground">bez decyzji od 2 dni roboczych</span>
+    </p>
+  );
+}
+
 /**
  * „Ta rekrutacja: jeszcze 2 osoby · Potem: … (4) i 1 kolejna” nad kartą. Serwer
  * podaje kolejkę rekrutacja po rekrutacji (zgłoszenie rekrutera 17.11.2026),
@@ -243,16 +281,32 @@ function BatchProgress({ data }: { data: ReviewBatchStatus }) {
       </div>
       <p className="min-w-0 flex-1 text-xs text-muted-foreground">{progressHint(data, open)}</p>
       {data.sources ? (
-        <span className="flex basis-full flex-wrap items-center gap-1 border-t border-border pt-1.5 text-xs" data-testid="review-batch-sources">
+        <span className="flex basis-full flex-wrap items-center gap-1 border-t border-border pt-1.5 text-xs" data-testid="review-batch-sources" data-tour="review-batch.sources">
           <span className="text-muted-foreground">Twoja porcja dziś: {data.required} ·</span>
-          <span className="rounded bg-destructive/15 px-1.5 py-0.5 font-semibold text-destructive tabular-nums">
-            {data.sources.p0} z P0
-          </span>
-          <span className="rounded bg-muted px-1.5 py-0.5 font-medium tabular-nums text-muted-foreground">
-            {data.sources.rest} z P1 i niżej
-          </span>
+          {data.sources.urgent !== undefined ? (
+            <>
+              <span className="rounded bg-destructive/15 px-1.5 py-0.5 font-semibold text-destructive tabular-nums">
+                {data.sources.urgent} z pilnych
+              </span>
+              <span className="rounded bg-muted px-1.5 py-0.5 font-medium tabular-nums text-muted-foreground">
+                {data.sources.other ?? 0} z pozostałych
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="rounded bg-destructive/15 px-1.5 py-0.5 font-semibold text-destructive tabular-nums">
+                {data.sources.p0} z P0
+              </span>
+              <span className="rounded bg-muted px-1.5 py-0.5 font-medium tabular-nums text-muted-foreground">
+                {data.sources.rest} z P1 i niżej
+              </span>
+            </>
+          )}
           <span className="text-muted-foreground">
-            · tylko z Twoich rekrutacji, najpierw P0
+            · tylko z Twoich rekrutacji, najpierw pilne (P0 i P1)
+            {data.sources.other_seats
+              ? `, ale ${data.sources.other_seats} ${pluralPl(data.sources.other_seats, "miejsce czeka", "miejsca czekają", "miejsc czeka")} na rekrutacje bez pilnego priorytetu`
+              : ""}
             {data.sources.level_next > data.required
               ? ` · jutro ${data.sources.level_next}, jeśli dziś zdecydujesz o wszystkich (rośnie o 10 do ${data.sources.level_cap})`
               : ""}
@@ -513,6 +567,7 @@ function BatchWorkspace({
             next ? (
               <>
                 <QueueRunLine runs={queue.data?.runs ?? []} jobId={next.job_id} titles={jobTitles} />
+                <StaleLine items={queue.data?.items ?? []} />
                 <JobContext
                   jobId={next.job_id}
                   title={next.job_title}

@@ -54,6 +54,13 @@
  * bo każde pobranie liczy się w alarmie masowego przeglądania. Raz pokazane
  * zostają zamontowane, żeby chowanie nie pobierało pliku drugi raz.
  *
+ * Nowe CV (22.11.2026, wariant A): przy układzie „Nowe CV” i włączonej fladze
+ * nagłówek ma zakładki „Strona 1 · Stanowiska · Cały tekst · Jak u klienta”.
+ * Formularze (`cv-editor/CvNewLayoutWorkspace`) piszą do TEGO SAMEGO dokumentu
+ * Tiptapa co kartka — autozapis, historia, QC i plik Word bez zmian; jedynie
+ * „Najmocniejszy wynik” idzie do dodatków strony 1 (`setPage1`). Klasyczne CV
+ * ma edytor jak dotąd.
+ *
  * D6 (14.10.2026): z propem `handoff` (karta na „Zweryfikowany”) stopka ma
  * „Uwaga dla Delivery Leada”, stan QC, „Gotowe” i „Gotowe, przekaż do DL →”.
  * Zapis jest ten sam co „Gotowe” (szkic, pola w nawiasach); ruch karty robi
@@ -66,6 +73,7 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEditor, EditorContent } from "@tiptap/react";
+import { TextSelection } from "@tiptap/pm/state";
 import {
   Check,
   ChevronDown,
@@ -104,6 +112,7 @@ import { CvEditorHistory } from "@/components/v2/cv-editor/CvEditorHistory";
 import { useCvAssistant } from "@/components/v2/cv-editor/useCvAssistant";
 import { useCvHistory } from "@/components/v2/cv-editor/useCvHistory";
 import { CvEditorToolbar, type CvEditorMoreItem } from "@/components/v2/cv-editor/CvEditorToolbar";
+import { CvNewLayoutWorkspace } from "@/components/v2/cv-editor/CvNewLayoutWorkspace";
 import { CvPagesPreview } from "@/components/v2/cv/CvPagesPreview";
 import {
   DropdownMenu,
@@ -128,6 +137,7 @@ import {
   cvGeneratedEditorApi,
   type CVBrandedState,
   type CvLayout,
+  type CvPage1Update,
 } from "@/lib/api";
 import type { CvEditorCommandApi } from "@/lib/api/cvEditorCommand";
 import type { CvEditorHistoryApi } from "@/lib/api/cvEditorHistory";
@@ -139,7 +149,8 @@ import {
 } from "@/lib/cv-background-approval";
 import { withDownloadIntent } from "@/lib/cv-download-intent";
 import { normalizeCvAlign } from "@/lib/cv-editor-align";
-import { cvPlaceholders, type CvLang } from "@/lib/cv-editor-blocks";
+import { cvPlaceholders, type CvLang, type CvSectionKey } from "@/lib/cv-editor-blocks";
+import { sectionStart } from "@/lib/cv-new-layout-form";
 import { boldRequirements } from "@/lib/cv-editor-issues";
 import { cvEditorExtensions, loadCvHtml } from "@/lib/cv-editor-structure";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -179,8 +190,11 @@ export type CvEditorApi = Pick<
   typeof candidateStageCvApi.branded,
   "get" | "update" | "newDraft" | "finalize"
 > &
-  /** Układ CV (22.11.2026) — tylko CV etapu; wynik generatora nie ma układu. */
-  Partial<Pick<typeof candidateStageCvApi.branded, "setLayout">>;
+  /**
+   * Układ CV i „Najmocniejszy wynik” strony 1 nowego CV (22.11.2026) — tylko
+   * CV etapu; wynik generatora nie ma układu.
+   */
+  Partial<Pick<typeof candidateStageCvApi.branded, "setLayout" | "setPage1">>;
 
 function networkFiles(basePath: string): CvEditorFiles {
   return {
@@ -345,7 +359,8 @@ function CVBrandedEditContent({
   const [submitting, setSubmitting] = useState(false);
   // Pola w nawiasach z nowo wstawionych bloków, które zatrzymały „Zapisz”.
   const [unfilled, setUnfilled] = useState<string[]>([]);
-  const [mode, setMode] = useState<"edit" | "word">("edit");
+  // „page1” / „positions” — formularze nowego CV (tylko przy układzie „Nowe CV”).
+  const [mode, setMode] = useState<"edit" | "word" | "page1" | "positions">("edit");
   // Jedna kolumna obok kartki (Edytor CV 3, PR 3): „Do poprawy” albo oryginał
   // („Oryginał” w nagłówku). `null` = domyślnie: oryginał tylko, gdy edytor
   // nie ma panelu „Do poprawy” (wynik generatora bez uwag).
@@ -754,6 +769,62 @@ function CVBrandedEditContent({
   const language: CvLang = data?.language === "en" ? "en" : "pl";
   const textAlign = normalizeCvAlign(data?.text_align);
   const hasCv = !!data && !noCv;
+
+  // ── Nowe CV: „Strona 1” i „Stanowiska” (22.11.2026) ─────────────────────
+  const newLayoutForms = hasCv && layoutEnabled && layout === "new";
+  const formTab = newLayoutForms && (mode === "page1" || mode === "positions") ? mode : null;
+  // Ostatnia zakładka formularza zostaje zamontowana pod „Cały tekst” (wybrane stanowisko, PDF).
+  const lastFormTab = useRef<"page1" | "positions">("page1");
+  if (formTab) lastFormTab.current = formTab;
+  // Pierwsze wczytanie nowego CV otwiera „Stronę 1”; przełączenie na klasyczne wraca do „Edycji”.
+  const formsOpened = useRef(false);
+  useEffect(() => {
+    if (newLayoutForms && !formsOpened.current) {
+      formsOpened.current = true;
+      setMode((current) => (current === "edit" ? "page1" : current));
+    }
+    if (!newLayoutForms && (mode === "page1" || mode === "positions")) setMode("edit");
+  }, [newLayoutForms, mode]);
+  const setPage1Api = isGenerated ? undefined : editorApi.setPage1;
+  /**
+   * „Najmocniejszy wynik” idzie do dodatków strony 1. Zatwierdzona wersja ma je
+   * zamrożone — najpierw szkic, jak przy każdej poprawce (`ensureDraft`).
+   */
+  const savePage1 = setPage1Api
+    ? async (patch: CvPage1Update) => {
+        if (!(await ensureDraft())) {
+          throw new Error("Nie udało się założyć nowego szkicu CV — wynik nie został zapisany.");
+        }
+        const response = await setPage1Api(stageId, patch);
+        queryClient.setQueryData<CVBrandedState>([scopeKey, stageId], (current) =>
+          current ? { ...current, page1_extras: response.data.page1_extras ?? null } : current,
+        );
+      }
+    : undefined;
+  // Wiersz „Umiejętności” / „Edukacja” / „Języki” ze „Strony 1”: kursor w tej sekcji kartki.
+  const pendingJump = useRef<CvSectionKey | null>(null);
+  const openInText = (section: CvSectionKey) => {
+    pendingJump.current = section;
+    setMode("edit");
+    setNarrowPane("cv");
+  };
+  useEffect(() => {
+    const section = pendingJump.current;
+    const live = editor && !editor.isDestroyed ? editor : null;
+    if (mode !== "edit" || !section || !live) return;
+    pendingJump.current = null;
+    // Po narysowaniu kartki (była ukryta) — inaczej przewinięcie nie ma dokąd.
+    const frame = requestAnimationFrame(() => {
+      if (live.isDestroyed) return;
+      const at = sectionStart(live.state.doc, section);
+      if (at !== null) {
+        const position = live.state.doc.resolve(Math.min(at, live.state.doc.content.size));
+        live.view.dispatch(live.state.tr.setSelection(TextSelection.near(position)).scrollIntoView());
+      }
+      live.view.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [mode, editor]);
   // Asystent (Edytor CV 3, PR 4): jedno miejsce do AI, zmiany od razu.
   const assistant = useCvAssistant({
     editor,
@@ -962,6 +1033,7 @@ function CVBrandedEditContent({
                 editor={editor}
                 language={language}
                 defaultAlign={textAlign}
+                historyOnly={formTab !== null}
                 disabled={mode === "word" || submitting || assistant.locked}
                 boldRequirements={
                   hasIssuesPanel && !isGenerated
@@ -977,10 +1049,25 @@ function CVBrandedEditContent({
             ) : (
               <div className="flex-1" />
             )}
-            <div className="ml-auto flex flex-none flex-wrap items-center gap-1">
+            <div className="ml-auto flex max-w-full flex-none flex-wrap items-center gap-1">
               {hasCv ? (
-                <div className="flex flex-none items-center gap-1" role="group" aria-label="Widok CV">
-                  <ViewToggle active={mode === "edit"} onClick={() => setMode("edit")}>Edycja</ViewToggle>
+                <div className="flex max-w-full flex-none flex-wrap items-center gap-1" role="group" aria-label="Widok CV">
+                  {newLayoutForms ? (
+                    <>
+                      <ViewToggle active={mode === "page1"} onClick={() => { setMode("page1"); setNarrowPane("cv"); }}>
+                        Strona 1
+                      </ViewToggle>
+                      <ViewToggle
+                        active={mode === "positions"}
+                        onClick={() => { setMode("positions"); setNarrowPane("cv"); }}
+                      >
+                        Stanowiska
+                      </ViewToggle>
+                      <ViewToggle active={mode === "edit"} onClick={() => setMode("edit")}>Cały tekst</ViewToggle>
+                    </>
+                  ) : (
+                    <ViewToggle active={mode === "edit"} onClick={() => setMode("edit")}>Edycja</ViewToggle>
+                  )}
                   <ViewToggle active={mode === "word"} onClick={() => { setMode("word"); setNarrowPane("cv"); }}>
                     Jak u klienta
                   </ViewToggle>
@@ -1122,7 +1209,7 @@ function CVBrandedEditContent({
               </aside>
             ) : null}
             <div
-              hidden={!showCv}
+              hidden={!showCv || formTab !== null}
               data-cv-lang={language}
               data-cv-align={textAlign}
               className="cv-paper relative min-h-0 min-w-0 flex-1 overflow-auto bg-muted/40 p-4"
@@ -1171,6 +1258,27 @@ function CVBrandedEditContent({
                 </>
               ) : null}
             </div>
+            {newLayoutForms && editor && data ? (
+              // Zamontowane także pod „Cały tekst”: powrót nie pobiera PDF-u od nowa.
+              <div
+                hidden={!showCv || formTab === null}
+                className="flex min-h-0 min-w-0 flex-1"
+                {...{ [CV_PANEL_ATTR]: "" }}
+              >
+                <CvNewLayoutWorkspace
+                  editor={editor}
+                  tab={formTab ?? lastFormTab.current}
+                  lang={language}
+                  extras={data.page1_extras}
+                  disabled={submitting || assistant.locked}
+                  active={open && showCv && formTab !== null}
+                  loadPreview={() => loadPdf("preview")}
+                  onSaveResult={savePage1}
+                  onTab={setMode}
+                  onOpenText={openInText}
+                />
+              </div>
+            ) : null}
             {hasIssuesPanel && editor && data ? (
               // Zamontowany także ukryty: liczy znaczniki na kartce i liczbę w pasku.
               <aside

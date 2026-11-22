@@ -43,7 +43,7 @@ from app.services.client_settlements.rcp_checks import (
     _param_dec,
     name_tokens,
 )
-from app.services.client_settlements.timesheet import _day
+from app.services.client_settlements.timesheet import _day, is_sum_row
 from app.services.client_settlements.timesheet_pko import (
     _month_of,
     duration_hours,
@@ -62,7 +62,7 @@ MAX_COLS = 30
 
 _TITLE = re.compile(r"\bro(?:z)?liczenie\s+czasu\s+pracy\b", re.IGNORECASE)
 _HOURS_LABELS = ("liczba godzin", "ilość godzin")
-_TOTAL_LABELS = ("suma godzin", "liczba godzin", "suma", "razem")
+_TOTAL_LABELS = ("suma godzin", "liczba godzin", "suma", "razem", "łącznie")
 # Pod tabelą szablonu: narastające MD i podsumowanie, nie praca w miesiącu.
 _END_PREFIXES = ("mds narastająco", "zużycie md", "podsumowanie")
 # Pole „Miesiąc” sformatowane w Excelu jako „mmm rr” („sie 26” w PDF).
@@ -283,11 +283,18 @@ def parse_rows(
         hours = _number(cell(row, "hours"))
         if hours is None or hours <= 0:
             continue
+        task = _text(cell(row, "task"))
+        description = _text(cell(row, "description"))
+        if is_sum_row(day, task or description, hours, entries):
+            # Suma pod tabelą bez etykiety (próba 22.11.2026: liczona jako
+            # wpis, MD podwójne).
+            declared = hours
+            break
         entries.append(
             BikEntry(
                 day=day,
-                task=_text(cell(row, "task")),
-                description=_text(cell(row, "description")) or "",
+                task=task,
+                description=description or "",
                 hours=hours,
                 hidden=index in hidden,
             )

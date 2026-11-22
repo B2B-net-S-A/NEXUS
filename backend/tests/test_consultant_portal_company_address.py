@@ -104,3 +104,30 @@ async def test_ended_contract_outside_grace_does_not_match() -> None:
         )
         await db.commit()
     assert await _resolve(f"iga.{last.lower()}@{DOMAIN}") is None
+
+
+async def test_client_mailbox_domain_finds_the_person(monkeypatch) -> None:
+    """BNP zakłada konsultantom skrzynki imie.nazwisko@external.bnpparibas.pl
+    (klauzula umowy B2B). Próba IX–X 2026: 32 dokumenty z tej domeny bez
+    kontraktu, każdy wskazywał dokładnie jedną osobę."""
+
+    monkeypatch.setattr(
+        settings, "CONSULTANT_PORTAL_PERSONAL_DOMAINS", "klient-osobowy.example"
+    )
+    last = f"Malinowska{tag()}"
+    person = await _named("Ada", last)
+    found = await _resolve(f"ada.{last.lower()}@klient-osobowy.example")
+    assert found is not None and found.id == person.contract_id
+    # Domena spoza listy dalej nikogo nie wskazuje.
+    monkeypatch.setattr(settings, "CONSULTANT_PORTAL_PERSONAL_DOMAINS", "")
+    assert await _resolve(f"ada.{last.lower()}@klient-osobowy.example") is None
+
+
+async def test_client_mailbox_domain_two_people_need_a_human(monkeypatch) -> None:
+    monkeypatch.setattr(
+        settings, "CONSULTANT_PORTAL_PERSONAL_DOMAINS", "klient-osobowy.example"
+    )
+    last = f"Jasna{tag()}"
+    await _named("Ola", last)
+    await _named("Ola", last)
+    assert await _resolve(f"ola.{last.lower()}@klient-osobowy.example") is None

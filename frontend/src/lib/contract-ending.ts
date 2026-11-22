@@ -2,7 +2,7 @@
 // z osią czasu z B). Zbiór liczy serwer (`bucket=ending`: status „Kończący
 // się” albo żywa umowa z końcem w 30 dni); tu tylko to, co z niego widać:
 // ostatni dzień, stan umowy B2B, niespójność z zamówieniem i oś czasu.
-import { fmtDatePl } from "@/lib/contract-happening";
+import { fmtDatePl, terminationDocKind } from "@/lib/contract-happening";
 import { agreementOpen, sumMonthlyMarginPln, type ListRowFacts } from "@/lib/contract-list-next";
 
 export interface EndingRowFacts extends ListRowFacts {
@@ -31,6 +31,18 @@ export const AGREEMENT_STATE_LABEL: Record<AgreementState, string> = {
   mutual_agreement: "rozwiązana porozumieniem",
   not_applicable: "nie dotyczy",
 };
+
+/**
+ * Stan umowy słowami. Niezapisane rozwiązanie z wypowiedzeniem/porozumieniem
+ * w Dokumentach (22.11.2026) to nie „nierozwiązana” — brakuje tylko wpisu.
+ */
+export function agreementStateLabel(f: ListRowFacts): string {
+  const state = agreementState(f);
+  if (state === "open" && f.termination_document) {
+    return `${terminationDocKind(f.termination_document)} w Dokumentach, niezapisane`;
+  }
+  return AGREEMENT_STATE_LABEL[state];
+}
 
 /**
  * Co się nie zgadza: zamówienie klienta trwa po ostatnim dniu (także
