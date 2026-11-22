@@ -34,6 +34,7 @@
   "GET /api/finance/costs": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/costs/module": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/costs/{entry_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/costs/{entry_id}/pdf": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/counterparties": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PATCH /api/finance/costs/{entry_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PATCH /api/finance/counterparties/{counterparty_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",

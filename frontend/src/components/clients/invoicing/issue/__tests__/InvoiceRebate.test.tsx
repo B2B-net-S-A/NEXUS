@@ -58,7 +58,7 @@ describe("rabat od obrotu na karcie faktury", () => {
           missing_fx: 3,
           on_invoice: null,
           corrections: [
-            { month: 9, rate_diff: "0.5", excess: "200000.00", amounts: [{ currency: "PLN", amount: "4250.00" }] },
+            { month: 9, rate_diff: "0.5", excess: "200000.00", amounts: [{ currency: "PLN", amount: "4250.00" }], issued: [] },
           ],
         }}
       />,

@@ -65,12 +65,14 @@ describe("api — nagłówek Authorization", () => {
     expect(headers.Authorization).not.toBe("Bearer STALE_EXPIRED");
   });
 
-  it("nadal dokleja token z localStorage, gdy wołający nic nie podał", async () => {
+  it("nie dokleja tokenu z localStorage — stara ścieżka zamknięta (11.2026)", async () => {
+    // Resztka sprzed sesji w ciasteczku HttpOnly albo token podłożony przez
+    // skrypt: front nie może go użyć jako tożsamości.
     localStorage.setItem("access_token", "STORED");
 
     const headers = await resolvedHeaders({ url: "/api/candidates", method: "get" });
 
-    expect(headers.Authorization).toBe("Bearer STORED");
+    expect(headers.Authorization).toBeUndefined();
   });
 
   it("nie ustawia nagłówka, gdy nie ma ani jawnego, ani zapisanego tokenu", async () => {
@@ -100,10 +102,10 @@ describe("api — sesja w ciasteczku HttpOnly i CSRF", () => {
     expect(headers["X-Nexus-CSRF"]).toBeUndefined();
   });
 
-  it("stara ścieżka (Bearer) nie wysyła CSRF — API sprzed ciasteczka odrzuciłoby preflight", async () => {
+  it("token w localStorage nie wyłącza CSRF ani nie trafia do nagłówka", async () => {
     localStorage.setItem("access_token", "LEGACY");
     const headers = await resolvedHeaders({ url: "/api/notes", method: "post", data: {} });
-    expect(headers.Authorization).toBe("Bearer LEGACY");
-    expect(headers["X-Nexus-CSRF"]).toBeUndefined();
+    expect(headers.Authorization).toBeUndefined();
+    expect(headers["X-Nexus-CSRF"]).toBe("1");
   });
 });

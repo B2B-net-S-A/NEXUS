@@ -53,11 +53,11 @@ function CallbackBody() {
         if (!accessToken) {
           throw new Error("Brak access_token w odpowiedzi");
         }
-        // Sesja w ciasteczku HttpOnly z `/exchange`; na API sprzed
-        // ciasteczka bezpiecznik ze starą ścieżką (`lib/session-establish`).
-        const session = await establishSession(accessToken);
-        const me = { data: session.user };
-        setAuth(session.user, session.handle);
+        // Sesja w ciasteczku HttpOnly z `/exchange`. Token z odpowiedzi
+        // trafia wyłącznie do wtyczki Chrome (niżej), nigdy do storage'u.
+        const user = await establishSession();
+        const me = { data: user };
+        setAuth(user);
 
         // Most do wtyczki Chrome. Wtyczka miala JEDYNA sciezke logowania —
         // email + haslo — a produkcja odrzuca ja od 19.07 (SSO-only), wiec

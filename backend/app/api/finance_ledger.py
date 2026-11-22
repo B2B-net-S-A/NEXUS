@@ -12,6 +12,8 @@ Koszty (serwis ``services/finance_ledger/costs.py``):
 * ``GET ?stage=&month=&journal=&category=&flag=&q=`` — zakładka etapu
   z licznikami etapów i dzienników (Kontraktorzy, Zakupy pozostałe, Biuro),
 * ``GET /{id}`` — karta faktury z „Kogo dotyczy” i historią,
+* ``GET /{id}/pdf`` — „Podgląd PDF”: wizualizacja XML-a z KSeF (pobranego na
+  żądanie i zapamiętanego) albo PDF spoza KSeF (``invoice_preview.py``),
 * ``POST /actions`` — Przyjmij, Odrzuć (z powodem), Zweryfikuj, Gotowa do
   księgowania, Cofnij o krok, dodaj/zdejmij flagę; dla zaznaczonych.
   „Zweryfikuj” fakturę kontraktora — lista „Weryfikujący kontraktorów” albo
@@ -29,16 +31,18 @@ from datetime import date, datetime, timezone
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, FinanceModuleUser
 from app.api.section_access import FINANCE_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.http_headers import content_disposition
 from app.core.scheduling import business_today
 from app.models.user import User
 from app.services.finance_ledger import approvers as cost_approvers
-from app.services.finance_ledger import costs, counterparties
+from app.services.finance_ledger import costs, counterparties, invoice_preview
 from app.services.finance_ledger import counterparty_import as importer
 from app.services.finance_ledger import settings as module_settings
 from app.services.finance_ledger_schema import FLAGS, REASON_MAX
@@ -207,6 +211,28 @@ async def cost_card(
         )
     except costs.LedgerError as exc:
         raise _ledger_fail(exc) from exc
+
+
+@costs_router.get("/{entry_id}/pdf", response_model=None)
+async def cost_pdf(
+    entry_id: int, current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> Response:
+    await _open(db, current_user)
+    try:
+        preview = await invoice_preview.preview(
+            db, entry_id, payroll=is_payroll(current_user), now=_now()
+        )
+    except costs.LedgerError as exc:
+        raise _ledger_fail(exc) from exc
+    headers = {
+        "Content-Disposition": content_disposition(preview.filename, "inline"),
+        "Cache-Control": "private, no-store",
+    }
+    if preview.path is not None:
+        return FileResponse(
+            preview.path, media_type=preview.media_type, headers=headers
+        )
+    return Response(preview.content, media_type=preview.media_type, headers=headers)
 
 
 @costs_router.patch("/{entry_id}")

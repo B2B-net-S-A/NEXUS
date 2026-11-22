@@ -382,3 +382,196 @@ async def test_prepare_builds_payload_and_schema_valid_xml(monkeypatch, schema):
     assert data["invoices"][0]["number"] == "20/10/2026"
     assert data["lines"][0]["vat_label"] == "23%"
     assert data["xml_ready"] is True
+
+
+# ── „Wystaw korektę”: szkic KOR z listą faktur (22.11.2026) ─────────────────
+
+FULL_SETTINGS = issue_settings.normalize(
+    {
+        **SETTINGS,
+        "accounts": {"PLN": {"number": "PL61 1090 1014 0000 0712 1981 2874"}},
+        "payment_days": 30,
+    }
+)
+
+
+class _SaveDb(_Db):
+    def __init__(self, client):
+        super().__init__(client)
+        self.added = []
+
+    def add(self, item):
+        self.added.append(item)
+
+    async def flush(self):
+        return None
+
+
+def _patch_create(monkeypatch, *, issued=()):
+    _patch_prepare(monkeypatch)
+
+    async def load(db):
+        return FULL_SETTINGS
+
+    async def collective_issued(db, **kwargs):
+        return list(issued)
+
+    monkeypatch.setattr(issue_settings, "load", load)
+    monkeypatch.setattr(issue, "collective_issued", collective_issued)
+
+
+async def _create(db):
+    return await rebate_correction.create(
+        db,
+        client_id=11,
+        year=2026,
+        month=10,
+        currency="pln",
+        actor_id=7,
+        today=date(2026, 11, 22),
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_saves_kor_draft_with_corrected_list(monkeypatch, schema):
+    _patch_create(monkeypatch)
+    db = _SaveDb(_client())
+    invoice = await _create(db)
+
+    assert db.added == [invoice]
+    assert invoice.invoice_type == "KOR"
+    assert invoice.series_code == "KOR"
+    assert invoice.status == "draft"
+    assert invoice.invoice_number is None
+    assert invoice.corrects_id is None
+    assert (invoice.period_year, invoice.period_month) == (2026, 10)
+    assert invoice.currency == "PLN"
+    assert invoice.due_date == date(2026, 12, 22)
+    assert invoice.net_amount == Decimal("-1.00")
+    collective = invoice.collective_correction
+    assert collective["period"] == "01.10.2026-31.10.2026"
+    assert collective["correction_type"] == "2"
+    assert [i["number"] for i in collective["invoices"]] == ["20/10/2026"]
+    assert collective["invoices"][0]["ksef_number"] == KSEF
+
+    # Ten sam XML, który pójdzie do KSeF przy wysyłce (numer z serii KOR).
+    invoice.invoice_number = "KOR/1/11/2026"
+    doc = await issue.document(None, invoice, FULL_SETTINGS)
+    root = _validate(schema, fa3_build.build_xml(doc))
+    fa = root.find("fa:Fa", NS)
+    assert fa.findtext("fa:RodzajFaktury", namespaces=NS) == "KOR"
+    assert fa.findtext("fa:P_2", namespaces=NS) == "KOR/1/11/2026"
+    assert fa.findtext("fa:TypKorekty", namespaces=NS) == "2"
+    assert (
+        fa.findtext("fa:OkresFaKorygowanej", namespaces=NS) == "01.10.2026-31.10.2026"
+    )
+    refs = fa.findall("fa:DaneFaKorygowanej", NS)
+    assert [r.findtext("fa:NrKSeFFaKorygowanej", namespaces=NS) for r in refs] == [KSEF]
+    assert not await issue.problems(None, invoice, FULL_SETTINGS)
+
+
+@pytest.mark.asyncio
+async def test_create_refuses_second_correction_for_the_same_month(monkeypatch):
+    existing = SimpleNamespace(invoice_number="KOR/1/11/2026", status="sent")
+    _patch_create(monkeypatch, issued=[existing])
+    db = _SaveDb(_client())
+    with pytest.raises(issue.IssueError, match="już jest") as err:
+        await _create(db)
+    assert err.value.status_code == 409
+    assert "KOR/1/11/2026" in str(err.value)
+    assert db.added == []
+
+
+@pytest.mark.asyncio
+async def test_create_refuses_draft_without_xml(monkeypatch):
+    _patch_create(monkeypatch)
+    client = _client()
+    client.address = ""
+    with pytest.raises(issue.IssueError, match="adresu w kartotece") as err:
+        await _create(_SaveDb(client))
+    assert err.value.status_code == 422
+
+
+def _rebate_item(amount: str) -> dict:
+    return {
+        "name": f"{rebate.REBATE_LINE_PREFIX} — usługi za październik 2026",
+        "quantity": "1",
+        "unit_price": f"-{amount}",
+        "net": f"-{amount}",
+        "vat_rate": "23",
+    }
+
+
+def test_issued_rebate_correction_does_not_lower_turnover():
+    """Obrót do progu liczy się przed rabatem: przyjęta korekta go nie zmienia."""
+
+    net, touched = rebate.service_base(
+        Decimal("-1.00"), [_rebate_item("1.00")], _terms().exclude_words
+    )
+    assert (net, touched) == (Decimal("0.00"), False)
+    invoices = [
+        _invoice("20/10/2026", _item("Usługi IT", "3", "100")),
+        _invoice("KOR/1/11/2026", _rebate_item("1.00"), kind="correction"),
+    ]
+    assert rebate_correction.rate_weights(invoices, ()) == {"23": Decimal("300.00")}
+
+
+def test_pdf_lists_corrected_invoices():
+    from app.services.client_invoicing import invoice_pdf
+
+    invoice = SimpleNamespace(
+        invoice_type="KOR",
+        status="draft",
+        invoice_number=None,
+        currency="PLN",
+        client_id=11,
+        series_code="KOR",
+        issue_date=date(2026, 11, 22),
+        period_from=date(2026, 10, 1),
+        period_to=date(2026, 10, 31),
+        sale_date=None,
+        due_date=None,
+        lines=[issue.clean_line(_rebate_item("1.00"))],
+        lines_before=[],
+        buyer=BUYER,
+        fx_rate=None,
+        fx_date=None,
+        correction_reason="Rabat od obrotu",
+        client_order_number=None,
+        notes=None,
+        ksef_number=None,
+        xml=None,
+        collective_correction={
+            "period": "01.10.2026-31.10.2026",
+            "invoices": [
+                {
+                    "number": "20/10/2026",
+                    "issue_date": "2026-10-31",
+                    "ksef_number": KSEF,
+                }
+            ],
+        },
+    )
+    html = invoice_pdf.render_html(invoice, FULL_SETTINGS)
+    assert "Korekta zbiorcza (art. 106j ust. 3" in html
+    assert "Faktury korygowane" in html
+    assert "20/10/2026" in html and "31.10.2026" in html and KSEF in html
+
+
+@pytest.mark.asyncio
+async def test_collective_lines_keep_rebate_name_when_edited(monkeypatch):
+    """Nazwa pozycji odróżnia opust od obrotu: edycja jej nie zgubi
+    (inaczej przyjęta korekta zaniżyłaby obrót do progu)."""
+
+    _patch_create(monkeypatch)
+    db = _SaveDb(_client())
+    invoice = await _create(db)
+    renamed = {**invoice.lines[0], "name": "Rabat od obrotu 10/2026"}
+    with pytest.raises(issue.IssueError, match="Opust \\(rabat od obrotu\\)") as err:
+        await issue.update(db, invoice, {"lines": [renamed]}, actor_id=7)
+    assert err.value.status_code == 422
+    assert invoice.lines[0]["name"].startswith(rebate.REBATE_LINE_PREFIX)
+
+    cheaper = {**invoice.lines[0], "unit_price": "-0.50"}
+    await issue.update(db, invoice, {"lines": [cheaper]}, actor_id=7)
+    assert invoice.net_amount == Decimal("-0.50")

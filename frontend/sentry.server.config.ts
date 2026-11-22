@@ -13,7 +13,10 @@ if (dsn) {
         release: process.env.NEXT_PUBLIC_GIT_SHA || process.env.GIT_SHA,
         sendDefaultPii: false,
         beforeSend: scrubSentryEvent,
-        tracesSampleRate: parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE ?? '0.1'),
+        // 1%, jak w przeglądarce: wczytanie strony dziedziczy tę decyzję (meta `baggage`),
+        // a za nim każde żądanie do API z tej karty. Przy 10% (zmienna wspólna z backendem)
+        // limit 5 mln spanów Sentry poszedł w 80% w 10 dni (17.11.2026).
+        tracesSampleRate: 0.01,
         profilesSampleRate: parseFloat(process.env.SENTRY_PROFILES_SAMPLE_RATE ?? '0.1'),
         // Drop healthcheck noise.
         beforeSendTransaction(event) {

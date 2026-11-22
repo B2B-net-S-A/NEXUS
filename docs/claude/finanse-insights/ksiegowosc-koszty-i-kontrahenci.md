@@ -62,8 +62,9 @@ Symfonii (E2) ma sekcję na końcu; przelewy E3, wystawianie faktur E4 — nie d
 - **„Kogo dotyczy”** pokazuje to, co źródło już ustaliło, nic nie liczy od nowa:
   osoba i rozliczenie miesiąca z Płac, kontrakt i miesiąc kontraktora, zgoda na
   wydatek. Termin płatności: z rozliczenia osoby (`payroll_settlements.due_on`)
-  albo wpisany ręcznie; metadane KSeF nie niosą terminu (XML kosztów nie
-  pobieramy — budżet pobrań zostaje dla Płac).
+  albo wpisany ręcznie; metadane KSeF nie niosą terminu (pętla KSeF XML-a
+  kosztów nie pobiera — budżet pobrań zostaje dla Płac; XML pobiera dopiero
+  „Podgląd PDF”, niżej).
 - **Faktury osób zespołu widzą tylko Płace i admin** (D2,
   `ludzie/urlopy-czas-place-wejscie-odejscie.md`; ta sama bramka `is_payroll` co
   lista faktur w `api/hr_ksef.py`). Konto z samym „Modułem Finanse” nie widzi ich
@@ -72,6 +73,42 @@ Symfonii (E2) ma sekcję na końcu; przelewy E3, wystawianie faktur E4 — nie d
   „Zespół” (decyzja Artura z 13.11.2026).
 - Start kolejki: bez daty startu — stare faktury odsiewa filtr „Miesiąc wpływu”
   (decyzja Artura z 13.11.2026).
+
+## Podgląd PDF faktury (22.11.2026)
+
+Księgowa (18.11.2026) potrzebuje czytelnej faktury z KSeF zamiast XML-a.
+Przycisk „Podgląd PDF” na karcie `/finance/costs/[id]` i ikona w wierszu
+kolejki otwierają `GET /api/finance/costs/{id}/pdf`
+(`finance_ledger/invoice_preview.py`) w nowej karcie.
+
+- **Bramki jak karta**: sekcja Finanse, „Moduł Finanse”, moduł „Księgowość”;
+  faktura osoby zespołu bez Płac = 404 (D2, `costs._payroll_scope`). Wzorzec
+  `finance_ledger.json` ma trasę z tym samym werdyktem co karta.
+- **Faktura z KSeF → wizualizacja XML-a** (`hr/ksef/fa_visual.py`, układ
+  i kod QR KOD I z `client_invoicing/invoice_pdf.py`). Wszystko z pliku, nic
+  nie liczymy od nowa: strony z adresami i podmioty trzecie (faktor), pozycje
+  (korekta: osobno „przed” i „po”), stawki z `P_13_*`/`P_14_*` z VAT w złotych
+  (`P_14_*W`) i kursem przy walucie, `P_15`, adnotacje (MPP, odwrotne
+  obciążenie, zwolnienie z podstawą), dane korygowanej faktury i przyczyna,
+  płatność (termin, forma, rachunki, faktor), zamówienia, opis, stopka.
+  Dopisek, że fakturą jest plik XML w KSeF. Renderera e-faktury
+  (`peppol/pdf.py`) nie używamy: to dwujęzyczny załącznik wysyłany klientom,
+  a jego odczyt odrzuca pozycje od brutto i waluty spoza PLN/EUR/USD.
+- **XML na żądanie z pamięcią**: pętla nadal go nie pobiera. Pierwsze otwarcie
+  pobiera plik z KSeF i zapisuje go na wolumenie uploadów
+  (`hr/ksef/xml_cache.py`, `ksef_xml/…`, bez wygasania — treść faktury w KSeF
+  się nie zmienia); kolejne otwarcia KSeF nie pytają. Pomiar z 22.11.2026:
+  ok. 600–670 faktur kosztowych z KSeF miesięcznie (ok. 20 dziennie), pętla
+  kosztów robi do 8 zapytań na godzinę, sprzedaż ok. 25–30, limit to 64
+  pobrania na godzinę — zapas jest. Podgląd bierze najwyżej 20 pobrań na
+  godzinę w procesie (`ON_DEMAND_PER_HOUR`, potem 503 „spróbuj za kilka
+  minut”) i nie pyta KSeF w czasie blokady 429 zapisanej przez pętle.
+- **Plik musi pasować do wpisu**: inny NIP sprzedawcy niż we wpisie kolejki,
+  a przy fakturze Płac inny SHA-256 niż przy pobraniu (`xml_sha256`) = 409
+  i nic w pamięci. Wyłączony KSeF = 409, faktury nie ma w KSeF = 404,
+  niegotowa = 409, awaria = 502 — zawsze z polskim komunikatem w toście.
+- **Faktura spoza KSeF** → wgrany PDF bez zmian (Płace `pdf_store`, dokument
+  wydatku z plikiem PDF); bez numeru KSeF i bez PDF-u = 404.
 
 ## Kartoteka kontrahentów (E0)
 
@@ -254,8 +291,8 @@ Serwis `services/finance_ledger/payments.py`, reguły bez bazy
   gdy faktura w złotych ma ≥ 15 000 zł brutto, jako **wskazówka do potwierdzenia**
   (ostrzeżenie do odhaczenia przy paczce). MPP tylko w złotych. Art. 105a: od
   dostawcy w miesiącu wystawienia > 50 000 zł netto, a faktura < 15 000 zł
-  brutto bez MPP — podpowiedź „rozważ MPP” (PKWiU nie znamy — XML-a kosztów
-  nie pobieramy).
+  brutto bez MPP — podpowiedź „rozważ MPP” (PKWiU nie znamy — pętla nie
+  pobiera XML-a kosztów; podgląd PDF pobiera go tylko do wyświetlenia).
 - **Tytuł**: numer faktury i numer KSeF w osobnych liniach (4 × 35 znaków,
   numer KSeF nie jest cięty). Od 1.01.2027 faktura z KSeF bez numeru KSeF
   jest zablokowana; decyduje data wykonania paczki, nie dzień planu (art. 108g

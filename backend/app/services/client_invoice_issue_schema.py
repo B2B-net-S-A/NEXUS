@@ -33,6 +33,10 @@ Tabele:
     w ``ksef_status_text``). Wycofanie ostatniego numeru cofa licznik serii
     i kasuje wiersz.
 
+  Korekta zbiorcza rabatu od obrotu (0749) nie ma ``corrects_id``; faktury
+  korygowane z KSeF, okres i typ korekty są w ``collective_correction``
+  (``client_invoice_collective_correction_schema``).
+
   Pozycje (``lines``) i stan przed korektą (``lines_before``) są w JSONB:
   ``name, consultant, quantity, unit, unit_price, vat_rate, net, order_id``.
   Nabywca (``buyer``) to migawka z klienta przy tworzeniu szkicu, edytowalna
@@ -89,7 +93,13 @@ CK_ISSUED_NUMBER = (
 #: Szkic nie ma numeru, każdy inny stan ma.
 CK_ISSUED_DRAFT = "(status = 'draft') = (number_seq IS NULL)"
 CK_ISSUED_ACCEPTED = "status <> 'accepted' OR ksef_number IS NOT NULL"
-CK_ISSUED_CORRECTION = "(invoice_type = 'KOR') = (corrects_id IS NOT NULL)"
+#: Korekta wskazuje jedną fakturę NEXUSA (``corrects_id``) albo — korekta zbiorcza
+#: rabatu od obrotu (0749, 22.11.2026) — listę faktur z KSeF w ``collective_correction``.
+CK_ISSUED_CORRECTION = (
+    "(invoice_type = 'KOR') = (corrects_id IS NOT NULL OR collective_correction IS NOT NULL) "
+    "AND (collective_correction IS NULL OR (corrects_id IS NULL "
+    "AND jsonb_typeof(collective_correction) = 'object'))"
+)
 CK_ISSUED_PERIOD = (
     "(period_year IS NULL) = (period_month IS NULL) "
     "AND (period_year IS NULL OR (period_year BETWEEN 2020 AND 2100 "
@@ -107,6 +117,9 @@ NUMBERED_WHERE = "number_seq IS NOT NULL"
 KSEF_WHERE = "ksef_number IS NOT NULL"
 CORRECTS_WHERE = "corrects_id IS NOT NULL"
 GROUP_WHERE = "order_group_id IS NOT NULL"
+#: Jedna korekta rabatu od obrotu na klienta, miesiąc i walutę (wycofana się nie
+#: liczy); indeks zakłada ``client_invoice_collective_correction_schema`` (0749).
+COLLECTIVE_WHERE = "collective_correction IS NOT NULL AND status <> 'cancelled'"
 
 TABLE_DDL: tuple[str, ...] = (
     f"""CREATE TABLE IF NOT EXISTS client_invoice_series (
@@ -137,6 +150,7 @@ TABLE_DDL: tuple[str, ...] = (
     period_month SMALLINT NULL,
     corrects_id INTEGER NULL REFERENCES client_issued_invoices(id) ON DELETE RESTRICT,
     correction_reason VARCHAR({REASON_MAX}) NULL,
+    collective_correction JSONB NULL,
     currency VARCHAR(3) NOT NULL DEFAULT 'PLN',
     issue_date DATE NOT NULL,
     sale_date DATE NULL,

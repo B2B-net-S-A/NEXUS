@@ -76,15 +76,25 @@ docker exec nexus-staging-backend-1 python -m scripts.staging_login_as --role de
 docker exec nexus-staging-backend-1 python -m scripts.staging_login_as --user-id <id>
 ```
 
-Pierwsza komenda wypisuje aktywne osoby w roli, druga sam token. W karcie
-przeglądarki (3100 albo 3101): `localStorage.clear()`,
-`localStorage.setItem('access_token', '<token>')`, otwórz `/login` — strona
-przenosi token do ciasteczka HttpOnly (`POST /api/auth/session`, od 11.2026,
-`uprawnienia/sesja-w-ciasteczku-httponly-i-csrf.md`), usuwa go z
-localStorage i kończy logowanie przez `/api/auth/me`. Ciasteczka
-`nexus_access` nie da się już skasować z JS — zmiana roli to po prostu
-następny token tą samą drogą (adopcja nadpisuje ciasteczko). Token nie
-trafia do repo, PR-a ani raportu.
+Pierwsza komenda wypisuje aktywne osoby w roli, druga sam token. Front nie
+przyjmuje tokenu z JS (od 22.11.2026,
+`uprawnienia/sesja-w-ciasteczku-httponly-i-csrf.md`), więc w konsoli karty
+(3100 albo 3101, na dowolnej stronie frontu) wymieniasz go na ciasteczko
+HttpOnly i otwierasz `/login`, którego sonda kończy logowanie:
+
+```js
+localStorage.clear();
+const API = "http://localhost:8100", t = "<token>";
+await fetch(`${API}/api/auth/session`, { method: "POST", credentials: "include", headers: { Authorization: `Bearer ${t}` } });
+const me = await fetch(`${API}/api/auth/me`, { credentials: "include" });
+localStorage.setItem("nexus_user", JSON.stringify(await me.json()));
+location.href = "/login";
+```
+
+Ciasteczka `nexus_access` nie da się skasować z JS — zmiana roli to po prostu
+następny token tą samą drogą (`POST /api/auth/session` nadpisuje ciasteczko).
+Headless Playwright robi to samo `adoptBrowserSession` z
+`frontend/e2e/helpers/session.ts`. Token nie trafia do repo, PR-a ani raportu.
 
 - Wybieraj osobę, która ma dane w tym kroku: Delivery Lead na swoim kliencie,
   rekruter na swojej karcie. Id osoby i rekordu zapisuj w raporcie, nazwiska nie.

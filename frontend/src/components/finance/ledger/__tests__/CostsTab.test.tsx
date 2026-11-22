@@ -143,6 +143,7 @@ describe("CostsTab", () => {
     expect(screen.getAllByText("MPP").filter((el) => el.tagName !== "OPTION")).toHaveLength(1);
     expect(screen.getByRole("tab", { name: /Do opisu\s*4/ })).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Zaznacz FV/9/11/2026" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Podgląd PDF faktury 7/11/2026" })).toBeInTheDocument();
   });
 
   it("przyjmuje zaznaczone i mówi, ile zmieniono", async () => {

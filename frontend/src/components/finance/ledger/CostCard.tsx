@@ -27,6 +27,7 @@ import { warsawToday } from "@/lib/warsaw-date";
 import { useAuthStore } from "@/store/auth";
 
 import { CostPaymentPanel } from "./CostPaymentPanel";
+import { CostPdfButton } from "./CostPdfButton";
 import { Concerning } from "./CostsTab";
 import { DecreePanel } from "./DecreePanel";
 import { categoryLocked } from "./posting-model";
@@ -357,6 +358,9 @@ export function CostCard({ id }: { id: number }) {
         <Badge variant={data.from_ksef ? "info" : "outline"}>{data.from_ksef ? "KSeF" : "PDF"}</Badge>
         <Badge variant="soft">{data.stage_label}</Badge>
         <Badge variant="outline">Dziennik: {data.journal_label}</Badge>
+        <span className="ml-auto self-center">
+          <CostPdfButton entryId={data.id} invoiceNumber={data.invoice_number} />
+        </span>
       </header>
 
       {data.stage === "rejected" ? (

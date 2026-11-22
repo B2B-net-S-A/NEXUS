@@ -4,7 +4,9 @@ A JWT in ``/ws/notifications?token=<jwt>`` leaks into access / proxy / trace
 logs. The client now offers ``["access_token", "<jwt>"]`` as WS subprotocols so
 the token travels in an ``Upgrade`` request header instead of the URL; the
 server reads it from there and echoes the ``access_token`` sentinel on accept.
-The legacy ``?token=`` path is kept as a temporary rollout fallback.
+The legacy ``?token=`` path was a temporary rollout fallback; it was removed in
+11.2026 together with the browser's old token path (token in JS) — a JWT in
+the query string is now ignored.
 
 These tests exercise the pure token-resolution (`_extract_ws_token`) and prove
 that a token resolved from EITHER transport authenticates against the real DB
@@ -43,15 +45,24 @@ from app.models.user import User, UserRole
 class _FakeWS:
     """Minimal WebSocket stand-in exposing only ``.scope`` for token extraction."""
 
-    def __init__(self, subprotocols: list[str] | None = None) -> None:
-        self.scope = {"subprotocols": list(subprotocols or [])}
+    def __init__(
+        self, subprotocols: list[str] | None = None, query_string: bytes = b""
+    ) -> None:
+        self.scope = {
+            "subprotocols": list(subprotocols or []),
+            "query_string": query_string,
+        }
+        self.cookies: dict[str, str] = {}
+        self.headers: dict[str, str] = {}
 
 
 class _EndpointWS(_FakeWS):
     """Small endpoint double that records an authorization close."""
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(
+        self, subprotocols: list[str] | None = None, query_string: bytes = b""
+    ) -> None:
+        super().__init__(subprotocols, query_string)
         self.accepted = False
         self.sent: list[dict] = []
         self.closed: tuple[int, str] | None = None
@@ -74,38 +85,44 @@ class _EndpointWS(_FakeWS):
 
 def test_extract_prefers_subprotocol() -> None:
     ws = _FakeWS([_WS_TOKEN_SUBPROTOCOL, "jwt-abc"])
-    token, accepted = _extract_ws_token(ws, query_token=None)
+    token, accepted = _extract_ws_token(ws)
     assert token == "jwt-abc"
     assert accepted == _WS_TOKEN_SUBPROTOCOL  # echoed back on accept
 
 
-def test_extract_subprotocol_wins_over_query() -> None:
-    ws = _FakeWS([_WS_TOKEN_SUBPROTOCOL, "jwt-sub"])
-    token, accepted = _extract_ws_token(ws, query_token="jwt-query")
-    assert token == "jwt-sub"
-    assert accepted == _WS_TOKEN_SUBPROTOCOL
-
-
-def test_extract_query_fallback_when_no_subprotocol() -> None:
-    ws = _FakeWS([])
-    token, accepted = _extract_ws_token(ws, query_token="jwt-query")
-    assert token == "jwt-query"
-    assert accepted is None  # nothing offered → plain accept, no echo
+def test_extract_ignores_query_string_token() -> None:
+    # Stara ścieżka zamknięta (11.2026): JWT w URL-u ląduje w logach.
+    ws = _FakeWS([], query_string=b"token=jwt-query")
+    token, accepted = _extract_ws_token(ws)
+    assert token is None
+    assert accepted is None
 
 
 def test_extract_ignores_sentinel_without_paired_token() -> None:
-    # Sentinel offered but no value follows → fall back to the query param.
     ws = _FakeWS([_WS_TOKEN_SUBPROTOCOL])
-    token, accepted = _extract_ws_token(ws, query_token="jwt-query")
-    assert token == "jwt-query"
+    token, accepted = _extract_ws_token(ws)
+    assert token is None
     assert accepted is None
 
 
 def test_extract_none_when_neither_present() -> None:
     ws = _FakeWS([])
-    token, accepted = _extract_ws_token(ws, query_token=None)
+    token, accepted = _extract_ws_token(ws)
     assert token is None
     assert accepted is None
+
+
+async def test_query_string_token_is_rejected_at_handshake(monkeypatch) -> None:
+    """``/ws/notifications?token=<jwt>`` closes 4001 without touching the token."""
+    authenticate = AsyncMock()
+    monkeypatch.setattr(ws_module, "_authenticate_ws_token", authenticate)
+    websocket = _EndpointWS(query_string=b"token=signed-jwt")
+
+    await ws_notifications(websocket)
+
+    assert websocket.closed == (4001, "Unauthorized")
+    assert websocket.accepted is False
+    authenticate.assert_not_awaited()
 
 
 def test_ws_authorization_version_comparison_fails_closed() -> None:
@@ -143,14 +160,14 @@ async def test_connected_socket_is_closed_after_authorization_change(
     monkeypatch.setattr(ws_module, "_authenticate_ws_token", authenticate)
     monkeypatch.setattr(ws_module.manager, "connect", connect)
     monkeypatch.setattr(ws_module.manager, "disconnect", disconnect)
-    websocket = _EndpointWS()
+    websocket = _EndpointWS([_WS_TOKEN_SUBPROTOCOL, "signed-jwt"])
 
-    await ws_notifications(websocket, token="signed-jwt")
+    await ws_notifications(websocket)
 
     connect.assert_awaited_once_with(
         user.id,
         websocket,
-        subprotocol=None,
+        subprotocol=_WS_TOKEN_SUBPROTOCOL,
         auth_token="signed-jwt",
     )
     assert websocket.closed == (4001, "Unauthorized")
@@ -220,22 +237,8 @@ async def test_subprotocol_token_authenticates() -> None:
     token = create_access_token(uid, UserRole.admin.value)
 
     ws = _FakeWS([_WS_TOKEN_SUBPROTOCOL, token])
-    extracted, accepted = _extract_ws_token(ws, query_token=None)
+    extracted, accepted = _extract_ws_token(ws)
     assert accepted == _WS_TOKEN_SUBPROTOCOL
-
-    authed = await _authenticate_ws_token(extracted)
-    assert authed is not None
-    assert authed.id == uid
-
-
-async def test_query_param_token_still_authenticates() -> None:
-    """Legacy ?token= fallback still authenticates (in-flight rollout safety)."""
-    uid = await _seed_user("query")
-    token = create_access_token(uid, UserRole.admin.value)
-
-    ws = _FakeWS([])  # no subprotocol offered → query fallback path
-    extracted, accepted = _extract_ws_token(ws, query_token=token)
-    assert accepted is None
 
     authed = await _authenticate_ws_token(extracted)
     assert authed is not None
