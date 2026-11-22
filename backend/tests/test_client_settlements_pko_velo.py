@@ -1,7 +1,7 @@
 """Rozliczenia PKO (E6.1) i Velo (E6.2) bez bazy. Dane fikcyjne.
 
 Odczyt Time Sheet z szablonu klienta w ``.xlsm`` (godziny [GG]:MM, miesiąc
-z widocznego nagłówka, ukryta kolumna miesiąca tylko ostrzega), kontrola maila
+z widocznego nagłówka, ukryta kolumna miesiąca pomijana), kontrola maila
 akceptacji, mail jako HTML, rozpoznanie podpisanego arkusza zbiorczego
 i protokołu po treści, limit MD z innymi klientami i stawka godzinowa.
 """
@@ -111,7 +111,10 @@ def _old_template(month_cell: object = "czerwiec") -> list[list[object]]:
     return rows
 
 
-def test_stary_szablon_miesiac_z_naglowka_a_ukryta_kolumna_ostrzega():
+def test_stary_szablon_miesiac_z_naglowka_a_ukryta_kolumna_bez_ostrzezenia():
+    # Szablon PKO ma w ukrytej kolumnie D wpisany tekst „czerwiec” niezależnie
+    # od okresu: w próbie IX–X 2026 tak było w 57 z 58 Time Sheetów za VII–X.
+    # Ostrzeżenie z tej kolumny wisiało przy każdym rozliczeniu PKO.
     parsed = timesheet_pko.parse_rows(_old_template(), hidden_columns=["D", "E"])
     assert parsed is not None
     assert parsed.month == MONTH
@@ -120,7 +123,6 @@ def test_stary_szablon_miesiac_z_naglowka_a_ukryta_kolumna_ostrzega():
     assert parsed.total_hours == Decimal("176.00")
     assert parsed.declared_total == Decimal("176.00")
     assert len(parsed.entries) == 2
-    assert parsed.month_column_hidden
 
     result = timesheet_pko.evaluate(
         parsed,
@@ -132,19 +134,14 @@ def test_stary_szablon_miesiac_z_naglowka_a_ukryta_kolumna_ostrzega():
     checks = {c["title"]: c for g in result.groups for c in g["checks"]}
     assert result.md_regular == Decimal("22.000")
     assert checks["Miesiąc z nagłówka: październik 2026"]["state"] == "ok"
-    hidden = checks["W ukrytej kolumnie „Miesiąc realizacji usług” jest: czerwiec"]
-    assert hidden["state"] == "warn" and "rule" not in hidden
-    assert not result.blocking  # rozbieżność nigdy nie blokuje
+    assert not any("Miesiąc realizacji" in title for title in checks)
+    assert not any(c["state"] == "warn" for c in checks.values())
+    assert not result.warn and not result.blocking
     assert checks["Imię i nazwisko jak w kontrakcie"]["state"] == "ok"
 
 
-def test_ukryta_kolumna_zgodna_nie_ostrzega_a_inny_naglowek_blokuje():
+def test_inny_miesiac_w_naglowku_blokuje():
     same = timesheet_pko.parse_rows(_old_template("październik"))
-    result = timesheet_pko.evaluate(
-        same, month=MONTH, person_name="Ola Testowa", rules=_rules(), working_days=22
-    )
-    assert not any("kolumnie" in c["title"] for g in result.groups for c in g["checks"])
-
     other = timesheet_pko.evaluate(
         same,
         month="2026-11",
@@ -277,8 +274,7 @@ def test_plik_xlsm_czyta_wartosci_i_ukryte_kolumny():
     parsed = timesheet_pko.parse(content, mime)
     assert parsed is not None
     assert parsed.month == MONTH
-    assert parsed.month_column == ("????-06",)
-    assert parsed.month_column_hidden
+    assert parsed.columns_hidden == ("D", "E", "F")
     assert parsed.total_hours == Decimal("176.00")
     # Time Sheet Boscha (inny szablon) nie wchodzi w ten odczyt.
     assert timesheet_pko.parse(content, "application/pdf") is None
