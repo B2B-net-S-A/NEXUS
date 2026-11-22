@@ -38,6 +38,7 @@ STATE_LABELS = {
     "waiting": "Rozliczenie bez kwoty — RCP nieprzyjęte",
     "unchecked": "Kwoty nie porównujemy (reguła klienta wyłączona)",
     "nip_check": "NIP kontraktora do zatwierdzenia",
+    "nip_rejected": "NIP odrzucony — faktura nie należy do kontraktu",
     "missing": "Brak rozliczenia miesiąca w NEXUSIE",
     "no_contract": "Bez kontraktu i miesiąca — porównaj z RCP ręcznie",
 }
@@ -47,6 +48,7 @@ STATE_TONES = {
     "waiting": "warn",
     "unchecked": "none",
     "nip_check": "warn",
+    "nip_rejected": "warn",
     "missing": "warn",
     "no_contract": "none",
 }
@@ -148,6 +150,15 @@ async def for_entries(
         )
         if invoice is None or invoice.contract_id is None or not invoice.period_month:
             result[entry.id] = _payload("no_contract")
+            continue
+        # Porównanie miesiąca liczy faktury przypięte do kontraktu; własna
+        # faktura z NIP-em odrzuconym albo do zatwierdzenia nie jest jego
+        # częścią, więc nie dostaje „zgodnej” od innej faktury tego miesiąca.
+        if invoice.nip_state == contractor_invoices.REJECTED:
+            result[entry.id] = _payload("nip_rejected")
+            continue
+        if invoice.nip_state not in contractor_invoices.BOUND:
+            result[entry.id] = _payload("nip_check")
             continue
         key = (invoice.contract_id, invoice.period_month)
         settlement = settlements.get(key)

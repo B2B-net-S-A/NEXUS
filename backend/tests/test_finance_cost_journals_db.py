@@ -152,6 +152,8 @@ async def _expense(nip: str, number: str, *, net: str = "100.00") -> int:
             db, item, ksef_number=ksef, now=datetime.now(timezone.utc), match=False
         )
         await ledger.enqueue_ksef(db, ksef)
+        # Koniec przebiegu KSeF: podpowiedź kategorii z historii sprzedawcy.
+        await ledger.catch_up(db)
         await db.commit()
         document_id = await db.scalar(
             select(ApprovalDocument.id).where(ApprovalDocument.ksef_number == ksef)
@@ -325,6 +327,12 @@ async def test_weryfikacja_kontraktorow_tylko_dla_listy(world, extra, client) ->
         await _act(client, outsider, [contractor, office], "accept")
     ).status_code == 200
 
+    # Wyjęcie faktury z „Kontraktorów” przed weryfikacją też jest krokiem listy —
+    # inaczej PATCH na „Inne” i „Zweryfikuj” omijałyby weryfikującego.
+    escaped = await _category(client, outsider, contractor, "other")
+    assert escaped.status_code == 403
+    assert (await _entry(contractor)).category == "contractor"
+
     denied = await _act(client, outsider, [contractor], "verify")
     assert denied.status_code == 403
     assert "Weryfikujący kontraktorów" in denied.json()["detail"]
@@ -394,18 +402,28 @@ async def test_liste_weryfikujacych_ustawia_admin(world, extra) -> None:
 
 
 async def _contractor_invoice(
-    extra, nip: str, *, net: str, settlement_cost: str | None
+    extra,
+    nip: str,
+    *,
+    net: str,
+    settlement_cost: str | None,
+    contract_id: int | None = None,
+    nip_state: str = "known",
 ) -> int:
-    client_id = await _client()
-    extra["clients"].append(client_id)
-    contract_id = await _contract(client_id, await _candidate())
+    client_id = None
+    if contract_id is None:
+        client_id = await _client()
+        extra["clients"].append(client_id)
+        contract_id = await _contract(client_id, await _candidate())
+        extra.setdefault("contracts", {})[nip] = contract_id
     async with AsyncSessionLocal() as db:
-        db.add(
-            ClientSettlementRuleSet(
-                client_id=client_id, effective_from="2020-01", rules={}
+        if client_id is not None:
+            db.add(
+                ClientSettlementRuleSet(
+                    client_id=client_id, effective_from="2020-01", rules={}
+                )
             )
-        )
-        if settlement_cost is not None:
+        if settlement_cost is not None and client_id is not None:
             db.add(
                 ClientSettlement(
                     contract_id=contract_id,
@@ -427,7 +445,7 @@ async def _contractor_invoice(
             gross_amount=Decimal(net) * Decimal("1.23"),
             contract_id=contract_id,
             period_month="2026-10",
-            nip_state="known",
+            nip_state=nip_state,
         )
         db.add(invoice)
         await db.commit()
@@ -485,6 +503,25 @@ async def test_faktura_kontraktora_a_rozliczenie_miesiaca(world, extra, client) 
         missing: "missing",
         expense: "no_contract",
     }
+    # Faktura z odrzuconym albo niezatwierdzonym NIP-em przy tym samym kontrakcie
+    # nie dostaje „zgodnej” od innej, przypiętej faktury tego miesiąca.
+    contract_id = extra["contracts"][extra["nips"][0]]
+    for state, expected in (("rejected", "nip_rejected"), ("suggested", "nip_check")):
+        foreign = await _contractor_invoice(
+            extra,
+            extra["nips"][0],
+            net="5000.00",
+            settlement_cost=None,
+            contract_id=contract_id,
+            nip_state=state,
+        )
+        card = (await client.get(f"{COSTS}/{foreign}", headers=headers)).json()
+        assert card["settlement"]["state"] == expected, state
+        assert not any(
+            check["state"] == "ok" for check in card["settlement"].get("checks") or []
+        )
+    again = (await client.get(f"{COSTS}/{equal}", headers=headers)).json()
+    assert again["settlement"]["state"] == "match"
     office_row = await _expense(extra["nips"][3], "E/2/11")
     plain = (await client.get(f"{COSTS}/{office_row}", headers=headers)).json()
     # Po ręcznej decyzji „Kontraktorzy” u tego sprzedawcy — następna też tam.

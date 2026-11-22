@@ -287,7 +287,6 @@ async def enqueue_ksef(db: AsyncSession, ksef_number: str) -> None:
 
     for statement in entry_inserts(by_ksef_number=True):
         await db.execute(text(statement), {"ksef_number": ksef_number})
-    await journals.suggest_categories(db)
 
 
 async def catch_up(db: AsyncSession) -> None:
@@ -296,6 +295,8 @@ async def catch_up(db: AsyncSession) -> None:
     for statement in entry_inserts():
         await db.execute(text(statement))
     await db.execute(text(LINK_COUNTERPARTIES))
+    # Podpowiedź kategorii raz na przebieg KSeF (nie po każdej fakturze —
+    # zapytanie archiwum eBI24 kosztuje ok. 0,3 s na kopii produkcji).
     await journals.suggest_categories(db)
 
 
@@ -993,13 +994,19 @@ async def update(
             raise LedgerError(CATEGORY_IN_BATCH_DETAIL)
         if category != entry.category and entry.stage == "ready":
             raise LedgerError(CATEGORY_READY_DETAIL)
-        # Zweryfikowana faktura nie wchodzi ani nie wychodzi z „Kontraktorów”
-        # bez listy weryfikujących — inaczej zmiana kategorii omijałaby krok.
+        # Bez listy weryfikujących faktura nie wychodzi z „Kontraktorów” (w żadnym
+        # etapie — inaczej zmiana kategorii i „Zweryfikuj” omijałyby krok) i nie
+        # wchodzi do nich już zweryfikowana.
+        before_journal = journals.journal_of(entry.category)
+        after_journal = journals.journal_of(category)
+        leaving = before_journal == "contractors" != after_journal
+        entering_verified = (
+            entry.stage == "verified"
+            and after_journal == "contractors" != before_journal
+        )
         if (
             category != entry.category
-            and entry.stage == "verified"
-            and "contractors"
-            in (journals.journal_of(category), journals.journal_of(entry.category))
+            and (leaving or entering_verified)
             and not (approvers.verifier or approvers.accountant)
         ):
             raise LedgerError(VERIFY_CONTRACTORS_DETAIL, status=403)

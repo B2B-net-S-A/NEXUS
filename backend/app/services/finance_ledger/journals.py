@@ -159,6 +159,7 @@ async def suggest_categories(db: AsyncSession) -> None:
     """Kategoria nietkniętych dokumentów wydatków z historii sprzedawcy.
 
     Najpierw NEXUS (ręczna decyzja Finansów wygrywa), potem archiwum eBI24.
+    Woła go ``costs.catch_up`` na końcu każdego przebiegu KSeF.
     Wpis z podpowiedzią ma zdarzenie ``category``, więc kolejny przebieg go
     nie rusza — także gdy archiwum się zmieni.
     """

@@ -40,6 +40,7 @@ export type SettlementMatchState =
   | "waiting"
   | "unchecked"
   | "nip_check"
+  | "nip_rejected"
   | "missing"
   | "no_contract";
 
