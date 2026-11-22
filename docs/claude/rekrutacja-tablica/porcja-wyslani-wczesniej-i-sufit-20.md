@@ -33,6 +33,11 @@ do tego bez nowego faktu.
   30 takich osób z tego samego przeglądu od 50%, tym samym filtrem (dopuszczony,
   oceniony, zmierzony, bez innej roli, bez osób z rekrutacji), z
   `evidence.sent_before`.
+- **Nowe CV nie wycina dołożonych** (22.11.2026): `auto_match_service._write_pool`
+  przycina pulę do 150 tylko wśród osób bez `evidence.sent_before`, a nowy
+  wynik osoby dołożonej zostawia jej flagę. Wcześniej cięcie liczyło całą pulę
+  i 27 z 33 pilnych pul miało 0 dołożonych. Strażnik:
+  `test_new_cv_does_not_trim_people_sent_before_from_the_pool`.
 - **Próg (od 22.11.2026, R3):** w porcji osoba wysłana wcześniej liczy się od
   progu porcji jak inni (`in_batch`, `ranked_picks(min_score=…)`). Od 20.11
   liczyła się od 50%, ale porcja 20.11 pokazała: karty „wysłany wcześniej”

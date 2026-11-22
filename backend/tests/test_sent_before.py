@@ -196,3 +196,80 @@ async def test_batch_threshold_is_the_same_for_a_sent_person():
 
     assert [p.candidate_id for p in picks] == [sent]
     assert picks[0].sent_before is True
+
+
+async def _pool_rows(job_id: int) -> dict[int, tuple[float, bool]]:
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.execute(
+                select(
+                    JobAutofillPool.candidate_id,
+                    JobAutofillPool.score,
+                    JobAutofillPool.evidence,
+                ).where(JobAutofillPool.job_id == job_id)
+            )
+        ).all()
+    return {
+        int(cid): (float(score), sent_before.is_sent_before(evidence))
+        for cid, score, evidence in rows
+    }
+
+
+async def test_new_cv_does_not_trim_people_sent_before_from_the_pool(monkeypatch):
+    """22.11.2026: dopisanie nowego CV przycinało pulę do 150 według wyniku
+    i wycinało dołożonych „wysłanych wcześniej” (27 z 33 pilnych pul miało ich
+    0). Przycinanie liczy miejsca tylko wśród zwykłej puli, a nowy wynik osoby
+    dołożonej nie zdejmuje z niej flagi."""
+    from app.services import auto_full_review
+    from app.services import auto_match_service as ams
+
+    monkeypatch.setattr(auto_full_review, "AUTOFILL_POOL_SIZE", 3)
+    world = await _world(6)
+    a, b, c, extra, again, newcomer = world["ids"]
+    await _pool(world["job_id"], {a: 80, b: 75, c: 70})
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                JobAutofillPool(
+                    job_id=world["job_id"],
+                    candidate_id=cid,
+                    score=Decimal(str(score)),
+                    run_id="run-sb",
+                    evidence={
+                        "matched_must": [],
+                        "missing_must": [],
+                        sent_before.EVIDENCE_KEY: True,
+                    },
+                )
+                for cid, score in ((extra, 55), (again, 52))
+            ]
+        )
+        await db.commit()
+
+    scored = [
+        ams.Scored(
+            candidate_id=newcomer,
+            job_id=world["job_id"],
+            score=90.0,
+            matching_must=("Java",),
+            gap_must=(),
+            penalties=(),
+        ),
+        ams.Scored(
+            candidate_id=again,
+            job_id=world["job_id"],
+            score=71.0,
+            matching_must=("Java",),
+            gap_must=(),
+            penalties=(),
+        ),
+    ]
+    async with AsyncSessionLocal() as db:
+        await ams._write_pool(db, scored=scored, revision="r2", run_id="run-cv")
+        await db.commit()
+
+    pool = await _pool_rows(world["job_id"])
+    regular = {cid for cid, (_s, flag) in pool.items() if not flag}
+    assert regular == {newcomer, a, b}
+    assert pool[extra] == (55.0, True)
+    assert pool[again] == (71.0, True)
