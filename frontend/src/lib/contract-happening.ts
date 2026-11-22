@@ -36,6 +36,34 @@ export interface HappeningOrderAfterEnd {
   held_by_termination: boolean;
 }
 
+/**
+ * Wypowiedzenie albo porozumienie z Dokumentów kontraktu (`termination_document`
+ * z API, 22.11.2026). Tylko wskazówka: pól rozwiązania z pliku nie wypełniamy,
+ * bo ostatni dzień umowy przesuwa okres wypowiedzenia i zakaz konkurencji.
+ */
+export interface TerminationDocumentRef {
+  id: number;
+  doc_type: "termination_notice" | "termination_agreement";
+  filename: string;
+  content_type?: string | null;
+  source?: string | null;
+  created_at: string;
+}
+
+/** „Wypowiedzenie” / „Porozumienie” — rodzaj dokumentu w zdaniu. */
+export function terminationDocKind(doc: Pick<TerminationDocumentRef, "doc_type">): string {
+  return doc.doc_type === "termination_notice" ? "wypowiedzenie" : "porozumienie";
+}
+
+/** „„plik.pdf”, dodane 29.09.2026 z SharePointa” — skąd i kiedy plik. */
+export function terminationDocWhere(doc: TerminationDocumentRef): string {
+  const fromSharePoint = doc.source === "sharepoint" || doc.source === "sharepoint_import";
+  return `„${doc.filename}”, dodane ${fmtDatePl(doc.created_at)}${fromSharePoint ? " z SharePointa" : ""}`;
+}
+
+const RECORD_FROM_DOC =
+  "Zapisz rozwiązanie z ostatnim dniem umowy z dokumentu — NEXUS nie odczytuje go z pliku, bo od tej daty liczy się okres wypowiedzenia i zakaz konkurencji.";
+
 export interface HappeningItem {
   id: "end" | "order_end" | "care" | "rate" | "order_after_end";
   /** Klucz wiersza: kilka zamówień po końcu to kilka pozycji tego samego rodzaju. */
@@ -61,6 +89,8 @@ export interface HappeningContract {
   rate_client: number | null;
   can_reverse_termination?: boolean | null;
   order_after_end?: HappeningOrderAfterEnd[] | null;
+  /** Wypowiedzenie/porozumienie w Dokumentach umowy bez zapisanego rozwiązania. */
+  termination_document?: TerminationDocumentRef | null;
 }
 
 export interface HappeningCare {
@@ -183,6 +213,9 @@ export function buildContractHappening(
   const afterEnd = orderAfterEndItems(c);
   const agreementOpen = c.contract_type === "b2b" && !c.agreement_termination_mode;
   const live = c.status === "active" || c.status === "ending";
+  // Dokument w aktach przy niezapisanym rozwiązaniu: umowa najpewniej jest
+  // rozwiązana, brakuje tylko wpisu — inne zdanie niż „nie jest rozwiązana”.
+  const doc = agreementOpen ? (c.termination_document ?? null) : null;
 
   // Zakończenie zaplanowane (data w przyszłości albo dziś) albo już zakończona
   // współpraca z nierozwiązaną umową B2B.
@@ -194,9 +227,11 @@ export function buildContractHappening(
       reason
         ? `Powód: ${reason.toLowerCase()}${c.termination_lessons ? ` („${c.termination_lessons.trim()}”)` : ""}.`
         : null,
-      agreementOpen
-        ? "Umowa B2B nie jest rozwiązana — zostaw ją tylko, jeśli osoba wraca na inny projekt."
-        : null,
+      doc
+        ? `${capitalize(terminationDocKind(doc))} umowy B2B jest w Dokumentach (${terminationDocWhere(doc)}), ale rozwiązanie nie jest zapisane.`
+        : agreementOpen
+          ? "Umowa B2B nie jest rozwiązana — zostaw ją tylko, jeśli osoba wraca na inny projekt."
+          : null,
     ]
       .filter(Boolean)
       .join(" ");
@@ -212,6 +247,14 @@ export function buildContractHappening(
           ? (["reverse_termination"] as const)
           : []),
       ],
+    });
+  } else if (c.status === "ended" && doc) {
+    items.push({
+      id: "end",
+      tone: "info",
+      lead: `Współpraca zakończona${c.end_date ? ` ${fmtDatePl(c.end_date)}` : ""} — ${terminationDocKind(doc)} umowy B2B jest w Dokumentach, rozwiązanie niezapisane`,
+      detail: `${capitalize(terminationDocWhere(doc))}. ${RECORD_FROM_DOC}`,
+      actions: ["record_agreement"],
     });
   } else if (c.status === "ended" && agreementOpen) {
     items.push({

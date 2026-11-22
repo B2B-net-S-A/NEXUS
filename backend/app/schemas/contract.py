@@ -330,6 +330,23 @@ class ContractUpdate(BaseModel):
         return self
 
 
+class ContractTerminationDocument(BaseModel):
+    """Wypowiedzenie albo porozumienie z Dokumentów kontraktu (22.11.2026).
+
+    Tylko wskazówka dla przypomnienia „umowa B2B nie jest rozwiązana” —
+    pól ``agreement_termination_*`` z dokumentu nie wypełniamy
+    (``services/contract_termination_document.py``).
+    """
+
+    id: int
+    doc_type: Literal["termination_notice", "termination_agreement"]
+    filename: str
+    content_type: Optional[str] = None
+    # ``sharepoint_import`` / ``sharepoint`` = z folderu „Umowy pracowników”.
+    source: Optional[str] = None
+    created_at: datetime
+
+
 class ContractSiblingRef(BaseModel):
     """Inny kontrakt TEJ SAMEJ osoby (zwykle u innego klienta).
 
@@ -387,6 +404,9 @@ class ContractGroupMember(BaseModel):
     agreement_termination_mode: Optional[AgreementTerminationMode] = None
     prolongation_status: ProlongationStatus = ProlongationStatus.unknown
     billing_hours_per_month: Optional[int] = None
+    # Wypowiedzenie/porozumienie w Dokumentach umowy B2B bez zapisanego
+    # rozwiązania — podpowiedź przy „+ Rozwiązanie” (22.11.2026).
+    termination_document: Optional[ContractTerminationDocument] = None
 
 
 class ContractResponse(BaseModel):
@@ -503,6 +523,9 @@ class ContractResponse(BaseModel):
     # po końcu projektu {"contract_id", "order_id", "status", "start_date",
     # "end_date", "count"} — `services/contract_order_after_end.py`.
     order_after_end: Optional[dict] = None
+    # Wypowiedzenie albo porozumienie w Dokumentach umowy B2B bez zapisanego
+    # rozwiązania (22.11.2026) — wiersze listy i szczegóły kontraktu.
+    termination_document: Optional[ContractTerminationDocument] = None
 
     model_config = {"from_attributes": True}
 

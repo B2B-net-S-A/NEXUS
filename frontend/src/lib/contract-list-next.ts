@@ -12,7 +12,9 @@ import {
   buildContractHappening,
   fmtDatePl,
   relativeDays,
+  terminationDocKind,
   type HappeningTone,
+  type TerminationDocumentRef,
 } from "@/lib/contract-happening";
 import { lacksActiveOrder, orderEnded } from "@/lib/contract-panel";
 import { HOURS_PER_MONTH, MD_PER_MONTH } from "@/lib/work-time";
@@ -37,6 +39,8 @@ export interface ListRowFacts {
   currency?: string | null;
   rate_client_currency?: string | null;
   rate_candidate_currency?: string | null;
+  /** Wypowiedzenie/porozumienie w Dokumentach przy niezapisanym rozwiązaniu (22.11.2026). */
+  termination_document?: TerminationDocumentRef | null;
 }
 
 export type NextTone = HappeningTone | "muted";
@@ -93,6 +97,7 @@ export function listNextSteps(
       prolongation_status: f.prolongation_status ?? null,
       rate_client: f.rate_client ?? null,
       can_reverse_termination: false,
+      termination_document: f.termination_document ?? null,
     },
     null,
     today,
@@ -106,7 +111,11 @@ export function listNextSteps(
       // W wierszu krótko: powód i stan umowy; pełne zdania w podpowiedzi.
       // Zakończona współpraca ma stan umowy już w zdaniu głównym.
       const reason = terminationReasonLabel(f.termination_reason);
-      const short = [reason, status !== "ended" && agreementOpen(f) ? "umowa B2B nierozwiązana" : null]
+      const doc = agreementOpen(f) ? (f.termination_document ?? null) : null;
+      const agreementNote = doc
+        ? `${terminationDocKind(doc)} w Dokumentach, niezapisane`
+        : "umowa B2B nierozwiązana";
+      const short = [reason, status !== "ended" && agreementOpen(f) ? agreementNote : null]
         .filter(Boolean)
         .join(" · ");
       first.push({ id: "end", tone: item.tone, text: item.lead, detail: short || null, hint: item.detail });
