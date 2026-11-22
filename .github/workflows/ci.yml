@@ -1128,8 +1128,6 @@ jobs:
           # nie jest wdrażany — obraz produkcyjny buduje `frontend/Dockerfile`.
           NEXT_PUBLIC_PREVIEW_PUBLIC: "1"
         run: |
-          # Serwer Poligonu działa z `.next/standalone`, które build nadpisze.
-          pkill -f "node server.js" || true
           git checkout -- src/app/preview
           rm -rf .next/standalone
           npm run build
@@ -1137,15 +1135,26 @@ jobs:
         id: preview
         if: steps.preview-scope.outputs.run == 'true'
         env:
-          E2E_BASE_URL: http://localhost:3000
+          # Port 3001, bo na 3000 dalej stoi serwer Poligonu. Zatrzymanie go
+          # przez `pkill -f "node server.js"` nie działa: serwer standalone
+          # zmienia nazwę procesu na `next-server`, a nowy serwer na tym samym
+          # porcie padał na EADDRINUSE i testy szły na buildzie bez harnessów
+          # (bieg 45048730759: 48 czerwonych, 29,7 min na timeoutach).
+          E2E_BASE_URL: http://localhost:3001
         run: |
           cp -r .next/static .next/standalone/.next/static
           cp -r public .next/standalone/public
-          (cd .next/standalone && PORT=3000 HOSTNAME=127.0.0.1 node server.js > "$RUNNER_TEMP/next-preview.log" 2>&1 &)
+          (cd .next/standalone && PORT=3001 HOSTNAME=127.0.0.1 node server.js > "$RUNNER_TEMP/next-preview.log" 2>&1 &)
           for i in $(seq 1 30); do
-            curl -sf -o /dev/null http://localhost:3000/login && break
+            curl -sf -o /dev/null http://localhost:3001/preview/contact-queue && break
             sleep 1
           done
+          # Bez strony harnessu każdy test czekałby na timeout. Lepiej paść od razu.
+          if ! curl -sf -o /dev/null http://localhost:3001/preview/contact-queue; then
+            echo "::error::Serwer z harnessami nie odpowiada na /preview/contact-queue — build bez src/app/preview albo serwer nie wstał."
+            tail -50 "$RUNNER_TEMP/next-preview.log"
+            exit 1
+          fi
           npx playwright test --project=preview-chromium --reporter=list || {
             echo "::error::Harnessy /preview/* nie przechodzą (preview-chromium). Zrzut, wideo i trace w artefakcie preview-harness-failure."
             tail -50 "$RUNNER_TEMP/next-preview.log"

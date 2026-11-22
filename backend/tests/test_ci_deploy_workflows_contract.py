@@ -1046,6 +1046,11 @@ def test_preview_harnesses_gate_the_merge_queue() -> None:
     assert "git checkout -- src/app/preview" in build["run"]
     harness = _step(steps, "Harnessy /preview/* — preview-chromium (Playwright)")
     assert "--project=preview-chromium" in harness["run"]
+    # Serwer Poligonu dalej stoi na 3000 (bieg 45048730759: EADDRINUSE i testy
+    # na buildzie bez harnessów), a strona harnessu ma odpowiadać przed testami.
+    assert harness["env"]["E2E_BASE_URL"] == "http://localhost:3001"
+    assert "PORT=3001" in harness["run"]
+    assert "curl -sf -o /dev/null http://localhost:3001/preview/" in harness["run"]
     for step in (build, harness):
         assert step["if"] == "steps.preview-scope.outputs.run == 'true'"
     # Build produkcyjny (bez harnessów) i Poligon idą pierwsze.
