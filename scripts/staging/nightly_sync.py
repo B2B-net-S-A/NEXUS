@@ -97,8 +97,10 @@ SETTINGS_SNIPPET = (
 DUMP_DEADLINE_UTC = (2, 15)
 WINDOW_START_UTC_HOUR = 22
 WINDOW_END_UTC_HOUR = 1
-# Wdrożenie restartuje Postgresa produkcji, a nocą scalenia wchodzą same.
-DUMP_ATTEMPTS = 4
+# Wdrożenie restartuje Postgresa produkcji, a nocą scalenia wchodzą same. 20.11.2026 cztery
+# wdrożenia w 35 min wyczerpały 4 próby, choć do terminu było 85 min. Próby ogranicza termin;
+# limit jest tylko zabezpieczeniem przed pętlą (zrzut 12–13 min plus przerwa).
+DUMP_ATTEMPTS = 12
 DUMP_RETRY_PAUSE = 120
 DEPLOY_INTERRUPTED = (
     "source_container_changed",

@@ -410,6 +410,18 @@ def test_dump_interrupted_by_deploy_is_retried(no_sleep, monkeypatch):
     assert len(calls) == 3
 
 
+def test_dump_survives_a_night_of_back_to_back_deploys(no_sleep, monkeypatch):
+    """20.11.2026: cztery wdrożenia w 35 min zerwały cztery zrzuty, a do terminu było 85 min."""
+    terminated = sync.SyncError(
+        "Zrzut produkcji: source_connection_terminated (exit 1)"
+    )
+    calls = _clone_results(
+        monkeypatch, [terminated, terminated, terminated, terminated, "/copy/m.json"]
+    )
+    assert sync.dump_production(FakeCfg, NEW_DB, Path("/copy")) == Path("/copy/m.json")
+    assert len(calls) == 5
+
+
 def test_dump_gives_up_after_limited_attempts(no_sleep, monkeypatch):
     errors = [
         sync.SyncError("source_connection_closed") for _ in range(sync.DUMP_ATTEMPTS)

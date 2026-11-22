@@ -152,6 +152,32 @@ def test_kilka_tabel_tygodniowych_sumuje_sie():
     assert parsed.declared_total == Decimal("15")
 
 
+def test_suma_pod_tabela_bez_etykiety_nie_jest_wpisem():
+    """Suma „Billable” pod tabelą bez etykiety „Total Hours” (próba rozliczeń
+    22.11.2026: 216 h zamiast 108 h — suma szła jako wpis projektu z nagłówka)."""
+
+    rows = [
+        _row(3, 8, project="ALFA-K"),
+        _row(4, 6, project="ALFA-K"),
+        [None, datetime(2026, 11, 7), None, "WEEKEND", 0, 0, None, None],
+        [None, None, None, None, None, None, None, None],
+        [None, None, None, None, None, 14, None, None],
+        [None, "Print Name", None, None, "Print Name"],
+        [None, "Date", None, datetime(2026, 11, 30)],
+    ]
+    sheet = _sheet(rows)[:-1]  # bez wiersza „Total Hours”
+    parsed = timesheet.parse_rows([sheet])
+    assert parsed.total_hours == Decimal("14")
+    assert parsed.declared_total == Decimal("14")
+    assert parsed.hours_by_project() == {"ALFA-K": Decimal("14")}
+
+
+def test_wpis_bez_daty_z_opisem_zostaje():
+    rows = [_row(3, 8), [None, None, None, "Szkolenie", 4, 4, None, None]]
+    parsed = timesheet.parse_rows([_sheet(rows, total=12)])
+    assert parsed.total_hours == Decimal("12")
+
+
 def test_plik_spoza_szablonu_to_none_a_xlsx_time_sheet_czyta_sie_z_pliku():
     assert timesheet.parse_rows([[["Rozliczenie czasu pracy"], ["SUMA", 1]]]) is None
     content = _xlsx(_sheet([_row(3, 8), _row(4, 8)], total=16))
