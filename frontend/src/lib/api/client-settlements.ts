@@ -1221,6 +1221,7 @@ export function useUploadExtraDocument(month: string) {
       return (
         await api.post<SettlementDetail>(`${BASE}/contract/${contractId}/extras/${extraId}/documents`, form, {
           params: { month },
+          headers: { "Content-Type": "multipart/form-data" },
         })
       ).data;
     },
