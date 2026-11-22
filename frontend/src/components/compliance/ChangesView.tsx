@@ -91,6 +91,9 @@ export function ChangesView({ changes, selectedId, onSelect }: ChangesViewProps)
                   <span>{dateLine(change)}</span>
                   <span aria-hidden>·</span>
                   <span>{STAGE_LABEL[change.stage] ?? change.stage}</span>
+                  {change.verified_sources === 0 ? (
+                    <StatusDot tone="warning">Numer aktu lub druku do potwierdzenia</StatusDot>
+                  ) : null}
                   <span aria-hidden>·</span>
                   <span>{STATUS_LABEL[change.status] ?? change.status}</span>
                   {change.tasks.open ? (
@@ -215,6 +218,13 @@ function ChangeCard({ data }: { data: ChangeDetailData }) {
           {change.legal_ref ? <span className="text-xs text-muted-foreground">{change.legal_ref}</span> : null}
         </div>
         <StageTrack stage={change.stage} />
+        {items.some((item) => item.gate === "verified") ? (
+          <StatusDot tone="success">Numer aktu lub druku potwierdzony w API Sejmu</StatusDot>
+        ) : (
+          <StatusDot tone="warning">
+            Brak źródła z numerem potwierdzonym w API Sejmu. Sprawdź podstawę wskazanego etapu.
+          </StatusDot>
+        )}
         <p className="flex flex-wrap gap-x-2 text-[11px] text-muted-foreground">
           {change.effective_on ? <span>Wchodzi w życie: {formatDay(change.effective_on)}</span> : null}
           {change.deadline ? <span>Termin dla nas: {formatDay(change.deadline)}</span> : null}

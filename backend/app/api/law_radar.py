@@ -161,7 +161,14 @@ async def list_changes(
     ids = [change.id for change in changes]
     probes_by: dict[int, list[dict[str, Any]]] = {cid: [] for cid in ids}
     tasks_by: dict[int, dict[str, int]] = {cid: {"open": 0, "done": 0} for cid in ids}
+    verified_by: dict[int, int] = {}
     if ids:
+        verified_counts = await db.execute(
+            select(LawRadarItem.change_id, func.count())
+            .where(LawRadarItem.change_id.in_(ids), LawRadarItem.gate == "verified")
+            .group_by(LawRadarItem.change_id)
+        )
+        verified_by = dict(verified_counts.all())
         for probe in (
             await db.execute(
                 select(LawChangeProbe)
@@ -185,7 +192,12 @@ async def list_changes(
     return {
         "enabled": True,
         "changes": [
-            {**_change_row(c), "probes": probes_by[c.id], "tasks": tasks_by[c.id]}
+            {
+                **_change_row(c),
+                "probes": probes_by[c.id],
+                "tasks": tasks_by[c.id],
+                "verified_sources": verified_by.get(c.id, 0),
+            }
             for c in changes
         ],
     }
@@ -538,7 +550,17 @@ async def summary(
     }
 
 
-def _run_row(run: LawRadarRun) -> dict[str, Any]:
+def _run_row(
+    run: LawRadarRun, source_counts: Optional[dict[str, int]] = None
+) -> dict[str, Any]:
+    summary = numbers_only(run.report or {})
+    if source_counts is not None:
+        summary["saved_sources"] = source_counts
+        for source in collect.SUBSCRIPTION_SOURCES:
+            key = f"{source}_skip_reason"
+            reason = (run.report or {}).get(key)
+            if reason in collect.SKIP_REASONS:
+                summary[key] = reason
     return {
         "id": run.id,
         "kind": run.kind,
@@ -546,7 +568,7 @@ def _run_row(run: LawRadarRun) -> dict[str, Any]:
         "started_at": run.started_at,
         "received_at": run.received_at,
         "error": run.error,
-        "summary": numbers_only(run.report or {}),
+        "summary": summary,
     }
 
 
@@ -567,10 +589,26 @@ async def list_runs(
         .scalars()
         .all()
     )
+    counts_by_run = {
+        run.id: dict.fromkeys(collect.SUBSCRIPTION_SOURCES, 0)
+        for run in rows
+        if run.kind == collect.KIND and run.status == "received"
+    }
+    if counts_by_run:
+        counts = await db.execute(
+            select(LawRadarItem.run_id, LawRadarItem.source, func.count())
+            .where(
+                LawRadarItem.run_id.in_(list(counts_by_run)),
+                LawRadarItem.source.in_(collect.SUBSCRIPTION_SOURCES),
+            )
+            .group_by(LawRadarItem.run_id, LawRadarItem.source)
+        )
+        for run_id, source, count in counts:
+            counts_by_run[run_id][source] = count
     return {
         "enabled": True,
         "configured": configured,
-        "runs": [_run_row(run) for run in rows],
+        "runs": [_run_row(run, counts_by_run.get(run.id)) for run in rows],
     }
 
 

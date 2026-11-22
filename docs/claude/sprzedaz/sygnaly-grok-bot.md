@@ -211,7 +211,7 @@ na poniedziałek, przed świętem na dzień po nim. Kod: `services/sales/hook_pr
 
 - **Bez nowego rodzaju biegu i bez migracji.** CHECK `sales_signal_runs.kind` nie zna
   `call_hook` ani `meeting_prep`, więc oba to tryby firm w biegu `briefing`
-  (`firms[].mode`, CHECK trybów poszerzyła 0684). Bieg trybu startuje raz dziennie;
+  (`firms[].mode`, CHECK trybów poszerzyła 0684). Teczka startuje raz dziennie;
   nieudany liczy się tylko przez godzinę, potem ponowienie. Start i zapis tylko przy
   `SALES_BOT_TASKS_ENABLED`, a pętla chodzi tylko z `SALES_SIGNALS_ENABLED` (obie flagi);
   na stagingu stoi jak cała pętla sygnałów. Logi: same liczby.
@@ -219,9 +219,13 @@ na poniedziałek, przed świętem na dzień po nim. Kod: `services/sales/hook_pr
   dnia roboczego, wybrane tą samą selekcją co kolejka (`calling.companies_due_by`
   na `_own_campaign_records`): powroty z datą po dziś i najpóźniej w tym dniu, potem
   nowe rekordy aktywnych kampanii w kolejności kolejki, po jednym od każdej osoby na
-  zmianę. Najwyżej 40 firm na bieg, bez firm z haczykiem młodszym niż 14 dni. Bot
-  dostaje nazwę i domenę i odsyła w `hooks` jedno zdanie otwarcia związane z faktem
-  i do 2 faktów z adresem i datą (najwyżej rok wstecz) o firmie ogólnie i o tym, jak
+  zmianę. Najwyżej 40 różnych firm na dzień i 5 na bieg, bez firm z haczykiem
+  młodszym niż 14 dni. Po zamknięciu biegu worker w pierwszej kolejności wysyła
+  firmy bez żadnej próby. Przy braku haczyka lub jawnego `no_signal` daje firmie
+  najwyżej jedno ponowienie. Wygaśnięcie i braki w raporcie widać w logach,
+  ostatni bieg haczyków ma własny status w panelu Boty. Bot dostaje nazwę i domenę
+  i odsyła w `hooks` jedno zdanie otwarcia oraz do 2 faktów z adresem i datą
+  (najwyżej rok wstecz) o firmie ogólnie i o tym, jak
   używa automatyzacji, AI i IT. Pól osób i kontaktów model raportu nie ma.
 - **Gdzie leży haczyk — decyzja:** `sales_company_briefings` ma jeden wiersz na
   firmę, więc haczyk nadpisałby punkty do prowadzonej szansy albo teczkę, a firma

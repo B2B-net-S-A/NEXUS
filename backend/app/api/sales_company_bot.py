@@ -297,6 +297,7 @@ async def start_enrich(
     _refuse_when_off()
     user_id = current_user.id
     await _live_company(db, company_id)
+    await enrich.lock_enrich_starts(db)
     now = datetime.now(timezone.utc)
     recent = await db.scalar(
         select(SalesSignalRun.id)

@@ -26,12 +26,14 @@ Co zniknęło z NEXUSA 22.11.2026:
 - źródło dostępności z Compassa (`COMPASS_AVAILABILITY_*`, workflow
   „Compass availability setup” i `scripts/configure-compass-availability.py`);
 - wszystkie ustawienia `COMPASS_*` z `core/config.py`, rejestru flag,
-  `.env.example` i plików compose.
+  `.env.example` i plików compose;
+- tabela `compass_workdays_sync_state` (model, lustro w `entrypoint.sh`, sonda
+  schematu w `/api/health/deep`) i klucze `app_settings`
+  `compass_lifecycle_state`, `service_account_retired_key_ids` — migracja
+  0752 z `DROP TABLE` i `DELETE`, lustro DROP w siatce entrypointu.
 
 Co zostało i dlaczego:
 
-- tabela `compass_workdays_sync_state` z modelem, lustrem w `entrypoint.sh`
-  i sondą schematu — do osobnej migracji z `DROP TABLE`;
 - import paczki z Compassa (`scripts/hr_compass_import.py`, ekran „Import
   z Compassa”, `services/hr/compass_import/`) — decyzja Artura 22.11.2026,
   na wypadek odtworzenia danych ze snapshotu;

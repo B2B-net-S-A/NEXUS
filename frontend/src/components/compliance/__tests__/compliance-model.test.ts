@@ -93,8 +93,17 @@ describe("Przepisy — model", () => {
         summary: { items_in: 9, gate: { verified: 5, unverified: 3, rejected: 1 }, lex_skipped: true },
       }),
     ).toBe(
-      "pozycje w raporcie: 9 · bramka: zgodne z API Sejmu 5, bez numeru 3, odrzucone 1 · LEX pominięty",
+      "pozycje w raporcie: 9 · bramka: zgodne z API Sejmu 5, bez potwierdzenia 3, odrzucone 1 · LEX pominięty",
     );
+  });
+
+  it("odróżnia pominięcie źródła od braku nowych zapisów", () => {
+    expect(runSummaryLine({
+      kind: "collect",
+      summary: { lex_skipped: true, lex_skip_reason: "device_approval", saved_sources: { lex: 0, gofin: 5 } },
+    })).toBe("LEX pominięty (wymagane zatwierdzenie urządzenia), zapisane pozycje: 0 · Gofin zapisane pozycje: 5");
+    expect(runSummaryLine({ kind: "collect", summary: { saved_sources: { lex: 0, gofin: 0 } } }))
+      .toBe("LEX zapisane pozycje: 0 · Gofin zapisane pozycje: 0");
   });
 
   it("linia Zbieracza pokazuje pominięty Gofin", () => {

@@ -13,6 +13,18 @@ Outcome = Literal[
     "waiting", "failed", "expired", "saved", "partial", "no_changes", "received"
 ]
 
+COGNISM_ISSUES = {
+    "session_expired": "Sesja Cognism wygasła.",
+    "login_failed": "Logowanie do Cognism nie powiodło się.",
+    "mfa_required": "Cognism wymaga dodatkowego uwierzytelnienia.",
+    "captcha_required": "Cognism wymaga rozwiązania CAPTCHA.",
+    "payment_required": "Cognism wymaga opłaty.",
+    "panel_unavailable": "Panel Cognism był niedostępny.",
+    "time_limit": "Bot zgłosił koniec czasu na sprawdzenie firm.",
+    "employer_mismatch": "Dane pracodawcy nie zgadzały się z kartą firmy w NEXUS.",
+    "duplicate_result": "Raport zawierał powtórzony wynik firmy.",
+}
+
 
 def _count(report: dict[str, Any], key: str) -> int:
     value = report.get(key)
@@ -52,7 +64,9 @@ def received_outcome(
         incomplete += max(
             0, _count(report, "sent_firms") - _count(report, "checked_firms")
         )
-        if isinstance(report.get("researched_company_ids"), list):
+        if "hook_missing" in report:
+            incomplete += _count(report, "hook_missing")
+        elif isinstance(report.get("researched_company_ids"), list):
             incomplete += max(
                 0,
                 _count(report, "sent_firms")
@@ -60,6 +74,8 @@ def received_outcome(
                 - _count(report, "hooks"),
             )
         detail = f"Zapisano leadów: {_count(report, 'leads')}, zestawów punktów: {_count(report, 'briefings')}, haczyków: {_count(report, 'hooks')}."
+        if _count(report, "hook_missing"):
+            detail += f" Brak wyniku haczyka dla firm: {report['hook_missing']}."
     elif kind == "enrich" and "applied_fields" in report:
         written = _count(report, "applied_fields")
         incomplete = _count(report, "invalid_fields") + _count(
@@ -81,6 +97,24 @@ def received_outcome(
             for key in ("not_processed", "ambiguous", "unknown_company")
         )
         detail = f"Przetworzono firm: {_count(report, 'processed')}, zapisano osób na mapie: {_count(report, 'people')}, zmian kontaktów: {_count(report, 'contact_changes')}."
+        counts = (
+            ("not_found", "Nie znaleziono firm"),
+            ("no_people", "Firmy bez decydentów"),
+            ("ambiguous", "Niejednoznaczne dopasowania"),
+            ("not_processed", "Niesprawdzone firmy"),
+        )
+        details = [detail]
+        for key, label in counts:
+            if count := _count(report, key):
+                details.append(f"{label} ({count}).")
+        issues = report.get("firm_issues")
+        if isinstance(issues, dict):
+            details.extend(
+                label
+                for code, label in COGNISM_ISSUES.items()
+                if code in issues.values()
+            )
+        detail = " ".join(details)
     elif kind == "people" and source != "cognism" and "added" in report:
         written = _count(report, "added") + _count(report, "contact_changes")
         incomplete = _count(report, "waiting") + _omitted(

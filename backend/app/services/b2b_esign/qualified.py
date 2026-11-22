@@ -32,15 +32,26 @@ import ssl
 import time
 from datetime import datetime, timezone
 from io import BytesIO
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from app.services.signing.pades import approval_signatures
 from app.services.signing.provider import ValidationReport
+
+if TYPE_CHECKING:
+    import aiohttp
 
 logger = logging.getLogger(__name__)
 
 REFRESH_HOURS = 12
 _FETCH_TIMEOUT_S = 120
+# Nagłówki pobierania list krajowych (22.11.2026). Z domyślnymi nagłówkami
+# aiohttp listy CZ i EE nie schodziły, także na produkcji, więc podpis
+# kwalifikowany z Czech i Estonii nie miał zaufanego wystawcy:
+# - ``sr.riik.ee`` odpowiada 403 na ``User-Agent`` ze słowem „aiohttp”;
+# - ``tsl.gov.cz`` podaje listę jako ``text/plain`` i odpowiada 406, gdy
+#   ``Accept`` zna tylko typy XML, o które prosi pyHanko.
+USER_AGENT = "NEXUS trusted-list fetch"
+ACCEPT = "text/xml, application/vnd.etsi.tsl+xml, */*;q=0.1"
 
 _registry: Any = None
 _loaded_at: float = 0.0
@@ -56,17 +67,39 @@ def _ssl_context() -> ssl.SSLContext:
         return ssl.create_default_context()
 
 
-async def _fetch_registry() -> Any:
+async def _accept_any_type(
+    request: aiohttp.ClientRequest, handler: aiohttp.ClientHandlerType
+) -> aiohttp.ClientResponse:
+    """pyHanko ustawia ``Accept`` przy każdym żądaniu, więc nagłówek sesji go
+    nie zastąpi; middleware dopisuje ``*/*`` z niską wagą."""
+    request.headers["Accept"] = ACCEPT
+    return await handler(request)
+
+
+def _client_session() -> aiohttp.ClientSession:
     import aiohttp
+
+    return aiohttp.ClientSession(
+        connector=aiohttp.TCPConnector(ssl=_ssl_context()),
+        timeout=aiohttp.ClientTimeout(total=_FETCH_TIMEOUT_S),
+        headers={"User-Agent": USER_AGENT},
+        middlewares=(_accept_any_type,),
+    )
+
+
+async def _fetch_registry() -> Any:
     from pyhanko.sign.validation.qualified import eutl_fetch
 
-    connector = aiohttp.TCPConnector(ssl=_ssl_context())
-    timeout = aiohttp.ClientTimeout(total=_FETCH_TIMEOUT_S)
-    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as client:
+    async with _client_session() as client:
         registry, errors = await eutl_fetch.lotl_to_registry(None, client)
     if errors:
         # Pojedyncza lista krajowa z błędem nie przekreśla pozostałych.
         logger.warning("[b2b_esign] lista zaufanych UE: %d błędów list", len(errors))
+        # Nie zeszła cała lista kraju = jego podpisy kwalifikowane nie przejdą.
+        # Reszta błędów to zwykle stare wpisy usług (IT, SK) bez znaczenia.
+        missing = [str(e) for e in errors if "Failed to download" in str(e)]
+        if missing:
+            logger.warning("[b2b_esign] nie pobrano list krajowych: %s", missing)
     return registry
 
 

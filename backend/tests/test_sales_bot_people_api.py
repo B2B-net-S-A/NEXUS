@@ -197,6 +197,7 @@ async def test_cognism_callback_saves_the_company_map_without_an_opportunity(
         run = await db.get(SalesSignalRun, run_id)
         assert run.report["processed_company_ids"] == [company_id]
         assert run.report["ambiguous_company_ids"] == [mismatched_id]
+        assert run.report["firm_issues"] == {str(mismatched_id): "employer_mismatch"}
         assert (
             await db.scalar(
                 select(func.count())
@@ -234,6 +235,63 @@ async def test_cognism_callback_distinguishes_empty_body_from_empty_report(
     assert received.status_code == 200, received.text
     assert received.json()["status"] == "received"
     assert received.json()["not_processed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_cognism_callback_records_access_issue_separately_from_no_match(
+    app_client,
+) -> None:
+    blocked = await _company()
+    not_found = await _company()
+    missing_reason = await _company()
+    run_id, token = await _run(
+        [blocked, not_found, missing_reason],
+        kind="people",
+        request={"source": "cognism"},
+    )
+    endpoint = f"{RUNS}/{run_id}"
+    headers = {"X-Run-Token": token}
+    invalid = await app_client.post(
+        endpoint,
+        headers=headers,
+        json={
+            "firms": [
+                {
+                    "company_ref": blocked,
+                    "status": "not_found",
+                    "blocked_reason": "session_expired",
+                }
+            ]
+        },
+    )
+    assert invalid.status_code == 422
+
+    received = await app_client.post(
+        endpoint,
+        headers=headers,
+        json={
+            "firms": [
+                {
+                    "company_ref": blocked,
+                    "status": "not_processed",
+                    "blocked_reason": "session_expired",
+                },
+                {"company_ref": not_found, "status": "not_found"},
+                {"company_ref": missing_reason, "status": "not_processed"},
+            ]
+        },
+    )
+    assert received.status_code == 200, received.text
+    assert received.json()["not_found"] == 1
+    assert received.json()["not_processed"] == 2
+    assert "firm_issues" not in received.json()
+    async with AsyncSessionLocal() as db:
+        run = await db.get(SalesSignalRun, run_id)
+        assert run.report["processed_company_ids"] == [not_found]
+        assert run.report["unprocessed_company_ids"] == sorted(
+            [blocked, missing_reason]
+        )
+        assert run.report["firm_issues"] == {str(blocked): "session_expired"}
 
 
 @pytest.mark.asyncio
