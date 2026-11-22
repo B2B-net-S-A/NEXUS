@@ -21,7 +21,8 @@ procesu)”, a 94% tych osób było już w bazie (88% w procesie). Decyzje Artur
   rekrutacji.** Gdy zapis Championa się nie uda, profil z podglądu idzie w
   żądaniu (`champion_profile`) tylko do tego CV — ta sama lekcja co przy
   centralnych regułach (spadek „Pod rekrutację” 49% → 12%).
-- **Dwa kafle obróbki** (Redakcja / Pod rekrutację, domyślny z Championa);
+- **Dwa kafle obróbki** (Redakcja / Pod rekrutację, domyślny z Championa; od
+  22.11.2026 zdjęte, każde CV pod rekrutację — `bez-kafelka-obrobki-zawsze-pod-rekrutacje.md`);
   „Przepisanie” zniknęło z UI (backend przyjmuje). **Język PL · EN · Obie**:
   `languages: "both"` wymusza drugą wersję także bez reguły; przy języku
   wymuszonym regułą → 422 przed kwotą. Do snapshotu zadania trafiają tylko

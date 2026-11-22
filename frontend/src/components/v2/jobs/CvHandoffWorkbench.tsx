@@ -637,15 +637,14 @@ export function CvHandoffWorkbench({
                   <ReadyItem
                     tone={rule?.content_mode_locked ? "y" : "z"}
                     title={`Tryb: ${
-                      centrallyManaged ? "domyślnie „Pod rekrutację”" : rule?.content_mode
-                        ? (CONTENT_MODE_LABEL[rule.content_mode] ??
-                          rule.content_mode)
-                        : "do wyboru"
+                      !centrallyManaged && rule?.content_mode_locked && rule.content_mode
+                        ? (CONTENT_MODE_LABEL[rule.content_mode] ?? rule.content_mode)
+                        : "Pod rekrutację"
                     }`}
                     detail={
-                      centrallyManaged ? "można zmienić w generatorze; bez Profilu Championa powstanie Redakcja" : rule?.content_mode_locked
+                      !centrallyManaged && rule?.content_mode_locked
                         ? "zablokowany regułą — serwer nadpisze inny wybór"
-                        : "rekruter wybiera w generatorze"
+                        : "bez Profilu Championa powstanie CV bez dopasowania"
                     }
                   />
                   {rule?.requires_rodo_consent_block && (

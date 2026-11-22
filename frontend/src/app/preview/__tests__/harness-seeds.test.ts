@@ -466,7 +466,7 @@ describe("/preview/cv-generator renderuje z propsów i nie ma sieci", () => {
     "components/v2/cv-generator/PersonStep.tsx",
     "components/v2/cv-generator/ProcessStep.tsx",
     "components/v2/cv-generator/SourcesPanel.tsx",
-    "components/v2/cv-generator/ProcessingTiles.tsx",
+    "components/v2/cv-generator/ContentModeNote.tsx",
     "components/v2/cv-generator/LanguageChoice.tsx",
     "components/v2/cv-generator/AdvancedOptions.tsx",
     "components/v2/cv-generator/GenerateBar.tsx",

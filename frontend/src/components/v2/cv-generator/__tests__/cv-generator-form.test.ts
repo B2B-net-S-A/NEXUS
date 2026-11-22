@@ -11,7 +11,7 @@ import {
   championImportPayload,
   defaultCvSourceId,
   defaultLanguageChoice,
-  defaultProcessingMode,
+  GENERATE_CONTENT_MODE,
   languageOptionEnabled,
   languagePayload,
   missingInputs,
@@ -87,9 +87,8 @@ describe("proces wybierany sam", () => {
 });
 
 describe("domyślna obróbka i język", () => {
-  it("Champion → Pod rekrutację, brak → Redakcja", () => {
-    expect(defaultProcessingMode(true)).toBe("tailored");
-    expect(defaultProcessingMode(false)).toBe("polished");
+  it("każde CV prosi o „Pod rekrutację” — bez Championa Redakcję robi serwer", () => {
+    expect(GENERATE_CONTENT_MODE).toBe("tailored");
   });
   it("język wymuszony wygrywa i blokuje pozostałe opcje", () => {
     const policy = { forced: "en" as const, requiresBoth: true };

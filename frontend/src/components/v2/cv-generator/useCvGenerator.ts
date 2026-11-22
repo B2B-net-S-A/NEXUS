@@ -37,7 +37,7 @@ import {
   buildGeneratePayload,
   championImportPayload,
   defaultLanguageChoice,
-  defaultProcessingMode,
+  GENERATE_CONTENT_MODE,
   missingInputs,
   type CvLanguageChoice,
   type CvProcessingMode,
@@ -118,7 +118,7 @@ export function useCvGenerator({
   const [championMessage, setChampionMessage] = useState<string | null>(null);
 
   // ── Treść CV ─────────────────────────────────────────────────────────────
-  const [contentMode, setContentModeState] = useState<CvProcessingMode>("polished");
+  const contentMode: CvProcessingMode = GENERATE_CONTENT_MODE;
   const [languageChoice, setLanguageChoiceState] = useState<CvLanguageChoice>("pl");
   const [blind, setBlind] = useState(false);
   const [position, setPosition] = useState("");
@@ -225,16 +225,6 @@ export function useCvGenerator({
     // `languagePolicy` jest liczone z tych samych wartości co klucz.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [languageKey, policyQuery.isPending, clientId]);
-
-  // Domyślna obróbka — przy każdej zmianie kontekstu (proces / klient /
-  // obecność Championa). Champion dodany w miejscu przełącza na „Pod rekrutację”.
-  const modeKey = `${recruitment?.stage_id ?? ""}:${clientId ?? ""}:${hasChampion ? 1 : 0}`;
-  const modeDefaultFor = useRef<string | null>(null);
-  useEffect(() => {
-    if (modeDefaultFor.current === modeKey) return;
-    modeDefaultFor.current = modeKey;
-    setContentModeState(defaultProcessingMode(hasChampion));
-  }, [modeKey, hasChampion]);
 
   // Stanowisko domyślnie takie, jakie pójdzie do CV; numer projektu PKO z rekrutacji.
   const positionDefault = recruitment ? recruitmentPosition(recruitment) : "";
@@ -480,7 +470,6 @@ export function useCvGenerator({
     applyChampion,
     // treść
     contentMode,
-    setContentMode: setContentModeState,
     capBasic,
     hasChampion,
     languageChoice,
