@@ -370,6 +370,11 @@ class Settings(BaseSettings):
     # = CV_INTERACTIVE_ENABLED=true w Coolify. Wyłączone: brak dodatkowego
     # wywołania AI mapy wymagań, link i plik HTML pokazują widok klasyczny.
     CV_INTERACTIVE_ENABLED: bool = False
+    # Układ „Nowe CV” (PDF, strona 1 z osią kariery) obok klasycznego Worda,
+    # 22.11.2026. Wyłączony: generator, karta i edytor nie pokazują wyboru
+    # układu, a PDF to zawsze klasyczny z pliku Word. Włączenie =
+    # CV_NEW_LAYOUT_ENABLED=true przez workflow „Coolify set env”.
+    CV_NEW_LAYOUT_ENABLED: bool = False
     # Automatyczne kasowanie treści CV — WYŁĄCZONE (decyzja Artura 23.09.2026:
     # NEXUS trzyma wszystkie CV, także bez zgody RODO; nic nie znika samo).
     # Jedna flaga obejmuje oba automaty: wejścia generatora CV (pełne CV,

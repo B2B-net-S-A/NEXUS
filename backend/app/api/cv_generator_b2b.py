@@ -96,6 +96,7 @@ from app.services.ai_quota import (
 )
 from app.services import cv_consent_check as consent_check
 from app.services import cv_consent_gate as consent_gate
+from app.services import cv_layout as layout_service
 from app.services.cv_download_log import DOWNLOAD_INTENT, log_cv_download
 from app.services.cv_generator_b2b import consent_binding
 from app.services.cv_generator_b2b.upload_preflight import (
@@ -267,6 +268,9 @@ class GenerateRequest(BaseModel):
     # w notatkach rekrutacji przed generacją. Stawki wycinane. Lista poprawek
     # (linia = punkt) do `INSTRUCTION_MAX` znaków.
     instruction: str = Field(default="", max_length=INSTRUCTION_MAX)
+    # Układ CV wybrany w generatorze (22.11.2026, `services/cv_layout.py`).
+    # ``None`` = domyślny z reguły klienta; przy wyłączonej fladze ignorowany.
+    cv_layout: Optional[Literal["classic", "new"]] = None
 
     @field_validator("champion_profile")
     @classmethod
@@ -477,6 +481,7 @@ async def _create_pending_row(
     origin: str = "manual",
     stage_id: int | None = None,
     source_cv_revision: str | None = None,
+    cv_layout: str | None = None,
 ) -> int:
     """Insert a „processing" placeholder so the CV shows on the list the moment
     generation is enqueued — the recruiter can then close the tab while the
@@ -509,6 +514,7 @@ async def _create_pending_row(
         # żeby ręczne wiersze nie wyglądały na „zajęte".
         stage_id=stage_id,
         source_cv_revision=source_cv_revision if origin == "auto" else None,
+        cv_layout=cv_layout,
     )
     db.add(row)
     await db.flush()  # assign row.id before commit so the caller can return it
@@ -2323,6 +2329,7 @@ async def enqueue_candidate_generation(
     screening_notes: str = "",
     sources: Optional[dict[str, bool]] = None,
     instruction: str = "",
+    cv_layout: Optional[str] = None,
 ) -> tuple[int, int, str]:
     """Walidacje reguły klienta → wiersz „processing" → trwałe zadanie generacji.
 
@@ -2550,6 +2557,8 @@ async def enqueue_candidate_generation(
             stage_id=stage_id,
             force_both=worker_languages == "both",
         ),
+        cv_layout=layout_service.requested(cv_layout)
+        or (layout_service.rule_layout(rule) if layout_service.enabled() else None),
     )
     from app.services.cv_generator_b2b.durable_jobs import persist_job
 
@@ -2705,6 +2714,7 @@ async def generate(
         screening_notes=payload.screening_notes,
         sources=payload.sources.model_dump() if payload.sources else None,
         instruction=payload.instruction,
+        cv_layout=payload.cv_layout,
     )
     from app.services.cv_generator_b2b.durable_jobs import execute_job
 

@@ -7,7 +7,7 @@
  * `/preview/cv-generator` pokazuje dokładnie te same zdania co produkcja.
  */
 
-import type { ChampionProfile, CvGeneratePayload } from "@/lib/api";
+import type { ChampionProfile, CvGeneratePayload, CvLayout } from "@/lib/api";
 import { isClientCvWordFile } from "@/lib/candidate-files";
 import type { CvAiSourceToggles } from "@/lib/cv-ai-sources";
 import { candidateJobNames, jobNameText } from "@/lib/job-name-text";
@@ -274,6 +274,8 @@ export interface GeneratePayloadInput {
   sources?: CvAiSourceToggles | null;
   /** „Napisz od nowa” (PR 5): uwaga rekrutera dla modelu. */
   instruction?: string;
+  /** Układ CV z generatora; `null` = bez flagi serwera, pole nie idzie w żądaniu. */
+  layout?: CvLayout | null;
 }
 
 /**
@@ -297,6 +299,7 @@ export function buildGeneratePayload(input: GeneratePayloadInput): CvGeneratePay
   if (input.consentToken) payload.consent_screenshot_token = input.consentToken;
   if (input.sources) payload.sources = { ...input.sources };
   if (input.instruction?.trim()) payload.instruction = input.instruction.trim();
+  if (input.layout) payload.cv_layout = input.layout;
   return payload;
 }
 

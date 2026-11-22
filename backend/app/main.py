@@ -1502,6 +1502,11 @@ app.add_middleware(
         "X-Generator-Candidate-Name",
         "X-Generator-Warnings",
         "X-Generator-Processing-Ms",
+        # PDF układu „Nowe CV” (cv_pdf_preview.py, cv_new_pdf.py).
+        "X-CV-Layout",
+        "X-CV-Page1-Fits",
+        "X-CV-Page1-Font",
+        "X-CV-Unmapped-Sections",
     ],
 )
 

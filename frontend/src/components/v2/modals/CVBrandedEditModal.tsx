@@ -68,6 +68,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEditor, EditorContent } from "@tiptap/react";
 import {
   Check,
+  ChevronDown,
   History,
   Loader2,
   PanelLeftClose,
@@ -104,6 +105,14 @@ import { useCvAssistant } from "@/components/v2/cv-editor/useCvAssistant";
 import { useCvHistory } from "@/components/v2/cv-editor/useCvHistory";
 import { CvEditorToolbar, type CvEditorMoreItem } from "@/components/v2/cv-editor/CvEditorToolbar";
 import { CvPagesPreview } from "@/components/v2/cv/CvPagesPreview";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { CV_LAYOUT_LABEL } from "@/components/v2/cv-generator/LayoutChoice";
+import { stageBrandedQueryKey } from "@/lib/cv-to-client";
 import { keepDialogOpenOnDocumentSearchEscape } from "@/components/v2/files/DocumentSearchBar";
 import {
   openAuthenticatedFile,
@@ -118,6 +127,7 @@ import {
   candidateStageCvApi,
   cvGeneratedEditorApi,
   type CVBrandedState,
+  type CvLayout,
 } from "@/lib/api";
 import type { CvEditorCommandApi } from "@/lib/api/cvEditorCommand";
 import type { CvEditorHistoryApi } from "@/lib/api/cvEditorHistory";
@@ -168,7 +178,9 @@ export interface CvEditorFiles {
 export type CvEditorApi = Pick<
   typeof candidateStageCvApi.branded,
   "get" | "update" | "newDraft" | "finalize"
->;
+> &
+  /** Układ CV (22.11.2026) — tylko CV etapu; wynik generatora nie ma układu. */
+  Partial<Pick<typeof candidateStageCvApi.branded, "setLayout">>;
 
 function networkFiles(basePath: string): CvEditorFiles {
   return {
@@ -359,6 +371,29 @@ function CVBrandedEditContent({
   });
   // Etap bez CV: backend nie składa już treści ze starego szablonu.
   const noCv = data?.status === "none";
+
+  // Układ CV (22.11.2026): ten sam wybór co w karcie; zmiana nie dotyka
+  // treści w edytorze (z odpowiedzi serwera bierzemy tylko układ).
+  const setLayoutApi = isGenerated ? undefined : editorApi.setLayout;
+  const layoutEnabled = !!setLayoutApi && data?.new_layout_enabled === true;
+  const layout: CvLayout = data?.cv_layout ?? "classic";
+  const [layoutSaving, setLayoutSaving] = useState(false);
+  const changeLayout = async (next: CvLayout) => {
+    if (next === layout || layoutSaving || !setLayoutApi) return;
+    setLayoutSaving(true);
+    try {
+      const response = await setLayoutApi(stageId, next);
+      queryClient.setQueryData<CVBrandedState>([scopeKey, stageId], (current) =>
+        current ? { ...current, cv_layout: response.data.cv_layout ?? next } : current,
+      );
+      void queryClient.invalidateQueries({ queryKey: stageBrandedQueryKey(stageId) });
+      showSuccess(next === "new" ? "Układ: Nowe CV (PDF)." : "Układ: Klasyczne (Word).");
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się zmienić układu CV. Odśwież i spróbuj ponownie."));
+    } finally {
+      setLayoutSaving(false);
+    }
+  };
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -951,6 +986,50 @@ function CVBrandedEditContent({
                   </ViewToggle>
                 </div>
               ) : null}
+              {hasCv && layoutEnabled ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      data-testid="cv-editor-layout"
+                      disabled={layoutSaving}
+                      title="Układ CV — ten sam tekst, zmiana bez generowania od nowa"
+                    >
+                      Układ: {CV_LAYOUT_LABEL[layout]}
+                      <ChevronDown className="ml-1 h-3.5 w-3.5" aria-hidden />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-72">
+                    {(["new", "classic"] as const).map((option) => (
+                      <DropdownMenuItem
+                        key={option}
+                        onSelect={() => void changeLayout(option)}
+                        className="items-start gap-2"
+                      >
+                        <Check
+                          className={cn("mt-0.5 h-3.5 w-3.5", option === layout ? "opacity-100" : "opacity-0")}
+                          aria-hidden
+                        />
+                        <span className="grid">
+                          <span className="font-medium">
+                            {option === "new" ? "Nowe CV · PDF" : "Klasyczne · Word"}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {option === "new"
+                              ? "Strona 1 z podsumowaniem i osią kariery"
+                              : "Szablon firmowy, jak dotąd"}
+                          </span>
+                        </span>
+                      </DropdownMenuItem>
+                    ))}
+                    <p className="border-t border-border px-2 py-1.5 text-xs text-muted-foreground">
+                      Ten sam tekst i poprawki. Zmiana tutaj zmienia też kartę „CV do klienta” i to, co zobaczy
+                      DL i klient.
+                    </p>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
               {hasCv ? (
                 <span
                   className="px-1 text-[11px] text-muted-foreground"
@@ -1083,6 +1162,7 @@ function CVBrandedEditContent({
                   </div>
                   {mode === "word" ? (
                     <CvPagesPreview
+                      key={layout}
                       loadPdf={loadPagesPreview}
                       loadDocx={loadWordPreview}
                       className="absolute inset-0"

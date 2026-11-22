@@ -65,6 +65,8 @@ async def freeze_approved_version(
             content_sha256=hashlib.sha256(html.encode()).hexdigest(),
             template=csv.branded_template,
             language=csv.branded_language,
+            cv_layout=csv.cv_layout,
+            page1_extras=csv.page1_extras,
             candidate_first_name=public_first_name(
                 candidate.name if candidate else None,
                 csv.branded_template,

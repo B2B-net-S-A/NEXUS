@@ -51,6 +51,10 @@ from app.services.cv_pdf_preview import (
     PdfPreviewUnavailable,
     pdf_from_docx,
 )
+from app.services import cv_layout as layout_service
+from app.services.cv_new_pdf import NewCvPdf, NewCvPdfError, render_new_cv_pdf
+from app.services.cv_rodo_clause import keep_rodo_clause
+from app.services.html_sanitizer import sanitize_cv_html
 
 router = APIRouter()
 
@@ -105,6 +109,44 @@ def _response(pdf: bytes, filename: str, extra: Optional[dict] = None) -> Respon
     )
 
 
+def _wanted_layout(requested: Optional[str], stored: Optional[str]) -> str:
+    """Układ PDF: jawny ``?layout=`` (miniatura drugiego układu) albo zapisany.
+
+    Przy wyłączonej fladze zawsze klasyczny — PDF z pliku Word jak dotąd.
+    """
+    if not layout_service.enabled():
+        return layout_service.LAYOUT_CLASSIC
+    if requested in ("classic", "new"):
+        return requested
+    return layout_service.normalized(stored)
+
+
+async def _new_cv_pdf(
+    db: AsyncSession,
+    content_html: str,
+    *,
+    language: Optional[str],
+    template: Optional[str],
+    generated: Optional[CvGeneratedDocument],
+    extras: Optional[dict],
+    consent: Optional[bytes],
+) -> NewCvPdf:
+    """PDF „Nowego CV”; przed renderem kończy transakcję żądania (jak `_pdf`)."""
+    fallback = generated.render_payload if generated is not None else None
+    await db.commit()
+    try:
+        return await render_new_cv_pdf(
+            content_html,
+            language=language,
+            template=template,
+            fallback=fallback if isinstance(fallback, dict) else None,
+            extras=extras,
+            consent=consent,
+        )
+    except NewCvPdfError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
 @router.post("/candidates/stages/{stage_id}/cv/branded/preview-pdf")
 @limiter.limit(LIMIT, key_func=user_or_ip_key)
 async def preview_stage_cv_pdf(
@@ -115,8 +157,13 @@ async def preview_stage_cv_pdf(
     db: AsyncSession = Depends(get_db),
     intent: Optional[str] = None,
     surface: Optional[str] = None,
+    layout: Optional[str] = None,
 ) -> Response:
-    """Strony PDF szkicu z bieżącej treści edytora — bez zatwierdzania."""
+    """Strony PDF szkicu z bieżącej treści edytora — bez zatwierdzania.
+
+    Układ „Nowe CV” renderuje się z tej samej treści (WeasyPrint), klasyczny
+    — z pliku Word przez LibreOffice, jak dotąd.
+    """
     # Bez blokady wiersza (inaczej niż `preview-docx`): zamiana trwa sekundy,
     # a niczego tu nie zapisujemy — blokada wstrzymałaby autozapis edytora
     # (transakcję i tak kończy `_pdf` przed zamianą).
@@ -128,7 +175,35 @@ async def preview_stage_cv_pdf(
         raise HTTPException(
             409, "Podgląd dotyczy szkicu. Pobierz zatwierdzoną wersję CV."
         )
-    consent_gate.ensure_copy_downloadable(await _generated_for_stage_cv(db, csv), csv)
+    generated = await _generated_for_stage_cv(db, csv)
+    consent_gate.ensure_copy_downloadable(generated, csv)
+    filename = "SZKIC_" + _pdf_name(
+        csv.branded_docx_filename, f"CV_v{csv.branded_version}"
+    )
+    if _wanted_layout(layout, csv.cv_layout) == layout_service.LAYOUT_NEW:
+        result = await _new_cv_pdf(
+            db,
+            keep_rodo_clause(
+                csv.branded_draft_html, sanitize_cv_html(payload.content_html)
+            ),
+            language=csv.branded_language,
+            template=csv.branded_template,
+            generated=generated,
+            extras=csv.page1_extras,
+            consent=csv.branded_consent_content,
+        )
+        await log_cv_download(
+            db,
+            intent=intent,
+            surface=surface,
+            entity_type="candidate_stage_cv",
+            entity_id=csv.id,
+            user=current_user,
+            file_format="pdf",
+            state="draft",
+            version=csv.branded_version,
+        )
+        return _response(result.pdf, filename, result.headers())
     docx, _ = await render_stage_editor_docx(csv, payload.content_html)
     pdf = await _pdf(db, await _download_copy(db, csv, docx, intent))
     await log_cv_download(
@@ -142,10 +217,7 @@ async def preview_stage_cv_pdf(
         state="draft",
         version=csv.branded_version,
     )
-    return _response(
-        pdf,
-        "SZKIC_" + _pdf_name(csv.branded_docx_filename, f"CV_v{csv.branded_version}"),
-    )
+    return _response(pdf, filename)
 
 
 @router.get("/candidates/stages/{stage_id}/cv/branded/versions/{version_number}/pdf")
@@ -158,8 +230,10 @@ async def approved_stage_cv_pdf(
     db: AsyncSession = Depends(get_db),
     intent: Optional[str] = None,
     surface: Optional[str] = None,
+    layout: Optional[str] = None,
 ) -> Response:
-    """Strony PDF zatwierdzonej wersji — z jej zamrożonego pliku Word."""
+    """Strony PDF zatwierdzonej wersji — z jej zamrożonego pliku Word albo,
+    w układzie „Nowe CV”, z jej zamrożonej treści i dodatków strony 1."""
     csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
     version = await db.scalar(
         select(CvDocumentVersion).where(
@@ -169,13 +243,38 @@ async def approved_stage_cv_pdf(
     )
     if version is None:
         raise HTTPException(404, "Nie znaleziono zatwierdzonej wersji CV.")
-    consent_gate.ensure_copy_downloadable(
+    generated = (
         await db.get(CvGeneratedDocument, version.generated_document_id)
         if version.generated_document_id
-        else None,
-        csv,
-        version,
+        else None
     )
+    consent_gate.ensure_copy_downloadable(generated, csv, version)
+    if _wanted_layout(layout, version.cv_layout) == layout_service.LAYOUT_NEW:
+        result = await _new_cv_pdf(
+            db,
+            version.content_html,
+            language=version.language,
+            template=version.template,
+            generated=generated,
+            extras=version.page1_extras,
+            consent=version.consent_content,
+        )
+        await log_cv_download(
+            db,
+            intent=intent,
+            surface=surface,
+            entity_type="candidate_stage_cv",
+            entity_id=csv.id,
+            user=current_user,
+            file_format="pdf",
+            state="approved",
+            version=version.version,
+        )
+        return _response(
+            result.pdf,
+            _pdf_name(version.docx_filename, "CV"),
+            {"X-CV-Version": str(version.version), **result.headers()},
+        )
     if not version.docx_content:
         raise HTTPException(
             409,

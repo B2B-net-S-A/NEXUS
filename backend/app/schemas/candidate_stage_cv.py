@@ -239,6 +239,20 @@ class CVBrandedResponse(BaseModel):
     pair_source_status: Optional[BrandedStatusLiteral] = None
     # Tylko w odpowiedzi na podmianę szkicu nową generacją (PR 5).
     rewrite: Optional[CVBrandedRewrite] = None
+    # Układ CV (22.11.2026, `services/cv_layout.py`): „classic” = szablon Word,
+    # „new” = Nowe CV w PDF. ``new_layout_enabled`` = flaga
+    # `CV_NEW_LAYOUT_ENABLED`; wyłączona — interfejs nie pokazuje wyboru.
+    # ``default_layout`` — układ, który generator zaznaczy na start (reguła
+    # klienta); wypełnia tylko GET.
+    cv_layout: Literal["classic", "new"] = "classic"
+    new_layout_enabled: bool = False
+    default_layout: Literal["classic", "new"] = "classic"
+
+
+class CVLayoutUpdate(BaseModel):
+    """Przełącznik układu w karcie „CV do klienta” i edytorze."""
+
+    cv_layout: Literal["classic", "new"]
 
 
 class StageCvUploadResponse(CVOriginalSnapshotResponse):

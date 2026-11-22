@@ -81,6 +81,7 @@ import {
 import {
   candidateStageCvApi,
   type CVBrandedRewrite,
+  type CvLayout,
   type CVOriginalSnapshot,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -137,6 +138,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
+import { LayoutChoice, cvLayoutFact } from "@/components/v2/cv-generator/LayoutChoice";
 import { ConsentRequestButton } from "@/components/v2/recruitment/ConsentRequestButton";
 import {
   ConsentRequestNotice,
@@ -695,6 +697,22 @@ export function CvToClientCard({
       showError(apiErrorMessage(error, "Nie udało się przywrócić poprzedniej wersji. Odśwież i spróbuj ponownie.")),
   });
 
+  // Układ CV (22.11.2026): jedno ustawienie CV, bez generowania od nowa.
+  const layoutEnabled = branded?.new_layout_enabled === true;
+  const layout: CvLayout = branded?.cv_layout ?? "classic";
+  const layoutMut = useMutation({
+    mutationFn: (target: { stageId: number; layout: CvLayout }) =>
+      candidateStageCvApi.branded.setLayout(target.stageId, target.layout),
+    onSuccess: (response, target) => {
+      queryClient.setQueryData(stageBrandedQueryKey(target.stageId), response.data);
+      showSuccess(
+        target.layout === "new" ? "Układ: Nowe CV (PDF)." : "Układ: Klasyczne (Word).",
+      );
+    },
+    onError: (error) =>
+      showError(apiErrorMessage(error, "Nie udało się zmienić układu CV. Odśwież i spróbuj ponownie.")),
+  });
+
   // „Odrzuć to CV i zacznij od nowa” (21.10.2026): karta wraca do potwierdzeń,
   // treść idzie do historii wersji — nic nie jest kasowane.
   const { askConfirm, confirmDialog } = useConfirmV2();
@@ -770,7 +788,7 @@ export function CvToClientCard({
   // Edytor zapisuje szkic co kilka sekund w tym samym kluczu zapytania, który
   // czyta karta — gdy jest otwarty, klucz stoi, a miniatura odświeża się raz,
   // po zamknięciu (inaczej każdy autozapis to nowa zamiana i limit 20/min).
-  const liveKey = `${cvStageId}:${branded?.status ?? "none"}:${branded?.version ?? 0}:${branded?.edit_revision ?? 0}`;
+  const liveKey = `${cvStageId}:${branded?.status ?? "none"}:${branded?.version ?? 0}:${branded?.edit_revision ?? 0}:${branded?.cv_layout ?? "classic"}`;
   const [pagesKey, setPagesKey] = useState(liveKey);
   useEffect(() => {
     if (!editorOpen) setPagesKey(liveKey);
@@ -937,7 +955,9 @@ export function CvToClientCard({
     const thumbKey = `${pagesKey}:${state.consentMissing ? "no-consent" : "consent"}`;
     const pagesLabel =
       pages?.key === pagesKey ? countForm(pages.count, ["strona", "strony", "stron"]) : null;
-    const facts = [pagesLabel, modeLabel, languageLabel].filter((fact): fact is string => !!fact);
+    const facts = [pagesLabel, modeLabel, languageLabel, layoutEnabled ? cvLayoutFact(layout) : null].filter(
+      (fact): fact is string => !!fact,
+    );
     const regenerateLabel = replaceFailed ? "Spróbuj ponownie" : "Wygeneruj ponownie";
     body = (
       <div className="space-y-2.5">
@@ -1009,10 +1029,37 @@ export function CvToClientCard({
                 ) : null}
               </div>
             ) : null}
+            {layoutEnabled ? (
+              <LayoutChoice
+                place="card"
+                compact
+                value={layout}
+                onChange={(next) => layoutMut.mutate({ stageId: cvStageId, layout: next })}
+                disabled={readOnly || layoutMut.isPending}
+                lockedAfterSend={lockedAfterSend}
+              />
+            ) : null}
             <div className="flex flex-wrap gap-1.5">
               {!readOnly ? (
                 <Button size="sm" variant="outline" onClick={() => openEditor()}>
                   <Pencil className="h-3.5 w-3.5" aria-hidden /> Otwórz i popraw
+                </Button>
+              ) : null}
+              {layoutEnabled && layout === "new" ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  data-testid="cv-card-download-pdf"
+                  onClick={() => void downloadPdf()}
+                  disabled={downloadingPdf || state.consentMissing}
+                  loading={downloadingPdf}
+                  title={
+                    state.consentMissing
+                      ? "Najpierw dołącz zrzut zgody RODO — bez niego nie pobierzesz CV."
+                      : undefined
+                  }
+                >
+                  <FileDown className="h-3.5 w-3.5" aria-hidden /> Pobierz PDF
                 </Button>
               ) : null}
               <Button
@@ -1027,7 +1074,8 @@ export function CvToClientCard({
                     : undefined
                 }
               >
-                <Download className="h-3.5 w-3.5" aria-hidden /> Pobierz Word
+                <Download className="h-3.5 w-3.5" aria-hidden />{" "}
+                {layoutEnabled && layout === "new" ? "Word (klasyczne)" : "Pobierz Word"}
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -1042,6 +1090,7 @@ export function CvToClientCard({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  {layoutEnabled && layout === "new" ? null : (
                   <DropdownMenuItem
                     disabled={downloadingPdf || state.consentMissing}
                     title={
@@ -1053,6 +1102,7 @@ export function CvToClientCard({
                   >
                     <FileDown className="h-3.5 w-3.5" aria-hidden /> Pobierz PDF
                   </DropdownMenuItem>
+                  )}
                   {canReplace ? (
                     <DropdownMenuItem onSelect={afterMenuCloses(() => setOtherOpen(true))}>
                       <Repeat2 className="h-3.5 w-3.5" aria-hidden /> Użyj innego CV

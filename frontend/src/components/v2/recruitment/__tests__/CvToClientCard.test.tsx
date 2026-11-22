@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => ({
   selectGenerated: vi.fn(),
   restorePrevious: vi.fn(),
   discard: vi.fn(),
+  setLayout: vi.fn(),
   selectStageCv: vi.fn(),
   /** Klient rekrutacji wymaga zrzutu zgody (polityka albo reguła klienta). */
   consentRequired: false,
@@ -70,6 +71,7 @@ vi.mock("@/lib/api", () => ({
       selectGenerated: (...a: unknown[]) => mocks.selectGenerated(...a),
       restorePrevious: (...a: unknown[]) => mocks.restorePrevious(...a),
       discard: (...a: unknown[]) => mocks.discard(...a),
+      setLayout: (...a: unknown[]) => mocks.setLayout(...a),
       selectStageCv: (...a: unknown[]) => mocks.selectStageCv(...a),
       selectDocument: (...a: unknown[]) => mocks.selectDocument(...a),
       sources: (...a: unknown[]) => mocks.sources(...a),
@@ -695,6 +697,62 @@ describe("CvToClientCard — CV gotowe", () => {
     // „Pobierz PDF” w „⋯” też czeka na zgodę.
     await userEvent.click(screen.getByRole("button", { name: "Więcej akcji CV" }));
     expect(await screen.findByRole("menuitem", { name: /Pobierz PDF/ })).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("22.11.2026: bez flagi serwera karta nie pokazuje wyboru układu", async () => {
+    mocks.brandedGet.mockResolvedValue({
+      data: { status: "draft", from_generator: true, generated_document_id: 5, edit_revision: 3, version: 1, content_html: "<p>CV</p>" },
+    });
+    rows = [{ id: 5, status: "ready" }];
+    renderCard();
+    await screen.findByTestId("cv-ready-facts");
+    expect(screen.queryByTestId("cv-layout-choice-card")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Pobierz Word/ })).toBeInTheDocument();
+  });
+
+  it("22.11.2026: przełącznik układu w karcie — Nowe CV daje „Pobierz PDF” i Word klasyczny", async () => {
+    const draft = {
+      status: "draft",
+      from_generator: true,
+      generated_document_id: 5,
+      edit_revision: 3,
+      version: 1,
+      content_html: "<p>CV</p>",
+      new_layout_enabled: true,
+      cv_layout: "classic",
+    };
+    mocks.brandedGet.mockResolvedValue({ data: draft });
+    mocks.setLayout.mockResolvedValue({ data: { ...draft, cv_layout: "new" } });
+    rows = [{ id: 5, status: "ready" }];
+    renderCard();
+    const choice = await screen.findByTestId("cv-layout-choice-card");
+    expect(within(choice).getByRole("button", { name: "Klasyczne" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("cv-ready-facts")).toHaveTextContent("Klasyczne · Word");
+    await userEvent.click(within(choice).getByRole("button", { name: "Nowe CV" }));
+    await waitFor(() => expect(mocks.setLayout).toHaveBeenCalledWith(21, "new"));
+    expect(await screen.findByTestId("cv-card-download-pdf")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Word \(klasyczne\)/ })).toBeInTheDocument();
+    expect(screen.getByTestId("cv-ready-facts")).toHaveTextContent("Nowe CV · PDF");
+  });
+
+  it("22.11.2026: po wysyłce do klienta układ jest zablokowany", async () => {
+    mocks.brandedGet.mockResolvedValue({
+      data: {
+        status: "finalized",
+        from_generator: true,
+        generated_document_id: 5,
+        edit_revision: 4,
+        version: 2,
+        docx_filename: "CV.docx",
+        new_layout_enabled: true,
+        cv_layout: "new",
+      },
+    });
+    rows = [{ id: 5, status: "ready" }];
+    renderCard({ lockedAfterSend: true });
+    const choice = await screen.findByTestId("cv-layout-choice-card");
+    expect(within(choice).getByRole("button", { name: "Klasyczne" })).toBeDisabled();
+    expect(within(choice).getByText(/po wysyłce do klienta/)).toBeInTheDocument();
   });
 
   it("zatwierdzona wersja pobiera Word tej wersji; „Otwórz i popraw” otwiera edytor etapu", async () => {

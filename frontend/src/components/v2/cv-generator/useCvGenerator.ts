@@ -12,7 +12,8 @@ import { useCentralPolicy } from "@/components/cv-rules/CentralPolicyView";
 import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner";
 import type { ChampionPreview } from "@/components/ChampionIntake";
 import { useToast } from "@/components/Toast";
-import api, { type ChampionProfile, type CvGenerateEnqueued } from "@/lib/api";
+import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
+import api, { type ChampionProfile, type CvGenerateEnqueued, type CvLayout } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { invalidateChampionDependents } from "@/lib/champion-cache";
 import {
@@ -147,6 +148,22 @@ export function useCvGenerator({
   const recruitment = processChoice
     ? (recruitments.find((r) => String(r.stage_id) === processChoice) ?? null)
     : null;
+
+  // ── Układ CV (22.11.2026) ────────────────────────────────────────────────
+  // Jedno ustawienie CV: gdy etap ma już CV, generator startuje od jego
+  // układu; bez CV — od domyślnego układu klienta. Bez flagi serwera — brak
+  // wyboru i brak pola w żądaniu.
+  const stageBranded = useStageBrandedCv(recruitment?.stage_id ?? null);
+  const layoutEnabled = stageBranded.ownQuery.data?.new_layout_enabled === true;
+  const layoutDefault: CvLayout = stageBranded.ownQuery.data?.default_layout ?? "classic";
+  const currentCv = stageBranded.query.data;
+  const layoutStart: CvLayout =
+    currentCv && currentCv.status !== "none" ? (currentCv.cv_layout ?? "classic") : layoutDefault;
+  const [layoutPick, setLayoutPick] = useState<{ stageId: number | null; value: CvLayout } | null>(null);
+  const layoutChoice: CvLayout =
+    layoutPick && layoutPick.stageId === (recruitment?.stage_id ?? null) ? layoutPick.value : layoutStart;
+  const setLayoutChoice = (value: CvLayout) =>
+    setLayoutPick({ stageId: recruitment?.stage_id ?? null, value });
 
   const sourcesQuery = useQuery({
     queryKey: ["cv-gen-sources", candidateId],
@@ -402,6 +419,7 @@ export function useCvGenerator({
         consentToken,
         sources: aiSources,
         instruction,
+        layout: layoutEnabled ? layoutChoice : null,
       });
       return (await withCvGenerationRequest("/api/cv-generator/generate", payload, (key) =>
         api.post<CvGenerateEnqueued>("/api/cv-generator/generate", payload, {
@@ -474,6 +492,10 @@ export function useCvGenerator({
     hasChampion,
     languageChoice,
     setLanguageChoice: setLanguageChoiceState,
+    layoutEnabled,
+    layoutChoice,
+    setLayoutChoice,
+    layoutDefault,
     languagePolicy,
     blind,
     setBlind,
