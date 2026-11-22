@@ -22,6 +22,13 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showSuccess, showError: vi.fn() }),
 }));
+vi.mock("@/components/v2/b2b-generator/esign/SendForSignatureDialog", () => ({
+  SendForSignatureDialog: (p: { row: { contract_number: string } }) => (
+    <div role="dialog" aria-label="okno wysyłki">
+      Wysyłka umowy {p.row.contract_number}
+    </div>
+  ),
+}));
 vi.mock("@/components/v2/pages/B2BContractGeneratorV2", () => ({
   ConfirmFullySignedDialog: (p: { row: { contract_number: string } }) => (
     <div role="dialog" aria-label="okno podpisu">
@@ -237,5 +244,46 @@ describe("DockContractSteps przy umowie w podpisie w NEXUSIE (etap 1b)", () => {
     renderSteps({ onMarkHired: vi.fn() });
     expect(await screen.findByTestId("dock-hire-offline")).toBeInTheDocument();
     expect(screen.queryByTestId("dock-hire-esign-lock")).not.toBeInTheDocument();
+  });
+});
+
+describe("DockContractSteps — wysyłka do podpisu w NEXUSIE jako główna akcja (22.11.2026)", () => {
+  it("umowę do wysłania wysyła się z panelu, a droga mailowa zostaje pod spodem", async () => {
+    generated.mockResolvedValue([{ ...ROW, can_send_esign: true, can_download: true }]);
+    renderSteps();
+
+    const send = await screen.findByRole("button", { name: "Wyślij do podpisu w NEXUSIE" });
+    expect(send.className).toContain("bg-primary");
+    expect(screen.getByText(/Czeka na wysyłkę do podpisu · 3 dni od wygenerowania/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pobierz DOCX" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Poproś o potwierdzenie podpisu" })).toBeInTheDocument();
+
+    fireEvent.click(send);
+    expect(await screen.findByRole("dialog", { name: "okno wysyłki" })).toHaveTextContent(
+      "Wysyłka umowy 1506/2026",
+    );
+  });
+
+  it("z prawem potwierdzania „Oznacz jako podpisaną…” jest obrysowane, nie główne", async () => {
+    generated.mockResolvedValue([{ ...ROW, can_send_esign: true, can_confirm_signed: true }]);
+    renderSteps();
+
+    await screen.findByRole("button", { name: "Wyślij do podpisu w NEXUSIE" });
+    const confirm = screen.getByRole("button", { name: "Oznacz jako podpisaną…" });
+    expect(confirm.className).not.toContain("bg-primary");
+    expect(confirm.className).toContain("border");
+  });
+
+  it("bez prawa wysyłki albo tylko do odczytu zostaje dotychczasowy krok", async () => {
+    generated.mockResolvedValue([{ ...ROW, can_send_esign: false }]);
+    const { unmount } = renderSteps();
+    expect(await screen.findByRole("button", { name: "Poproś o potwierdzenie podpisu" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Wyślij do podpisu w NEXUSIE" })).toBeNull();
+    unmount();
+
+    generated.mockResolvedValue([{ ...ROW, can_send_esign: true }]);
+    renderSteps({ readOnly: true });
+    await screen.findByText("Nr 1506/2026");
+    expect(screen.queryByRole("button", { name: "Wyślij do podpisu w NEXUSIE" })).toBeNull();
   });
 });

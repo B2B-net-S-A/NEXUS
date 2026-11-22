@@ -4186,6 +4186,29 @@
     "dot_anchor": "finance.costs-nav"
   },
   {
+    "id": "podpis-wyslij-na-wierzchu",
+    "title": "„Wyślij do podpisu” jako główny przycisk przy umowie",
+    "why": "W panelu osoby, w zakładce „Umowa” i w rejestrze Generatora wysyłka do podpisu jest teraz na wierzchu. Kontraktor dostaje link, a podpis firmy i kontrakt idą w NEXUSIE.",
+    "tier": "dot",
+    "shipped_on": "2026-11-22",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "talent_community_manager",
+        "admin",
+        "finance",
+        "back_office"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → Umowa → Wyślij do podpisu (też Generator umów)",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990115",
+    "section": "pipeline",
+    "dot_anchor": "b2b.esign.send"
+  },
+  {
     "id": "nie-szuka-data-kazda-karta",
     "pr": 3621,
     "title": "„Nie szuka pracy”: wybierz, do kiedy",

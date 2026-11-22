@@ -33,6 +33,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Circle, FileSignature, Loader2 } from "lucide-react";
 
 import { AgreementSignatureAction } from "@/components/v2/b2b-generator/AgreementSignatureAction";
+import { EsignSendStep } from "@/components/v2/b2b-generator/esign/EsignSendStep";
 import { Button } from "@/components/ui/button";
 import { b2bGeneratorApi, type B2BGeneratedContractRow } from "@/lib/api";
 import { daysSince, type CardAgreement } from "@/lib/b2b-agreement";
@@ -136,6 +137,15 @@ export function DockContractSteps({
   const waitingDays = row && !signed ? daysSince(row.created_at, new Date()) : null;
   const esign = !signed ? row?.esign ?? null : null;
   const inEsign = esign?.status === "sent" || esign?.status === "contractor_signed";
+  // 22.11.2026: gdzie można wysłać do podpisu w NEXUSIE, to jest główna akcja
+  // kroku; po terminie „Wyślij nowy link” daje `AgreementSignatureAction`.
+  const canSendEsign =
+    row != null &&
+    !signed &&
+    !readOnly &&
+    !inEsign &&
+    Boolean(row.can_send_esign) &&
+    !row.can_relink_esign;
 
   // `orderStatus` niesie tylko karta „Zatrudniony” — po nim poznajemy etap.
   const hired = orderStatus != null;
@@ -203,6 +213,12 @@ export function DockContractSteps({
                   // W podpisie w NEXUSIE kroki i opis daje `AgreementSignatureAction`.
                   inEsign
                     ? null
+                    : canSendEsign
+                    ? `Czeka na wysyłkę do podpisu${
+                        waitingDays
+                          ? ` · ${countPl(waitingDays, "dzień", "dni", "dni")} od wygenerowania`
+                          : ""
+                      }.`
                     : row && !signed && row.contract_status === "in_progress"
                     ? `Czeka na podpis${
                         waitingDays ? ` od ${countPl(waitingDays, "dnia", "dni", "dni")}` : ""
@@ -210,7 +226,13 @@ export function DockContractSteps({
                     : null
                 }
                 action={
-                  row && !signed ? (
+                  canSendEsign && row ? (
+                    <EsignSendStep
+                      row={row}
+                      jobId={jobId}
+                      requestedAt={agreement?.signature_requested_at ?? null}
+                    />
+                  ) : row && !signed ? (
                     <AgreementSignatureAction
                       row={row}
                       jobId={jobId}

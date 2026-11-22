@@ -51,7 +51,10 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   `uq_b2b_signing_requests_open_per_row`). Wycofanie (`withdraw`) kasuje link
   i pozwala wysłać ponownie albo wrócić do drogi zwykłej.
 - **Wysyła i wycofuje** ten, kto poprawia umowę (`_may_correct_generated`),
-  z poziomem „Generowanie”, widocznymi stawkami i dostępem do klienta.
+  albo ten, kto mógłby oznaczyć jej podpis (`may_confirm_row_signature`: te
+  same bramki co „Oznacz jako podpisaną”, od 22.11.2026), zawsze z poziomem
+  „Generowanie”, widocznymi stawkami i dostępem do klienta. Rejestr
+  (`can_send_esign`) i trasy (`_assert_row_sender`) liczą to jedną regułą.
 - **Mail z linkiem idzie ze skrzynki nadawcy** (M365, `services/b2b_esign/mail.py`);
   bez połączonej skrzynki okno pokazuje link do skopiowania. Przypomnienia
   (`tasks/b2b_esign_sweeper.py`, co 30 min): kontraktor milczy → JEDNO
@@ -298,12 +301,30 @@ w mObywatelu (05.11.2025), rejestr kwalifikowanych dostawców NCCert.
   w `label` i ujemnym `id`.
 - **Strona kontraktora ma zakładki narzędzi** (mObywatel, SimplySign, Szafir,
   inne) i stałą ramkę „podpis w pliku PDF (PAdES)”.
-- **„Wyślij do podpisu” jest w dwóch miejscach** (26.10.2026): w wierszu
-  rejestru Generatora i w zakładce „Umowa” panelu osoby / rekrutacji
-  (`AgreementPanelTab`) — to samo okno `SendForSignatureDialog`, widoczne,
-  gdy serwer zwróci `can_send_esign`. Rekruterzy generują umowę w panelu,
-  więc przycisk tylko w Generatorze był dla nich niewidoczny. Obok zostaje
-  „Pobierz DOCX” i „Oznacz jako podpisaną” (droga mailowa, podpis offline).
+- **„Wyślij do podpisu” jest w trzech miejscach i jest główną akcją**
+  (26.10 i 22.11.2026): w przyklejonej kolumnie „Akcje” rejestru Generatora,
+  w kroku „Podpisana obustronnie” wąskiego panelu osoby (`EsignSendStep`)
+  i w zakładce „Umowa” (`AgreementPanelTab`) — to samo okno
+  `SendForSignatureDialog`, widoczne, gdy serwer zwróci `can_send_esign`.
+  Obok zostaje „Pobierz DOCX” i „Oznacz jako podpisaną” (droga mailowa,
+  podpis offline), obrysowane (`AgreementSignatureAction secondary`).
+  Nie chowaj ich i nie pytaj „dlaczego mailem” przed pomiarem: DL potwierdza
+  też umowy, które wróciły mailem.
+
+## Dlaczego wysyłka jest na wierzchu (22.11.2026)
+
+Od włączenia trybu `all` (26.10) do 22.11 przez NEXUS nie poszła żadna z 19
+umów, choć każdy autor miał uprawnienia i skrzynkę M365. Przeszkody były
+w interfejsie: przy 1280 px przyklejona kolumna „Akcje” zasłaniała przycisk
+w kolumnie „Status podpisu” do ikony, wąski panel osoby nie miał wysyłki,
+zielonym przyciskiem było „Oznacz jako podpisaną”, a konto Administracji
+(Finanse z „Oznaczaniem podpisu”, autor 8 z 19 umów) nie mogło wysłać cudzej
+umowy, którą potwierdzało. W listopadzie 5 z 7 kontraktorów podpisało umowę
+podpisem kwalifikowanym (odczyt PDF-ów z produkcji), więc to nie brak podpisu
+blokował drogę. Makiety i plan pomiaru przed decyzją o dostawcy podpisu
+w przeglądarce: https://claude.ai/artifact/UyyBZKNWJKia9ekX357r8W.
+Akcje podpisu w rejestrze stoją w kolumnie „Akcje”, nie w „Status podpisu”:
+przyklejona kolumna zasłania to, co pod nią leży (por. #1346).
 - **Wysyłka NIE przesuwa karty na „Umowa wysłana”** (świadomie): to ruch na etap
   szablonu, który Insights liczy jako kamień milowy; plakietka karty mówi to samo.
 

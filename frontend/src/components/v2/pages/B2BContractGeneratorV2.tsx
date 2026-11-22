@@ -2658,6 +2658,11 @@ function LinkContractAction({ row }: { row: B2BGeneratedContractRow }) {
   );
 }
 
+/** Umowa jest u kontraktora albo czeka na podpis firmy w NEXUSIE. */
+function esignInFlight(row: B2BGeneratedContractRow): boolean {
+  return row.esign?.status === "sent" || row.esign?.status === "contractor_signed";
+}
+
 export function GeneratedContractsTab({
   searchParam = null,
   canCorrect = true,
@@ -3255,50 +3260,13 @@ export function GeneratedContractsTab({
                                   pliku: skąd wziąć plik do „Dołącz” (F45). */}
                               {r.signed_document_id ? null : <EsignSignedPdfButton row={r} />}
                             </div>
-                          ) : r.esign || r.can_send_esign ? (
-                            <div className="flex flex-col items-start gap-1.5">
-                              {r.esign ? <EsignRowStatus row={r} /> : null}
-                              {/* Po terminie „Wyślij nowy link” (ten sam PDF)
-                                  zastępuje nową wysyłkę z nowym PDF-em. */}
-                              {r.can_send_esign && !r.can_relink_esign ? (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8"
-                                  onClick={() => setEsignRow(r)}
-                                >
-                                  <Send className="h-4 w-4" />
-                                  Wyślij do podpisu
-                                </Button>
-                              ) : null}
-                              {r.can_confirm_signed ? (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8"
-                                  data-tour="b2b.confirm-signed"
-                                  onClick={() => setSignatureRow(r)}
-                                >
-                                  <FileSignature className="h-4 w-4" />
-                                  Oznacz jako podpisaną
-                                </Button>
-                              ) : null}
-                            </div>
-                          ) : r.can_confirm_signed ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-8"
-                              data-tour="b2b.confirm-signed"
-                              onClick={() => setSignatureRow(r)}
-                            >
-                              <FileSignature className="h-4 w-4" />
-                              Oznacz jako podpisaną
-                            </Button>
-                          ) : r.blocked_reason ? (
+                          ) : r.esign ? (
+                            // „Wyślij do podpisu” i „Oznacz jako podpisaną” stoją
+                            // w przyklejonej kolumnie „Akcje” (22.11.2026): tutaj
+                            // chowała je ona przy 1280 px. Tu zostaje stan wysyłki
+                            // (z „Wyślij nowy link” po terminie).
+                            <EsignRowStatus row={r} />
+                          ) : r.blocked_reason && !r.can_confirm_signed && !r.can_send_esign ? (
                             <span className="max-w-60 text-xs text-muted-foreground">
                               {r.blocked_reason}
                             </span>
@@ -3329,6 +3297,41 @@ export function GeneratedContractsTab({
                         </div>
                       </td>
                       <td className="bg-card py-2 pl-2 text-right shadow-[inset_1px_0_0_hsl(var(--border))] md:sticky md:right-0 md:z-10">
+                        {/* Akcje podpisu nad ikonami (22.11.2026): w kolumnie
+                            „Status podpisu” przyklejona kolumna zasłaniała
+                            „Wyślij do podpisu” przy 1280 px do samej ikony. */}
+                        {!editing && !signed && ((r.can_send_esign && !r.can_relink_esign) || (r.can_confirm_signed && !esignInFlight(r))) ? (
+                          <div className="mb-1 flex flex-col items-end gap-1">
+                            {r.can_send_esign && !r.can_relink_esign ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="h-8"
+                                onClick={() => setEsignRow(r)}
+                              >
+                                <Send className="h-4 w-4" />
+                                Wyślij do podpisu
+                              </Button>
+                            ) : null}
+                            {/* Wysyłka w toku: akcje daje stan w kolumnie „Status
+                                podpisu”, a ręczne potwierdzenie wraca po „Przejdź
+                                na zwykłą drogę” — jak w panelu osoby. Szeroki
+                                przycisk zasłaniałby tamte akcje. */}
+                            {r.can_confirm_signed && !esignInFlight(r) ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8"
+                                data-tour="b2b.confirm-signed"
+                                onClick={() => setSignatureRow(r)}
+                              >
+                                <FileSignature className="h-4 w-4" />
+                                Oznacz jako podpisaną
+                              </Button>
+                            ) : null}
+                          </div>
+                        ) : null}
                         <div className="flex items-center justify-end gap-1">
                           {editing ? (
                             <>
