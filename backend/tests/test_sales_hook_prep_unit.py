@@ -361,6 +361,29 @@ async def test_briefing_ingest_keeps_points_of_hook_firms_out_of_briefings(
     assert summary["hook_missing"] == 0
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("checked", "covered"), [(0, []), (1, [1])])
+async def test_hook_no_signal_needs_consistent_checked_count(
+    monkeypatch, checked, covered
+):
+    async def ingest(_db, run, report, *, now):
+        return {"researched_company_ids": [1]}
+
+    async def save(_db, run, rows, now, *, kind=None):
+        assert rows == []
+        return 0
+
+    monkeypatch.setattr(signals_briefing.signals, "ingest", ingest)
+    monkeypatch.setattr(call_hook, "save_results", save)
+    run = _run({1: "call_hook", 2: "call_hook"}, ids=(1, 2))
+    report = signals_briefing.BriefingReport(checked_firms=checked, no_signal=[1])
+    summary = await signals_briefing.BRIEFING.ingest(
+        None, run, report, datetime.now(timezone.utc)
+    )
+    assert summary["hook_covered_company_ids"] == covered
+    assert summary["hook_missing"] == 2 - len(covered)
+
+
 def _text(firms: list[dict[str, Any]], request: dict[str, Any] | None = None) -> str:
     task = bot_tasks.REGISTRY["briefing"]
     return task.task_text(

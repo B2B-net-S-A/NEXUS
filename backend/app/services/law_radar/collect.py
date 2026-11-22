@@ -85,7 +85,12 @@ SourceKey = Literal[schema.SOURCES]  # type: ignore[valid-type]
 
 
 SkipReason = Literal[
-    "login_required", "device_approval", "mfa", "access_denied", "unavailable", "unknown"
+    "login_required",
+    "device_approval",
+    "mfa",
+    "access_denied",
+    "unavailable",
+    "unknown",
 ]
 SKIP_REASONS = get_args(SkipReason)
 SUBSCRIPTION_SOURCES = ("lex", "gofin")

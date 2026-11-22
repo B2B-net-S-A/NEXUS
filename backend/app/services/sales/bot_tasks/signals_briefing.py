@@ -164,7 +164,12 @@ async def _briefing_ingest(
     hook_refs = call_hook.hook_refs(run)
     points = signals.RunReport.model_validate(
         {
-            **report.model_dump(exclude={"hooks", "briefings"}),
+            **report.model_dump(exclude={"hooks", "briefings", "signals"}),
+            "signals": [
+                signal.model_dump()
+                for signal in report.signals
+                if signal.company_ref not in hook_refs
+            ],
             "briefings": [
                 briefing.model_dump()
                 for briefing in report.briefings
@@ -181,7 +186,14 @@ async def _briefing_ingest(
     if hook_refs:
         # Nie uznawaj wadliwego haczyka za sprawdzoną firmę, nawet gdy jest w no_signal.
         submitted = {hook.company_ref for hook in report.hooks}
-        covered = saved | (hook_refs.intersection(report.no_signal) - submitted)
+        quiet = hook_refs.intersection(report.no_signal) - submitted
+        other = set(summary.get("researched_company_ids") or ()) - hook_refs
+        # Zachowaj zapisane haczyki przy sprzecznym liczniku, ale ponów niepotwierdzone.
+        covered = (
+            saved | quiet
+            if len(saved | quiet | other) <= report.checked_firms
+            else saved
+        )
         summary["hook_covered_company_ids"] = sorted(covered)
         summary["hook_missing"] = len(hook_refs - covered)
         if summary["hook_missing"]:
