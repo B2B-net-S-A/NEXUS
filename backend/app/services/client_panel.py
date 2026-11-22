@@ -769,7 +769,9 @@ async def candidate_pdf(db: AsyncSession, visible: VisiblePerson) -> tuple[bytes
         raise HTTPException(status_code=404, detail=MSG_CV_UNAVAILABLE)
     csv, version = downloadable
     name = _pdf_name(visible.cv)
-    if layout_service.is_new(version.cv_layout if version is not None else csv.cv_layout):
+    if layout_service.is_new(
+        version.cv_layout if version is not None else csv.cv_layout
+    ):
         # „Nowe CV” (22.11.2026): zatwierdzona wersja z jej zamrożonej treści,
         # szkic z bieżącej. Bez strony z linkiem do panelu — klient już w nim jest.
         from app.services import cv_new_pdf
