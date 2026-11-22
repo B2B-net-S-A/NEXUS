@@ -21,6 +21,7 @@ daje czytelny stan w ``cp_mailbox_state``, a nie wyjątek.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import re
@@ -199,6 +200,31 @@ def classify_kind(subject: str, file_name: str) -> str:
         if _REPORT.search(text):
             return "report"
     return "report" if _PROOF_EXTENSIONS.search(file_name.strip()) else "invoice"
+
+
+_PDF_MIME = "application/pdf"
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def kind_of_file(subject: str, file_name: str, content: bytes) -> str:
+    """Rodzaj z nazwy i tematu, a „faktura” sprawdzona treścią: PDF albo arkusz
+    rozpoznany jako RCP BNP to raport, choć temat mówi „faktura” albo plik nazywa
+    się „2026-09.pdf” (próba IX–X 2026: 9 RCP BNP zapisanych jako faktury, więc
+    rozliczenie nie powstało). Dwa PDF-y w jednym mailu („FV i rozliczenie
+    godzinowe”) dzieli dopiero treść."""
+
+    kind = classify_kind(subject, file_name)
+    if kind != "invoice":
+        return kind
+    if content[:5] == b"%PDF-":
+        mime = _PDF_MIME
+    elif content[:2] == b"PK" and file_name.lower().endswith((".xlsx", ".xlsm")):
+        mime = _XLSX_MIME
+    else:
+        return kind
+    from app.services.client_settlements import rcp_bnp
+
+    return "report" if rcp_bnp.parse(content, mime) is not None else kind
 
 
 def _named_kind(subject: str, file_name: str) -> bool:
@@ -428,11 +454,13 @@ async def _ingest_message(
             # Wypowiedzenie, zaświadczenie czy oferta przekazane z łańcuchem konsultanta
             # nie mogą wejść do rozliczenia jako faktura kontraktora (próba IX–XI 2026).
             owner = indirect.id
+        # Odczyt PDF-a to praca CPU: poza pętlą zdarzeń, jak odczyt RCP w rozliczeniu.
+        kind = await asyncio.to_thread(kind_of_file, subject, name, content)
         try:
             stored = await documents.store(
                 db,
                 contract_id=owner,
-                kind=classify_kind(subject, name),
+                kind=kind,
                 year=year,
                 month=month,
                 content=content,

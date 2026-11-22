@@ -1683,6 +1683,11 @@ class Settings(BaseSettings):
     # rozliczeń = skrzynka spraw, mail z załącznikiem na te adresy idzie do rozliczeń,
     # reszta do spraw (`app/services/support_mail_route.py`).
     CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES: str = ""
+    # Domeny skrzynek, które klient zakłada konsultantom (po przecinku): adres
+    # `imie.nazwisko@<domena>` wskazuje osobę jak adres firmowy. BNP: format z klauzuli
+    # umowy B2B (`b2b_contract_generator/clause_override_content.py`); próba IX–X 2026:
+    # 32 dokumenty z tej domeny bez kontraktu. Puste = tylko domeny adresów rozliczeń.
+    CONSULTANT_PORTAL_PERSONAL_DOMAINS: str = "external.bnpparibas.pl"
     # Szkolenia w Teams (0697, decyzja Artura 13.11.2026): organizatorem spotkań jest
     # osobne konto szkolenia@ z licencją Teams i OneDrive (nagranie ląduje w OneDrive
     # organizatora). Puste albo OFF = link wkleja TCM ręcznie, jak przed 0697.

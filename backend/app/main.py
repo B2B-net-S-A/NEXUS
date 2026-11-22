@@ -202,6 +202,7 @@ from app.api import client_forms as client_forms_api
 from app.api import cover_sheets as cover_sheets_api
 from app.api import cv_editor_import as cv_editor_import_api
 from app.api import cv_pdf_preview as cv_pdf_preview_api
+from app.api import cv_page1 as cv_page1_api
 from app.api import cv_page1_results as cv_page1_results_api
 from app.api import cv_ai_sources as cv_ai_sources_api
 from app.api import calendar
@@ -2123,6 +2124,8 @@ app.include_router(
 app.include_router(
     cv_pdf_preview_api.router, prefix="/api", tags=["candidate-stage-cv"]
 )
+# „Nowe CV” (22.11.2026): najmocniejszy wynik na stronie 1 z edytora.
+app.include_router(cv_page1_api.router, prefix="/api", tags=["candidate-stage-cv"])
 # „Nowe CV”, strona 1: najmocniejszy wynik z CV — płatny model, trasa z limitem.
 app.include_router(
     cv_page1_results_api.router, prefix="/api", tags=["candidate-stage-cv"]

@@ -108,3 +108,78 @@ i `services/cv_page1_result_checks.py` (sprawdzenie, bez sieci i bazy).
   bariera przed liczbą spoza CV u klienta.
 - Nie dopisuj tego zdania do promptu generatora — klasyczne CV mają zostać bez
   zmian, a wynik liczy się z treści po poprawkach rekrutera.
+
+## Edytor nowego CV: Strona 1 i Stanowiska (22.11.2026)
+
+Makiety: wariant A (Artur, 22.11.2026) — „Strona 1” i „Stanowiska” jako
+formularz po lewej i strona PDF z ramką po prawej.
+
+- **Kiedy:** tylko CV etapu z układem `new` i włączoną flagą
+  (`new_layout_enabled`). Nagłówek ma wtedy zakładki „Strona 1 · Stanowiska ·
+  Cały tekst · Jak u klienta”; „Cały tekst” to dotychczasowa kartka (wszystko,
+  czego formularze nie obejmują, zostaje edytowalne). Pierwsze wczytanie
+  otwiera „Stronę 1”, przełączenie na klasyczne wraca do „Edycji”. Klasyczne CV
+  i wynik generatora mają edytor bez zmian. Pasek w formularzach to tylko
+  cofnij / ponów i „Więcej” (`CvEditorToolbar.historyOnly`).
+- **Formularz pisze do dokumentu Tiptapa, nie obok niego**
+  (`lib/cv-new-layout-form.ts`). Pole czyta tekst akapitu, zmiana to
+  najmniejsza podmiana tekstu w transakcji — pogrubienia wokół zostają,
+  dopisek za pogrubionym słowem pogrubiony nie jest, cyfra doklejona do
+  pogrubionej liczby jest. Autozapis, historia cofania (Ctrl+Z w polu = cofnij
+  w edytorze), QC i plik Word działają jak przy pisaniu na kartce. Nie dodawaj
+  formularzowi własnej kopii treści ani osobnej trasy zapisu.
+- **Strona 1:** punkty 1–2 to punkty sekcji `why_points` w dokumencie
+  (wspólne z Wordem). Pod punktem 1 „Z dat stanowisk: X lat Y mies.” —
+  suma dat stanowisk tą samą arytmetyką co `client-form-years`
+  (`unionMonths`, `monthsText`). Punkt 3 „Najmocniejszy wynik” to dodatek
+  nowego CV: pole zapisuje `page1_extras.result_text` (1,2 s po ostatnim
+  znaku albo przy wyjściu z pola; puste = brak), „Inny wynik (N)” pokazuje
+  tylko sprawdzone `results` (`verified`) i zapisuje `result_index`
+  z `result_text: null`. Pole pokazuje tekst bez `**`; zdanie poprawione
+  ręcznie zapisuje się bez pogrubień. Zwinięte wiersze: „Przebieg kariery”
+  otwiera „Stanowiska”, „Umiejętności” / „Edukacja” / „Języki” — „Cały tekst”
+  z kursorem w tej sekcji.
+- **Stanowiska:** lista z `cvOutline` (firma z akapitu `employer` bez branży,
+  stanowisko, okres), „wyżej / niżej” przestawia całe zakresy ról
+  (`moveRoleAt`, ta sama transakcja co „Więcej → Stanowisko pod kursorem”),
+  „Dodaj” wstawia rolę z polami w nawiasach za wybraną (`insertRole(lang,
+  after)`). Formularz: okres od – do (linia `role` po pogrubionej nazwie),
+  firma (`employer`, brakujący akapit powstaje), stanowisko (zawsze
+  pogrubiony początek linii `role`), punkty zakresu zadań (ostatni usunięty
+  znika z listą i etykietą, pierwszy dodany przywraca „Zakres zadań:”),
+  technologie po etykiecie z `CV_TEMPLATE_LABELS` (akapit bez etykiety dostaje
+  ją z powrotem).
+- **Trasa:** `PATCH /api/candidates/stages/{id}/cv/page1`
+  (`api/cv_page1.py`, `{result_index?, result_text?}`): bramka zapisu
+  w kandydatach + zespół rekrutacji (`_load_csv_for_stage`), 409 po „CV
+  wysłane”, przy wyłączonej fladze, bez CV i na zatwierdzonej wersji (dodatki
+  są w niej zamrożone — edytor najpierw zakłada szkic, `ensureDraft`).
+  Niesprawdzony albo nieistniejący wynik i zdanie ponad 400 znaków → 422.
+  Pozostałe pola `page1_extras` (`why`, `results`) zostają. Wpis
+  `cv_page1_changed` bez treści zdania. `GET …/cv/branded` niesie
+  `page1_extras`. Wzorzec bramek: `tests/data/authz_golden/cv_page1.json`
+  (te same litery co `preview-pdf`), moduł w `_SCOPED_MODULES`.
+- **Podgląd** (`useNewCvPreview`, `CvPdfPageView`): ta sama trasa
+  `…/preview-pdf` co „Jak u klienta” (limit 20/min na osobę, wspólny). Pierwszy
+  PDF od razu, kolejny 4 s po ostatniej zmianie treści albo dodatków, tylko
+  gdy zakładka formularza jest na ekranie i karta przeglądarki widoczna,
+  najwyżej 8 na minutę (`previewDelay`). Stary obraz zostaje na czas
+  odświeżania i po błędzie (komunikat przez `apiErrorMessage` + „Ponów”);
+  błąd tej samej treści nie ponawia się sam. Chip „Strona 1 z N · mieści się ·
+  pismo 10 pt” z nagłówków `X-CV-Page1-*` (czerwony przy „nie mieści się”).
+  Ramka: pdf.js czyta warstwę tekstu, linie z początkami punktów „Dlaczego”
+  (strona 1) albo z firmą, stanowiskiem, okresem, punktami i technologiami
+  wybranego stanowiska (strona z największą liczbą trafień; przy powtórzonym
+  tekście linia najbliżej pierwszego trafienia). Bez trafień strona bez ramki
+  i zdanie „Stanowisko jest na tej stronie — bez ramki”.
+- **Harness:** `/preview/cv-editor?layout=new` — fikcyjne CV
+  (`new-layout-fixture.ts`), dodatki w pamięci, podgląd to
+  `public/preview/cv-editor/nowe-cv-przyklad.pdf` z renderu serwera tego CV
+  z nagłówkami jak z trasy. Po zmianie CV albo wyników w fiksturze wygeneruj
+  PDF ponownie: `cv_json_from_editor_html` → `NewCvDocument.from_cv_json(…,
+  why=compose_page1_why(…))` → `render_new_cv_pdf_with_report` w obrazie
+  backendu (bez `entrypoint.sh`, sieć wyłączona).
+- Testy: `lib/__tests__/cv-new-layout-form.test.ts`,
+  `cv-new-preview.test.ts`, `cv-editor/__tests__/CvNewLayout*.test.tsx`,
+  `modals/__tests__/CVBrandedEditModal.newLayout.test.tsx`,
+  `backend/tests/test_cv_page1.py`.

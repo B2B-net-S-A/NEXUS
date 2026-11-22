@@ -339,10 +339,16 @@ function newSectionPosition(outline: CvOutline, key: CvSectionKey, doc: PMNode):
   return later?.from ?? outline.rodo?.from ?? doc.content.size;
 }
 
-export function insertRole(lang: CvLang): CvCommand {
+/**
+ * Nowe stanowisko z polami w nawiasach: za stanowiskiem pod kursorem albo —
+ * z `after` (zakładka „Stanowiska” nowego CV) — za stanowiskiem o tym numerze.
+ */
+export function insertRole(lang: CvLang, after?: number): CvCommand {
   return (state) => {
     const { schema, doc } = state;
-    const { outline, role } = cvContext(state);
+    const context = cvContext(state);
+    const { outline } = context;
+    const role = after === undefined ? context.role : (outline.roles[after] ?? null);
     const fields = CV_PLACEHOLDERS[lang];
     const labels = CV_TEMPLATE_LABELS[lang];
     const nodes = [
@@ -475,20 +481,46 @@ export function moveRole(direction: -1 | 1): CvCommand {
   return (state) => {
     const { outline, role, canMoveUp, canMoveDown } = cvContext(state);
     if (!role || (direction === -1 ? !canMoveUp : !canMoveDown)) return null;
-    const at = outline.roles.indexOf(role);
-    const content = state.doc.slice(role.from, role.to).content;
-    const tr = state.tr;
-    let target: number;
-    if (direction === -1) {
-      target = outline.roles[at - 1].from;
-      tr.delete(role.from, role.to).insert(target, content);
-    } else {
-      const next = outline.roles[at + 1];
-      tr.insert(next.to, content).delete(role.from, role.to);
-      target = next.to - (role.to - role.from);
-    }
-    return tr.setSelection(TextSelection.near(tr.doc.resolve(target + 1)));
+    return moveRoleTransaction(state, outline, outline.roles.indexOf(role), direction);
   };
+}
+
+/** Czy stanowisko o numerze `at` ma sąsiada tuż obok (bez nagłówka sekcji między nimi). */
+export function canMoveRoleAt(outline: CvOutline, at: number, direction: -1 | 1): boolean {
+  const role = outline.roles[at];
+  const other = outline.roles[at + direction];
+  if (!role || !other) return false;
+  return direction === -1 ? other.toIndex === role.fromIndex : role.toIndex === other.fromIndex;
+}
+
+/** „Stanowiska” nowego CV: przestawia stanowisko o numerze `at`, bez kursora w tekście. */
+export function moveRoleAt(at: number, direction: -1 | 1): CvCommand {
+  return (state) => {
+    const outline = cvOutline(state.doc);
+    if (!canMoveRoleAt(outline, at, direction)) return null;
+    return moveRoleTransaction(state, outline, at, direction);
+  };
+}
+
+function moveRoleTransaction(
+  state: EditorState,
+  outline: CvOutline,
+  at: number,
+  direction: -1 | 1,
+): Transaction {
+  const role = outline.roles[at];
+  const content = state.doc.slice(role.from, role.to).content;
+  const tr = state.tr;
+  let target: number;
+  if (direction === -1) {
+    target = outline.roles[at - 1].from;
+    tr.delete(role.from, role.to).insert(target, content);
+  } else {
+    const next = outline.roles[at + 1];
+    tr.insert(next.to, content).delete(role.from, role.to);
+    target = next.to - (role.to - role.from);
+  }
+  return tr.setSelection(TextSelection.near(tr.doc.resolve(target + 1)));
 }
 
 export const duplicateRole: CvCommand = (state) => {
@@ -516,7 +548,8 @@ const DATES_ONLY =
   /^(?=.*\b(?:19|20)\d{2}\b)[\d\s./()–—-]*(?:\b(?:present|obecnie|currently|now|teraz|nadal|ongoing)\b[\s.)]*)?$/i;
 const DATE_START = /\(?\b(?:\d{1,2}[./])?(?:19|20)\d{2}\b/;
 
-function splitLeadingBold(node: PMNode): { lead: string; rest: string } {
+/** Pogrubiony początek akapitu (nazwa stanowiska) i reszta (daty). */
+export function splitLeadingBold(node: PMNode): { lead: string; rest: string } {
   let lead = "";
   let rest = "";
   let inLead = true;

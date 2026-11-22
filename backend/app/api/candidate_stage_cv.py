@@ -1401,6 +1401,7 @@ def _build_branded_response(
         rendered_from_default=rendered_from_default,
         cv_layout=layout_service.effective(csv.cv_layout),
         new_layout_enabled=layout_service.enabled(),
+        page1_extras=csv.page1_extras if isinstance(csv.page1_extras, dict) else None,
     )
 
 

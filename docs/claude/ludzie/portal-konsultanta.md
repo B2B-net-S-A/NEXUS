@@ -109,6 +109,10 @@ tylko nadawców z aktywowanych kontraktów. W `internal` i `all` bierze każdego
 także bez aktywacji panelu (`identity.resolve_sender`: adres z kontraktu, potem z kartoteki; więcej niż jeden
 działający kontrakt pod adresem, np. zmiana kontraktu w ostatnich 60 dniach, = brak dopasowania, bo
 przypisanego dokumentu Finanse nie przepną), a nieznany nadawca dostaje kartę do przypisania. Odczyt maila nie otwiera nikomu panelu.
+Adres `imie.nazwisko@` w domenie adresów rozliczeń albo w skrzynce od klienta (`CONSULTANT_PORTAL_PERSONAL_DOMAINS`,
+domyślnie `external.bnpparibas.pl` z klauzuli umowy BNP) wskazuje osobę tylko przy jednym dopasowaniu
+(`identity._by_company_address`). Rodzaj pliku idzie z nazwy i tematu, ale „faktura” w PDF-ie albo arkuszu,
+którego treść rozpoznaje odczyt RCP BNP, to raport (`mailbox.kind_of_file`, próba IX–X 2026: 9 RCP jako faktury).
 
 Moduł rozliczeń klientów (`app_settings['client_settlements']`) włącza admin przełącznikiem w karcie
 „Start rozliczeń” (`PUT /api/finance/settlements/module`). Na czas testów zespołu reguła klienta
