@@ -1510,7 +1510,12 @@ function installLocalApi(): () => void {
   };
 }
 
-function seededClient(employed: boolean, user: PreviewUser): QueryClient {
+/** `?cv=queued`: nowe CV z portalu czeka na odczyt wsadem (22.11.2026). */
+function withCvState<T extends object>(detail: T, cvQueued: boolean): T {
+  return cvQueued ? { ...detail, cv_read_queued_at: new Date().toISOString() } : detail;
+}
+
+function seededClient(employed: boolean, user: PreviewUser, cvQueued = false): QueryClient {
   variant.employed = employed;
   const qc = new QueryClient({
     defaultOptions: {
@@ -1526,7 +1531,7 @@ function seededClient(employed: boolean, user: PreviewUser): QueryClient {
   const scope = candidateViewerScopeKey(user) ?? "unauthenticated";
   qc.setQueryData(
     candidateQueryKeys.detail(CANDIDATE_ID),
-    employed
+    withCvState(employed
       ? {
           ...CANDIDATE,
           employment: {
@@ -1565,7 +1570,7 @@ function seededClient(employed: boolean, user: PreviewUser): QueryClient {
           rate_declared_from_hourly: "120.00",
           rate_declared_from_at: "2026-09-01T10:00:00Z",
         }
-      : CANDIDATE,
+      : CANDIDATE, cvQueued),
   );
   qc.setQueryData(candidateQueryKeys.history(CANDIDATE_ID, scope), historyFor(employed));
   qc.setQueryData(candidateQueryKeys.timeline(CANDIDATE_ID, 50), TIMELINE);
@@ -1620,8 +1625,9 @@ function CandidateProfilePreview() {
   const params = useSearchParams();
   const employed = params?.get("employed") === "1";
   const user = params?.get("role") === "recruiter" ? PREVIEW_RECRUITER : PREVIEW_ADMIN;
+  const cvQueued = params?.get("cv") === "queued";
   const [ready, setReady] = useState(false);
-  const [qc] = useState(() => seededClient(employed, user));
+  const [qc] = useState(() => seededClient(employed, user, cvQueued));
 
   useEffect(() => {
     const uninstall = installLocalApi();

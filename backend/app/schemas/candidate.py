@@ -835,6 +835,9 @@ class CandidateResponse(BaseModel):
     business_form: Optional[str] = None
     cv_filename: Optional[str]
     cv_parsed_at: Optional[datetime]
+    # Od kiedy nowe CV z integracji czeka na odczyt wsadem (22.11.2026). Tylko
+    # w `GET /api/candidates/{id}`; lista i inne odpowiedzi mają `None`.
+    cv_read_queued_at: Optional[datetime] = None
     # LinkedIn employment tracking (Phase: LinkedIn sync)
     linkedin_current_company: Optional[str] = None
     linkedin_current_title: Optional[str] = None
