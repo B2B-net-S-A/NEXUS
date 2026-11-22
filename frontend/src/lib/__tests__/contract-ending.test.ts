@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   addMonths,
   agreementState,
+  agreementStateLabel,
   endingSummary,
   groupByMonth,
   lastWorkingDay,
@@ -27,6 +28,29 @@ const row = (over: Partial<EndingRowFacts> & { id: number }): EndingRowFacts => 
   currency: "PLN",
   candidate_id: over.id + 100,
   ...over,
+});
+
+describe("stan umowy z wypowiedzeniem w Dokumentach (22.11.2026)", () => {
+  const doc = {
+  id: 5,
+  doc_type: "termination_notice" as const,
+  filename: "Wypowiedzenie.pdf",
+  source: "sharepoint_import",
+  created_at: "2026-09-29T10:00:00Z",
+};
+
+  it("niezapisane rozwiązanie z plikiem nie jest „nierozwiązana”", () => {
+    expect(agreementStateLabel(row({ id: 1, termination_document: doc }))).toBe(
+      "wypowiedzenie w Dokumentach, niezapisane",
+    );
+    expect(agreementStateLabel(row({ id: 2 }))).toBe("nierozwiązana");
+  });
+
+  it("zapisane rozwiązanie wygrywa z plikiem", () => {
+    expect(
+      agreementStateLabel(row({ id: 3, agreement_termination_mode: "notice", termination_document: doc })),
+    ).toBe("wypowiedziana");
+  });
 });
 
 describe("odejścia do domknięcia", () => {

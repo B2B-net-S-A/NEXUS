@@ -927,6 +927,13 @@
    "b_home": "Tabela, kolumna Status"
   },
   {
+   "id": "k.agreement-termination-document-hint",
+   "opis": "Wypowiedzenie/porozumienie w Dokumentach przy niezapisanym rozwiązaniu: plik w oknie zapisu, tryb z typu pliku",
+   "file": "components/contracts/ContractAgreementRecordDialog.tsx",
+   "marker": "agreement-record-existing-document",
+   "b_home": "Okno „Umowa rozwiązana poza NEXUSEM”"
+  },
+  {
    "id": "k.gen.steps",
    "opis": "Nowa umowa B2B krokami: lista 7 kroków ze stanem (braki albo to, co wpisano)",
    "file": "components/v2/b2b-generator/wizard/AgreementWizard.tsx",

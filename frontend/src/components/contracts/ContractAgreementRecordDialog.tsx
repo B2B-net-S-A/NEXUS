@@ -17,6 +17,12 @@ import {
   type AgreementTerminationParty,
 } from "@/lib/api";
 import { formatIsoDatePl } from "@/lib/date-pl";
+import { openContractDocument } from "@/lib/contract-documents";
+import {
+  terminationDocKind,
+  terminationDocWhere,
+  type TerminationDocumentRef,
+} from "@/lib/contract-happening";
 
 const FIELD =
   "mt-1 w-full border border-border dark:border-border rounded-md px-3 py-2 text-sm bg-card dark:bg-gray-950";
@@ -26,7 +32,16 @@ interface Props {
   candidateName?: string | null;
   /** Koniec projektu — podpowiedź „Ostatniego dnia umowy”. */
   projectEnd: string | null;
+  /**
+   * Wypowiedzenie/porozumienie, które już leży w Dokumentach (22.11.2026):
+   * podpowiada tryb i zastępuje pole skanu. Dat z pliku nie czytamy.
+   */
+  existingDocument?: TerminationDocumentRef | null;
   onClose: () => void;
+}
+
+function modeFromDocument(doc: TerminationDocumentRef | null | undefined): AgreementTerminationMode {
+  return doc?.doc_type === "termination_notice" ? "notice" : "mutual_agreement";
 }
 
 /**
@@ -41,14 +56,18 @@ export function ContractAgreementRecordDialog({
   contractId,
   candidateName,
   projectEnd,
+  existingDocument = null,
   onClose,
 }: Props) {
   const qc = useQueryClient();
-  const [mode, setMode] = useState<AgreementTerminationMode>("mutual_agreement");
+  const [mode, setMode] = useState<AgreementTerminationMode>(() => modeFromDocument(existingDocument));
   const [party, setParty] = useState<AgreementTerminationParty | "">("");
   const [signedOn, setSignedOn] = useState("");
   const [lastDay, setLastDay] = useState(projectEnd?.slice(0, 10) ?? "");
   const [file, setFile] = useState<File | null>(null);
+  // Plik już jest w Dokumentach — drugi skan tylko na żądanie.
+  const [showUpload, setShowUpload] = useState(!existingDocument);
+  const [openError, setOpenError] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const blocking =
@@ -172,6 +191,46 @@ export function ContractAgreementRecordDialog({
           Zapisz, jak i kiedy rozwiązano umowę B2B — kontrakt zniknie z listy
           „Umowa nierozwiązana”, a zakończenie projektu zostaje bez zmian.
         </p>
+        {existingDocument && (
+          <div
+            data-testid="agreement-record-existing-document"
+            className="rounded-md border border-border bg-muted px-3 py-2 text-sm"
+          >
+            <p>
+              W Dokumentach jest już {terminationDocKind(existingDocument)}:{" "}
+              {terminationDocWhere(existingDocument)}. Przepisz z niego daty —
+              NEXUS nie odczytuje ich z pliku.
+            </p>
+            <div className="mt-1.5 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenError(null);
+                  openContractDocument(contractId, existingDocument).catch(() =>
+                    setOpenError("Nie udało się otworzyć dokumentu."),
+                  );
+                }}
+                className="text-sm font-medium text-primary hover:underline"
+              >
+                Otwórz dokument
+              </button>
+              {!showUpload && (
+                <button
+                  type="button"
+                  onClick={() => setShowUpload(true)}
+                  className="text-sm text-muted-foreground hover:underline"
+                >
+                  Dodaj inny skan
+                </button>
+              )}
+            </div>
+            {openError && (
+              <p role="alert" className="mt-1 text-xs text-destructive">
+                {openError}
+              </p>
+            )}
+          </div>
+        )}
         <fieldset>
           <legend className="text-xs text-muted-foreground">Tryb *</legend>
           <div className="mt-1 flex flex-wrap gap-4">
@@ -228,17 +287,19 @@ export function ContractAgreementRecordDialog({
             />
           </label>
         </div>
-        <label className="block">
-          <span className="text-xs text-muted-foreground">
-            Skan porozumienia albo wypowiedzenia (PDF, obraz) — trafi do „Dokumentów”
-          </span>
-          <input
-            type="file"
-            accept="application/pdf,image/*"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="mt-1 block w-full text-sm"
-          />
-        </label>
+        {showUpload && (
+          <label className="block">
+            <span className="text-xs text-muted-foreground">
+              Skan porozumienia albo wypowiedzenia (PDF, obraz) — trafi do „Dokumentów”
+            </span>
+            <input
+              type="file"
+              accept="application/pdf,image/*"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="mt-1 block w-full text-sm"
+            />
+          </label>
+        )}
         {warning && (
           <p className="rounded-md border border-warning/30 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground">
             {warning}
