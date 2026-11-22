@@ -73,8 +73,8 @@ z tego dnia („korekta roczna”, „3% od całego obrotu”) została zastąpi
 
 Przy korekcie na karcie faktury jest przycisk „Szkic korekty rabatu za <miesiąc>”
 (`GET /api/finance/issued-invoices/rebate-correction`, XML: `…/rebate-correction/xml`,
-kod: `services/client_invoicing/rebate_correction.py`). Szkic niczego nie zapisuje
-i NEXUS go nie wysyła. Do KSeF idzie dopiero po „tak” Artura.
+kod: `services/client_invoicing/rebate_correction.py`). Sam podgląd niczego nie zapisuje.
+Zapis to „Wystaw korektę” (sekcja niżej). Do KSeF korekta idzie dopiero po „tak” Artura.
 
 - Kwota to `YearRebate.corrections` z karty, czyli różnica stawek × nadwyżka w walucie progu.
   Na walutę faktur przelicza ją ten sam udział, którego używa karta.
@@ -93,9 +93,30 @@ i NEXUS go nie wysyła. Do KSeF idzie dopiero po „tak” Artura.
 - Testy: `tests/test_client_invoice_rebate_correction.py` sprawdzają XML schematem
   z `tests/data/fa3_schema/` (kopia schematu MF z lokalnymi importami).
 
+## Wystawienie korekty (22.11.2026)
+
+W oknie szkicu jest przycisk „Wystaw korektę” (`POST /api/finance/issued-invoices/rebate-correction`,
+`rebate_correction.create`). Zapisuje podgląd jako szkic `ClientIssuedInvoice` typu `KOR` i otwiera
+jego kartę.
+
+- Faktury korygowane, okres (`OkresFaKorygowanej`) i `TypKorekty` leżą w kolumnie JSONB
+  `collective_correction` (migracja 0750, lustro przez `hr_schema_bundle`). `corrects_id` jest pusty.
+  CHECK `ck_client_issued_invoices_correction`: `KOR` ma albo `corrects_id`, albo `collective_correction`.
+- Jedna korekta na klienta, miesiąc i walutę. Pilnuje tego unikalny indeks
+  `uq_client_issued_invoices_collective_month`, a wycofana się nie liczy. Druga próba kończy się
+  odmową 409 z numerem istniejącej. Okno podglądu i ramka rabatu na karcie pokazują wtedy odnośnik
+  do istniejącej korekty.
+- Numer z serii `KOR` (`KORUE` dla nabywcy z UE) korekta dostaje dopiero przy wysyłce. Wysyłka
+  działa jak dla każdej faktury: przyciskiem Finansów na karcie. Na produkcji wysyłamy tylko po
+  „tak” Artura w czacie. PDF wymienia faktury korygowane.
+- Kwota i lista faktur zostają zamrożone w chwili wystawienia. Jeśli faktura za ten miesiąc dojdzie
+  później, trzeba usunąć szkic i wystawić go od nowa.
+- Przyjęta korekta trafia do `client_sales_invoices` bez `corrects_invoice_id`, bo dotyczy całego
+  miesiąca, a nie pierwszej faktury z listy. Inaczej „Do faktury” pokazałby różnicę na tamtej
+  fakturze. Pozycja zaczyna się od `rebate.REBATE_LINE_PREFIX` („Opust (rabat od obrotu)”), więc
+  `service_base` pomija ją w obrocie do progu: opust jest rabatem, nie obrotem.
+
 ## Czego jeszcze nie ma
 
-- Wystawienia korekty z numerem i wysyłki do KSeF. Tabela `client_issued_invoices` wymaga przy `KOR`
-  jednej faktury korygowanej (`corrects_id`). Korekta zbiorcza potrzebuje więc migracji, a wysyłka „tak” Artura.
 - Obrotu sprzed 4.08.2026: NEXUS czyta KSeF od tego dnia. Faktury ze stycznia–lipca 2026 trzeba
   dograć z archiwum eBI24, inaczej licznik do progu jest zaniżony.

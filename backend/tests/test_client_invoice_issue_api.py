@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
 import httpx
 import pytest
@@ -22,7 +23,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from lxml import etree
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 
@@ -30,6 +31,7 @@ from app.api import client_issued_invoices as api
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.app_setting import AppSetting
+from app.models.client import Client
 from app.models.client_issued_invoice import ClientInvoiceSeries, ClientIssuedInvoice
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
 from app.models.contract import RateUnit
@@ -1051,6 +1053,7 @@ async def test_draft_gets_line_discount_at_rate_from_turnover_before_its_month(
             "rate_diff": "0.5",
             "excess": "10000.00",
             "amounts": [{"currency": "PLN", "amount": "50.00"}],
+            "issued": [],
         }
     ]
 
@@ -1069,3 +1072,176 @@ async def test_draft_gets_line_discount_at_rate_from_turnover_before_its_month(
     await _settings(client, seed)
     plain = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
     assert plain["rebate"] is None
+
+
+# ── Korekta zbiorcza rabatu od obrotu: „Wystaw korektę” (22.11.2026) ────────
+
+FA3_SCHEMA = Path(__file__).parent / "data" / "fa3_schema" / "schemat.xsd"
+REBATE_TERMS = {
+    "threshold_currency": "PLN",
+    "periods": [
+        {
+            "from_year": 2026,
+            "tiers": [{"up_to": 1000, "rate": 2.5}, {"up_to": None, "rate": 3}],
+        }
+    ],
+    "exclude_words": ["podróż"],
+}
+
+
+def _ksef_number(day: date, serial: int) -> str:
+    data = f"{fx.COMPANY_NIP}-{day:%Y%m%d}-{serial:012X}"
+    return f"{data}-{numbers.checksum(data)}"
+
+
+def _discounted_sales(client_id: int, serial: int, day: date, price: str):
+    """Faktura z KSeF z rabatem 2,5% na wierszu (cena przed rabatem, netto po)."""
+
+    net = (Decimal(price) * Decimal("0.975")).quantize(Decimal("0.01"))
+    invoice = _sales(client_id, str(serial), day, str(net), "Usługi IT")
+    invoice.ksef_number = _ksef_number(day, 0xEB0000 + serial)
+    invoice.items = [
+        {
+            "name": "Usługi IT",
+            "quantity": "1",
+            "unit_price": price,
+            "net": str(net),
+            "vat_rate": "23",
+        }
+    ]
+    return invoice
+
+
+async def test_rebate_collective_correction_issue_refuse_second_and_send(client, seed):
+    """Wrzesień 900 + październik 2 × 150 przed rabatem: próg 1000 przekroczony
+    w październiku, nadwyżka 200, korekta 0,5% = 1,00 zł na obie faktury
+    października. „Wystaw korektę” zapisuje szkic KOR bez numeru, druga = 409,
+    wysyłka nadaje numer z serii KOR, XML przechodzi XSD, a przyjęta korekta nie
+    przypina się do jednej faktury i nie zaniża obrotu do progu.
+    """
+
+    await _settings(
+        client, seed, clients={str(seed.client_id): {"rebate": REBATE_TERMS}}
+    )
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                _discounted_sales(seed.client_id, 1, date(2026, 9, 30), "900"),
+                _discounted_sales(seed.client_id, 2, date(2026, 10, 31), "150"),
+                _discounted_sales(seed.client_id, 3, date(2026, 10, 31), "150"),
+            ]
+        )
+        found = await db.get(Client, seed.client_id)
+        found.address = BUYER["address_l1"]
+        await db.commit()
+    query = {"client_id": seed.client_id, **OCTOBER, "currency": "PLN"}
+
+    preview = await client.get(
+        f"{BASE}/rebate-correction", params=query, headers=_h(seed)
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["amount"] == "1.00"
+    assert preview.json()["issued"] is None
+
+    for role in ("recruiter", "dl"):
+        denied = await client.post(
+            f"{BASE}/rebate-correction", json=query, headers=_h(seed, role)
+        )
+        assert denied.status_code == 403, (role, denied.text)
+
+    created = await client.post(
+        f"{BASE}/rebate-correction", json=query, headers=_h(seed)
+    )
+    assert created.status_code == 201, created.text
+    card = created.json()
+    assert card["invoice_type"] == "KOR" and card["series_code"] == "KOR"
+    assert card["status"] == "draft" and card["invoice_number"] is None
+    assert card["corrects"] is None and card["rebate"] is None
+    assert card["net"] == "-1.00"
+    assert card["collective"]["period"] == "01.10.2026-31.10.2026"
+    assert card["collective"]["invoice_count"] == 2
+    assert card["problems"] == [], card["problems"]
+
+    again = await client.post(f"{BASE}/rebate-correction", json=query, headers=_h(seed))
+    assert again.status_code == 409, again.text
+    assert "już jest" in again.json()["detail"]
+    preview = await client.get(
+        f"{BASE}/rebate-correction", params=query, headers=_h(seed)
+    )
+    assert preview.json()["issued"]["id"] == card["id"]
+
+    sent = await _send(client, seed, card["id"])
+    assert sent["status"] == "accepted", sent
+    assert sent["invoice_number"] == "KOR/1/11/2026"
+    xml = seed.fake.received[-1]
+    schema = etree.XMLSchema(etree.parse(str(FA3_SCHEMA)))
+    root = etree.fromstring(xml)
+    assert schema.validate(root), [str(e) for e in schema.error_log]
+    fa = root.find("{*}Fa")
+    assert fa.findtext("{*}RodzajFaktury") == "KOR"
+    assert fa.findtext("{*}TypKorekty") == "2"
+    assert len(fa.findall("{*}DaneFaKorygowanej")) == 2
+    async with AsyncSessionLocal() as db:
+        stored = await db.get(ClientSalesInvoice, sent["sales_invoice_id"])
+        assert stored.invoice_kind == "correction"
+        assert stored.corrects_invoice_id is None
+        assert stored.match_status == "ignored"
+
+    # Przyjęta korekta nie zmienia obrotu do progu: kwota korekty ta sama,
+    # a wysłana korekta dalej blokuje drugą.
+    preview = await client.get(
+        f"{BASE}/rebate-correction", params=query, headers=_h(seed)
+    )
+    assert preview.json()["amount"] == "1.00"
+    assert preview.json()["issued"]["invoice_number"] == "KOR/1/11/2026"
+    again = await client.post(f"{BASE}/rebate-correction", json=query, headers=_h(seed))
+    assert again.status_code == 409
+
+
+async def test_collective_correction_check_and_unique_month_in_database(seed):
+    """CHECK 0750: KOR ma albo ``corrects_id``, albo listę faktur; jedna korekta
+    zbiorcza na klienta, miesiąc i walutę (wycofana się nie liczy)."""
+
+    from app.services import client_invoice_collective_correction_schema as schema
+
+    def kor(**extra) -> ClientIssuedInvoice:
+        return ClientIssuedInvoice(
+            client_id=seed.client_id,
+            invoice_type="KOR",
+            series_code="KOR",
+            status="draft",
+            period_year=2026,
+            period_month=10,
+            issue_date=TODAY,
+            **{"currency": "PLN", **extra},
+        )
+
+    collective = {"invoices": [], "period": "01.10.2026-31.10.2026"}
+    async with AsyncSessionLocal() as db:
+        # Lustro entrypointu jest idempotentne: drugi przebieg nic nie zmienia.
+        for stmt in schema.ALL_DDL:
+            await db.execute(text(stmt))
+        definition = await db.scalar(
+            text(
+                "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE conname = 'ck_client_issued_invoices_correction'"
+            )
+        )
+        assert "collective_correction" in definition
+        await db.commit()
+
+        for bad in (kor(), kor(collective_correction=[1])):
+            with pytest.raises(IntegrityError):
+                async with db.begin_nested():
+                    db.add(bad)
+                    await db.flush()
+
+        db.add(kor(collective_correction=collective))
+        await db.flush()
+        with pytest.raises(IntegrityError):
+            async with db.begin_nested():
+                db.add(kor(collective_correction=collective))
+                await db.flush()
+        db.add(kor(collective_correction=collective, currency="EUR"))
+        await db.flush()
+        await db.rollback()

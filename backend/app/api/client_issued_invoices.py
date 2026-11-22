@@ -12,8 +12,10 @@ admin widzi ekrany zawsze (jak „Faktury do klientów”).
 * ``POST /{id}/send`` — wysyłka do KSeF (``KSEF_SALES_ISSUE_MODE``),
   ``POST /{id}/check`` — „Sprawdź status”,
 * ``POST /{id}/correction``, ``POST /advance`` — korekta i zaliczkowa,
-* ``GET /rebate-correction`` (+ ``/xml``) — szkic korekty zbiorczej rabatu od
-  obrotu za miesiąc przekroczenia progu (16.11.2026; bez zapisu i bez wysyłki),
+* ``GET /rebate-correction`` (+ ``/xml``) — podgląd korekty zbiorczej rabatu od
+  obrotu za miesiąc przekroczenia progu (16.11.2026; bez zapisu i bez wysyłki);
+  ``POST /rebate-correction`` — „Wystaw korektę”: szkic ``KOR`` z listą faktur
+  (22.11.2026), dalej jak każda faktura (wysyłka przyciskiem Finansów),
 * ``GET /{id}/pdf``, ``/upo``, ``/xml`` — pliki,
 * E6 (15.11.2026): ``POST /manual`` — faktura z ręki (klient albo dowolny
   nabywca); ``GET/POST /templates``, ``PUT/DELETE /templates/{id}`` — szablony
@@ -247,6 +249,13 @@ class AdvanceIn(BaseModel):
     client_id: int = Field(..., gt=0)
     currency: Literal["PLN", "EUR", "USD"] = "PLN"
     received_on: date
+
+
+class RebateCorrectionIn(BaseModel):
+    client_id: int = Field(..., ge=1)
+    year: int = Field(..., ge=2020, le=2100)
+    month: int = Field(..., ge=1, le=12)
+    currency: Literal["PLN", "EUR", "USD"] = "PLN"
 
 
 class CorrectionIn(BaseModel):
@@ -579,7 +588,47 @@ async def rebate_correction_draft(
 
     await _module_open(db, current_user)
     prepared = await _rebate_correction(db, client_id, year, month, currency)
-    return rebate_correction.payload(prepared, client_id=client_id)
+    data = rebate_correction.payload(prepared, client_id=client_id)
+    issued = await issue.collective_issued(
+        db, client_id=client_id, year=year, month=month, currency=currency
+    )
+    data["issued"] = issue._issued_ref(issued[0]) if issued else None
+    return data
+
+
+@router.post("/rebate-correction", status_code=status.HTTP_201_CREATED)
+async def rebate_correction_issue(
+    body: RebateCorrectionIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """„Wystaw korektę”: szkic korekty zbiorczej (``KOR``) zapisany w bazie.
+
+    Numer z serii ``KOR`` dostaje przy wysyłce; do KSeF idzie przyciskiem
+    Finansów na karcie. Druga korekta za ten sam miesiąc i walutę = 409.
+    """
+
+    await _module_open(db, current_user)
+    try:
+        with _http_errors():
+            invoice = await rebate_correction.create(
+                db,
+                client_id=body.client_id,
+                year=body.year,
+                month=body.month,
+                currency=body.currency,
+                actor_id=current_user.id,
+                today=business_today(),
+            )
+        await db.commit()
+    except IntegrityError as exc:
+        # Drugie kliknięcie w tym samym czasie — unikalny indeks miesiąca.
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Korekta rabatu za ten miesiąc już powstała — odśwież kartę.",
+        ) from exc
+    return await _card(db, invoice)
 
 
 @router.get("/rebate-correction/xml")

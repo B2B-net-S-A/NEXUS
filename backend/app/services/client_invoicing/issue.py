@@ -854,6 +854,10 @@ async def problems(
             out.append("Podaj przyczynę korekty.")
         if invoice.lines == invoice.lines_before:
             out.append("Korekta nie zmienia żadnej pozycji.")
+        if invoice.collective_correction is not None and not (
+            invoice.collective_correction.get("invoices")
+        ):
+            out.append("Korekta zbiorcza nie wskazuje żadnej faktury korygowanej.")
     if invoice.currency != "PLN" and invoice.fx_rate is None:
         delivery = invoice.period_to or invoice.sale_date or invoice.issue_date
         out.append(
@@ -898,6 +902,9 @@ async def document(
             ksef_number=original.ksef_number,
             reason=invoice.correction_reason,
         )
+    collective = (
+        invoice.collective_correction if invoice.invoice_type == "KOR" else None
+    )
     buyer = invoice.buyer or {}
     return fa3_build.InvoiceDocument(
         invoice_type=invoice.invoice_type,
@@ -937,7 +944,27 @@ async def document(
         notes=invoice.notes,
         exemption_basis=settings["exemption_basis"] or None,
         corrected=corrected,
+        corrected_list=collective_refs(collective),
+        correction_reason=invoice.correction_reason if collective else None,
+        correction_type=(collective or {}).get("correction_type") or None,
+        corrected_period=(collective or {}).get("period") or None,
         created_at=_now(),
+    )
+
+
+def collective_refs(
+    collective: Optional[dict[str, Any]],
+) -> tuple[fa3_build.CorrectedInvoice, ...]:
+    """Faktury korygowane korekty zbiorczej (``collective_correction.invoices``)."""
+
+    return tuple(
+        fa3_build.CorrectedInvoice(
+            number=str(item["number"]),
+            issue_date=date.fromisoformat(str(item["issue_date"])[:10]),
+            ksef_number=item.get("ksef_number") or None,
+            reason=None,
+        )
+        for item in (collective or {}).get("invoices") or ()
     )
 
 
@@ -1124,6 +1151,10 @@ async def link_sales_invoice(
     invoice.sales_invoice_id = sales.id
     if sales.client_id is None:
         sales.client_id = invoice.client_id
+    if invoice.collective_correction is not None:
+        # Korekta zbiorcza dotyczy całego miesiąca: odczyt XML-a przypiąłby ją do
+        # pierwszej faktury z listy, a „Do faktury” pokazałby tam różnicę.
+        sales.corrects_invoice_id = None
     targets: list[matching.Target] = []
     if invoice.order_id is not None:
         targets.append(matching.Target(order_id=invoice.order_id))
@@ -1275,6 +1306,7 @@ async def payload(
             "corrects": {"id": corrects.id, "invoice_number": corrects.invoice_number}
             if corrects is not None
             else None,
+            "collective": _collective_payload(invoice.collective_correction),
             "ksef_status_code": invoice.ksef_status_code,
             "ksef_environment": invoice.ksef_environment,
             "has_upo": bool(invoice.upo_xml),
@@ -1294,6 +1326,30 @@ async def payload(
         }
     )
     return data
+
+
+def _collective_payload(raw: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    if not raw:
+        return None
+    invoices = [
+        {
+            "number": item.get("number"),
+            "issue_date": item.get("issue_date"),
+            "ksef_number": item.get("ksef_number"),
+        }
+        for item in raw.get("invoices") or ()
+    ]
+    return {
+        "year": raw.get("year"),
+        "month": raw.get("month"),
+        "period": raw.get("period"),
+        "correction_type": raw.get("correction_type"),
+        "rate_diff": raw.get("rate_diff"),
+        "excess": raw.get("excess"),
+        "threshold_currency": raw.get("threshold_currency"),
+        "invoice_count": len(invoices),
+        "invoices": invoices,
+    }
 
 
 def _rebate_period(invoice: ClientIssuedInvoice) -> tuple[int, int]:
@@ -1351,7 +1407,12 @@ async def _rebate(
     """
 
     terms = issue_settings.client_rebate(settings, invoice.client_id)
-    if terms is None or invoice.client_id is None or invoice.status == "cancelled":
+    if (
+        terms is None
+        or invoice.client_id is None
+        or invoice.status == "cancelled"
+        or invoice.collective_correction is not None
+    ):
         return None
     year, month = _rebate_period(invoice)
     lines = list(invoice.lines or [])
@@ -1387,12 +1448,53 @@ async def _rebate(
         ),
         Decimal(0),
     )
-    return rebate.payload(
+    data = rebate.payload(
         status,
         month=month,
         on_invoice=on_invoice if discounted else None,
         currency=invoice.currency,
     )
+    issued = await collective_issued(db, client_id=invoice.client_id, year=year)
+    for item in data["corrections"]:
+        item["issued"] = [
+            _issued_ref(found)
+            for found in issued
+            if found.period_month == item["month"]
+        ]
+    return data
+
+
+async def collective_issued(
+    db: AsyncSession,
+    *,
+    client_id: int,
+    year: int,
+    month: Optional[int] = None,
+    currency: Optional[str] = None,
+) -> list[ClientIssuedInvoice]:
+    """Korekty zbiorcze rabatu klienta w roku (bez wycofanych)."""
+
+    query = select(ClientIssuedInvoice).where(
+        ClientIssuedInvoice.client_id == client_id,
+        ClientIssuedInvoice.period_year == year,
+        ClientIssuedInvoice.collective_correction.is_not(None),
+        ClientIssuedInvoice.status != "cancelled",
+    )
+    if month is not None:
+        query = query.where(ClientIssuedInvoice.period_month == month)
+    if currency is not None:
+        query = query.where(ClientIssuedInvoice.currency == currency)
+    return list(await db.scalars(query.order_by(ClientIssuedInvoice.id)))
+
+
+def _issued_ref(invoice: ClientIssuedInvoice) -> dict[str, Any]:
+    return {
+        "id": invoice.id,
+        "currency": invoice.currency,
+        "status": invoice.status,
+        "status_label": STATUS_LABELS[invoice.status],
+        "invoice_number": invoice.invoice_number,
+    }
 
 
 async def listing(
@@ -1451,6 +1553,8 @@ __all__ = [
     "IssueError",
     "apply_result",
     "clean_line",
+    "collective_issued",
+    "collective_refs",
     "create_advance",
     "create_correction",
     "create_drafts",
