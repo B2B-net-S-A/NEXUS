@@ -1223,7 +1223,7 @@ except Exception as _prep_review_config_err:  # noqa: BLE001
     print(f"prep review config DDL unavailable: {_prep_review_config_err!r}")
     _PREP_REVIEW_CONFIG_DDL = []
 
-# Układ CV klasyczny / „Nowe CV” (migracja 0752) — JEDNO źródło z migracją
+# Układ CV klasyczny / „Nowe CV” (migracja 0753) — JEDNO źródło z migracją
 # (`app/services/cv_layout_schema.py`).
 try:
     from app.services import cv_layout_schema as _cv_layout_schema

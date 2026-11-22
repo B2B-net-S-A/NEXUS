@@ -1,8 +1,8 @@
 """Układ CV: klasyczny Word albo „Nowe CV” w PDF — przy CV etapu, wersji,
 wygenerowanym dokumencie i regule klienta, plus dodatki strony 1.
 
-Revision ID: 0752_cv_layout
-Revises: 0751_settlement_extra_sources
+Revision ID: 0753_cv_layout
+Revises: 0752_drop_compass_workdays_sync_state
 
 SQL i powody: ``app/services/cv_layout_schema.py`` (to samo źródło czyta
 ``entrypoint.sh``).
@@ -12,8 +12,8 @@ from alembic import op
 
 from app.services import cv_layout_schema as schema
 
-revision = "0752_cv_layout"
-down_revision = "0751_settlement_extra_sources"
+revision = "0753_cv_layout"
+down_revision = "0752_drop_compass_workdays_sync_state"
 branch_labels = None
 depends_on = None
 
