@@ -4300,7 +4300,7 @@
     "id": "podpis-dokumenty-kodem-z-maila",
     "pr": 3727,
     "title": "Dokumenty do startu: kwalifikowany tylko przy umowie",
-    "why": "Podpis kwalifikowany jest potrzebny tylko przy umowie. NDA i inne dokumenty kontraktor podpisze tym samym podpisem albo zaakceptuje kodem z maila. Gdy klient wymaga kwalifikowanego przy dokumencie, zaznacz to w oknie wysyłki.",
+    "why": "Kwalifikowany podpis jest potrzebny tylko przy umowie. NDA i inne dokumenty kontraktor podpisze nim albo zaakceptuje kodem z maila. Wymóg klienta zaznaczysz w oknie wysyłki.",
     "tier": "dot",
     "shipped_on": "2026-11-23",
     "audience": {
@@ -4333,7 +4333,7 @@
       {
         "anchor": "b2b.esign.package",
         "text": "Przy każdym dokumencie widać, jaki podpis jest potrzebny.",
-        "hint": "Umowa zawsze kwalifikowanym. NDA i inne dokumenty kontraktor podpisze tym samym podpisem albo zaakceptuje kodem z maila. Zaznacz „klient wymaga kwalifikowanego”, gdy klient tego chce.",
+        "hint": "Umowa zawsze kwalifikowanym. Przy NDA zaznacz „klient wymaga kwalifikowanego”, gdy klient tego chce. Inaczej wystarczy kod z maila.",
         "ack": true
       }
     ]
