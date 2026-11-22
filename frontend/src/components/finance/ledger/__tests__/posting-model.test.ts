@@ -5,6 +5,11 @@ import type { DecreeSection } from "@/lib/api/finance-posting";
 import {
   categoryLocked,
   checkDraft,
+  dayLabel,
+  descriptionDraft,
+  descriptionProblems,
+  descriptionToInput,
+  selfAssessed,
   fxLabel,
   draftFromSection,
   draftToInput,
@@ -170,5 +175,51 @@ describe("poprawki po przeglądzie (13.11)", () => {
       "Kurs NBP EUR 4,2512 z 03.11.2026",
     );
     expect(fxLabel(SECTION)).toBeNull();
+  });
+});
+
+describe("opis faktury do księgowania", () => {
+  const section = {
+    choices: { doc_type: "IU", eu: true, car: false, fx_rate: "4.2345" },
+  } as unknown as DecreeSection;
+
+  it("szkic z wyborów i z powrotem — puste pola idą jako null", () => {
+    const draft = descriptionDraft(section);
+    expect(draft.doc_type).toBe("IU");
+    expect(draft.eu).toBe("yes");
+    expect(draft.service).toBe("");
+    const input = descriptionToInput({ ...draft, net_account: " 402-215 ", fx_rate: "4,5" }, null);
+    expect(input).toMatchObject({
+      doc_type: "IU",
+      net_account: "402-215",
+      eu: true,
+      service: null,
+      fx_rate: "4.5",
+      register: null,
+    });
+  });
+
+  it("bez importu usług flagi UE i usługa nie idą", () => {
+    const draft = { ...descriptionDraft(section), doc_type: "FVZ", eu: "yes" as const };
+    expect(selfAssessed(draft, "FVZ")).toBe(false);
+    expect(descriptionToInput(draft, "FVZ").eu).toBeNull();
+    expect(selfAssessed({ ...draft, doc_type: "" }, "WNT")).toBe(true);
+  });
+
+  it("samochód: konto pozabilansowe tylko przy zaznaczonym", () => {
+    const draft = { ...descriptionDraft(section), offbalance_account: "902" };
+    expect(descriptionToInput(draft, null).offbalance_account).toBeNull();
+    expect(descriptionToInput({ ...draft, car: true }, null).offbalance_account).toBe("902");
+  });
+
+  it("zły kurs i tabela NBP to problemy szkicu", () => {
+    const draft = { ...descriptionDraft(section), fx_rate: "4.1234567", fx_table: "1/A/NBP" };
+    expect(descriptionProblems(draft)).toHaveLength(2);
+    expect(descriptionProblems({ ...draft, fx_rate: "4.1", fx_table: "211/a/nbp/2026" })).toEqual([]);
+  });
+
+  it("data po polsku", () => {
+    expect(dayLabel("2026-10-31")).toBe("31.10.2026");
+    expect(dayLabel(null)).toBe("—");
   });
 });

@@ -8,6 +8,7 @@ import type { CostStage } from "@/lib/api/finance-ledger";
 import type {
   DecreeInput,
   DecreeSection,
+  DescriptionInput,
   Deduction,
   PositionKind,
   Register,
@@ -18,6 +19,11 @@ export const KIND_LABELS: Record<PositionKind, string> = {
   cost: "Koszt",
   vat: "VAT",
   counterparty: "Rozrachunek",
+  vat_due: "VAT należny",
+  allocation: "„5” (równoległy)",
+  allocation_offset: "490 (równoległy)",
+  offbalance: "999 (pozabilansowo)",
+  offbalance_offset: "902–903 (pozabilansowo)",
 };
 
 export const REGISTER_LABELS: Record<Register, string> = {
@@ -28,6 +34,7 @@ export const REGISTER_LABELS: Record<Register, string> = {
 export const DEDUCTION_LABELS: Record<Deduction, string> = {
   full: "100%",
   none: "brak",
+  partial: "50% (samochód)",
 };
 
 export const TEMPLATE_FIELDS = ["{usługa}", "{MM}", "{RRRR}", "{numer}", "{kontrahent}"] as const;
@@ -203,4 +210,123 @@ export function fxLabel(section: DecreeSection): string | null {
 export function previousMonth(today: string): string {
   const [year, month] = today.split("-").map(Number);
   return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, "0")}`;
+}
+
+// ── Opis faktury do księgowania (arkusz księgowej z 18.11.2026) ─────────────
+
+/** Typy z VAT liczonym przez nabywcę (rejestr naliczony + należny). */
+export const IMPORT_DOC_TYPES = ["IU", "WNT"] as const;
+
+export interface DescriptionDraft {
+  description: string;
+  doc_type: string;
+  register: string;
+  net_account: string;
+  vat_account: string;
+  output: boolean;
+  output_register: string;
+  output_vat_account: string;
+  eu: "" | "yes" | "no";
+  service: "" | "yes" | "no";
+  import_rate: string;
+  allocation_account: string;
+  car: boolean;
+  offbalance_account: string;
+  jpk_procedure: string;
+  fx_date: string;
+  fx_rate: string;
+  fx_table: string;
+  service_date: string;
+}
+
+function flag(value: boolean | null | undefined): "" | "yes" | "no" {
+  if (value === true) return "yes";
+  if (value === false) return "no";
+  return "";
+}
+
+/** Szkic z wyborów zapisanych na fakturze (puste = podpowiedź reguły). */
+export function descriptionDraft(section: DecreeSection): DescriptionDraft {
+  const c: DescriptionInput = section.choices ?? {};
+  return {
+    description: c.description ?? "",
+    doc_type: c.doc_type ?? "",
+    register: c.register ?? "",
+    net_account: c.net_account ?? "",
+    vat_account: c.vat_account ?? "",
+    output: Boolean(c.output_register),
+    output_register: c.output_register ?? "",
+    output_vat_account: c.output_vat_account ?? "",
+    eu: flag(c.eu),
+    service: flag(c.service),
+    import_rate: c.import_rate ? String(c.import_rate) : "",
+    allocation_account: c.allocation_account ?? "",
+    car: Boolean(c.car),
+    offbalance_account: c.offbalance_account ?? "",
+    jpk_procedure: c.jpk_procedure ?? "",
+    fx_date: c.fx_date ?? "",
+    fx_rate: c.fx_rate ?? "",
+    fx_table: c.fx_table ?? "",
+    service_date: c.service_date ?? "",
+  };
+}
+
+/** Import usług / WNT albo zaznaczony rejestr VAT należnego. */
+export function selfAssessed(draft: DescriptionDraft, effectiveDocType: string | null): boolean {
+  const docType = draft.doc_type || effectiveDocType || "";
+  return draft.output || (IMPORT_DOC_TYPES as readonly string[]).includes(docType);
+}
+
+function text(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function yesNo(value: "" | "yes" | "no"): boolean | null {
+  return value === "" ? null : value === "yes";
+}
+
+/** Szkic → treść `PUT …/description` (puste pola = podpowiedź z reguły). */
+export function descriptionToInput(
+  draft: DescriptionDraft,
+  effectiveDocType: string | null,
+): DescriptionInput {
+  const assessed = selfAssessed(draft, effectiveDocType);
+  return {
+    description: text(draft.description),
+    doc_type: text(draft.doc_type),
+    register: text(draft.register),
+    net_account: text(draft.net_account.replace(/\s/g, "")),
+    vat_account: text(draft.vat_account),
+    output_register: draft.output ? text(draft.output_register) : null,
+    output_vat_account: assessed ? text(draft.output_vat_account) : null,
+    eu: assessed ? yesNo(draft.eu) : null,
+    service: assessed ? yesNo(draft.service) : null,
+    import_rate: assessed && draft.import_rate ? Number(draft.import_rate) : null,
+    allocation_account: text(draft.allocation_account.replace(/\s/g, "")),
+    car: draft.car,
+    offbalance_account: draft.car ? text(draft.offbalance_account) : null,
+    jpk_procedure: text(draft.jpk_procedure),
+    fx_date: text(draft.fx_date),
+    fx_rate: text(draft.fx_rate.replace(",", ".")),
+    fx_table: text(draft.fx_table.toUpperCase()),
+    service_date: text(draft.service_date),
+  };
+}
+
+/** Problemy szkicu, które widać przed wysłaniem (resztę sprawdza serwer). */
+export function descriptionProblems(draft: DescriptionDraft): string[] {
+  const problems: string[] = [];
+  const rate = draft.fx_rate.replace(",", ".").trim();
+  if (rate && !/^\d+(\.\d{1,6})?$/.test(rate)) problems.push("Kurs: liczba z kropką albo przecinkiem.");
+  const table = draft.fx_table.trim().toUpperCase();
+  if (table && !/^\d{1,3}\/[ABC]\/NBP\/\d{4}$/.test(table))
+    problems.push("Tabela NBP: numer jak 211/A/NBP/2026.");
+  if (draft.description.length > 255) problems.push("Opis księgowy ma najwyżej 255 znaków.");
+  return problems;
+}
+
+/** „2026-10-31” → „31.10.2026”. */
+export function dayLabel(iso: string | null | undefined): string {
+  return iso ? iso.split("-").reverse().join(".") : "—";
 }

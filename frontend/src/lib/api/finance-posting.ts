@@ -15,9 +15,17 @@ const POSTING = "/api/finance/posting";
 
 /** `other` — konto księgi spoza dekretu faktur (K1, 0700); ekran planu kont E2 go nie ustawia. */
 export type AccountKind = "cost" | "vat" | "settlement" | "revenue" | "other";
-export type Deduction = "full" | "none";
+export type Deduction = "full" | "none" | "partial";
 export type Register = "purchase" | "sale";
-export type PositionKind = "cost" | "vat" | "counterparty";
+export type PositionKind =
+  | "cost"
+  | "vat"
+  | "counterparty"
+  | "vat_due"
+  | "allocation"
+  | "allocation_offset"
+  | "offbalance"
+  | "offbalance_offset";
 export type Side = "debit" | "credit";
 export type BatchStatus = "exported" | "booked" | "cancelled";
 
@@ -71,9 +79,78 @@ export interface DecreePosition {
   side: Side;
   side_label: string;
   amount: string;
+  /** Kwota w walucie faktury (dekret w walucie obcej). */
+  amount_cur?: string | null;
+  /** Zapis równoległy „5” / 490 (szablon 4 Symfonii: `ZapisRownolegly`). */
+  parallel?: boolean;
   vat_rate: string | null;
   deduction: Deduction | null;
   deduction_label: string | null;
+}
+
+/** Pozycja rejestru VAT z opisu faktury (kwoty w PLN, w walucie osobno). */
+export interface DecreeRegister {
+  name: string;
+  rate: string | null;
+  net: string;
+  vat: string;
+  gross: string;
+  net_cur: string | null;
+  vat_cur: string | null;
+  gross_cur: string | null;
+  output: boolean;
+  eu: boolean;
+  service: boolean;
+}
+
+/**
+ * Opis faktury do księgowania (arkusz głównej księgowej z 18.11.2026).
+ * Puste pole = podpowiedź z reguły dekretu.
+ */
+export interface DescriptionInput {
+  description?: string | null;
+  doc_type?: string | null;
+  register?: string | null;
+  net_account?: string | null;
+  vat_account?: string | null;
+  output_register?: string | null;
+  output_vat_account?: string | null;
+  eu?: boolean | null;
+  service?: boolean | null;
+  import_rate?: number | null;
+  allocation_account?: string | null;
+  car?: boolean;
+  offbalance_account?: string | null;
+  jpk_procedure?: string | null;
+  fx_date?: string | null;
+  fx_rate?: string | null;
+  fx_table?: string | null;
+  service_date?: string | null;
+}
+
+export type DescriptionValues = Required<{
+  [K in keyof DescriptionInput]: NonNullable<DescriptionInput[K]> | null;
+}>;
+
+export interface ChoiceOption {
+  value: string;
+  label: string;
+  in_plan?: boolean;
+}
+
+export interface ChoiceLists {
+  doc_types: ChoiceOption[];
+  registers: ChoiceOption[];
+  output_registers: ChoiceOption[];
+  vat_accounts: ChoiceOption[];
+  output_vat_accounts: ChoiceOption[];
+  jpk_procedures: ChoiceOption[];
+  import_rates: number[];
+  net_accounts: ChoiceOption[];
+  allocation_accounts: ChoiceOption[];
+  offbalance_accounts: ChoiceOption[];
+  allocation_offset: string;
+  offbalance_debit: string;
 }
 
 export interface DecreeSection {
@@ -96,6 +173,16 @@ export interface DecreeSection {
   /** Waluta obca: kurs NBP z ostatniego dnia roboczego przed wystawieniem. */
   fx_rate: string | null;
   fx_date: string | null;
+  fx_table?: string | null;
+  registers?: DecreeRegister[];
+  jpk_procedure?: string | null;
+  service_date?: string | null;
+  car?: boolean;
+  self_assessed?: boolean;
+  /** Wybory z karty (puste = z reguły). */
+  choices?: DescriptionInput;
+  /** Wartości, jakie dekret dziś ma (wybór albo podpowiedź reguły). */
+  effective?: DescriptionValues | null;
 }
 
 export interface DecreeInput {
@@ -192,6 +279,7 @@ export const postingKeys = {
   rules: ["finance-posting", "rules"] as const,
   options: (q: string) => ["finance-posting", "counterparty-options", q] as const,
   exports: ["finance-posting", "export"] as const,
+  choiceLists: ["finance-posting", "choice-lists"] as const,
   export: (month: string) => ["finance-posting", "export", month] as const,
 };
 
@@ -280,6 +368,24 @@ export function useDecreeSave(entryId: number) {
     mutationFn: async (body: DecreeInput) =>
       (await api.put<CostCard>(`${POSTING}/entries/${entryId}/decree`, body)).data,
     onSuccess: update,
+  });
+}
+
+export function useDescriptionSave(entryId: number) {
+  const update = useCardUpdate(entryId);
+  return useMutation({
+    mutationFn: async (body: DescriptionInput) =>
+      (await api.put<CostCard>(`${POSTING}/entries/${entryId}/description`, body)).data,
+    onSuccess: update,
+  });
+}
+
+export function useChoiceLists(enabled = true) {
+  return useQuery({
+    queryKey: postingKeys.choiceLists,
+    queryFn: async () => (await api.get<ChoiceLists>(`${POSTING}/choice-lists`)).data,
+    enabled,
+    staleTime: 5 * 60_000,
   });
 }
 

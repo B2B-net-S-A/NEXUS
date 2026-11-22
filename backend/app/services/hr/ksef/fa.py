@@ -116,6 +116,8 @@ class ParsedInvoice:
     #: Rachunek faktora (``Platnosc/RachunekBankowyFaktora/NrRB``) — przy
     #: faktoringu płacimy na niego, nie na rachunek sprzedawcy.
     factor_accounts: tuple[str, ...] = ()
+    #: Adnotacja „metoda kasowa” (``Adnotacje/P_16`` = 1) — procedura JPK MK.
+    cash_method: bool = False
 
 
 def _accounts(fa: Any, node_name: str = "RachunekBankowy") -> tuple[str, ...]:
@@ -326,4 +328,5 @@ def parse_invoice(xml: bytes) -> ParsedInvoice:
         correction_reason=_text(fa, "PrzyczynaKorekty", limit=256),
         accounts=_accounts(fa),
         factor_accounts=_accounts(fa, "RachunekBankowyFaktora"),
+        cash_method=_text(fa, "Adnotacje", "P_16") == "1",
     )

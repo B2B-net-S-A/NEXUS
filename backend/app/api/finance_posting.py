@@ -11,6 +11,9 @@ zespołu (D2) widzą tylko Płace i admin — także w dekrecie, eksporcie i pac
   ``GET /counterparty-options?q=`` — kontrahent do reguły,
 * ``POST /entries/{id}/recalculate`` — „Przelicz” dekret z reguły,
   ``PUT /entries/{id}/decree`` — ręczna korekta pozycji (Wn = Ma, inaczej 422),
+  ``PUT /entries/{id}/description`` — opis do księgowania (typ, rejestr, konta,
+  „5”, samochód, import usług, JPK, kurs) wg arkusza księgowej z 18.11.2026,
+  ``GET /choice-lists`` — listy wyboru do opisu (konta z planu i listy stałe),
 * ``GET /export?month=`` — lista miesiąca per rejestr z kontrolą (M3),
 * ``GET /batches?month=``, ``POST /batches`` (paczka + plik),
   ``GET /batches/{id}/file`` (ten sam plik przy każdym pobraniu),
@@ -47,7 +50,7 @@ from app.services.hr.payroll_access import is_payroll
 router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
 
 AccountKind = Literal["cost", "vat", "settlement", "revenue"]
-Deduction = Literal["full", "none"]
+Deduction = Literal["full", "none", "partial"]
 Register = Literal["purchase", "sale"]
 FileFormat = Literal["neutral_xlsx", "neutral_csv"]
 
@@ -83,7 +86,16 @@ class RuleIn(RuleFields):
 
 
 class PositionIn(BaseModel):
-    kind: Literal["cost", "vat", "counterparty"]
+    kind: Literal[
+        "cost",
+        "vat",
+        "counterparty",
+        "vat_due",
+        "allocation",
+        "allocation_offset",
+        "offbalance",
+        "offbalance_offset",
+    ]
     account: str = Field(max_length=ACCOUNT_MAX + 8)
     side: Literal["debit", "credit"]
     amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
@@ -97,6 +109,30 @@ class DecreeIn(BaseModel):
     doc_type: str = Field(max_length=DOC_TYPE_MAX + 4)
     description: str = Field(default="", max_length=posting.DESCRIPTION_MAX)
     positions: list[PositionIn] = Field(min_length=1, max_length=posting.POSITIONS_MAX)
+
+
+class DescriptionIn(BaseModel):
+    """Opis faktury do księgowania; puste pole = podpowiedź z reguły."""
+
+    model_config = ConfigDict(populate_by_name=True)
+    description: Optional[str] = Field(default=None, max_length=posting.DESCRIPTION_MAX)
+    doc_type: Optional[str] = Field(default=None, max_length=8)
+    register_: Optional[str] = Field(default=None, max_length=64, alias="register")
+    net_account: Optional[str] = Field(default=None, max_length=ACCOUNT_MAX + 8)
+    vat_account: Optional[str] = Field(default=None, max_length=ACCOUNT_MAX + 8)
+    output_register: Optional[str] = Field(default=None, max_length=64)
+    output_vat_account: Optional[str] = Field(default=None, max_length=ACCOUNT_MAX + 8)
+    eu: Optional[bool] = None
+    service: Optional[bool] = None
+    import_rate: Optional[int] = None
+    allocation_account: Optional[str] = Field(default=None, max_length=ACCOUNT_MAX + 8)
+    car: bool = False
+    offbalance_account: Optional[str] = Field(default=None, max_length=ACCOUNT_MAX + 8)
+    jpk_procedure: Optional[str] = Field(default=None, max_length=16)
+    fx_date: Optional[date] = None
+    fx_rate: Optional[Decimal] = Field(default=None, max_digits=14, decimal_places=6)
+    fx_table: Optional[str] = Field(default=None, max_length=32)
+    service_date: Optional[date] = None
 
 
 class BatchIn(BaseModel):
@@ -279,6 +315,38 @@ async def set_decree(
         raise _fail(exc) from exc
     await db.commit()
     return await _card(db, entry_id, current_user)
+
+
+@router.put("/entries/{entry_id}/description")
+async def set_description(
+    entry_id: int,
+    body: DescriptionIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _open(db, current_user)
+    try:
+        await posting.set_choices(
+            db,
+            entry_id,
+            body.model_dump(mode="json", by_alias=True),
+            actor_id=current_user.id,
+            now=_now(),
+            payroll=is_payroll(current_user),
+        )
+    except costs.LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return await _card(db, entry_id, current_user)
+
+
+@router.get("/choice-lists")
+async def choice_lists(
+    current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    await _open(db, current_user)
+    return await posting.choice_lists(db)
 
 
 # ── Eksport miesiąca ─────────────────────────────────────────────────────────
