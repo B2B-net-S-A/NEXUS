@@ -42,11 +42,20 @@ function granted(user: ViewerUser, permission: string): boolean {
   return roles.has("admin") || (defaults[permission] ?? []).some((r) => roles.has(r));
 }
 
+/** Lustro `access_scope.is_delivery_lead_governed`: kwoty tylko z portfela DL-a. */
+function deliveryLeadGoverned(user: ViewerUser): boolean {
+  const roles = new Set([user.role, ...(user.roles ?? [])]);
+  return roles.has("delivery_lead") && !roles.has("admin") && !roles.has("finance");
+}
+
 export function viewerFrom(user: ViewerUser | null | undefined): PoligonViewer {
   if (!user) return NO_AMOUNTS;
   const caps = new Set([...(user.analytics_capabilities ?? []), ...(user.capabilities ?? [])]);
-  const globalFinance = caps.has("view_finance");
-  const amounts = globalFinance || granted(user, "amounts_view");
+  const amountsView = granted(user, "amounts_view");
+  // Kwoty każdego klienta (`_contract_finance_read_scope` w `api/contracts.py`):
+  // „view_finance” albo podgląd kwot bez portfela Delivery Leada.
+  const globalFinance = caps.has("view_finance") || (amountsView && !deliveryLeadGoverned(user));
+  const amounts = globalFinance || amountsView;
   return { amounts, companyMargin: amounts && (!globalFinance || granted(user, "company_results")) };
 }
 

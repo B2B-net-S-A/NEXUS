@@ -105,6 +105,12 @@ describe("klient ćwiczebny: kwoty tylko dla ról z kwotą", () => {
     expect((get(`/api/contracts/${ACTIVE_CONTRACT}`, viewer).data as Row).margin).toBe(17);
   });
 
+  it("back office (kwoty każdego klienta, bez „Wyników firmy”) też nie widzi marży w wierszach listy", () => {
+    const backOffice = { role: "back_office", effective_action_access: access(["delivery_view", "amounts_view"]) };
+    expect(viewerFrom(backOffice)).toEqual({ amounts: true, companyMargin: false });
+    expect(viewerFrom(DL)).toEqual({ amounts: true, companyMargin: true });
+  });
+
   it("odpowiedzi rekrutacji ćwiczebnej (nagranie) nie tracą stawek kandydata", () => {
     const board = get(`/api/pipeline/kanban/${DATA.meta.job_id}`, NO_AMOUNTS).data;
     expect(JSON.stringify(board)).toBe(JSON.stringify(resolveDates(DATA.responses[`GET /api/pipeline/kanban/${DATA.meta.job_id}`], NOW)));
