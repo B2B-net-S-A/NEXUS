@@ -134,6 +134,15 @@ class ClientIssuedInvoice(Base, TimestampMixin):
             postgresql_where=text(schema.CORRECTS_WHERE),
         ),
         Index(
+            "uq_client_issued_invoices_collective_month",
+            "client_id",
+            "period_year",
+            "period_month",
+            "currency",
+            unique=True,
+            postgresql_where=text(schema.COLLECTIVE_WHERE),
+        ),
+        Index(
             "uq_client_issued_invoices_template_period",
             "template_id",
             "period_year",
@@ -180,6 +189,10 @@ class ClientIssuedInvoice(Base, TimestampMixin):
     )
     correction_reason: Mapped[Optional[str]] = mapped_column(
         String(schema.REASON_MAX), nullable=True
+    )
+    #: Korekta zbiorcza rabatu od obrotu (0749): faktury z KSeF, okres, typ korekty.
+    collective_correction: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
     )
     currency: Mapped[str] = mapped_column(
         String(3), nullable=False, default="PLN", server_default="PLN"

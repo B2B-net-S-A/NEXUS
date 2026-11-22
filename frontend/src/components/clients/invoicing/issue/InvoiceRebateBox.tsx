@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -82,8 +83,22 @@ export function InvoiceRebateBox({
               próg = {correction.amounts.map((a) => formatMoney(a.amount, a.currency)).join(" + ")}. Do KSeF po
               zgodzie.
             </p>
+            {(correction.issued ?? []).map((ref) => (
+              <Link
+                key={ref.id}
+                href={`/finance/faktury/${ref.id}`}
+                className="mt-1 block text-primary underline-offset-2 hover:underline"
+              >
+                {ref.invoice_number
+                  ? `Korekta ${ref.invoice_number} (${ref.status_label.toLowerCase()})`
+                  : "Korekta — szkic bez numeru"}
+                {correction.amounts.length > 1 ? `, ${ref.currency}` : ""}
+              </Link>
+            ))}
             {clientId
-              ? correction.amounts.map((a) => (
+              ? correction.amounts
+                  .filter((a) => !(correction.issued ?? []).some((ref) => ref.currency === a.currency))
+                  .map((a) => (
                   <Button
                     key={a.currency}
                     size="sm"
