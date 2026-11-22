@@ -35,14 +35,14 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.scheduling import business_today
+from app.core.scheduling import business_date, business_today
 from app.models.client_settlement import ClientSettlement
 from app.models.consultant_portal import CpMailboxState
 from app.models.contract import Contract
 from app.models.user import User
 from app.services import support_mail_route
 from app.services.admin_cases.mailbox import m365_mailbox as cases_mailbox
-from app.services.client_settlements import kesu
+from app.services.client_settlements import kesu, t4t_mail
 from app.services.consultant_portal import (
     documents,
     forwarded,
@@ -388,19 +388,41 @@ async def _ingest_message(
         return reply, 0
     if not message.get("hasAttachments"):
         return 0, 0
+    received = _parse_time(message.get("receivedDateTime")) or now
+    files = list(await mailbox.attachments(str(message["id"])))
+    # Raport godzin klienta (T4T Nordei) wchodzi jako wersja raportu miesiąca, zanim
+    # nadawca i pilotaż zdecydują o dokumentach konsultantów (23.11.2026).
+    time_report = await t4t_mail.ingest(db, files, received_on=business_date(received))
+    if time_report.consumed:
+        files = [f for i, f in enumerate(files) if i not in time_report.consumed]
+        if not any(
+            f.get("@odata.type") == _FILE_ATTACHMENT and not f.get("isInline")
+            for f in files
+        ):
+            return time_report.versions, time_report.duplicates
     by_subject = await _kesu_contract(db, subject, sender, state=state, today=today)
     contract = by_subject or await identity.resolve_sender(
         db, sender, settings=state, today=today
     )
     if contract is None and not state.any_sender:
-        return 0, 1
-    files = list(await mailbox.attachments(str(message["id"])))
+        return time_report.versions, 1
     inner = None
     if contract is None or any(
         f.get("@odata.type") == forwarded.ITEM_ATTACHMENT for f in files
     ):
         inner = await _forwarded(mailbox, message)
-        files.extend(inner.files if inner else ())
+        inner_files = list(inner.files) if inner else []
+        if inner_files:
+            # Raport T4T przekazany jako załączony mail (Finanse „Przekaż jako załącznik”).
+            nested = await t4t_mail.ingest(
+                db, inner_files, received_on=business_date(received)
+            )
+            time_report.versions += nested.versions
+            time_report.duplicates += nested.duplicates
+            inner_files = [
+                f for i, f in enumerate(inner_files) if i not in nested.consumed
+            ]
+        files.extend(inner_files)
     # Osoba nie z nadawcy (pierwotny nadawca przekazanego maila, nazwisko w temacie
     # albo nazwie pliku) dostaje tylko pliki, które z nazwy są raportem albo fakturą.
     indirect = None
@@ -415,7 +437,6 @@ async def _ingest_message(
         indirect = await identity.resolve_named_in_text(db, names, today=today)
     indirect_created = 0
     contract_id = contract.id if contract else None
-    received = _parse_time(message.get("receivedDateTime")) or now
     created = skipped = 0
     if kesu.parse_jira(subject, "") is not None:
         made = await _store_jira_mail(
@@ -490,7 +511,7 @@ async def _ingest_message(
             received=received,
             now=now,
         )
-    return created, skipped
+    return created + time_report.versions, skipped
 
 
 async def _forwarded(

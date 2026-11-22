@@ -603,3 +603,19 @@ def test_xlsx_nowy_tytul_i_angielskie_etykiety():
     assert p.total_hours == D("56") and p.declared_md == D("7")
     assert p.md_regular == D("7") and p.summary_total == D("7")
     assert [r.product for r in p.summary] == ["ORD"]
+
+
+def test_pdf_suma_z_brakujacymi_dniami_daje_sume_godzin():
+    """Puste dni wypadają z tekstu PDF: wiersz SUMA ma 32 albo 34 liczby zamiast 33.
+    Cały wiersz przepadał i reguła blokowała „Nie da się policzyć sum MD” przy
+    zgodnych MD (próba IX–X 2026, 7 RCP BNP)."""
+
+    short = TOTAL.rsplit(" ", 1)[0]  # 30 dni zamiast 31
+    p = parse_pdf_text(
+        PDF_TEXT.replace(f"SUMA {TOTAL} 174,0 21,75", f"SUMA {short} 174,0 21,75")
+    )
+    assert p is not None
+    assert p.total_hours == D("174.0") and p.declared_md == D("21.75")
+    assert p.day_totals == ()
+    r = _eval(p)
+    assert _states(r)["Sumy MD policzone od nowa"] == "ok"

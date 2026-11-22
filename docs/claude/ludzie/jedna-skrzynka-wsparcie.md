@@ -174,6 +174,12 @@ Gdy `CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX` i skrzynka spraw (`ADMIN_CASES_M365_
 
 - mail **z załącznikiem** i z adresem z `CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES` w „Do” albo „DW”
   → czytnik rozliczeń (dokument, dalej jak dotąd), a czytnik spraw liczy go jako `routed_settlements`;
+- mail **z załącznikiem** od nadawcy raportów godzin klienta (`CONSULTANT_PORTAL_TIME_REPORT_SENDERS`,
+  domyślnie `nordea.com`) albo z „T4T” / „Time for Teams” w temacie, na dowolny adres skrzynki
+  → czytnik rozliczeń (`support_mail_route.is_time_report_mail`). Decyzja Artura z 23.11.2026:
+  Cost Control Nordei wysyła raport T4T do koordynatorki i na wsparcie@, a gdy zapomni, Finanse
+  przekazują go z „T4T” w temacie. Arkusz T4T wchodzi jako wersja raportu miesiąca
+  (`client_settlements/t4t_mail.py`, klient = jedyny z regułą `report.time_for_teams`), nie jako dokument;
 - każdy inny mail (także pytanie na rozliczenia@ bez załącznika i mail w ukrytej kopii) → sprawa.
 
 **Obszar „Rozliczenia”** (decyzja Artura z 19.11.2026, migracja 0743): nowa sprawa z maila
