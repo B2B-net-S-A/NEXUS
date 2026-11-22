@@ -134,6 +134,8 @@ kolejki otwierają `GET /api/finance/costs/{id}/pdf`
 - Ręcznie: ID Symfonii, konto kosztowe, konto przychodowe, e-mail
   (`PATCH /api/finance/counterparties/{id}`). Nowych kontrahentów ręcznie nie
   zakładamy (konto nadaje Symfonia, przychodzą importem).
+- Kontrahenci z faktur bez ID Symfonii: lista „Czeka na Symfonię”, plik dla
+  księgowej i powrót ID z kontami — `kontrahenci-czeka-na-symfonie.md` (E0b).
 
 ## Ekrany
 

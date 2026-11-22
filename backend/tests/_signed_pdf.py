@@ -7,6 +7,7 @@ Certyfikaty są samopodpisane: test sprawdza odczyt i spójność, nie zaufanie.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from unittest import mock
@@ -78,13 +79,16 @@ def signer_for(common_name: str) -> signers.SimpleSigner:
     )
 
 
-def signer_from_ca_outside_the_eu_list(common_name: str) -> signers.SimpleSigner:
+def signer_from_ca_outside_the_eu_list(
+    common_name: str, subject_extra: Sequence[x509.NameAttribute] = ()
+) -> signers.SimpleSigner:
     """Certyfikat wydany przez CA spoza listy zaufanych UE, bez QcStatements.
 
     Kształt podpisu osobistego z e-dowodu (wystawca MSWiA): pyHanko nie zbuduje
     ścieżki do zaufanego wystawcy (``NO_CERTIFICATE_CHAIN_FOUND``). Samopodpisany
     certyfikat z ``signer_for`` daje inny powód (``CHAIN_CONSTRAINTS_FAILURE``),
-    więc tu jest osobne CA."""
+    więc tu jest osobne CA. ``subject_extra`` dokłada pola podmiotu (numer
+    seryjny ``PNOPL-…``, imię, nazwisko) jak w prawdziwym certyfikacie osoby."""
     start = datetime(2026, 1, 1, tzinfo=timezone.utc)
     ca_key = ec.generate_private_key(ec.SECP256R1())
     ca_name = x509.Name(
@@ -111,6 +115,7 @@ def signer_from_ca_outside_the_eu_list(common_name: str) -> signers.SimpleSigner
             x509.Name(
                 [
                     x509.NameAttribute(NameOID.COMMON_NAME, common_name),
+                    *subject_extra,
                     x509.NameAttribute(NameOID.COUNTRY_NAME, "PL"),
                 ]
             )

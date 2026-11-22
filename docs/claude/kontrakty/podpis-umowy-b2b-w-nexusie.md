@@ -43,6 +43,15 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   podpisie dozwolone do poziomu „wypełnianie formularza” (kolejne podpisy).
   `B2B_ESIGN_VALIDATOR=dss` przełącza na sidecar EU DSS (`DSS_VALIDATION_URL`).
   Przed pilotażem sprawdzić na prawdziwych plikach (Certum, KIR, mObywatel).
+- **Listy krajowe pobiera się z własnymi nagłówkami** (22.11.2026): `User-Agent`
+  `qualified.USER_AGENT` bez słowa „aiohttp” i `Accept` z `*/*;q=0.1`
+  (middleware `_accept_any_type`, bo pyHanko ustawia `Accept` przy każdym
+  żądaniu). Z domyślnymi nagłówkami aiohttp lista estońska dawała 403, a czeska
+  (`text/plain`) 406, także z serwera produkcji. Podpis kwalifikowany z Czech
+  albo Estonii nie miał wtedy zaufanego wystawcy i był odrzucany jako
+  niekwalifikowany. Start workera loguje `lista zaufanych UE: N błędów list`;
+  około 49 to historyczne wpisy usług z `TakenOverBy` (IT, SK, CZ) bez znaczenia.
+  Nieudana lista kraju ma osobną linię `nie pobrano list krajowych`.
 - **Walidacja bez blokady, zapis pod blokadą.** DSS trwa do 30 s, więc
   walidacja idzie bez blokady wiersza, a potem `SELECT … FOR UPDATE` sprawdza
   stan i odcisk jeszcze raz — wycofanie w trakcie walidacji wygrywa (w torze
@@ -258,6 +267,21 @@ Reguły:
   bez QcStatements), z prawdziwą listą UE: przed zmianą `invalid`, po zmianie
   `not_qualified`. Test bez sieci:
   `test_issuer_outside_the_eu_list_is_not_qualified_rather_than_broken`.
+- Sprawdzone też na produkcji 22.11.2026 (za zgodą Artura, tylko odczyt, po
+  wdrożeniu #3697): prawdziwy podpisany plik z listopada, walidator z listą UE.
+  Podpis kontraktora (wystawca „pl.ID Authorization CA”) `TOTAL_FAILED`
+  z `untrusted_issuer`, podpis za B2Bnetwork (KIR „COPE SZAFIR - Kwalifikowany”)
+  `TOTAL_PASSED`, `QESig`. Werdykt `not_qualified` z `MSG_NOT_QUALIFIED`.
+- **Podmiot certyfikatu nie trafia do logów.** pyHanko przy takim podpisie
+  loguje na WARNING „Failed to build path for Common Name: …; Serial Number:
+  PNOPL-<PESEL>; …” i ten sam podmiot w tracebacku. Do 22.11.2026 szło to na
+  stdout (Loki) przy każdym pliku spoza listy UE, także przy „Oznacz jako
+  podpisaną” (data z pliku, `signed_on_evidence.py`). `redact_sensitive` maskuje
+  teraz pola podmiotu w zapisie asn1crypto i identyfikatory ETSI
+  (`PNO`/`IDC`/`PAS`/`TIN` + kraj). Pilnuje tego
+  `test_log_certificate_subject_redaction.py` z prawdziwym logiem pyHanko.
+  Sentry tego nie dostawało: `scrub_event` zostawia z breadcrumbs tylko
+  kategorię i poziom.
 
 Źródła: gov.pl „Podpisz dokument w aplikacji mObywatel” (11.03.2025) i „Podpis
 osobisty – zaawansowany podpis elektroniczny”, KIR o mSzafir w mObywatelu

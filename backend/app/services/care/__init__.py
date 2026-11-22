@@ -5,6 +5,7 @@
 * ``records`` — rozmowy, karty technologiczne, kolejka „Do przepięcia”,
 * ``skills`` — technologie ze słownika ``skills`` i kolejka do przejrzenia,
 * ``tech_map`` — mapa technologii klienta z czterech źródeł,
-* ``reminders`` — dzienny przebieg (``run_once``): przypomnienia i przepięcia,
-* ``signals`` — sygnały sprzedażowe dla ATLASA.
+* ``reminders`` — dzienny przebieg (``run_once``): przypomnienia i przepięcia.
+
+Sygnały sprzedażowe dla ATLASA (``signals``) usunięte 22.11.2026 razem z Atlasem.
 """

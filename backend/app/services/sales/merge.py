@@ -48,6 +48,38 @@ from app.models.sales import (
     SalesOpportunity,
 )
 
+
+async def company_merge_targets(db: AsyncSession) -> dict[int, int]:
+    """Firma scalona (``custom_fields.merged_into``) → ostateczna firma docelowa.
+
+    Łańcuch A→B→C daje A→C. Cykl (nie powinien powstać, ale dane bywają
+    ręcznie poprawiane) zostawia firmy bez przekierowania.
+    """
+
+    rows = await db.execute(
+        select(SalesCompany.id, SalesCompany.custom_fields["merged_into"].astext).where(
+            SalesCompany.custom_fields.has_key("merged_into")
+        )
+    )
+    direct: dict[int, int] = {}
+    for company_id, target in rows.all():
+        try:
+            direct[company_id] = int(target)
+        except (TypeError, ValueError):
+            continue
+    final: dict[int, int] = {}
+    for start in direct:
+        seen, current = {start}, start
+        while current in direct:
+            current = direct[current]
+            if current in seen:
+                break
+            seen.add(current)
+        else:
+            final[start] = current
+    return final
+
+
 #: Pola uzupełniane w docelowej, gdy są w niej puste.
 FILLABLE_FIELDS: tuple[str, ...] = (
     "legal_name",

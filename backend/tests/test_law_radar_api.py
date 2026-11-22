@@ -110,7 +110,7 @@ async def test_wrong_expired_or_missing_token_gets_the_same_401(app_client) -> N
 
 @pytest.mark.asyncio
 async def test_collect_report_413_422_then_once(
-    app_client, _no_background_gate
+    app_client, _no_background_gate, monkeypatch
 ) -> None:
     tag = uuid.uuid4().hex[:8]
     run_id, token = await _run()
@@ -132,7 +132,9 @@ async def test_collect_report_413_422_then_once(
             _item(tag, act_ref="DU/2026/473"),
             _item(tag, act_ref="DU/2026/473"),
             _item(tag, source="lex", url=f"https://sip.lex.pl/{tag}"),
-        ]
+        ],
+        "gofin_skipped": True,
+        "gofin_skip_reason": "device_approval",
     }
     ok = await app_client.post(
         f"{URL}/{run_id}", json=body, headers={"X-Run-Token": token}
@@ -146,7 +148,7 @@ async def test_collect_report_413_422_then_once(
         "duplicates": 1,
         "by_class": {"official": 1, "lex": 1, "practice": 0},
         "lex_skipped": False,
-        "gofin_skipped": False,
+        "gofin_skipped": True,
     }
     assert _no_background_gate == [run_id]
     again = await app_client.post(
@@ -166,6 +168,14 @@ async def test_collect_report_413_422_then_once(
     )
     assert resp.json()["new"] == 0 and resp.json()["known"] == 2
     assert _no_background_gate == [run_id]
+    monkeypatch.setattr(settings, "LAW_RADAR_ENABLED", True)
+    viewer = await _user("finance_module")
+    response = await app_client.get(f"{API}/runs", headers=_headers(viewer))
+    assert response.status_code == 200
+    summaries = {row["id"]: row["summary"] for row in response.json()["runs"]}
+    assert summaries[run_id]["gofin_skip_reason"] == "device_approval"
+    assert summaries[run_id]["saved_sources"] == {"lex": 1, "gofin": 0}
+    assert summaries[second_id]["saved_sources"] == {"lex": 0, "gofin": 0}
 
 
 def _client(handler) -> httpx.AsyncClient:
@@ -526,7 +536,7 @@ async def test_compliance_screen_gates_flag_and_decisions(
     listed = await app_client.get(
         f"{API}/changes", params={"role": "recruitment"}, headers=_headers(head)
     )
-    assert change_id in {c["id"] for c in listed.json()["changes"]}
+    assert next(c for c in listed.json()["changes"] if c["id"] == change_id)["verified_sources"] == 0
     other = await app_client.get(
         f"{API}/changes", params={"role": "payroll"}, headers=_headers(head)
     )

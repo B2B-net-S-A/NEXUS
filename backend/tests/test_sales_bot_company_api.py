@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import random
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -14,6 +15,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.sales import SalesBotResult, SalesCompany, SalesSignalRun
+from app.services.sales.bot_tasks import enrich
 from tests.test_sales_companies_api import _headers, _user
 from tests.test_sales_signals_api import URL, _company, _run
 
@@ -291,3 +293,64 @@ async def test_bot_updates_its_own_value_until_someone_edits_the_field(
     await _enrich_result(app_client, company, {"hq_city": _f("Sopot")})
     async with AsyncSessionLocal() as db:
         assert (await db.get(SalesCompany, company)).hq_city == "Gdynia"
+
+
+@pytest.mark.asyncio
+async def test_enrich_retry_rechecks_eligibility_and_limits_each_batch() -> None:
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(days=2)
+    owner = await _user("sales_edit")
+    tag = uuid.uuid4().hex[:8]
+    companies = [
+        await _company(f"Retry {tag} {i}", owner_user_id=owner.id) for i in range(13)
+    ]
+    completed, legacy, waiting, capped, cooling = companies[:5]
+    lost_domain_gap = await _company(
+        f"Ma domenę {tag}", owner_user_id=owner.id, domain=f"{tag}.example"
+    )
+    unowned = await _company(f"Bez opiekuna {tag}")
+    failed_run, _ = await _run(
+        companies + [lost_domain_gap, unowned],
+        kind="enrich",
+        status="expired",
+        started_at=old,
+    )
+    await _run(
+        [completed, companies[5]],
+        kind="enrich",
+        status="received",
+        started_at=old,
+        report={"checked_firms": 1, "researched_company_ids": [completed]},
+    )
+    await _run(
+        [legacy],
+        kind="enrich",
+        status="received",
+        started_at=old,
+        report={"checked_firms": 1},
+    )
+    await _run([waiting], kind="enrich", status="started", started_at=now)
+    await _run([cooling], kind="enrich", status="failed", started_at=now)
+    for _ in range(enrich.NIGHT_ATTEMPTS_PER_COMPANY - 1):
+        await _run([capped], kind="enrich", status="expired", started_at=old)
+    wrong_kind, _ = await _run(
+        companies, kind="signals", status="expired", started_at=old
+    )
+    async with AsyncSessionLocal() as db:
+        assert (
+            await enrich.night_company_ids(db, now=now, retry_run_id=wrong_kind) == []
+        )
+        batch = await enrich.night_company_ids(db, now=now, retry_run_id=failed_run)
+        assert batch == companies[5:10]
+    await _run(
+        batch,
+        kind="enrich",
+        status="received",
+        started_at=now,
+        report={"checked_firms": len(batch), "researched_company_ids": batch},
+    )
+    async with AsyncSessionLocal() as db:
+        assert (
+            await enrich.night_company_ids(db, now=now, retry_run_id=failed_run)
+            == companies[10:]
+        )

@@ -41,7 +41,6 @@ PROGRAM_API_MODULES = {
     "app.api.care_board",
     "app.api.care_cases",
     "app.api.care_skills",
-    "app.api.care_atlas",
     "app.api.care_announcements",
     "app.api.public_consultant_mail",
     "app.api.admin_cases",

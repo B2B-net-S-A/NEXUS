@@ -21,6 +21,9 @@ from app.api.retired_modules import install_retired_modules, retired_message
         "/api/admin/traffit/transfer",
         "/api/integrations/compass/contractors",
         "/api/integrations/compass/roster",
+        "/api/care/atlas/sales-signals",
+        "/api/care/atlas/sales-signals/status",
+        "/api/integrations/companies/people",
     ],
 )
 def test_retired_addresses_are_recognised(path: str) -> None:
@@ -29,7 +32,15 @@ def test_retired_addresses_are_recognised(path: str) -> None:
 
 @pytest.mark.parametrize(
     "path",
-    ["/api/academyx", "/api/calls", "/api/calls/123", "/api/candidates/1", "/academy"],
+    [
+        "/api/academyx",
+        "/api/calls",
+        "/api/calls/123",
+        "/api/candidates/1",
+        "/academy",
+        "/api/care/atlasx",
+        "/api/integrations/companies",
+    ],
 )
 def test_other_addresses_are_not_retired(path: str) -> None:
     assert retired_message(path) is None
@@ -87,3 +98,11 @@ def test_compass_exports_answer_410_with_reason(client: TestClient) -> None:
     response = client.get("/api/integrations/compass/roster")
     assert response.status_code == 410
     assert "Compass" in response.json()["detail"]
+
+
+def test_atlas_routes_answer_410_with_reason(client: TestClient) -> None:
+    signals = client.get("/api/care/atlas/sales-signals")
+    people = client.post("/api/integrations/companies/people", json={"names": ["X"]})
+    for response in (signals, people):
+        assert response.status_code == 410
+        assert "Atlas" in response.json()["detail"]

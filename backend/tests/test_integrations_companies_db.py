@@ -1,4 +1,8 @@
-"""ATLAS `/api/integrations/companies/people` — ścieżka przez PRAWDZIWĄ bazę.
+"""„Kogo znamy” w firmie (``lookup_company_people``) — ścieżka przez PRAWDZIWĄ bazę.
+
+Do 22.11.2026 to samo wyszukiwanie odpowiadało też ATLAS-owi pod
+``POST /api/integrations/companies/people``; trasa zniknęła z Atlasem, więc
+testy wołają silnik wprost, tak jak Sprzedaż (``api/sales_company_people.py``).
 
 `test_integrations_companies.py` pokrywa czyste funkcje (normalizacja,
 rozstrzygnięcie current/past w Pythonie). Tu sprawdzamy to, czego one nie
@@ -27,57 +31,28 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from types import SimpleNamespace
 
 import pytest
-import pytest_asyncio
-from sqlalchemy import delete, select
+from fastapi import HTTPException
+from sqlalchemy import select
 
 import app.models  # noqa: F401  (zarejestruj wszystkie mappery)
 from app.api import integrations_companies
-from app.api.oauth_token import _create_client_token
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus
-from app.models.oauth_client import OAuthClient
-
-URL = "/api/integrations/companies/people"
 
 
-ATLAS_CLIENT_ID = f"atlas-test-{uuid.uuid4().hex[:8]}"
-
-
-@pytest_asyncio.fixture(autouse=True)
-async def _atlas_client():
-    """``require_scope`` czyta klienta z bazy przy każdym żądaniu (AUTH-02)."""
+async def _people(names: list[str]) -> dict:
+    """Wynik wyszukiwania jako słownik — tak, jak widzi go panel Sprzedaży."""
 
     async with AsyncSessionLocal() as db:
-        db.add(
-            OAuthClient(
-                name="ATLAS (test)",
-                client_id=ATLAS_CLIENT_ID,
-                secret_hash="!test-no-secret!",
-                scopes=["candidate:read"],
-                enabled=True,
-            )
+        result = await integrations_companies.lookup_company_people(
+            db, integrations_companies.CompanyPeopleRequest(names=names)
         )
-        await db.commit()
-    yield
-    async with AsyncSessionLocal() as db:
-        await db.execute(
-            delete(OAuthClient).where(OAuthClient.client_id == ATLAS_CLIENT_ID)
-        )
-        await db.commit()
-
-
-def _headers() -> dict[str, str]:
-    token = _create_client_token(
-        SimpleNamespace(client_id=ATLAS_CLIENT_ID),
-        ["candidate:read"],
-    )
-    return {"Authorization": f"Bearer {token}"}
+    return result.model_dump(mode="json")
 
 
 async def _candidate(db, lastname: str, *, experience=None) -> Candidate:
@@ -192,16 +167,10 @@ def _by_id(body: dict) -> dict[int, str]:
 
 
 @pytest.mark.asyncio
-async def test_buckets_come_from_real_placements_not_drafts_or_flags(
-    app_client,
-) -> None:
+async def test_buckets_come_from_real_placements_not_drafts_or_flags() -> None:
     world = await _seed_company()
 
-    resp = await app_client.post(
-        URL, json={"names": [world["company"]]}, headers=_headers()
-    )
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
+    body = await _people([world["company"]])
     got = _by_id(body)
 
     assert body["matched_client"]["id"] == world["client_id"]
@@ -248,7 +217,7 @@ async def test_past_predicate_matches_a_finished_job_at_position_zero() -> None:
 
 @pytest.mark.asyncio
 async def test_a_raw_alias_with_a_too_short_canonical_form_never_reaches_like(
-    app_client, monkeypatch
+    monkeypatch,
 ) -> None:
     """„IT” (kanonicznie „it”) nie może iść do `LIKE '%it%'` obok pełnej nazwy."""
     world = await _seed_company()
@@ -260,48 +229,24 @@ async def test_a_raw_alias_with_a_too_short_canonical_form_never_reaches_like(
         return original(values)
 
     monkeypatch.setattr(integrations_companies, "_company_prefilter", spy)
-    resp = await app_client.post(
-        URL, json={"names": [world["company"], "IT"]}, headers=_headers()
-    )
-    assert resp.status_code == 200, resp.text
+    await _people([world["company"], "IT"])
     assert seen, "prefiltr nie został wywołany"
     assert all("IT" not in values and "it" not in values for values in seen), seen
     assert world["company"] in seen[0]
 
 
 @pytest.mark.asyncio
-async def test_crm_answer_keeps_its_contract_without_sales_fields(app_client) -> None:
-    world = await _seed_company()
-    resp = await app_client.post(
-        URL, json={"names": [world["company"]]}, headers=_headers()
-    )
-    assert resp.status_code == 200, resp.text
-    person = resp.json()["people"][0]
-    assert "added_at" not in person
-    assert "decision_role" not in person
-    assert "cv_stale" not in person
-
-
-@pytest.mark.asyncio
-async def test_prefilter_row_cap_flags_the_answer_as_truncated(
-    app_client, monkeypatch
-) -> None:
+async def test_prefilter_row_cap_flags_the_answer_as_truncated(monkeypatch) -> None:
     world = await _seed_company()
     monkeypatch.setattr(integrations_companies, "_PREFILTER_ROW_CAP", 1)
 
-    resp = await app_client.post(
-        URL, json={"names": [world["company"]]}, headers=_headers()
-    )
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
+    body = await _people([world["company"]])
     # Dwa kontrakty, dwa trafienia w CV — sufit 1 widzi tylko część.
     assert body["truncated"] is True
 
 
 @pytest.mark.asyncio
-async def test_statement_timeout_becomes_a_503_not_a_hung_worker(
-    app_client, monkeypatch
-) -> None:
+async def test_statement_timeout_becomes_a_503_not_a_hung_worker(monkeypatch) -> None:
     """Limit czasu jest lokalny dla transakcji i kończy się czytelnym 503."""
     world = await _seed_company()
     monkeypatch.setattr(integrations_companies, "_STATEMENT_TIMEOUT_MS", 1)
@@ -313,18 +258,14 @@ async def test_statement_timeout_becomes_a_503_not_a_hung_worker(
         return None
 
     monkeypatch.setattr(integrations_companies, "_resolve_client", slow_resolve)
-    resp = await app_client.post(
-        URL, json={"names": [world["company"]]}, headers=_headers()
-    )
-    assert resp.status_code == 503, resp.text
-    assert resp.json()["detail"]["error"] == "lookup_timeout"
+    with pytest.raises(HTTPException) as exc:
+        await _people([world["company"]])
+    assert exc.value.status_code == 503
+    assert exc.value.detail["error"] == "lookup_timeout"
 
     # Limit nie wycieka poza żądanie: kolejne zapytanie w tej samej puli działa.
     monkeypatch.undo()
-    ok = await app_client.post(
-        URL, json={"names": [world["company"]]}, headers=_headers()
-    )
-    assert ok.status_code == 200, ok.text
+    assert (await _people([world["company"]]))["truncated"] is False
 
 
 # ── Szkic z realną obsadą to placement; `truncated` liczy WIERSZE (09.2026) ──
@@ -368,9 +309,7 @@ async def _hired_stage(
 
 
 @pytest.mark.asyncio
-async def test_a_draft_contract_counts_when_it_carries_a_live_order_or_a_hire(
-    app_client,
-) -> None:
+async def test_a_draft_contract_counts_when_it_carries_a_live_order_or_a_hire() -> None:
     """Zatrudnienie zakłada SZKIC kontraktu — Delivery domyka go później.
 
     Do 09.2026 `via_us` pomijał każdy szkic, więc osoba pracująca u klienta na
@@ -440,9 +379,8 @@ async def test_a_draft_contract_counts_when_it_carries_a_live_order_or_a_hire(
             "cancelled_order": cancelled_order.id,
         }
 
-    resp = await app_client.post(URL, json={"names": [company]}, headers=_headers())
-    assert resp.status_code == 200, resp.text
-    got = _by_id(resp.json())
+    body = await _people([company])
+    got = _by_id(body)
 
     assert got.get(ids["with_order"]) == "via_us"
     assert got.get(ids["signing_with_order"]) == "via_us"
@@ -451,13 +389,11 @@ async def test_a_draft_contract_counts_when_it_carries_a_live_order_or_a_hire(
     assert ids["reverted_hire"] not in got
     assert ids["cancelled_order"] not in got
     assert ids["bare"] not in got
-    assert resp.json()["counts"]["via_us"] == 3
+    assert body["counts"]["via_us"] == 3
 
 
 @pytest.mark.asyncio
-async def test_truncated_counts_conflict_rows_not_people(
-    app_client, monkeypatch
-) -> None:
+async def test_truncated_counts_conflict_rows_not_people(monkeypatch) -> None:
     """Sufit prefiltra dotyczy WIERSZY — kilka zdjętych flag jednej osoby to kilka wierszy.
 
     Liczenie osób (unikalnych `candidate_id`) ukrywało ucięcie: sufit+1 wierszy
@@ -485,16 +421,14 @@ async def test_truncated_counts_conflict_rows_not_people(
         person_id = person.id
 
     monkeypatch.setattr(integrations_companies, "_PREFILTER_ROW_CAP", 2)
-    resp = await app_client.post(URL, json={"names": [company]}, headers=_headers())
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
+    body = await _people([company])
     assert _by_id(body) == {person_id: "past"}
     assert body["truncated"] is True
 
 
 @pytest.mark.asyncio
-async def test_present_like_end_words_are_current_employment(app_client) -> None:
-    """„present"/„obecnie"/„teraz" w `end` to praca OBECNA — w ATLAS i w filtrze listy."""
+async def test_present_like_end_words_are_current_employment() -> None:
+    """„present"/„obecnie"/„teraz" w `end` to praca OBECNA — w „Kogo znamy” i w filtrze listy."""
     from app.api.candidates import _current_company_predicate, _past_company_predicate
 
     tag = uuid.uuid4().hex[:8]
@@ -545,9 +479,7 @@ async def test_present_like_end_words_are_current_employment(app_client) -> None
         await db.commit()
         ids = (present_first.id, present_later.id, finished.id)
 
-    resp = await app_client.post(URL, json={"names": [company]}, headers=_headers())
-    assert resp.status_code == 200, resp.text
-    got = _by_id(resp.json())
+    got = _by_id(await _people([company]))
     assert got[ids[0]] == "current"
     assert got[ids[1]] == "current"
     assert got[ids[2]] == "past"
@@ -577,7 +509,7 @@ async def test_present_like_end_words_are_current_employment(app_client) -> None
 
 @pytest.mark.asyncio
 async def test_deleted_client_is_not_resolved_by_name_or_nip() -> None:
-    """Runda 9 (R9-N9-5): usunięty klient nie jest „naszym klientem” dla CRM.
+    """Runda 9 (R9-N9-5): usunięty klient nie jest „naszym klientem”.
 
     Drugie wywołanie po usunięciu sprawdza też, że indeks nazw w pamięci
     (R9-N9-12) odświeża się po zmianie tabeli klientów.
@@ -609,10 +541,8 @@ async def test_deleted_client_is_not_resolved_by_name_or_nip() -> None:
 
 
 @pytest.mark.asyncio
-async def test_client_alias_resolves_the_client_and_widens_the_cv_match(
-    app_client,
-) -> None:
-    """Alias klienta (stara nazwa, skrót) to ta sama firma dla CRM.
+async def test_client_alias_resolves_the_client_and_widens_the_cv_match() -> None:
+    """Alias klienta (stara nazwa, skrót) to ta sama firma.
 
     Dopasowanie po nazwie czytało tylko ``name``/``legal_name``/``display_name``,
     choć ostrzeżenie o duplikatach klienta używa już ``client_aliases``.
@@ -671,19 +601,12 @@ async def test_client_alias_resolves_the_client_and_widens_the_cv_match(
         await db.commit()
         client_id, old_cv_id, archived_cv_id = client.id, old_cv.id, archived_cv.id
 
-    by_alias = await app_client.post(
-        URL, json={"names": [old_name]}, headers=_headers()
-    )
-    assert by_alias.status_code == 200, by_alias.text
-    assert by_alias.json()["matched_client"]["id"] == client_id
+    by_alias = await _people([old_name])
+    assert by_alias["matched_client"]["id"] == client_id
 
-    by_name = await app_client.post(URL, json={"names": [company]}, headers=_headers())
-    assert by_name.status_code == 200, by_name.text
-    got = _by_id(by_name.json())
+    got = _by_id(await _people([company]))
     assert got.get(old_cv_id) == "past"
     assert archived_cv_id not in got
 
-    by_archived = await app_client.post(
-        URL, json={"names": [archived_name]}, headers=_headers()
-    )
-    assert by_archived.json()["matched_client"] is None
+    by_archived = await _people([archived_name])
+    assert by_archived["matched_client"] is None

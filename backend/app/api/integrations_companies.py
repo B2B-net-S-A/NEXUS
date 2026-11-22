@@ -1,9 +1,10 @@
-"""Integration API: "who from our base worked at this company?".
+"""Lookup "who from our base worked at this company?" (Sprzedaż → „Kogo znamy”).
 
-Consumed by ATLAS (lead-gen CRM) to answer, on a deal/company card, whether
-NEXUS knows anyone connected to that company. First real consumer of the
-OAuth2 client_credentials machinery in ``app.api.oauth_token`` — every route
-here is guarded by ``require_scope``, never by a user JWT.
+Until 22.11.2026 this module also served ``POST /api/integrations/companies/people``
+to ATLAS (lead-gen CRM, OAuth2 client_credentials). The route went away with
+the Atlas server (old address answers 410, ``retired_modules.py``); the lookup
+below stays — Sprzedaż calls it directly (``api/sales_company_people.py``,
+``services/sales/known_counts.py``, ``services/sales/company_dates.py``).
 
 Four relationship buckets, strongest first:
 
@@ -48,28 +49,12 @@ timeout. When a cap is hit the answer is flagged ``truncated`` instead of
 pretending to be complete.
 """
 
-# NIE dodawaj tu `from __future__ import annotations`.
-#
-# Ten moduł łączy `@limiter.limit` z modelem Pydantic jako body (`payload:
-# CompanyPeopleRequest`). Przy PEP 563 + slowapi #579 taka trójka potrafi
-# skończyć się tym, że FastAPI weźmie body za parametr Query i odda 422 na
-# każde poprawne żądanie (patrz CLAUDE.md oraz `talent_radar.py` /
-# `service_accounts.py`, które unikają tego importu z tego samego powodu).
-#
-# Zmierzone 2026-09-06: z tym importem endpoint MIMO WSZYSTKO działał poprawnie
-# (`openapi()` pokazywał `requestBody`, zero parametrów query) — warunkiem
-# awarii jest dopiero `Annotated` guard jako parametr, nie sam import. Import
-# usunięty mimo to: nic go tu nie potrzebuje (żadna adnotacja w tym pliku nie
-# wymaga leniwej ewaluacji), a 25 z 28 modułów z limiterem go nie ma. Dołożenie
-# `Annotated`-owego parametru w przyszłości nie powinno wysadzać endpointu.
-
-import logging
 import re
 from collections.abc import Sequence, Set
 from datetime import date
 from typing import Annotated, Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import String, and_, bindparam, func, select, text
 from sqlalchemy.dialects.postgresql import ARRAY
@@ -77,17 +62,13 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
-from app.api.oauth_token import ClientPrincipal, require_scope
 from app.core.config import settings
-from app.core.rate_limit import limiter
-from app.core.database import get_db
 from app.core.scheduling import business_date, business_today
 from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.client import Client
 from app.models.client_directory import ClientAlias
 from app.models.contract import Contract
-from app.models.oauth_client import OAuthScope
 from app.services.candidate_added_date import added_to_base
 from app.services.contract_service import placed_contract_clause
 from app.services.company_names import (
@@ -97,10 +78,6 @@ from app.services.company_names import (
 from app.services.company_people_rank import cv_is_stale, is_decision_role
 from app.services.experience_end import is_current_end
 from app.services.polish_ilike import contains_pattern
-
-logger = logging.getLogger(__name__)
-
-router = APIRouter()
 
 # Shortest canonical name we will look up. Two-letter tokens ("IT", "AB")
 # match far too much even under exact comparison once a CRM name normalises
@@ -186,14 +163,10 @@ class MatchedPerson(BaseModel):
     phone: Optional[str] = None
     linkedin: Optional[str] = None
     profile_url: Optional[str] = None
-    # Pola panelu Sprzedaży (P8). CRM ich nie dostaje: ``_CRM_EXCLUDE`` niżej.
+    # Pola panelu Sprzedaży (P8).
     added_at: Optional[date] = None
     decision_role: bool = False
     cv_stale: bool = False
-
-
-# Kontrakt API dla CRM zostaje taki, jak był.
-_CRM_EXCLUDE = {"people": {"__all__": {"added_at", "decision_role", "cv_stale"}}}
 
 
 class MatchedClient(BaseModel):
@@ -350,7 +323,7 @@ def _match_experience(
 
 
 def _profile_url(candidate_id: int) -> Optional[str]:
-    """Deep link into the NEXUS UI, so ATLAS can hand the user a way back."""
+    """Deep link into the NEXUS UI (candidate profile)."""
     base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
     return f"{base}/candidates/{candidate_id}" if base else None
 
@@ -549,14 +522,14 @@ async def lookup_company_people(
     priority_order: bool = False,
     linked_client_id: Optional[int] = None,
 ) -> CompanyPeopleResponse:
-    """Osoby z bazy przy firmie — wspólne dla CRM (OAuth) i Sprzedaży w NEXUSIE.
+    """Osoby z bazy przy firmie („Kogo znamy” w Sprzedaży).
 
-    Walidacja nazw (422), limit czasu zapytania (503) i kubełki jak w trasie
-    ``/companies/people``; wołający decyduje o dopisaniu dat w tle.
+    Walidacja nazw (422), limit czasu zapytania (503) i cztery kubełki z opisu
+    modułu; wołający decyduje o dopisaniu dat w tle.
     ``limit`` ponad ``payload.limit`` jest dla wewnętrznych wołających (lista
     wszystkich osób „bez dat” do uzupełnienia), nie dla API.
 
-    Trzy dodatki dla Sprzedaży, celowo poza ciałem żądania CRM:
+    Trzy dodatki dla Sprzedaży, celowo poza ``CompanyPeopleRequest``:
     ``extra_names`` to nazwy dołączone na karcie firmy (poza limitem 10 nazw),
     ``priority_order`` układa grupy od ról decyzyjnych i najświeżej dodanych,
     ``linked_client_id`` to ręczne powiązanie, które ma pierwszeństwo przed nazwą.
@@ -605,66 +578,6 @@ async def lookup_company_people(
             },
         ) from exc
     return result
-
-
-# ── Route ────────────────────────────────────────────────────────────────────
-
-
-@router.post(
-    "/companies/people",
-    response_model=CompanyPeopleResponse,
-    response_model_exclude=_CRM_EXCLUDE,
-    summary="People from the NEXUS base connected to a company",
-)
-# Every call scans candidates through the JSONB predicates, so the scope check
-# alone is not a throughput bound. 60/min is far above a CRM panel's real need
-# (ATLAS caches each answer for 5 minutes) and far below useful enumeration.
-@limiter.limit("60/minute")
-async def company_people(
-    payload: CompanyPeopleRequest,
-    request: Request,  # required by slowapi limiter
-    principal: ClientPrincipal = Depends(require_scope(OAuthScope.candidate_read)),
-    db: AsyncSession = Depends(get_db),
-) -> CompanyPeopleResponse:
-    """Return candidates who work / worked at the given company.
-
-    Buckets are mutually exclusive and ranked
-    ``via_us > current > past > unknown`` — a candidate placed there through us
-    is reported as ``via_us`` even when the CV also lists the company.
-    """
-    result = await lookup_company_people(db, payload)
-    _schedule_missing_dates(result)
-    return result
-
-
-def _schedule_missing_dates(result: CompanyPeopleResponse) -> None:
-    """Dopisz w tle daty osobom, które właśnie wyszły jako ``unknown``.
-
-    ``unknown`` znaczy „CV wymienia firmę, ale bez dat" — czyli dokładnie te
-    wiersze, które backfill umie naprawić. Robimy to tutaj, a nie biegiem na
-    całej bazie, bo pełny przebieg to ~50 tys. CV i kilkaset dolarów, podczas
-    gdy handlowiec ogląda dziesiątki firm.
-
-    Domyślnie włączone (``EXPERIENCE_DATES_ON_DEMAND_ENABLED``, wyłącznik awaryjny) — patrz
-    ``experience_backfill.schedule_on_demand``. Każda awaria jest połykana:
-    to jest dodatek do odczytu kartoteki, a nie jego warunek.
-    """
-    unknown_ids = [p.candidate_id for p in result.people if p.relationship == "unknown"]
-    if not unknown_ids:
-        return
-    try:
-        from app.services.experience_backfill import schedule_on_demand
-
-        scheduled = schedule_on_demand(unknown_ids)
-    except Exception:  # noqa: BLE001 — nigdy nie psuj odpowiedzi o ludziach
-        logger.exception("[company-people] nie udało się zakolejkować dat z CV")
-        return
-    if scheduled:
-        logger.info(
-            "[company-people] zakolejkowano daty z CV dla %s z %s osób bez dat",
-            len(scheduled),
-            len(unknown_ids),
-        )
 
 
 def _is_statement_timeout(exc: DBAPIError) -> bool:

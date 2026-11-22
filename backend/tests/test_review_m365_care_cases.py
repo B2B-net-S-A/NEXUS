@@ -33,7 +33,6 @@ from app.models.contract_care import (
     CONTRACTS_CARE,
     CareConversation,
     CarePlanItem,
-    TechCard,
 )
 from app.models.hr_leave import HrM365Operation
 from app.models.job import Job, JobStatus
@@ -43,7 +42,7 @@ from app.models.user import User, UserRole
 from app.services.admin_cases import mail_ingest
 from app.services.care import access as care_access
 from app.services.care import plan as care_plan
-from app.services.care import reminders, signals
+from app.services.care import reminders
 from app.services.hr.m365 import executor, forward_rules, oof_state, reconcile
 from tests.hr.fakes import FakeMailboxOps
 from tests.hr.m365_helpers import (
@@ -541,34 +540,17 @@ async def test_early_conversation_covers_a_regular_item_but_not_the_pre_end() ->
 
 
 @pytest.mark.usefixtures("care_on")
-async def test_consultant_full_name_in_care_and_for_atlas() -> None:
+async def test_consultant_full_name_in_care() -> None:
+    """Imię i nazwisko konsultanta w opiece (eksport dla ATLAS-a usunięty 22.11.2026)."""
     client_id = await make_client()
     contract_id, candidate_id = await make_contract(client_id)
     async with AsyncSessionLocal() as db:
         candidate = await db.get(Candidate, candidate_id)
         full = f"{candidate.name} {candidate.lastname}"
-        db.add(
-            TechCard(
-                contract_id=contract_id,
-                client_id=client_id,
-                interview_on=business_today(),
-                status="ok",
-                is_draft=False,
-                finalized_at=local_now(),
-                hiring=True,
-            )
-        )
-        await db.commit()
         (contract,) = await care_access.live_contracts(db, contract_ids=[contract_id])
-        exported = [
-            row
-            for row in await signals.export(db, since=None)
-            if row["client_id"] == client_id
-        ]
 
     assert contract.candidate_name == full
     assert contract.label.startswith(full)
-    assert [row["consultant_name"] for row in exported] == [full]
 
 
 # ── E23–E24: czytnik administracja@ ──────────────────────────────────────────

@@ -7,6 +7,15 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowRight } from "lucide-react";
 import { contractsApi } from "@/lib/api";
 import { fmtDatePl } from "@/lib/contract-happening";
+import { formatNbpDate, formatNbpRate, formatWholeAmount } from "@/components/contracts/rates/rate-format";
+
+/** Kurs EUR → PLN z tabeli A NBP, który API kontraktu zwraca przy umowie w EUR. */
+export interface OverviewEurPlnRate {
+  rate: number;
+  effective_date: string;
+  source: string;
+  table: string;
+}
 
 interface RateStep {
   rate: number;
@@ -26,6 +35,7 @@ export interface ContractOverviewMoneyProps {
   clientSchedule: RateStep[];
   candidateSchedule: RateStep[];
   showBenchmark: boolean;
+  eurPlnRate: OverviewEurPlnRate | null;
   onOpenMoney: () => void;
 }
 
@@ -73,7 +83,14 @@ export function ContractOverviewMoney(p: ContractOverviewMoneyProps) {
     retry: false,
   }).data;
   const mixedCurrency = unit(p.clientCurrency) !== unit(p.candidateCurrency);
+  // Marża jest w walucie kontraktu (obie strony w tej samej), nie zawsze w złotych.
+  const marginUnit = unit(p.clientCurrency);
   const monthly = p.monthlyMargin ?? (p.margin != null ? p.margin * (p.hoursPerMonth ?? 168) : null);
+  // Przy EUR równowartość w złotych tym samym kursem NBP, którym liczą statystyki.
+  const nbp =
+    marginUnit === "EUR" && p.eurPlnRate && Number.isFinite(p.eurPlnRate.rate) && p.eurPlnRate.rate > 0
+      ? p.eurPlnRate
+      : null;
   const pct = !mixedCurrency && p.rateClient && p.rateCandidate != null ? ((p.rateClient - p.rateCandidate) / p.rateClient) * 100 : null;
   const change = lastRateChange(p.clientSchedule, p.candidateSchedule);
   const benchLine = (() => {
@@ -108,7 +125,7 @@ export function ContractOverviewMoney(p: ContractOverviewMoneyProps) {
           <dt className="text-[11.5px] text-muted-foreground">Marża</dt>
           <dd className="text-[19px] font-semibold tabular-nums text-success">{mixedCurrency ? "—" : num(p.margin)}</dd>
           <dd className="text-[11px] text-muted-foreground">
-            {mixedCurrency ? "różne waluty" : `zł/h${pct != null ? ` · ${pct.toLocaleString("pl-PL", { maximumFractionDigits: 1, minimumFractionDigits: 1 })} %` : ""}`}
+            {mixedCurrency ? "różne waluty" : `${marginUnit}/h${pct != null ? ` · ${pct.toLocaleString("pl-PL", { maximumFractionDigits: 1, minimumFractionDigits: 1 })} %` : ""}`}
           </dd>
         </div>
       </dl>
@@ -118,9 +135,20 @@ export function ContractOverviewMoney(p: ContractOverviewMoneyProps) {
             Marży nie liczymy: klient płaci w {unit(p.clientCurrency)}, konsultant dostaje w {unit(p.candidateCurrency)}.
           </li>
         ) : monthly != null ? (
-          <li>
-            <span className="font-medium text-foreground">≈ {pln(monthly)}</span> marży miesięcznie ({p.hoursPerMonth ?? 168} h)
-          </li>
+          <>
+            <li>
+              <span className="font-medium text-foreground">
+                ≈ {formatWholeAmount(monthly)} {marginUnit}
+              </span>{" "}
+              marży miesięcznie ({p.hoursPerMonth ?? 168} h)
+            </li>
+            {nbp ? (
+              <li>
+                ≈ {formatWholeAmount(monthly * nbp.rate)} zł po kursie NBP {formatNbpRate(nbp.rate)} z{" "}
+                {formatNbpDate(nbp.effective_date)}
+              </li>
+            ) : null}
+          </>
         ) : null}
         <li>{change ? `Ostatnia zmiana stawek ${change}.` : "Stawki bez zmian od startu."}</li>
         {p.frameworkRate != null ? <li>Stawka z umowy ramowej: {num(p.frameworkRate)} zł/h.</li> : null}
