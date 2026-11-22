@@ -161,3 +161,38 @@ wisiało więc na zawsze mimo podpisanego porozumienia.
   przesuwa okres wypowiedzenia i zakaz konkurencji.
 - Testy: `tests/test_contract_agreement_termination_record.py`,
   `ContractAgreementRecordDialog.test.tsx`.
+
+### Wypowiedzenie w Dokumentach, rozwiązanie niezapisane (zgłoszenie Delivery, 22.11.2026)
+
+Kontrakt #605: wypowiedzenie zaimportowane z SharePointa 29.09 leżało
+w Dokumentach, a strona mówiła „umowa B2B nie jest rozwiązana”, bo
+przypomnienie czyta tylko `agreement_termination_*`, a plik w Dokumentach tych
+pól nie wypełnia. Na kopii z 19.11 dotyczyło to 38 z 75 zakończonych
+i kończących się umów B2B bez zapisanego rozwiązania.
+
+- **API wskazuje plik, nie zapisuje rozwiązania.** `termination_document`
+  (najnowszy `termination_notice`/`termination_agreement` kontraktu,
+  `services/contract_termination_document.py`) przychodzi w
+  `GET /api/contracts/{id}`, w wierszach listy i w członkach zgrupowanego
+  wiersza — tylko dla umowy B2B bez zapisanego rozwiązania. Pól rozwiązania
+  z pliku nie wypełniamy ani nie zgadujemy: ostatni dzień umowy przesuwa okres
+  wypowiedzenia i zakaz konkurencji, więc wpisuje go człowiek.
+- **Pas „Co się dzieje”** mówi wtedy „wypowiedzenie (porozumienie) umowy B2B
+  jest w Dokumentach, rozwiązanie niezapisane” z nazwą pliku i datą dodania,
+  w tonie `info` zamiast ostrzeżenia. Akcja zostaje: „Zapisz rozwiązanie umowy”.
+  To samo zdanie dostają panel boczny, kolumna „Co dalej” listy i stan umowy
+  w widoku „Kończące się” (`agreementStateLabel`). W „Co dalej” dopisek
+  „wypowiedzenie w Dokumentach, niezapisane” stoi na początku drugiej linii
+  także przy zakończonej współpracy, bo przy 1280 px zdanie główne ucina się
+  przed tą informacją.
+- **`ContractAgreementRecordDialog` z `existingDocument`:** tryb z typu pliku
+  (wypowiedzenie → „Wypowiedzenie”, porozumienie → „Porozumienie stron”),
+  „Otwórz dokument” zamiast pola skanu (drugi skan tylko po „Dodaj inny skan”),
+  daty puste poza dotychczasową podpowiedzią ostatniego dnia z końca projektu.
+  Wejścia: pas strony kontraktu, panel boczny, „+ Rozwiązanie” w filtrze
+  „Umowa nierozwiązana” i „Zapisz rozwiązanie umowy” w „Kończących się”.
+- Kontrakt z plikiem dalej jest na liście „Umowa nierozwiązana” — filtr liczy
+  zapis, nie plik, bo bez zapisu nie ma ostatniego dnia umowy.
+- Testy: `tests/test_contract_termination_document_hint.py`,
+  `contract-happening.test.ts`, `contract-list-next.test.ts`,
+  `contract-ending.test.ts`, `ContractAgreementRecordDialog.test.tsx`.
