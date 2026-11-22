@@ -33,7 +33,7 @@ Tabele:
     w ``ksef_status_text``). Wycofanie ostatniego numeru cofa licznik serii
     i kasuje wiersz.
 
-  Korekta zbiorcza rabatu od obrotu (0750) nie ma ``corrects_id``; faktury
+  Korekta zbiorcza rabatu od obrotu (0749) nie ma ``corrects_id``; faktury
   korygowane z KSeF, okres i typ korekty są w ``collective_correction``
   (``client_invoice_collective_correction_schema``).
 
@@ -94,7 +94,7 @@ CK_ISSUED_NUMBER = (
 CK_ISSUED_DRAFT = "(status = 'draft') = (number_seq IS NULL)"
 CK_ISSUED_ACCEPTED = "status <> 'accepted' OR ksef_number IS NOT NULL"
 #: Korekta wskazuje jedną fakturę NEXUSA (``corrects_id``) albo — korekta zbiorcza
-#: rabatu od obrotu (0750, 22.11.2026) — listę faktur z KSeF w ``collective_correction``.
+#: rabatu od obrotu (0749, 22.11.2026) — listę faktur z KSeF w ``collective_correction``.
 CK_ISSUED_CORRECTION = (
     "(invoice_type = 'KOR') = (corrects_id IS NOT NULL OR collective_correction IS NOT NULL) "
     "AND (collective_correction IS NULL OR (corrects_id IS NULL "
@@ -118,7 +118,7 @@ KSEF_WHERE = "ksef_number IS NOT NULL"
 CORRECTS_WHERE = "corrects_id IS NOT NULL"
 GROUP_WHERE = "order_group_id IS NOT NULL"
 #: Jedna korekta rabatu od obrotu na klienta, miesiąc i walutę (wycofana się nie
-#: liczy); indeks zakłada ``client_invoice_collective_correction_schema`` (0750).
+#: liczy); indeks zakłada ``client_invoice_collective_correction_schema`` (0749).
 COLLECTIVE_WHERE = "collective_correction IS NOT NULL AND status <> 'cancelled'"
 
 TABLE_DDL: tuple[str, ...] = (

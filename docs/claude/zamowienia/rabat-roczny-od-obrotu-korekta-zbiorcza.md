@@ -100,7 +100,7 @@ W oknie szkicu jest przycisk „Wystaw korektę” (`POST /api/finance/issued-in
 jego kartę.
 
 - Faktury korygowane, okres (`OkresFaKorygowanej`) i `TypKorekty` leżą w kolumnie JSONB
-  `collective_correction` (migracja 0750, lustro przez `hr_schema_bundle`). `corrects_id` jest pusty.
+  `collective_correction` (migracja 0749, lustro przez `hr_schema_bundle`). `corrects_id` jest pusty.
   CHECK `ck_client_issued_invoices_correction`: `KOR` ma albo `corrects_id`, albo `collective_correction`.
 - Jedna korekta na klienta, miesiąc i walutę. Pilnuje tego unikalny indeks
   `uq_client_issued_invoices_collective_month`, a wycofana się nie liczy. Druga próba kończy się

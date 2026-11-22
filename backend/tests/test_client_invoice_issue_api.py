@@ -1199,7 +1199,7 @@ async def test_rebate_collective_correction_issue_refuse_second_and_send(client,
 
 
 async def test_collective_correction_check_and_unique_month_in_database(seed):
-    """CHECK 0750: KOR ma albo ``corrects_id``, albo listę faktur; jedna korekta
+    """CHECK 0749: KOR ma albo ``corrects_id``, albo listę faktur; jedna korekta
     zbiorcza na klienta, miesiąc i walutę (wycofana się nie liczy)."""
 
     from app.services import client_invoice_collective_correction_schema as schema

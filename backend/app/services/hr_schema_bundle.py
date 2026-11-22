@@ -191,7 +191,7 @@ MODULES = (
     order_cost_steps,
     # 0746: jeden zespół back office'u, „Na zewnątrz” i ściąga klienta (19.11.2026).
     back_office_team,
-    # 0750: korekta zbiorcza rabatu od obrotu — kolumna i CHECK korekty (22.11.2026).
+    # 0749: korekta zbiorcza rabatu od obrotu — kolumna i CHECK korekty (22.11.2026).
     client_invoice_collective_correction,
 )
 

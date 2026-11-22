@@ -1,7 +1,7 @@
 """Korekta zbiorcza rabatu od obrotu: kolumna ``collective_correction`` i CHECK korekty.
 
-Revision ID: 0750_rebate_collective_correction
-Revises: 0749_settlement_extra_sources
+Revision ID: 0749_rebate_collective_correction
+Revises: 0748_drop_invoices_register
 
 Decyzja Artura z 16.11.2026: za miesiąc przekroczenia progu rabatu jedna korekta
 zbiorcza (art. 106j ust. 3) wskazuje wszystkie faktury miesiąca z KSeF. DDL ma
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services import client_invoice_collective_correction_schema as schema
 
-revision = "0750_rebate_collective_correction"
-down_revision = "0749_settlement_extra_sources"
+revision = "0749_rebate_collective_correction"
+down_revision = "0748_drop_invoices_register"
 branch_labels = None
 depends_on = None
 

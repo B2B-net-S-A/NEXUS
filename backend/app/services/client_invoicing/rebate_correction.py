@@ -19,7 +19,7 @@ Forma w FA(3) (schemat ``crd.gov.pl/wzor/2025/06/25/13775``):
 
 Podgląd (``prepare``) niczego nie zapisuje. „Wystaw korektę” (``create``,
 22.11.2026) zapisuje go jako szkic ``ClientIssuedInvoice`` typu ``KOR`` z listą
-faktur w ``collective_correction`` (0750): numer z serii ``KOR`` (``KORUE`` dla
+faktur w ``collective_correction`` (0749): numer z serii ``KOR`` (``KORUE`` dla
 nabywcy z UE) dostaje dopiero przy wysyłce, a wysyłka idzie tym samym
 przyciskiem Finansów co każda faktura. Jedna korekta na klienta, miesiąc
 i walutę (unikalny indeks; wycofana się nie liczy). Do KSeF na produkcji —

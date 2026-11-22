@@ -190,7 +190,7 @@ class ClientIssuedInvoice(Base, TimestampMixin):
     correction_reason: Mapped[Optional[str]] = mapped_column(
         String(schema.REASON_MAX), nullable=True
     )
-    #: Korekta zbiorcza rabatu od obrotu (0750): faktury z KSeF, okres, typ korekty.
+    #: Korekta zbiorcza rabatu od obrotu (0749): faktury z KSeF, okres, typ korekty.
     collective_correction: Mapped[Optional[dict[str, Any]]] = mapped_column(
         JSONB, nullable=True
     )

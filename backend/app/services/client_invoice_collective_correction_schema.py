@@ -1,4 +1,4 @@
-"""Korekta zbiorcza rabatu od obrotu (22.11.2026): SQL migracji ``0750_rebate_collective_correction`` i lustra entrypointu.
+"""Korekta zbiorcza rabatu od obrotu (22.11.2026): SQL migracji ``0749_rebate_collective_correction`` i lustra entrypointu.
 
 Decyzja Artura z 16.11.2026 (Nordea): za miesiąc, w którym obrót roku przekroczył
 próg, wystawiamy jedną korektę zbiorczą (art. 106j ust. 3) na różnicę stawek od
