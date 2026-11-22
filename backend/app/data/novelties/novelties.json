@@ -4297,6 +4297,24 @@
     ]
   },
   {
+    "id": "porcja-pilne-12-pozostale-8",
+    "pr": 3725,
+    "title": "Porcja dnia: 12 osób z pilnych i 8 z pozostałych rekrutacji",
+    "why": "Pilne idą pierwsze, ale 8 z 20 miejsc czeka na Twoje pozostałe rekrutacje. Osoby bez decyzji od 2 dni roboczych schodzą na koniec, a system dokłada świeże.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia → skład porcji pod paskiem",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.sources",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",
