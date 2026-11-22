@@ -27,6 +27,7 @@ import {
   type CostCategory,
   type CostFilters,
   type CostFlag,
+  type CostJournal,
   type CostRow,
   type CostStage,
 } from "@/lib/api/finance-ledger";
@@ -47,8 +48,12 @@ import {
   CATEGORY_ORDER,
   FLAG_LABELS,
   FLAG_ORDER,
+  JOURNAL_TABS,
+  READY_HINT,
   STAGE_TABS,
+  VERIFY_CONTRACTORS_HINT,
   bulkLabel,
+  checkTone,
   describeResult,
   keepVisible,
   recentMonths,
@@ -57,7 +62,7 @@ import {
   type StageButton,
 } from "./ledger-model";
 
-export const COSTS_URL_KEYS = ["costStage"] as const;
+export const COSTS_URL_KEYS = ["costStage", "costJournal"] as const;
 
 const CONTROL =
   "h-8 rounded-md border border-border bg-background px-2.5 text-sm pointer-coarse:h-10";
@@ -68,16 +73,28 @@ function readStage(): CostStage {
   return STAGE_TABS.some((tab) => tab.stage === raw) ? (raw as CostStage) : "received";
 }
 
-function writeStage(stage: CostStage) {
+function readJournal(): CostJournal | null {
+  if (typeof window === "undefined") return null;
+  const raw = new URLSearchParams(window.location.search).get("costJournal");
+  return JOURNAL_TABS.some((tab) => tab.journal !== null && tab.journal === raw)
+    ? (raw as CostJournal)
+    : null;
+}
+
+function writeParam(key: (typeof COSTS_URL_KEYS)[number], value: string | null) {
   const params = new URLSearchParams(window.location.search);
-  if (stage === "received") params.delete("costStage");
-  else params.set("costStage", stage);
+  if (value === null) params.delete(key);
+  else params.set(key, value);
   const query = params.toString();
   window.history.replaceState(
     null,
     "",
     query ? `${window.location.pathname}?${query}` : window.location.pathname,
   );
+}
+
+function writeStage(stage: CostStage) {
+  writeParam("costStage", stage === "received" ? null : stage);
 }
 
 /** Plakietki flag procesowych (dawne etykiety eBI24). */
@@ -95,6 +112,24 @@ export function FlagChips({ flags }: { flags: readonly CostFlag[] }) {
         </Badge>
       ))}
     </span>
+  );
+}
+
+/** Faktura kontraktora a rozliczenie miesiąca: krótka plakietka w kolejce. */
+export function SettlementBadge({ row }: { row: Pick<CostRow, "settlement"> }) {
+  const match = row.settlement;
+  if (!match) return null;
+  return (
+    <Badge
+      size="sm"
+      variant={checkTone(match.tone)}
+      className="mt-0.5 max-w-full truncate"
+      title={[match.month ? `Rozliczenie ${match.month}` : null, match.rcp, match.label]
+        .filter(Boolean)
+        .join(" · ")}
+    >
+      {match.label}
+    </Badge>
   );
 }
 
@@ -178,6 +213,7 @@ function ModuleBanner() {
 export function CostsTab({ canWrite = true }: { canWrite?: boolean }) {
   const [filters, setFilters] = useState<CostFilters>(() => ({
     stage: readStage(),
+    journal: readJournal(),
     month: null,
     category: null,
     flag: null,
@@ -217,6 +253,11 @@ export function CostsTab({ canWrite = true }: { canWrite?: boolean }) {
     update({ stage });
   };
 
+  const changeJournal = (journal: CostJournal | null) => {
+    writeParam("costJournal", journal);
+    update({ journal });
+  };
+
   const run = async (button: StageButton | null, flag?: { flag: CostFlag; on: boolean }) => {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
@@ -249,7 +290,24 @@ export function CostsTab({ canWrite = true }: { canWrite?: boolean }) {
   };
 
   const counts = queue.data?.counts;
+  const journalCounts = queue.data?.journal_counts;
   const buttons = canWrite ? stageButtons(filters.stage) : [];
+  // Zbiorczo: „Gotowa” i jej cofnięcie — „Księgowi”; „Zweryfikuj” w dzienniku
+  // „Kontraktorzy” — lista weryfikujących. Przy mieszanym zaznaczeniu odmowy
+  // przychodzą z serwera (toast z powodem).
+  const can = queue.data?.can;
+  const bulkBlock = (button: StageButton): string | null => {
+    if (!can) return null;
+    if (button.action === "ready" || (button.action === "back" && filters.stage === "ready")) {
+      return can.ready ? null : READY_HINT;
+    }
+    const contractorStep =
+      button.action === "verify" || (button.action === "back" && filters.stage === "verified");
+    if (contractorStep && filters.journal === "contractors" && !can.verify_contractors) {
+      return VERIFY_CONTRACTORS_HINT;
+    }
+    return null;
+  };
   const allOn = selectable.length > 0 && selectable.every((id) => selected.has(id));
   const someOn = selectable.some((id) => selected.has(id));
   const shown = filters.offset + items.length;
@@ -257,6 +315,40 @@ export function CostsTab({ canWrite = true }: { canWrite?: boolean }) {
   return (
     <div className="space-y-3" data-help="finance.costs">
       {canWrite ? <ModuleBanner /> : null}
+      <div
+        role="tablist"
+        aria-label="Dziennik"
+        className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-lg border border-border bg-muted/40 p-0.5"
+      >
+        {JOURNAL_TABS.map((tab) => {
+          const active = (filters.journal ?? null) === tab.journal;
+          const count = journalCounts
+            ? tab.journal
+              ? journalCounts[tab.journal]
+              : Object.values(journalCounts).reduce((sum, value) => sum + value, 0)
+            : null;
+          return (
+            <button
+              key={tab.label}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => changeJournal(tab.journal)}
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1 text-[13px] transition-colors pointer-coarse:min-h-10",
+                active
+                  ? "bg-card font-semibold text-foreground shadow-sm"
+                  : "font-medium text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {tab.label}
+              {count !== null ? (
+                <span className="tabular-nums text-muted-foreground">{count}</span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
       <div
         role="tablist"
         aria-label="Etap faktur kosztowych"
@@ -379,18 +471,22 @@ export function CostsTab({ canWrite = true }: { canWrite?: boolean }) {
               </optgroup>
             </select>
           ) : null}
-          {buttons.map((button) => (
-            <Button
-              key={button.action}
-              size="sm"
-              variant={button.primary ? "primary" : "outline"}
-              disabled={selected.size === 0 || action.isPending}
-              loading={action.isPending && action.variables?.action === button.action}
-              onClick={() => void run(button)}
-            >
-              {selected.size > 0 ? bulkLabel(button, selected.size) : button.label}
-            </Button>
-          ))}
+          {buttons.map((button) => {
+            const blocked = bulkBlock(button);
+            return (
+              <Button
+                key={button.action}
+                size="sm"
+                variant={button.primary ? "primary" : "outline"}
+                disabled={selected.size === 0 || action.isPending || blocked !== null}
+                title={blocked ?? undefined}
+                loading={action.isPending && action.variables?.action === button.action}
+                onClick={() => void run(button)}
+              >
+                {selected.size > 0 ? bulkLabel(button, selected.size) : button.label}
+              </Button>
+            );
+          })}
         </div>
       </div>
 
@@ -464,10 +560,14 @@ export function CostsTab({ canWrite = true }: { canWrite?: boolean }) {
                     </Link>
                     <span className={CALM_SUBLINE}>
                       {row.from_ksef ? "KSeF" : "PDF"} · {row.category_label}
+                      {filters.journal || row.journal_label === row.category_label
+                        ? null
+                        : ` · ${row.journal_label}`}
                     </span>
                   </TableCell>
                   <TableCell className="min-w-0">
                     <Concerning row={row} />
+                    <SettlementBadge row={row} />
                   </TableCell>
                   <TableCell className={CALM_AMOUNT}>
                     {formatMoney(row.net_amount, row.currency)}

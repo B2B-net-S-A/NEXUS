@@ -100,6 +100,8 @@ export interface LedgerConfig {
   modules: LedgerModule[];
   me: { admin: boolean; approver: boolean; payroll: boolean };
   accountants: number[] | null;
+  /** „Weryfikujący kontraktorów” w Finanse → Koszty (widzi administrator). */
+  cost_verifiers?: number[] | null;
   /** Konta dekretu faktur sprzedaży (K2), zmienia administrator. */
   sales_accounts: SalesAccounts;
   /** Konta rozliczenia kosztów na „5” (K2), zmienia administrator. */
@@ -839,6 +841,12 @@ export function useSetModule() {
 export function useSetAccountants() {
   return useConfigMutation((userIds: number[]) =>
     api.put(`${BASE}/config/accountants`, { user_ids: userIds }),
+  );
+}
+
+export function useSetCostVerifiers() {
+  return useConfigMutation((userIds: number[]) =>
+    api.put(`${BASE}/config/cost-verifiers`, { user_ids: userIds }),
   );
 }
 

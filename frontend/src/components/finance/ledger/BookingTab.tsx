@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
+import type { CostJournal } from "@/lib/api/finance-ledger";
 import {
   downloadBatchFile,
   useBatchAction,
@@ -119,15 +120,20 @@ function BatchRow({ batch, canWrite }: { batch: PostingBatch; canWrite: boolean 
 export function BookingTab({ canWrite = true }: { canWrite?: boolean }) {
   const [month, setMonth] = useState(() => previousMonth(warsawToday()));
   const [format, setFormat] = useState<string | null>(null);
+  // Paczka jednego dziennika (jak w eBI24) albo całego miesiąca.
+  const [journal, setJournal] = useState<CostJournal | null>(null);
   const preview = useExportPreview(month);
   const create = useBatchCreate();
   const { showToast } = useToast();
   const data = preview.data;
   const chosenFormat = format ?? data?.default_format ?? "neutral_xlsx";
+  const journals = data?.journals ?? [];
+  const chosenJournal = journals.find((item) => item.journal === journal) ?? null;
+  const canExport = chosenJournal ? chosenJournal.exportable > 0 : Boolean(data?.can_export);
 
   const exportMonth = () =>
     create.mutate(
-      { month, format: chosenFormat },
+      { month, format: chosenFormat, journal },
       {
         onSuccess: async (batch) => {
           const skipped = batch.skipped?.length ?? 0;
@@ -169,6 +175,19 @@ export function BookingTab({ canWrite = true }: { canWrite?: boolean }) {
         ) : null}
         <div className={cn("ml-auto flex flex-wrap items-center gap-2", !canWrite && "hidden")}>
           <select
+            aria-label="Dziennik paczki"
+            value={journal ?? ""}
+            onChange={(event) => setJournal((event.target.value || null) as CostJournal | null)}
+            className={CONTROL}
+          >
+            <option value="">Wszystkie dzienniki</option>
+            {journals.map((item) => (
+              <option key={item.journal} value={item.journal}>
+                {item.label} ({item.exportable})
+              </option>
+            ))}
+          </select>
+          <select
             aria-label="Format pliku"
             value={chosenFormat}
             onChange={(event) => setFormat(event.target.value)}
@@ -180,11 +199,26 @@ export function BookingTab({ canWrite = true }: { canWrite?: boolean }) {
               </option>
             ))}
           </select>
-          <Button size="sm" disabled={!data?.can_export} loading={create.isPending} onClick={exportMonth}>
+          <Button size="sm" disabled={!canExport} loading={create.isPending} onClick={exportMonth}>
             Pobierz plik
           </Button>
         </div>
       </div>
+      {journals.some((item) => item.count > 0) ? (
+        <ul aria-label="Dzienniki miesiąca" className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          {journals.map((item) => (
+            <li key={item.journal}>
+              <span className="font-medium text-foreground">{item.label}</span>:{" "}
+              {countPl(item.count, "faktura", "faktury", "faktur")}
+              {item.count > 0 ? (
+                <>
+                  {" "}· Wn <Amount value={item.debit_total} />
+                </>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <p className="text-xs text-muted-foreground">
         Format importu Symfonii FK czeka na próbkę od Finansów — plik ma wiersz na pozycję dekretu. „Pobierz plik”
         zakłada paczkę z numerem z faktur bez wady (sumy rejestru liczą tylko je); po imporcie w Symfonii oznacz
@@ -234,6 +268,7 @@ export function BookingTab({ canWrite = true }: { canWrite?: boolean }) {
                       {entry.doc_type ? ` · ${entry.doc_type}` : ""}
                       {entry.description ? ` · ${entry.description}` : ""}
                       {entry.manual ? " · dekret ręczny" : ""}
+                      {entry.journal_label ? ` · ${entry.journal_label}` : ""}
                     </span>
                     <span className="ml-auto text-sm">
                       <Amount value={entry.debit_total} />

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  READY_HINT,
+  VERIFY_CONTRACTORS_HINT,
   bulkLabel,
+  buttonBlock,
+  checkTone,
   describeResult,
   keepVisible,
   recentMonths,
@@ -74,5 +78,38 @@ describe("recentMonths", () => {
     expect(months).toHaveLength(12);
     expect(months.slice(0, 3)).toEqual(["2026-02", "2026-01", "2025-12"]);
     expect(months[11]).toBe("2025-03");
+  });
+});
+
+describe("buttonBlock — kroki z listy osób", () => {
+  const all = { verify: true, ready: true };
+  const none = { verify: false, ready: false };
+  const verify = stageButtons("new").find((button) => button.action === "verify")!;
+  const ready = stageButtons("verified").find((button) => button.action === "ready")!;
+  const backVerified = stageButtons("verified").find((button) => button.action === "back")!;
+  const backReady = stageButtons("ready").find((button) => button.action === "back")!;
+  const accept = stageButtons("received").find((button) => button.action === "accept")!;
+
+  it("blokuje „Zweryfikuj” i jej cofnięcie bez listy weryfikujących", () => {
+    expect(buttonBlock(verify, "new", none)).toBe(VERIFY_CONTRACTORS_HINT);
+    expect(buttonBlock(backVerified, "verified", none)).toBe(VERIFY_CONTRACTORS_HINT);
+    expect(buttonBlock(verify, "new", { verify: true, ready: false })).toBeNull();
+  });
+
+  it("blokuje „Gotowa” i cofnięcie z „Gotowej” bez „Księgowych”", () => {
+    expect(buttonBlock(ready, "verified", { verify: true, ready: false })).toBe(READY_HINT);
+    expect(buttonBlock(backReady, "ready", { verify: true, ready: false })).toBe(READY_HINT);
+    expect(buttonBlock(ready, "verified", all)).toBeNull();
+  });
+
+  it("przyjęcie z poczekalni zostaje dla każdego", () => {
+    expect(buttonBlock(accept, "received", none)).toBeNull();
+  });
+
+  it("ton kontroli rozliczenia", () => {
+    expect(checkTone("ok")).toBe("success");
+    expect(checkTone("fail")).toBe("danger");
+    expect(checkTone("warn")).toBe("warning");
+    expect(checkTone("none")).toBe("outline");
   });
 });
