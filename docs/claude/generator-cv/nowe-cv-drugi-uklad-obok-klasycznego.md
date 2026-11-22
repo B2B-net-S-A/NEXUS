@@ -57,6 +57,44 @@ Migracja 0753, SQL w `services/cv_layout_schema.py` (czyta go też
 i `page1_extras` (NULL w starych wierszach = klasyczny),
 `cv_generated_documents.cv_layout`, `client_cv_rules.cv_layout`.
 
+## Zdanie „najmocniejszy wynik”
+
+Trzecie zdanie „Dlaczego nasz kandydat” na stronie 1 (wariant E2): najmocniejszy
+wynik z całego CV. Kod: `services/cv_page1_results.py` (model, zapis, wyzwalacze)
+i `services/cv_page1_result_checks.py` (sprawdzenie, bez sieci i bazy).
+
+- **Co:** osobne wywołanie modelu generatora (klucz `cv_generator`, GPT-6.1 Sol),
+  prompt PL albo EN według języka CV; prompt generatora (`legacy_v7`) bez zmian.
+  Model dostaje role z HTML-a edytora (firma, stanowisko, okres, punkty) i punkty
+  1–2, bez imienia i kontaktu. Oddaje do 4 wyników, każdy jednym zdaniem od
+  rzeczownika, z `**pogrubieniem**` faktu, dosłownym cytatem i firmą. Wynik leży
+  w `page1_extras.results` (`text`, `quote`, `company`, `verified`, przy
+  niesprawdzonym `issue`), `result_index` wraca do 0 tylko przy innych wynikach,
+  `results_source_sha` = sha256 HTML-a, z którego liczono.
+- **Sprawdzenie (kod, nie model):** cytat stoi w jednym punkcie albo nazwie
+  stanowiska jednej roli (po słowach: wielkość liter, cudzysłowy, myślniki
+  i interpunkcja się nie liczą, zmienione słowo tak); każda liczba ze zdania stoi
+  w cytacie albo w tej roli; jedno zdanie do 170 znaków; w Blind CV bez nazw firm.
+  Zdanie o latach albo powtarzające punkt 1 lub 2 znika. Niesprawdzone zostają dla
+  edytora, ale strona 1 ich nie bierze (`cv_layout.chosen_result`); sprawdzone
+  stoją pierwsze, w kolejności modelu. Firmę bierze kod z roli z cytatem.
+- **Wyzwalacze:** `POST …/stages/{id}/cv/page1/results` (przycisk rekrutera, liczy
+  zawsze od nowa, limit 20/min, awaria = 503) oraz bieg w tle po commicie:
+  `PATCH …/cv/layout` na „Nowe CV” i szkic z generacji w układzie „Nowe CV”
+  (`apply_generated_to_stage_cv`). Tło tylko przy `CV_NEW_LAYOUT_ENABLED`, kluczu
+  dostawcy i nieaktualnym `results_source_sha`. Zapis pod blokadą wiersza na
+  świeżych dodatkach, więc `why` i `result_text` z innych zapisów zostają.
+- **Fallback:** bez sprawdzonego wyniku (CV z samymi obowiązkami, awaria modelu)
+  strona 1 bierze trzeci punkt generatora. Awaria nie zmienia dodatków, ślad
+  jest w logu. Zatwierdzona wersja ma dodatki zamrożone — wynik policzony później
+  trafia do szkicu, nie do wysłanej treści.
+- **Pomiar 22.11.2026** (kopia produkcji, 30 CV: 20 EN, 10 PL, sam Sol bez
+  zapasu, tylko odczyt): sprawdzony wynik w 26 CV, 72 propozycje, 0 odrzuconych
+  przez kod, 4 CV bez wyniku (model zwrócił pustą listę przy samych obowiązkach),
+  zdanie do 136 znaków (mediana 110), mediana 5 s na CV.
+- **Własny klucz AI** (osobny model w env i licznik w Ustawieniach → AI) wymaga
+  migracji enuma `aifeaturekey` i wpisu w rejestrze; dziś liczy się jako generator.
+
 ## Czego nie cofać
 
 - Nie dokładaj osobnego „Pobierz Word” w nowym układzie — Word jest klasyczny
@@ -65,3 +103,8 @@ i `page1_extras` (NULL w starych wierszach = klasyczny),
   zapadła po makietach obu wariantów.
 - Nie blokuj ścieżki CV na wyniku modelu: zdanie „najmocniejszy wynik” jest
   dodatkiem, bez niego strona 1 bierze trzeci punkt „Dlaczego”.
+- Nie wpuszczaj na stronę 1 zdania bez `verified` i nie luzuj sprawdzenia cytatu
+  ani liczb „bo model jest dobry”: na pomiarze nic nie odpadło, ale to jedyna
+  bariera przed liczbą spoza CV u klienta.
+- Nie dopisuj tego zdania do promptu generatora — klasyczne CV mają zostać bez
+  zmian, a wynik liczy się z treści po poprawkach rekrutera.
