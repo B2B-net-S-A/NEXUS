@@ -70,6 +70,7 @@ import {
   type WhoCountsMetric,
 } from "@/lib/kpi-who-counts";
 import { useUrlWriter } from "@/lib/url-selection";
+import { TeamAiCardCvTile } from "./team/TeamAiCardCvTile";
 import { TeamAnswer } from "./team/TeamAnswer";
 import { TeamFirstCvStrip } from "./team/TeamFirstCvStrip";
 import { TEAM_LIST_SLUG } from "./team/TeamFunnelPanel";
@@ -133,6 +134,7 @@ export function ZespolView() {
         }
       />
       <TeamFirstCvStrip />
+      <TeamAiCardCvTile />
       <TeamStageLens data={data} seesTeam={seesTeam} period={period} />
       {seesTeam ? (
         <PeoplePanel
