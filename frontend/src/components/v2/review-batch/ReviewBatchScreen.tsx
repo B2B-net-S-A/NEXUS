@@ -198,15 +198,14 @@ function StaleLine({ items }: { items: readonly ReviewBatchItem[] }) {
   return (
     <p
       className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-1.5 text-xs text-foreground"
+      title="Nie zajmują miejsca w porcji, więc system dokłada świeże osoby."
       data-testid="review-queue-stale"
     >
       <span className="font-semibold">
         Na końcu porcji: {stale.length} {pluralPl(stale.length, "karta", "karty", "kart")}
         {span}
       </span>{" "}
-      <span className="text-muted-foreground">
-        bez decyzji od 2 dni roboczych. Nie zajmują miejsca, więc system dokłada świeże osoby.
-      </span>
+      <span className="text-muted-foreground">bez decyzji od 2 dni roboczych</span>
     </p>
   );
 }
