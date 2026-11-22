@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from"react"
 import { useRouter } from"next/navigation"
-import { useMutation, useQuery } from"@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from"@tanstack/react-query"
 import { Building2, Check, MapPin, Search, Sparkles } from"lucide-react"
 
 import api from"@/lib/api"
@@ -12,6 +12,8 @@ import { Button } from"@/components/ui/button"
 import { Checkbox } from"@/components/ui/checkbox"
 import { Input } from"@/components/ui/input"
 import { markOnboardingCompleted } from "@/lib/onboarding-storage"
+import { fetchStartStatus } from "@/lib/novelties/api"
+import { afterOnboardingPath } from "@/lib/novelties/logic"
 import {
  QueryStateNotice,
  type BlockingViewState,
@@ -45,6 +47,7 @@ function matchesQuery(job: JobListItem, q: string): boolean {
 
 export function OnboardingRecruiterV2() {
  const router = useRouter()
+ const queryClient = useQueryClient()
  const token = useAuthStore((s) => s.token)
  const setAuth = useAuthStore((s) => s.setAuth)
 
@@ -60,19 +63,21 @@ export function OnboardingRecruiterV2() {
  staleTime: 60_000,
  })
 
- const mutation = useMutation<User, unknown, void>({
+ const mutation = useMutation<{ user: User; next: string }, unknown, void>({
  mutationFn: async () => {
  await api.post("/api/users/me/onboarding",
  { active_job_ids: Array.from(selected) },
  )
  const { data: refreshedUser } = await api.get<User>("/api/auth/me")
- return refreshedUser
+ // Nowa osoba z Poligonem wymaganym idzie od razu na `/poligon`, nie na pulpit.
+ const next = afterOnboardingPath(await fetchStartStatus(queryClient))
+ return { user: refreshedUser, next }
  },
- onSuccess: (refreshedUser) => {
+ onSuccess: ({ user: refreshedUser, next }) => {
  if (!token) return
  setAuth(refreshedUser)
  markOnboardingCompleted()
- router.replace("/")
+ router.replace(next)
  },
  })
 

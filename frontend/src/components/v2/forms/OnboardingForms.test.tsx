@@ -22,12 +22,11 @@ vi.mock("@/lib/onboarding-storage", () => ({
   markOnboardingCompleted: markOnboardingCompletedMock,
 }))
 
-vi.mock("@/lib/api", () => ({
-  default: {
-    get: vi.fn(),
-    post: vi.fn(),
-  },
-}))
+vi.mock("@/lib/api", () => {
+  // `@/lib/novelties/api` bierze nazwany `api` — ten sam klient co `default`.
+  const client = { get: vi.fn(), post: vi.fn() }
+  return { default: client, api: client }
+})
 
 const apiGet = vi.mocked(api.get)
 const apiPost = vi.mocked(api.post)
@@ -88,8 +87,13 @@ function renderForm(node: React.ReactNode) {
   )
 }
 
-function arrangeApi(refreshedUser: User) {
+function arrangeApi(refreshedUser: User, startRedirect?: "/poligon" | "/start") {
   apiGet.mockImplementation(async (url) => {
+    if (url === "/api/novelties/start" && startRedirect) {
+      return {
+        data: { enforced: true, gate_on: true, done: 0, total: 3, items: [], redirect: startRedirect },
+      } as never
+    }
     if (url === "/api/users/me/onboarding/jobs") {
       return { data: { items: [], total: 0 } } as never
     }
@@ -206,5 +210,44 @@ describe("role onboarding forms", () => {
     expect(useAuthStore.getState().user?.data_scope?.kind).toBe("self")
     expect(markOnboardingCompletedMock).toHaveBeenCalledOnce()
     expect(replaceMock).toHaveBeenCalledWith("/")
+  })
+
+  // 22.11.2026: nowa osoba z Poligonem wymaganym lądowała na pulpicie (wolnym
+  // od blokady Startu) i Poligon widziała dopiero po kliknięciu innego ekranu.
+  it.each([
+    ["recruiter", () => <OnboardingRecruiterV2 />, /Zakończ onboarding/],
+    ["delivery_lead", () => <OnboardingDLV2 />, /Zakończ/],
+  ] as const)("%s z Poligonem wymaganym trafia od razu na /poligon", async (role, form, finish) => {
+    const refreshedUser = fullUser(role)
+    arrangeApi(refreshedUser, "/poligon")
+    seedIncompleteSession(refreshedUser)
+
+    renderForm(form())
+
+    await waitFor(() =>
+      expect(apiGet).toHaveBeenCalledWith("/api/users/me/onboarding/jobs"),
+    )
+    if (role === "delivery_lead")
+      fireEvent.click(screen.getByRole("button", { name: /Dalej/ }))
+    fireEvent.click(screen.getByRole("button", { name: finish }))
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/poligon"))
+    expect(apiGet).toHaveBeenCalledWith("/api/novelties/start")
+    expect(replaceMock).not.toHaveBeenCalledWith("/")
+  })
+
+  it("zostawia pulpit, gdy blokuje sam Start (pulpit jest dla Startu wolny)", async () => {
+    const refreshedUser = fullUser("recruiter")
+    arrangeApi(refreshedUser, "/start")
+    seedIncompleteSession(refreshedUser)
+
+    renderForm(<OnboardingRecruiterV2 />)
+
+    await waitFor(() =>
+      expect(apiGet).toHaveBeenCalledWith("/api/users/me/onboarding/jobs"),
+    )
+    fireEvent.click(screen.getByRole("button", { name: /Zakończ onboarding/ }))
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/"))
   })
 })
