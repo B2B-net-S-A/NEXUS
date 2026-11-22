@@ -13,6 +13,7 @@ import api from "@/lib/api";
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 import { CV_INTERACTIVE_UI_ENABLED } from "@/lib/cv-generator";
 import type { CvContentMode } from "@/lib/cv-generator";
+import type { CvLayout } from "@/lib/api";
 
 export type CvHighlightPolicy = "none" | "technologies" | "must" | "must_nice" | "explicit";
 /** Wyrównanie treści CV w pliku Word (decyzja J1, 14.10.2026: domyślnie wyjustowane). */
@@ -62,6 +63,10 @@ export interface ClientCvRule {
   highlight_terms?: string[];
   cv_text_align?: CvTextAlign;
   cv_title_with_reference?: boolean;
+  /** Domyślny układ CV klienta (22.11.2026): `new` = Nowe CV w PDF. */
+  cv_layout?: CvLayout;
+  /** Flaga „Nowego CV” — wyłączona: bez wiersza „Układ CV”. */
+  new_layout_enabled?: boolean;
   edit_revision?: number;
   draft_payload?: Partial<ClientCvRulePayload> | null;
   client_id: number;
@@ -128,7 +133,11 @@ export type ClientCvRuleForGeneration = Pick<
   | "filename_preview"
   | "notes"
   | "generator_instructions"
-> & { version: number | null };
+> & {
+  version: number | null;
+  /** Domyślny układ CV klienta; `null`/brak = flaga „Nowego CV” wyłączona. */
+  cv_layout?: CvLayout | null;
+};
 
 export interface ClientCvRuleListItem extends ClientCvRule {
   template_label: string | null;
@@ -145,6 +154,8 @@ export interface UnassignedTemplate {
 export interface CvRulesOverview {
   rules: ClientCvRuleListItem[];
   unassigned_templates: UnassignedTemplate[];
+  /** Flaga „Nowego CV” (22.11.2026). */
+  new_layout_enabled?: boolean;
 }
 
 /** Payload `PUT /api/clients/{id}/cv-rule`. */
@@ -153,6 +164,7 @@ export interface ClientCvRulePayload {
   highlight_terms?: string[];
   cv_text_align?: CvTextAlign;
   cv_title_with_reference?: boolean;
+  cv_layout: CvLayout;
   expected_revision?: number;
   filename_pattern: string | null;
   spaces_to_underscores: boolean;
@@ -234,6 +246,14 @@ export const cvRulesApi = {
   save: async (clientId: number, payload: ClientCvRulePayload) =>
     (await api.put<ClientCvRule>(`/api/clients/${clientId}/cv-rule`, payload))
       .data,
+  /** Sam układ CV — zapis przy zasadach centralnych (reguła jest wtedy tylko do odczytu). */
+  setLayout: async (clientId: number, cvLayout: CvLayout, expectedRevision: number) =>
+    (
+      await api.put<ClientCvRule>(`/api/clients/${clientId}/cv-rule/layout`, {
+        cv_layout: cvLayout,
+        expected_revision: expectedRevision,
+      })
+    ).data,
   confirm: async (clientId: number, expectedRevision: number) =>
     (await api.post<ClientCvRule>(`/api/clients/${clientId}/cv-rule/confirm`, null, {
       params: { expected_revision: expectedRevision },
@@ -297,6 +317,7 @@ export interface CvRuleForm {
   highlight_terms: string;
   cv_text_align: CvTextAlign;
   cv_title_with_reference: boolean;
+  cv_layout: CvLayout;
   filename_pattern: string;
   spaces_to_underscores: boolean;
   cv_language: "" | CvRuleLanguage;
@@ -331,6 +352,7 @@ export function ruleToForm(published: ClientCvRule): CvRuleForm {
     highlight_terms: (rule.highlight_terms ?? []).join("\n"),
     cv_text_align: rule.cv_text_align === "left" ? "left" : "justify",
     cv_title_with_reference: Boolean(rule.cv_title_with_reference),
+    cv_layout: rule.cv_layout === "new" ? "new" : "classic",
     filename_pattern: rule.filename_pattern ?? "",
     spaces_to_underscores: rule.spaces_to_underscores,
     cv_language: rule.cv_language ?? "",
@@ -377,6 +399,9 @@ export function formToPayload(form: CvRuleForm, confirm: boolean): ClientCvRuleP
     highlight_terms: form.highlight_terms.split("\n").map((term) => term.trim()).filter(Boolean),
     cv_text_align: form.cv_text_align,
     cv_title_with_reference: form.cv_title_with_reference,
+    // Wysyłany zawsze, także gdy wiersz jest ukryty (flaga wyłączona) — pełny
+    // zapis: pominięte pole serwer wyzerowałby po cichu.
+    cv_layout: form.cv_layout,
     filename_pattern: form.filename_pattern.trim() || null,
     spaces_to_underscores: form.spaces_to_underscores,
     cv_language: form.cv_language || null,
@@ -461,6 +486,7 @@ export const RULE_FIELD_LABELS: Record<string, string> = {
   highlight_terms: "Wyróżniane technologie",
   cv_text_align: "Wyrównanie tekstu",
   cv_title_with_reference: "Numer zapytania w nagłówku",
+  cv_layout: "Układ CV",
   filename_pattern: "Wzór nazwy pliku",
   spaces_to_underscores: "Podkreślenia zamiast spacji",
   cv_language: "Wymagany język",

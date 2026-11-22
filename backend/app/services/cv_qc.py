@@ -69,6 +69,7 @@ from app.services.dz_review import Block, Requirement, Role
 from app.services.money_text import MONEY_RE, RATE_WORD_RE, is_cv_rate_text
 from app.services.prompt_fencing import fence, restore_tags
 from app.services import qc_state
+from app.services import cv_layout as layout_service
 from app.services.qc_state import CONSENT_MANUAL_ITEM
 from app.core.scheduling import business_today
 
@@ -3223,6 +3224,14 @@ def _cv_payload(src: dz.ReviewSources) -> Optional[dict]:
         "document_id": gen.get("document_id"),
         "filename": gen.get("filename"),
         "from_word_file": bool(gen.get("from_word_file")),
+        # Odznaka „Nowe CV · PDF” / „Klasyczne · Word” w oknie QC; `None` =
+        # flaga wyłączona albo CV spoza etapu (22.11.2026).
+        "cv_layout": (
+            layout_service.effective(gen.get("cv_layout"))
+            if layout_service.enabled()
+            and gen["source"] in ("branded_draft", "branded_finalized")
+            else None
+        ),
         "bold_known": src.bold_known,
         "updated_at": gen.get("updated_at"),
         "edit_revision": gen.get("edit_revision"),

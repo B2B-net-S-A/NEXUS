@@ -1000,6 +1000,8 @@ async def _generated_cv(
             if row.branded_status == "finalized"
             else "branded_draft",
             "from_word_file": from_word_file,
+            # Układ pliku do klienta (22.11.2026) — QC ocenia tę samą treść w obu.
+            "cv_layout": getattr(row, "cv_layout", None),
             "filename": (str(origin.get("label") or "").strip() or None)
             if from_word_file
             else None,

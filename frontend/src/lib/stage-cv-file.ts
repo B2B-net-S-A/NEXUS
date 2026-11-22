@@ -21,14 +21,18 @@ import {
 } from "@/lib/authenticated-files";
 import { withDownloadIntent, type CvDownloadSurface } from "@/lib/cv-download-intent";
 
-export async function fetchStageCvFile(
-  stageId: number,
-  opts?: { download?: CvDownloadSurface },
-): Promise<AuthenticatedDownload> {
-  const url = (path: string) => (opts?.download ? withDownloadIntent(path, opts.download) : path);
-  const { data: branded } = await api.get<CVBrandedState>(
-    `/api/candidates/stages/${stageId}/cv/branded`,
-  );
+type UrlFor = (path: string) => string;
+
+function urlFor(opts?: { download?: CvDownloadSurface }): UrlFor {
+  return (path: string) => (opts?.download ? withDownloadIntent(path, opts.download) : path);
+}
+
+async function stageBranded(stageId: number): Promise<CVBrandedState> {
+  const { data } = await api.get<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded`);
+  return data;
+}
+
+async function docxFile(stageId: number, branded: CVBrandedState, url: UrlFor): Promise<AuthenticatedDownload> {
   if (branded.status === "finalized") {
     const file = await fetchAuthenticatedDownload(
       url(`/api/candidates/stages/${stageId}/cv/branded/versions/${branded.version}/docx`),
@@ -42,19 +46,7 @@ export async function fetchStageCvFile(
   return { blob: file.blob, filename: file.filename || "SZKIC_CV.docx" };
 }
 
-/**
- * Strony CV jako PDF z TEGO SAMEGO pliku Word (Edytor CV 3, J2): wersja
- * zatwierdzona → `…/versions/{n}/pdf`, szkic → `…/preview-pdf` z bieżącej
- * treści. 503 = PDF chwilowo niedostępny, podgląd wraca wtedy do pliku Word.
- */
-export async function fetchStageCvPdf(
-  stageId: number,
-  opts?: { download?: CvDownloadSurface },
-): Promise<AuthenticatedDownload> {
-  const url = (path: string) => (opts?.download ? withDownloadIntent(path, opts.download) : path);
-  const { data: branded } = await api.get<CVBrandedState>(
-    `/api/candidates/stages/${stageId}/cv/branded`,
-  );
+async function pdfFile(stageId: number, branded: CVBrandedState, url: UrlFor): Promise<AuthenticatedDownload> {
   if (branded.status === "finalized") {
     const file = await fetchAuthenticatedDownload(
       url(`/api/candidates/stages/${stageId}/cv/branded/versions/${branded.version}/pdf`),
@@ -66,4 +58,43 @@ export async function fetchStageCvPdf(
     { content_html: branded.content_html ?? "", expected_revision: branded.edit_revision },
   );
   return { blob: file.blob, filename: file.filename || "SZKIC_CV.pdf" };
+}
+
+/** Czy plik do klienta to PDF „Nowego CV” (układ CV + flaga serwera, 22.11.2026). */
+export function brandedIsNewLayout(branded: CVBrandedState | null | undefined): boolean {
+  return branded?.new_layout_enabled === true && branded.cv_layout === "new";
+}
+
+export async function fetchStageCvFile(
+  stageId: number,
+  opts?: { download?: CvDownloadSurface },
+): Promise<AuthenticatedDownload> {
+  return docxFile(stageId, await stageBranded(stageId), urlFor(opts));
+}
+
+/**
+ * Strony CV jako PDF z TEGO SAMEGO pliku Word (Edytor CV 3, J2): wersja
+ * zatwierdzona → `…/versions/{n}/pdf`, szkic → `…/preview-pdf` z bieżącej
+ * treści. 503 = PDF chwilowo niedostępny, podgląd wraca wtedy do pliku Word.
+ * Przy układzie „Nowe CV” te same trasy oddają PDF nowego układu.
+ */
+export async function fetchStageCvPdf(
+  stageId: number,
+  opts?: { download?: CvDownloadSurface },
+): Promise<AuthenticatedDownload> {
+  return pdfFile(stageId, await stageBranded(stageId), urlFor(opts));
+}
+
+/**
+ * Plik, który idzie do klienta (kolejka Cpro, 22.11.2026): w układzie
+ * „Nowe CV” — PDF tego układu (Word jest zawsze klasyczny), inaczej plik Word
+ * jak dotąd. Jedno żądanie o stan CV etapu, potem jedno o plik.
+ */
+export async function fetchStageCvForClient(
+  stageId: number,
+  opts?: { download?: CvDownloadSurface },
+): Promise<AuthenticatedDownload> {
+  const branded = await stageBranded(stageId);
+  const url = urlFor(opts);
+  return brandedIsNewLayout(branded) ? pdfFile(stageId, branded, url) : docxFile(stageId, branded, url);
 }

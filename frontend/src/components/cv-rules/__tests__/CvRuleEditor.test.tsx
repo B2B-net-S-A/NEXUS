@@ -166,6 +166,35 @@ describe("CvRuleEditor", () => {
     expect(onChanged).toHaveBeenCalled();
   });
 
+  it("„Układ CV” (22.11.2026): przy włączonej fladze wiersz w regule, zapis niesie układ", async () => {
+    mocks.get.mockImplementationOnce(async () => ({
+      data: makeCvRule({ ...RULE, new_layout_enabled: true, cv_layout: "classic" }),
+    }));
+    renderEditor();
+    const layout = await screen.findByTestId("cvrule-cv-layout");
+    expect(layout).toHaveTextContent("Układ CV");
+    expect(screen.getByRole("radio", { name: /^Klasyczne \(Word\)/ })).toBeChecked();
+    fireEvent.click(screen.getByRole("radio", { name: /^Nowe CV \(PDF\)/ }));
+    // Pasek „Ta reguła robi” pokazuje układ obok pliku i języka.
+    expect(screen.getByText("Nowe CV (PDF)", { selector: "span.font-medium" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz i włącz regułę" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
+    const [, body] = mocks.put.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body.cv_layout).toBe("new");
+  });
+
+  it("„Układ CV” przy wyłączonej fladze: bez wiersza, ale zapis nie zeruje układu", async () => {
+    mocks.get.mockImplementationOnce(async () => ({
+      data: makeCvRule({ ...RULE, new_layout_enabled: false, cv_layout: "new" }),
+    }));
+    renderEditor();
+    expect(await screen.findByText("Reguły CV · wersja 1")).toBeInTheDocument();
+    expect(screen.queryByTestId("cvrule-cv-layout")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz szkic" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
+    expect(mocks.put.mock.calls[0][1]).toMatchObject({ cv_layout: "new" });
+  });
+
   it("edytuje zapisany szkic i zachowuje informację o działającej wersji", async () => {
     const draft = { filename_pattern: "SZKIC_{IMIE_NAZWISKO}", cv_language: "pl" as const };
     mocks.get.mockResolvedValueOnce({ data: makeCvRule({ ...RULE, draft_payload: draft }) });

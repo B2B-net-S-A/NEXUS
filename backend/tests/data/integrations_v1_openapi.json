@@ -3543,6 +3543,16 @@
             "title": "Consent Required",
             "type": "boolean"
           },
+          "cv_layout": {
+            "default": "classic",
+            "description": "Układ pliku do klienta: classic = Word, new = Nowe CV (tylko PDF — pobierz ``…/cv/file?format=pdf``). Word jest zawsze klasyczny.",
+            "enum": [
+              "classic",
+              "new"
+            ],
+            "title": "Cv Layout",
+            "type": "string"
+          },
           "cv_stage_id": {
             "anyOf": [
               {
@@ -17962,7 +17972,7 @@
     },
     "/api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/cv/file": {
       "get": {
-        "description": "Plik CV dla klienta — ten sam co „Pobierz” w panelu osoby: zatwierdzone\nCV albo szkic z bieżącej treści (nazwa ``SZKIC_…``, nagłówek\n``X-CV-State``). Para bez CV — 404 ``cv_not_ready``; brak zrzutu zgody\nRODO — 409 ``consent_required``; PDF chwilowo niedostępny — 503.",
+        "description": "Plik CV dla klienta — ten sam co „Pobierz” w panelu osoby: zatwierdzone\nCV albo szkic z bieżącej treści (nazwa ``SZKIC_…``, nagłówek\n``X-CV-State``). Para bez CV — 404 ``cv_not_ready``; brak zrzutu zgody\nRODO — 409 ``consent_required``; PDF chwilowo niedostępny — 503.\n\nUkład (22.11.2026): ``pdf`` przy „Nowym CV” to PDF tego układu z treści\nwersji (szkicu), przy klasycznym — PDF z pliku Word. ``docx`` zostaje\ndomyślne i zawsze klasyczne (Word nie ma nowego układu) — zmiana\ndomyślnego formatu zmieniłaby znaczenie wywołania bez parametru, czyli\nv2. Nagłówek ``X-CV-Layout`` mówi, w jakim układzie jest oddany plik.",
         "operationId": "download_client_cv_api_integrations_v1_recruitments__job_id__candidates__candidate_id__cv_file_get",
         "parameters": [
           {
@@ -17988,13 +17998,13 @@
             }
           },
           {
-            "description": "docx (domyślnie) albo pdf.",
+            "description": "docx (domyślnie) albo pdf. docx to zawsze klasyczny plik Word; pdf — w układzie CV (``cv_layout`` w stanie CV: „new” = PDF Nowego CV, który idzie do klienta).",
             "in": "query",
             "name": "format",
             "required": false,
             "schema": {
               "default": "docx",
-              "description": "docx (domyślnie) albo pdf.",
+              "description": "docx (domyślnie) albo pdf. docx to zawsze klasyczny plik Word; pdf — w układzie CV (``cv_layout`` w stanie CV: „new” = PDF Nowego CV, który idzie do klienta).",
               "enum": [
                 "docx",
                 "pdf"

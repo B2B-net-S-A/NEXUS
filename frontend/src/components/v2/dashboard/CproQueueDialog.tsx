@@ -40,7 +40,7 @@ import {
 import { downloadBlob, fetchAuthenticatedDownload } from "@/lib/authenticated-files";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { withDownloadIntent } from "@/lib/cv-download-intent";
-import { fetchStageCvFile } from "@/lib/stage-cv-file";
+import { fetchStageCvForClient } from "@/lib/stage-cv-file";
 import { countPl } from "@/lib/plural-pl";
 import { QC_STATUS_LABEL, qcStateText } from "@/lib/cv-qc";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
@@ -418,9 +418,10 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
   const downloadCv = async (item: CproQueueItem) => {
     const cv = item.cv;
     if (cv?.stage_id) {
-      // CV firmowe etapu — to, co przeszło QC (runda 7, R7-X4-2).
+      // CV firmowe etapu — to, co przeszło QC (runda 7, R7-X4-2). W układzie
+      // „Nowe CV” to PDF tego układu: ten plik idzie do Cpro (22.11.2026).
       try {
-        const { blob, filename } = await fetchStageCvFile(cv.stage_id, { download: "cpro" });
+        const { blob, filename } = await fetchStageCvForClient(cv.stage_id, { download: "cpro" });
         downloadBlob(blob, filename ?? `CV ${item.candidate_name}`);
       } catch (error) {
         showError(apiErrorMessage(error, "Nie udało się pobrać CV."));
