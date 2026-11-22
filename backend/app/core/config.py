@@ -1446,6 +1446,11 @@ class Settings(BaseSettings):
     # (decyzja Artura 18.11.2026: wariant B, najpierw tryb karty).
     CONTRACT_RATE_DOCS_READ_ENABLED: bool = True
     CONTRACT_RATE_DOCS_AUTO_APPLY: bool = False
+    # Dane firm z umów (E5a, 0755): pętla czyta podpisaną umowę aktywnych
+    # kontraktów B2B bez danych firmy w Generatorze (paczka 25 co 10 min),
+    # a człowiek potwierdza każdą propozycję. Domyślnie OFF — koszt modelu
+    # przy pierwszym biegu (ok. 370 plików); włącza Artur.
+    CONTRACT_PARTNER_READ_ENABLED: bool = False
 
     # Progi oceny prepu (liczy kod, nie model). Udział kandydata = jego czas
     # mówienia / (kandydat + zespół).

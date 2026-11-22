@@ -382,6 +382,7 @@ from app.api import candidate_sources as candidate_sources_api
 from app.api import contract_client_reassign as contract_client_reassign_api
 from app.api import contract_contractor_invoices as contract_contractor_invoices_api
 from app.api import contract_document_folders as contract_document_folders_api
+from app.api import contract_partner_reads as contract_partner_reads_api
 from app.api import job_board_connection as job_board_connection_api
 from app.api import job_portals as job_portals_api
 from app.api import candidates_bulk as candidates_bulk_api
@@ -906,6 +907,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.teams_prep_transcripts import teams_prep_transcripts_loop
     from app.tasks.contract_docs_sharepoint import contract_docs_sharepoint_loop
     from app.tasks.contract_rate_documents import contract_rate_documents_loop
+    from app.tasks.contract_partner_reads import contract_partner_reads_loop
     from app.tasks.notes_insights_sync import notes_insights_sync_loop
     from app.tasks.weekly_eval import weekly_eval_loop
     from app.tasks.match_digest import match_digest_loop
@@ -1151,6 +1153,11 @@ async def lifespan(app: FastAPI):
             # z harmonogramem, wpis automatyczny za flagą.
             "contract_rate_documents": asyncio.create_task(
                 contract_rate_documents_loop()
+            ),
+            # 0755: dane firmy Partnera z podpisanej umowy do potwierdzenia
+            # (E5a). Kończy się przed pętlą przy CONTRACT_PARTNER_READ_ENABLED=false.
+            "contract_partner_reads": asyncio.create_task(
+                contract_partner_reads_loop()
             ),
             # 22.10.2026: konto NEXUSA idzie za kontem M365 (404 / accountEnabled
             # = false → wyłączone). Niezależna od HR_PROGRAM_ENABLED; kończy się
@@ -1846,6 +1853,12 @@ app.include_router(
 # Zakładka „Faktury” kontraktu: faktury konsultanta z KSeF (19.11.2026).
 app.include_router(
     contract_contractor_invoices_api.router, prefix="/api/contracts", tags=["contracts"]
+)
+# Dane firm z umów do potwierdzenia przed nową umową B2B (E5a, 0755).
+app.include_router(
+    contract_partner_reads_api.router,
+    prefix="/api/contract-partner-reads",
+    tags=["contracts"],
 )
 app.include_router(contractors.router, prefix="/api/contractors", tags=["contractors"])
 app.include_router(rate_cards.router, prefix="/api/rate-cards", tags=["rate-cards"])
@@ -4161,6 +4174,7 @@ async def api_health_deep_check(request: Request):
     from app.models.finance_archive import FinanceArchiveDocument
     from app.models.client_order_revenue_step import ClientOrderRevenueStep
     from app.models.contract_document_rate_read import ContractDocumentRateRead
+    from app.models.contract_partner_read import ContractPartnerRead
     from app.models.client_order_cost_step import (
         ClientOrderCostReview,
         ClientOrderCostStep,
@@ -4867,6 +4881,8 @@ async def api_health_deep_check(request: Request):
         ("board_documents", BoardDocument),
         # 0739: odczyty stawki Partnera z umów i aneksów kontraktu.
         ("contract_document_rate_reads", ContractDocumentRateRead),
+        # 0755: dane firmy Partnera z podpisanych umów do potwierdzenia.
+        ("contract_partner_reads", ContractPartnerRead),
         # 0741: koszt zamówienia od dnia zmiany stawki Partnera.
         ("client_order_cost_steps", ClientOrderCostStep),
         ("client_order_cost_reviews", ClientOrderCostReview),
