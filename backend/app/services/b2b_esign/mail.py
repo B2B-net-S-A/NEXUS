@@ -183,6 +183,32 @@ def contractor_extended_message(
     return f"Umowa B2B nr {number}: dłuższy termin podpisu", body
 
 
+def contractor_accept_code_message(
+    *, number: str, code: str, valid_minutes: int
+) -> tuple[str, str]:
+    """(temat, treść) maila z kodem do akceptacji dokumentów (0754, 22.11.2026).
+
+    Kod zatwierdza dokumenty bez wymogu podpisu kwalifikowanego (NDA,
+    oświadczenia). Umowy nie zatwierdza: ją podpisuje się kwalifikowanym."""
+    spaced = f"{code[:3]} {code[3:]}" if len(code) == 6 else code
+    body = (
+        _p("Dzień dobry,")
+        + _p(f"kod do akceptacji dokumentów do umowy B2B nr {html.escape(number)}:")
+        + _p(
+            f'<strong style="font-size: 16pt; letter-spacing: 2px">{html.escape(spaced)}</strong>'
+        )
+        + _p(
+            f"Kod działa {valid_minutes} minut i tylko raz. Wpisz go na stronie "
+            "podpisu, z której go zamówiłeś."
+        )
+        + _p(
+            "Jeśli to nie Ty zamówiłeś kod, zignoruj tego maila.",
+            small=True,
+        )
+    )
+    return f"Umowa B2B nr {number}: kod do akceptacji dokumentów", body
+
+
 def contractor_reminder_message(
     *, number: str, sent_at: datetime, expires_at: datetime
 ) -> tuple[str, str]:

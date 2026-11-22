@@ -533,6 +533,11 @@ async def _lock(db: AsyncSession, request_id: int) -> B2BSigningRequest:
     return locked
 
 
+async def lock_request(db: AsyncSession, request_id: int) -> B2BSigningRequest:
+    """Wniosek pod blokadą (``SELECT … FOR UPDATE``), świeżo z bazy."""
+    return await _lock(db, request_id)
+
+
 def _with_report(
     request: B2BSigningRequest, party: str, report: ValidationReport
 ) -> dict:

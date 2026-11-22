@@ -148,3 +148,13 @@ class B2BSigningRequest(Base, TimestampMixin):
     events: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
     )
+    # Kod do akceptacji dokumentów bez wymogu kwalifikowanego (0754,
+    # 22.11.2026): skrót HMAC kodu, termin i chwila wysłania. Kod jest
+    # jednorazowy, a złe próby liczą się do ``contractor_failed_attempts``.
+    accept_code_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    accept_code_expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    accept_code_sent_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

@@ -107,6 +107,7 @@ describe("SendForSignatureDialog", () => {
         days: 3,
         cc_user_ids: [],
         start_document_ids: [],
+        qualified_document_ids: [],
       }),
     );
     expect(await within(dialog).findByLabelText("Link do podpisu")).toHaveValue(
@@ -619,8 +620,8 @@ describe("paczka do podpisu: umowa i dokumenty do startu (13.11.2026)", () => {
     wrap(<SendForSignatureDialog row={ROW} onClose={() => undefined} />);
     const dialog = await screen.findByRole("dialog");
     const docs = await within(dialog).findByRole("group", { name: /Do podpisu razem z umową/ });
-    expect(within(docs).getByRole("checkbox", { name: /NDA klienta/ })).toBeChecked();
-    const statement = within(docs).getByRole("checkbox", { name: /Oświadczenie o niekaralności/ });
+    expect(within(docs).getByRole("checkbox", { name: "NDA klienta" })).toBeChecked();
+    const statement = within(docs).getByRole("checkbox", { name: "Oświadczenie o niekaralności" });
     expect(statement).toBeChecked();
     await userEvent.click(statement);
     await userEvent.click(within(dialog).getByLabelText(/Sprawdziłam\/em treść umowy i dokumentów/));
@@ -658,7 +659,7 @@ describe("paczka do podpisu: umowa i dokumenty do startu (13.11.2026)", () => {
       />,
     );
     expect(screen.getByText("1. Pobierz dokumenty (2)")).toBeInTheDocument();
-    expect(screen.getByText(/podpisane 1 z 2/)).toBeInTheDocument();
+    expect(screen.getByText(/gotowe 1 z 2/)).toBeInTheDocument();
     expect(screen.getByText("podpis przyjęty")).toBeInTheDocument();
     const input = document.getElementById("b2b-sign-file-document-4") as HTMLInputElement;
     await userEvent.upload(input, new File(["%PDF-1.7"], "nda.pdf", { type: "application/pdf" }));
@@ -683,5 +684,89 @@ describe("paczka do podpisu: umowa i dokumenty do startu (13.11.2026)", () => {
       />,
     );
     expect(container.textContent).not.toContain("—");
+  });
+
+  it("dokument bez wymogu kwalifikowanego akceptuje się kodem z maila (22.11.2026)", async () => {
+    const { default: B2BSignForm } = await import("@/app/sign/b2b/[token]/B2BSignForm");
+    const accepted = {
+      contract_number: "1610/2026",
+      contractor_name: "Piotr Przykładowy",
+      status: "waiting",
+      expires_at: null,
+      contract_signed: false,
+      documents: [
+        { id: 4, title: "NDA klienta", signed: true, requirement: "any", signed_via: "email_code" },
+      ],
+      accept_code_email: null,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ...accepted, documents: [{ id: 4, title: "NDA klienta", signed: false, requirement: "any" }], accept_code_email: "p***@example.com", accept_code_sent_at: "2026-11-22T10:00:00Z" }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => accepted });
+    vi.stubGlobal("fetch", fetchMock);
+    const { container } = render(
+      <B2BSignForm
+        token="t"
+        initialState="waiting"
+        contractNumber="1610/2026"
+        documents={[{ id: 4, title: "NDA klienta", signed: false, requirement: "any" }]}
+        acceptEmail="p***@example.com"
+      />,
+    );
+    expect(screen.getByText("dowolny podpis")).toBeInTheDocument();
+    expect(screen.getByText(/na adres p\*\*\*@example.com/)).toBeInTheDocument();
+    // Umowę dalej wgrywa się z podpisem kwalifikowanym, NDA nie ma pola pliku.
+    expect(document.getElementById("b2b-sign-file-contract")).not.toBeNull();
+    expect(document.getElementById("b2b-sign-file-document-4")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: /Wyślij kod/ }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/api\/public\/b2b-sign\/t\/accept-code$/);
+    await userEvent.type(await screen.findByLabelText(/Kod z maila/), "731904");
+    await userEvent.click(screen.getByRole("button", { name: /Akceptuję dokument/ }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(String(fetchMock.mock.calls[1][0])).toMatch(/\/api\/public\/b2b-sign\/t\/accept$/);
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1].body))).toEqual({
+      code: "731904",
+      document_ids: [4],
+    });
+    expect(await screen.findByText("zaakceptowane kodem")).toBeInTheDocument();
+    expect(container.textContent).not.toContain("—");
+    vi.unstubAllGlobals();
+  });
+
+  it("okno: klient może wymagać kwalifikowanego przy dokumencie (22.11.2026)", async () => {
+    mocks.defaults.mockResolvedValue({
+      contractor_name: "Piotr Przykładowy",
+      contractor_email: "piotr@example.com",
+      company_signers: [{ id: 9, name: "Olaf Reprezentant" }],
+      mailbox_connected: true,
+      documents: [
+        { id: 31, name: "NDA klienta" },
+        { id: 32, name: "Oświadczenie o niekaralności" },
+      ],
+    });
+    mocks.send.mockResolvedValue({
+      request: { contractor_email: "piotr@example.com" },
+      sign_url: "https://nexus.example/sign/b2b/abc",
+      mail_sent: true,
+      mail_problem: null,
+    });
+    wrap(<SendForSignatureDialog row={ROW} onClose={() => undefined} />);
+    const dialog = await screen.findByRole("dialog");
+    const docs = await within(dialog).findByRole("group", { name: /Do podpisu razem z umową/ });
+    expect(within(docs).getByText(/kwalifikowany · przenosi prawa autorskie/)).toBeInTheDocument();
+    expect(within(docs).getAllByText(/dowolny podpis · wybiera kontraktor/)).toHaveLength(2);
+    await userEvent.click(
+      within(docs).getByRole("checkbox", { name: /Klient wymaga podpisu kwalifikowanego: NDA klienta/ }),
+    );
+    expect(within(docs).getByText("kwalifikowany (wymóg klienta)")).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByLabelText(/Sprawdziłam\/em treść umowy i dokumentów/));
+    await userEvent.click(within(dialog).getByRole("button", { name: /Wyślij link do kontraktora/ }));
+    await waitFor(() =>
+      expect(mocks.send).toHaveBeenCalledWith(
+        5,
+        expect.objectContaining({ start_document_ids: [31, 32], qualified_document_ids: [31] }),
+      ),
+    );
   });
 });

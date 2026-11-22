@@ -127,6 +127,9 @@ def _event_entry(
         # Paczka (0687, 13.11.2026).
         "contract_signed": "Kontraktor podpisał umowę, czekają pozostałe dokumenty",
         "document_signed": f"Kontraktor podpisał: {event.get('title') or 'dokument'}",
+        "document_accepted": (
+            f"Kontraktor zaakceptował kodem z maila: {event.get('title') or 'dokument'}"
+        ),
     }
     label = labels.get(str(kind))
     if label is None:

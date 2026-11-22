@@ -46,3 +46,10 @@ class B2BSigningDocument(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
     validation: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    # 0754 (22.11.2026): ``qualified`` (umowa z prawami autorskimi albo wymóg
+    # klienta) albo ``any`` — kontraktor może zaakceptować kodem z maila.
+    requirement: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="qualified", server_default="qualified"
+    )
+    # Jak podpisano: ``qualified`` (plik z podpisem) albo ``email_code``.
+    signed_via: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
