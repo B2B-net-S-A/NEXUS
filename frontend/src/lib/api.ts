@@ -5614,6 +5614,8 @@ export const EMPTY_CLIENT_HISTORY: ClientHistorySummary = {
 export interface ChampionProject {
   about: string;
   responsibilities: string;
+  /** „Najważniejsze zadanie w tej roli” (23.11.2026) — wkład do zdania 3 w nowym CV. */
+  key_task?: string;
 }
 
 /** Sekcja 7 — o kliencie. `consultant_insight`/`historical_questions` edytuje się w sekcji 8. */
@@ -5647,6 +5649,8 @@ export interface ScreeningQuestion {
   question: string;
   ideal_answer: string;
   deal_breaker: string;
+  /** To pytanie sprawdza `project.key_task` — najwyżej jedno w profilu. */
+  key_task?: boolean;
 }
 
 export interface SourcingStrategy {

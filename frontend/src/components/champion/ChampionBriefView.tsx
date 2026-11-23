@@ -17,7 +17,7 @@
  */
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { PencilLine, Users } from "lucide-react";
+import { PencilLine, Target, Users } from "lucide-react";
 
 import { Chips, Fact, stackNames } from "@/components/champion/BriefParts";
 import { ExperienceChips, useChampionProfile } from "@/components/champion/ChampionBriefForRecruiters";
@@ -30,6 +30,7 @@ import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner
 import { EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
 import { usePlainBrief } from "@/lib/api/plainKnowledge";
 import type { ChampionBlock } from "@/lib/champion-blocks";
+import { keyTaskOf, type KeyTask } from "@/lib/champion-key-task";
 import {
   responsibilityCount,
   responsibilityGroups,
@@ -253,6 +254,7 @@ export function ChampionBriefView({
     (profile.experience?.skills?.length ?? 0);
   const recruiterNames = workingRecruiters(recruitersOf(job)).map((p) => p.name);
   const sellingPoints = profile.client?.selling_points?.trim() ?? "";
+  const keyTask = keyTaskOf(profile);
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -264,6 +266,8 @@ export function ChampionBriefView({
           {/* „Jednym zdaniem” (dawny blok „Po ludzku”, skrócony): słowniczek
               jest w „Technologie po ludzku”, opis klienta w „Klient i historia”. */}
           <PlainBriefBlock jobId={jobId} parts="summary" compact />
+
+          <KeyTaskSection keyTask={keyTask} questions={questions} onEdit={edit("project")} />
 
           <BriefSection
             title="Czego szukamy"
@@ -371,7 +375,7 @@ export function ChampionBriefView({
             {questions.length === 0 ? (
               <p className="text-[13px] text-muted-foreground">Brak pytań screeningowych.</p>
             ) : (
-              <ScreeningList questions={questions} />
+              <ScreeningList questions={questions} keyIndex={keyTask?.questionIndex ?? null} />
             )}
           </BriefSection>
 
@@ -583,13 +587,78 @@ function ProjectAbout({ about, responsibilities }: { about: string; responsibili
   );
 }
 
-function ScreeningList({ questions }: { questions: ChampionProfile["screening_questions"] }) {
+/**
+ * „Najważniejsze zadanie w tej roli” (23.11.2026): jedno zadanie od klienta
+ * i pytanie screeningowe, które je sprawdza. Wkład do zdania 3 w nowym CV.
+ */
+function KeyTaskSection({
+  keyTask,
+  questions,
+  onEdit,
+}: {
+  keyTask: KeyTask | null;
+  questions: ChampionProfile["screening_questions"];
+  onEdit?: () => void;
+}) {
+  const questionIndex = keyTask?.questionIndex ?? null;
+  const question = questionIndex != null ? questions[questionIndex] : undefined;
+  return (
+    <BriefSection
+      title="Najważniejsze zadanie w tej roli"
+      badge={
+        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+          <Target className="h-3 w-3" aria-hidden="true" /> trafia do CV
+        </span>
+      }
+      onEdit={onEdit}
+      testId="brief-key-task"
+      className="border-primary/40"
+    >
+      {keyTask ? (
+        <>
+          <p className="text-[15px] font-medium leading-snug text-foreground">{keyTask.task}</p>
+          {question ? (
+            <p className="text-[13px] text-muted-foreground">
+              <span className="font-semibold text-foreground">Sprawdza pytanie {(questionIndex ?? 0) + 1}:</span>{" "}
+              {question.question}
+            </p>
+          ) : (
+            <p className="text-[13px] text-warning-muted-foreground">
+              Wskaż pytanie screeningowe, które sprawdza to zadanie.
+            </p>
+          )}
+          <p className="rounded-lg bg-muted/60 px-3 py-2 text-[12.5px] text-muted-foreground">
+            W CV kandydata to zdanie 3 „Dlaczego nasz kandydat”: to zadanie i dowód z CV albo odpowiedź kandydata na to pytanie.
+          </p>
+        </>
+      ) : (
+        <p className="rounded-lg bg-warning-muted px-3 py-2 text-[13px] text-warning-muted-foreground">
+          Brak. Wpisz jedno zadanie, które klient uważa za najważniejsze dla tej osoby, i wskaż pytanie, które je sprawdza.
+          Bez niego CV nie powie klientowi, dlaczego kandydat zrobi to, na czym mu najbardziej zależy.
+        </p>
+      )}
+    </BriefSection>
+  );
+}
+
+function ScreeningList({
+  questions,
+  keyIndex = null,
+}: {
+  questions: ChampionProfile["screening_questions"];
+  keyIndex?: number | null;
+}) {
   const first = questions.slice(0, SCREENING_PREVIEW);
   const rest = questions.slice(SCREENING_PREVIEW);
   const item = (q: ChampionProfile["screening_questions"][number], index: number) => (
     <li key={q.id || `${index}-${q.question}`} className="border-t border-border py-2 first:border-t-0 first:pt-0">
       <p className="text-sm font-medium text-foreground">
         {index + 1}. {q.question}
+        {index === keyIndex ? (
+          <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 align-middle text-[11px] font-semibold text-primary">
+            <Target className="h-3 w-3" aria-hidden="true" /> najważniejsze zadanie · do CV
+          </span>
+        ) : null}
       </p>
       {q.ideal_answer?.trim() ? (
         <p className="mt-0.5 text-[13px] text-muted-foreground">Idealnie: {q.ideal_answer}</p>

@@ -241,6 +241,11 @@
         "q": "Jak wpisać wymagania jako słowa kluczowe?",
         "a": "W Briefie kliknij „Edytuj” przy „Czego szukamy”. Wiersz to wymaganie, słowa to warianty, poziom: „Krytyczne”, „Musi mieć”, „Mile widziane”. Zdanie (np. „doświadczenie w przetargach”) zamień na słowa z podpowiedzi albo „Do rozmowy” — trafi do „Rekruter sprawdza w rozmowie”. Starszy profil: „Uprość do słów kluczowych”.",
         "anchor": "job.champion.tabs"
+      },
+      {
+        "q": "Gdzie wpisać najważniejsze zadanie w tej roli?",
+        "a": "W Briefie kliknij „Edytuj” przy karcie „Najważniejsze zadanie w tej roli” (albo w formularzu w sekcji „O projekcie”). Wpisz jedno zdanie słowami klienta: co ta osoba musi dowieźć w pierwszej kolejności. Potem w „Pytaniach screeningowych” zaznacz pytanie, które to sprawdza. Bez tego rekrutacji nie przekażesz do searchu. Zadanie i odpowiedź kandydata na to pytanie trafiają do CV jako zdanie 3 „Dlaczego nasz kandydat”.",
+        "anchor": "job.champion.tabs"
       }
     ],
     "pitfalls": [

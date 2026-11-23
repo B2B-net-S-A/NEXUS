@@ -54,8 +54,9 @@ def _payload(**over: Any) -> dict[str, Any]:
         "deadline_not_provided": True,
         "hiring_manager_not_provided": True,
         "project_about": "Platforma płatności dla banku.",
+        "key_task": "Przeniesienie rozliczeń na nową platformę.",
         "screening_questions": [
-            {"question": "Python?", "deal_breaker": "Brak Pythona."},
+            {"question": "Python?", "deal_breaker": "Brak Pythona.", "key_task": True},
             {"question": "Postgres?", "deal_breaker": "Brak baz danych."},
         ],
     }
@@ -99,6 +100,9 @@ def test_minimal_body_becomes_the_screen_create_request() -> None:
     assert champion["project"]["about"] == "Platforma płatności dla banku."
     assert [q["id"] for q in champion["screening_questions"]] == ["q1", "q2"]
     assert champion["screening_questions"][0]["deal_breaker"] == "Brak Pythona."
+    # Najważniejsze zadanie (23.11.2026): tekst i pytanie, które je sprawdza.
+    assert champion["project"]["key_task"] == "Przeniesienie rozliczeń na nową platformę."
+    assert [q["key_task"] for q in champion["screening_questions"]] == [True, False]
 
 
 def test_without_a_recruiter_the_automat_assigns() -> None:
@@ -313,7 +317,7 @@ def test_read_response_is_shaped_like_the_create_body() -> None:
             "deal_breaker": "Brak Pythona.",
         }
     ]
-    assert out["missing"] == ["questions"]
+    assert out["missing"] == ["questions", "key_task"]
     assert "Stawka netto B2B." in out["notes"]
     assert out["hints"]["hiring_manager_name"] == "Anna Zmyślona"
     assert out["hints"]["dropped_requirements"] == ["Go"]
@@ -588,7 +592,7 @@ class TestReadRequest:
             {"words": ["Python"], "level": "must"}
         ]
         assert body["proposal"]["rate_budget_hourly"] == "150.00"
-        assert body["missing"] == ["questions"]
+        assert body["missing"] == ["questions", "key_task"]
         assert await _jobs_titled(title) == 0
 
     async def test_model_failure_is_an_empty_proposal_not_an_error(

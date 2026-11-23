@@ -60,6 +60,12 @@ MSG_DEAL_BREAKER = (
     "Przy każdym pytaniu screeningowym wpisz odpowiedź, która dyskwalifikuje "
     "kandydata (Profil Championa)."
 )
+# Warsztaty nowego CV (Artur, 23.11.2026): zadanie od klienta + pytanie, które
+# je sprawdza — wkład do zdania 3 „Dlaczego nasz kandydat”.
+MSG_KEY_TASK = (
+    "Wpisz najważniejsze zadanie w tej roli i zaznacz pytanie screeningowe, "
+    "które je sprawdza (Profil Championa)."
+)
 # Rekrutacja bez szkiców (04.10.2026): decyzje, których wymaga przekazanie.
 MSG_HIRING_MANAGER = "Wskaż hiring managera albo zaznacz „Klient nie podał”."
 MSG_DEADLINE = "Ustaw termin albo zaznacz „Klient nie podał”."
@@ -84,6 +90,7 @@ BLOCKER_CODES: dict[str, str] = {
     "critical": MSG_CRITICAL,
     "search": MSG_SEARCH_REQUIREMENTS,
     "deal_breaker": MSG_DEAL_BREAKER,
+    "key_task": MSG_KEY_TASK,
     "hiring_manager": MSG_HIRING_MANAGER,
     "deadline": MSG_DEADLINE,
     "category": MSG_CATEGORY,
@@ -249,6 +256,19 @@ def job_question_blockers(job: Job, *, include_open: bool = False) -> list[str]:
     return []
 
 
+def job_key_task_blockers(job: Job, *, include_open: bool = False) -> list[str]:
+    """Najważniejsze zadanie i pytanie, które je sprawdza (Artur, 23.11.2026).
+
+    Jak odpowiedź dyskwalifikująca: tylko przy PIERWSZYM przekazaniu —
+    rekrutacje przekazane przed tą datą nie mają pola i nie są blokowane.
+    Bez pytań w ogóle brak należy do ``questions`` (patrz ``_REVEALED_BY``).
+    """
+    if getattr(job, "is_open", False) and not include_open:
+        return []
+    task, question = champion_view.key_task(job.champion_profile)
+    return [] if task and question is not None else [MSG_KEY_TASK]
+
+
 def job_decision_blockers(job: Job) -> list[str]:
     """Decyzje wymagane przy przekazaniu (rekrutacja bez szkiców, 04.10.2026).
 
@@ -291,6 +311,7 @@ def job_handoff_blocker_items(
         + job_rubric_blockers(job)
         + job_search_blockers(job)
         + job_question_blockers(job, include_open=include_open)
+        + job_key_task_blockers(job, include_open=include_open)
         + job_decision_blockers(job)
     )
     listed = set(gate)
@@ -318,6 +339,7 @@ def handoff_blocker_codes(job: Job) -> set[str]:
 # uzupełniać po kawałku.
 _REVEALED_BY: dict[str, str] = {
     "deal_breaker": "questions",
+    "key_task": "questions",
     "office_days": "work_mode",
     "office_city": "work_mode",
     "critical": "must",
@@ -335,7 +357,7 @@ def new_handoff_blockers(before: set[str], job: Job) -> list[dict[str, str]]:
 
 def job_handoff_blockers(job: Job) -> list[str]:
     """Pełna bramka „Przekaż do searchu": brief + trzy rubryki + wymagania do
-    wyszukiwania + odpowiedzi dyskwalifikujące + decyzje (hiring manager,
+    wyszukiwania + odpowiedzi dyskwalifikujące + najważniejsze zadanie + decyzje (hiring manager,
     termin, kategoria, liczba osób — 04.10.2026), w tej kolejności.
 
     Kolejność jest częścią kontraktu — ``JobHandoffButton`` renderuje listę

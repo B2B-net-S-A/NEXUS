@@ -343,6 +343,11 @@ class ChampionProject(_NullTolerantSection):
 
     about: str = ""
     responsibilities: str = ""
+    # „Najważniejsze zadanie w tej roli” (Artur, warsztaty 23.11.2026): jedno
+    # zdanie słowami klienta. Razem z odpowiedzią na pytanie oznaczone
+    # `ScreeningQuestion.key_task` jest wkładem do zdania 3 „Dlaczego nasz
+    # kandydat” w nowym CV. Wymagane przy pierwszym przekazaniu do searchu.
+    key_task: str = ""
 
 
 class ScreeningQuestion(_NullTolerantSection):
@@ -352,6 +357,9 @@ class ScreeningQuestion(_NullTolerantSection):
     question: str = Field(min_length=1)
     ideal_answer: str = ""
     deal_breaker: str = ""
+    # Pytanie, które sprawdza `project.key_task` — najwyżej jedno w profilu
+    # (`ChampionProfile._one_key_task_question`).
+    key_task: bool = False
 
 
 class ChampionClient(_NullTolerantSection):
@@ -903,6 +911,16 @@ class ChampionProfile(BaseModel):
 
             if not rows_consistent(self.stack.model_dump(), self.search.model_dump()):
                 self.stack.rows = None
+        return self
+
+    @model_validator(mode="after")
+    def _one_key_task_question(self) -> "ChampionProfile":
+        # Zadanie sprawdza jedno pytanie; przy kilku zaznaczonych zostaje pierwsze.
+        seen = False
+        for question in self.screening_questions:
+            if question.key_task and seen:
+                question.key_task = False
+            seen = seen or question.key_task
         return self
 
     def model_dump(self, *args: Any, **kwargs: Any) -> dict:

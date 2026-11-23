@@ -4261,6 +4261,7 @@
                 "type": "number"
               },
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,17}0*$)\\d{0,10}\\.\\d{0,6}0*$)",
                 "type": "string"
               },
               {
@@ -4276,6 +4277,7 @@
                 "type": "number"
               },
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,17}0*$)\\d{0,10}\\.\\d{0,6}0*$)",
                 "type": "string"
               },
               {
@@ -4315,6 +4317,7 @@
                 "type": "number"
               },
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,9}|(?=[\\d.]{1,13}0*$)\\d{0,9}\\.\\d{0,3}0*$)",
                 "type": "string"
               }
             ],
@@ -4327,6 +4330,7 @@
                 "type": "number"
               },
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,9}|(?=[\\d.]{1,13}0*$)\\d{0,9}\\.\\d{0,3}0*$)",
                 "type": "string"
               }
             ],
@@ -5019,6 +5023,7 @@
                 "type": "number"
               },
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,18}0*$)\\d{0,14}\\.\\d{0,3}0*$)",
                 "type": "string"
               },
               {
@@ -5054,6 +5059,7 @@
                 "type": "number"
               },
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,17}0*$)\\d{0,10}\\.\\d{0,6}0*$)",
                 "type": "string"
               },
               {
@@ -6342,6 +6348,7 @@
                 "type": "number"
               },
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,17}0*$)\\d{0,10}\\.\\d{0,6}0*$)",
                 "type": "string"
               }
             ],
@@ -6429,6 +6436,7 @@
       "MdConsumptionMonthOut": {
         "properties": {
           "md_reported": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Md Reported",
             "type": "string"
           },
@@ -8232,6 +8240,7 @@
           "md_budget_remaining": {
             "anyOf": [
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -8243,6 +8252,7 @@
           "md_budget_total": {
             "anyOf": [
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -8390,6 +8400,7 @@
           "md_remaining": {
             "anyOf": [
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -8401,6 +8412,7 @@
           "md_total": {
             "anyOf": [
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -8503,6 +8515,7 @@
           "md_remaining": {
             "anyOf": [
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -8514,6 +8527,7 @@
           "md_total": {
             "anyOf": [
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -8661,6 +8675,7 @@
                 "type": "number"
               },
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,9}|(?=[\\d.]{1,13}0*$)\\d{0,9}\\.\\d{0,3}0*$)",
                 "type": "string"
               },
               {
@@ -8689,6 +8704,7 @@
                 "type": "number"
               },
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,9}|(?=[\\d.]{1,13}0*$)\\d{0,9}\\.\\d{0,3}0*$)",
                 "type": "string"
               },
               {
@@ -10923,6 +10939,19 @@
             "title": "Hiring Manager Not Provided",
             "type": "boolean"
           },
+          "key_task": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Najważniejsze zadanie w tej roli słowami klienta (od 23.11.2026 wymagane przez bramkę przekazania, razem z pytaniem ``screening_questions[].key_task``).",
+            "title": "Key Task"
+          },
           "language": {
             "anyOf": [
               {
@@ -12520,6 +12549,12 @@
             "maxLength": 500,
             "title": "Ideal Answer",
             "type": "string"
+          },
+          "key_task": {
+            "default": false,
+            "description": "To pytanie sprawdza ``key_task`` rekrutacji — bramka przekazania wymaga dokładnie jednego takiego pytania.",
+            "title": "Key Task",
+            "type": "boolean"
           },
           "question": {
             "maxLength": 500,

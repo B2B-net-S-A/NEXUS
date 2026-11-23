@@ -140,6 +140,11 @@ export interface IntakeQuestionForm {
    * wpisana treść jest już decyzją człowieka.
    */
   approved: boolean;
+  /**
+   * To pytanie sprawdza „Najważniejsze zadanie w tej roli” (23.11.2026) —
+   * w formularzu najwyżej jedno (`markKeyTaskQuestion`).
+   */
+  keyTask: boolean;
 }
 
 export interface IntakeForm {
@@ -194,6 +199,12 @@ export interface IntakeForm {
   startDate: string;
   about: string;
   responsibilities: string;
+  /**
+   * „Najważniejsze zadanie w tej roli” (23.11.2026): jedno zdanie słowami
+   * klienta — co ta osoba musi dowieźć w pierwszej kolejności. Razem
+   * z pytaniem `keyTask` wymagane przy przekazaniu do searchu.
+   */
+  keyTask: string;
   questions: IntakeQuestionForm[];
   // ── od v2: reszta profilu Championa ──
   language: string;
@@ -274,11 +285,15 @@ export interface RequestIntakeResponse {
   start_date: string | null;
   project_about: string | null;
   responsibilities: string | null;
+  /** 23.11.2026: najważniejsze zadanie w roli, gdy odczyt je zna. */
+  key_task?: string | null;
   screening_questions: {
     question: string;
     ideal_answer: string;
     /** Od v10: AI proponuje też odpowiedź dyskwalifikującą. */
     deal_breaker?: string;
+    /** 23.11.2026: pytanie, które sprawdza najważniejsze zadanie. */
+    key_task?: boolean;
     from_request: boolean;
   }[];
   // ── od v10 (02.10.2026): wymagania jako słowa kluczowe ──
@@ -366,6 +381,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   startDate: "",
   about: "",
   responsibilities: "",
+  keyTask: "",
   questions: [],
   language: "",
   contractLength: "",
@@ -574,14 +590,18 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
     startDate: intake.start_date ?? "",
     about: intake.project_about ?? "",
     responsibilities: intake.responsibilities ?? "",
-    questions: (intake.screening_questions ?? []).map((q) => ({
-      key: newQuestionKey(),
-      question: q.question,
-      idealAnswer: q.ideal_answer ?? "",
-      dealBreaker: q.deal_breaker ?? "",
-      origin: q.from_request ? "request" : "ai",
-      approved: false,
-    })),
+    keyTask: intake.key_task ?? "",
+    questions: withOneKeyTask(
+      (intake.screening_questions ?? []).map((q) => ({
+        key: newQuestionKey(),
+        question: q.question,
+        idealAnswer: q.ideal_answer ?? "",
+        dealBreaker: q.deal_breaker ?? "",
+        origin: q.from_request ? "request" : "ai",
+        approved: false,
+        keyTask: q.key_task === true,
+      })),
+    ),
   };
 }
 
@@ -703,6 +723,7 @@ export type MissingCode =
   | "critical"
   | "decision"
   | "deal_breaker"
+  | "key_task"
   | "questions_review"
   | "category"
   | "hiring_manager"
@@ -721,6 +742,7 @@ export const MISSING_LABEL: Record<MissingCode, string> = {
   critical: "krytyczne (albo „Brak krytycznych”)",
   decision: "decyzja przy zdaniach: słowa do szukania czy rozmowa",
   deal_breaker: "odpowiedź, która odpada, przy każdym pytaniu",
+  key_task: "najważniejsze zadanie i pytanie, które je sprawdza",
   questions_review: "zatwierdzenie pytań",
   category: "potwierdzenie kategorii",
   hiring_manager: "hiring manager (albo „Klient nie podał”)",
@@ -756,6 +778,7 @@ export const MISSING_SECTION: Record<MissingCode, FormSection> = {
   office_days: "terms",
   office_city: "terms",
   context: "project",
+  key_task: "project",
   questions: "questions",
   deal_breaker: "questions",
   questions_review: "questions",
@@ -832,7 +855,33 @@ export function newManualQuestion(): IntakeQuestionForm {
     dealBreaker: "",
     origin: "manual",
     approved: true,
+    keyTask: false,
   };
+}
+
+/** Najwyżej jedno pytanie sprawdza najważniejsze zadanie — zostaje pierwsze zaznaczone. */
+export function withOneKeyTask(questions: IntakeQuestionForm[]): IntakeQuestionForm[] {
+  let seen = false;
+  return questions.map((q) => {
+    const keyTask = q.keyTask === true && !seen;
+    seen = seen || keyTask;
+    return q.keyTask === keyTask ? q : { ...q, keyTask };
+  });
+}
+
+/** „To pytanie sprawdza najważniejsze zadanie” — zaznacza jedno, zdejmuje resztę. */
+export function markKeyTaskQuestion(form: IntakeForm, key: string): IntakeForm {
+  return {
+    ...form,
+    questions: form.questions.map((q) =>
+      q.keyTask === (q.key === key) ? q : { ...q, keyTask: q.key === key },
+    ),
+  };
+}
+
+/** Pytanie wypełnione i zaznaczone jako sprawdzające najważniejsze zadanie. */
+export function keyTaskQuestion(form: IntakeForm): IntakeQuestionForm | null {
+  return filledQuestions(form).find((q) => q.keyTask) ?? null;
 }
 
 /** Edycja pytania: zmieniona treść jest decyzją Delivery Leada. */
@@ -898,6 +947,8 @@ export function missingFor(
   if (parseHeadcount(form.headcount) == null) missing.push("headcount");
   if (!form.about.trim() && !form.responsibilities.trim())
     missing.push("context");
+  // 23.11.2026: zadanie od klienta i pytanie, które je sprawdza (lustro `job_key_task_blockers`).
+  if (!form.keyTask.trim() || keyTaskQuestion(form) == null) missing.push("key_task");
   const questions = filledQuestions(form);
   if (questions.length < 2) missing.push("questions");
   if (questions.some((q) => !q.dealBreaker.trim())) missing.push("deal_breaker");
@@ -948,6 +999,7 @@ const SERVER_BLOCKER_CODE: Record<string, MissingCode> = {
   office_city: "office_city",
   critical: "critical",
   deal_breaker: "deal_breaker",
+  key_task: "key_task",
   hiring_manager: "hiring_manager",
   deadline: "deadline",
   category: "category",
@@ -1065,6 +1117,7 @@ export function buildChampionPayload(
   // Sekcje pliku Profilu Championa bez pola w formularzu — pola formularza
   // wygrywają, gdyby klucz się powtórzył.
   const extras = form.championExtras;
+  const keyTask = keyTaskQuestion(form);
   return {
     basics: {
       role_name: form.title.trim() || null,
@@ -1104,6 +1157,7 @@ export function buildChampionPayload(
     project: {
       about: form.about.trim(),
       responsibilities: form.responsibilities.trim(),
+      key_task: form.keyTask.trim(),
     },
     client: { ...(extras?.client ?? {}), selling_points: form.sellingPoints.trim() },
     screening_questions: filledQuestions(form).map((q, i) => ({
@@ -1111,6 +1165,7 @@ export function buildChampionPayload(
       question: q.question.trim(),
       ideal_answer: q.idealAnswer.trim(),
       deal_breaker: q.dealBreaker.trim(),
+      key_task: q === keyTask,
     })),
     // „Do dopytania u klienta” — notatki sekcji 8, odhaczane w profilu.
     // Wpisy nowe (`new-…`): serwer nada id i autora. Za nimi notatki
@@ -1228,7 +1283,11 @@ export function restoreIntakeForm(saved: unknown): IntakeForm {
     clientProcess: restoreClientProcess(raw.clientProcess),
     provenance: raw.provenance ?? {},
     rows: Array.isArray(raw.rows) ? raw.rows : [],
-    questions: Array.isArray(raw.questions) ? raw.questions : [],
+    // Zapis sprzed 23.11.2026 nie zna `keyTask` przy pytaniu.
+    questions: Array.isArray(raw.questions)
+      ? withOneKeyTask(raw.questions.map((q) => ({ ...q, keyTask: q?.keyTask === true })))
+      : [],
+    keyTask: typeof raw.keyTask === "string" ? raw.keyTask : "",
     askClient: Array.isArray(raw.askClient) ? raw.askClient : [],
     descriptive: Array.isArray(raw.descriptive) ? raw.descriptive : [],
     intakeNotes: Array.isArray(raw.intakeNotes) ? raw.intakeNotes : [],
@@ -1531,6 +1590,7 @@ export function applyTemplate(
   if (!next.responsibilities && typeof project.responsibilities === "string") {
     next.responsibilities = project.responsibilities;
   }
+  if (!next.keyTask && typeof project.key_task === "string") next.keyTask = project.key_task;
   if (filledQuestions(next).length < 2) {
     const raw =
       src.champion_profile && typeof src.champion_profile === "object"
@@ -1559,10 +1619,11 @@ export function applyTemplate(
           ),
           origin: "template",
           approved: false,
+          keyTask: (item as Record<string, unknown>).key_task === true,
         });
       }
     }
-    next.questions = [...next.questions, ...added];
+    next.questions = withOneKeyTask([...next.questions, ...added]);
   }
   return next;
 }
