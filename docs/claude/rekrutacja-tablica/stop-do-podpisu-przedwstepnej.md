@@ -53,6 +53,11 @@ https://claude.ai/artifact/57oWdtaKX1nwK8WtuxkVmR.
   `blocking=True` (`move_requirements._pre_contract_item`), dokładana po
   `_skip_fill_gates`, więc DL jej nie omija; rekruter przekazujący do „QC CV”
   nie stoi (filtr kolumn do `cv_qc`).
+- **Automaty:** `pipeline_auto_move.auto_advance` (np. terminy od klienta →
+  „Rozmowa u klienta”) zostawia kartę z kodem `pre_contract_not_signed`
+  (komunikat w `interview-cycle.slotsCreatedMessage`). Przejście na
+  „Zatrudniony” po elektronicznym podpisie umowy B2B nie stoi: podpisana umowa
+  B2B to już właściwa umowa, przedwstępna przestaje mieć znaczenie.
 - **Prośby z ustawienia:** `ensure_rule_request` w `apply_move` po zapisie
   ruchu (kolumny od „Zweryfikowanego” do etapu, bez prośby w toku i bez
   podpisanej), proszący = ustawiający, wystawia rekruter prowadzący
