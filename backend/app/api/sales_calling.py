@@ -37,7 +37,13 @@ from app.models.sales import SalesCallCampaign
 from app.models.user import User
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
-from app.services.sales import calling, calling_excel, calling_import, calling_stats
+from app.services.sales import (
+    calling,
+    calling_excel,
+    calling_import,
+    calling_lookup,
+    calling_stats,
+)
 from app.services.sales.calling_file import (
     MAX_FILE_BYTES,
     TOO_BIG_DETAIL,
@@ -94,6 +100,22 @@ class QueueItemOut(BaseModel):
     modified_at: Optional[datetime] = None
     #: Po co oddzwaniamy: w oddzwonieniach kolejki i w „Przypomnieniach”.
     callback_reason: Optional[CallbackReasonOut] = None
+
+
+class PhoneMatchOut(BaseModel):
+    """„Kto dzwoni?” (23.11.2026): rekord listy albo kontakt firmy, bez numeru."""
+
+    company: Ref
+    person_name: Optional[str]
+    person_title: Optional[str]
+    do_not_contact: bool
+    record_id: Optional[int]
+    record_state: Optional[str]
+    callback_on: Optional[date]
+    last_outcome_at: Optional[datetime]
+    campaign_name: Optional[str]
+    caller_name: Optional[str]
+    contact_id: Optional[int]
 
 
 class QueueCounts(BaseModel):
@@ -638,6 +660,40 @@ async def call_reminders(
         db, current_user.id if scope == "mine" else caller_id, until=until
     )
     return [_item(item) for item in items]
+
+
+SHORT_NUMBER_DETAIL = "Wpisz cały numer: co najmniej 9 cyfr."
+
+
+@router.get("/who-calls", response_model=list[PhoneMatchOut])
+async def who_calls(
+    current_user: SalesViewUser,
+    db: AsyncSession = Depends(get_db),
+    phone: str = Query(..., max_length=40),
+) -> list[PhoneMatchOut]:
+    """„Kto dzwoni?”: listy dzwonienia wszystkich osób i kontakty firm po ostatnich 9 cyfrach."""
+
+    if calling_lookup.phone_tail(phone) is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail=SHORT_NUMBER_DETAIL
+        )
+    matches = await calling_lookup.find_by_phone(db, phone)
+    return [
+        PhoneMatchOut(
+            company=Ref(id=match.company_id, name=match.company_name),
+            person_name=match.person_name,
+            person_title=match.person_title,
+            do_not_contact=match.do_not_contact,
+            record_id=match.record_id,
+            record_state=match.record_state,
+            callback_on=match.callback_on,
+            last_outcome_at=match.last_outcome_at,
+            campaign_name=match.campaign_name,
+            caller_name=match.caller_name,
+            contact_id=match.contact_id,
+        )
+        for match in matches
+    ]
 
 
 @router.post("/opportunities/{opportunity_id}/outcome", response_model=OutcomeOut)

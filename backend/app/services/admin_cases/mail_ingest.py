@@ -424,21 +424,20 @@ async def _ingest_message(
     if msg.get("hasAttachments"):
         attachments = _attachment_meta(await mailbox.list_attachments(upn, graph_id))
     body_text = _body(msg)
-    db.add(
-        AdminCaseMessage(
-            case_id=case.id,
-            graph_message_id=graph_id,
-            internet_message_id=_nul_free(msg.get("internetMessageId"), 512),
-            conversation_id=_nul_free(msg.get("conversationId"), 512),
-            sender_email=sender_email,
-            sender_name=sender_name,
-            subject=subject,
-            received_at=received_at,
-            body_text=body_text,
-            attachments=attachments,
-            direction="out" if own else "in",
-        )
+    message_row = AdminCaseMessage(
+        case_id=case.id,
+        graph_message_id=graph_id,
+        internet_message_id=_nul_free(msg.get("internetMessageId"), 512),
+        conversation_id=_nul_free(msg.get("conversationId"), 512),
+        sender_email=sender_email,
+        sender_name=sender_name,
+        subject=subject,
+        received_at=received_at,
+        body_text=body_text,
+        attachments=attachments,
+        direction="out" if own else "in",
     )
+    db.add(message_row)
     await db.flush()
     if outcome == "created":
         # Odpowiedź na komunikat do konsultantów (znacznik w temacie) albo
@@ -464,7 +463,50 @@ async def _ingest_message(
                 msg.get("internetMessageHeaders"), sender_email
             ),
         )
+    if not own and not _is_auto_reply(msg, sender_email):
+        from app.services.admin_cases.contract_links import (
+            sender_authenticated as _sender_authenticated,
+        )
+
+        await _propose_notice(
+            db,
+            case,
+            message_row,
+            authenticated=_sender_authenticated(
+                msg.get("internetMessageHeaders"), sender_email
+            ),
+        )
     return outcome
+
+
+async def _propose_notice(
+    db: AsyncSession,
+    case: AdminCase,
+    message_row: AdminCaseMessage,
+    *,
+    authenticated: bool,
+) -> None:
+    """Wypowiedzenie, koniec u klienta, zmiana daty, wycofanie → propozycja na karcie.
+
+    Błąd rozpoznania zostawia zwykłą sprawę: czytnik nie może stanąć przez
+    jedną dziwną wiadomość (punkt zapisu cofa tylko propozycję).
+    """
+
+    from app.services.admin_cases.notice_mail import propose_for_message
+
+    # Id przed punktem zapisu: po jego cofnięciu obiekt sprawy jest wygaszony,
+    # a leniwy odczyt w async rzuciłby wyjątek z bloku ``except``.
+    case_id = case.id
+    try:
+        async with db.begin_nested():
+            await propose_for_message(
+                db,
+                case=case,
+                message=message_row,
+                sender_authenticated=authenticated,
+            )
+    except Exception:  # noqa: BLE001 — propozycja to dodatek do sprawy
+        logger.exception("notice proposal failed for case %s", case_id)
 
 
 # ── Dzierżawa przebiegu i stan ───────────────────────────────────────────────

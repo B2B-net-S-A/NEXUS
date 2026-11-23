@@ -51,6 +51,7 @@ import {
   ContractRecentDocuments,
 } from "@/components/contracts/detail/ContractOverviewRecent";
 import { ContractHistoryFeed } from "@/components/contracts/detail/ContractHistoryFeed";
+import { ContractMailFeed } from "@/components/contracts/detail/ContractMailFeed";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -3025,6 +3026,7 @@ export default function ContractDetailPage() {
           na zdarzenie, automatyczne wyszarzone, serie zwinięte, bez JSON-a. */}
       {activeTab === "history" && (
         <div>
+          <ContractMailFeed contractId={id} />
           {activitiesViewState === "loading" ? (
             <div role="status" className="text-center text-sm text-muted-foreground py-6">
               Wczytuję historię…

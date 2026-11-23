@@ -4175,6 +4175,43 @@ async def _related_contracts_for(
     return refs
 
 
+@router.get("/{contract_id}/mails")
+async def contract_mails(
+    contract_id: int,
+    current_user: DeliveryViewUser,
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(100, ge=1, le=300),
+):
+    """Poczta kontraktu: maile ze spraw przy kontrakcie i archiwum administracja@.
+
+    Propozycje z maili (wypowiedzenie, klient kończy…) idą osobno do banera.
+    Treść maila dostaje tylko osoba, która widzi kwoty tego klienta: konsultanci
+    piszą w mailach stawki („Stawka kosztowa: 80 PLN/h”), więc reszta widzi
+    nadawcę, temat i datę (ta sama zasada co przy historii aktywności).
+    """
+    from app.services.admin_cases import notice_view
+    from app.services.admin_cases.notice_mail_history import contract_mail_feed
+
+    contract = await db.scalar(select(Contract).where(Contract.id == contract_id))
+    if contract is None:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    finance_ok = can_read_client_finance(
+        current_user,
+        client_id=contract.client_id,
+        delivery_lead_finance_client_ids=(
+            await resolve_delivery_lead_finance_client_ids(current_user, db)
+        ),
+    )
+    return {
+        "notices": await notice_view.pending_for_contract(db, contract_id),
+        "mails": await contract_mail_feed(
+            db, contract_id, user=current_user, with_body=finance_ok, limit=limit
+        ),
+        "with_body": finance_ok,
+    }
+
+
 @router.get("/{contract_id}/activities", response_model=List[ContractActivityEntry])
 async def contract_activities(
     contract_id: int,

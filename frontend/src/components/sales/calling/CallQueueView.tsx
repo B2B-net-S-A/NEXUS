@@ -24,6 +24,7 @@ import { CallTableView } from "./CallTableView";
 import { ExcelTransferDialog } from "./ExcelTransferDialog";
 import { CampaignsDialog } from "./CampaignsDialog";
 import { ImportListDialog } from "./ImportListDialog";
+import { WhoIsCalling } from "./WhoIsCalling";
 import {
   dayLine,
   isQueueEmpty,
@@ -199,9 +200,11 @@ export function CallingActions() {
   const [importOpen, setImportOpen] = useState(false);
   const [campaignsOpen, setCampaignsOpen] = useState<"list" | "new" | null>(null);
   const [excelOpen, setExcelOpen] = useState(false);
-  if (!hasPermission(user, "sales_edit")) return null;
+  // „Kto dzwoni?” (23.11.2026) widzi każdy z dostępem do Sprzedaży; kampanie i import tylko edycja.
+  if (!hasPermission(user, "sales_edit")) return <WhoIsCalling />;
   return (
     <>
+      <WhoIsCalling />
       <Button
         size="sm"
         variant="outline"
