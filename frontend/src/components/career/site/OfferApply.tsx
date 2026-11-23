@@ -464,6 +464,7 @@ export function OfferApply({
                   type="checkbox"
                   name="consent"
                   value="true"
+                  required
                   className={s.srOnly}
                   disabled={busy}
                   {...aria("consent")}

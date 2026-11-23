@@ -21,6 +21,7 @@ import { CareerRecruiterView } from "@/components/career/CareerRecruiterView";
 import { CareerTheme } from "@/components/career/CareerTheme";
 import { CareerThemeScope } from "@/components/career/CareerThemeScope";
 import { CAREER_THEME_IDS, CAREER_THEMES, isCareerThemeId } from "@/components/career/themes";
+import { OgCard } from "@/components/career/ogCard";
 import { CareerBoard } from "@/components/career/site/CareerBoard";
 import { OfferPage } from "@/components/career/site/OfferPage";
 import { OfferSent } from "@/components/career/site/SentGate";
@@ -204,6 +205,7 @@ const STATES = [
   { id: "otwarta", label: "rekrutacja otwarta" },
   { id: "bledy", label: "formularz z błędami" },
   { id: "oferta-bledy", label: "oferta — formularz z błędami" },
+  { id: "grafiki", label: "grafika posta" },
   { id: "dziekujemy", label: "podziękowanie" },
   { id: "zamknieta", label: "rekrutacja zamknięta" },
   { id: "zamknieta-bez-linku", label: "zamknięta, bez tablicy" },
@@ -297,6 +299,10 @@ export default function CareerPreviewPage({
         />
       </State>
 
+      <State id="grafiki" label="grafika posta">
+        <OgVariants />
+      </State>
+
       <State id="oferta-bledy" label="oferta — formularz z błędami">
         <OfferPage
           data={OPEN_JOB}
@@ -372,6 +378,60 @@ export default function CareerPreviewPage({
           formPreview={{ disableSubmit: true }}
         />
       </State>
+    </div>
+  );
+}
+
+const OG_SAMPLES: { key: string; props: React.ComponentProps<typeof OgCard> }[] = [
+  {
+    key: "krotki",
+    props: {
+      word: "Kafka",
+      title: "Senior Java Developer",
+      facts: [
+        { label: "Lokalizacja", value: "Warszawa" },
+        { label: "Tryb pracy", value: "Hybryda" },
+        { label: "Umowa", value: "B2B" },
+      ],
+      status: { label: "Rekrutacja otwarta" },
+      foot: "Wyślij CV →",
+      host: "kariera.b2bnetwork.pl",
+    },
+  },
+  {
+    key: "dlugi",
+    props: {
+      word: null,
+      title: "Project Manager do wdrożenia nowego CRM w sześciu krajach regionu",
+      facts: [
+        { label: "Tryb pracy", value: "Zdalnie" },
+        { label: "Umowa", value: "B2B" },
+      ],
+      status: { label: "Rekrutacja otwarta" },
+      foot: "Wyślij CV →",
+      host: "kariera.b2bnetwork.pl",
+    },
+  },
+  {
+    key: "rekruter",
+    props: {
+      person: { initial: "M", name: "Marta · rekrutacje IT w B2Bnetwork" },
+      title: "Szukasz kolejnego projektu IT?",
+      foot: "Zostaw CV, odezwę się →",
+      host: "kariera.b2bnetwork.pl/marta-n",
+    },
+  },
+];
+
+/** Grafika posta (jeden wygląd od 24.11.2026): krótkie słowo, długi tytuł, strona rekrutera. */
+function OgVariants() {
+  return (
+    <div style={{ display: "grid", gap: 24, padding: 24, background: "#e9e7df" }}>
+      {OG_SAMPLES.map((x) => (
+        <div key={x.key} data-og={x.key} style={{ width: 1200, height: 630, display: "flex" }}>
+          <OgCard {...x.props} />
+        </div>
+      ))}
     </div>
   );
 }

@@ -117,6 +117,7 @@ export function QuickApply({ linkSlug, rodoHref, preview }: QuickApplyProps) {
             type="checkbox"
             name="consent"
             value="true"
+            required
             className={s.srOnly}
             disabled={busy}
             aria-invalid={errors.consent ? true : undefined}

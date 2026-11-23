@@ -38,7 +38,9 @@ describe("/preview/kariera", () => {
       "formularz z błędami",
       "podziękowanie",
       "rekrutacja zamknięta",
-      "zamknięta, bez stałego linku",
+      "zamknięta, bez tablicy",
+      "oferta — formularz z błędami",
+      "grafika posta",
       "stały link rekrutera",
       "rekruter bez opisu i rekrutacji",
     ]) {
@@ -58,56 +60,54 @@ describe("/preview/kariera", () => {
       "/kariera/r/senior-java-developer-7kq2",
     );
     const empty = screen.getByRole("region", { name: "tablica bez rekrutacji" });
-    expect(within(empty).getByText("Brak otwartych rekrutacji.")).toBeInTheDocument();
+    expect(within(empty).getByText("Brak otwartych rekrutacji")).toBeInTheDocument();
     const down = screen.getByRole("region", { name: "tablica — awaria API" });
     expect(within(down).getByRole("alert")).toBeInTheDocument();
-    expect(within(down).queryByText("Brak otwartych rekrutacji.")).toBeNull();
+    expect(within(down).queryByText("Brak otwartych rekrutacji")).toBeNull();
   });
 
   it("strona rekrutacji: tytuł, parametry, wymagania, proces, bez klienta i stawki", () => {
     render(<CareerPreviewPage />);
     const open = screen.getByRole("region", { name: "rekrutacja otwarta" });
-    // Domyślny szablon (Grafit, 28.10.2026): tytuł w jedynym <h1>, fakty w <dl>.
+    // Jeden szablon nowej strony (23–24.11.2026): tytuł w jedynym <h1>, fakty w <dl>.
     expect(within(open).getByRole("heading", { level: 1 })).toHaveTextContent("Senior Java Developer");
     const facts = open.querySelector("dl");
     expect(facts).toHaveTextContent("Hybryda");
     expect(facts).toHaveTextContent("2 dni w biurze w tygodniu");
-    const requirements = within(open).getByRole("region", { name: "Wymagania" });
+    const requirements = within(open).getByRole("complementary", { name: "Wymagania" });
     expect(within(requirements).getByText("Java Spring Boot")).toBeInTheDocument();
     const steps = within(open).getByRole("region", { name: "Proces rekrutacji" });
     expect(within(steps).getByText("Rozmowa z Martą")).toBeInTheDocument();
-    expect(within(open).getByRole("link", { name: /Nie ten projekt/ })).toHaveAttribute(
-      "href",
-      "/kariera/p/marta-n",
-    );
-    expect(within(open).getByRole("link", { name: "Klauzula informacyjna" })).toHaveAttribute(
-      "href",
-      "/kariera/rodo",
-    );
+    expect(within(open).getByRole("form", { name: "Szybka aplikacja: samo CV" })).toBeInTheDocument();
+    for (const link of within(open).getAllByRole("link", { name: "Klauzula informacyjna" })) {
+      expect(link).toHaveAttribute("href", "/kariera/rodo");
+    }
     expect(open.textContent).not.toMatch(/zł\/h\s*\d|PLN\s*\d/);
   });
 
-  it("stan zamknięty odsyła do stałego linku rekrutera", () => {
+  it("zamknięta rekrutacja: pieczątka, podobne z tablicy, prośba o CV, bez formularza", () => {
     render(<CareerPreviewPage />);
     const closed = screen.getByRole("region", { name: "rekrutacja zamknięta" });
-    expect(within(closed).getByText(/Rekrutacja zamknięta · Senior Java Developer/)).toBeInTheDocument();
-    expect(within(closed).getByRole("link", { name: "Zostaw CV u Marty" })).toHaveAttribute(
-      "href",
-      "/kariera/p/marta-n",
+    expect(within(closed).getByRole("heading", { level: 1 })).toHaveTextContent(
+      "Ta rekrutacja już nie przyjmuje zgłoszeń.",
     );
-    expect(within(closed).queryByRole("form")).toBeNull();
+    expect(within(closed).getByRole("complementary", { name: "Zamknięta oferta" })).toHaveTextContent(
+      "Senior Java Developer",
+    );
+    const similar = within(closed).getAllByRole("link", { name: /^Zobacz: / });
+    expect(similar.length).toBeGreaterThan(0);
+    expect(similar.map((a) => a.getAttribute("href"))).not.toContain("/kariera/r/senior-java-developer-7kq2");
+    expect(within(closed).getByRole("link", { name: "Zostaw CV" })).toHaveAttribute("href", "/kariera#zostaw-cv");
+    expect(closed.querySelector("form")).toBeNull();
   });
 
-  it("zamknięta bez stałego linku: lista innych rekrutacji osoby, bez ślepego zaułka", () => {
+  it("zamknięta bez tablicy: inne rekrutacje tej osoby, bez ślepego zaułka", () => {
     render(<CareerPreviewPage />);
-    const closed = screen.getByRole("region", { name: "zamknięta, bez stałego linku" });
-    expect(within(closed).getByText(/Marta prowadzi teraz inne rekrutacje/)).toBeInTheDocument();
-    const list = within(closed).getByRole("region", { name: "Inne otwarte rekrutacje" });
-    expect(within(list).getByRole("link", { name: /Analityk biznesowy/i })).toHaveAttribute(
+    const closed = screen.getByRole("region", { name: "zamknięta, bez tablicy" });
+    expect(within(closed).getByRole("link", { name: "Zobacz: Analityk biznesowy" })).toHaveAttribute(
       "href",
       "/kariera/r/analityk-biznesowy-q8m1",
     );
-    expect(within(closed).queryByRole("link", { name: /Zostaw CV/ })).toBeNull();
     expect(closed.textContent).not.toMatch(/LinkedIn/);
   });
 

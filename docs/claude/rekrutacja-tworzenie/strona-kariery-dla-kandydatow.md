@@ -292,6 +292,23 @@ Reguły, które łatwo cofnąć:
     umiejętności z tablicy, która stoi w zdaniu wymagania (całe słowa). Strona
     `/r/` czyta tablicę obok opisu; awaria tablicy = strona bez tych dodatków
     i bez podobnych ofert, nigdy błąd. Nie dopisuj haseł za rekrutera.
+  - **Wymagania w prawej kolumnie jako zwykła lista** (decyzja Artura
+    24.11.2026, wariant P1 z makiet https://claude.ai/artifact/CsNvpckBw8BMMy3gSxiD3o):
+    „Co już masz?” z zaznaczaniem i licznikiem odeszło („niepotrzebne”).
+    Lista wymagań i „mile widzianych” z pogrubioną technologią,
+    `site/OfferRequirements.tsx`. Ogłoszenie ma być proste, ale żywe: wielkie
+    słowo wjeżdża od dołu przy wczytaniu (bez ruchu przy „ograniczonym ruchu”).
+  - **Jedna grafika posta, podgląd i plakat w wyglądzie strony** (decyzja
+    Artura 24.11.2026, wariant G1 „Czerwona”): `OgCard` (`ogCard.tsx`) rysuje
+    czerwone tło, wielkie słowo (to samo co na ofercie, z tablicy), tytuł,
+    fakty w linii i biały przycisk „Wyślij CV →”; strona główna ma liczbę
+    otwartych rekrutacji jako wielkie słowo. Podgląd w oknie „Udostępnij”
+    bierze słowo z publicznej tablicy (`useBoardWord`), żeby pokazywał to, co
+    LinkedIn. Wybór szablonu (Grafit/Terminal/Jasny) zniknął z okna; pole
+    `theme` w bazie i `PUT …/public-profile {theme}` zostają bez skutku dla
+    strony, grafiki i plakatu. Plakat A4 (`career_poster.py`): czerwień, biały
+    tytuł, jasny pas z QR i „Zeskanuj i wyślij CV” (drobny tekst na Snow, bo
+    biały na #E73748 ma 4,2:1).
   - **Szybka aplikacja: samo CV w 30 sekund** (prośba Artura 23.11.2026).
     W nagłówku oferty (od 1024 px w prawej kolumnie, nad „Co już masz?”):
     plik, zgoda, „Wyślij CV” — ta sama wysyłka co pełny formularz. Na telefonie

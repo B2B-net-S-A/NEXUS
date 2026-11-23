@@ -5,7 +5,7 @@ import { bigWord, boardCardFor, similarJobs, wordEm } from "@/lib/career/site";
 import { mockJob } from "../layouts/jobModel";
 import { ApplyDock } from "./ApplyDock";
 import { OfferApply, type OfferApplyProps } from "./OfferApply";
-import { OfferChecklist } from "./OfferChecklist";
+import { OfferRequirements } from "./OfferRequirements";
 import { OfferClosed } from "./OfferClosed";
 import { QuickApply, type QuickApplyProps } from "./QuickApply";
 import { SentGate } from "./SentGate";
@@ -60,7 +60,8 @@ export function OfferPage({
   const aboutBlocks = m.about.filter((b) => b !== tasksBlock);
   const hasProject = m.about.length > 0;
   const hasChecklist = m.must.length + m.nice.length > 0;
-  const chapters = ["Oferta", ...(hasProject ? ["Projekt"] : []), ...(m.steps.length ? ["Proces"] : []), "Aplikacja"];
+  const steps = m.steps;
+  const chapters = ["Oferta", ...(hasProject ? ["Projekt"] : []), ...(steps.length ? ["Proces"] : []), "Aplikacja"];
   const at = (n: string) => chapters.indexOf(n);
 
   return (
@@ -109,16 +110,10 @@ export function OfferPage({
                     </a>
                   </div>
                 </div>
-                {/* Prawa kolumna od 1024 px: szybka aplikacja na pierwszym ekranie, pod nią lista. */}
+                {/* Prawa kolumna od 1024 px: szybka aplikacja na pierwszym ekranie, pod nią wymagania. */}
                 <div className={s.side}>
                   <QuickApply linkSlug={m.slug} rodoHref={rodoHref} {...quick} />
-                  {hasChecklist ? (
-                    <OfferChecklist
-                      must={m.must.map((x) => ({ text: x.name, note: x.note }))}
-                      nice={m.nice.map((x) => ({ text: x }))}
-                      skills={skills}
-                    />
-                  ) : null}
+                  {hasChecklist ? <OfferRequirements must={m.must} nice={m.nice} skills={skills} /> : null}
                 </div>
               </div>
             </div>
@@ -179,23 +174,23 @@ export function OfferPage({
             </section>
           ) : null}
 
-          {m.steps.length > 0 ? (
+          {steps.length > 0 ? (
             <section className={`${s.ch} ${s.chInk} ${s.s3}`} aria-label="Proces rekrutacji">
               <ChapterMark index={at("Proces")} count={chapters.length} name="Proces" />
               <div className={s.wrap}>
                 <div className={s.s3Top}>
                   <span aria-hidden="true" className={`${s.display} ${s.s3Big}`}>
-                    {m.steps.length}
+                    {steps.length}
                   </span>
                   <h2 className={s.lead}>
-                    <span className={s.srOnly}>{m.steps.length}</span>{" "}
+                    <span className={s.srOnly}>{steps.length}</span>{" "}
                     kroki.
                     <br />
                     Jak wygląda proces
                   </h2>
                   {leads ? <Who name={leads} initialOf={name} note={callback} /> : null}
                 </div>
-                <StepsList steps={m.steps} recruiterFirstName={name} />
+                <StepsList steps={steps} recruiterFirstName={name} />
               </div>
             </section>
           ) : null}

@@ -93,15 +93,14 @@ describe("strona oferty — jeden szablon dla każdej roli (OfertaA, OfertaManag
     expect(screen.getByText("raportowanie statusu".replace(/^./, "R"))).toBeTruthy();
   });
 
-  it("„Co już masz?” liczy zaznaczenia", () => {
+  it("wymagania w prawej kolumnie jako zwykła lista, bez pól do zaznaczania", () => {
     render(<OfferPage data={OPEN} board={BOARD} base="" />);
     const list = screen.getByRole("complementary", { name: "Wymagania" });
-    expect(within(list).getByText("0/3")).toBeTruthy();
-    expect(within(list).getByText("2 wymagane, 1 mile widziane")).toBeTruthy();
-    fireEvent.click(within(list).getAllByRole("checkbox")[0]);
-    fireEvent.click(within(list).getAllByRole("checkbox")[2]);
-    expect(within(list).getByText("2/3")).toBeTruthy();
-    expect(within(list).getByText("1 z 2")).toBeTruthy();
+    expect(within(list).getAllByRole("listitem")).toHaveLength(3);
+    expect(within(list).queryAllByRole("checkbox")).toHaveLength(0);
+    expect(within(list).getByText("Mile widziane")).toBeTruthy();
+    expect(within(list).getByText("Nie musisz mieć wszystkiego.")).toBeTruthy();
+    expect(screen.queryByText("Co już masz?")).toBeNull();
   });
 
   it("bez tablicy (awaria API) strona działa: bez wielkiego słowa, bez podobnych ofert", () => {

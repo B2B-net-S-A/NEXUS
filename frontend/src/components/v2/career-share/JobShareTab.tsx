@@ -61,7 +61,7 @@ import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
 import { resolveViewState } from "@/lib/view-state";
 
 import { LinkedInPreviewCard } from "./LinkedInPreviewCard";
-import { ThemePicker } from "./ThemePicker";
+import { useBoardWord } from "./useBoardWord";
 import {
   EXPIRY_OPTIONS,
   FINDING_CATEGORIES,
@@ -256,23 +256,6 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
       ),
   });
 
-  // Szablon graficzny (0478) — osobny zapis samego `theme`: nie rusza
-  // niezapisanych pól formularza i nie cofa zatwierdzenia opisu.
-  const [themeBusy, setThemeBusy] = useState(false);
-  const handleTheme = async (next: string | null) => {
-    if (jobId == null) return;
-    setThemeBusy(true);
-    try {
-      const saved = await careerLinksApi.savePublicProfileTheme(jobId, next);
-      qc.setQueryData(jobPublicProfileQueryKey(saved.job_id), saved);
-      showSuccess(next ? "Zmieniono szablon strony." : "Przywrócono szablon domyślny.");
-    } catch (err) {
-      showError(apiErrorMessage(err, "Nie udało się zmienić szablonu."));
-    } finally {
-      setThemeBusy(false);
-    }
-  };
-
   const saveProfile = async (): Promise<JobPublicProfile | null> => {
     if (!form || jobId == null) return null;
     try {
@@ -457,6 +440,8 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
     defaultTitle,
     profile?.preview?.title ?? jobTitle,
   );
+  // Wielkie słowo grafiki posta — to samo co w grafice OG strony kariery.
+  const boardWord = useBoardWord(profile?.preview?.slug, previewTitle);
 
   return (
     <>
@@ -762,21 +747,12 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
                   kicker="Rekrutacja IT"
                   headline={previewTitle}
                   facts={ogJobTiles(profile?.preview?.params)}
-                  foot="Aplikuj w 2 minuty →"
+                  foot="Wyślij CV →"
                   cardTitle={previewTitle}
                   host={host}
-                  theme={profile ? profile.theme ?? profile.theme_default : null}
+                  word={boardWord}
                 />
               </div>
-
-              {profile ? (
-                <ThemePicker
-                  value={profile.theme}
-                  defaultTheme={profile.theme_default}
-                  onChange={handleTheme}
-                  busy={themeBusy}
-                />
-              ) : null}
 
               <JobTeamLinks enabled={enabled} jobId={jobId} />
 

@@ -442,13 +442,6 @@ export const careerLinksApi = {
    * Sam szablon graficzny (0478) — bez pól treści, więc nie zapisuje szkicu
    * z formularza i nie cofa zatwierdzenia. `null` = wróć do domyślnego.
    */
-  savePublicProfileTheme: async (
-    jobId: number,
-    theme: string | null,
-  ): Promise<JobPublicProfile> => {
-    const res = await api.put(`/api/jobs/${jobId}/public-profile`, { theme });
-    return normalizePublicProfile(jobId, res.data);
-  },
   draftPublicProfile: async (jobId: number): Promise<PublicProfileDraft> => {
     const res = await api.post(`/api/jobs/${jobId}/public-profile/draft`);
     const d = (res.data ?? {}) as Partial<PublicProfileDraft>;
