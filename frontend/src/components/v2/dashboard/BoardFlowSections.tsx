@@ -33,6 +33,7 @@ import {
   type FlowPairRow,
 } from "@/lib/api/boardTasks";
 import { ORDER_CHANGES_SUMMARY_KEY, financeApi } from "@/lib/api/finance";
+import { openOnDashboard, type PersonPair } from "@/lib/dashboard-person-queue";
 import { shortDate } from "@/lib/candidate-followup";
 import { formatTime } from "@/lib/interview-cycle";
 import { countPl } from "@/lib/plural-pl";
@@ -72,11 +73,28 @@ function PairMeta({ row }: { row: FlowPairRow }) {
   );
 }
 
-function PairRowItem({ row, aside }: { row: FlowPairRow; aside: React.ReactNode }) {
+function PairRowItem({
+  row,
+  aside,
+  onOpenPerson,
+}: {
+  row: FlowPairRow;
+  aside: React.ReactNode;
+  /** Listy kolejki „Pracuj po kolei” — klik otwiera panel na pulpicie. */
+  onOpenPerson?: (pair: PersonPair) => void;
+}) {
   return (
     <li className="flex items-center gap-2 px-3 py-2">
       <div className="min-w-0 flex-1">
-        <Link href={pairLink(row)} className="block truncate text-sm font-medium hover:underline">
+        <Link
+          href={pairLink(row)}
+          onClick={
+            onOpenPerson
+              ? (e) => openOnDashboard(e, () => onOpenPerson({ jobId: row.job_id, candidateId: row.candidate_id }))
+              : undefined
+          }
+          className="block truncate text-sm font-medium hover:underline"
+        >
           {row.candidate_name}
         </Link>
         <PairMeta row={row} />
@@ -138,7 +156,13 @@ export function BoardFlowSections({
   expanded,
   onToggle,
   shown,
-}: { flow: FlowBlock | null | undefined; finance: FinanceBlock | null | undefined } & Toggle) {
+  onOpenPerson,
+}: {
+  flow: FlowBlock | null | undefined;
+  finance: FinanceBlock | null | undefined;
+  /** „Pracuj po kolei” (23.11.2026): osoba z list kolejki otwiera się na pulpicie. */
+  onOpenPerson?: (pair: PersonPair) => void;
+} & Toggle) {
   return (
     <>
       {flow && (flow.new_requests?.length ?? 0) > 0 && (
@@ -203,6 +227,7 @@ export function BoardFlowSections({
             <PairRowItem
               key={`${row.job_id}-${row.candidate_id}`}
               row={row}
+              onOpenPerson={onOpenPerson}
               aside={
                 <>
                   {row.call_at ? (
@@ -234,6 +259,7 @@ export function BoardFlowSections({
             <PairRowItem
               key={`${row.job_id}-${row.candidate_id}`}
               row={row}
+              onOpenPerson={onOpenPerson}
               aside={<Since since={row.since} />}
             />
           ))}
@@ -271,6 +297,7 @@ export function BoardFlowSections({
           expanded={expanded["flow_autofill_decisions"] === true}
           onToggle={() => onToggle("flow_autofill_decisions")}
           shown={shown}
+          onOpenPerson={onOpenPerson}
         />
       )}
 

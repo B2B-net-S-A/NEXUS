@@ -4576,6 +4576,31 @@
     "used_anchor": "palette.sales-nip"
   },
   {
+    "id": "pracuj-po-kolei-na-pulpicie",
+    "pr": 3810,
+    "title": "Pracuj po kolei — panel osoby na pulpicie",
+    "why": "„Pracuj po kolei” w „Czeka na Ciebie” otwiera panel osoby bez wychodzenia z pulpitu. „Dalej” prowadzi przez Screening bez arkusza, Zweryfikowanych i osoby od systemu ze wszystkich Twoich rekrutacji, najdłużej czekający pierwsi. Po odrzuceniu panel sam pokazuje następną osobę.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "talent_community_manager",
+        "delivery_lead"
+      ]
+    },
+    "where": "Pulpit → Czeka na Ciebie → Pracuj po kolei",
+    "href": "/dashboard",
+    "dot_anchor": "dashboard.person-queue.start",
+    "steps": [
+      {
+        "anchor": "dashboard.person-queue.start",
+        "text": "Kliknij „Pracuj po kolei”.",
+        "hint": "Panel osoby otworzy się z prawej, nad pulpitem. Pasek u góry mówi, z której listy jest osoba, w jakiej rekrutacji i kto dalej."
+      }
+    ]
+  },
+  {
     "id": "arkusz-rozmowy-na-lewej-polowie",
     "title": "„Arkusz rozmowy” na dużej połowie ekranu",
     "why": "W „Trybie rozmowy” formularz screeningu stoi po lewej, w dwóch kolumnach, a CV i wymagania są w zakładkach obok. Na górze widzisz, czego brakuje do „Zweryfikowany”; braki znikają, gdy je wpisujesz.",

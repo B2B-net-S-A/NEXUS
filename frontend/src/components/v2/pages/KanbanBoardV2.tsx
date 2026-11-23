@@ -40,6 +40,7 @@ import {
  Unlock,
  UserPlus,
  UserX,
+ X,
  XCircle,
  PhoneCall,
  UserRound,
@@ -340,6 +341,46 @@ interface KanbanBoardV2Props {
  /** Zmiana filtra z Tablicy („Pokaż wszystkich” w pustej kolumnie, pasek końca
   *  kolejki) i z menu etykiety kolejki w panelu. Bez niego tych miejsc nie ma. */
  onAddedByChange?: (filter: AddedByFilter) => void;
+ /** „Pracuj po kolei” na pulpicie (23.11.2026): sam panel osoby bez planszy,
+  *  osobę i kolejkę „‹ ›” podaje pulpit (przez wszystkie rekrutacje).
+  *  `docs/claude/ui/pracuj-po-kolei-na-pulpicie.md`. */
+ panelOnly?: PanelOnlyQueue | null;
+}
+
+/** Kolejka panelu prowadzona z zewnątrz Tablicy (pulpit „Czeka na Ciebie”). */
+export interface PanelOnlyQueue {
+ /** Kogo panel pokazuje — zmiana otwiera tę osobę jak klik w kartę. */
+ candidateId: number;
+ /** Nazwa kolejki obok „N z M”. */
+ label: string;
+ /** Pozycja osoby w kolejce (1-based); `null` — osoba poza kolejką. */
+ position: number | null;
+ total: number;
+ onPrevious: () => void;
+ onNext: () => void;
+ /** Zapowiedź w oknie odrzucenia: kto zastąpi zamykaną osobę. */
+ next: { name: string; stageLabel: string } | null;
+ /** Odrzucenie albo rezygnacja z panelu potwierdzona przez serwer. */
+ onClosedFromPanel: (closed: {
+  candidateId: number;
+  name: string;
+  verb: "Odrzucono" | "Rezygnacja";
+  reasonLabel: string | null;
+ }) => void;
+ closedNotice: {
+  verb: "Odrzucono" | "Rezygnacja";
+  name: string;
+  reason: string | null;
+  onShow: () => void;
+ } | null;
+ /** Osoba poza kolejką — „Wróć do kolejki”. */
+ onReturnToQueue?: () => void;
+ /** Pasek kolejki nad treścią panelu (lista, rekrutacja, „Dalej”). */
+ banner: React.ReactNode;
+ /** W panelu jest inna osoba tej rekrutacji (np. „Pokaż”, „Następna w Screeningu”). */
+ onPersonChange: (candidateId: number) => void;
+ /** Panel zamknięty (X, Esc, klik w tło). */
+ onClose: () => void;
 }
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -2289,7 +2330,7 @@ const MIN_COLUMN_HEIGHT = 280;
 // `p-4` obszaru treści powłoki (góra + dół) — patrz pomiar planszy na telefonie.
 const MOBILE_MAIN_PADDING_Y = 32;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapMap, criticalAltMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, openingStartedAt = null, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange, closedJob = null }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapMap, criticalAltMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, openingStartedAt = null, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange, closedJob = null, panelOnly = null }: KanbanBoardV2Props) {
  // Widok tablicy: kafelki ↔ kolumny. Reguła automatyczna (szeroki szablon
  // otwiera się kafelkowo) jest WARTOŚCIĄ DOMYŚLNĄ, wybór użytkownika ją
  // nadpisuje i jest pamiętany — patrz `lib/kanban-view-preferences.ts`.
@@ -3480,6 +3521,46 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  onInitialDockHandled?.();
  }, [initialDockCandidateId, initialDockOpensReview, cols, onInitialDockHandled]);
 
+ // „Pracuj po kolei” na pulpicie: osobę wskazuje pulpit. Otwieramy ją jak
+ // klik w kartę (Nowi/Screening — panel dzielony z formularzem), raz na każdą
+ // nową wartość, żeby przebudowa `cols` po ruchu nie cofała panelu.
+ const panelOnlyCandidateId = panelOnly?.candidateId ?? null;
+ const appliedPanelOnlyRef = useRef<number | null>(null);
+ useEffect(() => {
+  if (panelOnlyCandidateId == null || appliedPanelOnlyRef.current === panelOnlyCandidateId) return;
+  if (dockCandidateId === panelOnlyCandidateId) {
+   appliedPanelOnlyRef.current = panelOnlyCandidateId;
+   return;
+  }
+  const place = locateCandidate(panelOnlyCandidateId);
+  if (!place) return;
+  appliedPanelOnlyRef.current = panelOnlyCandidateId;
+  openDock(place.item);
+ }, [panelOnlyCandidateId, dockCandidateId, locateCandidate, openDock]);
+ // Osoba z kolejki pulpitu wypadła z tej rekrutacji (np. usunięta z Tablicy) —
+ // panel mówi to wprost zamiast pokazywać poprzednią osobę.
+ const panelOnlyMissing = panelOnlyCandidateId != null && locateCandidate(panelOnlyCandidateId) == null;
+ const panelOnlyRef = useRef(panelOnly);
+ useEffect(() => {
+  panelOnlyRef.current = panelOnly;
+ }, [panelOnly]);
+ // Zmiany osoby w panelu wracają do pulpitu: zamknięcie i inna osoba tej
+ // rekrutacji (zanim panel się otworzy, `null` niczego nie zamyka).
+ const panelOnlyOpenedRef = useRef(false);
+ useEffect(() => {
+  const host = panelOnlyRef.current;
+  if (!host) return;
+  if (dockCandidateId == null) {
+   if (panelOnlyOpenedRef.current) host.onClose();
+   return;
+  }
+  panelOnlyOpenedRef.current = true;
+  if (dockCandidateId !== host.candidateId) {
+   appliedPanelOnlyRef.current = dockCandidateId;
+   host.onPersonChange(dockCandidateId);
+  }
+ }, [dockCandidateId]);
+
  // Kolumna terminala „Odrzucony" tego szablonu — potrzebna zarówno „Odrzuć
  // z powodem" w doku, jak i sprawdzeniu, czy dana karta w ogóle DA się
  // jeszcze odrzucić (kandydat już `hired`/`rejected`/`withdrawn` — nie ma
@@ -3885,10 +3966,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  // (przegląd DL, potem rozwinięte narzędzia, potem dok), chyba że otwarty jest dialog (modal powodu
  // odrzucenia, stawki itp.): wtedy Escape należy do niego.
  useEffect(() => {
- if (!dockItem && !dlReviewTask) return;
+ if (!dockItem && !dlReviewTask && !panelOnlyMissing) return;
  const onKey = (e: KeyboardEvent) => {
  if (e.key !== "Escape" || e.defaultPrevented) return;
  if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return;
+ // Pulpit: osoby nie ma już na Tablicy — Escape zamyka panel jak „X”.
+ if (panelOnlyMissing) {
+  panelOnlyRef.current?.onClose();
+  return;
+ }
  // Duże okno notatki w doku jest warstwą nad panelem — zmniejsza je sam
  // dok (`DockNoteComposer`), a panel zostaje otwarty. Okno w doku ukrytym
  // pod przeglądem DL warstwą nie jest.
@@ -3900,7 +3986,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  };
  window.addEventListener("keydown", onKey);
  return () => window.removeEventListener("keydown", onKey);
- }, [dockItem, dlReviewTask, workbenchOpen, closeDlReview, collapseWorkbench, closeDock]);
+ }, [dockItem, dlReviewTask, panelOnlyMissing, workbenchOpen, closeDlReview, collapseWorkbench, closeDock]);
 
  // „Przesuń dalej" z okna QC: okno otwarte z listy braków wraca do swojego
  // „Przesuń dalej", otwarte z karty — otwiera je dla następnej kolumny. Ruch
@@ -4310,6 +4396,20 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  // (od 14.10.2026 w tej samej kolumnie i z tym samym filtrem — D1).
  const dockFollowUp = useCallback(
  (closed: KanbanItem, verb: ClosedVerb): RejectFollowUp | undefined => {
+ // Na pulpicie kolejka idzie przez wszystkie rekrutacje — kto dalej, wie pulpit.
+ if (panelOnly) {
+  return {
+   stageLabel: dockItemColLabel,
+   next: panelOnly.next,
+   onMoved: ({ reasonLabel }) =>
+    panelOnlyRef.current?.onClosedFromPanel({
+     candidateId: closed.candidate_id,
+     name: itemFullName(closed),
+     verb,
+     reasonLabel,
+    }),
+  };
+ }
  if (dockIndex < 0) return undefined;
  const after = dockOrder.slice(dockIndex + 1);
  const preview = after.length > 0 ? locateCandidate(after[0]) : null;
@@ -4320,7 +4420,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  advanceAfterCloseRef.current(closed, verb, after, reasonLabel, queueLabel),
  };
  },
- [dockIndex, dockOrder, locateCandidate, dockItemColLabel, queueLabel]
+ [dockIndex, dockOrder, locateCandidate, dockItemColLabel, queueLabel, panelOnly]
  );
  const handleDockReject = useCallback(
  (options?: { notes?: string | null }) => {
@@ -4541,7 +4641,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  {/* Dok „Karta kandydata" NIE zajmuje kolumny siatki — wysuwa się z prawej
  dopiero po kliknięciu karty (przegląd UX 17.09.2026: stała trzecia kolumna
  zjadała tablicy 360 px nawet wtedy, gdy nic nie było wybrane). */}
- <div className="space-y-3">
+ {/* Na pulpicie („Pracuj po kolei”) plansza jest ukryta — sam panel. */}
+ <div className="space-y-3" hidden={panelOnly != null || undefined}>
  {renderAbove ? (
  renderAbove(viewControls)
  ) : viewControls ? (
@@ -4846,14 +4947,32 @@ headerAction={
  </div>
  </DragDropContext>
 
- {((dockItem && dockItemColLabel !== null) || dlReviewTask) && (
+ {((dockItem && dockItemColLabel !== null) || dlReviewTask || panelOnlyMissing) && (
  <PersonPanelShell
  size={panelSize}
  chromeTop={chromeTop}
  // Klik w tło zamyka najwyższą warstwę: przegląd, rozwinięcie, kartę.
- onBackdropClick={reviewOpen ? closeDlReview : workbenchOpen ? collapseWorkbench : closeDock}
+ onBackdropClick={
+ panelOnlyMissing ? () => panelOnly?.onClose() : reviewOpen ? closeDlReview : workbenchOpen ? collapseWorkbench : closeDock
+ }
  >
- {dockItem && dockItemColLabel !== null && (
+ {panelOnly ? panelOnly.banner : null}
+ {panelOnlyMissing ? (
+  <div className="flex items-start gap-2 px-4 py-4 text-sm text-muted-foreground" role="status">
+   <p className="min-w-0 flex-1">
+    Tej osoby nie ma już na Tablicy tej rekrutacji — przejdź do następnej albo otwórz Tablicę.
+   </p>
+   <button
+    type="button"
+    onClick={() => panelOnly?.onClose()}
+    className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent pointer-coarse:p-2.5"
+    aria-label="Zamknij dok"
+   >
+    <X className="h-4 w-4" />
+   </button>
+  </div>
+ ) : null}
+ {dockItem && dockItemColLabel !== null && !panelOnlyMissing && (
  // Pod przeglądem dok jest UKRYTY, nie odmontowany: niewysłana
  // notatka, otwarte sekcje i miejsce powrotu fokusu muszą przeżyć.
  <div
@@ -4883,20 +5002,33 @@ headerAction={
  canReject={canRejectDockItem}
  rejectBlockedReason={dockRejectBlockedReason}
  budgetHourly={jobBudgetHourlyValue}
- position={dockIndex >= 0 ? dockIndex + 1 : null}
- total={dockOrder.length}
- onSelectPrevious={() => selectAdjacentDockCard(-1)}
- onSelectNext={() => selectAdjacentDockCard(1)}
- closedNotice={dockClosedNotice}
- onReturnToQueue={returnToQueueItem ? () => openDock(returnToQueueItem) : undefined}
- queueLabel={queueLabel}
- stageOutsideQueue={dockItemColLabel !== queueColumnName ? dockItemColLabel : null}
- addedByMenu={
- onAddedByChange
- ? { options: addedByMenuOptions, value: addedBy, onChange: onAddedByChange }
- : undefined
+ {...(panelOnly
+ ? {
+  // Kolejka pulpitu: przez wszystkie rekrutacje, bez filtra „Kto dodał”.
+  position: panelOnly.position,
+  total: panelOnly.total,
+  onSelectPrevious: panelOnly.onPrevious,
+  onSelectNext: panelOnly.onNext,
+  closedNotice: panelOnly.closedNotice,
+  onReturnToQueue: panelOnly.onReturnToQueue,
+  queueLabel: panelOnly.label,
+  stageOutsideQueue: panelOnly.position == null ? dockItemColLabel : null,
+  queueEnd: null,
  }
- queueEnd={queueEnd}
+ : {
+  position: dockIndex >= 0 ? dockIndex + 1 : null,
+  total: dockOrder.length,
+  onSelectPrevious: () => selectAdjacentDockCard(-1),
+  onSelectNext: () => selectAdjacentDockCard(1),
+  closedNotice: dockClosedNotice,
+  onReturnToQueue: returnToQueueItem ? () => openDock(returnToQueueItem) : undefined,
+  queueLabel,
+  stageOutsideQueue: dockItemColLabel !== queueColumnName ? dockItemColLabel : null,
+  addedByMenu: onAddedByChange
+   ? { options: addedByMenuOptions, value: addedBy, onChange: onAddedByChange }
+   : undefined,
+  queueEnd,
+ })}
  nextAction={dockNextAction}
  primaryTarget={dockPrimaryMove?.target ?? null}
  primaryBlocked={dockPrimaryMove?.blocked ?? null}
