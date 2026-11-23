@@ -9,6 +9,7 @@ import { QueryStateNotice } from "@/components/ds";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -204,24 +205,36 @@ function RuleRow({ rule, level, params, disabled, onLevel, onParam }: RuleRowPro
           </div>
         ) : null}
       </div>
-      <div role="radiogroup" aria-label={`Poziom: ${rule.name}`} className="inline-flex rounded-md bg-muted p-0.5 text-[11px] font-medium">
-        {LEVELS.map((l) => (
-          <button
-            key={l.value}
-            type="button"
-            role="radio"
-            aria-checked={level === l.value}
+      {rule.switch ? (
+        <label className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+          {level === "off" ? "Wyłączone" : "Włączone"}
+          <Switch
+            aria-label={rule.name}
+            checked={level !== "off"}
             disabled={disabled}
-            onClick={() => onLevel(l.value)}
-            className={cn(
-              "rounded px-1.5 py-0.5 pointer-coarse:min-h-8",
-              level === l.value ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {l.label}
-          </button>
-        ))}
-      </div>
+            onCheckedChange={(on) => onLevel(on ? "block" : "off")}
+          />
+        </label>
+      ) : (
+        <div role="radiogroup" aria-label={`Poziom: ${rule.name}`} className="inline-flex rounded-md bg-muted p-0.5 text-[11px] font-medium">
+          {LEVELS.map((l) => (
+            <button
+              key={l.value}
+              type="button"
+              role="radio"
+              aria-checked={level === l.value}
+              disabled={disabled}
+              onClick={() => onLevel(l.value)}
+              className={cn(
+                "rounded px-1.5 py-0.5 pointer-coarse:min-h-8",
+                level === l.value ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -201,6 +201,7 @@ export function ChampionWorkspace({
             }}
             className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 text-[13px] font-medium text-primary hover:bg-primary/15 focus-visible:outline-2 focus-visible:outline-ring"
             data-testid="client-change-open"
+            data-tour="champion.client-change.open"
           >
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
             Klient coś zmienił

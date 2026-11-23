@@ -3,7 +3,7 @@
 // Miesiąc klienta: osoby, RCP, MD i kwoty (roadmapa E1.6). Przyjęcie zbiorcze
 // bierze tylko RCP bez uwag; reszta przez kartę osoby.
 import { useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { Bot, Search } from "lucide-react";
 
 import { QueryStateNotice, StatusDot } from "@/components/ds";
 import { useToast } from "@/components/Toast";
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
+import { warsawToday } from "@/lib/warsaw-date";
 import {
   useAcceptBatch,
   useSettlementMonth,
@@ -23,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { ClientAcceptancePanel } from "./ClientAcceptancePanel";
 import { ClientDocumentsPanel } from "./ClientDocumentsPanel";
 import {
+  autoAcceptText,
   CLIENT_ACCEPTANCE,
   CLIENT_INVOICE,
   CONTRACTOR_INVOICE,
@@ -94,6 +96,12 @@ export function SettlementMonthView({ clientId, month, canWrite, onOpen }: Settl
       <ClientAcceptancePanel clientId={clientId} month={month} canWrite={canWrite} />
       <ClientDocumentsPanel clientId={clientId} month={month} />
       <KesuSummaryBar rows={data.rows} />
+      {data.auto_accept ? (
+        <p role="status" className="flex items-start gap-2 rounded-xl border bg-card px-3 py-2 text-[13px]">
+          <Bot aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <span>{autoAcceptText(data.auto_accept, warsawToday())}</span>
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-1">
         {FILTERS.map((f) => (
           <button
@@ -193,6 +201,7 @@ function MonthTable({ rows, showAmounts, onOpen }: MonthTableProps) {
                   <StatusDot tone={STATUS[r.status].tone} note={r.issues ?? undefined}>
                     {STATUS[r.status].label}
                   </StatusDot>
+                  {r.accepted_auto ? <span className="block text-[11px] text-muted-foreground">przyjął automat</span> : null}
                   <AcceptanceDot row={r} />
                   {r.kesu ? (
                     <span className="mt-0.5 block">

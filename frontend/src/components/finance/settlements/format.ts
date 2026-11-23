@@ -1,6 +1,7 @@
 // Wspólne etykiety i formaty ekranów rozliczeń klientów.
 import type { StatusDotTone } from "@/components/ds/StatusDot";
 import type {
+  AutoAcceptInfo,
   ClientAcceptanceState,
   ClientInvoiceState,
   ContractorInvoiceState,
@@ -52,6 +53,21 @@ export function dayTime(value: string | null | undefined): string {
   const day = shortDay(value);
   const time = value && value.length >= 16 ? value.slice(11, 16) : "";
   return time ? `${day} ${time}` : day;
+}
+
+/**
+ * Pasek nad tabelą miesiąca przy regule „Przyjmuj RCP bez uwag automatycznie”.
+ * `today` i `info.from` to daty RRRR-MM-DD w kalendarzu firmy.
+ */
+export function autoAcceptText(info: AutoAcceptInfo, today: string): string {
+  const when = info.from <= today ? "przy najbliższym porannym biegu (dzień roboczy, od 7:00)" : `od ${shortDay(info.from)} rano`;
+  if (info.count === 0) {
+    return `Automat przyjmuje RCP bez uwag od ${info.workday}. dnia roboczego po miesiącu. Teraz nie ma czego przyjąć.`;
+  }
+  const mod10 = info.count % 10;
+  const mod100 = info.count % 100;
+  const few = mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14);
+  return `${info.count} RCP bez uwag ${few ? "przyjmą się same" : "przyjmie się samo"} ${when}. RCP odesłane „Do poprawy” przyjmujecie ręcznie.`;
 }
 
 /** „2026-11-10T10:30:00+01:00” → „10.11”. */
