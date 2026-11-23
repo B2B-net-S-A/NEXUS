@@ -16,6 +16,7 @@ import { ImpersonationBanner } from "./ImpersonationBanner";
 import { NotificationsRealtime } from "./NotificationsRealtime";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { JarvisRoot } from "@/components/jarvis/JarvisRoot";
+import { LessonLayer } from "@/components/novelties/LessonLayer";
 import { NoveltyLayer } from "@/components/novelties/NoveltyLayer";
 import { PoligonBanner, PoligonLayer } from "@/components/poligon/PoligonLayer";
 import { PoligonLukiNotice } from "@/components/poligon/PoligonLukiNotice";
@@ -292,8 +293,9 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
       {/* Game-mode decorations — only in Kids mode (inert otherwise) */}
       <KidsBackdrop />
       <JarvisRoot />
-      {/* Kropki „Nowe”, przeklikanie i okno zmiany procesu. */}
+      {/* Przeklikanie (pokaz w lekcji) i lekcja nowości: „sam” i pytanie. */}
       {poligon === "exercises" ? <PoligonLayer /> : <NoveltyLayer />}
+      {poligon === "novelty" ? <LessonLayer /> : null}
     </div>
   );
 }

@@ -10,6 +10,10 @@
  * a Start w NEXUSIE z `/start`. Warstwa prowadzi tylko przeklikanie:
  * podświetlony prawdziwy element, krok przechodzi po jego kliknięciu (krok
  * `ack` — przyciskiem „Rozumiem”), także po przejściu na inny ekran.
+ *
+ * Od 23.11.2026 to samo przeklikanie jest pokazem w lekcji nowości
+ * (`lib/novelties/lessons.ts`): wpis po wpisie, bez zaliczania nowości;
+ * po ostatnim wpisie lekcja przechodzi do etapu „sam” (`LessonLayer`).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -18,10 +22,19 @@ import { CheckCircle2, Sparkles, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
+  sendLessonEvent,
   useDailyStatus,
   useMyNoveltiesState,
   useNoveltyEvent,
 } from "@/lib/novelties/api";
+import {
+  afterShowNovelty,
+  goToStage,
+  LESSON_RUN_EVENT,
+  leaveLesson,
+  readRun,
+  type LessonRun,
+} from "@/lib/novelties/lessons";
 import { DAILY_PATH, withSteps } from "@/lib/novelties/daily";
 import {
   acknowledgeStep,
@@ -276,6 +289,7 @@ function TourStepCard({
   state,
   box,
   blocked,
+  lessonLabel,
   onAck,
   onStop,
   onReveal,
@@ -284,6 +298,8 @@ function TourStepCard({
   state: TourState;
   box: Box | null;
   blocked: BoxState | null;
+  /** Pokaz w lekcji: „Lekcja · pokaz 1 z 2”, zamiast „Nowość”. */
+  lessonLabel: string | null;
   onAck: () => void;
   onStop: () => void;
   onReveal: () => void;
@@ -316,7 +332,7 @@ function TourStepCard({
     >
       <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-primary">
         <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-        {novelty.start ? "Start w NEXUSIE" : "Nowość"} · krok{" "}
+        {lessonLabel ?? (novelty.start ? "Start w NEXUSIE" : "Nowość")} · krok{" "}
         {state.step + 1} z {novelty.steps.length}
         <span className="ml-auto flex gap-1" aria-hidden="true">
           {novelty.steps.map((s, i) => (
@@ -446,27 +462,38 @@ export function NoveltyLayer() {
 
   const [tour, setTour] = useState<TourState | null>(null);
   const [finished, setFinished] = useState<Novelty | null>(null);
+  const [run, setRun] = useState<LessonRun | null>(null);
 
   useEffect(() => {
     setTour(readTour());
+    setRun(readRun());
     const onStart = () => setTour(readTour());
+    const onRun = () => setRun(readRun());
     window.addEventListener(NOVELTY_TOUR_START_EVENT, onStart);
-    return () => window.removeEventListener(NOVELTY_TOUR_START_EVENT, onStart);
+    window.addEventListener(LESSON_RUN_EVENT, onRun);
+    return () => {
+      window.removeEventListener(NOVELTY_TOUR_START_EVENT, onStart);
+      window.removeEventListener(LESSON_RUN_EVENT, onRun);
+    };
   }, []);
+  /** Pokaz w lekcji: przeklikanie wpisów lekcji, bez zaliczania nowości. */
+  const showing = run?.stage === "show" ? run : null;
 
   // Porcja bywa starsza niż 45 dni życia nowości (po urlopie), więc jej
   // pozycje dochodzą do listy z `/mine`.
   const byId = useMemo(
     () =>
       new Map(
-        [...novelties, ...(daily?.items ?? [])].map((n) => [n.id, withSteps(n)]),
+        [...novelties, ...(daily?.items ?? []), ...(showing?.show ?? [])].map(
+          (n) => [n.id, withSteps(n)],
+        ),
       ),
-    [novelties, daily],
+    [novelties, daily, showing],
   );
   // Obie listy muszą przyjść, zanim uznamy przeklikanie za nieaktualne: po
   // przeładowaniu w tryb ćwiczebny `/mine` bywa pierwszy, a pozycji porcji
   // starszej niż 45 dni w nim nie ma (recenzja 18.11.2026).
-  const loaded = mine.loaded && daily !== null;
+  const loaded = (mine.loaded && daily !== null) || showing !== null;
   const touring = tour ? (byId.get(tour.noveltyId) ?? null) : null;
   const stepAnchor =
     touring && tour ? (touring.steps[tour.step]?.anchor ?? null) : null;
@@ -490,6 +517,14 @@ export function NoveltyLayer() {
       finishing.current = novelty.id;
       writeTour(null);
       setTour(null);
+      const lesson = readRun();
+      if (lesson?.stage === "show" && lesson.show[lesson.showIndex]?.id === novelty.id) {
+        // Pokaz nie zalicza nowości — zalicza ją dopiero cała lekcja.
+        const next = afterShowNovelty(lesson);
+        if (next.showDone) await sendLessonEvent(lesson.lesson.id, "shown");
+        goToStage(next.run);
+        return;
+      }
       setFinished(novelty);
       await sendEvent(novelty.id, "toured");
       if (isNoveltyPractice()) window.setTimeout(backToDaily, 900);
@@ -515,6 +550,10 @@ export function NoveltyLayer() {
   const stopTour = () => {
     writeTour(null);
     setTour(null);
+    if (readRun()) {
+      leaveLesson(readRun());
+      return;
+    }
     backToDaily();
   };
 
@@ -547,6 +586,11 @@ export function NoveltyLayer() {
           state={tour}
           box={box}
           blocked={measured && !box ? measured.state : null}
+          lessonLabel={
+            showing && showing.show[showing.showIndex]?.id === touring.id
+              ? `Lekcja · pokaz${showing.show.length > 1 ? ` ${showing.showIndex + 1} z ${showing.show.length}` : ""}`
+              : null
+          }
           onStop={stopTour}
           onReveal={() => revealAnchor(touring.steps[tour.step].anchor)}
           onAck={() => {

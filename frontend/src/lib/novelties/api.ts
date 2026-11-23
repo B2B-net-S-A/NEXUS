@@ -7,6 +7,7 @@ import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-quer
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
+import type { Lesson } from "./lessons";
 import type { DailyStatus, LukiMatrix, Novelty, NoveltyEvent, StartStatus } from "./logic";
 
 export const myNoveltiesKey = ["novelties", "mine"] as const;
@@ -169,9 +170,53 @@ export function useDailyStatus(enabled: boolean): DailyStatus | null {
     queryFn: async () => (await api.get<DailyStatus>("/api/novelties/daily")).data,
     enabled,
     staleTime: 60_000,
+    // Odłożona porcja wraca o wybranej godzinie bez przeładowania strony.
+    refetchInterval: (q) => (q.state.data?.postponed_until ? 60_000 : false),
     retry: 0,
   });
   return mounted ? (query.data ?? null) : null;
+}
+
+export const lessonsKey = ["novelties", "lessons"] as const;
+
+/** Szkolenia → „Nowości w NEXUSIE”: lekcje z roli osoby, bez terminu ważności. */
+export function useMyLessons() {
+  return useQuery({
+    queryKey: lessonsKey,
+    queryFn: async () => (await api.get<Lesson[]>("/api/novelties/lessons")).data,
+    staleTime: 60_000,
+  });
+}
+
+export type LessonEvent =
+  | "shown"
+  | "solo_failed"
+  | "solo_passed"
+  | "quiz_wrong"
+  | "restart"
+  | "completed"
+  | "review_passed"
+  | "review_failed";
+
+/** Etap lekcji. Błąd zapisu nie zatrzymuje osoby — wraca jako `false`. */
+export async function sendLessonEvent(lessonId: string, event: LessonEvent): Promise<boolean> {
+  try {
+    await api.post(`/api/novelties/lessons/${encodeURIComponent(lessonId)}/events`, { event });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Odłożenie porcji dnia (raz dziennie, najpóźniej do 15:00). */
+export async function postponeDaily(option: string): Promise<string> {
+  const resp = await api.post<{ postponed_until: string }>("/api/novelties/daily/postpone", { option });
+  return resp.data.postponed_until;
+}
+
+/** Pominięcie porcji dnia — tylko admin. */
+export async function skipDaily(): Promise<void> {
+  await api.post("/api/novelties/daily/skip");
 }
 
 /** Wyłącznik porannej porcji nowości dla całej firmy (admin, HoR). */

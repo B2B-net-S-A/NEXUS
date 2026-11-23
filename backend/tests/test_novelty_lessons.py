@@ -456,3 +456,48 @@ async def test_postpone_once_then_conflict_and_only_admin_skips(
     assert daily["enforced"] is False and daily["skipped"] is True
     # Pominięcie niczego nie zalicza.
     assert daily["lessons"][0]["state"] == "todo"
+
+
+def test_page_check_is_not_met_on_the_starting_screen() -> None:
+    """Warunek „ekran” spełniony już na ekranie startowym zaliczyłby zadanie
+    samym wejściem — osoba ma do niego dojść sama."""
+    from urllib.parse import parse_qs, urlparse
+
+    instant = []
+    for lesson in load_lessons().values():
+        check = lesson.check
+        if check.kind != "page":
+            continue
+        start = urlparse(lesson.solo_href)
+        query = {k: v[0] for k, v in parse_qs(start.query).items()}
+        prefix = check.path_prefix.rstrip("/")
+        on_path = start.path == prefix or start.path.startswith(f"{prefix}/")
+        if on_path and all(query.get(k) == v for k, v in check.query.items()):
+            instant.append(lesson.id)
+    assert instant == []
+
+
+@_DB
+@pytest.mark.asyncio
+async def test_hor_sees_who_is_stuck_after_three_failed_solo_tries(
+    app_client: AsyncClient, one_lesson
+) -> None:
+    user_id, recruiter = await _user("recruiter")
+    _, hor = await _user("head_of_recruitment")
+    url = "/api/novelties/lessons/lekcja-test/events"
+    await app_client.post(url, json={"event": "shown"}, headers=recruiter)
+    for _ in range(3):
+        await app_client.post(url, json={"event": "solo_failed"}, headers=recruiter)
+    refused = await app_client.get(
+        "/api/novelties/lessons/struggles", headers=recruiter
+    )
+    assert refused.status_code == 403
+    stuck = (
+        await app_client.get("/api/novelties/lessons/struggles", headers=hor)
+    ).json()
+    mine = [s for s in stuck if s["user_id"] == user_id]
+    assert (
+        mine
+        and mine[0]["solo_failed_count"] == 3
+        and mine[0]["lesson_id"] == "lekcja-test"
+    )

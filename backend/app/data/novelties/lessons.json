@@ -2,7 +2,10 @@
   {
     "id": "lekcja-zamykanie-procesu",
     "title": "Zamykanie procesu kandydata",
-    "novelties": ["jeden-slownik-powodow-zamkniecia", "rezygnacja-w-oknie-zamknij-proces"],
+    "novelties": [
+      "jeden-slownik-powodow-zamkniecia",
+      "rezygnacja-w-oknie-zamknij-proces"
+    ],
     "task": "Kandydat z rekrutacji ćwiczebnej napisał, że przyjął inną ofertę. Zamknij jego proces tak, żeby statystyki policzyły to dobrze.",
     "solo_href": "/jobs/990001",
     "check": {
@@ -13,21 +16,1711 @@
     "questions": [
       {
         "q": "Klient zamknął projekt, bo przegrał przetarg. Jaki powód wybierasz?",
-        "options": ["Projekt zamknięty / przetarg przegrany", "Inne, z opisem", "Wysłany po terminie"],
+        "options": [
+          "Projekt zamknięty / przetarg przegrany",
+          "Inne, z opisem",
+          "Wysłany po terminie"
+        ],
         "answer": 0,
         "explain": "Ten przypadek ma teraz własny powód na jednej liście. „Inne” psuje statystyki, nawet z opisem."
       },
       {
         "q": "Kandydat sam rezygnuje z procesu. Co wybierasz w oknie „Kto kończy?”",
-        "options": ["Kandydat rezygnuje", "My kończymy", "Klient kończy"],
+        "options": [
+          "Kandydat rezygnuje",
+          "My kończymy",
+          "Klient kończy"
+        ],
         "answer": 0,
         "explain": "„Kandydat rezygnuje” przenosi kartę na „Zrezygnował”, a powody są te same co przy odrzuceniu."
       },
       {
         "q": "Czy lista powodów zamknięcia różni się między kolumnami Tablicy?",
-        "options": ["Nie, to jedna lista w każdej kolumnie", "Tak, każda kolumna ma własną", "Tylko w „QC CV” jest inna"],
+        "options": [
+          "Nie, to jedna lista w każdej kolumnie",
+          "Tak, każda kolumna ma własną",
+          "Tylko w „QC CV” jest inna"
+        ],
         "answer": 0,
         "explain": "Od 20.11 to jedna lista powodów, taka sama w każdej kolumnie."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-naglowek-rekrutacji",
+    "title": "Nagłówek rekrutacji: proces u klienta, termin i kto ilu dodał",
+    "novelties": [
+      "proces-u-klienta",
+      "rekrutacja-dodana-termin-w-naglowku",
+      "kto-ilu-dodal-w-zespole"
+    ],
+    "task": "Kandydat z rekrutacji ćwiczebnej pyta, co go czeka u klienta po wysłaniu CV. Znajdź w nagłówku rekrutacji miejsce, gdzie to sprawdzisz, i otwórz je.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "click",
+      "anchor": "job.client-process"
+    },
+    "questions": [
+      {
+        "q": "Kandydat pyta, ile u klienta trwa decyzja po rozmowie. Gdzie to sprawdzisz?",
+        "options": [
+          "W „procesie” w nagłówku rekrutacji",
+          "W Historii i czacie rekrutacji",
+          "W profilu klienta, w notatkach"
+        ],
+        "answer": 0,
+        "explain": "Okienko „Proces u klienta” pokazuje etapy po wysłaniu CV, ile decyzja trwa naprawdę (z historii ruchów kart) i gotowe zdanie dla kandydata do skopiowania."
+      },
+      {
+        "q": "W nagłówku obok trybu pracy stoi „18.11 → 23.11 · po terminie 2 dz.”. Co to znaczy?",
+        "options": [
+          "Termin od klienta minął 2 dni temu",
+          "Do terminu zostały 2 dni",
+          "Rekrutacja jest otwarta od 2 dni"
+        ],
+        "answer": 0,
+        "explain": "Pierwsza data to dodanie rekrutacji, druga to termin od klienta. Po terminie końcówka mówi, ile dni minęło. Pełne daty z godziną są w dymku."
+      },
+      {
+        "q": "Gdzie na Tablicy sprawdzisz, ile kandydatów dodał do tej rekrutacji każdy z zespołu?",
+        "options": [
+          "W okienku „Rekruter” w nagłówku, pod zespołem",
+          "W Raportach, w kolumnie „Kandydaci”",
+          "W filtrze „Moi ludzie” na Tablicy"
+        ],
+        "answer": 0,
+        "explain": "Klik w „Rekruter” otwiera „Zespół rekrutacji”, a pod nim tabelę „Kto ilu dodał”: od otwarcia, w 7 dniach, w toku i u klienta. Liczy też odrzuconych."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-dodani-do-rekrutacji",
+    "title": "Kto ilu dodał do rekrutacji: na pulpicie i w Raportach",
+    "novelties": [
+      "dodali-do-rekrutacji-zespol"
+    ],
+    "task": "W Raportach, w „Aktywności zespołu”, znajdź kolumnę, która mówi, ile osób każdy dodał do rekrutacji, także już będących w bazie.",
+    "solo_href": "/insights?tab=raporty&report=aktywnosc-zespolu",
+    "check": {
+      "kind": "click",
+      "anchor": "insights.team-activity.added"
+    },
+    "questions": [
+      {
+        "q": "Rekruter dodał do rekrutacji osobę, która już była w bazie. Gdzie się to policzy w „Aktywności zespołu”?",
+        "options": [
+          "W „Dodani do rekrutacji”",
+          "W „Kandydaci”",
+          "Nigdzie, bo profil już istniał"
+        ],
+        "answer": 0,
+        "explain": "„Kandydaci” to nowo utworzone profile w bazie. „Dodani do rekrutacji” liczy każde dodanie osoby do rekrutacji, także osoby, która już była w bazie."
+      },
+      {
+        "q": "Czy „Dodali dziś” w „Wynikach osób” na pulpicie liczy osoby dodane przez automat „Nowi”?",
+        "options": [
+          "Nie, automat jest osobno, poza wierszami osób",
+          "Tak, razem z dodaniami ludzi",
+          "Tak, ale tylko te, które ktoś potem przesunął"
+        ],
+        "answer": 0,
+        "explain": "Kolumny „Dodali dziś” i „Dodali 7 dni” liczą dodania ludzi. To, co dodał automat „Nowi”, stoi w osobnej linii pod tabelą."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-zespol-dla-klienta",
+    "title": "Zespół dla klienta: kilka stanowisk, jeden link, gotowe składy",
+    "novelties": [
+      "zespol-dla-klienta",
+      "zespol-rozbij-zapytanie",
+      "zespol-gotowe-sklady"
+    ],
+    "task": "Na zespole ćwiczebnym poproś automat o trzy gotowe składy dla klienta. Na Poligonie nic nie pójdzie do klienta.",
+    "solo_href": "/zespoly/990601",
+    "check": {
+      "kind": "click",
+      "anchor": "jobs.team.variants"
+    },
+    "questions": [
+      {
+        "q": "Klient w jednym mailu zamawia analityka, testera i dwóch programistów. Od czego zaczniesz nową rekrutację?",
+        "options": [
+          "Od „Stanowisko w zespole” i „Rozbij zapytanie na stanowiska”",
+          "Od jednej rekrutacji z czterema rolami w opisie",
+          "Od wklejenia maila do notatki klienta"
+        ],
+        "answer": 0,
+        "explain": "Przy „Stanowisko w zespole” odczyt wypisze stanowiska z wklejonego maila, a „Użyj” wpisze rolę i liczbę osób do tej rekrutacji."
+      },
+      {
+        "q": "Po co „Utwórz zespół” na pasku nad Tablicą?",
+        "options": [
+          "Łączy kilka rekrutacji klienta w jeden link dla klienta",
+          "Przypisuje kilku rekruterów do tej rekrutacji",
+          "Tworzy listę kandydatów do porównania"
+        ],
+        "answer": 0,
+        "explain": "Zespół zbiera kilka rekrutacji jednego klienta pod jednym zapytaniem. Klient w linku widzi wszystkie stanowiska, wybiera osoby i od razu widzi cenę zespołu."
+      },
+      {
+        "q": "Kiedy klient zobaczy składy, które zaproponował automat?",
+        "options": [
+          "Dopiero po „Zatwierdź i pokaż klientowi”",
+          "Od razu po „Zaproponuj składy”",
+          "Gdy wyślesz mu każdego kandydata osobno"
+        ],
+        "answer": 0,
+        "explain": "„Zaproponuj składy” tylko układa propozycję. Najpierw podmieniasz osoby i poprawiasz nazwę, a klient widzi wyłącznie składy zatwierdzone."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-wysylka-do-podpisu",
+    "title": "Wysyłka do podpisu: umowa i dokumenty do startu jednym linkiem",
+    "novelties": [
+      "podpis-wyslij-na-wierzchu",
+      "podpis-paczka-umowa-nda",
+      "podpis-dokumenty-kodem-z-maila"
+    ],
+    "task": "Kandydat z rekrutacji ćwiczebnej ma gotową umowę. Otwórz jej wysyłkę do podpisu i znajdź, jaki podpis jest potrzebny przy NDA. Na Poligonie nic się nie wyśle.",
+    "solo_href": "/jobs/990001?candidate=990115",
+    "check": {
+      "kind": "click",
+      "anchor": "b2b.esign.package"
+    },
+    "questions": [
+      {
+        "q": "Kontraktor ma podpisać umowę i NDA klienta. Jak to wysyłasz?",
+        "options": [
+          "Jednym linkiem: NDA idzie razem z umową",
+          "Dwoma linkami: osobno umowa i NDA",
+          "Umowę w NEXUSIE, a NDA mailem jak dotąd"
+        ],
+        "answer": 0,
+        "explain": "Okno „Wyślij do podpisu” dokłada brakujące dokumenty do startu z listy klienta. Kontraktor podpisuje wszystko pod jednym linkiem."
+      },
+      {
+        "q": "Klient chce, żeby NDA było podpisane kwalifikowanym podpisem. Co robisz w oknie wysyłki?",
+        "options": [
+          "Zaznaczasz przy NDA „klient wymaga kwalifikowanego”",
+          "Odznaczasz NDA i wysyłasz je osobno",
+          "Nic, każdy dokument idzie kwalifikowanym"
+        ],
+        "answer": 0,
+        "explain": "Kwalifikowany jest wymagany tylko przy umowie. NDA kontraktor podpisze nim albo zaakceptuje kodem z maila, chyba że zaznaczysz wymóg klienta."
+      },
+      {
+        "q": "Kontraktor podpisał NDA w linku. Co musisz zrobić w jego dokumentach do startu?",
+        "options": [
+          "Nic, podpisany dokument sam tam trafia",
+          "Wgrać podpisany plik ręcznie",
+          "Poprosić Finanse o odhaczenie NDA"
+        ],
+        "answer": 0,
+        "explain": "Gotowy dokument od razu trafia do dokumentów do startu kontraktora i odhacza się sam."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-generator-nowa-umowa",
+    "title": "Generator umów: nowa umowa krokami, z podglądem i paskiem braków",
+    "novelties": [
+      "generator-umow-kroki-kartka-pasek"
+    ],
+    "task": "W Generatorze umów zacznij nową umowę B2B i znajdź pasek, który mówi, czego jeszcze brakuje do pobrania.",
+    "solo_href": "/contracts/b2b-generator",
+    "check": {
+      "kind": "click",
+      "anchor": "b2b-generator.readiness"
+    },
+    "questions": [
+      {
+        "q": "W podglądzie pierwszego akapitu umowy stoi „[REGON]”. Co to znaczy?",
+        "options": [
+          "Tego pola brakuje; klik w nie prowadzi do pola",
+          "REGON wpisze się sam dopiero przy pobraniu",
+          "To pole jest opcjonalne i można je zostawić"
+        ],
+        "answer": 0,
+        "explain": "Podgląd wypełnia się tym, co wpisujesz, a brak stoi w tekście w nawiasie. Klik w brak przenosi do pola, które trzeba uzupełnić."
+      },
+      {
+        "q": "Kiedy da się pobrać gotową umowę?",
+        "options": [
+          "Gdy pasek na dole nie pokazuje braków",
+          "Od razu, braki uzupełnisz w Wordzie",
+          "Po przejściu wszystkich kroków po kolei"
+        ],
+        "answer": 0,
+        "explain": "Pobieranie włącza się przy komplecie pól. Kroki możesz klikać w dowolnej kolejności, a pasek mówi, ile i których pól brakuje."
+      },
+      {
+        "q": "Gdzie teraz znajdziesz zakończone umowy w Generatorze?",
+        "options": [
+          "W zakładce „Umowy”, wybierając fazę nad listą",
+          "W osobnej zakładce „Zakończone”",
+          "W zakładce „Dokumenty”"
+        ],
+        "answer": 0,
+        "explain": "Bieżące, bez projektu i zakończone umowy są w jednej zakładce „Umowy”. Fazę wybierasz nad listą."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-aneks-inna-zmiana",
+    "title": "Aneks z własną nazwą na zmianę spoza listy",
+    "novelties": [
+      "aneks-inna-zmiana"
+    ],
+    "task": "Klient zwalnia kontraktora z zakazu konkurencji, a takiego aneksu nie ma na liście. W Generatorze umów znajdź aneks, którym to przygotujesz.",
+    "solo_href": "/contracts/b2b-generator?tab=annexes",
+    "check": {
+      "kind": "click",
+      "anchor": "b2b-generator.annex-custom"
+    },
+    "questions": [
+      {
+        "q": "Potrzebujesz aneksu na zmianę, której nie ma na liście typów. Co wybierasz?",
+        "options": [
+          "„Aneks — inna zmiana” z własną nazwą",
+          "Najbliższy aneks z listy i poprawki w Wordzie",
+          "Nową umowę zamiast aneksu"
+        ],
+        "answer": 0,
+        "explain": "„Aneks — inna zmiana” sam nazywasz, a potem wpisujesz zmiany paragrafów albo wybierasz gotową klauzulę, np. zwolnienie z zakazu konkurencji."
+      },
+      {
+        "q": "Aneks z inną zmianą zmienia też stawkę. Co się stanie ze stawką w kontrakcie po podpisie?",
+        "options": [
+          "Nic; stawkę poprawiasz w kontrakcie sam",
+          "Zmieni się sama po podpisie aneksu",
+          "Zmieni ją system przy najbliższym rozliczeniu"
+        ],
+        "answer": 0,
+        "explain": "NEXUS nie przełoży dowolnej treści na pola kontraktu. Aneks pojawi się w zakładce „Aneksy” kontraktu, a stawkę albo daty poprawiasz w kontrakcie."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-porcja-karta",
+    "title": "Porcja dnia: skład porcji i co mówi karta osoby",
+    "novelties": [
+      "porcja-pilne-12-pozostale-8",
+      "porcja-wyslany-do-tego-klienta",
+      "porcja-kluczowe-z-dowodem",
+      "porcja-kogo-szukamy"
+    ],
+    "task": "W Porcji dnia sprawdź nad kartą, kogo szuka rekrutacja, i otwórz poprawkę tego opisu. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/porcja",
+    "check": {
+      "kind": "click",
+      "anchor": "review-batch.role-profile"
+    },
+    "questions": [
+      {
+        "q": "Masz pilne rekrutacje i kilka bez pilnego priorytetu. Skąd są osoby w porcji?",
+        "options": [
+          "Najpierw z pilnych, ale część miejsc czeka na pozostałe",
+          "Tylko z pilnych, dopóki są w nich osoby",
+          "Po równo ze wszystkich Twoich rekrutacji"
+        ],
+        "answer": 0,
+        "explain": "Pilne idą pierwsze, ale część miejsc w porcji czeka na Twoje rekrutacje bez pilnego priorytetu. Skład porcji widać pod paskiem postępu."
+      },
+      {
+        "q": "Na karcie stoi „Wysłany wczoraj do tego klienta”. Co to znaczy?",
+        "options": [
+          "Klient zna już to CV z innej swojej rekrutacji",
+          "Osoba jest już w tej rekrutacji",
+          "CV czeka na wysłanie do klienta"
+        ],
+        "answer": 0,
+        "explain": "Osoba niedawno wysłana do tego samego klienta w innej jego rekrutacji idzie na początek porcji. Karta mówi, kiedy i do której rekrutacji poszła."
+      },
+      {
+        "q": "Przy wymaganiu w „Kluczowe w tej rekrutacji” stoi „~”. Co to znaczy?",
+        "options": [
+          "W CV jest tylko wzmianka, bez doświadczenia w stanowiskach",
+          "Osoba ma to doświadczenie w stanowiskach",
+          "System nie zna tego wymagania"
+        ],
+        "answer": 0,
+        "explain": "✓ to doświadczenie w stanowiskach, ~ tylko wzmianka, ✗ brak. Klik w pozycję pokazuje, gdzie to jest w CV."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-porcja-nie-pasuje",
+    "title": "Porcja dnia: dokładny powód „Nie pasuje”",
+    "novelties": [
+      "porcja-brak-klikany-przy-pozycji",
+      "porcja-szczegol-powodu"
+    ],
+    "task": "W Porcji dnia kliknij „Nie pasuje…” przy pierwszej osobie i zobacz, o co dopytuje każdy powód. Na Poligonie decyzja się nie zapisze.",
+    "solo_href": "/porcja",
+    "check": {
+      "kind": "click",
+      "anchor": "review-batch.reject"
+    },
+    "questions": [
+      {
+        "q": "Odrzucasz, bo Java jest w CV tylko wspomniana. Jak to zaznaczyć?",
+        "options": [
+          "„Brak kluczowej umiejętności”, a przy Javie „tylko wzmianka”",
+          "„Inne” z opisem „mało Javy”",
+          "„Inny poziom lub inna rola”"
+        ],
+        "answer": 0,
+        "explain": "Przy „Brak kluczowej umiejętności” klikasz przy wymaganiu: brak, tylko wzmianka albo za mało lat. System uczy się z tych kliknięć."
+      },
+      {
+        "q": "Karta okazała się duplikatem profilu. Jaki powód wybierasz?",
+        "options": [
+          "„Inne”, a w nim „Duplikat”",
+          "„Brak kluczowej umiejętności”",
+          "„Inny poziom lub inna rola”"
+        ],
+        "answer": 0,
+        "explain": "Porządki są pod „Inne”: to nie ocena osoby, więc system się z nich nie uczy."
+      },
+      {
+        "q": "Kandydat chce więcej niż budżet. Co warto wpisać przy „Za droga”?",
+        "options": [
+          "Ile chce za godzinę",
+          "Budżet rekrutacji",
+          "Nic, kwotę wpisuje później DL"
+        ],
+        "answer": 0,
+        "explain": "Kwota trafi na profil jako „Stawka od”, więc system przestanie proponować tę osobę do niższych budżetów."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-cv-do-klienta",
+    "title": "CV do klienta: lata w punkcie 1, gotowe CV z nową zgodą, formularz klienta",
+    "novelties": [
+      "lata-w-punkcie-1-i-daty-stanowisk",
+      "gotowe-cv-z-nowa-zgoda",
+      "formularz-klienta-wgraj-z-dysku"
+    ],
+    "task": "Otwórz edytor CV kandydata z rekrutacji ćwiczebnej i w „Do poprawy” przyjmij propozycję NEXUSA, jak wpisać lata w punkcie 1.",
+    "solo_href": "/jobs/990001?candidate=990105",
+    "check": {
+      "kind": "click",
+      "anchor": "cv-editor.tenure-split"
+    },
+    "questions": [
+      {
+        "q": "Lata w punkcie 1 różnią się od całego stażu o ponad rok. Co proponuje NEXUS?",
+        "options": [
+          "„N lat w IT, w tym M jako X”, albo zostawiasz liczbę",
+          "Zawsze wpisuje cały staż zamiast lat w roli",
+          "Blokuje wysyłkę CV, dopóki nie poprawisz dat"
+        ],
+        "answer": 0,
+        "explain": "„Do poprawy” pokazuje, z których ról wyszła liczba i ile daje cały staż. Propozycję przyjmujesz kliknięciem albo zostawiasz liczbę."
+      },
+      {
+        "q": "Osoba ma gotowe CV z innej rekrutacji klienta, który wymaga zgody RODO. Co ze zgodą?",
+        "options": [
+          "Wgrywasz zrzut zgody do tej rekrutacji; treść CV zostaje",
+          "Zgoda z tamtej rekrutacji przechodzi sama",
+          "Trzeba wygenerować CV od nowa"
+        ],
+        "answer": 0,
+        "explain": "Zgoda z tamtej rekrutacji nie przechodzi. Wgrywasz zrzut zgody do tej i klikasz „Użyj tego CV z nową zgodą”, bez generowania nowego CV."
+      },
+      {
+        "q": "Formularz CV klienta wypełniłeś w Wordzie na dysku. Gdzie go wgrywasz?",
+        "options": [
+          "„Wgraj wypełniony formularz” w karcie formularza klienta",
+          "„Wgraj CV” jako nowe CV kandydata",
+          "Do plików rekrutacji"
+        ],
+        "answer": 0,
+        "explain": "Wgrany formularz idzie do QC i do klienta zamiast wypełnienia z NEXUSA. Wgrany jako CV kandydata go nie zastąpi."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-czy-szuka",
+    "title": "Czy kandydat szuka: status przy nazwisku i „Nie szuka” do daty",
+    "novelties": [
+      "kandydaci-ostatnio-z-osoba",
+      "nie-szuka-data-kazda-karta"
+    ],
+    "task": "Kandydat z rekrutacji ćwiczebnej mówi, że przez pół roku nie zmieni projektu. Odrzuć go z powodem „Nie szuka pracy” i ustaw, do kiedy go nie podsuwać.",
+    "solo_href": "/jobs/990001?candidate=990105",
+    "check": {
+      "kind": "click",
+      "anchor": "rejection.not-looking"
+    },
+    "questions": [
+      {
+        "q": "Kandydat przez pół roku nie zmieni projektu. Co ustawiasz przy „Nie szuka pracy”?",
+        "options": [
+          "„Do kiedy nie podsuwać?”: 6 miesięcy",
+          "Nic, sam powód wystarczy",
+          "Notatkę z przypomnieniem za pół roku"
+        ],
+        "answer": 0,
+        "explain": "Wybierasz 3 miesiące, 6 miesięcy, rok albo datę, przy każdej karcie. Do tej daty profil ma „Nie szuka”, a system nie doda tej osoby do żadnej rekrutacji."
+      },
+      {
+        "q": "Na liście kandydatów status „Szuka aktywnie” jest nieaktualny. Jak go zmienisz?",
+        "options": [
+          "Klikasz status przy nazwisku i wybierasz właściwy",
+          "Profil → „Edytuj” → ołówek przy „Dostępność”",
+          "Dopisujesz notatkę, a nocny odczyt zmieni status"
+        ],
+        "answer": 0,
+        "explain": "Klik w status przy nazwisku otwiera „Czy szuka pracy?”, a wybór zapisuje się od razu. Nocny odczyt notatek zmienia tylko „Nie ustalono”."
+      },
+      {
+        "q": "Co pokazuje linia „Ostatnio z osobą” pod kandydatem na liście?",
+        "options": [
+          "Dwie ostatnie informacje o osobie, najnowszą pierwszą",
+          "Ostatnią rekrutację, do której ją dodano",
+          "Wszystkie notatki z ostatniego miesiąca"
+        ],
+        "answer": 0,
+        "explain": "Pod wierszem stoi najnowsza informacja z datą, a za nią wcześniejsza. Nie trzeba otwierać profilu, żeby wiedzieć, co ostatnio było z osobą."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-czat-wszyscy-przypisani",
+    "title": "„Wszyscy przypisani” w czacie i notatkach rekrutacji",
+    "novelties": [
+      "czat-wszyscy-przypisani"
+    ],
+    "task": "W czacie zespołu rekrutacji ćwiczebnej napisz jedną wiadomość do wszystkich osób przypisanych do tej rekrutacji.",
+    "solo_href": "/jobs/990001?win=history-chat&wintab=chat",
+    "check": {
+      "kind": "click",
+      "anchor": "jobs.chat.compose"
+    },
+    "questions": [
+      {
+        "q": "Wiadomość ma trafić do rekruterów, DL-a i wszystkich przypisanych do rekrutacji. Co robisz?",
+        "options": [
+          "Po „@” wybierasz „Wszyscy przypisani” na górze listy",
+          "Oznaczasz po kolei każdą osobę przez „@”",
+          "Piszesz do każdego osobno"
+        ],
+        "answer": 0,
+        "explain": "Po „@” na górze listy jest „Wszyscy przypisani”. Jeden wybór oznacza wszystkich przypisanych do tej rekrutacji."
+      },
+      {
+        "q": "Skąd wiesz, kto dostanie wzmiankę „@wszyscy”?",
+        "options": [
+          "Pod polem widać, kto ją dostanie",
+          "Nie wiadomo, dostaje ją cała firma",
+          "Dopiero po wysłaniu, w historii"
+        ],
+        "answer": 0,
+        "explain": "Pod polem stoi „Wzmiankę dostanie …” z nazwiskami. Ty sam się do tej listy nie liczysz."
+      },
+      {
+        "q": "Gdzie działa „Wszyscy przypisani”?",
+        "options": [
+          "W czacie i w notatkach rekrutacji",
+          "Tylko w czacie zespołu",
+          "W każdym polu z „@” w NEXUSIE"
+        ],
+        "answer": 0,
+        "explain": "„Wszyscy przypisani” jest tylko w polach rekrutacji: w czacie zespołu i w notatkach w panelu osoby."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-swiaty-wygladu",
+    "title": "Światy wyglądu NEXUSA",
+    "novelties": [
+      "swiaty-wygladu"
+    ],
+    "task": "Znajdź w górnym pasku miejsce, gdzie wybierzesz świat wyglądu NEXUSA, i otwórz je.",
+    "solo_href": "/dashboard",
+    "check": {
+      "kind": "click",
+      "anchor": "appearance.menu"
+    },
+    "questions": [
+      {
+        "q": "Wybrałeś świat na laptopie. Co zobaczysz po zalogowaniu na innym komputerze?",
+        "options": [
+          "Ten sam świat, bo wybór idzie za kontem",
+          "Zwykły wygląd, wybór jest tylko w tej przeglądarce",
+          "Pytanie, czy przenieść wybór"
+        ],
+        "answer": 0,
+        "explain": "Świat zapisuje się na Twoim koncie, więc idzie za Tobą na każdy komputer."
+      },
+      {
+        "q": "Masz włączony świat i w menu „Wygląd” nie ma wyboru motywu koloru. Dlaczego?",
+        "options": [
+          "Świat ma własne kolory; po „Wyłącz świat” wybór wróci",
+          "Motywy koloru usunięto z NEXUSA",
+          "Motyw koloru jest teraz w Ustawieniach"
+        ],
+        "answer": 0,
+        "explain": "Przy włączonym świecie motyw koloru wybiera świat. „Wyłącz świat” w tym samym menu przywraca zwykły wygląd i wybór motywu."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-szkolenia",
+    "title": "Szkolenia w NEXUSIE: kalendarz, zapisy i nagrania",
+    "novelties": [
+      "szkolenia-biblioteka-nagran",
+      "szkolenia-kalendarz-teams"
+    ],
+    "task": "Wejdź z menu do „Szkoleń” i otwórz nagrania ze szkoleń.",
+    "solo_href": "/dashboard",
+    "check": {
+      "kind": "page",
+      "path_prefix": "/trainings",
+      "query": {
+        "tab": "recordings"
+      }
+    },
+    "questions": [
+      {
+        "q": "Zapisałeś się na szkolenie na żywo. Co dalej dostaniesz?",
+        "options": [
+          "Zaproszenie do kalendarza i przypomnienie dzień wcześniej",
+          "Tylko link w NEXUSIE, bez zaproszenia",
+          "Mail z nagraniem dopiero po szkoleniu"
+        ],
+        "answer": 0,
+        "explain": "Po „Zapisz się” zaproszenie trafia do Twojego kalendarza. Przypomnienie przyjdzie dzień wcześniej i 15 minut przed."
+      },
+      {
+        "q": "Na szkoleniu padło coś ważnego, ale nie pamiętasz, w której minucie. Jak to znajdziesz?",
+        "options": [
+          "Wyszukasz słowo w „Nagraniach”",
+          "Obejrzysz całe nagranie od początku",
+          "Poprosisz prowadzącego o notatki"
+        ],
+        "answer": 0,
+        "explain": "W „Nagraniach” szukasz w nagraniach i materiałach, a przy nagraniu z transkryptem także w tym, co padło na szkoleniu. Rozdziały są pod nagraniem."
+      },
+      {
+        "q": "Nie dasz rady być na szkoleniu na żywo. Co możesz zrobić?",
+        "options": [
+          "Obejrzeć je później w „Nagraniach”",
+          "Nic, szkolenie przepada",
+          "Zapisać się ponownie na to samo szkolenie"
+        ],
+        "answer": 0,
+        "explain": "Nagranie szkolenia trafia do „Nagrań”, razem z materiałami do pobrania."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-poligon-dla-nowych",
+    "title": "Nowa osoba pierwszego dnia przechodzi Poligon",
+    "novelties": [
+      "nowa-osoba-przechodzi-poligon"
+    ],
+    "task": "Znajdź w Ustawieniach ekran „Nowości — kto już umie” i sprawdź, czy Poligon dla nowych osób jest obowiązkowy.",
+    "solo_href": "/dashboard",
+    "check": {
+      "kind": "page",
+      "path_prefix": "/settings/nowosci"
+    },
+    "questions": [
+      {
+        "q": "Nowy rekruter dostał rolę. Co zobaczy, zanim wejdzie na inne ekrany NEXUSA?",
+        "options": [
+          "Poligon, dopóki nie zaliczy wymaganych ćwiczeń",
+          "Pulpit z listą swoich rekrutacji",
+          "Przeklikanie nowości z ostatnich tygodni"
+        ],
+        "answer": 0,
+        "explain": "Przy włączonej blokadzie nowa osoba widzi tylko Poligon, dopóki nie zaliczy ćwiczeń swojej ścieżki."
+      },
+      {
+        "q": "Czy dzień, w którym nowa osoba przechodzi Poligon, liczy się do jej statystyk?",
+        "options": [
+          "Nie, ten dzień jest poza statystykami",
+          "Tak, jak każdy dzień roboczy",
+          "Liczą się tylko zaliczone ćwiczenia"
+        ],
+        "answer": 0,
+        "explain": "Dzień onboardingu nie liczy się do statystyk nowej osoby."
+      },
+      {
+        "q": "Ćwiczenie przestało się zaliczać i nowa osoba utknęła na Poligonie. Co robisz?",
+        "options": [
+          "„Wyłącz blokadę” w „Nowości — kto już umie”",
+          "Zaliczasz jej ćwiczenia ręcznie w profilu",
+          "Zmieniasz jej rolę na Pracownika"
+        ],
+        "answer": 0,
+        "explain": "Po „Wyłącz blokadę” Poligon zostaje dostępny, ale nikogo nie zatrzymuje. Ten sam przycisk włącza blokadę z powrotem."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-zmiany-profilu-championa",
+    "title": "Co się zmieniło w Profilu Championa",
+    "novelties": [
+      "profil-championa-co-sie-zmienilo"
+    ],
+    "task": "W Profilu Championa rekrutacji ćwiczebnej przeczytaj, co zmienił DL, i oznacz zmianę jako przeczytaną.",
+    "solo_href": "/jobs/990001?tab=champion",
+    "check": {
+      "kind": "click",
+      "anchor": "champion.changes.seen"
+    },
+    "questions": [
+      {
+        "q": "DL zmienił profil rekrutacji, w której szukasz. Gdzie to zobaczysz?",
+        "options": [
+          "Na górze Briefu w Profilu Championa",
+          "Tylko w Historii i czacie rekrutacji",
+          "Nigdzie, widzisz już nowy profil"
+        ],
+        "answer": 0,
+        "explain": "Karta „Co się zmieniło od przekazania” na górze Briefu pokazuje zmianę i zdanie DL-a, na co klient teraz kładzie nacisk."
+      },
+      {
+        "q": "Kliknąłeś „Przeczytane” i karta się zwinęła. Gdzie wrócisz do zmian?",
+        "options": [
+          "Do zakładki „Zmiany” w Profilu Championa",
+          "Nigdzie, zmiana znika z NEXUSA",
+          "Do Historii i czatu rekrutacji"
+        ],
+        "answer": 0,
+        "explain": "„Przeczytane” zwija kartę do jednej linii. Cała historia zmian profilu zostaje w zakładce „Zmiany”."
+      },
+      {
+        "q": "Czy Twoje „Przeczytane” zwija kartę także innym osobom z zespołu?",
+        "options": [
+          "Nie, tylko Tobie",
+          "Tak, całemu zespołowi rekrutacji",
+          "Tak, także DL-owi"
+        ],
+        "answer": 0,
+        "explain": "„Przeczytane” zapisuje się osobno dla każdej osoby. Inni zobaczą kartę, dopóki sami jej nie przeczytają."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-sprzedaz-dzwonienie-tabela-przypomnienia",
+    "title": "Dzwonienie: Tabela, Przypomnienia i po co oddzwaniamy",
+    "novelties": [
+      "sprzedaz-listy-dzwonienia-wszyscy",
+      "sprzedaz-dzwonienie-przypomnienia",
+      "sprzedaz-dzwonienie-po-co-oddzwaniamy"
+    ],
+    "task": "W Dzwonieniu przejdź do Przypomnień i sprawdź, po co trzeba oddzwonić do pierwszej firmy na liście. Niczego nie zapisuj.",
+    "solo_href": "/sales/calling",
+    "check": {
+      "kind": "click",
+      "anchor": "sales.calling.view"
+    },
+    "questions": [
+      {
+        "q": "Chcesz zobaczyć, do jakich firm dzwoni ktoś inny z zespołu. Gdzie to sprawdzisz?",
+        "options": [
+          "W Tabeli, po przełączeniu „Moje / Wszyscy” na „Wszyscy”",
+          "W Kampaniach, przy liście tej osoby",
+          "Nigdzie, każdy widzi tylko swoją listę"
+        ],
+        "answer": 0,
+        "explain": "Tabela i Przypomnienia mają przełącznik „Moje / Wszyscy”. Na karcie firmy widać też, na czyjej liście dzwonienia jest firma."
+      },
+      {
+        "q": "Osoba z zespołu jest na urlopie, a jej klient czeka na telefon. Co robisz?",
+        "options": [
+          "Wybieram jej kolejkę w „Czyja kolejka” i zapisuję tam wynik",
+          "Proszę administratora o przepisanie rekordów na mnie",
+          "Dzwonię i zapisuję wynik w notatce na karcie firmy"
+        ],
+        "answer": 0,
+        "explain": "Nad kolejką jest wybór „Czyja kolejka”. Otwierasz w nim cudzą kolejkę i zapisujesz wynik rozmowy tak jak w swojej."
+      },
+      {
+        "q": "Zapisujesz „Oddzwonić…” i nie wpisujesz, po co. Co się stanie?",
+        "options": [
+          "Zapis przejdzie, a przypomnienie powie „Bez powodu: dopisz przy rozmowie”",
+          "NEXUS nie pozwoli zapisać bez powodu",
+          "Powód dopisze bot z historii firmy"
+        ],
+        "answer": 0,
+        "explain": "Pole „Po co oddzwaniamy?” podpowiada, ale nie blokuje zapisu. Bez powodu przypomnienie pokaże tylko „Bez powodu: dopisz przy rozmowie”."
+      },
+      {
+        "q": "Gdzie zobaczysz powód oddzwonienia w dniu telefonu, na samej rozmowie?",
+        "options": [
+          "Na górze karty rozmowy: „Oddzwaniasz, bo: …”",
+          "Tylko w Tabeli, w kolumnie notatki",
+          "W mailu z przypomnieniem rano"
+        ],
+        "answer": 0,
+        "explain": "Powód stoi na górze karty rozmowy, a także w Przypomnieniach, w oddzwonieniach kolejki i w „Moim dniu”. Tabela go nie pokazuje."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-sprzedaz-karta-rozmowy-haczyk-mail",
+    "title": "Karta rozmowy: haczyk na otwarcie i mail po umówieniu spotkania",
+    "novelties": [
+      "sprzedaz-haczyk-przed-telefonem",
+      "sprzedaz-dzwonienie-mail-po-umowieniu"
+    ],
+    "task": "W kolejce Dzwonienia wybierz rekord z kampanii (nad nazwą firmy stoi „Kampania: …”) i otwórz formularz umówienia spotkania. Znajdź w nim mail do klienta, ale niczego nie zapisuj.",
+    "solo_href": "/sales/calling",
+    "check": {
+      "kind": "click",
+      "anchor": "sales.calling.book"
+    },
+    "questions": [
+      {
+        "q": "Skąd wyjdzie mail do klienta po „Umów … i wyślij mail”?",
+        "options": [
+          "Z mojego Outlooka, z kopią do prowadzącego",
+          "Ze skrzynki prowadzącego spotkanie",
+          "Ze wspólnej skrzynki zespołu sprzedaży"
+        ],
+        "answer": 0,
+        "explain": "Mail wychodzi ze skrzynki osoby, która umówiła spotkanie, z prowadzącym w kopii. Zostaje w Wysłanych i na osi szansy."
+      },
+      {
+        "q": "Kto wysyła klientowi zaproszenie na spotkanie w Teams?",
+        "options": [
+          "Prowadzący, osobno ze swojej skrzynki",
+          "Ja, w tym samym mailu po umówieniu",
+          "NEXUS sam, zaraz po zapisie spotkania"
+        ],
+        "answer": 0,
+        "explain": "Mail po umówieniu to nie zaproszenie. Zaproszenie w Teams dalej wysyła prowadzący, a adres klienta dostaje w podpowiedzi."
+      },
+      {
+        "q": "W formularzu odznaczasz „Wyślij po zapisie”. Co zrobi przycisk?",
+        "options": [
+          "Zapisze spotkanie, a mail nie wyjdzie",
+          "Zapisze spotkanie i wyśle mail później",
+          "Nie zapisze niczego, dopóki nie zaznaczysz maila"
+        ],
+        "answer": 0,
+        "explain": "Bez zaznaczonego „Wyślij po zapisie” albo bez adresu klienta przycisk tylko zapisuje spotkanie. Mail wtedy nie wychodzi."
+      },
+      {
+        "q": "Skąd jest zdanie „Na otwarcie” pod nazwą firmy na karcie rozmowy?",
+        "options": [
+          "Przygotował je bot dzień roboczy wcześniej, ze źródłem przy faktach",
+          "To skrypt kampanii wpisany w Kampaniach",
+          "Wpisała je osoba, która dzwoniła poprzednio"
+        ],
+        "answer": 0,
+        "explain": "Haczyk na otwarcie to zdanie i do dwóch faktów o firmie od bota, z linkiem do źródła. Skrypt kampanii stoi niżej, w „Do rozmowy”."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-sprzedaz-listy-do-dzwonienia",
+    "title": "Listy do dzwonienia: Bot Listy i „Już dzwoniono” przy imporcie",
+    "novelties": [
+      "sprzedaz-bot-listy",
+      "sprzedaz-dzwonienie-juz-dzwoniono"
+    ],
+    "task": "W Dzwonieniu otwórz Kampanie i wejdź w Bot Listy przy jednej z kampanii. Sprawdź, co bot zawsze pomija. Niczego nie buduj i nie zapisuj.",
+    "solo_href": "/sales/calling",
+    "check": {
+      "kind": "click",
+      "anchor": "sales.calling.bot-lists"
+    },
+    "questions": [
+      {
+        "q": "Wgrywasz listę, a jeden numer był już dzwoniony. Co się z nim stanie?",
+        "options": [
+          "Nie wróci do kolejki, a przy nim jest data, osoba i wynik",
+          "Trafi do kolejki na koniec listy",
+          "Import zatrzyma się, dopóki go nie usuniesz z pliku"
+        ],
+        "answer": 0,
+        "explain": "Wiersz dostaje „Już dzwoniono” z danymi poprzedniej rozmowy i nie trafia drugi raz do kolejki. Reszta listy importuje się normalnie."
+      },
+      {
+        "q": "Jak oddasz osobom dzwoniącym listę z oznaczeniami „Już dzwoniono”?",
+        "options": [
+          "„Pobierz plik z oznaczeniami” w podglądzie importu",
+          "Eksportuję Tabelę Dzwonienia do Excela",
+          "Proszę administratora o eksport z bazy"
+        ],
+        "answer": 0,
+        "explain": "Podgląd importu ma przycisk „Pobierz plik z oznaczeniami”. Plik otworzysz w Excelu."
+      },
+      {
+        "q": "Którą firmę Bot Listy zawsze pomija przy budowaniu listy?",
+        "options": [
+          "Firmę z otwartą szansą",
+          "Firmę bez strony www",
+          "Firmę, do której dzwoniliśmy rok temu"
+        ],
+        "answer": 0,
+        "explain": "Bot pomija klientów NEXUSA, „Nie kontaktować”, firmy z otwartą szansą i dzwonione w ostatnich 6 miesiącach. Rok temu to już poza tym oknem."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-sprzedaz-karta-firmy-uzupelnij-zapytaj",
+    "title": "Karta firmy: „Uzupełnij dane” i „Zapytaj bota”",
+    "novelties": [
+      "sprzedaz-bot-uzupelnia-karte",
+      "sprzedaz-zapytaj-bota"
+    ],
+    "task": "Otwórz kartę dowolnej firmy w Sprzedaży i kliknij pole, w którym zadajesz botowi pytanie o firmę. Pytania nie wysyłaj.",
+    "solo_href": "/sales/companies",
+    "check": {
+      "kind": "click",
+      "anchor": "sales.company.ask"
+    },
+    "questions": [
+      {
+        "q": "Branżę na karcie firmy wpisałeś ręcznie. Co zrobi z nią „Uzupełnij dane”?",
+        "options": [
+          "Zostawi ją, bot uzupełnia tylko puste pola",
+          "Nadpisze ją wersją znalezioną przez bota",
+          "Zapyta, którą wersję zostawić"
+        ],
+        "answer": 0,
+        "explain": "Bot wpisuje dane od razu, ale tylko w puste pola. Pole wpisane ręcznie zostaje, a skąd przyszła wartość, widać w Aktywnościach karty."
+      },
+      {
+        "q": "Co możesz wpisać w pytaniu do bota o firmę?",
+        "options": [
+          "Samo pytanie o firmę, bez e-maili i telefonów",
+          "Imię i e-mail osoby, o którą pytasz",
+          "Notatkę z ostatniej rozmowy z klientem"
+        ],
+        "answer": 0,
+        "explain": "Do bota idzie tylko nazwa firmy, domena i Twoje pytanie. Dlatego nie wpisuj w nim adresów e-mail, telefonów ani innych danych osób."
+      },
+      {
+        "q": "Zadałeś pytanie botowi. Kiedy i gdzie będzie odpowiedź?",
+        "options": [
+          "Za kilka minut na karcie firmy, ze źródłami",
+          "Od razu, w okienku czatu",
+          "Następnego dnia rano w „Moim dniu”"
+        ],
+        "answer": 0,
+        "explain": "Bot szuka zwykle kilka minut. Odpowiedź ze źródłami pojawia się pod pytaniem na karcie firmy."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-sprzedaz-karta-firmy-osoby",
+    "title": "Karta firmy: decydenci od bota i Kontakty jako jedna lista",
+    "novelties": [
+      "sprzedaz-bot-znajdz-decydentow",
+      "sprzedaz-mapa-decydentow-cognism",
+      "sprzedaz-kontakty-jedna-lista"
+    ],
+    "task": "Otwórz kartę dowolnej firmy i przejdź tam, gdzie są wszystkie osoby tej firmy, także te od bota i z Cognism.",
+    "solo_href": "/sales/companies",
+    "check": {
+      "kind": "page",
+      "path_prefix": "/sales/companies/",
+      "query": {
+        "tab": "contacts"
+      }
+    },
+    "questions": [
+      {
+        "q": "Bot znalazł nowsze źródło, że osoba odeszła z firmy. Gdzie ją teraz zobaczysz?",
+        "options": [
+          "Na końcu Kontaktów, z oznaczeniem „nie pracuje”",
+          "Nigdzie, kontakt zostaje usunięty",
+          "W osobnej liście osób do przeglądu"
+        ],
+        "answer": 0,
+        "explain": "Osoba, która odeszła, nie znika. Stoi na końcu Kontaktów jako „nie pracuje”, z całą historią."
+      },
+      {
+        "q": "Osoba oznaczona „nie pracuje” jednak wróciła do firmy. Jak to poprawisz?",
+        "options": [
+          "W oknie kontaktu („Edytuj”) klikam „Pracuje tutaj”",
+          "Usuwam kontakt i dodaję go od nowa",
+          "Uruchamiam jeszcze raz „Znajdź decydentów”"
+        ],
+        "answer": 0,
+        "explain": "Stan cofasz w oknie kontaktu: przycisk „Pracuje tutaj” dotyczy firmy, z której karty otworzyłeś okno."
+      },
+      {
+        "q": "Rano uruchomiłeś „Znajdź decydentów (bot)” dla firmy. Kiedy możesz to zrobić znowu?",
+        "options": [
+          "Po 24 godzinach, to jeden bieg na firmę na dobę",
+          "Od razu, liczba biegów jest bez limitu",
+          "Dopiero za tydzień"
+        ],
+        "answer": 0,
+        "explain": "Bot szuka osób decyzyjnych na publicznych stronach firmy raz na dobę. Przy trwającym biegu przycisk jest wyłączony."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-sprzedaz-lista-z-researchu",
+    "title": "Lista z researchu: eksport z Cognism i osoby od bota",
+    "novelties": [
+      "sprzedaz-import-cognism",
+      "sprzedaz-bot-osoby-do-przegladu"
+    ],
+    "task": "W Leadach przejdź do listy z researchu i znajdź miejsce, gdzie są osoby, które znalazł bot. Niczego nie wgrywaj.",
+    "solo_href": "/sales/leads",
+    "check": {
+      "kind": "click",
+      "anchor": "sales.bot-people.list"
+    },
+    "questions": [
+      {
+        "q": "Masz plik CSV wyeksportowany z Cognism. Co z nim robisz przed wgraniem?",
+        "options": [
+          "Nic, wgrywam go bez zmian",
+          "Zmieniam nagłówki na polskie nazwy kolumn",
+          "Zapisuję go najpierw jako Excel (.xlsx)"
+        ],
+        "answer": 0,
+        "explain": "Lista z researchu sama rozpoznaje eksport z Cognism i bierze z niego znane kolumny. Pliku nie trzeba przerabiać."
+      },
+      {
+        "q": "Który numer osoby z eksportu Cognism trafi na mapę?",
+        "options": [
+          "Komórkowy albo bezpośredni",
+          "Numer centrali firmy",
+          "Każdy numer, jaki jest w pliku"
+        ],
+        "answer": 0,
+        "explain": "Telefon osoby to komórka albo numer bezpośredni, nigdy centrala. Adres e-mail niezweryfikowany w Cognism jest pomijany z ostrzeżeniem."
+      },
+      {
+        "q": "Przy koncie widzisz plakietkę „Osoby od bota” i „Przejrzyj”. Co to znaczy?",
+        "options": [
+          "Wynik bota czeka na mój przegląd",
+          "Bot właśnie szuka osób w tej firmie",
+          "Wszystkie osoby od bota są już na mapie"
+        ],
+        "answer": 0,
+        "explain": "Większość osób od bota trafia na mapę od razu. Plakietka zostaje tylko przy wyniku, który czeka na człowieka, i prowadzi do jego przeglądu."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-sprzedaz-leady-od-bota",
+    "title": "Leady: teczka firmy, „Warto wrócić” i „Nowe centra IT”",
+    "novelties": [
+      "sprzedaz-leady-teczka",
+      "sprzedaz-leady-warto-wrocic",
+      "sprzedaz-leady-nowe-centra-it"
+    ],
+    "task": "W Leadach znajdź zapowiedzi nowych centrów IT w Polsce, które zebrał bot. Niczego nie zakładaj i nie odrzucaj.",
+    "solo_href": "/sales/leads",
+    "check": {
+      "kind": "click",
+      "anchor": "sales.leads.mode.new-firms"
+    },
+    "questions": [
+      {
+        "q": "Jedna firma ma na liście trzy leady. Gdzie zobaczysz jej teczkę?",
+        "options": [
+          "Raz, przy pierwszym leadzie tej firmy",
+          "Przy każdym z trzech leadów",
+          "Tylko na karcie firmy, nie w Leadach"
+        ],
+        "answer": 0,
+        "explain": "Teczka (firma, kogo znamy, decydenci, punkty na pierwszą rozmowę) stoi raz, przy pierwszym leadzie firmy na liście."
+      },
+      {
+        "q": "W „Warto wrócić” klikasz „Zaplanuj powrót”. Co powstaje?",
+        "options": [
+          "Zwykłe zadanie z terminem u opiekuna",
+          "Nowa szansa w lejku",
+          "Mail do klienta z przypomnieniem"
+        ],
+        "answer": 0,
+        "explain": "„Zaplanuj powrót” zakłada zwykłe zadanie u opiekuna firmy, z tym, co zrobić i kiedy. Szansy ani maila nie tworzy."
+      },
+      {
+        "q": "Nowe centrum IT należy do firmy, która ma już konto w Fabrykach IT. Co da „Załóż konto”?",
+        "options": [
+          "NEXUS powie, że konto już jest, i je otworzy",
+          "Powstanie drugie konto tej firmy",
+          "Przycisk będzie wyłączony"
+        ],
+        "answer": 0,
+        "explain": "Drugiego konta nie będzie. Zobaczysz „Ta firma ma już konto w Fabrykach IT” i od razu przejdziesz do istniejącego."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-sprzedaz-boty-sprzedazy",
+    "title": "Leady → Boty: co robią boty Sprzedaży",
+    "novelties": [
+      "sprzedaz-leady-boty"
+    ],
+    "task": "Zaczynasz w Leadach. Znajdź ekran z opisem botów Sprzedaży i sprawdź, kiedy pracuje bot, który uzupełnia dane firm.",
+    "solo_href": "/sales/leads",
+    "check": {
+      "kind": "page",
+      "path_prefix": "/sales/bots"
+    },
+    "questions": [
+      {
+        "q": "Bot dopisał wynik do karty firmy. Czy trzeba go jeszcze przyjąć?",
+        "options": [
+          "Nie, zapisuje się od razu i poprawiam go jak zwykle",
+          "Tak, przyciskiem „Przyjmij” na ekranie Boty",
+          "Tak, przyjmuje go opiekun karty"
+        ],
+        "answer": 0,
+        "explain": "Wynik bota trafia na kartę od razu, bez „Przyjmij”. Każde pole i każdą osobę poprawiasz jak zwykle."
+      },
+      {
+        "q": "Poprawiłeś ręcznie pole firmy wpisane przez bota. Co zrobi bot przy kolejnym biegu?",
+        "options": [
+          "Nie zmieni już tego pola",
+          "Nadpisze je swoją nowszą wartością",
+          "Zapyta Cię, którą wartość zostawić"
+        ],
+        "answer": 0,
+        "explain": "Pola firmy poprawionego ręcznie bot już nie zmienia. Skąd przyszła wartość, widać w historii karty, w Aktywnościach."
+      },
+      {
+        "q": "Skąd bot Kontakty bierze e-mail i telefon osoby?",
+        "options": [
+          "Tylko z publicznego źródła, w którym były wypisane",
+          "Składa e-mail z wzoru adresów firmy",
+          "Z profilu osoby na LinkedInie"
+        ],
+        "answer": 0,
+        "explain": "Bot Kontakty nie zgaduje e-maili z wzorców, nie czyta LinkedIna i nigdzie się nie loguje. Kontakt ma tylko wtedy, gdy był na stronie."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-sprzedaz-moj-dzien",
+    "title": "Mój dzień: punkty przed spotkaniem i własna data kroku",
+    "novelties": [
+      "sprzedaz-teczka-przed-spotkaniem",
+      "sprzedaz-moj-dzien-wlasna-data-kroku"
+    ],
+    "task": "W Moim dniu otwórz „Zaplanuj” albo „Po spotkaniu” przy dowolnym wierszu i kliknij pole, w którym wybierasz dowolny dzień kroku. Niczego nie zapisuj.",
+    "solo_href": "/sales/my-day",
+    "check": {
+      "kind": "click",
+      "anchor": "sales.myday.custom-date"
+    },
+    "questions": [
+      {
+        "q": "Klient prosi o telefon za pięć tygodni. Jak ustawisz termin kroku?",
+        "options": [
+          "Wybieram ten dzień w polu daty obok Jutro…Za miesiąc",
+          "Wybieram „Za miesiąc” i potem przesuwam zadanie",
+          "Wpisuję datę w opisie kroku"
+        ],
+        "answer": 0,
+        "explain": "Obok przycisków Jutro…Za miesiąc jest pole daty. Wpiszesz w nim albo wybierzesz z kalendarza dowolny dzień."
+      },
+      {
+        "q": "Kiedy bot przygotowuje punkty o firmie przed spotkaniem?",
+        "options": [
+          "Dzień roboczy przed spotkaniem",
+          "W trakcie spotkania, na żywo",
+          "Dopiero po pytaniu w „Zapytaj bota”"
+        ],
+        "answer": 0,
+        "explain": "Punkty ze źródłami bot przygotowuje dzień roboczy wcześniej. Widzisz je w przygotowaniu do spotkania."
+      },
+      {
+        "q": "Gdzie jeszcze zobaczysz te punkty, gdy spotkanie przejmuje prowadzący?",
+        "options": [
+          "Na karcie przekazanego spotkania",
+          "W mailu do klienta po umówieniu",
+          "Nigdzie, są tylko w „Moim dniu”"
+        ],
+        "answer": 0,
+        "explain": "Te same punkty od bota są w przygotowaniu do spotkania i na karcie przekazanego spotkania, więc prowadzący też je ma."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-sprzedaz-oferty-do-decyzji",
+    "title": "Oferty „Do decyzji”: co się zmieniło w firmie",
+    "novelties": [
+      "sprzedaz-oferty-do-decyzji-bot"
+    ],
+    "task": "W Ofertach znajdź pozycję „Do decyzji”, pod którą bot napisał, co się zmieniło w firmie, i kliknij te punkty.",
+    "solo_href": "/sales/offers",
+    "check": {
+      "kind": "click",
+      "anchor": "sales.offers.bot-points"
+    },
+    "questions": [
+      {
+        "q": "Pod ofertą stoi „Bot nie znalazł nic nowego od wysłania oferty”. Co to znaczy?",
+        "options": [
+          "Bot sprawdził firmę i nic się nie zmieniło",
+          "Bot jeszcze nie sprawdzał tej firmy",
+          "Bot jest wyłączony"
+        ],
+        "answer": 0,
+        "explain": "To odpowiedź bota wprost: sprawdził i nic nowego nie ma. Gdy firma nie była jeszcze sprawdzona, pod ofertą nie ma żadnych punktów."
+      },
+      {
+        "q": "Bot znalazł pięć zmian, a pod ofertą widzisz dwie. Gdzie jest reszta?",
+        "options": [
+          "Na karcie szansy",
+          "W Leadach, jako nowe leady",
+          "Nigdzie, bot pokazuje tylko dwie"
+        ],
+        "answer": 0,
+        "explain": "Pod pozycją „Do decyzji” stoją dwa punkty, żeby lista była krótka. Pozostałe są na karcie szansy."
+      },
+      {
+        "q": "Jak często bot sprawdza firmy z ofertami „Do decyzji”?",
+        "options": [
+          "Raz w tygodniu, w poniedziałek rano",
+          "Codziennie po każdym telefonie",
+          "Tylko gdy o to poprosisz"
+        ],
+        "answer": 0,
+        "explain": "Bot Research sprawdza szanse z krokiem i oferty „Do decyzji” w poniedziałek rano. Przy każdym punkcie jest źródło."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-lista-kontraktow",
+    "title": "Lista kontraktów: szybkie filtry i „Co dalej”",
+    "novelties": [
+      "kontrakty-jedna-lista",
+      "kontrakty-lista-co-dalej",
+      "stawka-z-dokumentu",
+      "kontrakt-zamowienie-po-koncu-wspolpracy"
+    ],
+    "task": "Klient zamówił jeszcze okres u osoby z kontraktu ćwiczebnego, choć współpraca już się skończyła. Znajdź na liście kontraktów, kogo to dotyczy.",
+    "solo_href": "/contracts",
+    "check": {
+      "kind": "page",
+      "path_prefix": "/contracts",
+      "query": {
+        "after_end": "1"
+      }
+    },
+    "questions": [
+      {
+        "q": "Gdzie na liście kontraktów od razu widać, co trzeba zrobić przy konkretnej osobie?",
+        "options": [
+          "W kolumnie „Co dalej” w jej wierszu",
+          "Dopiero po otwarciu kontraktu, w zakładce „Historia”",
+          "W zakładce „Aneksy” każdego kontraktu"
+        ],
+        "answer": 0,
+        "explain": "Kolumna „Co dalej” stosuje te same progi co pas „Co się dzieje” na kontrakcie, np. koniec zamówienia, odejście albo nierozwiązaną umowę."
+      },
+      {
+        "q": "Aneks w Dokumentach podaje inną stawkę Partnera niż kontrakt. Jak się o tym dowiesz?",
+        "options": [
+          "Z pigułki „Stawka z dokumentu” i karty na kontrakcie",
+          "Tylko porównując ręcznie plik ze stawką w kontrakcie",
+          "Nie dowiesz się, NEXUS nie czyta treści dokumentów"
+        ],
+        "answer": 0,
+        "explain": "NEXUS czyta umowy i aneksy kontraktu. Pigułka „Stawka z dokumentu” zbiera takie kontrakty, a karta nad zakładkami kontraktu ma „Wprowadź do harmonogramu”."
+      },
+      {
+        "q": "Klient zamówił okres po zakończeniu współpracy, a zakończenie było pomyłką. Co robisz?",
+        "options": [
+          "„Cofnij zakończenie” z pasa „Co się dzieje” na kontrakcie",
+          "Zmieniasz status kontraktu na „Aktywny” w formularzu edycji",
+          "Zakładasz nowy kontrakt dla tej samej osoby"
+        ],
+        "answer": 0,
+        "explain": "Zakończonego kontraktu nie przywracasz zmianą statusu w formularzu. Pas „Co się dzieje” daje wyjścia: cofnij zakończenie, zamówienie dla innej osoby albo anuluj szkic."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-karta-kontraktu",
+    "title": "Karta kontraktu: „Co się dzieje”, siedem zakładek i aneksy",
+    "novelties": [
+      "kontrakt-co-sie-dzieje-7-zakladek",
+      "kontrakt-start-i-opieka-nowy-uklad",
+      "kontrakt-dokumenty-i-aneksy-nowy-uklad",
+      "aneks-stawki-zmienia-zamowienie"
+    ],
+    "task": "Po rozmowie z konsultantem z trwającego kontraktu ćwiczebnego chcesz zapisać notatkę. Otwórz jego kontrakt i przejdź tam, gdzie się ją zapisuje.",
+    "solo_href": "/contracts",
+    "check": {
+      "kind": "page",
+      "path_prefix": "/contracts/990521",
+      "query": {
+        "tab": "care"
+      }
+    },
+    "questions": [
+      {
+        "q": "Gdzie są teraz notatki przy kontrakcie?",
+        "options": [
+          "W „Opiece i rozmowach”, w jednym strumieniu z rozmowami",
+          "W osobnej zakładce „Notatki”",
+          "W zakładce „Historia”"
+        ],
+        "answer": 0,
+        "explain": "Kontrakt ma 7 zakładek. Notatki, rozmowy i opinie klienta są w jednym strumieniu w „Opiece i rozmowach”, a rodzaj wpisu wybierasz nad strumieniem."
+      },
+      {
+        "q": "Dodajesz aneks ze zmianą stawki klienta. Co stanie się z trwającym zamówieniem klienta?",
+        "options": [
+          "Nowa stawka wejdzie do niego od dnia aneksu, wcześniejsze zużycie zostaje",
+          "Zamówienie zostanie po starej stawce do swojego końca",
+          "Nowa stawka przeliczy zamówienie od jego początku"
+        ],
+        "answer": 0,
+        "explain": "Okno „Zmiana stawki” pokazuje przed zapisem, które zamówienie się zmieni i od kiedy. Zużycie sprzed tego dnia zostaje po starej stawce."
+      },
+      {
+        "q": "Gdzie przedłużysz kontrakt aneksem albo zmienisz w nim zakres?",
+        "options": [
+          "W menu „Dodaj aneks” w zakładce „Aneksy”",
+          "W zakładce „Dokumenty”, wgrywając plik aneksu",
+          "W zakładce „Start i sprzęt”"
+        ],
+        "answer": 0,
+        "explain": "Zmiana stawki, zmiana zakresu i przedłużenie są w jednym menu „Dodaj aneks”, a aneksy stoją na osi dat wejścia w życie."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-umowa-ramowa-doplata",
+    "title": "Umowa ramowa: kategoria, dopłata za technologię i raport dla klienta",
+    "novelties": [
+      "umowa-ramowa-kategoria-doplata",
+      "doplata-wniosek-zna-korzysta",
+      "doplata-uzasadnienie-z-modelu",
+      "stawki-ramowe-raport-kwartalny"
+    ],
+    "task": "Otwórz trwający kontrakt ćwiczebny i przejdź do zakładki, w której przy kontrakcie u klienta z umową ramową stoją kategoria, limit i dopłata za technologię.",
+    "solo_href": "/contracts",
+    "check": {
+      "kind": "page",
+      "path_prefix": "/contracts/990521",
+      "query": {
+        "tab": "money"
+      }
+    },
+    "questions": [
+      {
+        "q": "Klient potwierdził dopłatę za technologię z umowy ramowej. Co ona zmienia?",
+        "options": [
+          "Podnosi limit stawki z cennika umowy",
+          "Podnosi stawkę klienta w zamówieniu",
+          "Podnosi stawkę Partnera w kontrakcie"
+        ],
+        "answer": 0,
+        "explain": "Dopłata podnosi tylko limit z cennika. Nie zmienia zamówienia ani stawki klienta, dlatego wpisujesz ją z potwierdzeniem klienta."
+      },
+      {
+        "q": "Kto wysyła klientowi uzasadnienie dopłaty po angielsku?",
+        "options": [
+          "Ty, po przeczytaniu i poprawieniu szkicu",
+          "NEXUS, sam po złożeniu wniosku",
+          "Model AI, gdy wniosek zatwierdzą Finanse"
+        ],
+        "answer": 0,
+        "explain": "„Zaproponuj uzasadnienie” daje szkic z faktów NEXUSA i Twoich przykładów. Czytasz go, poprawiasz i wysyłasz sam."
+      },
+      {
+        "q": "Pobierasz dla klienta raport kwartalny stawek z umowy ramowej. Czy plik pokazuje naszą marżę?",
+        "options": [
+          "Nie, plik dla klienta jest bez marży",
+          "Tak, w osobnej kolumnie",
+          "Tylko gdy pobiera go ktoś z Finansów"
+        ],
+        "answer": 0,
+        "explain": "Raport kwartalny jest w karcie klienta, w „Umowie i pieniądzach”, przy „Stawkach i cenniku”. Excel dla klienta nie ma marży."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-nowy-kontrakt",
+    "title": "Nowy kontrakt: podsumowanie obok formularza",
+    "novelties": [
+      "nowy-kontrakt-podsumowanie"
+    ],
+    "task": "Zacznij nowy kontrakt (nic nie zapisuj) i znajdź miejsce, gdzie ustawisz walutę stawek i status kontraktu przy utworzeniu.",
+    "solo_href": "/contracts",
+    "check": {
+      "kind": "click",
+      "anchor": "contracts.new.advanced"
+    },
+    "questions": [
+      {
+        "q": "Skąd przed kliknięciem przycisku wiesz, czy kontrakt powstanie jako szkic?",
+        "options": [
+          "Z karty „Podsumowanie” obok formularza",
+          "Dopiero z komunikatu po zapisie",
+          "Z listy kontraktów po zapisie"
+        ],
+        "answer": 0,
+        "explain": "Karta „Podsumowanie” na bieżąco mówi, co powstanie: kto u kogo, od kiedy, marża i status po utworzeniu."
+      },
+      {
+        "q": "Stawka klienta jest w EUR, a konsultanta w PLN. Co pokaże „Podsumowanie”?",
+        "options": [
+          "Że przy różnych walutach marży nie liczy",
+          "Marżę przeliczoną po dzisiejszym kursie",
+          "Marżę w euro"
+        ],
+        "answer": 0,
+        "explain": "Przy różnych walutach stawek karta mówi to wprost i marży nie liczy. Waluty ustawiasz w „Zaawansowanych”."
+      },
+      {
+        "q": "Tworzysz kontrakt jako szkic. Kiedy go aktywujesz?",
+        "options": [
+          "Po podpisaniu umowy",
+          "Od razu po zapisie formularza",
+          "Gdy klient przyśle pierwsze zamówienie"
+        ],
+        "answer": 0,
+        "explain": "Szkic aktywujesz po podpisaniu umowy. Status „Aktywny” przy utworzeniu jest dla umowy już podpisanej i wymaga stawki klienta i konsultanta."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-analityka-kontraktow",
+    "title": "Analityka kontraktów: najbliższe 90 dni i kto ile przynosi",
+    "novelties": [
+      "analityka-kontraktow-90-dni"
+    ],
+    "task": "W analityce kontraktów sprawdź, którzy konsultanci przynoszą najwyższą marżę.",
+    "solo_href": "/contracts",
+    "check": {
+      "kind": "click",
+      "anchor": "contracts.analytics.view"
+    },
+    "questions": [
+      {
+        "q": "Co pokazuje część „Najbliższe 3 miesiące” w analityce kontraktów?",
+        "options": [
+          "Kto kończy i kto startuje w 90 dni i ile marży to zmienia",
+          "Faktury do wystawienia w kwartale",
+          "Rekrutacje, które trzeba zamknąć w kwartale"
+        ],
+        "answer": 0,
+        "explain": "Kwoty liczą się z bieżących stawek kontraktów, w złotych: ile marży ubywa z odejściami, a ile przybywa ze startami."
+      },
+      {
+        "q": "Jak przełączysz tabelę „Kto ile przynosi” z klientów na osoby?",
+        "options": [
+          "Przełącznikiem „Konsultanci” nad tabelą",
+          "Osobną zakładką w Insights",
+          "Filtrem na liście kontraktów"
+        ],
+        "answer": 0,
+        "explain": "To jedna tabela: pokazuje klientów albo konsultantów, a nagłówki kolumn ją sortują."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-zamowienia-z-maila",
+    "title": "Zamówienia z maila: co sprawdzić przed zapisem",
+    "novelties": [
+      "zamowienia-z-maila-do-sprawdzenia"
+    ],
+    "task": "Otwórz zamówienie z maila, które czeka na weryfikację, i przeczytaj, co trzeba sprawdzić przed zapisem.",
+    "solo_href": "/contracts",
+    "check": {
+      "kind": "click",
+      "anchor": "order-mail.queue"
+    },
+    "questions": [
+      {
+        "q": "Gdzie znajdziesz zamówienia odczytane z maila?",
+        "options": [
+          "Przycisk „Zamówienia z maila” nad listą kontraktów",
+          "W Ustawieniach, w sekcji poczty",
+          "Karta klienta, sekcja „Ludzie klienta”"
+        ],
+        "answer": 0,
+        "explain": "Przycisk stoi w rzędzie szybkich filtrów kontraktów, a liczba przy nim to wpisy czekające na weryfikację."
+      },
+      {
+        "q": "Gdzie widzisz, dlaczego wpis czeka na sprawdzenie i co z tym zrobić?",
+        "options": [
+          "W „Do sprawdzenia” po prawej: każdy punkt mówi, co zrobić",
+          "W historii automatu na dole kolejki",
+          "W pliku PDF zamówienia"
+        ],
+        "answer": 0,
+        "explain": "Lista „Do sprawdzenia” zastąpiła ramkę z powodami. Historia automatycznych sprawdzeń to jedna zwinięta linia na dole."
+      },
+      {
+        "q": "Co robi „Odrzuć” przy wpisie z kolejki?",
+        "options": [
+          "Zdejmuje wpis z kolejki bez zapisu zamówienia",
+          "Odsyła mail do klienta z prośbą o poprawkę",
+          "Anuluje zamówienie u klienta"
+        ],
+        "answer": 0,
+        "explain": "„Zastosuj” zapisuje plan zamówienia, a „Odrzuć” zdejmuje wpis z kolejki bez zapisu."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-lista-klientow",
+    "title": "Lista klientów: stan współpracy i „Wymaga uwagi”",
+    "novelties": [
+      "klienci-stan-z-faktow",
+      "raporty-dla-klientow"
+    ],
+    "task": "Klient ćwiczebny ma w kolumnie „Wymaga uwagi” kończącą się umowę ramową. Przejdź z tej kolumny prosto do jego umowy.",
+    "solo_href": "/clients",
+    "check": {
+      "kind": "page",
+      "path_prefix": "/clients/990501",
+      "query": {
+        "tab": "umowy-ramowe"
+      }
+    },
+    "questions": [
+      {
+        "q": "Kiedy klient jest na liście w „Współpracujemy”?",
+        "options": [
+          "Gdy ktoś od nas jest u niego na kontrakcie, zaczyna albo trwa rekrutacja",
+          "Gdy ktoś ręcznie przeniesie go do aktywnych",
+          "Gdy ma podpisaną umowę ramową"
+        ],
+        "answer": 0,
+        "explain": "Stan liczy się sam z faktów, bez przenoszenia. Klient z umową, ale bez naszych ludzi i rekrutacji, jest w „Bez bieżącej pracy”."
+      },
+      {
+        "q": "Co zbiera kolumna „Wymaga uwagi” na liście klientów?",
+        "options": [
+          "Raport do przygotowania, kończącą się umowę i relację bez kontaktu",
+          "Tylko zaległe faktury klienta",
+          "Listę otwartych rekrutacji klienta"
+        ],
+        "answer": 0,
+        "explain": "Znacznik prowadzi prosto do właściwej zakładki klienta: raportów, umowy, kontaktów albo konsultantów."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-profil-klienta",
+    "title": "Profil klienta: pięć sekcji, rozliczenie i kontakty",
+    "novelties": [
+      "klient-profil-w-grupach",
+      "klient-piec-sekcji",
+      "klient-rozliczenie-kroki",
+      "kontakty-klienta-szukaj"
+    ],
+    "task": "U klienta ćwiczebnego znajdź listę jego kontaktów i wyszukaj osobę po kawałku stanowiska.",
+    "solo_href": "/clients/990501",
+    "check": {
+      "kind": "click",
+      "anchor": "clients.contacts.search"
+    },
+    "questions": [
+      {
+        "q": "Gdzie w profilu klienta są osoby po stronie klienta, z którymi rozmawiamy?",
+        "options": [
+          "W sekcji „Ludzie klienta”",
+          "W sekcji „Nasi ludzie”",
+          "W sekcji „Umowa i pieniądze”"
+        ],
+        "answer": 0,
+        "explain": "„Nasi ludzie” to osoby od nas u klienta. Kontakty, działy i sprzedaż są w „Ludziach klienta”."
+      },
+      {
+        "q": "Karta „Rozliczenie” w Przeglądzie pokazuje „brak danych o zapłacie”. Co to znaczy?",
+        "options": [
+          "NEXUS nie ma wyciągów, które potwierdzą zapłatę",
+          "Klient zalega z zapłatą",
+          "Faktura nie trafiła do KSeF"
+        ],
+        "answer": 0,
+        "explain": "„Po terminie” pojawia się tylko z dowodem z wyciągów rachunku. Bez wyciągów NEXUS nie twierdzi, że jest zaległość."
+      },
+      {
+        "q": "Od czego zaczyna się Przegląd klienta?",
+        "options": [
+          "Od listy „Wymaga uwagi” zebranej ze wszystkich zakładek",
+          "Od danych firmy i adresu",
+          "Od listy faktur klienta"
+        ],
+        "answer": 0,
+        "explain": "Przegląd zaczyna się od spraw do załatwienia. Gdy nic nie czeka, lista mówi to wprost, zamiast znikać."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-konsultanci-klienta",
+    "title": "Konsultanci u klienta: filtry w jednym rzędzie i oś czasu",
+    "novelties": [
+      "klient-konsultanci",
+      "klient-konsultanci-os-czasu"
+    ],
+    "task": "U klienta ćwiczebnego otwórz listę naszych konsultantów i zobacz okresy ich zamówień na osi czasu.",
+    "solo_href": "/clients/990501",
+    "check": {
+      "kind": "click",
+      "anchor": "client.consultants.view"
+    },
+    "questions": [
+      {
+        "q": "Gdzie zobaczysz, kto od nas jest u klienta, na jakiej umowie i do kiedy ma zamówienie?",
+        "options": [
+          "Nasi ludzie → Konsultanci",
+          "Ludzie klienta → Kontakty",
+          "Rekrutacje → Projekty"
+        ],
+        "answer": 0,
+        "explain": "Zakładka „Konsultanci” w „Naszych ludziach” mówi to w jednym wierszu na osobę, a „Oś czasu” rysuje okresy zamówień."
+      },
+      {
+        "q": "Kiedy w rzędzie filtrów konsultantów pojawia się „Kończy się DD.MM”?",
+        "options": [
+          "Gdy wiele zamówień kończy się tego samego dnia",
+          "Zawsze, z datą końca najbliższego zamówienia",
+          "Gdy klientowi kończy się umowa ramowa"
+        ],
+        "answer": 0,
+        "explain": "Ten filtr zbiera falę zamówień kończących się jednego dnia, żeby nie przegapić kilku końców naraz."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-finanse-korekta-kosztu",
+    "title": "Finanse w jednym module i koszt po zmianie stawki Partnera",
+    "novelties": [
+      "finanse-jeden-modul",
+      "koszt-zamowienia-w-czesciach"
+    ],
+    "task": "Stawka Partnera z kontraktu ćwiczebnego zmieniła się wstecz. Znajdź w Finansach zakończone zamówienie, którego koszt trzeba poprawić.",
+    "solo_href": "/finance",
+    "check": {
+      "kind": "page",
+      "path_prefix": "/finance",
+      "query": {
+        "view": "rate-divergences"
+      }
+    },
+    "questions": [
+      {
+        "q": "Gdzie jest teraz księgowość?",
+        "options": [
+          "W Finansach, w grupie „Księga”",
+          "W osobnym module „Księgowość” w menu",
+          "W Ustawieniach NEXUSA"
+        ],
+        "answer": 0,
+        "explain": "Finanse to jeden moduł z grupami: Przegląd, Przychody, Zamówienia, Koszty, Księga, Raporty i Ustawienia."
+      },
+      {
+        "q": "Stawka Partnera zmienia się w trakcie zamówienia. Jak liczy się koszt zamówienia?",
+        "options": [
+          "Częściami: stara stawka do dnia zmiany, nowa od tego dnia",
+          "Cały okres po nowej stawce",
+          "Cały okres po starej stawce"
+        ],
+        "answer": 0,
+        "explain": "Koszt dzieli się na części od dnia zmiany stawki Partnera, więc wcześniejsze dni zostają po starej stawce."
+      },
+      {
+        "q": "Które zamówienia trafiają na listę „Do korekty po zmianie stawki”?",
+        "options": [
+          "Zakończone, których koszt nie zgadza się ze stawką w kontrakcie",
+          "Wszystkie trwające zamówienia z nową stawką",
+          "Zamówienia bez stawki klienta"
+        ],
+        "answer": 0,
+        "explain": "Trwające zamówienia poprawia synchronizacja sama, więc na tej liście ich nie ma. Lista jest w „Rozjazdach stawek”."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-koszty-symfonia",
+    "title": "Faktury kosztowe: podgląd PDF, opis do księgowania i Symfonia",
+    "novelties": [
+      "koszty-podglad-pdf-ksef",
+      "koszty-opis-do-ksiegowania",
+      "kontrahenci-czeka-na-symfonie"
+    ],
+    "task": "Sprawdź w Finansach, których firm z faktur księgowa nie założyła jeszcze w Symfonii.",
+    "solo_href": "/finance",
+    "check": {
+      "kind": "click",
+      "anchor": "finance.counterparties-pending"
+    },
+    "questions": [
+      {
+        "q": "Jak otworzysz fakturę kosztową z KSeF jako czytelny PDF?",
+        "options": [
+          "Ikoną przy numerze w kolejce albo „Podgląd PDF” na karcie faktury",
+          "Tylko pobierając XML i otwierając go w KSeF",
+          "W karcie firmy w „Kontrahentach”"
+        ],
+        "answer": 0,
+        "explain": "Przy pierwszym otwarciu NEXUS pobiera fakturę z KSeF i pokazuje ją jako PDF ze stronami, pozycjami i stawkami VAT."
+      },
+      {
+        "q": "Faktura za leasing samochodu. Gdzie zaznaczysz netto i połowę VAT?",
+        "options": [
+          "W „Opisz do księgowania” na karcie faktury",
+          "Ręcznie w Symfonii po imporcie pliku",
+          "W „Planie kont” w Ustawieniach"
+        ],
+        "answer": 0,
+        "explain": "Opis do księgowania ma typ, rejestr, konta, samochód, import usług, procedurę JPK i kurs NBP. Dekret liczy się z tego opisu."
+      },
+      {
+        "q": "Księgowa wpisała ID Symfonii w pobranym pliku kontrahentów. Co dalej?",
+        "options": [
+          "Wgrywasz plik z powrotem w „Czeka na Symfonię”",
+          "Przepisujesz ID ręcznie do każdej faktury",
+          "Nic, NEXUS sam pobierze ID z Symfonii"
+        ],
+        "answer": 0,
+        "explain": "„Wgraj plik z ID Symfonii” uzupełnia kartotekę kontrahentów. Lista zbiera firmy z faktur, które nie mają jeszcze ID."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-dodatki-do-faktury",
+    "title": "Dodatki do faktury kontraktora",
+    "novelties": [
+      "dodatki-do-rozliczenia-kontraktora"
+    ],
+    "task": "W rozliczeniach klientów otwórz rozliczenie dowolnej osoby i zacznij dodawać dodatek za szkolenie. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/finance?view=settlements",
+    "check": {
+      "kind": "click",
+      "anchor": "clients.settlement-extras.add"
+    },
+    "questions": [
+      {
+        "q": "Co zmienia zatwierdzony dodatek, np. premia za polecenie?",
+        "options": [
+          "Zwiększa oczekiwaną kwotę faktury kontraktora",
+          "Zmienia stawkę Partnera w kontrakcie",
+          "Zawsze trafia też na fakturę dla klienta"
+        ],
+        "answer": 0,
+        "explain": "Zatwierdzone dodatki liczą się do kwoty faktury kontraktora. Na fakturę klienta idzie tylko dodatek z zaznaczonym „Na fakturę dla klienta”."
+      },
+      {
+        "q": "Kto może zgłosić dodatek do faktury kontraktora?",
+        "options": [
+          "Back office, konsultant w panelu albo Finanse",
+          "Tylko Finanse",
+          "Tylko Delivery Lead"
+        ],
+        "answer": 0,
+        "explain": "Zgłoszenia z back office'u i z panelu konsultanta czekają na zatwierdzenie, a dodatek wpisany przez Finanse jest od razu zatwierdzony."
       }
     ]
   }

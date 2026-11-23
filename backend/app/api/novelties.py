@@ -838,6 +838,45 @@ async def novelties_adoption(
     return out
 
 
+#: Tyle nieudanych prób samodzielnych w jednej lekcji = temat dla HoR na
+#: szkolenie (Artur, 23.11.2026).
+STRUGGLE_AT = 3
+
+
+@router.get("/novelties/lessons/struggles")
+async def lesson_struggles(
+    current_user: HeadOfRecruitmentPlus, db: AsyncSession = Depends(get_db)
+) -> list[dict[str, Any]]:
+    """Kto utknął w lekcji: ``STRUGGLE_AT`` i więcej nieudanych prób „sam”
+    bez zaliczenia. Imiennie, więc tylko admin i HoR (jak panel „kto umie”)."""
+    lessons = load_lessons()
+    rows = (
+        await db.execute(
+            select(NoveltyLessonProgress, User)
+            .join(User, User.id == NoveltyLessonProgress.user_id)
+            .where(
+                NoveltyLessonProgress.solo_failed_count >= STRUGGLE_AT,
+                NoveltyLessonProgress.completed_at.is_(None),
+                User.is_active.is_(True),
+            )
+            .order_by(NoveltyLessonProgress.solo_failed_count.desc())
+        )
+    ).all()
+    return [
+        {
+            "user_id": user.id,
+            "name": user.name,
+            "lesson_id": row.lesson_id,
+            "title": lessons[row.lesson_id].title,
+            "solo_failed_count": row.solo_failed_count,
+            "quiz_wrong_count": row.quiz_wrong_count,
+            "updated_at": row.updated_at.isoformat(),
+        }
+        for row, user in rows
+        if row.lesson_id in lessons
+    ]
+
+
 @router.post("/novelties/{novelty_id}/remind")
 async def remind_novelty(
     novelty_id: str,

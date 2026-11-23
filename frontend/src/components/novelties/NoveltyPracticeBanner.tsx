@@ -1,12 +1,13 @@
 "use client";
 
-// Pasek nad ekranem w trakcie przeklikania nowości z porcji dnia (18.11.2026).
-// Tryb Poligonu: prawdziwe ekrany, rekrutacja ćwiczebna, zapisy wyłączone.
+// Pasek nad ekranem w trakcie lekcji nowości (18.11.2026, lekcje od 23.11.2026).
+// Tryb Poligonu: prawdziwe ekrany, dane ćwiczebne, zapisy wyłączone.
 
 import { Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { DAILY_PATH } from "@/lib/novelties/daily";
+import { leaveLesson, readRun } from "@/lib/novelties/lessons";
 import { writeTour } from "@/lib/novelties/logic";
 import { leavePoligon } from "@/lib/poligon/mode";
 
@@ -19,12 +20,17 @@ export function NoveltyPracticeBanner() {
     >
       <Sparkles className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
       <span className="min-w-0 flex-1">
-        <b className="font-semibold">Nowości na dziś</b> · ćwiczysz na rekrutacji ćwiczebnej — kliknięcia niczego nie zapisują
+        <b className="font-semibold">Lekcja na Poligonie</b> · prawdziwe ekrany, ćwiczebne dane — nic się nie zapisze naprawdę
       </span>
       <Button
         size="sm"
         variant="outline"
         onClick={() => {
+          const run = readRun();
+          if (run) {
+            leaveLesson(run);
+            return;
+          }
           writeTour(null);
           leavePoligon(DAILY_PATH);
         }}
