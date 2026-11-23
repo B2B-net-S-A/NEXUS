@@ -4410,6 +4410,20 @@
     "requires_setting": "REVIEW_BATCH_ENABLED"
   },
   {
+    "id": "porcja-nie-odebral-przesuwa-termin",
+    "pr": 3788,
+    "title": "Porcja dnia: „Nie odebrał” przesuwa termin screeningu",
+    "why": "Kandydat nie odbiera? „Nie odebrał” w „Do domknięcia” daje 2 dni robocze więcej i wyszukiwanie się nie blokuje. Działa przy pierwszych 3 próbach.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": { "roles": ["recruiter"] },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia → Do domknięcia",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.no-answer",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
     "id": "sprzedaz-dzwonienie-po-co-oddzwaniamy",
     "pr": 3759,
     "title": "Dzwonienie: po co oddzwaniamy",
@@ -4514,20 +4528,6 @@
         "ack": true
       }
     ]
-  },
-  {
-    "id": "porcja-nie-odebral-przesuwa-termin",
-    "pr": 3788,
-    "title": "Porcja dnia: „Nie odebrał” przesuwa termin screeningu",
-    "why": "Kandydat nie odbiera? „Nie odebrał” w „Do domknięcia” daje 2 dni robocze więcej i wyszukiwanie się nie blokuje. Działa przy pierwszych 3 próbach.",
-    "tier": "dot",
-    "shipped_on": "2026-11-23",
-    "audience": { "roles": ["recruiter"] },
-    "where": "Pasek u góry → licznik porcji → Porcja dnia → Do domknięcia",
-    "href": "/porcja",
-    "section": "pipeline",
-    "dot_anchor": "review-batch.no-answer",
-    "requires_setting": "REVIEW_BATCH_ENABLED"
   },
   {
     "id": "dodatki-do-rozliczenia-kontraktora",
