@@ -34,7 +34,7 @@ TABLE_DDL = (
     "ON novelty_progress (novelty_id)",
 )
 
-# Lekcje nowości (0757, decyzje Artura 23.11.2026): postęp osoby w lekcji
+# Lekcje nowości (0759, decyzje Artura 23.11.2026): postęp osoby w lekcji
 # (pokaz → sam → pytanie) i stan porcji dnia (odłożenie, pominięcie przez
 # admina). Treść lekcji w ``app/data/novelties/lessons.json``, więc
 # ``lesson_id`` nie ma klucza obcego.

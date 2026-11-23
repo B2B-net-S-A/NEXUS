@@ -1,4 +1,4 @@
-"""Postęp osoby przy nowości NEXUSA (0625) i w lekcji nowości (0757) —
+"""Postęp osoby przy nowości NEXUSA (0625) i w lekcji nowości (0759) —
 patrz ``app/data/novelties``."""
 
 from datetime import date, datetime
@@ -59,7 +59,7 @@ class NoveltyProgress(Base):
 
 
 class NoveltyLessonProgress(Base):
-    """Postęp osoby w lekcji nowości (0757): pokaz → sam → pytanie."""
+    """Postęp osoby w lekcji nowości (0759): pokaz → sam → pytanie."""
 
     __tablename__ = "novelty_lesson_progress"
     __table_args__ = (Index("ix_novelty_lesson_progress_lesson", "lesson_id"),)
@@ -93,7 +93,7 @@ class NoveltyLessonProgress(Base):
 
 
 class NoveltyDailyState(Base):
-    """Porcja osoby w danym dniu (0757): odłożenie i pominięcie przez admina."""
+    """Porcja osoby w danym dniu (0759): odłożenie i pominięcie przez admina."""
 
     __tablename__ = "novelty_daily_state"
 

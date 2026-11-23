@@ -402,7 +402,8 @@
     "novelties": [
       "lata-w-punkcie-1-i-daty-stanowisk",
       "gotowe-cv-z-nowa-zgoda",
-      "formularz-klienta-wgraj-z-dysku"
+      "formularz-klienta-wgraj-z-dysku",
+      "formularz-klienta-tylko-weryfikacja"
     ],
     "task": "Otwórz edytor CV kandydata z rekrutacji ćwiczebnej i w „Do poprawy” przyjmij propozycję NEXUSA, jak wpisać lata w punkcie 1.",
     "solo_href": "/jobs/990001?candidate=990105",
@@ -440,6 +441,16 @@
         ],
         "answer": 0,
         "explain": "Wgrany formularz idzie do QC i do klienta zamiast wypełnienia z NEXUSA. Wgrany jako CV kandydata go nie zastąpi."
+      },
+      {
+        "q": "We wzorze formularza klienta zostały puste zapasowe wiersze. Co to znaczy?",
+        "options": [
+          "To wolne wiersze wzoru, nie braki",
+          "To braki, które trzeba uzupełnić przed wysyłką",
+          "To błąd wzoru do zgłoszenia"
+        ],
+        "answer": 0,
+        "explain": "Puste zapasowe wiersze to „wolne wiersze”: nie są ani wypełnione, ani brakiem. Liczą się tylko prawdziwe braki."
       }
     ]
   },
@@ -714,7 +725,8 @@
     "novelties": [
       "sprzedaz-listy-dzwonienia-wszyscy",
       "sprzedaz-dzwonienie-przypomnienia",
-      "sprzedaz-dzwonienie-po-co-oddzwaniamy"
+      "sprzedaz-dzwonienie-po-co-oddzwaniamy",
+      "sprzedaz-dzwonienie-duplikaty"
     ],
     "task": "W Dzwonieniu przejdź do Przypomnień i sprawdź, po co trzeba oddzwonić do pierwszej firmy na liście. Niczego nie zapisuj.",
     "solo_href": "/sales/calling",
@@ -723,16 +735,6 @@
       "anchor": "sales.calling.view"
     },
     "questions": [
-      {
-        "q": "Chcesz zobaczyć, do jakich firm dzwoni ktoś inny z zespołu. Gdzie to sprawdzisz?",
-        "options": [
-          "W Tabeli, po przełączeniu „Moje / Wszyscy” na „Wszyscy”",
-          "W Kampaniach, przy liście tej osoby",
-          "Nigdzie, każdy widzi tylko swoją listę"
-        ],
-        "answer": 0,
-        "explain": "Tabela i Przypomnienia mają przełącznik „Moje / Wszyscy”. Na karcie firmy widać też, na czyjej liście dzwonienia jest firma."
-      },
       {
         "q": "Osoba z zespołu jest na urlopie, a jej klient czeka na telefon. Co robisz?",
         "options": [
@@ -762,6 +764,16 @@
         ],
         "answer": 0,
         "explain": "Powód stoi na górze karty rozmowy, a także w Przypomnieniach, w oddzwonieniach kolejki i w „Moim dniu”. Tabela go nie pokazuje."
+      },
+      {
+        "q": "Na karcie widzisz firmę, która jest już na innej liście, a NEXUS tego nie złapał. Co robisz?",
+        "options": [
+          "Klikasz „To duplikat” na karcie",
+          "Dzwonisz, bo to inna lista",
+          "Usuwasz rekord z listy ręcznie"
+        ],
+        "answer": 0,
+        "explain": "„To duplikat” zgłasza przypadek, którego bramki nie złapały. Tabela i tak ukrywa powtórki z kolejnych list, a „Powtórki” je odsłania."
       }
     ]
   },
