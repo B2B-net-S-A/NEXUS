@@ -920,6 +920,7 @@ from app.models import client_report as _client_report_models  # noqa: F401,E402
 from app.models import training as _training_models  # noqa: F401,E402  (0694 szkolenia)
 from app.models import finance_ledger as _finance_ledger_models  # noqa: F401,E402  (0695 księgowość)
 from app.models import finance_payments as _finance_payments_models  # noqa: F401,E402  (0699 przelewy kosztów)
+from app.models import contractor_payment_blocks as _contractor_payment_blocks_models  # noqa: F401,E402  (0764 zajęcia i spory)
 from app.models import finance_posting as _finance_posting_models  # noqa: F401,E402  (0698 dekret i eksport)
 from app.models import ledger as _ledger_models  # noqa: F401,E402  (0700 księga NEXUSA)
 from app.models import ledger_assets as _ledger_assets_models  # noqa: F401,E402  (0703 środki trwałe)

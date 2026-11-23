@@ -187,6 +187,12 @@ class FinancePaymentBatchItem(Base):
     acknowledged_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    #: Przelewy do organów egzekucyjnych wydzielone z tej płatności (0764,
+    #: ``contractor_payment_blocks_schema``); kontraktor dostaje ``amount``
+    #: minus ich suma.
+    garnishments: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
 
 
 class FinanceCostPaymentRecord(Base):

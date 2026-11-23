@@ -4061,6 +4061,10 @@ async def api_health_deep_check(request: Request):
         FinanceCostEntryEvent,
         FinanceCounterparty,
     )
+    from app.models.contractor_payment_blocks import (
+        ContractorGarnishment,
+        ContractorPaymentHold,
+    )
     from app.models.finance_payments import (
         FinanceCostPayment,
         FinanceCostPaymentRecord,
@@ -4776,6 +4780,9 @@ async def api_health_deep_check(request: Request):
         ("finance_payment_batch_items", FinancePaymentBatchItem),
         ("finance_cost_payment_records", FinanceCostPaymentRecord),
         ("finance_counterparty_account_events", FinanceCounterpartyAccountEvent),
+        # 0764: zajęcia wierzytelności i spór na rozliczeniu kontraktora.
+        ("contractor_garnishments", ContractorGarnishment),
+        ("contractor_payment_holds", ContractorPaymentHold),
         # 0698: księgowość E2 — plan kont, reguły dekretu, paczki eksportu.
         ("finance_accounts", FinanceAccount),
         ("finance_posting_rules", FinancePostingRule),
