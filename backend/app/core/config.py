@@ -1411,6 +1411,9 @@ class Settings(BaseSettings):
     # wrzuca kandydatów Nordei z kolejki Cpro do nordea.onevms.se i wysyła ofertę.
     # OFF: pętla stoi, kolejka nie pokazuje stanu bota; trasy biegu działają zawsze.
     CPRO_BOT_ENABLED: bool = False
+    # Osobna pętla szkiców: nigdy nie wysyła ani nie przesuwa kart.
+    # Gdy obie flagi są true, ten bezpieczniejszy tryb ma pierwszeństwo.
+    CPRO_BOT_AUTO_DRAFT_ENABLED: bool = False
     GROK_BOT_CPRO_WEBHOOK_URL: str = ""
     GROK_BOT_CPRO_WEBHOOK_KEY: str = ""
     # Firmy z tym tagiem idą do tygodniowego przeglądu sygnałów (pilot 20 firm).

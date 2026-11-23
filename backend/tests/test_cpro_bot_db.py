@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import httpx
@@ -243,6 +244,117 @@ async def test_bot_sends_queued_card_and_moves_it_like_wrzucone(
                     update(Job).where(Job.id == job_id).values(delivery_lead_id=dl_id)
                 )
                 await db.commit()
+
+            # Automatyczne szkice są widoczne i można je bezpiecznie zlecać,
+            # mimo że dawna flaga wysyłki pozostaje wyłączona.
+            with monkeypatch.context() as auto:
+                auto.setattr(settings, "CPRO_BOT_ENABLED", False)
+                auto.setattr(settings, "CPRO_BOT_AUTO_DRAFT_ENABLED", True)
+                draft_view = (
+                    await api_client.get("/api/board-tasks/cpro/queue", headers=rec)
+                ).json()
+                draft_group = next(
+                    g for g in draft_view["jobs"] if g["job_id"] == job_id
+                )
+                draft_item = next(
+                    i for i in draft_group["items"] if i["candidate_id"] == cid
+                )
+                assert draft_view["bot"]["mode"] == "draft"
+                assert draft_view["bot"]["drafts_today"] == 0
+                assert draft_view["bot"]["awaiting_review"] == 0
+                assert draft_item["bot"]["mode"] == "draft"
+                retry = AsyncMock(
+                    return_value=SimpleNamespace(id=999, status="started")
+                )
+                auto.setattr(flow, "start_chosen", retry)
+                response = await api_client.post(
+                    f"/api/board-tasks/cpro/bot/{queued.id}/retry", headers=rec
+                )
+                assert response.status_code == 200, response.text
+                assert retry.await_args.kwargs["submit"] is False
+
+            with monkeypatch.context() as auto:
+                auto.setattr(settings, "CPRO_BOT_ENABLED", False)
+                auto.setattr(settings, "CPRO_BOT_AUTO_DRAFT_ENABLED", True)
+                now = datetime.now(timezone.utc)
+                async with AsyncSessionLocal() as db:
+                    receipt, _ = runs.new_run(
+                        [{"ref": queued.id, "offer": {}}], now=now, submit=False
+                    )
+                    receipt.status, receipt.token_hash, receipt.received_at = (
+                        "received",
+                        None,
+                        now,
+                    )
+                    receipt.report = {
+                        "items": {
+                            str(queued.id): {
+                                "outcome": "draft",
+                                "cpro_status": "DRAFT",
+                                "offer_url": "https://nordea.onevms.se/offer/42",
+                            }
+                        },
+                        "counts": {"draft": 1},
+                    }
+                    db.add(receipt)
+                    await db.commit()
+                    run_ids.append(receipt.id)
+                review_view = (
+                    await api_client.get("/api/board-tasks/cpro/queue", headers=rec)
+                ).json()
+                review_group = next(
+                    g for g in review_view["jobs"] if g["job_id"] == job_id
+                )
+                review_item = next(
+                    i for i in review_group["items"] if i["candidate_id"] == cid
+                )
+                assert review_view["bot"]["mode"] == "draft"
+                assert review_view["bot"]["drafts_today"] == 1
+                assert review_view["bot"]["awaiting_review"] == 1
+                assert review_item["bot"]["state"] == "draft"
+                assert (
+                    review_item["bot"]["offer_url"]
+                    == "https://nordea.onevms.se/offer/42"
+                )
+                assert review_item["bot"]["retry_allowed"] is False
+                refused = await api_client.post(
+                    f"/api/board-tasks/cpro/bot/{queued.id}/retry", headers=rec
+                )
+                assert refused.status_code == 409
+                for reason in ("draft_unconfirmed", "submit_disallowed"):
+                    async with AsyncSessionLocal() as db:
+                        await db.execute(
+                            update(CproBotRun)
+                            .where(CproBotRun.id == receipt.id)
+                            .values(
+                                report={
+                                    "items": {
+                                        str(queued.id): {
+                                            "outcome": "failed",
+                                            "reason": reason,
+                                        }
+                                    }
+                                }
+                            )
+                        )
+                        await db.commit()
+                    uncertain_view = (
+                        await api_client.get("/api/board-tasks/cpro/queue", headers=rec)
+                    ).json()
+                    uncertain_group = next(
+                        g for g in uncertain_view["jobs"] if g["job_id"] == job_id
+                    )
+                    uncertain_item = next(
+                        i for i in uncertain_group["items"] if i["candidate_id"] == cid
+                    )
+                    assert uncertain_item["bot"]["state"] == "failed"
+                    assert uncertain_item["bot"]["retry_allowed"] is False
+                    assert uncertain_item["bot"]["message"]
+                async with AsyncSessionLocal() as db:
+                    await db.execute(
+                        delete(CproBotRun).where(CproBotRun.id == receipt.id)
+                    )
+                    await db.commit()
 
             sent: list[dict] = []
 

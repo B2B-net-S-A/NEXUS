@@ -860,6 +860,10 @@ export type CproBotState =
 
 export interface CproBotItem {
   state: CproBotState;
+  /** Osobny automat szkiców ma pierwszeństwo przed opcjonalną wysyłką. */
+  mode?: "draft" | "submit";
+  /** Potwierdzonej oferty/szkicu automat nie tworzy ponownie. */
+  retry_allowed?: boolean;
   blockers: string[];
   message: string | null;
   offer_url: string | null;
@@ -871,10 +875,13 @@ export interface CproBotItem {
 }
 
 export interface CproBotSummary {
+  mode?: "draft" | "submit";
   configured: boolean;
   working: boolean;
   last_run_at: string | null;
   sent_today: number;
+  drafts_today?: number;
+  awaiting_review?: number;
   can_retry: boolean;
 }
 

@@ -182,6 +182,27 @@ kartę, Delivery Leada i numer requestu. Bot ma otworzyć wskazany DRAFT,
 zaznaczyć nowy PDF jako jedyne CV oferty i sprawdzić podgląd po zapisie.
 Do kolejnej gotowej karty użyj osobnego biegu bez opcji korekty.
 
+## Automatyczne szkice do oceny Sandry
+
+Zanim skierujesz kolejkę produkcyjną do rutyny, sprawdź logowanie bez udziału
+operatora dla właściwego konta DL. W pilotażu z listopada 2026 Vault Groka
+udostępniał logowanie Igorowi i Marcinowi w interaktywnej rozmowie. Bieg
+webhookowy zatrzymywał się przed zalogowaniem. Sam zapis obu haseł w Vault
+nie potwierdza działania w tle. Gdy portal wymaga pomocy, rutyna zgłasza
+problem i kończy tę próbę bez zapisu oferty.
+
+W workflow „Coolify set env” ustaw `CPRO_BOT_AUTO_DRAFT_ENABLED=true`
+przy `CPRO_BOT_ENABLED=false`. Po wdrożeniu worker sprawdza kolejkę co pięć
+minut. Wybiera pojedynczą gotową kartę, sprawdza jej Delivery Leada i zleca
+szkic z firmowym PDF. Osoby z wcześniejszym potwierdzonym szkicem lub wysyłką
+pomija. Sandra znajdzie status i odnośnik do zapisanej oferty w „Do Cpro”.
+Karta pozostaje na tym etapie do decyzji człowieka.
+
+Odbiór produkcyjny wymaga automatycznego biegu z `submit=false`, raportu
+z wynikiem `draft` i statusem `DRAFT` po ponownym otwarciu oferty przez
+bota. Sprawdź również kolejny cykl workera pod kątem duplikatów. Wyłączenie
+automatycznych szkiców wymaga ustawienia `CPRO_BOT_AUTO_DRAFT_ENABLED=false`.
+
 ## 5. Przyszła pierwsza wysyłka i włączenie (wyłącznie Artur)
 
 Obecny pilotaż kończy się na szkicu i ocenie Sandry. `CPRO_BOT_ENABLED`
@@ -189,7 +210,10 @@ pozostaje `false`; Codex nie uruchamia `--submit`. Poniższe kroki Artur
 wykonuje dopiero po akceptacji szkicu przez Sandrę, po sprawdzeniu konta
 Igora/Marcina właściwego dla tej rekrutacji.
 
-1. Po ocenie Sandry zmień w rutynie zasadę „zawsze szkic”, zachowując weryfikację konta. Dopiero wtedy wyślij tę samą kartę: `python -m scripts.cpro_bot_run --start --stage-ids <stage_id> --submit`.
+1. Po ocenie Sandry i odrębnej decyzji Artura wyłącz tryb automatycznych szkiców,
+   który wymusza DRAFT przy obu flagach. Zmień w rutynie zasadę „zawsze szkic”,
+   zachowując weryfikację konta. Dopiero wtedy wyślij tę samą kartę:
+   `python -m scripts.cpro_bot_run --start --stage-ids <stage_id> --submit`.
    Oczekiwane: `counts.submitted = 1`, `counts.moved = 1`, w Cpro status
    SELECTION, w NEXUSIE karta na „Wysłane do Cpro”.
 2. `CPRO_BOT_ENABLED=true` workflowem „Coolify set env” i wdrożenie.

@@ -41,6 +41,12 @@ REGISTERED_FLAGS: tuple[FeatureFlag, ...] = (
         expires=date(2027, 1, 16),
     ),
     FeatureFlag(
+        name="CPRO_BOT_AUTO_DRAFT_ENABLED",
+        purpose="Przygotowanie pojedynczych szkiców Cpro z zatwierdzonym firmowym PDF dla Sandry. Wyłącznik niezależny od publikacji ofert.",
+        decided=date(2026, 11, 23),
+        expires=date(2027, 1, 21),
+    ),
+    FeatureFlag(
         name="CPRO_BOT_ENABLED",
         purpose="Bot Cpro: Grok Bot wrzuca kandydatów Nordei z kolejki Cpro do nordea.onevms.se i wysyła ofertę; włącza Artur po próbie rutyny (szkic, potem jedna wysyłka).",
         decided=date(2026, 11, 17),
