@@ -3428,7 +3428,7 @@
   {
    "id": "move.client-interview-date",
    "area": "ruch",
-   "opis": "Przesunięcie na „Rozmowę u klienta” pyta „Kiedy rozmowa u klienta?” (20.10.2026): termin zakłada rozmowę w NEXUSIE (telefon po rozmowie, pytania klienta), „Nie znam jeszcze terminu” przesuwa bez niego",
+   "opis": "Przesunięcie na „Rozmowę u klienta” pyta „Kiedy rozmowa u klienta?” (20.10.2026): „Klient podał terminy” (DL, 23.11.2026) wysyła je po ruchu rekruterowi (dzwonek i mail), „Termin już ustalony” zakłada rozmowę w NEXUSIE (telefon po rozmowie, pytania klienta), „Jeszcze bez terminów” przesuwa bez niego",
    "file": "hooks/usePipelineMove.tsx",
    "marker": "ClientInterviewDateDialog",
    "v3_home": "Tablica / panel osoby → ruch na „Rozmowę u klienta”"

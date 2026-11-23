@@ -31,7 +31,7 @@ export type PipelineMoveDialog =
   /**
    * „Rozmowa u klienta” — „Kiedy rozmowa?” (20.10.2026). Bez terminu w NEXUSIE
    * nie było telefonu po rozmowie ani przypomnienia o pytaniach klienta (88 z 99
-   * par w 30 dniach). Pytanie można pominąć („Nie znam jeszcze terminu”).
+   * par w 30 dniach). Pytanie można pominąć („Jeszcze bez terminów”).
    */
   | "interview_date";
 
