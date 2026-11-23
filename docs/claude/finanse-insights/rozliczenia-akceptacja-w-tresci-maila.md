@@ -1,17 +1,23 @@
-# Rozliczenia: akceptacja klienta w samej treści maila idzie do czytnika rozliczeń
+# Rozliczenia: akceptacja klienta w samej treści maila to sprawa i dokument
 
-<!-- indeks: akceptacja mailowa, akceptacja w treści, mail bez załącznika, router E8, support_mail_route, is_client_acceptance_mail, acceptance_clients, proof.accept_has_hours, proof.excel_with_mail, cl.client_acceptance, PKO, BIK, osoba z tematu, resolve_named_for_clients, .eml -->
+<!-- indeks: akceptacja mailowa, sprawa i dokument, akceptacja w treści, mail bez załącznika, router E8, support_mail_route, is_client_acceptance_mail, acceptance_clients, proof.accept_has_hours, proof.excel_with_mail, cl.client_acceptance, PKO, BIK, osoba z tematu, resolve_named_for_clients, .eml -->
 
 Od 23.11.2026. Klient bez własnego systemu (PKO, BIK i inni) akceptuje godziny odpowiedzią
 w wątku z TS, zwykle bez załącznika: „łączna liczba godzin: 112, październik 2026”. Do tej pory
 router jednej skrzynki (`app/services/support_mail_route.py`) oddawał czytnikowi rozliczeń tylko
-maile z załącznikiem. Taka akceptacja stawała się więc sprawą, a kontrola
+maile z załącznikiem. Taka akceptacja była więc wyłącznie sprawą, a kontrola
 `proof.accept_has_hours` nie miała czego sprawdzić. W próbie IX–X 2026 dało to fałszywe uwagi
 i regułę wyłączoną u kilku klientów.
 
 ## Reguła
 
-Mail **bez załącznika** idzie do czytnika rozliczeń (`is_client_acceptance_mail`), gdy spełnia
+Decyzja Artura z 23.11.2026: „sprawa i dokument”. Router nie zabiera takiego maila sprawom
+(`is_settlements_mail` bez załącznika zwraca `False`), więc sprawa powstaje jak dotąd.
+Czytnik rozliczeń (`consultant_portal/mailbox.run_once`) czyta go mimo to i zapisuje jako
+dokument. Ten sam wzorzec ma mail z adresu firmy z tematem rozliczenia
+(`mailbox.is_body_only_settlement`).
+
+Czytnik rozliczeń czyta mail **bez załącznika** (`is_client_acceptance_mail`), gdy spełnia
 oba warunki:
 
 - adres rozliczeń (`CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES`) stoi w „Do” albo „DW”;
@@ -28,7 +34,7 @@ następnego. Źródła domen:
 | `proof.accept_has_hours` włączona | parametr „domena” z `proof.excel_with_mail`, a bez niego domeny adresów kontaktów klienta. Dziś tak jest u PKO: reguła bez domeny |
 | `cl.client_acceptance` włączona | domena jej adresu. Odpowiedź Banku Pocztowego na paczkę KCP wcześniej też zostawała sprawą |
 
-Każdy inny mail bez załącznika zostaje sprawą, także od klienta bez tych reguł i od klienta
+Każdy inny mail bez załącznika jest tylko sprawą, także od klienta bez tych reguł i od klienta
 spoza adresu rozliczeń. Maili z załącznikiem i raportów T4T (`is_time_report_mail`) ta reguła
 nie zmienia.
 
@@ -43,17 +49,17 @@ nie zmienia.
   albo „Odbiór usług za 10.2026: Nowak Piotr”.
 - **Okres** pochodzi z tematu, a bez niego z daty maila (`period_for`).
 - **Bez jednej osoby** (brak nazwiska, dwie osoby, osoba z dwoma kontraktami) w `internal`
-  i `all` powstaje karta do ręcznego przypisania, a w pilotażu mail jest pomijany. Nie staje
-  się sprawą, tak jak inne maile na rozliczenia@ nieprzypisane przez czytnik rozliczeń.
+  i `all` powstaje karta do ręcznego przypisania, a w pilotażu mail jest pomijany. Sprawa
+  powstaje w każdym z tych przypadków.
 
-Skutek uboczny: pytanie od pracownika takiego klienta na rozliczenia@ bez załącznika też
-trafia do rozliczeń jako karta, a nie jako sprawa. W archiwum IX–X był jeden taki mail
-(BNP, odpowiedź o numer faktury).
+Skutek uboczny: pytanie od pracownika takiego klienta na rozliczenia@ bez załącznika daje
+sprawę i dodatkowo kartę w rozliczeniach. W archiwum IX–X był jeden taki mail (BNP, odpowiedź
+o numer faktury).
 
 ## Skala (archiwum rozliczenia@ 01.09–31.10.2026, reguły produkcji z 23.11)
 
 24 maile bez załącznika na rozliczenia@ od domen klientów z regułą akceptacji: PKO 11, BIK 10,
 Plus, KIR i BNP po 1. 18 z nich ma osobę w temacie (BIK 10, PKO 8). Pozostałe 6 to karty do
-przypisania. Dotąd wszystkie 24 zostawały sprawami.
+przypisania. Wszystkie 24 nadal są też sprawami; dotąd były wyłącznie sprawami.
 
 Szczegóły jednej skrzynki: `ludzie/jedna-skrzynka-wsparcie.md` (sekcja „Router E8”).

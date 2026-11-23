@@ -15,12 +15,16 @@ Dwa stany są błędem konfiguracji i zatrzymują czytnik rozliczeń bez ruszani
 (``misconfiguration``): wspólna skrzynka bez adresów (``shared_without_route``) i adresy przy
 osobnych skrzynkach (``route_not_shared``, np. wsparcie@ ustawiona przed skrzynką spraw).
 
-Mail na rozliczenia@ bez załącznika (pytanie) jest sprawą, chyba że pisze klient z regułą
-akceptacji mailowej (``acceptance_clients``): wtedy to akceptacja godzin w treści i bierze go
-czytnik rozliczeń. Jeśli przyszedł z adresu firmy z tematem rozliczenia, czytnik rozliczeń
-dodatkowo zapisuje jego treść jako dokument jednej osoby (``mailbox.is_body_only_settlement``,
-23.11.2026); router tego nie zmienia, więc sprawa też powstaje. Mail wysłany w ukrytej kopii
-nie ma adresu rozliczeń w nagłówkach, które czytamy, więc też jest sprawą.
+Mail na rozliczenia@ bez załącznika jest sprawą. Dwa takie maile czytnik rozliczeń czyta
+dodatkowo i zapisuje ich treść jako ``.eml`` jednej osoby; router tego nie zmienia, więc sprawa
+też powstaje (decyzja Artura 23.11.2026, „sprawa i dokument”):
+
+* akceptacja klienta z regułą akceptacji mailowej (``is_client_acceptance_mail``,
+  domeny z ``acceptance_clients``);
+* mail z adresu firmy z tematem rozliczenia (``mailbox.is_body_only_settlement``).
+
+Mail wysłany w ukrytej kopii nie ma adresu rozliczeń w nagłówkach, które czytamy, więc też
+jest sprawą.
 """
 
 from __future__ import annotations
@@ -77,17 +81,12 @@ def recipients(message: dict[str, Any]) -> frozenset[str]:
     return frozenset(found)
 
 
-def is_settlements_mail(
-    message: dict[str, Any],
-    addresses: frozenset[str],
-    acceptance_domains: Set[str] = frozenset(),
-) -> bool:
+def is_settlements_mail(message: dict[str, Any], addresses: frozenset[str]) -> bool:
     """Wiadomość dla czytnika rozliczeń: załącznik i adres rozliczeń w „Do”/„DW”,
-    albo raport godzin klienta (``is_time_report_mail``) na dowolny adres skrzynki,
-    albo akceptacja klienta w samej treści (``is_client_acceptance_mail``)."""
+    albo raport godzin klienta (``is_time_report_mail``) na dowolny adres skrzynki."""
 
     if not message.get("hasAttachments"):
-        return is_client_acceptance_mail(message, addresses, acceptance_domains)
+        return False
     return bool(recipients(message) & addresses) or is_time_report_mail(message)
 
 
@@ -104,9 +103,10 @@ def is_client_acceptance_mail(
     """Akceptacja godzin w treści maila, bez załącznika (próba rozliczeń IX–X 2026).
 
     PKO i BIK odpisują w wątku z TS na adres rozliczeń, np. „łączna liczba godzin: 112,
-    październik 2026”. Bez tej reguły router oddawał to czytnikowi spraw, a kontrola
-    ``proof.accept_has_hours`` nie miała czego sprawdzić. Wymagamy adresu rozliczeń w „Do”/„DW”
-    i nadawcy dokładnie z domeny klienta z regułą akceptacji mailowej; resztę bierze sprawa.
+    październik 2026”. Taki mail zostaje sprawą (router go nie zabiera), a czytnik rozliczeń
+    zapisuje go dodatkowo jako dokument, żeby ``proof.accept_has_hours`` miała co sprawdzić.
+    Wymagamy adresu rozliczeń w „Do”/„DW” i nadawcy dokładnie z domeny klienta z regułą
+    akceptacji mailowej.
     """
 
     domain = sender_domain(message)
@@ -114,7 +114,7 @@ def is_client_acceptance_mail(
 
 
 async def acceptance_clients(db: "AsyncSession") -> dict[str, frozenset[int]]:
-    """Domena nadawcy → klienci, od których akceptacja mailowa idzie do rozliczeń.
+    """Domena nadawcy → klienci, od których akceptację mailową czyta czytnik rozliczeń.
 
     * ``proof.excel_with_mail`` włączona z domeną: ta domena (BIK, BNP, VIP Solution);
     * ``proof.accept_has_hours`` włączona: domena z ``proof.excel_with_mail``, a bez niej
