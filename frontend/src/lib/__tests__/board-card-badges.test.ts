@@ -14,6 +14,7 @@ import {
   isReadyForDlSend,
   knownForwardGap,
   minimumOnlyGap,
+  boardQcChip,
   qcChip,
   type CardBadgeContext,
   compactCardBadge,
@@ -234,6 +235,24 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
     expect(qcChip(item({ qc: { status: "overridden", blocking_failed: 2 } })).label).toBe(
       "QC: przepuszczone",
     );
+  });
+
+  it("klient z formularzem CV: bez chipa QC CV firmowego i bez szarej strzałki QC (23.11.2026)", () => {
+    // Staging 23.11.2026, Centrum e-Zdrowia: karta w „QC CV” mówiła
+    // „QC: CV sprzed rekrutacji — potwierdź”, a serwer QC takiej pary nie liczy
+    // (`pipeline._assert_cv_qc_gate` → `client_takes_client_form`).
+    const form = { client_form: { template: true, missing: 0 } };
+    const failed = { qc: { status: "failed" as const, blocking_failed: 2 } };
+    expect(boardQcChip(item({ ...form, qc: { status: "overridden", blocking_failed: 1 } }), "cv_qc")).toBeNull();
+    expect(boardQcChip(item({ ...form, ...failed }), "cv_qc")).toBeNull();
+    expect(knownForwardGap(item({ ...form, ...failed }), "cv_qc")).toBeNull();
+    expect(knownForwardGap(item({ ...form, ...failed }), "cv_qc", { skipsFillGates: true })).toBeNull();
+    // Klient z CV firmowym — bez zmian.
+    expect(boardQcChip(item(failed), "cv_qc")?.label).toBe("QC: 2 do poprawy");
+    expect(boardQcChip(item({}), "cv_qc")?.label).toBe("QC: jeszcze nie sprawdzone");
+    expect(boardQcChip(item(failed), "verified")).toBeNull();
+    expect(knownForwardGap(item(failed), "cv_qc")).toBe("QC: 2 do poprawy");
+    expect(knownForwardGap(item(failed), "cv_qc", { skipsFillGates: true })).toBe("QC: 2 do poprawy");
   });
 
   it("strzałka jest szara tylko przy brakach, które karta zna", () => {

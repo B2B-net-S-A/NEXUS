@@ -1206,6 +1206,18 @@ export function qcChip(item: KanbanItem): QcChip {
 }
 
 /**
+ * Chip QC na karcie Tablicy: tylko w „QC CV” i tylko u klienta, który bierze
+ * CV firmowe. Klient z formularzem CV (`item.client_form`, np. Centrum
+ * e-Zdrowia) nie dostaje CV firmowego, a serwer nie liczy jego QC
+ * (`pipeline._assert_cv_qc_gate`), więc chip byłby alarmem o dokumencie, którego
+ * klient nie bierze (staging 23.11.2026). Stan formularza mówi `clientFormBadge`.
+ */
+export function boardQcChip(item: KanbanItem, column: BoardColumnKey | null): QcChip | null {
+  if (column !== "cv_qc" || item.client_form) return null;
+  return qcChip(item);
+}
+
+/**
  * Znany z karty brak przed przejściem do NASTĘPNEJ kolumny — strzałka jest
  * wtedy szara (ale klikalna: okno „Przesuń dalej" mówi, co zrobić). `null` =
  * karta nie zna braku; pełną listę liczy serwer w oknie.
@@ -1218,7 +1230,7 @@ export function knownForwardGap(
   // 22.10.2026: Delivery Lead przesuwa bez bramek pól — znany jest mu tylko
   // brak QC (serwer: `pipeline_move_rules.skips_fill_gates`).
   if (options.skipsFillGates) {
-    return from === "cv_qc" && item.qc?.status === "failed"
+    return from === "cv_qc" && item.qc?.status === "failed" && !item.client_form
       ? `QC: ${item.qc.blocking_failed} do poprawy`
       : null;
   }
@@ -1237,7 +1249,7 @@ export function knownForwardGap(
     // QC-4: starszy plik B2B ma własny napis zamiast cichego „Brak CV”.
     return item.qc?.qc_state?.kind === "older_cv" ? item.qc.qc_state.text.replace(/^QC: /, "") : "Brak CV firmowego";
   }
-  if (from === "cv_qc" && item.qc?.status === "failed") {
+  if (from === "cv_qc" && item.qc?.status === "failed" && !item.client_form) {
     return `QC: ${item.qc.blocking_failed} do poprawy`;
   }
   return null;

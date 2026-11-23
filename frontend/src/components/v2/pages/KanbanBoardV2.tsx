@@ -161,7 +161,7 @@ import {
  knownForwardGap,
  minimumOnlyGap,
  requirementsSkippedBadge,
- qcChip,
+ boardQcChip,
  type CardNextStep,
  compactCardBadge,
  cardOwner,
@@ -976,7 +976,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  const forwardGap = nextColumnLabel
  ? knownForwardGap(item, boardKey, { skipsFillGates: v5?.skipsFillGates })
  : null;
- const qc = boardKey === "cv_qc" ? qcChip(item) : null;
+ const qc = boardQcChip(item, boardKey);
  const cvBadge = cvStateBadge(item, boardKey);
  // 22.10.2026: karta przeszła dalej mimo braków, bo przesunął ją DL.
  const skippedBadge = requirementsSkippedBadge(item, boardKey);
