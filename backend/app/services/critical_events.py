@@ -58,6 +58,7 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "client.delete": "Usunięcie klienta",
     "client.merge": "Scalenie klientów",
     "client.registry_number_added": "Dopisanie numeru klienta z faktury KSeF",
+    "client.payment_reminder_sent": "Monit płatności do klienta",
     "candidate.delete": "Usunięcie kandydata / kontraktora",
     "order_line.delete": "Usunięcie konsultanta z zamówienia",
     "contract.delete": "Usunięcie kontraktu",
