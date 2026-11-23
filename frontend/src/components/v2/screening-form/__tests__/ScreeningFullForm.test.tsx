@@ -1427,3 +1427,114 @@ describe("ScreeningFullForm — pamięć rozmowy (16.10.2026, D1 A / D2 A / D3 B
     expect(warning).toHaveTextContent("Java Developer — 2 odpowiedzi");
   });
 });
+
+describe("ScreeningFullForm — „Arkusz rozmowy” (Tryb rozmowy, 23.11.2026)", () => {
+  const forward = { stage: "verified", stageDefId: 12, label: "Zweryfikowany" };
+  const reject = { stage: "rejected", stageDefId: 13, previousStage: "screening", previousCategory: "internal" as const };
+
+  function sheetState(): ScreeningFormState {
+    const base = formState().card!;
+    return formState({
+      board_column: "screening",
+      champion_profile: {
+        screening_questions: [
+          { id: "q1", question: "Ile lat pracujesz z Javą?", ideal_answer: "5+ lat", deal_breaker: "Poniżej 2 lat" },
+          { id: "q2", question: "Czy pracowałeś z Kafką?", ideal_answer: "Tak, produkcyjnie", deal_breaker: "" },
+        ],
+        experience: { domains: [{ name: "Bankowość", level: "must" }], skills: [{ name: "WCAG", level: "must" }] },
+      } as ScreeningFormState["champion_profile"],
+      card: {
+        ...base,
+        labels: { ...base.labels, location: "Lokalizacja", nationality: "Narodowość" },
+        editable_fields: [...base.editable_fields, "location", "nationality"],
+        required: ["location", "work_mode"],
+      },
+    });
+  }
+
+  it("pasek nad arkuszem mówi, czego brakuje do „Zweryfikowany”; brak znika przy wypełnianiu", async () => {
+    serverState = sheetState();
+    const user = userEvent.setup();
+    mount({ forward, reject, layout: "sheet" });
+    const bar = await screen.findByTestId("conversation-sheet-gaps");
+    expect(bar).toHaveTextContent("Do „Zweryfikowany” brakuje 2:");
+    expect(within(bar).getAllByTestId("conversation-sheet-gap").map((chip) => chip.textContent)).toEqual([
+      "Lokalizacja",
+      "Tryb pracy",
+    ]);
+    expect(bar).toHaveTextContent("pytania 0 z 2 · sprawdź 0 z 2");
+    // Stopka nie powtarza linii minimum — braki stoją na górze.
+    expect(screen.queryByTestId("screening-form-minimum")).toBeNull();
+
+    await user.type(screen.getByLabelText("Lokalizacja"), "Warszawa");
+    await user.type(screen.getAllByLabelText("Odpowiedź")[0], "6 lat");
+    await user.click(within(screen.getByRole("radiogroup", { name: "Bankowość — wynik rozmowy" })).getByRole("radio", { name: "Potwierdził" }));
+    expect(bar).toHaveTextContent("Do „Zweryfikowany” brakuje 1:");
+    expect(within(bar).getAllByTestId("conversation-sheet-gap").map((chip) => chip.textContent)).toEqual(["Tryb pracy"]);
+    expect(bar).toHaveTextContent("pytania 1 z 2 · sprawdź 1 z 2");
+
+    // Klik w brak stawia kursor w polu.
+    await user.click(within(bar).getByRole("button", { name: "Tryb pracy" }));
+    expect(screen.getByLabelText("Tryb pracy")).toHaveFocus();
+  });
+
+  it("rzadkie pola pod „pokaż”, a zapis idzie tą samą trasą co w kolumnie", async () => {
+    serverState = sheetState();
+    mocks.put.mockImplementation(() => Promise.resolve({ data: formSaveResult(serverState) }));
+    const user = userEvent.setup();
+    mount({ forward, reject, layout: "sheet" });
+    await screen.findByTestId("conversation-sheet-gaps");
+    expect(screen.queryByLabelText("Narodowość")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Pokaż pola: Narodowość" }));
+    await user.type(screen.getByLabelText("Narodowość"), "polska");
+    await user.click(within(screen.getByRole("radiogroup", { name: "WCAG — wynik rozmowy" })).getByRole("radio", { name: "Nie ma" }));
+    await user.click(screen.getByRole("button", { name: /^Zapisz$/ }));
+
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
+    const payload = lastPut();
+    expect(payload.card?.fields).toMatchObject({ nationality: "polska" });
+    expect(payload.sheet?.experience_checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "WCAG", status: "not_confirmed" })]),
+    );
+  });
+
+  it("stopka arkusza: „Nie odebrał” zapisuje próbę kontaktu, „Odrzuć” otwiera to samo okno", async () => {
+    serverState = sheetState();
+    mocks.post.mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    mount({ forward, reject, layout: "sheet" });
+    const footer = await screen.findByTestId("screening-form-footer");
+    await user.click(within(footer).getByRole("button", { name: /Nie odebrał/ }));
+    await waitFor(() =>
+      expect(mocks.post).toHaveBeenCalledWith(
+        "/api/notes",
+        expect.objectContaining({ candidate_id: FORM_CANDIDATE_ID, job_id: FORM_JOB_ID, kind: "contact_attempt" }),
+      ),
+    );
+    await user.click(within(footer).getByRole("button", { name: /Odrzuć/ }));
+    expect(screen.getByTestId("rejection-stub")).toBeInTheDocument();
+  });
+
+  it("„Zapisz i przekaż dalej” w arkuszu zatrzymuje się na tych samych brakach", async () => {
+    serverState = sheetState();
+    const user = userEvent.setup();
+    mount({ forward, reject, layout: "sheet" });
+    const answers = await screen.findAllByLabelText("Odpowiedź");
+    await user.type(answers[0], "6 lat");
+    await user.type(answers[1], "Tak");
+    await user.click(screen.getByRole("button", { name: /Zapisz i przekaż dalej/ }));
+    expect(mocks.showError).toHaveBeenCalledWith("Przed przekazaniem dalej uzupełnij: Lokalizacja, Tryb pracy.");
+    expect(mocks.put).not.toHaveBeenCalled();
+  });
+
+  it("bez trybu arkusza formularz wygląda jak dotąd — bez paska i bez „Nie odebrał” w stopce", async () => {
+    serverState = sheetState();
+    mount({ forward, reject });
+    const footer = await screen.findByTestId("screening-form-footer");
+    expect(screen.queryByTestId("conversation-sheet-gaps")).toBeNull();
+    expect(within(footer).queryByRole("button", { name: /Nie odebrał/ })).toBeNull();
+    expect(screen.getByTestId("screening-form-minimum")).toHaveTextContent("brakuje: Lokalizacja, Tryb pracy");
+    expect(screen.getByLabelText("Narodowość")).toBeInTheDocument();
+    expect(screen.getByText("Sprawdź w rozmowie — doświadczenie poza stackiem")).toBeInTheDocument();
+  });
+});
