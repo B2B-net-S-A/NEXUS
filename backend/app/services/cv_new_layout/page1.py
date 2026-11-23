@@ -1,8 +1,9 @@
-"""Strona 1: tytuł z językami → Dlaczego nasz kandydat → Przebieg kariery →
+"""Strona 1: stanowisko, imię i nazwisko, języki od B1 i miasto → Dlaczego nasz kandydat → Przebieg kariery →
 Umiejętności → Edukacja. Mieści się zawsze na jednej stronie (`fit.py`)."""
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from app.services.cv_new_layout.axis import career_axis
@@ -18,30 +19,65 @@ from app.services.cv_new_layout.text import (
 )
 
 
+# Poziomy poniżej B1 nie trafiają na stronę 1 (Artur 23.11: „tylko B1 w górę”).
+MIN_LEVEL = 3  # A1=1, A2=2, B1=3
+_BASIC = ("podstaw", "basic", "elementar", "beginner", "początk")
+
+# kolor wprost w atrybutach: WeasyPrint nie stosuje `currentColor` ani CSS do wnętrza SVG
+PIN = (
+    "<svg class='pin' viewBox='0 0 24 24'><g fill='none' stroke='#E73748' stroke-width='2.1' "
+    "stroke-linejoin='round'><path d='M12 21.5s-6.8-6.3-6.8-11.4a6.8 6.8 0 0 1 13.6 0"
+    "c0 5.1-6.8 11.4-6.8 11.4z'/><circle cx='12' cy='10' r='2.4'/></g></svg>"
+)
+
+
+def shown_language(level: str, lang: str) -> Optional[str]:
+    """Etykieta poziomu albo None, gdy poziom jest poniżej B1 (słownie: „podstawowy”)."""
+    if not level:
+        return ""
+    degree, label = lang_level(level, lang)
+    if degree is not None:
+        return label if degree >= MIN_LEVEL else None
+    return None if any(w in level.lower() for w in _BASIC) else label
+
+
+def city(location: str) -> str:
+    """„Warszawa, PL” → „Warszawa”; inny kraj zostaje kodem („Berlin, DE”)."""
+    return re.sub(r",\s*PL$", "", (location or "").strip())
+
+
 def title_row(ctx: Ctx) -> str:
-    """„Stanowisko – Imię Nazwisko” i pastylki języków („PL ojczysty”, „EN C1/C2”).
-    CV blind: samo stanowisko, jak w pliku Word."""
+    """Stanowisko, pod nim imię i nazwisko (bez myślnika); po prawej w jednym rzędzie
+    języki od B1 i miasto kandydata. CV blind: samo stanowisko, bez miasta."""
     doc = ctx.doc
     pills = []
     for entry in doc.languages:
         name, level = lang_parts(entry)
         if not name:
             continue
-        _, label = lang_level(level, ctx.lang) if level else (None, "")
+        label = shown_language(level, ctx.lang)
+        if label is None:
+            continue
         pills.append(
             f"<span class='pill'><b>{esc(lang_code(name))}</b>{(' ' + esc(label)) if label else ''}</span>"
         )
+    where = city(doc.location)
+    if where and not doc.blind:
+        pills.append(f"<span class='pill loc'>{PIN}{esc(where)}</span>")
     side = f"<div class='pills'>{''.join(pills)}</div>" if pills else ""
     name = (
         ""
         if doc.blind or not doc.name
-        else f" – <span class='nm'>{esc(doc.name)}</span>"
+        else f"<div class='nm'>{esc(doc.name)}</div>"
     )
-    return f"<div class='trow'><div class='tcol'><h1 class='title'>{esc(doc.position)}{name}</h1></div>{side}</div>"
+    return (
+        f"<div class='trow'><div class='tcol'><h1 class='title'>{esc(doc.position)}</h1>{name}</div>"
+        f"{side}</div>"
+    )
 
 
 def why_block(ctx: Ctx) -> str:
-    """Trzy zdania; `**…**` z generatora to pogrubienie (bez większego kroju)."""
+    """Trzy zdania bez kropek, oddzielone cienkimi paskami; `**…**` to pogrubienie."""
     items = "".join(f"<li>{md_bold(w)}</li>" for w in ctx.doc.why)
     return f"<ul class='why'>{items}</ul>" if items else ""
 

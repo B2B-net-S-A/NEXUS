@@ -37,6 +37,7 @@ from app.api.cv_generator_b2b import _load_generated_editor, _log_generated_down
 from app.core.database import get_db
 from app.core.http_headers import content_disposition_attachment
 from app.core.rate_limit import limiter, user_or_ip_key
+from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_document_version import CvDocumentVersion
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.schemas.candidate_stage_cv import CVBrandedFinalize
@@ -52,7 +53,7 @@ from app.services.cv_pdf_preview import (
     pdf_from_docx,
 )
 from app.services import cv_layout as layout_service
-from app.services.cv_new_pdf import NewCvPdf, NewCvPdfError, render_new_cv_pdf
+from app.services.cv_new_pdf import NewCvPdf, NewCvPdfError, cv_facts, render_new_cv_pdf
 from app.services.cv_rodo_clause import keep_rodo_clause
 from app.services.html_sanitizer import sanitize_cv_html
 
@@ -146,9 +147,13 @@ async def _new_cv_pdf(
     generated: Optional[CvGeneratedDocument],
     extras: Optional[dict],
     consent: Optional[bytes],
+    csv: Optional[CandidateStageCV] = None,
 ) -> NewCvPdf:
     """PDF „Nowego CV”; przed renderem kończy transakcję żądania (jak `_pdf`)."""
     fallback = generated.render_payload if generated is not None else None
+    facts = (
+        await cv_facts(db, csv.candidate_id, csv.job_id) if csv is not None else None
+    )
     await db.commit()
     try:
         return await render_new_cv_pdf(
@@ -158,6 +163,7 @@ async def _new_cv_pdf(
             fallback=fallback if isinstance(fallback, dict) else None,
             extras=extras,
             consent=consent,
+            facts=facts,
         )
     except NewCvPdfError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
@@ -207,6 +213,7 @@ async def preview_stage_cv_pdf(
             generated=generated,
             extras=csv.page1_extras,
             consent=csv.branded_consent_content,
+            csv=csv,
         )
         await log_cv_download(
             db,
@@ -278,6 +285,7 @@ async def approved_stage_cv_pdf(
             generated=generated,
             extras=version.page1_extras,
             consent=version.consent_content,
+            csv=csv,
         )
         await log_cv_download(
             db,

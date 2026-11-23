@@ -3,8 +3,9 @@
 - Tylko główna ścieżka: stanowisko w całości w innym = projekt równoległy (opis od
   str. 2); zmiana pracy z zakładką = poprzednie kończy się w dniu startu nowego.
 - Przerwa < 6 mies. domknięta, dłuższa = przerywana linia. Kolejne stanowiska
-  w tej samej firmie = jeden odcinek. Ostatnie 12 lat, starsze w „Wcześniej”
-  (1–2 starsze = oś od początku). Bez bieżącej pracy oś kończy się na ostatniej.
+  w tej samej firmie = jeden odcinek. Ostatnie 12 lat; starsze (więcej niż 2)
+  jako jasny odcinek z „//”, latami i liczbą stanowisk (1–2 starsze = oś od
+  początku). Bez bieżącej pracy oś kończy się na ostatniej.
 - Każda firma podpisana pełną nazwą (nigdy „…”), w 1–3 liniach, flagi nad
   i pod paskiem bez kolizji, układane od prawej. Szerokość napisu z metryk
   pliku Poppins 700.
@@ -29,9 +30,9 @@ FS = 3.0
 LH = FS * 1.12
 ASC, DESC = 0.74 * FS, 0.22 * FS
 BAR = 3.8
-OLDER_TEXT = "#5C5751"
 OLDER_LEFT = 40.0  # miejsce na „Wcześniej” przed początkiem osi
-OLDER_WIDTH = OLDER_LEFT - 2.0
+# Starsze lata (Artur 23.11.2026, wariant A1): jasny odcinek tego samego paska.
+OLDER_FILL = "#ECE7E1"
 
 _SUFFIX = re.compile(
     r"\s*(\(.*?\)|\bsp\.?\s*z\s*o\.?\s*o\.?|\bs\.?\s*k\.?\s*a\.?|\bs\.?\s*a\.?(?=\s|$)|\bsp\.?\s*j\.?|\bpoland\b|\bpolska\b)\.?",
@@ -195,45 +196,6 @@ def _text(
     )
 
 
-def _older_block(
-    ctx: Ctx, older: tuple[DatedRole, ...], ay: float
-) -> tuple[str, tuple[float, float]]:
-    if not older:
-        return "", (ay, ay)
-    a, b = int(min(r.start for r in older)), int(max(r.end for r in older))
-    top = [
-        t
-        for t in (
-            company_name(r.role.company) for r in sorted(older, key=lambda r: -r.months)
-        )
-        if t
-    ][:2]
-    lines = [f"{a}–{b} · {counted(ctx.lang, 'position', len(older))}"]
-    if top:
-        # „m.in. dwie najdłuższe firmy”, zawijane po słowach do szerokości lewego marginesu osi
-        cur = ""
-        for word in f"{ctx.t['including']} {', '.join(top)}".split():
-            trial = f"{cur} {word}".strip()
-            if cur and text_width(trial, 2.55, "SourceSans3-600.ttf") > OLDER_WIDTH:
-                lines.append(cur)
-                cur = word
-            else:
-                cur = trial
-        lines.append(cur)
-    out = _text(0, ay - 3, ctx.t["earlier"])
-    for k, ln in enumerate(lines):
-        out += _text(
-            0,
-            ay + 0.9 + k * 3.1,
-            ln,
-            size=2.55,
-            weight=500,
-            family="Source Sans 3",
-            fill=OLDER_TEXT,
-        )
-    return out, (ay - 3 - ASC, ay + 0.9 + (len(lines) - 1) * 3.1 + DESC)
-
-
 Rect = tuple[float, float, float, float]
 Pole = tuple[float, float, float]
 
@@ -387,7 +349,9 @@ def career_axis(ctx: Ctx) -> str:
         )
     if has_cur and x(end_v) - lastx > 11:
         p.append(_text(W - 0.4, yy, ctx.t["today"], anchor="end", size=2.6))
-    older_svg, (oy0, oy1) = _older_block(ctx, tl.older, ay)
+    older_svg, (oy0, oy1) = (
+        _older_on_bar(ctx, tl.older, ay, left, yy) if tl.older else ("", (ay, ay))
+    )
     p.append(older_svg)
     lo_y = min(lo_y, oy0 - 1)
     hi_y = max(yy + 1.0, oy1 + 1)
@@ -396,3 +360,58 @@ def career_axis(ctx: Ctx) -> str:
         f'<svg class="axis" viewBox="0 {lo_y:.2f} {W} {h:.2f}" width="{W}mm" height="{h:.2f}mm" '
         f'xmlns="http://www.w3.org/2000/svg">{"".join(p)}</svg>'
     )
+
+
+def _older_summary(ctx: Ctx, older: tuple[DatedRole, ...]) -> tuple[int, int, list[str]]:
+    a, b = int(min(r.start for r in older)), int(max(r.end for r in older))
+    names: list[str] = []
+    for r in sorted(older, key=lambda r: -r.months):
+        n = company_name(r.role.company)
+        if n and n not in names:
+            names.append(n)
+    return a, b, names
+
+
+def _wrap(text: str, width: float, size: float, font: str) -> list[str]:
+    lines, cur = [], ""
+    for word in text.split():
+        trial = f"{cur} {word}".strip()
+        if cur and text_width(trial, size, font) > width:
+            lines.append(cur)
+            cur = word
+        else:
+            cur = trial
+    return lines + ([cur] if cur else [])
+
+
+def _older_on_bar(
+    ctx: Ctx, older: tuple[DatedRole, ...], ay: float, left: float, yy: float
+) -> tuple[str, tuple[float, float]]:
+    """Wcześniejsze lata jako jasny odcinek tego samego paska, przerwa „//” przed
+    oknem; nad paskiem lata, pod nim zwykłym pismem liczba stanowisk i 2 najdłuższe firmy."""
+    a, b, names = _older_summary(ctx, older)
+    x0, x1 = 3.0, left - 4.0
+    top_bar = ay - BAR / 2
+    out = [
+        f'<rect x="{x0:.2f}" y="{top_bar:.2f}" width="{x1 - x0:.2f}" height="{BAR}" fill="{OLDER_FILL}"/>'
+    ]
+    # przerwa w skali: dwie ukośne kreski między starszymi latami a oknem
+    for dx in (0.0, 1.0):
+        bx = x1 + 1.4 + dx
+        out.append(
+            f'<line x1="{bx - 0.7:.2f}" y1="{ay + BAR / 2 + 0.6:.2f}" x2="{bx + 0.7:.2f}" '
+            f'y2="{ay - BAR / 2 - 0.6:.2f}" stroke="{SOFT}" stroke-width=".35"/>'
+        )
+    head = f"{a}–{b}"
+    out.append(_text(x0, top_bar - 1.6, head))
+    width = x1 - x0
+    lead = counted(ctx.lang, "position", len(older))
+    body = f"{lead}, {ctx.t['including']} {', '.join(names[:2])}" if names else lead
+    lines = _wrap(body, width, 2.75, "SourceSans3-600.ttf")[:3]
+    ty = ay + BAR / 2 + 3.2
+    for k, ln in enumerate(lines):
+        out.append(
+            _text(x0, ty + k * 3.2, ln, size=2.75, weight=600, family="Source Sans 3", fill=INK)
+        )
+    bottom = ty + (len(lines) - 1) * 3.2 + DESC
+    return "".join(out), (top_bar - 1.6 - ASC, max(bottom, yy))
