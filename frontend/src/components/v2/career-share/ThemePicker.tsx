@@ -37,7 +37,7 @@ export function ThemePicker({ value, defaultTheme, onChange, busy = false }: The
     <section className="space-y-2" aria-labelledby="job-theme-heading">
       <div className="flex items-baseline justify-between gap-3">
         <h3 id="job-theme-heading" className="text-sm font-semibold text-foreground">
-          Wygląd strony, grafiki i plakatu
+          Wygląd grafiki posta i plakatu
         </h3>
         {chosen ? (
           <button
@@ -51,9 +51,10 @@ export function ThemePicker({ value, defaultTheme, onChange, busy = false }: The
         ) : null}
       </div>
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Domyślny wynika z roli w tytule rekrutacji. Zmiana działa od razu na stronie i w nowych
-        postach — bez ponownego zatwierdzania opisu. Posty już opublikowane zachowują grafikę
-        z dnia publikacji.
+        Strona rekrutacji ma jeden wygląd nowej strony B2B Network (od 23.11.2026). Szablon
+        zmienia grafikę posta na LinkedInie i plakat z kodem QR. Domyślny wynika z roli
+        w tytule rekrutacji, zmiana działa od razu w nowych postach, bez ponownego zatwierdzania
+        opisu. Posty już opublikowane zachowują grafikę z dnia publikacji.
       </p>
       <div className="grid grid-cols-3 gap-2" role="group" aria-label="Szablony">
         {CAREER_THEME_IDS.map((id: CareerThemeId) => {
