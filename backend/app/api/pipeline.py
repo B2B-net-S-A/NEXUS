@@ -1223,6 +1223,12 @@ def _still_missing(keys: list[str], payload: dict) -> list[str]:
                 out.append(key)
         elif key == "debrief" or key in minimum:
             out.append(key)
+        elif key in ("client_form", "client_score"):
+            # Formularz klienta (23.11.2026) gaśnie, gdy para go wypełniła.
+            form = payload.get("client_form") or {}
+            done = form.get("missing" if key == "client_form" else "score_missing")
+            if done is None:
+                out.append(key)
     return out
 
 
@@ -1233,6 +1239,8 @@ _SKIP_BELL_LABELS = {
     "why_candidate": "Dlaczego ten kandydat",
     "candidate_rate": "stawka kandydata",
     "debrief": "debrief",
+    "client_form": "formularz CV klienta",
+    "client_score": "tabela punktowa klienta",
 }
 
 
@@ -1964,7 +1972,16 @@ async def apply_move(
                 },
             )
         )
-    skipped_requirements = debrief_skipped + verified_skipped
+    # 23.11.2026 (prośba DL CEZ): klient z formularzem — na „QC CV” i dalej
+    # dopiero z wypełnionym formularzem i tabelą punktową (gdy mają wzory).
+    form_skipped = await pipeline_move_rules.assert_client_form_before_qc(
+        db,
+        candidate_id=data.candidate_id,
+        job=job,
+        user=policy.viewer,
+        target_column=target_column,
+    )
+    skipped_requirements = debrief_skipped + verified_skipped + form_skipped
     # D6 (08.10.2026): „Wróć do poprawy” z „QC CV” niesie listę pól do poprawy.
     # Walidacja PRZED zapisem ruchu — zła lista nie może cofnąć karty bez niej.
     fix_keys: list[str] = []
@@ -4651,7 +4668,13 @@ async def _render_kanban_board(
         )
         form_state = client_forms.get(e.candidate_id) if client_forms else None
         payload["client_form"] = (
-            {"template": form_state.template is not None, "missing": form_state.missing}
+            {
+                "template": form_state.template is not None,
+                "missing": form_state.missing,
+                # Tabela punktowa (23.11.2026: też warunek „QC CV”).
+                "score_template": form_state.score_template is not None,
+                "score_missing": form_state.score_missing,
+            }
             if form_state is not None
             else None
         )
@@ -6106,6 +6129,17 @@ async def bulk_move_candidates(
             pending_rate=False,
             # Ruch zbiorczy nie zapisuje śladu `requirements_skipped` — bramka
             # pól obowiązuje tu także Delivery Leada (22.10.2026).
+            allow_skip=False,
+        )
+    # Formularz klienta przed „QC CV” (23.11.2026) — jak pojedynczy /move,
+    # bez śladu pominięcia, więc obowiązuje także Delivery Leada.
+    for cid in unique_ids:
+        await pipeline_move_rules.assert_client_form_before_qc(
+            db,
+            candidate_id=cid,
+            job=job,
+            user=current_user,
+            target_column=bulk_target_column,
             allow_skip=False,
         )
     # Bliźniaki (0615): ruch zbiorczy nie zna powodów pominięcia — każdy

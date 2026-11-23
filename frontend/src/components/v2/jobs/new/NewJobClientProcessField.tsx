@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { ClientProcessEditor } from "@/components/v2/jobs/ClientProcessEditor";
 import {
   EMPTY_PROCESS,
-  STEP_LABEL,
+  stepName,
   type ClientProcessInput,
 } from "@/lib/job-client-process";
 import { useClientProcessHints } from "@/lib/job-client-process-api";
@@ -61,7 +61,7 @@ export function NewJobClientProcessField({ clientId, value, onChange }: NewJobCl
             <div className="flex items-center gap-2 rounded-md bg-muted/60 px-3 py-1.5">
               <span className="text-xs">
                 Poprzednia rekrutacja tego klienta:{" "}
-                <b>{suggested.steps.map((s) => STEP_LABEL[s.kind]).join(" + ")}</b>
+                <b>{suggested.steps.map((s) => stepName(s)).join(" + ")}</b>
               </span>
               <Button
                 type="button"

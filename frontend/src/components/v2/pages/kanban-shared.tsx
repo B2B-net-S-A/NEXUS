@@ -163,7 +163,13 @@ export interface KanbanItem {
  // 0521: klient bierze formularz CV zamiast CV firmowego — `template` = jest
  // wzór w Plikach, `missing` = puste pola (`null` = jeszcze nie wypełniony).
  // Brak pola / `null` = klient bierze CV firmowe.
- client_form?: { template: boolean; missing: number | null } | null;
+ client_form?: {
+    template: boolean;
+    missing: number | null;
+    /** Tabela punktowa (Excel) — od 23.11.2026 też warunek „QC CV”. */
+    score_template?: boolean;
+    score_missing?: number | null;
+  } | null;
  // Stawka z profilu kandydata (PLN/h) — podpowiedź w oknie „Zweryfikowany".
  candidate_expected_rate_hourly?: string | number | null;
  // „Stawka od” (0414): najniższa stawka z 18 miesięcy — podpowiedź, gdy karta

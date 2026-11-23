@@ -56,7 +56,7 @@ export const STEP_LABEL: Record<ProcessStepKind, string> = {
   manager_interview: "Rozmowa z managerem",
   client_interview: "Rozmowa z klientem",
   home_task: "Zadanie do wykonania",
-  online_test: "Test online",
+  online_test: "Test",
   onsite_meeting: "Spotkanie w biurze",
 };
 
@@ -64,6 +64,16 @@ export const FORMAT_LABEL: Record<ProcessStepFormat, string> = {
   remote: "zdalnie",
   onsite: "na miejscu",
 };
+
+/**
+ * Nazwa etapu w zdaniach i faktach: test bierze formę do nazwy („Test online”,
+ * „Test stacjonarny”) — „Test online · na miejscu” brzmiał sprzecznie (prośba
+ * DL CEZ z 20.11.2026: „nie mam opcji dania testu stacjonarnego”).
+ */
+export function stepName(step: Pick<ProcessStep, "kind" | "format">): string {
+  if (step.kind === "online_test") return step.format === "onsite" ? "Test stacjonarny" : "Test online";
+  return STEP_LABEL[step.kind];
+}
 
 export interface ProcessPreset {
   key: string;
@@ -189,9 +199,10 @@ export function candidateSentence(
 ): string | null {
   if (!process?.steps.length) return null;
   const parts = process.steps.map((step) => {
-    const name = STEP_LABEL[step.kind].toLowerCase();
+    const name = stepName(step).toLowerCase();
     const duration = step.duration.trim();
-    return `${name} ${FORMAT_LABEL[step.format]}${duration ? ` (${duration})` : ""}`;
+    const format = step.kind === "online_test" ? "" : ` ${FORMAT_LABEL[step.format]}`;
+    return `${name}${format}${duration ? ` (${duration})` : ""}`;
   });
   const count = parts.length === 1 ? "jeden etap" : etapy(parts.length);
   let when = "";
