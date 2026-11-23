@@ -1,6 +1,6 @@
 # Rozliczenia: czytniki MD z plików klientów spoza RCP BNP
 
-<!-- indeks: czytniki plików, Time Sheet PDF, polski Time Sheet, Imię Nazwisko, Łączna liczba godzin, Okres od, BIK PDF, Rozliczenie czasu pracy, ERGO Monthly confirmation, NN Ilość MD, rozliczeniakontraktorow, Orlen protokół, Roboczodni, Sugerowane wynagrodzenie, declared, _other_files, inny plik miesiąca, proof.month bez MD, Sprawdzanie, Polkomtel, Cyfrowy Polsat, Project timesheet Report, B2B_RRRR_MM.xls, numer zamówienia, timesheet_plus, resolve_from_sheet, BOM -->
+<!-- indeks: czytniki plików, Time Sheet PDF, polski Time Sheet, Imię Nazwisko, Łączna liczba godzin, Okres od, BIK PDF, Rozliczenie czasu pracy, ERGO Monthly confirmation, NN Ilość MD, rozliczeniakontraktorow, Orlen protokół, Roboczodni, Sugerowane wynagrodzenie, declared, _other_files, inny plik miesiąca, proof.month bez MD, Sprawdzanie -->
 
 Od 23.11.2026. W próbie rozliczeń IX–X 2026 (kopia produkcji z 23.11, reguły klientów
 z produkcji) 60 przypadków poza Nordeą stało w „Sprawdzaniu” bez MD, choć plik był w poczcie.
@@ -23,6 +23,10 @@ Orlen: faktury Finansów liczą MD z godzin, więc „22 MD - po 6h” to 132 h 
 Gdy przy kwocie nie stoi „h” ani „MD”, rozstrzyga stawka z protokołu: „(150zł x8h = 1200zł MD)”,
 „175 pln x 8= 1400 PLN/MD”, „90 PLN/h”. Kilka różnych kwot (kilka osób) nie daje MD.
 
+Pliki „.xls” grupy Polkomtel / Cyfrowy Polsat (od 23.11.2026):
+
+| Wzór | Moduł | Skąd MD |
+|---|---|---|
 | Polkomtel: „Project timesheet Report” z Jiry, tabela HTML z rozszerzeniem `.xls` | `timesheet_plus` | „Suma godzin” = suma dni / `fields.md_hours`; rozbieżność = bez MD |
 | Cyfrowy Polsat: „B2B_RRRR_MM.xls”, XML Spreadsheet 2003 z BOM, wiersz = osoba × zamówienie | `timesheet_plus` | kolumna miesiąca = suma dni (osoby z kontraktu) / `fields.md_hours`; rozbieżność = bez MD |
 
