@@ -1204,6 +1204,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  const lowState = lowBadges.length > 0 ? (
  <span
  data-testid="card-low-state"
+ // Kotwica nowości „X? zna Y” musi mieć widoczny element także w dwóch liniach.
+ data-tour={lowBadge?.key === "critical_gap" && !criticalGaps?.length && criticalAlternatives ? "board.critical-alternative" : undefined}
  title={twoLineStateTitle(lowBadges, addedAttribution)}
  className={cn(
  chipBase,
