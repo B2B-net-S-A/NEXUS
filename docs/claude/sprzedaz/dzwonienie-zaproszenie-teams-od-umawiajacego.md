@@ -8,6 +8,8 @@ dzwoniących, **0 zaproszeń wysłanych z NEXUSA przez prowadzącego**, 17 z 24 
 założonych w Outlooku ręcznie. Makiety: https://claude.ai/artifact/Gxjj6erDvtVBijP4S73g6p
 (prywatny artefakt, „Punkt 1”). Artur wybrał wariant A.
 
+Na produkcji od 23.11.2026 (aplikacja ustawiona, spotkanie testowe przeszło).
+
 Kod: `backend/app/services/sales/booking_invite.py`, trasa w `api/sales_handoffs.py`,
 token `services/m365/sales_invite_auth.py`; rezerwacja, oś szansy i historia wspólne
 z `handoff_invite.py`. Front `handoff/BookMeetingForm.tsx` (sekcja „Zaproszenie na
@@ -80,8 +82,12 @@ i kalendarze DL-i i rekruterów, a Exchange zawęża aplikację do skrzynek, nie
    dla aplikacji (App RBAC). `Test-ServicePrincipalAuthorization` = `InScope True` dla
    prowadzącego i `False` dla innej skrzynki.
 3. Spotkanie Teams z `isOnlineMeeting` w `/users/{upn}/events` wymaga tylko zapisu
-   kalendarza; `OnlineMeetings.ReadWrite.All` nie jest potrzebne. Niepotwierdzone na
-   naszym tenancie do pierwszego spotkania testowego.
+   kalendarza; `OnlineMeetings.ReadWrite.All` nie jest potrzebne. Potwierdzone na
+   produkcji 23.11.2026: spotkanie testowe z kolejki miało organizatora = prowadzący,
+   link Teams i uczestników = adres testowy + umawiający; `Test-ServicePrincipalAuthorization`
+   `True` dla obu prowadzących i `False` dla innej skrzynki. Sekret aplikacji wygasa
+   22.05.2027 — przed tą datą nowy sekret i „Coolify set env”, inaczej wysyłka kończy
+   się 502 „nic nie wyszło”.
 4. Workflow „Coolify set env”: `SALES_INVITE_CLIENT_ID` (wartość) i
    `SALES_INVITE_CLIENT_SECRET` (`value_from_secret`), potem Deploy w oknie wdrożeń.
    Tenant = `M365_MAIL_TENANT_ID`. Od tej chwili formularz pokazuje sekcję Teams.
