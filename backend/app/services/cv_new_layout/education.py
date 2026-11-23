@@ -186,12 +186,39 @@ def sub_label(text: str) -> str:
 # ---------- wieniec: certyfikat czy dyplom (Artur 23.11.2026, wariant E4) ----------
 # Kurs, szkolenie czy webinar nie trafia do wieńca (np. „Wprowadzenie do dostępności cyfrowej”).
 _COURSE = (
-    "kurs", "szkoleni", "wprowadzenie", "course", "training", "webinar", "warsztat",
-    "essentials", "szkoła", "podstawy", "bootcamp",
+    "kurs",
+    "szkoleni",
+    "wprowadzenie",
+    "course",
+    "training",
+    "webinar",
+    "warsztat",
+    "essentials",
+    "szkoła",
+    "podstawy",
+    "bootcamp",
 )
 _PRO = (
-    "certified", "certyfikowan", "istqb", "pmp", "prince2", "ipma", "psm", "pspo", "safe",
-    "itil", "cbap", "ccba", "ireb", "aws", "azure", "pl-", "az-", "oracle", "blue prism", "cisco",
+    "certified",
+    "certyfikowan",
+    "istqb",
+    "pmp",
+    "prince2",
+    "ipma",
+    "psm",
+    "pspo",
+    "safe",
+    "itil",
+    "cbap",
+    "ccba",
+    "ireb",
+    "aws",
+    "azure",
+    "pl-",
+    "az-",
+    "oracle",
+    "blue prism",
+    "cisco",
 )
 _SHORT_CODE = re.compile(r"\(([A-Z]{2,4}-\d{2,4})\)")
 _SHORT_TOKEN = re.compile(
@@ -229,7 +256,16 @@ def looks_like_certificate(requirement: str) -> bool:
     return bool(
         _SHORT_TOKEN.search(requirement)
         or _CERT_CODE.search(requirement)
-        or any(w in low for w in ("certyfika", "certified", "certification", "practitioner", "foundation level"))
+        or any(
+            w in low
+            for w in (
+                "certyfika",
+                "certified",
+                "certification",
+                "practitioner",
+                "foundation level",
+            )
+        )
     )
 
 
@@ -280,7 +316,9 @@ def _school_line(ctx: Ctx) -> str:
         return ""
     field_, degree = split_degree(top.degree or top.institution)
     bits = [f"<b>{esc(field_)}</b>"] + ([esc(degree)] if degree else [])
-    sub = " · ".join(x for x in (top.institution if top.degree else "", last_year(top.dates)) if x)
+    sub = " · ".join(
+        x for x in (top.institution if top.degree else "", last_year(top.dates)) if x
+    )
     return (
         f"<div class='sch'>{', '.join(bits)}"
         + (f"<div class='wts2'>{esc(sub)}</div>" if sub else "")
@@ -289,7 +327,9 @@ def _school_line(ctx: Ctx) -> str:
 
 
 def _more(ctx: Ctx, key: str, n: int) -> str:
-    return f"<div class='cap'>{esc(more_at_end(ctx.lang, key, n))}</div>" if n > 0 else ""
+    return (
+        f"<div class='cap'>{esc(more_at_end(ctx.lang, key, n))}</div>" if n > 0 else ""
+    )
 
 
 def education_page1(ctx: Ctx) -> tuple[str, int]:
@@ -303,14 +343,22 @@ def education_page1(ctx: Ctx) -> tuple[str, int]:
     kc = wreath_cert(ctx)
     if kc is not None:
         short = short_name(kc)
-        emblem = wreath_cert_svg(short, kc.year) if short else wreath_svg(kc.year, ctx.t["certificate"])
+        emblem = (
+            wreath_cert_svg(short, kc.year)
+            if short
+            else wreath_svg(kc.year, ctx.t["certificate"])
+        )
         left = f"<div class='wb'>{emblem}{_cert_text(ctx, kc)}</div>"
         others = [c for c in all_certs if c.name != kc.name]
         shown, hidden = _certs_page1(ctx, others)
         right = ""
         school = _school_line(ctx)
         if school:
-            right += sub_label(ctx.t["schooling_head"]) + school + _more(ctx, "school", len(schools) - 1)
+            right += (
+                sub_label(ctx.t["schooling_head"])
+                + school
+                + _more(ctx, "school", len(schools) - 1)
+            )
         if shown:
             right += (
                 ("<div class='gap'></div>" if school else "")

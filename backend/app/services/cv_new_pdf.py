@@ -226,7 +226,9 @@ async def approved_version_pdf(db, version: Any) -> NewCvPdf:
 async def stage_draft_pdf(db, csv: Any) -> NewCvPdf:
     """Szkic CV etapu jako „Nowe CV” — z zapisanej treści edytora."""
     fallback = await _fallback(db, getattr(csv, "generated_document_id", None))
-    facts = await cv_facts(db, getattr(csv, "candidate_id", None), getattr(csv, "job_id", None))
+    facts = await cv_facts(
+        db, getattr(csv, "candidate_id", None), getattr(csv, "job_id", None)
+    )
     await db.commit()
     return await render_new_cv_pdf(
         csv.branded_draft_html or "",

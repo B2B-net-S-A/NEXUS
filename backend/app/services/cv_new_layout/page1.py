@@ -65,11 +65,7 @@ def title_row(ctx: Ctx) -> str:
     if where and not doc.blind:
         pills.append(f"<span class='pill loc'>{PIN}{esc(where)}</span>")
     side = f"<div class='pills'>{''.join(pills)}</div>" if pills else ""
-    name = (
-        ""
-        if doc.blind or not doc.name
-        else f"<div class='nm'>{esc(doc.name)}</div>"
-    )
+    name = "" if doc.blind or not doc.name else f"<div class='nm'>{esc(doc.name)}</div>"
     return (
         f"<div class='trow'><div class='tcol'><h1 class='title'>{esc(doc.position)}</h1>{name}</div>"
         f"{side}</div>"

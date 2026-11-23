@@ -362,7 +362,9 @@ def career_axis(ctx: Ctx) -> str:
     )
 
 
-def _older_summary(ctx: Ctx, older: tuple[DatedRole, ...]) -> tuple[int, int, list[str]]:
+def _older_summary(
+    ctx: Ctx, older: tuple[DatedRole, ...]
+) -> tuple[int, int, list[str]]:
     a, b = int(min(r.start for r in older)), int(max(r.end for r in older))
     names: list[str] = []
     for r in sorted(older, key=lambda r: -r.months):
@@ -411,7 +413,15 @@ def _older_on_bar(
     ty = ay + BAR / 2 + 3.2
     for k, ln in enumerate(lines):
         out.append(
-            _text(x0, ty + k * 3.2, ln, size=2.75, weight=600, family="Source Sans 3", fill=INK)
+            _text(
+                x0,
+                ty + k * 3.2,
+                ln,
+                size=2.75,
+                weight=600,
+                family="Source Sans 3",
+                fill=INK,
+            )
         )
     bottom = ty + (len(lines) - 1) * 3.2 + DESC
     return "".join(out), (top_bar - 1.6 - ASC, max(bottom, yy))
