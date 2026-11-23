@@ -13,6 +13,8 @@ robi dla tych rodzajów to, co robił dotąd.
   to pierwsze spotkanie;
 * ``call_hook`` — haczyk przed telefonem (``call_hook.py``): raport ma ``hooks``,
   a punkty dla tych firm odpadają, żeby nie nadpisały punktów firmy.
+* ``potential`` — research do oceny potencjału (``potential.py``, 23.11.2026):
+  raport ma ``potential``, punkty i haczyki tych firm odpadają tak samo.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from app.core.scheduling import business_date
 from app.models.sales import SalesSignalRun
 from app.services.sales import signals
 from app.services.sales.bot_tasks import call_hook
+from app.services.sales.bot_tasks import potential as potential_task
 from app.services.sales.bot_tasks.base import BotTask, TaskContext
 
 MEETING_PREP = "meeting_prep"
@@ -48,12 +51,16 @@ class BriefingRequest(BaseModel):
 
 
 class BriefingReport(signals.RunReport):
-    """Raport punktów; ``hooks`` tylko dla firm w trybie ``call_hook``."""
+    """Raport punktów; ``hooks`` tylko dla firm w trybie ``call_hook``,
+    ``potential`` tylko dla firm w trybie ``potential``."""
 
     model_config = ConfigDict(extra="forbid")
 
     hooks: list[call_hook.ReportHook] = Field(
         default_factory=list, max_length=call_hook.MAX_HOOK_FIRMS
+    )
+    potential: list[potential_task.ReportPotential] = Field(
+        default_factory=list, max_length=potential_task.MAX_FIRMS
     )
 
 
@@ -79,7 +86,16 @@ def _signals_text(run: SalesSignalRun, ctx: TaskContext) -> str:
 def _briefing_text(run: SalesSignalRun, ctx: TaskContext) -> str:
     hooks = _refs_with(ctx, call_hook.CALL_HOOK)
     if hooks and len(hooks) == len(ctx.firms):
-        return call_hook.task_text(hooks) + " Pola signals i briefings zostaw puste."
+        return (
+            call_hook.task_text(hooks)
+            + " Pola signals, briefings i potential zostaw puste."
+        )
+    rated = _refs_with(ctx, potential_task.POTENTIAL)
+    if rated and len(rated) == len(ctx.firms):
+        return (
+            potential_task.task_text(rated)
+            + " Pola signals, briefings i hooks zostaw puste."
+        )
     text = (
         "Dla każdej firmy z listy firms przygotuj od 1 do "
         f"{signals.MAX_POINTS} krótkich punktów, do których handlowiec może nawiązać "
@@ -116,6 +132,10 @@ def _briefing_text(run: SalesSignalRun, ctx: TaskContext) -> str:
         text += " " + call_hook.task_text(hooks)
     else:
         text += " hooks zostaw puste."
+    if rated:
+        text += " " + potential_task.task_text(rated)
+    else:
+        text += " potential zostaw puste."
     return text
 
 
@@ -147,7 +167,11 @@ def _report_format() -> dict[str, Any]:
 
 
 def _briefing_format() -> dict[str, Any]:
-    return {**_report_format(), "hooks": [call_hook.report_format()]}
+    return {
+        **_report_format(),
+        "hooks": [call_hook.report_format()],
+        "potential": [potential_task.report_format()],
+    }
 
 
 async def _ingest(
@@ -159,21 +183,27 @@ async def _ingest(
 async def _briefing_ingest(
     db: AsyncSession, run: SalesSignalRun, report: BriefingReport, now: datetime
 ) -> dict[str, Any]:
-    """Punkty jak dotąd, poza firmami w trybie ``call_hook``; ich haczyki osobno."""
+    """Punkty jak dotąd, poza firmami w trybie ``call_hook`` i ``potential``;
+    ich haczyki i research osobno."""
 
     hook_refs = call_hook.hook_refs(run)
+    rated_refs = potential_task.potential_refs(run)
+    skip = hook_refs | rated_refs
     points = signals.RunReport.model_validate(
         {
-            **report.model_dump(exclude={"hooks", "briefings", "signals"}),
+            **report.model_dump(
+                exclude={"hooks", "potential", "briefings", "signals", "no_signal"}
+            ),
+            "no_signal": [ref for ref in report.no_signal if ref not in rated_refs],
             "signals": [
                 signal.model_dump()
                 for signal in report.signals
-                if signal.company_ref not in hook_refs
+                if signal.company_ref not in skip
             ],
             "briefings": [
                 briefing.model_dump()
                 for briefing in report.briefings
-                if briefing.company_ref not in hook_refs
+                if briefing.company_ref not in skip
             ],
         }
     )
@@ -183,6 +213,12 @@ async def _briefing_ingest(
     )
     saved = set(hook_summary.pop("hook_saved_company_ids"))
     summary.update(hook_summary)
+    if rated_refs:
+        summary.update(
+            await potential_task.save(
+                db, run, report.potential, today=business_date(now), now=now
+            )
+        )
     if hook_refs:
         # Nie uznawaj wadliwego haczyka za sprawdzoną firmę, nawet gdy jest w no_signal.
         submitted = {hook.company_ref for hook in report.hooks}
@@ -212,7 +248,11 @@ def _reply(summary: dict[str, Any]) -> dict[str, Any]:
     (bieg punktów dokłada liczby haczyków)."""
 
     dropped = summary["dropped"]
-    hooks = {key: summary[key] for key in ("hooks", "hooks_dropped") if key in summary}
+    hooks = {
+        key: summary[key]
+        for key in ("hooks", "hooks_dropped", "potential", "potential_dropped")
+        if key in summary
+    }
     return {
         **hooks,
         "leads": summary["leads"],

@@ -302,6 +302,12 @@ class Job(Base, TimestampMixin):
         JSONB, nullable=True, default=None
     )
 
+    # 0762 (23.11.2026): „Każda osoba podpisuje umowę przedwstępną” —
+    # {"needed_before": "cv_sent"|"client_interview"|"b2b_contract",
+    #  "stop": bool, "set_by": user_id, "set_at": ISO}. NULL = brak ustawienia.
+    # Reguła: docs/claude/rekrutacja-tablica/stop-do-podpisu-przedwstepnej.md.
+    pre_contract_rule: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+
     # Persisted Qdrant embedding reference (populated by Faza 2 scoring)
     embedding_id: Mapped[Optional[str]] = mapped_column(
         String(100), nullable=True, index=True

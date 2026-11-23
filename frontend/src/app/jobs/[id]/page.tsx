@@ -37,6 +37,7 @@ import { jobHeaderFacts } from "@/lib/job-header-facts";
 import { JobDatesFact } from "@/components/v2/jobs/JobDatesFact";
 import { storedProcess } from "@/lib/job-client-process";
 import { JobClientProcessFact } from "@/components/v2/jobs/JobClientProcessFact";
+import { JobPreContractRuleFact } from "@/components/v2/jobs/JobPreContractRuleFact";
 import { recruitersOf, workingRecruiters } from "@/lib/job-team";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
 import {
@@ -1030,6 +1031,7 @@ export default function JobDetailPage() {
         recruiterCompact={recruiterFact(true)}
         // Liczba osób (07.11.2026) — edycja jak w Profilu Championa › Zespół.
         processFact={
+          <>
           <JobClientProcessFact
             jobId={jobId}
             clientId={job.client_id ?? null}
@@ -1037,6 +1039,13 @@ export default function JobDetailPage() {
             process={storedProcess(job.champion_profile?.client_process)}
             canEdit={canEditChampion}
           />
+          {/* 0762: przedwstępna dla całej rekrutacji (obok procesu u klienta). */}
+          <JobPreContractRuleFact
+            jobId={jobId}
+            rule={job.pre_contract_rule ?? null}
+            onSaved={() => void refetchJob()}
+          />
+          </>
         }
         headcount={
           <JobHeadcountFact

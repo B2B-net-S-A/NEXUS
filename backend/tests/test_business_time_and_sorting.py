@@ -32,6 +32,7 @@ from app.core.database import AsyncSessionLocal
 from app.services import competitions
 from app.services import dashboard_metrics
 from app.tasks import contract_alerts
+from tests._leave_source import use_nexus_leave_source
 
 
 def _utc(y, m, d, hh=0, mm=0) -> datetime:
@@ -122,6 +123,9 @@ async def test_monthly_race_tie_break_is_id_not_name(monkeypatch):
     więc pilnujemy wyniku, nie tekstu SQL. Miesiąc po 12.10.2026 — w całości
     na żywo.
     """
+    # Od #3710 przełącznik urlopów czyta app_settings przed odczytem, a atrapa
+    # sesji tabel nie ma: ustawiamy go wprost, jak w testach przydziału.
+    use_nexus_leave_source(monkeypatch, on=False)
     monkeypatch.setattr(
         competitions, "business_days_elapsed_in_month", lambda _y, _m: 10
     )

@@ -136,8 +136,10 @@ Nie rób niczego, czego task nie mówi.
 Zasady ogólne, zawsze:
 - Każdą informację potwierdź otwarciem źródła i podaj jego adres (url)
   i datę publikacji. Bez otwartego źródła nie ma informacji.
-- Nie otwieraj portali z ogłoszeniami o pracę. Nie zbieraj danych z LinkedIna
-  (bez scrapowania profili i list osób).
+- Nie otwieraj portali z ogłoszeniami o pracę ani LinkedIna, chyba że task
+  wprost na to pozwala (ocena potencjału: ogłoszenia o pracę firmy na portalach
+  i publiczne oferty pracy na LinkedInie, bez logowania). Nigdy nie zbieraj
+  profili ani list osób.
 - Nigdy nie zgaduj adresów e-mail ani numerów telefonów i nie składaj ich
   z wzorców. Podawaj tylko to, co źródło samo publikuje.
 - Osoby podawaj tylko wtedy, gdy task o nie prosi, i tylko z opublikowanego
@@ -225,8 +227,14 @@ jeden sygnał z datą i adresem źródła. Nie oceniaj osób, nie podawaj kontak
 ```text
 NEXUS Research: Przygotowujesz handlowca do rozmowy. Piszesz krótko, po polsku,
 fakty z ostatnich miesięcy z adresem i datą. Nie wymyślaj powodów rozmowy,
-których źródło nie podaje.
+których źródło nie podaje. Przy ocenie potencjału (mode "potential") zbierasz
+też ogłoszenia IT firmy i jej stos technologiczny, zawsze ze źródłem.
 ```
+
+Zmiana z 23.11.2026 (ocena potencjału, `docs/claude/sprzedaz/ocena-potencjalu.md`):
+wyjątek dla ogłoszeń w zasadach ogólnych i ostatnie zdanie akapitu Research.
+Wklej oba fragmenty do wspólnej rutyny i do rutyny NEXUS Research; bez tego bot
+pomija ogłoszenia, a ocena powstaje z samych zdarzeń i stosu.
 
 ```text
 NEXUS Dane firm: Uzupełniasz kartę firmy. NIP, KRS, REGON i adres bierz najpierw

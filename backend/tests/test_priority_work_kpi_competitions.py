@@ -26,6 +26,15 @@ from app.services import competitions
 from app.services.kpi_catalog import get_kpi
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 from app.tasks import competition_autofreeze
+from tests._leave_source import use_nexus_leave_source
+
+
+@pytest.fixture(autouse=True)
+def _leave_source_off(monkeypatch):
+    """Od #3710 wyścig czyta przełącznik urlopów z app_settings; atrapy sesji
+    w tym pliku tabel nie mają, więc ustawiamy go wprost (bez urlopów NEXUSA)."""
+
+    use_nexus_leave_source(monkeypatch, on=False)
 
 
 class _Result:

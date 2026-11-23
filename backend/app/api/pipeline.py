@@ -1982,6 +1982,19 @@ async def apply_move(
         target_column=target_column,
     )
     skipped_requirements = debrief_skipped + verified_skipped + form_skipped
+    # 0762 (23.11.2026): „Zatrzymaj do podpisu przedwstępnej” — ustawienie
+    # rekrutacji albo wybór przy osobie. Obowiązuje każdą osobę z ekranu,
+    # także Delivery Leada; konta serwisowe API v1 (`actor_id is None`)
+    # zapisują fakty z zewnątrz.
+    if policy.actor_id is not None:
+        from app.services import pre_contract_stop  # noqa: PLC0415
+
+        await pre_contract_stop.assert_pre_contract_signed(
+            db,
+            job=job,
+            candidate_id=data.candidate_id,
+            target_column=target_column,
+        )
     # D6 (08.10.2026): „Wróć do poprawy” z „QC CV” niesie listę pól do poprawy.
     # Walidacja PRZED zapisem ruchu — zła lista nie może cofnąć karty bez niej.
     fix_keys: list[str] = []
@@ -2468,6 +2481,17 @@ async def apply_move(
         accepted_on=stage.client_accepted_on,
         actor_id=policy.actor_id,
         actor_name=getattr(policy.viewer, "name", None),
+    )
+    # 0762: rekrutacja z ustawieniem przedwstępnej — prośba zakłada się sama
+    # od „Zweryfikowanego”.
+    from app.services import pre_contract_stop as _pre_contract_stop  # noqa: PLC0415
+
+    await _pre_contract_stop.ensure_rule_request(
+        db,
+        job=job,
+        candidate_id=data.candidate_id,
+        column=_to_column,
+        actor_id=policy.actor_id,
     )
     await create_original_cv_snapshot(db, stage)
     if expected_rate_value is not None:
@@ -6127,6 +6151,13 @@ async def bulk_move_candidates(
             now=datetime.now(timezone.utc),
         )
 
+    # 0762: „Zatrzymaj do podpisu przedwstępnej” — jak pojedynczy /move.
+    from app.services import pre_contract_stop  # noqa: PLC0415
+
+    for cid in unique_ids:
+        await pre_contract_stop.assert_pre_contract_signed(
+            db, job=job, candidate_id=cid, target_column=bulk_target_column
+        )
     # Pipeline v4: debrief po rozmowie u klienta — jak pojedynczy /move.
     for cid in unique_ids:
         await pipeline_move_rules.assert_debrief_before_contract(
