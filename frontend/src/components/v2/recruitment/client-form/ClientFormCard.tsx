@@ -255,9 +255,11 @@ export function ClientFormCard({
                 {view.template?.filename}
               </p>
               <p className="text-muted-foreground">
-                {view.status === "not_filled"
-                  ? "Jeszcze nie wypełniony."
-                  : "Wypełniony z CV, screeningu i notatek."}
+                {uploaded
+                  ? "Wzór klienta — wypełniony poza NEXUSEM, plik niżej."
+                  : view.status === "not_filled"
+                    ? "Jeszcze nie wypełniony."
+                    : "Wypełniony z CV, screeningu i notatek."}
               </p>
             </div>
           </div>
@@ -338,7 +340,7 @@ export function ClientFormCard({
               <Button
                 type="button"
                 size="sm"
-                variant={view.status === "filled" ? "outline" : "primary"}
+                variant={view.status === "filled" || uploaded ? "outline" : "primary"}
                 loading={filling}
                 disabled={filling}
                 title="Model wpisuje tylko to, co jest w CV, screeningu i notatkach — zwykle do minuty."

@@ -9,12 +9,14 @@ Liczy KOD, nie model: przy włączonej fladze klienta
 (``clients.client_form_scale_full_on_experience``) pole skali dostaje „10”,
 gdy w tym samym wierszu kod policzył lata z ról w CV (miesiące > 0 z ról
 włączonych w siatce, ``client_form_years``) albo opis ma przyjęty cytat z CV
-lub notatek. Bez tego pole zostaje puste do uzupełnienia — także wtedy, gdy
-model wpisał ocenę. Wartość rekrutera (``source = recruiter``) wygrywa zawsze.
+lub notatek, a nie mówi o braku doświadczenia. Bez tego pole zostaje puste
+do uzupełnienia — także wtedy, gdy model wpisał ocenę. Wartość rekrutera
+(``source = recruiter``) wygrywa zawsze.
 """
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any
 
@@ -29,6 +31,16 @@ from app.services.client_form_years import months_of, years_fields
 
 SOURCE_CLIENT_RULE = "client_rule"
 FULL_SCALE = "10"
+# Opis, który mówi o BRAKU doświadczenia, nie jest dowodem (staging 23.11.2026,
+# „Tester Automatyczny” CEZ: „Brak komercyjnego doświadczenia w sektorze
+# healthcare.” z cytatem dawało 10/10).
+NO_EXPERIENCE = re.compile(
+    r"^\s*(?:brak|nie|bez|no|none|n/?a)\b"
+    r"|\bbrak\s+(?:\w+\s+)?do[sś]wiadcz"
+    r"|\bnie\s+(?:posiada|ma|mia[łl]\w*|pracowa\w*|zna)\b"
+    r"|\bno\s+(?:\w+\s+)?experience",
+    re.IGNORECASE,
+)
 
 
 def _row(field_id: str) -> str | None:
@@ -54,6 +66,7 @@ def _experience(
                 entry.get("value")
                 and entry.get("quote")
                 and entry.get("source") in (SOURCE_CV, SOURCE_NOTES)
+                and not NO_EXPERIENCE.search(str(entry["value"]))
             ):
                 return True
     return False

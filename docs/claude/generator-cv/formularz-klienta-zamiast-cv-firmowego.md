@@ -310,3 +310,9 @@ na produkcji ten PR nie przenosi: to osobna decyzja Artura.
   z CV lub notatek. Inaczej pole zostaje puste, także gdy model wpisał ocenę.
   Wpis rekrutera (`source = recruiter`) wygrywa. Ręcznie wpisany opis nie ma
   cytatu, więc nie liczy się jako dowód.
+- **Opis o braku doświadczenia nie jest dowodem** (`NO_EXPERIENCE`: „Brak…”,
+  „Nie posiada…”, „nie pracował…”, „No … experience”). Na stagingu 23.11.2026
+  („Tester Automatyczny” CEZ) opis „Brak komercyjnego doświadczenia w sektorze
+  healthcare.” miał cytat z CV i dawał 10/10 w wierszu „Staż w projektach
+  służby zdrowia”. Ten sam wzór: 7 pól skali, w 6 lata w tym samym wierszu;
+  po „Wypełnij” 4 pola dostały 10 z lat z ról, reszta została pusta.

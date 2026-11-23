@@ -99,3 +99,17 @@ def test_only_scale_columns_are_touched() -> None:
     structure = {"fields": [{"id": "p1", "kind": "line", "label": "Imię"}]}
     fields = {"p1": {"value": "Anna"}}
     assert client_form_scale.apply(structure, fields, TODAY) is fields
+
+
+def test_description_saying_there_is_no_experience_is_not_evidence() -> None:
+    """Staging 23.11.2026, „Tester Automatyczny” CEZ: opis z cytatem „Brak
+    komercyjnego doświadczenia w sektorze healthcare.” dawał 10/10."""
+    for text in (
+        "Brak komercyjnego doświadczenia w sektorze healthcare.",
+        "Nie posiada doświadczenia w projektach medycznych.",
+        "Kandydat nie pracował w służbie zdrowia.",
+        "No commercial experience in healthcare.",
+    ):
+        fields = {"t2.r6.c4": {"value": text, "source": "cv", "quote": text}}
+        result = client_form_scale.apply(_structure(), fields, TODAY)
+        assert "t2.r6.c3" not in result, text
