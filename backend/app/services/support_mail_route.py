@@ -15,13 +15,16 @@ Dwa stany są błędem konfiguracji i zatrzymują czytnik rozliczeń bez ruszani
 (``misconfiguration``): wspólna skrzynka bez adresów (``shared_without_route``) i adresy przy
 osobnych skrzynkach (``route_not_shared``, np. wsparcie@ ustawiona przed skrzynką spraw).
 
-Mail na rozliczenia@ bez załącznika jest sprawą. Dwa takie maile czytnik rozliczeń czyta
+Mail na rozliczenia@ bez załącznika jest sprawą. Trzy takie maile czytnik rozliczeń czyta
 dodatkowo i zapisuje ich treść jako ``.eml`` jednej osoby; router tego nie zmienia, więc sprawa
 też powstaje (decyzja Artura 23.11.2026, „sprawa i dokument”):
 
 * akceptacja klienta z regułą akceptacji mailowej (``is_client_acceptance_mail``,
   domeny z ``acceptance_clients``);
-* mail z adresu firmy z tematem rozliczenia (``mailbox.is_body_only_settlement``).
+* mail z adresu firmy z tematem rozliczenia (``mailbox.is_body_only_settlement``);
+* mail konsultanta z adresu firmy z tematem faktury, gdy jego klient ma regułę
+  ``report.consultant_declaration`` (``mailbox.is_body_only_declaration``,
+  klienci z ``declaration_clients``).
 
 Mail wysłany w ukrytej kopii nie ma adresu rozliczeń w nagłówkach, które czytamy, więc też
 jest sprawą.
@@ -163,6 +166,32 @@ async def acceptance_clients(db: "AsyncSession") -> dict[str, frozenset[int]]:
             for domain in domains:
                 found.setdefault(domain, set()).add(client_id)
     return {domain: frozenset(ids) for domain, ids in found.items()}
+
+
+async def declaration_clients(db: "AsyncSession") -> frozenset[int]:
+    """Klienci z włączoną ``report.consultant_declaration`` (bieżący albo poprzedni
+    miesiąc, jak ``acceptance_clients``): ich konsultant pisze deklarację dni pracy
+    w mailu z fakturą bez pliku godzin (mLeasing, decyzja Artura z 23.11.2026)."""
+
+    from sqlalchemy import select
+
+    from app.core.scheduling import business_today
+    from app.models.client_settlement import ClientSettlementRuleSet
+    from app.services.client_settlements import mail_declaration, service
+
+    today = business_today()
+    previous = today.replace(day=1) - timedelta(days=1)
+    months = {f"{d.year}-{d.month:02d}" for d in (today, previous)}
+    client_ids = (
+        await db.scalars(select(ClientSettlementRuleSet.client_id).distinct())
+    ).all()
+    found: set[int] = set()
+    for client_id in client_ids:
+        for month in months:
+            rules = await service.rules_for(db, client_id, month)
+            if rules[mail_declaration.RULE]["level"] != "off":
+                found.add(client_id)
+    return frozenset(found)
 
 
 async def _contact_domains(db: "AsyncSession", client_id: int) -> list[str]:
