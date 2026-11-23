@@ -195,4 +195,9 @@ async def receive_report(
             registry_cards.check_after_save([int(cid) for cid in run.company_ids]),
             "sales_registry_after_enrich",
         )
+    if run.kind == "briefing" and summary.get("potential"):
+        # Research do oceny potencjału zapisany: ocenę pisze model w tle.
+        from app.services.sales import potential  # noqa: PLC0415
+
+        spawn(potential.assess_run(run.id), "sales_potential_assess")
     return {"status": "received", **task.reply(summary)}

@@ -9,6 +9,7 @@
  * przycisk aktywny, który kończy się 422 z serwera, albo odwrotnie.
  */
 
+import type { PreContractRuleStage } from "@/lib/api/preContracts";
 import {
   STEP_LABEL,
   toInput as toProcessInput,
@@ -234,6 +235,12 @@ export interface IntakeForm {
    * Idzie w `POST /api/jobs` jako `client_process`, poza profilem Championa.
    */
   clientProcess: ClientProcessInput | null;
+  /**
+   * 0762 (23.11.2026): „Każda osoba podpisuje umowę przedwstępną” — etap
+   * i „Zatrzymaj kartę do podpisu”; `null` = bez ustawienia (domyślnie).
+   * Idzie w `POST /api/jobs` jako `pre_contract_rule`.
+   */
+  preContractRule: PreContractRuleDraft | null;
   provenance: Partial<Record<ProvenanceKey, FieldBasis>>;
 }
 
@@ -387,6 +394,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   categoryConfirmed: false,
   championExtras: null,
   clientProcess: null,
+  preContractRule: null,
   provenance: {},
 };
 
@@ -524,6 +532,7 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
     // Sekcje pliku Championa przychodzą obok odczytu — dokłada je strona.
     championExtras: null,
     clientProcess: null,
+    preContractRule: null,
     provenance,
     title: intake.role_name ?? "",
     clientTitle: clientTitleWithReference(
@@ -1185,6 +1194,7 @@ export function buildCreateJobPayload(
       form.clientProcess && form.clientProcess.steps.length > 0
         ? toProcessInput(form.clientProcess)
         : null,
+    pre_contract_rule: form.preContractRule,
   };
 }
 
@@ -1200,6 +1210,21 @@ export function intakeFormLabel(form: IntakeForm): string {
  * dostają wartości z pustego formularza, więc stary zapis da się dokończyć.
  */
 /** Zapisany w autozapisie proces — zepsuty wpis = brak (formularz ma się otworzyć). */
+/** Ustawienie przedwstępnej z `/jobs/new` (lustro `JobPreContractRuleIn`). */
+export interface PreContractRuleDraft {
+  needed_before: PreContractRuleStage;
+  stop: boolean;
+}
+
+const RULE_STAGES: ReadonlySet<string> = new Set(["cv_sent", "client_interview", "b2b_contract"]);
+
+function restorePreContractRule(value: unknown): PreContractRuleDraft | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<PreContractRuleDraft>;
+  if (typeof raw.needed_before !== "string" || !RULE_STAGES.has(raw.needed_before)) return null;
+  return { needed_before: raw.needed_before as PreContractRuleStage, stop: raw.stop !== false };
+}
+
 function restoreClientProcess(value: unknown): ClientProcessInput | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Partial<ClientProcessInput>;
@@ -1226,6 +1251,7 @@ export function restoreIntakeForm(saved: unknown): IntakeForm {
     experience: { ...EMPTY_EXPERIENCE_FORM, ...(raw.experience ?? {}) },
     championExtras: championExtrasFrom(raw.championExtras),
     clientProcess: restoreClientProcess(raw.clientProcess),
+    preContractRule: restorePreContractRule(raw.preContractRule),
     provenance: raw.provenance ?? {},
     rows: Array.isArray(raw.rows) ? raw.rows : [],
     questions: Array.isArray(raw.questions) ? raw.questions : [],

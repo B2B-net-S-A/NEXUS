@@ -13,6 +13,7 @@ import { Loader2 } from "lucide-react";
 import { AppModal } from "@/components/ds/AppModal";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,12 +23,15 @@ import {
   SIGNATURE_FORM_OPTIONS,
   WITHDRAWAL_OPTIONS,
   preContractsApi,
+  usePreContractPair,
   type PreContractNeededBefore,
   type PreContractRequest,
   type PreContractSignatureForm,
   type PreContractWithdrawalKind,
 } from "@/lib/api/preContracts";
 import { warsawToday } from "@/lib/warsaw-date";
+import { canSetPreContractStop, ruleStageLabel } from "@/lib/pre-contract-stop";
+import { useAuthStore } from "@/store/auth";
 
 type Done = (request: PreContractRequest) => void;
 
@@ -85,6 +89,12 @@ function useSubmit() {
   return { busy, run };
 }
 
+function neededStageLabel(needed: PreContractNeededBefore): string {
+  if (needed === "cv_sent") return "CV wysłane";
+  if (needed === "client_interview") return "Rozmowa u klienta";
+  return "Zatrudniony";
+}
+
 // ── Prośba ───────────────────────────────────────────────────────────────────
 
 export function PreContractRequestDialog({
@@ -108,6 +118,24 @@ export function PreContractRequestDialog({
   const [needed, setNeeded] = useState<PreContractNeededBefore>(defaultNeededBefore);
   const [neededBy, setNeededBy] = useState("");
   const [reason, setReason] = useState("");
+  // 0762 (23.11.2026): „Zatrzymaj do podpisu” — DL klienta, HoR i admin.
+  // Przy ustawieniu rekrutacji wybór tutaj dotyczy tylko tej osoby.
+  const pair = usePreContractPair(candidateId, jobId);
+  const jobRule = pair.data?.job_rule ?? null;
+  const roleMayStop = canSetPreContractStop(useAuthStore((st) => st.user));
+  const canStop = (pair.data?.can_set_stop ?? roleMayStop) && needed !== "date";
+  const [stopChoice, setStopChoice] = useState<boolean | null>(null);
+  const stop = canStop && (stopChoice ?? (jobRule ? jobRule.stop : true));
+  // null = jak rekrutacja (albo bez blokady, gdy rekrutacja jej nie ma).
+  const blocksMove: boolean | null | undefined = !canStop
+    ? undefined
+    : jobRule
+      ? stop === jobRule.stop
+        ? null
+        : stop
+      : stop
+        ? true
+        : null;
   const { busy, run } = useSubmit();
   const dateMissing = needed === "date" && !neededBy;
 
@@ -121,6 +149,7 @@ export function PreContractRequestDialog({
           needed_before: needed,
           needed_by: needed === "date" ? neededBy : null,
           reason: reason.trim() || null,
+          ...(blocksMove !== undefined ? { blocks_move: blocksMove } : {}),
         }),
       "Nie udało się poprosić o umowę.",
     );
@@ -150,6 +179,14 @@ export function PreContractRequestDialog({
       }
     >
       <div className="space-y-4">
+        {jobRule ? (
+          <p className="rounded-md border border-border bg-muted px-3 py-2 text-xs" data-testid="pre-contract-request-job-rule">
+            <span className="font-medium">Ustawienie rekrutacji:</span> każda osoba{" "}
+            {ruleStageLabel(jobRule.needed_before).replace("Przed", "przed")}
+            {jobRule.stop ? ", karta stoi do podpisu" : ""}
+            {jobRule.set_by_name ? ` (${jobRule.set_by_name})` : ""}. Zmiany poniżej dotyczą tylko tej osoby.
+          </p>
+        ) : null}
         <div className="space-y-2">
           <p className="text-sm font-medium">Kiedy musi być podpisana</p>
           <Choice name={`${ids}-needed`} label="Kiedy musi być podpisana" value={needed} options={NEEDED_BEFORE_OPTIONS} onChange={setNeeded} />
@@ -161,6 +198,35 @@ export function PreContractRequestDialog({
               <Input id={`${ids}-date`} type="date" value={neededBy} min={warsawToday()} onChange={(e) => setNeededBy(e.target.value)} />
             </div>
           ) : null}
+        </div>
+        <div
+          className="space-y-1 rounded-md border border-border px-3 py-2"
+          data-testid="pre-contract-stop"
+        >
+          <label htmlFor={`${ids}-stop`} className="flex items-start gap-2 text-sm">
+            <Checkbox
+              id={`${ids}-stop`}
+              checked={stop}
+              disabled={!canStop}
+              onCheckedChange={(v) => setStopChoice(v === true)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="font-medium">Zatrzymaj osobę do podpisu</span>
+              <span className="block text-xs text-muted-foreground">
+                {needed === "date"
+                  ? "Blokada działa z etapem — przy „Do daty…” brak umowy tylko ostrzega."
+                  : `Karta nie przejdzie na „${neededStageLabel(needed)}” ani dalej, dopóki umowa nie będzie podpisana obustronnie — także przy przeciągnięciu i u Delivery Leada.`}
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                {needed === "date"
+                  ? ""
+                  : canStop
+                  ? "Zdjąć blokadę możesz Ty, Delivery Lead klienta albo Head of Recruitment."
+                  : "Zatrzymać osobę może Delivery Lead klienta albo Head of Recruitment — bez tego brak umowy tylko ostrzega."}
+              </span>
+            </span>
+          </label>
         </div>
         <div className="space-y-1">
           <label htmlFor={`${ids}-reason`} className="text-xs font-medium text-muted-foreground">

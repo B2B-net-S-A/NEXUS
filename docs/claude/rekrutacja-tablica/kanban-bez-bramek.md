@@ -24,6 +24,11 @@ DL z „QC CV” do poprawy nie jest bramkowany, „Pomiń stawkę” zostało t
 podpisaną”. Wyłączniki `VERIFIED_GATE_ENABLED`, `HIRED_SIGNED_VIA_REQUIRED`;
 w testach wyłączone autouse-fixturą, `test_verified_gate.py` włącza je jawnie.
 
+**Stop do podpisu przedwstępnej (23.11.2026):** ruch na etap, przed którym
+umowa przedwstępna ma być podpisana, stoi, gdy DL / HoR zatrzymał osobę
+(przy prośbie albo ustawieniem rekrutacji) — 409 `PRE_CONTRACT_NOT_SIGNED`,
+także dla DL-a (`stop-do-podpisu-przedwstepnej.md`).
+
 **Delivery Lead bez bramek pól (22.10.2026):** osoba z uprawnieniem
 `recruitment_manage` przechodzi bramki arkusza, stawki, minimum, CV firmowego
 i debriefu — braki zostają przypomnieniem i odznaką „Przesunął DL”

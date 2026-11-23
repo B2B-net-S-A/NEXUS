@@ -225,6 +225,9 @@ class AIFeatureKey(str, enum.Enum):
     # (NIP, REGON, adres, KRS) z cytatem; człowiek potwierdza każdą propozycję
     # przed zapisem w profilu kandydata i przed nową umową (E5a).
     contract_partner_read = "contract_partner_read"
+    # 0761 (23.11.2026): Sprzedaż — ocena potencjału firmy przed spotkaniem
+    # z researchu Bota Research, faktów z NEXUSA i bazy wiedzy (F54).
+    sales_potential_assessment = "sales_potential_assessment"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -283,6 +286,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.board_document_read: "Rada — odczyt skanu uchwały i protokołu",
     AIFeatureKey.contract_document_rate_read: "Kontrakty — stawka Partnera z umowy i aneksu",
     AIFeatureKey.contract_partner_read: "Kontrakty — dane firmy Partnera z podpisanej umowy",
+    AIFeatureKey.sales_potential_assessment: "Sprzedaż — ocena potencjału firmy przed spotkaniem",
 }
 
 
@@ -534,6 +538,14 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.contract_partner_read: [
         "Plik podpisanej umowy B2B z Dokumentów kontraktu (tekst PDF-u albo skan)",
         "(bez danych z profilu kandydata i z NEXUSA — porównanie robi kod)",
+    ],
+    AIFeatureKey.sales_potential_assessment: [
+        "Karta firmy w Sprzedaży: nazwa, branża, wielkość, miasto; tytuły i etapy szans, "
+        "powód przegranej tylko ze stałej listy powodów",
+        "Research firmy od Bota Research (zdarzenia, ogłoszenia IT, stos) i wynik testu KSC",
+        "Baza wiedzy oceny: opis oferty i referencje (bez podpisów listów i notatek)",
+        "(bez kontaktów, decydentów, kandydatów, konsultantów i stawek; tytuł szansy to "
+        "tekst handlowca)",
     ],
 }
 
