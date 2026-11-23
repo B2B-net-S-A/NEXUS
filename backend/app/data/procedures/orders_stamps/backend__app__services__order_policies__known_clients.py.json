@@ -1,4 +1,4 @@
 {
-  "sha256": "fcf574e2b514be1385d2739aea204acb683fa0a5f0cafa67898ce80a3b3dda43",
+  "sha256": "0f5be1ae4b445ba0110cc9839b447682e056292068c40c0bc78319292f3118e2",
   "source": "backend/app/services/order_policies/known_clients.py"
 }

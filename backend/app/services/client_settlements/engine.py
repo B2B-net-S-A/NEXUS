@@ -108,6 +108,46 @@ def _check(state: str, title: str, detail: Optional[str] = None) -> dict[str, An
     return {"state": state, "title": title, "detail": detail}
 
 
+def _protocol_amount(
+    inp: Inputs, amount_revenue: Optional[Decimal], groups: list[dict[str, Any]]
+) -> bool:
+    """``cl.protocol_amount``: kwota do faktury = kwota netto z protokołu klienta.
+
+    Finanse Orlenu zakwestionowały 23.11.2026 fakturę za X: kwota z MD × stawka
+    z zamówienia różniła się od protokołu o kilkaset złotych. ``True`` = uwaga."""
+
+    level = _level(inp.rules, "cl.protocol_amount")
+    raw = (inp.proof.meta.get("document_amount") if inp.proof else None) or None
+    if level == "off" or raw is None:
+        return False
+    document = _money(Decimal(raw))
+    if amount_revenue is None:
+        check = _check(
+            "warn",
+            f"Protokół: {_fmt(document)} zł netto, kwoty do faktury brak",
+            "Linia zamówienia bez stawki: porównaj kwotę z protokołem przed fakturą.",
+        )
+    elif abs(amount_revenue - document) < Decimal("0.01"):
+        groups.append(
+            {
+                "title": "Kwota z protokołu",
+                "checks": [
+                    _check("ok", f"Do faktury {_fmt(document)} zł jak w protokole")
+                ],
+            }
+        )
+        return False
+    else:
+        check = _check(
+            "warn",
+            "Kwota do faktury inna niż w protokole klienta",
+            f"Do faktury {_fmt(amount_revenue)} zł netto, w protokole {_fmt(document)} zł "
+            "netto. Klient odeśle fakturę do korekty: sprawdź MD, stawkę i zamówienie (PO).",
+        )
+    groups.append({"title": "Kwota z protokołu", "checks": [check]})
+    return True
+
+
 def compute(inp: Inputs) -> Result:
     if inp.md_regular is None:
         return Result(
@@ -320,6 +360,8 @@ def compute(inp: Inputs) -> Result:
                 ],
             }
         )
+        warn = True
+    if _protocol_amount(inp, amount_revenue, groups):
         warn = True
 
     status = "no_md" if blocked else "warnings" if warn or proof_blocking else "ok"

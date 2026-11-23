@@ -50,6 +50,7 @@ from app.services.client_order_lines import (
 )
 from app.services.client_settlements import (
     acceptance_mail,
+    copyright_statement,
     confirmation_ergo,
     contractor_invoices,
     declared,
@@ -981,9 +982,12 @@ async def _acceptance(
     month: str,
     hours: Optional[Decimal],
     rules: dict[str, dict[str, Any]],
+    senders: mail_text.Senders,
+    sheet_month: Optional[str] = None,
 ) -> Optional[rcp_checks.ProofResult]:
     """``proof.accept_has_hours`` (E6.1): mail akceptacji z liczbą godzin albo MD
-    za rozliczany miesiąc. Brak = zadanie „Popraw akceptację” dla konsultanta."""
+    za rozliczany miesiąc, potwierdzony przez klienta (``senders``). Brak =
+    zadanie „Popraw akceptację” dla konsultanta."""
 
     if rules["proof.accept_has_hours"]["level"] == "off":
         return result
@@ -994,6 +998,8 @@ async def _acceptance(
         month=month,
         hours=hours,
         md=result.md_regular if hours is None else None,
+        senders=senders,
+        sheet_month=sheet_month,
     )
     group = rcp_checks._Group(result, rules, "Akceptacja")
     if verdict.ok:
@@ -1060,6 +1066,7 @@ async def _proof(
     rules: dict[str, dict[str, Any]],
     other_md: Decimal = Decimal("0"),
     consultant_mails: frozenset[int] = frozenset(),
+    senders: mail_text.Senders = mail_text.Senders(),
 ) -> Optional[rcp_checks.ProofResult]:
     """Odczyt RCP z pliku i kontrole (E2). Brak pliku RCP = ``None``.
 
@@ -1076,6 +1083,7 @@ async def _proof(
         other_md=other_md,
         working_days=working_days,
         consultant_mails=consultant_mails,
+        senders=senders,
     )
     if report is not None and report.mime in RCP_MIMES:
         try:
@@ -1115,7 +1123,9 @@ async def _proof(
     if other is not None:
         return other
     if report is None or report.mime not in RCP_MIMES:
-        return await _acceptance(None, reports, month=month, hours=None, rules=rules)
+        return await _acceptance(
+            None, reports, month=month, hours=None, rules=rules, senders=senders
+        )
     return rcp_checks.evaluate(
         None,
         [],
@@ -1170,6 +1180,7 @@ async def _read_file(
     working_days: int,
     has_mail_extra: bool = False,
     consultant_mails: frozenset[int] = frozenset(),
+    senders: mail_text.Senders = mail_text.Senders(),
 ) -> Optional[rcp_checks.ProofResult]:
     """Czytniki wzorów spoza RCP BNP dla jednego pliku; ``None`` = nie rozpoznany.
 
@@ -1180,9 +1191,21 @@ async def _read_file(
     has_mail = any(d.mime in MAIL_MIMES for d in reports) or has_mail_extra
 
     async def accepted(
-        result: rcp_checks.ProofResult, hours: Optional[Decimal]
+        result: rcp_checks.ProofResult,
+        hours: Optional[Decimal],
+        sheet_month: Optional[str],
     ) -> rcp_checks.ProofResult:
-        return await _acceptance(result, reports, month=month, hours=hours, rules=rules)
+        """``sheet_month``: miesiąc pliku z godzinami (akceptacja bez liczby)."""
+
+        return await _acceptance(
+            result,
+            reports,
+            month=month,
+            hours=hours,
+            rules=rules,
+            senders=senders,
+            sheet_month=sheet_month,
+        )
 
     def declared_result(found: declared.Declared) -> rcp_checks.ProofResult:
         return declared.evaluate(
@@ -1200,7 +1223,9 @@ async def _read_file(
         found_plus = timesheet_plus.declared_for(sheet, person_name) if sheet else None
         if found_plus is None:
             return None
-        return await accepted(declared_result(found_plus), found_plus.hours)
+        return await accepted(
+            declared_result(found_plus), found_plus.hours, found_plus.month
+        )
     if mime in MAIL_MIMES:
         # Mail koordynatora z godzinami zaakceptowanymi przez klienta (CeZ).
         summary = await asyncio.to_thread(hours_summary.parse, content, mime)
@@ -1237,7 +1262,7 @@ async def _read_file(
         orlen = await asyncio.to_thread(protocol_orlen.parse, content, mime)
         if orlen is None:
             return None
-        return await accepted(declared_result(orlen), orlen.hours)
+        return await accepted(declared_result(orlen), orlen.hours, orlen.month)
     # Protokół odbioru zbiorczy (CeZ, PFRON): godziny kilku osób w jednym PDF-ie.
     protocol = await asyncio.to_thread(protocol_collective.parse, content, mime)
     if protocol is not None:
@@ -1285,7 +1310,9 @@ async def _read_file(
             working_days=working_days,
             other_md=other_md,
         )
-        return await accepted(result, pko.total_hours if pko.entries else None)
+        return await accepted(
+            result, pko.total_hours if pko.entries else None, pko.month
+        )
     # Tygodnie z SAP Fieldglass (EY): eksport „timeSheet.worker.list”.
     fieldglass = await asyncio.to_thread(timesheet_fieldglass.parse, content, mime)
     if fieldglass is not None:
@@ -1298,7 +1325,9 @@ async def _read_file(
             other_md=other_md,
         )
         md = result.md_regular
-        return await accepted(result, md * timesheet.per_md(rules) if md else None)
+        return await accepted(
+            result, md * timesheet.per_md(rules) if md else None, month if md else None
+        )
     # Time Sheet w godzinach (E6.2): XLSX, polski wariant albo PDF.
     sheet = await asyncio.to_thread(timesheet.parse, content, mime)
     if sheet is not None:
@@ -1311,7 +1340,9 @@ async def _read_file(
             working_days=working_days,
             other_md=other_md,
         )
-        return await accepted(result, sheet.total_hours if sheet.entries else None)
+        return await accepted(
+            result, sheet.total_hours if sheet.entries else None, sheet.month
+        )
     # Raport godzin BIK: szablon klienta, jego PDF albo tabela dni.
     bik = await asyncio.to_thread(timesheet_bik.parse, content, mime)
     if bik is not None:
@@ -1323,12 +1354,16 @@ async def _read_file(
             working_days=working_days,
             other_md=other_md,
         )
-        return await accepted(result, bik.total_hours if bik.total_hours > 0 else None)
+        return await accepted(
+            result, bik.total_hours if bik.total_hours > 0 else None, bik.month
+        )
     # Potwierdzenie godzin ERGO, protokół Orlenu i ewidencja czasu Orlenu w PDF.
     for reader in (confirmation_ergo, protocol_orlen, ewidencja_orlen):
         found_doc = await asyncio.to_thread(reader.parse, content, mime)
         if found_doc is not None:
-            return await accepted(declared_result(found_doc), found_doc.hours)
+            return await accepted(
+                declared_result(found_doc), found_doc.hours, found_doc.month
+            )
     return None
 
 
@@ -1342,6 +1377,51 @@ def _doc_month(doc: CpDocument) -> Optional[str]:
 
 def _on(rules: dict[str, dict[str, Any]], key: str) -> bool:
     return rules[key]["level"] != "off"
+
+
+async def acceptance_senders(
+    db: AsyncSession, client_id: int, rules: dict[str, dict[str, Any]]
+) -> mail_text.Senders:
+    """Domeny, z których klient akceptuje godziny (``proof.accept_has_hours``).
+
+    Domena z ``proof.excel_with_mail`` i adresu ``cl.client_acceptance``, domeny
+    kontaktów klienta i rejestru domen klientów (``known_clients``, po NIP-ie).
+    Domeny firmy, skrzynek konsultantów u klienta i poczty publicznej nie należą
+    do klienta: piszą z nich nasi ludzie i konsultanci."""
+
+    from app.core.config import settings
+    from app.services import support_mail_route
+    from app.services.consultant_portal import identity
+    from app.services.m365.matcher import PUBLIC_EMAIL_DOMAINS
+    from app.services.order_policies import known_clients
+
+    own = (
+        identity._company_domains()
+        | identity._personal_domains()
+        | set(settings.sso_allowed_domains_list)
+        | PUBLIC_EMAIL_DOMAINS
+    )
+    found = set(
+        acceptance_mail.domains(
+            str(rules["proof.excel_with_mail"]["params"].get("domain") or "")
+        )
+    )
+    email = str(rules["cl.client_acceptance"]["params"].get("email") or "")
+    if "@" in email:
+        found.add(email.strip().lower().rpartition("@")[2])
+    found.update(await support_mail_route._contact_domains(db, client_id))
+    nip = await db.scalar(select(Client.nip).where(Client.id == client_id))
+    number = re.sub(r"[\s-]", "", nip or "").upper()
+    keys = {
+        key for key, ids in known_clients.KNOWN_REGISTRY_IDS.items() if number in ids
+    }
+    found.update(
+        d for d, key in known_clients.KNOWN_SENDER_DOMAINS.items() if key in keys
+    )
+    return mail_text.Senders(
+        client=frozenset(d for d in found if d and d not in own),
+        own=frozenset(own),
+    )
 
 
 async def _consultant_mails(
@@ -1405,6 +1485,11 @@ async def _recompute(
             rules=rules,
             other_md=await _other_md(db, person.contract, s.period_month),
             consultant_mails=await _consultant_mails(db, reports, s.contract_id, rules),
+            senders=(
+                await acceptance_senders(db, s.client_id, rules)
+                if _on(rules, "proof.accept_has_hours")
+                else mail_text.Senders()
+            ),
         )
         if proof is not None and (source := proof.meta.pop("document_id", None)):
             # MD z innego pliku miesiąca niż wybrany: ten plik jest dowodem.
@@ -1416,6 +1501,7 @@ async def _recompute(
         s.md_extra = proof.md_extra or None
         s.md_source = "rcp"
     proof = _signed_checks(proof, s, rules)
+    proof = await _copyright_checks(proof, reports, s.period_month, rules)
     proof = await _rate_change_checks(db, s, proof, rules)
     result = compute(
         Inputs(
@@ -1514,6 +1600,59 @@ def _signed_checks(
             "Arkusz czeka na podpis klienta",
             "Zapłata po podpisanym arkuszu tej osoby.",
         )
+    group.close()
+    return proof
+
+
+async def _copyright_checks(
+    proof: Optional[rcp_checks.ProofResult],
+    reports: list[CpDocument],
+    month: str,
+    rules: dict[str, dict[str, Any]],
+) -> Optional[rcp_checks.ProofResult]:
+    """``cl.copyright_statement`` (CeZ): oświadczenie o przeniesieniu autorskich
+    praw majątkowych za miesiąc wśród plików osoby. Brak albo błąd wzoru = uwaga."""
+
+    if rules["cl.copyright_statement"]["level"] == "off":
+        return proof
+    first, last = month_bounds(month)
+    found: Optional[list[copyright_statement.Finding]] = None
+    for doc in reports:
+        if doc.mime not in ("application/pdf", declared.DOCX):
+            continue
+        try:
+            content = portal_documents.path_for(doc.file_path).read_bytes()
+        except OSError:
+            continue
+        pdf = doc.mime == "application/pdf"
+        reader = declared.pdf_text if pdf else declared.docx_text
+        text = await asyncio.to_thread(reader, content) or ""
+        if not copyright_statement.is_statement(doc.file_name or "", text):
+            continue
+        signed = await asyncio.to_thread(rcp_bnp.signatures, content) if pdf else []
+        findings = copyright_statement.judge(
+            copyright_statement.parse(text),
+            first=first,
+            last=last,
+            signed_at=[x.signed_at for x in signed if x.signed_at is not None],
+        )
+        if found is None or [f.state for f in findings] == ["ok"]:
+            found = findings
+    proof = proof or rcp_checks.ProofResult(md_regular=None, md_extra=None)
+    group = rcp_checks._Group(proof, rules, "Oświadczenie o prawach autorskich")
+    key = "cl.copyright_statement"
+    if found is None:
+        group.fail(
+            key,
+            "Brak oświadczenia o prawach autorskich",
+            "CeZ przyjmuje fakturę z oświadczeniem każdej osoby na wzorze CeZ, "
+            "podpisanym po końcu miesiąca, osobno na każdą umowę wykonawczą.",
+        )
+    for finding in found or []:
+        if finding.state == "ok":
+            group.ok(finding.title, finding.detail)
+        else:
+            group.fail(key, finding.title, finding.detail)
     group.close()
     return proof
 

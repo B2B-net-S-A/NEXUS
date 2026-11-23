@@ -398,6 +398,26 @@ SECTIONS: tuple[Section, ...] = (
                 "u klienta z kontraktu). „Cały miesiąc”: jeden protokół na wszystkie osoby.",
             ),
             Rule(
+                "cl.protocol_amount",
+                "Kwota do faktury taka jak w protokole klienta",
+                "off",
+                "E6",
+                hint="Protokół klienta z kwotą netto (Orlen): kwota rozliczenia, która idzie "
+                "na fakturę (MD × stawka z zamówienia), musi być równa kwocie z protokołu. "
+                "Finanse Orlenu odsyłają fakturę z inną kwotą do korekty albo do nowego PO.",
+            ),
+            Rule(
+                "cl.copyright_statement",
+                "Oświadczenie o prawach autorskich za miesiąc przed fakturą",
+                "off",
+                "E6",
+                hint="Centrum e-Zdrowia: każda osoba co miesiąc, osobno na każdą umowę "
+                "wykonawczą, oświadczenie o przeniesieniu autorskich praw majątkowych na "
+                "wzorze CeZ, z okresem od 01.MM do 30/31.MM, podpisane po końcu miesiąca. "
+                "Plik rozpoznajemy po nazwie albo treści; brak, inny okres, podpis przed "
+                "końcem miesiąca i nagłówek „Wzór” dają uwagę.",
+            ),
+            Rule(
                 "cl.cost_mail_block",
                 "Blok kosztów projektu do maila do automatu klienta",
                 "off",

@@ -455,7 +455,10 @@ async def _named_rows(
 
 
 async def client_ids_for_sender(db: AsyncSession, address: str) -> frozenset[int]:
-    """Klienci, do których należy domena nadawcy: adres w kontaktach klienta.
+    """Klienci, do których należy domena nadawcy: adres w kontaktach klienta albo
+    domena z rejestru domen klientów (``known_clients``, po NIP-ie). Orlen Upstream
+    pisze z ``pgnig.pl``, a w kontaktach Orlenu jest tylko ``orlen.pl`` (protokół IX
+    2026 przyszedł z ``pgnig.pl``, przegląd skrzynek 23.11.2026).
 
     Domena firmy (adresy rozliczeń i SSO), skrzynek konsultantów u klienta i poczty
     publicznej (gmail, wp) nie należy do żadnego klienta, bo pisze z niej każdy.
@@ -478,7 +481,8 @@ async def client_ids_for_sender(db: AsyncSession, address: str) -> frozenset[int
         .where(func.lower(func.split_part(func.btrim(Contact.email), "@", 2)) == domain)
         .distinct()
     )
-    return frozenset(rows.all())
+    known = await _clients_of_domain(db, domain) or frozenset()
+    return frozenset(rows.all()) | known
 
 
 # Słowo miesiąca w nazwie pliku („TimeSheet maj 2026”) nie jest samym nazwiskiem.
