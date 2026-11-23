@@ -7,7 +7,8 @@
  * `board_flow._autofill_decisions`, reguła terminu wspólna z Tablicą).
  * Akcje:
  *  - „Dzwonię” — `POST /api/pipeline/claim` (blokada 12 h i decyzja na stałe),
- *  - „Otwórz” — panel osoby na Tablicy, gdzie jest „Odrzuć z powodem”.
+ *  - „Otwórz” — panel osoby (od 23.11.2026 na pulpicie, „Pracuj po kolei”;
+ *    ⌘-klik dalej otwiera Tablicę), gdzie jest „Odrzuć z powodem”.
  * Obsłużona osoba znika od razu; odświeżenie kolejki dogania w tle.
  */
 
@@ -22,6 +23,8 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { BOARD_TASKS_QUERY_KEY, type FlowAutofillDecision } from "@/lib/api/boardTasks";
 import { workdaysText } from "@/lib/board-card-badges";
 
+import { openOnDashboard, type PersonPair } from "@/lib/dashboard-person-queue";
+
 import { Section } from "./BoardTasksSection";
 
 function key(row: Pick<FlowAutofillDecision, "job_id" | "candidate_id">): string {
@@ -31,6 +34,10 @@ function key(row: Pick<FlowAutofillDecision, "job_id" | "candidate_id">): string
 /** Panel osoby na Tablicy rekrutacji. */
 export function autofillPersonHref(row: Pick<FlowAutofillDecision, "job_id" | "candidate_id">): string {
   return `/jobs/${row.job_id}?candidate=${row.candidate_id}`;
+}
+
+function pairOf(row: FlowAutofillDecision): PersonPair {
+  return { jobId: row.job_id, candidateId: row.candidate_id };
 }
 
 function jobLabel(row: FlowAutofillDecision): string {
@@ -51,12 +58,15 @@ export function BoardAutofillDecisions({
   expanded,
   onToggle,
   shown,
+  onOpenPerson,
 }: {
   rows: FlowAutofillDecision[] | null | undefined;
   total: number;
   expanded: boolean;
   onToggle: () => void;
   shown: <T>(kind: string, rows: T[]) => T[];
+  /** „Pracuj po kolei” (23.11.2026): panel osoby na pulpicie. */
+  onOpenPerson?: (pair: PersonPair) => void;
 }) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -95,7 +105,11 @@ export function BoardAutofillDecisions({
           data-testid="autofill-decision-row"
         >
           <div className="min-w-[10rem] flex-1">
-            <Link href={autofillPersonHref(row)} className="block truncate text-sm font-medium hover:underline">
+            <Link
+              href={autofillPersonHref(row)}
+              onClick={onOpenPerson ? (e) => openOnDashboard(e, () => onOpenPerson(pairOf(row))) : undefined}
+              className="block truncate text-sm font-medium hover:underline"
+            >
               {row.candidate_name}
             </Link>
             <p className="truncate text-xs text-muted-foreground">
@@ -121,7 +135,13 @@ export function BoardAutofillDecisions({
               Dzwonię
             </Button>
             <Button size="sm" variant="quiet" asChild>
-              <Link href={autofillPersonHref(row)} aria-label={`Otwórz ${row.candidate_name} na Tablicy`}>
+              <Link
+                href={autofillPersonHref(row)}
+                onClick={onOpenPerson ? (e) => openOnDashboard(e, () => onOpenPerson(pairOf(row))) : undefined}
+                aria-label={
+                  onOpenPerson ? `Otwórz ${row.candidate_name} w panelu osoby` : `Otwórz ${row.candidate_name} na Tablicy`
+                }
+              >
                 Otwórz
               </Link>
             </Button>

@@ -1890,6 +1890,14 @@
    "v3_home": "Pulpit → Czeka na Ciebie"
   },
   {
+   "id": "dashboard.person-queue",
+   "area": "pulpit",
+   "opis": "„Pracuj po kolei · N” w nagłówku „Czeka na Ciebie” (23.11.2026): panel osoby z Tablicy nad pulpitem, „‹ N z M ›” i „Dalej: <osoba> ›” przez listy Screening bez arkusza → Zweryfikowani czekają na CV → od systemu i przez wszystkie rekrutacje; pasek kolejki (lista, rekrutacja, od kiedy czeka, „Otwórz Tablicę”); po odrzuceniu z panelu następna osoba z paskiem „Odrzucono”; zwykły klik w osobę z tych list też otwiera panel na pulpicie (⌘-klik — Tablica)",
+   "file": "components/v2/dashboard/BoardTasksPanel.tsx",
+   "marker": "person-queue-start",
+   "v3_home": "Pulpit → Czeka na Ciebie → Pracuj po kolei"
+  },
+  {
    "id": "new.collaborators",
    "area": "zlecenie",
    "opis": "Pole „Kolejne osoby” przy tworzeniu rekrutacji",

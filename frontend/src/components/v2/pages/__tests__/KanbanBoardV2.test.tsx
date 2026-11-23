@@ -230,7 +230,7 @@ vi.mock("@/components/v2/person/PersonWorkbenchTabs", async (importOriginal) => 
   };
 });
 
-import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
+import { KanbanBoardV2, type PanelOnlyQueue } from "@/components/v2/pages/KanbanBoardV2";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/store/auth";
 import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
@@ -4515,5 +4515,155 @@ describe("KanbanBoardV2 — filtr „Kto dodał” i kolejka w kolumnie (D1–D5
     expect(await screen.findByText(/Zaznaczono/)).toBeInTheDocument();
     rerender(boardColumns(), { kind: "user", userId: 7 });
     await waitFor(() => expect(screen.queryByText(/Zaznaczono/)).toBeNull());
+  });
+});
+
+describe("KanbanBoardV2 — „Pracuj po kolei” na pulpicie: sam panel (23.11.2026)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    kanban.mockResolvedValue({ data: { columns: [], off_template: null } });
+    post.mockResolvedValue({ data: {} });
+    useAuthStore.setState({ user: { id: 1, role: "admin" } } as never);
+  });
+
+  const person = (id: number, stage: string, name: string, lastname: string) => ({
+    id: 900 + id,
+    candidate_id: id,
+    stage,
+    name,
+    lastname,
+    days_in_stage: 2,
+  });
+
+  function columns() {
+    return [
+      {
+        stage: "screening",
+        name: "Screening",
+        category: "internal",
+        stage_def_id: 502,
+        count: 2,
+        terminal_type: null,
+        items: [person(63, "screening", "Tomasz", "Wójcik"), person(64, "screening", "Ewa", "Lis")],
+      },
+      {
+        stage: "verified",
+        name: "Zweryfikowany",
+        category: "internal",
+        stage_def_id: 503,
+        count: 1,
+        terminal_type: null,
+        items: [person(65, "verified", "Ola", "Nowak")],
+      },
+      {
+        stage: "rejected",
+        name: "Odrzucony",
+        category: "terminal",
+        stage_def_id: 508,
+        count: 0,
+        terminal_type: "rejected",
+        items: [],
+      },
+    ] as never;
+  }
+
+  function panelOnly(over: Partial<PanelOnlyQueue> = {}): PanelOnlyQueue {
+    return {
+      candidateId: 65,
+      label: "Czeka na Ciebie",
+      position: 4,
+      total: 31,
+      onPrevious: vi.fn(),
+      onNext: vi.fn(),
+      next: { name: "Jan Dalej", stageLabel: "Java w innej rekrutacji" },
+      onClosedFromPanel: vi.fn(),
+      closedNotice: null,
+      banner: <div data-testid="queue-banner">Pasek kolejki</div>,
+      onPersonChange: vi.fn(),
+      onClose: vi.fn(),
+      ...over,
+    };
+  }
+
+  function renderPanelOnly(queue: PanelOnlyQueue) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const ui = (q: PanelOnlyQueue) => (
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2 columns={columns()} jobId={10} panelOnly={q} />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+    const view = render(ui(queue));
+    return { ...view, rerenderWith: (q: PanelOnlyQueue) => view.rerender(ui(q)) };
+  }
+
+  it("plansza ukryta, panel od razu na osobie z pulpitu z licznikiem kolejki pulpitu i paskiem", async () => {
+    renderPanelOnly(panelOnly());
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    expect(within(panel).getAllByText("Ola Nowak").length).toBeGreaterThan(0);
+    expect(within(panel).getByText("4 z 31")).toBeInTheDocument();
+    expect(within(panel).getByTestId("dock-queue-label")).toHaveTextContent("Czeka na Ciebie");
+    expect(within(panel).getByTestId("queue-banner")).toBeInTheDocument();
+    // Karty Tablicy nie są widoczne — pulpit zostaje pod panelem.
+    const card = document.querySelector("[data-kanban-card]");
+    expect(card?.closest("[hidden]")).not.toBeNull();
+  });
+
+  it("„›” w panelu woła kolejkę pulpitu, nie kolumnę Tablicy", async () => {
+    const queue = panelOnly();
+    renderPanelOnly(queue);
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Następna karta" }));
+    expect(queue.onNext).toHaveBeenCalled();
+  });
+
+  it("zmiana osoby z pulpitu w tej samej rekrutacji przestawia panel; zamknięcie woła pulpit", async () => {
+    const queue = panelOnly();
+    const { rerenderWith } = renderPanelOnly(queue);
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    expect(within(panel).getAllByText("Ola Nowak").length).toBeGreaterThan(0);
+    rerenderWith({ ...queue, candidateId: 64, position: 5 });
+    await waitFor(() => expect(screen.getAllByText("Ewa Lis").length).toBeGreaterThan(0));
+    expect(queue.onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij dok" }));
+    await waitFor(() => expect(queue.onClose).toHaveBeenCalled());
+  });
+
+  it("odrzucenie z panelu: okno zapowiada osobę z pulpitu, po ruchu serwera pulpit dostaje zamkniętą osobę", async () => {
+    const queue = panelOnly();
+    renderPanelOnly(queue);
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    fireEvent.click(within(panel).getByRole("button", { name: /Odrzuć z powodem/ }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Dalej: Jan Dalej · Java w innej rekrutacji")).toBeInTheDocument();
+    const free = within(dialog).queryByPlaceholderText(/brak wymaganych kompetencji/);
+    if (free) fireEvent.change(free, { target: { value: "Brak kluczowej umiejętności" } });
+    else fireEvent.click(within(dialog).getByText("Brak kluczowej umiejętności"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Potwierdź" }));
+    await waitFor(() =>
+      expect(queue.onClosedFromPanel).toHaveBeenCalledWith(
+        expect.objectContaining({ candidateId: 65, name: "Ola Nowak", verb: "Odrzucono" }),
+      ),
+    );
+    expect(post.mock.calls.find((c) => c[0] === "/api/pipeline/move")?.[1]).toMatchObject({
+      candidate_id: 65,
+      stage_def_id: 508,
+    });
+  });
+
+  it("osoby nie ma już na Tablicy → panel mówi to wprost, z paskiem kolejki", async () => {
+    renderPanelOnly(panelOnly({ candidateId: 999 }));
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    expect(within(panel).getByText(/Tej osoby nie ma już na Tablicy tej rekrutacji/)).toBeInTheDocument();
+    expect(within(panel).getByTestId("queue-banner")).toBeInTheDocument();
+  });
+
+  it("komunikat „Tej osoby nie ma…” zamyka też Escape", async () => {
+    const queue = panelOnly({ candidateId: 999 });
+    renderPanelOnly(queue);
+    await screen.findByRole("complementary", { name: "Panel osoby" });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(queue.onClose).toHaveBeenCalled();
   });
 });

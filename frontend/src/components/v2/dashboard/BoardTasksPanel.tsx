@@ -124,6 +124,8 @@ import { RequirementFixesSection } from "./RequirementFixesSection";
 import { TeamLoadSection } from "./TeamLoadSection";
 import { ToCompleteMovePrompt } from "./ToCompleteMovePrompt";
 import { WhileAwaySection } from "./WhileAwaySection";
+import { useDashboardPersonQueue } from "./DashboardPersonQueue";
+import { buildPersonQueue } from "@/lib/dashboard-person-queue";
 
 export const BOARD_TASKS_ANCHOR = "czeka-na-ciebie";
 
@@ -203,6 +205,10 @@ export function BoardTasksPanel({
       ? { ...listed, flow: { ...listed.flow, order_mail_review: 0 } }
       : listed;
   }, [query.data, hiddenPanels, toCompleteOnGrid, orderMailOnGrid]);
+  // „Pracuj po kolei” (23.11.2026): Screening → Zweryfikowani → od systemu,
+  // panel osoby nad pulpitem przez wszystkie rekrutacje.
+  const queueEntries = useMemo(() => buildPersonQueue(data?.flow), [data?.flow]);
+  const personQueue = useDashboardPersonQueue(queueEntries);
   const hasCpro = (data?.cpro_to_send.length ?? 0) > 0;
   // Osobę od Cpro ustawia admin albo DL Nordei (25.09.2026) — przełącznik
   // stoi u nich także przy pustej kolejce, inaczej martwe konto albo brak
@@ -219,325 +225,351 @@ export function BoardTasksPanel({
     document.getElementById(BOARD_TASKS_ANCHOR)?.scrollIntoView({ block: "start" });
   }, [data]);
 
-  if (!data) {
-    // Runda 8 (R8-N14-1): awaria odczytu nie może udawać „nic nie czeka” —
-    // osoba z porannego dzwonka uznałaby, że kolejka jest pusta.
-    if (!query.isError) return null;
+  // Panel „Pracuj po kolei” stoi zawsze w tym samym miejscu drzewa: gdy po
+  // ruchu ostatniej osoby listy się opróżnią, panel nie może się zamontować od
+  // nowa (wpisana notatka i rozwinięty warsztat by przepadły — przegląd kodu
+  // 23.11.2026). To portal, więc miejsce w drzewie nie zmienia układu.
+  const content = (() => {
+    if (!data) {
+      // Runda 8 (R8-N14-1): awaria odczytu nie może udawać „nic nie czeka” —
+      // osoba z porannego dzwonka uznałaby, że kolejka jest pusta.
+      if (!query.isError) return null;
+      return (
+        <div
+          id={BOARD_TASKS_ANCHOR}
+          role="region"
+          aria-label="Czeka na Ciebie"
+          className="scroll-mt-20 rounded-xl border border-border bg-card px-4"
+        >
+          <WidgetErrorBlock
+            title="Nie udało się wczytać listy „Czeka na Ciebie”."
+            error={query.error}
+            onRetry={() => void query.refetch()}
+          />
+        </div>
+      );
+    }
+    const preps = data.prep_attention ?? [];
+    const followups = data.followups ?? [];
+    const bookedCalls = data.booked_calls ?? [];
+    // Serwer wysyła propozycje tylko osobie decydującej; flaga jest drugim
+    // zamkiem — bez niej sekcji nie ma, nawet gdyby wiersze przyszły.
+    const proposals =
+      data.can_decide_proposals === true ? (data.allocation_proposals ?? []) : [];
+    // „Nowe osoby do ustawienia” (0612) — zadanie admina i Head of Recruitment.
+    const newPeople = data.can_decide_proposals === true ? (data.new_people ?? []) : [];
+    const newPeopleFailed = data.can_decide_proposals === true && data.new_people === null;
+    const total =
+      newPeople.length +
+      proposals.length +
+      data.cpro_to_send.length +
+      data.cpro_sent.length +
+      preps.length +
+      followups.length +
+      bookedCalls.length +
+      agreementTasksCount(data.agreements) +
+      flowWorkCount(data.flow, data.finance) +
+      departedCareCount(care.data) +
+      (data.rate_changes?.length ?? 0);
+    // „Twoje CV w drodze”: gdy coś wróciło albo panel i tak stoi — kolumna
+    // w panelu; gdy nie — sam wąski pasek nad pulpitem (także z pustym stanem,
+    // bo każdy ma tę listę domyślnie i może ją usunąć z pulpitu).
+    const transit = data.cv_in_transit ?? null;
+    // „Nowe rekrutacje — kto prowadzi” to informacja dla Head of Recruitment
+    // i admina (serwer nie wysyła jej nikomu innemu): do `total` się nie liczy,
+    // a gdy nic nie czeka — stoi sama, we własnej ramce.
+    const leads = data.new_job_leads ?? [];
+    // „Obłożenie” towarzyszy listom, przy których przydziela się ludzi — bez
+    // nich nie ma czego rozstrzygać, a pełna tablica jest w „Requesty i obłożenie”.
+    const showLoad =
+      data.can_decide_proposals === true &&
+      proposals.length + leads.length > 0 &&
+      !hiddenPanels.has("team_load");
+    // „Rekrutacje do dokończenia albo zamknięcia” (Rekrutacja bez szkiców) —
+    // zaległość, nie zadanie z Tablicy: do `total` się nie liczy, jak lista
+    // prowadzących. Starszy serwer pól nie oddaje (`undefined`/`null`).
+    const hasPendingJobs = hasPendingJobsContent(data.pending_jobs, data.unfinished_forms);
+    // „Wymagania do poprawy” — tak samo: zaległość obok zadań, do `total` się nie liczy.
+    const fixes = data.requirement_fixes ?? [];
+    // `null` = serwer nie policzył listy — mówimy to, zamiast udawać, że nic nie ma.
+    const fixesFailed = data.requirement_fixes === null;
+    // Admin i Head of Recruitment widzą listę do dokończenia zwiniętą do jednej
+    // linii, gdy obok są zadania — to zaległość, nie praca na dziś.
+    const collapsePending = data.can_decide_proposals === true;
+    const movePrompt =
+      onMoveToComplete && toCompleteCounts(data).total > 0 ? (
+        <ToCompleteMovePrompt
+          onMove={onMoveToComplete}
+          onKeep={() => onKeepToComplete?.()}
+          busy={moveBusy}
+        />
+      ) : null;
+    const flowOthers = hasFlowOthers(data.flow);
+    const waitingAgreements = data.agreements?.waiting_on_others ?? [];
+    if (
+      total === 0 &&
+      (transit?.returned_total ?? 0) === 0 &&
+      !flowOthers &&
+      waitingAgreements.length === 0 &&
+      (data.rate_changes_by_others?.length ?? 0) === 0
+    ) {
+      // Rola z sekcjami przepływu (rekruter, TCM, DL) dostaje jedno zdanie
+      // zamiast znikającego panelu — inaczej „nic” i „nie wczytało się” wyglądają
+      // tak samo. Pozostałe role: bez pustej ramki, jak dotąd. Przy pasie „Do
+      // wysłania do klienta” zdania nie ma — o pustej kolejce mówi pas.
+      const quiet = data.flow?.applies === true && !dlSendBand;
+      if (
+        !quiet &&
+        !canSetSender &&
+        !transit &&
+        leads.length === 0 &&
+        !hasPendingJobs &&
+        fixes.length === 0 &&
+        !fixesFailed
+      ) {
+        return inTile ? (
+          <>
+            <WhileAwaySection />
+            <p role="status" className="text-sm text-muted-foreground">
+              Nic na Ciebie teraz nie czeka.
+            </p>
+          </>
+        ) : (
+          <WhileAwaySection standalone />
+        );
+      }
+      return (
+        <div className="flex flex-col gap-3">
+          <WhileAwaySection standalone />
+          {quiet ? (
+            <p
+              id={BOARD_TASKS_ANCHOR}
+              role="status"
+              className="scroll-mt-20 rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground"
+            >
+              Nic na Ciebie teraz nie czeka.
+            </p>
+          ) : null}
+          {canSetSender ? (
+            <div role="region" aria-label="Osoba od Cpro" className="rounded-xl border border-border bg-card px-4 py-2">
+              <CproSenderControl sender={sender.data} loading={sender.isLoading} compact />
+            </div>
+          ) : null}
+          <NewJobLeadsSection rows={leads} standalone />
+          {showLoad ? <TeamLoadSection standalone /> : null}
+          {movePrompt}
+          <PendingJobsSection pending={data.pending_jobs} forms={data.unfinished_forms} standalone />
+          <RequirementFixesSection rows={fixes} standalone />
+          {fixesFailed ? <RequirementFixesFailed /> : null}
+          {transit ? <CvInTransitSection transit={transit} standalone /> : null}
+        </div>
+      );
+    }
+
+    const cproGroups = groupCproByJob(data.cpro_to_send);
+    // „Twoje CV w drodze” z czymś, co wróciło do poprawy, to Twój ruch (popraw
+    // i oddaj); czekanie na przegląd i klienta albo samo odrzucenie przez DL —
+    // „U innych”.
+    const transitIsMine = transit ? transitToFixTotal(transit) > 0 : false;
+    const othersGroup =
+      (Boolean(transit) && !transitIsMine) ||
+      data.cpro_sent.length > 0 ||
+      flowOthers ||
+      waitingAgreements.length > 0 ||
+      (data.rate_changes_by_others?.length ?? 0) > 0;
+    const openQueue = (jobId: number | null) => {
+      setCproJob(jobId);
+      setCproOpen(true);
+    };
+
     return (
       <div
         id={BOARD_TASKS_ANCHOR}
         role="region"
         aria-label="Czeka na Ciebie"
-        className="scroll-mt-20 rounded-xl border border-border bg-card px-4"
+        className="scroll-mt-20 rounded-xl border border-primary/30 bg-card p-4"
       >
-        <WidgetErrorBlock
-          title="Nie udało się wczytać listy „Czeka na Ciebie”."
-          error={query.error}
-          onRetry={() => void query.refetch()}
-        />
-      </div>
-    );
-  }
-  const preps = data.prep_attention ?? [];
-  const followups = data.followups ?? [];
-  const bookedCalls = data.booked_calls ?? [];
-  // Serwer wysyła propozycje tylko osobie decydującej; flaga jest drugim
-  // zamkiem — bez niej sekcji nie ma, nawet gdyby wiersze przyszły.
-  const proposals =
-    data.can_decide_proposals === true ? (data.allocation_proposals ?? []) : [];
-  // „Nowe osoby do ustawienia” (0612) — zadanie admina i Head of Recruitment.
-  const newPeople = data.can_decide_proposals === true ? (data.new_people ?? []) : [];
-  const newPeopleFailed = data.can_decide_proposals === true && data.new_people === null;
-  const total =
-    newPeople.length +
-    proposals.length +
-    data.cpro_to_send.length +
-    data.cpro_sent.length +
-    preps.length +
-    followups.length +
-    bookedCalls.length +
-    agreementTasksCount(data.agreements) +
-    flowWorkCount(data.flow, data.finance) +
-    departedCareCount(care.data) +
-    (data.rate_changes?.length ?? 0);
-  // „Twoje CV w drodze”: gdy coś wróciło albo panel i tak stoi — kolumna
-  // w panelu; gdy nie — sam wąski pasek nad pulpitem (także z pustym stanem,
-  // bo każdy ma tę listę domyślnie i może ją usunąć z pulpitu).
-  const transit = data.cv_in_transit ?? null;
-  // „Nowe rekrutacje — kto prowadzi” to informacja dla Head of Recruitment
-  // i admina (serwer nie wysyła jej nikomu innemu): do `total` się nie liczy,
-  // a gdy nic nie czeka — stoi sama, we własnej ramce.
-  const leads = data.new_job_leads ?? [];
-  // „Obłożenie” towarzyszy listom, przy których przydziela się ludzi — bez
-  // nich nie ma czego rozstrzygać, a pełna tablica jest w „Requesty i obłożenie”.
-  const showLoad =
-    data.can_decide_proposals === true &&
-    proposals.length + leads.length > 0 &&
-    !hiddenPanels.has("team_load");
-  // „Rekrutacje do dokończenia albo zamknięcia” (Rekrutacja bez szkiców) —
-  // zaległość, nie zadanie z Tablicy: do `total` się nie liczy, jak lista
-  // prowadzących. Starszy serwer pól nie oddaje (`undefined`/`null`).
-  const hasPendingJobs = hasPendingJobsContent(data.pending_jobs, data.unfinished_forms);
-  // „Wymagania do poprawy” — tak samo: zaległość obok zadań, do `total` się nie liczy.
-  const fixes = data.requirement_fixes ?? [];
-  // `null` = serwer nie policzył listy — mówimy to, zamiast udawać, że nic nie ma.
-  const fixesFailed = data.requirement_fixes === null;
-  // Admin i Head of Recruitment widzą listę do dokończenia zwiniętą do jednej
-  // linii, gdy obok są zadania — to zaległość, nie praca na dziś.
-  const collapsePending = data.can_decide_proposals === true;
-  const movePrompt =
-    onMoveToComplete && toCompleteCounts(data).total > 0 ? (
-      <ToCompleteMovePrompt
-        onMove={onMoveToComplete}
-        onKeep={() => onKeepToComplete?.()}
-        busy={moveBusy}
-      />
-    ) : null;
-  const flowOthers = hasFlowOthers(data.flow);
-  const waitingAgreements = data.agreements?.waiting_on_others ?? [];
-  if (
-    total === 0 &&
-    (transit?.returned_total ?? 0) === 0 &&
-    !flowOthers &&
-    waitingAgreements.length === 0 &&
-    (data.rate_changes_by_others?.length ?? 0) === 0
-  ) {
-    // Rola z sekcjami przepływu (rekruter, TCM, DL) dostaje jedno zdanie
-    // zamiast znikającego panelu — inaczej „nic” i „nie wczytało się” wyglądają
-    // tak samo. Pozostałe role: bez pustej ramki, jak dotąd. Przy pasie „Do
-    // wysłania do klienta” zdania nie ma — o pustej kolejce mówi pas.
-    const quiet = data.flow?.applies === true && !dlSendBand;
-    if (
-      !quiet &&
-      !canSetSender &&
-      !transit &&
-      leads.length === 0 &&
-      !hasPendingJobs &&
-      fixes.length === 0 &&
-      !fixesFailed
-    ) {
-      return inTile ? (
-        <>
-          <WhileAwaySection />
-          <p role="status" className="text-sm text-muted-foreground">
-            Nic na Ciebie teraz nie czeka.
-          </p>
-        </>
-      ) : (
-        <WhileAwaySection standalone />
-      );
-    }
-    return (
-      <div className="flex flex-col gap-3">
-        <WhileAwaySection standalone />
-        {quiet ? (
-          <p
-            id={BOARD_TASKS_ANCHOR}
-            role="status"
-            className="scroll-mt-20 rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground"
-          >
-            Nic na Ciebie teraz nie czeka.
-          </p>
-        ) : null}
-        {canSetSender ? (
-          <div role="region" aria-label="Osoba od Cpro" className="rounded-xl border border-border bg-card px-4 py-2">
+        <div className={`mb-3 flex flex-wrap items-baseline justify-between gap-2 ${inTile ? "pr-9" : ""}`}>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold">Czeka na Ciebie</h2>
+            {queueEntries.length > 0 ? (
+              <Button
+                size="sm"
+                onClick={() => personQueue.open()}
+                data-testid="person-queue-start"
+                title="Panel osoby na pulpicie: Screening bez arkusza, Zweryfikowani czekają na CV, od systemu — najdłużej czekający pierwsi"
+              >
+                <ListOrdered className="h-3.5 w-3.5" aria-hidden="true" />
+                Pracuj po kolei · {queueEntries.length}
+              </Button>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-muted-foreground">
+              Ruchy na Tablicach z ostatnich {Math.max(data.window_days, data.dl_review_window_days ?? 0)} dni · najdłużej czekający na górze
+            </p>
+            {onMoveToGrid || onRemovePanel ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Opcje panelu „Czeka na Ciebie”">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {onMoveToGrid ? (
+                    <DropdownMenuItem onSelect={onMoveToGrid}>
+                      <LayoutGrid className="h-4 w-4" />
+                      Postaw jako kafelek na pulpicie
+                    </DropdownMenuItem>
+                  ) : null}
+                  {onRemovePanel ? (
+                    <DropdownMenuItem onSelect={onRemovePanel} className="text-destructive">
+                      <Trash2 className="h-4 w-4" />
+                      Usuń z pulpitu
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </div>
+        </div>
+        {!hasCpro && canSetSender ? (
+          <div className="mb-3">
             <CproSenderControl sender={sender.data} loading={sender.isLoading} compact />
           </div>
         ) : null}
-        <NewJobLeadsSection rows={leads} standalone />
-        {showLoad ? <TeamLoadSection standalone /> : null}
-        {movePrompt}
-        <PendingJobsSection pending={data.pending_jobs} forms={data.unfinished_forms} standalone />
-        <RequirementFixesSection rows={fixes} standalone />
-        {fixesFailed ? <RequirementFixesFailed /> : null}
-        {transit ? <CvInTransitSection transit={transit} standalone /> : null}
+        {/* „Gdy Cię nie było” (16.11.2026): praca z urlopu przed bieżącą. */}
+        <WhileAwaySection />
+        {/* PR 6 (04.10.2026): „Twój ruch” i „U innych” — to, co zrobisz sam,
+            oddzielone od tego, na co czekasz (przegląd, klient, Cpro). */}
+        {othersGroup && (total > 0 || transitIsMine) ? (
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Twój ruch
+          </h3>
+        ) : null}
+        <div className="grid gap-4 lg:grid-cols-3">
+          {/* Kolejka Cpro pierwsza (decyzja Artura 26.10.2026): to codzienna
+              praca osoby od Cpro, a pod Finansami i follow-upami trzeba było
+              do niej przewijać. Widzi ją tylko osoba od Cpro. */}
+          {data.cpro_to_send.length > 0 && (
+            <Section
+              title="Do wrzucenia do Cpro"
+              hint="Jedna osoba wrzuca do Cpro kandydatów wszystkich rekrutacji."
+              count={data.cpro_to_send.length}
+              rows={cproGroups.length}
+              expanded={expanded["cpro_to_send"] === true}
+              onToggle={() => toggle("cpro_to_send")}
+              aside={<CproSenderControl sender={sender.data} loading={sender.isLoading} compact />}
+            >
+              {shown("cpro_to_send", cproGroups).map((group) => (
+                <li key={group.job_id} className="flex items-center gap-2 px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      onClick={() => openQueue(group.job_id)}
+                      className="block max-w-full truncate text-left text-sm font-medium hover:underline"
+                    >
+                      {group.job_title} · {countPl(group.rows.length, "osoba", "osoby", "osób")}
+                    </button>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {group.client_name ? `${group.client_name} · ` : ""}najstarsza czeka {waitingFor(group.rows[0].since)}
+                    </p>
+                  </div>
+                </li>
+              ))}
+              <li className="px-3 py-2">
+                <Button size="sm" className="w-full" onClick={() => openQueue(null)}>
+                  <ListOrdered className="h-3.5 w-3.5" />
+                  Wrzucaj po kolei
+                </Button>
+              </li>
+            </Section>
+          )}
+          <BookedCallsSection rows={bookedCalls} />
+          <NewPeopleSection rows={newPeople} />
+          {newPeopleFailed ? <NewPeopleFailed /> : null}
+          <AllocationProposalsSection
+            rows={proposals}
+            leaveKnown={data.allocation_leave_known !== false}
+          />
+          <NewJobLeadsSection rows={leads} />
+          {showLoad ? <TeamLoadSection /> : null}
+          <DepartedCareSection
+            data={care.data}
+            failed={care.isError}
+            expanded={expanded["departed_care"] === true}
+            onToggle={() => toggle("departed_care")}
+          />
+          {movePrompt}
+          <PendingJobsSection
+            pending={data.pending_jobs}
+            forms={data.unfinished_forms}
+            collapsed={collapsePending}
+          />
+          <RequirementFixesSection rows={fixes} collapsed={collapsePending} />
+          {fixesFailed ? <RequirementFixesFailed /> : null}
+          <BoardFlowSections
+            flow={data.flow}
+            finance={data.finance}
+            expanded={expanded}
+            onToggle={toggle}
+            shown={shown}
+            onOpenPerson={personQueue.open}
+          />
+          <FollowupSection rows={followups} others={data.followups_by_others ?? []} />
+          <AgreementTasksSection tasks={data.agreements} />
+          <StartDocsTasksSection />
+          <RateChangesSection rows={data.rate_changes} />
+          {transit && transitIsMine ? <CvInTransitSection transit={transit} /> : null}
+          <PrepAttentionSection rows={preps} />
+
+        </div>
+        {othersGroup ? (
+          <div className="mt-4 border-t border-border pt-3" role="group" aria-label="U innych">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              U innych — czekasz na nich
+            </h3>
+            <div className="grid gap-4 lg:grid-cols-3">
+              {transit && !transitIsMine ? <CvInTransitSection transit={transit} /> : null}
+              <AgreementWaitingSection rows={waitingAgreements} />
+              <BoardFlowOthers flow={data.flow} expanded={expanded} onToggle={toggle} shown={shown} />
+              <RateChangesWaitingSection rows={data.rate_changes_by_others} />
+              {data.cpro_sent.length > 0 && (
+                <Section
+                  title="Wysłane do Cpro"
+                  hint="Czekamy na odpowiedź Nordei."
+                  count={data.cpro_sent.length}
+                  expanded={expanded["cpro_sent"] === true}
+                  onToggle={() => toggle("cpro_sent")}
+                >
+                  {shown("cpro_sent", data.cpro_sent).map((row) => (
+                    <li key={row.stage_id} className="flex items-center gap-2 px-3 py-2">
+                      <div className="min-w-0 flex-1">
+                        <Link href={boardLink(row)} className="block truncate text-sm font-medium hover:underline">
+                          {row.candidate_name}
+                        </Link>
+                        <RowMeta row={row} />
+                      </div>
+                      <span className="inline-flex shrink-0 items-center gap-1 text-xs tabular-nums text-muted-foreground">
+                        <Clock className="h-3 w-3" aria-hidden />
+                        {waitingFor(row.since)}
+                      </span>
+                    </li>
+                  ))}
+                </Section>
+              )}
+            </div>
+          </div>
+        ) : null}
+        <CproQueueDialog open={cproOpen} onClose={() => setCproOpen(false)} initialJobId={cproJob} />
       </div>
     );
-  }
-
-  const cproGroups = groupCproByJob(data.cpro_to_send);
-  // „Twoje CV w drodze” z czymś, co wróciło do poprawy, to Twój ruch (popraw
-  // i oddaj); czekanie na przegląd i klienta albo samo odrzucenie przez DL —
-  // „U innych”.
-  const transitIsMine = transit ? transitToFixTotal(transit) > 0 : false;
-  const othersGroup =
-    (Boolean(transit) && !transitIsMine) ||
-    data.cpro_sent.length > 0 ||
-    flowOthers ||
-    waitingAgreements.length > 0 ||
-    (data.rate_changes_by_others?.length ?? 0) > 0;
-  const openQueue = (jobId: number | null) => {
-    setCproJob(jobId);
-    setCproOpen(true);
-  };
-
+  })();
   return (
-    <div
-      id={BOARD_TASKS_ANCHOR}
-      role="region"
-      aria-label="Czeka na Ciebie"
-      className="scroll-mt-20 rounded-xl border border-primary/30 bg-card p-4"
-    >
-      <div className={`mb-3 flex flex-wrap items-baseline justify-between gap-2 ${inTile ? "pr-9" : ""}`}>
-        <h2 className="text-base font-semibold">Czeka na Ciebie</h2>
-        <div className="flex items-center gap-2">
-          <p className="text-xs text-muted-foreground">
-            Ruchy na Tablicach z ostatnich {Math.max(data.window_days, data.dl_review_window_days ?? 0)} dni · najdłużej czekający na górze
-          </p>
-          {onMoveToGrid || onRemovePanel ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Opcje panelu „Czeka na Ciebie”">
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {onMoveToGrid ? (
-                  <DropdownMenuItem onSelect={onMoveToGrid}>
-                    <LayoutGrid className="h-4 w-4" />
-                    Postaw jako kafelek na pulpicie
-                  </DropdownMenuItem>
-                ) : null}
-                {onRemovePanel ? (
-                  <DropdownMenuItem onSelect={onRemovePanel} className="text-destructive">
-                    <Trash2 className="h-4 w-4" />
-                    Usuń z pulpitu
-                  </DropdownMenuItem>
-                ) : null}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-        </div>
-      </div>
-      {!hasCpro && canSetSender ? (
-        <div className="mb-3">
-          <CproSenderControl sender={sender.data} loading={sender.isLoading} compact />
-        </div>
-      ) : null}
-      {/* „Gdy Cię nie było” (16.11.2026): praca z urlopu przed bieżącą. */}
-      <WhileAwaySection />
-      {/* PR 6 (04.10.2026): „Twój ruch” i „U innych” — to, co zrobisz sam,
-          oddzielone od tego, na co czekasz (przegląd, klient, Cpro). */}
-      {othersGroup && (total > 0 || transitIsMine) ? (
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Twój ruch
-        </h3>
-      ) : null}
-      <div className="grid gap-4 lg:grid-cols-3">
-        {/* Kolejka Cpro pierwsza (decyzja Artura 26.10.2026): to codzienna
-            praca osoby od Cpro, a pod Finansami i follow-upami trzeba było
-            do niej przewijać. Widzi ją tylko osoba od Cpro. */}
-        {data.cpro_to_send.length > 0 && (
-          <Section
-            title="Do wrzucenia do Cpro"
-            hint="Jedna osoba wrzuca do Cpro kandydatów wszystkich rekrutacji."
-            count={data.cpro_to_send.length}
-            rows={cproGroups.length}
-            expanded={expanded["cpro_to_send"] === true}
-            onToggle={() => toggle("cpro_to_send")}
-            aside={<CproSenderControl sender={sender.data} loading={sender.isLoading} compact />}
-          >
-            {shown("cpro_to_send", cproGroups).map((group) => (
-              <li key={group.job_id} className="flex items-center gap-2 px-3 py-2">
-                <div className="min-w-0 flex-1">
-                  <button
-                    type="button"
-                    onClick={() => openQueue(group.job_id)}
-                    className="block max-w-full truncate text-left text-sm font-medium hover:underline"
-                  >
-                    {group.job_title} · {countPl(group.rows.length, "osoba", "osoby", "osób")}
-                  </button>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {group.client_name ? `${group.client_name} · ` : ""}najstarsza czeka {waitingFor(group.rows[0].since)}
-                  </p>
-                </div>
-              </li>
-            ))}
-            <li className="px-3 py-2">
-              <Button size="sm" className="w-full" onClick={() => openQueue(null)}>
-                <ListOrdered className="h-3.5 w-3.5" />
-                Wrzucaj po kolei
-              </Button>
-            </li>
-          </Section>
-        )}
-        <BookedCallsSection rows={bookedCalls} />
-        <NewPeopleSection rows={newPeople} />
-        {newPeopleFailed ? <NewPeopleFailed /> : null}
-        <AllocationProposalsSection
-          rows={proposals}
-          leaveKnown={data.allocation_leave_known !== false}
-        />
-        <NewJobLeadsSection rows={leads} />
-        {showLoad ? <TeamLoadSection /> : null}
-        <DepartedCareSection
-          data={care.data}
-          failed={care.isError}
-          expanded={expanded["departed_care"] === true}
-          onToggle={() => toggle("departed_care")}
-        />
-        {movePrompt}
-        <PendingJobsSection
-          pending={data.pending_jobs}
-          forms={data.unfinished_forms}
-          collapsed={collapsePending}
-        />
-        <RequirementFixesSection rows={fixes} collapsed={collapsePending} />
-        {fixesFailed ? <RequirementFixesFailed /> : null}
-        <BoardFlowSections
-          flow={data.flow}
-          finance={data.finance}
-          expanded={expanded}
-          onToggle={toggle}
-          shown={shown}
-        />
-        <FollowupSection rows={followups} others={data.followups_by_others ?? []} />
-        <AgreementTasksSection tasks={data.agreements} />
-        <StartDocsTasksSection />
-        <RateChangesSection rows={data.rate_changes} />
-        {transit && transitIsMine ? <CvInTransitSection transit={transit} /> : null}
-        <PrepAttentionSection rows={preps} />
-
-      </div>
-      {othersGroup ? (
-        <div className="mt-4 border-t border-border pt-3" role="group" aria-label="U innych">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            U innych — czekasz na nich
-          </h3>
-          <div className="grid gap-4 lg:grid-cols-3">
-            {transit && !transitIsMine ? <CvInTransitSection transit={transit} /> : null}
-            <AgreementWaitingSection rows={waitingAgreements} />
-            <BoardFlowOthers flow={data.flow} expanded={expanded} onToggle={toggle} shown={shown} />
-            <RateChangesWaitingSection rows={data.rate_changes_by_others} />
-            {data.cpro_sent.length > 0 && (
-              <Section
-                title="Wysłane do Cpro"
-                hint="Czekamy na odpowiedź Nordei."
-                count={data.cpro_sent.length}
-                expanded={expanded["cpro_sent"] === true}
-                onToggle={() => toggle("cpro_sent")}
-              >
-                {shown("cpro_sent", data.cpro_sent).map((row) => (
-                  <li key={row.stage_id} className="flex items-center gap-2 px-3 py-2">
-                    <div className="min-w-0 flex-1">
-                      <Link href={boardLink(row)} className="block truncate text-sm font-medium hover:underline">
-                        {row.candidate_name}
-                      </Link>
-                      <RowMeta row={row} />
-                    </div>
-                    <span className="inline-flex shrink-0 items-center gap-1 text-xs tabular-nums text-muted-foreground">
-                      <Clock className="h-3 w-3" aria-hidden />
-                      {waitingFor(row.since)}
-                    </span>
-                  </li>
-                ))}
-              </Section>
-            )}
-          </div>
-        </div>
-      ) : null}
-      <CproQueueDialog open={cproOpen} onClose={() => setCproOpen(false)} initialJobId={cproJob} />
-    </div>
+    <>
+      {content}
+      {personQueue.element}
+    </>
   );
 }
 
