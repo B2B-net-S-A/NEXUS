@@ -64,6 +64,7 @@ from app.services.client_settlements import (
     rcp_checks,
     rules_catalog,
     redmine_timelog,
+    report_ca,
     signoffs,
     timesheet,
     timesheet_bik,
@@ -1147,6 +1148,17 @@ async def _read_file(
         if orlen is None:
             return None
         return await accepted(declared_result(orlen), orlen.hours)
+    # Raport zbiorczy Credit Agricole: kilka osób w jednym arkuszu, MD z „TE”.
+    ca = await asyncio.to_thread(report_ca.parse, content, mime)
+    if ca is not None:
+        return report_ca.evaluate(
+            ca,
+            month=month,
+            person_name=person_name,
+            rules=rules,
+            working_days=working_days,
+            other_md=other_md,
+        )
     # KCP Banku Pocztowego albo eksport Redmine, z którego KCP składa NEXUS (E6.5).
     card = await asyncio.to_thread(redmine_timelog.read_card, content, mime, month)
     if card is not None:

@@ -1737,6 +1737,10 @@ class Settings(BaseSettings):
     # załącznikiem od nich idzie do czytnika rozliczeń na dowolny adres wsparcie@,
     # a arkusz Time for Teams wczytuje się jako raport miesiąca (Nordea, 23.11.2026).
     CONSULTANT_PORTAL_TIME_REPORT_SENDERS: str = "nordea.com"
+    # Hasła ZIP-ów z raportami w poczcie rozliczeń (po przecinku; raport zbiorczy
+    # Credit Agricole, 23.11.2026). Tylko przez workflow „Coolify set env” z sekretu
+    # repo (`value_from_secret`), nigdy jawnie. Puste = ZIP z hasłem czeka na człowieka.
+    CONSULTANT_PORTAL_ZIP_PASSWORD: str = ""
     # Szkolenia w Teams (0697, decyzja Artura 13.11.2026): organizatorem spotkań jest
     # osobne konto szkolenia@ z licencją Teams i OneDrive (nagranie ląduje w OneDrive
     # organizatora). Puste albo OFF = link wkleja TCM ręcznie, jak przed 0697.
