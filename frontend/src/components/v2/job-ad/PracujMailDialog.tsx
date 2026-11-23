@@ -74,6 +74,8 @@ export interface PracujMailDialogProps {
   /** Poprawka treści albo miasta zapisana z okna — nowy stan ogłoszenia. */
   onSaved?: (next: JobAdState) => void;
   api?: PracujMailApi;
+  /** Widełki wpisane raz w kroku „Ogłoszenie” po utworzeniu (23.11.2026). */
+  initialRates?: PracujMailRates | null;
 }
 
 const RATE_DIGITS = 4;
@@ -96,6 +98,7 @@ export function PracujMailDialog({
   onSent,
   onSaved,
   api = jobAdApi,
+  initialRates = null,
 }: PracujMailDialogProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -116,11 +119,17 @@ export function PracujMailDialog({
   useEffect(() => {
     if (!open) return;
     requestId.current = newClientRequestId();
+    if (initialRates) {
+      setRateFrom(initialRates.rate_from != null ? String(initialRates.rate_from) : "");
+      setRateTo(initialRates.rate_to != null ? String(initialRates.rate_to) : "");
+    }
     setCopied(false);
     setEditKey(null);
     setDraft(null);
     setHiddenDraft(null);
     setCityDraft(null);
+    // Widełki z kroku „Ogłoszenie” wchodzą raz, przy otwarciu okna.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const typed: PracujMailRates = { rate_from: parseRate(rateFrom), rate_to: parseRate(rateTo) };

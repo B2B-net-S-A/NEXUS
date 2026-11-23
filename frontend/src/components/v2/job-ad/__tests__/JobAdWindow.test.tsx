@@ -60,7 +60,12 @@ const CONFLICT = {
   },
 };
 
-function setup(initial: Loaded, saveImpl?: SaveImpl, generateImpl?: GenerateImpl) {
+function setup(
+  initial: Loaded,
+  saveImpl?: SaveImpl,
+  generateImpl?: GenerateImpl,
+  { afterCreate = false }: { afterCreate?: boolean } = {},
+) {
   const api = {
     get: vi.fn(async (_jobId: number) => {
       if (initial instanceof Error) throw initial;
@@ -89,6 +94,7 @@ function setup(initial: Loaded, saveImpl?: SaveImpl, generateImpl?: GenerateImpl
         open
         onClose={vi.fn()}
         api={api}
+        afterCreate={afterCreate}
       />
     </QueryClientProvider>,
   );
@@ -134,6 +140,45 @@ describe("JobAdWindow — rekrutacja bez ogłoszenia", () => {
       }),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Przygotuj ogłoszenie" })).not.toBeInTheDocument();
+  });
+});
+
+describe("JobAdWindow — krok „Ogłoszenie” po utworzeniu (23.11.2026)", () => {
+  it("czeka na treść pisaną w tle i nie proponuje drugiego „Przygotuj”", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let calls = 0;
+      const api = setup(() => (++calls < 2 ? EMPTY_STATE : adState()), undefined, undefined, {
+        afterCreate: true,
+      });
+      expect(await screen.findByTestId("job-ad-writing")).toHaveTextContent("Piszę treść ogłoszenia");
+      expect(screen.getByTestId("job-ad-after-create")).toHaveTextContent("Krok 2 z 2");
+      expect(screen.queryByRole("button", { name: "Przygotuj ogłoszenie" })).not.toBeInTheDocument();
+      expect(screen.getByTestId("after-create-publish-start")).toBeDisabled();
+
+      await vi.advanceTimersByTimeAsync(3_100);
+
+      expect(await screen.findByRole("region", { name: "O projekcie" })).toBeInTheDocument();
+      expect(api.get).toHaveBeenCalledTimes(2);
+      expect(api.generate).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("job-ad-writing")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("po minucie i pół bez treści wraca zwykłe „Przygotuj ogłoszenie”", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      setup(EMPTY_STATE, undefined, undefined, { afterCreate: true });
+      expect(await screen.findByTestId("job-ad-writing")).toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(91_000);
+      expect(
+        await screen.findByRole("button", { name: "Przygotuj ogłoszenie" }),
+      ).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
