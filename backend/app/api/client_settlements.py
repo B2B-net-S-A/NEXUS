@@ -66,7 +66,7 @@ from app.services.consultant_portal import preview as panel_preview_service
 from app.services.consultant_portal.auth import PortalError
 from app.services.hr_documents_schema import MAX_FILE_BYTES
 from app.services.client_settlements import settings as module_settings
-from app.services.client_settlements import start_checklist
+from app.services.client_settlements import month_close, start_checklist
 from app.services.hr import audit
 from app.services.client_settlements.service import SettlementError
 
@@ -183,6 +183,20 @@ async def clients(
     today = business_today()
     previous = f"{today.year - (today.month == 1)}-{(today.month - 2) % 12 + 1:02d}"
     return await service.clients_overview(db, previous)
+
+
+@router.get("/overview")
+async def month_overview(
+    current_user: FinanceModuleUser,
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """„Przebieg miesiąca”: wszyscy klienci i kolejka decyzji po powodzie."""
+
+    await _open(db, current_user)
+    return await month_close.overview(
+        db, month, amounts=has_financial_access(current_user)
+    )
 
 
 @router.get("")

@@ -21,6 +21,7 @@ import {
 } from "@/lib/api/client-settlements";
 import { cn } from "@/lib/utils";
 
+import { ClientMonthStrip } from "../month-close/ClientMonthStrip";
 import { ClientAcceptancePanel } from "./ClientAcceptancePanel";
 import { ClientDocumentsPanel } from "./ClientDocumentsPanel";
 import {
@@ -93,6 +94,7 @@ export function SettlementMonthView({ clientId, month, canWrite, onOpen }: Settl
   return (
     <div className="space-y-2.5">
       {confirmDialog}
+      <ClientMonthStrip rows={data.rows} month={month} />
       <ClientAcceptancePanel clientId={clientId} month={month} canWrite={canWrite} />
       <ClientDocumentsPanel clientId={clientId} month={month} />
       <KesuSummaryBar rows={data.rows} />

@@ -1835,6 +1835,41 @@
     ]
   },
   {
+    "id": "lekcja-przebieg-miesiaca",
+    "title": "Przebieg miesiąca w Finansach",
+    "novelties": [
+      "finanse-przebieg-miesiaca"
+    ],
+    "task": "W Finansach otwórz „Przebieg miesiąca” i przejdź do spraw pogrupowanych po powodzie. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/finance?view=month-close",
+    "check": {
+      "kind": "click",
+      "anchor": "finance.month-close.reasons"
+    },
+    "questions": [
+      {
+        "q": "Co pokazuje „Przebieg miesiąca”?",
+        "options": [
+          "Wszystkich klientów rozliczeń za wybrany miesiąc: raporty, decyzje i faktury",
+          "Tylko jednego klienta wybranego z listy",
+          "Faktury kosztowe z KSeF"
+        ],
+        "answer": 0,
+        "explain": "Jeden wiersz na klienta: postęp RCP, sprawy do decyzji, brakujące raporty i stan faktury do klienta. Klienta otwierasz przyciskiem „Otwórz”."
+      },
+      {
+        "q": "U kilkunastu osób powtarza się „Akceptacja bez liczby godzin”. Gdzie najszybciej to rozstrzygnąć?",
+        "options": [
+          "W regułach klienta: karta powodu prowadzi do „Reguł klienta”",
+          "Odsyłając każdą osobę osobno do poprawy",
+          "W „Fakturach do klientów”"
+        ],
+        "answer": 0,
+        "explain": "To decyzja o regule klienta. Zmiana poziomu reguły obejmuje wszystkie osoby tego klienta naraz."
+      }
+    ]
+  },
+  {
     "id": "lekcja-firma-z-nip",
     "title": "Nowa firma z NIP-u",
     "novelties": [
