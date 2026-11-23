@@ -144,7 +144,7 @@ _KNOWN_CONTRACT_FKS = {
     # z placementu) rozstrzyga najpierw ``_resolve_child_duplicates``.
     # Sprawy administracja@ (wejście/odejście konsultanta): obie zostają.
     ("admin_cases", "contract_id"),
-    # Archiwum administracja@ i propozycje z maili (0757): poczta tej samej
+    # Archiwum administracja@ i propozycje z maili (0759): poczta tej samej
     # współpracy idzie za kontraktem, który zostaje.
     ("archived_mails", "contract_id"),
     ("b2b_contract_details", "contract_id"),

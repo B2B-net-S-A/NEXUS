@@ -2496,7 +2496,7 @@ app.include_router(
     tags=["hr"],
     dependencies=_HR_PROGRAM,
 )
-# 0757: wypowiedzenia z poczty na karcie (ta sama bramka co kolejka back office).
+# 0759: wypowiedzenia z poczty na karcie (ta sama bramka co kolejka back office).
 app.include_router(
     notice_mail_api.router,
     prefix="/api/back-office",
@@ -4663,7 +4663,7 @@ async def api_health_deep_check(request: Request):
         ("tech_cards", TechCard),
         ("care_conversations", CareConversation),
         ("admin_cases", AdminCase),
-        # 0757: wypowiedzenia z poczty i archiwum administracja@.
+        # 0759: wypowiedzenia z poczty i archiwum administracja@.
         ("notice_mail_proposals", NoticeMailProposal),
         ("known_sender_emails", KnownSenderEmail),
         ("archived_mails", ArchivedMail),

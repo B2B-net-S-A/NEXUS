@@ -1,4 +1,4 @@
-"""Wypowiedzenia z poczty: czytnik spraw → propozycja → karta → decyzja (0757).
+"""Wypowiedzenia z poczty: czytnik spraw → propozycja → karta → decyzja (0759).
 
 Dane fikcyjne (repo publiczne). Ścieżka jak na produkcji: mail na skrzynkę,
 ``mail_ingest.run_once``, propozycja przy sprawie, karta pod „Zakończenie”,

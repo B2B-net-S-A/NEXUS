@@ -1,4 +1,4 @@
-"""Wypowiedzenia z poczty (0757) — modele.
+"""Wypowiedzenia z poczty (0759) — modele.
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/notice_mail_schema.py``
 (strażnik dryfu schematu porównuje model z bazą po migracji).

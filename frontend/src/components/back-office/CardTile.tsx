@@ -57,7 +57,7 @@ export function LabelChip({
       )}
     >
       <span aria-hidden className={cn("size-1.5 rounded-full", FAMILY_DOT[card.team])} />
-      {/* Sprawa z maila z propozycją: rodzaj zamiast „Zakończenie” (0757). */}
+      {/* Sprawa z maila z propozycją: rodzaj zamiast „Zakończenie” (0759). */}
       {card.notice?.label ?? labelText(board, card.lane)}
     </span>
   );
