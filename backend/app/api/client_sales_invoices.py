@@ -25,7 +25,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Annotated, Any, Literal, Optional
 
@@ -59,6 +59,8 @@ from app.services.client_invoicing import (
     clients,
     export,
     matching,
+    overdue_export,
+    payment_reminders,
     payments,
     sync,
     views,
@@ -428,6 +430,91 @@ async def finance_overdue(
 ) -> dict[str, Any]:
     await _module_open(db, current_user)
     return await views.overdue(db, client_ids=None, today=business_today())
+
+
+class ReminderSendIn(BaseModel):
+    client_id: int = Field(ge=1, le=2_147_483_647)
+    to: list[str] = Field(min_length=1, max_length=20)
+    subject: str = Field(max_length=payment_reminders.SUBJECT_MAX)
+    text: str = Field(max_length=payment_reminders.TEXT_MAX)
+
+
+@contextmanager
+def _reminder_errors() -> Iterator[None]:
+    try:
+        yield
+    except payment_reminders.ReminderError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
+
+
+@finance_router.get("/overdue/reminder")
+async def finance_overdue_reminder(
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+    client_id: int = Query(..., ge=1, le=2_147_483_647),
+    language: Optional[Literal["pl", "en"]] = Query(None),
+) -> dict[str, Any]:
+    """Szkic monitu do klienta (nic nie wysyła)."""
+
+    await _module_open(db, current_user)
+    with _reminder_errors():
+        draft = await payment_reminders.build(
+            db,
+            client_id=client_id,
+            today=business_today(),
+            actor=current_user,
+            language=language,
+        )
+    return payment_reminders.draft_payload(draft)
+
+
+@finance_router.post("/overdue/reminder")
+async def finance_overdue_reminder_send(
+    body: ReminderSendIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Wysyłka monitu po kliknięciu człowieka — adresaci tylko z listy szkicu."""
+
+    await _module_open(db, current_user)
+    with _reminder_errors():
+        result = await payment_reminders.send(
+            db,
+            client_id=body.client_id,
+            to=body.to,
+            subject=body.subject,
+            text=body.text,
+            today=business_today(),
+            actor=current_user,
+        )
+    await db.commit()
+    return result
+
+
+@finance_router.get("/overdue/month-close")
+async def finance_overdue_month_close(
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+    month: str = Query(..., pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
+    format: ExportFormat = Query("xlsx"),
+) -> Response:
+    """Należności po terminie na ostatni dzień miesiąca (na dziś, gdy miesiąc trwa)."""
+
+    await _module_open(db, current_user)
+    year, number = (int(part) for part in month.split("-"))
+    end = date(year + number // 12, number % 12 + 1, 1) - timedelta(days=1)
+    day = min(end, business_today())
+    lines = await overdue_export.month_close(db, day=day)
+    filename = f"naleznosci-po-terminie-{day.isoformat()}"
+    if format == "xlsx":
+        return _file(
+            overdue_export.to_xlsx(lines, title=f"Po terminie {day:%d.%m.%Y}"),
+            f"{filename}.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    return _file(
+        overdue_export.to_csv(lines), f"{filename}.csv", "text/csv; charset=utf-8"
+    )
 
 
 @finance_router.get("/credits")
