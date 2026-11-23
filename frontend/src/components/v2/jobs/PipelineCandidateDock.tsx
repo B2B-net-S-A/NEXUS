@@ -2154,6 +2154,7 @@ export function PipelineCandidateDock({
                 role="group"
                 aria-label="Odrzuć jednym kliknięciem"
                 data-testid="dock-quick-reject"
+                data-tour="person.dock.quick-reject"
                 className="flex flex-wrap items-center gap-1"
               >
                 <span className="text-xs font-medium text-muted-foreground">Odrzuć:</span>

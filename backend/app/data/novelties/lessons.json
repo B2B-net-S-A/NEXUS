@@ -1870,6 +1870,53 @@
     ]
   },
   {
+    "id": "lekcja-odrzuc-jednym-kliknieciem",
+    "title": "Odrzucenie jednym kliknięciem",
+    "novelties": [
+      "odrzuc-jednym-kliknieciem"
+    ],
+    "task": "Osoba z „Nowych” w rekrutacji ćwiczebnej ma za mało doświadczenia. Odrzuć ją jednym kliknięciem w panelu osoby i nie cofaj.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "move",
+      "to": "rejected",
+      "reason_includes": "doświadczenia",
+      "feedback": "Osoba nie trafiła do odrzuconych z powodem „Za mało doświadczenia”. Kliknij ten powód w wierszu „Odrzuć:” i poczekaj 10 s bez „Cofnij”."
+    },
+    "questions": [
+      {
+        "q": "„Za mało doświadczenia” kliknięte przy złej osobie. Co robisz?",
+        "options": [
+          "Klikam „Cofnij” w komunikacie na dole w ciągu 10 s",
+          "Otwieram „Odrzuć z powodem” i wybieram inny powód",
+          "Nic, osoba wróci sama"
+        ],
+        "answer": 0,
+        "explain": "Przez 10 s ruch czeka. „Cofnij” zwraca osobę na miejsce i do serwera nic nie idzie, więc nie zostaje mail ani dzwonek."
+      },
+      {
+        "q": "Dlaczego „Za droga…” otwiera okno zamiast odrzucać od razu?",
+        "options": [
+          "Okno pyta, ile osoba teraz chce, i zapisuje to w profilu",
+          "Bo przy tym powodzie wychodzi mail do kandydata",
+          "Bo tylko Delivery Lead może wybrać ten powód"
+        ],
+        "answer": 0,
+        "explain": "Nowa stawka trafia do „Stawki od”, więc następnym razem nie zadzwonimy z ofertą poniżej jej minimum."
+      },
+      {
+        "q": "Skąd biorą się powody w wierszu „Odrzuć:”?",
+        "options": [
+          "To Twoje trzy najczęstsze powody z ostatnich 30 dni",
+          "To lista ustawiona przez admina dla rekrutacji",
+          "To trzy pierwsze powody z okna"
+        ],
+        "answer": 0,
+        "explain": "Liczymy Twoje odrzucenia z 30 dni. Gdy masz ich mało, wiersz uzupełniają najczęstsze powody zespołu."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [
