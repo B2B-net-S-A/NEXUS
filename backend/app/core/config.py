@@ -1643,6 +1643,10 @@ class Settings(BaseSettings):
     # ``pyhanko`` (domyślnie, decyzja Artura 21.10.2026) — lista zaufanych UE
     # w procesie backendu; ``dss`` — sidecar EU DSS pod DSS_VALIDATION_URL.
     B2B_ESIGN_VALIDATOR: str = "pyhanko"
+    # E6 (23.11.2026): po podpisie obu stron dopisz do umowy dane do długiej
+    # weryfikacji (PAdES-LT: certyfikaty, OCSP, CRL w DSS). Domyślnie wyłączone,
+    # dopóki Artur nie zdecyduje; działa tylko z walidatorem ``pyhanko``.
+    B2B_ESIGN_ADD_LTV: bool = False
 
     # ── Proxycurl LinkedIn tracking (Phase: LinkedIn sync) ──────────────────
     # Kill-switch: when False OR API key empty, sync loop exits immediately
