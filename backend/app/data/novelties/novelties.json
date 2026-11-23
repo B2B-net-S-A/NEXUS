@@ -2225,7 +2225,20 @@
     "where": "Rekrutacja → Profil Championa → Brief → „Najważniejsze zadanie w tej roli”",
     "href": "/jobs",
     "section": "pipeline",
-    "dot_anchor": "champion.key-task"
+    "dot_anchor": "champion.key-task",
+    "steps": [
+      {
+        "anchor": "champion.key-task",
+        "text": "Kliknij „Edytuj” przy „Najważniejsze zadanie w tej roli”",
+        "hint": "Wpisz jedno zdanie słowami klienta: co ta osoba musi dowieźć w pierwszej kolejności."
+      },
+      {
+        "anchor": "champion.key-task.question",
+        "text": "Zaznacz pytanie, które sprawdza to zadanie",
+        "hint": "Rekruter zobaczy przy nim znacznik, a odpowiedź kandydata trafi do CV jako zdanie 3.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "premia-200-listopad-grudzien",
