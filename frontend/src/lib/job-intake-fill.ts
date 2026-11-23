@@ -19,6 +19,7 @@ import { formatIsoDatePl } from "@/lib/date-pl";
 import { personNameKey } from "@/lib/hiring-manager";
 import {
   filledQuestions,
+  withOneKeyTask,
   joinCities,
   newQuestionKey,
   parseBudget,
@@ -73,6 +74,7 @@ export const INTAKE_UNITS = [
   "contractLength",
   "about",
   "responsibilities",
+  "keyTask",
   "sellingPoints",
   "questions",
   "targetCompanies",
@@ -96,6 +98,7 @@ export const INTAKE_UNIT_LABEL: Record<IntakeUnit, string> = {
   contractLength: "Długość projektu",
   about: "Co to za projekt",
   responsibilities: "Obowiązki",
+  keyTask: "Najważniejsze zadanie",
   sellingPoints: "Co przekona kandydata",
   questions: "Pytania do kandydata",
   targetCompanies: "Firmy docelowe",
@@ -217,6 +220,7 @@ const FIELD_KEYS: readonly (keyof IntakeForm)[] = [
   "startDate",
   "about",
   "responsibilities",
+  "keyTask",
   "language",
   "contractLength",
   "targetCompanies",
@@ -289,6 +293,7 @@ export function isPristineIntake(form: IntakeForm): boolean {
     blank(form.startDate) &&
     blank(form.about) &&
     blank(form.responsibilities) &&
+    blank(form.keyTask) &&
     form.questions.every(
       (q) => blank(q.question) && blank(q.idealAnswer) && blank(q.dealBreaker),
     ) &&
@@ -362,6 +367,8 @@ function newQuestions(
       origin: item.origin,
       // Z odczytu i z szablonu pytanie czeka na zatwierdzenie Delivery Leada.
       approved: false,
+      // Które pytanie sprawdza najważniejsze zadanie, wskazuje Delivery Lead.
+      keyTask: false,
     });
   }
   return out;
@@ -430,7 +437,16 @@ function budgetText(form: Pick<IntakeForm, "rateBudget" | "rateBudgetMin">): str
 /** Pola tekstowe porównywane pojedynczo. */
 const TEXT_UNITS: {
   unit: IntakeUnit;
-  key: "title" | "language" | "startDate" | "contractLength" | "about" | "responsibilities" | "sellingPoints" | "targetCompanies";
+  key:
+    | "title"
+    | "language"
+    | "startDate"
+    | "contractLength"
+    | "about"
+    | "responsibilities"
+    | "keyTask"
+    | "sellingPoints"
+    | "targetCompanies";
   text?: (value: string) => string;
 }[] = [
   { unit: "title", key: "title" },
@@ -439,6 +455,7 @@ const TEXT_UNITS: {
   { unit: "contractLength", key: "contractLength" },
   { unit: "about", key: "about" },
   { unit: "responsibilities", key: "responsibilities" },
+  { unit: "keyTask", key: "keyTask" },
   { unit: "sellingPoints", key: "sellingPoints" },
   { unit: "targetCompanies", key: "targetCompanies" },
 ];
@@ -651,7 +668,11 @@ export function applyIntakeRead(
         ? read.questions
         : filledQuestions(read).filter((q) => !known.has(fold(q.question)));
       if (added.length > 0) {
-        next.questions = [...next.questions, ...added.map((q) => ({ ...q, approved: false }))];
+        // Zaznaczenie „sprawdza najważniejsze zadanie” z odczytu — najwyżej jedno.
+        next.questions = withOneKeyTask([
+          ...next.questions,
+          ...added.map((q) => ({ ...q, approved: false })),
+        ]);
         mark("questions");
       }
     } else {

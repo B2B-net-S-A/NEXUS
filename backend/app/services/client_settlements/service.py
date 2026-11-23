@@ -55,6 +55,7 @@ from app.services.client_settlements import (
     declared,
     ewidencja_orlen,
     extras as settlement_extras,
+    hours_summary,
     kesu,
     kcp,
     kesu_flow,
@@ -1201,6 +1202,20 @@ async def _read_file(
             return None
         return await accepted(declared_result(found_plus), found_plus.hours)
     if mime in MAIL_MIMES:
+        # Mail koordynatora z godzinami zaakceptowanymi przez klienta (CeZ).
+        summary = await asyncio.to_thread(hours_summary.parse, content, mime)
+        if summary is not None:
+            found_summary = protocol_collective.evaluate(
+                summary,
+                month=month,
+                doc_month=_doc_month(doc),
+                person_name=person_name,
+                rules=rules,
+                working_days=working_days,
+                other_md=other_md,
+            )
+            if found_summary is not None:
+                return found_summary
         # Akceptacja klienta z MD w treści (NN).
         nn = await asyncio.to_thread(mail_nn.parse, content, mime)
         if nn is not None:
@@ -1229,11 +1244,7 @@ async def _read_file(
         return protocol_collective.evaluate(
             protocol,
             month=month,
-            doc_month=(
-                None
-                if doc.period_guessed or doc.period_year is None
-                else f"{doc.period_year}-{doc.period_month:02d}"
-            ),
+            doc_month=_doc_month(doc),
             person_name=person_name,
             rules=rules,
             working_days=working_days,
@@ -1319,6 +1330,14 @@ async def _read_file(
         if found_doc is not None:
             return await accepted(declared_result(found_doc), found_doc.hours)
     return None
+
+
+def _doc_month(doc: CpDocument) -> Optional[str]:
+    """Okres dokumentu z nazwy pliku albo tematu; zgadnięty z daty maila = brak."""
+
+    if doc.period_guessed or doc.period_year is None or doc.period_month is None:
+        return None
+    return f"{doc.period_year}-{doc.period_month:02d}"
 
 
 def _on(rules: dict[str, dict[str, Any]], key: str) -> bool:

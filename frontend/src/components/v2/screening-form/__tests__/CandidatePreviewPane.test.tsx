@@ -1524,3 +1524,54 @@ describe("CandidatePreviewPane — Pobierz CV (D1–D5)", () => {
     expect(mocks.candidateGet).not.toHaveBeenCalled();
   });
 });
+
+describe("CandidatePreviewPane — „Arkusz rozmowy” jako pierwsza zakładka (23.11.2026)", () => {
+  function SheetHost() {
+    const [tab, setTab] = useState<PreviewTab>("cv");
+    const [active, setActive] = useState(true);
+    return (
+      <CandidatePreviewPane
+        candidateId={101}
+        jobId={201}
+        stageId={901}
+        tab={tab}
+        onTabChange={setTab}
+        sheet={{ label: "Arkusz rozmowy", content: <p>pola arkusza</p>, active, onActiveChange: setActive }}
+      />
+    );
+  }
+
+  function mountSheet() {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SheetHost />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("arkusz na wierzchu, CV pod spodem nie pobiera się, dopóki ktoś go nie otworzy", async () => {
+    mountSheet();
+    expect(screen.getByRole("tab", { name: "Arkusz rozmowy" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("pola arkusza")).toBeVisible();
+    expect(screen.queryByTestId("file-preview")).toBeNull();
+    expect(mocks.original).not.toHaveBeenCalled();
+  });
+
+  it("zakładki CV / Wymagania / Po ludzku stoją obok i chowają arkusz; powrót nie montuje go od nowa", async () => {
+    const user = userEvent.setup();
+    mountSheet();
+    const sheetText = screen.getByText("pola arkusza");
+    await user.click(screen.getByRole("tab", { name: "CV" }));
+    expect(await screen.findByTestId("file-preview")).toBeVisible();
+    expect(sheetText).not.toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "Po ludzku" }));
+    expect(screen.getByText("Jednym zdaniem o roli")).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "Arkusz rozmowy" }));
+    expect(screen.getByText("pola arkusza")).toBe(sheetText);
+    expect(sheetText).toBeVisible();
+    expect(screen.getByTestId("file-preview")).not.toBeVisible();
+    // Jeden pasek zakładek — bez drugiego paska podglądu.
+    expect(screen.getAllByRole("tab", { name: "CV" })).toHaveLength(1);
+  });
+});

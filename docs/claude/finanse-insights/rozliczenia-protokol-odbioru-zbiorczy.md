@@ -43,10 +43,30 @@ zapisuje ten sam plik jako raport miesiąca każdej osoby z protokołu, gdy wszy
 znalezione osoby są u jednego klienta, a nadawca pisze z adresu firmy albo z domeny
 tego klienta. Rozliczenie osoby bierze z pliku tylko jej wiersz.
 
+## Mail koordynatora z zaakceptowanymi godzinami (`client_settlements/hours_summary.py`)
+
+Decyzja Artura z 23.11.2026. Za CeZ/242 X podpisanego protokołu nie ma w żadnej
+skrzynce (rozliczenia@, koordynatorka rozliczeń; sprawdzone 23.11). Finanse
+wystawiły fakturę z maila koordynatorki do rozliczenia@ z 10.11: „Zaakceptowane
+godziny przez cez: Umowa nr … - Październik 2026”, wiersz „Imię Nazwisko: 176 h”
+na osobę. 6 z 6 osób i 952 h zgadzają się z fakturą. Taki mail jest dowodem godzin.
+
+- Rozpoznanie: „zaakceptowane godziny” albo „akceptacja godzin” w temacie albo
+  pierwszej linii treści i co najmniej jeden wiersz „Imię Nazwisko: N h”
+  („…:176h”, punktor w osobnej linii też). Czytamy treść tylko do stopki
+  („Pozdrawiam”) i cytatu („Od:”, „From:”), bo cytat ma starsze liczby.
+- „czekamy”, „BRAK CZEKAMY” albo liczba w innej jednostce: osoba nie dostaje
+  dokumentu i zostaje „bez raportu”, dopóki kolejny mail nie poda godzin.
+- Tylko mail bez pliku z adresu firmy z tematem rozliczenia; osoby jak przy
+  protokole (jeden klient, `mailbox._store_hours_summary`). Ten sam `.eml` u każdej
+  osoby z liczbą godzin.
+- Miesiąc z tematu („Październik 2026”), bez roku („AKCEPTACJA GODZIN CEZ WRZESIEŃ”)
+  z poczty; okres zgadnięty z daty maila = mail idzie zwykłą ścieżką.
+- Kilka maili za miesiąc (05.11, 09.11, 10.11): rozliczenie czyta najnowszy plik
+  miesiąca, a podpisany protokół PDF wygrywa z mailem.
+- Pomiar na archiwum rozliczeń@ IX–XI (2175 maili): rozpoznane dokładnie 6 maili
+  koordynatorki CeZ, IX i X równe fakturom.
+
 ## Czego czytnik nie zastąpi
 
-Protokół, który nie przyszedł na rozliczenia@, dalej daje „brak raportu”. W IX–X
-tak było z protokołem CeZ/242 za X (sześć osób). Koordynatorka przysłała na
-rozliczenia@ tylko zestawienie „Zaakceptowane godziny przez cez” z „czekamy” przy
-części osób, a Finanse wystawiły fakturę 13.11, więc protokół dotarł do kogoś
-spoza tej skrzynki. Takiego zestawienia w treści maila nie czytamy jako dowodu.
+Protokół ani zestawienie, które nie przyszły na rozliczenia@, dalej dają „brak raportu”.

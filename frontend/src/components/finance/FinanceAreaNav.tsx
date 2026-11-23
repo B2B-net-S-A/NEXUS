@@ -97,6 +97,7 @@ export function FinanceAreaNav({
       key: "revenue",
       label: "Przychody",
       items: items(
+        fin("month-close", "Przebieg miesiąca", settlementsOpen, undefined, "finance.month-close"), // data-tour="finance.month-close"
         fin("settlements", "Rozliczenia klientów", settlementsOpen),
         fin("sales-invoices", "Faktury do klientów", invoicingOpen),
       ),

@@ -37,12 +37,17 @@ export async function createClient(api: APIRequestContext): Promise<CreatedClien
 
 /** Profil Championa, który przechodzi bramkę przekazania do searchu. */
 const READY_CHAMPION = {
-  project: { about: "Platforma płatności B2B dla banku — rozwój usług." },
+  project: {
+    about: "Platforma płatności B2B dla banku — rozwój usług.",
+    // Najważniejsze zadanie + pytanie, które je sprawdza (bramka od 23.11.2026).
+    key_task: "Przeniesienie rozliczeń na nową platformę płatności.",
+  },
   screening_questions: [
     {
       id: "q1",
       question: "Doświadczenie z Pythonem?",
       deal_breaker: "Brak komercyjnego projektu w Pythonie.",
+      key_task: true,
     },
     {
       id: "q2",

@@ -381,8 +381,8 @@ async def test_template_copy_copies_the_budget_as_stored(
     # odpowiedzi dyskwalifikujące) — ale stawki nie wysyła: budżet ma przyjść
     # z kopii profilu źródłowego.
     questions = [
-        {**question, "deal_breaker": f"Odpada: {question['question']}"}
-        for question in flat_profile(text)["screening_questions"]
+        {**question, "deal_breaker": f"Odpada: {question['question']}", "key_task": i == 0}
+        for i, question in enumerate(flat_profile(text)["screening_questions"])
     ]
     response = await app_client.post(
         "/api/jobs",
@@ -398,6 +398,7 @@ async def test_template_copy_copies_the_budget_as_stored(
                     "critical": [],
                 },
                 "search": {"requirements": [["Java"]]},
+                "project": {"key_task": "Przeniesienie rozliczeń na nową platformę."},
                 "screening_questions": questions,
             },
         ),

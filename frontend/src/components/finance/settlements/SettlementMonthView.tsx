@@ -21,8 +21,10 @@ import {
 } from "@/lib/api/client-settlements";
 import { cn } from "@/lib/utils";
 
+import { ClientMonthStrip } from "../month-close/ClientMonthStrip";
 import { ClientAcceptancePanel } from "./ClientAcceptancePanel";
 import { ClientDocumentsPanel } from "./ClientDocumentsPanel";
+import { ReportReminderButton, ReportReminderNotice } from "./ReportReminders";
 import {
   autoAcceptText,
   CLIENT_ACCEPTANCE,
@@ -93,6 +95,7 @@ export function SettlementMonthView({ clientId, month, canWrite, onOpen }: Settl
   return (
     <div className="space-y-2.5">
       {confirmDialog}
+      <ClientMonthStrip rows={data.rows} month={month} />
       <ClientAcceptancePanel clientId={clientId} month={month} canWrite={canWrite} />
       <ClientDocumentsPanel clientId={clientId} month={month} />
       <KesuSummaryBar rows={data.rows} />
@@ -117,6 +120,7 @@ export function SettlementMonthView({ clientId, month, canWrite, onOpen }: Settl
             {f.label} <span className="tabular-nums">{data.counts[f.key] ?? 0}</span>
           </button>
         ))}
+        {canWrite && data.counts.missing > 0 ? <ReportReminderButton clientId={clientId} month={month} /> : null}
         <div className="relative ml-auto w-48">
           <Search aria-hidden className="absolute left-2 top-2 size-3.5 text-muted-foreground" />
           <Input
@@ -133,6 +137,7 @@ export function SettlementMonthView({ clientId, month, canWrite, onOpen }: Settl
           </Button>
         ) : null}
       </div>
+      {filter === "missing" && data.counts.missing > 0 ? <ReportReminderNotice clientId={clientId} month={month} /> : null}
       {data.rows.length === 0 ? (
         <p className="rounded-xl border bg-card px-3 py-6 text-center text-sm text-muted-foreground">
           {data.client_name} nie ma w {monthLabel(month)} aktywnych kontraktów.

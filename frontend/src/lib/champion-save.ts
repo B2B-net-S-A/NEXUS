@@ -109,6 +109,7 @@ const BLOCKER_SECTION: Record<string, ChampionSectionId> = {
   context: "project",
   questions: "screening_questions",
   deal_breaker: "screening_questions",
+  key_task: "project",
   must: "stack",
   critical: "stack",
   search: "search",

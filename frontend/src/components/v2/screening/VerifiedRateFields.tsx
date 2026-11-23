@@ -29,6 +29,9 @@ import {
   type RateGateResult,
 } from "@/lib/verified-rate-gate";
 
+const RATE_HELP =
+  "Porównanie z budżetem idzie po godzinie: dzień ÷ 8, miesiąc ÷ 168. Waluta inna niż PLN → bez porównania. Stawka ponad budżet nie blokuje ruchu.";
+
 export interface VerifiedRateFieldsProps {
   /** Surowa treść pola — walidację robi `evaluateRateGate`, nie input. */
   rate: string;
@@ -48,6 +51,8 @@ export interface VerifiedRateFieldsProps {
    * której nie żąda. Pokazujemy tylko przy werdykcie „ponad budżet”.
    */
   overBudgetNote?: { text: string; useLabel: string; onUse?: () => void } | null;
+  /** „Arkusz rozmowy” (23.11.2026): bez stałego dopisku o przeliczeniu — jest w podpowiedzi pola. */
+  compact?: boolean;
 }
 
 /** Kolory i ikona werdyktu — wyłącznie tokeny DS, zero hardcodów palety. */
@@ -79,6 +84,7 @@ export function VerifiedRateFields({
   onSubmit,
   idPrefix = "verified-rate",
   overBudgetNote = null,
+  compact = false,
 }: VerifiedRateFieldsProps) {
   const rateId = `${idPrefix}-value`;
   const unitId = `${idPrefix}-unit`;
@@ -86,8 +92,8 @@ export function VerifiedRateFields({
   const VerdictIcon = verdict.icon;
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-[1.2fr_minmax(0,1fr)] gap-3">
+    <div className={compact ? "space-y-2" : "space-y-3"} title={compact ? RATE_HELP : undefined}>
+      <div className={cn("grid gap-3", compact ? "grid-cols-[6rem_minmax(0,1fr)]" : "grid-cols-[1.2fr_minmax(0,1fr)]")}>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={rateId}>Kwota</Label>
           <input
@@ -162,10 +168,7 @@ export function VerifiedRateFields({
         </div>
       )}
 
-      <p className="text-[11px] text-muted-foreground">
-        Porównanie z budżetem idzie po godzinie: dzień ÷ 8, miesiąc ÷ 168.
-        Waluta inna niż PLN → bez porównania. Stawka ponad budżet nie blokuje ruchu.
-      </p>
+      {compact ? null : <p className="text-[11px] text-muted-foreground">{RATE_HELP}</p>}
     </div>
   );
 }

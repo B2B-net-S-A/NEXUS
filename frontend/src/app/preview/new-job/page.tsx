@@ -130,6 +130,8 @@ const FULL_FORM: IntakeForm = {
   headcount: "2",
   about:
     "Migracja systemu płatności kartowych z monolitu na mikroserwisy. Projekt na ok. 12 miesięcy z opcją przedłużenia.",
+  // 23.11.2026: zadanie od klienta + pytanie, które je sprawdza (fikcyjne).
+  keyTask: "Do końca kwartału przenieść rozliczanie kart z monolitu do nowego serwisu bez przestoju.",
   questions: [
     {
       key: "p1",
@@ -138,6 +140,7 @@ const FULL_FORM: IntakeForm = {
       dealBreaker: "Nie zna pojęcia transakcji rozproszonej, zawsze jedna baza.",
       origin: "request",
       approved: true,
+      keyTask: true,
     },
     {
       key: "p2",
@@ -146,6 +149,7 @@ const FULL_FORM: IntakeForm = {
       dealBreaker: "Tylko praca w pełni zdalna.",
       origin: "ai",
       approved: false,
+      keyTask: false,
     },
   ],
   // Propozycja v2 (23.09.2026): reszta profilu z chipami źródła.
@@ -363,6 +367,8 @@ const STATES: Record<string, NewJobPagePreview> = {
         i === 1 ? { ...q, dealBreaker: "", approved: false } : q,
       ),
       categoryConfirmed: false,
+      // Bez najważniejszego zadania w roli.
+      keyTask: "",
       // Klient nie podał hiring managera ani terminu — DL jeszcze nie zdecydował.
       hiringManager: null,
       deadline: "",
