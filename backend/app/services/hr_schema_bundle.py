@@ -42,6 +42,7 @@ from app.services import board_votes_schema as board_votes
 from app.services import board_reports_schema as board_reports
 from app.services import client_settlements_schema as client_settlements
 from app.services import client_settlement_extras_schema as settlement_extras
+from app.services import client_settlement_reminders_schema as settlement_reminders
 from app.services import client_structure_schema as client_structure
 from app.services import client_time_reports_schema as client_time_reports
 from app.services import client_reports_schema as client_reports
@@ -202,6 +203,8 @@ MODULES = (
     settlement_extras,
     # 0755: dane firm Partnerów z podpisanych umów do potwierdzenia (E5a, 22.11.2026).
     contract_partner_reads,
+    # 0763: przypomnienia o brakującym raporcie godzin — dziennik wysyłek (23.11.2026).
+    settlement_reminders,
 )
 
 COLUMN_DDL: tuple[str, ...] = (
@@ -236,4 +239,5 @@ ENUM_DDL: tuple[str, ...] = (
     board_role.ENUM_DDL,
     back_office_role.ENUM_DDL,
     *notifications.ENUM_DDL,
+    *settlement_reminders.ENUM_DDL,
 )

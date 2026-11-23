@@ -254,6 +254,7 @@ from app.api import client_sales_invoices as client_sales_invoices_api
 from app.api import client_issued_invoices as client_issued_invoices_api
 from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
+from app.api import settlement_reminders as settlement_reminders_api
 from app.api import client_reports as client_reports_api
 from app.api import law_radar as law_radar_api
 from app.api import supervisory_board as supervisory_board_api
@@ -881,6 +882,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.start_documents_sweeper import start_documents_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.client_report_reminders import client_report_reminders_loop
+    from app.tasks.settlement_reminders import settlement_reminders_loop
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
     from app.tasks.sales_archive_shadow import sales_archive_shadow_loop
@@ -1090,6 +1092,8 @@ async def lifespan(app: FastAPI):
             "client_report_reminders": asyncio.create_task(
                 client_report_reminders_loop()
             ),
+            # 23.11.2026: brakujący raport godzin — 3., 5. i 7. dzień roboczy.
+            "settlement_reminders": asyncio.create_task(settlement_reminders_loop()),
             "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
             # 28.10.2026: rekrutacje bez ruchu — przypomnienia DL/HoR, zamknięcie po 28 dniach.
             "job_idle": asyncio.create_task(job_idle_loop()),
@@ -2485,6 +2489,13 @@ app.include_router(
 app.include_router(
     client_time_reports_api.router,
     prefix="/api/finance/settlements/time-reports",
+    tags=["client-settlements"],
+    dependencies=_HR_PROGRAM,
+)
+# Przypomnienia o brakującym raporcie godzin (23.11.2026).
+app.include_router(
+    settlement_reminders_api.router,
+    prefix="/api/finance/settlements/reminders",
     tags=["client-settlements"],
     dependencies=_HR_PROGRAM,
 )

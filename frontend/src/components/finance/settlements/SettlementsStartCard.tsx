@@ -25,6 +25,8 @@ import {
 } from "@/lib/api/consultant-panel";
 import { hasRole, useAuthStore } from "@/store/auth";
 
+import { ReportReminderSwitch } from "./ReportReminders";
+
 interface Check {
   key: string;
   tone: StatusDotTone;
@@ -215,6 +217,7 @@ export function SettlementsStartCard() {
           />
           Moduł rozliczeń klientów
         </label>
+        <ReportReminderSwitch />
         <span className="flex flex-wrap items-center gap-2">
           <span id="start-panel-state">Panel konsultanta</span>
           <SegmentedRadio
