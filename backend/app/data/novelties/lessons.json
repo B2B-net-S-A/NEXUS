@@ -1870,6 +1870,41 @@
     ]
   },
   {
+    "id": "lekcja-pracuj-po-kolei",
+    "title": "Pracuj po kolei: panel osoby na pulpicie",
+    "novelties": [
+      "pracuj-po-kolei-na-pulpicie"
+    ],
+    "task": "Na pulpicie, w „Czeka na Ciebie”, otwórz kolejkę osób, które czekają na Twój ruch, bez wchodzenia na Tablicę.",
+    "solo_href": "/dashboard",
+    "check": {
+      "kind": "click",
+      "anchor": "dashboard.person-queue.start"
+    },
+    "questions": [
+      {
+        "q": "Odrzucasz osobę w panelu „Pracuj po kolei”. Co pokaże panel?",
+        "options": [
+          "Następną osobę z kolejki, także z innej rekrutacji",
+          "Tablicę rekrutacji odrzuconej osoby",
+          "Pusty panel do zamknięcia"
+        ],
+        "answer": 0,
+        "explain": "Po odrzuceniu panel sam przechodzi do następnej osoby z kolejki „Czeka na Ciebie”, nawet gdy jest w innej rekrutacji. Pasek „Odrzucono” ma „Pokaż”, gdyby trzeba było wrócić."
+      },
+      {
+        "q": "W jakiej kolejności idą osoby w „Pracuj po kolei”?",
+        "options": [
+          "Screening bez arkusza, potem Zweryfikowani, potem osoby od systemu; najdłużej czekający pierwsi",
+          "Rekrutacja po rekrutacji, alfabetycznie",
+          "Najnowsze osoby pierwsze"
+        ],
+        "answer": 0,
+        "explain": "Kolejka idzie listami „Czeka na Ciebie” od góry, a w każdej liście od osoby, która czeka najdłużej."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [

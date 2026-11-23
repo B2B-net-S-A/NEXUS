@@ -397,6 +397,7 @@ export function BoardTasksPanel({
                 size="sm"
                 onClick={() => personQueue.open()}
                 data-testid="person-queue-start"
+              data-tour="dashboard.person-queue.start"
                 title="Panel osoby na pulpicie: Screening bez arkusza, Zweryfikowani czekają na CV, od systemu — najdłużej czekający pierwsi"
               >
                 <ListOrdered className="h-3.5 w-3.5" aria-hidden="true" />
