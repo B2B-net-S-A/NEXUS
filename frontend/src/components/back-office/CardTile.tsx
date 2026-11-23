@@ -46,7 +46,7 @@ export function LabelChip({
   className,
 }: {
   board: Pick<BoBoard, "labels">;
-  card: Pick<BoCard, "lane" | "team">;
+  card: Pick<BoCard, "lane" | "team"> & { notice?: BoCard["notice"] };
   className?: string;
 }) {
   return (
@@ -57,7 +57,8 @@ export function LabelChip({
       )}
     >
       <span aria-hidden className={cn("size-1.5 rounded-full", FAMILY_DOT[card.team])} />
-      {labelText(board, card.lane)}
+      {/* Sprawa z maila z propozycją: rodzaj zamiast „Zakończenie” (0759). */}
+      {card.notice?.label ?? labelText(board, card.lane)}
     </span>
   );
 }
@@ -132,6 +133,12 @@ export function CardTile({ card, board, commands, onOpen }: CardTileProps) {
         {heading}
       </button>
       {second ? <p className="truncate text-[11.5px] text-muted-foreground">{second}</p> : null}
+      {card.notice ? (
+        <p className="mt-1 truncate rounded-md bg-muted px-1.5 text-[11px] text-foreground">
+          Z maila · do potwierdzenia
+          {card.notice.last_day ? ` · koniec ${formatDay(card.notice.last_day)}` : ""}
+        </p>
+      ) : null}
       {card.meeting ? (
         <p className="mt-1 inline-flex items-center gap-1 rounded-md bg-primary/10 px-1.5 text-[11px] text-primary">
           <CalendarClock aria-hidden className="size-3" /> Rozmowa {meetingLabel(card.meeting.start_at)} ·{" "}

@@ -70,6 +70,94 @@ export interface BoCard {
     item_key?: string;
     gap_id?: number;
   };
+  /** Propozycja z maila: wypowiedzenie, klient kończy, zmiana daty, wycofanie (0759). */
+  notice?: BoNotice | null;
+}
+
+export type BoNoticeKind = "consultant_notice" | "client_termination" | "date_change" | "withdrawal";
+
+export interface BoNotice {
+  id: number;
+  kind: BoNoticeKind;
+  label: string;
+  last_day: string | null;
+}
+
+export interface NoticeContractView {
+  id: number;
+  person: string | null;
+  client: string | null;
+  client_id: number;
+  status: string;
+  contract_type: string;
+  start_date: string | null;
+  end_date: string | null;
+  terminated_at: string | null;
+  agreement_termination_mode: string | null;
+  exit_case_id: number | null;
+}
+
+export interface NoticeDetail {
+  id: number;
+  case_id: number;
+  kind: BoNoticeKind;
+  label: string;
+  status: "pending" | "confirmed" | "rejected" | "superseded";
+  delivered_on: string | null;
+  proposed_last_day: string | null;
+  alternative_last_day: string | null;
+  client_end_date: string | null;
+  contract_number: string | null;
+  cpro_number: string | null;
+  agreement: boolean;
+  period_source: "template" | "default" | null;
+  client_reason: string | null;
+  evidence: string[];
+  reasons: { key: string; label: string }[];
+  message: {
+    id: number;
+    sender_email: string | null;
+    sender_name: string | null;
+    subject: string | null;
+    received_at: string | null;
+    excerpt: string;
+    attachments: string[];
+  } | null;
+  sender_known: boolean;
+  /** Uwierzytelniony nadawca dopasowany po adresie albo nazwisku (nie po numerze z treści). */
+  can_remember_sender: boolean;
+  contract: NoticeContractView | null;
+  alternatives: NoticeContractView[];
+  order: {
+    id: number;
+    title: string;
+    client_id: number;
+    status: string;
+    start_date: string | null;
+    end_date: string | null;
+  } | null;
+  dates: { key: string; label: string; date: string | null; differs: boolean }[];
+  thread: {
+    id: number;
+    kind: BoNoticeKind;
+    label: string;
+    status: string;
+    received_at: string | null;
+    sender_name: string | null;
+    subject: string | null;
+    proposed_last_day: string | null;
+  }[];
+  decision: Record<string, unknown> | null;
+  decided_at: string | null;
+}
+
+export interface NoticeDecisionInput {
+  id: number;
+  decision: "confirmed" | "rejected";
+  contract_id?: number | null;
+  remember_sender?: boolean;
+  applied?: Record<string, unknown>;
+  note?: string | null;
 }
 
 export interface BoStepCard {
@@ -336,6 +424,23 @@ export const useStepDone = () => useCardCommand<{ id: number }>("step-done");
 export const useMoveCard = () =>
   useCardCommand<{ id: number; team: BoTeamId; lane: string }>("move", ({ team, lane }) => ({ team, lane }));
 export const useRefreshCard = () => useCardCommand<{ id: number }>("refresh");
+
+export function useNoticeProposal(id: number | null | undefined) {
+  return useQuery({
+    queryKey: [...boKeys.all, "notice", id],
+    enabled: Boolean(id),
+    queryFn: async () => (await api.get<NoticeDetail>(`/api/back-office/notices/${id}`)).data,
+  });
+}
+
+export function useDecideNotice() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...body }: NoticeDecisionInput) =>
+      (await api.post<NoticeDetail>(`/api/back-office/notices/${id}/decision`, body)).data,
+    onSettled: () => client.invalidateQueries({ queryKey: boKeys.all }),
+  });
+}
 
 export const useReviewCard = () =>
   useCardCommand<{

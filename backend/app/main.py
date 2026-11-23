@@ -274,6 +274,7 @@ from app.api import care_announcements as care_announcements_api
 from app.api import public_consultant_mail as public_consultant_mail_api
 from app.api import admin_cases as admin_cases_api
 from app.api import back_office as back_office_api
+from app.api import notice_mail as notice_mail_api
 from app.api import consultant_panel as consultant_panel_api
 from app.api import consultant_portal as consultant_portal_api
 from app.api import consultant_portal_staff as consultant_portal_staff_api
@@ -2519,6 +2520,13 @@ app.include_router(
     tags=["hr"],
     dependencies=_HR_PROGRAM,
 )
+# 0759: wypowiedzenia z poczty na karcie (ta sama bramka co kolejka back office).
+app.include_router(
+    notice_mail_api.router,
+    prefix="/api/back-office",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
 app.include_router(
     equipment_api.router, prefix="/api/equipment", tags=["hr"], dependencies=_HR_PROGRAM
 )
@@ -4100,6 +4108,11 @@ async def api_health_deep_check(request: Request):
         AdminCaseMessage,
         AdminMailIngestState,
     )
+    from app.models.notice_mail import (
+        ArchivedMail,
+        KnownSenderEmail,
+        NoticeMailProposal,
+    )
     from app.models.equipment import (
         ClientOnboardingPack,
         ClientOnboardingPackItem,
@@ -4677,6 +4690,10 @@ async def api_health_deep_check(request: Request):
         ("tech_cards", TechCard),
         ("care_conversations", CareConversation),
         ("admin_cases", AdminCase),
+        # 0759: wypowiedzenia z poczty i archiwum administracja@.
+        ("notice_mail_proposals", NoticeMailProposal),
+        ("known_sender_emails", KnownSenderEmail),
+        ("archived_mails", ArchivedMail),
         ("equipment_items", EquipmentItem),
         ("equipment_assignments", EquipmentAssignment),
         ("equipment_protocols", EquipmentProtocol),

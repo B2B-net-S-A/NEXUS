@@ -189,6 +189,9 @@ HANDLED_FOREIGN_KEYS: tuple[tuple[str, str], ...] = (
     # Dopisane 21.10.2026 (0492, wiersz czekający na kolejne zamówienie):
     # korekta przeszła na produkcji wcześniej, kolumny wtedy nie było.
     ("md_consumption_import_rows", "awaiting_origin_order_id"),
+    # Dopisane 23.11.2026 (wypowiedzenia z poczty, 0759): korekta przeszła na
+    # produkcji wcześniej, propozycji z maili wtedy nie było.
+    ("notice_mail_proposals", "order_id"),
     ("order_mail_documents", "applied_order_id"),
 )
 

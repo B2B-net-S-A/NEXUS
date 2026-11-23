@@ -144,6 +144,9 @@ _KNOWN_CONTRACT_FKS = {
     # z placementu) rozstrzyga najpierw ``_resolve_child_duplicates``.
     # Sprawy administracja@ (wejście/odejście konsultanta): obie zostają.
     ("admin_cases", "contract_id"),
+    # Archiwum administracja@ i propozycje z maili (0759): poczta tej samej
+    # współpracy idzie za kontraktem, który zostaje.
+    ("archived_mails", "contract_id"),
     ("b2b_contract_details", "contract_id"),
     # Dokumenty pochodne umowy B2B (0362) należą do tej samej współpracy —
     # przy scaleniu duplikatu idą za kontraktem, który zostaje.
@@ -231,6 +234,7 @@ _KNOWN_CONTRACT_FKS = {
     # tylko odnośnik — bez unikatu, idzie za kontraktem zachowanym.
     ("hr_bonus_clawbacks", "contract_id"),
     ("notes", "contract_id"),
+    ("notice_mail_proposals", "contract_id"),
     # „Do przepięcia”: jeden aktywny wpis na kontrakt i powód (indeks
     # częściowy) — nadmiarowy aktywny dostaje ``dismissed``.
     ("redeploy_queue_items", "contract_id"),
