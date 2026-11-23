@@ -5,7 +5,7 @@
  */
 
 import * as React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -42,6 +42,8 @@ vi.mock("@/lib/api", () => ({
         ? previewPost(a[0] as string, a[1] as { candidate_ids: number[] })
         : post(...a),
   },
+  // `interviewCycleApi` (wniosek o terminy po ruchu, 23.11.2026) woła nazwany `api`.
+  api: { get: vi.fn(), post: (...a: unknown[]) => post(...a) },
   candidatesApi: { setRecruitmentClientRate: vi.fn() },
   pipelineApi: { move: (...a: unknown[]) => move(...a) },
   b2bGeneratorApi: {
@@ -101,6 +103,7 @@ import {
   type UsePipelineMoveOptions,
 } from "@/hooks/usePipelineMove";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
+import { interviewCycleApi } from "@/lib/api/interviewCycle";
 import type { Permission } from "@/lib/permissions";
 import { useAuthStore } from "@/store/auth";
 import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
@@ -164,6 +167,8 @@ interface HarnessOptions {
   onVerifiedRequirementsMissing?: UsePipelineMoveOptions["onVerifiedRequirementsMissing"];
   /** Słownik powodów okna odrzucenia — domyślnie pusty (wolny tekst). */
   rejectionReasons?: UsePipelineMoveOptions["job"]["rejectionReasons"];
+  /** DL/HoR/admin: okno „Kiedy rozmowa?” wysyła terminy rekruterowi (23.11.2026). */
+  canSendClientSlots?: boolean;
 }
 
 function Harness({
@@ -181,6 +186,7 @@ function Harness({
     columns,
     readOnly: options.readOnly ?? false,
     canWriteClientRate: false,
+    canSendClientSlots: options.canSendClientSlots ?? false,
     optimistic,
     cproEnabled: options.cproEnabled,
     onVerifiedRequirementsMissing: options.onVerifiedRequirementsMissing,
@@ -1605,6 +1611,33 @@ describe("usePipelineMove — „Kiedy rozmowa u klienta?” (audyt 21.10.2026)"
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     expect(post.mock.calls[0][1]).toMatchObject({ candidate_id: 701, stage: "client_interview" });
     expect(screen.queryByRole("dialog", { name: "Kiedy rozmowa u klienta?" })).toBeNull();
+  });
+
+  it("„Klient podał terminy”: po ruchu terminy idą do rekrutera wnioskiem", async () => {
+    vi.spyOn(interviewCycleApi, "slotRecipient").mockResolvedValue({
+      recruiter_name: "Rekruter Testowy",
+      substitute_name: null,
+      until: null,
+      is_you: false,
+    });
+    const item = card({ id: 73, candidate_id: 703 });
+    const b = board({ fresh: [item] });
+    post.mockResolvedValue({ data: { id: 902, process_state_version: 2 } });
+    mount(b.all, undefined, { canSendClientSlots: true });
+    React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
+    const dialog = await screen.findByRole("dialog", { name: "Kiedy rozmowa u klienta?" });
+    expect(within(dialog).getByRole("radio", { name: "Klient podał terminy" })).toHaveAttribute("aria-checked", "true");
+    fireEvent.change(within(dialog).getByLabelText("Termin 1"), { target: { value: "2099-01-15T10:00" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Przesuń i wyślij rekruterowi" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    expect(post.mock.calls[0][1]).toMatchObject({ candidate_id: 703, stage: "client_interview" });
+    expect(post.mock.calls[1][0]).toBe("/api/interview-cycle/slots");
+    expect(post.mock.calls[1][1]).toMatchObject({
+      candidate_id: 703,
+      job_id: JOB_ID,
+      slots: [{ start: new Date("2099-01-15T10:00").toISOString() }],
+      duration_minutes: 60,
+    });
   });
 
   it("`skipInterviewDate` pomija okno także przy ruchu naprzód", async () => {

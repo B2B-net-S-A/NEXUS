@@ -83,7 +83,7 @@ import { TwinSkipDialog } from "@/components/v2/jobs/twins/TwinSkipDialog";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import {
   ClientInterviewDateDialog,
-  type ClientInterviewDate,
+  type ClientInterviewChoice,
 } from "@/components/v2/recruitment/ClientInterviewDateDialog";
 import { interviewCycleApi } from "@/lib/api/interviewCycle";
 import {
@@ -240,6 +240,11 @@ export interface UsePipelineMoveOptions {
    * arkusz (`screeningStageId`); bez tej opcji hook pokazuje komunikat.
    */
   onVerifiedRequirementsMissing?: (info: VerifiedRequirementsMissing, item: KanbanItem) => void;
+  /**
+   * Osoba może wysłać terminy od klienta (DL, HoR, admin): okno „Kiedy
+   * rozmowa u klienta?” zaczyna wtedy od „Klient podał terminy” (23.11.2026).
+   */
+  canSendClientSlots?: boolean;
 }
 
 interface MoveEntry {
@@ -451,6 +456,7 @@ export function usePipelineMove({
   cproEnabled = false,
   onCvQcFailed,
   onVerifiedRequirementsMissing,
+  canSendClientSlots = false,
 }: UsePipelineMoveOptions): PipelineMoveControls {
   const queryClient = useQueryClient();
   const { showActionToast, showSuccess, showError } = useToast();
@@ -1197,12 +1203,41 @@ export function usePipelineMove({
   // rozmowę dopiero po potwierdzonym ruchu — odmowa ruchu nie zostawia
   // w kalendarzu rozmowy osoby, która nie przeszła dalej.
   const submitInterviewDateMove = useCallback(
-    (value: ClientInterviewDate | null) => {
+    (value: ClientInterviewChoice) => {
       const prompt = interviewDatePrompt;
       if (!prompt) return;
       setInterviewDatePrompt(null);
       const { item, destCol, srcColId } = prompt;
       applyOptimistic(item, srcColId, destCol);
+      // „Klient podał terminy” (23.11.2026): po potwierdzonym ruchu wniosek
+      // o terminy — rekruter dostaje dzwonek i mail „Ustal termin z kandydatem”.
+      if (value && "kind" in value) {
+        void sendMove(item, destCol, undefined, {
+          onMoved: () => {
+            void interviewCycleApi
+              .createSlots({
+                candidate_id: item.candidate_id,
+                job_id: jobId,
+                slots: value.slots,
+                duration_minutes: value.durationMinutes,
+                note: value.note,
+              })
+              .then(() => {
+                queryClient.invalidateQueries({ queryKey: ["interview-cycle"] });
+                queryClient.invalidateQueries({ queryKey: ["kanban"] });
+              })
+              .catch((err) =>
+                showError(
+                  apiErrorMessage(
+                    err,
+                    "Kandydat jest na „Rozmowa u klienta”, ale terminów nie udało się wysłać rekruterowi.",
+                  ),
+                ),
+              );
+          },
+        });
+        return;
+      }
       void sendMove(item, destCol, undefined, {
         onMoved: value
           ? () => {
@@ -1982,6 +2017,9 @@ export function usePipelineMove({
         <ClientInterviewDateDialog
           open
           candidateName={itemFullName(interviewDatePrompt.item)}
+          candidateId={interviewDatePrompt.item.candidate_id}
+          jobId={jobId}
+          canSendSlots={canSendClientSlots}
           onCancel={() => setInterviewDatePrompt(null)}
           onConfirm={(value) => submitInterviewDateMove(value)}
         />
