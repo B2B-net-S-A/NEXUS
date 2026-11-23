@@ -737,6 +737,7 @@ function SheetGapsBar({
           : "border-border bg-background/95 text-muted-foreground",
       )}
       data-testid="conversation-sheet-gaps"
+      data-tour="screening.sheet.gaps"
       role="status"
     >
       {forwardLabel ? (
