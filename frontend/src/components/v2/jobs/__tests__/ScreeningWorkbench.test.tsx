@@ -42,8 +42,11 @@ vi.mock("@/components/v2/screening-form/ScreeningFullForm", () => ({
     noteFill?: unknown;
     memory?: unknown;
     pendingMemory?: Array<{ jobId: number; answers: number }>;
+    layout?: string;
   }) => (
     <div data-testid="full-form">
+      <span>układ: {props.layout ?? "column"}</span>
+      <input aria-label="szkic odpowiedzi" />
       <span>{props.memory ? "z pamięcią rozmowy" : "bez pamięci rozmowy"}</span>
       {props.pendingMemory?.length ? (
         <span>w pamięci: {props.pendingMemory.map((p) => `${p.jobId}×${p.answers}`).join(",")}</span>
@@ -80,8 +83,22 @@ vi.mock("@/components/v2/screening-form/CandidatePreviewPane", () => ({
     onTabChange: (tab: string) => void;
     historyOpen?: boolean;
     onHistoryOpenChange?: (open: boolean) => void;
+    sheet?: { label: string; content: React.ReactNode; active: boolean; onActiveChange: (active: boolean) => void };
   }) => (
     <div data-testid="preview-pane">
+      {props.sheet ? (
+        <div data-testid="sheet-tabs">
+          <button type="button" aria-pressed={props.sheet.active} onClick={() => props.sheet?.onActiveChange(true)}>
+            {props.sheet.label}
+          </button>
+          <button type="button" onClick={() => props.sheet?.onActiveChange(false)}>
+            zakładka CV
+          </button>
+          <div data-testid="sheet-panel" hidden={!props.sheet.active}>
+            {props.sheet.content}
+          </div>
+        </div>
+      ) : null}
       podgląd: {props.tab} · etap {props.stageId}
       {props.historyOpen ? " · historia osoby" : ""}
       <button type="button" onClick={() => props.onTabChange("plain")}>
@@ -155,7 +172,22 @@ import { useJointScreeningIntent } from "@/store/joint-screening";
 import { emptyMemory } from "@/lib/screening-memory";
 import { readScreeningMemory, useScreeningMemoryStore, writeScreeningMemory } from "@/store/screening-memory";
 import { createNoteFillChannel } from "@/lib/note-fill-channel";
-import { PersonPanelSideProvider, PersonPanelSideZone } from "@/components/v2/person/PersonPanelSide";
+import {
+  PersonPanelColumn,
+  PersonPanelSideProvider,
+  PersonPanelSideZone,
+  usePersonPanelConversationMode,
+} from "@/components/v2/person/PersonPanelSide";
+
+/** Przełącznik „Tryb rozmowy” z paska osoby — tu bez reszty panelu. */
+function ConversationToggle() {
+  const mode = usePersonPanelConversationMode();
+  return (
+    <button type="button" aria-pressed={mode?.on ?? false} onClick={() => mode?.toggle()}>
+      Tryb rozmowy
+    </button>
+  );
+}
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 
 function item(overrides: Partial<KanbanItem> = {}): KanbanItem {
@@ -652,5 +684,112 @@ describe("ScreeningWorkbench — „Screening dla” (14.10.2026)", () => {
     await waitFor(() => expect(readScreeningMemory(undefined, 111)).toBeNull());
     await waitFor(() => expect(screen.queryByTestId("joint-form")).toBeNull());
     expect(screen.queryByTestId("screening-memory-restored")).toBeNull();
+  });
+});
+
+describe("ScreeningWorkbench — „Arkusz rozmowy” w Trybie rozmowy (23.11.2026)", () => {
+  function mountWide(focusCandidateId = 112) {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <PersonPanelSideProvider>
+          <PersonPanelSideZone />
+          <PersonPanelColumn split>
+            <ConversationToggle />
+            <div data-testid="dock-column">
+              <ScreeningWorkbench
+                jobId={7}
+                jobBudgetHourly={100}
+                columns={board()}
+                isLoading={false}
+                isError={false}
+                error={null}
+                isSuccess
+                onRetry={vi.fn()}
+                onMoved={vi.fn()}
+                readOnly={false}
+                onTabChange={vi.fn()}
+                focusCandidateId={focusCandidateId}
+              />
+            </div>
+          </PersonPanelColumn>
+        </PersonPanelSideProvider>
+      </QueryClientProvider>,
+    );
+    return () => {
+      window.matchMedia = original;
+    };
+  }
+
+  beforeEach(() => window.localStorage.clear());
+
+  it("bez trybu formularz stoi po prawej jak dotąd, a podgląd nie ma zakładki arkusza", async () => {
+    const restore = mountWide();
+    try {
+      const form = await screen.findByTestId("full-form");
+      expect(within(screen.getByTestId("dock-column")).getByTestId("full-form")).toBe(form);
+      expect(form).toHaveTextContent("układ: column");
+      expect(screen.queryByTestId("sheet-tabs")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("tryb przenosi ten sam formularz do lewej strefy jako „Arkusz rozmowy” — wpis zostaje", async () => {
+    const user = userEvent.setup();
+    const restore = mountWide();
+    try {
+      await screen.findByTestId("full-form");
+      await user.type(screen.getByLabelText("szkic odpowiedzi"), "6 lat w banku");
+      await user.click(screen.getByRole("button", { name: "Tryb rozmowy" }));
+
+      const zone = screen.getByTestId("person-panel-side");
+      const panel = await within(zone).findByTestId("sheet-panel");
+      await waitFor(() => expect(within(panel).getByTestId("full-form")).toHaveTextContent("układ: sheet"));
+      expect(within(screen.getByTestId("dock-column")).queryByTestId("full-form")).toBeNull();
+      // Ten sam egzemplarz — niezapisany wpis nie zniknął.
+      expect(within(panel).getByLabelText("szkic odpowiedzi")).toHaveValue("6 lat w banku");
+      // „Co już wiemy” zostaje po prawej.
+      expect(within(screen.getByTestId("dock-column")).getByTestId("before-call")).toBeInTheDocument();
+
+      // Zakładka CV chowa arkusz, „Arkusz rozmowy” go przywraca.
+      await user.click(within(zone).getByRole("button", { name: "zakładka CV" }));
+      expect(panel).not.toBeVisible();
+      await user.click(within(zone).getByRole("button", { name: "Arkusz rozmowy" }));
+      expect(panel).toBeVisible();
+
+      // Wyłączenie trybu wraca do prawej kolumny, dalej z wpisem.
+      await user.click(screen.getByRole("button", { name: "Tryb rozmowy" }));
+      await waitFor(() =>
+        expect(within(screen.getByTestId("dock-column")).getByTestId("full-form")).toHaveTextContent("układ: column"),
+      );
+      expect(within(screen.getByTestId("dock-column")).getByLabelText("szkic odpowiedzi")).toHaveValue("6 lat w banku");
+      expect(screen.queryByTestId("sheet-tabs")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("„Pokaż” historii w „Co już wiemy” zdejmuje arkusz z wierzchu", async () => {
+    const user = userEvent.setup();
+    const restore = mountWide();
+    try {
+      await screen.findByTestId("full-form");
+      await user.click(screen.getByRole("button", { name: "Tryb rozmowy" }));
+      const panel = await within(screen.getByTestId("person-panel-side")).findByTestId("sheet-panel");
+      expect(panel).toBeVisible();
+      await user.click(screen.getByRole("button", { name: "Pokaż wcześniejsze notatki" }));
+      expect(panel).not.toBeVisible();
+      expect(within(screen.getByTestId("person-panel-side")).getByTestId("preview-pane")).toHaveTextContent("historia osoby");
+    } finally {
+      restore();
+    }
   });
 });

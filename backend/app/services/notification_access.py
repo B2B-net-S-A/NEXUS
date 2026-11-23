@@ -216,6 +216,8 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.hire_missing_contract: ProductSection.pipeline,
     # 0457: opieka nad konsultantem — link do zakładki „Opieka” kontraktu.
     NotificationType.care_contact_due: ProductSection.delivery,
+    # 0763: brak raportu godzin — link do kontraktu (sekcja Delivery).
+    NotificationType.settlement_report_missing: ProductSection.delivery,
     # 0475: link prowadzi do „Struktury u klientów” w Opiece (sekcja Delivery).
     NotificationType.care_client_structure: ProductSection.delivery,
     # 0509: popyt z rozmowy opiekuna — karta na tablicy „Do zrobienia” DL.

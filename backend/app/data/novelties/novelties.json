@@ -4530,6 +4530,36 @@
     ]
   },
   {
+    "id": "finanse-przebieg-miesiaca",
+    "pr": 3803,
+    "title": "Przebieg miesiąca: wszyscy klienci rozliczeń w jednym widoku",
+    "why": "Od razu widzisz, u których klientów brakuje raportów, co czeka na decyzję i gdzie wystawić fakturę. Sprawy do decyzji są pogrupowane po powodzie.",
+    "tier": "tour",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "finance",
+        "admin"
+      ]
+    },
+    "where": "Finanse → Przychody → Przebieg miesiąca",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "finance.month-close",
+    "steps": [
+      {
+        "anchor": "finance.month-close",
+        "text": "Otwórz „Przebieg miesiąca”",
+        "hint": "U góry cztery kroki miesiąca, niżej jeden wiersz na klienta."
+      },
+      {
+        "anchor": "finance.month-close.reasons",
+        "text": "Przełącz na „Do decyzji wg powodu”",
+        "hint": "Karta powodu mówi, kto rozstrzyga, i prowadzi do klienta albo jego reguł."
+      }
+    ]
+  },
+  {
     "id": "sprzedaz-nowa-firma-z-nip",
     "title": "Nowa firma z NIP-u w wyszukiwarce",
     "why": "Wpisz NIP u góry: gdy karty nie ma, „Załóż firmę z NIP …” otworzy okno z danymi z rejestru. Firma bez NIP-u już w kartotece? Dopiszesz NIP do jej karty.",
@@ -4567,6 +4597,38 @@
         "anchor": "dashboard.person-queue.start",
         "text": "Kliknij „Pracuj po kolei”.",
         "hint": "Panel osoby otworzy się z prawej, nad pulpitem. Pasek u góry mówi, z której listy jest osoba, w jakiej rekrutacji i kto dalej."
+      }
+    ]
+  },
+  {
+    "id": "arkusz-rozmowy-na-lewej-polowie",
+    "title": "„Arkusz rozmowy” na dużej połowie ekranu",
+    "why": "W „Trybie rozmowy” formularz screeningu stoi po lewej, w dwóch kolumnach, a CV i wymagania są w zakładkach obok. Na górze widzisz, czego brakuje do „Zweryfikowany”; braki znikają, gdy je wpisujesz.",
+    "tier": "tour",
+    "shipped_on": "2026-11-23",
+    "pr": 3809,
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead"
+      ]
+    },
+    "where": "Rekrutacja → osoba z „Screeningu” → Rozwiń → Tryb rozmowy",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "person.panel.conversation-mode",
+    "used_anchor": "screening.sheet.gaps",
+    "steps": [
+      {
+        "anchor": "person.panel.conversation-mode",
+        "text": "Kliknij „Tryb rozmowy” w pasku osoby.",
+        "hint": "Lewa połowa zamieni się na „Arkusz rozmowy”. CV, Wymagania i Po ludzku są w zakładkach obok arkusza."
+      },
+      {
+        "anchor": "screening.sheet.gaps",
+        "text": "Ten pasek mówi, czego brakuje do „Zweryfikowany”.",
+        "hint": "Kliknij brak, a kursor stanie w tym polu. Obok widać, na ile pytań i wymagań masz już odpowiedź.",
+        "ack": true
       }
     ]
   },

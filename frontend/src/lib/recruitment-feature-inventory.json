@@ -2390,6 +2390,14 @@
    "v3_home": "Tablica → klik w kartę"
   },
   {
+   "id": "screening-form.conversation-sheet",
+   "area": "formularz screeningu",
+   "opis": "„Arkusz rozmowy” (23.11.2026): w „Trybie rozmowy” formularz screeningu w lewej połowie panelu jako pierwsza zakładka obok CV, Wymagań i Po ludzku — pasek braków do „Zweryfikowany”, dwie kolumny, „Sprawdź w rozmowie” z ✓ / ✕ / ?, stopka z „Nie odebrał”, „Odrzuć” i „Zapisz i przekaż dalej”; ten sam formularz i zapis",
+   "file": "components/v2/screening-form/ScreeningFullForm.tsx",
+   "marker": "conversation-sheet-gaps",
+   "v3_home": "Tablica → osoba z „Nowych”/„Screeningu” → Rozwiń → Tryb rozmowy → lewa połowa"
+  },
+  {
    "id": "screening-form.take-in-owner-line",
    "area": "tablica",
    "opis": "„Biorę” / „Dzwonię” przy wierszu „Prowadzi” w panelu z formularzem, także w „Trybie rozmowy” (04.11.2026): wolną osobę bierze się bez wychodzenia na kartę",

@@ -41,9 +41,18 @@ def default_mailer() -> Optional[AnnouncementMailer]:
 
 
 async def send(
-    db: AsyncSession, *, contract_id: int, to: str, subject: str, text: str
+    db: AsyncSession,
+    *,
+    contract_id: int,
+    to: str,
+    subject: str,
+    text: str,
+    cc: Optional[str] = None,
 ) -> Optional[MailOutcome]:
-    """Wynik wysyłki albo ``None``: portal zamknięty lub brak nadawcy."""
+    """Wynik wysyłki albo ``None``: portal zamknięty lub brak nadawcy.
+
+    ``cc`` to adres osoby z firmy w kopii (opiekun kontraktu); wyłącznik
+    portalu i tak decyduje, bo mail idzie do konsultanta."""
 
     state = await portal_settings.load(db)
     if not state.open_for(contract_id):
@@ -53,7 +62,10 @@ async def send(
     if mailer is None:
         logger.warning("consultant_portal_mail: no transport")
         return None
-    outcome = await mailer.send(to=to, subject=subject, text=text)
+    if cc:
+        outcome = await mailer.send(to=to, subject=subject, text=text, cc=cc)
+    else:
+        outcome = await mailer.send(to=to, subject=subject, text=text)
     logger.info("consultant_portal_mail: status=%s", outcome.status)
     return outcome
 
