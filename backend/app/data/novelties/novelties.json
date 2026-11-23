@@ -3842,6 +3842,7 @@
     },
     "where": "Finanse → Kontrahenci → Czeka na Symfonię",
     "href": "/finance",
+    "practice_href": "/finance?view=counterparties",
     "section": "finance",
     "dot_anchor": "finance.counterparties-pending"
   },
@@ -4228,6 +4229,7 @@
     "why": "„Opisz do księgowania” na karcie faktury: typ, rejestr, konta netto, VAT i „5”, samochód (½ VAT), import usług, procedura JPK, kurs NBP. Plik do Symfonii przyjmuje też FVZ, FVZP i IU.",
     "where": "Finanse → Faktury kosztowe → faktura → Dekret do Symfonii FK",
     "href": "/finance",
+    "practice_href": "/finance?view=costs",
     "shipped_on": "2026-11-22",
     "pr": 3692,
     "tier": "dot",
@@ -4241,6 +4243,7 @@
   },
   {
     "id": "podpis-wyslij-na-wierzchu",
+    "pr": 3698,
     "title": "„Wyślij do podpisu” jako główny przycisk przy umowie",
     "why": "W panelu osoby, w zakładce „Umowa” i w rejestrze Generatora wysyłka do podpisu jest teraz na wierzchu. Kontraktor dostaje link, a podpis firmy i kontrakt idą w NEXUSIE.",
     "tier": "dot",
@@ -4364,9 +4367,9 @@
     "tier": "dot",
     "shipped_on": "2026-11-22",
     "audience": { "roles": ["finance", "admin"] },
-    "where": "Klienci → klient → Rozliczenia → osoba → Dodatki do faktury",
-    "href": "/clients",
-    "section": "delivery",
+    "where": "Finanse → Rozliczenia klientów → osoba → Dodatki do faktury",
+    "href": "/finance",
+    "section": "finance",
     "dot_anchor": "clients.settlement-extras.add"
   }
 ]
