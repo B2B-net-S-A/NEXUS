@@ -2119,6 +2119,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  {startsScreeningGroup ? (
  <div
  data-testid={`screening-group-${screeningGroup}`}
+ data-tour={index === 0 ? "board.screening-groups" : undefined}
  className={cn(
  "px-0.5 pt-1 text-[11px] font-semibold leading-tight",
  screeningGroup === "to_call" ? "text-primary" : "text-muted-foreground"

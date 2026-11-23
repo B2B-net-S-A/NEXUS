@@ -4546,6 +4546,26 @@
     "used_anchor": "palette.sales-nip"
   },
   {
+    "id": "tablica-karty-bez-sladu-wracaja",
+    "pr": 3812,
+    "title": "Karta bez śladu przez 2 dni robocze wraca do „Nowych” dla wszystkich",
+    "why": "Karta bez notatki, „Nie odebrał”, telefonu, arkusza i ruchu przez 2 dni robocze wraca do „Nowych”, a „Biorę” wygasa. Dzień wcześniej mówi „jutro”, a Ty dostajesz dzwonek.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → kolumna „Screening”",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001",
+    "section": "pipeline",
+    "dot_anchor": "board.screening-groups"
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",
