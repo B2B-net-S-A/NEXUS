@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-PORTAL_URL = "https://nordea.onevms.se/nordea/vendor/"
+PORTAL_URL = "https://nordea.onevms.se/"
 SUBCONTRACTOR_COMPANY = "B2B.net S.A."
 
 TASK = f"""Jesteś botem, który wrzuca kandydatów firmy B2B.net do portalu dostawcy
