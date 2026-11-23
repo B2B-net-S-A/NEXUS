@@ -2,7 +2,8 @@
 
 // Panel konsultanta w zakładce „Start i sprzęt” kontraktu. Panel nie powstaje sam: po podpisaniu
 // umowy osoba z Opieki sprawdza adres, materiały i mail, a dopiero jej klik otwiera dostęp.
-// Bez uprawnień serwer odpowiada 403 i sekcji po prostu nie ma. Wariant A (20.11.2026):
+// Sekcję widzi tylko operator panelu (`me.consultant_panel_operator` z `/api/hr/config`);
+// reszta nie pyta serwera, który odmówiłby 403 w konsoli (Tester 23.11.2026, DL i Finanse). Wariant A (20.11.2026):
 // stan jednym wierszem, aktywacja w oknie; tryb panelu to ustawienie całej firmy, więc tu
 // widać jego stan, a administrator zmienia go w osobnym oknie „Tryb panelu w firmie”.
 
@@ -495,8 +496,10 @@ function ActivationForm({
 }
 
 export function ConsultantPanelCard({ contractId }: { contractId: number }) {
-  const proposal = usePanelProposal(contractId);
-  const isAdmin = useHrConfig().data?.me.is_admin === true;
+  const me = useHrConfig().data?.me;
+  const operator = me?.consultant_panel_operator === true;
+  const proposal = usePanelProposal(contractId, operator);
+  const isAdmin = me?.is_admin === true;
   const [activating, setActivating] = useState(false);
   const [modeOpen, setModeOpen] = useState(false);
   const state = resolveViewState({
@@ -504,7 +507,7 @@ export function ConsultantPanelCard({ contractId }: { contractId: number }) {
     error: proposal.error,
     isSuccess: proposal.isSuccess,
   });
-  if (state === "forbidden" || state === "loading") return null;
+  if (!operator || state === "forbidden" || state === "loading") return null;
   const data = state === "ready" ? proposal.data : undefined;
   const addressChanged = Boolean(data?.activation.active && data.activation.address_changed);
   return (

@@ -65,7 +65,7 @@ def require_hr_panel_operator():
         current_user: User = Depends(require_onboarded_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        if not (await access.load_viewer(db, current_user)).owns("care"):
+        if not await access.operates_consultant_panel(db, current_user):
             raise HTTPException(status.HTTP_403_FORBIDDEN, OPERATOR_ONLY)
         return current_user
 

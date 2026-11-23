@@ -98,11 +98,13 @@ const keys = {
   settlement: (clientId: number) => ["consultant-panel", "settlement", clientId] as const,
 };
 
-export function usePanelProposal(contractId: number) {
+/** `enabled` = `me.consultant_panel_operator` z `/api/hr/config` — bez niego serwer odmawia 403. */
+export function usePanelProposal(contractId: number, enabled = true) {
   return useQuery({
     queryKey: keys.proposal(contractId),
     queryFn: async () => (await api.get<PanelProposal>(`${BASE}/contracts/${contractId}`)).data,
     retry: false,
+    enabled,
   });
 }
 
