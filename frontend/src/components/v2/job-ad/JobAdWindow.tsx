@@ -42,6 +42,7 @@ import { copyHtmlToClipboard, copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 
 import { AdChannels, type AdFocusChannel } from "./AdChannels";
+import { AdChecksPanel } from "./AdChecksPanel";
 import { AfterCreatePublish } from "./AfterCreatePublish";
 import { AdFactsRail, TERM_KEYS, type AdTerms } from "./AdFactsRail";
 import { JOBS_LIST_QUERY_ROOT } from "./AdPublications";
@@ -592,6 +593,16 @@ export function JobAdWindow({
                       onLater={onClose}
                       onShowChannels={() => setStep(false)}
                       onStateChange={applyState}
+                      checks={
+                        ad && findings.length > 0 ? (
+                          <AdChecksPanel
+                            findings={findings}
+                            busy={busy}
+                            onShow={show}
+                            onRemove={removeExcerpt}
+                          />
+                        ) : null
+                      }
                     />
                   ) : ad && rendered ? (
                     <AdChannels

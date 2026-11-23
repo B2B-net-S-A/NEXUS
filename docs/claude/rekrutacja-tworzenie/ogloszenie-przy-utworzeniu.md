@@ -18,10 +18,12 @@ w `NewJobPage` po utworzeniu.
 
 ## Treść przy tworzeniu
 
-- **Efekt po commicie, nic w transakcji tworzenia.** `apply_job_create` dodaje
-  `effects.later(prepare_after_create, …)`: zadanie w tle żądania (ekran i API v1),
-  własna sesja, `INSERT … ON CONFLICT DO NOTHING` jak noc. Odpowiedź `POST /api/jobs`
-  na model nie czeka.
+- **Efekt po commicie, nic w transakcji tworzenia.** `apply_job_create` woła
+  `queue_job_ad_last`: zadanie w tle żądania (ekran i API v1), własna sesja,
+  `INSERT … ON CONFLICT DO NOTHING` jak noc. Odpowiedź `POST /api/jobs` na model
+  nie czeka. Zadania `BackgroundTasks` biegną po kolei, więc ogłoszenie trafia do
+  kolejki jako ostatnie (krok po commicie), po migawce dopasowań — inaczej ranking
+  nowej rekrutacji czekałby do minuty na model.
 - **Wynik modelu jest dodatkiem.** Model z rejestru (`job_description_generator`,
   `generate._ask_model` w `ai_feature()`). Brak klucza, błąd albo pusta odpowiedź =
   nic się nie zapisuje — zostaje dzisiejsza droga: pętla nocna i „Przygotuj

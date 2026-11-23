@@ -288,3 +288,31 @@ async def test_portal_ad_response_carries_recent_channels():
         "jobs": 0,
         "jjit_category": None,
     }
+
+
+@pytest.mark.asyncio
+async def test_ad_task_is_queued_after_the_handoff_ranking():
+    """Zadania w tle biegną po kolei: ranking nowej rekrutacji nie czeka na model."""
+    from app.services import job_lifecycle
+
+    queued: list[str] = []
+
+    class _Recorder:
+        def add_task(self, fn, *args, **kwargs):
+            queued.append(fn.__name__)
+
+    async def compute_proposal_for_job(*_a, **_k):
+        return None
+
+    effects = job_lifecycle.PostCommit(_Recorder())
+    # Jak `_queue_handoff_ranking`: ranking trafia do kolejki dopiero w kroku po commicie.
+    effects.add("snapshot_id", lambda: _later_async(effects, compute_proposal_for_job))
+    job_lifecycle.queue_job_ad_last(effects, 1, None)
+
+    await job_lifecycle.run_post_commit(effects)
+
+    assert queued == ["compute_proposal_for_job", "prepare_after_create"]
+
+
+async def _later_async(effects, fn):
+    effects.later(fn)

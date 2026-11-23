@@ -19,7 +19,7 @@
  * Reguła: `docs/claude/rekrutacja-tworzenie/ogloszenie-przy-utworzeniu.md`.
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, CircleAlert, Globe, Loader2, Mail, Send } from "lucide-react";
 
@@ -267,6 +267,8 @@ export interface AfterCreatePublishProps {
   /** Przejście do zwykłej kolumny kanałów (szczegóły, oznaczenia). */
   onShowChannels: () => void;
   onStateChange: (next: JobAdState) => void;
+  /** Kontrola przed publikacją (`AdChecksPanel`) — nad kanałami, gdy są uwagi. */
+  checks?: ReactNode;
   api?: AfterCreateApi;
   listingDefaults?: (jobId: number) => Promise<PortalListingOptions>;
 }
@@ -279,6 +281,7 @@ export function AfterCreatePublish({
   onLater,
   onShowChannels,
   onStateChange,
+  checks = null,
   api = jobAdApi,
   listingDefaults = fetchListingDefaults,
 }: AfterCreatePublishProps) {
@@ -355,6 +358,7 @@ export function AfterCreatePublish({
       data-testid="after-create-publish"
       className="flex w-[340px] flex-none flex-col gap-3 overflow-y-auto border-l border-border bg-card px-4 py-3"
     >
+      {checks}
       <div className="flex flex-col gap-0.5">
         <h2 className="text-sm font-semibold text-foreground">Gdzie publikujemy</h2>
         <p className="text-xs text-muted-foreground">{historyNote}</p>
