@@ -144,6 +144,8 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "start_documents_sweeper",
         "job_deadline_alerts",
         "job_idle",
+        # Ruch setek kart i dzwonki we wspólnej kopii stagingu; ręcznie skryptem.
+        "screening_stale",
         "client_wait",
         "own_hiring",
         "job_p0_overdue",

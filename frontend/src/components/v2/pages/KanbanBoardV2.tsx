@@ -142,6 +142,7 @@ import {
 } from "@/lib/board-stages";
 import { boardColumnPurpose } from "@/lib/board-column-purpose";
 import { CALL_FIRST_COUNT, knownFactLabels, newColumnSection, orderNewColumn, type NewColumnSection } from "@/lib/new-column-queue";
+import { attemptLabel, orderScreeningColumn, returnNotice, screeningGroupLabel, type ScreeningGroup } from "@/lib/screening-column-groups";
 import { checkApplicantCv } from "@/lib/api/applicationScreenings";
 import { HiredColumnHelp } from "@/components/v2/jobs/HiredColumnHelp";
 import { hasPermission } from "@/lib/permissions";
@@ -1727,6 +1728,12 @@ interface ColProps {
  sections: Map<number, NewColumnSection>;
  appliedGapIds: Set<number>;
  } | null;
+ /** Grupy kolumny „Screening” (23.11.2026, `lib/screening-column-groups.ts`);
+  *  `null` w innych kolumnach. */
+ screeningGroups?: Map<number, ScreeningGroup> | null;
+ /** Napis „wraca do Nowych jutro” / „„Biorę” wygasa jutro” pod kartą:
+  *  kolumna, której dotyczy reguła kart bez śladu; `null` = żadna. */
+ staleColumn?: "screening" | "new" | null;
  /** Zwinięta grupa „Aplikowali, brak »musi mieć«” (06.11.2026). */
  appliedGap?: {
  count: number;
@@ -1891,6 +1898,8 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  criticalGapMap,
  criticalAltMap,
  newQueue = null,
+ screeningGroups = null,
+ staleColumn = null,
  appliedGap = null,
  scoresLoading,
  stagesWithScorecard,
@@ -1947,6 +1956,16 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  () => columnSlaHint(col, { slaDays, group, oldestDays: oldestDaysInColumn(col) }),
  [col, slaDays, group]
  );
+ // Liczba widocznych kart w każdej grupie „Screeningu” (po filtrze „Kto dodał”).
+ const screeningCounts = useMemo(() => {
+ const counts = new Map<ScreeningGroup, number>();
+ if (!screeningGroups) return counts;
+ for (const it of col.items) {
+ const g = screeningGroups.get(it.id);
+ if (g) counts.set(g, (counts.get(g) ?? 0) + 1);
+ }
+ return counts;
+ }, [col.items, screeningGroups]);
  return (
  <div
  data-colid={dropId}
@@ -2087,10 +2106,26 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  const previous = index > 0 ? col.items[index - 1] : null;
  const startsSection = section != null && (previous == null || sectionOf(previous) !== section);
  const rank = newQueue?.ranks.get(item.id);
+ const screeningGroup = screeningGroups?.get(item.id) ?? null;
+ const startsScreeningGroup =
+ screeningGroup != null && (previous == null || screeningGroups?.get(previous.id) !== screeningGroup);
+ const staleNotice = staleColumn ? returnNotice(item.returns_to_new_on, staleColumn) : null;
+ const attempts = screeningGroup === "no_answer" ? attemptLabel(item.contact_attempts) : null;
  return (
  <Fragment key={String(item.id)}>
  {startsSection && newQueue ? (
  <NewColumnSectionHeader section={section} total={newQueue.total} freshFirst={newQueue.freshFirst} />
+ ) : null}
+ {startsScreeningGroup ? (
+ <div
+ data-testid={`screening-group-${screeningGroup}`}
+ className={cn(
+ "px-0.5 pt-1 text-[11px] font-semibold leading-tight",
+ screeningGroup === "to_call" ? "text-primary" : "text-muted-foreground"
+ )}
+ >
+ {screeningGroupLabel(screeningGroup, screeningCounts.get(screeningGroup) ?? 0)}
+ </div>
  ) : null}
  {startsSection && section === "applied_gap" && appliedGap ? (
  <>
@@ -2148,6 +2183,20 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  nextAction={nextActions[index]}
  stageBadge={badgeByItemId?.get(item.id) ?? null}
  />
+ {attempts || staleNotice ? (
+ // Pod kartą, nie w niej: wygląd karty zostaje jeden dla wszystkich kolumn.
+ <div
+ data-testid="card-stale-line"
+ className="flex flex-wrap gap-x-2 px-1 pt-0.5 text-[10px] leading-tight"
+ >
+ {attempts ? <span className="text-muted-foreground">{attempts}</span> : null}
+ {staleNotice ? (
+ <span className="font-semibold text-warning" title="2 dni robocze bez notatki, próby kontaktu, telefonu, arkusza i ruchu karty — wtedy karta jest dostępna dla wszystkich">
+ {staleNotice}
+ </span>
+ ) : null}
+ </div>
+ ) : null}
  </div>
  )}
  </Draggable>
@@ -2264,16 +2313,23 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  .map((item) => item.candidate_id),
  [newColumnQueue]
  );
+ // „Screening” w grupach (23.11.2026): do telefonu, nie odebrał, po rozmowie.
+ // Kolejność liczona przed filtrem „Kto dodał”, jak w „Nowych”.
+ const screeningColumnOrder = useMemo(
+ () => orderScreeningColumn(boardFold.columns.find((f) => f.key === "screening")?.items ?? []),
+ [boardFold]
+ );
  const allDisplayCols = useMemo(
  () =>
  boardFold.columns.map((f) => {
+ if (f.key === "screening") return { ...f.host, items: screeningColumnOrder.items, count: f.count };
  if (f.key !== "new") return { ...f.host, items: f.items, count: f.count };
  const items = appliedGapOpen
  ? newColumnQueue.items
  : newColumnQueue.items.filter((item) => !newColumnQueue.appliedGapIds.has(item.id));
  return { ...f.host, items, count: f.count };
  }),
- [boardFold, newColumnQueue, appliedGapOpen]
+ [boardFold, newColumnQueue, appliedGapOpen, screeningColumnOrder]
  );
  // Filtr „Kto dodał” (14.10.2026) chowa karty w kolumnach w toku. Liczony
  // PRZED przeciąganiem: indeksy kart w kolumnie to indeksy widocznej listy.
@@ -4677,6 +4733,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  criticalGapMap={criticalGapMap}
  criticalAltMap={criticalAltMap}
  newQueue={boardKeyByColId.get(entry.key) === "new" ? newColumnQueue : null}
+ screeningGroups={boardKeyByColId.get(entry.key) === "screening" ? screeningColumnOrder.groups : null}
+ staleColumn={
+ boardKeyByColId.get(entry.key) === "screening"
+ ? "screening"
+ : boardKeyByColId.get(entry.key) === "new"
+ ? "new"
+ : null
+ }
  appliedGap={
  boardKeyByColId.get(entry.key) === "new" && appliedGapCount > 0
  ? {

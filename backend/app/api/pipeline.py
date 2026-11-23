@@ -4411,6 +4411,11 @@ async def _load_kanban_boards(
             )
         ).all():
             attempts_by_pair[(cid, note_job_id)] = int(total)
+    # Karty bez śladu (23.11.2026): dzień, w którym karta ze „Screeningu” wraca
+    # do „Nowych”, a „Biorę” w „Nowych” wygasa — ta sama reguła co automat.
+    from app.services import screening_stale
+
+    stale_returns = await screening_stale.return_days_for_jobs(db, job_ids)
     # Szablon Tablicy i katalog etapów — raz na żądanie: kolumny niżej i reguła
     # follow-upu („czeka na klienta”) czytają te same definicje etapów.
     default_template_id: Optional[int] = None
@@ -4450,6 +4455,7 @@ async def _load_kanban_boards(
         board.client_clocks = client_clocks.get(jid, {})
         board.rate_change_by_candidate = rate_changes[jid]
         board.card_by_candidate = cards[jid]
+        board.stale_returns = stale_returns.get(jid, {})
         board.contact_attempts = {
             cid: total
             for cid in sorted(board.candidate_ids)
@@ -4748,6 +4754,7 @@ async def _render_kanban_board(
             else None
         )
         payload["contact_attempts"] = contact_attempts.get(e.candidate_id, 0)
+        payload["returns_to_new_on"] = board.stale_returns.get(e.candidate_id)
         # Rekruter karty: przypisany „Prowadzi”, potem właściciel procesu
         # (Priority Work), a gdy proces go nie ma — osoba, która dodała
         # kandydata do rekrutacji.
