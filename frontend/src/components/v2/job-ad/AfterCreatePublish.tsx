@@ -368,15 +368,20 @@ export function AfterCreatePublish({
         {rows.map((row) => {
           const Icon = ICONS[row.channel];
           const forced = row.channel === "kariera" && careerForced && row.unavailable == null;
-          const checked = toPublish.includes(row.channel);
           const outcome = outcomes?.[row.channel];
+          // Po publikacji stan kanału się zmienia („Już wisi”) — wiersz mówi wynik.
+          const checked = outcome != null || toPublish.includes(row.channel);
+          const note = outcome
+            ? row.hint
+            : (row.unavailable ??
+              (forced ? "Potrzebna, żeby kandydaci z JustJoin.IT mieli gdzie aplikować." : row.hint));
           return (
             <li key={row.channel}>
               <label
                 className={cn(
                   "flex items-start gap-2.5 rounded-md border px-3 py-2 text-sm",
                   checked && !outcome ? "border-primary/50 bg-primary/5" : "border-border",
-                  row.unavailable != null ? "cursor-default opacity-70" : "cursor-pointer",
+                  row.unavailable != null && !outcome ? "cursor-default opacity-70" : "cursor-pointer",
                 )}
               >
                 <input
@@ -393,10 +398,7 @@ export function AfterCreatePublish({
                     <span className="font-medium text-foreground">{row.label}</span>
                     <span className="text-[11px] text-muted-foreground">{row.via}</span>
                   </span>
-                  <span className="block text-xs text-muted-foreground">
-                    {row.unavailable ??
-                      (forced ? "Potrzebna, żeby kandydaci z JustJoin.IT mieli gdzie aplikować." : row.hint)}
-                  </span>
+                  <span className="block text-xs text-muted-foreground">{note}</span>
                   {outcome ? <OutcomeLine outcome={outcome} /> : null}
                   {outcome?.status === "finish" && (row.channel === "jjit" || row.channel === "pracuj") ? (
                     <Button
@@ -462,8 +464,10 @@ export function AfterCreatePublish({
         </section>
       ) : null}
 
+      {/* Akcje przyklejone do dołu kolumny: przy 720 px z kontrolą nad kanałami
+          przycisk spadał pod zgięcie (staging 23.11.2026). */}
       {outcomes == null ? (
-        <div className="flex flex-col gap-2">
+        <div className="sticky bottom-0 -mx-4 mt-auto flex flex-col gap-2 border-t border-border bg-card px-4 pb-1 pt-2">
           {waitingReason ? (
             <p className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
@@ -494,7 +498,7 @@ export function AfterCreatePublish({
           </Button>
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className="sticky bottom-0 -mx-4 mt-auto flex flex-col gap-2 border-t border-border bg-card px-4 pb-1 pt-2">
           <Button type="button" variant="outline" onClick={onShowChannels}>
             Pokaż wszystkie kanały
           </Button>
