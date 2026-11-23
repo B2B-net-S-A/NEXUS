@@ -45,6 +45,9 @@ export interface ClientFormCardProps {
   className?: string;
   /** 0525: „score” — tabela punktowa klienta (Excel), pokazywana tylko, gdy jest wzór. */
   kind?: ClientFormKind;
+  /** Bez listy braków — przegląd DL (23.11.2026) mieści obie karty i stawkę
+   *  przy 1280 × 720; braki są w oknie „Pokaż formularz”. */
+  compact?: boolean;
 }
 
 const MISSING_PREVIEW = 4;
@@ -58,6 +61,7 @@ export function ClientFormCard({
   onGenerateCompanyCv,
   className,
   kind = "form",
+  compact = false,
 }: ClientFormCardProps) {
   const score = kind === "score";
   const queryClient = useQueryClient();
@@ -233,7 +237,7 @@ export function ClientFormCard({
                   style={{ width: `${total ? Math.round((filledCount / total) * 100) : 0}%` }}
                 />
               </div>
-              {missing.length ? (
+              {missing.length && !compact ? (
                 <ul className="list-disc space-y-0.5 pl-4 text-foreground" data-testid="client-form-missing">
                   {missing.slice(0, MISSING_PREVIEW).map((field) => (
                     <li key={field.id} className="truncate" title={clientFormFieldName(field)}>

@@ -962,6 +962,52 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     expect(screen.getByRole("dialog", { name: "QC CV" })).toHaveTextContent("QC etapu 11");
   });
 
+  it("klient z formularzem CV (23.11.2026): formularz zamiast „Kontroli CV”, bez luk QC i bez blokady wysyłki", async () => {
+    useAuthStore.setState({ user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+    mockApi({ context: { ...CONTEXT, qc_status: "failed", qc_gaps: ["Kafka"], client_form: { template: true, missing: 2 } } });
+    const base = get.getMockImplementation()!;
+    get.mockImplementation((url: string, ...rest: unknown[]) => {
+      if (url === "/api/candidates/stages/11/client-form") {
+        return Promise.resolve({
+          data: {
+            kind: "form",
+            client_document: "client_form",
+            status: "filled",
+            message: null,
+            template: { file_id: 5, filename: "Formularz CV.docx", summary: "" },
+            template_changed: false,
+            fields: [],
+            extra_rows: [],
+            missing: ["p3", "p4"],
+            filled_at: "2026-11-20T10:00:00Z",
+            updated_at: "2026-11-20T10:00:00Z",
+            model: null,
+          },
+        });
+      }
+      if (url === "/api/candidates/stages/11/client-form?kind=score") {
+        return Promise.resolve({ data: { client_document: "client_form", status: "no_template" } });
+      }
+      return base(url, ...rest);
+    });
+    renderPanel(
+      task({
+        qc_status: "failed",
+        qc_blocking_failed: 3,
+        qc_state: { kind: "to_fix", n: 3, items: [], text: "QC: 3 do poprawy", tone: "urgent", who: null, hint: null },
+        client_form: { template: true, missing: 2 },
+      }),
+    );
+    expect(await screen.findByTestId("dl-review-client-form")).toBeInTheDocument();
+    expect(screen.queryByText("· 3 do poprawy")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Otwórz QC/ })).toBeNull();
+    expect(screen.queryByRole("radio", { name: /Wysyłam mimo braku/ })).toBeNull();
+    // QC CV firmowego tej pary nikt nie czyta.
+    expect(get.mock.calls.some(([url]) => String(url).includes("/qc"))).toBe(false);
+    await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
+    expect(screen.getByRole("button", { name: /Akceptuj/ })).toBeEnabled();
+  });
+
   describe("QC-8: wysyłka z luką kandydata", () => {
     const send = () => screen.getByRole("button", { name: /Akceptuj/ });
 

@@ -251,6 +251,12 @@ def _month(subject: str) -> Optional[str]:
     return f"{found[0]}-{found[1]:02d}" if found else None
 
 
+def accepts(text: str) -> bool:
+    """Tekst klienta akceptuje godziny: słowo akceptacji i żadnego odrzucenia."""
+
+    return bool(_ACCEPT.search(text or "")) and not _REJECT.search(text or "")
+
+
 def judge(mail: mail_text.Mail) -> Reply:
     top = top_message(mail.body)
     missing = _MISSING.search(top)
@@ -261,7 +267,7 @@ def judge(mail: mail_text.Mail) -> Reply:
         sender_domain=_domain(mail.sender),
         sent_at=mail.sent_at,
         month=_month(mail.subject),
-        accepted=bool(_ACCEPT.search(top)) and not _REJECT.search(top),
+        accepted=accepts(top),
         missing_text=top[missing.end() :] if missing else "",
         quote=first[:160],
     )

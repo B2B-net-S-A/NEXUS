@@ -123,3 +123,34 @@ def test_other_mail_on_support_address_stays_a_case(addresses, senders):
         _from("costcontrol@klient-raporty.example", "Pytanie", attachments=False),
         route.settlements_addresses(),
     )
+
+
+def _acceptance(sender: str, *, to=("rozliczenia@example.com",)) -> dict:
+    return {
+        **_msg(to=to, attachments=False),
+        "from": {"emailAddress": {"address": sender}},
+    }
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        # Akceptacja w treści od klienta z regułą akceptacji mailowej → czyta ją też
+        # czytnik rozliczeń (sprawa powstaje i tak, decyzja Artura 23.11.2026).
+        (_acceptance("Przelozony@Klient.example"), True),
+        # Domena dokładnie: poddomena (konto konsultanta „external.”) to nie klient.
+        (_acceptance("konsultant@external.klient.example"), False),
+        # Bez adresu rozliczeń w nagłówkach zostaje sprawą.
+        (_acceptance("przelozony@klient.example", to=("wsparcie@example.com",)), False),
+        (_acceptance("ktos@inna.example"), False),
+        (_acceptance(""), False),
+    ],
+)
+def test_client_acceptance_without_attachment_needs_rule_domain_and_address(
+    addresses, message, expected
+) -> None:
+    domains = frozenset({"klient.example"})
+    addresses = route.settlements_addresses()
+    assert route.is_client_acceptance_mail(message, addresses, domains) is expected
+    # Router nie zabiera akceptacji sprawom: bez załącznika to zawsze sprawa.
+    assert route.is_settlements_mail(message, addresses) is False

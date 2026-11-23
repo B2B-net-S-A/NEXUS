@@ -182,6 +182,15 @@ Gdy `CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX` i skrzynka spraw (`ADMIN_CASES_M365_
   (`client_settlements/t4t_mail.py`, klient = jedyny z regułą `report.time_for_teams`), nie jako dokument;
 - każdy inny mail (także pytanie na rozliczenia@ bez załącznika i mail w ukrytej kopii) → sprawa.
 
+Dwa maile **bez załącznika** z adresem rozliczeń w „Do” albo „DW” są sprawą **i** dokumentem
+(decyzja Artura z 23.11.2026, „sprawa i dokument”): router oddaje je sprawom, a czytnik rozliczeń
+czyta je mimo to i zapisuje treść jako `.eml` jednej osoby:
+
+- akceptacja od nadawcy z domeny klienta z regułą akceptacji mailowej (`proof.accept_has_hours`,
+  `proof.excel_with_mail` z domeną, `cl.client_acceptance`; `support_mail_route.is_client_acceptance_mail`,
+  osoba z tematu, `finanse-insights/rozliczenia-akceptacja-w-tresci-maila.md`);
+- mail z adresu firmy z tematem rozliczenia (`consultant_portal.mailbox.is_body_only_settlement`).
+
 **Obszar „Rozliczenia”** (decyzja Artura z 19.11.2026, migracja 0743): nowa sprawa z maila
 z adresem z `CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES` w „Do” albo „DW” dostaje obszar
 `settlements`, a nie obszar ze słów w temacie (`mail_ingest._new_case_area`). Wynika to z próby na sucho

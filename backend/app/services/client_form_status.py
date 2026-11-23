@@ -1,9 +1,11 @@
 """Stan formularza CV klienta pary — dla warunków ruchu, Tablicy i bramki QC (PR 3).
 
 U klienta z ``cv_client_document = client_form`` (na start Centrum e-Zdrowia)
-do klienta idzie formularz z Plików rekrutacji, nie CV firmowe. Decyzje Artura
-26.10.2026: przed „QC CV” tylko przypomnienie o brakach, bez blokady, a QC CV
-firmowego tych par nie dotyczy (nie ma czego sprawdzać).
+do klienta idzie formularz z Plików rekrutacji, nie CV firmowe. QC CV
+firmowego tych par nie dotyczy (nie ma czego sprawdzać, decyzja 26.10.2026).
+Od 23.11.2026 (prośba DL CEZ, decyzja Artura) na „QC CV” rekruter przesuwa
+dopiero z formularzem i tabelą punktową, gdy rekrutacja ma ich wzory
+(`missing_before_qc`); puste pola dalej tylko przypominają.
 """
 
 from __future__ import annotations
@@ -18,13 +20,39 @@ from app.models.candidate_client_form import CandidateClientForm
 from app.models.client import Client
 from app.models.job import Job
 from app.models.job_file import JobFile
-from app.services.client_form_schema import CLIENT_FORM, KIND_FORM
+from app.services.client_form_schema import CLIENT_FORM, KIND_FORM, KIND_SCORE
+
+# Klucze braków przed „QC CV” — te same w 409, liście wymagań i śladzie ruchu.
+MISSING_FORM = "client_form"
+MISSING_SCORE = "client_score"
 
 
 @dataclass(frozen=True)
 class PairFormState:
     template: Optional[str]  # nazwa pliku wzoru; None = brak wzoru w Plikach
     missing: Optional[int]  # None = jeszcze nie wypełniony
+    # Tabela punktowa (Excel, 0525) — tylko gdy rekrutacja ma jej wzór.
+    score_template: Optional[str] = None
+    score_missing: Optional[int] = None
+
+
+def missing_before_qc(state: Optional[PairFormState]) -> list[str]:
+    """Dokumenty klienta, których brakuje przed „QC CV” (23.11.2026).
+
+    Liczy się wypełnienie (wiersz pary), nie puste pola — pola, które słusznie
+    zostają puste (numer certyfikatu, którego osoba nie ma), nie mogą trzymać
+    karty. Brak wzoru w Plikach nie blokuje rekrutera: wzór dodaje Delivery
+    Lead, a lista wymagań mówi o nim osobno.
+    """
+
+    if state is None:
+        return []
+    missing: list[str] = []
+    if state.template is not None and state.missing is None:
+        missing.append(MISSING_FORM)
+    if state.score_template is not None and state.score_missing is None:
+        missing.append(MISSING_SCORE)
+    return missing
 
 
 async def job_takes_client_form(db: AsyncSession, job_id: int) -> bool:
@@ -45,6 +73,21 @@ async def client_takes_client_form(db: AsyncSession, client_id: Optional[int]) -
     return value == CLIENT_FORM
 
 
+async def client_form_client_ids(
+    db: AsyncSession, client_ids: Iterable[Optional[int]]
+) -> set[int]:
+    """Którzy z tych klientów biorą formularz CV — jedno zapytanie na listę."""
+    ids = sorted({cid for cid in client_ids if cid is not None})
+    if not ids:
+        return set()
+    rows = await db.scalars(
+        select(Client.id).where(
+            Client.id.in_(ids), Client.cv_client_document == CLIENT_FORM
+        )
+    )
+    return set(rows.all())
+
+
 async def job_states(
     db: AsyncSession, job_id: int, candidate_ids: Iterable[int]
 ) -> Optional[dict[int, PairFormState]]:
@@ -52,28 +95,38 @@ async def job_states(
     if not await job_takes_client_form(db, job_id):
         return None
     ids = list(candidate_ids)
-    template = await db.scalar(
-        select(JobFile.filename).where(
-            JobFile.job_id == job_id,
-            JobFile.client_form.is_(True),
-            JobFile.client_form_kind == KIND_FORM,
-        )
-    )
-    missing: dict[int, int] = {}
+    templates = {
+        kind: filename
+        for kind, filename in (
+            await db.execute(
+                select(JobFile.client_form_kind, JobFile.filename).where(
+                    JobFile.job_id == job_id,
+                    JobFile.client_form.is_(True),
+                    JobFile.client_form_kind.in_((KIND_FORM, KIND_SCORE)),
+                )
+            )
+        ).all()
+    }
+    missing: dict[tuple[int, str], int] = {}
     if ids:
         rows = await db.execute(
             select(
-                CandidateClientForm.candidate_id, CandidateClientForm.missing_count
+                CandidateClientForm.candidate_id,
+                CandidateClientForm.kind,
+                CandidateClientForm.missing_count,
             ).where(
                 CandidateClientForm.job_id == job_id,
-                CandidateClientForm.kind == KIND_FORM,
+                CandidateClientForm.kind.in_((KIND_FORM, KIND_SCORE)),
                 CandidateClientForm.candidate_id.in_(ids),
             )
         )
-        missing = {candidate_id: count for candidate_id, count in rows.all()}
+        missing = {(cid, kind): count for cid, kind, count in rows.all()}
     return {
         candidate_id: PairFormState(
-            template=template, missing=missing.get(candidate_id)
+            template=templates.get(KIND_FORM),
+            missing=missing.get((candidate_id, KIND_FORM)),
+            score_template=templates.get(KIND_SCORE),
+            score_missing=missing.get((candidate_id, KIND_SCORE)),
         )
         for candidate_id in ids
     }

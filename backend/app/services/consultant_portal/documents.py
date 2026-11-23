@@ -74,6 +74,7 @@ SETTLEMENT_EXTENSIONS: dict[str, str] = {
 }
 _OLE_HEADER = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 _EML_HEADERS = (b"from:", b"subject:", b"mime-version:", b"message-id:", b"date:")
+_EML_HEAD_LIMIT = 64 * 1024
 
 
 def _spreadsheet(content: bytes) -> Optional[str]:
@@ -100,7 +101,15 @@ def _is_msg(content: bytes) -> bool:
 
 
 def _is_eml(content: bytes) -> bool:
-    head = content[:4096].lower()
+    # Cały blok nagłówków (do pierwszej pustej linii), nie pierwsze 4 KB: w poczcie
+    # z M365 i home.pl Received/ARC/DKIM zajmują 8–10 KB, a Date, Message-ID
+    # i MIME-Version stoją dalej (próba IX–XI 2026: 31% maili odpadało).
+    head = content[:_EML_HEAD_LIMIT]
+    end = min(
+        (i for i in (head.find(b"\r\n\r\n"), head.find(b"\n\n")) if i >= 0),
+        default=len(head),
+    )
+    head = head[:end].lower()
     lines = {
         line.split(b":", 1)[0] + b":" for line in head.splitlines() if b":" in line
     }

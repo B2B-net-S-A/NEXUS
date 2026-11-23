@@ -51,7 +51,7 @@ from app.models.client_settlement import ClientContractorInvoice, ClientSettleme
 from app.models.contract import Contract, ContractStatus
 from app.models.user import User
 from app.services.client_settlements import extras as settlement_extras
-from app.services.client_settlements import invoice_chain
+from app.services.client_settlements import invoice_chain, invoice_fields
 from app.services.client_settlements.rcp_checks import name_tokens
 from app.services.hr import white_list
 from app.services.hr.approvals.cost_invoices import fields_from_metadata
@@ -640,6 +640,7 @@ def card(
                 )
             else:
                 checks.append({"state": "ok", "title": "NIP nabywcy zgodny"})
+        checks.extend(invoice_fields.field_checks(bound, rules))
         checks.extend(
             invoice_chain.whitelist_checks(
                 bound, amounts=amounts, mode=white_list.current_mode()

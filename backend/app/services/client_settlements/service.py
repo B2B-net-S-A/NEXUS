@@ -38,6 +38,7 @@ from app.models.client_settlement import (
 )
 from app.models.consultant_portal import CpDocument
 from app.models.contract import Contract, ContractStatus
+from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.md_consumption import ClientOrderMdConsumption
 from app.models.user import User
 from app.core.scheduling import DEFAULT_TZ
@@ -1137,6 +1138,7 @@ async def _recompute(
         s.md_extra = proof.md_extra or None
         s.md_source = "rcp"
     proof = _signed_checks(proof, s, rules)
+    proof = await _rate_change_checks(db, s, proof, rules)
     result = compute(
         Inputs(
             md_regular=s.md_regular,
@@ -1152,6 +1154,48 @@ async def _recompute(
         )
     )
     return result, state, order
+
+
+async def _rate_change_checks(
+    db: AsyncSession,
+    s: ClientSettlement,
+    proof: Optional[rcp_checks.ProofResult],
+    rules: dict[str, dict[str, Any]],
+) -> Optional[rcp_checks.ProofResult]:
+    """Stawka kontraktora zmienia się w trakcie miesiąca (harmonogram kontraktu).
+
+    Kwota kosztu idzie z jednej stawki linii zamówienia, a zapłacono po dwóch stawkach
+    (próba IX–X 2026: zmiana 17.09 ze 100 na 105 zł/h, NEXUS liczył całość po 100 i dawał
+    „ok”). Uwaga zamiast cichej złej kwoty: Finanse dzielą rozliczenie albo poprawiają kwotę.
+    """
+
+    first, last = month_bounds(s.period_month)
+    steps = (
+        await db.execute(
+            select(ContractCandidateRate.effective_from, ContractCandidateRate.rate)
+            .where(
+                ContractCandidateRate.contract_id == s.contract_id,
+                ContractCandidateRate.effective_from <= last,
+            )
+            .order_by(ContractCandidateRate.effective_from, ContractCandidateRate.id)
+        )
+    ).all()
+    changes = [(day, rate) for day, rate in steps if first < day <= last]
+    if not changes:
+        return proof
+    before = [rate for day, rate in steps if day <= first]
+    proof = proof or rcp_checks.ProofResult(md_regular=None, md_extra=None)
+    group = rcp_checks._Group(proof, rules, "Stawka kontraktora")
+    old = rcp_checks._fmt(Decimal(before[-1])) if before else "?"
+    for day, rate in changes:
+        group.warn(
+            f"Zmiana stawki {day:%d.%m}: {old} → {rcp_checks._fmt(Decimal(rate))}",
+            "Kwota kosztu liczy się z jednej stawki zamówienia. Podziel rozliczenie "
+            "na dni przed i po zmianie albo popraw kwotę przed zapłatą.",
+        )
+        old = rcp_checks._fmt(Decimal(rate))
+    group.close()
+    return proof
 
 
 def _signed_checks(

@@ -19,7 +19,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   EMPTY_PROCESS,
   FORMAT_LABEL,
-  STEP_LABEL,
+  stepName,
   candidateSentence,
   daysLabel,
   decisionSlowerThanDeclared,
@@ -162,7 +162,7 @@ function ViewMode({ process, hints, hintsFailed, clientName, canEdit, onEdit }: 
                 {index + 1}
               </span>
               <div className="min-w-0">
-                <p className="text-sm font-medium">{STEP_LABEL[step.kind]}</p>
+                <p className="text-sm font-medium">{stepName(step)}</p>
                 <p className="text-xs text-muted-foreground">
                   {FORMAT_LABEL[step.format]}
                   {step.duration ? ` · ${step.duration}` : ""}
@@ -188,7 +188,7 @@ function ViewMode({ process, hints, hintsFailed, clientName, canEdit, onEdit }: 
             <div className="flex items-center justify-between gap-2 rounded-md bg-muted/60 px-3 py-2">
               <p className="min-w-0 text-xs">
                 Poprzednia rekrutacja {client}:{" "}
-                <b>{suggested.steps.map((s) => STEP_LABEL[s.kind]).join(" + ")}</b>
+                <b>{suggested.steps.map((s) => stepName(s)).join(" + ")}</b>
               </p>
               <Button size="sm" variant="outline" onClick={() => onEdit(suggested)}>
                 Użyj

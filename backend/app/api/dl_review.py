@@ -174,6 +174,9 @@ class DlReviewContext(BaseModel):
     qc_gaps: list[str] = Field(default_factory=list)
     qc_state: Optional[dict] = None
     qc_override: Optional[QcOverrideOut] = None
+    # Klient z formularzem CV (23.11.2026): ``{template, missing}`` zamiast
+    # QC CV firmowego; ``None`` = CV firmowe.
+    client_form: Optional[dict] = None
     can_see_amounts: bool
     can_see_client_rates: bool
     candidate_rate: Optional[RateOut] = None
@@ -209,6 +212,7 @@ class DlReviewQueueItem(BaseModel):
     qc_manual: list[str] = Field(default_factory=list)
     qc_gaps: list[str] = Field(default_factory=list)
     qc_state: Optional[dict] = None
+    client_form: Optional[dict] = None
     overall_fit: Optional[str] = None
     overall_fit_label: Optional[str] = None
     requirements_met: int

@@ -88,6 +88,7 @@ import {
 import { RequirementsColumn } from "@/components/v2/recruitment/dl-review/RequirementsColumn";
 import { ReturnForFixDialog } from "@/components/v2/recruitment/dl-review/ReturnForFixDialog";
 import { CvControlSummary, cvReturnPoints } from "@/components/v2/recruitment/dl-review/CvControlSummary";
+import { ClientFormCard } from "@/components/v2/recruitment/client-form/ClientFormCard";
 import { useCvQcSummary } from "@/lib/api/cvQc";
 import { ScreeningSummarySection } from "@/components/v2/screening-form/ScreeningSummaryView";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
@@ -512,9 +513,12 @@ export function DlReviewBody({
   // Karta przesunięta mimo uwag QC — DL widzi to, zanim wyśle CV do klienta.
   // R5 (07.11.2026): „Kontrola CV” i punkty CV do „Wróć do poprawy” czytają
   // ten sam wynik QC, który otwiera „Otwórz QC” (wspólny klucz zapytania).
-  const qcResult = useCvQcSummary(task.stage_id ?? null);
+  // Klient z formularzem CV (23.11.2026): QC CV firmowego tej pary nie
+  // dotyczy — przegląd pokazuje formularz, bez luk i obejść QC.
+  const clientForm = context.data?.client_form ?? task.client_form ?? null;
+  const qcResult = useCvQcSummary(clientForm ? null : (task.stage_id ?? null));
   const qcOverride =
-    context.data?.qc_status === "overridden" ? (context.data.qc_override ?? null) : null;
+    !clientForm && context.data?.qc_status === "overridden" ? (context.data.qc_override ?? null) : null;
 
   const quickView = useQuery<QuickViewSubset>({
     queryKey: candidateQueryKeys.quickView(candidateId),
@@ -758,7 +762,7 @@ export function DlReviewBody({
         interviews: earlierInterviews,
       })) &&
     !(sendEmail && emailState.invalid);
-  const qcGaps = context.data?.qc_gaps ?? task.qc_gaps ?? [];
+  const qcGaps = clientForm ? [] : (context.data?.qc_gaps ?? task.qc_gaps ?? []);
   const sendReady =
     canSend &&
     clientRate != null &&
@@ -948,13 +952,28 @@ export function DlReviewBody({
                   {handoffRemark.text}
                 </p>
               ) : null}
-              <CvControlSummary
-                checks={qcResult.data?.checks}
-                state={context.data?.qc_state ?? task.qc_state ?? null}
-                override={qcResult.data?.override ?? null}
-                hideOverrideLine={qcOverride != null}
-                onOpenQc={() => setQcStageId(task.stage_id)}
-              />
+              {clientForm ? (
+                <div className="space-y-2" data-testid="dl-review-client-form">
+                  {/* Braki uzupełnia rekruter (przypomnienie, D3) — DL tu ogląda
+                      i pobiera dokument do klienta. */}
+                  <ClientFormCard stageId={task.stage_id} candidateName={task.candidate_name} readOnly compact />
+                  <ClientFormCard
+                    kind="score"
+                    stageId={task.stage_id}
+                    candidateName={task.candidate_name}
+                    readOnly
+                    compact
+                  />
+                </div>
+              ) : (
+                <CvControlSummary
+                  checks={qcResult.data?.checks}
+                  state={context.data?.qc_state ?? task.qc_state ?? null}
+                  override={qcResult.data?.override ?? null}
+                  hideOverrideLine={qcOverride != null}
+                  onOpenQc={() => setQcStageId(task.stage_id)}
+                />
+              )}
               {canSend && qcGaps.length > 0 ? (
                 <GapDecision gaps={qcGaps} value={gapChoice} onChange={setGapChoice} />
               ) : null}

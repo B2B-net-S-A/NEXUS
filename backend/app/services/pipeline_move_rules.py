@@ -268,6 +268,66 @@ async def assert_verified_requirements(
     )
 
 
+# Formularz klienta przed „QC CV” (23.11.2026): ruch z kolumn przed „QC CV”
+# na „QC CV” albo dalej. Zwrot z „QC CV” i dalszych nie jest bramkowany.
+CLIENT_FORM_GATE_FROM_COLUMNS = frozenset({"new", "screening", "verified"})
+CLIENT_FORM_GATE_TARGETS = frozenset(
+    BOARD_COLUMN_ORDER[BOARD_COLUMN_ORDER.index("cv_qc") :]
+)
+CLIENT_FORM_REQUIREMENT_LABELS = {
+    "client_form": "formularz CV klienta",
+    "client_score": "tabelę punktową klienta",
+}
+
+
+async def assert_client_form_before_qc(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job: Any,
+    user: User,
+    target_column: str,
+    allow_skip: bool = True,
+) -> list[str]:
+    """409 `CLIENT_FORM_REQUIRED` — „QC CV” bez formularza klienta.
+
+    Prośba DL Centrum e-Zdrowia z 20.11.2026 („dostaję ludzi na QC CV bez
+    formularza, to nie mam czego sprawdzać”), decyzja Artura 23.11.2026:
+    u klienta z formularzem (`cv_client_document = client_form`) para wchodzi
+    na „QC CV” i dalej dopiero z wypełnionym formularzem i tabelą punktową,
+    gdy rekrutacja ma ich wzory (`client_form_status.missing_before_qc`).
+    Puste pola nie blokują. Na stagingu 19–20.11 2 z 5 par weszły na „QC CV”
+    bez żadnego formularza. Delivery Lead (`skips_fill_gates`) przechodzi —
+    dostaje braki do śladu ruchu. ``allow_skip=False`` (ruch zbiorczy)
+    odmawia każdemu. Pusta lista = nic nie brakuje.
+    """
+    from app.core.config import settings  # noqa: PLC0415
+    from app.services import client_form_status  # noqa: PLC0415
+
+    if (
+        not settings.CLIENT_FORM_QC_GATE_ENABLED
+        or target_column not in CLIENT_FORM_GATE_TARGETS
+    ):
+        return []
+    row, column = await gate_stage_row(db, candidate_id=candidate_id, job_id=job.id)
+    if column not in CLIENT_FORM_GATE_FROM_COLUMNS:
+        return []
+    states = await client_form_status.job_states(db, job.id, [candidate_id])
+    missing = client_form_status.missing_before_qc((states or {}).get(candidate_id))
+    if not missing or (allow_skip and skips_fill_gates(user)):
+        return missing
+    labels = [CLIENT_FORM_REQUIREMENT_LABELS[key] for key in missing]
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "CLIENT_FORM_REQUIRED",
+            "missing": missing,
+            "stage_id": row.id if row is not None else None,
+            "message": "Przed „QC CV” wypełnij " + " i ".join(labels) + ".",
+        },
+    )
+
+
 HIRED_SIGNED_VIA = ("b2b_offline", "uop", "zlecenie", "other")
 
 
