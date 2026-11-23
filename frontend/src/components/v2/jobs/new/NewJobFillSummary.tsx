@@ -26,6 +26,11 @@ export interface NewJobFillInfo {
    * zostały te z wcześniejszego pliku, `none` — plik ich nie miał.
    */
   championSections?: "taken" | "kept" | "none";
+  /**
+   * Powtórka (wariant 2, 24.11.2026): formularz z rekrutacji `label` i z maila.
+   * `fromMail` — co przyszło z maila, `differences` — pola z propozycją „W mailu”.
+   */
+  repeat?: { label: string; fromMail: string[]; differences: string[] };
 }
 
 const CHAMPION_SECTIONS_NOTE: Record<NonNullable<NewJobFillInfo["championSections"]>, string> = {
@@ -64,7 +69,16 @@ export function NewJobFillSummary({ fill, offers, onUndo, disabled = false }: Ne
       className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-foreground"
     >
       <p className="min-w-0 flex-1">
-        {fill ? (
+        {fill?.repeat ? (
+          <span data-testid="repeat-fill-note">
+            Wypełniono z {fill.repeat.label} i z maila
+            {fill.repeat.fromMail.length > 0 ? ` (${fill.repeat.fromMail.join(", ")})` : ""}.{" "}
+            {fill.repeat.differences.length > 0
+              ? `Różnice z maila do decyzji: ${fill.repeat.differences.join(", ")}.`
+              : "Różnice z maila: brak."}
+            {waiting ? ` ${waiting.charAt(0).toUpperCase()}${waiting.slice(1)}.` : ""}
+          </span>
+        ) : fill ? (
           <>
             {sourcePhrase(fill)}:{" "}
             {fill.filled > 0

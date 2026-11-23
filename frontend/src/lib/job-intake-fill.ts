@@ -151,6 +151,11 @@ export interface IntakeOffer {
   rows?: StoredRequirementRow[];
   /** Jednostka `questions`: pytania z odczytu, których formularz nie ma. */
   questions?: IntakeOfferQuestion[];
+  /**
+   * Numer rekrutacji-szablonu (wariant 2 „Powtórka”, 24.11.2026): hiring
+   * manager z poprzedniej rekrutacji czeka jako „Ta sama osoba co w <nr>”.
+   */
+  sourceLabel?: string;
 }
 
 /** Pole proste przed wypełnieniem i po nim — cofamy tylko nietknięte potem. */
@@ -169,6 +174,12 @@ export interface IntakeFillUndo {
   rows: RequirementRowForm[];
   questions: IntakeQuestionForm[];
   askClient: AskClientItem[];
+  /**
+   * Wiersze i pytania, które wypełnienie zastąpiło (Powtórka bierze wymagania
+   * i pytania z szablonu zamiast tych z odczytu) — „Cofnij” je przywraca.
+   */
+  removedRows?: RequirementRowForm[];
+  removedQuestions?: IntakeQuestionForm[];
   lists: Record<ListKey, string[]>;
   experience: Record<ExperienceKind, ExperienceItem[]>;
   provenance: {
@@ -910,7 +921,12 @@ export function restoreIntakeOffers(saved: unknown): IntakeOffer[] {
     if (!INTAKE_UNITS.includes(unit)) continue;
     if (!SOURCES.includes(raw.source as IntakeSource) || typeof raw.text !== "string") continue;
     if (out.some((offer) => offer.unit === unit)) continue;
-    const base = { ...(raw as IntakeOffer), id: unit, unit };
+    const base = {
+      ...(raw as IntakeOffer),
+      id: unit,
+      unit,
+      sourceLabel: typeof raw.sourceLabel === "string" ? raw.sourceLabel : undefined,
+    };
     if (unit === "rows") {
       const rows = storedRowsFrom(raw.rows);
       if (rows.length > 0) out.push({ ...base, rows, patch: undefined, questions: undefined });
@@ -925,6 +941,11 @@ export function restoreIntakeOffers(saved: unknown): IntakeOffer[] {
 }
 
 // ── „Cofnij wypełnienie” ─────────────────────────────────────────────────────
+
+/** Łatka do „Cofnij” dla wypełnienia złożonego poza `applyIntakeRead` (Powtórka). */
+export function intakeFillUndo(before: IntakeForm, after: IntakeForm): IntakeFillUndo {
+  return fillUndo(before, after);
+}
 
 function fillUndo(before: IntakeForm, after: IntakeForm): IntakeFillUndo {
   const fields: FieldChange[] = [];
@@ -956,10 +977,16 @@ function fillUndo(before: IntakeForm, after: IntakeForm): IntakeFillUndo {
     if (before.provenance?.[key] !== after.provenance?.[key])
       provenance.push({ key, before: before.provenance?.[key], after: after.provenance?.[key] });
   }
+  const afterRowKeys = new Set(after.rows.map((row) => row.key));
+  const afterQuestionKeys = new Set(after.questions.map((q) => q.key));
   return {
     fields,
     rows: after.rows.filter((row) => !rowKeys.has(row.key)),
     questions: after.questions.filter((q) => !questionKeys.has(q.key)),
+    removedRows: before.rows.filter((row) => row.words.length > 0 && !afterRowKeys.has(row.key)),
+    removedQuestions: before.questions.filter(
+      (q) => !blank(q.question) && !afterQuestionKeys.has(q.key),
+    ),
     askClient: after.askClient.filter((item) => !askKeys.has(item.key)),
     lists,
     experience,
@@ -982,8 +1009,13 @@ export function undoIntakeFill(form: IntakeForm, undo: IntakeFillUndo): IntakeFo
     const byKey = new Map(written.map((item) => [item.key, item]));
     return current.filter((item) => !byKey.has(item.key) || !sameValue(item, byKey.get(item.key)));
   };
-  next.rows = untouched(form.rows, undo.rows);
-  next.questions = untouched(form.questions, undo.questions);
+  // Zastąpione wiersze i pytania wracają przed te, które zostały.
+  const restore = <T extends { key: string }>(kept: T[], removed: readonly T[] = []) => {
+    const keys = new Set(kept.map((item) => item.key));
+    return [...removed.filter((item) => !keys.has(item.key)), ...kept];
+  };
+  next.rows = restore(untouched(form.rows, undo.rows), undo.removedRows);
+  next.questions = restore(untouched(form.questions, undo.questions), undo.removedQuestions);
   next.askClient = untouched(form.askClient, undo.askClient);
   for (const key of LIST_KEYS) {
     const added = new Set(undo.lists[key].map((item) => fold(item)));

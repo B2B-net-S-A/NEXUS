@@ -21,8 +21,16 @@ interface IntakeOfferChipProps {
 }
 
 export function IntakeOfferChip({ offer, onUse, onDismiss, ref }: IntakeOfferChipProps) {
+  // Powtórka (wariant 2, 24.11.2026): hiring manager z poprzedniej rekrutacji
+  // nie wchodzi po cichu — DL potwierdza tę samą osobę albo wybiera inną.
+  const samePerson = offer.unit === "hiringManager" && offer.sourceLabel != null;
   // Wymagania i pytania dochodzą do listy — „Dodaj”, nie „Użyj”.
-  const verb = offer.unit === "rows" || offer.unit === "questions" ? "Dodaj" : "Użyj";
+  const verb = samePerson
+    ? "Potwierdź"
+    : offer.unit === "rows" || offer.unit === "questions"
+      ? "Dodaj"
+      : "Użyj";
+  const dismiss = samePerson ? "Inna osoba" : "Zostaw";
   return (
     <div
       ref={ref}
@@ -31,7 +39,7 @@ export function IntakeOfferChip({ offer, onUse, onDismiss, ref }: IntakeOfferChi
       className="flex flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs text-muted-foreground"
     >
       <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-        {INTAKE_SOURCE_PREFIX[offer.source]}:{" "}
+        {samePerson ? `Ta sama osoba co w ${offer.sourceLabel}` : INTAKE_SOURCE_PREFIX[offer.source]}:{" "}
         <span className="font-medium text-foreground">{offer.text}</span>
       </span>
       <Button
@@ -48,9 +56,9 @@ export function IntakeOfferChip({ offer, onUse, onDismiss, ref }: IntakeOfferChi
         size="sm"
         variant="ghost"
         onClick={onDismiss}
-        aria-label={`Zostaw — ${offer.label}`}
+        aria-label={`${dismiss} — ${offer.label}`}
       >
-        Zostaw
+        {dismiss}
       </Button>
     </div>
   );

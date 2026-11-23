@@ -1549,6 +1549,7 @@ export function applyTemplate(
   form: IntakeForm,
   src: TemplateSourceJob,
   converted: TemplateRows | null = null,
+  opts: { keepCritical?: boolean } = {},
 ): IntakeForm {
   const next: IntakeForm = { ...form };
   const project = championSection(src.champion_profile, "project");
@@ -1566,9 +1567,17 @@ export function applyTemplate(
               ...legacy.nice.map((name) => ({ words: [name], level: "nice" })),
             ];
     // Krytyczne wybiera Delivery Lead od nowa — kopia ich nie przenosi.
-    next.rows = rowsFromStored(stored).map((row) =>
-      row.level === "critical" ? { ...row, level: "must" as const } : row,
+    // Wyjątek: Powtórka (wariant 2, 24.11.2026) — ten sam request co w szablonie,
+    // więc i te same krytyczne (`stack.critical`, `[]` = „Brak krytycznych”);
+    // DL zmienia je przy wierszach jak zawsze.
+    const critical =
+      opts.keepCritical && Array.isArray(stack.critical)
+        ? stack.critical.filter((label): label is string => typeof label === "string")
+        : null;
+    next.rows = rowsFromStored(stored, critical).map((row) =>
+      row.level === "critical" && !opts.keepCritical ? { ...row, level: "must" as const } : row,
     );
+    if (critical != null && critical.length === 0 && next.rows.length > 0) next.noCritical = true;
     if (next.descriptive.length === 0 && converted) next.descriptive = converted.descriptive;
   }
   if (!next.rateBudget && src.rate_budget_hourly != null) {

@@ -55,7 +55,10 @@ w `NewJobPage` po utworzeniu.
   które miały jakiekolwiek ogłoszenie (strona kariery = zatwierdzony opis,
   JustJoin.IT i Pracuj.pl = wiersz `job_ad_publications` także zdjęty, Pracuj.pl
   też mail do opiekuna), kanał użyty w co najmniej połowie. Klient bez historii =
-  wszystkie. Zaznaczone są tylko kanały, które da się teraz opublikować; portale
+  wszystkie. Rekrutacja z szablonu tego samego klienta (`created_from_template`,
+  wariant 2 „Powtórka”) bierze kanały szablonu, o ile miał ogłoszenie
+  (`from_job_id`, „Zaznaczone jak w <nr>.”, `jobs-new-powtorka-wariant-2.md`).
+  Zaznaczone są tylko kanały, które da się teraz opublikować; portale
   tylko dla DL rekrutacji, Head of Recruitment i admina (jak karty kanałów).
 - **Widełki dla kandydata wpisuje się raz** i idą do JustJoin.IT (`salary`)
   i do maila Pracuj.pl (`rate_from` / `rate_to`). Nadal nigdy z budżetu

@@ -299,6 +299,8 @@ class AdRecentChannels(BaseModel):
     # Na ilu ostatnich rekrutacjach klienta z ogłoszeniem; 0 = bez historii.
     jobs: int = 0
     jjit_category: Optional[str] = None
+    # Powtórka (24.11.2026): kanały wzięte z rekrutacji-szablonu tego klienta.
+    from_job_id: Optional[int] = None
 
 
 class JobAdResponse(BaseModel):
