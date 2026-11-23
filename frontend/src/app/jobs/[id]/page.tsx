@@ -56,6 +56,7 @@ import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
 import { ChampionChangeNoteHost } from "@/components/champion/ChampionChanges";
 import { ChampionWorkspace } from "@/components/champion/ChampionWorkspace";
+import { clientChangeHref } from "@/lib/champion-client-change";
 import {
   resolveChampionTab,
   type ChampionBlock,
@@ -1099,6 +1100,9 @@ export default function JobDetailPage() {
         // prowadzenia i dostępu do tej rekrutacji, a bez niego odda 403.
         onOpenClientPanel={canCloseJob ? () => openSlideOver("client-panel") : undefined}
         onEditFullChampion={canEditChampion ? () => openChampion({ edit: true }) : undefined}
+        onClientChange={
+          canEditChampion ? () => router.push(clientChangeHref(Number(id))) : undefined
+        }
         onAddByName={canWritePipeline ? () => setShowAddCandidates(true) : undefined}
         onAddFromCv={canWritePipeline ? () => setShowAddFromCv(true) : undefined}
         onOpenMyPeople={canOpenMyPeople ? openMyPeople : undefined}
@@ -1150,6 +1154,7 @@ export default function JobDetailPage() {
           openSkip={adIntent?.skip ?? false}
           askRemind={adIntent?.remind ?? false}
           openSend={adIntent?.send ?? false}
+          afterCreate={adIntent?.created ?? false}
           open
           onClose={() => {
             setShowJobAd(false);

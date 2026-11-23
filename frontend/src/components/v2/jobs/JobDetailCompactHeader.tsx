@@ -171,6 +171,11 @@ interface JobDetailCompactHeaderProps {
    * bez edycji Championa (brak pozycji).
    */
   onEditFullChampion?: () => void;
+  /**
+   * „Klient coś zmienił” (23.11.2026): okno zmiany od klienta w Profilu.
+   * `undefined` = rola bez edycji Championa (brak pozycji).
+   */
+  onClientChange?: () => void;
   /** Podmenu „Dodaj kandydatów”: po nazwisku / z pliku CV — brak = rola bez prawa dodawania. */
   onAddByName?: () => void;
   onAddFromCv?: () => void;
@@ -354,6 +359,7 @@ export function JobDetailCompactHeader({
   filesCount,
   onOpenOrder,
   onEditFullChampion,
+  onClientChange,
   onAddByName,
   onAddFromCv,
   onStartFullReview,
@@ -644,6 +650,15 @@ export function JobDetailCompactHeader({
                 >
                   <PencilLine className="h-4 w-4" />
                   Edytuj Profil Championa
+                </DropdownMenuItem>
+              ) : null}
+              {onClientChange ? (
+                <DropdownMenuItem
+                  onSelect={() => deferMenuAction(onClientChange)}
+                  data-testid="menu-client-change"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Klient coś zmienił…
                 </DropdownMenuItem>
               ) : null}
               {onEdit ? (

@@ -254,6 +254,7 @@ from app.api import client_sales_invoices as client_sales_invoices_api
 from app.api import client_issued_invoices as client_issued_invoices_api
 from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
+from app.api import settlement_reminders as settlement_reminders_api
 from app.api import client_reports as client_reports_api
 from app.api import law_radar as law_radar_api
 from app.api import supervisory_board as supervisory_board_api
@@ -297,6 +298,7 @@ from app.api import sales_bot_people as sales_bot_people_api
 from app.api import sales_bot_lists as sales_bot_lists_api
 from app.api import sales_bots as sales_bots_api
 from app.api import sales_company_bot as sales_company_bot_api
+from app.api import sales_potential as sales_potential_api
 from app.api import sales_calling as sales_calling_api
 from app.api import sales_my_day as sales_my_day_api
 from app.api import sales_offers as sales_offers_api
@@ -880,6 +882,10 @@ async def lifespan(app: FastAPI):
     from app.tasks.start_documents_sweeper import start_documents_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.client_report_reminders import client_report_reminders_loop
+    from app.tasks.settlement_reminders import settlement_reminders_loop
+    from app.tasks.client_settlements_auto_accept import (
+        client_settlements_auto_accept_loop,
+    )
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
     from app.tasks.sales_archive_shadow import sales_archive_shadow_loop
@@ -1088,6 +1094,12 @@ async def lifespan(app: FastAPI):
             # 15.11.2026: raporty dla klientów — dzwonek przed terminem i po nim.
             "client_report_reminders": asyncio.create_task(
                 client_report_reminders_loop()
+            ),
+            # 23.11.2026: brakujący raport godzin — 3., 5. i 7. dzień roboczy.
+            "settlement_reminders": asyncio.create_task(settlement_reminders_loop()),
+            # 23.11.2026: rano przyjęcie RCP „Bez uwag” (reguła klienta).
+            "client_settlements_auto_accept": asyncio.create_task(
+                client_settlements_auto_accept_loop()
             ),
             "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
             # 28.10.2026: rekrutacje bez ruchu — przypomnienia DL/HoR, zamknięcie po 28 dniach.
@@ -2487,6 +2499,13 @@ app.include_router(
     tags=["client-settlements"],
     dependencies=_HR_PROGRAM,
 )
+# Przypomnienia o brakującym raporcie godzin (23.11.2026).
+app.include_router(
+    settlement_reminders_api.router,
+    prefix="/api/finance/settlements/reminders",
+    tags=["client-settlements"],
+    dependencies=_HR_PROGRAM,
+)
 app.include_router(
     hr_lifecycle_api.router,
     prefix="/api/hr/lifecycle",
@@ -2576,6 +2595,14 @@ app.include_router(
 )
 app.include_router(
     sales_company_bot_api.router, prefix="/api/sales/companies", tags=["sales"]
+)
+app.include_router(
+    sales_potential_api.router, prefix="/api/sales/companies", tags=["sales"]
+)
+app.include_router(
+    sales_potential_api.knowledge_router,
+    prefix="/api/sales/potential-knowledge",
+    tags=["sales"],
 )
 app.include_router(sales_bots_api.router, prefix="/api/sales/bots", tags=["sales"])
 app.include_router(
@@ -4185,6 +4212,7 @@ async def api_health_deep_check(request: Request):
         ClientSettlementRuleSet,
     )
     from app.models.client_settlement_extra import ClientSettlementExtraDocument
+    from app.models.client_settlement_reminder import ClientSettlementReminder
     from app.models.client_time_report import (
         ClientExternalId,
         ClientTimeReport,
@@ -4890,6 +4918,8 @@ async def api_health_deep_check(request: Request):
         ("client_settlement_extras", ClientSettlementExtra),
         # 0751: pliki dodatków do rozliczenia kontraktora.
         ("client_settlement_extra_documents", ClientSettlementExtraDocument),
+        # 0763: dziennik przypomnień o brakującym raporcie godzin.
+        ("client_settlement_reminders", ClientSettlementReminder),
         # 0689: rozliczenia Nordei N1 — kartoteka i wersje raportu T4T.
         ("client_external_ids", ClientExternalId),
         ("client_time_reports", ClientTimeReport),

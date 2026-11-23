@@ -1,0 +1,61 @@
+# Arkusz rozmowy na dużej połowie ekranu (23.11.2026)
+
+Decyzja Artura z 23.11.2026: rekomendacja 2 z analizy dnia rekrutera A–Z
+(raport https://claude.ai/artifact/Bf7wiygZoxpTPq9G8oHgiL, Artur: „wszystkie
+naraz”). Pomiar przed zmianą przy 1280 × 720 (staging, konto rekrutera,
+rekrutacja 789230, osoba 73392 w Screeningu): formularz screeningu miał
+ok. 3 500 px wysokości i przewijał się w oknie 287–355 px, a przyklejona
+stopka zabierała z tego ok. 150 px. Lewą połowę (818 px) zajmowały wtedy
+opisy wymagań. Na kopii produkcji 38% weryfikacji (128 z 338, 10–20.11)
+wymagało 2+ zapisów arkusza, mediana od „Biorę” do „Zweryfikowany” 4,2 h.
+
+- **„Tryb rozmowy”** (przycisk w pasku osoby po „Rozwiń”, od 1024 px okna)
+  zamienia lewą strefę panelu na zakładki **„Arkusz rozmowy” · CV ·
+  Wymagania · Po ludzku**. Arkusz jest pierwszy i otwarty na start; „Pokaż”
+  historii w „Co już wiemy” przełącza na CV. Przy dwóch podglądach albo
+  zwiniętym CV obok arkusza stoi jedna zakładka „CV i wymagania”. Po prawej
+  zostaje reszta zakładki „Screening”: „Co już wiemy”, zgoda klienta,
+  „Screening dla”. Bez trybu panel wygląda jak przed zmianą; poniżej 1024 px
+  trybu nie ma.
+- **Tylko układ.** Ten sam `ScreeningFullForm` z `layout="sheet"`: te same
+  pola, walidacje, zapis (`PUT /api/screening-form`), ruch, odrzucenie,
+  pamięć rozmowy i „Zapisz notatkę i wypełnij formularz” z pola notatki.
+  Nie dokładaj osobnego formularza arkusza ani drugiej ścieżki zapisu.
+- **Jeden egzemplarz formularza** (`person/MovableHost.tsx`): formularz
+  renderuje się zawsze w tym samym miejscu drzewa, portalem do stałego
+  elementu DOM, a ten element przenosimy między prawą kolumną a arkuszem.
+  Zwykły portal do innego kontenera montuje treść od nowa i włączenie trybu
+  w trakcie rozmowy kasowało niezapisane wpisy (RHF). Pilnuje test
+  `ScreeningWorkbench` „tryb przenosi ten sam formularz…”.
+- **Pasek nad arkuszem:** „Do „Zweryfikowany” brakuje N:” i chipy braków —
+  ta sama reguła co stopka „Minimum dla Delivery Leada”
+  (`minimumMissingForForward`; w rekrutacji bez pytań także „Dlaczego ten
+  kandydat”), klik w chip stawia kursor w polu; obok „pytania X z Y ·
+  sprawdź X z Y”. Liczy `lib/conversation-sheet.ts`. Linii minimum w stopce
+  arkusza nie ma — nie powtarzaj braków w dwóch miejscach.
+- **Dwie kolumny od ok. 700 px strefy** (`@[44rem]`, 2 : 3): lewa —
+  „Warunki” (stawka bez stałego dopisku o przeliczeniu, krótkie pola
+  z etykietą po lewej) i „Sprawdź w rozmowie” w jednej linii na wymaganie
+  z ✓ / ✕ / ?; prawa — pytania z Profilu Championa („idealnie /
+  deal-breaker · pokaż” obok „Odpowiedź narusza deal-breaker”), ocena jako
+  trzy pigułki, „Dlaczego ten kandydat”, motywacja, red flags. Węższa strefa
+  (okno 1024 px) układa to w jedną kolumnę.
+- **Rzadkie pola pod „pokaż”:** narodowość i pola spoza wzoru działu (np.
+  dołożone przez klienta). Na wierzchu zostaje każde pole wymagane, z zapisaną
+  albo przeniesioną wartością i z prośbą DL o poprawkę. Podział liczy się ze
+  stanu serwera, nie z wpisu — inaczej pole przeskakiwało w trakcie pisania
+  i gubiło kursor.
+- **Stopka na dole arkusza:** „Nie odebrał” (ta sama notatka-próba co
+  w „Co już wiemy”, `useNoAnswerNote`), „Odrzuć”, stan zapisu, „Historia
+  zmian”, „Zapisz”, „Zapisz i przekaż dalej → Zweryfikowany”. Rząd akcji
+  etapu w głowie panelu („Inny etap”, „Odrzuć z powodem”, „Zrezygnował”)
+  zostaje bez zmian.
+- **Pomiar po zmianie** (ta sama osoba, staging): 1280 × 720 — arkusz
+  1 088 px w oknie 625 px (jedno przewinięcie), 1440 × 900 — 1 052 px
+  w 805 px, 1024 × 700 — jedna kolumna, 390 px — panel jak dotąd, bez
+  poziomego przewijania.
+- **Formularz wspólny** („Screening dla” z drugą rekrutacją) w trybie
+  rozmowy też stoi w arkuszu, ale w swoim dotychczasowym układzie jednej
+  kolumny — dwóch kolumn i paska braków jeszcze nie ma.
+- Jak zmierzymy: odsetek weryfikacji z 2+ zapisami arkusza (przed: 38%)
+  i mediana od „Biorę” do „Zweryfikowany” (przed: 4,2 h), pomiar ok. 07.12.2026.

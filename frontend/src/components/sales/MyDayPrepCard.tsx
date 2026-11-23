@@ -8,12 +8,14 @@ import { TruncatedText } from "@/components/ds/TruncatedText";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useCompanyPeople, type MyDayPrep, type MyDayPrepEntry } from "@/lib/api/sales";
+import { useCompanyPotential } from "@/lib/api/sales-potential";
 import { formatDayMonthPl } from "@/lib/date-pl";
 import { resolveViewState } from "@/lib/view-state";
 
 import { CreateOpportunityFromMeetingDialog } from "./CreateOpportunityFromMeetingDialog";
 import { daysLabel } from "./format";
 import { clock, historyHeadline, meetingSpan, telHref } from "./my-day";
+import { PrepPotential, prepPotentialShows } from "./potential/PrepPotential";
 import { TalkingPoints } from "./signals/TalkingPoints";
 
 const PEOPLE_PREVIEW = 3;
@@ -123,6 +125,7 @@ export function WhoWeKnow({ companyId, companyName }: { companyId: number; compa
 /** Przygotowanie do najbliższego spotkania: kto, ostatni kontakt, punkty z bota, czy jest szansa. */
 export function MyDayPrepCard({ prep, canEdit }: { prep: MyDayPrep; canEdit: boolean }) {
   const [creating, setCreating] = useState(false);
+  const potential = useCompanyPotential(prep.company.id);
   const [last, previous] = prep.history;
   return (
     <Card className="space-y-3 p-4">
@@ -143,11 +146,15 @@ export function MyDayPrepCard({ prep, canEdit }: { prep: MyDayPrep; canEdit: boo
           {previous && <HistoryFact label="Wcześniej" entry={previous} companyName={prep.company.name} />}
         </dl>
       )}
+      {/* Gotowa ocena potencjału zastępuje punkty (pierwsze spotkanie, 23.11.2026). */}
+      <PrepPotential companyId={prep.company.id} data={potential.data} />
       {/* Teczka z bota: punkty przygotowane dzień roboczy przed spotkaniem. Bez punktów
           kontener jest pusty i znika, żeby nie zostawiać odstępu w karcie. */}
-      <div data-tour="sales.my-day.prep-points" className="empty:hidden">
-        <TalkingPoints companyId={prep.company.id} className="border-t border-border pt-3" />
-      </div>
+      {!prepPotentialShows(potential.data) && (
+        <div data-tour="sales.my-day.prep-points" className="empty:hidden">
+          <TalkingPoints companyId={prep.company.id} className="border-t border-border pt-3" />
+        </div>
+      )}
       {prep.can_create_opportunity && canEdit && (
         <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
           <div className="min-w-0 leading-tight">

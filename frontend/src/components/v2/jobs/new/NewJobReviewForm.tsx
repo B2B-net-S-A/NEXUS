@@ -56,7 +56,9 @@ import {
   effectiveWorkingTitle,
   filledQuestions,
   joinCities,
+  keyTaskQuestion,
   markEdited,
+  markKeyTaskQuestion,
   missingBySection,
   newManualQuestion,
   newQuestionKey,
@@ -99,6 +101,12 @@ export const BUDGET_HELP_TEXT =
 
 export const DEAL_BREAKER_REQUIRED_TEXT =
   "Wpisz odpowiedź, która dyskwalifikuje kandydata — bez niej rekrutacja nie trafi do searchu.";
+
+export const KEY_TASK_HINT =
+  "Trafia do CV kandydata jako zdanie 3 „Dlaczego nasz kandydat”. Zaznacz w „Pytaniach” pytanie, które je sprawdza.";
+
+export const KEY_TASK_QUESTION_REQUIRED_TEXT =
+  "Zaznacz pytanie, które sprawdza najważniejsze zadanie w tej roli.";
 
 /** „2 pytania”, „5 pytań”, „22 pytania” — polska odmiana liczebnika. */
 export function questionsLabel(n: number): string {
@@ -674,6 +682,7 @@ function ReviewSections({
     start: useId(),
     contract: useId(),
     about: useId(),
+    keyTask: useId(),
     resp: useId(),
     selling: useId(),
   };
@@ -1220,7 +1229,12 @@ function ReviewSections({
         />
       </SectionCard>
 
-      <SectionCard section="project" number={4} title="O projekcie" warn={isMissing("context")}>
+      <SectionCard
+        section="project"
+        number={4}
+        title="O projekcie"
+        warn={isMissing("context") || (isMissing("key_task") && !form.keyTask.trim())}
+      >
         <div className="flex flex-col gap-2">
           <FieldLabel
             htmlFor={ids.about}
@@ -1240,6 +1254,30 @@ function ReviewSections({
             className={cn(isMissing("context") && MISSING_RING)}
           />
           <MissingNote show={isMissing("context")} />
+        </div>
+        <div className="flex flex-col gap-2">
+          <FieldLabel
+            htmlFor={ids.keyTask}
+            missing={isMissing("key_task") && !form.keyTask.trim()}
+            hint="wymagane"
+            offerUnit="keyTask"
+          >
+            Najważniejsze zadanie w tej roli
+          </FieldLabel>
+          <Textarea
+            id={ids.keyTask}
+            data-testid="new-job-key-task"
+            rows={2}
+            value={form.keyTask}
+            onChange={(e) => set("keyTask", e.target.value)}
+            placeholder="Jedno zdanie słowami klienta: co ta osoba musi dowieźć w pierwszej kolejności?"
+            aria-describedby={`${ids.keyTask}-hint`}
+            className={cn(isMissing("key_task") && !form.keyTask.trim() && MISSING_RING)}
+          />
+          <MissingNote show={isMissing("key_task") && !form.keyTask.trim()} />
+          <span id={`${ids.keyTask}-hint`} className="text-xs text-muted-foreground">
+            {KEY_TASK_HINT}
+          </span>
         </div>
         <div className="flex flex-col gap-2">
           <FieldLabel
@@ -1302,8 +1340,15 @@ function QuestionsSection({
   const filled = filledQuestions(form);
   const pending = unapprovedQuestions(form);
   const approvable = pending.filter((q) => q.dealBreaker.trim());
+  // Brak zaznaczonego pytania — tekst zadania podświetla sekcja „O projekcie”.
+  const noKeyTaskQuestion =
+    isMissing("key_task") && filled.length > 0 && keyTaskQuestion(form) == null;
+  const keyTaskName = useId();
   const warn =
-    isMissing("questions") || isMissing("deal_breaker") || isMissing("questions_review");
+    isMissing("questions") ||
+    isMissing("deal_breaker") ||
+    isMissing("questions_review") ||
+    noKeyTaskQuestion;
   const edit = (
     key: string,
     patch: Partial<Pick<IntakeQuestionForm, "question" | "idealAnswer" | "dealBreaker">>,
@@ -1351,6 +1396,11 @@ function QuestionsSection({
         ) : null}
       </div>
       <FieldOffer unit="questions" />
+      {noKeyTaskQuestion ? (
+        <span className="text-xs font-medium text-warning-muted-foreground">
+          {KEY_TASK_QUESTION_REQUIRED_TEXT}
+        </span>
+      ) : null}
       {form.questions.map((q, i) => {
         const n = i + 1;
         const noBreaker = q.question.trim().length > 0 && !q.dealBreaker.trim();
@@ -1442,6 +1492,17 @@ function QuestionsSection({
                 {DEAL_BREAKER_REQUIRED_TEXT}
               </span>
             ) : null}
+            <label className="inline-flex items-center gap-2 self-start text-xs font-medium text-foreground">
+              <input
+                type="radio"
+                name={keyTaskName}
+                data-testid={`new-job-q-${i}-key-task`}
+                checked={q.keyTask}
+                onChange={() => onChange((f) => markKeyTaskQuestion(f, q.key))}
+                className="h-4 w-4 accent-primary"
+              />
+              To pytanie sprawdza najważniejsze zadanie
+            </label>
           </div>
         );
       })}

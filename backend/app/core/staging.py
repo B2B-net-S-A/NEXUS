@@ -98,6 +98,8 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "consultant_portal_transcripts",
         "consultant_portal_ratings",
         "consultant_portal_mailbox",
+        # Przypomnienia o raporcie godzin: maile do konsultantów i dzwonki opiekunów.
+        "settlement_reminders",
         # 0697: Graph (nagrania szkoleń z OneDrive szkolenia@) i dzwonki do ludzi.
         "trainings_teams",
         "cv_generation",
@@ -197,6 +199,9 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "equipment_reminders",
         "equipment_intune_sync",
         "admin_cases_mail_ingest",
+        # Przyjmuje RCP na kopii produkcji i daje konsultantowi mail „możesz
+        # wystawić fakturę”; na stagingu przyjęcie zbiorcze klika człowiek.
+        "client_settlements_auto_accept",
         # Zapisuje tylko w bazie, ale z dzwonkami; na stagingu odpala się ją ręcznie.
         "back_office_sync",
         "hr_approval_mail_replies",

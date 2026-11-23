@@ -85,10 +85,12 @@ h1.title .nm{{white-space:nowrap}}
 .pill{{display:inline-block;margin-left:1.4mm;border:1px solid {BRAND};color:{BRAND};border-radius:5mm;
  padding:.45mm 2.4mm;font:500 .86em Poppins,sans-serif;white-space:nowrap}}
 .pill b{{font-weight:800}}
+/* Trzy zdania bez punktorów, oddzielone cienkimi liniami (Artur 23.11.2026, W1) */
 ul.why{{list-style:none;margin:0;padding:0}}
-ul.why li{{position:relative;margin:0;padding:0 0 2.2mm 4.6mm;font-size:10.4pt;line-height:1.38;color:#2b2926}}
-ul.why li:last-child{{padding-bottom:0}}
-ul.why li::before{{left:.4mm;top:.55em;width:1.5mm;height:1.5mm;border-radius:0}}
+ul.why li{{position:relative;margin:0;padding:2.1mm 0;font-size:10.4pt;line-height:1.38;color:#2b2926;
+ border-top:.3mm solid {RULE}}}
+ul.why li:last-child{{border-bottom:.3mm solid {RULE}}}
+ul.why li::before{{display:none}}
 ul.why li b{{color:{INK};font-weight:700}}
 .axis{{display:block}}
 .s1r{{display:grid;grid-template-columns:31mm minmax(0,1fr);column-gap:3mm;padding:.9mm 0;
@@ -112,6 +114,22 @@ ul.why li b{{color:{INK};font-weight:700}}
 .ce .ceh{{color:{SOFT};font-size:.82em;font-weight:600;padding-bottom:.8mm;border-bottom:.3mm solid #CFC8BE}}
 .ce .cer{{padding:.9mm 0;border-bottom:1px solid {RULE};line-height:1.3;break-inside:avoid}}
 .ce .cey{{color:{SOFT};font-variant-numeric:tabular-nums}}
+
+/* ---------- tytuł, miasto, edukacja (Artur 23.11.2026) ---------- */
+.trow{{align-items:flex-start}}
+.trow .nm{{font:600 12.5pt/1.2 Poppins,sans-serif;color:{INK};margin-top:1mm;letter-spacing:-.005em}}
+.pills{{padding-top:1.2mm}}
+.pill.loc{{display:inline-flex;align-items:center}}
+.pill .pin{{width:1.05em;height:1.05em;margin:0 .8mm 0 -.6mm}}
+.sublab{{font:700 .8em Poppins,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:{BRAND_TEXT};
+ padding-bottom:1mm;margin-bottom:1.6mm;border-bottom:.3mm solid {BRAND}}}
+.ed{{align-items:start}}
+.gap{{height:2mm}}
+.sch{{font-size:.95em;line-height:1.35}}.sch b{{font:700 1em Poppins,sans-serif;color:{INK}}}
+.cl .cli{{display:grid;grid-template-columns:11mm 1fr;padding:.9mm 0;border-bottom:1px solid {RULE};line-height:1.3;break-inside:avoid}}
+.cl .cly{{color:{BRAND_TEXT};font:700 .9em Poppins,sans-serif;font-variant-numeric:tabular-nums;padding-top:.15mm}}
+.cl .cln{{font-weight:600;color:{INK};grid-column:2}}
+.cl.noy .cli{{grid-template-columns:1fr}}.cl.noy .cln{{grid-column:1}}
 
 /* ---------- od strony 2 ---------- */
 .rest{{break-before:page}}

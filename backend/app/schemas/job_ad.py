@@ -292,6 +292,15 @@ class AdJjitApi(BaseModel):
     career_required: bool = True
 
 
+class AdRecentChannels(BaseModel):
+    """Kanały zaznaczone w kroku „Ogłoszenie” po utworzeniu (23.11.2026)."""
+
+    channels: list[str] = Field(default_factory=list)
+    # Na ilu ostatnich rekrutacjach klienta z ogłoszeniem; 0 = bez historii.
+    jobs: int = 0
+    jjit_category: Optional[str] = None
+
+
 class JobAdResponse(BaseModel):
     ad: Optional[AdRead] = None
     career: AdCareerState = Field(default_factory=AdCareerState)
@@ -310,6 +319,8 @@ class JobAdResponse(BaseModel):
     jjit_api: Optional[AdJjitApi] = None
     # Oznaczanie portali: DL rekrutacji, Head of Recruitment, admin (08.11.2026).
     can_mark_publications: bool = False
+    # Kanały jak w ostatnich rekrutacjach klienta (krok „Ogłoszenie”, 23.11.2026).
+    recent_channels: Optional[AdRecentChannels] = None
 
 
 class CareerQueueItem(BaseModel):

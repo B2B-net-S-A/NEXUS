@@ -128,6 +128,8 @@ Tylko front, bez API i migracji.
     „+ Dodaj i dołącz”); stopka formularza traci „Wersja N” / „jeszcze niezapisany” (ale nie „Niezapisane
     zmiany”), a linia „brakuje: …” mieści się w jednej linii. Rząd akcji etapu („Inny etap”, „Odrzuć z powodem”,
     „Zrezygnował”) zostaje. Domyślnie wyłączony — decyzja Artura, każdy włącza sam.
+    Od 23.11.2026 tryb przenosi też sam formularz do lewej strefy jako „Arkusz rozmowy”
+    obok CV i wymagań — `screening-notatki/arkusz-rozmowy-w-trybie-rozmowy.md`.
   - Szerokość i tryb pamięta układ osoby (`columnWidth`, `compact` w `lib/person-preview-layout.ts`, ten sam
     klucz co zwijanie). Po zmianie przy 1280 × 720 (tryb + 640 px): formularz widać od razu po otwarciu
     (220 px w dół), na pola 404 px.

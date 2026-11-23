@@ -22,6 +22,8 @@ import {
   hiringManagerFromIntake,
   jobTitleFor,
   joinCities,
+  keyTaskQuestion,
+  markKeyTaskQuestion,
   loadTemplateSource,
   markEdited,
   missingBySection,
@@ -65,11 +67,13 @@ const INTAKE: RequestIntakeResponse = {
   start_date: "2026-11-01",
   project_about: "Migracja płatności.",
   responsibilities: null,
+  key_task: "Przenieść płatności na Kafkę do końca kwartału.",
   screening_questions: [
     {
       question: "Kafka?",
       ideal_answer: "partycje",
       deal_breaker: "nie zna Kafki",
+      key_task: true,
       from_request: true,
     },
     {
@@ -315,6 +319,7 @@ describe("missingFor — lustro bramki „Przekaż do searchu”", () => {
       // Audyt 06.10.2026, N6: liczby osób nikt nie podaje za DL-a.
       "headcount",
       "context",
+      "key_task",
       "questions",
       "category",
     ]);
@@ -553,6 +558,7 @@ describe("pytania do kandydata — zatwierdzanie", () => {
       dealBreaker: "cokolwiek",
       origin: "ai",
       approved: false,
+      keyTask: false,
     });
     expect(approveQuestions(form).questions.at(-1)?.approved).toBe(false);
     expect(unapprovedQuestions(approveQuestions(form))).toEqual([]);
@@ -722,7 +728,7 @@ describe("payloady zapisu", () => {
       basics: Record<string, unknown>;
       stack: Record<string, unknown>;
       project: { about: string };
-      screening_questions: Record<string, string>[];
+      screening_questions: Record<string, string | boolean>[];
     };
     expect(champion.basics).toMatchObject({
       role_name: "Senior Java Developer",
@@ -745,8 +751,8 @@ describe("payloady zapisu", () => {
     });
     expect(champion.project.about).toBe("Migracja płatności.");
     expect(champion.screening_questions).toEqual([
-      { id: "q1", question: "Kafka?", ideal_answer: "partycje", deal_breaker: "nie zna Kafki" },
-      { id: "q2", question: "Biuro 2 dni?", ideal_answer: "", deal_breaker: "tylko zdalnie" },
+      { id: "q1", question: "Kafka?", ideal_answer: "partycje", deal_breaker: "nie zna Kafki", key_task: true },
+      { id: "q2", question: "Biuro 2 dni?", ideal_answer: "", deal_breaker: "tylko zdalnie", key_task: false },
     ]);
   });
 });
@@ -1480,6 +1486,96 @@ describe("braki z serwera (422 `job_not_ready`)", () => {
   it("inny błąd to nie lista braków", () => {
     expect(serverBlockersFromError({ response: { status: 409, data: { detail: "nie" } } })).toBeNull();
     expect(serverBlockersFromError(new Error("x"))).toBeNull();
+  });
+});
+
+describe("najważniejsze zadanie w roli (23.11.2026)", () => {
+  it("odczyt niesie zadanie i zaznaczone pytanie; bez nich pole puste, nic nie zaznaczone", () => {
+    const form = formFromIntake(INTAKE);
+    expect(form.keyTask).toBe("Przenieść płatności na Kafkę do końca kwartału.");
+    expect(form.questions.map((q) => q.keyTask)).toEqual([true, false]);
+    const bare = formFromIntake({ ...LEGACY_INTAKE, key_task: undefined });
+    expect(bare.keyTask).toBe("");
+    expect(bare.questions.map((q) => q.keyTask)).toEqual([false, false]);
+  });
+
+  it("odczyt z dwoma zaznaczonymi zostawia pierwsze", () => {
+    const form = formFromIntake({
+      ...INTAKE,
+      screening_questions: INTAKE.screening_questions.map((q) => ({ ...q, key_task: true })),
+    });
+    expect(form.questions.map((q) => q.keyTask)).toEqual([true, false]);
+  });
+
+  it("brak tekstu zadania = brak `key_task`", () => {
+    expect(missingFor({ ...complete(), keyTask: "  " })).toEqual(["key_task"]);
+  });
+
+  it("brak zaznaczonego pytania = brak `key_task`", () => {
+    const form = complete();
+    const none = { ...form, questions: form.questions.map((q) => ({ ...q, keyTask: false })) };
+    expect(missingFor(none)).toEqual(["key_task"]);
+    // Zaznaczone puste pytanie się nie liczy.
+    const blank = {
+      ...none,
+      questions: [...none.questions, { ...newManualQuestion(), keyTask: true }],
+    };
+    expect(keyTaskQuestion(blank)).toBeNull();
+    expect(missingFor(blank)).toEqual(["key_task"]);
+  });
+
+  it("zadanie i zaznaczone pytanie — brak znika", () => {
+    const form = complete();
+    const second = markKeyTaskQuestion(form, form.questions[1].key);
+    expect(missingFor(second)).toEqual([]);
+    expect(second.questions.map((q) => q.keyTask)).toEqual([false, true]);
+  });
+
+  it("usunięcie zaznaczonego pytania nie zostawia żadnego zaznaczonego", () => {
+    const form = complete();
+    const flagged = form.questions.find((q) => q.keyTask)!;
+    const removed = { ...form, questions: form.questions.filter((q) => q.key !== flagged.key) };
+    expect(removed.questions.some((q) => q.keyTask)).toBe(false);
+    expect(missingFor(removed)).toContain("key_task");
+  });
+
+  it("payload: `project.key_task` i dokładnie jedno pytanie z `key_task: true`", () => {
+    const base = complete();
+    const form = markKeyTaskQuestion(base, base.questions[0].key);
+    const payload = buildCreateJobPayload(form, {
+      clientId: 7,
+      requestText: "",
+      templateJobId: null,
+      priority: "normal",
+      handoff: { assignment_mode: "automatic", channel: "linkedin" },
+      similarJobIds: [],
+      intakeFormId: null,
+    });
+    const champion = payload.champion_profile as {
+      project: Record<string, string>;
+      screening_questions: { key_task: boolean }[];
+    };
+    expect(champion.project.key_task).toBe("Przenieść płatności na Kafkę do końca kwartału.");
+    expect(champion.screening_questions.map((q) => q.key_task)).toEqual([true, false]);
+    // Formularz z dwoma zaznaczonymi (np. stary autozapis) i tak wysyła jedno.
+    const two = { ...form, questions: form.questions.map((q) => ({ ...q, keyTask: true })) };
+    const twice = buildChampionPayload(two).screening_questions as { key_task: boolean }[];
+    expect(twice.filter((q) => q.key_task)).toHaveLength(1);
+  });
+
+  it("kod serwera `key_task` prowadzi do sekcji „O projekcie”", () => {
+    expect(serverBlockerSection("key_task")).toBe("project");
+    expect(MISSING_SECTION.key_task).toBe("project");
+    expect(MISSING_LABEL.key_task).toBe("najważniejsze zadanie i pytanie, które je sprawdza");
+  });
+
+  it("stary autozapis bez pól zadania otwiera się z pustym zadaniem", () => {
+    const saved = restoreIntakeForm({
+      title: "Java",
+      questions: [{ key: "q1", question: "Kafka?", idealAnswer: "", dealBreaker: "x", origin: "manual", approved: true }],
+    });
+    expect(saved.keyTask).toBe("");
+    expect(saved.questions[0].keyTask).toBe(false);
   });
 });
 

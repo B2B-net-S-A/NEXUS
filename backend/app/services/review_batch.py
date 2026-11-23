@@ -64,6 +64,9 @@ MIN_SCORE_FLOOR = 50.0
 MIN_SCORE_CEIL = 95.0
 # „Do screeningu” liczy się po domknięciu w tylu dniach roboczych (P5).
 SCREENING_CLOSE_DAYS = 2
+# Ile prób „Nie odebrał” przesuwa termin domknięcia (decyzja Artura z 23.11.2026).
+# Po trzeciej bez odpowiedzi: wynik screeningu albo odrzucenie z powodem.
+MAX_DEADLINE_ATTEMPTS = 3
 # Ile dni wstecz niedomknięty screening z własnej porcji jest jeszcze zaległością.
 DEBT_LOOKBACK_DAYS = 30
 # 08.11.2026: 50 → 10. Na kopii z 06.11 rekruterzy podejmowali 4,7–7,8 decyzji
@@ -730,12 +733,15 @@ class Decision:
     # termin domknięcia liczy się od późniejszej z dat ruchu i powrotu
     # (decyzja Artura z 13.11.2026).
     team_since: Optional[datetime] = None
+    # „Nie odebrał” (notatka ``contact_attempt``) po decyzji: rekruter dzwoni,
+    # kandydat nie odbiera. Termin liczy się od ostatniej z pierwszych 3 prób (zgłoszenie
+    # rekrutera z 23.11.2026), więc kto dzwoni, nie traci wyszukiwania.
+    attempt_at: Optional[datetime] = None
+    attempts: int = 0
 
     @property
     def due_from(self) -> datetime:
-        if self.team_since and self.team_since > self.moved_at:
-            return self.team_since
-        return self.moved_at
+        return max(d for d in (self.moved_at, self.team_since, self.attempt_at) if d)
 
 
 @dataclass(frozen=True)
@@ -955,6 +961,7 @@ async def _decisions(
     answered: dict[tuple[int, int], list[datetime]] = {}
     for entity_id, created_at in answered_rows:
         answered.setdefault(pair_of_stage[entity_id], []).append(created_at)
+    tries = await _contact_attempts(db, job_ids, candidate_ids, since)
     for (
         process_id,
         job_id,
@@ -973,6 +980,11 @@ async def _decisions(
             (name, at) for sid, name, at in pair if (at, sid) > (moved_at, stage_id)
         ]
         name = _value(stage)
+        pair_tries = [
+            at
+            for job, at in tries.get(candidate_id, [])
+            if job in (None, job_id) and at >= moved_at
+        ]
         out[int(user)].append(
             Decision(
                 process_id=int(process_id),
@@ -987,6 +999,8 @@ async def _decisions(
                 job_in_work=job_id in working_jobs,
                 on_team=(job_id, int(user)) in on_team,
                 team_since=returned.get((job_id, int(user))),
+                attempt_at=deadline_attempt(pair_tries),
+                attempts=len(pair_tries),
                 own_batch=_owner(meta) == int(user)
                 and in_batch(
                     PendingCard(
@@ -1002,6 +1016,37 @@ async def _decisions(
                 ),
             )
         )
+    return out
+
+
+def deadline_attempt(tries: Iterable[datetime]) -> Optional[datetime]:
+    """Próba, od której liczy się termin: ostatnia z pierwszych
+    ``MAX_DEADLINE_ATTEMPTS``."""
+    first = sorted(tries)[:MAX_DEADLINE_ATTEMPTS]
+    return first[-1] if first else None
+
+
+async def _contact_attempts(
+    db: AsyncSession, job_ids: set[int], candidate_ids: set[int], since: datetime
+) -> dict[int, list[tuple[Optional[int], datetime]]]:
+    """Próby kontaktu („Nie odebrał”) per kandydat: (rekrutacja albo ``None``
+    z profilu, kiedy)."""
+    from app.models.note import Note
+    from app.services.note_kinds import CONTACT_ATTEMPT
+
+    rows = (
+        await db.execute(
+            select(Note.candidate_id, Note.job_id, Note.created_at).where(
+                Note.kind == CONTACT_ATTEMPT,
+                Note.candidate_id.in_(candidate_ids),
+                or_(Note.job_id.is_(None), Note.job_id.in_(job_ids)),
+                Note.created_at >= since,
+            )
+        )
+    ).all()
+    out: dict[int, list[tuple[Optional[int], datetime]]] = {}
+    for candidate_id, job_id, created_at in rows:
+        out.setdefault(candidate_id, []).append((job_id, created_at))
     return out
 
 
@@ -1083,6 +1128,9 @@ class OpenScreening:
     overdue: bool = False
     # Osobę zdjęto z rekrutacji: karta bez terminu, nie blokuje.
     parked: bool = False
+    # „Nie odebrał” po decyzji: ile prób i kiedy ostatnia (termin liczy się od niej).
+    attempts: int = 0
+    last_attempt_at: Optional[datetime] = None
 
 
 @dataclass(frozen=True)
@@ -1206,6 +1254,8 @@ async def _open_screenings(
             name=people.get(d.candidate_id, ""),
             overdue=d.process_id in late,
             parked=not d.on_team,
+            attempts=d.attempts,
+            last_attempt_at=d.attempt_at,
         )
         for d in items
     ]

@@ -1866,6 +1866,14 @@
    "v3_home": "Profil Championa → Brief → „Edytuj” przy „Czego szukamy” (szuflada) → 4 · Rekruter sprawdza w rozmowie"
   },
   {
+   "id": "champ.client-change",
+   "area": "zlecenie",
+   "opis": "„Klient coś zmienił”: DL wkleja mail albo opisuje zmianę, AI proponuje listę zmian w wymaganiach, niuansach, pytaniach i opisach (z cytatem), DL odznacza albo poprawia, widzi skutki dla osób w procesie i zapisuje jednym ruchem ze zdaniem dla rekruterów (23.11.2026)",
+   "file": "components/champion/ClientChangeDialog.tsx",
+   "marker": "Co zmienił klient?",
+   "v3_home": "Profil Championa → przycisk „Klient coś zmienił” przy zakładkach; menu ⋯ → „Klient coś zmienił…”; Jarvis → „Pokaż i popraw”"
+  },
+  {
    "id": "team.category-change",
    "area": "naglowek",
    "opis": "„Zmień” kategorię rekrutacji — uczestnicy idą za kategorią",
@@ -2372,6 +2380,14 @@
    "file": "components/v2/pages/KanbanBoardV2.tsx",
    "marker": "\"split\"",
    "v3_home": "Tablica → klik w kartę"
+  },
+  {
+   "id": "screening-form.conversation-sheet",
+   "area": "formularz screeningu",
+   "opis": "„Arkusz rozmowy” (23.11.2026): w „Trybie rozmowy” formularz screeningu w lewej połowie panelu jako pierwsza zakładka obok CV, Wymagań i Po ludzku — pasek braków do „Zweryfikowany”, dwie kolumny, „Sprawdź w rozmowie” z ✓ / ✕ / ?, stopka z „Nie odebrał”, „Odrzuć” i „Zapisz i przekaż dalej”; ten sam formularz i zapis",
+   "file": "components/v2/screening-form/ScreeningFullForm.tsx",
+   "marker": "conversation-sheet-gaps",
+   "v3_home": "Tablica → osoba z „Nowych”/„Screeningu” → Rozwiń → Tryb rozmowy → lewa połowa"
   },
   {
    "id": "screening-form.take-in-owner-line",

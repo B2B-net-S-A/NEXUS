@@ -1667,4 +1667,25 @@ async def apply_job_create(
     if attached:
         await job_files_service.auto_mark_client_form(db, job.id)
     await delete_intake_form(db, data.intake_form_id, current_user.id)
+    queue_job_ad_last(
+        effects, job.id, None if is_service_account(current_user) else current_user.id
+    )
     return job
+
+
+def queue_job_ad_last(effects: PostCommit, job_id: int, user_id: Optional[int]) -> None:
+    """Ogłoszenie gotowe zaraz po „Utwórz” (23.11.2026, ``job_ad/on_create.py``).
+
+    Treść pisze model po commicie, w tle żądania — tworzenie na nią nie czeka,
+    a awaria modelu zostawia dzisiejszą drogę (noc, „Przygotuj”). Zadania
+    ``BackgroundTasks`` biegną po kolei, a model liczy do minuty, więc
+    ogłoszenie idzie do kolejki jako OSTATNIE — w kroku po commicie, po
+    migawce dopasowań (``_queue_handoff_ranking``), która inaczej czekałaby
+    na model (przegląd 23.11.2026).
+    """
+    from app.services.job_ad import on_create as job_ad_on_create
+
+    async def _queue() -> None:
+        effects.later(job_ad_on_create.prepare_after_create, job_id, user_id)
+
+    effects.add("job_ad_on_create", _queue)

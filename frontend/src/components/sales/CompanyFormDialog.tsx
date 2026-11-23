@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { AppModal } from "@/components/ds/AppModal";
 import { useToast } from "@/components/Toast";
@@ -15,16 +15,20 @@ import {
   TIER_LABELS,
   useCreateSalesCompany,
   useOwnerCandidates,
+  usePatchSalesCompany,
   useRegistryLookup,
+  useSalesCompanies,
   useUpdateSalesCompany,
   type CompanyInput,
   type CompanyLifecycle,
   type CompanyTier,
   type DuplicateCompany,
   type Ref,
+  type RegistryCompany,
   type SalesCompany,
 } from "@/lib/api/sales";
 import { useCompanyIdentity } from "@/lib/api/sales-handoffs";
+import { formatNip } from "@/lib/nip";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 
 import { CompanyPicker } from "./CompanyPicker";
@@ -38,6 +42,8 @@ interface CompanyFormDialogProps {
   /** Edycja istniejącej firmy; brak = nowa. */
   company?: SalesCompany;
   onSaved?: (company: SalesCompany) => void;
+  /** Z palety ⌘K: nowa firma z tym NIP-em, dane z rejestru pobierane od razu. */
+  initialNip?: string;
 }
 
 interface FormState {
@@ -57,11 +63,20 @@ interface FormState {
   parent: Ref | null;
 }
 
-function initial(company?: SalesCompany): FormState {
+// Rejestry podają nazwę z pełną formą prawną („CD PROJEKT RED SPÓŁKA AKCYJNA”), a karty
+// w kartotece mają nazwę handlową. Bez formy nazwa trafia w istniejącą kartę bez NIP-u.
+const LEGAL_FORM =
+  /[\s,]+(SPÓŁKA (Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ|AKCYJNA|KOMANDYTOWO-AKCYJNA|KOMANDYTOWA|JAWNA|PARTNERSKA)|SP\. Z O\.\s?O\.|S\.A\.|SP\. K\.|SP\. J\.)$/i;
+
+export function nameWithoutLegalForm(name: string): string {
+  return name.trim().replace(LEGAL_FORM, "").trim();
+}
+
+function initial(company?: SalesCompany, nip?: string): FormState {
   return {
     name: company?.name ?? "",
     legal_name: company?.legal_name ?? "",
-    nip: company?.nip ?? "",
+    nip: company?.nip ?? nip ?? "",
     domain: company?.domain ?? "",
     industry: company?.industry ?? "",
     hq_city: company?.hq_city ?? "",
@@ -93,8 +108,16 @@ const LIFECYCLE_OPTIONS = Object.entries(LIFECYCLE_LABELS).map(([value, label]) 
 const TIER_OPTIONS = Object.entries(TIER_LABELS).map(([value, label]) => ({ value, label }));
 
 /** Nowa firma albo edycja: duplikat (ten sam NIP albo nazwa) ostrzega, nie blokuje. */
-export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: CompanyFormDialogProps) {
-  const [form, setForm] = useState<FormState>(() => initial(company));
+export function CompanyFormDialog({
+  open,
+  onOpenChange,
+  company,
+  onSaved,
+  initialNip,
+}: CompanyFormDialogProps) {
+  const [form, setForm] = useState<FormState>(() => initial(company, initialNip));
+  const [fromRegistry, setFromRegistry] = useState<RegistryCompany | null>(null);
+  const patchExisting = usePatchSalesCompany();
   const [duplicates, setDuplicates] = useState<DuplicateCompany[]>([]);
   const create = useCreateSalesCompany();
   const update = useUpdateSalesCompany(company?.id ?? 0);
@@ -127,12 +150,13 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
     ...Array.from(ownerOptions, ([value, label]) => ({ value, label })),
   ];
 
-  const fillFromRegistry = () =>
-    registry.mutate(form.nip, {
+  const fillFromRegistry = (nip: string = form.nip) =>
+    registry.mutate(nip, {
       onSuccess: (found) => {
+        setFromRegistry(found);
         setForm((current) => ({
           ...current,
-          name: current.name.trim() ? current.name : (found.name ?? ""),
+          name: current.name.trim() ? current.name : nameWithoutLegalForm(found.name ?? ""),
           legal_name: found.name ?? current.legal_name,
           nip: found.nip ?? current.nip,
           hq_city: current.hq_city.trim() ? current.hq_city : (found.hq_city ?? ""),
@@ -142,15 +166,54 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
       onError: (error) => showError(apiErrorMessage(error, "Nie udało się pobrać danych z rejestru.")),
     });
 
+  const askedRegistry = useRef(false);
+  useEffect(() => {
+    if (!open || company || !initialNip || askedRegistry.current) return;
+    askedRegistry.current = true;
+    fillFromRegistry(initialNip);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- jedno zapytanie na otwarcie z palety
+  }, [open, company, initialNip]);
+
+  // Okno z NIP-em z palety albo z przycisku Jarvisa: najpierw karta, która już ma ten NIP.
+  const byNip = useSalesCompanies({ q: initialNip ?? "" }, open && !company && Boolean(initialNip));
+  const nipTaken = (byNip.data?.items ?? []).filter((item) => item.nip === initialNip);
+  // NIP wolny: karta o tej samej nazwie to najpewniej ta firma bez NIP-u — zamiast drugiej
+  // karty dopisujemy NIP do istniejącej.
+  const sameName =
+    initialNip && fromRegistry && byNip.isSuccess && nipTaken.length === 0
+      ? (identity.data?.matches ?? []).filter(
+          // Tylko karta, o której wiemy, że nie ma NIP-u — numer innej spółki tej samej
+          // marki zostaje nietknięty.
+          (match) => match.reason === "name" && match.nip === null,
+        )
+      : [];
+  const fillExisting = (id: number) =>
+    patchExisting.mutate(
+      // Sam NIP: resztę pól z rejestru dopisze sprawdzenie po zapisie NIP-u, które nie
+      // nadpisuje pól wpisanych przez człowieka (dane-firm-z-rejestrow.md).
+      { id, payload: { nip: form.nip.trim() || null } },
+      {
+        onSuccess: (saved) => {
+          showSuccess(`Dopisano NIP do karty ${saved.name}.`);
+          onSaved?.(saved);
+          onOpenChange(false);
+        },
+        onError: (error) => showError(apiErrorMessage(error, "Nie udało się dopisać NIP-u do karty.")),
+      },
+    );
+
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
     if (key === "name" || key === "nip") setDuplicates([]);
+    if (key === "nip") setFromRegistry(null);
   };
 
   const payload = (): CompanyInput => ({
     name: form.name.trim(),
     legal_name: form.legal_name.trim() || null,
     nip: form.nip.trim() || null,
+    // KRS i REGON z rejestru tylko przy nowej karcie i NIP-ie, dla którego je pobrano.
+    ...(!company && fromRegistry ? { krs: fromRegistry.krs, regon: fromRegistry.regon } : {}),
     domain: form.domain.trim() || null,
     industry: form.industry.trim() || null,
     hq_city: form.hq_city.trim() || null,
@@ -218,6 +281,10 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
             <Button onClick={() => save(true)} loading={pending}>
               Zapisz mimo to
             </Button>
+          ) : sameName.length > 0 ? (
+            <Button variant="outline" onClick={() => save(true)} loading={pending}>
+              To inna spółka — dodaj nową kartę
+            </Button>
           ) : (
             <Button onClick={() => save(false)} loading={pending}>
               {company ? "Zapisz" : "Dodaj firmę"}
@@ -251,6 +318,72 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
           </p>
         </div>
       )}
+      {initialNip && registry.isPending && (
+        <p className="mb-3 text-sm text-muted-foreground">
+          Sprawdzam NIP {formatNip(initialNip)} w rejestrach (biała lista VAT, KRS)…
+        </p>
+      )}
+      {fromRegistry && (
+        <p className="mb-3 text-xs text-muted-foreground" data-testid="registry-summary">
+          Z rejestru: {fromRegistry.name}
+          {fromRegistry.krs && ` · KRS ${fromRegistry.krs}`}
+          {fromRegistry.regon && ` · REGON ${fromRegistry.regon}`}
+          {fromRegistry.address && ` · ${fromRegistry.address}`}
+        </p>
+      )}
+      {nipTaken.length > 0 && duplicates.length === 0 && (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm"
+          data-testid="registry-nip-taken"
+        >
+          <p className="font-medium text-foreground">
+            NIP {formatNip(initialNip ?? "")} ma już karta w kartotece sprzedaży:
+          </p>
+          <ul className="mt-2 space-y-1">
+            {nipTaken.map((item) => (
+              <li key={item.id}>
+                <Link className="text-primary hover:underline" href={`/sales/companies/${item.id}`}>
+                  {item.name}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {sameName.length > 0 && duplicates.length === 0 && (
+        <div
+          role="status"
+          className="mb-4 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm"
+          data-testid="registry-same-name"
+        >
+          <p className="font-medium text-foreground">
+            W kartotece jest już karta o tej nazwie, bez NIP-u {formatNip(form.nip.replace(/\D/g, ""))}.
+          </p>
+          <ul className="mt-2 space-y-2">
+            {sameName.map((match) => (
+              <li key={match.id} className="flex flex-wrap items-center gap-2">
+                <Link className="font-medium text-primary hover:underline" href={`/sales/companies/${match.id}`}>
+                  {match.name}
+                </Link>
+                <span className="text-muted-foreground">
+                  {[match.hq_city, match.domain, match.open_opportunities ? `otwarte szanse: ${match.open_opportunities}` : null]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+                <Button
+                  size="sm"
+                  className="ml-auto"
+                  loading={patchExisting.isPending}
+                  onClick={() => fillExisting(match.id)}
+                >
+                  Dopisz NIP do tej karty
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1 sm:col-span-2">
           <Label htmlFor="sales-company-name">Nazwa</Label>
@@ -260,7 +393,7 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
             onChange={(event) => set("name", event.target.value)}
             autoFocus
           />
-          {!company && duplicates.length === 0 && <CompanyIdentityHints matches={identity.data?.matches ?? []} />}
+          {!company && duplicates.length === 0 && sameName.length === 0 && <CompanyIdentityHints matches={identity.data?.matches ?? []} />}
         </div>
         <div className="space-y-1">
           <Label htmlFor="sales-company-nip">NIP</Label>
@@ -278,7 +411,7 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
               variant="outline"
               loading={registry.isPending}
               disabled={form.nip.replace(/\D/g, "").length !== 10}
-              onClick={fillFromRegistry}
+              onClick={() => fillFromRegistry()}
             >
               Pobierz z rejestru
             </Button>

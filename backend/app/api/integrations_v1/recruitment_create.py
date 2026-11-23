@@ -151,6 +151,11 @@ class ScreeningQuestionIn(BaseModel):
         description="Odpowiedź, która dyskwalifikuje — bramka przekazania "
         "wymaga jej przy każdym pytaniu.",
     )
+    key_task: bool = Field(
+        False,
+        description="To pytanie sprawdza ``key_task`` rekrutacji — bramka "
+        "przekazania wymaga dokładnie jednego takiego pytania.",
+    )
 
 
 class RecruitmentCreateIn(BaseModel):
@@ -250,6 +255,13 @@ class RecruitmentCreateIn(BaseModel):
     )
     project_about: Optional[str] = Field(None, max_length=5000)
     responsibilities: Optional[str] = Field(None, max_length=5000)
+    key_task: Optional[str] = Field(
+        None,
+        max_length=1000,
+        description="Najważniejsze zadanie w tej roli słowami klienta (od "
+        "23.11.2026 wymagane przez bramkę przekazania, razem z pytaniem "
+        "``screening_questions[].key_task``).",
+    )
     selling_points: Optional[str] = Field(None, max_length=2000)
     screening_questions: list[ScreeningQuestionIn] = Field(
         default_factory=list, max_length=MAX_SCREENING_QUESTIONS
@@ -455,6 +467,7 @@ def _champion_payload(body: RecruitmentCreateIn) -> dict[str, Any]:
         "project": {
             "about": body.project_about or "",
             "responsibilities": body.responsibilities or "",
+            "key_task": body.key_task or "",
         },
         "client": {"selling_points": body.selling_points or ""},
         "screening_questions": [
@@ -463,6 +476,7 @@ def _champion_payload(body: RecruitmentCreateIn) -> dict[str, Any]:
                 "question": question.question,
                 "ideal_answer": question.ideal_answer,
                 "deal_breaker": question.deal_breaker,
+                "key_task": question.key_task,
             }
             for index, question in enumerate(body.screening_questions, start=1)
         ],
@@ -654,7 +668,8 @@ def read_response(client_id: int, text: str, read: Optional[dict]) -> dict[str, 
                 if question.get("question")
             ],
         },
-        "missing": list(data.get("missing") or []),
+        # Zadania od klienta odczyt nie zgaduje — wpisuje je człowiek (23.11.2026).
+        "missing": [*(data.get("missing") or []), "key_task"],
         "notes": notes,
         "hints": {
             "working_title_suggestion": data.get("working_title_suggestion"),

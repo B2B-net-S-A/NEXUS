@@ -14,6 +14,11 @@ vi.mock("@/lib/api/sales", async (original) => ({
   useCompanyBriefing: () => briefing,
   useCompanyPeople: () => ({ isLoading: false, error: null, isSuccess: true, data: { counts: {}, people: [] }, refetch: vi.fn() }),
 }));
+// Ocena potencjału (23.11.2026): bez oceny karta pokazuje punkty jak dotąd.
+vi.mock("@/lib/api/sales-potential", async (original) => ({
+  ...(await original<typeof import("@/lib/api/sales-potential")>()),
+  useCompanyPotential: () => ({ isLoading: false, isSuccess: true, data: { enabled: true, lines: {}, run: null, result: null } }),
+}));
 
 import { CallHook } from "../calling/CallHook";
 import { MyDayPrepCard } from "../MyDayPrepCard";

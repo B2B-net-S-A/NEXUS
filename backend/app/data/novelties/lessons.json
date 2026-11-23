@@ -309,7 +309,8 @@
       "porcja-pilne-12-pozostale-8",
       "porcja-wyslany-do-tego-klienta",
       "porcja-kluczowe-z-dowodem",
-      "porcja-kogo-szukamy"
+      "porcja-kogo-szukamy",
+      "porcja-nie-odebral-przesuwa-termin"
     ],
     "task": "W Porcji dnia sprawdź nad kartą, kogo szuka rekrutacja, i otwórz poprawkę tego opisu. Na Poligonie nic się nie zapisze.",
     "solo_href": "/porcja",
@@ -347,6 +348,16 @@
         ],
         "answer": 0,
         "explain": "✓ to doświadczenie w stanowiskach, ~ tylko wzmianka, ✗ brak. Klik w pozycję pokazuje, gdzie to jest w CV."
+      },
+      {
+        "q": "Dzwonisz po „Pasuje”, kandydat nie odbiera. Jak nie stracić wyszukiwania ręcznego?",
+        "options": [
+          "Kliknąć „Nie odebrał” przy osobie",
+          "Umówić telefon za kilka dni",
+          "Usunąć osobę z rekrutacji"
+        ],
+        "answer": 0,
+        "explain": "„Nie odebrał” liczy termin screeningu od próby: masz 2 dni robocze więcej. Działa przy pierwszych 3 próbach, potem wynik albo odrzucenie z powodem."
       }
     ]
   },
@@ -814,12 +825,13 @@
   },
   {
     "id": "lekcja-sprzedaz-karta-rozmowy-haczyk-mail",
-    "title": "Karta rozmowy: haczyk na otwarcie i mail po umówieniu spotkania",
+    "title": "Karta rozmowy: haczyk na otwarcie i zaproszenie Teams po umówieniu",
     "novelties": [
       "sprzedaz-haczyk-przed-telefonem",
-      "sprzedaz-dzwonienie-mail-po-umowieniu"
+      "sprzedaz-dzwonienie-mail-po-umowieniu",
+      "sprzedaz-dzwonienie-zaproszenie-teams"
     ],
-    "task": "W kolejce Dzwonienia wybierz rekord z kampanii (nad nazwą firmy stoi „Kampania: …”) i otwórz formularz umówienia spotkania. Znajdź w nim mail do klienta, ale niczego nie zapisuj.",
+    "task": "W kolejce Dzwonienia wybierz rekord z kampanii (nad nazwą firmy stoi „Kampania: …”) i otwórz formularz umówienia spotkania. Znajdź w nim zaproszenie Teams dla klienta, ale niczego nie zapisuj.",
     "solo_href": "/sales/calling",
     "check": {
       "kind": "click",
@@ -827,34 +839,34 @@
     },
     "questions": [
       {
-        "q": "Skąd wyjdzie mail do klienta po „Umów … i wyślij mail”?",
+        "q": "Kto jest organizatorem spotkania po „Umów … i wyślij zaproszenie Teams”?",
         "options": [
-          "Z mojego Outlooka, z kopią do prowadzącego",
-          "Ze skrzynki prowadzącego spotkanie",
-          "Ze wspólnej skrzynki zespołu sprzedaży"
+          "Prowadzący, spotkanie jest w jego kalendarzu",
+          "Ja, bo to ja klikam",
+          "Wspólna skrzynka zespołu sprzedaży"
         ],
         "answer": 0,
-        "explain": "Mail wychodzi ze skrzynki osoby, która umówiła spotkanie, z prowadzącym w kopii. Zostaje w Wysłanych i na osi szansy."
+        "explain": "NEXUS zakłada spotkanie w kalendarzu prowadzącego i to on jest organizatorem. Ty i klient jesteście uczestnikami, link Teams dokłada Outlook."
       },
       {
         "q": "Kto wysyła klientowi zaproszenie na spotkanie w Teams?",
         "options": [
+          "Ja, tym samym przyciskiem, którym umawiam spotkanie",
           "Prowadzący, osobno ze swojej skrzynki",
-          "Ja, w tym samym mailu po umówieniu",
-          "NEXUS sam, zaraz po zapisie spotkania"
+          "Klient dostaje tylko mail, bez zaproszenia"
         ],
         "answer": 0,
-        "explain": "Mail po umówieniu to nie zaproszenie. Zaproszenie w Teams dalej wysyła prowadzący, a adres klienta dostaje w podpowiedzi."
+        "explain": "Od 23.11 zaproszenie wysyła osoba, która umawia, jednym kliknięciem w formularzu. Prowadzący nie musi niczego wysyłać."
       },
       {
-        "q": "W formularzu odznaczasz „Wyślij po zapisie”. Co zrobi przycisk?",
+        "q": "Umawiasz spotkanie bez terminu. Co się stanie z zaproszeniem?",
         "options": [
-          "Zapisze spotkanie, a mail nie wyjdzie",
-          "Zapisze spotkanie i wyśle mail później",
-          "Nie zapisze niczego, dopóki nie zaznaczysz maila"
+          "Spotkanie się zapisze, a zaproszenie nie wyjdzie",
+          "Zaproszenie wyjdzie z terminem na jutro",
+          "NEXUS nie pozwoli zapisać spotkania"
         ],
         "answer": 0,
-        "explain": "Bez zaznaczonego „Wyślij po zapisie” albo bez adresu klienta przycisk tylko zapisuje spotkanie. Mail wtedy nie wychodzi."
+        "explain": "Bez terminu nie ma czego wpisać do kalendarza, więc zaproszenie nie wychodzi. Spotkanie zapisuje się u prowadzącego jak zwykle."
       },
       {
         "q": "Skąd jest zdanie „Na otwarcie” pod nazwą firmy na karcie rozmowy?",
@@ -957,6 +969,51 @@
         ],
         "answer": 0,
         "explain": "Bot szuka zwykle kilka minut. Odpowiedź ze źródłami pojawia się pod pytaniem na karcie firmy."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-najwazniejsze-zadanie",
+    "title": "Najważniejsze zadanie w tej roli i pytanie, które je sprawdza",
+    "novelties": [
+      "najwazniejsze-zadanie-w-roli"
+    ],
+    "task": "W rekrutacji ćwiczebnej otwórz Profil Championa, kliknij „Edytuj” przy „Najważniejsze zadanie w tej roli”, wpisz zadanie i zaznacz pytanie, które je sprawdza.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "click",
+      "anchor": "champion.key-task.question"
+    },
+    "questions": [
+      {
+        "q": "Klient mówi: „najważniejsze, żeby w pierwszym kwartale przenieśli rozliczenia na nową platformę”. Co wpisujesz?",
+        "options": [
+          "To jedno zadanie, jego słowami, w „Najważniejsze zadanie w tej roli”",
+          "Listę wszystkich obowiązków z ogłoszenia",
+          "Nic, wystarczą technologie w „Czego szukamy”"
+        ],
+        "answer": 0,
+        "explain": "Jedno zdanie słowami klienta. Z niego i z odpowiedzi kandydata powstaje zdanie 3 w CV."
+      },
+      {
+        "q": "Po co zaznaczasz pytanie screeningowe przy zadaniu?",
+        "options": [
+          "Rekruter wie, o co dopytać, a odpowiedź kandydata trafia do CV",
+          "Żeby to pytanie było pierwsze na rozmowie",
+          "Żeby kandydat bez odpowiedzi odpadł automatycznie"
+        ],
+        "answer": 0,
+        "explain": "Przy zaznaczonym pytaniu rekruter widzi w arkuszu „Najważniejsze zadanie od klienta” i prosi o konkretny przykład."
+      },
+      {
+        "q": "Rekrutacja nie ma zadania. Co się stanie przy „Przekaż do searchu”?",
+        "options": [
+          "Pojawi się brak „Najważniejsze zadanie w tej roli” i przekazanie poczeka",
+          "Rekrutacja przejdzie, a pole uzupełni AI",
+          "Rekruter dostanie pustą kartę zadania"
+        ],
+        "answer": 0,
+        "explain": "Od 23.11 zadanie i pytanie są wymagane przy pierwszym przekazaniu, także przy zakładaniu przez API."
       }
     ]
   },
@@ -1737,6 +1794,46 @@
     ]
   },
   {
+    "id": "lekcja-porcja-schodki",
+    "title": "Porcja dnia: kolejność po spełnionych „musi mieć”",
+    "novelties": ["porcja-schodki-musi-miec"],
+    "task": "W Porcji dnia kliknij na karcie pierwszej osoby wymaganie z listy „Musi mieć” i zobacz, gdzie jest w CV. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/porcja",
+    "check": { "kind": "click", "anchor": "review-batch.requirements" },
+    "questions": [
+      {
+        "q": "Ola ma 72% i 5 z 10 „musi mieć”, Kuba 66% i 8 z 10. Kto stoi wyżej w porcji?",
+        "options": [
+          "Kuba, bo spełnia więcej „musi mieć”",
+          "Ola, bo ma wyższy wynik",
+          "Ten, kto dłużej czeka w porcji"
+        ],
+        "answer": 0,
+        "explain": "Najpierw liczy się, ile „musi mieć” osoba spełnia. Wynik rozstrzyga dopiero między osobami z tą samą liczbą."
+      },
+      {
+        "q": "Dwie osoby mają po 7 z 10 „musi mieć”. Co decyduje, kto jest wyżej?",
+        "options": [
+          "Więcej spełnionych „mile widzianych”, potem wynik",
+          "Tylko wynik",
+          "Kolejność dodania do rekrutacji"
+        ],
+        "answer": 0,
+        "explain": "„Mile widziane” rozstrzyga remis. Dopiero gdy i tu jest równo, decyduje wynik."
+      },
+      {
+        "q": "Osoba spełnia 10 z 10 „musi mieć”, ale brakuje jej krytycznego wymagania. Gdzie stoi?",
+        "options": [
+          "Na końcu porcji",
+          "Na samej górze",
+          "Wypada z porcji"
+        ],
+        "answer": 0,
+        "explain": "Brak krytycznego wymagania odkłada osobę na koniec, ale nikt przez to nie wypada z porcji."
+      }
+    ]
+  },
+  {
     "id": "lekcja-terminy-przy-ruchu",
     "title": "Terminy od klienta przy ruchu na „Rozmowę u klienta”",
     "novelties": [
@@ -1779,6 +1876,176 @@
         ],
         "answer": 0,
         "explain": "Wtedy NEXUS od razu zakłada rozmowę w kalendarzu rekrutera, bez pytania go o wybór."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-przebieg-miesiaca",
+    "title": "Przebieg miesiąca w Finansach",
+    "novelties": [
+      "finanse-przebieg-miesiaca"
+    ],
+    "task": "W Finansach otwórz „Przebieg miesiąca” i przejdź do spraw pogrupowanych po powodzie. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/finance?view=month-close",
+    "check": {
+      "kind": "click",
+      "anchor": "finance.month-close.reasons"
+    },
+    "questions": [
+      {
+        "q": "Co pokazuje „Przebieg miesiąca”?",
+        "options": [
+          "Wszystkich klientów rozliczeń za wybrany miesiąc: raporty, decyzje i faktury",
+          "Tylko jednego klienta wybranego z listy",
+          "Faktury kosztowe z KSeF"
+        ],
+        "answer": 0,
+        "explain": "Jeden wiersz na klienta: postęp RCP, sprawy do decyzji, brakujące raporty i stan faktury do klienta. Klienta otwierasz przyciskiem „Otwórz”."
+      },
+      {
+        "q": "U kilkunastu osób powtarza się „Akceptacja bez liczby godzin”. Gdzie najszybciej to rozstrzygnąć?",
+        "options": [
+          "W regułach klienta: karta powodu prowadzi do „Reguł klienta”",
+          "Odsyłając każdą osobę osobno do poprawy",
+          "W „Fakturach do klientów”"
+        ],
+        "answer": 0,
+        "explain": "To decyzja o regule klienta. Zmiana poziomu reguły obejmuje wszystkie osoby tego klienta naraz."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-firma-z-nip",
+    "title": "Nowa firma z NIP-u",
+    "novelties": [
+      "sprzedaz-nowa-firma-z-nip"
+    ],
+    "task": "Otwórz wyszukiwarkę u góry (⌘K), wpisz NIP 111-222-33-32 i kliknij „Załóż firmę z NIP”. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/sales/companies",
+    "check": {
+      "kind": "click",
+      "anchor": "palette.sales-nip"
+    },
+    "questions": [
+      {
+        "q": "Wpisujesz NIP i nie ma karty z tym numerem. Co jeszcze sprawdza okno „Nowa firma”?",
+        "options": [
+          "Czy w kartotece nie ma już karty o tej nazwie bez NIP-u",
+          "Nic, brak NIP-u w kartotece oznacza nową firmę",
+          "Czy firma ma otwartą szansę sprzedaży"
+        ],
+        "answer": 0,
+        "explain": "NIP ma tylko część kart. Gdy karta o tej nazwie istnieje bez NIP-u, okno proponuje „Dopisz NIP do tej karty” zamiast drugiej karty tej samej firmy."
+      },
+      {
+        "q": "Co robi Jarvis, gdy poprosisz go o założenie firmy z NIP-u?",
+        "options": [
+          "Daje przycisk do tego samego okna, a zapisujesz Ty",
+          "Zakłada kartę sam, bez Twojego kliknięcia",
+          "Odsyła do Finansów"
+        ],
+        "answer": 0,
+        "explain": "Jarvis tylko otwiera okno „Nowa firma” z NIP-em. Dane z rejestru i sprawdzenie kartoteki robi okno, a kartę zapisuje człowiek."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-arkusz-rozmowy",
+    "title": "Arkusz rozmowy: screening na dużej połowie ekranu",
+    "novelties": [
+      "arkusz-rozmowy-na-lewej-polowie"
+    ],
+    "task": "Na rekrutacji ćwiczebnej otwórz osobę ze „Screeningu”, rozwiń panel i włącz „Tryb rozmowy”. Kliknij w pasku nad arkuszem pierwsze pole, którego brakuje do „Zweryfikowany”. Niczego nie zapisuj.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "click",
+      "anchor": "screening.sheet.gaps"
+    },
+    "questions": [
+      {
+        "q": "W trakcie rozmowy chcesz zerknąć do CV kandydata. Gdzie je znajdziesz w „Trybie rozmowy”?",
+        "options": [
+          "W zakładce „CV” obok „Arkusza rozmowy”, po lewej",
+          "Po wyłączeniu „Trybu rozmowy”",
+          "W profilu kandydata, w nowej karcie"
+        ],
+        "answer": 0,
+        "explain": "Arkusz, CV, Wymagania i Po ludzku są zakładkami w lewej połowie. Powrót do „Arkusza rozmowy” nie kasuje tego, co już wpisałeś."
+      },
+      {
+        "q": "Pasek nad arkuszem mówi „Do „Zweryfikowany” brakuje 2: Lokalizacja, Tryb pracy”. Co się stanie po wpisaniu lokalizacji?",
+        "options": [
+          "Lokalizacja zniknie z paska, zostanie „Tryb pracy”",
+          "Pasek zmieni się dopiero po zapisie",
+          "Pasek zniknie, bo coś już jest wpisane"
+        ],
+        "answer": 0,
+        "explain": "Pasek liczy braki na bieżąco, tą samą regułą co „Zapisz i przekaż dalej”. Pole z wpisem znika z listy od razu."
+      },
+      {
+        "q": "Przełączasz „Tryb rozmowy” w połowie rozmowy. Co z niezapisanymi odpowiedziami?",
+        "options": [
+          "Zostają w polach, to ten sam formularz",
+          "Znikają, trzeba je wpisać jeszcze raz",
+          "Zapisują się same przy przełączeniu"
+        ],
+        "answer": 0,
+        "explain": "Tryb zmienia tylko układ. Odpowiedzi zostają w formularzu do zapisu, a zapis działa tak samo jak dotąd."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-klient-cos-zmienil",
+    "title": "„Klient coś zmienił”: zmiana od klienta jednym oknem",
+    "novelties": [
+      "klient-cos-zmienil"
+    ],
+    "task": "Klient napisał: „Dorzucamy Pythona jako musi mieć, SAFe już nieważne”. Przekaż to w Profilu rekrutacji ćwiczebnej tak, żeby NEXUS sam rozpisał zmiany, i poproś o propozycję.",
+    "solo_href": "/jobs/990001?tab=champion",
+    "check": {
+      "kind": "click",
+      "anchor": "champion.client-change.propose"
+    },
+    "questions": [
+      {
+        "q": "Klient pisze, że dorzuca Pythona jako „musi mieć”, a SAFe już nieważne. Od czego zaczniesz?",
+        "options": [
+          "Od „Klient coś zmienił” w Profilu i wklejenia jego maila",
+          "Od edycji po kolei wymagań, pytań i opisu",
+          "Od wiadomości do rekruterów na czacie rekrutacji"
+        ],
+        "answer": 0,
+        "explain": "Jedno okno rozpisuje zmianę na wymagania, niuanse, pytania i opisy, a zapis idzie jednym ruchem jako wersja w „Zmianach”."
+      },
+      {
+        "q": "Co zapisze się w Profilu po kliknięciu „Przygotuj zmiany”?",
+        "options": [
+          "Nic, dopóki nie przejrzysz listy i nie zapiszesz",
+          "Wszystkie zmiany zaproponowane przez AI",
+          "Same nowe wymagania, bez pytań i opisów"
+        ],
+        "answer": 0,
+        "explain": "Propozycja niczego nie zmienia. Każdą zmianę możesz odznaczyć albo poprawić, a zapisuje się tylko to, co zostawisz."
+      },
+      {
+        "q": "Po co okno pokazuje osoby w procesie przy nowym wymaganiu „musi mieć”?",
+        "options": [
+          "Żeby dopytać osoby, które nie mają tego w CV",
+          "Żeby od razu odrzucić te osoby z rekrutacji",
+          "Żeby cofnąć je na początek Tablicy"
+        ],
+        "answer": 0,
+        "explain": "Okno liczy osoby bez tego słowa w CV przed screeningiem, po nim i u klienta. Dzwonek „dopytaj” idzie do osób, które je prowadzą."
+      },
+      {
+        "q": "Klient mówi, że Python jest teraz krytyczny. Gdzie to ustawisz?",
+        "options": [
+          "W edytorze wierszy wymagań, po zapisie okna",
+          "W oknie „Klient coś zmienił”, przy zmianie",
+          "Nigdzie, AI ustawi to samo z maila"
+        ],
+        "answer": 0,
+        "explain": "Okno daje tylko „musi mieć” albo „mile widziane”. Krytyczne wybierasz świadomie w edytorze wierszy, bo to bramka dla kandydatów."
       }
     ]
   },

@@ -257,7 +257,7 @@ const championBody = () =>
     | {
         stack: { rows: { words: string[]; level: string }[]; critical: unknown; notes?: string };
         search: Record<string, unknown>;
-        screening_questions: Record<string, string>[];
+        screening_questions: Record<string, string | boolean>[];
         project: Record<string, string>;
       }
     | undefined;
@@ -378,13 +378,26 @@ async function pickRecruiter() {
   });
 }
 
-/** To, co po odczycie zostaje Delivery Leadowi: zatwierdzić pytania i potwierdzić kategorię. */
+const KEY_TASK = "Przenieść płatności na Kafkę do końca kwartału.";
+
+/** 23.11.2026: najważniejsze zadanie i pytanie, które je sprawdza — wpisuje Delivery Lead. */
+function fillKeyTask(questionIndex = 0) {
+  const field = screen.getByTestId("new-job-key-task") as HTMLTextAreaElement;
+  if (!field.value.trim()) fireEvent.change(field, { target: { value: KEY_TASK } });
+  const anyChecked = screen
+    .queryAllByTestId(/^new-job-q-\d+-key-task$/)
+    .some((radio) => (radio as HTMLInputElement).checked);
+  if (!anyChecked) fireEvent.click(screen.getByTestId(`new-job-q-${questionIndex}-key-task`));
+}
+
+/** To, co po odczycie zostaje Delivery Leadowi: zatwierdzić pytania, wpisać zadanie, potwierdzić kategorię. */
 async function closeGaps() {
   fireEvent.click(screen.getByRole("button", { name: "Zatwierdź wszystkie" }));
+  fillKeyTask();
   await confirmCategory();
 }
 
-async function handoffTo(target = "/jobs/900") {
+async function handoffTo(target = "/jobs/900?ogloszenie=nowa") {
   fireEvent.click(handoffButton());
   await waitFor(() => expect(mocks.push).toHaveBeenCalledWith(target));
 }
@@ -412,6 +425,7 @@ async function createJob() {
   }
   const approve = screen.queryByRole("button", { name: "Zatwierdź wszystkie" });
   if (approve && !(approve as HTMLButtonElement).disabled) fireEvent.click(approve);
+  if (screen.queryByTestId("new-job-q-0-key-task")) fillKeyTask();
   await confirmCategory(/^Potwierdzam:/);
   if (screen.queryByLabelText("Wybierz rekrutera prowadzącego")) await pickRecruiter();
   // Przycisk jest aktywny także przy brakach — czekamy, aż formularz jest gotowy.
@@ -529,8 +543,8 @@ describe("NewJobPage — jeden ekran: klient i „Wypełnij z…”", () => {
     expect(postsTo("/api/job-intake/read")).toHaveLength(0);
     expect(postsTo("/api/job-intake/read-file")).toHaveLength(0);
     // Wszystko poza biurem (tryb nieznany) jest do uzupełnienia — od 06.10.2026
-    // także liczba osób (N6: bez domyślnej „1”).
-    expect(screen.getByText("Brakuje 10 rzeczy do publikacji")).toBeInTheDocument();
+    // także liczba osób (N6: bez domyślnej „1”) i od 23.11.2026 najważniejsze zadanie.
+    expect(screen.getByText("Brakuje 11 rzeczy do publikacji")).toBeInTheDocument();
     // Zanim ktoś kliknie „Utwórz”, o brakach mówi pasek sekcji i stopka, nie pola.
     expect(screen.queryByText("Uzupełnij przed publikacją")).toBeNull();
   });
@@ -1250,7 +1264,7 @@ describe("NewJobPage — braki po próbie utworzenia", () => {
   it("bez klienta „Utwórz i opublikuj” pokazuje komunikat przy polu klienta", () => {
     renderPage();
     expect(screen.getByRole("link", { name: "klient" })).toHaveAttribute("href", "#new-job-client");
-    expect(screen.getByText("Brakuje 11 rzeczy do publikacji")).toBeInTheDocument();
+    expect(screen.getByText("Brakuje 12 rzeczy do publikacji")).toBeInTheDocument();
     expect(handoffButton()).toBeEnabled();
 
     fireEvent.click(handoffButton());
@@ -1354,6 +1368,7 @@ describe("NewJobPage", () => {
     expect(screen.queryByText(DEAL_BREAKER_REQUIRED_TEXT)).toBeNull();
     expect(screen.getByText("2 pytania — wszystkie zatwierdzone")).toBeInTheDocument();
 
+    fillKeyTask();
     await confirmCategory();
     await pickRecruiter();
     await handoffTo();
@@ -1416,9 +1431,10 @@ describe("NewJobPage", () => {
       disqualifiers: [],
       exclude: [],
     });
+    expect(championBody()?.project).toMatchObject({ key_task: KEY_TASK });
     expect(championBody()?.screening_questions).toEqual([
-      { id: "q1", question: "Kafka?", ideal_answer: "", deal_breaker: "Nie zna Kafki." },
-      { id: "q2", question: "Biuro?", ideal_answer: "", deal_breaker: "Tylko zdalnie." },
+      { id: "q1", question: "Kafka?", ideal_answer: "", deal_breaker: "Nie zna Kafki.", key_task: true },
+      { id: "q2", question: "Biuro?", ideal_answer: "", deal_breaker: "Tylko zdalnie.", key_task: false },
     ]);
     // Żadnych osobnych tras po utworzeniu — wszystko w jednej transakcji.
     expect(postsTo("/api/jobs")).toHaveLength(1);
@@ -1582,6 +1598,8 @@ describe("NewJobPage", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "Zatwierdź wszystkie" }));
       expect(screen.getByText("2 pytania — wszystkie zatwierdzone")).toBeInTheDocument();
+      expectNotReady();
+      fillKeyTask();
       expect(screen.getByText("Gotowa do publikacji")).toBeInTheDocument();
       expect(handoffButton()).toBeEnabled();
     });
@@ -1601,6 +1619,30 @@ describe("NewJobPage", () => {
       expect(
         screen.getByRole("link", { name: "odpowiedź, która odpada, przy każdym pytaniu" }),
       ).toBeInTheDocument();
+    });
+
+    it("najważniejsze zadanie: tekst i jedno zaznaczone pytanie, bez nich brak w stopce", async () => {
+      await readRequest();
+      fireEvent.click(screen.getByRole("button", { name: "Zatwierdź wszystkie" }));
+      await confirmCategory();
+      await pickRecruiter();
+      expectNotReady();
+      expect(
+        screen.getByRole("link", { name: "najważniejsze zadanie i pytanie, które je sprawdza" }),
+      ).toBeInTheDocument();
+
+      fireEvent.change(screen.getByTestId("new-job-key-task"), { target: { value: KEY_TASK } });
+      expectNotReady();
+      const radio = (i: number) => screen.getByTestId(`new-job-q-${i}-key-task`) as HTMLInputElement;
+      fireEvent.click(radio(1));
+      expect([radio(0).checked, radio(1).checked]).toEqual([false, true]);
+      fireEvent.click(radio(0));
+      expect([radio(0).checked, radio(1).checked]).toEqual([true, false]);
+      expect(screen.getByText("Gotowa do publikacji")).toBeInTheDocument();
+
+      await handoffTo();
+      expect(championBody()?.project.key_task).toBe(KEY_TASK);
+      expect(championBody()?.screening_questions.map((q) => q.key_task)).toEqual([true, false]);
     });
 
     it("pytanie dopisane ręcznie potrzebuje tylko deal breakera", async () => {
@@ -1623,6 +1665,7 @@ describe("NewJobPage", () => {
         question: "Umowa B2B?",
         ideal_answer: "",
         deal_breaker: "Tylko umowa o pracę.",
+        key_task: false,
       });
     });
   });
@@ -1664,6 +1707,7 @@ describe("NewJobPage", () => {
       await readRequest();
       await categorySettled();
       fireEvent.click(screen.getByRole("button", { name: "Zatwierdź wszystkie" }));
+      fillKeyTask();
       await pickRecruiter();
       await screen.findByRole("button", { name: "Potwierdzam: Development" });
       expect(screen.getByRole("link", { name: "potwierdzenie kategorii" })).toBeInTheDocument();
@@ -1685,6 +1729,7 @@ describe("NewJobPage", () => {
       await readRequest();
       await categorySettled();
       fireEvent.click(screen.getByRole("button", { name: "Zatwierdź wszystkie" }));
+      fillKeyTask();
       await pickRecruiter();
       await screen.findByRole("button", { name: "Potwierdzam: Development" });
 
@@ -1705,6 +1750,7 @@ describe("NewJobPage", () => {
         await screen.findByText(/System nie rozpoznał kategorii z nazwy roli — wybierz ją\./),
       ).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Zatwierdź wszystkie" }));
+      fillKeyTask();
       await pickRecruiter();
       expectNotReady();
 
@@ -2172,9 +2218,9 @@ describe("NewJobPage", () => {
       rate_budget_hourly: null,
       rate_quote: null,
     });
-    // Po odczycie: budżet + zatwierdzenie pytań + potwierdzenie kategorii.
+    // Po odczycie: budżet + najważniejsze zadanie + zatwierdzenie pytań + potwierdzenie kategorii.
     expect(
-      await screen.findByText("Brakuje 3 rzeczy do publikacji"),
+      await screen.findByText("Brakuje 4 rzeczy do publikacji"),
     ).toBeInTheDocument();
     await closeGaps();
     await pickRecruiter();

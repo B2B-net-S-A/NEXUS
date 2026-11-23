@@ -39,10 +39,14 @@ from app.services.jarvis import web as jarvis_web
 from app.services.jarvis.prompt import SYSTEM_PROMPT, context_block
 from app.services.jarvis.gap_schema import GAP_KINDS, NEED_MAX, WHY_MAX
 from app.services.jarvis.tools import (
+    CLIENT_CHANGE_SUMMARY_MAX,
+    CLIENT_CHANGE_TEXT_MAX,
+    CLIENT_CHANGE_TEXT_MIN,
     UNDO_WINDOW_MINUTES,
     TOOLS_BY_NAME,
     JarvisTool,
     RequestSpec,
+    build_new_sales_company_link,
     build_screen_link,
     render_result,
 )
@@ -860,6 +864,9 @@ async def _handle_tool(
     if tool.name == "draft_email":
         return await _draft_email(state, transport, tool, args, use_id, events)
 
+    if tool.name == "propose_client_change":
+        return await _client_change(transport, args, use_id, events)
+
     if tool.name == "report_gap":
         kind = str(args.get("kind") or "")
         need = str(args.get("need") or "").strip()[:NEED_MAX]
@@ -901,7 +908,11 @@ async def _handle_tool(
 
     if tool.tier == "link":
         try:
-            link = build_screen_link(args)
+            link = (
+                build_new_sales_company_link(args)
+                if tool.name == "new_sales_company"
+                else build_screen_link(args)
+            )
         except (ValueError, TypeError) as exc:
             return _tool_result(
                 use_id, f"Nie udało się zbudować linku: {exc}", is_error=True
@@ -1055,6 +1066,59 @@ async def _execute_now(
             "minut. Napisz krótko, co zrobione; osoby pominięte i ostrzeżenia wymień z powodem.",
         )
     return _tool_result(use_id, f"Nie udało się: {outcome.message}", is_error=True)
+
+
+async def _client_change(
+    transport: JarvisTransport,
+    args: dict[str, Any],
+    use_id: str,
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """„Klient coś zmienił” (23.11.2026): karta z przyciskiem do okna na stronie
+    rekrutacji. NIC nie zapisuje — listę zmian przygotowuje i zapisuje okno
+    (`POST …/champion-profile/client-change[/apply]`). Kartę dostaje tylko
+    ktoś, kto redaguje tę rekrutację (`can_edit` z detalu, ta sama reguła co
+    bramka zapisu Profilu), żeby przycisk nie prowadził do odmowy."""
+    try:
+        job_id = int(args.get("job_id"))
+    except (TypeError, ValueError):
+        return _tool_result(use_id, "Podaj job_id rekrutacji.", is_error=True)
+    text = str(args.get("text") or "").strip()[:CLIENT_CHANGE_TEXT_MAX]
+    if len(text) < CLIENT_CHANGE_TEXT_MIN:
+        return _tool_result(
+            use_id,
+            "Podaj w `text`, co dokładnie zmienił klient (pełne zdanie albo mail).",
+            is_error=True,
+        )
+    resp = await transport.call(RequestSpec("GET", f"/api/jobs/{job_id}"))
+    job = resp.data if resp.ok and isinstance(resp.data, dict) else None
+    if job is None:
+        return _tool_result(use_id, describe_error(resp), is_error=True)
+    if not job.get("can_edit"):
+        return _tool_result(
+            use_id,
+            "Użytkownik nie redaguje Profilu Championa tej rekrutacji — zmianę "
+            "wprowadza Delivery Lead rekrutacji albo admin. Powiedz to.",
+            is_error=True,
+        )
+    summary = str(args.get("summary") or "").strip()[:CLIENT_CHANGE_SUMMARY_MAX]
+    events.append(
+        {
+            "type": "client_change",
+            "proposal": {
+                "job_id": job_id,
+                "job_title": str(job.get("title") or "")[:200],
+                "text": text,
+                "summary": summary,
+            },
+        }
+    )
+    return _tool_result(
+        use_id,
+        "Pokazałem kartę z przyciskiem „Pokaż i popraw”. NIC nie zostało zmienione — "
+        "listę zmian użytkownik zobaczy i zastosuje w oknie na stronie rekrutacji. "
+        "Nie powtarzaj streszczenia z karty.",
+    )
 
 
 async def _draft_email(

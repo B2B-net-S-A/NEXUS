@@ -1893,6 +1893,8 @@ async def test_pool_keeps_filling_past_people_from_another_role(monkeypatch):
     odrzuceniu innej roli — dalej nikogo z innej roli nie wpuszcza."""
     monkeypatch.setattr(afr, "AUTOFILL_POOL_SIZE", 3)
     monkeypatch.setattr(afr, "_POOL_PAGE", 2)
+    # Osoby z testu są nowe w bazie; dodatek „świeże CV” ma osobny test.
+    monkeypatch.setattr(afr, "FRESH_POOL_EXTRA", 0)
     owner_id, _ = await _user()
     world, run_id = await _developer_job_with_ranked_roles(
         owner_id,
@@ -2129,6 +2131,8 @@ async def test_pool_extras_take_people_sent_to_this_client_first(monkeypatch):
 
     monkeypatch.setattr(afr, "AUTOFILL_POOL_SIZE", 1)
     monkeypatch.setattr(sent_before, "POOL_EXTRA", 1)
+    # Osoby z testu są nowe w bazie; dodatek „świeże CV” ma osobny test.
+    monkeypatch.setattr(afr, "FRESH_POOL_EXTRA", 0)
     owner_id, _ = await _user()
     world, run_id = await _developer_job_with_ranked_roles(
         owner_id, ["Python Developer"] * 4
@@ -2175,3 +2179,49 @@ async def test_pool_extras_take_people_sent_to_this_client_first(monkeypatch):
     pool = {p.candidate_id: p for p in await _pool(world["job_id"])}
     assert set(pool) == {top, sibling}
     assert sent_before.is_sent_before(pool[sibling].evidence)
+
+
+async def test_pool_extras_take_fresh_people_just_below_the_cut(monkeypatch):
+    """23.11.2026 (decyzja Artura, wariant A): osoba nowa w bazie albo z CV
+    wgranym w ostatnich 30 dniach, z wynikiem najwyżej 2 pkt pod ostatnim
+    miejscem puli, wchodzi do puli ponad 150. Na kopii z 23.11 ręcznie wysłani
+    to w 25% takie osoby (czołówka puli: 9%), a stali tuż za progiem."""
+    monkeypatch.setattr(afr, "AUTOFILL_POOL_SIZE", 2)
+    owner_id, _ = await _user()
+    world, run_id = await _developer_job_with_ranked_roles(
+        owner_id, ["Python Developer"] * 5
+    )
+    # Wyniki 90, 89, 88, 87, 86 — pula 2 kończy się na 89.
+    top, second, old_cv, new_cv, too_low = world["candidate_ids"]
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        for cid in (top, second, old_cv, new_cv):
+            (await db.get(Candidate, cid)).created_at = now - timedelta(days=60)
+        db.add_all(
+            [
+                Activity(
+                    entity_type="candidate",
+                    entity_id=new_cv,
+                    action="cv_uploaded",
+                    created_at=now - timedelta(days=3),
+                ),
+                Activity(
+                    entity_type="candidate",
+                    entity_id=old_cv,
+                    action="cv_uploaded",
+                    created_at=now - timedelta(days=45),
+                ),
+            ]
+        )
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        assert await afr.refresh_autofill_pool(db, run) == 3
+        await db.commit()
+
+    pool = {p.candidate_id: p for p in await _pool(world["job_id"])}
+    # 88 bez świeżego CV i 86 (3 pkt pod progiem, choć nowa w bazie) zostają poza.
+    assert set(pool) == {top, second, new_cv}
+    assert afr.is_fresh_extra(pool[new_cv].evidence)
+    assert not afr.is_fresh_extra(pool[top].evidence)

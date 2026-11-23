@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 from starlette.concurrency import run_in_threadpool
 
-from app.services.cv_layout import compose_page1_why
+from app.services.cv_layout import compose_page1_why, page1_wreath
 from app.services.cv_new_content import cv_json_from_editor_html
 
 MSG_RENDER_FAILED = (
@@ -51,6 +51,49 @@ class NewCvPdf:
         }
 
 
+@dataclass(frozen=True)
+class CvFacts:
+    """Fakty spoza treści edytora (Artur 23.11.2026): miasto kandydata obok języków
+    i wymagania MUST z Profilu Championa (certyfikat z MUST idzie do wieńca)."""
+
+    location: str = ""
+    must_have: tuple[str, ...] = ()
+
+
+def must_names(champion_profile: Any) -> tuple[str, ...]:
+    """Nazwy wymagań MUST z `champion_profile.stack.must` (słowniki albo napisy)."""
+    if not isinstance(champion_profile, dict):
+        return ()
+    stack = champion_profile.get("stack")
+    items = stack.get("must") if isinstance(stack, dict) else None
+    names = []
+    for item in items if isinstance(items, list) else []:
+        name = item.get("name") if isinstance(item, dict) else item
+        if isinstance(name, str) and name.strip():
+            names.append(name.strip())
+    return tuple(names)
+
+
+async def cv_facts(db, candidate_id: Optional[int], job_id: Optional[int]) -> CvFacts:
+    """Czytane przed końcem transakcji żądania, render idzie potem bez bazy."""
+    from sqlalchemy import select
+
+    from app.models.candidate import Candidate
+    from app.models.job import Job
+
+    location = (
+        await db.scalar(select(Candidate.location).where(Candidate.id == candidate_id))
+        if candidate_id
+        else None
+    )
+    profile = (
+        await db.scalar(select(Job.champion_profile).where(Job.id == job_id))
+        if job_id
+        else None
+    )
+    return CvFacts((location or "").strip(), must_names(profile))
+
+
 def _image_mime(data: Optional[bytes]) -> Optional[str]:
     if not data:
         return None
@@ -69,6 +112,7 @@ def _render(
     fallback: Optional[dict[str, Any]],
     extras: Optional[dict],
     consent: Optional[bytes],
+    facts: Optional[CvFacts] = None,
 ) -> NewCvPdf:
     from app.services.cv_new_layout import (
         NewCvDocument,
@@ -79,9 +123,15 @@ def _render(
         content_html, language=language, blind=blind, fallback=fallback
     )
     mime = _image_mime(consent)
+    facts = facts or CvFacts()
     document = NewCvDocument.from_cv_json(
-        content.cv_json,
+        {
+            **content.cv_json,
+            "candidate_location": facts.location,
+            "must_have": list(facts.must_have),
+        },
         why=compose_page1_why(content.cv_json.get("why_points") or [], extras),
+        wreath=page1_wreath(extras),
         # Renderer wstawia klauzulę jako HTML — tekst z edytora idzie escapowany.
         rodo_clause_html=html.escape(content.rodo_clause) or None,
         consent_image=consent if mime else None,
@@ -105,6 +155,7 @@ async def render_new_cv_pdf(
     fallback: Optional[dict[str, Any]],
     extras: Optional[dict],
     consent: Optional[bytes],
+    facts: Optional[CvFacts] = None,
 ) -> NewCvPdf:
     """PDF nowego CV; awaria renderu = ``NewCvPdfError`` (ślad w logu serwera)."""
     import logging
@@ -119,6 +170,7 @@ async def render_new_cv_pdf(
                 fallback=fallback,
                 extras=extras,
                 consent=consent,
+                facts=facts,
             )
         except Exception as error:  # noqa: BLE001 — każdy błąd renderu to 503
             logging.getLogger(__name__).exception("new CV PDF render failed")
@@ -152,6 +204,13 @@ async def approved_version_pdf(db, version: Any) -> NewCvPdf:
     i połączenia z bazą). Awaria = ``NewCvPdfError``, wołający oddaje 503.
     """
     fallback = await _fallback(db, getattr(version, "generated_document_id", None))
+    facts = CvFacts()
+    if getattr(version, "candidate_stage_cv_id", None):
+        from app.models.candidate_stage_cv import CandidateStageCV
+
+        csv = await db.get(CandidateStageCV, version.candidate_stage_cv_id)
+        if csv is not None:
+            facts = await cv_facts(db, csv.candidate_id, csv.job_id)
     await db.commit()
     return await render_new_cv_pdf(
         version.content_html or "",
@@ -160,12 +219,16 @@ async def approved_version_pdf(db, version: Any) -> NewCvPdf:
         fallback=fallback,
         extras=version.page1_extras,
         consent=version.consent_content,
+        facts=facts,
     )
 
 
 async def stage_draft_pdf(db, csv: Any) -> NewCvPdf:
     """Szkic CV etapu jako „Nowe CV” — z zapisanej treści edytora."""
     fallback = await _fallback(db, getattr(csv, "generated_document_id", None))
+    facts = await cv_facts(
+        db, getattr(csv, "candidate_id", None), getattr(csv, "job_id", None)
+    )
     await db.commit()
     return await render_new_cv_pdf(
         csv.branded_draft_html or "",
@@ -174,4 +237,5 @@ async def stage_draft_pdf(db, csv: Any) -> NewCvPdf:
         fallback=fallback,
         extras=csv.page1_extras,
         consent=csv.branded_consent_content,
+        facts=facts,
     )

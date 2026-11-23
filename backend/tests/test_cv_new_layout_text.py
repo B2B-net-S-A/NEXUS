@@ -18,7 +18,8 @@ from app.services.cv_new_layout.assets import (
     text_width,
 )
 from app.services.cv_new_layout.axis import (
-    OLDER_WIDTH,
+    OLDER_FILL,
+    OLDER_LEFT,
     career_axis,
     company_name,
     main_career,
@@ -195,6 +196,9 @@ def test_certs_by_year_newest_first_undated_last():
 
 def test_language_parts_levels_and_codes():
     assert lang_parts("Polski - ojczysty") == ("Polski", "ojczysty")
+    assert lang_parts("polski – ojczysty") == ("polski", "ojczysty")
+    assert lang_parts("Angielski: B2") == ("Angielski", "B2")
+    assert lang_parts("Niemiecki") == ("Niemiecki", "")
     assert lang_level("ojczysty lub dwujęzyczny") == (6, "ojczysty")
     assert lang_level("native", "en") == (6, "native")
     assert lang_level("C1/C2") == (5, "C1/C2")
@@ -322,19 +326,23 @@ def test_timeline_groups_older_roles():
     assert tl.segments[-1].current
 
 
-def test_axis_older_block_wraps_full_names_inside_its_margin():
+def test_axis_older_years_are_a_light_bar_segment_with_readable_summary():
+    """Artur 23.11.2026 (A1): starsze lata na tym samym pasku, z „//”, latami nad
+    i liczbą stanowisk pod spodem zwykłym pismem — nie drobnym „Wcześniej”."""
     ctx = build_context(NewCvDocument.from_cv_json(blind(english(long_cv()))), TODAY)
     svg = career_axis(ctx)
-    assert "Earlier" in svg and "…" not in svg
-    older = re.findall(
-        r'<text x="0\.00"[^>]*font-family="Source Sans 3"[^>]*>([^<]+)</text>', svg
+    assert "Earlier" not in svg and "…" not in svg
+    assert f'fill="{OLDER_FILL}"' in svg
+    assert re.search(r'font-weight="700"[^>]*>\d{4}–\d{4}</text>', svg)
+    below = re.findall(
+        r'<text x="3\.00"[^>]*font-weight="600" font-size="2\.75"[^>]*>([^<]+)</text>', svg
     )
-    assert len(older) >= 3
+    assert below and below[0].startswith("3 positions")
     assert all(
-        text_width(line, 2.55, "SourceSans3-600.ttf") <= OLDER_WIDTH
-        for line in older[1:]
+        text_width(line, 2.75, "SourceSans3-600.ttf") <= OLDER_LEFT - 7
+        for line in below
     )
-    assert "Company from edukacja industry" in " ".join(older)
+    assert "Company from edukacja industry" in " ".join(below)
 
 
 def test_role_period_follows_cv_language():
@@ -418,7 +426,9 @@ def test_html_polish_headings_and_title():
         "Edukacja — pełna lista",
     ):
         assert heading in html, heading
-    assert "Starszy analityk danych – <span class='nm'>Łucja Przykładowa</span>" in html
+    # stanowisko, a pod nim imię i nazwisko — bez myślnika (Artur 23.11.2026)
+    assert "<h1 class='title'>Starszy analityk danych</h1><div class='nm'>Łucja Przykładowa</div>" in html
+    assert "danych – " not in html
     assert "<b>PL</b> ojczysty" in html and "<b>EN</b> C1/C2" in html
     assert "<b>Ponad 15 lat</b>" in html and "Czwarty punkt" not in html
 
@@ -512,3 +522,85 @@ def test_html_short_cv_skips_empty_sections():
     assert "class='pills'" not in html  # bez języków w danych — bez pastylek
     assert "Edukacja — pełna lista" not in html
     assert "Umiejętności — pełna lista" not in html
+
+
+
+# ---------- strona 1 po warsztatach 23.11.2026 ----------
+
+
+def test_languages_below_b1_and_basic_are_left_out():
+    data = long_cv()
+    data["languages"] = [
+        "Polski - ojczysty",
+        "Angielski - B1",
+        "Niemiecki - A2",
+        "Rosyjski - podstawowy",
+        "Hiszpański - komunikatywny",
+    ]
+    html = _html(data)
+    assert "<b>EN</b> B1" in html and "<b>ES</b> komunikatywny" in html
+    assert "<b>DE</b>" not in html and "<b>RU</b>" not in html
+
+
+def test_city_pill_next_to_languages_without_country_code():
+    data = dict(long_cv(), candidate_location="Kraków, PL")
+    html = _html(data)
+    assert re.search(r"<span class='pill loc'><svg[^>]*>.*?</svg>Kraków</span>", html, re.S)
+    assert "Kraków, PL" not in html
+    foreign = _html(dict(long_cv(), candidate_location="Berlin, DE"))
+    assert "</svg>Berlin, DE</span>" in foreign
+
+
+def test_no_city_pill_without_location_or_in_blind_cv():
+    assert "pill loc" not in _html(long_cv())
+    assert "pill loc" not in _html(blind(dict(long_cv(), candidate_location="Kraków, PL")))
+
+
+def test_why_sentences_have_no_bullets_and_are_separated_by_rules():
+    html = _html(long_cv())
+    assert "<ul class='why'>" in html
+    assert re.search(r"ul\.why li::before\{display:none\}", html)
+    assert re.search(r"ul\.why li\{[^}]*border-top", html)
+
+
+def _edu(data: dict, **kw) -> str:
+    html = _html(data, **kw)
+    return html[html.index("<span>Edukacja</span>"):html.index("class='rest'")]
+
+
+def test_wreath_shows_degree_when_no_certificate_is_required():
+    edu = _edu(long_cv())
+    assert ">2008</text>" in edu  # rok dyplomu w wieńcu
+    assert "Wykształcenie" in edu and "Certyfikaty i szkolenia · 10" in edu
+
+
+def test_wreath_shows_certificate_required_by_client():
+    data = dict(long_cv(), must_have=["Python", "PRINCE2 Practitioner"])
+    data["certifications"] = data["certifications"] + ["PRINCE2 Practitioner - Axelos (2021)"]
+    edu = _edu(data)
+    assert ">PRINCE2</text>" in edu and ">2021</text>" in edu
+    assert "Certyfikat" in edu and "Inne certyfikaty i szkolenia · 10" in edu
+    assert "<b>Informatyka</b>" in edu  # dyplom obok, bez wieńca
+
+
+def test_recruiter_can_force_certificate_or_school_in_the_wreath():
+    with_cert = dict(long_cv(), must_have=["PRINCE2 Practitioner"])
+    with_cert["certifications"] = with_cert["certifications"] + ["PRINCE2 Practitioner - Axelos (2021)"]
+    assert ">2008</text>" in _edu(with_cert, wreath="school")
+    forced = _edu(long_cv(), wreath="cert")
+    assert "Inne certyfikaty i szkolenia" in forced and ">2008</text>" not in forced
+
+
+def test_course_is_not_treated_as_required_certificate():
+    data = dict(long_cv(), must_have=["Python"])
+    data["certifications"] = ["Kurs Python dla analityków - Akademia (2023)"]
+    assert ">2008</text>" in _edu(data)
+
+
+
+def test_skill_requirement_does_not_pull_a_course_certificate_into_the_wreath():
+    """Staging 23.11: MUST „UX Design” (umiejętność) dopasowało „Foundations of User
+    Experience Design” — wieniec ma dostać certyfikat tylko za wymaganie-certyfikat."""
+    data = dict(long_cv(), must_have=["UX Design", "Figma"])
+    data["certifications"] = ["Foundations of User Experience Design - Google (2022)"]
+    assert ">2008</text>" in _edu(data)

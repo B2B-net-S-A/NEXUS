@@ -5614,6 +5614,8 @@ export const EMPTY_CLIENT_HISTORY: ClientHistorySummary = {
 export interface ChampionProject {
   about: string;
   responsibilities: string;
+  /** „Najważniejsze zadanie w tej roli” (23.11.2026) — wkład do zdania 3 w nowym CV. */
+  key_task?: string;
 }
 
 /** Sekcja 7 — o kliencie. `consultant_insight`/`historical_questions` edytuje się w sekcji 8. */
@@ -5647,6 +5649,8 @@ export interface ScreeningQuestion {
   question: string;
   ideal_answer: string;
   deal_breaker: string;
+  /** To pytanie sprawdza `project.key_task` — najwyżej jedno w profilu. */
+  key_task?: boolean;
 }
 
 export interface SourcingStrategy {
@@ -7127,12 +7131,18 @@ export interface CvPage1Extras {
   result_text?: string | null;
   result_index?: number | null;
   results?: CvPage1Result[] | null;
+  /** Wieniec w „Edukacji” (23.11.2026); brak = „auto”. */
+  wreath?: CvWreath | null;
 }
 
-/** „Najmocniejszy wynik”: wybór z listy (`result_index`) albo zdanie rekrutera. */
+/** Wieniec: „auto” = certyfikat z wymagań MUST klienta, inaczej szkoła. */
+export type CvWreath = "auto" | "cert" | "school";
+
+/** Strona 1: wynik z listy (`result_index`), zdanie rekrutera albo wybór wieńca. */
 export interface CvPage1Update {
   result_index?: number | null;
   result_text?: string | null;
+  wreath?: CvWreath;
 }
 
 /**
@@ -7351,7 +7361,7 @@ export const candidateStageCvApi = {
     /** Przełącz układ CV bez generowania od nowa (po „CV wysłane” 409). */
     setLayout: (stageId: number, cv_layout: CvLayout) =>
       api.patch<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/layout`, { cv_layout }),
-    /** Najmocniejszy wynik na stronie 1 nowego CV (tylko szkic; po „CV wysłane” 409). */
+    /** Strona 1 nowego CV: najmocniejszy wynik albo wieniec (tylko szkic; po „CV wysłane” 409). */
     setPage1: (stageId: number, payload: CvPage1Update) =>
       api.patch<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/page1`, payload),
     rename: (stageId: number, filename: string) =>

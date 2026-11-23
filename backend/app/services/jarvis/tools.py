@@ -35,6 +35,7 @@ from zoneinfo import ZoneInfo
 from app.core.scheduling import DEFAULT_TZ
 from app.data.screen_guides import SCREEN_KEYS
 from app.services.equipment_schema import CATEGORIES as EQUIPMENT_CATEGORIES
+from app.services.order_client_identity import nip_checksum_valid
 from app.services.jarvis.gap_schema import GAP_KINDS, NEED_MAX, WHY_MAX
 from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.services.section_permissions import ProductSection
@@ -3634,6 +3635,58 @@ OPEN_SCREEN = JarvisTool(
 )
 
 
+NEW_SALES_COMPANY_PATH = "/sales/companies"
+
+
+def build_new_sales_company_link(args: dict[str, Any]) -> dict[str, str]:
+    """Przycisk do okna „Nowa firma” z NIP-em (prośba Sprzedaży 23.11.2026).
+
+    Okno samo pobiera dane z rejestru i sprawdza kartotekę (NIP i nazwa), więc
+    Jarvis niczego nie zakłada ani nie twierdzi, że NIP jest wolny.
+    """
+    digits = re.sub(r"\D", "", str(args.get("nip") or ""))
+    if len(digits) != 10:
+        raise ValueError("NIP ma 10 cyfr — poproś użytkownika o pełny numer.")
+    if not nip_checksum_valid(digits):
+        raise ValueError(
+            "Ten NIP ma złą sumę kontrolną — poproś użytkownika o sprawdzenie cyfr."
+        )
+    return {
+        "href": f"{NEW_SALES_COMPANY_PATH}?nowa={digits}",
+        "label": "Nowa firma w Sprzedaży",
+        "reason": _short(args.get("reason") or "", 200),
+    }
+
+
+NEW_SALES_COMPANY = JarvisTool(
+    name="new_sales_company",
+    label="Przygotowuję nową firmę",
+    description=(
+        "Daje przycisk do okna „Nowa firma” w Sprzedaży z podanym NIP-em — NIC nie "
+        "zapisuje. Okno samo pobiera nazwę, KRS i miasto z rejestrów i sprawdza "
+        "kartotekę: kartę z tym NIP-em albo kartę o tej nazwie bez NIP-u (wtedy "
+        "proponuje dopisać NIP zamiast zakładać drugą). Wołaj, gdy użytkownik prosi "
+        "o założenie firmy, kontrahenta albo leada z NIP-u. Nie pisz, że firma jest "
+        "założona ani że NIP jest wolny — napisz, żeby użył przycisku."
+    ),
+    input_schema=_schema(
+        {
+            "nip": {**STR, "maxLength": 20},
+            "reason": {**STR, "maxLength": 200},
+        },
+        ("nip",),
+    ),
+    tier="link",
+    method=None,
+    path=None,
+    section=None,
+    # nieużywane — link buduje build_new_sales_company_link
+    build=lambda a: RequestSpec("GET", ""),
+    shape=as_is,
+    any_permission=("sales_edit",),
+)
+
+
 SHOW_ON_SCREEN = JarvisTool(
     name="show_on_screen",
     label="Pokazuję na ekranie",
@@ -3716,14 +3769,57 @@ DRAFT_EMAIL = JarvisTool(
 )
 
 
+# Lustro ``ClientChangeIn.text`` w ``api/jobs.py`` (najkrótsza treść dla okna).
+CLIENT_CHANGE_TEXT_MIN = 10
+CLIENT_CHANGE_TEXT_MAX = 6000
+CLIENT_CHANGE_SUMMARY_MAX = 600
+
+PROPOSE_CLIENT_CHANGE = JarvisTool(
+    name="propose_client_change",
+    label="Przygotowuję zmianę od klienta",
+    description=(
+        "PROPONUJE zmianę Profilu Championa rekrutacji po zmianie od klienta "
+        "(„klient teraz wymaga Pythona”, „SAFe już nieważne”, wklejony mail "
+        "klienta) — NIC nie zapisuje. Użytkownik dostaje kartę z przyciskiem "
+        "„Pokaż i popraw”, który otwiera okno „Klient coś zmienił” na stronie "
+        "rekrutacji: tam NEXUS przygotuje listę zmian w wymaganiach, opisie "
+        "i pytaniach, a człowiek je sprawdzi i zastosuje. `job_id` ustal z "
+        "kontekstu ekranu albo przez wyszukiwanie. `text` to treść od klienta "
+        "słowami użytkownika albo wklejony mail — bez skracania. `summary` to "
+        "1–3 krótkie punkty, co się zmienia (bez nazwisk i kwot)."
+    ),
+    input_schema=_schema(
+        {
+            "job_id": INT,
+            "text": {
+                **STR,
+                "minLength": CLIENT_CHANGE_TEXT_MIN,
+                "maxLength": CLIENT_CHANGE_TEXT_MAX,
+            },
+            "summary": {**STR, "maxLength": CLIENT_CHANGE_SUMMARY_MAX},
+        },
+        ("job_id", "text", "summary"),
+    ),
+    tier="link",
+    method=None,
+    path=None,
+    section=ProductSection.pipeline,
+    entity_type="job",
+    build=lambda a: RequestSpec("GET", ""),  # nieużywane — patrz agent._handle_tool
+    shape=as_is,
+)
+
+
 ALL_TOOLS: tuple[JarvisTool, ...] = (
     *READ_TOOLS,
     *HR_TOOLS,
     *WRITE_TOOLS,
     OPEN_SCREEN,
+    NEW_SALES_COMPANY,
     SHOW_ON_SCREEN,
     REPORT_GAP,
     DRAFT_EMAIL,
+    PROPOSE_CLIENT_CHANGE,
 )
 TOOLS_BY_NAME: dict[str, JarvisTool] = {tool.name: tool for tool in ALL_TOOLS}
 

@@ -148,6 +148,35 @@ def test_bnp_time_sheet_names_are_work_proof(subject, file_name, expected) -> No
         # Bez znaku: koniec miesiąca = ten miesiąc, początek = poprzedni.
         ("Karta pracy", "skan.pdf", (2026, 9, 30), (2026, 9, True)),
         ("Karta pracy", "skan.pdf", (2026, 10, 2), (2026, 9, True)),
+        # PKO, próba IX–X 2026: klient odpisał 30.10.2026 z „2027” w temacie, Time
+        # Sheet z tego maila szedł na 2027-10, a październik został bez MD.
+        (
+            "FW: Odbiór usług za Październik 2027: Jan Testowy",
+            "TimeSheet 2610 - Testowy Jan PZ000001.xlsm",
+            (2026, 10, 30),
+            (2026, 10, False),
+        ),
+        (
+            "FW: Odbiór usług za Październik 2027: Jan Testowy",
+            "",
+            (2026, 10, 30),
+            (2026, 10, True),
+        ),
+        # Szablon PKO „TimeSheet RRMM” sam niesie okres; numer daleko od daty maila nie.
+        (
+            "Rozliczenie",
+            "TimeSheet 2609 - Testowy Jan.xlsm",
+            (2026, 10, 1),
+            (2026, 9, False),
+        ),
+        (
+            "Rozliczenie",
+            "TimeSheet 2808 - Testowy Jan.xlsm",
+            (2026, 9, 7),
+            (2026, 8, True),
+        ),
+        # Faktura z wyprzedzeniem (do dwóch miesięcy) zostaje jak była.
+        ("Faktura grudzień 2026", "skan.pdf", (2026, 10, 31), (2026, 12, False)),
     ],
 )
 def test_period_forms_from_the_archive(subject, file_name, received, expected) -> None:

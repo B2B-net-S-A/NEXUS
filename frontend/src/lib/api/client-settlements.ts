@@ -85,6 +85,18 @@ export interface SettlementRow {
   extras_pending?: number;
   /** Akceptacja klienta po wysyłce KCP (E6.5); `null`, gdy klient nie ma tej reguły. */
   client_acceptance?: ClientAcceptanceSummary | null;
+  /** Przyjęte przez automat „Przyjmuj RCP bez uwag automatycznie”. */
+  accepted_auto?: boolean;
+}
+
+/** Automat przyjęcia „Bez uwag” w miesiącu klienta; `null`, gdy reguła wyłączona. */
+export interface AutoAcceptInfo {
+  /** Ile RCP „Bez uwag” przyjmie automat (bez odesłanych „Do poprawy”). */
+  count: number;
+  /** Od którego dnia roboczego następnego miesiąca. */
+  workday: number;
+  /** Data (RRRR-MM-DD), od której automat bierze ten miesiąc. */
+  from: string;
 }
 
 export interface KesuSummary {
@@ -136,6 +148,7 @@ export interface SettlementMonth {
   counts: Record<SettlementFilter, number>;
   /** Ile `ok` przyjmie „Przyjmij bez uwag”. */
   batch_ready: number;
+  auto_accept?: AutoAcceptInfo | null;
   rows: SettlementRow[];
 }
 
@@ -188,6 +201,9 @@ export interface SettlementDetail {
   status: SettlementStatus;
   /** Powód odesłania do poprawy (stan `needs_fix`). */
   fix_reason: string | null;
+  accepted_at?: string | null;
+  /** Przyjęte przez automat „Przyjmuj RCP bez uwag automatycznie”. */
+  accepted_auto?: boolean;
   documents: SettlementDocument[];
   /** MD z RCP: w E1 wpisują je Finanse, od E2 odczyt pliku. */
   md_regular: string | null;
@@ -289,6 +305,8 @@ export interface SettlementRule {
   params: Record<string, string>;
   param_fields: { key: string; label: string; suffix?: string | null }[];
   hint: string | null;
+  /** Reguła „włącz / wyłącz”: przełącznik zamiast poziomu (`block` = włączona). */
+  switch?: boolean;
 }
 
 export interface SettlementRuleSection {
@@ -333,12 +351,58 @@ export interface PanelPreview {
   finance: { months: PortalMonth[] };
 }
 
+/** „Przebieg miesiąca”: wiersz klienta (GET /overview). */
+export interface MonthCloseClient {
+  client_id: number;
+  name: string;
+  people: number;
+  clean: number;
+  accepted: number;
+  decide: number;
+  unread: number;
+  missing: number;
+  contractor_in_ksef: number;
+  client_invoice_issued: number;
+  client_invoice_ready: number;
+  revenue_ready: string | null;
+  top_reason: string | null;
+  /** Klient rozliczany z raportu klienta (T4T) — bez kolejki osób. */
+  client_report: { all: number; ok: number; differs: number; unmatched: number; no_invoice: number } | null;
+}
+
+export interface MonthCloseReason {
+  /** Klucz reguły albo `missing` / `no_md`. */
+  key: string;
+  title: string;
+  count: number;
+  clients: { client_id: number; name: string; count: number }[];
+  people: { contract_id: number; person: string; client_id: number }[];
+}
+
+export interface MonthCloseOverview {
+  month: string;
+  can_see_amounts: boolean;
+  totals: {
+    people: number;
+    clean: number;
+    accepted: number;
+    decide: number;
+    unread: number;
+    missing: number;
+    contractor_in_ksef: number;
+    client_invoice_issued: number;
+  };
+  clients: MonthCloseClient[];
+  reasons: MonthCloseReason[];
+}
+
 export const settlementKeys = {
   module: ["client-settlements", "module"] as const,
   start: ["client-settlements", "start"] as const,
   preview: (contractId: number) =>
     ["client-settlements", "preview", contractId] as const,
   clients: ["client-settlements", "clients"] as const,
+  overview: (month: string) => ["client-settlements", "overview", month] as const,
   month: (clientId: number, month: string) =>
     ["client-settlements", "month", clientId, month] as const,
   detail: (
@@ -418,6 +482,14 @@ export function useSettlementClients() {
     queryKey: settlementKeys.clients,
     queryFn: async () =>
       (await api.get<SettlementClient[]>(`${BASE}/clients`)).data,
+  });
+}
+
+export function useMonthCloseOverview(month: string) {
+  return useQuery({
+    queryKey: settlementKeys.overview(month),
+    queryFn: async () =>
+      (await api.get<MonthCloseOverview>(`${BASE}/overview`, { params: { month } })).data,
   });
 }
 

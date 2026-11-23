@@ -526,6 +526,28 @@ def _conversation_items(
                             },
                         }
                     )
+                if (
+                    name == "propose_client_change"
+                    and str(block.get("id") or "") not in failed
+                ):
+                    tool_input = block.get("input") or {}
+                    try:
+                        change_job_id = int(tool_input.get("job_id"))
+                    except (TypeError, ValueError):
+                        change_job_id = None
+                    if change_job_id is not None:
+                        items.append(
+                            {
+                                "kind": "client_change",
+                                "proposal": {
+                                    "job_id": change_job_id,
+                                    "text": str(tool_input.get("text") or "")[:6000],
+                                    "summary": str(tool_input.get("summary") or "")[
+                                        :600
+                                    ],
+                                },
+                            }
+                        )
                 gap = gap_by_tool_use.get(str(block.get("id") or ""))
                 if name == "report_gap" and gap is not None:
                     items.append({"kind": "gap", "gap": _serialize_gap(gap)})

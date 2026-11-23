@@ -18,6 +18,8 @@
  */
 
 import { useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Sparkles } from "lucide-react";
 
 import { ChampionBriefView, type ChampionBriefJob } from "@/components/champion/ChampionBriefView";
 import {
@@ -28,6 +30,8 @@ import {
 } from "@/components/champion/ChampionChanges";
 import { ChampionClientTab } from "@/components/champion/ChampionClientTab";
 import { ChampionEditDrawer } from "@/components/champion/ChampionEditDrawer";
+import { ClientChangeDialog } from "@/components/champion/ClientChangeDialog";
+import { CLIENT_CHANGE_PARAM, takeClientChangeText } from "@/lib/champion-client-change";
 import { ChampionTodoStrip, type ChampionTodoJob } from "@/components/champion/ChampionTodoStrip";
 import { PlainBriefBlock } from "@/components/champion/plain/PlainBriefBlock";
 import { TabbedNav } from "@/components/ds";
@@ -135,6 +139,26 @@ export function ChampionWorkspace({
   }, [fullFormDirty, editBlock, setEditBlock, onEditFull]);
   // Brak z bramki gotowości wskazuje sekcję edytora — otwieramy jej blok,
   // a gdy kotwica nie ma bloku (np. tytuł, klient), pełny formularz.
+  // „Klient coś zmienił” (23.11.2026): przycisk przy zakładkach, menu „⋯”
+  // i Jarvis („Pokaż i popraw”) otwierają okno parametrem `client_change=1`.
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const [clientChangeOpen, setClientChangeOpen] = useState(false);
+  const [clientChangeText, setClientChangeText] = useState<string | null>(null);
+  const clientChangeRequested = searchParams?.get(CLIENT_CHANGE_PARAM) === "1";
+  useEffect(() => {
+    if (!clientChangeRequested) return;
+    if (canEditChampion) {
+      setClientChangeText(takeClientChangeText(jobId));
+      setClientChangeOpen(true);
+    }
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    params.delete(CLIENT_CHANGE_PARAM);
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : (pathname ?? ""), { scroll: false });
+  }, [clientChangeRequested, canEditChampion, jobId, pathname, router, searchParams]);
+
   const goChampion = (anchor: string | null) => {
     const block = blockForAnchor(anchor);
     if (block && canEditChampion) openBlock(block);
@@ -143,7 +167,8 @@ export function ChampionWorkspace({
 
   return (
     <div className="space-y-3.5" data-testid="champion-workspace">
-      <div data-help="job.champion.tabs">
+      <div data-help="job.champion.tabs" className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
         <TabbedNav
           ariaLabel="Profil Championa"
           value={tab}
@@ -166,6 +191,22 @@ export function ChampionWorkspace({
           ]}
           overflow="scroll"
         />
+        </div>
+        {canEditChampion && !fullFormDirty ? (
+          <button
+            type="button"
+            onClick={() => {
+              setClientChangeText(null);
+              setClientChangeOpen(true);
+            }}
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 text-[13px] font-medium text-primary hover:bg-primary/15 focus-visible:outline-2 focus-visible:outline-ring"
+            data-testid="client-change-open"
+            data-tour="champion.client-change.open"
+          >
+            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+            Klient coś zmienił
+          </button>
+        ) : null}
       </div>
 
       {tab === "brief" ? (
@@ -242,6 +283,18 @@ export function ChampionWorkspace({
             />
           </section>
         </div>
+      ) : null}
+
+      {canEditChampion && clientChangeOpen ? (
+        <ClientChangeDialog
+          jobId={jobId}
+          open={clientChangeOpen}
+          onOpenChange={(next) => {
+            setClientChangeOpen(next);
+            if (!next) setClientChangeText(null);
+          }}
+          initialText={clientChangeText}
+        />
       ) : null}
 
       <ChampionEditDrawer

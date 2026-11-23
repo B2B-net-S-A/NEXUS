@@ -37,7 +37,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FormProvider, useForm, type Path, type UseFormReturn } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, Ban, Clock, History, Loader2, Lock, Save, StickyNote } from "lucide-react";
+import { AlertTriangle, ArrowRight, Ban, Clock, History, Loader2, Lock, PhoneOff, Save, StickyNote } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -66,6 +66,7 @@ import {
   type PhraseController,
 } from "@/components/v2/screening/PhraseSuggestion";
 import {
+  ExperienceChecklistField,
   OverallFitField,
   ScreeningFormFields,
   ScreeningNoQuestions,
@@ -77,6 +78,7 @@ import { VerifiedRateFields } from "@/components/v2/screening/VerifiedRateFields
 import { ClientFormScreeningAsks } from "@/components/v2/screening-form/ClientFormScreeningAsks";
 import { ScreeningProfileFields } from "@/components/v2/screening-form/ScreeningProfileFields";
 import { useCapability } from "@/hooks/useCapability";
+import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { candidatesApi, type RateUnit, type ScreeningQuestion } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -146,6 +148,7 @@ import {
   type SingleDirty,
 } from "@/lib/screening-memory";
 import { cn } from "@/lib/utils";
+import { conversationSheetProgress, splitSheetTerms, type ConversationSheetProgress } from "@/lib/conversation-sheet";
 import { evaluateRateGate } from "@/lib/verified-rate-gate";
 import { fixFieldState } from "@/lib/screening-fix-request";
 
@@ -698,6 +701,70 @@ export interface ScreeningFullFormViewProps {
   savingAvailability?: boolean;
   /** Tryb pracy z profilu kandydata („Do 2 dni w biurze”) — podpowiedź pod polem. */
   profileWorkMode?: string | null;
+  /**
+   * `sheet` — „Arkusz rozmowy” w lewej połowie panelu (23.11.2026): pasek braków
+   * na górze, dwie kolumny, stopka na dole. Te same pola i zapis co `column`.
+   */
+  layout?: ScreeningFormLayout;
+  /** Etap „Zapisz i przekaż dalej” — pasek arkusza mówi, czego do niego brakuje. */
+  forwardLabel?: string | null;
+}
+
+export type ScreeningFormLayout = "column" | "sheet";
+
+/** Pasek nad arkuszem rozmowy: braki do „Zweryfikowany” znikają przy wypełnianiu. */
+function SheetGapsBar({
+  progress,
+  forwardLabel,
+  onPick,
+}: {
+  progress: ConversationSheetProgress;
+  forwardLabel: string | null;
+  onPick: (key: string) => void;
+}) {
+  const counts = [
+    progress.questions > 0 ? `pytania ${progress.answered} z ${progress.questions}` : null,
+    progress.checks > 0 ? `sprawdź ${progress.checksDone} z ${progress.checks}` : null,
+  ].filter(Boolean);
+  const gaps = progress.missing.length;
+  if (!forwardLabel && counts.length === 0) return null;
+  return (
+    <div
+      className={cn(
+        "sticky top-0 z-10 flex flex-wrap items-center gap-x-2 gap-y-1 border-b px-3 py-2 text-xs backdrop-blur",
+        forwardLabel && gaps > 0
+          ? "border-warning/30 bg-warning-muted/95 text-warning-muted-foreground"
+          : "border-border bg-background/95 text-muted-foreground",
+      )}
+      data-testid="conversation-sheet-gaps"
+      data-tour="screening.sheet.gaps"
+      role="status"
+    >
+      {forwardLabel ? (
+        gaps > 0 ? (
+          <>
+            <span className="font-semibold">
+              Do „{forwardLabel}” brakuje {gaps}:
+            </span>
+            {progress.missing.map((gap) => (
+              <button
+                key={gap.key}
+                type="button"
+                onClick={() => onPick(gap.key)}
+                className="rounded-full border border-current/30 bg-background px-2 py-0.5 font-medium text-foreground hover:bg-muted"
+                data-testid="conversation-sheet-gap"
+              >
+                {gap.label}
+              </button>
+            ))}
+          </>
+        ) : (
+          <span className="font-medium">Do „{forwardLabel}”: komplet pól dla Delivery Leada</span>
+        )
+      ) : null}
+      {counts.length > 0 ? <span className="ml-auto whitespace-nowrap">{counts.join(" · ")}</span> : null}
+    </div>
+  );
 }
 
 export function ScreeningFullFormView({
@@ -714,7 +781,11 @@ export function ScreeningFullFormView({
   onSaveAvailability,
   savingAvailability = false,
   profileWorkMode = null,
+  layout = "column",
+  forwardLabel = null,
 }: ScreeningFullFormViewProps) {
+  const sheet = layout === "sheet";
+  const [rareOpen, setRareOpen] = useState(false);
   const { methods, questions, offers, hints } = model;
   const values = methods.watch();
   // D6 (08.10.2026): pola, które Delivery Lead wskazał do poprawy.
@@ -804,6 +875,8 @@ export function ScreeningFullFormView({
       phrase={phrase}
       withOverallFit={false}
       withCheckNotes={Boolean(state.profile_fields)}
+      compact={sheet}
+      withChecklist={!sheet}
     />
   );
 
@@ -845,6 +918,12 @@ export function ScreeningFullFormView({
         <FormField
           name={name}
           label={label}
+          // Arkusz rozmowy: krótkie pola z etykietą po lewej — jedno pole, jeden wiersz.
+          className={
+            sheet && !multiline
+              ? "grid grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-0.5 [&>p]:col-start-2"
+              : undefined
+          }
           // 12.10.2026: to, co już wiemy, stoi pod polem, którego dotyczy.
           description={
             key === "work_mode" && profileWorkMode
@@ -855,7 +934,8 @@ export function ScreeningFullFormView({
           {multiline ? (
             <TextareaField
               name={name}
-              rows={key === "recommendation" ? 4 : 3}
+              rows={sheet ? 2 : key === "recommendation" ? 4 : 3}
+              className={sheet ? "min-h-0" : undefined}
               placeholder={hint ? `ostatnio: ${hint}` : CARD_FIELD_HINT[key]}
             />
           ) : (
@@ -910,241 +990,335 @@ export function ScreeningFullFormView({
   const legacy = state.legacy_notes?.trim() ?? "";
   const legacyMoved = Boolean(values.clear_legacy_notes);
   const canMoveLegacy = assessmentKeys.includes("recommendation");
+  // Arkusz rozmowy: rzadkie pola „Warunków” pod „pokaż” — chyba że są wymagane,
+  // mają zapisaną (albo przeniesioną) wartość albo DL prosi o ich poprawkę.
+  // Liczone ze stanu serwera, nie z wpisu: pole nie skacze w trakcie pisania.
+  const keepTerms = new Set(
+    termsKeys.filter(
+      (key) =>
+        (state.card?.required ?? []).includes(key) ||
+        requiredByClient(state, key) != null ||
+        String(fields[key]?.raw ?? "").trim() !== "" ||
+        model.carriedPrefilled[key] != null ||
+        (fixRequest != null && fixState(`field:${key}`) != null),
+    ),
+  );
+  const sheetTerms = splitSheetTerms(termsKeys, keepTerms);
+
+  const sections = {
+    warunki: (
+      <section aria-label="Warunki" className="space-y-3">
+        <SectionTitle hint={sheet ? undefined : "Te pola widzi Delivery Lead przed wysłaniem CV."}>
+          Warunki
+        </SectionTitle>
+        <div
+          ref={rateBlockRef}
+          className={cn("space-y-2", !sheet && "rounded-lg border border-border bg-background/40 p-3")}
+          data-testid="screening-form-rate"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-medium text-foreground">Stawka kandydata w tej rekrutacji</p>
+            <FixMark state={fixState("candidate_rate")} />
+            {model.rateFromNote ? (
+              <Badge variant="soft" size="sm">
+                z notatki
+              </Badge>
+            ) : null}
+          </div>
+          {nonPln ? (
+            <p className="text-[11px] text-muted-foreground">
+              Stawka w walucie {values.rate_currency.toUpperCase()} — zapis zostawi tę walutę.
+            </p>
+          ) : null}
+          <VerifiedRateFields
+            rate={values.rate_amount ?? ""}
+            onRateChange={(next) => {
+              model.touchRate();
+              methods.setValue("rate_amount", next, SET);
+            }}
+            unit={values.rate_unit ?? "hourly"}
+            onUnitChange={(next: RateUnit) => {
+              model.touchRate();
+              methods.setValue("rate_unit", next, SET);
+            }}
+            gate={gate}
+            disabled={!state.can_edit_rate}
+            idPrefix="screening-form-rate"
+            compact={sheet}
+            overBudgetNote={
+              lowerRate
+                ? {
+                    text: lowerKnownRateText(lowerRate),
+                    useLabel: `Użyj ${formatFormRate(lowerRate.rate)}`,
+                    onUse: () => setRate(lowerRate.rate),
+                  }
+                : null
+            }
+          />
+          {prefilled ? (
+            <p className="text-[11px] text-muted-foreground [overflow-wrap:anywhere]" data-testid="rate-prefill-origin">
+              {ratePrefillCaption(prefilled.origin)} ·{" "}
+              <button
+                type="button"
+                onClick={focusRate}
+                className="font-medium text-primary hover:underline"
+                aria-label="Zmień stawkę kandydata"
+              >
+                zmień
+              </button>
+            </p>
+          ) : null}
+          {!state.can_edit_rate ? (
+            <p className="text-[11px] text-muted-foreground">
+              Nie możesz zmieniać stawki kandydata w tej rekrutacji — pole jest tylko do odczytu.
+            </p>
+          ) : null}
+          {state.can_edit_rate ? (
+            <div className="flex flex-wrap gap-1.5">
+              {state.rate_hints?.card && !inField(state.rate_hints.card) ? (
+                // Stawka z karty rekomendacji (14.10.2026: „Z karty”, nie „Z notatki” —
+                // pod polem „z notatki” znaczy stawkę z notatek rekrutera).
+                <HintChip
+                  label="Z karty"
+                  text={formatFormRate(state.rate_hints.card)}
+                  onUse={() => setRate(state.rate_hints.card as FormRate)}
+                />
+              ) : null}
+              {state.rate_hints?.rate_from && !inField(state.rate_hints.rate_from) ? (
+                <HintChip
+                  label={contractRate ? "Stawka u nas" : "Stawka od"}
+                  text={formatFormRate(state.rate_hints.rate_from)}
+                  onUse={() => setRate(state.rate_hints.rate_from as FormRate)}
+                />
+              ) : null}
+              {declared && !inField(declared) ? (
+                // R4 (17.10.2026): przy żywej umowie — najniższa zadeklarowana stawka.
+                <HintChip
+                  label="Zadeklarowana od"
+                  text={`${formatFormRate(declared)}${declaredDate ? ` · ${declaredDate}` : ""}`}
+                  onUse={() => setRate(declared)}
+                />
+              ) : null}
+            </div>
+          ) : null}
+          {!noteRateInField ? (
+            <ScreeningSuggestionChips
+              only="rate"
+              suggestions={state.suggestions_from_notes as ScreeningSuggestions | undefined}
+              disabled={!state.can_edit_rate}
+              onUseRate={(fill) => {
+                model.touchRate();
+                methods.setValue("rate_amount", fill.rate, SET);
+                methods.setValue("rate_unit", fill.unit, SET);
+                methods.setValue("rate_currency", "PLN", SET);
+              }}
+            />
+          ) : null}
+          {rateOffer ? (
+            <OfferChip
+              offer={rateOffer}
+              onUse={() => model.acceptOffer(rateOffer.id)}
+              onDismiss={() => model.dismissOffer(rateOffer.id)}
+            />
+          ) : null}
+          {rateHint ? (
+            <p className="text-[11px] text-muted-foreground" data-testid="note-rate-hint">
+              Z notatki: „{rateHint.text}” — wpisz kwotę i jednostkę ręcznie.
+            </p>
+          ) : null}
+          {state.rate_change_notifies && state.can_edit_rate ? (
+            <p className="flex items-start gap-1.5 text-[11px] text-warning-muted-foreground">
+              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+              Kandydat jest od „Zweryfikowany” — zmiana stawki otworzy sprawę „zmiana stawki” u Delivery Leada.
+            </p>
+          ) : null}
+        </div>
+        <ScreeningProfileFields methods={methods} disabled={!state.editable} />
+        {termsKeys.length > 0 && !sheet ? (
+          <div className="@container">
+            {/* grid-cols-1 (minmax(0,1fr)), nie niejawna kolumna `auto`: ta rosła
+                do pełnej długości podpowiedzi „Z notatek” i przesuwała panel w bok. */}
+            <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2">{termsKeys.map((key) => cardField(key, false))}</div>
+          </div>
+        ) : null}
+        {termsKeys.length > 0 && sheet ? (
+          <div className="space-y-2.5" data-testid="conversation-sheet-terms">
+            {sheetTerms.common.map((key) => cardField(key, false))}
+            {sheetTerms.rare.length > 0 && !rareOpen ? (
+              <p className="text-xs text-muted-foreground">
+                + {sheetTerms.rare.map((key) => formFieldLabel(state, key)).join(", ")}{" "}
+                <button
+                  type="button"
+                  className="font-medium text-primary hover:underline"
+                  onClick={() => setRareOpen(true)}
+                  aria-label={`Pokaż pola: ${sheetTerms.rare.map((key) => formFieldLabel(state, key)).join(", ")}`}
+                >
+                  pokaż
+                </button>
+              </p>
+            ) : null}
+            {rareOpen ? sheetTerms.rare.map((key) => cardField(key, false)) : null}
+          </div>
+        ) : null}
+      </section>
+    ),
+    pytania: (
+      <section aria-label="Pytania z Profilu Championa" className="space-y-3">
+        <SectionTitle
+          hint={
+            questions.length > 0 && !sheet
+              ? `${answeredCount} z ${countPl(questions.length, "pytania", "pytań", "pytań")} z odpowiedzią${dealBreakerHit ? " · zaznaczony deal-breaker" : ""}`
+              : undefined
+          }
+        >
+          Pytania z Profilu Championa
+        </SectionTitle>
+        {questions.length === 0 ? (
+          <ScreeningNoQuestions onOpenChampion={onOpenChampion} />
+        ) : (
+          <>
+            {phrase ? <PhraseAllBar phrase={phrase} questions={questions} methods={sheetMethods(methods)} /> : null}
+            {state.stage_id != null ? (
+              <ScreeningReassignSuggestions
+                key={state.stage_id}
+                stageId={state.stage_id}
+                questions={questions}
+                methods={sheetMethods(methods)}
+                saved={state.sheet}
+                readOnly={!state.editable}
+              >
+                {(extra) => sheetFields(extra)}
+              </ScreeningReassignSuggestions>
+            ) : (
+              sheetFields(() => null)
+            )}
+          </>
+        )}
+      </section>
+    ),
+    ocena: (
+      <section aria-label="Ocena" className="space-y-3">
+        <SectionTitle>Ocena</SectionTitle>
+        <div className={cn("space-y-1.5", !sheet && "rounded-lg border border-border bg-background/40 p-3")}>
+          <FixMark state={fixState("field:overall_fit")} />
+          <OverallFitField methods={sheetMethods(methods)} compact={sheet} />
+        </div>
+        {assessmentKeys.map((key) => cardField(key, true))}
+        {legacy ? (
+          <div
+            className="space-y-1.5 rounded-lg border border-dashed border-border bg-muted/30 p-3 text-xs"
+            data-testid="legacy-sheet-note"
+          >
+            <p className="font-medium text-foreground">Notatka z arkusza</p>
+            <p className="whitespace-pre-line text-muted-foreground [overflow-wrap:anywhere]">{legacy}</p>
+            {legacyMoved ? (
+              <p role="status" className="text-[11px] text-muted-foreground">
+                Przeniesiona do „Dlaczego ten kandydat” — zapisz formularz, żeby usunąć ją z arkusza.
+              </p>
+            ) : canMoveLegacy ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const current = methods.getValues("card.recommendation") ?? "";
+                  methods.setValue("card.recommendation", mergeLegacyNote(current, legacy), SET);
+                  methods.setValue("clear_legacy_notes", true, SET);
+                }}
+              >
+                Przenieś do „Dlaczego ten kandydat”
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+    ),
+  };
+  const top = (
+    <>
+      {banner}
+      {fixRequest ? <FixRequestBanner request={fixRequest} dirty={dirtyFields} /> : null}
+      {model.notice ? (
+        <p
+          role="status"
+          className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+        >
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1">{model.notice}</span>
+          <button
+            type="button"
+            className="shrink-0 font-medium underline underline-offset-2"
+            onClick={() => model.setNotice(null)}
+          >
+            Rozumiem
+          </button>
+        </p>
+      ) : null}
+      {noteBar}
+    </>
+  );
+
+  if (sheet) {
+    return (
+      <FormProvider {...methods}>
+        <div
+          className="@container flex min-h-full flex-col"
+          data-help="jobs.person.screening-form"
+          data-testid="screening-full-form"
+          data-layout="sheet"
+        >
+          <SheetGapsBar
+            progress={conversationSheetProgress(state, questions, values)}
+            forwardLabel={forwardLabel}
+            onPick={(key) => methods.setFocus(`card.${key}` as Path<ScreeningFullFormValues>)}
+          />
+          <div className="flex-1 space-y-3 p-3">
+            {top}
+            {/* Dwie kolumny od ok. 700 px strefy: lewa (węższa, pola z etykietą obok) —
+                warunki i „Sprawdź w rozmowie”, prawa — pytania i ocena, które są
+                dłuższe. Kolejność jak w kolumnie (warunki pierwsze). */}
+            <div className="grid grid-cols-1 gap-3 @[44rem]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+              <div className="min-w-0 space-y-4 rounded-lg border border-border bg-card p-3">
+                {sections.warunki}
+                <ExperienceChecklistField
+                  methods={sheetMethods(methods)}
+                  withNotes={Boolean(state.profile_fields)}
+                  compact
+                />
+              </div>
+              <div className="min-w-0 space-y-4 rounded-lg border border-border bg-card p-3">
+                {sections.pytania}
+                {state.stage_id != null ? <ClientFormScreeningAsks stageId={state.stage_id} /> : null}
+                {sections.ocena}
+              </div>
+            </div>
+            {error ? <ScreeningSubmitError message={error} /> : null}
+            {history}
+          </div>
+          {footer}
+        </div>
+      </FormProvider>
+    );
+  }
 
   return (
     <FormProvider {...methods}>
       <div className="space-y-5" data-help="jobs.person.screening-form" data-testid="screening-full-form">
-        {banner}
-        {fixRequest ? <FixRequestBanner request={fixRequest} dirty={dirtyFields} /> : null}
-        {model.notice ? (
-          <p
-            role="status"
-            className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
-          >
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-            <span className="min-w-0 flex-1">{model.notice}</span>
-            <button
-              type="button"
-              className="shrink-0 font-medium underline underline-offset-2"
-              onClick={() => model.setNotice(null)}
-            >
-              Rozumiem
-            </button>
-          </p>
-        ) : null}
-        {noteBar}
+        {top}
 
         {/* Kolejność (09.10.2026, prośba rekruterów): najpierw warunki — stawka,
             dostępność, tryb — potem pytania. Do tej daty warunki stały pod
             pytaniami i przy długim arkuszu trzeba było do nich przewijać. */}
         {/* ── Warunki ─────────────────────────────────────────────────── */}
-        <section aria-label="Warunki" className="space-y-3">
-          <SectionTitle hint="Te pola widzi Delivery Lead przed wysłaniem CV.">
-            Warunki
-          </SectionTitle>
-          <div
-            ref={rateBlockRef}
-            className="space-y-2 rounded-lg border border-border bg-background/40 p-3"
-            data-testid="screening-form-rate"
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-xs font-medium text-foreground">Stawka kandydata w tej rekrutacji</p>
-              <FixMark state={fixState("candidate_rate")} />
-              {model.rateFromNote ? (
-                <Badge variant="soft" size="sm">
-                  z notatki
-                </Badge>
-              ) : null}
-            </div>
-            {nonPln ? (
-              <p className="text-[11px] text-muted-foreground">
-                Stawka w walucie {values.rate_currency.toUpperCase()} — zapis zostawi tę walutę.
-              </p>
-            ) : null}
-            <VerifiedRateFields
-              rate={values.rate_amount ?? ""}
-              onRateChange={(next) => {
-                model.touchRate();
-                methods.setValue("rate_amount", next, SET);
-              }}
-              unit={values.rate_unit ?? "hourly"}
-              onUnitChange={(next: RateUnit) => {
-                model.touchRate();
-                methods.setValue("rate_unit", next, SET);
-              }}
-              gate={gate}
-              disabled={!state.can_edit_rate}
-              idPrefix="screening-form-rate"
-              overBudgetNote={
-                lowerRate
-                  ? {
-                      text: lowerKnownRateText(lowerRate),
-                      useLabel: `Użyj ${formatFormRate(lowerRate.rate)}`,
-                      onUse: () => setRate(lowerRate.rate),
-                    }
-                  : null
-              }
-            />
-            {prefilled ? (
-              <p className="text-[11px] text-muted-foreground [overflow-wrap:anywhere]" data-testid="rate-prefill-origin">
-                {ratePrefillCaption(prefilled.origin)} ·{" "}
-                <button
-                  type="button"
-                  onClick={focusRate}
-                  className="font-medium text-primary hover:underline"
-                  aria-label="Zmień stawkę kandydata"
-                >
-                  zmień
-                </button>
-              </p>
-            ) : null}
-            {!state.can_edit_rate ? (
-              <p className="text-[11px] text-muted-foreground">
-                Nie możesz zmieniać stawki kandydata w tej rekrutacji — pole jest tylko do odczytu.
-              </p>
-            ) : null}
-            {state.can_edit_rate ? (
-              <div className="flex flex-wrap gap-1.5">
-                {state.rate_hints?.card && !inField(state.rate_hints.card) ? (
-                  // Stawka z karty rekomendacji (14.10.2026: „Z karty”, nie „Z notatki” —
-                  // pod polem „z notatki” znaczy stawkę z notatek rekrutera).
-                  <HintChip
-                    label="Z karty"
-                    text={formatFormRate(state.rate_hints.card)}
-                    onUse={() => setRate(state.rate_hints.card as FormRate)}
-                  />
-                ) : null}
-                {state.rate_hints?.rate_from && !inField(state.rate_hints.rate_from) ? (
-                  <HintChip
-                    label={contractRate ? "Stawka u nas" : "Stawka od"}
-                    text={formatFormRate(state.rate_hints.rate_from)}
-                    onUse={() => setRate(state.rate_hints.rate_from as FormRate)}
-                  />
-                ) : null}
-                {declared && !inField(declared) ? (
-                  // R4 (17.10.2026): przy żywej umowie — najniższa zadeklarowana stawka.
-                  <HintChip
-                    label="Zadeklarowana od"
-                    text={`${formatFormRate(declared)}${declaredDate ? ` · ${declaredDate}` : ""}`}
-                    onUse={() => setRate(declared)}
-                  />
-                ) : null}
-              </div>
-            ) : null}
-            {!noteRateInField ? (
-              <ScreeningSuggestionChips
-                only="rate"
-                suggestions={state.suggestions_from_notes as ScreeningSuggestions | undefined}
-                disabled={!state.can_edit_rate}
-                onUseRate={(fill) => {
-                  model.touchRate();
-                  methods.setValue("rate_amount", fill.rate, SET);
-                  methods.setValue("rate_unit", fill.unit, SET);
-                  methods.setValue("rate_currency", "PLN", SET);
-                }}
-              />
-            ) : null}
-            {rateOffer ? (
-              <OfferChip
-                offer={rateOffer}
-                onUse={() => model.acceptOffer(rateOffer.id)}
-                onDismiss={() => model.dismissOffer(rateOffer.id)}
-              />
-            ) : null}
-            {rateHint ? (
-              <p className="text-[11px] text-muted-foreground" data-testid="note-rate-hint">
-                Z notatki: „{rateHint.text}” — wpisz kwotę i jednostkę ręcznie.
-              </p>
-            ) : null}
-            {state.rate_change_notifies && state.can_edit_rate ? (
-              <p className="flex items-start gap-1.5 text-[11px] text-warning-muted-foreground">
-                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
-                Kandydat jest od „Zweryfikowany” — zmiana stawki otworzy sprawę „zmiana stawki” u Delivery Leada.
-              </p>
-            ) : null}
-          </div>
-          <ScreeningProfileFields methods={methods} disabled={!state.editable} />
-          {termsKeys.length > 0 ? (
-            <div className="@container">
-              {/* grid-cols-1 (minmax(0,1fr)), nie niejawna kolumna `auto`: ta rosła
-                  do pełnej długości podpowiedzi „Z notatek” i przesuwała panel w bok. */}
-              <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2">{termsKeys.map((key) => cardField(key, false))}</div>
-            </div>
-          ) : null}
-        </section>
+        {sections.warunki}
 
         {/* ── Pytania ─────────────────────────────────────────────────── */}
-        <section aria-label="Pytania z Profilu Championa" className="space-y-3">
-          <SectionTitle
-            hint={
-              questions.length > 0
-                ? `${answeredCount} z ${countPl(questions.length, "pytania", "pytań", "pytań")} z odpowiedzią${dealBreakerHit ? " · zaznaczony deal-breaker" : ""}`
-                : undefined
-            }
-          >
-            Pytania z Profilu Championa
-          </SectionTitle>
-          {questions.length === 0 ? (
-            <ScreeningNoQuestions onOpenChampion={onOpenChampion} />
-          ) : (
-            <>
-              {phrase ? <PhraseAllBar phrase={phrase} questions={questions} methods={sheetMethods(methods)} /> : null}
-              {state.stage_id != null ? (
-                <ScreeningReassignSuggestions
-                  key={state.stage_id}
-                  stageId={state.stage_id}
-                  questions={questions}
-                  methods={sheetMethods(methods)}
-                  saved={state.sheet}
-                  readOnly={!state.editable}
-                >
-                  {(extra) => sheetFields(extra)}
-                </ScreeningReassignSuggestions>
-              ) : (
-                sheetFields(() => null)
-              )}
-            </>
-          )}
-        </section>
+        {sections.pytania}
 
         {state.stage_id != null ? <ClientFormScreeningAsks stageId={state.stage_id} /> : null}
 
         {/* ── Ocena ───────────────────────────────────────────────────── */}
-        <section aria-label="Ocena" className="space-y-3">
-          <SectionTitle>Ocena</SectionTitle>
-          <div className="space-y-1.5 rounded-lg border border-border bg-background/40 p-3">
-            <FixMark state={fixState("field:overall_fit")} />
-            <OverallFitField methods={sheetMethods(methods)} />
-          </div>
-          {assessmentKeys.map((key) => cardField(key, true))}
-          {legacy ? (
-            <div
-              className="space-y-1.5 rounded-lg border border-dashed border-border bg-muted/30 p-3 text-xs"
-              data-testid="legacy-sheet-note"
-            >
-              <p className="font-medium text-foreground">Notatka z arkusza</p>
-              <p className="whitespace-pre-line text-muted-foreground [overflow-wrap:anywhere]">{legacy}</p>
-              {legacyMoved ? (
-                <p role="status" className="text-[11px] text-muted-foreground">
-                  Przeniesiona do „Dlaczego ten kandydat” — zapisz formularz, żeby usunąć ją z arkusza.
-                </p>
-              ) : canMoveLegacy ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    const current = methods.getValues("card.recommendation") ?? "";
-                    methods.setValue("card.recommendation", mergeLegacyNote(current, legacy), SET);
-                    methods.setValue("clear_legacy_notes", true, SET);
-                  }}
-                >
-                  Przenieś do „Dlaczego ten kandydat”
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-        </section>
+        {sections.ocena}
 
         {error ? <ScreeningSubmitError message={error} /> : null}
         {footer}
@@ -1207,6 +1381,8 @@ export interface ScreeningFullFormProps {
   onReselect?: (jobId: number) => void;
   /** Bliźniaki pominięte w „Screening dla” (0614): rekrutacja → kod powodu. */
   twinSkips?: Record<string, string>;
+  /** „Arkusz rozmowy” w lewej połowie panelu (Tryb rozmowy, 23.11.2026). */
+  layout?: ScreeningFormLayout;
 }
 
 export function ScreeningFullForm({
@@ -1231,7 +1407,9 @@ export function ScreeningFullForm({
   pendingMemory = [],
   onReselect,
   twinSkips,
+  layout = "column",
 }: ScreeningFullFormProps) {
+  const sheet = layout === "sheet";
   const { showSuccess, showError, showInfo, showActionToast } = useToast();
   const queryClient = useQueryClient();
   // 22.10.2026: Delivery Lead przekazuje dalej bez kompletu pól — serwer też
@@ -1266,6 +1444,8 @@ export function ScreeningFullForm({
   const phrase = state?.assist_enabled && editable ? phraseController : undefined;
 
   const save = useSaveScreeningForm({ onSaved: (result) => model.markSaved(result) });
+  // Arkusz rozmowy: „Nie odebrał” w stopce — ta sama notatka-próba co w „Co już wiemy”.
+  const noAnswer = useNoAnswerNote({ candidateId, jobId });
   const moveCore = usePipelineMoveCore({ jobId });
 
   // D3 (14.10.2026): „Zapisz notatkę i wypełnij formularz” w doku osoby. Ten
@@ -1688,9 +1868,30 @@ export function ScreeningFullForm({
     : [];
   const minimumRequired = forward ? (state.card?.required ?? []).length > 0 : false;
 
+  const rejectButton = reject ? (
+    <Button
+      type="button"
+      size="sm"
+      variant="quiet"
+      disabled={busy}
+      onClick={() => {
+        setRejectSnapshot(rejectFollowUp?.());
+        setRejectOpen(true);
+      }}
+      title="Ten sam modal powodu i ta sama reguła maila co na Tablicy"
+    >
+      <Ban className="h-3.5 w-3.5" aria-hidden /> Odrzuć
+    </Button>
+  ) : null;
+
   const footer = (
     <div
-      className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-background/95 px-1 py-2.5 [[data-compact]_&]:gap-y-1 [[data-compact]_&]:py-1.5 backdrop-blur supports-[backdrop-filter]:bg-background/80"
+      className={cn(
+        "sticky bottom-0 z-10 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80",
+        sheet
+          ? "px-3 py-2"
+          : "-mx-1 px-1 py-2.5 [[data-compact]_&]:gap-y-1 [[data-compact]_&]:py-1.5",
+      )}
       data-testid="screening-form-footer"
     >
       {pendingMemory.length > 0 ? (
@@ -1698,7 +1899,7 @@ export function ScreeningFullForm({
           <MemoryPendingNote scope="tylko tę rekrutację" items={pendingMemory} onReselect={onReselect} />
         </div>
       ) : null}
-      {minimumRequired ? (
+      {minimumRequired && !sheet ? (
         <p
           className={cn(
             "basis-full text-[11px] [[data-compact]_&]:truncate",
@@ -1711,9 +1912,27 @@ export function ScreeningFullForm({
             : "Minimum dla Delivery Leada: komplet"}
         </p>
       ) : null}
+      {sheet ? (
+        // Arkusz rozmowy: braki stoją na pasku nad arkuszem, akcje rozmowy po lewej.
+        <div className="mr-auto flex flex-wrap items-center gap-2">
+          {reject ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={noAnswer.isPending || busy}
+              onClick={() => noAnswer.mutate()}
+            >
+              <PhoneOff className="h-3.5 w-3.5" aria-hidden /> Nie odebrał
+            </Button>
+          ) : null}
+          {rejectButton}
+        </div>
+      ) : null}
       <p
         className={cn(
-          "mr-auto flex items-center gap-1 text-[11px] text-muted-foreground",
+          "flex items-center gap-1 text-[11px] text-muted-foreground",
+          !sheet && "mr-auto",
           // Tryb rozmowy: „Wersja N” / „jeszcze niezapisany” ustępuje przyciskom, „Niezapisane zmiany” zostaje.
           !dirty && "[[data-compact]_&]:hidden",
         )}
@@ -1745,21 +1964,7 @@ export function ScreeningFullForm({
           Anuluj
         </Button>
       ) : null}
-      {reject ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="quiet"
-          disabled={busy}
-          onClick={() => {
-            setRejectSnapshot(rejectFollowUp?.());
-            setRejectOpen(true);
-          }}
-          title="Ten sam modal powodu i ta sama reguła maila co na Tablicy"
-        >
-          <Ban className="h-3.5 w-3.5" aria-hidden /> Odrzuć
-        </Button>
-      ) : null}
+      {sheet ? null : rejectButton}
       <Button
         type="button"
         size="sm"
@@ -1844,6 +2049,8 @@ export function ScreeningFullForm({
         onSaveAvailability={canEditCandidate ? (patch) => availabilityMut.mutate(patch) : undefined}
         savingAvailability={availabilityMut.isPending}
         profileWorkMode={profileWorkMode}
+        layout={layout}
+        forwardLabel={forward?.label ?? null}
       />
       {moveCore.dialogs}
       {reject && rejectOpen ? (

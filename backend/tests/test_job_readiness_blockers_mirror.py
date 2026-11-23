@@ -34,6 +34,7 @@ EXPECTED = {
     "critical": job_readiness.MSG_CRITICAL,
     "search": job_readiness.MSG_SEARCH_REQUIREMENTS,
     "deal_breaker": job_readiness.MSG_DEAL_BREAKER,
+    "key_task": job_readiness.MSG_KEY_TASK,
     "hiring_manager": job_readiness.MSG_HIRING_MANAGER,
     "deadline": job_readiness.MSG_DEADLINE,
     "category": job_readiness.MSG_CATEGORY,

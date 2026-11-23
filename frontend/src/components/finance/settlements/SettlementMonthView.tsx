@@ -3,7 +3,7 @@
 // Miesiąc klienta: osoby, RCP, MD i kwoty (roadmapa E1.6). Przyjęcie zbiorcze
 // bierze tylko RCP bez uwag; reszta przez kartę osoby.
 import { useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { Bot, Search } from "lucide-react";
 
 import { QueryStateNotice, StatusDot } from "@/components/ds";
 import { useToast } from "@/components/Toast";
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
+import { warsawToday } from "@/lib/warsaw-date";
 import {
   useAcceptBatch,
   useSettlementMonth,
@@ -20,9 +21,12 @@ import {
 } from "@/lib/api/client-settlements";
 import { cn } from "@/lib/utils";
 
+import { ClientMonthStrip } from "../month-close/ClientMonthStrip";
 import { ClientAcceptancePanel } from "./ClientAcceptancePanel";
 import { ClientDocumentsPanel } from "./ClientDocumentsPanel";
+import { ReportReminderButton, ReportReminderNotice } from "./ReportReminders";
 import {
+  autoAcceptText,
   CLIENT_ACCEPTANCE,
   CLIENT_INVOICE,
   CONTRACTOR_INVOICE,
@@ -91,9 +95,16 @@ export function SettlementMonthView({ clientId, month, canWrite, onOpen }: Settl
   return (
     <div className="space-y-2.5">
       {confirmDialog}
+      <ClientMonthStrip rows={data.rows} month={month} />
       <ClientAcceptancePanel clientId={clientId} month={month} canWrite={canWrite} />
       <ClientDocumentsPanel clientId={clientId} month={month} />
       <KesuSummaryBar rows={data.rows} />
+      {data.auto_accept ? (
+        <p role="status" className="flex items-start gap-2 rounded-xl border bg-card px-3 py-2 text-[13px]">
+          <Bot aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <span>{autoAcceptText(data.auto_accept, warsawToday())}</span>
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-1">
         {FILTERS.map((f) => (
           <button
@@ -109,6 +120,7 @@ export function SettlementMonthView({ clientId, month, canWrite, onOpen }: Settl
             {f.label} <span className="tabular-nums">{data.counts[f.key] ?? 0}</span>
           </button>
         ))}
+        {canWrite && data.counts.missing > 0 ? <ReportReminderButton clientId={clientId} month={month} /> : null}
         <div className="relative ml-auto w-48">
           <Search aria-hidden className="absolute left-2 top-2 size-3.5 text-muted-foreground" />
           <Input
@@ -125,6 +137,7 @@ export function SettlementMonthView({ clientId, month, canWrite, onOpen }: Settl
           </Button>
         ) : null}
       </div>
+      {filter === "missing" && data.counts.missing > 0 ? <ReportReminderNotice clientId={clientId} month={month} /> : null}
       {data.rows.length === 0 ? (
         <p className="rounded-xl border bg-card px-3 py-6 text-center text-sm text-muted-foreground">
           {data.client_name} nie ma w {monthLabel(month)} aktywnych kontraktów.
@@ -193,6 +206,7 @@ function MonthTable({ rows, showAmounts, onOpen }: MonthTableProps) {
                   <StatusDot tone={STATUS[r.status].tone} note={r.issues ?? undefined}>
                     {STATUS[r.status].label}
                   </StatusDot>
+                  {r.accepted_auto ? <span className="block text-[11px] text-muted-foreground">przyjął automat</span> : null}
                   <AcceptanceDot row={r} />
                   {r.kesu ? (
                     <span className="mt-0.5 block">

@@ -54,7 +54,15 @@ from app.models.contract import Contract
 from app.models.user import User
 from app.services import support_mail_route
 from app.services.admin_cases.mailbox import m365_mailbox as cases_mailbox
-from app.services.client_settlements import kesu, report_ca, t4t_mail, timesheet_plus
+from app.services.client_settlements import (
+    hours_summary,
+    kesu,
+    mail_text,
+    protocol_collective,
+    report_ca,
+    t4t_mail,
+    timesheet_plus,
+)
 from app.services.consultant_portal import (
     documents,
     forwarded,
@@ -158,6 +166,14 @@ _PERIOD_WORD = re.compile(
 _PERIOD_COMPACT = re.compile(r"(?<!\d)(20\d{2})(0[1-9]|1[0-2])(?!\d)")
 _PERIOD_SHORT = re.compile(r"(?<![\d./])(0?[1-9]|1[0-2])[._-](\d{2})(?!\d|[./]\d)")
 _PERIOD_SLASHED = re.compile(r"/(\d{2})/(0[1-9]|1[0-2])(?!\d)")
+# Szablon PKO: „TimeSheet 2610 - Nazwisko Imię PZ0xxxxx.xlsm” (RRMM).
+_PERIOD_PKO_SHEET = re.compile(
+    r"timesheet\s+(\d{2})(0[1-9]|1[0-2])(?!\d)", re.IGNORECASE
+)
+# Okres dalej niż dwa miesiące po mailu to literówka w roku („Październik 2027”
+# w odpowiedzi klienta z 30.10.2026, próba IX–X), nie okres. Faktury z wyprzedzeniem
+# do dwóch miesięcy zostają.
+_MAX_MONTHS_AHEAD = 2
 # Całe słowa, nie rdzenie: „Mariusz” to nie marzec, „Majewski” to nie maj.
 _MONTH_WORDS = {
     word: month
@@ -307,14 +323,24 @@ def kind_of_file(subject: str, file_name: str, content: bytes) -> str:
         return kind
     from app.services.client_settlements import (
         confirmation_ergo,
+        ewidencja_orlen,
         protocol_orlen,
         rcp_bnp,
         timesheet,
         timesheet_bik,
+        timesheet_fieldglass,
     )
 
     # Każdy czytnik sam odrzuca typ pliku, którego nie zna.
-    readers = (rcp_bnp, confirmation_ergo, protocol_orlen, timesheet, timesheet_bik)
+    readers = (
+        rcp_bnp,
+        confirmation_ergo,
+        protocol_orlen,
+        ewidencja_orlen,
+        timesheet,
+        timesheet_bik,
+        timesheet_fieldglass,
+    )
     if any(reader.parse(content, mime) is not None for reader in readers):
         return "report"
     return kind
@@ -385,10 +411,11 @@ def _loose_period(text: str, received: date) -> Optional[tuple[int, int]]:
         found = plausible(century + int(match.group(2)), int(match.group(1)))
         if found:
             return found
-    for match in _PERIOD_SLASHED.finditer(text):
-        found = plausible(century + int(match.group(1)), int(match.group(2)))
-        if found:
-            return found
+    for pattern in (_PERIOD_SLASHED, _PERIOD_PKO_SHEET):
+        for match in pattern.finditer(text):
+            found = plausible(century + int(match.group(1)), int(match.group(2)))
+            if found:
+                return found
     tokens = _folded_tokens(text)
     for index, token in enumerate(tokens):
         month = _MONTH_WORDS.get(token)
@@ -408,11 +435,17 @@ def _loose_period(text: str, received: date) -> Optional[tuple[int, int]]:
 def period_for(subject: str, file_name: str, received: date) -> tuple[int, int, bool]:
     """Okres pliku; bez znaku w treści: z daty maila, z flagą „zgadnięty”."""
 
+    def not_far_ahead(period: Optional[tuple[int, int]]) -> Optional[tuple[int, int]]:
+        if period is None:
+            return None
+        ahead = (period[0] - received.year) * 12 + period[1] - received.month
+        return period if ahead <= _MAX_MONTHS_AHEAD else None
+
     found = (
-        find_period(file_name)
-        or find_period(subject)
-        or find_period(file_name, received)
-        or find_period(subject, received)
+        not_far_ahead(find_period(file_name))
+        or not_far_ahead(find_period(subject))
+        or not_far_ahead(find_period(file_name, received))
+        or not_far_ahead(find_period(subject, received))
     )
     if found:
         return found[0], found[1], False
@@ -508,9 +541,15 @@ async def _store_without_file(
     now: datetime,
     declaring: frozenset[int] = frozenset(),
 ) -> tuple[int, int]:
-    """Mail bez pliku: akceptacja w treści, deklaracja konsultanta w mailu z fakturą,
-    odpowiedź na nasz mail z Wysłanych albo akceptacja klienta z regułą akceptacji mailowej."""
+    """Mail bez pliku: zestawienie godzin koordynatora, akceptacja w treści, deklaracja
+    konsultanta w mailu z fakturą, odpowiedź na nasz mail z Wysłanych albo akceptacja
+    klienta z regułą akceptacji mailowej."""
 
+    summary = await _store_hours_summary(
+        db, mailbox, message, state=state, today=today, now=now
+    )
+    if summary is not None:
+        return summary, 0
     if declaring and is_body_only_declaration(message):
         made = await _store_declaration(
             db, mailbox, message, declaring, state=state, today=today, now=now
@@ -598,7 +637,14 @@ async def _ingest_message(
         if not any(_is_document(f) for f in files):
             return time_report.versions, time_report.duplicates
     client_report, consumed = await _store_client_reports(
-        db, files, message, sender=sender, state=state, today=today, now=now
+        db,
+        files,
+        message,
+        sender=sender,
+        received=received,
+        state=state,
+        today=today,
+        now=now,
     )
     if consumed:
         files = [f for i, f in enumerate(files) if i not in consumed]
@@ -772,15 +818,16 @@ async def _ingest_message(
 
 async def _report_people(
     db: AsyncSession,
-    report: report_ca.CaReport,
+    report: report_ca.CaReport | protocol_collective.Protocol,
     *,
     sender: str,
     state: portal_settings.PortalSettings,
     today: date,
 ) -> list[Contract]:
-    """Kontrakty osób z raportu zbiorczego, wszystkie u jednego klienta.
+    """Kontrakty osób z raportu albo protokołu zbiorczego, wszystkie u jednego klienta.
 
-    Osoba po imieniu i nazwisku z wiersza raportu. Osoby u dwóch klientów albo
+    Osoba po imieniu i nazwisku z wiersza raportu (w protokole PFRON z rolą, w
+    protokole jednej osoby z tekstu tabeli). Osoby u dwóch klientów albo
     nadawca spoza firmy i spoza domeny tego klienta = nikt (raport czeka na
     człowieka): arkusz może przysłać każdy, więc nie wskazuje nim osób sam."""
 
@@ -820,25 +867,31 @@ async def _store_client_reports(
     message: dict[str, Any],
     *,
     sender: str,
+    received: datetime,
     state: portal_settings.PortalSettings,
     today: date,
     now: datetime,
 ) -> tuple[int, set[int]]:
-    """Raport zbiorczy klienta (Credit Agricole) jako raport każdej osoby z arkusza.
+    """Raport zbiorczy klienta jako raport każdej osoby z dokumentu.
 
     (nowe, indeksy wczytanych plików). Ten sam plik u każdej osoby; czytnik
-    rozliczenia bierze z niego wiersz osoby (``client_settlements/report_ca``).
-    Miesiąc z arkusza, nie z tematu."""
+    rozliczenia bierze z niego wiersz osoby: arkusz Credit Agricole
+    (``client_settlements/report_ca``) i protokół odbioru CeZ albo PFRON w PDF
+    (``client_settlements/protocol_collective``). Miesiąc z dokumentu, nie
+    z tematu; protokół PFRON go nie ma, więc bierzemy okres z nazwy pliku albo
+    tematu, a bez niego (okres zgadnięty z daty maila) plik idzie zwykłą ścieżką."""
 
     created = 0
     consumed: set[int] = set()
     message_id = str(message["id"])[:512]
+    subject = str(message.get("subject") or "")
     for index, attachment in enumerate(files):
         name = str(attachment.get("name") or "")
         raw = attachment.get("contentBytes")
+        lower = name.lower()
         if (
             not _is_document(attachment)
-            or not name.lower().endswith(".xlsx")
+            or not lower.endswith((".xlsx", ".pdf"))
             or not isinstance(raw, str)
         ):
             continue
@@ -846,15 +899,26 @@ async def _store_client_reports(
             content = base64.b64decode(raw, validate=True)
         except ValueError:
             continue
-        report = await asyncio.to_thread(report_ca.parse, content, report_ca.XLSX)
-        if report is None or report.month is None:
+        report: report_ca.CaReport | protocol_collective.Protocol | None
+        if lower.endswith(".xlsx"):
+            report = await asyncio.to_thread(report_ca.parse, content, report_ca.XLSX)
+            period = report.month if report is not None else None
+        else:
+            report = await asyncio.to_thread(
+                protocol_collective.parse, content, protocol_collective.PDF
+            )
+            period = report.month if report is not None else None
+            if report is not None and period is None:
+                year, month, guessed = period_for(subject, name, received.date())
+                period = None if guessed else f"{year}-{month:02d}"
+        if report is None or period is None:
             continue
         people = await _report_people(
             db, report, sender=sender, state=state, today=today
         )
         if not people:
             continue
-        year, month = (int(part) for part in report.month.split("-"))
+        year, month = (int(part) for part in period.split("-"))
         for position, contract in enumerate(people):
             stored = await documents.store(
                 db,
@@ -873,6 +937,76 @@ async def _store_client_reports(
             created += 0 if stored.duplicate else 1
         consumed.add(index)
     return created, consumed
+
+
+async def _store_hours_summary(
+    db: AsyncSession,
+    mailbox: SettlementsMailbox,
+    message: dict[str, Any],
+    *,
+    state: portal_settings.PortalSettings,
+    today: date,
+    now: datetime,
+) -> Optional[int]:
+    """Zestawienie godzin zaakceptowanych przez klienta od koordynatora (CeZ, decyzja
+    Artura z 23.11.2026) jako raport każdej osoby z liczbą godzin.
+
+    ``None`` = to nie zestawienie, mail idzie dalej zwykłą ścieżką. Tylko z adresu
+    firmy i z tematem rozliczenia; osoby jak w raporcie zbiorczym (jeden klient).
+    Osoba z „czekamy” nic nie dostaje. Okres z tematu, inaczej z poczty, ale nie
+    zgadnięty z daty maila. Ten sam ``.eml`` u każdej osoby; rozliczenie bierze
+    z niego jej wiersz (``client_settlements/hours_summary``)."""
+
+    sender = _sender(message)
+    subject = str(message.get("subject") or "")
+    fetch = getattr(mailbox, "mime", None)
+    if (
+        fetch is None
+        or not identity.is_company_address(sender)
+        or not _BODY_SUBJECT.search(subject)
+    ):
+        return None
+    try:
+        content = await fetch(str(message["id"]))
+    except (GraphRequestError, AppOnlyTokenUnavailable) as exc:
+        logger.info("rozliczenia@: MIME zestawienia pominięty (%s)", type(exc).__name__)
+        return None
+    if not content:
+        return None
+    summary = await asyncio.to_thread(hours_summary.parse, content, mail_text.EML)
+    if summary is None:
+        return None
+    received = _parse_time(message.get("receivedDateTime")) or now
+    year, month, guessed = period_for(subject, "", received.date())
+    if summary.month is not None:
+        year, month = (int(part) for part in summary.month.split("-"))
+    elif guessed:
+        return None
+    people = await _report_people(db, summary, sender=sender, state=state, today=today)
+    if not people:
+        return None
+    created = 0
+    message_id = str(message["id"])[:512]
+    for position, contract in enumerate(people):
+        try:
+            stored = await documents.store(
+                db,
+                contract_id=contract.id,
+                kind="report",
+                year=year,
+                month=month,
+                content=content,
+                file_name=(subject.strip()[:120] or "zestawienie") + ".eml",
+                channel="mailbox",
+                now=now,
+                graph_message_id=message_id if position == 0 else None,
+                sender_email=sender[:320] or None,
+            )
+        except PortalError as exc:
+            logger.info("rozliczenia@: zestawienie pominięte (%s)", type(exc).__name__)
+            return created
+        created += 0 if stored.duplicate else 1
+    return created
 
 
 async def _forwarded(
