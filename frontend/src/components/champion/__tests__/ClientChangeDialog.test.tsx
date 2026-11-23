@@ -86,7 +86,7 @@ describe("ClientChangeDialog", () => {
     await user.click(screen.getByTestId("client-change-propose"));
 
     expect(await screen.findByText("Zmiana od klienta: 3 zmiany do sprawdzenia")).toBeInTheDocument();
-    expect(post).toHaveBeenCalledWith("/jobs/7/champion-profile/client-change", {
+    expect(post).toHaveBeenCalledWith("/api/jobs/7/champion-profile/client-change", {
       text: "Python is now a must, SAFe out",
     });
     expect(screen.getByText(/W bazie: 23\s342 osoby/)).toBeInTheDocument();
@@ -99,7 +99,7 @@ describe("ClientChangeDialog", () => {
 
     await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
     const [url, body] = post.mock.calls[1];
-    expect(url).toBe("/jobs/7/champion-profile/client-change/apply");
+    expect(url).toBe("/api/jobs/7/champion-profile/client-change/apply");
     expect(body.changes.map((c: { id: string }) => c.id)).toEqual(["c1", "c3"]);
     expect(body).toMatchObject({
       note: "Klient dokłada Pythona.",

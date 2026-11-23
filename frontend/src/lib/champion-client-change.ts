@@ -127,7 +127,7 @@ export function useProposeClientChange(jobId: number) {
   return useMutation({
     mutationFn: async (text: string): Promise<ClientChangeProposal> => {
       const res = await api.post(
-        `/jobs/${jobId}/champion-profile/client-change`,
+        `/api/jobs/${jobId}/champion-profile/client-change`,
         { text },
       );
       return res.data as ClientChangeProposal;
@@ -145,7 +145,7 @@ export function useApplyClientChange(jobId: number) {
       profileHash: string | null;
     }): Promise<ClientChangeApplyResult> => {
       const res = await api.post(
-        `/jobs/${jobId}/champion-profile/client-change/apply`,
+        `/api/jobs/${jobId}/champion-profile/client-change/apply`,
         {
           changes: input.changes,
           note: input.note.trim() || null,
