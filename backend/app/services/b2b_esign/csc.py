@@ -212,7 +212,10 @@ async def exchange_code(
                 raise CscError()
             data = await response.json(content_type=None)
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
-        logger.warning("[b2b_esign.csc] oauth2/token: %s", type(exc).__name__)
+        logger.warning(
+            "[b2b_esign.csc] wymiana kodu OAuth nie odpowiedziała: %s",
+            type(exc).__name__,
+        )
         raise CscError() from exc
     token = data.get("access_token") if isinstance(data, dict) else None
     if not isinstance(token, str) or not token:
@@ -269,7 +272,10 @@ async def pick_credential(
                 session, info, timeout=REQUEST_TIMEOUT_SECONDS
             )
         except (SigningError, asyncio.TimeoutError) as exc:
-            logger.warning("[b2b_esign.csc] credentials/info: %s", type(exc).__name__)
+            logger.warning(
+                "[b2b_esign.csc] opis certyfikatu nie odpowiedział: %s",
+                type(exc).__name__,
+            )
             continue
         found = Credential(session_info=info, info=details)
         subject = details.signing_cert.subject.human_friendly
