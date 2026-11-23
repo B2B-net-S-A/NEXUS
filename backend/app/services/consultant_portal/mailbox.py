@@ -124,7 +124,10 @@ _BODY_SUBJECT = re.compile(
 _INVOICE = re.compile(
     r"faktur|invoice|(?:^|[^a-z])fv(?:at)?(?:[^a-z]|$)", re.IGNORECASE
 )
-_PERIOD_NUMERIC = re.compile(r"(?<!\d)(0?[1-9]|1[0-2])[./_-](20\d{2})(?!\d)")
+# Także „09 2026” ze spacją: karta pracy Banku Pocztowego „KCP Nazwisko Imię 09 2026.pdf”
+# szła bez okresu i z maila z połowy miesiąca na poprzedni (archiwum VI 2025–XI 2026:
+# 30 z 15 126 plików zmienia okres, wszystkie na właściwy).
+_PERIOD_NUMERIC = re.compile(r"(?<!\d)(0?[1-9]|1[0-2])(?:[./_-]| )(20\d{2})(?!\d)")
 _PERIOD_ISO = re.compile(r"(?<!\d)(20\d{2})[./_-](0?[1-9]|1[0-2])(?!\d)")
 _MONTH_STEMS = (
     "stycz",
@@ -488,7 +491,7 @@ async def _store_without_file(
         return made, 0
     if state.any_sender and is_reply_to_sent(message):
         answered = await _store_reply_to_sent(
-            db, mailbox, message, today=today, now=now
+            db, mailbox, message, state=state, today=today, now=now
         )
         if answered is not None:
             return answered, 0
@@ -1030,6 +1033,7 @@ async def _store_reply_to_sent(
     mailbox: SettlementsMailbox,
     message: dict[str, Any],
     *,
+    state: portal_settings.PortalSettings,
     today: date,
     now: datetime,
 ) -> Optional[int]:
@@ -1054,6 +1058,16 @@ async def _store_reply_to_sent(
             return None
         our_subject = str(ours.get("subject") or "")
         contract = await identity.resolve_named_in_text(db, our_subject, today=today)
+        if contract is None:
+            # „Potwierdzenie godzin R.Nazwisko” (Bosch, próba IX–X 2026): sam inicjał
+            # imienia, więc osoba tylko wśród kontraktów klienta z domeny odpowiedzi.
+            contract = await identity.resolve_named_for_clients(
+                db,
+                our_subject,
+                await identity.client_ids_for_sender(db, _sender(message)),
+                settings=state,
+                today=today,
+            )
         if contract is None:
             return None
         raw = await fetch(str(message["id"]))
