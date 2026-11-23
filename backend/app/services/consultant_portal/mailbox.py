@@ -15,7 +15,8 @@ daje czytelny stan w ``cp_mailbox_state``, a nie wyjątek.
 * Znacznik idzie z zakładką 2 h, a duplikaty zamyka unikat na (wiadomość, plik).
   Do logu trafia klasa błędu, nigdy adres ani temat.
 * Jedna skrzynka wsparcie@ (E8): na skrzynce wspólnej ze sprawami bierzemy tylko maile
-  z załącznikiem na adresy rozliczeń (``support_mail_route``), resztę czytnik spraw. Zła
+  z załącznikiem na adresy rozliczeń i akceptacje klienta w samej treści
+  (``support_mail_route``), resztę czytnik spraw. Zła
   konfiguracja (``support_mail_route.misconfiguration``) = stan ``error`` i nic nie czytamy.
 """
 
@@ -378,6 +379,7 @@ async def _ingest_message(
     state: portal_settings.PortalSettings,
     today: date,
     now: datetime,
+    acceptance: Optional[dict[str, frozenset[int]]] = None,
 ) -> tuple[int, int]:
     """(nowe, pominięte). Reguła pilotażu przed odczytem załączników."""
 
@@ -387,7 +389,16 @@ async def _ingest_message(
     if reply is not None:
         return reply, 0
     if not message.get("hasAttachments"):
-        return 0, 0
+        return await _store_client_acceptance(
+            db,
+            mailbox,
+            message,
+            acceptance or {},
+            subject=subject,
+            state=state,
+            today=today,
+            now=now,
+        )
     received = _parse_time(message.get("receivedDateTime")) or now
     files = list(await mailbox.attachments(str(message["id"])))
     # Raport godzin klienta (T4T Nordei) wchodzi jako wersja raportu miesiąca, zanim
@@ -741,22 +752,84 @@ async def _store_mail_body(
     w treści forwardu, nie w załączniku, więc zapisujemy też sam mail jako
     ``.eml``. U pozostałych klientów treści maila nie zbieramy."""
 
-    fetch = getattr(mailbox, "mime", None)
-    if fetch is None:
-        return 0
-    year, month, guessed = period_for(subject, "", received.date())
+    year, month, _guessed = period_for(subject, "", received.date())
     from app.services.client_settlements import service as settlements
 
     rules = await settlements.rules_for(db, contract.client_id, f"{year}-{month:02d}")
     if rules["proof.accept_has_hours"]["level"] == "off":
         return 0
+    return await _store_eml(
+        db,
+        mailbox,
+        message,
+        contract.id,
+        subject=subject,
+        received=received,
+        now=now,
+    )
+
+
+async def _store_client_acceptance(
+    db: AsyncSession,
+    mailbox: SettlementsMailbox,
+    message: dict[str, Any],
+    acceptance: dict[str, frozenset[int]],
+    *,
+    subject: str,
+    state: portal_settings.PortalSettings,
+    today: date,
+    now: datetime,
+) -> tuple[int, int]:
+    """Akceptacja klienta w samej treści maila, bez załącznika (próba IX–X 2026).
+
+    Nadawca z domeny klienta z regułą akceptacji mailowej
+    (``support_mail_route.acceptance_clients``), osoba z tematu wątku wśród kontraktów
+    tego klienta. Mail zapisujemy jako ``.eml``: z niego czytają ``proof.accept_has_hours``
+    i ``proof.excel_with_mail``. Nieznana osoba = karta do ręcznego przypisania (jak nieznany
+    nadawca), w pilotażu pomijamy."""
+
+    clients = acceptance.get(support_mail_route.sender_domain(message))
+    if not clients:
+        return 0, 0
+    contract = await identity.resolve_named_for_clients(
+        db, subject, clients, settings=state, today=today
+    )
+    if contract is None and not state.any_sender:
+        return 0, 1
+    received = _parse_time(message.get("receivedDateTime")) or now
+    made = await _store_eml(
+        db,
+        mailbox,
+        message,
+        contract.id if contract else None,
+        subject=subject,
+        received=received,
+        now=now,
+    )
+    return made, 0
+
+
+async def _store_eml(
+    db: AsyncSession,
+    mailbox: SettlementsMailbox,
+    message: dict[str, Any],
+    contract_id: Optional[int],
+    *,
+    subject: str,
+    received: datetime,
+    now: datetime,
+) -> int:
+    fetch = getattr(mailbox, "mime", None)
+    if fetch is None:
+        return 0
+    year, month, guessed = period_for(subject, "", received.date())
     try:
         content = await fetch(str(message["id"]))
         if not content:
             return 0
         stored = await documents.store(
             db,
-            contract_id=contract.id,
+            contract_id=contract_id,
             kind="report",
             year=year,
             month=month,
@@ -812,8 +885,11 @@ async def run_once(
         return {"status": "error", "reason": code}
     created = skipped = failed = 0
     newest = seen
+    acceptance = await support_mail_route.acceptance_clients(db)
     for message in messages:
-        if route and not support_mail_route.is_settlements_mail(message, route):
+        if route and not support_mail_route.is_settlements_mail(
+            message, route, acceptance.keys()
+        ):
             # Sprawa dla czytnika spraw: znacznik idzie dalej, nic nie zapisujemy.
             received = _parse_time(message.get("receivedDateTime"))
             if received and (newest is None or received > newest):
@@ -822,7 +898,13 @@ async def run_once(
         try:
             async with db.begin_nested():
                 made, ignored = await _ingest_message(
-                    db, reader, message, state=state, today=today, now=moment
+                    db,
+                    reader,
+                    message,
+                    state=state,
+                    today=today,
+                    now=moment,
+                    acceptance=acceptance,
                 )
             created += made
             skipped += ignored
