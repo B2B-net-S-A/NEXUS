@@ -183,13 +183,16 @@ function ReminderRow({ item, showCaller, active, onSelect }: ReminderRowProps) {
             <span className="block text-xs text-muted-foreground">Bez powodu: dopisz przy rozmowie</span>
           )}
         </span>
-        <Badge
-          variant={STATE_TONES[item.state]}
-          size="sm"
-          className="shrink-0 whitespace-nowrap"
-        >
-          {stateLabel(item.state)}
-        </Badge>
+        {/* Stała szerokość: plakietka oferty jest szersza i przesuwałaby kolumnę powodu. */}
+        <span className="flex w-40 shrink-0 justify-end">
+          <Badge
+            variant={STATE_TONES[item.state]}
+            size="sm"
+            className="whitespace-nowrap"
+          >
+            {stateLabel(item.state)}
+          </Badge>
+        </span>
       </button>
     </li>
   );
