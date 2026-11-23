@@ -1,4 +1,4 @@
-"""Ogłoszenie ze strefy Pracuj.pl i aplikacje na nie — 0754.
+"""Ogłoszenie ze strefy Pracuj.pl i aplikacje na nie — 0755.
 
 Kolumny i powód istnienia: ``app/services/pracuj_ad_schema.py``.
 Logika: ``app/services/pracuj_ads.py``.

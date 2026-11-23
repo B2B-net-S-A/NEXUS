@@ -4600,7 +4600,7 @@ async def api_health_deep_check(request: Request):
         # „Przygotuj ogłoszenie” w rekrutacji.
         ("job_ads", JobAd),
         ("job_ad_publications", JobAdPublication),
-        # 0754: ogłoszenia ze strefy Pracuj.pl — brak tabeli = 500 w oknie
+        # 0755: ogłoszenia ze strefy Pracuj.pl — brak tabeli = 500 w oknie
         # „Ogłoszenie” i aplikacje z Pracuj.pl bez rekrutacji.
         ("pracuj_ads", PracujAd),
         ("pracuj_ad_applications", PracujAdApplication),

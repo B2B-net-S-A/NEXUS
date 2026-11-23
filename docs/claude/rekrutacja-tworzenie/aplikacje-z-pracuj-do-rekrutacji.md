@@ -14,7 +14,7 @@ Decyzja Artura z 23.11.2026, wariant A z makiet
 https://claude.ai/artifact/Y3LES7QkZNB58thpDKHFZ8.
 
 Kod: `services/pracuj_ads.py`, tabele w `services/pracuj_ad_schema.py`
-(migracja 0754), trasy w `api/job_ads.py` i `api/candidate_sources.py`; front
+(migracja 0755), trasy w `api/job_ads.py` i `api/candidate_sources.py`; front
 `components/v2/job-ad/PracujAdPairing.tsx` (karta Pracuj.pl okna „Ogłoszenie”)
 i `PracujUnpairedAds.tsx` (kolejka „Ogłoszenia do nadrobienia”). Scraper:
 `~/pracuj scrapper/pracuj-traffit-scraper/scraper.py` na Macu.

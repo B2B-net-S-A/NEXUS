@@ -1233,7 +1233,7 @@ except Exception as _cv_layout_err:  # noqa: BLE001
     print(f"cv layout DDL unavailable: {_cv_layout_err!r}")
     _CV_LAYOUT_DDL = []
 
-# Ogłoszenia ze strefy Pracuj.pl i aplikacje na nie (migracja 0754) — JEDNO
+# Ogłoszenia ze strefy Pracuj.pl i aplikacje na nie (migracja 0755) — JEDNO
 # źródło z migracją (`app/services/pracuj_ad_schema.py`).
 try:
     from app.services import pracuj_ad_schema as _pracuj_ad_schema

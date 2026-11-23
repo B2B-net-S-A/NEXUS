@@ -1,6 +1,6 @@
-"""Ogłoszenia ze strefy Pracuj.pl i aplikacje na nie — SQL migracji 0754 i lustra.
+"""Ogłoszenia ze strefy Pracuj.pl i aplikacje na nie — SQL migracji 0755 i lustra.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0754_pracuj_ads.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0755_pracuj_ads.py``
 i ``entrypoint.sh`` (alembic na prodzie bywa osierocony); test
 ``test_pracuj_ads.py`` sprawdza, że entrypoint je importuje.
 

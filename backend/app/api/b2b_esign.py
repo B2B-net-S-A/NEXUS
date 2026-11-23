@@ -177,7 +177,7 @@ class EsignSendIn(BaseModel):
     # Paczka (0687): pozycje listy klienta „Dokumenty do startu” obok umowy.
     # ``None`` = wszystkie z ``documents`` okna; lista = wybór nadawcy.
     start_document_ids: Optional[list[int]] = Field(default=None, max_length=20)
-    # 0754: dokumenty, przy których klient wymaga podpisu kwalifikowanego.
+    # 0755: dokumenty, przy których klient wymaga podpisu kwalifikowanego.
     # Reszta paczki ma wymóg „dowolny podpis” (kontraktor może zaakceptować
     # kodem z maila); umowa zawsze kwalifikowanym (decyzja Artura 22.11.2026).
     qualified_document_ids: Optional[list[int]] = Field(default=None, max_length=20)
@@ -192,7 +192,7 @@ class EsignDocumentOut(BaseModel):
     id: int
     title: str
     signed_at: Optional[datetime] = None
-    # 0754: ``qualified`` albo ``any``; jak podpisano: ``qualified``/``email_code``.
+    # 0755: ``qualified`` albo ``any``; jak podpisano: ``qualified``/``email_code``.
     requirement: str = "qualified"
     signed_via: Optional[str] = None
 
@@ -259,7 +259,7 @@ class PublicSignDocument(BaseModel):
     id: int
     title: str
     signed: bool
-    # 0754: ``qualified`` (podpis kwalifikowany) albo ``any`` (także kod z maila).
+    # 0755: ``qualified`` (podpis kwalifikowany) albo ``any`` (także kod z maila).
     requirement: Literal["qualified", "any"] = "qualified"
     signed_via: Optional[Literal["qualified", "email_code"]] = None
 
@@ -277,7 +277,7 @@ class PublicSignView(BaseModel):
     # Paczka (0687): umowa już podpisana, a dokumenty obok niej.
     contract_signed: bool = False
     documents: list[PublicSignDocument] = Field(default_factory=list)
-    # 0754: dokąd idzie kod (adres zamaskowany) i kiedy wysłano ostatni.
+    # 0755: dokąd idzie kod (adres zamaskowany) i kiedy wysłano ostatni.
     accept_code_email: Optional[str] = None
     accept_code_sent_at: Optional[datetime] = None
 

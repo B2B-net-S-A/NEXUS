@@ -90,7 +90,7 @@ def test_schema_is_idempotent_and_mirrored_in_entrypoint():
     assert "*_PRACUJ_ADS_DDL," in entrypoint
     for statement in pracuj_ad_schema.ALL_DDL:
         assert "IF NOT EXISTS" in re.sub(r"\s+", " ", statement), statement
-    migration = (BACKEND / "alembic" / "versions" / "0754_pracuj_ads.py").read_text(
+    migration = (BACKEND / "alembic" / "versions" / "0755_pracuj_ads.py").read_text(
         encoding="utf-8"
     )
     assert "schema.ALL_DDL" in migration

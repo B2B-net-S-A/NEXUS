@@ -225,7 +225,7 @@ async def test_contractor_signs_the_contract_and_the_nda_on_one_link(
             "id": document["id"],
             "title": "NDA klienta",
             "signed": False,
-            # 0754: NDA bez wymogu klienta to „dowolny podpis”.
+            # 0755: NDA bez wymogu klienta to „dowolny podpis”.
             "requirement": "any",
             "signed_via": None,
         }
