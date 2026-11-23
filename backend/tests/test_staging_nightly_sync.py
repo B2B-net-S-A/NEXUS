@@ -979,3 +979,14 @@ def test_progress_probe_rejects_a_strange_database_name(restore_calls):
     with pytest.raises(sync.SyncError):
         sync.restore_progress("pg", "x'; SELECT 1")
     assert restore_calls["sql"] == []
+
+
+def test_law_radar_screen_is_on_and_its_loop_is_blocked_on_staging():
+    # 23.11.2026 staging miał domyślne `False` i `/compliance` mówił „Radar wyłączony”.
+    from app.core.staging import STAGING_BLOCKED_TASKS
+
+    environment = yaml.safe_load((ROOT / "docker-compose.staging.yml").read_text())[
+        "services"
+    ]["backend"]["environment"]
+    assert environment["LAW_RADAR_ENABLED"] == "true"
+    assert "law_radar" in STAGING_BLOCKED_TASKS
