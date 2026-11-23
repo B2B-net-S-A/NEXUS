@@ -42,6 +42,7 @@ from app.models.client import Client
 from app.models.user import User
 from app.services import champion_document
 from app.services import job_intake_champion_file as champion_file
+from app.services.job_intake_client_defaults import client_defaults
 from app.services import job_request_intake as intake
 from app.services import team_request_split as team_split
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
@@ -119,6 +120,8 @@ async def read_request(
         "text": body.text,
         "intake": await _read(db, current_user.id, body.client_id, body.text),
         "reader": READER_REQUEST,
+        # 23.11.2026 (wariant 1): termin i liczba osób z historii klienta.
+        "client_defaults": await client_defaults(db, body.client_id),
     }
 
 
@@ -208,7 +211,7 @@ async def read_request_file(
     if suffix == ".docx":
         champion = await _read_champion_form(data, name)
         if champion is not None:
-            return champion
+            return {**champion, "client_defaults": await client_defaults(db, client_id)}
 
     from app.services.cv_text_extractor import extract_text
 
@@ -230,7 +233,12 @@ async def read_request_file(
     result = await _read(db, current_user.id, client_id, text)
     if champion_pdf:
         result["advisories"] = [*result["advisories"], champion_file.PDF_NOTE]
-    return {"text": text, "intake": result, "reader": READER_REQUEST}
+    return {
+        "text": text,
+        "intake": result,
+        "reader": READER_REQUEST,
+        "client_defaults": await client_defaults(db, client_id),
+    }
 
 
 class PublicDraftRequest(BaseModel):

@@ -693,7 +693,7 @@ def test_prompt_asks_for_keywords_and_a_deal_breaker() -> None:
     rendered = JOB_REQUEST_INTAKE.render(
         client_name="Klient", client_context="brak", request_text="mail"
     )
-    assert JOB_REQUEST_INTAKE.version == 15
+    assert JOB_REQUEST_INTAKE.version == 16
     assert '"requirements"' in rendered and '"deal_breaker"' in rendered
     assert '"keywords"' not in rendered
     assert '"must": [str]' not in rendered
@@ -926,3 +926,49 @@ def test_prompt_asks_for_cv_words_next_to_client_phrases() -> None:
     )
     assert '"cv_words": [str]' in rendered
     assert "Crisis Management" in rendered
+
+
+# ── 23.11.2026 (wariant 1): propozycja „Najważniejszego zadania” z odczytu ───
+
+
+def _with_key_task(task, flags):
+    questions = [
+        {**question, "key_task": flag}
+        for question, flag in zip(FULL["screening_questions"], flags)
+    ]
+    return {**FULL, "key_task": task, "screening_questions": questions}
+
+
+def test_key_task_is_proposed_with_one_question_that_checks_it() -> None:
+    raw = _with_key_task("Migracja płatności na Kafkę bez przestoju.", [True, True])
+
+    result = normalize_model_output(raw, REQUEST)
+
+    assert result.key_task == "Migracja płatności na Kafkę bez przestoju."
+    # Najwyżej jedno pytanie sprawdza zadanie — pierwsze zaznaczone.
+    assert [q.key_task for q in result.screening_questions] == [True, False]
+    # To propozycja AI (DL ją zatwierdza na formularzu), nie fakt z maila.
+    assert result.provenance["key_task"] == "ai"
+
+
+def test_question_flag_without_a_task_is_dropped() -> None:
+    result = normalize_model_output(_with_key_task(None, [False, True]), REQUEST)
+
+    assert result.key_task is None
+    assert [q.key_task for q in result.screening_questions] == [False, False]
+    assert "key_task" not in result.provenance
+
+
+def test_task_without_a_checking_question_still_comes_as_a_proposal() -> None:
+    result = normalize_model_output(_with_key_task("Migracja płatności.", [False, False]), REQUEST)
+
+    assert result.key_task == "Migracja płatności."
+    assert [q.key_task for q in result.screening_questions] == [False, False]
+
+
+def test_prompt_asks_for_the_key_task_and_its_question() -> None:
+    from app.services.llm_prompts import JOB_REQUEST_INTAKE
+
+    assert JOB_REQUEST_INTAKE.version == 16
+    assert '"key_task": str|null' in JOB_REQUEST_INTAKE.template
+    assert '"key_task": bool' in JOB_REQUEST_INTAKE.template
