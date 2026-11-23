@@ -39,6 +39,16 @@ export interface QueueItem {
   assignee?: Ref | null;
   /** Ostatnia zmiana rekordu: kolumna „Ostatnia modyfikacja” w Tabeli (13.11.2026). */
   modified_at?: string | null;
+  /** Po co oddzwaniamy (23.11.2026): w oddzwonieniach kolejki i w „Przypomnieniach”. */
+  callback_reason?: CallbackReason | null;
+}
+
+/** Powód powrotu: notatka z „Oddzwonić” / oferty albo komentarz z Excela. */
+export interface CallbackReason {
+  text: string;
+  author_name: string | null;
+  noted_on: string;
+  from_excel: boolean;
 }
 
 /** Licznik dnia bez celu: zastępuje ręczne „Podsumowanie” z Excela (11.11.2026). */

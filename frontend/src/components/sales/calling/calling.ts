@@ -4,6 +4,7 @@
 import type { BadgeProps } from "@/components/ui/badge";
 import { CALL_OUTCOME_LABELS } from "@/lib/api/sales";
 import type {
+  CallbackReason,
   CallQueue,
   CorrectableState,
   DayCounts,
@@ -15,7 +16,7 @@ import type {
   QueueSection,
   RecordState,
 } from "@/lib/api/sales-calling";
-import { formatWeekdayDayPl } from "@/lib/date-pl";
+import { formatDayMonthPl, formatWeekdayDayPl } from "@/lib/date-pl";
 
 import { plural } from "../my-day";
 
@@ -204,6 +205,12 @@ export function itemReason(item: QueueItem, todayIso: string): string {
   ];
   if (item.due_on && item.due_on < todayIso) parts.push(`termin minął ${formatWeekdayDayPl(item.due_on)}`);
   return parts.join(" · ");
+}
+
+/** „Marcel Tarasewicz, 18.11” albo „Komentarz z Excela” (rekord przeniesiony 11.11.2026). */
+export function reasonByline(reason: CallbackReason): string {
+  if (reason.from_excel) return "Komentarz z Excela";
+  return `${reason.author_name ?? "Wpis z kolejki"}, ${formatDayMonthPl(reason.noted_on)}`;
 }
 
 export function itemTitle(item: QueueItem): string {

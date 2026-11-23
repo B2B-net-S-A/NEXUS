@@ -74,7 +74,13 @@ function QueueRow({ item, today, active, onSelect }: RowProps) {
       >
         <span className="min-w-0 flex-1 leading-tight">
           <span className="block truncate text-sm font-medium text-foreground">{item.company.name}</span>
-          <span className="block truncate text-xs text-muted-foreground">{itemReason(item, today)}</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {/* Zgłoszenie dzwoniących 23.11.2026: po co oddzwaniamy, przed numerem rozmowy. */}
+            {item.callback_reason && (
+              <span className="text-foreground">{item.callback_reason.text} · </span>
+            )}
+            {itemReason(item, today)}
+          </span>
         </span>
         <span className="hidden w-44 shrink-0 truncate text-right text-xs text-muted-foreground sm:block">
           {item.person_title ?? item.person_name ?? ""}

@@ -20,6 +20,7 @@ import { CallCard, type MeetingStage } from "./CallCard";
 import {
   nextKey,
   plusDaysIso,
+  reasonByline,
   reminderGroups,
   STATE_TONES,
   stateLabel,
@@ -166,6 +167,21 @@ function ReminderRow({ item, showCaller, active, onSelect }: ReminderRowProps) {
               .filter(Boolean)
               .join(" · ") || "Bez wskazanej osoby"}
           </span>
+        </span>
+        {/* Zgłoszenie dzwoniących 23.11.2026: po co oddzwaniamy, wpisane przy wyniku. */}
+        <span className="hidden min-w-0 flex-[1.4] leading-tight md:block">
+          {item.callback_reason ? (
+            <>
+              <span className="block truncate text-sm text-foreground" title={item.callback_reason.text}>
+                {item.callback_reason.text}
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {reasonByline(item.callback_reason)}
+              </span>
+            </>
+          ) : (
+            <span className="block text-xs text-muted-foreground">Bez powodu: dopisz przy rozmowie</span>
+          )}
         </span>
         <Badge
           variant={STATE_TONES[item.state]}
