@@ -1,5 +1,5 @@
 # Karta na Tablicy w trzech wierszach, jedna liczba dni i nagłówek w jednym rzędzie (08.11.2026)
-<!-- indeks: audyt 2, tezy U1 U3 U5, `cardPrimaryBadges`, „+N”, `waiting_workdays`, „Szukaj ▾”, „Kto dodał” na pasku rekrutacji, baner CPro zwinięty -->
+<!-- indeks: audyt 2, tezy U1 U3 U5, `cardPrimaryBadges`, „+N”, `waiting_workdays`, „Szukaj ▾”, „Kto dodał” na pasku rekrutacji, baner CPro zwinięty, wyjątek: dwie linie przy oknie < 800 px (`low-screen:`) -->
 
 Decyzja Artura z 08.11.2026 („2 plakietki + „+N””), audyt 2:
 https://claude.ai/artifact/VXHZFJQZQbNRXAVGzNfdCu. Przy 1280 × 720 rekruter
@@ -32,6 +32,37 @@ plakietek i trzy różne liczby dni.
 
 W widoku przeglądowym (kafelek, ponad 10 kolumn) wiersza plakietek i ruchu nie
 ma, zostaje ikona screeningu, resztę daje klik w kafelek i panel osoby.
+
+## Wyjątek: dwie linie przy oknie niższym niż 800 px (23.11.2026)
+
+Decyzja Artura z 23.11.2026 po analizie dnia rekrutera
+(https://claude.ai/artifact/Bf7wiygZoxpTPq9G8oHgiL, „4 · Karta w dwóch
+liniach”). Przy 1280 × 720 nad Tablicą jest ok. 330 px nagłówka, a karta
+w trzech wierszach miała 104–117 px: w „Nowych” było widać 2,6 karty z 43,
+w „Screeningu” 3 z 8 (Tablica 758737 na stagingu, konto rekrutera).
+W dwóch liniach karta ma 52 px i widać 5,2 i 6 kart. **Na oknie od 800 px
+w górę karta zostaje w trzech wierszach** — tego nie zmieniaj „przy okazji”.
+
+- **Próg to media query, nie hak:** wariant `low-screen:` w `globals.css`
+  (`max-height: 799px` i `pointer: fine`). Hak na `innerHeight` dawał skok
+  karty przy hydracji, bo serwer nie zna okna. Dotyk zostaje przy trzech
+  wierszach: bez najechania podpowiedź stanu byłaby nieosiągalna.
+- **Linia 1:** imię i nazwisko, pierścień 20 px zamiast 28. Imię właściciela
+  schodzi do dymku karty.
+- **Linia 2:** przycisk („Biorę”, „Dzwonię”, „Przejrzyj i wyślij”…) albo „kto
+  ma ruch” z krokiem, liczba dni jako „4 d” w tych samych kolorach, jeden stan
+  (`card-low-state`) i strzałka. Stan to pierwsza plakietka z
+  `cardPrimaryBadges`, a „+N” mówi, ile jest reszty; to, co stoi wyłącznie
+  w „+N”, nie wchodzi na stan także tutaj.
+- **Nic nie znika:** wiersz plakietek ma `low-screen:hidden`, ale wszystkie
+  plakietki z treścią i „Dla:/Prowadzi:” są w podpowiedzi stanu
+  (`twoLineStateTitle`), w dymku karty i w panelu osoby. Numer „Zadzwoń
+  najpierw” zostaje w rogu karty. Przyciski z plakietek (QC, Scorecard,
+  Screening, „+1 rekrutacja”) są w panelu osoby.
+- Zaznaczanie, przeciąganie, strzałka z „Cofnij” i nazwy dostępne karty bez
+  zmian. W widoku przeglądowym (kafelek) wariant nie działa.
+- jsdom nie liczy CSS, więc oba układy są w DOM naraz; testy
+  (`KanbanBoardV2.test.tsx`, „karta w dwóch liniach”) sprawdzają klasy.
 
 ## Jedna liczba dni (U5)
 

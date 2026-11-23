@@ -177,6 +177,7 @@ import {
  shortStepLabel,
  closedRejectBy,
  type ClosedRejectBy,
+ twoLineStateTitle,
 } from "@/lib/board-card-badges";
 import { apiErrorMessage } from "@/lib/api-error";
 import { NewColumnTempo } from "@/components/v2/recruitment/NewColumnTempo";
@@ -656,6 +657,8 @@ function NextActionRow({
  stageSince,
  button,
  stackDays = false,
+ lowState,
+ twoLines = false,
 }: {
  action: NextAction;
  /** „Kto ma ruch" + co zrobić (Rekrutacja v5) — `null` = sama etykieta akcji. */
@@ -671,9 +674,15 @@ function NextActionRow({
  button?: React.ReactNode;
  /** Szeroki przycisk: liczba dni pod nim, jak przy nazwie kroku. */
  stackDays?: boolean;
+ /** Jeden stan karty przed strzałką — widać go tylko w niskim oknie. */
+ lowState?: React.ReactNode;
+ /** Karta w dwóch liniach przy oknie < 800 px (`low-screen:`, 23.11.2026). */
+ twoLines?: boolean;
 }) {
- if (action.kind === "none" && !step && !advance && !button && !(waitingDays != null && waitingDays >= 1)) return null;
  const showDays = waitingDays != null && waitingDays >= 1;
+ // Bez ruchu, dni i przycisku wiersz niesie tylko stan z niskiego okna.
+ const onlyLowState = action.kind === "none" && !step && !advance && !button && !showDays;
+ if (onlyLowState && !(twoLines && lowState)) return null;
  const daysTone = !showDays ? null : waitingDays >= 5 ? "danger" : waitingDays >= 3 ? "warning" : "neutral";
  const Icon = action.tone === "normal" ? NEXT_ACTION_ICON[action.kind] : AlertTriangle;
  const label = step?.label ?? action.label;
@@ -689,7 +698,11 @@ function NextActionRow({
    title={[`Dni robocze czekania: ${waitingDays}`, stageSince].filter(Boolean).join(" · ")}
   >
    {/* Obok przycisku nie ma miejsca na „czeka”, przy nazwie kroku jest. */}
-   {button && !stackDays ? waitingWorkdaysText(waitingDays).replace("czeka ", "") : waitingWorkdaysText(waitingDays)}
+   <span className={cn(twoLines && "low-screen:hidden")}>
+    {button && !stackDays ? waitingWorkdaysText(waitingDays).replace("czeka ", "") : waitingWorkdaysText(waitingDays)}
+   </span>
+   {/* Dwie linie: przycisk, dni, stan i strzałka w ok. 140 px — sama liczba. */}
+   {twoLines ? <span className="hidden low-screen:inline">{waitingDays} d</span> : null}
   </span>
  ) : null;
  return (
@@ -697,13 +710,20 @@ function NextActionRow({
  data-next-action={action.tone}
  className={cn(
  "mt-1.5 flex items-center gap-1.5 border-t border-dashed border-border pt-1 text-[10.5px] leading-tight",
+ twoLines && "low-screen:mt-0.5 low-screen:gap-1 low-screen:border-t-0 low-screen:pt-0",
+ onlyLowState && "hidden low-screen:flex",
  action.tone === "normal" ? "text-foreground/80" : "text-warning font-medium",
  hidden && "xl:pointer-fine:hidden"
  )}
  >
  {button ? (
   <div
-   className={cn("flex min-w-0 flex-1 gap-1.5", stackDays ? "flex-col items-start gap-0.5" : "items-center")}
+   className={cn(
+    "flex min-w-0 flex-1 gap-1.5",
+    stackDays ? "flex-col items-start gap-0.5" : "items-center",
+    // Przycisk i dni w całości; miejsce oddaje stan obok (ucina się pierwszy).
+    twoLines && "low-screen:flex-none low-screen:gap-1"
+   )}
    title={step ? `${step.who}: ${label}` : label}
   >
    {button}
@@ -712,7 +732,7 @@ function NextActionRow({
  ) : step ? (
   // Kto ma ruch i krok w jednej linii, liczba dni pod nimi: obok „Twój ruch”
   // i strzałki nie mieści się cały napis „czeka 26 dni rob.”.
-  <div className="min-w-0 flex-1">
+  <div className={cn("min-w-0 flex-1", twoLines && "low-screen:flex low-screen:basis-auto low-screen:items-center low-screen:gap-1")}>
    <div className="flex min-w-0 items-center gap-1.5">
     <span
      data-testid="card-next-who"
@@ -725,15 +745,16 @@ function NextActionRow({
     </span>
     <span className="min-w-0 truncate" title={label}>{shortStepLabel(label)}</span>
    </div>
-   {days ? <div className="mt-0.5">{days}</div> : null}
+   {days ? <div className={cn("mt-0.5", twoLines && "low-screen:mt-0 low-screen:shrink-0")}>{days}</div> : null}
   </div>
  ) : (
   <>
    {label ? <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" /> : null}
-   <span className="min-w-0 flex-1 truncate" title={label}>{shortStepLabel(label)}</span>
+   <span className={cn("min-w-0 flex-1 truncate", twoLines && "low-screen:basis-auto")} title={label}>{shortStepLabel(label)}</span>
    {days}
   </>
  )}
+ {twoLines ? lowState : null}
  {advance}
  </div>
  );
@@ -1168,6 +1189,48 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  }
  const { primary: primaryBadges, more: moreBadges } = cardPrimaryBadges(item, badgeCtx, signals);
  const chipBase = "inline-flex min-w-0 items-center gap-0.5 rounded px-1 text-[10px] font-semibold";
+ // Niskie okno (< 800 px, decyzja Artura 23.11.2026): karta w dwóch liniach.
+ // Wiersz plakietek znika z ekranu, w linii ruchu zostaje najważniejsza z nich
+ // („+N” = ile jeszcze), a wszystkie są w jej podpowiedzi i w panelu osoby.
+ const twoLines = !desktopOverview;
+ // Stan bierzemy tylko z wiersza plakietek: to, co ma stać wyłącznie w „+N”,
+ // zostaje w liczniku i podpowiedzi także tutaj.
+ const lowBadges = [...primaryBadges, ...moreBadges];
+ const lowBadge = primaryBadges[0] ?? null;
+ const lowRest = lowBadge ? lowBadges.slice(1) : lowBadges;
+ const LowIcon = lowBadge ? (COMPACT_BADGE_ICON[lowBadge.key] ?? signalIcon(lowBadge.key)) : null;
+ // Źródło, blokada i karta rekomendacji: ikona i krótki dopisek, jak w wierszu plakietek.
+ const lowCompact = lowBadge ? compactCardBadge(lowBadge) : null;
+ const lowState = lowBadges.length > 0 ? (
+ <span
+ data-testid="card-low-state"
+ // Kotwica nowości „X? zna Y” musi mieć widoczny element także w dwóch liniach.
+ data-tour={lowBadge?.key === "critical_gap" && !criticalGaps?.length && criticalAlternatives ? "board.critical-alternative" : undefined}
+ title={twoLineStateTitle(lowBadges, addedAttribution)}
+ className={cn(
+ chipBase,
+ // Min. 40 px: obok długiej nazwy kroku zostawał zielony pasek bez treści.
+ "hidden min-w-10 shrink-[4] overflow-hidden low-screen:inline-flex",
+ lowBadge ? CARD_BADGE_TONE_CLASS[lowBadge.tone] : "bg-muted text-muted-foreground"
+ )}
+ >
+ {LowIcon ? <LowIcon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" /> : null}
+ {lowBadge && lowCompact ? (
+ <>
+ {lowCompact.short ? <span aria-hidden="true" className="truncate">{lowCompact.short}</span> : null}
+ <span className="sr-only">{lowBadge.label}</span>
+ </>
+ ) : lowBadge ? (
+ <span className="truncate">{lowBadge.label}</span>
+ ) : null}
+ {lowRest.length > 0 ? (
+ <>
+ <span aria-hidden="true" className={cn("shrink-0", lowBadge && "font-normal opacity-80")}>+{lowRest.length}</span>
+ <span className="sr-only">{lowBadge ? ", " : ""}{lowRest.map((b) => b.label).join(", ")}</span>
+ </>
+ ) : null}
+ </span>
+ ) : null;
  const stopThen = (fn: () => void) => (e: React.MouseEvent) => {
  e.stopPropagation();
  e.preventDefault();
@@ -1348,6 +1411,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  // Makieta kroku 04 daje karcie ~9 px oddechu; stare `p-5` (20 px) zjadało
  // przy 176 px kolumny ćwierć jej szerokości na sam padding.
  "p-3",
+ twoLines && "low-screen:py-1",
  desktopOverview &&"xl:pointer-fine:min-h-[68px] xl:pointer-fine:rounded-md xl:pointer-fine:p-1 xl:pointer-fine:pb-6 xl:pointer-fine:pt-6",
  // Świadomie bez grayscale/opacity — czytałoby się jako „nieaktywny". Ten
  // kandydat jest aktywny; weto to ostrzeżenie (17.09.2026), nie blokada.
@@ -1433,7 +1497,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  kończy się 20 px od lewej krawędzi karty, a padding karty to 12 px.
  Stare `pl-5` zostawiało nazwisku 64 z 158 px
  karty — stąd „Wojcie/ch" łamane w środku wyrazu. */}
- <div className={cn("flex items-start gap-2", "pl-2", desktopOverview &&"xl:pointer-fine:items-center xl:pointer-fine:gap-1 xl:pointer-fine:pl-0")}>
+ <div className={cn("flex items-start gap-2", "pl-2", twoLines && "low-screen:items-center", desktopOverview &&"xl:pointer-fine:items-center xl:pointer-fine:gap-1 xl:pointer-fine:pl-0")}>
  <div className="min-w-0 flex-1">
  <Link
  href={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
@@ -1471,6 +1535,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  className={cn(
  "mt-px flex min-w-0 items-center gap-0.5 text-[11px] font-medium leading-3.5",
  hasOwnerName ? "text-foreground/80" : "text-warning",
+ twoLines && "low-screen:hidden",
  desktopOverview && "xl:pointer-fine:hidden"
  )}
  title={addedAttribution}
@@ -1481,9 +1546,10 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  </span>
  </div>
  {scoreState !== "none" && (
- <div className={cn(desktopOverview &&"xl:pointer-fine:hidden")}>
+ <div data-testid="card-score" className={cn(twoLines && "low-screen:*:size-5", desktopOverview &&"xl:pointer-fine:hidden")}>
  {/* Zawsze `compact`: kolumna kanbana ma ~176 px, a pierścień „cozy"
- (40 px) zabierał ćwierć tej szerokości nazwisku obok. */}
+ (40 px) zabierał ćwierć tej szerokości nazwisku obok. W niskim oknie
+ 20 px zamiast 28: pierścień wyznacza wysokość linii 1. */}
  {scoreState === "unscored" ? (
  <UnscoredRing />
  ) : (
@@ -1502,7 +1568,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {primaryBadges.length > 0 || moreBadges.length > 0 ? (
  <div
  data-testid="card-badges-row"
- className={cn("mt-1 flex min-w-0 items-center gap-1", desktopOverview && "xl:pointer-fine:hidden")}
+ className={cn("mt-1 flex min-w-0 items-center gap-1", twoLines && "low-screen:hidden", desktopOverview && "xl:pointer-fine:hidden")}
  >
  {primaryBadges.map((b) => renderBadge(b))}
  {moreBadges.length > 0 ? (
@@ -1568,6 +1634,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  stageSince={stageSince}
  hidden={desktopOverview}
  stackDays={clientSilentDays != null}
+ twoLines={twoLines}
+ lowState={lowState}
  button={
  reviewSend && v5 ? (
  <button
@@ -2076,6 +2144,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  // scroll-kontenera (biblioteka go nie wspiera → wcześniej kursor mapował
  // się na złą kolumnę po poziomym auto-scrollu).
  "flex-1 p-2 space-y-2 rounded-b-v2-m transition-colors",
+ !desktopOverview && "low-screen:space-y-1.5",
  desktopOverview &&"xl:pointer-fine:space-y-1 xl:pointer-fine:p-1",
  snapshot.isDraggingOver &&"bg-primary/10"
  )}

@@ -152,9 +152,12 @@ async function onPoligon(page: Page, context: BrowserContext, baseURL: string | 
     }
     await expect(page.locator("[data-kanban-card]").first()).toBeVisible({ timeout: 30_000 });
   };
+  // Panel osoby otwiera klik w nazwisko — tak samo w karcie w trzech wierszach
+  // i w dwóch liniach (okno < 800 px, jak tu 1280 × 720), gdzie niżej na karcie
+  // stoją już przyciski ruchu.
   const openCard = async (text: string, tab?: string) => {
     await board();
-    await card(text).click({ position: { x: 110, y: 40 } });
+    await card(text).getByRole("link").first().click();
     if (tab) await page.getByRole("tab", { name: new RegExp(`^${tab}`) }).first().click();
   };
   const moveNext = async (text: string) => {
@@ -220,7 +223,7 @@ async function sourcesBar(page: Page, w: Walk) {
 /** Notatka, „@” (rekruter oznacza DL-a, pozostali rekrutera) i odrzucenie z powodem. */
 async function personPanel(page: Page, w: Walk, mention: string) {
   await w.board();
-  await page.locator("[data-kanban-card]").nth(1).click({ position: { x: 110, y: 40 } });
+  await page.locator("[data-kanban-card]").nth(1).getByRole("link").first().click();
   const note = page.locator('[data-help="jobs.person.note"] textarea').first();
   await note.fill("Rozmowa telefoniczna: chce 140 zł/h na B2B, dostępna od 1 grudnia, szuka większego projektu w banku.");
   await note.press("Enter");

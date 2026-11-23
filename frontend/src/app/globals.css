@@ -3,6 +3,12 @@
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
+/* Niskie okno laptopa z myszą (decyzja Artura 23.11.2026): karta Tablicy
+   w dwóch liniach. Media query, nie `innerHeight`, bo serwer nie zna okna
+   i hak dawałby skok karty przy hydracji. Dotyk zostaje przy trzech wierszach:
+   bez najechania plakietki nie miałyby podpowiedzi.
+   `docs/claude/rekrutacja-tablica/karta-w-trzech-wierszach.md` */
+@custom-variant low-screen (@media (max-height: 799px) and (pointer: fine));
 
 @theme inline {
   --color-border: hsl(var(--border));
