@@ -4546,6 +4546,43 @@
     "used_anchor": "palette.sales-nip"
   },
   {
+    "id": "nowe-cv-przelacznik-ukladu",
+    "title": "Układ CV: Nowe CV albo Klasyczne",
+    "why": "W karcie „CV do klienta” wybierasz układ: Nowe CV (PDF ze stroną podsumowania) albo Klasyczne (Word). Ten sam tekst, bez generowania od nowa. Domyślny układ ustawia reguła CV klienta.",
+    "tier": "tour",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → osoba → CV do klienta → Układ CV",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990105",
+    "section": "pipeline",
+    "dot_anchor": "cv.layout-choice",
+    "steps": [
+      {
+        "anchor": "person.dock.cv",
+        "text": "W panelu osoby rozwiń sekcję „CV”.",
+        "hint": "Tu są oryginał i CV do klienta."
+      },
+      {
+        "anchor": "person.dock.cv-to-client",
+        "text": "Kliknij „CV do klienta: strony i wersje”.",
+        "hint": "Otworzy się karta „CV do klienta”."
+      },
+      {
+        "anchor": "cv.layout-choice",
+        "text": "Przełącz „Układ CV” na „Nowe CV”.",
+        "hint": "Miniatura pokaże stronę 1 nowego układu. Treść CV się nie zmienia — wrócisz do Klasycznego tym samym przełącznikiem."
+      }
+    ]
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",

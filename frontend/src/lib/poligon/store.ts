@@ -703,6 +703,8 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     },
     /** Jarvis na poligonie: stała odpowiedź o osobie z Tablicy, bez modelu (`lib/poligon/jarvis.ts`). */
     jarvisAnswer: tools.jarvisAnswer,
+    /** Układ CV etapu osoby ćwiczebnej (`null` spoza poligonu) — podgląd PDF w `adapter.ts`. */
+    cvLayoutOf: tools.layoutOf,
     meta,
   };
 }

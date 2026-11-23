@@ -27,6 +27,8 @@ const SLOT_STAGES = new Set(["cv_sent", "client_interview"]);
 const OPEN_SLOT_STATUSES = new Set(["awaiting_recruiter", "awaiting_dl"]);
 export const SLOTS_MAIL_OTHER =
   "Na poligonie NEXUS odczytuje tylko maila klienta z ćwiczenia (terminy o 10:00 i 13:00). Wklej go z okna ćwiczenia albo wpisz terminy ręcznie.";
+const BLOCKED_PAGE1 =
+  "Na poligonie zmienisz tu tylko wieniec. Zdania strony 1 poprawisz w prawdziwym CV.";
 const CV_COMMAND_EMPTY =
   "Nic nie zmieniłem — na poligonie asystent zna kilka poleceń. Wpisz na przykład „pogrub Scrum i Jira”.";
 
@@ -90,6 +92,10 @@ export function createTools(ctx: ToolsContext) {
   const chat: Row[] = [];
   /** Treść CV firmowego per etap (wpis osoby) po autozapisie edytora. */
   const branded = new Map<number, { html: string; revision: number; status: string }>();
+  /** Układ CV per etap (Nowe CV / Klasyczne, 23.11.2026); brak wpisu = klasyczny jak u klienta bez reguły. */
+  const layouts = new Map<number, "classic" | "new">();
+  /** Wieniec strony 1 nowego CV per etap (`page1_extras.wreath`). */
+  const wreaths = new Map<number, string>();
 
   /** Odznaka „Wybierz termin” z zestawu (osoba na „Rozmowie u klienta”) — wzór dla nowych wniosków DL-a. */
   const badgeTemplate = JSON.parse(JSON.stringify(ctx.findItem(meta.slot_candidate_id)?.item.interview_badge ?? null)) as
@@ -443,13 +449,51 @@ export function createTools(ctx: ToolsContext) {
     const person = personByEntry(entryId) ?? ctx.template;
     // Etap bez CV do klienta (osoba z gotowym CV z innej rekrutacji) zostaje bez treści.
     const html = saved?.html ?? (recorded.status === "none" ? null : cvFictionHtml(person ? `${person.name} ${person.lastname}` : ""));
+    const extras = (recorded.page1_extras && typeof recorded.page1_extras === "object" ? recorded.page1_extras : {}) as Row;
     return {
       ...recorded,
       candidate_stage_id: entryId,
       content_html: html,
       status: saved?.status ?? recorded.status,
       edit_revision: saved?.revision ?? recorded.edit_revision,
+      // Przełącznik „Układ CV” w karcie „CV do klienta” i w edytorze (lekcja „Nowe CV”).
+      new_layout_enabled: true,
+      cv_layout: layouts.get(entryId) ?? "classic",
+      default_layout: "classic",
+      page1_extras: { ...extras, wreath: wreaths.get(entryId) ?? extras.wreath ?? "auto" },
     };
+  }
+
+  /** Odczyt CV etapu do zapisu układu albo wieńca; etap bez CV do klienta → 409 jak na serwerze. */
+  function brandedFor(entryId: number): PoligonResponse {
+    const recorded = ctx.recorded("GET", `/api/candidates/stages/${entryId}/cv/branded`);
+    if (recorded.status !== 200) return recorded;
+    const data = brandedOf(entryId, recorded.data as Row);
+    if (data.status === "none") return { status: 409, data: { detail: "Ta osoba nie ma jeszcze CV do klienta w tej rekrutacji." } };
+    return { status: 200, data };
+  }
+
+  function setLayout(entryId: number, body: Row): PoligonResponse {
+    const layout = body.cv_layout;
+    if (layout !== "classic" && layout !== "new") return { status: 422, data: { detail: "Układ CV to „Nowe CV” albo „Klasyczne”." } };
+    const current = brandedFor(entryId);
+    if (current.status !== 200) return current;
+    layouts.set(entryId, layout);
+    return brandedFor(entryId);
+  }
+
+  function setWreath(entryId: number, body: Row): PoligonResponse {
+    const wreath = body.wreath;
+    if (wreath !== "auto" && wreath !== "cert" && wreath !== "school") return { status: 409, data: { detail: BLOCKED_PAGE1 } };
+    const current = brandedFor(entryId);
+    if (current.status !== 200) return current;
+    wreaths.set(entryId, wreath);
+    return brandedFor(entryId);
+  }
+
+  /** Układ CV etapu — podgląd PDF „Nowego CV” na poligonie (`adapter.ts`). */
+  function layoutOf(entryId: number): "classic" | "new" | null {
+    return personByEntry(entryId) ? (layouts.get(entryId) ?? "classic") : null;
   }
 
   function saveBranded(entryId: number, body: Row | null): PoligonResponse {
@@ -617,6 +661,10 @@ export function createTools(ctx: ToolsContext) {
       }
       if (method === "PATCH" || brandedPath[2]) return saveBranded(entryId, brandedPath[2] ? null : body);
     }
+    const cvSetting = path.match(/^\/api\/candidates\/stages\/(\d+)\/cv\/(layout|page1)$/);
+    if (cvSetting && method === "PATCH" && personByEntry(Number(cvSetting[1]))) {
+      return cvSetting[2] === "layout" ? setLayout(Number(cvSetting[1]), body) : setWreath(Number(cvSetting[1]), body);
+    }
     const transform = path.match(/^\/api\/pipeline\/stages\/(\d+)\/qc\/transform$/);
     if (transform && method === "POST") return qcTransform(Number(transform[1]), body);
     const ai = path.match(/^\/api\/pipeline\/stages\/(\d+)\/cv-ai\/(command|applied|confirm-fact)$/);
@@ -635,7 +683,7 @@ export function createTools(ctx: ToolsContext) {
     return null;
   }
 
-  return { handle, jarvisAnswer };
+  return { handle, jarvisAnswer, layoutOf };
 }
 
 export type PoligonTools = ReturnType<typeof createTools>;

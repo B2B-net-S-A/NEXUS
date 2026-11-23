@@ -111,7 +111,13 @@ export async function postAuthenticatedDownload(
   path: string,
   payload: unknown,
 ): Promise<AuthenticatedDownload> {
-  if (isPoligonActive()) throw poligonRefusal();
+  if (isPoligonActive()) {
+    // Podgląd „Nowego CV” ma na poligonie fikcyjny PDF (`poligon/adapter.ts`); reszta — odmowa.
+    const { poligonFile } = await import("./poligon/adapter");
+    const file = await poligonFile(path);
+    if (file) return file;
+    throw poligonRefusal();
+  }
   const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`;
   return trackTransfer(async () => {
     const res = await fetch(url, {
