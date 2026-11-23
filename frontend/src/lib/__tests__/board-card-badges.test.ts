@@ -889,6 +889,12 @@ describe("0521: plakietka formularza CV klienta", () => {
     expect(at({ template: true, missing: 7 })?.label).toBe("Formularz: 7 do uzupełnienia");
     expect(at({ template: true, missing: 7 })?.tone).toBe("wait");
     expect(at({ template: true, missing: 0 }, "cv_qc")?.label).toBe("Formularz gotowy");
+    // 0755: wgrany z dysku = gotowy, ale tabela punktowa dalej jest warunkiem.
+    expect(at({ template: true, missing: 0, uploaded: true })?.label).toBe("Formularz wgrany");
+    expect(at({ template: true, missing: 0, uploaded: true })?.tone).toBe("ok");
+    expect(
+      at({ template: true, missing: 0, uploaded: true, score_template: true, score_missing: null })?.label,
+    ).toBe("Brak tabeli punktowej");
     expect(at({ template: true, missing: 0 }, "cv_sent")).toBeNull();
     expect(at(null)).toBeNull();
     // Formularz wygrywa z CV firmowym w tej samej plakietce.

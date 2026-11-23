@@ -137,3 +137,68 @@ SCORE_DOWNGRADE_DDL = (
     "ALTER TABLE job_files DROP COLUMN IF EXISTS client_form_kind",
     JOB_FILE_DDL[2],
 )
+
+
+# ── 0755: plik wgrany z dysku i reguła klienta „doświadczenie = 10/10” ───────
+# Prośba DL Centrum e-Zdrowia (20.11.2026), decyzje Artura 23.11.2026.
+#
+# Rekruterzy wypełniają formularz CV klienta w Wordzie na dysku i wgrywali go
+# przez „Wgraj CV” — lądował jako CV kandydata (staging 22.11: 6 plików u 3
+# osób, u 2 jako główne CV). Wgrany plik należy do pary osoba × rekrutacja:
+# zastępuje wypełnienie z NEXUSA przy pobraniu, a sam wiersz pary liczy się
+# w bramce „QC CV” (`client_form_status.missing_before_qc`).
+#
+# `clients.client_form_scale_full_on_experience`: pola „w skali 1–10” dostają
+# 10, gdy w tym samym wierszu formularza jest doświadczenie (lata z ról albo
+# opis z cytatem) — „jeżeli kandydat ma jakieś doświadczenie w czymś,
+# wpisujemy poziom 10/10”. Flaga z edytora reguły CV jak `cv_client_document`;
+# CEZ dostaje ją RAZ (znacznik), żeby restart nie cofał zmiany z edytora.
+SCALE_SEED_MARKER = "ezdrowie_client_form_scale_full"
+
+UPLOAD_DDL = (
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS "
+    "uploaded_file_key VARCHAR(512) NULL",
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS "
+    "uploaded_filename VARCHAR(255) NULL",
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS "
+    "uploaded_content_type VARCHAR(120) NULL",
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS "
+    "uploaded_size INTEGER NULL",
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS "
+    "uploaded_at TIMESTAMPTZ NULL",
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS "
+    "uploaded_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+)
+
+SCALE_COLUMN_DDL = (
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS "
+    "client_form_scale_full_on_experience BOOLEAN NOT NULL DEFAULT false"
+)
+
+SCALE_SEED_DDL = (
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM app_settings WHERE key = "
+    f"'{SCALE_SEED_MARKER}') THEN UPDATE clients SET "
+    "client_form_scale_full_on_experience = true "
+    f"WHERE id = {EZDROWIE_CLIENT_ID}; "
+    "INSERT INTO app_settings (key, value) VALUES "
+    f"('{SCALE_SEED_MARKER}', jsonb_build_object('completed_at', clock_timestamp())) "
+    "ON CONFLICT (key) DO NOTHING; END IF; END $$"
+)
+
+UPLOAD_SCALE_DDL = (*UPLOAD_DDL, SCALE_COLUMN_DDL, SCALE_SEED_DDL)
+
+UPLOAD_SCALE_DOWNGRADE_DDL = (
+    f"DELETE FROM app_settings WHERE key = '{SCALE_SEED_MARKER}'",
+    "ALTER TABLE clients DROP COLUMN IF EXISTS client_form_scale_full_on_experience",
+    *(
+        "ALTER TABLE candidate_client_forms DROP COLUMN IF EXISTS " + column
+        for column in (
+            "uploaded_by",
+            "uploaded_at",
+            "uploaded_size",
+            "uploaded_content_type",
+            "uploaded_filename",
+            "uploaded_file_key",
+        )
+    ),
+)

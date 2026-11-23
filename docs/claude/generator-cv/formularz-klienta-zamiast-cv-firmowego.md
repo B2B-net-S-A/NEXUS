@@ -266,3 +266,47 @@ https://claude.ai/artifact/32hRQWiWa3fVXzVv6bwxNx
   rekruterzy wgrywali wypełniony Word przez „Wgraj CV”, więc lądował jako CV
   kandydata, u dwóch osób jako główne) idzie osobnym PR-em z migracją razem
   z regułą „doświadczenie = 10/10” w polach „w skali 1–10”.
+
+## Plik wgrany z dysku i „doświadczenie = 10/10” (0755, 23.11.2026)
+
+Druga część prośby DL CEZ z 20.11.2026, decyzje Artura z 23.11.2026
+(wszystkie warianty rekomendowane). Na stagingu 22.11.2026 było 6 wypełnionych
+formularzy wgranych przez „Wgraj CV” u 3 osób, u 2 jako główne CV. Tych plików
+na produkcji ten PR nie przenosi: to osobna decyzja Artura.
+
+- **Wgrany plik należy do pary osoba × rekrutacja**
+  (`candidate_client_forms.uploaded_*`: klucz w storage, nazwa, typ, rozmiar,
+  kiedy, kto). Plik leży pod `client_forms/{job_id}/` (`storage_service.save_client_form_file`).
+  Trasy obok `client-form` mają ten sam dostęp co „Wypełnij”:
+  `POST …/client-form/upload?kind=form|score` i `DELETE …/client-form/upload`.
+  Formularz przyjmuje Word (`.docx`) albo PDF, tabela punktowa tylko `.xlsx`.
+  Wgranie wymaga wzoru w Plikach rekrutacji (409 jak przy „Wypełnij”).
+- **Kontrola paczki jak przy wzorze**: limit 20 MB pliku, bez makr
+  (`vbaProject.bin`), najwyżej 1000 części i 60 MB po rozpakowaniu. Plik
+  otwierają tylko python-docx albo openpyxl. PDF musi zaczynać się od `%PDF-`.
+- **Wgrany = gotowy.** Wgranie zakłada wiersz pary, gdy go nie ma, więc
+  bramka „QC CV” (`missing_before_qc`, liczy istnienie wiersza) przepuszcza
+  kartę bez dalszych zmian. `client_form_status.job_states` podaje przy
+  wgranym pliku `missing = 0` i `uploaded`, a lista wymagań pisze „wgrany
+  z dysku”. Plakietka Tablicy: „Formularz wgrany”. Brak tabeli punktowej
+  dalej trzyma kartę, gdy rekrutacja ma jej wzór.
+- **Pobranie (`…/docx`) oddaje wgrany plik**, gdy jest. Nazwa pliku powstaje
+  ze wzoru i osoby, z rozszerzeniem wgranego pliku. Wartości wypełnione
+  w NEXUSIE zostają w bazie. „Usuń” przywraca pobieranie wypełnienia
+  z NEXUSA. Wiersz założony samym wgraniem znika razem z plikiem, więc
+  karta znów czeka na formularz. „Zastąp plik” kasuje poprzedni plik z dysku
+  dopiero po zapisie nowego w bazie.
+- **Reguła klienta `clients.client_form_scale_full_on_experience`**
+  („Jeżeli kandydat ma jakieś doświadczenie w czymś, wpisujemy poziom
+  10/10”) idzie przez edytor reguły CV jak `cv_client_document`
+  (`CLIENT_FLAG_FIELDS`, wersja i historia). Usunięcie reguły ją wyłącza.
+  CEZ dostał ją RAZ, znacznikiem `ezdrowie_client_form_scale_full`
+  w `app_settings`, żeby restart nie cofał zmiany z edytora. Checkbox stoi
+  pod „Formularz klienta”.
+- **Liczy kod** (`services/client_form_scale.py`), po „Wypełnij” i po
+  „Zapisz lata”. Pole z „skali”/„1–10” w etykiecie, w wierszu tabeli,
+  dostaje „10” (źródło `client_rule`), gdy w tym samym wierszu kod policzył
+  miesiące > 0 z ról włączonych w siatce lat albo opis ma przyjęty cytat
+  z CV lub notatek. Inaczej pole zostaje puste, także gdy model wpisał ocenę.
+  Wpis rekrutera (`source = recruiter`) wygrywa. Ręcznie wpisany opis nie ma
+  cytatu, więc nie liczy się jako dowód.

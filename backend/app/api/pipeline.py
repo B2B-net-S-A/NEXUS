@@ -4674,6 +4674,9 @@ async def _render_kanban_board(
                 # Tabela punktowa (23.11.2026: też warunek „QC CV”).
                 "score_template": form_state.score_template is not None,
                 "score_missing": form_state.score_missing,
+                # 0755: wgrany z dysku — plakietka „Formularz wgrany”.
+                "uploaded": form_state.uploaded,
+                "score_uploaded": form_state.score_uploaded,
             }
             if form_state is not None
             else None

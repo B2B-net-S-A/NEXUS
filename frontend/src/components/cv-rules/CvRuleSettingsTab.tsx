@@ -256,7 +256,7 @@ export function CvRuleSettingsTab({
               [
                 "client_form",
                 "Formularz klienta",
-                "NEXUS wypełnia wzór z Plików rekrutacji (np. formularz CV ze SWZ) z CV, screeningu i notatek. CV firmowe nie powstaje samo, a braki formularza tylko przypominają przed „QC CV”.",
+                "NEXUS wypełnia wzór z Plików rekrutacji (np. formularz CV ze SWZ) z CV, screeningu i notatek. CV firmowe nie powstaje samo, a na „QC CV” karta przechodzi dopiero z formularzem (wypełnionym albo wgranym).",
               ],
             ] as const
           ).map(([value, title, hint]) => (
@@ -274,6 +274,23 @@ export function CvRuleSettingsTab({
               </span>
             </label>
           ))}
+          {form.cv_client_document === "client_form" ? (
+            <label className="ml-6 mt-1 flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={form.client_form_scale_full_on_experience}
+                onChange={(e) => set("client_form_scale_full_on_experience", e.target.checked)}
+              />
+              <span>
+                Stopień zaawansowania „w skali 1–10”: <b>10</b>, gdy kandydat ma doświadczenie w tej kompetencji
+                <span className="block text-xs text-muted-foreground">
+                  Doświadczenie = w tym samym wierszu formularza są lata z ról w CV albo opis z cytatem. Bez
+                  doświadczenia pole zostaje puste do uzupełnienia. Wpis rekrutera zostaje.
+                </span>
+              </span>
+            </label>
+          ) : null}
         </fieldset>
         {newLayoutEnabled ? (
           <CvRuleLayoutField value={form.cv_layout} onChange={(next) => set("cv_layout", next)} />

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ClientFormField, ClientFormView } from "@/lib/api/clientForms";
 
-const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn() }));
+const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() }));
 const toast = vi.hoisted(() => ({ showSuccess: vi.fn(), showError: vi.fn() }));
 
 vi.mock("@/lib/api", () => ({ default: api }));
@@ -236,5 +236,60 @@ describe("ClientFormCard — tabela punktowa (0525)", () => {
     expect(await screen.findByText("Punkty: 6 z 13")).toBeInTheDocument();
     expect(screen.getByText("Pobierz Excel")).toBeInTheDocument();
     expect(screen.queryByText("Wygeneruj też CV firmowe")).toBeNull();
+  });
+
+  it("0755: wgrany z dysku — zielony wiersz, plik idzie zamiast wypełnienia, „Zastąp” i „Usuń”", async () => {
+    api.get.mockResolvedValue({ data: view({ status: "not_filled", missing: [], fields: FIELDS, filled_at: null }) });
+    const uploaded = view({
+      status: "not_filled",
+      filled_at: null,
+      uploaded: {
+        filename: "Formularz CV Anna — wypełniony.docx",
+        content_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        size: 4096,
+        uploaded_at: "2026-11-23T13:03:00Z",
+      },
+    });
+    api.post.mockResolvedValue({ data: uploaded });
+    renderCard();
+    const button = await screen.findByRole("button", { name: /Wgraj wypełniony formularz/ });
+    expect(button).toBeInTheDocument();
+    const input = screen.getByTestId("client-form-upload-input") as HTMLInputElement;
+    expect(input.accept).toBe(".docx,.pdf");
+    const file = new File(["x"], "Formularz CV Anna — wypełniony.docx");
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    const [url, body] = api.post.mock.calls[0] as [string, FormData];
+    expect(url).toBe("/api/candidates/stages/41/client-form/upload");
+    expect((body.get("file") as File).name).toBe("Formularz CV Anna — wypełniony.docx");
+    const row = await screen.findByTestId("client-form-uploaded");
+    expect(row).toHaveTextContent("Formularz CV Anna — wypełniony.docx");
+    expect(row).toHaveTextContent(/Wgrany z dysku · 23\.11\.2026.*14:03/);
+    expect(row).toHaveTextContent("ten plik idzie do QC i do klienta zamiast wypełnienia z NEXUSA");
+    expect(screen.getByRole("button", { name: /Zastąp plik/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Pobierz wgrany plik/ })).toBeInTheDocument();
+
+    api.delete.mockResolvedValue({ data: view({ status: "not_filled", filled_at: null, uploaded: null }) });
+    fireEvent.click(screen.getByRole("button", { name: /^Usuń$/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Usuń plik" }));
+    await waitFor(() =>
+      expect(api.delete).toHaveBeenCalledWith("/api/candidates/stages/41/client-form/upload"),
+    );
+    await waitFor(() => expect(screen.queryByTestId("client-form-uploaded")).toBeNull());
+  });
+
+  it("0755: tabela punktowa przyjmuje tylko Excel", async () => {
+    api.get.mockResolvedValue({ data: view({ kind: "score", status: "not_filled", filled_at: null }) });
+    renderCard({ kind: "score" });
+    expect(await screen.findByRole("button", { name: /Wgraj wypełniony Excel/ })).toBeInTheDocument();
+    expect((screen.getByTestId("client-score-upload-input") as HTMLInputElement).accept).toBe(".xlsx");
+  });
+
+  it("0755: bez uprawnień zapisu nie ma wgrywania", async () => {
+    api.get.mockResolvedValue({ data: view() });
+    renderCard({ readOnly: true });
+    await screen.findByTestId("client-form-card");
+    expect(screen.queryByRole("button", { name: /Wgraj wypełniony/ })).toBeNull();
   });
 });

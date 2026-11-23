@@ -891,6 +891,24 @@ def test_form_client_with_score_template_needs_the_score_table_too() -> None:
     assert filled["primary"]["kind"] == "move"
 
 
+def test_uploaded_client_files_are_ready() -> None:
+    """0755: plik wgrany z dysku idzie do QC zamiast pól z NEXUSA — gotowy."""
+    facts = replace(
+        FORM_CLIENT,
+        client_form_missing=0,
+        client_form_uploaded=True,
+        client_score_template="Zal 5b Tabela punktowa.xlsx",
+        client_score_missing=0,
+        client_score_uploaded=True,
+    )
+    result = build_requirements(facts, "cv_qc")
+    for key in ("client_form", "client_score"):
+        item = _item(result, key)
+        assert item["status"] == "ok" and item["blocking"] is False
+        assert item["detail"] == "wgrany z dysku" and item["action"] is None
+    assert result["primary"]["kind"] == "move"
+
+
 def test_form_gate_skips_for_delivery_lead_and_switch() -> None:
     dl = build_requirements(replace(FORM_CLIENT, skips_fill_gates=True), "cv_qc")
     form = _item(dl, "client_form")

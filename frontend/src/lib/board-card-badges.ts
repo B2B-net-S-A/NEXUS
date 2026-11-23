@@ -309,6 +309,15 @@ export function clientFormBadge(
         "Rekrutacja ma wzór tabeli punktowej klienta — wypełnij ją w sekcji CV osoby. Bez niej karta nie przejdzie na „QC CV”.",
     };
   }
+  if (form.uploaded) {
+    return {
+      key: "cv_state",
+      label: "Formularz wgrany",
+      tone: "ok",
+      title:
+        "Formularz CV klienta wgrany z dysku — ten plik idzie do QC i do klienta zamiast wypełnienia z NEXUSA.",
+    };
+  }
   if (form.missing > 0) {
     return {
       key: "cv_state",
