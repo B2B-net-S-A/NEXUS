@@ -1154,6 +1154,7 @@ export default function JobDetailPage() {
           openSkip={adIntent?.skip ?? false}
           askRemind={adIntent?.remind ?? false}
           openSend={adIntent?.send ?? false}
+          afterCreate={adIntent?.created ?? false}
           open
           onClose={() => {
             setShowJobAd(false);

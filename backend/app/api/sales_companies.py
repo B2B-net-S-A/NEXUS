@@ -163,6 +163,9 @@ class IdentityMatchOut(BaseModel):
     name: str
     hq_city: Optional[str]
     domain: Optional[str]
+    #: NIP karty: okno „Nowa firma” z NIP-em proponuje dopisanie numeru tylko
+    #: karcie bez NIP-u, inaczej nadpisałoby numer innej spółki tej samej marki.
+    nip: Optional[str] = None
     open_opportunities: int
     #: ``name`` ta sama nazwa, ``domain`` ta sama domena, ``similar`` podobna nazwa.
     reason: Literal["name", "domain", "similar"]
@@ -425,6 +428,7 @@ async def company_identity(
                 name=match.company.name,
                 hq_city=match.company.hq_city,
                 domain=match.company.domain,
+                nip=match.company.nip,
                 open_opportunities=match.open_opportunities,
                 reason=match.reason,
             )

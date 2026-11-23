@@ -152,6 +152,8 @@ export interface CompanyIdentityMatch {
   name: string;
   hq_city: string | null;
   domain: string | null;
+  /** NIP karty; brak pola w starszej odpowiedzi = nieznany. */
+  nip?: string | null;
   open_opportunities: number;
   reason: "name" | "domain" | "similar";
 }

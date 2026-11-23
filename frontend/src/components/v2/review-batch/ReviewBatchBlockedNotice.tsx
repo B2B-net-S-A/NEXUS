@@ -30,6 +30,11 @@ export function ReviewBatchBlockedNotice({ error }: { error: unknown }) {
         Wyszukiwanie ręczne wróci {overdueOnly ? "po wpisaniu wyników albo odrzuceniu" : "po minimum"}. Konkretną osobę znajdziesz po imieniu
         i nazwisku, telefonie albo mailu, a osobę spoza bazy dodasz zawsze.
       </p>
+      {overdueOnly ? (
+        <p className="text-muted-foreground">
+          Dzwonisz, a kandydat nie odbiera? Kliknij „Nie odebrał” przy osobie: próba przesuwa termin o 2 dni robocze.
+        </p>
+      ) : null}
       <Link
         href="/porcja"
         className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"

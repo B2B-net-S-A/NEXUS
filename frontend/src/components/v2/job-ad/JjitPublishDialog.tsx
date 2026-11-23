@@ -41,6 +41,8 @@ export interface JjitPublishDialogProps {
   api?: JjitPublishApi;
   onClose: () => void;
   onPublished: (next: JobAdState) => void;
+  /** Widełki i kategoria z kroku „Ogłoszenie” po utworzeniu (23.11.2026). */
+  prefill?: Partial<PortalListingOptions> | null;
 }
 
 export function JjitPublishDialog({
@@ -50,6 +52,7 @@ export function JjitPublishDialog({
   api = jobAdApi,
   onClose,
   onPublished,
+  prefill = null,
 }: JjitPublishDialogProps) {
   // Ponowienie po odmowie portalu zaczyna od tego, co wpisano wcześniej.
   const saved = state.jjit_api?.options ?? null;
@@ -59,7 +62,8 @@ export function JjitPublishDialog({
     enabled: open && saved == null,
     staleTime: 60_000,
   });
-  const initial = saved ?? defaults.data ?? null;
+  const base = saved ?? defaults.data ?? null;
+  const initial = base && prefill ? { ...base, ...prefill } : base;
 
   if (!open) return null;
   return (

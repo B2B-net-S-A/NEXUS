@@ -6,6 +6,10 @@
  * maila do opiekuna Pracuj.pl). Przyciski maila tylko otwierają okno —
  * nic nie zapisuje się z linku, a parametry znikają z adresu po obsłużeniu
  * (`docs/claude/powiadomienia/maile-z-przyciskami-akcji.md`).
+ *
+ * `?ogloszenie=nowa` (23.11.2026) — krok „Ogłoszenie” zaraz po utworzeniu
+ * rekrutacji w `/jobs/new`: okno w trybie „po utworzeniu” z panelem
+ * „Gdzie publikujemy” (`docs/claude/rekrutacja-tworzenie/ogloszenie-przy-utworzeniu.md`).
  */
 
 import type { AdChannel } from "@/lib/api/jobAd";
@@ -20,7 +24,11 @@ export interface AdMailIntent {
   remind: boolean;
   /** Pracuj.pl: od razu okno maila do opiekuna. */
   send: boolean;
+  /** Krok „Ogłoszenie” zaraz po utworzeniu rekrutacji (`?ogloszenie=nowa`). */
+  created: boolean;
 }
+
+const AFTER_CREATE = "nowa";
 
 const CHANNELS: readonly AdChannel[] = ["kariera", "pracuj", "jjit"];
 
@@ -30,11 +38,14 @@ export function readAdMailIntent(
   const raw = params?.get(AD_MAIL_PARAM) ?? null;
   const remind = params?.get(AD_REMIND_PARAM) === "rekruter";
   if (raw == null && !remind) return null;
+  if (raw === AFTER_CREATE) {
+    return { focus: null, skip: false, remind: false, send: false, created: true };
+  }
   const focus = CHANNELS.find((channel) => channel === raw) ?? null;
   const skip = raw === "pomin";
   if (!focus && !skip && !remind) return null;
   const send = focus === "pracuj" && params?.get(AD_SEND_PARAM) === "opiekun";
-  return { focus, skip, remind, send };
+  return { focus, skip, remind, send, created: false };
 }
 
 /**
@@ -43,6 +54,11 @@ export function readAdMailIntent(
  */
 export function pracujMailHref(jobId: number): string {
   return `/jobs/${jobId}?${AD_MAIL_PARAM}=pracuj&${AD_SEND_PARAM}=opiekun`;
+}
+
+/** Rekrutacja z krokiem „Ogłoszenie” — przejście po „Utwórz” w `/jobs/new`. */
+export function newJobAdHref(jobId: number): string {
+  return `/jobs/${jobId}?${AD_MAIL_PARAM}=${AFTER_CREATE}`;
 }
 
 /** Zapytanie bez parametrów maila (`?a=1&ogloszenie=jjit` → `?a=1`, sam → ``). */

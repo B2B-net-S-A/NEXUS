@@ -15,6 +15,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/components/Toast";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import api, { extractErrorMsg } from "@/lib/api";
+import { REVIEW_BATCH_QUERY_KEY } from "@/lib/api/reviewBatch";
 
 export function useNoAnswerNote({ candidateId, jobId }: { candidateId: number; jobId: number }) {
   const { showSuccess, showError } = useToast();
@@ -34,6 +35,8 @@ export function useNoAnswerNote({ candidateId, jobId }: { candidateId: number; j
       void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
       void queryClient.invalidateQueries({ queryKey: candidateQueryKeys.notes(candidateId) });
       void queryClient.invalidateQueries({ queryKey: candidateQueryKeys.timelineRoot(candidateId) });
+      // Próba przesuwa termin screeningu z porcji (23.11.2026).
+      void queryClient.invalidateQueries({ queryKey: REVIEW_BATCH_QUERY_KEY });
     },
     onError: (e) => showError(extractErrorMsg(e) || "Nie udało się zapisać próby kontaktu."),
   });

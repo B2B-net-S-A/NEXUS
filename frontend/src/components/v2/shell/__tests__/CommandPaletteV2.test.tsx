@@ -2,10 +2,11 @@ import { act, fireEvent, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { apiGet, routerPush, hrNav } = vi.hoisted(() => ({
+const { apiGet, routerPush, hrNav, authUser } = vi.hoisted(() => ({
   apiGet: vi.fn(),
   routerPush: vi.fn(),
   hrNav: { people: false },
+  authUser: { current: { id: 1, role: "admin", roles: ["admin"] } as Record<string, unknown> },
 }));
 
 vi.mock("@/lib/api", () => ({ default: { get: apiGet } }));
@@ -23,7 +24,7 @@ vi.mock("@/lib/section-access", async (importOriginal) => ({
 vi.mock("@/store/auth", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/store/auth")>()),
   useAuthStore: (selector: (state: { user: unknown }) => unknown) =>
-    selector({ user: { id: 1, role: "admin", roles: ["admin"] } }),
+    selector({ user: authUser.current }),
 }));
 // Flaga kolejki telefonów idzie z react-query; test nie montuje providera.
 vi.mock("@/hooks/useCandidateContactFeature", () => ({
@@ -95,6 +96,7 @@ afterEach(() => {
   apiGet.mockReset();
   routerPush.mockReset();
   hrNav.people = false;
+  authUser.current = { id: 1, role: "admin", roles: ["admin"] };
 });
 
 /** Wpisuje frazę i czeka na odpowiedzi wszystkich zapytań palety. */
@@ -377,5 +379,55 @@ describe("CommandPaletteV2 — nawigacja po wpisaniu zapytania (UAT M00-B03)", (
     expect(navMatches("Kalendarz", "KALE")).toBe(true);
     expect(navMatches("Ustawienia", "ustąw")).toBe(true);
     expect(navMatches("Klienci", "kontr")).toBe(false);
+  });
+});
+
+describe("CommandPaletteV2 — nowa firma z NIP-u (prośba Sprzedaży 23.11.2026)", () => {
+  it("NIP bez karty: „Załóż firmę z NIP …” prowadzi do okna nowej firmy", async () => {
+    const { getByText } = await search("111-111-11-11");
+    fireEvent.click(getByText("Załóż firmę z NIP 111-111-11-11"));
+    expect(routerPush).toHaveBeenCalledWith("/sales/companies?nowa=1111111111");
+  });
+
+  it("zła suma kontrolna: nieaktywna pozycja zamiast drogi do rejestru", async () => {
+    const { getByText, queryByText } = await search("1111111112");
+    const row = getByText(/ma złą sumę kontrolną/).closest("[role=option]");
+    expect(row?.getAttribute("aria-disabled")).toBe("true");
+    expect(queryByText(/Załóż firmę/)).toBeNull();
+  });
+
+  it("NIP z kartą w kartotece: wynik karty, bez „Załóż”", async () => {
+    apiGet.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === "/api/sales/companies"
+          ? { data: { items: [{ id: 5, name: "Firma Testowa" }], total: 1 } }
+          : { data: { items: [], total: 0 } },
+      ),
+    );
+    const { getByText, queryByText } = await search("1111111111");
+    expect(getByText("Firma Testowa")).toBeTruthy();
+    expect(queryByText(/Załóż firmę/)).toBeNull();
+  });
+
+  it("awaria wyszukiwania firm nie udaje braku karty", async () => {
+    apiGet.mockImplementation((url: string) =>
+      url === "/api/sales/companies"
+        ? Promise.reject(new Error("500"))
+        : Promise.resolve({ data: { items: [], total: 0 } }),
+    );
+    const { queryByText } = await search("1111111111");
+    expect(queryByText(/Załóż firmę/)).toBeNull();
+  });
+
+  it("konto bez edycji Sprzedaży nie dostaje „Załóż”", async () => {
+    authUser.current = { id: 2, role: "recruiter", roles: ["recruiter"] };
+    const { queryByText } = await search("1111111111");
+    expect(queryByText(/Załóż firmę/)).toBeNull();
+  });
+
+  it("zwykła fraza z cyframi to nie NIP", async () => {
+    const { queryByText } = await search("Firma 1111111111");
+    expect(queryByText(/Załóż firmę/)).toBeNull();
+    expect(queryByText(/sumę kontrolną/)).toBeNull();
   });
 });

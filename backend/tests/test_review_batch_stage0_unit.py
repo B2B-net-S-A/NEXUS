@@ -456,6 +456,39 @@ def test_deadline_counts_from_return_to_the_team():
     assert counts.open_screenings == 2
 
 
+def test_no_answer_attempt_moves_the_deadline():
+    """Zgłoszenie rekrutera 23.11.2026: dzwoni, kandydat nie odbiera.
+    Zapisane „Nie odebrał” liczy termin od ostatniej próby."""
+    window = NOW + timedelta(hours=1)
+    tried_today = replace(
+        _open_s(1, own_batch=True), attempt_at=NOW + timedelta(hours=3), attempts=2
+    )
+    tried_long_ago = replace(
+        _open_s(2, own_batch=True), attempt_at=NOW - timedelta(hours=1), attempts=1
+    )
+    never_called = _open_s(3, own_batch=True)
+    counts = rb.summarize_day(
+        [tried_today, tried_long_ago, never_called], NOW + timedelta(days=5), window
+    )
+    assert counts.overdue_cards == (tried_long_ago, never_called)
+    assert counts.open_screenings == 3
+
+
+def test_only_first_three_attempts_move_the_deadline():
+    """Decyzja Artura z 23.11.2026: najwyżej 3 próby przesuwają termin, potem
+    wynik albo odrzucenie z powodem."""
+    third = NOW - timedelta(hours=1)
+    tries = [
+        NOW - timedelta(hours=5),
+        NOW - timedelta(hours=3),
+        third,
+        NOW + timedelta(hours=3),
+    ]
+    assert rb.deadline_attempt(tries) == third
+    assert rb.deadline_attempt(tries[:2]) == tries[1]
+    assert rb.deadline_attempt([]) is None
+
+
 def test_closed_decision_is_counted_for_level_on_the_closing_day():
     card = replace(_open_s(1, own_batch=True), closed_at=NOW + timedelta(days=1))
     counts = rb.summarize_day([card], NOW + timedelta(hours=20))

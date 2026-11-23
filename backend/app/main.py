@@ -883,6 +883,9 @@ async def lifespan(app: FastAPI):
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.client_report_reminders import client_report_reminders_loop
     from app.tasks.settlement_reminders import settlement_reminders_loop
+    from app.tasks.client_settlements_auto_accept import (
+        client_settlements_auto_accept_loop,
+    )
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
     from app.tasks.sales_archive_shadow import sales_archive_shadow_loop
@@ -1094,6 +1097,10 @@ async def lifespan(app: FastAPI):
             ),
             # 23.11.2026: brakujący raport godzin — 3., 5. i 7. dzień roboczy.
             "settlement_reminders": asyncio.create_task(settlement_reminders_loop()),
+            # 23.11.2026: rano przyjęcie RCP „Bez uwag” (reguła klienta).
+            "client_settlements_auto_accept": asyncio.create_task(
+                client_settlements_auto_accept_loop()
+            ),
             "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
             # 28.10.2026: rekrutacje bez ruchu — przypomnienia DL/HoR, zamknięcie po 28 dniach.
             "job_idle": asyncio.create_task(job_idle_loop()),
