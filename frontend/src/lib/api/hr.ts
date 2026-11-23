@@ -69,6 +69,8 @@ export interface HrConfig {
     back_office_member?: boolean;
     /** Kierownik kolejki: head back office, zastępca, admin. */
     back_office_lead?: boolean;
+    /** Prowadzi panel konsultanta (Opieka, kierownik back office'u, admin) — bramka `/api/consultant-panel`. */
+    consultant_panel_operator?: boolean;
     /** Kogo osoba zastępuje dziś (przełożony na urlopie z nią jako zastępcą). */
     covering?: { manager_user_id: number; manager_name: string; until: string; reports: number }[];
   };

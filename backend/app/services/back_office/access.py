@@ -130,3 +130,14 @@ async def load_viewer(db: AsyncSession, user: User) -> Viewer:
         sees_amounts=user.has_role(UserRole.admin)
         or has_permission(user, ProductAction.payroll),
     )
+
+
+async def operates_consultant_panel(db: AsyncSession, user: User) -> bool:
+    """Panel konsultanta prowadzi zespół Opieka, kierownik albo admin (bez warunku modułu).
+
+    Jedna odpowiedź dla bramki ``/api/consultant-panel`` i dla ``/api/hr/config``:
+    front pyta o panel kontraktu tylko przy ``True``, bo inaczej Delivery Lead
+    i Finanse dostawali 403 w konsoli na „Start i sprzęt” (23.11.2026).
+    """
+
+    return (await load_viewer(db, user)).owns("care")

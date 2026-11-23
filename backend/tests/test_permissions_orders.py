@@ -374,6 +374,29 @@ async def test_order_lifecycle_asks_only_for_the_client_scope(monkeypatch) -> No
     assert exc.value.status_code == 403
 
 
+async def test_mail_queue_empty_scope_is_an_empty_list(monkeypatch) -> None:
+    """DL bez klientów w portfelu: pusta kolejka (200), nie 403 (23.11.2026).
+
+    Pulpit i Tablica pytają o kolejkę każdym kontem z podglądem Delivery,
+    więc odmowa dawała błąd w konsoli na każdym ekranie. Pusty zakres nie
+    pyta bazy, stąd ``db=None``.
+    """
+
+    async def no_clients(*_args, **_kwargs):
+        return set()
+
+    monkeypatch.setattr(queue, "_visible_client_ids", no_clients)
+    body = await queue.list_queue(
+        user=_account(UserRole.delivery_lead),
+        outcome=queue.OUTCOME_NEEDS_REVIEW,
+        client_id=None,
+        limit=50,
+        offset=0,
+        db=None,
+    )
+    assert body == {"total": 0, "items": []}
+
+
 async def test_mail_queue_scope_and_write_rights(monkeypatch) -> None:
     monkeypatch.setattr(
         queue, "resolve_delivery_lead_client_ids", _delivery_lead_boundary

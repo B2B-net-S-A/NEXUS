@@ -85,6 +85,7 @@ async def hr_config(
                 "back_office_head": False,
                 "back_office_member": False,
                 "back_office_lead": False,
+                "consultant_panel_operator": False,
             },
         }
     profile = await people.profile_of(db, current_user.id)
@@ -133,6 +134,11 @@ async def hr_config(
                 back_office_viewer and back_office_viewer.has_access
             ),
             "back_office_lead": bool(back_office_viewer and back_office_viewer.is_lead),
+            # Aktywuje panel konsultanta (bramka ``/api/consultant-panel``, bez
+            # warunku modułu) — front nie pyta o panel, gdy ``False``.
+            "consultant_panel_operator": await back_office_access.operates_consultant_panel(
+                db, current_user
+            ),
         },
     }
 

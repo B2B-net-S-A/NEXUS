@@ -630,7 +630,10 @@ async def list_queue(
         )
     visible = await _visible_client_ids(db, user)
     if visible is not None and not visible:
-        raise HTTPException(status_code=403, detail="Brak dostępnych klientów")
+        # Delivery Lead bez klientów w portfelu: kolejka jest pusta, nie zabroniona.
+        # Pulpit i Tablica pytają o nią każdym kontem z podglądem Delivery, więc
+        # 403 dawało błąd w konsoli na każdym ekranie (23.11.2026, konto DL bez klientów).
+        return {"total": 0, "items": []}
     stmt = select(OrderMailDocument).where(OrderMailDocument.outcome == outcome)
     count_stmt = (
         select(func.count())

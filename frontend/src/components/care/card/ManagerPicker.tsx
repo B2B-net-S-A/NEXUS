@@ -15,7 +15,9 @@ import {
 } from "@/components/ui/select";
 import { apiErrorMessage } from "@/lib/api-error";
 import { careKeys } from "@/lib/api/care";
+import { canReadClientPeople } from "@/lib/api/client-people";
 import { useApplyManagers, useClientStructureProposals } from "@/lib/api/structure-proposals";
+import { useAuthStore } from "@/store/auth";
 
 const NONE = "none";
 const NEW = "new";
@@ -32,12 +34,15 @@ interface ManagerPickerProps {
  * (`POST …/structure-proposals/managers`, zatwierdza DL klienta albo admin);
  * pierwsza pozycja to propozycja automatu struktury. Bez prawa zatwierdzania
  * (albo bez dostępu do struktury) — podpowiedź, gdzie menedżera wskazać.
+ * Bez dostępu do struktury (D11: np. Finanse) karta nie pyta o propozycje,
+ * bo serwer i tak odmówi 403 (Tester 23.11.2026).
  */
 export function ManagerPicker({ contractId, clientId }: ManagerPickerProps) {
   const ids = { pick: useId(), name: useId(), position: useId() };
   const { showToast } = useToast();
   const queryClient = useQueryClient();
-  const proposals = useClientStructureProposals(clientId);
+  const readsStructure = canReadClientPeople(useAuthStore((state) => state.user));
+  const proposals = useClientStructureProposals(clientId, readsStructure);
   const apply = useApplyManagers(clientId);
   const [open, setOpen] = useState(false);
   const [choice, setChoice] = useState<string>(NONE);
