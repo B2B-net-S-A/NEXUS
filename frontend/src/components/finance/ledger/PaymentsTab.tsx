@@ -440,6 +440,7 @@ function PlanTable({
                       {contractor && item.contract_id !== null ? (
                         <span className="flex flex-wrap gap-1 pt-0.5">
                           <Button
+                            data-tour="finance.payments.garnishment"
                             size="sm"
                             variant="ghost"
                             onClick={() =>

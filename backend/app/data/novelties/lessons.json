@@ -1950,6 +1950,36 @@
     ]
   },
   {
+    "id": "lekcja-zajecia-i-spory",
+    "title": "Zajęcia wierzytelności i spór w Przelewach",
+    "novelties": ["przelewy-zajecia-i-spory"],
+    "task": "W Przelewach przy fakturze kontraktora zacznij wpisywać zajęcie wierzytelności. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/finance?view=payments",
+    "check": { "kind": "click", "anchor": "finance.payments.garnishment" },
+    "questions": [
+      {
+        "q": "Komornik zajął wierzytelność kontraktora na 1 050 zł, a faktura ma 1 230 zł. Co zrobi paczka przelewów?",
+        "options": [
+          "Wyśle 1 050 zł na rachunek organu i 180 zł kontraktorowi",
+          "Zapłaci kontraktorowi całość, a komornika trzeba opłacić ręcznie",
+          "Zablokuje fakturę do końca zajęcia"
+        ],
+        "answer": 0,
+        "explain": "Należność z odsetkami do dnia przelewu idzie do organu, reszta do kontraktora. Gdy odsetek albo rachunku organu brakuje, płatność czeka na decyzję księgowej."
+      },
+      {
+        "q": "Wykaz VAT nie odpowiedział w dniu paczki. Co dzieje się z płatnością kontraktora?",
+        "options": [
+          "Jest zablokowana z powodem, aż wykaz potwierdzi rachunek",
+          "Przechodzi, bo błąd wykazu to nie nasza wina",
+          "Przechodzi po odhaczeniu ostrzeżenia"
+        ],
+        "answer": 0,
+        "explain": "Błąd wykazu to nie zgoda. Rachunek spoza wykazu też blokuje przelew, a powrót rachunku do wykazu zwalnia płatność sam."
+      }
+    ]
+  },
+  {
     "id": "lekcja-klient-cos-zmienil",
     "title": "„Klient coś zmienił”: zmiana od klienta jednym oknem",
     "novelties": [
