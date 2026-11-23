@@ -7,9 +7,11 @@ import {
   completeGroups,
   dealBreakerHit,
   forwardBlockers,
+  forwardGaps,
   hitKey,
   jobKey,
   jointDefaults,
+  jointGapTarget,
   noteFillPatches,
   projectPair,
   type JointPair,
@@ -199,6 +201,33 @@ describe("joint screening — rzut na parę", () => {
     expect(forwardBlockers(A, projectPair(values, A, groups))).toEqual(["1 pytanie bez odpowiedzi"]);
     values.answers[groups[2].key] = "od zaraz";
     expect(forwardBlockers(B, projectPair(values, B, groups))).toEqual([]);
+  });
+
+  // Arkusz rozmowy (23.11.2026): pasek braków liczy tą samą regułą co przycisk
+  // i każdy brak wskazuje pole formularza wspólnego, w którym stawia kursor.
+  it("points each forwarding gap at its field in the joint form", () => {
+    const required = (jobId: number, questions: typeof QA, extra: Partial<JointPair> = {}) =>
+      pair(jobId, questions, extra, {
+        card: {
+          ...formState().card,
+          editable_fields: ["availability", "work_mode", "worked_at_client", "recommendation"],
+          required: ["availability", "work_mode", "worked_at_client", "recommendation"],
+        },
+      });
+    const a = required(1, QA, { anchor: true });
+    const b = required(2, QB);
+    const g = completeGroups([a, b], SERVER);
+    const values = jointDefaults([a, b], g);
+    const gaps = forwardGaps(b, projectPair(values, b, g));
+    expect(forwardBlockers(b, projectPair(values, b, g))).toEqual(gaps.map((gap) => (gap.kind === "card" ? `„${gap.label}”` : gap.label)));
+    expect(gaps.map((gap) => jointGapTarget(b, g, gap))).toEqual([
+      // Pierwsze pytanie B bez odpowiedzi (q1) stoi we własnej grupie B.
+      { path: `answers.${g.find((x) => x.members.some((m) => m.jobId === 2 && m.questionId === "q1"))!.key}`, tab: false },
+      { path: "shared.card.availability", tab: false },
+      { path: `jobs.${jobKey(2)}.card.work_mode`, tab: false },
+      { path: "clients.c2", tab: false },
+      { path: `jobs.${jobKey(2)}.card.recommendation`, tab: true },
+    ]);
   });
 });
 
