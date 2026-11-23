@@ -33,6 +33,27 @@ const view = (fields: ClientFormField[]): ClientFormView => ({
 });
 
 describe("ClientFormDialog — szkic rekrutera", () => {
+  it("pole „do uzupełnienia” nie znika spod kursora po pierwszej literze (zgłoszenie 23.11.2026)", () => {
+    render(
+      <ClientFormDialog
+        open
+        onOpenChange={vi.fn()}
+        candidateName="Anna Fikcyjna"
+        view={view([field({}), field({ id: "t2.r6.c3", row_label: "Java" })])}
+        onSave={vi.fn()}
+        onDownload={vi.fn()}
+      />,
+    );
+    const input = screen.getAllByLabelText(/Stopień zaawansowania/)[0];
+    input.focus();
+    fireEvent.change(input, { target: { value: "8" } });
+    // To samo pole zostaje w sekcji „Do uzupełnienia” z kursorem, aż do zapisu.
+    expect(input).toBeInTheDocument();
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue("8");
+    expect(screen.getByText(/Do uzupełnienia · 2/)).toBeInTheDocument();
+  });
+
   it("zapis siatki lat (nowa odpowiedź serwera) nie kasuje niezapisanych wpisów w polach", () => {
     const props = {
       open: true,
