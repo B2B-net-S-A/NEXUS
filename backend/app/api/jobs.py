@@ -3824,6 +3824,111 @@ async def update_client_process(
     return {"job_id": job.id, "client_process": process}
 
 
+class ClientChangeIn(BaseModel):
+    text: str = Field(min_length=10, max_length=20_000)
+
+
+class ClientChangeApplyIn(BaseModel):
+    changes: list[dict[str, Any]] = Field(min_length=1, max_length=20)
+    note: str | None = Field(default=None, max_length=600)
+    notify_gaps: bool = False
+    expected_profile_hash: str | None = None
+
+
+@router.post("/{job_id}/champion-profile/client-change")
+async def propose_champion_client_change(
+    job_id: int,
+    body: ClientChangeIn,
+    current_user: JobEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """„Klient coś zmienił” (23.11.2026): propozycja zmian profilu z treści od klienta.
+
+    Nic nie zapisuje. Awaria modelu to 200 ze ``status: failed`` — AI jest
+    dodatkiem, DL ma zawsze ręczne „Edytuj”. ``gaps`` to osoby w procesie
+    bez nowego wymaganego słowa w CV (`champion_client_change.process_gaps`).
+    """
+    from app.services import champion_client_change as cc
+    from app.services.champion_intake import response_context
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    await ensure_champion_job_editor(job, current_user, db)
+    profile = dict(job.champion_profile or {})
+    role = (profile.get("basics") or {}).get("role_name") or job.title or ""
+    proposal = await cc.propose(
+        db, profile=profile, role=role, text=body.text, user_id=current_user.id
+    )
+    gaps = await cc.process_gaps(db, job_id, cc.gap_words(proposal["changes"]))
+    return {
+        **proposal,
+        "gaps": gaps,
+        "profile_hash": response_context(job).get("profile_hash"),
+    }
+
+
+@router.post("/{job_id}/champion-profile/client-change/apply")
+async def apply_champion_client_change(
+    job_id: int,
+    body: ClientChangeApplyIn,
+    current_user: JobEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Zapis zmian zaznaczonych w oknie „Zmiana od klienta”.
+
+    Zmiany (także poprawione przez DL) przechodzą ponownie `clean_changes`
+    na obecnym profilu, a zapis to ten sam `_save_champion_profile` co
+    „Zapisz” w Profilu: wersja „Zmiany”, dzwonki Championa i przeliczenia
+    jak zawsze. Zdanie dla rekruterów trafia do wersji od razu, więc okno
+    „Na co klient kładzie nacisk?” się nie otwiera.
+    """
+    from app.models.champion_profile_revision import ChampionProfileRevision
+    from app.services import champion_client_change as cc
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    await ensure_champion_job_editor(job, current_user, db)
+    profile = dict(job.champion_profile or {})
+    changes = cc.clean_changes(body.changes, profile)
+    if not changes:
+        raise HTTPException(
+            422,
+            "Żadna z zaznaczonych zmian nie pasuje już do profilu — przygotuj zmiany ponownie.",
+        )
+    payload = cc.apply_changes(profile, changes)
+    gaps = (
+        await cc.process_gaps(db, job_id, cc.gap_words(changes))
+        if body.notify_gaps
+        else []
+    )
+    response = await _save_champion_profile(
+        job_id,
+        current_user,
+        db,
+        payload,
+        expected_profile_hash=body.expected_profile_hash,
+    )
+    note = " ".join((body.note or "").split()) or None
+    revision_id = (response.get("change_revision") or {}).get("id")
+    if note and revision_id:
+        revision = await db.get(ChampionProfileRevision, revision_id)
+        if revision is not None and revision.author_id == current_user.id:
+            revision.note = note
+            revision.note_updated_at = func.now()
+    notified = 0
+    if gaps:
+        job = await db.scalar(select(Job).where(Job.id == job_id))
+        notified = await cc.notify_gap_owners(
+            db, job=job, gaps=gaps, actor_id=current_user.id
+        )
+    await db.commit()
+    return {**response, "applied": len(changes), "notified": notified}
+
+
 class ChampionChangesSeenIn(BaseModel):
     revision_id: int = Field(ge=1)
 
