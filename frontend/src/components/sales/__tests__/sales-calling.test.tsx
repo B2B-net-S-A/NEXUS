@@ -28,6 +28,7 @@ const changeState = vi.fn();
 const editRecord = vi.fn();
 const reminders = vi.fn();
 const whoCalls = vi.fn();
+const reportDuplicate = vi.fn();
 const askConfirm = vi.fn();
 const showError = vi.fn();
 const showSuccess = vi.fn();
@@ -46,6 +47,7 @@ vi.mock("@/lib/api/sales-calling", async (original) => ({
   useCallQueue: (campaignId: number | null, callerId: number | null = null) => queue(campaignId, callerId),
   useChangeState: () => mutation(changeState),
   useEditRecord: () => mutation(editRecord),
+  useReportDuplicate: () => mutation(reportDuplicate),
   useCallReminders: (scope: string) => reminders(scope),
   useWhoCalls: (phone: string) => whoCalls(phone),
   useCallRecords: (filters: unknown) => records(filters),
@@ -901,6 +903,37 @@ describe("po Excelu dzwoniących (decyzje 11.11.2026)", () => {
     expect(screen.getByLabelText("Rozmowa: Odmowa Sp. z o.o.")).toBeInTheDocument();
   });
 
+  it("tabela ukrywa powtórki, „Powtórki” je pokazuje z plakietką (23.11.2026)", () => {
+    const repeat = item({ key: "r:6", record_id: 6, repeat: true, company: { id: 13, name: "Powtórka S.A." } });
+    records.mockImplementation((current: { repeats?: boolean }) =>
+      current.repeats
+        ? ok({ items: [fresh, repeat], total: 2, counts: { new: 2 }, repeats: 542 })
+        : ok({ items: [fresh], total: 1, counts: { new: 1 }, repeats: 542 }),
+    );
+    render(<CallQueueView />);
+    fireEvent.click(screen.getByRole("radio", { name: "Tabela" }));
+    expect(records).toHaveBeenLastCalledWith(filters());
+    expect(screen.queryByText("Powtórka S.A.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Powtórki\s*542/ }));
+    expect(records).toHaveBeenLastCalledWith(filters({ repeats: true }));
+    expect(screen.getByText("Powtórka S.A.")).toBeInTheDocument();
+    expect(screen.getByText("Powtórka: już dzwoniono")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Jak działają duplikaty/ }));
+    expect(screen.getByText("Jak NEXUS pilnuje duplikatów")).toBeInTheDocument();
+    expect(screen.getByText("Przy imporcie listy")).toBeInTheDocument();
+  });
+
+  it("„To duplikat” na karcie pyta i zapisuje zgłoszenie", async () => {
+    reportDuplicate.mockResolvedValue({ created: true });
+    askConfirm.mockResolvedValueOnce(true);
+    queue.mockReturnValue(ok(callQueue({ new: [fresh] })));
+    render(<CallQueueView />);
+    fireEvent.click(screen.getByRole("button", { name: "To duplikat" }));
+    await waitFor(() => expect(reportDuplicate).toHaveBeenCalledWith({ record_id: fresh.record_id }));
+    await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Zgłoszono duplikat. Dziękujemy."));
+  });
+
   it("„Wszyscy” w tabeli pokazuje listy innych z kolumną „Kto dzwoni” i filtrem osoby", () => {
     const theirs = item({
       key: "r:8",
@@ -957,6 +990,55 @@ describe("po Excelu dzwoniących (decyzje 11.11.2026)", () => {
     expect(screen.queryByRole("region", { name: "Jutro" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("Późna S.A."));
     expect(screen.getByLabelText("Rozmowa: Późna S.A.")).toBeInTheDocument();
+  });
+
+  it("po co oddzwaniamy: powód w Przypomnieniach i na górze karty (23.11.2026)", () => {
+    reminders.mockReturnValue(
+      ok([
+        item({
+          key: "r:7",
+          record_id: 7,
+          state: "call_back",
+          due_on: "2026-11-09",
+          company: { id: 15, name: "Z powodem S.A." },
+          callback_reason: { text: "Prosi o telefon po zarządzie", author_name: "Marcel Testowy", noted_on: "2026-11-06", from_excel: false },
+        }),
+        item({ key: "r:8", record_id: 8, state: "call_back", due_on: "2026-11-09", company: { id: 16, name: "Bez powodu S.A." } }),
+        item({
+          key: "r:9",
+          record_id: 9,
+          state: "call_back",
+          due_on: "2026-11-09",
+          company: { id: 17, name: "Z Excela S.A." },
+          callback_reason: { text: "Urlop", author_name: null, noted_on: "2026-11-11", from_excel: true },
+        }),
+      ]),
+    );
+    render(<CallQueueView />);
+    fireEvent.click(screen.getByRole("radio", { name: "Przypomnienia" }));
+    const late = screen.getByRole("region", { name: "Zaległe" });
+    expect(within(late).getByText("Prosi o telefon po zarządzie")).toBeInTheDocument();
+    expect(within(late).getByText("Marcel Testowy, 06.11")).toBeInTheDocument();
+    expect(within(late).getByText("Komentarz z Excela")).toBeInTheDocument();
+    expect(within(late).getByText("Bez powodu: dopisz przy rozmowie")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Z powodem S.A."));
+    const card = screen.getByLabelText("Rozmowa: Z powodem S.A.");
+    expect(within(card).getByText("Oddzwaniasz, bo:")).toBeInTheDocument();
+  });
+
+  it("„Oddzwonić…” pyta, po co oddzwaniamy, i zapisuje to z terminem", () => {
+    render(<CallQueueView />);
+    expect(screen.getByLabelText("Notatka z rozmowy")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Oddzwonić…" }));
+    // Jedno pole zamiast dwóch: notatka z rozmowy staje się powodem.
+    expect(screen.queryByLabelText("Notatka z rozmowy")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Po co oddzwaniamy?"), { target: { value: "Decyzja o budżecie w styczniu" } });
+    fireEvent.click(screen.getByRole("button", { name: "Za 3 dni" }));
+    expect(saveOutcome.mock.calls[0][0]).toMatchObject({
+      outcome: "call_back",
+      callback_on: "2026-11-13",
+      note: "Decyzja o budżecie w styczniu",
+    });
   });
 
   it("awaria tabeli nie wygląda jak pusta lista", () => {

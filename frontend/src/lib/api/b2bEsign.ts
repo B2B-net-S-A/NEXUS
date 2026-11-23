@@ -117,6 +117,8 @@ export interface PublicSignView {
   /** 0754: dokąd idzie kod (adres zamaskowany); null = nie ma czego akceptować kodem. */
   accept_code_email?: string | null;
   accept_code_sent_at?: string | null;
+  /** K1 (22.11.2026): podpis w NEXUSIE przez dostawcę podpisu w chmurze; brak pola = jak dotąd. */
+  remote_signing?: RemoteSigningAvailability;
 }
 
 export interface PublicSignDocument {
@@ -127,8 +129,48 @@ export interface PublicSignDocument {
   signed_via?: DocumentSignedVia | null;
 }
 
+/**
+ * Podpis u dostawcy w chmurze (kierunek K1, 22.11.2026): NEXUS przekierowuje
+ * do dostawcy, osoba zatwierdza podpis w jego aplikacji i wraca z `?remote=`.
+ * Ekrany pokazują tę drogę tylko przy `available`, więc bez skonfigurowanego
+ * dostawcy wyglądają jak dotąd.
+ */
+export interface RemoteSigningAvailability {
+  available: boolean;
+  provider_label: string | null;
+}
+
+export type RemoteSigningMethod = "own_certificate" | "one_time";
+
+export type RemoteSigningState =
+  | "waiting_for_user"
+  | "signing"
+  | "done"
+  | "failed"
+  | "cancelled";
+
+export interface RemoteSigningStart {
+  redirect_url: string;
+  session_id: string;
+}
+
+/** Stan sesji kontraktora; przy `done` serwer oddaje świeży widok strony. */
+export interface PublicRemoteSession {
+  state: RemoteSigningState;
+  message: string | null;
+  view: PublicSignView | null;
+}
+
+/** Stan sesji reprezentanta: które wnioski są już podpisane za firmę. */
+export interface CompanyRemoteSession {
+  state: RemoteSigningState;
+  message: string | null;
+  done_request_ids: number[];
+}
+
 export const ESIGN_SETTINGS_KEY = ["b2b-esign-settings"] as const;
 export const ESIGN_MINE_KEY = ["b2b-esign-mine"] as const;
+export const ESIGN_COMPANY_REMOTE_KEY = ["b2b-esign-company-remote"] as const;
 
 function pdfForm(file: File): FormData {
   const form = new FormData();
@@ -209,6 +251,24 @@ export const b2bEsignApi = {
         `/api/b2b-generator/esign/${requestId}/company-sign`,
         pdfForm(file),
         MULTIPART,
+      )
+      .then((r) => r.data),
+  /** K1: czy reprezentant może podpisać w NEXUSIE u dostawcy w chmurze. */
+  companyRemoteAvailable: () =>
+    api
+      .get<RemoteSigningAvailability>("/api/b2b-generator/esign/company-remote/available")
+      .then((r) => r.data),
+  /** K1: zaznaczone umowy jednym zatwierdzeniem; potem przejście do dostawcy. */
+  companyRemoteStart: (requestIds: number[]) =>
+    api
+      .post<RemoteSigningStart>("/api/b2b-generator/esign/company-remote/start", {
+        request_ids: requestIds,
+      })
+      .then((r) => r.data),
+  companyRemoteStatus: (sessionId: string) =>
+    api
+      .get<CompanyRemoteSession>(
+        `/api/b2b-generator/esign/company-remote/${encodeURIComponent(sessionId)}`,
       )
       .then((r) => r.data),
 };

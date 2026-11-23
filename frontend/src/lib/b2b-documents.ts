@@ -738,6 +738,19 @@ export function annexRegisterHref(q: string | null | undefined): string {
   return `/contracts/b2b-generator?${params.toString()}`;
 }
 
+/** Formularz rozwiązania zależy od umowy bazowej: umowa z rejestru zna numer
+ *  i datę zawarcia, a przy kontrakcie bez umowy w rejestrze wpisuje je
+ *  człowiek — jak wymaga serwer (`_validate_values(..., external=True)`). */
+export function typeForSubject(type: DocumentTypeDef, hasParent: boolean): DocumentTypeDef {
+  if (!type.accepts_contract) return type;
+  return {
+    ...type,
+    fields: hasParent
+      ? type.fields.filter((f) => f.group !== "base")
+      : type.fields.map((f) => (f.group === "base" ? { ...f, required: true } : f)),
+  };
+}
+
 /** Czy typ wymaga wyboru umowy bazowej przed formularzem. */
 export function parentRequired(type: Pick<DocumentTypeDef, "parent">): boolean {
   return type.parent === "b2b";

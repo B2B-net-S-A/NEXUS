@@ -176,7 +176,7 @@ export type NavEntry = {
    * `primary` = pozycja stoi na szynie (w jednej z grup `NAV_PRIMARY_GROUPS`);
    * `more` = w wysuwanym panelu „Więcej". Podział jest per WPIS, niezależny od
    * roli: o tym, KTO co widzi, decyduje wyłącznie bramka widoczności (sekcja /
-   * role / uprawnienie / akcja / flaga). Rdzeń pracy każdej persony jest `primary` — „Praca"
+   * role / uprawnienie / akcja / flaga). Rdzeń pracy każdej persony jest `primary` — „Na co dzień"
    * (Dashboard, Rekrutacje, Kandydaci, Kalendarz), „Klienci i umowy" (Klienci,
    * Kontrakty, Finanse) i „Firma" (Insights) — więc rekruter widzi pięć
    * pozycji, a admin osiem, bez osobnych drzew per rola.
@@ -813,7 +813,7 @@ export const NAV_PRIMARY_GROUPS: readonly {
 }[] = [
   {
     key: "work",
-    title: "Praca",
+    title: "Na co dzień",
     ids: ["dashboard", "jobs", "candidates", "calendar", "own-hiring", "my-time"],
   },
   {

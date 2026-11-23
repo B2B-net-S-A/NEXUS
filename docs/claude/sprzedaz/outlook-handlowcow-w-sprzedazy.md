@@ -31,6 +31,13 @@ poczty i kalendarza M365 na żywo” z listy „Poza zakresem” w
   `dzwonienie-mail-po-umowieniu-spotkania.md`). Wszystkie wysyłki idą ze skrzynki
   osoby, która klika, i odrzucają adresy z bazy kandydatów przed wywołaniem Graph.
   Nie dokładaj go nigdzie indziej.
+- **Zaproszenie Teams od umawiającego (23.11.2026) nie jest na tej liście:**
+  `services/sales/booking_invite.py` nie używa skrzynki klikającego, tylko osobnej
+  rejestracji app-only „NEXUS Sales Invite” (`sales_invite_auth.py`, `AppGraphClient`,
+  `/users/{prowadzący}/events`), zawężonej w Exchange do skrzynek prowadzących. Bramki
+  kandydatów i sprzeciwu są te same co przy mailu
+  (`dzwonienie-zaproszenie-teams-od-umawiajacego.md`). Tej rejestracji też nie używaj
+  do niczego innego.
 
 ## Dopasowanie do firmy (`services/sales/outlook_activities.py`)
 

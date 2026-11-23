@@ -2484,19 +2484,14 @@ async def company_verification(
 # ── Standalone render (DOCX / HTML) — bez rekordu Contract ───────────────────
 
 
-@router.post("/render")
-async def render_standalone(
-    payload: B2BRenderRequest,
-    current_user: B2BGeneratorAccess,
-    db: AsyncSession = Depends(get_db),
-    fmt: str = Query("docx", alias="format", pattern="^(docx|html)$"),
-    preview_generated_id: Annotated[int | None, Query(gt=0)] = None,
-):
-    """Generuje umowę wprost z pól formularza (tryb ręczny / standalone).
+async def prepare_standalone_render(
+    db: AsyncSession, payload: B2BRenderRequest, current_user: User
+) -> tuple[str, Job | None, dict[str, Any]]:
+    """Wspólny początek „Podgląd” i „Pobierz DOCX”: bramki, para (kandydat,
+    rekrutacja) i kontekst szablonu. Niczego nie zapisuje — masowa wysyłka
+    nowej umowy (E5b) woła ją też w próbie bez wysyłki.
 
-    `format=html` → podgląd (nie loguje numeru). `format=docx` → przypisuje
-    numer, loguje wygenerowanie i zwraca plik DOCX.
-    """
+    Zwraca ``(język, rekrutacja albo None, kontekst)``."""
     _require_contract_generation(current_user)
     _tidy_partner_addresses(payload)
     lang = normalize_language(payload.language)
@@ -2523,6 +2518,33 @@ async def render_standalone(
     )
     context = build_render_context(payload, role)
     context["b2b_notices_email"] = NOTICES_EMAIL
+    return lang, linked_job, context
+
+
+@router.post("/render")
+async def render_standalone(
+    payload: B2BRenderRequest,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+    fmt: str = Query("docx", alias="format", pattern="^(docx|html)$"),
+    preview_generated_id: Annotated[int | None, Query(gt=0)] = None,
+):
+    """Generuje umowę wprost z pól formularza (tryb ręczny / standalone).
+
+    `format=html` → podgląd (nie loguje numeru). `format=docx` → przypisuje
+    numer, loguje wygenerowanie i zwraca plik DOCX.
+    """
+    if fmt == "docx":
+        created, data = await issue_standalone_contract(db, payload, current_user)
+        return _docx_response(
+            data,
+            created.contract_number,
+            generated_id=created.id,
+            person_name=created.partner_name,
+        )
+    lang, _linked_job, context = await prepare_standalone_render(
+        db, payload, current_user
+    )
 
     if fmt == "html":
         if preview_generated_id is not None:
@@ -2583,7 +2605,29 @@ async def render_standalone(
                 raise HTTPException(status_code=500, detail=str(exc))
         return B2BRenderHtmlResponse(html=html, contract_number=payload.contract_number)
 
-    # format == docx → numer + log + plik
+
+async def issue_standalone_contract(
+    db: AsyncSession,
+    payload: B2BRenderRequest,
+    current_user: User,
+    *,
+    notify_owner: bool = True,
+    on_created: Callable[[B2BGeneratedContract], Any] | None = None,
+) -> tuple[B2BGeneratedContract, bytes]:
+    """„Pobierz DOCX” z formularza: numer, plik i wiersz rejestru (z commitem).
+
+    Jedyna droga numeracji i renderu nowej umowy — woła ją ``/render`` i masowa
+    wysyłka nowej umowy (E5b, ``services/b2b_mass_send``). ``on_created``
+    (awaitable) dostaje zapisany wiersz przed commitem, w tej samej transakcji:
+    masowa wysyłka wiąże go wtedy z kontraktem i pozycją paczki, więc numer nie
+    zostaje bez śladu po awarii między dwoma commitami. ``notify_owner=False``:
+    bez dzwonka „placement i premia są Twoje” do prowadzącego (nowa umowa
+    obecnego kontraktora nie jest placementem).
+
+    Zwraca ``(wiersz rejestru, DOCX)``."""
+    lang, linked_job, context = await prepare_standalone_render(
+        db, payload, current_user
+    )
     # Rozstrzygamy rejestr klauzul RAZ, PRZED zapisem wiersza: ta sama wartość
     # trafia do snapshotu i do renderu, więc log rejestru nie może opisywać
     # innego dokumentu niż wydany.
@@ -2707,6 +2751,9 @@ async def render_standalone(
     owner = await _stamp_admin_details(db, created, payload, linked_job=linked_job)
     db.add(created)
     try:
+        if on_created is not None:
+            await db.flush()
+            await on_created(created)
         await db.commit()
     except IntegrityError as exc:
         # Race: dwa równoległe rendery z tym samym numerem przeszły SELECT-check;
@@ -2729,13 +2776,12 @@ async def render_standalone(
             f"Numer umowy „{number}” został właśnie użyty przez kogoś innego "
             f"— wybierz inny. Następny wolny: {fresh}/{row_year}."
         )
-    await _notify_owner_after_render(
-        db, created, owner, actor=current_user, linked_job=linked_job
-    )
+    if notify_owner:
+        await _notify_owner_after_render(
+            db, created, owner, actor=current_user, linked_job=linked_job
+        )
     await _stamp_candidate_contact_on_contract(db, payload)
-    return _docx_response(
-        data, number, generated_id=created.id, person_name=created.partner_name
-    )
+    return created, data
 
 
 @router.post("/mandate/render")

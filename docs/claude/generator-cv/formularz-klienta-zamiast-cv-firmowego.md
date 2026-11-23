@@ -331,3 +331,57 @@ na produkcji ten PR nie przenosi: to osobna decyzja Artura.
   healthcare.” miał cytat z CV i dawał 10/10 w wierszu „Staż w projektach
   służby zdrowia”. Ten sam wzór: 7 pól skali, w 6 lata w tym samym wierszu;
   po „Wypełnij” 4 pola dostały 10 z lat z ról, reszta została pusta.
+
+## Rekruter weryfikuje, nie przepisuje (23.11.2026)
+
+Artur chce, żeby formularz wypełniał się sam, a rekruter tylko sprawdzał.
+Pomiar na stagingu (CEZ 789225, „Starszy Kierownik Projektu”, kandydaci
+21097, 69380, 22314): zapisane wypełnienia miały 29, 25 i 21 braków,
+w większości szum. Po zmianie dwa biegi „Wypełnij” dały 1/1, 13/9 i 4/5.
+Zostały prawdziwe luki: wydział, rok studiów, data i wystawca certyfikatu.
+
+- **Wolny wiersz nie jest brakiem** (`client_form_structure.spare_ids`).
+  Wolny jest pusty wiersz bez nazwy ze wzoru („Wiersz N”), który nie jest
+  pierwszym takim wierszem tabeli. Przykład: wiersze 2–3 „Wykształcenia”
+  przy jednych studiach. Wiersz częściowo wypełniony to brak (firma bez
+  okresu). Pierwszy wiersz pustej tabeli też, bo formularz bez stanowiska
+  jest niepełny. Wiersze z nazwą (kompetencje, certyfikat wpisany przez
+  klienta) nigdy nie są zapasem. Reguła dotyczy `missing`, `missing_count`,
+  licznika w oknie i karty Tablicy. Ta ostatnia liczy braki z `fields`
+  i struktury wzoru (`client_form_status._missing`), więc wiersze zapisane
+  przed zmianą też pokazują nową liczbę bez przeliczania bazy. Okno zwija
+  wolne wiersze w „Pokaż wolne wiersze · N” z podpisem „wolny wiersz”.
+  Można w nie wpisać, a po zapisie wiersz z wpisem przechodzi do braków.
+  Sekcje okna liczy stan z serwera, nie szkic (#3756).
+- **Druga tabela doświadczenia bez tytułu to ciąg dalszy sekcji**
+  (`continued_tables`, `table_titles`). Formularze CEZ („Starszy Kierownik
+  Projektu”, „Analityk”) mają pod „Doświadczenie zawodowe*:” dwie albo trzy
+  tabele z tymi samymi kolumnami, oddzielone pustym akapitem. Odczyt dawał
+  kolejnym `title: null`, a model raz je pomijał (21097, 69380: 12 pustych
+  pól, stanowiska poszły w `extra_rows` pierwszej tabeli), a raz wpisywał do
+  nich środek historii, co psuło kolejność w pliku (21654). Taka tabela ma
+  teraz w prompcie i w oknie nazwę „<tytuł> — tabela 2”. Model wpisuje do niej
+  stanowiska albo projekty najbliższe roli, od najnowszego, z cytatami
+  (wolno powtórzyć wiersze z pierwszej tabeli). Tak wygląda ręcznie
+  wypełniony „Analityk” w dokumentach osoby 19616: pełna historia w pierwszej
+  tabeli, te same trzy projekty w drugiej i trzeciej.
+  Kontynuacja nie rośnie (`extendable_tables` ją pomija), bo pełna lista
+  stanowisk idzie do pierwszej tabeli. Treści tabeli wzór nie opisuje.
+  Jeśli CEZ chce w niej czego innego (np. projektów z wymagania „3 projekty
+  powyżej 4 mln zł”), zmienia się tylko zdanie w prompcie F36.
+  Tabela z własnym tytułem i tymi samymi kolumnami to inna sekcja.
+- **„TAK/NIE” tylko z cytatem** (prompt F36 od wersji 7). Model proponuje
+  „TAK”, gdy źródło pokazuje kompetencję wprost albo przez opis pracy, która
+  jej wymagała. „NIE” proponuje tylko z faktem, który przeczy wymaganiu
+  („zespół 12 osób” przy „> 30 osób”). Bez cytatu z CV albo notatek kod
+  odrzuca obie wartości i pole zostaje puste. Okno pokazuje cytat pod
+  propozycją, a rekruter ją zatwierdza albo poprawia.
+- **Odpowiedź modelu zamknięta za wcześnie** (`parse_answer`). Na stagingu
+  2 z 3 odpowiedzi kończyły `extra_rows` nawiasem głównego obiektu i pisały
+  dalej (`…]}, "roles": …`). `json.loads` padał na „Extra data”, a formularz
+  zostawał z samym imieniem. Kod zdejmuje taki nawias, gdy za nim stoi
+  przecinek. Inny błąd składni zostaje błędem (formularz do ręcznego
+  uzupełnienia, nigdy 5xx).
+- **Staging nie ma pliku wzoru 789225** (uploady sprzed 18.11). „Wypełnij”
+  przez API kończy się tam 404 „Pliku nie ma już w magazynie”. Pomiar szedł
+  skryptem na strukturze z bazy, bez zapisu.

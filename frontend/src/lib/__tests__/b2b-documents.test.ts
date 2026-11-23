@@ -32,6 +32,7 @@ import {
   readDocumentError,
   redownloadNeedsInput,
   registryLookupValues,
+  typeForSubject,
   typesByFamily,
 } from "@/lib/b2b-documents";
 
@@ -537,5 +538,35 @@ describe("generator aneksów — wariant Partnera i rejestr", () => {
     expect(documentsHref({ newType: "termination_agreement", parentId: 3 })).toBe(
       "/contracts/b2b-generator?tab=documents&new=termination_agreement&parent=3",
     );
+  });
+});
+
+describe("rozwiązanie umowy spoza rejestru (23.11.2026)", () => {
+  const EXTERNAL_TERMINATION: DocumentTypeDef = {
+    ...TERMINATION,
+    accepts_contract: true,
+    fields: [
+      field("contract_number", "Numer umowy", { group: "base" }),
+      field("contract_signing_date", "Data zawarcia umowy", { kind: "date", group: "base" }),
+      ...TERMINATION.fields,
+    ],
+  };
+
+  it("przy umowie z rejestru numer i data umowy nie są polami formularza", () => {
+    const type = typeForSubject(EXTERNAL_TERMINATION, true);
+    expect(type.fields.map((f) => f.key)).not.toContain("contract_number");
+    expect(type.fields.map((f) => f.key)).not.toContain("contract_signing_date");
+  });
+
+  it("przy kontrakcie bez umowy w rejestrze numer i data są wymagane", () => {
+    const type = typeForSubject(EXTERNAL_TERMINATION, false);
+    expect(missingRequired(type, { document_date: "2026-11-23", gender: "m", partner_name: "Jan" })).toEqual([
+      "Numer umowy",
+      "Data zawarcia umowy",
+    ]);
+  });
+
+  it("typ bez umowy spoza rejestru zostaje bez zmian", () => {
+    expect(typeForSubject(TERMINATION, false)).toBe(TERMINATION);
   });
 });

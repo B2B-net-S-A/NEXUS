@@ -35,10 +35,22 @@ export interface QueueItem {
   attempts: number;
   last_outcome_at: string | null;
   since: string;
+  /** Powtórka z kolejnej listy: tylko w Tabeli z włączonymi „Powtórkami” (23.11.2026). */
+  repeat?: boolean;
   /** Kto dzwoni: wypełnione w Tabeli (przy „Wszyscy” widać cudze rekordy). */
   assignee?: Ref | null;
   /** Ostatnia zmiana rekordu: kolumna „Ostatnia modyfikacja” w Tabeli (13.11.2026). */
   modified_at?: string | null;
+  /** Po co oddzwaniamy (23.11.2026): w oddzwonieniach kolejki i w „Przypomnieniach”. */
+  callback_reason?: CallbackReason | null;
+}
+
+/** Powód powrotu: notatka z „Oddzwonić” / oferty albo komentarz z Excela. */
+export interface CallbackReason {
+  text: string;
+  author_name: string | null;
+  noted_on: string;
+  from_excel: boolean;
 }
 
 /** Licznik dnia bez celu: zastępuje ręczne „Podsumowanie” z Excela (11.11.2026). */
@@ -78,6 +90,8 @@ export interface CallRecordTable {
   counts: Partial<Record<RecordState, number>>;
   /** Osoby z rekordami w wybranym zakresie, do filtra „Kto dzwoni”. */
   callers?: Ref[];
+  /** Powtórki pasujące do filtrów; ukryte, dopóki `repeats` nie jest włączone (23.11.2026). */
+  repeats?: number;
 }
 
 /** „Moje” to rekordy zalogowanej osoby, „Wszyscy” każdego dzwoniącego (decyzja Artura 12.11.2026). */
@@ -95,6 +109,8 @@ export interface CallRecordFilters {
   callbackTo?: string;
   /** Strona Tabeli od zera (po 200 wierszy). */
   page?: number;
+  /** Pokaż powtórki z kolejnych list (domyślnie ukryte, 23.11.2026). */
+  repeats?: boolean;
 }
 
 /** Tyle wierszy Tabeli na stronę (limit trasy `/records`). */
@@ -349,6 +365,7 @@ export function useCallRecords(filters: CallRecordFilters) {
               : {}),
             ...(filters.callbackTo ? { callback_to: filters.callbackTo } : {}),
             ...(filters.page ? { offset: filters.page * TABLE_PAGE_SIZE } : {}),
+            ...(filters.repeats ? { repeats: true } : {}),
           },
         })
       ).data,
@@ -412,6 +429,18 @@ export function useChangeState() {
         )
       ).data,
     onSuccess: invalidate,
+  });
+}
+
+/** „To duplikat” na karcie (23.11.2026): przykład duplikatu, którego bramki nie złapały. */
+export function useReportDuplicate() {
+  return useMutation({
+    mutationFn: async ({ record_id, note }: { record_id: number; note?: string }) =>
+      (
+        await api.post<{ created: boolean }>(`/api/sales/calling/records/${record_id}/duplicate`, {
+          note: note ?? null,
+        })
+      ).data,
   });
 }
 

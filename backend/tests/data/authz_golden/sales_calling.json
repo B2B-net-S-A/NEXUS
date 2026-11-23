@@ -47,6 +47,7 @@
   "POST /api/sales/calling/campaigns/{campaign_id}/import": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/calling/campaigns/{campaign_id}/import/preview": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/calling/opportunities/{opportunity_id}/outcome": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/calling/records/{record_id}/duplicate": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/calling/records/{record_id}/outcome": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/calling/records/{record_id}/state": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }

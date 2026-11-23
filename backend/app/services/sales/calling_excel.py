@@ -39,6 +39,7 @@ from app.services import sales_schema as schema
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
 from app.services.sales import calling, calling_import
+from app.services.sales.calling_reasons import EXCEL_NOTE_PREFIX, EXCEL_NOTE_SEPARATOR
 from app.services.sales.calling_file import (
     EMPTY_DETAIL,
     MAX_COLUMNS,
@@ -272,7 +273,7 @@ def _note(comment: Optional[str], remarks: Optional[str]) -> Optional[str]:
     parts = [part for part in (comment, remarks) if part]
     if not parts:
         return None
-    return f"Z Excela: {' · '.join(parts)}"[:NOTE_LIMIT]
+    return f"{EXCEL_NOTE_PREFIX}{EXCEL_NOTE_SEPARATOR.join(parts)}"[:NOTE_LIMIT]
 
 
 def _parse_sheet(sheet: Any, today: date) -> Sheet:

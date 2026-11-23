@@ -200,6 +200,29 @@ class QualifiedValidator:
         self._registry = await trusted_registry()
         return self
 
+    @staticmethod
+    def fetcher_backend() -> Any:
+        """Połączenia OCSP/CRL na jeden bieg; wołający zamyka je w ``finally``."""
+        from pyhanko_certvalidator.fetchers.aiohttp_fetchers import (
+            AIOHttpFetcherBackend,
+        )
+
+        return AIOHttpFetcherBackend()
+
+    def revocation_context(self, fetchers: Any) -> Any:
+        """Kontekst jednego podpisu: zaufanie z listy UE, OCSP/CRL z sieci
+        (adresy z certyfikatów), brak danych o unieważnieniu = odmowa. Ten sam
+        dla walidacji i dla danych do długiej weryfikacji (``long_term``)."""
+        from pyhanko.sign.validation.qualified.tsp import TSPTrustManager
+        from pyhanko_certvalidator import ValidationContext
+
+        return ValidationContext(
+            trust_manager=TSPTrustManager(self._registry),
+            allow_fetching=True,
+            revocation_mode="hard-fail",
+            fetcher_backend=fetchers,
+        )
+
     async def validate(self, signed_pdf: bytes) -> ValidationReport:
         if self._registry is None:
             await self.prepare()
@@ -212,11 +235,6 @@ class QualifiedValidator:
         from pyhanko.pdf_utils.reader import PdfFileReader
         from pyhanko.sign.validation import async_validate_pdf_signature
         from pyhanko.sign.validation.qualified.assess import QualificationAssessor
-        from pyhanko.sign.validation.qualified.tsp import TSPTrustManager
-        from pyhanko_certvalidator import ValidationContext
-        from pyhanko_certvalidator.fetchers.aiohttp_fetchers import (
-            AIOHttpFetcherBackend,
-        )
 
         try:
             # strict=False: PDF-y z „mieszanym” spisem obiektów (Word, część
@@ -235,16 +253,11 @@ class QualifiedValidator:
         results: list[dict[str, Any]] = []
         # Jedno połączenie OCSP/CRL na całą walidację, zamykane w ``finally``
         # — domyślny backend pyHanko zostawiał otwartą sesję na każde wgranie.
-        fetchers = AIOHttpFetcherBackend()
+        fetchers = self.fetcher_backend()
         try:
             statuses = []
             for embedded, _name in approvals:
-                context = ValidationContext(
-                    trust_manager=TSPTrustManager(self._registry),
-                    allow_fetching=True,
-                    revocation_mode="hard-fail",
-                    fetcher_backend=fetchers,
-                )
+                context = self.revocation_context(fetchers)
                 try:
                     statuses.append(
                         await async_validate_pdf_signature(

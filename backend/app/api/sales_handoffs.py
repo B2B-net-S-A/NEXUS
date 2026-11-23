@@ -20,6 +20,7 @@ from app.api.sales_gates import SalesEditUser, SalesViewUser, is_admin
 from app.core.database import get_db
 from app.core.scheduling import business_date
 from app.services.sales import (
+    booking_invite,
     booking_mail,
     company_dates,
     handoff,
@@ -103,6 +104,9 @@ class FormOut(BaseModel):
     #: Skrzynka osoby, która umawia: z niej wychodzi mail do klienta po umówieniu.
     mailbox: Literal["ok", "missing", "no_send_scope"] = "missing"
     mailbox_address: Optional[str] = None
+    #: Zaproszenie Teams od umawiającego w kalendarzu prowadzącego (23.11.2026):
+    #: ``false``, dopóki aplikacja w Microsoft 365 nie jest ustawiona.
+    teams_invite: bool = False
 
 
 class BusySpan(BaseModel):
@@ -238,6 +242,7 @@ async def booking_form(
         ),
         mailbox=mailbox,
         mailbox_address=connection.mailbox_upn if mailbox == "ok" else None,
+        teams_invite=booking_invite.configured(),
     )
 
 
@@ -564,3 +569,97 @@ async def send_booking_mail(
     )
     await db.commit()
     return BookingMailOut(sent_at=now, to=addresses, cc=cc)
+
+
+@router.post("/{opportunity_id}/booking-invite", response_model=HandoffOut)
+async def send_booking_invite(
+    opportunity_id: int,
+    payload: booking_invite.BookingInviteRequest,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> HandoffOut:
+    """Zaproszenie Teams od osoby, która umówiła, w kalendarzu prowadzącego (23.11.2026)."""
+
+    # Najpierw nadawca: odpowiedź o adresach nie może trafić do kogoś, kto nie wysyła.
+    opportunity = await handoff.lock(db, opportunity_id)
+    booking_mail.ensure_sender(
+        opportunity, current_user.id, admin=is_admin(current_user)
+    )
+    subject, message = payload.subject.strip(), payload.message.strip()
+    if not subject or not message:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Zaproszenie musi mieć tytuł i treść.",
+        )
+    addresses = handoff_invite.clean_addresses(payload.to)
+    # Bez wymieniania adresów, żeby wpisywanie nie sprawdzało, kto jest w bazie.
+    if await handoff_invite.candidate_addresses(db, addresses):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=handoff_invite.CANDIDATE_DETAIL,
+        )
+    if await booking_mail.objected_addresses(db, addresses):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail=booking_mail.OBJECTION_DETAIL
+        )
+    booking_invite.ensure_configured()
+    host = await booking_invite.host_upn(db, opportunity)
+    if host is None or opportunity.owner_user_id is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail=booking_invite.NO_HOST_DETAIL
+        )
+    host_user_id = opportunity.owner_user_id
+    me = (
+        await booking_invite.own_address(db, current_user.id)
+        if payload.include_me
+        else None
+    )
+    attendees = booking_invite.attendee_list(addresses, me, host)
+    start, minutes = await handoff_invite.reserve(
+        db, opportunity, payload, now=datetime.now(timezone.utc)
+    )
+    await db.commit()  # klucz widzi drugie żądanie, zanim zaproszenie wyjdzie
+
+    try:
+        event = await booking_invite.deliver(
+            host=host,
+            host_user_id=host_user_id,
+            opportunity_id=opportunity_id,
+            subject=subject,
+            message=message,
+            start=start,
+            minutes=minutes,
+            attendees=attendees,
+        )
+    except handoff_invite.Undelivered as failure:
+        await db.rollback()
+        await handoff_invite.release(db, opportunity_id, payload.request_id)
+        await db.commit()
+        if isinstance(failure, booking_invite.NoAccess):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, detail=booking_invite.NO_ACCESS_DETAIL
+            )
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, detail=booking_invite.UNDELIVERED_DETAIL
+        )
+    except handoff_invite.Uncertain:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail=booking_invite.UNCERTAIN_DETAIL
+        )
+
+    opportunity = await handoff.lock(db, opportunity_id)
+    await handoff_invite.record_sent(
+        db,
+        opportunity,
+        event,
+        request_id=payload.request_id,
+        subject=subject,
+        start=start,
+        minutes=minutes,
+        attendees=len(attendees),
+        user_id=current_user.id,
+        now=datetime.now(timezone.utc),
+        organizer_user_id=host_user_id,
+    )
+    await db.commit()
+    return await _one(db, opportunity_id)

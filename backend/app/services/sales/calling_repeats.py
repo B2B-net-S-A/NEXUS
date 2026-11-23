@@ -22,11 +22,13 @@ from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, case, exists, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.scheduling import DEFAULT_TZ
 from app.models.sales import (
+    SalesActivity,
     SalesCallCampaign,
     SalesCallRecord,
     SalesCompany,
@@ -275,3 +277,56 @@ def queue_conditions(record: Any = SalesCallRecord) -> list[Any]:
         ~exists().where(*_crm_after(record, later)),
         or_(record.state != NEW, not_repeat),
     ]
+
+
+def not_a_repeat(record: Any = SalesCallRecord) -> Any:
+    """Rekord, który nie jest powtórką: warunek kolejki użyty też w Tabeli (23.11.2026).
+
+    Tabela pokazywała 542 „Nowe” powtórki sprzed bramki z 17.11 i osoby dzwoniące brały
+    je za duplikaty. Decyzja Artura z 23.11.2026: ukryć je po stronie serwera, bez
+    kasowania, z przełącznikiem „Powtórki” (``dzwonienie-duplikaty-instrukcja.md``).
+    """
+
+    return queue_conditions(record)[1]
+
+
+#: „To duplikat” na karcie rozmowy (23.11.2026): zgłoszenie duplikatu, którego bramki nie
+#: złapały. Notatka na osi firmy, jedna na osobę i rekord; listę daje raport powtórek
+#: (``scripts.calling_repeats_report --reported``).
+DUPLICATE_SOURCE = "call_duplicate"
+DUPLICATE_SUBJECT = "Zgłoszony duplikat na liście dzwonienia"
+
+
+async def report_duplicate(
+    db: AsyncSession,
+    record: SalesCallRecord,
+    *,
+    user_id: int,
+    note: Optional[str],
+    now: datetime,
+) -> bool:
+    """Zapisuje zgłoszenie; ``False``, gdy ta osoba już zgłosiła ten rekord."""
+
+    statement = (
+        pg_insert(SalesActivity)
+        .values(
+            kind="note",
+            subject=DUPLICATE_SUBJECT,
+            body=(note or "").strip() or None,
+            company_id=record.company_id,
+            contact_id=record.contact_id,
+            created_by_user_id=user_id,
+            occurred_at=now,
+            external_source=DUPLICATE_SOURCE,
+            external_id=f"{record.id}:{user_id}",
+        )
+        .on_conflict_do_nothing(
+            index_elements=["external_source", "external_id", "company_id"],
+            index_where=and_(
+                SalesActivity.external_id.is_not(None),
+                SalesActivity.external_ref.is_(None),
+            ),
+        )
+        .returning(SalesActivity.id)
+    )
+    return (await db.execute(statement)).scalar_one_or_none() is not None

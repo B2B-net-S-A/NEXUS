@@ -896,3 +896,85 @@ async def test_body_only_mail_without_one_person_stays_a_case() -> None:
     reader = MimeMailbox(messages, {}, raw)
     assert (await _read(reader))["created"] == 0
     assert await _documents() == []
+
+
+# ── Obrazki stopki Outlooka to nie dokumenty (próba IX–X 2026) ────────────────
+
+
+def _png(width: int, height: int, shade: int) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    out = BytesIO()
+    Image.new("RGB", (width, height), (shade, shade, shade)).save(out, "PNG")
+    return out.getvalue()
+
+
+@pytest.mark.usefixtures("internal")
+async def test_signature_images_are_not_documents() -> None:
+    """Powtórka 30.09–06.10: 44 obrazki ``image00N`` ze stopek szły jako raporty
+    i faktury. Open-Xchange i onet podają je bez ``Content-Disposition: inline``,
+    a Graph bywa, że daje im ``isInline: false``. Ikona, logo i baner odpadają
+    (także stopka przemianowana na ``image.png``); zrzut tygodnia wklejony w treść
+    (też ``image00N``/``image.png``) i zrzut ekranu zostają."""
+    person = await make_person(activated=False)
+    files = [
+        _attachment("image001.png", _png(27, 27, 1)),
+        _attachment("image002.PNG", _png(800, 134, 2)),
+        _attachment("image003.jpg", _png(1125, 282, 3)),
+        _attachment("image004.png", _png(1570, 300, 4)),
+        _attachment("image.png", _png(15, 15, 9)),
+        _attachment("image.png", _png(1045, 462, 10)),
+        _attachment("TS_2026_09_signed.pdf", PDF),
+        _attachment("Zrzut ekranu 2026-09-30 101500.png", _png(120, 40, 5)),
+        _attachment("1-6_09_2026.png", _png(90, 30, 6)),
+    ]
+    reader = FakeMailbox([_message("m1", person.email)], {"m1": files})
+    assert (await _read(reader))["created"] == 5
+    assert sorted(r.file_name for r in await _documents()) == [
+        "1-6_09_2026.png",
+        "TS_2026_09_signed.pdf",
+        "Zrzut ekranu 2026-09-30 101500.png",
+        "image.png",
+        "image004.png",
+    ]
+
+
+@pytest.mark.usefixtures("internal", "company_domain", "settlements_route")
+async def test_mail_with_only_signature_images_reads_like_mail_without_file() -> None:
+    """Akceptacja w treści, a jedyne „załączniki” to logo stopki: mail idzie jak
+    mail bez pliku (w M365 ``hasAttachments`` przy samych obrazkach inline jest
+    false), więc zostaje ``.eml`` osoby zamiast dwóch obrazków."""
+    person = await make_person(activated=False)
+    subject = f"Fwd: RE: Raport Godzinowy - Wrzesień 2026 - {await _full_name(person)}"
+    message = {
+        **_body_only("m1", "koordynator@firma.example.com", subject),
+        "hasAttachments": True,
+    }
+    reader = MimeMailbox(
+        [message],
+        {
+            "m1": [
+                _attachment("image001.png", _png(140, 40, 7)),
+                _attachment("image002.png", _png(800, 134, 8)),
+            ]
+        },
+        {"m1": _acceptance_eml("koordynator@firma.example.com", subject)},
+    )
+    assert (await _read(reader))["created"] == 1
+    rows = await _documents()
+    assert [(r.contract_id, r.kind) for r in rows] == [(person.contract_id, "report")]
+    assert rows[0].file_name.endswith(".eml")
+
+
+@pytest.mark.usefixtures("internal")
+async def test_unreadable_image_named_like_signature_stays_a_document() -> None:
+    """Obraz, którego nie da się odczytać, nie jest uznany za stopkę."""
+    person = await make_person(activated=False)
+    reader = FakeMailbox(
+        [_message("m1", person.email)],
+        {"m1": [_attachment("image001.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)]},
+    )
+    await _read(reader)
+    assert [r.file_name for r in await _documents()] == ["image001.png"]

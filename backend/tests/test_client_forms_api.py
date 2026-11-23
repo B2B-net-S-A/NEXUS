@@ -829,3 +829,49 @@ async def test_without_the_client_flag_there_is_no_scale_rule(
     values = {item["id"]: item for item in filled["fields"]}
     assert values["t2.r5.c2"]["value"]  # lata z roli są
     assert values["t2.r5.c3"]["value"] is None  # skali nikt nie wpisał
+
+
+@pytest.mark.asyncio
+async def test_spare_rows_are_not_missing_in_the_window_nor_on_the_board(
+    app_client, app_auth_headers, storage, model
+):
+    """23.11.2026: wolne wiersze wzoru nie liczą się do braków — okno i Tablica."""
+    from app.services import client_form_status
+
+    job_id, stage_id = await _pair()
+    await _add_template(app_client, app_auth_headers, job_id)
+    url = f"/api/candidates/stages/{stage_id}/client-form"
+    model.append(
+        {
+            "fields": [
+                {
+                    "id": "t1.r1.c1",
+                    "value": "Bank Przykładowy S.A.",
+                    "quote": "Bank Przykładowy S.A.",
+                },
+            ]
+        }
+    )
+    body = (await app_client.post(f"{url}/fill", headers=app_auth_headers)).json()
+    assert {"t1.r1.c2", "t1.r1.c3"} <= set(body["missing"])
+    spare_rows = {f"t1.r{row}.c{col}" for row in (2, 3) for col in (1, 2, 3, 4)}
+    assert spare_rows <= set(body["spare"])
+    assert not spare_rows & set(body["missing"])
+
+    async with AsyncSessionLocal() as db:
+        # Wiersz sprzed poprawki: licznik liczony z zapasowymi wierszami.
+        await db.execute(
+            text(
+                "UPDATE candidate_client_forms SET missing_count = 99 WHERE job_id = :j"
+            ),
+            {"j": job_id},
+        )
+        await db.commit()
+        candidate_id = (
+            await db.execute(
+                text("SELECT candidate_id FROM candidate_stages WHERE id = :s"),
+                {"s": stage_id},
+            )
+        ).scalar_one()
+        states = await client_form_status.job_states(db, job_id, [candidate_id])
+    assert states[candidate_id].missing == len(body["missing"])

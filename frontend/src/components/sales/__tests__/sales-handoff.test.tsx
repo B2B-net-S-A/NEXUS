@@ -27,6 +27,7 @@ const companyCard = vi.fn();
 const inviteDraft = vi.fn();
 const sendInvite = vi.fn();
 const sendBookingMail = vi.fn();
+const sendBookingInvite = vi.fn();
 const handoffForm = vi.fn();
 const defaultForm = {
   hosts: [
@@ -50,6 +51,7 @@ vi.mock("@/lib/api/sales-handoffs", async (original) => ({
   useInviteDraft: (opportunityId: number) => inviteDraft(opportunityId),
   useSendInvite: () => ({ mutateAsync: sendInvite, isPending: false }),
   useSendBookingMail: () => ({ mutateAsync: sendBookingMail, isPending: false }),
+  useSendBookingInvite: () => ({ mutateAsync: sendBookingInvite, isPending: false }),
 }));
 vi.mock("@/lib/api/sales", async (original) => ({
   ...(await original<typeof import("@/lib/api/sales")>()),
@@ -118,6 +120,8 @@ import {
   freeStarts,
   handoffWhen,
   mailAddress,
+  teamsInviteBody,
+  teamsInviteSubject,
   termFromFields,
   visibleWeeks,
   weekFunnel,
@@ -181,6 +185,7 @@ beforeEach(() => {
   confirmTerm.mockResolvedValue({});
   sendInvite.mockResolvedValue({});
   sendBookingMail.mockResolvedValue({});
+  sendBookingInvite.mockResolvedValue({});
   handoffForm.mockReturnValue(defaultForm);
 });
 
@@ -1066,5 +1071,156 @@ describe("mail do klienta po umówieniu (kolejka dzwonienia)", () => {
     expect(body).toContain("Potwierdzam, że umówiliśmy spotkanie. Termin prześlemy w osobnej wiadomości.");
     expect(body).toContain("Zaproszenie w Teams przyjdzie osobno.");
     expect(body).not.toContain("poprowadzi");
+  });
+});
+
+describe("zaproszenie Teams od umawiającego (decyzja 23.11.2026)", () => {
+  const fill = (label: string, value: string) =>
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  const teamsForm = {
+    ...defaultForm,
+    mailbox: "missing" as const,
+    mailbox_address: null,
+    teams_invite: true,
+  };
+  const booked = () =>
+    bookMeeting.mockImplementation((_payload: unknown, options: { onSuccess: (saved: Handoff) => void }) =>
+      options.onSuccess(handoff({ meeting_at: termFromFields("2026-11-26", "11:00") })),
+    );
+  const form = (onSaved = vi.fn()) =>
+    render(
+      <BookMeetingForm
+        company={{ id: 7, name: "Firma Testowa" }}
+        contactId={5}
+        service="Automatyzacje"
+        invite={{ email: "anna@firma-testowa.example" }}
+        onSaved={onSaved}
+        onCancel={vi.fn()}
+      />,
+    );
+
+  it("zamiast maila: klient, prowadzący jako organizator i Ty; zapis wysyła zaproszenie", async () => {
+    handoffForm.mockReturnValue(teamsForm);
+    booked();
+    const onSaved = vi.fn();
+    form(onSaved);
+    fill("Dzień spotkania", "2026-11-26");
+    fill("Godzina spotkania", "11:00");
+
+    const section = screen.getByTestId("booking-invite");
+    expect(screen.queryByTestId("booking-mail")).toBeNull();
+    // Własna skrzynka nie jest potrzebna: spotkanie zakłada aplikacja w kalendarzu prowadzącego.
+    expect(screen.queryByText(/mail nie wyjdzie/)).toBeNull();
+    expect(within(section).getByText("Prowadzący Testowy")).toBeTruthy();
+    expect(within(section).getByText(/organizator: spotkanie w jego kalendarzu/)).toBeTruthy();
+    expect(screen.getByLabelText("Tytuł zaproszenia")).toHaveProperty(
+      "value",
+      "B2Bnetwork × Firma Testowa: Automatyzacje",
+    );
+    const body = (screen.getByLabelText("Treść zaproszenia") as HTMLTextAreaElement).value;
+    expect(body).toBe(teamsInviteBody({ service: "Automatyzacje", hostName: "Prowadzący Testowy" }));
+
+    fill("Prowadzący", "4");
+    expect((screen.getByLabelText("Treść zaproszenia") as HTMLTextAreaElement).value).toContain(
+      "Poprowadzi je Druga Prowadząca.",
+    );
+    fill("Prowadzący", "2");
+    expect(screen.getByText(/NEXUS założy spotkanie Teams w kalendarzu: Prowadzący Testowy \(organizator\), klient i Ty/)).toBeTruthy();
+
+    const start = termFromFields("2026-11-26", "11:00");
+    fireEvent.click(screen.getByRole("button", { name: `Umów ${handoffWhen(start)} i wyślij zaproszenie Teams` }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(sendBookingMail).not.toHaveBeenCalled();
+    const sent = sendBookingInvite.mock.calls[0][0];
+    expect(sent).toMatchObject({
+      opportunity_id: 21,
+      to: ["anna@firma-testowa.example"],
+      subject: "B2Bnetwork × Firma Testowa: Automatyzacje",
+      message: body.trim(),
+      include_me: true,
+    });
+    expect(typeof sent.request_id).toBe("string");
+    expect(showSuccess.mock.calls[0][0]).toContain("Zaproszenie Teams wyszło z kalendarza: Prowadzący Testowy.");
+  });
+
+  it("odznaczone „Ty” nie dodaje umawiającego do spotkania", async () => {
+    handoffForm.mockReturnValue(teamsForm);
+    booked();
+    form();
+    fill("Dzień spotkania", "2026-11-26");
+    fill("Godzina spotkania", "11:00");
+    fireEvent.click(screen.getByLabelText("Dodaj mnie do spotkania"));
+    expect(screen.getByText(/\(organizator\), klient\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /i wyślij zaproszenie Teams/ }));
+    await waitFor(() => expect(sendBookingInvite).toHaveBeenCalledTimes(1));
+    expect(sendBookingInvite.mock.calls[0][0].include_me).toBe(false);
+  });
+
+  it("bez terminu zaproszenie nie wychodzi, spotkanie się zapisuje", () => {
+    handoffForm.mockReturnValue(teamsForm);
+    booked();
+    const onSaved = vi.fn();
+    form(onSaved);
+    expect(screen.getByText("Wpisz dzień i godzinę: bez terminu zaproszenie nie wyjdzie.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz bez terminu" }));
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    expect(sendBookingInvite).not.toHaveBeenCalled();
+  });
+
+  it("zaproszenie, które nie wyszło, zostawia spotkanie z ponowieniem albo zamknięciem bez zaproszenia", async () => {
+    handoffForm.mockReturnValue(teamsForm);
+    booked();
+    sendBookingInvite.mockRejectedValueOnce({
+      isAxiosError: true,
+      response: {
+        status: 409,
+        data: { detail: "NEXUS nie ma dostępu do kalendarza tego prowadzącego. Nic nie wyszło." },
+      },
+    });
+    const onSaved = vi.fn();
+    form(onSaved);
+    fill("Dzień spotkania", "2026-11-26");
+    fill("Godzina spotkania", "11:00");
+    fireEvent.click(screen.getByRole("button", { name: /i wyślij zaproszenie Teams/ }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Spotkanie zapisane: Firma Testowa");
+    expect(alert.textContent).toContain("Zaproszenie Teams nie wyszło.");
+    expect(alert.textContent).toContain("nie ma dostępu do kalendarza");
+    expect(onSaved).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Wyślij ponownie" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    const [first, second] = sendBookingInvite.mock.calls.map(([input]) => input.request_id);
+    expect(second).not.toBe(first);
+  });
+
+  it("„Zamknij bez zaproszenia” kończy umawianie", async () => {
+    handoffForm.mockReturnValue(teamsForm);
+    booked();
+    sendBookingInvite.mockRejectedValueOnce(new Error("boom"));
+    const onSaved = vi.fn();
+    form(onSaved);
+    fill("Dzień spotkania", "2026-11-26");
+    fill("Godzina spotkania", "11:00");
+    fireEvent.click(screen.getByRole("button", { name: /i wyślij zaproszenie Teams/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Zamknij bez zaproszenia" }));
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    expect(sendBookingInvite).toHaveBeenCalledTimes(1);
+  });
+
+  it("bez aplikacji w Microsoft 365 formularz zostaje przy mailu", () => {
+    handoffForm.mockReturnValue({ ...teamsForm, teams_invite: false, mailbox: "ok" });
+    form();
+    expect(screen.getByTestId("booking-mail")).toBeTruthy();
+    expect(screen.queryByTestId("booking-invite")).toBeNull();
+  });
+
+  it("tytuł bez firmy i usługi ma zapas", () => {
+    expect(teamsInviteSubject("", "")).toBe("Spotkanie z B2Bnetwork");
+    expect(teamsInviteSubject("Firma", "")).toBe("B2Bnetwork × Firma");
+    expect(teamsInviteBody({ service: "", hostName: "" })).toBe(
+      "Dzień dobry,\n\ndziękuję za rozmowę. Zapraszam na spotkanie w Teams.\n\nPozdrawiam",
+    );
   });
 });

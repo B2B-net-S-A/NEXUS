@@ -17,13 +17,17 @@
  * 22.11.2026 (0754): kwalifikowany wymagany tylko przy umowie, która przenosi
  * prawa autorskie. Dokument z wymogiem „dowolny podpis” kontraktor akceptuje
  * kodem z maila albo wgrywa podpisany kwalifikowanym, jak dotąd.
+ *
+ * 22.11.2026 (kierunek K1): gdy serwer zwróci `remote_signing.available`,
+ * strona proponuje „Podpisz w NEXUSIE” u dostawcy podpisu w chmurze
+ * (`RemoteSigning.tsx`); pobierz i wgraj zostaje pod „Wolę podpisać u siebie”.
+ * Bez dostawcy strona wygląda jak dotąd.
  */
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { CheckCircle2, Download, KeyRound, Loader2, Mail, Send, Upload } from "lucide-react";
 
 import { SignedPdfField } from "@/components/v2/b2b-generator/esign/SignedPdfField";
-import { parseDispositionFilename } from "@/lib/cv-generator";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,38 +37,12 @@ import {
   type PublicSignDocument,
   type PublicSignState,
   type PublicSignView,
+  type RemoteSigningAvailability,
 } from "@/lib/api/b2bEsign";
+import { dropRemoteParam } from "@/lib/remote-signing";
 
-function apiBase(): string {
-  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-}
-
-function base(token: string): string {
-  return `${apiBase()}/api/public/b2b-sign/${encodeURIComponent(token)}`;
-}
-
-/** Pobierz PDF z trasy publicznej; nazwę pliku układa serwer. Zwraca błąd albo null. */
-async function savePdf(url: string, fallbackName: string): Promise<string | null> {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) return errorText(res);
-  const href = URL.createObjectURL(await res.blob());
-  const a = document.createElement("a");
-  a.href = href;
-  a.download = parseDispositionFilename(res.headers.get("content-disposition") ?? "", fallbackName);
-  a.click();
-  URL.revokeObjectURL(href);
-  return null;
-}
-
-async function errorText(res: Response): Promise<string> {
-  try {
-    const body = (await res.json()) as { detail?: unknown };
-    if (typeof body.detail === "string") return body.detail;
-  } catch {
-    // treść nie jest JSON-em
-  }
-  return "Nie udało się przyjąć pliku. Spróbuj ponownie za chwilę.";
-}
+import { base, errorText, savePdf } from "./public-sign-api";
+import { RemoteChoice, RemoteDone, RemoteSessionPanel } from "./RemoteSigning";
 
 type Tool = "mobywatel" | "simplysign" | "szafir" | "other";
 
@@ -537,9 +515,15 @@ export default function B2BSignForm({
   contractSigned = false,
   documents = [],
   acceptEmail = null,
+  remoteSigning = null,
+  remoteSessionId = null,
 }: {
   token: string;
   initialState: PublicSignState;
+  /** K1: podpis w NEXUSIE u dostawcy w chmurze; null albo `available: false` = jak dotąd. */
+  remoteSigning?: RemoteSigningAvailability | null;
+  /** K1: `?remote=` po powrocie od dostawcy; strona pyta o stan tej sesji. */
+  remoteSessionId?: string | null;
   /** 0754: zamaskowany adres, na który idzie kod; null = nie ma czego akceptować kodem. */
   acceptEmail?: string | null;
   /** Numer umowy do listy paczki. */
@@ -561,6 +545,58 @@ export default function B2BSignForm({
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [session, setSession] = useState<string | null>(remoteSessionId);
+  // `undefined` = podpisu w NEXUSIE w tej wizycie nie było; null = był, bez widoku.
+  const [remoteView, setRemoteView] = useState<PublicSignView | null | undefined>(undefined);
+  const [ownTool, setOwnTool] = useState(false);
+
+  const applyView = (view: PublicSignView) => {
+    setPackageView({
+      contractSigned: Boolean(view.contract_signed),
+      documents: view.documents ?? [],
+      acceptEmail: view.accept_code_email ?? null,
+    });
+    setState(view.status);
+  };
+  const leaveSession = () => {
+    dropRemoteParam();
+    setSession(null);
+  };
+
+  if (session) {
+    return (
+      <RemoteSessionPanel
+        token={token}
+        sessionId={session}
+        providerLabel={remoteSigning?.provider_label ?? null}
+        onDone={(view) => {
+          leaveSession();
+          setRemoteView(view);
+          if (view) applyView(view);
+        }}
+        onExpired={() => {
+          leaveSession();
+          setState("expired");
+        }}
+        onRestart={leaveSession}
+      />
+    );
+  }
+  if (remoteView === null) {
+    return (
+      <div className="space-y-3">
+        <Alert
+          variant="success"
+          title="Podpis złożony"
+          description="Odśwież stronę, żeby zobaczyć stan dokumentów."
+        />
+        <Button type="button" variant="outline" onClick={() => window.location.reload()}>
+          Odśwież stronę
+        </Button>
+      </div>
+    );
+  }
+  if (state === "signed_by_you" && remoteView) return <RemoteDone view={remoteView} />;
 
   if (state === "completed") {
     // 26.10.2026: kopia z linku przez 30 dni i mailem (wcześniej nie wychodziła).
@@ -669,26 +705,7 @@ export default function B2BSignForm({
     );
   }
 
-  if (packageView.documents.length) {
-    return (
-      <PackageSteps
-        token={token}
-        contractNumber={contractNumber}
-        contractSigned={packageView.contractSigned}
-        documents={packageView.documents}
-        acceptEmail={packageView.acceptEmail}
-        onView={(view) => {
-          setPackageView({
-            contractSigned: Boolean(view.contract_signed),
-            documents: view.documents ?? [],
-            acceptEmail: view.accept_code_email ?? null,
-          });
-          setState(view.status);
-        }}
-        onExpired={() => setState("expired")}
-      />
-    );
-  }
+  const onExpired = () => setState("expired");
 
   const download = async () => {
     setError(null);
@@ -723,7 +740,17 @@ export default function B2BSignForm({
   };
 
   const problem = file ? signedPdfProblem(file) : null;
-  return (
+  const todaySteps = packageView.documents.length ? (
+    <PackageSteps
+      token={token}
+      contractNumber={contractNumber}
+      contractSigned={packageView.contractSigned}
+      documents={packageView.documents}
+      acceptEmail={packageView.acceptEmail}
+      onView={applyView}
+      onExpired={onExpired}
+    />
+  ) : (
     <ol className="space-y-6">
       <li className="space-y-2">
         <p className="font-semibold">1. Pobierz umowę</p>
@@ -765,4 +792,58 @@ export default function B2BSignForm({
       </li>
     </ol>
   );
+
+  // Umowa zawsze wchodzi do podpisu w NEXUSIE, więc po jej podpisie zostaje
+  // dzisiejsza droga (kod z maila albo wgranie pozostałych dokumentów).
+  let body: ReactNode = todaySteps;
+  if (remoteSigning?.available && !packageView.contractSigned) {
+    body = ownTool ? (
+      <div className="space-y-5">
+        <button
+          type="button"
+          className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+          onClick={() => setOwnTool(false)}
+        >
+          Wolę podpisać w NEXUSIE, bez pobierania plików
+        </button>
+        {todaySteps}
+      </div>
+    ) : (
+      <RemoteChoice
+        token={token}
+        contractNumber={contractNumber}
+        documents={packageView.documents}
+        providerLabel={remoteSigning.provider_label}
+        codeBlock={
+          <AcceptByCode
+            token={token}
+            entries={packageEntries(
+              token,
+              contractNumber,
+              packageView.contractSigned,
+              packageView.documents,
+            ).filter((e) => e.requirement === "any" && !e.signed)}
+            email={packageView.acceptEmail}
+            onView={applyView}
+            onExpired={onExpired}
+          />
+        }
+        onExpired={onExpired}
+        onOwnTool={() => setOwnTool(true)}
+      />
+    );
+  }
+  if (remoteView) {
+    return (
+      <div className="space-y-5">
+        <Alert
+          variant="success"
+          title="Umowa podpisana w NEXUSIE"
+          description="Zostały dokumenty poniżej. Umowa trafi do B2Bnetwork po ostatnim gotowym dokumencie."
+        />
+        {body}
+      </div>
+    );
+  }
+  return body;
 }
