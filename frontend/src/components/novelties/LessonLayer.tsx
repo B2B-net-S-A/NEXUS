@@ -50,8 +50,11 @@ type Outcome =
 /** Po tylu ms w etapie „sam” (warunek „click” albo „page”) pojawia się „Nie widzę tego u siebie”. */
 export const UNAVAILABLE_AFTER_MS = 45_000;
 
+// Nad oknami Radix (z-110, `ui/dialog.tsx`), jak karta kroku przeklikania:
+// zadanie kończy się często w otwartym oknie (wysyłka do podpisu), a pytanie
+// musi dać się kliknąć bez zamykania go.
 const CARD =
-  "pointer-events-auto fixed bottom-5 left-5 z-[60] w-[360px] max-w-[calc(100vw-2.5rem)] rounded-xl border bg-card p-4 text-sm text-foreground shadow-lg";
+  "pointer-events-auto fixed bottom-5 left-5 z-[121] w-[360px] max-w-[calc(100vw-2.5rem)] rounded-xl border bg-card p-4 text-sm text-foreground shadow-lg";
 
 export function LessonLayer() {
   const pathname = usePathname() ?? "";
@@ -169,7 +172,9 @@ export function LessonLayer() {
       ) : (
         <Target className="h-3.5 w-3.5" aria-hidden="true" />
       )}
-      {run.review ? "Powtórka" : "Lekcja"} · {run.stage === "quiz" ? "pytanie" : "teraz sam"}
+      <span className="shrink-0 whitespace-nowrap">
+        {run.review ? "Powtórka" : "Lekcja"} · {run.stage === "quiz" ? "pytanie" : "teraz sam"}
+      </span>
       <span className="ml-auto truncate font-normal text-muted-foreground">{run.lesson.title}</span>
     </p>
   );

@@ -184,7 +184,7 @@ function DailyGateSwitch() {
         </p>
         <p className="text-xs text-muted-foreground">
           {on
-            ? "Przy pierwszym wejściu dnia każdy przeklikuje na rekrutacji ćwiczebnej wszystko, co weszło do jego roli i czego jeszcze nie przeszedł. Potem do jutra nic nie wyskakuje."
+            ? "Przy pierwszym wejściu dnia każdy robi na Poligonie do 5 lekcji nowości ze swojej roli: pokaz, samodzielnie i pytanie. Odłożyć można raz dziennie do 15:00, admin może pominąć dzień."
             : "Lista nowości na dziś jest dostępna, ale nikogo nie zatrzymuje."}
         </p>
       </div>
