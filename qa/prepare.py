@@ -13,12 +13,17 @@ from uuid import uuid4
 
 # A Champion profile that passes the handoff gate (same as the E2E helper).
 READY_CHAMPION = {
-    "project": {"about": "Platforma płatności B2B dla banku — rozwój usług."},
+    "project": {
+        "about": "Platforma płatności B2B dla banku — rozwój usług.",
+        # Najważniejsze zadanie + pytanie, które je sprawdza (bramka od 23.11.2026).
+        "key_task": "Przeniesienie rozliczeń na nową platformę płatności.",
+    },
     "screening_questions": [
         {
             "id": "q1",
             "question": "Doświadczenie z Pythonem?",
             "deal_breaker": "Brak komercyjnego projektu w Pythonie.",
+            "key_task": True,
         },
         {
             "id": "q2",
