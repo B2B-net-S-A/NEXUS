@@ -259,6 +259,7 @@ function NoAnswerButton({ candidateId, jobId }: { candidateId: number; jobId: nu
       type="button"
       size="sm"
       variant="outline"
+      data-tour="review-batch.no-answer"
       disabled={noAnswer.isPending}
       onClick={() => noAnswer.mutate()}
     >

@@ -309,7 +309,8 @@
       "porcja-pilne-12-pozostale-8",
       "porcja-wyslany-do-tego-klienta",
       "porcja-kluczowe-z-dowodem",
-      "porcja-kogo-szukamy"
+      "porcja-kogo-szukamy",
+      "porcja-nie-odebral-przesuwa-termin"
     ],
     "task": "W Porcji dnia sprawdź nad kartą, kogo szuka rekrutacja, i otwórz poprawkę tego opisu. Na Poligonie nic się nie zapisze.",
     "solo_href": "/porcja",
@@ -347,6 +348,16 @@
         ],
         "answer": 0,
         "explain": "✓ to doświadczenie w stanowiskach, ~ tylko wzmianka, ✗ brak. Klik w pozycję pokazuje, gdzie to jest w CV."
+      },
+      {
+        "q": "Dzwonisz po „Pasuje”, kandydat nie odbiera. Jak nie stracić wyszukiwania ręcznego?",
+        "options": [
+          "Kliknąć „Nie odebrał” przy osobie",
+          "Umówić telefon za kilka dni",
+          "Usunąć osobę z rekrutacji"
+        ],
+        "answer": 0,
+        "explain": "„Nie odebrał” liczy termin screeningu od próby: masz 2 dni robocze więcej. Działa przy pierwszych 3 próbach, potem wynik albo odrzucenie z powodem."
       }
     ]
   },
