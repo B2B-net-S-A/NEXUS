@@ -152,6 +152,9 @@ _KNOWN_CONTRACT_FKS = {
     # „Replacement za kogo” (0524): umowa wskazująca przegranego wskazuje po
     # scaleniu na zachowanego (_reparent_fks), jak „Powrót po przerwie”.
     ("b2b_generated_contracts", "replaced_contract_id"),
+    # Masowa wysyłka nowej umowy (0758): pozycja paczki idzie za kontraktem
+    # zachowanym; unikat „jedna żywa pozycja na osobę” nie zależy od kontraktu.
+    ("b2b_mass_send_items", "contract_id"),
     ("calls", "contract_id"),
     # Odbiorcy komunikatu do konsultantów (etap 3) — ślad wysyłki, unikat
     # (komunikat, kandydat) nie zależy od kontraktu.

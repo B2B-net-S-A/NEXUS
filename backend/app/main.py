@@ -191,6 +191,7 @@ from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
 from app.api import b2b_documents
 from app.api import b2b_esign
+from app.api import b2b_mass_send as b2b_mass_send_api
 from app.api import pre_contracts as pre_contracts_api
 from app.api import start_documents as start_documents_api
 from app.api import pair_owners as pair_owners_api
@@ -873,6 +874,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
     from app.tasks.signature_reconciler import signature_reconciler_loop
     from app.tasks.b2b_esign_sweeper import b2b_esign_sweeper_loop, prewarm_trusted_list
+    from app.tasks.b2b_mass_send import b2b_mass_send_loop
     from app.tasks.pre_contract_sweeper import pre_contract_sweeper_loop
     from app.tasks.start_documents_sweeper import start_documents_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
@@ -1070,6 +1072,9 @@ async def lifespan(app: FastAPI):
             "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
             "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
             "b2b_esign_sweeper": asyncio.create_task(b2b_esign_sweeper_loop()),
+            # 0758: masowa wysyłka nowej umowy B2B (E5b). Kończy się przed pętlą
+            # przy B2B_MASS_SEND_ENABLED=false; bez „nowy wzór podpięty” nic nie wysyła.
+            "b2b_mass_send": asyncio.create_task(b2b_mass_send_loop()),
             # Lista zaufanych UE w pamięci web, bo tam trasa waliduje podpis.
             # Jednorazowe, bez czekania startu; potem odświeża ją sama walidacja.
             "trusted_list_prewarm": asyncio.create_task(prewarm_trusted_list()),
@@ -1900,6 +1905,12 @@ app.include_router(
 )
 app.include_router(
     b2b_esign.public_router, prefix="/api/public", tags=["public-b2b-sign"]
+)
+# Masowa wysyłka nowej umowy B2B do aktywnych kontraktorów (E5b, 0758).
+app.include_router(
+    b2b_mass_send_api.router,
+    prefix="/api/b2b-generator",
+    tags=["b2b-generator"],
 )
 app.include_router(
     b2b_register_import.router,
@@ -4326,6 +4337,8 @@ async def api_health_deep_check(request: Request):
     from app.models.candidate_conversation_fact import CandidateConversationFact
     from app.models.duty_search_run import DutySearchResult, DutySearchRun
     from app.models.b2b_signing_document import B2BSigningDocument
+    from app.models.b2b_mass_send import B2BMassSendBatch, B2BMassSendItem
+    from app.models.b2b_esign_remote_session import B2BEsignRemoteSession
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -5082,6 +5095,11 @@ async def api_health_deep_check(request: Request):
         ("duty_search_results", DutySearchResult),
         # 0687: paczka do podpisu B2B.
         ("b2b_signing_documents", B2BSigningDocument),
+        # 0758: masowa wysyłka nowej umowy B2B.
+        ("b2b_mass_send_batches", B2BMassSendBatch),
+        ("b2b_mass_send_items", B2BMassSendItem),
+        # 0759: sesje zdalnego podpisu przez API CSC.
+        ("b2b_esign_remote_sessions", B2BEsignRemoteSession),
     ]
 
     checks: dict[str, str] = {}

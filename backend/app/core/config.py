@@ -1461,6 +1461,11 @@ class Settings(BaseSettings):
     # a człowiek potwierdza każdą propozycję. Domyślnie OFF — koszt modelu
     # przy pierwszym biegu (ok. 370 plików); włącza Artur.
     CONTRACT_PARTNER_READ_ENABLED: bool = False
+    # Masowa wysyłka nowej umowy B2B (E5b, 0758): pętla w workerze wysyła
+    # paczkę po 50 osób co 15 minut ze skrzynki osoby, która ją zaczęła.
+    # Domyślnie OFF; nawet włączona nic nie wysyła, dopóki admin nie oznaczy
+    # nowego wzoru jako podpiętego (app_settings['b2b_mass_send']).
+    B2B_MASS_SEND_ENABLED: bool = False
 
     # Progi oceny prepu (liczy kod, nie model). Udział kandydata = jego czas
     # mówienia / (kandydat + zespół).
@@ -1641,6 +1646,23 @@ class Settings(BaseSettings):
     # ``pyhanko`` (domyślnie, decyzja Artura 21.10.2026) — lista zaufanych UE
     # w procesie backendu; ``dss`` — sidecar EU DSS pod DSS_VALIDATION_URL.
     B2B_ESIGN_VALIDATOR: str = "pyhanko"
+    # E6 (23.11.2026): po podpisie obu stron dopisz do umowy dane do długiej
+    # weryfikacji (PAdES-LT: certyfikaty, OCSP, CRL w DSS). Domyślnie wyłączone,
+    # dopóki Artur nie zdecyduje; działa tylko z walidatorem ``pyhanko``.
+    B2B_ESIGN_ADD_LTV: bool = False
+    # Zdalny podpis kwalifikowany przez API Cloud Signature Consortium (E1,
+    # kierunek K1 Artura z 22.11.2026): NEXUS zostaje przy swoich ekranach,
+    # a od dostawcy usług zaufania bierze tylko potwierdzenie tożsamości,
+    # certyfikat i podpis skrótu. Dostawca niewybrany (SIGNIUS, Certum, KIR),
+    # więc wszystko puste = droga wyłączona. ``…_BASE_URL`` to adres przed
+    # ``/csc/v1/...``; adresy OAuth podaje dostawca w ``/csc/v1/info``.
+    # Zakresy rozdzielone spacją (puste = ``service`` ze specyfikacji CSC),
+    # nazwa dostawcy widoczna dla kontraktora i reprezentanta.
+    B2B_ESIGN_CSC_BASE_URL: str = ""
+    B2B_ESIGN_CSC_CLIENT_ID: str = ""
+    B2B_ESIGN_CSC_CLIENT_SECRET: str = ""
+    B2B_ESIGN_CSC_SCOPES: str = ""
+    B2B_ESIGN_CSC_PROVIDER_LABEL: str = ""
 
     # ── Proxycurl LinkedIn tracking (Phase: LinkedIn sync) ──────────────────
     # Kill-switch: when False OR API key empty, sync loop exits immediately
