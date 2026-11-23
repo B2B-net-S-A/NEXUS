@@ -269,6 +269,20 @@ function hasStageRate(item: KanbanItem): boolean {
   return item.expected_rate_value != null && item.expected_rate_value !== "";
 }
 
+/**
+ * Okno „Zatrudniony” proponuje anulowanie umowy z Generatora tylko wtedy,
+ * gdy zatrudnienie idzie inną umową (UoP, zlecenie, inna). „B2B poza
+ * Generatorem” to zwykle ta sama umowa podpisana mailem — anulowanie jej
+ * byłoby błędem (23.11.2026, umowa 1588/2026).
+ */
+function offerAgreementCancel<T>(
+  agreement: T | null,
+  fromGenerator: boolean,
+  via: HiredSignedVia | null,
+): agreement is T {
+  return agreement !== null && !fromGenerator && via !== null && via !== "b2b_offline";
+}
+
 interface MoveReason {
   id: string;
   notes: string;
@@ -465,10 +479,12 @@ export function usePipelineMove({
   // Osoba ma już trwającą umowę u innego klienta: co z obecną współpracą.
   const [hiredEngagement, setHiredEngagement] = useState<HiredCurrentEngagement | null>(null);
   // 04.10.2026: para ma umowę „W trakcie” w Generatorze — pierwsza opcja to
-  // potwierdzenie jej podpisu (ta sama automatyka co w rejestrze), a przy
-  // „B2B poza Generatorem” umowa z rejestru zostaje anulowana.
+  // potwierdzenie jej podpisu (ta sama automatyka co w rejestrze). Anulowanie
+  // umowy z rejestru tylko przy innej umowie (UoP, zlecenie, inna) i tylko po
+  // świadomym zaznaczeniu: 23.11.2026 „B2B poza Generatorem” z polem
+  // zaznaczonym z góry anulowało umowę podpisaną mailem (1588/2026).
   const [hiredFromGenerator, setHiredFromGenerator] = useState(false);
-  const [cancelGeneratorAgreement, setCancelGeneratorAgreement] = useState(true);
+  const [cancelGeneratorAgreement, setCancelGeneratorAgreement] = useState(false);
   const [hiredBusy, setHiredBusy] = useState(false);
   const [signRow, setSignRow] = useState<B2BGeneratedContractRow | null>(null);
 
@@ -595,7 +611,7 @@ export function usePipelineMove({
     setHiredNote("");
     setHiredEngagement(null);
     setHiredFromGenerator(false);
-    setCancelGeneratorAgreement(true);
+    setCancelGeneratorAgreement(false);
   }, []);
 
   // „Umowa z Generatora jest podpisana”: z uprawnieniem „Podpis B2B” to samo
@@ -2113,7 +2129,7 @@ export function usePipelineMove({
                   </ul>
                 </div>
               )}
-              {hiredAgreement && !hiredFromGenerator && hiredVia !== null ? (
+              {offerAgreementCancel(hiredAgreement, hiredFromGenerator, hiredVia) ? (
                 <label className="flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -2163,7 +2179,11 @@ export function usePipelineMove({
                   const signed = { via: hiredVia, note: hiredNote };
                   const engagement = hiredElsewhere ? (hiredEngagement ?? undefined) : undefined;
                   const cancelId =
-                    agreement && cancelGeneratorAgreement ? agreement.id : null;
+                    agreement &&
+                    cancelGeneratorAgreement &&
+                    offerAgreementCancel(agreement, hiredFromGenerator, hiredVia)
+                      ? agreement.id
+                      : null;
                   closeHiredConfirm();
                   applyOptimistic(item, srcColId, destCol);
                   void sendMove(item, destCol, undefined, {

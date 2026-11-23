@@ -17,6 +17,13 @@ Makiety: https://claude.ai/artifact/2m4b7dEXVnogXkcQymPiAA
 - **Umowa z Generatora:** podpis potwierdza posiadacz „Podpis B2B”
   (`kontrakty/podpis-umowy-b2b-oznacza-autor-zespol-dl-tcm.md`); bez niego
   „Poproś o potwierdzenie podpisu” idzie do Delivery Leada klienta.
+- **Anulowanie umowy z Generatora w oknie „Potwierdź zatrudnienie”** (decyzja
+  Artura 23.11.2026): pole „Anuluj umowę … w rejestrze (nie doszła do
+  skutku)” jest tylko przy „Umowa o pracę”, „Umowa zlecenie” i „Inna umowa”
+  i startuje niezaznaczone. Przy „Umowa B2B podpisana poza Generatorem” go
+  nie ma — to zwykle ta sama umowa podpisana mailem. 23.11 zaznaczone z góry
+  pole przestawiło tak umowę 1588/2026 na „Anulowana” (`usePipelineMove.tsx`,
+  `offerAgreementCancel`).
 
 ## Jak to mówią ekrany
 
