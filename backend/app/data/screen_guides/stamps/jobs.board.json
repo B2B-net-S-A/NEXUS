@@ -1,9 +1,9 @@
 {
-  "entry": "97adbe7bb82365798e8fe3eec87f167eab7a460f04d20aed40e19e572d163c8b",
+  "entry": "120f9a63ae66de1e753862a3f5200600a571d9994d516378b7f1b0a6495fb54c",
   "guide": "jobs.board",
   "sources": {
     "backend/app/services/pipeline_move_rules.py": "e50df95aa98763216a9a44f424c0bab1b1a33cbee246a50379d5751dca9d5d07",
     "frontend/src/components/v2/jobs/CandidateSourcesStrip.tsx": "f995eddcae3f4c9b384783cf265cd739e4658ded270c3497cf69f8772d9fb495",
-    "frontend/src/components/v2/pages/KanbanBoardV2.tsx": "ef9a38381fd41f1f6e76769c004517937b5ebd145793c907b70aa99c4e9a67e1"
+    "frontend/src/components/v2/pages/KanbanBoardV2.tsx": "48584e61b2f1cf9a23c980a3f516316b46d7f8b25dea67c6e5e02195da5813e3"
   }
 }

@@ -1226,15 +1226,17 @@ async def build_queue(
     for task in tasks:
         if task.candidate_id not in batch.facts:
             continue
+        # Wiersz kolejki (`BoardTask.client_form`); starsze wołania bez pola = CV firmowe.
+        client_form = getattr(task, "client_form", None)
         person = _person(
             batch,
             job,
             task.candidate_id,
             access=access,
             budget_max=budget["max_hourly"],
-            qc_status=None if task.client_form else task.qc_status,
+            qc_status=None if client_form else task.qc_status,
             qc_dismissed=0
-            if task.client_form
+            if client_form
             else int(
                 (qc.get((task.candidate_id, job.id)) or {}).get("dismissed_blocking")
                 or 0
@@ -1257,7 +1259,7 @@ async def build_queue(
                     or []
                 ),
                 "qc_state": (qc.get((task.candidate_id, job.id)) or {}).get("qc_state"),
-                "client_form": task.client_form,
+                "client_form": client_form,
                 "overall_fit": assessment["overall_fit"],
                 "overall_fit_label": assessment["overall_fit_label"],
             }
