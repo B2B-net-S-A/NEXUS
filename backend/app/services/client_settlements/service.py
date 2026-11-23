@@ -238,21 +238,25 @@ HOURS_PER_MD = Decimal("8")
 
 
 def md_rates(order: Any) -> tuple[Optional[Decimal], Optional[Decimal]]:
-    """Stawki MD linii. Linia ze stawką godzinową bez stawek MD (PKO: stawka za
-    godzinę w zł, bez puli MD) liczy MD × 8 h × stawka za godzinę."""
+    """Stawki MD linii. Kolumny MD wypełnia linia wielo-konsultantowa; zwykłe
+    zamówienie trzyma stawkę w ``rate_client`` / ``rate_candidate`` według
+    ``rate_unit``. Stawka godzinowa w zł (PKO: bez puli MD) daje 8 h × stawka,
+    dzienna w zł (Alior, Velo, ERSTE: 64 zamówienia w próbie 23.11.2026) jest
+    stawką MD wprost. Waluta obca bez kolumn MD zostaje bez stawki."""
 
     cost = getattr(order, "md_rate_cost", None)
     revenue = getattr(order, "md_rate_revenue", None)
     unit = getattr(order, "rate_unit", None)
     unit = getattr(unit, "value", unit)
     currency = (getattr(order, "rate_client_currency", None) or "PLN").upper()
-    if unit == "hourly" and currency == "PLN":
+    per_md = {"hourly": HOURS_PER_MD, "daily": Decimal("1")}.get(unit)
+    if per_md is not None and currency == "PLN":
         client_rate = getattr(order, "rate_client", None)
         candidate_rate = getattr(order, "rate_candidate", None)
         if revenue is None and client_rate is not None:
-            revenue = Decimal(client_rate) * HOURS_PER_MD
+            revenue = Decimal(client_rate) * per_md
         if cost is None and candidate_rate is not None:
-            cost = Decimal(candidate_rate) * HOURS_PER_MD
+            cost = Decimal(candidate_rate) * per_md
     return cost, revenue
 
 
