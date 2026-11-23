@@ -298,6 +298,8 @@ export interface PracujPairResult {
 }
 
 export interface PracujQueueItem extends PracujAd {
+  /** Podpowiedź do rekrutacji, w której oglądający jest DL-em — idzie na górę. */
+  mine?: boolean;
   suggestions: { job_id: number; title: string; delivery_lead_name: string | null }[];
   more_suggestions: number;
 }

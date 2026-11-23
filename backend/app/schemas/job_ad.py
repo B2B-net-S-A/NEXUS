@@ -333,6 +333,8 @@ class PracujQueueSuggestion(BaseModel):
 
 
 class PracujQueueItem(PracujAdRead):
+    # Podpowiedź do rekrutacji, w której oglądający jest DL-em.
+    mine: bool = False
     suggestions: list[PracujQueueSuggestion] = Field(default_factory=list)
     more_suggestions: int = 0
 

@@ -1009,7 +1009,9 @@ async def get_pracuj_unpaired(
         UserRole.head_of_recruitment, UserRole.admin, UserRole.delivery_lead
     ):
         return PracujQueueResponse(items=[])
-    return PracujQueueResponse(**await pracuj_ads.unpaired_queue(db))
+    return PracujQueueResponse(
+        **await pracuj_ads.unpaired_queue(db, viewer_id=current_user.id)
+    )
 
 
 async def _set_internal(

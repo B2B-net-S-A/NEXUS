@@ -302,6 +302,7 @@ async def pair(db: AsyncSession, *, job: Job, strefa_id: str, user: User) -> Pai
             ad_id=strefa_id,
             ad_title=ad.title,
             applied_at=applied_at,
+            enqueue_terms=False,
         )
         if placed.outcome == "added":
             result.added += 1
@@ -347,8 +348,11 @@ async def mark_internal(
     return True
 
 
-async def unpaired_queue(db: AsyncSession) -> dict:
-    """Ogłoszenia na Pracuj.pl bez rekrutacji, z podpowiedziami otwartych rekrutacji."""
+async def unpaired_queue(db: AsyncSession, *, viewer_id: Optional[int] = None) -> dict:
+    """Ogłoszenia na Pracuj.pl bez rekrutacji, z podpowiedziami otwartych rekrutacji.
+
+    Najpierw te z podpowiedzią do rekrutacji oglądającego DL-a (``mine``):
+    lista jest firmowa, a 22.11 miała 95 pozycji."""
     since = await _live_since(db)
     if since is None:
         return {"items": [], "last_import_at": None}
@@ -380,14 +384,22 @@ async def unpaired_queue(db: AsyncSession) -> dict:
             for j in open_jobs
             if suggests(ad.title, j.title)
         ]
+        mine = viewer_id is not None and any(
+            j.delivery_lead_id == viewer_id
+            for j in open_jobs
+            if suggests(ad.title, j.title)
+        )
         items.append(
             {
                 **_ad_dict(ad, counts.get(ad.strefa_id, 0), live=True),
+                "mine": mine,
                 "suggestions": hits[:SUGGESTIONS_PER_AD],
                 "more_suggestions": max(0, len(hits) - SUGGESTIONS_PER_AD),
             }
         )
-    items.sort(key=lambda i: -(i["logged_applications"] or i["applications"]))
+    items.sort(
+        key=lambda i: (not i["mine"], -(i["logged_applications"] or i["applications"]))
+    )
     return {"items": items, "last_import_at": since + LIVE_SLACK}
 
 

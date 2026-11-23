@@ -104,7 +104,14 @@ export function PracujUnpairedAds({ api = jobAdApi }: { api?: PracujUnpairedApi 
             className="grid grid-cols-1 gap-2 py-2 text-[13px] md:grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)_auto] md:items-center"
           >
             <span className="flex min-w-0 flex-col">
-              <span className="text-foreground">{item.title}</span>
+              <span className="text-foreground">
+                {item.title}
+                {item.mine ? (
+                  <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                    Twoja rekrutacja
+                  </span>
+                ) : null}
+              </span>
               <span className="text-xs text-muted-foreground">
                 nr {item.strefa_id} · od {formatDate(item.first_seen_at)} ·{" "}
                 {applicationsText(Math.max(item.logged_applications, item.applications))}

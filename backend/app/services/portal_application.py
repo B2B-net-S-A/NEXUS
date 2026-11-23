@@ -169,6 +169,7 @@ async def place_application(
     ad_slug: Optional[str] = None,
     ad_title: Optional[str] = None,
     applied_at: Optional[datetime] = None,
+    enqueue_terms: bool = True,
 ) -> PortalApplicationResult:
     """Źródło z ``job_id`` i karta w „Nowi” rekrutacji ogłoszenia. Bez commita."""
     from app.api.proposals_bulk import add_candidates_to_job  # noqa: PLC0415
@@ -203,14 +204,19 @@ async def place_application(
     )
     from app.services.candidate_terms_queue import enqueue  # noqa: PLC0415
 
-    await enqueue(
-        db,
-        candidate_id=candidate_id,
-        job_id=job.id,
-        source="jjit" if portal == "justjoinit" else portal,
-        applied_at=applied_at,
-        ad_title=ad_title,
-    )
+    # Dociąganie zaległych z Pracuj.pl (``pracuj_ads.pair``) nie dopisuje:
+    # aplikacja trafiła do kolejki przy imporcie, a wpis starszy niż doba nie
+    # łączy się z nowym — osoba dostałaby drugie „Dziękujemy” (staging 23.11:
+    # 17 z 22 osób dociągniętych do rekrutacji 789232).
+    if enqueue_terms:
+        await enqueue(
+            db,
+            candidate_id=candidate_id,
+            job_id=job.id,
+            source="jjit" if portal == "justjoinit" else portal,
+            applied_at=applied_at,
+            ad_title=ad_title,
+        )
     if job.status != JobStatus.published:
         return PortalApplicationResult(outcome="job_not_open", job_id=job.id)
 

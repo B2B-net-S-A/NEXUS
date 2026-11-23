@@ -367,43 +367,55 @@ async def test_internal_ad_stays_pickable_and_pairing_clears_it(app_client):
 
 
 @pytest.mark.asyncio
-async def test_backfill_without_application_date_uses_log_date(app_client):
-    """Brak daty w TXT: dociąganie bierze datę wpisu w dzienniku, nie „teraz”."""
-    from sqlalchemy import update
-
+async def test_backfill_adds_nothing_to_thank_you_mail_queue(app_client):
+    """Dociąganie nie dubluje „Dziękujemy za zgłoszenie”: aplikacja jest w kolejce
+    od importu, a wpis starszy niż doba nie łączy się z nowym."""
     from app.models.candidate_terms_request import CandidateTermsRequest
     from app.models.job import Job
-    from app.models.pracuj_ad import PracujAdApplication
     from app.models.user import User
 
     _, uid, job_id = await _dl_job(app_client)
     sid = _strefa_id()
     await _sync(pracuj_ads.AdIn(sid, "Tester Manualny (k/m/x)"))
     cand = await _seed_candidate()
-    old = datetime.now(timezone.utc) - timedelta(days=21)
     async with AsyncSessionLocal() as db:
         await pracuj_ads.record_application(
             db, strefa_id=sid, candidate_id=cand, applied_at=None
         )
-        await db.execute(
-            update(PracujAdApplication)
-            .where(PracujAdApplication.candidate_id == cand)
-            .values(created_at=old)
-        )
         await db.commit()
     async with AsyncSessionLocal() as db:
-        await pracuj_ads.pair(
+        result = await pracuj_ads.pair(
             db,
             job=await db.get(Job, job_id),
             strefa_id=sid,
             user=await db.get(User, uid),
         )
         await db.commit()
+    assert result.added == 1
     async with AsyncSessionLocal() as db:
         queued = await db.scalar(
             select(CandidateTermsRequest).where(
                 CandidateTermsRequest.candidate_id == cand
             )
         )
-    assert queued is not None
-    assert queued.applied_at < datetime.now(timezone.utc) - timedelta(days=20)
+    assert queued is None
+
+
+@pytest.mark.asyncio
+async def test_queue_puts_viewers_own_suggestions_first(app_client):
+    _, uid, job_id = await _dl_job(app_client)
+    mine, other = _strefa_id(), _strefa_id()
+    await _sync(
+        pracuj_ads.AdIn(other, "Ogłoszenie bez rekrutacji (k/m/x)", 99999),
+        pracuj_ads.AdIn(mine, "Tester Manualny (k/m/x)", 1),
+    )
+    async with AsyncSessionLocal() as db:
+        queue = await pracuj_ads.unpaired_queue(db, viewer_id=uid)
+    ids = [i["strefa_id"] for i in queue["items"]]
+    assert ids.index(mine) < ids.index(other)
+    first_mine = next(i for i in queue["items"] if i["strefa_id"] == mine)
+    assert first_mine["mine"] is True
+    assert (
+        job_id in {s["job_id"] for s in first_mine["suggestions"]}
+        or first_mine["more_suggestions"]
+    )

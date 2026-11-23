@@ -35,8 +35,10 @@ i `PracujUnpairedAds.tsx` (kolejka „Ogłoszenia do nadrobienia”). Scraper:
   gdy ogłoszenie nie ma rekrutacji (`no_job`). Z niego połączenie dociąga
   zaległe aplikacje do „Nowi” — tą samą drogą co nowe
   (`portal_application.place_application`: bramki rekrutera, źródło
-  z rekrutacją, jeden dzwonek zbiorczy do prowadzącego). Kolejka warunków
-  pomija aplikacje starsze niż 3 dni, więc dociąganie nie wysyła maili.
+  z rekrutacją, jeden dzwonek zbiorczy do prowadzącego). Dociąganie nie
+  dopisuje do kolejki „Dziękujemy za zgłoszenie” (`enqueue_terms=False`):
+  aplikacja jest tam od importu, a wpis starszy niż doba nie łączy się z nowym
+  (staging 23.11: 17 z 22 osób dostałoby drugi mail).
 - **Ogłoszenie należy do jednej rekrutacji; rekrutacja może mieć kilka
   ogłoszeń** (to samo stanowisko w kilku miastach). Ogłoszenie połączone
   gdzie indziej = 409 `pracuj_ad_taken` z nazwą tamtej rekrutacji.
