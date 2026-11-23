@@ -63,6 +63,7 @@ const SAME_NAME: CompanyIdentityMatch = {
   name: "FIRMA TESTOWA",
   hq_city: null,
   domain: null,
+  nip: null,
   open_opportunities: 1,
   reason: "name",
 };
@@ -181,5 +182,20 @@ describe("okno z przycisku Jarvisa (bez sprawdzenia w palecie)", () => {
     render(<CompanyFormDialog open onOpenChange={vi.fn()} initialNip="1111111111" />);
     expect(screen.queryByTestId("registry-nip-taken")).toBeNull();
     expect(screen.getByTestId("registry-same-name")).toBeTruthy();
+  });
+});
+
+describe("karta o tej nazwie z innym NIP-em", () => {
+  it.each([
+    ["inny NIP", "9999999999"],
+    ["NIP nieznany (starsza odpowiedź)", undefined],
+  ])("%s: bez „Dopisz NIP”, zostaje zwykłe „Dodaj firmę”", (_label, nip) => {
+    identity.mockReturnValue({
+      data: { domain: null, domain_source: null, matches: [{ ...SAME_NAME, nip }] },
+    });
+    render(<CompanyFormDialog open onOpenChange={vi.fn()} initialNip="1111111111" />);
+    expect(screen.queryByRole("button", { name: "Dopisz NIP do tej karty" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Dodaj firmę" })).toBeTruthy();
+    expect(patchCompany).not.toHaveBeenCalled();
   });
 });

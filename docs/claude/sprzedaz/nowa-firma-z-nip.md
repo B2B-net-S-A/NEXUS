@@ -18,7 +18,8 @@ RED” to dwie spółki tej samej marki — rozstrzyga człowiek, nie model.
 
 ## Jak działa
 
-- **⌘K** (`CommandPaletteV2`): zapytanie, które jest samym polskim NIP-em
+- **⌘K** (`CommandPaletteV2`): awaria wyszukiwania firm chowa „Załóż”, bo nie wiadomo,
+  czy karta jest. Zapytanie, które jest samym polskim NIP-em
   (`nipFromQuery`: kreski, spacje, prefiks PL), u osoby z `sales_edit`, gdy wśród
   wyników nie ma karty Sprzedaży → grupa „Sprzedaż” z „Załóż firmę z NIP …”
   (`/sales/companies?nowa=<NIP>`). Zła suma kontrolna → nieaktywna pozycja
@@ -33,8 +34,9 @@ RED” to dwie spółki tej samej marki — rozstrzyga człowiek, nie model.
     prawnej”, KRS i REGON idą przy zapisie nowej karty, dopóki NIP się nie zmieni;
   - karta z dokładnie tym NIP-em (`GET /api/sales/companies?q=<NIP>`, porównanie
     całego numeru) → ostrzeżenie z linkiem, bez dopisywania;
-  - NIP wolny, a `/identity` zwraca kartę o tej samej nazwie → „Dopisz NIP do tej
-    karty” (PATCH samego NIP-u: resztę uzupełnia sprawdzenie rejestru po zapisie,
+  - NIP wolny, a `/identity` zwraca kartę o tej samej nazwie i `nip: null` → „Dopisz
+    NIP do tej karty”; karta z innym NIP-em to inna spółka tej samej marki, jej numeru
+    okno nie rusza (PATCH samego NIP-u: resztę uzupełnia sprawdzenie rejestru po zapisie,
     które nie nadpisuje pól człowieka, `dane-firm-z-rejestrow.md`). Nowa karta
     wtedy tylko przyciskiem „To inna spółka — dodaj nową kartę”.
 - Ręczne „Nowa firma” → „Pobierz z rejestru” też wpisuje nazwę bez formy prawnej,

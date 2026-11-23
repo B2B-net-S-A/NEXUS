@@ -129,6 +129,8 @@ export function CommandPaletteV2({
   /** 423 porcji albo awaria samych kandydatów: reszta sekcji odpowiada normalnie. */
   const [candidateIssue, setCandidateIssue] = useState<SectionIssue | null>(null);
   const [peopleFailed, setPeopleFailed] = useState(false);
+  /** Awaria wyszukiwania firm Sprzedaży: „Załóż firmę z NIP” nie może udawać braku karty. */
+  const [salesCompaniesFailed, setSalesCompaniesFailed] = useState(false);
 
   // Debounced multi-entity search.
   //
@@ -150,6 +152,7 @@ export function CommandPaletteV2({
       setSearchFailed(false);
       setCandidateIssue(null);
       setPeopleFailed(false);
+      setSalesCompaniesFailed(false);
       return;
     }
 
@@ -180,6 +183,7 @@ export function CommandPaletteV2({
     setSearchFailed(false);
     setCandidateIssue(null);
     setPeopleFailed(false);
+    setSalesCompaniesFailed(false);
 
     const timer = setTimeout(() => {
       // Zapytania wysyłamy WYŁĄCZNIE dla zasobów, do których user ma
@@ -308,6 +312,10 @@ export function CommandPaletteV2({
                 subtitle: "Sprzedaż · firma",
               }));
               flush();
+            })
+            .catch((error: unknown) => {
+              if (!cancelled) setSalesCompaniesFailed(true);
+              throw error;
             }),
           api
             .get("/api/sales/opportunities", { params: { q: term, limit: 5 }, signal: ctrl.signal })
@@ -446,6 +454,7 @@ export function CommandPaletteV2({
   const showNipAction =
     nipQuery !== null &&
     !searching &&
+    !salesCompaniesFailed &&
     !results.some((r) => r.type === "sales_company");
   const personResults = results.filter((r) => r.type === "person");
   const otherResults = results.filter((r) => r.type !== "person");

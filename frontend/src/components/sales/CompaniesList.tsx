@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Building2, Plus } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { EmptyState } from "@/components/ds/EmptyState";
 import { FilterBar } from "@/components/ds/FilterBar";
@@ -58,6 +58,8 @@ export function CompaniesList() {
   useEffect(() => {
     if (newNip) setCreating(true);
   }, [newNip]);
+  // Po zapisie okno samo się zamyka; wtedy adres prowadzi na kartę, a nie z powrotem na listę.
+  const savedFromNip = useRef(false);
   // Opiekun: konto NEXUSA albo etykieta z Atlasa (osoba bez konta); archiwum;
   // firmy, które import przepuścił warunkowo (audyt importu 28.10.2026).
   const owner = searchParams?.get("opiekun") ?? "";
@@ -273,10 +275,13 @@ export function CompaniesList() {
           open={creating}
           onOpenChange={(open) => {
             setCreating(open);
-            if (!open && newNip) router.replace("/sales/companies");
+            if (!open && newNip && !savedFromNip.current) router.replace("/sales/companies");
           }}
           initialNip={newNip ?? undefined}
-          onSaved={(company) => router.push(`/sales/companies/${company.id}`)}
+          onSaved={(company) => {
+            savedFromNip.current = Boolean(newNip);
+            router.push(`/sales/companies/${company.id}`);
+          }}
         />
       )}
     </div>

@@ -181,7 +181,11 @@ export function CompanyFormDialog({
   // karty dopisujemy NIP do istniejącej.
   const sameName =
     initialNip && fromRegistry && byNip.isSuccess && nipTaken.length === 0
-      ? (identity.data?.matches ?? []).filter((match) => match.reason === "name")
+      ? (identity.data?.matches ?? []).filter(
+          // Tylko karta, o której wiemy, że nie ma NIP-u — numer innej spółki tej samej
+          // marki zostaje nietknięty.
+          (match) => match.reason === "name" && match.nip === null,
+        )
       : [];
   const fillExisting = (id: number) =>
     patchExisting.mutate(

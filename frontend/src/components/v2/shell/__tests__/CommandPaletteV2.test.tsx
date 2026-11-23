@@ -409,6 +409,16 @@ describe("CommandPaletteV2 — nowa firma z NIP-u (prośba Sprzedaży 23.11.2026
     expect(queryByText(/Załóż firmę/)).toBeNull();
   });
 
+  it("awaria wyszukiwania firm nie udaje braku karty", async () => {
+    apiGet.mockImplementation((url: string) =>
+      url === "/api/sales/companies"
+        ? Promise.reject(new Error("500"))
+        : Promise.resolve({ data: { items: [], total: 0 } }),
+    );
+    const { queryByText } = await search("1111111111");
+    expect(queryByText(/Załóż firmę/)).toBeNull();
+  });
+
   it("konto bez edycji Sprzedaży nie dostaje „Załóż”", async () => {
     authUser.current = { id: 2, role: "recruiter", roles: ["recruiter"] };
     const { queryByText } = await search("1111111111");
