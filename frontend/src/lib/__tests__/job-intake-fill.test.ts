@@ -103,6 +103,7 @@ describe("isPristineIntake", () => {
               dealBreaker: "",
               origin: "manual",
               approved: true,
+              keyTask: false,
             },
           ],
           // Podpowiedź kategorii bez potwierdzenia to nie praca człowieka.
@@ -369,6 +370,7 @@ describe("wymagania i pytania", () => {
           dealBreaker: "Brak.",
           origin: "manual",
           approved: true,
+          keyTask: false,
         },
       ],
     });
@@ -387,6 +389,7 @@ describe("wymagania i pytania", () => {
         dealBreaker: "Nie.",
         origin: "manual" as const,
         approved: true,
+        keyTask: false,
       })),
     });
     const offered = applyIntakeRead(two, read());
@@ -401,6 +404,39 @@ describe("wymagania i pytania", () => {
       "Biuro?",
     ]);
     expect(accepted.questions.slice(2).every((q) => !q.approved && q.dealBreaker)).toBe(true);
+  });
+
+  it("najważniejsze zadanie (23.11.2026): puste pole bierze odczyt, wpisane dostaje propozycję; zaznaczenie zostaje jedno", () => {
+    const withTask = () =>
+      formFromIntake({
+        ...INTAKE,
+        key_task: "Uruchomić nowy moduł płatności do marca.",
+        screening_questions: INTAKE.screening_questions.map((q) => ({ ...q, key_task: true })),
+      });
+    const filled = applyIntakeRead(form({ about: "Mój opis." }), withTask());
+    expect(filled.form.keyTask).toBe("Uruchomić nowy moduł płatności do marca.");
+    expect(filled.form.questions.map((q) => q.keyTask)).toEqual([true, false]);
+
+    const mine = form({
+      keyTask: "Moje zadanie.",
+      questions: ["Umowa B2B?", "Angielski?"].map((question, i) => ({
+        key: `m${i}`,
+        question,
+        idealAnswer: "",
+        dealBreaker: "Nie.",
+        origin: "manual" as const,
+        approved: true,
+        keyTask: i === 1,
+      })),
+    });
+    const offered = applyIntakeRead(mine, withTask());
+    expect(offered.form.keyTask).toBe("Moje zadanie.");
+    expect(offerOf(offered.offers, "keyTask")?.patch).toEqual({
+      keyTask: "Uruchomić nowy moduł płatności do marca.",
+    });
+    // Pytania z odczytu po „Dodaj” nie przejmują zaznaczenia Delivery Leada.
+    const accepted = acceptIntakeOffer(offered.form, offerOf(offered.offers, "questions")!);
+    expect(accepted.questions.map((q) => q.keyTask)).toEqual([false, true, false, false]);
   });
 
   it("listy dopisuje bez duplikatów", () => {

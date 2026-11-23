@@ -10923,6 +10923,19 @@
             "title": "Hiring Manager Not Provided",
             "type": "boolean"
           },
+          "key_task": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Najważniejsze zadanie w tej roli słowami klienta (od 23.11.2026 wymagane przez bramkę przekazania, razem z pytaniem ``screening_questions[].key_task``).",
+            "title": "Key Task"
+          },
           "language": {
             "anyOf": [
               {
@@ -12520,6 +12533,12 @@
             "maxLength": 500,
             "title": "Ideal Answer",
             "type": "string"
+          },
+          "key_task": {
+            "default": false,
+            "description": "To pytanie sprawdza ``key_task`` rekrutacji — bramka przekazania wymaga dokładnie jednego takiego pytania.",
+            "title": "Key Task",
+            "type": "boolean"
           },
           "question": {
             "maxLength": 500,

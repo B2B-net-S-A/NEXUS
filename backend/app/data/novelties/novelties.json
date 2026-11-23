@@ -2211,6 +2211,36 @@
     "dot_anchor": "cheatsheet.cv-questions"
   },
   {
+    "id": "najwazniejsze-zadanie-w-roli",
+    "title": "Najważniejsze zadanie w tej roli w Profilu Championa",
+    "why": "Wpisujesz zadanie, na którym klientowi najbardziej zależy, i zaznaczasz pytanie, które je sprawdza. Bez tego nie przekażesz rekrutacji do searchu. Trafi do CV jako zdanie 3.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Profil Championa → Brief → „Najważniejsze zadanie w tej roli”",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "champion.key-task",
+    "steps": [
+      {
+        "anchor": "champion.key-task",
+        "text": "Kliknij „Edytuj” przy „Najważniejsze zadanie w tej roli”",
+        "hint": "Wpisz jedno zdanie słowami klienta: co ta osoba musi dowieźć w pierwszej kolejności."
+      },
+      {
+        "anchor": "champion.key-task.question",
+        "text": "Zaznacz pytanie, które sprawdza to zadanie",
+        "hint": "Rekruter zobaczy przy nim znacznik, a odpowiedź kandydata trafi do CV jako zdanie 3.",
+        "ack": true
+      }
+    ]
+  },
+  {
     "id": "premia-200-listopad-grudzien",
     "pr": 3085,
     "title": "Do 200%: postęp w miesiącu podpisu",

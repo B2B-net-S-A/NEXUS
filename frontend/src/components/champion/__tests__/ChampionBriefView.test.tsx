@@ -3,7 +3,7 @@
  * przed telefonem. Tylko odczyt — „Edytuj” otwiera szufladę bloku.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -118,6 +118,27 @@ beforeEach(() => {
 });
 
 describe("ChampionBriefView", () => {
+  it("23.11.2026: bez najważniejszego zadania pokazuje brak, z zadaniem — treść i pytanie, które je sprawdza", async () => {
+    renderBrief();
+    expect(await screen.findByTestId("brief-key-task")).toHaveTextContent("Brak. Wpisz jedno zadanie");
+    cleanup();
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 5,
+        champion_profile: {
+          ...PROFILE,
+          project: { ...PROFILE.project, key_task: "Uruchomienie nowego panelu klienta." },
+          screening_questions: PROFILE.screening_questions.map((q, i) => ({ ...q, key_task: i === 1 })),
+        },
+      },
+    });
+    renderBrief();
+    const block = await screen.findByTestId("brief-key-task");
+    await waitFor(() => expect(block).toHaveTextContent("Uruchomienie nowego panelu klienta."));
+    expect(block).toHaveTextContent("Sprawdza pytanie 2: Jak testowałeś?");
+    expect(screen.getByText(/najważniejsze zadanie · do CV/)).toBeInTheDocument();
+  });
+
   it("krytyczne: gwiazdka przy pozycji MUST i linia z decyzją albo podpowiedzią", async () => {
     getMock.mockResolvedValue({
       data: {

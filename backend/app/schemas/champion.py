@@ -343,6 +343,11 @@ class ChampionProject(_NullTolerantSection):
 
     about: str = ""
     responsibilities: str = ""
+    # „Najważniejsze zadanie w tej roli” (Artur, warsztaty 23.11.2026): jedno
+    # zdanie słowami klienta. Razem z odpowiedzią na pytanie oznaczone
+    # `ScreeningQuestion.key_task` jest wkładem do zdania 3 „Dlaczego nasz
+    # kandydat” w nowym CV. Wymagane przy pierwszym przekazaniu do searchu.
+    key_task: str = ""
 
 
 class ScreeningQuestion(_NullTolerantSection):
@@ -352,6 +357,9 @@ class ScreeningQuestion(_NullTolerantSection):
     question: str = Field(min_length=1)
     ideal_answer: str = ""
     deal_breaker: str = ""
+    # Pytanie, które sprawdza `project.key_task` — najwyżej jedno w profilu
+    # (`ChampionProfile._one_key_task_question`).
+    key_task: bool = False
 
 
 class ChampionClient(_NullTolerantSection):
@@ -905,6 +913,16 @@ class ChampionProfile(BaseModel):
                 self.stack.rows = None
         return self
 
+    @model_validator(mode="after")
+    def _one_key_task_question(self) -> "ChampionProfile":
+        # Zadanie sprawdza jedno pytanie; przy kilku zaznaczonych zostaje pierwsze.
+        seen = False
+        for question in self.screening_questions:
+            if question.key_task and seen:
+                question.key_task = False
+            seen = seen or question.key_task
+        return self
+
     def model_dump(self, *args: Any, **kwargs: Any) -> dict:
         """Dump the seven sections plus the underscore provenance keys.
 
@@ -918,6 +936,15 @@ class ChampionProfile(BaseModel):
         # odcisk i skrót (`profile_hash`) po zapisie, który procesu nie dotyka.
         if data.get("client_process") is None:
             data.pop("client_process", None)
+        # Ta sama zasada dla „najważniejszego zadania” (23.11.2026): puste pole
+        # i niezaznaczone pytanie nie dopisują klucza, więc profile bez zadania
+        # zachowują odcisk po zapisie.
+        project = data.get("project")
+        if isinstance(project, dict) and not project.get("key_task"):
+            project.pop("key_task", None)
+        for question in data.get("screening_questions") or []:
+            if isinstance(question, dict) and not question.get("key_task"):
+                question.pop("key_task", None)
         return data
 
     def is_screening_ready(self) -> bool:

@@ -38,11 +38,14 @@ _READY_CHAMPION = {
         "about": "Platforma płatności B2B",
         "responsibilities": "Rozwój usług backendowych",
     },
+    # Najważniejsze zadanie + pytanie, które je sprawdza (23.11.2026).
+    "project": {"key_task": "Przeniesienie rozliczeń na nową platformę."},
     "screening_questions": [
         {
             "id": "q1",
             "question": "Doświadczenie z Pythonem?",
             "deal_breaker": "Brak komercyjnego projektu w Pythonie.",
+            "key_task": True,
         },
         {
             "id": "q2",
@@ -345,7 +348,7 @@ def test_handoff_needs_a_disqualifying_answer_for_every_question():
     from app.services.job_readiness import MSG_DEAL_BREAKER, job_question_blockers
 
     questions = [
-        {"id": "q1", "question": "Python?", "deal_breaker": "Brak projektu."},
+        {"id": "q1", "question": "Python?", "deal_breaker": "Brak projektu.", "key_task": True},
         {"id": "q2", "question": "Postgres?", "deal_breaker": "  "},
         {"id": "q3", "question": "", "deal_breaker": ""},
     ]
@@ -361,3 +364,41 @@ def test_handoff_needs_a_disqualifying_answer_for_every_question():
     assert job_handoff_blockers(_job(champion_profile=champion, is_open=True)) == []
     blockers = job_handoff_blockers(_job(champion_profile={**champion, "search": {}}))
     assert blockers == [MSG_SEARCH_REQUIREMENTS, MSG_DEAL_BREAKER]
+
+
+def test_handoff_needs_the_key_task_and_the_question_that_checks_it():
+    """Warsztaty nowego CV (Artur, 23.11.2026): DL wpisuje najważniejsze
+    zadanie w tej roli i zaznacza pytanie, które je sprawdza. Jak odpowiedź
+    dyskwalifikująca — tylko pierwsze przekazanie, automat go nie widzi."""
+    from app.services.job_readiness import MSG_KEY_TASK, job_key_task_blockers
+
+    def champion(task: str, flags: list[bool]) -> dict:
+        questions = [
+            {**q, "key_task": flag}
+            for q, flag in zip(_READY_CHAMPION["screening_questions"], flags)
+        ]
+        return {**_READY_CHAMPION, "project": {"key_task": task}, "screening_questions": questions}
+
+    no_task = _job(champion_profile=champion("  ", [True, False]))
+    assert job_handoff_blockers(no_task) == [MSG_KEY_TASK]
+    assert job_readiness_blockers(no_task) == []
+    no_question = _job(champion_profile=champion("Migracja rozliczeń.", [False, False]))
+    assert job_handoff_blockers(no_question) == [MSG_KEY_TASK]
+    second = _job(champion_profile=champion("Migracja rozliczeń.", [False, True]))
+    assert job_key_task_blockers(second) == []
+    # Rekrutacja już w searchu (sprzed pola) nie jest blokowana…
+    assert job_handoff_blockers(_job(champion_profile=champion("", [False, False]), is_open=True)) == []
+    # …ale ponowne otwarcie i ochrona zapisu liczą brak.
+    assert job_key_task_blockers(
+        _job(champion_profile=champion("", [False, False]), is_open=True), include_open=True
+    ) == [MSG_KEY_TASK]
+
+
+def test_key_task_gap_is_revealed_by_missing_questions_not_new():
+    """Rekrutacja bez pytań dostaje oba braki; dopisanie pytań nie jest „nowym”
+    brakiem zadania (ochrona rekrutacji w pracy, `_REVEALED_BY`)."""
+    from app.services.job_readiness import new_handoff_blockers
+
+    bare = {**_READY_CHAMPION, "project": {}, "screening_questions": []}
+    job = _job(champion_profile={**bare, "screening_questions": _READY_CHAMPION["screening_questions"][1:] * 2})
+    assert new_handoff_blockers({"questions"}, job) == []

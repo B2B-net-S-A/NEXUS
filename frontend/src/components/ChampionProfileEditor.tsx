@@ -140,6 +140,7 @@ import {
 import { ChampionInsightsSection } from "@/components/champion/ChampionInsightsSection";
 import { syncLegacyInsight, type InsightChange } from "@/lib/champion-insights";
 import { responsibilityRows } from "@/lib/champion-responsibilities";
+import { flagKeyTaskQuestion } from "@/lib/champion-key-task";
 import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
 import { ChampionClientQuestionsPanel } from "./ChampionClientQuestionsPanel";
 import { ChampionSectionNav } from "@/components/v2/jobs/ChampionSectionNav";
@@ -1158,6 +1159,53 @@ export function ChampionProfileEditor({
               </span>
             )}
           </p>
+          {/* Warsztaty nowego CV (23.11.2026): zadanie, które klient uważa za najważniejsze — wkład do zdania 3 w CV. */}
+          <Labeled label="Najważniejsze zadanie w tej roli (wymagane)" field="project.key_task">
+            <textarea
+              disabled={disabled}
+              value={draft.project.key_task ?? ""}
+              onChange={(e) => patchProject({ key_task: e.target.value })}
+              placeholder="Jedno zdanie słowami klienta: co ta osoba musi dowieźć w pierwszej kolejności?"
+              rows={2}
+              className={cn(textareaClass, "border-primary/40")}
+              data-testid="champion-project-key-task"
+            />
+          </Labeled>
+          <p className="text-[11px] text-muted-foreground -mt-1">
+            Trafia do CV kandydata jako zdanie 3 „Dlaczego nasz kandydat”.
+          </p>
+          {draft.screening_questions.some((q) => q.question.trim()) ? (
+            <fieldset
+              data-tour="champion.key-task.question"
+              className="space-y-1.5"
+              data-testid="champion-key-task-question"
+            >
+              <legend className="text-xs font-medium text-foreground">Które pytanie screeningowe to sprawdza?</legend>
+              {draft.screening_questions.map((q, i) =>
+                q.question.trim() ? (
+                  <label key={q.id || i} className="flex items-start gap-2 text-xs text-foreground">
+                    <input
+                      type="radio"
+                      name="champion-key-task-pick"
+                      className="mt-0.5 accent-primary"
+                      disabled={disabled}
+                      checked={Boolean(q.key_task)}
+                      onChange={() =>
+                        setDraft((d) => ({ ...d, screening_questions: flagKeyTaskQuestion(d.screening_questions, i) }))
+                      }
+                    />
+                    <span>
+                      {i + 1}. {q.question}
+                    </span>
+                  </label>
+                ) : null,
+              )}
+            </fieldset>
+          ) : (
+            <p className="text-[11px] text-warning-muted-foreground">
+              Dodaj pytania screeningowe i zaznacz to, które sprawdza zadanie.
+            </p>
+          )}
           <Labeled label="Obowiązki na stanowisku" field="project.responsibilities">
             <textarea
               disabled={disabled}
@@ -1228,6 +1276,22 @@ export function ChampionProfileEditor({
                   </button>
                 )}
               </div>
+              <label className="flex items-center gap-2 text-xs text-foreground">
+                <input
+                  type="radio"
+                  name="champion-key-task-question"
+                  className="accent-primary"
+                  disabled={disabled}
+                  checked={Boolean(q.key_task)}
+                  onChange={() =>
+                    setDraft((d) => ({ ...d, screening_questions: flagKeyTaskQuestion(d.screening_questions, i) }))
+                  }
+                  data-testid={`screening-q-${i}-key-task`}
+                />
+                <span>
+                  To pytanie sprawdza <b>najważniejsze zadanie</b> — odpowiedź kandydata może trafić do CV
+                </span>
+              </label>
               {canEdit && screeningQuestionHint(q.question) ? (
                 <p className="text-xs text-warning-muted-foreground">
                   {screeningQuestionHint(q.question)}

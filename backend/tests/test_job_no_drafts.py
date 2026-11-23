@@ -30,9 +30,9 @@ from app.services.job_lifecycle import (
 )
 
 _READY_STORED = {
-    "project": {"about": "Platforma płatności B2B"},
+    "project": {"about": "Platforma płatności B2B", "key_task": "Migracja rozliczeń."},
     "screening_questions": [
-        {"id": "q1", "question": "Python?", "deal_breaker": "Brak Pythona."},
+        {"id": "q1", "question": "Python?", "deal_breaker": "Brak Pythona.", "key_task": True},
         {"id": "q2", "question": "Postgres?", "deal_breaker": "Brak baz danych."},
     ],
     "stack": {"must": [{"name": "Python"}], "critical": []},
@@ -119,7 +119,7 @@ def test_open_job_counts_deal_breakers_only_when_asked():
     champion = {
         **_READY_STORED,
         "screening_questions": [
-            {"id": "q1", "question": "Python?"},
+            {"id": "q1", "question": "Python?", "key_task": True},
             {"id": "q2", "question": "Postgres?"},
         ],
     }

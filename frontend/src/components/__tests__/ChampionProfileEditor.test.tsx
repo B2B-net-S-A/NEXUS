@@ -1379,3 +1379,29 @@ describe("ChampionProfileEditor — zapis zmienionych sekcji i konflikty (06.10.
     expect(screen.getByLabelText("Nazwa roli")).toHaveValue("QA Lead");
   });
 });
+
+describe("ChampionProfileEditor — najważniejsze zadanie w tej roli (23.11.2026)", () => {
+  it("DL wpisuje zadanie i zaznacza jedno pytanie, które je sprawdza; zapis niesie oba pola", async () => {
+    const profile = {
+      project: { about: "Nowy panel klienta.", responsibilities: "" },
+      screening_questions: [
+        { id: "q1", question: "Jak testowałeś?", ideal_answer: "", deal_breaker: "brak testów", key_task: true },
+        { id: "q2", question: "Jak wyglądało wdrożenie?", ideal_answer: "", deal_breaker: "brak wdrożeń" },
+      ],
+    };
+    getMock.mockResolvedValue({ data: { job_id: 14, champion_profile: profile } });
+    putMock.mockResolvedValue({ data: { job_id: 14, champion_profile: profile } });
+    renderEditor(14, true);
+
+    await userEvent.type(await screen.findByTestId("champion-project-key-task"), "Uruchomienie panelu.");
+    await userEvent.click(screen.getByTestId("screening-q-1-key-task"));
+    expect(screen.getByTestId("screening-q-0-key-task")).not.toBeChecked();
+    await userEvent.click(screen.getByTestId("save-champion-profile"));
+
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    const body = JSON.stringify(putMock.mock.calls[0]);
+    expect(body).toContain('"key_task":"Uruchomienie panelu."');
+    expect(body).toMatch(/"id":"q1"[^}]*"key_task":false/);
+    expect(body).toMatch(/"id":"q2"[^}]*"key_task":true/);
+  });
+});
