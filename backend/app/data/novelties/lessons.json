@@ -962,6 +962,51 @@
     ]
   },
   {
+    "id": "lekcja-najwazniejsze-zadanie",
+    "title": "Najważniejsze zadanie w tej roli i pytanie, które je sprawdza",
+    "novelties": [
+      "najwazniejsze-zadanie-w-roli"
+    ],
+    "task": "W rekrutacji ćwiczebnej otwórz Profil Championa, kliknij „Edytuj” przy „Najważniejsze zadanie w tej roli”, wpisz zadanie i zaznacz pytanie, które je sprawdza.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "click",
+      "anchor": "champion.key-task.question"
+    },
+    "questions": [
+      {
+        "q": "Klient mówi: „najważniejsze, żeby w pierwszym kwartale przenieśli rozliczenia na nową platformę”. Co wpisujesz?",
+        "options": [
+          "To jedno zadanie, jego słowami, w „Najważniejsze zadanie w tej roli”",
+          "Listę wszystkich obowiązków z ogłoszenia",
+          "Nic, wystarczą technologie w „Czego szukamy”"
+        ],
+        "answer": 0,
+        "explain": "Jedno zdanie słowami klienta. Z niego i z odpowiedzi kandydata powstaje zdanie 3 w CV."
+      },
+      {
+        "q": "Po co zaznaczasz pytanie screeningowe przy zadaniu?",
+        "options": [
+          "Rekruter wie, o co dopytać, a odpowiedź kandydata trafia do CV",
+          "Żeby to pytanie było pierwsze na rozmowie",
+          "Żeby kandydat bez odpowiedzi odpadł automatycznie"
+        ],
+        "answer": 0,
+        "explain": "Przy zaznaczonym pytaniu rekruter widzi w arkuszu „Najważniejsze zadanie od klienta” i prosi o konkretny przykład."
+      },
+      {
+        "q": "Rekrutacja nie ma zadania. Co się stanie przy „Przekaż do searchu”?",
+        "options": [
+          "Pojawi się brak „Najważniejsze zadanie w tej roli” i przekazanie poczeka",
+          "Rekrutacja przejdzie, a pole uzupełni AI",
+          "Rekruter dostanie pustą kartę zadania"
+        ],
+        "answer": 0,
+        "explain": "Od 23.11 zadanie i pytanie są wymagane przy pierwszym przekazaniu, także przy zakładaniu przez API."
+      }
+    ]
+  },
+  {
     "id": "lekcja-sprzedaz-karta-firmy-osoby",
     "title": "Karta firmy: decydenci od bota i Kontakty jako jedna lista",
     "novelties": [
@@ -1820,51 +1865,6 @@
         ],
         "answer": 0,
         "explain": "Wtedy NEXUS od razu zakłada rozmowę w kalendarzu rekrutera, bez pytania go o wybór."
-      }
-    ]
-  },
-  {
-    "id": "lekcja-najwazniejsze-zadanie",
-    "title": "Najważniejsze zadanie w tej roli i pytanie, które je sprawdza",
-    "novelties": [
-      "najwazniejsze-zadanie-w-roli"
-    ],
-    "task": "W rekrutacji ćwiczebnej otwórz Profil Championa, kliknij „Edytuj” przy „Najważniejsze zadanie w tej roli”, wpisz zadanie i zaznacz pytanie, które je sprawdza.",
-    "solo_href": "/jobs/990001",
-    "check": {
-      "kind": "click",
-      "anchor": "champion.key-task.question"
-    },
-    "questions": [
-      {
-        "q": "Klient mówi: „najważniejsze, żeby w pierwszym kwartale przenieśli rozliczenia na nową platformę”. Co wpisujesz?",
-        "options": [
-          "To jedno zadanie, jego słowami, w „Najważniejsze zadanie w tej roli”",
-          "Listę wszystkich obowiązków z ogłoszenia",
-          "Nic, wystarczą technologie w „Czego szukamy”"
-        ],
-        "answer": 0,
-        "explain": "Jedno zdanie słowami klienta. Z niego i z odpowiedzi kandydata powstaje zdanie 3 w CV."
-      },
-      {
-        "q": "Po co zaznaczasz pytanie screeningowe przy zadaniu?",
-        "options": [
-          "Rekruter wie, o co dopytać, a odpowiedź kandydata trafia do CV",
-          "Żeby to pytanie było pierwsze na rozmowie",
-          "Żeby kandydat bez odpowiedzi odpadł automatycznie"
-        ],
-        "answer": 0,
-        "explain": "Przy zaznaczonym pytaniu rekruter widzi w arkuszu „Najważniejsze zadanie od klienta” i prosi o konkretny przykład."
-      },
-      {
-        "q": "Rekrutacja nie ma zadania. Co się stanie przy „Przekaż do searchu”?",
-        "options": [
-          "Pojawi się brak „Najważniejsze zadanie w tej roli” i przekazanie poczeka",
-          "Rekrutacja przejdzie, a pole uzupełni AI",
-          "Rekruter dostanie pustą kartę zadania"
-        ],
-        "answer": 0,
-        "explain": "Od 23.11 zadanie i pytanie są wymagane przy pierwszym przekazaniu, także przy zakładaniu przez API."
       }
     ]
   },

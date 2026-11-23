@@ -2211,6 +2211,23 @@
     "dot_anchor": "cheatsheet.cv-questions"
   },
   {
+    "id": "najwazniejsze-zadanie-w-roli",
+    "title": "Najważniejsze zadanie w tej roli w Profilu Championa",
+    "why": "Wpisujesz zadanie, na którym klientowi najbardziej zależy, i zaznaczasz pytanie, które je sprawdza. Bez tego nie przekażesz rekrutacji do searchu. Trafi do CV jako zdanie 3.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Profil Championa → Brief → „Najważniejsze zadanie w tej roli”",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "champion.key-task"
+  },
+  {
     "id": "premia-200-listopad-grudzien",
     "pr": 3085,
     "title": "Do 200%: postęp w miesiącu podpisu",
@@ -4489,23 +4506,6 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "move.client-interview.mode"
-  },
-  {
-    "id": "najwazniejsze-zadanie-w-roli",
-    "title": "Najważniejsze zadanie w tej roli w Profilu Championa",
-    "why": "Wpisujesz zadanie, na którym klientowi najbardziej zależy, i zaznaczasz pytanie, które je sprawdza. Bez tego nie przekażesz rekrutacji do searchu. Trafi do CV jako zdanie 3.",
-    "tier": "dot",
-    "shipped_on": "2026-11-23",
-    "audience": {
-      "roles": [
-        "delivery_lead",
-        "head_of_recruitment"
-      ]
-    },
-    "where": "Rekrutacja → Profil Championa → Brief → „Najważniejsze zadanie w tej roli”",
-    "href": "/jobs",
-    "section": "pipeline",
-    "dot_anchor": "champion.key-task"
   },
   {
     "id": "sprzedaz-dzwonienie-zaproszenie-teams",
