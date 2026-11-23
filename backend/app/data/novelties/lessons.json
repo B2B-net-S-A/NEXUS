@@ -1930,7 +1930,7 @@
       {
         "q": "W jakiej kolejności idą osoby w „Pracuj po kolei”?",
         "options": [
-          "Screening bez arkusza, potem Zweryfikowani, potem osoby od systemu; najdłużej czekający pierwsi",
+          "Screening bez arkusza, Zweryfikowani, osoby od systemu; najdłużej czekający pierwsi",
           "Rekrutacja po rekrutacji, alfabetycznie",
           "Najnowsze osoby pierwsze"
         ],

@@ -4579,7 +4579,7 @@
     "id": "pracuj-po-kolei-na-pulpicie",
     "pr": 3810,
     "title": "Pracuj po kolei — panel osoby na pulpicie",
-    "why": "„Pracuj po kolei” w „Czeka na Ciebie” otwiera panel osoby bez wychodzenia z pulpitu. „Dalej” prowadzi przez Screening bez arkusza, Zweryfikowanych i osoby od systemu ze wszystkich Twoich rekrutacji, najdłużej czekający pierwsi. Po odrzuceniu panel sam pokazuje następną osobę.",
+    "why": "„Pracuj po kolei” otwiera panel osoby na pulpicie. „Dalej” idzie przez całą listę „Czeka na Ciebie” ze wszystkich Twoich rekrutacji, najdłużej czekający pierwsi.",
     "tier": "dot",
     "shipped_on": "2026-11-23",
     "audience": {
