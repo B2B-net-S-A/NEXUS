@@ -66,7 +66,6 @@ import logging
 import os
 import re
 from collections import Counter
-from collections.abc import Set
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional, Protocol
 from urllib.parse import quote
@@ -375,12 +374,11 @@ async def _ingest_message(
     upn: str,
     msg: dict[str, Any],
     route: Optional[frozenset[str]] = None,
-    acceptance_domains: Set[str] = frozenset(),
 ) -> str:
     graph_id = _nul_free(msg.get("id"), 512)
     if not graph_id:
         return "skipped"
-    if route and support_mail_route.is_settlements_mail(msg, route, acceptance_domains):
+    if route and support_mail_route.is_settlements_mail(msg, route):
         return "routed_settlements"
     known = await db.scalar(
         select(AdminCaseMessage.id).where(AdminCaseMessage.graph_message_id == graph_id)
@@ -680,12 +678,6 @@ async def _ingest_all(
     wypada — mapa nie rośnie bez końca.
     """
 
-    # Akceptacja klienta w samej treści maila idzie do rozliczeń (próba IX–X 2026).
-    acceptance = (
-        (await support_mail_route.acceptance_clients(db)).keys()
-        if route
-        else frozenset()
-    )
     ordered = sorted(
         messages,
         key=lambda m: (
@@ -712,9 +704,7 @@ async def _ingest_all(
         else:
             try:
                 async with db.begin_nested():
-                    outcome = await _ingest_message(
-                        db, mailbox, upn, msg, route, acceptance
-                    )
+                    outcome = await _ingest_message(db, mailbox, upn, msg, route)
             except Exception:  # noqa: BLE001 — jedna wiadomość nie zatrzymuje reszty
                 logger.exception("[admin_cases] wiadomość nie zapisana")
                 counts["failed"] += 1

@@ -180,11 +180,16 @@ Gdy `CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX` i skrzynka spraw (`ADMIN_CASES_M365_
   Cost Control Nordei wysyła raport T4T do koordynatorki i na wsparcie@, a gdy zapomni, Finanse
   przekazują go z „T4T” w temacie. Arkusz T4T wchodzi jako wersja raportu miesiąca
   (`client_settlements/t4t_mail.py`, klient = jedyny z regułą `report.time_for_teams`), nie jako dokument;
-- mail **bez załącznika** z adresem rozliczeń w „Do” albo „DW” od nadawcy z domeny klienta z regułą
-  akceptacji mailowej (`proof.accept_has_hours`, `proof.excel_with_mail` z domeną, `cl.client_acceptance`)
-  → czytnik rozliczeń jako akceptacja w treści (`.eml` u osoby z tematu, od 23.11.2026,
-  `finanse-insights/rozliczenia-akceptacja-w-tresci-maila.md`);
 - każdy inny mail (także pytanie na rozliczenia@ bez załącznika i mail w ukrytej kopii) → sprawa.
+
+Dwa maile **bez załącznika** z adresem rozliczeń w „Do” albo „DW” są sprawą **i** dokumentem
+(decyzja Artura z 23.11.2026, „sprawa i dokument”): router oddaje je sprawom, a czytnik rozliczeń
+czyta je mimo to i zapisuje treść jako `.eml` jednej osoby:
+
+- akceptacja od nadawcy z domeny klienta z regułą akceptacji mailowej (`proof.accept_has_hours`,
+  `proof.excel_with_mail` z domeną, `cl.client_acceptance`; `support_mail_route.is_client_acceptance_mail`,
+  osoba z tematu, `finanse-insights/rozliczenia-akceptacja-w-tresci-maila.md`);
+- mail z adresu firmy z tematem rozliczenia (`consultant_portal.mailbox.is_body_only_settlement`).
 
 **Obszar „Rozliczenia”** (decyzja Artura z 19.11.2026, migracja 0743): nowa sprawa z maila
 z adresem z `CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES` w „Do” albo „DW” dostaje obszar
