@@ -936,6 +936,15 @@ class ChampionProfile(BaseModel):
         # odcisk i skrót (`profile_hash`) po zapisie, który procesu nie dotyka.
         if data.get("client_process") is None:
             data.pop("client_process", None)
+        # Ta sama zasada dla „najważniejszego zadania” (23.11.2026): puste pole
+        # i niezaznaczone pytanie nie dopisują klucza, więc profile bez zadania
+        # zachowują odcisk po zapisie.
+        project = data.get("project")
+        if isinstance(project, dict) and not project.get("key_task"):
+            project.pop("key_task", None)
+        for question in data.get("screening_questions") or []:
+            if isinstance(question, dict) and not question.get("key_task"):
+                question.pop("key_task", None)
         return data
 
     def is_screening_ready(self) -> bool:
