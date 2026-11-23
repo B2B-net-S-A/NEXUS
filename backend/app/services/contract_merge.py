@@ -272,7 +272,7 @@ _KNOWN_CONTRACT_FKS = {
     # Dodatki do rozliczenia (0691, E5.1; koszty integracji ze zgodą DL-a):
     # bez unikatu — idą za kontraktem w całości, limit roku liczy się na kandydata.
     ("client_settlement_extras", "contract_id"),
-    # Zajęcia wierzytelności kontraktora (0764): bez unikatu — idą za kontraktem
+    # Zajęcia wierzytelności kontraktora (0765): bez unikatu — idą za kontraktem
     # zachowanym w całości (to ta sama osoba i ta sama wierzytelność).
     ("contractor_garnishments", "contract_id"),
     # Przypomnienia o brakującym RCP (0763): dziennik wysyłek z UNIQUE (kontrakt,

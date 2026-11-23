@@ -206,7 +206,7 @@ MODULES = (
     contract_partner_reads,
     # 0763: przypomnienia o brakującym raporcie godzin — dziennik wysyłek (23.11.2026).
     settlement_reminders,
-    # 0764: zajęcia wierzytelności i spór przy płatnościach kontraktorów (23.11.2026).
+    # 0765: zajęcia wierzytelności i spór przy płatnościach kontraktorów (23.11.2026).
     contractor_payment_blocks,
 )
 

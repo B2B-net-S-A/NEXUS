@@ -1,4 +1,4 @@
-"""Zajęcia wierzytelności kontraktora i „Spór / wstrzymane” na rozliczeniu (0764).
+"""Zajęcia wierzytelności kontraktora i „Spór / wstrzymane” na rozliczeniu (0765).
 
 CHECK-i i indeksy muszą być identyczne z
 ``app/services/contractor_payment_blocks_schema.py`` (raport ``compare_metadata``

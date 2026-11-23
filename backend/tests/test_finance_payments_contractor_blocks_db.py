@@ -1,4 +1,4 @@
-"""Blokady płatności kontraktorów w paczce przelewów (0764, 23.11.2026) — z bazą.
+"""Blokady płatności kontraktorów w paczce przelewów (0765, 23.11.2026) — z bazą.
 
 Zajęcie wierzytelności (komornik, e-US) dzieli płatność faktury kontraktora:
 należność z odsetkami do dnia przelewu na rachunek organu, reszta do

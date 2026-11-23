@@ -81,7 +81,7 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "invoice.cancel": "Anulowanie faktury (integracja)",
     # 0486: zatwierdzona zgoda na prezent dla klienta (Zgody, etap 3).
     "client.gift": "Prezent dla klienta (zgoda)",
-    # 0764: zajęcia wierzytelności i spór na rozliczeniu kontraktora (bez kwot
+    # 0765: zajęcia wierzytelności i spór na rozliczeniu kontraktora (bez kwot
     # i sygnatur w szczegółach — tylko identyfikatory i nazwy zmienionych pól).
     "contract.garnishment_add": "Zajęcie wierzytelności kontraktora — wpis",
     "contract.garnishment_update": "Zajęcie wierzytelności kontraktora — zmiana",

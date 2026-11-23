@@ -4780,7 +4780,7 @@ async def api_health_deep_check(request: Request):
         ("finance_payment_batch_items", FinancePaymentBatchItem),
         ("finance_cost_payment_records", FinanceCostPaymentRecord),
         ("finance_counterparty_account_events", FinanceCounterpartyAccountEvent),
-        # 0764: zajęcia wierzytelności i spór na rozliczeniu kontraktora.
+        # 0765: zajęcia wierzytelności i spór na rozliczeniu kontraktora.
         ("contractor_garnishments", ContractorGarnishment),
         ("contractor_payment_holds", ContractorPaymentHold),
         # 0698: księgowość E2 — plan kont, reguły dekretu, paczki eksportu.

@@ -3,7 +3,7 @@
 Decyzja Artura z 23.11.2026: rejestr i blokady płatności kontraktorów
 w NEXUSIE zamiast Excela „Kontraktorzy” i maili do głównej księgowej.
 Uzupełnia „Przelewy i zapłaty (E3)” w `ksiegowosc-koszty-i-kontrahenci.md`
-— tamte reguły obowiązują dalej. Migracja `0764_contractor_payment_blocks`
+— tamte reguły obowiązują dalej. Migracja `0765_contractor_payment_blocks`
 (`contractor_payment_blocks_schema.py`, lustro przez `hr_schema_bundle`),
 reguły bez bazy `finance_ledger/garnishment_rules.py`, zapis i odczyt
 `finance_ledger/contractor_blocks.py`, plan i paczka `finance_ledger/payments.py`,

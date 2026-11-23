@@ -513,7 +513,7 @@ export function useEntryPaid(id: number) {
   });
 }
 
-// ── Zajęcia wierzytelności i spór na rozliczeniu kontraktora (0764) ──────────
+// ── Zajęcia wierzytelności i spór na rozliczeniu kontraktora (0765) ──────────
 
 export function useGarnishments() {
   return useQuery({

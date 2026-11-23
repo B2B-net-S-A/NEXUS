@@ -1,7 +1,7 @@
 """Zajęcia wierzytelności, spór na rozliczeniu i przelewy do organów w paczce.
 
-Revision ID: 0764_contractor_payment_blocks
-Revises: 0763_settlement_reminders
+Revision ID: 0765_contractor_payment_blocks
+Revises: 0764_contract_rate_annex_bell
 
 Decyzja Artura z 23.11.2026: rejestr i blokady płatności kontraktorów
 w NEXUSIE zamiast Excela i maili. Tabele ``contractor_garnishments``
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services import contractor_payment_blocks_schema as schema
 
-revision = "0764_contractor_payment_blocks"
-down_revision = "0763_settlement_reminders"
+revision = "0765_contractor_payment_blocks"
+down_revision = "0764_contract_rate_annex_bell"
 branch_labels = None
 depends_on = None
 

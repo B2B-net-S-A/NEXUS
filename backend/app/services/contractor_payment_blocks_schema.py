@@ -1,6 +1,6 @@
 """Zajęcia wierzytelności i spory przy płatnościach kontraktorów (23.11.2026).
 
-Jedno źródło SQL dla migracji ``0764_contractor_payment_blocks`` i ``entrypoint.sh``
+Jedno źródło SQL dla migracji ``0765_contractor_payment_blocks`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``). Każda instrukcja idempotentna,
 same dodania — stary kod działa na nowym schemacie.
 
