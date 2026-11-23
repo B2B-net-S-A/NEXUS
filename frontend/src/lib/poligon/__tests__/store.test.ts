@@ -35,6 +35,17 @@ describe("poligon: zapisy nie wychodzą z przeglądarki", () => {
     expect(actions.filter((a) => a.type === "blocked")).toHaveLength(4);
   });
 
+  it("„Klient coś zmienił” na rekrutacji ćwiczebnej nie woła modelu ani nie zapisuje (lekcja nowości)", () => {
+    const { store } = setup();
+    for (const url of [
+      "/api/jobs/990001/champion-profile/client-change",
+      "/api/jobs/990001/champion-profile/client-change/apply",
+    ]) {
+      const res = store.handle({ method: "post", url, body: { text: "Python jako musi mieć" } });
+      expect(res).toEqual({ status: 409, data: { detail: BLOCKED_WRITE_MESSAGE } });
+    }
+  });
+
   it("zapis bez identyfikatora poligonu też zostaje w przeglądarce", () => {
     const { store } = setup();
     expect(store.handle({ method: "post", url: "/api/users/me/preferences", body: { theme: "dark" } })).not.toBe("network");
