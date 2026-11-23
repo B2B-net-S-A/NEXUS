@@ -18,7 +18,22 @@ elementy i przeniesienie starych notatek (osobny PR).
   Termin zakłada rozmowę DOPIERO po udanym ruchu
   (`POST /api/interview-cycle/client-interviews`): odmowa ruchu nie może
   zostawić w kalendarzu rozmowy osoby, która nie przeszła. Para z zaplanowaną
-  rozmową = 409. Ruch zbiorczy nie pyta. „Nie znam jeszcze terminu” = zwykły ruch.
+  rozmową = 409. Ruch zbiorczy nie pyta. „Jeszcze bez terminów” = zwykły ruch.
+- **Terminy od klienta w tym samym oknie** (decyzja Artura 23.11.2026,
+  zgłoszenie DL; makiety https://claude.ai/artifact/964u2js4fobbffwQQdqgSr).
+  Okno ma trzy odpowiedzi: „Klient podał terminy”, „Termin już ustalony”,
+  „Jeszcze bez terminów”. DL przy ruchu nie zna dnia i godziny, bo ustala je
+  rekruter z kandydatem, a po zapisie terminu z tego okna rekruter nic nie
+  dostawał; DL wklejał więc mail klienta drugi raz w „Terminach od klienta”.
+  „Klient podał terminy” po udanym ruchu zakłada wniosek
+  (`POST /api/interview-cycle/slots`), więc rekruter od razu ma dzwonek i mail
+  „Ustal termin z kandydatem”. Tę odpowiedź widzi tylko DL, HoR i admin
+  (`canSendClientSlots`, lustro `_SLOT_OWNER_ROLES`), a domyślna jest tylko
+  wtedy, gdy terminy nie trafiłyby do osoby przesuwającej
+  (`GET …/slots/recipient` → `is_you`). Pozostali zaczynają od „Termin już
+  ustalony”. Przycisk „Dodaj terminy od klienta” w wymaganiach ruchu na
+  „Rozmowę” zniknął (`move_requirements.py`), bo dublował tę drogę; nie
+  przywracaj go bez nowej decyzji.
 - **Wydarzenie z NEXUSA, bez Outlooka** (`services/client_interview_entry.py`):
   właściciel = rekruter pary (`interview_slots.default_recruiter_id`, ta sama
   reguła co wniosek o terminy), `external_source = manual`. Kandydata zaprasza

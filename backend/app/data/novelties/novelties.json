@@ -4460,6 +4460,23 @@
     "dot_anchor": "client-form.missing"
   },
   {
+    "id": "terminy-od-klienta-przy-ruchu",
+    "title": "Terminy od klienta wysyłasz rekruterowi przy ruchu karty",
+    "why": "Przesuwając kartę na „Rozmowa u klienta”, wklejasz mail klienta raz. Rekruter od razu dostaje dzwonek i mail „Ustal termin z kandydatem”, bez drugiego okna „Terminy od klienta”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → ruch na „Rozmowa u klienta”",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "move.client-interview.mode"
+  },
+  {
     "id": "porcja-nie-odebral-przesuwa-termin",
     "pr": 3788,
     "title": "Porcja dnia: „Nie odebrał” przesuwa termin screeningu",

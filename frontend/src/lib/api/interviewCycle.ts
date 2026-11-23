@@ -116,7 +116,13 @@ export const interviewCycleApi = {
       .then((r) => r.data),
   slotRecipient: (candidateId: number, jobId: number) =>
     api
-      .get<{ recruiter_name: string | null; substitute_name: string | null; until: string | null }>(
+      .get<{
+        recruiter_name: string | null;
+        substitute_name: string | null;
+        until: string | null;
+        /** Terminy trafiłyby do wołającego (23.11.2026). */
+        is_you?: boolean;
+      }>(
         "/api/interview-cycle/slots/recipient",
         { params: { candidate_id: candidateId, job_id: jobId } },
       )

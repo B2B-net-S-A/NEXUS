@@ -1,6 +1,6 @@
 /**
  * „Kiedy rozmowa u klienta?” przy przesunięciu karty (20.10.2026): termin albo
- * jawne „Nie znam jeszcze terminu”, nigdy cichy ruch bez decyzji.
+ * jawne „Jeszcze bez terminów”, nigdy cichy ruch bez decyzji; DL wysyła terminy od klienta rekruterowi (23.11.2026).
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -12,15 +12,18 @@ import { type SlotsFromMail, warningLabel } from "@/lib/interview-slot-mail";
 
 afterEach(() => vi.restoreAllMocks());
 
-function renderDialog() {
+function renderDialog(props: { canSendSlots?: boolean } = {}) {
   const onConfirm = vi.fn();
   const onCancel = vi.fn();
-  const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
       <ClientInterviewDateDialog
         open
         candidateName="Anna Nowak"
+        candidateId={7}
+        jobId={9}
+        canSendSlots={props.canSendSlots}
         onCancel={onCancel}
         onConfirm={onConfirm}
       />
@@ -31,10 +34,10 @@ function renderDialog() {
 }
 
 describe("ClientInterviewDateDialog", () => {
-  it("bez godziny prosi o termin albo „Nie znam jeszcze terminu”", () => {
+  it("bez godziny prosi o termin albo „Jeszcze bez terminów”", () => {
     const { dialog, onConfirm } = renderDialog();
     fireEvent.click(within(dialog).getByRole("button", { name: "Przesuń" }));
-    expect(within(dialog).getByRole("alert")).toHaveTextContent("Nie znam jeszcze terminu");
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("Jeszcze bez terminów");
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
@@ -50,10 +53,10 @@ describe("ClientInterviewDateDialog", () => {
     });
   });
 
-  it("„Nie znam jeszcze terminu” przesuwa bez terminu", () => {
+  it("„Jeszcze bez terminów” przesuwa bez terminu", () => {
     const { dialog, onConfirm } = renderDialog();
-    fireEvent.click(within(dialog).getByLabelText("Nie znam jeszcze terminu"));
-    expect(within(dialog).getByLabelText("Godzina")).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Jeszcze bez terminów" }));
+    expect(within(dialog).queryByLabelText("Godzina")).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "Przesuń" }));
     expect(onConfirm).toHaveBeenCalledWith(null);
   });
@@ -177,5 +180,98 @@ describe("ClientInterviewDateDialog", () => {
     expect(await within(dialog).findByText(/Nie znalazłem w tym tekście terminów/)).toBeInTheDocument();
     expect(within(dialog).getByLabelText("Godzina")).toHaveValue("");
     expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  describe("„Klient podał terminy” (23.11.2026)", () => {
+    const recipient = (is_you: boolean) =>
+      vi.spyOn(interviewCycleApi, "slotRecipient").mockResolvedValue({
+        recruiter_name: "Rekruter Testowy",
+        substitute_name: null,
+        until: null,
+        is_you,
+      });
+
+    it("DL zaczyna od terminów dla rekrutera, bez dnia i godziny", async () => {
+      recipient(false);
+      const { dialog } = renderDialog({ canSendSlots: true });
+      expect(within(dialog).getByRole("radio", { name: "Klient podał terminy" })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+      expect(within(dialog).queryByLabelText("Godzina")).toBeNull();
+      expect(await within(dialog).findByText("Rekruter Testowy")).toBeInTheDocument();
+    });
+
+    it("terminy z maila (z oknem klienta) i notatka idą do wysyłki rekruterowi", async () => {
+      recipient(false);
+      vi.spyOn(interviewCycleApi, "readSlotsFromMail").mockResolvedValue({
+        status: "ok",
+        message: null,
+        slots: [
+          { start: "2099-01-15T09:00:00Z", end: "2099-01-15T10:00:00Z", window: false, quote: "czwartek 10:00", warning: null },
+          { start: "2099-01-16T08:00:00Z", end: "2099-01-16T11:00:00Z", window: true, quote: "piątek 9–12", warning: null },
+        ],
+        extra_slots: 0,
+        dropped: 0,
+        duration_minutes: 45,
+        respond_by: null,
+        format: null,
+        location_note: null,
+        people: null,
+        unclear: [],
+      });
+      const { dialog, onConfirm } = renderDialog({ canSendSlots: true });
+      fireEvent.change(within(dialog).getByLabelText(/Wklej maila od klienta/), { target: { value: "mail" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Odczytaj terminy" }));
+      await within(dialog).findByText(/piątek 9–12/);
+      fireEvent.change(within(dialog).getByLabelText("Notatka dla rekrutera"), { target: { value: "z kamerką" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Przesuń i wyślij 2 terminy rekruterowi" }));
+      expect(onConfirm).toHaveBeenCalledWith({
+        kind: "slots",
+        slots: [
+          { start: "2099-01-15T09:00:00.000Z" },
+          { start: "2099-01-16T08:00:00.000Z", window_end: "2099-01-16T11:00:00Z" },
+        ],
+        durationMinutes: 45,
+        note: "z kamerką",
+      });
+    });
+
+    it("bez terminu nie wysyła i mówi, co zrobić", () => {
+      recipient(false);
+      const { dialog, onConfirm } = renderDialog({ canSendSlots: true });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Przesuń i wyślij rekruterowi" }));
+      expect(within(dialog).getByRole("alert")).toHaveTextContent("Dodaj co najmniej jeden termin");
+      expect(onConfirm).not.toHaveBeenCalled();
+    });
+
+    it("termin z przeszłości nie wychodzi", () => {
+      recipient(false);
+      const { dialog, onConfirm } = renderDialog({ canSendSlots: true });
+      fireEvent.change(within(dialog).getByLabelText("Termin 1"), { target: { value: "2020-01-15T10:00" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Przesuń i wyślij rekruterowi" }));
+      expect(within(dialog).getByRole("alert")).toHaveTextContent("w przeszłości");
+      expect(onConfirm).not.toHaveBeenCalled();
+    });
+
+    it("gdy terminy trafiłyby do przesuwającego, zaczyna od „Termin już ustalony”", async () => {
+      recipient(true);
+      const { dialog } = renderDialog({ canSendSlots: true });
+      await waitFor(() =>
+        expect(within(dialog).getByRole("radio", { name: "Termin już ustalony" })).toHaveAttribute(
+          "aria-checked",
+          "true",
+        ),
+      );
+      expect(within(dialog).getByLabelText("Godzina")).toBeInTheDocument();
+    });
+
+    it("rekruter nie widzi wysyłki terminów i nie pyta o odbiorcę", () => {
+      const spy = recipient(false);
+      const { dialog } = renderDialog();
+      expect(within(dialog).queryByRole("radio", { name: "Klient podał terminy" })).toBeNull();
+      expect(within(dialog).getByRole("radio", { name: "Termin już ustalony" })).toHaveAttribute("aria-checked", "true");
+      expect(spy).not.toHaveBeenCalled();
+    });
   });
 });

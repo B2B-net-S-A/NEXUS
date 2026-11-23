@@ -65,3 +65,15 @@ https://claude.ai/artifact/1HLNAApCydpeY1nT8fzLre):
   trafiają do `skipped` z powodem.
 - Potwierdzenie to deklaracja człowieka (z nazwiskiem i datą), nie zabezpieczenie
   — nagłówek da się wysłać ręcznie; dlatego zostaje ślad przy procesie.
+
+## Wyjątki od reguły „aktywne zamówienie” (23.11.2026)
+
+- **EY (klient 14) nie jest off-limits** mimo aktywnego zamówienia. Decyzja
+  Artura 23.11.2026: „możemy brać stamtąd osoby”. Lista wyjątków to
+  `OFF_LIMITS_EXEMPT_CLIENT_IDS` w `services/client_off_limits.py`.
+  `off_limits_labels` pomija tych klientów, więc znika pytanie przy dodaniu,
+  plakietka we wtyczce LinkedIn i pomijanie przez automat „Nowych”.
+- Osobna reguła automatu „Nowych”, czyli „nie proponuj osoby pracującej
+  u klienta TEJ rekrutacji” (`client_labels`), zostaje bez zmian.
+- Nowy wyjątek albo jego zdjęcie to zmiana tej listy w PR-ze z decyzją
+  Artura. Na ekranie nie ma przełącznika.

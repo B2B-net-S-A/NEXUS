@@ -67,6 +67,9 @@ _MIN_LABEL_LEN = 2
 # górny limit 500 osób (``proposals_bulk``).
 _MAX_CONFIRMATIONS = 500
 _LABELS_CACHE_KEY = "client_off_limits_labels"
+# Klienci, z których wolno brać ludzi mimo aktywnego zamówienia.
+# 14 = EY — decyzja Artura 23.11.2026: „możemy brać stamtąd osoby”.
+OFF_LIMITS_EXEMPT_CLIENT_IDS: frozenset[int] = frozenset({14})
 
 _confirmations: ContextVar[dict[int, str] | None] = ContextVar(
     "off_limits_confirmations", default=None
@@ -224,6 +227,7 @@ class OffLimitsConfirmationMiddleware:
 async def off_limits_labels(db: AsyncSession) -> list[tuple[str, int, str]]:
     """``(znormalizowana nazwa, id klienta, nazwa do pokazania)`` firm
     z aktywnym zamówieniem — nazwa, nazwa wyświetlana, prawna i aliasy.
+    Bez klientów z ``OFF_LIMITS_EXEMPT_CLIENT_IDS``.
 
     Liczone raz na sesję żądania (partia 500 osób = jedno zapytanie).
     """
@@ -242,6 +246,7 @@ async def off_limits_labels(db: AsyncSession) -> list[tuple[str, int, str]]:
                 Client.id, Client.name, Client.display_name, Client.legal_name
             ).where(
                 Client.deleted_at.is_(None),
+                Client.id.notin_(OFF_LIMITS_EXEMPT_CLIENT_IDS),
                 or_(Client.id.in_(standalone), Client.id.in_(grouped)),
             )
         )
