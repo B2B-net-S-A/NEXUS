@@ -5742,6 +5742,12 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_pre_contract_requests_assignee_id ON pre_contract_requests (assignee_id)",
     "CREATE INDEX IF NOT EXISTS ix_pre_contract_watchers_user_id ON pre_contract_watchers (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_pre_contract_events_request_id ON pre_contract_events (request_id)",
+    # 0761: „Zatrzymaj do podpisu przedwstępnej” — ustawienie rekrutacji i wybór
+    # przy prośbie. Lustro 1:1 `app/services/pre_contract_schema.STOP_DDL`.
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS pre_contract_rule JSONB NULL",
+    "ALTER TABLE pre_contract_requests ADD COLUMN IF NOT EXISTS blocks_move BOOLEAN NULL",
+    "ALTER TABLE pre_contract_requests ADD COLUMN IF NOT EXISTS blocks_set_by INTEGER NULL REFERENCES users (id) ON DELETE SET NULL",
+    "ALTER TABLE pre_contract_requests ADD COLUMN IF NOT EXISTS blocks_set_at TIMESTAMPTZ NULL",
     # 0366: multiposting — kolumny kolejki publikacji w portalach.
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS last_error TEXT",
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0",

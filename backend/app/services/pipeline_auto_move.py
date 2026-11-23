@@ -284,6 +284,19 @@ async def auto_advance(
             _skip("cv_not_sent")
             return None
 
+    # 0761 (23.11.2026): „Zatrzymaj do podpisu przedwstępnej” — automat
+    # (np. terminy od klienta) nie przewozi karty przez blokadę.
+    from app.services import pre_contract_stop  # noqa: PLC0415
+
+    if await pre_contract_stop.stop_for_pair(
+        db,
+        job=job,
+        candidate_id=candidate_id,
+        target_column=_column(target, target_def),
+    ):
+        _skip(pre_contract_stop.SKIP_REASON)
+        return None
+
     if target not in (PipelineStage.rejected, PipelineStage.withdrawn):
         from app.services.hiring_manager_verdicts import (  # noqa: PLC0415
             puts_candidate_before_client,

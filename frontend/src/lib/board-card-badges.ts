@@ -25,6 +25,7 @@ import { warsawDateOf } from "@/lib/warsaw-date";
 import { formatDayMonthPl } from "@/lib/date-pl";
 import { addedToBaseTitle, addedToBaseView, newInBaseDaysText } from "@/lib/added-to-base";
 import type { PreContractTone } from "@/lib/api/preContracts";
+import { PRE_CONTRACT_STOP_GAP, cardStopsBefore, nextColumn } from "@/lib/pre-contract-stop";
 import { offLimitsConfirmedDay } from "@/lib/off-limits";
 import { clientFormStateBadge } from "@/lib/client-form-badge";
 
@@ -746,6 +747,20 @@ function previousOpeningBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadg
   };
 }
 
+/** 0761 (23.11.2026): karta stoi do podpisu przedwstępnej przed następnym
+ *  krokiem — czerwone „Stop ·” zamiast tonu plakietki (kolumnę liczy serwer). */
+function stopBadge(item: KanbanItem, column: BoardColumnKey | null | undefined): CardBadge | null {
+  const meta = item.pre_contract;
+  if (!meta || !cardStopsBefore(meta, nextColumn(column ?? null))) return null;
+  const source = meta.stop_origin === "job" ? "ustawienie rekrutacji" : "przy tej osobie";
+  return {
+    key: "pre_contract",
+    label: `Stop · ${meta.label}`,
+    tone: "urgent",
+    title: `Osoba czeka na podpis przedwstępnej (${source}). ${meta.detail}`,
+  };
+}
+
 export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[] {
   const out: CardBadge[] = [];
   const column = ctx.column;
@@ -779,7 +794,7 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
   }
   const offLimits = offLimitsCardBadge(item.entry_off_limits);
   if (offLimits) out.push(offLimits);
-  const preContract = preContractCardBadge(item.pre_contract);
+  const preContract = stopBadge(item, column) ?? preContractCardBadge(item.pre_contract);
   if (preContract) out.push(preContract);
   if (column === "new" || column === "screening") {
     const call = bookedCallBadge(item, ctx.now);
@@ -1224,6 +1239,8 @@ export function knownForwardGap(
   from: BoardColumnKey | null,
   options: { skipsFillGates?: boolean } = {},
 ): string | null {
+  // 0761 (23.11.2026): „Zatrzymaj do podpisu” obowiązuje każdego, także DL-a.
+  if (cardStopsBefore(item.pre_contract, nextColumn(from))) return PRE_CONTRACT_STOP_GAP;
   // 22.10.2026: Delivery Lead przesuwa bez bramek pól — znany jest mu tylko
   // brak QC (serwer: `pipeline_move_rules.skips_fill_gates`).
   if (options.skipsFillGates) {

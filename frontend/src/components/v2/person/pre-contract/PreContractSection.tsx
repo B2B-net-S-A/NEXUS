@@ -25,6 +25,7 @@ import {
 } from "@/lib/api/preContracts";
 import { downloadBlob, parseDispositionFilename } from "@/lib/cv-generator";
 import { cn } from "@/lib/utils";
+import { ruleStageLabel, stopOriginText } from "@/lib/pre-contract-stop";
 
 import {
   PreContractPenaltyDialog,
@@ -161,6 +162,24 @@ export function PreContractSection({
 
   const current = pair.data.current;
   const lastClosed = pair.data.history[0] ?? null;
+  // 0761 (23.11.2026): „Zatrzymaj do podpisu” — stan liczy serwer.
+  const stop = pair.data.stop ?? null;
+  const jobRule = pair.data.job_rule ?? null;
+  const canStop = pair.data.can_set_stop === true;
+  // Wybór czyta serwer z najnowszej prośby — także zamkniętej (anulowanie
+  // nie zwalnia karty), więc wyjątek robi się przy niej.
+  const stopTarget = current ?? lastClosed;
+  const stopAction: { label: string; value: boolean | null; done: string } | null = !stopTarget
+    ? null
+    : stop
+      ? stop.origin === "job" || jobRule?.stop
+        ? { label: "Wyjątek dla tej osoby — bez blokady", value: false, done: "Osoba może iść dalej bez podpisanej umowy." }
+        : { label: "Zdejmij blokadę", value: null, done: "Blokada zdjęta." }
+      : stopTarget.blocks_move === false && jobRule?.stop
+        ? { label: "Cofnij wyjątek", value: null, done: "Osoba znowu czeka na podpis." }
+        : !current || current.needed_before === "date"
+          ? null
+          : { label: "Zatrzymaj do podpisu", value: true, done: "Osoba czeka na podpis umowy." };
   const shown = current ?? lastClosed;
   const unlinked: PreContractPairDocument[] = pair.data.documents.filter((d) => !d.linked);
 
@@ -193,6 +212,36 @@ export function PreContractSection({
               ? `Ostatnia: ${lastClosed.state_label.toLowerCase()} (${dayPl(lastClosed.closed_at)}).`
               : "Nikt nie prosił o umowę przedwstępną dla tej osoby."}
           </p>
+          {jobRule ? (
+            <p className="rounded-md bg-muted px-3 py-2 text-xs" data-testid="pre-contract-job-rule">
+              Rekrutacja wymaga przedwstępnej {ruleStageLabel(jobRule.needed_before).replace("Przed", "przed")} od każdej
+              osoby{jobRule.stop ? " i zatrzymuje kartę do podpisu" : ""}
+              {jobRule.set_by_name ? ` (ustawił(a) ${jobRule.set_by_name})` : ""}. Prośba zakłada się sama przy „Zweryfikowanym”.
+            </p>
+          ) : null}
+          {stop ? (
+            <p role="status" className="text-xs font-medium text-destructive">
+              Osoba stoi do podpisu ({stopOriginText(stop)}) — poproś o przedwstępną.
+            </p>
+          ) : null}
+          {stop && canStop && !readOnly && stopTarget && stopAction ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy === "stop"}
+              data-testid="pre-contract-stop-toggle"
+              onClick={() =>
+                void act(
+                  "stop",
+                  () => preContractsApi.setStop(stopTarget.id, stopAction.value),
+                  stopAction.done,
+                  "Nie udało się zmienić blokady.",
+                )
+              }
+            >
+              {stopAction.label}
+            </Button>
+          ) : null}
           {lastClosed?.can_decide_penalty ? (
             <Button size="sm" onClick={() => setDialog("penalty")}>
               Decyzja o karze
@@ -265,6 +314,39 @@ export function PreContractSection({
                 {current.watching ? <BellOff className="h-3 w-3" aria-hidden /> : <Bell className="h-3 w-3" aria-hidden />}
                 {current.watching ? "Przestań obserwować" : "Obserwuj"}
               </button>
+            </dd>
+            <dt className="text-muted-foreground">Ruch karty</dt>
+            <dd className="flex flex-col gap-0.5" data-testid="pre-contract-stop-row">
+              {stop ? (
+                <span className="font-medium text-destructive">
+                  Zatrzymana do podpisu · {stopOriginText(stop)}
+                </span>
+              ) : current.blocks_move === false ? (
+                <span>
+                  Bez blokady — wyjątek
+                  {current.blocks_set_by ? ` (${current.blocks_set_by.name}, ${shortDay(current.blocks_set_at)})` : ""}
+                </span>
+              ) : (
+                <span>Nie blokuje — brak umowy tylko ostrzega</span>
+              )}
+              {canStop && !readOnly && stopAction ? (
+                <button
+                  type="button"
+                  className="self-start font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50"
+                  disabled={busy === "stop"}
+                  data-testid="pre-contract-stop-toggle"
+                  onClick={() =>
+                    void act(
+                      "stop",
+                      () => preContractsApi.setStop(stopTarget?.id ?? current.id, stopAction.value),
+                      stopAction.done,
+                      "Nie udało się zmienić blokady.",
+                    )
+                  }
+                >
+                  {stopAction.label}
+                </button>
+              ) : null}
             </dd>
           </dl>
 

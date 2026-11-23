@@ -189,7 +189,7 @@ def test_sweeper_ignores_closed_requests() -> None:
 def test_entrypoint_mirrors_every_statement_after_b2b_documents() -> None:
     entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
     documents = entrypoint.index("*_B2B_DOCUMENTS_DDL,")
-    for statement in schema.ALL_DDL:
+    for statement in (*schema.ALL_DDL, *schema.STOP_DDL):
         assert statement in entrypoint, statement
         assert entrypoint.index(statement) > documents, statement
     assert schema.ENUM_DDL in entrypoint
@@ -204,6 +204,12 @@ def test_migration_uses_the_shared_ddl() -> None:
     assert module.revision == "0506_pre_contract_requests"
     text = path.read_text(encoding="utf-8")
     assert "schema.ALL_DDL" in text and "schema.ENUM_DDL" in text
+
+
+def test_stop_migration_uses_the_shared_ddl() -> None:
+    path = BACKEND / "alembic" / "versions" / "0761_pre_contract_stop.py"
+    text = path.read_text(encoding="utf-8")
+    assert "STOP_DDL" in text and "STOP_DOWNGRADE_DDL" in text
 
 
 def test_model_check_constraints_match_ddl() -> None:

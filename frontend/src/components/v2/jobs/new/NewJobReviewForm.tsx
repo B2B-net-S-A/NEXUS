@@ -74,6 +74,7 @@ import {
 } from "@/lib/job-request-intake";
 import { blurNumberInputOnWheel } from "@/lib/number-input";
 import { NewJobClientProcessField } from "@/components/v2/jobs/new/NewJobClientProcessField";
+import { NewJobPreContractField } from "@/components/v2/jobs/new/NewJobPreContractField";
 import {
   responsibilityCount,
   responsibilityGroups,
@@ -1211,6 +1212,11 @@ function ReviewSections({
           clientId={clientId}
           value={form.clientProcess}
           onChange={(next) => set("clientProcess", next)}
+        />
+        {/* 0761: przedwstępna dla wszystkich osób w rekrutacji. */}
+        <NewJobPreContractField
+          value={form.preContractRule}
+          onChange={(next) => set("preContractRule", next)}
         />
       </SectionCard>
 

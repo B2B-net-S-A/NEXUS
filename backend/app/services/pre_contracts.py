@@ -270,6 +270,10 @@ EVENT_TITLE: dict[str, str] = {
     "reminder_waiting": "Kandydat nie odesłał przedwstępnej",
     "updated": "Zmiana prośby o przedwstępną",
     "penalty_decision": "Decyzja o karze z przedwstępnej",
+    # 0761 (23.11.2026): „Zatrzymaj do podpisu”.
+    "stop_set": "Osoba zatrzymana do podpisu przedwstępnej",
+    "stop_exception": "Wyjątek: osoba idzie dalej bez podpisanej przedwstępnej",
+    "stop_inherit": "Blokada przedwstępnej jak w ustawieniu rekrutacji",
 }
 
 
@@ -496,6 +500,39 @@ async def kanban_badges_for_jobs(
         if current is None or (current.closed_at is not None) or req.closed_at is None:
             latest[key] = req
     columns = await pair_columns(db, latest)
+    # 0761: „Zatrzymaj do podpisu” — karta zna kolumnę, od której stoi.
+    from app.models.job import Job  # noqa: PLC0415
+    from app.services import pre_contract_stop  # noqa: PLC0415
+
+    rules = {
+        jid: rule
+        for jid, rule in (
+            await db.execute(
+                select(Job.id, Job.pre_contract_rule).where(
+                    Job.id.in_({job for _, job in latest})
+                )
+            )
+        ).all()
+    }
+    # Podpisana umowa z KAŻDEJ prośby pary zwalnia kartę (jak bramka ruchu).
+    signed_pairs = {
+        (c, j)
+        for c, j in (
+            await db.execute(
+                select(
+                    PreContractRequest.candidate_id, PreContractRequest.job_id
+                ).where(
+                    in_pairs(
+                        PreContractRequest.candidate_id,
+                        PreContractRequest.job_id,
+                        list(latest),
+                    ),
+                    PreContractRequest.candidate_signed_at.is_not(None),
+                    PreContractRequest.company_signed_at.is_not(None),
+                )
+            )
+        ).all()
+    }
     day = today()
     for (cid, job_id), req in latest.items():
         column = columns.get((cid, job_id), (None, None))[0]
@@ -505,7 +542,22 @@ async def kanban_badges_for_jobs(
             else None
         )
         b = badge(req, column=column, today=day, business_days_left=left)
-        out[job_id][cid] = {"id": req.id, **b.as_dict()}
+        stop = (
+            None
+            if (cid, job_id) in signed_pairs
+            else pre_contract_stop.stop_from(
+                rule=pre_contract_stop.rule_of_raw(rules.get(job_id)),
+                requests=[req],
+                target_column=None,
+                current_column=column,
+            )
+        )
+        out[job_id][cid] = {
+            "id": req.id,
+            **b.as_dict(),
+            "stop_column": stop.column if stop else None,
+            "stop_origin": stop.origin if stop else None,
+        }
     return out
 
 

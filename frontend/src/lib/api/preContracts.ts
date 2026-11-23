@@ -56,6 +56,31 @@ export interface PreContractBadge {
 /** Plakietka na karcie Tablicy (`KanbanItem.pre_contract`). */
 export interface CardPreContract extends PreContractBadge {
   id: number;
+  /** 0761: kolumna, od której karta stoi do podpisu (null = nie stoi). */
+  stop_column?: string | null;
+  stop_origin?: PreContractStopOrigin | null;
+}
+
+/** 0761 (23.11.2026): skąd blokada — ustawienie rekrutacji czy przy osobie. */
+export type PreContractStopOrigin = "job" | "person";
+
+export interface PreContractStop {
+  column: string;
+  needed_before: PreContractNeededBefore;
+  origin: PreContractStopOrigin;
+  set_by_name?: string | null;
+  set_at?: string | null;
+}
+
+export type PreContractRuleStage = "cv_sent" | "client_interview" | "b2b_contract";
+
+/** Ustawienie rekrutacji „każda osoba podpisuje przedwstępną” (`jobs.pre_contract_rule`). */
+export interface PreContractJobRule {
+  needed_before: PreContractRuleStage;
+  needed_before_label?: string;
+  stop: boolean;
+  set_by_name?: string | null;
+  set_at?: string | null;
 }
 
 export interface PersonRef {
@@ -123,6 +148,10 @@ export interface PreContractRequest {
   can_withdraw: boolean;
   can_decide_penalty: boolean;
   events: PreContractEvent[];
+  /** 0761: null = jak rekrutacja, true = stop, false = wyjątek. */
+  blocks_move?: boolean | null;
+  blocks_set_by?: PersonRef | null;
+  blocks_set_at?: string | null;
 }
 
 export interface PreContractPairDocument {
@@ -138,6 +167,9 @@ export interface PreContractPair {
   current: PreContractRequest | null;
   history: PreContractRequest[];
   documents: PreContractPairDocument[];
+  job_rule?: PreContractJobRule | null;
+  stop?: PreContractStop | null;
+  can_set_stop?: boolean;
 }
 
 export type PreContractTab =
@@ -155,6 +187,7 @@ export interface CreatePreContractBody {
   needed_by?: string | null;
   reason?: string | null;
   assignee_id?: number | null;
+  blocks_move?: boolean | null;
 }
 
 export const NEEDED_BEFORE_OPTIONS: ReadonlyArray<{
@@ -286,6 +319,15 @@ export const preContractsApi = {
       await api.post<PreContractRequest>(`${base}/${id}/candidate-refused`, {
         reason,
       })
+    ).data,
+  setStop: async (id: number, blocksMove: boolean | null) =>
+    (await api.post<PreContractRequest>(`${base}/${id}/stop`, { blocks_move: blocksMove })).data,
+  setJobRule: async (jobId: number, rule: { needed_before: PreContractRuleStage; stop: boolean } | null) =>
+    (
+      await api.put<{ rule: PreContractJobRule | null; requests_created: number }>(
+        `/api/jobs/${jobId}/pre-contract-rule`,
+        { rule },
+      )
     ).data,
   fulfilled: async (id: number) =>
     (await api.post<PreContractRequest>(`${base}/${id}/fulfilled`)).data,

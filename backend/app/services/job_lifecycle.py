@@ -212,6 +212,7 @@ _CREATE_EXCLUDED_FIELDS = {
     "intake_form_id",
     # Proces u klienta (18.11.2026) — do profilu Championa, nie do kolumn.
     "client_process",
+    "pre_contract_rule",
 }
 
 
@@ -1639,6 +1640,16 @@ async def apply_job_create(
 
         job.champion_profile = job_client_process.with_process(
             job.champion_profile, job_client_process.stamp(process_in, current_user)
+        )
+    # 0761: „Każda osoba podpisuje umowę przedwstępną” już przy tworzeniu.
+    rule_in = getattr(data, "pre_contract_rule", None)
+    if rule_in is not None:
+        from app.services import pre_contract_stop
+
+        if not await pre_contract_stop.can_set_stop(db, current_user, job):
+            raise HTTPException(status_code=403, detail=pre_contract_stop.MSG_STOP_ROLE)
+        job.pre_contract_rule = pre_contract_stop.rule_record(
+            rule_in.needed_before, rule_in.stop, current_user
         )
     clear_decision_flags(job)
     await db.flush()

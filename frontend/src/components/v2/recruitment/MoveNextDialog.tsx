@@ -16,7 +16,8 @@
  * konflikt wersji, zatrudnienie — wszystko jak przy przeciągnięciu).
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, ArrowRight, Loader2 } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
@@ -49,6 +50,9 @@ import { planPrimaryStep } from "@/lib/move-primary";
 import { dlWaitingStatus } from "@/lib/board-card-badges";
 import { MoveRequirementList } from "@/components/v2/recruitment/MoveRequirementList";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/auth";
+import { canSetPreContractStop } from "@/lib/pre-contract-stop";
+import { invalidatePreContract, preContractsApi } from "@/lib/api/preContracts";
 
 export { HAND_TO_DL_MESSAGE, NO_QC_STAGE_MESSAGE } from "@/lib/move-primary";
 
@@ -175,7 +179,31 @@ export function MoveNextDialog({
     [item, target, jobId],
   );
   const query = useMoveRequirements(params, open);
+  const me = useAuthStore((st) => st.user);
+  const queryClient = useQueryClient();
   const data = query.data;
+  // 0761 (23.11.2026): „Zatrzymaj do podpisu przedwstępnej” — bramka serwera
+  // (także dla DL-a). DL klienta, HoR i admin mogą tu zrobić wyjątek.
+  const stop = (data?.items ?? []).some(
+    (i) => i.key === "pre_contract" && i.blocking && i.status === "missing",
+  );
+  const canLift = canSetPreContractStop(me) && item?.pre_contract?.id != null;
+  const [lifting, setLifting] = useState(false);
+  const liftStop = async () => {
+    const id = item?.pre_contract?.id;
+    if (id == null) return;
+    setLifting(true);
+    try {
+      await preContractsApi.setStop(id, false);
+      invalidatePreContract(queryClient, jobId);
+      await query.refetch();
+      showSuccess("Blokada zdjęta — osoba może iść dalej bez podpisanej przedwstępnej.");
+    } catch (e) {
+      showError(apiErrorMessage(e, "Nie udało się zdjąć blokady."));
+    } finally {
+      setLifting(false);
+    }
+  };
   const primary = data?.primary ?? null;
   const askedDuringMove = primary?.kind === "move";
   const gaps = useMemo(
@@ -220,9 +248,13 @@ export function MoveNextDialog({
     }
   };
 
-  const primaryDisabled = readOnly || step.type === "disabled";
+  const primaryDisabled = readOnly || step.type === "disabled" || stop;
   const primaryHint = readOnly
     ? "Tylko odczyt."
+    : stop
+      ? canLift
+        ? "Osoba czeka na podpis przedwstępnej. Możesz zrobić wyjątek — zapisze się w historii umowy, a proszący dostanie dzwonek."
+        : "Osoba czeka na podpis przedwstępnej. Blokadę zdejmuje Delivery Lead klienta albo Head of Recruitment."
     : primary?.kind === "blocked" || (primary?.kind === "move" && gaps.length > 0)
       ? `Najpierw uzupełnij: ${gaps.map((g) => g.label).join(", ") || "braki z listy"}.`
       : dealBreaker && primary?.kind === "move"
@@ -345,6 +377,17 @@ export function MoveNextDialog({
           <Button variant="ghost" onClick={close}>
             {waiting ? "Zamknij" : "Anuluj"}
           </Button>
+          {stop && canLift && !readOnly && target && (
+            <Button
+              variant="outline"
+              data-testid="move-next-lift-stop"
+              disabled={lifting}
+              onClick={() => void liftStop()}
+            >
+              {lifting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+              Zdejmij blokadę
+            </Button>
+          )}
           {primary && !waiting && (
             <Button
               data-testid="move-next-primary"

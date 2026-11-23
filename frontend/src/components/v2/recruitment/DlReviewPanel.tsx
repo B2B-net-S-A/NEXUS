@@ -152,7 +152,8 @@ import { contractAvailability, contractDateText } from "@/lib/contract-availabil
 import type { EmploymentMarker } from "@/lib/employment-marker";
 import { PersonFacts } from "@/components/v2/person/PersonFacts";
 import { PreContractRequestDialog } from "@/components/v2/person/pre-contract/PreContractDialogs";
-import { invalidatePreContract } from "@/lib/api/preContracts";
+import { invalidatePreContract, preContractsApi, usePreContractPair } from "@/lib/api/preContracts";
+import { stopOriginText } from "@/lib/pre-contract-stop";
 
 export { RATE_UNIT_LABEL, type ClientRateUnit };
 
@@ -483,6 +484,25 @@ export function DlReviewBody({
   const context = useDlReviewContext(candidateId, jobId);
   // 0506: prośba o przedwstępną z przeglądu (DL decyduje, że CV poczeka na umowę).
   const [preContractOpen, setPreContractOpen] = useState(false);
+  // 0761 (23.11.2026): „Zatrzymaj do podpisu przedwstępnej” — wysyłka do
+  // klienta czeka na podpis (serwer i tak zwróci 409); DL może zrobić wyjątek.
+  const stopPair = usePreContractPair(candidateId, jobId);
+  const stop = stopPair.data?.stop ?? null;
+  const stopped = stop?.column === "cv_sent";
+  const stopRequestId = stopPair.data?.current?.id ?? null;
+  const [lifting, setLifting] = useState(false);
+  const liftStop = async () => {
+    if (stopRequestId == null) return;
+    setLifting(true);
+    try {
+      await preContractsApi.setStop(stopRequestId, false);
+      invalidatePreContract(queryClient, jobId);
+    } catch (e) {
+      showError(apiErrorMessage(e, "Nie udało się zdjąć blokady."));
+    } finally {
+      setLifting(false);
+    }
+  };
   // Braki wśród wymagań, które serwer liczy do „X/Y” (krytyczne i „musi mieć”)
   // — same nazwy; liczb X/Y tu nie przeliczamy.
   const missingRequirements = useMemo(
@@ -1020,7 +1040,7 @@ export function DlReviewBody({
           onCurrencyChange={setCurrency}
           rateSourceLabel={rateSource}
           canSend={canSend}
-          sendReady={sendReady}
+          sendReady={sendReady && !stopped}
           canReturn={canReturn}
           canReject={canReject && !rejecting}
           busy={busy}
@@ -1029,7 +1049,27 @@ export function DlReviewBody({
           onReturn={() => setReturnOpen(true)}
           onReject={() => setRejecting(true)}
           footerNote={
-            !canSend ? (
+            stopped && canSend ? (
+              <div className="space-y-1 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs" data-testid="dl-review-stop">
+                <p className="font-semibold text-destructive">
+                  Zatrzymana do podpisu przedwstępnej — CV nie pójdzie do klienta.
+                </p>
+                <p className="text-muted-foreground">
+                  {stopPair.data?.current?.badge.label ?? "Brak prośby o przedwstępną"}. Blokada:{" "}
+                  {stop ? stopOriginText(stop) : ""}.
+                </p>
+                {stopPair.data?.can_set_stop && stopRequestId != null ? (
+                  <button
+                    type="button"
+                    className="font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50"
+                    disabled={lifting}
+                    onClick={() => void liftStop()}
+                  >
+                    Zdejmij blokadę dla tej osoby
+                  </button>
+                ) : null}
+              </div>
+            ) : !canSend ? (
               <p className="text-xs text-muted-foreground">
                 {cpro ? "Do kolejki Cpro akceptuje" : "Do klienta wysyła"} osoba z uprawnieniem „
                 {permissionLabel("recruitment_manage")}” — możesz przejrzeć kandydata.

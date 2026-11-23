@@ -30,7 +30,7 @@ from fastapi import (
 )
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, exists, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,6 +51,7 @@ from app.models.pre_contract import (
     PreContractWatcher,
 )
 from app.models.user import User, UserRole
+from app.services import pre_contract_stop as stop_svc
 from app.services import pre_contracts as svc
 from app.services import storage_service
 from app.services.b2b_documents.signed_scan import read_scan
@@ -122,6 +123,10 @@ _ROLE_GRANTED: tuple[UserRole, ...] = (
     UserRole.board,
 )
 MSG_ROLE = "Umowy przedwstępne prowadzą osoby z rekrutacji."
+MSG_STOP_ROLE = stop_svc.MSG_STOP_ROLE
+MSG_STOP_NOT_LATEST = (
+    "Blokadę zmienia się przy najnowszej prośbie tej osoby — odśwież panel."
+)
 MSG_RACE = "Ktoś właśnie poprosił o tę umowę — odśwież panel i dołącz do obserwujących."
 
 
@@ -183,6 +188,26 @@ class PreContractCreateRequest(BaseModel):
     needed_by: Optional[date] = None
     reason: Optional[str] = Field(default=None, max_length=2000)
     assignee_id: Optional[int] = None
+    # 0761: „Zatrzymaj do podpisu” — None = jak rekrutacja, True = stop,
+    # False = wyjątek. Ustawia DL, Head of Recruitment albo admin.
+    blocks_move: Optional[bool] = None
+
+
+class PreContractStopBody(BaseModel):
+    """Stop przy osobie: True = stop, False = wyjątek, None = jak rekrutacja."""
+
+    blocks_move: Optional[bool] = None
+
+
+class PreContractRuleIn(BaseModel):
+    needed_before: Literal["cv_sent", "client_interview", "b2b_contract"]
+    stop: bool = True
+
+
+class PreContractRuleBody(BaseModel):
+    """Ustawienie rekrutacji; ``rule = None`` zdejmuje je."""
+
+    rule: Optional[PreContractRuleIn] = None
 
 
 class PreContractUpdateRequest(BaseModel):
@@ -269,6 +294,10 @@ class PreContractRequestOut(BaseModel):
     can_withdraw: bool = False
     can_decide_penalty: bool = False
     events: list[PreContractEventOut] = []
+    # 0761: wybór przy osobie (None = jak rekrutacja) i kto go zmienił.
+    blocks_move: Optional[bool] = None
+    blocks_set_by: Optional[PreContractPersonRef] = None
+    blocks_set_at: Optional[str] = None
 
 
 class PreContractPairDocument(BaseModel):
@@ -288,6 +317,11 @@ class PreContractPairOut(BaseModel):
     # Umowy z Generatora dla pary (bez anulowanych) — panel podpina je do
     # prośby jednym kliknięciem („Podepnij umowę z DD.MM”).
     documents: list[PreContractPairDocument] = []
+    # 0761: ustawienie rekrutacji, czy osoba stoi do podpisu (i skąd)
+    # oraz czy oglądający może to zmienić.
+    job_rule: Optional[dict[str, Any]] = None
+    stop: Optional[dict[str, Any]] = None
+    can_set_stop: bool = False
 
 
 class PreContractListOut(BaseModel):
@@ -417,7 +451,9 @@ async def _serialize(
     people_ids: set[int] = set()
     for r in reqs:
         people_ids.update(
-            uid for uid in (r.requested_by, r.assignee_id, r.closed_by) if uid
+            uid
+            for uid in (r.requested_by, r.assignee_id, r.closed_by, r.blocks_set_by)
+            if uid
         )
         people_ids.update(watchers.get(r.id, []))
         people_ids.update(e.actor_id for e in events.get(r.id, []) if e.actor_id)
@@ -562,6 +598,9 @@ async def _serialize(
                     )
                     for e in events.get(r.id, [])
                 ],
+                blocks_move=r.blocks_move,
+                blocks_set_by=_ref(names, r.blocks_set_by),
+                blocks_set_at=_iso(r.blocks_set_at),
             )
         )
     return out
@@ -605,6 +644,10 @@ async def create_request(
         raise HTTPException(
             status_code=422, detail="Podaj datę, do której umowa ma być podpisana."
         )
+    if body.blocks_move is not None and not await stop_svc.can_set_stop(
+        db, current_user, job
+    ):
+        raise HTTPException(status_code=403, detail=MSG_STOP_ROLE)
 
     existing = await db.scalar(
         select(PreContractRequest)
@@ -616,6 +659,8 @@ async def create_request(
         .with_for_update()
     )
     if existing is not None:
+        if body.blocks_move is not None and body.blocks_move != existing.blocks_move:
+            await _set_stop(db, existing, current_user, body.blocks_move)
         await svc.add_watchers(db, existing.id, [current_user.id])
         event = await svc.add_event(
             db,
@@ -635,6 +680,38 @@ async def create_request(
         await db.commit()
         return await _one(db, current_user, existing)
 
+    # 0761: nowa prośba po zamkniętej przejmuje jej wybór (stop / wyjątek),
+    # gdy proszący sam go nie zmienia — anuluj + poproś od nowa nie zdejmuje stopu.
+    needed_before, needed_by = body.needed_before, body.needed_by
+    blocks_move, blocks_set_by, blocks_set_at = body.blocks_move, None, None
+    if blocks_move is not None:
+        blocks_set_by, blocks_set_at = current_user.id, svc.now_utc()
+    else:
+        previous = await db.scalar(
+            select(PreContractRequest)
+            .where(
+                PreContractRequest.candidate_id == body.candidate_id,
+                PreContractRequest.job_id == body.job_id,
+            )
+            .order_by(PreContractRequest.id.desc())
+            .limit(1)
+        )
+        if previous is not None and previous.blocks_move is not None:
+            blocks_move = previous.blocks_move
+            blocks_set_by, blocks_set_at = (
+                previous.blocks_set_by,
+                previous.blocks_set_at,
+            )
+            # Przejęty stop zachowuje wcześniejszy etap — późniejszy ustawia
+            # tylko DL / HoR / admin (inaczej „przed B2B” zdejmowałoby stop).
+            if blocks_move and stop_svc.stage_is_later(
+                body.needed_before, previous.needed_before
+            ):
+                if not await stop_svc.can_set_stop(db, current_user, job):
+                    needed_before, needed_by = (
+                        previous.needed_before,
+                        previous.needed_by,
+                    )
     if body.assignee_id is not None:
         chosen = await db.get(User, body.assignee_id)
         if chosen is None or not chosen.is_active:
@@ -648,11 +725,14 @@ async def create_request(
         candidate_id=body.candidate_id,
         job_id=body.job_id,
         client_id=job.client_id,
-        needed_before=body.needed_before,
-        needed_by=body.needed_by,
+        needed_before=needed_before,
+        needed_by=needed_by,
         reason=(body.reason or "").strip() or None,
         requested_by=current_user.id,
         assignee_id=assignee,
+        blocks_move=blocks_move,
+        blocks_set_by=blocks_set_by,
+        blocks_set_at=blocks_set_at,
     )
     try:
         # Dwa kliknięcia naraz: druga prośba trafia na indeks „jedna w toku
@@ -668,7 +748,11 @@ async def create_request(
         req,
         "requested",
         actor_id=current_user.id,
-        payload={"needed_before": req.needed_before, "assignee_id": assignee},
+        payload={
+            "needed_before": req.needed_before,
+            "assignee_id": assignee,
+            "blocks_move": req.blocks_move,
+        },
     )
     needed = svc.NEEDED_BEFORE_LABEL.get(req.needed_before, "")
     await svc.notify(
@@ -693,6 +777,22 @@ async def update_request(
 ):
     req = await _load_for(db, current_user, request_id)
     _require_open(req)
+    # 0761: zmiana etapu prośby, która trzyma osobę do podpisu, należy do
+    # tych, którzy blokadę ustawiają — inaczej „Do daty…” zdejmowałoby stop.
+    stage_change = (
+        body.needed_before is not None and body.needed_before != req.needed_before
+    ) or ("needed_by" in body.model_fields_set and body.needed_by != req.needed_by)
+    if stage_change:
+        job = await db.get(Job, req.job_id)
+        if (
+            job is not None
+            and await stop_svc.stop_for_pair(
+                db, job=job, candidate_id=req.candidate_id, target_column=None
+            )
+            is not None
+            and not await stop_svc.can_set_stop(db, current_user, job)
+        ):
+            raise HTTPException(status_code=403, detail=MSG_STOP_ROLE)
     changes: dict[str, Any] = {}
     if body.needed_before is not None and body.needed_before != req.needed_before:
         changes["needed_before"] = [req.needed_before, body.needed_before]
@@ -768,7 +868,21 @@ async def pair_requests(
             )
         )
     ).all()
+    job = await db.get(Job, job_id)
+    rule = stop_svc.rule_of(job)
+    stop = (
+        await stop_svc.stop_for_pair(
+            db, job=job, candidate_id=candidate_id, target_column=None
+        )
+        if job is not None
+        else None
+    )
+    stop_names = await _people(db, {stop.set_by} if stop and stop.set_by else set())
     return PreContractPairOut(
+        job_rule=stop_svc.rule_payload(rule),
+        stop=stop_svc.stop_payload(stop, stop_names),
+        can_set_stop=job is not None
+        and await stop_svc.can_set_stop(db, current_user, job),
         current=current,
         history=[i for i in items if not i.is_open],
         documents=[
@@ -1153,6 +1267,97 @@ async def _close(
         actor_id=actor.id,
         extra_user_ids=extra_user_ids,
     )
+
+
+# ── Stop do podpisu (0761) ───────────────────────────────────────────────────
+
+_STOP_EVENT = {True: "stop_set", False: "stop_exception", None: "stop_inherit"}
+
+
+async def _set_stop(
+    db: AsyncSession, req: PreContractRequest, user: User, blocks_move: Optional[bool]
+) -> None:
+    """Zmień wybór przy osobie, zapisz w historii i zadzwoń do obserwujących."""
+    req.blocks_move = blocks_move
+    req.blocks_set_by = user.id
+    req.blocks_set_at = svc.now_utc()
+    kind = _STOP_EVENT[blocks_move]
+    event = await svc.add_event(
+        db, req, kind, actor_id=user.id, payload={"blocks_move": blocks_move}
+    )
+    text = {
+        "stop_set": "zatrzymał(a) osobę do podpisu przedwstępnej.",
+        "stop_exception": "zdjął(-ęła) blokadę — osoba może iść dalej bez podpisanej przedwstępnej.",
+        "stop_inherit": "przywrócił(a) blokadę z ustawienia rekrutacji.",
+    }[kind]
+    await svc.notify(db, req, event, message=f"{user.name} {text}", actor_id=user.id)
+
+
+@router.post("/pre-contracts/{request_id}/stop", response_model=PreContractRequestOut)
+async def set_request_stop(
+    request_id: int,
+    body: PreContractStopBody,
+    current_user: PreContractUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Stop przy osobie, wyjątek albo powrót do ustawienia rekrutacji —
+    DL klienta, Head of Recruitment, admin (decyzja Artura 23.11.2026)."""
+    req = await _load_for(db, current_user, request_id)
+    job = await db.get(Job, req.job_id)
+    if job is None or not await stop_svc.can_set_stop(db, current_user, job):
+        raise HTTPException(status_code=403, detail=MSG_STOP_ROLE)
+    # Wybór czyta się z OSTATNIEJ prośby pary (także zamkniętej — po anulowaniu
+    # karta dalej stoi, a wyjątek robi się przy niej).
+    newest = await db.scalar(
+        select(func.max(PreContractRequest.id)).where(
+            PreContractRequest.candidate_id == req.candidate_id,
+            PreContractRequest.job_id == req.job_id,
+        )
+    )
+    if newest != req.id:
+        raise HTTPException(status_code=409, detail=MSG_STOP_NOT_LATEST)
+    if body.blocks_move != req.blocks_move:
+        await _set_stop(db, req, current_user, body.blocks_move)
+        await db.commit()
+    return await _one(db, current_user, req)
+
+
+@router.put("/jobs/{job_id}/pre-contract-rule")
+async def set_job_pre_contract_rule(
+    job_id: int,
+    body: PreContractRuleBody,
+    current_user: PreContractUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Ustawienie rekrutacji „każda osoba podpisuje przedwstępną” (0761).
+
+    Po zapisie osoby stojące między „Zweryfikowanym” a etapem dostają prośby."""
+    await _ensure_pair_access(db, current_user, job_id)
+    job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
+    if job is None:
+        raise HTTPException(status_code=404, detail="Nie ma takiej rekrutacji.")
+    if not await stop_svc.can_set_stop(db, current_user, job):
+        raise HTTPException(status_code=403, detail=MSG_STOP_ROLE)
+    previous_rule = stop_svc.rule_of(job)
+    job.pre_contract_rule = (
+        stop_svc.rule_record(body.rule.needed_before, body.rule.stop, current_user)
+        if body.rule is not None
+        else None
+    )
+    await stop_svc.retarget_rule_requests(
+        db,
+        job=job,
+        previous=previous_rule,
+        actor_id=current_user.id,
+    )
+    created = await stop_svc.backfill_rule_requests(
+        db, job=job, actor_id=current_user.id
+    )
+    await db.commit()
+    return {
+        "rule": stop_svc.rule_payload(stop_svc.rule_of(job)),
+        "requests_created": created,
+    }
 
 
 @router.post(

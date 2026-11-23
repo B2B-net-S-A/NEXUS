@@ -99,6 +99,13 @@ export function slotsCreatedMessage(res: Pick<SlotRequest, "move_skipped_reason"
       "(QC CV → CV wysłane)."
     );
   }
+  // 0761 (23.11.2026): osoba stoi do podpisu umowy przedwstępnej.
+  if (res.move_skipped_reason === "pre_contract_not_signed") {
+    return (
+      "Terminy wysłane rekruterowi. Karta kandydata została na swoim etapie — " +
+      "czeka na podpis umowy przedwstępnej (panel osoby › Umowa)."
+    );
+  }
   if (res.move_skipped_reason) {
     return (
       "Terminy wysłane rekruterowi. Karta kandydata została na swoim etapie — " +
