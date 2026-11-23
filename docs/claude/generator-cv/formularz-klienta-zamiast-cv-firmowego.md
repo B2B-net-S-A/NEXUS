@@ -108,7 +108,11 @@ Reguły, które łatwo cofnąć:
   `CV_AUTO_GENERATE_WITHOUT_CONFIRMATION`.
 - **Tablica:** `KanbanEntry.client_form = {template, missing}`; plakietka karty
   (`clientFormBadge`) na „Zweryfikowanym” i „QC CV” mówi o formularzu zamiast
-  o CV firmowym. Panel osoby: karta `ClientFormCard` na górze sekcji CV
+  o CV firmowym. Chipa QC CV firmowego taka karta nie ma (`boardQcChip`),
+  a nieudane QC nie robi szarej strzałki (`knownForwardGap`) — staging
+  23.11.2026: DL widział „QC: CV sprzed rekrutacji — potwierdź” przy dokumencie,
+  którego klient nie bierze. `item.qc` zostaje w payloadzie, bo z niego liczą
+  się gotowość do kolejki DL i dni na karcie. Panel osoby: karta `ClientFormCard` na górze sekcji CV
   („Wypełnij z CV i screeningu”, „Uzupełnij braki”, „Pobierz Word”, „Wygeneruj
   też CV firmowe”), okno `ClientFormDialog` z brakami najpierw i źródłem
   każdej wartości; pusty opis w „Wiersz N” pokazuje pierwszą wypełnioną komórkę
