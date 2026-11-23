@@ -4297,6 +4297,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  }
  const after = dockIndex >= 0 ? dockOrder.slice(dockIndex + 1) : [];
  const preview = after.length > 0 ? locateCandidate(after[0]) : null;
+ const wasSplit = screeningSplit;
  const outcome = move.deferReject(closed, dockItemColId, chip.key, {
  toColumn: rejectedTemplateCol,
  message: quickRejectMessage({
@@ -4305,9 +4306,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  next: preview ? itemFullName(preview.item) : null,
  queueName: queueLabel,
  }),
+ // „Cofnij” wraca do osoby w tym samym widoku: karta stoi jeszcze
+ // w „Zamkniętych” (cofnięcie stanu wejdzie w następnym renderze), więc
+ // `showInDock` nie rozpozna „Nowych” — widok bierzemy z chwili kliknięcia.
  onUndo: () => {
  setAfterClose(null);
- setDockCandidateId(closed.candidate_id);
+ if (wasSplit) openWorkbench(closed.candidate_id, "screening");
+ else setDockCandidateId(closed.candidate_id);
  },
  });
  if (outcome === "needs_window") openWindow();
@@ -4315,7 +4320,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  advanceAfterCloseRef.current(closed, "Odrzucono", after, chip.label, queueLabel, true);
  }
  },
- [dockItem, dockItemColId, rejectedTemplateCol, requestReject, dockFollowUp, dockIndex, dockOrder, locateCandidate, move, queueLabel]
+ [dockItem, dockItemColId, rejectedTemplateCol, requestReject, dockFollowUp, dockIndex, dockOrder, locateCandidate, move, queueLabel, screeningSplit, openWorkbench]
  );
  const dockQuickReject =
  dockItem && quickRejectAllowed(columnByItemId.get(dockItem.id)) && quickRejectChipList.length > 0

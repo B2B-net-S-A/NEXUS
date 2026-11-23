@@ -2161,7 +2161,13 @@ export function PipelineCandidateDock({
                   <button
                     key={chip.key}
                     type="button"
-                    onClick={() => quickReject.onPick(chip)}
+                    // Dwuklik: panel przechodzi do następnej osoby od razu, więc
+                    // drugie kliknięcie trafiłoby w jej chip w tym samym miejscu
+                    // i po cichu odrzuciło drugą osobę.
+                    onClick={(event) => {
+                      if (event.detail > 1) return;
+                      quickReject.onPick(chip);
+                    }}
                     title={
                       (chip.source === "mine"
                         ? "Twój częsty powód z 30 dni"

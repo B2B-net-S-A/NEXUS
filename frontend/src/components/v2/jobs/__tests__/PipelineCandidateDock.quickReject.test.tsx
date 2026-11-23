@@ -244,6 +244,15 @@ describe("PipelineCandidateDock — „Odrzuć:” jednym kliknięciem (23.11.20
     expect(onPick).toHaveBeenCalledWith(chips[1]);
   });
 
+  it("dwuklik odrzuca jedną osobę — drugie kliknięcie (już na chipie następnej) jest pomijane", () => {
+    const onPick = vi.fn();
+    renderDock({ item: baseItem({ stage: "new" }), quickReject: { chips, onPick } });
+    const chip = screen.getByRole("button", { name: "Brak kluczowej umiejętności" });
+    fireEvent.click(chip, { detail: 1 });
+    fireEvent.click(chip, { detail: 2 });
+    expect(onPick).toHaveBeenCalledTimes(1);
+  });
+
   it("„Za droga” ma wielokropek, bo otwiera okno z pytaniem o stawkę", () => {
     renderDock({ item: baseItem({ stage: "new" }), quickReject: { chips, onPick: vi.fn() } });
     const button = screen.getByRole("button", { name: "Za droga…" });
