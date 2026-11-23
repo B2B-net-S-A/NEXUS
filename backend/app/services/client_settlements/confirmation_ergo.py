@@ -19,6 +19,7 @@ from app.services.client_settlements.declared import (
     month_in,
     number,
     pdf_text,
+    short_lines,
 )
 
 SOURCE = "Potwierdzenie godzin ERGO"
@@ -29,10 +30,12 @@ _MONTH_VALUE = re.compile(
     r"^\s*(\d{1,2}[-./]\d{1,2}[-./]20\d{2}|\d{1,2}[-./]20\d{2}|[a-z]+\s+20\d{2})\s*(.*)$",
     re.I,
 )
-_TOTAL = re.compile(r"^\s*total\s+(\d[\d ]*(?:[.,]\d+)?)", re.I | re.M)
+# „Total 176 22” to godziny i PD: pierwsza liczba bez spacji w środku.
+_TOTAL = re.compile(r"^\s*total\s+(\d+(?:[.,]\d+)?)", re.I | re.M)
 
 
 def parse_text(text: str) -> Optional[Declared]:
+    text = short_lines(text)
     if not _TITLE.search(text):
         return None
     lines = text.splitlines()

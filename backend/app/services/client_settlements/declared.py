@@ -39,6 +39,9 @@ PDF = "application/pdf"
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 MD_Q = Decimal("0.001")
 MAX_PAGES = 10
+#: Dłuższa linia nie jest wierszem żadnego wzoru. Odcinamy ją przed regexami,
+#: bo ciąg cyfr i spacji z obcego pliku dawał kwadratowe cofanie (sekundy na wątku).
+MAX_LINE = 1000
 
 
 @dataclass(frozen=True)
@@ -92,6 +95,12 @@ def docx_text(content: bytes) -> Optional[str]:
         for row in table.rows:
             lines.append(" | ".join(t for t in row_texts(row) if t))
     return "\n".join(lines)
+
+
+def short_lines(text: str) -> str:
+    """Tekst bez linii dłuższych niż ``MAX_LINE``."""
+
+    return "\n".join(line for line in text.splitlines() if len(line) <= MAX_LINE)
 
 
 def number(text: str) -> Optional[Decimal]:

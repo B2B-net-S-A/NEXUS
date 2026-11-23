@@ -41,7 +41,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Iterable, Mapping, Optional
 
-from app.services.client_settlements.declared import month_mismatch
+from app.services.client_settlements.declared import MAX_LINE, month_mismatch
 from app.services.client_settlements.mail_text import month_label
 from app.services.client_settlements.rcp_checks import (
     ProofResult,
@@ -342,6 +342,8 @@ def text_rows(text: str) -> list[list[Any]]:
     header = False
     pending: Optional[tuple[str, str]] = None
     for raw in text.splitlines():
+        if len(raw) > MAX_LINE:
+            continue
         line = " ".join(raw.split())
         if not header:
             if found := _TEXT_NAME.match(line):
@@ -356,19 +358,20 @@ def text_rows(text: str) -> list[list[Any]]:
         if found := _TEXT_TOTAL.match(line):
             rows.append(["Suma godzin", found.group(1)])
             break
-        days = list(_TEXT_DAY.finditer(line))
+        # Godziny to ostatni token linii, data stoi przed nimi („7.5” to nie dzień).
+        tail = _TEXT_TAIL.search(line)
+        head = line[: tail.start()] if tail else line
+        days = list(_TEXT_DAY.finditer(head))
         if days:
             last = days[-1]
-            rest = line[last.end() :].strip()
-            description = line[: last.start()].strip()
-            if _TEXT_HOURS.match(rest):
-                rows.append([description, last.group(1), rest])
+            description = head[: last.start()].strip()
+            if tail and not head[last.end() :].strip():
+                rows.append([description, last.group(1), tail.group(1)])
                 pending = None
-            elif not rest:
+            elif not tail and not line[last.end() :].strip():
                 # Data sama w linii (zawinięty opis): godziny na końcu następnej.
                 pending = (description, last.group(1))
             continue
-        tail = _TEXT_TAIL.search(line)
         if pending and tail:
             rows.append(
                 [

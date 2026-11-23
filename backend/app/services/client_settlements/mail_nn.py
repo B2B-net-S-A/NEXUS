@@ -19,7 +19,11 @@ from decimal import Decimal
 from typing import Optional
 
 from app.services.client_settlements import mail_text
-from app.services.client_settlements.declared import Declared, month_in
+from app.services.client_settlements.declared import (
+    Declared,
+    month_in,
+    short_lines,
+)
 
 SOURCE = "Akceptacja NN"
 _MARK = re.compile(r"zaakceptowanego\s+odbioru\s+pracy", re.I)
@@ -27,7 +31,11 @@ _PERSON = re.compile(r"^imię\s+i\s+nazwisko\s*:\s*(.+)$", re.I)
 _PERIOD = re.compile(r"^okres\s+pracy\s*:\s*(.+)$", re.I)
 _TABLE_END = re.compile(r"^kwota\s+netto\s+do\s+zafakturowania", re.I)
 _MD = re.compile(r"^\d+(?:[.,]\d+)?$")
-_PLN = re.compile(r"^(\d[\d ,.\xa0]*)\s*(?:PLN|zł)$", re.I)
+_PLN = re.compile(r"^(\d[\d,.\xa0 ]*?)\s*(?:PLN|zł)$", re.I)
+# Po pierwszej tabeli: nagłówek przekazanego maila albo ponowny początek treści.
+_NEXT_MAIL = re.compile(
+    r"^(?:from|od|sent|wysłano|subject|temat)\s*:|zaakceptowanego\s+odbioru", re.I
+)
 
 
 def _amount(text: str) -> Optional[Decimal]:
@@ -45,8 +53,9 @@ def _amount(text: str) -> Optional[Decimal]:
 def parse_text(text: str) -> Optional[Declared]:
     if not _MARK.search(text):
         return None
-    lines = [line.lstrip("> \t").strip() for line in text.splitlines()]
-    lines = [line for line in lines if line]
+    raw = [line for line in short_lines(text).splitlines() if line.strip()]
+    quoted = [line.lstrip().startswith(">") for line in raw]
+    lines = [line.lstrip("> \t").strip() for line in raw]
     person: Optional[str] = None
     month: Optional[str] = None
     md = Decimal("0")
@@ -57,7 +66,10 @@ def parse_text(text: str) -> Optional[Declared]:
             person = found.group(1).strip()
         if month is None and (found := _PERIOD.match(line)):
             month = month_in(found.group(1))
-        if _TABLE_END.match(line) and rows:
+        if rows and (
+            _TABLE_END.match(line) or quoted[index] or _NEXT_MAIL.search(line)
+        ):
+            # Czytamy tylko pierwszą tabelę: dalej jest jej cytat albo kopia.
             break
         if (
             0 < index < len(lines) - 1

@@ -592,3 +592,52 @@ async def test_zaden_plik_nieznany_zostaje_bez_md(tmp_path, monkeypatch):
 
     assert result.md_regular is None
     assert "Nie rozpoznano szablonu RCP" in _titles(result)
+
+
+# ── Przypadki z przeglądu kodu ────────────────────────────────────────────────
+
+
+def test_ergo_total_godzin_i_pd_bez_przecinka_nie_skleja_sie():
+    text = "Monthly confirmation of hours worked\nMonth (mm/yyyy)\n09/2026 Jan Testowy\nTotal 176 22\n"
+
+    assert confirmation_ergo.parse_text(text).hours == Decimal("176")
+
+
+def test_bik_pdf_godziny_z_kropka_nie_sa_data():
+    text = BIK_SHORT.replace("BIK 2.09.2026 8", "BIK 2.09.2026 7.5").replace(
+        "Suma 24 h\n", ""
+    )
+    parsed = timesheet_bik.parse_rows(
+        timesheet_bik.text_rows(text), source="pdf", title=True
+    )
+
+    assert [e.hours for e in parsed.entries] == [
+        Decimal("9"),
+        Decimal("7.5"),
+        Decimal("7"),
+    ]
+
+
+def test_dlugie_ciagi_cyfr_i_spacji_nie_zawieszaja_czytnikow():
+    import time
+
+    junk = "1 " * 15000 + "\n" + "1" + " " * 30000 + "\n"
+    started = time.monotonic()
+    protocol_orlen.parse_text("OKRES ROZLICZENIOWY: WRZESIEŃ 2026\nroboczod\n" + junk)
+    mail_nn.parse_text("zaakceptowanego odbioru pracy\n" + junk + " PLN\n")
+    timesheet_bik.text_rows("Zadanie Data Czas (godz.)\n" + junk)
+    timesheet.text_rows("Time Sheet\nDate Total Hours Billable\n" + junk)
+
+    assert time.monotonic() - started < 1
+
+
+def test_nn_przekazany_mail_bez_podsumowania_nie_podwaja_md():
+    table = NN_BODY.split("\n\n\nKwota netto do zafakturowania")[0]
+    forwarded = (
+        f"{table}\n\nFrom: Rozliczenia <rozliczenia@klient.example>\n"
+        f"Subject: Rozliczenie pracownika\n{table}"
+    )
+    quoted = table + "\n" + "\n".join(f"> {line}" for line in table.splitlines())
+
+    assert mail_nn.parse_text(forwarded).md == Decimal("22.875")
+    assert mail_nn.parse_text(quoted).md == Decimal("22.875")

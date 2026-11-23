@@ -29,12 +29,14 @@ from app.services.client_settlements.declared import (
     month_in,
     number,
     pdf_text,
+    short_lines,
 )
 
 SOURCE = "Protokół Orlen"
 TOLERANCE = Decimal("1")
 _NUM = r"\d+(?:[.,]\d+)?"
-_AMOUNT = r"\d[\d \xa0]*(?:[.,]\d+)?"
+# „21 780”, „1 510”, „1360”: spacja tylko jako separator tysięcy.
+_AMOUNT = r"(?:\d{1,3}(?:[ \xa0]\d{3})+|\d+)(?:[.,]\d+)?"
 _CURRENCY = r"(?:zł|pln)"
 _PERIOD = re.compile(r"okres\s+rozliczeniowy\s*:?\s*([^|\n]*)", re.I)
 _WORKDAYS = re.compile(r"roboczod|sugerowane\s+wynagrodzenie", re.I)
@@ -122,6 +124,7 @@ def _payment(
 
 
 def parse_text(text: str) -> Optional[Declared]:
+    text = short_lines(text)
     period = _PERIOD.search(text)
     if not period or not _WORKDAYS.search(text):
         return None

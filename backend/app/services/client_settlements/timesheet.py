@@ -37,7 +37,11 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Mapping, Optional
 
 from app.services.client_settlements import timesheet_pko
-from app.services.client_settlements.declared import month_mismatch, pdf_text
+from app.services.client_settlements.declared import (
+    month_mismatch,
+    pdf_text,
+    short_lines,
+)
 from app.services.client_settlements.rcp_bnp import _dec
 from app.services.client_settlements.rcp_checks import (
     ProofResult,
@@ -364,7 +368,7 @@ def _text_hours(
 def text_rows(text: str) -> Optional[list[list[Any]]]:
     """Tekst PDF Time Sheet → wiersze jak z arkusza (dla ``parse_rows``)."""
 
-    lines = [" ".join(line.split()) for line in text.splitlines()]
+    lines = [" ".join(line.split()) for line in short_lines(text).splitlines()]
     fields: list[list[Any]] = []
     rows: list[list[Any]] = []
     width = 0
