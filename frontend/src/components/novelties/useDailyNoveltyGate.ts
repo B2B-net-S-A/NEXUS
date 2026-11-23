@@ -40,9 +40,12 @@ export function useDailyNoveltyGate(): boolean {
     boardOnly: isBoardOnly(user),
   });
 
+  // `pathname` w zależnościach: przekierowanie przy każdym wejściu na zablokowany
+  // ekran. Bez tego przepadnięte `replace` (klik w menu w trakcie) zostawiało
+  // pusty ekran na wszystkich kolejnych pozycjach menu (zgłoszenie 23.11.2026).
   useEffect(() => {
     if (blocked) router.replace(DAILY_PATH);
-  }, [blocked, router]);
+  }, [blocked, pathname, router]);
 
   return blocked;
 }

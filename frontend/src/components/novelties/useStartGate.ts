@@ -32,9 +32,11 @@ export function useStartGate(): boolean {
   const blocked =
     Boolean(status?.enforced) && !isPoligonActive() && !startAllows(pathname, touringStart);
 
+  // `pathname` w zależnościach, jak w `useDailyNoveltyGate`: przepadnięte
+  // przekierowanie nie może zostawić pustego ekranu na kolejnych pozycjach menu.
   useEffect(() => {
     if (blocked) router.replace(status?.redirect ?? START_PATH);
-  }, [blocked, router, status?.redirect]);
+  }, [blocked, pathname, router, status?.redirect]);
 
   return blocked;
 }
