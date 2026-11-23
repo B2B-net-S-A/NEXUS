@@ -34,7 +34,7 @@ class PairFormState:
     # Tabela punktowa (Excel, 0525) — tylko gdy rekrutacja ma jej wzór.
     score_template: Optional[str] = None
     score_missing: Optional[int] = None
-    # 0755: plik wypełniony poza NEXUSEM, wgrany z dysku — gotowy (0 braków).
+    # 0756: plik wypełniony poza NEXUSEM, wgrany z dysku — gotowy (0 braków).
     uploaded: bool = False
     score_uploaded: bool = False
 
@@ -112,7 +112,7 @@ async def job_states(
         )
         for cid, kind, count, has_upload in rows.all():
             # Wgrany plik idzie do QC i do klienta zamiast pól z NEXUSA, więc
-            # jego puste pola nie są brakami (0755).
+            # jego puste pola nie są brakami (0756).
             missing[(cid, kind)] = 0 if has_upload else count
             if has_upload:
                 uploaded.add((cid, kind))

@@ -97,7 +97,7 @@ export interface ClientCvRule {
   cv_content_mode_cap: CvContentMode | null;
   cv_interactive_enabled: boolean;
   cv_client_document?: CvClientDocument;
-  /** 0755: formularz klienta — pole „w skali 1–10” = 10 przy doświadczeniu w wierszu. */
+  /** 0756: formularz klienta — pole „w skali 1–10” = 10 przy doświadczeniu w wierszu. */
   client_form_scale_full_on_experience?: boolean;
   seed_key: string | null;
   confirmed_at: string | null;

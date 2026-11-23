@@ -1,4 +1,4 @@
-"""Reguła klienta „doświadczenie = 10/10” w polach skali formularza (0755).
+"""Reguła klienta „doświadczenie = 10/10” w polach skali formularza (0756).
 
 Delivery Lead Centrum e-Zdrowia (20.11.2026): „Jeżeli kandydat ma jakieś
 doświadczenie w czymś, wpisujemy poziom 10/10.” Dotyczy pól „Stopień

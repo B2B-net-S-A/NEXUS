@@ -169,7 +169,7 @@ export interface KanbanItem {
     /** Tabela punktowa (Excel) — od 23.11.2026 też warunek „QC CV”. */
     score_template?: boolean;
     score_missing?: number | null;
-    /** 0755: plik wypełniony poza NEXUSEM, wgrany z dysku (`missing` = 0). */
+    /** 0756: plik wypełniony poza NEXUSEM, wgrany z dysku (`missing` = 0). */
     uploaded?: boolean;
     score_uploaded?: boolean;
   } | null;

@@ -611,7 +611,7 @@ async def test_form_client_entering_qc_cv_gets_no_company_cv_qc_bell(monkeypatch
     assert rung == [cv_job]
 
 
-# ── 0755: plik wypełniony poza NEXUSEM, wgrany z dysku ───────────────────────
+# ── 0756: plik wypełniony poza NEXUSEM, wgrany z dysku ───────────────────────
 
 
 def _with_macros(content: bytes) -> bytes:
@@ -750,7 +750,7 @@ async def test_upload_needs_candidate_write_access(app_client, storage):
     assert (await app_client.delete(url, headers=viewer)).status_code == 403
 
 
-# ── 0755: reguła klienta „doświadczenie = 10/10” ─────────────────────────────
+# ── 0756: reguła klienta „doświadczenie = 10/10” ─────────────────────────────
 
 
 SCALE_ANSWER = {

@@ -14,7 +14,7 @@ import type { ClientDocument, ClientFormKind } from "@/lib/api/jobFiles";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
 
 export type ClientFormFieldKind = "line" | "box" | "cell";
-/** `client_rule` — reguła klienta „doświadczenie = 10/10” w polach skali (0755). */
+/** `client_rule` — reguła klienta „doświadczenie = 10/10” w polach skali (0756). */
 export type ClientFormSource = "cv" | "notes" | "profile" | "recruiter" | "client_rule";
 export type ClientFormStatus = "no_template" | "not_filled" | "filled";
 
@@ -95,7 +95,7 @@ export interface ClientFormView {
   /** DL podmienił wzór po wypełnieniu — warto wypełnić ponownie. */
   template_changed: boolean;
   /**
-   * 0755: plik wypełniony poza NEXUSEM, wgrany z dysku — idzie do QC
+   * 0756: plik wypełniony poza NEXUSEM, wgrany z dysku — idzie do QC
    * i do klienta zamiast wypełnienia z NEXUSA.
    */
   uploaded?: ClientFormUpload | null;

@@ -13,7 +13,7 @@ NEXUS wypełnia wzór z Plików rekrutacji danymi z CV, screeningu i notatek:
 * ``GET …/docx`` — plik Word w układzie wzoru klienta (albo plik wgrany
   z dysku, gdy jest),
 * ``POST …/upload`` / ``DELETE …/upload`` — wypełniony poza NEXUSEM plik
-  pary (0755): idzie do QC i do klienta zamiast wypełnienia z NEXUSA.
+  pary (0756): idzie do QC i do klienta zamiast wypełnienia z NEXUSA.
 
 Dostęp jak do CV etapu (``candidate_stage_cv._load_csv_for_stage``): rola
 czyta albo pisze dokumenty kandydata, a ``stage_id`` niesie rekrutację, więc
@@ -75,7 +75,7 @@ MSG_NOT_FILLED = "Formularz nie jest jeszcze wypełniony."
 MSG_UNKNOWN_FIELD = "Formularz nie ma takiego pola — odśwież okno."
 VALUE_MAX = client_form_fill.VALUE_MAX
 PDF_TYPE = "application/pdf"
-# 0755: plik wypełniony poza NEXUSEM — Word albo PDF formularza, Excel tabeli.
+# 0756: plik wypełniony poza NEXUSEM — Word albo PDF formularza, Excel tabeli.
 UPLOAD_TYPES: dict[str, dict[str, str]] = {
     KIND_FORM: {".docx": DOCX_TYPE, ".pdf": PDF_TYPE},
     KIND_SCORE: {".xlsx": XLSX_TYPE},
@@ -154,7 +154,7 @@ async def _template(
 
 
 async def _scale_rule_on(db: AsyncSession, job_id: int) -> bool:
-    """Reguła klienta „doświadczenie = 10/10” w polach skali (0755)."""
+    """Reguła klienta „doświadczenie = 10/10” w polach skali (0756)."""
     return bool(
         await db.scalar(
             select(Client.client_form_scale_full_on_experience)
@@ -232,7 +232,7 @@ def _view(
         "client_document": client_document,
         "status": status,
         "points": _points(structure, values) if kind == KIND_SCORE else None,
-        # 0755: plik wgrany z dysku — gotowy do QC i do klienta niezależnie od pól.
+        # 0756: plik wgrany z dysku — gotowy do QC i do klienta niezależnie od pól.
         "uploaded": uploaded,
         "message": message,
         "template": (
@@ -585,7 +585,7 @@ async def download_client_form(
     )
 
 
-# ── 0755: plik wypełniony poza NEXUSEM, wgrany z dysku ─────────────────────
+# ── 0756: plik wypełniony poza NEXUSEM, wgrany z dysku ─────────────────────
 # Rekruterzy wypełniali formularz CEZ w Wordzie i wgrywali go przez „Wgraj CV”,
 # więc lądował jako CV kandydata. Wgrany plik należy do pary osoba × rekrutacja:
 # pobranie oddaje go zamiast wypełnienia z NEXUSA, a sam wiersz pary liczy się

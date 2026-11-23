@@ -139,7 +139,7 @@ SCORE_DOWNGRADE_DDL = (
 )
 
 
-# ── 0755: plik wgrany z dysku i reguła klienta „doświadczenie = 10/10” ───────
+# ── 0756: plik wgrany z dysku i reguła klienta „doświadczenie = 10/10” ───────
 # Prośba DL Centrum e-Zdrowia (20.11.2026), decyzje Artura 23.11.2026.
 #
 # Rekruterzy wypełniają formularz CV klienta w Wordzie na dysku i wgrywali go

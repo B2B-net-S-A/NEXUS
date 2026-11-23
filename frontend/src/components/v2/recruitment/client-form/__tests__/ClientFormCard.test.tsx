@@ -238,7 +238,7 @@ describe("ClientFormCard — tabela punktowa (0525)", () => {
     expect(screen.queryByText("Wygeneruj też CV firmowe")).toBeNull();
   });
 
-  it("0755: wgrany z dysku — zielony wiersz, plik idzie zamiast wypełnienia, „Zastąp” i „Usuń”", async () => {
+  it("0756: wgrany z dysku — zielony wiersz, plik idzie zamiast wypełnienia, „Zastąp” i „Usuń”", async () => {
     api.get.mockResolvedValue({ data: view({ status: "not_filled", missing: [], fields: FIELDS, filled_at: null }) });
     const uploaded = view({
       status: "not_filled",
@@ -279,14 +279,14 @@ describe("ClientFormCard — tabela punktowa (0525)", () => {
     await waitFor(() => expect(screen.queryByTestId("client-form-uploaded")).toBeNull());
   });
 
-  it("0755: tabela punktowa przyjmuje tylko Excel", async () => {
+  it("0756: tabela punktowa przyjmuje tylko Excel", async () => {
     api.get.mockResolvedValue({ data: view({ kind: "score", status: "not_filled", filled_at: null }) });
     renderCard({ kind: "score" });
     expect(await screen.findByRole("button", { name: /Wgraj wypełniony Excel/ })).toBeInTheDocument();
     expect((screen.getByTestId("client-score-upload-input") as HTMLInputElement).accept).toBe(".xlsx");
   });
 
-  it("0755: bez uprawnień zapisu nie ma wgrywania", async () => {
+  it("0756: bez uprawnień zapisu nie ma wgrywania", async () => {
     api.get.mockResolvedValue({ data: view() });
     renderCard({ readOnly: true });
     await screen.findByTestId("client-form-card");

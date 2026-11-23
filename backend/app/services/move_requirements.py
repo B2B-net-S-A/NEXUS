@@ -173,7 +173,7 @@ class PairFacts:
     # Tabela punktowa (Excel, 0525) — wzór i puste pola, jak formularz.
     client_score_template: Optional[str] = None
     client_score_missing: Optional[int] = None
-    # 0755: plik wypełniony poza NEXUSEM, wgrany z dysku — gotowy.
+    # 0756: plik wypełniony poza NEXUSEM, wgrany z dysku — gotowy.
     client_form_uploaded: bool = False
     client_score_uploaded: bool = False
     # 23.11.2026: na „QC CV” dopiero z formularzem (CLIENT_FORM_QC_GATE_ENABLED).

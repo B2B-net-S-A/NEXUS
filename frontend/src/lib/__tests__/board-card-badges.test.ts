@@ -889,7 +889,7 @@ describe("0521: plakietka formularza CV klienta", () => {
     expect(at({ template: true, missing: 7 })?.label).toBe("Formularz: 7 do uzupełnienia");
     expect(at({ template: true, missing: 7 })?.tone).toBe("wait");
     expect(at({ template: true, missing: 0 }, "cv_qc")?.label).toBe("Formularz gotowy");
-    // 0755: wgrany z dysku = gotowy, ale tabela punktowa dalej jest warunkiem.
+    // 0756: wgrany z dysku = gotowy, ale tabela punktowa dalej jest warunkiem.
     expect(at({ template: true, missing: 0, uploaded: true })?.label).toBe("Formularz wgrany");
     expect(at({ template: true, missing: 0, uploaded: true })?.tone).toBe("ok");
     expect(

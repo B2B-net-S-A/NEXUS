@@ -1,4 +1,4 @@
-"""0755: reguła klienta „doświadczenie = 10/10” w polach skali (bez bazy).
+"""0756: reguła klienta „doświadczenie = 10/10” w polach skali (bez bazy).
 
 Fikcyjny formularz CEZ (``tests/_client_form_docx.py``): w tabeli kompetencji
 wiersz „Selenium” ma „Liczba lat doświadczenia” (t2.r5.c2), „Stopień

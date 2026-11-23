@@ -11,7 +11,7 @@
  *
  * Awaria odczytu to komunikat z „Ponów”, nigdy pusty stan.
  *
- * 0755 (prośba DL CEZ, 23.11.2026): rekruter może wgrać plik wypełniony
+ * 0756 (prośba DL CEZ, 23.11.2026): rekruter może wgrać plik wypełniony
  * w Wordzie na dysku (albo Excel tabeli). Ten plik idzie do QC i do klienta
  * zamiast wypełnienia z NEXUSA — wcześniej trafiał przez „Wgraj CV” do CV
  * kandydata.

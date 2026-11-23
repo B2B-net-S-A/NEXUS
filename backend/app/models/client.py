@@ -97,7 +97,7 @@ class Client(Base, TimestampMixin):
     cv_client_document: Mapped[str] = mapped_column(
         String(16), nullable=False, default="company_cv", server_default="company_cv"
     )
-    # Reguła formularza klienta (0755, CEZ 23.11.2026): pole „w skali 1–10”
+    # Reguła formularza klienta (0756, CEZ 23.11.2026): pole „w skali 1–10”
     # dostaje 10, gdy w tym samym wierszu jest doświadczenie (lata z ról albo
     # opis z cytatem). Liczy kod (`client_form_scale`), nie model.
     client_form_scale_full_on_experience: Mapped[bool] = mapped_column(

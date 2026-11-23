@@ -267,7 +267,7 @@ https://claude.ai/artifact/32hRQWiWa3fVXzVv6bwxNx
   kandydata, u dwóch osób jako główne) idzie osobnym PR-em z migracją razem
   z regułą „doświadczenie = 10/10” w polach „w skali 1–10”.
 
-## Plik wgrany z dysku i „doświadczenie = 10/10” (0755, 23.11.2026)
+## Plik wgrany z dysku i „doświadczenie = 10/10” (0756, 23.11.2026)
 
 Druga część prośby DL CEZ z 20.11.2026, decyzje Artura z 23.11.2026
 (wszystkie warianty rekomendowane). Na stagingu 22.11.2026 było 6 wypełnionych

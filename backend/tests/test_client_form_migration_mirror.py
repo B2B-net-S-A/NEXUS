@@ -111,7 +111,7 @@ def test_0522_chains_and_mirrors_table_key_and_probe() -> None:
 def test_0522_model_matches_the_ddl() -> None:
     from app.models.candidate_client_form import CandidateClientForm
 
-    # 0525 dokłada rodzaj dokumentu, 0755 plik wgrany z dysku — osobnymi ALTER.
+    # 0525 dokłada rodzaj dokumentu, 0756 plik wgrany z dysku — osobnymi ALTER.
     ddl = " ".join((schema.FILL_TABLE_DDL, *schema.SCORE_DDL, *schema.UPLOAD_DDL))
     for column in CandidateClientForm.__table__.columns.keys():
         assert re.search(rf"\b{column}\b", ddl), column
@@ -159,9 +159,9 @@ def test_0525_statements_are_idempotent() -> None:
         ), statement
 
 
-# ── 0755: plik wgrany z dysku i reguła „doświadczenie = 10/10” ───────────────
+# ── 0756: plik wgrany z dysku i reguła „doświadczenie = 10/10” ───────────────
 
-MIGRATION_0755 = BACKEND / "alembic" / "versions" / "0755_client_form_upload_scale.py"
+MIGRATION_0755 = BACKEND / "alembic" / "versions" / "0756_client_form_upload_scale.py"
 
 
 def test_0755_chains_and_mirrors_columns_after_the_fill_table_and_seed_in_data() -> (

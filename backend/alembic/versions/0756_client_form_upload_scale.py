@@ -1,7 +1,7 @@
 """Formularz klienta wgrany z dysku i reguła „doświadczenie = 10/10” (CEZ).
 
-Revision ID: 0755_client_form_upload_scale
-Revises: 0754_b2b_signing_accept_code
+Revision ID: 0756_client_form_upload_scale
+Revises: 0755_contract_partner_reads
 
 Prośba DL Centrum e-Zdrowia (20.11.2026), decyzje Artura 23.11.2026:
 wypełniony poza NEXUSEM formularz (Word/PDF) albo tabela punktowa (Excel)
@@ -17,8 +17,8 @@ from alembic import op
 
 from app.services import client_form_schema as schema
 
-revision = "0755_client_form_upload_scale"
-down_revision = "0754_b2b_signing_accept_code"
+revision = "0756_client_form_upload_scale"
+down_revision = "0755_contract_partner_reads"
 branch_labels = None
 depends_on = None
 

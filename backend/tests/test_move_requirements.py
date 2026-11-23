@@ -892,7 +892,7 @@ def test_form_client_with_score_template_needs_the_score_table_too() -> None:
 
 
 def test_uploaded_client_files_are_ready() -> None:
-    """0755: plik wgrany z dysku idzie do QC zamiast pól z NEXUSA — gotowy."""
+    """0756: plik wgrany z dysku idzie do QC zamiast pól z NEXUSA — gotowy."""
     facts = replace(
         FORM_CLIENT,
         client_form_missing=0,

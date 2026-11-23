@@ -163,7 +163,7 @@ CLIENT_FLAG_FIELDS: tuple[str, ...] = (
     "cv_content_mode_cap",
     "cv_interactive_enabled",
     "cv_client_document",
-    # 0755 (CEZ 23.11.2026): pole „w skali 1–10” = 10 przy doświadczeniu w wierszu.
+    # 0756 (CEZ 23.11.2026): pole „w skali 1–10” = 10 przy doświadczeniu w wierszu.
     "client_form_scale_full_on_experience",
 )
 
@@ -266,7 +266,7 @@ class ClientCvRulePayload(BaseModel):
     # Co idzie do klienta: CV firmowe albo formularz klienta z Plików
     # rekrutacji (0521, ``client_form_schema.py``).
     cv_client_document: Optional[str] = None
-    # Formularz klienta: „doświadczenie = 10/10” w polach skali (0755,
+    # Formularz klienta: „doświadczenie = 10/10” w polach skali (0756,
     # ``client_form_scale.py``).
     client_form_scale_full_on_experience: Optional[bool] = None
     # Zatwierdź tym samym zapisem. Osobne kliknięcie „Zatwierdź" chroniło

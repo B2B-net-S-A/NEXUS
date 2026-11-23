@@ -72,7 +72,7 @@ class CandidateClientForm(Base, TimestampMixin):
     updated_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    # 0755: plik wypełniony poza NEXUSEM (Word/PDF formularza, Excel tabeli),
+    # 0756: plik wypełniony poza NEXUSEM (Word/PDF formularza, Excel tabeli),
     # wgrany z dysku — idzie do QC i do klienta zamiast wypełnienia z NEXUSA.
     # Klucz to ścieżka względna w storage (`storage_service.save_client_form_file`).
     uploaded_file_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
