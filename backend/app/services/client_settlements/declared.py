@@ -226,6 +226,9 @@ def evaluate(
         group.fail("proof.name_match", f"{parsed.source} bez imienia i nazwiska")
     if parsed.amount is not None:
         group.info(f"Kwota w dokumencie: {_fmt(parsed.amount)} zł netto")
+        if result.md_regular is not None:
+            # Kontrola ``cl.protocol_amount`` w ``engine.compute`` (kwota do faktury).
+            result.meta["document_amount"] = str(parsed.amount)
     group.close()
 
     sums = _Group(result, rules, "Pola i sumy")
