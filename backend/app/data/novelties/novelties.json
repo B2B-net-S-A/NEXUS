@@ -251,6 +251,22 @@
     ]
   },
   {
+    "id": "sprzedaz-dzwonienie-kto-dzwoni",
+    "pr": 3763,
+    "title": "Dzwonienie: kto dzwoni? Szukanie po numerze",
+    "why": "Klient oddzwania, a telefon pokazuje sam numer? Wpisz go w „Kto dzwoni?” nad kolejką: zobaczysz firmę, osobę i kto do niej dzwonił. Spacje i +48 nie przeszkadzają, także w Tabeli.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "permissions": [
+        "sales_view"
+      ]
+    },
+    "where": "Sprzedaż → Dzwonienie → pole „Kto dzwoni?”",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.who-calls"
+  },
+  {
     "id": "sprzedaz-dzwonienie-przypomnienia",
     "pr": 3374,
     "title": "Dzwonienie: Przypomnienia, „Nie odebrane” i cudza kolejka",

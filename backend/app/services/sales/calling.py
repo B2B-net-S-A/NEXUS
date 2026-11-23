@@ -59,6 +59,7 @@ from app.services.candidate_followups import add_business_days
 from app.services.sales import calling_crm, calling_repeats, client_gate, history
 from app.services.sales.calling_reasons import CallbackReason, callback_reasons
 from app.services.sales.calling_file import phone_digits, valid_email
+from app.services.sales.calling_lookup import PHONE_DIGITS, phone_digits_sql
 from app.services.sales.calls import DO_NOT_CONTACT, OBJECTION_DETAIL, OUTCOME_LABELS
 from app.services.sales.lifecycle import apply_stage
 from app.services.sales.next_step import not_system_entry
@@ -835,6 +836,8 @@ async def day_counts(db: AsyncSession, user_id: int, day: date) -> DayCounts:
 # ── Tabela: rekordy osoby albo wszystkich ────────────────────────────────
 
 TABLE_LIMIT = 200
+#: Od tylu cyfr wyszukiwanie w Tabeli porównuje też same cyfry numeru.
+SEARCH_PHONE_DIGITS = 6
 #: Stany, które pokazuje filtr tabeli (sprzeciw nie wchodzi: numer nie może wyjść z API).
 TABLE_STATES: tuple[str, ...] = tuple(
     state for state in schema.CALL_RECORD_STATES if state != DO_NOT_CONTACT
@@ -913,13 +916,20 @@ async def list_records(
             query = query.where(SalesCallRecord.callback_on <= callback_to)
         if search:
             pattern = f"%{search.strip()}%"
-            query = query.where(
-                or_(
-                    SalesCompany.name.ilike(pattern),
-                    SalesCallRecord.person_name.ilike(pattern),
-                    SalesCallRecord.phone.ilike(pattern),
+            conditions = [
+                SalesCompany.name.ilike(pattern),
+                SalesCallRecord.person_name.ilike(pattern),
+                SalesCallRecord.phone.ilike(pattern),
+            ]
+            # Numer po samych cyfrach (23.11.2026): „+48 500 058 777” po wpisaniu 500058777.
+            digits = "".join(char for char in search if char.isdigit())
+            if len(digits) >= SEARCH_PHONE_DIGITS:
+                conditions.append(
+                    phone_digits_sql(SalesCallRecord.phone).like(
+                        f"%{digits[-PHONE_DIGITS:]}%"
+                    )
                 )
-            )
+            query = query.where(or_(*conditions))
         return query
 
     counted = (
