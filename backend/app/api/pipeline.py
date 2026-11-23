@@ -90,6 +90,8 @@ from app.schemas.pipeline import (
     KanbanView,
     MyNextStepsJob,
     MyNextStepsResponse,
+    QuickRejectReasonOut,
+    QuickRejectReasonsResponse,
     OffTemplateColumn,
     StageMove,
     StageInfo,
@@ -104,6 +106,7 @@ from app.api.candidate_access import (
     user_has_candidate_read,
 )
 from app.api.deps import CurrentUser, OperationalUser, RecruiterPlus
+from app.services.quick_reject_reasons import quick_reject_reasons, window_start
 from app.api.recruitment_access import (
     ensure_job_read_access,
     ensure_job_membership,
@@ -5175,6 +5178,27 @@ async def my_next_steps(
         for job, view in zip(readable, views)
     ]
     return MyNextStepsResponse(jobs=out, truncated=truncated)
+
+
+@router.get("/my-quick-reject-reasons", response_model=QuickRejectReasonsResponse)
+async def my_quick_reject_reasons(
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> QuickRejectReasonsResponse:
+    """Trzy najczęstsze powody odrzucenia zalogowanej osoby z 30 dni (23.11.2026).
+
+    Wiersz „Odrzuć:” w panelu osoby. Dostęp jak ``POST /move`` — kto nie może
+    odrzucić, nie dostaje skrótu. Mniej niż trzy powody → dopełnienie
+    najczęstszymi w zespole. ``docs/claude/rekrutacja-tablica/odrzucenie-jednym-kliknieciem.md``.
+    """
+    picked = await quick_reject_reasons(db, current_user.id)
+    return QuickRejectReasonsResponse(
+        reasons=[
+            QuickRejectReasonOut(key=r.key, count=r.count, source=r.source)  # type: ignore[arg-type]
+            for r in picked
+        ],
+        since=window_start().date(),
+    )
 
 
 @router.get(

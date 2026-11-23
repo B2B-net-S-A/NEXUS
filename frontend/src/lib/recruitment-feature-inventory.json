@@ -3154,6 +3154,14 @@
    "v3_home": "Tablica → karta → „→”"
   },
   {
+   "id": "dock.quick-reject",
+   "area": "ruch",
+   "opis": "Panel osoby w „Nowych”/„Screeningu”: wiersz „Odrzuć:” z trzema najczęstszymi powodami osoby z 30 dni — jedno kliknięcie odrzuca („Odrzucamy my”), 10 s na „Cofnij”, panel przechodzi do następnej osoby (23.11.2026)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "dock-quick-reject",
+   "v3_home": "Tablica → panel osoby → pod „Odrzuć z powodem”"
+  },
+  {
    "id": "card.cv-state",
    "area": "pipeline",
    "opis": "Plakietka CV na karcie w „Zweryfikowany”: „CV w przygotowaniu…”, „CV gotowe · QC: N do poprawy”, „CV gotowe · QC bez uwag”",

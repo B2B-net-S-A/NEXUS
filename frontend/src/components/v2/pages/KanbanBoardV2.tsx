@@ -244,6 +244,13 @@ import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { useJobPipelineTemplate } from "@/hooks/useJobPipelineTemplate";
 import { useReviewSequence } from "@/hooks/useReviewSequence";
 import {
+ quickRejectAllowed,
+ quickRejectChips,
+ quickRejectMessage,
+ useQuickRejectReasons,
+ type QuickRejectChip,
+} from "@/lib/quick-reject";
+import {
  kanbanViewToggleVisible,
  resolveKanbanViewMode,
  useKanbanViewPreference,
@@ -4201,7 +4208,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  verb: ClosedVerb,
  after: readonly number[],
  reason: string | null,
- queueName: string | null
+ queueName: string | null,
+ // Odrzucenie jednym kliknięciem ma własny komunikat z „Cofnij”.
+ quiet = false
  ) => {
  // Rekruter zdążył otworzyć kogoś innego albo zamknąć panel — nie skaczemy.
  if (dockCandidateId !== closed.candidate_id) return;
@@ -4211,6 +4220,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  const name = itemFullName(closed);
  if (nextId == null || !next) {
  closeDock();
+ if (quiet) return;
  showActionToast(
  queueName
  ? `${verb}: ${name}. To była ostatnia osoba w kolejce „${queueName}”.`
@@ -4263,6 +4273,54 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  },
  [dockItem, dockItemColId, rejectedTemplateCol, requestReject, dockFollowUp]
  );
+ // ── „Odrzuć:” — trzy najczęstsze powody jednym kliknięciem (23.11.2026) ──
+ // Tylko „Nowi”/„Screening”. Panel przechodzi do następnej osoby od razu
+ // (ruch czeka 10 s na „Cofnij”, jak strzałka „→”); „Cofnij” wraca do osoby.
+ // Zasady: docs/claude/rekrutacja-tablica/odrzucenie-jednym-kliknieciem.md.
+ const quickRejectReasonsQuery = useQuickRejectReasons(!readOnly && Boolean(rejectedTemplateCol));
+ const quickRejectChipList = useMemo(
+ () => (quickRejectReasonsQuery.isSuccess ? quickRejectChips(quickRejectReasonsQuery.data.reasons) : []),
+ [quickRejectReasonsQuery.isSuccess, quickRejectReasonsQuery.data]
+ );
+ const handleDockQuickReject = useCallback(
+ (chip: QuickRejectChip) => {
+ if (!dockItem || !dockItemColId || !rejectedTemplateCol) return;
+ const closed = dockItem;
+ const openWindow = () =>
+ requestReject(closed, rejectedTemplateCol, {
+ followUp: dockFollowUp(closed, "Odrzucono"),
+ reasonKey: chip.key,
+ });
+ if (chip.opensWindow) {
+ openWindow();
+ return;
+ }
+ const after = dockIndex >= 0 ? dockOrder.slice(dockIndex + 1) : [];
+ const preview = after.length > 0 ? locateCandidate(after[0]) : null;
+ const outcome = move.deferReject(closed, dockItemColId, chip.key, {
+ toColumn: rejectedTemplateCol,
+ message: quickRejectMessage({
+ name: itemFullName(closed),
+ reasonLabel: chip.label,
+ next: preview ? itemFullName(preview.item) : null,
+ queueName: queueLabel,
+ }),
+ onUndo: () => {
+ setAfterClose(null);
+ setDockCandidateId(closed.candidate_id);
+ },
+ });
+ if (outcome === "needs_window") openWindow();
+ else if (outcome === "deferred") {
+ advanceAfterCloseRef.current(closed, "Odrzucono", after, chip.label, queueLabel, true);
+ }
+ },
+ [dockItem, dockItemColId, rejectedTemplateCol, requestReject, dockFollowUp, dockIndex, dockOrder, locateCandidate, move, queueLabel]
+ );
+ const dockQuickReject =
+ dockItem && quickRejectAllowed(columnByItemId.get(dockItem.id)) && quickRejectChipList.length > 0
+ ? { chips: quickRejectChipList, onPick: handleDockQuickReject }
+ : null;
  const handleDockWithdraw = useCallback(() => {
  if (!dockItem) return;
  move.requestWithdraw(dockItem, { followUp: dockFollowUp(dockItem, "Rezygnacja") });
@@ -4838,6 +4896,7 @@ headerAction={
  onOpenScreening={handleOpenScreening}
  onReject={handleDockReject}
  onWithdraw={handleDockWithdraw}
+ quickReject={dockQuickReject}
  onAddClientSlots={
  canAddClientSlots &&
  (dockHostKey === "cv_sent" || dockHostKey === "client_interview")

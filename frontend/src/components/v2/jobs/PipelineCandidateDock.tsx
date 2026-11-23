@@ -201,6 +201,7 @@ import {
   DockClientInterviewQuestions,
 } from "@/components/v2/jobs/DockClientInterviewQuestions";
 import { extractClientQuestions, looksLikeClientQuestions } from "@/lib/client-question-notes";
+import type { QuickRejectChip } from "@/lib/quick-reject";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -483,6 +484,16 @@ export interface PipelineCandidateDockProps {
   onReject: (options?: { notes?: string | null }) => void;
   /** Pipeline v4: „Zrezygnował" — rezygnacja kandydata z powodem. */
   onWithdraw?: () => void;
+  /**
+   * Odrzucenie jednym kliknięciem (23.11.2026): trzy najczęstsze powody
+   * zalogowanej osoby pod rzędem akcji. Tylko „Nowi”/„Screening” — wołający
+   * podaje je wyłącznie tam (`quickRejectAllowed`). Chip z `opensWindow`
+   * otwiera okno z zaznaczonym powodem.
+   */
+  quickReject?: {
+    chips: QuickRejectChip[];
+    onPick: (chip: QuickRejectChip) => void;
+  } | null;
   /** Pipeline v4: DL wpisuje terminy od klienta prosto z osoby w „CV wysłane"
    *  (terminy same przenoszą kartę na „Rozmowę u klienta"). */
   onAddClientSlots?: () => void;
@@ -914,6 +925,7 @@ export function PipelineCandidateDock({
   onOpenScreening,
   onReject,
   onWithdraw,
+  quickReject = null,
   onAddClientSlots,
   onOpenQc,
   onTake,
@@ -2137,6 +2149,34 @@ export function PipelineCandidateDock({
                 }
               />
             </div>
+            {canReject && !rejectBlockedReason && quickReject && quickReject.chips.length > 0 ? (
+              <div
+                role="group"
+                aria-label="Odrzuć jednym kliknięciem"
+                data-testid="dock-quick-reject"
+                className="flex flex-wrap items-center gap-1"
+              >
+                <span className="text-xs font-medium text-muted-foreground">Odrzuć:</span>
+                {quickReject.chips.map((chip) => (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    onClick={() => quickReject.onPick(chip)}
+                    title={
+                      (chip.source === "mine"
+                        ? "Twój częsty powód z 30 dni"
+                        : "Częsty powód w zespole z 30 dni") +
+                      (chip.opensWindow
+                        ? " — otworzy okno, bo pyta o szczegół"
+                        : " — odrzuca od razu, „Odrzucamy my”, 10 s na „Cofnij”")
+                    }
+                    className="inline-flex h-7 max-w-full items-center truncate rounded-full border border-destructive/30 bg-background px-2.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+                  >
+                    {chip.opensWindow ? `${chip.label}…` : chip.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         )}
         {clientAcceptance && (

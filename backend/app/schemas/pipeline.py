@@ -646,6 +646,22 @@ class MyNextStepsResponse(BaseModel):
     truncated: bool = False
 
 
+class QuickRejectReasonOut(BaseModel):
+    """Powód skrótu „Odrzuć:” w panelu osoby (23.11.2026) — klucz słownika
+    powodów zamknięcia (``close_reasons``), etykietę daje front."""
+
+    key: str
+    count: int
+    # ``mine`` — z odrzuceń zalogowanej osoby; ``team`` — dopełnienie z zespołu.
+    source: Literal["mine", "team"]
+
+
+class QuickRejectReasonsResponse(BaseModel):
+    reasons: List[QuickRejectReasonOut]
+    # Pierwszy dzień okna (kalendarz firmy) — do podpowiedzi w panelu.
+    since: date
+
+
 class StageInfo(BaseModel):
     stage: PipelineStage
     category: StageCategory

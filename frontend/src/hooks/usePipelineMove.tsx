@@ -54,7 +54,11 @@ import { ClientRateModal } from "@/components/v2/modals/ClientRateModal";
 import { useClientRateHistory } from "@/lib/api/clientRateHistory";
 import { canViewClientRate } from "@/lib/client-rate-access";
 import { RejectionV2, type EndedBy } from "@/components/v2/modals/RejectionV2";
-import { closePairMeetings, type PairMeetingsChoice } from "@/lib/api/pairMeetings";
+import {
+  closePairMeetings,
+  fetchPairMeetings,
+  type PairMeetingsChoice,
+} from "@/lib/api/pairMeetings";
 import type { RejectionWorkModeChoice } from "@/components/v2/modals/RejectionWorkModeField";
 import {
   rejectionRateMoveFields,
@@ -62,10 +66,18 @@ import {
 } from "@/components/v2/modals/RejectionRateField";
 import {
   autofillMoveFields,
+  CLIENT_WIDE_REASONS,
   isDecisionColumn,
   needsAutofillReason,
+  NOT_LOOKING_DEFAULT_MONTHS,
+  notLookingUntil,
   type AutofillFeedbackChoice,
+  type AutofillReason,
 } from "@/lib/autofill-feedback";
+import { closeReason, closeTemplateReason, type CloseReasonKey } from "@/lib/close-reasons";
+import { QUICK_REJECT_OPENS_WINDOW, quickRejectLearnedFrom } from "@/lib/quick-reject";
+import { NOT_LOOKING_FOR_WORK_REASON } from "@/lib/rejection-reasons";
+import { choiceFrom as meetingsChoiceFrom } from "@/components/v2/modals/RejectionMeetingsField";
 import { placeStage } from "@/lib/board-stages";
 import {
   useRejectionProfileWorkMode,
@@ -252,10 +264,13 @@ interface MoveEntry {
   srcColId: string;
 }
 
+/** Wynik odrzucenia jednym kliknięciem (`deferReject`). */
+export type QuickRejectOutcome = "deferred" | "blocked" | "needs_window";
+
 /** Ile karta po strzałce „→” czeka na ekranie, zanim ruch pójdzie do serwera. */
 export const DEFERRED_MOVE_MS = 10_000;
 
-/** Odłożony ruch strzałką „→” — jeszcze nie wysłany. */
+/** Odłożony ruch strzałką „→” albo odrzucenie jednym kliknięciem — jeszcze nie wysłany. */
 interface DeferredMove {
   item: KanbanItem;
   srcColId: string;
@@ -263,6 +278,12 @@ interface DeferredMove {
   timer: ReturnType<typeof setTimeout>;
   /** Cofnięcie stanu optymistycznego, jeśli adapter je dał. */
   rollback: void | (() => void);
+  /** Odrzucenie jednym kliknięciem (23.11.2026): powód i to, co po wysłaniu. */
+  reject?: {
+    reason: MoveReason;
+    onUndo?: () => void;
+    onSent: (ok: boolean) => Promise<void> | void;
+  };
 }
 
 /**
@@ -409,6 +430,8 @@ export interface PipelineMoveControls {
       endedBy?: Exclude<EndedBy, "candidate">;
       notes?: string | null;
       followUp?: RejectFollowUp;
+      /** Powód zaznaczony przy otwarciu (chip „Odrzuć:” z dodatkowym pytaniem). */
+      reasonKey?: CloseReasonKey | null;
     }
   ) => void;
   /** „Zrezygnował" — `RejectionV2` na kolumnie „Wycofany". */
@@ -433,6 +456,27 @@ export interface PipelineMoveControls {
     toColumn: KanbanColumn,
     options: { targetLabel: string; delayMs?: number; detail?: string | null }
   ) => void;
+  /**
+   * Odrzucenie jednym kliknięciem z panelu osoby (23.11.2026): karta idzie na
+   * „Odrzucony” od razu, żądanie po `delayMs` (10 s) z „Cofnij” w komunikacie —
+   * jak strzałka „→”, więc cofnięcie nie zostawia maila ani dzwonka. Powód
+   * i pola ruchu jak „Potwierdź” w oknie przy „Odrzucamy my”.
+   * `"needs_window"` — skrót nie umie tego odrzucić (powód z dodatkowym
+   * pytaniem, brak wiersza szablonu, ruch tej osoby już czeka): wołający
+   * otwiera okno (`requestReject` z `reasonKey`). `"blocked"` — bramka
+   * odmówiła i pokazała powód.
+   */
+  deferReject: (
+    item: KanbanItem,
+    fromColumn: KanbanColumn | string,
+    reasonKey: CloseReasonKey,
+    options: {
+      message: string;
+      toColumn?: KanbanColumn;
+      delayMs?: number;
+      onUndo?: () => void;
+    }
+  ) => QuickRejectOutcome;
   /** Ruchy czekające na wysłanie — Tablica nakłada je na stan z serwera. */
   pendingMoves: () => ReadonlyArray<{ candidateId: number; toColumn: KanbanColumn }>;
   /**
@@ -513,6 +557,8 @@ export function usePipelineMove({
     notes?: string | null;
     /** Tylko z panelu osoby i tylko przy jednej osobie. */
     followUp?: RejectFollowUp;
+    /** Powód zaznaczony przy otwarciu (23.11.2026, chip „Odrzuć:”). */
+    reasonKey?: CloseReasonKey | null;
   } | null>(null);
   const [verifiedRatePrompt, setVerifiedRatePrompt] = useState<{
     item: KanbanItem;
@@ -927,6 +973,8 @@ export function usePipelineMove({
   // `sendMove`, a sam `sendMove` nie może zależeć od siebie.
   const sendMoveRef = useRef<typeof sendMove | null>(null);
   sendMoveRef.current = sendMove;
+  const refreshAfterMoveRef = useRef(refreshAfterMove);
+  refreshAfterMoveRef.current = refreshAfterMove;
 
   // ── Strzałka „→”: ruch odłożony o 10 s z „Cofnij” (14.10.2026) ──────────
   const deferredRef = useRef(new Map<number, DeferredMove>());
@@ -945,9 +993,21 @@ export function usePipelineMove({
     async (candidateId: number): Promise<boolean> => {
       const pending = dropDeferred(candidateId);
       if (!pending) return true;
+      if (pending.reject) {
+        const ok =
+          (await sendMoveRef.current?.(pending.item, pending.dst, pending.reject.reason, {
+            silent: true,
+            onFailure: (reason) =>
+              showError(`Nie odrzucono: ${itemFullName(pending.item)} — ${reason}`),
+          })) ?? false;
+        // Ciche wysłanie nie cofa karty samo — prawda serwera jak po błędzie ruchu.
+        if (!ok) await refreshAfterMoveRef.current();
+        await pending.reject.onSent(ok);
+        return ok;
+      }
       return (await sendMoveRef.current?.(pending.item, pending.dst)) ?? false;
     },
-    [dropDeferred]
+    [dropDeferred, showError]
   );
   // „Cofnij”: karta wraca na miejsce, do serwera nic nie idzie.
   const cancelDeferred = useCallback(
@@ -959,6 +1019,7 @@ export function usePipelineMove({
       }
       if (typeof pending.rollback === "function") pending.rollback();
       else void optimisticRef.current?.sync?.();
+      pending.reject?.onUndo?.();
     },
     [dropDeferred, showError]
   );
@@ -1184,6 +1245,118 @@ export function usePipelineMove({
   );
   const deferMoveRef = useRef(deferMove);
   deferMoveRef.current = deferMove;
+
+  // ── Odrzucenie jednym kliknięciem (23.11.2026) ──────────────────────────
+  // Te same pola co „Potwierdź” w oknie przy „Odrzucamy my”, bez maila (skrót
+  // stoi tylko w „Nowych”/„Screeningu”, gdzie mail nie wychodzi) i z
+  // domyślnymi odpowiedziami okna: „Nie szuka” na 3 miesiące, „na cały
+  // klient”, spotkania pary do odwołania. Zasady:
+  // docs/claude/rekrutacja-tablica/odrzucenie-jednym-kliknieciem.md.
+  const deferReject = useCallback(
+    (
+      rawItem: KanbanItem,
+      fromColumn: KanbanColumn | string,
+      reasonKey: CloseReasonKey,
+      options: {
+        message: string;
+        toColumn?: KanbanColumn;
+        delayMs?: number;
+        onUndo?: () => void;
+      }
+    ): QuickRejectOutcome => {
+      if (readOnly) return "blocked";
+      if (QUICK_REJECT_OPENS_WINDOW.has(reasonKey)) return "needs_window";
+      const srcColId = typeof fromColumn === "string" ? fromColumn : colId(fromColumn);
+      const dst = options.toColumn ?? columns.find((c) => terminalOf(c) === "rejected");
+      const src = columns.find((c) => colId(c) === srcColId);
+      if (!dst || !src || deferredRef.current.has(rawItem.candidate_id)) return "needs_window";
+      const item = latest(rawItem);
+      const blocked = moveBlockedReason({ item, readOnly, terminal: true, targetStage: dst.stage });
+      if (blocked) {
+        showError(blocked);
+        return "blocked";
+      }
+      const label = closeReason(reasonKey)?.label ?? "";
+      const template = closeTemplateReason(
+        reasonKey,
+        "recruiter",
+        job.rejectionReasons.filter((r) => r.applies_to.includes("rejected"))
+      );
+      if (!template) return "needs_window";
+      const column = placeStage(src).column;
+      const system = needsAutofillReason(item, column);
+      const systemReason = reasonKey as AutofillReason;
+      const notLooking = notLookingUntil(NOT_LOOKING_DEFAULT_MONTHS);
+      const reason: MoveReason = {
+        id: template.id,
+        // Szablon bez wiersza tego powodu → „Inne” z nazwą powodu w opisie (jak okno).
+        notes: template.label.trim() === "Inne" ? label : "",
+        sendRejectionEmail: false,
+        candidateOfferResponse: null,
+        endedBy: "recruiter",
+        autofill: system
+          ? {
+              reason: systemReason,
+              learnedFrom: quickRejectLearnedFrom(column),
+              rateHourly: null,
+              ...(CLIENT_WIDE_REASONS.has(systemReason) ? { wholeClient: true } : {}),
+              ...(reasonKey === "not_looking" ? { notLookingUntil: notLooking } : {}),
+            }
+          : null,
+        notLookingUntil:
+          !system && template.name?.trim() === NOT_LOOKING_FOR_WORK_REASON ? notLooking : null,
+      };
+      const delayMs = options.delayMs ?? DEFERRED_MOVE_MS;
+      const rollback = applyOptimistic(item, srcColId, dst);
+      const timer = setTimeout(() => void commitDeferred(item.candidate_id), delayMs);
+      deferredRef.current.set(item.candidate_id, {
+        item,
+        srcColId,
+        dst,
+        timer,
+        rollback,
+        reject: {
+          reason,
+          onUndo: options.onUndo,
+          onSent: async (ok) => {
+            if (!ok) return;
+            // Spotkania pary: okno domyślnie odwołuje wszystkie (`RejectionMeetingsField`).
+            try {
+              const meetings = await fetchPairMeetings(jobId, item.candidate_id);
+              await closePairMeetings(jobId, item.candidate_id, meetingsChoiceFrom(meetings, []), {
+                showSuccess,
+                showError,
+              });
+            } catch {
+              showError(
+                "Osoba jest odrzucona, ale nie udało się sprawdzić jej spotkań — zajrzyj do Kalendarza."
+              );
+            }
+          },
+        },
+      });
+      setDeferredCount(deferredRef.current.size);
+      showActionToast(options.message, {
+        actionLabel: "Cofnij",
+        onAction: () => cancelDeferred(item.candidate_id),
+        durationMs: delayMs,
+      });
+      return "deferred";
+    },
+    [
+      readOnly,
+      columns,
+      latest,
+      job.rejectionReasons,
+      jobId,
+      applyOptimistic,
+      commitDeferred,
+      cancelDeferred,
+      showActionToast,
+      showSuccess,
+      showError,
+    ]
+  );
 
   const pendingMoves = useCallback(
     () =>
@@ -1624,6 +1797,7 @@ export function usePipelineMove({
         endedBy?: Exclude<EndedBy, "candidate">;
         notes?: string | null;
         followUp?: RejectFollowUp;
+        reasonKey?: CloseReasonKey | null;
       }
     ) => {
       const dst = toColumn ?? columns.find((c) => terminalOf(c) === "rejected");
@@ -1647,6 +1821,7 @@ export function usePipelineMove({
         endedBy: options?.endedBy ?? null,
         notes: options?.notes ?? null,
         followUp: entries.length === 1 ? options?.followUp : undefined,
+        reasonKey: options?.reasonKey ?? null,
       });
     },
     [columns, commitDeferred]
@@ -1874,6 +2049,7 @@ export function usePipelineMove({
         onConfirm={confirmRejection}
         initialEndedBy={pendingRejection?.endedBy ?? null}
         initialNotes={pendingRejection?.notes ?? null}
+        initialReasonKey={pendingRejection?.reasonKey ?? null}
         canEndAsDeliveryLead={canEndAsDeliveryLead}
         agreement={
           pendingRejection && pendingRejection.entries.length === 1
@@ -2296,6 +2472,7 @@ export function usePipelineMove({
     requestWithdraw,
     canMoveWithoutDialog,
     deferMove,
+    deferReject,
     pendingMoves,
     commitPendingMove,
     isMoving: bulkBusy,
