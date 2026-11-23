@@ -105,6 +105,11 @@ class DocumentType:
     #: wtedy zapisywany), a wygenerowanie aktualizuje wiersz rejestru
     #: (``annex_register``). Skutki w kontrakcie dalej dopiero po podpisie.
     allows_external: bool = False
+    #: Rozwiązanie umowy B2B sprzed NEXUSA (23.11.2026): bez umowy w rejestrze
+    #: dokument przyjmuje KONTRAKT B2B, a numer i datę umowy wpisuje człowiek
+    #: (pola grupy ``base``, wymagane wtedy przez serwer). Podpis kończy ten
+    #: kontrakt. „Bez kontraktu” zostaje wyłącznie przy aneksach.
+    accepts_contract: bool = False
     #: Języki, w których nowego dokumentu już się nie wystawia, ale zapisany
     #: wcześniej dokument pobiera się ponownie (szablon zostaje w repo).
     legacy_languages: tuple[str, ...] = ()
@@ -236,6 +241,19 @@ ANNEX_CONTRACT_FIELDS: tuple[FieldDef, ...] = (
         required=True,
         group="base",
     ),
+)
+
+#: Umowa bazowa rozwiązania spoza rejestru (``accepts_contract``). Nie
+#: ``required`` — przy umowie z rejestru numer i datę zna wiersz, a formularz
+#: tych pól nie pokazuje; bez wiersza wymaga ich serwer.
+EXTERNAL_BASE_FIELDS: tuple[FieldDef, ...] = (
+    FieldDef(
+        "contract_number",
+        "Numer umowy",
+        help="Z podpisanej umowy — tej umowy nie ma w rejestrze NEXUSA.",
+        group="base",
+    ),
+    FieldDef("contract_signing_date", "Data zawarcia umowy", "date", group="base"),
 )
 
 ANNEX_DATE_FIELDS: tuple[FieldDef, ...] = (
@@ -830,6 +848,7 @@ TYPES: dict[str, DocumentType] = {
             family="termination",
             languages=("pl", "en"),
             parent="b2b",
+            accepts_contract=True,
             description="Rozwiązanie umowy B2B za porozumieniem stron.",
             effect_label=(
                 "Kontrakt dostanie datę zakończenia (ostatni dzień świadczenia "
@@ -838,6 +857,7 @@ TYPES: dict[str, DocumentType] = {
                 "rozwiązania umowy."
             ),
             fields=(
+                *EXTERNAL_BASE_FIELDS,
                 DOCUMENT_DATE,
                 *PARTNER_FIELDS,
                 FieldDef(
@@ -883,6 +903,7 @@ TYPES: dict[str, DocumentType] = {
             family="termination",
             languages=("pl",),
             parent="b2b",
+            accepts_contract=True,
             signatories="company",
             description=(
                 "Jednostronne wypowiedzenie umowy B2B przez B2B.net z zachowaniem "
@@ -893,6 +914,7 @@ TYPES: dict[str, DocumentType] = {
                 "umowa w rejestrze — „Zakończona” z tą datą."
             ),
             fields=(
+                *EXTERNAL_BASE_FIELDS,
                 DOCUMENT_DATE,
                 *PARTNER_FIELDS,
                 FieldDef(

@@ -57,6 +57,7 @@ import {
   missingRequired,
   paragraphAfterVariantChange,
   readDocumentError,
+  typeForSubject,
   typesByFamily,
   type PartnerVariant,
 } from "@/lib/b2b-documents";
@@ -102,8 +103,10 @@ const EMPTY_SUBJECT: Subject = {
 };
 
 /** Aneks do umowy albo kontraktu — podmiot wybiera wyszukiwanie osoby. */
+/** Wybór osoby (umowy z rejestru i kontrakty bez umowy w rejestrze): aneksy
+ *  i rozwiązanie umowy sprzed NEXUSA (23.11.2026). */
 function usesAnnexPicker(type: DocumentTypeDef): boolean {
-  return type.family === "annex" && type.parent !== "none";
+  return (type.family === "annex" && type.parent !== "none") || Boolean(type.accepts_contract);
 }
 
 function subjectReady(type: DocumentTypeDef, subject: Subject): boolean {
@@ -155,11 +158,15 @@ export function DocumentWizard({
   );
   const startType = initialType ? (typesByKey.get(initialType) ?? null) : null;
   const [typeKey, setTypeKey] = useState<string | null>(startType?.key ?? null);
-  const type = typeKey ? (typesByKey.get(typeKey) ?? null) : null;
   const [subject, setSubject] = useState<Subject>({
     ...EMPTY_SUBJECT,
     parentId: initialParentId,
   });
+  const hasParent = subject.parentId !== null;
+  const type = useMemo(() => {
+    const def = typeKey ? (typesByKey.get(typeKey) ?? null) : null;
+    return def ? typeForSubject(def, hasParent) : null;
+  }, [typeKey, typesByKey, hasParent]);
   const [step, setStep] = useState<Step>(() => {
     if (editDocumentId) return "form";
     if (!startType) return "type";
@@ -384,7 +391,8 @@ export function DocumentWizard({
     onSuccess: (id) => {
       setSavedId(id ?? null);
       queryClient.invalidateQueries({ queryKey: [B2B_DOCUMENTS_KEY, "list"] });
-      const annex = type ? usesAnnexPicker(type) : false;
+      // Wybór osoby mają też rozwiązania umów spoza NEXUSA — to nie aneksy.
+      const annex = type ? usesAnnexPicker(type) && type.family === "annex" : false;
       if (annex) {
         // Aneks widać w kontrakcie od wygenerowania („czeka na podpis”).
         queryClient.invalidateQueries({ queryKey: ["contract-annex-documents"] });
@@ -579,7 +587,7 @@ export function DocumentWizard({
                     icon={CheckCircle2}
                     title="Dokument zapisany"
                     description={
-                      !usesAnnexPicker(type)
+                      !usesAnnexPicker(type) || type.family !== "annex"
                         ? "Plik pobrany, wpis jest na liście dokumentów. Po podpisie oznacz go jako podpisany."
                         : subject.withoutContract
                           ? "Plik pobrany. Aneks jest w rejestrze aneksów z oznaczeniem „Bez kontraktu” — powiąż go z kontraktem, żeby dało się go oznaczyć jako podpisany."
