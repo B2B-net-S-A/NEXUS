@@ -163,7 +163,7 @@ class PreContractRequest(Base, TimestampMixin):
     last_reminder_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # 0761 (23.11.2026): „Zatrzymaj do podpisu”. NULL = jak ustawienie
+    # 0762 (23.11.2026): „Zatrzymaj do podpisu”. NULL = jak ustawienie
     # rekrutacji (`jobs.pre_contract_rule`), true = stop przy tej osobie,
     # false = wyjątek (bez blokady). Kto i kiedy ostatnio zmienił.
     blocks_move: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)

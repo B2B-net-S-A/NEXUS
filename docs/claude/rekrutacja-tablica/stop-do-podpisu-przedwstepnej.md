@@ -76,5 +76,5 @@ https://claude.ai/artifact/57oWdtaKX1nwK8WtuxkVmR.
   kłódka), `PreContractRequestDialog` (przełącznik), `PreContractSection`
   (wiersz „Ruch karty” z wyjątkiem), `MoveNextDialog` i `DlReviewPanel`
   („Zdejmij blokadę”).
-- **Schemat:** migracja 0761, DDL w `pre_contract_schema.STOP_DDL`, lustro
+- **Schemat:** migracja 0762, DDL w `pre_contract_schema.STOP_DDL`, lustro
   w `entrypoint.sh` (test w `test_pre_contracts_rules.py`).

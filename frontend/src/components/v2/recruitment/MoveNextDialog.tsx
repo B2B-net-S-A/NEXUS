@@ -182,7 +182,7 @@ export function MoveNextDialog({
   const me = useAuthStore((st) => st.user);
   const queryClient = useQueryClient();
   const data = query.data;
-  // 0761 (23.11.2026): „Zatrzymaj do podpisu przedwstępnej” — bramka serwera
+  // 0762 (23.11.2026): „Zatrzymaj do podpisu przedwstępnej” — bramka serwera
   // (także dla DL-a). DL klienta, HoR i admin mogą tu zrobić wyjątek.
   const stop = (data?.items ?? []).some(
     (i) => i.key === "pre_contract" && i.blocking && i.status === "missing",

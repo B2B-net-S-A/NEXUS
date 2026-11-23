@@ -1,4 +1,4 @@
-"""„Zatrzymaj do podpisu przedwstępnej” — API i ruch karty (0761, 23.11.2026).
+"""„Zatrzymaj do podpisu przedwstępnej” — API i ruch karty (0762, 23.11.2026).
 
 Decyzje Artura: blokada przy osobie albo z ustawienia rekrutacji, od wybranego
 etapu, obowiązuje też Delivery Leada; ustawia i zdejmuje DL klienta, Head of

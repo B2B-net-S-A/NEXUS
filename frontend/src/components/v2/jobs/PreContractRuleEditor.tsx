@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * 0761 (decyzje Artura 23.11.2026) — ustawienie rekrutacji „Każda osoba podpisuje umowę
+ * 0762 (decyzje Artura 23.11.2026) — ustawienie rekrutacji „Każda osoba podpisuje umowę
  * przedwstępną przed <etap>” z przełącznikiem „Zatrzymaj kartę do podpisu”.
  * Ten sam edytor na `/jobs/new` (sekcja „Warunki”) i w nagłówku rekrutacji.
  */

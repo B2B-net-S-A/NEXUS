@@ -484,7 +484,7 @@ export function DlReviewBody({
   const context = useDlReviewContext(candidateId, jobId);
   // 0506: prośba o przedwstępną z przeglądu (DL decyduje, że CV poczeka na umowę).
   const [preContractOpen, setPreContractOpen] = useState(false);
-  // 0761 (23.11.2026): „Zatrzymaj do podpisu przedwstępnej” — wysyłka do
+  // 0762 (23.11.2026): „Zatrzymaj do podpisu przedwstępnej” — wysyłka do
   // klienta czeka na podpis (serwer i tak zwróci 409); DL może zrobić wyjątek.
   const stopPair = usePreContractPair(candidateId, jobId);
   const stop = stopPair.data?.stop ?? null;

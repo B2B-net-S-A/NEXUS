@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Fakt nagłówka rekrutacji „Przedwstępna” obok „Procesu u klienta” (0761,
+ * Fakt nagłówka rekrutacji „Przedwstępna” obok „Procesu u klienta” (0762,
  * decyzje Artura 23.11.2026): ustawienie „każda osoba podpisuje umowę
  * przedwstępną przed <etap>” i „Zatrzymaj kartę do podpisu”. Edycja w okienku
  * jak proces; przy tworzeniu — `/jobs/new`. Przy 1280 px sama ikona (linia
