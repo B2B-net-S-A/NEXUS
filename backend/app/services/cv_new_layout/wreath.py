@@ -64,3 +64,25 @@ def wreath_svg(year: str, label: str) -> str:
         f'<svg viewBox="0 0 {BOX} {BOX}" width="{BOX}mm" height="{BOX}mm" xmlns="http://www.w3.org/2000/svg">'
         f"{_branch(-1)}{_branch(1)}{center}</svg>"
     )
+
+
+def _center_name(short: str, year: str) -> str:
+    size = 4.2 if len(short) <= 4 else 3.4 if len(short) <= 6 else 2.7
+    out = (
+        f'<text x="{CX}" y="{CY + (0.6 if year else 1.4)}" text-anchor="middle" font-family="Poppins" '
+        f'font-weight="700" font-size="{size}" fill="{INK}">{esc(short)}</text>'
+    )
+    if year:
+        out += (
+            f'<text x="{CX}" y="{CY + 4.0}" text-anchor="middle" font-family="Poppins" font-weight="600" '
+            f'font-size="2.1" fill="#6B655D">{esc(year)}</text>'
+        )
+    return out
+
+
+def wreath_cert_svg(short: str, year: str) -> str:
+    """Wieniec dla certyfikatu (Artur 23.11.2026): w środku skrót (PMP, ISTQB, PL-900), pod nim rok."""
+    return (
+        f'<svg viewBox="0 0 {BOX} {BOX}" width="{BOX}mm" height="{BOX}mm" xmlns="http://www.w3.org/2000/svg">'
+        f"{_branch(-1)}{_branch(1)}{_center_name(short, year)}</svg>"
+    )

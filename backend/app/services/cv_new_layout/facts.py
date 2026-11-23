@@ -91,10 +91,14 @@ LANGUAGE_CODES = {
 }
 
 
+_LANG_SPLIT = re.compile(r"\s+[-–—]\s+|\s*:\s+")
+
+
 def lang_parts(entry: str) -> tuple[str, str]:
-    """„Polski - ojczysty” → („Polski”, „ojczysty”)."""
-    name, _, level = (entry or "").partition(" - ")
-    return name.strip(), level.strip()
+    """„Polski - ojczysty” → („Polski”, „ojczysty”); także półpauza, pauza i dwukropek
+    („polski – ojczysty” z edytora), bez tego kod języka brał dwie pierwsze litery („PO”)."""
+    parts = _LANG_SPLIT.split((entry or "").strip(), maxsplit=1)
+    return parts[0].strip(), (parts[1].strip() if len(parts) > 1 else "")
 
 
 def lang_level(level: str, language: str = "pl") -> tuple[Optional[int], str]:

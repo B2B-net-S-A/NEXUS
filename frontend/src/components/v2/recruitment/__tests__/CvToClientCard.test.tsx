@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => ({
   restorePrevious: vi.fn(),
   discard: vi.fn(),
   setLayout: vi.fn(),
+  setPage1: vi.fn(),
   selectStageCv: vi.fn(),
   /** Klient rekrutacji wymaga zrzutu zgody (polityka albo reguła klienta). */
   consentRequired: false,
@@ -72,6 +73,7 @@ vi.mock("@/lib/api", () => ({
       restorePrevious: (...a: unknown[]) => mocks.restorePrevious(...a),
       discard: (...a: unknown[]) => mocks.discard(...a),
       setLayout: (...a: unknown[]) => mocks.setLayout(...a),
+      setPage1: (...a: unknown[]) => mocks.setPage1(...a),
       selectStageCv: (...a: unknown[]) => mocks.selectStageCv(...a),
       selectDocument: (...a: unknown[]) => mocks.selectDocument(...a),
       sources: (...a: unknown[]) => mocks.sources(...a),
@@ -733,6 +735,44 @@ describe("CvToClientCard — CV gotowe", () => {
     expect(await screen.findByTestId("cv-card-download-pdf")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Word \(klasyczne\)/ })).toBeInTheDocument();
     expect(screen.getByTestId("cv-ready-facts")).toHaveTextContent("Nowe CV · PDF");
+  });
+
+  it("23.11.2026: przy Nowym CV karta pozwala wybrać, co stoi w wieńcu", async () => {
+    const draft = {
+      status: "draft",
+      from_generator: true,
+      generated_document_id: 5,
+      edit_revision: 3,
+      version: 1,
+      content_html: "<p>CV</p>",
+      new_layout_enabled: true,
+      cv_layout: "new",
+      page1_extras: null,
+    };
+    mocks.brandedGet.mockResolvedValue({ data: draft });
+    mocks.setPage1.mockResolvedValue({ data: { ...draft, page1_extras: { wreath: "cert" } } });
+    rows = [{ id: 5, status: "ready" }];
+    renderCard();
+    const choice = await screen.findByTestId("cv-wreath-choice");
+    expect(within(choice).getByRole("button", { name: "Automatycznie" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(within(choice).getByRole("button", { name: "Certyfikat" }));
+    await waitFor(() => expect(mocks.setPage1).toHaveBeenCalledWith(21, { wreath: "cert" }));
+    await waitFor(() =>
+      expect(within(screen.getByTestId("cv-wreath-choice")).getByRole("button", { name: "Certyfikat" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
+    );
+  });
+
+  it("23.11.2026: klasyczne CV i CV po wysyłce nie mają wyboru wieńca", async () => {
+    mocks.brandedGet.mockResolvedValue({
+      data: { status: "draft", from_generator: true, generated_document_id: 5, edit_revision: 3, version: 1, content_html: "<p>CV</p>", new_layout_enabled: true, cv_layout: "classic" },
+    });
+    rows = [{ id: 5, status: "ready" }];
+    renderCard();
+    await screen.findByTestId("cv-layout-choice-card");
+    expect(screen.queryByTestId("cv-wreath-choice")).not.toBeInTheDocument();
   });
 
   it("22.11.2026: po wysyłce do klienta układ jest zablokowany", async () => {

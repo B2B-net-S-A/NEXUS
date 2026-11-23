@@ -93,6 +93,8 @@ async def test_approved_version_pdf_renders_the_frozen_version(monkeypatch):
         "fallback": {"highlight_keywords": ["SQL"]},
         "extras": {"why": ["A."]},
         "consent": b"\x89PNG",
+        # Wersja bez etapu (stara) — bez miasta i MUST klienta (runda 36).
+        "facts": cv_new_pdf.CvFacts(),
     }
     db.commit.assert_awaited_once()
 
