@@ -1,4 +1,4 @@
-"""Pętla masowej wysyłki nowej umowy B2B (E5b, 0758, worker).
+"""Pętla masowej wysyłki nowej umowy B2B (E5b, 0757, worker).
 
 Co ``_TICK_SECONDS``: najwyżej ``service.CHUNK`` pozycji biegnącej paczki —
 każda we własnej transakcji: wiersz Generatora tą samą drogą co „Pobierz

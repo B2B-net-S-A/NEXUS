@@ -1,4 +1,4 @@
-"""Masowa wysyłka nowej umowy B2B do aktywnych kontraktorów — trasy (E5b, 0758).
+"""Masowa wysyłka nowej umowy B2B do aktywnych kontraktorów — trasy (E5b, 0757).
 
 Decyzja Artura 22.11.2026: ok. 600 aktywnych kontraktorów B2B dostanie nową
 umowę do podpisu (przenosi prawa autorskie, więc podpis kwalifikowany). Nowy

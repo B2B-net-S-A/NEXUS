@@ -1,4 +1,4 @@
-"""Masowa wysyłka nowej umowy B2B do aktywnych kontraktorów (E5b, 0758).
+"""Masowa wysyłka nowej umowy B2B do aktywnych kontraktorów (E5b, 0757).
 
 Paczka (``B2BMassSendBatch``) to jedna wysyłka z rejestru Generatora: kto ją
 zaczął (z jego skrzynki M365 idą maile), kto podpisuje za B2Bnetwork i ile dni

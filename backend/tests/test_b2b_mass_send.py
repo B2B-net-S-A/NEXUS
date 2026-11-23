@@ -1,4 +1,4 @@
-"""Masowa wysyłka nowej umowy B2B (E5b, 0758) — przebieg na bazie.
+"""Masowa wysyłka nowej umowy B2B (E5b, 0757) — przebieg na bazie.
 
 Podgląd i próba bez zapisu, blokada „nowy wzór podpięty” (409 i pętla nic
 nie wysyła), paczka: wiersze Generatora drogą „Pobierz DOCX” (numer, plik,

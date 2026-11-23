@@ -1458,7 +1458,7 @@ class Settings(BaseSettings):
     # a człowiek potwierdza każdą propozycję. Domyślnie OFF — koszt modelu
     # przy pierwszym biegu (ok. 370 plików); włącza Artur.
     CONTRACT_PARTNER_READ_ENABLED: bool = False
-    # Masowa wysyłka nowej umowy B2B (E5b, 0758): pętla w workerze wysyła
+    # Masowa wysyłka nowej umowy B2B (E5b, 0757): pętla w workerze wysyła
     # paczkę po 50 osób co 15 minut ze skrzynki osoby, która ją zaczęła.
     # Domyślnie OFF; nawet włączona nic nie wysyła, dopóki admin nie oznaczy
     # nowego wzoru jako podpiętego (app_settings['b2b_mass_send']).

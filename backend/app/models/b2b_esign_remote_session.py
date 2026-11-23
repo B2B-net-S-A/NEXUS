@@ -1,4 +1,4 @@
-"""Sesja zdalnego podpisu przez API CSC (0759, E1, kierunek K1 z 22.11.2026).
+"""Sesja zdalnego podpisu przez API CSC (0758, E1, kierunek K1 z 22.11.2026).
 
 Jedna sesja = jedno zatwierdzenie u dostawcy usług zaufania: kontraktor
 podpisuje umowę i wybrane dokumenty paczki jednego wniosku, reprezentant

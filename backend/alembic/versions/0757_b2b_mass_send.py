@@ -1,7 +1,7 @@
 """Masowa wysyłka nowej umowy B2B do aktywnych kontraktorów (E5b, 22.11.2026).
 
-Revision ID: 0758_b2b_mass_send
-Revises: 0757_notice_mail
+Revision ID: 0757_b2b_mass_send
+Revises: 0756_client_form_upload_scale
 
 Tabele ``b2b_mass_send_batches`` i ``b2b_mass_send_items``. DDL ma jedno
 źródło (``app/services/b2b_mass_send/schema_sql.py``); ``entrypoint.sh``
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services.b2b_mass_send import schema_sql as schema
 
-revision = "0758_b2b_mass_send"
-down_revision = "0757_notice_mail"
+revision = "0757_b2b_mass_send"
+down_revision = "0756_client_form_upload_scale"
 branch_labels = None
 depends_on = None
 

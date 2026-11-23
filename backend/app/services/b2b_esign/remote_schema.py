@@ -1,6 +1,6 @@
-"""Sesje zdalnego podpisu przez API CSC (0759) — SQL migracji i lustra w ``entrypoint.sh``.
+"""Sesje zdalnego podpisu przez API CSC (0758) — SQL migracji i lustra w ``entrypoint.sh``.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0759_b2b_esign_remote_sessions.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0758_b2b_esign_remote_sessions.py``
 i ``entrypoint.sh`` (alembic na prodzie bywa osierocony). Model:
 ``app.models.b2b_esign_remote_session``. Same dodania: stary kod tabeli nie zna.
 """

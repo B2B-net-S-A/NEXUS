@@ -380,7 +380,7 @@ bez nowego podpisu (`services/b2b_esign/long_term.py`).
   z DSS otwiera się w Acrobacie z „LTV włączone”, a walidator dalej daje
   `QESig` obu podpisom.
 
-## Podpis u dostawcy przez API CSC (E1, 0759, kierunek K1 z 22.11.2026)
+## Podpis u dostawcy przez API CSC (E1, 0758, kierunek K1 z 22.11.2026)
 
 Decyzja Artura z 22.11.2026 (kierunek „K1”): NEXUS zostaje przy swoich
 ekranach podpisu, a od kwalifikowanego dostawcy usług zaufania kupuje tylko
@@ -426,7 +426,7 @@ CSC v1, nie dostawcę z nazwy.
   wniosek przechodzi `company_precheck` (czeka na podpis tej osoby). Każda
   umowa przechodzi bramki osobno, więc zła jedna nie cofa pozostałych
   (`done_request_ids`, powód reszty w `message`).
-- **Sesja** (`b2b_esign_remote_sessions`, 0759): `state` w bazie tylko jako
+- **Sesja** (`b2b_esign_remote_sessions`, 0758): `state` w bazie tylko jako
   SHA-256, ważna 15 minut, jednorazowa; obcy `state` = 400, drugi powrót = 409,
   powrót po czasie albo z `error` (rezygnacja u dostawcy) = `cancelled`
   i wniosek bez zmian. Token linku kontraktora potrzebny do adresu powrotu

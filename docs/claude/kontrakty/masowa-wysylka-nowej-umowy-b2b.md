@@ -1,4 +1,4 @@
-# Masowa wysyłka nowej umowy B2B do aktywnych kontraktorów (E5b, 0758, 22.11.2026)
+# Masowa wysyłka nowej umowy B2B do aktywnych kontraktorów (E5b, 0757, 22.11.2026)
 <!-- indeks: przycisk „Nowa umowa dla aktywnych” w zakładce „Umowy” Generatora, `app_settings['b2b_mass_send']` „nowy wzór podpięty”, flaga `B2B_MASS_SEND_ENABLED`, `b2b_mass_send_batches` / `b2b_mass_send_items`, podgląd i próba bez wysyłki, partie po 50 co 15 minut -->
 
 Decyzja Artura z 22.11.2026: ok. 600 aktywnych kontraktorów B2B dostanie nową
@@ -82,7 +82,7 @@ podpiętego. Dane firm bez umowy w Generatorze uzupełnia E5a
   B2Bnetwork, dni linku, stan, liczby z planu) i `b2b_mass_send_items`
   (kontrakt, kandydat, wiersz-źródło, nowy wiersz, wniosek o podpis, stan
   `pending`/`created`/`sent`/`failed`/`needs_review`/`skipped`, powód, braki,
-  błąd). DDL: `services/b2b_mass_send/schema_sql.py` (migracja 0758 i lustro
+  błąd). DDL: `services/b2b_mass_send/schema_sql.py` (migracja 0757 i lustro
   w `entrypoint.sh`), sondy w `/api/health/deep`. Jedna paczka naraz
   (blokada doradcza, druga = 409).
 - **Wiersz Generatora powstaje tą samą drogą co „Pobierz DOCX”**:

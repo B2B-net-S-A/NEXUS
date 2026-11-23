@@ -1,6 +1,6 @@
-"""Masowa wysyłka nowej umowy B2B (E5b, 0758): SQL migracji i lustra entrypointu.
+"""Masowa wysyłka nowej umowy B2B (E5b, 0757): SQL migracji i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0758_b2b_mass_send.py``
+Jedno źródło instrukcji dla ``alembic/versions/0757_b2b_mass_send.py``
 i ``entrypoint.sh`` (alembic na produkcji bywa osierocony). Każda instrukcja
 idempotentna. Moduł bez importów z aplikacji: siatka DDL czyta go, zanim
 ustawi adres bazy.
