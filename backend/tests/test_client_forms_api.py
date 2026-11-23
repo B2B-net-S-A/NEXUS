@@ -585,3 +585,26 @@ async def test_company_cv_client_has_no_form_gate():
             )
             == []
         )
+
+
+@pytest.mark.asyncio
+async def test_form_client_entering_qc_cv_gets_no_company_cv_qc_bell(monkeypatch):
+    """Staging 23.11.2026: DL przesunął osobę CEZ na „QC CV”, a rekruterzy
+    dostali „QC CV do poprawy” o CV firmowym, którego ten klient nie bierze."""
+    from app.services import cv_qc
+
+    rung: list[int] = []
+
+    async def _failed(db, stage, *, user_id, persist):
+        return {"passed": False, "override": None}
+
+    async def _bell(db, stage, result):
+        rung.append(stage.job_id)
+
+    monkeypatch.setattr(cv_qc, "run_qc", _failed)
+    monkeypatch.setattr(cv_qc, "_notify_recruiter_of_failed_qc", _bell)
+    form_job, form_stage = await _pair("client_form")
+    cv_job, cv_stage = await _pair("company_cv")
+    await cv_qc.run_after_move(form_stage, None, notify_recruiter_on_fail=True)
+    await cv_qc.run_after_move(cv_stage, None, notify_recruiter_on_fail=True)
+    assert rung == [cv_job]
