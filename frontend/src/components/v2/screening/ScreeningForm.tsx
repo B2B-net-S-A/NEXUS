@@ -460,6 +460,8 @@ export function ScreeningFormFields({
   phrase,
   withOverallFit = true,
   withCheckNotes = false,
+  compact = false,
+  withChecklist = true,
 }: {
   questions: ScreeningQuestion[];
   methods: UseFormReturn<ScreeningFormValues>;
@@ -474,10 +476,25 @@ export function ScreeningFormFields({
   withOverallFit?: boolean;
   /** Dopisek przy wymaganiu (za flagą rejestru faktów z rozmów). */
   withCheckNotes?: boolean;
+  /**
+   * „Arkusz rozmowy” (23.11.2026): pytanie, pole i „idealnie / deal-breaker”
+   * pod rozwinięciem — te same pola, mniej wysokości.
+   */
+  compact?: boolean;
+  /** „Sprawdź w rozmowie” nad pytaniami; arkusz rozmowy stawia je w innej kolumnie. */
+  withChecklist?: boolean;
 }) {
+  const [hintsOpen, setHintsOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleHint = (id: string) =>
+    setHintsOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   return (
-    <div className="space-y-5">
-      <ExperienceChecklistField methods={methods} withNotes={withCheckNotes} />
+    <div className={compact ? "space-y-3" : "space-y-5"}>
+      {withChecklist ? <ExperienceChecklistField methods={methods} withNotes={withCheckNotes} /> : null}
       {questions.map((q, i) => {
         const dealBreakerName = `answers.${q.id}.deal_breaker_hit` as const;
         // Chip stanu pytania — makieta kroku 05 pokazuje przy każdym pytaniu,
@@ -502,13 +519,17 @@ export function ScreeningFormFields({
         return (
           <div
             key={q.id}
-            className="space-y-3 rounded-lg border border-border bg-background/40 p-4"
+            data-testid="screening-question"
+            className={cn(
+              "rounded-lg border border-border bg-background/40",
+              compact ? "space-y-1.5 p-2.5" : "space-y-3 p-4",
+            )}
           >
             <div className="flex items-start gap-2">
               <Badge variant="soft" size="sm" className="shrink-0 font-mono">
                 Q{i + 1}
               </Badge>
-              <p className="min-w-0 flex-1 text-sm font-semibold text-foreground">
+              <p className={cn("min-w-0 flex-1 font-semibold text-foreground", compact ? "text-[13px] leading-snug" : "text-sm")}>
                 {q.question}
               </p>
               {originBadge && (
@@ -558,7 +579,10 @@ export function ScreeningFormFields({
                 </span>
               </p>
             ) : null}
-            {(q.ideal_answer || q.deal_breaker) && (
+            {compact && hintsOpen.has(q.id) ? (
+              <QuestionHintList question={q} className="rounded-md bg-muted/40 p-2" />
+            ) : null}
+            {(q.ideal_answer || q.deal_breaker) && !compact && (
               <dl className="grid grid-cols-[92px_minmax(0,1fr)] gap-x-2.5 gap-y-1 text-xs">
                 {q.ideal_answer && (
                   <>
@@ -581,10 +605,15 @@ export function ScreeningFormFields({
               </dl>
             )}
             {renderQuestionExtra?.(q, i)}
-            <FormField name={`answers.${q.id}.response`} label="Odpowiedź">
+            <FormField
+              name={`answers.${q.id}.response`}
+              label={compact ? <span className="sr-only">Odpowiedź</span> : "Odpowiedź"}
+              className={compact ? "gap-0" : undefined}
+            >
               <TextareaField
                 name={`answers.${q.id}.response`}
-                rows={3}
+                rows={compact ? 2 : 3}
+                className={compact ? "min-h-0" : undefined}
                 placeholder={
                   phrase
                     ? `${SCREENING_ANSWER_PLACEHOLDER} Możesz wpisać hasła i ułożyć z nich zdanie.`
@@ -620,18 +649,35 @@ export function ScreeningFormFields({
                 onKeep={() => phrase.dismiss(q.id)}
               />
             ) : null}
-            <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
-              <Checkbox
-                checked={dealBreakerHit}
-                onCheckedChange={(v) =>
-                  methods.setValue(dealBreakerName, !!v, {
-                    shouldValidate: true,
-                    shouldDirty: true,
-                  })
-                }
-              />
-              <span>Odpowiedź narusza deal-breaker</span>
-            </label>
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+              <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
+                <Checkbox
+                  checked={dealBreakerHit}
+                  onCheckedChange={(v) =>
+                    methods.setValue(dealBreakerName, !!v, {
+                      shouldValidate: true,
+                      shouldDirty: true,
+                    })
+                  }
+                />
+                <span>Odpowiedź narusza deal-breaker</span>
+              </label>
+              {compact && (q.ideal_answer || q.deal_breaker) ? (
+                // Arkusz rozmowy: „Idealnie” i „Deal-breaker” na żądanie, nie stale nad polem.
+                <button
+                  type="button"
+                  aria-expanded={hintsOpen.has(q.id)}
+                  onClick={() => toggleHint(q.id)}
+                  className="text-[11px] font-medium text-primary hover:underline"
+                  data-testid="screening-question-hint"
+                >
+                  {[q.ideal_answer ? "idealnie" : null, q.deal_breaker ? "deal-breaker" : null]
+                    .filter(Boolean)
+                    .join(" / ")}
+                  {hintsOpen.has(q.id) ? " · schowaj" : " · pokaż"}
+                </button>
+              ) : null}
+            </div>
           </div>
         );
       })}
@@ -645,12 +691,62 @@ export function ScreeningFormFields({
   );
 }
 
+/** „Idealnie” i „Deal-breaker” pytania — w arkuszu rozmowy pod rozwinięciem. */
+function QuestionHintList({ question, className }: { question: ScreeningQuestion; className?: string }) {
+  return (
+    <dl className={cn("grid grid-cols-[92px_minmax(0,1fr)] gap-x-2.5 gap-y-1 text-xs", className)}>
+      {question.ideal_answer ? (
+        <>
+          <dt className="text-[11px] text-muted-foreground">Idealnie</dt>
+          <dd className="text-foreground">{question.ideal_answer}</dd>
+        </>
+      ) : null}
+      {question.deal_breaker ? (
+        <>
+          <dt className="text-[11px] text-muted-foreground">Deal-breaker</dt>
+          <dd className="text-destructive-muted-foreground">{question.deal_breaker}</dd>
+        </>
+      ) : null}
+    </dl>
+  );
+}
+
 /** „Ogólna ocena dopasowania” — trzy pigułki z opisem (arkusz i sekcja „Ocena”). */
 export function OverallFitField({
   methods,
+  compact = false,
 }: {
   methods: UseFormReturn<ScreeningFormValues>;
+  /** Arkusz rozmowy: trzy pigułki w jednym rzędzie, opis w podpowiedzi. */
+  compact?: boolean;
 }) {
+  if (compact) {
+    const current = methods.watch("overall_fit");
+    return (
+      <div role="radiogroup" aria-label="Ogólna ocena dopasowania" className="flex flex-wrap gap-1.5">
+        {FIT_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            role="radio"
+            aria-checked={current === opt.value}
+            title={opt.description}
+            onClick={() =>
+              methods.setValue("overall_fit", opt.value as ScreeningFormValues["overall_fit"], { shouldDirty: true })
+            }
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              current === opt.value
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border text-foreground hover:bg-muted",
+            )}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    );
+  }
   return (
     <div>
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
@@ -685,17 +781,21 @@ export function OverallFitField({
   );
 }
 
-function ExperienceChecklistField({
+export function ExperienceChecklistField({
   methods,
   withNotes,
+  compact = false,
 }: {
   methods: UseFormReturn<ScreeningFormValues>;
   withNotes: boolean;
+  /** Arkusz rozmowy: jedna linia na wymaganie i ✓ / ✕ / ? zamiast trzech przycisków. */
+  compact?: boolean;
 }) {
   const checks = methods.watch("experience_checks") ?? [];
   if (checks.length === 0) return null;
+  const Checklist = compact ? CompactExperienceChecklist : ExperienceChecklist;
   return (
-    <ExperienceChecklist
+    <Checklist
       rows={checks}
       withNotes={withNotes}
       onChange={(index, patch) =>
@@ -772,6 +872,87 @@ function ExperienceChecklist({
                 </button>
               ))}
             </span>
+            {withNotes && row.status !== "unknown" ? (
+              <input
+                type="text"
+                maxLength={500}
+                value={row.note ?? ""}
+                onChange={(event) => onChange(index, { note: event.target.value })}
+                placeholder="Dopisek, np. 3 lata w banku"
+                aria-label={`${row.label} — dopisek`}
+                className="h-7 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground"
+              />
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+const COMPACT_CHECK: Record<ExperienceCheck["status"], string> = {
+  confirmed: "✓",
+  not_confirmed: "✕",
+  unknown: "?",
+};
+
+/**
+ * „Sprawdź w rozmowie” w arkuszu rozmowy (23.11.2026): wymaganie w jednej
+ * linii, wynik trzema małymi przyciskami. Te same wartości co w zwykłym
+ * formularzu; pełna nazwa wyniku w etykiecie i podpowiedzi.
+ */
+function CompactExperienceChecklist({
+  rows,
+  onChange,
+  withNotes,
+}: {
+  rows: ExperienceCheckRow[];
+  onChange: (index: number, patch: Partial<Pick<ExperienceCheckRow, "status" | "note">>) => void;
+  withNotes: boolean;
+}) {
+  const done = rows.filter((row) => row.status !== "unknown").length;
+  return (
+    <div className="space-y-1.5" data-testid="screening-experience-checks">
+      <div className="flex items-baseline justify-between gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          Sprawdź w rozmowie
+        </h3>
+        <span className="text-[11px] text-muted-foreground">
+          {done} z {rows.length} · ✓ / ✕ / ?
+        </span>
+      </div>
+      <ul className="divide-y divide-border rounded-lg border border-border bg-background/40">
+        {rows.map((row, index) => (
+          <li key={`${row.kind}:${row.name}`} className="space-y-1 px-2.5 py-1">
+            <div className="flex items-center gap-2 text-[13px]">
+              <span className="min-w-0 flex-1 truncate text-foreground" title={`${EXPERIENCE_KIND_LABEL[row.kind]} · ${row.label}`}>
+                {row.label}
+                {row.level === "nice" ? <span className="text-xs text-muted-foreground"> (mile widziane)</span> : null}
+              </span>
+              <span role="radiogroup" aria-label={`${row.label} — wynik rozmowy`} className="inline-flex shrink-0 gap-0.5">
+                {CHECK_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={row.status === opt.value}
+                    aria-label={opt.label}
+                    title={opt.label}
+                    onClick={() => onChange(index, { status: opt.value })}
+                    className={cn(
+                      "hit-area h-6 w-6 rounded border text-xs leading-none",
+                      row.status === opt.value
+                        ? opt.value === "not_confirmed"
+                          ? "border-destructive bg-destructive text-destructive-foreground"
+                          : "border-primary bg-primary text-primary-foreground"
+                        : "border-border text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {COMPACT_CHECK[opt.value]}
+                  </button>
+                ))}
+              </span>
+            </div>
             {withNotes && row.status !== "unknown" ? (
               <input
                 type="text"

@@ -32,6 +32,12 @@
  * a nie kasuje („N odpowiedzi w pamięci”, „Cofnij”), zapis czyści pamięć,
  * a powrót do osoby po zamknięciu panelu przywraca niezapisany screening.
  *
+ * „Arkusz rozmowy” (23.11.2026, rekomendacja 2 z analizy dnia rekrutera):
+ * w „Trybie rozmowy” formularz przechodzi do lewej strefy jako pierwsza
+ * zakładka obok CV, Wymagań i Po ludzku, w układzie dwóch kolumn. Formularz
+ * żyje w jednym elemencie przenoszonym między miejscami (`MovableHost`), więc
+ * przełączenie trybu w trakcie rozmowy nie kasuje niezapisanych wpisów.
+ *
  * Podgląd (`CandidatePreviewPane`, pdf.js i `docx-preview`) ładuje się za
  * `next/dynamic` — pilnuje tego `heavy-bundle-boundaries.test.ts`.
  */
@@ -49,7 +55,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { NoteFillChannel } from "@/lib/note-fill-channel";
-import { PersonPanelSide, usePersonPanelSideActive } from "@/components/v2/person/PersonPanelSide";
+import { MovableSlot, useMovableHost } from "@/components/v2/person/MovableHost";
+import {
+  PersonPanelSide,
+  usePersonPanelConversationMode,
+  usePersonPanelSideActive,
+} from "@/components/v2/person/PersonPanelSide";
 import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
 import { BeforeCallProfile } from "@/components/v2/screening-form/BeforeCallProfile";
 import { ConsentRequestNotice } from "@/components/v2/recruitment/ConsentRequestNotice";
@@ -271,6 +282,10 @@ export function ScreeningWorkbench({
   const previewColumnRef = useRef<HTMLDivElement | null>(null);
   // Od 1024 px szerokości okna podgląd stoi w lewej strefie panelu osoby.
   const previewInSide = usePersonPanelSideActive();
+  // „Tryb rozmowy” → arkusz w lewej strefie; zakładka „Arkusz rozmowy” na start.
+  const conversation = usePersonPanelConversationMode();
+  const [sheetOnTop, setSheetOnTop] = useState(true);
+  const formHost = useMovableHost("flex min-h-full flex-col");
 
   const viewState = resolveViewState({ isLoading, isError, error, isSuccess });
   if (viewState === "loading") return <Skeleton className="h-64 w-full rounded-xl" />;
@@ -306,6 +321,9 @@ export function ScreeningWorkbench({
     state != null && !state.editable && state.read_only_reason != null && ENDED_REASONS.has(state.read_only_reason);
   // Przed telefonem („Nowi”) rekruter czyta CV, w trakcie rozmowy — wymagania.
   const tab: PreviewTab = previewTab ?? (inNew ? "cv" : "requirements");
+  // Arkusz rozmowy tylko z formularzem do pisania — zakończony proces zostaje widokiem po prawej.
+  const sheetMode =
+    conversation?.on === true && previewInSide && formHost.node != null && !ended && !readOnly && state?.editable === true;
 
   const forward =
     entry && verifiedCol && !readOnly
@@ -330,6 +348,7 @@ export function ScreeningWorkbench({
   // Historia stoi w zakładce CV podglądu; w wąskim oknie podgląd trzeba też odsłonić.
   const openHistory = () => {
     setHistoryOpen(true);
+    setSheetOnTop(false);
     setPreviewTab("cv");
     setPreviewOpen(true);
     // Poniżej 1024 px podgląd stoi nad profilem — bez przewinięcia klik wyglądałby na pusty.
@@ -502,6 +521,70 @@ export function ScreeningWorkbench({
     </>
   );
 
+  // Jeden egzemplarz formularza — stoi po prawej albo w arkuszu rozmowy po lewej.
+  const form =
+    activeJoint ? (
+      <JointScreeningForm
+        key={`${memoryEpoch}:${item.candidate_id}:${activeJoint.others.map((p) => p.job_id).join(",")}`}
+        candidateId={item.candidate_id}
+        candidateName={name}
+        anchor={{
+          jobId,
+          title: activeJoint.anchor.title,
+          clientId: activeJoint.anchor.client_id,
+          clientName: activeJoint.anchor.client_name,
+          budgetHourly: jobBudgetHourly ?? activeJoint.anchor.budget_hourly,
+          verifiedStageDefId: activeJoint.verifiedStageDefId,
+          workMode: activeJoint.anchor,
+        }}
+        others={activeJoint.others}
+        onMoved={onMoved}
+        onForwarded={onForwarded ? () => onForwarded(item.candidate_id) : undefined}
+        onSessionChange={(active) => {
+          setJointSession(active ? activeJoint : null);
+          if (active) onFormSaved();
+        }}
+        memory={memoryLink}
+        pendingMemory={pendingMemory}
+        onReselect={toggleJoint}
+        twinSkips={twinSkipsPayload}
+      />
+    ) : (
+    <ScreeningFullForm
+      key={memoryEpoch}
+      layout={sheetMode ? "sheet" : "column"}
+      candidateId={item.candidate_id}
+      jobId={jobId}
+      candidateName={name}
+      jobBudgetHourly={jobBudgetHourly}
+      forward={forward}
+      reject={reject}
+      rejectFollowUp={rejectFollowUp ? () => rejectFollowUp(item.candidate_id) : undefined}
+      readOnly={readOnly}
+      onMoved={onMoved}
+      onForwarded={onForwarded ? () => onForwarded(item.candidate_id) : undefined}
+      noteFill={noteFill}
+      onOpenChampion={() => onTabChange("champion")}
+      memory={jointEnabled ? memoryLink : undefined}
+      twinSkips={twinSkipsPayload}
+      pendingMemory={jointEnabled ? pendingMemory : undefined}
+      onReselect={toggleJoint}
+      onSaved={onFormSaved}
+      banner={
+        afterCvSent ? (
+          <p
+            role="note"
+            data-testid="screening-after-cv-sent"
+            className="rounded-md border border-info/30 bg-info-muted px-3 py-2 text-xs text-info-muted-foreground"
+          >
+            CV tej osoby poszło już do klienta. Zmiana w formularzu poprawia to, co widzi Delivery Lead,
+            i trafi do następnego CV firmowego — klient nie dostaje jej automatycznie.
+          </p>
+        ) : null
+      }
+    />
+    );
+
   let left;
   if (formQuery.isLoading) {
     left = <Skeleton className="h-64 w-full rounded-xl" />;
@@ -585,66 +668,7 @@ export function ScreeningWorkbench({
             }}
           />
         ) : null}
-        {activeJoint ? (
-          <JointScreeningForm
-            key={`${memoryEpoch}:${item.candidate_id}:${activeJoint.others.map((p) => p.job_id).join(",")}`}
-            candidateId={item.candidate_id}
-            candidateName={name}
-            anchor={{
-              jobId,
-              title: activeJoint.anchor.title,
-              clientId: activeJoint.anchor.client_id,
-              clientName: activeJoint.anchor.client_name,
-              budgetHourly: jobBudgetHourly ?? activeJoint.anchor.budget_hourly,
-              verifiedStageDefId: activeJoint.verifiedStageDefId,
-              workMode: activeJoint.anchor,
-            }}
-            others={activeJoint.others}
-            onMoved={onMoved}
-            onForwarded={onForwarded ? () => onForwarded(item.candidate_id) : undefined}
-            onSessionChange={(active) => {
-              setJointSession(active ? activeJoint : null);
-              if (active) onFormSaved();
-            }}
-            memory={memoryLink}
-            pendingMemory={pendingMemory}
-            onReselect={toggleJoint}
-            twinSkips={twinSkipsPayload}
-          />
-        ) : (
-        <ScreeningFullForm
-          key={memoryEpoch}
-          candidateId={item.candidate_id}
-          jobId={jobId}
-          candidateName={name}
-          jobBudgetHourly={jobBudgetHourly}
-          forward={forward}
-          reject={reject}
-          rejectFollowUp={rejectFollowUp ? () => rejectFollowUp(item.candidate_id) : undefined}
-          readOnly={readOnly}
-          onMoved={onMoved}
-          onForwarded={onForwarded ? () => onForwarded(item.candidate_id) : undefined}
-          noteFill={noteFill}
-          onOpenChampion={() => onTabChange("champion")}
-          memory={jointEnabled ? memoryLink : undefined}
-          twinSkips={twinSkipsPayload}
-          pendingMemory={jointEnabled ? pendingMemory : undefined}
-          onReselect={toggleJoint}
-          onSaved={onFormSaved}
-          banner={
-            afterCvSent ? (
-              <p
-                role="note"
-                data-testid="screening-after-cv-sent"
-                className="rounded-md border border-info/30 bg-info-muted px-3 py-2 text-xs text-info-muted-foreground"
-              >
-                CV tej osoby poszło już do klienta. Zmiana w formularzu poprawia to, co widzi Delivery Lead,
-                i trafi do następnego CV firmowego — klient nie dostaje jej automatycznie.
-              </p>
-            ) : null
-          }
-        />
-        )}
+        {sheetMode ? null : <MovableSlot host={formHost} />}
       </div>
     );
   }
@@ -708,11 +732,22 @@ export function ScreeningWorkbench({
           cvUpload={readOnly || !canManageDocuments ? undefined : { candidateName: name }}
           collapsible
           className="flex-1"
+          sheet={
+            sheetMode
+              ? {
+                  label: "Arkusz rozmowy",
+                  content: <MovableSlot host={formHost} className="flex min-h-full flex-col" />,
+                  active: sheetOnTop,
+                  onActiveChange: setSheetOnTop,
+                }
+              : undefined
+          }
           {...previewLoaders}
         />
       </PersonPanelSide>
 
       <div className="min-w-0">{left}</div>
+      {formQuery.isLoading || ended ? null : formHost.render(form)}
       {confirmDialog}
     </div>
   );
