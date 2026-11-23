@@ -250,6 +250,48 @@ async def resolve_named_in_text(
     return hits[0]
 
 
+async def resolve_named_for_clients(
+    db: AsyncSession,
+    text: str,
+    client_ids: frozenset[int],
+    *,
+    settings: PortalSettings,
+    today: date,
+) -> Optional[Contract]:
+    """Osoba z tematu akceptacji od klienta, tylko wśród kontraktów tego klienta.
+
+    Klient odpisuje w wątku z TS bez załącznika: „Akceptacja godzin wrzesień 2026 -
+    P. Nowak” (BIK), „Odbiór usług za 10.2026: Nowak Piotr” (PKO). Każdy człon nazwiska
+    musi stać w tekście, imię pełne albo jego inicjał. Szukamy tylko u klientów z domeny
+    nadawcy, więc mail od jednego klienta nie wskaże osoby u innego. Dwie osoby albo
+    osoba z dwoma kontraktami = ``None`` (karta do ręcznego przypisania).
+    """
+
+    words = set(_fold(re.sub(r"[^\w]+|_", " ", text)).split())
+    if len(words) < 2 or not client_ids:
+        return None
+    rows = (
+        await db.execute(
+            select(Contract, Candidate.name, Candidate.lastname)
+            .join(Candidate, Candidate.id == Contract.candidate_id)
+            .where(Contract.client_id.in_(client_ids))
+        )
+    ).all()
+    hits = []
+    for contract, first, last in rows:
+        surname, given = _fold(last).split(), _fold(first).split()[:1]
+        if (
+            surname
+            and given
+            and set(surname) <= words
+            and (given[0] in words or given[0][0] in words)
+            and eligible(contract, today)
+            and (settings.any_sender or settings.open_for(contract.id))
+        ):
+            hits.append(contract)
+    return hits[0] if len(hits) == 1 else None
+
+
 def _fold(text: Optional[str]) -> str:
     raw = unicodedata.normalize(
         "NFKD", (text or "").replace("ł", "l").replace("Ł", "L")
