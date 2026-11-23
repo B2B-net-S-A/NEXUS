@@ -593,3 +593,104 @@ async def test_forwarded_notice_without_settlement_name_waits() -> None:
     )
     await _read(reader)
     assert [row.contract_id for row in await _documents()] == [None]
+
+
+# ── Akceptacja w samej treści maila, bez pliku (próba IX–X 2026) ─────────────
+
+
+@pytest.fixture
+def settlements_route(shared_support_mailbox, monkeypatch):
+    monkeypatch.setattr(
+        shared_support_mailbox,
+        "CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES",
+        "rozliczenia@example.com",
+    )
+    return frozenset({"rozliczenia@example.com"})
+
+
+def _body_only(message_id: str, sender: str, subject: str) -> dict:
+    message = _to(_message(message_id, sender), "rozliczenia@example.com")
+    return {**message, "hasAttachments": False, "subject": subject}
+
+
+def _acceptance_eml(sender: str, subject: str) -> bytes:
+    from email.message import EmailMessage
+
+    message = EmailMessage()
+    message["From"] = sender
+    message["Subject"] = subject
+    message.set_content(
+        "Poniżej znajdują się szczegóły zaakceptowanego odbioru pracy.\n"
+        "Okres pracy: 09-2026\nIlość MD\n22\n"
+    )
+    return message.as_bytes()
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_body_only_acceptance_from_coordinator_goes_to_named_person(
+    settlements_route,
+) -> None:
+    """NN: koordynator przekazuje akceptację klienta z MD w treści, bez pliku.
+    Mail zostaje też sprawą: router dalej oddaje go czytnikowi spraw."""
+    from app.services import support_mail_route
+
+    person = await make_person(activated=False)
+    subject = f"FW: Rozliczenie pracownika {await _full_name(person)} za okres 09-2026"
+    message = _body_only("m1", "koordynator@firma.example.com", subject)
+    reader = MimeMailbox(
+        [message],
+        {},
+        {"m1": _acceptance_eml("koordynator@firma.example.com", subject)},
+    )
+    assert (await _read(reader))["created"] == 1
+    rows = await _documents()
+    assert [
+        (r.contract_id, r.kind, r.period_year, r.period_month, r.graph_message_id)
+        for r in rows
+    ] == [(person.contract_id, "report", 2026, 9, "m1")]
+    assert rows[0].file_name.endswith(".eml")
+    assert not support_mail_route.is_settlements_mail(message, settlements_route)
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_body_only_mail_from_consultant_company_mailbox() -> None:
+    """BP: konsultant pisze ze skrzynki firmowej, w temacie tylko miesiąc."""
+    from app.services.consultant_portal import identity
+
+    person = await make_person(activated=False)
+    async with AsyncSessionLocal() as db:
+        candidate = await db.get(Candidate, person.candidate_id)
+    local = (
+        identity._fold(candidate.name).split()[0]
+        + "."
+        + "".join(identity._fold(candidate.lastname).split())
+    )
+    sender = f"{local}@firma.example.com"
+    reader = MimeMailbox(
+        [_body_only("m1", sender, "Rozliczenie 09.2026")],
+        {},
+        {"m1": _acceptance_eml(sender, "Rozliczenie 09.2026")},
+    )
+    await _read(reader)
+    assert [r.contract_id for r in await _documents()] == [person.contract_id]
+
+
+@pytest.mark.usefixtures("internal", "company_domain", "settlements_route")
+async def test_body_only_mail_without_one_person_stays_a_case() -> None:
+    """Jedna osoba albo nikt: dwie osoby, obcy adres i temat bez słowa
+    rozliczeniowego nie dają dokumentu (mail zostaje sprawą)."""
+    first = await make_person(activated=False)
+    second = await make_person(activated=False)
+    one, two = await _full_name(first), await _full_name(second)
+    messages = [
+        _body_only("m1", "koordynator@firma.example.com", f"Raport {one} i {two}"),
+        _body_only("m2", "kierownik@klient.example.com", f"Zestawienie godzin - {one}"),
+        _body_only("m3", "koordynator@firma.example.com", f"Pytanie o umowę {one}"),
+    ]
+    raw = {
+        m["id"]: _acceptance_eml(m["from"]["emailAddress"]["address"], m["subject"])
+        for m in messages
+    }
+    reader = MimeMailbox(messages, {}, raw)
+    assert (await _read(reader))["created"] == 0
+    assert await _documents() == []

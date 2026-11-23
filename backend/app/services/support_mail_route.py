@@ -15,7 +15,10 @@ Dwa stany są błędem konfiguracji i zatrzymują czytnik rozliczeń bez ruszani
 (``misconfiguration``): wspólna skrzynka bez adresów (``shared_without_route``) i adresy przy
 osobnych skrzynkach (``route_not_shared``, np. wsparcie@ ustawiona przed skrzynką spraw).
 
-Mail na rozliczenia@ bez załącznika (pytanie) jest sprawą. Mail wysłany w ukrytej kopii nie ma
+Mail na rozliczenia@ bez załącznika (pytanie) jest sprawą. Jeśli przyszedł z adresu firmy
+z tematem rozliczenia, czytnik rozliczeń dodatkowo zapisuje jego treść jako dokument jednej
+osoby (``mailbox.is_body_only_settlement``, 23.11.2026); router tego nie zmienia, więc sprawa
+też powstaje. Mail wysłany w ukrytej kopii nie ma
 adresu rozliczeń w nagłówkach, które czytamy, więc też jest sprawą.
 """
 
