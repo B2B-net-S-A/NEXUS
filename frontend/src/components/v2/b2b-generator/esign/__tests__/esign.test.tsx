@@ -45,6 +45,10 @@ vi.mock("@/lib/api/b2bEsign", async (importOriginal) => {
       relink: (...a: unknown[]) => mocks.relink(...a),
       takeOver: (...a: unknown[]) => mocks.takeOver(...a),
       signedPdf: (...a: unknown[]) => mocks.signedPdf(...a),
+      // K1: bez dostawcy podpisu w chmurze panel wygląda jak dotąd.
+      companyRemoteAvailable: async () => ({ available: false, provider_label: null }),
+      companyRemoteStart: vi.fn(),
+      companyRemoteStatus: vi.fn(),
     },
   };
 });
