@@ -60,6 +60,7 @@ from app.services.client_settlements import (
     mail_declaration,
     mail_nn,
     mail_text,
+    protocol_collective,
     protocol_orlen,
     rcp_bnp,
     rcp_checks,
@@ -1178,6 +1179,22 @@ async def _read_file(
         if orlen is None:
             return None
         return await accepted(declared_result(orlen), orlen.hours)
+    # Protokół odbioru zbiorczy (CeZ, PFRON): godziny kilku osób w jednym PDF-ie.
+    protocol = await asyncio.to_thread(protocol_collective.parse, content, mime)
+    if protocol is not None:
+        return protocol_collective.evaluate(
+            protocol,
+            month=month,
+            doc_month=(
+                None
+                if doc.period_guessed or doc.period_year is None
+                else f"{doc.period_year}-{doc.period_month:02d}"
+            ),
+            person_name=person_name,
+            rules=rules,
+            working_days=working_days,
+            other_md=other_md,
+        )
     # Raport zbiorczy Credit Agricole: kilka osób w jednym arkuszu, MD z „TE”.
     ca = await asyncio.to_thread(report_ca.parse, content, mime)
     if ca is not None:
