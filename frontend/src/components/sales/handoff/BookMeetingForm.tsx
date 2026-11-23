@@ -540,7 +540,7 @@ export function BookMeetingForm({
                 />
               </div>
               <div className="space-y-1 rounded-md border border-border p-2">
-                <p className="truncate text-sm font-medium">{hostName || "Prowadzący"}</p>
+                <p className="break-words text-sm font-medium">{hostName || "Prowadzący"}</p>
                 <p className="text-xs leading-snug text-muted-foreground">
                   organizator: spotkanie w jego kalendarzu, link Teams i transkrypt u niego
                 </p>
@@ -553,7 +553,7 @@ export function BookMeetingForm({
                   aria-label="Dodaj mnie do spotkania"
                 />
                 <span className="min-w-0 space-y-1">
-                  <span className="block truncate text-sm font-medium">
+                  <span className="block break-words text-sm font-medium">
                     {user?.name ? `${user.name} (Ty)` : "Ty"}
                   </span>
                   <span className="block text-xs leading-snug text-muted-foreground">
