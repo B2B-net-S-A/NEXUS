@@ -51,7 +51,7 @@ async def start_for(
     return await runs.start_run(
         db,
         [item.payload for item in ready if item.payload is not None],
-        submit=submit,
+        submit=runs.effective_submit(submit),
         cards=_cards(ready),
         now=now,
         requested_by_user_id=requested_by_user_id,
@@ -65,9 +65,12 @@ async def due_items(
     queue = await bot_items.load_items(db, now=now, today=today)
     ready = [item for item in queue if item.payload is not None]
     states = await runs.item_states(db, [item.stage_id for item in ready], now=now)
+    limit = 1 if runs.auto_draft_enabled() else runs.MAX_ITEMS_PER_RUN
     return [
-        item for item in ready if runs.due_for_bot(states.get(item.stage_id), now=now)
-    ][: runs.MAX_ITEMS_PER_RUN]
+        item
+        for item in ready
+        if runs.due_for_bot(states.get(item.stage_id), now=now)
+    ][:limit]
 
 
 async def start_due(
@@ -100,6 +103,8 @@ async def start_chosen(
     """„Ponów botem” albo próba: wskazane karty, z polskim powodem odmowy."""
 
     wanted = [int(s) for s in stage_ids]
+    if runs.auto_draft_enabled() and len(wanted) != 1:
+        raise NotReady("Tryb szkiców wymaga dokładnie jednej karty Cpro.")
     await runs.lock_new_run(db)
     if await runs.has_open_run(db):
         raise NotReady("Bot właśnie wypełnia Cpro — spróbuj za kilka minut.")
@@ -112,6 +117,8 @@ async def start_chosen(
     states = await runs.item_states(db, wanted, now=now)
     if any(state.state == "submitted" and state.submit for state in states.values()):
         raise NotReady("Bot już wysłał tę osobę do Cpro — przesuń kartę ręcznie.")
+    if runs.auto_draft_enabled() and await runs.recorded_offer_stage_ids(db, wanted):
+        raise NotReady("Ta karta ma już szkic albo wysłaną ofertę w Cpro.")
     if not runs.configured():
         raise NotReady("Bot Cpro nie jest skonfigurowany (brak webhooka rutyny).")
     run = await start_for(
@@ -195,15 +202,29 @@ async def create_interactive_draft(
         )
         .limit(1)
     )
-    if recorded is not None and repair_draft_run_id is None:
+    if repair_draft_run_id is None and (
+        recorded is not None or await runs.recorded_offer_stage_ids(db, [stage_id])
+    ):
         raise NotReady("Ta karta ma już szkic albo wysłaną ofertę w Cpro.")
     if repair_draft_run_id is not None:
         submitted = await db.scalar(
             select(CproBotRun.id)
             .where(
                 CproBotRun.stage_ids.contains([stage_id]),
-                CproBotRun.report["items"][str(stage_id)]["outcome"].astext
-                == "submitted",
+                (
+                    CproBotRun.report["items"][str(stage_id)]["outcome"].astext
+                    == "submitted"
+                )
+                | (
+                    CproBotRun.report["items"][str(stage_id)][
+                        "reported_outcome"
+                    ].astext
+                    == "submitted"
+                )
+                | (
+                    CproBotRun.report["items"][str(stage_id)]["reason"].astext
+                    == "submit_disallowed"
+                ),
             )
             .limit(1)
         )

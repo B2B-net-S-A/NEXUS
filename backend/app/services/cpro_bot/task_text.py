@@ -34,7 +34,10 @@ Dla KAŻDEJ pozycji z listy items (po kolei, każda osobno):
    Nie możesz odizolować sesji lub potwierdzić konta → skipped, reason
    "account_unverified"; portal pokazuje inne konto → skipped, reason
    "account_mismatch". Logowanie nie powiodło się → failed, reason
-   "login_failed". W każdym z tych przypadków NIE otwieraj formularza,
+   "login_failed". Jeśli Vault wymaga obecności człowieka i nie pozwala
+   zalogować się w tym biegu, zgłoś "login_failed" z komunikatem
+   „Logowanie wymaga pomocy operatora” w końcowym raporcie do NEXUSA.
+   W każdym z tych przypadków NIE otwieraj formularza,
    nie pobieraj CV i nie zapisuj profilu, szkicu ani oferty. Przejdź do
    następnej pozycji. Nie przełączaj na inne konto, żeby obejść brak dostępu.
    Gdy edit_existing_draft_only = true, jest to WYŁĄCZNIE poprawienie
@@ -120,7 +123,11 @@ Dla KAŻDEJ pozycji z listy items (po kolei, każda osobno):
    potwierdzeniu statusu DRAFT zgłoś outcome "draft" i cpro_status "DRAFT".
    Poza trybem naprawy: submit = true → kliknij „Submit Offer” i wróć na request: w „Our offers”
    ta osoba ma status SELECTION (albo inny niż DRAFT). Zapisz status.
-   submit = false → zostaw szkic (DRAFT), nic nie wysyłaj.
+   submit = false → zostaw szkic. Wróć do „Our offers” tego requestu
+   i ponownie otwórz tę ofertę. Po sprawdzeniu osoby, statusu DRAFT
+   i podglądu właściwego PDF zgłoś outcome "draft", cpro_status "DRAFT"
+   oraz adres oferty, jeżeli portal udostępnia bezpośredni odnośnik.
+   Nie możesz potwierdzić statusu → failed, reason "draft_unconfirmed".
 
 Zasady:
 - Tożsamość konta z kroku 0 obowiązuje przez całą pozycję. Przekierowanie do
@@ -153,7 +160,7 @@ def report_format() -> dict[str, Any]:
                 "offer_url": "<adres oferty w Cpro, https://nordea.onevms.se/...>",
                 "reason": "request_not_found | request_closed | already_offered "
                 "| ambiguous_profile | cv_not_opening | login_failed "
-                "| cv_not_pdf | draft_not_found | ambiguous_draft "
+                "| cv_not_pdf | draft_not_found | draft_unconfirmed | ambiguous_draft "
                 "| draft_identity_mismatch | account_unknown | account_unverified "
                 "| account_mismatch | other",
                 "message": "<krótko po polsku, co poszło nie tak; bez danych osobowych>",

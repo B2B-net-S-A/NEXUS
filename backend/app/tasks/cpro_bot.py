@@ -4,7 +4,9 @@
 * gdy żaden bieg nie trwa, daje botowi karty z kolejki Cpro bez braków
   (``flow.start_due``), najwyżej ``MAX_ITEMS_PER_RUN`` naraz.
 
-Wyłącznik ``CPRO_BOT_ENABLED`` sprawdzany przed pętlą. Na stagingu pętla stoi
+Flagi ``CPRO_BOT_ENABLED`` i ``CPRO_BOT_AUTO_DRAFT_ENABLED`` sprawdzane przed
+pętlą. Tryb auto-draft ma pierwszeństwo i bierze jedną kartę bez wysyłki.
+Na stagingu pętla stoi
 (``STAGING_BLOCKED_TASKS``): webhook do bota w USA i wysyłka do klienta.
 Logi: same liczby.
 → docs/claude/integracje/cpro-bot-grok.md
@@ -27,7 +29,7 @@ TICK_SECONDS = 5 * 60
 
 
 async def cpro_bot_loop() -> None:
-    if not runs.enabled():
+    if not runs.worker_enabled():
         logger.info("cpro_bot_loop disabled")
         return
     if not runs.configured():

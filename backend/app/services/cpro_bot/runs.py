@@ -23,8 +23,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
 import httpx
-from sqlalchemy import select, text, update
+from sqlalchemy import or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from app.core.config import settings
 from app.models.cpro_bot import CproBotRun
@@ -45,27 +46,53 @@ RETRY_AFTER = timedelta(minutes=30)
 #: Z tylu dni wstecz liczy się stan kart (kolejka Cpro żyje dniami, nie tygodniami).
 STATE_WINDOW = timedelta(days=30)
 START_LOCK = "cpro-bot-run-start"
+UNCERTAIN_OFFER_REASONS = frozenset({"draft_unconfirmed", "submit_disallowed"})
 
 __all__ = [
     "INVALID_TOKEN_DETAIL",
     "ItemState",
+    "auto_draft_enabled",
     "callback_url",
     "configured",
     "cv_url",
+    "draft_only",
     "enabled",
+    "effective_submit",
     "expire_runs",
     "hash_token",
     "item_states",
     "lock_new_run",
+    "recorded_offer_stage_ids",
     "start_run",
     "task_body",
     "token_matches",
     "webhook_body",
+    "worker_enabled",
 ]
 
 
 def enabled() -> bool:
     return bool(settings.CPRO_BOT_ENABLED)
+
+
+def auto_draft_enabled() -> bool:
+    return bool(settings.CPRO_BOT_AUTO_DRAFT_ENABLED)
+
+
+def worker_enabled() -> bool:
+    return enabled() or auto_draft_enabled()
+
+
+def draft_only(run: Optional[CproBotRun] = None) -> bool:
+    """Tryb szkiców wygrywa; zapisany tryb biegu przetrwa zmianę flagi."""
+
+    return auto_draft_enabled() or bool(
+        run is not None and (run.request or {}).get("auto_draft") is True
+    )
+
+
+def effective_submit(requested: bool, run: Optional[CproBotRun] = None) -> bool:
+    return bool(requested) and not draft_only(run)
 
 
 def webhook() -> tuple[str, str]:
@@ -100,11 +127,15 @@ def new_run(
     token = secrets.token_urlsafe(32)
     run = CproBotRun(
         status="started",
-        submit=submit,
+        submit=effective_submit(submit),
         stage_ids=[int(item["ref"]) for item in items],
         # ``cards`` (etap docelowy, wersja procesu) zostaje w NEXUSIE — botowi
         # idą tylko ``items`` (``task_body``).
-        request={"items": [dict(item) for item in items], "cards": dict(cards or {})},
+        request={
+            "items": [dict(item) for item in items],
+            "cards": dict(cards or {}),
+            **({"auto_draft": True} if auto_draft_enabled() else {}),
+        },
         report={},
         requested_by_user_id=requested_by_user_id,
         token_hash=hash_token(token),
@@ -140,7 +171,7 @@ def task_body(run: CproBotRun) -> dict[str, Any]:
         if run.token_expires_at
         else None,
         "callback_url": callback_url(run.id),
-        "submit": bool(run.submit),
+        "submit": effective_submit(run.submit, run),
         "task": task_text.TASK,
         "report_format": task_text.report_format(),
         "items": items,
@@ -179,6 +210,13 @@ async def start_run(
     await lock_new_run(db)
     if await has_open_run(db):
         return None
+    if auto_draft_enabled():
+        # Jawne wywołanie też nie może ominąć deduplikacji ani dyskretnie
+        # zlecić wielu osób, gdy operator wybrał więcej niż jedną kartę.
+        if len(items) != 1 or await recorded_offer_stage_ids(
+            db, [int(item["ref"]) for item in items]
+        ):
+            return None
     moment = now or datetime.now(timezone.utc)
     run, token = new_run(
         items,
@@ -258,6 +296,41 @@ async def has_open_run(db: AsyncSession) -> bool:
     return found is not None
 
 
+async def recorded_offer_stage_ids(
+    db: AsyncSession, stage_ids: Iterable[int]
+) -> set[int]:
+    """Cała historia: gotowa oferta nie znika przez wiek lub późniejszy błąd.
+
+    Nieoczekiwane submitted i niepotwierdzony draft są błędami, ale nadal
+    świadczą o możliwej ofercie i również wykluczają następne zlecenie.
+    """
+
+    wanted = {int(s) for s in stage_ids}
+    if not wanted:
+        return set()
+    rows = (
+        await db.scalars(
+            select(CproBotRun)
+            .options(load_only(CproBotRun.stage_ids, CproBotRun.report))
+            .where(or_(*(CproBotRun.stage_ids.contains([s]) for s in sorted(wanted))))
+        )
+    ).all()
+    return {
+        stage_id
+        for run in rows
+        for stage_id in wanted.intersection(int(s) for s in run.stage_ids or [])
+        if isinstance(
+            outcome := ((run.report or {}).get("items") or {}).get(str(stage_id)),
+            dict,
+        )
+        and (
+            outcome.get("outcome") in ("draft", "submitted")
+            or outcome.get("reported_outcome") in ("draft", "submitted")
+            or outcome.get("reason") in UNCERTAIN_OFFER_REASONS
+        )
+    }
+
+
 @dataclass(frozen=True)
 class ItemState:
     state: str
@@ -296,7 +369,18 @@ def state_for(run: CproBotRun, stage_id: int, attempts: int) -> ItemState:
         at,
         run.id,
         attempts,
-        message=outcome.get("move_problem") or outcome.get("message"),
+        message=outcome.get("move_problem")
+        or (
+            "Bot zgłosił niedozwoloną wysyłkę — sprawdź ofertę w Cpro."
+            if outcome.get("reported_outcome") == "submitted"
+            or outcome.get("reason") == "submit_disallowed"
+            else (
+                "Bot nie potwierdził statusu DRAFT — sprawdź ofertę w Cpro."
+                if outcome.get("reported_outcome") == "draft"
+                or outcome.get("reason") == "draft_unconfirmed"
+                else outcome.get("message")
+            )
+        ),
         offer_url=outcome.get("offer_url"),
         cpro_status=outcome.get("cpro_status"),
         submit=run.submit,
@@ -312,22 +396,64 @@ async def item_states(
     wanted = {int(s) for s in stage_ids}
     if not wanted:
         return {}
+    query = (
+        select(CproBotRun)
+        .options(
+            load_only(
+                CproBotRun.id,
+                CproBotRun.status,
+                CproBotRun.submit,
+                CproBotRun.stage_ids,
+                CproBotRun.report,
+                CproBotRun.started_at,
+                CproBotRun.received_at,
+            )
+        )
+        .where(or_(*(CproBotRun.stage_ids.contains([s]) for s in sorted(wanted))))
+    )
+    if not auto_draft_enabled():
+        query = query.where(CproBotRun.started_at >= now - STATE_WINDOW)
     runs = (
         await db.scalars(
-            select(CproBotRun)
-            .where(CproBotRun.started_at >= now - STATE_WINDOW)
-            .order_by(CproBotRun.started_at.asc(), CproBotRun.id.asc())
+            query.order_by(CproBotRun.started_at.asc(), CproBotRun.id.asc())
         )
     ).all()
     attempts: dict[int, int] = {}
     out: dict[int, ItemState] = {}
+    completed: dict[int, ItemState] = {}
+    violations: dict[int, ItemState] = {}
     for run in runs:
         for raw in run.stage_ids or []:
             stage_id = int(raw)
             if stage_id not in wanted:
                 continue
             attempts[stage_id] = attempts.get(stage_id, 0) + 1
-            out[stage_id] = state_for(run, stage_id, attempts[stage_id])
+            state = state_for(run, stage_id, attempts[stage_id])
+            out[stage_id] = state
+            outcome = ((run.report or {}).get("items") or {}).get(str(stage_id))
+            if (
+                isinstance(outcome, dict)
+                and (
+                    outcome.get("reported_outcome") in ("draft", "submitted")
+                    or outcome.get("reason") in UNCERTAIN_OFFER_REASONS
+                )
+            ):
+                violations[stage_id] = state
+            if auto_draft_enabled() and state.state in ("draft", "submitted"):
+                if (
+                    stage_id not in completed
+                    or completed[stage_id].state != "submitted"
+                ):
+                    completed[stage_id] = state
+    if auto_draft_enabled():
+        for stage_id, state in completed.items():
+            if out[stage_id].state != "working":
+                out[stage_id] = state
+        # Niepotwierdzona oferta nie może wyglądać jak starszy szkic do oceny,
+        # także gdy późniejsza nieudana próba zasłoniła ostatni raport.
+        for stage_id, state in violations.items():
+            if out[stage_id].state != "working":
+                out[stage_id] = state
     return out
 
 
@@ -342,6 +468,10 @@ def due_for_bot(state: Optional[ItemState], *, now: datetime) -> bool:
 
     if state is None:
         return True
+    if auto_draft_enabled():
+        # Timeout lub brak raportu nie dowodzi braku szkicu. Po dowolnym
+        # wcześniejszym zleceniu decyzję o ponowieniu podejmuje operator.
+        return False
     if state.state == "draft" and not state.submit:
         return True
     if state.state in ("retry", "draft"):

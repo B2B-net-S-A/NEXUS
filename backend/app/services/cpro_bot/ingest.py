@@ -26,6 +26,7 @@ from app.models.activity import Activity
 from app.models.cpro_bot import CproBotRun
 from app.models.user import User
 from app.services import cpro_sender
+from app.services.cpro_bot import runs
 from app.services.cpro_bot import items as bot_items
 
 logger = logging.getLogger(__name__)
@@ -87,20 +88,33 @@ def summarize(run: CproBotRun, report: CproReport) -> dict[str, Any]:
     known = {int(s) for s in run.stage_ids or []}
     out: dict[str, dict[str, Any]] = {}
     unknown = 0
+    draft_only = runs.draft_only(run)
     for item in report.items:
         if item.ref not in known:
             unknown += 1
             continue
         outcome = item.outcome
-        if outcome == "submitted" and not run.submit:
+        reason = _clean(item.reason, 40)
+        reported_outcome = None
+        cpro_status = _clean(item.cpro_status, 60)
+        if draft_only and outcome == "submitted":
+            # Nie oznaczaj niedozwolonej wysyłki jako udanego szkicu.
+            # Zachowaj prawdziwe zgłoszenie do audytu i deduplikacji.
+            reported_outcome, outcome = outcome, "failed"
+            reason = "submit_disallowed"
+        elif draft_only and outcome == "draft" and cpro_status != "DRAFT":
+            reported_outcome, outcome = outcome, "failed"
+            reason = "draft_unconfirmed"
+        elif outcome == "submitted" and not run.submit:
             # Próba bez wysyłki: „wysłane” od bota to błąd bota, nie wysyłka.
             outcome = "draft"
         out[str(item.ref)] = {
             "outcome": outcome,
-            "cpro_status": _clean(item.cpro_status, 60),
+            "cpro_status": cpro_status,
             "offer_url": offer_link(item.offer_url),
-            "reason": _clean(item.reason, 40),
+            "reason": reason,
             "message": _clean(item.message, 400),
+            **({"reported_outcome": reported_outcome} if reported_outcome else {}),
         }
     counts = {
         key: sum(1 for v in out.values() if v["outcome"] == key)
@@ -115,6 +129,9 @@ async def _move_sent(
     db: AsyncSession, run: CproBotRun, stage_id: int, sender: Optional[User]
 ) -> Optional[str]:
     """Ruch karty na „Wysłane do Cpro”. ``None`` = przesunięta, inaczej powód."""
+
+    if runs.draft_only(run) or not run.submit:
+        return "Tryb szkiców nie przesuwa kart do „Wysłane do Cpro”."
 
     from app.api.pipeline import MoveApplied, apply_move, run_move_effects  # noqa: PLC0415
     from app.schemas.pipeline import StageMove  # noqa: PLC0415
@@ -179,6 +196,11 @@ async def apply_report(
     run.token_hash = None
     run.report = summary
     await db.commit()
+
+    # Osobny bezpiecznik obok normalizacji raportu: również wcześniejszy bieg
+    # submit=true nie przesunie karty po włączeniu trybu szkiców.
+    if runs.draft_only(run) or not run.submit:
+        return summary
 
     sent = [
         int(ref)

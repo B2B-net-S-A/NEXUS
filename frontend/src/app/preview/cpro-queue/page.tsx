@@ -66,6 +66,7 @@ const item = (over: Partial<CproQueueItem>): CproQueueItem => ({
 // Bot Cpro (17.11.2026): każdy stan bota w innym wierszu.
 const bot = (over: Partial<CproBotItem>): CproBotItem => ({
   state: "ready",
+  mode: "draft",
   blockers: [],
   message: null,
   offer_url: null,
@@ -79,7 +80,7 @@ const bot = (over: Partial<CproBotItem>): CproBotItem => ({
 const QUEUE: CproQueueResponse = {
   sender: SENDER,
   sent_today: 5,
-  bot: { configured: true, working: true, last_run_at: daysAgo(0), sent_today: 3, can_retry: true },
+  bot: { mode: "draft", configured: true, working: true, last_run_at: daysAgo(0), sent_today: 3, drafts_today: 1, awaiting_review: 1, can_retry: true },
   jobs: [
     {
       job_id: 1,
