@@ -4378,6 +4378,23 @@
     "requires_setting": "REVIEW_BATCH_ENABLED"
   },
   {
+    "id": "formularz-klienta-wgraj-z-dysku",
+    "title": "Wypełniony formularz klienta wgrywasz do formularza, nie jako CV",
+    "why": "„Wgraj wypełniony formularz” w sekcji CV osoby zapisuje plik przy rekrutacji. Idzie do QC i do klienta zamiast wypełnienia z NEXUSA, a karta przechodzi z nim na „QC CV”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → sekcja CV → Formularz CV klienta",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "client-form.upload"
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",

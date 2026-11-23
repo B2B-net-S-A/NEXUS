@@ -10,23 +10,32 @@
  * nie powstaje samo (zostaje link do generatora), braki nie blokują ruchu.
  *
  * Awaria odczytu to komunikat z „Ponów”, nigdy pusty stan.
+ *
+ * 0756 (prośba DL CEZ, 23.11.2026): rekruter może wgrać plik wypełniony
+ * w Wordzie na dysku (albo Excel tabeli). Ten plik idzie do QC i do klienta
+ * zamiast wypełnienia z NEXUSA — wcześniej trafiał przez „Wgraj CV” do CV
+ * kandydata.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Download, FileText, Loader2, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, FileText, Loader2, Sparkles, Trash2, Upload } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { ClientFormDialog } from "@/components/v2/recruitment/client-form/ClientFormDialog";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
+  CLIENT_FORM_UPLOAD_ACCEPT,
   clientFormFieldName,
   clientFormKey,
+  deleteUploadedClientForm,
   downloadClientForm,
   fillClientForm,
   saveClientForm,
   saveClientFormYears,
+  uploadClientForm,
   useClientForm,
   type ClientFormView,
 } from "@/lib/api/clientForms";
@@ -52,6 +61,17 @@ export interface ClientFormCardProps {
 
 const MISSING_PREVIEW = 4;
 
+function uploadedAtText(at: string): string {
+  return new Date(at).toLocaleString("pl-PL", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Warsaw",
+  });
+}
+
 export function ClientFormCard({
   stageId,
   candidateName,
@@ -70,6 +90,9 @@ export function ClientFormCard({
   const [filling, setFilling] = useState(false);
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const { askConfirm, confirmDialog } = useConfirmV2();
   const [localOpen, setLocalOpen] = useState(false);
   const dialogOpen = openDialog ?? localOpen;
   const setDialogOpen = onOpenDialogChange ?? setLocalOpen;
@@ -126,6 +149,39 @@ export function ClientFormCard({
     }
   };
 
+  const upload = async (file: File) => {
+    setUploading(true);
+    try {
+      store(await uploadClientForm(stageId, file, kind));
+      showSuccess(score ? "Wgrano wypełnioną tabelę." : "Wgrano wypełniony formularz.");
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się wgrać pliku."));
+    } finally {
+      setUploading(false);
+      if (fileInput.current) fileInput.current.value = "";
+    }
+  };
+
+  const removeUpload = async () => {
+    const ok = await askConfirm({
+      title: "Usunąć wgrany plik?",
+      description:
+        "Do QC i do klienta pójdzie znowu wypełnienie z NEXUSA. Bez wypełnienia karta nie przejdzie na „QC CV”.",
+      confirmLabel: "Usuń plik",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    setUploading(true);
+    try {
+      store(await deleteUploadedClientForm(stageId, kind));
+      showSuccess("Usunięto wgrany plik.");
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się usunąć pliku."));
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const download = async (view: ClientFormView) => {
     setDownloading(true);
     try {
@@ -166,6 +222,8 @@ export function ClientFormCard({
   const total = view.fields.length;
   const missing = view.fields.filter((field) => view.missing.includes(field.id));
   const filledCount = total - missing.length;
+  const uploaded = view.uploaded ?? null;
+  const canDownload = view.status === "filled" || uploaded != null;
 
   return (
     <section
@@ -201,19 +259,38 @@ export function ClientFormCard({
                 {view.template?.filename}
               </p>
               <p className="text-muted-foreground">
-                {view.status === "not_filled"
-                  ? "Jeszcze nie wypełniony."
-                  : "Wypełniony z CV, screeningu i notatek."}
+                {uploaded
+                  ? "Wzór klienta — wypełniony poza NEXUSEM, plik niżej."
+                  : view.status === "not_filled"
+                    ? "Jeszcze nie wypełniony."
+                    : "Wypełniony z CV, screeningu i notatek."}
               </p>
             </div>
           </div>
-          {view.template_changed ? (
+          {uploaded ? (
+            <div
+              className="flex items-start gap-2 rounded-md border border-success/30 bg-success-muted px-2.5 py-2"
+              data-testid="client-form-uploaded"
+            >
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success-muted-foreground" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-foreground" title={uploaded.filename}>
+                  {uploaded.filename}
+                </p>
+                <p className="text-muted-foreground">
+                  Wgrany z dysku · {uploadedAtText(uploaded.uploaded_at)} · ten plik idzie do QC i do klienta
+                  zamiast wypełnienia z NEXUSA.
+                </p>
+              </div>
+            </div>
+          ) : null}
+          {view.template_changed && !uploaded ? (
             <p className="flex items-start gap-1.5 text-warning-muted-foreground">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
               Wzór w Plikach się zmienił — wypełnij {score ? "tabelę" : "formularz"} ponownie.
             </p>
           ) : null}
-          {view.status === "filled" ? (
+          {view.status === "filled" && !uploaded ? (
             <div className="space-y-1.5">
               <div className="flex justify-between gap-2">
                 <span>
@@ -267,7 +344,7 @@ export function ClientFormCard({
               <Button
                 type="button"
                 size="sm"
-                variant={view.status === "filled" ? "outline" : "primary"}
+                variant={view.status === "filled" || uploaded ? "outline" : "primary"}
                 loading={filling}
                 disabled={filling}
                 title="Model wpisuje tylko to, co jest w CV, screeningu i notatkach — zwykle do minuty."
@@ -277,7 +354,7 @@ export function ClientFormCard({
                 {view.status === "filled" ? "Wypełnij ponownie" : "Wypełnij z CV i screeningu"}
               </Button>
             )}
-            {view.status === "filled" ? (
+            {canDownload ? (
               <Button
                 type="button"
                 size="sm"
@@ -286,9 +363,53 @@ export function ClientFormCard({
                 onClick={() => void download(view)}
               >
                 <Download className="h-3.5 w-3.5" aria-hidden />
-                {score ? "Pobierz Excel" : "Pobierz Word"}
+                {uploaded ? "Pobierz wgrany plik" : score ? "Pobierz Excel" : "Pobierz Word"}
               </Button>
             ) : null}
+            {readOnly ? null : (
+              <>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  className="hidden"
+                  accept={CLIENT_FORM_UPLOAD_ACCEPT[kind]}
+                  data-testid={score ? "client-score-upload-input" : "client-form-upload-input"}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void upload(file);
+                  }}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  loading={uploading}
+                  disabled={uploading}
+                  data-tour={score ? undefined : "client-form.upload"}
+                  title={
+                    score
+                      ? "Tabela wypełniona poza NEXUSEM (Excel) — zastąpi wypełnienie z NEXUSA."
+                      : "Formularz wypełniony w Wordzie na dysku (albo PDF) — zastąpi wypełnienie z NEXUSA. Nie wgrywaj go jako CV kandydata."
+                  }
+                  onClick={() => fileInput.current?.click()}
+                >
+                  <Upload className="h-3.5 w-3.5" aria-hidden />
+                  {uploaded ? "Zastąp plik" : score ? "Wgraj wypełniony Excel" : "Wgraj wypełniony formularz"}
+                </Button>
+                {uploaded ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="quiet"
+                    disabled={uploading}
+                    onClick={() => void removeUpload()}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                    Usuń
+                  </Button>
+                ) : null}
+              </>
+            )}
           </div>
         </>
       )}
@@ -316,6 +437,7 @@ export function ClientFormCard({
           onDownload={() => void download(view)}
         />
       ) : null}
+      {confirmDialog}
     </section>
   );
 }

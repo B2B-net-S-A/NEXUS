@@ -372,6 +372,8 @@ async def _client_form_of(
         "missing": state.missing,
         "score_template": state.score_template is not None,
         "score_missing": state.score_missing,
+        # 0755: wgrany z dysku — plakietka „Formularz wgrany”.
+        "uploaded": state.uploaded,
     }
 
 

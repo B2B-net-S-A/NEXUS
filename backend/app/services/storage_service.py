@@ -34,6 +34,8 @@ CLIENT_ORDER_GROUP_POS_DIR = STORAGE_ROOT / "client_order_groups"
 FINANCE_IMPORTS_DIR = STORAGE_ROOT / "finance_imports"
 ORDER_MAIL_DIR = STORAGE_ROOT / "order_mail"
 JOB_FILES_DIR = STORAGE_ROOT / "job_files"
+# 0756: formularz klienta / tabela punktowa wypełnione poza NEXUSEM (para osoba × rekrutacja).
+CLIENT_FORMS_DIR = STORAGE_ROOT / "client_forms"
 # Podpis umowy B2B w NEXUSIE (0499): PDF wydany do podpisu i kolejne podpisane
 # wersje — przed podpisem nie ma jeszcze kontraktu, więc nie Dokumenty kontraktu.
 B2B_SIGNING_DIR = STORAGE_ROOT / "b2b_signing"
@@ -619,6 +621,24 @@ def get_job_file_path(relative_path: str) -> Path:
 
 def delete_job_file(relative_path: str) -> None:
     _delete_relative(relative_path, "job file")
+
+
+# ── Formularz klienta wgrany z dysku (0756) ───────────────────────────────────
+
+
+def save_client_form_file(job_id: int, name: str, data: bytes) -> tuple[str, int]:
+    """Zapis pod /client_forms/{job_id}/{uuid}-{nazwa}."""
+    rel, size = _save_to(CLIENT_FORMS_DIR / str(job_id), name, io.BytesIO(data))
+    logger.info("Saved client form file: %s (%d bytes)", safe_storage_key(rel), size)
+    return rel, size
+
+
+def get_client_form_file_path(relative_path: str) -> Path:
+    return _resolve_under_root(relative_path)
+
+
+def delete_client_form_file(relative_path: str) -> None:
+    _delete_relative(relative_path, "client form file")
 
 
 # ── Sprzedaż: pliki firm i szans (0601) ──────────────────────────────────────

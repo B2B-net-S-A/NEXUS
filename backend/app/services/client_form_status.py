@@ -34,6 +34,9 @@ class PairFormState:
     # Tabela punktowa (Excel, 0525) — tylko gdy rekrutacja ma jej wzór.
     score_template: Optional[str] = None
     score_missing: Optional[int] = None
+    # 0756: plik wypełniony poza NEXUSEM, wgrany z dysku — gotowy (0 braków).
+    uploaded: bool = False
+    score_uploaded: bool = False
 
 
 def missing_before_qc(state: Optional[PairFormState]) -> list[str]:
@@ -108,25 +111,34 @@ async def job_states(
         ).all()
     }
     missing: dict[tuple[int, str], int] = {}
+    uploaded: set[tuple[int, str]] = set()
     if ids:
         rows = await db.execute(
             select(
                 CandidateClientForm.candidate_id,
                 CandidateClientForm.kind,
                 CandidateClientForm.missing_count,
+                CandidateClientForm.uploaded_file_key.is_not(None),
             ).where(
                 CandidateClientForm.job_id == job_id,
                 CandidateClientForm.kind.in_((KIND_FORM, KIND_SCORE)),
                 CandidateClientForm.candidate_id.in_(ids),
             )
         )
-        missing = {(cid, kind): count for cid, kind, count in rows.all()}
+        for cid, kind, count, has_upload in rows.all():
+            # Wgrany plik idzie do QC i do klienta zamiast pól z NEXUSA, więc
+            # jego puste pola nie są brakami (0756).
+            missing[(cid, kind)] = 0 if has_upload else count
+            if has_upload:
+                uploaded.add((cid, kind))
     return {
         candidate_id: PairFormState(
             template=templates.get(KIND_FORM),
             missing=missing.get((candidate_id, KIND_FORM)),
             score_template=templates.get(KIND_SCORE),
             score_missing=missing.get((candidate_id, KIND_SCORE)),
+            uploaded=(candidate_id, KIND_FORM) in uploaded,
+            score_uploaded=(candidate_id, KIND_SCORE) in uploaded,
         )
         for candidate_id in ids
     }

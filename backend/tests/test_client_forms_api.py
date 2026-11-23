@@ -36,6 +36,7 @@ CV = (
 def storage(tmp_path, monkeypatch) -> Path:
     monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
     monkeypatch.setattr(storage_service, "JOB_FILES_DIR", tmp_path / "job_files")
+    monkeypatch.setattr(storage_service, "CLIENT_FORMS_DIR", tmp_path / "client_forms")
     return tmp_path
 
 
@@ -608,3 +609,223 @@ async def test_form_client_entering_qc_cv_gets_no_company_cv_qc_bell(monkeypatch
     await cv_qc.run_after_move(form_stage, None, notify_recruiter_on_fail=True)
     await cv_qc.run_after_move(cv_stage, None, notify_recruiter_on_fail=True)
     assert rung == [cv_job]
+
+
+# ── 0756: plik wypełniony poza NEXUSEM, wgrany z dysku ───────────────────────
+
+
+def _with_macros(content: bytes) -> bytes:
+    import zipfile
+
+    buffer = io.BytesIO(content)
+    with zipfile.ZipFile(buffer, "a") as package:
+        package.writestr("word/vbaProject.bin", b"makro")
+    return buffer.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_uploaded_form_goes_to_qc_and_download_instead_of_the_nexus_fill(
+    app_client, app_auth_headers, storage
+):
+    from fastapi import HTTPException
+
+    from app.models.user import User
+    from app.services import client_form_status, pipeline_move_rules
+
+    job_id, stage_id = await _pair()
+    await _add_template(app_client, app_auth_headers, job_id)
+    recruiter_id, _ = await make_user(UserRole.recruiter)
+    url = f"/api/candidates/stages/{stage_id}/client-form"
+
+    async def gate() -> list[str]:
+        async with AsyncSessionLocal() as db:
+            stage = await db.get(CandidateStage, stage_id)
+            return await pipeline_move_rules.assert_client_form_before_qc(
+                db,
+                candidate_id=stage.candidate_id,
+                job=await db.get(Job, job_id),
+                user=await db.get(User, recruiter_id),
+                target_column="cv_qc",
+            )
+
+    with pytest.raises(HTTPException):
+        await gate()
+
+    async def upload(name: str, data: bytes, kind: str = "form"):
+        return await app_client.post(
+            f"{url}/upload?kind={kind}",
+            files={"file": (name, data, "application/octet-stream")},
+            headers=app_auth_headers,
+        )
+
+    # Odmowy: zły typ, makra, „PDF”, który nim nie jest, Excel bez wzoru tabeli.
+    wrong = await upload("formularz.doc", b"stary word")
+    assert wrong.status_code == 415
+    assert wrong.json()["detail"].startswith("Wypełniony formularz wgraj")
+    macros = await upload("formularz.docx", _with_macros(form_docx()))
+    assert macros.status_code == 422 and "makrami" in macros.json()["detail"]
+    fake_pdf = await upload("formularz.pdf", b"<html>")
+    assert fake_pdf.status_code == 422
+    assert (await upload("tabela.xlsx", b"x", kind="score")).status_code == 409
+    assert (await upload("formularz.xlsx", b"x")).status_code == 415
+
+    filled = form_docx()
+    got = await upload("Formularz CV Anna — wypełniony.docx", filled)
+    assert got.status_code == 200, got.text
+    body = got.json()
+    assert body["uploaded"]["filename"] == "Formularz CV Anna — wypełniony.docx"
+    assert body["uploaded"]["size"] == len(filled)
+    assert body["uploaded"]["uploaded_at"]
+    assert await gate() == []
+    async with AsyncSessionLocal() as db:
+        stage = await db.get(CandidateStage, stage_id)
+        states = await client_form_status.job_states(db, job_id, [stage.candidate_id])
+    assert states[stage.candidate_id].uploaded is True
+    assert states[stage.candidate_id].missing == 0
+
+    download = await app_client.get(f"{url}/docx", headers=app_auth_headers)
+    assert download.status_code == 200, download.text
+    assert download.content == filled
+    assert ".docx" in download.headers["content-disposition"]
+
+    # „Zastąp plik”: PDF zastępuje Word, stary plik znika z dysku.
+    pdf = b"%PDF-1.4 wypelniony formularz"
+    replaced = await upload("formularz.pdf", pdf)
+    assert replaced.status_code == 200, replaced.text
+    stored = list((storage / "client_forms").rglob("*"))
+    assert [path.read_bytes() for path in stored if path.is_file()] == [pdf]
+    download = await app_client.get(f"{url}/docx", headers=app_auth_headers)
+    assert download.content == pdf
+    assert download.headers["content-type"].startswith("application/pdf")
+
+    # „Usuń”: wiersz założony samym wgraniem znika, bramka znów czeka.
+    deleted = await app_client.delete(f"{url}/upload", headers=app_auth_headers)
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["uploaded"] is None
+    assert deleted.json()["status"] == "not_filled"
+    assert not [
+        path for path in (storage / "client_forms").rglob("*") if path.is_file()
+    ]
+    with pytest.raises(HTTPException):
+        await gate()
+    again = await app_client.delete(f"{url}/upload", headers=app_auth_headers)
+    assert again.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_removing_the_upload_keeps_the_nexus_fill(
+    app_client, app_auth_headers, storage, model
+):
+    job_id, stage_id = await _pair()
+    await _add_template(app_client, app_auth_headers, job_id)
+    url = f"/api/candidates/stages/{stage_id}/client-form"
+    model.append({"fields": []})
+    assert (
+        await app_client.post(f"{url}/fill", headers=app_auth_headers)
+    ).status_code == 200
+    up = await app_client.post(
+        f"{url}/upload",
+        files={"file": ("formularz.pdf", b"%PDF-1.4 x", "application/pdf")},
+        headers=app_auth_headers,
+    )
+    assert up.status_code == 200 and up.json()["status"] == "filled"
+    deleted = await app_client.delete(f"{url}/upload", headers=app_auth_headers)
+    assert deleted.json()["status"] == "filled" and deleted.json()["uploaded"] is None
+    download = await app_client.get(f"{url}/docx", headers=app_auth_headers)
+    assert download.status_code == 200
+    assert docx.Document(io.BytesIO(download.content))  # Word z wypełnienia NEXUSA
+
+
+@pytest.mark.asyncio
+async def test_upload_needs_candidate_write_access(app_client, storage):
+    _, stage_id = await _pair()
+    _, viewer = await make_user(UserRole.user)
+    url = f"/api/candidates/stages/{stage_id}/client-form/upload"
+    resp = await app_client.post(
+        url,
+        files={"file": ("formularz.pdf", b"%PDF-1.4 x", "application/pdf")},
+        headers=viewer,
+    )
+    assert resp.status_code == 403
+    assert (await app_client.delete(url, headers=viewer)).status_code == 403
+
+
+# ── 0756: reguła klienta „doświadczenie = 10/10” ─────────────────────────────
+
+
+SCALE_ANSWER = {
+    "fields": [
+        # Model ocenił „Staż w służbie zdrowia” na 9 bez doświadczenia w wierszu.
+        {"id": "t2.r6.c3", "value": "9", "quote": "Selenium WebDriver"},
+    ],
+    "roles": [
+        {
+            "key": "r1",
+            "employer": "Bank Przykładowy S.A.",
+            "title": "Automation Test Engineer",
+            "start": "2023-07",
+            "end": "obecnie",
+            "quote": "07.2023 – obecnie Automation Test Engineer",
+        }
+    ],
+    "years": [
+        {
+            "id": "t2.r5.c2",
+            "roles": [
+                {"key": "r1", "level": "role", "quote": "Automation Test Engineer"}
+            ],
+        }
+    ],
+}
+
+
+@pytest.mark.asyncio
+async def test_scale_rule_fills_ten_where_the_row_has_experience(
+    app_client, app_auth_headers, storage, model
+):
+    job_id, stage_id = await _pair()
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        client = await db.get(Client, job.client_id)
+        client.client_form_scale_full_on_experience = True
+        await db.commit()
+    await _add_template(app_client, app_auth_headers, job_id)
+    url = f"/api/candidates/stages/{stage_id}/client-form"
+    model.append(SCALE_ANSWER)
+    filled = (await app_client.post(f"{url}/fill", headers=app_auth_headers)).json()
+    values = {item["id"]: item for item in filled["fields"]}
+    assert values["t2.r5.c3"]["value"] == "10"
+    assert values["t2.r5.c3"]["source"] == "client_rule"
+    assert values["t2.r6.c3"]["value"] is None
+
+    # Rola zdjęta w siatce → brak doświadczenia w wierszu → pole puste.
+    saved = await app_client.put(
+        f"{url}/years", json={"roles": {"t2.r5.c2": []}}, headers=app_auth_headers
+    )
+    after = {item["id"]: item for item in saved.json()["fields"]}
+    assert after["t2.r5.c3"]["value"] is None
+
+    # Wartość rekrutera wygrywa z regułą także po „Zapisz lata”.
+    await app_client.put(
+        url, json={"fields": {"t2.r5.c3": "7"}}, headers=app_auth_headers
+    )
+    saved = await app_client.put(
+        f"{url}/years", json={"roles": {"t2.r5.c2": ["r1"]}}, headers=app_auth_headers
+    )
+    after = {item["id"]: item for item in saved.json()["fields"]}
+    assert after["t2.r5.c3"]["value"] == "7"
+    assert after["t2.r5.c3"]["source"] == "recruiter"
+
+
+@pytest.mark.asyncio
+async def test_without_the_client_flag_there_is_no_scale_rule(
+    app_client, app_auth_headers, storage, model
+):
+    job_id, stage_id = await _pair()
+    await _add_template(app_client, app_auth_headers, job_id)
+    url = f"/api/candidates/stages/{stage_id}/client-form"
+    model.append(SCALE_ANSWER)
+    filled = (await app_client.post(f"{url}/fill", headers=app_auth_headers)).json()
+    values = {item["id"]: item for item in filled["fields"]}
+    assert values["t2.r5.c2"]["value"]  # lata z roli są
+    assert values["t2.r5.c3"]["value"] is None  # skali nikt nie wpisał

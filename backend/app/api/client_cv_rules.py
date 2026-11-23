@@ -163,6 +163,8 @@ CLIENT_FLAG_FIELDS: tuple[str, ...] = (
     "cv_content_mode_cap",
     "cv_interactive_enabled",
     "cv_client_document",
+    # 0756 (CEZ 23.11.2026): pole „w skali 1–10” = 10 przy doświadczeniu w wierszu.
+    "client_form_scale_full_on_experience",
 )
 
 # Prefiksy ostrzeżeń, którymi model zgłasza pominiętą instrukcję klienta
@@ -264,6 +266,9 @@ class ClientCvRulePayload(BaseModel):
     # Co idzie do klienta: CV firmowe albo formularz klienta z Plików
     # rekrutacji (0521, ``client_form_schema.py``).
     cv_client_document: Optional[str] = None
+    # Formularz klienta: „doświadczenie = 10/10” w polach skali (0756,
+    # ``client_form_scale.py``).
+    client_form_scale_full_on_experience: Optional[bool] = None
     # Zatwierdź tym samym zapisem. Osobne kliknięcie „Zatwierdź" chroniło
     # PROPOZYCJE z seeda (dopasowane po nazwie, więc możliwie błędne). Reguła,
     # którą Delivery Lead właśnie wpisał ręcznie, JEST jego decyzją.
@@ -416,6 +421,7 @@ class ClientCvRuleRead(BaseModel):
     cv_content_mode_cap: Optional[str] = None
     cv_interactive_enabled: bool = True
     cv_client_document: str = COMPANY_CV
+    client_form_scale_full_on_experience: bool = False
     seed_key: Optional[str] = None
     confirmed_at: Optional[str] = None
     confirmed_by_name: Optional[str] = None
@@ -566,6 +572,9 @@ def _to_read(
         "cv_content_mode_cap": getattr(client, "cv_content_mode_cap", None),
         "cv_interactive_enabled": bool(getattr(client, "cv_interactive_enabled", True)),
         "cv_client_document": getattr(client, "cv_client_document", None) or COMPANY_CV,
+        "client_form_scale_full_on_experience": bool(
+            getattr(client, "client_form_scale_full_on_experience", False)
+        ),
     }
     if rule is None:
         return ClientCvRuleRead(
@@ -729,6 +738,9 @@ def _rule_state(rule: Optional[ClientCvRule], client: Client) -> dict[str, Any]:
     for field in CLIENT_FLAG_FIELDS:
         state[field] = getattr(client, field, None)
     state["cv_client_document"] = state["cv_client_document"] or COMPANY_CV
+    state["client_form_scale_full_on_experience"] = bool(
+        state["client_form_scale_full_on_experience"]
+    )
     return state
 
 
@@ -892,6 +904,10 @@ def _recipe_payload(payload: ClientCvRulePayload, client: Client) -> dict[str, A
     if payload.cv_client_document is None:
         recipe["cv_client_document"] = (
             getattr(client, "cv_client_document", None) or COMPANY_CV
+        )
+    if payload.client_form_scale_full_on_experience is None:
+        recipe["client_form_scale_full_on_experience"] = bool(
+            getattr(client, "client_form_scale_full_on_experience", False)
         )
     return recipe
 
@@ -1206,12 +1222,19 @@ async def delete_client_cv_rule(
                     "from": getattr(client, "cv_client_document", None) or COMPANY_CV,
                     "to": COMPANY_CV,
                 },
+                "client_form_scale_full_on_experience": {
+                    "from": bool(
+                        getattr(client, "client_form_scale_full_on_experience", False)
+                    ),
+                    "to": False,
+                },
             },
             actor=current_user,
         )
         client.cv_content_mode_cap = None
         client.cv_interactive_enabled = True
         client.cv_client_document = COMPANY_CV
+        client.client_form_scale_full_on_experience = False
         client.cv_rule_edit_revision = (
             max(
                 int(rule.edit_revision or 0),

@@ -6545,6 +6545,16 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS kind VARCHAR(8) NOT NULL DEFAULT 'form'",
     "ALTER TABLE candidate_client_forms DROP CONSTRAINT IF EXISTS uq_candidate_client_forms_pair",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_candidate_client_forms_pair_kind ON candidate_client_forms (candidate_id, job_id, kind)",
+    # 0756: formularz klienta wgrany z dysku (plik pary osoba × rekrutacja)
+    # i flaga klienta „doświadczenie = 10/10” w polach skali. Lustro 1:1
+    # z `client_form_schema.UPLOAD_DDL` i `SCALE_COLUMN_DDL`.
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS uploaded_file_key VARCHAR(512) NULL",
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS uploaded_filename VARCHAR(255) NULL",
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS uploaded_content_type VARCHAR(120) NULL",
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS uploaded_size INTEGER NULL",
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMPTZ NULL",
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS uploaded_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS client_form_scale_full_on_experience BOOLEAN NOT NULL DEFAULT false",
     # 0626: wzór „Karty przed CV” klienta (Credit Agricole) — lustro 1:1
     # z `app/services/cover_sheet_schema.TABLE_DDL` (pilnuje test_cover_sheet_migration_mirror).
     "CREATE TABLE IF NOT EXISTS client_cover_sheet_templates (client_id INTEGER PRIMARY KEY REFERENCES clients(id) ON DELETE CASCADE, filename VARCHAR(255) NOT NULL, content BYTEA NOT NULL, sha256 VARCHAR(64) NOT NULL, fields JSONB NOT NULL DEFAULT '[]'::jsonb, uploaded_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now())",
@@ -7538,6 +7548,10 @@ _DATA_STATEMENTS = [
     # RAZ (znacznik w app_settings), żeby restart nie cofał zmiany z edytora
     # reguły CV. Lustro `client_form_schema.SEED_DDL`.
     "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM app_settings WHERE key = '0521_ezdrowie_client_form') THEN UPDATE clients SET cv_client_document = 'client_form' WHERE id = 115; INSERT INTO app_settings (key, value) VALUES ('0521_ezdrowie_client_form', jsonb_build_object('completed_at', clock_timestamp())) ON CONFLICT (key) DO NOTHING; END IF; END $$",
+    # 0756: Centrum e-Zdrowia dostaje regułę „doświadczenie = 10/10” — RAZ
+    # (znacznik w app_settings), żeby restart nie cofał zmiany z edytora
+    # reguły CV. Lustro `client_form_schema.SCALE_SEED_DDL`.
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM app_settings WHERE key = 'ezdrowie_client_form_scale_full') THEN UPDATE clients SET client_form_scale_full_on_experience = true WHERE id = 115; INSERT INTO app_settings (key, value) VALUES ('ezdrowie_client_form_scale_full', jsonb_build_object('completed_at', clock_timestamp())) ON CONFLICT (key) DO NOTHING; END IF; END $$",
     # 0412: „Reply” z Traffita to odpowiedź na notatkę, nie mail — jednorazowa
     # zmiana typu (znacznik w app_settings), bez ruszania `updated_at`.
     # Lustro `note_kind_schema.REPLY_RETYPE`.

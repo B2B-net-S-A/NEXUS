@@ -97,6 +97,8 @@ export interface ClientCvRule {
   cv_content_mode_cap: CvContentMode | null;
   cv_interactive_enabled: boolean;
   cv_client_document?: CvClientDocument;
+  /** 0756: formularz klienta — pole „w skali 1–10” = 10 przy doświadczeniu w wierszu. */
+  client_form_scale_full_on_experience?: boolean;
   seed_key: string | null;
   confirmed_at: string | null;
   confirmed_by_name: string | null;
@@ -191,6 +193,7 @@ export interface ClientCvRulePayload {
   cv_content_mode_cap: CvContentMode | null;
   cv_interactive_enabled: boolean;
   cv_client_document: CvClientDocument;
+  client_form_scale_full_on_experience: boolean;
   confirm: boolean;
 }
 
@@ -343,6 +346,7 @@ export interface CvRuleForm {
   cv_content_mode_cap: "" | CvContentMode;
   cv_interactive_enabled: boolean;
   cv_client_document: CvClientDocument;
+  client_form_scale_full_on_experience: boolean;
 }
 
 export function ruleToForm(published: ClientCvRule): CvRuleForm {
@@ -383,6 +387,7 @@ export function ruleToForm(published: ClientCvRule): CvRuleForm {
     cv_content_mode_cap: rule.cv_content_mode_cap ?? "",
     cv_interactive_enabled: rule.cv_interactive_enabled,
     cv_client_document: rule.cv_client_document ?? "company_cv",
+    client_form_scale_full_on_experience: rule.client_form_scale_full_on_experience ?? false,
   };
 }
 
@@ -431,6 +436,7 @@ export function formToPayload(form: CvRuleForm, confirm: boolean): ClientCvRuleP
     cv_content_mode_cap: form.cv_content_mode_cap || null,
     cv_interactive_enabled: form.cv_interactive_enabled,
     cv_client_document: form.cv_client_document,
+    client_form_scale_full_on_experience: form.client_form_scale_full_on_experience,
     confirm,
   };
 }
@@ -512,5 +518,6 @@ export const RULE_FIELD_LABELS: Record<string, string> = {
   cv_content_mode_cap: "Sufit trybu treści",
   cv_interactive_enabled: "Interaktywne CV na linku",
   cv_client_document: "Dokument do klienta",
+  client_form_scale_full_on_experience: "Formularz: doświadczenie = 10/10",
   source_client_id: "Skopiowano z klienta",
 };

@@ -120,6 +120,7 @@ _NO_FORM = {
     "missing": None,
     "score_template": False,
     "score_missing": None,
+    "uploaded": False,
 }
 
 

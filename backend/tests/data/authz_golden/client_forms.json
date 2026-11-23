@@ -31,9 +31,12 @@
   "back_office"
  ],
  "routes": {
+  "DELETE /api/candidates/stages/{stage_id}/client-form/upload": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "GET /api/candidates/stages/{stage_id}/client-form": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/candidates/stages/{stage_id}/client-form/docx": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "POST /api/candidates/stages/{stage_id}/client-form/fill": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
-  "PUT /api/candidates/stages/{stage_id}/client-form": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
+  "POST /api/candidates/stages/{stage_id}/client-form/upload": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/candidates/stages/{stage_id}/client-form": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/candidates/stages/{stage_id}/client-form/years": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

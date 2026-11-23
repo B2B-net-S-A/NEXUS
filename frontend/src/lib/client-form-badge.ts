@@ -15,6 +15,8 @@ export interface ClientFormState {
   /** Tabela punktowa (Excel) — od 23.11.2026 też warunek „QC CV”. */
   score_template?: boolean;
   score_missing?: number | null;
+  /** 0755: plik wypełniony poza NEXUSEM, wgrany z dysku — idzie do QC i do klienta. */
+  uploaded?: boolean;
 }
 
 export interface ClientFormBadgeView {
@@ -46,6 +48,14 @@ export function clientFormStateBadge(form: ClientFormState): ClientFormBadgeView
       tone: "wait",
       title:
         "Rekrutacja ma wzór tabeli punktowej klienta — wypełnij ją w sekcji CV osoby. Bez niej karta nie przejdzie na „QC CV”.",
+    };
+  }
+  if (form.uploaded) {
+    return {
+      label: "Formularz wgrany",
+      tone: "ok",
+      title:
+        "Formularz CV klienta wgrany z dysku — ten plik idzie do QC i do klienta zamiast wypełnienia z NEXUSA.",
     };
   }
   if (form.missing > 0) {
