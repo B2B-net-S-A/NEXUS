@@ -258,11 +258,19 @@ def test_postpone_once_a_day_and_not_again_after_postponing_yesterday() -> None:
     yesterday = rules.DayRow(
         day=TUESDAY - timedelta(days=1), postponed_until=_at(TUESDAY, 12)
     )
-    assert rules.can_postpone(None, yesterday, 2, now, TUESDAY) is False
+    assert rules.can_postpone(None, yesterday, 2, now, TUESDAY, carried=True) is False
     long_ago = rules.DayRow(
         day=TUESDAY - timedelta(days=10), postponed_until=_at(TUESDAY, 12)
     )
-    assert rules.can_postpone(None, long_ago, 2, now, TUESDAY) is True
+    assert rules.can_postpone(None, long_ago, 2, now, TUESDAY, carried=True) is True
+    # Poniedziałek po piątkowym odłożeniu z zaległą lekcją: bez odkładania.
+    friday = TUESDAY - timedelta(days=4)
+    monday = TUESDAY - timedelta(days=1)
+    after_weekend = rules.DayRow(day=friday, postponed_until=_at(friday, 12))
+    assert (
+        rules.can_postpone(None, after_weekend, 2, _at(monday, 9), monday, carried=True)
+        is False
+    )
 
 
 # ── Zdarzenia lekcji ─────────────────────────────────────────────────────────
@@ -500,4 +508,40 @@ async def test_hor_sees_who_is_stuck_after_three_failed_solo_tries(
         mine
         and mine[0]["solo_failed_count"] == 3
         and mine[0]["lesson_id"] == "lekcja-test"
+    )
+
+
+def test_failed_review_lesson_returns_to_the_next_porcja() -> None:
+    """Zaliczenie lekcji zalicza jej wpisy, więc „przeklikane przed lekcjami”
+    nie może zdjąć z porcji lekcji, która oblała powtórkę."""
+    plans = _plans(1, shipped=FRIDAY - timedelta(days=10), done=["wpis-00"])
+    failed = {"lekcja-00": rules.LessonRow(review_failed_at=_at(FRIDAY, 9))}
+    monday = FRIDAY + timedelta(days=3)
+    plan = rules.daily_plan(plans, failed, monday, 1, LESSONS_FLOOR)
+    assert [p.lesson.id for p, _ in plan.today] == ["lekcja-00"]
+    # Bez oblanej powtórki wpis przeklikany przed lekcjami nadal nie wraca.
+    assert rules.daily_plan(plans, {}, monday, 1, LESSONS_FLOOR).today == []
+
+
+def test_postponing_on_monday_does_not_block_the_rest_of_the_week() -> None:
+    monday = TUESDAY - timedelta(days=1)
+    postponed_monday = rules.DayRow(day=monday, postponed_until=_at(monday, 12))
+    now = _at(TUESDAY, 9)
+    # Wtorek po poniedziałkowym odłożeniu z zaległą lekcją: bez odkładania.
+    assert (
+        rules.can_postpone(None, postponed_monday, 2, now, TUESDAY, carried=True)
+        is False
+    )
+    # Wtorek, ale poniedziałkowe lekcje zrobione — dzisiejsze nowe można odłożyć.
+    assert (
+        rules.can_postpone(None, postponed_monday, 2, now, TUESDAY, carried=False)
+        is True
+    )
+    # Środa: poniedziałek to nie „wczoraj”.
+    wednesday = TUESDAY + timedelta(days=1)
+    assert (
+        rules.can_postpone(
+            None, postponed_monday, 2, _at(wednesday, 9), wednesday, carried=True
+        )
+        is True
     )

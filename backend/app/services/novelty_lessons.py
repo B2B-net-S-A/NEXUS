@@ -206,10 +206,20 @@ def daily_plan(
     done_today = [
         p for p in in_window if completed_today(p) and p.lesson.id not in review_ids
     ]
+
+    def returned(plan: LessonPlan) -> bool:
+        """Oblana powtórka: wpisy zostają zaliczone, ale lekcja wraca od pokazu."""
+        row = rows.get(plan.lesson.id)
+        return (
+            row is not None
+            and row.review_failed_at is not None
+            and row.completed_at is None
+        )
+
     pending = [
         p
         for p in in_window
-        if not p.legacy_done
+        if (not p.legacy_done or returned(p))
         and lesson_state(rows.get(p.lesson.id)) != "done"
         and p.lesson.id not in review_ids
     ]
@@ -260,26 +270,46 @@ def postpone_options(now: datetime) -> list[dict[str, str]]:
     ]
 
 
+def previous_workday(day: date) -> date:
+    """Poprzedni dzień roboczy (pon → pt); święta pomijamy — wtedy porcji nie ma."""
+    back = 3 if day.weekday() == 0 else 2 if day.weekday() == 6 else 1
+    return day - timedelta(days=back)
+
+
 def can_postpone(
     today_row: Optional[DayRow],
     previous_row: Optional[DayRow],
     open_items: int,
     now: datetime,
     today: date,
+    *,
+    carried: bool = False,
 ) -> bool:
-    """Raz dziennie, do 15:00, gdy coś czeka. Kto odłożył wczoraj (ostatni
-    dzień z porcją) i nie skończył, dziś odkładać nie może."""
+    """Raz dziennie, do 15:00, gdy coś czeka. Kto odłożył w poprzedni dzień
+    roboczy i zostały mu lekcje z tamtego dnia (``carried``), dziś odkładać
+    nie może — „czego dziś nie zrobisz, jutro bez odkładania”."""
     if open_items == 0:
         return False
     if today_row is not None and today_row.postponed_until is not None:
         return False
     if (
-        previous_row is not None
+        carried
+        and previous_row is not None
         and previous_row.postponed_until is not None
-        and previous_row.day >= today - timedelta(days=4)
+        and previous_row.day == previous_workday(today)
     ):
         return False
     return bool(postpone_options(now))
+
+
+def carried_over(plan: DailyPlan, rows: Mapping[str, LessonRow], since: date) -> bool:
+    """Czy na dziś czeka lekcja, która była już w porcji dnia ``since``."""
+    return any(
+        not review
+        and lesson_state(rows.get(p.lesson.id)) != "done"
+        and p.shipped_on < since
+        for p, review in plan.today
+    )
 
 
 def shape_lesson(

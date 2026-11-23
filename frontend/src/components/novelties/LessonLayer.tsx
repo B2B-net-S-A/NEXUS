@@ -43,9 +43,11 @@ type Outcome =
   | { kind: "solo_wrong"; feedback: string }
   | { kind: "quiz_wrong"; explain: string }
   | { kind: "done" }
-  | { kind: "review_failed"; feedback: string };
+  | { kind: "review_failed"; feedback: string }
+  /** Zapis etapu nie doszedł do serwera — nie udajemy zaliczenia. */
+  | { kind: "save_error" };
 
-/** Po tylu ms w etapie „sam” (warunek „click”) pojawia się „Nie widzę tego u siebie”. */
+/** Po tylu ms w etapie „sam” (warunek „click” albo „page”) pojawia się „Nie widzę tego u siebie”. */
 export const UNAVAILABLE_AFTER_MS = 45_000;
 
 const CARD =
@@ -82,12 +84,20 @@ export function LessonLayer() {
       if (passing.current) return;
       passing.current = true;
       if (current.review) {
-        await sendLessonEvent(current.lesson.id, "review_passed");
+        if (!(await sendLessonEvent(current.lesson.id, "review_passed"))) {
+          passing.current = false;
+          setOutcome({ kind: "save_error" });
+          return;
+        }
         setOutcome({ kind: "done" });
         window.setTimeout(() => leaveLesson(current), 1200);
         return;
       }
-      await sendLessonEvent(current.lesson.id, "solo_passed");
+      if (!(await sendLessonEvent(current.lesson.id, "solo_passed"))) {
+        passing.current = false;
+        setOutcome({ kind: "save_error" });
+        return;
+      }
       setOutcome({ kind: "none" });
       update({ ...current, stage: "quiz", question: 0, wrongStreak: 0 });
       passing.current = false;
@@ -97,7 +107,10 @@ export function LessonLayer() {
 
   const soloFailed = useCallback(async (current: LessonRun, feedback: string) => {
     if (current.review) {
-      await sendLessonEvent(current.lesson.id, "review_failed");
+      if (!(await sendLessonEvent(current.lesson.id, "review_failed"))) {
+        setOutcome({ kind: "save_error" });
+        return;
+      }
       setOutcome({ kind: "review_failed", feedback });
       return;
     }
@@ -111,7 +124,7 @@ export function LessonLayer() {
   const soloKind = solo?.lesson.check.kind ?? null;
   useEffect(() => {
     setUnavailable(false);
-    if (!soloKey || soloKind !== "click") return;
+    if (!soloKey || (soloKind !== "click" && soloKind !== "page")) return;
     const id = window.setTimeout(() => setUnavailable(true), UNAVAILABLE_AFTER_MS);
     return () => window.clearTimeout(id);
   }, [soloKey, soloKind]);
@@ -199,6 +212,7 @@ export function LessonLayer() {
         <p className="mt-1 text-xs text-muted-foreground">
           Bez podświetlenia. Zaliczy się samo, gdy zrobisz to, o co chodzi.
         </p>
+        {outcome.kind === "save_error" ? <SaveError /> : null}
         {outcome.kind === "solo_wrong" ? (
           <p role="alert" className="mt-2 flex items-start gap-2 rounded-lg bg-destructive-muted px-3 py-2 text-destructive-muted-foreground">
             <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
@@ -233,6 +247,16 @@ export function LessonLayer() {
             Nie widzę tego u siebie — przejdź do pytania
           </button>
         ) : null}
+        {unavailable && run.review ? (
+          // Powtórka nie może trzymać blokady cały piątek: oddana wraca jako lekcja od pokazu.
+          <button
+            type="button"
+            className="mt-2 text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+            onClick={() => void soloFailed(run, "Powtórka oddana.")}
+          >
+            Nie wychodzi — oddaj powtórkę
+          </button>
+        ) : null}
       </section>
     );
   }
@@ -242,6 +266,7 @@ export function LessonLayer() {
     <section className={`${CARD} border-primary/30`} aria-label="Pytanie lekcji" data-testid="lesson-quiz">
       {header}
       <p className="font-semibold leading-snug">{question?.q}</p>
+      {outcome.kind === "save_error" ? <SaveError /> : null}
       {outcome.kind === "quiz_wrong" ? (
         <p role="alert" className="mt-2 rounded-lg bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground">
           Nie. {outcome.explain} Teraz inne pytanie.
@@ -255,7 +280,10 @@ export function LessonLayer() {
             className="w-full rounded-lg border border-border px-3 py-2 text-left text-sm hover:border-primary hover:bg-primary/5"
             onClick={async () => {
               if (option.correct) {
-                await sendLessonEvent(run.lesson.id, "completed");
+                if (!(await sendLessonEvent(run.lesson.id, "completed"))) {
+                  setOutcome({ kind: "save_error" });
+                  return;
+                }
                 setOutcome({ kind: "done" });
                 window.setTimeout(() => leaveLesson(run), 1200);
                 return;
@@ -284,5 +312,14 @@ export function LessonLayer() {
         </button>
       </div>
     </section>
+  );
+}
+
+function SaveError() {
+  return (
+    <p role="alert" className="mt-2 flex items-start gap-2 rounded-lg bg-destructive-muted px-3 py-2 text-destructive-muted-foreground">
+      <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+      <span>Nie udało się zapisać postępu. Sprawdź połączenie i spróbuj jeszcze raz — lekcja jeszcze się nie zaliczyła.</span>
+    </p>
   );
 }

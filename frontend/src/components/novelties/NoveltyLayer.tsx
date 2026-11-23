@@ -430,11 +430,13 @@ function FinishedCard({
           aria-hidden="true"
         />
         <div className="min-w-0">
-          <p className="text-sm font-semibold">Zaliczone: {novelty.title}</p>
+          <p className="text-sm font-semibold">
+            {novelty.start ? "Zaliczone" : "Koniec pokazu"}: {novelty.title}
+          </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {novelty.start
               ? "Postęp masz na liście Startu. Zaliczenie widzi też Twój Head of Recruitment."
-              : "Wracamy do listy nowości na dziś."}
+              : "Zalicza ją lekcja w porannych nowościach. Wracamy do listy."}
           </p>
         </div>
         <button
@@ -521,13 +523,21 @@ export function NoveltyLayer() {
       if (lesson?.stage === "show" && lesson.show[lesson.showIndex]?.id === novelty.id) {
         // Pokaz nie zalicza nowości — zalicza ją dopiero cała lekcja.
         const next = afterShowNovelty(lesson);
+        // Nieudany zapis pokazu wyjdzie przy „sam” (serwer odmówi bez pokazu)
+        // i karta zadania powie, że postęp się nie zapisał.
         if (next.showDone) await sendLessonEvent(lesson.lesson.id, "shown");
         goToStage(next.run);
         return;
       }
       setFinished(novelty);
+      // Przeklikanie na Poligonie poza lekcją (powtórka z archiwum ✦) niczego
+      // nie zalicza — nowość zalicza tylko lekcja (23.11.2026). Start w NEXUSIE
+      // idzie po prawdziwych ekranach i zalicza się jak dotąd.
+      if (isNoveltyPractice()) {
+        window.setTimeout(backToDaily, 900);
+        return;
+      }
       await sendEvent(novelty.id, "toured");
-      if (isNoveltyPractice()) window.setTimeout(backToDaily, 900);
     },
     [sendEvent, backToDaily],
   );

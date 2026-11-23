@@ -479,6 +479,14 @@ describe("poligon: postęp i rejestr serwera", () => {
     expect(store.handle({ method: "put", url: "/api/novelties/start/gate", body: { event: "toured" } })).toEqual({ status: 204, data: null });
   });
 
+  it("każdy etap lekcji nowości idzie na serwer — inaczej porcja blokowałaby bez końca (23.11.2026)", () => {
+    const { store } = setup();
+    for (const event of ["shown", "solo_failed", "solo_passed", "quiz_wrong", "restart", "completed", "review_passed", "review_failed"])
+      expect(store.handle({ method: "post", url: "/api/novelties/lessons/lekcja-porcja-karta/events", body: { event } })).toBe("network");
+    // Odczyt lekcji do Szkoleń też idzie do API, nie do zestawu ćwiczebnego.
+    expect(store.handle({ method: "get", url: "/api/novelties/lessons" })).toBe("network");
+  });
+
   it("ćwiczenia frontu i rejestr serwera to te same id i te same role", () => {
     expect(poligonRegistry.exercises.map((e) => e.id)).toEqual(EXERCISES.map((e) => `poligon-${e.id}`));
     expect(new Set(EXERCISES.map((e) => e.id)).size).toBe(EXERCISES.length);

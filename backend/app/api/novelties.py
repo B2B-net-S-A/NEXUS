@@ -394,8 +394,11 @@ async def my_daily_novelties(
         and today_row.postponed_until > now
     )
     skipped = today_row is not None and today_row.skipped_at is not None
+    carried = previous_row is not None and lessons_rules.carried_over(
+        plan, rows, previous_row.day
+    )
     can_postpone = lessons_rules.can_postpone(
-        today_row, previous_row, open_items, now, today
+        today_row, previous_row, open_items, now, today, carried=carried
     )
     done_count = len(plan.today) - open_items
     return {
@@ -451,14 +454,12 @@ async def postpone_daily(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Odłożenie porcji: raz dziennie, najpóźniej do 15:00 (Olaf, 23.11.2026:
-    rano daily). O tej godzinie porcja wraca jak rano."""
+    rano daily). O tej godzinie porcja wraca jak rano. Reguły liczy sama
+    porcja (``can_postpone`` w ``GET /novelties/daily``)."""
     today = business_today()
     now = _utcnow()
-    today_row, previous_row = await _day_rows(db, current_user.id, today)
-    # Coś musi czekać — liczy to sama porcja.
     status_now = await my_daily_novelties(request, current_user, db)
-    open_items = int(status_now["total"]) - int(status_now["done"])
-    if not lessons_rules.can_postpone(today_row, previous_row, open_items, now, today):
+    if not status_now["can_postpone"]:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -626,7 +627,13 @@ async def my_lessons(
                 shape_for_user(n, progress.get(n.id), now) for n in plan.novelties
             ],
         )
-        shaped["legacy_done"] = plan.legacy_done
+        row = rows.get(plan.lesson.id)
+        # Oblana powtórka wraca jako lekcja, choć jej wpisy są zaliczone.
+        shaped["legacy_done"] = plan.legacy_done and not (
+            row is not None
+            and row.review_failed_at is not None
+            and row.completed_at is None
+        )
         out.append(shaped)
     return out
 
