@@ -273,8 +273,10 @@ function SendRowsTable({
                   ) : null}
                 </td>
                 <td className="px-2 py-2 align-top">
-                  <span className="flex flex-wrap gap-1">
-                    <QcStatusBadge row={row} />
+                  <span className="flex min-w-0 flex-wrap gap-1">
+                    {/* Wąska kolumna: dłuższa plakietka („Formularz: 29 do uzupełnienia”)
+                        zawija się w komórce, zamiast wchodzić na „Czeka”. */}
+                    <QcStatusBadge row={row} className="max-w-full whitespace-normal" />
                     <ReviewCardBadge row={row} />
                   </span>
                 </td>
