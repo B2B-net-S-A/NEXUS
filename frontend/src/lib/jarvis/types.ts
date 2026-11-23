@@ -91,6 +91,15 @@ export interface JarvisMailDraft {
   body: string;
 }
 
+/** „Klient coś zmienił” (`propose_client_change`) — Jarvis nic nie zapisuje,
+ *  karta prowadzi do okna w Profilu Championa. `job_title` tylko ze strumienia. */
+export interface JarvisClientChange {
+  job_id: number;
+  job_title?: string;
+  text: string;
+  summary: string;
+}
+
 /** Czego Jarvisowi brakuje — lustro `GAP_KINDS` w `services/jarvis/gap_schema.py`. */
 export type GapKind = "no_access" | "not_supported" | "no_data";
 
@@ -132,6 +141,7 @@ export type JarvisItem =
   /** Element podświetlony na ekranie (show_on_screen albo „Pokaż na ekranie”). */
   | { kind: "highlight"; anchor: string; label: string; reason: string }
   | { kind: "mail_draft"; draft: JarvisMailDraft }
+  | { kind: "client_change"; proposal: JarvisClientChange }
   /** Karta „Tego nie zrobię” (report_gap) z przyciskiem zgłoszenia potrzeby. */
   | { kind: "gap"; gap: JarvisGap };
 
@@ -198,6 +208,7 @@ export type JarvisStreamEvent =
   | { type: "delta_reset" }
   | { type: "highlight"; anchor: string; label: string; reason: string }
   | { type: "mail_draft"; draft: JarvisMailDraft }
+  | { type: "client_change"; proposal: JarvisClientChange }
   | { type: "gap"; gap: JarvisGap }
   /** Przy zapisie wykonanym od razu niesie też komunikat i klucze do odświeżenia. */
   | { type: "action_proposed"; action: JarvisAction; message?: string; invalidates?: string[][] }

@@ -272,13 +272,15 @@ def _clean_one(  # noqa: C901 — jedna gałąź na rodzaj zmiany, czytelniej ra
             "deal_breaker": _clip(raw.get("deal_breaker"), QUESTION_HINT_MAX_CHARS),
         }
     if op in ("question_remove", "question_edit"):
-        qid = str(raw.get("id") or "")
+        # Model podaje id pytania jako `id`, front odsyła `question_id`
+        # (`id` zmiany to jej numer „c1”…).
+        qid = str(raw.get("question_id") or raw.get("id") or "")
         if qid not in questions or (op, qid) in seen:
             return None
         seen.add((op, qid))
         current = questions[qid]
         if op == "question_remove":
-            return {**base, "id": qid, "before": current.get("question", "")}
+            return {**base, "question_id": qid, "before": current.get("question", "")}
         after = {
             field: _clip(raw.get(field), limit)
             for field, limit in (
@@ -292,7 +294,7 @@ def _clean_one(  # noqa: C901 — jedna gałąź na rodzaj zmiany, czytelniej ra
         if not after or after.get("question") == "":
             return None
         before = {k: current.get(k) or "" for k in after}
-        return {**base, "id": qid, "after": after, "before": before}
+        return {**base, "question_id": qid, "after": after, "before": before}
 
     # text_edit
     field = raw.get("field")
@@ -403,11 +405,11 @@ def apply_changes(
                 )
                 touched.add("screening_questions")
         elif op == "question_remove":
-            questions = [q for q in questions if q.get("id") != change["id"]]
+            questions = [q for q in questions if q.get("id") != change["question_id"]]
             touched.add("screening_questions")
         elif op == "question_edit":
             for q in questions:
-                if q.get("id") == change["id"]:
+                if q.get("id") == change["question_id"]:
                     q.update(change["after"])
             touched.add("screening_questions")
         elif op == "text_edit":
