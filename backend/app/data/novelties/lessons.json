@@ -1,0 +1,34 @@
+[
+  {
+    "id": "lekcja-zamykanie-procesu",
+    "title": "Zamykanie procesu kandydata",
+    "novelties": ["jeden-slownik-powodow-zamkniecia", "rezygnacja-w-oknie-zamknij-proces"],
+    "task": "Kandydat z rekrutacji ćwiczebnej napisał, że przyjął inną ofertę. Zamknij jego proces tak, żeby statystyki policzyły to dobrze.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "move",
+      "to": "withdrawn",
+      "feedback": "Karta nie trafiła do „Zrezygnował”. Gdy to kandydat kończy, w oknie „Zamknij proces” wybierz „Kandydat rezygnuje”."
+    },
+    "questions": [
+      {
+        "q": "Klient zamknął projekt, bo przegrał przetarg. Jaki powód wybierasz?",
+        "options": ["Projekt zamknięty / przetarg przegrany", "Inne, z opisem", "Wysłany po terminie"],
+        "answer": 0,
+        "explain": "Ten przypadek ma teraz własny powód na jednej liście. „Inne” psuje statystyki, nawet z opisem."
+      },
+      {
+        "q": "Kandydat sam rezygnuje z procesu. Co wybierasz w oknie „Kto kończy?”",
+        "options": ["Kandydat rezygnuje", "My kończymy", "Klient kończy"],
+        "answer": 0,
+        "explain": "„Kandydat rezygnuje” przenosi kartę na „Zrezygnował”, a powody są te same co przy odrzuceniu."
+      },
+      {
+        "q": "Czy lista powodów zamknięcia różni się między kolumnami Tablicy?",
+        "options": ["Nie, to jedna lista w każdej kolumnie", "Tak, każda kolumna ma własną", "Tylko w „QC CV” jest inna"],
+        "answer": 0,
+        "explain": "Od 20.11 to jedna lista powodów, taka sama w każdej kolumnie."
+      }
+    ]
+  }
+]

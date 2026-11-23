@@ -207,6 +207,121 @@ def in_audience(
     return False
 
 
+#: Lekcje nowości (decyzje Artura 23.11.2026): przeklikanie nie uczyło —
+#: mediana 12 s na nowość, 61% przeklikań to sam „Rozumiem”. Lekcja łączy
+#: wpisy jednej funkcji i ma trzy etapy na Poligonie: pokaz (kroki wpisów,
+#: z podświetleniem), samodzielne zadanie z warunkiem zaliczenia (bez
+#: podświetlenia) i pytanie „po co / kiedy”. Nie wyszło → z powrotem do pokazu.
+LESSONS_PATH = Path(__file__).resolve().parent / "lessons.json"
+
+#: Każdy wpis wdrożony od tego dnia musi należeć do lekcji (porcja zaczyna
+#: się od ``DAILY_FLOOR`` 12.11.2026 — ta sama data).
+LESSONS_FLOOR = date(2026, 11, 12)
+
+
+class ClickCheck(BaseModel):
+    """Osoba sama znajduje i klika element (kotwica ``data-tour``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["click"]
+    anchor: str = Field(pattern=_ANCHOR)
+
+
+class MoveCheck(BaseModel):
+    """Ruch karty na rekrutacji ćwiczebnej do etapu ``to`` (kod etapu),
+    opcjonalnie z powodem, którego nazwa zawiera ``reason_includes``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["move"]
+    to: str = Field(pattern=r"^[a-z_]{2,40}$")
+    reason_includes: Optional[str] = Field(default=None, min_length=2, max_length=40)
+    #: Co powiedzieć, gdy karta poszła gdzie indziej albo z innym powodem.
+    feedback: str = Field(min_length=10, max_length=240)
+
+
+class PageCheck(BaseModel):
+    """Osoba sama dochodzi do ekranu (ścieżka i opcjonalnie parametry adresu)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["page"]
+    path_prefix: str = Field(pattern=r"^/[a-z0-9/_-]*$", max_length=80)
+    query: dict[str, str] = Field(default_factory=dict)
+
+
+LessonCheck = ClickCheck | MoveCheck | PageCheck
+
+
+class LessonQuestion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    q: str = Field(min_length=10, max_length=160)
+    options: list[str] = Field(min_length=3, max_length=3)
+    #: Indeks dobrej odpowiedzi w ``options`` (front miesza kolejność).
+    answer: int = Field(ge=0, le=2)
+    #: Wyjaśnienie po złej odpowiedzi.
+    explain: str = Field(min_length=10, max_length=240)
+
+    @field_validator("options")
+    @classmethod
+    def _distinct(cls, value: list[str]) -> list[str]:
+        if len({v.strip().lower() for v in value}) != len(value):
+            raise ValueError("Odpowiedzi w pytaniu muszą się różnić")
+        if any(not v.strip() or len(v) > 90 for v in value):
+            raise ValueError("Odpowiedź: od 1 do 90 znaków")
+        return value
+
+
+class Lesson(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^lekcja-[a-z0-9-]{2,52}$")
+    title: str = Field(min_length=1, max_length=80)
+    #: Wpisy z ``novelties.json``, których dotyczy lekcja — w kolejności pokazu.
+    novelties: list[str] = Field(min_length=1, max_length=6)
+    #: Zadanie samodzielne, słowami użytkownika.
+    task: str = Field(min_length=10, max_length=240)
+    #: Ekran Poligonu, na którym zaczyna się zadanie samodzielne.
+    solo_href: str = Field(
+        pattern=r"^/[a-z0-9/_-]*(\?[a-z0-9_=&.-]+)?$", max_length=120
+    )
+    check: LessonCheck = Field(discriminator="kind")
+    questions: list[LessonQuestion] = Field(min_length=2, max_length=4)
+
+
+@lru_cache(maxsize=1)
+def load_lessons() -> dict[str, Lesson]:
+    """Lekcje po id. Wpis należy do najwyżej jednej lekcji; wpisy od
+    ``LESSONS_FLOOR`` — do dokładnie jednej (pilnuje test)."""
+    raw = json.loads(LESSONS_PATH.read_text(encoding="utf-8"))
+    novelties = load_novelties()
+    by_id: dict[str, Lesson] = {}
+    owner: dict[str, str] = {}
+    for item in raw:
+        lesson = Lesson.model_validate(item)
+        if lesson.id in by_id:
+            raise ValueError(f"Powtórzone id lekcji: {lesson.id}")
+        for novelty_id in lesson.novelties:
+            if novelty_id not in novelties:
+                raise ValueError(f"{lesson.id}: nieznana nowość {novelty_id}")
+            if novelty_id in owner:
+                raise ValueError(
+                    f"{novelty_id} jest w dwóch lekcjach: {owner[novelty_id]}, {lesson.id}"
+                )
+            owner[novelty_id] = lesson.id
+        by_id[lesson.id] = lesson
+    return by_id
+
+
+def lesson_of() -> dict[str, str]:
+    """Id nowości → id lekcji."""
+    return {
+        nid: lesson.id for lesson in load_lessons().values() for nid in lesson.novelties
+    }
+
+
 #: Poligon NEXUSA (decyzje Artura 14.11.2026): onboarding nowej osoby na
 #: rekrutacji ćwiczebnej. Rejestr ćwiczeń zapisujemy tu, bo postęp idzie do
 #: ``novelty_progress`` (id ``poligon-…``) tym samym zdarzeniem co nowości.

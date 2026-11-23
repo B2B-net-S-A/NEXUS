@@ -1519,9 +1519,12 @@ try:
     from app.services import novelty_schema as _novelty_schema
 
     _NOVELTY_TABLE_DDL = list(_novelty_schema.TABLE_DDL)
+    # 0757: lekcje nowości — postęp w lekcji i stan porcji dnia.
+    _NOVELTY_LESSON_DDL = list(_novelty_schema.LESSON_DDL)
 except Exception as _novelty_schema_err:  # noqa: BLE001
     print(f"novelty schema unavailable: {_novelty_schema_err!r}")
     _NOVELTY_TABLE_DDL = []
+    _NOVELTY_LESSON_DDL = []
 
 # Koszyki „Baza” / „LinkedIn” w zespole rekrutacji (0655) — JEDNO źródło
 # z migracją (`app/services/job_channels_schema.py`).
@@ -7211,6 +7214,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_INVITE_LINK_VISITS_DDL,
     # 0625: nowości do przeklikania (`app/services/novelty_schema.py`).
     *_NOVELTY_TABLE_DDL,
+    *_NOVELTY_LESSON_DDL,
     *_JOB_CHANNELS_DDL,
     # 0632: licznik użycia obszarów (`app/services/access_usage_schema.py`).
     *_ACCESS_USAGE_TABLE_DDL,
