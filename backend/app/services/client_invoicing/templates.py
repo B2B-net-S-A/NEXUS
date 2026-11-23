@@ -266,6 +266,10 @@ async def create_manual(
 def _template_line(raw: dict[str, Any]) -> dict[str, Any]:
     line = issue.clean_line({**raw, "order_id": None})
     line["consultant"] = None
+    # Zamówienie i kontrakt pozycji (faktura z kilku zamówień) nie idą do szablonu:
+    # faktura z szablonu zablokowałaby te zamówienia w „Wystaw za miesiąc”.
+    for key in ("order_key", "order_number", "contract_id"):
+        line.pop(key, None)
     return line
 
 
@@ -356,7 +360,7 @@ async def from_invoice(
 
     if invoice.invoice_type != "VAT":
         raise IssueError("Szablon robi się z faktury VAT (nie z korekty ani zaliczki).")
-    if invoice.order_group_id is not None or invoice.order_id is not None:
+    if issue.order_keys(invoice):
         # Szablon obok „Wystaw za miesiąc” zafakturowałby tę samą usługę drugi raz.
         raise IssueError(
             "Faktura z zamówienia powstaje co miesiąc w „Wystaw za miesiąc” — "

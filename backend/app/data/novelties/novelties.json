@@ -4709,6 +4709,19 @@
     ]
   },
   {
+    "id": "wymagania-klienta-do-faktury",
+    "pr": 3817,
+    "title": "Wymagania klienta do faktury z NEXUSA",
+    "why": "Numer umowy, kilka zamówień na fakturze, pole OSOBA w KSeF, tekst w pozycjach i adres maila ustawiasz raz w regułach klienta. Szkic faktury wpisuje je sam.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": { "roles": ["finance", "admin"] },
+    "where": "Finanse → Rozliczenia klientów → Reguły klienta → Faktura do klienta",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "clients.rules.client_invoice"
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",
