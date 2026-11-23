@@ -56,12 +56,12 @@ export interface PreContractBadge {
 /** Plakietka na karcie Tablicy (`KanbanItem.pre_contract`). */
 export interface CardPreContract extends PreContractBadge {
   id: number;
-  /** 0761: kolumna, od której karta stoi do podpisu (null = nie stoi). */
+  /** 0762: kolumna, od której karta stoi do podpisu (null = nie stoi). */
   stop_column?: string | null;
   stop_origin?: PreContractStopOrigin | null;
 }
 
-/** 0761 (23.11.2026): skąd blokada — ustawienie rekrutacji czy przy osobie. */
+/** 0762 (23.11.2026): skąd blokada — ustawienie rekrutacji czy przy osobie. */
 export type PreContractStopOrigin = "job" | "person";
 
 export interface PreContractStop {
@@ -148,7 +148,7 @@ export interface PreContractRequest {
   can_withdraw: boolean;
   can_decide_penalty: boolean;
   events: PreContractEvent[];
-  /** 0761: null = jak rekrutacja, true = stop, false = wyjątek. */
+  /** 0762: null = jak rekrutacja, true = stop, false = wyjątek. */
   blocks_move?: boolean | null;
   blocks_set_by?: PersonRef | null;
   blocks_set_at?: string | null;

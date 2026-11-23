@@ -162,7 +162,7 @@ export function PreContractSection({
 
   const current = pair.data.current;
   const lastClosed = pair.data.history[0] ?? null;
-  // 0761 (23.11.2026): „Zatrzymaj do podpisu” — stan liczy serwer.
+  // 0762 (23.11.2026): „Zatrzymaj do podpisu” — stan liczy serwer.
   const stop = pair.data.stop ?? null;
   const jobRule = pair.data.job_rule ?? null;
   const canStop = pair.data.can_set_stop === true;

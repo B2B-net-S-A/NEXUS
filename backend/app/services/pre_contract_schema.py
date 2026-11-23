@@ -97,7 +97,7 @@ DOWNGRADE_DDL = (
     "DROP TABLE IF EXISTS pre_contract_requests",
 )
 
-# 0761 (23.11.2026, decyzje Artura): „Zatrzymaj do podpisu” — ustawienie
+# 0762 (23.11.2026, decyzje Artura): „Zatrzymaj do podpisu” — ustawienie
 # rekrutacji (`jobs.pre_contract_rule`: etap + stop, kto i kiedy) i wybór przy
 # prośbie o osobę (`blocks_move`: NULL = jak rekrutacja, true = stop,
 # false = wyjątek). Reguła: docs/claude/rekrutacja-tablica/stop-do-podpisu-przedwstepnej.md.

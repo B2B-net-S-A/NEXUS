@@ -1982,7 +1982,7 @@ async def apply_move(
         target_column=target_column,
     )
     skipped_requirements = debrief_skipped + verified_skipped + form_skipped
-    # 0761 (23.11.2026): „Zatrzymaj do podpisu przedwstępnej” — ustawienie
+    # 0762 (23.11.2026): „Zatrzymaj do podpisu przedwstępnej” — ustawienie
     # rekrutacji albo wybór przy osobie. Obowiązuje każdą osobę z ekranu,
     # także Delivery Leada; konta serwisowe API v1 (`actor_id is None`)
     # zapisują fakty z zewnątrz.
@@ -2482,7 +2482,7 @@ async def apply_move(
         actor_id=policy.actor_id,
         actor_name=getattr(policy.viewer, "name", None),
     )
-    # 0761: rekrutacja z ustawieniem przedwstępnej — prośba zakłada się sama
+    # 0762: rekrutacja z ustawieniem przedwstępnej — prośba zakłada się sama
     # od „Zweryfikowanego”.
     from app.services import pre_contract_stop as _pre_contract_stop  # noqa: PLC0415
 
@@ -6140,7 +6140,7 @@ async def bulk_move_candidates(
             now=datetime.now(timezone.utc),
         )
 
-    # 0761: „Zatrzymaj do podpisu przedwstępnej” — jak pojedynczy /move.
+    # 0762: „Zatrzymaj do podpisu przedwstępnej” — jak pojedynczy /move.
     from app.services import pre_contract_stop  # noqa: PLC0415
 
     for cid in unique_ids:

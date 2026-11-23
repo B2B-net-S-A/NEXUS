@@ -1038,7 +1038,7 @@ export default function JobDetailPage() {
             process={storedProcess(job.champion_profile?.client_process)}
             canEdit={canEditChampion}
           />
-          {/* 0761: przedwstępna dla całej rekrutacji (obok procesu u klienta). */}
+          {/* 0762: przedwstępna dla całej rekrutacji (obok procesu u klienta). */}
           <JobPreContractRuleFact
             jobId={jobId}
             rule={job.pre_contract_rule ?? null}

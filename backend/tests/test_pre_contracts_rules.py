@@ -207,7 +207,7 @@ def test_migration_uses_the_shared_ddl() -> None:
 
 
 def test_stop_migration_uses_the_shared_ddl() -> None:
-    path = BACKEND / "alembic" / "versions" / "0761_pre_contract_stop.py"
+    path = BACKEND / "alembic" / "versions" / "0762_pre_contract_stop.py"
     text = path.read_text(encoding="utf-8")
     assert "STOP_DDL" in text and "STOP_DOWNGRADE_DDL" in text
 
