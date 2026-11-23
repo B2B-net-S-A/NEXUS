@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from lxml import etree
@@ -436,3 +437,117 @@ def test_line_discount_goes_to_p10_and_round_trips() -> None:
     # Bez rabatu nie ma P_10.
     plain = fa3_build.build_xml(_doc(lines=[_line("Usługi", "80", "157")]))
     assert _fa(plain).find("{*}FaWiersz").find("{*}P_10") is None
+
+
+# ── Wymagania klientów (reguły ``cl.*`` faktury z NEXUSA, 23.11.2026) ─────
+
+
+def test_several_orders_contract_and_client_fields_round_trip() -> None:
+    xml = fa3_build.build_xml(
+        _doc(
+            client_order_number=None,
+            order_numbers=("ZAM_0001_2026", "ZAM_0002_2026", "ZAM_0001_2026"),
+            contract_number="UR/2020/77",
+            contract_date=date(2020, 3, 2),
+            extra_fields=(("OSOBA", "koordynator@example.com"), ("PROJEKT", "P-9")),
+            notes="Uwagi testowe",
+        )
+    )
+    fa_node = _fa(xml)
+    terms = fa_node.find("{*}WarunkiTransakcji")
+    assert [etree.QName(n).localname for n in terms] == [
+        "Umowy",
+        "Zamowienia",
+        "Zamowienia",
+    ]
+    assert terms.findtext("{*}Umowy/{*}DataUmowy") == "2020-03-02"
+    assert terms.findtext("{*}Umowy/{*}NrUmowy") == "UR/2020/77"
+    assert [n.text for n in terms.iterfind("{*}Zamowienia/{*}NrZamowienia")] == [
+        "ZAM_0001_2026",
+        "ZAM_0002_2026",
+    ]
+    extra = [
+        (n.findtext("{*}Klucz"), n.findtext("{*}Wartosc"))
+        for n in fa_node.iterfind("{*}DodatkowyOpis")
+    ]
+    assert extra == [
+        ("Uwagi", "Uwagi testowe"),
+        ("OSOBA", "koordynator@example.com"),
+        ("PROJEKT", "P-9"),
+    ]
+    sales = fa_sales.parse_sales_invoice(xml)
+    assert "ZAM_0002_2026" in sales.order_refs
+    names = [etree.QName(node).localname for node in fa_node]
+    positions = [FA_ORDER.index(name) for name in names]
+    assert positions == sorted(positions), names
+
+
+def test_order_numbers_win_over_single_number_and_empty_extra_is_skipped() -> None:
+    xml = fa3_build.build_xml(
+        _doc(order_numbers=("ZAM_0003_2026",), extra_fields=(("OSOBA", " "),))
+    )
+    fa_node = _fa(xml)
+    assert [
+        n.text
+        for n in fa_node.iterfind("{*}WarunkiTransakcji/{*}Zamowienia/{*}NrZamowienia")
+    ] == ["ZAM_0003_2026"]
+    assert fa_node.find("{*}DodatkowyOpis") is None
+    assert fa_node.find("{*}WarunkiTransakcji/{*}Umowy") is None
+
+
+def test_delivery_address_goes_to_adres_koresp() -> None:
+    xml = fa3_build.build_xml(
+        _doc(
+            buyer=EU_BUYER,
+            buyer_ident=buyer_id("FI12345678"),
+            buyer_delivery=Party(
+                name="", address_l1="Testgatan 1, 100 00 Stockholm", country="SE"
+            ),
+            lines=[_line("IT services", "1", "100", "np II")],
+        )
+    )
+    podmiot2 = etree.fromstring(xml).find("{*}Podmiot2")
+    names = [etree.QName(n).localname for n in podmiot2]
+    assert names == ["DaneIdentyfikacyjne", "Adres", "AdresKoresp", "JST", "GV"]
+    assert podmiot2.findtext("{*}AdresKoresp/{*}KodKraju") == "SE"
+    assert podmiot2.findtext("{*}Adres/{*}KodKraju") == "FI"
+    assert fa.parse_invoice(xml).buyer_nip is None
+
+
+SCHEMA_PATH = Path(__file__).parent / "data" / "fa3_schema" / "schemat.xsd"
+
+
+def test_client_requirement_fields_pass_the_fa3_schema() -> None:
+    """XSD FA(3) z repo (MF): umowa, kilka zamówień, pola dodatkowe, adres doręczenia."""
+
+    schema = etree.XMLSchema(etree.parse(str(SCHEMA_PATH)))
+    for doc in (
+        _doc(
+            client_order_number=None,
+            order_numbers=("ZAM_0001_2026", "ZAM_0002_2026"),
+            contract_number="UR/2020/77",
+            contract_date=date(2020, 3, 2),
+            extra_fields=(("OSOBA", "koordynator@example.com"),),
+            notes="Uwagi testowe",
+        ),
+        _doc(
+            number="290/11/2026/UE",
+            buyer=EU_BUYER,
+            buyer_ident=buyer_id("FI12345678"),
+            buyer_delivery=Party(
+                name="", address_l1="Testgatan 1, 100 00 Stockholm", country="SE"
+            ),
+            currency="EUR",
+            fx_rate=Decimal("4.2512"),
+            lines=[_line("IT services", "20", "300", "np II")],
+            contract_number="MSA-1",
+        ),
+    ):
+        root = etree.fromstring(fa3_build.build_xml(doc))
+        assert schema.validate(root), [str(e) for e in schema.error_log]
+
+
+def test_too_many_order_numbers_are_refused() -> None:
+    numbers = tuple(f"ZAM_{i:04d}_2026" for i in range(101))
+    with pytest.raises(InvoiceBuildError, match="100"):
+        fa3_build.build_xml(_doc(order_numbers=numbers))

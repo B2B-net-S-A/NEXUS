@@ -40,6 +40,11 @@ export interface IssueLine {
   order_id: number | null;
   /** Rabat % na pozycji (rabat od obrotu, jak w eBI24): cena przed rabatem, netto po nim. */
   discount_pct?: string | null;
+  /** Zamówienie pozycji (`g12`/`o34`) — faktura z kilku zamówień (`cl.orders_together`). */
+  order_key?: string | null;
+  order_number?: string | null;
+  /** Kontrakt osoby — nabywca per kontrakt (lista nabywców klienta). */
+  contract_id?: number | null;
 }
 
 export interface IssueBuyer {
@@ -48,6 +53,38 @@ export interface IssueBuyer {
   address_l1: string;
   address_l2: string;
   country: string;
+  /** Nabywca z listy klienta w ustawieniach wystawiania. */
+  code?: string;
+  /** Adres doręczenia (FA(3) `AdresKoresp`), np. nabywca w FI, poczta w SE. */
+  delivery_l1?: string;
+  delivery_l2?: string;
+  delivery_country?: string;
+}
+
+/** Nabywca z listy klienta (ustawienia wystawiania) — np. Nordea per kontrakt. */
+export interface ClientBuyer {
+  code?: string;
+  name: string;
+  number: string;
+  address_l1: string;
+  address_l2: string;
+  country: string;
+  delivery_l1: string;
+  delivery_l2: string;
+  delivery_country: string;
+}
+
+/** Wymaganie klienta z reguł `cl.*` pokazane przy szkicu (co NEXUS wpisze do KSeF). */
+export interface InvoiceRequirement {
+  label: string;
+  value: string;
+}
+
+/** Mail z fakturą do klienta obok KSeF (reguła `cl.invoice_mail`) — wysyła osoba z Finansów. */
+export interface InvoiceMail {
+  email: string;
+  subject: string;
+  attach: string;
 }
 
 export interface IssuedPayment {
@@ -106,6 +143,14 @@ export interface IssuedInvoiceCard extends IssuedInvoiceRow {
   has_xml: boolean;
   sales_invoice_id: number | null;
   problems: string[];
+  /** Uwagi z reguł klienta, które nie wstrzymują wysyłki. */
+  warnings: string[];
+  /** Numery zamówień do KSeF (`NrZamowienia`) — kilka przy fakturze z kilku zamówień. */
+  order_numbers: string[];
+  requirements: InvoiceRequirement[];
+  mail: InvoiceMail | null;
+  /** Lista nabywców klienta; pusta = nabywcą jest klient z kartoteki. */
+  buyer_options: { code: string; name: string; number: string }[];
   editable: boolean;
   can_send: boolean;
   can_check: boolean;
@@ -288,6 +333,10 @@ export interface IssueSettings {
       accounts?: Partial<Record<IssueCurrency, IssueAccount>>;
       /** Rabat roczny od obrotu z umowy ramowej (progi i stawki jako dane). */
       rebate?: RebateTerms;
+      /** Nabywcy klienta (nabywca zależy od kontraktu osoby). */
+      buyers?: ClientBuyer[];
+      /** Kontrakt → kod nabywcy; zapisuje się przy wyborze nabywcy w szkicu. */
+      contract_buyers?: Record<string, string>;
     }
   >;
 }
@@ -323,6 +372,8 @@ export type InvoicePatch = Partial<{
   currency: IssueCurrency;
   series_code: "PL" | "UE" | "BEN";
   buyer: Partial<IssueBuyer>;
+  /** Nabywca z listy klienta; wysyłany sam (seria i stawka VAT idą za nabywcą). */
+  buyer_code: string;
   lines: Partial<IssueLine>[];
 }>;
 

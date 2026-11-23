@@ -61,7 +61,8 @@ trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja
   kurs z wcześniejszego dnia byłby niezgodny z art. 31a ustawy o VAT (przegląd 13.11.2026). `KursWaluty`
   w pozycji, `P_14_xW` = VAT × kurs w złotych. Korekta bierze kurs faktury korygowanej.
 - Test „round-trip”: zbudowany XML czyta `hr/ksef/fa.py` i `fa_sales.py` (te same parsery co faktury z KSeF).
-  **XSD FA(3) nie ma w repo** — walidacji XSD nie ma; pierwszą wysyłkę zrób w trybie `test` (MF waliduje schemat).
+  XSD FA(3) MF leży w `backend/tests/data/fa3_schema/` i sprawdzają go testy (korekta zbiorcza, wymagania klientów —
+  `wymagania-klientow-do-faktury-sprzedazy.md`); pierwszą wysyłkę i tak zrób w trybie `test`.
 
 ## Wysyłka do KSeF
 
