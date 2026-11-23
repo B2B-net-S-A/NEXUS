@@ -30,7 +30,7 @@ Większość łańcucha już działała. Nie dokładaj drugiej drogi:
 - **Brakujące ogniwo: sygnał do Finansów** o nowym kroku stawki konsultanta
   z aneksu. Rozliczenia widziały zmianę dopiero przy przeliczeniu miesiąca.
   Dzwonek wymaga nowej wartości enuma powiadomień, więc idzie osobnym PR-em
-  z migracją (pas migracji).
+  z migracją (`dzwonek-finansow-aneks-stawki.md`, 0765).
 
 ## Ostrzeżenia dat na kontrakcie
 
@@ -92,12 +92,20 @@ zlecenie). Żaden nie pasuje bez nowego wzoru od Finansów, więc zostaje opis:
 - pole „kraj rezydencji podatkowej” na kontrakcie, które czytałyby Rozliczenia
   (WHT, certyfikat rezydencji, termin ważności), to osobna praca z Finansami.
 
-## Decyzje Artura (nie budować bez nich)
+## Decyzje Artura z 23.11.2026
 
-- **Pilot e-podpisu dla umowy@** (`app_settings['b2b_esign']`): w skrzynce nie
-  ma ani jednego podpisu przez link NEXUSA, a stan przełącznika na produkcji
-  jest niepotwierdzony.
-- **„Zleć umowę” z rekrutacji**: rekruterzy wysyłają na umowy@ mail-formularz
-  (z PESEL-em i telefonem w treści). Propozycja: przycisk przy osobie, dane
-  z kandydata i rekrutacji, kolejka dla działu umów i „Podsumowanie
-  placementu” z „Szczegółów administracyjnych” zamiast maila.
+„Nie chcemy, żeby to się działo poza NEXUSEM.”
+
+- **Bez kolejki „Zleć umowę” dla umowy@ i bez listy działu umów.** Ludzie mają
+  przestać wysyłać umowy na tę skrzynkę i generować je sami w NEXUSIE
+  (Generator z rekrutacji, „Szczegóły administracyjne” zamiast „Podsumowania
+  placementu” w mailu, e-podpis). Nie buduj kolejki zleceń ani formularza
+  „Prośba o sporządzenie umowy”.
+- **Aneksy idą do e-podpisu w NEXUSIE** jak umowa: zamrożony PDF, podpis
+  kontraktora i firmy, po obu automatyczne „Oznacz jako podpisany” (krok
+  stawki i dzwonek Finansów). Dziś e-podpis obsługuje tylko wiersz umowy
+  (`b2b_signing_requests.generated_contract_id`), aneks pobiera się jako DOCX.
+  Budowa w osobnej sesji, 2–3 PR-y.
+- **Tryb `b2b_esign` na produkcji** jest niepotwierdzony (odczyt bazy nie
+  przeszedł 23.11.2026). Zmienia go admin w Ustawieniach Generatora; nie
+  przełączaj bez decyzji Artura.
