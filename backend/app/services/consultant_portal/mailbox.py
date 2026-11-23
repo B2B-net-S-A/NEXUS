@@ -158,6 +158,14 @@ _PERIOD_WORD = re.compile(
 _PERIOD_COMPACT = re.compile(r"(?<!\d)(20\d{2})(0[1-9]|1[0-2])(?!\d)")
 _PERIOD_SHORT = re.compile(r"(?<![\d./])(0?[1-9]|1[0-2])[._-](\d{2})(?!\d|[./]\d)")
 _PERIOD_SLASHED = re.compile(r"/(\d{2})/(0[1-9]|1[0-2])(?!\d)")
+# Szablon PKO: „TimeSheet 2610 - Nazwisko Imię PZ0xxxxx.xlsm” (RRMM).
+_PERIOD_PKO_SHEET = re.compile(
+    r"timesheet\s+(\d{2})(0[1-9]|1[0-2])(?!\d)", re.IGNORECASE
+)
+# Okres dalej niż dwa miesiące po mailu to literówka w roku („Październik 2027”
+# w odpowiedzi klienta z 30.10.2026, próba IX–X), nie okres. Faktury z wyprzedzeniem
+# do dwóch miesięcy zostają.
+_MAX_MONTHS_AHEAD = 2
 # Całe słowa, nie rdzenie: „Mariusz” to nie marzec, „Majewski” to nie maj.
 _MONTH_WORDS = {
     word: month
@@ -385,10 +393,11 @@ def _loose_period(text: str, received: date) -> Optional[tuple[int, int]]:
         found = plausible(century + int(match.group(2)), int(match.group(1)))
         if found:
             return found
-    for match in _PERIOD_SLASHED.finditer(text):
-        found = plausible(century + int(match.group(1)), int(match.group(2)))
-        if found:
-            return found
+    for pattern in (_PERIOD_SLASHED, _PERIOD_PKO_SHEET):
+        for match in pattern.finditer(text):
+            found = plausible(century + int(match.group(1)), int(match.group(2)))
+            if found:
+                return found
     tokens = _folded_tokens(text)
     for index, token in enumerate(tokens):
         month = _MONTH_WORDS.get(token)
@@ -408,11 +417,17 @@ def _loose_period(text: str, received: date) -> Optional[tuple[int, int]]:
 def period_for(subject: str, file_name: str, received: date) -> tuple[int, int, bool]:
     """Okres pliku; bez znaku w treści: z daty maila, z flagą „zgadnięty”."""
 
+    def not_far_ahead(period: Optional[tuple[int, int]]) -> Optional[tuple[int, int]]:
+        if period is None:
+            return None
+        ahead = (period[0] - received.year) * 12 + period[1] - received.month
+        return period if ahead <= _MAX_MONTHS_AHEAD else None
+
     found = (
-        find_period(file_name)
-        or find_period(subject)
-        or find_period(file_name, received)
-        or find_period(subject, received)
+        not_far_ahead(find_period(file_name))
+        or not_far_ahead(find_period(subject))
+        or not_far_ahead(find_period(file_name, received))
+        or not_far_ahead(find_period(subject, received))
     )
     if found:
         return found[0], found[1], False
