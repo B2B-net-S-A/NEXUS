@@ -101,7 +101,10 @@ export interface ClientFormView {
   uploaded?: ClientFormUpload | null;
   fields: ClientFormField[];
   extra_rows: { table: number; cells: Record<string, { value: string }> }[];
+  /** Pola do uzupełnienia — bez wolnych wierszy wzoru (23.11.2026). */
   missing: string[];
+  /** Pola wolnych wierszy: pusty wiersz bez nazwy, który nie jest pierwszym w tabeli. */
+  spare?: string[];
   filled_at: string | null;
   updated_at: string | null;
   model: string | null;

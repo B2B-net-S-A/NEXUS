@@ -112,6 +112,46 @@ def form_docx() -> bytes:
     return _bytes(document)
 
 
+def _experience(document) -> None:
+    table = document.add_table(rows=5, cols=5)
+    _row(
+        table,
+        0,
+        ["Lp.", "Miejsce pracy", "Okres pracy", "Stanowisko", "Opis projektów"],
+    )
+    for number in (1, 2, 3):
+        _row(table, number, [str(number), "", "", "", ""])
+    _row(table, 4, ["4", "…", "", "", ""])
+
+
+def continued_experience_docx() -> bytes:
+    """Formularz z drugą tabelą doświadczenia bez tytułu, jak „Starszy Kierownik
+    Projektu” i „Analityk” CEZ: pod „Doświadczenie zawodowe*:” kolejna tabela
+    z tymi samymi kolumnami, oddzielona pustym akapitem."""
+    document = docx.Document()
+    document.add_paragraph("Imię i nazwisko:")
+    document.add_paragraph("Cel zawodowy:")
+    document.add_table(rows=1, cols=1)
+    document.add_paragraph("Doświadczenie zawodowe*:")
+    _experience(document)
+    document.add_paragraph("")
+    _experience(document)
+    document.add_paragraph("Kompetencje*:")
+    skills = document.add_table(rows=3, cols=3)
+    _row(skills, 0, ["Lp.", "Nazwa kompetencji", "Spełnienie kompetencji (TAK/NIE)"])
+    _row(skills, 1, ["1.", "Znajomość MS Office, w tym MS Project", ""])
+    _row(
+        skills,
+        2,
+        ["2.", "Doświadczenie w zarządzaniu zespołem większym niż 30 osób", ""],
+    )
+    document.add_paragraph("Certyfikaty (jeśli posiada):")
+    certificates = document.add_table(rows=2, cols=4)
+    _row(certificates, 0, ["Lp.", "Certyfikat", "Data wydania", "Instytucja wydająca"])
+    _row(certificates, 1, ["1", "", "", ""])
+    return _bytes(document)
+
+
 def filled_table_docx() -> bytes:
     """Opis zamówienia: tabela bez pustych pól — to nie formularz."""
     document = docx.Document()
