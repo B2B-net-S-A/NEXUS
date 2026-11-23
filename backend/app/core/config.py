@@ -1364,6 +1364,14 @@ class Settings(BaseSettings):
     TEAMS_PREP_SPOKEN_LANGUAGE: str = "pl-PL"
     # Pętla pobierająca transkrypty (kill-switch — OFF kończy ją przed pętlą).
     TEAMS_PREP_TRANSCRIPTS_ENABLED: bool = False
+    # Zaproszenie na spotkanie z kolejki dzwonienia (decyzja Artura 23.11.2026):
+    # osoba, która umawia, zakłada spotkanie Teams w kalendarzu PROWADZĄCEGO.
+    # OSOBNA rejestracja app-only („NEXUS Sales Invite”) z `Calendars.ReadWrite`
+    # zawężonym Exchange App RBAC do skrzynek prowadzących; nie „NEXUS Teams
+    # Prep” (ta ma transkrypty i kalendarze DL-i i rekruterów). Tenant =
+    # M365_MAIL_TENANT_ID. Bez poświadczeń formularz zostaje przy mailu do klienta.
+    SALES_INVITE_CLIENT_ID: str = ""
+    SALES_INVITE_CLIENT_SECRET: str = ""
     # Transkrypty spotkań handlowców (0628). OFF do czasu konfiguracji Microsoft
     # z ``docs/teams-prep-setup.md``; bez niej Graph odpowiadałby 403.
     SALES_TEAMS_TRANSCRIPTS_ENABLED: bool = False

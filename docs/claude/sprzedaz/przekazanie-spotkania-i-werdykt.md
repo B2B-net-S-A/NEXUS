@@ -23,7 +23,9 @@ spotkaniem wstępnym; termin był tekstem w opisie, 14 spotkań nie miało daty,
   do klienta wysyła prowadzący swoim kliknięciem (sekcja „Zaproszenie” niżej).
   Wyjątek od 17.11.2026: z kolejki dzwonienia osoba, która umawia, wysyła kliknięciem
   „Umów … i wyślij mail” mail ze swojej skrzynki do klienta, z kopią do prowadzącego
-  (`dzwonienie-mail-po-umowieniu-spotkania.md`).
+  (`dzwonienie-mail-po-umowieniu-spotkania.md`). Od 23.11.2026 z kolejki wysyła też
+  zaproszenie Teams, które powstaje w kalendarzu prowadzącego
+  (`dzwonienie-zaproszenie-teams-od-umawiajacego.md`).
 - **Klient NEXUSA nie dostaje szansy** (409 z nazwą Delivery Leada, `client_gate`),
   także gdy ktoś wpisuje jego nazwę jako nową firmę. Nasza spółka też nie.
 
@@ -127,6 +129,11 @@ spotkaniem wstępnym; termin był tekstem w opisie, 14 spotkań nie miało daty,
   `sales_company_duplicate` z wyborem „Użyj tej karty” albo „Załóż mimo to”.
 
 ## Zaproszenie wysyła prowadzący (decyzja Artura 10.11.2026)
+
+Od 23.11.2026 z kolejki dzwonienia zaproszenie wysyła osoba, która umawia, a spotkanie
+powstaje w kalendarzu prowadzącego przez osobną aplikację (`booking_invite.py`,
+`dzwonienie-zaproszenie-teams-od-umawiajacego.md`). Ścieżka niżej zostaje dla pozostałych
+przekazań; obie dzielą klucz `invite` i `transactionId`, więc spotkanie ma jedno zaproszenie.
 
 Artur wybrał wariant „prowadzący jednym kliknięciem” zamiast wysyłki przy zapisie
 formularza: zaproszenie do klienta nie może wyjść z cudzej skrzynki na kliknięcie

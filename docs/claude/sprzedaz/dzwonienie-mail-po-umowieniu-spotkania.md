@@ -13,13 +13,18 @@ wysyłka i zapis maila wspólne z mailem po spotkaniu (`meeting_client_mail.deli
 `record_email`), front `handoff/BookMeetingForm.tsx` (sekcja „Mail do klienta”, gdy
 formularz dostaje `invite` z kolejki), szablony w `handoff/helpers.ts`. Bez migracji.
 
+Od 23.11.2026, gdy aplikacja „NEXUS Sales Invite” jest ustawiona, formularz zamiast tej
+sekcji pokazuje „Zaproszenie na spotkanie (Teams)”
+(`dzwonienie-zaproszenie-teams-od-umawiajacego.md`). Mail zostaje, dopóki jej nie ma.
+
 ## Co zmienia wcześniejsze decyzje
 
 - „Formularz „Umów spotkanie” niczego nie wysyła” (10.11 i 13.11) ma jeden wyjątek:
   **z kolejki dzwonienia, kliknięciem „Umów … i wyślij mail”**, osoba, która umawia,
   wysyła mail ze swojej skrzynki. Zasada „nic nie wychodzi z cudzej skrzynki” zostaje.
 - **Spotkanie Teams dalej wysyła prowadzący** (`handoff_invite.py`), żeby to on był
-  organizatorem (transkrypt i mail po spotkaniu). Wariantów „.ics w mailu” i „Teams
+  organizatorem (transkrypt i mail po spotkaniu). Zmienione 23.11.2026: organizatorem
+  dalej jest prowadzący, ale z kolejki klika osoba, która umawia. Wariantów „.ics w mailu” i „Teams
   z kalendarza dzwoniącego” Artur nie wybrał: pierwszy daje klientowi dwa wpisy
   w kalendarzu, drugi oddaje transkrypt dzwoniącemu.
 

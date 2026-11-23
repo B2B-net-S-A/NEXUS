@@ -326,11 +326,15 @@ async def record_sent(
     attendees: int,
     user_id: int,
     now: datetime,
+    organizer_user_id: Optional[int] = None,
 ) -> None:
     """Spotkanie z Outlooka na osi szansy zamiast wpisu terminu z formularza.
 
     Termin i czas trwania to te, które poszły w zaproszeniu, nie bieżące z bloku:
     ktoś mógł zmienić termin w trakcie wysyłki, a kalendarz ma to, co wyszło.
+    Autorem spotkania jest organizator (prowadzący), także gdy zaproszenie wysłała
+    osoba, która umawia (``booking_invite``): po autorze „Mój dzień” i KPI wiedzą,
+    czyje to spotkanie. ``user_id`` to osoba, która kliknęła.
     """
 
     data = handoff.block(opportunity) or {}
@@ -346,7 +350,7 @@ async def record_sent(
                 subject=subject[:500],
                 occurred_at=start,
                 duration_minutes=minutes,
-                created_by_user_id=user_id,
+                created_by_user_id=organizer_user_id or user_id,
                 external_source=EVENT_SOURCE,
                 external_id=ical_uid,
                 web_link=str(event.get("webLink") or "")[:2000] or None,
