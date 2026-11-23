@@ -271,6 +271,7 @@ def classify_kind(subject: str, file_name: str) -> str:
 
 _PDF_MIME = "application/pdf"
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
 def kind_of_file(subject: str, file_name: str, content: bytes) -> str:
@@ -278,20 +279,35 @@ def kind_of_file(subject: str, file_name: str, content: bytes) -> str:
     rozpoznany jako RCP BNP to raport, choć temat mówi „faktura” albo plik nazywa
     się „2026-09.pdf” (próba IX–X 2026: 9 RCP BNP zapisanych jako faktury, więc
     rozliczenie nie powstało). Dwa PDF-y w jednym mailu („FV i rozliczenie
-    godzinowe”) dzieli dopiero treść."""
+    godzinowe”) dzieli dopiero treść. To samo dla wzorów innych klientów, które
+    czyta rozliczenie: potwierdzenie godzin ERGO bez słowa-klucza w nazwie,
+    Time Sheet i raport BIK pod tematem „faktura”, protokół Orlenu."""
 
     kind = classify_kind(subject, file_name)
     if kind != "invoice":
         return kind
+    lower = file_name.lower()
     if content[:5] == b"%PDF-":
         mime = _PDF_MIME
-    elif content[:2] == b"PK" and file_name.lower().endswith((".xlsx", ".xlsm")):
+    elif content[:2] == b"PK" and lower.endswith((".xlsx", ".xlsm")):
         mime = _XLSX_MIME
+    elif content[:2] == b"PK" and lower.endswith(".docx"):
+        mime = _DOCX_MIME
     else:
         return kind
-    from app.services.client_settlements import rcp_bnp
+    from app.services.client_settlements import (
+        confirmation_ergo,
+        protocol_orlen,
+        rcp_bnp,
+        timesheet,
+        timesheet_bik,
+    )
 
-    return "report" if rcp_bnp.parse(content, mime) is not None else kind
+    # Każdy czytnik sam odrzuca typ pliku, którego nie zna.
+    readers = (rcp_bnp, confirmation_ergo, protocol_orlen, timesheet, timesheet_bik)
+    if any(reader.parse(content, mime) is not None for reader in readers):
+        return "report"
+    return kind
 
 
 def _named_kind(subject: str, file_name: str) -> bool:

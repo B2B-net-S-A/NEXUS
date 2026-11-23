@@ -1,6 +1,6 @@
 # Rozliczenia: czytniki MD z plików klientów spoza RCP BNP
 
-<!-- indeks: czytniki plików, Time Sheet PDF, polski Time Sheet, Imię Nazwisko, Łączna liczba godzin, Okres od, BIK PDF, Rozliczenie czasu pracy, ERGO Monthly confirmation, NN Ilość MD, rozliczeniakontraktorow, Orlen protokół, Roboczodni, Sugerowane wynagrodzenie, declared, _other_files, inny plik miesiąca, proof.month bez MD, Sprawdzanie -->
+<!-- indeks: czytniki plików, Time Sheet PDF, polski Time Sheet, Imię Nazwisko, Łączna liczba godzin, Okres od, BIK PDF, Rozliczenie czasu pracy, ERGO Monthly confirmation, NN Ilość MD, rozliczeniakontraktorow, Orlen protokół, Roboczodni, Sugerowane wynagrodzenie, declared, _other_files, inny plik miesiąca, proof.month bez MD, Sprawdzanie, kind_of_file, invoice zamiast report -->
 
 Od 23.11.2026. W próbie rozliczeń IX–X 2026 (kopia produkcji z 23.11, reguły klientów
 z produkcji) 60 przypadków poza Nordeą stało w „Sprawdzaniu” bez MD, choć plik był w poczcie.
@@ -42,8 +42,14 @@ miesiąca (PDF, XLSX, XLSM, DOCX, EML, MSG) i bierze pierwszy z MD. Ten plik sta
 dowodem rozliczenia (`report_document_id`). Szablon RCP BNP bez MD też oddaje plik innym
 czytnikom (raport BIK w PDF wyglądał dla `rcp_bnp` jak RCP).
 
-Plik zapisany przez czytnik poczty jako `invoice`, a nie `report` (np. potwierdzenie ERGO
-za IX), do rozliczenia nie trafia: to sprawa klasyfikacji w czytniku poczty, nie czytników.
+Plik zapisany przez czytnik poczty jako `invoice`, a nie `report`, do rozliczenia nie trafia
+(`_month_reports` bierze tylko `report`). Dlatego `mailbox.kind_of_file` sprawdza treść każdego
+pliku, który z nazwy i tematu wyszedłby fakturą (PDF, XLSX/XLSM, DOCX): rozpoznany przez
+`rcp_bnp`, `confirmation_ergo`, `protocol_orlen`, `timesheet` albo `timesheet_bik` jest raportem.
+Nowy czytnik wzoru klienta dopisz też do tej listy. Skan bez warstwy tekstu (zdjęcie Time Sheetu
+NN „Wrzesień.pdf”) zostaje fakturą: skany w poczcie to też faktury i zaświadczenia, a nazwa
+pliku niczego nie rozstrzyga. Klasyfikacja działa na nowych mailach; pliki już zapisane
+nie zmieniają rodzaju same.
 
 ## Skala (próba IX–X, kopia 23.11)
 
