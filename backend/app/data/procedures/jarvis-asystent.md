@@ -57,7 +57,8 @@ Karta „Zrobione za Ciebie” pokazuje, co zostało zapisane. **„Cofnij”** 
 - odświeżenie podsumowania aktywności kandydata,
 - zapis debriefu po rozmowie u klienta,
 - odrzucenie propozycji w „Do przejrzenia”, werdykt klienta, „Biorę” kandydata,
-- zapamiętanie Twojej preferencji („odpowiadaj krócej”).
+- zapamiętanie Twojej preferencji („odpowiadaj krócej”),
+- zmianę od klienta w rekrutacji („klient teraz wymaga Pythona” albo wklejony mail klienta): Jarvis daje kartę **„Pokaż i popraw”**, która otwiera okno **„Klient coś zmienił”** w Profilu Championa. Tam widzisz listę zmian w wymaganiach, opisie i pytaniach, odznaczasz albo poprawiasz i klikasz „Zastosuj”. Działa dla osoby, która redaguje Profil tej rekrutacji.
 
 Zadanie pojawia się jako **karta** z opisem. Nic się nie dzieje, dopóki nie klikniesz **„Zrób to”**. „Anuluj” odrzuca propozycję. Propozycja wygasa po 15 minutach. Jeśli NEXUS ostrzeże przy przesunięciu (np. konflikt z klientem), Jarvis pokaże nową kartę „mimo ostrzeżenia” — decyzja zostaje przy Tobie.
 

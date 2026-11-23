@@ -121,6 +121,16 @@ def page1_why(extras: Optional[dict]) -> Optional[list[str]]:
     return texts[:3] or None
 
 
+WREATH_CHOICES = ("auto", "cert", "school")
+
+
+def page1_wreath(extras: Optional[dict]) -> str:
+    """Co idzie do wieńca na stronie 1 (Artur 23.11.2026): „auto” = certyfikat,
+    gdy klient go wymaga (MUST), inaczej dyplom; „cert” albo „school” wybiera rekruter."""
+    value = extras.get("wreath") if isinstance(extras, dict) else None
+    return value if value in WREATH_CHOICES else "auto"
+
+
 def chosen_result(extras: Optional[dict]) -> Optional[str]:
     """„Najmocniejszy wynik” do strony 1: zdanie wpisane przez rekrutera
     (`result_text`) albo wybrane z listy modelu — tylko sprawdzone z cytatem

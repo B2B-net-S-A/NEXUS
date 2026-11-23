@@ -1866,6 +1866,14 @@
    "v3_home": "Profil Championa → Brief → „Edytuj” przy „Czego szukamy” (szuflada) → 4 · Rekruter sprawdza w rozmowie"
   },
   {
+   "id": "champ.client-change",
+   "area": "zlecenie",
+   "opis": "„Klient coś zmienił”: DL wkleja mail albo opisuje zmianę, AI proponuje listę zmian w wymaganiach, niuansach, pytaniach i opisach (z cytatem), DL odznacza albo poprawia, widzi skutki dla osób w procesie i zapisuje jednym ruchem ze zdaniem dla rekruterów (23.11.2026)",
+   "file": "components/champion/ClientChangeDialog.tsx",
+   "marker": "Co zmienił klient?",
+   "v3_home": "Profil Championa → przycisk „Klient coś zmienił” przy zakładkach; menu ⋯ → „Klient coś zmienił…”; Jarvis → „Pokaż i popraw”"
+  },
+  {
    "id": "team.category-change",
    "area": "naglowek",
    "opis": "„Zmień” kategorię rekrutacji — uczestnicy idą za kategorią",

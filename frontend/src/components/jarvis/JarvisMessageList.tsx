@@ -7,6 +7,7 @@ import { AlertCircle, MousePointerClick } from "lucide-react";
 import type { JarvisAction, JarvisItem, ScreenGuideTask } from "@/lib/jarvis/types";
 import { JarvisGapCard } from "./JarvisGapCard";
 import { JarvisGuideCard } from "./JarvisGuideCard";
+import { JarvisClientChangeCard } from "./JarvisClientChangeCard";
 import { JarvisMailDraftCard } from "./JarvisMailDraftCard";
 import { JarvisActionCard } from "./JarvisActionCard";
 import { JarvisDeepLinkCard } from "./JarvisDeepLinkCard";
@@ -106,6 +107,14 @@ export function JarvisMessageList({
             );
           case "mail_draft":
             return <JarvisMailDraftCard key={`mail-${index}`} draft={item.draft} />;
+          case "client_change":
+            return (
+              <JarvisClientChangeCard
+                key={`client-change-${index}`}
+                proposal={item.proposal}
+                onNavigate={onNavigate}
+              />
+            );
           case "gap":
             return <JarvisGapCard key={item.gap.id} gap={item.gap} />;
           case "steps":

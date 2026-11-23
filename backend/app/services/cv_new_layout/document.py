@@ -51,6 +51,12 @@ class NewCvDocument:
     highlight_keywords: tuple[str, ...]
     language: str = "pl"
     blind: bool = False
+    # Miasto kandydata z profilu: pastylka obok języków; puste = bez pastylki (23.11.2026).
+    location: str = ""
+    # Wymagania MUST z Profilu Championa: certyfikat z tej listy idzie do wieńca.
+    must_have: tuple[str, ...] = ()
+    # Wieniec: „auto” (certyfikat z MUST, inaczej dyplom), „cert” albo „school”.
+    wreath: str = "auto"
     rodo_clause_html: Optional[str] = None
     consent_image: Optional[bytes] = None
     consent_image_mime: Optional[str] = None
@@ -61,6 +67,7 @@ class NewCvDocument:
         data: dict,
         *,
         why: Optional[list[str]] = None,
+        wreath: str = "auto",
         rodo_clause_html: Optional[str] = None,
         consent_image: Optional[bytes] = None,
         consent_image_mime: Optional[str] = None,
@@ -125,6 +132,9 @@ class NewCvDocument:
             highlight_keywords=_strings(data.get("highlight_keywords")),
             language=language,
             blind=blind,
+            location=_str(data.get("candidate_location")),
+            must_have=_strings(data.get("must_have")),
+            wreath=wreath if wreath in ("auto", "cert", "school") else "auto",
             rodo_clause_html=rodo_clause_html,
             consent_image=consent_image or None,
             consent_image_mime=consent_image_mime,

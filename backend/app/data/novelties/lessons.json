@@ -1748,6 +1748,46 @@
     ]
   },
   {
+    "id": "lekcja-porcja-schodki",
+    "title": "Porcja dnia: kolejność po spełnionych „musi mieć”",
+    "novelties": ["porcja-schodki-musi-miec"],
+    "task": "W Porcji dnia kliknij na karcie pierwszej osoby wymaganie z listy „Musi mieć” i zobacz, gdzie jest w CV. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/porcja",
+    "check": { "kind": "click", "anchor": "review-batch.requirements" },
+    "questions": [
+      {
+        "q": "Ola ma 72% i 5 z 10 „musi mieć”, Kuba 66% i 8 z 10. Kto stoi wyżej w porcji?",
+        "options": [
+          "Kuba, bo spełnia więcej „musi mieć”",
+          "Ola, bo ma wyższy wynik",
+          "Ten, kto dłużej czeka w porcji"
+        ],
+        "answer": 0,
+        "explain": "Najpierw liczy się, ile „musi mieć” osoba spełnia. Wynik rozstrzyga dopiero między osobami z tą samą liczbą."
+      },
+      {
+        "q": "Dwie osoby mają po 7 z 10 „musi mieć”. Co decyduje, kto jest wyżej?",
+        "options": [
+          "Więcej spełnionych „mile widzianych”, potem wynik",
+          "Tylko wynik",
+          "Kolejność dodania do rekrutacji"
+        ],
+        "answer": 0,
+        "explain": "„Mile widziane” rozstrzyga remis. Dopiero gdy i tu jest równo, decyduje wynik."
+      },
+      {
+        "q": "Osoba spełnia 10 z 10 „musi mieć”, ale brakuje jej krytycznego wymagania. Gdzie stoi?",
+        "options": [
+          "Na końcu porcji",
+          "Na samej górze",
+          "Wypada z porcji"
+        ],
+        "answer": 0,
+        "explain": "Brak krytycznego wymagania odkłada osobę na koniec, ale nikt przez to nie wypada z porcji."
+      }
+    ]
+  },
+  {
     "id": "lekcja-terminy-przy-ruchu",
     "title": "Terminy od klienta przy ruchu na „Rozmowę u klienta”",
     "novelties": [

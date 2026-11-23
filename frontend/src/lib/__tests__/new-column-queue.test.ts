@@ -26,6 +26,37 @@ describe("premia porcji w kolejności", () => {
   });
 });
 
+describe("schodki po wymaganiach (23.11.2026)", () => {
+  const steps = (must_met: number, must_total: number, nice_met = 0, nice_total = 0) => ({
+    critical_missing: 0,
+    must_met,
+    must_total,
+    nice_met,
+    nice_total,
+  });
+  const withSteps = (id: number, score: number, s: ReturnType<typeof steps>) =>
+    system(id, score, { entry_autofill: { score, decided: false, cautions: [], steps: s } });
+
+  it("więcej spełnionych musi mieć stoi wyżej niż wyższy wynik, mile widziane rozstrzyga remis", () => {
+    const { items } = orderNewColumn([
+      withSteps(1, 68, steps(6, 10)),
+      withSteps(2, 65, steps(3, 10)),
+      withSteps(4, 69, steps(7, 10, 2, 7)),
+      withSteps(8, 67, steps(5, 10, 3, 7)),
+      withSteps(7, 66, steps(5, 10, 2, 7)),
+    ]);
+    expect(items.map((item) => item.id)).toEqual([4, 1, 8, 7, 2]);
+  });
+
+  it("brak krytycznej zostaje na końcu mimo kompletu musi mieć", () => {
+    const { items } = orderNewColumn(
+      [withSteps(1, 90, steps(4, 4)), withSteps(2, 60, steps(1, 4))],
+      new Map([[10, ["SoapUI"]]]),
+    );
+    expect(items.map((item) => item.id)).toEqual([2, 1]);
+  });
+});
+
 describe("orderNewColumn — zgłoszenia (06.11.2026)", () => {
   it("aplikujący z kompletem „musi mieć” na górze, z brakiem na samym końcu", () => {
     const gaps = new Map([[30, ["BigQuery"]]]);
