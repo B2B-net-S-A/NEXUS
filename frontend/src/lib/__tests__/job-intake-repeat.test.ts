@@ -26,7 +26,8 @@ import {
 } from "@/lib/job-request-intake";
 
 const SRC: RepeatSourceJob = {
-  id: 43260,
+  id: 789217,
+  client_reference: "43260",
   client_id: 7,
   title: "Backend Java developer - TOR Upgrde (43260)",
   description: "Stary request.",
@@ -161,7 +162,7 @@ describe("mergeRepeat", () => {
   const template = () => repeatTemplate(SRC, null);
 
   it("z maila zawsze nazwa z numerem i opis projektu; reszta z szablonu", () => {
-    const m = mergeRepeat(template(), mail(), { label: "43260" });
+    const m = mergeRepeat(template(), mail());
     expect(m.form.clientTitle).toBe("Backend Java developer - TOR Upgrde (51234)");
     expect(m.form.referenceHint).toBe("51234");
     expect(m.form.about).toBe("Nowy opis projektu z maila.");
@@ -177,7 +178,7 @@ describe("mergeRepeat", () => {
   });
 
   it("puste pola szablonu bierze z maila (D3), inna wartość to propozycja „W mailu”", () => {
-    const m = mergeRepeat(template(), mail(), { label: "43260" });
+    const m = mergeRepeat(template(), mail());
     // Rola i lata — szablon ich nie ma.
     expect(m.form.title).toBe("Backend Java Developer");
     expect(m.form.seniorityYears).toBe(5);
@@ -204,13 +205,12 @@ describe("mergeRepeat", () => {
         screening_questions: [],
         seniority_min_years: null,
       } as Partial<RequestIntakeResponse>),
-      { label: "43260" },
     );
     expect(m.differences).toEqual([]);
   });
 
   it("hiring manager z szablonu czeka jako „Ta sama osoba co w 43260”, a po „Potwierdź” wchodzi", () => {
-    const m = mergeRepeat(template(), mail(), { label: "43260" });
+    const m = mergeRepeat(template(), mail());
     expect(m.form.hiringManager).toBeNull();
     const hm = m.offers.find((o) => o.unit === "hiringManager");
     expect(hm).toMatchObject({ source: "template", sourceLabel: "43260", text: "Anna Nowak" });
@@ -230,7 +230,6 @@ describe("mergeRepeat", () => {
         hiring_manager_contact_id: 777,
         hiring_manager_contact_name: "Jan Kowalski",
       } as Partial<RequestIntakeResponse>),
-      { label: "43260" },
     );
     expect(m.form.hiringManager?.name).toBe("Jan Kowalski");
     expect(m.offers.some((o) => o.unit === "hiringManager")).toBe(false);
@@ -239,7 +238,7 @@ describe("mergeRepeat", () => {
 
   it("„Cofnij” wraca do formularza z samego odczytu", () => {
     const readOnly = { ...EMPTY_INTAKE_FORM, ...mail() };
-    const m = mergeRepeat(template(), mail(), { label: "43260" });
+    const m = mergeRepeat(template(), mail());
     const back = undoIntakeFill(m.form, intakeFillUndo(readOnly, m.form));
     expect(back.about).toBe(readOnly.about);
     expect(back.rows.map((r) => r.words[0])).toEqual(readOnly.rows.map((r) => r.words[0]));

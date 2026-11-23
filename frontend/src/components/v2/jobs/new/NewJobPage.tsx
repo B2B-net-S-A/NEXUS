@@ -424,6 +424,8 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     clientDefaults: ClientDefaults | null;
   } | null>(null);
   const [repeatDismissed, setRepeatDismissed] = useState(false);
+  // „43260” — plakietki „z 43260” przy polach, dopóki formularz stoi na tym szablonie.
+  const [repeatLabel, setRepeatLabel] = useState<string | null>(null);
   // „Utwórz i opublikuj” kliknięte przy brakach — pola są odtąd podświetlone.
   const [createAttempted, setCreateAttempted] = useState(preview?.createAttempted ?? false);
   // Próba użycia źródła albo utworzenia bez klienta — komunikat przy polu klienta.
@@ -995,6 +997,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
    */
   const applyRepeat = ({
     entry,
+    template,
     merge,
   }: {
     entry: RequestHistoryEntry;
@@ -1002,7 +1005,8 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     merge: RepeatMerge;
   }) => {
     const live = liveRef.current;
-    const label = String(entry.job_id);
+    const label = template.label;
+    setRepeatLabel(label);
     fillUndoRef.current = {
       undo: intakeFillUndo(live.form, merge.form),
       // Powtórka wymienia wszystkie propozycje — cofnięcie przywraca poprzednie.
@@ -1229,6 +1233,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     // Cofnięcie dotyczy wypełnienia z tej sesji — zapisany formularz go nie niesie.
     fillUndoRef.current = null;
     setLastRead(null);
+    setRepeatLabel(null);
     setFillInfo(null);
     setCreateAttempted(false);
     setClientAsked(false);
@@ -1712,7 +1717,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
             offers={liveOffers}
             onAcceptOffer={acceptOffer}
             onDismissOffer={dismissOffer}
-            templateLabel={templateJobId != null ? String(templateJobId) : null}
+            templateLabel={templateJobId != null ? repeatLabel : null}
             clientId={client?.id ?? null}
             countEnabled={!preview}
             criticalInfo={criticalInfo}

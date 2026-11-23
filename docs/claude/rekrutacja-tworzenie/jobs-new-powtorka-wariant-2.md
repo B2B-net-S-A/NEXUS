@@ -20,7 +20,9 @@ pod plikami, poza pierwszym ekranem, a szablon nie przenosił krytycznych, kateg
   wtedy schowany (jedno zapytanie, ten sam klucz). „Czytaj od zera” chowa baner do następnego
   odczytu, zmiana klienta i wczytanie zapisanego formularza go zdejmują, „Cofnij wypełnienie”
   po „Użyj” przywraca go razem z odczytem.
-- Na górze najlepiej pasująca rekrutacja (największe `similarity`): nazwa (`job_id`), stan,
+- `<nr>` to numer zapytania klienta (`client_reference`, np. 43260 — tak DL nazywa request),
+  a bez niego id rekrutacji (`RepeatTemplate.label`).
+- Na górze najlepiej pasująca rekrutacja (największe `similarity`): nazwa od klienta, stan,
   liczba kandydatów, DL. „Inne podobne (N)” pozwala porównać z inną. Kolumny „Weźmiemy z
   <nr>” (`repeatTakeSummary`) i „Z nowego maila” (wynik `mergeRepeat`: co przyjdzie z maila
   i przy jakich polach mail ma inną wartość). Awaria wczytania szablonu jest widoczna

@@ -39,12 +39,16 @@ export interface RepeatSourceJob extends TemplateSourceJob {
   competence_category_id?: number | null;
   hiring_manager_contact_id?: number | null;
   hiring_manager_name?: string | null;
+  /** Numer zapytania klienta (np. „43260”) — tak DL nazywa poprzedni request. */
+  client_reference?: string | null;
 }
 
 /** Poprzednia rekrutacja w kształcie formularza i jej hiring manager (osobno). */
 export interface RepeatTemplate {
   form: IntakeForm;
   hiringManager: HiringManagerChoice | null;
+  /** „43260” (numer zapytania klienta), a bez niego id rekrutacji. */
+  label: string;
 }
 
 const blank = (value: unknown): boolean => !String(value ?? "").trim();
@@ -92,7 +96,8 @@ export function repeatTemplate(
           name: String(src.hiring_manager_name).trim(),
         }
       : null;
-  return { form, hiringManager };
+  const label = String(src.client_reference ?? "").trim() || String(src.id);
+  return { form, hiringManager, label };
 }
 
 /** Wynik „Użyj <nr> i przeczytaj z maila tylko różnice”. */
@@ -132,7 +137,7 @@ const MAIL_FILLED: [string, (form: IntakeForm) => unknown][] = [
 export function mergeRepeat(
   template: RepeatTemplate,
   read: IntakeForm,
-  opts: { label: string; clientDefaults?: ClientDefaults | null },
+  opts: { clientDefaults?: ClientDefaults | null } = {},
 ): RepeatMerge {
   const base: IntakeForm = { ...template.form, provenance: { ...template.form.provenance } };
   const fromMail: string[] = [];
@@ -170,7 +175,7 @@ export function mergeRepeat(
       text: template.hiringManager.name,
       basis: "client_history",
       patch: { hiringManager: template.hiringManager, hiringManagerNotProvided: false },
-      sourceLabel: opts.label,
+      sourceLabel: template.label,
     });
   }
   const differences = result.offers.map((offer) => {

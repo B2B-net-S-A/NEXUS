@@ -44,9 +44,10 @@ const entry = (patch: Partial<RequestHistoryEntry>): RequestHistoryEntry => ({
   ...patch,
 });
 
-const TEMPLATE = repeatTemplate(
+const templateOf = (id: number, reference: string) => repeatTemplate(
   {
-    id: 43260,
+    id,
+    client_reference: reference,
     rate_budget_hourly: 130,
     rate_budget_hourly_min: 100,
     remote_policy: "hybrid",
@@ -59,6 +60,7 @@ const TEMPLATE = repeatTemplate(
   },
   null,
 );
+const REFERENCE: Record<number, string> = { 789217: "43260", 512000: "40001" };
 
 const READ: IntakeForm = {
   ...EMPTY_INTAKE_FORM,
@@ -73,7 +75,7 @@ const READ: IntakeForm = {
 
 function renderBanner(entries: RequestHistoryEntry[]) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const loadTemplate = vi.fn(async () => TEMPLATE);
+  const loadTemplate = vi.fn(async (id: number) => templateOf(id, REFERENCE[id] ?? String(id)));
   const onUse = vi.fn();
   const onFromScratch = vi.fn();
   render(
@@ -94,14 +96,14 @@ function renderBanner(entries: RequestHistoryEntry[]) {
 describe("RepeatRequestBanner", () => {
   it("na górze najlepiej pasująca, z kolumnami i różnicami z maila", async () => {
     const { loadTemplate } = renderBanner([
-      entry({ job_id: 40001, similarity: 0.65, is_in_progress: false, outcome: "filled" }),
-      entry({ job_id: 43260, similarity: 0.91 }),
+      entry({ job_id: 512000, similarity: 0.65, is_in_progress: false, outcome: "filled" }),
+      entry({ job_id: 789217, similarity: 0.91 }),
     ]);
     expect(screen.getByText("To wygląda na powtórkę requestu u Nordea")).toBeInTheDocument();
-    expect(screen.getByText("Backend Java developer (43260)")).toBeInTheDocument();
+    expect(screen.getByText("Backend Java developer")).toBeInTheDocument();
     expect(screen.getByText(/W toku od 13\.11 · 69 kandydatów · DL: Igor T\./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Inne podobne (1)" })).toBeInTheDocument();
-    expect(loadTemplate).toHaveBeenCalledWith(43260);
+    expect(loadTemplate).toHaveBeenCalledWith(789217);
     await waitFor(() =>
       expect(screen.getByTestId("repeat-request-take")).toHaveTextContent(
         "1 wymaganie (krytyczne: Java) · budżet 100–130 · hybrydowo 3 dni",
@@ -115,12 +117,12 @@ describe("RepeatRequestBanner", () => {
   it("„Użyj” oddaje wpis, szablon i łączenie; z „Inne podobne” można wybrać inną", async () => {
     const user = userEvent.setup();
     const { onUse, loadTemplate } = renderBanner([
-      entry({ job_id: 43260, similarity: 0.91 }),
-      entry({ job_id: 40001, similarity: 0.65, title: "Java dev — stary" }),
+      entry({ job_id: 789217, similarity: 0.91 }),
+      entry({ job_id: 512000, similarity: 0.65, title: "Java dev — stary" }),
     ]);
     await user.click(screen.getByRole("button", { name: "Inne podobne (1)" }));
     await user.click(screen.getByRole("button", { name: "Porównaj z tą" }));
-    expect(loadTemplate).toHaveBeenLastCalledWith(40001);
+    expect(loadTemplate).toHaveBeenLastCalledWith(512000);
     const use = await screen.findByRole("button", {
       name: "Użyj 40001 i przeczytaj z maila tylko różnice",
     });
@@ -128,7 +130,7 @@ describe("RepeatRequestBanner", () => {
     await user.click(use);
     expect(onUse).toHaveBeenCalledTimes(1);
     const arg = onUse.mock.calls[0][0];
-    expect(arg.entry.job_id).toBe(40001);
+    expect(arg.entry.job_id).toBe(512000);
     expect(arg.merge.form.rows[0].level).toBe("critical");
     expect(arg.merge.offers.find((o: { unit: string }) => o.unit === "hiringManager")).toMatchObject({
       sourceLabel: "40001",
@@ -137,7 +139,7 @@ describe("RepeatRequestBanner", () => {
 
   it("„Czytaj od zera” nie wypełnia niczego", async () => {
     const user = userEvent.setup();
-    const { onUse, onFromScratch } = renderBanner([entry({ job_id: 43260 })]);
+    const { onUse, onFromScratch } = renderBanner([entry({ job_id: 789217 })]);
     expect(screen.queryByRole("button", { name: /Inne podobne/ })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Czytaj od zera" }));
     expect(onFromScratch).toHaveBeenCalled();
@@ -150,7 +152,7 @@ describe("RepeatRequestBanner", () => {
       <QueryClientProvider client={queryClient}>
         <RepeatRequestBanner
           clientName="Nordea"
-          entries={[entry({ job_id: 43260 })]}
+          entries={[entry({ job_id: 789217 })]}
           read={READ}
           loadTemplate={() => Promise.reject(new Error("500"))}
           onUse={vi.fn()}
@@ -159,7 +161,7 @@ describe("RepeatRequestBanner", () => {
       </QueryClientProvider>,
     );
     expect(
-      await screen.findByText("Nie udało się wczytać 43260 — spróbuj ponownie albo czytaj od zera."),
+      await screen.findByText("Nie udało się wczytać Backend Java developer — spróbuj ponownie albo czytaj od zera."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Spróbuj ponownie" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Czytaj od zera" })).toBeEnabled();

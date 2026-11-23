@@ -76,13 +76,11 @@ export function RepeatRequestBanner({
     staleTime: 5 * 60_000,
     retry: false,
   });
-  const label = entry ? String(entry.job_id) : "";
+  // „43260” po wczytaniu szablonu; do tego czasu przycisk i tak czeka.
+  const label = templateQuery.data?.label ?? "poprzedniej";
   const merge = useMemo(
-    () =>
-      templateQuery.data
-        ? mergeRepeat(templateQuery.data, read, { label, clientDefaults })
-        : null,
-    [templateQuery.data, read, label, clientDefaults],
+    () => (templateQuery.data ? mergeRepeat(templateQuery.data, read, { clientDefaults }) : null),
+    [templateQuery.data, read, clientDefaults],
   );
   if (!entry) return null;
 
@@ -111,9 +109,8 @@ export function RepeatRequestBanner({
       </h2>
 
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border bg-background px-3 py-2 text-sm">
-        <span className="font-medium text-foreground">
-          {entry.title} ({entry.job_id})
-        </span>
+        {/* Nazwa od klienta niesie już numer zapytania („… (43260)”). */}
+        <span className="font-medium text-foreground">{entry.title}</span>
         <span className="text-muted-foreground">
           · {stateText(entry)} ·{" "}
           {countPl(entry.candidates_count, "kandydat", "kandydatów", "kandydatów")}
@@ -148,7 +145,7 @@ export function RepeatRequestBanner({
           {others.map((item) => (
             <li key={item.job_id} className="flex flex-wrap items-center gap-2">
               <span className="min-w-0 flex-1 truncate">
-                {item.title} ({item.job_id}) · {stateText(item)} ·{" "}
+                {item.title} · {stateText(item)} ·{" "}
                 {countPl(item.candidates_count, "kandydat", "kandydatów", "kandydatów")}
               </span>
               <Button
@@ -174,7 +171,7 @@ export function RepeatRequestBanner({
             {take
               ? take.join(" · ")
               : templateQuery.isError
-                ? `Nie udało się wczytać ${label} — spróbuj ponownie albo czytaj od zera.`
+                ? `Nie udało się wczytać ${entry.title} — spróbuj ponownie albo czytaj od zera.`
                 : "Wczytuję…"}
           </p>
         </div>
