@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import logging
 import re
 import unicodedata
@@ -38,6 +39,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional, Protocol
 from urllib.parse import quote
 
+from PIL import Image
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -86,8 +88,12 @@ _THREAD_PREFIX = re.compile(
 )
 _QUOTED_FROM = re.compile(r"^\s*(?:from|od)\s*:(.*)$", re.IGNORECASE | re.MULTILINE)
 _ADDRESS = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
-# Obrazki stopki Outlooka w naszym mailu z Wysłanych (powtórka IX 2026: 3 na zestawienie).
+# Obrazki stopki Outlooka (powtórka IX 2026: 3 na zestawienie w Wysłanych, 44 w poczcie).
 _OUTLOOK_SIGNATURE = re.compile(r"^image\d{3}\.(?:png|jpe?g|gif)$", re.IGNORECASE)
+# Ikona, logo albo baner stopki ma mniej pikseli; zrzut godzin wklejony w treść też
+# nazywa się ``image00N``, ale jest większy (tydzień T4T 1570×300). Decyzja Artura
+# z 23.11.2026: małe wycinki godzin (ok. 500×160) giną razem ze stopką.
+_SIGNATURE_MAX_PIXELS = 350_000
 # Dowód pracy: RCP (BNP), Time Sheet (Bosch, PKO), arkusz (Velo), protokół (PKO), KEŚU (Alior).
 # Bez tego plik „RCP_10_2026.pdf” szedł jako faktura i omijał kontrole RCP (16.11.2026).
 # KCP: karta pracy Banku Pocztowego („KCP 10/2026”, plik z nazwiskiem).
@@ -433,13 +439,31 @@ def _is_document(attachment: dict[str, Any]) -> bool:
     Samo ``isInline`` nie wystarcza: Open-Xchange i onet podają obrazki stopki bez
     ``Content-Disposition: inline`` albo jako zwykły załącznik, a Graph bywa, że daje
     im ``isInline: false``. Powtórka 30.09–06.10.2026: 44 ``image00N`` jako raporty
-    i faktury na kontraktach. Zrzut ekranu z godzinami ma inną nazwę i przechodzi."""
+    i faktury na kontraktach. Zrzut ekranu z godzinami przechodzi: pod inną nazwą
+    zawsze, jako ``image00N`` od ``_SIGNATURE_MAX_PIXELS`` w górę."""
 
     return (
         attachment.get("@odata.type") == _FILE_ATTACHMENT
         and not attachment.get("isInline")
-        and not _OUTLOOK_SIGNATURE.match(str(attachment.get("name") or "").strip())
+        and not _is_signature_image(attachment)
     )
+
+
+def _is_signature_image(attachment: dict[str, Any]) -> bool:
+    """``image00N`` poniżej ``_SIGNATURE_MAX_PIXELS``; obraz nieczytelny zostaje plikiem."""
+
+    if not _OUTLOOK_SIGNATURE.match(str(attachment.get("name") or "").strip()):
+        return False
+    raw = attachment.get("contentBytes")
+    if not isinstance(raw, str):
+        return False
+    try:
+        # Sam nagłówek: Image.open nie dekoduje pikseli.
+        with Image.open(io.BytesIO(base64.b64decode(raw, validate=True))) as image:
+            width, height = image.size
+    except (ValueError, OSError, Image.DecompressionBombError):
+        return False
+    return width * height < _SIGNATURE_MAX_PIXELS
 
 
 async def _store_without_file(

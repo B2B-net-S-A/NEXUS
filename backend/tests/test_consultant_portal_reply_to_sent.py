@@ -34,7 +34,20 @@ pytestmark = pytest.mark.asyncio
 SETTLEMENTS = "rozliczenia@firma.example.com"
 CLIENT = "bank-cib.example.com"
 PDF = b"%PDF-1.4 fikcyjne zestawienie godzin"
-PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+
+def _logo() -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    out = BytesIO()
+    Image.new("RGB", (140, 40), (0, 80, 160)).save(out, "PNG")
+    return out.getvalue()
+
+
+# Logo stopki Outlooka (mały obrazek ``image00N``).
+PNG = _logo()
 REPLIED = datetime(2026, 10, 5, 10, 16, tzinfo=timezone.utc)
 
 

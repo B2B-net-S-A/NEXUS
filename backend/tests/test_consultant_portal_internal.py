@@ -901,33 +901,39 @@ async def test_body_only_mail_without_one_person_stays_a_case() -> None:
 # ── Obrazki stopki Outlooka to nie dokumenty (próba IX–X 2026) ────────────────
 
 
-def _png(mark: str) -> bytes:
-    return b"\x89PNG\r\n\x1a\n" + mark.encode()
+def _png(width: int, height: int, shade: int) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    out = BytesIO()
+    Image.new("RGB", (width, height), (shade, shade, shade)).save(out, "PNG")
+    return out.getvalue()
 
 
 @pytest.mark.usefixtures("internal")
 async def test_signature_images_are_not_documents() -> None:
     """Powtórka 30.09–06.10: 44 obrazki ``image00N`` ze stopek szły jako raporty
     i faktury. Open-Xchange i onet podają je bez ``Content-Disposition: inline``,
-    a Graph bywa, że daje im ``isInline: false``. Zrzut ekranu z godzinami zostaje."""
+    a Graph bywa, że daje im ``isInline: false``. Ikona, logo i baner odpadają;
+    zrzut tygodnia wklejony w treść (też ``image00N``) i zrzut ekranu zostają."""
     person = await make_person(activated=False)
     files = [
-        _attachment("image001.png", _png("image001.png")),
-        _attachment("image002.PNG", _png("image002.PNG")),
-        _attachment("image003.jpg", _png("image003.jpg")),
+        _attachment("image001.png", _png(27, 27, 1)),
+        _attachment("image002.PNG", _png(800, 134, 2)),
+        _attachment("image003.jpg", _png(1125, 282, 3)),
+        _attachment("image004.png", _png(1570, 300, 4)),
         _attachment("TS_2026_09_signed.pdf", PDF),
-        _attachment(
-            "Zrzut ekranu 2026-09-30 101500.png",
-            _png("Zrzut ekranu 2026-09-30 101500.png"),
-        ),
-        _attachment("1-6_09_2026.png", _png("1-6_09_2026.png")),
+        _attachment("Zrzut ekranu 2026-09-30 101500.png", _png(120, 40, 5)),
+        _attachment("1-6_09_2026.png", _png(90, 30, 6)),
     ]
     reader = FakeMailbox([_message("m1", person.email)], {"m1": files})
-    assert (await _read(reader))["created"] == 3
+    assert (await _read(reader))["created"] == 4
     assert sorted(r.file_name for r in await _documents()) == [
         "1-6_09_2026.png",
         "TS_2026_09_signed.pdf",
         "Zrzut ekranu 2026-09-30 101500.png",
+        "image004.png",
     ]
 
 
@@ -946,8 +952,8 @@ async def test_mail_with_only_signature_images_reads_like_mail_without_file() ->
         [message],
         {
             "m1": [
-                _attachment("image001.png", _png("logo")),
-                _attachment("image002.png", _png("baner")),
+                _attachment("image001.png", _png(140, 40, 7)),
+                _attachment("image002.png", _png(800, 134, 8)),
             ]
         },
         {"m1": _acceptance_eml("koordynator@firma.example.com", subject)},
@@ -956,3 +962,15 @@ async def test_mail_with_only_signature_images_reads_like_mail_without_file() ->
     rows = await _documents()
     assert [(r.contract_id, r.kind) for r in rows] == [(person.contract_id, "report")]
     assert rows[0].file_name.endswith(".eml")
+
+
+@pytest.mark.usefixtures("internal")
+async def test_unreadable_image_named_like_signature_stays_a_document() -> None:
+    """Obraz, którego nie da się odczytać, nie jest uznany za stopkę."""
+    person = await make_person(activated=False)
+    reader = FakeMailbox(
+        [_message("m1", person.email)],
+        {"m1": [_attachment("image001.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)]},
+    )
+    await _read(reader)
+    assert [r.file_name for r in await _documents()] == ["image001.png"]
