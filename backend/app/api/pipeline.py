@@ -4697,6 +4697,7 @@ async def _render_kanban_board(
                 today=board_today,
                 autofill_days=autofill_days,
                 client_since=client_clock.since if client_clock else None,
+                client_form=form_state is not None,
             )
 
         client_clock = client_clocks.get(e.candidate_id)

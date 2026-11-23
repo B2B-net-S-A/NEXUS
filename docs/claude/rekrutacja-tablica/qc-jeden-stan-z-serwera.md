@@ -31,6 +31,10 @@ Testy: `tests/test_qc_state.py`, `test_qc_endpoint_says_the_same_state_as_the_bo
   wchodzi do kolejki Delivery Leada (`dl_send_queue.readiness_of`, `isReadyForDlSend`).
   Ruch ma rekruter: „Wskaż stanowisko w QC”. W trybie doradczym może przesunąć mimo to
   („Przesuń mimo uwag…”, dzwonek do DL), wtedy para jest `overridden` i trafia do kolejki.
+- **Klient z formularzem CV** (23.11.2026) nie ma QC CV firmowego w kolejce: para
+  w „QC CV” jest gotowa od wejścia do kolumny, bez względu na `manual_items`
+  i wynik QC (`readiness_of(client_form=True)`) →
+  `generator-cv/formularz-klienta-zamiast-cv-firmowego.md`.
 - **Luka kandydata** przy wysyłce do klienta: Delivery Lead wybiera „Wysyłam mimo braku”
   albo „Wracam do rekrutera” (`GapDecision`). Wybór jedzie jako `gap_decision`
   i zostaje w `Activity` (`cv_qc_gap_decision`, lista luk). Pomiar: odrzucenia u klienta

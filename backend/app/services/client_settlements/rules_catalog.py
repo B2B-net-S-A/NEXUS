@@ -253,6 +253,31 @@ SECTIONS: tuple[Section, ...] = (
                 {"days": "14"},
                 (ParamField("days", "", "dni od numeru KSeF"),),
             ),
+            Rule(
+                "ci.sale_date",
+                "Data sprzedaży = ostatni dzień rozliczanego miesiąca",
+                "off",
+                "E6.6",
+                hint="Z treści faktury w KSeF (P_6 albo koniec okresu; bez P_6 data "
+                "wystawienia). Treść NEXUS pobiera po przypięciu faktury do kontraktu, "
+                "zwykle w ciągu godziny; do tego czasu „nie sprawdzono”.",
+            ),
+            Rule(
+                "ci.item_month",
+                "Nazwa pozycji bez innego miesiąca niż rozliczany",
+                "off",
+                "E6.6",
+                hint="Szuka nazw miesięcy i zapisów 10.2026 / 2026-10 w nazwach pozycji. "
+                "Nazwa bez miesiąca przechodzi.",
+            ),
+            Rule(
+                "ci.payment_form",
+                "Płatność przelewem, faktura bez „Zapłacono”",
+                "off",
+                "E6.6",
+                hint="Błąd: znacznik zapłaty, forma inna niż przelew (gotówka, karta…) "
+                "albo brak formy płatności i numeru rachunku.",
+            ),
         ),
     ),
     Section(

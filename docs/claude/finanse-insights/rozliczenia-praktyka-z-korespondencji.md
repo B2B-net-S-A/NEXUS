@@ -25,14 +25,17 @@ rozliczeń, reguły klientów). „NEXUS” w kolumnie znaczy, że kontrola już
 | Łańcuch korekt: faktura, korekta −, korekta + liczone razem; duplikat i korekta korekty | `invoice_chain` |
 | Nadgodziny BNP po 120% i tylko z wcześniejszą akceptacją klienta | `extra.multiplier`, `extra.mail_accept`, `extra.mail_before` |
 
-## Nie da się sprawdzić z samych metadanych KSeF
+## Pola tylko z XML-a faktury (od 23.11.2026 reguły, domyślnie wyłączone)
 
-NEXUS zapisuje fakturę kontraktora z metadanych, bez XML-a (limit pobrań zostaje dla Płac),
-więc tych pól nie widzi. Pilnują ich rozliczenia:
+Metadane z zapytania KSeF nie mają daty sprzedaży, nazw pozycji ani formy płatności, więc
+NEXUS pobiera XML faktury kontraktora raz, po przypięciu jej do kontraktu. Finanse włączają
+kontrolę per klient (`faktura-kontraktora-pola-z-xml-ksef.md`):
 
-- data sprzedaży (wykonania) = ostatni dzień rozliczanego miesiąca, a nazwa pozycji podaje usługę
-  i miesiąc (16 korekt we wrześniu i październiku);
-- forma płatności przelew i numer rachunku; „ZAPŁACONO” albo gotówka oznacza korektę (13 maili).
+- data sprzedaży (wykonania) = ostatni dzień rozliczanego miesiąca (16 korekt we wrześniu
+  i październiku) → `ci.sale_date`;
+- nazwa pozycji bez innego miesiąca niż rozliczany (5) → `ci.item_month`;
+- forma płatności przelew i numer rachunku; „ZAPŁACONO” albo gotówka oznacza korektę (13 maili)
+  → `ci.payment_form`.
 
 ## Zostaje człowiekowi
 

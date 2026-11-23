@@ -121,6 +121,9 @@ class BoardTaskRow(BaseModel):
     qc_gaps: list[str] = Field(default_factory=list)
     # QC-11 (08.11.2026): gotowy stan QC do pokazania.
     qc_state: Optional[dict] = None
+    # Klient z formularzem CV (23.11.2026): ``{template, missing}``; ``None`` =
+    # CV firmowe. Przegląd pokazuje wtedy formularz zamiast QC CV firmowego.
+    client_form: Optional[dict] = None
     # Przegląd DL: stan karty rekomendacji; ``None`` = para nie ma karty.
     card_status: Optional[Literal["complete", "partial", "empty"]] = None
     card_missing: int = 0

@@ -28,4 +28,16 @@ describe("QcStatusBadge — trzy stany QC (R1, 07.11.2026)", () => {
     rerender(<QcStatusBadge row={{ qc_status: null }} />);
     expect(container).toBeEmptyDOMElement();
   });
+
+  it("klient z formularzem CV: stan formularza zamiast wyniku QC CV firmowego (23.11.2026)", () => {
+    const { rerender } = render(
+      <QcStatusBadge row={{ qc_status: "failed", qc_blocking_failed: 1, client_form: { template: true, missing: 3 } }} />,
+    );
+    expect(screen.getByTestId("client-form-status-badge")).toHaveTextContent("Formularz: 3 do uzupełnienia");
+    expect(screen.queryByText(/QC:/)).toBeNull();
+    rerender(<QcStatusBadge row={{ qc_status: null, client_form: { template: true, missing: 0 } }} />);
+    expect(screen.getByText("Formularz gotowy")).toBeInTheDocument();
+    rerender(<QcStatusBadge row={{ qc_status: "passed", client_form: { template: false, missing: null } }} />);
+    expect(screen.getByText("Formularz: brak wzoru")).toBeInTheDocument();
+  });
 });

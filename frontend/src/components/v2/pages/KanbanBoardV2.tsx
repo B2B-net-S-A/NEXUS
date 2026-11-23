@@ -161,7 +161,7 @@ import {
  knownForwardGap,
  minimumOnlyGap,
  requirementsSkippedBadge,
- qcChip,
+ boardQcChip,
  type CardNextStep,
  compactCardBadge,
  cardOwner,
@@ -172,6 +172,7 @@ import {
  fromPreviousOpening,
  dlSendQueue,
  isReadyForDlSend,
+ qcBlocksDlReview,
  shortStepLabel,
  closedRejectBy,
  type ClosedRejectBy,
@@ -976,7 +977,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  const forwardGap = nextColumnLabel
  ? knownForwardGap(item, boardKey, { skipsFillGates: v5?.skipsFillGates })
  : null;
- const qc = boardKey === "cv_qc" ? qcChip(item) : null;
+ const qc = boardQcChip(item, boardKey);
  const cvBadge = cvStateBadge(item, boardKey);
  // 22.10.2026: karta przeszła dalej mimo braków, bo przesunął ją DL.
  const skippedBadge = requirementsSkippedBadge(item, boardKey);
@@ -3041,7 +3042,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  const stageBadge = boardFold.badgeByItemId.get(item.id) ?? null;
  const directToClient =
  toKey === "cv_sent" &&
- !(cproEnabled ? stageBadge === "cpro" : canReviewAsDl && item.qc?.status !== "failed");
+ !(cproEnabled ? stageBadge === "cpro" : canReviewAsDl && !qcBlocksDlReview(item));
  return (
  toIndex - fromIndex > 1 ||
  knownForwardGap(item, fromKey, { skipsFillGates }) != null ||
@@ -3597,7 +3598,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  !canReviewAsDl ||
  !fromOk ||
  boardFold.badgeByItemId.get(item.id) === "cpro" ||
- item.qc?.status === "failed"
+ qcBlocksDlReview(item)
  ) {
  return false;
  }
@@ -3635,6 +3636,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  expected_rate_currency: item.expected_rate_currency ?? null,
  // Serwer czyta arkusz pary (także z „Nowych"), gdy etap nie ma własnego.
  screening_stage_id: item.id,
+ client_form: item.client_form ?? null,
  });
  setDlReviewCanSend(undefined);
  // Wiersz z serwera (ta sama reguła co pulpit): etap CV po QC, kto

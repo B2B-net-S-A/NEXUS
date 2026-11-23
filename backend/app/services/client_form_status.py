@@ -76,6 +76,21 @@ async def client_takes_client_form(db: AsyncSession, client_id: Optional[int]) -
     return value == CLIENT_FORM
 
 
+async def client_form_client_ids(
+    db: AsyncSession, client_ids: Iterable[Optional[int]]
+) -> set[int]:
+    """Którzy z tych klientów biorą formularz CV — jedno zapytanie na listę."""
+    ids = sorted({cid for cid in client_ids if cid is not None})
+    if not ids:
+        return set()
+    rows = await db.scalars(
+        select(Client.id).where(
+            Client.id.in_(ids), Client.cv_client_document == CLIENT_FORM
+        )
+    )
+    return set(rows.all())
+
+
 async def job_states(
     db: AsyncSession, job_id: int, candidate_ids: Iterable[int]
 ) -> Optional[dict[int, PairFormState]]:

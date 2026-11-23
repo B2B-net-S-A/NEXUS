@@ -2,12 +2,18 @@
 
 Faktury kontraktorów zapisujemy z samych metadanych (``contractor_invoices``),
 a kontrole łańcucha korekt (``invoice_chain``) potrzebują pozycji ze stanem
-przed i po oraz danych faktury korygowanej — te są tylko w XML-u FA. Dlatego
-pobieramy XML **wyłącznie** dla korekt i faktur, które one korygują (zwykle
-kilka w miesiącu), po pobraniach Płac w tym samym przebiegu KSeF i najwyżej
-``MAX_DOWNLOADS`` na przebieg (produkcja: 64 pobrania na godzinę na token
-spółki, Płace biorą do 40). Chwilowa niedostępność = próba w kolejnym
-przebiegu (do ``MAX_ATTEMPTS``), 429 przerywa przebieg jak u Płac.
+przed i po oraz danych faktury korygowanej — te są tylko w XML-u FA. Tak samo
+data sprzedaży, nazwy pozycji i forma płatności (``invoice_fields``,
+reguły ``ci.sale_date``, ``ci.item_month``, ``ci.payment_form``). Dlatego
+pobieramy XML najpierw dla korekt i faktur, które one korygują, a potem raz
+dla każdej faktury przypiętej do kontraktu (``to_fetch_pinned``; ok. 500
+w miesiącu przy ~510 kontraktach). Wszystko po pobraniach Płac w tym samym
+przebiegu KSeF, z reszty ich budżetu i najwyżej ``MAX_DOWNLOADS`` na przebieg
+(produkcja: 64 pobrania na godzinę na token spółki, Płace biorą do 40), więc
+pętla zakupów nie bierze więcej niż przedtem, a Płace zawsze idą pierwsze.
+Przy 10 na godzinę miesiąc faktur schodzi w ok. 2 dni. Chwilowa
+niedostępność = próba w kolejnym przebiegu (do ``MAX_ATTEMPTS``), 429
+przerywa przebieg jak u Płac.
 
 Pobrana korekta dziedziczy kontrakt i miesiąc faktury, którą (pośrednio)
 koryguje: korekta z listopada do faktury za październik należy do października.
@@ -31,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client_settlement import ClientContractorInvoice
 from app.services.client_settlements import invoice_chain
+from app.services.client_settlements.contractor_invoices import BOUND
 from app.services.hr import white_list
 from app.services.hr.ksef import fa
 from app.services.hr.ksef.client import KsefApiError
@@ -85,6 +92,28 @@ def to_fetch(rows: list[ClientContractorInvoice]) -> list[ClientContractorInvoic
     return wanted
 
 
+def _without_fields(row: ClientContractorInvoice) -> bool:
+    """Bez treści albo treść sprzed odczytu płatności (do pobrania jeszcze raz)."""
+
+    details = row.details or {}
+    return _waiting(row) or (details.get("state") == "ok" and "paid" not in details)
+
+
+def to_fetch_pinned(
+    rows: list[ClientContractorInvoice],
+) -> list[ClientContractorInvoice]:
+    """Faktury przypięte do kontraktu bez pól z XML-a, od najstarszego wpływu."""
+
+    return [
+        r
+        for r in rows
+        if r.contract_id is not None
+        and r.nip_state in BOUND
+        and not invoice_chain.is_correction(r)
+        and _without_fields(r)
+    ]
+
+
 def details_from(parsed: fa.ParsedInvoice) -> dict[str, Any]:
     return {
         "state": "ok",
@@ -99,6 +128,10 @@ def details_from(parsed: fa.ParsedInvoice) -> dict[str, Any]:
         # Opis faktury do Symfonii (E2): procedura JPK MK i data zakończenia usługi.
         "cash_method": parsed.cash_method,
         "sale_date": parsed.sale_date.isoformat() if parsed.sale_date else None,
+        # Reguły pól faktury kontraktora (``invoice_fields``).
+        "issue_date": parsed.issue_date.isoformat(),
+        "payment_form": parsed.payment_form,
+        "paid": parsed.paid,
     }
 
 
@@ -157,7 +190,7 @@ def follow_parents(rows: list[ClientContractorInvoice]) -> int:
 async def fetch_details(
     db: AsyncSession, source: Any, *, today: date, budget: int
 ) -> dict[str, int]:
-    """Pobiera XML korekt i faktur korygowanych; zwraca liczniki (``downloads``)."""
+    """Pobiera XML korekt, faktur korygowanych i przypiętych; liczniki (``downloads``)."""
 
     counts = {"downloads": 0, "moved": 0}
     rows = await _recent(db, today)
@@ -173,6 +206,15 @@ async def fetch_details(
             tried.add(row.id)
             counts["downloads"] += 1
             await _download(source, row)
+    # Potem faktury przypięte do kontraktu — raz, po korektach (reguły pól).
+    for row in to_fetch_pinned(rows):
+        if counts["downloads"] >= limit:
+            break
+        if row.id in tried:
+            continue
+        tried.add(row.id)
+        counts["downloads"] += 1
+        await _download(source, row)
     counts["moved"] = follow_parents(rows)
     await db.flush()
     return counts

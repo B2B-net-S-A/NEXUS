@@ -26,6 +26,7 @@ import { formatDayMonthPl } from "@/lib/date-pl";
 import { addedToBaseTitle, addedToBaseView, newInBaseDaysText } from "@/lib/added-to-base";
 import type { PreContractTone } from "@/lib/api/preContracts";
 import { offLimitsConfirmedDay } from "@/lib/off-limits";
+import { clientFormStateBadge } from "@/lib/client-form-badge";
 
 export type CardBadgeTone =
   | "own"
@@ -128,8 +129,20 @@ export function isReadyForDlSend(
   column: BoardColumnKey | null,
   inCproQueue: boolean,
 ): boolean {
-  if (column !== "cv_qc" || inCproQueue || qcHoldsAtRecruiter(item)) return false;
+  if (column !== "cv_qc" || inCproQueue) return false;
+  // Klient z formularzem CV (decyzja Artura 23.11.2026): QC CV firmowego nie
+  // ma, karta jest gotowa od wejścia do kolumny — lustro `readiness_of`.
+  if (item.client_form) return true;
+  if (qcHoldsAtRecruiter(item)) return false;
   return item.qc?.status === "passed" || item.qc?.status === "overridden";
+}
+
+/**
+ * QC CV firmowego do poprawy zamyka przegląd DL na Tablicy — poza parą
+ * u klienta z formularzem CV, której serwer QC nie liczy (23.11.2026).
+ */
+export function qcBlocksDlReview(item: KanbanItem): boolean {
+  return !item.client_form && item.qc?.status === "failed";
 }
 
 /** QC-7 (08.11.2026): stanowiska bez wskazania — ruch rekrutera, nie Delivery Leada. */
@@ -282,56 +295,7 @@ export function clientFormBadge(
 ): CardBadge | null {
   const form = item.client_form;
   if (!form || (column !== "verified" && column !== "cv_qc")) return null;
-  if (!form.template) {
-    return {
-      key: "cv_state",
-      label: "Formularz: brak wzoru",
-      tone: "wait",
-      title:
-        "Klient bierze swój formularz CV, a w Plikach rekrutacji nie ma wzoru — dodaje go Delivery Lead.",
-    };
-  }
-  if (form.missing == null) {
-    return {
-      key: "cv_state",
-      label: "Brak formularza",
-      tone: "wait",
-      title:
-        "Klient bierze swój formularz CV zamiast CV firmowego — wypełnij go w sekcji CV osoby. Bez formularza karta nie przejdzie na „QC CV”.",
-    };
-  }
-  if (form.score_template && form.score_missing == null) {
-    return {
-      key: "cv_state",
-      label: "Brak tabeli punktowej",
-      tone: "wait",
-      title:
-        "Rekrutacja ma wzór tabeli punktowej klienta — wypełnij ją w sekcji CV osoby. Bez niej karta nie przejdzie na „QC CV”.",
-    };
-  }
-  if (form.uploaded) {
-    return {
-      key: "cv_state",
-      label: "Formularz wgrany",
-      tone: "ok",
-      title:
-        "Formularz CV klienta wgrany z dysku — ten plik idzie do QC i do klienta zamiast wypełnienia z NEXUSA.",
-    };
-  }
-  if (form.missing > 0) {
-    return {
-      key: "cv_state",
-      label: `Formularz: ${form.missing} do uzupełnienia`,
-      tone: "wait",
-      title: "Formularz CV klienta ma puste pola — uzupełnij je w sekcji CV osoby. Puste pola nie blokują ruchu.",
-    };
-  }
-  return {
-    key: "cv_state",
-    label: "Formularz gotowy",
-    tone: "ok",
-    title: "Formularz CV klienta ma wypełnione wszystkie pola.",
-  };
+  return { key: "cv_state", ...clientFormStateBadge(form) };
 }
 
 // ── Stan CV firmowego na karcie (14.10.2026) ────────────────────────────────
@@ -1239,6 +1203,18 @@ export function qcChip(item: KanbanItem): QcChip {
 }
 
 /**
+ * Chip QC na karcie Tablicy: tylko w „QC CV” i tylko u klienta, który bierze
+ * CV firmowe. Klient z formularzem CV (`item.client_form`, np. Centrum
+ * e-Zdrowia) nie dostaje CV firmowego, a serwer nie liczy jego QC
+ * (`pipeline._assert_cv_qc_gate`), więc chip byłby alarmem o dokumencie, którego
+ * klient nie bierze (staging 23.11.2026). Stan formularza mówi `clientFormBadge`.
+ */
+export function boardQcChip(item: KanbanItem, column: BoardColumnKey | null): QcChip | null {
+  if (column !== "cv_qc" || item.client_form) return null;
+  return qcChip(item);
+}
+
+/**
  * Znany z karty brak przed przejściem do NASTĘPNEJ kolumny — strzałka jest
  * wtedy szara (ale klikalna: okno „Przesuń dalej" mówi, co zrobić). `null` =
  * karta nie zna braku; pełną listę liczy serwer w oknie.
@@ -1251,7 +1227,7 @@ export function knownForwardGap(
   // 22.10.2026: Delivery Lead przesuwa bez bramek pól — znany jest mu tylko
   // brak QC (serwer: `pipeline_move_rules.skips_fill_gates`).
   if (options.skipsFillGates) {
-    return from === "cv_qc" && item.qc?.status === "failed"
+    return from === "cv_qc" && item.qc?.status === "failed" && !item.client_form
       ? `QC: ${item.qc.blocking_failed} do poprawy`
       : null;
   }
@@ -1277,7 +1253,7 @@ export function knownForwardGap(
     // QC-4: starszy plik B2B ma własny napis zamiast cichego „Brak CV”.
     return item.qc?.qc_state?.kind === "older_cv" ? item.qc.qc_state.text.replace(/^QC: /, "") : "Brak CV firmowego";
   }
-  if (from === "cv_qc" && item.qc?.status === "failed") {
+  if (from === "cv_qc" && item.qc?.status === "failed" && !item.client_form) {
     return `QC: ${item.qc.blocking_failed} do poprawy`;
   }
   return null;
