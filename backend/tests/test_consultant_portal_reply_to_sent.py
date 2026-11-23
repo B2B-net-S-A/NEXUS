@@ -34,6 +34,7 @@ pytestmark = pytest.mark.asyncio
 SETTLEMENTS = "rozliczenia@firma.example.com"
 CLIENT = "bank-cib.example.com"
 PDF = b"%PDF-1.4 fikcyjne zestawienie godzin"
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
 REPLIED = datetime(2026, 10, 5, 10, 16, tzinfo=timezone.utc)
 
 
@@ -193,7 +194,8 @@ def _reader(
     return SentMailbox(
         [_reply(reply_subject, sender=sender)],
         [sent or _sent(subject)],
-        {"s1": [_file("202609_worksheet.pdf")]},
+        # Obrazek stopki Outlooka w naszym mailu nie jest dowodem (powtórka IX: 3 pliki).
+        {"s1": [_file("202609_worksheet.pdf"), _file("image001.png", PNG)]},
         {"r1": _reply_eml(sender, reply_subject, _quoted(subject, accept))},
     )
 

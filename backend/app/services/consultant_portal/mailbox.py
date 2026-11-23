@@ -85,6 +85,8 @@ _THREAD_PREFIX = re.compile(
 )
 _QUOTED_FROM = re.compile(r"^\s*(?:from|od)\s*:(.*)$", re.IGNORECASE | re.MULTILINE)
 _ADDRESS = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+# Obrazki stopki Outlooka w naszym mailu z Wysłanych (powtórka IX 2026: 3 na zestawienie).
+_OUTLOOK_SIGNATURE = re.compile(r"^image\d{3}\.(?:png|jpe?g|gif)$", re.IGNORECASE)
 # Dowód pracy: RCP (BNP), Time Sheet (Bosch, PKO), arkusz (Velo), protokół (PKO), KEŚU (Alior).
 # Bez tego plik „RCP_10_2026.pdf” szedł jako faktura i omijał kontrole RCP (16.11.2026).
 # KCP: karta pracy Banku Pocztowego („KCP 10/2026”, plik z nazwiskiem).
@@ -1007,6 +1009,8 @@ async def _store_reply_to_sent(
         except ValueError:
             continue
         name = str(attachment.get("name") or "")
+        if _OUTLOOK_SIGNATURE.match(name.strip()):
+            continue
         kind = await asyncio.to_thread(kind_of_file, our_subject, name, content)
         created += await _store_found(
             db,
