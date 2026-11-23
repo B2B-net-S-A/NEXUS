@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
+import { PhoneOff } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ds/PageHeader";
@@ -26,7 +27,9 @@ import {
 } from "@/lib/api/reviewBatch";
 
 import { usePlainBrief } from "@/lib/api/plainKnowledge";
+import { callWhen } from "@/lib/screening-call";
 import { cn } from "@/lib/utils";
+import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
 
 import { ReviewBatchCard } from "./ReviewBatchCard";
 import { RoleProfileBlock } from "./ReviewBatchRoleProfile";
@@ -245,10 +248,30 @@ function QueueRunLine({
   );
 }
 
+/** Tyle prób „Nie odebrał” przesuwa termin (`MAX_DEADLINE_ATTEMPTS` w `review_batch.py`). */
+const MAX_DEADLINE_ATTEMPTS = 3;
+
+/** „Nie odebrał” przy screeningu do domknięcia: ta sama notatka-próba co na Tablicy. */
+function NoAnswerButton({ candidateId, jobId }: { candidateId: number; jobId: number }) {
+  const noAnswer = useNoAnswerNote({ candidateId, jobId });
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      disabled={noAnswer.isPending}
+      onClick={() => noAnswer.mutate()}
+    >
+      <PhoneOff className="h-3.5 w-3.5" aria-hidden />
+      Nie odebrał
+    </Button>
+  );
+}
+
 function progressHint(data: ReviewBatchStatus, open: number): string {
   const overdue = data.overdue_screenings ?? 0;
   if (overdue > 0 && data.remaining === 0) {
-    return `Wyszukiwanie wróci po domknięciu ${screeningsCount(overdue)} po terminie. Wpisz wynik albo odrzuć z powodem.`;
+    return `Wyszukiwanie wróci po domknięciu ${screeningsCount(overdue)} po terminie. Wpisz wynik, odrzuć z powodem albo, gdy dzwonisz i kandydat nie odbiera, kliknij „Nie odebrał”.`;
   }
   if (!data.met) {
     return `Zdecyduj o ${data.required} osobach: „Pasuje” albo „Nie pasuje” z powodem. Potem wyszukiwanie ręczne wraca. Osobę spoza bazy dodasz zawsze.`;
@@ -619,7 +642,14 @@ function BatchWorkspace({
                     <button type="button" onClick={() => setPicked(index)} className="block w-full text-left">
                       <span className="flex items-center gap-1.5 text-sm font-medium">
                         <span className="min-w-0 truncate">{item.name}</span>
-                        {item.overdue ? (
+                        {(item.attempts ?? 0) > 0 && !item.overdue ? (
+                          <span
+                            className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground"
+                            data-testid="review-batch-attempts"
+                          >
+                            nie odebrał{(item.attempts ?? 0) > 1 ? ` ×${item.attempts}` : ""}
+                          </span>
+                        ) : item.overdue ? (
                           <span className="shrink-0 rounded bg-destructive/15 px-1.5 py-0.5 text-xs font-medium text-destructive">
                             po terminie
                           </span>
@@ -630,12 +660,23 @@ function BatchWorkspace({
                         ) : null}
                       </span>
                       <span className="block truncate text-xs text-muted-foreground">{item.job_title}</span>
+                      {item.last_attempt_at && !item.overdue && !item.parked ? (
+                        <span className="block text-xs text-muted-foreground">
+                          Ostatnia próba {callWhen(item.last_attempt_at)}. Termin: 2 dni robocze od niej.
+                        </span>
+                      ) : null}
+                      {item.overdue && (item.attempts ?? 0) >= MAX_DEADLINE_ATTEMPTS ? (
+                        <span className="block text-xs text-muted-foreground" data-testid="review-batch-attempts-used">
+                          {item.attempts} prób bez odpowiedzi. Wpisz wynik albo odrzuć z powodem „Nie szuka pracy”.
+                        </span>
+                      ) : null}
                     </button>
                     {active ? (
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         <Button size="sm" asChild>
                           <Link href={`/jobs/${item.job_id}?candidate=${item.candidate_id}`}>Otwórz screening</Link>
                         </Button>
+                        <NoAnswerButton candidateId={item.candidate_id} jobId={item.job_id} />
                       </div>
                     ) : null}
                     </div>

@@ -41,6 +41,9 @@ export interface ReviewBatchOpenScreening {
   overdue?: boolean
   /** Osobę zdjęto z rekrutacji (np. zejście z priorytetu): bez terminu, nie blokuje. */
   parked?: boolean
+  /** „Nie odebrał” po decyzji: termin liczy się od ostatniej próby. */
+  attempts?: number
+  last_attempt_at?: string | null
 }
 
 export interface ReviewBatchStatus {
