@@ -457,6 +457,30 @@ def test_stawka_godzinowa_bez_stawek_md():
     assert client_documents.hourly_rate(daily) == Decimal("150")
 
 
+def test_stawka_dzienna_zwyklego_zamowienia_bez_stawek_md():
+    # Zwykłe zamówienie trzyma stawkę w ``rate_client`` według ``rate_unit``;
+    # kolumny MD wypełnia tylko linia wielo-konsultantowa (próba IX–X 23.11.2026:
+    # 64 zamówienia „dziennie” wyglądały na „Linię zamówienia bez stawki MD”).
+    daily = SimpleNamespace(
+        rate_unit="daily",
+        rate_client=Decimal("1300"),
+        rate_candidate=Decimal("1000"),
+        rate_client_currency="PLN",
+        md_rate_cost=None,
+        md_rate_revenue=None,
+    )
+    assert service.md_rates(daily) == (Decimal("1000"), Decimal("1300"))
+    # Stawka MD z linii wygrywa z polem zamówienia.
+    mixed = SimpleNamespace(**{**vars(daily), "md_rate_revenue": Decimal("1250")})
+    assert service.md_rates(mixed) == (Decimal("1000"), Decimal("1250"))
+    # Waluta obca bez stawek MD: bez przeliczenia (kurs to decyzja Finansów).
+    eur = SimpleNamespace(**{**vars(daily), "rate_client_currency": "EUR"})
+    assert service.md_rates(eur) == (None, None)
+    # Stawka miesięczna nie jest stawką MD.
+    monthly = SimpleNamespace(**{**vars(daily), "rate_unit": "monthly"})
+    assert service.md_rates(monthly) == (None, None)
+
+
 def test_numer_zamowienia_z_tytulu_linii_i_rola_z_rekrutacji():
     line = SimpleNamespace(title="Zamówienie nr 9001/2026")
     assert client_documents.order_number(line, "GRUPA") == "9001/2026"
