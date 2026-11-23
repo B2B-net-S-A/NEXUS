@@ -4536,6 +4536,11 @@
     "dot_anchor": "person.pre-contract.stop",
     "steps": [
       {
+        "anchor": "person.dock.contract",
+        "text": "Kliknij „Umowa” w panelu osoby.",
+        "hint": "Panel Szymona z „QC CV” jest otwarty. Zakładka „Umowa” ma sekcję umowy przedwstępnej z wierszem „Ruch karty”."
+      },
+      {
         "anchor": "person.pre-contract.stop-row",
         "text": "Wiersz „Ruch karty” mówi, czy osoba stoi do podpisu i skąd.",
         "hint": "„Ustawienie rekrutacji” albo „przy tej osobie”, z nazwiskiem i datą tego, kto zatrzymał kartę.",
@@ -4590,6 +4595,11 @@
         "anchor": "board.card.pre-contract-stop",
         "text": "Kliknij czerwoną plakietkę „Stop ·” na karcie w „QC CV”.",
         "hint": "Strzałka tej karty ma kłódkę: następny etap czeka na podpis umowy przedwstępnej."
+      },
+      {
+        "anchor": "person.dock.contract",
+        "text": "Kliknij „Umowa” w panelu osoby.",
+        "hint": "W zakładce „Umowa” jest prośba o przedwstępną i stan podpisu."
       },
       {
         "anchor": "person.pre-contract.stop-row",
