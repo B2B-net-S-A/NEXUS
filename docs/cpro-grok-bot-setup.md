@@ -187,7 +187,9 @@ Do kolejnej gotowej karty użyj osobnego biegu bez opcji korekty.
 Przy wyłączonych obu flagach uprawniony operator może obsłużyć jedną gotową
 kartę z okna „Do wrzucenia do Cpro” w NEXUSIE. Ten tryb korzysta ze zwykłej
 sesji NEXUSA. W Cpro potrzebna jest aktywna sesja na koncie Delivery Leada
-wskazanego przy karcie.
+wskazanego przy karcie. Admin, Head of Recruitment i Delivery Lead z prawem
+zapisu w Pipeline mogą też otworzyć tę samą kolejkę przez **Ustawienia →
+Rekrutacja → CPro → Otwórz kolejkę Cpro**.
 
 1. Otwórz przygotowanie szkicu przy wybranej osobie. Sprawdź konto i numer
    requestu. NEXUS rezerwuje kartę i udostępnia zatwierdzony firmowy PDF.
