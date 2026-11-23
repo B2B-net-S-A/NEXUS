@@ -189,6 +189,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.contract_document_rate_read: ("F52", "claude-sonnet-5"),
     # F53 — 22.11.2026: dane firmy Partnera z podpisanej umowy (model F52).
     AIFeatureKey.contract_partner_read: ("F53", "claude-sonnet-5"),
+    # F54 — 23.11.2026: ocena potencjału firmy w Sprzedaży (model F46).
+    AIFeatureKey.sales_potential_assessment: ("F54", "claude-sonnet-5-5"),
 }
 
 

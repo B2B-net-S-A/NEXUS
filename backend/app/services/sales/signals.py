@@ -637,6 +637,7 @@ async def start_run(
 
     from app.services.sales import bot_tasks, bots
     from app.services.sales.bot_tasks.call_hook import CALL_HOOK
+    from app.services.sales.bot_tasks.potential import POTENTIAL
 
     task = bot_tasks.get(kind)
     if task is None:
@@ -674,8 +675,9 @@ async def start_run(
     )
     db.add(run)
     await db.flush()
+    # Haczyk i research do oceny potencjału nie potrzebują odrzuconych leadów.
     only_hooks = kind == "briefing" and all(
-        (modes or {}).get(cid) == CALL_HOOK for cid in rows
+        (modes or {}).get(cid) in (CALL_HOOK, POTENTIAL) for cid in rows
     )
     feedback = (
         await _feedback(db, list(rows))

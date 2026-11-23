@@ -210,7 +210,7 @@ async def test_friday_at_four_starts_hooks_and_prep_once(monkeypatch) -> None:
     started: list = []
     _patch_loop(monkeypatch, started)
     done = await _run_at(_local(date(2026, 11, 13), 16, 5))
-    assert done == {"call_hook": 2, "meeting_prep": 2}
+    assert done == {"call_hook": 2, "meeting_prep": 2, "potential": 0}
     assert started == [
         ("briefing", [1, 2], {1: "call_hook", 2: "call_hook"}, None),
         (
@@ -234,6 +234,7 @@ async def test_friday_at_four_starts_hooks_and_prep_once(monkeypatch) -> None:
     assert await _run_at(_local(date(2026, 11, 13), 16, 20)) == {
         "call_hook": 0,
         "meeting_prep": 0,
+        "potential": 0,
     }
     assert started == []
 

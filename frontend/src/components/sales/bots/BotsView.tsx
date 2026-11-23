@@ -1,6 +1,7 @@
 "use client";
 
 import { Building2, Database, ListPlus, Newspaper, Search, Users } from "lucide-react";
+import Link from "next/link";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useToast } from "@/components/Toast";
@@ -227,6 +228,13 @@ export function BotsView() {
       </p>
       <p className="max-w-3xl text-xs text-muted-foreground">
         Status i czas na karcie dotyczą ostatniego biegu. Raport może zostać przyjęty bez zmian w danych.
+      </p>
+      <p className="max-w-3xl text-xs text-muted-foreground">
+        Ocena potencjału firm bierze ofertę i referencje z{" "}
+        <Link href="/sales/bots/wiedza" className="text-primary hover:underline">
+          bazy wiedzy
+        </Link>
+        .
       </p>
       <div className="grid gap-3 lg:grid-cols-2">
         {query.data.items.map((bot) => (

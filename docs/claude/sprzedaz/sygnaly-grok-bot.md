@@ -8,7 +8,9 @@ stan z 09.11 wieczorem: https://claude.ai/artifact/4o8XBacuSzBgQK8iY1Jq8d.
 
 To zmienia decyzję z 27.10.2026 „leady bez silnika” (`sprzedaz-w-nexusie-decyzje-i-reguly.md`,
 sekcja Leady) i pozycję „skan prasy” z listy „Poza zakresem”: Artur 09.11 wybrał
-„Buduj od razu”. Skan ogłoszeń z portali i LinkedIna dalej jest poza zakresem.
+„Buduj od razu”. Skan ogłoszeń z portali i LinkedIna dalej jest poza zakresem,
+z jednym wyjątkiem od 23.11.2026: research do oceny potencjału czyta ogłoszenia
+o pracę firmy (`ocena-potencjalu.md`).
 
 ## Zapis od razu, bez potwierdzania (decyzja Artura 13.11.2026)
 

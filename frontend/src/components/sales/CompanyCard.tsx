@@ -23,6 +23,7 @@ import {
   type SalesCompany,
 } from "@/lib/api/sales";
 import { useCompanyDecisionMap } from "@/lib/api/sales-bot-people";
+import { useCompanyPotential } from "@/lib/api/sales-potential";
 import { hasPermission } from "@/lib/permissions";
 import { useUrlWriter } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
@@ -42,6 +43,7 @@ import { ContactsSection } from "./ContactsSection";
 import { formatDealAmount, safeHref } from "./format";
 import { LinkClientDialog } from "./LinkClientDialog";
 import { OpportunityFormDialog } from "./OpportunityFormDialog";
+import { PotentialTab } from "./potential/PotentialTab";
 import { SalesShell } from "./SalesShell";
 import { SignalStrip } from "./signals/SignalStrip";
 import { TalkingPoints } from "./signals/TalkingPoints";
@@ -50,9 +52,10 @@ import { WhoWeKnowPanel } from "./WhoWeKnowPanel";
 /** Tag importu z Atlasa: firma przeszła warunkowo (nazwa wygląda na osobę). */
 const REVIEW_TAG = "atlas: do przejrzenia";
 
-type Tab = "overview" | "people" | "contacts" | "decision-map" | "activities" | "files";
+type Tab = "overview" | "potential" | "people" | "contacts" | "decision-map" | "activities" | "files";
 const TABS: { value: Tab; label: React.ReactNode }[] = [
   { value: "overview", label: "Przegląd" },
+  { value: "potential", label: "Potencjał" },
   { value: "people", label: "Kogo znamy" },
   { value: "contacts", label: <span data-tour="sales.company.contacts-tab">Kontakty</span> },
   { value: "decision-map", label: "Mapa decydentów" },
@@ -199,7 +202,13 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
   const canAccessMap = canEdit && Boolean(data && !data.archived_at);
   const decisionMap = useCompanyDecisionMap(companyId, canAccessMap);
   const showMap = canAccessMap && (decisionMap.data?.enabled || (raw === "decision-map" && !decisionMap.data));
-  const tabs = showMap ? TABS : TABS.filter((item) => item.value !== "decision-map");
+  // Ocena potencjału znika razem z flagą zadań bota (`enabled: false`).
+  const potential = useCompanyPotential(companyId);
+  const showPotential = potential.data?.enabled || (raw === "potential" && !potential.data);
+  const tabs = TABS.filter(
+    (item) =>
+      (showMap || item.value !== "decision-map") && (showPotential || item.value !== "potential"),
+  );
   const tab = tabs.find((item) => item.value === raw)?.value ?? "overview";
 
   const state = resolveViewState({
@@ -308,6 +317,9 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
                 <WhoWeKnowPanel companyId={companyId} companyName={data.name} />
               </div>
             </div>
+          )}
+          {tab === "potential" && (
+            <PotentialTab companyId={companyId} canEdit={canEdit} archived={Boolean(data.archived_at)} />
           )}
           {tab === "people" && <WhoWeKnowPanel companyId={companyId} companyName={data.name} />}
           {tab === "contacts" && <ContactsSection companyId={companyId} />}
