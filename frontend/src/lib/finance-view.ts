@@ -9,6 +9,7 @@ export type FinanceViewMode =
   | "rate-divergences"
   | "approved-expenses"
   | "settlements"
+  | "month-close"
   | "costs"
   | "counterparties"
   | "payments"
@@ -26,6 +27,7 @@ const VIEW_MODES: readonly FinanceViewMode[] = [
   "rate-divergences",
   "approved-expenses",
   "settlements",
+  "month-close",
   "costs",
   "counterparties",
   "payments",

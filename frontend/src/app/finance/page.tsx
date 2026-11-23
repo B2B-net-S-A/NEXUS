@@ -22,8 +22,12 @@ import { hasSectionAccess } from "@/lib/section-access";
 import { useAuthStore } from "@/store/auth";
 
 import { parseFinanceView, type FinanceViewMode as ViewMode } from "@/lib/finance-view";
-import { FinanceSalesInvoicesTab } from "@/components/clients/invoicing/FinanceSalesInvoicesTab";
+import {
+  FinanceSalesInvoicesTab,
+  type SalesInvoicesView,
+} from "@/components/clients/invoicing/FinanceSalesInvoicesTab";
 import { RateDivergencesTab } from "@/components/finance/RateDivergencesTab";
+import { MONTH_CLOSE_URL_KEYS, MonthCloseView } from "@/components/finance/month-close/MonthCloseView";
 import { SETTLEMENTS_URL_KEYS, SettlementsTab } from "@/components/finance/settlements/SettlementsTab";
 import { useInvoicingModule } from "@/lib/api/client-invoicing";
 import { useSettlementsModule } from "@/lib/api/client-settlements";
@@ -57,6 +61,7 @@ const VIEW_DESCRIPTION: Record<ViewMode, string> = {
   "rate-divergences":
     "Zamówienia do korekty po zmianie stawki Partnera i nocny raport rozjazdów linii zamówień MD",
   settlements: "RCP, faktury kontraktorów i faktury do klienta za jeden miesiąc",
+  "month-close": "Wszyscy klienci w jednym miesiącu: raporty, decyzje i faktury do klientów",
   "approved-expenses":
     "Zatwierdzone wydatki do rozliczenia, rejestr subskrypcji i faktury kosztowe bez zgody",
   costs:
@@ -78,6 +83,21 @@ const VIEW_DESCRIPTION: Record<ViewMode, string> = {
  * komponent w `Suspense`, żeby `useSearchParams` nie wymusił granicy
  * Suspense wokół całej strony.
  */
+/** Wejście do „Faktur do klientów” z miesiącem i widokiem (link „Wystaw” z „Przebiegu miesiąca”). */
+const SALES_INVOICES_URL_KEYS = ["siPeriod", "siView"] as const;
+const SALES_INVOICES_LINK_VIEWS: readonly SalesInvoicesView[] = ["issue", "to-invoice", "invoices"];
+
+function salesInvoicesFromUrl(): { initialPeriod?: string; initialView?: SalesInvoicesView } {
+  if (typeof window === "undefined") return {};
+  const params = new URLSearchParams(window.location.search);
+  const period = params.get("siPeriod");
+  const view = params.get("siView") as SalesInvoicesView | null;
+  return {
+    initialPeriod: period && /^\d{4}-\d{2}$/.test(period) ? period : undefined,
+    initialView: view && SALES_INVOICES_LINK_VIEWS.includes(view) ? view : undefined,
+  };
+}
+
 function FinanceViewSync({ onView }: { onView: (raw: string | null) => void }) {
   const searchParams = useSearchParams();
   const raw = searchParams ? searchParams.get("view") : undefined;
@@ -160,6 +180,7 @@ export default function FinancePage() {
     (view === "rate-divergences" && !hasModule) ||
     (view === "approved-expenses" && !approvalsOpen) ||
     (view === "settlements" && !settlementsOpen) ||
+    (view === "month-close" && !settlementsOpen) ||
     ((view === "costs" ||
       view === "counterparties" ||
       view === "payments" ||
@@ -208,6 +229,12 @@ export default function FinancePage() {
     }
     if (next !== "settlements") {
       SETTLEMENTS_URL_KEYS.forEach((key) => params.delete(key));
+    }
+    if (next !== "month-close") {
+      MONTH_CLOSE_URL_KEYS.forEach((key) => params.delete(key));
+    }
+    if (next !== "sales-invoices") {
+      SALES_INVOICES_URL_KEYS.forEach((key) => params.delete(key));
     }
     if (next !== "costs") {
       COSTS_URL_KEYS.forEach((key) => params.delete(key));
@@ -262,13 +289,15 @@ export default function FinancePage() {
         ) : visibleView === "order-pdfs" ? (
           <OrderPdfsTab />
         ) : visibleView === "sales-invoices" ? (
-          <FinanceSalesInvoicesTab />
+          <FinanceSalesInvoicesTab {...salesInvoicesFromUrl()} />
         ) : visibleView === "rate-divergences" ? (
           <RateDivergencesTab
             canWrite={!impersonating && hasPermission(user, "amounts_edit")}
           />
         ) : visibleView === "settlements" ? (
           <SettlementsTab canWrite={canWrite} />
+        ) : visibleView === "month-close" ? (
+          <MonthCloseView />
         ) : visibleView === "costs" ? (
           <CostsTab canWrite={canWrite} />
         ) : visibleView === "counterparties" ? (

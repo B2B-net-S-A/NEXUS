@@ -333,12 +333,58 @@ export interface PanelPreview {
   finance: { months: PortalMonth[] };
 }
 
+/** „Przebieg miesiąca”: wiersz klienta (GET /overview). */
+export interface MonthCloseClient {
+  client_id: number;
+  name: string;
+  people: number;
+  clean: number;
+  accepted: number;
+  decide: number;
+  unread: number;
+  missing: number;
+  contractor_in_ksef: number;
+  client_invoice_issued: number;
+  client_invoice_ready: number;
+  revenue_ready: string | null;
+  top_reason: string | null;
+  /** Klient rozliczany z raportu klienta (T4T) — bez kolejki osób. */
+  client_report: { all: number; ok: number; differs: number; unmatched: number; no_invoice: number } | null;
+}
+
+export interface MonthCloseReason {
+  /** Klucz reguły albo `missing` / `no_md`. */
+  key: string;
+  title: string;
+  count: number;
+  clients: { client_id: number; name: string; count: number }[];
+  people: { contract_id: number; person: string; client_id: number }[];
+}
+
+export interface MonthCloseOverview {
+  month: string;
+  can_see_amounts: boolean;
+  totals: {
+    people: number;
+    clean: number;
+    accepted: number;
+    decide: number;
+    unread: number;
+    missing: number;
+    contractor_in_ksef: number;
+    client_invoice_issued: number;
+  };
+  clients: MonthCloseClient[];
+  reasons: MonthCloseReason[];
+}
+
 export const settlementKeys = {
   module: ["client-settlements", "module"] as const,
   start: ["client-settlements", "start"] as const,
   preview: (contractId: number) =>
     ["client-settlements", "preview", contractId] as const,
   clients: ["client-settlements", "clients"] as const,
+  overview: (month: string) => ["client-settlements", "overview", month] as const,
   month: (clientId: number, month: string) =>
     ["client-settlements", "month", clientId, month] as const,
   detail: (
@@ -418,6 +464,14 @@ export function useSettlementClients() {
     queryKey: settlementKeys.clients,
     queryFn: async () =>
       (await api.get<SettlementClient[]>(`${BASE}/clients`)).data,
+  });
+}
+
+export function useMonthCloseOverview(month: string) {
+  return useQuery({
+    queryKey: settlementKeys.overview(month),
+    queryFn: async () =>
+      (await api.get<MonthCloseOverview>(`${BASE}/overview`, { params: { month } })).data,
   });
 }
 
