@@ -236,9 +236,9 @@
   },
   {
     "id": "sprzedaz-dzwonienie-kto-dzwoni",
-    "pr": 0,
+    "pr": 3763,
     "title": "Dzwonienie: kto dzwoni? Szukanie po numerze",
-    "why": "Klient oddzwania, a telefon pokazuje sam numer. Wpisz go w „Kto dzwoni?” nad kolejką: zobaczysz firmę, osobę, kto do niej dzwonił i kiedy wraca. Spacje i +48 nie mają znaczenia, także w wyszukiwaniu w Tabeli.",
+    "why": "Klient oddzwania, a telefon pokazuje sam numer? Wpisz go w „Kto dzwoni?” nad kolejką: zobaczysz firmę, osobę i kto do niej dzwonił. Spacje i +48 nie przeszkadzają, także w Tabeli.",
     "tier": "dot",
     "shipped_on": "2026-11-23",
     "audience": {
