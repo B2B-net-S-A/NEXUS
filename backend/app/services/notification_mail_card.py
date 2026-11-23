@@ -7,7 +7,10 @@ ma się czytać jak zadanie, nie jak kopia dzwonka:
 - temat „[NEXUS] co zrobić · czego dotyczy”, żeby lista w Outlooku była listą
   zadań;
 - znaczek „Czeka na Ciebie” albo rodzaj sprawy;
-- 2–4 fakty z tej samej sprawy (rekrutacja, klient, Delivery Lead, termin);
+- 2–5 faktów z tej samej sprawy (rekrutacja, klient, Delivery Lead, termin);
+  numer zapytania klienta (`jobs.client_reference`) stoi przed rekrutacją
+  i na końcu tematu — DL odpisuje klientowi jego numerem i szuka po nim
+  maili (zgłoszenie DL, decyzja Artura z 23.11.2026);
 - przyciski, które otwierają dokładny ekran z wybraną decyzją do
   potwierdzenia (`/calendar?cycle=…&do=pick&choose=1`,
   `/people/approvals?leave=…&decide=approve`). Ekran nigdy nie wykonuje akcji
@@ -43,7 +46,7 @@ from app.services.stage_handoff_recipients import (
 WAITING = "Czeka na Ciebie"
 OPEN_LABEL = "Otwórz w NEXUSIE"
 SETTINGS_PATH = "/settings?item=my-notifications"
-FACTS_MAX = 4
+FACTS_MAX = 5
 SUBJECT_PART_MAX = 70
 _WEEKDAYS_PL = ("pon", "wt", "śr", "czw", "pt", "sob", "nd")
 
@@ -80,6 +83,8 @@ class MailFacts:
 
     candidate: Optional[str] = None
     job: Optional[str] = None
+    # Numer zapytania klienta (`jobs.client_reference`: ZOB-…, 43114…).
+    request_number: Optional[str] = None
     client: Optional[str] = None
     delivery_lead: Optional[str] = None
     deadline: Optional[date] = None
@@ -363,6 +368,10 @@ def _facts(ntype: str, hr: bool, facts: MailFacts) -> tuple[tuple[str, str], ...
             ("Klient", facts.client),
             ("Delivery Lead", facts.delivery_lead),
         ]
+    if not hr and facts.request_number and facts.job:
+        at = next((i for i, (k, _) in enumerate(rows) if k == "Rekrutacja"), None)
+        if at is not None:
+            rows.insert(at, ("Nr zapytania", facts.request_number))
     return tuple((k, v) for k, v in rows if v)[:FACTS_MAX]
 
 
@@ -373,6 +382,8 @@ def _about(ntype: str, hr: bool, facts: MailFacts) -> Optional[str]:
         parts = [facts.job, facts.client]
     else:
         parts = [facts.candidate, facts.client]
+    if not hr:
+        parts.append(facts.request_number)
     # Każda część skracana osobno — długi tytuł rekrutacji nie zjada klienta.
     joined = " · ".join(_short(p, SUBJECT_PART_MAX) for p in parts if p)
     return joined or None
@@ -559,6 +570,9 @@ async def load_facts(db: Any, notif: Any) -> MailFacts:
     job = await db.get(Job, refs["job"]) if "job" in refs else None
     if job is not None:
         values["job"] = getattr(job, "working_title", None) or job.title
+        values["request_number"] = (
+            getattr(job, "client_reference", None) or ""
+        ).strip() or None
         values["deadline"] = job.deadline
         refs.setdefault("client", job.client_id)
         if job.delivery_lead_id:
