@@ -3716,6 +3716,47 @@ DRAFT_EMAIL = JarvisTool(
 )
 
 
+# Lustro ``ClientChangeIn.text`` w ``api/jobs.py`` (najkrótsza treść dla okna).
+CLIENT_CHANGE_TEXT_MIN = 10
+CLIENT_CHANGE_TEXT_MAX = 6000
+CLIENT_CHANGE_SUMMARY_MAX = 600
+
+PROPOSE_CLIENT_CHANGE = JarvisTool(
+    name="propose_client_change",
+    label="Przygotowuję zmianę od klienta",
+    description=(
+        "PROPONUJE zmianę Profilu Championa rekrutacji po zmianie od klienta "
+        "(„klient teraz wymaga Pythona”, „SAFe już nieważne”, wklejony mail "
+        "klienta) — NIC nie zapisuje. Użytkownik dostaje kartę z przyciskiem "
+        "„Pokaż i popraw”, który otwiera okno „Klient coś zmienił” na stronie "
+        "rekrutacji: tam NEXUS przygotuje listę zmian w wymaganiach, opisie "
+        "i pytaniach, a człowiek je sprawdzi i zastosuje. `job_id` ustal z "
+        "kontekstu ekranu albo przez wyszukiwanie. `text` to treść od klienta "
+        "słowami użytkownika albo wklejony mail — bez skracania. `summary` to "
+        "1–3 krótkie punkty, co się zmienia (bez nazwisk i kwot)."
+    ),
+    input_schema=_schema(
+        {
+            "job_id": INT,
+            "text": {
+                **STR,
+                "minLength": CLIENT_CHANGE_TEXT_MIN,
+                "maxLength": CLIENT_CHANGE_TEXT_MAX,
+            },
+            "summary": {**STR, "maxLength": CLIENT_CHANGE_SUMMARY_MAX},
+        },
+        ("job_id", "text", "summary"),
+    ),
+    tier="link",
+    method=None,
+    path=None,
+    section=ProductSection.pipeline,
+    entity_type="job",
+    build=lambda a: RequestSpec("GET", ""),  # nieużywane — patrz agent._handle_tool
+    shape=as_is,
+)
+
+
 ALL_TOOLS: tuple[JarvisTool, ...] = (
     *READ_TOOLS,
     *HR_TOOLS,
@@ -3724,6 +3765,7 @@ ALL_TOOLS: tuple[JarvisTool, ...] = (
     SHOW_ON_SCREEN,
     REPORT_GAP,
     DRAFT_EMAIL,
+    PROPOSE_CLIENT_CHANGE,
 )
 TOOLS_BY_NAME: dict[str, JarvisTool] = {tool.name: tool for tool in ALL_TOOLS}
 

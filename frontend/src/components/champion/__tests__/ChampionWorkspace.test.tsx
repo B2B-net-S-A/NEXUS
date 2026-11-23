@@ -16,6 +16,11 @@ import type { ChampionTab } from "@/lib/champion-blocks";
 
 const plainBriefMock = vi.fn();
 const changesMock = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/jobs/7",
+  useSearchParams: () => new URLSearchParams(),
+}));
 vi.mock("@/lib/api/plainKnowledge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/plainKnowledge")>();
   return { ...actual, usePlainBrief: () => plainBriefMock() };
