@@ -915,24 +915,28 @@ def _png(width: int, height: int, shade: int) -> bytes:
 async def test_signature_images_are_not_documents() -> None:
     """Powtórka 30.09–06.10: 44 obrazki ``image00N`` ze stopek szły jako raporty
     i faktury. Open-Xchange i onet podają je bez ``Content-Disposition: inline``,
-    a Graph bywa, że daje im ``isInline: false``. Ikona, logo i baner odpadają;
-    zrzut tygodnia wklejony w treść (też ``image00N``) i zrzut ekranu zostają."""
+    a Graph bywa, że daje im ``isInline: false``. Ikona, logo i baner odpadają
+    (także stopka przemianowana na ``image.png``); zrzut tygodnia wklejony w treść
+    (też ``image00N``/``image.png``) i zrzut ekranu zostają."""
     person = await make_person(activated=False)
     files = [
         _attachment("image001.png", _png(27, 27, 1)),
         _attachment("image002.PNG", _png(800, 134, 2)),
         _attachment("image003.jpg", _png(1125, 282, 3)),
         _attachment("image004.png", _png(1570, 300, 4)),
+        _attachment("image.png", _png(15, 15, 9)),
+        _attachment("image.png", _png(1045, 462, 10)),
         _attachment("TS_2026_09_signed.pdf", PDF),
         _attachment("Zrzut ekranu 2026-09-30 101500.png", _png(120, 40, 5)),
         _attachment("1-6_09_2026.png", _png(90, 30, 6)),
     ]
     reader = FakeMailbox([_message("m1", person.email)], {"m1": files})
-    assert (await _read(reader))["created"] == 4
+    assert (await _read(reader))["created"] == 5
     assert sorted(r.file_name for r in await _documents()) == [
         "1-6_09_2026.png",
         "TS_2026_09_signed.pdf",
         "Zrzut ekranu 2026-09-30 101500.png",
+        "image.png",
         "image004.png",
     ]
 

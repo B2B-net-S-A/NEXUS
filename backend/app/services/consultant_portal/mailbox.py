@@ -89,7 +89,8 @@ _THREAD_PREFIX = re.compile(
 _QUOTED_FROM = re.compile(r"^\s*(?:from|od)\s*:(.*)$", re.IGNORECASE | re.MULTILINE)
 _ADDRESS = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 # Obrazki stopki Outlooka (powtórka IX 2026: 3 na zestawienie w Wysłanych, 44 w poczcie).
-_OUTLOOK_SIGNATURE = re.compile(r"^image\d{3}\.(?:png|jpe?g|gif)$", re.IGNORECASE)
+# Webmail Open-Xchange przy odpowiedzi nazywa cytowaną stopkę „image.png” (55742).
+_OUTLOOK_SIGNATURE = re.compile(r"^image(?:\d{3})?\.(?:png|jpe?g|gif)$", re.IGNORECASE)
 # Ikona, logo albo baner stopki ma mniej pikseli; zrzut godzin wklejony w treść też
 # nazywa się ``image00N``, ale jest większy (tydzień T4T 1570×300). Decyzja Artura
 # z 23.11.2026: małe wycinki godzin (ok. 500×160) giną razem ze stopką.
@@ -450,7 +451,8 @@ def _is_document(attachment: dict[str, Any]) -> bool:
 
 
 def _is_signature_image(attachment: dict[str, Any]) -> bool:
-    """``image00N`` poniżej ``_SIGNATURE_MAX_PIXELS``; obraz nieczytelny zostaje plikiem."""
+    """``image00N``/``image.png`` poniżej ``_SIGNATURE_MAX_PIXELS``; obraz nieczytelny
+    zostaje plikiem."""
 
     if not _OUTLOOK_SIGNATURE.match(str(attachment.get("name") or "").strip()):
         return False
