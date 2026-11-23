@@ -50,7 +50,8 @@ z „wymagań do wyszukiwania” powtarzało must, deal breaker miały 3 z 99 py
   ale tylko dla rekrutacji jeszcze nieprzekazanych (`job.is_open == False`)
   i poza bramką briefu, którą czyta automat. Na `/jobs/new` propozycje AI
   (pytanie, dobra odpowiedź, odpowiedź, która odpada) Delivery Lead zatwierdza
-  („Zatwierdź wszystkie”; edycja pola też zatwierdza).
+  („Zatwierdź wszystkie”; edycja pola też zatwierdza). Od 23.11.2026 zatwierdza
+  je „Utwórz” — `jobs-new-mniej-decyzji-wariant-1.md`.
 - **Numer u klienta nie ma osobnego pola**: `clientReferenceFor` czyta go z nazwy
   od klienta (numer z odczytu, dopóki stoi w nazwie; inaczej jednoznaczny ZOB),
   „To nie ten numer” pozwala wpisać inny albo żaden. `create_job` bez pola

@@ -122,6 +122,8 @@ class IntakeQuestion:
     ideal_answer: str
     from_request: bool
     deal_breaker: str = ""
+    # 23.11.2026 (wariant 1): to pytanie sprawdza propozycję `key_task`.
+    key_task: bool = False
 
 
 @dataclass(frozen=True)
@@ -205,6 +207,10 @@ class RequestIntake:
     # słownika z maila, których nie ma w żadnym wierszu.
     critical_proposal: list[dict[str, str]] = field(default_factory=list)
     mail_technologies: list[str] = field(default_factory=list)
+    # ── od v16 (23.11.2026, wariant 1): propozycja „Najważniejszego zadania” ──
+    # Jedno zdanie z maila; formularz pokazuje je jako propozycję do
+    # zatwierdzenia, razem z pytaniem (`IntakeQuestion.key_task`), które je sprawdza.
+    key_task: Optional[str] = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -819,10 +825,26 @@ def _questions(value: Any) -> list[IntakeQuestion]:
                 ideal_answer=_text(item.get("ideal_answer"), 500) or "",
                 from_request=bool(item.get("from_request")),
                 deal_breaker=_text(item.get("deal_breaker"), 500) or "",
+                key_task=item.get("key_task") is True,
             )
         )
         if len(out) >= MAX_QUESTIONS:
             break
+    return out
+
+
+def _one_key_task_question(
+    questions: list[IntakeQuestion], key_task: Optional[str]
+) -> list[IntakeQuestion]:
+    """Najwyżej jedno pytanie sprawdza zadanie; bez zadania — żadne."""
+    out: list[IntakeQuestion] = []
+    seen = False
+    for question in questions:
+        flag = bool(key_task) and question.key_task and not seen
+        seen = seen or flag
+        out.append(
+            question if question.key_task == flag else replace(question, key_task=flag)
+        )
     return out
 
 
@@ -1244,7 +1266,10 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     responsibilities, responsibilities_note = _responsibilities(
         data.get("responsibilities")
     )
-    questions = _questions(data.get("screening_questions"))
+    key_task = _text(data.get("key_task"), 300)
+    questions = _one_key_task_question(
+        _questions(data.get("screening_questions")), key_task
+    )
 
     experience, year_notes = _check_domain_years(
         _experience(data.get("experience"), folded_text),
@@ -1298,6 +1323,8 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         )
     if ask_client:
         provenance["ask_client"] = "ai"
+    if key_task:
+        provenance["key_task"] = "ai"
     for key, present in (
         ("client_title", client_title),
         ("client_reference", client_reference),
@@ -1342,6 +1369,7 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         project_about=project_about,
         responsibilities=responsibilities,
         screening_questions=questions,
+        key_task=key_task,
         evidence=evidence,
         missing=missing_fields(
             role_name=role_name,

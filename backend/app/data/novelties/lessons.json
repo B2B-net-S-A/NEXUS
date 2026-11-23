@@ -976,7 +976,8 @@
     "id": "lekcja-najwazniejsze-zadanie",
     "title": "Najważniejsze zadanie w tej roli i pytanie, które je sprawdza",
     "novelties": [
-      "najwazniejsze-zadanie-w-roli"
+      "najwazniejsze-zadanie-w-roli",
+      "nowa-rekrutacja-mniej-decyzji"
     ],
     "task": "W rekrutacji ćwiczebnej otwórz Profil Championa, kliknij „Edytuj” przy „Najważniejsze zadanie w tej roli”, wpisz zadanie i zaznacz pytanie, które je sprawdza.",
     "solo_href": "/jobs/990001",
@@ -1014,6 +1015,16 @@
         ],
         "answer": 0,
         "explain": "Od 23.11 zadanie i pytanie są wymagane przy pierwszym przekazaniu, także przy zakładaniu przez API."
+      },
+      {
+        "q": "Po odczycie maila w „O projekcie” stoi zadanie z dopiskiem „Propozycja AI”. Co robisz?",
+        "options": [
+          "Sprawdzam zdanie i pytanie obok, potem „Zatwierdź zadanie” albo poprawiam",
+          "Nic — „Utwórz” zatwierdzi je samo jak pytania",
+          "Kasuję je, bo zadanie wpisuje tylko klient"
+        ],
+        "answer": 0,
+        "explain": "Pytania i kategorię zatwierdza „Utwórz”, ale zadanie AI tylko podpowiada: do „Zatwierdź zadanie” albo Twojej poprawki zostaje brakiem."
       }
     ]
   },
