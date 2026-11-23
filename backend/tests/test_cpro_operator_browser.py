@@ -779,3 +779,80 @@ async def test_explicit_old_non_offer_result_is_not_ambiguous(browser_world, out
         db.add(old)
         await db.commit()
         assert not await operator_browser.unresolved_stage_ids(db, [world.stage_id])
+
+
+@pytest.mark.asyncio
+async def test_existing_offer_identifier_cannot_be_attached_to_another_card(
+    browser_world,
+):
+    world = browser_world
+    run_id = await _created(world)
+    async with AsyncSessionLocal() as db:
+        historical, _ = runs.new_run(
+            [{"ref": world.stage_id + 100000}],
+            now=datetime.now(UTC) - timedelta(days=90),
+            submit=False,
+        )
+        historical.status = "received"
+        historical.requested_by_user_id = world.users["admin"]
+        historical.report = {
+            "items": {
+                str(world.stage_id + 100000): {
+                    "outcome": "draft",
+                    "cpro_status": "DRAFT",
+                    "offer_url": "https://nordea.onevms.se/nordea/vendor/OfferController?action=view&id=990001",
+                }
+            }
+        }
+        db.add(historical)
+        await db.commit()
+    response = await _confirm(world, run_id)
+    assert response.status_code == 409, response.text
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(CproBotRun, run_id)).report == {}
+
+
+@pytest.mark.asyncio
+async def test_document_scope_is_rechecked_for_every_owned_action(
+    browser_world, monkeypatch
+):
+    from fastapi import HTTPException
+
+    from app.services.cpro_bot import operator_browser
+
+    world = browser_world
+    run_id = await _created(world, actor="admin")
+    denied = AsyncMock(
+        side_effect=HTTPException(403, "Synthetic revoked document scope")
+    )
+    monkeypatch.setattr(operator_browser, "_load_csv_for_stage", denied)
+    for suffix in ("", "/cv"):
+        response = await world.client.get(
+            f"{BASE}/runs/{run_id}{suffix}", headers=world.headers["admin"]
+        )
+        assert response.status_code == 403, response.text
+    assert (await _confirm(world, run_id, actor="admin")).status_code == 403
+    assert denied.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_changed_snapshot_during_pdf_render_returns_no_file(
+    browser_world, monkeypatch
+):
+    from app.api import cpro_operator
+
+    world = browser_world
+    run_id = await _created(world)
+
+    async def changed_after_render(_db, _version):
+        payload = copy.deepcopy(world.item.payload)
+        payload["offer"]["rate"] = "999"
+        world.item = replace(world.item, payload=payload)
+        return b"%PDF-1.7\nsynthetic-render", "classic"
+
+    monkeypatch.setattr(cpro_operator, "render_approved_pdf", changed_after_render)
+    response = await world.client.get(
+        f"{BASE}/runs/{run_id}/cv", headers=world.headers["operator"]
+    )
+    assert response.status_code == 409, response.status_code
+    assert "application/pdf" not in response.headers["content-type"]
