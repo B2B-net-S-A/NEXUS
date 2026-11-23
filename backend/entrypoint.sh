@@ -1581,6 +1581,15 @@ except Exception as _b2b_signing_documents_schema_err:  # noqa: BLE001
     print(f"b2b signing documents schema unavailable: {_b2b_signing_documents_schema_err!r}")
     _B2B_SIGNING_DOCUMENTS_DDL = []
 
+# 0755: wypowiedzenia z poczty (`app/services/notice_mail_schema.py`).
+try:
+    from app.services import notice_mail_schema as _notice_mail_schema
+
+    _NOTICE_MAIL_DDL = list(_notice_mail_schema.ALL_DDL)
+except Exception as _notice_mail_schema_err:  # noqa: BLE001
+    print(f"notice mail schema unavailable: {_notice_mail_schema_err!r}")
+    _NOTICE_MAIL_DDL = []
+
 # 0649: dokumenty do startu (`app/services/start_documents_schema.py`).
 try:
     from app.services import start_documents_schema as _start_documents_schema
@@ -7190,6 +7199,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_START_DOCUMENTS_NOT_REQUIRED_DDL,
     # 0687: po `b2b_signing_requests` i `client_start_documents`.
     *_B2B_SIGNING_DOCUMENTS_DDL,
+    # 0755: po `admin_cases`, `admin_case_messages`, `contracts`, `client_orders`, `candidates`.
+    *_NOTICE_MAIL_DDL,
     *_CV_CALL_QUESTIONS_TABLE_DDL,
     *_SKILL_PROPOSALS_TABLE_DDL,
     *_SKILL_ALIAS_TEXT_DDL,

@@ -56,6 +56,7 @@
   "GET /api/contracts/{contract_id}/draft": "PPDPDDDDPPPDDDDDDPPDDDDDDDPDP",
   "GET /api/contracts/{contract_id}/draft/render-pdf": "PPDPDDDDPPPDDDDDDPPDDDDDDDPDP",
   "GET /api/contracts/{contract_id}/equipment": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
+  "GET /api/contracts/{contract_id}/mails": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
   "GET /api/contracts/{contract_id}/notes": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
   "GET /api/contracts/{contract_id}/notice-withdrawal": "PPDDPDDDPDDDPPDDDDDDDDDDDDPDP",
   "GET /api/contracts/{contract_id}/onboarding": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",

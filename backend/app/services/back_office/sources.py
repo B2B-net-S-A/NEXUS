@@ -57,6 +57,12 @@ AREA_LANE = {
 }
 
 _PERSON = "nullif(trim(coalesce(ca.name, '') || ' ' || coalesce(ca.lastname, '')), '')"
+_NOTICE_PERSON = (
+    "nullif(trim(coalesce(pca.name, '') || ' ' || coalesce(pca.lastname, '')), '')"
+)
+#: Sprawa z maila z propozycją wypowiedzenia (``notice_mail_proposals``):
+#: etykieta „Zakończenie” u Umów, bo potwierdzenie zapisuje zakończenie kontraktu.
+NOTICE_LANE = ("contracts", "ending")
 _CLIENT = "coalesce(cl.display_name, cl.name)"
 _CONTRACT_JOIN = (
     "LEFT JOIN candidates ca ON ca.id = k.candidate_id "
@@ -97,41 +103,82 @@ async def case_cards(db: AsyncSession, today: date) -> list[CardSpec]:
         SELECT c.id, c.title, c.area, c.status, c.due_on, c.contract_id,
                c.subject_user_id, c.assignee_user_id, c.source, c.source_key,
                c.created_at,
-               k.client_id, coalesce({_PERSON}, su.name) AS person,
-               {_CLIENT} AS client
+               coalesce(k.client_id, pk.client_id) AS client_id,
+               coalesce({_PERSON}, {_NOTICE_PERSON}, su.name) AS person,
+               coalesce({_CLIENT}, coalesce(pcl.display_name, pcl.name)) AS client,
+               p.id AS notice_id, p.kind AS notice_kind,
+               p.proposed_last_day AS notice_last_day,
+               p.contract_id AS notice_contract_id
         FROM admin_cases c
         LEFT JOIN contracts k ON k.id = c.contract_id
         {_CONTRACT_JOIN}
         LEFT JOIN users su ON su.id = c.subject_user_id
+        LEFT JOIN LATERAL (
+            SELECT np.id, np.kind, np.proposed_last_day, np.contract_id
+            FROM notice_mail_proposals np
+            WHERE np.case_id = c.id AND np.status = 'pending'
+            -- Najstarsza czekająca: najpierw wypowiedzenie, potem zmiana daty.
+            ORDER BY np.id
+            LIMIT 1
+        ) p ON TRUE
+        LEFT JOIN contracts pk ON pk.id = p.contract_id
+        LEFT JOIN candidates pca ON pca.id = pk.candidate_id
+        LEFT JOIN clients pcl ON pcl.id = pk.client_id
         WHERE c.status NOT IN ('done', 'closed')
         """,
     )
-    return [
-        CardSpec(
-            source_kind="case",
-            source_key=f"case:{row['id']}",
-            team=AREA_LANE[row["area"]][0],
-            lane=AREA_LANE[row["area"]][1],
-            title=row["title"],
-            person=row["person"],
-            client_label=row["client"],
-            due_on=row["due_on"],
-            href=f"/people/cases/{row['id']}",
-            case_id=row["id"],
-            contract_id=row["contract_id"],
-            client_id=row["client_id"],
-            subject_user_id=row["subject_user_id"],
-            mirror_state=row["status"],
-            mirror_assignee=row["assignee_user_id"],
-            mirrors_case=True,
-            meta={
-                "area": row["area"],
-                "case_source": row["source"],
-                "since": row["created_at"].isoformat(),
-            },
-        )
-        for row in rows
-    ]
+    return [_case_card(row) for row in rows]
+
+
+def _case_card(row: Any) -> CardSpec:
+    """Karta sprawy; sprawa z propozycją z maila staje pod „Zakończenie”.
+
+    Propozycja (``notice_mail_proposals``) nie jest osobną kartą: to ta sama
+    sprawa z maila, tylko z etykietą „Zakończenie” i rodzajem w ``meta``
+    (wypowiedzenie, klient kończy, zmiana daty, wycofanie). Termin karty to
+    proponowany ostatni dzień, gdy jest bliższy niż termin sprawy.
+    """
+
+    team, lane = AREA_LANE[row["area"]]
+    due_on = row["due_on"]
+    meta: dict[str, Any] = {
+        "area": row["area"],
+        "case_source": row["source"],
+        "since": row["created_at"].isoformat(),
+        # Zawsze w ``meta``: synchronizacja scala stare ``meta`` z nowym, więc
+        # bez jawnego ``None`` rozstrzygnięta propozycja wisiałaby na karcie.
+        "notice_id": None,
+        "notice_kind": None,
+        "notice_last_day": None,
+    }
+    if row["notice_id"] is not None:
+        team, lane = NOTICE_LANE
+        meta["notice_id"] = row["notice_id"]
+        meta["notice_kind"] = row["notice_kind"]
+        last_day = row["notice_last_day"]
+        if last_day is not None:
+            meta["notice_last_day"] = last_day.isoformat()
+            if due_on is None or last_day < due_on:
+                due_on = last_day
+    return CardSpec(
+        source_kind="case",
+        source_key=f"case:{row['id']}",
+        team=team,
+        lane=lane,
+        title=row["title"],
+        person=row["person"],
+        client_label=row["client"],
+        due_on=due_on,
+        href=f"/people/cases/{row['id']}",
+        case_id=row["id"],
+        contract_id=row["contract_id"] or row["notice_contract_id"],
+        client_id=row["client_id"],
+        subject_user_id=row["subject_user_id"],
+        mirror_state=row["status"],
+        mirror_assignee=row["assignee_user_id"],
+        mirrors_case=True,
+        meta=meta,
+    )
 
 
 async def contact_cards(db: AsyncSession, today: date) -> list[CardSpec]:

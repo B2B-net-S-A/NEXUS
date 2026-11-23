@@ -27,6 +27,7 @@ from app.services.back_office.service import (
     in_progress_count,
     reads_case,
 )
+from app.services.admin_cases import notice_rules
 from app.services.back_office_schema import TEAM_LANES, TEAMS, TRIAGE_LANE
 
 TEAM_LABELS = {
@@ -122,6 +123,20 @@ def _case_hidden(card: BoCard, *, viewer: Viewer, user: User) -> bool:
         and card.assignee_user_id != user.id
         and not reads_case(card, viewer=viewer, user=user)
     )
+
+
+def _notice(meta: dict[str, Any], *, hidden: bool) -> Optional[dict[str, Any]]:
+    """Propozycja z maila na karcie sprawy (wypowiedzenie, klient kończy…)."""
+
+    if hidden or not meta.get("notice_id"):
+        return None
+    kind = meta.get("notice_kind")
+    return {
+        "id": meta["notice_id"],
+        "kind": kind,
+        "label": notice_rules.KIND_LABELS.get(kind, "Zakończenie"),
+        "last_day": meta.get("notice_last_day"),
+    }
 
 
 def visible_title(card: BoCard, *, viewer: Viewer, user: User) -> str:
@@ -238,6 +253,7 @@ def card_payload(
             for k in ("timesheet_id", "year", "month", "item_key", "gap_id")
             if k in meta
         },
+        "notice": _notice(meta, hidden=hidden),
     }
 
 

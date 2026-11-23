@@ -273,6 +273,7 @@ from app.api import care_announcements as care_announcements_api
 from app.api import public_consultant_mail as public_consultant_mail_api
 from app.api import admin_cases as admin_cases_api
 from app.api import back_office as back_office_api
+from app.api import notice_mail as notice_mail_api
 from app.api import consultant_panel as consultant_panel_api
 from app.api import consultant_portal as consultant_portal_api
 from app.api import consultant_portal_staff as consultant_portal_staff_api
@@ -2491,6 +2492,13 @@ app.include_router(
 )
 app.include_router(
     back_office_api.router,
+    prefix="/api/back-office",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+# 0755: wypowiedzenia z poczty na karcie (ta sama bramka co kolejka back office).
+app.include_router(
+    notice_mail_api.router,
     prefix="/api/back-office",
     tags=["hr"],
     dependencies=_HR_PROGRAM,

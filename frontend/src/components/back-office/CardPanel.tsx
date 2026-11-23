@@ -37,6 +37,7 @@ import { cn } from "@/lib/utils";
 import { COLUMN_LABELS, amountLabel, columnOf, formatDay } from "./board-model";
 import { CardDocuments } from "./CardDocuments";
 import { CardSettlementExtras } from "./CardSettlementExtras";
+import { NoticeProposalPanel } from "./NoticeProposalPanel";
 import { ACTION_LABELS, DueChip, LabelChip, labelText } from "./CardTile";
 import { OutsideDialog } from "./OutsideDialog";
 import { ReasonDialog } from "./ReasonDialog";
@@ -196,6 +197,9 @@ export function CardPanel({ cardId, board, commands, onClose, onOpenCard }: Card
                 ) : null}
                 {amount ? <Badge variant="neutral">Razem {amount}</Badge> : null}
               </div>
+              {card.notice ? (
+                <NoticeProposalPanel key={card.notice.id} noticeId={card.notice.id} cardId={card.id} canAct={own || mine} />
+              ) : null}
               {card.source_kind === "document" ? <CardDocuments cardId={card.id} /> : null}
               {card.source_kind === "case" ? (
                 <CardSettlementExtras cardId={card.id} today={board.today} canAdd={own || mine} />
