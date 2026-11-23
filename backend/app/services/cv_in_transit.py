@@ -38,6 +38,7 @@ from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.models.user_dashboard import UserDashboard
 from app.services import (
+    client_form_status,
     cpro_sender,
     dl_send_queue,
     screening_fix_requests,
@@ -293,6 +294,7 @@ def review_state(
     status: Optional[dict],
     imported: bool,
     today: date,
+    client_form: bool = False,
 ) -> ReviewState:
     """Stan QC i gotowość wiersza „w przeglądzie” — reguła kolejki Delivery
     Leada (`dl_send_queue.readiness_of`), żeby obie strony liczyły to samo.
@@ -311,6 +313,7 @@ def review_state(
         ok_at=status.get("ok_at"),
         today=today,
         manual_items=status.get("manual_items") or (),
+        client_form=client_form,
     )
     return ReviewState(
         qc_status=qc_status,
@@ -337,6 +340,9 @@ async def _review_states(
     """``{stage_id: stan}`` — jedno zapytanie o QC wszystkich par."""
 
     statuses = await qc_statuses(db, ((r.candidate_id, r.job_id) for r in rows))
+    form_clients = await client_form_status.client_form_client_ids(
+        db, (r.client_id for r in rows)
+    )
     today = dl_send_queue.local_date(now)
     return {
         r.id: review_state(
@@ -344,6 +350,7 @@ async def _review_states(
             status=statuses.get((r.candidate_id, r.job_id)),
             imported=r.external_source == dl_send_queue.TRAFFIT_SOURCE,
             today=today,
+            client_form=r.client_id in form_clients,
         )
         for r in rows
     }

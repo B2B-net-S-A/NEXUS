@@ -13,6 +13,7 @@ import {
   hoursLeft,
   isReadyForDlSend,
   knownForwardGap,
+  qcBlocksDlReview,
   minimumOnlyGap,
   qcChip,
   type CardBadgeContext,
@@ -461,6 +462,21 @@ describe("„Do wysłania do klienta” — Delivery Lead tej rekrutacji (13.10.
     expect(isReadyForDlSend(ready, "cv_qc", true)).toBe(false);
     expect(isReadyForDlSend(ready, "verified", false)).toBe(false);
     expect(isReadyForDlSend(ready, null, false)).toBe(false);
+  });
+
+  it("klient z formularzem CV (23.11.2026): gotowa od wejścia do „QC CV”, bez względu na QC CV firmowego", () => {
+    const form = { template: true, missing: 0 };
+    const failed = item({ qc: { status: "failed", blocking_failed: 1 }, client_form: form });
+    expect(isReadyForDlSend(failed, "cv_qc", false)).toBe(true);
+    expect(isReadyForDlSend(item({ client_form: { template: false, missing: null } }), "cv_qc", false)).toBe(true);
+    // Braki formularza to przypomnienie, nie blokada (D3).
+    expect(isReadyForDlSend(item({ client_form: { template: true, missing: 12 } }), "cv_qc", false)).toBe(true);
+    expect(isReadyForDlSend(failed, "verified", false)).toBe(false);
+    expect(isReadyForDlSend(failed, "cv_qc", true)).toBe(false);
+    // Przegląd DL na Tablicy: QC do poprawy zamyka go tylko przy CV firmowym.
+    expect(qcBlocksDlReview(failed)).toBe(false);
+    expect(qcBlocksDlReview(item({ qc: { status: "failed", blocking_failed: 1 } }))).toBe(true);
+    expect(qcBlocksDlReview(item({ qc: { status: "passed", blocking_failed: 0 } }))).toBe(false);
   });
 
   it("właściciel przeglądu ma „Twój ruch” i „Czeka na Ciebie”; pozostali dalej „DL” i „Czeka na DL”", () => {

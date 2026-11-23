@@ -158,6 +158,10 @@ class BoardTask:
     qc_gaps: list[str] = field(default_factory=list)
     # QC-11 (08.11.2026): gotowy stan do pokazania (`services/qc_state.py`).
     qc_state: Optional[dict] = None
+    # Klient bierze formularz CV zamiast CV firmowego (23.11.2026):
+    # ``{template, missing}`` jak ``client_form`` karty Tablicy; ``None`` =
+    # CV firmowe. Gotowość takiej pary nie zależy od QC (`dl_send_queue`).
+    client_form: Optional[dict] = None
     # 0380: ``job_title`` = nazwa od klienta (tekst kopiowany do Cpro);
     # ekrany wewnętrzne pokazują tytuł dla rekrutera, gdy jest.
     job_working_title: Optional[str] = None
@@ -215,6 +219,7 @@ class BoardTask:
             "qc_manual": list(self.qc_manual),
             "qc_gaps": list(self.qc_gaps),
             "qc_state": self.qc_state,
+            "client_form": self.client_form,
             "card_status": self.card_status,
             "card_missing": self.card_missing,
             "ready": self.ready,

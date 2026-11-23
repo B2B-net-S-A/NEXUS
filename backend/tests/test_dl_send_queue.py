@@ -16,12 +16,14 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, update
 
 from app.core.database import AsyncSessionLocal
+from app.models.client import Client
 from app.models.cv_qc_run import CvQcRun
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.services import board_tasks as svc
+from app.services.client_form_schema import CLIENT_FORM
 from app.services import dl_send_queue as queue
 from tests.test_board_tasks import _cleanup, _login, _seed_user, _seed_world
 
@@ -86,6 +88,13 @@ def test_board_waiting_workdays_client_clock_only_in_client_columns():
     assert _board_days(column="verified", client_since=responded) == 4
 
 
+def test_board_waiting_workdays_client_form_counts_from_the_move():
+    """Klient z formularzem CV (23.11.2026): QC CV firmowego nie ma, więc
+    karta w „QC CV” liczy od wejścia, nie od zaliczenia QC."""
+    assert _board_days(client_form=True) == 4
+    assert _board_days(qc_status="failed", ok_at=None, client_form=True) == 4
+
+
 @pytest.mark.parametrize("column", ["hired", "closed"])
 def test_board_waiting_workdays_none_after_the_process_ends(column):
     """Zatrudniony ani odrzucony na nic nie czeka: bez napisu „czeka N dni”."""
@@ -103,6 +112,15 @@ async def api_client():
         base_url="http://testserver",
     ) as c:
         yield c
+
+
+# Wzoru w Plikach nie ma, formularz niewypełniony (kształt `client_form` Tablicy).
+_NO_FORM = {
+    "template": False,
+    "missing": None,
+    "score_template": False,
+    "score_missing": None,
+}
 
 
 def _task(**kw) -> svc.BoardTask:
@@ -168,6 +186,50 @@ def test_card_with_open_qc_is_not_the_delivery_leads_move(status: str) -> None:
     assert task.urgency is None
     assert task.waiting_workdays == 0
     assert queue.counts_for_reviewer(task) is False
+
+
+@pytest.mark.parametrize(
+    ("status", "manual"),
+    [("failed", ()), ("unchecked", ()), (None, ()), ("passed", ("Stanowiska",))],
+)
+def test_client_form_pair_is_ready_from_entering_qc_whatever_the_qc(
+    status: str | None, manual: tuple[str, ...]
+) -> None:
+    """Decyzja Artura 23.11.2026 (staging, CEZ 789232): u klienta z formularzem
+    CV serwer nie liczy QC CV firmowego, więc karta w „QC CV” jest gotowa od
+    wejścia do kolumny, a braki formularza to przypomnienie (D3)."""
+    since = datetime(2026, 3, 2, 10, 0, tzinfo=UTC)
+    state = queue.readiness_of(
+        since=since,
+        qc_status=status,
+        ok_at=datetime(2026, 3, 4, 9, 0, tzinfo=UTC) if status == "passed" else None,
+        today=date(2026, 3, 4),
+        manual_items=manual,
+        client_form=True,
+    )
+    assert state.ready is True
+    assert state.ready_since == since
+    assert state.waiting_workdays == 2
+    # Ta sama para u klienta z CV firmowym czeka na rekrutera.
+    assert (
+        queue.readiness_of(
+            since=since,
+            qc_status=status,
+            ok_at=None,
+            today=date(2026, 3, 4),
+            manual_items=manual,
+        ).ready
+        is False
+    )
+
+
+def test_apply_readiness_uses_the_client_form_of_the_row() -> None:
+    task = _task(qc_status="failed", client_form={"template": True, "missing": 0})
+    queue.apply_readiness(task, ok_at=None, today=date(2026, 3, 3))
+    assert task.ready is True
+    assert task.ready_since == task.since
+    assert queue.counts_for_reviewer(task) is True
+    assert task.as_dict()["client_form"] == {"template": True, "missing": 0}
 
 
 def test_waiting_starts_when_qc_passed_not_when_the_card_entered_the_column() -> None:
@@ -487,6 +549,64 @@ async def test_viewer_scope_is_the_job_lead_then_the_client_portfolio(
             )
             await db.commit()
         await _cleanup(world, [portfolio_id, job_lead_id, gone_id, recruiter_id])
+
+
+@pytest.mark.asyncio
+async def test_client_form_pair_with_failed_qc_is_in_the_queue(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Klient z formularzem CV: QC CV firmowego do poprawy nie zatrzymuje pary
+    u rekrutera — wiersz jest gotowy od wejścia i niesie stan formularza."""
+
+    world = await _seed_world()
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    dl = await _login(api_client, dl_creds)
+    await _set_job_lead(world, dl_id)
+    entered = datetime(2026, 3, 2, 10, 0, tzinfo=UTC)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Client)
+            .where(Client.id == world["client_id"])
+            .values(cv_client_document=CLIENT_FORM)
+        )
+        await db.commit()
+    try:
+        await _put_in_qc(world, moved_by=None, moved_at=entered)
+        await _add_qc_run(
+            world, passed=False, created_at=datetime(2026, 3, 3, 9, 0, tzinfo=UTC)
+        )
+        (row,) = await _rows_for_pair(
+            world, now=datetime(2026, 3, 4, 12, 0, tzinfo=UTC)
+        )
+        assert row.qc_status == "failed"
+        assert row.ready is True
+        assert row.ready_since == entered
+        assert row.waiting_workdays == 2
+        # Wzoru w Plikach nie ma, formularz niewypełniony.
+        assert row.client_form == _NO_FORM
+
+        body = (await api_client.get("/api/board-tasks/dl-send", headers=dl)).json()
+        assert any(r["candidate_id"] == world["candidate_id"] for r in body["ready"])
+        board = (await api_client.get("/api/board-tasks", headers=dl)).json()
+        (api_row,) = [
+            r for r in board["dl_review"] if r["candidate_id"] == world["candidate_id"]
+        ]
+        assert api_row["ready"] is True
+        assert api_row["client_form"] == _NO_FORM
+
+        # Przegląd DL: stan formularza zamiast QC CV firmowego, bez ryzyka
+        # „CV nie przeszło QC”.
+        context = await api_client.get(
+            "/api/dl-review/context",
+            params={"candidate_id": world["candidate_id"], "job_id": world["job_id"]},
+            headers=dl,
+        )
+        assert context.status_code == 200, context.text
+        assert context.json()["client_form"] == _NO_FORM
+        assert "qc_failed" not in {r["code"] for r in context.json()["risks"]}
+    finally:
+        await _cleanup(world, [dl_id])
 
 
 @pytest.mark.asyncio

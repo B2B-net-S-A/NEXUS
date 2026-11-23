@@ -103,6 +103,17 @@ Reguły, które łatwo cofnąć:
 - **Serwer nie liczy QC CV firmowego takiej pary** (`pipeline._assert_cv_qc_gate`
   → `client_form_status.client_takes_client_form`): nie ma czego sprawdzać,
   a decyzja D3 mówi „przypomnienie, nie blokada”.
+- **Kolejka Delivery Leada też nie czeka na QC CV firmowego** (decyzja Artura
+  23.11.2026, staging: CEZ 789232 z „QC: 1 do poprawy” i formularzem bez braków
+  nie trafiał do „Do wysłania do klienta”). Para w „QC CV” jest gotowa od
+  wejścia do kolumny (`dl_send_queue.readiness_of(client_form=True)`, front
+  `isReadyForDlSend`), dni na karcie i „Twoje CV w drodze” liczą od tej chwili,
+  a QC do poprawy nie zamyka przeglądu na Tablicy (`qcBlocksDlReview`). Braki
+  formularza to przypomnienie, nie warunek kolejki. Przegląd DL pokazuje karty
+  formularza i tabeli punktowej (`ClientFormCard readOnly compact`) zamiast
+  „Kontroli CV”, bez luk QC i bez ryzyka „CV nie przeszło QC”; plakietka
+  w kolejce (`QcStatusBadge` z `client_form`) mówi o formularzu. Wiersze
+  kolejki niosą `client_form = {template, missing}` jak karta Tablicy.
 - **Automat CV firmowego pomija klienta z formularzem** (`cv_auto_generate`,
   powód `client_form`, bez dzwonka) — działa tylko przy włączonym
   `CV_AUTO_GENERATE_WITHOUT_CONFIRMATION`.
