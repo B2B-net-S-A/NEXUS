@@ -300,7 +300,7 @@ async def test_silent_screening_card_returns_to_new_for_everyone() -> None:
             ).all()
             assert {"stage_changed", svc.ACTION_RETURNED} <= set(acts)
         (bell,) = await _bells(rec, world["job_id"])
-        assert "wróciła do „Nowych”" in bell.title
+        assert bell.title.startswith("1 osoba znów dla wszystkich")
         assert await _bells(other, world["job_id"]) == []
         # Drugi przebieg nic nie powtarza.
         again = await _sweep(world, THURSDAY_MORNING + timedelta(minutes=15))

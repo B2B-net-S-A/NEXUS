@@ -658,11 +658,27 @@ async def run_sweep(
     return result
 
 
+def people(count: int) -> str:
+    """„1 osoba”, „3 osoby”, „5 osób”, „22 osoby” — odmiana po polsku."""
+    if count == 1:
+        return "1 osoba"
+    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        return f"{count} osoby"
+    return f"{count} osób"
+
+
+def bell_title(count: int, job_title: str) -> str:
+    return f"{people(count)} znów dla wszystkich · {job_title}"
+
+
 def bell_text(count: int, names: Sequence[str]) -> str:
     shown = ", ".join(names[:3])
     more = count - min(len(names), 3)
     tail = f" i {more} więcej" if more > 0 else ""
-    return f"{shown}{tail} — 2 dni robocze bez śladu, teraz może je wziąć każdy."
+    return (
+        f"{shown}{tail}: 2 dni robocze bez śladu. Ze „Screeningu” wracają do "
+        "„Nowych”, a „Biorę” wygasa. Dzwonisz? Weź ponownie."
+    )
 
 
 async def send_bells(db: AsyncSession, result: SweepResult) -> int:
@@ -687,11 +703,7 @@ async def send_bells(db: AsyncSession, result: SweepResult) -> int:
             ).all()
             names = [f"{n or ''} {ln or ''}".strip() or "Kandydat" for n, ln in people]
             count = len(candidate_ids)
-            title = (
-                f"{count} os. wróciło do „Nowych” · {job.title}"
-                if count > 1
-                else f"Osoba wróciła do „Nowych” · {job.title}"
-            )
+            title = bell_title(count, job.title)
             notification = await emit(
                 db,
                 user_id=user_id,

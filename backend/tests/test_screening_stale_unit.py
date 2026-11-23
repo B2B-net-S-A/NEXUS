@@ -120,6 +120,19 @@ def test_decision_clock_restarts_when_the_card_comes_back() -> None:
 
 
 def test_bell_text_names_three_people_and_counts_the_rest() -> None:
-    assert svc.bell_text(1, ["Anna Nowak"]).startswith("Anna Nowak — 2 dni robocze")
+    assert svc.bell_text(1, ["Anna Nowak"]).startswith("Anna Nowak: 2 dni robocze")
     text = svc.bell_text(5, ["A", "B", "C", "D", "E"])
     assert text.startswith("A, B, C i 2 więcej")
+
+
+def test_people_in_polish() -> None:
+    assert [svc.people(n) for n in (1, 2, 4, 5, 12, 22, 25)] == [
+        "1 osoba",
+        "2 osoby",
+        "4 osoby",
+        "5 osób",
+        "12 osób",
+        "22 osoby",
+        "25 osób",
+    ]
+    assert svc.bell_title(3, "Java") == "3 osoby znów dla wszystkich · Java"
