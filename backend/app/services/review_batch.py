@@ -75,6 +75,8 @@ DEFAULT_MINIMUM = 10
 MAX_AGE_DAYS = 7
 # Blokada od godziny porcji (silnik „Nowych” rusza o 7:00), nie od północy.
 BLOCK_START_HOUR = 7
+# Po tylu dniach roboczych bez decyzji karta schodzi na koniec porcji (R5).
+STALE_BUSINESS_DAYS = 2
 MAX_MINIMUM = 300
 SETTING_KEY = "review_batch"
 OWNER_KEY = "review_owner_id"
@@ -201,8 +203,8 @@ class PendingCard:
     # Surowa blokada procesu (``claimed_by_user_id`` / ``claimed_until``).
     claimed_by: Optional[int] = None
     claimed_until: Optional[datetime] = None
-    # Wysłana wcześniej do klienta (``entry_meta.sent_before``, 20.11.2026):
-    # w porcji od ``sent_before.MIN_SCORE`` zamiast progu porcji.
+    # Wysłana wcześniej do klienta (``entry_meta.sent_before``, 20.11.2026);
+    # od 22.11 w porcji od tego samego progu co inni (R3), punkty w kolejności.
     sent_before: bool = False
 
 
@@ -269,12 +271,11 @@ def in_batch(
     """Karta należy do porcji: od progu (``BatchSettings.min_score``) i nie
     starsza niż ``MAX_AGE_DAYS``. Starsze i słabsze karty zostają na Tablicy,
     ale nikogo nie blokują i nie zajmują miejsca w porcji. Osoba wysłana
-    wcześniej do klienta liczy się od ``sent_before.MIN_SCORE`` (20.11.2026)."""
-    from app.services import sent_before
+    wcześniej do klienta liczy się od tego samego progu (22.11.2026, R3: karty
+    „wysłany wcześniej” 60–64% zajęły 116 z 301 miejsc porcji 20.11 i dały
+    0 CV z 40 decyzji; od 65%: 4 CV z 9). W puli zostają od 50%."""
 
     threshold = MIN_SCORE if min_score is None else min_score
-    if card.sent_before:
-        threshold = min(threshold, sent_before.MIN_SCORE)
     if card.score < threshold:
         return False
     if card.opened_at is None:
@@ -285,10 +286,43 @@ def in_batch(
     return opened >= now - timedelta(days=MAX_AGE_DAYS)
 
 
+def is_stale(card: "PendingCard", now: datetime) -> bool:
+    """Karta czeka bez decyzji od ``STALE_BUSINESS_DAYS`` dni roboczych (R5,
+    22.11.2026). W 789224 29 kart z 18–19.11 zamykało porcję rekrutacji i silnik
+    nie dawał nikogo nowego. Taka karta zostaje w „Nowych” i w porcji osoby,
+    ale schodzi na koniec kolejki i nie zajmuje miejsca w planie ani dopełnianiu."""
+    if card.opened_at is None:
+        return False
+    opened = card.opened_at
+    if opened.tzinfo is None:
+        opened = opened.replace(tzinfo=timezone.utc)
+    zone = ZoneInfo(settings.BUSINESS_TZ)
+    day = opened.astimezone(zone).date()
+    today = now.astimezone(zone).date()
+    passed = 0
+    while day < today and passed < STALE_BUSINESS_DAYS:
+        day += timedelta(days=1)
+        if is_business_day(
+            datetime.combine(day, time(12), tzinfo=zone), settings.BUSINESS_TZ
+        ):
+            passed += 1
+    return passed >= STALE_BUSINESS_DAYS
+
+
 def batch_cards(
-    cards: Iterable["PendingCard"], now: datetime, min_score: Optional[float] = None
+    cards: Iterable["PendingCard"],
+    now: datetime,
+    min_score: Optional[float] = None,
+    *,
+    fresh_only: bool = False,
 ) -> list["PendingCard"]:
-    return [card for card in cards if in_batch(card, now, min_score)]
+    """Karty porcji. ``fresh_only`` = bez kart odłożonych (``is_stale``): tak
+    liczą plan, właściciele i dopełnianie; ekran i decyzje widzą wszystkie."""
+    return [
+        card
+        for card in cards
+        if in_batch(card, now, min_score) and not (fresh_only and is_stale(card, now))
+    ]
 
 
 def claimed_by_other(
@@ -541,7 +575,9 @@ async def settle_owners(
     kart rekrutacji jeszcze brakuje do planu."""
     team = (await recruiter_ids_for_jobs(db, [job_id])).get(job_id, [])
     min_score = (await read_settings(db)).min_score
-    cards = batch_cards(await pending_cards(db, job_ids=[job_id]), now, min_score)
+    cards = batch_cards(
+        await pending_cards(db, job_ids=[job_id]), now, min_score, fresh_only=True
+    )
     owner = {
         card.process_id: (card.owner_id if card.owner_id in team else None)
         for card in cards
@@ -1212,7 +1248,11 @@ async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchSta
         counts[card.job_id] = counts.get(card.job_id, 0) + 1
     team_jobs = await _team_jobs(db, user.id, counts, now=now)
     jobs = [job for job in team_jobs if job.pending > 0]
+    from app.services.review_batch_plan import rest_seats
+
     p0_cards = sum(job.pending for job in team_jobs if job.group == "p0")
+    urgent_cards = sum(job.pending for job in team_jobs if job.group in _URGENT_GROUPS)
+    has_other = any(job.group not in _URGENT_GROUPS for job in team_jobs)
     return BatchStatus(
         enabled=True,
         applies=True,
@@ -1234,6 +1274,11 @@ async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchSta
             "rest": len(cards) - p0_cards,
             "level_next": review_batch_levels.next_level(minimum, minimum),
             "level_cap": review_batch_levels.CAP,
+            # R2 (22.11.2026): pilne = P0 + P1, pozostałe = reszta rekrutacji.
+            "urgent": urgent_cards,
+            "other": len(cards) - urgent_cards,
+            "other_seats": rest_seats(minimum, has_other),
+            "stale": sum(1 for card in cards if is_stale(card, now)),
         },
     )
 
@@ -1283,6 +1328,9 @@ async def _team_jobs(
         )
         for j in ordered
     ]
+
+
+_URGENT_GROUPS = frozenset({"p0", "p1"})
 
 
 def _now() -> datetime:
@@ -1415,6 +1463,10 @@ async def review_queue(
         return (tiers[jid], until is None, until or now, -len(by_job[jid]), jid)
 
     queue = [card for jid in sorted(by_job, key=job_key) for card in by_job[jid]]
+    # Odłożone (bez decyzji od 2 dni roboczych) na koniec, w tej samej kolejności.
+    queue = [c for c in queue if not is_stale(c, now)] + [
+        c for c in queue if is_stale(c, now)
+    ]
     return queue if limit is None else queue[:limit]
 
 

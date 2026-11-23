@@ -1,0 +1,53 @@
+"""„Nowe CV”, strona 1 — najmocniejszy wynik z CV (wariant E2, 22.11.2026).
+
+``POST /api/candidates/stages/{stage_id}/cv/page1/results`` liczy od nowa listę
+zdań „najmocniejszy wynik” z bieżącej treści edytora CV etapu i oddaje
+zaktualizowane dodatki strony 1 (`page1_extras`: `results`, `result_index`,
+`results_source_sha` i reszta kluczy bez zmian). Logika:
+`services/cv_page1_results.py`.
+
+Bramki jak przy innych trasach CV etapu (`_load_csv_for_stage`: zespół
+rekrutacji, prawo do zapisu). Awaria modelu = 503 z polskim komunikatem,
+a strona 1 bierze dalej trzeci punkt „Dlaczego”. Osobny moduł, bo trasa ma
+limit żądań (płatny model), a `candidate_stage_cv.py` ma
+``from __future__ import annotations``. Bez tego importu tutaj — slowapi #579.
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.candidate_access import CandidateWriteAccess
+from app.api.candidate_stage_cv import _load_csv_for_stage
+from app.core.database import get_db
+from app.core.rate_limit import limiter, user_or_ip_key
+from app.services import cv_layout as layout_service
+from app.services import cv_page1_results as page1_results
+
+router = APIRouter()
+
+LIMIT = "20/minute"
+
+
+@router.post("/candidates/stages/{stage_id}/cv/page1/results")
+@limiter.limit(LIMIT, key_func=user_or_ip_key)
+async def refresh_stage_cv_page1_results(
+    stage_id: int,
+    request: Request,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Znajdź od nowa najmocniejsze wyniki z CV na stronę 1 „Nowego CV”."""
+    if not layout_service.enabled():
+        raise HTTPException(409, layout_service.MSG_DISABLED)
+    # Odczyt PRZED modelem: awaria kończy się rollbackiem, który wygasza
+    # obiekty sesji żądania, a odczyt wygasłego użytkownika to 500.
+    user_id = current_user.id
+    csv = await _load_csv_for_stage(db, stage_id, current_user)
+    if csv.branded_status == "none" or not (csv.branded_draft_html or "").strip():
+        raise HTTPException(409, layout_service.MSG_NO_CV)
+    outcome = await page1_results.refresh_stage_cv(
+        db, csv.id, user_id=user_id, force=True
+    )
+    if outcome.status == page1_results.FAILED:
+        raise HTTPException(503, page1_results.MSG_FAILED)
+    return dict(outcome.extras or {})

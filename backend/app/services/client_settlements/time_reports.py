@@ -535,7 +535,7 @@ async def upload(
     file_name: Optional[str],
     content: bytes,
     sheet: Optional[str],
-    actor: User,
+    actor: Optional[User],
 ) -> dict[str, Any]:
     """Wersja raportu z pliku. Kilka arkuszy raportu bez wyboru = lista arkuszy."""
 
@@ -605,7 +605,8 @@ async def upload(
         hours_submitted=sum(
             (r.hours for r in chosen.rows if r.status == engine.SUBMITTED), Decimal("0")
         ),
-        uploaded_by=actor.id,
+        # Raport z maila (``t4t_mail``) nie ma osoby, która go wgrała.
+        uploaded_by=actor.id if actor is not None else None,
     )
     db.add(report)
     await db.flush()

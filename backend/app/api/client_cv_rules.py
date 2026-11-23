@@ -91,6 +91,7 @@ from app.services.section_permissions import (
     SectionAccess,
     section_access_for_user,
 )
+from app.services import cv_layout as layout_service
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,8 @@ RULE_FIELDS: tuple[str, ...] = (
     "highlight_terms",
     "cv_text_align",
     "cv_title_with_reference",
+    # Domyślny układ CV klienta (22.11.2026): „new” = Nowe CV w PDF.
+    "cv_layout",
 )
 CLIENT_FLAG_FIELDS: tuple[str, ...] = (
     "cv_content_mode_cap",
@@ -197,6 +200,8 @@ class ClientCvRulePayload(BaseModel):
     highlight_terms: list[str] = Field(default_factory=list, max_length=50)
     cv_text_align: Literal["justify", "left"] = "justify"
     cv_title_with_reference: bool = False
+    # Pominięte pole = klasyczny, jak każde inne pole recepty (pełny zapis).
+    cv_layout: Literal["classic", "new"] = "classic"
 
     @model_validator(mode="after")
     def _explicit_highlights_for_publication(self) -> "ClientCvRulePayload":
@@ -376,6 +381,10 @@ class ClientCvRuleRead(BaseModel):
     highlight_terms: list[str] = Field(default_factory=list)
     cv_text_align: str = "justify"
     cv_title_with_reference: bool = False
+    # Układ CV (22.11.2026). `new_layout_enabled` = flaga `CV_NEW_LAYOUT_ENABLED`
+    # — wyłączona: ekran reguł nie pokazuje wiersza „Układ CV”.
+    cv_layout: Literal["classic", "new"] = "classic"
+    new_layout_enabled: bool = False
     edit_revision: int = 0
     draft_payload: Optional[dict[str, Any]] = None
     client_id: int
@@ -442,6 +451,15 @@ class UnassignedChampionTemplate(BaseModel):
 class CvRulesOverview(BaseModel):
     rules: list[ClientCvRuleListItem]
     unassigned_templates: list[UnassignedChampionTemplate]
+    # Flaga „Nowego CV” dla ekranu `/settings/cv-rules` (kolumna i wiersz edytora).
+    new_layout_enabled: bool = False
+
+
+class ClientCvLayoutPayload(BaseModel):
+    """Sam układ CV klienta — zapis przy zasadach centralnych."""
+
+    cv_layout: Literal["classic", "new"]
+    expected_revision: Optional[int] = None
 
 
 class RuleEventRead(BaseModel):
@@ -555,6 +573,7 @@ def _to_read(
             client_name=client_name,
             client_policy=None,
             edit_revision=int(getattr(client, "cv_rule_edit_revision", 0) or 0),
+            new_layout_enabled=layout_service.enabled(),
             **flags,
         )
     active = rule.confirmed_at is not None
@@ -591,6 +610,8 @@ def _to_read(
         highlight_terms=list(rule.highlight_terms or []),
         cv_text_align=rule.cv_text_align or "justify",
         cv_title_with_reference=bool(getattr(rule, "cv_title_with_reference", False)),
+        cv_layout=layout_service.normalized(getattr(rule, "cv_layout", None)),
+        new_layout_enabled=layout_service.enabled(),
         edit_revision=int(rule.edit_revision or 1),
         draft_payload=rule.draft_payload,
         seed_key=rule.seed_key,
@@ -702,6 +723,8 @@ def _rule_state(rule: Optional[ClientCvRule], client: Client) -> dict[str, Any]:
             value = value or "justify"
         if field == "cv_title_with_reference":
             value = bool(value)
+        if field == "cv_layout":
+            value = layout_service.normalized(value)
         state[field] = value
     for field in CLIENT_FLAG_FIELDS:
         state[field] = getattr(client, field, None)
@@ -759,6 +782,8 @@ def _apply_payload(rule: ClientCvRule, payload: ClientCvRulePayload) -> None:
     rule.highlight_terms = list(payload.highlight_terms) or None
     rule.cv_text_align = payload.cv_text_align
     rule.cv_title_with_reference = payload.cv_title_with_reference
+    # NULL = klasyczny (kolumna z 0752); zapisujemy tylko „new”.
+    rule.cv_layout = "new" if payload.cv_layout == "new" else None
     rule.filename_pattern = payload.filename_pattern
     rule.spaces_to_underscores = payload.spaces_to_underscores
     rule.cv_language = payload.cv_language
@@ -997,6 +1022,123 @@ async def upsert_client_cv_rule(
         client_id=client.id,
         client_name=_client_label(client),
         confirmed_by_name=current_user.name if payload.confirm else None,
+    )
+
+
+MSG_LAYOUT_WITH_RULE = (
+    "Układ CV zapisuje się razem z regułą — użyj „Zapisz i włącz regułę”."
+)
+MSG_LAYOUT_PROPOSAL = (
+    "Reguła tego klienta czeka na zatwierdzenie — układ ustawisz po jej zatwierdzeniu."
+)
+
+
+async def _publication_version(
+    db: AsyncSession, client_id: int, rule: ClientCvRule
+) -> int:
+    """Następny numer wersji, wolny w historii i w publikacjach (jak katalog)."""
+    last = max(
+        int(rule.version or 0),
+        int(
+            await db.scalar(
+                select(func.max(ClientCvRulePublication.version)).where(
+                    ClientCvRulePublication.client_id == client_id
+                )
+            )
+            or 0
+        ),
+        await _next_version(db, client_id) - 1,
+    )
+    return last + 1
+
+
+@router.put(
+    "/clients/{client_id}/cv-rule/layout",
+    response_model=ClientCvRuleRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
+async def set_client_cv_layout(
+    client_id: int,
+    payload: ClientCvLayoutPayload,
+    current_user: DeliverySectionUser,
+    db: AsyncSession = Depends(get_db),
+) -> ClientCvRuleRead:
+    """Układ CV klienta przy zasadach centralnych (22.11.2026).
+
+    Katalog zasad (`cv_policies.json`) nie prowadzi układu, a zasady centralne
+    blokują zapis reguły (403) — tak jak wzór „Karty przed CV”, układ ma
+    własny zapis z ``central_lock=False``: graf klienta i „Klienci: dodawanie
+    i edycja” dalej obowiązują. Zmiana obowiązuje od razu (jak publikacja
+    katalogu): nowa wersja reguły, publikacja i wpis historii z diffem.
+    Bez zasad centralnych układ jest polem recepty i idzie z „Zapisz i włącz
+    regułę” — tutaj 409.
+    """
+    from app.services.cv_generator_b2b import central_policies
+
+    if not layout_service.enabled():
+        raise HTTPException(status_code=409, detail=layout_service.MSG_DISABLED)
+    if not central_policies.enabled():
+        raise HTTPException(status_code=409, detail=MSG_LAYOUT_WITH_RULE)
+    client = await _writable_client_or_404(db, client_id)
+    await _require_client_rule_access(
+        db, current_user, client.id, write=True, central_lock=False
+    )
+    rule = await _lock_rule_edit(db, client, payload.expected_revision)
+    if rule is not None and rule.confirmed_at is None:
+        raise HTTPException(status_code=409, detail=MSG_LAYOUT_PROPOSAL)
+    previous = layout_service.normalized(rule.cv_layout if rule is not None else None)
+    if previous != payload.cv_layout:
+        now = datetime.now(timezone.utc)
+        if rule is None:
+            # Klient spoza katalogu: wiersz niesie sam układ, reszta recepty
+            # domyślna (resolver zasad centralnych i tak buduje ją z katalogu).
+            rule = ClientCvRule(
+                client_id=client.id,
+                edit_revision=int(getattr(client, "cv_rule_edit_revision", 0) or 0),
+                confirmed_at=now,
+                confirmed_by=current_user.id,
+            )
+            rule.version = await _next_version(db, client.id)
+            db.add(rule)
+        else:
+            rule.version = await _publication_version(db, client.id, rule)
+        rule.cv_layout = "new" if payload.cv_layout == "new" else None
+        rule.edit_revision = (
+            max(
+                int(rule.edit_revision or 0),
+                int(getattr(client, "cv_rule_edit_revision", 0) or 0),
+            )
+            + 1
+        )
+        client.cv_rule_edit_revision = rule.edit_revision
+        recipe = _rule_state(rule, client)
+        if rule.managed_policy:
+            recipe["managed_policy"] = rule.managed_policy
+        db.add(
+            ClientCvRulePublication(
+                client_id=client.id,
+                version=rule.version,
+                recipe=recipe,
+                published_at=now,
+                published_by=current_user.id,
+            )
+        )
+        await db.flush()
+        _record_event(
+            db,
+            client_id=client.id,
+            version=int(rule.version),
+            action="saved_and_confirmed",
+            changes={"cv_layout": {"from": previous, "to": payload.cv_layout}},
+            actor=current_user,
+        )
+        await db.commit()
+        await db.refresh(rule)
+    return _to_read(
+        rule,
+        client=client,
+        client_id=client.id,
+        client_name=_client_label(client),
     )
 
 
@@ -1514,4 +1656,8 @@ async def cv_rules_overview(
         if visible_client_ids is None
         else []
     )
-    return CvRulesOverview(rules=rules, unassigned_templates=unassigned)
+    return CvRulesOverview(
+        rules=rules,
+        unassigned_templates=unassigned,
+        new_layout_enabled=layout_service.enabled(),
+    )

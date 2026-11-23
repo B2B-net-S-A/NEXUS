@@ -4,6 +4,8 @@ CV dalej idzie do klienta jako plik. Pod tytułem dostaje ramkę: QR, klikalny
 link, krótki adres zwykłym tekstem (do przepisania z wydruku) i datę ważności.
 Działa na bajtach przy pobraniu, zapisany dokument zostaje bez zmian. Awaria
 to plik bez ramki i wpis w logu, bo klient ma dostać CV niezależnie od panelu.
+PDF „Nowego CV” (22.11.2026) dostaje te same dane na ostatniej stronie
+(`append_panel_page`).
 """
 
 from __future__ import annotations
@@ -146,3 +148,97 @@ def stamp_panel_link(
     except Exception:  # noqa: BLE001 — python-docx rzuca różnymi typami, plik ma wyjść
         logger.exception("client panel: stamping the DOCX failed")
         return docx_bytes
+
+
+# ── PDF „Nowego CV” (22.11.2026) ─────────────────────────────────────────────
+# Strona 1 nowego układu musi się zmieścić na jednej kartce A4, więc ramki
+# nie da się wstawić pod tytuł bez przeliczania układu. Te same dane (QR, link,
+# krótki adres, data ważności) idą na osobną, ostatnią stronę PDF.
+
+_PAGE_CSS = """
+@page { size: A4; margin: 24mm 22mm; }
+body { font-family: Montserrat, "DejaVu Sans", sans-serif; font-size: 9pt;
+       color: #595959; }
+table { border: 0.75pt solid #BFBFBF; border-collapse: collapse; width: 100%; }
+td { padding: 3mm; vertical-align: middle; }
+td.qr { width: 30mm; }
+td.qr img { width: 24mm; height: 24mm; }
+p { margin: 0 0 1mm; }
+p.lead { color: #262626; font-weight: 700; }
+a { color: #0563C1; }
+"""
+
+
+def _panel_page_html(
+    url: str, short_url: str, expires_at: Optional[datetime], language: str
+) -> str:
+    from html import escape
+
+    text = _TEXT.get(language, _TEXT["pl"])
+    qr = segno.make(url, error="m").svg_data_uri(scale=6, border=2)
+    valid = (
+        f"<p>{escape(text['valid'].format(date=business_date(expires_at).strftime('%d.%m.%Y')))}</p>"
+        if expires_at is not None
+        else ""
+    )
+    return (
+        f'<!doctype html><html lang="{escape(language)}"><head><meta charset="utf-8">'
+        f"<style>{_PAGE_CSS}</style></head><body><table><tr>"
+        f'<td class="qr"><img src="{qr}" alt=""></td><td>'
+        f'<p class="lead">{escape(text["lead"])}</p>'
+        f'<p><a href="{escape(url)}">{escape(url)}</a></p>'
+        f"<p>{escape(short_url)}</p>{valid}</td></tr></table></body></html>"
+    )
+
+
+def _panel_page_pdf(
+    url: str, short_url: str, expires_at: Optional[datetime], language: str
+) -> bytes:
+    """Jedna strona A4 z ramką panelu. Renderer nie pobiera nic z sieci."""
+    from weasyprint import HTML
+    from weasyprint.urls import URLFetcher
+
+    class _DataOnlyFetcher(URLFetcher):
+        def fetch(self, url: str, headers: Optional[dict] = None):
+            if url.startswith("data:"):
+                return super().fetch(url, headers)
+            raise ValueError("blocked external resource in panel page PDF")
+
+    pdf = HTML(
+        string=_panel_page_html(url, short_url, expires_at, language),
+        url_fetcher=_DataOnlyFetcher(),
+    ).write_pdf()
+    if not pdf:
+        raise RuntimeError("WeasyPrint returned no PDF bytes")
+    return pdf
+
+
+def _merged(pdf_bytes: bytes, extra: bytes) -> bytes:
+    import pypdfium2 as pdfium
+
+    document = pdfium.PdfDocument(pdf_bytes)
+    page = pdfium.PdfDocument(extra)
+    try:
+        document.import_pages(page)
+        out = io.BytesIO()
+        document.save(out)
+        return out.getvalue()
+    finally:
+        page.close()
+        document.close()
+
+
+def append_panel_page(
+    pdf_bytes: bytes,
+    url: str,
+    short_url: str,
+    expires_at: Optional[datetime],
+    *,
+    language: str = "pl",
+) -> bytes:
+    """PDF z ostatnią stroną panelu; przy jakiejkolwiek awarii oryginalne bajty."""
+    try:
+        return _merged(pdf_bytes, _panel_page_pdf(url, short_url, expires_at, language))
+    except Exception:  # noqa: BLE001 — strona panelu to dodatek, PDF ma wyjść
+        logger.exception("client panel: appending the panel page failed")
+        return pdf_bytes

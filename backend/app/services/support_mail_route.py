@@ -21,11 +21,13 @@ adresu rozliczeń w nagłówkach, które czytamy, więc też jest sprawą.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 from app.core.config import settings
 
-#: Pola Graph potrzebne routerowi; czytniki dopisują je do swojego ``$select``.
+#: Pola Graph potrzebne routerowi; czytniki dopisują je do swojego ``$select``
+#: (``from`` i ``subject`` dla raportów godzin oba czytniki pobierają już same).
 RECIPIENT_FIELDS = "toRecipients,ccRecipients"
 
 
@@ -67,9 +69,43 @@ def recipients(message: dict[str, Any]) -> frozenset[str]:
 
 
 def is_settlements_mail(message: dict[str, Any], addresses: frozenset[str]) -> bool:
-    """Wiadomość dla czytnika rozliczeń: załącznik i adres rozliczeń w „Do”/„DW”."""
+    """Wiadomość dla czytnika rozliczeń: załącznik i adres rozliczeń w „Do”/„DW”,
+    albo raport godzin klienta (``is_time_report_mail``) na dowolny adres skrzynki."""
 
-    return bool(message.get("hasAttachments")) and bool(recipients(message) & addresses)
+    if not message.get("hasAttachments"):
+        return False
+    return bool(recipients(message) & addresses) or is_time_report_mail(message)
+
+
+_TIME_REPORT_SUBJECT = re.compile(r"\bT4T\b|time\s*for\s*teams", re.IGNORECASE)
+
+
+def time_report_senders() -> frozenset[str]:
+    """Domeny albo adresy nadawców raportów godzin klienta
+    (``CONSULTANT_PORTAL_TIME_REPORT_SENDERS``, po przecinku)."""
+
+    raw = settings.CONSULTANT_PORTAL_TIME_REPORT_SENDERS or ""
+    return frozenset(_norm(part).lstrip("@") for part in raw.split(",") if _norm(part))
+
+
+def is_time_report_mail(message: dict[str, Any]) -> bool:
+    """Raport Time for Teams od klienta albo przekazany przez Finanse (Nordea, 23.11.2026).
+
+    Cost Control Nordei wysyła raport na skrzynkę koordynatorki i na wsparcie@ (bez adresu
+    rozliczeń), a gdy zapomni, Finanse przekazują go dalej z „T4T” w temacie. Bez tej
+    reguły router oddałby raport czytnikowi spraw. Czytnik rozliczeń bierze z takiego maila
+    tylko arkusz raportu (``client_settlements/t4t_mail.py``).
+    """
+
+    if not message.get("hasAttachments"):
+        return False
+    sender = _norm(
+        ((message.get("from") or {}).get("emailAddress") or {}).get("address")
+    )
+    senders = time_report_senders()
+    if sender and (sender in senders or sender.rpartition("@")[2] in senders):
+        return True
+    return bool(_TIME_REPORT_SUBJECT.search(str(message.get("subject") or "")))
 
 
 def misconfiguration(route: Optional[frozenset[str]]) -> Optional[str]:

@@ -318,4 +318,59 @@ describe("ReviewBatchScreen: kolejka rekrutacja po rekrutacji (17.11.2026)", () 
     render(<ReviewBatchScreen />);
     expect(screen.queryByTestId("review-queue-run")).toBeNull();
   });
+
+  it("karty bez decyzji od 2 dni roboczych: linia „Na końcu porcji” z dniami (R5)", () => {
+    given(
+      { pending: 3 },
+      {
+        data: {
+          items: [
+            item(1, 1, "DevOps Lead"),
+            { ...item(2, 2, "Analityk"), stale: true, opened_on: "2026-11-18" },
+            { ...item(3, 2, "Analityk"), stale: true, opened_on: "2026-11-19" },
+          ],
+          runs: [
+            { job_id: 1, count: 1 },
+            { job_id: 2, count: 2 },
+          ],
+        },
+      },
+    );
+    render(<ReviewBatchScreen />);
+    expect(screen.getByTestId("review-queue-stale").textContent).toMatch(
+      /Na końcu porcji: 2 karty z 18\.11–19\.11 bez decyzji od 2 dni roboczych/,
+    );
+  });
+
+  it("bez odłożonych kart: bez linii", () => {
+    given({ pending: 1 }, { data: { items: [item(1, 1, "DevOps Lead")], runs: [] } });
+    render(<ReviewBatchScreen />);
+    expect(screen.queryByTestId("review-queue-stale")).toBeNull();
+  });
+});
+
+describe("ReviewBatchScreen: 12 pilnych + 8 pozostałych (R2, 22.11.2026)", () => {
+  it("skład porcji: pilne, pozostałe i miejsca czekające na niepilne", () => {
+    given({
+      pending: 20,
+      required: 20,
+      sources: { p0: 4, rest: 16, level_next: 20, level_cap: 20, urgent: 12, other: 8, other_seats: 8, stale: 0 },
+    });
+    render(<ReviewBatchScreen />);
+    expect(screen.getByTestId("review-batch-sources").textContent).toMatch(
+      /12 z pilnych.*8 z pozostałych.*8 miejsc czeka na rekrutacje bez pilnego priorytetu/,
+    );
+  });
+
+  it("bez rekrutacji niepilnych: bez dopisku o miejscach", () => {
+    given({
+      pending: 20,
+      required: 20,
+      sources: { p0: 20, rest: 0, level_next: 20, level_cap: 20, urgent: 20, other: 0, other_seats: 0, stale: 0 },
+    });
+    render(<ReviewBatchScreen />);
+    const text = screen.getByTestId("review-batch-sources").textContent;
+    expect(text).toMatch(/20 z pilnych/);
+    expect(text).not.toMatch(/miejsc/);
+  });
 });

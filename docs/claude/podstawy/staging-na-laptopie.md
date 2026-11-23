@@ -105,8 +105,10 @@ bo stara kopia i inne flagi dawały złe liczby przy działającym stagingu.
 2. Zrzuca bazę do `~/.local/share/nexus-staging-nightly/<RRRRMMDD>/` i odtwarza ją
    z `sanitize.sql` do nowej `nexus_staging_nightly_<RRRRMMDD>`. Kontener produkcji
    ustala przy każdym biegu. Wdrożenie restartuje Postgresa produkcji i zrywa zrzut
-   (03.11.2026 w 9. minucie), więc skrypt czeka na nowy kontener i ponawia, najwyżej
-   4 razy. Zrzut jest przerywany o 02:15 UTC, przed backupem produkcji.
+   (03.11.2026 w 9. minucie), więc skrypt czeka na nowy kontener i ponawia aż do
+   terminu, najwyżej 12 razy. 20.11.2026 cztery wdrożenia w 35 min wyczerpały
+   dawny limit 4 prób przy 85 min zapasu. Zrzut jest przerywany o 02:15 UTC, przed
+   backupem produkcji.
 3. Buduje kod z `origin/main`, dosyła brakujące pliki CV (niżej), przełącza
    `STAGING_DATABASE_NAME`, odtwarza backend i front. Sprawdza `/api/health` na nowej
    bazie. Gdy jest niezdrowy, cofa plik env i flagi.
@@ -116,6 +118,11 @@ bo stara kopia i inne flagi dawały złe liczby przy działającym stagingu.
 5. Porządki: zostają 2 ostatnie dobre kopie nocne i ich zrzuty, bo zawierają dane
    osobowe. Usuwa wyłącznie nazwy z tego wzorca, nigdy kopii aktywnej, i bez
    `FORCE`, więc baza z połączeniem w `pg_stat_activity` zostaje.
+
+Laptop musi być nocą na zasilaczu. 21.11.2026 o 00:20 zasnął przy 1% baterii
+(`pmset -g log`: „Low Power Sleep”) i spał do 14:46 następnego dnia: `caffeinate -i`
+nie chroni przed uśpieniem przy rozładowanej baterii, bieg z 21.11 wisiał do
+przebudzenia, a noc 22.11 przepadła.
 
 Każdy błąd przed przełączeniem zostawia staging na poprzedniej kopii. Start poza
 oknem 22:00–01:00 UTC jest pomijany, bo rutyna po zamkniętej aplikacji rusza przy

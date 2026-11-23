@@ -21,6 +21,7 @@ daje czytelny stan w ``cp_mailbox_state``, a nie wyjątek.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import re
@@ -34,14 +35,14 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.scheduling import business_today
+from app.core.scheduling import business_date, business_today
 from app.models.client_settlement import ClientSettlement
 from app.models.consultant_portal import CpMailboxState
 from app.models.contract import Contract
 from app.models.user import User
 from app.services import support_mail_route
 from app.services.admin_cases.mailbox import m365_mailbox as cases_mailbox
-from app.services.client_settlements import kesu
+from app.services.client_settlements import kesu, t4t_mail
 from app.services.consultant_portal import (
     documents,
     forwarded,
@@ -199,6 +200,31 @@ def classify_kind(subject: str, file_name: str) -> str:
         if _REPORT.search(text):
             return "report"
     return "report" if _PROOF_EXTENSIONS.search(file_name.strip()) else "invoice"
+
+
+_PDF_MIME = "application/pdf"
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def kind_of_file(subject: str, file_name: str, content: bytes) -> str:
+    """Rodzaj z nazwy i tematu, a „faktura” sprawdzona treścią: PDF albo arkusz
+    rozpoznany jako RCP BNP to raport, choć temat mówi „faktura” albo plik nazywa
+    się „2026-09.pdf” (próba IX–X 2026: 9 RCP BNP zapisanych jako faktury, więc
+    rozliczenie nie powstało). Dwa PDF-y w jednym mailu („FV i rozliczenie
+    godzinowe”) dzieli dopiero treść."""
+
+    kind = classify_kind(subject, file_name)
+    if kind != "invoice":
+        return kind
+    if content[:5] == b"%PDF-":
+        mime = _PDF_MIME
+    elif content[:2] == b"PK" and file_name.lower().endswith((".xlsx", ".xlsm")):
+        mime = _XLSX_MIME
+    else:
+        return kind
+    from app.services.client_settlements import rcp_bnp
+
+    return "report" if rcp_bnp.parse(content, mime) is not None else kind
 
 
 def _named_kind(subject: str, file_name: str) -> bool:
@@ -362,19 +388,41 @@ async def _ingest_message(
         return reply, 0
     if not message.get("hasAttachments"):
         return 0, 0
+    received = _parse_time(message.get("receivedDateTime")) or now
+    files = list(await mailbox.attachments(str(message["id"])))
+    # Raport godzin klienta (T4T Nordei) wchodzi jako wersja raportu miesiąca, zanim
+    # nadawca i pilotaż zdecydują o dokumentach konsultantów (23.11.2026).
+    time_report = await t4t_mail.ingest(db, files, received_on=business_date(received))
+    if time_report.consumed:
+        files = [f for i, f in enumerate(files) if i not in time_report.consumed]
+        if not any(
+            f.get("@odata.type") == _FILE_ATTACHMENT and not f.get("isInline")
+            for f in files
+        ):
+            return time_report.versions, time_report.duplicates
     by_subject = await _kesu_contract(db, subject, sender, state=state, today=today)
     contract = by_subject or await identity.resolve_sender(
         db, sender, settings=state, today=today
     )
     if contract is None and not state.any_sender:
-        return 0, 1
-    files = list(await mailbox.attachments(str(message["id"])))
+        return time_report.versions, 1
     inner = None
     if contract is None or any(
         f.get("@odata.type") == forwarded.ITEM_ATTACHMENT for f in files
     ):
         inner = await _forwarded(mailbox, message)
-        files.extend(inner.files if inner else ())
+        inner_files = list(inner.files) if inner else []
+        if inner_files:
+            # Raport T4T przekazany jako załączony mail (Finanse „Przekaż jako załącznik”).
+            nested = await t4t_mail.ingest(
+                db, inner_files, received_on=business_date(received)
+            )
+            time_report.versions += nested.versions
+            time_report.duplicates += nested.duplicates
+            inner_files = [
+                f for i, f in enumerate(inner_files) if i not in nested.consumed
+            ]
+        files.extend(inner_files)
     # Osoba nie z nadawcy (pierwotny nadawca przekazanego maila, nazwisko w temacie
     # albo nazwie pliku) dostaje tylko pliki, które z nazwy są raportem albo fakturą.
     indirect = None
@@ -382,14 +430,16 @@ async def _ingest_message(
         indirect = await _forwarded_contract(
             db, inner.senders, state=state, today=today
         )
+    by_file_name = False
     if contract is None and indirect is None and identity.is_company_address(sender):
         # Nazwisko z tematu tylko od adresu firmy (koordynator, skrzynka firmowa):
         # temat może napisać każdy, więc obcy adres nie wskazuje nim osoby.
         names = " ".join([subject, *(str(f.get("name") or "") for f in files)])
         indirect = await identity.resolve_named_in_text(db, names, today=today)
+        # Kilka osób w mailu: każdy plik osobno, po nazwisku z jego nazwy.
+        by_file_name = indirect is None
     indirect_created = 0
     contract_id = contract.id if contract else None
-    received = _parse_time(message.get("receivedDateTime")) or now
     created = skipped = 0
     if kesu.parse_jira(subject, "") is not None:
         made = await _store_jira_mail(
@@ -428,11 +478,20 @@ async def _ingest_message(
             # Wypowiedzenie, zaświadczenie czy oferta przekazane z łańcuchem konsultanta
             # nie mogą wejść do rozliczenia jako faktura kontraktora (próba IX–XI 2026).
             owner = indirect.id
+        elif owner is None and by_file_name and _named_kind("", name):
+            # Koordynator wysyła protokoły kilku osób jednym mailem („PROTOKÓŁ_ Imię
+            # Nazwisko_WRZESIEŃ 2026.pdf”): plik idzie do jedynej osoby z jego nazwy,
+            # a rodzaj też musi wynikać z nazwy pliku, nie z tematu (próba IX–X 2026:
+            # 3 osobo-miesiące Orlenu bez rozliczenia).
+            named = await identity.resolve_named_in_text(db, name, today=today)
+            owner = named.id if named is not None else None
+        # Odczyt PDF-a to praca CPU: poza pętlą zdarzeń, jak odczyt RCP w rozliczeniu.
+        kind = await asyncio.to_thread(kind_of_file, subject, name, content)
         try:
             stored = await documents.store(
                 db,
                 contract_id=owner,
-                kind=classify_kind(subject, name),
+                kind=kind,
                 year=year,
                 month=month,
                 content=content,
@@ -462,7 +521,7 @@ async def _ingest_message(
             received=received,
             now=now,
         )
-    return created, skipped
+    return created + time_report.versions, skipped
 
 
 async def _forwarded(

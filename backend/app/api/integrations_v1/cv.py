@@ -19,7 +19,8 @@ jak „Generuj CV” w karcie „CV do klienta”:
 * ``GET …/cv/file?format=docx|pdf`` — ``cv:generate`` I ``candidates:cv``
   (plik to dane osobowe). Ten sam plik i ta sama nazwa co „Pobierz” w panelu
   osoby: zatwierdzone CV — Word zatwierdzonej wersji, szkic — Word z bieżącej
-  treści edytora (``SZKIC_…``); PDF z tego samego pliku Word. Ta sama bramka
+  treści edytora (``SZKIC_…``); PDF z tego samego pliku Word, a przy układzie
+  „Nowe CV” — PDF tego układu (``cv_layout`` w stanie CV). Ta sama bramka
   zgody RODO (409 ``consent_required``) i ten sam wpis ``cv_file_downloaded``
   co ekran, do tego ślad ``cv_downloaded`` w dzienniku kandydata; osoby nie
   ma, ``details.via`` niesie stempel konta serwisowego.
@@ -87,6 +88,8 @@ from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.service_account import ServiceScope
 from app.services import candidate_audit, cv_consent_gate, integration_cv
+from app.services import cv_layout as layout_service
+from app.services import cv_new_pdf as new_cv_pdf
 from app.services.candidate_claim import stage_column
 from app.services.cv_approved_docx import without_empty_underline
 from app.services.cv_document_versions import stage_versions
@@ -182,6 +185,11 @@ class CvStatusOut(BaseModel):
     versions: list[CvVersionOut]
     generations: list[CvGenerationOut]
     qc: CvQcOut
+    cv_layout: Literal["classic", "new"] = Field(
+        "classic",
+        description="Układ pliku do klienta: classic = Word, new = Nowe CV "
+        "(tylko PDF — pobierz ``…/cv/file?format=pdf``). Word jest zawsze klasyczny.",
+    )
 
 
 # ── Wspólne ─────────────────────────────────────────────────────────────────
@@ -378,6 +386,11 @@ async def client_cv_status(
         finalized_at=csv.branded_finalized_at if cv_state == "finalized" else None,
         consent_required=consent_required,
         consent_missing=consent_missing,
+        cv_layout=(
+            layout_service.effective(getattr(csv, "cv_layout", None))
+            if has_cv
+            else "classic"
+        ),
         versions=[
             CvVersionOut(
                 version=item["version"],
@@ -424,13 +437,23 @@ async def download_client_cv(
     caller: CvFile,
     db: AsyncSession = Depends(get_db),
     file_format: Literal["docx", "pdf"] = Query(
-        "docx", alias="format", description="docx (domyślnie) albo pdf."
+        "docx",
+        alias="format",
+        description="docx (domyślnie) albo pdf. docx to zawsze klasyczny plik "
+        "Word; pdf — w układzie CV (``cv_layout`` w stanie CV: „new” = PDF "
+        "Nowego CV, który idzie do klienta).",
     ),
 ) -> Response:
     """Plik CV dla klienta — ten sam co „Pobierz” w panelu osoby: zatwierdzone
     CV albo szkic z bieżącej treści (nazwa ``SZKIC_…``, nagłówek
     ``X-CV-State``). Para bez CV — 404 ``cv_not_ready``; brak zrzutu zgody
-    RODO — 409 ``consent_required``; PDF chwilowo niedostępny — 503."""
+    RODO — 409 ``consent_required``; PDF chwilowo niedostępny — 503.
+
+    Układ (22.11.2026): ``pdf`` przy „Nowym CV” to PDF tego układu z treści
+    wersji (szkicu), przy klasycznym — PDF z pliku Word. ``docx`` zostaje
+    domyślne i zawsze klasyczne (Word nie ma nowego układu) — zmiana
+    domyślnego formatu zmieniłaby znaczenie wywołania bez parametru, czyli
+    v2. Nagłówek ``X-CV-Layout`` mówi, w jakim układzie jest oddany plik."""
     await _job_or_404(db, job_id)
     stage = await _pair_stage_or_404(db, job_id=job_id, candidate_id=candidate_id)
     csv = await integration_cv.pair_stage_cv(
@@ -445,35 +468,55 @@ async def download_client_cv(
                 "rekrutacji — sprawdź stan generacji.",
             },
         )
+    version = None
     if csv.branded_status == "finalized":
         state = "approved"
         version = await stage_cv_api.approved_version_for_download(
             db, csv, csv.branded_version
         )
         version_number = version.version
-        # Ten sam plik co „Pobierz” na ekranie (`download_approved_docx`).
-        docx = without_empty_underline(version.docx_content)
-        docx_headers = stage_cv_api.approved_docx_headers(version)
-        if docx is not version.docx_content:
-            docx_headers.pop("ETag", None)
         pdf_name = _pdf_name(version.docx_filename, "CV")
+        new_layout = layout_service.is_new(getattr(version, "cv_layout", None))
     else:
         state = "draft"
         version_number = csv.branded_version
-        docx = await stage_cv_api.draft_docx_for_download(
-            db, csv, csv.branded_draft_html or ""
-        )
-        docx_headers = {
-            "Content-Disposition": content_disposition_attachment(
-                stage_cv_api.draft_docx_filename(csv)
-            ),
-            "Cache-Control": "private, no-store",
-        }
         pdf_name = "SZKIC_" + _pdf_name(
             csv.branded_docx_filename, f"CV_v{csv.branded_version}"
         )
+        new_layout = layout_service.is_new(getattr(csv, "cv_layout", None))
+    layout = "new" if new_layout and file_format == "pdf" else "classic"
     csv_id = csv.id
-    content = await _pdf(db, docx) if file_format == "pdf" else docx
+    docx_headers: dict[str, str] = {}
+    if layout == "new":
+        if version is None:
+            await stage_cv_api.ensure_draft_downloadable(db, csv)
+        try:
+            rendered = await (
+                new_cv_pdf.approved_version_pdf(db, version)
+                if version is not None
+                else new_cv_pdf.stage_draft_pdf(db, csv)
+            )
+        except new_cv_pdf.NewCvPdfError as error:
+            raise HTTPException(503, detail=str(error)) from error
+        content = rendered.pdf
+    else:
+        if version is not None:
+            # Ten sam plik co „Pobierz” na ekranie (`download_approved_docx`).
+            docx = without_empty_underline(version.docx_content)
+            docx_headers = stage_cv_api.approved_docx_headers(version)
+            if docx is not version.docx_content:
+                docx_headers.pop("ETag", None)
+        else:
+            docx = await stage_cv_api.draft_docx_for_download(
+                db, csv, csv.branded_draft_html or ""
+            )
+            docx_headers = {
+                "Content-Disposition": content_disposition_attachment(
+                    stage_cv_api.draft_docx_filename(csv)
+                ),
+                "Cache-Control": "private, no-store",
+            }
+        content = await _pdf(db, docx) if file_format == "pdf" else docx
     # Ślad dopiero przy oddanym pliku (odmowa zgody nie jest pobraniem). Osoby
     # nie ma — ``details.via`` dopisuje nasłuch sesji klucza.
     await log_cv_download(
@@ -495,7 +538,11 @@ async def download_client_cv(
         details={"endpoint": AUDIT_ENDPOINT, "format": file_format, "state": state},
     )
     await db.commit()
-    extra = {"X-CV-State": state, "X-CV-Version": str(version_number)}
+    extra = {
+        "X-CV-State": state,
+        "X-CV-Version": str(version_number),
+        "X-CV-Layout": layout,
+    }
     if file_format == "pdf":
         return _response(content, pdf_name, extra)
     return Response(

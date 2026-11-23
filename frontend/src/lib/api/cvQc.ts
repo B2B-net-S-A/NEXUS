@@ -177,6 +177,8 @@ export interface QcCv {
   filename: string | null;
   /** Szkic etapu wczytany z pliku Word bez AI (brak w wynikach sprzed 29.10.2026). */
   from_word_file?: boolean;
+  /** Układ pliku do klienta (22.11.2026); brak/`null` = flaga wyłączona albo CV spoza etapu. */
+  cv_layout?: "classic" | "new" | null;
   /** `false` = pogrubień nie da się odczytać (CV z PDF-a). */
   bold_known: boolean;
   updated_at: string | null;

@@ -114,8 +114,13 @@ async def trusted_registry(*, now: float | None = None) -> Any:
         if _registry is not None and clock - _loaded_at < REFRESH_HOURS * 3600:
             return _registry
         try:
+            started = time.monotonic()
             _registry = await _fetch_registry()
             _loaded_at = clock
+            logger.info(
+                "[b2b_esign] lista zaufanych UE pobrana w %.0f s",
+                time.monotonic() - started,
+            )
         except Exception as exc:  # noqa: BLE001 — sieć, parsowanie, podpis listy
             logger.warning("[b2b_esign] nie pobrano listy zaufanych UE: %s", exc)
         return _registry

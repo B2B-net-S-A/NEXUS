@@ -79,6 +79,83 @@ describe("„Co się dzieje” na stronie kontraktu", () => {
     expect(items[0].lead).toContain("umowa B2B nie jest rozwiązana");
   });
 
+  // Kontrakt #605 (22.11.2026): wypowiedzenie z SharePointa w Dokumentach,
+  // rozwiązanie niezapisane — pas nie może mówić „nie jest rozwiązana”.
+  const noticeDoc = {
+    id: 9001,
+    doc_type: "termination_notice" as const,
+    filename: "Wypowiedzenie umowy.pdf",
+    content_type: "application/pdf",
+    source: "sharepoint_import",
+    created_at: "2026-09-29T10:15:00Z",
+  };
+
+  it("zakończona współpraca z wypowiedzeniem w Dokumentach mówi o dokumencie, nie o nierozwiązanej umowie", () => {
+    const items = buildContractHappening(
+      { ...base, status: "ended", end_date: "2026-10-31", termination_document: noticeDoc },
+      null,
+      TODAY,
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      id: "end",
+      tone: "info",
+      lead: "Współpraca zakończona 31.10.2026 — wypowiedzenie umowy B2B jest w Dokumentach, rozwiązanie niezapisane",
+      actions: ["record_agreement"],
+    });
+    expect(items[0].lead).not.toContain("nie jest rozwiązana");
+    expect(items[0].detail).toContain("„Wypowiedzenie umowy.pdf”, dodane 29.09.2026 z SharePointa");
+    expect(items[0].detail).toContain("ostatnim dniem umowy");
+  });
+
+  it("porozumienie dodane ręcznie nie wspomina SharePointa", () => {
+    const items = buildContractHappening(
+      {
+        ...base,
+        status: "ended",
+        end_date: "2026-10-31",
+        termination_document: { ...noticeDoc, doc_type: "termination_agreement", source: null },
+      },
+      null,
+      TODAY,
+    );
+    expect(items[0].lead).toContain("porozumienie umowy B2B jest w Dokumentach");
+    expect(items[0].detail).not.toContain("SharePoint");
+  });
+
+  it("zaplanowane zakończenie z wypowiedzeniem w Dokumentach zastępuje zdanie o nierozwiązanej umowie", () => {
+    const items = buildContractHappening(
+      {
+        ...base,
+        status: "ending",
+        end_date: "2026-11-30",
+        terminated_at: "2026-11-30",
+        termination_document: noticeDoc,
+      },
+      null,
+      TODAY,
+    );
+    expect(items[0].detail).toContain("Wypowiedzenie umowy B2B jest w Dokumentach");
+    expect(items[0].detail).not.toContain("nie jest rozwiązana");
+    expect(items[0].actions).toContain("record_agreement");
+  });
+
+  it("dokument przy zapisanym rozwiązaniu niczego nie dokłada", () => {
+    expect(
+      buildContractHappening(
+        {
+          ...base,
+          status: "ended",
+          end_date: "2026-10-31",
+          agreement_termination_mode: "notice",
+          termination_document: noticeDoc,
+        },
+        null,
+        TODAY,
+      ),
+    ).toEqual([]);
+  });
+
   it("zakończona współpraca z rozwiązaną umową nic nie pokazuje", () => {
     expect(
       buildContractHappening(

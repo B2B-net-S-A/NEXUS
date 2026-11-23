@@ -46,6 +46,16 @@ function renderValue(value: unknown): string {
   return String(value);
 }
 
+/** Wartości pól, które w historii mają czytelną nazwę zamiast klucza. */
+const FIELD_VALUE_LABELS: Record<string, Record<string, string>> = {
+  cv_layout: { classic: "Klasyczne (Word)", new: "Nowe CV (PDF)" },
+};
+
+function fieldValue(field: string, value: unknown): string {
+  const label = typeof value === "string" ? FIELD_VALUE_LABELS[field]?.[value] : undefined;
+  return label ?? renderValue(value);
+}
+
 function ChangeList({ event }: { event: RuleEvent }) {
   const entries = Object.entries(event.changes ?? {});
   if (entries.length === 0) return null;
@@ -63,8 +73,8 @@ function ChangeList({ event }: { event: RuleEvent }) {
           return (
             <li key={field}>
               <span className="font-medium text-foreground">{label}:</span>{" "}
-              <span className="line-through">{renderValue(c.from)}</span> →{" "}
-              {renderValue(c.to)}
+              <span className="line-through">{fieldValue(field, c.from)}</span> →{" "}
+              {fieldValue(field, c.to)}
             </li>
           );
         }

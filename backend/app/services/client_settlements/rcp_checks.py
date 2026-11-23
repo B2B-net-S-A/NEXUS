@@ -141,7 +141,16 @@ def evaluate(
     # „OPIS PRAC” bez wierszy z MD (konsultant wypełnił tylko godziny): suma z
     # podsumowania to MD podstawowe. Bez tego NEXUS liczył 0 MD (próba IX–XI 2026).
     md_from_total = not parsed.summary
-    if md_from_total:
+    # Wiersze opisu, które nie sumują się do „SUMA:” (nachodzące napisy w PDF,
+    # sklejone wiersze): MD z sumy, bo z wierszy wychodziło 15 zamiast 22 MD przy
+    # statusie „ok” (próba IX–X 2026). Podziału na dodatkowe nie da się wtedy ufać.
+    rows_total = parsed.md_regular + parsed.md_extra
+    rows_mismatch = (
+        not md_from_total
+        and parsed.summary_total is not None
+        and abs(rows_total - parsed.summary_total) > TOLERANCE
+    )
+    if md_from_total or rows_mismatch:
         result.md_regular = (
             parsed.summary_total
             if parsed.summary_total is not None
@@ -220,6 +229,12 @@ def evaluate(
     rcp.close()
 
     sums = _Group(result, rules, "Pola i sumy")
+    if rows_mismatch:
+        sums.warn(
+            "Wiersze opisu prac nie sumują się do SUMA",
+            f"Wiersze: {_fmt(rows_total)} MD, SUMA: {_fmt(parsed.summary_total)} MD. "
+            "MD z SUMA jako podstawowe; sprawdź podział na pracę dodatkową.",
+        )
     if md_from_total:
         sums.info(
             "MD z sumy podsumowania",
