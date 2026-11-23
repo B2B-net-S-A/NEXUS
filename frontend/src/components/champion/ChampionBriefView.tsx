@@ -267,7 +267,9 @@ export function ChampionBriefView({
               jest w „Technologie po ludzku”, opis klienta w „Klient i historia”. */}
           <PlainBriefBlock jobId={jobId} parts="summary" compact />
 
-          <KeyTaskSection keyTask={keyTask} questions={questions} onEdit={edit("project")} />
+          <div data-tour="champion.key-task">
+            <KeyTaskSection keyTask={keyTask} questions={questions} onEdit={edit("project")} />
+          </div>
 
           <BriefSection
             title="Czego szukamy"

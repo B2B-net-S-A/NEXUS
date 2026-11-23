@@ -1175,7 +1175,7 @@ export function ChampionProfileEditor({
             Trafia do CV kandydata jako zdanie 3 „Dlaczego nasz kandydat”.
           </p>
           {draft.screening_questions.some((q) => q.question.trim()) ? (
-            <fieldset className="space-y-1.5" data-testid="champion-key-task-question">
+            <fieldset className="space-y-1.5" data-testid="champion-key-task-question" data-help="champion.key-task.question">
               <legend className="text-xs font-medium text-foreground">Które pytanie screeningowe to sprawdza?</legend>
               {draft.screening_questions.map((q, i) =>
                 q.question.trim() ? (
