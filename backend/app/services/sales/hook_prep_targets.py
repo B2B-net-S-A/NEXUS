@@ -12,6 +12,9 @@ Raz w dzień roboczy od 16:00 (kalendarz firmy), na następny dzień roboczy:
   przekazania jest aktywnością prowadzącego (``my_day.meeting_company_ids``);
   bez firm z punktami młodszymi niż 3 dni.
 
+Klient NEXUSA (``client_gate``) nie idzie ani po haczyk, ani po teczkę: jego popyt
+prowadzi Delivery Lead (decyzja Artura 22.10.2026).
+
 Haczyki idą w małych paczkach, z ograniczonym ponowieniem pojedynczych firm.
 Teczki zachowują osobny rozkład. → docs/claude/sprzedaz/sygnaly-grok-bot.md
 """
@@ -28,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import local_day_start_utc
 from app.models.sales import SalesCompanyBriefing, SalesSignalRun
-from app.services.sales import calling, my_day
+from app.services.sales import calling, client_gate, my_day
 from app.services.sales.bot_tasks import call_hook
 
 START_HOUR = 16
@@ -134,9 +137,10 @@ async def hook_company_ids(
     db: AsyncSession, *, now: datetime, today: date
 ) -> list[int]:
     fresh = await call_hook.fresh_company_ids(db, now=now)
-    return await calling.companies_due_by(
+    due = await calling.companies_due_by(
         db, due_day(today), today, exclude=fresh, limit=call_hook.MAX_HOOK_FIRMS
     )
+    return await client_gate.without_clients(db, due)
 
 
 async def prep_company_ids(
@@ -156,4 +160,6 @@ async def prep_company_ids(
             )
         ).scalars()
     )
-    return [cid for cid in ids if cid not in fresh][:MAX_PREP_FIRMS]
+    return (
+        await client_gate.without_clients(db, [cid for cid in ids if cid not in fresh])
+    )[:MAX_PREP_FIRMS]

@@ -45,6 +45,11 @@ TOKEN_TTL = timedelta(hours=2)
 MAX_SIGNALS = 50
 MAX_POINTS = 4
 MAX_FIRMS = 200
+#: Rodzaje, które researchują firmę od zera (sygnały, punkty, haczyk, teczka):
+#: klient NEXUSA w nich nie bierze udziału, jego popyt idzie do Delivery Leada
+#: (decyzja Artura 22.10.2026). Kopia z 23.11.2026: punkty i teczki dostawały
+#: karty aktywnych klientów, bo wybór firm do biegu nie pytał bramki.
+CLIENT_GATED_KINDS: frozenset[str] = frozenset({"signals", "briefing"})
 #: Sygnał starszy niż okno nie jest „teraz”; próba z 09.11 liczyła 120 dni.
 SIGNAL_WINDOW_DAYS = 120
 LEAD_SOURCE = "research"
@@ -658,6 +663,9 @@ async def start_run(
         return None
     moment = now or datetime.now(timezone.utc)
     rows = await _companies(db, company_ids[:MAX_FIRMS])
+    if kind in CLIENT_GATED_KINDS:
+        keep = set(await client_gate.without_clients(db, list(rows)))
+        rows = {cid: company for cid, company in rows.items() if cid in keep}
     if task.needs_firms and not rows:
         return None
     if cognism and any(

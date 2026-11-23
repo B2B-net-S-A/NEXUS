@@ -96,6 +96,16 @@ https://claude.ai/artifact/2Hxqi6uLTSE4AYp1GPqtpV.
   a w poniedziałek od 7:30 odświeżenie dla otwartych szans z krokiem albo spotkaniem
   w ciągu 14 dni i punktami starszymi niż 6 dni. Firma z biegu z ostatnich 24 godzin
   nie wraca, żeby firma bez punktów nie szła do bota co godzinę.
+- **Klient NEXUSA nie idzie do bota** (23.11.2026): ani po sygnały, ani po punkty,
+  haczyk czy teczkę. Kopia produkcji z 23.11 pokazała punkty i teczki dla kart
+  aktywnych klientów, bo wybór firm do biegu `briefing` nie pytał bramki. Pilnują
+  tego wybór firm (`signal_targets`, `hook_prep_targets`: klient nie zajmuje miejsca
+  w paczce) i `signals.start_run` (`CLIENT_GATED_KINDS`, też ręczny start z API).
+  `client_gate` rozpoznaje klienta również po zdjęciu z obu nazw kraju i formy
+  prawnej, której `normalize_company_name` nie zdejmuje („X Polska”, „X Poland”,
+  „X sp. z o.o” bez kropki, „X S.A. Polska”, „X Group”): na kopii 37 kart więcej
+  niż przedtem, wszystkie sprawdzone jako prawdziwi klienci. Ta sama bramka
+  odmawia szansy i leada, więc te karty też idą teraz do Delivery Leada.
 - Widać je w panelu sygnału, na karcie firmy (Przegląd) i na karcie szansy. Brak
   punktów, wyłączony kanał i błąd zapytania nic nie pokazują: to dodatek, nie warunek.
 
