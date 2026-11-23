@@ -48,6 +48,11 @@ describe("schodki po wymaganiach (23.11.2026)", () => {
     expect(items.map((item) => item.id)).toEqual([4, 1, 8, 7, 2]);
   });
 
+  it("mówi, że kolejka idzie schodkami, tylko gdy są wymagania", () => {
+    expect(orderNewColumn([withSteps(1, 70, steps(2, 4))]).bySteps).toBe(true);
+    expect(orderNewColumn([system(1, 70)]).bySteps).toBe(false);
+  });
+
   it("brak krytycznej zostaje na końcu mimo kompletu musi mieć", () => {
     const { items } = orderNewColumn(
       [withSteps(1, 90, steps(4, 4)), withSteps(2, 60, steps(1, 4))],

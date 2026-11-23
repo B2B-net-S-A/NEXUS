@@ -1716,6 +1716,7 @@ interface ColProps {
  ranks: Map<number, number>;
  total: number;
  freshFirst: boolean;
+ bySteps?: boolean;
  freshSlots: Set<number>;
  sections: Map<number, NewColumnSection>;
  appliedGapIds: Set<number>;
@@ -1799,7 +1800,17 @@ function ContractStepChips({ counts }: { counts: ContractStepCounts }) {
 }
 
 /** Podział kolumny „Nowi” (`lib/new-column-queue.ts`). */
-function NewColumnSectionHeader({ section, total, freshFirst }: { section: NewColumnSection; total: number; freshFirst: boolean }) {
+/** Podpis kolejki „Zadzwoń najpierw”: mówi, co ustawia kolejność (schodki od 23.11.2026). */
+export function newQueueOrderText(freshFirst: boolean, bySteps: boolean): string {
+ if (bySteps) {
+ return freshFirst
+ ? "Najpierw nowi w bazie, potem więcej spełnionych „musi mieć”, potem wynik"
+ : "Najpierw więcej spełnionych „musi mieć”, potem wynik i to, co o osobie wiemy";
+ }
+ return freshFirst ? "Najpierw nowi w bazie, potem wynik i to, co o osobie wiemy" : "Wynik plus to, co o osobie wiemy";
+}
+
+function NewColumnSectionHeader({ section, total, freshFirst, bySteps = false }: { section: NewColumnSection; total: number; freshFirst: boolean; bySteps?: boolean }) {
  const callFirst = Math.min(total, CALL_FIRST_COUNT);
  const label =
  section === "applied"
@@ -1822,7 +1833,7 @@ function NewColumnSectionHeader({ section, total, freshFirst }: { section: NewCo
  </div>
  {section === "call_first" ? (
  <div className="mt-0.5 text-[10.5px] text-muted-foreground">
- {freshFirst ? "Najpierw nowi w bazie, potem wynik i to, co o osobie wiemy" : "Wynik plus to, co o osobie wiemy"}
+ {newQueueOrderText(freshFirst, bySteps)}
  </div>
  ) : null}
  </div>
@@ -2083,7 +2094,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  return (
  <Fragment key={String(item.id)}>
  {startsSection && newQueue ? (
- <NewColumnSectionHeader section={section} total={newQueue.total} freshFirst={newQueue.freshFirst} />
+ <NewColumnSectionHeader section={section} total={newQueue.total} freshFirst={newQueue.freshFirst} bySteps={newQueue.bySteps} />
  ) : null}
  {startsSection && section === "applied_gap" && appliedGap ? (
  <>

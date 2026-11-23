@@ -166,6 +166,8 @@ export function orderNewColumn<T extends QueueItem>(
   ranks: Map<number, number>;
   total: number;
   freshFirst: boolean;
+  /** Kolejka idzie schodkami po wymaganiach (23.11.2026) — podpis nad nią to mówi. */
+  bySteps: boolean;
   freshSlots: Set<number>;
   sections: Map<number, NewColumnSection>;
   appliedGapIds: Set<number>;
@@ -203,6 +205,10 @@ export function orderNewColumn<T extends QueueItem>(
     ranks,
     total: ordered.length,
     freshFirst: first.length > 0,
+    bySteps: queue.some(({ item }) => {
+      const steps = item.entry_autofill?.steps;
+      return Boolean(steps && steps.must_total + steps.nice_total > 0);
+    }),
     freshSlots: clean.slots,
     sections,
     appliedGapIds: new Set(appliedGap.map((item) => item.id)),
