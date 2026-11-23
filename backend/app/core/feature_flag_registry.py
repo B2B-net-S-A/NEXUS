@@ -29,6 +29,12 @@ class FeatureFlag:
 
 REGISTERED_FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag(
+        name="CONTRACT_PARTNER_READ_ENABLED",
+        purpose="Dane firm z umów: pętla czyta podpisaną umowę aktywnych kontraktów B2B bez danych firmy w Generatorze, a człowiek potwierdza propozycje na „Dane firm z umów”; włącza Artur przed nową umową B2B dla kontraktorów.",
+        decided=date(2026, 11, 22),
+        expires=date(2027, 1, 21),
+    ),
+    FeatureFlag(
         name="CONTRACT_RATE_DOCS_AUTO_APPLY",
         purpose="Stawki z dokumentów kontraktu: oczywiste różnice (aneks z datą, ta sama waluta, do 30%) NEXUS wpisuje sam z „Cofnij” przez 7 dni; włącza Artur po tygodniu karty bez fałszywych alarmów.",
         decided=date(2026, 11, 18),

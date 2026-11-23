@@ -392,6 +392,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_krs_entry'",
     # 0739: odczyt stawki Partnera z umów i aneksów kontraktu.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'contract_document_rate_read'",
+    # 0755: dane firmy Partnera z podpisanej umowy kontraktu.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'contract_partner_read'",
     # 0735: Rada — pakiet na posiedzenie gotowy (dzwonek).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_meeting_pack'",
     # 0736: Rada — uchwała w trybie pisemnym do głosowania i jej wynik (dzwonek).
@@ -8076,6 +8078,11 @@ _DATA_STATEMENTS = [
     "SELECT 'contract_document_rate_read', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'contract_document_rate_read')",
+    # 0755: seed klucza AI odczytu danych firmy Partnera z umowy.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'contract_partner_read', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'contract_partner_read')",
     # 0727: seed klucza AI odczytu dokumentów Rady.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'board_document_read', TRUE, 0, now(), now() "

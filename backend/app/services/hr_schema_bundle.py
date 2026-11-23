@@ -86,6 +86,7 @@ from app.services import trainings_schema as trainings
 from app.services.law_radar import schema as law_radar
 from app.services.cpro_bot import schema as cpro_bot
 from app.services.contract_rate_documents import schema_sql as contract_rate_documents
+from app.services.contract_partner_reads import schema_sql as contract_partner_reads
 
 #: Moduły po fundamencie, w kolejności migracji 0458–0476 (0467 i 0472 to statystyki z maina) (kontrakt każdego:
 #: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
@@ -199,6 +200,8 @@ MODULES = (
     cv_parse_batch,
     # 0751: dodatki do rozliczenia kontraktora — źródła, karta sprawy, dokumenty (13.11.2026).
     settlement_extras,
+    # 0755: dane firm Partnerów z podpisanych umów do potwierdzenia (E5a, 22.11.2026).
+    contract_partner_reads,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

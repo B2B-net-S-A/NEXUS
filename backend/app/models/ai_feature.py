@@ -221,6 +221,10 @@ class AIFeatureKey(str, enum.Enum):
     # kontraktu — kroki z datami i cytat; różnicę z harmonogramem liczy kod,
     # stawkę zmienia aneks „Zmiana stawki”, nigdy sam odczyt.
     contract_document_rate_read = "contract_document_rate_read"
+    # 0755 (22.11.2026): dane firmy Partnera z podpisanej umowy kontraktu
+    # (NIP, REGON, adres, KRS) z cytatem; człowiek potwierdza każdą propozycję
+    # przed zapisem w profilu kandydata i przed nową umową (E5a).
+    contract_partner_read = "contract_partner_read"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -278,6 +282,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.premium_skill_justification: "Umowa ramowa — szkic uzasadnienia dopłaty za technologię premium (EN)",
     AIFeatureKey.board_document_read: "Rada — odczyt skanu uchwały i protokołu",
     AIFeatureKey.contract_document_rate_read: "Kontrakty — stawka Partnera z umowy i aneksu",
+    AIFeatureKey.contract_partner_read: "Kontrakty — dane firmy Partnera z podpisanej umowy",
 }
 
 
@@ -525,6 +530,10 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.contract_document_rate_read: [
         "Plik umowy, aneksu albo innego dokumentu z Dokumentów kontraktu (tekst PDF-u albo skan)",
         "(bez stawek i harmonogramu z NEXUSA — porównanie robi kod)",
+    ],
+    AIFeatureKey.contract_partner_read: [
+        "Plik podpisanej umowy B2B z Dokumentów kontraktu (tekst PDF-u albo skan)",
+        "(bez danych z profilu kandydata i z NEXUSA — porównanie robi kod)",
     ],
 }
 

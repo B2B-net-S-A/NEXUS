@@ -116,6 +116,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   prep: "Przygotowanie do rozmowy",
   "cv-generator": "Generator CV",
   "b2b-generator": "Generator Umów B2B",
+  // `/contracts/dane-firm` — dane firm z umów do potwierdzenia (E5a, 22.11.2026).
+  "dane-firm": "Dane firm z umów",
   new: "Nowy",
   "my-clients": "Panel klientów",
   "my-relationships": "Moje relacje",
