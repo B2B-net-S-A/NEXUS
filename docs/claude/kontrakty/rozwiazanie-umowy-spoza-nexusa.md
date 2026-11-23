@@ -16,6 +16,11 @@ NEXUSA”, jak przy trzech aneksach.
   przy aneksie). Kontrakt z żywą umową w rejestrze odmawia
   (`_reject_contract_with_own_agreement`) — wtedy dokument idzie przez umowę.
   Cofnięcie wypowiedzenia flagi nie ma: zmienia tylko wiersz rejestru.
+  Odmawia też kontrakt, do którego prowadzi żywa umowa tej osoby u tego
+  klienta BEZ powiązania (wiersz z Excela,
+  `_reject_contract_behind_unlinked_agreement`), a wybór go nie pokazuje:
+  rozwiązanie idzie przez tę umowę, inaczej wiersz rejestru zostałby
+  „Aktywny”. Wejście z kontraktu nadal nie zgaduje umowy po osobie.
 - **To nie jest `allows_external`.** Ta flaga znaczy „aneks z zakładki
   Generator aneksów” i włącza `annex_register.apply` przy wygenerowaniu oraz
   „Bez kontraktu”. Rozwiązanie bez kontraktu nie miałoby czego zakończyć:

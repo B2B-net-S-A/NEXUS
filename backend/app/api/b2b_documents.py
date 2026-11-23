@@ -732,6 +732,41 @@ async def _reject_contract_with_own_agreement(
         )
 
 
+def _unlinked_agreement_of_contract():
+    """Warunek EXISTS (skorelowany z ``Contract``): osoba kontraktu ma u tego
+    klienta żywą umowę B2B w rejestrze bez powiązania z kontraktem (wiersz
+    z Excela działu). Rozwiązanie idzie wtedy przez tę umowę — wybrany sam
+    kontrakt zostawiłby wiersz rejestru „Aktywny” po rozwiązaniu umowy."""
+    return (
+        select(B2BGeneratedContract.id)
+        .where(
+            B2BGeneratedContract.contract_id.is_(None),
+            B2BGeneratedContract.candidate_id == Contract.candidate_id,
+            B2BGeneratedContract.client_id == Contract.client_id,
+            B2BGeneratedContract.contract_status.in_(_LIVE_AGREEMENT_STATUSES),
+            B2BGeneratedContract.contract_kind.is_distinct_from("mandate"),
+        )
+        .exists()
+    )
+
+
+async def _reject_contract_behind_unlinked_agreement(
+    db: AsyncSession, contract_id: int
+) -> None:
+    if await db.scalar(
+        select(Contract.id).where(
+            Contract.id == contract_id, _unlinked_agreement_of_contract()
+        )
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Ta osoba ma u tego klienta umowę w rejestrze — wybierz ją, "
+                "wtedy rozwiązanie zamknie też wiersz rejestru."
+            ),
+        )
+
+
 _ANNEX_LINK_OTHER_PERSON = (
     "Kontrakt dotyczy innej osoby niż aneks. Jeśli to ta sama osoba zapisana "
     "w dwóch rekordach, najpierw scal duplikaty kandydata (profil → „Scal z…”)."
@@ -1564,6 +1599,8 @@ async def document_subjects(
             contracts_query = contracts_query.where(
                 Contract.id.notin_(offered_contract_ids)
             )
+        if doc_type.accepts_contract:
+            contracts_query = contracts_query.where(~_unlinked_agreement_of_contract())
         if anchor is not None:
             contracts_query = contracts_query.where(Contract.id == anchor.id)
         else:
@@ -1987,6 +2024,8 @@ async def create_document(
         # Tu, nie w `_load_subject_contract`: podgląd i „Popraw” (prefill)
         # dzielą tamtą funkcję, a kontrakt mógł dostać umowę już po aneksie.
         await _reject_contract_with_own_agreement(db, links["contract_id"])
+        if doc_type.accepts_contract:
+            await _reject_contract_behind_unlinked_agreement(db, links["contract_id"])
     if parent is None and doc_type.accepts_contract and links["contract_id"] is None:
         raise HTTPException(
             status_code=422,

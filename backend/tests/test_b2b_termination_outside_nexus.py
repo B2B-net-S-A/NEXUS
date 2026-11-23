@@ -152,3 +152,38 @@ async def test_subjects_offer_the_contract_for_a_termination(
     )
     assert withdrawal.status_code == 200, withdrawal.text
     assert all(s["kind"] == "agreement" for s in withdrawal.json())
+
+
+async def test_contract_behind_an_unlinked_register_row_goes_through_that_row(
+    app_client, app_auth_headers
+):
+    """Osoba ma u tego klienta umowę w rejestrze bez powiązania (wiersz
+    z Excela): rozwiązanie wybiera tę umowę, nie sam kontrakt — inaczej wiersz
+    rejestru zostałby „Aktywny” po rozwiązaniu umowy."""
+    from tests.test_b2b_annex_generator import _lastname, _unlinked_row
+
+    contract_id, client_id = await _seed_linked_contract()
+    rid = await _unlinked_row(app_client, contract_id=contract_id, client_id=client_id)
+    resp = await app_client.post(
+        f"{BASE}/documents",
+        headers=app_auth_headers,
+        json={**_termination("termination_agreement"), "contract_id": contract_id},
+    )
+    assert resp.status_code == 422, resp.text
+    found = await app_client.get(
+        f"{BASE}/documents/subjects",
+        headers=app_auth_headers,
+        params={
+            "document_type": "termination_agreement",
+            "q": await _lastname(contract_id),
+        },
+    )
+    assert found.status_code == 200, found.text
+    kinds = {
+        (s["kind"], s["parent_generated_contract_id"], s["contract_id"])
+        for s in found.json()
+    }
+    assert ("agreement", rid, None) in kinds
+    assert all(
+        s["contract_id"] != contract_id for s in found.json() if s["kind"] == "contract"
+    )
