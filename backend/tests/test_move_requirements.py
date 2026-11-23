@@ -842,17 +842,24 @@ FORM_CLIENT = replace(
 )
 
 
-def test_form_client_gets_a_reminder_instead_of_the_company_cv() -> None:
+def test_form_client_needs_the_form_before_qc_cv() -> None:
+    """23.11.2026 (prośba DL CEZ): bez wypełnienia „QC CV” czeka, puste pola nie."""
     not_filled = build_requirements(FORM_CLIENT, "cv_qc")
     assert _keys(not_filled) == ["client_form"]
     form = _item(not_filled, "client_form")
-    assert form["status"] == "waiting" and form["blocking"] is False
-    assert form["detail"] == "jeszcze nie wypełniony"
-    assert form["action"]["kind"] == "open_client_form"
-    assert not_filled["primary"] == {"kind": "move", "label": "Przesuń na „QC CV”"}
+    assert form["status"] == "missing" and form["blocking"] is True
+    assert form["detail"].startswith("jeszcze nie wypełniony")
+    assert form["action"] == {
+        "kind": "open_client_form",
+        "label": "Wypełnij formularz",
+        "stage_id": 11,
+    }
+    assert not_filled["primary"]["kind"] == "blocked"
 
     gaps = build_requirements(replace(FORM_CLIENT, client_form_missing=7), "cv_qc")
     assert _item(gaps, "client_form")["detail"] == "7 pól do uzupełnienia"
+    assert _item(gaps, "client_form")["blocking"] is False
+    assert gaps["primary"] == {"kind": "move", "label": "Przesuń na „QC CV”"}
     assert (
         _item(
             build_requirements(replace(FORM_CLIENT, client_form_missing=2), "cv_qc"),
@@ -864,6 +871,36 @@ def test_form_client_gets_a_reminder_instead_of_the_company_cv() -> None:
     done = build_requirements(replace(FORM_CLIENT, client_form_missing=0), "cv_qc")
     assert _item(done, "client_form")["status"] == "ok"
     assert _item(done, "client_form")["action"] is None
+
+
+def test_form_client_with_score_template_needs_the_score_table_too() -> None:
+    facts = replace(
+        FORM_CLIENT,
+        client_form_missing=3,
+        client_score_template="Zal 5 Szczegolowy opis oceny.xlsx",
+    )
+    result = build_requirements(facts, "cv_qc")
+    assert _keys(result) == ["client_form", "client_score"]
+    score = _item(result, "client_score")
+    assert score["blocking"] is True and score["status"] == "missing"
+    assert score["action"]["label"] == "Wypełnij tabelę"
+    assert result["primary"]["kind"] == "blocked"
+
+    filled = build_requirements(replace(facts, client_score_missing=4), "cv_qc")
+    assert _item(filled, "client_score")["blocking"] is False
+    assert filled["primary"]["kind"] == "move"
+
+
+def test_form_gate_skips_for_delivery_lead_and_switch() -> None:
+    dl = build_requirements(replace(FORM_CLIENT, skips_fill_gates=True), "cv_qc")
+    form = _item(dl, "client_form")
+    assert form["blocking"] is False
+    assert form["detail"].endswith("nie blokuje — przesuwasz jako Delivery Lead")
+    assert dl["primary"]["kind"] == "move"
+
+    off = build_requirements(replace(FORM_CLIENT, client_form_gate=False), "cv_qc")
+    assert _item(off, "client_form")["blocking"] is False
+    assert _item(off, "client_form")["status"] == "waiting"
 
 
 def test_form_client_without_template_points_to_the_delivery_lead() -> None:
@@ -887,3 +924,28 @@ def test_form_client_sends_without_company_cv_qc() -> None:
     assert "cv_qc" not in _keys(result)
     assert _item(result, "client_form")["blocking"] is False
     assert result["primary"] == {"kind": "move", "label": "Przesuń na „CV wysłane”"}
+
+
+def test_missing_before_qc_counts_filling_not_empty_fields() -> None:
+    from app.services.client_form_status import PairFormState, missing_before_qc
+
+    assert missing_before_qc(None) == []
+    assert missing_before_qc(PairFormState(template="f.docx", missing=None)) == [
+        "client_form"
+    ]
+    assert missing_before_qc(PairFormState(template="f.docx", missing=12)) == []
+    # Bez wzoru rekruter nie ma czego wypełnić — wzór dodaje Delivery Lead.
+    assert missing_before_qc(PairFormState(template=None, missing=None)) == []
+    assert missing_before_qc(
+        PairFormState(
+            template="f.docx", missing=None, score_template="s.xlsx", score_missing=None
+        )
+    ) == ["client_form", "client_score"]
+    assert (
+        missing_before_qc(
+            PairFormState(
+                template="f.docx", missing=0, score_template="s.xlsx", score_missing=0
+            )
+        )
+        == []
+    )

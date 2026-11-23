@@ -20,7 +20,10 @@ Co bierzemy:
   dziesiętne z kropką); wiersz „stan przed korektą” ma ``before_correction``,
 * dokumenty korygowane — każde ``DaneFaKorygowanej`` (numer KSeF, numer
   faktury, data wystawienia) i ``PrzyczynaKorekty``; kontrola łańcucha korekt
-  faktur kontraktorów (rozliczenia klientów E4) porównuje je z dokumentem.
+  faktur kontraktorów (rozliczenia klientów E4) porównuje je z dokumentem,
+* płatność — ``Platnosc/FormaPlatnosci`` (kod 1–7, ``PlatnoscInna`` = ``other``)
+  i znacznik zapłaty (``Zaplacono`` albo ``ZnacznikZaplatyCzesciowej``);
+  reguły ``ci.payment_form`` rozliczeń klientów.
 
 XML z zewnątrz: bez DTD i encji (odrzucamy ``<!DOCTYPE``), bez sieci, limit
 rozmiaru (KSeF przyjmuje do 3 MB z załącznikiem) i liczby pozycji.
@@ -118,6 +121,21 @@ class ParsedInvoice:
     factor_accounts: tuple[str, ...] = ()
     #: Adnotacja „metoda kasowa” (``Adnotacje/P_16`` = 1) — procedura JPK MK.
     cash_method: bool = False
+    #: ``Platnosc/FormaPlatnosci`` (``6`` = przelew), ``other`` przy
+    #: ``PlatnoscInna``, ``None`` bez formy płatności.
+    payment_form: Optional[str] = None
+    #: Faktura oznaczona jako zapłacona (całość albo w części).
+    paid: bool = False
+
+
+def _payment(fa: Any) -> tuple[Optional[str], bool]:
+    form = _text(fa, "Platnosc", "FormaPlatnosci", limit=2)
+    if form is None and _text(fa, "Platnosc", "PlatnoscInna") == "1":
+        form = "other"
+    paid = _text(fa, "Platnosc", "Zaplacono") == "1" or _text(
+        fa, "Platnosc", "ZnacznikZaplatyCzesciowej"
+    ) in {"1", "2"}
+    return form, paid
 
 
 def _accounts(fa: Any, node_name: str = "RachunekBankowy") -> tuple[str, ...]:
@@ -317,6 +335,7 @@ def parse_invoice(xml: bytes) -> ParsedInvoice:
     net = _sum(fa, NET_FIELDS)
     vat = _sum(fa, VAT_FIELDS)
     sale_date, period = _sale(fa)
+    payment_form, paid = _payment(fa)
     return ParsedInvoice(
         form=f"FA({variant})",
         seller_nip=seller_nip,
@@ -340,4 +359,6 @@ def parse_invoice(xml: bytes) -> ParsedInvoice:
         accounts=_accounts(fa),
         factor_accounts=_accounts(fa, "RachunekBankowyFaktora"),
         cash_method=_text(fa, "Adnotacje", "P_16") == "1",
+        payment_form=payment_form,
+        paid=paid,
     )

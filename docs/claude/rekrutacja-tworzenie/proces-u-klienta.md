@@ -13,8 +13,14 @@ o terminie decyzji i kolejnym etapie.
   format, duration}], decision_workdays, set_by_id, set_by_name, set_at}`
   (`schemas/champion.py`: `ClientProcessIn`, `ChampionClientProcess`).
   Rodzaje etapów: rozmowa techniczna, z managerem, z klientem, zadanie do
-  wykonania, test online, spotkanie w biurze; forma zdalnie / na miejscu;
+  wykonania, test (online albo stacjonarny), spotkanie w biurze; forma zdalnie / na miejscu;
   najwyżej 6 etapów, czas do 80 znaków, termin 1–60 dni roboczych.
+  Test bierze formę do nazwy (23.11.2026, prośba DL CEZ „nie mam opcji dania
+  testu stacjonarnego”): w edytorze rodzaj „Test” i forma „online /
+  stacjonarnie”, w nagłówku i zdaniu dla kandydata „Test online” albo „Test
+  stacjonarny” (`stepName`); kod rodzaju zostaje `online_test`. Do tej daty
+  „Test online” + „na miejscu” brzmiało sprzecznie, a „na miejscu” było
+  ucięte w polu.
 - **To nie jest sekcja profilu.** Zapisuje go tylko
   `PUT /api/jobs/{id}/client-process` (bramka jak zapis Championa:
   `JobEditUser` + zakres DL + `ensure_champion_job_editor`) i

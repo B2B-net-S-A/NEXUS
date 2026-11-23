@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from email.message import EmailMessage, Message
 from email.utils import getaddresses
 
+from app.core.mime_attachments import attachment_parts
 from app.services.consultant_portal.identity import normalize_email
 
 FILE_ATTACHMENT = "#microsoft.graph.fileAttachment"
@@ -64,7 +65,7 @@ def _walk(message: Message, depth: int, senders: list[str], files: list[dict]) -
     senders.extend(_quoted_senders(_text(message)))
     if not isinstance(message, EmailMessage):
         return
-    for part in message.iter_attachments():
+    for part in attachment_parts(message):
         if part.get_content_type() == "message/rfc822":
             inner = part.get_payload(0) if part.is_multipart() else None
             if inner is None or depth >= _MAX_DEPTH:

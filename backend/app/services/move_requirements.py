@@ -170,6 +170,11 @@ class PairFacts:
     client_form_template: Optional[str] = None
     # Liczba pustych pól; None = formularz jeszcze nie wypełniony.
     client_form_missing: Optional[int] = None
+    # Tabela punktowa (Excel, 0525) — wzór i puste pola, jak formularz.
+    client_score_template: Optional[str] = None
+    client_score_missing: Optional[int] = None
+    # 23.11.2026: na „QC CV” dopiero z formularzem (CLIENT_FORM_QC_GATE_ENABLED).
+    client_form_gate: bool = True
     qc_status: str = "unchecked"
     qc_blocking_failed: int = 0
     # R1 (07.11.2026): blokujące sprawdzenia, których QC nie umiało sprawdzić
@@ -686,30 +691,57 @@ def _fields_word(count: int) -> str:
     return "pól"
 
 
-def _client_form_item(column: str, f: PairFacts) -> _Item:
-    """Formularz CV klienta zamiast CV firmowego — przypomnienie, nie bramka."""
-    if f.client_form_template is None:
+def _client_form_item(column: str, f: PairFacts, *, score: bool = False) -> _Item:
+    """Formularz CV klienta (albo tabela punktowa) zamiast CV firmowego.
+
+    Od 23.11.2026 przy wejściu na „QC CV” brak wypełnienia blokuje (prośba DL
+    Centrum e-Zdrowia, bramka serwera `assert_client_form_before_qc`); puste
+    pola i brak wzoru tylko przypominają. Przy „CV wysłane” — przypomnienie.
+    """
+    template = f.client_score_template if score else f.client_form_template
+    missing = f.client_score_missing if score else f.client_form_missing
+    label = "Tabela punktowa klienta" if score else "Formularz CV klienta"
+    gate = f.client_form_gate and column == "cv_qc"
+    if template is None:
         detail: Optional[str] = (
             "brak wzoru w Plikach rekrutacji — dodaje go Delivery Lead"
         )
-    elif f.client_form_missing is None:
-        detail = "jeszcze nie wypełniony"
-    elif f.client_form_missing:
-        detail = f"{f.client_form_missing} {_fields_word(f.client_form_missing)} do uzupełnienia"
+    elif missing is None:
+        detail = "jeszcze nie wypełniona" if score else "jeszcze nie wypełniony"
+        if gate:
+            detail += " — bez tego Delivery Lead nie ma czego sprawdzić"
+    elif missing:
+        detail = f"{missing} {_fields_word(missing)} do uzupełnienia"
     else:
         detail = None
-    done = f.client_form_template is not None and f.client_form_missing == 0
+    done = template is not None and missing == 0
+    blocks_now = gate and template is not None and missing is None
     return _Item(
         column,
-        "client_form",
-        "Formularz CV klienta",
-        OK if done else WAITING,
-        False,
+        "client_score" if score else "client_form",
+        label,
+        OK if done else (MISSING if blocks_now else WAITING),
+        blocks_now,
         detail,
         None
-        if done or f.client_form_template is None
-        else _action("open_client_form", "Uzupełnij formularz", f.stage_id),
+        if done or template is None
+        else _action(
+            "open_client_form",
+            "Wypełnij tabelę"
+            if score and missing is None
+            else "Wypełnij formularz"
+            if missing is None
+            else "Uzupełnij formularz",
+            f.stage_id,
+        ),
     )
+
+
+def _client_form_items(column: str, f: PairFacts) -> list[_Item]:
+    items = [_client_form_item(column, f)]
+    if f.client_score_template is not None:
+        items.append(_client_form_item(column, f, score=True))
+    return items
 
 
 def _qc_result_item(column: str, f: PairFacts) -> _Item:
@@ -744,7 +776,7 @@ def _qc_result_item(column: str, f: PairFacts) -> _Item:
 def _items_for(column: str, f: PairFacts) -> list[_Item]:
     sid = f.stage_id
     if f.client_form and column == "cv_qc":
-        return [_client_form_item(column, f)]
+        return _client_form_items(column, f)
     if column == "verified":
         return [
             _screening_item(column, f),
@@ -961,7 +993,14 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
 # Bramki pól, które Delivery Lead omija (22.10.2026): wszystko, co blokuje
 # wejście na „Zweryfikowany” (arkusz, stawka, minimum), CV firmowe przed
 # „QC CV” i debrief przed „Umową”. QC CV i wysyłka do klienta zostają.
-_FILL_GATE_ITEMS = frozenset({("cv_qc", "company_cv"), ("contract", "debrief")})
+_FILL_GATE_ITEMS = frozenset(
+    {
+        ("cv_qc", "company_cv"),
+        ("cv_qc", "client_form"),
+        ("cv_qc", "client_score"),
+        ("contract", "debrief"),
+    }
+)
 DL_SKIP_DETAIL = "nie blokuje — przesuwasz jako Delivery Lead"
 
 
@@ -1598,6 +1637,9 @@ async def load_pair_facts(
         client_form=form_state is not None,
         client_form_template=form_state.template if form_state else None,
         client_form_missing=form_state.missing if form_state else None,
+        client_score_template=form_state.score_template if form_state else None,
+        client_score_missing=form_state.score_missing if form_state else None,
+        client_form_gate=settings.CLIENT_FORM_QC_GATE_ENABLED,
         qc_status=qc.get("status") or "unchecked",
         qc_blocking_failed=int(qc.get("blocking_failed") or 0),
         qc_manual=tuple(qc.get("manual_checks") or ()),

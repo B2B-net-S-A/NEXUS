@@ -16,6 +16,8 @@ import struct
 from dataclasses import dataclass, field
 from typing import Optional
 
+from app.core.mime_attachments import attachment_parts
+
 logger = logging.getLogger(__name__)
 
 MSG_MIME = "application/vnd.ms-outlook"
@@ -216,7 +218,7 @@ def _read_eml(content: bytes) -> MailFile:
         body=body if isinstance(body, str) else "",
         headers=f"Date: {message.get('date')}" if message.get("date") else "",
     )
-    for part in message.iter_attachments():
+    for part in attachment_parts(message):
         payload = part.get_payload(decode=True)
         if isinstance(payload, bytes):
             mail.attachments.append(Attachment(part.get_filename() or "", payload))

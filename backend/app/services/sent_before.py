@@ -70,6 +70,26 @@ def sent_elsewhere_select(job_id: Optional[int], *, now: datetime):
     return query
 
 
+def sent_to_client_select(job, *, now: datetime):
+    """``SELECT candidate_id`` osób wysłanych w ostatnich
+    ``known_queue_points.CLIENT_RECENT_DAYS`` dniach do klienta tej rekrutacji
+    w innej jego rekrutacji (R4, 22.11.2026)."""
+    from app.models.job import Job
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from app.services.known_queue_points import CLIENT_RECENT_DAYS
+
+    return (
+        select(CandidateStage.candidate_id)
+        .join(Job, Job.id == CandidateStage.job_id)
+        .where(
+            CandidateStage.stage == PipelineStage.cv_sent,
+            CandidateStage.moved_at >= now - timedelta(days=CLIENT_RECENT_DAYS),
+            Job.client_id == job.client_id,
+            CandidateStage.job_id != job.id,
+        )
+    )
+
+
 async def facts_for(
     db,
     *,

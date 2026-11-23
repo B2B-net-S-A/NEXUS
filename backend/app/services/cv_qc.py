@@ -5221,9 +5221,19 @@ async def run_after_move(
         return None
     if notify_recruiter_on_fail and not result["passed"] and result["override"] is None:
         try:
+            from app.services import client_form_status
+
             async with AsyncSessionLocal() as db:
                 stage = await db.get(CandidateStage, stage_id)
-                if stage is not None:
+                # Klient z formularzem (0521): QC CV firmowego go nie dotyczy,
+                # więc „QC CV do poprawy” byłoby fałszywym alarmem (staging
+                # 23.11.2026 — dzwonek przy karcie CEZ bez CV firmowego).
+                if (
+                    stage is not None
+                    and not await client_form_status.job_takes_client_form(
+                        db, stage.job_id
+                    )
+                ):
                     await _notify_recruiter_of_failed_qc(db, stage, result)
                     await db.commit()
         except Exception:  # noqa: BLE001 — dzwonek nie cofa przebiegu QC

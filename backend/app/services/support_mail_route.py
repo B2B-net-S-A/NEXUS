@@ -15,19 +15,25 @@ Dwa stany są błędem konfiguracji i zatrzymują czytnik rozliczeń bez ruszani
 (``misconfiguration``): wspólna skrzynka bez adresów (``shared_without_route``) i adresy przy
 osobnych skrzynkach (``route_not_shared``, np. wsparcie@ ustawiona przed skrzynką spraw).
 
-Mail na rozliczenia@ bez załącznika (pytanie) jest sprawą. Jeśli przyszedł z adresu firmy
-z tematem rozliczenia, czytnik rozliczeń dodatkowo zapisuje jego treść jako dokument jednej
-osoby (``mailbox.is_body_only_settlement``, 23.11.2026); router tego nie zmienia, więc sprawa
-też powstaje. Mail wysłany w ukrytej kopii nie ma
-adresu rozliczeń w nagłówkach, które czytamy, więc też jest sprawą.
+Mail na rozliczenia@ bez załącznika (pytanie) jest sprawą, chyba że pisze klient z regułą
+akceptacji mailowej (``acceptance_clients``): wtedy to akceptacja godzin w treści i bierze go
+czytnik rozliczeń. Jeśli przyszedł z adresu firmy z tematem rozliczenia, czytnik rozliczeń
+dodatkowo zapisuje jego treść jako dokument jednej osoby (``mailbox.is_body_only_settlement``,
+23.11.2026); router tego nie zmienia, więc sprawa też powstaje. Mail wysłany w ukrytej kopii
+nie ma adresu rozliczeń w nagłówkach, które czytamy, więc też jest sprawą.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Any, Optional
+from collections.abc import Set
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, Optional
 
 from app.core.config import settings
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 #: Pola Graph potrzebne routerowi; czytniki dopisują je do swojego ``$select``
 #: (``from`` i ``subject`` dla raportów godzin oba czytniki pobierają już same).
@@ -71,13 +77,105 @@ def recipients(message: dict[str, Any]) -> frozenset[str]:
     return frozenset(found)
 
 
-def is_settlements_mail(message: dict[str, Any], addresses: frozenset[str]) -> bool:
+def is_settlements_mail(
+    message: dict[str, Any],
+    addresses: frozenset[str],
+    acceptance_domains: Set[str] = frozenset(),
+) -> bool:
     """Wiadomość dla czytnika rozliczeń: załącznik i adres rozliczeń w „Do”/„DW”,
-    albo raport godzin klienta (``is_time_report_mail``) na dowolny adres skrzynki."""
+    albo raport godzin klienta (``is_time_report_mail``) na dowolny adres skrzynki,
+    albo akceptacja klienta w samej treści (``is_client_acceptance_mail``)."""
 
     if not message.get("hasAttachments"):
-        return False
+        return is_client_acceptance_mail(message, addresses, acceptance_domains)
     return bool(recipients(message) & addresses) or is_time_report_mail(message)
+
+
+def sender_domain(message: dict[str, Any]) -> str:
+    sender = _norm(
+        ((message.get("from") or {}).get("emailAddress") or {}).get("address")
+    )
+    return sender.rpartition("@")[2] if "@" in sender else ""
+
+
+def is_client_acceptance_mail(
+    message: dict[str, Any], addresses: frozenset[str], domains: Set[str]
+) -> bool:
+    """Akceptacja godzin w treści maila, bez załącznika (próba rozliczeń IX–X 2026).
+
+    PKO i BIK odpisują w wątku z TS na adres rozliczeń, np. „łączna liczba godzin: 112,
+    październik 2026”. Bez tej reguły router oddawał to czytnikowi spraw, a kontrola
+    ``proof.accept_has_hours`` nie miała czego sprawdzić. Wymagamy adresu rozliczeń w „Do”/„DW”
+    i nadawcy dokładnie z domeny klienta z regułą akceptacji mailowej; resztę bierze sprawa.
+    """
+
+    domain = sender_domain(message)
+    return bool(domain) and domain in domains and bool(recipients(message) & addresses)
+
+
+async def acceptance_clients(db: "AsyncSession") -> dict[str, frozenset[int]]:
+    """Domena nadawcy → klienci, od których akceptacja mailowa idzie do rozliczeń.
+
+    * ``proof.excel_with_mail`` włączona z domeną: ta domena (BIK, BNP, VIP Solution);
+    * ``proof.accept_has_hours`` włączona: domena z ``proof.excel_with_mail``, a bez niej
+      domeny adresów kontaktów klienta (PKO ma tę regułę bez domeny);
+    * ``cl.client_acceptance`` włączona: domena jej adresu (odpowiedź Banku Pocztowego
+      na paczkę KCP, którą czyta ``consultant_portal.mailbox._store_client_reply``).
+
+    Zestawy reguł są od miesiąca, a akceptacja za miesiąc przychodzi na jego końcu albo na
+    początku następnego, dlatego bierzemy reguły bieżącego i poprzedniego miesiąca.
+    """
+
+    from sqlalchemy import select
+
+    from app.core.scheduling import business_today
+    from app.models.client_settlement import ClientSettlementRuleSet
+    from app.services.client_settlements import acceptance_mail, service
+
+    today = business_today()
+    previous = today.replace(day=1) - timedelta(days=1)
+    months = {f"{d.year}-{d.month:02d}" for d in (today, previous)}
+    client_ids = (
+        await db.scalars(select(ClientSettlementRuleSet.client_id).distinct())
+    ).all()
+    found: dict[str, set[int]] = {}
+    for client_id in client_ids:
+        for month in months:
+            rules = await service.rules_for(db, client_id, month)
+            on = {key for key, rule in rules.items() if rule["level"] != "off"}
+            excel = list(
+                acceptance_mail.domains(
+                    str(rules["proof.excel_with_mail"]["params"].get("domain") or "")
+                )
+            )
+            domains = (
+                excel
+                if on & {"proof.excel_with_mail", "proof.accept_has_hours"}
+                else []
+            )
+            if "proof.accept_has_hours" in on and not excel:
+                domains = await _contact_domains(db, client_id)
+            email = _norm(
+                str(rules["cl.client_acceptance"]["params"].get("email") or "")
+            )
+            if "cl.client_acceptance" in on and "@" in email:
+                domains = [*domains, email.rpartition("@")[2]]
+            for domain in domains:
+                found.setdefault(domain, set()).add(client_id)
+    return {domain: frozenset(ids) for domain, ids in found.items()}
+
+
+async def _contact_domains(db: "AsyncSession", client_id: int) -> list[str]:
+    from sqlalchemy import func, select
+
+    from app.models.contact import Contact
+
+    rows = await db.scalars(
+        select(func.lower(Contact.email)).where(
+            Contact.client_id == client_id, Contact.email.like("%@%")
+        )
+    )
+    return sorted({_norm(email).rpartition("@")[2] for email in rows if email})
 
 
 _TIME_REPORT_SUBJECT = re.compile(r"\bT4T\b|time\s*for\s*teams", re.IGNORECASE)

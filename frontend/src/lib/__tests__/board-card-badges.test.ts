@@ -14,6 +14,7 @@ import {
   isReadyForDlSend,
   knownForwardGap,
   minimumOnlyGap,
+  boardQcChip,
   qcChip,
   type CardBadgeContext,
   compactCardBadge,
@@ -236,6 +237,24 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
     );
   });
 
+  it("klient z formularzem CV: bez chipa QC CV firmowego i bez szarej strzałki QC (23.11.2026)", () => {
+    // Staging 23.11.2026, Centrum e-Zdrowia: karta w „QC CV” mówiła
+    // „QC: CV sprzed rekrutacji — potwierdź”, a serwer QC takiej pary nie liczy
+    // (`pipeline._assert_cv_qc_gate` → `client_takes_client_form`).
+    const form = { client_form: { template: true, missing: 0 } };
+    const failed = { qc: { status: "failed" as const, blocking_failed: 2 } };
+    expect(boardQcChip(item({ ...form, qc: { status: "overridden", blocking_failed: 1 } }), "cv_qc")).toBeNull();
+    expect(boardQcChip(item({ ...form, ...failed }), "cv_qc")).toBeNull();
+    expect(knownForwardGap(item({ ...form, ...failed }), "cv_qc")).toBeNull();
+    expect(knownForwardGap(item({ ...form, ...failed }), "cv_qc", { skipsFillGates: true })).toBeNull();
+    // Klient z CV firmowym — bez zmian.
+    expect(boardQcChip(item(failed), "cv_qc")?.label).toBe("QC: 2 do poprawy");
+    expect(boardQcChip(item({}), "cv_qc")?.label).toBe("QC: jeszcze nie sprawdzone");
+    expect(boardQcChip(item(failed), "verified")).toBeNull();
+    expect(knownForwardGap(item(failed), "cv_qc")).toBe("QC: 2 do poprawy");
+    expect(knownForwardGap(item(failed), "cv_qc", { skipsFillGates: true })).toBe("QC: 2 do poprawy");
+  });
+
   it("strzałka jest szara tylko przy brakach, które karta zna", () => {
     expect(knownForwardGap(item({ screening_done: false }), "screening")).toBe("Brak arkusza screeningu");
     expect(knownForwardGap(item({ screening_done: true }), "screening")).toBeNull();
@@ -328,6 +347,31 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
     expect(knownForwardGap(item({ company_cv: null }), "verified")).toBeNull();
     // Pole dotyczy tylko wyjścia ze „Zweryfikowanego”.
     expect(knownForwardGap(item({ company_cv: false }), "screening")).toBeNull();
+  });
+
+  // 23.11.2026 (prośba DL CEZ): u klienta z formularzem strzałka patrzy na
+  // formularz i tabelę punktową, nie na CV firmowe — osoba z CV firmowym
+  // i bez formularza przechodziła na „QC CV” jednym kliknięciem.
+  it("klient z formularzem: na „QC CV” dopiero z formularzem i tabelą, CV firmowe nie gra roli", () => {
+    const form = (client_form: unknown, company_cv: boolean | null = true) =>
+      knownForwardGap(item({ client_form, company_cv } as never), "verified");
+    expect(form({ template: true, missing: null })).toBe("Brak formularza CV klienta");
+    expect(form({ template: true, missing: 12 }, false)).toBeNull();
+    expect(form({ template: true, missing: 0, score_template: true, score_missing: null })).toBe(
+      "Brak tabeli punktowej klienta",
+    );
+    expect(form({ template: true, missing: null, score_template: true, score_missing: null })).toBe(
+      "Brak formularza i tabeli punktowej",
+    );
+    expect(form({ template: true, missing: 3, score_template: true, score_missing: 2 })).toBeNull();
+    // Bez wzoru w Plikach rekruter nie ma czego wypełnić — bez blokady.
+    expect(form({ template: false, missing: null }, false)).toBeNull();
+    // Delivery Lead przesuwa bez bramek pól.
+    expect(
+      knownForwardGap(item({ client_form: { template: true, missing: null } } as never), "verified", {
+        skipsFillGates: true,
+      }),
+    ).toBeNull();
   });
 
   it("w QC CV ruch ma rekruter (poprawki), DL (wysyłka albo akceptacja do Cpro) albo osoba od Cpro", () => {
@@ -857,7 +901,10 @@ describe("0521: plakietka formularza CV klienta", () => {
     const at = (client_form: unknown, column: Parameters<typeof clientFormBadge>[1] = "verified") =>
       clientFormBadge({ ...base, client_form } as typeof base, column);
     expect(at({ template: false, missing: null })?.label).toBe("Formularz: brak wzoru");
-    expect(at({ template: true, missing: null })?.label).toBe("Formularz do wypełnienia");
+    expect(at({ template: true, missing: null })?.label).toBe("Brak formularza");
+    expect(at({ template: true, missing: 4, score_template: true, score_missing: null })?.label).toBe(
+      "Brak tabeli punktowej",
+    );
     expect(at({ template: true, missing: 7 })?.label).toBe("Formularz: 7 do uzupełnienia");
     expect(at({ template: true, missing: 7 })?.tone).toBe("wait");
     expect(at({ template: true, missing: 0 }, "cv_qc")?.label).toBe("Formularz gotowy");

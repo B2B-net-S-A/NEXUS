@@ -15,6 +15,8 @@ Decyzje Artura 26.10.2026:
 - **CV firmowe samo nie powstaje** u klienta z formularzem; rekruter może je
   zrobić ręcznie.
 - **Przed „QC CV” tylko przypomnienie** o brakach w formularzu, bez blokady.
+  *(Od 23.11.2026 brak wypełnienia blokuje — sekcja „Na »QC CV« dopiero
+  z formularzem” niżej; puste pola dalej tylko przypominają.)*
 - **Na start tylko CEZ.** Tauron zostaje na CV firmowym, dopóki jego
   „Załącznik nr 3” nie trafi do Plików rekrutacji (w NEXUSIE go nie ma).
 
@@ -106,7 +108,11 @@ Reguły, które łatwo cofnąć:
   `CV_AUTO_GENERATE_WITHOUT_CONFIRMATION`.
 - **Tablica:** `KanbanEntry.client_form = {template, missing}`; plakietka karty
   (`clientFormBadge`) na „Zweryfikowanym” i „QC CV” mówi o formularzu zamiast
-  o CV firmowym. Panel osoby: karta `ClientFormCard` na górze sekcji CV
+  o CV firmowym. Chipa QC CV firmowego taka karta nie ma (`boardQcChip`),
+  a nieudane QC nie robi szarej strzałki (`knownForwardGap`) — staging
+  23.11.2026: DL widział „QC: CV sprzed rekrutacji — potwierdź” przy dokumencie,
+  którego klient nie bierze. `item.qc` zostaje w payloadzie, bo z niego liczą
+  się gotowość do kolejki DL i dni na karcie. Panel osoby: karta `ClientFormCard` na górze sekcji CV
   („Wypełnij z CV i screeningu”, „Uzupełnij braki”, „Pobierz Word”, „Wygeneruj
   też CV firmowe”), okno `ClientFormDialog` z brakami najpierw i źródłem
   każdej wartości; pusty opis w „Wiersz N” pokazuje pierwszą wypełnioną komórkę
@@ -226,3 +232,41 @@ ręcznie”. Pomiar na stagingu (rekrutacja „Tester”, trzy osoby): 0 z 9 pó
   („Do dopytania pod formularz klienta”, `ClientFormScreeningAsks`); awaria
   odczytu go nie pokazuje, jak innych podpowiedzi formularza. Link dla kandydata
   do samodzielnego uzupełnienia — później (decyzja 19.11.2026).
+
+## Na „QC CV” dopiero z formularzem (23.11.2026)
+
+Prośba Michała (DL CEZ) z 20.11.2026: „na zweryfikowany, żeby można było dać,
+ale na QC CV dopiero z formularzami — teraz dostaję ludzi na QC CV bez
+formularza, to nie mam czego sprawdzać”. Pomiar na stagingu (kopia z 22.11):
+19–20.11 pięć wejść na „QC CV” w rekrutacjach CEZ, dwa bez żadnego formularza
+w chwili ruchu, pozostałe z 10–29 pustymi polami. Przyczyna po stronie
+ekranu: strzałka ze „Zweryfikowanego” sprawdzała CV firmowe, więc osoba
+z CV firmowym i bez formularza przechodziła jednym kliknięciem, a osoba
+z formularzem bez CV firmowego miała szarą strzałkę. Makiety i decyzje
+Artura (wszystkie rekomendowane):
+https://claude.ai/artifact/32hRQWiWa3fVXzVv6bwxNx
+
+- **Blokuje brak wypełnienia, nie puste pola.** Ruch z Nowych, Screeningu
+  albo „Zweryfikowanego” na „QC CV” i dalej wymaga wiersza pary
+  w `candidate_client_forms` dla formularza i — gdy rekrutacja ma wzór
+  Excela — dla tabeli punktowej (`client_form_status.missing_before_qc`).
+  Pola, które słusznie zostają puste (numer certyfikatu, którego osoba nie
+  ma), nie trzymają karty; rekruter wpisywałby „-”. Brak wzoru w Plikach nie
+  blokuje rekrutera (wzór dodaje DL), lista wymagań mówi o nim osobno.
+- **Serwer:** `pipeline_move_rules.assert_client_form_before_qc`, 409
+  `CLIENT_FORM_REQUIRED` z `missing` (`client_form`, `client_score`)
+  i `stage_id`; `/move` i `/bulk-move`. Delivery Lead przechodzi
+  (`skips_fill_gates`, ślad `requirements_skipped`, odznaka „Przesunął DL ·
+  bez formularza”, gaśnie po wypełnieniu — `pipeline._still_missing`); ruch
+  zbiorczy odmawia każdemu. Wyłącznik `CLIENT_FORM_QC_GATE_ENABLED`.
+- **Lista wymagań:** w kolumnie „QC CV” pozycja „Formularz CV klienta” (i „Tabela
+  punktowa klienta”, gdy jest wzór Excela) jest blokująca, dopóki para jej nie
+  wypełniła; „CV wysłane” dalej tylko przypomina. Klucze w `_FILL_GATE_ITEMS`.
+- **Tablica:** `KanbanEntry.client_form` niesie też `score_template`
+  i `score_missing`. Strzałka ze „Zweryfikowanego” u klienta z formularzem
+  liczy tylko formularz i tabelę (`clientFormForwardGap`), nigdy CV firmowe;
+  plakietka „Brak formularza” / „Brak tabeli punktowej”.
+- **Wgrywanie wypełnionego pliku z dysku** (prośba z tego samego dnia:
+  rekruterzy wgrywali wypełniony Word przez „Wgraj CV”, więc lądował jako CV
+  kandydata, u dwóch osób jako główne) idzie osobnym PR-em z migracją razem
+  z regułą „doświadczenie = 10/10” w polach „w skali 1–10”.

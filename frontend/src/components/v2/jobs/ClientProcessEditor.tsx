@@ -81,7 +81,7 @@ export function ClientProcessEditor({ value, onChange, idPrefix }: ClientProcess
               <span className="w-4 shrink-0 text-xs text-muted-foreground">{index + 1}.</span>
               <select
                 aria-label={`Etap ${index + 1}: rodzaj`}
-                className={cn(FIELD_CLASS, "w-[178px] shrink-0")}
+                className={cn(FIELD_CLASS, "w-[170px] shrink-0")}
                 value={step.kind}
                 onChange={(e) => update(index, { kind: e.target.value as ProcessStepKind })}
               >
@@ -93,13 +93,13 @@ export function ClientProcessEditor({ value, onChange, idPrefix }: ClientProcess
               </select>
               <select
                 aria-label={`Etap ${index + 1}: forma`}
-                className={cn(FIELD_CLASS, "w-[92px] shrink-0")}
+                className={cn(FIELD_CLASS, "w-[128px] shrink-0")}
                 value={step.format}
                 onChange={(e) => update(index, { format: e.target.value as ProcessStepFormat })}
               >
                 {Object.entries(FORMAT_LABEL).map(([key, label]) => (
                   <option key={key} value={key}>
-                    {label}
+                    {step.kind === "online_test" ? (key === "onsite" ? "stacjonarnie" : "online") : label}
                   </option>
                 ))}
               </select>

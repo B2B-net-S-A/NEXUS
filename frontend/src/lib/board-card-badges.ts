@@ -258,9 +258,23 @@ export function dlWaitingStatus(item: KanbanItem | null | undefined): DlWaitingS
 // ── Formularz CV klienta zamiast CV firmowego (0521, 26.10.2026) ─────────────
 
 /**
+ * Czego brakuje przed „QC CV” u klienta z formularzem (23.11.2026) — lustro
+ * `client_form_status.missing_before_qc`: wypełnienie, nie puste pola; brak
+ * wzoru w Plikach nie blokuje rekrutera.
+ */
+export function clientFormForwardGap(form: NonNullable<KanbanItem["client_form"]>): string | null {
+  const noForm = form.template && form.missing == null;
+  const noScore = form.score_template === true && form.score_missing == null;
+  if (noForm && noScore) return "Brak formularza i tabeli punktowej";
+  if (noForm) return "Brak formularza CV klienta";
+  if (noScore) return "Brak tabeli punktowej klienta";
+  return null;
+}
+
+/**
  * Klient bierze własny formularz CV (np. SWZ Centrum e-Zdrowia): karta mówi
- * o formularzu, nie o CV firmowym, i tylko przypomina — braki nie blokują
- * ruchu (decyzja Artura D3).
+ * o formularzu, nie o CV firmowym. Od 23.11.2026 brak wypełnienia trzyma kartę
+ * przed „QC CV” (prośba DL CEZ); puste pola tylko przypominają.
  */
 export function clientFormBadge(
   item: KanbanItem,
@@ -280,9 +294,19 @@ export function clientFormBadge(
   if (form.missing == null) {
     return {
       key: "cv_state",
-      label: "Formularz do wypełnienia",
-      tone: "neutral",
-      title: "Klient bierze swój formularz CV zamiast CV firmowego — wypełnij go w sekcji CV osoby.",
+      label: "Brak formularza",
+      tone: "wait",
+      title:
+        "Klient bierze swój formularz CV zamiast CV firmowego — wypełnij go w sekcji CV osoby. Bez formularza karta nie przejdzie na „QC CV”.",
+    };
+  }
+  if (form.score_template && form.score_missing == null) {
+    return {
+      key: "cv_state",
+      label: "Brak tabeli punktowej",
+      tone: "wait",
+      title:
+        "Rekrutacja ma wzór tabeli punktowej klienta — wypełnij ją w sekcji CV osoby. Bez niej karta nie przejdzie na „QC CV”.",
     };
   }
   if (form.missing > 0) {
@@ -290,7 +314,7 @@ export function clientFormBadge(
       key: "cv_state",
       label: `Formularz: ${form.missing} do uzupełnienia`,
       tone: "wait",
-      title: "Formularz CV klienta ma puste pola — uzupełnij je w sekcji CV osoby. Braki nie blokują ruchu.",
+      title: "Formularz CV klienta ma puste pola — uzupełnij je w sekcji CV osoby. Puste pola nie blokują ruchu.",
     };
   }
   return {
@@ -1206,6 +1230,18 @@ export function qcChip(item: KanbanItem): QcChip {
 }
 
 /**
+ * Chip QC na karcie Tablicy: tylko w „QC CV” i tylko u klienta, który bierze
+ * CV firmowe. Klient z formularzem CV (`item.client_form`, np. Centrum
+ * e-Zdrowia) nie dostaje CV firmowego, a serwer nie liczy jego QC
+ * (`pipeline._assert_cv_qc_gate`), więc chip byłby alarmem o dokumencie, którego
+ * klient nie bierze (staging 23.11.2026). Stan formularza mówi `clientFormBadge`.
+ */
+export function boardQcChip(item: KanbanItem, column: BoardColumnKey | null): QcChip | null {
+  if (column !== "cv_qc" || item.client_form) return null;
+  return qcChip(item);
+}
+
+/**
  * Znany z karty brak przed przejściem do NASTĘPNEJ kolumny — strzałka jest
  * wtedy szara (ale klikalna: okno „Przesuń dalej" mówi, co zrobić). `null` =
  * karta nie zna braku; pełną listę liczy serwer w oknie.
@@ -1218,7 +1254,7 @@ export function knownForwardGap(
   // 22.10.2026: Delivery Lead przesuwa bez bramek pól — znany jest mu tylko
   // brak QC (serwer: `pipeline_move_rules.skips_fill_gates`).
   if (options.skipsFillGates) {
-    return from === "cv_qc" && item.qc?.status === "failed"
+    return from === "cv_qc" && item.qc?.status === "failed" && !item.client_form
       ? `QC: ${item.qc.blocking_failed} do poprawy`
       : null;
   }
@@ -1231,13 +1267,20 @@ export function knownForwardGap(
   if (from === "screening" && minimumOnlyGap(item)) {
     return `Brak: ${item.minimum_missing!.map(minimumFieldShortLabel).join(", ")}`;
   }
+  // 23.11.2026 (prośba DL CEZ): klient z formularzem — na „QC CV” dopiero
+  // z wypełnionym formularzem i tabelą punktową; CV firmowe nie gra roli
+  // (do tej daty strzałka sprawdzała CV firmowe i przepuszczała osobę bez
+  // formularza). Serwer: `assert_client_form_before_qc`.
+  if (from === "verified" && item.client_form) {
+    return clientFormForwardGap(item.client_form);
+  }
   // 14.10.2026: bez CV firmowego przeciągnięcie na „QC CV” wkładało osobę
   // wprost do kolejki Delivery Leada. `null`/brak pola = nie wiadomo.
   if (from === "verified" && item.company_cv === false) {
     // QC-4: starszy plik B2B ma własny napis zamiast cichego „Brak CV”.
     return item.qc?.qc_state?.kind === "older_cv" ? item.qc.qc_state.text.replace(/^QC: /, "") : "Brak CV firmowego";
   }
-  if (from === "cv_qc" && item.qc?.status === "failed") {
+  if (from === "cv_qc" && item.qc?.status === "failed" && !item.client_form) {
     return `QC: ${item.qc.blocking_failed} do poprawy`;
   }
   return null;
@@ -1292,7 +1335,12 @@ export function fillGapsText(
     if (!hasRate) gaps.push("stawki kandydata");
     for (const key of item.minimum_missing ?? []) gaps.push(minimumFieldShortLabel(key));
   }
-  if (from === "verified" && to === "cv_qc" && item.company_cv === false) gaps.push("CV firmowego");
+  if (from === "verified" && to === "cv_qc" && item.client_form) {
+    // Klient z formularzem (23.11.2026): DL przesuwa bez formularza i tabeli.
+    const form = item.client_form;
+    if (form.template && form.missing == null) gaps.push("formularza");
+    if (form.score_template && form.score_missing == null) gaps.push("tabeli punktowej");
+  } else if (from === "verified" && to === "cv_qc" && item.company_cv === false) gaps.push("CV firmowego");
   return gaps.length > 0 ? `bez: ${gaps.join(", ")}` : null;
 }
 
@@ -1301,6 +1349,8 @@ const SKIPPED_SHORT_LABEL: Readonly<Record<string, string>> = {
   why_candidate: "„Dlaczego”",
   candidate_rate: "stawki",
   debrief: "debriefu",
+  client_form: "formularza",
+  client_score: "tabeli punktowej",
 };
 
 /**
