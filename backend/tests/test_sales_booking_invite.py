@@ -320,3 +320,62 @@ def test_attendees_skip_the_organizer_and_duplicates() -> None:
         "a@x.pl",
         "me@b2b.pl",
     ]
+
+
+@pytest.mark.asyncio
+async def test_token_failure_is_undelivered_and_frees_the_reservation(
+    app_client, graph, monkeypatch
+) -> None:
+    """Entra nieosiągalne (MSAL rzuca ``requests``): nic nie wyszło, ponowienie od razu."""
+
+    import requests
+
+    from app.services.m365 import sales_invite_auth
+    from app.services.m365.app_graph_client import AppGraphClient
+
+    class _Broken:
+        def acquire_token_for_client(self, scopes):
+            raise requests.exceptions.ConnectionError("login.microsoftonline.com")
+
+        def remove_tokens_for_client(self) -> None:
+            return None
+
+    monkeypatch.setattr(booking_invite, "AppGraphClient", AppGraphClient)
+    monkeypatch.setattr(sales_invite_auth, "_msal_app", lambda: _Broken())
+    caller, _host, opportunity_id = await _handoff(app_client)
+
+    resp = await _send(app_client, caller, opportunity_id)
+    assert resp.status_code == 502, resp.text
+    assert resp.json()["detail"] == booking_invite.UNDELIVERED_DETAIL
+    assert await _invite_block(opportunity_id) is None
+
+
+@pytest.mark.asyncio
+async def test_staging_egress_block_is_undelivered(app_client, graph) -> None:
+    from app.core.staging import StagingEgressBlocked
+
+    caller, _host, opportunity_id = await _handoff(app_client)
+    graph.fail_with = StagingEgressBlocked("graph.microsoft.com")
+    resp = await _send(app_client, caller, opportunity_id)
+    assert resp.status_code == 502, resp.text
+    assert await _invite_block(opportunity_id) is None
+
+
+@pytest.mark.asyncio
+async def test_owner_without_sales_edit_gets_no_meeting(app_client, graph) -> None:
+    """Opiekun zmieniony po umówieniu na konto bez „Sprzedaż: edycja”: bez spotkania."""
+
+    from app.models.sales import SalesOpportunity
+
+    caller, _host, opportunity_id = await _handoff(app_client)
+    outsider = await _user()
+    async with AsyncSessionLocal() as db:
+        opportunity = await db.get(SalesOpportunity, opportunity_id)
+        opportunity.owner_user_id = outsider.id
+        await db.commit()
+
+    resp = await _send(app_client, caller, opportunity_id)
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == booking_invite.NO_HOST_DETAIL
+    assert graph.calls == []
+    assert await _invite_block(opportunity_id) is None

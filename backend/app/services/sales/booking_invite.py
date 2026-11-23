@@ -28,6 +28,7 @@ from fastapi import HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.staging import StagingEgressBlocked
 from app.models.sales import SalesOpportunity
 from app.models.user import User
 from app.services.m365 import calendar as m365_calendar
@@ -37,6 +38,7 @@ from app.services.m365.sales_invite_auth import (
     acquire_sales_invite_token,
     credentials_configured,
 )
+from app.services.sales import handoff_hosts
 from app.services.sales.handoff_invite import MAX_ATTENDEES, Uncertain, Undelivered
 from app.services.sales.meeting_client_mail import normalize_address, text_to_html
 
@@ -59,8 +61,14 @@ UNCERTAIN_DETAIL = (
     "kalendarza, zanim spróbujesz ponownie."
 )
 
-# Połączenie nie powstało: Graph nie widział żądania (jak w ``handoff_invite``).
-_NEVER_SENT = (httpx.ConnectError, httpx.ConnectTimeout, AppOnlyTokenUnavailable)
+# Połączenie nie powstało: Graph nie widział żądania (jak w ``handoff_invite``), także
+# zapora wyjścia stagingu i brak tokenu (``sales_invite_auth`` łapie błędy MSAL).
+_NEVER_SENT = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    AppOnlyTokenUnavailable,
+    StagingEgressBlocked,
+)
 
 
 class NoAccess(Undelivered):
@@ -85,12 +93,19 @@ def configured() -> bool:
 
 
 async def host_upn(db: AsyncSession, opportunity: SalesOpportunity) -> Optional[str]:
-    """Skrzynka prowadzącego (opiekuna szansy): w niej powstaje spotkanie."""
+    """Skrzynka prowadzącego (opiekuna szansy): w niej powstaje spotkanie.
+
+    Opiekuna można zmienić po umówieniu na dowolne aktywne konto, więc bramka
+    prowadzącego z „Umów spotkanie” (``handoff_hosts.ensure_host``, „Sprzedaż: edycja”)
+    jest sprawdzana jeszcze raz: aplikacja nie zakłada spotkania w kalendarzu kogoś,
+    komu nie można przekazać spotkania, nawet gdy zakres w Exchange byłby za szeroki.
+    """
 
     if opportunity.owner_user_id is None:
         return None
-    host = await db.get(User, opportunity.owner_user_id)
-    if host is None or not host.is_active:
+    try:
+        host = await handoff_hosts.ensure_host(db, opportunity.owner_user_id)
+    except HTTPException:
         return None
     return normalize_address(host.email or "")
 

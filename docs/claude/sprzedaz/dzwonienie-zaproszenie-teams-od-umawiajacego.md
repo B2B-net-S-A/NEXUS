@@ -45,14 +45,19 @@ Bez migracji.
   cokolwiek o adresach (`booking_mail.ensure_sender`).
 - Adres z bazy kandydatów: 422 bez wymieniania adresu. Kontakt ze sprzeciwem: 409.
 - Brak poświadczeń aplikacji: 409 z prośbą o mail (`NOT_CONFIGURED_DETAIL`).
-- Prowadzący bez aktywnego konta albo adresu: 409.
+- Opiekun szansy bez aktywnego konta z „Sprzedaż: edycja” albo bez adresu: 409. Opiekuna
+  da się zmienić po umówieniu na dowolne konto, więc bramka prowadzącego z „Umów spotkanie”
+  (`handoff_hosts.ensure_host`) idzie jeszcze raz przed Graph; aplikacja nie polega tylko
+  na zakresie w Exchange (przegląd 23.11.2026).
 - **Jedno zaproszenie na przekazanie, bez względu na to, kto je wysyła**: ten sam klucz
   `invite` w bloku przekazania i ten sam `transactionId` (`sales-handoff-{id}-{termin}`)
   co w `handoff_invite`, zapisany przed Graph. Po zaproszeniu od umawiającego prowadzący
   dostaje 409 („już w kalendarzu”), i odwrotnie.
 - Odmowa Graph 403/404 (skrzynka poza zakresem aplikacji): 409 „NEXUS nie ma dostępu do
   kalendarza tego prowadzącego”, rezerwacja znika. Inne 4xx, brak tokenu i połączenie,
-  które nie powstało (zapora na stagingu): 502, rezerwacja znika. 5xx i zerwana odpowiedź:
+  które nie powstało (zapora na stagingu `StagingEgressBlocked`): 502, rezerwacja znika.
+  Każdy błąd MSAL przy tokenie (Entra nieosiągalne, zły tenant) to „brak tokenu”, bo
+  MSAL idzie przez `requests`, a nie httpx, i inaczej wpadłby do „nie wiadomo”. 5xx i zerwana odpowiedź:
   409 „nie wiadomo”, rezerwacja trzyma 10 minut.
 
 ## Ślad

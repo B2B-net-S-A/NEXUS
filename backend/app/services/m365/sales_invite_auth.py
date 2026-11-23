@@ -63,13 +63,22 @@ def _msal_app() -> msal.ConfidentialClientApplication:
 
 
 def acquire_sales_invite_token(*, force_refresh: bool = False) -> Optional[str]:
-    """Token ``.default`` albo ``None`` (jak ``acquire_teams_prep_token``)."""
+    """Token ``.default`` albo ``None`` (jak ``acquire_teams_prep_token``).
+
+    Każdy błąd MSAL to ``None``: MSAL łączy się z Entra przez ``requests``, nie httpx,
+    więc jego wyjątki (sieć, zapora stagingu, zły tenant) inaczej trafiłyby do „nie
+    wiadomo, czy wyszło”, choć do Graph nic nie poszło (przegląd 23.11.2026).
+    """
     if not credentials_configured():
         return None
-    app = _msal_app()
-    if force_refresh:
-        app.remove_tokens_for_client()
-    result = app.acquire_token_for_client(scopes=_SCOPE)
+    try:
+        app = _msal_app()
+        if force_refresh:
+            app.remove_tokens_for_client()
+        result = app.acquire_token_for_client(scopes=_SCOPE)
+    except Exception as exc:  # noqa: BLE001 — wołający dostaje „brak tokenu”
+        logger.warning("sales_invite: token request failed (%s)", type(exc).__name__)
+        return None
     token = result.get("access_token") if isinstance(result, dict) else None
     if not token:
         logger.warning(
