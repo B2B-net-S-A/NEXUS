@@ -6,6 +6,9 @@ import {
   bigWord,
   boardCardFor,
   checklistSummary,
+  facetCounts,
+  jobCities,
+  wordEm,
   highlightSkill,
   nextBatch,
   openNowLabel,
@@ -34,11 +37,8 @@ describe("wielkie słowo nad tytułem oferty", () => {
     expect(bigWord(job("a", { must: ["Power Platform", "Power Apps"] }))).toBe("Power Platform");
   });
 
-  it("bez krótkiej umiejętności — słowo kategorii, bez kategorii — nic (bez zmyślania)", () => {
-    expect(bigWord(job("a", { must: ["strategia rozwoju rozwiązań AI w firmie"], category: "management" }))).toBe(
-      "Management",
-    );
-    expect(bigWord(job("a", { must: [], category: null }))).toBeNull();
+  it("bez krótkiej umiejętności — brak słowa, także bez słowa kategorii (bez zmyślania)", () => {
+    expect(bigWord(job("a", { must: ["strategia rozwoju rozwiązań AI w firmie"], category: "management" }))).toBeNull();
     expect(bigWord(null)).toBeNull();
   });
 });
@@ -112,5 +112,25 @@ describe("odmiana i liczniki", () => {
     expect(nextBatch(30, 12)).toBe(12);
     expect(nextBatch(5, 12)).toBe(5);
     expect(nextBatch(0, 12)).toBe(0);
+  });
+});
+
+describe("zamiast kategorii: miasta", () => {
+  it("rozpoznaje miasta w opisowym polu miejsca", () => {
+    expect(jobCities({ city: "Priorytet Gdańsk, ewentualnie Warszawa" })).toEqual(["Warszawa", "Gdańsk"]);
+    expect(jobCities({ city: "Gdańsk (preferowana)" })).toEqual(["Gdańsk"]);
+    expect(jobCities({ city: "Trójmiasto" })).toEqual(["Gdańsk", "Gdynia", "Sopot"]);
+    expect(jobCities({ city: "Cała Polska" })).toEqual([]);
+    expect(jobCities({ city: null })).toEqual([]);
+  });
+
+  it("liczy miasta od najczęstszego; rekrutacja bez miasta nie liczy się nigdzie", () => {
+    const list = [job("a", { city: "Warszawa, Gdańsk" }), job("b", { city: "Tylko Warszawa" }), job("c", { city: null })];
+    expect(facetCounts(list).map((f) => [f.label, f.count])).toEqual([["Warszawa", 2], ["Gdańsk", 1]]);
+  });
+
+  it("szerokość słowa: wersaliki liczą się szerzej niż małe litery", () => {
+    expect(wordEm("BPMN")).toBeGreaterThan(wordEm("bpmn"));
+    expect(wordEm("AI")).toBeGreaterThanOrEqual(2.4);
   });
 });

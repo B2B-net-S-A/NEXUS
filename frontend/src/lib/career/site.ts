@@ -9,20 +9,10 @@
  * z tekstu dopisanego ręcznie.
  */
 import type { CareerBoardCategory, CareerBoardJob } from "./api";
-import { BOARD_CATEGORIES, filterBoard, type BoardFilters } from "./board";
-
-/** Kolejność talii kart kategorii na makiecie: od lewej. */
-export const DECK_ORDER: readonly CareerBoardCategory[] = ["development", "infra", "qa", "management"];
+import { filterBoard, type BoardFilters } from "./board";
 
 /** Najdłuższe słowo, które zmieści się nad tytułem bez łamania (Montserrat 800). */
 export const BIG_WORD_MAX = 14;
-
-const CATEGORY_WORD: Record<CareerBoardCategory, string> = {
-  development: "Development",
-  infra: "Infra",
-  qa: "QA",
-  management: "Management",
-};
 
 /** Bez polskich znaków i wielkich liter — „python” znajdzie „Pythonie”. */
 export function fold(text: string): string {
@@ -44,15 +34,14 @@ export function boardCardFor(
 
 /**
  * Wielkie słowo nad tytułem oferty: pierwsza krótka umiejętność z tablicy
- * („Python”, „AI”), a bez niej pierwsze słowo kategorii. Bez obu — brak słowa
- * (tytuł zostaje sam), zamiast wymyślać hasło za rekrutera.
+ * („Python”, „AI”). Bez niej brak słowa (tytuł zostaje sam), zamiast wymyślać
+ * hasło za rekrutera. Kategorii nie pokazujemy (decyzja Artura 23.11.2026).
  */
-export function bigWord(card: Pick<CareerBoardJob, "must" | "category"> | null): string | null {
+export function bigWord(card: Pick<CareerBoardJob, "must"> | null): string | null {
   const skill = (card?.must ?? [])
     .map((s) => s.trim())
     .find((s) => s.length >= 2 && s.length <= BIG_WORD_MAX && s.split(/\s+/).length <= 2);
-  if (skill) return skill;
-  return card?.category ? CATEGORY_WORD[card.category] : null;
+  return skill ?? null;
 }
 
 export interface Highlighted {
@@ -86,11 +75,6 @@ export function highlightSkill(sentence: string, skills: readonly string[]): Hig
     key: sentence.slice(best.at, best.at + best.len),
     after: sentence.slice(best.at + best.len),
   };
-}
-
-/** Liczniki kart kategorii (talia): ile kart zostaje po szukaniu i trybie. */
-export function deckCategories(): { id: CareerBoardCategory; label: string }[] {
-  return DECK_ORDER.map((id) => ({ id, label: BOARD_CATEGORIES.find((c) => c.id === id)?.label ?? id }));
 }
 
 /**
@@ -160,4 +144,67 @@ export function openNowLabel(n: number): string {
   if (form === "one") return "jest teraz 1 rekrutacja";
   if (form === "few") return `są teraz ${n} rekrutacje`;
   return `jest teraz ${n} rekrutacji`;
+}
+
+/**
+ * Szerokość słowa w em dla Montserrat 800 ze ściśniętą literą (-0,055em):
+ * wersaliki i cyfry są szersze niż małe litery. Z tej liczby CSS liczy rozmiar
+ * wielkiego słowa tak, żeby zmieściło się w szerokości treści — także „BPMN”
+ * na telefonie (wcześniej wychodziło poza ekran).
+ */
+export function wordEm(word: string): number {
+  let em = 0;
+  for (const ch of word) {
+    if (ch === " ") em += 0.28;
+    else if (/[A-ZĄĆĘŁŃÓŚŹŻ0-9]/.test(ch)) em += ch === "I" ? 0.36 : /[MW]/.test(ch) ? 0.98 : 0.8;
+    else if (/[iljtfr.,]/.test(ch)) em += 0.36;
+    else if (/[mw]/.test(ch)) em += 0.92;
+    else em += 0.6;
+  }
+  return Math.max(em, 2.4) * 1.04;
+}
+
+/** Miasto z liczbą otwartych rekrutacji (filtr zamiast kategorii, decyzja 23.11.2026). */
+export interface Facet {
+  id: string;
+  label: string;
+  count: number;
+}
+
+/**
+ * Miasta, które rozpoznajemy w polu miejsca. Pole bywa opisem („Priorytet
+ * Gdańsk”, „Tylko Warszawa”, „Gdańsk (preferowana)”), więc szukamy nazw,
+ * a nie dzielimy tekstu po przecinkach. „Trójmiasto” liczy się do trzech miast.
+ */
+const CITIES = [
+  "Warszawa", "Gdańsk", "Gdynia", "Sopot", "Łódź", "Kraków", "Katowice", "Wrocław", "Poznań",
+  "Bydgoszcz", "Lublin", "Szczecin", "Białystok", "Rzeszów", "Toruń", "Olsztyn", "Kielce",
+  "Opole", "Gliwice", "Częstochowa",
+];
+const TRICITY = ["Gdańsk", "Gdynia", "Sopot"];
+
+export function jobCities(job: Pick<CareerBoardJob, "city">): string[] {
+  const text = fold(job.city ?? "");
+  if (!text) return [];
+  const found = CITIES.filter((c) => new RegExp(`(^|[^a-z])${fold(c)}([^a-z]|$)`).test(text));
+  if (/(^|[^a-z])trojmiasto/.test(text)) for (const c of TRICITY) if (!found.includes(c)) found.push(c);
+  return found;
+}
+
+export function jobFacetIds(job: Pick<CareerBoardJob, "city">): string[] {
+  return jobCities(job).map(fold);
+}
+
+/** Miasta z liczbami, od najczęstszego; liczone na podanej (już przeszukanej) liście. */
+export function facetCounts(jobs: readonly Pick<CareerBoardJob, "city">[]): Facet[] {
+  const counts = new Map<string, Facet>();
+  for (const job of jobs) {
+    for (const label of jobCities(job)) {
+      const id = fold(label);
+      const f = counts.get(id) ?? { id, label, count: 0 };
+      f.count += 1;
+      counts.set(id, f);
+    }
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "pl"));
 }

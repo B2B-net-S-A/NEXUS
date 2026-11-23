@@ -2,10 +2,10 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
-import type { CareerBoardCategory, CareerBoardResponse, RemotePolicy } from "@/lib/career/api";
-import { BOARD_MODES, BOARD_PAGE, categoryCounts, filterBoard } from "@/lib/career/board";
+import type { CareerBoardResponse, RemotePolicy } from "@/lib/career/api";
+import { BOARD_MODES, BOARD_PAGE, filterBoard } from "@/lib/career/board";
 import { careerHref, type CareerBase } from "@/lib/career/host";
-import { deckCategories, nextBatch, openNowLabel, partialMatch } from "@/lib/career/site";
+import { facetCounts, jobFacetIds, nextBatch, openNowLabel, partialMatch } from "@/lib/career/site";
 
 import { OfferApply, type OfferApplyProps } from "./OfferApply";
 import { OfferCard } from "./OfferCard";
@@ -14,12 +14,16 @@ import { ChapterMark, siteStyles as s } from "./SiteFrame";
 
 export const CV_ID = "zostaw-cv";
 
+/** Ile miast na kartach talii i ile w wierszu pod szukajką. */
+const DECK = 4;
+const CHIPS = 8;
+
 /**
  * Lista otwartych rekrutacji (plansze KarieraA, TelKariera, ListaBrakWynikow,
- * ZostawCV): liczba otwartych rozkłada się na talię czterech kart kategorii,
- * które są filtrem; pod nimi szukajka, tryb pracy, karty ofert i „Pokaż
- * kolejne”, na końcu prośba o CV. Liczby przy kategoriach liczą się po
- * szukaniu i trybie (`categoryCounts`), szukanie bez polskich znaków.
+ * ZostawCV): liczba otwartych i talia czterech kart z miastami (zamiast
+ * kategorii, decyzja 23.11.2026), które są filtrem, reszta miast w chipach; pod nimi szukajka, tryb
+ * pracy, karty ofert i „Pokaż kolejne”, na końcu prośba o CV. Liczby na
+ * kartach liczą się po szukaniu i trybie, szukanie bez polskich znaków.
  *
  * `data: null` = API nie odpowiedziało — osobny komunikat, nigdy „brak
  * rekrutacji” (awaria nie może wyglądać jak pusta lista).
@@ -76,17 +80,25 @@ function Board({
   const uid = useId();
   const [query, setQuery] = useState("");
   const [modes, setModes] = useState<RemotePolicy[]>([]);
-  const [category, setCategory] = useState<CareerBoardCategory | null>(null);
+  const [facet, setFacet] = useState<string | null>(null);
   const [cvOpen, setCvOpen] = useState(false);
   const cvRef = useRef<HTMLElement>(null);
   // „Pokaż kolejne” liczy się dla jednego zestawu filtrów; zmiana filtra wraca do pierwszej paczki.
-  const filterKey = `${query}|${modes.join(",")}|${category}`;
+  const filterKey = `${query}|${modes.join(",")}|${facet}`;
   const [more, setMore] = useState({ key: "", extra: 0 });
   const extra = more.key === filterKey ? more.extra : 0;
 
-  const filters = useMemo(() => ({ category, query, modes }), [category, query, modes]);
-  const counts = useMemo(() => categoryCounts(data.jobs, filters), [data.jobs, filters]);
-  const visible = useMemo(() => filterBoard(data.jobs, filters), [data.jobs, filters]);
+  const filters = useMemo(() => ({ category: null, query, modes }), [query, modes]);
+  // Liczby przy miastach / technologiach liczą się po szukaniu i trybie, bez samego wyboru.
+  const searched = useMemo(() => filterBoard(data.jobs, filters), [data.jobs, filters]);
+  const facets = useMemo(() => facetCounts(searched), [searched]);
+  // Talia i wiersz pod szukajką stoją na liczbach z całej listy, żeby karty nie skakały przy pisaniu.
+  const allFacets = useMemo(() => facetCounts(data.jobs), [data.jobs]);
+  const countOf = (id: string) => facets.find((f) => f.id === id)?.count ?? 0;
+  const visible = useMemo(
+    () => (facet ? searched.filter((j) => jobFacetIds(j).includes(facet)) : searched),
+    [searched, facet],
+  );
   const shown = visible.slice(0, BOARD_PAGE + extra);
   const rest = visible.length - shown.length;
   const batch = nextBatch(rest, BOARD_PAGE);
@@ -107,7 +119,7 @@ function Board({
   const clearAll = () => {
     setQuery("");
     setModes([]);
-    setCategory(null);
+    setFacet(null);
   };
   // Plansza ListaBrakWynikow: hasło bez trafień zamienia liczbę w „0”.
   const noHits = query.trim() !== "" && visible.length === 0;
@@ -119,6 +131,45 @@ function Board({
     if (cvOpen) cvRef.current?.focus();
     else setCvOpen(true);
   };
+
+  const searchBar = (
+        <div className={s.bar} role="search">
+              <label className={s.search}>
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <circle cx="7.5" cy="7.5" r="5.5" stroke="currentColor" strokeWidth="1.8" />
+                  <path d="M12 12l4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+                <span className={s.srOnly}>Szukaj oferty</span>
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Java, Kraków, Kafka…"
+                />
+                <span className={`${s.mono} ${s.count}`} aria-live="polite">
+                  <b>{visible.length}</b> z {total}
+                </span>
+                {query ? (
+                  <button type="button" className={s.clear} aria-label="Wyczyść szukanie" onClick={() => setQuery("")}>
+                    ×
+                  </button>
+                ) : null}
+              </label>
+              <div role="group" aria-label="Tryb pracy" className={s.pills}>
+                {BOARD_MODES.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    aria-pressed={modes.includes(m.id)}
+                    onClick={() => toggleMode(m.id)}
+                    className={s.pill}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+  );
 
   return (
     <main>
@@ -138,64 +189,45 @@ function Board({
                 : "Projekty B2B: zdalnie, hybrydowo i stacjonarnie."}
             </p>
           </div>
-          <div role="group" aria-label="Kategorie" className={s.deck}>
-            {deckCategories().map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                aria-pressed={category === c.id}
-                onClick={() => setCategory(category === c.id ? null : c.id)}
-                className={`${s.card} ${s[`c_${c.id}`]} ${category && category !== c.id ? s.dim : ""}`}
-              >
-                <b>{counts[c.id]}</b>
-                <span>{c.label}</span>
-                <i aria-hidden="true">{category === c.id ? "×" : "→"}</i>
-              </button>
-            ))}
-          </div>
+          {allFacets.length > 0 ? (
+            <div role="group" aria-label="Miasta" className={s.deck}>
+              {allFacets.slice(0, DECK).map((f, i) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  aria-pressed={facet === f.id}
+                  onClick={() => setFacet(facet === f.id ? null : f.id)}
+                  className={`${s.card} ${s[`d${i}`]} ${facet && facet !== f.id ? s.dim : ""}`}
+                >
+                  <b>{countOf(f.id)}</b>
+                  <span>{f.label}</span>
+                  <i aria-hidden="true">{facet === f.id ? "×" : "→"}</i>
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       </section>
 
       <section className={`${s.ch} ${s.chSnow} ${s.list}`} aria-label="Rekrutacje">
         <ChapterMark index={1} count={3} name="Rekrutacje" />
         <div className={s.wrap}>
-          <div className={s.bar} role="search">
-            <label className={s.search}>
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-                <circle cx="7.5" cy="7.5" r="5.5" stroke="currentColor" strokeWidth="1.8" />
-                <path d="M12 12l4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-              <span className={s.srOnly}>Szukaj oferty</span>
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Java, Kraków, Kafka…"
-              />
-              <span className={`${s.mono} ${s.count}`} aria-live="polite">
-                <b>{visible.length}</b> z {total}
-              </span>
-              {query ? (
-                <button type="button" className={s.clear} aria-label="Wyczyść szukanie" onClick={() => setQuery("")}>
-                  ×
-                </button>
-              ) : null}
-            </label>
-            <div role="group" aria-label="Tryb pracy" className={s.pills}>
-              {BOARD_MODES.map((m) => (
+          {searchBar}
+          {allFacets.length > DECK ? (
+            <div role="group" aria-label="Inne miasta" className={s.chips}>
+              {allFacets.slice(DECK, DECK + CHIPS).map((f) => (
                 <button
-                  key={m.id}
+                  key={f.id}
                   type="button"
-                  aria-pressed={modes.includes(m.id)}
-                  onClick={() => toggleMode(m.id)}
-                  className={s.pill}
+                  aria-pressed={facet === f.id}
+                  onClick={() => setFacet(facet === f.id ? null : f.id)}
+                  className={s.chip}
                 >
-                  {m.label}
+                  {f.label} <b>{countOf(f.id)}</b>
                 </button>
               ))}
             </div>
-          </div>
-
+          ) : null}
           {shown.length > 0 ? (
             <div className={s.grid}>
               {shown.map((j) => (

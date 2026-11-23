@@ -1,11 +1,13 @@
 import type { CareerBoardJob, CareerJobResponse } from "@/lib/career/api";
 import { careerHref, type CareerBase } from "@/lib/career/host";
-import { bigWord, boardCardFor, similarJobs } from "@/lib/career/site";
+import { bigWord, boardCardFor, similarJobs, wordEm } from "@/lib/career/site";
 
 import { mockJob } from "../layouts/jobModel";
+import { ApplyDock } from "./ApplyDock";
 import { OfferApply, type OfferApplyProps } from "./OfferApply";
 import { OfferChecklist } from "./OfferChecklist";
 import { OfferClosed } from "./OfferClosed";
+import { QuickApply, type QuickApplyProps } from "./QuickApply";
 import { SentGate } from "./SentGate";
 import { ChapterMark, SiteFrame, Who, siteStyles as s } from "./SiteFrame";
 import { StepsList } from "./Steps";
@@ -25,11 +27,14 @@ export function OfferPage({
   board,
   base,
   formPreview,
+  quick,
 }: {
   data: CareerJobResponse;
   board: readonly CareerBoardJob[] | null;
   base: CareerBase;
   formPreview?: OfferApplyProps["preview"];
+  /** Harness: stan szybkiej aplikacji bez wysyłki. */
+  quick?: Pick<QuickApplyProps, "preview">;
 }) {
   const jobs = board ?? [];
   const card = boardCardFor(jobs, [data.canonical_slug, data.job.slug]);
@@ -78,14 +83,14 @@ export function OfferPage({
                 <p
                   aria-hidden="true"
                   className={`${s.display} ${s.word}`}
-                  style={{ "--len": Math.max(word.length, 4) } as React.CSSProperties}
+                  style={{ "--em": wordEm(word) } as React.CSSProperties}
                 >
                   {word}
                 </p>
               ) : null}
-              <div className={`${s.row1} ${hasChecklist ? "" : s.row1Solo}`}>
+              <div className={s.row1}>
                 <div>
-                  <h1 className={s.title}>{m.title}</h1>
+                  <h1 className={`${s.title} ${m.title.length > 60 ? s.titleLong : ""}`}>{m.title}</h1>
                   {m.subtitle ? <p className={s.summary}>{m.subtitle}</p> : null}
                   {m.facts.length > 0 ? (
                     <dl className={s.facts}>
@@ -98,19 +103,23 @@ export function OfferPage({
                     </dl>
                   ) : null}
                   <div className={s.ctas}>
-                    <a href="#aplikuj" className={`${s.btn} ${s.btnWhite}`}>
-                      Aplikuj, 2 minuty
-                    </a>
                     {leads ? <Who name={leads} initialOf={name} white /> : null}
+                    <a href="#aplikuj" className={s.fullLink}>
+                      Pełny formularz: stawka, dostępność →
+                    </a>
                   </div>
                 </div>
-                {hasChecklist ? (
-                  <OfferChecklist
-                    must={m.must.map((x) => ({ text: x.name, note: x.note }))}
-                    nice={m.nice.map((x) => ({ text: x }))}
-                    skills={skills}
-                  />
-                ) : null}
+                {/* Prawa kolumna od 1024 px: szybka aplikacja na pierwszym ekranie, pod nią lista. */}
+                <div className={s.side}>
+                  <QuickApply linkSlug={m.slug} rodoHref={rodoHref} {...quick} />
+                  {hasChecklist ? (
+                    <OfferChecklist
+                      must={m.must.map((x) => ({ text: x.name, note: x.note }))}
+                      nice={m.nice.map((x) => ({ text: x }))}
+                      skills={skills}
+                    />
+                  ) : null}
+                </div>
               </div>
             </div>
           </section>
@@ -124,7 +133,7 @@ export function OfferPage({
               <div className={s.wrap}>
                 <div className={`${s.row2} ${tasksBlock ? "" : s.row2Solo}`}>
                   <div>
-                    <p aria-hidden="true" className={`${s.display} ${s.projectWord}`} style={{ "--len": 7 } as React.CSSProperties}>
+                    <p aria-hidden="true" className={`${s.display} ${s.projectWord}`} style={{ "--em": wordEm("Projekt") } as React.CSSProperties}>
                       Projekt
                     </p>
                     {aboutBlocks.map((b, i) => (
@@ -217,6 +226,7 @@ export function OfferPage({
               />
             </div>
           </section>
+          <ApplyDock />
         </main>
       </SentGate>
     </SiteFrame>

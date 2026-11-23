@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OfferPage } from "@/components/career/site/OfferPage";
@@ -49,6 +49,9 @@ function renderPage() {
   return render(<OfferPage data={JOB} board={[]} base="" />);
 }
 
+/** Pełny formularz w rozdziale „Aplikuj” (w nagłówku stoi też szybka aplikacja). */
+const full = (c: HTMLElement) => c.querySelector<HTMLElement>("#aplikuj")!;
+
 function pickCv(container: HTMLElement, file: File) {
   const input = container.querySelector<HTMLInputElement>('input[name="cv"]')!;
   Object.defineProperty(input, "files", { configurable: true, value: [file] });
@@ -80,8 +83,8 @@ describe("formularz oferty (plansze OfertaA i AplikacjaBledy)", () => {
 
   it("zły typu pliku: komunikat nazywa rozszerzenie", () => {
     const { container } = renderPage();
-    pickCv(container, new File(["x"], "portfolio.zip", { type: "application/zip" }));
-    consent(container);
+    pickCv(full(container), new File(["x"], "portfolio.zip", { type: "application/zip" }));
+    consent(full(container));
     submit();
     expect(screen.getByText("Ten plik to ZIP. CV musi być plikiem PDF, DOC albo DOCX do 10 MB.")).toBeTruthy();
     expect(screen.getByRole("heading", { level: 2, name: /1 rzecz do poprawy/ })).toBeTruthy();
@@ -90,8 +93,8 @@ describe("formularz oferty (plansze OfertaA i AplikacjaBledy)", () => {
   it("wysyła multipart na /apply z linkiem, CV i zgodą — bez imienia (czyta je serwer z CV)", async () => {
     fetchMock.mockResolvedValueOnce(json(201, { first_name: "Anna", email: "anna@example.com" }));
     const { container } = renderPage();
-    pickCv(container, pdf());
-    consent(container);
+    pickCv(full(container), pdf());
+    consent(full(container));
     submit();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -114,11 +117,11 @@ describe("formularz oferty (plansze OfertaA i AplikacjaBledy)", () => {
       json(422, { detail: [{ loc: ["body", "email"], msg: "W CV nie znaleźliśmy adresu e-mail. Wpisz go." }] }),
     );
     const { container } = renderPage();
-    expect(container.querySelector('input[name="email"]')).toBeNull();
-    pickCv(container, pdf());
-    consent(container);
+    expect(full(container).querySelector('input[name="email"]')).toBeNull();
+    pickCv(full(container), pdf());
+    consent(full(container));
     submit();
-    expect(await screen.findByLabelText(/E-mail/)).toBeTruthy();
+    expect(await within(full(container)).findByLabelText(/E-mail/)).toBeTruthy();
     expect(screen.getByText("W CV nie znaleźliśmy adresu e-mail. Wpisz go.")).toBeTruthy();
     // Puste pole e-mail przy ponownej próbie: komunikat z przeglądarki, bez wysyłki.
     submit();
@@ -129,20 +132,55 @@ describe("formularz oferty (plansze OfertaA i AplikacjaBledy)", () => {
   it("awaria sieci: baner z powodem, wpisane dane zostają", async () => {
     fetchMock.mockRejectedValueOnce(new TypeError("offline"));
     const { container } = renderPage();
-    pickCv(container, pdf());
-    consent(container);
+    pickCv(full(container), pdf());
+    consent(full(container));
     submit();
     expect(await screen.findByText(/Brak połączenia/)).toBeTruthy();
-    expect((container.querySelector('input[name="consent"]') as HTMLInputElement).checked).toBe(true);
+    expect((full(container).querySelector('input[name="consent"]') as HTMLInputElement).checked).toBe(true);
     expect(screen.getByText(/Wpisane dane i plik zostają/)).toBeTruthy();
   });
 
   it("zamknięty link (404) mówi to wprost", async () => {
     fetchMock.mockResolvedValueOnce(json(404));
     const { container } = renderPage();
-    pickCv(container, pdf());
-    consent(container);
+    pickCv(full(container), pdf());
+    consent(full(container));
     submit();
     expect(await screen.findByText(/Link wygasł albo rekrutacja jest już zamknięta/)).toBeTruthy();
+  });
+});
+
+describe("szybka aplikacja w nagłówku oferty: samo CV i „Wyślij CV”", () => {
+  const quick = (c: HTMLElement) => c.querySelector<HTMLFormElement>("form[aria-label='Szybka aplikacja: samo CV']")!;
+
+  it("CV i zgoda wystarczą: ta sama wysyłka, potem ekran „Wysłane”", async () => {
+    fetchMock.mockResolvedValueOnce(json(201, { first_name: "Anna", email: "anna@example.com" }));
+    const { container } = renderPage();
+    pickCv(quick(container), pdf());
+    consent(quick(container));
+    fireEvent.click(within(quick(container)).getByRole("button", { name: "Wyślij CV" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const body = (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as FormData;
+    expect(body.get("link_slug")).toBe("tester-ab12");
+    expect(body.get("consent")).toBe("true");
+    expect((body.get("cv") as File).name).toBe("cv-anna.pdf");
+    expect(await screen.findByText("Wysłane")).toBeTruthy();
+  });
+
+  it("bez zgody nic nie wychodzi i mówi, czego brakuje", () => {
+    const { container } = renderPage();
+    pickCv(quick(container), pdf());
+    fireEvent.click(within(quick(container)).getByRole("button", { name: "Wyślij CV" }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(within(quick(container)).getByRole("alert").textContent).toContain("Zaznacz zgodę");
+  });
+
+  it("CV bez e-maila: pojawia się jedno pole e-mail", async () => {
+    fetchMock.mockResolvedValueOnce(json(422, { detail: [{ loc: ["body", "email"], msg: "W CV nie znaleźliśmy adresu e-mail." }] }));
+    const { container } = renderPage();
+    pickCv(quick(container), pdf());
+    consent(quick(container));
+    fireEvent.click(within(quick(container)).getByRole("button", { name: "Wyślij CV" }));
+    expect(await within(quick(container)).findByLabelText("E-mail")).toBeTruthy();
   });
 });

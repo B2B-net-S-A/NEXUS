@@ -288,7 +288,13 @@ export default function CareerPreviewPage({
       </State>
 
       <State id="otwarta" label="rekrutacja otwarta">
-        <OfferPage data={OPEN_JOB} board={BOARD.jobs} base={BASE} formPreview={{ disableSubmit: true }} />
+        <OfferPage
+          data={OPEN_JOB}
+          board={BOARD.jobs}
+          base={BASE}
+          formPreview={{ disableSubmit: true }}
+          quick={{ preview: { disableSubmit: true } }}
+        />
       </State>
 
       <State id="oferta-bledy" label="oferta — formularz z błędami">

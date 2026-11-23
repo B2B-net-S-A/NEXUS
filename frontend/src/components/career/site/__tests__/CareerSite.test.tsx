@@ -78,7 +78,8 @@ describe("strona oferty — jeden szablon dla każdej roli (OfertaA, OfertaManag
     expect(within(process).getByText("Rozmowa z Pauliną")).toBeTruthy();
     expect(within(process).getByText("Umowa B2B")).toBeTruthy();
     expect(container.querySelector("section#aplikuj[aria-label='Aplikuj']")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Aplikuj, 2 minuty" }).getAttribute("href")).toBe("#aplikuj");
+    expect(screen.getByRole("form", { name: "Szybka aplikacja: samo CV" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Pełny formularz/ }).getAttribute("href")).toBe("#aplikuj");
   });
 
   it("wielkie słowo i pogrubienie tylko z krótkich umiejętności tablicy", () => {
@@ -124,18 +125,19 @@ describe("strona oferty — jeden szablon dla każdej roli (OfertaA, OfertaManag
 const DATA: CareerBoardResponse = { jobs: BOARD, cv: { slug: "olga-r", first_name: "Olga" } };
 
 describe("lista rekrutacji (KarieraA)", () => {
-  it("talia kategorii z liczbami filtruje listę; liczniki liczą się po szukaniu", () => {
+  it("bez kategorii: talia miast z liczbami filtruje listę; liczby liczą się po szukaniu", () => {
     render(<CareerBoard data={DATA} base="" />);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("4");
-    const dev = screen.getByRole("button", { name: /2\s*Management & delivery/ });
-    fireEvent.click(dev);
-    expect(dev.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByText("Development")).toBeNull();
+    const waw = screen.getByRole("button", { name: /2\s*Warszawa/ });
+    fireEvent.click(waw);
+    expect(waw.getAttribute("aria-pressed")).toBe("true");
     expect(screen.getAllByRole("article")).toHaveLength(2);
-    fireEvent.click(dev);
-    fireEvent.change(screen.getByPlaceholderText("Java, Kraków, Kafka…"), { target: { value: "krakow" } });
+    fireEvent.click(waw);
+    fireEvent.change(screen.getByPlaceholderText("Java, Kraków, Kafka…"), { target: { value: "java" } });
     expect(screen.getAllByRole("article")).toHaveLength(1);
-    expect(screen.getByRole("button", { name: /1\s*Development/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /0\s*QA/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /0\s*Warszawa/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /1\s*Kraków/ })).toBeTruthy();
   });
 
   it("tryb pracy zawęża listę", () => {

@@ -1,5 +1,5 @@
 import type { CareerBoardJob } from "@/lib/career/api";
-import { boardTagLine, categoryLabel } from "@/lib/career/board";
+import { boardTagLine } from "@/lib/career/board";
 
 import s from "./site.module.css";
 
@@ -8,12 +8,11 @@ export const CARD_TAGS = 4;
 
 /**
  * Karta oferty jak na planszy KarieraA: tytuł, zdanie o projekcie,
- * technologie, kategoria · miasto · tryb, rekruter i „Zobacz”. Cała karta
+ * technologie, miasto · tryb, rekruter i „Zobacz” (bez kategorii, 23.11.2026). Cała karta
  * prowadzi na stronę oferty (`::after` linku).
  */
 export function OfferCard({ job, href }: { job: CareerBoardJob; href: string }) {
   const tags = (job.must ?? []).filter((t) => t.trim()).slice(0, CARD_TAGS);
-  const category = categoryLabel(job.category);
   const place = boardTagLine(job);
   return (
     <article className={s.offer}>
@@ -29,11 +28,7 @@ export function OfferCard({ job, href }: { job: CareerBoardJob; href: string }) 
         ) : null}
       </div>
       <div className={s.meta}>
-        <span className={s.place}>
-          {category ? <b>{category}</b> : null}
-          {category && place ? " · " : null}
-          {place}
-        </span>
+        <span className={s.place}>{place}</span>
         <span>{job.recruiter_first_name ? `Rekruter: ${job.recruiter_first_name}` : null}</span>
         <a href={href} className={s.go} aria-label={`Zobacz: ${job.title}`}>
           Zobacz <span aria-hidden="true">→</span>
