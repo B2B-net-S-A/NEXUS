@@ -4357,6 +4357,25 @@
     ]
   },
   {
+    "id": "pracuj-aplikacje-do-rekrutacji",
+    "pr": 3742,
+    "title": "Aplikacje z Pracuj.pl trafiają do rekrutacji ogłoszenia",
+    "why": "W oknie „Ogłoszenie” wskaż, które ogłoszenie z Pracuj.pl należy do rekrutacji. Osoby, które na nie aplikowały, trafią do „Nowi”, także te sprzed połączenia.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → Ogłoszenie → karta Pracuj.pl → Wskaż ogłoszenie na Pracuj.pl",
+    "href": "/jobs/ogloszenia",
+    "section": "pipeline",
+    "dot_anchor": "job-ad.pracuj.pair"
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",
