@@ -50,6 +50,11 @@ export function MyDayReminders({ today }: { today: string }) {
             <span className="min-w-0 flex-1 truncate">
               <span className="font-medium text-foreground">{item.company.name}</span>
               {item.person_name && <span className="text-muted-foreground"> · {item.person_name}</span>}
+              {item.callback_reason && (
+                <span className="block truncate text-xs text-muted-foreground" title={item.callback_reason.text}>
+                  Po co: {item.callback_reason.text}
+                </span>
+              )}
             </span>
             <Badge variant={STATE_TONES[item.state]} size="sm" className="shrink-0 whitespace-nowrap">
               {stateLabel(item.state)}

@@ -4378,6 +4378,22 @@
     "requires_setting": "REVIEW_BATCH_ENABLED"
   },
   {
+    "id": "sprzedaz-dzwonienie-po-co-oddzwaniamy",
+    "pr": 3759,
+    "title": "Dzwonienie: po co oddzwaniamy",
+    "why": "Po „Oddzwonić…” wpisz, po co dzwonisz. Powód widać w Przypomnieniach, w kolejce, w „Moim dniu” i na górze karty w dniu telefonu. Stare rekordy z Excela pokazują komentarz z arkusza.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Dzwonienie → Przypomnienia",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.view"
+  },
+  {
     "id": "formularz-klienta-wgraj-z-dysku",
     "title": "Wypełniony formularz klienta wgrywasz do formularza, nie jako CV",
     "why": "„Wgraj wypełniony formularz” w sekcji CV osoby zapisuje plik przy rekrutacji. Idzie do QC i do klienta zamiast wypełnienia z NEXUSA, a karta przechodzi z nim na „QC CV”.",

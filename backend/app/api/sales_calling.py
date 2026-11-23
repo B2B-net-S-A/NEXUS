@@ -60,6 +60,15 @@ class Ref(BaseModel):
     name: str
 
 
+class CallbackReasonOut(BaseModel):
+    """Po co oddzwaniamy (23.11.2026): notatka z wyniku albo komentarz z Excela."""
+
+    text: str
+    author_name: Optional[str]
+    noted_on: date
+    from_excel: bool
+
+
 class QueueItemOut(BaseModel):
     key: str
     section: str
@@ -80,6 +89,8 @@ class QueueItemOut(BaseModel):
     assignee: Optional[Ref] = None
     #: Ostatnia zmiana rekordu (kolumna „Ostatnia modyfikacja” w Tabeli).
     modified_at: Optional[datetime] = None
+    #: Po co oddzwaniamy: w oddzwonieniach kolejki i w „Przypomnieniach”.
+    callback_reason: Optional[CallbackReasonOut] = None
 
 
 class QueueCounts(BaseModel):
@@ -286,6 +297,16 @@ def _item(item: calling.QueueItem) -> QueueItemOut:
             else None
         ),
         modified_at=item.modified_at,
+        callback_reason=(
+            CallbackReasonOut(
+                text=item.callback_reason.text,
+                author_name=item.callback_reason.author_name,
+                noted_on=item.callback_reason.noted_on,
+                from_excel=item.callback_reason.from_excel,
+            )
+            if item.callback_reason is not None
+            else None
+        ),
     )
 
 

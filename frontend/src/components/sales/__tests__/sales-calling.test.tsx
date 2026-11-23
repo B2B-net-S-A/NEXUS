@@ -892,6 +892,55 @@ describe("po Excelu dzwoniących (decyzje 11.11.2026)", () => {
     expect(screen.getByLabelText("Rozmowa: Późna S.A.")).toBeInTheDocument();
   });
 
+  it("po co oddzwaniamy: powód w Przypomnieniach i na górze karty (23.11.2026)", () => {
+    reminders.mockReturnValue(
+      ok([
+        item({
+          key: "r:7",
+          record_id: 7,
+          state: "call_back",
+          due_on: "2026-11-09",
+          company: { id: 15, name: "Z powodem S.A." },
+          callback_reason: { text: "Prosi o telefon po zarządzie", author_name: "Marcel Testowy", noted_on: "2026-11-06", from_excel: false },
+        }),
+        item({ key: "r:8", record_id: 8, state: "call_back", due_on: "2026-11-09", company: { id: 16, name: "Bez powodu S.A." } }),
+        item({
+          key: "r:9",
+          record_id: 9,
+          state: "call_back",
+          due_on: "2026-11-09",
+          company: { id: 17, name: "Z Excela S.A." },
+          callback_reason: { text: "Urlop", author_name: null, noted_on: "2026-11-11", from_excel: true },
+        }),
+      ]),
+    );
+    render(<CallQueueView />);
+    fireEvent.click(screen.getByRole("radio", { name: "Przypomnienia" }));
+    const late = screen.getByRole("region", { name: "Zaległe" });
+    expect(within(late).getByText("Prosi o telefon po zarządzie")).toBeInTheDocument();
+    expect(within(late).getByText("Marcel Testowy, 06.11")).toBeInTheDocument();
+    expect(within(late).getByText("Komentarz z Excela")).toBeInTheDocument();
+    expect(within(late).getByText("Bez powodu: dopisz przy rozmowie")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Z powodem S.A."));
+    const card = screen.getByLabelText("Rozmowa: Z powodem S.A.");
+    expect(within(card).getByText("Oddzwaniasz, bo:")).toBeInTheDocument();
+  });
+
+  it("„Oddzwonić…” pyta, po co oddzwaniamy, i zapisuje to z terminem", () => {
+    render(<CallQueueView />);
+    expect(screen.getByLabelText("Notatka z rozmowy")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Oddzwonić…" }));
+    // Jedno pole zamiast dwóch: notatka z rozmowy staje się powodem.
+    expect(screen.queryByLabelText("Notatka z rozmowy")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Po co oddzwaniamy?"), { target: { value: "Decyzja o budżecie w styczniu" } });
+    fireEvent.click(screen.getByRole("button", { name: "Za 3 dni" }));
+    expect(saveOutcome.mock.calls[0][0]).toMatchObject({
+      outcome: "call_back",
+      callback_on: "2026-11-13",
+      note: "Decyzja o budżecie w styczniu",
+    });
+  });
+
   it("awaria tabeli nie wygląda jak pusta lista", () => {
     records.mockReturnValue({ data: undefined, isLoading: false, isSuccess: false, error: { response: { status: 500 } }, refetch: vi.fn() });
     render(<CallQueueView />);

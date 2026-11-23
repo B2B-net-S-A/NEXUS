@@ -26,7 +26,7 @@ Każdy wynik zapisuje też telefon w ``sales_activities`` (ten sam dziennik i s�
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
@@ -57,6 +57,7 @@ from app.models.user import User
 from app.services import sales_schema as schema
 from app.services.candidate_followups import add_business_days
 from app.services.sales import calling_crm, calling_repeats, client_gate, history
+from app.services.sales.calling_reasons import CallbackReason, callback_reasons
 from app.services.sales.calling_file import phone_digits, valid_email
 from app.services.sales.calls import DO_NOT_CONTACT, OBJECTION_DETAIL, OUTCOME_LABELS
 from app.services.sales.lifecycle import apply_stage
@@ -154,6 +155,20 @@ class QueueItem:
     assignee_name: Optional[str] = None
     #: Ostatnia zmiana rekordu (wynik, edycja danych): kolumna Tabeli od 13.11.2026.
     modified_at: Optional[datetime] = None
+    #: Po co oddzwaniamy (23.11.2026): w oddzwonieniach kolejki i w „Przypomnieniach”.
+    callback_reason: Optional[CallbackReason] = None
+
+
+async def _with_reasons(
+    db: AsyncSession, items: list[QueueItem], records: Iterable[SalesCallRecord]
+) -> list[QueueItem]:
+    reasons = await callback_reasons(db, records)
+    return [
+        replace(item, callback_reason=reasons[item.record_id])
+        if item.record_id is not None and item.record_id in reasons
+        else item
+        for item in items
+    ]
 
 
 @dataclass(frozen=True)
@@ -602,6 +617,7 @@ async def load_queue(
         _record_item(record, company_name, campaign_name, "callbacks")
         for record, company_name, campaign_name in records.due
     ]
+    callback_records = [record for record, _, _ in records.due]
     unanswered = [
         _record_item(record, company_name, campaign_name, "no_answer")
         for record, company_name, campaign_name in records.no_answer
@@ -649,6 +665,8 @@ async def load_queue(
             item = _opportunity_item(
                 opp, company_name, record, contact, "callbacks", due_on
             )
+            if record is not None:
+                callback_records.append(record)
             (untouched if item.state == NEW else callbacks).append(item)
             callbacks_total += 1
         meetings = [
@@ -664,6 +682,7 @@ async def load_queue(
     callbacks.sort(key=lambda item: (item.due_on or date.min, item.since))
     untouched.sort(key=lambda item: item.since, reverse=True)
     callbacks += untouched
+    callbacks = await _with_reasons(db, callbacks[:SECTION_LIMIT], callback_records)
     unanswered.sort(key=lambda item: item.last_outcome_at or _LONG_AGO)
     counter = viewer_id if viewer_id is not None else user_id
     return Queue(
@@ -1654,7 +1673,8 @@ async def reminders(
             query.order_by(SalesCallRecord.callback_on, SalesCallRecord.id).limit(limit)
         )
     ).all()
-    return [
+    items = [
         _record_item(record, company_name, campaign_name, "callbacks", assignee_name)
         for record, company_name, campaign_name, assignee_name in rows
     ]
+    return await _with_reasons(db, items, [record for record, _, _, _ in rows])

@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -25,6 +26,7 @@ import {
   useCallCard,
   useEditRecord,
   useSaveOutcome,
+  type CallbackReason,
   type CallCard as CallCardData,
   type CallHistoryEntry,
   type CrmOpportunity,
@@ -51,6 +53,7 @@ import {
   outcomeKey,
   outcomeLabel,
   plusDaysIso,
+  reasonByline,
   weekdayOf,
   type DatedOutcome,
 } from "./calling";
@@ -274,15 +277,18 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
           </Button>
         </div>
       )}
-      <Input
-        aria-label="Notatka z rozmowy"
-        placeholder="Co ustaliliście? (opcjonalnie)"
-        className="h-8 text-xs"
-        value={note}
-        maxLength={5000}
-        disabled={blocked}
-        onChange={(event) => setNote(event.target.value)}
-      />
+      {/* Po „Oddzwonić…” ta sama notatka to powód przy przypomnieniu (pole niżej). */}
+      {dated !== "call_back" && (
+        <Input
+          aria-label="Notatka z rozmowy"
+          placeholder="Co ustaliliście? (opcjonalnie)"
+          className="h-8 text-xs"
+          value={note}
+          maxLength={5000}
+          disabled={blocked}
+          onChange={(event) => setNote(event.target.value)}
+        />
+      )}
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] text-muted-foreground">
           Klawisze {KEYS_RANGE} zapisują wynik, potem od razu następna osoba.
@@ -336,6 +342,27 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
           {outcomeLabel("do_not_contact")}
         </Button>
       </div>
+      {/* Zgłoszenie dzwoniących 23.11.2026 (decyzja Artura): powód opcjonalny, ale na wierzchu. */}
+      {dated === "call_back" && (
+        <div className="space-y-1">
+          <Label htmlFor="callback-reason" className="text-xs font-medium text-foreground">
+            Po co oddzwaniamy?
+          </Label>
+          <Textarea
+            id="callback-reason"
+            autoFocus
+            rows={2}
+            className="text-xs"
+            placeholder="np. prosi o telefon po rozmowie z zarządem"
+            value={note}
+            maxLength={5000}
+            onChange={(event) => setNote(event.target.value)}
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Zobaczysz to w Przypomnieniach, w „Moim dniu” i na górze karty w dniu telefonu.
+          </p>
+        </div>
+      )}
       {dated && (
         <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={`${outcomeLabel(dated)}: kiedy`}>
           {DATE_PRESETS[dated].map((preset) => (
@@ -604,6 +631,19 @@ function EarlierCallsNote({ calls }: { calls: EarlierCall[] }) {
   );
 }
 
+/** Zgłoszenie dzwoniących 23.11.2026: po co oddzwaniamy, nad numerem. */
+function CallbackReasonNote({ reason }: { reason: CallbackReason }) {
+  return (
+    <div role="note" className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs text-foreground">
+      <p>
+        <span className="font-semibold">Oddzwaniasz, bo: </span>
+        {reason.text}
+      </p>
+      <p className="mt-0.5 text-muted-foreground">{reasonByline(reason)}</p>
+    </div>
+  );
+}
+
 /** Karta wybranej pozycji: kto, haczyk z bota, co już było, skrypt, punkty z researchu i wynik jednym kliknięciem. */
 export function CallCard(props: CallCardProps) {
   const { item, position } = props;
@@ -675,6 +715,7 @@ export function CallCard(props: CallCardProps) {
       {/* Zgłoszenie dzwoniących 17.11.2026: powtórka z innej listy i firma już w CRM, nad numerem. */}
       {card?.crm_opportunity && <InCrmNote opportunity={card.crm_opportunity} />}
       {card?.earlier_calls && card.earlier_calls.length > 0 && <EarlierCallsNote calls={card.earlier_calls} />}
+      {item.callback_reason && <CallbackReasonNote reason={item.callback_reason} />}
       <CallHook companyId={item.company.id} />
       <div className="flex flex-wrap items-center gap-2">
         {card?.do_not_contact ? (
