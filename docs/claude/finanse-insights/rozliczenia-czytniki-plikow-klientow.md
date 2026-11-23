@@ -1,6 +1,6 @@
 # Rozliczenia: czytniki MD z plików klientów spoza RCP BNP
 
-<!-- indeks: czytniki plików, Time Sheet PDF, polski Time Sheet, Imię Nazwisko, Łączna liczba godzin, Okres od, BIK PDF, Rozliczenie czasu pracy, ERGO Monthly confirmation, NN Ilość MD, rozliczeniakontraktorow, Orlen protokół, Roboczodni, Sugerowane wynagrodzenie, declared, _other_files, inny plik miesiąca, proof.month bez MD, Sprawdzanie, kind_of_file, invoice zamiast report -->
+<!-- indeks: czytniki plików, Time Sheet PDF, polski Time Sheet, Imię Nazwisko, Łączna liczba godzin, Okres od, BIK PDF, Rozliczenie czasu pracy, ERGO Monthly confirmation, NN Ilość MD, rozliczeniakontraktorow, Orlen protokół, Roboczodni, Sugerowane wynagrodzenie, Ewidencja czasu pracy, SAP Fieldglass, timeSheet.worker.list, EY, rok w szablonie, declared, _other_files, inny plik miesiąca, proof.month bez MD, Sprawdzanie, kind_of_file, invoice zamiast report -->
 
 Od 23.11.2026. W próbie rozliczeń IX–X 2026 (kopia produkcji z 23.11, reguły klientów
 z produkcji) 60 przypadków poza Nordeą stało w „Sprawdzaniu” bez MD, choć plik był w poczcie.
@@ -29,6 +29,20 @@ Pliki „.xls” grupy Polkomtel / Cyfrowy Polsat (od 23.11.2026):
 |---|---|---|
 | Polkomtel: „Project timesheet Report” z Jiry, tabela HTML z rozszerzeniem `.xls` | `timesheet_plus` | „Suma godzin” = suma dni / `fields.md_hours`; rozbieżność = bez MD |
 | Cyfrowy Polsat: „B2B_RRRR_MM.xls”, XML Spreadsheet 2003 z BOM, wiersz = osoba × zamówienie | `timesheet_plus` | kolumna miesiąca = suma dni (osoby z kontraktu) / `fields.md_hours`; rozbieżność = bez MD |
+
+Od 23.11.2026 (powtórka IX–X na `nexus_staging_klodko_v5`) dochodzą:
+
+| Wzór | Moduł | Skąd MD |
+|---|---|---|
+| EY: eksport SAP Fieldglass „timeSheet.worker.list….xlsx”, wiersz = tydzień sob.–pt. z „ST” (bywa CSV w jednej kolumnie) | `timesheet_fieldglass` | tydzień w miesiącu w całości; tydzień na przełomie tylko pełny (ST = `fields.md_hours` × dni robocze) → `fields.md_hours` × jego dni robocze w miesiącu |
+| Orlen: PDF „Ewidencja czasu pracy” (BL/B2B), wiersz = dzień z „Ilość godzin” | `ewidencja_orlen` | suma godzin dni / `fields.md_hours`; inna „Suma końcowa” albo urlop/nadgodziny z godzinami = bez MD |
+
+Fieldglass: niepełny tydzień na przełomie, tydzień „Rejected”/„Draft” = bez MD, bo nie wiadomo,
+ile godzin przypada na miesiąc. Kilka rewizji jednego ID: najwyższa. „Pending Approval” to
+informacja (Finanse fakturują też tygodnie czekające na akceptację). Eksport nie ma nazwiska
+konsultanta, tylko przełożonego: `proof.name_match` według poziomu reguły. Ewidencja Orlenu:
+przełożonego od osoby nie da się oddzielić, więc kontrola nazwiska sprawdza, czy osoba
+z kontraktu jest w odcinku „Przełożony · NAZWISKO I IMIĘ”; dwie różne osoby w wierszach = `None`.
 
 ERGO, NN, Orlen, Polkomtel i Polsat mają wspólne kontrole w `declared.evaluate` (miesiąc, nazwisko, limit MD).
 
@@ -61,6 +75,11 @@ Plik, którego miesiąc jest inny niż rozliczany (szablon z rokiem 2025, Time S
 październik w paczce wrześniowej), nie daje MD. Przy włączonej `proof.month` to kontrola
 z jej poziomem, przy wyłączonej informacja „… za inny miesiąc” (`declared.month_mismatch`),
 żeby przypadek nie stał w „Sprawdzaniu” bez powodu. Dotyczy Time Sheet, BIK, ERGO, NN i Orlenu.
+Wyjątek od 23.11.2026: polski Time Sheet z rokiem z zeszłorocznego szablonu (ERSTE „TS -
+Październik” z datami 2025) liczy się za rozliczany miesiąc, gdy ten sam numer miesiąca,
+każdy dzień z godzinami jest dniem roboczym rozliczanego miesiąca, a choć jeden nie jest
+dniem roboczym w roku z pliku (`timesheet.template_year_fixed`, informacja „Rok w szablonie”).
+Plik pasujący do obu kalendarzy zostaje plikiem za inny miesiąc.
 Time Sheet i raport BIK bez dat zachowują się jak dotąd (MD i kontrola `proof.month`);
 ERGO, NN i Orlen bez miesiąca nie dają MD.
 
@@ -75,7 +94,8 @@ czytnikom (raport BIK w PDF wyglądał dla `rcp_bnp` jak RCP).
 Plik zapisany przez czytnik poczty jako `invoice`, a nie `report`, do rozliczenia nie trafia
 (`_month_reports` bierze tylko `report`). Dlatego `mailbox.kind_of_file` sprawdza treść każdego
 pliku, który z nazwy i tematu wyszedłby fakturą (PDF, XLSX/XLSM, DOCX): rozpoznany przez
-`rcp_bnp`, `confirmation_ergo`, `protocol_orlen`, `timesheet` albo `timesheet_bik` jest raportem.
+`rcp_bnp`, `confirmation_ergo`, `protocol_orlen`, `ewidencja_orlen`, `timesheet`, `timesheet_bik`
+albo `timesheet_fieldglass` jest raportem.
 Nowy czytnik wzoru klienta dopisz też do tej listy. Skan bez warstwy tekstu (zdjęcie Time Sheetu
 NN „Wrzesień.pdf”) zostaje fakturą: skany w poczcie to też faktury i zaświadczenia, a nazwa
 pliku niczego nie rozstrzyga. Klasyfikacja działa na nowych mailach; pliki już zapisane
@@ -89,5 +109,9 @@ zgadza się z nią w 20 z 22. Jeden przypadek Bosch za X: 22 MD, do faktury idzi
 tak jak u Finansów). Drugi Bosch za X: wiersze 132 h, suma w pliku 126 h, więc kontrola
 `fields.md_hours`. W żadnym przypadku, który miał już MD, MD się nie zmieniło.
 
-Poza zakresem: EY (eksport tygodni ST), zdjęcia JPG, MS Enter Price „Report on Tasks”,
-Cardif „SUMA: 176h 22MD”, RITS „Rejestr czasu”, Orlen „Ewidencja Czasu Pracy”.
+Poza zakresem: zdjęcia JPG, MS Enter Price „Report on Tasks”, Cardif „SUMA: 176h 22MD”,
+RITS „Rejestr czasu”.
+
+Powtórka na `nexus_staging_klodko_v5` (23.11, odczyt bez zapisu): z 204 przypadków IX–X
+(bez KEŚU) MD zmienia się tylko w czterech: EY X, Orlen X i ERSTE X po 22 MD, równe fakturom
+Finansów, oraz ERSTE IX 22 MD (bez faktury w próbie).
