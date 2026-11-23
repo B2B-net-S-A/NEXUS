@@ -29,6 +29,12 @@ class FeatureFlag:
 
 REGISTERED_FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag(
+        name="B2B_MASS_SEND_ENABLED",
+        purpose="Masowa wysyłka nowej umowy B2B do aktywnych kontraktorów: pętla w workerze wysyła paczkę po 50 osób co 15 minut; nawet włączona czeka, aż admin oznaczy nowy wzór umowy jako podpięty; włącza Artur, gdy nowy wzór będzie w Generatorze.",
+        decided=date(2026, 11, 22),
+        expires=date(2027, 1, 21),
+    ),
+    FeatureFlag(
         name="CONTRACT_PARTNER_READ_ENABLED",
         purpose="Dane firm z umów: pętla czyta podpisaną umowę aktywnych kontraktów B2B bez danych firmy w Generatorze, a człowiek potwierdza propozycje na „Dane firm z umów”; włącza Artur przed nową umową B2B dla kontraktorów.",
         decided=date(2026, 11, 22),
