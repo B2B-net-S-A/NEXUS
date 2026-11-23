@@ -488,6 +488,7 @@ export function ClientChangeDialog({
               maxLength={20_000}
               placeholder="np. „Klient dorzuca Pythona jako musi mieć, SAFe już nieważne, u nich będzie zadanie na żywo z SQL.”"
               data-testid="client-change-text"
+              data-tour="champion.client-change.text"
             />
             {proposal && proposal.status === "failed" ? (
               <p className="text-sm text-destructive" role="alert">
@@ -678,6 +679,7 @@ export function ClientChangeDialog({
                 onClick={() => run(text)}
                 disabled={text.trim().length < TEXT_MIN || propose.isPending}
                 data-testid="client-change-propose"
+                data-tour="champion.client-change.propose"
               >
                 {propose.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
