@@ -150,7 +150,7 @@ export function ClientRulesEditor({ clientId, clients, month, months, canWrite }
       </div>
       <div className="grid min-w-0 grid-cols-1 items-start gap-3 xl:grid-cols-2">
         {data.sections.map((s) => (
-          <section key={s.key} className="rounded-xl border bg-card px-3 py-2">
+          <section key={s.key} data-tour={`clients.rules.${s.key}`} className="rounded-xl border bg-card px-3 py-2">
             <h3 className="text-sm font-semibold">{s.title}</h3>
             <div className="divide-y">
               {s.rules.map((r) => (
