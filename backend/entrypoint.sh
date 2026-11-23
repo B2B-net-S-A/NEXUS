@@ -389,7 +389,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_report_due'",
     # 0763: dzwonek opiekuna o brakującym raporcie godzin (rozliczenia klientów).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'settlement_report_missing'",
-    # 0765: dzwonek Finansów o kroku stawki konsultanta z aneksu.
+    # 0764: dzwonek Finansów o kroku stawki konsultanta z aneksu.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'contract_rate_annex'",
     # 0727: Rada — odczyt skanu dokumentu korporacyjnego i dzwonek o wpisie w KRS.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'board_document_read'",

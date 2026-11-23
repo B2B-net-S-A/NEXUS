@@ -478,7 +478,7 @@ class NotificationType(str, enum.Enum):
     # related_entity=(client, id). Sekcja Delivery, kategoria kontraktów,
     # bez maila. ``services/client_settlements/reminders.py``.
     settlement_report_missing = "settlement_report_missing"
-    # 0765: aneks dopisał krok stawki konsultanta („stawka od dnia”) — dzwonek
+    # 0764: aneks dopisał krok stawki konsultanta („stawka od dnia”) — dzwonek
     # Finansów, bo Rozliczenia płacą konsultantowi po tej stawce od jej dnia
     # (przegląd skrzynki umowy@ 23.11.2026: zmiana szła mailem jako PDF).
     # related_entity=(contract_amendment, id), bez kwot.

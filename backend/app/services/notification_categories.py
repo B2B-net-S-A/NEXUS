@@ -458,7 +458,7 @@ _SPLIT_GROUPS: dict[
         _C.contracts,
         (_T.settlement_report_missing,),
     ),
-    # 0765: aneks zmienił stawkę konsultanta od dnia (Finanse, rozliczenia).
+    # 0764: aneks zmienił stawkę konsultanta od dnia (Finanse, rozliczenia).
     "contracts_rate_annex": (
         "Rozliczenia: zmiana stawki konsultanta z aneksu",
         _C.contracts,

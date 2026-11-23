@@ -218,7 +218,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.care_contact_due: ProductSection.delivery,
     # 0763: brak raportu godzin — link do kontraktu (sekcja Delivery).
     NotificationType.settlement_report_missing: ProductSection.delivery,
-    # 0765: aneks stawki konsultanta — link do kontraktu (sekcja Delivery).
+    # 0764: aneks stawki konsultanta — link do kontraktu (sekcja Delivery).
     NotificationType.contract_rate_annex: ProductSection.delivery,
     # 0475: link prowadzi do „Struktury u klientów” w Opiece (sekcja Delivery).
     NotificationType.care_client_structure: ProductSection.delivery,

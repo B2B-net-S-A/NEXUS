@@ -1,4 +1,4 @@
-# Dzwonek Finansów przy aneksie stawki konsultanta (0765, 23.11.2026)
+# Dzwonek Finansów przy aneksie stawki konsultanta (0764, 23.11.2026)
 <!-- indeks: `contract_rate_annex`, `services/contract_rate_annex_signal.py`, `rate_signal_source` w `apply_contract_amendment`, odbiorcy Finanse i Back office, bez kwot -->
 
 Przegląd skrzynki umowy@ z 23.11.2026: zmiana stawki trafiała do Rozliczeń
@@ -29,6 +29,6 @@ aneksu stawki, a Rozliczenia czytały go dopiero przy przeliczeniu miesiąca
 - **Fail-soft:** savepoint, błąd to log. Aneks jest ważniejszy niż dzwonek.
 - „Cofnij” wpisu automatycznego F52 usuwa aneks, a dzwonek zostaje. Link
   prowadzi do kontraktu, gdzie widać, że kroku już nie ma.
-- Migracja 0765 (`ALTER TYPE notificationtype ADD VALUE`) z lustrem
+- Migracja 0764 (`ALTER TYPE notificationtype ADD VALUE`) z lustrem
   w `entrypoint.sh`; downgrade odmawia przy istniejących dzwonkach tego typu.
 - Testy: `tests/test_contract_rate_annex_signal.py`.
