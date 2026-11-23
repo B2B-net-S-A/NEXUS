@@ -22,6 +22,7 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -160,6 +161,16 @@ class PreContractRequest(Base, TimestampMixin):
     withdrawal: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     # Ostatnie przypomnienie sweepera (wygasa / kandydat milczy / termin B2B).
     last_reminder_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # 0762 (23.11.2026): „Zatrzymaj do podpisu”. NULL = jak ustawienie
+    # rekrutacji (`jobs.pre_contract_rule`), true = stop przy tej osobie,
+    # false = wyjątek (bez blokady). Kto i kiedy ostatnio zmienił.
+    blocks_move: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    blocks_set_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    blocks_set_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 

@@ -50,6 +50,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   tasks: "Zadania",
   leads: "Leady",
   bots: "Boty",
+  // Sprzedaż → Boty → Baza wiedzy oceny potencjału (23.11.2026).
+  wiedza: "Baza wiedzy",
   summary: "Podsumowanie",
   duplicates: "Duplikaty",
   // „Ludzie w NEXUSIE” (16.10.2026).

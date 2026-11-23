@@ -394,6 +394,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'contract_document_rate_read'",
     # 0755: dane firmy Partnera z podpisanej umowy kontraktu.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'contract_partner_read'",
+    # 0761: Sprzedaż — ocena potencjału firmy przed spotkaniem (F54).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_potential_assessment'",
     # 0735: Rada — pakiet na posiedzenie gotowy (dzwonek).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_meeting_pack'",
     # 0736: Rada — uchwała w trybie pisemnym do głosowania i jej wynik (dzwonek).
@@ -5742,6 +5744,12 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_pre_contract_requests_assignee_id ON pre_contract_requests (assignee_id)",
     "CREATE INDEX IF NOT EXISTS ix_pre_contract_watchers_user_id ON pre_contract_watchers (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_pre_contract_events_request_id ON pre_contract_events (request_id)",
+    # 0762: „Zatrzymaj do podpisu przedwstępnej” — ustawienie rekrutacji i wybór
+    # przy prośbie. Lustro 1:1 `app/services/pre_contract_schema.STOP_DDL`.
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS pre_contract_rule JSONB NULL",
+    "ALTER TABLE pre_contract_requests ADD COLUMN IF NOT EXISTS blocks_move BOOLEAN NULL",
+    "ALTER TABLE pre_contract_requests ADD COLUMN IF NOT EXISTS blocks_set_by INTEGER NULL REFERENCES users (id) ON DELETE SET NULL",
+    "ALTER TABLE pre_contract_requests ADD COLUMN IF NOT EXISTS blocks_set_at TIMESTAMPTZ NULL",
     # 0366: multiposting — kolumny kolejki publikacji w portalach.
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS last_error TEXT",
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0",
@@ -8133,6 +8141,11 @@ _DATA_STATEMENTS = [
     "SELECT 'contract_partner_read', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'contract_partner_read')",
+    # 0761: seed klucza AI oceny potencjału firmy w Sprzedaży.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'sales_potential_assessment', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'sales_potential_assessment')",
     # 0727: seed klucza AI odczytu dokumentów Rady.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'board_document_read', TRUE, 0, now(), now() "

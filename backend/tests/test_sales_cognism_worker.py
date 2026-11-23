@@ -152,6 +152,7 @@ async def test_worker_runs_independent_cognism_only_when_no_active_run(monkeypat
         # Haczyk i teczka stoją bez kanału punktów i flagi zadań.
         "call_hook": 0,
         "meeting_prep": 0,
+        "potential": 0,
         # Teczka leada to też krok zadań bota.
         "dossier": 0,
     }

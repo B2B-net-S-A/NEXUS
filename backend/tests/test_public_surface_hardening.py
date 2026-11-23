@@ -99,6 +99,7 @@ _RATE_LIMITED_MODULES = (
     "api/cv_editor_import.py",
     # Karta firmy sprzedaży: start biegu bota researchu (pytanie, uzupełnienie).
     "api/sales_company_bot.py",
+    "api/sales_potential.py",
     # API integracyjne v1 (0443): powierzchnia dla automatyzacji na kluczach
     # API — limit per konto serwisowe na każdej trasie.
     *_V1_MODULES,

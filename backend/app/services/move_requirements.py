@@ -220,6 +220,10 @@ class PairFacts:
     pre_contract_column: Optional[str] = None
     pre_contract_signed: bool = False
     pre_contract_detail: Optional[str] = None
+    # 0762 (23.11.2026): „Zatrzymaj do podpisu” — kolumna, od której ruch
+    # stoi (ustawienie rekrutacji albo wybór przy osobie), i skąd blokada.
+    pre_contract_stop_column: Optional[str] = None
+    pre_contract_stop_detail: Optional[str] = None
 
 
 @dataclass
@@ -341,7 +345,22 @@ def _deal_breaker_item(column: str, f: PairFacts) -> Optional[_Item]:
 
 
 def _pre_contract_item(column: str, f: PairFacts) -> Optional[_Item]:
-    """Ostrzeżenie: umowa przedwstępna miała być podpisana przed tym etapem."""
+    """Ostrzeżenie: umowa przedwstępna miała być podpisana przed tym etapem.
+
+    Przy „Zatrzymaj do podpisu” (0762) to bramka — także dla Delivery Leada."""
+    stop = f.pre_contract_stop_column
+    if stop in BOARD_COLUMN_ORDER and _index(column) >= _index(stop):
+        return _Item(
+            column,
+            "pre_contract",
+            "Umowa przedwstępna niepodpisana — osoba stoi do podpisu",
+            MISSING,
+            True,
+            " ".join(
+                x for x in (f.pre_contract_stop_detail, f.pre_contract_detail) if x
+            ),
+            _action("open_pre_contract", "Otwórz umowę", f.stage_id),
+        )
     needed = f.pre_contract_column
     if needed is None or f.pre_contract_signed:
         return None
@@ -1382,6 +1401,29 @@ async def _pre_contract_facts(
     return column, pre_contracts.is_signed(req), detail
 
 
+async def _pre_contract_stop_facts(
+    db: AsyncSession, *, candidate_id: int, job: Any
+) -> tuple[Optional[str], Optional[str]]:
+    """(kolumna blokady, skąd) dla „Zatrzymaj do podpisu” (0762)."""
+    from app.models.user import User  # noqa: PLC0415
+    from app.services import pre_contract_stop  # noqa: PLC0415
+
+    stop = await pre_contract_stop.stop_for_pair(
+        db, job=job, candidate_id=candidate_id, target_column=None
+    )
+    if stop is None:
+        return None, None
+    who = (
+        await db.scalar(select(User.name).where(User.id == stop.set_by))
+        if stop.set_by
+        else None
+    )
+    source = (
+        "ustawienie rekrutacji" if stop.origin == "job" else "ustawione przy tej osobie"
+    )
+    return stop.column, f"Stop do podpisu: {source}" + (f" ({who})." if who else ".")
+
+
 async def load_pair_facts(
     db: AsyncSession, *, candidate: Any, job: Any, user: Any
 ) -> PairFacts:
@@ -1607,8 +1649,13 @@ async def load_pair_facts(
         pre_contract_signed,
         pre_contract_detail,
     ) = await _pre_contract_facts(db, candidate_id=candidate.id, job_id=job.id)
+    stop_column, stop_detail = await _pre_contract_stop_facts(
+        db, candidate_id=candidate.id, job=job
+    )
     return PairFacts(
         from_column=from_column,
+        pre_contract_stop_column=stop_column,
+        pre_contract_stop_detail=stop_detail,
         pre_contract_column=pre_contract_column,
         pre_contract_signed=pre_contract_signed,
         pre_contract_detail=pre_contract_detail,

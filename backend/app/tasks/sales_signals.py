@@ -38,7 +38,10 @@ from app.services.sales import signal_targets as targets
 from app.services.sales import signals
 from app.services.sales import registry_cards
 from app.services.sales.bot_tasks import enrich
+from app.services.sales import potential, potential_knowledge
 from app.services.sales.bot_tasks.call_hook import CALL_HOOK
+from app.services.sales.bot_tasks.potential import MAX_FIRMS as POTENTIAL_BATCH
+from app.services.sales.bot_tasks.potential import POTENTIAL
 from app.services.sales.bot_tasks.signals_briefing import MEETING_PREP
 
 logger = logging.getLogger(__name__)
@@ -274,12 +277,41 @@ async def _legacy_tick(
                 done["briefing"] = len(ids)
 
 
+async def _first_meetings_to_potential(
+    db: AsyncSession, ids: list[int], *, now: datetime
+) -> tuple[int, list[int]]:
+    """Firmy z pierwszym spotkaniem idą do oceny potencjału; zwraca liczbę
+    wysłanych i firmy, które dalej dostają zwykłe punkty przed spotkaniem."""
+
+    if not ids or not potential.model_ready():
+        return 0, ids
+    if (await potential_knowledge.load(db)).empty:
+        return 0, ids
+    talked = await targets.modes_for(db, ids, now=now)
+    first = [cid for cid in ids if talked.get(cid) == "first_call"]
+    if not first:
+        return 0, ids
+    # Firma z oceną z ostatnich 30 dni nie dostaje ani nowej oceny, ani punktów.
+    skip = await potential.fresh_company_ids(db, first, now=now)
+    todo = [cid for cid in first if cid not in skip]
+    for start in range(0, len(todo), POTENTIAL_BATCH):
+        batch = todo[start : start + POTENTIAL_BATCH]
+        run = await signals.start_run(
+            db, "briefing", batch, now=now, modes={cid: POTENTIAL for cid in batch}
+        )
+        if not _started(run):
+            break  # bot nie przyjął zlecenia: reszta firm dostaje punkty jak dotąd
+        skip.update(batch)
+    sent = len(skip.intersection(todo))
+    return sent, [cid for cid in ids if cid not in skip]
+
+
 async def hooks_and_prep(
     db: AsyncSession, *, now: datetime, local: datetime
 ) -> dict[str, int]:
     """Dzień roboczy od 16:00: haczyki w paczkach, teczki raz dziennie."""
 
-    done = {CALL_HOOK: 0, MEETING_PREP: 0}
+    done = {CALL_HOOK: 0, MEETING_PREP: 0, POTENTIAL: 0}
     if (
         not bot_tasks.enabled()
         or not is_business_day(local)
@@ -307,6 +339,10 @@ async def hooks_and_prep(
 
     if not hook_prep.opened_today(runs, MEETING_PREP, now=now):
         ids = await hook_prep.prep_company_ids(db, now=now, today=today)
+        # Przed pierwszym spotkaniem ocena potencjału zamiast punktów (23.11.2026);
+        # bez bazy wiedzy firma dostaje punkty jak dotąd.
+        rated, ids = await _first_meetings_to_potential(db, ids, now=now)
+        done[POTENTIAL] = rated
         if ids:
             talked = await targets.modes_for(db, ids, now=now)
             run = await signals.start_run(
@@ -343,6 +379,7 @@ async def tick(
         **{kind: 0 for kind in MONTHLY_KINDS},
         CALL_HOOK: 0,
         MEETING_PREP: 0,
+        POTENTIAL: 0,
         "dossier": 0,
     }
     if bot_tasks_ready:
@@ -400,6 +437,13 @@ async def sales_signals_loop() -> None:
                     legacy_ready=legacy_ready,
                     bot_tasks_ready=bot_tasks_ready,
                 )
+            if bot_tasks_ready:
+                # Research bez oceny po 10 minutach: zadanie w tle mogło zginąć przy
+                # wdrożeniu. Własna sesja, bo ocena zamyka transakcję na czas modelu.
+                async with AsyncSessionLocal() as db:
+                    done["potential_assessed"] = await potential.assess_stale(
+                        db, now=datetime.now(timezone.utc)
+                    )
             if registry_ready:
                 # Noc 1–6: paczka kart do rejestrów (``services/sales/registry_cards.py``),
                 # we własnej sesji, bo sprawdzenie zamyka transakcję przed siecią.
@@ -420,7 +464,7 @@ async def sales_signals_loop() -> None:
                 logger.info(
                     "sales_signals tick expired=%d signals=%d briefing=%d "
                     "enrich=%d people=%d winback=%d discovery=%d "
-                    "call_hook=%d meeting_prep=%d dossier=%d",
+                    "call_hook=%d meeting_prep=%d potential=%d assessed=%d dossier=%d",
                     done["expired"],
                     done["signals"],
                     done["briefing"],
@@ -430,6 +474,8 @@ async def sales_signals_loop() -> None:
                     done["discovery"],
                     done[CALL_HOOK],
                     done[MEETING_PREP],
+                    done[POTENTIAL],
+                    done.get("potential_assessed", 0),
                     done["dossier"],
                 )
         except asyncio.CancelledError:

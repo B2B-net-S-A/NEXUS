@@ -604,6 +604,9 @@ Kod: `models/pre_contract.py`, `services/pre_contracts.py`, `api/pre_contracts.p
 - **Brak podpisanej umowy nie blokuje ruchu karty** („Kanban bez bramek”) —
   plakietka robi się czerwona, gdy osoba minęła etap, przed którym umowa
   miała być podpisana.
+  **Wyjątek od 23.11.2026:** DL, Head of Recruitment albo admin może
+  zatrzymać osobę do podpisu — przy prośbie albo dla całej rekrutacji
+  (`rekrutacja-tablica/stop-do-podpisu-przedwstepnej.md`).
 
 ### Droga umowy
 

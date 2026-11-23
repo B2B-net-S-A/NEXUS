@@ -55,12 +55,12 @@
       {
         "anchor": "sales.calling.book",
         "text": "Kliknij „Umówione spotkanie”",
-        "hint": "Otworzy się formularz spotkania z mailem do klienta."
+        "hint": "Otworzy się formularz spotkania. Mail do klienta pokazuje się w nim, gdy zaproszenie Teams jest wyłączone."
       },
       {
         "anchor": "sales.calling.booking-mail",
         "text": "Umów i wyślij mail do klienta",
-        "hint": "Mail wyjdzie z Twojego Outlooka do klienta z kopią do prowadzącego i zostanie w Wysłanych i na osi szansy.",
+        "hint": "Gdy zaproszenie Teams jest wyłączone, mail wyjdzie z Twojego Outlooka do klienta z kopią do prowadzącego i zostanie w Wysłanych i na osi szansy.",
         "ack": true
       }
     ]
@@ -4506,6 +4506,31 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "champion.key-task"
+  },
+  {
+    "id": "sprzedaz-dzwonienie-zaproszenie-teams",
+    "pr": 3762,
+    "title": "Dzwonienie: zaproszenie Teams wysyłasz sam, przy umówieniu",
+    "why": "Przy „Umówione spotkanie” jednym kliknięciem wysyłasz klientowi zaproszenie Teams. Spotkanie powstaje w kalendarzu prowadzącego, który jest organizatorem, a Ty jesteś uczestnikiem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": { "permissions": ["sales_edit"] },
+    "where": "Sprzedaż → Dzwonienie → Umówione spotkanie",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.booking-mail",
+    "steps": [
+      {
+        "anchor": "sales.calling.book",
+        "text": "Kliknij „Umówione spotkanie”",
+        "hint": "Formularz ma sekcję „Zaproszenie na spotkanie (Teams)”: adres klienta, tytuł i treść."
+      },
+      {
+        "anchor": "sales.calling.booking-mail",
+        "text": "Umów i wyślij zaproszenie Teams",
+        "hint": "Organizatorem jest prowadzący, uczestnikami klient i Ty. Bez terminu zaproszenie nie wychodzi, a spotkanie się zapisuje.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "dodatki-do-rozliczenia-kontraktora",
