@@ -204,6 +204,14 @@ function genId(): string {
   return `q${Date.now().toString(36).slice(-6)}`;
 }
 
+/** Dopisuje linię do „Zdań klienta i niuansów” — bez powtórzenia tej samej linii. */
+function appendNoteLine(notes: string | null | undefined, line: string): string {
+  const current = (notes ?? "").trimEnd();
+  const lines = current.split("\n").map((item) => item.trim());
+  if (lines.includes(line.trim())) return current;
+  return current ? `${current}\n${line}` : line;
+}
+
 /**
  * Profil prowadzony wierszami wymagań (02.10.2026): wiersze dostają klucze
  * i poziom „krytyczne” z `stack.critical`, a `critical` w szkicu znaczy odtąd
@@ -1487,6 +1495,12 @@ export function ChampionProfileEditor({
                 critical={rowCriticalInfo}
                 disabled={disabled}
                 onMoveToTalk={moveToTalk}
+                onMoveToNotes={(text) =>
+                  setDraft((d) => ({
+                    ...d,
+                    stack: { ...d.stack, notes: appendNoteLine(d.stack.notes, text) },
+                  }))
+                }
                 onCriticalCountChange={setCriticalReach}
                 sentGaps={disabled ? undefined : sentGaps}
               />

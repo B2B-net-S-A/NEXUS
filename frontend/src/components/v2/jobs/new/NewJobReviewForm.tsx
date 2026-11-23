@@ -854,6 +854,11 @@ function ReviewSections({
                     },
               )
             }
+            onMoveToNotes={(text) =>
+              onChange((f) =>
+                f.descriptive.includes(text) ? f : { ...f, descriptive: [...f.descriptive, text] },
+              )
+            }
             onCriticalCountChange={onCriticalCountChange}
           />
           {isMissing("decision") ? (
