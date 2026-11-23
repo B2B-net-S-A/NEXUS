@@ -50,12 +50,15 @@ _QUOTE = re.compile(
     r"^\s*(?:from|od|wysłane|sent)\s*:|^\s*-{2,}\s*original|^\s*_{6,}",
     re.IGNORECASE | re.MULTILINE,
 )
+# „Wszystko się zgadza” to akceptacja (Bosch, próba IX–X 2026: przełożony odpisuje tak
+# na nasze „Potwierdzenie godzin”); „się nie zgadza” odrzuca.
 _ACCEPT = re.compile(
-    r"\b(?:akceptuj\w*|zaakceptow\w*|potwierdzam\w*|potwierdzon\w*|akceptacj\w*)",
+    r"\b(?:akceptuj\w*|zaakceptow\w*|potwierdzam\w*|potwierdzon\w*|akceptacj\w*"
+    r"|zgadza\s+si[eę]|si[eę]\s+zgadza)",
     re.IGNORECASE,
 )
 _REJECT = re.compile(
-    r"\bnie\s+(?:akceptuj|potwierdzam|zaakceptow|mo[zż]emy\s+zaakceptow)|odrzuc",
+    r"\bnie\s+(?:akceptuj|potwierdzam|zaakceptow|mo[zż]emy\s+zaakceptow|zgadza)|odrzuc",
     re.IGNORECASE,
 )
 _MISSING = re.compile(r"brakuj\w*|brak\w*\s+(?:kcp|kart)", re.IGNORECASE)
