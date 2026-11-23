@@ -43,6 +43,7 @@ import { reasonNeedsDescription, WORK_MODE_MISMATCH_REASON } from "@/lib/rejecti
 import { cn } from "@/lib/utils";
 
 import { hasKeyFacts, ReviewBatchKeyFactsBlock } from "./ReviewBatchKeyFacts";
+import { hasRequirementSteps, ReviewBatchRequirementsBlock } from "./ReviewBatchRequirements";
 
 /**
  * Jedna osoba z porcji dnia (makieta M7, decyzje Artura z 07.11.2026): wszystko
@@ -275,8 +276,13 @@ export function orderLine(item: ReviewBatchItem): string | null {
     item.order_leader_gap ? "szukamy lidera" : null,
   ].filter(Boolean);
   const laterText = later.length ? ` · ${later.join(", ")} → dalej` : "";
-  if (!parts.length) return laterText ? `Kolejność: ${Math.round(item.score)}%${laterText}` : null;
-  return `Kolejność: ${Math.round(item.score)}% + ${parts.join(" + ")}${laterText}`;
+  // Schodki (23.11.2026): liczba spełnionych „musi mieć” decyduje przed wynikiem.
+  const req = item.requirements;
+  const steps = req && req.must_total > 0 ? `${req.must_met} z ${req.must_total} musi mieć · ` : "";
+  if (!parts.length) {
+    return laterText || steps ? `Kolejność: ${steps}${Math.round(item.score)}%${laterText}` : null;
+  }
+  return `Kolejność: ${steps}${Math.round(item.score)}% + ${parts.join(" + ")}${laterText}`;
 }
 
 /** „Wysłany do klienta 2× · ostatnio 7 dni temu: …” (Z1, 20.11.2026). */
@@ -533,11 +539,16 @@ export function ReviewBatchCard({
         {hasKeyFacts(item.key_facts) ? (
           <ReviewBatchKeyFactsBlock
             facts={item.key_facts}
-            restMatched={item.matched_must.length}
-            restTotal={item.matched_must.length + item.missing_must.length}
+            restMatched={hasRequirementSteps(item.requirements) ? 0 : item.matched_must.length}
+            restTotal={
+              hasRequirementSteps(item.requirements) ? 0 : item.matched_must.length + item.missing_must.length
+            }
             onPick={onPickRequirement}
           />
-        ) : (
+        ) : null}
+        {hasRequirementSteps(item.requirements) ? (
+          <ReviewBatchRequirementsBlock requirements={item.requirements} onPick={onPickRequirement} />
+        ) : hasKeyFacts(item.key_facts) ? null : (
         <div className="flex flex-wrap gap-1.5" aria-label="Musi mieć">
           {item.matched_must.map((m) => (
             <span key={`m-${m}`} className="rounded bg-success/15 px-1.5 py-0.5 text-xs text-success">

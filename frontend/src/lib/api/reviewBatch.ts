@@ -144,6 +144,23 @@ export interface ReviewBatchItem {
   opened_on?: string | null
   /** „Kluczowe w tej rekrutacji”: krytyczne z dowodem i polski. */
   key_facts?: ReviewBatchKeyFacts | null
+  /** Schodki po wymaganiach (23.11.2026): „Musi mieć 7 z 10”, mile widziane. */
+  requirements?: ReviewBatchRequirements | null
+}
+
+/** Liczniki schodków — te same na Tablicy (`entry_autofill.steps`). */
+export interface RequirementStepCounts {
+  critical_missing: number
+  must_met: number
+  must_total: number
+  nice_met: number
+  nice_total: number
+}
+
+export interface ReviewBatchRequirements extends RequirementStepCounts {
+  /** „Musi mieć” bez krytycznych, z dowodem z CV. */
+  must: { label: string; state: KeyEvidence }[]
+  nice: { label: string; state: KeyEvidence }[]
 }
 
 export interface ReviewBatchTeamRow {

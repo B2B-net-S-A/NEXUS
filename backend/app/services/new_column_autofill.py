@@ -572,8 +572,10 @@ async def new_in_base_picks(db, job: Job, *, now: datetime) -> list[Pick]:
 
 async def _with_known_points(db, job_id: int, picks: list[Pick]) -> list[Pick]:
     """Kolejność: wynik + „znamy tę osobę” (02.11.2026) + premia porcji. Procent
-    bez zmian."""
-    from app.services import review_batch_order
+    bez zmian. Przy włączonej porcji najpierw schodki po wymaganiach
+    (``requirement_steps``, 23.11.2026), więc z okna puli do porcji wchodzą
+    najpierw osoby z największą liczbą spełnionych „musi mieć”."""
+    from app.services import requirement_steps, review_batch_order
     from app.services.known_queue_points import facts_for
 
     client_id = await db.scalar(select(Job.client_id).where(Job.id == job_id))
@@ -586,11 +588,22 @@ async def _with_known_points(db, job_id: int, picks: list[Pick]) -> list[Pick]:
     )
     known = {cid: fact.points for cid, fact in facts.items()}
     bonus = await review_batch_order.pick_bonuses(db, job_id, picks)
+    steps = await requirement_steps.steps_if_enabled(
+        db, await db.get(Job, job_id), [p.candidate_id for p in picks]
+    )
+
+    def step_key(pick: Pick) -> tuple[bool, int, int]:
+        step = steps.get(pick.candidate_id)
+        if step is None:
+            return (False, 0, 0)
+        return (step.critical_missing > 0, *step.key())
+
     # Sortowanie stabilne: remis zostaje w kolejności wyniku.
     return sorted(
         picks,
         key=lambda p: (
-            -(p.score + known.get(p.candidate_id, 0) + bonus.get(p.candidate_id, 0))
+            step_key(p),
+            -(p.score + known.get(p.candidate_id, 0) + bonus.get(p.candidate_id, 0)),
         ),
     )
 

@@ -22,7 +22,14 @@
  * którą tablica domyślnie zwija. Pomiar 06.11: 32 z 81 aplikujących z JJIT
  * nie miało którejś krytycznej, a 12 z nich miało wynik ≥ 65, dlatego
  * odkładamy, nie odrzucamy.
+ *
+ * Schodki po wymaganiach (decyzja Artura 23.11.2026, wariant B, makiety
+ * https://claude.ai/artifact/5SJB7AYPZWbFkVKf77jhnN): w każdej grupie najpierw
+ * więcej spełnionych „musi mieć”, potem „mile widziane”, dopiero potem wynik
+ * (`entry_autofill.steps`, liczy serwer `requirement_steps`, lustro `order_cards`).
  */
+
+import type { RequirementStepCounts } from "@/lib/api/reviewBatch";
 
 export const CALL_FIRST_COUNT = 5;
 export const FRESH_EVERY = 5;
@@ -59,8 +66,20 @@ type QueueItem = {
     fresh?: boolean;
     /** Premia porcji za „Aktywnie szuka” i stawkę w budżecie, liczy serwer (`review_batch_order`). */
     queue_bonus?: number;
+    /** Schodki po wymaganiach (23.11.2026); `null` = porcja wyłączona albo brak wymagań. */
+    steps?: RequirementStepCounts | null;
   } | null;
 };
+
+function mustMissing(item: QueueItem): number {
+  const steps = item.entry_autofill?.steps;
+  return steps ? steps.must_total - steps.must_met : 0;
+}
+
+function niceMissing(item: QueueItem): number {
+  const steps = item.entry_autofill?.steps;
+  return steps ? steps.nice_total - steps.nice_met : 0;
+}
 
 function queueValue(item: QueueItem): number {
   return (
@@ -164,6 +183,8 @@ export function orderNewColumn<T extends QueueItem>(
     .sort(
       (a, b) =>
         a.tier - b.tier ||
+        mustMissing(a.item) - mustMissing(b.item) ||
+        niceMissing(a.item) - niceMissing(b.item) ||
         queueValue(b.item) - queueValue(a.item) ||
         a.item.candidate_id - b.item.candidate_id,
     );
