@@ -338,7 +338,7 @@ def test_every_bell_mail_type_has_an_action():
     assert bell | immediate <= set(SPECS)
 
 
-def test_facts_skip_empty_and_cap_at_four():
+def test_facts_skip_empty_and_cap_at_five():
     card = build_card(
         notification_type="client_accepted",
         kind="client_accepted",
@@ -350,6 +350,93 @@ def test_facts_skip_empty_and_cap_at_four():
     )
     assert card.facts == (("Kandydat", "Jan"), ("Rekrutacja", "Analityk"))
     assert card.subject == "[NEXUS] Klient zaakceptował · Jan"
+
+
+def test_request_number_goes_before_job_and_ends_the_subject():
+    # Zgłoszenie DL z 23.11.2026: numer zapytania klienta (`client_reference`)
+    # w mailu, żeby odpisać klientowi i znaleźć mail po tym numerze.
+    card = build_card(
+        notification_type="interview_slot_chosen",
+        kind="client_interview",
+        title="Odpisz klientowi — termin wybrany",
+        message="Potwierdź termin klientowi.",
+        link="/calendar?cycle=11-22",
+        required=True,
+        facts=MailFacts(
+            **{**INTERVIEW.__dict__, "chosen_index": 0, "request_number": "ZOB-0001"}
+        ),
+    )
+    assert card.subject == (
+        "[NEXUS] Potwierdź termin u klienta · Jan Testowy · Bank Testowy · ZOB-0001"
+    )
+    assert card.facts == (
+        ("Termin", "czw 29.10, 9:30"),
+        ("Nr zapytania", "ZOB-0001"),
+        ("Rekrutacja", "Java Developer (TEST-1)"),
+        ("Klient", "Bank Testowy"),
+        ("Delivery Lead", "Ewa Fikcyjna"),
+    )
+    subject, text, html_body = render_card_email(card)
+    assert "Nr zapytania: ZOB-0001" in text and "ZOB-0001" in html_body
+
+
+def test_request_number_fits_with_four_other_facts():
+    card = build_card(
+        notification_type="interview_slots_requested",
+        kind="client_interview",
+        title="Terminy rozmowy od klienta",
+        message="…",
+        link="/calendar?cycle=11-22",
+        required=True,
+        facts=MailFacts(**{**INTERVIEW.__dict__, "request_number": "43114"}),
+    )
+    assert [k for k, _ in card.facts] == [
+        "Nr zapytania",
+        "Rekrutacja",
+        "Klient",
+        "Długość",
+        "Delivery Lead",
+    ]
+
+
+def test_no_request_number_no_row_and_no_subject_suffix():
+    card = build_card(
+        notification_type="interview_slot_chosen",
+        kind="client_interview",
+        title="t",
+        message="m",
+        link="/calendar?cycle=11-22",
+        required=True,
+        facts=MailFacts(**{**INTERVIEW.__dict__, "chosen_index": 0}),
+    )
+    assert "Nr zapytania" not in dict(card.facts)
+    assert card.subject.endswith("· Bank Testowy")
+
+
+def test_request_number_needs_the_job_row_and_skips_hr_mail():
+    # Sam numer bez rekrutacji nic nie mówi; mail kadrowy nie niesie
+    # faktów rekrutacji nigdy.
+    alone = build_card(
+        notification_type="client_accepted",
+        kind="client_accepted",
+        title="t",
+        message="m",
+        link="/jobs/1",
+        required=False,
+        facts=MailFacts(candidate="Jan", request_number="ZOB-0002"),
+    )
+    assert "Nr zapytania" not in dict(alone.facts)
+    hr = build_card(
+        notification_type="hr_leave_requested",
+        kind=HR_MAIL_KIND,
+        title="Wniosek o urlop",
+        message="m",
+        link="/people/approvals",
+        required=True,
+        facts=MailFacts(person="Ewa Fikcyjna", request_number="ZOB-0003"),
+    )
+    assert "ZOB-0003" not in hr.subject
+    assert "Nr zapytania" not in dict(hr.facts)
 
 
 def test_subject_parts_are_shortened():
@@ -382,3 +469,35 @@ def test_link_refs(link, refs):
 
 def test_with_params_merges_and_removes():
     assert with_params("/a?x=1&y=2", y=None, z="3") == "/a?x=1&z=3"
+
+
+async def test_load_facts_reads_client_reference_from_job():
+    from types import SimpleNamespace
+
+    from app.models.client import Client
+    from app.models.job import Job
+    from app.services.notification_mail_card import load_facts
+
+    rows = {
+        Job: SimpleNamespace(
+            title="Analityk",
+            working_title=None,
+            deadline=None,
+            client_id=5,
+            delivery_lead_id=None,
+            client_reference="  ZOB-0004 ",
+        ),
+        Client: SimpleNamespace(name="Bank Testowy", display_name=None),
+    }
+
+    class _Db:
+        async def get(self, model, _id):
+            return rows.get(model)
+
+    notif = SimpleNamespace(
+        link="/jobs/7", related_entity_type=None, related_entity_id=None
+    )
+    facts = await load_facts(_Db(), notif)
+    assert facts.request_number == "ZOB-0004"
+    rows[Job].client_reference = "   "
+    assert (await load_facts(_Db(), notif)).request_number is None
