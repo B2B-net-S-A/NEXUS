@@ -49,16 +49,24 @@ async def test_klient_z_uwaga_i_brakiem_raportu() -> None:
         assert entry["decide"] == 1
         assert entry["missing"] == 1
         assert entry["client_report"] is None
+        # Lista osób w grupie jest ucięta (PEOPLE_PER_REASON), a baza testów
+        # ma też innych klientów, więc sprawdzamy licznik klienta w grupie.
+        counts = {
+            r["key"]: next(
+                (c["count"] for c in r["clients"] if c["client_id"] == client_id), 0
+            )
+            for r in out["reasons"]
+        }
+        assert counts.get(month_close.MISSING_REASON) == 1
+        decided = {
+            k: n for k, n in counts.items() if n and k != month_close.MISSING_REASON
+        }
+        assert sum(decided.values()) == 1
         missing = next(
             r for r in out["reasons"] if r["key"] == month_close.MISSING_REASON
         )
-        assert any(p["contract_id"] == missing_id for p in missing["people"])
-        decided = [
-            r
-            for r in out["reasons"]
-            if any(p["contract_id"] == contract_id for p in r["people"])
-        ]
-        assert len(decided) == 1 and decided[0]["key"] != month_close.MISSING_REASON
+        if len(missing["people"]) < month_close.PEOPLE_PER_REASON:
+            assert any(p["contract_id"] == missing_id for p in missing["people"])
         assert out["can_see_amounts"] is True
     finally:
         await _cleanup(client_id)
@@ -88,7 +96,7 @@ async def test_bez_uprawnienia_do_kwot_nie_ma_kwot() -> None:
 
 async def test_klient_z_raportem_t4t_poza_kolejka_osob() -> None:
     client_id, _, _ = await _world()
-    missing_id = await _contract(client_id, await _candidate())
+    await _contract(client_id, await _candidate())  # osoba bez raportu
     month = _previous_month()
     try:
         async with AsyncSessionLocal() as db:
@@ -103,7 +111,7 @@ async def test_klient_z_raportem_t4t_poza_kolejka_osob() -> None:
         entry = _entry(out, client_id)
         assert entry["client_report"] is not None
         assert all(
-            p["contract_id"] != missing_id for r in out["reasons"] for p in r["people"]
+            c["client_id"] != client_id for r in out["reasons"] for c in r["clients"]
         )
     finally:
         await _cleanup(client_id)
