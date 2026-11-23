@@ -123,6 +123,14 @@ describe("Strona 1", () => {
     await waitFor(() => expect(props.onSaveResult).toHaveBeenCalledWith({ result_index: 2, result_text: null }));
   });
 
+  it("wybór wieńca zapisuje się w dodatkach strony 1 (23.11.2026)", async () => {
+    const user = userEvent.setup();
+    const { props } = renderPage1({ extras: { ...EXTRAS, wreath: "school" } });
+    expect(screen.getByRole("button", { name: "Szkoła" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "Certyfikat" }));
+    await waitFor(() => expect(props.onSaveResult).toHaveBeenCalledWith({ wreath: "cert" }));
+  });
+
   it("błąd zapisu wyniku mówi po polsku, co się stało", async () => {
     const onSaveResult = vi.fn(async () => {
       throw { response: { status: 409, data: { detail: "CV jest już u klienta — układu nie zmienisz." } } };

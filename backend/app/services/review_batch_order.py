@@ -27,6 +27,7 @@ from app.models.job import Job
 
 if TYPE_CHECKING:
     from app.services.known_queue_points import KnownFacts
+    from app.services.requirement_steps import Steps
     from app.services.review_batch import PendingCard
 
 ACTIVE_BONUS = 5
@@ -75,6 +76,9 @@ class OrderFacts:
     bonus: Bonus = Bonus()
     fresh_first: bool = False
     fresh: bool = False
+    # Schodki po wymaganiach (23.11.2026, ``requirement_steps``); ``None`` =
+    # porcja wyłączona albo rekrutacja bez wymagań — kolejność jak dotąd.
+    steps: Optional["Steps"] = None
 
 
 def rate_in_budget(rate, currency, budget_hourly: Optional[float]) -> bool:
@@ -120,8 +124,21 @@ def queue_value(card: "PendingCard") -> float:
     return card.score + known + facts.bonus.points
 
 
+def _steps(card: "PendingCard") -> Optional["Steps"]:
+    return card.facts.steps if isinstance(card.facts, OrderFacts) else None
+
+
+def _step_key(card: "PendingCard") -> tuple[int, int]:
+    steps = _steps(card)
+    return steps.key() if steps is not None else (0, 0)
+
+
 def _tier(card: "PendingCard") -> int:
-    if card.missing_must:
+    steps = _steps(card)
+    # Ze schodkami na koniec idzie tylko brak krytycznej w CV: „?” silnika
+    # w ``missing_must`` przy „musi mieć” liczą już schodki (23.11.2026).
+    gap = steps.critical_missing > 0 if steps is not None else bool(card.missing_must)
+    if gap:
         return 2
     if card.cautions:
         return 1
@@ -130,10 +147,15 @@ def _tier(card: "PendingCard") -> int:
 
 def order_cards(cards: list["PendingCard"]) -> list["PendingCard"]:
     """Kolejność czekających kart jak w kolumnie „Nowi”: nowi w bazie od progu,
-    bez uwag (co 5. miejsce dla osoby bez procesu), z ostrzeżeniem, z brakiem."""
+    bez uwag (co 5. miejsce dla osoby bez procesu), z ostrzeżeniem, z brakiem
+    krytycznej. W każdej grupie najpierw więcej spełnionych „musi mieć”, potem
+    „mile widziane”, potem wynik z premiami (schodki, 23.11.2026)."""
     from app.services.new_column_autofill import with_fresh_slots
 
-    ranked = sorted(cards, key=lambda c: (_tier(c), -queue_value(c), c.candidate_id))
+    ranked = sorted(
+        cards,
+        key=lambda c: (_tier(c), _step_key(c), -queue_value(c), c.candidate_id),
+    )
     first = [card for card in ranked if _tier(card) < 0]
     clean = [card for card in ranked if _tier(card) == 0]
     late = [card for card in ranked if _tier(card) > 0]
@@ -149,7 +171,7 @@ async def with_order_facts(
     db, job: Job, cards: list["PendingCard"], *, now: datetime
 ) -> list["PendingCard"]:
     """Dokłada do kart te same fakty, które Tablica liczy przy odczycie."""
-    from app.services import known_queue_points, new_column_autofill
+    from app.services import known_queue_points, new_column_autofill, requirement_steps
     from app.services.candidate_added_date import added_to_base
     from app.services.dealbreaker_filters import resolve_job_budget_hourly
     from app.services.job_proposals import proposal_threshold
@@ -182,6 +204,7 @@ async def with_order_facts(
         for row in people
     }
     signals = await order_signals_if_enabled(db, job, people)
+    steps = await requirement_steps.steps_if_enabled(db, job, candidate_ids)
     budget = resolve_job_budget_hourly(job)
     enriched = []
     for card in cards:
@@ -203,6 +226,7 @@ async def with_order_facts(
                 now=now,
             ),
             fresh=card.candidate_id in without_process,
+            steps=steps.get(card.candidate_id),
         )
         enriched.append(replace(card, facts=facts))
     return enriched

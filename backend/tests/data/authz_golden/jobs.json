@@ -66,6 +66,8 @@
   "POST /api/jobs/{job_id}/champion-profile/apply-import": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/jobs/{job_id}/champion-profile/briefing": "PDDPDDDDPPPDDDDDDDDDDDDDDDDDD",
   "POST /api/jobs/{job_id}/champion-profile/changes/seen": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/champion-profile/client-change": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/champion-profile/client-change/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/jobs/{job_id}/champion-profile/client-history": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/jobs/{job_id}/champion-profile/generate-from-history": "PDDPDDDDPPPDDDDDDDDDDDDDDDDDD",
   "POST /api/jobs/{job_id}/champion-profile/generate-from-jd": "PDDPDDDDPPPDDDDDDDDDDDDDDDDDD",

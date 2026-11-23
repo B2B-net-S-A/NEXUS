@@ -57,7 +57,8 @@ Karta „Zrobione za Ciebie” pokazuje, co zostało zapisane. **„Cofnij”** 
 - odświeżenie podsumowania aktywności kandydata,
 - zapis debriefu po rozmowie u klienta,
 - odrzucenie propozycji w „Do przejrzenia”, werdykt klienta, „Biorę” kandydata,
-- zapamiętanie Twojej preferencji („odpowiadaj krócej”).
+- zapamiętanie Twojej preferencji („odpowiadaj krócej”),
+- zmianę od klienta w rekrutacji („klient teraz wymaga Pythona” albo wklejony mail klienta): Jarvis daje kartę **„Pokaż i popraw”**, która otwiera okno **„Klient coś zmienił”** w Profilu Championa. Tam widzisz listę zmian w wymaganiach, opisie i pytaniach, odznaczasz albo poprawiasz i klikasz „Zastosuj”. Działa dla osoby, która redaguje Profil tej rekrutacji.
 
 Osobno: poproszony o **nową firmę w Sprzedaży z NIP-u** („załóż firmę 734-286-71-48”) Jarvis daje przycisk **„Nowa firma w Sprzedaży”**. Okno samo pobiera dane z rejestru i sprawdza kartotekę: gdy firma już jest bez NIP-u, proponuje dopisać NIP do jej karty. Zapisujesz Ty. To samo zrobisz bez Jarvisa: wpisz NIP w wyszukiwarkę u góry.
 

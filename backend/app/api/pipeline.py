@@ -3840,6 +3840,7 @@ async def _load_kanban_boards(
         job_proposals,
         known_queue_points,
         recommendation_cards,
+        requirement_steps,
         review_batch_order,
     )
     from app.services import candidate_rate_change as _rate_change
@@ -4147,6 +4148,10 @@ async def _load_kanban_boards(
     signals = await review_batch_order.order_signals_for_jobs(
         db, {jid: (by_id[jid], board.system_ids) for jid, board in b.items()}
     )
+    # Schodki po wymaganiach (23.11.2026) — ten sam klucz co porcja i pula.
+    steps = await requirement_steps.steps_for_jobs(
+        db, {jid: (by_id[jid], board.system_ids) for jid, board in b.items()}
+    )
     system_jobs = [jid for jid, board in b.items() if board.system_ids]
     recruiter_since = (
         await autofill_decisions.recruiter_since_for_jobs(db, system_jobs)
@@ -4192,6 +4197,7 @@ async def _load_kanban_boards(
         board.known_queue_facts = known_facts[jid]
         board.without_process_ids = without_process[jid]
         board.board_signals = signals[jid]
+        board.board_steps = steps[jid]
         board.autofill_recruiter_since = recruiter_since.get(jid)
         board.fresh_threshold = fresh_threshold if board.system_ids else 0.0
         board.interview_badges = interview_badges[jid]
@@ -4551,6 +4557,7 @@ async def _render_kanban_board(
     known_queue_facts = board.known_queue_facts
     without_process_ids = board.without_process_ids
     board_signals = board.board_signals
+    board_steps = board.board_steps
     autofill_recruiter_since = board.autofill_recruiter_since
     fresh_threshold = board.fresh_threshold
     interview_badges = board.interview_badges
@@ -4822,6 +4829,10 @@ async def _render_kanban_board(
                     board_budget_hourly,
                     *board_signals.get(e.candidate_id, (None, False)),
                 ).points
+                step = board_steps.get(e.candidate_id)
+                payload["entry_autofill"]["steps"] = (
+                    step.counts() if step is not None else None
+                )
                 review_owner = review_owner_by_candidate.get(e.candidate_id)
                 payload["entry_autofill"]["review_owner"] = (
                     {"id": review_owner, "name": user_name_by_id.get(review_owner)}

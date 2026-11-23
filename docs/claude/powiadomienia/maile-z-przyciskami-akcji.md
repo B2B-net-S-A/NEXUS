@@ -16,9 +16,15 @@ ją rysuje (tabele i style inline, bo Outlook nie czyta CSS z nagłówka):
   rekrutacji tytuł · klient, w „Czasie i ludziach” osoba); każda część
   skracana osobno do 70 znaków;
 - znaczek „Czeka na Ciebie” albo rodzaj sprawy;
-- tytuł i opis z dzwonka, pod nimi do 4 faktów z tej samej sprawy
+- tytuł i opis z dzwonka, pod nimi do 5 faktów z tej samej sprawy
   (`load_facts`: rekrutacja, klient, Delivery Lead, termin, terminy od klienta,
   start kontraktora) — fakty są dodatkiem, ich błąd nie zatrzymuje maila;
+- numer zapytania klienta (`jobs.client_reference`, np. ZOB-3059) jako wiersz
+  „Nr zapytania” tuż przed „Rekrutacja” i na końcu tematu — w każdym mailu
+  z faktem „Rekrutacja”, nigdy w mailu kadrowym. Bez numeru nie ma wiersza
+  ani dopisku; naszego `reference_number` (PB/…, NORD/…) nie pokazujemy, bo
+  klient go nie zna. Zgłoszenie Delivery Leada, wariant A z makiet, decyzja
+  Artura z 23.11.2026: DL odpisuje klientowi jego numerem i szuka po nim maili;
 - przyciski z gotową akcją;
 - stopka „Ten mail przychodzi zawsze, bo ktoś czeka na Twój ruch.” dla
   `REQUIRED_KINDS`, inaczej „możesz wyłączyć sobie w Ustawienia → Moje konto”.

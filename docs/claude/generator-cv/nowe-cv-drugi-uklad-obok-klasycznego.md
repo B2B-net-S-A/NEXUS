@@ -1,6 +1,6 @@
 # „Nowe CV” — drugi układ obok klasycznego Worda (22.11.2026)
 
-<!-- indeks: `cv_layout` przy CV etapu / wersji / generacji / regule klienta, `CV_NEW_LAYOUT_ENABLED`, PDF WeasyPrint z HTML-a edytora (`cv_new_content`, `cv_new_layout`, `cv_new_pdf`), przełącznik wszędzie, blokada po wysyłce, Word zawsze klasyczny -->
+<!-- indeks: `cv_layout` przy CV etapu / wersji / generacji / regule klienta, `CV_NEW_LAYOUT_ENABLED`, PDF WeasyPrint z HTML-a edytora (`cv_new_content`, `cv_new_layout`, `cv_new_pdf`), przełącznik wszędzie, blokada po wysyłce, Word zawsze klasyczny; strona 1 po warsztatach 23.11: nazwisko pod stanowiskiem, języki od B1, miasto, zdania z liniami, oś A1, wieniec certyfikat/dyplom (`page1_extras.wreath`) -->
 
 Decyzje Artura z 22.11.2026 (makiety i plan: https://claude.ai/artifact/BNgS14uStdSdnbFMWC5T4E,
 prywatne; projekt strony 1: https://claude.ai/artifact/5iLRazHADMeQZHhes3BTNS, runda 34).
@@ -56,6 +56,44 @@ Migracja 0753, SQL w `services/cv_layout_schema.py` (czyta go też
 `classic`), `candidate_stage_cvs.page1_extras`, `cv_document_versions.cv_layout`
 i `page1_extras` (NULL w starych wierszach = klasyczny),
 `cv_generated_documents.cv_layout`, `client_cv_rules.cv_layout`.
+
+## Strona 1 po warsztatach (23.11.2026)
+
+Decyzje Artura po warsztatach z zespołem (makiety rundy 36:
+https://claude.ai/artifact/KQVGVPioPeiDDUQnQDmKcq, prywatne).
+
+- **Tytuł:** stanowisko, a pod nim imię i nazwisko — bez „–” (Blind: samo
+  stanowisko). `page1.title_row`.
+- **Obok tytułu, w jednym rzędzie:** języki tylko od B1 w górę (A1, A2 i opis
+  „podstawowy/basic” znikają; opis bez poziomu, np. „komunikatywny”, zostaje)
+  i miasto kandydata z pinezką. Miasto to `candidates.location` czytane przy
+  renderze (`cv_new_pdf.cv_facts`), „, PL” obcięte, inny kraj zostaje kodem;
+  puste albo Blind CV = bez pastylki. `lang_parts` dzieli też po „–”, „—” i „:”.
+- **„Dlaczego nasz kandydat”:** trzy zdania bez punktorów, oddzielone cienkimi
+  liniami poziomymi (wariant W1). Treść zdań na razie bez zmian (punkty
+  generatora + najmocniejszy wynik); nowe zasady zdań 1–3 i pole Delivery Leada
+  „Najważniejsze zadanie” to osobny PR.
+- **Oś kariery:** gdy przed 12-letnim oknem są więcej niż 2 stanowiska, starsze
+  lata to jasny odcinek tego samego paska z przerwą „//”, nad nim lata
+  („1997–2014”), pod nim zwykłym pismem „13 stanowisk, m.in. …” z dwiema
+  najdłuższymi firmami (wariant A1). Drobny blok „Wcześniej” z boku zniknął.
+- **Edukacja i wieniec (wariant E4):** wieniec przyciąga wzrok, więc trafia do
+  niego to, co dla klienta ważniejsze. Domyślnie (`page1_extras.wreath` puste
+  albo „auto”) certyfikat, gdy klient go wymaga — wszystkie słowa wymagania MUST
+  z Profilu Championa (`stack.must`) stoją w nazwie certyfikatu; kurs ani
+  szkolenie się nie liczy — inaczej najwyższy dyplom. Rekruter zmienia to w karcie
+  „CV do klienta” (obok układu) albo w edytorze, zakładka „Strona 1”
+  (`PATCH …/cv/page1` z `wreath: auto|cert|school`). „Certyfikat” bez certyfikatu
+  z MUST bierze najważniejszy certyfikat zawodowy dla roli (punktacja
+  `top_certs`). Z certyfikatem w wieńcu (skrót PMP/ISTQB/PL-900 w środku, rok pod
+  nim) obok stoją podpisane „Wykształcenie” i „Inne certyfikaty i szkolenia · N”;
+  z dyplomem — „Wykształcenie” i „Certyfikaty i szkolenia · N”. Liczba N = wszystkie.
+- **Rekruter, generator:** wybór układu to osobny krok „3 · Jak CV zobaczy
+  klient” z dwiema kartami (schemat strony 1, co dostaje klient, „polecane” przy
+  Nowym CV), przed „Treścią CV”. Domyślny układ bez zmian (reguła klienta).
+  Wieńca nie wybiera się w oknie generatora: zapamiętanie wyboru do podpięcia CV
+  wymagałoby kolumny w `cv_generated_documents`; wybór jest od razu po generacji
+  w karcie i w edytorze.
 
 ## Zdanie „najmocniejszy wynik”
 

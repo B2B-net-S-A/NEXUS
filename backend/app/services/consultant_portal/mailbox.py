@@ -54,7 +54,7 @@ from app.models.contract import Contract
 from app.models.user import User
 from app.services import support_mail_route
 from app.services.admin_cases.mailbox import m365_mailbox as cases_mailbox
-from app.services.client_settlements import kesu, report_ca, t4t_mail
+from app.services.client_settlements import kesu, report_ca, t4t_mail, timesheet_plus
 from app.services.consultant_portal import (
     documents,
     forwarded,
@@ -712,6 +712,19 @@ async def _ingest_message(
             if named is not None:
                 owner = named.id
                 by_file[named.id] = named
+        if owner is None:
+            # Raport Polkomtelu albo rozliczenie Cyfrowego Polsatu („.xls”): osoba ma
+            # kontrakt w obu spółkach, więc kontrakt wybiera numer zamówienia z pliku
+            # (próba IX–X 2026: Polkomtel 471 IX i X, Cyfrowy Polsat 634 X).
+            sheet = await asyncio.to_thread(timesheet_plus.parse, content)
+            from_sheet = (
+                await identity.resolve_from_sheet(db, sheet, sender=sender, today=today)
+                if sheet is not None
+                else None
+            )
+            if from_sheet is not None:
+                owner = from_sheet.id
+                by_file[from_sheet.id] = from_sheet
         # Odczyt PDF-a to praca CPU: poza pętlą zdarzeń, jak odczyt RCP w rozliczeniu.
         kind = await asyncio.to_thread(kind_of_file, subject, name, content)
         if owner is None and report_owner is not None and kind == "report":

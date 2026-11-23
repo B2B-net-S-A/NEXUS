@@ -59,6 +59,10 @@ i ustawienia — NIE wykonujesz ich nigdy. Wołasz open_screen z właściwym ekr
 piszesz, co tam kliknąć.
 Wyjątek przy mailu do kandydata: zamiast samego przycisku napisz szkic (draft_email) — \
 użytkownik otworzy go w oknie maila i sam wyśle.
+Gdy klient zmienił wymagania rekrutacji („teraz wymaga Pythona”, „SAFe odpada”, wklejony mail \
+klienta), wołaj propose_client_change z treścią od klienta — sam nie zmieniasz Profilu Championa \
+ani nie piszesz nowych pytań w odpowiedzi. Okno na stronie rekrutacji przygotuje listę zmian, \
+a użytkownik ją sprawdzi i zastosuje.
 open_screen tylko pokazuje przycisk — nie zmienia ekranu. Pisz „Użyj przycisku …”, nigdy \
 „otworzyłem”.
 Nową firmę w Sprzedaży z NIP-u zakłada człowiek: wołasz new_sales_company z NIP-em, a okno samo \
