@@ -50,12 +50,16 @@ from app.services.client_order_lines import (
 )
 from app.services.client_settlements import (
     acceptance_mail,
+    confirmation_ergo,
     contractor_invoices,
+    declared,
     extras as settlement_extras,
     kesu,
     kcp,
     kesu_flow,
+    mail_nn,
     mail_text,
+    protocol_orlen,
     rcp_bnp,
     rcp_checks,
     rules_catalog,
@@ -988,6 +992,11 @@ async def _mails(
     return found
 
 
+#: Pliki, z których czytnik bierze MD, gdy wybrany plik miesiąca nie jest
+#: rozpoznany: oprócz RCP protokół Orlenu w DOCX i mail rozliczeń NN.
+READABLE_MIMES = (*RCP_MIMES, declared.DOCX, *MAIL_MIMES)
+
+
 async def _proof(
     report: Optional[CpDocument],
     reports: list[CpDocument],
@@ -997,104 +1006,199 @@ async def _proof(
     rules: dict[str, dict[str, Any]],
     other_md: Decimal = Decimal("0"),
 ) -> Optional[rcp_checks.ProofResult]:
-    """Odczyt RCP z pliku i kontrole (E2). Brak pliku RCP = ``None``."""
+    """Odczyt RCP z pliku i kontrole (E2). Brak pliku RCP = ``None``.
 
+    Gdy wybranego pliku nie zna żaden czytnik (np. najnowszy plik miesiąca to
+    faktura, a protokół przyszedł wcześniej), próbujemy pozostałych plików
+    miesiąca. Wynik z innego pliku ma w ``meta["document_id"]`` jego id."""
+
+    working_days = len(business_days(*month_bounds(month)))
+    common = dict(
+        reports=reports,
+        month=month,
+        person_name=person_name,
+        rules=rules,
+        other_md=other_md,
+        working_days=working_days,
+    )
+    if report is not None and report.mime in RCP_MIMES:
+        try:
+            content = portal_documents.path_for(report.file_path).read_bytes()
+        except OSError as exc:
+            logger.warning(
+                "rozliczenia: pliku RCP %s nie da się odczytać (%s)",
+                report.id,
+                type(exc).__name__,
+            )
+            return None
+        parsed, signatures = await read_rcp(content, report.mime)
+        mails = await _mails(report, reports)
+        if parsed is not None:
+            bnp = rcp_checks.evaluate(
+                parsed,
+                signatures,
+                mime=report.mime,
+                month=month,
+                person_name=person_name,
+                has_mail=any(d.mime in MAIL_MIMES for d in reports) or bool(mails),
+                rules=rules,
+                mails=mails,
+            )
+            if bnp.md_regular is not None:
+                return bnp
+            # Szablon RCP bez MD (np. raport BIK w PDF z tabelą „Imię i nazwisko”):
+            # inny czytnik tego pliku może znać jego wzór.
+            other = await _read_file(
+                report, content, has_mail_extra=bool(mails), **common
+            )
+            return other if other is not None and other.md_regular is not None else bnp
+        result = await _read_file(report, content, has_mail_extra=bool(mails), **common)
+        if result is not None:
+            return result
+    other = await _other_files(report, **common)
+    if other is not None:
+        return other
     if report is None or report.mime not in RCP_MIMES:
         return await _acceptance(None, reports, month=month, hours=None, rules=rules)
-    try:
-        content = portal_documents.path_for(report.file_path).read_bytes()
-    except OSError as exc:
-        logger.warning(
-            "rozliczenia: pliku RCP %s nie da się odczytać (%s)",
-            report.id,
-            type(exc).__name__,
-        )
-        return None
-    parsed, signatures = await read_rcp(content, report.mime)
-    mails = await _mails(report, reports)
-    has_mail = any(d.mime in MAIL_MIMES for d in reports) or bool(mails)
-    working_days = len(business_days(*month_bounds(month)))
-    if parsed is None:
-        # KCP Banku Pocztowego albo eksport Redmine, z którego KCP składa NEXUS (E6.5).
-        card = await asyncio.to_thread(
-            redmine_timelog.read_card, content, report.mime, month
-        )
-        if card is not None:
-            found, outside = card
-            return kcp.evaluate(
-                found,
-                month=month,
-                person_name=person_name,
-                rules=rules,
-                working_days=working_days,
-                other_md=other_md,
-                outside_month=outside,
-            )
-        # Szablon klienta w godzinach z makrami (E6.1, PKO).
-        pko = await asyncio.to_thread(timesheet_pko.parse, content, report.mime)
-        if pko is not None:
-            result = timesheet_pko.evaluate(
-                pko,
-                month=month,
-                person_name=person_name,
-                rules=rules,
-                working_days=working_days,
-                other_md=other_md,
-            )
-            return await _acceptance(
-                result,
-                reports,
-                month=month,
-                hours=pko.total_hours if pko.entries else None,
-                rules=rules,
-            )
-        # Nie szablon RCP BNP: może Time Sheet w godzinach (E6.2).
-        sheet = await asyncio.to_thread(timesheet.parse, content, report.mime)
-        if sheet is not None:
-            result = timesheet.evaluate(
-                sheet,
-                month=month,
-                person_name=person_name,
-                has_mail=has_mail,
-                rules=rules,
-                working_days=working_days,
-                other_md=other_md,
-            )
-            return await _acceptance(
-                result,
-                reports,
-                month=month,
-                hours=sheet.total_hours if sheet.entries else None,
-                rules=rules,
-            )
-        # Raport godzin BIK: szablon klienta, jego PDF albo tabela dni.
-        bik = await asyncio.to_thread(timesheet_bik.parse, content, report.mime)
-        if bik is not None:
-            result = timesheet_bik.evaluate(
-                bik,
-                month=month,
-                person_name=person_name,
-                rules=rules,
-                working_days=working_days,
-                other_md=other_md,
-            )
-            return await _acceptance(
-                result,
-                reports,
-                month=month,
-                hours=bik.total_hours if bik.total_hours > 0 else None,
-                rules=rules,
-            )
     return rcp_checks.evaluate(
-        parsed,
-        signatures,
+        None,
+        [],
         mime=report.mime,
         month=month,
         person_name=person_name,
-        has_mail=has_mail,
+        has_mail=False,
         rules=rules,
-        mails=mails,
     )
+
+
+async def _other_files(
+    report: Optional[CpDocument],
+    *,
+    reports: list[CpDocument],
+    **common: Any,
+) -> Optional[rcp_checks.ProofResult]:
+    """Pierwszy inny plik miesiąca z MD z czytnika; bez MD pierwszy rozpoznany."""
+
+    recognized: Optional[rcp_checks.ProofResult] = None
+    tried = report.id if report is not None and report.mime in RCP_MIMES else None
+    for doc in reports:
+        if doc.id == tried or doc.mime not in READABLE_MIMES:
+            continue
+        try:
+            content = portal_documents.path_for(doc.file_path).read_bytes()
+        except OSError:
+            continue
+        if doc.mime in RCP_MIMES and await asyncio.to_thread(
+            rcp_bnp.parse, content, doc.mime
+        ):
+            continue  # RCP BNP wybiera ``_pick_report``; tu tylko inne wzory.
+        result = await _read_file(doc, content, reports=reports, **common)
+        if result is None:
+            continue
+        result.meta["document_id"] = doc.id
+        if result.md_regular is not None:
+            return result
+        recognized = recognized or result
+    return recognized
+
+
+async def _read_file(
+    doc: CpDocument,
+    content: bytes,
+    *,
+    reports: list[CpDocument],
+    month: str,
+    person_name: str,
+    rules: dict[str, dict[str, Any]],
+    other_md: Decimal,
+    working_days: int,
+    has_mail_extra: bool = False,
+) -> Optional[rcp_checks.ProofResult]:
+    """Czytniki wzorów spoza RCP BNP dla jednego pliku; ``None`` = nie rozpoznany."""
+
+    mime = doc.mime
+    has_mail = any(d.mime in MAIL_MIMES for d in reports) or has_mail_extra
+
+    async def accepted(
+        result: rcp_checks.ProofResult, hours: Optional[Decimal]
+    ) -> rcp_checks.ProofResult:
+        return await _acceptance(result, reports, month=month, hours=hours, rules=rules)
+
+    def declared_result(found: declared.Declared) -> rcp_checks.ProofResult:
+        return declared.evaluate(
+            found,
+            month=month,
+            person_name=person_name,
+            rules=rules,
+            working_days=working_days,
+            other_md=other_md,
+        )
+
+    if mime in MAIL_MIMES:
+        # Akceptacja klienta z MD w treści (NN).
+        nn = await asyncio.to_thread(mail_nn.parse, content, mime)
+        return declared_result(nn) if nn is not None else None
+    if mime == declared.DOCX:
+        orlen = await asyncio.to_thread(protocol_orlen.parse, content, mime)
+        if orlen is None:
+            return None
+        return await accepted(declared_result(orlen), orlen.hours)
+    # KCP Banku Pocztowego albo eksport Redmine, z którego KCP składa NEXUS (E6.5).
+    card = await asyncio.to_thread(redmine_timelog.read_card, content, mime, month)
+    if card is not None:
+        found, outside = card
+        return kcp.evaluate(
+            found,
+            month=month,
+            person_name=person_name,
+            rules=rules,
+            working_days=working_days,
+            other_md=other_md,
+            outside_month=outside,
+        )
+    # Szablon klienta w godzinach z makrami (E6.1, PKO).
+    pko = await asyncio.to_thread(timesheet_pko.parse, content, mime)
+    if pko is not None:
+        result = timesheet_pko.evaluate(
+            pko,
+            month=month,
+            person_name=person_name,
+            rules=rules,
+            working_days=working_days,
+            other_md=other_md,
+        )
+        return await accepted(result, pko.total_hours if pko.entries else None)
+    # Time Sheet w godzinach (E6.2): XLSX, polski wariant albo PDF.
+    sheet = await asyncio.to_thread(timesheet.parse, content, mime)
+    if sheet is not None:
+        result = timesheet.evaluate(
+            sheet,
+            month=month,
+            person_name=person_name,
+            has_mail=has_mail,
+            rules=rules,
+            working_days=working_days,
+            other_md=other_md,
+        )
+        return await accepted(result, sheet.total_hours if sheet.entries else None)
+    # Raport godzin BIK: szablon klienta, jego PDF albo tabela dni.
+    bik = await asyncio.to_thread(timesheet_bik.parse, content, mime)
+    if bik is not None:
+        result = timesheet_bik.evaluate(
+            bik,
+            month=month,
+            person_name=person_name,
+            rules=rules,
+            working_days=working_days,
+            other_md=other_md,
+        )
+        return await accepted(result, bik.total_hours if bik.total_hours > 0 else None)
+    # Potwierdzenie godzin ERGO i protokół Orlenu w PDF.
+    for reader in (confirmation_ergo, protocol_orlen):
+        found_doc = await asyncio.to_thread(reader.parse, content, mime)
+        if found_doc is not None:
+            return await accepted(declared_result(found_doc), found_doc.hours)
+    return None
 
 
 async def _recompute(
@@ -1122,7 +1226,6 @@ async def _recompute(
             source = proof.meta["kesu"].get("document_id")
             report = next((d for d in reports if d.id == source), report)
             await _sync_kesu_extra(db, s, proof.meta["kesu"])
-    s.report_document_id = report.id if report else None
     if proof is None:
         proof = await _proof(
             report,
@@ -1132,6 +1235,10 @@ async def _recompute(
             rules=rules,
             other_md=await _other_md(db, person.contract, s.period_month),
         )
+        if proof is not None and (source := proof.meta.pop("document_id", None)):
+            # MD z innego pliku miesiąca niż wybrany: ten plik jest dowodem.
+            report = next((d for d in reports if d.id == source), report)
+    s.report_document_id = report.id if report else None
     # Wpis Finansów wygrywa z odczytem pliku; bez wpisu MD bierzemy z RCP.
     if proof is not None and proof.md_regular is not None and s.md_source != "manual":
         s.md_regular = proof.md_regular
