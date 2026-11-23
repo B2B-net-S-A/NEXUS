@@ -554,7 +554,7 @@ def _stored(monkeypatch: pytest.MonkeyPatch) -> list[SimpleNamespace]:
 
 
 @pytest.mark.asyncio
-async def test_pobiera_tylko_korekty_i_korygowane_i_przenosi_korekty_do_miesiaca(
+async def test_pobiera_korekty_i_korygowane_przed_przypietymi_i_przenosi_korekty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     docs = _stored(monkeypatch)
@@ -562,10 +562,11 @@ async def test_pobiera_tylko_korekty_i_korygowane_i_przenosi_korekty_do_miesiaca
     counts = await contractor_details.fetch_details(
         _Db(), source, today=TODAY, budget=40
     )
-    # Sześć korekt i faktura pierwotna; nowa faktura 2/11 bez korekty — bez pobrania.
-    assert counts == {"downloads": 7, "moved": 6}
-    assert CASE[-1][2] not in source.calls
-    assert docs[-1].details is None
+    # Sześć korekt i faktura pierwotna, na końcu nowa faktura 2/11 przypięta
+    # do kontraktu (pola z XML-a dla reguł ``invoice_fields``).
+    assert counts == {"downloads": 8, "moved": 6}
+    assert source.calls[-1] == CASE[-1][2]
+    assert docs[-1].details["state"] == "ok"
     assert all(d.period_month == "2026-10" for d in docs[:-1])
     checks = invoice_chain.chain_checks(docs, amounts=True)
     assert "Korekty zostawiają 72,00 zł VAT" in _titles(checks)
