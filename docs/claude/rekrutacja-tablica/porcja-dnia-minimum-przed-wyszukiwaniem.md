@@ -206,7 +206,9 @@ Włączenie to decyzja Artura z 08.11 (sekcja „Narastanie minimum”).
   `orderNewColumn`): nowi w bazie od progu, bez uwag z miejscem co 5., z ostrzeżeniem,
   z brakiem krytycznej, po sumie wyniku, „znamy” i premii. Tego samego klucza używa
   `plan_owners`. Brak krytycznej porcja czyta z `entry_meta.missing_must`, bo
-  `pipeline_base_fit` trwa kilka sekund.
+  `pipeline_base_fit` trwa kilka sekund. Od 23.11.2026 w każdej grupie najpierw więcej
+  spełnionych „musi mieć”, a na koniec idzie tylko brak krytycznej w CV:
+  `porcja-schodki-po-wymaganiach.md`.
 - **Premia tylko w kolejności, przy włączonej porcji:** `availability=actively_looking`
   +5, znana stawka w PLN ≤ budżet +3 (`bonus_for`, `entry_autofill.queue_bonus`
   na Tablicy). Procent na karcie zostaje wynikiem.
