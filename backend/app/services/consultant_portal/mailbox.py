@@ -438,6 +438,17 @@ async def _ingest_message(
         indirect = await identity.resolve_named_in_text(db, names, today=today)
         # Kilka osób w mailu: każdy plik osobno, po nazwisku z jego nazwy.
         by_file_name = indirect is None
+    sender_clients: frozenset[int] = frozenset()
+    if (
+        contract is None
+        and indirect is None
+        and not identity.is_company_address(sender)
+    ):
+        # Klient przekazuje raport ze swojej domeny, a osoba stoi tylko w nazwie pliku
+        # (próba IX–X 2026: PKO, ERGO, BIK — 8 osobo-miesięcy bez rozliczenia). Nazwa
+        # wskazuje osobę tylko wśród kontraktów klienta tej domeny (decyzja 23.11.2026).
+        sender_clients = await identity.client_ids_for_sender(db, sender)
+    by_file: dict[int, Contract] = {}
     indirect_created = 0
     contract_id = contract.id if contract else None
     created = skipped = 0
@@ -485,6 +496,13 @@ async def _ingest_message(
             # 3 osobo-miesiące Orlenu bez rozliczenia).
             named = await identity.resolve_named_in_text(db, name, today=today)
             owner = named.id if named is not None else None
+        elif owner is None and sender_clients and _named_kind("", name):
+            named = await identity.resolve_named_at_client(
+                db, name, client_ids=sender_clients, today=today
+            )
+            if named is not None:
+                owner = named.id
+                by_file[named.id] = named
         # Odczyt PDF-a to praca CPU: poza pętlą zdarzeń, jak odczyt RCP w rozliczeniu.
         kind = await asyncio.to_thread(kind_of_file, subject, name, content)
         try:
@@ -510,6 +528,8 @@ async def _ingest_message(
         if owner is not None and owner != contract_id and not stored.duplicate:
             indirect_created += 1
     body_owner = contract or (indirect if indirect_created else None)
+    if body_owner is None and indirect_created and len(by_file) == 1:
+        body_owner = next(iter(by_file.values()))
     if created and body_owner is not None and kesu.parse_jira(subject, "") is None:
         # Akceptacja klienta przekazana dalej (PKO): treść maila to dowód godzin.
         created += await _store_mail_body(
