@@ -48,8 +48,7 @@ import {
   skillNamesFor,
 } from "@/lib/job-new-params";
 import { useToast } from "@/components/Toast";
-import { pracujMailHref } from "@/lib/job-ad-mail-intent";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { newJobAdHref } from "@/lib/job-ad-mail-intent";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ds/PageHeader";
 import type { ClientRef } from "@/components/clients/ClientSinglePicker";
@@ -365,12 +364,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       : NO_TEAM;
   });
   const queryClient = useQueryClient();
-  const { showSuccess, showError, showInfo, showActionToast } = useToast();
-  // Pracuj.pl wstawia opiekun konta — po utworzeniu DL wysyła mu ogłoszenie
-  // jednym kliknięciem (`ogloszenie-pracuj-mailem-do-opiekuna.md`).
-  const sendsToPracuj = useAuthStore((s) =>
-    hasRole(s.user, "delivery_lead", "head_of_recruitment", "admin"),
-  );
+  const { showSuccess, showError, showInfo } = useToast();
 
   // Podgląd z `step: "request"`: treść czeka w panelu „Wklej treść”, nieodczytana.
   const previewUnread = preview?.step === "request";
@@ -1397,16 +1391,11 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     const created = automatic
       ? `Rekrutacja utworzona i opublikowana. ${automaticHandoffOutcome(allocationMode, automatSkips)}`
       : "Rekrutacja utworzona i opublikowana.";
-    if (sendsToPracuj) {
-      showActionToast(created, {
-        actionLabel: "Wyślij ogłoszenie na Pracuj.pl",
-        onAction: () => router.push(pracujMailHref(jobId)),
-        durationMs: 15_000,
-      });
-    } else {
-      showSuccess(created);
-    }
-    router.push(`/jobs/${jobId}`);
+    showSuccess(created);
+    // Krok „Ogłoszenie” od razu (23.11.2026): treść pisze się w tle po commicie,
+    // a okno zaznacza kanały jak w ostatnich rekrutacjach klienta
+    // (`ogloszenie-przy-utworzeniu.md`). Zastępuje toast „Wyślij na Pracuj.pl”.
+    router.push(newJobAdHref(jobId));
   };
 
   // Tożsamość listy must zmienia się tylko z wierszami — podpowiedź podobnych

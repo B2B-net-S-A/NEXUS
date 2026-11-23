@@ -1,0 +1,206 @@
+"""Protokół odbioru zbiorczy klienta z godzinami kilku osób → MD osoby. Bez bazy.
+
+Klienci z zamówień publicznych nie przysyłają miesięcznego RCP osoby, tylko
+podpisany protokół odbioru dla całej umowy (próba IX–X 2026, kopia produkcji
+z 23.11): Centrum e-Zdrowia — protokół na umowę wykonawczą, PFRON — jeden protokół
+na wszystkie zlecenia. PM albo koordynatorka rozliczeń przekazuje go na
+rozliczenia@. Faktury Finansów za IX i X mają te same godziny osób co protokoły
+(PFRON IX: kwota brutto protokołu = faktura zbiorcza). Bez czytnika protokół stał
+jako karta bez osoby, a osoby w „Przebiegu miesiąca” jako „brak raportu”.
+
+Dwa wzory:
+
+* CeZ: „Protokół odbioru · Nr umowy (Wykonawczej) CeZ/…”, okres „w okresie od
+  DD.MM.RRRR do DD.MM.RRRR”, w tabeli „Zestawienie” wiersz osoby
+  „Imię Nazwisko Suma 176”, pod nią „Suma końcowa 336”. Suma osób różna od
+  „Suma końcowa” albo okres przez dwa miesiące = nie wzór (plik czeka na
+  człowieka). Protokół jednej osoby bywa bez wiersza „… Suma” (imię i nazwisko
+  w komórce rozbite na dwie linie): wtedy osobą jest tekst tabeli, a godzinami
+  „Suma końcowa”; osobę z kontraktu musi dać się w nim znaleźć.
+* PFRON: „Protokół odbioru na usługi outsourcingu specjalistów IT”, blok na osobę
+  „Specjalisty: Imię Nazwisko Rola” i „Liczba Roboczogodzin … : 196,5”. Miesiąca
+  w treści nie ma: bierzemy okres dokumentu (z nazwy pliku albo tematu maila,
+  nie zgadnięty z daty), inaczej kontrola ``proof.month`` bez MD.
+
+MD = godziny / ``fields.md_hours`` (``declared.evaluate``).
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+import unicodedata
+from dataclasses import dataclass
+from decimal import Decimal
+from typing import Any, Mapping, Optional
+
+from app.services.client_settlements import declared
+from app.services.client_settlements.declared import PDF, number, pdf_text, short_lines
+from app.services.client_settlements.rcp_checks import ProofResult, name_tokens
+
+logger = logging.getLogger(__name__)
+
+SOURCE_CEZ = "Protokół odbioru CeZ"
+SOURCE_PFRON = "Protokół odbioru PFRON"
+_TOLERANCE = Decimal("0.01")
+_NUM = r"\d+(?:[.,]\d+)?"
+_UPPER = "A-ZĄĆĘŁŃÓŚŹŻ"
+# Dwa słowa z wielkiej litery i więcej: „Jan Testowy”, „Anna Inna-Nowak”.
+_NAME = rf"[{_UPPER}][^\W\d_][\w'-]*(?:[ \t]+[{_UPPER}][^\W\d_][\w'-]*)+"
+_PERSON_SUM = re.compile(rf"^({_NAME})[ \t]+Suma[ \t]+({_NUM})[ \t]*$", re.M)
+_TOTAL = re.compile(rf"^Suma końcowa[ \t]+({_NUM})\b", re.M | re.I)
+_DATE = r"(\d{1,2})\.(\d{1,2})\.(20\d{2})"
+_PERIOD = re.compile(rf"w\s+okresie\*?\s*(?:od\s*)?{_DATE}\s*(?:do\s*)?{_DATE}", re.I)
+_SPECIALIST = re.compile(r"^Specjalisty:[ \t]*(.+)$", re.M)
+_PFRON_HOURS = re.compile(
+    rf"Roboczogodzin.*?rozliczeniowym\s*:\s*({_NUM})", re.I | re.S
+)
+
+
+@dataclass(frozen=True)
+class ProtocolPerson:
+    #: Osoba z protokołu: „Imię Nazwisko”, „Imię Nazwisko Rola” (PFRON) albo
+    #: tekst tabeli protokołu jednej osoby. Kontrakt pasuje, gdy jego imię
+    #: i nazwisko stoją w tym tekście.
+    name: str
+    hours: Decimal
+
+
+@dataclass(frozen=True)
+class Protocol:
+    source: str
+    #: ``RRRR-MM`` z treści; ``None`` = z okresu dokumentu (PFRON).
+    month: Optional[str]
+    people: tuple[ProtocolPerson, ...]
+
+
+def _plain(text: str) -> str:
+    folded = unicodedata.normalize("NFKD", text.replace("ł", "l").replace("Ł", "L"))
+    return " ".join(folded.encode("ascii", "ignore").decode().lower().split())
+
+
+def _cez_month(text: str) -> Optional[str]:
+    found = _PERIOD.search(text)
+    if found is None:
+        return None
+    _, start_month, start_year, _, end_month, end_year = found.groups()
+    if (start_month, start_year) != (end_month, end_year):
+        return None
+    month = int(start_month)
+    return f"{start_year}-{month:02d}" if 1 <= month <= 12 else None
+
+
+def _cez(text: str) -> Optional[Protocol]:
+    month = _cez_month(text)
+    if month is None:
+        return None
+    # Tabela szczegółów pod „Podsumowaniem” ma sumy dni i własne wiersze „Suma”.
+    head = re.split(r"^Podsumowanie projekt", text, maxsplit=1, flags=re.M)[0]
+    total_found = _TOTAL.search(head)
+    if total_found is None:
+        return None
+    total = number(total_found.group(1))
+    if total is None:
+        return None
+    sums: dict[frozenset[str], list[Any]] = {}
+    for found in _PERSON_SUM.finditer(head):
+        hours = number(found.group(2))
+        if hours is None:
+            return None
+        entry = sums.setdefault(
+            frozenset(name_tokens(found.group(1))),
+            [found.group(1).strip(), Decimal("0")],
+        )
+        entry[1] += hours
+    if not sums:
+        # Protokół jednej osoby: osoba z tekstu tabeli, godziny z „Suma końcowa”.
+        table = head[: total_found.start()].rsplit("podpis osoby uprawnionej)", 1)[-1]
+        if len(name_tokens(table)) < 2:
+            return None
+        return Protocol(SOURCE_CEZ, month, (ProtocolPerson(table.strip(), total),))
+    if abs(sum(hours for _, hours in sums.values()) - total) > _TOLERANCE:
+        logger.info("protokół CeZ: suma osób ≠ „Suma końcowa”, bez MD")
+        return None
+    return Protocol(
+        SOURCE_CEZ,
+        month,
+        tuple(ProtocolPerson(name, hours) for name, hours in sums.values()),
+    )
+
+
+def _pfron(text: str) -> Optional[Protocol]:
+    starts = list(_SPECIALIST.finditer(text))
+    people: list[ProtocolPerson] = []
+    for index, found in enumerate(starts):
+        end = starts[index + 1].start() if index + 1 < len(starts) else len(text)
+        hours = _PFRON_HOURS.search(text, found.end(), end)
+        value = number(hours.group(1)) if hours else None
+        if value is not None and len(name_tokens(found.group(1))) >= 2:
+            people.append(ProtocolPerson(found.group(1).strip(), value))
+    return Protocol(SOURCE_PFRON, None, tuple(people)) if people else None
+
+
+def parse_text(text: str) -> Optional[Protocol]:
+    """Protokół z tekstu PDF albo ``None`` dla innego dokumentu."""
+
+    text = short_lines(text)
+    plain = _plain(text[:3000])
+    if "protokol odbioru na uslugi outsourcingu specjalistow" in plain:
+        return _pfron(text)
+    if (
+        plain.startswith("protokol odbioru")
+        and "nr umowy" in plain
+        and "suma koncowa" in _plain(text)
+    ):
+        return _cez(text)
+    return None
+
+
+def parse(content: bytes, mime: str) -> Optional[Protocol]:
+    if mime != PDF or content[:5] != b"%PDF-":
+        return None
+    text = pdf_text(content)
+    return parse_text(text) if text else None
+
+
+def person_in(protocol: Protocol, person_name: str) -> Optional[ProtocolPerson]:
+    """Jedyna osoba protokołu, w której tekście stoją imię i nazwisko z kontraktu."""
+
+    wanted = name_tokens(person_name)
+    if len(wanted) < 2:
+        return None
+    hits = [p for p in protocol.people if wanted <= name_tokens(p.name)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def evaluate(
+    protocol: Protocol,
+    *,
+    month: str,
+    doc_month: Optional[str],
+    person_name: str,
+    rules: Mapping[str, Mapping[str, Any]],
+    working_days: int,
+    other_md: Decimal = Decimal("0"),
+) -> Optional[ProofResult]:
+    """Kontrole i MD osoby; ``None``, gdy osoby w protokole nie ma.
+
+    ``doc_month``: okres dokumentu z nazwy pliku albo tematu maila (nie zgadnięty),
+    potrzebny dla protokołu bez miesiąca w treści."""
+
+    person = person_in(protocol, person_name)
+    if person is None:
+        return None
+    return declared.evaluate(
+        declared.Declared(
+            source=protocol.source,
+            consultant=person.name,
+            month=protocol.month or doc_month,
+            hours=person.hours,
+        ),
+        month=month,
+        person_name=person_name,
+        rules=rules,
+        working_days=working_days,
+        other_md=other_md,
+    )

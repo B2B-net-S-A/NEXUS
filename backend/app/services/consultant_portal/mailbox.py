@@ -54,7 +54,13 @@ from app.models.contract import Contract
 from app.models.user import User
 from app.services import support_mail_route
 from app.services.admin_cases.mailbox import m365_mailbox as cases_mailbox
-from app.services.client_settlements import kesu, report_ca, t4t_mail, timesheet_plus
+from app.services.client_settlements import (
+    kesu,
+    protocol_collective,
+    report_ca,
+    t4t_mail,
+    timesheet_plus,
+)
 from app.services.consultant_portal import (
     documents,
     forwarded,
@@ -158,6 +164,14 @@ _PERIOD_WORD = re.compile(
 _PERIOD_COMPACT = re.compile(r"(?<!\d)(20\d{2})(0[1-9]|1[0-2])(?!\d)")
 _PERIOD_SHORT = re.compile(r"(?<![\d./])(0?[1-9]|1[0-2])[._-](\d{2})(?!\d|[./]\d)")
 _PERIOD_SLASHED = re.compile(r"/(\d{2})/(0[1-9]|1[0-2])(?!\d)")
+# Szablon PKO: „TimeSheet 2610 - Nazwisko Imię PZ0xxxxx.xlsm” (RRMM).
+_PERIOD_PKO_SHEET = re.compile(
+    r"timesheet\s+(\d{2})(0[1-9]|1[0-2])(?!\d)", re.IGNORECASE
+)
+# Okres dalej niż dwa miesiące po mailu to literówka w roku („Październik 2027”
+# w odpowiedzi klienta z 30.10.2026, próba IX–X), nie okres. Faktury z wyprzedzeniem
+# do dwóch miesięcy zostają.
+_MAX_MONTHS_AHEAD = 2
 # Całe słowa, nie rdzenie: „Mariusz” to nie marzec, „Majewski” to nie maj.
 _MONTH_WORDS = {
     word: month
@@ -307,14 +321,24 @@ def kind_of_file(subject: str, file_name: str, content: bytes) -> str:
         return kind
     from app.services.client_settlements import (
         confirmation_ergo,
+        ewidencja_orlen,
         protocol_orlen,
         rcp_bnp,
         timesheet,
         timesheet_bik,
+        timesheet_fieldglass,
     )
 
     # Każdy czytnik sam odrzuca typ pliku, którego nie zna.
-    readers = (rcp_bnp, confirmation_ergo, protocol_orlen, timesheet, timesheet_bik)
+    readers = (
+        rcp_bnp,
+        confirmation_ergo,
+        protocol_orlen,
+        ewidencja_orlen,
+        timesheet,
+        timesheet_bik,
+        timesheet_fieldglass,
+    )
     if any(reader.parse(content, mime) is not None for reader in readers):
         return "report"
     return kind
@@ -385,10 +409,11 @@ def _loose_period(text: str, received: date) -> Optional[tuple[int, int]]:
         found = plausible(century + int(match.group(2)), int(match.group(1)))
         if found:
             return found
-    for match in _PERIOD_SLASHED.finditer(text):
-        found = plausible(century + int(match.group(1)), int(match.group(2)))
-        if found:
-            return found
+    for pattern in (_PERIOD_SLASHED, _PERIOD_PKO_SHEET):
+        for match in pattern.finditer(text):
+            found = plausible(century + int(match.group(1)), int(match.group(2)))
+            if found:
+                return found
     tokens = _folded_tokens(text)
     for index, token in enumerate(tokens):
         month = _MONTH_WORDS.get(token)
@@ -408,11 +433,17 @@ def _loose_period(text: str, received: date) -> Optional[tuple[int, int]]:
 def period_for(subject: str, file_name: str, received: date) -> tuple[int, int, bool]:
     """Okres pliku; bez znaku w treści: z daty maila, z flagą „zgadnięty”."""
 
+    def not_far_ahead(period: Optional[tuple[int, int]]) -> Optional[tuple[int, int]]:
+        if period is None:
+            return None
+        ahead = (period[0] - received.year) * 12 + period[1] - received.month
+        return period if ahead <= _MAX_MONTHS_AHEAD else None
+
     found = (
-        find_period(file_name)
-        or find_period(subject)
-        or find_period(file_name, received)
-        or find_period(subject, received)
+        not_far_ahead(find_period(file_name))
+        or not_far_ahead(find_period(subject))
+        or not_far_ahead(find_period(file_name, received))
+        or not_far_ahead(find_period(subject, received))
     )
     if found:
         return found[0], found[1], False
@@ -598,7 +629,14 @@ async def _ingest_message(
         if not any(_is_document(f) for f in files):
             return time_report.versions, time_report.duplicates
     client_report, consumed = await _store_client_reports(
-        db, files, message, sender=sender, state=state, today=today, now=now
+        db,
+        files,
+        message,
+        sender=sender,
+        received=received,
+        state=state,
+        today=today,
+        now=now,
     )
     if consumed:
         files = [f for i, f in enumerate(files) if i not in consumed]
@@ -772,15 +810,16 @@ async def _ingest_message(
 
 async def _report_people(
     db: AsyncSession,
-    report: report_ca.CaReport,
+    report: report_ca.CaReport | protocol_collective.Protocol,
     *,
     sender: str,
     state: portal_settings.PortalSettings,
     today: date,
 ) -> list[Contract]:
-    """Kontrakty osób z raportu zbiorczego, wszystkie u jednego klienta.
+    """Kontrakty osób z raportu albo protokołu zbiorczego, wszystkie u jednego klienta.
 
-    Osoba po imieniu i nazwisku z wiersza raportu. Osoby u dwóch klientów albo
+    Osoba po imieniu i nazwisku z wiersza raportu (w protokole PFRON z rolą, w
+    protokole jednej osoby z tekstu tabeli). Osoby u dwóch klientów albo
     nadawca spoza firmy i spoza domeny tego klienta = nikt (raport czeka na
     człowieka): arkusz może przysłać każdy, więc nie wskazuje nim osób sam."""
 
@@ -820,25 +859,31 @@ async def _store_client_reports(
     message: dict[str, Any],
     *,
     sender: str,
+    received: datetime,
     state: portal_settings.PortalSettings,
     today: date,
     now: datetime,
 ) -> tuple[int, set[int]]:
-    """Raport zbiorczy klienta (Credit Agricole) jako raport każdej osoby z arkusza.
+    """Raport zbiorczy klienta jako raport każdej osoby z dokumentu.
 
     (nowe, indeksy wczytanych plików). Ten sam plik u każdej osoby; czytnik
-    rozliczenia bierze z niego wiersz osoby (``client_settlements/report_ca``).
-    Miesiąc z arkusza, nie z tematu."""
+    rozliczenia bierze z niego wiersz osoby: arkusz Credit Agricole
+    (``client_settlements/report_ca``) i protokół odbioru CeZ albo PFRON w PDF
+    (``client_settlements/protocol_collective``). Miesiąc z dokumentu, nie
+    z tematu; protokół PFRON go nie ma, więc bierzemy okres z nazwy pliku albo
+    tematu, a bez niego (okres zgadnięty z daty maila) plik idzie zwykłą ścieżką."""
 
     created = 0
     consumed: set[int] = set()
     message_id = str(message["id"])[:512]
+    subject = str(message.get("subject") or "")
     for index, attachment in enumerate(files):
         name = str(attachment.get("name") or "")
         raw = attachment.get("contentBytes")
+        lower = name.lower()
         if (
             not _is_document(attachment)
-            or not name.lower().endswith(".xlsx")
+            or not lower.endswith((".xlsx", ".pdf"))
             or not isinstance(raw, str)
         ):
             continue
@@ -846,15 +891,26 @@ async def _store_client_reports(
             content = base64.b64decode(raw, validate=True)
         except ValueError:
             continue
-        report = await asyncio.to_thread(report_ca.parse, content, report_ca.XLSX)
-        if report is None or report.month is None:
+        report: report_ca.CaReport | protocol_collective.Protocol | None
+        if lower.endswith(".xlsx"):
+            report = await asyncio.to_thread(report_ca.parse, content, report_ca.XLSX)
+            period = report.month if report is not None else None
+        else:
+            report = await asyncio.to_thread(
+                protocol_collective.parse, content, protocol_collective.PDF
+            )
+            period = report.month if report is not None else None
+            if report is not None and period is None:
+                year, month, guessed = period_for(subject, name, received.date())
+                period = None if guessed else f"{year}-{month:02d}"
+        if report is None or period is None:
             continue
         people = await _report_people(
             db, report, sender=sender, state=state, today=today
         )
         if not people:
             continue
-        year, month = (int(part) for part in report.month.split("-"))
+        year, month = (int(part) for part in period.split("-"))
         for position, contract in enumerate(people):
             stored = await documents.store(
                 db,

@@ -18,6 +18,10 @@ vi.mock("@tanstack/react-query", async (original) => ({
   ...(await original<typeof import("@tanstack/react-query")>()),
   useQueryClient: () => ({}),
 }));
+const noAnswer = vi.hoisted(() => vi.fn());
+vi.mock("@/hooks/useNoAnswerNote", () => ({
+  useNoAnswerNote: () => ({ mutate: noAnswer, isPending: false }),
+}));
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showError: vi.fn(), showSuccess: vi.fn() }),
 }));
@@ -90,6 +94,49 @@ describe("ReviewBatchScreen przy pustej kolejce", () => {
     expect(screen.getByTestId("review-batch-open-today").textContent).toMatch(/po terminie/);
     expect(screen.getByText(/Wyszukiwanie wróci po domknięciu 1 screeningu/)).toBeTruthy();
     expect(screen.getByText("Wyszukiwanie zablokowane")).toBeTruthy();
+  });
+
+  it("„Nie odebrał” przy screeningu do domknięcia zapisuje próbę, a próba zdejmuje „po terminie” (23.11.2026)", () => {
+    given({
+      met: true,
+      done_today: 10,
+      remaining: 0,
+      overdue_screenings: 0,
+      open_today_screenings: [
+        {
+          job_id: 11,
+          job_title: "Java Developer",
+          candidate_id: 101,
+          name: "Jan Testowy",
+          attempts: 2,
+          last_attempt_at: new Date().toISOString(),
+        },
+      ],
+    });
+    render(<ReviewBatchScreen />);
+    fireEvent.click(screen.getByRole("tab", { name: /Do domknięcia/ }));
+    const list = screen.getByTestId("review-batch-open-today");
+    expect(list.textContent).toMatch(/nie odebrał ×2/);
+    expect(list.textContent).toMatch(/Ostatnia próba dziś/);
+    expect(list.textContent).not.toMatch(/po terminie/);
+    fireEvent.click(screen.getByRole("button", { name: /Nie odebrał/ }));
+    expect(noAnswer).toHaveBeenCalledTimes(1);
+  });
+
+  it("po 3 próbach bez odpowiedzi karta jest po terminie i mówi, co dalej (23.11.2026)", () => {
+    given({
+      met: false,
+      done_today: 10,
+      remaining: 0,
+      overdue_screenings: 1,
+      open_today_screenings: [
+        { job_id: 11, job_title: "Java Developer", candidate_id: 101, name: "Jan Testowy", overdue: true, attempts: 3 },
+      ],
+    });
+    render(<ReviewBatchScreen />);
+    const list = screen.getByTestId("review-batch-open-today");
+    expect(list.textContent).toMatch(/po terminie/);
+    expect(screen.getByTestId("review-batch-attempts-used").textContent).toMatch(/3 prób bez odpowiedzi/);
   });
 
   it("screening z rekrutacji, z której zdjęto osobę, stoi na końcu bez terminu i poza licznikiem (13.11.2026)", () => {

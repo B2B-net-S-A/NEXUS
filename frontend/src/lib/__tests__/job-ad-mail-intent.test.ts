@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { pracujMailHref, readAdMailIntent, withoutAdMailParams } from "../job-ad-mail-intent";
+import {
+  newJobAdHref,
+  pracujMailHref,
+  readAdMailIntent,
+  withoutAdMailParams,
+} from "../job-ad-mail-intent";
 
 const read = (search: string) => readAdMailIntent(new URLSearchParams(search));
 
@@ -11,12 +16,14 @@ describe("wejście z maila przypomnienia o ogłoszeniu", () => {
       skip: false,
       remind: false,
       send: false,
+      created: false,
     });
     expect(read("?ogloszenie=kariera&przypomnij=rekruter")).toEqual({
       focus: "kariera",
       skip: false,
       remind: true,
       send: false,
+      created: false,
     });
   });
 
@@ -26,6 +33,7 @@ describe("wejście z maila przypomnienia o ogłoszeniu", () => {
       skip: true,
       remind: false,
       send: false,
+      created: false,
     });
   });
 
@@ -35,6 +43,7 @@ describe("wejście z maila przypomnienia o ogłoszeniu", () => {
       skip: false,
       remind: false,
       send: true,
+      created: false,
     });
     expect(read("?ogloszenie=jjit&wyslij=opiekun")?.send).toBe(false);
     expect(read("?ogloszenie=pracuj&wyslij=wszystkim")?.send).toBe(false);
@@ -44,6 +53,19 @@ describe("wejście z maila przypomnienia o ogłoszeniu", () => {
     const href = pracujMailHref(789151);
     expect(href).toBe("/jobs/789151?ogloszenie=pracuj&wyslij=opiekun");
     expect(read(href.split("?")[1])?.send).toBe(true);
+  });
+
+  it("„nowa” to krok „Ogłoszenie” zaraz po utworzeniu rekrutacji", () => {
+    const href = newJobAdHref(789217);
+    expect(href).toBe("/jobs/789217?ogloszenie=nowa");
+    expect(read(href.split("?")[1])).toEqual({
+      focus: null,
+      skip: false,
+      remind: false,
+      send: false,
+      created: true,
+    });
+    expect(withoutAdMailParams("?ogloszenie=nowa")).toBe("");
   });
 
   it("obce wartości nic nie otwierają", () => {

@@ -62,6 +62,8 @@ vi.mock("@/lib/api/sales", async (original) => ({
   useCompanyPeople: () => ({ isLoading: true, error: null, isSuccess: false }),
   useCreateSalesCompany: () => mutation(createCompany),
   useUpdateSalesCompany: () => mutation(updateCompany),
+  usePatchSalesCompany: () => mutation(vi.fn()),
+  useSalesCompanies: () => ({ data: { items: [], total: 0 }, isSuccess: true }),
   useOwnerCandidates: (enabled?: boolean) => ownerCandidates(enabled),
   useRegistryLookup: () => mutation(vi.fn()),
 }));

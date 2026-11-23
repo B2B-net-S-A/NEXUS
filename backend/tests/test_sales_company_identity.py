@@ -104,6 +104,9 @@ async def test_existing_cards_are_suggested_by_name_and_domain(app_client) -> No
         (similar, "similar"),
     ]
     assert found["matches"][2]["open_opportunities"] == 1
+    # NIP karty idzie w odpowiedzi: okno z NIP-em nie proponuje dopisania karcie,
+    # która ma już numer innej spółki.
+    assert found["matches"][0]["nip"] is None
     assert found["domain"] == f"{tag}.example"
 
     without_self = await _identity(

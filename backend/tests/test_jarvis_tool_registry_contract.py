@@ -426,3 +426,39 @@ def test_long_text_fields_are_not_cut_to_a_teaser():
     from app.services.jarvis.tools import trim
 
     assert len(trim({"summary": "a" * 1200})["summary"]) == 1200
+
+
+# ── nowa firma w Sprzedaży z NIP-u (prośba Sprzedaży 23.11.2026) ──────────────
+
+
+def test_new_sales_company_link_opens_the_form_with_the_nip():
+    link = jarvis_tools.build_new_sales_company_link(
+        {"nip": "PL 111-111-11-11", "reason": "Sprawdź dane i zapisz."}
+    )
+    assert link == {
+        "href": "/sales/companies?nowa=1111111111",
+        "label": "Nowa firma w Sprzedaży",
+        "reason": "Sprawdź dane i zapisz.",
+    }
+    path = jarvis_tools.NEW_SALES_COMPANY_PATH.strip("/")
+    assert (FRONTEND_APP / path).is_dir()
+
+
+@pytest.mark.parametrize(
+    ("nip", "message"),
+    [("1111111112", "złą sumę kontrolną"), ("12345", "10 cyfr"), ("", "10 cyfr")],
+)
+def test_new_sales_company_link_refuses_a_bad_nip(nip, message):
+    with pytest.raises(ValueError, match=message):
+        jarvis_tools.build_new_sales_company_link({"nip": nip})
+
+
+def test_new_sales_company_is_offered_only_with_sales_edit():
+    none = {section: 0 for section in ProductSection}
+    assert "new_sales_company" not in {t.name for t in tools_for_user(none)}
+    assert "new_sales_company" not in {
+        t.name for t in tools_for_user(none, permissions={"sales_view"})
+    }
+    assert "new_sales_company" in {
+        t.name for t in tools_for_user(none, permissions={"sales_edit"})
+    }

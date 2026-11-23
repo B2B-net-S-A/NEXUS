@@ -397,7 +397,7 @@ async function closeGaps() {
   await confirmCategory();
 }
 
-async function handoffTo(target = "/jobs/900") {
+async function handoffTo(target = "/jobs/900?ogloszenie=nowa") {
   fireEvent.click(handoffButton());
   await waitFor(() => expect(mocks.push).toHaveBeenCalledWith(target));
 }

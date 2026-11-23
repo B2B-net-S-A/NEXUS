@@ -717,6 +717,37 @@ async def test_open_screen_emits_a_link_and_executes_nothing(app_client, monkeyp
     assert "NIE został otwarty" in json.dumps(tool_results, ensure_ascii=False)
 
 
+async def test_new_sales_company_gives_a_button_to_the_form_and_saves_nothing(
+    app_client, monkeypatch
+):
+    model = ScriptedModel(
+        [
+            fake_message(
+                tool_block(
+                    "new_sales_company",
+                    {"nip": "111-111-11-11", "reason": "Sprawdź dane z rejestru."},
+                )
+            ),
+            fake_message(text_block("Użyj przycisku „Nowa firma w Sprzedaży”.")),
+        ]
+    )
+    enable_jarvis(monkeypatch, model)
+    _, headers = await make_user(UserRole.admin)
+    events = parse_sse(
+        (await _chat(app_client, headers, "Załóż firmę z NIP 1111111111")).text
+    )
+    links = [e for e in events if e["type"] == "deep_link"]
+    assert links == [
+        {
+            "type": "deep_link",
+            "href": "/sales/companies?nowa=1111111111",
+            "label": "Nowa firma w Sprzedaży",
+            "reason": "Sprawdź dane z rejestru.",
+        }
+    ]
+    assert not [e for e in events if e["type"] == "action_proposed"]
+
+
 async def test_impersonation_disabled_flag_and_busy_turn_stop_before_the_model(
     app_client, monkeypatch, app_auth_headers
 ):
