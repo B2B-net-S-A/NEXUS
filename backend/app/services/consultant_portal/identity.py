@@ -12,7 +12,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,9 @@ from app.models.contact import Contact
 from app.models.contract import Contract, ContractStatus
 from app.models.user import User
 from app.services.consultant_portal.portal_settings import PortalSettings
+
+if TYPE_CHECKING:
+    from app.services.client_settlements import timesheet_plus
 
 ENDED_GRACE_DAYS = 60
 _LIVE = (ContractStatus.active, ContractStatus.ending)
@@ -314,6 +317,14 @@ async def _clients_of_domain(db: AsyncSession, domain: str) -> Optional[frozense
     )
     if not keys:
         return None
+    return await _clients_of_keys(db, keys)
+
+
+async def _clients_of_keys(db: AsyncSession, keys: tuple[str, ...]) -> frozenset[int]:
+    """Klienci z rejestru zamówień (``known_clients``) po numerze rejestrowym."""
+
+    from app.services.order_policies import known_clients
+
     numbers: set[str] = set()
     for key in keys:
         numbers.update(known_clients.KNOWN_REGISTRY_IDS.get(key, ()))
@@ -327,6 +338,71 @@ async def _clients_of_domain(db: AsyncSession, domain: str) -> Optional[frozense
         select(Client.id).where(nip.in_(numbers), Client.deleted_at.is_(None))
     )
     return frozenset(rows.all())
+
+
+async def resolve_from_sheet(
+    db: AsyncSession, sheet: "timesheet_plus.Sheet", *, sender: str, today: date
+) -> Optional[Contract]:
+    """Kontrakt z raportu godzin grupy Polkomtel / Cyfrowy Polsat.
+
+    Konsultant grupy ma kontrakt w każdej spółce (Polkomtel 471 / Cyfrowy Polsat
+    633), więc nadawca nie rozstrzyga, a plik tak: osoba z wiersza, kontrakt z jej
+    linii zamówienia o numerze z wiersza (bez anulowanych). Raport Polkomtelu bez
+    numeru albo z numerem spoza NEXUSA należy do kontraktu u Polkomtelu (decyzja
+    Artura z 23.11.2026). Treść pliku wskazuje osobę tylko od skrzynki firmy, od
+    klienta z domeny z rejestru (wśród jego kontraktów) albo od tej samej osoby.
+    Dwie osoby w pliku albo dwa kontrakty w trafieniu = ``None``.
+    """
+
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.client_order_group import ClientOrderGroup
+    from app.services.client_settlements import timesheet_plus
+
+    named = timesheet_plus.people(sheet)
+    if len(named) != 1:
+        return None
+    address = normalize_email(sender)
+    scope: Optional[frozenset[int]] = None
+    own: Optional[set[Optional[int]]] = None
+    if not is_company_address(address):
+        scope = await _clients_of_domain(db, address.rpartition("@")[2])
+        if scope is None:
+            own = {
+                c.candidate_id
+                for c in await _sender_contracts(db, address, today=today)
+            }
+            if not own:
+                return None
+    mine = [
+        contract
+        for contract, first, last in await _named_rows(
+            db, today=today, client_ids=scope
+        )
+        if _tokens(f"{first or ''} {last or ''}") == named[0]
+        and eligible(contract, today)
+        and (own is None or contract.candidate_id in own)
+    ]
+    if len({c.candidate_id for c in mine}) != 1:
+        return None
+    hits: list[Contract] = []
+    orders = {timesheet_plus.order_key(row.order) for row in sheet.rows} - {None}
+    if orders:
+        lines = await db.execute(
+            select(ClientOrder.contract_id, ClientOrderGroup.order_number)
+            .join(ClientOrderGroup, ClientOrderGroup.id == ClientOrder.order_group_id)
+            .where(
+                ClientOrder.contract_id.in_([c.id for c in mine]),
+                ClientOrder.status != ClientOrderStatus.cancelled,
+            )
+        )
+        ordered = {
+            cid for cid, number in lines if timesheet_plus.order_key(number) in orders
+        }
+        hits = [c for c in mine if c.id in ordered]
+    if not hits and sheet.source == timesheet_plus.POLKOMTEL:
+        polkomtel = await _clients_of_keys(db, ("polkomtel",))
+        hits = [c for c in mine if c.client_id in polkomtel]
+    return hits[0] if len(hits) == 1 else None
 
 
 async def resolve_named_in_text(
