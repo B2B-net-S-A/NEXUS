@@ -53,6 +53,7 @@ from app.services.client_settlements import (
     confirmation_ergo,
     contractor_invoices,
     declared,
+    ewidencja_orlen,
     extras as settlement_extras,
     kesu,
     kcp,
@@ -69,6 +70,7 @@ from app.services.client_settlements import (
     signoffs,
     timesheet,
     timesheet_bik,
+    timesheet_fieldglass,
     timesheet_pko,
     timesheet_plus,
 )
@@ -1214,6 +1216,19 @@ async def _read_file(
             other_md=other_md,
         )
         return await accepted(result, pko.total_hours if pko.entries else None)
+    # Tygodnie z SAP Fieldglass (EY): eksport „timeSheet.worker.list”.
+    fieldglass = await asyncio.to_thread(timesheet_fieldglass.parse, content, mime)
+    if fieldglass is not None:
+        result = timesheet_fieldglass.evaluate(
+            fieldglass,
+            month=month,
+            person_name=person_name,
+            rules=rules,
+            working_days=working_days,
+            other_md=other_md,
+        )
+        md = result.md_regular
+        return await accepted(result, md * timesheet.per_md(rules) if md else None)
     # Time Sheet w godzinach (E6.2): XLSX, polski wariant albo PDF.
     sheet = await asyncio.to_thread(timesheet.parse, content, mime)
     if sheet is not None:
@@ -1239,8 +1254,8 @@ async def _read_file(
             other_md=other_md,
         )
         return await accepted(result, bik.total_hours if bik.total_hours > 0 else None)
-    # Potwierdzenie godzin ERGO i protokół Orlenu w PDF.
-    for reader in (confirmation_ergo, protocol_orlen):
+    # Potwierdzenie godzin ERGO, protokół Orlenu i ewidencja czasu Orlenu w PDF.
+    for reader in (confirmation_ergo, protocol_orlen, ewidencja_orlen):
         found_doc = await asyncio.to_thread(reader.parse, content, mime)
         if found_doc is not None:
             return await accepted(declared_result(found_doc), found_doc.hours)
