@@ -12,7 +12,12 @@ Układy z archiwum rozliczeń IX–XI 2026:
   opisy wychodzą tam poza komórkę i psują część wierszy, więc przy
   rozbieżności MD liczymy z „Sumy godzin” z ostrzeżeniem;
 * tabela dni „Data · Dzień · Ilość godzin” bez tytułu i nazwiska (konsultant,
-  który nie przeszedł na szablon), suma pod tabelą bez etykiety.
+  który nie przeszedł na szablon), suma pod tabelą bez etykiety;
+* PDF bez tabel do odczytu (``text_rows``): „Za miesiąc wrzesien 2026”,
+  „Zadanie Data Czas (godz.)”, wiersze „BIK 1.09.2026 8”, „Suma 24 h”, albo
+  „Miesiąc 01.09.2026”, „Nazwa zadania Data Liczba godzin”, dni „1-09”
+  i „Razem 160”. Długi opis zawija się w PDF: data bywa sama w linii, a
+  godziny na końcu następnej.
 
 Suma w pliku to często wzór bez zapisanej wartości (plik zapisany poza
 Excelem): wtedy godziny liczymy z wierszy, bez porównania. Ukryte wiersze też
@@ -20,7 +25,8 @@ liczymy, bo liczy je wzór sumy w Excelu (wrzesień 2026: rozliczenia widziały
 140 h, a w pliku było więcej). MD = godziny / ``fields.md_hours``.
 
 Pusty szablon (np. wzór odesłany w wątku maila) daje odczyt bez godzin. Plik
-spoza tych układów daje ``None``: wtedy MD wpisują Finanse.
+spoza tych układów daje ``None``: wtedy MD wpisują Finanse. Raport za inny
+miesiąc to kontrola ``proof.month`` bez MD.
 """
 
 from __future__ import annotations
@@ -35,6 +41,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Iterable, Mapping, Optional
 
+from app.services.client_settlements.declared import MAX_LINE, month_mismatch
 from app.services.client_settlements.mail_text import month_label
 from app.services.client_settlements.rcp_checks import (
     ProofResult,
@@ -314,6 +321,69 @@ def parse_rows(
     return replace(parsed, month=month)
 
 
+_TEXT_DAY = re.compile(
+    r"(?<![\w-])(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[-.]\d{1,2}(?:[-.]\d{4})?)(?![\w-])"
+)
+_TEXT_HOURS = re.compile(r"^\d+(?:[.,]\d+)?$")
+_TEXT_TAIL = re.compile(r"\s(\d+(?:[.,]\d+)?)$")
+_TEXT_TOTAL = re.compile(
+    r"^(?:suma\s+godzin|suma|razem|łącznie)\s*:?\s*(\d+(?:[.,]\d+)?)\s*h?$",
+    re.IGNORECASE,
+)
+_TEXT_NAME = re.compile(r"^imię\s+i\s+nazwisko\s*:?\s*(.+?)[.\s]*$", re.IGNORECASE)
+_TEXT_MONTH = re.compile(r"^(?:za\s+)?miesiąc\s*:?\s*(.+)$", re.IGNORECASE)
+_TEXT_HEADER = re.compile(r"\bdata\b.*(liczba\s+godzin|czas\s*\(godz)", re.IGNORECASE)
+
+
+def text_rows(text: str) -> list[list[Any]]:
+    """Tekst strony PDF → wiersze jak z arkusza (pola, nagłówek, dni, suma)."""
+
+    rows: list[list[Any]] = []
+    header = False
+    pending: Optional[tuple[str, str]] = None
+    for raw in text.splitlines():
+        if len(raw) > MAX_LINE:
+            continue
+        line = " ".join(raw.split())
+        if not header:
+            if found := _TEXT_NAME.match(line):
+                rows.append(["Imię i nazwisko", found.group(1)])
+            elif found := _TEXT_MONTH.match(line):
+                value = found.group(1).strip()
+                rows.append(["Miesiąc", _day(value) or value])
+            elif _TEXT_HEADER.search(line):
+                rows.append(["Nazwa zadania", "Data", "Liczba godzin"])
+                header = True
+            continue
+        if found := _TEXT_TOTAL.match(line):
+            rows.append(["Suma godzin", found.group(1)])
+            break
+        # Godziny to ostatni token linii, data stoi przed nimi („7.5” to nie dzień).
+        tail = _TEXT_TAIL.search(line)
+        head = line[: tail.start()] if tail else line
+        days = list(_TEXT_DAY.finditer(head))
+        if days:
+            last = days[-1]
+            description = head[: last.start()].strip()
+            if tail and not head[last.end() :].strip():
+                rows.append([description, last.group(1), tail.group(1)])
+                pending = None
+            elif not tail and not line[last.end() :].strip():
+                # Data sama w linii (zawinięty opis): godziny na końcu następnej.
+                pending = (description, last.group(1))
+            continue
+        if pending and tail:
+            rows.append(
+                [
+                    f"{pending[0]} {line[: tail.start()]}".strip(),
+                    pending[1],
+                    tail.group(1),
+                ]
+            )
+            pending = None
+    return rows
+
+
 def _xlsx(content: bytes) -> Optional[ParsedBik]:
     import openpyxl
 
@@ -354,6 +424,7 @@ def _pdf(content: bytes) -> Optional[ParsedBik]:
 
     rows: list[list[Any]] = []
     title = False
+    text = ""
     quiet = logging.getLogger("pdfminer")
     previous = quiet.level
     # pdfminer loguje każdą czcionkę bez FontBBox (szablon BIK z Calibri).
@@ -361,7 +432,9 @@ def _pdf(content: bytes) -> Optional[ParsedBik]:
     try:
         with pdfplumber.open(io.BytesIO(content)) as pdf:
             for page in pdf.pages[:20]:
-                title = title or bool(_TITLE.search(page.extract_text() or ""))
+                page_text = page.extract_text() or ""
+                text += page_text + "\n"
+                title = title or bool(_TITLE.search(page_text))
                 for found in page.extract_tables():
                     rows.extend(list(r) for r in found)
     except Exception as exc:  # noqa: BLE001
@@ -369,7 +442,21 @@ def _pdf(content: bytes) -> Optional[ParsedBik]:
         return None
     finally:
         quiet.setLevel(previous)
-    return parse_rows(rows, source="pdf", title=title) if title else None
+    if not title:
+        return None
+    parsed = parse_rows(rows, source="pdf", title=True)
+    from_text = parse_rows(text_rows(text), source="pdf", title=True)
+    if from_text is None:
+        return parsed
+    # Tabela bez linii siatki (``extract_tables`` nic nie widzi) albo tabela bez
+    # pól „Imię i nazwisko” i „Miesiąc”, które stoją nad nią w tekście strony.
+    if (
+        parsed is None
+        or (not parsed.entries and parsed.declared_total is None)
+        or (parsed.month is None and from_text.month is not None)
+    ):
+        return from_text
+    return parsed
 
 
 def parse(content: bytes, mime: str) -> Optional[ParsedBik]:
@@ -425,11 +512,13 @@ def evaluate(
     if found == month:
         where = "z pola „Miesiąc”" if parsed.month else "z dat wierszy"
         sheet.ok(f"Miesiąc {where}: {month_label(month)}")
+    elif found is not None:
+        month_mismatch(
+            sheet, "Raport godzin za inny miesiąc", f"W pliku: {month_label(found)}."
+        )
     else:
         sheet.fail(
-            "proof.month",
-            "Raport godzin za inny miesiąc",
-            f"W pliku: {month_label(found) if found else 'brak miesiąca'}.",
+            "proof.month", "Raport godzin za inny miesiąc", "W pliku: brak miesiąca."
         )
     outside = [
         e
@@ -496,4 +585,7 @@ def evaluate(
             )
     month_limit(sums, result.md_regular, working_days, other_md)
     sums.close()
+    if found is not None and found != month:
+        result.md_regular = None
+        result.md_extra = None
     return result

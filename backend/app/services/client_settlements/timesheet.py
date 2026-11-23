@@ -12,8 +12,17 @@ może mieć kilka projektów: projekt bierzemy z wiersza, a bez niego z nagłów
 „Nr strumienia” (albo „Task ID”) trafia do potwierdzenia usług klienta jako
 Task ID (odpowiedź rozliczeń z 12.11.2026: „cokolwiek z TS-a konsultanta”).
 
+Ten sam szablon bywa w PDF (tekst z ``pdfplumber``, ``text_rows``): wiersz
+„2026-09-01 …” albo „Tuesday 2026.09.01 …” kończy się kolumnami godzin
+(„-” to pusta komórka), a koniec to „Total Hours (This month) 78”. Ten sam
+odczyt bierze PDF „<osoba> Okres od: · Projekt: … Okres do: · Data Dzień Opis
+Godziny Rozliczalne” zakończony „W sumie”. Polski wariant XLSX: tytuł „Time
+Sheet”, „Imię Nazwisko”, tabela „Data · Opis zadań · Liczba godzin · Uwagi”
+i „Łączna liczba godzin”.
+
 Plik spoza szablonu daje ``None``: wtedy MD wpisują Finanse, a plik zostaje.
-Odczyt nigdy nie blokuje przyjęcia pliku.
+Time Sheet za inny miesiąc to kontrola ``proof.month`` bez MD. Odczyt nigdy
+nie blokuje przyjęcia pliku.
 """
 
 from __future__ import annotations
@@ -28,6 +37,11 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Mapping, Optional
 
 from app.services.client_settlements import timesheet_pko
+from app.services.client_settlements.declared import (
+    month_mismatch,
+    pdf_text,
+    short_lines,
+)
 from app.services.client_settlements.rcp_bnp import _dec
 from app.services.client_settlements.rcp_checks import (
     ProofResult,
@@ -40,6 +54,7 @@ from app.services.client_settlements.rcp_checks import (
 logger = logging.getLogger(__name__)
 
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+PDF = "application/pdf"
 GROUP_TITLE = "Time Sheet"
 MD_Q = Decimal("0.001")
 TOLERANCE = Decimal("0.01")
@@ -53,6 +68,8 @@ _HEADER_LABELS = {
     "consultant": "consultant",
     "date from": "date_from",
     "date to": "date_to",
+    "imię nazwisko": "consultant",
+    "imię i nazwisko": "consultant",
 }
 _COLUMNS = {
     "date": "date",
@@ -64,6 +81,14 @@ _COLUMNS = {
     "nr strumienia": "task_id",
     "task id": "task_id",
 }
+# Polski wariant szablonu, tylko w arkuszu z tytułem „Time Sheet”: ta sama
+# tabela „Data · Liczba godzin” jest w raporcie BIK.
+_POLISH_COLUMNS = {
+    "data": "date",
+    "opis zadań": "description",
+    "liczba godzin": "total",
+}
+_TOTAL_LABELS = ("total hours", "łączna liczba godzin", "w sumie")
 
 
 @dataclass(frozen=True)
@@ -159,17 +184,21 @@ def _after(row: list[Any], index: int) -> Any:
     return next((v for v in row[index + 1 :] if v not in (None, "")), None)
 
 
-def _header_columns(row: list[Any]) -> Optional[dict[str, int]]:
+def _header_columns(row: list[Any], *, polish: bool) -> Optional[dict[str, int]]:
     labels = [_label(c) for c in row]
-    if "date" not in labels or not any(
+    if "date" in labels and any(
         label and label.startswith("total hours") for label in labels
     ):
+        names = _COLUMNS
+    elif polish and "data" in labels and "liczba godzin" in labels:
+        names = _POLISH_COLUMNS
+    else:
         return None
     columns: dict[str, int] = {}
     for i, label in enumerate(labels):
         if label is None:
             continue
-        key = _COLUMNS.get(label)
+        key = names.get(label)
         if key is None and label.startswith("total hours"):
             key = "total"
         if key is not None and key not in columns:
@@ -207,14 +236,16 @@ def parse_rows(sheets: Iterable[list[list[Any]]]) -> Optional[ParsedTimesheet]:
     for rows in sheets:
         columns: Optional[dict[str, int]] = None
         table: list[TsEntry] = []
+        titled = False
         for row in rows:
+            titled = titled or any(_label(c) == "time sheet" for c in row)
             for i, cell in enumerate(row):
                 key = _HEADER_LABELS.get(_label(cell) or "")
                 if key and key not in header:
                     value = _after(row, i)
                     if value is not None:
                         header[key] = value
-            new_columns = _header_columns(row)
+            new_columns = _header_columns(row, polish=titled)
             if new_columns is not None:
                 columns, found_table, table = new_columns, True, []
                 continue
@@ -225,7 +256,7 @@ def parse_rows(sheets: Iterable[list[list[Any]]]) -> Optional[ParsedTimesheet]:
                 (
                     i
                     for i, label in enumerate(labels)
-                    if label.startswith("total hours")
+                    if label.startswith(_TOTAL_LABELS)
                 ),
                 None,
             )
@@ -300,7 +331,109 @@ def _sheets(content: bytes) -> Optional[list[list[list[Any]]]]:
         workbook.close()
 
 
+_TEXT_DAY = re.compile(
+    r"^(?:[A-Za-ząćęłńóśźż]+\s+)?(\d{4})[-.](\d{1,2})[-.](\d{1,2})(?:\s+(.*))?$"
+)
+_TEXT_NUMBER = re.compile(r"^\d+(?:[.,]\d+)?$")
+_TEXT_FIELDS = (
+    ("project name", "Project Name"),
+    ("consultant(s)", "Consultant(s)"),
+    ("date from", "Date from"),
+    ("date to", "Date to"),
+)
+_OKRES_OD = re.compile(r"^(.*?)\s*okres\s+od\s*:\s*(\S+)", re.IGNORECASE)
+_OKRES_DO = re.compile(r"^projekt\s*:\s*(.*?)\s*okres\s+do\s*:\s*(\S+)", re.IGNORECASE)
+_TEXT_HEADER = ["Date", "Description", "Total Hours", "Billable", "Non-billable"]
+
+
+def _text_hours(
+    tokens: list[str], width: int, *, least: int
+) -> tuple[int, Optional[list[Any]]]:
+    """Ostatnie kolumny wiersza (liczby albo „-”), od ``least`` do ``width``:
+    (ile ich jest, wartości Total · Billable · Non-billable)."""
+
+    count = 0
+    while count < min(width, len(tokens)):
+        token = tokens[-1 - count]
+        if token != "-" and not _TEXT_NUMBER.match(token):
+            break
+        count += 1
+    if count < least:
+        return 0, None
+    tail = tokens[len(tokens) - count :]
+    values: list[Any] = [None if t == "-" else _dec(t) for t in tail]
+    return count, values + [None] * (3 - count)
+
+
+def text_rows(text: str) -> Optional[list[list[Any]]]:
+    """Tekst PDF Time Sheet → wiersze jak z arkusza (dla ``parse_rows``)."""
+
+    lines = [" ".join(line.split()) for line in short_lines(text).splitlines()]
+    fields: list[list[Any]] = []
+    rows: list[list[Any]] = []
+    width = 0
+    least = 0
+    titled = any(line.lower().startswith("time sheet") for line in lines)
+    for line in lines:
+        low = line.lower()
+        if not width:
+            for label, name in _TEXT_FIELDS:
+                if titled and low.startswith(label):
+                    value = line[len(label) :].strip(" :")
+                    if value:
+                        fields.append([name, value])
+            if found := _OKRES_OD.match(line):
+                fields += [
+                    ["Consultant(s)", found.group(1)],
+                    ["Date from", found.group(2)],
+                ]
+            if found := _OKRES_DO.match(line):
+                fields += [
+                    ["Project Name", found.group(1)],
+                    ["Date to", found.group(2)],
+                ]
+        polish = low.startswith("data dzień opis godziny")
+        is_header = (titled and "total hours" in low and "billable" in low) or polish
+        if is_header:
+            width = 3 if "non-billable" in low else 2
+            # Wzór „Okres od”: pusta kolumna „Rozliczalne” znika z tekstu PDF.
+            least = 1 if polish else width
+            rows.append(list(_TEXT_HEADER))
+            continue
+        if not width:
+            continue
+        tokens = line.split()
+        if low.startswith(_TOTAL_LABELS):
+            numbers = [t for t in tokens if _TEXT_NUMBER.match(t)]
+            if numbers:
+                rows.append(["Total Hours", _dec(numbers[0])])
+            continue
+        found = _TEXT_DAY.match(line)
+        if not found:
+            continue
+        try:
+            day = date(*(int(found.group(i)) for i in (1, 2, 3)))
+        except ValueError:
+            continue
+        rest = (found.group(4) or "").split()
+        count, hours = _text_hours(rest, width, least=least)
+        if hours is None:
+            continue
+        rows.append([day, " ".join(rest[: len(rest) - count]), *hours])
+    if not rows:
+        return None
+    return fields + rows
+
+
+def _pdf(content: bytes) -> Optional[ParsedTimesheet]:
+    text = pdf_text(content)
+    rows = text_rows(text) if text else None
+    return parse_rows([rows]) if rows else None
+
+
 def parse(content: bytes, mime: str) -> Optional[ParsedTimesheet]:
+    if mime == PDF:
+        return _pdf(content)
     if mime != XLSX:
         return None
     sheets = _sheets(content)
@@ -345,14 +478,14 @@ def evaluate(
     result.md_regular = md_from_hours(hours, hours_md)
     result.md_extra = Decimal("0")
 
+    # Plik za inny miesiąc (np. szablon z rokiem 2025): kontrola bez MD.
+    other_month = parsed.month is not None and parsed.month != month
     if parsed.month == month:
         sheet.ok(f"Miesiąc z Time Sheet: {month}")
+    elif other_month:
+        month_mismatch(sheet, "Time Sheet za inny miesiąc", f"W pliku: {parsed.month}.")
     else:
-        sheet.fail(
-            "proof.month",
-            "Time Sheet za inny miesiąc",
-            f"W pliku: {parsed.month or 'brak dat'}.",
-        )
+        sheet.fail("proof.month", "Time Sheet za inny miesiąc", "W pliku: brak dat.")
     outside = sum(
         1
         for e in parsed.entries
@@ -424,4 +557,7 @@ def evaluate(
             )
     timesheet_pko.month_limit(sums, result.md_regular, working_days, other_md)
     sums.close()
+    if other_month:
+        result.md_regular = None
+        result.md_extra = None
     return result
