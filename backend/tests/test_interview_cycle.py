@@ -1760,3 +1760,29 @@ async def test_changing_to_a_slot_that_already_passed_keeps_the_interview(
     async with AsyncSessionLocal() as db:
         event = await db.get(CalendarEvent, event_id)
         assert event.status == EventStatus.scheduled
+
+
+async def test_slot_recipient_tells_the_caller_when_slots_would_go_to_them(
+    app_client: AsyncClient,
+):
+    """23.11.2026: okno ruchu „Rozmowa u klienta” zaczyna od „Termin już
+    ustalony”, gdy terminy trafiłyby do osoby, która przesuwa kartę."""
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _client_id = await _job_with_candidate(
+        recruiter_id=rec_id, dl_id=dl_id
+    )
+    params = {"candidate_id": cand_id, "job_id": job_id}
+
+    for_dl = await app_client.get(
+        "/api/interview-cycle/slots/recipient", headers=dl_h, params=params
+    )
+    assert for_dl.status_code == 200, for_dl.text
+    assert for_dl.json()["recruiter_name"]
+    assert for_dl.json()["is_you"] is False
+
+    for_recruiter = await app_client.get(
+        "/api/interview-cycle/slots/recipient", headers=rec_h, params=params
+    )
+    assert for_recruiter.status_code == 200, for_recruiter.text
+    assert for_recruiter.json()["is_you"] is True

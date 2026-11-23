@@ -23,7 +23,37 @@ Orlen: faktury Finansów liczą MD z godzin, więc „22 MD - po 6h” to 132 h 
 Gdy przy kwocie nie stoi „h” ani „MD”, rozstrzyga stawka z protokołu: „(150zł x8h = 1200zł MD)”,
 „175 pln x 8= 1400 PLN/MD”, „90 PLN/h”. Kilka różnych kwot (kilka osób) nie daje MD.
 
-ERGO, NN i Orlen mają wspólne kontrole w `declared.evaluate` (miesiąc, nazwisko, limit MD).
+Pliki „.xls” grupy Polkomtel / Cyfrowy Polsat (od 23.11.2026):
+
+| Wzór | Moduł | Skąd MD |
+|---|---|---|
+| Polkomtel: „Project timesheet Report” z Jiry, tabela HTML z rozszerzeniem `.xls` | `timesheet_plus` | „Suma godzin” = suma dni / `fields.md_hours`; rozbieżność = bez MD |
+| Cyfrowy Polsat: „B2B_RRRR_MM.xls”, XML Spreadsheet 2003 z BOM, wiersz = osoba × zamówienie | `timesheet_plus` | kolumna miesiąca = suma dni (osoby z kontraktu) / `fields.md_hours`; rozbieżność = bez MD |
+
+ERGO, NN, Orlen, Polkomtel i Polsat mają wspólne kontrole w `declared.evaluate` (miesiąc, nazwisko, limit MD).
+
+## Polkomtel i Cyfrowy Polsat: kontrakt wybiera plik
+
+Konsultanci grupy mają kontrakt w każdej spółce, z tą samą datą startu (Polkomtel 471 /
+Cyfrowy Polsat 633, 577 / 634, wcześniej 472 / 631, 473 / 632). To celowy podział: kontrakty
+Polsatu powstały z jego PDF-ów „Zlecenie Wykonawcze”, każda spółka ma swoje zamówienia.
+Artur 23.11.2026: dane zostają. Nadawca (skrzynka firmowa konsultanta, `plus.pl` wspólne dla
+grupy) nie wskazuje więc kontraktu, a plik tak (`identity.resolve_from_sheet`):
+
+- numer zamówienia z wiersza („Z250725003”, „Nr zlecenia”) → kontrakt z nieanulowaną linią
+  tego zamówienia; przedrostek „CP”/„SAP” i spacje się nie liczą (`timesheet_plus.order_key`);
+- raport Polkomtelu bez numeru albo z numerem spoza NEXUSA → kontrakt osoby u Polkomtelu
+  (decyzja Artura z 23.11.2026; „Nr zlecenia” pusty w 81 z 82 raportów w archiwum);
+- arkusz Polsatu z numerem spoza NEXUSA, dwie osoby w pliku albo dwa kontrakty w trafieniu → nikt.
+
+Treść pliku wskazuje osobę tylko od skrzynki firmy, od klienta z domeny z rejestru zamówień
+(wśród jego kontraktów) albo od tej samej osoby. Obcy adres nie dopisze nikomu godzin plikiem.
+
+Do 23.11 oba pliki przepadały przy zapisie: HTML odrzucało `check_settlement_file`, a arkusza
+Polsatu nie poznawało `kesu.is_kesu_file`, bo zaczyna się od BOM UTF-8. Polkomtel 471 IX to
+22 MD w trzech fakturach na trzy zamówienia SAP (13,25 + 1,75 + 7), nie 1,75 MD.
+Pomiar na kopii `nexus_staging_klodko_v4r2` (rollback): 471 IX 22 MD, 471 X 21 MD, 634 X 27,5 MD,
+wszystkie „ok” i równe fakturom Finansów; na main żaden z trzech maili nie zostawiał dokumentu.
 
 ## Plik za inny miesiąc
 

@@ -1102,7 +1102,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
   // testy sprawdzają ostrzeżenie serwera, więc przesuwają bez terminu.
   async function skipInterviewDate() {
     const dateDialog = await screen.findByRole("dialog", { name: "Kiedy rozmowa u klienta?" });
-    fireEvent.click(within(dateDialog).getByLabelText("Nie znam jeszcze terminu"));
+    fireEvent.click(within(dateDialog).getByRole("radio", { name: "Jeszcze bez terminów" }));
     fireEvent.click(within(dateDialog).getByRole("button", { name: "Przesuń" }));
   }
 

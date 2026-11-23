@@ -17,11 +17,13 @@ daje czytelny stan w ``cp_mailbox_state``, a nie wyjątek.
 * Jedna skrzynka wsparcie@ (E8): na skrzynce wspólnej ze sprawami bierzemy tylko maile
   z załącznikiem na adresy rozliczeń (``support_mail_route``), resztę czytnik spraw. Zła
   konfiguracja (``support_mail_route.misconfiguration``) = stan ``error`` i nic nie czytamy.
-* Wyjątek: dwa maile bez pliku na adres rozliczeń czytamy też, gdy router oddał je sprawom,
+* Wyjątek: trzy maile bez pliku na adres rozliczeń czytamy też, gdy router oddał je sprawom,
   i zapisujemy ich treść jako ``.eml`` jednej osoby. Sprawa powstaje jak dotąd (decyzja
   Artura 23.11.2026, „sprawa i dokument”): akceptacja klienta z regułą akceptacji mailowej
   (``support_mail_route.is_client_acceptance_mail``, osoba z tematu) i mail z adresu firmy
   z tematem rozliczenia (``is_body_only_settlement``, nadawca albo osoba z tematu).
+  Trzeci: mail konsultanta z adresu firmy z tematem faktury u klienta z regułą
+  ``report.consultant_declaration`` (``is_body_only_declaration``, tylko nadawca).
 * Odpowiedź klienta bez pliku na nasz mail z Wysłanych (``is_reply_to_sent``): plik godzin
   bierzemy z naszego maila, osobę z jego tematu (decyzja Artura 23.11.2026, BNP CIB).
   Sprawa też powstaje.
@@ -52,12 +54,13 @@ from app.models.contract import Contract
 from app.models.user import User
 from app.services import support_mail_route
 from app.services.admin_cases.mailbox import m365_mailbox as cases_mailbox
-from app.services.client_settlements import kesu, t4t_mail
+from app.services.client_settlements import kesu, report_ca, t4t_mail, timesheet_plus
 from app.services.consultant_portal import (
     documents,
     forwarded,
     identity,
     portal_settings,
+    zip_files,
 )
 from app.services.consultant_portal.auth import PortalError
 from app.services.m365.app_graph_client import AppGraphClient, AppOnlyTokenUnavailable
@@ -109,6 +112,10 @@ _REPORT = re.compile(
     r"|monthly\s+confirmation",
     re.IGNORECASE,
 )
+# Mail klienta z odbiorem usług jako plik (PKO, „Dokumenty.zip” za X 2026) szedł jako
+# faktura. Tylko nazwa pliku .msg/.eml: temat „Odbiór usług …” nie zmienia rodzaju
+# innych plików maila.
+_ACCEPTANCE_MAIL_FILE = re.compile(r"odbi[oó]r\s+us[lł]ug.*\.(msg|eml)$", re.IGNORECASE)
 # Arkusz albo zrzut ekranu bez słów-kluczy to dowód pracy: w próbie na archiwum
 # IX–XI 2026 78 arkuszy z godzinami („BIK wrzesien.xlsx”) szło jako faktury.
 _PROOF_EXTENSIONS = re.compile(
@@ -266,7 +273,10 @@ def classify_kind(subject: str, file_name: str) -> str:
             return "invoice"
         if _REPORT.search(text):
             return "report"
-    return "report" if _PROOF_EXTENSIONS.search(file_name.strip()) else "invoice"
+    name = file_name.strip()
+    if _PROOF_EXTENSIONS.search(name) or _ACCEPTANCE_MAIL_FILE.search(name):
+        return "report"
+    return "invoice"
 
 
 _PDF_MIME = "application/pdf"
@@ -496,10 +506,17 @@ async def _store_without_file(
     state: portal_settings.PortalSettings,
     today: date,
     now: datetime,
+    declaring: frozenset[int] = frozenset(),
 ) -> tuple[int, int]:
-    """Mail bez pliku: akceptacja w treści, odpowiedź na nasz mail z Wysłanych
-    albo akceptacja klienta z regułą akceptacji mailowej."""
+    """Mail bez pliku: akceptacja w treści, deklaracja konsultanta w mailu z fakturą,
+    odpowiedź na nasz mail z Wysłanych albo akceptacja klienta z regułą akceptacji mailowej."""
 
+    if declaring and is_body_only_declaration(message):
+        made = await _store_declaration(
+            db, mailbox, message, declaring, state=state, today=today, now=now
+        )
+        if made:
+            return made, 0
     if is_body_only_settlement(message):
         made = await _store_body_only(
             db, mailbox, message, state=state, today=today, now=now
@@ -532,6 +549,7 @@ async def _ingest_message(
     today: date,
     now: datetime,
     acceptance: Optional[dict[str, frozenset[int]]] = None,
+    declaring: frozenset[int] = frozenset(),
 ) -> tuple[int, int]:
     """(nowe, pominięte). Reguła pilotażu przed odczytem załączników."""
 
@@ -542,10 +560,21 @@ async def _ingest_message(
         return reply, 0
     if not message.get("hasAttachments"):
         return await _store_without_file(
-            db, mailbox, message, acceptance, state=state, today=today, now=now
+            db,
+            mailbox,
+            message,
+            acceptance,
+            state=state,
+            today=today,
+            now=now,
+            declaring=declaring,
         )
     received = _parse_time(message.get("receivedDateTime")) or now
-    files = list(await mailbox.attachments(str(message["id"])))
+    # ZIP (raport CA z hasłem, „Dokumenty.zip” PKO): pliki ze środka jak załączniki.
+    passwords = zip_files.configured_passwords()
+    files = zip_files.expand(
+        list(await mailbox.attachments(str(message["id"]))), passwords=passwords
+    )
     if not any(
         _is_document(f) or f.get("@odata.type") == forwarded.ITEM_ATTACHMENT
         for f in files
@@ -568,18 +597,27 @@ async def _ingest_message(
         files = [f for i, f in enumerate(files) if i not in time_report.consumed]
         if not any(_is_document(f) for f in files):
             return time_report.versions, time_report.duplicates
+    client_report, consumed = await _store_client_reports(
+        db, files, message, sender=sender, state=state, today=today, now=now
+    )
+    if consumed:
+        files = [f for i, f in enumerate(files) if i not in consumed]
+        if not any(_is_document(f) for f in files):
+            return time_report.versions + client_report, 0
     by_subject = await _kesu_contract(db, subject, sender, state=state, today=today)
     contract = by_subject or await identity.resolve_sender(
         db, sender, settings=state, today=today
     )
     if contract is None and not state.any_sender:
-        return time_report.versions, 1
+        return time_report.versions + client_report, 1
     inner = None
     if contract is None or any(
         f.get("@odata.type") == forwarded.ITEM_ATTACHMENT for f in files
     ):
         inner = await _forwarded(mailbox, message)
-        inner_files = list(inner.files) if inner else []
+        inner_files = (
+            zip_files.expand(list(inner.files), passwords=passwords) if inner else []
+        )
         if inner_files:
             # Raport T4T przekazany jako załączony mail (Finanse „Przekaż jako załącznik”).
             nested = await t4t_mail.ingest(
@@ -674,6 +712,19 @@ async def _ingest_message(
             if named is not None:
                 owner = named.id
                 by_file[named.id] = named
+        if owner is None:
+            # Raport Polkomtelu albo rozliczenie Cyfrowego Polsatu („.xls”): osoba ma
+            # kontrakt w obu spółkach, więc kontrakt wybiera numer zamówienia z pliku
+            # (próba IX–X 2026: Polkomtel 471 IX i X, Cyfrowy Polsat 634 X).
+            sheet = await asyncio.to_thread(timesheet_plus.parse, content)
+            from_sheet = (
+                await identity.resolve_from_sheet(db, sheet, sender=sender, today=today)
+                if sheet is not None
+                else None
+            )
+            if from_sheet is not None:
+                owner = from_sheet.id
+                by_file[from_sheet.id] = from_sheet
         # Odczyt PDF-a to praca CPU: poza pętlą zdarzeń, jak odczyt RCP w rozliczeniu.
         kind = await asyncio.to_thread(kind_of_file, subject, name, content)
         if owner is None and report_owner is not None and kind == "report":
@@ -716,7 +767,112 @@ async def _ingest_message(
             received=received,
             now=now,
         )
-    return created + time_report.versions, skipped
+    return created + time_report.versions + client_report, skipped
+
+
+async def _report_people(
+    db: AsyncSession,
+    report: report_ca.CaReport,
+    *,
+    sender: str,
+    state: portal_settings.PortalSettings,
+    today: date,
+) -> list[Contract]:
+    """Kontrakty osób z raportu zbiorczego, wszystkie u jednego klienta.
+
+    Osoba po imieniu i nazwisku z wiersza raportu. Osoby u dwóch klientów albo
+    nadawca spoza firmy i spoza domeny tego klienta = nikt (raport czeka na
+    człowieka): arkusz może przysłać każdy, więc nie wskazuje nim osób sam."""
+
+    hits: list[Contract] = []
+    for person in report.people:
+        contract = await identity.resolve_named_in_text(db, person.name, today=today)
+        if contract is not None and contract.id not in {c.id for c in hits}:
+            hits.append(contract)
+    clients = {c.client_id for c in hits}
+    if len(clients) != 1:
+        if hits:
+            logger.warning(
+                "rozliczenia: raport zbiorczy z osobami u %d klientów, czeka na człowieka",
+                len(clients),
+            )
+        return []
+    client_id = next(iter(clients))
+    if not identity.is_company_address(sender) and client_id not in (
+        await identity.client_ids_for_sender(db, sender)
+    ):
+        return []
+    if len(hits) < len(report.people):
+        logger.info(
+            "rozliczenia: raport zbiorczy, %d z %d osób bez kontraktu",
+            len(report.people) - len(hits),
+            len(report.people),
+        )
+    return sorted(
+        (c for c in hits if state.any_sender or state.open_for(c.id)),
+        key=lambda c: c.id,
+    )
+
+
+async def _store_client_reports(
+    db: AsyncSession,
+    files: list[dict[str, Any]],
+    message: dict[str, Any],
+    *,
+    sender: str,
+    state: portal_settings.PortalSettings,
+    today: date,
+    now: datetime,
+) -> tuple[int, set[int]]:
+    """Raport zbiorczy klienta (Credit Agricole) jako raport każdej osoby z arkusza.
+
+    (nowe, indeksy wczytanych plików). Ten sam plik u każdej osoby; czytnik
+    rozliczenia bierze z niego wiersz osoby (``client_settlements/report_ca``).
+    Miesiąc z arkusza, nie z tematu."""
+
+    created = 0
+    consumed: set[int] = set()
+    message_id = str(message["id"])[:512]
+    for index, attachment in enumerate(files):
+        name = str(attachment.get("name") or "")
+        raw = attachment.get("contentBytes")
+        if (
+            not _is_document(attachment)
+            or not name.lower().endswith(".xlsx")
+            or not isinstance(raw, str)
+        ):
+            continue
+        try:
+            content = base64.b64decode(raw, validate=True)
+        except ValueError:
+            continue
+        report = await asyncio.to_thread(report_ca.parse, content, report_ca.XLSX)
+        if report is None or report.month is None:
+            continue
+        people = await _report_people(
+            db, report, sender=sender, state=state, today=today
+        )
+        if not people:
+            continue
+        year, month = (int(part) for part in report.month.split("-"))
+        for position, contract in enumerate(people):
+            stored = await documents.store(
+                db,
+                contract_id=contract.id,
+                kind="report",
+                year=year,
+                month=month,
+                content=content,
+                file_name=name or None,
+                channel="mailbox",
+                now=now,
+                # Para (mail, plik) jest unikalna: identyfikator maila ma pierwsza kopia.
+                graph_message_id=message_id if position == 0 else None,
+                sender_email=sender[:320] or None,
+            )
+            created += 0 if stored.duplicate else 1
+        consumed.add(index)
+    return created, consumed
 
 
 async def _forwarded(
@@ -1185,6 +1341,48 @@ def is_body_only_settlement(message: dict[str, Any]) -> bool:
     )
 
 
+def is_body_only_declaration(message: dict[str, Any]) -> bool:
+    """Mail bez pliku z adresu firmy z tematem faktury („Faktura wrzesień”): u klienta
+    z regułą ``report.consultant_declaration`` treść niesie deklarację dni pracy
+    („We wrześniu nie miałam dni wolnych”). Klienta sprawdza ``_store_declaration``.
+    Jak przy ``is_body_only_settlement`` mail zostaje też sprawą."""
+
+    if message.get("hasAttachments") or is_body_only_settlement(message):
+        return False
+    subject = str(message.get("subject") or "")
+    if kesu.parse_jira(subject, "") is not None:
+        return False
+    return identity.is_company_address(_sender(message)) and bool(
+        _INVOICE.search(subject)
+    )
+
+
+async def _store_declaration(
+    db: AsyncSession,
+    mailbox: SettlementsMailbox,
+    message: dict[str, Any],
+    declaring: frozenset[int],
+    *,
+    state: portal_settings.PortalSettings,
+    today: date,
+    now: datetime,
+) -> int:
+    """Treść maila jako ``.eml`` osoby, tylko gdy nadawcą jest sam konsultant,
+    a jego klient ma regułę deklaracji. Osoby z tematu nie bierzemy: deklaracja
+    od koordynatora o kimś innym nie jest deklaracją konsultanta."""
+
+    contract = await identity.resolve_sender(
+        db, _sender(message), settings=state, today=today
+    )
+    if contract is None or contract.client_id not in declaring:
+        return 0
+    subject = str(message.get("subject") or "")
+    received = _parse_time(message.get("receivedDateTime")) or now
+    return await _store_eml(
+        db, mailbox, message, contract.id, subject=subject, received=received, now=now
+    )
+
+
 async def _store_body_only(
     db: AsyncSession,
     mailbox: SettlementsMailbox,
@@ -1296,6 +1494,7 @@ async def run_once(
     created = skipped = failed = 0
     newest = seen
     acceptance = await support_mail_route.acceptance_clients(db)
+    declaring = await support_mail_route.declaration_clients(db)
     for message in messages:
         if (
             route
@@ -1307,6 +1506,7 @@ async def run_once(
                 support_mail_route.recipients(message) & route
                 and (
                     is_body_only_settlement(message)
+                    or (declaring and is_body_only_declaration(message))
                     or (state.any_sender and is_reply_to_sent(message))
                 )
             )
@@ -1326,6 +1526,7 @@ async def run_once(
                     today=today,
                     now=moment,
                     acceptance=acceptance,
+                    declaring=declaring,
                 )
             created += made
             skipped += ignored

@@ -1777,6 +1777,52 @@
     ]
   },
   {
+    "id": "lekcja-terminy-przy-ruchu",
+    "title": "Terminy od klienta przy ruchu na „Rozmowę u klienta”",
+    "novelties": [
+      "terminy-od-klienta-przy-ruchu"
+    ],
+    "task": "Klient z rekrutacji ćwiczebnej przysłał terminy rozmowy. Przesuń kandydata z „CV wysłane” na „Rozmowa u klienta” i wyślij terminy rekruterowi.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "move",
+      "to": "client_interview",
+      "feedback": "Karta nie trafiła na „Rozmowa u klienta”. Przesuń ją dalej, w oknie zostaw „Klient podał terminy”, wpisz termin i kliknij „Przesuń i wyślij rekruterowi”."
+    },
+    "questions": [
+      {
+        "q": "Klient pisze: „pasuje nam czwartek 10:00 albo piątek 14:00”. Co zaznaczasz przy ruchu karty?",
+        "options": [
+          "„Klient podał terminy” i wklejam mail",
+          "„Termin już ustalony” i wpisuję czwartek 10:00",
+          "„Jeszcze bez terminów”"
+        ],
+        "answer": 0,
+        "explain": "Termin z kandydatem ustala rekruter. Ty przekazujesz propozycje klienta, a rekruter wybiera jedną i odsyła Ci wybór."
+      },
+      {
+        "q": "Kiedy rekruter dowie się o terminach?",
+        "options": [
+          "Od razu po ruchu: dzwonek i mail „Ustal termin z kandydatem”",
+          "Gdy wkleisz terminy drugi raz w „Terminach od klienta”",
+          "Następnego dnia rano"
+        ],
+        "answer": 0,
+        "explain": "Ruch z terminami od razu zakłada wniosek o terminy, a rekruter dostaje dzwonek i mail."
+      },
+      {
+        "q": "Kiedy wybierasz „Termin już ustalony”?",
+        "options": [
+          "Gdy dzień i godzina są już umówione z kandydatem i klientem",
+          "Zawsze, gdy klient podał jakiś termin",
+          "Gdy nie wiesz, kto jest rekruterem"
+        ],
+        "answer": 0,
+        "explain": "Wtedy NEXUS od razu zakłada rozmowę w kalendarzu rekrutera, bez pytania go o wybór."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [

@@ -2936,6 +2936,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  readOnly,
  canWriteClientRate,
  cproEnabled,
+ // 23.11.2026: DL wysyła terminy od klienta rekruterowi z okna ruchu.
+ canSendClientSlots: canAddClientSlots,
  optimistic: {
  apply: applyOptimistic,
  confirm: confirmMoved,

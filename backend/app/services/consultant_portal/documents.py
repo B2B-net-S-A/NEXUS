@@ -38,7 +38,7 @@ from app.services.consultant_portal_schema import (
     DOCUMENT_KINDS,
     FILE_NAME_MAX,
 )
-from app.services.client_settlements import kesu
+from app.services.client_settlements import kesu, timesheet_plus
 from app.services.hr import documents_store
 
 logger = logging.getLogger(__name__)
@@ -127,7 +127,9 @@ def check_settlement_file(content: bytes) -> tuple[str, str]:
             return spreadsheet, hashlib.sha256(content).hexdigest()
         if _is_msg(content):
             return MSG_MIME, hashlib.sha256(content).hexdigest()
-        if kesu.is_kesu_file(content):
+        if kesu.is_kesu_file(content) or timesheet_plus.is_polkomtel_report(content):
+            # Raport Polkomtelu z Jiry to tabela HTML z rozszerzeniem .xls; trzymamy
+            # go jak arkusz .xls (pobranie zawsze jako załącznik, nigdy jako strona).
             return KESU_MIME, hashlib.sha256(content).hexdigest()
         if documents_store.sniff_mime(content) is None and _is_eml(content):
             return EML_MIME, hashlib.sha256(content).hexdigest()

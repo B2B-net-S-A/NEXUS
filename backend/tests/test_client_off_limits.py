@@ -193,3 +193,8 @@ async def test_middleware_passes_request_with_deeply_nested_header():
     }
     await middleware(scope, None, None)
     assert seen == [{}]
+
+
+def test_ey_is_exempt_from_off_limits() -> None:
+    # EY (klient 14) — „możemy brać stamtąd osoby”, decyzja Artura 23.11.2026.
+    assert 14 in ol.OFF_LIMITS_EXEMPT_CLIENT_IDS

@@ -182,14 +182,17 @@ class ParsedKesu:
 
 
 def is_kesu_file(content: bytes) -> bool:
-    head = content[:4096].lstrip()
+    # Arkusz Cyfrowego Polsatu („B2B_2026_10.xls”) zaczyna się od BOM UTF-8.
+    head = content[:4096].removeprefix(b"\xef\xbb\xbf").lstrip()
     return (
         head.startswith(b"<?xml")
         and b"urn:schemas-microsoft-com:office:spreadsheet" in content[:8192]
     )
 
 
-def _grid(content: bytes) -> Optional[list[dict[int, tuple[str, Optional[str]]]]]:
+def _grid(
+    content: bytes, *, max_cols: int = _MAX_COLS
+) -> Optional[list[dict[int, tuple[str, Optional[str]]]]]:
     """Wiersze arkusza: {kolumna: (tekst, typ)}, z ``ss:Index`` i scaleniami."""
 
     try:
@@ -225,7 +228,7 @@ def _grid(content: bytes) -> Optional[list[dict[int, tuple[str, Optional[str]]]]
         for cell in row.findall(f"{{{_NS}}}Cell"):
             ci = cell.get(f"{{{_NS}}}Index")
             col = int(ci) if ci and ci.isdigit() else col + 1
-            if col > _MAX_COLS:
+            if col > max_cols:
                 break
             data = cell.find(f"{{{_NS}}}Data")
             if data is not None:
