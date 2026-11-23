@@ -139,6 +139,7 @@ import {
 } from "@/components/v2/b2b-generator/documents/DocumentDialogs";
 import { apiErrorMessage } from "@/lib/api-error";
 import { CompanySignaturesPanel } from "@/components/v2/b2b-generator/esign/CompanySignaturesPanel";
+import { MassSendButton } from "@/components/v2/b2b-generator/esign/MassSendDialog";
 import {
   EsignRowStatus,
   EsignSignedPdfButton,
@@ -759,16 +760,21 @@ export function B2BContractGeneratorV2() {
               {/* Jedna zakładka zamiast trzech: faza to filtr (makieta A).
                   Wiersz jest w JEDNEJ fazie naraz — decyduje filtr statusu
                   wysyłany na serwer, jak w dawnych trzech zakładkach. */}
-              <SegmentedRadio<RegisterPhase>
-                label="Faza umowy"
-                size="sm"
-                value={phase}
-                onChange={(next) => selectTab(next)}
-                options={REGISTER_PHASES.map((p) => ({
-                  value: p.tab,
-                  label: p.label,
-                }))}
-              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <SegmentedRadio<RegisterPhase>
+                  label="Faza umowy"
+                  size="sm"
+                  value={phase}
+                  onChange={(next) => selectTab(next)}
+                  options={REGISTER_PHASES.map((p) => ({
+                    value: p.tab,
+                    label: p.label,
+                  }))}
+                />
+                {/* E5b (22.11.2026): nowa umowa dla aktywnych kontraktorów.
+                    Do podpięcia nowego wzoru przycisk widzi tylko admin. */}
+                <MassSendButton isAdmin={isAdmin} />
+              </div>
               {/* „Umowy bieżące”, nie „aktywne i w trakcie podpisu”: od 0328
                   siedzą tam także umowy anulowane (wiersz zostaje pod ręką,
                   żeby dało się go cofnąć na „W trakcie”, gdy Partner wróci). */}

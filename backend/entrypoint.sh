@@ -1583,6 +1583,24 @@ except Exception as _b2b_signing_documents_schema_err:  # noqa: BLE001
     print(f"b2b signing documents schema unavailable: {_b2b_signing_documents_schema_err!r}")
     _B2B_SIGNING_DOCUMENTS_DDL = []
 
+# 0757: masowa wysyłka nowej umowy B2B (`app/services/b2b_mass_send/schema_sql.py`).
+try:
+    from app.services.b2b_mass_send import schema_sql as _b2b_mass_send_schema
+
+    _B2B_MASS_SEND_DDL = list(_b2b_mass_send_schema.ALL_DDL)
+except Exception as _b2b_mass_send_schema_err:  # noqa: BLE001
+    print(f"b2b mass send schema unavailable: {_b2b_mass_send_schema_err!r}")
+    _B2B_MASS_SEND_DDL = []
+# 0758: sesje zdalnego podpisu przez API CSC
+# (`app/services/b2b_esign/remote_schema.py`).
+try:
+    from app.services.b2b_esign import remote_schema as _b2b_esign_remote_schema
+
+    _B2B_ESIGN_REMOTE_DDL = list(_b2b_esign_remote_schema.TABLE_DDL)
+except Exception as _b2b_esign_remote_schema_err:  # noqa: BLE001
+    print(f"b2b esign remote schema unavailable: {_b2b_esign_remote_schema_err!r}")
+    _B2B_ESIGN_REMOTE_DDL = []
+
 # 0649: dokumenty do startu (`app/services/start_documents_schema.py`).
 try:
     from app.services import start_documents_schema as _start_documents_schema
@@ -7202,6 +7220,10 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_START_DOCUMENTS_NOT_REQUIRED_DDL,
     # 0687: po `b2b_signing_requests` i `client_start_documents`.
     *_B2B_SIGNING_DOCUMENTS_DDL,
+    # 0757: po `b2b_signing_requests`, `b2b_generated_contracts` i `contracts`.
+    *_B2B_MASS_SEND_DDL,
+    # 0758: po `users`, na które wskazuje.
+    *_B2B_ESIGN_REMOTE_DDL,
     *_CV_CALL_QUESTIONS_TABLE_DDL,
     *_SKILL_PROPOSALS_TABLE_DDL,
     *_SKILL_ALIAS_TEXT_DDL,
