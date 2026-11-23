@@ -24,7 +24,11 @@ DL widzi klienta, gdy ma DOWOLNY wiersz w `delivery_lead_client_assignments`
   i `orders` (`custom_metrics/engine._delivery_client_boundary`, lustro warunków
   `resolve_delivery_lead_client_ids`) — także gotowe kafle „Aktywne kontrakty”
   i „Kończące się zamówienia”; klient spoza portfela w filtrze = 403
-  `metric_scope_denied`, DL bez klientów = odmowa, nie zero.
+  `metric_scope_denied`, DL bez klientów = odmowa, nie zero. Od 23.11.2026
+  tę samą odmowę (też `finance` przy pustym portfelu kwot) niesie katalog
+  `GET /api/dashboard-metrics/catalog` (`available: false` + `reason`), a kafelek
+  pulpitu (`MetricTileBody`) czyta katalog przed liczeniem i przy niedostępnym
+  źródle pokazuje zdanie bez `POST /evaluate` — bez 403 w konsoli DL bez klientów.
 - **Wyjątki persony:** DL + admin/finance/talent_community_manager widzi
   wszystko (TCM czyta Delivery całej organizacji).
 - **Wyłącznik bez deployu:** `DL_CLIENT_SCOPE=all` przywraca stan z #1365.

@@ -237,3 +237,66 @@ async def test_active_contracts_tile_counts_only_the_dl_portfolio(app_client):
     )
     assert denied.status_code == 403
     assert denied.json()["detail"]["code"] == "metric_scope_denied"
+
+
+def _patch_catalog(monkeypatch, *, delivery, finance):
+    """Katalog bez bazy: zakres pulpitu i granice portfela podstawione."""
+    from app.services.custom_metrics import engine
+
+    monkeypatch.setattr(engine, "source_denial", lambda user, source: None)
+
+    async def _scope(user, db):
+        return None
+
+    monkeypatch.setattr(engine, "resolve_dashboard_scope", _scope)
+    monkeypatch.setattr(engine, "allowed_authors", lambda scope: ("me",))
+
+    async def _boundary(portfolio, message):
+        if portfolio is not None and not portfolio:
+            raise engine.MetricAccessDenied(message)
+        return portfolio
+
+    async def _delivery(user, db):
+        return await _boundary(delivery, "Nie masz przypisanych klientów — kontrakty")
+
+    async def _finance(user, db):
+        return await _boundary(finance, "Nie masz przypisanych klientów, kwoty")
+
+    monkeypatch.setattr(engine, "_delivery_client_boundary", _delivery)
+    monkeypatch.setattr(engine, "_finance_client_boundary", _finance)
+
+
+async def _catalog_sources(monkeypatch, **kwargs) -> dict:
+    from app.services.custom_metrics.engine import metric_catalog
+
+    _patch_catalog(monkeypatch, **kwargs)
+    catalog = await metric_catalog(_FakeDb(), SimpleNamespace(id=7))
+    return {s["key"]: s for s in catalog["sources"]}
+
+
+@pytest.mark.asyncio
+async def test_catalog_says_upfront_that_an_empty_portfolio_counts_nothing(
+    monkeypatch,
+):
+    """23.11.2026: kafelki DL bez klientów wołały liczenie i dostawały 3 × 403.
+
+    Katalog niesie tę samą odmowę co ``evaluate``, więc front pokazuje zdanie
+    bez zapytania; reguła „odmowa, nie zero” zostaje po stronie serwera.
+    """
+    sources = await _catalog_sources(
+        monkeypatch, delivery=frozenset(), finance=frozenset()
+    )
+    for key in ("contracts", "orders", "finance"):
+        assert sources[key]["available"] is False, key
+        assert "Nie masz przypisanych klientów" in sources[key]["reason"], key
+    assert sources["pipeline_moves"]["available"] is True
+
+
+@pytest.mark.asyncio
+async def test_catalog_keeps_sources_of_a_delivery_lead_with_clients(monkeypatch):
+    sources = await _catalog_sources(
+        monkeypatch, delivery=frozenset({501}), finance=frozenset({501})
+    )
+    for key in ("contracts", "orders", "finance"):
+        assert sources[key]["available"] is True, key
+        assert sources[key]["reason"] is None, key
