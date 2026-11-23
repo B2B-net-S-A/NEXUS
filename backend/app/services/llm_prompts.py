@@ -1985,7 +1985,7 @@ AUTOFILL_QUALITY_REPORT = PromptTemplate(
 
 CLIENT_FORM_FILL = PromptTemplate(
     name="client_form_fill",
-    version=6,
+    version=7,
     expected_format="json",
     system_prompt=(
         "Wypełniasz formularz CV klienta (dokument przetargowy) danymi "
@@ -2007,9 +2007,14 @@ CLIENT_FORM_FILL = PromptTemplate(
         "sklejaj punktów w jeden cytat). Bez takiego fragmentu pomiń pole.\n"
         "- Nie zgaduj ocen w skali (np. 1–10) ani numerów certyfikatów — pomiń "
         "takie pole.\n"
-        '- Pole „TAK/NIE”: "TAK", gdy źródło potwierdza kompetencję z nazwy '
-        'wiersza; "NIE", gdy źródło mówi, że kandydat jej nie ma; brak '
-        "informacji = pomiń.\n"
+        '- Pole „TAK/NIE”: "TAK", gdy źródło pokazuje kompetencję z nazwy '
+        "wiersza — wprost albo przez opis pracy, która jej wymagała (np. "
+        "harmonogram w MS Project przy „Znajomość MS Project”, warsztaty "
+        'z klientem przy „prowadzenie warsztatów”); "quote" = ten fragment. '
+        '"NIE" tylko wtedy, gdy fakt w źródle przeczy wymaganiu (np. „zespół '
+        "12 osób” przy „zespołem większym niż 30 osób”), z tym faktem "
+        'w "quote". Bez takiego fragmentu pomiń pole — nie zgaduj; rekruter '
+        "widzi cytat i zatwierdza wartość.\n"
         "- Pól z liczbą lat („Liczba lat doświadczenia”, „Łączna liczba lat”) "
         'NIE wpisuj w "fields" — lata policzy kod. Zamiast tego: w "roles" '
         "wypisz wszystkie stanowiska z CV (key „r1”, „r2”…, firma, stanowisko, "
@@ -2048,8 +2053,14 @@ CLIENT_FORM_FILL = PromptTemplate(
         "jednym na każdą czynność z opisu, każdy w całości (z nowymi liniami "
         "jak w CV). Opis dłuższy niż cytowane fragmenty zostanie odrzucony.\n"
         "- Doświadczenie zawodowe: wszystkie stanowiska z CV, od najnowszego. "
-        'Najpierw wiersze wzoru, kolejne stanowiska w "extra_rows" — tylko dla '
-        "tabel z listy wyżej, najwyżej 10 wierszy na tabelę.\n"
+        "Najpierw wiersze wzoru pierwszej tabeli sekcji, kolejne stanowiska "
+        'w "extra_rows" — tylko dla tabel z listy wyżej, najwyżej 10 wierszy '
+        "na tabelę.\n"
+        "- Tabela „… — tabela 2” (i dalsze) to kolejna tabela tej samej sekcji "
+        "wzoru, z tymi samymi kolumnami. Wpisz do jej wierszy stanowiska albo "
+        "projekty najbliższe tej roli (według kompetencji z formularza "
+        "i zasad oceny), od najnowszego, z cytatami — mogą powtarzać wiersze "
+        'pierwszej tabeli. Do niej nie dopisuj "extra_rows".\n'
         '- Pole z "max_points": liczba punktów według <scoring_rules> — '
         "liczba całkowita od 0 do max_points, policzona z faktów w CV i notatkach "
         '(np. lata doświadczenia); "quote" to fragment, z którego wynika. '

@@ -363,3 +363,134 @@ def _plural(count: int, one: str, few: str, many: str) -> str:
     if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
         return few
     return many
+
+
+# ── Weryfikacja zamiast uzupełniania (23.11.2026) ────────────────────────────
+# Staging CEZ 789225: 21–29 „braków” na osobę, w większości szum. Wzór ma stałe
+# 3 wiersze „Wykształcenia” i „Doświadczenia”, a kolejna tabela doświadczenia
+# stoi bez tytułu (pusty akapit między tabelami). Obie reguły liczą się ze
+# struktury zapisanej w bazie — bez ponownego czytania pliku wzoru.
+
+_FREE_ROW = re.compile(r"^Wiersz \d+$")
+
+
+def _cell_position(field_id: str) -> Optional[tuple[int, int]]:
+    match = re.match(r"^t(\d+)\.r(\d+)\.c\d+$", field_id)
+    return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def _free_rows(structure: dict[str, Any]) -> dict[int, list[list[str]]]:
+    """Wiersze bez nazwy ze wzoru („Wiersz N”) po tabelach: id pól każdego wiersza."""
+    tables: dict[int, list[list[str]]] = {}
+    last: Optional[tuple[int, int]] = None
+    for item in structure.get("fields") or []:
+        row_label = item.get("row_label")
+        if item.get("kind") != "cell" or (row_label and not _FREE_ROW.match(row_label)):
+            continue
+        position = _cell_position(item["id"])
+        if position is None:
+            continue
+        rows = tables.setdefault(position[0], [])
+        if position != last:
+            rows.append([])
+            last = position
+        rows[-1].append(item["id"])
+    return tables
+
+
+def spare_ids(structure: dict[str, Any], values: dict[str, Any]) -> set[str]:
+    """Pola wolnych wierszy: pusty wiersz bez nazwy, który nie jest pierwszym w tabeli.
+
+    Kandydat z jednymi studiami nie ma czego wpisać w wiersze 2–3
+    „Wykształcenia” — to zapas, nie brak. Wiersz częściowo wypełniony jest
+    brakiem (pusta data przy firmie), a pierwszy wiersz pustej tabeli też:
+    formularz bez żadnego stanowiska jest niepełny. Wiersze z nazwą ze wzoru
+    (kompetencje, certyfikat wpisany przez klienta) nigdy nie są zapasem.
+    """
+
+    def has_value(field_id: str) -> bool:
+        return bool((values.get(field_id) or {}).get("value"))
+
+    spare: set[str] = set()
+    for rows in _free_rows(structure).values():
+        for ids in rows[1:]:
+            if not any(has_value(field_id) for field_id in ids):
+                spare.update(ids)
+    return spare
+
+
+def missing_ids(structure: dict[str, Any], values: dict[str, Any]) -> list[str]:
+    """Pola do uzupełnienia: puste, poza wolnymi wierszami (``spare_ids``)."""
+    spare = spare_ids(structure, values)
+    return [
+        item["id"]
+        for item in structure.get("fields") or []
+        if item["id"] not in spare and not (values.get(item["id"]) or {}).get("value")
+    ]
+
+
+def _columns_by_table(structure: dict[str, Any]) -> dict[int, tuple[str, ...]]:
+    columns: dict[int, list[str]] = {}
+    for item in structure.get("fields") or []:
+        position = _cell_position(item["id"]) if item.get("kind") == "cell" else None
+        if position is None:
+            continue
+        labels = columns.setdefault(position[0], [])
+        if item.get("label") not in labels:
+            labels.append(item.get("label") or "")
+    return {index: tuple(labels) for index, labels in columns.items()}
+
+
+def continued_tables(structure: dict[str, Any]) -> dict[int, int]:
+    """Tabela bez tytułu tuż za tabelą o tych samych kolumnach → tabela, którą kontynuuje.
+
+    Formularze CEZ („Starszy Kierownik Projektu”, „Analityk”) mają pod
+    „Doświadczenie zawodowe*:” dwie albo trzy tabele z tymi samymi kolumnami,
+    oddzielone pustym akapitem — odczyt dawał kolejnym ``title: null``. Tabela
+    z własnym tytułem i tymi samymi kolumnami to inna sekcja.
+    """
+    titles = {
+        int(table["index"]): table.get("title")
+        for table in structure.get("tables") or []
+    }
+    columns = _columns_by_table(structure)
+    continued: dict[int, int] = {}
+    for index in sorted(columns):
+        if titles.get(index) or index - 1 not in columns:
+            continue
+        if columns[index] == columns[index - 1]:
+            continued[index] = continued.get(index - 1, index - 1)
+    return continued
+
+
+def table_titles(structure: dict[str, Any]) -> dict[int, Optional[str]]:
+    """Tytuł każdej tabeli z polami; kontynuacja dostaje „<tytuł> — tabela N”."""
+    titles: dict[int, Optional[str]] = {
+        int(table["index"]): table.get("title")
+        for table in structure.get("tables") or []
+    }
+    for item in structure.get("fields") or []:
+        position = _cell_position(item["id"])
+        if position is not None and item.get("table"):
+            titles.setdefault(position[0], item["table"])
+    continued = continued_tables(structure)
+    for index, base in sorted(continued.items()):
+        number = 2 + sum(
+            1 for other, root in continued.items() if root == base and other < index
+        )
+        if titles.get(base):
+            titles[index] = f"{titles[base]} — tabela {number}"
+    return titles
+
+
+def with_table_titles(structure: dict[str, Any]) -> list[dict[str, Any]]:
+    """Pola z tytułem tabeli także dla kontynuacji (okno, prompt)."""
+    titles = table_titles(structure)
+    fields: list[dict[str, Any]] = []
+    for item in structure.get("fields") or []:
+        position = _cell_position(item["id"])
+        title = titles.get(position[0]) if position is not None else None
+        fields.append(
+            {**item, "table": title} if title and not item.get("table") else item
+        )
+    return fields

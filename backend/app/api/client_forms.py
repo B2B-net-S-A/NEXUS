@@ -204,7 +204,8 @@ def _view(
             # Siatka lat: stanowiska z CV, z których kod policzył wartość.
             "years": (values.get(item["id"]) or {}).get("years"),
         }
-        for item in structure.get("fields") or []
+        # Druga tabela „Doświadczenia” CEZ bez tytułu dostaje „— tabela 2”.
+        for item in client_form_structure.with_table_titles(structure)
     ]
     uploaded = (
         {
@@ -216,6 +217,9 @@ def _view(
         if form is not None and form.uploaded_file_key
         else None
     )
+    # Wolne wiersze wzoru (23.11.2026) nie są brakiem — okno je zwija.
+    missing = client_form_fill.missing_ids(structure, values)
+    spare = client_form_structure.spare_ids(structure, values)
     if template is None:
         status = "no_template"
     elif form is None or form.filled_at is None and not values:
@@ -254,7 +258,8 @@ def _view(
         ),
         "fields": fields,
         "extra_rows": (form.extra_rows if form else None) or [],
-        "missing": [item["id"] for item in fields if not item["value"]],
+        "missing": missing,
+        "spare": [item["id"] for item in fields if item["id"] in spare],
         "filled_at": form.filled_at if form else None,
         "updated_at": form.updated_at if form else None,
         "model": form.model if form else None,

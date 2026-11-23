@@ -364,7 +364,7 @@ def test_prompt_asks_for_roles_not_for_computed_years() -> None:
     assert '"id": "p3"' in built
     assert '"roles": [{"key": str' in prompt
     assert '"thresholds": [{"years": int, "points": int}]' in prompt
-    assert CLIENT_FORM_FILL.version == 6
+    assert CLIENT_FORM_FILL.version == 7
 
 
 def test_minimum_in_the_row_name_is_a_requirement_not_a_subtraction() -> None:

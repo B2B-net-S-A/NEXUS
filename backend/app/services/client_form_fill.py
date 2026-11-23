@@ -18,6 +18,7 @@ Do logu idą liczby, nie treść.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
 from app.models.ai_feature import AIFeatureKey
+from app.services import client_form_structure
 from app.services.ai_models import model_chain_for
 from app.services.ai_quota import ai_feature
 from app.services.cv_qc import _json_object
@@ -278,6 +280,36 @@ def _checked_value(
     return value
 
 
+# Tyle razy kod zdejmuje nawias zamykający obiekt przed „, "klucz"”.
+EARLY_CLOSE_REPAIRS = 3
+
+
+def parse_answer(raw: str) -> dict[str, Any]:
+    """JSON odpowiedzi modelu; naprawia obiekt zamknięty za wcześnie.
+
+    Staging 23.11.2026 (CEZ 789225): 2 z 3 odpowiedzi kończyły ``extra_rows``
+    nawiasem głównego obiektu i pisały dalej (``…]}, "roles": […]}``).
+    ``json.loads`` padał na „Extra data”, więc formularz zostawał z samym
+    imieniem. Gdy za zamkniętym obiektem stoi przecinek, kod zdejmuje ten
+    nawias i czyta dalej — inny błąd składni zostaje błędem.
+    """
+    text = raw
+    for _ in range(EARLY_CLOSE_REPAIRS):
+        try:
+            return _json_object(text)
+        except json.JSONDecodeError as exc:
+            rest = exc.doc[exc.pos :].lstrip()
+            head = exc.doc[: exc.pos].rstrip()
+            if not (
+                exc.msg.startswith("Extra data")
+                and rest.startswith(",")
+                and head.endswith("}")
+            ):
+                raise
+            text = head[:-1] + exc.doc[exc.pos :]
+    return _json_object(text)
+
+
 def name_fields(structure: dict[str, Any]) -> list[str]:
     return _line_fields(structure, NAME_LABEL)
 
@@ -291,7 +323,13 @@ def _line_fields(structure: dict[str, Any], pattern: re.Pattern[str]) -> list[st
 
 
 def extendable_tables(structure: dict[str, Any]) -> list[dict[str, Any]]:
-    """Tabele z „…”: kolumny wiersza wzorcowego (``c<kolumna>`` → etykieta)."""
+    """Tabele z „…”: kolumny wiersza wzorcowego (``c<kolumna>`` → etykieta).
+
+    Kontynuacja sekcji (druga tabela „Doświadczenia zawodowego” CEZ) nie rośnie:
+    pełna lista stanowisk idzie do pierwszej tabeli, a dopisane wiersze w obu
+    rozbijałyby kolejność od najnowszego (staging 23.11.2026).
+    """
+    continued = client_form_structure.continued_tables(structure)
     return [
         {
             "table": table["index"],
@@ -299,7 +337,9 @@ def extendable_tables(structure: dict[str, Any]) -> list[dict[str, Any]]:
             "columns": table.get("columns") or {},
         }
         for table in structure.get("tables") or []
-        if table.get("extendable") and table.get("template_row") is not None
+        if table.get("extendable")
+        and table.get("template_row") is not None
+        and int(table["index"]) not in continued
     ]
 
 
@@ -348,7 +388,7 @@ def check_parse(
         for field_id, value in profile.items()
     }
     dropped = 0
-    data = _json_object(raw) if raw else {}
+    data = parse_answer(raw) if raw else {}
     for item in data.get("fields") or []:
         if not isinstance(item, dict) or item.get("id") not in labels:
             dropped += 1
@@ -509,11 +549,8 @@ def _into_free_rows(
 
 
 def missing_ids(structure: dict[str, Any], fields: dict[str, Any]) -> list[str]:
-    return [
-        item["id"]
-        for item in structure.get("fields") or []
-        if not (fields.get(item["id"]) or {}).get("value")
-    ]
+    """Pola do uzupełnienia — bez wolnych wierszy wzoru (``spare_ids``)."""
+    return client_form_structure.missing_ids(structure, fields)
 
 
 def _years_prompt_fields(structure: dict[str, Any]) -> list[dict[str, str]]:
@@ -536,7 +573,7 @@ def build_prompt(structure: dict[str, Any], sources: Sources) -> str:
             for key in ("id", "label", "row_label", "section", "table", "max_points")
             if item.get(key)
         }
-        for item in structure.get("fields") or []
+        for item in client_form_structure.with_table_titles(structure)
         if not (
             item.get("kind") == "line"
             and (

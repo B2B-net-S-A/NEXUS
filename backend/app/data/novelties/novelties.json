@@ -4411,6 +4411,23 @@
     "dot_anchor": "client-form.upload"
   },
   {
+    "id": "formularz-klienta-tylko-weryfikacja",
+    "title": "Formularz klienta: liczą się tylko prawdziwe braki",
+    "why": "Puste zapasowe wiersze wzoru to „wolne wiersze”, nie braki. Druga tabela doświadczenia wypełnia się sama, a przy „TAK/NIE” widzisz cytat z CV do zatwierdzenia.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → sekcja CV → Formularz CV klienta",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "client-form.missing"
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",
