@@ -35,6 +35,9 @@ class Rule:
     params: Mapping[str, str] = field(default_factory=dict)
     fields: tuple[ParamField, ...] = ()
     hint: str | None = None
+    #: Reguła „włącz / wyłącz” bez poziomu: na ekranie przełącznik, w bazie
+    #: ``block`` (włączona) albo ``off``.
+    switch: bool = False
 
 
 @dataclass(frozen=True)
@@ -115,6 +118,17 @@ SECTIONS: tuple[Section, ...] = (
                 "Zejście z zamówienia po przyjęciu RCP",
                 "block",
                 "E1",
+            ),
+            Rule(
+                "order.auto_accept_clean",
+                "Przyjmuj RCP bez uwag automatycznie",
+                "off",
+                "F1",
+                {"workday": "3"},
+                (ParamField("workday", "od", "dnia roboczego następnego miesiąca"),),
+                "Co rano w dzień roboczy NEXUS przyjmuje RCP „Bez uwag” tak jak "
+                "„Przyjmij RCP bez uwag”. RCP po „Do poprawy” zostaje dla Finansów.",
+                switch=True,
             ),
             Rule(
                 "order.onboarding_md",
@@ -536,6 +550,7 @@ def as_screen(rules: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
                     ],
                     "hint": rule.hint,
                     "stage": rule.stage,
+                    "switch": rule.switch,
                 }
                 for rule in section.rules
             ],
