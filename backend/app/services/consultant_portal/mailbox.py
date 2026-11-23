@@ -15,12 +15,13 @@ daje czytelny stan w ``cp_mailbox_state``, a nie wyjątek.
 * Znacznik idzie z zakładką 2 h, a duplikaty zamyka unikat na (wiadomość, plik).
   Do logu trafia klasa błędu, nigdy adres ani temat.
 * Jedna skrzynka wsparcie@ (E8): na skrzynce wspólnej ze sprawami bierzemy tylko maile
-  z załącznikiem na adresy rozliczeń i akceptacje klienta w samej treści
-  (``support_mail_route``), resztę czytnik spraw. Zła
+  z załącznikiem na adresy rozliczeń (``support_mail_route``), resztę czytnik spraw. Zła
   konfiguracja (``support_mail_route.misconfiguration``) = stan ``error`` i nic nie czytamy.
-* Wyjątek: mail bez pliku z adresu firmy z tematem rozliczenia (``is_body_only_settlement``)
-  czytamy też, gdy router oddał go sprawom, i zapisujemy jego treść jako ``.eml`` jednej
-  osoby (nadawca albo osoba z tematu). Sprawa powstaje jak dotąd (decyzja Artura 23.11.2026).
+* Wyjątek: dwa maile bez pliku na adres rozliczeń czytamy też, gdy router oddał je sprawom,
+  i zapisujemy ich treść jako ``.eml`` jednej osoby. Sprawa powstaje jak dotąd (decyzja
+  Artura 23.11.2026, „sprawa i dokument”): akceptacja klienta z regułą akceptacji mailowej
+  (``support_mail_route.is_client_acceptance_mail``, osoba z tematu) i mail z adresu firmy
+  z tematem rozliczenia (``is_body_only_settlement``, nadawca albo osoba z tematu).
 * Odpowiedź klienta bez pliku na nasz mail z Wysłanych (``is_reply_to_sent``): plik godzin
   bierzemy z naszego maila, osobę z jego tematu (decyzja Artura 23.11.2026, BNP CIB).
   Sprawa też powstaje.
@@ -1203,7 +1204,8 @@ async def run_once(
     for message in messages:
         if (
             route
-            and not support_mail_route.is_settlements_mail(
+            and not support_mail_route.is_settlements_mail(message, route)
+            and not support_mail_route.is_client_acceptance_mail(
                 message, route, acceptance.keys()
             )
             and not (

@@ -2,10 +2,11 @@
 
 Próba rozliczeń IX–X 2026: klient (PKO, BIK) odpisuje w wątku z TS bez załącznika,
 np. „łączna liczba godzin: 112, październik 2026”. Router oddawał czytnikowi rozliczeń
-tylko maile z załącznikiem, więc taka akceptacja zostawała sprawą, a reguła
-``proof.accept_has_hours`` nie miała czego sprawdzić. Teraz mail bez załącznika na adres
-rozliczeń z domeny klienta z regułą akceptacji mailowej idzie do rozliczeń i ląduje
-jako ``.eml`` u osoby z tematu. Domeny, osoby i maile fikcyjne.
+tylko maile z załącznikiem, więc taka akceptacja była wyłącznie sprawą, a reguła
+``proof.accept_has_hours`` nie miała czego sprawdzić. Decyzja Artura z 23.11.2026: „sprawa
+i dokument”. Mail bez załącznika na adres rozliczeń z domeny klienta z regułą akceptacji
+mailowej zostaje sprawą, a czytnik rozliczeń zapisuje go dodatkowo jako ``.eml`` u osoby
+z tematu. Domeny, osoby i maile fikcyjne.
 """
 
 from __future__ import annotations
@@ -121,7 +122,7 @@ async def test_domains_only_of_clients_with_mail_acceptance_rule() -> None:
             await db.commit()
 
 
-async def test_cases_reader_leaves_client_acceptance_to_settlements(
+async def test_cases_reader_keeps_client_acceptance_as_case(
     shared_support_mailbox,  # noqa: F811
 ) -> None:
     with_rule, without_rule = await make_person(), await make_person()
@@ -142,17 +143,16 @@ async def test_cases_reader_leaves_client_acceptance_to_settlements(
             sender=f"przelozony@{off}",
             to=[SETTLEMENTS],
         )
-        # Bez adresu rozliczeń w nagłówkach to dalej sprawa, także z domeny klienta.
         not_to_settlements = fake.add(
             subject="Pytanie", hours_ago=2, sender=f"kierownik@{on}", to=["x@ex.com"]
         )
 
         result = await _run(fake)
 
-        assert result["routed_settlements"] == 1
+        # Akceptacja klienta to też sprawa; dokument dopisuje czytnik rozliczeń.
+        assert result.get("routed_settlements", 0) == 0
         cases = await _cases_for(fake)
-        assert acceptance["id"] not in cases
-        assert no_rule["id"] in cases and not_to_settlements["id"] in cases
+        assert {acceptance["id"], no_rule["id"], not_to_settlements["id"]} <= set(cases)
     finally:
         await _drop_rule_sets([with_rule.client_id, without_rule.client_id])
 
