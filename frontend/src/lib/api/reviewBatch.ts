@@ -89,6 +89,12 @@ export interface ReviewBatchSentBefore {
   last_job_title: string
 }
 
+export interface ReviewBatchClientRecent {
+  days: number | null
+  job_id: number
+  job_title: string
+}
+
 export interface ReviewBatchCaution {
   key: string
   label: string
@@ -130,6 +136,8 @@ export interface ReviewBatchItem {
   /** Wysłany do klienta w innej rekrutacji w ostatnim roku (20.11.2026). */
   sent_before?: ReviewBatchSentBefore | null
   why?: ReviewBatchWhy
+  /** Wysłany w ostatnich 14 dniach do tego klienta w innej rekrutacji (R4). */
+  client_recent?: ReviewBatchClientRecent | null
   /** Bez decyzji od 2 dni roboczych: na końcu kolejki, nie zajmuje miejsca (R5). */
   stale?: boolean
   /** Dzień dodania karty (kalendarz firmy), RRRR-MM-DD. */

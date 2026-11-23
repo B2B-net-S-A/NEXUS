@@ -41,6 +41,13 @@ MAX_POINTS = 15
 # wśród kart od systemu 12,2% do klienta wobec 7,9% wszystkich. Stała, nie
 # suwak panelu: skala jak „u klienta” (6) i świeża notatka (8).
 SENT_POINTS = 8
+# Wysłany w ostatnich 14 dniach do TEGO klienta w innej jego rekrutacji (R4,
+# 22.11.2026). W 16–19.11 przepięcia między rekrutacjami jednego klienta to
+# 41 ze 168 wysłanych CV; w 789217 wysłani stali na miejscach 545–3 237, bo
+# wynik z CV ich nie wyróżniał. Tyle punktów stawia taką osobę na początku
+# kolejki rekrutacji (zwykła karta to wynik 65–80 plus najwyżej ~15).
+CLIENT_RECENT_DAYS = 14
+CLIENT_RECENT_POINTS = 20
 
 
 @dataclass(frozen=True)
@@ -62,6 +69,9 @@ class KnownFacts:
     last_note_days: Optional[int]
     sent_elsewhere: int = 0
     sent_points: int = 0
+    client_recent_days: Optional[int] = None
+    client_recent_job_id: Optional[int] = None
+    client_recent_points: int = 0
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -221,16 +231,26 @@ async def facts_for_jobs(
     sent_rows = await db.execute(
         text(
             """
-            SELECT DISTINCT candidate_id, job_id FROM candidate_stages
-            WHERE candidate_id = ANY(:ids) AND stage::text = 'cv_sent'
-              AND moved_at >= :since
+            SELECT cs.candidate_id, cs.job_id, j.client_id, MAX(cs.moved_at)
+            FROM candidate_stages cs
+            JOIN jobs j ON j.id = cs.job_id
+            WHERE cs.candidate_id = ANY(:ids) AND cs.stage::text = 'cv_sent'
+              AND cs.moved_at >= :since
+            GROUP BY 1, 2, 3
             """
         ),
         {"ids": all_ids, "since": now - timedelta(days=sent_before.DAYS)},
     )
     sent_jobs: dict[int, set[int]] = {}
-    for cid, jid in sent_rows.all():
+    # (kandydat, klient) → [(chwila wysyłki, rekrutacja)] z ostatnich 14 dni (R4).
+    client_sends: dict[tuple[int, int], list[tuple[datetime, int]]] = {}
+    recent_since = now - timedelta(days=CLIENT_RECENT_DAYS)
+    for cid, jid, client, sent_at in sent_rows.all():
         sent_jobs.setdefault(int(cid), set()).add(int(jid))
+        if client is not None and sent_at is not None and sent_at >= recent_since:
+            client_sends.setdefault((int(cid), int(client)), []).append(
+                (sent_at, int(jid))
+            )
     for job_id, (client_id, candidate_ids) in boards.items():
         rejected = (
             {
@@ -254,15 +274,25 @@ async def facts_for_jobs(
             client, note = points_for(weights, client_jobs, last_note)
             sent_count = len(sent_jobs.get(candidate_id, set()) - {job_id})
             sent = SENT_POINTS if sent_count > 0 else 0
-            if client + note + sent > 0:
+            recent = [
+                (at, jid)
+                for at, jid in client_sends.get((candidate_id, client_id), [])
+                if jid != job_id
+            ]
+            recent_at, recent_job = max(recent) if recent else (None, None)
+            fresh = CLIENT_RECENT_POINTS if recent_at is not None else 0
+            if client + note + sent + fresh > 0:
                 facts[candidate_id] = KnownFacts(
-                    client + note + sent,
+                    client + note + sent + fresh,
                     client,
                     note,
                     client_jobs,
                     last_note,
                     sent_count,
                     sent,
+                    max(0, (now - recent_at).days) if recent_at else None,
+                    recent_job,
+                    fresh,
                 )
         out[job_id] = facts
     return out
