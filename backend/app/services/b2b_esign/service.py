@@ -36,7 +36,6 @@ from app.services.b2b_esign import long_term
 from app.services.b2b_esign.verdict import (
     MSG_NOT_PDF,
     Fingerprint,
-    Verdict,
     judge,
     upload_problem,
 )
