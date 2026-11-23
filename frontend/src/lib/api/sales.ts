@@ -136,6 +136,8 @@ export interface CompanyInput {
   name?: string;
   legal_name?: string | null;
   nip?: string | null;
+  krs?: string | null;
+  regon?: string | null;
   domain?: string | null;
   website_url?: string | null;
   linkedin_url?: string | null;
@@ -840,6 +842,16 @@ export function useUpdateSalesCompany(id: number) {
   const invalidate = useInvalidateSales();
   return useMutation({
     mutationFn: async (payload: CompanyInput) =>
+      (await api.patch<SalesCompany>(`/api/sales/companies/${id}`, payload)).data,
+    onSuccess: invalidate,
+  });
+}
+
+/** Dopisanie danych z rejestru do karty wybranej dopiero w oknie nowej firmy (id znane po kliknięciu). */
+export function usePatchSalesCompany() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async ({ id, payload }: { id: number; payload: CompanyInput }) =>
       (await api.patch<SalesCompany>(`/api/sales/companies/${id}`, payload)).data,
     onSuccess: invalidate,
   });

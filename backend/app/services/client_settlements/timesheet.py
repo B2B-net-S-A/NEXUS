@@ -21,17 +21,19 @@ Sheet”, „Imię Nazwisko”, tabela „Data · Opis zadań · Liczba godzin �
 i „Łączna liczba godzin”.
 
 Plik spoza szablonu daje ``None``: wtedy MD wpisują Finanse, a plik zostaje.
-Time Sheet za inny miesiąc to kontrola ``proof.month`` bez MD. Odczyt nigdy
+Time Sheet za inny miesiąc to kontrola ``proof.month`` bez MD; wyjątek to rok
+z zeszłorocznego szablonu (``template_year_fixed``). Odczyt nigdy
 nie blokuje przyjęcia pliku.
 """
 
 from __future__ import annotations
 
+import calendar
 import io
 import logging
 import re
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Mapping, Optional
@@ -50,6 +52,7 @@ from app.services.client_settlements.rcp_checks import (
     _param_dec,
     name_tokens,
 )
+from app.services.person_workdays import business_days
 
 logger = logging.getLogger(__name__)
 
@@ -440,6 +443,44 @@ def parse(content: bytes, mime: str) -> Optional[ParsedTimesheet]:
     return parse_rows(sheets) if sheets is not None else None
 
 
+def month_business_days(month: str) -> list[date]:
+    """Dni robocze miesiąca ``RRRR-MM`` (bez weekendów i polskich świąt)."""
+
+    year, number = int(month[:4]), int(month[5:7])
+    last = calendar.monthrange(year, number)[1]
+    return business_days(date(year, number, 1), date(year, number, last))
+
+
+def template_year_fixed(
+    parsed: ParsedTimesheet, month: str
+) -> Optional[ParsedTimesheet]:
+    """Time Sheet z rokiem z zeszłorocznego szablonu (ERSTE 23.11.2026: „TS -
+    Październik” z datami 2025, godziny w dni robocze 2026) przeniesiony na
+    rozliczany rok. Tylko gdy ten sam miesiąc, wszystkie wpisy w nim, każdy dzień
+    z godzinami jest dniem roboczym rozliczanego miesiąca, a choć jeden nie jest
+    dniem roboczym w roku z pliku. Pasujący do obu kalendarzy plik zostaje
+    plikiem za inny miesiąc. ``None`` = bez zmiany."""
+
+    if parsed.month is None or parsed.month == month or parsed.date_from is not None:
+        return None
+    year, number = int(month[:4]), int(month[5:7])
+    file_year = int(parsed.month[:4])
+    if int(parsed.month[5:7]) != number:
+        return None
+    days = {e.day for e in parsed.entries}
+    if None in days or any(d.year != file_year or d.month != number for d in days):
+        return None
+    worked = {d.day for d in days}
+    target = {d.day for d in month_business_days(month)}
+    in_file = {d.day for d in month_business_days(parsed.month)}
+    if not worked <= target or worked <= in_file:
+        return None
+    entries = tuple(
+        replace(e, day=e.day.replace(year=year)) for e in parsed.entries if e.day
+    )
+    return replace(parsed, entries=entries)
+
+
 def md_from_hours(hours: Decimal, per_md: Decimal) -> Decimal:
     return (hours / per_md).quantize(MD_Q, rounding=ROUND_HALF_UP)
 
@@ -477,6 +518,15 @@ def evaluate(
 
     result.md_regular = md_from_hours(hours, hours_md)
     result.md_extra = Decimal("0")
+
+    fixed = template_year_fixed(parsed, month)
+    if fixed is not None:
+        sheet.info(
+            f"Rok w szablonie: {(parsed.month or '')[:4]}",
+            f"Dni z godzinami to dni robocze {month}, a nie {parsed.month}: "
+            "liczymy jako rozliczany miesiąc.",
+        )
+        parsed = fixed
 
     # Plik za inny miesiąc (np. szablon z rokiem 2025): kontrola bez MD.
     other_month = parsed.month is not None and parsed.month != month

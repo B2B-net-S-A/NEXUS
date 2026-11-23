@@ -79,6 +79,7 @@ export function TopbarV2({
       <button
         onClick={onOpenCommandPalette}
         aria-label="Otwórz wyszukiwanie"
+        data-tour="topbar.search"
         className={TOPBAR_SEARCH_CLASS}
       >
         <Search className="h-4 w-4 shrink-0" />

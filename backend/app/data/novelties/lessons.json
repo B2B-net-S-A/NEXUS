@@ -309,7 +309,8 @@
       "porcja-pilne-12-pozostale-8",
       "porcja-wyslany-do-tego-klienta",
       "porcja-kluczowe-z-dowodem",
-      "porcja-kogo-szukamy"
+      "porcja-kogo-szukamy",
+      "porcja-nie-odebral-przesuwa-termin"
     ],
     "task": "W Porcji dnia sprawdź nad kartą, kogo szuka rekrutacja, i otwórz poprawkę tego opisu. Na Poligonie nic się nie zapisze.",
     "solo_href": "/porcja",
@@ -347,6 +348,16 @@
         ],
         "answer": 0,
         "explain": "✓ to doświadczenie w stanowiskach, ~ tylko wzmianka, ✗ brak. Klik w pozycję pokazuje, gdzie to jest w CV."
+      },
+      {
+        "q": "Dzwonisz po „Pasuje”, kandydat nie odbiera. Jak nie stracić wyszukiwania ręcznego?",
+        "options": [
+          "Kliknąć „Nie odebrał” przy osobie",
+          "Umówić telefon za kilka dni",
+          "Usunąć osobę z rekrutacji"
+        ],
+        "answer": 0,
+        "explain": "„Nie odebrał” liczy termin screeningu od próby: masz 2 dni robocze więcej. Działa przy pierwszych 3 próbach, potem wynik albo odrzucenie z powodem."
       }
     ]
   },
@@ -1855,6 +1866,41 @@
         ],
         "answer": 0,
         "explain": "To decyzja o regule klienta. Zmiana poziomu reguły obejmuje wszystkie osoby tego klienta naraz."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-firma-z-nip",
+    "title": "Nowa firma z NIP-u",
+    "novelties": [
+      "sprzedaz-nowa-firma-z-nip"
+    ],
+    "task": "Otwórz wyszukiwarkę u góry (⌘K), wpisz NIP 111-222-33-32 i kliknij „Załóż firmę z NIP”. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/sales/companies",
+    "check": {
+      "kind": "click",
+      "anchor": "palette.sales-nip"
+    },
+    "questions": [
+      {
+        "q": "Wpisujesz NIP i nie ma karty z tym numerem. Co jeszcze sprawdza okno „Nowa firma”?",
+        "options": [
+          "Czy w kartotece nie ma już karty o tej nazwie bez NIP-u",
+          "Nic, brak NIP-u w kartotece oznacza nową firmę",
+          "Czy firma ma otwartą szansę sprzedaży"
+        ],
+        "answer": 0,
+        "explain": "NIP ma tylko część kart. Gdy karta o tej nazwie istnieje bez NIP-u, okno proponuje „Dopisz NIP do tej karty” zamiast drugiej karty tej samej firmy."
+      },
+      {
+        "q": "Co robi Jarvis, gdy poprosisz go o założenie firmy z NIP-u?",
+        "options": [
+          "Daje przycisk do tego samego okna, a zapisujesz Ty",
+          "Zakłada kartę sam, bez Twojego kliknięcia",
+          "Odsyła do Finansów"
+        ],
+        "answer": 0,
+        "explain": "Jarvis tylko otwiera okno „Nowa firma” z NIP-em. Dane z rejestru i sprawdzenie kartoteki robi okno, a kartę zapisuje człowiek."
       }
     ]
   },
