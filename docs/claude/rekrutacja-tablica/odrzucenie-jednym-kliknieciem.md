@@ -60,6 +60,10 @@ a trzy najczęstsze powody danej osoby z 30 dni to średnio 57% jej odrzuceń.
   z „Cofnij” (`quickRejectMessage`); po ostatniej osobie kolejki „to była
   ostatnia osoba w kolejce „Nowi”” i panel się zamyka. Pasek nad następną
   osobą („Odrzucono: X · powód · Pokaż”) zostaje jak po oknie.
+- **Nowość i Poligon:** wpis `odrzuc-jednym-kliknieciem` i lekcja
+  `lekcja-odrzuc-jednym-kliknieciem` (ruch na „Odrzucony” z powodem
+  „…doświadczenia”). Poligon nie ma historii ćwiczącego, więc
+  `lib/poligon/store.ts` oddaje stałe trzy powody.
 - Nowy powód w słowniku, który wymaga dodatkowego pola w oknie = wpis
   w `QUICK_REJECT_OPENS_WINDOW`, inaczej skrót odrzuci go bez tego pola.
 - Testy: `backend/tests/test_quick_reject_reasons.py`,
