@@ -1824,6 +1824,61 @@
     ]
   },
   {
+    "id": "lekcja-klient-cos-zmienil",
+    "title": "„Klient coś zmienił”: zmiana od klienta jednym oknem",
+    "novelties": [
+      "klient-cos-zmienil"
+    ],
+    "task": "Klient napisał: „Dorzucamy Pythona jako musi mieć, SAFe już nieważne”. Przekaż to w Profilu rekrutacji ćwiczebnej tak, żeby NEXUS sam rozpisał zmiany, i poproś o propozycję.",
+    "solo_href": "/jobs/990001?tab=champion",
+    "check": {
+      "kind": "click",
+      "anchor": "champion.client-change.propose"
+    },
+    "questions": [
+      {
+        "q": "Klient pisze, że dorzuca Pythona jako „musi mieć”, a SAFe już nieważne. Od czego zaczniesz?",
+        "options": [
+          "Od „Klient coś zmienił” w Profilu i wklejenia jego maila",
+          "Od edycji po kolei wymagań, pytań i opisu",
+          "Od wiadomości do rekruterów na czacie rekrutacji"
+        ],
+        "answer": 0,
+        "explain": "Jedno okno rozpisuje zmianę na wymagania, niuanse, pytania i opisy, a zapis idzie jednym ruchem jako wersja w „Zmianach”."
+      },
+      {
+        "q": "Co zapisze się w Profilu po kliknięciu „Przygotuj zmiany”?",
+        "options": [
+          "Nic, dopóki nie przejrzysz listy i nie zapiszesz",
+          "Wszystkie zmiany zaproponowane przez AI",
+          "Same nowe wymagania, bez pytań i opisów"
+        ],
+        "answer": 0,
+        "explain": "Propozycja niczego nie zmienia. Każdą zmianę możesz odznaczyć albo poprawić, a zapisuje się tylko to, co zostawisz."
+      },
+      {
+        "q": "Po co okno pokazuje osoby w procesie przy nowym wymaganiu „musi mieć”?",
+        "options": [
+          "Żeby dopytać osoby, które nie mają tego w CV",
+          "Żeby od razu odrzucić te osoby z rekrutacji",
+          "Żeby cofnąć je na początek Tablicy"
+        ],
+        "answer": 0,
+        "explain": "Okno liczy osoby bez tego słowa w CV przed screeningiem, po nim i u klienta. Dzwonek „dopytaj” idzie do osób, które je prowadzą."
+      },
+      {
+        "q": "Klient mówi, że Python jest teraz krytyczny. Gdzie to ustawisz?",
+        "options": [
+          "W edytorze wierszy wymagań, po zapisie okna",
+          "W oknie „Klient coś zmienił”, przy zmianie",
+          "Nigdzie, AI ustawi to samo z maila"
+        ],
+        "answer": 0,
+        "explain": "Okno daje tylko „musi mieć” albo „mile widziane”. Krytyczne wybierasz świadomie w edytorze wierszy, bo to bramka dla kandydatów."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [
