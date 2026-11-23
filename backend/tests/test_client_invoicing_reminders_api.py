@@ -346,13 +346,23 @@ async def test_month_close_list_for_the_accountant(client, seed):
     sheet = load_workbook(io.BytesIO(november.content)).active
     rows = list(sheet.iter_rows(values_only=True))
     assert rows[0][2] == "Faktura"
-    assert [(row[2], row[11]) for row in rows[1:]] == [
+    ours = {"FS 10/121/2026", "FS 10/118/2026", "FS 10/124/2026"}
+    # Baza testów jest wspólna: plik ma całą firmę (np. FS 11/7 bez klienta NEXUSA).
+    assert [(row[2], row[11]) for row in rows[1:] if row[2] in ours] == [
         ("FS 10/121/2026", 9),
         ("FS 10/118/2026", 2),
         ("FS 10/124/2026", 1),
     ]
+    # Najpierw zaległości z dowodem, potem faktury bez danych o zapłacie — bez dni.
+    days = [row[11] for row in rows[1:]]
+    proven = [d for d in days if d is not None]
+    assert days[: len(proven)] == proven
+    for row in rows[1:]:
+        if row[11] is None:
+            assert str(row[13]).startswith("brak danych o zapłacie")
+    assert "FS 11/7/2026" in {row[2] for row in rows[1:] if row[11] is None}
 
-    # Na 31.10 żaden termin jeszcze nie minął.
+    # Na 31.10 żaden termin naszych faktur jeszcze nie minął.
     october = await client.get(
         f"{FINANCE}/overdue/month-close",
         params={"month": "2026-10", "format": "csv"},
@@ -360,7 +370,8 @@ async def test_month_close_list_for_the_accountant(client, seed):
     )
     assert october.status_code == 200
     lines = october.content.decode("utf-8-sig").strip().splitlines()
-    assert len(lines) == 1 and lines[0].startswith("Klient;")
+    assert lines[0].startswith("Klient;")
+    assert not any(number in line for line in lines[1:] for number in ours)
 
     bad = await client.get(
         f"{FINANCE}/overdue/month-close",
