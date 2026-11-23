@@ -427,6 +427,57 @@ async def _write_state(
     await db.commit()
 
 
+def _is_document(attachment: dict[str, Any]) -> bool:
+    """Plik do zapisania: załącznik pliku, nie inline i nie obrazek stopki Outlooka.
+
+    Samo ``isInline`` nie wystarcza: Open-Xchange i onet podają obrazki stopki bez
+    ``Content-Disposition: inline`` albo jako zwykły załącznik, a Graph bywa, że daje
+    im ``isInline: false``. Powtórka 30.09–06.10.2026: 44 ``image00N`` jako raporty
+    i faktury na kontraktach. Zrzut ekranu z godzinami ma inną nazwę i przechodzi."""
+
+    return (
+        attachment.get("@odata.type") == _FILE_ATTACHMENT
+        and not attachment.get("isInline")
+        and not _OUTLOOK_SIGNATURE.match(str(attachment.get("name") or "").strip())
+    )
+
+
+async def _store_without_file(
+    db: AsyncSession,
+    mailbox: SettlementsMailbox,
+    message: dict[str, Any],
+    acceptance: Optional[dict[str, frozenset[int]]],
+    *,
+    state: portal_settings.PortalSettings,
+    today: date,
+    now: datetime,
+) -> tuple[int, int]:
+    """Mail bez pliku: akceptacja w treści, odpowiedź na nasz mail z Wysłanych
+    albo akceptacja klienta z regułą akceptacji mailowej."""
+
+    if is_body_only_settlement(message):
+        made = await _store_body_only(
+            db, mailbox, message, state=state, today=today, now=now
+        )
+        return made, 0
+    if state.any_sender and is_reply_to_sent(message):
+        answered = await _store_reply_to_sent(
+            db, mailbox, message, today=today, now=now
+        )
+        if answered is not None:
+            return answered, 0
+    return await _store_client_acceptance(
+        db,
+        mailbox,
+        message,
+        acceptance or {},
+        subject=str(message.get("subject") or ""),
+        state=state,
+        today=today,
+        now=now,
+    )
+
+
 async def _ingest_message(
     db: AsyncSession,
     mailbox: SettlementsMailbox,
@@ -445,38 +496,32 @@ async def _ingest_message(
     if reply is not None:
         return reply, 0
     if not message.get("hasAttachments"):
-        if is_body_only_settlement(message):
-            made = await _store_body_only(
-                db, mailbox, message, state=state, today=today, now=now
-            )
-            return made, 0
-        if state.any_sender and is_reply_to_sent(message):
-            answered = await _store_reply_to_sent(
-                db, mailbox, message, today=today, now=now
-            )
-            if answered is not None:
-                return answered, 0
-        return await _store_client_acceptance(
+        return await _store_without_file(
+            db, mailbox, message, acceptance, state=state, today=today, now=now
+        )
+    received = _parse_time(message.get("receivedDateTime")) or now
+    files = list(await mailbox.attachments(str(message["id"])))
+    if not any(
+        _is_document(f) or f.get("@odata.type") == forwarded.ITEM_ATTACHMENT
+        for f in files
+    ):
+        # Same obrazki stopki: w M365 taki mail ma zwykle ``hasAttachments`` false,
+        # więc czytamy go jak mail bez pliku (akceptacja w treści, próba IX 2026).
+        return await _store_without_file(
             db,
             mailbox,
-            message,
-            acceptance or {},
-            subject=subject,
+            {**message, "hasAttachments": False},
+            acceptance,
             state=state,
             today=today,
             now=now,
         )
-    received = _parse_time(message.get("receivedDateTime")) or now
-    files = list(await mailbox.attachments(str(message["id"])))
     # Raport godzin klienta (T4T Nordei) wchodzi jako wersja raportu miesiąca, zanim
     # nadawca i pilotaż zdecydują o dokumentach konsultantów (23.11.2026).
     time_report = await t4t_mail.ingest(db, files, received_on=business_date(received))
     if time_report.consumed:
         files = [f for i, f in enumerate(files) if i not in time_report.consumed]
-        if not any(
-            f.get("@odata.type") == _FILE_ATTACHMENT and not f.get("isInline")
-            for f in files
-        ):
+        if not any(_is_document(f) for f in files):
             return time_report.versions, time_report.duplicates
     by_subject = await _kesu_contract(db, subject, sender, state=state, today=today)
     contract = by_subject or await identity.resolve_sender(
@@ -548,9 +593,7 @@ async def _ingest_message(
             db, sender, settings=state, today=today
         )
     for attachment in files:
-        if attachment.get("@odata.type") != _FILE_ATTACHMENT or attachment.get(
-            "isInline"
-        ):
+        if not _is_document(attachment):
             continue
         raw = attachment.get("contentBytes")
         if not isinstance(raw, str):
@@ -998,9 +1041,7 @@ async def _store_reply_to_sent(
     sent_on = (_parse_time(ours.get("sentDateTime")) or received).date()
     created = 0
     for attachment in files:
-        if attachment.get("@odata.type") != _FILE_ATTACHMENT or attachment.get(
-            "isInline"
-        ):
+        if not _is_document(attachment):
             continue
         data = attachment.get("contentBytes")
         if not isinstance(data, str):
@@ -1010,8 +1051,6 @@ async def _store_reply_to_sent(
         except ValueError:
             continue
         name = str(attachment.get("name") or "")
-        if _OUTLOOK_SIGNATURE.match(name.strip()):
-            continue
         kind = await asyncio.to_thread(kind_of_file, our_subject, name, content)
         created += await _store_found(
             db,
