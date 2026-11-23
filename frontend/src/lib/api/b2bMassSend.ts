@@ -1,5 +1,5 @@
 /**
- * Masowa wysyłka nowej umowy B2B do aktywnych kontraktorów (E5b, 0756).
+ * Masowa wysyłka nowej umowy B2B do aktywnych kontraktorów (E5b, 0758).
  *
  * Trasy pod `/api/b2b-generator/mass-send`. Dopóki admin nie oznaczy nowego
  * wzoru jako podpiętego, wysyłka zwraca 409, a działa podgląd i próba bez

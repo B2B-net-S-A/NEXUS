@@ -1072,7 +1072,7 @@ async def lifespan(app: FastAPI):
             "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
             "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
             "b2b_esign_sweeper": asyncio.create_task(b2b_esign_sweeper_loop()),
-            # 0756: masowa wysyłka nowej umowy B2B (E5b). Kończy się przed pętlą
+            # 0758: masowa wysyłka nowej umowy B2B (E5b). Kończy się przed pętlą
             # przy B2B_MASS_SEND_ENABLED=false; bez „nowy wzór podpięty” nic nie wysyła.
             "b2b_mass_send": asyncio.create_task(b2b_mass_send_loop()),
             # Lista zaufanych UE w pamięci web, bo tam trasa waliduje podpis.
@@ -1906,7 +1906,7 @@ app.include_router(
 app.include_router(
     b2b_esign.public_router, prefix="/api/public", tags=["public-b2b-sign"]
 )
-# Masowa wysyłka nowej umowy B2B do aktywnych kontraktorów (E5b, 0756).
+# Masowa wysyłka nowej umowy B2B do aktywnych kontraktorów (E5b, 0758).
 app.include_router(
     b2b_mass_send_api.router,
     prefix="/api/b2b-generator",
@@ -5095,10 +5095,10 @@ async def api_health_deep_check(request: Request):
         ("duty_search_results", DutySearchResult),
         # 0687: paczka do podpisu B2B.
         ("b2b_signing_documents", B2BSigningDocument),
-        # 0756: masowa wysyłka nowej umowy B2B.
+        # 0758: masowa wysyłka nowej umowy B2B.
         ("b2b_mass_send_batches", B2BMassSendBatch),
         ("b2b_mass_send_items", B2BMassSendItem),
-        # 0757: sesje zdalnego podpisu przez API CSC.
+        # 0759: sesje zdalnego podpisu przez API CSC.
         ("b2b_esign_remote_sessions", B2BEsignRemoteSession),
     ]
 

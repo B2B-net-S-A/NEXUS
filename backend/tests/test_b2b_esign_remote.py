@@ -870,6 +870,6 @@ def test_entrypoint_mirrors_the_remote_sessions_table():
         "*_B2B_SIGNING_DOCUMENTS_DDL,"
     )
     migration = (
-        root / "alembic/versions/0757_b2b_esign_remote_sessions.py"
+        root / "alembic/versions/0759_b2b_esign_remote_sessions.py"
     ).read_text()
-    assert re.search(r'down_revision = "0756_b2b_mass_send"', migration)
+    assert re.search(r'down_revision = "0758_b2b_mass_send"', migration)

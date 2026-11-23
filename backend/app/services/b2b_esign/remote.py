@@ -1,4 +1,4 @@
-"""Sesje zdalnego podpisu przez API CSC (E1, 0757) — start, powrót, stan.
+"""Sesje zdalnego podpisu przez API CSC (E1, 0759) — start, powrót, stan.
 
 Sesja wiąże jedno zatwierdzenie u dostawcy z wnioskami NEXUSA:
 
