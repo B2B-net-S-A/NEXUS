@@ -61,12 +61,13 @@ export const EMPTY_ANNEX_CHOICE: AnnexSubjectChoice = {
 
 /** Czy z takim wyborem można przejść do treści aneksu. */
 export function annexChoiceReady(
-  type: Pick<DocumentTypeDef, "allows_external" | "parent">,
+  type: Pick<DocumentTypeDef, "allows_external" | "parent" | "accepts_contract">,
   choice: AnnexSubjectChoice,
 ): boolean {
   if (choice.parentId !== null) return !choice.needsContractPick;
+  // Rozwiązanie umowy sprzed NEXUSA: kontrakt tak, „Bez kontraktu” nie.
+  if (choice.contractId !== null) return takesContract(type) || Boolean(type.accepts_contract);
   if (!takesContract(type)) return false;
-  if (choice.contractId !== null) return true;
   return choice.withoutContract && choice.clientId !== null;
 }
 
@@ -155,7 +156,9 @@ export function AnnexSubjectPicker({
   return (
     <div className="space-y-3">
       <div className="space-y-1">
-        <Label htmlFor="b2b-annex-subject-search">Dla kogo jest aneks?</Label>
+        <Label htmlFor="b2b-annex-subject-search">
+          {type.family === "annex" ? "Dla kogo jest aneks?" : "Czyją umowę rozwiązujesz?"}
+        </Label>
         <div className="relative">
           <Search
             className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground"

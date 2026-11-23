@@ -98,6 +98,9 @@ export interface DocumentTypeDef {
   uses_refs: boolean;
   /** Zakładka „Generator aneksów”: przyjmuje też umowę spoza NEXUSA. */
   allows_external: boolean;
+  /** Rozwiązanie umowy sprzed NEXUSA: bez umowy w rejestrze przyjmuje kontrakt,
+   *  a numer i datę umowy (pola grupy `base`) wpisuje człowiek. */
+  accepts_contract?: boolean;
   /** Języki tylko do ponownego pobrania starych dokumentów. */
   legacy_languages: string[];
   /** Umowa przedwstępna: `cez` = tylko Centrum e-Zdrowia, `general` = inni klienci. */

@@ -423,8 +423,19 @@ def _validate_values(
     values: dict[str, Any],
     base: BaseContractInfo,
     refs: dict[str, str] | None,
+    *,
+    external: bool = False,
 ) -> None:
     missing = missing_required(doc_type, values)
+    if external and doc_type.accepts_contract:
+        # Umowa spoza rejestru: numer i datę zna tylko człowiek (registry nie
+        # ma ich jako ``required``, bo przy umowie z rejestru formularz ich nie
+        # pokazuje).
+        missing += [
+            f.label
+            for f in doc_type.fields
+            if f.group == "base" and not str(values.get(f.key) or "").strip()
+        ]
     if _needs_refs(doc_type, base) and not refs:
         missing.append("Numery paragrafów umowy bazowej")
     if missing:
@@ -557,7 +568,11 @@ async def _resolve_subject(
             job_id=parent.job_id,
             client_id=parent.client_id,
         )
-    elif doc_type.parent == "b2b" and not doc_type.allows_external:
+    elif (
+        doc_type.parent == "b2b"
+        and not doc_type.allows_external
+        and not doc_type.accepts_contract
+    ):
         raise HTTPException(status_code=422, detail="Wybierz umowę bazową z rejestru.")
 
     if doc_type.family == "preliminary":
@@ -613,7 +628,7 @@ async def _resolve_subject(
         parent is None
         and links["client_id"] is None
         and request.client_id is not None
-        and _takes_contract(doc_type)
+        and effects.annex_takes_contract(doc_type)
     ):
         # Aneks „Bez kontraktu”: klient z NEXUSA, żeby dokument miał zakres —
         # bez klienta widziałby go tylko admin i Head of Recruitment.
@@ -640,7 +655,9 @@ def _preliminary_types_for(client_id: int | None) -> list[DocumentType]:
 
 
 def _takes_contract(doc_type: DocumentType) -> bool:
-    return effects.annex_takes_contract(doc_type)
+    """Typ, który przyjmuje kontrakt bez umowy w rejestrze: aneksy spoza
+    NEXUSA i zlecenia oraz rozwiązanie umowy B2B sprzed NEXUSA."""
+    return effects.annex_takes_contract(doc_type) or doc_type.accepts_contract
 
 
 def _subject_contract_type(doc_type: DocumentType) -> ContractType:
@@ -711,6 +728,41 @@ async def _reject_contract_with_own_agreement(
             detail=(
                 f"Ten kontrakt ma umowę w rejestrze ({number}) — przygotuj aneks "
                 "do tej umowy, wtedy zmieni się też wiersz rejestru."
+            ),
+        )
+
+
+def _unlinked_agreement_of_contract():
+    """Warunek EXISTS (skorelowany z ``Contract``): osoba kontraktu ma u tego
+    klienta żywą umowę B2B w rejestrze bez powiązania z kontraktem (wiersz
+    z Excela działu). Rozwiązanie idzie wtedy przez tę umowę — wybrany sam
+    kontrakt zostawiłby wiersz rejestru „Aktywny” po rozwiązaniu umowy."""
+    return (
+        select(B2BGeneratedContract.id)
+        .where(
+            B2BGeneratedContract.contract_id.is_(None),
+            B2BGeneratedContract.candidate_id == Contract.candidate_id,
+            B2BGeneratedContract.client_id == Contract.client_id,
+            B2BGeneratedContract.contract_status.in_(_LIVE_AGREEMENT_STATUSES),
+            B2BGeneratedContract.contract_kind.is_distinct_from("mandate"),
+        )
+        .exists()
+    )
+
+
+async def _reject_contract_behind_unlinked_agreement(
+    db: AsyncSession, contract_id: int
+) -> None:
+    if await db.scalar(
+        select(Contract.id).where(
+            Contract.id == contract_id, _unlinked_agreement_of_contract()
+        )
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Ta osoba ma u tego klienta umowę w rejestrze — wybierz ją, "
+                "wtedy rozwiązanie zamknie też wiersz rejestru."
             ),
         )
 
@@ -834,7 +886,7 @@ def _with_value_overrides(
 ) -> BaseContractInfo:
     """Generator aneksów: numer i data zawarcia umowy są polami formularza —
     migawka ``base`` ma pokazywać to, co trafiło do dokumentu."""
-    if not doc_type.allows_external:
+    if not (doc_type.allows_external or doc_type.accepts_contract):
         return base
     number = str(values.get("contract_number") or "").strip()
     if number:
@@ -1392,7 +1444,15 @@ async def document_subjects(
         )
         rows_query = rows_query.outerjoin(
             Candidate, Candidate.id == B2BGeneratedContract.candidate_id
-        ).where(B2BGeneratedContract.contract_status.in_(_SUBJECT_AGREEMENT_STATUSES))
+        ).where(
+            B2BGeneratedContract.contract_status.in_(
+                # Rozwiązuje się też umowę bez projektu (`suspended`) — dotąd
+                # wybór z rejestru (`GET /generated`) ją pokazywał.
+                _LIVE_AGREEMENT_STATUSES
+                if doc_type.accepts_contract
+                else _SUBJECT_AGREEMENT_STATUSES
+            )
+        )
         if doc_type.parent == "mandate":
             rows_query = rows_query.where(
                 B2BGeneratedContract.contract_kind == "mandate"
@@ -1539,6 +1599,8 @@ async def document_subjects(
             contracts_query = contracts_query.where(
                 Contract.id.notin_(offered_contract_ids)
             )
+        if doc_type.accepts_contract:
+            contracts_query = contracts_query.where(~_unlinked_agreement_of_contract())
         if anchor is not None:
             contracts_query = contracts_query.where(Contract.id == anchor.id)
         else:
@@ -1962,8 +2024,19 @@ async def create_document(
         # Tu, nie w `_load_subject_contract`: podgląd i „Popraw” (prefill)
         # dzielą tamtą funkcję, a kontrakt mógł dostać umowę już po aneksie.
         await _reject_contract_with_own_agreement(db, links["contract_id"])
+        if doc_type.accepts_contract:
+            await _reject_contract_behind_unlinked_agreement(db, links["contract_id"])
+    if parent is None and doc_type.accepts_contract and links["contract_id"] is None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "document_fields_missing",
+                "message": "Wybierz umowę z rejestru albo kontrakt, który rozwiązujesz.",
+                "missing": ["Umowa bazowa"],
+            },
+        )
     values = await _resolve_rate_clients(db, request.values)
-    _validate_values(doc_type, values, base, request.refs)
+    _validate_values(doc_type, values, base, request.refs, external=parent is None)
     if parent is None and links["client_id"] is None and _takes_contract(doc_type):
         # Tu, nie w `_resolve_subject`: podgląd dzieli tamtą funkcję i ma
         # działać, zanim człowiek wskaże kontrakt albo klienta.
@@ -2189,7 +2262,7 @@ async def document_form(
         "client_id": doc.client_id,
         "client_name": _client_label(client),
         "external": doc.parent_generated_contract_id is None
-        and doc_type.allows_external,
+        and (doc_type.allows_external or doc_type.accepts_contract),
         "values": _legacy_form_values(doc_type, payload.get("values") or {}),
         "refs": payload.get("refs"),
         "base": payload.get("base") or {},
@@ -2332,7 +2405,7 @@ async def rerender_document(
         # nie ma już pola waluty, a poprawka nie może zmienić EUR w złotówki.
         request_values["currency"] = stored_values["currency"]
     values = await _resolve_rate_clients(db, request_values)
-    _validate_values(doc_type, values, base, request.refs)
+    _validate_values(doc_type, values, base, request.refs, external=parent is None)
     context = _context(doc_type, values, language, base, request.refs)
     data = await _render_bytes(doc_type, language, context)
     doc.language = language
