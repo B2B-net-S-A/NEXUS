@@ -68,6 +68,7 @@ from app.services.client_settlements import (
     timesheet,
     timesheet_bik,
     timesheet_pko,
+    timesheet_plus,
 )
 from app.services.client_settlements import settings as module_settings
 from app.services.client_settlements.engine import Inputs, OrderState, Result, compute
@@ -997,8 +998,9 @@ async def _mails(
 
 
 #: Pliki, z których czytnik bierze MD, gdy wybrany plik miesiąca nie jest
-#: rozpoznany: oprócz RCP protokół Orlenu w DOCX i mail rozliczeń NN.
-READABLE_MIMES = (*RCP_MIMES, declared.DOCX, *MAIL_MIMES)
+#: rozpoznany: oprócz RCP protokół Orlenu w DOCX, mail rozliczeń NN i „.xls”
+#: grupy Polkomtel / Cyfrowy Polsat (KEŚU z tym samym typem czyta ``kesu_flow``).
+READABLE_MIMES = (*RCP_MIMES, declared.DOCX, *MAIL_MIMES, kesu.KESU_MIME)
 
 
 async def _proof(
@@ -1138,6 +1140,13 @@ async def _read_file(
             other_md=other_md,
         )
 
+    if mime == kesu.KESU_MIME:
+        # Raport Polkomtelu (HTML) albo rozliczenie Cyfrowego Polsatu (XML), oba „.xls”.
+        sheet = await asyncio.to_thread(timesheet_plus.parse, content)
+        found_plus = timesheet_plus.declared_for(sheet, person_name) if sheet else None
+        if found_plus is None:
+            return None
+        return await accepted(declared_result(found_plus), found_plus.hours)
     if mime in MAIL_MIMES:
         # Akceptacja klienta z MD w treści (NN).
         nn = await asyncio.to_thread(mail_nn.parse, content, mime)
