@@ -45,6 +45,7 @@ Kod: `services/job_ad/pracuj_mail.py`, trasy
   odpowiedzi opiekuna ze skrzynki (decyzja 27.10).
 - **Wejścia:** karta Pracuj.pl w oknie „Ogłoszenie”; przycisk „Wyślij do
   Pracuj.pl” w codziennym mailu o brakach (`?ogloszenie=pracuj&wyslij=opiekun`
-  otwiera od razu okno maila); komunikat po utworzeniu rekrutacji
-  w `/jobs/new`. W samym `/jobs/new` pola wyboru nie ma — ogłoszenie powstaje
-  dopiero z utworzonej rekrutacji.
+  otwiera od razu okno maila); krok „Ogłoszenie” po utworzeniu rekrutacji
+  w `/jobs/new` (od 23.11.2026 zamiast komunikatu, mail z widełkami wpisanymi
+  raz — `ogloszenie-przy-utworzeniu.md`). W samym `/jobs/new` pola wyboru nie
+  ma — ogłoszenie powstaje dopiero z utworzonej rekrutacji.

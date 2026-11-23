@@ -85,6 +85,18 @@ export interface SettlementRow {
   extras_pending?: number;
   /** Akceptacja klienta po wysyłce KCP (E6.5); `null`, gdy klient nie ma tej reguły. */
   client_acceptance?: ClientAcceptanceSummary | null;
+  /** Przyjęte przez automat „Przyjmuj RCP bez uwag automatycznie”. */
+  accepted_auto?: boolean;
+}
+
+/** Automat przyjęcia „Bez uwag” w miesiącu klienta; `null`, gdy reguła wyłączona. */
+export interface AutoAcceptInfo {
+  /** Ile RCP „Bez uwag” przyjmie automat (bez odesłanych „Do poprawy”). */
+  count: number;
+  /** Od którego dnia roboczego następnego miesiąca. */
+  workday: number;
+  /** Data (RRRR-MM-DD), od której automat bierze ten miesiąc. */
+  from: string;
 }
 
 export interface KesuSummary {
@@ -136,6 +148,7 @@ export interface SettlementMonth {
   counts: Record<SettlementFilter, number>;
   /** Ile `ok` przyjmie „Przyjmij bez uwag”. */
   batch_ready: number;
+  auto_accept?: AutoAcceptInfo | null;
   rows: SettlementRow[];
 }
 
@@ -188,6 +201,9 @@ export interface SettlementDetail {
   status: SettlementStatus;
   /** Powód odesłania do poprawy (stan `needs_fix`). */
   fix_reason: string | null;
+  accepted_at?: string | null;
+  /** Przyjęte przez automat „Przyjmuj RCP bez uwag automatycznie”. */
+  accepted_auto?: boolean;
   documents: SettlementDocument[];
   /** MD z RCP: w E1 wpisują je Finanse, od E2 odczyt pliku. */
   md_regular: string | null;
@@ -289,6 +305,8 @@ export interface SettlementRule {
   params: Record<string, string>;
   param_fields: { key: string; label: string; suffix?: string | null }[];
   hint: string | null;
+  /** Reguła „włącz / wyłącz”: przełącznik zamiast poziomu (`block` = włączona). */
+  switch?: boolean;
 }
 
 export interface SettlementRuleSection {

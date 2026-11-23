@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 
 from sqlalchemy import exists, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -45,24 +46,36 @@ async def missing_job_ids(db: AsyncSession, *, limit: int) -> list[int]:
     return list(rows)
 
 
-async def prepare_one(db: AsyncSession, job_id: int) -> bool:
+async def prepare_one(
+    db: AsyncSession,
+    job_id: int,
+    *,
+    on_create: bool = False,
+    user_id: Optional[int] = None,
+) -> bool:
     """Przygotowuje i zapisuje pierwszą wersję ogłoszenia. ``False`` = ktoś
     zdążył je przygotować, rekrutacja nie jest już otwarta albo model i
-    złożenie zawiodły (wtedy spróbujemy następnej nocy)."""
+    złożenie zawiodły (wtedy spróbujemy następnej nocy).
+
+    ``on_create`` (23.11.2026, ``on_create.py``): zaraz po utworzeniu
+    rekrutacji — język z „Języka pracy” (``material.ad_lang``) i tylko wynik
+    modelu. Bez modelu nic nie zapisujemy: zostaje noc i „Przygotuj” w oknie.
+    """
     job = await db.get(Job, job_id)
     if job is None or job.status != JobStatus.published:
         return False
     profile = await db.get(JobPublicProfile, job.id)
     _default, title = await jpp.public_titles(db, job, profile)
     mat = material.build_material(job, title)
+    lang = material.ad_lang(mat) if on_create else "pl"
     try:
         content, source = await generate.generate_content(
             db,
             mat,
-            lang="pl",
-            user_id=None,
-            log_ref=f"job={job_id} nightly",
-            allow_template=True,
+            lang=lang,
+            user_id=user_id,
+            log_ref=f"job={job_id} {'on_create' if on_create else 'nightly'}",
+            allow_template=not on_create,
         )
     except generate.AdGenerationFailed:
         return False
@@ -72,7 +85,7 @@ async def prepare_one(db: AsyncSession, job_id: int) -> bool:
             pg_insert(JobAd)
             .values(
                 job_id=job_id,
-                lang="pl",
+                lang=lang,
                 content=content,
                 tech=render.tech_from_material(mat),
                 source=source,

@@ -42,6 +42,8 @@ import { copyHtmlToClipboard, copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 
 import { AdChannels, type AdFocusChannel } from "./AdChannels";
+import { AdChecksPanel } from "./AdChecksPanel";
+import { AfterCreatePublish } from "./AfterCreatePublish";
 import { AdFactsRail, TERM_KEYS, type AdTerms } from "./AdFactsRail";
 import { JOBS_LIST_QUERY_ROOT } from "./AdPublications";
 import { JustJoinTab } from "./JustJoinTab";
@@ -82,7 +84,17 @@ export interface JobAdWindowProps {
   askRemind?: boolean;
   /** Z maila: mail do opiekuna Pracuj.pl od razu (`&wyslij=opiekun`). */
   openSend?: boolean;
+  /**
+   * Krok „Ogłoszenie” zaraz po utworzeniu rekrutacji (`?ogloszenie=nowa`,
+   * 23.11.2026): treść pisze się w tle, a prawa kolumna to „Gdzie
+   * publikujemy” z widełkami raz i „Opublikuj w N miejscach”.
+   */
+  afterCreate?: boolean;
 }
+
+/** Tyle czekamy na treść pisaną po „Utwórz”, potem zwykłe „Przygotuj ogłoszenie”. */
+export const AFTER_CREATE_WAIT_MS = 90_000;
+const AFTER_CREATE_POLL_MS = 3_000;
 
 const LANG_OPTIONS: ReadonlyArray<{ value: AdLang; label: string }> = [
   { value: "pl", label: "PL" },
@@ -114,6 +126,7 @@ export function JobAdWindow({
   openSkip = false,
   askRemind = false,
   openSend = false,
+  afterCreate = false,
 }: JobAdWindowProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -126,12 +139,25 @@ export function JobAdWindow({
   const [drafts, setDrafts] = useState<AdDrafts>({});
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
+  // Po „Utwórz” treść pisze model w tle (`job_ad/on_create.py`): okno pyta co
+  // kilka sekund, aż ogłoszenie się pojawi albo minie `AFTER_CREATE_WAIT_MS`.
+  const [step, setStep] = useState(afterCreate);
+  const [waitOver, setWaitOver] = useState(!afterCreate);
+  useEffect(() => {
+    if (waitOver) return;
+    const timer = window.setTimeout(() => setWaitOver(true), AFTER_CREATE_WAIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [waitOver]);
+
   const queryKey = jobAdQueryKey(jobId);
   const query = useQuery({
     queryKey,
     queryFn: () => api.get(jobId),
     enabled: open,
+    refetchInterval: (q) =>
+      !waitOver && q.state.data != null && q.state.data.ad == null ? AFTER_CREATE_POLL_MS : false,
   });
+  const waitingForAd = !waitOver && query.isSuccess && query.data?.ad == null;
 
   // Wersja, na której opierają się otwarte poprawki. Zapytanie odświeża się
   // w tle (powrót do karty), więc wersja czytana z cache w chwili zapisu
@@ -369,6 +395,19 @@ export function JobAdWindow({
                 </Button>
               </div>
             </header>
+            {step ? (
+              <p
+                role="status"
+                data-testid="job-ad-after-create"
+                className="flex flex-wrap items-center justify-between gap-2 border-b border-success/20 bg-success-muted px-4 py-2 text-[13px] text-success-muted-foreground"
+              >
+                <span className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                  Rekrutacja utworzona i przekazana do searchu. Ostatni krok: ogłoszenie.
+                </span>
+                <span className="text-xs">Krok 2 z 2</span>
+              </p>
+            ) : null}
 
             <div ref={bodyRef} className="flex min-h-0 flex-1 bg-muted/40">
               {query.isError ? (
@@ -416,7 +455,22 @@ export function JobAdWindow({
                       </p>
                     ) : null}
 
-                    {!ad || !rendered ? (
+                    {(!ad || !rendered) && waitingForAd ? (
+                      <div
+                        role="status"
+                        data-testid="job-ad-writing"
+                        className="m-auto flex max-w-lg flex-col items-start gap-2 rounded-lg border border-border bg-card p-6"
+                      >
+                        <p className="flex items-center gap-2 text-base font-semibold text-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                          Piszę treść ogłoszenia
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          Model układa ją z Profilu Championa — bez nazwy klienta i bez stawek. To
+                          trwa zwykle do minuty; w tym czasie zaznacz kanały i wpisz widełki obok.
+                        </p>
+                      </div>
+                    ) : !ad || !rendered ? (
                       <div className="m-auto flex max-w-lg flex-col items-start gap-3 rounded-lg border border-border bg-card p-6">
                         <h2 className="text-base font-semibold text-foreground">
                           Ta rekrutacja nie ma jeszcze ogłoszenia
@@ -521,7 +575,36 @@ export function JobAdWindow({
                       </>
                     )}
                   </div>
-                  {ad && rendered ? (
+                  {step ? (
+                    <AfterCreatePublish
+                      jobId={jobId}
+                      state={state}
+                      waitingReason={
+                        !ad || !rendered
+                          ? waitingForAd
+                            ? "Czekam na treść ogłoszenia…"
+                            : "Najpierw przygotuj treść ogłoszenia."
+                          : busy
+                            ? "Trwa zapis treści."
+                            : null
+                      }
+                      // Bez treści kontrola nic nie mówi — czekanie opisuje `waitingReason`.
+                      publishBlockedReason={ad ? publishBlockedReason : null}
+                      onLater={onClose}
+                      onShowChannels={() => setStep(false)}
+                      onStateChange={applyState}
+                      checks={
+                        ad && findings.length > 0 ? (
+                          <AdChecksPanel
+                            findings={findings}
+                            busy={busy}
+                            onShow={show}
+                            onRemove={removeExcerpt}
+                          />
+                        ) : null
+                      }
+                    />
+                  ) : ad && rendered ? (
                     <AdChannels
                       jobId={jobId}
                       state={state}
