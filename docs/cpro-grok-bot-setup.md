@@ -182,6 +182,35 @@ kartę, Delivery Leada i numer requestu. Bot ma otworzyć wskazany DRAFT,
 zaznaczyć nowy PDF jako jedyne CV oferty i sprawdzić podgląd po zapisie.
 Do kolejnej gotowej karty użyj osobnego biegu bez opcji korekty.
 
+## Szkic z kolejki w zalogowanej przeglądarce
+
+Przy wyłączonych obu flagach uprawniony operator może obsłużyć jedną gotową
+kartę z okna „Do wrzucenia do Cpro” w NEXUSIE. Ten tryb korzysta ze zwykłej
+sesji NEXUSA. W Cpro potrzebna jest aktywna sesja na koncie Delivery Leada
+wskazanego przy karcie. Admin, Head of Recruitment i Delivery Lead z prawem
+zapisu w Pipeline mogą też otworzyć tę samą kolejkę przez **Ustawienia →
+Rekrutacja → CPro → Otwórz kolejkę Cpro**.
+
+1. Otwórz przygotowanie szkicu przy wybranej osobie. Sprawdź konto i numer
+   requestu. NEXUS rezerwuje kartę i udostępnia zatwierdzony firmowy PDF.
+2. W Cpro sprawdź nazwę profilu, otwórz właściwy request i wyszukaj osobę
+   w **Our offers**. Wróć do istniejącego szkicu, jeśli już powstał. Przy
+   kilku pasujących ofertach, innym statusie albo niejasnym wyniku zapisu
+   zatrzymaj pracę i sprawdź listę ofert z operatorem.
+3. Zapisz DRAFT z firmowym PDF. Otwórz ponownie ofertę z **Our offers**,
+   sprawdź jej identyfikator, status DRAFT i podgląd wszystkich stron CV.
+4. W tym samym panelu NEXUSA wpisz identyfikator oferty i potwierdź oba
+   sprawdzenia. Dopiero wtedy powstaje raport szkicu. Sandra może ocenić
+   ofertę w Cpro. Karta pozostaje w kolejce.
+
+Po przerwie otwórz zarezerwowaną kartę z tego samego konta NEXUSA i sprawdź
+stan oferty w Cpro przed kolejną czynnością. Jeśli po wygaśnięciu próby
+na właściwym koncie i requeście nie ma oferty tej osoby, właściciel może
+odnotować to i zwolnić rezerwację w panelu. Nową próbę uruchamia się osobno.
+Potwierdzenie w panelu jest
+zapisem obserwacji operatora. Samo otwarcie panelu lub pobranie PDF nie
+potwierdza zapisu w portalu.
+
 ## Automatyczne szkice do oceny Sandry
 
 Zanim skierujesz kolejkę produkcyjną do rutyny, sprawdź logowanie bez udziału

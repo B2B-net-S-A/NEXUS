@@ -839,6 +839,72 @@ export interface CproQueueItem {
   dl_note?: string | null;
   /** Bot Cpro (17.11.2026); brak = bot wyłączony. */
   bot?: CproBotItem | null;
+  /** Jedna sesja operatora: wznowienie zawsze otwiera zapisane zlecenie. */
+  operator_draft?: CproOperatorDraft | null;
+  /** Stan pracy innego operatora, bez dostępu do jego zlecenia. */
+  operator_status?: {
+    state: "working" | "draft";
+    delivery_lead_id: number;
+    request_number: string;
+    offer_id: string | null;
+  } | null;
+}
+
+export interface CproOperatorDraft {
+  delivery_lead_id: number;
+  request_number: string;
+  run_id: number | null;
+  state: "ready" | "started" | "received";
+}
+
+export interface CproOperatorRun {
+  run_id: number;
+  stage_id: number;
+  delivery_lead_id: number;
+  request_number: string;
+  status: string;
+  allow_create: boolean;
+  allow_close_absent?: boolean;
+  offer_id?: string | null;
+  candidate: {
+    first_name: string;
+    last_name: string;
+    citizenship: string;
+    profile_title: string;
+    profile_description: string;
+  };
+  offer: {
+    rate: string;
+    currency: string;
+    available_from: string;
+    physical_location: string;
+    former_employee: boolean;
+    former_consultant: boolean;
+    motivation: string;
+    cv_file_name: string;
+    cv_format: string;
+    cv_version: number;
+  };
+}
+
+export function createCproOperatorDraft(stageId: number, body: Pick<CproOperatorDraft, "delivery_lead_id" | "request_number">) {
+  return api.post<{ run_id: number; created: boolean }>(`/api/board-tasks/cpro/operator/stages/${stageId}/draft`, body).then((r) => r.data);
+}
+
+export function getCproOperatorRun(runId: number) {
+  return api.get<CproOperatorRun>(`/api/board-tasks/cpro/operator/runs/${runId}`).then((r) => r.data);
+}
+
+export function confirmCproOperatorDraft(runId: number, offerId: string) {
+  return api.post(`/api/board-tasks/cpro/operator/runs/${runId}/confirm`, {
+    offer_id: offerId, confirmed_draft: true, confirmed_pdf: true,
+  }).then((r) => r.data);
+}
+
+export function closeAbsentCproOperatorDraft(runId: number) {
+  return api.post(`/api/board-tasks/cpro/operator/runs/${runId}/close-absent`, {
+    confirmed_absent: true,
+  }).then((r) => r.data);
 }
 
 /**

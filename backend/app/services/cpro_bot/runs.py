@@ -190,6 +190,23 @@ async def lock_new_run(db: AsyncSession) -> None:
     )
 
 
+async def operator_reserved_stage_ids(
+    db: AsyncSession, stage_ids: Iterable[int]
+) -> set[int]:
+    """Rezerwacja operatora nie wygasa: brak raportu nie dowodzi braku oferty."""
+    wanted = {int(s) for s in stage_ids}
+    if not wanted:
+        return set()
+    groups = await db.scalars(
+        select(CproBotRun.stage_ids).where(
+            CproBotRun.request["operator_browser"].as_boolean().is_(True),
+            CproBotRun.request["operator_absent_confirmed"].as_boolean().is_not(True),
+            or_(*(CproBotRun.stage_ids.contains([s]) for s in sorted(wanted))),
+        )
+    )
+    return wanted.intersection(int(s) for group in groups for s in group)
+
+
 async def start_run(
     db: AsyncSession,
     items: list[dict[str, Any]],
@@ -209,6 +226,8 @@ async def start_run(
     # nie mogą równocześnie sprawdzić pustej kolejki i zapisać dwóch biegów.
     await lock_new_run(db)
     if await has_open_run(db):
+        return None
+    if await operator_reserved_stage_ids(db, [int(item["ref"]) for item in items]):
         return None
     if auto_draft_enabled():
         # Jawne wywołanie też nie może ominąć deduplikacji ani dyskretnie

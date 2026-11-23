@@ -172,6 +172,59 @@ describe("CproQueueDialog — kolejka Cpro, jedna osoba na firmę", () => {
     expect(within(dialog).getByRole("region", { name: "Kolejka: Data Engineer" })).toBeTruthy();
   });
 
+  it("gotowy pilot zachowuje ręczną obsługę; otwarty panel szkicu oddziela ją od pilota", async () => {
+    queue.jobs[0].items[0].operator_draft = { delivery_lead_id: 27, request_number: "12345", run_id: null, state: "ready" };
+    renderDialog();
+    const manual = await screen.findByRole("button", { name: "Wrzucone do Cpro: Robert Zieliński" });
+    expect(manual).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Przygotuj jeden szkic" }));
+    expect(screen.queryByRole("button", { name: "Wrzucone do Cpro: Robert Zieliński" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pobierz CV: Robert Zieliński" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Nie da się wrzucić/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Zamknij panel szkicu" }));
+    expect(screen.getByRole("button", { name: "Wrzucone do Cpro: Robert Zieliński" })).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it.each(["started", "received"] as const)("zapisany pilot %s nie pokazuje przypadkowego Wrzucone ani starego CV", async (state) => {
+    queue.jobs[0].items[0].operator_draft = { delivery_lead_id: 27, request_number: "12345", run_id: 3, state };
+    renderDialog();
+    await screen.findByText(/konto Cpro: Marcin/);
+    expect(screen.queryByRole("button", { name: "Wrzucone do Cpro: Robert Zieliński" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pobierz CV: Robert Zieliński" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Nie da się wrzucić/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Wrzucone do Cpro: Magdalena Pawlak" })).toBeInTheDocument();
+  });
+
+  it("nawigacja do drugiej rekrutacji zamyka niezarezerwowany pilot i przywraca obsługę ready", async () => {
+    queue.jobs[0].items[0].operator_draft = { delivery_lead_id: 27, request_number: "12345", run_id: null, state: "ready" };
+    queue.jobs[1].items[0].operator_draft = { delivery_lead_id: 14, request_number: "54321", run_id: null, state: "ready" };
+    renderDialog();
+    await userEvent.click(await screen.findByRole("button", { name: "Przygotuj jeden szkic" }));
+    await userEvent.click(screen.getByRole("button", { name: "Następna rekrutacja: Data Engineer →" }));
+    expect(screen.getByText(/konto Cpro: Igor · request 54321/)).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Pilot jednego szkicu Cpro" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Wrzucone do Cpro: Piotr Nowak" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Java Backend Developer.*najstarsza/ }));
+    expect(screen.getByRole("button", { name: "Wrzucone do Cpro: Robert Zieliński" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Pilot jednego szkicu Cpro" })).not.toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it.each(["working", "draft"] as const)("stan innego operatora %s pokazuje konto/request/ofertę, bez dostępu do biegu i ruchu etapu", async (state) => {
+    queue.jobs[0].items[0].operator_status = { state, delivery_lead_id: 27, request_number: "12345", offer_id: state === "draft" ? "8844" : null };
+    renderDialog();
+    const status = await screen.findByTestId("cpro-operator-status");
+    expect(status).toHaveTextContent("Konto Cpro: Marcin · request 12345");
+    expect(status).toHaveTextContent(state === "draft" ? "Szkic DRAFT czeka na ocenę Sandry." : "Inny operator przygotowuje lub sprawdza szkic");
+    if (state === "draft") expect(status).toHaveTextContent("ID oferty 8844");
+    expect(screen.queryByRole("button", { name: "Wrzucone do Cpro: Robert Zieliński" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pobierz CV: Robert Zieliński" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Przygotuj jeden szkic|Wznów zapisane zlecenie/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Wrzucone do Cpro: Magdalena Pawlak" })).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+  });
+
   it("„Zwróć do rekrutera” wymaga powodu i przesuwa na etap QC CV z notatką", async () => {
     renderDialog();
     const dialog = await screen.findByRole("dialog");
