@@ -3,7 +3,8 @@
 // Treść kafelka metryki: liczba, wykres (słupki/linia), tabela albo lejek.
 //
 // Trzy stany, których nie wolno pomylić:
-// - 403 `metric_scope_denied` → „Brak dostępu" ze zdaniem z serwera (nie zero),
+// - 403 `metric_scope_denied` albo źródło niedostępne w katalogu → „Brak
+//   dostępu" ze zdaniem z serwera (nie zero),
 // - `value === null` → „nie da się policzyć" (np. brak kursu), nie zero,
 // - wynik policzony, wyszło 0 → zwykłe „0".
 
@@ -25,6 +26,7 @@ import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState"
 import {
   metricDenialMessage,
   useMetric,
+  useMetricCatalog,
   type MetricResult,
 } from "@/lib/api/dashboardMetrics"
 import type { MetricDefinition, TileChart, TileType } from "@/lib/api/userDashboard"
@@ -234,8 +236,16 @@ export function MetricTileBody({
   chart?: TileChart | null
   poll?: boolean
 }) {
-  const query = useMetric(metric, { poll })
-  if (query.isPending) {
+  // Katalog mówi z góry, których źródeł to konto nie liczy (np. Delivery Lead
+  // bez klientów w portfelu, 23.11.2026) — wtedy zdanie bez zapytania
+  // kończącego się 403. Awaria katalogu nie blokuje: decyduje serwer.
+  const catalog = useMetricCatalog()
+  const source = catalog.data?.sources.find((s) => s.key === metric.source)
+  const blocked =
+    source && !source.available ? source.reason ?? "Brak dostępu do tych danych." : null
+  const query = useMetric(catalog.isPending || blocked ? null : metric, { poll })
+  if (blocked) return <MetricDenied message={blocked} />
+  if (catalog.isPending || query.isPending) {
     return <Skeleton className="h-full min-h-[48px] w-full" />
   }
   if (query.isError) {

@@ -1011,6 +1011,17 @@ async def evaluate_metric(
     )
 
 
+async def _client_boundary(
+    user: User, db: AsyncSession, source: str
+) -> Optional[frozenset[int]]:
+    """Granica klientów źródła; ``MetricAccessDenied`` = konto go nie liczy."""
+    if source == "finance":
+        return await _finance_client_boundary(user, db)
+    if source in _DELIVERY_CLIENT_SOURCES:
+        return await _delivery_client_boundary(user, db)
+    return None
+
+
 async def access_fingerprint(
     db: AsyncSession, user: User, definition: MetricDefinition
 ) -> str:
@@ -1026,11 +1037,7 @@ async def access_fingerprint(
     denial = source_denial(user, definition.source)
     if denial:
         raise MetricAccessDenied(denial)
-    boundary: Optional[frozenset[int]] = None
-    if definition.source == "finance":
-        boundary = await _finance_client_boundary(user, db)
-    elif definition.source in _DELIVERY_CLIENT_SOURCES:
-        boundary = await _delivery_client_boundary(user, db)
+    boundary = await _client_boundary(user, db, definition.source)
     if boundary is None:
         return "all"
     return ",".join(str(cid) for cid in sorted(boundary))
@@ -1042,6 +1049,14 @@ async def metric_catalog(db: AsyncSession, user: User) -> dict[str, Any]:
     sources = []
     for key, spec in SOURCES.items():
         denial = source_denial(user, key)
+        if denial is None:
+            # Pusty portfel Delivery Leada to odmowa, nie zero (decyzja Artura
+            # 26.09.2026) — katalog mówi o niej z góry, żeby kafelek pulpitu
+            # pokazał zdanie bez zapytania kończącego się 403 (23.11.2026).
+            try:
+                await _client_boundary(user, db, key)
+            except MetricAccessDenied as exc:
+                denial = str(exc)
         sources.append(
             {
                 "key": key,
