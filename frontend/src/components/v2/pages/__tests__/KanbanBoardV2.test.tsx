@@ -528,6 +528,89 @@ describe("KanbanBoardV2 — kolejka w „Nowych” (02.11.2026)", () => {
   });
 });
 
+// Okno < 800 px (decyzja Artura 23.11.2026): karta w dwóch liniach przez
+// wariant `low-screen:` (media query). jsdom nie liczy CSS, więc oba układy
+// są w DOM naraz, a test rozróżnia je po klasach.
+describe("KanbanBoardV2 — karta w dwóch liniach przy niskim oknie (23.11.2026)", () => {
+  const cardOf = (name: string) =>
+    screen.getByRole("link", { name }).closest("[data-kanban-card]") as HTMLElement;
+
+  it("wiersz plakietek i imię właściciela chowają się tylko w niskim oknie", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    renderBoard(newColumnWithQueue(), new Map([[8, 76]]), false, false, false, new Map([[8, ["Selenium"]]]));
+
+    await screen.findByTestId("new-column-section-call_first");
+    const card = cardOf("Osoba8 Test");
+    expect(card.className).toContain("p-3");
+    expect(card.className).toContain("low-screen:py-1");
+    const badgesRow = within(card).getByTestId("card-badges-row");
+    expect(badgesRow.className).toContain("low-screen:hidden");
+    expect(badgesRow.className).not.toMatch(/(^|\s)hidden(\s|$)/);
+    expect(within(card).getByTestId("card-owner").className).toContain("low-screen:hidden");
+    // Pierścień mniejszy, numer „Zadzwoń najpierw” zostaje na karcie (Osoba8
+    // z brakiem krytycznej spada na koniec kolejki, pierwsza jest Osoba7).
+    expect(within(card).getByTestId("card-score").className).toContain("low-screen:*:size-5");
+    const rank = within(cardOf("Osoba7 Test")).getByTestId("card-call-first-rank");
+    expect(rank).toHaveTextContent("1");
+    expect(rank.className).not.toContain("low-screen:hidden");
+  });
+
+  it("w linii ruchu jeden stan (najważniejsza plakietka), reszta w podpowiedzi", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    renderBoard(newColumnWithQueue(), undefined, false, false, false, new Map([[8, ["Selenium"]]]));
+
+    await screen.findByTestId("new-column-section-call_first");
+    const card = cardOf("Osoba8 Test");
+    const state = within(card).getByTestId("card-low-state");
+    // Na dużym ekranie go nie ma: stan widać tylko w niskim oknie.
+    expect(state.className).toMatch(/(^|\s)hidden(\s|$)/);
+    expect(state.className).toContain("low-screen:inline-flex");
+    // Ten sam pierwszy wybór co wiersz plakietek (`cardPrimaryBadges`).
+    const firstPrimary = within(card).getByTestId("card-badges-row").firstElementChild as HTMLElement;
+    expect(firstPrimary.getAttribute("data-testid")).toBe("card-critical-gap");
+    expect(state).toHaveTextContent(firstPrimary.textContent ?? "");
+    // Podpowiedź: każda plakietka z wiersza i z „+N”, czyja karta, odesłanie do panelu.
+    const title = state.getAttribute("title") ?? "";
+    const rowLabels = [...within(card).getByTestId("card-badges-row").querySelectorAll('[data-testid^="card-"]')]
+      .filter((el) => el.getAttribute("data-testid") !== "card-badges-more")
+      .map((el) => el.textContent?.trim())
+      .filter(Boolean) as string[];
+    for (const label of rowLabels) expect(title).toContain(label);
+    const more = within(card).queryByTestId("card-badges-more");
+    if (more) {
+      for (const label of (more.getAttribute("title") ?? "").split(" · ")) expect(title).toContain(label);
+    }
+    expect(title).toContain("Dodał system");
+    expect(title).toContain("panel osoby");
+  });
+
+  it("„Dzwonię”, dni i strzałka zostają w tej samej linii; dni krótko tylko w niskim oknie", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    const columns = newColumnWithQueue() as unknown as Array<{ items: Array<Record<string, unknown>> }>;
+    columns[0].items = columns[0].items.map((it) => (it.id === 8 ? { ...it, waiting_workdays: 4, can_take: true } : it));
+    renderBoard(columns as never);
+
+    await screen.findByTestId("new-column-section-call_first");
+    const card = cardOf("Osoba8 Test");
+    const take = within(card).getByRole("button", { name: "Dzwonię Osoba8 Test — na 12 h" });
+    const row = take.closest("[data-next-action]") as HTMLElement;
+    expect(row.className).toContain("low-screen:border-t-0");
+    const days = within(row).getByTestId("card-days");
+    expect(days).toHaveTextContent("4 dni rob.");
+    expect(days.className).toContain("text-warning");
+    const short = within(days).getByText("4 d");
+    expect(short.className).toContain("hidden");
+    expect(short.className).toContain("low-screen:inline");
+    expect(within(days).getByText("4 dni rob.").className).toContain("low-screen:hidden");
+  });
+});
+
 describe("KanbanBoardV2 — zgłoszenia w „Nowych” (06.11.2026)", () => {
   const applicants = () =>
     [
@@ -629,9 +712,12 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
     const expensive = (
       await screen.findByRole("link", { name: "Adam Drogi" })
     ).closest("[data-kanban-card]") as HTMLElement;
+    // Wiersz plakietek (trzy wiersze); ten sam stan stoi też w linii ruchu
+    // karty dwuliniowej (`card-low-state`), więc napis jest w DOM dwa razy.
     await waitFor(() =>
-      expect(within(expensive).getByText("ponad budżet")).toBeInTheDocument(),
+      expect(within(within(expensive).getByTestId("card-badges-row")).getByText("ponad budżet")).toBeInTheDocument(),
     );
+    expect(within(expensive).getByTestId("card-low-state")).toHaveTextContent("ponad budżet");
     const cheap = screen
       .getByRole("link", { name: "Beata Tania" })
       .closest("[data-kanban-card]") as HTMLElement;

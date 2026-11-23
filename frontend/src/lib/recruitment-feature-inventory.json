@@ -3634,6 +3634,14 @@
    "v3_home": "panel osoby → powód od systemu; Tablica → karta → dymek „+N”"
   },
   {
+   "id": "card.two-lines-low-screen",
+   "area": "tablica",
+   "opis": "Karta Tablicy w dwóch liniach przy oknie niższym niż 800 px z myszą (decyzja Artura 23.11.2026, wariant `low-screen:`): imię i nazwisko z mniejszym pierścieniem, potem „Biorę”/„Dzwonię”, dni robocze („4 d”), jeden stan i strzałka. Wiersz plakietek i imię właściciela nie znikają: wszystkie plakietki z treścią i „Dla:/Prowadzi:” są w podpowiedzi stanu (`twoLineStateTitle`), w dymku karty i w panelu osoby; numer „Zadzwoń najpierw” zostaje na karcie. Na dużym monitorze karta w trzech wierszach bez zmian",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "card-low-state",
+   "v3_home": "Tablica → karta (okno < 800 px) → stan w linii ruchu, podpowiedź po najechaniu"
+  },
+ {
    "id": "board.cpro-banner-collapsed",
    "area": "tablica",
    "opis": "Baner CPro nad Tablicą zwinięty do jednej linii z „Pokaż”; ukryty po otwarciu i 7 dni po zdarzeniu (U3, 08.11.2026, pamięć w przeglądarce per rekrutacja); nowe zdarzenie pokazuje go znowu",
