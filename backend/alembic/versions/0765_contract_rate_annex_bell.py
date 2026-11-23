@@ -1,7 +1,7 @@
 """Dzwonek Finansów o kroku stawki konsultanta z aneksu („stawka od dnia”).
 
 Revision ID: 0765_contract_rate_annex_bell
-Revises: 0763_settlement_reminders
+Revises: 0764_contractor_payment_blocks
 
 Przegląd skrzynki umowy@ (23.11.2026): zmiana stawki trafiała do Rozliczeń
 tylko jako PDF aneksu mailem. Typ ``contract_rate_annex`` niesie dzwonek
@@ -12,7 +12,7 @@ Finansów z ``services/contract_rate_annex_signal.py``. Lustro w
 from alembic import op
 
 revision = "0765_contract_rate_annex_bell"
-down_revision = "0763_settlement_reminders"
+down_revision = "0764_contractor_payment_blocks"
 branch_labels = None
 depends_on = None
 
