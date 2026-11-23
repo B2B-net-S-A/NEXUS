@@ -72,6 +72,7 @@ from app.services.client_settlements import (
     timesheet_pko,
     timesheet_plus,
 )
+from app.services.client_settlements import auto_accept
 from app.services.client_settlements import settings as module_settings
 from app.services.client_settlements.engine import Inputs, OrderState, Result, compute
 from app.services.client_settlements_schema import FIX_REASON_MAX
@@ -102,6 +103,10 @@ MD_MAX = Decimal("31")
 PAY_ON_MAIL = "pay_on_mail"
 #: Wysyłka KCP do klienta i jego akceptacja mailem (E6.5, `client_acceptance`).
 CLIENT_ACCEPTANCE = "client_acceptance"
+#: Przyjęte przez automat ``order.auto_accept_clean`` (chwila przyjęcia).
+AUTO_ACCEPTED = "auto_accepted"
+#: Finanse odesłały „Do poprawy”: automat już tego rozliczenia nie bierze.
+AUTO_ACCEPT_OFF = "auto_accept_off"
 #: „Imię Nazwisko” jak na liście kontraktów; puste części pomija.
 _FULL_NAME = func.nullif(func.concat_ws(" ", Candidate.name, Candidate.lastname), "")
 
@@ -472,7 +477,12 @@ def _row(
         "margin_pct": pct if amounts else None,
         "contractor_invoice": "none",
         "client_invoice": "ready" if s and s.status == "accepted" else "waiting",
+        "accepted_auto": _accepted_auto(s),
     }
+
+
+def _accepted_auto(s: Optional[ClientSettlement]) -> bool:
+    return bool(s and s.status == "accepted" and meta_of(s).get(AUTO_ACCEPTED))
 
 
 def _counts(rows: list[dict[str, Any]]) -> dict[str, int]:
@@ -598,6 +608,17 @@ async def month_view(
         "can_see_amounts": amounts,
         "counts": _counts(rows),
         "batch_ready": sum(1 for r in rows if r["status"] == "ok"),
+        # Ile „Bez uwag” przyjmie automat (bez rozliczeń po „Do poprawy”).
+        "auto_accept": auto_accept.info(
+            rules,
+            month,
+            sum(
+                1
+                for r in rows
+                if r["status"] == "ok"
+                and not meta_of(settlements.get(r["contract_id"])).get(AUTO_ACCEPT_OFF)
+            ),
+        ),
         "rows": rows,
     }
 
@@ -760,6 +781,11 @@ async def detail(
         if s
         else ("checking" if any(d.kind == "report" for d in docs) else "missing"),
         "fix_reason": s.fix_reason if s else None,
+        # Czas firmy: front bierze godzinę wprost z napisu (`dayTime`).
+        "accepted_at": s.accepted_at.astimezone(ZoneInfo(DEFAULT_TZ)).isoformat()
+        if s and s.accepted_at
+        else None,
+        "accepted_auto": _accepted_auto(s),
         "documents": [
             {
                 "id": d.id,
@@ -851,6 +877,7 @@ def meta_of(s: Optional[ClientSettlement]) -> dict[str, Any]:
 def _store(s: ClientSettlement, result: Result, order: Optional[OrderState]) -> None:
     kept = meta_of(s).get(PAY_ON_MAIL)
     accepted_by_client = meta_of(s).get(CLIENT_ACCEPTANCE)
+    auto_off = meta_of(s).get(AUTO_ACCEPT_OFF)
     signed = signoffs.marker(s.checks)
     s.status = result.status
     s.md_onboarding = result.md_onboarding
@@ -871,10 +898,25 @@ def _store(s: ClientSettlement, result: Result, order: Optional[OrderState]) -> 
     if accepted_by_client:
         # Wysyłka KCP do klienta i jego akceptacja (E6.5) też.
         meta[CLIENT_ACCEPTANCE] = accepted_by_client
+    if auto_off:
+        # „Do poprawy” wyłącza automat dla tego rozliczenia na stałe.
+        meta[AUTO_ACCEPT_OFF] = auto_off
     s.checks = [*result.checks, meta]
     # Podpisany arkusz albo protokół (E6) zostaje przy przeliczeniu.
     s.checks = signoffs.with_marker(s.checks, signed)
     s.order_id = order.order_id if order else None
+
+
+def _set_meta(s: ClientSettlement, key: str, value: Any) -> None:
+    """Wpis w danych przy kontrolach (``meta_of``); ``None`` usuwa klucz."""
+
+    checks = [c for c in (s.checks or []) if "remaining_after" not in c]
+    meta = {"remaining_after": None, **meta_of(s)}
+    if value is None:
+        meta.pop(key, None)
+    else:
+        meta[key] = value
+    s.checks = [*checks, meta]
 
 
 def md_over(s: ClientSettlement) -> Optional[Decimal]:
@@ -1576,15 +1618,28 @@ async def accept(
     contract_id: int,
     month: str,
     *,
-    actor: User,
+    actor: Optional[User],
     now: datetime,
     kind: str = ACTUAL,
+    require_clean: bool = False,
+    auto: bool = False,
 ) -> ClientSettlement:
+    """Przyjęcie RCP. ``actor=None`` z ``auto=True`` to automat
+    ``order.auto_accept_clean``; ``require_clean`` odmawia, gdy przeliczenie
+    dało coś innego niż „Bez uwag”."""
+
+    actor_id = actor.id if actor is not None else None
     s = await _settlement(db, contract_id, month, kind=kind, for_update=True)
     if s is None or s.md_regular is None:
         raise SettlementError("Najpierw wpisz MD z RCP.")
+    if auto and meta_of(s).get(AUTO_ACCEPT_OFF):
+        raise SettlementError("Po „Do poprawy” RCP przyjmują Finanse.")
     result, state, order = await _recompute(db, s)
     _store(s, result, state)
+    if require_clean and result.status != "ok":
+        raise SettlementError(
+            "RCP ma uwagi po przeliczeniu: przyjmij je na karcie osoby."
+        )
     await _estimate_guard(db, s, result)
     if result.status == "no_md":
         raise SettlementError(
@@ -1617,9 +1672,11 @@ async def accept(
             period_month=month,
             md_reported=result.md_charged,
             source=SOURCE_SETTLEMENT,
-            user_id=actor.id,
+            user_id=actor_id,
             status="accepted",
-            note="Przyjęte RCP (Rozliczenia)",
+            note="Przyjęte RCP (Rozliczenia, automat)"
+            if auto
+            else "Przyjęte RCP (Rozliczenia)",
         )
         if order.order_group_id is not None:
             overwritten = (
@@ -1636,6 +1693,12 @@ async def accept(
                     f"Rozliczenia — zejście MD za {format_period_month(month)}: "
                     f"{format_md(result.md_charged)} MD z przyjętego RCP{overwritten}. "
                     f"Pozostało {format_md(remaining)} MD."
+                    + (
+                        " Przyjął automat (reguła klienta „Przyjmuj RCP bez uwag "
+                        "automatycznie”)."
+                        if auto
+                        else ""
+                    )
                 ),
                 payload={
                     "changed": ["zejście MD"],
@@ -1645,23 +1708,25 @@ async def accept(
                     "source": SOURCE_SETTLEMENT,
                     "settlement_id": s.id,
                     "md_remaining": str(remaining),
+                    **({"auto": True} if auto else {}),
                 },
-                user_id=actor.id,
+                user_id=actor_id,
             )
     s.status = "accepted"
-    s.accepted_by = actor.id
+    s.accepted_by = actor_id
     s.accepted_at = now
-    s.updated_by = actor.id
+    s.updated_by = actor_id
+    _set_meta(s, AUTO_ACCEPTED, now.isoformat() if auto else None)
     if s.report_document_id is not None:
         document = await db.get(CpDocument, s.report_document_id)
         if document is not None and document.status == "received":
-            await portal_documents.accept(db, document.id, actor_id=actor.id, now=now)
+            await portal_documents.accept(db, document.id, actor_id=actor_id, now=now)
     # Maile z akceptacją i inne pliki miesiąca idą razem z RCP, ale bez drugiego
     # maila „możesz wystawić fakturę” (inaczej ich karty wisiałyby w back office).
     for other in await _month_reports(db, contract_id, month, kind=kind):
         if other.id != s.report_document_id and other.status == "received":
             other.status = "accepted"
-            other.decided_by = actor.id
+            other.decided_by = actor_id
             other.decided_at = now
             other.updated_at = now
     return s
@@ -1686,6 +1751,7 @@ async def needs_fix(
     s.status = "needs_fix"
     s.fix_reason = clean
     s.updated_by = actor.id
+    _set_meta(s, AUTO_ACCEPT_OFF, now.isoformat())
     report = await _report(db, contract_id, month, kind=kind)
     if report is not None and report.status == "received":
         await portal_documents.reject(
@@ -1699,11 +1765,14 @@ async def accept_batch(
     client_id: int,
     month: str,
     *,
-    actor: User,
+    actor: Optional[User],
     now: datetime,
     kind: str = ACTUAL,
+    auto: bool = False,
 ) -> int:
-    """Przyjmuje tylko RCP „Bez uwag”; każde liczone od nowa jak pojedyncze."""
+    """Przyjmuje tylko RCP „Bez uwag”; każde liczone od nowa jak pojedyncze,
+    a takie, które po przeliczeniu ma uwagi, zostaje. ``auto`` to poranny
+    automat ``order.auto_accept_clean`` (pomija rozliczenia po „Do poprawy”)."""
 
     ids = (
         await db.scalars(
@@ -1718,7 +1787,16 @@ async def accept_batch(
     accepted = 0
     for contract_id in ids:
         try:
-            s = await accept(db, contract_id, month, actor=actor, now=now, kind=kind)
+            s = await accept(
+                db,
+                contract_id,
+                month,
+                actor=actor,
+                now=now,
+                kind=kind,
+                require_clean=True,
+                auto=auto,
+            )
         except SettlementError:
             continue
         accepted += s.status == "accepted"
