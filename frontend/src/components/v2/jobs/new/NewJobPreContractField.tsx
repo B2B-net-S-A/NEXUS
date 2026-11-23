@@ -20,7 +20,7 @@ interface NewJobPreContractFieldProps {
 export function NewJobPreContractField({ value, onChange }: NewJobPreContractFieldProps) {
   const canSet = canSetPreContractStop(useAuthStore((st) => st.user));
   return (
-    <div className="flex flex-col gap-2 border-t border-border pt-4" data-testid="new-job-pre-contract">
+    <div className="flex flex-col gap-2 border-t border-border pt-4" data-testid="new-job-pre-contract" data-tour="jobs.new.pre-contract">
       <p className="text-sm font-medium">
         Umowa przedwstępna z kandydatami <span className="font-normal text-muted-foreground">· opcjonalnie</span>
       </p>

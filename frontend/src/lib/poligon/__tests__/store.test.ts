@@ -703,3 +703,58 @@ describe("poligon: CV z nowości (22.11.2026)", () => {
 });
 
 vi.useRealTimers();
+
+describe("poligon: stop do podpisu przedwstępnej (lekcje nowości, 23.11.2026)", () => {
+  // Szymon w „QC CV” czeka na podpis (ustawienie rekrutacji: przed wysłaniem CV),
+  // Weronika obok ma przedwstępną podpisaną (`poligon_pre_contract_practice.py`).
+  const STOPPED = 990110;
+  const SIGNED = 990109;
+  const defOf = (name: string) =>
+    (DATA.responses[`GET /api/pipeline/kanban/${JOB}`] as unknown as { columns: Array<{ name: string; stage_def_id: number }> }).columns.find(
+      (c) => c.name === name,
+    )!.stage_def_id;
+  const move = (store: ReturnType<typeof setup>["store"], candidate: number, name: string) =>
+    store.handle({ method: "post", url: "/api/pipeline/move", body: { candidate_id: candidate, job_id: JOB, stage_def_id: defOf(name) } });
+
+  it("ruch na „CV wysłane” i dalej odmawia 409 PRE_CONTRACT_NOT_SIGNED — także po Rozmowę u klienta", () => {
+    const { store } = setup();
+    for (const name of ["CV Wysłane", "Interview Klient"]) {
+      const res = move(store, STOPPED, name);
+      if (res === "network") throw new Error("ruch nie może wyjść z przeglądarki");
+      expect(res.status).toBe(409);
+      expect((res.data as { detail: { code: string; message: string } }).detail.code).toBe("PRE_CONTRACT_NOT_SIGNED");
+    }
+    expect(store.stageOf(STOPPED)).toBe("interview");
+  });
+
+  it("ruch w lewo i osoba z podpisaną umową przechodzą", () => {
+    const { store } = setup();
+    expect(move(store, SIGNED, "CV Wysłane")).toMatchObject({ status: 200 });
+    expect(move(store, STOPPED, "Zweryfikowany")).toMatchObject({ status: 200 });
+    expect(store.stageOf(STOPPED)).toBe("verified");
+  });
+
+  it("okno „Przesuń dalej” pokazuje blokującą pozycję przedwstępnej", () => {
+    const { store } = setup();
+    const res = store.handle({
+      method: "get",
+      url: `/api/pipeline/move-requirements?candidate_id=${STOPPED}&job_id=${JOB}&to_stage_def_id=${defOf("CV Wysłane")}`,
+    });
+    if (res === "network") throw new Error("odczyt z zestawu");
+    const data = res.data as { items: Array<{ key: string; blocking: boolean }>; primary: { kind: string } };
+    expect(data.items).toEqual([expect.objectContaining({ key: "pre_contract", blocking: true })]);
+    expect(data.primary.kind).toBe("blocked");
+  });
+
+  it("„Wyjątek dla tej osoby” (can_set_stop) dostaje tylko rola, która zdejmuje blokadę", () => {
+    const { store } = setup();
+    const url = `/api/pre-contracts/pair?candidate_id=${STOPPED}&job_id=${JOB}`;
+    const pair = (canSetPreContractStop: boolean) => {
+      const res = store.handle({ method: "get", url, canSetPreContractStop });
+      if (res === "network") throw new Error("odczyt z zestawu");
+      return res.data as { can_set_stop: boolean; stop: { origin: string } | null };
+    };
+    expect(pair(true)).toMatchObject({ can_set_stop: true, stop: { origin: "job" } });
+    expect(pair(false).can_set_stop).toBe(false);
+  });
+});

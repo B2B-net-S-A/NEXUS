@@ -1783,6 +1783,98 @@
     ]
   },
   {
+    "id": "lekcja-stop-do-podpisu-przedwstepnej",
+    "title": "Stop do podpisu przedwstępnej: rekrutacja i wyjątek dla osoby",
+    "novelties": [
+      "przedwstepna-stop-ustawienie-rekrutacji",
+      "przedwstepna-stop-wyjatek-dla-osoby",
+      "przedwstepna-przy-nowej-rekrutacji"
+    ],
+    "task": "Klient chce podpisanej przedwstępnej dopiero przed rozmową u siebie. Zmień ustawienie rekrutacji ćwiczebnej na ten etap i kliknij „Zapisz”. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "click",
+      "anchor": "job.pre-contract.save"
+    },
+    "questions": [
+      {
+        "q": "Szymon stoi do podpisu przedwstępnej, a klient chce jego CV jeszcze dziś. Co możesz zrobić jako DL?",
+        "options": [
+          "Dopilnować podpisu albo dać „Wyjątek dla tej osoby”",
+          "Wysłać CV, bo Delivery Lead omija każdą bramkę",
+          "Poprosić rekrutera, żeby anulował prośbę"
+        ],
+        "answer": 0,
+        "explain": "Stop obowiązuje każdego, także Delivery Leada. Puszcza go podpis obu stron albo wyjątek DL-a lub HoR, zapisany w historii prośby."
+      },
+      {
+        "q": "Kiedy blokada zniknie sama?",
+        "options": [
+          "Gdy umowę podpiszą kandydat i firma",
+          "Gdy prośba trafi do kandydata",
+          "Po 3 dniach roboczych od prośby"
+        ],
+        "answer": 0,
+        "explain": "Liczy się podpis obu stron. Wystawienie i wysłanie prośby niczego nie zwalnia."
+      },
+      {
+        "q": "Rekruter anulował prośbę u osoby w rekrutacji z ustawieniem „każda osoba podpisuje”. Co z kartą?",
+        "options": [
+          "Dalej stoi: potrzebna nowa prośba albo wyjątek",
+          "Może iść dalej, bo prośby już nie ma",
+          "Wraca na „Zweryfikowany”"
+        ],
+        "answer": 0,
+        "explain": "Anulowanie nie jest furtką. Przy ustawieniu rekrutacji karta czeka na nową prośbę z podpisem albo na wyjątek DL-a lub HoR."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-stop-przedwstepnej-na-karcie",
+    "title": "Karta zatrzymana do podpisu przedwstępnej",
+    "novelties": [
+      "przedwstepna-stop-na-karcie"
+    ],
+    "task": "Na Tablicy rekrutacji ćwiczebnej znajdź osobę, która czeka na podpis umowy przedwstępnej, i kliknij jej czerwoną plakietkę.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "click",
+      "anchor": "board.card.pre-contract-stop"
+    },
+    "questions": [
+      {
+        "q": "Na karcie widzisz „Stop · Przedwstępna wysłana” i kłódkę na strzałce. Co to znaczy?",
+        "options": [
+          "Osoba nie pójdzie dalej bez podpisanej przedwstępnej",
+          "Brakuje arkusza screeningu",
+          "Klient wstrzymał rekrutację"
+        ],
+        "answer": 0,
+        "explain": "Kłódka stoi przed etapem z ustawienia, np. „CV wysłane”. Ruch na wcześniejsze kolumny i odrzucenie są wolne."
+      },
+      {
+        "q": "Kandydat podpisze dopiero za tydzień, a DL chce go wysłać do klienta już dziś. Kto może zrobić wyjątek?",
+        "options": [
+          "Delivery Lead klienta albo Head of Recruitment",
+          "Rekruter prowadzący tę osobę",
+          "Nikt, karta musi czekać na podpis"
+        ],
+        "answer": 0,
+        "explain": "Rekruter widzi stan, ale blokady nie zdejmuje. Wyjątek robi DL albo HoR w panelu osoby › Umowa."
+      },
+      {
+        "q": "Jak w zwykłej sytuacji zdejmiesz stop z karty?",
+        "options": [
+          "Wysyłam przedwstępną i pilnuję podpisu obu stron",
+          "Anuluję prośbę o przedwstępną",
+          "Przesuwam kartę mimo kłódki"
+        ],
+        "answer": 0,
+        "explain": "Blokada znika sama, gdy umowę podpiszą kandydat i firma. Anulowanie prośby jej nie zdejmuje."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [
