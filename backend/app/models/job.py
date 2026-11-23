@@ -302,7 +302,7 @@ class Job(Base, TimestampMixin):
         JSONB, nullable=True, default=None
     )
 
-    # 0762 (23.11.2026): „Każda osoba podpisuje umowę przedwstępną” —
+    # 0761 (23.11.2026): „Każda osoba podpisuje umowę przedwstępną” —
     # {"needed_before": "cv_sent"|"client_interview"|"b2b_contract",
     #  "stop": bool, "set_by": user_id, "set_at": ISO}. NULL = brak ustawienia.
     # Reguła: docs/claude/rekrutacja-tablica/stop-do-podpisu-przedwstepnej.md.

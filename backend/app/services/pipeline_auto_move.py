@@ -284,7 +284,7 @@ async def auto_advance(
             _skip("cv_not_sent")
             return None
 
-    # 0762 (23.11.2026): „Zatrzymaj do podpisu przedwstępnej” — automat
+    # 0761 (23.11.2026): „Zatrzymaj do podpisu przedwstępnej” — automat
     # (np. terminy od klienta) nie przewozi karty przez blokadę.
     from app.services import pre_contract_stop  # noqa: PLC0415
 

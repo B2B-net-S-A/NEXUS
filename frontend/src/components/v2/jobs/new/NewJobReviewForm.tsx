@@ -1213,7 +1213,7 @@ function ReviewSections({
           value={form.clientProcess}
           onChange={(next) => set("clientProcess", next)}
         />
-        {/* 0762: przedwstępna dla wszystkich osób w rekrutacji. */}
+        {/* 0761: przedwstępna dla wszystkich osób w rekrutacji. */}
         <NewJobPreContractField
           value={form.preContractRule}
           onChange={(next) => set("preContractRule", next)}

@@ -1,7 +1,7 @@
 """Stop do podpisu umowy przedwstępnej: ustawienie rekrutacji i wybór przy osobie.
 
-Revision ID: 0762_pre_contract_stop
-Revises: 0761_sales_potential_ai
+Revision ID: 0761_pre_contract_stop
+Revises: 0760_novelty_lessons
 
 Decyzje Artura z 23.11.2026: Delivery Lead albo Head of Recruitment ustawia,
 że osoba nie przejdzie na wybrany etap, dopóki obie strony nie podpiszą umowy
@@ -14,8 +14,8 @@ from alembic import op
 
 from app.services.pre_contract_schema import STOP_DDL, STOP_DOWNGRADE_DDL
 
-revision = "0762_pre_contract_stop"
-down_revision = "0761_sales_potential_ai"
+revision = "0761_pre_contract_stop"
+down_revision = "0760_novelty_lessons"
 branch_labels = None
 depends_on = None
 

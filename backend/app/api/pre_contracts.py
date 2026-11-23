@@ -188,7 +188,7 @@ class PreContractCreateRequest(BaseModel):
     needed_by: Optional[date] = None
     reason: Optional[str] = Field(default=None, max_length=2000)
     assignee_id: Optional[int] = None
-    # 0762: „Zatrzymaj do podpisu” — None = jak rekrutacja, True = stop,
+    # 0761: „Zatrzymaj do podpisu” — None = jak rekrutacja, True = stop,
     # False = wyjątek. Ustawia DL, Head of Recruitment albo admin.
     blocks_move: Optional[bool] = None
 
@@ -294,7 +294,7 @@ class PreContractRequestOut(BaseModel):
     can_withdraw: bool = False
     can_decide_penalty: bool = False
     events: list[PreContractEventOut] = []
-    # 0762: wybór przy osobie (None = jak rekrutacja) i kto go zmienił.
+    # 0761: wybór przy osobie (None = jak rekrutacja) i kto go zmienił.
     blocks_move: Optional[bool] = None
     blocks_set_by: Optional[PreContractPersonRef] = None
     blocks_set_at: Optional[str] = None
@@ -317,7 +317,7 @@ class PreContractPairOut(BaseModel):
     # Umowy z Generatora dla pary (bez anulowanych) — panel podpina je do
     # prośby jednym kliknięciem („Podepnij umowę z DD.MM”).
     documents: list[PreContractPairDocument] = []
-    # 0762: ustawienie rekrutacji, czy osoba stoi do podpisu (i skąd)
+    # 0761: ustawienie rekrutacji, czy osoba stoi do podpisu (i skąd)
     # oraz czy oglądający może to zmienić.
     job_rule: Optional[dict[str, Any]] = None
     stop: Optional[dict[str, Any]] = None
@@ -680,7 +680,7 @@ async def create_request(
         await db.commit()
         return await _one(db, current_user, existing)
 
-    # 0762: nowa prośba po zamkniętej przejmuje jej wybór (stop / wyjątek),
+    # 0761: nowa prośba po zamkniętej przejmuje jej wybór (stop / wyjątek),
     # gdy proszący sam go nie zmienia — anuluj + poproś od nowa nie zdejmuje stopu.
     needed_before, needed_by = body.needed_before, body.needed_by
     blocks_move, blocks_set_by, blocks_set_at = body.blocks_move, None, None
@@ -777,7 +777,7 @@ async def update_request(
 ):
     req = await _load_for(db, current_user, request_id)
     _require_open(req)
-    # 0762: zmiana etapu prośby, która trzyma osobę do podpisu, należy do
+    # 0761: zmiana etapu prośby, która trzyma osobę do podpisu, należy do
     # tych, którzy blokadę ustawiają — inaczej „Do daty…” zdejmowałoby stop.
     stage_change = (
         body.needed_before is not None and body.needed_before != req.needed_before
@@ -1269,7 +1269,7 @@ async def _close(
     )
 
 
-# ── Stop do podpisu (0762) ───────────────────────────────────────────────────
+# ── Stop do podpisu (0761) ───────────────────────────────────────────────────
 
 _STOP_EVENT = {True: "stop_set", False: "stop_exception", None: "stop_inherit"}
 
@@ -1329,7 +1329,7 @@ async def set_job_pre_contract_rule(
     current_user: PreContractUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Ustawienie rekrutacji „każda osoba podpisuje przedwstępną” (0762).
+    """Ustawienie rekrutacji „każda osoba podpisuje przedwstępną” (0761).
 
     Po zapisie osoby stojące między „Zweryfikowanym” a etapem dostają prośby."""
     await _ensure_pair_access(db, current_user, job_id)

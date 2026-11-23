@@ -11,7 +11,7 @@ import {
   stopOriginText,
 } from "@/lib/pre-contract-stop";
 
-// 0762 (23.11.2026): „Zatrzymaj do podpisu przedwstępnej” — kolumnę blokady
+// 0761 (23.11.2026): „Zatrzymaj do podpisu przedwstępnej” — kolumnę blokady
 // liczy serwer (`stop_column`), karta pokazuje ją od następnego kroku.
 
 const NOW = new Date("2026-11-23T10:00:00Z");

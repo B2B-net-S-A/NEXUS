@@ -1,4 +1,4 @@
-"""„Zatrzymaj do podpisu przedwstępnej” — czysta reguła blokady (0762, 23.11.2026).
+"""„Zatrzymaj do podpisu przedwstępnej” — czysta reguła blokady (0761, 23.11.2026).
 
 Bez bazy: ``stop_from`` dostaje ustawienie rekrutacji, prośby pary i kolumny.
 Reguła: docs/claude/rekrutacja-tablica/stop-do-podpisu-przedwstepnej.md.

@@ -236,7 +236,7 @@ export interface IntakeForm {
    */
   clientProcess: ClientProcessInput | null;
   /**
-   * 0762 (23.11.2026): „Każda osoba podpisuje umowę przedwstępną” — etap
+   * 0761 (23.11.2026): „Każda osoba podpisuje umowę przedwstępną” — etap
    * i „Zatrzymaj kartę do podpisu”; `null` = bez ustawienia (domyślnie).
    * Idzie w `POST /api/jobs` jako `pre_contract_rule`.
    */

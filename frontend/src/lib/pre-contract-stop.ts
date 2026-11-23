@@ -1,5 +1,5 @@
 /**
- * „Zatrzymaj do podpisu przedwstępnej” (0762, decyzje Artura 23.11.2026).
+ * „Zatrzymaj do podpisu przedwstępnej” (0761, decyzje Artura 23.11.2026).
  *
  * Dwa źródła blokady: ustawienie rekrutacji (`jobs.pre_contract_rule`,
  * ustawiane na `/jobs/new` i w nagłówku) i wybór przy prośbie o osobę

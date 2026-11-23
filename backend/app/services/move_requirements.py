@@ -220,7 +220,7 @@ class PairFacts:
     pre_contract_column: Optional[str] = None
     pre_contract_signed: bool = False
     pre_contract_detail: Optional[str] = None
-    # 0762 (23.11.2026): „Zatrzymaj do podpisu” — kolumna, od której ruch
+    # 0761 (23.11.2026): „Zatrzymaj do podpisu” — kolumna, od której ruch
     # stoi (ustawienie rekrutacji albo wybór przy osobie), i skąd blokada.
     pre_contract_stop_column: Optional[str] = None
     pre_contract_stop_detail: Optional[str] = None
@@ -347,7 +347,7 @@ def _deal_breaker_item(column: str, f: PairFacts) -> Optional[_Item]:
 def _pre_contract_item(column: str, f: PairFacts) -> Optional[_Item]:
     """Ostrzeżenie: umowa przedwstępna miała być podpisana przed tym etapem.
 
-    Przy „Zatrzymaj do podpisu” (0762) to bramka — także dla Delivery Leada."""
+    Przy „Zatrzymaj do podpisu” (0761) to bramka — także dla Delivery Leada."""
     stop = f.pre_contract_stop_column
     if stop in BOARD_COLUMN_ORDER and _index(column) >= _index(stop):
         return _Item(
@@ -1404,7 +1404,7 @@ async def _pre_contract_facts(
 async def _pre_contract_stop_facts(
     db: AsyncSession, *, candidate_id: int, job: Any
 ) -> tuple[Optional[str], Optional[str]]:
-    """(kolumna blokady, skąd) dla „Zatrzymaj do podpisu” (0762)."""
+    """(kolumna blokady, skąd) dla „Zatrzymaj do podpisu” (0761)."""
     from app.models.user import User  # noqa: PLC0415
     from app.services import pre_contract_stop  # noqa: PLC0415
 

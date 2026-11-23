@@ -1641,7 +1641,7 @@ async def apply_job_create(
         job.champion_profile = job_client_process.with_process(
             job.champion_profile, job_client_process.stamp(process_in, current_user)
         )
-    # 0762: „Każda osoba podpisuje umowę przedwstępną” już przy tworzeniu.
+    # 0761: „Każda osoba podpisuje umowę przedwstępną” już przy tworzeniu.
     rule_in = getattr(data, "pre_contract_rule", None)
     if rule_in is not None:
         from app.services import pre_contract_stop

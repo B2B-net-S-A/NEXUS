@@ -270,7 +270,7 @@ EVENT_TITLE: dict[str, str] = {
     "reminder_waiting": "Kandydat nie odesłał przedwstępnej",
     "updated": "Zmiana prośby o przedwstępną",
     "penalty_decision": "Decyzja o karze z przedwstępnej",
-    # 0762 (23.11.2026): „Zatrzymaj do podpisu”.
+    # 0761 (23.11.2026): „Zatrzymaj do podpisu”.
     "stop_set": "Osoba zatrzymana do podpisu przedwstępnej",
     "stop_exception": "Wyjątek: osoba idzie dalej bez podpisanej przedwstępnej",
     "stop_inherit": "Blokada przedwstępnej jak w ustawieniu rekrutacji",
@@ -500,7 +500,7 @@ async def kanban_badges_for_jobs(
         if current is None or (current.closed_at is not None) or req.closed_at is None:
             latest[key] = req
     columns = await pair_columns(db, latest)
-    # 0762: „Zatrzymaj do podpisu” — karta zna kolumnę, od której stoi.
+    # 0761: „Zatrzymaj do podpisu” — karta zna kolumnę, od której stoi.
     from app.models.job import Job  # noqa: PLC0415
     from app.services import pre_contract_stop  # noqa: PLC0415
 

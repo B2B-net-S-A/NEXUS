@@ -118,7 +118,7 @@ export function PreContractRequestDialog({
   const [needed, setNeeded] = useState<PreContractNeededBefore>(defaultNeededBefore);
   const [neededBy, setNeededBy] = useState("");
   const [reason, setReason] = useState("");
-  // 0762 (23.11.2026): „Zatrzymaj do podpisu” — DL klienta, HoR i admin.
+  // 0761 (23.11.2026): „Zatrzymaj do podpisu” — DL klienta, HoR i admin.
   // Przy ustawieniu rekrutacji wybór tutaj dotyczy tylko tej osoby.
   const pair = usePreContractPair(candidateId, jobId);
   const jobRule = pair.data?.job_rule ?? null;

@@ -2,7 +2,7 @@
 
 /**
  * „Umowa przedwstępna z kandydatami” na `/jobs/new`, w sekcji „Warunki” pod
- * „Procesem u klienta” (0762, decyzje Artura 23.11.2026; domyślnie wyłączone).
+ * „Procesem u klienta” (0761, decyzje Artura 23.11.2026; domyślnie wyłączone).
  * Idzie w `POST /api/jobs` jako `pre_contract_rule`; po utworzeniu edycja
  * w nagłówku rekrutacji. Ustawia Delivery Lead albo Head of Recruitment.
  */
