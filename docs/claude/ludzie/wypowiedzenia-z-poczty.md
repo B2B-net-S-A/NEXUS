@@ -1,5 +1,5 @@
 # Wypowiedzenia z poczty — karta „do potwierdzenia” w back office, archiwum administracja@ przy kontrakcie
-<!-- indeks: notice_mail_proposals, known_sender_emails, archived_mails, 0755, notice_rules, notice_mail, notice_view, propose_for_message, /api/back-office/notices, /api/contracts/{id}/mails, NoticeProposalPanel, ContractMailFeed, CPro „Contract terminated”, wycofanie wypowiedzenia z maila, imie.nazwisko@b2bnetwork.pl, import_admin_mail_archive, archive_eml_to_jsonl -->
+<!-- indeks: notice_mail_proposals, known_sender_emails, archived_mails, 0757, notice_rules, notice_mail, notice_view, propose_for_message, /api/back-office/notices, /api/contracts/{id}/mails, NoticeProposalPanel, ContractMailFeed, CPro „Contract terminated”, wycofanie wypowiedzenia z maila, imie.nazwisko@b2bnetwork.pl, import_admin_mail_archive, archive_eml_to_jsonl -->
 
 Decyzje Artura z 23.11.2026 (makiety: https://claude.ai/artifact/1npkbSQfNQEkho441q8JMH).
 Wypowiedzenia, skrócenia zamówień przez klienta, zmiany dat i wycofania przychodzą mailem

@@ -70,7 +70,7 @@ export interface BoCard {
     item_key?: string;
     gap_id?: number;
   };
-  /** Propozycja z maila: wypowiedzenie, klient kończy, zmiana daty, wycofanie (0755). */
+  /** Propozycja z maila: wypowiedzenie, klient kończy, zmiana daty, wycofanie (0757). */
   notice?: BoNotice | null;
 }
 

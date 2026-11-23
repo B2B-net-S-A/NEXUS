@@ -1,7 +1,7 @@
 """Wypowiedzenia z poczty: propozycje z maili, nauczone adresy, archiwum administracja@.
 
-Revision ID: 0755_notice_mail
-Revises: 0754_b2b_signing_accept_code
+Revision ID: 0757_notice_mail
+Revises: 0756_client_form_upload_scale
 
 Decyzje Artura 23.11.2026: czytnik spraw rozpoznaje wypowiedzenie, skrócenie
 zamówienia przez klienta, zmianę daty i wycofanie, a karta w back office
@@ -14,8 +14,8 @@ from alembic import op
 
 from app.services.notice_mail_schema import ALL_DDL, DROP_DDL
 
-revision = "0755_notice_mail"
-down_revision = "0754_b2b_signing_accept_code"
+revision = "0757_notice_mail"
+down_revision = "0756_client_form_upload_scale"
 branch_labels = None
 depends_on = None
 

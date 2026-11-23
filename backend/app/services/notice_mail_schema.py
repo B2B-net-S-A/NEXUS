@@ -1,6 +1,6 @@
-"""Wypowiedzenia z poczty (decyzje Artura 23.11.2026): SQL migracji ``0755_notice_mail`` i lustra entrypointu.
+"""Wypowiedzenia z poczty (decyzje Artura 23.11.2026): SQL migracji ``0757_notice_mail`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0755_notice_mail.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0757_notice_mail.py``
 i ``entrypoint.sh``. Każda instrukcja idempotentna.
 
 Tabele:
