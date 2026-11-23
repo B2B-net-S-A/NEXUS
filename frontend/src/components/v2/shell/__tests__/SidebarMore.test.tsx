@@ -208,7 +208,7 @@ describe("„Więcej” — szuflada mobilna", () => {
 describe("grupa szyny — nagłówek w stałym slocie (UAT B57)", () => {
   function renderGroup(collapsed: boolean) {
     return render(
-      <SidebarNavGroup id="work" title="Praca" collapsed={collapsed}>
+      <SidebarNavGroup id="work" title="Na co dzień" collapsed={collapsed}>
         <span>Rekrutacje</span>
       </SidebarNavGroup>,
     );
@@ -216,16 +216,16 @@ describe("grupa szyny — nagłówek w stałym slocie (UAT B57)", () => {
 
   it("rozwinięta: widoczny nagłówek, grupa ma nazwę dostępną", () => {
     const { container } = renderGroup(false);
-    const group = screen.getByRole("group", { name: "Praca" });
-    expect(within(group).getByText("Praca").className).not.toContain("sr-only");
-    expect(within(group).getByText("Praca").className).toContain("uppercase");
+    const group = screen.getByRole("group", { name: "Na co dzień" });
+    expect(within(group).getByText("Na co dzień").className).not.toContain("sr-only");
+    expect(within(group).getByText("Na co dzień").className).toContain("uppercase");
     expect(container.querySelector('[aria-hidden="true"]')).toBeNull();
   });
 
   it("zwinięta: kreska aria-hidden, tekst tylko dla czytnika — nazwa grupy zostaje", () => {
     const { container } = renderGroup(true);
-    const group = screen.getByRole("group", { name: "Praca" });
-    expect(within(group).getByText("Praca").className).toBe("sr-only");
+    const group = screen.getByRole("group", { name: "Na co dzień" });
+    expect(within(group).getByText("Na co dzień").className).toBe("sr-only");
     const divider = container.querySelector('[aria-hidden="true"]');
     expect(divider).not.toBeNull();
     expect(divider!.className).toContain("border-sidebar-border");

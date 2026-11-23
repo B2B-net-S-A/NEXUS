@@ -145,7 +145,7 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
         group.items.map((item) => item.id),
       ]),
     ).toEqual([
-      ["Praca", ["my-time"]],
+      ["Na co dzień", ["my-time"]],
       ["Firma", ["people"]],
     ]);
   });
