@@ -4508,6 +4508,23 @@
     "dot_anchor": "champion.key-task"
   },
   {
+    "id": "nowa-rekrutacja-mniej-decyzji",
+    "title": "Nowa rekrutacja: mniej klikania po odczycie maila",
+    "why": "AI wstawia krytyczne i proponuje najważniejsze zadanie z pytaniem — klikasz „Zatwierdź zadanie”. Pytania i kategorię zatwierdza „Utwórz”, termin i liczbę osób podpowiada historia klienta.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacje → Nowa rekrutacja → po „Wklej treść” → „O projekcie”",
+    "href": "/jobs/new",
+    "section": "pipeline",
+    "dot_anchor": "new-job.key-task-proposal"
+  },
+  {
     "id": "sprzedaz-dzwonienie-zaproszenie-teams",
     "pr": 3762,
     "title": "Dzwonienie: zaproszenie Teams wysyłasz sam, przy umówieniu",

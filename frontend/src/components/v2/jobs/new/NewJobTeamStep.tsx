@@ -16,7 +16,6 @@
 import { useId, type ReactNode } from "react";
 import { Check, Users } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { RecruiterAssignmentChoice } from "@/components/v2/jobs/RecruiterAssignmentChoice";
 import {
@@ -226,28 +225,13 @@ export function NewJobTeamStep({
                 nic nie wybierasz.
               </p>
             ) : (
-              <div className="flex flex-wrap items-center gap-3">
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={disabled}
-                  onClick={() => onCategoryChange(chosen.id, true)}
-                >
-                  Potwierdzam: {chosen.name}
-                </Button>
-                <p
-                  className={cn(
-                    "min-w-0 flex-1 text-xs leading-snug",
-                    categoryMissing
-                      ? "font-medium text-warning-muted-foreground"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  Propozycja systemu z nazwy roli. Rekrutacja trafi do wszystkich osób z tej
-                  kategorii ({participantsLabel(chosen.participants)}). Potwierdź albo wybierz
-                  inną.
-                </p>
-              </div>
+              // Wariant 1 (23.11.2026): podpowiedź potwierdza „Utwórz i opublikuj”
+              // — bez osobnego „Potwierdzam”. Inna kategoria = klik w nią.
+              <p className="text-xs leading-snug text-muted-foreground">
+                Propozycja systemu z nazwy roli: {chosen.name}. Rekrutacja trafi do wszystkich
+                osób z tej kategorii ({participantsLabel(chosen.participants)}). „Utwórz”
+                ją potwierdzi — albo wybierz inną.
+              </p>
             )}
             {chosen != null && chosen.participants === 0 ? (
               <p className="text-xs font-medium text-warning-muted-foreground">

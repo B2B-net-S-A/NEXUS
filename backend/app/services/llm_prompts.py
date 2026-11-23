@@ -930,9 +930,13 @@ CV_REQUIREMENT_MAP = PromptTemplate(
 # v13 (23.10.2026): pytania screeningowe o to, co kandydat zrobił — gdzie,
 # co i jak długo — zamiast o metodę i tak/nie (`_FACT_QUESTIONS_RULE`).
 
+# v16 (23.11.2026, wariant 1 szybszego zakładania): propozycja „Najważniejszego
+# zadania w tej roli” (`key_task`) i znacznik pytania, które je sprawdza. Delivery
+# Lead zatwierdza ją na formularzu — do tej daty pole wpisywał zawsze sam.
+
 JOB_REQUEST_INTAKE = PromptTemplate(
     name="job_request_intake",
-    version=15,
+    version=16,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji body leasingu. "
@@ -999,6 +1003,7 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "  }},\n"
         '  "project_about": str|null,         // cel projektu, MAKSYMALNIE 2 zdania po polsku\n'
         '  "responsibilities": str|null,      // obowiązki jako lista punktów po polsku (zasady niżej)\n'
+        '  "key_task": str|null,              // NAJWAŻNIEJSZE ZADANIE w tej roli: jedno zdanie po polsku (zasady niżej)\n'
         '  "search": {{\n'
         '    "target_companies": str,         // firmy, z których warto szukać (może być pusty)\n'
         '    "disqualifiers": [str],          // kogo odrzucamy od razu, tylko gdy wynika z maila\n'
@@ -1006,7 +1011,7 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "  }},\n"
         '  "selling_points": {{"text": str|null, "basis": "request"|"client_history"|"ai"}},\n'
         '  "screening_questions": [\n'
-        '    {{"question": str, "ideal_answer": str, "deal_breaker": str, "from_request": bool}}\n'
+        '    {{"question": str, "ideal_answer": str, "deal_breaker": str, "from_request": bool, "key_task": bool}}\n'
         "  ],\n"
         '  "ask_client": [str],               // 2–5 pytań do klienta o to, czego brakuje w mailu\n'
         '  "evidence": [str]                  // dosłowne fragmenty, z których wziąłeś fakty powyżej\n'
@@ -1095,6 +1100,14 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "robił tego w działającym systemie.”, „Stawka powyżej budżetu bez zgody "
         "na rozmowę.”). Oba pola są propozycją dla Delivery Leada — nie zostawiaj "
         "ich pustych.\n\n"
+        "Najważniejsze zadanie (key_task): jedno zdanie po polsku, do ok. 150 "
+        "znaków — co ta osoba musi dowieźć w pierwszej kolejności, słowami "
+        "klienta (zwykle pierwszy albo najmocniej podkreślony obowiązek, np. "
+        "„Podnieść aplikacje co najmniej do Java 17 i Spring Boot 3.3.”). Bez "
+        "ogólników („wspierać zespół”). null, gdy mail nie mówi, co jest "
+        "najważniejsze. Gdy key_task jest, oznacz key_task=true przy JEDNYM "
+        "pytaniu screeningowym, które sprawdza, czy kandydat robił właśnie to "
+        "(dodaj takie pytanie, jeśli go brakuje); przy pozostałych false.\n\n"
         "Termin (deadline) to dzień, do którego klient chce dostać kandydatów "
         "albo CV — NIE start projektu (to start_date). Rok wpisz tylko, gdy stoi "
         "w mailu. Liczba osób (headcount) tylko wtedy, gdy mail mówi, ilu osób "
