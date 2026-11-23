@@ -184,8 +184,11 @@ export function ClientFormDialog({
   const changed = Object.fromEntries(
     Object.entries(draft).filter(([id, value]) => value.trim() !== (initial[id] ?? "").trim()),
   );
-  const missing = view.fields.filter((field) => (draft[field.id] ?? "").trim() === "");
-  const filled = view.fields.filter((field) => (draft[field.id] ?? "").trim() !== "");
+  // Sekcje liczy stan z serwera, nie szkic: po pierwszej literze pole
+  // przeskakiwało do zwiniętych „wypełnionych” i znikało spod kursora
+  // (zgłoszenie z CEZ, 23.11.2026). Przenosi się dopiero po zapisie.
+  const missing = view.fields.filter((field) => (initial[field.id] ?? "").trim() === "");
+  const filled = view.fields.filter((field) => (initial[field.id] ?? "").trim() !== "");
   const set = (id: string) => (value: string) => setDraft((prev) => ({ ...prev, [id]: value }));
 
   return (
