@@ -254,6 +254,7 @@ from app.api import client_sales_invoices as client_sales_invoices_api
 from app.api import client_issued_invoices as client_issued_invoices_api
 from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
+from app.api import settlement_reminders as settlement_reminders_api
 from app.api import client_reports as client_reports_api
 from app.api import law_radar as law_radar_api
 from app.api import supervisory_board as supervisory_board_api
@@ -881,6 +882,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.start_documents_sweeper import start_documents_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.client_report_reminders import client_report_reminders_loop
+    from app.tasks.settlement_reminders import settlement_reminders_loop
     from app.tasks.client_settlements_auto_accept import (
         client_settlements_auto_accept_loop,
     )
@@ -1093,6 +1095,8 @@ async def lifespan(app: FastAPI):
             "client_report_reminders": asyncio.create_task(
                 client_report_reminders_loop()
             ),
+            # 23.11.2026: brakujący raport godzin — 3., 5. i 7. dzień roboczy.
+            "settlement_reminders": asyncio.create_task(settlement_reminders_loop()),
             # 23.11.2026: rano przyjęcie RCP „Bez uwag” (reguła klienta).
             "client_settlements_auto_accept": asyncio.create_task(
                 client_settlements_auto_accept_loop()
@@ -2492,6 +2496,13 @@ app.include_router(
 app.include_router(
     client_time_reports_api.router,
     prefix="/api/finance/settlements/time-reports",
+    tags=["client-settlements"],
+    dependencies=_HR_PROGRAM,
+)
+# Przypomnienia o brakującym raporcie godzin (23.11.2026).
+app.include_router(
+    settlement_reminders_api.router,
+    prefix="/api/finance/settlements/reminders",
     tags=["client-settlements"],
     dependencies=_HR_PROGRAM,
 )
@@ -4201,6 +4212,7 @@ async def api_health_deep_check(request: Request):
         ClientSettlementRuleSet,
     )
     from app.models.client_settlement_extra import ClientSettlementExtraDocument
+    from app.models.client_settlement_reminder import ClientSettlementReminder
     from app.models.client_time_report import (
         ClientExternalId,
         ClientTimeReport,
@@ -4906,6 +4918,8 @@ async def api_health_deep_check(request: Request):
         ("client_settlement_extras", ClientSettlementExtra),
         # 0751: pliki dodatków do rozliczenia kontraktora.
         ("client_settlement_extra_documents", ClientSettlementExtraDocument),
+        # 0763: dziennik przypomnień o brakującym raporcie godzin.
+        ("client_settlement_reminders", ClientSettlementReminder),
         # 0689: rozliczenia Nordei N1 — kartoteka i wersje raportu T4T.
         ("client_external_ids", ClientExternalId),
         ("client_time_reports", ClientTimeReport),

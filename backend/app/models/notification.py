@@ -472,6 +472,12 @@ class NotificationType(str, enum.Enum):
     # kategoria „Raporty dla klientów”, bez maila.
     # ``tasks/client_report_reminders.py``.
     client_report_due = "client_report_due"
+    # 0763 (23.11.2026): brakujący raport godzin (RCP) za miesiąc — lista
+    # kontraktów bez raportu do opiekuna kontraktu (albo Delivery Leada
+    # klienta) w 7. dniu roboczym i po „Przypomnij” Finansów;
+    # related_entity=(client, id). Sekcja Delivery, kategoria kontraktów,
+    # bez maila. ``services/client_settlements/reminders.py``.
+    settlement_report_missing = "settlement_report_missing"
     # 0727 (16.11.2026): nowy wpis w KRS spółki (odpis pełny co noc) — do Rady
     # nadzorczej i adminów; related_entity=(board_krs_snapshot, id). Sekcja
     # Insights (Rada ma tylko ją), kategoria „Systemowe”. ``tasks/board_krs.py``.

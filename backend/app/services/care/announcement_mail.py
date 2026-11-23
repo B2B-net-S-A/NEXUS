@@ -165,7 +165,9 @@ def transport_mode() -> str:
 class SimulatedMailer:
     """``HR_M365_MODE=simulate``: wysyłka liczy się jak przyjęta, nic nie wychodzi."""
 
-    async def send(self, *, to: str, subject: str, text: str) -> MailOutcome:
+    async def send(
+        self, *, to: str, subject: str, text: str, cc: Optional[str] = None
+    ) -> MailOutcome:
         return MailOutcome("accepted", simulated=True)
 
 
@@ -199,12 +201,17 @@ class GraphMailer:
             )
             return None
 
-    async def send(self, *, to: str, subject: str, text: str) -> MailOutcome:
+    async def send(
+        self, *, to: str, subject: str, text: str, cc: Optional[str] = None
+    ) -> MailOutcome:
         message: dict[str, Any] = {
             "subject": subject,
             "body": {"contentType": "Text", "content": text},
             "toRecipients": [{"emailAddress": {"address": to}}],
         }
+        if cc:
+            # Kopia do osoby z firmy (opiekun przy przypomnieniu o raporcie godzin).
+            message["ccRecipients"] = [{"emailAddress": {"address": cc}}]
         if self._reply_to:
             message["replyTo"] = [{"emailAddress": {"address": self._reply_to}}]
         payload = {"message": message, "saveToSentItems": True}

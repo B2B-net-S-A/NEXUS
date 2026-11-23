@@ -387,6 +387,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'premium_skill_justification'",
     # 0712: przypomnienie o terminie raportu dla klienta (dzwonek).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_report_due'",
+    # 0763: dzwonek opiekuna o brakującym raporcie godzin (rozliczenia klientów).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'settlement_report_missing'",
     # 0727: Rada — odczyt skanu dokumentu korporacyjnego i dzwonek o wpisie w KRS.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'board_document_read'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_krs_entry'",
