@@ -133,7 +133,7 @@ export function CproOperatorDraft({ stageId, draft, onActiveChange }: {
       setError("Nie udało się pobrać firmowego PDF. Nie zastępuj go plikiem DOCX ani innym CV; odśwież zlecenie.");
     } finally { pending.current = false; setBusy(false); }
   };
-  const confirm = async () => {
+  const confirmSavedDraft = async () => {
     if (!run || !canConfirm || pending.current || !/^[0-9]{1,20}$/.test(offerId) || !/[1-9]/.test(offerId) || !confirmedDraft || !confirmedPdf || (allowCreate && !pdfDownloaded)) return;
     pending.current = true;
     setBusy(true);
@@ -226,7 +226,7 @@ export function CproOperatorDraft({ stageId, draft, onActiveChange }: {
                 </label>
                 <label className="flex items-start gap-2"><input type="checkbox" checked={confirmedDraft} onChange={(e) => setConfirmedDraft(e.target.checked)} disabled={busy} />Ponownie otworzyłem tę ofertę na właściwym koncie i requeście; widzę DRAFT.</label>
                 <label className="flex items-start gap-2"><input type="checkbox" checked={confirmedPdf} onChange={(e) => setConfirmedPdf(e.target.checked)} disabled={busy || (allowCreate && !pdfDownloaded)} />Otworzyłem PDF z zapisanej oferty i sprawdziłem firmowy układ oraz kompletność.</label>
-                <Button size="sm" disabled={busy || !/^[0-9]{1,20}$/.test(offerId) || !/[1-9]/.test(offerId) || !confirmedDraft || !confirmedPdf || (allowCreate && !pdfDownloaded)} onClick={() => void confirm()}>Potwierdź zapisany szkic DRAFT i PDF</Button>
+                <Button size="sm" disabled={busy || !/^[0-9]{1,20}$/.test(offerId) || !/[1-9]/.test(offerId) || !confirmedDraft || !confirmedPdf || (allowCreate && !pdfDownloaded)} onClick={() => void confirmSavedDraft()}>Potwierdź zapisany szkic DRAFT i PDF</Button>
               </div>
             ) : null}
             {run.allow_close_absent === true && !received ? <div className="space-y-2 border-t border-border pt-3">
