@@ -27,6 +27,7 @@ const briefing = vi.fn();
 const changeState = vi.fn();
 const editRecord = vi.fn();
 const reminders = vi.fn();
+const whoCalls = vi.fn();
 const askConfirm = vi.fn();
 const showError = vi.fn();
 const showSuccess = vi.fn();
@@ -46,6 +47,7 @@ vi.mock("@/lib/api/sales-calling", async (original) => ({
   useChangeState: () => mutation(changeState),
   useEditRecord: () => mutation(editRecord),
   useCallReminders: (scope: string) => reminders(scope),
+  useWhoCalls: (phone: string) => whoCalls(phone),
   useCallRecords: (filters: unknown) => records(filters),
   usePreviewExcel: () => ({ ...mutation(previewExcel), data: excelData }),
   useTransferExcel: () => mutation(transferExcel),
@@ -269,6 +271,7 @@ beforeEach(() => {
   changeState.mockResolvedValue({ record_id: 1 });
   editRecord.mockResolvedValue({});
   reminders.mockReturnValue(ok([]));
+  whoCalls.mockReturnValue({ data: undefined, isLoading: false, isSuccess: false, error: null, refetch: vi.fn() });
   createActivity.mockResolvedValue({});
   briefing.mockReturnValue({ isSuccess: false });
 });
@@ -640,8 +643,72 @@ describe("kolejka", () => {
     expect(screen.getByText("Kampania Testowa")).toBeInTheDocument();
     unmount();
     canEdit = false;
-    const hidden = render(<CallingActions />);
-    expect(hidden.container).toBeEmptyDOMElement();
+    render(<CallingActions />);
+    expect(screen.queryByRole("button", { name: /Importuj listę/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Kampanie" })).not.toBeInTheDocument();
+    // „Kto dzwoni?” jest dla każdego z dostępem do Sprzedaży.
+    expect(screen.getByLabelText("Kto dzwoni? Numer telefonu")).toBeInTheDocument();
+  });
+
+  it("„Kto dzwoni?” szuka po 9 cyfrach i pokazuje, kto dzwonił i sprzeciw (23.11.2026)", async () => {
+    whoCalls.mockImplementation((phone: string) =>
+      phone === "500058777"
+        ? ok([
+            {
+              company: { id: 21, name: "Oddzwaniająca S.A." },
+              person_name: "Ewa Testowa",
+              person_title: "CTO",
+              do_not_contact: false,
+              record_id: 271,
+              record_state: "offer_sent",
+              callback_on: "2026-11-16",
+              last_outcome_at: "2026-11-13T10:00:00Z",
+              campaign_name: "BE Leady",
+              caller_name: "Marcel Testowy",
+              contact_id: null,
+            },
+            {
+              company: { id: 22, name: "Sprzeciw Sp. z o.o." },
+              person_name: "Jan Kontakt",
+              person_title: null,
+              do_not_contact: true,
+              record_id: null,
+              record_state: null,
+              callback_on: null,
+              last_outcome_at: null,
+              campaign_name: null,
+              caller_name: null,
+              contact_id: 9,
+            },
+          ])
+        : ok([]),
+    );
+    render(<CallingActions />);
+    const field = screen.getByLabelText("Kto dzwoni? Numer telefonu");
+    fireEvent.change(field, { target: { value: "500 058" } });
+    expect(screen.getByText("Wpisz cały numer: co najmniej 9 cyfr.")).toBeInTheDocument();
+    fireEvent.change(field, { target: { value: "+48 500-058-777" } });
+    await waitFor(() => expect(whoCalls).toHaveBeenLastCalledWith("500058777"));
+    const panel = screen.getByRole("dialog", { name: "Kto dzwoni" });
+    expect(within(panel).getByText("Oddzwaniająca S.A.")).toBeInTheDocument();
+    expect(within(panel).getByText(/Dzwoni Marcel Testowy/)).toBeInTheDocument();
+    expect(within(panel).getByText("Oferta ogólna wysłana")).toBeInTheDocument();
+    expect(within(panel).getByText("Nie kontaktować")).toBeInTheDocument();
+    expect(within(panel).getByText("Kontakt firmy, bez listy dzwonienia")).toBeInTheDocument();
+    expect(within(panel).getAllByRole("link", { name: "Karta firmy" })[0]).toHaveAttribute("href", "/sales/companies/21");
+  });
+
+  it("„Kto dzwoni?” odróżnia brak numeru od awarii", async () => {
+    render(<CallingActions />);
+    whoCalls.mockReturnValue(ok([]));
+    fireEvent.change(screen.getByLabelText("Kto dzwoni? Numer telefonu"), { target: { value: "600100200" } });
+    await waitFor(() =>
+      expect(screen.getByText("Tego numeru nie ma w listach dzwonienia ani w kontaktach firm.")).toBeInTheDocument(),
+    );
+    whoCalls.mockReturnValue({ data: undefined, isLoading: false, isSuccess: false, error: { response: { status: 500 } }, refetch: vi.fn() });
+    fireEvent.change(screen.getByLabelText("Kto dzwoni? Numer telefonu"), { target: { value: "600100201" } });
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.queryByText("Tego numeru nie ma w listach dzwonienia ani w kontaktach firm.")).not.toBeInTheDocument();
   });
 
   it("filtr kampanii pojawia się przy dwóch kampaniach i trafia do zapytania", () => {

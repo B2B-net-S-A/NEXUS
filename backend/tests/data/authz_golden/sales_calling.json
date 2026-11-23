@@ -38,6 +38,7 @@
   "GET /api/sales/calling/records": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/calling/records/{record_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/calling/reminders": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/calling/who-calls": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PATCH /api/sales/calling/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PATCH /api/sales/calling/records/{record_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/calling/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",

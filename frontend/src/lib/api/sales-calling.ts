@@ -270,7 +270,33 @@ export const callingKeys = {
   card: (key: string) => ["sales", "calling", "card", key] as const,
   campaigns: ["sales", "calling", "campaigns"] as const,
   records: (filters: CallRecordFilters) => ["sales", "calling", "records", filters] as const,
+  whoCalls: (phone: string) => ["sales", "calling", "who-calls", phone] as const,
 };
+
+/** „Kto dzwoni?” (23.11.2026): rekord listy dzwonienia albo kontakt firmy, bez numeru. */
+export interface PhoneMatch {
+  company: Ref;
+  person_name: string | null;
+  person_title: string | null;
+  do_not_contact: boolean;
+  record_id: number | null;
+  record_state: RecordState | null;
+  callback_on: string | null;
+  last_outcome_at: string | null;
+  campaign_name: string | null;
+  caller_name: string | null;
+  contact_id: number | null;
+}
+
+/** Szuka po ostatnich 9 cyfrach; ``phone`` to już same cyfry (pytanie dopiero od 9). */
+export function useWhoCalls(phone: string) {
+  return useQuery({
+    queryKey: callingKeys.whoCalls(phone),
+    queryFn: async () =>
+      (await api.get<PhoneMatch[]>("/api/sales/calling/who-calls", { params: { phone } })).data,
+    enabled: phone.length >= 9,
+  });
+}
 
 function useInvalidateSales() {
   const queryClient = useQueryClient();
