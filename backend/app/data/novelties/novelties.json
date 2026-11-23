@@ -4516,6 +4516,36 @@
     ]
   },
   {
+    "id": "finanse-przebieg-miesiaca",
+    "pr": 3803,
+    "title": "Przebieg miesiąca: wszyscy klienci rozliczeń w jednym widoku",
+    "why": "Od razu widzisz, u których klientów brakuje raportów, co czeka na decyzję i gdzie wystawić fakturę. Sprawy do decyzji są pogrupowane po powodzie.",
+    "tier": "tour",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "finance",
+        "admin"
+      ]
+    },
+    "where": "Finanse → Przychody → Przebieg miesiąca",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "finance.month-close",
+    "steps": [
+      {
+        "anchor": "finance.month-close",
+        "text": "Otwórz „Przebieg miesiąca”",
+        "hint": "U góry cztery kroki miesiąca, niżej jeden wiersz na klienta."
+      },
+      {
+        "anchor": "finance.month-close.reasons",
+        "text": "Przełącz na „Do decyzji wg powodu”",
+        "hint": "Karta powodu mówi, kto rozstrzyga, i prowadzi do klienta albo jego reguł."
+      }
+    ]
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",
