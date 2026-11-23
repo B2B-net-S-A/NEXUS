@@ -33,7 +33,11 @@ export function ReviewBatchRequirementsBlock({
   const missing = requirements.must.filter((row) => row.state === "none").map((row) => row.label);
   const niceMet = requirements.nice.filter((row) => row.state !== "none").map((row) => row.label);
   return (
-    <div className="space-y-1.5" data-testid="review-requirements">
+    <div
+      className="space-y-1.5"
+      data-testid="review-requirements"
+      data-tour="review-batch.requirements"
+    >
       {requirements.must_total > 0 ? (
         <>
           <div className="flex flex-wrap items-baseline justify-between gap-x-2 text-xs">
