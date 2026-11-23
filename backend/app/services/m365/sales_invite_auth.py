@@ -77,12 +77,12 @@ def acquire_sales_invite_token(*, force_refresh: bool = False) -> Optional[str]:
             app.remove_tokens_for_client()
         result = app.acquire_token_for_client(scopes=_SCOPE)
     except Exception as exc:  # noqa: BLE001 — wołający dostaje „brak tokenu”
-        logger.warning("sales_invite: token request failed (%s)", type(exc).__name__)
+        logger.warning("sales_invite: Entra unreachable (%s)", type(exc).__name__)
         return None
     token = result.get("access_token") if isinstance(result, dict) else None
     if not token:
         logger.warning(
-            "sales_invite: token acquisition failed error=%s",
+            "sales_invite: Entra refused the app error=%s",
             (result or {}).get("error"),
         )
         return None
