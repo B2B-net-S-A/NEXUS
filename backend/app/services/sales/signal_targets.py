@@ -10,6 +10,10 @@
   jej nie łapie, a decydujący ma zobaczyć, co się w firmie zmieniło.
 * **Cognism:** firmy z zakończonego researchu od ustawionej daty.
 
+Klient NEXUSA (``client_gate``: powiązanie karty, nazwa, alias, także z „Polska”
+albo formą prawną na końcu) punktów nie dostaje; ``signals.start_run`` pilnuje
+tego jeszcze raz dla każdego biegu sygnałów i punktów.
+
 Rodzaj punktów: ``ongoing``, gdy z firmą była już rozmowa albo spotkanie albo gdy
 firma ma ofertę „Do decyzji”, inaczej ``first_call``. Firma z biegu z ostatnich
 24 godzin nie wraca od razu, żeby firma, o której bot nic nie napisał, nie szła
@@ -127,7 +131,7 @@ async def new_company_ids(
         .order_by(union.c.company_id.desc())
         .limit(MAX_BRIEFING_FIRMS * 2)
     )
-    return list(rows.scalars())
+    return await client_gate.without_clients(db, list(rows.scalars()))
 
 
 async def refresh_company_ids(db: AsyncSession, *, now: datetime) -> list[int]:
@@ -164,7 +168,7 @@ async def refresh_company_ids(db: AsyncSession, *, now: datetime) -> list[int]:
         .distinct()
         .limit(MAX_REFRESH_FIRMS)
     )
-    return list(rows.scalars())
+    return await client_gate.without_clients(db, list(rows.scalars()))
 
 
 def needs_points(
@@ -215,7 +219,11 @@ async def to_decide_company_ids(db: AsyncSession, *, now: datetime) -> list[int]
         if generated is not None:
             briefed_at[cid] = generated
     return needs_points(
-        [cid for cid in company_ids if cid in live], briefed_at, now=now
+        await client_gate.without_clients(
+            db, [cid for cid in company_ids if cid in live]
+        ),
+        briefed_at,
+        now=now,
     )
 
 

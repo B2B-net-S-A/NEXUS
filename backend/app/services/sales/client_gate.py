@@ -13,15 +13,20 @@ ani polecenia „zgłoś do Heada”.
 
 from __future__ import annotations
 
+import logging
+import re
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.sales import SalesCompany
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User
 from app.services.client_duplicates import ClientNameIndex, load_client_name_index
+
+logger = logging.getLogger(__name__)
 
 NO_LEAD_LABEL = "Klient bez Delivery Leada: zgłoś do Heada"
 #: ``normalize_company_name`` naszej spółki.
@@ -51,11 +56,42 @@ class CompanyIdentity:
     normalized_name: Optional[str]
 
 
-def _client_ids(index: ClientNameIndex, company: CompanyIdentity) -> list[int]:
-    """Jawne powiązanie ma pierwszeństwo przed zgodnością nazwy."""
+#: Końcówki, które nie zmieniają firmy: kraj spółki i forma prawna, której
+#: ``normalize_company_name`` nie zdejmuje (bez kropki na końcu, przed krajem).
+#: Kopia produkcji z 23.11.2026: 31 kart „<klient> Polska” / „<klient> sp. z o.o”
+#: aktywnych klientów szło do bota jak nowe firmy.
+_NAME_TAIL = re.compile(
+    r"(?:\s+(?:polska|poland|sp z o o|sp z oo|sp zoo|s a|spolka akcyjna|group|grupa))+$"
+)
+
+
+def _core(key: str) -> str:
+    return _NAME_TAIL.sub("", key)
+
+
+def _core_index(index: ClientNameIndex) -> dict[str, frozenset[int]]:
+    cores: dict[str, set[int]] = {}
+    for key, ids in index.ids_by_key.items():
+        if core := _core(key):
+            cores.setdefault(core, set()).update(ids)
+    return {core: frozenset(ids) for core, ids in cores.items()}
+
+
+def _client_ids(
+    index: ClientNameIndex,
+    cores: dict[str, frozenset[int]],
+    company: CompanyIdentity,
+) -> list[int]:
+    """Jawne powiązanie ma pierwszeństwo przed zgodnością nazwy.
+
+    Nazwa najpierw dokładnie, a bez trafienia po zdjęciu kraju i formy prawnej
+    po obu stronach („Bosch Polska” to klient „Bosch”).
+    """
 
     linked = company.client_id if company.client_id in index.display_by_id else None
-    named = sorted(index.ids_by_key.get(company.normalized_name or "", ()))
+    key = company.normalized_name or ""
+    exact = index.ids_by_key.get(key, ())
+    named = sorted(exact or (cores.get(core, ()) if (core := _core(key)) else ()))
     return ([linked] if linked is not None else []) + [
         client_id for client_id in named if client_id != linked
     ]
@@ -94,10 +130,11 @@ async def match_companies(
     """Firmy, które są klientem NEXUSA: id firmy → klient i jego Delivery Lead."""
 
     index = await load_client_name_index(db)
+    cores = _core_index(index)
     candidates = {
         company.company_id: ids
         for company in companies
-        if (ids := _client_ids(index, company))
+        if (ids := _client_ids(index, cores, company))
     }
     leads = await _leads_by_client(
         db, [client_id for ids in candidates.values() for client_id in ids]
@@ -110,3 +147,28 @@ async def match_companies(
             delivery_lead=leads.get(chosen),
         )
     return matches
+
+
+async def without_clients(db: AsyncSession, company_ids: Sequence[int]) -> list[int]:
+    """Karty, które nie są klientem NEXUSA, w kolejności wejścia.
+
+    Dla wyboru firm do bota researchu: klient nie zajmuje miejsca w paczce
+    (haczyk wysyła najpierw firmy bez próby, a klient próby nigdy nie dostaje).
+    """
+
+    if not company_ids:
+        return []
+    cards = (
+        await db.execute(
+            select(
+                SalesCompany.id, SalesCompany.client_id, SalesCompany.normalized_name
+            ).where(SalesCompany.id.in_(sorted(set(company_ids))))
+        )
+    ).all()
+    clients = await match_companies(
+        db, [CompanyIdentity(c.id, c.client_id, c.normalized_name) for c in cards]
+    )
+    if clients:
+        # Logi są publiczne: same numery kart, bez nazw.
+        logger.info("sales client_gate skipped client cards=%s", sorted(clients))
+    return [cid for cid in company_ids if cid not in clients]

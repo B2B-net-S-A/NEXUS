@@ -106,6 +106,12 @@ def test_hook_daily_limit_counts_companies_even_after_their_hooks_get_fresh() ->
     assert hook_prep_targets.next_hook_batch([1, 41, 42], runs, now=now) == [1]
 
 
+async def _no_clients(_db, ids):
+    """Bramkę klienta sprawdza ``test_sales_client_gate_bots.py`` na bazie."""
+
+    return list(ids)
+
+
 @pytest.mark.asyncio
 async def test_hook_targets_ask_the_queue_for_monday_on_friday(monkeypatch) -> None:
     calls: list[tuple] = []
@@ -119,6 +125,7 @@ async def test_hook_targets_ask_the_queue_for_monday_on_friday(monkeypatch) -> N
 
     monkeypatch.setattr(call_hook, "fresh_company_ids", fresh)
     monkeypatch.setattr(hook_prep_targets.calling, "companies_due_by", due)
+    monkeypatch.setattr(hook_prep_targets.client_gate, "without_clients", _no_clients)
     now = _local(date(2026, 11, 13), 16).astimezone(timezone.utc)
     ids = await hook_prep_targets.hook_company_ids(
         None, now=now, today=date(2026, 11, 13)
@@ -154,6 +161,7 @@ async def test_prep_targets_skip_firms_with_points_younger_than_three_days(
         return [5, 6, 7]
 
     monkeypatch.setattr(hook_prep_targets.my_day, "meeting_company_ids", meetings)
+    monkeypatch.setattr(hook_prep_targets.client_gate, "without_clients", _no_clients)
     now = _local(TODAY, 16).astimezone(timezone.utc)
     ids = await hook_prep_targets.prep_company_ids(_FreshDb([6]), now=now, today=TODAY)
     assert ids == [5, 7]
