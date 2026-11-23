@@ -123,3 +123,55 @@ async def render_new_cv_pdf(
         except Exception as error:  # noqa: BLE001 — każdy błąd renderu to 503
             logging.getLogger(__name__).exception("new CV PDF render failed")
             raise NewCvPdfError(MSG_RENDER_FAILED) from error
+
+
+# ── CV, które idzie dalej: Cpro, panel klienta, API v1 (22.11.2026) ─────────
+
+
+async def _fallback(db, generated_id: Optional[int]) -> Optional[dict[str, Any]]:
+    """Zapis generatora (sama kolumna) — uzupełnia branżę i słowa do pogrubienia."""
+    if not generated_id:
+        return None
+    from sqlalchemy import select
+
+    from app.models.cv_generated_document import CvGeneratedDocument
+
+    payload = await db.scalar(
+        select(CvGeneratedDocument.render_payload).where(
+            CvGeneratedDocument.id == generated_id
+        )
+    )
+    return payload if isinstance(payload, dict) else None
+
+
+async def approved_version_pdf(db, version: Any) -> NewCvPdf:
+    """Zatwierdzona wersja jako „Nowe CV”: z jej zamrożonej treści, języka,
+    szablonu, dodatków strony 1 i zrzutu zgody — to samo, co zatwierdził DL.
+
+    Przed renderem kończy transakcję żądania (render trwa sekundy; bez blokad
+    i połączenia z bazą). Awaria = ``NewCvPdfError``, wołający oddaje 503.
+    """
+    fallback = await _fallback(db, getattr(version, "generated_document_id", None))
+    await db.commit()
+    return await render_new_cv_pdf(
+        version.content_html or "",
+        language=version.language,
+        template=version.template,
+        fallback=fallback,
+        extras=version.page1_extras,
+        consent=version.consent_content,
+    )
+
+
+async def stage_draft_pdf(db, csv: Any) -> NewCvPdf:
+    """Szkic CV etapu jako „Nowe CV” — z zapisanej treści edytora."""
+    fallback = await _fallback(db, getattr(csv, "generated_document_id", None))
+    await db.commit()
+    return await render_new_cv_pdf(
+        csv.branded_draft_html or "",
+        language=csv.branded_language,
+        template=csv.branded_template,
+        fallback=fallback,
+        extras=csv.page1_extras,
+        consent=csv.branded_consent_content,
+    )

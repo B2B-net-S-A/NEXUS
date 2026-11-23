@@ -39,6 +39,7 @@ import {
   type HappeningActionId,
   type HappeningItem,
   type HappeningOrderAfterEnd,
+  type TerminationDocumentRef,
 } from "@/lib/contract-happening";
 import { CancelOrderDraftButton } from "@/components/contracts/detail/CancelOrderDraftButton";
 import { warsawToday } from "@/lib/warsaw-date";
@@ -263,6 +264,8 @@ interface ContractDetail {
   termination_reversed_by_name?: string | null;
   /** „Klient zamówił okres po zakończeniu” (19.11.2026) — liczy serwer. */
   order_after_end?: HappeningOrderAfterEnd[];
+  /** Wypowiedzenie/porozumienie w Dokumentach przy niezapisanym rozwiązaniu (22.11.2026). */
+  termination_document?: TerminationDocumentRef | null;
 }
 
 interface ActivityEntry {
@@ -1050,6 +1053,7 @@ export default function ContractDetailPage() {
       rate_client: contract.rate_client,
       can_reverse_termination: contract.can_reverse_termination ?? false,
       order_after_end: contract.order_after_end ?? [],
+      termination_document: contract.termination_document ?? null,
     },
     careOpen && careCard?.health
       ? { level: careCard.health.level, reasons: careCard.health.reasons, ownerName: careCard.owner?.name ?? null }
@@ -1677,6 +1681,7 @@ export default function ContractDetailPage() {
           contractId={contract.id}
           candidateName={contract.candidate_name}
           projectEnd={contractProjectEnd(contract)}
+          existingDocument={contract.termination_document ?? null}
           onClose={() => setRecordAgreementOpen(false)}
         />
       )}

@@ -11,8 +11,8 @@ import { rowActivationProps } from "@/hooks/useRowNavigation";
 import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_UNIT } from "@/lib/calm-table";
 import { fmtDatePl, relativeDays, URGENT_DAYS } from "@/lib/contract-happening";
 import {
-  AGREEMENT_STATE_LABEL,
   agreementState,
+  agreementStateLabel,
   endingSummary,
   groupByMonth,
   lastWorkingDay,
@@ -284,7 +284,7 @@ function EndingTable({ rows, ...props }: ContractsEndingViewProps) {
                 <td className="px-3 py-1.5">
                   <span className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-foreground">
                     <span aria-hidden className={cn("size-1.5 rounded-full", AGREEMENT_DOT[agreement])} />
-                    {AGREEMENT_STATE_LABEL[agreement]}
+                    {agreementStateLabel(row)}
                   </span>
                 </td>
                 {canSeeMargin ? (
@@ -304,7 +304,11 @@ function EndingTable({ rows, ...props }: ContractsEndingViewProps) {
                       size="sm"
                       variant="outline"
                       onClick={() => props.onRecordAgreement(row)}
-                      title="Porozumienie albo wypowiedzenie podpisane poza NEXUSEM"
+                      title={
+                        row.termination_document
+                          ? `Plik „${row.termination_document.filename}” jest w Dokumentach — zapisz daty z niego`
+                          : "Porozumienie albo wypowiedzenie podpisane poza NEXUSEM"
+                      }
                     >
                       Zapisz rozwiązanie umowy
                     </Button>
@@ -435,7 +439,7 @@ function EndingTimeline({ rows, ...props }: ContractsEndingViewProps) {
                       </span>
                     ) : null}
                     <span className={cn("block text-[11px]", agreement === "open" ? "text-warning-muted-foreground" : "text-muted-foreground")}>
-                      {agreement === "not_applicable" ? "umowa B2B: nie dotyczy" : `umowa ${AGREEMENT_STATE_LABEL[agreement]}`}
+                      {agreement === "not_applicable" ? "umowa B2B: nie dotyczy" : `umowa ${agreementStateLabel(row)}`}
                     </span>
                   </div>
                 </div>

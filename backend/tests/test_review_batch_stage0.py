@@ -863,16 +863,17 @@ async def test_p0_set_during_the_day_gets_cards_without_taking_any(tick_world):
 
     tick_world.setattr(autofill, "_jobs_in_work", _only)
     morning = await autofill.tick(now=_WORKDAY)
-    assert morning["filled"] == {urgent["job_id"]: 4}
+    # 22.11.2026 (R2): 40% porcji czeka na niepilne — z 4 kart 2 + 2.
+    assert morning["filled"] == {urgent["job_id"]: 2, later["job_id"]: 2}
 
     await _p0(later["job_id"], _WORKDAY)
     noon = await autofill.tick(
         now=_WORKDAY + autofill.REPLAN_EVERY + timedelta(minutes=1)
     )
 
-    # P0 z południa dostaje porcję, a karty z rana zostają u osoby.
-    assert noon["filled"] == {later["job_id"]: 4}
-    assert await _owned(urgent["job_id"]) == {r: 4}
+    # P0 z południa dostaje całą porcję, a karty z rana zostają u osoby.
+    assert noon["filled"] == {later["job_id"]: 2}
+    assert await _owned(urgent["job_id"]) == {r: 2}
     async with AsyncSessionLocal() as db:
         queue = await rb.review_queue(db, await db.get(User, r), now=_WORKDAY)
     assert {c.job_id for c in queue[:4]} == {later["job_id"]}

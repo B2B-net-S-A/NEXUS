@@ -103,6 +103,12 @@ export interface CvEditorToolbarProps {
   boldRequirements?: { count: number | null; disabled: boolean; onRun: () => void };
   /** Pozycje „Więcej” spoza treści (polecenie, historia, pliki); grupy rozdziela linia. */
   moreGroups?: readonly (readonly CvEditorMoreItem[])[];
+  /**
+   * Formularze nowego CV („Strona 1”, „Stanowiska”, 22.11.2026): w pasku tylko
+   * cofnij / ponów (bez fokusu kartki — pole zostaje aktywne) i „Więcej”;
+   * formatowanie zaznaczenia nie ma tam sensu, bo kartki nie widać.
+   */
+  historyOnly?: boolean;
 }
 
 export interface CvEditorMoreItem {
@@ -122,6 +128,7 @@ export function CvEditorToolbar({
   disabled = false,
   boldRequirements,
   moreGroups = NO_GROUPS,
+  historyOnly = false,
 }: CvEditorToolbarProps) {
   const { askConfirm, confirmDialog } = useConfirmV2();
   const view = useEditorState({
@@ -148,6 +155,8 @@ export function CvEditorToolbar({
   });
 
   const kindLabel = view.kind ? KIND_LABELS[view.kind] : "—";
+  // Polecenia treści działają na kursorze kartki — w formularzach nowego CV jej nie widać.
+  const contentDisabled = disabled || historyOnly;
   const run = (command: CvCommand) => runCvCommand(editor, command);
   // Menu po zamknięciu oddaje fokus przyciskowi, a polecenie właśnie zaznaczyło
   // pole do wypełnienia — pisanie ma je zastąpić, więc fokus wraca do tekstu.
@@ -185,7 +194,11 @@ export function CvEditorToolbar({
       aria-label="Narzędzia edytora CV"
       // `basis-64`: na telefonie przełączniki widoku schodzą do drugiego wiersza,
       // zamiast zostawiać paskowi kilkadziesiąt pikseli do przewijania.
-      className="relative flex min-w-0 flex-1 basis-64 items-center gap-0.5 overflow-x-auto"
+      className={cn(
+        "relative flex min-w-0 items-center gap-0.5 overflow-x-auto",
+        // Same cofnij / ponów / „Więcej” nie potrzebują szerokości paska formatowania.
+        historyOnly ? "flex-none" : "flex-1 basis-64",
+      )}
     >
       <Button
         type="button"
@@ -193,7 +206,7 @@ export function CvEditorToolbar({
         size="icon-sm"
         aria-label="Cofnij"
         disabled={disabled || !view.canUndo}
-        onClick={() => editor.chain().focus().undo().run()}
+        onClick={() => (historyOnly ? editor.commands.undo() : editor.chain().focus().undo().run())}
       >
         <Undo2 aria-hidden className="h-4 w-4" />
       </Button>
@@ -203,89 +216,93 @@ export function CvEditorToolbar({
         size="icon-sm"
         aria-label="Ponów"
         disabled={disabled || !view.canRedo}
-        onClick={() => editor.chain().focus().redo().run()}
+        onClick={() => (historyOnly ? editor.commands.redo() : editor.chain().focus().redo().run())}
       >
         <Redo2 aria-hidden className="h-4 w-4" />
       </Button>
-      <Divider />
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Pogrubienie"
-        aria-pressed={view.bold}
-        disabled={disabled}
-        className={cn(view.bold && "bg-muted text-primary")}
-        onClick={() => editor.chain().focus().toggleBold().run()}
-      >
-        <Bold aria-hidden className="h-4 w-4" />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Lista punktowana"
-        aria-pressed={view.list}
-        disabled={disabled || view.listLocked}
-        className={cn(view.list && "bg-muted text-primary")}
-        onClick={() => editor.chain().focus().toggleBulletList().run()}
-      >
-        <List aria-hidden className="h-4 w-4" />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Do lewej"
-        aria-pressed={view.align === "left"}
-        disabled={disabled || view.align === null}
-        className={cn(view.align === "left" && "bg-muted text-primary")}
-        onClick={() => run(setCvAlign("left"))}
-      >
-        <AlignLeft aria-hidden className="h-4 w-4" />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Wyjustuj"
-        aria-pressed={view.align === "justify"}
-        disabled={disabled || view.align === null}
-        className={cn(view.align === "justify" && "bg-muted text-primary")}
-        onClick={() => run(setCvAlign("justify"))}
-      >
-        <AlignJustify aria-hidden className="h-4 w-4" />
-      </Button>
-      <Divider />
+      {historyOnly ? null : (
+        <>
+          <Divider />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Pogrubienie"
+            aria-pressed={view.bold}
+            disabled={disabled}
+            className={cn(view.bold && "bg-muted text-primary")}
+            onClick={() => editor.chain().focus().toggleBold().run()}
+          >
+            <Bold aria-hidden className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Lista punktowana"
+            aria-pressed={view.list}
+            disabled={disabled || view.listLocked}
+            className={cn(view.list && "bg-muted text-primary")}
+            onClick={() => editor.chain().focus().toggleBulletList().run()}
+          >
+            <List aria-hidden className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Do lewej"
+            aria-pressed={view.align === "left"}
+            disabled={disabled || view.align === null}
+            className={cn(view.align === "left" && "bg-muted text-primary")}
+            onClick={() => run(setCvAlign("left"))}
+          >
+            <AlignLeft aria-hidden className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Wyjustuj"
+            aria-pressed={view.align === "justify"}
+            disabled={disabled || view.align === null}
+            className={cn(view.align === "justify" && "bg-muted text-primary")}
+            onClick={() => run(setCvAlign("justify"))}
+          >
+            <AlignJustify aria-hidden className="h-4 w-4" />
+          </Button>
+          <Divider />
 
-      {boldRequirements ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="flex-none gap-1 px-2"
-          aria-label={
-            boldRequirements.count === null
-              ? "Pogrub wymagania"
-              : `Pogrub wymagania (${boldRequirements.count})`
-          }
-          disabled={disabled || boldRequirements.disabled || !boldRequirements.count}
-          title={
-            boldRequirements.count === 0
-              ? "Nie ma czego pogrubić: technologie z wymagań klienta są w CV pogrubione albo w CV ich nie ma."
-              : boldRequirements.count === null
-                ? "QC jeszcze sprawdza CV — liczba pojawi się za chwilę."
-                : "Pogrubia w całym CV wymagania klienta, których QC nie widzi pogrubionych. Cofniesz to przyciskiem „Cofnij”."
-          }
-          onClick={boldRequirements.onRun}
-        >
-          <Bold aria-hidden className="h-4 w-4 text-primary" />
-          Pogrub wymagania
-          {boldRequirements.count !== null ? (
-            <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums">{boldRequirements.count}</span>
+          {boldRequirements ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="flex-none gap-1 px-2"
+              aria-label={
+                boldRequirements.count === null
+                  ? "Pogrub wymagania"
+                  : `Pogrub wymagania (${boldRequirements.count})`
+              }
+              disabled={disabled || boldRequirements.disabled || !boldRequirements.count}
+              title={
+                boldRequirements.count === 0
+                  ? "Nie ma czego pogrubić: technologie z wymagań klienta są w CV pogrubione albo w CV ich nie ma."
+                  : boldRequirements.count === null
+                    ? "QC jeszcze sprawdza CV — liczba pojawi się za chwilę."
+                    : "Pogrubia w całym CV wymagania klienta, których QC nie widzi pogrubionych. Cofniesz to przyciskiem „Cofnij”."
+              }
+              onClick={boldRequirements.onRun}
+            >
+              <Bold aria-hidden className="h-4 w-4 text-primary" />
+              Pogrub wymagania
+              {boldRequirements.count !== null ? (
+                <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums">{boldRequirements.count}</span>
+              ) : null}
+            </Button>
           ) : null}
-        </Button>
-      ) : null}
+        </>
+      )}
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -297,7 +314,7 @@ export function CvEditorToolbar({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-64" onCloseAutoFocus={onMoreClosed}>
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger disabled={disabled} className="gap-2">
+            <DropdownMenuSubTrigger disabled={contentDisabled} className="gap-2">
               <Plus aria-hidden className="h-4 w-4" />
               Dodaj
             </DropdownMenuSubTrigger>
@@ -321,7 +338,7 @@ export function CvEditorToolbar({
           </DropdownMenuSub>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger
-              disabled={disabled || view.kindLocked}
+              disabled={contentDisabled || view.kindLocked}
               aria-label={`Typ akapitu: ${kindLabel}`}
               className="gap-1"
             >
@@ -350,7 +367,7 @@ export function CvEditorToolbar({
           </DropdownMenuSub>
           {view.role ? (
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger disabled={disabled} className="gap-1">
+              <DropdownMenuSubTrigger disabled={contentDisabled} className="gap-1">
                 <span className="truncate">
                   <span className="text-muted-foreground">Stanowisko:</span> {view.role}
                 </span>
@@ -376,11 +393,11 @@ export function CvEditorToolbar({
             </DropdownMenuSub>
           ) : null}
           <DropdownMenuSeparator />
-          <DropdownMenuItem disabled={disabled} onSelect={() => run(setCvAlignEverywhere("justify"))}>
+          <DropdownMenuItem disabled={contentDisabled} onSelect={() => run(setCvAlignEverywhere("justify"))}>
             <AlignJustify aria-hidden className="h-4 w-4" />
             Wyjustuj całe CV
           </DropdownMenuItem>
-          <DropdownMenuItem disabled={disabled} onSelect={() => run(setCvAlignEverywhere("left"))}>
+          <DropdownMenuItem disabled={contentDisabled} onSelect={() => run(setCvAlignEverywhere("left"))}>
             <AlignLeft aria-hidden className="h-4 w-4" />
             Całe CV do lewej
           </DropdownMenuItem>

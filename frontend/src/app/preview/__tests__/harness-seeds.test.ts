@@ -575,7 +575,9 @@ describe("/preview/cv-editor (Edytor CV 2) — edytor z pamięci, źródła z za
     expect(harness).toContain("commandApi={backend.commandApi}");
     // „Historia”: wersje i treść pliku Word z pamięci.
     expect(harness).toContain("historyApi={backend.historyApi}");
-    expect(harness).toContain("editorFiles={MEMORY_FILES}");
+    // Pliki z pamięci; przy układzie „Nowe CV” PDF nowego CV z nagłówkami strony 1 (22.11.2026).
+    expect(harness).toContain("editorFiles={backend.editorFiles}");
+    expect(harness).toContain("editorFiles: memoryFiles(editor.layout)");
     expect(harness).toContain("sourceLoaders={SOURCE_LOADERS}");
   });
 

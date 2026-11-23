@@ -13,7 +13,8 @@ Co z tego wynika w silniku:
 
 * pula przeglądu dokłada do ``POOL_EXTRA`` takich osób od ``MIN_SCORE``
   ponad 150 najlepszych (``auto_full_review.refresh_autofill_pool``);
-* porcja i dopełnianie biorą je od ``MIN_SCORE`` zamiast progu porcji;
+* porcja liczy je od progu porcji jak innych (od 22.11.2026, R3: 60–64%
+  dawało 0 CV z 40 decyzji), ``MIN_SCORE`` dotyczy tylko puli;
 * kolejność dostaje ``known_queue_points.SENT_POINTS``;
 * budżet i odległość od biura nie wycinają ich, tylko ostrzegają
   (``new_column_autofill._by_rules``);
@@ -29,7 +30,7 @@ from typing import Iterable, Optional
 from sqlalchemy import select, text
 
 DAYS = 365
-# Próg wyniku dla osób wysłanych wcześniej: 53 z 89 sprawdzonych, wysłanych
+# Próg wyniku dla dołożenia do puli (nie porcji): 53 z 89 sprawdzonych, wysłanych
 # ręcznie 09–19.11, miało od 50% (31 od 65%, poniżej 50% żadna).
 MIN_SCORE = 50.0
 # Ile takich osób pula przeglądu bierze ponad 150 najlepszych.
@@ -67,6 +68,26 @@ def sent_elsewhere_select(job_id: Optional[int], *, now: datetime):
     if job_id is not None:
         query = query.where(CandidateStage.job_id != job_id)
     return query
+
+
+def sent_to_client_select(job, *, now: datetime):
+    """``SELECT candidate_id`` osób wysłanych w ostatnich
+    ``known_queue_points.CLIENT_RECENT_DAYS`` dniach do klienta tej rekrutacji
+    w innej jego rekrutacji (R4, 22.11.2026)."""
+    from app.models.job import Job
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from app.services.known_queue_points import CLIENT_RECENT_DAYS
+
+    return (
+        select(CandidateStage.candidate_id)
+        .join(Job, Job.id == CandidateStage.job_id)
+        .where(
+            CandidateStage.stage == PipelineStage.cv_sent,
+            CandidateStage.moved_at >= now - timedelta(days=CLIENT_RECENT_DAYS),
+            Job.client_id == job.client_id,
+            CandidateStage.job_id != job.id,
+        )
+    )
 
 
 async def facts_for(

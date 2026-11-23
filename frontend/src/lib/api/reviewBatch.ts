@@ -67,13 +67,32 @@ export interface ReviewBatchStatus {
   /** Ile osób dokłada „Dodaj kolejnych”: 20 w porcji, 10 przy celu wg tempa. */
   more_cards?: number
   /** Skład porcji: ile osób z P0, ile z niższych priorytetów; poziom jutro (do 50). */
-  sources?: { p0: number; rest: number; level_next: number; level_cap: number }
+  sources?: ReviewBatchSources
+}
+
+/** Skład porcji. Od 22.11.2026 (R2): pilne (P0 + P1) i pozostałe, ile miejsc
+ * czeka na niepilne (8 z 20) i ile kart odłożono na koniec (R5). */
+export interface ReviewBatchSources {
+  p0: number
+  rest: number
+  level_next: number
+  level_cap: number
+  urgent?: number
+  other?: number
+  other_seats?: number
+  stale?: number
 }
 
 export interface ReviewBatchSentBefore {
   count: number
   last_days: number
   last_job_title: string
+}
+
+export interface ReviewBatchClientRecent {
+  days: number | null
+  job_id: number
+  job_title: string
 }
 
 export interface ReviewBatchCaution {
@@ -117,6 +136,12 @@ export interface ReviewBatchItem {
   /** Wysłany do klienta w innej rekrutacji w ostatnim roku (20.11.2026). */
   sent_before?: ReviewBatchSentBefore | null
   why?: ReviewBatchWhy
+  /** Wysłany w ostatnich 14 dniach do tego klienta w innej rekrutacji (R4). */
+  client_recent?: ReviewBatchClientRecent | null
+  /** Bez decyzji od 2 dni roboczych: na końcu kolejki, nie zajmuje miejsca (R5). */
+  stale?: boolean
+  /** Dzień dodania karty (kalendarz firmy), RRRR-MM-DD. */
+  opened_on?: string | null
   /** „Kluczowe w tej rekrutacji”: krytyczne z dowodem i polski. */
   key_facts?: ReviewBatchKeyFacts | null
 }

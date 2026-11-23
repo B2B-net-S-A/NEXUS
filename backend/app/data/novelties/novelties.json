@@ -4297,6 +4297,84 @@
     ]
   },
   {
+    "id": "porcja-pilne-12-pozostale-8",
+    "pr": 3725,
+    "title": "Porcja dnia: 12 osób z pilnych i 8 z pozostałych rekrutacji",
+    "why": "Pilne idą pierwsze, ale 8 z 20 miejsc czeka na Twoje pozostałe rekrutacje. Osoby bez decyzji od 2 dni roboczych schodzą na koniec, a system dokłada świeże.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia → skład porcji pod paskiem",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.sources",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
+    "id": "podpis-dokumenty-kodem-z-maila",
+    "pr": 3727,
+    "title": "Dokumenty do startu: kwalifikowany tylko przy umowie",
+    "why": "Kwalifikowany podpis jest potrzebny tylko przy umowie. NDA i inne dokumenty kontraktor podpisze nim albo zaakceptuje kodem z maila. Wymóg klienta zaznaczysz w oknie wysyłki.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "talent_community_manager",
+        "admin",
+        "finance",
+        "back_office"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → Umowa → Wyślij do podpisu (też Generator umów)",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990115",
+    "section": "pipeline",
+    "dot_anchor": "b2b.esign.package",
+    "steps": [
+      {
+        "anchor": "person.dock.contract",
+        "text": "W panelu osoby kliknij „Umowa →”.",
+        "hint": "Otworzy się zakładka „Umowa” z umową tej osoby."
+      },
+      {
+        "anchor": "b2b.esign.send",
+        "text": "Kliknij „Wyślij do podpisu”.",
+        "hint": "Okno niczego nie wyśle, dopóki nie zaznaczysz potwierdzenia i nie klikniesz „Wyślij”."
+      },
+      {
+        "anchor": "b2b.esign.package",
+        "text": "Przy każdym dokumencie widać, jaki podpis jest potrzebny.",
+        "hint": "Umowa zawsze kwalifikowanym. Przy NDA zaznacz „klient wymaga kwalifikowanego”, gdy klient tego chce. Inaczej wystarczy kod z maila.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "porcja-wyslany-do-tego-klienta",
+    "pr": 3726,
+    "title": "Porcja dnia: „Wysłany do tego klienta” na początku",
+    "why": "Osoba wysłana w ostatnich 14 dniach do tego klienta w innej jego rekrutacji idzie na początek porcji. Karta mówi, kiedy i do której rekrutacji poszła.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia → karta osoby",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.client-recent",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",

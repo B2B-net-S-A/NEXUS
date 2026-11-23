@@ -137,6 +137,9 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "autenti_sweeper",
         "signature_reconciler",
         "b2b_esign_sweeper",
+        # Lista zaufanych UE z ec.europa.eu i serwerów krajowych: zapora i tak
+        # by ją zatrzymała, a walidacja na stagingu pobierze ją sama.
+        "trusted_list_prewarm",
         "pre_contract_sweeper",
         "start_documents_sweeper",
         "job_deadline_alerts",

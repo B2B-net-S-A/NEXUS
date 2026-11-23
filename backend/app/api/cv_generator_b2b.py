@@ -1692,6 +1692,8 @@ class ClientCvRuleForGeneration(BaseModel):
     # Baner pokazuje rekruterowi, czym model kształtował dokument.
     notes: Optional[str] = None
     generator_instructions: Optional[str] = None
+    # Domyślny układ CV klienta (22.11.2026); `null` = flaga „Nowego CV” wyłączona.
+    cv_layout: Optional[Literal["classic", "new"]] = None
 
 
 @router.get(
@@ -1724,6 +1726,11 @@ async def client_rule_for_generation(
     if client is None:
         raise HTTPException(status_code=404, detail="Klient nie został znaleziony.")
     client_name = (client.display_name or "").strip() or client.name
+    cv_layout = (
+        await layout_service.default_for_client(db, client.id)
+        if layout_service.enabled()
+        else None
+    )
     rule = await resolve_client_rule(db, client.id)
     if rule is None:
         has_row = await db.scalar(
@@ -1733,6 +1740,7 @@ async def client_rule_for_generation(
             client_id=client.id,
             client_name=client_name,
             client_policy="" if has_row is not None else None,
+            cv_layout=cv_layout,
         )
     snap = snapshot_rule(rule)
     access = await resolve_client_access(db, current_user, client.id, purpose="org")
@@ -1760,6 +1768,7 @@ async def client_rule_for_generation(
         generator_instructions=(
             rule.generator_instructions if sees_client_knowledge else None
         ),
+        cv_layout=cv_layout,
     )
 
 
@@ -2557,8 +2566,14 @@ async def enqueue_candidate_generation(
             stage_id=stage_id,
             force_both=worker_languages == "both",
         ),
+        # Układ z reguły klienta czyta ta sama funkcja co karta (także przy
+        # zasadach centralnych, gdzie `rule` bywa zbudowana w pamięci).
         cv_layout=layout_service.requested(cv_layout)
-        or (layout_service.rule_layout(rule) if layout_service.enabled() else None),
+        or (
+            await layout_service.default_for_client(db, client_id)
+            if layout_service.enabled()
+            else None
+        ),
     )
     from app.services.cv_generator_b2b.durable_jobs import persist_job
 

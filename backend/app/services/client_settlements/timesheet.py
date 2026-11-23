@@ -182,6 +182,21 @@ def _cell(row: list[Any], columns: Mapping[str, int], key: str) -> Any:
     return row[index] if index is not None and index < len(row) else None
 
 
+def is_sum_row(
+    day: Optional[date],
+    label: Optional[str],
+    hours: Decimal,
+    table: Iterable[Any],
+) -> bool:
+    """Wiersz bez daty i opisu z godzinami równymi sumie co najmniej dwóch
+    wcześniejszych wpisów tabeli to suma pod tabelą, nie praca."""
+
+    rows = list(table)
+    if day is not None or label or len(rows) < 2:
+        return False
+    return abs(sum((e.hours for e in rows), Decimal("0")) - hours) <= TOLERANCE
+
+
 def parse_rows(sheets: Iterable[list[list[Any]]]) -> Optional[ParsedTimesheet]:
     """Wiersze arkuszy → Time Sheet. Wydzielone, żeby testy nie wymagały XLSX."""
 
@@ -191,6 +206,7 @@ def parse_rows(sheets: Iterable[list[list[Any]]]) -> Optional[ParsedTimesheet]:
     found_table = False
     for rows in sheets:
         columns: Optional[dict[str, int]] = None
+        table: list[TsEntry] = []
         for row in rows:
             for i, cell in enumerate(row):
                 key = _HEADER_LABELS.get(_label(cell) or "")
@@ -200,7 +216,7 @@ def parse_rows(sheets: Iterable[list[list[Any]]]) -> Optional[ParsedTimesheet]:
                         header[key] = value
             new_columns = _header_columns(row)
             if new_columns is not None:
-                columns, found_table = new_columns, True
+                columns, found_table, table = new_columns, True, []
                 continue
             if columns is None:
                 continue
@@ -232,15 +248,21 @@ def parse_rows(sheets: Iterable[list[list[Any]]]) -> Optional[ParsedTimesheet]:
             )
             if hours is None or hours <= 0:
                 continue
-            entries.append(
-                TsEntry(
-                    day=_day(_cell(row, columns, "date")),
-                    project=_text(_cell(row, columns, "project")),
-                    description=description or "",
-                    hours=hours,
-                    task_id=_text(_cell(row, columns, "task_id")),
-                )
+            entry = TsEntry(
+                day=_day(_cell(row, columns, "date")),
+                project=_text(_cell(row, columns, "project")),
+                description=description or "",
+                hours=hours,
+                task_id=_text(_cell(row, columns, "task_id")),
             )
+            if is_sum_row(entry.day, entry.project or entry.description, hours, table):
+                # Suma pod tabelą bez etykiety „Total Hours” (próba 22.11.2026:
+                # szła jako wpis projektu z nagłówka i podwajała MD).
+                declared = (declared or Decimal("0")) + hours
+                columns = None
+                continue
+            table.append(entry)
+            entries.append(entry)
     if not found_table:
         return None
     return ParsedTimesheet(

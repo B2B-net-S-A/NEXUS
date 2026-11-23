@@ -77,3 +77,49 @@ def test_misconfiguration_codes(monkeypatch) -> None:
     )
     assert route.misconfiguration(None) == "route_not_shared"
     assert route.misconfiguration(route.settlements_addresses()) is None
+
+
+# ── Raport godzin klienta na wsparcie@ (Nordea, 23.11.2026) ─────────────────
+
+
+def _from(sender: str, subject: str = "", attachments: bool = True) -> dict:
+    return {
+        "hasAttachments": attachments,
+        "subject": subject,
+        "from": {"emailAddress": {"address": sender}},
+        "toRecipients": [{"emailAddress": {"address": "wsparcie@example.com"}}],
+        "ccRecipients": [],
+    }
+
+
+@pytest.fixture
+def senders(monkeypatch):
+    monkeypatch.setattr(
+        settings, "CONSULTANT_PORTAL_TIME_REPORT_SENDERS", "klient-raporty.example"
+    )
+
+
+def test_client_time_report_on_support_address_goes_to_settlements(addresses, senders):
+    """Cost Control wysyła raport T4T na wsparcie@ bez adresu rozliczeń: bez tej
+    reguły raport zostałby sprawą, a NEXUS nie miałby godzin Nordei."""
+
+    msg = _from("costcontrol@KLIENT-raporty.example", "RE: Raport październik 2026")
+    assert route.is_settlements_mail(msg, route.settlements_addresses())
+
+
+def test_finance_forward_with_t4t_in_subject_goes_to_settlements(addresses, senders):
+    msg = _from("koordynatorka@firma.example", "FW: T4T październik")
+    assert route.is_settlements_mail(msg, route.settlements_addresses())
+    msg = _from("koordynatorka@firma.example", "FW: Time for Teams report")
+    assert route.is_settlements_mail(msg, route.settlements_addresses())
+
+
+def test_other_mail_on_support_address_stays_a_case(addresses, senders):
+    assert not route.is_settlements_mail(
+        _from("ktos@inna.example", "Wniosek urlopowy"), route.settlements_addresses()
+    )
+    # Bez załącznika nawet od nadawcy raportów to sprawa (pytanie, odpowiedź).
+    assert not route.is_settlements_mail(
+        _from("costcontrol@klient-raporty.example", "Pytanie", attachments=False),
+        route.settlements_addresses(),
+    )

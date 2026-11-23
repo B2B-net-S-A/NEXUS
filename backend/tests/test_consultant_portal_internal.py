@@ -580,6 +580,67 @@ async def test_two_people_in_subject_wait_for_assignment() -> None:
     assert [row.contract_id for row in await _documents()] == [None]
 
 
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_files_of_two_people_go_each_to_the_person_in_its_name() -> None:
+    """Koordynator wysyła protokoły zespołu jednym mailem (próba IX–X 2026, Orlen)."""
+    first = await make_person(activated=False)
+    second = await make_person(activated=False)
+    message = _message("m1", "koordynator@firma.example.com")
+    message["subject"] = "protokoły"
+    reader = FakeMailbox(
+        [message],
+        {
+            "m1": [
+                _attachment(f"PROTOKÓŁ_ {await _full_name(first)}_09.2026.pdf", PDF),
+                _attachment(
+                    f"PROTOKÓŁ_ {await _full_name(second)}_09.2026.pdf",
+                    b"%PDF-1.4 drugi raport",
+                ),
+                _attachment("protokół zbiorczy.pdf", b"%PDF-1.4 zbiorczy"),
+                _attachment(f"Umowa {await _full_name(first)}.pdf", b"%PDF-1.4 umowa"),
+            ]
+        },
+    )
+    await _read(reader)
+    owners = {r.file_name: r.contract_id for r in await _documents()}
+    assert owners == {
+        f"PROTOKÓŁ_ {await _full_name(first)}_09.2026.pdf": first.contract_id,
+        f"PROTOKÓŁ_ {await _full_name(second)}_09.2026.pdf": second.contract_id,
+        "protokół zbiorczy.pdf": None,
+        # Plik bez słowa raportu albo faktury w nazwie nie idzie do osoby.
+        f"Umowa {await _full_name(first)}.pdf": None,
+    }
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_file_naming_two_people_waits_for_assignment() -> None:
+    first = await make_person(activated=False)
+    second = await make_person(activated=False)
+    message = _message("m1", "koordynator@firma.example.com")
+    name = f"TS {await _full_name(first)} i {await _full_name(second)}.pdf"
+    reader = FakeMailbox([message], {"m1": [_attachment(name, PDF)]})
+    await _read(reader)
+    assert [row.contract_id for row in await _documents()] == [None]
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_names_in_files_from_outside_address_wait_for_assignment() -> None:
+    first = await make_person(activated=False)
+    second = await make_person(activated=False)
+    message = _message("m1", "ktos@poczta.example.com")
+    reader = FakeMailbox(
+        [message],
+        {
+            "m1": [
+                _attachment(f"TS {await _full_name(first)}.pdf", PDF),
+                _attachment(f"TS {await _full_name(second)}.pdf", b"%PDF-1.4 drugi"),
+            ]
+        },
+    )
+    await _read(reader)
+    assert [row.contract_id for row in await _documents()] == [None, None]
+
+
 @pytest.mark.usefixtures("internal")
 async def test_forwarded_notice_without_settlement_name_waits() -> None:
     """Wypowiedzenie przekazane z łańcuchem konsultanta nie jest jego fakturą."""

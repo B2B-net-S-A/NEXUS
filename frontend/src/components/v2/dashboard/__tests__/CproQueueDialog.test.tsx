@@ -11,7 +11,7 @@ const showError = vi.fn();
 const copyTextToClipboard = vi.fn();
 const fetchAuthenticatedDownload = vi.fn();
 const downloadBlob = vi.fn();
-const fetchStageCvFile = vi.fn();
+const fetchStageCvForClient = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
@@ -31,7 +31,7 @@ vi.mock("@/lib/clipboard", () => ({
   copyTextToClipboard: (...a: unknown[]) => copyTextToClipboard(...a),
 }));
 vi.mock("@/lib/stage-cv-file", () => ({
-  fetchStageCvFile: (...a: unknown[]) => fetchStageCvFile(...a),
+  fetchStageCvForClient: (...a: unknown[]) => fetchStageCvForClient(...a),
 }));
 vi.mock("@/lib/authenticated-files", () => ({
   fetchAuthenticatedDownload: (...a: unknown[]) => fetchAuthenticatedDownload(...a),
@@ -214,15 +214,27 @@ describe("CproQueueDialog — kolejka Cpro, jedna osoba na firmę", () => {
 
   it("runda 7 (R7-X4-2): CV firmowe etapu (po QC) ma pierwszeństwo przed generatorem", async () => {
     queue.jobs[0].items[0].cv = { stage_id: 81, generated_document_id: 5, document_id: null };
-    fetchStageCvFile.mockResolvedValue({ blob: new Blob(["po-qc"]), filename: "CV_po_QC.docx" });
+    fetchStageCvForClient.mockResolvedValue({ blob: new Blob(["po-qc"]), filename: "CV_po_QC.docx" });
     renderDialog();
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(
       await within(dialog).findByRole("button", { name: "Pobierz CV: Robert Zieliński" }),
     );
-    await waitFor(() => expect(fetchStageCvFile).toHaveBeenCalledWith(81, { download: "cpro" }));
+    await waitFor(() => expect(fetchStageCvForClient).toHaveBeenCalledWith(81, { download: "cpro" }));
     expect(fetchAuthenticatedDownload).not.toHaveBeenCalled();
     expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "CV_po_QC.docx");
+  });
+
+  it("Nowe CV (22.11.2026): z kolejki Cpro schodzi PDF nowego układu", async () => {
+    queue.jobs[0].items[0].cv = { stage_id: 81, generated_document_id: 5, document_id: null };
+    fetchStageCvForClient.mockResolvedValue({ blob: new Blob(["%PDF"]), filename: "B2B_Tester.pdf" });
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(
+      await within(dialog).findByRole("button", { name: "Pobierz CV: Robert Zieliński" }),
+    );
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "B2B_Tester.pdf"));
+    expect(fetchAuthenticatedDownload).not.toHaveBeenCalled();
   });
 
   it("odmowa schowka — komunikat zamiast fałszywego „skopiowano”", async () => {

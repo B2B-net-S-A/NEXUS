@@ -36,6 +36,11 @@
 // i strona pisze, z jaką uwagą. `handoff-blocking` ma blokady QC — przycisk to
 // „Przekaż mimo uwag…”, które otwiera okno obejścia QC; jego zapis idzie przez
 // API, więc w harnessie kończy się komunikatem o wyłączonej sieci.
+//
+// `?layout=new` (22.11.2026): CV w układzie „Nowe CV” z zakładkami „Strona 1”
+// i „Stanowiska” (`new-layout-fixture.ts`). „Najmocniejszy wynik” i „Inny
+// wynik” zapisują się w pamięci, a podgląd strony to statyczny PDF z renderu
+// serwera z nagłówkami jak z trasy („Strona 1 z N · mieści się · pismo 10 pt”).
 
 import { useEffect, useMemo, useState } from "react";
 import { AxiosError, type AxiosResponse } from "axios";
@@ -57,6 +62,7 @@ import {
   type CVBrandedFinalizeResponseT,
   type CVBrandedState,
   type CVOriginalSnapshot,
+  type CvPage1Extras,
 } from "@/lib/api";
 import { plainBriefQueryKey, type PlainBrief } from "@/lib/api/plainKnowledge";
 import { stageBrandedQueryKey } from "@/lib/cv-to-client";
@@ -64,6 +70,7 @@ import { useAuthStore } from "@/store/auth";
 
 import { memoryCommandApi } from "./command-fixture";
 import { memoryHistoryApi } from "./history-fixture";
+import { NEW_LAYOUT_CV_HTML, NEW_LAYOUT_EXTRAS, NEW_LAYOUT_HEADERS, NEW_LAYOUT_PDF } from "./new-layout-fixture";
 import {
   GENERATOR_ONLY_WARNINGS,
   memoryIssuesApi,
@@ -146,6 +153,8 @@ const TENURE_CV_HTML = withTenureExamples(CV_HTML);
 
 function brandedState(state: HarnessState): CVBrandedState {
   const finalized = state === "finalized";
+  const layout = harnessLayout();
+  const newLayout = layout.cv_layout === "new" && (state === "draft" || finalized);
   return {
     presentation_review:
       state === "conflict"
@@ -167,7 +176,9 @@ function brandedState(state: HarnessState): CVBrandedState {
           ? withoutBlocking(CV_HTML)
           : state === "lata"
             ? TENURE_CV_HTML
-            : CV_HTML,
+            : newLayout
+              ? NEW_LAYOUT_CV_HTML
+              : CV_HTML,
     template: "standard",
     language: "pl",
     updated_at: "2026-10-12T12:32:00Z",
@@ -179,7 +190,8 @@ function brandedState(state: HarnessState): CVBrandedState {
     snapshot_filename: finalized ? "cv-v2.html" : null,
     rendered_from_default: false,
     // `?layout=new|classic` — wybór układu jak przy włączonej fladze (22.11.2026).
-    ...harnessLayout(),
+    ...layout,
+    page1_extras: newLayout ? NEW_LAYOUT_EXTRAS : null,
   };
 }
 
@@ -194,12 +206,24 @@ function respond<T>(data: T): Promise<AxiosResponse<T>> {
 }
 
 /** Edytor na stanie z pamięci: zapis podbija wersję roboczą, nic nie idzie do API. */
-function memoryApi(initial: CVBrandedState): { api: CvEditorApi; savedHtml: () => string } {
+function memoryApi(initial: CVBrandedState): {
+  api: CvEditorApi;
+  savedHtml: () => string;
+  layout: () => CVBrandedState["cv_layout"];
+} {
   let current = initial;
   const api: CvEditorApi = {
     get: () => respond(current),
     setLayout: (_id, cv_layout) => {
       current = { ...current, cv_layout };
+      return respond(current);
+    },
+    // Te same reguły co `PATCH …/cv/page1`: wybór z listy czyści wpisane zdanie, gdy przyjdzie `null`.
+    setPage1: (_id, payload) => {
+      const extras: CvPage1Extras = { ...(current.page1_extras ?? {}) };
+      if ("result_index" in payload) extras.result_index = payload.result_index ?? null;
+      if ("result_text" in payload) extras.result_text = payload.result_text?.trim() || null;
+      current = { ...current, page1_extras: extras };
       return respond(current);
     },
     update: (_id, payload) => {
@@ -239,7 +263,7 @@ function memoryApi(initial: CVBrandedState): { api: CvEditorApi; savedHtml: () =
       });
     },
   };
-  return { api, savedHtml: () => current.content_html ?? "" };
+  return { api, savedHtml: () => current.content_html ?? "", layout: () => current.cv_layout };
 }
 
 async function staticFile(path: string): Promise<Blob> {
@@ -256,14 +280,21 @@ const PDF_FILE = "/preview/cv-search/cv-tekst.pdf";
 
 // Statyczny plik zamiast renderu z treści: w harnessie nie ma serwera, który
 // złożyłby Word. Układ podglądu i przełącznik widać, treść jest przykładowa.
-const MEMORY_FILES: CvEditorFiles = {
-  draftDocx: async () => ({ blob: await staticFile(WORD_FILE), filename: "SZKIC_CV_przyklad.docx" }),
-  downloadApproved: async () => undefined,
-  previewApproved: () => staticFile(WORD_FILE),
-  draftPdf: async () => ({ blob: await staticFile(PAGES_FILE), filename: "SZKIC_CV_przyklad.pdf" }),
-  approvedPdf: async () => ({ blob: await staticFile(PAGES_FILE), filename: "CV_przyklad.pdf" }),
-  print: async () => undefined,
-};
+// Układ „Nowe CV” dostaje PDF z renderu nowego CV i nagłówki strony 1.
+function memoryFiles(layout: () => CVBrandedState["cv_layout"]): CvEditorFiles {
+  const pdf = async (filename: string) =>
+    layout() === "new"
+      ? { blob: await staticFile(NEW_LAYOUT_PDF), filename, headers: new Headers(NEW_LAYOUT_HEADERS) }
+      : { blob: await staticFile(PAGES_FILE), filename };
+  return {
+    draftDocx: async () => ({ blob: await staticFile(WORD_FILE), filename: "SZKIC_CV_przyklad.docx" }),
+    downloadApproved: async () => undefined,
+    previewApproved: () => staticFile(WORD_FILE),
+    draftPdf: () => pdf("SZKIC_CV_przyklad.pdf"),
+    approvedPdf: () => pdf("CV_przyklad.pdf"),
+    print: async () => undefined,
+  };
+}
 
 const SOURCE_LOADERS = {
   loadDocumentBlob: () => staticFile(PDF_FILE),
@@ -402,6 +433,7 @@ export default function CvEditorPreviewPage() {
       state === "qcdown" ? "down" : state === "clean" ? "clean" : state === "redakcja" ? "redakcja" : "issues";
     return {
       editorApi: editor.api,
+      editorFiles: memoryFiles(editor.layout),
       issuesApi: memoryIssuesApi(editor.savedHtml, variant),
       commandApi: memoryCommandApi(state === "aidown"),
       historyApi: memoryHistoryApi(initial.content_html ?? ""),
@@ -492,7 +524,7 @@ export default function CvEditorPreviewPage() {
           handoff={backend.handoff}
           onRewrite={state === "nosources" ? undefined : setRewrite}
           generatorWarnings={state === "nosources" ? GENERATOR_ONLY_WARNINGS : undefined}
-          editorFiles={MEMORY_FILES}
+          editorFiles={backend.editorFiles}
           sourceLoaders={SOURCE_LOADERS}
           {...target}
         />

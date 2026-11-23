@@ -145,7 +145,7 @@ export function SendForSignatureDialog({
                     {
                       value: "nexus" as const,
                       title: "W NEXUSIE — podpis kwalifikowany",
-                      text: "Kontraktor dostaje link, podpisuje i wgrywa plik. Potem podpis za B2Bnetwork w NEXUSIE. Podpisany PDF zostaje przy kontrakcie.",
+                      text: "Kontraktor dostaje link: umowę podpisuje kwalifikowanym i wgrywa plik, pozostałe dokumenty może zaakceptować kodem z maila. Potem podpis za B2Bnetwork w NEXUSIE. Podpisany PDF zostaje przy kontrakcie.",
                     },
                     {
                       value: "usual" as const,
