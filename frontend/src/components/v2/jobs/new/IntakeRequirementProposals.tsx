@@ -51,8 +51,18 @@ export function IntakeRequirementProposals({
     ),
   );
   const showCritical = !hasCritical && !noCritical && proposed.length > 0;
+  // Wariant 1 (23.11.2026): odczyt wstawia propozycję sam — tu mówimy skąd się
+  // wzięła i dajemy jedno kliknięcie, żeby ją zdjąć.
+  const applied = proposed.filter((item) =>
+    rows.some(
+      (row) =>
+        row.level === "critical" &&
+        row.words[0]?.trim().toLocaleLowerCase("pl") === item.label.trim().toLocaleLowerCase("pl"),
+    ),
+  );
+  const showApplied = !noCritical && applied.length > 0;
   const missing = missingTechnologies(rows, mailTechnologies);
-  if (!showCritical && missing.length === 0) return null;
+  if (!showCritical && !showApplied && missing.length === 0) return null;
   return (
     <div
       className="flex flex-col gap-2"
@@ -86,6 +96,32 @@ export function IntakeRequirementProposals({
               Wybiorę sam
             </Button>
           </div>
+        </div>
+      ) : null}
+      {showApplied ? (
+        <div
+          role="note"
+          className="flex flex-wrap items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-foreground"
+          data-testid="intake-critical-applied"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="font-medium">
+              Krytyczne: {applied.map((item) => `„${item.label}”`).join(", ")}
+            </span>{" "}
+            — wstawione z propozycji AI (
+            {applied
+              .map((item) =>
+                item.reason.startsWith("technologia") ? item.reason : `klient pisze „${item.reason}”`,
+              )
+              .join("; ")}
+            ). Zmienisz je poziomem wiersza.
+          </span>
+          <Button type="button" size="sm" variant="outline" onClick={onNoCritical}>
+            Brak krytycznych
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={onDismissCritical}>
+            OK
+          </Button>
         </div>
       ) : null}
       {missing.length > 0 ? (

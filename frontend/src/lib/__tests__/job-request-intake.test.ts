@@ -24,6 +24,7 @@ import {
   joinCities,
   keyTaskQuestion,
   markKeyTaskQuestion,
+  confirmKeyTask,
   loadTemplateSource,
   markEdited,
   missingBySection,
@@ -114,9 +115,9 @@ const LEGACY_INTAKE: RequestIntakeResponse = {
   ],
 };
 
-/** Formularz gotowy do searchu: pytania zatwierdzone, kategoria potwierdzona. */
+/** Formularz gotowy do searchu: pytania zatwierdzone, kategoria potwierdzona, zadanie zatwierdzone. */
 const complete = (): IntakeForm => ({
-  ...approveQuestions(formFromIntake(INTAKE)),
+  ...confirmKeyTask(approveQuestions(formFromIntake(INTAKE))),
   competenceCategoryId: 2,
   suggestedCategoryId: 2,
   categoryConfirmed: true,
@@ -304,8 +305,19 @@ describe("missingFor — lustro bramki „Przekaż do searchu”", () => {
     expect(missingFor(complete())).toEqual([]);
   });
 
-  it("świeży odczyt czeka na zatwierdzenie pytań i potwierdzenie kategorii", () => {
-    expect(missingFor(formFromIntake(INTAKE))).toEqual(["questions_review", "category"]);
+  it("świeży odczyt czeka tylko na zatwierdzenie zadania zaproponowanego przez AI", () => {
+    // 23.11.2026 (wariant 1): pytania i kategorię zatwierdza „Utwórz”.
+    // Kategoria przychodzi z podpowiedzi serwera chwilę po odczycie.
+    const fresh = { ...formFromIntake(INTAKE), competenceCategoryId: 2 };
+    expect(fresh.keyTaskProposed).toBe(true);
+    expect(missingFor(fresh)).toEqual(["key_task"]);
+    expect(missingFor(confirmKeyTask(fresh))).toEqual([]);
+  });
+
+  it("zadanie wpisane albo poprawione przez DL nie jest już propozycją", () => {
+    const fresh = { ...formFromIntake(INTAKE), competenceCategoryId: 2 };
+    expect(missingFor({ ...fresh, keyTaskProposed: false })).toEqual([]);
+    expect(formFromIntake({ ...INTAKE, key_task: null }).keyTaskProposed).toBe(false);
   });
 
   it("pusty formularz wymienia wszystko poza biurem (tryb nieznany)", () => {
@@ -459,9 +471,9 @@ describe("missingFor — lustro bramki „Przekaż do searchu”", () => {
     expect(missingFor(blank)).toEqual([]);
   });
 
-  it("zatwierdzenie pytań wchodzi dopiero, gdy każde ma odpowiedź, która odpada", () => {
+  it("pytania od AI zatwierdza „Utwórz” — brakiem jest tylko pusta odpowiedź, która odpada", () => {
     const pending = { ...complete(), questions: formFromIntake(INTAKE).questions };
-    expect(missingFor(pending)).toEqual(["questions_review"]);
+    expect(missingFor(pending)).toEqual([]);
     const noBreaker = {
       ...pending,
       questions: pending.questions.map((q, i) => (i === 0 ? { ...q, dealBreaker: "" } : q)),
@@ -469,9 +481,9 @@ describe("missingFor — lustro bramki „Przekaż do searchu”", () => {
     expect(missingFor(noBreaker)).toEqual(["deal_breaker"]);
   });
 
-  it("kategoria: brak wyboru i wybór bez „Potwierdzam” to ten sam brak", () => {
+  it("kategoria: brakiem jest tylko brak wyboru — podpowiedź potwierdza „Utwórz”", () => {
     expect(missingFor({ ...complete(), competenceCategoryId: null })).toEqual(["category"]);
-    expect(missingFor({ ...complete(), categoryConfirmed: false })).toEqual(["category"]);
+    expect(missingFor({ ...complete(), categoryConfirmed: false })).toEqual([]);
   });
 
   it("nagłówek odmienia liczebnik", () => {
@@ -1256,8 +1268,8 @@ describe("„Skopiuj jako szablon” nie kasuje pól spoza formularza (runda 6 a
       "brak Kafki",
       "tylko UoP",
     ]);
-    // Kopia pytań czeka na zatwierdzenie — sam deal breaker nie wystarcza.
-    expect(missingFor(next)).toContain("questions_review");
+    // 23.11.2026: kopię pytań z deal breakerem zatwierdza „Utwórz”.
+    expect(missingFor(next)).not.toContain("questions_review");
   });
 
   it("brak lat w formularzu nie wysyła `null` (serwer scala `basics` płytko)", () => {
