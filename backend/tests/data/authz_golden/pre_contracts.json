@@ -47,7 +47,9 @@
   "POST /api/pre-contracts/{request_id}/fulfilled": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
   "POST /api/pre-contracts/{request_id}/penalty-decision": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
   "POST /api/pre-contracts/{request_id}/sent": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "POST /api/pre-contracts/{request_id}/stop": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
   "POST /api/pre-contracts/{request_id}/watch": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
-  "POST /api/pre-contracts/{request_id}/withdraw": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP"
+  "POST /api/pre-contracts/{request_id}/withdraw": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "PUT /api/jobs/{job_id}/pre-contract-rule": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP"
  }
 }

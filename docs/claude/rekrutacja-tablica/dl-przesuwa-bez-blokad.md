@@ -23,7 +23,8 @@ Decyzje Artura 22.10.2026 (wszystkie rekomendowane warianty):
 - **Zostaje dla wszystkich:** QC CV przed wysyłką (DL ma „Przepuść mimo QC”), stawka
   do klienta przy „CV wysłane”, sposób podpisu przy „Zatrudniony”, umowa w podpisie
   w NEXUSIE, ostrzeżenie o czarnej liście i wecie HM, rezerwacja 12 h (DL i tak ją
-  omija). Ruch zbiorczy (`/bulk-move`) i API integracji (konto serwisowe bez
+  omija), a od 23.11.2026 stop do podpisu przedwstępnej
+  (`stop-do-podpisu-przedwstepnej.md`; DL zdejmuje go jawnie, nie omija). Ruch zbiorczy (`/bulk-move`) i API integracji (konto serwisowe bez
   uprawnień) bramek nie omijają.
 - **D2 — bez okna, z „Cofnij”.** Na Tablicy strzałka DL-a nie jest szara przez
   braki pól (`knownForwardGap(…, { skipsFillGates })` zna mu tylko QC), okno

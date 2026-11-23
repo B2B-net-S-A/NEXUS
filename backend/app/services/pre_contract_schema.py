@@ -96,3 +96,22 @@ DOWNGRADE_DDL = (
     "DROP TABLE IF EXISTS pre_contract_watchers",
     "DROP TABLE IF EXISTS pre_contract_requests",
 )
+
+# 0762 (23.11.2026, decyzje Artura): „Zatrzymaj do podpisu” — ustawienie
+# rekrutacji (`jobs.pre_contract_rule`: etap + stop, kto i kiedy) i wybór przy
+# prośbie o osobę (`blocks_move`: NULL = jak rekrutacja, true = stop,
+# false = wyjątek). Reguła: docs/claude/rekrutacja-tablica/stop-do-podpisu-przedwstepnej.md.
+STOP_DDL = (
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS pre_contract_rule JSONB NULL",
+    "ALTER TABLE pre_contract_requests ADD COLUMN IF NOT EXISTS blocks_move BOOLEAN NULL",
+    "ALTER TABLE pre_contract_requests ADD COLUMN IF NOT EXISTS blocks_set_by INTEGER NULL "
+    "REFERENCES users (id) ON DELETE SET NULL",
+    "ALTER TABLE pre_contract_requests ADD COLUMN IF NOT EXISTS blocks_set_at TIMESTAMPTZ NULL",
+)
+
+STOP_DOWNGRADE_DDL = (
+    "ALTER TABLE pre_contract_requests DROP COLUMN IF EXISTS blocks_set_at",
+    "ALTER TABLE pre_contract_requests DROP COLUMN IF EXISTS blocks_set_by",
+    "ALTER TABLE pre_contract_requests DROP COLUMN IF EXISTS blocks_move",
+    "ALTER TABLE jobs DROP COLUMN IF EXISTS pre_contract_rule",
+)

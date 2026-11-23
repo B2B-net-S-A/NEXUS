@@ -3,6 +3,7 @@
 import * as React from"react";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from"react";
 import { invalidatePreContract, preContractsApi } from "@/lib/api/preContracts";
+import { PRE_CONTRACT_STOP_GAP } from "@/lib/pre-contract-stop";
 import { useQueryClient } from"@tanstack/react-query";
 import Link from"next/link";
 import { Alert } from"@/components/ui/alert";
@@ -1646,12 +1647,18 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  }
  className={cn(
  "ml-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
- forwardGap
+ forwardGap === PRE_CONTRACT_STOP_GAP
+ ? "border-destructive/50 bg-destructive/10 text-destructive"
+ : forwardGap
  ? "border-border bg-muted text-muted-foreground hover:text-foreground"
  : "border-primary/40 text-primary hover:bg-primary hover:text-primary-foreground"
  )}
  >
+ {forwardGap === PRE_CONTRACT_STOP_GAP ? (
+ <Lock className="h-3 w-3" aria-hidden="true" />
+ ) : (
  <ArrowRight className="h-3 w-3" aria-hidden="true" />
+ )}
  </button>
  ) : null
  }

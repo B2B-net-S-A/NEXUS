@@ -126,6 +126,9 @@ class JobCreate(BaseModel):
     # Proces u klienta (18.11.2026): etapy po wysłaniu CV i termin decyzji.
     # Brak = rekrutacja bez procesu (dopisuje się go potem z nagłówka).
     client_process: Optional[ClientProcessIn] = None
+    # 0762 (23.11.2026): „Każda osoba podpisuje umowę przedwstępną” — etap
+    # i „Zatrzymaj kartę do podpisu”. Brak = bez ustawienia (domyślnie).
+    pre_contract_rule: Optional["JobPreContractRuleIn"] = None
     hiring_manager: "JobCreateHiringManager"
     handoff: "JobHandoffRequest"
     # Rekrutacje wskazane jako podobne już przy tworzeniu (ta sama bramka
@@ -371,6 +374,8 @@ class JobResponse(BaseModel):
     subcategory: Optional[str] = None
     custom_fields: Optional[Any] = None
     champion_profile: Optional[Any] = None
+    # 0762: ustawienie przedwstępnej dla całej rekrutacji (z autorem i chwilą).
+    pre_contract_rule: Optional[Any] = None
     embedding_id: Optional[str] = None
     criteria_generated_at: Optional[datetime] = None
     pipeline_template_id: Optional[int] = None
@@ -620,6 +625,13 @@ class JobHiringManagerRequest(BaseModel):
                 "albo wyczyść pole — jedno z czterech."
             )
         return self
+
+
+class JobPreContractRuleIn(BaseModel):
+    """Ustawienie rekrutacji z `/jobs/new` (0762)."""
+
+    needed_before: Literal["cv_sent", "client_interview", "b2b_contract"]
+    stop: bool = True
 
 
 class JobCreateHiringManager(BaseModel):
