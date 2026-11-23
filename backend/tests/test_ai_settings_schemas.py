@@ -139,6 +139,8 @@ class TestFeatureKeyEnum:
             "contract_document_rate_read",
             # 0755: dane firmy Partnera z podpisanej umowy kontraktu.
             "contract_partner_read",
+            # 0761: Sprzedaż — ocena potencjału firmy przed spotkaniem.
+            "sales_potential_assessment",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):
