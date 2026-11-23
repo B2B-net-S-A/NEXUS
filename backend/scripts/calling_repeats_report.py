@@ -35,7 +35,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.core.database import AsyncSessionLocal  # noqa: E402
-from app.models.sales import SalesCallRecord  # noqa: E402
+from app.models.sales import SalesActivity, SalesCallRecord  # noqa: E402
 from app.services.sales import calling, calling_repeats  # noqa: E402
 
 
@@ -60,13 +60,31 @@ async def report(with_ids: bool) -> None:
                 )
             )
         ).all()
+        reported = (
+            (
+                await db.execute(
+                    select(SalesActivity.external_id).where(
+                        SalesActivity.external_source
+                        == calling_repeats.DUPLICATE_SOURCE
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
     print(f"Firma już w CRM (otwarta szansa po rekordzie): {len(crm_rows)}")
     for user_id, count in Counter(row[1] for row in crm_rows).most_common():
         print(f"  osoba {user_id}: {count}")
     print(f"Powtórka numeru, adresu albo osoby z wynikiem: {len(repeat_rows)}")
     for user_id, count in Counter(row[1] for row in repeat_rows).most_common():
         print(f"  osoba {user_id}: {count}")
+    # „To duplikat” z karty (23.11.2026): przykłady, których bramki nie złapały.
+    print(f"Zgłoszone „To duplikat”: {len(reported)}")
     if with_ids:
+        print(
+            "Id zgłoszonych rekordów:",
+            " ".join(sorted({key.split(":")[0] for key in reported})) or "—",
+        )
         print("Id w CRM:", " ".join(str(row[0]) for row in crm_rows) or "—")
         print("Id powtórek:", " ".join(str(row[0]) for row in repeat_rows) or "—")
 

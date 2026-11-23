@@ -66,6 +66,22 @@
     ]
   },
   {
+    "id": "sprzedaz-dzwonienie-duplikaty",
+    "pr": 3765,
+    "title": "Dzwonienie: Tabela bez powtórek i „To duplikat”",
+    "why": "Tabela ukrywa powtórki z kolejnych list, „Powtórki” je odsłania. „Jak działają duplikaty?” mówi, co sprawdzamy, a „To duplikat” na karcie zgłasza przypadek, którego nie złapaliśmy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Dzwonienie → Tabela",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.view"
+  },
+  {
     "id": "sprzedaz-dzwonienie-juz-dzwoniono",
     "pr": 3539,
     "title": "Dzwonienie: „Już dzwoniono” przy wgrywaniu listy",

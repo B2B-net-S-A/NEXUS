@@ -150,6 +150,8 @@ class QueueItem:
     attempts: int
     last_outcome_at: Optional[datetime]
     since: datetime
+    #: Powtórka z kolejnej listy (Tabela z przełącznikiem „Powtórki”, 23.11.2026).
+    repeat: bool = False
     #: Kto dzwoni: tylko w Tabeli „Wszyscy” (decyzja Artura 12.11.2026).
     assignee_id: Optional[int] = None
     assignee_name: Optional[str] = None
@@ -846,6 +848,8 @@ class RecordTable:
     counts: dict[str, int]
     #: Osoby z rekordami w tym zakresie, do filtra „Kto dzwoni”.
     callers: list[tuple[int, str]]
+    #: Ile powtórek pasuje do filtrów (ukrytych, gdy ``repeats=False``).
+    repeats: int = 0
 
 
 def _table_records(query: Any, user_id: Optional[int]) -> Any:
@@ -885,6 +889,7 @@ async def list_records(
     callback_to: Optional[date] = None,
     limit: int = TABLE_LIMIT,
     offset: int = 0,
+    repeats: bool = False,
 ) -> RecordTable:
     """Widok „Tabela”: ta sama lista co kolejka, ale cała i z filtrem po wyniku.
 
@@ -893,7 +898,13 @@ async def list_records(
     (lista dzwoniących 13.11.2026: zamiast kolejności alfabetycznej).
     """
 
-    def narrowed(query: Any) -> Any:
+    not_repeat = calling_repeats.not_a_repeat()
+
+    def narrowed(query: Any, *, with_repeats: bool = repeats) -> Any:
+        # Powtórki sprzed bramki z 17.11 (decyzja Artura 23.11.2026): ukryte, chyba że
+        # osoba włączy „Powtórki”; kolejka i tak ich nie podaje.
+        if not with_repeats:
+            query = query.where(not_repeat)
         if campaign_id is not None:
             query = query.where(SalesCallRecord.campaign_id == campaign_id)
         if callback_from is not None:
@@ -921,6 +932,13 @@ async def list_records(
         )
     ).all()
     counts = {row[0]: int(row[1]) for row in counted}
+    repeat_count = (
+        await db.execute(
+            narrowed(
+                _table_records(select(func.count()), user_id), with_repeats=True
+            ).where(~not_repeat)
+        )
+    ).scalar_one()
     callers = (
         await db.execute(
             narrowed(
@@ -935,7 +953,11 @@ async def list_records(
     listed = narrowed(
         _table_records(
             select(
-                SalesCallRecord, SalesCompany.name, SalesCallCampaign.name, User.name
+                SalesCallRecord,
+                SalesCompany.name,
+                SalesCallCampaign.name,
+                User.name,
+                (~not_repeat).label("is_repeat"),
             ),
             user_id,
         ).outerjoin(User, User.id == SalesCallRecord.assigned_user_id)
@@ -954,14 +976,18 @@ async def list_records(
     ).all()
     return RecordTable(
         items=[
-            _record_item(
-                record, company_name, campaign_name, "callbacks", assignee_name
+            replace(
+                _record_item(
+                    record, company_name, campaign_name, "callbacks", assignee_name
+                ),
+                repeat=bool(is_repeat),
             )
-            for record, company_name, campaign_name, assignee_name in rows
+            for record, company_name, campaign_name, assignee_name, is_repeat in rows
         ],
         total=counts.get(state, 0) if state is not None else sum(counts.values()),
         counts=counts,
         callers=[(int(row[0]), row[1] or "") for row in callers],
+        repeats=int(repeat_count),
     )
 
 
