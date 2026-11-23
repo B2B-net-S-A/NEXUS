@@ -492,6 +492,17 @@ def gap_words(changes: list[dict[str, Any]]) -> list[str]:
     ]
 
 
+def process_lead(
+    *, owner: Optional[int], claimed: Optional[int], opened: Optional[int]
+) -> Optional[int]:
+    """Kto prowadzi kandydata: właściciel procesu, potem zajmujący, potem dodający.
+
+    Kopia stagingu z 23.11: `owner_user_id` puste w 85% otwartych procesów,
+    a `opened_by_user_id` to zwykle rekruter, który kandydata dodał.
+    """
+    return owner or claimed or opened
+
+
 def _stage_group(state: Optional[str]) -> Optional[str]:
     if state in BEFORE_SCREENING:
         return "before_screening"
@@ -525,6 +536,8 @@ async def process_gaps(
                 RecruitmentProcess.candidate_id,
                 RecruitmentProcess.current_semantic_state,
                 RecruitmentProcess.owner_user_id,
+                RecruitmentProcess.claimed_by_user_id,
+                RecruitmentProcess.opened_by_user_id,
                 Candidate.name,
                 Candidate.lastname,
             )
@@ -567,7 +580,11 @@ async def process_gaps(
                         "name": f"{r.name or ''} {r.lastname or ''}".strip()
                         or f"Kandydat {r.candidate_id}",
                         "stage": group,
-                        "owner_user_id": r.owner_user_id,
+                        "owner_user_id": process_lead(
+                            owner=r.owner_user_id,
+                            claimed=r.claimed_by_user_id,
+                            opened=r.opened_by_user_id,
+                        ),
                     }
                 )
         out.append(

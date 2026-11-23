@@ -369,3 +369,11 @@ async def test_recruiter_outside_the_job_is_refused(app_client):
         headers=headers,
     )
     assert res.status_code == 403, res.text
+
+
+def test_gap_lead_falls_back_to_who_claimed_or_added_the_candidate():
+    """Staging 23.11: owner_user_id puste w 85% otwartych procesów, dodał je rekruter."""
+    assert cc.process_lead(owner=None, claimed=None, opened=155) == 155
+    assert cc.process_lead(owner=None, claimed=7, opened=155) == 7
+    assert cc.process_lead(owner=3, claimed=7, opened=155) == 3
+    assert cc.process_lead(owner=None, claimed=None, opened=None) is None
