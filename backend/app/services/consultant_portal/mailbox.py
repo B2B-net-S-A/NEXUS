@@ -21,6 +21,9 @@ daje czytelny stan w ``cp_mailbox_state``, a nie wyjątek.
 * Wyjątek: mail bez pliku z adresu firmy z tematem rozliczenia (``is_body_only_settlement``)
   czytamy też, gdy router oddał go sprawom, i zapisujemy jego treść jako ``.eml`` jednej
   osoby (nadawca albo osoba z tematu). Sprawa powstaje jak dotąd (decyzja Artura 23.11.2026).
+* Odpowiedź klienta bez pliku na nasz mail z Wysłanych (``is_reply_to_sent``): plik godzin
+  bierzemy z naszego maila, osobę z jego tematu (decyzja Artura 23.11.2026, BNP CIB).
+  Sprawa też powstaje.
 """
 
 from __future__ import annotations
@@ -67,6 +70,21 @@ _MESSAGE_SELECT = (
     + support_mail_route.RECIPIENT_FIELDS
 )
 _FILE_ATTACHMENT = "#microsoft.graph.fileAttachment"
+#: Odpowiedź klienta szuka naszego maila w Wysłanych najwyżej tyle wstecz.
+REPLY_WINDOW = timedelta(days=45)
+MAX_SENT_PER_RUN = 1000
+_SENT_SELECT = (
+    "id,subject,from,sentDateTime,hasAttachments,conversationId,"
+    + support_mail_route.RECIPIENT_FIELDS
+)
+_REPLY_SUBJECT = re.compile(
+    r"^\s*(?:\[[^\]]{0,40}\]\s*)*(?:re|odp|aw|sv)\s*:", re.IGNORECASE
+)
+_THREAD_PREFIX = re.compile(
+    r"^\s*(?:(?:re|odp|aw|sv|fw|fwd|pd|wg)\s*:\s*|\[[^\]]{0,40}\]\s*)+", re.IGNORECASE
+)
+_QUOTED_FROM = re.compile(r"^\s*(?:from|od)\s*:(.*)$", re.IGNORECASE | re.MULTILINE)
+_ADDRESS = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 # Dowód pracy: RCP (BNP), Time Sheet (Bosch, PKO), arkusz (Velo), protokół (PKO), KEŚU (Alior).
 # Bez tego plik „RCP_10_2026.pdf” szedł jako faktura i omijał kontrole RCP (16.11.2026).
 # KCP: karta pracy Banku Pocztowego („KCP 10/2026”, plik z nazwiskiem).
@@ -161,6 +179,7 @@ class GraphSettlementsMailbox:
 
     def __init__(self, upn: str) -> None:
         self._prefix = f"/users/{quote(upn, safe='@.')}"
+        self._sent: Optional[tuple[datetime, list[dict[str, Any]]]] = None
 
     def _client(self) -> AppGraphClient:
         from app.services.hr.m365.auth import acquire_hr_token
@@ -191,6 +210,30 @@ class GraphSettlementsMailbox:
                 f"{self._prefix}/messages/{quote(message_id, safe='')}/attachments"
             )
         return list((page or {}).get("value") or [])
+
+    async def sent_messages(self, since: datetime) -> list[dict[str, Any]]:
+        """Nasze maile z Wysłanych od ``since`` (bez treści). Odpowiedzi w przebiegu
+        idą od najstarszej, więc pierwsza lista wystarcza na cały przebieg."""
+
+        if self._sent is not None and self._sent[0] <= since:
+            return self._sent[1]
+        moment = since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        params = {
+            "$filter": f"sentDateTime ge {moment}",
+            "$select": _SENT_SELECT,
+            "$orderby": "sentDateTime desc",
+            "$top": "100",
+        }
+        out: list[dict[str, Any]] = []
+        async with self._client() as client:
+            async for page in client.paginate(
+                f"{self._prefix}/mailFolders/SentItems/messages", params=params
+            ):
+                out.extend(page.get("value", []))
+                if len(out) >= MAX_SENT_PER_RUN:
+                    break
+        self._sent = (since, out[:MAX_SENT_PER_RUN])
+        return self._sent[1]
 
     async def mime(self, message_id: str) -> Optional[bytes]:
         """Cały mail (MIME), np. z Jiry: treść niesie opiekuna i czas akceptacji."""
@@ -404,6 +447,12 @@ async def _ingest_message(
                 db, mailbox, message, state=state, today=today, now=now
             )
             return made, 0
+        if state.any_sender and is_reply_to_sent(message):
+            answered = await _store_reply_to_sent(
+                db, mailbox, message, today=today, now=now
+            )
+            if answered is not None:
+                return answered, 0
         return await _store_client_acceptance(
             db,
             mailbox,
@@ -833,6 +882,191 @@ async def _store_client_acceptance(
     return made, 0
 
 
+def _thread_topic(subject: str) -> str:
+    return " ".join(_THREAD_PREFIX.sub("", subject or "").split()).casefold()
+
+
+def is_reply_to_sent(message: dict[str, Any]) -> bool:
+    """Odpowiedź bez pliku z obcego adresu w wątku rozliczenia (próba IX–X 2026, BNP CIB).
+
+    Koordynator wysyła klientowi „Zestawienie godzin 2026.09 … - osoba” z plikiem, a klient
+    odpisuje „Potwierdzam zestawienie”. Plik jest tylko w naszych Wysłanych, więc taka
+    odpowiedź prowadzi do naszego maila (``_store_reply_to_sent``). Router dalej oddaje ją
+    czytnikowi spraw, tak jak mail bez pliku z adresu firmy.
+    """
+
+    if message.get("hasAttachments"):
+        return False
+    subject = str(message.get("subject") or "")
+    sender = _sender(message)
+    if "@" not in sender or identity.is_company_address(sender):
+        return False
+    return bool(_REPLY_SUBJECT.match(subject)) and bool(
+        _REPORT.search(_thread_topic(subject))
+    )
+
+
+def _answered_mail(
+    reply: dict[str, Any], sent: list[dict[str, Any]], *, received: datetime
+) -> Optional[dict[str, Any]]:
+    """Nasz mail, na który odpowiada klient: ten sam temat bez „RE:”/„[EXTERNAL]”, adresat
+    z domeny nadawcy odpowiedzi, wysłany do ``REPLY_WINDOW`` wcześniej, z plikiem.
+
+    Nagłówki wątku nie wystarczają: Outlook z IMAP zapisuje w Wysłanych kopię pod innym
+    Message-ID niż wysłany mail (archiwum 2024–2026: 0 trafień In-Reply-To), a odpowiedź
+    przekazuje dalej przełożony z tej samej domeny. Przy kilku kandydatach wygrywa ten sam
+    wątek (``conversationId``), potem najpóźniejszy.
+    """
+
+    topic = _thread_topic(str(reply.get("subject") or ""))
+    domain = support_mail_route.sender_domain(reply)
+    found: list[tuple[bool, datetime, dict[str, Any]]] = []
+    for ours in sent:
+        moment = _parse_time(ours.get("sentDateTime"))
+        if moment is None or not (received - REPLY_WINDOW <= moment < received):
+            continue
+        if not ours.get("hasAttachments") or not identity.is_company_address(
+            _sender(ours)
+        ):
+            continue
+        if _thread_topic(str(ours.get("subject") or "")) != topic:
+            continue
+        domains = {a.rpartition("@")[2] for a in support_mail_route.recipients(ours)}
+        if domain not in domains:
+            continue
+        thread = bool(reply.get("conversationId")) and (
+            ours.get("conversationId") == reply.get("conversationId")
+        )
+        found.append((thread, moment, ours))
+    return max(found, key=lambda item: item[:2])[2] if found else None
+
+
+def _client_part(body: str) -> str:
+    """Treść odpowiedzi nad cytatem naszego maila: to pisał klient (także przełożony,
+    który przekazał akceptację dalej), a pod spodem jest nasza prośba."""
+
+    for match in _QUOTED_FROM.finditer(body or ""):
+        if any(
+            identity.is_company_address(a) for a in _ADDRESS.findall(match.group(1))
+        ):
+            return body[: match.start()]
+    return body or ""
+
+
+async def _store_reply_to_sent(
+    db: AsyncSession,
+    mailbox: SettlementsMailbox,
+    message: dict[str, Any],
+    *,
+    today: date,
+    now: datetime,
+) -> Optional[int]:
+    """Akceptacja klienta do naszego maila z Wysłanych: plik z naszego maila i ``.eml``
+    odpowiedzi u osoby z tematu naszego maila (jedna osoba albo nikt). ``None`` = to nie
+    odpowiedź na nasz mail z osobą albo nie akceptacja; zwykła ścieżka decyduje dalej.
+
+    Obcy adres nie wskazuje osoby swoim tematem: osobę daje tylko temat, który napisaliśmy
+    my, i tylko dla domeny, do której ten mail poszedł."""
+
+    from app.services.client_settlements import client_acceptance, mail_text
+
+    find = getattr(mailbox, "sent_messages", None)
+    fetch = getattr(mailbox, "mime", None)
+    if find is None or fetch is None:
+        return None
+    received = _parse_time(message.get("receivedDateTime")) or now
+    try:
+        sent = await find(received - REPLY_WINDOW)
+        ours = _answered_mail(message, sent, received=received)
+        if ours is None:
+            return None
+        our_subject = str(ours.get("subject") or "")
+        contract = await identity.resolve_named_in_text(db, our_subject, today=today)
+        if contract is None:
+            return None
+        raw = await fetch(str(message["id"]))
+        mail = mail_text.read(raw or b"", mail_text.EML)
+        if mail is None or not client_acceptance.accepts(_client_part(mail.body)):
+            return None
+        files = await mailbox.attachments(str(ours["id"]))
+    except (GraphRequestError, AppOnlyTokenUnavailable) as exc:
+        logger.info("rozliczenia@: Wysłane pominięte (%s)", type(exc).__name__)
+        return None
+    sent_on = (_parse_time(ours.get("sentDateTime")) or received).date()
+    created = 0
+    for attachment in files:
+        if attachment.get("@odata.type") != _FILE_ATTACHMENT or attachment.get(
+            "isInline"
+        ):
+            continue
+        data = attachment.get("contentBytes")
+        if not isinstance(data, str):
+            continue
+        try:
+            content = base64.b64decode(data, validate=True)
+        except ValueError:
+            continue
+        name = str(attachment.get("name") or "")
+        kind = await asyncio.to_thread(kind_of_file, our_subject, name, content)
+        created += await _store_found(
+            db,
+            contract_id=contract.id,
+            kind=kind,
+            period=period_for(our_subject, name, sent_on),
+            content=content,
+            file_name=name or None,
+            message_id=str(ours["id"]),
+            sender=_sender(ours),
+            now=now,
+        )
+    created += await _store_found(
+        db,
+        contract_id=contract.id,
+        kind="report",
+        period=period_for(our_subject, "", sent_on),
+        content=raw or b"",
+        file_name=(str(message.get("subject") or "").strip()[:120] or "akceptacja")
+        + ".eml",
+        message_id=str(message["id"]),
+        sender=_sender(message),
+        now=now,
+    )
+    return created
+
+
+async def _store_found(
+    db: AsyncSession,
+    *,
+    contract_id: int,
+    kind: str,
+    period: tuple[int, int, bool],
+    content: bytes,
+    file_name: Optional[str],
+    message_id: str,
+    sender: str,
+    now: datetime,
+) -> int:
+    year, month, guessed = period
+    try:
+        stored = await documents.store(
+            db,
+            contract_id=contract_id,
+            kind=kind,
+            year=year,
+            month=month,
+            content=content,
+            file_name=file_name,
+            channel="mailbox",
+            now=now,
+            period_guessed=guessed,
+            graph_message_id=message_id[:512],
+            sender_email=sender[:320] or None,
+        )
+    except PortalError:
+        return 0
+    return 0 if stored.duplicate else 1
+
+
 def is_body_only_settlement(message: dict[str, Any]) -> bool:
     """Mail bez pliku, w którym akceptacja godzin stoi w treści (próba IX–X 2026).
 
@@ -970,7 +1204,10 @@ async def run_once(
             )
             and not (
                 support_mail_route.recipients(message) & route
-                and is_body_only_settlement(message)
+                and (
+                    is_body_only_settlement(message)
+                    or (state.any_sender and is_reply_to_sent(message))
+                )
             )
         ):
             # Sprawa dla czytnika spraw: znacznik idzie dalej, nic nie zapisujemy.
