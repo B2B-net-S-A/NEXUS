@@ -946,9 +946,10 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
                 OK if f.client_slot else WAITING,
                 False,
                 None if f.client_slot else "czekamy na terminy od klienta",
-                None
-                if f.client_slot
-                else _action("request_slots", "Dodaj terminy od klienta", sid),
+                # Bez przycisku (decyzja Artura 23.11.2026): terminy wpisuje
+                # się w oknie ruchu „Rozmowa u klienta”, które od razu wysyła
+                # je rekruterowi. Osobne „Dodaj terminy od klienta” dublowało
+                # tę drogę i DL wklejał mail klienta dwa razy.
             )
         ]
     if column == "contract":

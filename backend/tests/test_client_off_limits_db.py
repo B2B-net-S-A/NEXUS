@@ -288,3 +288,31 @@ async def test_shared_linkedin_assignment_requires_off_limits_confirmation() -> 
         assert await _process_meta(world["job_id"], person) is None
     finally:
         await _cleanup(world)
+
+
+async def test_exempt_client_is_not_off_limits(
+    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Klient z listy wyjątków (EY, decyzja Artura 23.11.2026) nie pyta
+    o potwierdzenie, mimo aktywnego zamówienia."""
+    from app.services import client_off_limits
+
+    world = await _seed()
+    guarded_id = world["client_ids"][0]
+    monkeypatch.setattr(
+        client_off_limits,
+        "OFF_LIMITS_EXEMPT_CLIENT_IDS",
+        frozenset({*client_off_limits.OFF_LIMITS_EXEMPT_CLIENT_IDS, guarded_id}),
+    )
+    person = world["employed"][0]
+    url = f"/api/jobs/{world['job_id']}/proposals/bulk"
+    body = {"candidate_ids": [person], "source": "candidate_list"}
+    try:
+        added = await app_client.post(url, headers=world["headers"], json=body)
+        assert added.status_code == 200, added.text
+        assert added.json()["added"] == [person]
+        row = await _process_meta(world["job_id"], person)
+        assert row is not None
+        assert "off_limits" not in (row.entry_meta or {})
+    finally:
+        await _cleanup(world)

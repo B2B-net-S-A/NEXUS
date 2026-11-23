@@ -12032,6 +12032,41 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Dane dwóch kontraktów z przeglądu „bez dokumentu w poczcie” (decyzja Artura
+# 23.11.2026): adres ze skrzynki u klienta w kontrakcie 479 (ERSTE) i brakująca
+# litera imienia w kartotece osoby z kontraktu 627 (Bosch). Wartości wyliczane
+# z kartoteki, logika w `app/services/settlement_identity_data_repair.py`,
+# przypięta do trójki ID. Marker w `app_settings` + advisory lock; porażka nie
+# zapisuje niczego — następny start ponawia. Log: wyłącznie liczby i ID.
+startup_phase "repair-settlement-identity-data-2026-11"
+echo "Settlements: contract email and first-name typo from the missing-document review (one-shot)..."
+run_unless_marked "settlement_identity_data_repair_2026_11_23" <<'PY' || echo "settlement identity data repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.settlement_identity_data_repair import (
+    run_settlement_identity_data_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_settlement_identity_data_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane osób
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"settlement identity data repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"settlement identity data repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 
 
 

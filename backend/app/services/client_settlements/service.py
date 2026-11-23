@@ -57,6 +57,7 @@ from app.services.client_settlements import (
     kesu,
     kcp,
     kesu_flow,
+    mail_declaration,
     mail_nn,
     mail_text,
     protocol_orlen,
@@ -64,6 +65,7 @@ from app.services.client_settlements import (
     rcp_checks,
     rules_catalog,
     redmine_timelog,
+    report_ca,
     signoffs,
     timesheet,
     timesheet_bik,
@@ -1009,6 +1011,7 @@ async def _proof(
     person_name: str,
     rules: dict[str, dict[str, Any]],
     other_md: Decimal = Decimal("0"),
+    consultant_mails: frozenset[int] = frozenset(),
 ) -> Optional[rcp_checks.ProofResult]:
     """Odczyt RCP z pliku i kontrole (E2). Brak pliku RCP = ``None``.
 
@@ -1024,6 +1027,7 @@ async def _proof(
         rules=rules,
         other_md=other_md,
         working_days=working_days,
+        consultant_mails=consultant_mails,
     )
     if report is not None and report.mime in RCP_MIMES:
         try:
@@ -1117,8 +1121,12 @@ async def _read_file(
     other_md: Decimal,
     working_days: int,
     has_mail_extra: bool = False,
+    consultant_mails: frozenset[int] = frozenset(),
 ) -> Optional[rcp_checks.ProofResult]:
-    """Czytniki wzorów spoza RCP BNP dla jednego pliku; ``None`` = nie rozpoznany."""
+    """Czytniki wzorów spoza RCP BNP dla jednego pliku; ``None`` = nie rozpoznany.
+
+    ``consultant_mails``: maile od samego konsultanta kontraktu, z których reguła
+    ``report.consultant_declaration`` czyta deklarację dni pracy."""
 
     mime = doc.mime
     has_mail = any(d.mime in MAIL_MIMES for d in reports) or has_mail_extra
@@ -1141,12 +1149,37 @@ async def _read_file(
     if mime in MAIL_MIMES:
         # Akceptacja klienta z MD w treści (NN).
         nn = await asyncio.to_thread(mail_nn.parse, content, mime)
-        return declared_result(nn) if nn is not None else None
+        if nn is not None:
+            return declared_result(nn)
+        # Deklaracja konsultanta w treści maila (reguła klienta, mLeasing 23.11.2026).
+        if doc.id not in consultant_mails or not _on(rules, mail_declaration.RULE):
+            return None
+        said = await asyncio.to_thread(mail_declaration.parse, content, mime, month)
+        if said is None:
+            return None
+        return mail_declaration.evaluate(
+            said,
+            month=month,
+            rules=rules,
+            working_days=working_days,
+            other_md=other_md,
+        )
     if mime == declared.DOCX:
         orlen = await asyncio.to_thread(protocol_orlen.parse, content, mime)
         if orlen is None:
             return None
         return await accepted(declared_result(orlen), orlen.hours)
+    # Raport zbiorczy Credit Agricole: kilka osób w jednym arkuszu, MD z „TE”.
+    ca = await asyncio.to_thread(report_ca.parse, content, mime)
+    if ca is not None:
+        return report_ca.evaluate(
+            ca,
+            month=month,
+            person_name=person_name,
+            rules=rules,
+            working_days=working_days,
+            other_md=other_md,
+        )
     # KCP Banku Pocztowego albo eksport Redmine, z którego KCP składa NEXUS (E6.5).
     card = await asyncio.to_thread(redmine_timelog.read_card, content, mime, month)
     if card is not None:
@@ -1205,6 +1238,37 @@ async def _read_file(
     return None
 
 
+def _on(rules: dict[str, dict[str, Any]], key: str) -> bool:
+    return rules[key]["level"] != "off"
+
+
+async def _consultant_mails(
+    db: AsyncSession,
+    reports: list[CpDocument],
+    contract_id: int,
+    rules: dict[str, dict[str, Any]],
+) -> frozenset[int]:
+    """Maile miesiąca, których nadawca to konsultant tego kontraktu (adres
+    z kontraktu, z kartoteki albo skrzynka firmowa). Tylko przy włączonej
+    ``report.consultant_declaration``: deklaracja od kogoś innego nie liczy się."""
+
+    if not _on(rules, mail_declaration.RULE):
+        return frozenset()
+    from app.core.scheduling import business_today
+    from app.services.consultant_portal import identity
+
+    today = business_today()
+    found: set[int] = set()
+    for doc in reports:
+        if doc.mime not in MAIL_MIMES or not doc.sender_email:
+            continue
+        if contract_id in await identity.sender_contract_ids(
+            db, doc.sender_email, today=today
+        ):
+            found.add(doc.id)
+    return frozenset(found)
+
+
 async def _recompute(
     db: AsyncSession, s: ClientSettlement
 ) -> tuple[Result, Optional[OrderState], Optional[ClientOrder]]:
@@ -1238,6 +1302,7 @@ async def _recompute(
             person_name=person.name,
             rules=rules,
             other_md=await _other_md(db, person.contract, s.period_month),
+            consultant_mails=await _consultant_mails(db, reports, s.contract_id, rules),
         )
         if proof is not None and (source := proof.meta.pop("document_id", None)):
             # MD z innego pliku miesiąca niż wybrany: ten plik jest dowodem.

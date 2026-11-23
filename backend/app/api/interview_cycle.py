@@ -722,6 +722,9 @@ class SlotRecipientOut(BaseModel):
     recruiter_name: Optional[str] = None
     substitute_name: Optional[str] = None
     until: Optional[date] = None
+    # Terminy trafiłyby do wołającego (okno ruchu zaczyna wtedy od „Termin
+    # już ustalony” — decyzja Artura 23.11.2026).
+    is_you: bool = False
 
 
 @router.get("/interview-cycle/slots/recipient", response_model=SlotRecipientOut)
@@ -743,10 +746,12 @@ async def slot_recipient(
     names = dict(
         (await db.execute(select(User.id, User.name).where(User.id.in_(ids)))).all()
     )
+    receiver_id = delegation.performer_id if delegation else recruiter_id
     return SlotRecipientOut(
         recruiter_name=names.get(recruiter_id),
         substitute_name=names.get(delegation.performer_id) if delegation else None,
         until=delegation.end_date if delegation else None,
+        is_you=receiver_id == current_user.id,
     )
 
 

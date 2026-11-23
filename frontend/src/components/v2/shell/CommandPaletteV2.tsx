@@ -510,6 +510,7 @@ export function CommandPaletteV2({
             {nipQuery.valid ? (
               <CommandItem
                 value={`nip-create ${nipQuery.nip}`}
+                data-tour="palette.sales-nip"
                 onSelect={() => go(`/sales/companies?nowa=${nipQuery.nip}`)}
               >
                 <Plus className="h-4 w-4" />

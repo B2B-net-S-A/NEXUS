@@ -1737,6 +1737,87 @@
     ]
   },
   {
+    "id": "lekcja-terminy-przy-ruchu",
+    "title": "Terminy od klienta przy ruchu na „Rozmowę u klienta”",
+    "novelties": [
+      "terminy-od-klienta-przy-ruchu"
+    ],
+    "task": "Klient z rekrutacji ćwiczebnej przysłał terminy rozmowy. Przesuń kandydata z „CV wysłane” na „Rozmowa u klienta” i wyślij terminy rekruterowi.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "move",
+      "to": "client_interview",
+      "feedback": "Karta nie trafiła na „Rozmowa u klienta”. Przesuń ją dalej, w oknie zostaw „Klient podał terminy”, wpisz termin i kliknij „Przesuń i wyślij rekruterowi”."
+    },
+    "questions": [
+      {
+        "q": "Klient pisze: „pasuje nam czwartek 10:00 albo piątek 14:00”. Co zaznaczasz przy ruchu karty?",
+        "options": [
+          "„Klient podał terminy” i wklejam mail",
+          "„Termin już ustalony” i wpisuję czwartek 10:00",
+          "„Jeszcze bez terminów”"
+        ],
+        "answer": 0,
+        "explain": "Termin z kandydatem ustala rekruter. Ty przekazujesz propozycje klienta, a rekruter wybiera jedną i odsyła Ci wybór."
+      },
+      {
+        "q": "Kiedy rekruter dowie się o terminach?",
+        "options": [
+          "Od razu po ruchu: dzwonek i mail „Ustal termin z kandydatem”",
+          "Gdy wkleisz terminy drugi raz w „Terminach od klienta”",
+          "Następnego dnia rano"
+        ],
+        "answer": 0,
+        "explain": "Ruch z terminami od razu zakłada wniosek o terminy, a rekruter dostaje dzwonek i mail."
+      },
+      {
+        "q": "Kiedy wybierasz „Termin już ustalony”?",
+        "options": [
+          "Gdy dzień i godzina są już umówione z kandydatem i klientem",
+          "Zawsze, gdy klient podał jakiś termin",
+          "Gdy nie wiesz, kto jest rekruterem"
+        ],
+        "answer": 0,
+        "explain": "Wtedy NEXUS od razu zakłada rozmowę w kalendarzu rekrutera, bez pytania go o wybór."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-firma-z-nip",
+    "title": "Nowa firma z NIP-u",
+    "novelties": [
+      "sprzedaz-nowa-firma-z-nip"
+    ],
+    "task": "Otwórz wyszukiwarkę u góry (⌘K), wpisz NIP 111-222-33-32 i kliknij „Załóż firmę z NIP”. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/sales/companies",
+    "check": {
+      "kind": "click",
+      "anchor": "palette.sales-nip"
+    },
+    "questions": [
+      {
+        "q": "Wpisujesz NIP i nie ma karty z tym numerem. Co jeszcze sprawdza okno „Nowa firma”?",
+        "options": [
+          "Czy w kartotece nie ma już karty o tej nazwie bez NIP-u",
+          "Nic, brak NIP-u w kartotece oznacza nową firmę",
+          "Czy firma ma otwartą szansę sprzedaży"
+        ],
+        "answer": 0,
+        "explain": "NIP ma tylko część kart. Gdy karta o tej nazwie istnieje bez NIP-u, okno proponuje „Dopisz NIP do tej karty” zamiast drugiej karty tej samej firmy."
+      },
+      {
+        "q": "Co robi Jarvis, gdy poprosisz go o założenie firmy z NIP-u?",
+        "options": [
+          "Daje przycisk do tego samego okna, a zapisujesz Ty",
+          "Zakłada kartę sam, bez Twojego kliknięcia",
+          "Odsyła do Finansów"
+        ],
+        "answer": 0,
+        "explain": "Jarvis tylko otwiera okno „Nowa firma” z NIP-em. Dane z rejestru i sprawdzenie kartoteki robi okno, a kartę zapisuje człowiek."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [

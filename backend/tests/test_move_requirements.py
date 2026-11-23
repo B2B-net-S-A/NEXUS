@@ -340,7 +340,9 @@ def test_client_interview_waits_for_slots_without_blocking() -> None:
     )
     slot = _item(result, "client_slot")
     assert slot["status"] == "waiting" and slot["blocking"] is False
-    assert slot["action"]["kind"] == "request_slots"
+    # 23.11.2026: terminy wpisuje się w oknie ruchu „Rozmowa u klienta”
+    # (wysyłka do rekrutera) — osobny przycisk dublował tę drogę.
+    assert slot["action"] is None
     assert result["primary"]["kind"] == "move"
 
 

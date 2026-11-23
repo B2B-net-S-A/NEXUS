@@ -898,6 +898,150 @@ async def test_body_only_mail_without_one_person_stays_a_case() -> None:
     assert await _documents() == []
 
 
+# ── Deklaracja konsultanta w mailu z fakturą (reguła klienta, 23.11.2026) ──────
+
+
+async def _company_sender(person) -> str:
+    from app.services.consultant_portal import identity
+
+    async with AsyncSessionLocal() as db:
+        candidate = await db.get(Candidate, person.candidate_id)
+    local = (
+        identity._fold(candidate.name).split()[0]
+        + "."
+        + "".join(identity._fold(candidate.lastname).split())
+    )
+    return f"{local}@firma.example.com"
+
+
+async def _declaration_rule(client_id: int, level: str = "warn") -> None:
+    from app.models.client_settlement import ClientSettlementRuleSet
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            ClientSettlementRuleSet(
+                client_id=client_id,
+                effective_from="2026-01",
+                rules={"report.consultant_declaration": {"level": level, "params": {}}},
+            )
+        )
+        await db.commit()
+
+
+async def _drop_rules(*client_ids: int) -> None:
+    from sqlalchemy import delete
+
+    from app.models.client_settlement import ClientSettlementRuleSet
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(ClientSettlementRuleSet).where(
+                ClientSettlementRuleSet.client_id.in_(client_ids)
+            )
+        )
+        await db.commit()
+
+
+DECLARATION = "Fakturę przesłałam przez KSeF. We wrześniu nie miałam dni wolnych."
+
+
+def _declaration_eml(sender: str, subject: str) -> bytes:
+    from email.message import EmailMessage
+
+    message = EmailMessage()
+    message["From"] = sender
+    message["Subject"] = subject
+    message.set_content(DECLARATION)
+    return message.as_bytes()
+
+
+@pytest.mark.usefixtures("internal", "company_domain", "settlements_route")
+async def test_invoice_mail_with_declaration_is_a_document_only_with_client_rule() -> (
+    None
+):
+    """Mail „Faktura wrzesień” bez pliku od konsultanta: dokument tylko u klienta
+    z regułą ``report.consultant_declaration``; u reszty zostaje sama sprawa."""
+
+    with_rule = await make_person(activated=False)
+    without_rule = await make_person(activated=False)
+    await _declaration_rule(with_rule.client_id)
+    await _declaration_rule(without_rule.client_id, "off")
+    try:
+        senders = [await _company_sender(p) for p in (with_rule, without_rule)]
+        messages = [
+            _body_only(f"m{i}", sender, "Faktura wrzesień")
+            for i, sender in enumerate(senders)
+        ]
+        raw = {
+            m["id"]: _declaration_eml(
+                m["from"]["emailAddress"]["address"], m["subject"]
+            )
+            for m in messages
+        }
+        assert (await _read(MimeMailbox(messages, {}, raw)))["created"] == 1
+        rows = await _documents()
+        assert [(r.contract_id, r.kind, r.sender_email) for r in rows] == [
+            (with_rule.contract_id, "report", senders[0])
+        ]
+        assert rows[0].file_name.endswith(".eml")
+    finally:
+        await _drop_rules(with_rule.client_id, without_rule.client_id)
+
+
+@pytest.mark.usefixtures("internal", "company_domain", "settlements_route")
+async def test_invoice_mail_from_coordinator_naming_person_is_not_a_declaration() -> (
+    None
+):
+    """Deklaracja liczy się tylko od samego konsultanta: koordynator z osobą
+    w temacie faktury nie daje dokumentu, a nieznany nadawca też nie."""
+
+    person = await make_person(activated=False)
+    await _declaration_rule(person.client_id)
+    try:
+        subject = f"Faktura wrzesień {await _full_name(person)}"
+        messages = [
+            _body_only("m1", "koordynator@firma.example.com", subject),
+            _body_only("m2", "ktos@obcy.example.com", "Faktura wrzesień"),
+        ]
+        raw = {
+            m["id"]: _declaration_eml(
+                m["from"]["emailAddress"]["address"], m["subject"]
+            )
+            for m in messages
+        }
+        assert (await _read(MimeMailbox(messages, {}, raw)))["created"] == 0
+        assert await _documents() == []
+    finally:
+        await _drop_rules(person.client_id)
+
+
+@pytest.mark.usefixtures("company_domain")
+async def test_engine_reads_declaration_only_from_consultants_own_address() -> None:
+    from app.services.client_settlements import rules_catalog, service
+
+    person = await make_person(activated=False)
+    other = await make_person(activated=False)
+    rules = rules_catalog.effective(
+        {"report.consultant_declaration": {"level": "warn", "params": {}}}
+    )
+    eml = "message/rfc822"
+    docs = [
+        CpDocument(id=1, mime=eml, sender_email=await _company_sender(person)),
+        CpDocument(id=2, mime=eml, sender_email=person.email.upper()),
+        CpDocument(id=3, mime=eml, sender_email=await _company_sender(other)),
+        CpDocument(id=4, mime=eml, sender_email="koordynator@firma.example.com"),
+        CpDocument(id=5, mime=eml, sender_email=None),
+        CpDocument(id=6, mime="application/pdf", sender_email=person.email),
+    ]
+    async with AsyncSessionLocal() as db:
+        found = await service._consultant_mails(db, docs, person.contract_id, rules)
+        off = await service._consultant_mails(
+            db, docs, person.contract_id, rules_catalog.effective(None)
+        )
+    assert found == frozenset({1, 2})
+    assert off == frozenset()
+
+
 # ── Obrazki stopki Outlooka to nie dokumenty (próba IX–X 2026) ────────────────
 
 
