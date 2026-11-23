@@ -29,6 +29,8 @@ from decimal import Decimal, InvalidOperation
 from html import escape, unescape
 from typing import Optional
 
+from app.core.mime_attachments import attachment_parts
+
 logger = logging.getLogger(__name__)
 
 MSG = "application/vnd.ms-outlook"
@@ -214,7 +216,7 @@ def _read_eml(content: bytes) -> Optional[Mail]:
             mail.body = (
                 _html_to_text(body) if part.get_content_subtype() == "html" else body
             )[:MAX_TEXT]
-        for attachment in list(message.iter_attachments())[:MAX_ATTACHMENTS]:
+        for attachment in attachment_parts(message)[:MAX_ATTACHMENTS]:
             data = attachment.get_payload(decode=True)
             if isinstance(data, bytes) and data:
                 mail.attachments.append(
