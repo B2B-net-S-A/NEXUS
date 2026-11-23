@@ -219,7 +219,9 @@ export function ClientFormCard({
   if (view.client_document !== "client_form") return null;
   // Tabela punktowa jest dodatkiem do formularza — bez wzoru w Plikach jej nie ma.
   if (score && view.status === "no_template") return null;
-  const total = view.fields.length;
+  // Wolne wiersze wzoru (23.11.2026) nie są ani wypełnione, ani brakiem.
+  const spare = new Set(view.spare ?? []);
+  const total = view.fields.filter((field) => !spare.has(field.id)).length;
   const missing = view.fields.filter((field) => view.missing.includes(field.id));
   const filledCount = total - missing.length;
   const uploaded = view.uploaded ?? null;
@@ -299,7 +301,10 @@ export function ClientFormCard({
                     : `${filledCount} z ${total} pól wypełnionych`}
                 </span>
                 {missing.length ? (
-                  <span className="font-medium text-warning-muted-foreground">
+                  <span
+                    className="font-medium text-warning-muted-foreground"
+                    data-tour={score ? undefined : "client-form.missing"}
+                  >
                     {missing.length} do uzupełnienia
                   </span>
                 ) : (

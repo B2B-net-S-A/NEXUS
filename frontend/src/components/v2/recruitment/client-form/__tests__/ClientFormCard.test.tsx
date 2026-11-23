@@ -112,6 +112,23 @@ describe("ClientFormCard — formularz CV klienta (0522)", () => {
     );
   });
 
+  it("wolne wiersze wzoru nie liczą się ani do wypełnionych, ani do braków (23.11.2026)", async () => {
+    const spareRow = ["t1.r2.c1", "t1.r2.c2"].map((id) => ({
+      ...FIELDS[1],
+      id,
+      row_label: "Wiersz 2",
+      value: null,
+      source: null,
+      quote: null,
+    }));
+    api.get.mockResolvedValue({
+      data: view({ fields: [...FIELDS, ...spareRow], spare: ["t1.r2.c1", "t1.r2.c2"] }),
+    });
+    renderCard();
+    expect(await screen.findByText("2 z 3 pól wypełnionych")).toBeInTheDocument();
+    expect(screen.getByText("1 do uzupełnienia")).toBeInTheDocument();
+  });
+
   it("model niedostępny — komunikat, formularz do uzupełnienia ręcznie", async () => {
     api.get.mockResolvedValue({ data: view({ status: "not_filled" }) });
     api.post.mockResolvedValue({
