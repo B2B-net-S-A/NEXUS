@@ -272,6 +272,10 @@ _KNOWN_CONTRACT_FKS = {
     # Dodatki do rozliczenia (0691, E5.1; koszty integracji ze zgodą DL-a):
     # bez unikatu — idą za kontraktem w całości, limit roku liczy się na kandydata.
     ("client_settlement_extras", "contract_id"),
+    # Przypomnienia o brakującym RCP (0763): dziennik wysyłek z UNIQUE (kontrakt,
+    # miesiąc, kanał, dzień) — ten sam dzień u obu duplikatów rozstrzyga
+    # ``_resolve_child_duplicates`` (zostaje wpis zachowanego).
+    ("client_settlement_reminders", "contract_id"),
     # Lista płac K7a (0704): pozycje list to migawka wypłaty (paski, KEDU i PIT-11
     # liczą się z nich po osobie, nie po kontrakcie) — idą za kontraktem
     # zachowanym. Dwie pozycje duplikatów na jednej liście (UNIQUE lista +
@@ -3474,6 +3478,27 @@ async def _resolve_child_duplicates(
                 {"ids": [int(row["id"]) for row in losers]},
             )
         out["client_settlements_duplicates_removed"] = len(losers)
+
+    if ("client_settlement_reminders", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, period_month, channel, sent_on, "
+            "'sent' AS status "
+            "FROM client_settlement_reminders WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: (row["period_month"], row["channel"], row["sent_on"]),
+            rank={"sent": 0},
+            survivor_id=survivor_id,
+        )
+        if losers:
+            await db.execute(
+                text("DELETE FROM client_settlement_reminders WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["client_settlement_reminders_duplicates_removed"] = len(losers)
 
     if ("payroll_gross_inputs", "contract_id") in present:
         rows = await _child_rows(
