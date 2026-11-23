@@ -526,6 +526,7 @@ export function ScreeningWorkbench({
     activeJoint ? (
       <JointScreeningForm
         key={`${memoryEpoch}:${item.candidate_id}:${activeJoint.others.map((p) => p.job_id).join(",")}`}
+        layout={sheetMode ? "sheet" : "column"}
         candidateId={item.candidate_id}
         candidateName={name}
         anchor={{
