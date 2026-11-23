@@ -231,10 +231,7 @@ async def test_expired_ambiguous_attempt_is_not_automatically_repeated(auto_draf
     now = datetime.now(timezone.utc)
     first = await _tick(now)
     async with AsyncSessionLocal() as db:
-        assert (
-            await runs.expire_runs(db, now=now + runs.TOKEN_TTL + timedelta(seconds=1))
-            == 1
-        )
+        assert await runs.expire_runs(db, now=now + runs.TOKEN_TTL) == 1
     assert await _tick(now + runs.TOKEN_TTL + timedelta(minutes=5)) is None
     assert len(auto_draft.sent) == 1
     async with AsyncSessionLocal() as db:
@@ -243,18 +240,28 @@ async def test_expired_ambiguous_attempt_is_not_automatically_repeated(auto_draf
 
 
 @pytest.mark.asyncio
-async def test_submission_violation_is_not_hidden_by_an_old_draft_or_later_failure(auto_draft):
+async def test_submission_violation_is_not_hidden_by_an_old_draft_or_later_failure(
+    auto_draft,
+):
     now = datetime.now(timezone.utc)
     history = []
     for offset in (40, 2, 1):
-        run, _ = runs.new_run([auto_draft.item.payload], now=now - timedelta(days=offset), submit=False)
+        run, _ = runs.new_run(
+            [auto_draft.item.payload], now=now - timedelta(days=offset), submit=False
+        )
         run.status, run.token_hash = "received" if offset != 1 else "failed", None
         history.append(run)
     history[0].report = {"items": {"101": {"outcome": "draft", "cpro_status": "DRAFT"}}}
-    history[1].report = {"items": {"101": {
-        "outcome": "failed", "reason": "submit_disallowed", "reported_outcome": "submitted",
-        "cpro_status": "SELECTION",
-    }}}
+    history[1].report = {
+        "items": {
+            "101": {
+                "outcome": "failed",
+                "reason": "submit_disallowed",
+                "reported_outcome": "submitted",
+                "cpro_status": "SELECTION",
+            }
+        }
+    }
     async with AsyncSessionLocal() as db:
         db.add_all(history)
         await db.commit()
@@ -263,4 +270,25 @@ async def test_submission_violation_is_not_hidden_by_an_old_draft_or_later_failu
         assert states[101].run_id == history[1].id
         assert states[101].message
         assert await flow.due_items(db, now=now, today=business_date(now)) == []
+    assert auto_draft.sent == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["draft_unconfirmed", "submit_disallowed"])
+async def test_reason_only_receipt_still_blocks_new_and_manual_attempts(
+    auto_draft, reason
+):
+    now = datetime.now(timezone.utc)
+    receipt, _ = runs.new_run([auto_draft.item.payload], now=now, submit=False)
+    receipt.status, receipt.token_hash = "received", None
+    receipt.report = {"items": {"101": {"outcome": "failed", "reason": reason}}}
+    async with AsyncSessionLocal() as db:
+        db.add(receipt)
+        await db.commit()
+        assert await runs.recorded_offer_stage_ids(db, [101]) == {101}
+        assert await flow.due_items(db, now=now, today=business_date(now)) == []
+        states = await runs.item_states(db, [101], now=now)
+        assert states[101].state == "failed" and states[101].message
+        with pytest.raises(flow.NotReady):
+            await flow.start_chosen(db, [101], now=now, today=business_date(now))
     assert auto_draft.sent == []

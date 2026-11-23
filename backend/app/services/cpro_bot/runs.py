@@ -277,7 +277,7 @@ async def expire_runs(db: AsyncSession, *, now: datetime) -> int:
             update(CproBotRun)
             .where(
                 CproBotRun.status == "started",
-                CproBotRun.token_expires_at < now,
+                CproBotRun.token_expires_at <= now,
             )
             .values(status="expired", token_hash=None, error="brak raportu")
             .returning(CproBotRun.id)
@@ -431,12 +431,9 @@ async def item_states(
             state = state_for(run, stage_id, attempts[stage_id])
             out[stage_id] = state
             outcome = ((run.report or {}).get("items") or {}).get(str(stage_id))
-            if (
-                isinstance(outcome, dict)
-                and (
-                    outcome.get("reported_outcome") in ("draft", "submitted")
-                    or outcome.get("reason") in UNCERTAIN_OFFER_REASONS
-                )
+            if isinstance(outcome, dict) and (
+                outcome.get("reported_outcome") in ("draft", "submitted")
+                or outcome.get("reason") in UNCERTAIN_OFFER_REASONS
             ):
                 violations[stage_id] = state
             if auto_draft_enabled() and state.state in ("draft", "submitted"):

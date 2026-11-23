@@ -67,9 +67,7 @@ async def due_items(
     states = await runs.item_states(db, [item.stage_id for item in ready], now=now)
     limit = 1 if runs.auto_draft_enabled() else runs.MAX_ITEMS_PER_RUN
     return [
-        item
-        for item in ready
-        if runs.due_for_bot(states.get(item.stage_id), now=now)
+        item for item in ready if runs.due_for_bot(states.get(item.stage_id), now=now)
     ][:limit]
 
 
@@ -216,9 +214,7 @@ async def create_interactive_draft(
                     == "submitted"
                 )
                 | (
-                    CproBotRun.report["items"][str(stage_id)][
-                        "reported_outcome"
-                    ].astext
+                    CproBotRun.report["items"][str(stage_id)]["reported_outcome"].astext
                     == "submitted"
                 )
                 | (
