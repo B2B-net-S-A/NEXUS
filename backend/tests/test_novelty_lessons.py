@@ -1,4 +1,4 @@
-"""Lekcje nowości (0759, decyzje Artura 23.11.2026).
+"""Lekcje nowości (0760, decyzje Artura 23.11.2026).
 
 Porcja to lekcje na Poligonie: pokaz → sam → pytanie, najwyżej 5 dziennie,
 odłożenie raz dziennie do 15:00, pominięcie tylko dla admina, w piątek
@@ -333,7 +333,7 @@ def test_migration_and_entrypoint_use_the_one_ddl_source() -> None:
     entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
     assert "_NOVELTY_LESSON_DDL = list(_novelty_schema.LESSON_DDL)" in entrypoint
     assert "*_NOVELTY_LESSON_DDL," in entrypoint
-    migration = (BACKEND / "alembic/versions/0759_novelty_lessons.py").read_text(
+    migration = (BACKEND / "alembic/versions/0760_novelty_lessons.py").read_text(
         encoding="utf-8"
     )
     assert "from app.services.novelty_schema import LESSON_DDL" in migration

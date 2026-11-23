@@ -1,5 +1,5 @@
 # Nowości do przeklikania zamiast artefaktu „co nowego”
-<!-- indeks: rejestr `app/data/novelties/novelties.json`, lekcje `lessons.json` (pokaz → sam → pytanie, 23.11.2026), poranna porcja `/nowosci-dnia` na Poligonie, najwyżej 5 lekcji dziennie, odłóż do 15:00, admin pomija, piątek powtórka, Szkolenia → Nowości w NEXUSIE, panel admin + HoR, `novelty_progress` (0625), `novelty_lesson_progress` i `novelty_daily_state` (0759) -->
+<!-- indeks: rejestr `app/data/novelties/novelties.json`, lekcje `lessons.json` (pokaz → sam → pytanie, 23.11.2026), poranna porcja `/nowosci-dnia` na Poligonie, najwyżej 5 lekcji dziennie, odłóż do 15:00, admin pomija, piątek powtórka, Szkolenia → Nowości w NEXUSIE, panel admin + HoR, `novelty_progress` (0625), `novelty_lesson_progress` i `novelty_daily_state` (0760) -->
 
 Decyzja Artura z 28.10.2026 (makiety: https://claude.ai/artifact/Qmy51h287jZy4r9oCaA1i4).
 Ludzie nie czytali artefaktów „co nowego” ani dymków: w 30 dni do 27.10
@@ -149,5 +149,5 @@ Artur: „trzeba zmusić, żeby każdą zmianę zrozumieli i potrafili korzysta�
 - **W trybie podglądu jako inna osoba** porcja nie blokuje, a zdarzenia się
   nie zapisują.
 - **Schemat:** `novelty_progress` (0625) oraz `novelty_lesson_progress`
-  i `novelty_daily_state` (0759), DDL w `app/services/novelty_schema.py`
+  i `novelty_daily_state` (0760), DDL w `app/services/novelty_schema.py`
   (`TABLE_DDL`, `LESSON_DDL`), lustro w `entrypoint.sh`, sonda w `/api/health/deep`.

@@ -4711,7 +4711,7 @@ async def api_health_deep_check(request: Request):
         # 0625: nowości do przeklikania — kropki i lista „Nowości” czytają ją
         # przy każdym wejściu.
         ("novelty_progress", NoveltyProgress),
-        # 0759: lekcje nowości — porcja dnia czyta je przy pierwszym wejściu.
+        # 0760: lekcje nowości — porcja dnia czyta je przy pierwszym wejściu.
         ("novelty_lesson_progress", NoveltyLessonProgress),
         ("novelty_daily_state", NoveltyDailyState),
         # 0632: licznik użycia obszarów — pętla zapisuje tu co minutę.

@@ -1519,7 +1519,7 @@ try:
     from app.services import novelty_schema as _novelty_schema
 
     _NOVELTY_TABLE_DDL = list(_novelty_schema.TABLE_DDL)
-    # 0759: lekcje nowości — postęp w lekcji i stan porcji dnia.
+    # 0760: lekcje nowości — postęp w lekcji i stan porcji dnia.
     _NOVELTY_LESSON_DDL = list(_novelty_schema.LESSON_DDL)
 except Exception as _novelty_schema_err:  # noqa: BLE001
     print(f"novelty schema unavailable: {_novelty_schema_err!r}")

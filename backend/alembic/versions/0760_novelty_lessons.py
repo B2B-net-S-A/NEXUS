@@ -1,7 +1,7 @@
 """Lekcje nowości: postęp osoby w lekcji i stan porannej porcji.
 
-Revision ID: 0759_novelty_lessons
-Revises: 0758_b2b_esign_remote_sessions
+Revision ID: 0760_novelty_lessons
+Revises: 0759_notice_mail
 
 Decyzje Artura z 23.11.2026: nowość przechodzi się jako lekcja na Poligonie
 (pokaz → samodzielnie → pytanie), najwyżej 5 lekcji dziennie, porcję można
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services.novelty_schema import LESSON_DDL, LESSON_DOWNGRADE_DDL
 
-revision = "0759_novelty_lessons"
-down_revision = "0758_b2b_esign_remote_sessions"
+revision = "0760_novelty_lessons"
+down_revision = "0759_notice_mail"
 branch_labels = None
 depends_on = None
 
