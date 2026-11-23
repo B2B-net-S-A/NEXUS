@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Iterable, Optional
+from typing import Awaitable, Callable, Iterable, Optional
 from urllib.parse import urlsplit
 
 import httpx
@@ -65,9 +65,15 @@ async def due_items(
     queue = await bot_items.load_items(db, now=now, today=today)
     ready = [item for item in queue if item.payload is not None]
     states = await runs.item_states(db, [item.stage_id for item in ready], now=now)
+    reserved = await runs.operator_reserved_stage_ids(
+        db, [item.stage_id for item in ready]
+    )
     limit = 1 if runs.auto_draft_enabled() else runs.MAX_ITEMS_PER_RUN
     return [
-        item for item in ready if runs.due_for_bot(states.get(item.stage_id), now=now)
+        item
+        for item in ready
+        if item.stage_id not in reserved
+        and runs.due_for_bot(states.get(item.stage_id), now=now)
     ][:limit]
 
 
@@ -104,6 +110,8 @@ async def start_chosen(
     if runs.auto_draft_enabled() and len(wanted) != 1:
         raise NotReady("Tryb szkiców wymaga dokładnie jednej karty Cpro.")
     await runs.lock_new_run(db)
+    if await runs.operator_reserved_stage_ids(db, wanted):
+        raise NotReady("Karta ma już zlecenie operatora — otwórz istniejący bieg.")
     if await runs.has_open_run(db):
         raise NotReady("Bot właśnie wypełnia Cpro — spróbuj za kilka minut.")
     found = await bot_items.load_items(db, now=now, today=today, stage_ids=wanted)
@@ -140,6 +148,8 @@ async def create_interactive_draft(
     now: datetime,
     today: date,
     repair_draft_run_id: Optional[int] = None,
+    operator_user_id: Optional[int] = None,
+    operator_check: Optional[Callable[[bot_items.BotItem], Awaitable[None]]] = None,
 ) -> tuple[CproBotRun, str]:
     """Nowe zlecenie jednej karty dla operatora, bez webhooka i wysyłki.
 
@@ -167,6 +177,8 @@ async def create_interactive_draft(
         raise NotReady("Podaj dokładny numer requestu Cpro.")
 
     await runs.lock_new_run(db)
+    if await runs.operator_reserved_stage_ids(db, [stage_id]):
+        raise NotReady("Karta ma już zlecenie operatora — otwórz istniejący bieg.")
     if await runs.has_open_run(db):
         raise NotReady("Bot właśnie wypełnia Cpro — spróbuj za kilka minut.")
     found = await bot_items.load_items(db, now=now, today=today, stage_ids=[stage_id])
@@ -273,7 +285,19 @@ async def create_interactive_draft(
             # Wtedy bot potwierdza szkic na liście ofert właściwego requestu.
             pass
 
+    if operator_user_id is not None:
+        if (
+            type(operator_user_id) is not int
+            or operator_user_id <= 0
+            or operator_check is None
+        ):
+            raise NotReady("Brak uprawnień operatora do tej karty.")
+        await operator_check(item)
     run, token = runs.new_run([payload], now=now, submit=False, cards=_cards([item]))
+    if operator_user_id is not None:
+        run.request = {**run.request, "operator_browser": True}
+        run.requested_by_user_id = operator_user_id
+        run.token_hash = None
     db.add(run)
     await db.commit()
     return run, token
