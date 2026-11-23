@@ -4516,6 +4516,22 @@
     ]
   },
   {
+    "id": "sprzedaz-nowa-firma-z-nip",
+    "title": "Nowa firma z NIP-u w wyszukiwarce",
+    "why": "Wpisz NIP u góry: gdy karty nie ma, „Załóż firmę z NIP …” otworzy okno z danymi z rejestru. Firma bez NIP-u już w kartotece? Dopiszesz NIP do jej karty.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Wyszukiwarka u góry (⌘K) → wpisz NIP",
+    "href": "/sales/companies",
+    "dot_anchor": "topbar.search",
+    "used_anchor": "palette.sales-nip"
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",

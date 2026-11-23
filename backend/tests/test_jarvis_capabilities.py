@@ -49,3 +49,13 @@ def test_now_lists_exactly_the_tools_with_undo() -> None:
     listed = {name for _label, tools in NOW for name in tools}
     assert listed == {t.name for t in TOOLS_BY_NAME.values() if t.undo is not None}
     assert not listed.intersection(name for _label, tools in WRITE for name in tools)
+
+
+def test_new_company_from_nip_is_listed_only_for_sales_editors() -> None:
+    def caps(permissions: tuple[str, ...]) -> dict[str, list[str]]:
+        offered = tools_for_user({}, permissions=permissions, hr_modules=())
+        names = [t.name for t in offered]
+        return capabilities_for(names)
+
+    assert "nowa firma w Sprzedaży z NIP-u" in caps(("sales_edit",))["write"]
+    assert "nowa firma w Sprzedaży z NIP-u" not in caps(("sales_view",))["write"]

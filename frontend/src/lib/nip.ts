@@ -28,3 +28,15 @@ export function nipProblem(value: string): string | null {
     ? null
     : "Wpisz NIP (10 cyfr), VAT UE albo inny identyfikator z prefiksem kraju.";
 }
+
+/** Zapytanie, które jest samym polskim NIP-em („734-286-71-48”, „PL7342867148”), albo `null`. */
+export function nipFromQuery(value: string): { nip: string; valid: boolean } | null {
+  const number = normalizedNip(value);
+  if (!/^\d{10}$/.test(number)) return null;
+  return { nip: number, valid: nipProblem(number) === null };
+}
+
+/** „7342867148” → „734-286-71-48”. */
+export function formatNip(nip: string): string {
+  return `${nip.slice(0, 3)}-${nip.slice(3, 6)}-${nip.slice(6, 8)}-${nip.slice(8)}`;
+}
