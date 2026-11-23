@@ -175,7 +175,7 @@
       },
       {
         "q": "Jak przesunąć albo odrzucić osobę?",
-        "a": "„Następny etap” pokazuje braki do kolejnej kolumny; zatrzymany ruch ma wyłączony przycisk. Inny etap — „Inny etap…”. Odrzucenie — „Odrzuć z powodem”; przy powodzie „za drogo” wpisz, ile teraz chce — trafi do „Stawki od”. Wycofanie — „Zrezygnował”. Potem panel pokazuje następną osobę z kolejki „‹ ›”; „Pokaż” wraca do zamkniętej.",
+        "a": "„Następny etap” pokazuje braki; zatrzymany ruch ma wyłączony przycisk. Inny etap — „Inny etap…”. Odrzucenie — „Odrzuć z powodem” (przy „za drogo” wpisz, ile teraz chce) albo w „Nowych” i „Screeningu” jeden z Twoich 3 częstych powodów w „Odrzuć:”, z 10 s na „Cofnij”. Wycofanie — „Zrezygnował”. Potem panel pokazuje następną osobę z kolejki „‹ ›”.",
         "anchor": "jobs.person.actions"
       },
       {
