@@ -18,8 +18,11 @@ pod plikami, poza pierwszym ekranem, a szablon nie przenosił krytycznych, kateg
 - Przed odczytem banera nie ma: dopasowanie potrzebuje roli z odczytu.
 - Baner stoi nad formularzem, pod paskiem wypełnienia; stary baner w kolumnie requestu jest
   wtedy schowany (jedno zapytanie, ten sam klucz). „Czytaj od zera” chowa baner do następnego
-  odczytu, zmiana klienta i wczytanie zapisanego formularza go zdejmują, „Cofnij wypełnienie”
-  po „Użyj” przywraca go razem z odczytem.
+  odczytu, zmiana klienta i wczytanie zapisanego formularza go zdejmują.
+- **Pierwsza ręczna zmiana formularza chowa baner** (`editForm` w `NewJobPage`: pola, propozycje,
+  kategoria, pozycja z zespołu). „Użyj” składa formularz z migawki odczytu, więc po edycji
+  nadpisałby to, co DL wpisał. „Cofnij wypełnienie” po „Użyj” przywraca baner tylko wtedy,
+  gdy DL niczego po „Użyj” nie zmienił.
 - `<nr>` to numer zapytania klienta (`client_reference`, np. 43260 — tak DL nazywa request),
   a bez niego id rekrutacji (`RepeatTemplate.label`).
 - Na górze najlepiej pasująca rekrutacja (największe `similarity`): nazwa od klienta, stan,

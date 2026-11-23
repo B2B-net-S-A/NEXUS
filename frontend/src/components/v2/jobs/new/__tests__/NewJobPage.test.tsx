@@ -3192,15 +3192,28 @@ describe("NewJobPage — wariant 2 „Powtórka” (24.11.2026)", () => {
     expect(hm).toHaveTextContent("Ta sama osoba co w 43260: Anna Nowak");
     expect(screen.getAllByText("z 43260").length).toBeGreaterThan(0);
 
-    fireEvent.click(within(hm!).getByRole("button", { name: "Potwierdź — Hiring manager" }));
+    // „Cofnij wypełnienie” wraca do samego odczytu, a baner stoi znowu.
+    fireEvent.click(screen.getByRole("button", { name: /Cofnij wypełnienie/ }));
+    const again = await screen.findByTestId("repeat-request-banner");
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("170");
+
+    // Drugie „Użyj”, „Potwierdź” hiring managera — to już zmiana DL-a, więc
+    // po cofnięciu baner nie wraca (kolejne „Użyj” by ją nadpisało).
+    fireEvent.click(
+      await within(again).findByRole("button", { name: "Użyj 43260 i przeczytaj z maila tylko różnice" }),
+    );
+    const hmAgain = await waitFor(() => {
+      const chip = offerChips().find((c) => c.dataset.unit === "hiringManager");
+      expect(chip).toBeDefined();
+      return chip!;
+    });
+    fireEvent.click(within(hmAgain).getByRole("button", { name: "Potwierdź — Hiring manager" }));
     await waitFor(() =>
       expect(offerChips().some((chip) => chip.dataset.unit === "hiringManager")).toBe(false),
     );
-
-    // „Cofnij wypełnienie” wraca do samego odczytu, a baner stoi znowu.
     fireEvent.click(screen.getByRole("button", { name: /Cofnij wypełnienie/ }));
-    expect(await screen.findByTestId("repeat-request-banner")).toBeInTheDocument();
-    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("170");
+    await waitFor(() => expect(screen.queryByTestId("repeat-fill-note")).toBeNull());
+    expect(screen.queryByTestId("repeat-request-banner")).toBeNull();
   });
 
   it("„Czytaj od zera” chowa baner i zostawia odczyt", async () => {
@@ -3210,6 +3223,15 @@ describe("NewJobPage — wariant 2 „Powtórka” (24.11.2026)", () => {
     fireEvent.click(within(banner).getByRole("button", { name: "Czytaj od zera" }));
     await waitFor(() => expect(screen.queryByTestId("repeat-request-banner")).toBeNull());
     expect(screen.queryByTestId("repeat-fill-note")).toBeNull();
+  });
+
+  it("ręczna zmiana po odczycie chowa baner — „Użyj” nie nadpisze tego, co DL wpisał", async () => {
+    withRepeat();
+    await readRequest();
+    await screen.findByTestId("repeat-request-banner");
+    fireEvent.change(screen.getByLabelText("Budżet PLN/h"), { target: { value: "200" } });
+    await waitFor(() => expect(screen.queryByTestId("repeat-request-banner")).toBeNull());
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("200");
   });
 
   it("bez podobnych requestów baneru nie ma", async () => {

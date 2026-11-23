@@ -424,6 +424,9 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     clientDefaults: ClientDefaults | null;
   } | null>(null);
   const [repeatDismissed, setRepeatDismissed] = useState(false);
+  // Czy DL zmienił coś ręcznie od ostatniego „Użyj <nr>” — wtedy cofnięcie
+  // Powtórki nie przywraca banera (drugie „Użyj” nadpisałoby te zmiany).
+  const editedRef = useRef(false);
   // „43260” — plakietki „z 43260” przy polach, dopóki formularz stoi na tym szablonie.
   const [repeatLabel, setRepeatLabel] = useState<string | null>(null);
   // „Utwórz i opublikuj” kliknięte przy brakach — pola są odtąd podświetlone.
@@ -553,6 +556,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     // Cofnięty odczyt nie może zostać bazą dla Powtórki; cofnięta Powtórka
     // wraca do odczytu, więc baner stoi znowu.
     if (!fillInfo?.repeat && fillInfo?.source !== "template") setLastRead(null);
+    if (fillInfo?.repeat && !editedRef.current) setRepeatDismissed(false);
     if (!saved) return;
     setForm((f) => {
       const next = undoIntakeFill(f, saved.undo);
@@ -574,7 +578,18 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     setSource(saved.previous.source);
   };
 
+  // Zmiana z rąk DL-a: Powtórka składa formularz z migawki odczytu, więc po
+  // pierwszej ręcznej zmianie baner znika (jak po „Czytaj od zera”) — „Użyj”
+  // nie może nadpisać tego, co DL wpisał.
+  const editForm = useCallback((update: IntakeForm | ((f: IntakeForm) => IntakeForm)) => {
+    editedRef.current = true;
+    setRepeatDismissed(true);
+    setForm(update);
+  }, []);
+
   const acceptOffer = useCallback((offer: IntakeOffer) => {
+    editedRef.current = true;
+    setRepeatDismissed(true);
     setForm((f) => acceptIntakeOffer(f, offer));
     setOffers((list) => list.filter((item) => item.unit !== offer.unit));
   }, []);
@@ -1007,6 +1022,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     const live = liveRef.current;
     const label = template.label;
     setRepeatLabel(label);
+    editedRef.current = false;
     fillUndoRef.current = {
       undo: intakeFillUndo(live.form, merge.form),
       // Powtórka wymienia wszystkie propozycje — cofnięcie przywraca poprzednie.
@@ -1705,12 +1721,12 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
             onChange={setTeamChoice}
             requestText={requestText || pasteDraft}
             onUsePosition={(position) =>
-              setForm((f) => ({ ...f, title: position.title, headcount: String(position.headcount) }))
+              editForm((f) => ({ ...f, title: position.title, headcount: String(position.headcount) }))
             }
           />
           <NewJobReviewForm
             form={form}
-            onChange={setForm}
+            onChange={editForm}
             missing={missing}
             highlightMissing={highlightMissing}
             missingSource={missingSource}
@@ -1737,7 +1753,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                   suggestedCategoryId={form.suggestedCategoryId}
                   categoryConfirmed={form.categoryConfirmed}
                   onCategoryChange={(id, confirmed) =>
-                    setForm((f) => ({
+                    editForm((f) => ({
                       ...f,
                       competenceCategoryId: id,
                       categoryConfirmed: confirmed,
