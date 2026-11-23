@@ -478,6 +478,12 @@ class NotificationType(str, enum.Enum):
     # related_entity=(client, id). Sekcja Delivery, kategoria kontraktów,
     # bez maila. ``services/client_settlements/reminders.py``.
     settlement_report_missing = "settlement_report_missing"
+    # 0764: aneks dopisał krok stawki konsultanta („stawka od dnia”) — dzwonek
+    # Finansów, bo Rozliczenia płacą konsultantowi po tej stawce od jej dnia
+    # (przegląd skrzynki umowy@ 23.11.2026: zmiana szła mailem jako PDF).
+    # related_entity=(contract_amendment, id), bez kwot.
+    # ``services/contract_rate_annex_signal.py``.
+    contract_rate_annex = "contract_rate_annex"
     # 0727 (16.11.2026): nowy wpis w KRS spółki (odpis pełny co noc) — do Rady
     # nadzorczej i adminów; related_entity=(board_krs_snapshot, id). Sekcja
     # Insights (Rada ma tylko ją), kategoria „Systemowe”. ``tasks/board_krs.py``.
