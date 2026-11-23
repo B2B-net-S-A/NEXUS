@@ -1,6 +1,6 @@
 # Rozliczenia: odpowiedź klienta bez pliku prowadzi do naszego maila z Wysłanych
 
-<!-- indeks: Wysłane, SentItems, sent_messages, odpowiedź klienta, Potwierdzam zestawienie, Zestawienie godzin, BNP CIB, is_reply_to_sent, _answered_mail, _store_reply_to_sent, REPLY_WINDOW, In-Reply-To, conversationId, MessageCopyForSentAsEnabled, jedna osoba albo nikt -->
+<!-- indeks: Wysłane, SentItems, sent_messages, odpowiedź klienta, Potwierdzam zestawienie, Zestawienie godzin, BNP CIB, is_reply_to_sent, _answered_mail, _store_reply_to_sent, REPLY_WINDOW, In-Reply-To, conversationId, MessageCopyForSentAsEnabled, jedna osoba albo nikt, inicjał imienia, Wszystko się zgadza, Bosch -->
 
 Decyzja Artura z 23.11.2026 (próba rozliczeń IX–X 2026, BNP Paribas CIB). Koordynator wysyła
 z adresu rozliczeń „Zestawienie godzin 2026.09 B2B.net S.A. - Imię Nazwisko” z arkuszem godzin
@@ -55,5 +55,22 @@ kopię w Wysłanych nadawcy, nie skrzynki wspólnej. Wtedy czytnik niczego nie z
 włączyć `MessageCopyForSentAsEnabled` (i `…ForSendOnBehalfEnabled`) na skrzynce wsparcie@.
 Na 23.11.2026 tego nie sprawdzono.
 
+## Inicjał w naszym temacie i „Wszystko się zgadza” (Bosch, od 23.11.2026)
+
+Koordynator wysyła przełożonemu u klienta „Potwierdzenie godzin R.Nazwisko” z plikiem
+godzin, a przełożony odpisuje „Wszystko się zgadza, proszę o wystawienie faktury”. Ten sam
+wzór co BNP CIB, ale w temacie stoi tylko inicjał imienia, a akceptacja nie ma słowa
+„akceptuję” ani „potwierdzam”. W próbie IX–X 2026 dwa miesiące jednej osoby nie miały przez
+to rozliczenia.
+
+- Gdy `resolve_named_in_text` (pełne imię) nikogo nie wskazuje, osobę z naszego tematu
+  szuka `resolve_named_for_clients`: nazwisko i imię albo jego inicjał, tylko wśród
+  kontraktów klienta, do którego należy domena odpowiedzi (`client_ids_for_sender`, czyli
+  adres w kontaktach klienta). Bez kontaktu klienta w tej domenie osoby nie ma.
+- `client_acceptance.accepts` uznaje też „zgadza się” i „się zgadza”, a „nie zgadza”
+  odrzuca. Ta sama funkcja ocenia akceptacje mailowe PKO i BIK, więc „się nie zgadza” od
+  klienta też nie jest akceptacją.
+
 Powiązane: `finanse-insights/rozliczenia-akceptacja-w-tresci-maila.md`,
+`finanse-insights/rozliczenia-nadawca-i-okres-z-poczty.md`,
 `ludzie/jedna-skrzynka-wsparcie.md` (sekcja „Router E8”).

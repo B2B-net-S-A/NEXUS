@@ -182,6 +182,32 @@ describe("RequirementRowsEditor — wiersze i poziomy", () => {
     ).toEqual(["java", "pay", "k8s"]);
   });
 
+  it("„Do niuansów” zdejmuje wiersz z wymagań i oddaje jego słowa jako zdanie klienta (zgłoszenie 23.11.2026)", () => {
+    const onMoveToNotes = vi.fn();
+    const { onRowsChange } = renderEditor({ onMoveToNotes });
+    fireEvent.click(screen.getByRole("button", { name: "Przenieś do niuansów: Kafka" }));
+    expect(onMoveToNotes).toHaveBeenCalledWith("Kafka lub RabbitMQ");
+    expect(
+      (onRowsChange.mock.calls.at(-1)![0] as RequirementRowForm[]).map((r) => r.key),
+    ).toEqual(["java", "pay", "k8s"]);
+  });
+
+  it("bez odbiorcy niuansów, bez prawa edycji i przy pustym wierszu nie ma „Do niuansów”", () => {
+    expect(
+      readFromEditor({}, () => screen.queryByRole("button", { name: /Przenieś do niuansów/ })),
+    ).toBeNull();
+    expect(
+      readFromEditor({ onMoveToNotes: vi.fn(), disabled: true }, () =>
+        screen.queryByRole("button", { name: /Przenieś do niuansów/ }),
+      ),
+    ).toBeNull();
+    expect(
+      readFromEditor({ onMoveToNotes: vi.fn(), rows: [], critical: known({}) }, () =>
+        screen.queryByRole("button", { name: /Przenieś do niuansów/ }),
+      ),
+    ).toBeNull();
+  });
+
   it("pusta lista pokazuje jeden pusty wiersz, którego nie da się usunąć", () => {
     renderEditor({ rows: [], critical: known({}) });
     expect(screen.getAllByRole("radiogroup")).toHaveLength(1);

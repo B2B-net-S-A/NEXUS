@@ -1106,12 +1106,35 @@ describe("usePipelineMove — ruch zbiorczy", () => {
       expect(post).not.toHaveBeenCalled();
     });
 
-    it("zatrudnienie inną drogą anuluje umowę w rejestrze po udanym ruchu", async () => {
+    // 23.11.2026: rekruterka wybrała „B2B poza Generatorem” dla umowy
+    // z Generatora podpisanej mailem, a zaznaczone z góry „Anuluj umowę”
+    // przestawiło ją na „Anulowana”. B2B poza Generatorem to ta sama umowa,
+    // więc pola nie ma; przy innej umowie zaznacza się je świadomie.
+    it("B2B poza Generatorem nie proponuje anulowania i zostawia umowę", async () => {
+      post.mockResolvedValue({ data: { id: 903, process_state_version: 2 } });
+      openHire();
+      fireEvent.click(
+        await screen.findByRole("radio", { name: "Umowa B2B podpisana poza Generatorem" }),
+      );
+      expect(screen.queryByRole("checkbox", { name: /Anuluj umowę 1601\/2026/ })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Potwierdź zatrudnienie" }));
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(
+          "/api/pipeline/move",
+          expect.objectContaining({ candidate_id: 403, hired_signed_via: "b2b_offline" }),
+        ),
+      );
+      expect(updateGenerated).not.toHaveBeenCalled();
+    });
+
+    it("zatrudnienie inną drogą anuluje umowę w rejestrze po zaznaczeniu", async () => {
       post.mockResolvedValue({ data: { id: 901, process_state_version: 2 } });
       updateGenerated.mockResolvedValue({});
       openHire();
       fireEvent.click(await screen.findByRole("radio", { name: "Umowa o pracę" }));
-      expect(screen.getByRole("checkbox", { name: /Anuluj umowę 1601\/2026/ })).toBeChecked();
+      const cancel = screen.getByRole("checkbox", { name: /Anuluj umowę 1601\/2026/ });
+      expect(cancel).not.toBeChecked();
+      fireEvent.click(cancel);
       fireEvent.click(screen.getByRole("button", { name: "Potwierdź zatrudnienie" }));
       await waitFor(() =>
         expect(updateGenerated).toHaveBeenCalledWith(55, { contract_status: "cancelled" }),
@@ -1122,11 +1145,11 @@ describe("usePipelineMove — ruch zbiorczy", () => {
       );
     });
 
-    it("odznaczone „Anuluj umowę” zostawia umowę bez zmian", async () => {
+    it("niezaznaczone „Anuluj umowę” zostawia umowę bez zmian", async () => {
       post.mockResolvedValue({ data: { id: 902, process_state_version: 2 } });
       openHire();
       fireEvent.click(await screen.findByRole("radio", { name: "Umowa o pracę" }));
-      fireEvent.click(screen.getByRole("checkbox", { name: /Anuluj umowę 1601\/2026/ }));
+      expect(screen.getByRole("checkbox", { name: /Anuluj umowę 1601\/2026/ })).not.toBeChecked();
       fireEvent.click(screen.getByRole("button", { name: "Potwierdź zatrudnienie" }));
       await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
       expect(updateGenerated).not.toHaveBeenCalled();

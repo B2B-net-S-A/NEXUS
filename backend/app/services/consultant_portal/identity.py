@@ -130,6 +130,15 @@ async def resolve_report_owner(
     return rest[0] if len(rest) == 1 and len(rest) < len(rows) else None
 
 
+async def sender_contract_ids(
+    db: AsyncSession, address: str, *, today: date
+) -> frozenset[int]:
+    """Działające kontrakty, których konsultant pisze z tego adresu (bez wyboru jednego)."""
+
+    rows = await _sender_contracts(db, normalize_email(address), today=today)
+    return frozenset(row.id for row in rows)
+
+
 async def _sender_contracts(
     db: AsyncSession, address: str, *, today: date
 ) -> list[Contract]:
@@ -156,8 +165,41 @@ async def _sender_contracts(
         ).all()
         rows = [row for row in by_card if eligible(row, today)]
     if not rows:
+        rows = await _by_gmail_alias(db, address, today=today)
+    if not rows:
         rows = await _by_company_address(db, address, today=today)
     return rows
+
+
+_GMAIL = ("gmail.com", "googlemail.com")
+
+
+async def _by_gmail_alias(
+    db: AsyncSession, address: str, *, today: date
+) -> list[Contract]:
+    """Ten sam adres Gmaila zapisany z kropkami albo bez (``jan.nowak@`` = ``jannowak@``).
+
+    Gmail pomija kropki w nazwie skrzynki, więc konsultant pisze z jednej formy, a
+    kontrakt ma drugą (próba IX–X 2026, BIK 690: raport z ``imienazwisko@gmail.com``,
+    w kontrakcie ``imie.nazwisko@gmail.com``). Tylko adres z kontraktu, bez kartoteki.
+    """
+
+    local, _, domain = address.partition("@")
+    if domain not in _GMAIL or not local:
+        return []
+    stored = func.lower(func.btrim(Contract.candidate_email))
+    rows = (
+        await db.scalars(
+            select(Contract)
+            .where(
+                func.split_part(stored, "@", 2).in_(_GMAIL),
+                func.replace(func.split_part(stored, "@", 1), ".", "")
+                == local.replace(".", ""),
+            )
+            .order_by(Contract.start_date.desc().nulls_last(), Contract.id.desc())
+        )
+    ).all()
+    return [row for row in rows if eligible(row, today)]
 
 
 def _company_domains() -> frozenset[str]:

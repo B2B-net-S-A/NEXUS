@@ -21,6 +21,7 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
 from app.models.consultant_portal import CpDocument, CpMailboxState
+from app.models.contact import Contact
 from app.services import storage_service
 from app.services.consultant_portal import mailbox
 from tests.consultant_portal_seed import (  # noqa: F401  (fixture'y)
@@ -306,4 +307,65 @@ async def test_pilot_mode_does_not_look_into_sent_items() -> None:
     reader = _reader(subject)
     await _run(reader)
     assert reader.sent_calls == 0
+    assert await _documents() == []
+
+
+async def _initial(person) -> str:
+    async with AsyncSessionLocal() as db:
+        candidate = await db.get(Candidate, person.candidate_id)
+    return f"{candidate.name[0]}.{candidate.lastname}"
+
+
+async def _client_contact(person) -> None:
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Contact(
+                client_id=person.client_id, name="Kierownik", email=f"szef@{CLIENT}"
+            )
+        )
+        await db.commit()
+
+
+@pytest.mark.usefixtures("internal")
+async def test_initial_in_our_subject_finds_the_person_at_the_client() -> None:
+    """„Potwierdzenie godzin R.Nazwisko” i odpowiedź „Wszystko się zgadza” (Bosch,
+    próba IX–X 2026): sam inicjał wystarcza wśród kontraktów klienta z domeny."""
+    person = await make_person(activated=False)
+    await _client_contact(person)
+    subject = f"Potwierdzenie godzin {await _initial(person)}"
+    reader = _reader(
+        subject,
+        reply_subject=f"RE: {subject}",
+        accept="Wszystko się zgadza, proszę o wystawienie faktury.",
+    )
+    assert (await _run(reader))["created"] == 2
+    assert {d.contract_id for d in await _documents()} == {person.contract_id}
+
+
+@pytest.mark.usefixtures("internal")
+async def test_initial_without_client_contact_points_to_nobody() -> None:
+    person = await make_person(activated=False)
+    subject = f"Potwierdzenie godzin {await _initial(person)}"
+    await _run(
+        _reader(
+            subject,
+            reply_subject=f"RE: {subject}",
+            accept="Wszystko się zgadza.",
+        )
+    )
+    assert await _documents() == []
+
+
+@pytest.mark.usefixtures("internal")
+async def test_reply_saying_hours_do_not_match_stores_nothing() -> None:
+    person = await make_person(activated=False)
+    await _client_contact(person)
+    subject = f"Potwierdzenie godzin {await _initial(person)}"
+    await _run(
+        _reader(
+            subject,
+            reply_subject=f"RE: {subject}",
+            accept="Coś się nie zgadza, w poniedziałek był urlop.",
+        )
+    )
     assert await _documents() == []

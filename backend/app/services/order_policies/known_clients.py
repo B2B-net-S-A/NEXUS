@@ -77,6 +77,8 @@ KNOWN_SENDER_DOMAINS: dict[str, str] = {
     # Skrzynka body leasingu banku pisze z tej domeny (wątek KCP, 11.2026).
     "pocztowy.pl": "bank_pocztowy",
     "erstebank.pl": "erste",
+    # Erste Bank Polska (dawny Santander) pisze z erste.pl (próba IX–X 2026, ERSTE 479).
+    "erste.pl": "erste",
     "mleasing.pl": "mleasing",
     "kir.pl": "kir",
     "plus.pl": "polkomtel",
