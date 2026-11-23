@@ -43,6 +43,9 @@ prawie wszystkich (789128: „architektura chmury” → 0 osób w „Szukaj w b
   obowiązkowego (inaczej 422 `handoff_regression`) — zapis zostawia wiersze i mówi to uwagą.
   Uwagi wracają w `notices` odpowiedzi zapisu. „Uprość do słów kluczowych” wysyła zdania do
   `experience.skills`, nie do `stack.notes`; „Zdania klienta” z odczytu maila zostają w niuansach.
+  Odwrotna droga (23.11.2026, decyzja Artura po zgłoszeniu DL): „→ niuanse” przy wierszu
+  zdejmuje go ze słów do szukania i dopisuje jego tekst linią do `stack.notes` (na `/jobs/new`
+  do zdań klienta) — gdy odczyt zrobił ze zdania klienta słowa, których DL nie chce filtrować.
 - **Krytyczne (D2).** Zdanie nie może być krytyczne (edytor wyłącza „Krytyczne” do decyzji).
   Gdy krytyczne razem zostawiają mniej niż 20 osób (`CRITICAL_PEOPLE_MIN`, liczba z tego samego
   zapytania co licznik „W bazie”), edytor ostrzega, a „Utwórz” i „Zapisz” pytają przez

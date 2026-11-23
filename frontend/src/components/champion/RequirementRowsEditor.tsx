@@ -125,6 +125,12 @@ export interface RequirementRowsEditorProps {
    * pola „Język” — rodzic dopisuje je do Profilu Championa.
    */
   onMoveToTalk?: (item: TalkItem) => void;
+  /**
+   * „Do niuansów” (zgłoszenie 23.11.2026): wiersz, który z odczytu zdania
+   * klienta stał się słowem do szukania, wraca do „Zdań klienta i niuansów” —
+   * rodzic dopisuje tekst, wiersz znika z wymagań. Brak = bez przycisku.
+   */
+  onMoveToNotes?: (text: string) => void;
   /** Ile osób zostawiają krytyczne razem (`undefined` = liczę, `null` = nie wiadomo). */
   onCriticalCountChange?: (count: number | null | undefined) => void;
   /** Wiersze, których nie ma nikt z wysłanych; brak = nie mówimy nic (nowa rekrutacja, harness). */
@@ -172,6 +178,7 @@ export function RequirementRowsEditor({
   disabled = false,
   className,
   onMoveToTalk,
+  onMoveToNotes,
   onCriticalCountChange,
   sentGaps,
 }: RequirementRowsEditorProps) {
@@ -449,17 +456,35 @@ export function RequirementRowsEditor({
                     onSubmitEmpty={variantOpen ? () => closeVariant(row.key) : undefined}
                     hideInput={filled && !variantOpen}
                     trailing={
-                      filled && !variantOpen && row.words.length < ROW_WORDS_MAX ? (
-                        <button
-                          type="button"
-                          data-add-variant=""
-                          onClick={() => openVariant(row.key)}
-                          aria-label={`Dodaj wariant do wymagania ${index + 1}`}
-                          title="Dodaj wariant — wystarczy, że kandydat ma jedno ze słów tego wiersza"
-                          className="hit-area inline-flex h-6 shrink-0 items-center rounded-md border border-dashed border-border px-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-                        >
-                          + lub
-                        </button>
+                      filled && !variantOpen ? (
+                        <>
+                          {row.words.length < ROW_WORDS_MAX ? (
+                            <button
+                              type="button"
+                              data-add-variant=""
+                              onClick={() => openVariant(row.key)}
+                              aria-label={`Dodaj wariant do wymagania ${index + 1}`}
+                              title="Dodaj wariant — wystarczy, że kandydat ma jedno ze słów tego wiersza"
+                              className="hit-area inline-flex h-6 shrink-0 items-center rounded-md border border-dashed border-border px-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                            >
+                              + lub
+                            </button>
+                          ) : null}
+                          {onMoveToNotes && !disabled ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onMoveToNotes(row.words.join(" lub "));
+                                remove(row.key);
+                              }}
+                              aria-label={`Przenieś do niuansów: ${name}`}
+                              title="Przenieś do „Zdań klienta i niuansów” — przestanie filtrować kandydatów"
+                              className="hit-area inline-flex h-6 shrink-0 items-center rounded-md px-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                            >
+                              → niuanse
+                            </button>
+                          ) : null}
+                        </>
                       ) : undefined
                     }
                   />
