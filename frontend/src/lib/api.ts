@@ -7108,9 +7108,32 @@ export interface CVBrandedState {
   cv_layout?: CvLayout;
   new_layout_enabled?: boolean;
   default_layout?: CvLayout;
+  /** Dodatki strony 1 nowego CV: najmocniejszy wynik (wpisany albo wybrany z listy). */
+  page1_extras?: CvPage1Extras | null;
 }
 
 export type CvLayout = "classic" | "new";
+
+/** Wynik do strony 1 nowego CV; na stronę trafia tylko sprawdzony (`verified`). */
+export interface CvPage1Result {
+  text: string;
+  quote?: string | null;
+  company?: string | null;
+  verified?: boolean;
+}
+
+/** `candidate_stage_cvs.page1_extras` — to, czego nie ma w treści edytora. */
+export interface CvPage1Extras {
+  result_text?: string | null;
+  result_index?: number | null;
+  results?: CvPage1Result[] | null;
+}
+
+/** „Najmocniejszy wynik”: wybór z listy (`result_index`) albo zdanie rekrutera. */
+export interface CvPage1Update {
+  result_index?: number | null;
+  result_text?: string | null;
+}
 
 /**
  * Wynik „Wgraj nowe CV” w rekrutacji (`…/cv/original/upload`, 15.10.2026).
@@ -7328,6 +7351,9 @@ export const candidateStageCvApi = {
     /** Przełącz układ CV bez generowania od nowa (po „CV wysłane” 409). */
     setLayout: (stageId: number, cv_layout: CvLayout) =>
       api.patch<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/layout`, { cv_layout }),
+    /** Najmocniejszy wynik na stronie 1 nowego CV (tylko szkic; po „CV wysłane” 409). */
+    setPage1: (stageId: number, payload: CvPage1Update) =>
+      api.patch<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/page1`, payload),
     rename: (stageId: number, filename: string) =>
       api.patch<{ filename: string; pattern_filename?: string | null }>(
         `/api/candidates/stages/${stageId}/cv/branded/filename`,

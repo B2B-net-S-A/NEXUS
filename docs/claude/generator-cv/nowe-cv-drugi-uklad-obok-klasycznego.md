@@ -57,6 +57,44 @@ Migracja 0753, SQL w `services/cv_layout_schema.py` (czyta go też
 i `page1_extras` (NULL w starych wierszach = klasyczny),
 `cv_generated_documents.cv_layout`, `client_cv_rules.cv_layout`.
 
+## Zdanie „najmocniejszy wynik”
+
+Trzecie zdanie „Dlaczego nasz kandydat” na stronie 1 (wariant E2): najmocniejszy
+wynik z całego CV. Kod: `services/cv_page1_results.py` (model, zapis, wyzwalacze)
+i `services/cv_page1_result_checks.py` (sprawdzenie, bez sieci i bazy).
+
+- **Co:** osobne wywołanie modelu generatora (klucz `cv_generator`, GPT-6.1 Sol),
+  prompt PL albo EN według języka CV; prompt generatora (`legacy_v7`) bez zmian.
+  Model dostaje role z HTML-a edytora (firma, stanowisko, okres, punkty) i punkty
+  1–2, bez imienia i kontaktu. Oddaje do 4 wyników, każdy jednym zdaniem od
+  rzeczownika, z `**pogrubieniem**` faktu, dosłownym cytatem i firmą. Wynik leży
+  w `page1_extras.results` (`text`, `quote`, `company`, `verified`, przy
+  niesprawdzonym `issue`), `result_index` wraca do 0 tylko przy innych wynikach,
+  `results_source_sha` = sha256 HTML-a, z którego liczono.
+- **Sprawdzenie (kod, nie model):** cytat stoi w jednym punkcie albo nazwie
+  stanowiska jednej roli (po słowach: wielkość liter, cudzysłowy, myślniki
+  i interpunkcja się nie liczą, zmienione słowo tak); każda liczba ze zdania stoi
+  w cytacie albo w tej roli; jedno zdanie do 170 znaków; w Blind CV bez nazw firm.
+  Zdanie o latach albo powtarzające punkt 1 lub 2 znika. Niesprawdzone zostają dla
+  edytora, ale strona 1 ich nie bierze (`cv_layout.chosen_result`); sprawdzone
+  stoją pierwsze, w kolejności modelu. Firmę bierze kod z roli z cytatem.
+- **Wyzwalacze:** `POST …/stages/{id}/cv/page1/results` (przycisk rekrutera, liczy
+  zawsze od nowa, limit 20/min, awaria = 503) oraz bieg w tle po commicie:
+  `PATCH …/cv/layout` na „Nowe CV” i szkic z generacji w układzie „Nowe CV”
+  (`apply_generated_to_stage_cv`). Tło tylko przy `CV_NEW_LAYOUT_ENABLED`, kluczu
+  dostawcy i nieaktualnym `results_source_sha`. Zapis pod blokadą wiersza na
+  świeżych dodatkach, więc `why` i `result_text` z innych zapisów zostają.
+- **Fallback:** bez sprawdzonego wyniku (CV z samymi obowiązkami, awaria modelu)
+  strona 1 bierze trzeci punkt generatora. Awaria nie zmienia dodatków, ślad
+  jest w logu. Zatwierdzona wersja ma dodatki zamrożone — wynik policzony później
+  trafia do szkicu, nie do wysłanej treści.
+- **Pomiar 22.11.2026** (kopia produkcji, 30 CV: 20 EN, 10 PL, sam Sol bez
+  zapasu, tylko odczyt): sprawdzony wynik w 26 CV, 72 propozycje, 0 odrzuconych
+  przez kod, 4 CV bez wyniku (model zwrócił pustą listę przy samych obowiązkach),
+  zdanie do 136 znaków (mediana 110), mediana 5 s na CV.
+- **Własny klucz AI** (osobny model w env i licznik w Ustawieniach → AI) wymaga
+  migracji enuma `aifeaturekey` i wpisu w rejestrze; dziś liczy się jako generator.
+
 ## Czego nie cofać
 
 - Nie dokładaj osobnego „Pobierz Word” w nowym układzie — Word jest klasyczny
@@ -65,3 +103,134 @@ i `page1_extras` (NULL w starych wierszach = klasyczny),
   zapadła po makietach obu wariantów.
 - Nie blokuj ścieżki CV na wyniku modelu: zdanie „najmocniejszy wynik” jest
   dodatkiem, bez niego strona 1 bierze trzeci punkt „Dlaczego”.
+- Nie wpuszczaj na stronę 1 zdania bez `verified` i nie luzuj sprawdzenia cytatu
+  ani liczb „bo model jest dobry”: na pomiarze nic nie odpadło, ale to jedyna
+  bariera przed liczbą spoza CV u klienta.
+- Nie dopisuj tego zdania do promptu generatora — klasyczne CV mają zostać bez
+  zmian, a wynik liczy się z treści po poprawkach rekrutera.
+
+## Edytor nowego CV: Strona 1 i Stanowiska (22.11.2026)
+
+Makiety: wariant A (Artur, 22.11.2026) — „Strona 1” i „Stanowiska” jako
+formularz po lewej i strona PDF z ramką po prawej.
+
+- **Kiedy:** tylko CV etapu z układem `new` i włączoną flagą
+  (`new_layout_enabled`). Nagłówek ma wtedy zakładki „Strona 1 · Stanowiska ·
+  Cały tekst · Jak u klienta”; „Cały tekst” to dotychczasowa kartka (wszystko,
+  czego formularze nie obejmują, zostaje edytowalne). Pierwsze wczytanie
+  otwiera „Stronę 1”, przełączenie na klasyczne wraca do „Edycji”. Klasyczne CV
+  i wynik generatora mają edytor bez zmian. Pasek w formularzach to tylko
+  cofnij / ponów i „Więcej” (`CvEditorToolbar.historyOnly`).
+- **Formularz pisze do dokumentu Tiptapa, nie obok niego**
+  (`lib/cv-new-layout-form.ts`). Pole czyta tekst akapitu, zmiana to
+  najmniejsza podmiana tekstu w transakcji — pogrubienia wokół zostają,
+  dopisek za pogrubionym słowem pogrubiony nie jest, cyfra doklejona do
+  pogrubionej liczby jest. Autozapis, historia cofania (Ctrl+Z w polu = cofnij
+  w edytorze), QC i plik Word działają jak przy pisaniu na kartce. Nie dodawaj
+  formularzowi własnej kopii treści ani osobnej trasy zapisu.
+- **Strona 1:** punkty 1–2 to punkty sekcji `why_points` w dokumencie
+  (wspólne z Wordem). Pod punktem 1 „Z dat stanowisk: X lat Y mies.” —
+  suma dat stanowisk tą samą arytmetyką co `client-form-years`
+  (`unionMonths`, `monthsText`). Punkt 3 „Najmocniejszy wynik” to dodatek
+  nowego CV: pole zapisuje `page1_extras.result_text` (1,2 s po ostatnim
+  znaku albo przy wyjściu z pola; puste = brak), „Inny wynik (N)” pokazuje
+  tylko sprawdzone `results` (`verified`) i zapisuje `result_index`
+  z `result_text: null`. Pole pokazuje tekst bez `**`; zdanie poprawione
+  ręcznie zapisuje się bez pogrubień. Zwinięte wiersze: „Przebieg kariery”
+  otwiera „Stanowiska”, „Umiejętności” / „Edukacja” / „Języki” — „Cały tekst”
+  z kursorem w tej sekcji.
+- **Stanowiska:** lista z `cvOutline` (firma z akapitu `employer` bez branży,
+  stanowisko, okres), „wyżej / niżej” przestawia całe zakresy ról
+  (`moveRoleAt`, ta sama transakcja co „Więcej → Stanowisko pod kursorem”),
+  „Dodaj” wstawia rolę z polami w nawiasach za wybraną (`insertRole(lang,
+  after)`). Formularz: okres od – do (linia `role` po pogrubionej nazwie),
+  firma (`employer`, brakujący akapit powstaje), stanowisko (zawsze
+  pogrubiony początek linii `role`), punkty zakresu zadań (ostatni usunięty
+  znika z listą i etykietą, pierwszy dodany przywraca „Zakres zadań:”),
+  technologie po etykiecie z `CV_TEMPLATE_LABELS` (akapit bez etykiety dostaje
+  ją z powrotem).
+- **Trasa:** `PATCH /api/candidates/stages/{id}/cv/page1`
+  (`api/cv_page1.py`, `{result_index?, result_text?}`): bramka zapisu
+  w kandydatach + zespół rekrutacji (`_load_csv_for_stage`), 409 po „CV
+  wysłane”, przy wyłączonej fladze, bez CV i na zatwierdzonej wersji (dodatki
+  są w niej zamrożone — edytor najpierw zakłada szkic, `ensureDraft`).
+  Niesprawdzony albo nieistniejący wynik i zdanie ponad 400 znaków → 422.
+  Pozostałe pola `page1_extras` (`why`, `results`) zostają. Wpis
+  `cv_page1_changed` bez treści zdania. `GET …/cv/branded` niesie
+  `page1_extras`. Wzorzec bramek: `tests/data/authz_golden/cv_page1.json`
+  (te same litery co `preview-pdf`), moduł w `_SCOPED_MODULES`.
+- **Podgląd** (`useNewCvPreview`, `CvPdfPageView`): ta sama trasa
+  `…/preview-pdf` co „Jak u klienta” (limit 20/min na osobę, wspólny). Pierwszy
+  PDF od razu, kolejny 4 s po ostatniej zmianie treści albo dodatków, tylko
+  gdy zakładka formularza jest na ekranie i karta przeglądarki widoczna,
+  najwyżej 8 na minutę (`previewDelay`). Stary obraz zostaje na czas
+  odświeżania i po błędzie (komunikat przez `apiErrorMessage` + „Ponów”);
+  błąd tej samej treści nie ponawia się sam. Chip „Strona 1 z N · mieści się ·
+  pismo 10 pt” z nagłówków `X-CV-Page1-*` (czerwony przy „nie mieści się”).
+  Ramka: pdf.js czyta warstwę tekstu, linie z początkami punktów „Dlaczego”
+  (strona 1) albo z firmą, stanowiskiem, okresem, punktami i technologiami
+  wybranego stanowiska (strona z największą liczbą trafień; przy powtórzonym
+  tekście linia najbliżej pierwszego trafienia). Bez trafień strona bez ramki
+  i zdanie „Stanowisko jest na tej stronie — bez ramki”.
+- **Harness:** `/preview/cv-editor?layout=new` — fikcyjne CV
+  (`new-layout-fixture.ts`), dodatki w pamięci, podgląd to
+  `public/preview/cv-editor/nowe-cv-przyklad.pdf` z renderu serwera tego CV
+  z nagłówkami jak z trasy. Po zmianie CV albo wyników w fiksturze wygeneruj
+  PDF ponownie: `cv_json_from_editor_html` → `NewCvDocument.from_cv_json(…,
+  why=compose_page1_why(…))` → `render_new_cv_pdf_with_report` w obrazie
+  backendu (bez `entrypoint.sh`, sieć wyłączona).
+- Testy: `lib/__tests__/cv-new-layout-form.test.ts`,
+  `cv-new-preview.test.ts`, `cv-editor/__tests__/CvNewLayout*.test.tsx`,
+  `modals/__tests__/CVBrandedEditModal.newLayout.test.tsx`,
+  `backend/tests/test_cv_page1.py`.
+
+## Gdzie idzie układ (22.11.2026, #3717)
+
+Każde miejsce, które oddaje CV dalej, patrzy na układ zatwierdzonej wersji
+(`cv_document_versions.cv_layout`), a szkic — na układ CV etapu. Wspólny
+render: `cv_new_pdf.approved_version_pdf` / `stage_draft_pdf` (treść, język,
+szablon, dodatki strony 1 i zrzut zgody zamrożone w wersji; przed renderem
+koniec transakcji; awaria = `NewCvPdfError` → 503 z polskim komunikatem).
+
+- **Bot Cpro** (`GET /integrations/cpro-bot/runs/{run}/cv/{stage}`): zlecenie
+  `cv_format = "pdf"` i wersja „Nowe CV” → PDF nowego układu, nagłówek
+  `X-CV-Layout: new`; token biegu sprawdzany ponownie po renderze. Historyczny
+  DOCX zostaje Wordem. Bez strony panelu (jak dotąd).
+- **Kolejka Cpro na pulpicie** (`CproQueueDialog`): „CV” pobiera
+  `fetchStageCvForClient` — PDF przy „Nowym CV”, inaczej Word.
+- **Panel klienta** (`client_panel.candidate_pdf`, `…/cv.pdf`): PDF nowego
+  układu z wersji albo szkicu. Bez strony z linkiem — klient już jest w panelu.
+- **Pobranie PDF „Nowego CV” dla klienta** (`…/versions/{n}/pdf` i
+  `…/preview-pdf` z `intent=download`): ramka panelu z pliku Word (QR, link,
+  krótki adres, ważność) idzie na **ostatnią stronę** PDF
+  (`client_panel.stamp_pdf_for_download` → `client_panel_stamp.append_panel_page`:
+  WeasyPrint + scalenie pypdfium2). Strona 1 musi się mieścić na jednej kartce,
+  więc pod tytułem ramki nie ma. Awaria = PDF bez tej strony. Podgląd
+  w NEXUSIE — bez niej. Decyzja Artura z 22.11.2026: ostatnia strona (za zrzutem
+  zgody PKO BP), nie pierwsza — strona 1 z podsumowaniem zostaje pierwsza.
+- **API v1** (`…/cv/file`): `format=pdf` przy „Nowym CV” = PDF nowego układu;
+  `docx` zostaje domyślne i zawsze klasyczne — zmiana domyślnego formatu
+  zmieniłaby znaczenie wywołania bez parametru (v2). Nagłówek `X-CV-Layout`
+  mówi o oddanym pliku, stan CV (`GET …/cv`) ma pole `cv_layout`.
+- **Nazwa pliku**: zapis (`branded_docx_filename`, `docx_filename`) zostaje
+  `.docx` — to nazwa pliku Word. Odpowiedź CV etapu (`current_filename`,
+  `pattern_filename`) i zmiana nazwy pokazują przy „Nowym CV” ten sam wzór
+  z `.pdf` (`cv_layout.filename_for`); `clean_cv_filename` odcina `.docx`
+  i `.pdf`, a `CvFileNameRow` zostawia końcówkę z serwera.
+- **Przegląd DL, panel osoby, QC**: odznaka „Nowe CV · PDF” / „Klasyczne · Word”
+  (`CvLayoutBadge` w `StageCvPreview`; w oknie QC z pola `cv.cv_layout` wyniku
+  QC, bez osobnego żądania). QC czyta HTML CV etapu — ten sam w obu układach,
+  zrzut zgody z tej samej kopii — więc nie zakłada pliku Word.
+- **Reguła klienta „Układ CV”** (`client_cv_rules.cv_layout`, NULL = klasyczny):
+  pole recepty (`RULE_FIELDS`) — wersja, diff w historii, publikacja, kopia
+  z innego klienta. Wiersz w „Plik i język” i fakt „Układ” w pasku reguły tylko
+  przy fladze (`new_layout_enabled` w `GET …/cv-rule` i `/settings/cv-rules`);
+  ukryty wiersz i tak wysyła układ (pełny zapis). Przy zasadach centralnych
+  (zapis reguły = 403) układ ma własny zapis `PUT /clients/{id}/cv-rule/layout`
+  z `central_lock=False` — jak wzór „Karty przed CV”: od razu nowa wersja,
+  publikacja i wpis historii; bez zasad centralnych ta trasa daje 409.
+  Domyślny układ czyta `cv_layout.default_for_client` wprost z zatwierdzonego
+  wiersza (resolver zasad centralnych buduje regułę spoza katalogu w pamięci,
+  bez układu). Generator (baner, „Reguły CV klienta” w warsztacie) pokazuje
+  układ z `rule-for-generation` (`cv_layout`, `null` przy wyłączonej fladze).
+

@@ -48,6 +48,7 @@ import { useCapability } from "@/hooks/useCapability";
 import { candidateStageCvApi } from "@/lib/api";
 import { QcOverrideDialog } from "@/components/v2/recruitment/QcOverrideDialog";
 import { QcStatusBadge } from "@/components/v2/recruitment/QcStatusBadge";
+import { QcLayoutBadge } from "@/components/v2/cv-generator/CvLayoutBadge";
 import {
   AiFixesView,
   CheckRow,
@@ -741,6 +742,8 @@ export function CvQcDialogView({
                   : "Sprawdzenia CV firmowego przed „CV wysłane” i Cpro."}
             </DialogDescription>
             <QcWordFileNote cv={data?.cv} />
+            {/* Układ pliku do klienta (22.11.2026) — QC sprawdza tę samą treść w obu. */}
+            <QcLayoutBadge layout={data?.cv?.cv_layout} />
             {data && stageId != null ? <QcOriginalNote data={data} stageId={stageId} /> : null}
           </div>
           {data ? (

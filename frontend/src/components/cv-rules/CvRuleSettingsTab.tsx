@@ -50,6 +50,7 @@ import {
 } from "@/lib/cv-rules";
 import { Button } from "@/components/ui/button";
 import { CoverSheetTemplateSection } from "@/components/cv-rules/CoverSheetTemplateSection";
+import { CvRuleLayoutField } from "@/components/cv-rules/CvRuleLayoutField";
 
 const TOKENS = ["{STANOWISKO}", "{IMIE_NAZWISKO}", "{PROJEKT}", "{DATA}"];
 
@@ -63,6 +64,8 @@ export interface CvRuleSettingsTabProps {
   clientId: number;
   filenamePreview?: string | null;
   glossaryOptions?: GlossaryEntry[];
+  /** Flaga „Nowego CV” (22.11.2026) — wyłączona: bez wiersza „Układ CV”. */
+  newLayoutEnabled?: boolean;
 }
 
 function Group({
@@ -182,6 +185,7 @@ export function CvRuleSettingsTab({
   clientId,
   filenamePreview,
   glossaryOptions = [],
+  newLayoutEnabled = false,
 }: CvRuleSettingsTabProps) {
   // Otwarte od startu, gdy jakieś zaawansowane ustawienie już działa — ukryta
   // aktywna konfiguracja jest gorsza niż zwinięta pusta sekcja.
@@ -271,6 +275,9 @@ export function CvRuleSettingsTab({
             </label>
           ))}
         </fieldset>
+        {newLayoutEnabled ? (
+          <CvRuleLayoutField value={form.cv_layout} onChange={(next) => set("cv_layout", next)} />
+        ) : null}
         <div>
           <label className="mb-1 block text-xs font-medium" htmlFor="cvrule-pattern">
             Wzór nazwy pliku CV

@@ -393,9 +393,10 @@ krokach E6.
 - E6.1 PKO: dowód od konsultanta (TS i plik HTML akceptacji), ten sam silnik
   (najbliżej BNP).
   - Odczyt TS: miesiąc z widocznego nagłówka „Liczba godzin realizacji usług
-    <miesiąc>”. Ten sam miesiąc stoi też w ukrytej kolumnie D (wiersze 16–18)
-    i w próbce był inny niż w nagłówku: parser bierze nagłówek i ostrzega
-    o rozbieżności z ukrytą kolumną, nigdy odwrotnie.
+    <miesiąc>”. Ukrytej kolumny D nie czytamy: w starszym szablonie to wpisany
+    na stałe „czerwiec”, w nowszym formuła z dat nagłówka. Ostrzeżenie
+    o rozbieżności usunięte 23.11.2026 po próbie IX–X (57 z 58 Time Sheetów
+    miało „czerwiec”, każde rozliczenie PKO dostawało to samo ostrzeżenie).
   - Akceptacja: plik HTML z liczbą godzin/MD za rozliczany miesiąc
     (`proof.accept_has_hours`); akceptujący nie musi być koordynatorem.
   - Kontrola MD z zamówienia (numer zamówienia z `client_orders.title`).

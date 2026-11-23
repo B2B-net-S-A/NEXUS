@@ -49,9 +49,18 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   żądaniu). Z domyślnymi nagłówkami aiohttp lista estońska dawała 403, a czeska
   (`text/plain`) 406, także z serwera produkcji. Podpis kwalifikowany z Czech
   albo Estonii nie miał wtedy zaufanego wystawcy i był odrzucany jako
-  niekwalifikowany. Start workera loguje `lista zaufanych UE: N błędów list`;
+  niekwalifikowany. Start workera i web loguje `lista zaufanych UE: N błędów list`;
   około 49 to historyczne wpisy usług z `TakenOverBy` (IT, SK, CZ) bez znaczenia.
   Nieudana lista kraju ma osobną linię `nie pobrano list krajowych`.
+- **Lista UE wczytuje się z wyprzedzeniem w obu procesach** (22.11.2026). Plik
+  waliduje trasa w web, a lista jest pamięcią procesu, więc web ma własne
+  jednorazowe zadanie `trusted_list_prewarm` (`WEB_ONLY_TASKS`), a worker robi to
+  na starcie `b2b_esign_sweeper`. Wcześniej web nie miał listy do pierwszego
+  wgrania po wdrożeniu i to żądanie czekało na jej pobranie (ok. 20 s, limit
+  120 s). Start i healthcheck na nie nie czekają (pomiar lokalny: 22 s, z tego
+  3,2 s CPU, najdłuższa przerwa pętli zdarzeń 0,55 s); awaria to ostrzeżenie
+  w logu, a lista pobierze się przy pierwszej walidacji. Udane pobranie loguje
+  `lista zaufanych UE pobrana w N s`. Na stagingu zadanie stoi (zapora wyjścia).
 - **Walidacja bez blokady, zapis pod blokadą.** DSS trwa do 30 s, więc
   walidacja idzie bez blokady wiersza, a potem `SELECT … FOR UPDATE` sprawdza
   stan i odcisk jeszcze raz — wycofanie w trakcie walidacji wygrywa (w torze
@@ -349,7 +358,8 @@ tylko kontraktor, podpisem kwalifikowanym” z sekcji o paczce.
   „nie przeszedł” (test na akcie z Dz.U. 2025 poz. 1, 21.10.2026). Ukrytą
   treść łapie analiza zmian po podpisie i porównanie z wysłanym plikiem.
   Połączenia OCSP/CRL: jeden backend na walidację, zamykany w `finally`.
-  Lista UE wczytywana przy starcie pętli przypomnień (pierwsze pobranie ok. 20 s).
+  Lista UE wczytywana przy starcie pętli przypomnień w workerze i zadaniem
+  `trusted_list_prewarm` w web (pierwsze pobranie ok. 20 s).
 - **Ekrany znają stan wysyłki** (część „Ważne”): karta Tablicy dostaje
   `agreement.esign` (`agreement_status.latest_esign_for_rows`, jedno zapytanie
   na tablicę) i plakietki „U kontraktora · link do …”, „Czeka na podpis firmy”,

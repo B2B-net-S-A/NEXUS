@@ -54,7 +54,9 @@ export function useClientCvRule(clientId: number | null | undefined) {
         const status = (error as { response?: { status?: unknown } } | null)?.response
           ?.status;
         if (status !== 403) throw error;
-        return (await api.get<ClientCvRule>(`/api/clients/${clientId}/cv-rule`)).data;
+        const full = (await api.get<ClientCvRule>(`/api/clients/${clientId}/cv-rule`)).data;
+        // Pełna reguła zawsze niesie układ; wąska — tylko przy włączonej fladze.
+        return { ...full, cv_layout: full.new_layout_enabled ? full.cv_layout : null };
       }
     },
     staleTime: 60 * 1000,
@@ -137,6 +139,13 @@ export function ClientCvRuleBanner({
                 w 230-pikselowej kolumnie kroku 06 — bez tego wypychała stronę
                 w poziomy scroll. */}
             <span className="font-mono break-all">{rule.filename_preview}</span>
+          </span>
+        ) : null}
+        {rule?.cv_layout === "new" ? (
+          // Układ z reguły klienta (22.11.2026) — tylko przy włączonej fladze,
+          // inaczej serwer nie przysyła pola.
+          <span className="block text-muted-foreground" data-testid="cv-rule-banner-layout">
+            Układ CV: Nowe CV (PDF) — domyślny dla tego klienta. Plik Word zostaje klasyczny.
           </span>
         ) : null}
         {rule?.requires_en_copy ? (

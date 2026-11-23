@@ -282,10 +282,15 @@ async def sweep(now: datetime | None = None) -> dict[str, int]:
     return counts
 
 
-async def _prewarm_trusted_list() -> None:
+async def prewarm_trusted_list() -> None:
     """Lista zaufanych UE wczytana przy starcie — pierwszy kontraktor nie czeka
     ok. 20 s na jej pobranie (pomiar 22.10.2026). Awaria = pobierze się przy
-    pierwszej walidacji."""
+    pierwszej walidacji.
+
+    Lista to pamięć procesu, a podpis waliduje trasa w web, więc web woła to
+    osobnym zadaniem ``trusted_list_prewarm`` (22.11.2026). Wcześniej robiła to
+    tylko ta pętla, czyli worker, i pierwsze wgranie po wdrożeniu czekało w
+    żądaniu na całą listę."""
     from app.core.config import settings  # noqa: PLC0415
     from app.services.b2b_esign.qualified import trusted_registry  # noqa: PLC0415
 
@@ -303,7 +308,7 @@ async def b2b_esign_sweeper_loop() -> None:
     beat = loop_heartbeat.register(
         "b2b_esign_sweeper", max_silence_seconds=INTERVAL_SECONDS + 1800
     )
-    await _prewarm_trusted_list()
+    await prewarm_trusted_list()
     while True:
         beat.tick()
         try:

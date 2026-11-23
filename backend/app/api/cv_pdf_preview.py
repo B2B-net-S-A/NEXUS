@@ -44,7 +44,7 @@ from app.services import cv_consent_gate as consent_gate
 from app.services import cv_generated_editor as generated_editor
 from app.services.candidate_stage_cv_service import render_stage_editor_docx
 from app.services.cv_document_versions import check_revision
-from app.services.client_panel import stamp_for_download
+from app.services.client_panel import stamp_for_download, stamp_pdf_for_download
 from app.services.cv_download_log import DOWNLOAD_INTENT, log_cv_download
 from app.services.cv_pdf_preview import (
     MSG_UNAVAILABLE,
@@ -88,6 +88,22 @@ async def _download_copy(
         job_id=csv.job_id,
         candidate_id=csv.candidate_id,
         docx=docx,
+        language=csv.branded_language,
+    )
+
+
+async def _download_new_pdf(
+    db: AsyncSession, csv, pdf: bytes, intent: Optional[str]
+) -> bytes:
+    """PDF „Nowego CV” do klienta: ostatnia strona z linkiem panelu (te same
+    dane co ramka w pliku Word). Podgląd w NEXUSIE — bez niej."""
+    if intent != DOWNLOAD_INTENT:
+        return pdf
+    return await stamp_pdf_for_download(
+        db,
+        job_id=csv.job_id,
+        candidate_id=csv.candidate_id,
+        pdf=pdf,
         language=csv.branded_language,
     )
 
@@ -203,7 +219,11 @@ async def preview_stage_cv_pdf(
             state="draft",
             version=csv.branded_version,
         )
-        return _response(result.pdf, filename, result.headers())
+        return _response(
+            await _download_new_pdf(db, csv, result.pdf, intent),
+            filename,
+            result.headers(),
+        )
     docx, _ = await render_stage_editor_docx(csv, payload.content_html)
     pdf = await _pdf(db, await _download_copy(db, csv, docx, intent))
     await log_cv_download(
@@ -271,7 +291,7 @@ async def approved_stage_cv_pdf(
             version=version.version,
         )
         return _response(
-            result.pdf,
+            await _download_new_pdf(db, csv, result.pdf, intent),
             _pdf_name(version.docx_filename, "CV"),
             {"X-CV-Version": str(version.version), **result.headers()},
         )

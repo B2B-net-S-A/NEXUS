@@ -130,6 +130,45 @@ describe("„Co dalej” w wierszu listy", () => {
   });
 });
 
+describe("„Co dalej” z wypowiedzeniem w Dokumentach (22.11.2026)", () => {
+  const doc = {
+  id: 5,
+  doc_type: "termination_notice" as const,
+  filename: "Wypowiedzenie.pdf",
+  source: "sharepoint_import",
+  created_at: "2026-09-29T10:00:00Z",
+};
+
+  it("odejście z plikiem mówi o dokumencie, nie o nierozwiązanej umowie", () => {
+    const steps = listNextSteps(
+      {
+        ...base,
+        status: "ending",
+        end_date: "2026-11-30",
+        terminated_at: "2026-11-30",
+        termination_reason: "project_ended",
+        client_order_end_date: "2026-11-30",
+        termination_document: doc,
+      },
+      TODAY,
+      rates,
+    );
+    expect(steps[0].detail).toBe("wypowiedzenie w Dokumentach, niezapisane · Koniec projektu");
+    expect(steps[0].hint).toContain("Wypowiedzenie umowy B2B jest w Dokumentach");
+  });
+
+  it("zakończona współpraca z plikiem: zdanie z dokumentem", () => {
+    const steps = listNextSteps(
+      { ...base, status: "ended", end_date: "2026-10-31", termination_document: doc },
+      TODAY,
+      rates,
+    );
+    expect(steps[0].text).toContain("wypowiedzenie umowy B2B jest w Dokumentach");
+    // Zdanie główne ucina się przy 1280 px — plik stoi też w drugiej linii.
+    expect(steps[0].detail).toBe("wypowiedzenie w Dokumentach, niezapisane");
+  });
+});
+
 describe("marża miesięczna wiersza", () => {
   it("godzinowa × godziny rozliczeniowe, dzienna × 21 MD, miesięczna bez zmian", () => {
     expect(monthlyMargin(base)).toBe(40 * 168);

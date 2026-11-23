@@ -2117,3 +2117,61 @@ async def test_first_review_list_skips_jobs_already_reviewed():
     async with AsyncSessionLocal() as db:
         ids = await afr.first_review_job_ids(db, limit=100_000)
     assert fresh["job_id"] in ids and reviewed["job_id"] not in ids
+
+
+async def test_pool_extras_take_people_sent_to_this_client_first(monkeypatch):
+    """R4, 22.11.2026: dołożeni do puli to najpierw osoby wysłane w ostatnich
+    14 dniach do tego klienta w innej jego rekrutacji. W 789217 stały na
+    miejscach 545–3 237 i nie mieściły się w 30 najlepszych „wysłanych
+    wcześniej”, choć dzień wcześniej poszły do siostrzanej rekrutacji."""
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from app.services import sent_before
+
+    monkeypatch.setattr(afr, "AUTOFILL_POOL_SIZE", 1)
+    monkeypatch.setattr(sent_before, "POOL_EXTRA", 1)
+    owner_id, _ = await _user()
+    world, run_id = await _developer_job_with_ranked_roles(
+        owner_id, ["Python Developer"] * 4
+    )
+    top, elsewhere, _, sibling = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        other = Client(name=f"R4 other {uuid.uuid4().hex[:6]}")
+        db.add(other)
+        await db.flush()
+        same_client_job = Job(
+            title="Siostrzana",
+            client_id=world["client_id"],
+            status=JobStatus.published,
+        )
+        other_client_job = Job(
+            title="Inny klient", client_id=other.id, status=JobStatus.published
+        )
+        db.add_all([same_client_job, other_client_job])
+        await db.flush()
+        now = datetime.now(timezone.utc)
+        db.add_all(
+            [
+                CandidateStage(
+                    candidate_id=elsewhere,
+                    job_id=other_client_job.id,
+                    stage=PipelineStage.cv_sent,
+                    moved_at=now - timedelta(days=30),
+                ),
+                CandidateStage(
+                    candidate_id=sibling,
+                    job_id=same_client_job.id,
+                    stage=PipelineStage.cv_sent,
+                    moved_at=now - timedelta(days=2),
+                ),
+            ]
+        )
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        assert await afr.refresh_autofill_pool(db, run) == 2
+        await db.commit()
+
+    pool = {p.candidate_id: p for p in await _pool(world["job_id"])}
+    assert set(pool) == {top, sibling}
+    assert sent_before.is_sent_before(pool[sibling].evidence)

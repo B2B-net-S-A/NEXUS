@@ -24,6 +24,7 @@ from app.api.recruitment_access import (
 )
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.scheduling import business_date
 from app.models.candidate import Candidate
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
@@ -93,6 +94,18 @@ def _order_note(card: svc.PendingCard) -> dict:
         "order_in_budget": facts.bonus.in_budget,
         "order_polish_later": polish_penalty(facts.bonus.polish) > 0,
         "order_leader_gap": facts.bonus.leader_gap,
+    }
+
+
+def _client_recent(card: svc.PendingCard, titles: dict[int, str]) -> Optional[dict]:
+    facts = card.facts if isinstance(card.facts, OrderFacts) else None
+    known = facts.known if facts is not None else None
+    if known is None or known.client_recent_job_id is None:
+        return None
+    return {
+        "days": known.client_recent_days,
+        "job_id": known.client_recent_job_id,
+        "job_title": titles.get(known.client_recent_job_id, ""),
     }
 
 
@@ -174,6 +187,26 @@ async def my_queue(
     sent = await sent_before.facts_for(
         db, job_id=None, candidate_ids=candidate_ids, now=now
     )
+    # „Wysłany do tego klienta” (R4, 22.11.2026): tytuł rekrutacji, do której poszedł.
+    recent_ids = {
+        card.facts.known.client_recent_job_id
+        for card in cards
+        if isinstance(card.facts, OrderFacts)
+        and card.facts.known is not None
+        and card.facts.known.client_recent_job_id is not None
+    }
+    recent_titles = (
+        {
+            int(job_id): title or ""
+            for job_id, title in (
+                await db.execute(
+                    select(Job.id, Job.title).where(Job.id.in_(recent_ids))
+                )
+            ).all()
+        }
+        if recent_ids
+        else {}
+    )
     items = []
     for card in cards:
         person = candidates.get(card.candidate_id)
@@ -210,6 +243,14 @@ async def my_queue(
                     else None
                 ),
                 **_order_note(card),
+                "client_recent": _client_recent(card, recent_titles),
+                # Odłożona na koniec porcji: bez decyzji od 2 dni roboczych (R5).
+                "stale": svc.is_stale(card, now),
+                "opened_on": (
+                    business_date(card.opened_at).isoformat()
+                    if card.opened_at is not None
+                    else None
+                ),
                 "key_facts": key_facts.get(card.process_id),
                 "why": {
                     "source": tier_key(tier_of(job, now)),

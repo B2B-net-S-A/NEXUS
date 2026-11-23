@@ -122,7 +122,8 @@ async def test_facts_count_this_client_and_fresh_notes_only():
     # 6 za klienta + 8 za wysyłkę CV w innej rekrutacji w ostatnim roku (20.11.2026).
     assert facts[legacy].client_points == 6
     assert facts[legacy].sent_points == known.SENT_POINTS
-    assert facts[legacy].points == 6 + known.SENT_POINTS
+    # Wysyłka jest świeża (dziś), więc dochodzą punkty „do tego klienta” (R4).
+    assert facts[legacy].points == (6 + known.SENT_POINTS + known.CLIENT_RECENT_POINTS)
 
 
 @pytest.mark.asyncio
@@ -203,3 +204,41 @@ async def test_without_process_ignores_this_recruitment_only():
         )
         assert fresh == {here_only, nowhere}
         assert await known.without_process(db, job_id=job.id, candidate_ids=[]) == set()
+
+
+@pytest.mark.asyncio
+async def test_sent_to_this_client_lately_goes_first():
+    """R4, 22.11.2026: wysyłka do tego klienta w innej jego rekrutacji
+    w ostatnich 14 dniach daje ``CLIENT_RECENT_POINTS`` i rekrutację na karcie;
+    starsza wysyłka albo inny klient — tylko zwykłe „wysłany wcześniej”."""
+    w = await _world()
+    lately, long_ago, other_client, *_ = w["ids"]
+    now = datetime.now(timezone.utc)
+    await _stage(
+        lately, w["earlier"], PipelineStage.cv_sent, moved_at=now - timedelta(days=3)
+    )
+    await _stage(
+        long_ago, w["earlier"], PipelineStage.cv_sent, moved_at=now - timedelta(days=20)
+    )
+    await _stage(
+        other_client,
+        w["elsewhere"],
+        PipelineStage.cv_sent,
+        moved_at=now - timedelta(days=1),
+    )
+    async with AsyncSessionLocal() as db:
+        facts = await known.facts_for(
+            db,
+            job_id=w["job"],
+            client_id=w["client"],
+            candidate_ids=[lately, long_ago, other_client],
+            now=now,
+        )
+
+    assert facts[lately].client_recent_points == known.CLIENT_RECENT_POINTS
+    assert facts[lately].client_recent_days == 3
+    assert facts[lately].client_recent_job_id == w["earlier"]
+    assert facts[long_ago].client_recent_points == 0
+    assert facts[long_ago].client_recent_job_id is None
+    assert facts[other_client].client_recent_points == 0
+    assert facts[other_client].sent_points == known.SENT_POINTS

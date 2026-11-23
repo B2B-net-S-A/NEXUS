@@ -61,6 +61,7 @@ EXEMPT: dict[str, str] = {
     "keyword_corpus_backfill": "jednorazowe uzupełnienie korpusu; do końca zapytania używają starych kolumn",
     "keyword_corpus_readiness": "jednorazowy odczyt gotowości korpusu w workerze; do końca alerty zapisanych wyszukiwań używają starych kolumn",
     "note_kind_backfill": "jednorazowe uzupełnienie rodzaju notatek; do końca wiersz bez rodzaju czyta się jak zwykłą notatkę",
+    "trusted_list_prewarm": "jednorazowe pobranie listy zaufanych UE w web; do końca walidacja podpisu pobiera ją sama",
     "cv_qc_recompute": "jednorazowe przeliczenie QC CV po zmianie reguł; do końca plakietka pokazuje poprzedni wynik, a bramka ruchu i okno liczą QC na żywo",
     "qc_quality_daily": "dzienna trafność sprawdzeń QC CV („Jakość QC”); opóźnienie = stary stan automatu, blokady i tak nie przechodzą same",
     "job_ad_prepare": "nocne przygotowanie treści ogłoszeń; brak = rekruter klika „Przygotuj treść” w kolejce, nic nie publikuje się samo",

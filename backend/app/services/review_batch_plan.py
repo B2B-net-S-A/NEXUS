@@ -9,6 +9,7 @@ dostało 7 kart. Teraz:
 * tylko rekrutacje, do których osoba jest przypisana (``recruiter_ids_for_jobs``);
 * najpierw wszystkie jej P0, potem P1 Pilne, „Bez priorytetu”, „Przyjmujemy
   kandydatów”; w obrębie poziomu rekrutacje na zmianę (``plan_portions``);
+  od 22.11.2026 ``REST_SHARE`` porcji (8 z 20) czeka na niepilne;
 * decyzje z dziś zmniejszają to, co jeszcze przychodzi: porcja to porcja dnia.
 
 ``plan_portions`` jest czystą funkcją (testy bez bazy), ``load_plan`` zbiera dane.
@@ -32,6 +33,13 @@ from app.models.recruitment_pipeline import CandidateStage
 TIER_P0 = 0
 _TIER_BY_LEVEL = {"p1": 1, "p2": 2, "accepting": 3}
 TIER_KEYS = {0: "p0", 1: "p1", 2: "p2", 3: "accepting"}
+# Pilne = P0 i P1 Pilne. 22.11.2026 (R2, decyzja Artura): przy suficie 20
+# pilne zabierały całą porcję — 20.11 rekrutacje bez priorytetu dostały 0 kart,
+# a 16–19.11 dały 105 ze 168 CV (62%). ``REST_SHARE`` porcji czeka więc na
+# pozostałe rekrutacje osoby; gdy ich nie ma albo nie mają kogo dać, miejsca
+# wracają do pilnych. 20 kart = 12 pilnych + 8 pozostałych.
+URGENT_TIERS = frozenset({TIER_P0, 1})
+REST_SHARE = 0.4
 
 
 def tier_of(job: Job, now: datetime) -> int:
@@ -61,6 +69,10 @@ def plan_portions(
     i wolna pula). Własne karty osoby liczą się najpierw i nie zabierają
     miejsca innym. Poziom po poziomie, osoby na zmianę po jednej karcie, więc
     wspólna pula P0 dzieli się równo między przypisanych.
+
+    Pilne (``URGENT_TIERS``) idą pierwsze, ale bez ``rest_seats`` osoby, gdy ma
+    też rekrutacje niepilne. Potem niepilne biorą resztę, a czego nie wezmą,
+    wraca do pilnych.
     """
     jobs_of: dict[int, list[int]] = {
         user: sorted(job for job, team in teams.items() if user in team)
@@ -74,30 +86,54 @@ def plan_portions(
     }
     remaining = {user: max(0, int(cap)) for user, cap in caps.items()}
     users = sorted(caps)
-    for tier in sorted({tiers.get(job, 2) for job in teams}):
-        progress = True
-        while progress:
-            progress = False
-            for user in users:
-                if remaining[user] <= 0:
-                    continue
-                options = [
-                    job
-                    for job in jobs_of[user]
-                    if tiers.get(job, 2) == tier
-                    and (own_left[user].get(job, 0) > 0 or left[job] > 0)
-                ]
-                if not options:
-                    continue
-                job = min(options, key=lambda j: (want[user].get(j, 0), j))
-                if own_left[user].get(job, 0) > 0:
-                    own_left[user][job] -= 1
-                else:
-                    left[job] -= 1
-                want[user][job] = want[user].get(job, 0) + 1
-                remaining[user] -= 1
-                progress = True
+
+    def deal(levels: list[int], budget: dict[int, int]) -> None:
+        for tier in levels:
+            progress = True
+            while progress:
+                progress = False
+                for user in users:
+                    if budget[user] <= 0 or remaining[user] <= 0:
+                        continue
+                    options = [
+                        job
+                        for job in jobs_of[user]
+                        if tiers.get(job, 2) == tier
+                        and (own_left[user].get(job, 0) > 0 or left[job] > 0)
+                    ]
+                    if not options:
+                        continue
+                    job = min(options, key=lambda j: (want[user].get(j, 0), j))
+                    if own_left[user].get(job, 0) > 0:
+                        own_left[user][job] -= 1
+                    else:
+                        left[job] -= 1
+                    want[user][job] = want[user].get(job, 0) + 1
+                    remaining[user] -= 1
+                    budget[user] -= 1
+                    progress = True
+
+    levels = sorted({tiers.get(job, 2) for job in teams})
+    urgent = [tier for tier in levels if tier in URGENT_TIERS]
+    rest = [tier for tier in levels if tier not in URGENT_TIERS]
+    hold = {
+        user: rest_seats(
+            remaining[user],
+            any(tiers.get(job, 2) not in URGENT_TIERS for job in jobs_of[user]),
+        )
+        for user in users
+    }
+    deal(urgent, {user: remaining[user] - hold[user] for user in users})
+    deal(rest, dict(remaining))
+    deal(urgent, dict(remaining))
     return want
+
+
+def rest_seats(cap: int, has_rest: bool) -> int:
+    """Ile miejsc porcji czeka na rekrutacje niepilne (20 → 8, 10 → 4)."""
+    if not has_rest or cap <= 0:
+        return 0
+    return int(cap * REST_SHARE + 0.5)
 
 
 @dataclass(frozen=True)
@@ -194,8 +230,12 @@ async def load_plan(
         user: levels.level_of(stored, user, value.minimum) - done[user]
         for user in users
     }
+    # Karty bez decyzji od ``STALE_BUSINESS_DAYS`` nie zajmują miejsca (R5).
     cards = rb.batch_cards(
-        await rb.pending_cards(db, job_ids=list(teams)), now, value.min_score
+        await rb.pending_cards(db, job_ids=list(teams)),
+        now,
+        value.min_score,
+        fresh_only=True,
     )
     owned: dict[int, dict[int, int]] = {}
     unowned: dict[int, int] = {}
