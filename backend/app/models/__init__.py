@@ -76,6 +76,7 @@ from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_signing_document import B2BSigningDocument
 from app.models import b2b_mass_send as _b2b_mass_send_models  # noqa: F401,E402
 from app.models.b2b_signing_request import B2BSigningRequest
+from app.models.b2b_esign_remote_session import B2BEsignRemoteSession  # noqa: F401
 from app.models.pre_contract import (  # noqa: F401
     PreContractEvent,
     PreContractRequest,

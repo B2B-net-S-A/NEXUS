@@ -4338,6 +4338,7 @@ async def api_health_deep_check(request: Request):
     from app.models.duty_search_run import DutySearchResult, DutySearchRun
     from app.models.b2b_signing_document import B2BSigningDocument
     from app.models.b2b_mass_send import B2BMassSendBatch, B2BMassSendItem
+    from app.models.b2b_esign_remote_session import B2BEsignRemoteSession
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -5097,6 +5098,8 @@ async def api_health_deep_check(request: Request):
         # 0756: masowa wysyłka nowej umowy B2B.
         ("b2b_mass_send_batches", B2BMassSendBatch),
         ("b2b_mass_send_items", B2BMassSendItem),
+        # 0757: sesje zdalnego podpisu przez API CSC.
+        ("b2b_esign_remote_sessions", B2BEsignRemoteSession),
     ]
 
     checks: dict[str, str] = {}

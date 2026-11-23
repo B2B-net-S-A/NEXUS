@@ -27,6 +27,7 @@ from typing import Any, Literal, Optional
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     HTTPException,
@@ -34,6 +35,7 @@ from fastapi import (
     Response,
     UploadFile,
 )
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,11 +56,12 @@ from app.api.contract_access import B2BGeneratorAccess
 from app.api.deps import AdminUser
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.config import settings as app_config
-from app.core.database import get_db
+from app.core.database import AsyncSessionLocal, get_db
 from app.core.http_headers import content_disposition
 from app.core.rate_limit import limiter
 from app.core.scheduling import business_date
 from app.core.scheduling import business_today
+from app.models.b2b_esign_remote_session import B2BEsignRemoteSession
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_signing_document import B2BSigningDocument
 from app.models.b2b_signing_request import B2BSigningRequest
@@ -74,8 +77,11 @@ from app.services.m365 import sender as m365_sender
 from app.services.b2b_esign import accept_code
 from app.services.b2b_esign import documents as esign_docs
 from app.services.b2b_esign import service
+from app.services.b2b_esign import csc
 from app.services.b2b_esign import mail as esign_mail
+from app.services.b2b_esign import remote
 from app.services.b2b_esign import settings as esign_settings
+from app.services.b2b_esign.verdict import Fingerprint
 from app.services.b2b_contract_generator import mandate, signed_file
 from app.services.b2b_contract_generator.signed_on_evidence import SignedOnEvidence
 from app.services.b2b_esign.qualified import QualifiedValidator
@@ -264,6 +270,14 @@ class PublicSignDocument(BaseModel):
     signed_via: Optional[Literal["qualified", "email_code"]] = None
 
 
+class RemoteSigningOut(BaseModel):
+    """Podpis u dostawcy przez API CSC (E1): czy ten wniosek może z niego
+    skorzystać i pod jaką nazwą dostawca stoi na ekranie."""
+
+    available: bool = False
+    provider_label: Optional[str] = None
+
+
 class PublicSignView(BaseModel):
     contract_number: str
     contractor_name: str
@@ -280,6 +294,38 @@ class PublicSignView(BaseModel):
     # 0754: dokąd idzie kod (adres zamaskowany) i kiedy wysłano ostatni.
     accept_code_email: Optional[str] = None
     accept_code_sent_at: Optional[datetime] = None
+    # E1: podpis u dostawcy jednym zatwierdzeniem (umowa i wybrane dokumenty).
+    remote_signing: RemoteSigningOut = Field(default_factory=RemoteSigningOut)
+
+
+RemoteState = Literal["waiting_for_user", "signing", "done", "failed", "cancelled"]
+
+
+class RemoteStartIn(BaseModel):
+    # Umowa wchodzi zawsze; tu dokumenty paczki podpisywane obok niej.
+    include_document_ids: list[int] = Field(default_factory=list, max_length=20)
+    method: Literal["own_certificate", "one_time"]
+
+
+class RemoteStartOut(BaseModel):
+    redirect_url: str
+    session_id: str
+
+
+class PublicRemoteStatus(BaseModel):
+    state: RemoteState
+    message: Optional[str] = None
+    view: Optional[PublicSignView] = None
+
+
+class CompanyRemoteStartIn(BaseModel):
+    request_ids: list[int] = Field(min_length=1, max_length=20)
+
+
+class CompanyRemoteStatus(BaseModel):
+    state: RemoteState
+    message: Optional[str] = None
+    done_request_ids: list[int] = Field(default_factory=list)
 
 
 class PublicAcceptIn(BaseModel):
@@ -1255,6 +1301,9 @@ async def _public_view(db: AsyncSession, request: B2BSigningRequest) -> PublicSi
     can_accept = status == "waiting" and any(
         d.requirement == "any" and not d.signed_pdf_path for d in documents
     )
+    # E1: umowa wchodzi do podpisu u dostawcy zawsze, więc po wgraniu umowy
+    # z dysku reszta paczki idzie dotychczasową drogą.
+    provider = remote.availability()
     return PublicSignView(
         contract_number=row.contract_number if row else "",
         contractor_name=request.contractor_name,
@@ -1283,6 +1332,14 @@ async def _public_view(db: AsyncSession, request: B2BSigningRequest) -> PublicSi
             accept_code.mask_email(request.contractor_email) if can_accept else None
         ),
         accept_code_sent_at=request.accept_code_sent_at if can_accept else None,
+        remote_signing=RemoteSigningOut(
+            available=(
+                provider.available
+                and status == "waiting"
+                and not request.contractor_pdf_path
+            ),
+            provider_label=provider.provider_label,
+        ),
     )
 
 
@@ -1362,8 +1419,7 @@ async def public_sign_submit(
     finished = signing.status == "contractor_signed"
     await db.commit()
     signing_id = signing.id
-    if finished:
-        await _after_contractor_signed(db, signing_id)
+    await _after_contractor_files(db, signing_id, [], finished=finished, now=now)
     return await _public_view(db, await _fresh(db, signing_id))
 
 
@@ -1420,11 +1476,27 @@ async def public_document_submit(
     finished = signing.status == "contractor_signed"
     await db.commit()
     signing_id = signing.id
-    item_id = item.id
-    await _deliver_to_start_documents(db, signing_id, item_id, data, now)
-    if finished:
-        await _after_contractor_signed(db, signing_id)
+    await _after_contractor_files(
+        db, signing_id, [(item.id, data)], finished=finished, now=now
+    )
     return await _public_view(db, await _fresh(db, signing_id))
+
+
+async def _after_contractor_files(
+    db: AsyncSession,
+    request_id: int,
+    delivered: list[tuple[int, bytes]],
+    *,
+    finished: bool,
+    now: datetime,
+) -> None:
+    """Po zapisie plików kontraktora (wgranie, kod z maila, podpis u dostawcy):
+    dokumenty do „Dokumentów do startu” pary, a po ostatnim pliku dzwonek
+    i mail do reprezentanta B2Bnetwork. Wołać po commicie."""
+    for item_id, data in delivered:
+        await _deliver_to_start_documents(db, request_id, item_id, data, now)
+    if finished:
+        await _after_contractor_signed(db, request_id)
 
 
 async def _deliver_to_start_documents(
@@ -1531,12 +1603,11 @@ async def public_accept(
     finished = signing.status == "contractor_signed"
     await db.commit()
     signing_id = signing.id
-    delivered = [(i.id, i.signed_pdf_path) for i in items]
-    for item_id, path in delivered:
-        data = storage_service.read_b2b_signing_pdf(path or "")
-        await _deliver_to_start_documents(db, signing_id, item_id, data, now)
-    if finished:
-        await _after_contractor_signed(db, signing_id)
+    delivered = [
+        (i.id, storage_service.read_b2b_signing_pdf(i.signed_pdf_path or ""))
+        for i in items
+    ]
+    await _after_contractor_files(db, signing_id, delivered, finished=finished, now=now)
     return await _public_view(db, await _fresh(db, signing_id))
 
 
@@ -1567,3 +1638,493 @@ async def public_request_renewal(
             request_id=signing_id,
         )
     return await _public_view(db, await _fresh(db, signing_id))
+
+
+# ── Podpis u dostawcy przez API CSC (E1, kierunek K1 z 22.11.2026) ──────────
+#
+# Kontraktor (link z maila) albo reprezentant B2Bnetwork zatwierdza u dostawcy
+# usług zaufania RAZ, a NEXUS podpisuje skróty wszystkich plików i przepuszcza
+# każdy podpisany plik przez te same bramki co wgranie z dysku
+# (``service.validate_upload`` + ``store_*``, potem te same dzwonki, maile
+# i „Dokumenty do startu”). Za konfiguracją ``B2B_ESIGN_CSC_*`` — pusta = 404.
+
+
+def _contractor_callback_url() -> str:
+    base = app_config.PUBLIC_API_BASE_URL.rstrip("/")
+    return f"{base}/api/public/b2b-sign/remote/callback"
+
+
+def _company_callback_url() -> str:
+    base = app_config.PUBLIC_API_BASE_URL.rstrip("/")
+    return f"{base}/api/b2b-generator/esign/company-remote/callback"
+
+
+def _front_url(path: str) -> str:
+    return f"{app_config.PUBLIC_BASE_URL.rstrip('/')}{path}"
+
+
+def _remote_message(exc: HTTPException) -> str:
+    detail = exc.detail
+    return detail if isinstance(detail, str) else remote.MSG_FAILED
+
+
+def _remote_field(party: str, public_id: str) -> str:
+    """Nazwa pola podpisu: własna dla sesji, więc nie trafi na pole, które
+    plik już ma (np. podpis kontraktora z innego narzędzia)."""
+    return f"NEXUS_{party}_{public_id[:8]}"
+
+
+async def _remote_failed(db: AsyncSession, session_id: int, message: str) -> None:
+    await db.rollback()
+    await remote.mark(db, session_id, status="failed", message=message, now=_now())
+    await db.commit()
+
+
+async def _sign_contractor_remote(
+    db: AsyncSession, session_id: int, code: str
+) -> Optional[tuple[int, list[tuple[int, bytes]], bool, datetime]]:
+    """Podpis u dostawcy i przyjęcie plików kontraktora, wszystko albo nic.
+
+    Zwraca (wniosek, dokumenty do „Dokumentów do startu”, czy umowa idzie do
+    firmy, chwila) albo ``None``, gdy sesja skończyła się bez podpisu."""
+    now = _now()
+    session = await db.get(B2BEsignRemoteSession, session_id)
+    if session is None or session.status != "signing":
+        return None
+    [request_id] = session.request_ids
+    document_ids = list(session.document_ids or [])
+    verifier, method, public_id = (
+        session.code_verifier,
+        session.method,
+        session.public_id,
+    )
+    try:
+        request = await _fresh(db, request_id)
+        service.check_contractor_open(request, now)
+        row_id = request.generated_contract_id
+        name = request.contractor_name
+        contract = Fingerprint(request.source_sha256, request.source_size)
+        contract_bytes = storage_service.read_b2b_signing_pdf(request.source_pdf_path)
+        docs = []
+        for document_id in document_ids:
+            item = await esign_docs.signable_document(db, request_id, document_id)
+            docs.append(
+                (
+                    item.id,
+                    item.requirement,
+                    Fingerprint(item.source_sha256, item.source_size),
+                    storage_service.read_b2b_signing_pdf(item.source_pdf_path),
+                )
+            )
+        row = await db.get(B2BGeneratedContract, row_id)
+        number = row.contract_number if row else ""
+        field = _remote_field("kontraktor", public_id)
+        signed = await remote.sign(
+            code=code,
+            code_verifier=verifier,
+            redirect_uri=_contractor_callback_url(),
+            files=[(field, contract_bytes), *[(field, d[3]) for d in docs]],
+            names=[name],
+            method=method,
+            description=(
+                f"NEXUS: umowa B2B nr {number}"
+                + (f" i dokumenty do startu ({len(docs)})" if docs else "")
+            ),
+        )
+        # Ta sama droga co wgranie z dysku. Nieudana walidacja nie zużywa
+        # prób linku: pliku nie przygotował kontraktor, tylko dostawca.
+        validator = _validator()
+        contract_report = await service.validate_upload(
+            db,
+            request_id=request_id,
+            data=signed.files[0],
+            previous=contract,
+            validator=validator,
+            required_signers=[name],
+            count_failures=False,
+        )
+        doc_reports = []
+        for (_doc_id, requirement, source, _data), data in zip(docs, signed.files[1:]):
+            doc_reports.append(
+                await service.validate_upload(
+                    db,
+                    request_id=request_id,
+                    data=data,
+                    previous=source,
+                    validator=validator,
+                    required_signers=[name],
+                    count_failures=False,
+                    not_qualified_message=(
+                        esign_docs.MSG_ANY_NOT_QUALIFIED
+                        if requirement == "any"
+                        else None
+                    ),
+                )
+            )
+        locked = await service.store_contract(
+            db,
+            request_id=request_id,
+            row_id=row_id,
+            source_sha256=contract.sha256,
+            data=signed.files[0],
+            report=contract_report,
+            now=now,
+        )
+        delivered: list[tuple[int, bytes]] = []
+        for (doc_id, _requirement, source, _data), data, report in zip(
+            docs, signed.files[1:], doc_reports
+        ):
+            locked, _item = await esign_docs.store_document(
+                db,
+                request_id=request_id,
+                row_id=row_id,
+                document_id=doc_id,
+                source_sha256=source.sha256,
+                data=data,
+                report=report,
+                now=now,
+            )
+            delivered.append((doc_id, data))
+        finished = locked.status == "contractor_signed"
+        await remote.mark(
+            db,
+            session_id,
+            status="done",
+            message=None,
+            now=now,
+            done_request_ids=[request_id],
+            evidence=signed.evidence,
+        )
+        await db.commit()
+    except HTTPException as exc:
+        await _remote_failed(db, session_id, _remote_message(exc))
+        return None
+    except csc.CscError as exc:
+        await _remote_failed(db, session_id, exc.message)
+        return None
+    return request_id, delivered, finished, now
+
+
+async def _run_contractor_remote(session_id: int, code: str) -> None:
+    """Zadanie po powrocie od dostawcy (``BackgroundTasks``): przeglądarka
+    dostaje przekierowanie od razu i pyta o stan sesji."""
+    async with AsyncSessionLocal() as db:
+        try:
+            outcome = await _sign_contractor_remote(db, session_id, code)
+        except Exception:  # noqa: BLE001 — sesja nie może zostać „w podpisie”
+            logger.exception(
+                "[b2b_esign] podpis u dostawcy padł session=%d", session_id
+            )
+            await _remote_failed(db, session_id, remote.MSG_FAILED)
+            return
+        if outcome is not None:
+            request_id, delivered, finished, now = outcome
+            await _after_contractor_files(
+                db, request_id, delivered, finished=finished, now=now
+            )
+
+
+async def _sign_company_remote(
+    db: AsyncSession, session_id: int, code: str
+) -> Optional[tuple[int, list[int]]]:
+    """Podpis za B2Bnetwork kilku umów jednym zatwierdzeniem. Każda umowa
+    przechodzi bramki ``company_submit`` osobno: zła jedna nie cofa reszty.
+    Zwraca (reprezentant, przyjęte wnioski) albo ``None``."""
+    now = _now()
+    session = await db.get(B2BEsignRemoteSession, session_id)
+    if session is None or session.status != "signing" or session.user_id is None:
+        return None
+    request_ids = list(session.request_ids or [])
+    user_id = session.user_id
+    verifier, public_id = session.code_verifier, session.public_id
+    current = await esign_settings.load(db)
+    names = await _names(db, [*current.company_signer_ids, user_id])
+    representative_names = [
+        names[uid] for uid in current.company_signer_ids if names.get(uid)
+    ] or [names.get(user_id) or ""]
+    pending = []
+    problems: list[str] = []
+    for request_id in request_ids:
+        try:
+            request = await service.company_precheck(
+                db,
+                request_id=request_id,
+                actor_id=user_id,
+                signer_ids=current.company_signer_ids,
+            )
+        except HTTPException as exc:
+            problems.append(_remote_message(exc))
+            continue
+        row = await db.get(B2BGeneratedContract, request.generated_contract_id)
+        pending.append(
+            (
+                request.id,
+                request.generated_contract_id,
+                request.contractor_name,
+                Fingerprint(
+                    request.contractor_sha256 or "", request.contractor_size or 0
+                ),
+                storage_service.read_b2b_signing_pdf(request.contractor_pdf_path or ""),
+                row.contract_number if row else "",
+            )
+        )
+    if not pending:
+        await _remote_failed(
+            db, session_id, problems[0] if problems else remote.MSG_FAILED
+        )
+        return None
+    field = _remote_field("B2Bnetwork", public_id)
+    try:
+        signed = await remote.sign(
+            code=code,
+            code_verifier=verifier,
+            redirect_uri=_company_callback_url(),
+            files=[(field, p[4]) for p in pending],
+            names=representative_names,
+            method=None,
+            description=(
+                "NEXUS: podpis za B2Bnetwork, umowy " + ", ".join(p[5] for p in pending)
+            ),
+        )
+    except csc.CscError as exc:
+        await _remote_failed(db, session_id, exc.message)
+        return None
+    validator = _validator()
+    done: list[int] = []
+    for (request_id, row_id, name, previous, _data, number), data in zip(
+        pending, signed.files
+    ):
+        try:
+            report = await service.validate_upload(
+                db,
+                request_id=request_id,
+                data=data,
+                previous=previous,
+                validator=validator,
+                required_signers=[name],
+                any_of_signers=representative_names,
+                count_failures=False,
+            )
+            final = await service.company_long_term(
+                data,
+                previous=previous,
+                validator=validator,
+                required_signers=[name],
+                any_of_signers=representative_names,
+            )
+            await service.store_company(
+                db,
+                request_id=request_id,
+                row_id=row_id,
+                contractor_sha256=previous.sha256,
+                data=data,
+                report=report,
+                now=now,
+                final=final,
+            )
+            await db.commit()
+            done.append(request_id)
+        except HTTPException as exc:
+            await db.rollback()
+            problems.append(f"Umowa {number}: {_remote_message(exc)}")
+    await remote.mark(
+        db,
+        session_id,
+        status="done" if done else "failed",
+        message="\n".join(problems) or None,
+        now=now,
+        done_request_ids=done,
+        evidence=signed.evidence,
+    )
+    await db.commit()
+    return user_id, done
+
+
+async def _run_company_remote(session_id: int, code: str) -> None:
+    async with AsyncSessionLocal() as db:
+        try:
+            outcome = await _sign_company_remote(db, session_id, code)
+        except Exception:  # noqa: BLE001 — sesja nie może zostać „w podpisie”
+            logger.exception(
+                "[b2b_esign] podpis firmy u dostawcy padł session=%d", session_id
+            )
+            await _remote_failed(db, session_id, remote.MSG_FAILED)
+            return
+        if outcome is None:
+            return
+        user_id, done = outcome
+        for request_id in done:
+            # Świeży obiekt: automatyka po podpisie przy odmowie robi rollback.
+            signer = await db.get(User, user_id, populate_existing=True)
+            if signer is None:
+                return
+            await _after_both_signed(db, request_id, signer)
+
+
+@public_router.post("/b2b-sign/{token}/remote/start", response_model=RemoteStartOut)
+@limiter.limit("5/minute;20/hour")
+async def public_remote_start(
+    token: str,
+    body: RemoteStartIn,
+    request: Request,  # wymagane przez slowapi
+    db: AsyncSession = Depends(get_db),
+) -> RemoteStartOut:
+    """Podpis u dostawcy: umowa (zawsze) i wybrane dokumenty paczki jednym
+    zatwierdzeniem. Wniosek zmienia się dopiero po powrocie od dostawcy."""
+    remote.require_config()
+    now = _now()
+    signing = await service.contractor_precheck(db, token, now)
+    document_ids = list(dict.fromkeys(body.include_document_ids))
+    for document_id in document_ids:
+        await esign_docs.signable_document(db, signing.id, document_id)
+    session, url = await remote.start(
+        db,
+        party="contractor",
+        request_ids=[signing.id],
+        document_ids=document_ids,
+        method=body.method,
+        token=token,
+        redirect_uri=_contractor_callback_url(),
+        now=now,
+    )
+    public_id = session.public_id
+    await db.commit()
+    return RemoteStartOut(redirect_url=url, session_id=public_id)
+
+
+@public_router.get("/b2b-sign/remote/callback")
+@limiter.limit("20/minute")
+async def public_remote_callback(
+    request: Request,  # wymagane przez slowapi
+    background: BackgroundTasks,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+) -> RedirectResponse:
+    """Powrót od dostawcy. Podpis biegnie w tle, przeglądarka wraca na stronę
+    kontraktora i pyta o stan sesji (``?remote=…``)."""
+    remote.require_config()
+    back = await remote.accept_callback(
+        db, party="contractor", state=state, code=code, error=error, now=_now()
+    )
+    await db.commit()
+    if back.proceed and code:
+        background.add_task(_run_contractor_remote, back.session_id, code)
+    return RedirectResponse(
+        _front_url(f"/sign/b2b/{back.token}?remote={back.public_id}"),
+        status_code=302,
+    )
+
+
+@public_router.get(
+    "/b2b-sign/{token}/remote/{session_id}", response_model=PublicRemoteStatus
+)
+@limiter.limit("60/minute")
+async def public_remote_status(
+    token: str,
+    session_id: str,
+    request: Request,  # wymagane przez slowapi
+    db: AsyncSession = Depends(get_db),
+) -> PublicRemoteStatus:
+    """Stan sesji podpisu u dostawcy; po końcu także świeży widok strony."""
+    signing = await service.load_by_token(db, token)
+    signing_id = signing.id
+    session = await remote.load(
+        db, session_id, party="contractor", request_id=signing_id, now=_now()
+    )
+    done = session.status not in remote.OPEN_STATES
+    return PublicRemoteStatus(
+        state=session.status,
+        message=session.message,
+        view=await _public_view(db, await _fresh(db, signing_id)) if done else None,
+    )
+
+
+@router.get("/esign/company-remote/available", response_model=RemoteSigningOut)
+async def company_remote_available(
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+) -> RemoteSigningOut:
+    """Czy ta osoba może podpisać za B2Bnetwork u dostawcy (E1)."""
+    provider = remote.availability()
+    current = await esign_settings.load(db)
+    return RemoteSigningOut(
+        available=provider.available and current_user.id in current.company_signer_ids,
+        provider_label=provider.provider_label,
+    )
+
+
+@router.post("/esign/company-remote/start", response_model=RemoteStartOut)
+async def company_remote_start(
+    body: CompanyRemoteStartIn,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+) -> RemoteStartOut:
+    """Podpis za B2Bnetwork kilku umów jednym zatwierdzeniem u dostawcy. Każda
+    musi czekać na podpis tej osoby (te same bramki co ``company-sign``)."""
+    remote.require_config()
+    current = await esign_settings.load(db)
+    request_ids = list(dict.fromkeys(body.request_ids))
+    for request_id in request_ids:
+        await service.company_precheck(
+            db,
+            request_id=request_id,
+            actor_id=current_user.id,
+            signer_ids=current.company_signer_ids,
+        )
+    session, url = await remote.start(
+        db,
+        party="company",
+        request_ids=request_ids,
+        user_id=current_user.id,
+        redirect_uri=_company_callback_url(),
+        now=_now(),
+    )
+    public_id = session.public_id
+    await db.commit()
+    return RemoteStartOut(redirect_url=url, session_id=public_id)
+
+
+@router.get("/esign/company-remote/callback")
+async def company_remote_callback(
+    current_user: B2BGeneratorAccess,
+    background: BackgroundTasks,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+) -> RedirectResponse:
+    """Powrót od dostawcy do rejestru Generatora; sesja tylko tego konta."""
+    remote.require_config()
+    back = await remote.accept_callback(
+        db,
+        party="company",
+        state=state,
+        code=code,
+        error=error,
+        user_id=current_user.id,
+        now=_now(),
+    )
+    await db.commit()
+    if back.proceed and code:
+        background.add_task(_run_company_remote, back.session_id, code)
+    return RedirectResponse(
+        _front_url(f"{_REGISTER_LINK}&remote={back.public_id}"), status_code=302
+    )
+
+
+@router.get("/esign/company-remote/{session_id}", response_model=CompanyRemoteStatus)
+async def company_remote_status(
+    session_id: str,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CompanyRemoteStatus:
+    session = await remote.load(
+        db, session_id, party="company", user_id=current_user.id, now=_now()
+    )
+    return CompanyRemoteStatus(
+        state=session.status,
+        message=session.message,
+        done_request_ids=list(session.done_request_ids or []),
+    )
