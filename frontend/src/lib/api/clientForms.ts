@@ -14,7 +14,8 @@ import type { ClientDocument, ClientFormKind } from "@/lib/api/jobFiles";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
 
 export type ClientFormFieldKind = "line" | "box" | "cell";
-export type ClientFormSource = "cv" | "notes" | "profile" | "recruiter";
+/** `client_rule` — reguła klienta „doświadczenie = 10/10” w polach skali (0756). */
+export type ClientFormSource = "cv" | "notes" | "profile" | "recruiter" | "client_rule";
 export type ClientFormStatus = "no_template" | "not_filled" | "filled";
 
 export type ClientFormYearsLevel = "role" | "implied";
@@ -74,6 +75,13 @@ export interface ClientFormField {
   years?: ClientFormYears | null;
 }
 
+export interface ClientFormUpload {
+  filename: string;
+  content_type: string;
+  size: number;
+  uploaded_at: string;
+}
+
 export interface ClientFormView {
   /** 0525: „form” — formularz CV (Word), „score” — tabela punktowa (Excel). */
   kind?: ClientFormKind;
@@ -86,9 +94,17 @@ export interface ClientFormView {
   template: { file_id: number; filename: string; summary: string } | null;
   /** DL podmienił wzór po wypełnieniu — warto wypełnić ponownie. */
   template_changed: boolean;
+  /**
+   * 0756: plik wypełniony poza NEXUSEM, wgrany z dysku — idzie do QC
+   * i do klienta zamiast wypełnienia z NEXUSA.
+   */
+  uploaded?: ClientFormUpload | null;
   fields: ClientFormField[];
   extra_rows: { table: number; cells: Record<string, { value: string }> }[];
+  /** Pola do uzupełnienia — bez wolnych wierszy wzoru (23.11.2026). */
   missing: string[];
+  /** Pola wolnych wierszy: pusty wiersz bez nazwy, który nie jest pierwszym w tabeli. */
+  spare?: string[];
   filled_at: string | null;
   updated_at: string | null;
   model: string | null;
@@ -162,8 +178,37 @@ export async function saveClientFormYears(
   return data;
 }
 
+/** Pliki przyjmowane przy wgraniu — lustro `UPLOAD_TYPES` w `client_forms.py`. */
+export const CLIENT_FORM_UPLOAD_ACCEPT: Record<ClientFormKind, string> = {
+  form: ".docx,.pdf",
+  score: ".xlsx",
+};
+
+/** Wgraj wypełniony formularz (Word/PDF) albo tabelę (Excel); zastępuje poprzedni plik. */
+export async function uploadClientForm(
+  stageId: number,
+  file: File,
+  kind: ClientFormKind = "form",
+): Promise<ClientFormView> {
+  const body = new FormData();
+  body.append("file", file);
+  const { data } = await api.post<ClientFormView>(`${basePath(stageId)}/upload${kindQuery(kind)}`, body, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+}
+
+/** Usuń wgrany plik — wraca wypełnienie z NEXUSA (albo „niewypełniony”). */
+export async function deleteUploadedClientForm(
+  stageId: number,
+  kind: ClientFormKind = "form",
+): Promise<ClientFormView> {
+  const { data } = await api.delete<ClientFormView>(`${basePath(stageId)}/upload${kindQuery(kind)}`);
+  return data;
+}
+
 /**
- * Plik Word formularza. Natywny `fetch`, nie axios — `responseType: blob`
+ * Plik Word formularza (albo plik wgrany z dysku, gdy jest). Natywny `fetch`, nie axios — `responseType: blob`
  * między domenami zwracał status 0 (jak przy plikach rekrutacji).
  */
 export async function downloadClientForm(
@@ -197,6 +242,7 @@ export const CLIENT_FORM_SOURCE_LABEL: Record<ClientFormSource, string> = {
   notes: "ze screeningu i notatek",
   profile: "z profilu",
   recruiter: "wpisane ręcznie",
+  client_rule: "reguła klienta: doświadczenie = 10/10",
 };
 
 /** Krótka nazwa pola do listy braków: nazwa wiersza + etykieta kolumny. */

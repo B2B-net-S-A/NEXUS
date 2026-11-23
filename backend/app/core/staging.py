@@ -162,6 +162,10 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "contract_docs_sharepoint",
         # Woła model dla każdego pliku teczki (koszt) i może zapisać stawki.
         "contract_rate_documents",
+        # Woła model dla umowy każdego aktywnego kontraktu B2B (koszt).
+        "contract_partner_reads",
+        # Wysyła maile z linkiem do podpisu prawdziwym kontraktorom.
+        "b2b_mass_send",
         "m365_account_sweep",
         "job_portal_worker",
         "notes_insights_sync",

@@ -4674,6 +4674,9 @@ async def _render_kanban_board(
                 # Tabela punktowa (23.11.2026: też warunek „QC CV”).
                 "score_template": form_state.score_template is not None,
                 "score_missing": form_state.score_missing,
+                # 0756: wgrany z dysku — plakietka „Formularz wgrany”.
+                "uploaded": form_state.uploaded,
+                "score_uploaded": form_state.score_uploaded,
             }
             if form_state is not None
             else None
@@ -4694,6 +4697,7 @@ async def _render_kanban_board(
                 today=board_today,
                 autofill_days=autofill_days,
                 client_since=client_clock.since if client_clock else None,
+                client_form=form_state is not None,
             )
 
         client_clock = client_clocks.get(e.candidate_id)

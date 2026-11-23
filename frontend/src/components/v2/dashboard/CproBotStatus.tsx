@@ -3,8 +3,8 @@
 /**
  * Bot Cpro w oknie „Do wrzucenia do Cpro” (decyzje Artura 17.11.2026).
  *
- * Grok Bot sam wrzuca osoby z kolejki do Cpro Nordei i wysyła ofertę; osoba od
- * Cpro widzi przy każdej osobie, co bot zrobił albo czego mu brakuje, a ręczne
+ * Grok Bot przygotowuje szkice lub wysyła oferty zgodnie z trybem serwera;
+ * osoba od Cpro widzi, co bot zrobił albo czego mu brakuje, a ręczne
  * „✓ Wrzucone” zostaje na wypadek, gdy bot nie dał rady.
  * → docs/claude/integracje/cpro-bot-grok.md
  */
@@ -43,13 +43,14 @@ export function cproOfferHref(url: string | null | undefined): string | undefine
 
 /** Jedno zdanie o bocie przy osobie — to samo, co widać w wierszu. */
 export function cproBotText(bot: CproBotItem): { tone: Tone; text: string } {
+  const draftOnly = bot.mode === "draft";
   switch (bot.state) {
     case "blocked":
       return { tone: "warning", text: `Bot czeka: ${bot.blockers.join(" · ")}` };
     case "ready":
-      return { tone: "muted", text: "Bot wrzuci tę osobę w najbliższym biegu (do 5 min)." };
+      return { tone: "muted", text: draftOnly ? "Czeka w kolejce na przygotowanie szkicu w Cpro." : "Bot wrzuci tę osobę w najbliższym biegu (do 5 min)." };
     case "working":
-      return { tone: "info", text: "Bot wypełnia ofertę w Cpro…" };
+      return { tone: "info", text: draftOnly ? "Bot przygotowuje szkic w Cpro…" : "Bot wypełnia ofertę w Cpro…" };
     case "submitted":
       return bot.moved === false
         ? {
@@ -58,13 +59,20 @@ export function cproBotText(bot: CproBotItem): { tone: Tone; text: string } {
           }
         : { tone: "success", text: `Bot wysłał ofertę do Cpro${bot.cpro_status ? ` (${bot.cpro_status})` : ""}.` };
     case "draft":
-      return { tone: "info", text: "Szkic oferty w Cpro — bot spróbuje go wysłać w następnym biegu." };
+      return { tone: "info", text: draftOnly ? "Szkic oferty w Cpro czeka na ocenę Sandry." : "Szkic oferty w Cpro — bot spróbuje go wysłać w następnym biegu." };
     case "skipped":
       return { tone: "warning", text: `Bot pominął: ${bot.message ?? "osoba ma już ofertę w Cpro"}` };
     case "failed":
-      return { tone: "danger", text: `Bot nie wrzucił: ${bot.message ?? "nieznany błąd"} Wrzuć ręcznie albo ponów.` };
+      return {
+        tone: "danger",
+        text: draftOnly
+          ? (bot.retry_allowed === false
+              ? `Wynik pracy bota wymaga ręcznego sprawdzenia. ${bot.message ?? "Sprawdź ofertę w Cpro przed kolejną próbą."}`
+              : `Bot nie przygotował szkicu: ${bot.message ?? "nieznany błąd"} Sprawdź dane i ponów przygotowanie szkicu.`)
+          : `Bot nie wrzucił: ${bot.message ?? "nieznany błąd"} Wrzuć ręcznie albo ponów.`,
+      };
     case "retry":
-      return { tone: "warning", text: "Bieg bota się nie udał — bot spróbuje jeszcze raz." };
+      return { tone: "warning", text: draftOnly ? "Próba przygotowania szkicu nie ma potwierdzenia — sprawdź Cpro przed ponowieniem." : "Bieg bota się nie udał — bot spróbuje jeszcze raz." };
   }
 }
 
@@ -83,13 +91,14 @@ export function CproBotItemStatus({
   if (!bot) return null;
   const { tone, text } = cproBotText(bot);
   const href = cproOfferHref(bot.offer_url);
-  const retryable = canRetry && (bot.state === "failed" || bot.state === "skipped");
+  const draftOnly = bot.mode === "draft";
+  const retryable = canRetry && bot.retry_allowed !== false && (bot.state === "failed" || bot.state === "skipped" || (draftOnly && bot.state === "retry"));
 
   const retry = async () => {
     setBusy(true);
     try {
       await retryCproBot(stageId);
-      showSuccess("Bot dostał tę osobę — wynik pojawi się tutaj.");
+      showSuccess(draftOnly ? "Bot dostał zlecenie przygotowania szkicu — wynik pojawi się tutaj." : "Bot dostał tę osobę — wynik pojawi się tutaj.");
     } catch (error) {
       showError(apiErrorMessage(error, "Nie udało się zlecić bota. Spróbuj ponownie."));
     } finally {
@@ -111,6 +120,9 @@ export function CproBotItemStatus({
       {bot.data_from.length > 0 ? (
         <p className="text-muted-foreground">Dane z rekrutacji {bot.data_from.join(", ")}</p>
       ) : null}
+      {bot.state === "draft" && bot.blockers.length > 0 ? (
+        <p className="text-warning-muted-foreground">Dane w NEXUSIE wymagają uwagi: {bot.blockers.join(" · ")}</p>
+      ) : null}
       {href || retryable ? (
         <p className="flex flex-wrap items-center gap-2">
           {href ? (
@@ -120,13 +132,13 @@ export function CproBotItemStatus({
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
             >
-              Oferta w Cpro <ExternalLink className="size-3" aria-hidden />
+              {bot.state === "draft" ? "Szkic w Cpro" : "Oferta w Cpro"} <ExternalLink className="size-3" aria-hidden />
             </a>
           ) : null}
           {retryable ? (
             <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" disabled={busy} onClick={() => void retry()}>
               {busy ? <Loader2 className="size-3 animate-spin" aria-hidden /> : <RotateCcw className="size-3" aria-hidden />}
-              Ponów botem
+              {draftOnly ? "Ponów szkic" : "Ponów botem"}
             </Button>
           ) : null}
         </p>
@@ -141,13 +153,15 @@ export function CproBotLine({ bot }: { bot: CproBotSummary | null | undefined })
   if (!bot.configured) {
     return (
       <p className="flex items-center gap-1.5 text-xs text-warning-muted-foreground" data-testid="cpro-bot-line">
-        <Bot className="size-3.5" aria-hidden /> Bot Cpro nie ma jeszcze rutyny w Grok Bocie — wrzucaj ręcznie.
+        <Bot className="size-3.5" aria-hidden /> Bot Cpro nie ma jeszcze rutyny w Grok Bocie — {bot.mode === "draft" ? "przygotuj szkic ręcznie." : "wrzucaj ręcznie."}
       </p>
     );
   }
   const parts = [
-    bot.working ? "wypełnia Cpro teraz" : "sprawdza kolejkę co 5 min",
-    `wysłane dziś: ${bot.sent_today}`,
+    bot.working ? (bot.mode === "draft" ? "przygotowuje szkic teraz" : "wypełnia Cpro teraz") : "sprawdza kolejkę co 5 min",
+    ...(bot.mode === "draft"
+      ? [`szkice dziś: ${bot.drafts_today ?? 0}`, `czekają na ocenę Sandry: ${bot.awaiting_review ?? 0}`]
+      : [`wysłane dziś: ${bot.sent_today}`]),
     ...(bot.last_run_at ? [`ostatni bieg ${TIME.format(new Date(bot.last_run_at))}`] : []),
   ];
   return (

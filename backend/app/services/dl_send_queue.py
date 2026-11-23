@@ -16,7 +16,10 @@ dla Head of Recruitment:
   Cpro — ``cpro=True``, celem jest etap „Wysłać do Cpro”, nie „CV wysłane”;
 * **gotowe** (``ready``) = QC zdane albo przepuszczone — ta sama reguła,
   którą karta na Tablicy stosuje od v5 (`board-card-badges.ts`); reszta
-  kolumny jest jeszcze u rekrutera;
+  kolumny jest jeszcze u rekrutera. U klienta z formularzem CV
+  (`client_form_status`) QC CV firmowego nie ma, więc karta jest gotowa od
+  wejścia do kolumny, a braki formularza są przypomnieniem w przeglądzie
+  (decyzja Artura 23.11.2026, D3 „przypomnienie, nie blokada”);
 * **czeka od** (``ready_since``) = wejście do kolumny albo zaliczenie QC, co
   później; dni robocze i pilność liczą się od tej chwili, żeby czas poprawek
   rekrutera nie obciążał Delivery Leada;
@@ -45,6 +48,7 @@ from app.models.job import Job, JobStatus
 from app.models.pipeline_template import PipelineTemplate
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
+from app.services import client_form_status
 from app.services.board_stage_badges import (
     CV_QC_COLUMN,
     NEW_COLUMN,
@@ -138,16 +142,24 @@ def readiness_of(
     ok_at: Optional[datetime],
     today: date,
     manual_items: Sequence[str] = (),
+    client_form: bool = False,
 ) -> Readiness:
     """Gotowość pary ze stanu QC — jedna reguła dla kolejki Delivery Leada
     i dla „Twoje CV w drodze” rekrutera (`cv_in_transit`).
 
     QC-7: zdane QC z rzeczami „sprawdź ręcznie” nie trafia do kolejki, bo ruch
-    ma rekruter. Przepuszczenie (`overridden`) trafia."""
+    ma rekruter. Przepuszczenie (`overridden`) trafia.
 
-    if qc_status not in QC_OK_STATUSES or (qc_status == "passed" and manual_items):
+    ``client_form`` — klient bierze formularz CV zamiast CV firmowego: serwer
+    nie liczy QC CV takiej pary (`pipeline._assert_cv_qc_gate`), więc gotowość
+    liczy się od wejścia do kolumny, bez względu na wynik QC (23.11.2026)."""
+
+    if client_form:
+        ready_since = since
+    elif qc_status not in QC_OK_STATUSES or (qc_status == "passed" and manual_items):
         return Readiness(ready=False)
-    ready_since = max(since, ok_at) if ok_at is not None else since
+    else:
+        ready_since = max(since, ok_at) if ok_at is not None else since
     workdays = waiting_workdays(ready_since, today)
     return Readiness(
         ready=True,
@@ -166,6 +178,7 @@ def board_waiting_workdays(
     today: date,
     autofill_days: Optional[int] = None,
     client_since: Optional[datetime] = None,
+    client_form: bool = False,
 ) -> Optional[int]:
     """Liczba dni na karcie Tablicy (`waiting_workdays`, audyt U5 08.11.2026).
 
@@ -186,7 +199,11 @@ def board_waiting_workdays(
         return waiting_workdays(client_since, today)
     if column == CV_QC_COLUMN:
         state = readiness_of(
-            since=moved_at, qc_status=qc_status, ok_at=ok_at, today=today
+            since=moved_at,
+            qc_status=qc_status,
+            ok_at=ok_at,
+            today=today,
+            client_form=client_form,
         )
         if state.ready:
             return state.waiting_workdays
@@ -202,6 +219,7 @@ def apply_readiness(task: BoardTask, *, ok_at: Optional[datetime], today: date) 
         ok_at=ok_at,
         today=today,
         manual_items=task.qc_manual,
+        client_form=task.client_form is not None,
     )
     task.ready = state.ready
     task.ready_since = state.ready_since
@@ -372,8 +390,10 @@ async def attach_readiness(
     if not tasks:
         return
     statuses = await qc_statuses(db, ((t.candidate_id, t.job_id) for t in tasks))
+    forms = await _client_form_states(db, tasks)
     today = local_date(now)
     for t in tasks:
+        t.client_form = forms.get((t.candidate_id, t.job_id))
         status = statuses.get((t.candidate_id, t.job_id)) or {}
         t.qc_status = status.get("status") or "unchecked"
         t.qc_blocking_failed = int(status.get("blocking_failed") or 0)
@@ -381,6 +401,35 @@ async def attach_readiness(
         t.qc_gaps = list(status.get("candidate_gaps") or [])
         t.qc_state = status.get("qc_state")
         apply_readiness(t, ok_at=status.get("ok_at"), today=today)
+
+
+async def _client_form_states(
+    db: AsyncSession, tasks: list[BoardTask]
+) -> dict[tuple[int, int], dict]:
+    """``{(osoba, rekrutacja): {template, missing, score_template, score_missing}}``
+    dla par u klienta z formularzem CV — ten sam kształt co ``client_form``
+    karty Tablicy."""
+
+    form_clients = await client_form_status.client_form_client_ids(
+        db, (t.client_id for t in tasks)
+    )
+    by_job: dict[int, list[int]] = {}
+    for t in tasks:
+        if t.client_id in form_clients:
+            by_job.setdefault(t.job_id, []).append(t.candidate_id)
+    out: dict[tuple[int, int], dict] = {}
+    for job_id, candidate_ids in by_job.items():
+        states = await client_form_status.job_states(db, job_id, candidate_ids) or {}
+        for candidate_id, state in states.items():
+            out[(candidate_id, job_id)] = {
+                "template": state.template is not None,
+                "missing": state.missing,
+                "score_template": state.score_template is not None,
+                "score_missing": state.score_missing,
+                # 0755: wgrany z dysku — plakietka „Formularz wgrany”.
+                "uploaded": state.uploaded,
+            }
+    return out
 
 
 async def attach_handed_over_names(db: AsyncSession, tasks: list[BoardTask]) -> None:

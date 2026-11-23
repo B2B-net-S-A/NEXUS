@@ -20,6 +20,7 @@ from app.models.candidate_client_form import CandidateClientForm
 from app.models.client import Client
 from app.models.job import Job
 from app.models.job_file import JobFile
+from app.services import client_form_structure
 from app.services.client_form_schema import CLIENT_FORM, KIND_FORM, KIND_SCORE
 
 # Klucze braków przed „QC CV” — te same w 409, liście wymagań i śladzie ruchu.
@@ -34,6 +35,9 @@ class PairFormState:
     # Tabela punktowa (Excel, 0525) — tylko gdy rekrutacja ma jej wzór.
     score_template: Optional[str] = None
     score_missing: Optional[int] = None
+    # 0756: plik wypełniony poza NEXUSEM, wgrany z dysku — gotowy (0 braków).
+    uploaded: bool = False
+    score_uploaded: bool = False
 
 
 def missing_before_qc(state: Optional[PairFormState]) -> list[str]:
@@ -55,6 +59,18 @@ def missing_before_qc(state: Optional[PairFormState]) -> list[str]:
     return missing
 
 
+def _missing(structure: Optional[dict], fields: Optional[dict], stored: int) -> int:
+    """Braki liczone ze struktury wzoru — bez wolnych wierszy (23.11.2026).
+
+    ``missing_count`` w bazie liczono do tego dnia z wierszami zapasowymi, więc
+    karta Tablicy mówiła „29 do uzupełnienia” do następnego zapisu formularza.
+    Liczenie z ``fields`` daje to samo, co okno, bez przeliczania starych wierszy.
+    """
+    if not (structure or {}).get("fields"):
+        return stored
+    return len(client_form_structure.missing_ids(structure, fields or {}))
+
+
 async def job_takes_client_form(db: AsyncSession, job_id: int) -> bool:
     value = await db.scalar(
         select(Client.cv_client_document)
@@ -73,6 +89,21 @@ async def client_takes_client_form(db: AsyncSession, client_id: Optional[int]) -
     return value == CLIENT_FORM
 
 
+async def client_form_client_ids(
+    db: AsyncSession, client_ids: Iterable[Optional[int]]
+) -> set[int]:
+    """Którzy z tych klientów biorą formularz CV — jedno zapytanie na listę."""
+    ids = sorted({cid for cid in client_ids if cid is not None})
+    if not ids:
+        return set()
+    rows = await db.scalars(
+        select(Client.id).where(
+            Client.id.in_(ids), Client.cv_client_document == CLIENT_FORM
+        )
+    )
+    return set(rows.all())
+
+
 async def job_states(
     db: AsyncSession, job_id: int, candidate_ids: Iterable[int]
 ) -> Optional[dict[int, PairFormState]]:
@@ -80,38 +111,55 @@ async def job_states(
     if not await job_takes_client_form(db, job_id):
         return None
     ids = list(candidate_ids)
-    templates = {
-        kind: filename
-        for kind, filename in (
-            await db.execute(
-                select(JobFile.client_form_kind, JobFile.filename).where(
-                    JobFile.job_id == job_id,
-                    JobFile.client_form.is_(True),
-                    JobFile.client_form_kind.in_((KIND_FORM, KIND_SCORE)),
-                )
+    templates: dict[str, str] = {}
+    structures: dict[str, dict] = {}
+    for kind, filename, structure in (
+        await db.execute(
+            select(
+                JobFile.client_form_kind,
+                JobFile.filename,
+                JobFile.client_form_structure,
+            ).where(
+                JobFile.job_id == job_id,
+                JobFile.client_form.is_(True),
+                JobFile.client_form_kind.in_((KIND_FORM, KIND_SCORE)),
             )
-        ).all()
-    }
+        )
+    ).all():
+        templates[kind] = filename
+        structures[kind] = structure or {}
     missing: dict[tuple[int, str], int] = {}
+    uploaded: set[tuple[int, str]] = set()
     if ids:
         rows = await db.execute(
             select(
                 CandidateClientForm.candidate_id,
                 CandidateClientForm.kind,
                 CandidateClientForm.missing_count,
+                CandidateClientForm.uploaded_file_key.is_not(None),
+                CandidateClientForm.fields,
             ).where(
                 CandidateClientForm.job_id == job_id,
                 CandidateClientForm.kind.in_((KIND_FORM, KIND_SCORE)),
                 CandidateClientForm.candidate_id.in_(ids),
             )
         )
-        missing = {(cid, kind): count for cid, kind, count in rows.all()}
+        for cid, kind, count, has_upload, fields in rows.all():
+            # Wgrany plik idzie do QC i do klienta zamiast pól z NEXUSA, więc
+            # jego puste pola nie są brakami (0756).
+            missing[(cid, kind)] = (
+                0 if has_upload else _missing(structures.get(kind), fields, count)
+            )
+            if has_upload:
+                uploaded.add((cid, kind))
     return {
         candidate_id: PairFormState(
             template=templates.get(KIND_FORM),
             missing=missing.get((candidate_id, KIND_FORM)),
             score_template=templates.get(KIND_SCORE),
             score_missing=missing.get((candidate_id, KIND_SCORE)),
+            uploaded=(candidate_id, KIND_FORM) in uploaded,
+            score_uploaded=(candidate_id, KIND_SCORE) in uploaded,
         )
         for candidate_id in ids
     }

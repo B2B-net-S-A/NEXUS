@@ -37,6 +37,8 @@
   "GET /api/sales/handoffs/host-busy": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/handoffs/{opportunity_id}/invite": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/handoffs": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/handoffs/{opportunity_id}/booking-invite": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/handoffs/{opportunity_id}/booking-mail": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/handoffs/{opportunity_id}/confirm": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/handoffs/{opportunity_id}/invite": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/handoffs/{opportunity_id}/verdict": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",

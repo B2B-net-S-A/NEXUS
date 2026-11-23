@@ -152,6 +152,9 @@ services:
       # Moduł „Ludzie” widoczny jak na produkcji, pętle zatrzymane wierszem niżej.
       HR_PROGRAM_ENABLED: "true"
       HR_LOOPS_ENABLED: "false"
+      # Ekran „Przepisy” jak na produkcji (decyzja Artura z 23.11.2026), bo tester
+      # nocny nie przechodził obszaru 14. Pętla `law_radar` stoi w `STAGING_BLOCKED_TASKS`.
+      LAW_RADAR_ENABLED: "true"
       SELF_REGISTRATION_ENABLED: "false"
       PASSWORD_LOGIN_ENABLED: "true"
       SLACK_WEBHOOK_URL: ""

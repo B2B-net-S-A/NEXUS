@@ -187,6 +187,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.premium_skill_justification: ("F50", "claude-sonnet-5-5"),
     AIFeatureKey.board_document_read: ("F51", "claude-sonnet-5"),
     AIFeatureKey.contract_document_rate_read: ("F52", "claude-sonnet-5"),
+    # F53 — 22.11.2026: dane firmy Partnera z podpisanej umowy (model F52).
+    AIFeatureKey.contract_partner_read: ("F53", "claude-sonnet-5"),
 }
 
 

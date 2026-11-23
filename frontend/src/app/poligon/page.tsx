@@ -90,7 +90,7 @@ export default function PoligonPage() {
                     {locked ? "Termin minął: " : "Poligon dla Ciebie: "}
                     {gaps.length} {pluralPl(gaps.length, "ćwiczenie", "ćwiczenia", "ćwiczeń")}, ok. {Math.max(10, gaps.length * 5)} min.
                   </b>{" "}
-                  To, czego używasz na co dzień, zaliczyliśmy z Twojej pracy z ostatnich 60 dni (oznaczone „z pracy”).
+                  To, czego używasz na co dzień, zaliczyliśmy z Twoich ostatnich 60 dni w NEXUSIE (oznaczone „używasz”).
                   Zostały funkcje, których jeszcze nie używasz.{" "}
                   {locked
                     ? "Reszta NEXUSA otworzy się, kiedy je przejdziesz."
@@ -214,7 +214,7 @@ export default function PoligonPage() {
                     <span className="min-w-0 flex-1 truncate">{e.title({ ...context, firstNew: null })}</span>
                     {credited.has(e.id) && (
                       <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-success">
-                        <Briefcase className="h-3 w-3" aria-hidden="true" />z pracy
+                        <Briefcase className="h-3 w-3" aria-hidden="true" />używasz
                       </span>
                     )}
                   </li>

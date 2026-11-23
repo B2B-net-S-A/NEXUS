@@ -10,6 +10,10 @@
  * Na górze siatka lat (`ClientFormYearsGrid`, 19.11.2026): lata w
  * kompetencjach liczy serwer z dat stanowisk w CV, rekruter zdejmuje role
  * i wysyła braki do ściągi screeningu.
+ *
+ * Rekruter weryfikuje, nie przepisuje (23.11.2026): wolne wiersze wzoru
+ * (wiersze 2–3 „Wykształcenia” przy jednych studiach) są zwinięte i nie liczą
+ * się do braków (`spareFieldIds`), a „TAK/NIE” od modelu pokazuje cytat z CV.
  */
 
 import { useMemo, useState } from "react";
@@ -27,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { ClientFormYearsGrid } from "@/components/v2/recruitment/client-form/ClientFormYearsGrid";
+import { spareFieldIds } from "@/components/v2/recruitment/client-form/spareRows";
 import {
   CLIENT_FORM_SOURCE_LABEL,
   type ClientFormField,
@@ -50,6 +55,8 @@ export interface ClientFormDialogProps {
   onSaveYears?: (payload: { roles?: Record<string, string[]>; ask?: string[] }) => Promise<void> | void;
   onDownload: () => void;
 }
+
+const YES_NO = /tak\s*\/\s*nie/i;
 
 interface FieldGroup {
   title: string;
@@ -96,22 +103,33 @@ function FieldRow({
   value,
   context,
   disabled,
+  spare = false,
   onChange,
 }: {
   field: ClientFormField;
   value: string;
   context: string | null;
   disabled: boolean;
+  /** Wolny wiersz wzoru — pusty to nie brak, bez ostrzegawczego koloru. */
+  spare?: boolean;
   onChange: (value: string) => void;
 }) {
   const empty = value.trim() === "";
+  const warn = empty && !spare;
   const long = field.kind === "box" || /opis/i.test(field.label);
+  // Propozycja modelu „TAK/NIE” do zatwierdzenia: cytat widać bez najeżdżania.
+  const evidence =
+    !empty && field.quote && value === (field.value ?? "") && YES_NO.test(field.label)
+      ? field.quote
+      : null;
   const source =
     !empty && field.source && value === (field.value ?? "")
       ? CLIENT_FORM_SOURCE_LABEL[field.source]
       : !empty
         ? CLIENT_FORM_SOURCE_LABEL.recruiter
-        : "do uzupełnienia";
+        : spare
+          ? "wolny wiersz"
+          : "do uzupełnienia";
   const id = `client-form-${field.id}`;
   return (
     <div className="grid gap-1 py-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] sm:gap-3">
@@ -127,19 +145,24 @@ function FieldRow({
         <span
           className={cn(
             "block text-[11px]",
-            empty ? "font-medium text-warning-muted-foreground" : "text-muted-foreground",
+            warn ? "font-medium text-warning-muted-foreground" : "text-muted-foreground",
           )}
           title={field.quote ? `Źródło: „${field.quote}”` : undefined}
         >
           {source}
         </span>
+        {evidence ? (
+          <span className="mt-0.5 block text-[11px] italic text-muted-foreground">
+            „{evidence.length > 160 ? `${evidence.slice(0, 159)}…` : evidence}”
+          </span>
+        ) : null}
       </label>
       <Textarea
         id={id}
         value={value}
         disabled={disabled}
         rows={long ? 3 : 1}
-        className={cn("min-h-0 text-sm", empty && "border-warning bg-warning-muted/40")}
+        className={cn("min-h-0 text-sm", warn && "border-warning bg-warning-muted/40")}
         onChange={(event) => onChange(event.target.value)}
       />
     </div>
@@ -165,6 +188,7 @@ export function ClientFormDialog({
   );
   const [draft, setDraft] = useState<Record<string, string>>(initial);
   const [showFilled, setShowFilled] = useState(false);
+  const [showSpare, setShowSpare] = useState(false);
   // Nowe dane z serwera (zapis, ponowne wypełnienie, „Zapisz lata”) zastępują
   // pola, których rekruter nie ruszył; niezapisany wpis w innym polu zostaje —
   // siatka lat ma własny zapis i nie może kasować reszty okna.
@@ -184,8 +208,18 @@ export function ClientFormDialog({
   const changed = Object.fromEntries(
     Object.entries(draft).filter(([id, value]) => value.trim() !== (initial[id] ?? "").trim()),
   );
-  const missing = view.fields.filter((field) => (draft[field.id] ?? "").trim() === "");
-  const filled = view.fields.filter((field) => (draft[field.id] ?? "").trim() !== "");
+  // Sekcje liczy stan z serwera, nie szkic: po pierwszej literze pole
+  // przeskakiwało do zwiniętych „wypełnionych” i znikało spod kursora
+  // (zgłoszenie z CEZ, 23.11.2026). Przenosi się dopiero po zapisie.
+  // Wolne wiersze wzoru (23.11.2026) też — nie są brakiem, okno je zwija.
+  const spare = spareFieldIds(view.fields, initial);
+  const spareFields = view.fields.filter((field) => spare.has(field.id));
+  const spareRows = new Set(spareFields.map((field) => field.id.slice(0, field.id.lastIndexOf(".c"))))
+    .size;
+  const missing = view.fields.filter(
+    (field) => (initial[field.id] ?? "").trim() === "" && !spare.has(field.id),
+  );
+  const filled = view.fields.filter((field) => (initial[field.id] ?? "").trim() !== "");
   const set = (id: string) => (value: string) => setDraft((prev) => ({ ...prev, [id]: value }));
 
   return (
@@ -240,6 +274,42 @@ export function ClientFormDialog({
               Wszystkie pola formularza są wypełnione.
             </p>
           )}
+          {spareRows > 0 ? (
+            <section aria-label="Wolne wiersze" className="space-y-1">
+              <button
+                type="button"
+                className="text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+                aria-expanded={showSpare}
+                onClick={() => setShowSpare((value) => !value)}
+              >
+                {showSpare ? "Ukryj" : "Pokaż"} wolne wiersze · {spareRows}
+              </button>
+              {showSpare ? (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    Zapas we wzorze — wpisz, gdy kandydat ma więcej (np. drugie studia).
+                    Puste zostają puste w pliku klienta.
+                  </p>
+                  {groupFields(spareFields).map((group) => (
+                    <div key={`s-${group.title}`} className="divide-y divide-border">
+                      <p className="pt-2 text-xs font-medium text-foreground">{group.title}</p>
+                      {group.fields.map((field) => (
+                        <FieldRow
+                          key={field.id}
+                          field={field}
+                          value={draft[field.id] ?? ""}
+                          context={rowContext(field, view.fields, draft)}
+                          disabled={readOnly || saving}
+                          spare
+                          onChange={set(field.id)}
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </>
+              ) : null}
+            </section>
+          ) : null}
           <section aria-label="Wypełnione" className="space-y-1">
             <button
               type="button"

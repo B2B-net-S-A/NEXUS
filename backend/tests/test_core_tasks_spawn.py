@@ -49,6 +49,9 @@ _TASK_FACTORIES = {"create_task", "ensure_future"}
 _ALLOWED_OUTSIDE_API = {
     "app/main.py": "pętle z lifespan — słownik `app.state.background_tasks`, "
     "nadzór i anulowanie przy zamknięciu",
+    "app/services/b2b_esign/csc.py": "paczka podpisów pyHanko (E1): zadania "
+    "na liście, awaitowane przez `gather` i anulowane w `finally`, bo plik, "
+    "który padł przed skrótem, zostawiłby resztę czekającą na paczkę",
     "app/services/order_mail_ingest.py": "`start_ingest_task` zwraca zadanie "
     "(trasa czeka na jego start) i trzyma je w `_bg_tasks`",
     "app/services/cv_approval_worker.py": "worker: heartbeat i zadania w "

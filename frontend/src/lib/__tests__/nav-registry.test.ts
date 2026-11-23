@@ -96,13 +96,13 @@ describe("rejestr nawigacji — spójność wpisów", () => {
     expect(NAV_PRIMARY_ORDER).toEqual(grouped);
   });
 
-  it("grupy szyny: Praca · Klienci i umowy · Firma, w tej kolejności", () => {
+  it("grupy szyny: Na co dzień · Klienci i umowy · Firma, w tej kolejności", () => {
     expect(
       NAV_PRIMARY_GROUPS.map((group) => [group.title, [...group.ids]]),
     ).toEqual([
       // „Ludzie w NEXUSIE” (16.10.2026): „Mój czas”, „Ludzie”, „Sprzęt” —
       // widoczne tylko przy włączonym module (flaga z `/api/hr/config`).
-      ["Praca", ["dashboard", "jobs", "candidates", "calendar", "own-hiring", "my-time"]],
+      ["Na co dzień", ["dashboard", "jobs", "candidates", "calendar", "own-hiring", "my-time"]],
       // Opieka nad konsultantami (moduł `care`) obok Kontraktów.
       // Sprzedaż (Atlas → NEXUS, 26.10.2026) na czele grupy — od szansy do klienta.
       // Przy module `back_office` członek zespołu ma „Back office” zamiast „Opieki”.
@@ -139,9 +139,9 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
       group.items.map((item) => item.href),
     ]);
 
-  it("rekruter ma na szynie „Praca” + „Firma” (samo Insights), bez pustej grupy klientów", () => {
+  it("rekruter ma na szynie „Na co dzień” + „Firma” (samo Insights), bez pustej grupy klientów", () => {
     expect(groupsOf("recruiter")).toEqual([
-      ["Praca", ["/dashboard", "/jobs", "/candidates", "/calendar"]],
+      ["Na co dzień", ["/dashboard", "/jobs", "/candidates", "/calendar"]],
       ["Firma", ["/insights"]],
     ]);
     expect(primaryHrefs("recruiter")).toEqual([
@@ -155,12 +155,12 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
 
   it("Delivery Lead: klienci i umowy bez Finansów; finance i admin: wszystkie trzy grupy", () => {
     expect(groupsOf("delivery_lead")).toEqual([
-      ["Praca", ["/dashboard", "/jobs", "/candidates", "/calendar"]],
+      ["Na co dzień", ["/dashboard", "/jobs", "/candidates", "/calendar"]],
       ["Klienci i umowy", ["/clients", "/contracts"]],
       ["Firma", ["/insights", "/compliance"]],
     ]);
     const full = [
-      ["Praca", ["/dashboard", "/jobs", "/candidates", "/calendar"]],
+      ["Na co dzień", ["/dashboard", "/jobs", "/candidates", "/calendar"]],
       ["Klienci i umowy", ["/clients", "/contracts", "/finance"]],
       ["Firma", ["/insights", "/compliance"]],
     ];
@@ -367,7 +367,7 @@ describe("menu idzie za uprawnieniem, nie za rolą", () => {
     expect(paletteIds(viewer)).not.toContain("my-relationships");
     expect(
       visiblePrimaryGroups(viewer, opts).map((group) => group.title),
-    ).toEqual(["Praca", "Klienci i umowy", "Firma"]);
+    ).toEqual(["Na co dzień", "Klienci i umowy", "Firma"]);
   });
 
   it("Delivery Lead bez podglądu Delivery traci obie pozycje i grupę szyny", () => {
@@ -385,7 +385,7 @@ describe("menu idzie za uprawnieniem, nie za rolą", () => {
     expect(paletteIds(lead)).not.toContain("clients");
     expect(
       visiblePrimaryGroups(lead, opts).map((group) => group.title),
-    ).toEqual(["Praca", "Firma"]);
+    ).toEqual(["Na co dzień", "Firma"]);
   });
 
   it("„Finanse” widzi posiadacz „Moduł Finanse”, kto by nim nie był", () => {

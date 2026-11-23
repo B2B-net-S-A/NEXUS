@@ -66,6 +66,22 @@
     ]
   },
   {
+    "id": "sprzedaz-dzwonienie-duplikaty",
+    "pr": 3765,
+    "title": "Dzwonienie: Tabela bez powtórek i „To duplikat”",
+    "why": "Tabela ukrywa powtórki z kolejnych list, „Powtórki” je odsłania. „Jak działają duplikaty?” mówi, co sprawdzamy, a „To duplikat” na karcie zgłasza przypadek, którego nie złapaliśmy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Dzwonienie → Tabela",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.view"
+  },
+  {
     "id": "sprzedaz-dzwonienie-juz-dzwoniono",
     "pr": 3539,
     "title": "Dzwonienie: „Już dzwoniono” przy wgrywaniu listy",
@@ -4376,6 +4392,56 @@
     "section": "pipeline",
     "dot_anchor": "review-batch.client-recent",
     "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
+    "id": "sprzedaz-dzwonienie-po-co-oddzwaniamy",
+    "pr": 3759,
+    "title": "Dzwonienie: po co oddzwaniamy",
+    "why": "Po „Oddzwonić…” wpisz, po co dzwonisz. Powód widać w Przypomnieniach, w kolejce, w „Moim dniu” i na górze karty w dniu telefonu. Stare rekordy z Excela pokazują komentarz z arkusza.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Dzwonienie → Przypomnienia",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.view"
+  },
+  {
+    "id": "formularz-klienta-wgraj-z-dysku",
+    "title": "Wypełniony formularz klienta wgrywasz do formularza, nie jako CV",
+    "why": "„Wgraj wypełniony formularz” w sekcji CV osoby zapisuje plik przy rekrutacji. Idzie do QC i do klienta zamiast wypełnienia z NEXUSA, a karta przechodzi z nim na „QC CV”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → sekcja CV → Formularz CV klienta",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "client-form.upload"
+  },
+  {
+    "id": "formularz-klienta-tylko-weryfikacja",
+    "title": "Formularz klienta: liczą się tylko prawdziwe braki",
+    "why": "Puste zapasowe wiersze wzoru to „wolne wiersze”, nie braki. Druga tabela doświadczenia wypełnia się sama, a przy „TAK/NIE” widzisz cytat z CV do zatwierdzenia.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → sekcja CV → Formularz CV klienta",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "client-form.missing"
   },
   {
     "id": "dodatki-do-rozliczenia-kontraktora",

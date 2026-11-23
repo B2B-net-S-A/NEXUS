@@ -111,8 +111,8 @@ def test_0522_chains_and_mirrors_table_key_and_probe() -> None:
 def test_0522_model_matches_the_ddl() -> None:
     from app.models.candidate_client_form import CandidateClientForm
 
-    # 0525 dokłada rodzaj dokumentu osobnym ALTER TABLE.
-    ddl = " ".join((schema.FILL_TABLE_DDL, *schema.SCORE_DDL))
+    # 0525 dokłada rodzaj dokumentu, 0756 plik wgrany z dysku — osobnymi ALTER.
+    ddl = " ".join((schema.FILL_TABLE_DDL, *schema.SCORE_DDL, *schema.UPLOAD_DDL))
     for column in CandidateClientForm.__table__.columns.keys():
         assert re.search(rf"\b{column}\b", ddl), column
     assert "UNIQUE (candidate_id, job_id)" in schema.FILL_TABLE_DDL
@@ -157,3 +157,41 @@ def test_0525_statements_are_idempotent() -> None:
             or "IF EXISTS" in text
             or text.startswith("UPDATE job_files SET client_form_kind = 'form' WHERE")
         ), statement
+
+
+# ── 0756: plik wgrany z dysku i reguła „doświadczenie = 10/10” ───────────────
+
+MIGRATION_0755 = BACKEND / "alembic" / "versions" / "0756_client_form_upload_scale.py"
+
+
+def test_0755_chains_and_mirrors_columns_after_the_fill_table_and_seed_in_data() -> (
+    None
+):
+    spec = importlib.util.spec_from_file_location("m0755", MIGRATION_0755)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    assert module.revision.endswith("_client_form_upload_scale")
+    source = MIGRATION_0755.read_text(encoding="utf-8")
+    assert "schema.UPLOAD_SCALE_DDL" in source
+    assert "schema.UPLOAD_SCALE_DOWNGRADE_DDL" in source
+
+    entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
+    fill_table = entrypoint.index(schema.FILL_TABLE_DDL)
+    for statement in (*schema.UPLOAD_DDL, schema.SCALE_COLUMN_DDL):
+        assert "IF NOT EXISTS" in statement, statement
+        assert statement in entrypoint, statement
+        assert entrypoint.index(statement) > fill_table, statement
+    # Włączenie dla CEZ RAZ, w danych, po kolumnie.
+    seed = entrypoint.index(schema.SCALE_SEED_DDL)
+    assert seed > entrypoint.index(schema.SCALE_COLUMN_DDL)
+    assert seed > entrypoint.index("_DATA_STATEMENTS = [")
+    assert f"WHERE key = '{schema.SCALE_SEED_MARKER}'" in schema.SCALE_SEED_DDL
+    assert f"WHERE id = {EZDROWIE_CLIENT_ID};" in schema.SCALE_SEED_DDL
+    assert "ON CONFLICT (key) DO NOTHING" in schema.SCALE_SEED_DDL
+
+
+def test_0755_client_flag_matches_the_model() -> None:
+    column = Client.__table__.columns["client_form_scale_full_on_experience"]
+    assert column.nullable is False
+    assert "BOOLEAN NOT NULL DEFAULT false" in schema.SCALE_COLUMN_DDL

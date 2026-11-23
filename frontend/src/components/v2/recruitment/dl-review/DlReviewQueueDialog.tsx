@@ -76,7 +76,14 @@ export function DlReviewQueueTable({
               <td className="sticky left-0 bg-background px-2 py-1.5 align-top">
                 <span className="font-medium text-foreground">{item.candidate_name}</span>
                 <span className="mt-0.5 flex flex-wrap gap-1">
-                  <QcStatusBadge row={{ qc_status: item.qc_status as never, qc_blocking_failed: 0, qc_state: item.qc_state }} />
+                  <QcStatusBadge
+                    row={{
+                      qc_status: item.qc_status as never,
+                      qc_blocking_failed: 0,
+                      qc_state: item.qc_state,
+                      client_form: item.client_form,
+                    }}
+                  />
                   {item.fix_rounds > 0 ? (
                     <Badge size="sm" variant="warning">
                       poprawki: {item.fix_rounds}

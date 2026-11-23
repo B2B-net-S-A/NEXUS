@@ -121,6 +121,9 @@ class BoardTaskRow(BaseModel):
     qc_gaps: list[str] = Field(default_factory=list)
     # QC-11 (08.11.2026): gotowy stan QC do pokazania.
     qc_state: Optional[dict] = None
+    # Klient z formularzem CV (23.11.2026): ``{template, missing}``; ``None`` =
+    # CV firmowe. Przegląd pokazuje wtedy formularz zamiast QC CV firmowego.
+    client_form: Optional[dict] = None
     # Przegląd DL: stan karty rekomendacji; ``None`` = para nie ma karty.
     card_status: Optional[Literal["complete", "partial", "empty"]] = None
     card_missing: int = 0
@@ -643,12 +646,12 @@ class CproQueueCv(BaseModel):
 
 
 class CproBotItem(BaseModel):
-    """Bot Cpro przy osobie (``services/cpro_bot``), gdy ``CPRO_BOT_ENABLED``.
+    """Bot Cpro przy osobie, gdy działa tryb szkiców albo wysyłki.
 
     ``blocked`` — braki w NEXUSIE (lista w ``blockers``), ``ready`` — bot
     weźmie osobę w najbliższym biegu, ``working`` — bot wypełnia Cpro,
     ``submitted`` — oferta wysłana (``moved=False``: kartę trzeba przesunąć
-    ręcznie), ``draft`` — szkic z próby, ``failed``/``skipped`` — bot nie
+    ręcznie), ``draft`` — szkic do oceny w trybie draft, ``failed``/``skipped`` — bot nie
     wrzucił (``message``), ``retry`` — bieg padł, bot spróbuje jeszcze raz.
     """
 
@@ -662,6 +665,8 @@ class CproBotItem(BaseModel):
         "skipped",
         "retry",
     ]
+    mode: Literal["draft", "submit"] = "submit"
+    retry_allowed: bool = True
     blockers: list[str] = Field(default_factory=list)
     message: Optional[str] = None
     offer_url: Optional[str] = None
@@ -672,10 +677,13 @@ class CproBotItem(BaseModel):
 
 
 class CproBotSummary(BaseModel):
+    mode: Literal["draft", "submit"] = "submit"
     configured: bool
     working: bool
     last_run_at: Optional[datetime] = None
     sent_today: int = 0
+    drafts_today: int = 0
+    awaiting_review: int = 0
     can_retry: bool = False
 
 
@@ -704,7 +712,7 @@ class CproQueueItem(BaseModel):
     accepted_at: Optional[datetime] = None
     # Uwaga Delivery Leada zapisana przy akceptacji (`stage_remarks`).
     dl_note: Optional[str] = None
-    # Bot Cpro (17.11.2026); ``None`` przy wyłączonym ``CPRO_BOT_ENABLED``.
+    # Bot Cpro; ``None``, gdy oba tryby automatu są wyłączone.
     bot: Optional[CproBotItem] = None
 
 
@@ -1672,7 +1680,7 @@ async def get_cpro_queue(
     )
     sender = await cpro_sender.effective_sender(db, now)
     bot_summary: Optional[CproBotSummary] = None
-    if cpro_bot_runs.enabled():
+    if cpro_bot_runs.worker_enabled():
         bot_summary = await _attach_bot(
             db, jobs, to_send, now=now, today=today, user=current_user
         )
@@ -1688,21 +1696,40 @@ async def get_cpro_queue(
 
 
 def bot_item_view(
-    item: Optional["cpro_bot_items.BotItem"], state: Optional["cpro_bot_runs.ItemState"]
+    item: Optional["cpro_bot_items.BotItem"],
+    state: Optional["cpro_bot_runs.ItemState"],
+    *,
+    draft_only: bool = False,
+    retry_allowed: bool = True,
 ) -> Optional[CproBotItem]:
     """Stan bota przy osobie: braki wygrywają, potem wynik ostatniego biegu."""
 
     if item is None:
         return None
     data_from = list(item.data_from)
-    if item.payload is None:
+    mode = "draft" if draft_only else "submit"
+    # Gotowy szkic nie znika z oceny Sandry, gdy później zmieniono dane lub
+    # CV w NEXUSIE. Nie oferujemy przez to ponownego utworzenia oferty.
+    existing_offer = (
+        draft_only and state is not None and state.state in ("draft", "submitted")
+    )
+    if item.payload is None and not existing_offer:
         return CproBotItem(
-            state="blocked", blockers=list(item.blockers), data_from=data_from
+            state="blocked",
+            mode=mode,
+            retry_allowed=retry_allowed,
+            blockers=list(item.blockers),
+            data_from=data_from,
         )
     if state is None:
-        return CproBotItem(state="ready", data_from=data_from)
+        return CproBotItem(
+            state="ready", mode=mode, retry_allowed=retry_allowed, data_from=data_from
+        )
     return CproBotItem(
         state=state.state,  # type: ignore[arg-type]
+        mode=mode,
+        retry_allowed=retry_allowed,
+        blockers=list(item.blockers),
         message=state.message,
         offer_url=state.offer_url,
         cpro_status=state.cpro_status,
@@ -1730,29 +1757,53 @@ async def _attach_bot(
         for i in await cpro_bot_items.load_items(db, now=now, today=today, tasks=tasks)
     }
     states = await cpro_bot_runs.item_states(db, list(bot_items), now=now)
+    draft_only = cpro_bot_runs.auto_draft_enabled()
+    recorded_offers = (
+        await cpro_bot_runs.recorded_offer_stage_ids(db, list(bot_items))
+        if draft_only
+        else set()
+    )
     for group in jobs.values():
         for queued in group.items:
             queued.bot = bot_item_view(
-                bot_items.get(queued.stage_id), states.get(queued.stage_id)
+                bot_items.get(queued.stage_id),
+                states.get(queued.stage_id),
+                draft_only=draft_only,
+                retry_allowed=queued.stage_id not in recorded_offers,
             )
     last = await db.scalar(select(func.max(CproBotRun.started_at)))
     day_start = local_day_start_utc(today)
-    sent_runs = (
-        await db.scalars(
-            select(CproBotRun).where(
-                CproBotRun.received_at >= day_start, CproBotRun.submit.is_(True)
+    received_today = (
+        await db.execute(
+            select(CproBotRun.submit, CproBotRun.report).where(
+                CproBotRun.received_at >= day_start
             )
         )
     ).all()
     sent_today = sum(
         int(((run.report or {}).get("counts") or {}).get("submitted", 0))
-        for run in sent_runs
+        for run in received_today
+        if run.submit
     )
+    drafted_today = {
+        ref
+        for run in received_today
+        if not run.submit
+        for ref, outcome in ((run.report or {}).get("items") or {}).items()
+        if isinstance(outcome, dict) and outcome.get("outcome") == "draft"
+    }
     return CproBotSummary(
+        mode="draft" if draft_only else "submit",
         configured=cpro_bot_runs.configured(),
         working=await cpro_bot_runs.has_open_run(db),
         last_run_at=last,
         sent_today=sent_today,
+        drafts_today=len(drafted_today),
+        awaiting_review=sum(
+            queued.bot is not None and queued.bot.state == "draft"
+            for group in jobs.values()
+            for queued in group.items
+        ),
         can_retry=await cpro_sender.can_send_to_cpro(db, user, now),
     )
 
@@ -1775,7 +1826,7 @@ async def retry_cpro_bot(
 
     from app.services.cpro_bot import flow as cpro_bot_flow  # noqa: PLC0415
 
-    if not cpro_bot_runs.enabled():
+    if not cpro_bot_runs.worker_enabled():
         raise HTTPException(status_code=409, detail="Bot Cpro jest wyłączony.")
     now = datetime.now(timezone.utc)
     if not await cpro_sender.can_send_to_cpro(db, current_user, now):
@@ -1790,6 +1841,7 @@ async def retry_cpro_bot(
             now=now,
             today=business_date(now),
             requested_by_user_id=current_user.id,
+            submit=not cpro_bot_runs.auto_draft_enabled(),
         )
     except cpro_bot_flow.NotReady as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from None

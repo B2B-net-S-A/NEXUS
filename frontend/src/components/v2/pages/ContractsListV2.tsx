@@ -1873,6 +1873,15 @@ export function ContractsListV2({
  </Button>
  </Link>
  )}
+ {/* E5a (22.11.2026): dane firm z podpisanych umów do potwierdzenia
+ przed nową umową B2B — ta sama bramka co trasy API. */}
+ {canCompleteDrafts && (
+ <Link href="/contracts/dane-firm">
+ <Button size="sm" variant="outline">
+ <FileText className="h-4 w-4" /> Dane firm z umów
+ </Button>
+ </Link>
+ )}
  {canExport && <Popover>
  <PopoverTrigger asChild>
  <Button size="sm" variant="outline" disabled={exporting}>

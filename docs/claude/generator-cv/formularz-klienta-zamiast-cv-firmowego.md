@@ -103,6 +103,17 @@ Reguły, które łatwo cofnąć:
 - **Serwer nie liczy QC CV firmowego takiej pary** (`pipeline._assert_cv_qc_gate`
   → `client_form_status.client_takes_client_form`): nie ma czego sprawdzać,
   a decyzja D3 mówi „przypomnienie, nie blokada”.
+- **Kolejka Delivery Leada też nie czeka na QC CV firmowego** (decyzja Artura
+  23.11.2026, staging: CEZ 789232 z „QC: 1 do poprawy” i formularzem bez braków
+  nie trafiał do „Do wysłania do klienta”). Para w „QC CV” jest gotowa od
+  wejścia do kolumny (`dl_send_queue.readiness_of(client_form=True)`, front
+  `isReadyForDlSend`), dni na karcie i „Twoje CV w drodze” liczą od tej chwili,
+  a QC do poprawy nie zamyka przeglądu na Tablicy (`qcBlocksDlReview`). Braki
+  formularza to przypomnienie, nie warunek kolejki. Przegląd DL pokazuje karty
+  formularza i tabeli punktowej (`ClientFormCard readOnly compact`) zamiast
+  „Kontroli CV”, bez luk QC i bez ryzyka „CV nie przeszło QC”; plakietka
+  w kolejce (`QcStatusBadge` z `client_form`) mówi o formularzu. Wiersze
+  kolejki niosą `client_form = {template, missing}` jak karta Tablicy.
 - **Automat CV firmowego pomija klienta z formularzem** (`cv_auto_generate`,
   powód `client_form`, bez dzwonka) — działa tylko przy włączonym
   `CV_AUTO_GENERATE_WITHOUT_CONFIRMATION`.
@@ -270,3 +281,107 @@ https://claude.ai/artifact/32hRQWiWa3fVXzVv6bwxNx
   rekruterzy wgrywali wypełniony Word przez „Wgraj CV”, więc lądował jako CV
   kandydata, u dwóch osób jako główne) idzie osobnym PR-em z migracją razem
   z regułą „doświadczenie = 10/10” w polach „w skali 1–10”.
+
+## Plik wgrany z dysku i „doświadczenie = 10/10” (0756, 23.11.2026)
+
+Druga część prośby DL CEZ z 20.11.2026, decyzje Artura z 23.11.2026
+(wszystkie warianty rekomendowane). Na stagingu 22.11.2026 było 6 wypełnionych
+formularzy wgranych przez „Wgraj CV” u 3 osób, u 2 jako główne CV. Tych plików
+na produkcji ten PR nie przenosi: to osobna decyzja Artura.
+
+- **Wgrany plik należy do pary osoba × rekrutacja**
+  (`candidate_client_forms.uploaded_*`: klucz w storage, nazwa, typ, rozmiar,
+  kiedy, kto). Plik leży pod `client_forms/{job_id}/` (`storage_service.save_client_form_file`).
+  Trasy obok `client-form` mają ten sam dostęp co „Wypełnij”:
+  `POST …/client-form/upload?kind=form|score` i `DELETE …/client-form/upload`.
+  Formularz przyjmuje Word (`.docx`) albo PDF, tabela punktowa tylko `.xlsx`.
+  Wgranie wymaga wzoru w Plikach rekrutacji (409 jak przy „Wypełnij”).
+- **Kontrola paczki jak przy wzorze**: limit 20 MB pliku, bez makr
+  (`vbaProject.bin`), najwyżej 1000 części i 60 MB po rozpakowaniu. Plik
+  otwierają tylko python-docx albo openpyxl. PDF musi zaczynać się od `%PDF-`.
+- **Wgrany = gotowy.** Wgranie zakłada wiersz pary, gdy go nie ma, więc
+  bramka „QC CV” (`missing_before_qc`, liczy istnienie wiersza) przepuszcza
+  kartę bez dalszych zmian. `client_form_status.job_states` podaje przy
+  wgranym pliku `missing = 0` i `uploaded`, a lista wymagań pisze „wgrany
+  z dysku”. Plakietka Tablicy: „Formularz wgrany”. Brak tabeli punktowej
+  dalej trzyma kartę, gdy rekrutacja ma jej wzór.
+- **Pobranie (`…/docx`) oddaje wgrany plik**, gdy jest. Nazwa pliku powstaje
+  ze wzoru i osoby, z rozszerzeniem wgranego pliku. Wartości wypełnione
+  w NEXUSIE zostają w bazie. „Usuń” przywraca pobieranie wypełnienia
+  z NEXUSA. Wiersz założony samym wgraniem znika razem z plikiem, więc
+  karta znów czeka na formularz. „Zastąp plik” kasuje poprzedni plik z dysku
+  dopiero po zapisie nowego w bazie.
+- **Reguła klienta `clients.client_form_scale_full_on_experience`**
+  („Jeżeli kandydat ma jakieś doświadczenie w czymś, wpisujemy poziom
+  10/10”) idzie przez edytor reguły CV jak `cv_client_document`
+  (`CLIENT_FLAG_FIELDS`, wersja i historia). Usunięcie reguły ją wyłącza.
+  CEZ dostał ją RAZ, znacznikiem `ezdrowie_client_form_scale_full`
+  w `app_settings`, żeby restart nie cofał zmiany z edytora. Checkbox stoi
+  pod „Formularz klienta”.
+- **Liczy kod** (`services/client_form_scale.py`), po „Wypełnij” i po
+  „Zapisz lata”. Pole z „skali”/„1–10” w etykiecie, w wierszu tabeli,
+  dostaje „10” (źródło `client_rule`), gdy w tym samym wierszu kod policzył
+  miesiące > 0 z ról włączonych w siatce lat albo opis ma przyjęty cytat
+  z CV lub notatek. Inaczej pole zostaje puste, także gdy model wpisał ocenę.
+  Wpis rekrutera (`source = recruiter`) wygrywa. Ręcznie wpisany opis nie ma
+  cytatu, więc nie liczy się jako dowód.
+- **Opis o braku doświadczenia nie jest dowodem** (`NO_EXPERIENCE`: „Brak…”,
+  „Nie posiada…”, „nie pracował…”, „No … experience”). Na stagingu 23.11.2026
+  („Tester Automatyczny” CEZ) opis „Brak komercyjnego doświadczenia w sektorze
+  healthcare.” miał cytat z CV i dawał 10/10 w wierszu „Staż w projektach
+  służby zdrowia”. Ten sam wzór: 7 pól skali, w 6 lata w tym samym wierszu;
+  po „Wypełnij” 4 pola dostały 10 z lat z ról, reszta została pusta.
+
+## Rekruter weryfikuje, nie przepisuje (23.11.2026)
+
+Artur chce, żeby formularz wypełniał się sam, a rekruter tylko sprawdzał.
+Pomiar na stagingu (CEZ 789225, „Starszy Kierownik Projektu”, kandydaci
+21097, 69380, 22314): zapisane wypełnienia miały 29, 25 i 21 braków,
+w większości szum. Po zmianie dwa biegi „Wypełnij” dały 1/1, 13/9 i 4/5.
+Zostały prawdziwe luki: wydział, rok studiów, data i wystawca certyfikatu.
+
+- **Wolny wiersz nie jest brakiem** (`client_form_structure.spare_ids`).
+  Wolny jest pusty wiersz bez nazwy ze wzoru („Wiersz N”), który nie jest
+  pierwszym takim wierszem tabeli. Przykład: wiersze 2–3 „Wykształcenia”
+  przy jednych studiach. Wiersz częściowo wypełniony to brak (firma bez
+  okresu). Pierwszy wiersz pustej tabeli też, bo formularz bez stanowiska
+  jest niepełny. Wiersze z nazwą (kompetencje, certyfikat wpisany przez
+  klienta) nigdy nie są zapasem. Reguła dotyczy `missing`, `missing_count`,
+  licznika w oknie i karty Tablicy. Ta ostatnia liczy braki z `fields`
+  i struktury wzoru (`client_form_status._missing`), więc wiersze zapisane
+  przed zmianą też pokazują nową liczbę bez przeliczania bazy. Okno zwija
+  wolne wiersze w „Pokaż wolne wiersze · N” z podpisem „wolny wiersz”.
+  Można w nie wpisać, a po zapisie wiersz z wpisem przechodzi do braków.
+  Sekcje okna liczy stan z serwera, nie szkic (#3756).
+- **Druga tabela doświadczenia bez tytułu to ciąg dalszy sekcji**
+  (`continued_tables`, `table_titles`). Formularze CEZ („Starszy Kierownik
+  Projektu”, „Analityk”) mają pod „Doświadczenie zawodowe*:” dwie albo trzy
+  tabele z tymi samymi kolumnami, oddzielone pustym akapitem. Odczyt dawał
+  kolejnym `title: null`, a model raz je pomijał (21097, 69380: 12 pustych
+  pól, stanowiska poszły w `extra_rows` pierwszej tabeli), a raz wpisywał do
+  nich środek historii, co psuło kolejność w pliku (21654). Taka tabela ma
+  teraz w prompcie i w oknie nazwę „<tytuł> — tabela 2”. Model wpisuje do niej
+  stanowiska albo projekty najbliższe roli, od najnowszego, z cytatami
+  (wolno powtórzyć wiersze z pierwszej tabeli). Tak wygląda ręcznie
+  wypełniony „Analityk” w dokumentach osoby 19616: pełna historia w pierwszej
+  tabeli, te same trzy projekty w drugiej i trzeciej.
+  Kontynuacja nie rośnie (`extendable_tables` ją pomija), bo pełna lista
+  stanowisk idzie do pierwszej tabeli. Treści tabeli wzór nie opisuje.
+  Jeśli CEZ chce w niej czego innego (np. projektów z wymagania „3 projekty
+  powyżej 4 mln zł”), zmienia się tylko zdanie w prompcie F36.
+  Tabela z własnym tytułem i tymi samymi kolumnami to inna sekcja.
+- **„TAK/NIE” tylko z cytatem** (prompt F36 od wersji 7). Model proponuje
+  „TAK”, gdy źródło pokazuje kompetencję wprost albo przez opis pracy, która
+  jej wymagała. „NIE” proponuje tylko z faktem, który przeczy wymaganiu
+  („zespół 12 osób” przy „> 30 osób”). Bez cytatu z CV albo notatek kod
+  odrzuca obie wartości i pole zostaje puste. Okno pokazuje cytat pod
+  propozycją, a rekruter ją zatwierdza albo poprawia.
+- **Odpowiedź modelu zamknięta za wcześnie** (`parse_answer`). Na stagingu
+  2 z 3 odpowiedzi kończyły `extra_rows` nawiasem głównego obiektu i pisały
+  dalej (`…]}, "roles": …`). `json.loads` padał na „Extra data”, a formularz
+  zostawał z samym imieniem. Kod zdejmuje taki nawias, gdy za nim stoi
+  przecinek. Inny błąd składni zostaje błędem (formularz do ręcznego
+  uzupełnienia, nigdy 5xx).
+- **Staging nie ma pliku wzoru 789225** (uploady sprzed 18.11). „Wypełnij”
+  przez API kończy się tam 404 „Pliku nie ma już w magazynie”. Pomiar szedł
+  skryptem na strukturze z bazy, bez zapisu.

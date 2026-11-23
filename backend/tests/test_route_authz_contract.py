@@ -390,6 +390,11 @@ _PUBLIC_BASELINE: set[tuple[str, str]] = {
     ("POST", "/api/public/b2b-sign/{token}/accept-code"),
     ("POST", "/api/public/b2b-sign/{token}/accept"),
     ("GET", "/api/public/b2b-sign/{token}/signed-pdf"),
+    # Podpis u dostawcy przez API CSC (E1): start i stan pod tokenem linku,
+    # powrót od dostawcy niesie jednorazowy ``state`` sesji (15 minut).
+    ("POST", "/api/public/b2b-sign/{token}/remote/start"),
+    ("GET", "/api/public/b2b-sign/{token}/remote/{session_id}"),
+    ("GET", "/api/public/b2b-sign/remote/callback"),
     ("POST", "/api/public/career/apply"),
     ("GET", "/api/public/career/jobs"),
     ("GET", "/api/public/career/p/{slug}"),

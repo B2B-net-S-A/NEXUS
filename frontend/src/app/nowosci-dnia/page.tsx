@@ -50,14 +50,14 @@ export default function DailyNoveltiesPage() {
             ? "Gotowe na dziś"
             : left.length < batch.length
               ? `Jeszcze ${left.length} z ${batch.length}`
-              : `Najpierw ${batch.length === 1 ? "jedna nowość" : `${batch.length} nowości`} w Twojej pracy`}
+              : `Najpierw ${batch.length === 1 ? "jedna nowość" : `${batch.length} nowości`} w NEXUSIE`}
         </h1>
         <p className="text-sm text-muted-foreground">
           {left.length > 0
             ? `Przeklikujesz na rekrutacji ćwiczebnej — prawdziwe ekrany, nic się nie zapisze. Ok. ${minutesFor(left)} min, potem do jutra nic nie wyskakuje.`
             : batch.length > 0
               ? "Wszystko przeklikane. Do jutra NEXUS nie pokaże Ci żadnej nowości."
-              : "Nic nowego w Twojej pracy od ostatniego razu."}
+              : "Nic nowego w NEXUSIE od ostatniego razu."}
         </p>
       </header>
 
@@ -113,7 +113,7 @@ export default function DailyNoveltiesPage() {
       ) : null}
 
       {left.length === 0 ? (
-        <Button onClick={() => router.push("/dashboard")}>Do pracy →</Button>
+        <Button onClick={() => router.push("/dashboard")}>Dalej do NEXUSA →</Button>
       ) : null}
     </div>
   );

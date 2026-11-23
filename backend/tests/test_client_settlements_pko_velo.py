@@ -280,6 +280,33 @@ def test_plik_xlsm_czyta_wartosci_i_ukryte_kolumny():
     assert timesheet_pko.parse(content, "application/pdf") is None
 
 
+def test_eml_z_dlugim_blokiem_naglowkow_przechodzi():
+    """Mail z M365 i home.pl: Received/ARC/DKIM zajmują ponad 4 KB, a Date, Message-ID
+    i MIME-Version stoją dalej. W próbie IX–XI 2026 31% maili odpadało jako „zły plik”."""
+    from app.services.consultant_portal import documents
+
+    received = "".join(
+        f"Received: from mx{i}.example.com (mx{i}.example.com [10.0.0.{i}])\r\n"
+        f"\tby relay.example.com with ESMTPS id abc{i:04d}; Mon, 5 Oct 2026 10:00:00 +0200\r\n"
+        for i in range(60)
+    )
+    content = (
+        received + "From: Koordynator <koordynator@firma.example.com>\r\n"
+        "Subject: FW: Rozliczenie za okres 09-2026\r\n"
+        + "X-Naglowek: "
+        + "x" * 3000
+        + "\r\n"
+        "Date: Mon, 05 Oct 2026 10:17:04 +0200\r\n"
+        "Message-ID: <fikcyjny@example.com>\r\n"
+        "MIME-Version: 1.0\r\n"
+        "Content-Type: text/plain; charset=utf-8\r\n\r\n"
+        "Ilość MD 22\r\n"
+    ).encode()
+    assert content.index(b"Date:") > 4096
+    mime, _ = documents.check_settlement_file(content)
+    assert mime == documents.EML_MIME
+
+
 # ── Akceptacja mailem ────────────────────────────────────────────────────────
 
 

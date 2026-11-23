@@ -244,7 +244,9 @@ RecruitmentRankingUser = Annotated[
 async def report_recruitment(
     current_user: RecruitmentRankingUser,
     db: AsyncSession = Depends(get_db),
-    period: str = Query("month", enum=["week", "month", "quarter", "year"]),
+    period: str = Query(
+        "month", json_schema_extra={"enum": ["week", "month", "quarter", "year"]}
+    ),
 ):
     """Lejek rekrutacyjny + rozbicie per rekruter (atrybucja verifier-anchored).
 
@@ -988,7 +990,9 @@ async def report_delivery_leads(
         )
     ),
     db: AsyncSession = Depends(get_db),
-    period: str = Query("month", enum=["week", "month", "quarter", "year"]),
+    period: str = Query(
+        "month", json_schema_extra={"enum": ["week", "month", "quarter", "year"]}
+    ),
 ):
     """Delivery Lead performance: requests, vacancies, placements, hit ratio,
     fill rate, open pipeline.
@@ -1066,7 +1070,9 @@ async def report_delivery_lead_trend(
 async def report_my_delivery_lead(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
-    period: str = Query("month", enum=["week", "month", "quarter", "year"]),
+    period: str = Query(
+        "month", json_schema_extra={"enum": ["week", "month", "quarter", "year"]}
+    ),
 ):
     """Retired unscoped DL projection.
 
@@ -1422,9 +1428,13 @@ def _parse_exclude_reasons(raw: Optional[str]) -> Optional[set[JobCloseReason]]:
 async def report_clients_hit_ratio(
     current_user: _ClientsReportViewer,
     db: AsyncSession = Depends(get_db),
-    period: str = Query("year", enum=["week", "month", "quarter", "year", "all"]),
+    period: str = Query(
+        "year", json_schema_extra={"enum": ["week", "month", "quarter", "year", "all"]}
+    ),
     min_closed: int = Query(0, ge=0, le=100),
-    sort: str = Query("hit_ratio", enum=["hit_ratio", "volume", "name"]),
+    sort: str = Query(
+        "hit_ratio", json_schema_extra={"enum": ["hit_ratio", "volume", "name"]}
+    ),
     exclude_reasons: Optional[str] = Query(
         None,
         description="CSV close_reason values to exclude (e.g. 'paused,client_ghosted')",
@@ -1474,7 +1484,9 @@ async def report_clients_hit_ratio(
 async def report_clients_at_risk(
     current_user: _ClientsReportViewer,
     db: AsyncSession = Depends(get_db),
-    period: str = Query("quarter", enum=["month", "quarter", "year"]),
+    period: str = Query(
+        "quarter", json_schema_extra={"enum": ["month", "quarter", "year"]}
+    ),
     drop_pp: float = Query(20.0, ge=5.0, le=100.0),
     min_closed: int = Query(3, ge=1, le=100),
 ):

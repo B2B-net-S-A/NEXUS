@@ -357,6 +357,26 @@ def _pln_amount(value: float) -> str:
     return f"{rounded:.2f}".replace(".", ",")
 
 
+async def _client_form_of(
+    db: AsyncSession, job_id: int, candidate_id: int
+) -> Optional[dict[str, Any]]:
+    """Stan formularza CV klienta pary — ``None``, gdy klient bierze CV firmowe."""
+    from app.services import client_form_status  # noqa: PLC0415
+
+    states = await client_form_status.job_states(db, job_id, [candidate_id])
+    if states is None:
+        return None
+    state = states[candidate_id]
+    return {
+        "template": state.template is not None,
+        "missing": state.missing,
+        "score_template": state.score_template is not None,
+        "score_missing": state.score_missing,
+        # 0755: wgrany z dysku — plakietka „Formularz wgrany”.
+        "uploaded": state.uploaded,
+    }
+
+
 def risks_for(
     *,
     eligibility_reason: Optional[str],
@@ -1044,14 +1064,17 @@ async def build_context(
         from app.services.cv_qc import _latest_override  # noqa: PLC0415
 
         qc_override = await _latest_override(db, candidate_id, job.id)
+    client_form = await _client_form_of(db, job.id, candidate_id)
     person = _person(
         batch,
         job,
         candidate_id,
         access=access,
         budget_max=budget["max_hourly"],
-        qc_status=qc_status,
-        qc_dismissed=int(qc.get("dismissed_blocking") or 0),
+        # Klient z formularzem CV: QC CV firmowego nie dotyczy tej pary, więc
+        # nie jest ryzykiem wysyłki (23.11.2026).
+        qc_status=None if client_form else qc_status,
+        qc_dismissed=0 if client_form else int(qc.get("dismissed_blocking") or 0),
     )
     facts = batch.facts[candidate_id]
     before = person.pop("_before")
@@ -1154,6 +1177,7 @@ async def build_context(
         "qc_gaps": list(qc.get("candidate_gaps") or []),
         "qc_state": qc.get("qc_state"),
         "qc_override": qc_override,
+        "client_form": client_form,
         "can_see_amounts": access.amounts,
         "can_see_client_rates": access.client_rates,
         "rate_from_hourly": (
@@ -1204,14 +1228,18 @@ async def build_queue(
     for task in tasks:
         if task.candidate_id not in batch.facts:
             continue
+        # Wiersz kolejki (`BoardTask.client_form`); starsze wołania bez pola = CV firmowe.
+        client_form = getattr(task, "client_form", None)
         person = _person(
             batch,
             job,
             task.candidate_id,
             access=access,
             budget_max=budget["max_hourly"],
-            qc_status=task.qc_status,
-            qc_dismissed=int(
+            qc_status=None if client_form else task.qc_status,
+            qc_dismissed=0
+            if client_form
+            else int(
                 (qc.get((task.candidate_id, job.id)) or {}).get("dismissed_blocking")
                 or 0
             ),
@@ -1233,6 +1261,7 @@ async def build_queue(
                     or []
                 ),
                 "qc_state": (qc.get((task.candidate_id, job.id)) or {}).get("qc_state"),
+                "client_form": client_form,
                 "overall_fit": assessment["overall_fit"],
                 "overall_fit_label": assessment["overall_fit_label"],
             }

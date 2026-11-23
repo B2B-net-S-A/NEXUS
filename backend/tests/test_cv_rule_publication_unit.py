@@ -150,6 +150,7 @@ async def test_delete_audits_reset_client_flags(monkeypatch):
     client.cv_content_mode_cap = "basic"
     client.cv_interactive_enabled = False
     client.cv_client_document = "client_form"
+    client.client_form_scale_full_on_experience = True
     monkeypatch.setattr(api, "_client_or_404", AsyncMock(return_value=client))
     monkeypatch.setattr(api, "_require_client_rule_access", AsyncMock())
     monkeypatch.setattr(api, "_lock_rule_edit", AsyncMock(return_value=rule))
@@ -160,7 +161,9 @@ async def test_delete_audits_reset_client_flags(monkeypatch):
         "cv_content_mode_cap": {"from": "basic", "to": None},
         "cv_interactive_enabled": {"from": False, "to": True},
         "cv_client_document": {"from": "client_form", "to": "company_cv"},
+        "client_form_scale_full_on_experience": {"from": True, "to": False},
     }
+    assert client.client_form_scale_full_on_experience is False
 
 
 async def test_deleted_recipe_revision_survives_on_client(monkeypatch):

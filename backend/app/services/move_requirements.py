@@ -173,6 +173,9 @@ class PairFacts:
     # Tabela punktowa (Excel, 0525) — wzór i puste pola, jak formularz.
     client_score_template: Optional[str] = None
     client_score_missing: Optional[int] = None
+    # 0756: plik wypełniony poza NEXUSEM, wgrany z dysku — gotowy.
+    client_form_uploaded: bool = False
+    client_score_uploaded: bool = False
     # 23.11.2026: na „QC CV” dopiero z formularzem (CLIENT_FORM_QC_GATE_ENABLED).
     client_form_gate: bool = True
     qc_status: str = "unchecked"
@@ -700,6 +703,7 @@ def _client_form_item(column: str, f: PairFacts, *, score: bool = False) -> _Ite
     """
     template = f.client_score_template if score else f.client_form_template
     missing = f.client_score_missing if score else f.client_form_missing
+    uploaded = f.client_score_uploaded if score else f.client_form_uploaded
     label = "Tabela punktowa klienta" if score else "Formularz CV klienta"
     gate = f.client_form_gate and column == "cv_qc"
     if template is None:
@@ -710,11 +714,13 @@ def _client_form_item(column: str, f: PairFacts, *, score: bool = False) -> _Ite
         detail = "jeszcze nie wypełniona" if score else "jeszcze nie wypełniony"
         if gate:
             detail += " — bez tego Delivery Lead nie ma czego sprawdzić"
+    elif uploaded:
+        detail = "wgrany z dysku"
     elif missing:
         detail = f"{missing} {_fields_word(missing)} do uzupełnienia"
     else:
         detail = None
-    done = template is not None and missing == 0
+    done = template is not None and (uploaded or missing == 0)
     blocks_now = gate and template is not None and missing is None
     return _Item(
         column,
@@ -1639,6 +1645,8 @@ async def load_pair_facts(
         client_form_missing=form_state.missing if form_state else None,
         client_score_template=form_state.score_template if form_state else None,
         client_score_missing=form_state.score_missing if form_state else None,
+        client_form_uploaded=bool(form_state and form_state.uploaded),
+        client_score_uploaded=bool(form_state and form_state.score_uploaded),
         client_form_gate=settings.CLIENT_FORM_QC_GATE_ENABLED,
         qc_status=qc.get("status") or "unchecked",
         qc_blocking_failed=int(qc.get("blocking_failed") or 0),

@@ -1364,6 +1364,14 @@ class Settings(BaseSettings):
     TEAMS_PREP_SPOKEN_LANGUAGE: str = "pl-PL"
     # Pętla pobierająca transkrypty (kill-switch — OFF kończy ją przed pętlą).
     TEAMS_PREP_TRANSCRIPTS_ENABLED: bool = False
+    # Zaproszenie na spotkanie z kolejki dzwonienia (decyzja Artura 23.11.2026):
+    # osoba, która umawia, zakłada spotkanie Teams w kalendarzu PROWADZĄCEGO.
+    # OSOBNA rejestracja app-only („NEXUS Sales Invite”) z `Calendars.ReadWrite`
+    # zawężonym Exchange App RBAC do skrzynek prowadzących; nie „NEXUS Teams
+    # Prep” (ta ma transkrypty i kalendarze DL-i i rekruterów). Tenant =
+    # M365_MAIL_TENANT_ID. Bez poświadczeń formularz zostaje przy mailu do klienta.
+    SALES_INVITE_CLIENT_ID: str = ""
+    SALES_INVITE_CLIENT_SECRET: str = ""
     # Transkrypty spotkań handlowców (0628). OFF do czasu konfiguracji Microsoft
     # z ``docs/teams-prep-setup.md``; bez niej Graph odpowiadałby 403.
     SALES_TEAMS_TRANSCRIPTS_ENABLED: bool = False
@@ -1411,6 +1419,9 @@ class Settings(BaseSettings):
     # wrzuca kandydatów Nordei z kolejki Cpro do nordea.onevms.se i wysyła ofertę.
     # OFF: pętla stoi, kolejka nie pokazuje stanu bota; trasy biegu działają zawsze.
     CPRO_BOT_ENABLED: bool = False
+    # Osobna pętla szkiców: nigdy nie wysyła ani nie przesuwa kart.
+    # Gdy obie flagi są true, ten bezpieczniejszy tryb ma pierwszeństwo.
+    CPRO_BOT_AUTO_DRAFT_ENABLED: bool = False
     GROK_BOT_CPRO_WEBHOOK_URL: str = ""
     GROK_BOT_CPRO_WEBHOOK_KEY: str = ""
     # Firmy z tym tagiem idą do tygodniowego przeglądu sygnałów (pilot 20 firm).
@@ -1453,6 +1464,16 @@ class Settings(BaseSettings):
     # (decyzja Artura 18.11.2026: wariant B, najpierw tryb karty).
     CONTRACT_RATE_DOCS_READ_ENABLED: bool = True
     CONTRACT_RATE_DOCS_AUTO_APPLY: bool = False
+    # Dane firm z umów (E5a, 0755): pętla czyta podpisaną umowę aktywnych
+    # kontraktów B2B bez danych firmy w Generatorze (paczka 25 co 10 min),
+    # a człowiek potwierdza każdą propozycję. Domyślnie OFF — koszt modelu
+    # przy pierwszym biegu (ok. 370 plików); włącza Artur.
+    CONTRACT_PARTNER_READ_ENABLED: bool = False
+    # Masowa wysyłka nowej umowy B2B (E5b, 0757): pętla w workerze wysyła
+    # paczkę po 50 osób co 15 minut ze skrzynki osoby, która ją zaczęła.
+    # Domyślnie OFF; nawet włączona nic nie wysyła, dopóki admin nie oznaczy
+    # nowego wzoru jako podpiętego (app_settings['b2b_mass_send']).
+    B2B_MASS_SEND_ENABLED: bool = False
 
     # Progi oceny prepu (liczy kod, nie model). Udział kandydata = jego czas
     # mówienia / (kandydat + zespół).
@@ -1633,6 +1654,23 @@ class Settings(BaseSettings):
     # ``pyhanko`` (domyślnie, decyzja Artura 21.10.2026) — lista zaufanych UE
     # w procesie backendu; ``dss`` — sidecar EU DSS pod DSS_VALIDATION_URL.
     B2B_ESIGN_VALIDATOR: str = "pyhanko"
+    # E6 (23.11.2026): po podpisie obu stron dopisz do umowy dane do długiej
+    # weryfikacji (PAdES-LT: certyfikaty, OCSP, CRL w DSS). Domyślnie wyłączone,
+    # dopóki Artur nie zdecyduje; działa tylko z walidatorem ``pyhanko``.
+    B2B_ESIGN_ADD_LTV: bool = False
+    # Zdalny podpis kwalifikowany przez API Cloud Signature Consortium (E1,
+    # kierunek K1 Artura z 22.11.2026): NEXUS zostaje przy swoich ekranach,
+    # a od dostawcy usług zaufania bierze tylko potwierdzenie tożsamości,
+    # certyfikat i podpis skrótu. Dostawca niewybrany (SIGNIUS, Certum, KIR),
+    # więc wszystko puste = droga wyłączona. ``…_BASE_URL`` to adres przed
+    # ``/csc/v1/...``; adresy OAuth podaje dostawca w ``/csc/v1/info``.
+    # Zakresy rozdzielone spacją (puste = ``service`` ze specyfikacji CSC),
+    # nazwa dostawcy widoczna dla kontraktora i reprezentanta.
+    B2B_ESIGN_CSC_BASE_URL: str = ""
+    B2B_ESIGN_CSC_CLIENT_ID: str = ""
+    B2B_ESIGN_CSC_CLIENT_SECRET: str = ""
+    B2B_ESIGN_CSC_SCOPES: str = ""
+    B2B_ESIGN_CSC_PROVIDER_LABEL: str = ""
 
     # ── Proxycurl LinkedIn tracking (Phase: LinkedIn sync) ──────────────────
     # Kill-switch: when False OR API key empty, sync loop exits immediately

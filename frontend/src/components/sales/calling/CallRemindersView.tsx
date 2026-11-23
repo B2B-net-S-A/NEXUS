@@ -20,6 +20,7 @@ import { CallCard, type MeetingStage } from "./CallCard";
 import {
   nextKey,
   plusDaysIso,
+  reasonByline,
   reminderGroups,
   STATE_TONES,
   stateLabel,
@@ -167,13 +168,31 @@ function ReminderRow({ item, showCaller, active, onSelect }: ReminderRowProps) {
               .join(" · ") || "Bez wskazanej osoby"}
           </span>
         </span>
-        <Badge
-          variant={STATE_TONES[item.state]}
-          size="sm"
-          className="shrink-0 whitespace-nowrap"
-        >
-          {stateLabel(item.state)}
-        </Badge>
+        {/* Zgłoszenie dzwoniących 23.11.2026: po co oddzwaniamy, wpisane przy wyniku. */}
+        <span className="hidden min-w-0 flex-[1.4] leading-tight md:block">
+          {item.callback_reason ? (
+            <>
+              <span className="block truncate text-sm text-foreground" title={item.callback_reason.text}>
+                {item.callback_reason.text}
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {reasonByline(item.callback_reason)}
+              </span>
+            </>
+          ) : (
+            <span className="block text-xs text-muted-foreground">Bez powodu: dopisz przy rozmowie</span>
+          )}
+        </span>
+        {/* Stała szerokość: plakietka oferty jest szersza i przesuwałaby kolumnę powodu. */}
+        <span className="flex w-40 shrink-0 justify-end">
+          <Badge
+            variant={STATE_TONES[item.state]}
+            size="sm"
+            className="whitespace-nowrap"
+          >
+            {stateLabel(item.state)}
+          </Badge>
+        </span>
       </button>
     </li>
   );

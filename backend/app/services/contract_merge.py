@@ -155,6 +155,9 @@ _KNOWN_CONTRACT_FKS = {
     # „Replacement za kogo” (0524): umowa wskazująca przegranego wskazuje po
     # scaleniu na zachowanego (_reparent_fks), jak „Powrót po przerwie”.
     ("b2b_generated_contracts", "replaced_contract_id"),
+    # Masowa wysyłka nowej umowy (0757): pozycja paczki idzie za kontraktem
+    # zachowanym; unikat „jedna żywa pozycja na osobę” nie zależy od kontraktu.
+    ("b2b_mass_send_items", "contract_id"),
     ("calls", "contract_id"),
     # Odbiorcy komunikatu do konsultantów (etap 3) — ślad wysyłki, unikat
     # (komunikat, kandydat) nie zależy od kontraktu.
@@ -197,6 +200,9 @@ _KNOWN_CONTRACT_FKS = {
     # Unikat (plik, wersja czytnika) nie zależy od kontraktu, a różnicę
     # z harmonogramem zachowanego przelicza pętla `contract_rate_documents`.
     ("contract_document_rate_reads", "contract_id"),
+    # Dane firmy z umowy (0755) idą za kontraktem razem z plikiem; decyzja
+    # i potwierdzone dane należą do tej samej współpracy.
+    ("contract_partner_reads", "contract_id"),
     # Wiersze raportu pobrania dokumentów z SharePointa (0402) — idą za
     # kontraktem jak same dokumenty, żeby raport przebiegu wskazywał kontrakt,
     # który zostaje.

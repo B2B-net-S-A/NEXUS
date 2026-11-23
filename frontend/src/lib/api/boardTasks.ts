@@ -9,6 +9,7 @@
 // (0353) zastąpiło QC CV (`lib/api/cvQc.ts`).
 
 import type { QcStateView } from "@/lib/cv-qc";
+import type { ClientFormState } from "@/lib/client-form-badge";
 
 import { useQuery } from "@tanstack/react-query";
 
@@ -66,6 +67,9 @@ export interface BoardTaskRow {
   qc_gaps?: string[] | null;
   /** QC-11 (08.11.2026): gotowy stan QC z serwera. */
   qc_state?: QcStateView | null;
+  /** Klient bierze formularz CV zamiast CV firmowego (23.11.2026); `null` =
+   *  CV firmowe. Gotowość takiej pary nie zależy od QC (`dl_send_queue`). */
+  client_form?: ClientFormState | null;
   /** Przegląd DL: etap z CV firmowym pary (po QC) — z niego podgląd i DOCX. */
   cv_stage_id?: number | null;
   /** Etap powrotu do poprawy: przegląd DL — „Zweryfikowany” („Wróć do
@@ -856,6 +860,10 @@ export type CproBotState =
 
 export interface CproBotItem {
   state: CproBotState;
+  /** Osobny automat szkiców ma pierwszeństwo przed opcjonalną wysyłką. */
+  mode?: "draft" | "submit";
+  /** Potwierdzonej oferty/szkicu automat nie tworzy ponownie. */
+  retry_allowed?: boolean;
   blockers: string[];
   message: string | null;
   offer_url: string | null;
@@ -867,10 +875,13 @@ export interface CproBotItem {
 }
 
 export interface CproBotSummary {
+  mode?: "draft" | "submit";
   configured: boolean;
   working: boolean;
   last_run_at: string | null;
   sent_today: number;
+  drafts_today?: number;
+  awaiting_review?: number;
   can_retry: boolean;
 }
 

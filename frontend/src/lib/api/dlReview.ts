@@ -9,6 +9,7 @@
  */
 
 import type { QcStateView } from "@/lib/cv-qc";
+import type { ClientFormState } from "@/lib/client-form-badge";
 import { useQuery } from "@tanstack/react-query";
 
 import api, { type RateUnit } from "@/lib/api";
@@ -119,6 +120,9 @@ export interface DlReviewContext {
   qc_gaps?: string[];
   qc_state?: QcStateView | null;
   qc_override?: DlReviewQcOverride | null;
+  /** Klient z formularzem CV (23.11.2026): przegląd pokazuje formularz
+   *  zamiast „Kontroli CV”; `null` = CV firmowe. */
+  client_form?: ClientFormState | null;
   can_see_amounts: boolean;
   can_see_client_rates: boolean;
   candidate_rate: DlReviewRate | null;
@@ -177,6 +181,7 @@ export interface DlReviewQueueItem {
   qc_manual?: string[];
   qc_gaps?: string[];
   qc_state?: QcStateView | null;
+  client_form?: ClientFormState | null;
   overall_fit: "fit" | "uncertain" | "miss" | null;
   overall_fit_label: string | null;
   requirements_met: number;

@@ -74,6 +74,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F50 | premium_skill_justification      | claude-sonnet-5-5 (z Haiku)|
 | F51 | board_document_read              | claude-sonnet-5 (z Haiku)|
 | F52 | contract_document_rate_read      | claude-sonnet-5 (z Haiku)|
+| F53 | contract_partner_read            | claude-sonnet-5 (z Haiku)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -637,6 +638,18 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "kroki z umowy albo aneksu (tekst PDF-u albo skan) — to samo czytanie dokumentu co F33 "
         "i F51. Pomiar 18.11 na 1164 plikach kopii produkcji: 27 z 27 różnic potwierdzonych "
         "cytatem. Dodatek: bez modelu kontrakt działa jak dotąd, stawkę zmienia aneks.",
+    ),
+    # Ten sam model i zapas co F52: to samo czytanie tego samego pliku umowy
+    # (tekst PDF-u albo skan), inne pola. Bez osobnego pomiaru.
+    AIFeatureKey.contract_partner_read: ModelChoice(
+        default=SONNET_5,
+        env_vars=("CONTRACT_PARTNER_READ_MODEL",),
+        fallbacks=(HAIKU_55,),
+        rationale="F53 (decyzja Artura 22.11.2026, POZA badaniem 16.09). Dane firmy Partnera "
+        "(NIP, REGON, adres, KRS, reprezentacja) z podpisanej umowy B2B przed nową umową dla "
+        "ok. 600 kontraktorów — ten sam plik i to samo czytanie dokumentu co F52, więc jego "
+        "model i zapas, bez osobnego pomiaru. Kod sprawdza cyfry kontrolne i cytat. Dodatek: "
+        "bez modelu dane wpisuje człowiek; propozycja obowiązuje dopiero po potwierdzeniu.",
     ),
 }
 

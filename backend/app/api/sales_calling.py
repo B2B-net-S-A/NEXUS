@@ -32,6 +32,7 @@ from app.api.sales_gates import SalesEditUser, SalesViewUser, is_admin
 from app.core.database import get_db
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.core.scheduling import business_today
+from app.services.sales.calling_repeats import report_duplicate
 from app.models.sales import SalesCallCampaign
 from app.models.user import User
 from app.services.action_permissions import ProductAction, has_permission
@@ -60,6 +61,15 @@ class Ref(BaseModel):
     name: str
 
 
+class CallbackReasonOut(BaseModel):
+    """Po co oddzwaniamy (23.11.2026): notatka z wyniku albo komentarz z Excela."""
+
+    text: str
+    author_name: Optional[str]
+    noted_on: date
+    from_excel: bool
+
+
 class QueueItemOut(BaseModel):
     key: str
     section: str
@@ -76,10 +86,14 @@ class QueueItemOut(BaseModel):
     attempts: int
     last_outcome_at: Optional[datetime]
     since: datetime
+    #: Powtórka z kolejnej listy: tylko w Tabeli z włączonymi „Powtórkami” (23.11.2026).
+    repeat: bool = False
     #: Kto dzwoni; wypełnione w Tabeli (przy „Wszyscy” widać cudze rekordy).
     assignee: Optional[Ref] = None
     #: Ostatnia zmiana rekordu (kolumna „Ostatnia modyfikacja” w Tabeli).
     modified_at: Optional[datetime] = None
+    #: Po co oddzwaniamy: w oddzwonieniach kolejki i w „Przypomnieniach”.
+    callback_reason: Optional[CallbackReasonOut] = None
 
 
 class QueueCounts(BaseModel):
@@ -122,6 +136,17 @@ class RecordTableOut(BaseModel):
     counts: dict[str, int]
     #: Osoby z rekordami w wybranym zakresie, do filtra „Kto dzwoni”.
     callers: list[Ref] = []
+    #: Powtórki pasujące do filtrów: ukryte bez ``repeats=true`` (23.11.2026).
+    repeats: int = 0
+
+
+class DuplicateReportIn(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=1000)
+
+
+class DuplicateReportOut(BaseModel):
+    #: ``False``: ta osoba zgłosiła już ten rekord.
+    created: bool
 
 
 class CompanyCallRecordOut(BaseModel):
@@ -280,12 +305,23 @@ def _item(item: calling.QueueItem) -> QueueItemOut:
         attempts=item.attempts,
         last_outcome_at=item.last_outcome_at,
         since=item.since,
+        repeat=item.repeat,
         assignee=(
             Ref(id=item.assignee_id, name=item.assignee_name or "")
             if item.assignee_id is not None and item.assignee_name is not None
             else None
         ),
         modified_at=item.modified_at,
+        callback_reason=(
+            CallbackReasonOut(
+                text=item.callback_reason.text,
+                author_name=item.callback_reason.author_name,
+                noted_on=item.callback_reason.noted_on,
+                from_excel=item.callback_reason.from_excel,
+            )
+            if item.callback_reason is not None
+            else None
+        ),
     )
 
 
@@ -423,6 +459,7 @@ async def my_records(
     callback_to: Optional[date] = Query(default=None),
     limit: int = Query(default=calling.TABLE_LIMIT, ge=1, le=calling.TABLE_LIMIT),
     offset: int = Query(default=0, ge=0),
+    repeats: bool = Query(default=False),
 ) -> RecordTableOut:
     """Widok „Tabela”: rekordy zalogowanej osoby albo wszystkich, z filtrem po wyniku.
 
@@ -442,12 +479,14 @@ async def my_records(
         callback_to=callback_to,
         limit=limit,
         offset=offset,
+        repeats=repeats,
     )
     return RecordTableOut(
         items=[_item(item) for item in table.items],
         total=table.total,
         counts=table.counts,
         callers=[Ref(id=id_, name=name) for id_, name in table.callers],
+        repeats=table.repeats,
     )
 
 
@@ -562,6 +601,27 @@ async def change_record_state(
     )
     await db.commit()
     return _outcome(result)
+
+
+@router.post("/records/{record_id}/duplicate", response_model=DuplicateReportOut)
+async def report_record_duplicate(
+    record_id: int,
+    payload: DuplicateReportIn,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> DuplicateReportOut:
+    """„To duplikat” na karcie (23.11.2026): przykład, którego bramki nie złapały."""
+
+    record = await calling.locked_record(db, record_id)
+    created = await report_duplicate(
+        db,
+        record,
+        user_id=current_user.id,
+        note=payload.note,
+        now=datetime.now(timezone.utc),
+    )
+    await db.commit()
+    return DuplicateReportOut(created=created)
 
 
 @router.get("/reminders", response_model=list[QueueItemOut])

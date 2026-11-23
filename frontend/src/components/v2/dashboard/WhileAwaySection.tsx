@@ -93,7 +93,7 @@ export function WhileAwaySection({ standalone = false }: { standalone?: boolean 
           {summary.substitute_names.length > 0
             ? `Zastępstwo: ${summary.substitute_names.join(", ")} · `
             : ""}
-          {countPl(summary.total, "zdarzenie", "zdarzenia", "zdarzeń")} z Twojej pracy
+          {countPl(summary.total, "zdarzenie", "zdarzenia", "zdarzeń")} w Twoich sprawach
         </p>
         <Button
           size="sm"

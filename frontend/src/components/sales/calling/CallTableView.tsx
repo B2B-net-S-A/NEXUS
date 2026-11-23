@@ -26,6 +26,7 @@ import { resolveViewState } from "@/lib/view-state";
 
 import { SalesSelect } from "../SalesSelect";
 import { CallCard, type MeetingStage } from "./CallCard";
+import { DuplicatesHelp } from "./DuplicatesHelp";
 import {
   canCorrect,
   CORRECTABLE_STATES,
@@ -60,6 +61,8 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
   const [callbackFrom, setCallbackFrom] = useState("");
   const [callbackTo, setCallbackTo] = useState("");
   const [page, setPage] = useState(0);
+  // Decyzja Artura 23.11.2026: powtórki z kolejnych list ukryte, „Powtórki” je pokazuje.
+  const [showRepeats, setShowRepeats] = useState(false);
   const deferredSearch = useDeferredValue(search);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const query = useCallRecords({
@@ -71,6 +74,7 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
     callbackFrom,
     callbackTo,
     page,
+    ...(showRepeats ? { repeats: true } : {}),
   });
   const everyone = scope === "all";
   const items = query.data?.items ?? [];
@@ -89,6 +93,7 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
     callerId,
     callbackFrom,
     callbackTo,
+    showRepeats,
   ]);
 
   // Zmiana filtra czyści wybór, gdy wybranego wiersza nie ma już na liście.
@@ -194,6 +199,20 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
             />
           ))}
         </div>
+        {((query.data?.repeats ?? 0) > 0 || showRepeats) && (
+          <Button
+            size="sm"
+            variant={showRepeats ? "primary" : "outline"}
+            className="h-7 border-dashed px-2"
+            aria-pressed={showRepeats}
+            title="Rekordy pod numerem, adresem albo osobą, do których już dzwoniono. Kolejka ich nie podaje."
+            onClick={() => setShowRepeats((value) => !value)}
+          >
+            Powtórki
+            <span className="ml-1 tabular-nums opacity-70">{query.data?.repeats ?? 0}</span>
+          </Button>
+        )}
+        <DuplicatesHelp />
         <label className="relative ml-auto w-full sm:w-56">
           <span className="sr-only">Szukaj firmy, osoby albo numeru</span>
           <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
@@ -395,6 +414,11 @@ function StatusCell({
           className="whitespace-nowrap"
         >
           {stateLabel(item.state)}
+        </Badge>
+      )}
+      {item.repeat && (
+        <Badge variant="warning" size="sm" className="whitespace-nowrap">
+          Powtórka: już dzwoniono
         </Badge>
       )}
       {back && (

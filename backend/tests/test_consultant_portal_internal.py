@@ -21,6 +21,7 @@ from app.core.scheduling import business_today
 from app.models.app_setting import AppSetting
 from app.models.back_office import BoCard
 from app.models.candidate import Candidate
+from app.models.contact import Contact
 from app.models.consultant_portal import CpDocument, CpMailboxState
 from app.models.contract import Contract, ContractStatus
 from app.models.user import UserRole
@@ -31,6 +32,7 @@ from tests.care_announcements_seed import (  # noqa: F401  (fixture'y)
     care_on,
     headers as staff_headers,
     make_user,
+    tag,
 )
 from tests.consultant_portal_seed import (  # noqa: F401  (fixture'y)
     BASE,
@@ -641,6 +643,145 @@ async def test_names_in_files_from_outside_address_wait_for_assignment() -> None
     assert [row.contract_id for row in await _documents()] == [None, None]
 
 
+_LETTERS = str.maketrans("0123456789", "ghijklmnop")
+
+
+async def _client_person(
+    *, first: str = "Zenon", surname: str = "", client_id: int | None = None
+):
+    """Osoba o znanym imieniu i nazwisku; ``client_id`` = drugi kontrakt u tego klienta."""
+
+    person = await make_person(activated=False)
+    last = surname or f"Przykladny{tag().translate(_LETTERS)}"
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Candidate)
+            .where(Candidate.id == person.candidate_id)
+            .values(name=first, lastname=last)
+        )
+        if client_id is not None:
+            await db.execute(
+                update(Contract)
+                .where(Contract.id == person.contract_id)
+                .values(client_id=client_id)
+            )
+            person.client_id = client_id
+        await db.commit()
+    return person, first, last
+
+
+async def _client_contact(client_id: int, domain: str) -> None:
+    async with AsyncSessionLocal() as db:
+        db.add(Contact(client_id=client_id, name="Opiekun", email=f"Opiekun@{domain}"))
+        await db.commit()
+
+
+async def _owners(sender: str, *names: str) -> dict:
+    message = _message("m1", sender)
+    message["subject"] = "FW: Godziny wrzesień"
+    files = [_attachment(n, b"%PDF-1.4 " + n.encode()) for n in names]
+    await _read(FakeMailbox([message], {"m1": files}))
+    return {r.file_name: r.contract_id for r in await _documents()}
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_client_forwards_report_named_in_file() -> None:
+    """Klient przekazuje raport ze swojej domeny, nazwisko tylko w nazwie pliku
+    (próba IX–X 2026: PKO, ERGO, BIK — 8 przypadków bez rozliczenia)."""
+    domain = f"klient-{tag()}.example.com"
+    person, first, last = await _client_person()
+    await _client_contact(person.client_id, domain)
+    owners = await _owners(
+        f"kierownik@{domain}",
+        f"TimeSheet 2609 - {last} {first} PZ11247.xlsm",
+        f"TimeSheet_{first}{last}_wrzesień.xlsx",
+        f"{last}, wrzesien 2026 Time Sheet Template.pdf",
+        # Bez słowa raportu albo faktury w nazwie plik nie idzie do osoby.
+        f"Umowa {first} {last}.pdf",
+    )
+    assert owners == {
+        f"TimeSheet 2609 - {last} {first} PZ11247.xlsm": person.contract_id,
+        f"TimeSheet_{first}{last}_wrzesień.xlsx": person.contract_id,
+        f"{last}, wrzesien 2026 Time Sheet Template.pdf": person.contract_id,
+        f"Umowa {first} {last}.pdf": None,
+    }
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_name_in_file_from_other_clients_domain_waits() -> None:
+    """Domena nadawcy należy do innego klienta niż kontrakt osoby z pliku."""
+    domain = f"klient-{tag()}.example.com"
+    person, first, last = await _client_person()
+    other, _, _ = await _client_person()
+    await _client_contact(other.client_id, domain)
+    owners = await _owners(f"kierownik@{domain}", f"TimeSheet {first} {last}.xlsx")
+    assert owners == {f"TimeSheet {first} {last}.xlsx": None}
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_name_in_file_from_public_mail_domain_waits() -> None:
+    """Kontakt klienta z gmaila nie otwiera nazwiska z pliku każdemu z gmaila."""
+    person, first, last = await _client_person()
+    await _client_contact(person.client_id, "gmail.com")
+    owners = await _owners("ktos@gmail.com", f"TimeSheet {first} {last}.xlsx")
+    assert owners == {f"TimeSheet {first} {last}.xlsx": None}
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_surname_shared_at_client_waits_for_assignment() -> None:
+    """Samo nazwisko wskazuje osobę tylko, gdy u klienta nosi je jedna osoba."""
+    domain = f"klient-{tag()}.example.com"
+    person, first, last = await _client_person()
+    await _client_person(first="Anna", surname=last, client_id=person.client_id)
+    await _client_contact(person.client_id, domain)
+    owners = await _owners(
+        f"kierownik@{domain}",
+        f"{last}, wrzesien 2026 Time Sheet Template.pdf",
+        f"TimeSheet {first} {last}.xlsx",
+    )
+    assert owners == {
+        f"{last}, wrzesien 2026 Time Sheet Template.pdf": None,
+        # Imię rozstrzyga między dwiema osobami o tym nazwisku.
+        f"TimeSheet {first} {last}.xlsx": person.contract_id,
+    }
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_two_people_of_client_in_one_file_wait() -> None:
+    domain = f"klient-{tag()}.example.com"
+    person, first, last = await _client_person()
+    _, first2, last2 = await _client_person(client_id=person.client_id)
+    await _client_contact(person.client_id, domain)
+    both = f"TimeSheet {first} {last} i {first2} {last2}.xlsx"
+    # Samo nazwisko drugiej osoby obok pełnego pierwszej to nadal dwie osoby.
+    mixed = f"TimeSheet {first} {last}, {last2}.xlsx"
+    assert await _owners(f"kierownik@{domain}", both, mixed) == {
+        both: None,
+        mixed: None,
+    }
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_surname_with_another_persons_first_name_waits() -> None:
+    """„Nazwisko Anna” to nie Zenon Nazwisko, choć u klienta jest jedyny."""
+    domain = f"klient-{tag()}.example.com"
+    person, _, last = await _client_person()
+    await _client_person(first="Anna")  # Anna z działającym kontraktem gdzie indziej
+    await _client_contact(person.client_id, domain)
+    name = f"TimeSheet 2609 - {last} Anna.xlsm"
+    assert await _owners(f"kierownik@{domain}", name) == {name: None}
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_month_word_is_not_a_surname() -> None:
+    """„Maj” w nazwie pliku to miesiąc, nie nazwisko jedynej osoby klienta."""
+    domain = f"klient-{tag()}.example.com"
+    person, _, _ = await _client_person(surname="Maj")
+    await _client_contact(person.client_id, domain)
+    name = "TimeSheet maj 2026.xlsx"
+    assert await _owners(f"kierownik@{domain}", name) == {name: None}
+
+
 @pytest.mark.usefixtures("internal")
 async def test_forwarded_notice_without_settlement_name_waits() -> None:
     """Wypowiedzenie przekazane z łańcuchem konsultanta nie jest jego fakturą."""
@@ -654,3 +795,186 @@ async def test_forwarded_notice_without_settlement_name_waits() -> None:
     )
     await _read(reader)
     assert [row.contract_id for row in await _documents()] == [None]
+
+
+# ── Akceptacja w samej treści maila, bez pliku (próba IX–X 2026) ─────────────
+
+
+@pytest.fixture
+def settlements_route(shared_support_mailbox, monkeypatch):
+    monkeypatch.setattr(
+        shared_support_mailbox,
+        "CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES",
+        "rozliczenia@example.com",
+    )
+    return frozenset({"rozliczenia@example.com"})
+
+
+def _body_only(message_id: str, sender: str, subject: str) -> dict:
+    message = _to(_message(message_id, sender), "rozliczenia@example.com")
+    return {**message, "hasAttachments": False, "subject": subject}
+
+
+def _acceptance_eml(sender: str, subject: str) -> bytes:
+    from email.message import EmailMessage
+
+    message = EmailMessage()
+    message["From"] = sender
+    message["Subject"] = subject
+    message.set_content(
+        "Poniżej znajdują się szczegóły zaakceptowanego odbioru pracy.\n"
+        "Okres pracy: 09-2026\nIlość MD\n22\n"
+    )
+    return message.as_bytes()
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_body_only_acceptance_from_coordinator_goes_to_named_person(
+    settlements_route,
+) -> None:
+    """NN: koordynator przekazuje akceptację klienta z MD w treści, bez pliku.
+    Mail zostaje też sprawą: router dalej oddaje go czytnikowi spraw."""
+    from app.services import support_mail_route
+
+    person = await make_person(activated=False)
+    subject = f"FW: Rozliczenie pracownika {await _full_name(person)} za okres 09-2026"
+    message = _body_only("m1", "koordynator@firma.example.com", subject)
+    reader = MimeMailbox(
+        [message],
+        {},
+        {"m1": _acceptance_eml("koordynator@firma.example.com", subject)},
+    )
+    assert (await _read(reader))["created"] == 1
+    rows = await _documents()
+    assert [
+        (r.contract_id, r.kind, r.period_year, r.period_month, r.graph_message_id)
+        for r in rows
+    ] == [(person.contract_id, "report", 2026, 9, "m1")]
+    assert rows[0].file_name.endswith(".eml")
+    assert not support_mail_route.is_settlements_mail(message, settlements_route)
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_body_only_mail_from_consultant_company_mailbox() -> None:
+    """BP: konsultant pisze ze skrzynki firmowej, w temacie tylko miesiąc."""
+    from app.services.consultant_portal import identity
+
+    person = await make_person(activated=False)
+    async with AsyncSessionLocal() as db:
+        candidate = await db.get(Candidate, person.candidate_id)
+    local = (
+        identity._fold(candidate.name).split()[0]
+        + "."
+        + "".join(identity._fold(candidate.lastname).split())
+    )
+    sender = f"{local}@firma.example.com"
+    reader = MimeMailbox(
+        [_body_only("m1", sender, "Rozliczenie 09.2026")],
+        {},
+        {"m1": _acceptance_eml(sender, "Rozliczenie 09.2026")},
+    )
+    await _read(reader)
+    assert [r.contract_id for r in await _documents()] == [person.contract_id]
+
+
+@pytest.mark.usefixtures("internal", "company_domain", "settlements_route")
+async def test_body_only_mail_without_one_person_stays_a_case() -> None:
+    """Jedna osoba albo nikt: dwie osoby, obcy adres i temat bez słowa
+    rozliczeniowego nie dają dokumentu (mail zostaje sprawą)."""
+    first = await make_person(activated=False)
+    second = await make_person(activated=False)
+    one, two = await _full_name(first), await _full_name(second)
+    messages = [
+        _body_only("m1", "koordynator@firma.example.com", f"Raport {one} i {two}"),
+        _body_only("m2", "kierownik@klient.example.com", f"Zestawienie godzin - {one}"),
+        _body_only("m3", "koordynator@firma.example.com", f"Pytanie o umowę {one}"),
+    ]
+    raw = {
+        m["id"]: _acceptance_eml(m["from"]["emailAddress"]["address"], m["subject"])
+        for m in messages
+    }
+    reader = MimeMailbox(messages, {}, raw)
+    assert (await _read(reader))["created"] == 0
+    assert await _documents() == []
+
+
+# ── Obrazki stopki Outlooka to nie dokumenty (próba IX–X 2026) ────────────────
+
+
+def _png(width: int, height: int, shade: int) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    out = BytesIO()
+    Image.new("RGB", (width, height), (shade, shade, shade)).save(out, "PNG")
+    return out.getvalue()
+
+
+@pytest.mark.usefixtures("internal")
+async def test_signature_images_are_not_documents() -> None:
+    """Powtórka 30.09–06.10: 44 obrazki ``image00N`` ze stopek szły jako raporty
+    i faktury. Open-Xchange i onet podają je bez ``Content-Disposition: inline``,
+    a Graph bywa, że daje im ``isInline: false``. Ikona, logo i baner odpadają
+    (także stopka przemianowana na ``image.png``); zrzut tygodnia wklejony w treść
+    (też ``image00N``/``image.png``) i zrzut ekranu zostają."""
+    person = await make_person(activated=False)
+    files = [
+        _attachment("image001.png", _png(27, 27, 1)),
+        _attachment("image002.PNG", _png(800, 134, 2)),
+        _attachment("image003.jpg", _png(1125, 282, 3)),
+        _attachment("image004.png", _png(1570, 300, 4)),
+        _attachment("image.png", _png(15, 15, 9)),
+        _attachment("image.png", _png(1045, 462, 10)),
+        _attachment("TS_2026_09_signed.pdf", PDF),
+        _attachment("Zrzut ekranu 2026-09-30 101500.png", _png(120, 40, 5)),
+        _attachment("1-6_09_2026.png", _png(90, 30, 6)),
+    ]
+    reader = FakeMailbox([_message("m1", person.email)], {"m1": files})
+    assert (await _read(reader))["created"] == 5
+    assert sorted(r.file_name for r in await _documents()) == [
+        "1-6_09_2026.png",
+        "TS_2026_09_signed.pdf",
+        "Zrzut ekranu 2026-09-30 101500.png",
+        "image.png",
+        "image004.png",
+    ]
+
+
+@pytest.mark.usefixtures("internal", "company_domain", "settlements_route")
+async def test_mail_with_only_signature_images_reads_like_mail_without_file() -> None:
+    """Akceptacja w treści, a jedyne „załączniki” to logo stopki: mail idzie jak
+    mail bez pliku (w M365 ``hasAttachments`` przy samych obrazkach inline jest
+    false), więc zostaje ``.eml`` osoby zamiast dwóch obrazków."""
+    person = await make_person(activated=False)
+    subject = f"Fwd: RE: Raport Godzinowy - Wrzesień 2026 - {await _full_name(person)}"
+    message = {
+        **_body_only("m1", "koordynator@firma.example.com", subject),
+        "hasAttachments": True,
+    }
+    reader = MimeMailbox(
+        [message],
+        {
+            "m1": [
+                _attachment("image001.png", _png(140, 40, 7)),
+                _attachment("image002.png", _png(800, 134, 8)),
+            ]
+        },
+        {"m1": _acceptance_eml("koordynator@firma.example.com", subject)},
+    )
+    assert (await _read(reader))["created"] == 1
+    rows = await _documents()
+    assert [(r.contract_id, r.kind) for r in rows] == [(person.contract_id, "report")]
+    assert rows[0].file_name.endswith(".eml")
+
+
+@pytest.mark.usefixtures("internal")
+async def test_unreadable_image_named_like_signature_stays_a_document() -> None:
+    """Obraz, którego nie da się odczytać, nie jest uznany za stopkę."""
+    person = await make_person(activated=False)
+    reader = FakeMailbox(
+        [_message("m1", person.email)],
+        {"m1": [_attachment("image001.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)]},
+    )
+    await _read(reader)
+    assert [r.file_name for r in await _documents()] == ["image001.png"]

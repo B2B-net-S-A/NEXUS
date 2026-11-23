@@ -13,6 +13,7 @@ import {
   hoursLeft,
   isReadyForDlSend,
   knownForwardGap,
+  qcBlocksDlReview,
   minimumOnlyGap,
   boardQcChip,
   qcChip,
@@ -482,6 +483,21 @@ describe("„Do wysłania do klienta” — Delivery Lead tej rekrutacji (13.10.
     expect(isReadyForDlSend(ready, null, false)).toBe(false);
   });
 
+  it("klient z formularzem CV (23.11.2026): gotowa od wejścia do „QC CV”, bez względu na QC CV firmowego", () => {
+    const form = { template: true, missing: 0 };
+    const failed = item({ qc: { status: "failed", blocking_failed: 1 }, client_form: form });
+    expect(isReadyForDlSend(failed, "cv_qc", false)).toBe(true);
+    expect(isReadyForDlSend(item({ client_form: { template: false, missing: null } }), "cv_qc", false)).toBe(true);
+    // Braki formularza to przypomnienie, nie blokada (D3).
+    expect(isReadyForDlSend(item({ client_form: { template: true, missing: 12 } }), "cv_qc", false)).toBe(true);
+    expect(isReadyForDlSend(failed, "verified", false)).toBe(false);
+    expect(isReadyForDlSend(failed, "cv_qc", true)).toBe(false);
+    // Przegląd DL na Tablicy: QC do poprawy zamyka go tylko przy CV firmowym.
+    expect(qcBlocksDlReview(failed)).toBe(false);
+    expect(qcBlocksDlReview(item({ qc: { status: "failed", blocking_failed: 1 } }))).toBe(true);
+    expect(qcBlocksDlReview(item({ qc: { status: "passed", blocking_failed: 0 } }))).toBe(false);
+  });
+
   it("właściciel przeglądu ma „Twój ruch” i „Czeka na Ciebie”; pozostali dalej „DL” i „Czeka na DL”", () => {
     expect(cardNextStep(action, ready, owner)).toEqual({
       who: MY_MOVE_LABEL,
@@ -908,6 +924,12 @@ describe("0521: plakietka formularza CV klienta", () => {
     expect(at({ template: true, missing: 7 })?.label).toBe("Formularz: 7 do uzupełnienia");
     expect(at({ template: true, missing: 7 })?.tone).toBe("wait");
     expect(at({ template: true, missing: 0 }, "cv_qc")?.label).toBe("Formularz gotowy");
+    // 0756: wgrany z dysku = gotowy, ale tabela punktowa dalej jest warunkiem.
+    expect(at({ template: true, missing: 0, uploaded: true })?.label).toBe("Formularz wgrany");
+    expect(at({ template: true, missing: 0, uploaded: true })?.tone).toBe("ok");
+    expect(
+      at({ template: true, missing: 0, uploaded: true, score_template: true, score_missing: null })?.label,
+    ).toBe("Brak tabeli punktowej");
     expect(at({ template: true, missing: 0 }, "cv_sent")).toBeNull();
     expect(at(null)).toBeNull();
     // Formularz wygrywa z CV firmowym w tej samej plakietce.

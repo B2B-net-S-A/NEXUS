@@ -158,8 +158,13 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
 - Pętla `tasks/cpro_bot.py`, trasy `api/integrations_cpro_bot.py`, stan przy
   osobie w `GET /api/board-tasks/cpro/queue` (`bot`), ekran
   `components/v2/dashboard/CproBotStatus.tsx`.
-- Flaga `CPRO_BOT_ENABLED` (domyślnie wyłączona): pętla stoi, kolejka nie
-  pokazuje bota. Trasy biegu działają zawsze (bez biegu nie ma tokenu).
+- `CPRO_BOT_AUTO_DRAFT_ENABLED=true` uruchamia w workerze przegląd kolejki
+  co pięć minut. Worker zleca jedną gotową kartę na koncie właściwego DL.
+  Potwierdzony szkic czeka na ocenę Sandry. Stan i odnośnik z raportu
+  widać w kolejce. W tym trybie również ręczne ponowienie dotyczy szkicu.
+- Tryb szkiców ma pierwszeństwo przed `CPRO_BOT_ENABLED`. Przy obu flagach
+  wyłączonych pętla stoi. Trasy z tokenem pojedynczego biegu działają także
+  przy wyłączonej pętli.
 - Włączenie krok po kroku: `docs/cpro-grok-bot-setup.md`.
 - Testy: `test_cpro_bot_unit.py` (reguły, raport, stan), `test_cpro_bot_db.py`
   (kolejka → bieg → CV na token → raport → karta wysłana).

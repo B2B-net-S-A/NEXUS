@@ -392,6 +392,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_krs_entry'",
     # 0739: odczyt stawki Partnera z umów i aneksów kontraktu.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'contract_document_rate_read'",
+    # 0755: dane firmy Partnera z podpisanej umowy kontraktu.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'contract_partner_read'",
     # 0735: Rada — pakiet na posiedzenie gotowy (dzwonek).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_meeting_pack'",
     # 0736: Rada — uchwała w trybie pisemnym do głosowania i jej wynik (dzwonek).
@@ -1581,6 +1583,23 @@ except Exception as _b2b_signing_documents_schema_err:  # noqa: BLE001
     print(f"b2b signing documents schema unavailable: {_b2b_signing_documents_schema_err!r}")
     _B2B_SIGNING_DOCUMENTS_DDL = []
 
+# 0757: masowa wysyłka nowej umowy B2B (`app/services/b2b_mass_send/schema_sql.py`).
+try:
+    from app.services.b2b_mass_send import schema_sql as _b2b_mass_send_schema
+
+    _B2B_MASS_SEND_DDL = list(_b2b_mass_send_schema.ALL_DDL)
+except Exception as _b2b_mass_send_schema_err:  # noqa: BLE001
+    print(f"b2b mass send schema unavailable: {_b2b_mass_send_schema_err!r}")
+    _B2B_MASS_SEND_DDL = []
+# 0758: sesje zdalnego podpisu przez API CSC
+# (`app/services/b2b_esign/remote_schema.py`).
+try:
+    from app.services.b2b_esign import remote_schema as _b2b_esign_remote_schema
+
+    _B2B_ESIGN_REMOTE_DDL = list(_b2b_esign_remote_schema.TABLE_DDL)
+except Exception as _b2b_esign_remote_schema_err:  # noqa: BLE001
+    print(f"b2b esign remote schema unavailable: {_b2b_esign_remote_schema_err!r}")
+    _B2B_ESIGN_REMOTE_DDL = []
 # 0759: wypowiedzenia z poczty (`app/services/notice_mail_schema.py`).
 try:
     from app.services import notice_mail_schema as _notice_mail_schema
@@ -6552,6 +6571,16 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS kind VARCHAR(8) NOT NULL DEFAULT 'form'",
     "ALTER TABLE candidate_client_forms DROP CONSTRAINT IF EXISTS uq_candidate_client_forms_pair",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_candidate_client_forms_pair_kind ON candidate_client_forms (candidate_id, job_id, kind)",
+    # 0756: formularz klienta wgrany z dysku (plik pary osoba × rekrutacja)
+    # i flaga klienta „doświadczenie = 10/10” w polach skali. Lustro 1:1
+    # z `client_form_schema.UPLOAD_DDL` i `SCALE_COLUMN_DDL`.
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS uploaded_file_key VARCHAR(512) NULL",
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS uploaded_filename VARCHAR(255) NULL",
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS uploaded_content_type VARCHAR(120) NULL",
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS uploaded_size INTEGER NULL",
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMPTZ NULL",
+    "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS uploaded_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS client_form_scale_full_on_experience BOOLEAN NOT NULL DEFAULT false",
     # 0626: wzór „Karty przed CV” klienta (Credit Agricole) — lustro 1:1
     # z `app/services/cover_sheet_schema.TABLE_DDL` (pilnuje test_cover_sheet_migration_mirror).
     "CREATE TABLE IF NOT EXISTS client_cover_sheet_templates (client_id INTEGER PRIMARY KEY REFERENCES clients(id) ON DELETE CASCADE, filename VARCHAR(255) NOT NULL, content BYTEA NOT NULL, sha256 VARCHAR(64) NOT NULL, fields JSONB NOT NULL DEFAULT '[]'::jsonb, uploaded_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now())",
@@ -7199,6 +7228,10 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_START_DOCUMENTS_NOT_REQUIRED_DDL,
     # 0687: po `b2b_signing_requests` i `client_start_documents`.
     *_B2B_SIGNING_DOCUMENTS_DDL,
+    # 0757: po `b2b_signing_requests`, `b2b_generated_contracts` i `contracts`.
+    *_B2B_MASS_SEND_DDL,
+    # 0758: po `users`, na które wskazuje.
+    *_B2B_ESIGN_REMOTE_DDL,
     # 0759: po `admin_cases`, `admin_case_messages`, `contracts`, `client_orders`, `candidates`.
     *_NOTICE_MAIL_DDL,
     *_CV_CALL_QUESTIONS_TABLE_DDL,
@@ -7547,6 +7580,10 @@ _DATA_STATEMENTS = [
     # RAZ (znacznik w app_settings), żeby restart nie cofał zmiany z edytora
     # reguły CV. Lustro `client_form_schema.SEED_DDL`.
     "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM app_settings WHERE key = '0521_ezdrowie_client_form') THEN UPDATE clients SET cv_client_document = 'client_form' WHERE id = 115; INSERT INTO app_settings (key, value) VALUES ('0521_ezdrowie_client_form', jsonb_build_object('completed_at', clock_timestamp())) ON CONFLICT (key) DO NOTHING; END IF; END $$",
+    # 0756: Centrum e-Zdrowia dostaje regułę „doświadczenie = 10/10” — RAZ
+    # (znacznik w app_settings), żeby restart nie cofał zmiany z edytora
+    # reguły CV. Lustro `client_form_schema.SCALE_SEED_DDL`.
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM app_settings WHERE key = 'ezdrowie_client_form_scale_full') THEN UPDATE clients SET client_form_scale_full_on_experience = true WHERE id = 115; INSERT INTO app_settings (key, value) VALUES ('ezdrowie_client_form_scale_full', jsonb_build_object('completed_at', clock_timestamp())) ON CONFLICT (key) DO NOTHING; END IF; END $$",
     # 0412: „Reply” z Traffita to odpowiedź na notatkę, nie mail — jednorazowa
     # zmiana typu (znacznik w app_settings), bez ruszania `updated_at`.
     # Lustro `note_kind_schema.REPLY_RETYPE`.
@@ -8087,6 +8124,11 @@ _DATA_STATEMENTS = [
     "SELECT 'contract_document_rate_read', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'contract_document_rate_read')",
+    # 0755: seed klucza AI odczytu danych firmy Partnera z umowy.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'contract_partner_read', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'contract_partner_read')",
     # 0727: seed klucza AI odczytu dokumentów Rady.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'board_document_read', TRUE, 0, now(), now() "

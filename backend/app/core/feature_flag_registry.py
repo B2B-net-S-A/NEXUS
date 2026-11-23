@@ -29,10 +29,28 @@ class FeatureFlag:
 
 REGISTERED_FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag(
+        name="B2B_MASS_SEND_ENABLED",
+        purpose="Masowa wysyłka nowej umowy B2B do aktywnych kontraktorów: pętla w workerze wysyła paczkę po 50 osób co 15 minut; nawet włączona czeka, aż admin oznaczy nowy wzór umowy jako podpięty; włącza Artur, gdy nowy wzór będzie w Generatorze.",
+        decided=date(2026, 11, 22),
+        expires=date(2027, 1, 21),
+    ),
+    FeatureFlag(
+        name="CONTRACT_PARTNER_READ_ENABLED",
+        purpose="Dane firm z umów: pętla czyta podpisaną umowę aktywnych kontraktów B2B bez danych firmy w Generatorze, a człowiek potwierdza propozycje na „Dane firm z umów”; włącza Artur przed nową umową B2B dla kontraktorów.",
+        decided=date(2026, 11, 22),
+        expires=date(2027, 1, 21),
+    ),
+    FeatureFlag(
         name="CONTRACT_RATE_DOCS_AUTO_APPLY",
         purpose="Stawki z dokumentów kontraktu: oczywiste różnice (aneks z datą, ta sama waluta, do 30%) NEXUS wpisuje sam z „Cofnij” przez 7 dni; włącza Artur po tygodniu karty bez fałszywych alarmów.",
         decided=date(2026, 11, 18),
         expires=date(2027, 1, 16),
+    ),
+    FeatureFlag(
+        name="CPRO_BOT_AUTO_DRAFT_ENABLED",
+        purpose="Przygotowanie pojedynczych szkiców Cpro z zatwierdzonym firmowym PDF dla Sandry. Wyłącznik niezależny od publikacji ofert.",
+        decided=date(2026, 11, 23),
+        expires=date(2027, 1, 21),
     ),
     FeatureFlag(
         name="CPRO_BOT_ENABLED",
@@ -99,6 +117,12 @@ REGISTERED_FLAGS: tuple[FeatureFlag, ...] = (
         purpose="Porcja dnia kart z przeglądu (#3153); włącza tylko Artur po pilocie HoR.",
         decided=date(2026, 11, 7),
         expires=date(2027, 1, 6),
+    ),
+    FeatureFlag(
+        name="B2B_ESIGN_ADD_LTV",
+        purpose="Umowa B2B po podpisie obu stron dostaje dane do długiej weryfikacji (PAdES-LT: DSS z OCSP i CRL); włącza Artur po sprawdzeniu na prawdziwej umowie (KIR, Certum).",
+        decided=date(2026, 11, 23),
+        expires=date(2027, 1, 22),
     ),
     FeatureFlag(
         name="AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED",

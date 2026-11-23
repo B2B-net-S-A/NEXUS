@@ -74,7 +74,9 @@ from app.models.b2b_contract_role import B2BContractRole, B2BRoleCategory
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_signing_document import B2BSigningDocument
+from app.models import b2b_mass_send as _b2b_mass_send_models  # noqa: F401,E402
 from app.models.b2b_signing_request import B2BSigningRequest
+from app.models.b2b_esign_remote_session import B2BEsignRemoteSession  # noqa: F401
 from app.models.pre_contract import (  # noqa: F401
     PreContractEvent,
     PreContractRequest,
@@ -905,6 +907,7 @@ from app.models import finance_archive as _finance_archive_models  # noqa: F401,
 from app.models import client_order_revenue_step as _client_order_revenue_step_models  # noqa: F401,E402
 from app.models import board_document as _board_document_models  # noqa: F401,E402
 from app.models import contract_document_rate_read as _rate_read_models  # noqa: F401,E402
+from app.models import contract_partner_read as _partner_read_models  # noqa: F401,E402
 from app.models import client_order_cost_step as _order_cost_step_models  # noqa: F401,E402
 from app.models import admin_case as _admin_case_models  # noqa: F401,E402
 from app.models import equipment as _equipment_models  # noqa: F401,E402

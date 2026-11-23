@@ -171,6 +171,18 @@ def test_review_can_be_nudged_after_two_workdays_from_readiness() -> None:
     assert overridden.can_nudge is True
 
 
+def test_client_form_review_waits_for_the_dl_whatever_the_qc() -> None:
+    """Klient z formularzem CV (23.11.2026): QC CV firmowego nie zatrzymuje
+    pary u rekrutera — „Twoje CV w drodze” liczy od wejścia, jak kolejka DL."""
+    state = _review(
+        status={"status": "failed", "blocking_failed": 1, "ok_at": None},
+        client_form=True,
+    )
+    assert state.ready_since == _ENTERED
+    assert state.waiting_workdays == 4
+    assert state.can_nudge is True
+
+
 def test_review_set_by_the_traffit_import_is_never_nudged() -> None:
     """Etap z importu Traffita nie budzi Delivery Leada
     (`dl_send_queue.counts_for_reviewer`) — przypomnienie też nie."""
