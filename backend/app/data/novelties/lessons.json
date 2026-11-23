@@ -2087,6 +2087,41 @@
     ]
   },
   {
+    "id": "lekcja-karty-bez-sladu",
+    "title": "Karta bez śladu wraca do „Nowych”",
+    "novelties": [
+      "tablica-karty-bez-sladu-wracaja"
+    ],
+    "task": "Na Tablicy ćwiczebnej przewiń do kolumny „Screening” i kliknij nagłówek pierwszej grupy, np. „Do telefonu”.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "click",
+      "anchor": "board.screening-groups"
+    },
+    "questions": [
+      {
+        "q": "Co się stanie z kartą w „Screeningu”, przy której przez 2 dni robocze nikt nic nie zrobił?",
+        "options": [
+          "Wraca do „Nowych” i może ją wziąć każdy",
+          "Zostaje odrzucona z powodem „Brak kontaktu”",
+          "Nic, czeka dalej u Ciebie"
+        ],
+        "answer": 0,
+        "explain": "Po 2 pełnych dniach roboczych bez śladu NEXUS oddaje kartę do „Nowych” bez „Biorę”, a Ty dostajesz dzwonek."
+      },
+      {
+        "q": "Co zatrzymuje kartę u Ciebie, gdy kandydat nie odbiera?",
+        "options": [
+          "Zapisanie „Nie odebrał” albo umówienie telefonu",
+          "Samo otwarcie karty",
+          "Przypięcie karty na górze kolumny"
+        ],
+        "answer": 0,
+        "explain": "Śladem jest notatka (także „Nie odebrał”), umówiony telefon, arkusz i ruch karty. Samo otwarcie śladem nie jest."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [
