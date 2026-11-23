@@ -23,7 +23,6 @@ from pydantic import ValidationError
 from app.api.novelties import (
     DAILY_FLOOR,
     apply_event,
-    daily_batch,
     apply_poligon_event,
     next_morning,
     poligon_status,
@@ -271,42 +270,12 @@ def _day(offset: int) -> str:
     return (DAILY_FLOOR + timedelta(days=offset)).isoformat()
 
 
-def test_daily_batch_is_everything_since_the_floor_until_yesterday() -> None:
-    today = DAILY_FLOOR + timedelta(days=10)
-    older = _novelty(id="przed-granica", shipped_on=_day(-1))
-    first = _novelty(id="pierwsza", shipped_on=_day(0))
-    holiday = _novelty(id="z-urlopu", shipped_on=_day(3))
-    yesterday = _novelty(id="wczoraj", shipped_on=_day(9))
-    fresh = _novelty(id="dzisiaj", shipped_on=_day(10))
-    batch = daily_batch([fresh, yesterday, holiday, first, older], {}, today)
-    # Bez limitu i bez 45 dni życia; dzisiejsza czeka do jutra.
-    assert [n.id for n in batch] == ["pierwsza", "z-urlopu", "wczoraj"]
-
-
-def test_daily_batch_drops_what_was_done_before_today_and_keeps_today() -> None:
-    today = DAILY_FLOOR + timedelta(days=5)
-    tz = ZoneInfo("Europe/Warsaw")
-    earlier = _novelty(id="wczesniej", shipped_on=_day(1))
-    now_done = _novelty(id="dzis-zaliczona", shipped_on=_day(2))
-    waiting = _novelty(id="czeka", shipped_on=_day(3))
-    # 23:30 w Warszawie dzień wcześniej to już „przed dzisiaj”, choć w UTC
-    # jest to ten sam dzień co dzisiejsze 00:30.
-    late_yesterday = datetime.combine(
-        today - timedelta(days=1), datetime.min.time(), tzinfo=tz
-    ) + timedelta(hours=23, minutes=30)
-    progress = {
-        "wczesniej": _row(completed_at=late_yesterday),
-        "dzis-zaliczona": _row(completed_at=late_yesterday + timedelta(hours=1)),
-        "czeka": _row(first_seen_at=late_yesterday),
-    }
-    batch = daily_batch([earlier, now_done, waiting], progress, today)
-    assert [n.id for n in batch] == ["dzis-zaliczona", "czeka"]
-
-
 @pytest.fixture
 def frozen_daily(monkeypatch):
-    """Jedna nowość rekrutera z wczoraj — porcja ma dokładnie ją."""
+    """Jedna nowość rekrutera z wczoraj w jednej lekcji — porcja ma dokładnie ją
+    (od 23.11.2026 porcja to lekcje: ``test_novelty_lessons.py``)."""
     from app.api import novelties as api
+    from app.data.novelties import Lesson
 
     yesterday = datetime.now(ZoneInfo("Europe/Warsaw")).date() - timedelta(days=1)
     novelty = _novelty(
@@ -314,32 +283,34 @@ def frozen_daily(monkeypatch):
         shipped_on=yesterday.isoformat(),
         audience={"roles": ["recruiter"]},
     )
+    lesson = Lesson.model_validate(
+        {
+            "id": "lekcja-test-porcja",
+            "title": "Lekcja testowa",
+            "novelties": [novelty.id],
+            "task": "Zrób to samodzielnie na Poligonie.",
+            "solo_href": "/jobs/990001",
+            "check": {"kind": "click", "anchor": "jobs.list.scope"},
+            "questions": [
+                {
+                    "q": "Pytanie pierwsze?",
+                    "options": ["a", "b", "c"],
+                    "answer": 0,
+                    "explain": "Bo tak jest.",
+                },
+                {
+                    "q": "Pytanie drugie?",
+                    "options": ["a", "b", "c"],
+                    "answer": 0,
+                    "explain": "Bo tak jest.",
+                },
+            ],
+        }
+    )
     monkeypatch.setattr(api, "load_novelties", lambda: {novelty.id: novelty})
+    monkeypatch.setattr(api, "load_lessons", lambda: {lesson.id: lesson})
     monkeypatch.setattr(api, "DAILY_FLOOR", yesterday - timedelta(days=7))
     return novelty
-
-
-@_DB
-@pytest.mark.asyncio
-async def test_daily_batch_blocks_until_toured_and_only_own_role(
-    app_client: AsyncClient, frozen_daily
-) -> None:
-    _, recruiter = await _user("recruiter")
-    _, finance = await _user("finance")
-    daily = (await app_client.get("/api/novelties/daily", headers=recruiter)).json()
-    assert [i["id"] for i in daily["items"]] == ["test-porcja"]
-    assert daily["enforced"] is True and (daily["done"], daily["total"]) == (0, 1)
-
-    other = (await app_client.get("/api/novelties/daily", headers=finance)).json()
-    assert other["items"] == [] and other["enforced"] is False
-
-    resp = await app_client.post(
-        "/api/novelties/test-porcja/events", json={"event": "toured"}, headers=recruiter
-    )
-    assert resp.status_code == 204
-    daily = (await app_client.get("/api/novelties/daily", headers=recruiter)).json()
-    # Przeklikana dziś zostaje na liście jako zaliczona, blokady już nie ma.
-    assert daily["enforced"] is False and (daily["done"], daily["total"]) == (1, 1)
 
 
 @_DB

@@ -9,9 +9,14 @@ domenowych); tabela ``novelty_progress`` trzyma tylko stan osoby przy nowości.
   of Recruitment (decyzja Artura 28.10.2026), bo panel pokazuje imiennie, kto
   jeszcze nie umie;
 - ``GET /novelties/daily`` — poranna porcja (decyzja Artura 18.11.2026): przy
-  pierwszym wejściu dnia osoba przeklikuje wszystko, co weszło do jej roli
-  i czego nie przeszła; potem do jutra nic nie wyskakuje. Wyłącznik porcji
-  jest osobny od Startu (``PUT /novelties/start/gate`` z ``daily``);
+  pierwszym wejściu dnia osoba przechodzi to, co weszło do jej roli; potem do
+  jutra nic nie wyskakuje. Od 23.11.2026 porcja to lekcje na Poligonie
+  (pokaz → sam → pytanie, ``app/services/novelty_lessons.py``), najwyżej 5
+  dziennie; ``POST /novelties/daily/postpone`` odkłada je raz dziennie do
+  15:00, ``POST /novelties/daily/skip`` — pominięcie dnia, tylko admin;
+  ``POST /novelties/lessons/{id}/events`` zapisuje etapy, ``GET
+  /novelties/lessons`` to lista dla Szkoleń. Wyłącznik porcji jest osobny od
+  Startu (``PUT /novelties/start/gate`` z ``daily``);
 - ``GET /novelties/start`` — „Start w NEXUSIE” osoby (``app/data/novelties/start.json``):
   dopóki nie przeklika najważniejszych funkcji swojej roli, front wpuszcza ją
   tylko na pulpit i ekrany przeklikania (decyzja Artura 30.10.2026: twarda
@@ -32,19 +37,24 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, HeadOfRecruitmentPlus
+from app.api.deps import AdminUser, CurrentUser, HeadOfRecruitmentPlus
 from app.core.database import get_db
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.core.scheduling import DEFAULT_TZ, business_today
 from app.data.novelties import (
     Novelty,
     in_audience,
+    load_lessons,
     load_novelties,
     load_poligon,
     load_start_tours,
 )
 from app.models.app_setting import AppSetting
-from app.models.novelty import NoveltyProgress
+from app.models.novelty import (
+    NoveltyDailyState,
+    NoveltyLessonProgress,
+    NoveltyProgress,
+)
 from app.models.user import User
 from app.services.action_permissions import named_permissions_of
 from app.services.onboarding_day import (
@@ -66,6 +76,7 @@ from app.services.poligon_luki import (
     overdue,
     targets as luki_targets,
 )
+from app.services import novelty_lessons as lessons_rules
 from app.services.section_permissions import SectionAccess, section_access_for_user
 
 router = APIRouter()
@@ -263,64 +274,368 @@ async def my_novelties(
     return shaped
 
 
-def daily_batch(
-    novelties: list[Novelty],
-    progress: dict[str, NoveltyProgress],
-    today: date,
-) -> list[Novelty]:
-    """Porcja dnia: nowości od ``DAILY_FLOOR`` do wczoraj, których osoba nie
-    przeszła przed dzisiaj. Przeszłe dziś zostają na liście (licznik „X z N”).
-    Dzisiejsze nowości czekają do jutra — porcja nie rośnie w ciągu dnia."""
-    tz = ZoneInfo(DEFAULT_TZ)
+def _utcnow() -> datetime:
+    """Zegar porcji lekcji — testy odkładania ustawiają go na rano."""
+    return datetime.now(timezone.utc)
 
-    def done_before_today(novelty: Novelty) -> bool:
-        row = progress.get(novelty.id)
-        return (
-            row is not None
-            and row.completed_at is not None
-            and row.completed_at.astimezone(tz).date() < today
-        )
 
-    return sorted(
-        (
-            n
-            for n in novelties
-            if DAILY_FLOOR <= n.shipped_on < today and not done_before_today(n)
-        ),
-        key=lambda n: (n.shipped_on, n.title),
+def _lesson_row(
+    row: Optional[NoveltyLessonProgress],
+) -> Optional[lessons_rules.LessonRow]:
+    if row is None:
+        return None
+    return lessons_rules.LessonRow(
+        shown_at=row.shown_at,
+        solo_failed_count=row.solo_failed_count or 0,
+        solo_passed_at=row.solo_passed_at,
+        completed_at=row.completed_at,
+        reviewed_at=row.reviewed_at,
+        review_failed_at=row.review_failed_at,
     )
+
+
+async def _lesson_rows(
+    db: AsyncSession, user_id: int
+) -> dict[str, lessons_rules.LessonRow]:
+    rows = (
+        await db.execute(
+            select(NoveltyLessonProgress).where(
+                NoveltyLessonProgress.user_id == user_id
+            )
+        )
+    ).scalars()
+    return {row.lesson_id: _lesson_row(row) for row in rows}  # type: ignore[misc]
+
+
+async def _day_rows(
+    db: AsyncSession, user_id: int, today: date
+) -> tuple[Optional[lessons_rules.DayRow], Optional[lessons_rules.DayRow]]:
+    """Wiersz porcji z dziś i ostatni wcześniejszy (odłożenie wczoraj)."""
+    rows = (
+        (
+            await db.execute(
+                select(NoveltyDailyState)
+                .where(
+                    NoveltyDailyState.user_id == user_id,
+                    NoveltyDailyState.day <= today,
+                )
+                .order_by(NoveltyDailyState.day.desc())
+                .limit(2)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    today_row: Optional[lessons_rules.DayRow] = None
+    previous: Optional[lessons_rules.DayRow] = None
+    for row in rows:
+        shaped = lessons_rules.DayRow(
+            day=row.day, postponed_until=row.postponed_until, skipped_at=row.skipped_at
+        )
+        if row.day == today:
+            today_row = shaped
+        elif previous is None:
+            previous = shaped
+    return today_row, previous
+
+
+def _my_novelties(user: Any) -> list[Novelty]:
+    return [
+        n
+        for n in load_novelties().values()
+        if n.switched_on() and _audience_of(user, n)
+    ]
+
+
+def _is_admin(user: Any) -> bool:
+    return "admin" in _role_values(user)
 
 
 @router.get("/novelties/daily")
 async def my_daily_novelties(
     request: Request, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    """Poranna porcja osoby. Podgląd jako inna osoba i praktykant niczego nie
-    blokują; wyłącznik porcji zdejmuje blokadę, lista zostaje."""
+    """Poranna porcja osoby jako lekcje. Podgląd jako inna osoba i praktykant
+    niczego nie blokują; wyłącznik porcji zdejmuje blokadę, lista zostaje.
+    ``items`` to wpisy lekcji z dziś (kroki pokazu dla warstwy przeklikania)."""
     today = business_today()
-    mine = [
-        n
-        for n in load_novelties().values()
-        if n.switched_on() and _audience_of(current_user, n)
-    ]
+    now = _utcnow()
+    mine = _my_novelties(current_user)
     progress = await _progress_rows(db, current_user.id, [n.id for n in mine])
-    batch = daily_batch(mine, progress, today)
-    now = datetime.now(timezone.utc)
-    items = [shape_for_user(n, progress.get(n.id), now) for n in batch]
+    done_ids = [nid for nid, row in progress.items() if row.completed_at is not None]
+    plans = lessons_rules.lesson_plans(mine, done_ids, load_lessons())
+    rows = await _lesson_rows(db, current_user.id)
+    plan = lessons_rules.daily_plan(plans, rows, today, current_user.id, DAILY_FLOOR)
+    open_items = lessons_rules.open_count(plan, rows, today)
+    today_row, previous_row = await _day_rows(db, current_user.id, today)
+
+    items: list[dict[str, Any]] = []
+    lessons: list[dict[str, Any]] = []
+    for lesson_plan, review in plan.today:
+        shaped_items = [
+            shape_for_user(n, progress.get(n.id), now) for n in lesson_plan.novelties
+        ]
+        items.extend(shaped_items)
+        lessons.append(
+            lessons_rules.shape_lesson(
+                lesson_plan,
+                rows.get(lesson_plan.lesson.id),
+                review=review,
+                today=today,
+                novelty_items=shaped_items,
+            )
+        )
+
     gate_on = await start_gate_on(db, DAILY_GATE_KEY)
-    pending = sum(1 for item in items if not item["done"])
     trainee = "trainee" in _role_values(current_user)
+    postponed = (
+        today_row is not None
+        and today_row.postponed_until is not None
+        and today_row.postponed_until > now
+    )
+    skipped = today_row is not None and today_row.skipped_at is not None
+    carried = previous_row is not None and lessons_rules.carried_over(
+        plan, rows, previous_row.day
+    )
+    can_postpone = lessons_rules.can_postpone(
+        today_row, previous_row, open_items, now, today, carried=carried
+    )
+    done_count = len(plan.today) - open_items
     return {
         "gate_on": gate_on,
         "enforced": gate_on
-        and pending > 0
+        and open_items > 0
         and not trainee
+        and not postponed
+        and not skipped
         and not _impersonating(request),
         "today": today.isoformat(),
-        "done": len(items) - pending,
-        "total": len(items),
+        "done": done_count,
+        "total": len(plan.today),
+        "later": plan.later,
+        "novelty_count": sum(len(p.novelties) for p, _ in plan.today),
+        "lessons": lessons,
         "items": items,
+        "postponed_until": today_row.postponed_until.isoformat()
+        if postponed and today_row and today_row.postponed_until
+        else None,
+        "can_postpone": can_postpone,
+        "postpone_options": lessons_rules.postpone_options(now) if can_postpone else [],
+        "can_skip": _is_admin(current_user) and open_items > 0 and not skipped,
+        "skipped": skipped,
     }
+
+
+class PostponeIn(BaseModel):
+    option: lessons_rules.PostponeOption
+
+
+async def _locked_day(db: AsyncSession, user_id: int, day: date) -> NoveltyDailyState:
+    await db.execute(
+        pg_insert(NoveltyDailyState)
+        .values(user_id=user_id, day=day)
+        .on_conflict_do_nothing(index_elements=["user_id", "day"])
+    )
+    return (
+        await db.execute(
+            select(NoveltyDailyState)
+            .where(NoveltyDailyState.user_id == user_id, NoveltyDailyState.day == day)
+            .with_for_update()
+        )
+    ).scalar_one()
+
+
+@router.post("/novelties/daily/postpone")
+@limiter.limit("20/minute", key_func=user_or_ip_key)
+async def postpone_daily(
+    request: Request,
+    payload: PostponeIn,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Odłożenie porcji: raz dziennie, najpóźniej do 15:00 (Olaf, 23.11.2026:
+    rano daily). O tej godzinie porcja wraca jak rano. Reguły liczy sama
+    porcja (``can_postpone`` w ``GET /novelties/daily``)."""
+    today = business_today()
+    now = _utcnow()
+    status_now = await my_daily_novelties(request, current_user, db)
+    if not status_now["can_postpone"]:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "postpone_used",
+                "message": "Dziś lekcji nie da się już odłożyć — zrób je teraz.",
+            },
+        )
+    until = lessons_rules.postpone_until(payload.option, now)
+    if until is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "postpone_too_late",
+                "message": "Ta godzina już minęła albo wypada po 15:00.",
+            },
+        )
+    row = await _locked_day(db, current_user.id, today)
+    row.postponed_until = until
+    row.updated_at = now
+    await db.commit()
+    return {"postponed_until": until.isoformat()}
+
+
+@router.post("/novelties/daily/skip")
+@limiter.limit("20/minute", key_func=user_or_ip_key)
+async def skip_daily(
+    request: Request, current_user: AdminUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Admin może pominąć porcję dnia (Artur, 23.11.2026). Pominięcie niczego
+    nie zalicza — lekcje czekają w Szkoleniach i w jutrzejszej porcji."""
+    now = _utcnow()
+    row = await _locked_day(db, current_user.id, business_today())
+    row.skipped_at = row.skipped_at or now
+    row.updated_at = now
+    await db.commit()
+    return {"skipped": True}
+
+
+LessonEvent = Literal[
+    "shown",
+    "solo_failed",
+    "solo_passed",
+    "quiz_wrong",
+    "restart",
+    "completed",
+    "review_passed",
+    "review_failed",
+]
+
+
+class LessonEventIn(BaseModel):
+    event: LessonEvent
+
+
+def apply_lesson_event(row: NoveltyLessonProgress, event: str, now: datetime) -> bool:
+    """Jedno zdarzenie lekcji. Zwraca ``True``, gdy lekcja właśnie się zaliczyła.
+
+    Kolejność pilnuje serwer: „sam” dopiero po pokazie, zaliczenie dopiero po
+    samodzielnym zadaniu. Powrót do pokazu (``restart``) kasuje samodzielne
+    zaliczenie, więc pytania nie da się odpowiedzieć bez ponownej próby."""
+
+    def conflict(code: str, message: str) -> HTTPException:
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": code, "message": message},
+        )
+
+    just_completed = False
+    if event == "shown":
+        row.shown_count = (row.shown_count or 0) + 1
+        row.shown_at = now
+    elif event == "solo_failed":
+        row.solo_failed_count = (row.solo_failed_count or 0) + 1
+    elif event == "solo_passed":
+        if row.shown_at is None:
+            raise conflict("show_first", "Najpierw pokaz — potem samodzielnie.")
+        row.solo_passed_at = now
+    elif event == "quiz_wrong":
+        row.quiz_wrong_count = (row.quiz_wrong_count or 0) + 1
+    elif event == "restart":
+        row.solo_passed_at = None
+    elif event == "completed":
+        if row.solo_passed_at is None:
+            raise conflict("solo_first", "Lekcja zalicza się po samodzielnym zadaniu.")
+        if row.completed_at is None:
+            row.completed_at = now
+            just_completed = True
+    elif event == "review_passed":
+        if row.completed_at is None:
+            raise conflict("not_completed", "Powtórka dotyczy zaliczonej lekcji.")
+        row.reviewed_at = now
+    elif event == "review_failed":
+        # Lekcja wraca od pokazu w najbliższej porcji (Artur, 23.11.2026).
+        row.review_failed_at = now
+        row.completed_at = None
+        row.solo_passed_at = None
+        row.shown_at = None
+    row.updated_at = now
+    return just_completed
+
+
+@router.post(
+    "/novelties/lessons/{lesson_id}/events", status_code=status.HTTP_204_NO_CONTENT
+)
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def record_lesson_event(
+    request: Request,
+    lesson_id: str,
+    payload: LessonEventIn,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Etap lekcji osoby. Zaliczenie lekcji zalicza też jej wpisy (``tour``),
+    więc panel „kto już umie” i archiwum ✦ widzą to bez zmian."""
+    lesson = load_lessons().get(lesson_id)
+    mine = {n.id for n in _my_novelties(current_user)}
+    members = [nid for nid in (lesson.novelties if lesson else []) if nid in mine]
+    if lesson is None or not members:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Nie ma takiej lekcji."
+        )
+    now = _utcnow()
+    await db.execute(
+        pg_insert(NoveltyLessonProgress)
+        .values(user_id=current_user.id, lesson_id=lesson_id)
+        .on_conflict_do_nothing(index_elements=["user_id", "lesson_id"])
+    )
+    row = (
+        await db.execute(
+            select(NoveltyLessonProgress)
+            .where(
+                NoveltyLessonProgress.user_id == current_user.id,
+                NoveltyLessonProgress.lesson_id == lesson_id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one()
+    if apply_lesson_event(row, payload.event, now):
+        for novelty_id in members:
+            novelty_row = await _locked_row(db, current_user.id, novelty_id)
+            apply_event(novelty_row, load_novelties()[novelty_id], "toured", now)
+    await db.commit()
+
+
+@router.get("/novelties/lessons")
+async def my_lessons(
+    current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+) -> list[dict[str, Any]]:
+    """Szkolenia → „Nowości w NEXUSIE”: wszystkie lekcje z roli osoby, bez
+    terminu ważności, z jej stanem. Powtórka idzie na Poligonie."""
+    today = business_today()
+    now = _utcnow()
+    mine = _my_novelties(current_user)
+    progress = await _progress_rows(db, current_user.id, [n.id for n in mine])
+    done_ids = [nid for nid, row in progress.items() if row.completed_at is not None]
+    rows = await _lesson_rows(db, current_user.id)
+    out: list[dict[str, Any]] = []
+    for plan in reversed(lessons_rules.lesson_plans(mine, done_ids, load_lessons())):
+        shaped = lessons_rules.shape_lesson(
+            plan,
+            rows.get(plan.lesson.id),
+            review=False,
+            today=today,
+            novelty_items=[
+                shape_for_user(n, progress.get(n.id), now) for n in plan.novelties
+            ],
+        )
+        row = rows.get(plan.lesson.id)
+        # Oblana powtórka wraca jako lekcja, choć jej wpisy są zaliczone.
+        shaped["legacy_done"] = plan.legacy_done and not (
+            row is not None
+            and row.review_failed_at is not None
+            and row.completed_at is None
+        )
+        out.append(shaped)
+    return out
 
 
 def quiet_for_preview(item: dict[str, Any]) -> dict[str, Any]:
@@ -528,6 +843,45 @@ async def novelties_adoption(
             }
         )
     return out
+
+
+#: Tyle nieudanych prób samodzielnych w jednej lekcji = temat dla HoR na
+#: szkolenie (Artur, 23.11.2026).
+STRUGGLE_AT = 3
+
+
+@router.get("/novelties/lessons/struggles")
+async def lesson_struggles(
+    current_user: HeadOfRecruitmentPlus, db: AsyncSession = Depends(get_db)
+) -> list[dict[str, Any]]:
+    """Kto utknął w lekcji: ``STRUGGLE_AT`` i więcej nieudanych prób „sam”
+    bez zaliczenia. Imiennie, więc tylko admin i HoR (jak panel „kto umie”)."""
+    lessons = load_lessons()
+    rows = (
+        await db.execute(
+            select(NoveltyLessonProgress, User)
+            .join(User, User.id == NoveltyLessonProgress.user_id)
+            .where(
+                NoveltyLessonProgress.solo_failed_count >= STRUGGLE_AT,
+                NoveltyLessonProgress.completed_at.is_(None),
+                User.is_active.is_(True),
+            )
+            .order_by(NoveltyLessonProgress.solo_failed_count.desc())
+        )
+    ).all()
+    return [
+        {
+            "user_id": user.id,
+            "name": user.name,
+            "lesson_id": row.lesson_id,
+            "title": lessons[row.lesson_id].title,
+            "solo_failed_count": row.solo_failed_count,
+            "quiz_wrong_count": row.quiz_wrong_count,
+            "updated_at": row.updated_at.isoformat(),
+        }
+        for row, user in rows
+        if row.lesson_id in lessons
+    ]
 
 
 @router.post("/novelties/{novelty_id}/remind")

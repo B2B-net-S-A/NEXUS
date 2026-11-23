@@ -280,6 +280,11 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/novelties/start"),
     # Poranna porcja nowości (18.11.2026) — ten sam rejestr i własny stan.
     ("GET", "/api/novelties/daily"),
+    # Lekcje nowości (23.11.2026) — własny postęp w lekcji, odłożenie własnej
+    # porcji i lista lekcji z roli osoby; rejestr bez danych domenowych.
+    ("GET", "/api/novelties/lessons"),
+    ("POST", "/api/novelties/lessons/{lesson_id}/events"),
+    ("POST", "/api/novelties/daily/postpone"),
     ("GET", "/api/notifications"),
     ("GET", "/api/notifications/chats"),
     ("GET", "/api/notifications/contracts"),

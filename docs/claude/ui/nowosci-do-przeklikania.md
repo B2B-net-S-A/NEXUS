@@ -1,10 +1,68 @@
 # Nowości do przeklikania zamiast artefaktu „co nowego”
-<!-- indeks: rejestr `app/data/novelties/novelties.json`, poranna porcja `/nowosci-dnia` na Poligonie (18.11.2026), bez kropek i okien w ciągu dnia, panel admin + HoR, `novelty_progress` (0625) -->
+<!-- indeks: rejestr `app/data/novelties/novelties.json`, lekcje `lessons.json` (pokaz → sam → pytanie, 23.11.2026), poranna porcja `/nowosci-dnia` na Poligonie, najwyżej 5 lekcji dziennie, odłóż do 15:00, admin pomija, piątek powtórka, Szkolenia → Nowości w NEXUSIE, panel admin + HoR, `novelty_progress` (0625), `novelty_lesson_progress` i `novelty_daily_state` (0760) -->
 
 Decyzja Artura z 28.10.2026 (makiety: https://claude.ai/artifact/Qmy51h287jZy4r9oCaA1i4).
 Ludzie nie czytali artefaktów „co nowego” ani dymków: w 30 dni do 27.10
 Jarvis pokazał 478 dymków 46 osobom, a przewodnik ekranu otworzyła jedna.
 Nowość ma więc wejść w drogę pracy i zaliczać się z pracy.
+
+## Lekcje zamiast przeklikania (decyzje Artura z 23.11.2026)
+
+Makiety: https://claude.ai/artifact/LDcWTSmpHXeTeRhQamp1cy. Przeklikanie nie
+uczyło: od 19.11 mediana 12 s na nowość, 38% poniżej 10 s, 61% przeklikań to
+sam „Rozumiem”, a kroki w stylu „Kliknij wiersz dowolnego kontraktu” nie
+wymagały żadnej decyzji (Igor: „nikt się nie przykłada, tylko przeklikuje”).
+Artur: „trzeba zmusić, żeby każdą zmianę zrozumieli i potrafili korzystać”.
+
+- **Każdy wpis od 12.11.2026 należy do dokładnie jednej lekcji** w
+  `backend/app/data/novelties/lessons.json` (test
+  `test_every_novelty_since_the_floor_is_in_exactly_one_lesson`). Lekcja łączy
+  wpisy jednej funkcji albo ekranu (1–6), ma zadanie samodzielne (`task`,
+  `solo_href`), warunek zaliczenia (`check`) i 2–4 pytania po 3 odpowiedzi.
+  Nowy wpis = nowa lekcja albo dopisek do istniejącej, w tym samym PR-ze.
+- **Trzy etapy, wszystko na Poligonie:** (1) pokaz — dotychczasowe kroki
+  wpisów z podświetleniem, wpis po wpisie (`NoveltyLayer`), pokaz niczego nie
+  zalicza; (2) sam — to samo bez podświetlenia, na innych danych (`LessonLayer`);
+  (3) pytanie „po co / kiedy”. Nie wyszło samemu („Pokaż jeszcze raz”) albo dwa
+  razy źle z rzędu na pytanie → z powrotem do pokazu. Pokazów można oglądać,
+  ile się chce. Lekcja zalicza się po etapie „sam” i dobrej odpowiedzi; serwer
+  pilnuje kolejności (`apply_lesson_event`) i zalicza wtedy wpisy lekcji jako
+  `tour`, więc panel i archiwum ✦ widzą to bez zmian.
+- **Warunek `check`, deklaratywnie, bez kodu na lekcję:** `click` (kotwica
+  `data-tour`/`data-help`, test frontu pilnuje, że istnieje), `move` (ruch karty
+  na rekrutacji ćwiczebnej do etapu, opcjonalnie z powodem, z podpowiedzią przy
+  złym ruchu) i `page` (dojście do ekranu; test pilnuje, że ekran startowy go
+  nie spełnia). Pierwszy krok pokazu („kliknij wiersz”) nie jest dobrym warunkiem.
+- **Jedna furtka:** element z zadania bywa ukryty dla części odbiorców (poziom
+  „Generowanie”, sama edycja w Sprzedaży, brak kart w porcji). Po 45 s w etapie
+  „sam” z warunkiem `click` pojawia się „Nie widzę tego u siebie — przejdź do
+  pytania”; pytanie trzeba zaliczyć. Ta sama zasada co „Nie mam tego — dalej”:
+  nikt nie może utknąć na zawsze (30.10.2026). Lepiej dobrać warunek, który
+  zrobi cała grupa odbiorców.
+- **Najwyżej 5 lekcji dziennie** (Olaf: „nie chcę mieć z rana 40 funkcji, kiedy
+  muszę wejść na daily”); reszta przechodzi na kolejne dni, nic nie przepada.
+  Zaliczenie lekcji nie wciąga następnej tego samego dnia. To zastępuje „porcja
+  nie ma limitu” z 18.11.
+- **„Odłóż na później”:** raz dziennie, za 30 min, na 12:00 albo na 15:00 —
+  najpóźniej 15:00. O tej godzinie porcja wraca jak rano. Kto odłożył w ostatni
+  dzień z porcją (do 4 dni wstecz), ten dziś nie odkłada.
+- **Admin może pominąć dzień** („Pomiń na dziś”, `POST /novelties/daily/skip`,
+  tylko rola admin). Pominięcie niczego nie zalicza; lekcje czekają w porcji
+  i w Szkoleniach. Innym rolom „Pomiń” się nie pokazuje.
+- **Piątek: powtórka** — 3 lekcje zaliczone od poniedziałku, od razu etap „sam”
+  bez pytania, w limicie 5. Nieudana wraca jako lekcja od pokazu.
+- **Wpisy przeklikane przed 23.11** zaliczają lekcję, gdy osoba przeszła
+  wszystkie jej wpisy (`legacy_done`) — nikt nie robi drugi raz tego, co już
+  przeklikał. Lekcja z częścią nowych wpisów idzie normalnie.
+- **Szkolenia → „Nowości w NEXUSIE”** (pomysł Igora): wszystkie lekcje z roli
+  osoby, po miejscu w NEXUSIE, z wyszukiwarką; „Powtórz na Poligonie” idzie tym
+  samym przebiegiem, nigdy na prawdziwych danych.
+- **HoR widzi, kto utknął:** „Utknęli w lekcjach nowości” w Ustawienia →
+  Nowości — 3 i więcej nieudanych prób „sam” bez zaliczenia
+  (`GET /novelties/lessons/struggles`, admin i HoR).
+- **W porcji bez słowa „praca”** (Olaf): „zmiany w NEXUSIE”, „Dalej do NEXUSA”.
+
+## Rejestr wpisów i reszta zasad
 
 - **Każda nowość, którą ludzie mają zauważyć, to wpis w
   `backend/app/data/novelties/novelties.json`** w PR-ze, który ją wdraża.
@@ -23,7 +81,7 @@ Nowość ma więc wejść w drogę pracy i zaliczać się z pracy.
   wczoraj i czego jeszcze nie przeszła (`GET /api/novelties/daily`). Potem do
   jutra nic nie wyskakuje: bez kropek, kart „Przeklikaj” i okien na ekranach.
   Dzisiejsze nowości czekają do jutra, więc porcja nie rośnie w ciągu dnia.
-  Porcja nie ma limitu, także po urlopie. Pierwsza porcja to nowości z 7 dni
+  Od 23.11.2026 porcja to lekcje z limitem 5 dziennie (sekcja wyżej). Pierwsza porcja to nowości z 7 dni
   przed jej wdrożeniem (`DAILY_FLOOR` = 12.11.2026); starszych nikt nie nadrabia.
   Powód: od 28.10 do 18.11 weszło 185 wpisów (ok. 9 na dzień roboczy), osoba
   miała średnio 46 nieprzeklikanych, a 700 z 939 zaliczeń to przypadkowe
@@ -65,8 +123,8 @@ Nowość ma więc wejść w drogę pracy i zaliczać się z pracy.
   `lib/novelties/logic.ts`), bo menu Radix (DropdownMenu, Select) kieruje
   `click` na `<html>` (14.11.2026: „Zmień plik” przez 10 dni nie zaliczył się
   nikomu).
-- **Zaliczenie = przeklikanie (`toured`).** Przycisku „Przeczytałem” nie ma
-  i nie dokładamy go. Kropek i zaliczenia z pracy (`used`, `dot_clicked`) front
+- **Zaliczenie = lekcja (od 23.11.2026; wcześniej przeklikanie `toured`).**
+  Przycisku „Przeczytałem” ani „Pomiń” (poza adminem) nie ma i nie dokładamy go. Kropek i zaliczenia z pracy (`used`, `dot_clicked`) front
   od 18.11.2026 nie wysyła; API je przyjmuje, a panel pokazuje stare zaliczenia.
 - **Kroki chodzą po kotwicach `data-tour="<id>"`** na prawdziwych elementach.
   Krok przechodzi po kliknięciu kotwicy, nie po „Dalej”. Krok, którego nie
@@ -90,5 +148,6 @@ Nowość ma więc wejść w drogę pracy i zaliczać się z pracy.
   nic nie zmienia na ekranie osoby, bo niezaliczona nowość i tak czeka w porcji.
 - **W trybie podglądu jako inna osoba** porcja nie blokuje, a zdarzenia się
   nie zapisują.
-- **Schemat:** `novelty_progress` (0625), DDL w `app/services/novelty_schema.py`,
-  lustro w `entrypoint.sh`, sonda w `/api/health/deep`.
+- **Schemat:** `novelty_progress` (0625) oraz `novelty_lesson_progress`
+  i `novelty_daily_state` (0760), DDL w `app/services/novelty_schema.py`
+  (`TABLE_DDL`, `LESSON_DDL`), lustro w `entrypoint.sh`, sonda w `/api/health/deep`.

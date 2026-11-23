@@ -86,7 +86,7 @@ export function NoveltiesAdoptionView({
   const header = (
     <PageHeader
       title="Nowości — kto już umie"
-      description="Zaliczenie liczy się z pracy: użycie funkcji albo przeklikanie. Przypomnienie przywraca kartę przy kropce, bez maila."
+      description="Od 23.11.2026 nowość zalicza lekcja na Poligonie: pokaz, zadanie zrobione samodzielnie i dobra odpowiedź na pytanie. Przypomnienie nic nie wysyła — niezaliczona nowość i tak czeka w porannej porcji."
     />
   );
 

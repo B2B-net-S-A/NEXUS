@@ -56,9 +56,23 @@ export interface DailyStatus {
   /** Zostało coś do przeklikania i porcja obowiązuje tę osobę. */
   enforced: boolean;
   today: string;
+  /** Lekcje na dziś: zaliczone i czekające (od 23.11.2026). */
   done: number;
   total: number;
+  /** Wpisy lekcji z dziś — kroki pokazu dla warstwy przeklikania. */
   items: Novelty[];
+  /** Lekcje na dziś (najwyżej 5, w piątek z powtórką). */
+  lessons: import("./lessons").Lesson[];
+  /** Ile lekcji przechodzi na kolejne dni. */
+  later: number;
+  /** Ile wpisów obejmują dzisiejsze lekcje. */
+  novelty_count: number;
+  postponed_until: string | null;
+  can_postpone: boolean;
+  postpone_options: { key: string; label: string; until: string }[];
+  /** Admin może pominąć porcję dnia (Artur, 23.11.2026). */
+  can_skip: boolean;
+  skipped: boolean;
 }
 
 export interface TourState {

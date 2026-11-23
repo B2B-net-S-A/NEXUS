@@ -32,6 +32,7 @@ import { useUrlTab } from "@/lib/url-tab";
 import { resolveViewState } from "@/lib/view-state";
 import { hasRole, useAuthStore } from "@/store/auth";
 
+import { NoveltyLessonsTab } from "./NoveltyLessonsTab";
 import { TrainingCalendar } from "./TrainingCalendar";
 import { TrainingLibrary } from "./TrainingLibrary";
 import { warsawToday } from "./training-model";
@@ -39,7 +40,7 @@ import { PendingSignatures, TrainerApplications, TrainingRegister } from "./Trai
 import { useRunAction } from "./use-run-action";
 
 // „library” zostaje jako stary adres zakładki nagrań (linki sprzed 0697).
-const TABS = ["calendar", "recordings", "library", "organize", "applications", "sign"] as const;
+const TABS = ["calendar", "recordings", "library", "nowosci", "organize", "applications", "sign"] as const;
 type Tab = (typeof TABS)[number];
 
 function QueryGate({
@@ -270,6 +271,8 @@ function tabsFor(me: TrainingsMe | undefined, pendingCount: number): TabbedNavIt
   const tabs: TabbedNavItem[] = [
     { value: "calendar", label: "Kalendarz" },
     { value: "recordings", label: "Nagrania" },
+    // Lekcje nowości do powtórki na Poligonie (Igor i Artur, 23.11.2026).
+    { value: "nowosci", label: "Nowości w NEXUSIE" },
   ];
   if (me?.can_read) tabs.push({ value: "organize", label: "Organizuję" });
   if (me?.can_manage) tabs.push({ value: "applications", label: "Zgłoszenia trenerów" });
@@ -298,7 +301,7 @@ export function TrainingsScreen() {
     <div className="space-y-4">
       <PageHeader
         title="Szkolenia"
-        description="Kalendarz szkoleń na żywo w Teams, nagrania z transkryptem i materiały."
+        description="Kalendarz szkoleń na żywo w Teams, nagrania z transkryptem, materiały i lekcje nowości NEXUSA."
         density="compact"
         actions={
           me.data?.can_manage ? (
@@ -325,6 +328,7 @@ export function TrainingsScreen() {
       ) : null}
       {current === "calendar" ? <CalendarTab /> : null}
       {current === "recordings" ? <LibraryTab /> : null}
+      {current === "nowosci" ? <NoveltyLessonsTab /> : null}
       {current === "organize" ? <OrganizeTab isAdmin={hasRole(user, "admin")} /> : null}
       {current === "applications" ? <ApplicationsTab /> : null}
       {current === "sign" ? <SignTab /> : null}

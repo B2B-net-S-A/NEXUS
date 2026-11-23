@@ -3931,7 +3931,11 @@ async def api_health_deep_check(request: Request):
     from app.models.access_usage import AccessUsageDaily
     from app.models.insight_decision import InsightDecision
     from app.models.start_document import ClientStartDocument, PlacementStartDocument
-    from app.models.novelty import NoveltyProgress
+    from app.models.novelty import (
+        NoveltyDailyState,
+        NoveltyLessonProgress,
+        NoveltyProgress,
+    )
     from app.models.candidate_job_owner import CandidateJobOwner
     from app.models.pair_departure_care import PairDepartureCare
     from app.models.job_board_connection import JobBoardConnection
@@ -4724,6 +4728,9 @@ async def api_health_deep_check(request: Request):
         # 0625: nowości do przeklikania — kropki i lista „Nowości” czytają ją
         # przy każdym wejściu.
         ("novelty_progress", NoveltyProgress),
+        # 0760: lekcje nowości — porcja dnia czyta je przy pierwszym wejściu.
+        ("novelty_lesson_progress", NoveltyLessonProgress),
+        ("novelty_daily_state", NoveltyDailyState),
         # 0632: licznik użycia obszarów — pętla zapisuje tu co minutę.
         ("access_usage_daily", AccessUsageDaily),
         ("insight_decisions", InsightDecision),
