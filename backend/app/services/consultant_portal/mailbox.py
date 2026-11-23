@@ -17,11 +17,13 @@ daje czytelny stan w ``cp_mailbox_state``, a nie wyjątek.
 * Jedna skrzynka wsparcie@ (E8): na skrzynce wspólnej ze sprawami bierzemy tylko maile
   z załącznikiem na adresy rozliczeń (``support_mail_route``), resztę czytnik spraw. Zła
   konfiguracja (``support_mail_route.misconfiguration``) = stan ``error`` i nic nie czytamy.
-* Wyjątek: dwa maile bez pliku na adres rozliczeń czytamy też, gdy router oddał je sprawom,
+* Wyjątek: trzy maile bez pliku na adres rozliczeń czytamy też, gdy router oddał je sprawom,
   i zapisujemy ich treść jako ``.eml`` jednej osoby. Sprawa powstaje jak dotąd (decyzja
   Artura 23.11.2026, „sprawa i dokument”): akceptacja klienta z regułą akceptacji mailowej
   (``support_mail_route.is_client_acceptance_mail``, osoba z tematu) i mail z adresu firmy
   z tematem rozliczenia (``is_body_only_settlement``, nadawca albo osoba z tematu).
+  Trzeci: mail konsultanta z adresu firmy z tematem faktury u klienta z regułą
+  ``report.consultant_declaration`` (``is_body_only_declaration``, tylko nadawca).
 * Odpowiedź klienta bez pliku na nasz mail z Wysłanych (``is_reply_to_sent``): plik godzin
   bierzemy z naszego maila, osobę z jego tematu (decyzja Artura 23.11.2026, BNP CIB).
   Sprawa też powstaje.
@@ -477,10 +479,17 @@ async def _store_without_file(
     state: portal_settings.PortalSettings,
     today: date,
     now: datetime,
+    declaring: frozenset[int] = frozenset(),
 ) -> tuple[int, int]:
-    """Mail bez pliku: akceptacja w treści, odpowiedź na nasz mail z Wysłanych
-    albo akceptacja klienta z regułą akceptacji mailowej."""
+    """Mail bez pliku: akceptacja w treści, deklaracja konsultanta w mailu z fakturą,
+    odpowiedź na nasz mail z Wysłanych albo akceptacja klienta z regułą akceptacji mailowej."""
 
+    if declaring and is_body_only_declaration(message):
+        made = await _store_declaration(
+            db, mailbox, message, declaring, state=state, today=today, now=now
+        )
+        if made:
+            return made, 0
     if is_body_only_settlement(message):
         made = await _store_body_only(
             db, mailbox, message, state=state, today=today, now=now
@@ -513,6 +522,7 @@ async def _ingest_message(
     today: date,
     now: datetime,
     acceptance: Optional[dict[str, frozenset[int]]] = None,
+    declaring: frozenset[int] = frozenset(),
 ) -> tuple[int, int]:
     """(nowe, pominięte). Reguła pilotażu przed odczytem załączników."""
 
@@ -523,7 +533,14 @@ async def _ingest_message(
         return reply, 0
     if not message.get("hasAttachments"):
         return await _store_without_file(
-            db, mailbox, message, acceptance, state=state, today=today, now=now
+            db,
+            mailbox,
+            message,
+            acceptance,
+            state=state,
+            today=today,
+            now=now,
+            declaring=declaring,
         )
     received = _parse_time(message.get("receivedDateTime")) or now
     files = list(await mailbox.attachments(str(message["id"])))
@@ -1155,6 +1172,48 @@ def is_body_only_settlement(message: dict[str, Any]) -> bool:
     )
 
 
+def is_body_only_declaration(message: dict[str, Any]) -> bool:
+    """Mail bez pliku z adresu firmy z tematem faktury („Faktura wrzesień”): u klienta
+    z regułą ``report.consultant_declaration`` treść niesie deklarację dni pracy
+    („We wrześniu nie miałam dni wolnych”). Klienta sprawdza ``_store_declaration``.
+    Jak przy ``is_body_only_settlement`` mail zostaje też sprawą."""
+
+    if message.get("hasAttachments") or is_body_only_settlement(message):
+        return False
+    subject = str(message.get("subject") or "")
+    if kesu.parse_jira(subject, "") is not None:
+        return False
+    return identity.is_company_address(_sender(message)) and bool(
+        _INVOICE.search(subject)
+    )
+
+
+async def _store_declaration(
+    db: AsyncSession,
+    mailbox: SettlementsMailbox,
+    message: dict[str, Any],
+    declaring: frozenset[int],
+    *,
+    state: portal_settings.PortalSettings,
+    today: date,
+    now: datetime,
+) -> int:
+    """Treść maila jako ``.eml`` osoby, tylko gdy nadawcą jest sam konsultant,
+    a jego klient ma regułę deklaracji. Osoby z tematu nie bierzemy: deklaracja
+    od koordynatora o kimś innym nie jest deklaracją konsultanta."""
+
+    contract = await identity.resolve_sender(
+        db, _sender(message), settings=state, today=today
+    )
+    if contract is None or contract.client_id not in declaring:
+        return 0
+    subject = str(message.get("subject") or "")
+    received = _parse_time(message.get("receivedDateTime")) or now
+    return await _store_eml(
+        db, mailbox, message, contract.id, subject=subject, received=received, now=now
+    )
+
+
 async def _store_body_only(
     db: AsyncSession,
     mailbox: SettlementsMailbox,
@@ -1266,6 +1325,7 @@ async def run_once(
     created = skipped = failed = 0
     newest = seen
     acceptance = await support_mail_route.acceptance_clients(db)
+    declaring = await support_mail_route.declaration_clients(db)
     for message in messages:
         if (
             route
@@ -1277,6 +1337,7 @@ async def run_once(
                 support_mail_route.recipients(message) & route
                 and (
                     is_body_only_settlement(message)
+                    or (declaring and is_body_only_declaration(message))
                     or (state.any_sender and is_reply_to_sent(message))
                 )
             )
@@ -1296,6 +1357,7 @@ async def run_once(
                     today=today,
                     now=moment,
                     acceptance=acceptance,
+                    declaring=declaring,
                 )
             created += made
             skipped += ignored

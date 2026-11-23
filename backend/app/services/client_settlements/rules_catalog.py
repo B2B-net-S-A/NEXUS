@@ -81,6 +81,17 @@ SECTIONS: tuple[Section, ...] = (
                 "nadpisywanych co miesiąc liczy się akceptacja za rozliczany miesiąc; "
                 "akceptować może ktoś inny niż koordynator.",
             ),
+            Rule(
+                "report.consultant_declaration",
+                "Deklaracja konsultanta w treści maila wystarcza jako raport",
+                "off",
+                "E6.7",
+                hint="Klient bez pliku godzin: „We wrześniu nie miałam dni wolnych” "
+                "z adresu konsultanta daje MD = dni robocze miesiąca, „miałam 2 dni "
+                "wolnego” — dni robocze minus 2. Zdanie bez nazwy miesiąca, za inny "
+                "miesiąc albo bez liczby dni idzie do Finansów. Wystarczy włączyć; "
+                "poziom nie zmienia odczytu.",
+            ),
         ),
     ),
     Section(

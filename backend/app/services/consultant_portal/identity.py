@@ -127,6 +127,15 @@ async def resolve_report_owner(
     return rest[0] if len(rest) == 1 and len(rest) < len(rows) else None
 
 
+async def sender_contract_ids(
+    db: AsyncSession, address: str, *, today: date
+) -> frozenset[int]:
+    """Działające kontrakty, których konsultant pisze z tego adresu (bez wyboru jednego)."""
+
+    rows = await _sender_contracts(db, normalize_email(address), today=today)
+    return frozenset(row.id for row in rows)
+
+
 async def _sender_contracts(
     db: AsyncSession, address: str, *, today: date
 ) -> list[Contract]:
