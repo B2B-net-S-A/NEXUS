@@ -343,21 +343,26 @@ async def test_model_failure_is_200_with_message(
 
 
 @pytest.mark.asyncio
-async def test_recruiter_outside_the_job_is_refused(app_client):
+async def test_role_without_job_edit_is_refused(app_client):
+    """Bramka jak `PUT …/champion-profile`: role spoza operacyjnych (np. pracownik).
+
+    Rekruter i finanse mogą zapisać Profil każdej rekrutacji (staging 23.11) —
+    nowa trasa tego nie zmienia.
+    """
     job_id, _ = await _seed()
     async with AsyncSessionLocal() as db:
         outsider = User(
             email=f"spoza-{uuid.uuid4().hex[:8]}@example.com",
-            name="Rekruter Spoza",
-            role=UserRole.recruiter,
-            roles=[UserRole.recruiter.value],
+            name="Pracownik Przykładowy",
+            role=UserRole.employee,
+            roles=[UserRole.employee.value],
             is_active=True,
             profile_completed=True,
         )
         db.add(outsider)
         await db.commit()
         outsider_id = outsider.id
-    headers = _headers(outsider_id, UserRole.recruiter)
+    headers = _headers(outsider_id, UserRole.employee)
     route = f"/api/jobs/{job_id}/champion-profile/client-change"
     res = await app_client.post(
         route, json={"text": "Python is now a must."}, headers=headers

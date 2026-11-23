@@ -117,7 +117,16 @@ async def test_chat_card_survives_in_history(app_client, monkeypatch):
     )
 
     async with AsyncSessionLocal() as db:
-        job = Job(title="Analityk danych (przykład)", status=JobStatus.published)
+        from app.models.client import Client
+
+        client = Client(name="Bank Przykładowy (Jarvis)")
+        db.add(client)
+        await db.flush()
+        job = Job(
+            title="Analityk danych (przykład)",
+            status=JobStatus.published,
+            client_id=client.id,
+        )
         db.add(job)
         await db.commit()
         job_id = job.id

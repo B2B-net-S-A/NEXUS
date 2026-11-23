@@ -219,7 +219,7 @@
     "tasks": [
       {
         "q": "Jak szybko wypełnić profil z maila klienta?",
-        "a": "Otwórz menu „⋯” w nagłówku i kliknij „Edytuj Profil Championa”. W kolumnie „Wypełnij szybciej” kliknij „Wygeneruj z opisu klienta”, wklej opis i zatwierdź. AI wypełni sekcje, a Ty je poprawisz. Obok jest też import pliku Word/PDF.",
+        "a": "Menu „⋯” → „Edytuj Profil Championa” → w „Wypełnij szybciej” kliknij „Wygeneruj z opisu klienta” i wklej opis: AI wypełni sekcje, a Ty je poprawisz (jest też import Word/PDF). Klient zmienił wymagania w trakcie rekrutacji? Kliknij „Klient coś zmienił” obok zakładek, wklej maila i sprawdź listę zmian.",
         "anchor": "job.champion.intake"
       },
       {
