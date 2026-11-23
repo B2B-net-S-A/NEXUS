@@ -4084,6 +4084,11 @@ async def api_health_deep_check(request: Request):
         AdminCaseMessage,
         AdminMailIngestState,
     )
+    from app.models.notice_mail import (
+        ArchivedMail,
+        KnownSenderEmail,
+        NoticeMailProposal,
+    )
     from app.models.equipment import (
         ClientOnboardingPack,
         ClientOnboardingPackItem,
@@ -4658,6 +4663,10 @@ async def api_health_deep_check(request: Request):
         ("tech_cards", TechCard),
         ("care_conversations", CareConversation),
         ("admin_cases", AdminCase),
+        # 0755: wypowiedzenia z poczty i archiwum administracja@.
+        ("notice_mail_proposals", NoticeMailProposal),
+        ("known_sender_emails", KnownSenderEmail),
+        ("archived_mails", ArchivedMail),
         ("equipment_items", EquipmentItem),
         ("equipment_assignments", EquipmentAssignment),
         ("equipment_protocols", EquipmentProtocol),
