@@ -1035,12 +1035,30 @@ export interface CandidatePreviewPaneProps {
    * i przegląd DL go nie mają, także gdy otwierają się z wnętrza panelu.
    */
   collapsible?: boolean;
+  /**
+   * „Arkusz rozmowy” (23.11.2026): w „Trybie rozmowy” pierwsza zakładka strefy
+   * to formularz screeningu, a CV, Wymagania i Po ludzku stoją obok. Zakładki
+   * widać wtedy zawsze — także przy dwóch podglądach i zwiniętych częściach —
+   * bo inaczej nie byłoby drogi z CV z powrotem do arkusza.
+   */
+  sheet?: PreviewSheet;
   /** Harness: bajty plików bez sieci. */
   loadDocumentBlob?: typeof fetchDocumentBlob;
   loadOriginalBlob?: OriginalBlobLoader;
   loadStageCvFile?: typeof fetchStageCvFile;
   className?: string;
 }
+
+export interface PreviewSheet {
+  label: string;
+  content: ReactNode;
+  /** Arkusz na wierzchu (zamiast CV i wymagań). */
+  active: boolean;
+  onActiveChange: (active: boolean) => void;
+}
+
+/** Wartość zakładki arkusza w pasku podglądu — spoza `PreviewTab`. */
+const SHEET_TAB = "sheet";
 
 function PaneHeading({ children }: { children: string }) {
   return <h3 className="text-sm font-semibold text-foreground">{children}</h3>;
@@ -1101,6 +1119,7 @@ export function CandidatePreviewPane({
   loadOriginalBlob = defaultOriginalLoader,
   loadStageCvFile,
   collapsible = false,
+  sheet,
   className,
 }: CandidatePreviewPaneProps) {
   const [ownTab, setOwnTab] = useState<PreviewTab>(defaultTab);
@@ -1155,11 +1174,13 @@ export function CandidatePreviewPane({
   const cvVisible = !cvCollapsed && (infoCollapsed || dual || tab === "cv");
   const infoVisible = !infoCollapsed && (stacked || tab !== "cv");
   const sectionVisible = (value: PreviewTab) => !infoCollapsed && (stacked || tab === value);
+  // Arkusz rozmowy na wierzchu: CV pod spodem nie pobiera się, dopóki ktoś go nie otworzy.
+  const underSheet = sheet?.active === true;
   const visibleNow: Record<PreviewTab, boolean> = {
-    cv: cvVisible,
-    requirements: sectionVisible("requirements"),
-    plain: sectionVisible("plain"),
-    extra: extraTab != null && sectionVisible("extra"),
+    cv: cvVisible && !underSheet,
+    requirements: sectionVisible("requirements") && !underSheet,
+    plain: sectionVisible("plain") && !underSheet,
+    extra: extraTab != null && sectionVisible("extra") && !underSheet,
   };
   // Raz pokazana część zostaje zamontowana (`hidden`): powrót, rozwinięcie
   // i zwężenie okna nie pobierają CV drugi raz. Podgląd ukrytej sekcji panelu
@@ -1234,6 +1255,24 @@ export function CandidatePreviewPane({
 
   const tabs = extraTab ? [...TABS, { value: "extra" as const, label: extraTab.label }] : TABS;
   const panelRole = tabbed ? "tabpanel" : "region";
+  const sheetActive = sheet?.active === true;
+  // Przy dwóch podglądach albo zwiniętej części CV i wymagania stoją naraz —
+  // obok arkusza jest wtedy jedna zakładka na nie wszystkie.
+  const sheetTabs = sheet
+    ? [
+        { value: SHEET_TAB, label: sheet.label },
+        ...(tabbed ? tabs.map(({ value, label }) => ({ value, label })) : [{ value: "cv", label: "CV i wymagania" }]),
+      ]
+    : null;
+  const pickSheetTab = (next: string) => {
+    if (!sheet) return;
+    if (next === SHEET_TAB) {
+      sheet.onActiveChange(true);
+      return;
+    }
+    sheet.onActiveChange(false);
+    if (tabbed) changeTab(next as PreviewTab);
+  };
 
   return (
     <section
@@ -1245,7 +1284,29 @@ export function CandidatePreviewPane({
       data-info-collapsed={infoCollapsed || undefined}
       className={cn("flex min-h-0 flex-col", className)}
     >
-      <div hidden={!tabbed} className="flex-none border-b border-border bg-background px-3 pt-2">
+      {sheet && sheetTabs ? (
+        <div className="flex-none border-b border-border bg-background px-3 pt-2" data-testid="conversation-sheet-tabs">
+          <TabbedNav
+            ariaLabel="Arkusz rozmowy, CV, wymagania, po ludzku"
+            tabs={sheetTabs}
+            value={sheetActive ? SHEET_TAB : tabbed ? tab : "cv"}
+            onValueChange={pickSheetTab}
+            overflow="scroll"
+          />
+        </div>
+      ) : null}
+      {sheet ? (
+        <div
+          role="tabpanel"
+          aria-label={sheet.label}
+          hidden={!sheetActive}
+          data-testid="conversation-sheet-panel"
+          className="min-h-0 flex-1 overflow-y-auto bg-background"
+        >
+          {sheet.content}
+        </div>
+      ) : null}
+      <div hidden={!tabbed || sheet != null} className="flex-none border-b border-border bg-background px-3 pt-2">
         <TabbedNav
           ariaLabel="Podgląd: CV, wymagania, po ludzku"
           tabs={tabs.map(({ value, label }) => ({ value, label }))}
@@ -1254,7 +1315,7 @@ export function CandidatePreviewPane({
           overflow="scroll"
         />
       </div>
-      <div className="flex min-h-0 flex-1">
+      <div className={cn("flex min-h-0 flex-1", sheetActive && "hidden")}>
         {cvCollapsed ? (
           <PreviewRail
             label="CV"
