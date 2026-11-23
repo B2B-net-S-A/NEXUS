@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
+from app.models.contact import Contact
 from app.models.contract import Contract, ContractStatus
 from app.models.user import User
 from app.services.consultant_portal.portal_settings import PortalSettings
@@ -224,22 +225,10 @@ async def resolve_named_in_text(
     z dwoma działającymi kontraktami = ``None`` (karta do ręcznego przypisania).
     """
 
-    words = set(_fold(re.sub(r"[^\w]+|_", " ", text)).split())
+    words = _words(text)
     if len(words) < 2:
         return None
-    rows = (
-        await db.execute(
-            select(Contract, Candidate.name, Candidate.lastname)
-            .join(Candidate, Candidate.id == Contract.candidate_id)
-            .where(
-                Contract.status.in_(_LIVE)
-                | (
-                    (Contract.status == ContractStatus.ended)
-                    & (Contract.end_date >= today - timedelta(days=ENDED_GRACE_DAYS))
-                )
-            )
-        )
-    ).all()
+    rows = await _named_rows(db, today=today)
     hits = []
     for contract, first, last in rows:
         person = _fold(first).split()[:1] + _fold(last).split()
@@ -248,6 +237,122 @@ async def resolve_named_in_text(
     if len(hits) != 1:
         return None
     return hits[0]
+
+
+def _words(text: str) -> set[str]:
+    return set(_fold(re.sub(r"[^\w]+|_", " ", text)).split())
+
+
+async def _named_rows(
+    db: AsyncSession, *, today: date, client_ids: Optional[frozenset[int]] = None
+) -> list:
+    query = (
+        select(Contract, Candidate.name, Candidate.lastname)
+        .join(Candidate, Candidate.id == Contract.candidate_id)
+        .where(
+            Contract.status.in_(_LIVE)
+            | (
+                (Contract.status == ContractStatus.ended)
+                & (Contract.end_date >= today - timedelta(days=ENDED_GRACE_DAYS))
+            )
+        )
+    )
+    if client_ids is not None:
+        query = query.where(Contract.client_id.in_(client_ids))
+    return list((await db.execute(query)).all())
+
+
+async def client_ids_for_sender(db: AsyncSession, address: str) -> frozenset[int]:
+    """Klienci, do których należy domena nadawcy: adres w kontaktach klienta.
+
+    Domena firmy (adresy rozliczeń i SSO), skrzynek konsultantów u klienta i poczty
+    publicznej (gmail, wp) nie należy do żadnego klienta, bo pisze z niej każdy.
+    """
+
+    from app.services.m365.matcher import PUBLIC_EMAIL_DOMAINS
+
+    domain = normalize_email(address).rpartition("@")[2]
+    from app.core.config import settings
+
+    if not domain or domain in (
+        PUBLIC_EMAIL_DOMAINS
+        | _company_domains()
+        | _personal_domains()
+        | set(settings.sso_allowed_domains_list)
+    ):
+        return frozenset()
+    rows = await db.scalars(
+        select(Contact.client_id)
+        .where(func.lower(func.split_part(func.btrim(Contact.email), "@", 2)) == domain)
+        .distinct()
+    )
+    return frozenset(rows.all())
+
+
+# Słowo miesiąca w nazwie pliku („TimeSheet maj 2026”) nie jest samym nazwiskiem.
+_MONTH_WORDS = frozenset(
+    {
+        "styczen", "stycznia", "luty", "lutego", "marzec", "marca",
+        "kwiecien", "kwietnia", "maj", "maja", "czerwiec", "czerwca",
+        "lipiec", "lipca", "sierpien", "sierpnia", "wrzesien", "wrzesnia",
+        "pazdziernik", "pazdziernika", "listopad", "listopada",
+        "grudzien", "grudnia", "march", "may", "june", "august",
+    }
+)  # fmt: skip
+
+
+async def resolve_named_at_client(
+    db: AsyncSession, text: str, *, client_ids: frozenset[int], today: date
+) -> Optional[Contract]:
+    """Kontrakt osoby z nazwy pliku, który klient tej osoby przysłał ze swojej domeny.
+
+    Klient przekazuje raport konsultanta („TimeSheet 2609 - Nazwisko Imię.xlsm”,
+    „TimeSheet_ImięNazwisko_wrzesień.xlsx”, „Nazwisko, wrzesien 2026 Time Sheet.pdf”;
+    próba IX–X 2026: PKO, ERGO, BIK). Szukamy tylko wśród kontraktów tych klientów
+    (decyzja Artura z 23.11.2026). Imię i nazwisko w dowolnej kolejności albo
+    sklejone; bez imienia samo nazwisko, gdy u tych klientów nosi je jedna osoba,
+    nie jest słowem miesiąca, a w nazwie nie stoi imię innej osoby z działającym
+    kontraktem. Dwa kontrakty w trafieniu = ``None``.
+    """
+
+    words = _words(text)
+    if not words or not client_ids:
+        return None
+    full: list[tuple[Contract, tuple[str, ...]]] = []
+    by_surname: list[tuple[Contract, tuple[str, ...]]] = []
+    for contract, first, last in await _named_rows(
+        db, today=today, client_ids=client_ids
+    ):
+        given = _fold(first).split()[:1]
+        surname = _fold(last).split()
+        if not surname or not eligible(contract, today):
+            continue
+        glued = {"".join(given + surname), "".join(surname + given)}
+        if given and (set(given + surname) <= words or glued & words):
+            full.append((contract, tuple(surname)))
+        elif not set(surname) & _MONTH_WORDS and (
+            set(surname) <= words or "".join(surname) in words
+        ):
+            by_surname.append((contract, tuple(surname)))
+    if len(full) == 1:
+        # Imię rozstrzyga między osobami o tym samym nazwisku, ale inne nazwisko
+        # osoby klienta w tej samej nazwie pliku to druga osoba.
+        named = full[0][1]
+        return None if any(s != named for _, s in by_surname) else full[0][0]
+    if full or len(by_surname) != 1:
+        return None
+    # Samo nazwisko, ale z cudzym imieniem w nazwie („Kowalski Anna”, gdy u klienta
+    # pracuje Jan Kowalski) to inna osoba, nie jedyna osoba klienta o tym nazwisku.
+    contract = by_surname[0][0]
+    own = await db.scalar(
+        select(Candidate.name).where(Candidate.id == contract.candidate_id)
+    )
+    others = {
+        name
+        for _, first, _ in await _named_rows(db, today=today)
+        for name in _fold(first).split()[:1]
+    } - set(_fold(own).split()[:1])
+    return None if words & others else contract
 
 
 async def resolve_named_for_clients(
