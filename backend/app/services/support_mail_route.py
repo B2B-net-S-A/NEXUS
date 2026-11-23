@@ -17,8 +17,10 @@ osobnych skrzynkach (``route_not_shared``, np. wsparcie@ ustawiona przed skrzynk
 
 Mail na rozliczenia@ bez załącznika (pytanie) jest sprawą, chyba że pisze klient z regułą
 akceptacji mailowej (``acceptance_clients``): wtedy to akceptacja godzin w treści i bierze go
-czytnik rozliczeń. Mail wysłany w ukrytej kopii nie ma adresu rozliczeń w nagłówkach, które
-czytamy, więc też jest sprawą.
+czytnik rozliczeń. Jeśli przyszedł z adresu firmy z tematem rozliczenia, czytnik rozliczeń
+dodatkowo zapisuje jego treść jako dokument jednej osoby (``mailbox.is_body_only_settlement``,
+23.11.2026); router tego nie zmienia, więc sprawa też powstaje. Mail wysłany w ukrytej kopii
+nie ma adresu rozliczeń w nagłówkach, które czytamy, więc też jest sprawą.
 """
 
 from __future__ import annotations

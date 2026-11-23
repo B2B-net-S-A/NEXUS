@@ -18,6 +18,9 @@ daje czytelny stan w ``cp_mailbox_state``, a nie wyjątek.
   z załącznikiem na adresy rozliczeń i akceptacje klienta w samej treści
   (``support_mail_route``), resztę czytnik spraw. Zła
   konfiguracja (``support_mail_route.misconfiguration``) = stan ``error`` i nic nie czytamy.
+* Wyjątek: mail bez pliku z adresu firmy z tematem rozliczenia (``is_body_only_settlement``)
+  czytamy też, gdy router oddał go sprawom, i zapisujemy jego treść jako ``.eml`` jednej
+  osoby (nadawca albo osoba z tematu). Sprawa powstaje jak dotąd (decyzja Artura 23.11.2026).
 """
 
 from __future__ import annotations
@@ -82,6 +85,13 @@ _REPORT = re.compile(
 # IX–XI 2026 78 arkuszy z godzinami („BIK wrzesien.xlsx”) szło jako faktury.
 _PROOF_EXTENSIONS = re.compile(
     r"\.(xlsx|xlsm|xls|ods|csv|png|jpe?g|heic|gif|bmp|webp)$", re.IGNORECASE
+)
+# Temat maila bez pliku, który niesie akceptację godzin w treści (próba IX–X 2026: NN
+# „Rozliczenie pracownika … za okres 09-2026” z MD w treści, „Fwd: FW: Timesheet wrzesień”).
+_BODY_SUBJECT = re.compile(
+    r"raport|time[\s_-]*sheet|ewidencj|godzin|rozliczeni|rcp|karta\s+pracy"
+    r"|zestawieni|(?<![a-z])(?:ts|kcp)(?![a-z])",
+    re.IGNORECASE,
 )
 _INVOICE = re.compile(
     r"faktur|invoice|(?:^|[^a-z])fv(?:at)?(?:[^a-z]|$)", re.IGNORECASE
@@ -389,6 +399,11 @@ async def _ingest_message(
     if reply is not None:
         return reply, 0
     if not message.get("hasAttachments"):
+        if is_body_only_settlement(message):
+            made = await _store_body_only(
+                db, mailbox, message, state=state, today=today, now=now
+            )
+            return made, 0
         return await _store_client_acceptance(
             db,
             mailbox,
@@ -789,6 +804,58 @@ async def _store_client_acceptance(
     return made, 0
 
 
+def is_body_only_settlement(message: dict[str, Any]) -> bool:
+    """Mail bez pliku, w którym akceptacja godzin stoi w treści (próba IX–X 2026).
+
+    Tylko z adresu firmy (koordynator, skrzynka firmowa konsultanta), bo temat i treść
+    może napisać każdy, i tylko z tematem rozliczenia. Router dalej oddaje taki mail
+    czytnikowi spraw (decyzja Artura z 23.11.2026): jest i sprawą, i dokumentem.
+    """
+
+    if message.get("hasAttachments"):
+        return False
+    subject = str(message.get("subject") or "")
+    if kesu.parse_jira(subject, "") is not None:
+        return False
+    return identity.is_company_address(_sender(message)) and bool(
+        _BODY_SUBJECT.search(subject)
+    )
+
+
+async def _store_body_only(
+    db: AsyncSession,
+    mailbox: SettlementsMailbox,
+    message: dict[str, Any],
+    *,
+    state: portal_settings.PortalSettings,
+    today: date,
+    now: datetime,
+) -> int:
+    """Treść maila bez pliku jako ``.eml`` osoby: nadawca (skrzynka firmowa konsultanta)
+    albo jedna osoba z tematu. Dwie różne osoby albo nikt = nic nie zapisujemy, bo
+    dokument bez osoby z samej treści byłby dla Finansów pustą kartą."""
+
+    sender = _sender(message)
+    subject = str(message.get("subject") or "")
+    by_sender = await identity.resolve_sender(db, sender, settings=state, today=today)
+    if by_sender is None and not state.any_sender:
+        return 0
+    named = await identity.resolve_named_in_text(db, subject, today=today)
+    if (
+        by_sender is not None
+        and named is not None
+        and (named.candidate_id != by_sender.candidate_id)
+    ):
+        return 0
+    contract = by_sender or named
+    if contract is None:
+        return 0
+    received = _parse_time(message.get("receivedDateTime")) or now
+    return await _store_eml(
+        db, mailbox, message, contract.id, subject=subject, received=received, now=now
+    )
+
+
 async def _store_eml(
     db: AsyncSession,
     mailbox: SettlementsMailbox,
@@ -867,8 +934,15 @@ async def run_once(
     newest = seen
     acceptance = await support_mail_route.acceptance_clients(db)
     for message in messages:
-        if route and not support_mail_route.is_settlements_mail(
-            message, route, acceptance.keys()
+        if (
+            route
+            and not support_mail_route.is_settlements_mail(
+                message, route, acceptance.keys()
+            )
+            and not (
+                support_mail_route.recipients(message) & route
+                and is_body_only_settlement(message)
+            )
         ):
             # Sprawa dla czytnika spraw: znacznik idzie dalej, nic nie zapisujemy.
             received = _parse_time(message.get("receivedDateTime"))
