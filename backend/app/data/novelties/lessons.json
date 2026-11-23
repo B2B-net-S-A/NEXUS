@@ -778,6 +778,41 @@
     ]
   },
   {
+    "id": "lekcja-sprzedaz-kto-dzwoni",
+    "title": "Dzwonienie: kto dzwoni z nieznanego numeru",
+    "novelties": [
+      "sprzedaz-dzwonienie-kto-dzwoni"
+    ],
+    "task": "Klient oddzwania, a telefon pokazuje sam numer. W Dzwonieniu znajdź pole, w którym sprawdzisz, czyj to numer, i kliknij w nie. Niczego nie zapisuj.",
+    "solo_href": "/sales/calling",
+    "check": {
+      "kind": "click",
+      "anchor": "sales.calling.who-calls"
+    },
+    "questions": [
+      {
+        "q": "Klient oddzwania z numeru „+48 601 234 567”. Jak go wpiszesz w „Kto dzwoni?”?",
+        "options": [
+          "Dowolnie — spacje i +48 nie przeszkadzają",
+          "Tylko 9 cyfr bez spacji",
+          "Z kierunkowym, ale bez spacji"
+        ],
+        "answer": 0,
+        "explain": "„Kto dzwoni?” porównuje ostatnie 9 cyfr numeru, więc +48, spacje i myślniki nie mają znaczenia."
+      },
+      {
+        "q": "Co zobaczysz po wpisaniu numeru w „Kto dzwoni?”?",
+        "options": [
+          "Firmę, osobę i kto do niej dzwonił",
+          "Tylko nazwę firmy",
+          "Historię połączeń z centrali"
+        ],
+        "answer": 0,
+        "explain": "Wynik pokazuje firmę, osobę i kto z nas do niej dzwonił, także gdy numer jest tylko kontaktem firmy bez listy dzwonienia."
+      }
+    ]
+  },
+  {
     "id": "lekcja-sprzedaz-karta-rozmowy-haczyk-mail",
     "title": "Karta rozmowy: haczyk na otwarcie i mail po umówieniu spotkania",
     "novelties": [
