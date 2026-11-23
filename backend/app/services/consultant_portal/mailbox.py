@@ -315,14 +315,24 @@ def kind_of_file(subject: str, file_name: str, content: bytes) -> str:
         return kind
     from app.services.client_settlements import (
         confirmation_ergo,
+        ewidencja_orlen,
         protocol_orlen,
         rcp_bnp,
         timesheet,
         timesheet_bik,
+        timesheet_fieldglass,
     )
 
     # Każdy czytnik sam odrzuca typ pliku, którego nie zna.
-    readers = (rcp_bnp, confirmation_ergo, protocol_orlen, timesheet, timesheet_bik)
+    readers = (
+        rcp_bnp,
+        confirmation_ergo,
+        protocol_orlen,
+        ewidencja_orlen,
+        timesheet,
+        timesheet_bik,
+        timesheet_fieldglass,
+    )
     if any(reader.parse(content, mime) is not None for reader in readers):
         return "report"
     return kind
