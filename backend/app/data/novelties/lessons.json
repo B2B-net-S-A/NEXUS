@@ -1870,6 +1870,41 @@
     ]
   },
   {
+    "id": "lekcja-monit-platnosci",
+    "title": "Monit płatności i lista należności",
+    "novelties": [
+      "finanse-monit-platnosci"
+    ],
+    "task": "W „Fakturach do klientów” przejdź na „Po terminie” i pobierz listę należności na koniec miesiąca. Na Poligonie nic się nie wyśle.",
+    "solo_href": "/finance?view=sales-invoices",
+    "check": {
+      "kind": "click",
+      "anchor": "finance.overdue-month-close"
+    },
+    "questions": [
+      {
+        "q": "Kiedy NEXUS proponuje ostateczne wezwanie do zapłaty?",
+        "options": [
+          "Gdy faktura jest co najmniej 30 dni po terminie według wyciągów",
+          "Zaraz po terminie płatności",
+          "Gdy klient nie odpisze na pierwszy monit"
+        ],
+        "answer": 0,
+        "explain": "Progi to 7, 14 i 30 dni po terminie, liczone tylko z ciągłych wyciągów. Monit wysyłasz sam, nic nie wychodzi automatycznie."
+      },
+      {
+        "q": "Klient zapłacił fakturę w euro, ale bez VAT. Co pokaże „Po terminie”?",
+        "options": [
+          "„Netto zapłacone · VAT do zapłaty” z kwotą w złotych do wpłaty na rachunek PLN",
+          "Całą fakturę jako niezapłaconą",
+          "Nic, bo faktura jest zapłacona"
+        ],
+        "answer": 0,
+        "explain": "VAT faktury walutowej klient płaci w złotych. NEXUS sprawdza go na wyciągach rachunku PLN i liczy kwotę po kursie faktury."
+      }
+    ]
+  },
+  {
     "id": "lekcja-firma-z-nip",
     "title": "Nowa firma z NIP-u",
     "novelties": [

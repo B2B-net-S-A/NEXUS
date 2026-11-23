@@ -290,32 +290,34 @@ export function FinanceSalesInvoicesTab({
         </div>
       )}
 
-      <TabbedNav
-        ariaLabel="Faktury do klientów"
-        value={view}
-        onValueChange={(next) => setView(next as View)}
-        dense
-        tabs={[
-          { value: "invoices", label: "Faktury z KSeF", count: invoices.length },
-          { value: "to-invoice", label: "Do faktury" },
-          { value: "issue", label: "Wystaw za miesiąc" },
-          { value: "templates", label: "Szablony" },
-          { value: "drafts", label: "Szkice" },
-          { value: "sent", label: "Wysłane" },
-          { value: "issue-settings", label: "Ustawienia wystawiania" },
-          { value: "unknown-buyers", label: "Nieznani nabywcy", count: unknownBuyers.data?.summary.buyers },
-          { value: "credits", label: "Wpłaty do sprawdzenia", count: credits.data?.credits.length },
-          // „0” przy fakturach bez danych o zapłacie znaczyłoby „nic po terminie”.
-          {
-            value: "overdue",
-            label: "Po terminie",
-            count:
-              overdue.data?.invoices.length || !overdue.data?.payment_unknown
-                ? overdue.data?.invoices.length
-                : undefined,
-          },
-        ]}
-      />
+      <div data-tour="finance.sales-invoices.tabs">
+        <TabbedNav
+          ariaLabel="Faktury do klientów"
+          value={view}
+          onValueChange={(next) => setView(next as View)}
+          dense
+          tabs={[
+            { value: "invoices", label: "Faktury z KSeF", count: invoices.length },
+            { value: "to-invoice", label: "Do faktury" },
+            { value: "issue", label: "Wystaw za miesiąc" },
+            { value: "templates", label: "Szablony" },
+            { value: "drafts", label: "Szkice" },
+            { value: "sent", label: "Wysłane" },
+            { value: "issue-settings", label: "Ustawienia wystawiania" },
+            { value: "unknown-buyers", label: "Nieznani nabywcy", count: unknownBuyers.data?.summary.buyers },
+            { value: "credits", label: "Wpłaty do sprawdzenia", count: credits.data?.credits.length },
+            // „0” przy fakturach bez danych o zapłacie znaczyłoby „nic po terminie”.
+            {
+              value: "overdue",
+              label: "Po terminie",
+              count:
+                overdue.data?.invoices.length || !overdue.data?.payment_unknown
+                  ? overdue.data?.invoices.length
+                  : undefined,
+            },
+          ]}
+        />
+      </div>
 
       {view === "invoices" ? (
         listState === "loading" ? (
@@ -439,7 +441,12 @@ export function FinanceSalesInvoicesTab({
                 po terminie z dowodem, potem faktury bez danych o zapłacie.
               </p>
               <div className="flex gap-1">
-                <Button size="sm" variant="outline" onClick={() => downloadMonthClose("xlsx")}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  data-tour="finance.overdue-month-close"
+                  onClick={() => downloadMonthClose("xlsx")}
+                >
                   <Download className="mr-1 h-3.5 w-3.5" aria-hidden />
                   Lista na koniec miesiąca (XLSX)
                 </Button>
