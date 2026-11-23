@@ -4578,6 +4578,46 @@
     ]
   },
   {
+    "id": "klient-cos-zmienil",
+    "pr": 3793,
+    "title": "„Klient coś zmienił”: zmiana od klienta jednym oknem",
+    "why": "Wklej mail od klienta albo opisz zmianę. AI rozpisze ją na wymagania, niuanse, pytania i opisy. Odznaczasz albo poprawiasz, widzisz skutki dla osób w procesie i zapisujesz jednym ruchem.",
+    "tier": "tour",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → Profil Championa → Klient coś zmienił (też menu ⋯ i Jarvis)",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?tab=champion",
+    "section": "pipeline",
+    "dot_anchor": "champion.client-change.open",
+    "steps": [
+      {
+        "anchor": "champion.client-change.open",
+        "text": "Kliknij „Klient coś zmienił” obok zakładek Profilu Championa.",
+        "hint": "To samo okno otworzysz z menu „⋯” rekrutacji, a Jarvis po opisie zmiany da „Pokaż i popraw”."
+      },
+      {
+        "anchor": "champion.client-change.text",
+        "text": "Tu wklejasz mail od klienta albo piszesz, co się zmieniło.",
+        "hint": "Wystarczy zdanie, np. „Python jako musi mieć, SAFe już nieważne”. Na Poligonie AI nie czyta treści.",
+        "ack": true
+      },
+      {
+        "anchor": "champion.client-change.propose",
+        "text": "„Przygotuj zmiany” daje listę zmian do przejrzenia.",
+        "hint": "Nic się nie zapisuje, dopóki nie odznaczysz albo nie poprawisz zmian i nie klikniesz zapisu ze zdaniem dla rekruterów.",
+        "ack": true
+      }
+    ]
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",

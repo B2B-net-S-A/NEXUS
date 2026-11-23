@@ -29,7 +29,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { ExtrasSection } from "./ExtrasSection";
-import { CONTRACTOR_INVOICE, STATUS, mdText, monthLabel, pln } from "./format";
+import { CONTRACTOR_INVOICE, STATUS, dayTime, mdText, monthLabel, pln } from "./format";
 import { kcpFileName } from "./ClientAcceptancePanel";
 import { IntegrationCostsSection } from "./IntegrationCostsSection";
 import { PanelPreviewDialog } from "./PanelPreviewDialog";
@@ -146,6 +146,11 @@ export function SettlementCard({ contractId, month, canWrite, onBack, kind = "ac
         <p className="rounded-lg bg-info-muted px-3 py-2 text-[13px] text-info-muted-foreground">
           Za ten miesiąc przyjęto plan: {mdText(d.estimate.md_charged)} MD. Faktura do klienta poszła z planu; RCP ponad plan nie
           przejdzie, a mniej MD zejdzie na kolejnej fakturze.
+        </p>
+      ) : null}
+      {d.status === "accepted" && d.accepted_auto ? (
+        <p className="rounded-lg bg-muted px-3 py-2 text-[13px] text-muted-foreground">
+          Przyjął automat{d.accepted_at ? ` ${dayTime(d.accepted_at)}` : ""} (reguła klienta „Przyjmuj RCP bez uwag automatycznie”).
         </p>
       ) : null}
       {d.status === "needs_fix" && d.fix_reason ? (

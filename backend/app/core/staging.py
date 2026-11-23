@@ -197,6 +197,9 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "equipment_reminders",
         "equipment_intune_sync",
         "admin_cases_mail_ingest",
+        # Przyjmuje RCP na kopii produkcji i daje konsultantowi mail „możesz
+        # wystawić fakturę”; na stagingu przyjęcie zbiorcze klika człowiek.
+        "client_settlements_auto_accept",
         # Zapisuje tylko w bazie, ale z dzwonkami; na stagingu odpala się ją ręcznie.
         "back_office_sync",
         "hr_approval_mail_replies",

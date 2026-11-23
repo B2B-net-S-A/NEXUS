@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { defaultMonth, matchesFilter, mdText, monthLabel, nextMonths, pctText, recentMonths } from "../format";
+import { autoAcceptText, defaultMonth, matchesFilter, mdText, monthLabel, nextMonths, pctText, recentMonths } from "../format";
 
 describe("rozliczenia: miesiące", () => {
   it("domyślnie poprzedni miesiąc, także na przełomie roku", () => {
@@ -45,5 +45,27 @@ describe("rozliczenia: liczby", () => {
   it("MD z przecinkiem, do trzech miejsc", () => {
     expect(mdText("21.750")).toBe("21,75");
     expect(pctText("8.8")).toBe("8,8%");
+  });
+});
+
+describe("rozliczenia: automat przyjęcia bez uwag", () => {
+  const info = { count: 1, workday: 3, from: "2026-11-04" };
+
+  it("przed terminem podaje dzień, od którego automat bierze miesiąc", () => {
+    expect(autoAcceptText(info, "2026-11-02")).toBe(
+      "1 RCP bez uwag przyjmie się samo od 04.11 rano. RCP odesłane „Do poprawy” przyjmujecie ręcznie.",
+    );
+  });
+
+  it("po terminie mówi o najbliższym porannym biegu i odmienia liczbę", () => {
+    expect(autoAcceptText({ ...info, count: 3 }, "2026-11-04")).toContain("3 RCP bez uwag przyjmą się same przy najbliższym porannym biegu");
+    expect(autoAcceptText({ ...info, count: 12 }, "2026-11-20")).toContain("12 RCP bez uwag przyjmie się samo");
+    expect(autoAcceptText({ ...info, count: 22 }, "2026-11-20")).toContain("22 RCP bez uwag przyjmą się same");
+  });
+
+  it("bez RCP do przyjęcia mówi tylko, od kiedy działa", () => {
+    expect(autoAcceptText({ ...info, count: 0 }, "2026-11-20")).toBe(
+      "Automat przyjmuje RCP bez uwag od 3. dnia roboczego po miesiącu. Teraz nie ma czego przyjąć.",
+    );
   });
 });
