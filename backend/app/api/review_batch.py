@@ -97,6 +97,12 @@ def _order_note(card: svc.PendingCard) -> dict:
     }
 
 
+def _requirements(card: svc.PendingCard) -> Optional[dict]:
+    facts = card.facts if isinstance(card.facts, OrderFacts) else None
+    steps = facts.steps if facts is not None else None
+    return steps.as_dict() if steps is not None else None
+
+
 def _client_recent(card: svc.PendingCard, titles: dict[int, str]) -> Optional[dict]:
     facts = card.facts if isinstance(card.facts, OrderFacts) else None
     known = facts.known if facts is not None else None
@@ -252,6 +258,8 @@ async def my_queue(
                     else None
                 ),
                 "key_facts": key_facts.get(card.process_id),
+                # Schodki po wymaganiach (23.11.2026): „Musi mieć 7 z 10” na karcie.
+                "requirements": _requirements(card),
                 "why": {
                     "source": tier_key(tier_of(job, now)),
                     "via": via.get(job.id),

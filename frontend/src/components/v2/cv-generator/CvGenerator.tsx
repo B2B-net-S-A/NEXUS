@@ -15,7 +15,7 @@ import { CvResultLive } from "./CvResult";
 import { ClientRulesCard, GenerateBar } from "./GenerateBar";
 import { StepCard } from "./GeneratorParts";
 import { LanguageChoice } from "./LanguageChoice";
-import { LayoutChoice } from "./LayoutChoice";
+import { LayoutCards } from "./LayoutChoice";
 import { PersonStep } from "./PersonStep";
 import { ProcessStep } from "./ProcessStep";
 import { ContentModeNote } from "./ContentModeNote";
@@ -105,7 +105,7 @@ function CvGeneratorForm({ prefillCandidateId, prefillCandidateName, prefillJobI
 
 function ContentStep({ g }: { g: CvGeneratorState }) {
   return (
-    <StepCard step={3} title="Treść CV">
+    <StepCard step={g.layoutEnabled ? 4 : 3} title="Treść CV">
       <div className="space-y-5">
         <ContentModeNote hasChampion={g.hasChampion} capBasic={g.capBasic} />
         <LanguageChoice
@@ -114,15 +114,6 @@ function ContentStep({ g }: { g: CvGeneratorState }) {
           policy={g.languagePolicy}
           clientName={g.clientName}
         />
-        {g.layoutEnabled ? (
-          <LayoutChoice
-            place="generator"
-            value={g.layoutChoice}
-            onChange={g.setLayoutChoice}
-            clientName={g.clientName}
-            clientDefault={g.layoutDefault}
-          />
-        ) : null}
       </div>
       <AdvancedOptions
         open={g.advancedOpen}
@@ -194,6 +185,18 @@ function GeneratorSteps({ g }: { g: CvGeneratorState }) {
           </>
         ) : null}
       </ProcessStep>
+      {noRecruitment || !g.layoutEnabled ? null : (
+        // Makieta rundy 36: układ to osobny krok z kartami, przed treścią — rekruter widzi go bez przewijania.
+        <StepCard step={3} title="Jak CV zobaczy klient">
+          <LayoutCards
+            value={g.layoutChoice}
+            onChange={g.setLayoutChoice}
+            clientName={g.clientName}
+            clientDefault={g.layoutDefault}
+            disabled={g.generating}
+          />
+        </StepCard>
+      )}
       {noRecruitment ? null : <ContentStep g={g} />}
     </>
   );

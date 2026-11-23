@@ -15,7 +15,7 @@ szkic — edytor zakłada go wcześniej (`ensureDraft`), tak jak przy każdej
 innej poprawce. Wpis w Historii zdarzeń bez treści zdania.
 """
 
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -45,6 +45,8 @@ class Page1Update(BaseModel):
 
     result_index: Optional[int] = Field(default=None, ge=0)
     result_text: Optional[str] = Field(default=None, max_length=RESULT_TEXT_MAX * 2)
+    # Wieniec na stronie 1 (23.11.2026): „auto” = certyfikat z MUST klienta, inaczej dyplom.
+    wreath: Optional[Literal["auto", "cert", "school"]] = None
 
 
 def _verified_results(extras: dict) -> list:
@@ -79,6 +81,11 @@ def _merged(extras: Optional[dict], payload: Page1Update) -> dict:
             merged["result_text"] = text
         else:
             merged.pop("result_text", None)
+    if "wreath" in sent:
+        if payload.wreath in (None, "auto"):
+            merged.pop("wreath", None)
+        else:
+            merged["wreath"] = payload.wreath
     return merged
 
 
@@ -92,12 +99,12 @@ async def update_stage_cv_page1(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CVBrandedResponse:
-    """Najmocniejszy wynik na stronie 1 „Nowego CV”: wpisany albo wybrany z listy."""
+    """Strona 1 „Nowego CV”: najmocniejszy wynik (wpisany albo z listy) i wieniec."""
     from app.services.new_cv_company_cv import locked_after_send
 
     if not layout_service.enabled():
         raise HTTPException(409, layout_service.MSG_DISABLED)
-    if not payload.model_fields_set & {"result_index", "result_text"}:
+    if not payload.model_fields_set & {"result_index", "result_text", "wreath"}:
         raise HTTPException(422, MSG_EMPTY)
     csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
     if csv.branded_status == "none":
@@ -121,6 +128,7 @@ async def update_stage_cv_page1(
                     "fields": sorted(payload.model_fields_set),
                     "result_index": merged.get("result_index"),
                     "result_text": bool(merged.get("result_text")),
+                    "wreath": merged.get("wreath", "auto"),
                     "version": csv.branded_version,
                 },
             )

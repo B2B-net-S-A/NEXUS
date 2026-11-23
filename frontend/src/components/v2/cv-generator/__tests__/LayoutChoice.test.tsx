@@ -2,7 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { LayoutChoice, cvLayoutFact } from "../LayoutChoice";
+import { LayoutCards, LayoutChoice, cvLayoutFact } from "../LayoutChoice";
+import { WreathChoice } from "../WreathChoice";
 
 describe("LayoutChoice — układ CV (22.11.2026)", () => {
   it("generator: domyślny układ klienta w podpowiedzi i zmiana wyboru", async () => {
@@ -31,5 +32,41 @@ describe("LayoutChoice — układ CV (22.11.2026)", () => {
   it("fakty karty", () => {
     expect(cvLayoutFact("new")).toBe("Nowe CV · PDF");
     expect(cvLayoutFact("classic")).toBe("Klasyczne · Word");
+  });
+});
+
+
+describe("LayoutCards — wybór układu w generatorze jako dwie karty (23.11.2026)", () => {
+  it("pokazuje, co dostaje klient, i zaznacza wybrany układ", async () => {
+    const onChange = vi.fn();
+    render(<LayoutCards value="classic" onChange={onChange} clientName="Bank Przykładowy" />);
+    const cards = screen.getAllByRole("radio");
+    expect(cards).toHaveLength(2);
+    expect(cards[1]).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("polecane")).toBeInTheDocument();
+    expect(screen.getByText(/Strona 1 to podsumowanie dla klienta/)).toBeInTheDocument();
+    await userEvent.click(cards[0]);
+    expect(onChange).toHaveBeenCalledWith("new");
+  });
+
+  it("podpowiada domyślny układ klienta", () => {
+    render(<LayoutCards value="new" onChange={vi.fn()} clientName="Bank Przykładowy" clientDefault="new" />);
+    expect(screen.getByText(/Bank Przykładowy: domyślnie Nowe CV/)).toBeInTheDocument();
+  });
+});
+
+describe("WreathChoice — co stoi w wieńcu (23.11.2026)", () => {
+  it("domyślnie automatycznie, zmiana na certyfikat", async () => {
+    const onChange = vi.fn();
+    render(<WreathChoice value="auto" onChange={onChange} />);
+    expect(screen.getByRole("button", { name: "Automatycznie" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/certyfikat, gdy klient go wymaga \(MUST\)/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Certyfikat" }));
+    expect(onChange).toHaveBeenCalledWith("cert");
+  });
+
+  it("zablokowany, gdy nie wolno zmieniać", () => {
+    render(<WreathChoice value="school" onChange={vi.fn()} disabled />);
+    expect(screen.getByRole("button", { name: "Szkoła" })).toBeDisabled();
   });
 });

@@ -4460,6 +4460,20 @@
     "dot_anchor": "client-form.missing"
   },
   {
+    "id": "porcja-schodki-musi-miec",
+    "pr": 3791,
+    "title": "Porcja dnia: najpierw osoby, które spełniają więcej „musi mieć”",
+    "why": "Porcja układa osoby po liczbie spełnionych „musi mieć”, potem „mile widzianych”, dopiero potem po wyniku. Na karcie „Musi mieć 7 z 10” z brakami na czerwono; klik w pozycję pokazuje ją w CV.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": { "roles": ["recruiter"] },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia → karta osoby → Musi mieć",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.requirements",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
     "id": "terminy-od-klienta-przy-ruchu",
     "title": "Terminy od klienta wysyłasz rekruterowi przy ruchu karty",
     "why": "Przesuwając kartę na „Rozmowa u klienta”, wklejasz mail klienta raz. Rekruter od razu dostaje dzwonek i mail „Ustal termin z kandydatem”, bez drugiego okna „Terminy od klienta”.",

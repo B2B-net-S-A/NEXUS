@@ -1047,6 +1047,23 @@ AUTOFILL_POOL_SIZE = 150
 # kończącą przegląd przed czytaniem całej bazy przy rzadkiej roli.
 _POOL_PAGE = 500
 AUTOFILL_POOL_SCAN_LIMIT = 5000
+# Świeże CV tuż pod progiem puli (decyzja Artura 23.11.2026, wariant A):
+# osoba nowa w bazie albo z CV wgranym w ostatnich ``FRESH_DAYS`` dniach,
+# z wynikiem najwyżej ``FRESH_BELOW_CUT`` pkt pod ostatnim miejscem puli,
+# wchodzi ponad 150 (najwyżej ``FRESH_POOL_EXTRA``). Ręcznie wysłani to w 25%
+# takie osoby (czołówka puli: 9%) i stali o włos za progiem; pomiar na kopii
+# z 23.11: w puli 50,7% → 54,1% ręcznie wysłanych, R@20 i P@5 bez zmian
+# (https://claude.ai/artifact/F6W8syMoFMNABxqrL5ra2J). Wynik osoby zostaje.
+FRESH_DAYS = 30
+FRESH_BELOW_CUT = 2.0
+FRESH_POOL_EXTRA = 30
+FRESH_EVIDENCE_KEY = "fresh_cv"
+_FRESH_CV_ACTIONS = ("cv_uploaded", "created_from_cv")
+
+
+def is_fresh_extra(evidence: object) -> bool:
+    """Flaga w dowodach puli: osoba weszła ze „świeżym CV” tuż pod progiem."""
+    return isinstance(evidence, dict) and bool(evidence.get(FRESH_EVIDENCE_KEY))
 
 
 async def _in_job_ids(db, job_id: int) -> set[int]:
@@ -1158,11 +1175,23 @@ async def refresh_autofill_pool(db, run: CandidateSearchRun) -> int:
         if len(rows) < page_size:
             break
     payload = payload[:AUTOFILL_POOL_SIZE]
+    # Pula niepełna = przejrzano wszystkich dopuszczonych, nie ma progu.
+    cut = payload[-1]["score"] if len(payload) >= AUTOFILL_POOL_SIZE else None
     payload.extend(
         await _sent_before_extras(
             db, run, job, excluded | {row["candidate_id"] for row in payload}
         )
     )
+    if cut is not None:
+        payload.extend(
+            await _fresh_extras(
+                db,
+                run,
+                job,
+                excluded | {row["candidate_id"] for row in payload},
+                min_score=cut - FRESH_BELOW_CUT,
+            )
+        )
     await db.execute(
         delete(JobAutofillPool).where(JobAutofillPool.job_id == run.job_id)
     )
@@ -1263,6 +1292,102 @@ async def _sent_before_extras(
             }
         )
         if len(extras) >= sent_before.POOL_EXTRA:
+            break
+    return extras
+
+
+async def _fresh_extras(
+    db, run: CandidateSearchRun, job, taken: set[int], *, min_score: float
+) -> list[dict]:
+    """Osoby ze świeżym CV tuż pod progiem puli (23.11.2026, ``FRESH_*``).
+
+    Świeże = dodane do bazy albo z wgranym CV (``_FRESH_CV_ACTIONS``)
+    w ostatnich ``FRESH_DAYS`` dniach. ``cv_parsed_at`` się nie nadaje:
+    masowe ponowne odczyty ustawiają go prawie całej bazie. Ten sam filtr co
+    pula (dopuszczony, oceniony, zmierzony, bez innej roli i osób z rekrutacji),
+    od ``min_score`` i nie niżej niż ``sent_before.MIN_SCORE``."""
+    from app.services import sent_before
+    from app.services.auto_match_outbox import candidate_revision
+
+    if FRESH_POOL_EXTRA <= 0:
+        return []
+    since = datetime.now(timezone.utc) - timedelta(days=FRESH_DAYS)
+    fresh_people = (
+        select(Candidate.id)
+        .where(Candidate.created_at >= since)
+        .union(
+            select(Activity.entity_id).where(
+                Activity.entity_type == "candidate",
+                Activity.action.in_(_FRESH_CV_ACTIONS),
+                Activity.created_at >= since,
+            )
+        )
+    )
+    rows = [
+        row
+        for row in (
+            await db.execute(
+                select(
+                    CandidateSearchResult.candidate_id,
+                    CandidateSearchResult.fit_score,
+                    CandidateSearchResult.evidence,
+                )
+                .where(
+                    CandidateSearchResult.run_id == run.id,
+                    CandidateSearchResult.state == "evaluated",
+                    CandidateSearchResult.eligible.is_(True),
+                    CandidateSearchResult.measurement == "measured",
+                    CandidateSearchResult.fit_score
+                    >= max(min_score, sent_before.MIN_SCORE),
+                    CandidateSearchResult.candidate_id.in_(fresh_people),
+                )
+                .order_by(
+                    CandidateSearchResult.fit_score.desc(),
+                    CandidateSearchResult.candidate_id,
+                )
+                .limit(FRESH_POOL_EXTRA * 3)
+            )
+        ).all()
+        if row[0] not in taken
+    ]
+    if not rows:
+        return []
+    candidates = {
+        c.id: c
+        for c in (
+            await db.scalars(
+                select(Candidate).where(Candidate.id.in_([r[0] for r in rows]))
+            )
+        ).all()
+    }
+    off_role = await _off_role_ids(
+        db,
+        job,
+        [(cid, (ev or {}).get("requirements") or []) for cid, _score, ev in rows],
+        candidates,
+        keep_strong=False,
+    )
+    extras: list[dict] = []
+    for candidate_id, score, evidence in rows:
+        candidate = candidates.get(candidate_id)
+        if candidate is None or candidate_id in off_role:
+            continue
+        requirements = (evidence or {}).get("requirements") or []
+        extras.append(
+            {
+                "job_id": run.job_id,
+                "candidate_id": candidate_id,
+                "score": round(float(score), 2),
+                "run_id": run.id,
+                "cv_revision": candidate_revision(candidate),
+                "evidence": {
+                    "matched_must": _requirement_names(requirements, met=True),
+                    "missing_must": _requirement_names(requirements, met=False),
+                    FRESH_EVIDENCE_KEY: True,
+                },
+            }
+        )
+        if len(extras) >= FRESH_POOL_EXTRA:
             break
     return extras
 
