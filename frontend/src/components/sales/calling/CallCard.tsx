@@ -24,6 +24,7 @@ import { ACTIVITY_KIND_LABELS, useCreateActivity, type Ref } from "@/lib/api/sal
 import {
   useCallCard,
   useEditRecord,
+  useReportDuplicate,
   useSaveOutcome,
   type CallCard as CallCardData,
   type CallHistoryEntry,
@@ -567,6 +568,41 @@ function ContactEditor({ item, card, onDone }: ContactEditorProps) {
   );
 }
 
+/** „To duplikat” (zgłoszenie dzwoniących 23.11.2026): przykład, którego bramki nie złapały. */
+function ReportDuplicateButton({ recordId, companyName }: { recordId: number; companyName: string }) {
+  const report = useReportDuplicate();
+  const { askConfirm, confirmDialog } = useConfirmV2();
+  const { showError, showSuccess } = useToast();
+  const click = async () => {
+    const ok = await askConfirm({
+      title: "To duplikat",
+      description: `${companyName}: zapiszemy zgłoszenie przy firmie i sprawdzimy, czemu bramka go nie złapała. Rekord zostaje na liście, wynik zapisujesz jak zwykle.`,
+      confirmLabel: "Zgłoś duplikat",
+    });
+    if (!ok) return;
+    report
+      .mutateAsync({ record_id: recordId })
+      .then((result) =>
+        showSuccess(result.created ? "Zgłoszono duplikat. Dziękujemy." : "Ten duplikat jest już zgłoszony."),
+      )
+      .catch((error: unknown) => showError(apiErrorMessage(error, "Nie udało się zgłosić duplikatu.")));
+  };
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-6 shrink-0 px-1.5 text-xs text-muted-foreground"
+        disabled={report.isPending}
+        onClick={() => void click()}
+      >
+        To duplikat
+      </Button>
+      {confirmDialog}
+    </>
+  );
+}
+
 function InCrmNote({ opportunity }: { opportunity: CrmOpportunity }) {
   return (
     <div
@@ -652,6 +688,9 @@ export function CallCard(props: CallCardProps) {
             >
               <Pencil className="mr-1 h-3 w-3" aria-hidden /> Edytuj dane
             </Button>
+          )}
+          {props.canEdit && item.record_id !== null && !editing && (
+            <ReportDuplicateButton recordId={item.record_id} companyName={item.company.name} />
           )}
         </div>
         {card?.email && !card.do_not_contact && (

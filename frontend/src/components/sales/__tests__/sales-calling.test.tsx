@@ -27,6 +27,7 @@ const briefing = vi.fn();
 const changeState = vi.fn();
 const editRecord = vi.fn();
 const reminders = vi.fn();
+const reportDuplicate = vi.fn();
 const askConfirm = vi.fn();
 const showError = vi.fn();
 const showSuccess = vi.fn();
@@ -45,6 +46,7 @@ vi.mock("@/lib/api/sales-calling", async (original) => ({
   useCallQueue: (campaignId: number | null, callerId: number | null = null) => queue(campaignId, callerId),
   useChangeState: () => mutation(changeState),
   useEditRecord: () => mutation(editRecord),
+  useReportDuplicate: () => mutation(reportDuplicate),
   useCallReminders: (scope: string) => reminders(scope),
   useCallRecords: (filters: unknown) => records(filters),
   usePreviewExcel: () => ({ ...mutation(previewExcel), data: excelData }),
@@ -832,6 +834,37 @@ describe("po Excelu dzwoniących (decyzje 11.11.2026)", () => {
     expect(records).toHaveBeenLastCalledWith(filters({ state: "not_interested" }));
     fireEvent.click(screen.getByRole("button", { name: "Odmowa Sp. z o.o." }));
     expect(screen.getByLabelText("Rozmowa: Odmowa Sp. z o.o.")).toBeInTheDocument();
+  });
+
+  it("tabela ukrywa powtórki, „Powtórki” je pokazuje z plakietką (23.11.2026)", () => {
+    const repeat = item({ key: "r:6", record_id: 6, repeat: true, company: { id: 13, name: "Powtórka S.A." } });
+    records.mockImplementation((current: { repeats?: boolean }) =>
+      current.repeats
+        ? ok({ items: [fresh, repeat], total: 2, counts: { new: 2 }, repeats: 542 })
+        : ok({ items: [fresh], total: 1, counts: { new: 1 }, repeats: 542 }),
+    );
+    render(<CallQueueView />);
+    fireEvent.click(screen.getByRole("radio", { name: "Tabela" }));
+    expect(records).toHaveBeenLastCalledWith(filters());
+    expect(screen.queryByText("Powtórka S.A.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Powtórki\s*542/ }));
+    expect(records).toHaveBeenLastCalledWith(filters({ repeats: true }));
+    expect(screen.getByText("Powtórka S.A.")).toBeInTheDocument();
+    expect(screen.getByText("Powtórka: już dzwoniono")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Jak działają duplikaty/ }));
+    expect(screen.getByText("Jak NEXUS pilnuje duplikatów")).toBeInTheDocument();
+    expect(screen.getByText("Przy imporcie listy")).toBeInTheDocument();
+  });
+
+  it("„To duplikat” na karcie pyta i zapisuje zgłoszenie", async () => {
+    reportDuplicate.mockResolvedValue({ created: true });
+    askConfirm.mockResolvedValueOnce(true);
+    queue.mockReturnValue(ok(callQueue({ new: [fresh] })));
+    render(<CallQueueView />);
+    fireEvent.click(screen.getByRole("button", { name: "To duplikat" }));
+    await waitFor(() => expect(reportDuplicate).toHaveBeenCalledWith({ record_id: fresh.record_id }));
+    await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Zgłoszono duplikat. Dziękujemy."));
   });
 
   it("„Wszyscy” w tabeli pokazuje listy innych z kolumną „Kto dzwoni” i filtrem osoby", () => {

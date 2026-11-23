@@ -66,6 +66,22 @@
     ]
   },
   {
+    "id": "sprzedaz-dzwonienie-duplikaty",
+    "pr": 0,
+    "title": "Dzwonienie: Tabela bez powtórek i „To duplikat”",
+    "why": "Tabela nie pokazuje już powtórek z kolejnych list, przełącznik „Powtórki” je odsłania. „Jak działają duplikaty?” tłumaczy, co NEXUS sprawdza, a „To duplikat” na karcie zgłasza przypadek, którego nie złapał.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Dzwonienie → Tabela",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.view"
+  },
+  {
     "id": "sprzedaz-dzwonienie-juz-dzwoniono",
     "pr": 3539,
     "title": "Dzwonienie: „Już dzwoniono” przy wgrywaniu listy",

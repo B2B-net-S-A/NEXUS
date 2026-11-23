@@ -55,10 +55,11 @@ warunki kolejki w `calling._own_campaign_records`, pola karty w `calling._card`.
   botów (fabryki IT, przetargi) nie zdejmuje firmy z kolejki.
 - Warunki to zbiory liczone raz na zapytanie (`NOT IN`), nie zależny `EXISTS` w `OR`:
   ta wersja liczyła się osobno dla każdego „Nowego” rekordu, ok. 13 s na kolejkę.
-- Rekordy nie znikają z bazy ani z Tabeli; zmienia się tylko kolejka. Bieg na sucho:
+- Rekordy nie znikają z bazy. Od 23.11.2026 Tabela też ukrywa powtórki (przełącznik
+  „Powtórki”): `dzwonienie-duplikaty-instrukcja.md`. Bieg na sucho:
   `python -m scripts.calling_repeats_report` (same liczby, `--ids` dokłada id).
-  Na stagingu 17.11: 388 powtórek i 30 rekordów firm w CRM; zapytanie kolejki 0,06 s. Kasowanie tych rekordów to
-  osobna decyzja Artura.
+  Na stagingu 17.11: 388 powtórek i 30 rekordów firm w CRM; zapytanie kolejki 0,06 s. 23.11.2026 Artur wybrał
+  ukrycie po stronie serwera zamiast kasowania.
 
 ## Karta rozmowy
 
