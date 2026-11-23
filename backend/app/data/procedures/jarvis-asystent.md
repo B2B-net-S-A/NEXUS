@@ -59,6 +59,8 @@ Karta „Zrobione za Ciebie” pokazuje, co zostało zapisane. **„Cofnij”** 
 - odrzucenie propozycji w „Do przejrzenia”, werdykt klienta, „Biorę” kandydata,
 - zapamiętanie Twojej preferencji („odpowiadaj krócej”).
 
+Osobno: poproszony o **nową firmę w Sprzedaży z NIP-u** („załóż firmę 734-286-71-48”) Jarvis daje przycisk **„Nowa firma w Sprzedaży”**. Okno samo pobiera dane z rejestru i sprawdza kartotekę: gdy firma już jest bez NIP-u, proponuje dopisać NIP do jej karty. Zapisujesz Ty. To samo zrobisz bez Jarvisa: wpisz NIP w wyszukiwarkę u góry.
+
 Zadanie pojawia się jako **karta** z opisem. Nic się nie dzieje, dopóki nie klikniesz **„Zrób to”**. „Anuluj” odrzuca propozycję. Propozycja wygasa po 15 minutach. Jeśli NEXUS ostrzeże przy przesunięciu (np. konflikt z klientem), Jarvis pokaże nową kartę „mimo ostrzeżenia” — decyzja zostaje przy Tobie.
 
 ## Internet

@@ -42,6 +42,7 @@ import { openJarvis } from "@/lib/jarvis/events";
 import { listedSettingsItems, settingsItemHref } from "@/lib/settings-registry";
 import { jobClientLine, jobDisplayTitle } from "@/lib/job-names";
 import { EmploymentPill } from "@/components/ds/EmploymentMarker";
+import { formatNip, nipFromQuery } from "@/lib/nip";
 import type { EmploymentMarker } from "@/lib/employment-marker";
 
 interface Props {
@@ -111,6 +112,7 @@ export function CommandPaletteV2({
   const canSearchJobs = hasSectionAccess(user, "pipeline");
   const canSearchClients = hasSectionAccess(user, "delivery");
   const canSearchSales = hasPermission(user, "sales_view");
+  const canCreateSales = hasPermission(user, "sales_edit");
   const {
     myTime: hrMyTime,
     people: hrPeople,
@@ -437,6 +439,14 @@ export function CommandPaletteV2({
     candidateIssue !== null &&
     (candidateIssue.kind === "blocked" || !searchFailed);
   const showPeopleFailed = peopleFailed && !searchFailed;
+  // Wpisany sam NIP, a w kartotece sprzedaży nie ma karty z tym numerem: założenie
+  // firmy z rejestru (prośba Sprzedaży 23.11.2026). Zła suma kontrolna mówi o literówce,
+  // zanim ktoś pójdzie z numerem do rejestru.
+  const nipQuery = canCreateSales ? nipFromQuery(searchTerm) : null;
+  const showNipAction =
+    nipQuery !== null &&
+    !searching &&
+    !results.some((r) => r.type === "sales_company");
   const personResults = results.filter((r) => r.type === "person");
   const otherResults = results.filter((r) => r.type !== "person");
 
@@ -486,8 +496,33 @@ export function CommandPaletteV2({
           </CommandGroup>
         )}
 
+        {showNipAction && nipQuery && (
+          <CommandGroup heading="Sprzedaż">
+            {nipQuery.valid ? (
+              <CommandItem
+                value={`nip-create ${nipQuery.nip}`}
+                onSelect={() => go(`/sales/companies?nowa=${nipQuery.nip}`)}
+              >
+                <Plus className="h-4 w-4" />
+                <span className="truncate">Załóż firmę z NIP {formatNip(nipQuery.nip)}</span>
+                <span className="ml-2 truncate text-xs text-muted-foreground">
+                  · brak karty z tym NIP-em; dane pobierzemy z rejestru
+                </span>
+              </CommandItem>
+            ) : (
+              <CommandItem value={`nip-invalid ${nipQuery.nip}`} disabled>
+                <Building2 className="h-4 w-4" />
+                <span className="truncate">
+                  NIP {formatNip(nipQuery.nip)} ma złą sumę kontrolną — sprawdź cyfry
+                </span>
+              </CommandItem>
+            )}
+          </CommandGroup>
+        )}
+
         {query.trim().length >= 2 &&
           (results.length > 0 ||
+            showNipAction ||
             matchedNav.length > 0 ||
             showCandidateIssue ||
             showPeopleFailed) && (

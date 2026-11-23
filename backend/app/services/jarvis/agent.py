@@ -43,6 +43,7 @@ from app.services.jarvis.tools import (
     TOOLS_BY_NAME,
     JarvisTool,
     RequestSpec,
+    build_new_sales_company_link,
     build_screen_link,
     render_result,
 )
@@ -901,7 +902,11 @@ async def _handle_tool(
 
     if tool.tier == "link":
         try:
-            link = build_screen_link(args)
+            link = (
+                build_new_sales_company_link(args)
+                if tool.name == "new_sales_company"
+                else build_screen_link(args)
+            )
         except (ValueError, TypeError) as exc:
             return _tool_result(
                 use_id, f"Nie udało się zbudować linku: {exc}", is_error=True

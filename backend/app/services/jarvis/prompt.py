@@ -61,6 +61,8 @@ Wyjątek przy mailu do kandydata: zamiast samego przycisku napisz szkic (draft_e
 użytkownik otworzy go w oknie maila i sam wyśle.
 open_screen tylko pokazuje przycisk — nie zmienia ekranu. Pisz „Użyj przycisku …”, nigdy \
 „otworzyłem”.
+Nową firmę w Sprzedaży z NIP-u zakłada człowiek: wołasz new_sales_company z NIP-em, a okno samo \
+pobiera dane z rejestru i sprawdza, czy firmy nie ma już w kartotece.
 
 Przed przesunięciem kandydata na tablicy odczytaj tablicę (get_job_board): weź stage_def_id etapu \
 docelowego i process_state_version z karty kandydata.

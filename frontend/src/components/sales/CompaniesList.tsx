@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Building2, Plus } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { EmptyState } from "@/components/ds/EmptyState";
 import { FilterBar } from "@/components/ds/FilterBar";
@@ -51,7 +51,13 @@ export function CompaniesList() {
   const [q, setQ] = useState(searchParams?.get("q") ?? "");
   const lifecycle = (searchParams?.get("etap") ?? "") as CompanyLifecycle | "";
   const offset = Math.max(0, Number(searchParams?.get("od") ?? 0) || 0);
-  const [creating, setCreating] = useState(false);
+  // `?nowa=<NIP>` z palety ⌘K: formularz nowej firmy z tym NIP-em, dane z rejestru od razu.
+  const newNip = canEdit ? (searchParams?.get("nowa") ?? null) : null;
+  const [creating, setCreating] = useState(Boolean(newNip));
+  // Paleta otwarta na tym samym ekranie zmienia tylko adres, bez ponownego montażu listy.
+  useEffect(() => {
+    if (newNip) setCreating(true);
+  }, [newNip]);
   // Opiekun: konto NEXUSA albo etykieta z Atlasa (osoba bez konta); archiwum;
   // firmy, które import przepuścił warunkowo (audyt importu 28.10.2026).
   const owner = searchParams?.get("opiekun") ?? "";
@@ -265,7 +271,11 @@ export function CompaniesList() {
       {creating && (
         <CompanyFormDialog
           open={creating}
-          onOpenChange={setCreating}
+          onOpenChange={(open) => {
+            setCreating(open);
+            if (!open && newNip) router.replace("/sales/companies");
+          }}
+          initialNip={newNip ?? undefined}
           onSaved={(company) => router.push(`/sales/companies/${company.id}`)}
         />
       )}
