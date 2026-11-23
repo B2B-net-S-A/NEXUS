@@ -8,21 +8,24 @@
  * etap 6) z pustą tablicą i awarią API, rekrutacja otwarta, formularz
  * z błędami, podziękowanie, rekrutacja zamknięta, stały link rekrutera.
  *
- * `?szablon=<id>` — rekrutacja otwarta i zamknięta w jednym z trzech
- * szablonów (`components/career/themes.ts`, układy w `components/career/layouts/`).
+ * Od 23.11.2026 lista i oferta w jednym szablonie nowej strony B2B Network
+ * (`components/career/site/`); `?szablon=<id>` zmienia już tylko stronę
+ * rekrutera i formularz z błędami w starej ramie marki.
  */
 import type { Metadata } from "next";
 import { use } from "react";
 
 import { brandStyles } from "@/components/career/brand/BrandShell";
 import { CareerApplyForm } from "@/components/career/CareerApplyForm";
-import { CareerBoardView } from "@/components/career/CareerBoardView";
-import { CareerJobView } from "@/components/career/CareerJobView";
 import { CareerRecruiterView } from "@/components/career/CareerRecruiterView";
 import { CareerTheme } from "@/components/career/CareerTheme";
 import { CareerThemeScope } from "@/components/career/CareerThemeScope";
 import { CAREER_THEME_IDS, CAREER_THEMES, isCareerThemeId } from "@/components/career/themes";
-import { ThanksLog } from "@/components/career/ThanksLog";
+import { CareerBoard } from "@/components/career/site/CareerBoard";
+import { OfferPage } from "@/components/career/site/OfferPage";
+import { OfferSent } from "@/components/career/site/SentGate";
+import { SiteFrame } from "@/components/career/site/SiteFrame";
+import { processSteps } from "@/components/career/requirementItems";
 import type {
   CareerBoardJob,
   CareerBoardResponse,
@@ -200,9 +203,10 @@ const STATES = [
   { id: "tablica-awaria", label: "tablica — awaria API" },
   { id: "otwarta", label: "rekrutacja otwarta" },
   { id: "bledy", label: "formularz z błędami" },
+  { id: "oferta-bledy", label: "oferta — formularz z błędami" },
   { id: "dziekujemy", label: "podziękowanie" },
   { id: "zamknieta", label: "rekrutacja zamknięta" },
-  { id: "zamknieta-bez-linku", label: "zamknięta, bez stałego linku" },
+  { id: "zamknieta-bez-linku", label: "zamknięta, bez tablicy" },
   { id: "rekruter", label: "stały link rekrutera" },
   { id: "rekruter-pusty", label: "rekruter bez opisu i rekrutacji" },
 ];
@@ -256,7 +260,7 @@ export default function CareerPreviewPage({
         {CAREER_THEME_IDS.map((id) => (
           <a
             key={id}
-            href={`?szablon=${id}#otwarta`}
+            href={`?szablon=${id}#rekruter`}
             style={{ color: id === (theme ?? "grafit") ? "#F5F5F5" : "#8B8B8B" }}
             aria-current={id === (theme ?? "grafit") ? "page" : undefined}
           >
@@ -266,35 +270,40 @@ export default function CareerPreviewPage({
       </nav>
 
       <State id="tablica" label="tablica otwartych rekrutacji">
-        <CareerBoardView
-          data={BOARD}
-          base={BASE}
-          host={HOST}
-          theme={theme}
-          formPreview={{ disableSubmit: true }}
-        />
+        <SiteFrame homeHref={BASE} rodoHref={`${BASE}/rodo`}>
+          <CareerBoard data={BOARD} base={BASE} formPreview={{ disableSubmit: true }} />
+        </SiteFrame>
       </State>
 
       <State id="tablica-pusta" label="tablica bez rekrutacji">
-        <CareerBoardView
-          data={{ ...BOARD, jobs: [] }}
-          base={BASE}
-          host={HOST}
-          theme={theme}
-          formPreview={{ disableSubmit: true }}
-        />
+        <SiteFrame homeHref={BASE} rodoHref={`${BASE}/rodo`}>
+          <CareerBoard data={{ ...BOARD, jobs: [] }} base={BASE} formPreview={{ disableSubmit: true }} />
+        </SiteFrame>
       </State>
 
       <State id="tablica-awaria" label="tablica — awaria API">
-        <CareerBoardView data={null} base={BASE} host={HOST} theme={theme} />
+        <SiteFrame homeHref={BASE} rodoHref={`${BASE}/rodo`}>
+          <CareerBoard data={null} base={BASE} />
+        </SiteFrame>
       </State>
 
       <State id="otwarta" label="rekrutacja otwarta">
-        <CareerJobView
-          data={{ ...OPEN_JOB, theme }}
+        <OfferPage data={OPEN_JOB} board={BOARD.jobs} base={BASE} formPreview={{ disableSubmit: true }} />
+      </State>
+
+      <State id="oferta-bledy" label="oferta — formularz z błędami">
+        <OfferPage
+          data={OPEN_JOB}
+          board={BOARD.jobs}
           base={BASE}
-          host={HOST}
-          formPreview={{ disableSubmit: true }}
+          formPreview={{
+            disableSubmit: true,
+            errors: {
+              email: "Podaj adres e-mail.",
+              cv: "Ten plik to ZIP. CV musi być plikiem PDF, DOC albo DOCX do 10 MB.",
+              consent: "Zaznacz zgodę, żeby wysłać zgłoszenie.",
+            },
+          }}
         />
       </State>
 
@@ -324,27 +333,25 @@ export default function CareerPreviewPage({
       </State>
 
       <State id="dziekujemy" label="podziękowanie">
-        <CareerThemeScope theme={theme}>
-          <ThanksLog
+        <SiteFrame homeHref={BASE} rodoHref={`${BASE}/rodo`}>
+          <OfferSent
             variant="job"
-            firstName="Jan"
-            email="jan@example.com"
             recruiterFirstName="Marta"
             jobTitle="Senior Java Developer"
-            homeHref={BASE}
-            rodoHref={`${BASE}/rodo`}
-            hostLabel={`${HOST}${BASE}/r/senior-java-developer-7kq2`}
-            recruiterPageHref={`${BASE}/p/marta-n`}
+            steps={processSteps("Marta", "B2B")}
+            others={BOARD.jobs.slice(1, 4)}
+            base={BASE}
+            result={{ firstName: "Jan", email: "jan@example.com", fileName: "cv-jan.pdf" }}
           />
-        </CareerThemeScope>
+        </SiteFrame>
       </State>
 
       <State id="zamknieta" label="rekrutacja zamknięta">
-        <CareerJobView data={{ ...CLOSED_JOB, theme }} base={BASE} host={HOST} />
+        <OfferPage data={CLOSED_JOB} board={BOARD.jobs} base={BASE} />
       </State>
 
-      <State id="zamknieta-bez-linku" label="zamknięta, bez stałego linku">
-        <CareerJobView data={CLOSED_JOB_NO_LINK} base={BASE} host={HOST} />
+      <State id="zamknieta-bez-linku" label="zamknięta, bez tablicy">
+        <OfferPage data={CLOSED_JOB_NO_LINK} board={null} base={BASE} />
       </State>
 
       <State id="rekruter" label="stały link rekrutera">

@@ -1,0 +1,217 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+
+import { CareerBoard } from "@/components/career/site/CareerBoard";
+import { OfferPage } from "@/components/career/site/OfferPage";
+import type { CareerBoardJob, CareerBoardResponse, CareerJobResponse } from "@/lib/career/api";
+
+const card = (slug: string, over: Partial<CareerBoardJob> = {}): CareerBoardJob => ({
+  slug,
+  title: `Rola ${slug}`,
+  subtitle: null,
+  city: "Warszawa",
+  remote_policy: "hybrid",
+  category: "development",
+  theme: "grafit",
+  recruiter_first_name: "Marta",
+  must: [],
+  nice: [],
+  ...over,
+});
+
+const OPEN: CareerJobResponse = {
+  status: "open",
+  recruiter: { first_name: "Paulina", slug: null },
+  canonical_slug: "kierownik-ab12",
+  job: {
+    slug: "kierownik-ab12",
+    title: "Kierownik Projektów IT",
+    subtitle: "Prowadzenie wdrożeń w banku",
+    about:
+      "Projekty obejmują wdrażanie nowych rozwiązań.\n\nCzym się zajmiesz: koordynacja projektu; raportowanie statusu; dokumentacja projektowa",
+    must: [
+      { name: "Doświadczenie w stosowaniu metodyki PRINCE2 lub Agile", note: null },
+      { name: "Doświadczenie w zarządzaniu zespołem IT", note: null },
+    ],
+    nice: ["Doświadczenie w sektorze finansowym"],
+    params: {
+      city: "Warszawa, Łódź",
+      remote_policy: "hybrid",
+      onsite_days_per_week: 1,
+      seniority: null,
+      contract: "B2B",
+      start: "2026-12-01",
+      duration: null,
+    },
+    show: { must: true, nice: true, params: true, process: true },
+  },
+};
+
+const BOARD: CareerBoardJob[] = [
+  card("kierownik-ab12", { category: "management", must: ["metodyki PRINCE2 lub Agile", "PRINCE2", "zarządzaniu zespołem IT"] }),
+  card("pm-2", { category: "management", title: "Project Manager" }),
+  card("java-3", { title: "Java Developer", must: ["Java", "Kafka"], city: "Kraków", remote_policy: "onsite" }),
+  card("qa-4", { category: "qa", title: "Tester", remote_policy: "remote", city: null }),
+];
+
+describe("strona oferty — jeden szablon dla każdej roli (OfertaA, OfertaManager)", () => {
+  it("jedyny h1 to tytuł; fakty, sekcje z etykietami i cztery kroki procesu", () => {
+    const { container } = render(<OfferPage data={OPEN} board={BOARD} base="" />);
+    const h1 = container.querySelectorAll("h1");
+    expect(h1).toHaveLength(1);
+    expect(h1[0].textContent).toBe("Kierownik Projektów IT");
+    for (const [label, value] of [
+      ["Lokalizacja", "Warszawa, Łódź"],
+      ["Tryb pracy", "Hybryda · 1 dzień w biurze w tygodniu"],
+      ["Umowa", "B2B"],
+    ]) {
+      const dt = screen.getByText(label, { selector: "dt" });
+      expect(dt.nextElementSibling?.textContent).toBe(value);
+    }
+    expect(screen.getByRole("complementary", { name: "Wymagania" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "O projekcie" })).toBeTruthy();
+    const process = screen.getByRole("region", { name: "Proces rekrutacji" });
+    expect(within(process).getAllByRole("listitem")).toHaveLength(4);
+    expect(within(process).getByText("Rozmowa z Pauliną")).toBeTruthy();
+    expect(within(process).getByText("Umowa B2B")).toBeTruthy();
+    expect(container.querySelector("section#aplikuj[aria-label='Aplikuj']")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Aplikuj, 2 minuty" }).getAttribute("href")).toBe("#aplikuj");
+  });
+
+  it("wielkie słowo i pogrubienie tylko z krótkich umiejętności tablicy", () => {
+    const { container } = render(<OfferPage data={OPEN} board={BOARD} base="" />);
+    // „metodyki PRINCE2 lub Agile” ma 26 znaków — za długie na wielkie słowo, więc „PRINCE2”.
+    expect(container.querySelector("main > section")?.querySelector("p[aria-hidden='true']")?.textContent).toBe("PRINCE2");
+    // Pogrubienie bierze najdłuższą pasującą nazwę.
+    expect(screen.getByText("metodyki PRINCE2 lub Agile", { selector: "b" })).toBeTruthy();
+    expect(screen.getByText("zarządzaniu zespołem IT", { selector: "b" })).toBeTruthy();
+    expect(screen.getByText("Czym się zajmiesz")).toBeTruthy();
+    expect(screen.getByText("raportowanie statusu".replace(/^./, "R"))).toBeTruthy();
+  });
+
+  it("„Co już masz?” liczy zaznaczenia", () => {
+    render(<OfferPage data={OPEN} board={BOARD} base="" />);
+    const list = screen.getByRole("complementary", { name: "Wymagania" });
+    expect(within(list).getByText("0/3")).toBeTruthy();
+    expect(within(list).getByText("2 wymagane, 1 mile widziane")).toBeTruthy();
+    fireEvent.click(within(list).getAllByRole("checkbox")[0]);
+    fireEvent.click(within(list).getAllByRole("checkbox")[2]);
+    expect(within(list).getByText("2/3")).toBeTruthy();
+    expect(within(list).getByText("1 z 2")).toBeTruthy();
+  });
+
+  it("bez tablicy (awaria API) strona działa: bez wielkiego słowa, bez podobnych ofert", () => {
+    const { container } = render(<OfferPage data={OPEN} board={null} base="" />);
+    expect(container.querySelectorAll("h1")).toHaveLength(1);
+    expect(container.querySelector("main > section")?.querySelector("p[aria-hidden='true']")).toBeNull();
+    expect(container.querySelector("aside ul b")).toBeNull();
+  });
+
+  it("zamknięta rekrutacja: pieczątka, podobne z tej samej kategorii i prośba o CV", () => {
+    render(<OfferPage data={{ ...OPEN, status: "closed" }} board={BOARD} base="/kariera" />);
+    expect(screen.getByRole("heading", { level: 1, name: "Ta rekrutacja już nie przyjmuje zgłoszeń." })).toBeTruthy();
+    const links = screen.getAllByRole("link", { name: /^Zobacz: / }).map((a) => a.getAttribute("href"));
+    expect(links[0]).toBe("/kariera/r/pm-2");
+    expect(links).not.toContain("/kariera/r/kierownik-ab12");
+    expect(screen.getByRole("link", { name: "Zostaw CV" }).getAttribute("href")).toBe("/kariera#zostaw-cv");
+    expect(screen.queryByRole("button", { name: "Wyślij zgłoszenie" })).toBeNull();
+  });
+});
+
+const DATA: CareerBoardResponse = { jobs: BOARD, cv: { slug: "olga-r", first_name: "Olga" } };
+
+describe("lista rekrutacji (KarieraA)", () => {
+  it("talia kategorii z liczbami filtruje listę; liczniki liczą się po szukaniu", () => {
+    render(<CareerBoard data={DATA} base="" />);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("4");
+    const dev = screen.getByRole("button", { name: /2\s*Management & delivery/ });
+    fireEvent.click(dev);
+    expect(dev.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+    fireEvent.click(dev);
+    fireEvent.change(screen.getByPlaceholderText("Java, Kraków, Kafka…"), { target: { value: "krakow" } });
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /1\s*Development/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /0\s*QA/ })).toBeTruthy();
+  });
+
+  it("tryb pracy zawęża listę", () => {
+    render(<CareerBoard data={DATA} base="" />);
+    fireEvent.click(screen.getByRole("button", { name: "Zdalnie" }));
+    expect(screen.getAllByRole("article").map((a) => a.querySelector("h3")?.textContent)).toEqual(["Tester"]);
+  });
+
+  it("hasło bez trafień: „0”, zdanie z hasłem, czyszczenie filtrów i podpowiedź słowa", () => {
+    render(<CareerBoard data={DATA} base="" />);
+    fireEvent.change(screen.getByPlaceholderText("Java, Kraków, Kafka…"), { target: { value: "COBOL Kraków" } });
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Nic dla tego hasła");
+    expect(screen.getByText("Nie mamy teraz projektu dla „COBOL Kraków”.")).toBeTruthy();
+    expect(screen.getByText(/Dla „Kraków” jest teraz 1 rekrutacja/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Wyczyść filtry" }));
+    expect(screen.getAllByRole("article")).toHaveLength(4);
+  });
+
+  it("„Pokaż kolejne” dokłada paczkę 12", () => {
+    const many = Array.from({ length: 30 }, (_, i) => card(`job-${i}`));
+    render(<CareerBoard data={{ jobs: many, cv: null }} base="" />);
+    expect(screen.getAllByRole("article")).toHaveLength(12);
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż kolejne 12 z 18" }));
+    expect(screen.getAllByRole("article")).toHaveLength(24);
+    expect(screen.getByRole("button", { name: "Pokaż kolejne 6 z 6" })).toBeTruthy();
+  });
+
+  it("awaria API to komunikat, nigdy pusta lista", () => {
+    render(<CareerBoard data={null} base="" />);
+    expect(screen.getByRole("alert").textContent).toContain("Nie udało się wczytać otwartych rekrutacji");
+    expect(screen.queryByText("Brak otwartych rekrutacji")).toBeNull();
+  });
+
+  it("„Zostaw CV” otwiera formularz z jedną, obowiązkową zgodą na przyszłe procesy", () => {
+    const { container } = render(<CareerBoard data={DATA} base="" />);
+    const section = container.querySelector<HTMLElement>("#zostaw-cv")!;
+    expect(section.hidden).toBe(true);
+    fireEvent.click(screen.getByRole("link", { name: "Zostaw CV" }));
+    expect(section.hidden).toBe(false);
+    expect(section.querySelector('input[name="consent"]')).toBeTruthy();
+    expect(section.querySelector('input[name="consent_future"]')).toBeNull();
+    expect(section.textContent).toContain("przyszłych procesów rekrutacyjnych");
+  });
+});
+
+/* Kontrast tokenów nowej strony (WCAG AA 4,5:1 dla zwykłego tekstu). */
+function hex(css: string, token: string): string {
+  const m = new RegExp(`--${token}:\\s*(#[0-9a-f]{6})`, "i").exec(css);
+  if (!m) throw new Error(`brak tokenu ${token}`);
+  return m[1];
+}
+function lum(h: string): number {
+  const c = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+  const [r, g, b] = c.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+function ratio(a: string, b: string): number {
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+}
+
+describe("kontrast kolorów strony kariery", () => {
+  const css = readFileSync(join(__dirname, "..", "site.module.css"), "utf8");
+  const pairs: [string, string][] = [
+    ["white", "red-text"], // przyciski i drobny tekst na czerwieni
+    ["red-text", "white"], // „Zobacz”, komunikaty błędów
+    ["ink", "snow"],
+    ["ink-mid", "white"], // linia miejsca na karcie
+    ["ink-soft", "white"],
+    ["ink", "lime"], // karta Management & delivery
+    ["on-ink-soft", "ink"],
+    ["warm-soft", "ink"], // stopka
+    ["red-text", "red-wash"], // baner błędu
+    ["placeholder", "white"],
+  ];
+  it.each(pairs)("%s na %s ma co najmniej 4,5:1", (fg, bg) => {
+    expect(ratio(hex(css, fg), hex(css, bg))).toBeGreaterThanOrEqual(4.5);
+  });
+});

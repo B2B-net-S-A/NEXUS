@@ -266,6 +266,35 @@ Reguły, które łatwo cofnąć:
   zamkniętej rekrutacji dostaje z API `other_jobs` (ta sama reguła co stały
   link: opublikowany opis + „pokazuj na mojej stronie”) — bez listy i bez
   stałego linku prosi o kontakt z osobą od linku, nie odsyła na LinkedIna.
+- **Jeden szablon nowej strony B2B Network dla listy i oferty (decyzja Artura
+  23.11.2026, makiety KarieraA, OfertaA, OfertaManager i ekrany stanów na
+  kanwie https://claude.ai/artifact/1RCpsMgFGdPxE5CyBqoRcj).** Zastępuje trzy
+  szablony z 28.10.2026 (niżej, historia) i ramę Grafit tablicy. Kod:
+  `components/career/site/`, logika `lib/career/site.ts`, wysyłka
+  `lib/career/submit.ts` (wspólna z formularzem strony rekrutera).
+  - Rozdziały w kolorach marki: czerwień `#E73748`, Snow `#F5F4EC`, Ink
+    `#141414`, limonka tylko w akcentach. Tokeny w `site.module.css` (jedno
+    miejsce); biały na `#E73748` ma 4,2:1, więc przyciski i drobny tekst biorą
+    `--red-text` `#C42536`. Kontrast par pilnuje `site/__tests__/CareerSite.test.tsx`.
+  - Nagłówek i stopka jak na nowej stronie firmy; nawigacja prowadzi na
+    `https://b2bnetwork.pl` (`COMPANY_SITE` w `SiteFrame.tsx`).
+  - **Treść tylko z danych.** Wielkie słowo nad tytułem oferty = pierwsza
+    krótka (≤ 14 znaków) umiejętność z karty tablicy (`must`), bez niej słowo
+    kategorii, bez obu nic. Pogrubienie w „Co już masz?” = najdłuższa nazwa
+    umiejętności z tablicy, która stoi w zdaniu wymagania (całe słowa). Strona
+    `/r/` czyta tablicę obok opisu; awaria tablicy = strona bez tych dodatków
+    i bez podobnych ofert, nigdy błąd. Nie dopisuj haseł za rekrutera.
+  - Formularz zostaje „samym CV” z 07.11.2026 (e-mail dopiero po 422 na
+    `email`, pola opcjonalne zwinięte), choć makieta pokazuje Imię, Nazwisko
+    i E-mail jako wymagane — zmiana tylko po decyzji Artura.
+  - Zamknięta rekrutacja pokazuje do trzech otwartych z tej samej kategorii
+    z tablicy (bez tablicy: `other_jobs`) i prośbę o CV (`/#zostaw-cv`
+    otwiera formularz „Zostaw CV” na liście).
+  - Wybór szablonu w „Udostępnij” (`theme`) zmienia już tylko grafikę OG,
+    plakat i stronę rekrutera `/<slug>`, nie stronę oferty.
+  - Harness: `/preview/kariera` (stany listy, oferty, błędów, „Wysłane”,
+    zamkniętej).
+
 - **Trzy szablony ogłoszeń w barwach B2Bnetwork (decyzja Artura 28.10.2026,
   makiety https://claude.ai/artifact/RGquQpMFyKgRYHPognJ2kU, warianty A, C i B).**
   Zespół (Teams, 28.10) ocenił ogłoszenia jako nieczytelne, „nie w szacie B2B”
