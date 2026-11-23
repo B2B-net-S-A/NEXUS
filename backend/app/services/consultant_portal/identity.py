@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
+from app.models.client import Client
 from app.models.contact import Contact
 from app.models.contract import Contract, ContractStatus
 from app.models.user import User
@@ -94,9 +95,45 @@ async def resolve_sender(
 
     if not settings.any_sender:
         return await resolve_by_email(db, email, settings=settings, today=today)
-    address = normalize_email(email)
-    if not address:
+    rows = await _sender_contracts(db, normalize_email(email), today=today)
+    # Jeden działający kontrakt = jedno dopasowanie. Dwa (zmiana kontraktu w ostatnich
+    # 60 dniach, dwóch klientów naraz) albo dwie osoby = karta do ręcznego przypisania:
+    # przypisanego dokumentu Finanse nie przepną, a RCP od razu liczy rozliczenie.
+    return rows[0] if len(rows) == 1 else None
+
+
+async def resolve_report_owner(
+    db: AsyncSession, email: str, *, settings: PortalSettings, today: date
+) -> Optional[Contract]:
+    """Kontrakt dla raportu godzin od osoby pracującej naraz u dwóch klientów.
+
+    Klient rozliczany z raportu T4T (Nordea) nie bierze godzin z poczty, więc raport
+    od osoby z kontraktem u niego i jednym kontraktem gdzie indziej jest tego
+    drugiego (Nordea 292 / Bosch 623: „W załączniku Timesheet (Bosch)”). Faktura
+    nie: konsultant bywa, że wystawia jedną na obu klientów (IX 2026: 252 h =
+    Nordea + MS Enter-Prise), więc czeka na ręczne przypisanie jak dotąd.
+    """
+
+    if not settings.any_sender:
         return None
+    rows = await _sender_contracts(db, normalize_email(email), today=today)
+    people = {row.candidate_id for row in rows}
+    if len(rows) < 2 or len(people) != 1 or None in people:
+        return None
+    from app.services.client_settlements import time_reports
+
+    from_t4t = set(await time_reports.enabled_clients(db, f"{today:%Y-%m}"))
+    rest = [row for row in rows if row.client_id not in from_t4t]
+    return rest[0] if len(rest) == 1 and len(rest) < len(rows) else None
+
+
+async def _sender_contracts(
+    db: AsyncSession, address: str, *, today: date
+) -> list[Contract]:
+    """Działające kontrakty pod adresem: z kontraktu, z kartoteki, z adresu firmy."""
+
+    if not address:
+        return []
     by_contract = (
         await db.scalars(
             select(Contract)
@@ -117,10 +154,7 @@ async def resolve_sender(
         rows = [row for row in by_card if eligible(row, today)]
     if not rows:
         rows = await _by_company_address(db, address, today=today)
-    # Jeden działający kontrakt = jedno dopasowanie. Dwa (zmiana kontraktu w ostatnich
-    # 60 dniach, dwóch klientów naraz) albo dwie osoby = karta do ręcznego przypisania:
-    # przypisanego dokumentu Finanse nie przepną, a RCP od razu liczy rozliczenie.
-    return rows[0] if len(rows) == 1 else None
+    return rows
 
 
 def _company_domains() -> frozenset[str]:
@@ -179,10 +213,19 @@ async def _by_company_address(
     osoby o tej samej formie adresu = nikt (karta do ręcznego przypisania).
     Tak samo skrzynka od klienta (``CONSULTANT_PORTAL_PERSONAL_DOMAINS``):
     BNP zakłada konsultantom ``imie.nazwisko@external.bnpparibas.pl``.
+
+    Skrzynka w domenie znanego klienta (``P.Nazwisko@pocztowy.pl``) wskazuje
+    tylko kontrakty u tego klienta: osoba pracuje naraz w Banku Pocztowym
+    i VeloBanku, a KCP przychodzi z jednej domeny, timesheet z drugiej (próba
+    IX–X 2026). Bez kontraktu u tego klienta to raczej jego pracownik o tym
+    samym nazwisku, więc nikt.
     """
 
     local, _, domain = address.partition("@")
-    if not local or domain not in (_company_domains() | _personal_domains()):
+    at_client = await _clients_of_domain(db, domain)
+    if not local or (
+        at_client is None and domain not in (_company_domains() | _personal_domains())
+    ):
         return []
     staff = await db.scalar(
         select(User.id).where(func.lower(func.btrim(User.email)) == address).limit(1)
@@ -210,7 +253,38 @@ async def _by_company_address(
     ]
     if len({c.candidate_id for c in hits}) != 1:
         return []
+    if at_client is not None:
+        return [c for c in hits if c.client_id in at_client]
     return hits
+
+
+async def _clients_of_domain(db: AsyncSession, domain: str) -> Optional[frozenset[int]]:
+    """Klienci, z których domeny piszą ich pracownicy, albo ``None`` (domena obca).
+
+    Klucz z rejestru domen zamówień, klient po numerze rejestrowym. Domena grupy
+    (``plus.pl``) daje wszystkie spółki grupy, więc kontrakt wybiera dopiero człowiek.
+    """
+
+    from app.services.order_policies import known_clients
+
+    keys = known_clients.SHARED_SENDER_DOMAINS.get(domain) or tuple(
+        key for key in (known_clients.KNOWN_SENDER_DOMAINS.get(domain),) if key
+    )
+    if not keys:
+        return None
+    numbers: set[str] = set()
+    for key in keys:
+        numbers.update(known_clients.KNOWN_REGISTRY_IDS.get(key, ()))
+        markers = known_clients.KNOWN_MARKERS.get(key)
+        if markers is not None:
+            numbers.update(markers.foreign_registry_ids)
+    if not numbers:
+        return frozenset()
+    nip = func.upper(func.replace(func.replace(Client.nip, "-", ""), " ", ""))
+    rows = await db.scalars(
+        select(Client.id).where(nip.in_(numbers), Client.deleted_at.is_(None))
+    )
+    return frozenset(rows.all())
 
 
 async def resolve_named_in_text(

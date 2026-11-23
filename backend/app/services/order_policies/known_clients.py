@@ -87,6 +87,14 @@ KNOWN_SENDER_DOMAINS: dict[str, str] = {
     "nn-group.com": "nationale_nederlanden",
 }
 
+#: Domena, z której piszą pracownicy kilku spółek grupy. Rozpoznaniu zamówień
+#: wystarcza klucz z ``KNOWN_SENDER_DOMAINS``, ale skrzynka konsultanta w tej
+#: domenie nie mówi, u której spółki pracuje: konsultantka Cyfrowego Polsatu
+#: pisze z ``plus.pl`` i podpisuje się Polkomtelem (próba IX–X 2026, CP 634).
+SHARED_SENDER_DOMAINS: dict[str, tuple[str, ...]] = {
+    "plus.pl": ("polkomtel", "cyfrowy_polsat"),
+}
+
 
 def build_registry_from_known_clients() -> ClientRegistry:
     by_id = {nip: key for key, nips in KNOWN_REGISTRY_IDS.items() for nip in nips}

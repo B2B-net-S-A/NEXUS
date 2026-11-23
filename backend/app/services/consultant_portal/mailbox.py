@@ -490,6 +490,11 @@ async def _ingest_message(
             sender=sender,
         )
         created += made
+    report_owner = None
+    if contract is None and indirect is None:
+        report_owner = await identity.resolve_report_owner(
+            db, sender, settings=state, today=today
+        )
     for attachment in files:
         if attachment.get("@odata.type") != _FILE_ATTACHMENT or attachment.get(
             "isInline"
@@ -531,6 +536,10 @@ async def _ingest_message(
                 by_file[named.id] = named
         # Odczyt PDF-a to praca CPU: poza pętlą zdarzeń, jak odczyt RCP w rozliczeniu.
         kind = await asyncio.to_thread(kind_of_file, subject, name, content)
+        if owner is None and report_owner is not None and kind == "report":
+            # Drugi kontrakt jest u klienta z raportem T4T: raport godzin z poczty
+            # należy do tego kontraktu, faktura czeka na człowieka (próba IX–X 2026).
+            owner = report_owner.id
         try:
             stored = await documents.store(
                 db,
