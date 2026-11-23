@@ -328,6 +328,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.hr_subscription_renewal: _C.people,
     _T.care_contact_due: _C.contracts,
     _T.settlement_report_missing: _C.contracts,
+    _T.contract_rate_annex: _C.contracts,
     _T.care_client_structure: _C.contracts,
     _T.care_demand_signal: _C.contracts,
     # Konto i system
@@ -456,6 +457,12 @@ _SPLIT_GROUPS: dict[
         "Rozliczenia: brak raportu godzin",
         _C.contracts,
         (_T.settlement_report_missing,),
+    ),
+    # 0765: aneks zmienił stawkę konsultanta od dnia (Finanse, rozliczenia).
+    "contracts_rate_annex": (
+        "Rozliczenia: zmiana stawki konsultanta z aneksu",
+        _C.contracts,
+        (_T.contract_rate_annex,),
     ),
     # „Ludzie w NEXUSIE” (0462): przypomnienie opiekuna kontraktu — osobna
     # grupa, żeby rola mogła je wyłączyć bez końca umów i podpisów.

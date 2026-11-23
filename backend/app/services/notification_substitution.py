@@ -119,6 +119,8 @@ CURRENT_WORK_TYPES: frozenset[T] = frozenset(
         T.request_review_needed,
         # 0763: brak raportu godzin — Finanse czekają na ruch opiekuna.
         T.settlement_report_missing,
+        # 0765: zmiana stawki z aneksu — Finanse rozliczają od jej dnia.
+        T.contract_rate_annex,
         T.signature_failed,
         T.signature_rejected,
         T.signature_renewal_requested,
