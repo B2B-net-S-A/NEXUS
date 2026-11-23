@@ -83,6 +83,7 @@ from app.services.job_ad import (
     generate,
     lint,
     material,
+    on_create,
     portal_content,
     pracuj_mail,
     publications,
@@ -158,6 +159,7 @@ async def _response(
         "pracuj_request": await _pracuj_request(db, job.id),
         "jjit_api": await _jjit_api(db, job.id),
         "can_mark_publications": await _can_mark(db, job, user_id),
+        "recent_channels": (await on_create.recent_channels(db, job)).as_dict(),
     }
     if ad is None:
         return JobAdResponse(**base)

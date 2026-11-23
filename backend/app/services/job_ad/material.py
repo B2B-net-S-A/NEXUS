@@ -121,6 +121,23 @@ def _alternatives(raw: Any, labels: list[str]) -> tuple[str, ...]:
     return tuple(out)
 
 
+# „Język pracy” wpisany po angielsku („English C1”, „Fluent in English”) =
+# request klienta po angielsku (Nordea i inne banki międzynarodowe). Samo
+# „angielski B2” to wymóg w polskiej rekrutacji, a „EN”/„B2” bez słowa nic nie
+# mówi — wtedy ogłoszenie zostaje po polsku (23.11.2026, kopia produkcji:
+# 22 z 116 rekrutacji z „English”, żadna z „polski” w tym samym polu).
+_ENGLISH = re.compile(r"\benglish\b", re.IGNORECASE)
+_POLISH = re.compile(r"\b(polish|polsk\w*|pl)\b", re.IGNORECASE)
+
+
+def ad_lang(material: AdMaterial) -> str:
+    """Język pierwszego ogłoszenia przy tworzeniu rekrutacji: ``en`` albo ``pl``."""
+    language = material.language or ""
+    if _ENGLISH.search(language) and not _POLISH.search(language):
+        return "en"
+    return "pl"
+
+
 def build_material(job: Any, title: str) -> AdMaterial:
     """``title`` = tytuł efektywny bez nazwy klienta (``jpp.public_titles``)."""
     draft = jpp.draft_material(job, title)

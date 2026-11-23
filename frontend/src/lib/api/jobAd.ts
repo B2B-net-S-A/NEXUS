@@ -258,6 +258,17 @@ export interface JobAdState {
   jjit_api: AdJjitApi | null;
   /** Oznaczanie portali: DL rekrutacji, Head of Recruitment, admin (08.11.2026). */
   can_mark_publications: boolean;
+  /** Kanały jak w ostatnich rekrutacjach klienta — krok „Ogłoszenie” po utworzeniu (23.11.2026). */
+  recent_channels?: AdRecentChannels | null;
+}
+
+/** Kanały z większości ostatnich rekrutacji klienta z ogłoszeniem. */
+export interface AdRecentChannels {
+  channels: AdChannel[];
+  /** Na ilu rekrutacjach oparto zaznaczenie; 0 = klient bez historii (wszystkie). */
+  jobs: number;
+  /** Kategoria JustJoin.IT z ostatniej publikacji w tej kategorii kompetencji. */
+  jjit_category: string | null;
 }
 
 /** Publikacja na JustJoin.IT przez kolejkę portali; `status` = ostatnie zlecenie. */
@@ -376,6 +387,8 @@ function normalize(data: unknown): JobAdState {
     pracuj_request: d.pracuj_request ?? null,
     jjit_api: d.jjit_api ?? null,
     can_mark_publications: d.can_mark_publications === true,
+    recent_channels:
+      d.recent_channels && Array.isArray(d.recent_channels.channels) ? d.recent_channels : null,
   };
 }
 

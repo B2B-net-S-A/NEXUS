@@ -1667,4 +1667,14 @@ async def apply_job_create(
     if attached:
         await job_files_service.auto_mark_client_form(db, job.id)
     await delete_intake_form(db, data.intake_form_id, current_user.id)
+    # Ogłoszenie gotowe zaraz po „Utwórz” (23.11.2026): treść pisze model po
+    # commicie, w tle żądania — tworzenie na nią nie czeka, a awaria modelu
+    # zostawia dzisiejszą drogę (noc, „Przygotuj”). `job_ad/on_create.py`.
+    from app.services.job_ad import on_create as job_ad_on_create
+
+    effects.later(
+        job_ad_on_create.prepare_after_create,
+        job.id,
+        None if is_service_account(current_user) else current_user.id,
+    )
     return job
