@@ -71,7 +71,7 @@
       },
       {
         "q": "Jak przesunąć kandydata dalej?",
-        "a": "Kliknij strzałkę „→” na karcie: bez braków karta przechodzi od razu (10 s na „Cofnij”), z brakami otworzy się „Przesuń dalej”. Na „Rozmowę u klienta” okno pyta „Kiedy rozmowa?” — termin włącza przypomnienie o telefonie i pytaniach klienta. Klient zaakceptował osobę? „Zaznacz akceptację” na karcie przenosi ją do „Akceptacja i umowa”.",
+        "a": "Kliknij strzałkę „→” na karcie: bez braków karta przechodzi od razu (10 s na „Cofnij”), z brakami otworzy się „Przesuń dalej”. Na „Rozmowę u klienta” okno „Kiedy rozmowa?” wysyła terminy od klienta rekruterowi albo zapisuje ustalony termin. Klient zaakceptował osobę? „Zaznacz akceptację” na karcie przenosi ją do „Akceptacja i umowa”.",
         "anchor": "jobs.board.columns"
       },
       {
