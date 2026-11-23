@@ -214,3 +214,17 @@ export function bookingMailBody({
     : "\nZaproszenie w Teams przyjdzie osobno.";
   return `Dzień dobry,\n\ndziękuję za rozmowę. ${when}${host}\n\nPozdrawiam`;
 }
+
+/** Tytuł zaproszenia Teams od umawiającego (23.11.2026); dzwoniący go poprawia. */
+export function teamsInviteSubject(company?: string | null, service?: string | null): string {
+  const topic = [company?.trim(), service?.trim()].filter(Boolean);
+  if (topic.length === 0) return "Spotkanie z B2Bnetwork";
+  return `B2Bnetwork × ${topic.join(": ")}`.slice(0, 255);
+}
+
+/** Treść zaproszenia Teams; termin i link Teams dokłada Outlook, stopki nie ma. */
+export function teamsInviteBody({ service, hostName }: { service?: string | null; hostName?: string | null }): string {
+  const topic = service?.trim() ? ` w sprawie: ${service.trim()}` : "";
+  const host = hostName?.trim() ? ` Poprowadzi je ${hostName.trim()}.` : "";
+  return `Dzień dobry,\n\ndziękuję za rozmowę. Zapraszam na spotkanie w Teams${topic}.${host}\n\nPozdrawiam`;
+}

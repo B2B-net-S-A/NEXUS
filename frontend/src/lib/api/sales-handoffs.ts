@@ -103,6 +103,11 @@ export interface HandoffForm {
   /** Skrzynka osoby, która umawia: z niej wychodzi mail do klienta. */
   mailbox?: "ok" | "missing" | "no_send_scope";
   mailbox_address?: string | null;
+  /**
+   * Zaproszenie Teams od umawiającego w kalendarzu prowadzącego (23.11.2026). `false`,
+   * dopóki aplikacja w Microsoft 365 nie jest ustawiona: formularz zostaje przy mailu.
+   */
+  teams_invite?: boolean;
 }
 
 export interface BusySpan {
@@ -299,6 +304,31 @@ export function useSendBookingMail() {
     mutationFn: async (input: BookingMailInput) => {
       const { opportunity_id, ...payload } = input;
       return (await api.post<BookingMailResult>(`/api/sales/handoffs/${opportunity_id}/booking-mail`, payload)).data;
+    },
+  });
+}
+
+export interface BookingInviteInput {
+  opportunity_id: number;
+  /** Adres klienta. */
+  to: string[];
+  subject: string;
+  message: string;
+  /** Osoba, która umawia, jako uczestnik spotkania. */
+  include_me: boolean;
+  request_id: string;
+}
+
+/**
+ * Zaproszenie Teams od osoby, która umówiła (decyzja Artura 23.11.2026): spotkanie powstaje
+ * w kalendarzu prowadzącego, organizatorem jest prowadzący, uczestnikami klient i umawiający.
+ */
+export function useSendBookingInvite() {
+  // Bez odświeżenia: okno umawiania z kolejki odświeża listy przy zamknięciu.
+  return useMutation({
+    mutationFn: async (input: BookingInviteInput) => {
+      const { opportunity_id, ...payload } = input;
+      return (await api.post<Handoff>(`/api/sales/handoffs/${opportunity_id}/booking-invite`, payload)).data;
     },
   });
 }

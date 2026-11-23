@@ -22,6 +22,7 @@ import {
   useBookMeeting,
   useCompanyIdentity,
   useHandoffForm,
+  useSendBookingInvite,
   useSendBookingMail,
   type BookMeetingInput,
   type Handoff,
@@ -40,6 +41,8 @@ import {
   DURATIONS,
   fieldsFromTerm,
   handoffWhen,
+  teamsInviteBody,
+  teamsInviteSubject,
   termFromFields,
 } from "./helpers";
 import { HostCalendar } from "./HostCalendar";
@@ -62,10 +65,11 @@ export interface BookMeetingFormProps {
   /** Usługa z kontekstu, np. z kampanii. */
   service?: string;
   /**
-   * Mail do klienta z kolejki dzwonienia (prośba dzwoniących 17.11.2026): adres, tytuł
-   * i treść do poprawienia. Po zapisie wychodzi ze skrzynki osoby, która umawia, do
-   * klienta z kopią do prowadzącego. Adres i treść zostają też podpowiedzią do okna
-   * „Wyślij zaproszenie” prowadzącego (spotkanie Teams wysyła dalej on).
+   * Wysyłka do klienta z kolejki dzwonienia. Gdy aplikacja zaproszeń w Microsoft 365 jest
+   * ustawiona (`teams_invite`, decyzja Artura 23.11.2026), po zapisie osoba, która umawia,
+   * zakłada spotkanie Teams w kalendarzu prowadzącego: organizator to prowadzący, uczestnicy
+   * klient i ona. Bez aplikacji zostaje mail ze skrzynki umawiającego z kopią do prowadzącego
+   * (17.11.2026), a zaproszenie wysyła prowadzący. Adres trafia też do bloku przekazania.
    */
   invite?: { email: string | null };
   /** Spotkanie zapisane, zanim wyjdzie mail: okno wie, że zamknięcie nie może go zgubić. */
@@ -130,6 +134,8 @@ export function BookMeetingForm({
   const [mailSubject, setMailSubject] = useState<string | null>(null);
   const [mailBody, setMailBody] = useState<string | null>(null);
   const [mailOn, setMailOn] = useState(true);
+  // Osoba, która umawia, jako uczestnik spotkania Teams.
+  const [meOn, setMeOn] = useState(true);
   // Jeden klucz na otwarcie okna: drugi klik nie wyśle drugiego maila.
   const [mailRequestId] = useState(newRequestId);
   const [unsent, setUnsent] = useState<{ handoff: Handoff; error: string } | null>(null);
@@ -140,6 +146,7 @@ export function BookMeetingForm({
   // Z kolejki dzwonienia listy odświeża zapis wyniku przy zamknięciu (patrz `useBookMeeting`).
   const book = useBookMeeting({ refresh: !invite });
   const sendMail = useSendBookingMail();
+  const sendInvite = useSendBookingInvite();
   const { showSuccess } = useToast();
   const typedName = useDebouncedValue(name, 300);
   const typedEmail = useDebouncedValue(personEmail, 300);
@@ -171,12 +178,20 @@ export function BookMeetingForm({
   const start = termFromFields(term.day, term.time);
   const halfTerm = Boolean(term.day || term.time) && !start;
   const mailbox = form.data?.mailbox ?? "missing";
-  const subjectValue = mailSubject ?? bookingMailSubject(start);
-  const bodyValue = mailBody ?? bookingMailBody({ start, minutes, service, hostName });
+  // Zaproszenie Teams zamiast maila, gdy aplikacja zaproszeń jest ustawiona (23.11.2026).
+  const teams = Boolean(invite) && form.data?.teams_invite === true;
+  const companyName = picked?.name ?? name.trim();
+  const subjectValue =
+    mailSubject ?? (teams ? teamsInviteSubject(companyName, service) : bookingMailSubject(start));
+  const bodyValue =
+    mailBody ?? (teams ? teamsInviteBody({ service, hostName }) : bookingMailBody({ start, minutes, service, hostName }));
   const mailTo = parseAddresses(inviteTo);
-  const mailReady =
-    mailbox === "ok" && mailTo.valid.length > 0 && mailTo.invalid.length === 0 && subjectValue.trim() !== "";
+  const addressReady = mailTo.valid.length > 0 && mailTo.invalid.length === 0 && subjectValue.trim() !== "";
+  const mailReady = teams
+    ? addressReady && start !== null && bodyValue.trim() !== ""
+    : mailbox === "ok" && addressReady;
   const willMail = Boolean(invite) && mailOn && mailReady;
+  const sending = sendMail.isPending || sendInvite.isPending;
   const canSave = (picked !== null || name.trim() !== "") && hostValue !== "";
 
   const pick = (next: Ref | null) => {
@@ -241,21 +256,23 @@ export function BookMeetingForm({
   };
 
   const mail = async (saved: Handoff, requestId: string = mailRequestId) => {
+    const text = { to: mailTo.valid, subject: subjectValue.trim(), message: bodyValue.trim(), request_id: requestId };
     try {
-      await sendMail.mutateAsync({
-        opportunity_id: saved.opportunity.id,
-        to: mailTo.valid,
-        subject: subjectValue.trim(),
-        message: bodyValue.trim(),
-        cc_host: true,
-        request_id: requestId,
-      });
+      if (teams) await sendInvite.mutateAsync({ opportunity_id: saved.opportunity.id, ...text, include_me: meOn });
+      else await sendMail.mutateAsync({ opportunity_id: saved.opportunity.id, ...text, cc_host: true });
     } catch (failure) {
-      setUnsent({ handoff: saved, error: apiErrorMessage(failure, "Mail nie wyszedł.") });
+      setUnsent({
+        handoff: saved,
+        error: apiErrorMessage(failure, teams ? "Zaproszenie nie wyszło." : "Mail nie wyszedł."),
+      });
       return;
     }
     setUnsent(null);
-    showSuccess(`${booked(saved)} Mail wyszedł do klienta, kopia do prowadzącego.`);
+    showSuccess(
+      teams
+        ? `${booked(saved)} Zaproszenie Teams wyszło z kalendarza: ${saved.host?.name ?? "prowadzący"}.`
+        : `${booked(saved)} Mail wyszedł do klienta, kopia do prowadzącego.`,
+    );
     onSaved(saved);
   };
 
@@ -266,14 +283,16 @@ export function BookMeetingForm({
           <p className="font-medium text-foreground">
             Spotkanie zapisane: {unsent.handoff.company.name}, {handoffWhen(unsent.handoff.meeting_at)}.
           </p>
-          <p className="mt-1 text-foreground">Mail do klienta nie wyszedł. {unsent.error}</p>
+          <p className="mt-1 text-foreground">
+            {teams ? "Zaproszenie Teams nie wyszło." : "Mail do klienta nie wyszedł."} {unsent.error}
+          </p>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="ghost" disabled={sendMail.isPending} onClick={() => onSaved(unsent.handoff)}>
-            Zamknij bez maila
+          <Button variant="ghost" disabled={sending} onClick={() => onSaved(unsent.handoff)}>
+            {teams ? "Zamknij bez zaproszenia" : "Zamknij bez maila"}
           </Button>
           <Button
-            loading={sendMail.isPending}
+            loading={sending}
             // Nowy klucz: poprzednia próba nic nie wysłała albo serwer sam zatrzyma ponowienie.
             onClick={() => void mail(unsent.handoff, newRequestId())}
           >
@@ -493,7 +512,88 @@ export function BookMeetingForm({
         </div>
       </section>
 
-      {invite && (
+      {invite && teams && (
+        <section className="space-y-2" data-testid="booking-invite">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className={HEADING}>Zaproszenie na spotkanie (Teams)</h3>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Checkbox
+                checked={mailOn}
+                onCheckedChange={(checked) => setMailOn(checked === true)}
+                aria-label="Wyślij zaproszenie po zapisie"
+              />
+              Wyślij po zapisie
+            </label>
+          </div>
+          <div className="space-y-2 rounded-md border border-border p-3">
+            <p className="text-xs text-muted-foreground">Kto dostanie zaproszenie i zobaczy spotkanie w kalendarzu:</p>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <div className="space-y-1 rounded-md border border-border p-2">
+                <p className="text-sm font-medium">Klient</p>
+                <Input
+                  type="email"
+                  aria-label="Adres e-mail klienta"
+                  placeholder="adres e-mail klienta"
+                  value={inviteTo}
+                  maxLength={255}
+                  onChange={(event) => setInviteTo(event.target.value)}
+                />
+              </div>
+              <div className="space-y-1 rounded-md border border-border p-2">
+                <p className="truncate text-sm font-medium">{hostName || "Prowadzący"}</p>
+                <p className="text-xs leading-snug text-muted-foreground">
+                  organizator: spotkanie w jego kalendarzu, link Teams i transkrypt u niego
+                </p>
+              </div>
+              <label className="flex items-start gap-2 rounded-md border border-border p-2">
+                <Checkbox
+                  className="mt-0.5"
+                  checked={meOn}
+                  onCheckedChange={(checked) => setMeOn(checked === true)}
+                  aria-label="Dodaj mnie do spotkania"
+                />
+                <span className="min-w-0 space-y-1">
+                  <span className="block truncate text-sm font-medium">
+                    {user?.name ? `${user.name} (Ty)` : "Ty"}
+                  </span>
+                  <span className="block text-xs leading-snug text-muted-foreground">
+                    uczestnik: możesz dołączyć albo tylko widzieć termin
+                  </span>
+                </span>
+              </label>
+            </div>
+          </div>
+          <Input
+            aria-label="Tytuł zaproszenia"
+            placeholder="Tytuł zaproszenia"
+            value={subjectValue}
+            maxLength={255}
+            onChange={(event) => setMailSubject(event.target.value)}
+          />
+          <Textarea
+            aria-label="Treść zaproszenia"
+            rows={4}
+            value={bodyValue}
+            maxLength={5000}
+            onChange={(event) => setMailBody(event.target.value)}
+          />
+          {mailTo.invalid.length > 0 && (
+            <p className="text-xs text-destructive">Niepoprawny adres: {mailTo.invalid.join(", ")}</p>
+          )}
+          {mailOn && mailTo.valid.length === 0 && mailTo.invalid.length === 0 && (
+            <p className="text-xs text-muted-foreground">Wpisz adres klienta: bez niego zaproszenie nie wyjdzie.</p>
+          )}
+          {mailOn && !start && (
+            <p className="text-xs text-muted-foreground">Wpisz dzień i godzinę: bez terminu zaproszenie nie wyjdzie.</p>
+          )}
+          <p className="text-xs leading-snug text-muted-foreground">
+            Jedno zaproszenie z kalendarza: {hostName || "prowadzący"}. Klient nie dostaje osobnego maila, a jego
+            odpowiedź trafia do prowadzącego.
+          </p>
+        </section>
+      )}
+
+      {invite && !teams && (
         <section className="space-y-2" data-testid="booking-mail">
           <div className="flex items-center justify-between gap-2">
             <h3 className={HEADING}>Mail do klienta</h3>
@@ -590,7 +690,9 @@ export function BookMeetingForm({
         <p className="text-xs leading-snug text-muted-foreground">
           Zapis: szansa „Spotkanie kwalifikujące” u prowadzącego, spotkanie przy szansie, Ty jako źródło.{" "}
           {willMail
-            ? "Po zapisie mail wyjdzie z Twojej skrzynki do klienta, z kopią do prowadzącego."
+            ? teams
+              ? `Po zapisie NEXUS założy spotkanie Teams w kalendarzu: ${hostName || "prowadzący"} (organizator), klient${meOn ? " i Ty" : ""}.`
+              : "Po zapisie mail wyjdzie z Twojej skrzynki do klienta, z kopią do prowadzącego."
             : "Ten formularz niczego nie wysyła: zaproszenie do klienta wyśle prowadzący ze swojej skrzynki."}
         </p>
         <div className="flex flex-wrap justify-end gap-2">
@@ -606,10 +708,10 @@ export function BookMeetingForm({
               data-tour={invite ? "sales.calling.booking-mail" : undefined}
               onClick={() => submit(false)}
               disabled={!canSave}
-              loading={book.isPending || sendMail.isPending}
+              loading={book.isPending || sending}
             >
               {start ? `Umów ${handoffWhen(start)}` : "Zapisz bez terminu"}
-              {willMail ? " i wyślij mail" : ""}
+              {willMail ? (teams ? " i wyślij zaproszenie Teams" : " i wyślij mail") : ""}
             </Button>
           )}
         </div>
@@ -631,7 +733,7 @@ interface BookMeetingDialogProps extends Omit<BookMeetingFormProps, "onSaved" | 
 
 /** Formularz „Umów spotkanie” w oknie. */
 export function BookMeetingDialog({ onClose, onSaved, ...form }: BookMeetingDialogProps) {
-  // Zapisane spotkanie bez wysłanego maila: zamknięcie okna to „Zamknij bez maila”,
+  // Zapisane spotkanie bez wysłanego maila albo zaproszenia: zamknięcie okna to „Zamknij bez…”,
   // inaczej wynik rozmowy w kolejce by się nie zapisał.
   const [booked, setBooked] = useState<Handoff | null>(null);
   const close = () => {
