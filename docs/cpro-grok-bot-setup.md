@@ -255,3 +255,28 @@ Igora/Marcina właściwego dla tej rekrutacji.
    „Bot Cpro · … · wysłane dziś: N”.
 3. Wyłączenie awaryjne: `CPRO_BOT_ENABLED=false` (Coolify set env) — pętla
    staje, ręczne „✓ Wrzucone” działa jak przed botem.
+
+## Robot NEXUSA zamiast rutyny (od 24.11.2026)
+
+Rutyna Grok Bota w tle nie loguje się hasłem z Vault. Szkice robi usługa
+`cpro-robot` (reguła: `docs/claude/integracje/cpro-bot-grok.md`, sekcja
+„Robot NEXUSA zamiast Grok Bota”). Włączenie, każdy krok workflow
+„Coolify set env” z `redeploy=false`, na końcu jeden Deploy:
+
+1. Artur dodaje sekrety repo `CPRO_ROBOT_IGOR_USERNAME`, `CPRO_ROBOT_IGOR_PASSWORD`,
+   `CPRO_ROBOT_MARCIN_USERNAME`, `CPRO_ROBOT_MARCIN_PASSWORD` i przenosi je
+   workflowem z `value_from_secret`.
+2. `CPRO_ROBOT_IGOR_DISPLAY_NAME` i `CPRO_ROBOT_MARCIN_DISPLAY_NAME`: podpis
+   konta z bocznego paska Cpro po zalogowaniu (np. „I. Nazwisko”).
+3. `GROK_BOT_CPRO_WEBHOOK_URL=http://cpro-robot:8090/wake`. `GROK_BOT_CPRO_WEBHOOK_KEY`
+   zostaje (robot czyta go jako klucz pobudki); bez klucza ustaw nowy losowy sekret.
+4. `COMPOSE_PROFILES`: dopisz `cpro-robot` do obecnych profili (np.
+   `observability,cpro-robot`).
+5. Deploy, potem `CPRO_BOT_AUTO_DRAFT_ENABLED=true`. Pierwszy bieg idzie
+   w trybie `CPRO_ROBOT_DRY_RUN=true`: logowanie, request, oferty i profil bez
+   zapisu. Raport w kolejce „Do Cpro” mówi, do którego kroku doszedł.
+6. Udana próba → `CPRO_ROBOT_DRY_RUN=false` → „Ponów botem” na tej karcie →
+   Sandra ocenia szkic w Cpro.
+
+Wyłączenie: `CPRO_BOT_AUTO_DRAFT_ENABLED=false` (worker przestaje zlecać biegi).
+Logi robota: `docker logs` kontenera `cpro-robot` (numery biegów i wyniki).
