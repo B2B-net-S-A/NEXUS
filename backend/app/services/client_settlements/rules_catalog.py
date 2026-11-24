@@ -487,6 +487,18 @@ SECTIONS: tuple[Section, ...] = (
                 switch=True,
             ),
             Rule(
+                "cl.collective_invoice",
+                "Faktura zbiorcza: numer wiąże wszystkie zamówienia z tym numerem",
+                "off",
+                "F2",
+                hint="VeloBank: faktura z KSeF ma jedną pozycję na całe zamówienie "
+                "(„w ramach zamówienia nr …”), a w NEXUSIE każda osoba ma własne "
+                "zamówienie z tym numerem. Numer z faktury wiąże wszystkie zamówienia "
+                "klienta z tym numerem w miesiącu faktury, także z tytułem "
+                "„Zamówienie nr …”, bez względu na kwotę. Różnicę sprawdzają Finanse.",
+                switch=True,
+            ),
+            Rule(
                 "cl.ksef_contract",
                 "Numer umowy w KSeF (NrUmowy)",
                 "off",

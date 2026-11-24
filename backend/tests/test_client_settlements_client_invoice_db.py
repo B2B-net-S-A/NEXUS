@@ -41,7 +41,13 @@ async def _group(line_id: int) -> int:
         return int((await db.get(ClientOrder, line_id)).order_group_id)
 
 
-async def _sales_invoice(group_id: int, month: str, items: list[dict]) -> int:
+async def _sales_invoice(
+    group_id: int | None,
+    month: str,
+    items: list[dict],
+    *,
+    order_id: int | None = None,
+) -> int:
     year, mon = (int(x) for x in month.split("-"))
     async with AsyncSessionLocal() as db:
         invoice = ClientSalesInvoice(
@@ -60,12 +66,23 @@ async def _sales_invoice(group_id: int, month: str, items: list[dict]) -> int:
             ClientSalesInvoiceLink(
                 invoice_id=invoice.id,
                 order_group_id=group_id,
+                order_id=order_id,
                 period_year=year,
                 period_month=mon,
             )
         )
         await db.commit()
         return invoice.id
+
+
+async def _without_group(line_id: int) -> None:
+    """Zamówienie bez grupy (Bank Pocztowy, PKO, VeloBank): numer stoi w tytule."""
+
+    async with AsyncSessionLocal() as db:
+        line = await db.get(ClientOrder, line_id)
+        line.order_group_id = None
+        line.title = "ZAM-SOLO/2026"
+        await db.commit()
 
 
 async def _drop_invoices(ids: list[int]) -> None:
@@ -192,6 +209,36 @@ async def test_bez_wzoru_nazwa_zastepcza_a_wystawiona_faktura_zmienia_stan() -> 
 
         invoices.append(
             await _sales_invoice(await _group(line_id), month, [{"name": BASE}])
+        )
+        async with AsyncSessionLocal() as db:
+            data = await client_invoice.invoice_month(
+                db, client_id, month, amounts=True
+            )
+            view = await service.month_view(db, client_id, month, amounts=True)
+        row = next(r for r in data["rows"] if r["contract_id"] == contract_id)
+        assert row["state"] == "issued" and row["ksef_number"]
+        assert (
+            next(r for r in view["rows"] if r["contract_id"] == contract_id)[
+                "client_invoice"
+            ]
+            == "issued"
+        )
+    finally:
+        await _drop_invoices(invoices)
+        await _cleanup(client_id)
+
+
+async def test_faktura_przypieta_do_zamowienia_bez_grupy_tez_jest_wystawiona() -> None:
+    # Faktura z KSeF wisi wtedy na linii (`order_id`), nie na grupie: tak wiąże
+    # numer z tytułu, „Przypisz” Finansów i faktura zbiorcza VeloBanku.
+    client_id, contract_id, line_id = await _world()
+    month = _month(-1)
+    invoices: list[int] = []
+    try:
+        await _without_group(line_id)
+        await _accept(contract_id, month, "10")
+        invoices.append(
+            await _sales_invoice(None, month, [{"name": BASE}], order_id=line_id)
         )
         async with AsyncSessionLocal() as db:
             data = await client_invoice.invoice_month(

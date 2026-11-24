@@ -17,7 +17,7 @@ from app.models.client_sales_invoice import (
     ClientSalesInvoiceLink,
     ClientSalesInvoicePayment,
 )
-from app.services.client_invoicing import billing, clients, fa_sales
+from app.services.client_invoicing import billing, clients, fa_sales, requirements
 from app.services.client_invoicing.billing import (
     COST_NOTE,
     BillingLine,
@@ -42,6 +42,7 @@ from app.services.client_invoicing.payments import (
     decide_credit,
     mpp_vat,
 )
+from app.services.client_settlements import rules_catalog
 from app.services.hr.bank.parsed import StatementLine
 
 KSEF_A = "9876543210-20261103-A1180C0FFEE1-5C"
@@ -272,6 +273,110 @@ def test_number_on_two_rows_ignores_a_person_amount_outside_a_group():
 
 def test_several_orders_gets_another_attempt():
     assert "several_orders" in RETRY_REASONS
+
+
+# ── Faktura zbiorcza (cl.collective_invoice): numer wiąże całe zamówienie ──────
+
+COLLECTIVE = (
+    "Prace programistyczne za miesiąc wrzesień w ramach zamówienia nr 3/09/2026/XY"
+)
+
+
+def _people_orders(*nets, number="3/09/2026/XY", first_id=20):
+    """Zamówienie klienta na kilka osób, a w NEXUSIE osobne zamówienie okresowe każdej."""
+
+    return [
+        BillingRow(
+            client_id=1,
+            kind="periodic",
+            group_id=None,
+            order_id=first_id + index,
+            order_number=number,
+            currency="PLN",
+            lines=(_line(first_id + index, net, f"Osoba{index} Przykładowa"),),
+        )
+        for index, net in enumerate(nets)
+    ]
+
+
+def _collective(net, rows, *, collective, item=COLLECTIVE):
+    return decide(
+        net=Decimal(net),
+        currency="PLN",
+        texts=[item],
+        rows=rows,
+        refs=_refs(*rows),
+        items=[{"name": item, "quantity": "1", "unit_price": net}],
+        collective=collective,
+    )
+
+
+def test_collective_rule_binds_every_order_with_the_number_whatever_the_amount():
+    rows = _people_orders(*["16800.00"] * 8)
+    # Faktura na 7 osób z 8 też idzie na całe zamówienie: brak osoby wygląda jak
+    # urlopy, różnicę widzą Finanse.
+    decision = _collective("117600.00", rows, collective=True)
+    assert decision.targets == tuple(Target(order_id=row.order_id) for row in rows)
+    assert decision.method == "order_number"
+
+
+def test_collective_rule_reaches_orders_titled_zamowienie_nr():
+    rows = _people_orders("18900.00", "33600.00") + _people_orders(
+        "17640.00", number="Zamówienie nr 3/09/2026/XY", first_id=30
+    )
+    decision = _collective("68000.00", rows, collective=True)
+    assert {t.order_id for t in decision.targets} == {20, 21, 30}
+
+
+def test_collective_rule_keeps_other_numbers_apart():
+    rows = _people_orders("18900.00", "33600.00") + _people_orders(
+        "17640.00", number="4/09/2026/XY", first_id=30
+    )
+    decision = _collective("52000.00", rows, collective=True)
+    assert {t.order_id for t in decision.targets} == {20, 21}
+
+
+def test_without_the_rule_one_number_on_several_orders_waits():
+    # Przegląd 24.11: bez reguły kwota nie odróżni faktury zbiorczej od faktury
+    # jednej osoby ani od faktury bez jednej osoby, więc faktura czeka na Finanse.
+    eight = _people_orders(*["16800.00"] * 8)
+    assert _collective("117600.00", eight, collective=False).reason == "several_orders"
+    seven_and_typo = _people_orders(*["16800.00"] * 7) + _people_orders(
+        "16800.00", number="Zamówienie nr 3/09/2026/XY", first_id=40
+    )
+    assert (
+        _collective("134400.00", seven_and_typo, collective=False).reason
+        == "several_orders"
+    )
+    one_and_a_bit = _people_orders("16800.00", "1460.87")
+    assert (
+        _collective("18200.00", one_and_a_bit, collective=False).reason
+        == "several_orders"
+    )
+
+
+def test_collective_rule_comes_from_client_rules():
+    off = requirements.from_rules(rules_catalog.effective({}), "2026-09")
+    on = requirements.from_rules(
+        rules_catalog.effective(
+            {"cl.collective_invoice": {"level": "block", "params": {}}}
+        ),
+        "2026-09",
+    )
+    assert (off.collective_invoice, on.collective_invoice) == (False, True)
+
+
+def test_two_different_numbers_close_to_the_sum_still_wait():
+    a = _periodic(20, "ZAM/1", "100.00")
+    b = _periodic(21, "ZAM/2", "50.00")
+    decision = decide(
+        net=Decimal("140.00"),
+        currency="PLN",
+        texts=["ZAM/1, ZAM/2"],
+        rows=[a, b],
+        refs=_refs(a, b),
+    )
+    assert decision.reason == "several_orders"
 
 
 def test_number_outside_the_month_is_not_guessed():
