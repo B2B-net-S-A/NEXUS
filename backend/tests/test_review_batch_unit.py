@@ -210,6 +210,53 @@ async def test_status_shows_the_choice_only_for_own_job(batch_on):
     assert status.focus is None
 
 
+class _TwoJobsDb:
+    """Rekrutacje osoby: 1 = P1 Pilne, 2 = „Bez priorytetu”."""
+
+    async def scalars(self, _stmt):
+        return SimpleNamespace(
+            all=lambda: [
+                SimpleNamespace(
+                    id=1,
+                    title="Tester",
+                    priority=JobPriority.high,
+                    p0_until=None,
+                    status=JobStatus.published,
+                ),
+                SimpleNamespace(
+                    id=2,
+                    title="Analityk",
+                    priority=JobPriority.medium,
+                    p0_until=None,
+                    status=JobStatus.published,
+                ),
+            ]
+        )
+
+
+async def test_stale_cards_stay_out_of_the_urgent_and_other_split(batch_on):
+    """24.11.2026 pasek pokazywał „porcja 20 · 26 z pilnych · 8 z pozostałych”:
+    „z pilnych” liczyło też 14 kart odłożonych (R5), które nie zajmują miejsca
+    w porcji. Podział liczy świeże karty, odłożone idą osobno (``stale``)."""
+    week_ago = NOW - timedelta(days=7)
+
+    async def _own(_db, _uid, *, now=None):
+        fresh = [_card(1, 1, 80), _card(2, 1, 80), _card(3, 2, 80)]
+        stale = [rb.PendingCard(10 + i, 1, 1010 + i, 7, 80, week_ago) for i in range(4)]
+        return fresh + stale
+
+    async def _done(_db, _uid, *, now):
+        return rb.DayCounts(done=0)
+
+    batch_on.setattr(rb, "_own_cards", _own)
+    batch_on.setattr(rb, "day_counts", _done)
+    status = await rb.status_for(_TwoJobsDb(), _user(), now=NOW)
+    assert (status.sources["urgent"], status.sources["other"]) == (2, 1)
+    assert status.sources["stale"] == 4
+    # Odłożone zostają w porcji osoby: kolejka i liczba do decyzji bez zmian.
+    assert status.pending == 7
+
+
 @pytest.mark.parametrize(
     "role",
     [UserRole.admin, UserRole.head_of_recruitment, UserRole.delivery_lead],
@@ -532,6 +579,24 @@ def test_stale_cards_do_not_take_seats_but_stay_visible():
     new = rb.PendingCard(2, 1, 1002, 7, 80, now - timedelta(hours=2))
     assert rb.batch_cards([old, new], now) == [old, new]
     assert rb.batch_cards([old, new], now, fresh_only=True) == [new]
+
+
+def test_stale_summary_counts_the_whole_queue_not_the_page():
+    """Linia „Na końcu porcji: N kart” liczyła odłożone tylko na stronie kolejki
+    (20 kart). Przy pełnej porcji nie było jej wcale, a konto z 22 odłożonymi po
+    10 decyzjach widziało „10 kart” (24.11.2026)."""
+    now = datetime(2026, 11, 24, 10, 0, tzinfo=_CET)
+    fresh = [
+        rb.PendingCard(i, 1, 1000 + i, 7, 80, now - timedelta(hours=1))
+        for i in range(20)
+    ]
+    stale = [_opened("2026-11-19"), _opened("2026-11-18"), _opened("2026-11-20")]
+    assert rb.stale_summary(fresh + stale, now) == {
+        "count": 3,
+        "first": "2026-11-18",
+        "last": "2026-11-20",
+    }
+    assert rb.stale_summary(fresh, now) is None
 
 
 def test_card_without_open_date_is_not_the_batch():

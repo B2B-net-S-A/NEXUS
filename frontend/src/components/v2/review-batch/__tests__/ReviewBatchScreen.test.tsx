@@ -406,6 +406,31 @@ describe("ReviewBatchScreen: kolejka rekrutacja po rekrutacji (17.11.2026)", () 
     render(<ReviewBatchScreen />);
     expect(screen.queryByTestId("review-queue-stale")).toBeNull();
   });
+
+  it("linia liczy odłożone z całej kolejki, nie ze strony 20 kart (24.11.2026)", () => {
+    // Konto z 22 odłożonymi po 10 decyzjach: na stronie widać tylko 2 z nich.
+    given(
+      { pending: 32 },
+      {
+        data: {
+          items: [
+            item(1, 1, "DevOps Lead"),
+            { ...item(2, 2, "Analityk"), stale: true, opened_on: "2026-11-18" },
+            { ...item(3, 2, "Analityk"), stale: true, opened_on: "2026-11-18" },
+          ],
+          runs: [
+            { job_id: 1, count: 10 },
+            { job_id: 2, count: 22 },
+          ],
+          stale: { count: 22, first: "2026-11-18", last: "2026-11-20" },
+        },
+      },
+    );
+    render(<ReviewBatchScreen />);
+    expect(screen.getByTestId("review-queue-stale").textContent).toMatch(
+      /Na końcu porcji: 22 karty z 18\.11–20\.11 bez decyzji od 2 dni roboczych/,
+    );
+  });
 });
 
 describe("ReviewBatchScreen: 12 pilnych + 8 pozostałych (R2, 22.11.2026)", () => {
@@ -431,6 +456,33 @@ describe("ReviewBatchScreen: 12 pilnych + 8 pozostałych (R2, 22.11.2026)", () =
     const text = screen.getByTestId("review-batch-sources").textContent;
     expect(text).toMatch(/20 z pilnych/);
     expect(text).not.toMatch(/miejsc/);
+    expect(screen.queryByTestId("review-batch-stale")).toBeNull();
+  });
+
+  it("odłożone osobno: podział sumuje się do porcji, obok „+14 odłożonych” (24.11.2026)", () => {
+    // Konto 119 na kopii z 24.11: porcja 20, w kolejce 20 świeżych i 14 odłożonych.
+    given({
+      pending: 34,
+      required: 20,
+      sources: { p0: 0, rest: 34, level_next: 20, level_cap: 20, urgent: 12, other: 8, other_seats: 8, stale: 14 },
+    });
+    render(<ReviewBatchScreen />);
+    expect(screen.getByTestId("review-batch-sources").textContent).toMatch(
+      /Twoja porcja dziś: 20 ·\s*12 z pilnych\s*8 z pozostałych\s*\+14 odłożonych/,
+    );
+    expect(screen.getByTestId("review-batch-stale").getAttribute("title")).toMatch(
+      /nie zajmują miejsca w porcji/,
+    );
+  });
+
+  it("jedna odłożona: „+1 odłożona”", () => {
+    given({
+      pending: 21,
+      required: 20,
+      sources: { p0: 0, rest: 21, level_next: 20, level_cap: 20, urgent: 12, other: 8, other_seats: 8, stale: 1 },
+    });
+    render(<ReviewBatchScreen />);
+    expect(screen.getByTestId("review-batch-stale").textContent).toBe("+1 odłożona");
   });
 });
 

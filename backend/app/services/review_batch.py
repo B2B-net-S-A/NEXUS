@@ -46,7 +46,12 @@ from sqlalchemy.orm import aliased
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import settings
-from app.core.scheduling import business_today, is_business_day, local_day_start_utc
+from app.core.scheduling import (
+    business_date,
+    business_today,
+    is_business_day,
+    local_day_start_utc,
+)
 from app.models.activity import Activity
 from app.models.app_setting import AppSetting
 from app.models.job import Job, JobPriority
@@ -331,6 +336,21 @@ def batch_cards(
         for card in cards
         if in_batch(card, now, min_score) and not (fresh_only and is_stale(card, now))
     ]
+
+
+def stale_summary(cards: Iterable["PendingCard"], now: datetime) -> Optional[dict]:
+    """Odłożone w całej kolejce osoby: ile i z jakich dni firmy. Ekran pobiera
+    20 pierwszych kart, a odłożone stoją na końcu, więc linia „Na końcu porcji:
+    N kart” liczona ze strony nie pokazywała ich wcale albo tylko część
+    (24.11.2026: konto z 22 odłożonymi po 10 decyzjach widziało „10 kart”)."""
+    days = sorted(
+        business_date(card.opened_at).isoformat()
+        for card in cards
+        if card.opened_at is not None and is_stale(card, now)
+    )
+    if not days:
+        return None
+    return {"count": len(days), "first": days[0], "last": days[-1]}
 
 
 def claimed_by_other(
@@ -1316,7 +1336,12 @@ async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchSta
         focus = None  # osobę zdjęto z rekrutacji albo rekrutacja wyszła z pracy
 
     p0_cards = sum(job.pending for job in team_jobs if job.group == "p0")
-    urgent_cards = sum(job.pending for job in team_jobs if job.group in _URGENT_GROUPS)
+    # Skład porcji bez odłożonych (R5): nie zajmują w niej miejsca, więc „z pilnych”
+    # i „z pozostałych” sumują się do porcji, a odłożone idą osobno (``stale``).
+    # 24.11.2026 pasek pokazywał „porcja 20 · 26 z pilnych · 8 z pozostałych”.
+    fresh = [card for card in cards if not is_stale(card, now)]
+    urgent_jobs = {job.job_id for job in team_jobs if job.group in _URGENT_GROUPS}
+    urgent_cards = sum(1 for card in fresh if card.job_id in urgent_jobs)
     has_other = any(job.group not in _URGENT_GROUPS for job in team_jobs)
     return BatchStatus(
         enabled=True,
@@ -1341,9 +1366,9 @@ async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchSta
             "level_cap": review_batch_levels.CAP,
             # R2 (22.11.2026): pilne = P0 + P1, pozostałe = reszta rekrutacji.
             "urgent": urgent_cards,
-            "other": len(cards) - urgent_cards,
+            "other": len(fresh) - urgent_cards,
             "other_seats": rest_seats(minimum, has_other),
-            "stale": sum(1 for card in cards if is_stale(card, now)),
+            "stale": len(cards) - len(fresh),
         },
         focus=focus.as_dict() if focus is not None else None,
     )

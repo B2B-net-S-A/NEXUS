@@ -174,7 +174,7 @@ async def my_queue(
     """Osoby z porcji w kolejności przeglądu (rekrutacja po rekrutacji, w każdej
     od najlepszej; 17.11.2026). Każdy wiersz niesie migawkę karty i id etapu
     do ruchu, a ``runs`` mówi, ile osób z której rekrutacji idzie po kolei
-    w całej kolejce, nie tylko na tej stronie."""
+    w całej kolejce, nie tylko na tej stronie; ``stale`` tak samo liczy odłożone."""
     now = datetime.now(timezone.utc)
     whole = await svc.review_queue(db, current_user, now=now, limit=None)
     cards = whole[:limit]
@@ -341,6 +341,8 @@ async def my_queue(
             {"job_id": job_id, "count": count}
             for job_id, count in svc.queue_runs(whole)
         ],
+        # Odłożone z całej kolejki, nie tylko z tej strony (linia „Na końcu porcji”).
+        "stale": svc.stale_summary(whole, now),
     }
 
 
