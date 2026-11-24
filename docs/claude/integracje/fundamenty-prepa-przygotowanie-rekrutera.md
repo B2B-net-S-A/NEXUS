@@ -1,9 +1,8 @@
 # Fundamenty prepa — przygotowanie kandydata przez rekrutera (Ocena prepów → „Przygotowanie”)
 <!-- indeks: 18 punktów w 5 grupach, warunki stop (A), „kandydat po przygotowaniu umie”, klucz `preparation` w ustawieniach oceny, startowe w `services/prep_fundamentals.py`, wyjątki klienta w karcie, bez imion DL-i w repo, plan F1–F5 -->
 
-Decyzje Artura z 24.11.2026, na podstawie odpowiedzi Delivery Leadów
-z 10–17.11.2026 (sześć osób, w tym DL-e Nordei, PKO, BNP/Aliora, Orlenu/Energi,
-CEZ/PAŻP/Tauronu i Banku Pocztowego). Przed rozmową u klienta rekruter
+Decyzje Artura z 24.11.2026, na podstawie odpowiedzi sześciu Delivery Leadów
+i KAM-ów z 10–17.11.2026. Przed rozmową u klienta rekruter
 przechodzi z kandydatem tę samą listę u każdego klienta, a Delivery Lead
 na swoim prepie zajmuje się już wymaganiami rekrutacji i brakami.
 
@@ -26,12 +25,10 @@ na swoim prepie zajmuje się już wymaganiami rekrutacji i brakami.
   i motywacja, bez ChatGPT i nagrywania, feedback po rozmowie).
 - **Tło w Teams:** „tło B2Bnetwork, a gdy kandydat nie może go ustawić —
   neutralne”. Nikt nie odpada przez tło.
-- **Wyjątki od warunków stop stoją w karcie klienta, nie na liście.** Umowa
-  o pracę w Tauronie (umowa bezpośrednio z Tauronem, preferujemy B2B), zlecenie
-  dla juniorów w Credit Agricole, równoległy projekt przy Banku Pocztowym
-  (uwaga tylko dla zespołu: kandydat jej nie słyszy, bo mógłby powtórzyć ją
-  w banku; zdanie w karcie dopisuje F2). Lista mówi przy punktach 1 i 3
-  „wyjątki: karta klienta”.
+- **Wyjątki od warunków stop stoją w karcie klienta, nie na liście.** Lista
+  mówi przy punktach 1 i 3 „wyjątki: karta klienta”. Repo jest publiczne:
+  nie wpisuj tu ani w kodzie, u którego klienta i jaki wyjątek obowiązuje,
+  zwłaszcza gdy uwaga jest tylko dla zespołu (klient mógłby ją przeczytać).
 - **Uwagi DL-i do 30.11.2026** zbiera Artur; poprawki wchodzą jedną nową
   wersją ustawień. Nie zmieniaj listy w kodzie po wdrożeniu: startowa zmiana
   w `prep_fundamentals.py` nie dotknie wersji opublikowanej w bazie.
