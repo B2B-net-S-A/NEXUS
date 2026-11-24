@@ -302,6 +302,7 @@ export function AgreementReadinessBar({
   onPreview,
   downloadLabel,
   downloadBusy,
+  downloadDisabled = false,
   onDownload,
 }: {
   /** Braki ułożone po krokach. */
@@ -314,6 +315,8 @@ export function AgreementReadinessBar({
   onPreview: () => void;
   downloadLabel: string;
   downloadBusy: boolean;
+  /** Pobranie wstrzymane mimo kompletu pól (np. nieudane sprawdzenie umów osoby). */
+  downloadDisabled?: boolean;
   onDownload: () => void;
 }) {
   const ready = missing.length === 0;
@@ -388,7 +391,7 @@ export function AgreementReadinessBar({
           type="button"
           size="sm"
           onClick={onDownload}
-          disabled={!ready || downloadBusy}
+          disabled={!ready || downloadBusy || downloadDisabled}
           title={blocked}
           data-help="contracts.b2b_generator.docx"
         >

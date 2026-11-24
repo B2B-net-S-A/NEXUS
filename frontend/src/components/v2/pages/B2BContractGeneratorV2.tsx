@@ -239,6 +239,8 @@ function isForbidden(error: unknown): boolean {
 }
 
 const NO_ACCESS_TITLE = "Brak uprawnień do Generatora Umów B2B";
+const CONTRACTS_CHECK_FAILED =
+  "Nie udało się sprawdzić, czy ta osoba ma już umowę w tej rekrutacji";
 const NO_ACCESS_DESC =
   "Ta operacja wymaga dodatkowych uprawnień do dokumentów umownych. " +
   "Poproś administratora o nadanie dostępu — " +
@@ -4840,6 +4842,10 @@ export function GeneratorForm({
     candidate?.id,
     savedContract?.id ?? null,
   );
+  // Awaria listy umów rekrutacji nie może wyglądać jak „brak umowy”: to
+  // ostrzeżenie jest jedyną ochroną przed drugą umową tej osoby, więc bez
+  // udanego sprawdzenia pobranie czeka na „Spróbuj ponownie”.
+  const contractsCheckFailed = jobContractsQuery.isError;
 
   // Telefon tak, jak trafia do umowy: z prefiksem z listy, chyba że ktoś
   // wpisał numer zaczynający się od „+”.
@@ -5293,6 +5299,10 @@ export function GeneratorForm({
   });
 
   const onDocx = async () => {
+    if (contractsCheckFailed) {
+      toast.showError(CONTRACTS_CHECK_FAILED);
+      return;
+    }
     if (!validate()) return;
     // Replacement i FTE są obowiązkowe przy umowie z rekrutacją (serwer: 422).
     if (selectedRecruitment && !isAdminComplete(adminValue)) {
@@ -5345,6 +5355,8 @@ export function GeneratorForm({
     docxMut.mutate(registryOverrides(diffs));
   };
   const docxBusy = docxMut.isPending || verifyMut.isPending;
+  // Przyciski pobrania wyłączone, dopóki sprawdzenie umów tej osoby nie przejdzie.
+  const docxBlocked = docxBusy || contractsCheckFailed;
   const onPreview = () => {
     if (validate()) previewMut.mutate();
   };
@@ -5388,7 +5400,7 @@ export function GeneratorForm({
           <Button
             type="button"
             size="sm"
-            disabled={docxBusy}
+            disabled={docxBlocked}
             onClick={onDocx}
           >
             {docxBusy ? (
@@ -5411,6 +5423,35 @@ export function GeneratorForm({
             Nowa umowa
           </Button>
         )}
+      </div>
+    </Alert>
+  ) : null;
+
+  const contractsCheckAlert = contractsCheckFailed ? (
+    <Alert
+      variant="error"
+      role="alert"
+      title={CONTRACTS_CHECK_FAILED}
+      data-testid="b2b-existing-contract-check-failed"
+    >
+      <p className="mt-0.5 text-xs opacity-90">
+        {apiErrorMessage(jobContractsQuery.error, "Spróbuj ponownie.")} Pobranie
+        umowy jest wstrzymane, dopóki sprawdzenie się nie uda — inaczej można by
+        wygenerować drugą umowę bez ostrzeżenia.
+      </p>
+      <div className="mt-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={jobContractsQuery.isFetching}
+          onClick={() => void jobContractsQuery.refetch()}
+        >
+          {jobContractsQuery.isFetching ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : null}
+          Spróbuj ponownie
+        </Button>
       </div>
     </Alert>
   ) : null;
@@ -6473,6 +6514,7 @@ export function GeneratorForm({
       <FieldSpanContext.Provider value="@md:col-span-2">
       <div ref={rootRef} className="@container mx-auto max-w-[1400px] space-y-3">
         {savedAlert}
+        {contractsCheckAlert}
         {existingAlert}
         <div className="grid items-start gap-4 @4xl:grid-cols-[176px_minmax(0,1fr)_300px] @4xl:gap-5">
           <div className="min-w-0 @4xl:sticky @4xl:top-4">
@@ -6530,6 +6572,7 @@ export function GeneratorForm({
           onPreview={onPreview}
           downloadLabel={downloadLabel}
           downloadBusy={docxBusy}
+          downloadDisabled={contractsCheckFailed}
           onDownload={onDocx}
         />
         {registryDialog}
@@ -6581,6 +6624,7 @@ export function GeneratorForm({
     // Generatora dwa albo trzy jak dotąd.
     <div ref={rootRef} className="@container space-y-4">
       {savedAlert}
+      {contractsCheckAlert}
       {existingAlert}
 
       {/* Źródło danych */}
@@ -6656,7 +6700,7 @@ export function GeneratorForm({
         {/* Jeden przycisk w języku z „Język umowy”. Dwa (PL/EN) zakładały dwa
             wiersze rejestru i dwa numery dla jednej umowy; teraz druga wersja
             językowa to poprawka zapisanej umowy pod tym samym numerem. */}
-        <Button disabled={docxBusy} onClick={onDocx} data-help="contracts.b2b_generator.docx">
+        <Button disabled={docxBlocked} onClick={onDocx} data-help="contracts.b2b_generator.docx">
           {docxBusy ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
