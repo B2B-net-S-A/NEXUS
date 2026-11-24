@@ -76,7 +76,11 @@ export function LayoutChoice({
     >
       <p className="pt-1.5 text-sm font-semibold text-foreground">Układ CV</p>
       <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Kotwica lekcji „Nowe CV” (23.11.2026) — przełącznik w karcie „CV do klienta”. */}
+        <div
+          className="flex flex-wrap items-center gap-2"
+          data-tour={place === "card" ? "cv.layout-choice" : undefined}
+        >
           <Segmented<CvLayout>
             label="Układ CV"
             value={value}

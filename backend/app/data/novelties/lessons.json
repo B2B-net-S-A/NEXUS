@@ -2208,6 +2208,51 @@
     ]
   },
   {
+    "id": "lekcja-nowe-cv-uklad",
+    "title": "Układ CV: Nowe CV albo Klasyczne",
+    "novelties": [
+      "nowe-cv-przelacznik-ukladu"
+    ],
+    "task": "Otwórz CV do klienta innej osoby z rekrutacji ćwiczebnej i przełącz jej CV na układ „Nowe CV”.",
+    "solo_href": "/jobs/990001?candidate=990107",
+    "check": {
+      "kind": "click",
+      "anchor": "cv.layout-choice"
+    },
+    "questions": [
+      {
+        "q": "Przełączasz gotowe CV z Klasycznego na Nowe CV. Co się dzieje z treścią?",
+        "options": [
+          "Zostaje ta sama, z Twoimi poprawkami — zmienia się tylko wygląd",
+          "NEXUS generuje CV od nowa w nowym układzie",
+          "Poprawki z edytora trzeba nanieść jeszcze raz"
+        ],
+        "answer": 0,
+        "explain": "Oba układy czytają ten sam tekst z edytora. Przełączenie nie generuje CV od nowa i nie kasuje poprawek."
+      },
+      {
+        "q": "CV jest już wysłane do klienta. Czy zmienisz jeszcze układ?",
+        "options": [
+          "Nie — po wysyłce układ jest zablokowany, tak jak podmiana CV",
+          "Tak, klient sam dostanie nową wersję",
+          "Tak, ale tylko na Nowe CV"
+        ],
+        "answer": 0,
+        "explain": "Klient ma już plik w jednym układzie. Po „CV wysłane” przełącznik pokazuje kłódkę „po wysyłce do klienta”."
+      },
+      {
+        "q": "Klient prosi o CV w Wordzie. Który układ wybierasz?",
+        "options": [
+          "Klasyczne — Word jest zawsze w układzie klasycznym",
+          "Nowe CV — Word też będzie w nowym układzie",
+          "Obojętnie, Word bierze układ z reguły klienta"
+        ],
+        "answer": 0,
+        "explain": "Nowe CV istnieje tylko jako PDF. Plik Word to zawsze układ klasyczny. Na start zaznaczone jest Klasyczne, a Nowe CV od razu tylko u klienta z taką regułą CV."
+      }
+    ]
+  },
+  {
     "id": "lekcja-stop-przedwstepnej-na-karcie",
     "title": "Karta zatrzymana do podpisu przedwstępnej",
     "novelties": [

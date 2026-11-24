@@ -81,6 +81,35 @@ function viewer(): PoligonViewer {
   return viewerFrom(storedUser());
 }
 
+/**
+ * Podgląd „Nowego CV” na poligonie (lekcja „Nowe CV”, 23.11.2026). Poligon nie
+ * renderuje plików, więc PDF nowego układu to statyczny render serwera
+ * fikcyjnego CV z `cv-fiction.ts` (bez nazwiska w tytule — pasuje do każdej
+ * osoby ćwiczebnej), z nagłówkami jak z trasy. Pobranie (`intent=download`)
+ * i podgląd klasycznego Worda zostają odmową (`null`).
+ */
+export const POLIGON_NEW_CV_PDF = "/poligon/nowe-cv.pdf";
+const POLIGON_NEW_CV_HEADERS: Record<string, string> = {
+  "Content-Disposition": "inline; filename=\"SZKIC_CV.pdf\"",
+  "X-CV-Layout": "new",
+  "X-CV-Page1-Fits": "1",
+  "X-CV-Page1-Font": "10",
+  "X-CV-Unmapped-Sections": "0",
+};
+const PREVIEW_PDF = /\/api\/candidates\/stages\/(\d+)\/cv\/branded\/preview-pdf(\?.*)?$/;
+
+export async function poligonFile(
+  path: string,
+): Promise<{ blob: Blob; filename: string | null; headers: Headers } | null> {
+  const match = path.match(PREVIEW_PDF);
+  if (!match || new URLSearchParams(match[2] ?? "").get("intent") === "download") return null;
+  const store = await poligonStore();
+  if (store.cvLayoutOf(Number(match[1])) !== "new") return null;
+  const res = await fetch(POLIGON_NEW_CV_PDF);
+  if (!res.ok) return null;
+  return { blob: await res.blob(), filename: "SZKIC_CV.pdf", headers: new Headers(POLIGON_NEW_CV_HEADERS) };
+}
+
 const AUTH_ME = /^(https?:\/\/[^/]+)?\/api\/auth\/me(\?|$)/;
 
 export const poligonAdapter: AxiosAdapter = async (config: InternalAxiosRequestConfig) => {
