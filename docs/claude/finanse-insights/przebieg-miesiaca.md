@@ -39,7 +39,8 @@ samym ekranie.
   „Delegacja do sprawdzenia” z kwotą w opisie i kluczem `travel.rcp_costs`
   (`rcp_checks.py`), więc w „Błędy i uwagi” jest jedna grupa, a nie jedna na
   kwotę. Do 24.11 silnik ustawiał uwagę i zapisywał samą informację, więc osoba
-  wisiała „z uwagami” bez powodu.
+  wisiała „z uwagami” bez powodu. Akceptacja kosztów przez klienta zdejmuje tę
+  uwagę (`rozliczenia-delegacje-i-zmiana-stawki-w-miesiacu.md`).
 - **Faktura do klienta przed przyjęciem RCP to ostrzeżenie, nie blokada**
   (decyzja Artura 24.11). Licznik `client_invoice.issued_early`; w październiku
   56 osób miało fakturę sprzedaży w KSeF przy nieprzyjętym RCP.
