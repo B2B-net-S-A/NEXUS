@@ -34,6 +34,44 @@ describe("„Co się dzieje” na stronie kontraktu", () => {
     expect(buildContractHappening(base, null, TODAY)).toEqual([]);
   });
 
+  it("umowa podpisana po starcie pracy daje ostrzeżenie z liczbą dni bez umowy", () => {
+    const items = buildContractHappening(
+      {
+        ...base,
+        date_warnings: [
+          { code: "start_before_signature", start_date: "2026-11-02", day: "2026-11-10" },
+        ],
+      },
+      null,
+      TODAY,
+    );
+    expect(items).toEqual([
+      expect.objectContaining({
+        id: "dates",
+        tone: "warning",
+        lead: "Start przed podpisem — umowa podpisana 10.11.2026, praca od 02.11.2026",
+        actions: [],
+      }),
+    ]);
+    expect(items[0].detail).toContain("Przez 8 dni");
+  });
+
+  it("próg stawki sprzed startu mówi o dacie, bez kwoty", () => {
+    const items = buildContractHappening(
+      {
+        ...base,
+        date_warnings: [
+          { code: "rate_step_before_start", start_date: "2026-11-16", day: "2026-06-01" },
+        ],
+      },
+      null,
+      TODAY,
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0].lead).toBe("Próg stawki od 01.06.2026 jest sprzed startu umowy (16.11.2026)");
+    expect(items[0].detail).not.toMatch(/zł|PLN/);
+  });
+
   it("zaplanowane zakończenie za 11 dni jest czerwone, z powodem i nierozwiązaną umową", () => {
     const items = buildContractHappening(
       {
