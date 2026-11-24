@@ -42,6 +42,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
+from app.core.scheduling import business_date
 from app.models.ai_feature import AIFeatureKey
 from app.models.sales import (
     SalesBotResult,
@@ -561,7 +562,7 @@ async def assess(
     if not api_key_configured(model_for(FEATURE)):
         await finish({"state": "failed", "error": "no_model"})
         return "failed"
-    today = moment.date()
+    today = business_date(moment)  # „dzis” dla modelu to dzień firmy, nie UTC
     facts = await nexus_facts(db, company, now=moment)
     ref_ids = {ref.id for ref in knowledge.references}
     data = model_payload(

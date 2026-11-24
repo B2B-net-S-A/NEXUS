@@ -10,7 +10,7 @@ klienta, stawki do klienta tylko przy ich podglądzie.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -507,11 +507,63 @@ async def test_context_shows_the_recruiters_handoff_remark_on_top(
         await _cleanup(world, [rec_id, admin_id])
 
 
+@pytest.mark.asyncio
+async def test_context_uses_company_day_not_utc_day(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Przegląd o 00:30 w Warszawie (23:30 UTC 24.11) liczy krok harmonogramu
+    stawek i agregaty u klienta na 25.11 — dzień firmy, nie UTC (audyt 24.11)."""
+    world = await _seed_world()
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    cid, jid, defs = world["candidate_id"], world["job_id"], world["defs"]
+    admin_id, _ = await _seed_user(UserRole.admin)
+    seen: dict[str, object] = {}
+    real_summary = svc.client_consultant_summary
+
+    async def _last_contract(db, candidate_id, *, access, today):
+        seen["last_contract"] = today
+        return None
+
+    async def _summary(db, **kw):
+        seen["summary"] = kw["today"]
+        return await real_summary(db, **kw)
+
+    monkeypatch.setattr(svc, "_last_contract", _last_contract)
+    monkeypatch.setattr(svc, "client_consultant_summary", _summary)
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                CandidateStage(
+                    candidate_id=cid,
+                    job_id=jid,
+                    stage="screening",
+                    stage_def_id=defs["screening"],
+                    moved_at=datetime.now(timezone.utc) - timedelta(hours=2),
+                )
+            )
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            await svc.build_context(
+                db,
+                user=await db.get(User, admin_id),
+                job=await db.get(Job, jid),
+                candidate_id=cid,
+                now=datetime(2026, 11, 24, 23, 30, tzinfo=timezone.utc),
+            )
+        assert seen["last_contract"] == date(2026, 11, 25)
+        assert seen["summary"] == date(2026, 11, 25)
+    finally:
+        await _cleanup(world, [admin_id])
+
+
 def test_question_is_not_evidence_from_the_conversation() -> None:
     # 02.11.2026: w 73 z 319 par tabela mówiła „jest”, bo słowo padło w pytaniu.
     sheet = {
         "answers": [
-            {"question_text": "Czy znasz Kubernetes?", "response": "Pracowałem z Dockerem."}
+            {
+                "question_text": "Czy znasz Kubernetes?",
+                "response": "Pracowałem z Dockerem.",
+            }
         ]
     }
     texts = svc.conversation_texts(sheet, {})

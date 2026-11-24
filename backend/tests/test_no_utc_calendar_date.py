@@ -12,11 +12,17 @@ podany z Pythona). Gdy dzień UTC jest zamierzony (np. okno limitu u dostawcy
 liczone w UTC), linia albo linia nad nią niesie komentarz
 `# dzień UTC celowo: <powód>`.
 
+Wzorzec dwuetapowy (audyt 24.11.2026): `now = datetime.now(timezone.utc)`,
+a kilka linii niżej `now.date()` w tej samej funkcji. Wyrażenia regularne go
+nie widziały (`candidate_terms_apply`, `dl_review.build_context`), więc łapie
+go analiza drzewa składni per funkcja.
+
 Test nie importuje aplikacji — czyta pliki, więc działa też lokalnie.
 """
 
 from __future__ import annotations
 
+import ast
 import io
 import re
 import tokenize
@@ -87,18 +93,98 @@ def _without_comments(source: str) -> str:
     return "".join(lines)
 
 
+TWO_STEP_LABEL = "zmienna = datetime.now(timezone.utc), potem zmienna.date()"
+
+
+def _is_utc_name(node: ast.expr) -> bool:
+    if isinstance(node, ast.Attribute):
+        return node.attr in ("utc", "UTC")
+    return isinstance(node, ast.Name) and node.id in ("utc", "UTC")
+
+
+def _is_utc_now(node: ast.AST) -> bool:
+    """`datetime.now(timezone.utc)` / `now(tz=UTC)` / `datetime.utcnow()`."""
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        return False
+    if node.func.attr == "utcnow":
+        return True
+    if node.func.attr != "now":
+        return False
+    tz = [*node.args[:1], *(k.value for k in node.keywords if k.arg == "tz")]
+    return any(_is_utc_name(arg) for arg in tz)
+
+
+def _is_zoned(node: ast.AST) -> bool:
+    """`x.astimezone(<strefa>)` — przeliczenie na strefę, po nim `.date()` jest lokalne."""
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "astimezone"
+        and bool(node.args or node.keywords)
+        and not any(_is_utc_name(a) for a in node.args)
+    )
+
+
+def _assigned_names(node: ast.AST) -> list[tuple[str, ast.AST]]:
+    if isinstance(node, ast.Assign):
+        targets, value = node.targets, node.value
+    elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value is not None:
+        targets, value = [node.target], node.value
+    else:
+        return []
+    return [(t.id, value) for t in targets if isinstance(t, ast.Name)]
+
+
+def _two_step_utc_dates(source: str) -> list[int]:
+    """Linie `x.date()`, gdzie `x` w tej samej funkcji przypisano z „teraz” w UTC
+    i nigdzie w niej nie przeliczono na inną strefę."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    hits: set[int] = set()
+    for func in ast.walk(tree):
+        if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        utc_vars: set[str] = set()
+        zoned_vars: set[str] = set()
+        for node in ast.walk(func):
+            for name, value in _assigned_names(node):
+                if any(_is_utc_now(n) for n in ast.walk(value)):
+                    utc_vars.add(name)
+                if _is_zoned(value):
+                    zoned_vars.add(name)
+        suspects = utc_vars - zoned_vars
+        if not suspects:
+            continue
+        for node in ast.walk(func):
+            if (
+                isinstance(node, ast.Call)
+                and not node.args
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "date"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in suspects
+            ):
+                hits.add(node.lineno)
+    return sorted(hits)
+
+
 def find_violations(source: str) -> list[tuple[int, str]]:
     """(numer linii, opis) dla każdego dnia UTC bez znacznika `# dzień UTC celowo:`."""
     original = source.splitlines()
     code = _without_comments(source)
-    found: list[tuple[int, str]] = []
+    candidates: list[tuple[int, str]] = []
     for pattern, label in PATTERNS:
         for match in pattern.finditer(code):
-            lineno = code.count("\n", 0, match.start()) + 1
-            nearby = original[max(0, lineno - 2) : lineno]
-            if any(MARKER.search(line) for line in nearby):
-                continue
-            found.append((lineno, label))
+            candidates.append((code.count("\n", 0, match.start()) + 1, label))
+    candidates += [(n, TWO_STEP_LABEL) for n in _two_step_utc_dates(source)]
+    found = []
+    for lineno, label in candidates:
+        nearby = original[max(0, lineno - 2) : lineno]
+        if any(MARKER.search(line) for line in nearby):
+            continue
+        found.append((lineno, label))
     return sorted(found)
 
 
@@ -211,3 +297,33 @@ def test_flags_date_formatted_from_now_in_an_fstring():
         'f = f"{business_today():%Y-%m-%d}"\n'
     )
     assert [lineno for lineno, _ in find_violations(source)] == [1, 2, 3]
+
+
+def test_flags_two_step_utc_now_then_date_in_one_function():
+    """Audyt 24.11.2026: „teraz” w UTC w zmiennej, `.date()` kilka linii niżej."""
+    source = (
+        "async def a(now=None):\n"
+        "    now = now or datetime.now(timezone.utc)\n"
+        "    today = now.date()\n"
+        "def b():\n"
+        "    stamp = datetime.now(UTC)\n"
+        "    x = 1\n"
+        "    return stamp.date()\n"
+        "def c():\n"
+        "    moment = datetime.utcnow()\n"
+        "    return moment.date()  # dzień UTC celowo: okno dostawcy w UTC\n"
+        "def d():\n"
+        "    now = datetime.now(timezone.utc)\n"
+        "    now = now.astimezone(ZoneInfo('Europe/Warsaw'))\n"
+        "    return now.date()\n"
+        "def e():\n"
+        "    now = datetime.now(timezone.utc)\n"
+        "    return business_date(now), now.isoformat()\n"
+        "def f(now):\n"
+        "    return now.date()\n"
+        "def g():\n"
+        "    other = datetime.now(timezone.utc)\n"
+        "def h(other):\n"
+        "    return other.date()\n"
+    )
+    assert find_violations(source) == [(3, TWO_STEP_LABEL), (7, TWO_STEP_LABEL)]

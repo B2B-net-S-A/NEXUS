@@ -1065,8 +1065,9 @@ export function ClientsListV2({
                             ...(hasContractPeriod(item) ? [contractAttention(item)] : []).filter(
                               (entry): entry is AttentionItem => entry !== null,
                             ),
-                            ...(attention.get(item.client_id) ?? []),
+                            ...(attention.byClient.get(item.client_id) ?? []),
                           ]}
+                          failed={attention.failed}
                         />
                       </TableCell>
                       <TableCell>

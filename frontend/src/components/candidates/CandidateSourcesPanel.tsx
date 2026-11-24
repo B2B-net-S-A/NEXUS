@@ -16,6 +16,7 @@ import {
   type CandidateSourceEventDto,
   type SourceChannel,
 } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { cn } from "@/lib/utils";
 
 interface CandidateSourcesPanelProps {
@@ -60,7 +61,7 @@ function utmTooltip(event: CandidateSourceEventDto): string | undefined {
  * present.
  */
 export function CandidateSourcesPanel({ candidateId }: CandidateSourcesPanelProps) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isSuccess, error } = useQuery({
     queryKey: ["candidate-sources", candidateId],
     queryFn: () => candidateSourcesApi.list(candidateId).then((r) => r.data),
     staleTime: 60 * 1000,
@@ -74,9 +75,20 @@ export function CandidateSourcesPanel({ candidateId }: CandidateSourcesPanelProp
     );
   }
 
+  if (isError) {
+    // Awaria zapytania nie może wyglądać jak „brak źródeł” (audyt 24.11.2026).
+    return (
+      <div role="alert" className="text-xs text-destructive">
+        {apiErrorMessage(error, "Nie udało się wczytać źródeł aplikacji.")}
+      </div>
+    );
+  }
+
   const events = data ?? [];
 
   if (events.length === 0) {
+    // Pusty stan tylko po udanym zapytaniu.
+    if (!isSuccess) return null;
     return (
       <div className="text-xs text-muted-foreground italic">
         Brak zarejestrowanych źródeł aplikacji.

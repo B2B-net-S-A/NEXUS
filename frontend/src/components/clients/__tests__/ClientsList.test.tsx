@@ -28,7 +28,7 @@ vi.mock("@/lib/api", () => ({
 
 vi.mock("@/components/clients/ClientAttention", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/components/clients/ClientAttention")>()),
-  useClientAttention: () => new Map(),
+  useClientAttention: () => ({ byClient: new Map(), failed: false }),
 }));
 
 vi.mock("next/navigation", () => ({
