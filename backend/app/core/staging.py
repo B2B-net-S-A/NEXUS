@@ -91,6 +91,8 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "sales_signals",
         # Webhooki Grok Zbieracza i Analityka (radar przepisów) i API Sejmu.
         "law_radar",
+        # API BZP i TED; szanse z przetargów zakłada produkcja (ręczny bieg działa).
+        "sales_tenders",
         # Bot Cpro: dane kandydatów do bota w USA i wysyłka ofert do Nordei.
         "cpro_bot",
         # Rada: odpis KRS z api-krs.ms.gov.pl i dzwonki do Rady (staging ma kopię odpisów).

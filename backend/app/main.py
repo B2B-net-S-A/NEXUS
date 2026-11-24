@@ -297,6 +297,7 @@ from app.api import sales_bot_results as sales_bot_results_api
 from app.api import sales_bot_people as sales_bot_people_api
 from app.api import sales_bot_lists as sales_bot_lists_api
 from app.api import sales_bots as sales_bots_api
+from app.api import sales_tenders as sales_tenders_api
 from app.api import sales_company_bot as sales_company_bot_api
 from app.api import sales_potential as sales_potential_api
 from app.api import sales_calling as sales_calling_api
@@ -889,6 +890,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
     from app.tasks.sales_archive_shadow import sales_archive_shadow_loop
+    from app.tasks.sales_tenders import sales_tenders_loop
     from app.tasks.sales_signals import sales_signals_loop
     from app.tasks.law_radar import law_radar_loop
     from app.tasks.cpro_bot import cpro_bot_loop
@@ -1139,6 +1141,9 @@ async def lifespan(app: FastAPI):
             "order_gaps": asyncio.create_task(order_gaps_loop()),
             # Sprzedaż: tryb cienia automatu archiwizacji, sam odczyt i linia logu.
             "sales_archive_shadow": asyncio.create_task(sales_archive_shadow_loop()),
+            # Sprzedaż: przetargi z BZP i TED, w dni robocze od 5:30 (wariant B,
+            # 24.11.2026); wyłącznik SALES_TENDERS_ENABLED przed pętlą.
+            "sales_tenders": asyncio.create_task(sales_tenders_loop()),
             # Sprzedaż: biegi bota researchu (Grok Bot); wyłącznik SALES_SIGNALS_ENABLED.
             "sales_signals": asyncio.create_task(sales_signals_loop()),
             # Radar przepisów: Grok Zbieracz od 5:30, bramka, Analityk, sondy;
@@ -2609,6 +2614,9 @@ app.include_router(
 )
 app.include_router(sales_bots_api.router, prefix="/api/sales/bots", tags=["sales"])
 app.include_router(
+    sales_tenders_api.router, prefix="/api/sales/tenders", tags=["sales"]
+)
+app.include_router(
     sales_bot_lists_api.router, prefix="/api/sales/bot-lists", tags=["sales"]
 )
 app.include_router(sales_my_day_api.router, prefix="/api/sales/my-day", tags=["sales"])
@@ -4058,6 +4066,7 @@ async def api_health_deep_check(request: Request):
         SalesOpportunity,
         SalesPipelineStage,
         SalesTarget,
+        SalesTenderNotice,
     )
     from app.models.finance_ledger import (
         FinanceCostEntry,
@@ -4705,6 +4714,8 @@ async def api_health_deep_check(request: Request):
         ("sales_call_records", SalesCallRecord),
         # 0684: wyniki zadań bota do decyzji handlowca.
         ("sales_bot_results", SalesBotResult),
+        # 0768: przetargi z BZP i TED po bramce reguł.
+        ("sales_tender_notices", SalesTenderNotice),
         # 0640: dzienne wejścia na linki — każde wejście na stronę kariery je zapisuje.
         ("candidate_invite_link_visit_days", CandidateInviteLinkVisitDay),
         ("employee_profiles", EmployeeProfile),

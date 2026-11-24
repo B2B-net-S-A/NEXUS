@@ -1115,3 +1115,51 @@ BOT_LISTS_DOWNGRADE_DDL: tuple[str, ...] = (
     "ALTER TABLE sales_call_campaigns DROP COLUMN IF EXISTS bot_built_at",
     "ALTER TABLE sales_call_campaigns DROP COLUMN IF EXISTS bot_brief",
 )
+
+
+# 0768: przetargi z rejestrów publicznych (decyzja Artura 24.11.2026, wariant B):
+# NEXUS czyta BZP i TED, bramka z regułami Kingi zakłada szansę w lejku Przetargi
+# albo odsiewa ogłoszenie z regułą (``services/sales/tenders/``). Jeden wiersz na
+# ogłoszenie, które przeszło frazy albo kody CPV usług IT; reszta rejestru nie
+# trafia do bazy. Para (źródło, numer) chroni przed drugą szansą z tego samego
+# ogłoszenia, także przy dwóch biegach naraz.
+TENDER_SOURCES: tuple[str, ...] = ("bzp", "ted")
+TENDER_NOTICE_STATUSES: tuple[str, ...] = ("created", "rejected")
+CK_TENDER_SOURCE = f"source IN ({quoted(TENDER_SOURCES)})"
+CK_TENDER_STATUS = f"status IN ({quoted(TENDER_NOTICE_STATUSES)})"
+
+TENDERS_DDL: tuple[str, ...] = (
+    f"""CREATE TABLE IF NOT EXISTS sales_tender_notices (
+    id SERIAL PRIMARY KEY,
+    source VARCHAR(8) NOT NULL,
+    number VARCHAR(60) NOT NULL,
+    title VARCHAR(1000) NOT NULL,
+    buyer_name VARCHAR(500) NOT NULL,
+    buyer_nip VARCHAR(15) NULL,
+    buyer_city VARCHAR(120) NULL,
+    cpv VARCHAR(300) NULL,
+    order_type VARCHAR(12) NULL,
+    url VARCHAR(1000) NULL,
+    published_at TIMESTAMPTZ NOT NULL,
+    deadline_date DATE NULL,
+    deadline_at TIMESTAMPTZ NULL,
+    below_eu BOOLEAN NULL,
+    status VARCHAR(12) NOT NULL,
+    rule VARCHAR(20) NULL,
+    rule_detail VARCHAR(200) NULL,
+    match_detail VARCHAR(200) NULL,
+    opportunity_id INTEGER NULL REFERENCES sales_opportunities(id) ON DELETE SET NULL,
+    decided_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    decided_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_sales_tender_notices_source_number UNIQUE (source, number),
+    CONSTRAINT ck_sales_tender_notices_source CHECK ({CK_TENDER_SOURCE}),
+    CONSTRAINT ck_sales_tender_notices_status CHECK ({CK_TENDER_STATUS})
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_sales_tender_notices_status "
+    "ON sales_tender_notices (status, published_at DESC)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_tender_notices_opportunity "
+    "ON sales_tender_notices (opportunity_id)",
+)
+TENDERS_DOWNGRADE_DDL: tuple[str, ...] = ("DROP TABLE IF EXISTS sales_tender_notices",)

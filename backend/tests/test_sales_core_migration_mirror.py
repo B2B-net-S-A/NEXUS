@@ -27,6 +27,7 @@ from app.models.sales import (
     SalesPipelineStage,
     SalesMeetingTranscript,
     SalesTarget,
+    SalesTenderNotice,
 )
 from app.services import sales_schema as schema
 
@@ -48,6 +49,7 @@ MODELS = {
     "sales_meeting_transcripts": SalesMeetingTranscript,
     "sales_company_aliases": SalesCompanyAlias,
     "sales_bot_results": SalesBotResult,
+    "sales_tender_notices": SalesTenderNotice,
 }
 
 
@@ -76,6 +78,7 @@ def _ddl_for(table: str) -> str:
         *schema.TRANSCRIPTS_DDL,
         *schema.COMPANY_ALIASES_DDL,
         *schema.BOT_TASKS_DDL,
+        *schema.TENDERS_DDL,
     ):
         if f"CREATE TABLE IF NOT EXISTS {table} (" in ddl:
             return ddl
@@ -130,6 +133,11 @@ def test_migration_reads_the_shared_module() -> None:
     )
     assert "for stmt in schema.BOT_TASKS_DDL:" in bot_tasks
     assert "*_sales_schema.BOT_TASKS_DDL," in entry
+    tenders = (ROOT / "alembic/versions/0768_sales_tenders.py").read_text(
+        encoding="utf-8"
+    )
+    assert "for stmt in schema.TENDERS_DDL:" in tenders
+    assert "*_sales_schema.TENDERS_DDL," in entry
 
 
 def test_entrypoint_splices_tables_before_data() -> None:
@@ -152,6 +160,7 @@ def test_models_match_migration_columns_and_constraints() -> None:
         "sales_meeting_transcripts",
         "sales_company_aliases",
         "sales_bot_results",
+        "sales_tender_notices",
     }
     for table, model in MODELS.items():
         ddl = _ddl_for(table)
@@ -176,6 +185,7 @@ def test_models_match_migration_columns_and_constraints() -> None:
             *schema.TARGETS_DDL,
             *schema.TRANSCRIPTS_DDL,
             *schema.BOT_TASKS_DDL,
+            *schema.TENDERS_DDL,
         )
         if s.startswith(("CREATE INDEX", "CREATE UNIQUE INDEX"))
     )
@@ -209,6 +219,7 @@ def test_tables_are_probed_by_deep_health_and_registered() -> None:
         "sales_targets",
         "sales_meeting_transcripts",
         "sales_company_aliases",
+        "sales_tender_notices",
     ):
         assert re.search(rf'\("{table}",\s*\w+\)', block), table
     models_init = (ROOT / "app/models/__init__.py").read_text(encoding="utf-8")

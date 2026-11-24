@@ -1458,6 +1458,8 @@ try:
         *_sales_schema.BOT_TASKS_DDL,
         # 0690: Bot Listy — brief kampanii dzwonienia.
         *_sales_schema.BOT_LISTS_DDL,
+        # 0768: przetargi z BZP i TED (ogłoszenia po bramce reguł Kingi).
+        *_sales_schema.TENDERS_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
 except Exception as _sales_schema_err:  # noqa: BLE001
