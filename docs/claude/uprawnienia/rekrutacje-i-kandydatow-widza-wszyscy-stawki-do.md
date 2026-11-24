@@ -91,13 +91,24 @@ stawki, za jaką osoby są wysyłane do klienta”.
   - nocny odczyt faktów (`notes_insights_extractor.load_note_rows_bulk`, ten
     sam wybór dla `notes_profile_backfill`) wycina ją dla wszystkich PRZED
     limitem 20 notatek — inaczej cena dla klienta wygrywała jako najnowsza
-    wzmianka w `expected_rate`; `PROMPT_VERSION` v7 przelicza stare fakty;
+    wzmianka w `expected_rate`. `PROMPT_VERSION` v7 tylko wybiera kandydatów
+    do przeliczenia — sam nie cofa starej ceny: krótki wsad kopiuje stare
+    fakty (`stamp_no_content`), a odczyt bez stawki nie rusza kolumny
+    profilu. Dlatego `notes_insights_sync` zdejmuje kwoty z notatek
+    z wysyłki, których nie ma we wsadzie (`stale_send_note_amounts` →
+    `candidate_notes_facts.release_send_note_rate`): `expected_rate` z faktów
+    i kolumnę `expected_rate_hourly`, gdy wpisały ją notatki (`_rate_written`),
+    audyt ze źródłem `notes_removed`; stawka wpisana ręcznie zostaje;
   - Luna przy przepięciu screeningu (`screening_reassign._job_scoped_notes`)
     — `hidden_send_note_ids(db, user, ids)`, przed limitem; rekruter ma prawo
     do stawek kandydata, więc `mask_money` go nie chroni;
-  - podsumowanie aktywności (`_notes_section`, cache wspólny dla ról) i notatki
-    generatora CV bez procesu (`collect_candidate_notes_text`, dokument dla
-    klienta) — wycięcie dla wszystkich.
+  - podsumowanie aktywności (`_notes_section`; cache per osoba, ale polityka
+    „bez finansów” dla każdej roli) i notatki generatora CV bez procesu
+    (`collect_candidate_notes_text`, dokument dla klienta) — wycięcie dla
+    wszystkich. Stare podsumowania odcina `CONTENT_POLICY_VERSION` v4: GET
+    oddaje wiersz także przy innym `source_version` (`is_stale` to tylko
+    plakietka), więc bez podbicia cena zostawała w nich do kliknięcia
+    „Aktualizuj”. Podbicie nie kosztuje wywołań AI (GET nie generuje).
   Nowy czytnik AI notatek kandydata = to samo rozpoznanie przed limitem.
   Jeszcze niesprawdzone powierzchnie z treścią notatek: ostatnia notatka
   w follow-upach (`api/candidate_followups.py`), lista notatek pakietu CV

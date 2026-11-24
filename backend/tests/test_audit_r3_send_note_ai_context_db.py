@@ -7,7 +7,10 @@ później pisze „Wysłany 150/100-110” (cena dla klienta / stawka osoby):
   ``notes_profile_backfill``) nie bierze tej notatki, a pełny limit notatek
   wypełniają inne — filtr przed limitem;
 * notatki Luny przy przepięciu screeningu (``_job_scoped_notes``) nie niosą jej
-  rekruterowi, Delivery Lead dostaje ją jak dotąd.
+  rekruterowi, Delivery Lead dostaje ją jak dotąd;
+* kwoty tej notatki, których nie ma we wsadzie, są do zdjęcia ze starych
+  faktów (``stale_send_note_amounts``);
+* podsumowanie aktywności zapisane starą wersją polityki nie jest już oddawane.
 
 Wariant bez bazy: ``test_audit_r3_send_note_ai_context.py``. Treści fikcyjne.
 """
@@ -118,3 +121,72 @@ async def test_reassign_notes_hide_the_send_note_from_the_recruiter_only():
     assert "Kafka od 4 lat" in for_recruiter
     assert SEND_NOTE in for_lead
     assert "Kafka od 4 lat" in for_lead
+
+
+async def test_send_note_amounts_missing_from_the_input_are_to_release():
+    from decimal import Decimal
+
+    from app.services.notes_insights_extractor import (
+        build_notes_blob,
+        load_note_rows,
+        stale_send_note_amounts,
+    )
+
+    dl_id, _, _ = await _user(UserRole.delivery_lead)
+    recruiter_id, _, _ = await _user(UserRole.recruiter)
+    world = await _seed(dl_id=dl_id, recruiter_id=recruiter_id)
+
+    async with AsyncSessionLocal() as db:
+        blob = build_notes_blob(await load_note_rows(db, world["candidate"]))
+        amounts = await stale_send_note_amounts(db, world["candidate"], blob)
+
+    assert Decimal("150") in amounts
+    # Liczby z notatek wsadu („Kafka od 4 lat”) nie są do zdjęcia.
+    assert Decimal("4") not in amounts
+
+
+async def test_activity_summary_from_the_old_policy_is_not_served():
+    from app.models.candidate_activity_summary import CandidateActivitySummary
+    from app.services import candidate_activity_summary_service as cas
+
+    dl_id, _, _ = await _user(UserRole.delivery_lead)
+    recruiter_id, _, _ = await _user(UserRole.recruiter)
+    world = await _seed(dl_id=dl_id, recruiter_id=recruiter_id)
+    old_policy = "candidate-summary-no-finance-v3"
+    fresh = "Kandydat po rozmowie, Kafka od 4 lat."
+
+    async with AsyncSessionLocal() as db:
+        recruiter = await db.get(User, recruiter_id)
+        candidate = await db.get(Candidate, world["candidate"])
+        context = await cas.build_context(db, candidate, recruiter)
+        for policy, summary in (
+            # Wiersz sprzed poprawki: model przepisał cenę z notatki z wysyłki.
+            (old_policy, "Kandydat wysłany 150/100-110, Kafka od 4 lat."),
+            # Kontrola: ten sam wiersz w bieżącej polityce jest oddawany.
+            (cas.CONTENT_POLICY_VERSION, fresh),
+        ):
+            db.add(
+                CandidateActivitySummary(
+                    candidate_id=world["candidate"],
+                    summary=summary,
+                    model="test-model",
+                    input_hash="e" * 64,
+                    source_version="e" * 64,
+                    visibility_scope_hash=context.visibility_scope_hash,
+                    content_policy_version=policy,
+                    source_manifest={
+                        **context.source_manifest,
+                        "content_policy_version": policy,
+                    },
+                    generated_at=datetime.now(timezone.utc),
+                )
+            )
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        recruiter = await db.get(User, recruiter_id)
+        state = await cas.get_summary_state(world["candidate"], db, user=recruiter)
+
+    assert state.row is not None
+    assert state.row.summary == fresh
+    assert "150/100-110" not in state.row.summary

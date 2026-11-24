@@ -35,7 +35,11 @@ from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services import conversation_facts
-from app.services.candidate_notes_facts import NOTES_CHANGED_AT_KEY, clear_notes_facts
+from app.services.candidate_notes_facts import (
+    NOTES_CHANGED_AT_KEY,
+    clear_notes_facts,
+    release_send_note_rate,
+)
 from app.services.contract_availability import load_contract_history
 from app.services.notes_insights_extractor import (
     MIN_BLOB_CHARS,
@@ -46,6 +50,7 @@ from app.services.notes_insights_extractor import (
     legacy_row_is_fresh,
     load_note_rows,
     notes_fingerprint,
+    stale_send_note_amounts,
     stamp_no_content,
 )
 from app.services.notes_profile_fill import fill_languages_from_notes, notes_days
@@ -270,6 +275,36 @@ async def _clear_facts(db, cand: Candidate) -> None:
         await mark_stale_for_candidate(db, cand.id)
 
 
+async def _send_note_amounts(db, cand: Candidate, prior: Any, blob: str) -> frozenset:
+    """Kwoty z notatek z wysyłki do zdjęcia — zapytania tylko, gdy jest stawka."""
+    prior_rate = prior.get("expected_rate") if isinstance(prior, dict) else None
+    if cand.expected_rate_hourly is None and not (
+        isinstance(prior_rate, dict) and prior_rate.get("value") is not None
+    ):
+        return frozenset()
+    return await stale_send_note_amounts(db, cand.id, blob)
+
+
+def _release_send_note_rate(db, cand: Candidate, amounts: frozenset) -> bool:
+    """Stawka z notatki z wysyłki policzona przed v7 znika (audyt r3, #3942).
+
+    Samo podbicie ``PROMPT_VERSION`` jej nie cofało: krótki wsad kopiuje stare
+    fakty (``stamp_no_content``), a odczyt bez stawki nie rusza kolumny.
+    """
+    changed, rate_audit = release_send_note_rate(cand, amounts)
+    if rate_audit is not None:
+        from app.services import candidate_audit
+
+        candidate_audit.record_candidate_audit(
+            db,
+            action=candidate_audit.PROFILE_RATE_CHANGED,
+            user_id=None,
+            entity_id=cand.id,
+            details=rate_audit,
+        )
+    return changed
+
+
 # 401 zły klucz, 402 brak środków (DeepSeek), 403 konto zablokowane — każdy
 # kolejny kandydat dostałby tę samą odmowę.
 _ACCOUNT_ERROR_STATUSES = frozenset({401, 402, 403})
@@ -330,6 +365,7 @@ async def _extract_candidate(
                 stats["skipped_same_fingerprint"] += 1
                 return False
             blob = build_notes_blob(rows)
+            send_amounts = await _send_note_amounts(db, cand, prior, blob)
             if len(blob) < MIN_BLOB_CHARS:
                 # Runda 10 (R10-N6-2): usunięto notatkę, a reszta nie niesie
                 # treści — `stamp_no_content` zachowałby fakty z usuniętej.
@@ -338,6 +374,8 @@ async def _extract_candidate(
                 # żadna czytelna notatka, ZOSTAJĄ — stempel ich nie rusza.
                 if isinstance(prior, dict) and prior.get(NOTES_CHANGED_AT_KEY):
                     await _clear_facts(db, cand)
+                elif _release_send_note_rate(db, cand, send_amounts):
+                    await mark_stale_for_candidate(db, cid)
                 # Stempel bez AI — inaczej klasa "no_content" wraca do
                 # selekcji każdego dnia i zjada cały budżet biegu
                 # (prod, pierwszy bieg: selected=300, skipped_short=299).
@@ -390,6 +428,8 @@ async def _extract_candidate(
                 # „Szuka aktywnie” (S2, 15.10.2026).
                 contracts=await load_contract_history(db, cid),
             )
+            if _release_send_note_rate(db, cand, send_amounts):
+                row_stats["changed"] = 1
             if conversation_facts.enabled():
                 added = await conversation_facts.record_note_facts(
                     db,

@@ -204,6 +204,37 @@ async def load_note_rows_bulk(
     return out
 
 
+async def stale_send_note_amounts(
+    db: AsyncSession, candidate_id: int, notes_blob: str
+) -> frozenset[Decimal]:
+    """Kwoty z notatek z wysyłki kandydata, których nie ma we wsadzie odczytu.
+
+    Od v7 wsad pomija notatkę z wysyłki, ale fakty policzone starszą wersją
+    zostawały: krótki wsad idzie w ``stamp_no_content`` (kopiuje stare fakty),
+    a odczyt bez stawki nie rusza kolumny (``apply_insights`` pisze tylko
+    wartość). Te kwoty zdejmuje ``candidate_notes_facts.release_send_note_rate``.
+    Kwota obecna też w notatce wsadu nie jest tu zwracana — tę ma prawo nieść.
+    """
+    from app.services import recruitment_rate_hints
+    from app.services.text_cleaning import clean_rich_text
+
+    rows = (
+        await db.execute(
+            text(
+                "SELECT id, content FROM notes WHERE candidate_id = :c "
+                f"AND {note_kinds.facts_readable_sql()}"
+            ),
+            {"c": candidate_id},
+        )
+    ).all()
+    send = await recruitment_rate_hints.send_note_ids(db, [row[0] for row in rows])
+    amounts: set[Decimal] = set()
+    for note_id, content in rows:
+        if note_id in send and content:
+            amounts |= _numbers_in(clean_rich_text(content))
+    return frozenset(amounts - _numbers_in(notes_blob))
+
+
 def notes_fingerprint(rows: Sequence[tuple]) -> str:
     """Odcisk wejścia: id+updated_at notatek + wersja promptu + model.
 

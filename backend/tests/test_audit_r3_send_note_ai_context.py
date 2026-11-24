@@ -19,7 +19,9 @@ Wariant z bazą: ``test_audit_r3_send_note_ai_context_db.py``. Treści fikcyjne.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -234,3 +236,299 @@ async def test_cv_notes_without_process_skip_the_send_note(send_ids):
     assert "150/100-110" not in text
     assert "Kafkę" in text
     assert send_ids == [[1, SEND_ID]]
+
+
+# ── podsumowanie aktywności: stary cache (review PR #3942) ─────────────────
+
+
+def test_activity_summary_policy_bumped_so_cached_send_note_prices_stop_serving():
+    """GET podsumowania nie generuje i oddaje wiersz także przy innym
+    ``source_version`` (``is_stale`` to tylko plakietka). Wiersz sprzed
+    poprawki mógł przepisać „150/100-110”, a DLP kwot tego nie łapie —
+    przestaje pasować dopiero po zmianie wersji polityki (klucz ``get_cached``)."""
+    from app.services import candidate_activity_summary_service as cas
+
+    assert cas.CONTENT_POLICY_VERSION != "candidate-summary-no-finance-v3"
+    assert not cas._contains_financial_amount("Kandydat wysłany 150/100-110.")
+
+
+@pytest.mark.asyncio
+async def test_activity_summary_cache_is_keyed_by_the_policy_version():
+    from sqlalchemy.dialects import postgresql
+
+    from app.services import candidate_activity_summary_service as cas
+
+    seen: list = []
+
+    class _ScalarDb:
+        async def scalar(self, statement):
+            seen.append(statement)
+            return None
+
+    await cas.get_cached(3, _ScalarDb(), visibility_scope_hash="a" * 64)
+
+    sql = str(
+        seen[0].compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+    assert f"content_policy_version = '{cas.CONTENT_POLICY_VERSION}'" in sql
+
+
+# ── fakty policzone przed v7 z notatki z wysyłki (review PR #3942) ─────────
+#
+# Samo podbicie PROMPT_VERSION nie cofało starej ceny dla klienta: krótki wsad
+# po wycięciu notatki idzie w ``stamp_no_content`` (kopiuje stare fakty), a
+# odczyt bez stawki nie rusza kolumny ``expected_rate_hourly`` (zapis tylko
+# przy wartości). Kwota z notatki z wysyłki, której nie ma we wsadzie, znika.
+
+V6 = "notes_insights:v6-note-kinds:model"
+CID = 7
+SHORT = "Oddzwoni jutro, ok."
+LONG_TALK = "Rozmowa: Kafka od 4 lat, projekt w banku, dostępny od zaraz po urlopie."
+SEND_AMOUNTS = ("150", "100", "110")
+
+
+def _send_note_cand(*, column=None, rate_written=None, expected_value=150):
+    insights = {
+        "_extractor": V6,
+        "_input_hash": "old",
+        "_extracted_at": "2026-09-23T00:00:00+00:00",
+    }
+    if expected_value is not None:
+        insights["expected_rate"] = {
+            "value": expected_value,
+            "currency": "PLN",
+            "period": "h",
+        }
+    if rate_written is not None:
+        insights["_rate_written"] = rate_written
+        insights["_rate_from_notes"] = True
+    return SimpleNamespace(
+        id=CID,
+        skills=None,
+        years_it_experience=None,
+        expected_rate_hourly=column,
+        expected_rate_currency="PLN" if column is not None else None,
+        profile_rate_version=3,
+        accepts_below_min_rate=None,
+        notice_period=None,
+        notice_period_unit=None,
+        availability_date=None,
+        availability_status="unknown",
+        cv_extracted_data={"_notes_insights": insights},
+        max_onsite_days_per_week=None,
+        preferences=None,
+        remote_modes=None,
+        skills_manually_curated=False,
+    )
+
+
+class _SyncDb:
+    """Sesja ``_extract_candidate``: jeden kandydat, zapis audytów."""
+
+    def __init__(self, cand):
+        self.cand = cand
+        self.added: list = []
+        self.info: dict = {}
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        return False
+
+    async def execute(self, *_args, **_kwargs):
+        return SimpleNamespace(scalar_one_or_none=lambda: self.cand)
+
+    async def scalar(self, *_args, **_kwargs):
+        return self.cand
+
+    async def commit(self):
+        return None
+
+    async def flush(self):
+        return None
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    def begin_nested(self):
+        @asynccontextmanager
+        async def _nested():
+            yield
+
+        return _nested()
+
+
+@pytest.fixture
+def sync_world(monkeypatch):
+    """``_extract_candidate`` bez bazy i bez modelu; zwraca ustawiacz świata."""
+    import app.services.candidate_notes_facts as facts_mod
+    import app.services.match_score_cache as score_cache
+    import app.services.notes_insights_extractor as extractor
+    from app.services import conversation_facts
+    from app.tasks import notes_insights_sync as sync
+
+    stale: list[int] = []
+
+    async def _mark_stale(_db, cid):
+        stale.append(cid)
+
+    @asynccontextmanager
+    async def _no_quota(*_args, **_kwargs):
+        yield
+
+    async def _no_contracts(*_args, **_kwargs):
+        return None
+
+    async def _no_languages(*_args, **_kwargs):
+        return 0
+
+    for module in (extractor, facts_mod):
+        monkeypatch.setattr(module, "flag_modified", lambda *a, **k: None)
+    monkeypatch.setattr(score_cache, "mark_stale_for_candidate", _mark_stale)
+    monkeypatch.setattr(conversation_facts, "enabled", lambda: False)
+    monkeypatch.setattr(sync, "ai_feature", _no_quota)
+    monkeypatch.setattr(sync, "load_contract_history", _no_contracts)
+    monkeypatch.setattr(sync, "fill_languages_from_notes", _no_languages)
+
+    def _setup(cand, *, notes, parsed=None):
+        db = _SyncDb(cand)
+        rows = [(100 + n, AT, DAY, body, DAY) for n, body in enumerate(notes)]
+
+        async def _rows(_db, _cid):
+            return rows
+
+        async def _amounts(_db, cid, blob):
+            assert cid == CID
+            sent = frozenset(Decimal(a) for a in SEND_AMOUNTS)
+            return sent - extractor._numbers_in(blob)
+
+        async def _extract(_blob):
+            assert parsed is not None, "krótki wsad nie woła modelu"
+            return parsed
+
+        monkeypatch.setattr(sync, "AsyncSessionLocal", lambda: db)
+        monkeypatch.setattr(sync, "load_note_rows", _rows)
+        monkeypatch.setattr(sync, "stale_send_note_amounts", _amounts, raising=False)
+        monkeypatch.setattr(sync, "extract_insights", _extract)
+        return db
+
+    _setup.stale = stale
+    return _setup
+
+
+@pytest.mark.asyncio
+async def test_short_input_drops_the_send_note_rate_kept_by_the_stamp(sync_world):
+    from app.services.screening_suggestions import suggestions_from_notes
+    from app.tasks.notes_insights_sync import _empty_stats, _extract_candidate
+
+    cand = _send_note_cand()
+    sync_world(cand, notes=[SHORT])
+    stats = _empty_stats()
+
+    await _extract_candidate(CID, stats, [])
+
+    insights = cand.cv_extracted_data["_notes_insights"]
+    assert stats["skipped_short"] == 1
+    assert insights["_no_content"] is True
+    assert "expected_rate" not in insights
+    assert "rate" not in suggestions_from_notes(cand, include_rate=True)
+    assert sync_world.stale == [CID]
+
+
+@pytest.mark.asyncio
+async def test_short_input_clears_the_column_written_from_the_send_note(sync_world):
+    from app.tasks.notes_insights_sync import _empty_stats, _extract_candidate
+
+    cand = _send_note_cand(
+        column=Decimal("150.00"),
+        rate_written={"amount": "150.00", "currency": "PLN", "version": 3},
+    )
+    db = sync_world(cand, notes=[SHORT])
+
+    await _extract_candidate(CID, _empty_stats(), [])
+
+    assert cand.expected_rate_hourly is None
+    insights = cand.cv_extracted_data["_notes_insights"]
+    assert "_rate_written" not in insights and "_rate_from_notes" not in insights
+    assert [a.details["source"] for a in db.added] == ["notes_removed"]
+
+
+@pytest.mark.asyncio
+async def test_reading_without_a_rate_clears_the_column_from_the_send_note(
+    sync_world,
+):
+    from app.tasks.notes_insights_sync import _empty_stats, _extract_candidate
+
+    cand = _send_note_cand(
+        column=Decimal("150.00"),
+        rate_written={"amount": "150.00", "currency": "PLN", "version": 3},
+    )
+    db = sync_world(cand, notes=[LONG_TALK], parsed={"expected_rate": {"value": None}})
+    touched: list[int] = []
+
+    await _extract_candidate(CID, _empty_stats(), touched)
+
+    assert cand.expected_rate_hourly is None
+    assert "_rate_written" not in cand.cv_extracted_data["_notes_insights"]
+    assert [a.details["source"] for a in db.added] == ["notes_removed"]
+    assert touched == [CID]
+
+
+@pytest.mark.asyncio
+async def test_rate_typed_by_a_person_stays_even_when_it_matches_the_send_note(
+    sync_world,
+):
+    from app.tasks.notes_insights_sync import _empty_stats, _extract_candidate
+
+    # Bez `_rate_written` zgodnego z profilem — stawkę wpisał człowiek.
+    cand = _send_note_cand(column=Decimal("150.00"), expected_value=None)
+    db = sync_world(cand, notes=[LONG_TALK], parsed={"expected_rate": {"value": None}})
+
+    await _extract_candidate(CID, _empty_stats(), [])
+
+    assert cand.expected_rate_hourly == Decimal("150.00")
+    assert db.added == []
+
+
+@pytest.mark.asyncio
+async def test_rate_still_in_the_input_notes_stays(sync_world):
+    from app.tasks.notes_insights_sync import _empty_stats, _extract_candidate
+
+    # 110 jest też w zwykłej notatce rekrutera — to nie tylko cena z wysyłki.
+    cand = _send_note_cand(
+        column=Decimal("110.00"),
+        rate_written={"amount": "110.00", "currency": "PLN", "version": 3},
+        expected_value=110,
+    )
+    db = sync_world(
+        cand,
+        notes=["Rozmowa: chce 110 zł/h na B2B, Kafka od 4 lat, projekt w banku."],
+        parsed={"expected_rate": {"value": None}},
+    )
+
+    await _extract_candidate(CID, _empty_stats(), [])
+
+    assert cand.expected_rate_hourly == Decimal("110.00")
+    assert db.added == []
+
+
+@pytest.mark.asyncio
+async def test_stale_send_note_amounts_are_send_note_numbers_missing_from_input(
+    send_ids,
+):
+    from app.services import notes_insights_extractor as extractor
+
+    db = _Db([(1, TALK), (SEND_ID, f"<p>{SEND_NOTE}</p>")])
+
+    amounts = await extractor.stale_send_note_amounts(
+        db, 3, "[2026-09-22]\nchce 110 zł/h"
+    )
+
+    assert amounts == {Decimal("150"), Decimal("100")}
+    assert send_ids == [[1, SEND_ID]]
+    sql, params = db.calls[0]
+    assert params == {"c": 3}
+    assert note_kinds.facts_readable_sql() in sql
