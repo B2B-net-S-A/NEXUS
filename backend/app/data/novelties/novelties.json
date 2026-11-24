@@ -2212,6 +2212,7 @@
   },
   {
     "id": "najwazniejsze-zadanie-w-roli",
+    "pr": 3795,
     "title": "Najważniejsze zadanie w tej roli w Profilu Championa",
     "why": "Wpisujesz zadanie, na którym klientowi najbardziej zależy, i zaznaczasz pytanie, które je sprawdza. Bez tego nie przekażesz rekrutacji do searchu. Trafi do CV jako zdanie 3.",
     "tier": "dot",
@@ -4471,6 +4472,7 @@
   },
   {
     "id": "formularz-klienta-wgraj-z-dysku",
+    "pr": 3748,
     "title": "Wypełniony formularz klienta wgrywasz do formularza, nie jako CV",
     "why": "„Wgraj wypełniony formularz” w sekcji CV osoby zapisuje plik przy rekrutacji. Idzie do QC i do klienta zamiast wypełnienia z NEXUSA, a karta przechodzi z nim na „QC CV”.",
     "tier": "dot",
@@ -4484,10 +4486,12 @@
     "where": "Rekrutacja → panel osoby → sekcja CV → Formularz CV klienta",
     "href": "/jobs",
     "section": "pipeline",
-    "dot_anchor": "client-form.upload"
+    "dot_anchor": "client-form.upload",
+    "practice_href": "/jobs/990001?candidate=990105"
   },
   {
     "id": "formularz-klienta-tylko-weryfikacja",
+    "pr": 3760,
     "title": "Formularz klienta: liczą się tylko prawdziwe braki",
     "why": "Puste zapasowe wiersze wzoru to „wolne wiersze”, nie braki. Druga tabela doświadczenia wypełnia się sama, a przy „TAK/NIE” widzisz cytat z CV do zatwierdzenia.",
     "tier": "dot",
@@ -4501,7 +4505,8 @@
     "where": "Rekrutacja → panel osoby → sekcja CV → Formularz CV klienta",
     "href": "/jobs",
     "section": "pipeline",
-    "dot_anchor": "client-form.missing"
+    "dot_anchor": "client-form.missing",
+    "practice_href": "/jobs/990001?candidate=990105"
   },
   {
     "id": "porcja-schodki-musi-miec",
@@ -4519,6 +4524,7 @@
   },
   {
     "id": "terminy-od-klienta-przy-ruchu",
+    "pr": 3786,
     "title": "Terminy od klienta wysyłasz rekruterowi przy ruchu karty",
     "why": "Przesuwając kartę na „Rozmowa u klienta”, wklejasz mail klienta raz. Rekruter od razu dostaje dzwonek i mail „Ustal termin z kandydatem”, bez drugiego okna „Terminy od klienta”.",
     "tier": "dot",
@@ -4532,7 +4538,8 @@
     "where": "Rekrutacja → Tablica → ruch na „Rozmowa u klienta”",
     "href": "/jobs",
     "section": "pipeline",
-    "dot_anchor": "move.client-interview.mode"
+    "dot_anchor": "move.client-interview.mode",
+    "practice_href": "/jobs/990001"
   },
   {
     "id": "sprzedaz-dzwonienie-zaproszenie-teams",
@@ -4591,6 +4598,7 @@
   },
   {
     "id": "sprzedaz-nowa-firma-z-nip",
+    "pr": 3789,
     "title": "Nowa firma z NIP-u w wyszukiwarce",
     "why": "Wpisz NIP u góry: gdy karty nie ma, „Załóż firmę z NIP …” otworzy okno z danymi z rejestru. Firma bez NIP-u już w kartotece? Dopiszesz NIP do jej karty.",
     "tier": "dot",
