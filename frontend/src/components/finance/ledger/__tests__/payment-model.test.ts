@@ -40,6 +40,12 @@ function item(id: number, patch: Partial<PlanItem> = {}): PlanItem {
     hints: [],
     batch_id: null,
     preselect: true,
+    contract_id: null,
+    period_month: null,
+    settlement_id: null,
+    hold: null,
+    contractor_amount: null,
+    garnishments: [],
     ...patch,
   };
 }

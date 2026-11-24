@@ -192,6 +192,8 @@
   "GET /api/order-mail/recheck-runs?limit=20",
   "GET /api/order-mail/sync/status",
   "GET /api/pipeline/stages/990305/qc?transient=true",
+  "GET /api/pre-contracts/pair?candidate_id=990109&job_id=990001",
+  "GET /api/pre-contracts/pair?candidate_id=990110&job_id=990001",
   "GET /api/reports/clients/990501/trend?months=6",
   "GET /api/reports/clients?min_closed=0&period=year",
   "GET /api/start-documents/clients/990501",

@@ -2076,6 +2076,36 @@
     ]
   },
   {
+    "id": "lekcja-zajecia-i-spory",
+    "title": "Zajęcia wierzytelności i spór w Przelewach",
+    "novelties": ["przelewy-zajecia-i-spory"],
+    "task": "W Przelewach przy fakturze kontraktora zacznij wpisywać zajęcie wierzytelności. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/finance?view=payments",
+    "check": { "kind": "click", "anchor": "finance.payments.garnishment" },
+    "questions": [
+      {
+        "q": "Komornik zajął wierzytelność kontraktora na 1 050 zł, a faktura ma 1 230 zł. Co zrobi paczka przelewów?",
+        "options": [
+          "Wyśle 1 050 zł na rachunek organu i 180 zł kontraktorowi",
+          "Zapłaci kontraktorowi całość, a komornika trzeba opłacić ręcznie",
+          "Zablokuje fakturę do końca zajęcia"
+        ],
+        "answer": 0,
+        "explain": "Należność z odsetkami do dnia przelewu idzie do organu, reszta do kontraktora. Gdy odsetek albo rachunku organu brakuje, płatność czeka na decyzję księgowej."
+      },
+      {
+        "q": "Wykaz VAT nie odpowiedział w dniu paczki. Co dzieje się z płatnością kontraktora?",
+        "options": [
+          "Jest zablokowana z powodem, aż wykaz potwierdzi rachunek",
+          "Przechodzi, bo błąd wykazu to nie nasza wina",
+          "Przechodzi po odhaczeniu ostrzeżenia"
+        ],
+        "answer": 0,
+        "explain": "Błąd wykazu to nie zgoda. Rachunek spoza wykazu też blokuje przelew, a powrót rachunku do wykazu zwalnia płatność sam."
+      }
+    ]
+  },
+  {
     "id": "lekcja-klient-cos-zmienil",
     "title": "„Klient coś zmienił”: zmiana od klienta jednym oknem",
     "novelties": [
@@ -2244,6 +2274,98 @@
         ],
         "answer": 0,
         "explain": "Listę nabywców wpisujesz w ustawieniach wystawiania przy kliencie. Wybór w szkicu zapamiętuje kontrakty, więc kolejne szkice mają już właściwego nabywcę, a szkic bez nabywcy z listy nie pójdzie do KSeF."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-stop-do-podpisu-przedwstepnej",
+    "title": "Stop do podpisu przedwstępnej: rekrutacja i wyjątek dla osoby",
+    "novelties": [
+      "przedwstepna-stop-ustawienie-rekrutacji",
+      "przedwstepna-stop-wyjatek-dla-osoby",
+      "przedwstepna-przy-nowej-rekrutacji"
+    ],
+    "task": "Klient chce podpisanej przedwstępnej dopiero przed rozmową u siebie. Zmień ustawienie rekrutacji ćwiczebnej na ten etap i kliknij „Zapisz”. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "click",
+      "anchor": "job.pre-contract.save"
+    },
+    "questions": [
+      {
+        "q": "Szymon stoi do podpisu przedwstępnej, a klient chce jego CV jeszcze dziś. Co możesz zrobić jako DL?",
+        "options": [
+          "Dopilnować podpisu albo dać „Wyjątek dla tej osoby”",
+          "Wysłać CV, bo Delivery Lead omija każdą bramkę",
+          "Poprosić rekrutera, żeby anulował prośbę"
+        ],
+        "answer": 0,
+        "explain": "Stop obowiązuje każdego, także Delivery Leada. Puszcza go podpis obu stron albo wyjątek DL-a lub HoR, zapisany w historii prośby."
+      },
+      {
+        "q": "Kiedy blokada zniknie sama?",
+        "options": [
+          "Gdy umowę podpiszą kandydat i firma",
+          "Gdy prośba trafi do kandydata",
+          "Po 3 dniach roboczych od prośby"
+        ],
+        "answer": 0,
+        "explain": "Liczy się podpis obu stron. Wystawienie i wysłanie prośby niczego nie zwalnia."
+      },
+      {
+        "q": "Rekruter anulował prośbę u osoby w rekrutacji z ustawieniem „każda osoba podpisuje”. Co z kartą?",
+        "options": [
+          "Dalej stoi: potrzebna nowa prośba albo wyjątek",
+          "Może iść dalej, bo prośby już nie ma",
+          "Wraca na „Zweryfikowany”"
+        ],
+        "answer": 0,
+        "explain": "Anulowanie nie jest furtką. Przy ustawieniu rekrutacji karta czeka na nową prośbę z podpisem albo na wyjątek DL-a lub HoR."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-stop-przedwstepnej-na-karcie",
+    "title": "Karta zatrzymana do podpisu przedwstępnej",
+    "novelties": [
+      "przedwstepna-stop-na-karcie"
+    ],
+    "task": "Na Tablicy rekrutacji ćwiczebnej znajdź osobę, która czeka na podpis umowy przedwstępnej, i kliknij jej czerwoną plakietkę.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "click",
+      "anchor": "board.card.pre-contract-stop"
+    },
+    "questions": [
+      {
+        "q": "Na karcie widzisz „Stop · Przedwstępna wysłana” i kłódkę na strzałce. Co to znaczy?",
+        "options": [
+          "Osoba nie pójdzie dalej bez podpisanej przedwstępnej",
+          "Brakuje arkusza screeningu",
+          "Klient wstrzymał rekrutację"
+        ],
+        "answer": 0,
+        "explain": "Kłódka stoi przed etapem z ustawienia, np. „CV wysłane”. Ruch na wcześniejsze kolumny i odrzucenie są wolne."
+      },
+      {
+        "q": "Kandydat podpisze dopiero za tydzień, a DL chce go wysłać do klienta już dziś. Kto może zrobić wyjątek?",
+        "options": [
+          "Delivery Lead klienta albo Head of Recruitment",
+          "Rekruter prowadzący tę osobę",
+          "Nikt, karta musi czekać na podpis"
+        ],
+        "answer": 0,
+        "explain": "Rekruter widzi stan, ale blokady nie zdejmuje. Wyjątek robi DL albo HoR w panelu osoby › Umowa."
+      },
+      {
+        "q": "Jak w zwykłej sytuacji zdejmiesz stop z karty?",
+        "options": [
+          "Wysyłam przedwstępną i pilnuję podpisu obu stron",
+          "Anuluję prośbę o przedwstępną",
+          "Przesuwam kartę mimo kłódki"
+        ],
+        "answer": 0,
+        "explain": "Blokada znika sama, gdy umowę podpiszą kandydat i firma. Anulowanie prośby jej nie zdejmuje."
       }
     ]
   },

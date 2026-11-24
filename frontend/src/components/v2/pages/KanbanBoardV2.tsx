@@ -1383,7 +1383,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <span
  key={b.key}
  data-testid={testId}
- data-tour={b.key === "critical_gap" && !criticalGaps?.length && criticalAlternatives ? "board.critical-alternative" : undefined}
+ data-tour={b.key === "critical_gap" && !criticalGaps?.length && criticalAlternatives ? "board.critical-alternative" : b.key === "pre_contract" && b.label.startsWith("Stop ·") ? "board.card.pre-contract-stop" : undefined}
  className={cn(chipBase, CARD_BADGE_TONE_CLASS[b.tone])}
  title={b.title}
  >

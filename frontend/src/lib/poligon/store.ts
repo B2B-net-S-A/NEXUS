@@ -9,6 +9,8 @@
 // z 16.11.2026 (telefon, terminy u klienta, CV z pliku, zapisane wyszukiwania,
 // listy, czat, asystent CV, Jarvis) i terminy od klienta Delivery Leada są w `tools.ts`.
 
+import { BOARD_COLUMN_ORDER, placeStage, type BoardColumnKey, type StageLike } from "@/lib/board-stages";
+
 import { forViewer, NO_AMOUNTS, type PoligonViewer } from "./amounts";
 import { createTools } from "./tools";
 
@@ -54,6 +56,8 @@ export interface PoligonRequest {
   viewerId?: number | null;
   /** Co osoba widzi z kwot klienta ćwiczebnego (z jej uprawnień, jak serwer). */
   viewer?: PoligonViewer;
+  /** Ustawia i zdejmuje stop do podpisu przedwstępnej (DL, HoR, admin — 0762). */
+  canSetPreContractStop?: boolean;
 }
 
 export interface PoligonResponse {
@@ -287,6 +291,24 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
       .map((item) => ({ key: item.key, label: item.label }));
   }
 
+  /** Stop do podpisu przedwstępnej (0762): karta z `pre_contract.stop_column`
+   *  nie wchodzi na tę kolumnę ani dalej — także u Delivery Leada (lustro
+   *  `pre_contract_stop.assert_pre_contract_signed`). */
+  function preContractStop(candidateId: number, to: KanbanColumn | null): { detail: string; message: string } | null {
+    const meta = findItem(candidateId)?.item.pre_contract as { stop_column?: string | null; label?: string } | null | undefined;
+    const stop = meta?.stop_column as BoardColumnKey | null | undefined;
+    if (!stop || !to) return null;
+    const at = BOARD_COLUMN_ORDER.indexOf(stop);
+    if (at < 0 || BOARD_COLUMN_ORDER.indexOf(placeStage(to as StageLike).column) < at) return null;
+    return {
+      detail: String(meta?.label ?? ""),
+      // Tekst jak `pre_contract_stop.stop_message` (na Poligonie stop pochodzi z ustawienia rekrutacji).
+      message:
+        "Osoba czeka na podpis umowy przedwstępnej (przed wysłaniem CV; ustawienie rekrutacji). " +
+        "Blokadę zdejmuje Delivery Lead albo Head of Recruitment w panelu osoby › Umowa.",
+    };
+  }
+
   /** „Przesuń dalej”: wymagania liczone ze stanu poligonu, nie z nagrania. */
   function moveRequirements(query: Array<[string, string]>): PoligonResponse {
     const candidateId = Number(query.find(([k]) => k === "candidate_id")?.[1]);
@@ -295,6 +317,19 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     const to = kanban?.columns.find((c) => c.stage_def_id === toDef) ?? null;
     const recorded = recordedRequirements();
     const base = { ...recorded, from_column: from?.stage ?? null, to_column: to?.stage ?? null, skipped_columns: [], owner_note: null };
+    const stop = preContractStop(candidateId, to);
+    if (stop) {
+      const item = {
+        key: "pre_contract",
+        label: "Umowa przedwstępna niepodpisana — osoba stoi do podpisu",
+        detail: stop.detail,
+        status: "missing",
+        blocking: true,
+        action: { kind: "open_pre_contract", label: "Otwórz umowę", stage_id: entryOf(candidateId) },
+        column: to ? placeStage(to as StageLike).column : null,
+      };
+      return { status: 200, data: { ...base, items: [item], primary: { kind: "blocked", label: "Najpierw podpis umowy przedwstępnej", target_stage_def_id: null } } };
+    }
     if (to?.stage !== "verified" || !GATED_FROM.has(String(from?.stage ?? ""))) {
       return { status: 200, data: { ...base, items: [], primary: { kind: "move", label: `Przesuń: ${String(to?.label ?? to?.name ?? "dalej")}`, target_stage_def_id: toDef } } };
     }
@@ -424,6 +459,10 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
         (body.stage !== undefined && c.stage === body.stage),
     );
     if (!target) return { status: 422, data: { detail: "Nie ma takiego etapu w tej rekrutacji." } };
+    const stop = preContractStop(candidateId, target);
+    if (stop) {
+      return { status: 409, data: { detail: { code: "PRE_CONTRACT_NOT_SIGNED", message: stop.message, origin: "job", needed_before: "cv_sent" } } };
+    }
     if (target.stage === "verified" && GATED_FROM.has(String(found.column.stage ?? ""))) {
       const missing = verifiedMissing(candidateId);
       if (missing.length) {
@@ -521,7 +560,7 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     method: string,
     path: string,
     query: Array<[string, string]>,
-    opts: { quiet?: boolean; viewer?: PoligonViewer } = {},
+    opts: { quiet?: boolean; viewer?: PoligonViewer; canSetPreContractStop?: boolean } = {},
   ): PoligonResponse {
     if (!opts.quiet && method === "GET") emit({ type: "view", path, query: Object.fromEntries(query) });
     if (path === kanbanKey.slice(4)) return { status: 200, data: clone(kanban) };
@@ -572,6 +611,10 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     data = asPerson(clone(data), person);
     // Klient ćwiczebny: kwoty tylko dla osoby, która widzi je na prawdziwym kliencie.
     if (fiction.has(matched)) data = forViewer(path, data, opts.viewer ?? NO_AMOUNTS);
+    // Stop do podpisu przedwstępnej: „Wyjątek dla tej osoby” widzi tylko DL, HoR i admin.
+    if (path === "/api/pre-contracts/pair" && data && typeof data === "object") {
+      data = { ...(data as Record<string, Json>), can_set_stop: opts.canSetPreContractStop === true };
+    }
 
     if (path === "/api/screening-form") {
       data = screeningForm(Number(query.find(([k]) => k === "candidate_id")?.[1]), data);
@@ -685,7 +728,9 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
       OWNED_PATHS.has(path) || mentionsPoligon(`${path}?${new URLSearchParams(query).toString()}`) || mentionsPoligon(JSON.stringify(req.body ?? ""));
 
     if (method === "GET" || method === "HEAD") {
-      return owned ? read("GET", path, query, { viewer: req.viewer }) : "network";
+      return owned
+        ? read("GET", path, query, { viewer: req.viewer, canSetPreContractStop: req.canSetPreContractStop })
+        : "network";
     }
     // Od tego miejsca tylko zapisy. Jedyny, który wychodzi z przeglądarki, to
     // postęp osoby na poligonie (zaliczone ćwiczenie) — dane rekrutacji nie.

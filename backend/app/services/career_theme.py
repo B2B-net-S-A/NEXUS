@@ -74,28 +74,6 @@ _CATEGORY_THEME: dict[str, str] = {
     "management_delivery": "jasny",
 }
 
-# Plakat A4 (WeasyPrint) — ten sam kolor co strona; kontrast tekstu ≥ 4,5:1.
-POSTER_COLORS: dict[str, dict[str, str]] = {
-    "grafit": {
-        "bg": "#141414",
-        "text": "#F5F4EC",
-        "accent": "#F05A69",
-        "muted": "#D9D6CC",
-    },
-    "terminal": {
-        "bg": "#161514",
-        "text": "#F1EEE6",
-        "accent": "#F05A69",
-        "muted": "#CFCAC0",
-    },
-    "jasny": {
-        "bg": "#F5F4EC",
-        "text": "#141414",
-        "accent": "#C42536",
-        "muted": "#2E3236",
-    },
-}
-
 
 def role_theme(title: Optional[str]) -> Optional[str]:
     """Szablon z roli w tytule albo ``None``, gdy tytuł nie mówi, kogo szukamy."""
