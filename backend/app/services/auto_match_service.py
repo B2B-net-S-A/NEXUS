@@ -575,6 +575,23 @@ def pool_rows(
     return rows
 
 
+# Cięcie puli do 150 bez dodatków ponad pulą: po jednym warunku na klucz
+# z `auto_full_review.POOL_EXTRA_EVIDENCE_KEYS` („sent_before”, „fresh_cv”).
+# Stały literał zamiast warunków składanych w pętli, bo Semgrep (`semgrep-pr`)
+# blokuje `text()` z SQL budowanym w kodzie; zgodność z krotką pilnuje
+# `tests/test_auto_match_pool_trim_sql.py`.
+_POOL_TRIM_SQL = text(
+    "DELETE FROM job_autofill_pool p USING ("
+    "  SELECT job_id, candidate_id, row_number() OVER ("
+    "    PARTITION BY job_id ORDER BY score DESC, candidate_id"
+    "  ) AS place FROM job_autofill_pool WHERE job_id = ANY(:jobs)"
+    "  AND (evidence->>'sent_before') IS DISTINCT FROM 'true'"
+    "  AND (evidence->>'fresh_cv') IS DISTINCT FROM 'true'"
+    ") r WHERE p.job_id = r.job_id AND p.candidate_id = r.candidate_id "
+    "AND r.place > :size"
+)
+
+
 async def _write_pool(
     db: AsyncSession, *, scored: list[Scored], revision: str, run_id: str
 ) -> None:
@@ -655,27 +672,11 @@ async def _write_pool(
             # niższe wyniki) i 27 z 33 pilnych pul nie miało ani jednej takiej
             # osoby, choć przegląd znalazł ich od 79 do 3 406. Audyt R3
             # (24.11.2026): to samo dotyczyło dodatków „świeże CV”.
-            extras_filter = "".join(
-                f"  AND (evidence->>:extra_{i}) IS DISTINCT FROM 'true'"
-                for i in range(len(POOL_EXTRA_EVIDENCE_KEYS))
-            )
             await db.execute(
-                text(
-                    "DELETE FROM job_autofill_pool p USING ("
-                    "  SELECT job_id, candidate_id, row_number() OVER ("
-                    "    PARTITION BY job_id ORDER BY score DESC, candidate_id"
-                    "  ) AS place FROM job_autofill_pool WHERE job_id = ANY(:jobs)"
-                    f"{extras_filter}"
-                    ") r WHERE p.job_id = r.job_id AND p.candidate_id = r.candidate_id "
-                    "AND r.place > :size"
-                ),
+                _POOL_TRIM_SQL,
                 {
                     "jobs": sorted({r["job_id"] for r in rows}),
                     "size": AUTOFILL_POOL_SIZE,
-                    **{
-                        f"extra_{i}": key
-                        for i, key in enumerate(POOL_EXTRA_EVIDENCE_KEYS)
-                    },
                 },
             )
     except Exception as exc:  # noqa: BLE001 — pula to dodatek, propozycje zostają
