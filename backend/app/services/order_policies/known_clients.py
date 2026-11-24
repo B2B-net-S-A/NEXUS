@@ -43,6 +43,9 @@ KNOWN_REGISTRY_IDS: dict[str, tuple[str, ...]] = {
     "ey": ("5252314195",),
     "nationale_nederlanden": ("5260305006",),
     "orlen": ("7740001454",),
+    # Spoza korpusu zamówień: NIP z karty klienta w NEXUS-ie. Potrzebny skrzynkom
+    # konsultantów u klienta (``external.…@de.bosch.com``, próba IX–X 2026).
+    "bosch": ("5261027992",),
 }
 
 #: Markery dla klientów bez polskiego NIP-u w treści albo jako drugi szczebel.
@@ -92,7 +95,17 @@ KNOWN_SENDER_DOMAINS: dict[str, str] = {
     # Orlen Upstream (dawne PGNiG) pisze z pgnig.pl: podpisany protokół IX 2026
     # i pytanie finansów o kwotę faktury X przyszły z tej domeny (przegląd skrzynek 23.11.2026).
     "pgnig.pl": "orlen",
+    # Bosch pisze z poddomen krajów (pl.bosch.com, de.bosch.com). Konsultant ma skrzynkę
+    # ``external.imie.nazwisko@de.bosch.com`` (próba IX–X 2026, Bosch 627).
+    "bosch.com": "bosch",
 }
+
+#: Domeny z rejestru, których poddomeny (kraje) należą do tego samego klienta: Bosch
+#: pisze z ``pl.bosch.com`` i ``de.bosch.com``. Tylko jawnie: ``consult.nordea.com`` to
+#: skrzynki naszych konsultantów, którzy w wątku występują jako strona klienta, więc
+#: poddomena Nordei nie wskazuje osoby (próba IX–X 2026: raport z testu innej osoby
+#: trafiał do kontraktu konsultanta z łańcucha przekazania).
+SUBDOMAIN_SENDER_DOMAINS: frozenset[str] = frozenset({"bosch.com"})
 
 #: Domena, z której piszą pracownicy kilku spółek grupy. Rozpoznaniu zamówień
 #: wystarcza klucz z ``KNOWN_SENDER_DOMAINS``, ale skrzynka konsultanta w tej

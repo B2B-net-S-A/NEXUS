@@ -689,13 +689,20 @@ async def _ingest_message(
             db, inner.senders, state=state, today=today
         )
     by_file_name = False
-    if contract is None and indirect is None and identity.is_company_address(sender):
+    company = contract is None and identity.is_company_address(sender)
+    staff_clients: frozenset[int] = frozenset()
+    if company and indirect is None:
         # Nazwisko z tematu tylko od adresu firmy (koordynator, skrzynka firmowa):
         # temat może napisać każdy, więc obcy adres nie wskazuje nim osoby.
         names = " ".join([subject, *(str(f.get("name") or "") for f in files)])
         indirect = await identity.resolve_named_in_text(db, names, today=today)
         # Kilka osób w mailu: każdy plik osobno, po nazwisku z jego nazwy.
         by_file_name = indirect is None
+        # Portfel DL-a, który pisze albo do którego piszemy: wśród jego klientów
+        # nazwisko z literówką w imieniu wskazuje osobę (próba IX–X 2026, Orlen).
+        staff_clients = await identity.staff_client_ids(
+            db, [sender, *support_mail_route.recipients(message)]
+        )
     sender_clients: frozenset[int] = frozenset()
     if (
         contract is None
@@ -749,13 +756,25 @@ async def _ingest_message(
         if owner is None and indirect is not None and _named_kind(subject, name):
             # Wypowiedzenie, zaświadczenie czy oferta przekazane z łańcuchem konsultanta
             # nie mogą wejść do rozliczenia jako faktura kontraktora (próba IX–XI 2026).
-            owner = indirect.id
+            # Plik z imieniem albo nazwiskiem innej osoby nie dziedziczy osoby z maila:
+            # czeka na człowieka (próba IX–X 2026, Orlen: plik osoby po zmianie
+            # nazwiska trafił do kontraktu drugiej osoby z tego samego maila).
+            own = await identity.resolve_named_in_text(db, name, today=today)
+            if (own is not None and own.id == indirect.id) or not (
+                await identity.names_someone_else(db, name, indirect, today=today)
+            ):
+                owner = indirect.id
         elif owner is None and by_file_name and _named_kind("", name):
             # Koordynator wysyła protokoły kilku osób jednym mailem („PROTOKÓŁ_ Imię
             # Nazwisko_WRZESIEŃ 2026.pdf”): plik idzie do jedynej osoby z jego nazwy,
             # a rodzaj też musi wynikać z nazwy pliku, nie z tematu (próba IX–X 2026:
-            # 3 osobo-miesiące Orlenu bez rozliczenia).
-            named = await identity.resolve_named_in_text(db, name, today=today)
+            # 3 osobo-miesiące Orlenu bez rozliczenia). Literówka w imieniu: osoba
+            # wśród klientów z portfela DL-a z wątku.
+            named = await identity.resolve_named_in_text(
+                db, name, today=today
+            ) or await identity.resolve_named_in_scope(
+                db, name, client_ids=staff_clients, today=today
+            )
             owner = named.id if named is not None else None
         elif owner is None and sender_clients and _named_kind("", name):
             named = await identity.resolve_named_at_client(
@@ -764,6 +783,25 @@ async def _ingest_message(
             if named is not None:
                 owner = named.id
                 by_file[named.id] = named
+        if (
+            owner is None
+            and indirect is None
+            and (company or sender_clients)
+            and _named_kind(subject, name)
+        ):
+            # Numer umowy wykonawczej w nazwie pliku albo w temacie („do umowy
+            # CeZ/177/2026”) wskazuje kontrakt, gdy imię różni się od kartoteki (próba
+            # IX–X 2026, CeZ 668). Numer z nazwy pliku wygrywa z tematem.
+            by_number = await _agreement_contract(
+                db,
+                name,
+                subject,
+                client_ids=None if company else sender_clients,
+                today=today,
+            )
+            if by_number is not None:
+                owner = by_number.id
+                by_file[by_number.id] = by_number
         if owner is None:
             # Raport Polkomtelu albo rozliczenie Cyfrowego Polsatu („.xls”): osoba ma
             # kontrakt w obu spółkach, więc kontrakt wybiera numer zamówienia z pliku
@@ -820,6 +858,31 @@ async def _ingest_message(
             now=now,
         )
     return created + time_report.versions + client_report, skipped
+
+
+async def _agreement_contract(
+    db: AsyncSession,
+    name: str,
+    subject: str,
+    *,
+    client_ids: Optional[frozenset[int]],
+    today: date,
+) -> Optional[Contract]:
+    """Kontrakt z numeru umowy wykonawczej: z nazwy pliku, a bez numeru w niej z tematu.
+
+    Pełne imię i nazwisko innej osoby w temacie albo nazwie pliku = nikt. Samo inne
+    imię nie przeszkadza: CeZ pisze w temacie zdrobnienie albo inne imię niż kartoteka."""
+
+    text = name if identity.agreement_numbers(name) else subject
+    found = await identity.resolve_by_agreement(
+        db, text, today=today, client_ids=client_ids
+    )
+    if found is None:
+        return None
+    named = await identity.resolve_named_in_text(db, f"{subject} {name}", today=today)
+    if named is not None and named.candidate_id != found.candidate_id:
+        return None
+    return found
 
 
 async def _report_people(
@@ -1261,14 +1324,36 @@ async def _store_mail_body(
 ) -> int:
     """Klient z regułą ``proof.accept_has_hours`` (PKO, E6.1): akceptacja jest
     w treści forwardu, nie w załączniku, więc zapisujemy też sam mail jako
-    ``.eml``. U pozostałych klientów treści maila nie zbieramy."""
+    ``.eml``. Przy ``proof.excel_with_mail`` albo ``extra.mail_accept`` tylko mail,
+    w którego wątku pisze klient (``_client_wrote``): konsultant ERSTE i Polkomtelu
+    przekazuje Time Sheet razem z odpowiedzią kierownika („Potwierdzam”), a bez
+    zapisanej treści kontrola pisała „Brak maila z akceptacją godzin” (próba IX–X
+    2026). Bez tematów KEŚU: tam akceptacją jest mail automatu Jiry, a każdy dodatkowy
+    mail miesiąca zmienia źródło KEŚU. U pozostałych klientów treści maila nie
+    zbieramy."""
 
-    year, month, _guessed = period_for(subject, "", received.date())
     from app.services.client_settlements import service as settlements
 
+    year, month, _guessed = period_for(subject, "", received.date())
     rules = await settlements.rules_for(db, contract.client_id, f"{year}-{month:02d}")
+    content: Optional[bytes] = None
     if rules["proof.accept_has_hours"]["level"] == "off":
-        return 0
+        fetch = getattr(mailbox, "mime", None)
+        if (
+            fetch is None
+            or kesu.is_kesu_subject(subject)
+            or all(
+                rules[key]["level"] == "off" for key in settlements.CLIENT_MAIL_RULES
+            )
+        ):
+            return 0
+        try:
+            content = await fetch(str(message["id"]))
+        except (GraphRequestError, AppOnlyTokenUnavailable) as exc:
+            logger.info("rozliczenia@: treść maila pominięta (%s)", type(exc).__name__)
+            return 0
+        if not content or not await _client_wrote(db, content, contract, rules):
+            return 0
     return await _store_eml(
         db,
         mailbox,
@@ -1277,7 +1362,39 @@ async def _store_mail_body(
         subject=subject,
         received=received,
         now=now,
+        content=content,
     )
+
+
+async def _client_wrote(
+    db: AsyncSession,
+    content: bytes,
+    contract: Contract,
+    rules: dict[str, dict[str, Any]],
+) -> bool:
+    """W wątku maila pisze klient, a nie sam konsultant z kontraktu.
+
+    Domeny klienta jak w kontrolach pliku (``service.acceptance_senders``). Skrzynka
+    konsultanta u klienta (``imie.nazwisko@kir.pl``, ERSTE, PKO) jest w domenie
+    klienta, ale jego własny mail z fakturą to nie akceptacja (próba IX–X 2026):
+    liczy się wiadomość kogoś, kogo czytnik nie rozpoznaje jako tego konsultanta."""
+
+    from app.services.client_settlements import acceptance_mail
+    from app.services.client_settlements import service as settlements
+
+    senders = await settlements.acceptance_senders(db, contract.client_id, rules)
+    messages = await asyncio.to_thread(
+        acceptance_mail.read, content, acceptance_mail.EML
+    )
+    today = business_today()
+    for found in messages:
+        if not found.sender or not senders.accepts_from(found.sender):
+            continue
+        if contract.id not in await identity.sender_contract_ids(
+            db, found.sender, today=today
+        ):
+            return True
+    return False
 
 
 async def _store_client_acceptance(
@@ -1305,9 +1422,41 @@ async def _store_client_acceptance(
     contract = await identity.resolve_named_for_clients(
         db, subject, clients, settings=state, today=today
     )
+    received = _parse_time(message.get("receivedDateTime")) or now
+    content: Optional[bytes] = None
+    if contract is None:
+        # Konsultant przekazuje akceptację kierownika ze swojej skrzynki u klienta,
+        # bez nazwiska w temacie („PD: akcept rozliczenia”, próba IX–X 2026, ERSTE 479):
+        # nadawca to jego adres z kontraktu, więc mail jest jego, o ile w wątku pisze
+        # kierownik. Temat z imieniem albo nazwiskiem innej osoby (także
+        # niejednoznacznej) i sam mail konsultanta zostają kartą do przypisania.
+        own = await identity.resolve_sender(
+            db, _sender(message), settings=state, today=today
+        )
+        fetch = getattr(mailbox, "mime", None)
+        if (
+            own is not None
+            and fetch is not None
+            and own.client_id in clients
+            and not await identity.names_someone_else(db, subject, own, today=today)
+        ):
+            from app.services.client_settlements import service as settlements
+
+            year, month, _guessed = period_for(subject, "", received.date())
+            try:
+                content = await fetch(str(message["id"]))
+            except (GraphRequestError, AppOnlyTokenUnavailable) as exc:
+                logger.info(
+                    "rozliczenia@: treść maila pominięta (%s)", type(exc).__name__
+                )
+                return 0, 0
+            rules = await settlements.rules_for(
+                db, own.client_id, f"{year}-{month:02d}"
+            )
+            if content and await _client_wrote(db, content, own, rules):
+                contract = own
     if contract is None and not state.any_sender:
         return 0, 1
-    received = _parse_time(message.get("receivedDateTime")) or now
     made = await _store_eml(
         db,
         mailbox,
@@ -1316,6 +1465,7 @@ async def _store_client_acceptance(
         subject=subject,
         received=received,
         now=now,
+        content=content,
     )
     return made, 0
 
@@ -1617,13 +1767,17 @@ async def _store_eml(
     subject: str,
     received: datetime,
     now: datetime,
+    content: Optional[bytes] = None,
 ) -> int:
+    """Cały mail jako ``.eml``; ``content`` = MIME już pobrany (bez drugiego zapytania)."""
+
     fetch = getattr(mailbox, "mime", None)
-    if fetch is None:
+    if fetch is None and content is None:
         return 0
     year, month, guessed = period_for(subject, "", received.date())
     try:
-        content = await fetch(str(message["id"]))
+        if content is None:
+            content = await fetch(str(message["id"]))
         if not content:
             return 0
         stored = await documents.store(

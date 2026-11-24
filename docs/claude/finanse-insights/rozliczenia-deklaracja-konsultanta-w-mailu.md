@@ -26,8 +26,10 @@ Ustawiają „Ostrzega” i zapisują z miesiącem, od którego reguła ma dzia�
 Czytamy tylko własną część maila. Cytowany wątek pod „Od:”/„From:” i linie z „>” pomijamy.
 Mail dzielimy na zdania i części zdań między przecinkami. Deklaracja musi stać w jednej
 części razem z pełną nazwą miesiąca („wrzesień”, „września”, „wrześniu”). Same rdzenie
-nie wystarczają, bo łapały imiona („Marta”, „Maja”). Nazwa bez roku bierze rok
-rozliczanego miesiąca. Poza deklaracją i miesiącem w tej części mogą stać tylko słowa
+nie wystarczają, bo łapały imiona („Marta”, „Maja”). Od 24.11.2026 nazwa od 7 liter
+z jedną brakującą literą („wrzeniu”, mLeasing IX 2026) też jest nazwą miesiąca. Krótszych
+nazw („maja”, „luty”) nie poprawiamy, bo bez litery dają inne słowa. Nazwa bez roku bierze
+rok rozliczanego miesiąca. Poza deklaracją i miesiącem w tej części mogą stać tylko słowa
 z białej listy (`_FILLER`: „we”, „za”, „przepracowałam”, „cały”…). Każde inne słowo
 („nie przepracowałam”, „byłam chora”, „będę”, „czy”) oznacza, że MD nie wpisujemy.
 Decyzja z recenzji kodu 23.11.2026: przy kwotach lepiej oddać deklarację Finansom niż
@@ -35,7 +37,7 @@ wpisać złe MD.
 
 | Zdanie | MD |
 |---|---|
-| „nie miałam/miałem (żadnych) dni wolnych”, „nie miałam wolnego”, „bez dni wolnych”, „pełny miesiąc” | dni robocze miesiąca |
+| „nie miałam/miałem (żadnych) dni wolnych”, „nie miałam wolnego”, „bez dni wolnych”, „pełny miesiąc”, także z „od pracy” („dni wolnych od pracy”) | dni robocze miesiąca |
 | „miałam 2 dni wolnego”, „miałem jeden dzień wolny”, „miałam 3 dni urlopu” (czas przeszły, 1. osoba, liczba całkowita) | dni robocze minus ta liczba |
 | bez nazwy miesiąca, „miałam dni wolne” (bez liczby), „0,5 dnia”, „będę miała”, choroba, L4, nieobecność, dni pracy, dwie różne deklaracje | brak, uwaga dla Finansów |
 | inny miesiąc albo rok niż rozliczany | brak, kontrola `proof.month` |
