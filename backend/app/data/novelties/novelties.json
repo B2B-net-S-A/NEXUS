@@ -5016,6 +5016,33 @@
     "dot_anchor": "new-job.fill-from"
   },
   {
+    "id": "odrzucenie-mieszka-poza-polska",
+    "pr": 3846,
+    "title": "Odrzucenie: „Mieszka poza Polską”",
+    "why": "System nie podsuwa już osób mieszkających za granicą. Gdy taka trafi do Ciebie, odrzuć ją powodem „Mieszka poza Polską” i wybierz kraj — zapisze się na profilu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Rekrutacja → Odrzuć z powodem → Warunki → Mieszka poza Polską",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990101",
+    "section": "pipeline",
+    "dot_anchor": "rejection.outside-poland",
+    "steps": [
+      {
+        "anchor": "person.dock.reject",
+        "text": "W panelu osoby kliknij „Odrzuć z powodem”.",
+        "hint": "Otworzy się okno z powodami odrzucenia. Na Poligonie nic nie zostanie zapisane."
+      },
+      {
+        "anchor": "rejection.outside-poland",
+        "text": "W grupie Warunki jest „Mieszka poza Polską”.",
+        "hint": "Po wyborze okno pyta, gdzie osoba mieszka. Kraj trafia na profil, a system przestaje ją proponować.",
+        "ack": true
+      }
+    ]
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",

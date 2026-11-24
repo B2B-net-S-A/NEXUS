@@ -2450,6 +2450,46 @@
     ]
   },
   {
+    "id": "lekcja-mieszka-poza-polska",
+    "title": "Osoba mieszka za granicą: „Mieszka poza Polską”",
+    "novelties": ["odrzucenie-mieszka-poza-polska"],
+    "task": "Kandydat z rekrutacji ćwiczebnej mieszka w Indiach, a profil nie ma kraju. Otwórz odrzucenie i wybierz powód „Mieszka poza Polską”.",
+    "solo_href": "/jobs/990001?candidate=990101",
+    "check": { "kind": "click", "anchor": "rejection.outside-poland" },
+    "questions": [
+      {
+        "q": "Osoba mieszka w Indiach, a profil nie ma kraju. Co robisz przy odrzuceniu?",
+        "options": [
+          "Wybieram „Mieszka poza Polską” i kraj Indie",
+          "Wybieram „Lokalizacja lub tryb pracy” i „Tylko zdalnie”",
+          "Wybieram „Inne” i piszę „Indie” w opisie"
+        ],
+        "answer": 0,
+        "explain": "Kraj zapisze się na profilu, więc system nie doda tej osoby do żadnej rekrutacji. „Tylko zdalnie” byłoby nieprawdą o osobie, a opis przy „Inne” niczego systemu nie uczy."
+      },
+      {
+        "q": "Kandydatka ma w profilu kraj Białoruś i miasto Warszawa. Czy system ją podsunie?",
+        "options": [
+          "Tak, miasto w Polsce znaczy, że mieszka w Polsce",
+          "Nie, kraj w profilu jest inny niż Polska",
+          "Tylko do rekrutacji zdalnych"
+        ],
+        "answer": 0,
+        "explain": "Kraj bywa obywatelstwem. Gdy miasto w profilu leży w Polsce, system traktuje osobę jak mieszkającą w Polsce."
+      },
+      {
+        "q": "Potrzebujesz specjalisty, który mieszka za granicą. Jak go dodasz?",
+        "options": [
+          "Znajdę go w wyszukiwarce i dodam ręcznie",
+          "Nie da się, system go blokuje",
+          "Poproszę admina o zmianę kraju w profilu"
+        ],
+        "answer": 0,
+        "explain": "System tylko nie proponuje takich osób sam. Wyszukiwanie i ręczne dodanie działają jak dawniej."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [

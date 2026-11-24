@@ -210,7 +210,7 @@ function ReasonOption({ value, label }: { value: CloseReasonKey; label: string }
       className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-0.5 text-sm hover:bg-primary/10"
       // Kropki „Nowość” przy powodach (`novelties.json`, `dot_anchor`); kotwica
       // musi stać dosłownie w tej linii (`novelty-anchors.test.ts`).
-      data-tour={value === "accepted_other_offer" ? "rejection.employed-elsewhere" : value === "not_looking" ? "rejection.not-looking" : undefined}
+      data-tour={value === "accepted_other_offer" ? "rejection.employed-elsewhere" : value === "not_looking" ? "rejection.not-looking" : value === "outside_poland" ? "rejection.outside-poland" : undefined}
     >
       <RadioGroupItem value={value} className="mt-0.5" />
       <span>{label}</span>
