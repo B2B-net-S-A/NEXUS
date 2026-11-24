@@ -1369,6 +1369,8 @@ export function JobsListV2({
                   type="button"
                   aria-pressed={on}
                   title={REQUEST_STAGE_META[value].hint}
+                  // Kotwica wpisu Nowości „Po terminie” (24.11.2026).
+                  data-tour={value === "overdue" ? "jobs.list.stage-overdue" : undefined}
                   onClick={() => {
                     setStages((prev) =>
                       on ? prev.filter((s) => s !== value) : [...prev, value],
