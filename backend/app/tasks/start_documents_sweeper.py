@@ -20,12 +20,13 @@ import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
-from app.core.scheduling import local_now
+from app.core.scheduling import DEFAULT_TZ, local_now
 from app.models.notification import NotificationType
 from app.models.user import User, UserRole
 from app.services import loop_heartbeat
@@ -160,6 +161,8 @@ async def run_once(now: datetime) -> dict[str, int]:
     """Jeden przebieg: w dzień wolny i przed 9:00 nic nie robi."""
 
     counts = {"recipients": 0}
+    # Godzina 9:00 i „dziś” liczą się w Warszawie, także gdy „teraz” jest w UTC.
+    now = now.astimezone(ZoneInfo(DEFAULT_TZ))
     today = now.date()
     if now.hour < FIRST_HOUR:
         return counts

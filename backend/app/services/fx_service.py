@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Mapping, Optional
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import select
@@ -22,7 +23,12 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
-from app.core.scheduling import business_today, is_business_day, local_now
+from app.core.scheduling import (
+    DEFAULT_TZ,
+    business_today,
+    is_business_day,
+    local_now,
+)
 from app.models.fx_rate import FxRate
 
 logger = logging.getLogger(__name__)
@@ -579,6 +585,9 @@ def _seconds_until_next_nbp_window(now: datetime) -> float:
 def _should_refresh_nbp(now: datetime, latest: Optional[date]) -> bool:
     """Whether this cycle should call NBP rather than use the durable cache."""
 
+    # Okno publikacji i data tabeli są warszawskie — „teraz” w UTC przesunęłoby
+    # oba (00:30 w Warszawie to 23:30 UTC poprzedniego dnia).
+    now = now.astimezone(ZoneInfo(DEFAULT_TZ))
     if latest is None:
         return True
     return (

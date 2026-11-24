@@ -24,6 +24,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.periods import Period, PeriodKind
+from app.core.scheduling import business_date
 from app.models.user import User
 from app.services.insights_in_flight import in_flight_by_verifier
 from app.services.insights_person_scope import (
@@ -82,7 +83,9 @@ def previous_matching_window(
         # `previousSameStretch` we froncie — kafle i tabela porównują to samo
         # okno. Koniec nigdy nie wchodzi w bieżący okres: 31 marca porównuje
         # się z całym lutym, nie z lutym i trzema dniami marca.
-        days = max((now.date() - start.date()).days + 1, 0)
+        # Dzień liczony w kalendarzu firmy: Rada podaje „teraz” w UTC, a o
+        # 00:30 w Warszawie `now.date()` w UTC to jeszcze wczoraj.
+        days = max((business_date(now) - business_date(start)).days + 1, 0)
         return prev_start, min(prev_start + timedelta(days=days), start)
     return prev_start, start
 

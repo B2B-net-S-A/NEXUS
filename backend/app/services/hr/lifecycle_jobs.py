@@ -36,7 +36,7 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.scheduling import local_now
+from app.core.scheduling import business_date, local_now
 from app.models.hr_lifecycle import LifecycleCase, LifecycleTask
 from app.models.notification import NotificationType
 from app.services.hr import job_runs
@@ -98,7 +98,7 @@ async def run_handovers(db: AsyncSession, now: datetime) -> dict[str, int]:
                 LifecycleCase.kind == "offboarding",
                 LifecycleCase.status == "active",
                 LifecycleCase.handover_executed_at.is_(None),
-                LifecycleCase.last_working_day <= now.date(),
+                LifecycleCase.last_working_day <= business_date(now),
             )
             .order_by(LifecycleCase.id)
         )
@@ -165,7 +165,7 @@ async def _alert_mass_exit(db: AsyncSession, now: datetime, planned: int) -> int
     """
 
     alert_id = await job_runs.claim(
-        db, MASS_EXIT_ALERT_KIND, now.date().isoformat(), now
+        db, MASS_EXIT_ALERT_KIND, business_date(now).isoformat(), now
     )
     if alert_id is None:
         return 0
@@ -197,7 +197,7 @@ async def _alert_mass_exit(db: AsyncSession, now: datetime, planned: int) -> int
 async def run_deactivations(db: AsyncSession, now: datetime) -> dict[str, Any]:
     """Wyłączenie kont w dniu po ostatnim dniu pracy (z bezpiecznikami)."""
 
-    today = now.date()
+    today = business_date(now)
     candidates = await _deactivation_candidates(db, today)
     due = [case_id for case_id, handed_over in candidates if handed_over is not None]
     counts: dict[str, Any] = {"deactivation_due": len(due)}
@@ -241,7 +241,7 @@ async def run_deactivations(db: AsyncSession, now: datetime) -> dict[str, Any]:
 async def run_reminders(db: AsyncSession, now: datetime) -> dict[str, Any]:
     """Poniedziałkowe przypomnienia o zaległych zadaniach (raz w tygodniu)."""
 
-    today = now.date()
+    today = business_date(now)
     if today.weekday() != 0:
         return {"reminders": "not_monday"}
     run_id = await job_runs.claim(db, REMINDERS_KIND, week_key(today), now)
