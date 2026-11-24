@@ -119,6 +119,130 @@ def is_draft(row: OfferRow) -> bool:
     return norm(row.status) == "draft"
 
 
+# Narodowość z karty NEXUSA jest po polsku („Amerykanin”, „ukraińskie”), lista
+# Cpro ma „US - USA”. Początek słowa (po ``norm``) → kod ISO z listy Cpro.
+# Kolejność ma znaczenie: dłuższe i bardziej szczegółowe początki najpierw.
+_NATIONALITY_STEMS: tuple[tuple[str, str], ...] = (
+    ("polak", "PL"),
+    ("polka", "PL"),
+    ("polsk", "PL"),
+    ("polish", "PL"),
+    ("ukrain", "UA"),
+    ("bialorus", "BY"),
+    ("belarus", "BY"),
+    ("amerykan", "US"),
+    ("american", "US"),
+    ("usa", "US"),
+    ("brytyj", "GB"),
+    ("british", "GB"),
+    ("anglik", "GB"),
+    ("angielk", "GB"),
+    ("angiel", "GB"),
+    ("szkot", "GB"),
+    ("walij", "GB"),
+    ("niemiec", "DE"),
+    ("niemk", "DE"),
+    ("niemieck", "DE"),
+    ("german", "DE"),
+    ("hindus", "IN"),
+    ("indyj", "IN"),
+    ("indian", "IN"),
+    ("rosjan", "RU"),
+    ("rosyj", "RU"),
+    ("russian", "RU"),
+    ("gruzi", "GE"),
+    ("gruzin", "GE"),
+    ("ormian", "AM"),
+    ("armen", "AM"),
+    ("turek", "TR"),
+    ("turczyn", "TR"),
+    ("turec", "TR"),
+    ("turkish", "TR"),
+    ("hiszpa", "ES"),
+    ("spanish", "ES"),
+    ("wloch", "IT"),
+    ("wlosk", "IT"),
+    ("wloszk", "IT"),
+    ("italian", "IT"),
+    ("francu", "FR"),
+    ("french", "FR"),
+    ("czech", "CZ"),
+    ("czesk", "CZ"),
+    ("czeszk", "CZ"),
+    ("slowa", "SK"),
+    ("slovak", "SK"),
+    ("litwin", "LT"),
+    ("litew", "LT"),
+    ("lotysz", "LV"),
+    ("lotew", "LV"),
+    ("estonczyk", "EE"),
+    ("estonk", "EE"),
+    ("estons", "EE"),
+    ("rumun", "RO"),
+    ("romanian", "RO"),
+    ("wegier", "HU"),
+    ("wegiersk", "HU"),
+    ("wegierk", "HU"),
+    ("bulgar", "BG"),
+    ("serb", "RS"),
+    ("chorwa", "HR"),
+    ("portugal", "PT"),
+    ("holend", "NL"),
+    ("niderland", "NL"),
+    ("dutch", "NL"),
+    ("belg", "BE"),
+    ("szwed", "SE"),
+    ("szwedz", "SE"),
+    ("norweg", "NO"),
+    ("norwes", "NO"),
+    ("dunczyk", "DK"),
+    ("dunk", "DK"),
+    ("dunsk", "DK"),
+    ("danish", "DK"),
+    ("finka", "FI"),
+    ("finsk", "FI"),
+    ("finn", "FI"),
+    ("kazach", "KZ"),
+    ("uzbek", "UZ"),
+    ("azer", "AZ"),
+    ("moldaw", "MD"),
+    ("egipcj", "EG"),
+    ("egips", "EG"),
+    ("nigeryj", "NG"),
+    ("brazyl", "BR"),
+    ("meksyk", "MX"),
+    ("kanadyj", "CA"),
+    ("canadian", "CA"),
+    ("chinczyk", "CN"),
+    ("chinsk", "CN"),
+    ("chinese", "CN"),
+    ("wietnam", "VN"),
+    ("pakista", "PK"),
+    ("irland", "IE"),
+    ("irish", "IE"),
+    ("izrael", "IL"),
+    ("austriac", "AT"),
+    ("austriak", "AT"),
+    ("szwajcar", "CH"),
+    ("grek", "GR"),
+    ("greczyn", "GR"),
+    ("greck", "GR"),
+)
+
+
+def nationality_code(text: str) -> Optional[str]:
+    """Kod kraju dla polskiej (albo angielskiej) nazwy narodowości; inaczej ``None``."""
+
+    words = norm(text).split()
+    if not words:
+        return None
+    word = words[0]
+    for stem, code in _NATIONALITY_STEMS:
+        if word.startswith(stem):
+            return code.casefold()
+    return None
+
+
 def country_option(
     options: Sequence[tuple[str, str]], citizenship: str
 ) -> Optional[str]:
@@ -130,6 +254,7 @@ def country_option(
     want = norm(citizenship)
     if not want:
         return None
+    want = nationality_code(want) or want
     by_name, by_code = [], []
     for value, label in options:
         if not value or value == "0":
