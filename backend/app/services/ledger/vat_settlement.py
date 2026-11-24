@@ -13,7 +13,8 @@ VAT (pozostałe przychody / koszty operacyjne, np. 760 / 761).
   w złotych — bez nadwyżki z poprzedniego okresu, bo ta już jest saldem Wn
   konta „VAT do zapłaty”; saldo tego konta wychodzi wtedy samo jako P_51 albo
   P_62.
-* **Księga przed dokumentem**: obroty kont 221/222 (z analityką) w zatwierdzonych
+* **Księga przed dokumentem**: obroty kont 221/222 i VAT należnego importu
+  usług (226, ``vat.output_accounts``; z analityką) w zatwierdzonych
   dokumentach miesiąca, bez rozliczeń VAT i BO, z tą samą zasadą co rejestr
   („stan dziś”: dokument ze stornem i samo storno wypadają). Obroty różne od
   podatku w JPK = problem z wyjaśnieniem, dokument nie powstaje. Pozycje
@@ -41,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.ledger import LedgerDocument, LedgerLine, LedgerVatFile
 from app.services.finance_ledger.costs import LedgerError
 from app.services.finance_ledger.posting import money_pl
-from app.services.ledger import documents, jpk, sources
+from app.services.ledger import documents, jpk, sources, vat
 from app.services.ledger.documents import DocumentSpec, Viewer
 from app.services.ledger.engine import LineIn
 from app.services.ledger.settings import (
@@ -177,11 +178,14 @@ def _matches(account: str, base: str) -> bool:
     return bool(base) and (account == base or account.startswith(base + "-"))
 
 
-def same_account(settings: LedgerSettings) -> Optional[str]:
-    """„VAT do zapłaty” nie może być kontem VAT należnego ani naliczonego."""
+def same_account(
+    settings: LedgerSettings, outputs: tuple[str, ...] = ()
+) -> Optional[str]:
+    """„VAT do zapłaty” nie może być kontem VAT należnego (także importu usług,
+    ``outputs``) ani naliczonego."""
 
     tax = settings.bank.vat_account
-    for base in (settings.sales.vat_account, settings.vat.input_account):
+    for base in (settings.sales.vat_account, *outputs, settings.vat.input_account):
         if tax and (_matches(tax, base) or _matches(base, tax)):
             return (
                 f"Konto „VAT do zapłaty” ({tax}) to konto VAT {base} — ustaw osobne "
@@ -210,10 +214,12 @@ async def turnovers(
 ) -> tuple[dict[str, int], dict[str, int], bool]:
     """Obroty kont VAT należnego (Ma − Wn) i naliczonego (Wn − Ma) per konto
     i czy są wśród nich dokumenty płacowe (D2) — wszystkie dokumenty, bez
-    ograniczeń widoku."""
+    ograniczeń widoku. VAT należny to też konto importu usług z dekretu FVZ
+    (226) — JPK je liczy (``vat.output_accounts``)."""
 
-    output_base, input_base = settings.sales.vat_account, settings.vat.input_account
-    bases = [item for item in (output_base, input_base) if item]
+    input_base = settings.vat.input_account
+    output_bases = await vat.output_accounts(db, settings)
+    bases = [*output_bases, *([input_base] if input_base else [])]
     if not bases:
         return {}, {}, False
     start = date(year, month, 1)
@@ -248,10 +254,10 @@ async def turnovers(
     payroll = False
     for account, amount, sensitive in rows.all():
         payroll = payroll or bool(sensitive)
-        if _matches(account, output_base):
-            output[account] = -int(amount)
-        elif _matches(account, input_base):
+        if _matches(account, input_base):
             input_[account] = int(amount)
+        elif any(_matches(account, base) for base in output_bases):
+            output[account] = -int(amount)
     return output, input_, payroll
 
 
@@ -322,7 +328,7 @@ async def compute(
     if missing:
         blocker = f"Do rozliczenia VAT brakuje kont: {'; '.join(missing)}."
     else:
-        blocker = same_account(settings)
+        blocker = same_account(settings, tuple(await vat.output_accounts(db, settings)))
     if blocker is None and file is None:
         blocker = (
             f"Najpierw przygotuj JPK_V7M za {month:02d}.{year} — rozliczenie bierze "

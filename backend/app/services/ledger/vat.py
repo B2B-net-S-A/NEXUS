@@ -53,6 +53,7 @@ from app.models.client_sales_invoice import ClientSalesInvoice
 from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
 from app.models.ledger import LedgerDocument, LedgerLine
 from app.services.finance_ledger import costs
+from app.services.finance_ledger import posting_options
 from app.services.finance_ledger.costs import LedgerError
 from app.services.ledger import sources
 from app.services.ledger.documents import FOREIGN_PURCHASE_SOURCE, Viewer
@@ -713,6 +714,27 @@ async def _missing_costs(
     ]
 
 
+async def output_accounts(db: AsyncSession, settings: LedgerSettings) -> list[str]:
+    """Konta VAT należnego: konto sprzedaży z ustawień, konto importu usług
+    z kolejki kosztów (226 z arkusza) i konta z dekretów FVZ zapisane przez
+    źródło w ``meta.output_account`` (rejestr liczy je jako VAT należny, więc
+    rozliczenie VAT i „spoza rejestru” też — audyt 24.11.2026)."""
+
+    found = [settings.sales.vat_account, posting_options.DEFAULT_OUTPUT_VAT_ACCOUNT]
+    found += list(
+        await db.scalars(
+            select(LedgerDocument.meta["output_account"].astext)
+            .where(LedgerDocument.meta.has_key("output_account"))
+            .distinct()
+        )
+    )
+    out: list[str] = []
+    for item in found:
+        if item and item not in out and item != settings.vat.input_account:
+            out.append(item)
+    return out
+
+
 async def _outside(
     db: AsyncSession,
     start: date,
@@ -724,7 +746,10 @@ async def _outside(
 
     accounts = [
         item
-        for item in (settings.sales.vat_account, settings.vat.input_account)
+        for item in (
+            *await output_accounts(db, settings),
+            settings.vat.input_account,
+        )
         if item
     ]
     if not accounts:
