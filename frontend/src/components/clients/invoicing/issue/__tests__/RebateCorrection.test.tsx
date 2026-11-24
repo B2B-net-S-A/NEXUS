@@ -39,6 +39,8 @@ const REBATE: InvoiceRebate = {
   invoices: 3,
   excluded: 0,
   missing_fx: 0,
+  archived: 0,
+  unreadable: 0,
 };
 
 const DRAFT: RebateCorrectionDraft = {

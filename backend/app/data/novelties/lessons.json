@@ -2640,6 +2640,41 @@
     ]
   },
   {
+    "id": "lekcja-pytania-z-rozmow",
+    "title": "Pytania z rozmów u klienta",
+    "novelties": [
+      "pytania-z-rozmow"
+    ],
+    "task": "W Rekrutacjach otwórz „Pytania z rozmów”, wybierz klienta, a potem jednego z jego managerów.",
+    "solo_href": "/jobs/pytania",
+    "check": {
+      "kind": "click",
+      "anchor": "jobs.question-bank.manager"
+    },
+    "questions": [
+      {
+        "q": "Skąd biorą się nowe pytania w „Pytaniach z rozmów”?",
+        "options": [
+          "Z debriefu po rozmowie u klienta, same",
+          "Ktoś musi je przepisać do tabeli",
+          "Z nocnego importu Excela"
+        ],
+        "answer": 0,
+        "explain": "Pytania wpisane w debriefie trafiają tu od razu. Stanowisko i manager przychodzą z rekrutacji, więc niczego nie przepisujesz."
+      },
+      {
+        "q": "Przy pytaniu brakuje managera. Co zrobić?",
+        "options": [
+          "Uzupełnić hiring managera w rekrutacji",
+          "Dopisać managera przy każdym pytaniu",
+          "Nic, managera nie da się dodać"
+        ],
+        "answer": 0,
+        "explain": "Manager jest brany z rekrutacji. Jedno uzupełnienie podpina go do wszystkich pytań z tej rekrutacji, także wcześniejszych."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [

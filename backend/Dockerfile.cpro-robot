@@ -1,0 +1,18 @@
+# Robot Cpro (usługa `cpro-robot` w docker-compose.yml, profil `cpro-robot`).
+# Obraz Playwrighta ma Chromium i biblioteki systemowe; wersja pakietu = tag obrazu.
+# Tylko pakiet `cpro_robot` — bez kodu i zależności backendu.
+# Reguła: docs/claude/integracje/cpro-bot-grok.md
+FROM mcr.microsoft.com/playwright/python:v1.65.2-noble@sha256:38dd67fc654b56b3cba611e4c8eb71cd33750e1cd29eea2a5dc00b484817a75f
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PORT=8090
+RUN pip install --no-cache-dir --break-system-packages playwright==1.65.2 pypdfium2==5.15.2
+
+WORKDIR /app
+COPY cpro_robot ./cpro_robot
+RUN useradd --create-home robot
+USER robot
+
+EXPOSE 8090
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"
+CMD ["python", "-m", "cpro_robot.server"]

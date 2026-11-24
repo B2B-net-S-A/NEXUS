@@ -246,6 +246,20 @@ export function CandidateCycleCard({
           ) {
             return <Prep2FollowupFromPrep1 prep1EventId={prep1.event_id} />;
           }
+          // Zapisany debrief zawsze pod krokiem. Skrót stał
+          // tylko przy wierszu telefonu, a ten znika z panelu następnego dnia:
+          // link z okienka „Kalendarz” pokazywał DL-owi samo „Debrief — zrobione”.
+          if (step.key === "debrief" && item.debrief) {
+            const eventId = item.interview_event_id ?? null;
+            return (
+              <SavedDebrief
+                debrief={item.debrief}
+                onOpen={
+                  eventId != null ? () => onAction({ type: "debrief", pair: item, eventId }) : undefined
+                }
+              />
+            );
+          }
           return null;
         }}
       />
@@ -493,5 +507,24 @@ function PairEventRow({
         ) : null}
       </div>
     </li>
+  );
+}
+
+function SavedDebrief({ debrief, onOpen }: { debrief: DebriefSummary; onOpen?: () => void }) {
+  return (
+    <div className="mt-1 space-y-0.5 rounded-md bg-muted/50 px-2 py-1.5 text-xs" data-testid="cycle-step-debrief">
+      <div className="font-semibold text-foreground">{debriefSummaryLine(debrief)}</div>
+      {debrief.acceptance_condition ? (
+        <div className="break-words text-foreground">Warunek: {debrief.acceptance_condition}</div>
+      ) : null}
+      {debrief.candidate_comment ? (
+        <div className="break-words text-muted-foreground">Komentarz kandydata: {debrief.candidate_comment}</div>
+      ) : null}
+      {onOpen ? (
+        <button type="button" onClick={onOpen} className="font-medium text-primary hover:underline">
+          Cały debrief
+        </button>
+      ) : null}
+    </div>
   );
 }

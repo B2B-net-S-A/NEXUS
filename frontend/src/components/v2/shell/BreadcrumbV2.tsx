@@ -192,6 +192,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   "strona-kariery": "Strona kariery do uzupełnienia",
   ogloszenia: "Ogłoszenia do nadrobienia",
   "umowy-przedwstepne": "Umowy przedwstępne",
+  pytania: "Pytania z rozmów",
   daily: "Daily",
   seeking: "Dostępni kontraktorzy",
   "seeking-contractors": "Dostępni kontraktorzy",

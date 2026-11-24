@@ -72,7 +72,11 @@ def name_tokens(text: Optional[str]) -> set[str]:
         .decode()
         .lower()
     )
-    return {token for token in raw.replace("-", " ").split() if token}
+    # Po zmianie nazwiska kartoteka ma „Nowe (Stare)”: nawias nie jest częścią słowa,
+    # więc plik ze starym albo nowym nazwiskiem pasuje do kontraktu.
+    for mark in "-()":
+        raw = raw.replace(mark, " ")
+    return {token for token in raw.split() if token}
 
 
 #: Klucz uwagi o kosztach delegacji w RCP (nie reguła katalogu; grupa w „Przebiegu miesiąca”).

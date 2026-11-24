@@ -44,6 +44,17 @@ _SENT = re.compile(
 )
 _EMAIL = re.compile(r"[\w.+'-]+@([\w-]+(?:\.[\w-]+)+)")
 _LOOKAHEAD = 5
+#: Cytat w odpowiedzi z Gmaila: każda linia zaczyna się od „>” (także „> > ”).
+_QUOTE_MARK = re.compile(r"^\s*(?:>\s?)+")
+#: Linia Gmaila przed cytatem: „W dniu czw., 12 lis 2026 o 16:44 Imię <adres>
+#: napisał(a):”, „On Thu, … Name <adres> wrote:”, po ukraińsku „… пише:”. Czasownik
+#: bywa przeniesiony do następnej linii.
+_WROTE_VERB = (
+    r"(?:wrote|napisa[lł](?:\(a\)|a)?|пише|написа(?:л|ла|в)(?:\(а\))?"
+    r"|schrieb|a\s+écrit|escribió)\s*:"
+)
+_WROTE = re.compile(_WROTE_VERB + r"\s*$", re.IGNORECASE)
+_WROTE_ALONE = re.compile(r"^\s*" + _WROTE_VERB + r"\s*$", re.IGNORECASE)
 
 _PL_MONTHS = {
     "stycznia": 1,
@@ -173,13 +184,24 @@ def _address(text: str) -> Optional[str]:
 
 
 def quoted_messages(text: str) -> list[MailMessage]:
-    """Bloki nagłówków w treści: „From/Od” i najbliższe „Sent/Wysłano/Data”."""
+    """Bloki nagłówków w treści: „From/Od” i najbliższe „Sent/Wysłano/Data”, także
+    w cytacie z „>” i w linii Gmaila „… <adres> napisał(a):”.
 
-    lines = (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    Konsultantka ERSTE odpowiada z Gmaila nad akceptacją kierownika, a Gmail cytuje
+    ją liniami z „>” po linii „… <adres> пише:” (próba IX–X 2026, ERSTE 614 X):
+    bez tego mail z Time Sheet nie miał żadnej wiadomości klienta."""
+
+    lines = [
+        _QUOTE_MARK.sub("", line)
+        for line in (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    ]
     found: list[MailMessage] = []
     for index, line in enumerate(lines):
         head = _FROM.match(line)
         if not head:
+            wrote = _attribution(lines, index)
+            if wrote is not None:
+                found.append(wrote)
             continue
         sender = _address(head.group(1))
         sent_on = None
@@ -194,6 +216,20 @@ def quoted_messages(text: str) -> list[MailMessage]:
         if sender or sent_on:
             found.append(MailMessage(sender, sent_on))
     return found
+
+
+def _attribution(lines: list[str], index: int) -> Optional[MailMessage]:
+    """Wiadomość z linii Gmaila „… <adres> napisał(a):” (czasownik w tej albo
+    następnej linii); bez adresu to zwykłe zdanie."""
+
+    line = lines[index]
+    sender = _address(line)
+    if sender is None:
+        return None
+    following = lines[index + 1] if index + 1 < len(lines) else ""
+    if not (_WROTE.search(line) or _WROTE_ALONE.match(following)):
+        return None
+    return MailMessage(sender, parse_date(line))
 
 
 def _html_text(markup: str) -> str:

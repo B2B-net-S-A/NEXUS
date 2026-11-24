@@ -23,6 +23,7 @@ Decyzje Artura 16.11.2026 (Nordea, druga odpowiedź tego dnia — zastępuje
 * obrót = usługi PRZED rabatem (ilość × cena) z faktur sprzedaży z KSeF za
   miesiące roku (okres usługi, bez okresu — data wystawienia), razem
   z korektami, bez pozycji ze słowem z ``exclude_words`` (podróże, refaktury);
+  faktury sprzed KSeF dochodzą z archiwum eBI24 (``rebate_archive``, 24.11.2026);
 * próg w innej walucie niż faktura: każda faktura po kursie średnim NBP
   z ostatniej tabeli przed datą sprzedaży; brak kursu = faktura poza obrotem
   progu i ostrzeżenie, nigdy kurs 1:1;
@@ -33,7 +34,7 @@ Decyzje Artura 16.11.2026 (Nordea, druga odpowiedź tego dnia — zastępuje
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Optional, Sequence
@@ -43,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client_sales_invoice import ClientSalesInvoice
 from app.services import fx_service
+from app.services.client_invoicing import rebate_archive
 from app.services.client_sales_invoices_schema import CURRENCIES
 
 HUNDRED = Decimal(100)
@@ -312,13 +314,17 @@ def with_discount(
 
 @dataclass(frozen=True)
 class Entry:
-    """Jedna faktura w obrocie: waluta, obrót usług (korekta = różnica), dzień kursu, miesiąc."""
+    """Jedna faktura w obrocie: waluta, obrót usług (korekta = różnica), dzień kursu, miesiąc.
+
+    ``archived`` — faktura sprzed KSeF z archiwum eBI24.
+    """
 
     currency: str
     net: Decimal
     day: date
     month: int
     excluded: bool = False
+    archived: bool = False
 
 
 @dataclass(frozen=True)
@@ -342,6 +348,9 @@ class YearRebate:
     invoices: int
     excluded: int
     missing_fx: int
+    #: Faktury sprzed KSeF z archiwum eBI24 w obrocie i dokumenty z plikiem nieczytelnym.
+    archived: int = 0
+    unreadable: int = 0
 
     def turnover_before(self, month: int) -> Decimal:
         return sum(
@@ -437,6 +446,7 @@ def summarize(
         invoices=len(entries),
         excluded=skipped,
         missing_fx=missing,
+        archived=sum(1 for entry in entries if entry.archived),
     )
 
 
@@ -454,7 +464,7 @@ async def year_rebate(
     terms: Terms,
     extra: Sequence[Entry] = (),
 ) -> Optional[YearRebate]:
-    """Stan roku klienta: faktury z KSeF za miesiące roku plus ``extra`` (szkic w NEXUSIE)."""
+    """Stan roku klienta: faktury z KSeF i sprzed KSeF (archiwum eBI24) plus ``extra`` (szkic)."""
 
     if tiers_for(terms, year) is None:
         return None
@@ -492,6 +502,21 @@ async def year_rebate(
                 touched,
             )
         )
+    archived, unreadable = await rebate_archive.pre_ksef_invoices(
+        db, client_id=client_id, year=year
+    )
+    for doc in archived:
+        net, touched = service_base(doc.net_amount, doc.items, terms.exclude_words)
+        entries.append(
+            Entry(
+                doc.currency,
+                net,
+                rate_boundary(doc.sale_date, doc.sale_date),
+                doc.sale_date.month,
+                touched,
+                archived=True,
+            )
+        )
     entries.extend(extra)
     wanted: dict[date, set[str]] = {}
     for entry in entries:
@@ -500,7 +525,8 @@ async def year_rebate(
                 {entry.currency, terms.threshold_currency}
             )
     rates = await fx_service.rates_to_pln_by_date(db, wanted) if wanted else {}
-    return summarize(year, terms, entries, rates)
+    status = summarize(year, terms, entries, rates)
+    return replace(status, unreadable=unreadable) if status else None
 
 
 def _rate_text(value: Decimal) -> str:
@@ -549,6 +575,8 @@ def payload(
         "invoices": status.invoices,
         "excluded": status.excluded,
         "missing_fx": status.missing_fx,
+        "archived": status.archived,
+        "unreadable": status.unreadable,
     }
 
 

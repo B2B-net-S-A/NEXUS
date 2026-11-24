@@ -42,17 +42,23 @@ _COUNT_WORD = r"(\d{1,2}(?![.,]\d)|" + "|".join(_WORDS) + r")"
 _DAY = r"(?:dni|dzien|dnia)"
 #: Tekst po ``_fold``: małe litery bez ogonków („miałam” → „mialam”). Tylko czas
 #: przeszły w pierwszej osobie: „będę miała”, „miała” (o kimś) nie pasują.
+#: „dni wolnych od pracy” znaczy to samo co „dni wolnych” (mLeasing, IX 2026).
+_FROM_WORK = r"(?:\s+od\s+pracy)?"
 _FULL = re.compile(
-    r"\bnie\s+mial(?:am|em)\s+(?:zadnych\s+)?(?:dni\s+wolnych|wolnego)\b"
-    r"|\bbez\s+(?:zadnych\s+)?dni\s+wolnych\b"
-    r"|\bpe(?:lny|len)\s+miesiac\b"
+    r"\bnie\s+mial(?:am|em)\s+(?:zadnych\s+)?(?:dni\s+wolnych|wolnego)"
+    + _FROM_WORK
+    + r"\b|\bbez\s+(?:zadnych\s+)?dni\s+wolnych"
+    + _FROM_WORK
+    + r"\b|\bpe(?:lny|len)\s+miesiac\b"
 )
 _COUNT = re.compile(
     r"\b(nie\s+)?mial(?:am|em)\s+"
     + _COUNT_WORD
     + r"\s+"
     + _DAY
-    + r"\s+(?:wolnego|wolnych|wolny|urlopu)\b"
+    + r"\s+(?:wolnego|wolnych|wolny|urlopu)"
+    + _FROM_WORK
+    + r"\b"
 )
 #: Pełne formy nazw miesięcy (po ``_fold``). Same rdzenie łapały imiona:
 #: „Marta”, „Marek”, „Lipski”.
@@ -76,8 +82,21 @@ _MONTH_FORMS = {
     )
     for form in forms
 }
+#: Nazwa miesiąca bez jednej litery („wrzeniu”, mLeasing IX 2026), tylko dla form
+#: od 7 liter: krótsze („maja”, „luty”) bez litery dają inne słowa.
+_MONTH_NAMES = {
+    **{
+        form[:i] + form[i + 1 :]: month
+        for form, month in _MONTH_FORMS.items()
+        if len(form) >= 7
+        for i in range(len(form))
+    },
+    **_MONTH_FORMS,
+}
 _MONTH = re.compile(
-    r"\b(" + "|".join(_MONTH_FORMS) + r")\b(?:\s+(20\d{2})\b(?:\s+r\b)?)?"
+    r"\b("
+    + "|".join(sorted(_MONTH_NAMES, key=len, reverse=True))
+    + r")\b(?:\s+(20\d{2})\b(?:\s+r\b)?)?"
 )
 #: Słowa, które mogą stać obok deklaracji. Każde inne („nie przepracowałam”,
 #: „byłam chora”, „pracowałam 15 dni”, „będę”, „czy”) = człowiek: przy kwotach
@@ -145,7 +164,7 @@ def _own_part(text: str) -> str:
 
 def _months(sentence: str, year: str) -> set[str]:
     return {
-        f"{match.group(2) or year}-{_MONTH_FORMS[match.group(1)]:02d}"
+        f"{match.group(2) or year}-{_MONTH_NAMES[match.group(1)]:02d}"
         for match in _MONTH.finditer(sentence)
     }
 

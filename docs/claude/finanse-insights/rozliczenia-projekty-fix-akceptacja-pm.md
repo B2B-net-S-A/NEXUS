@@ -30,7 +30,10 @@ Akceptacji klienta przy godzinach nie ma i nie będzie.
   - samo „Akceptuję” bez liczby wystarcza, gdy godziny są w Time Sheet za
     rozliczany miesiąc, tak jak przy kliencie;
   - wiadomość podwykonawcy z prośbą o akceptację albo nasz mail bez słowa
-    akceptacji nie wystarcza.
+    akceptacji nie wystarcza;
+  - „Akceptuję” samego podwykonawcy też nie wystarcza, nawet ze skrzynki firmy
+    (`Senders.consultant`, od 24.11.2026, opis w
+    `finanse-insights/rozliczenia-akceptacja-od-klienta-orlen-cez.md`).
 - **Notka na karcie.** Grupa „Projekt FIX”: „Godziny to koszt firmy: akceptuje PM
   firmy”. Faktura do klienta idzie z protokołu odbioru, a nie z godzin.
 - **Limit MD na etap.** Każdy etap to osobne zamówienie MD z pulą etapu, np. 35 MD

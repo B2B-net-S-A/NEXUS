@@ -501,3 +501,80 @@ async def test_load_facts_reads_client_reference_from_job():
     assert facts.request_number == "ZOB-0004"
     rows[Job].client_reference = "   "
     assert (await load_facts(_Db(), notif)).request_number is None
+
+
+def test_client_accepted_shows_recruiter_under_delivery_lead():
+    # Prośba Olafa z 24.11.2026: w mailu „Klient zaakceptował” pole
+    # „Rekruter” pod Delivery Leadem — także przy numerze zapytania (6 faktów).
+    card = build_card(
+        notification_type="client_accepted",
+        kind="client_accepted",
+        title="Klient zaakceptował: Jan Testowy",
+        message="…",
+        link="/jobs/1?candidate=2",
+        required=True,
+        facts=MailFacts(
+            candidate="Jan Testowy",
+            request_number="ZOB-0004",
+            job="Analityk",
+            client="Bank Testowy",
+            delivery_lead="Dana Lead",
+            recruiter="Rena Rekruter",
+        ),
+    )
+    assert card.facts == (
+        ("Kandydat", "Jan Testowy"),
+        ("Nr zapytania", "ZOB-0004"),
+        ("Rekrutacja", "Analityk"),
+        ("Klient", "Bank Testowy"),
+        ("Delivery Lead", "Dana Lead"),
+        ("Rekruter", "Rena Rekruter"),
+    )
+
+
+async def test_load_facts_reads_pair_recruiter_only_for_client_accepted(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.models.job import Job
+    from app.models.notification import NotificationType
+    from app.models.user import User
+    from app.services import stage_handoff_recipients
+    from app.services.notification_mail_card import load_facts
+
+    asked: list[tuple[int, int]] = []
+
+    async def _recruiter(_db, *, candidate_id, job_id):
+        asked.append((candidate_id, job_id))
+        return 42
+
+    monkeypatch.setattr(stage_handoff_recipients, "pair_recruiter_id", _recruiter)
+    rows = {
+        Job: SimpleNamespace(
+            title="Analityk",
+            working_title=None,
+            deadline=None,
+            client_id=None,
+            delivery_lead_id=None,
+            client_reference=None,
+        ),
+        User: SimpleNamespace(name="Rena Rekruter"),
+    }
+
+    class _Db:
+        async def get(self, model, _id):
+            return rows.get(model)
+
+    def _notif(ntype):
+        return SimpleNamespace(
+            notification_type=ntype,
+            link="/jobs/7?candidate=3",
+            related_entity_type="candidate_stage",
+            related_entity_id=None,
+        )
+
+    facts = await load_facts(_Db(), _notif(NotificationType.client_accepted))
+    assert facts.recruiter == "Rena Rekruter"
+    assert asked == [(3, 7)]
+    facts = await load_facts(_Db(), _notif(NotificationType.pre_contract))
+    assert facts.recruiter is None
+    assert asked == [(3, 7)]

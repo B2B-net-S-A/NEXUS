@@ -140,6 +140,19 @@ def test_billable_wygrywa_z_total_hours_a_bez_niego_total_minus_non_billable():
     assert [e.hours for e in parsed.entries] == [Decimal("8"), Decimal("8")]
 
 
+def test_tekst_w_billable_zeruje_wiersz_a_pusta_komorka_bierze_total_hours():
+    rows = [
+        [None, datetime(2026, 11, 2), None, "Zadanie A", 8, "urlop", None, None],
+        [None, datetime(2026, 11, 3), None, "Zadanie A", 8, " ", None, None],
+        [None, datetime(2026, 11, 4), None, "Zadanie A", 8, "7,5", "x", None],
+    ]
+    parsed = timesheet.parse_rows([_sheet(rows)])
+    assert [(e.day.day, e.hours) for e in parsed.entries] == [
+        (3, Decimal("8")),
+        (4, Decimal("7.5")),
+    ]
+
+
 def test_kilka_tabel_tygodniowych_sumuje_sie():
     week1 = _sheet([_row(3, 8)], total=8)
     week2 = [
@@ -216,6 +229,51 @@ def test_md_z_godzin_i_bez_uwag():
     assert result.md_regular == Decimal("2.500")
     assert result.md_extra == Decimal("0")
     assert not result.blocking and not result.warn
+    assert _titles(result)["Godziny policzone od nowa"] == "ok"
+
+
+def test_x_w_billable_w_dni_bez_pracy_nie_liczy_total_hours():
+    """Szablon VeloBanku: „Total Hours” 8 w każdym dniu kalendarza, a weekendy
+    i dni wolne mają „x” w „Billable” i „Non-billable” (próba IX–X 2026: 30 MD
+    z wierszy zamiast 20 z sumy pliku i arkusza podpisanego przez klienta)."""
+
+    days_off = {1, 2}
+    rows = []
+    for day in range(1, 31):
+        when = datetime(2026, 9, day)
+        if when.weekday() >= 5 or day in days_off:
+            rows.append([None, when, "x", "x", 8, "x", "x"])
+        else:
+            rows.append([None, when, "ST-1", "Zadanie A", 8, 8, "x"])
+    sheet = [
+        [None, "Time Sheet"],
+        [None, "Project Name", None, "ALFA"],
+        [None, "Consultant(s)", None, "Jan Testowy"],
+        [None, "Date from", None, datetime(2026, 9, 1)],
+        [None, "Date to", None, datetime(2026, 9, 30)],
+        [],
+        [
+            None,
+            "Date",
+            "Nr strumienia/Nr inicjatywy",
+            "Description",
+            "Total Hours",
+            "Billable",
+            "Non-billable",
+        ],
+        *rows,
+        [],
+        [None, None, None, "Total Hours", None, 160, 0],
+        [None, None, None, "Total MD", None, 20],
+    ]
+    parsed = timesheet.parse(_xlsx(sheet), XLSX)
+
+    assert parsed.total_hours == Decimal("160")
+    assert parsed.declared_total == Decimal("160")
+    assert len(parsed.entries) == 20
+    result = _evaluate(parsed, month="2026-09", working_days=22)
+    assert result.md_regular == Decimal("20.000")
+    assert not result.blocking
     assert _titles(result)["Godziny policzone od nowa"] == "ok"
 
 
