@@ -109,7 +109,6 @@ def test_unknown_stored_value_is_ignored() -> None:
     assert ct.resolve_theme("nie-ma-takiego", "Java Developer", None) == "terminal"
 
 
-def test_three_themes_with_polish_labels() -> None:
+def test_three_themes() -> None:
     assert ct.THEMES == ("grafit", "terminal", "jasny")
     assert ct.DEFAULT_THEME == "grafit"
-    assert all(label and label[0].isupper() for label in ct.THEME_LABELS.values())

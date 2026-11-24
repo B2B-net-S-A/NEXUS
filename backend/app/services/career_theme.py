@@ -1,10 +1,11 @@
 """Szablon graficzny strony kariery, grafiki OG i plakatu.
 
-Rekruter wybiera szablon w oknie „Udostępnij” (``job_public_profiles.theme``).
-Bez wyboru szablon wynika z roli w tytule rekrutacji, a gdy tytuł nic nie mówi
-— z kategorii kompetencji (decyzja Artura 19.10.2026). Sama kategoria nie
-wystarcza: z 4473 rekrutacji z 12 miesięcy analitycy systemowi i testerzy
-siedzą także w Infra i Management.
+Do 24.11.2026 rekruter wybierał szablon w oknie „Udostępnij”
+(``job_public_profiles.theme``, kolumna i ``PUT`` zostają). Bez wyboru szablon
+wynika z roli w tytule rekrutacji, a gdy tytuł nic nie mówi — z kategorii
+kompetencji (decyzja Artura 19.10.2026). Sama kategoria nie wystarcza: z 4473
+rekrutacji z 12 miesięcy analitycy systemowi i testerzy siedzą także w Infra
+i Management.
 
 Od 28.10.2026 (feedback zespołu do ogłoszeń: „nieczytelne”, „nie w szacie
 B2B”, „jakby się nie doładowało”) są trzy szablony w barwach B2B Network
@@ -29,13 +30,9 @@ if TYPE_CHECKING:
 
 DEFAULT_THEME = "grafit"
 
-# Kolejność = kolejność w oknie wyboru (domyślny najpierw).
-THEME_LABELS: dict[str, str] = {
-    "grafit": "Grafit B2B",
-    "terminal": "Terminal",
-    "jasny": "Jasny B2B",
-}
-THEMES: tuple[str, ...] = tuple(THEME_LABELS)
+# Dozwolone wartości ``job_public_profiles.theme`` (walidacja ``PUT …/public-profile``).
+# Okna wyboru już nie ma, a strona nie zależy od szablonu; zostaje plakat.
+THEMES: tuple[str, ...] = ("grafit", "terminal", "jasny")
 
 # Rola z tytułu — pierwsze dopasowanie wygrywa. Architekt przed programistą
 # („Java Solution Architect”), analityk przed „data” („Data Analyst” czyta
@@ -100,7 +97,7 @@ def resolve_theme(
     Wybór jednej z 12 dawnych scen (do 28.10.2026) nie jest już szablonem —
     strona pokazuje wtedy domyślny szablon roli.
     """
-    if stored in THEME_LABELS:
+    if stored in THEMES:
         return stored
     return default_theme(title, category_slug)
 
