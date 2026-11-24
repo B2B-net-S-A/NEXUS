@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   CHAMPION_TONE_CLASS,
+  OVERDUE_TONE_CLASS,
   REQUEST_TONE_CLASS,
   RequestStatusMark,
 } from "@/components/v2/jobs/JobListCells";
@@ -30,6 +31,7 @@ import {
   jobChampionsApi,
   jobChampionsQueryKey,
 } from "@/lib/job-champions-api";
+import { REQUEST_STAGE_META } from "@/lib/request-stage";
 import { cn, formatDate } from "@/lib/utils";
 
 export interface JobChampionsStatusProps {
@@ -48,13 +50,31 @@ export interface JobChampionsStatusProps {
   cproEnabled?: boolean;
   /** Imię championa otwiera panel osoby na Tablicy (bez przeładowania strony). */
   onOpenPerson?: (candidateId: number) => void;
+  /** Stan requestu z serwera (`request_stage`); „overdue” = „Po terminie”. */
+  requestStage?: unknown;
 }
 
 const BADGE_CLASS =
   "inline-flex h-6 min-w-0 max-w-[13rem] items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-xs font-semibold";
 
-function toneClass(view: ChampionStatusView): string {
+function toneClass(view: ChampionStatusView, overdue: boolean): string {
+  if (overdue) return OVERDUE_TONE_CLASS;
   return view.tone === "champion" ? CHAMPION_TONE_CLASS : REQUEST_TONE_CLASS[view.tone];
+}
+
+/**
+ * „Szukamy” po terminie (24.11.2026) mówi „Po terminie” — także przy części
+ * miejsc z championem („Po terminie · 🏆 1 z 2”). Champion na komplet miejsc
+ * i inne statusy zostają bez zmian (serwer nie daje im `overdue`).
+ */
+export function overdueStatusView(view: ChampionStatusView): ChampionStatusView {
+  const label = REQUEST_STAGE_META.overdue.label;
+  return {
+    ...view,
+    label: view.seatsText ? `${label} · ${view.seatsText}` : label,
+    lead: label,
+    title: `${REQUEST_STAGE_META.overdue.hint} ${view.title}`,
+  };
 }
 
 function StatusContent({ view, chevron }: { view: ChampionStatusView; chevron: boolean }) {
@@ -98,16 +118,19 @@ export function JobChampionsStatus({
   onOpenChange,
   cproEnabled = false,
   onOpenPerson,
+  requestStage,
 }: JobChampionsStatusProps) {
-  const view = championStatusView(job);
-  if (!view) return <span className="text-xs text-muted-foreground">—</span>;
+  const baseView = championStatusView(job);
+  if (!baseView) return <span className="text-xs text-muted-foreground">—</span>;
+  const overdue = requestStage === "overdue" && baseView.tone !== "champion";
+  const view = overdue ? overdueStatusView(baseView) : baseView;
   const hasChampions = Array.isArray(job.champions) && job.champions.length > 0;
 
   if (!canEdit && !hasChampions) {
     return (
       <span
         title={view.title}
-        className={cn(BADGE_CLASS, toneClass(view))}
+        className={cn(BADGE_CLASS, toneClass(view, overdue))}
         data-help="job.champion.found"
         data-testid="job-champions-status"
         data-kind={view.kind}
@@ -127,7 +150,7 @@ export function JobChampionsStatus({
           aria-label={`${view.label} — championi tej rekrutacji`}
           className={cn(
             BADGE_CLASS,
-            toneClass(view),
+            toneClass(view, overdue),
             "hit-area hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           )}
           data-help="job.champion.found"

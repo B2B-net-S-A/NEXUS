@@ -82,6 +82,14 @@ _LOCK_ID = 617_2810_26
 P1_NO_CV_BUSINESS_DAYS = 5
 P1_NO_CV_STAGE = "p1_no_cv"
 
+# „Szukamy” po terminie (decyzja Artura 24.11.2026, wariant B z makiet
+# https://claude.ai/artifact/LkYoGLn6JG8w67pAKU7Lv7): dzień po terminie lista
+# i nagłówek mówią „Po terminie”, a Delivery Lead dostaje jeden zbiorczy
+# dzwonek na termin. Nic się nie zamyka i nikt nie znika z daily — decyzję
+# (nowy termin, „Klient milczy”, zamknięcie) podejmuje DL. Nowy termin =
+# nowy cykl (znacznik ma termin jako ``since``).
+OVERDUE_STAGE = "overdue"
+
 # Odrzucenie liczy się jako odpowiedź klienta tylko u osoby, która była już
 # u klienta — odrzucenie na screeningu to praca rekrutera.
 _CLOSED_STAGES = (PipelineStage.rejected, PipelineStage.withdrawn)
@@ -444,6 +452,7 @@ async def run_idle_sweep(
                 Job.priority,
                 Job.work_state,
                 Job.champion_found_at,
+                Job.deadline,
             )
             .join(Client, Client.id == Job.client_id, isouter=True)
             .where(
@@ -459,7 +468,8 @@ async def run_idle_sweep(
     due = {job_id: s for job_id, s in states.items() if s.stage is not None}
     info = {row[0]: row for row in jobs}
     p1_quiet = _p1_without_cv(facts, info, now=now)
-    markers = await _markers(db, set(due) | set(p1_quiet))
+    overdue = overdue_jobs(info, today=_local_day(now))
+    markers = await _markers(db, set(due) | set(p1_quiet) | set(overdue))
 
     users = (
         await db.execute(select(User.id, User.name, User.is_active, User.roles))
@@ -478,7 +488,7 @@ async def run_idle_sweep(
     to_lead: dict[int, list[_Line]] = {}
     to_hor: list[_Line] = []
     closed: list[_Line] = []
-    counts = {"remind": 0, "hor": 0, "closed": 0, P1_NO_CV_STAGE: 0}
+    counts = {"remind": 0, "hor": 0, "closed": 0, P1_NO_CV_STAGE: 0, OVERDUE_STAGE: 0}
 
     for job_id, state in sorted(due.items(), key=lambda kv: -kv[1].quiet_days):
         _id, title, working_title, lead_id, client, *_rest = info[job_id]
@@ -607,9 +617,86 @@ async def run_idle_sweep(
             link=link,
         )
         sent += int(created is not None)
+    overdue_by_lead: dict[int, list[_Line]] = {}
+    for job_id, (days, deadline) in sorted(overdue.items(), key=lambda kv: -kv[1][0]):
+        since_iso = deadline.isoformat()
+        if f"{OVERDUE_STAGE}|{since_iso}" in markers.get(job_id, {}):
+            continue
+        _id, title, working_title, lead_id, client, *_rest = info[job_id]
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=job_id,
+                action=MARKER_ACTION,
+                user_id=None,
+                details={
+                    "stage": OVERDUE_STAGE,
+                    "since": since_iso,
+                    "days": days,
+                    "on": _local_day(now).isoformat(),
+                },
+            )
+        )
+        counts[OVERDUE_STAGE] += 1
+        line = _Line(
+            job_id=job_id,
+            title=working_title or title,
+            client=client,
+            lead_id=lead_id,
+            days=days,
+            detail=f"termin {deadline.strftime('%d.%m')}",
+        )
+        for uid in leads_of(lead_id):
+            overdue_by_lead.setdefault(uid, []).append(line)
+    for uid, lines in sorted(overdue_by_lead.items()):
+        title, message, link = overdue_notice_text(lines)
+        created = await emit(
+            db,
+            user_id=uid,
+            title=title,
+            message=message,
+            ntype=NotificationType.request_review_needed,
+            related_entity_type="job",
+            related_entity_id=lines[0].job_id,
+            link=link,
+        )
+        sent += int(created is not None)
     counts["sent"] = sent
     await db.flush()
     return counts
+
+
+def overdue_jobs(info: dict[int, Any], *, today: date) -> dict[int, tuple[int, date]]:
+    """„Szukamy” bez championa z terminem przed dziś: job_id → (dni po, termin).
+
+    Ta sama reguła co pigułka „Po terminie” (``request_stage_expr``)."""
+    out: dict[int, tuple[int, date]] = {}
+    for job_id, row in info.items():
+        work_state, champion, deadline = row[6:9]
+        if work_state != "searching" or champion is not None or deadline is None:
+            continue
+        if deadline < today:
+            out[job_id] = ((today - deadline).days, deadline)
+    return out
+
+
+def overdue_notice_text(lines: Sequence[_Line]) -> tuple[str, str, str]:
+    """Tytuł, treść i link dzwonka „Po terminie” dla jednego Delivery Leada."""
+    ordered = sorted(lines, key=lambda line: -line.days)
+    listed = "; ".join(
+        (f"{line.title} · {line.client}" if line.client else line.title)
+        + f" ({line.detail}, {line.days} dni temu)"
+        for line in ordered[:TITLES_MAX]
+    )
+    rest = len(ordered) - TITLES_MAX
+    listed += f" i {rest} innych." if rest > 0 else "."
+    message = (
+        f"Termin minął, a rekrutacja dalej była w „Szukamy”: {listed} Zdecyduj na "
+        "rekrutacji: nowy termin od klienta, „Klient milczy” albo zamknięcie. "
+        "Do tego czasu zostaje na daily i w przydziale."
+    )
+    link = f"/jobs/{ordered[0].job_id}" if len(ordered) == 1 else "/jobs?stage=overdue"
+    return f"Po terminie: {_plural_jobs(len(ordered))}", message, link
 
 
 def _p1_without_cv(
@@ -725,6 +812,6 @@ async def run_once_safely(now: Optional[datetime] = None) -> Optional[dict[str, 
         logger.exception("job_idle: przebieg nie powiódł się")
         return None
     await run_post_commit(effects)
-    if any(counts.get(k) for k in ("remind", "hor", "closed")):
+    if any(counts.get(k) for k in ("remind", "hor", "closed", OVERDUE_STAGE)):
         logger.info("job_idle: %s", counts)
     return counts

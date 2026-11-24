@@ -79,10 +79,12 @@ function Harness({
   job,
   canEdit,
   onOpenPerson,
+  requestStage,
 }: {
   job: JobChampionsFields;
   canEdit: boolean;
   onOpenPerson?: (id: number) => void;
+  requestStage?: string;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -93,6 +95,7 @@ function Harness({
       open={open}
       onOpenChange={setOpen}
       onOpenPerson={onOpenPerson}
+      requestStage={requestStage}
     />
   );
 }
@@ -253,5 +256,22 @@ describe("JobChampionsStatus", () => {
     });
     expect(status()).toHaveTextContent("Szukamy ·1 z 2");
     expect(status()).toHaveAttribute("data-kind", "partial");
+  });
+
+  it("„Szukamy” po terminie mówi „Po terminie” na czerwono (24.11.2026)", () => {
+    renderStatus({
+      job: { request_status: "searching", champions: [], champion_seats: 1, hired_count: 0 },
+      canEdit: false,
+      requestStage: "overdue",
+    });
+    expect(status()).toHaveTextContent("Po terminie");
+    expect(status()).not.toHaveTextContent("Szukamy");
+    expect(status().className).toContain("text-destructive");
+  });
+
+  it("champion na komplet miejsc zostaje championem mimo terminu", () => {
+    renderStatus({ job: ONE_CHAMPION, canEdit: false, requestStage: "overdue" });
+    expect(status()).toHaveTextContent("Champion: Karol W.");
+    expect(status().className).not.toContain("text-destructive");
   });
 });

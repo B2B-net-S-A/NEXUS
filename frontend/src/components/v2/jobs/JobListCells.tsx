@@ -322,6 +322,9 @@ export function JobProposalsLink({
 
 // ── Lista v4 (0341): status requestu i podobne rekrutacje ────────────────────
 
+/** „Po terminie” (24.11.2026) — ta sama czerwień co „po terminie N dni” obok. */
+export const OVERDUE_TONE_CLASS = "bg-destructive/10 text-destructive";
+
 export const REQUEST_TONE_CLASS: Record<RequestStatusTone, string> = {
   search: "bg-primary/10 text-primary",
   client: "bg-success-muted text-success-muted-foreground",
@@ -367,6 +370,7 @@ export function RequestStatusBadge({ status }: { status: unknown }) {
 const STAGE_TONE_CLASS: Record<(typeof REQUEST_STAGE_META)[RequestStage]["tone"], string> = {
   ...REQUEST_TONE_CLASS,
   quiet: "bg-muted text-foreground",
+  late: OVERDUE_TONE_CLASS,
 };
 
 /**

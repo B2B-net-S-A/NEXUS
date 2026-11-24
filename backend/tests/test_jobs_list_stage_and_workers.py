@@ -150,6 +150,58 @@ async def test_each_job_has_exactly_one_stage_and_chips_combine_with_or(
 
 
 @pytest.mark.asyncio
+async def test_searching_turns_overdue_the_day_after_the_deadline(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Decyzja Artura 24.11.2026: rekrutacja po terminie nie jest „Szukamy”.
+
+    Dzień po terminie (kalendarz firmy) „Szukamy” staje się „Po terminie”,
+    dopóki Delivery Lead nie wpisze nowego terminu, „Klient milczy” albo nie
+    zamknie. Termin dziś to jeszcze „Szukamy”. Champion, „Klient milczy”
+    i „Do przejrzenia” zostają tym, czym są.
+    """
+    token = f"Late{uuid.uuid4().hex[:8]}"
+    today = business_today()
+    yesterday = today - timedelta(days=1)
+    jobs = {
+        "overdue": await _seed_job(token, work_state="searching", deadline=yesterday),
+        "searching": await _seed_job(token, work_state="searching", deadline=today),
+        "champion": await _seed_job(
+            token, work_state="searching", champion=True, deadline=yesterday
+        ),
+        "client_silent": await _seed_job(
+            token, work_state="client_silent", deadline=yesterday
+        ),
+        "to_review": await _seed_job(token, deadline=yesterday),
+    }
+    try:
+        response = await app_client.get(
+            f"/api/jobs?page_size=100&q={token}", headers=app_auth_headers
+        )
+        assert response.status_code == 200, response.text
+        stage_by_id = {
+            row["id"]: row["request_stage"] for row in response.json()["items"]
+        }
+        assert stage_by_id == {job_id: stage for stage, job_id in jobs.items()}
+        assert await _ids(
+            app_client, app_auth_headers, f"q={token}&request_stage=overdue"
+        ) == {jobs["overdue"]}
+        assert await _ids(
+            app_client, app_auth_headers, f"q={token}&request_stage=searching"
+        ) == {jobs["searching"]}
+
+        detail = await app_client.get(
+            f"/api/jobs/{jobs['overdue']}", headers=app_auth_headers
+        )
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["request_stage"] == "overdue"
+        # Status requestu (championi, filtr „Status”) zostaje „Szukamy”.
+        assert detail.json()["request_status"] == "searching"
+    finally:
+        await _cleanup(list(jobs.values()))
+
+
+@pytest.mark.asyncio
 async def test_unknown_request_stage_is_rejected(
     app_client: AsyncClient, app_auth_headers: dict
 ):
@@ -221,6 +273,7 @@ async def test_quick_counts_for_stages_and_toggles_agree_with_the_list(
             "incomplete",
             "to_review",
             "searching",
+            "overdue",
             "champion",
             "contract",
             "client_silent",

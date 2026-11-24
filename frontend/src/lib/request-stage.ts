@@ -9,6 +9,9 @@
 import { STATE_HINT } from "@/lib/request-work-state";
 import { REQUEST_STATUS_META } from "@/lib/request-status";
 
+export const OVERDUE_HINT =
+  "Termin minął, a rekrutacja była w „Szukamy”. Delivery Lead decyduje: nowy termin, „Klient milczy” albo zamknięcie.";
+
 export const REQUEST_STAGES = [
   "closed",
   "filled",
@@ -17,6 +20,7 @@ export const REQUEST_STAGES = [
   "incomplete",
   "finished",
   "client_silent",
+  "overdue",
   "to_review",
   "searching",
 ] as const;
@@ -27,6 +31,7 @@ export const REQUEST_STAGE_CHIPS: readonly RequestStage[] = [
   "incomplete",
   "to_review",
   "searching",
+  "overdue",
   "champion",
   "contract",
   "client_silent",
@@ -34,11 +39,14 @@ export const REQUEST_STAGE_CHIPS: readonly RequestStage[] = [
 
 export const REQUEST_STAGE_META: Record<
   RequestStage,
-  { label: string; hint: string; tone: "need" | "search" | "client" | "done" | "quiet" }
+  { label: string; hint: string; tone: "need" | "search" | "client" | "done" | "quiet" | "late" }
 > = {
   incomplete: { ...REQUEST_STATUS_META.incomplete, tone: "need" },
   to_review: { label: "Do przejrzenia", hint: STATE_HINT.to_review, tone: "quiet" },
   searching: { label: "Szukamy", hint: STATE_HINT.searching, tone: "search" },
+  // 24.11.2026 (decyzja Artura): „Szukamy” dzień po terminie. Zostaje na daily
+  // i w przydziale, dopóki Delivery Lead nie zdecyduje (`JobOverdueBanner`).
+  overdue: { label: "Po terminie", hint: OVERDUE_HINT, tone: "late" },
   champion: { ...REQUEST_STATUS_META.champion, tone: "client" },
   contract: { ...REQUEST_STATUS_META.contract, tone: "client" },
   client_silent: { label: "Klient milczy", hint: STATE_HINT.client_silent, tone: "need" },

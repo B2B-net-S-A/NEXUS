@@ -924,7 +924,7 @@
   {
    "id": "list.request-status",
    "area": "lista",
-   "opis": "Stan requestu (Do uzupełnienia / Do przejrzenia / Szukamy / Mamy championa / Umowa / Klient milczy) — kolumna i jeden rząd pigułek `stage=` (25.09.2026; dawniej `rs=` i `ws=`)",
+   "opis": "Stan requestu (Do uzupełnienia / Do przejrzenia / Szukamy / Po terminie / Mamy championa / Umowa / Klient milczy) — kolumna i jeden rząd pigułek `stage=` (25.09.2026; dawniej `rs=` i `ws=`; „Po terminie” od 24.11.2026)",
    "file": "components/v2/pages/JobsListV2.tsx",
    "marker": "RequestStageBadge",
    "v3_home": "lista → kolumna Status"
@@ -3664,6 +3664,14 @@
    "file": "components/v2/pages/KanbanBoardV2.tsx",
    "marker": "card-low-state",
    "v3_home": "Tablica → karta (okno < 800 px) → stan w linii ruchu, podpowiedź po najechaniu"
+  },
+ {
+   "id": "board.overdue-banner",
+   "area": "tablica",
+   "opis": "Pasek „Termin minął” nad Tablicą rekrutacji „Po terminie” (24.11.2026): „Klient przedłużył…” (nowy termin, wraca „Szukamy”), „Klient milczy”, „Zamknij…”",
+   "file": "components/v2/jobs/JobOverdueBanner.tsx",
+   "marker": "job-overdue-banner",
+   "v3_home": "Tablica → nad kolumnami"
   },
  {
    "id": "board.cpro-banner-collapsed",

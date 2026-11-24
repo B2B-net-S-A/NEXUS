@@ -2469,9 +2469,11 @@ async def get_job(
         and job_p0.can_request_p0(current_user, job)
     )
     # 0341: status requestu — ta sama reguła co wiersz listy.
-    from app.services.job_similarity import request_statuses  # noqa: PLC0415
+    from app.services.job_similarity import request_statuses_and_stages  # noqa: PLC0415
 
-    payload["request_status"] = (await request_statuses(db, [job.id])).get(job.id)
+    # 24.11.2026: także stan requestu — nagłówek i pasek „Po terminie”.
+    states = await request_statuses_and_stages(db, [job.id])
+    payload["request_status"], payload["request_stage"] = states.get(job.id, (None, None))
     # 0450 (D1–D9): championi, miejsca, zatrudnieni (okno odrzucenia) i P1
     # wstrzymany przez championa — plakietki nagłówka.
     from app.services import job_champions  # noqa: PLC0415
