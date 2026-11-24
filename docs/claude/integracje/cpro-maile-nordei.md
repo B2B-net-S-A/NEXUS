@@ -62,7 +62,7 @@ Abp Finland przyszła tylko do PM-a i nie dotarła do rozliczeń):
   (`services/cpro_invoice_buyer.py`, reguła `invoice_address` w `/settings/cpro`). NEXUS
   szuka nabywcy klienta z tym „Kodem w CPro” (ustawienia wystawiania → Nabywcy per kontrakt),
   dopisuje go w `contract_buyers` od `RRRR-MM` maila i dzwoni do Finansów
-  (`cpro_invoice_buyer`, migracja 0766) z listą faktur od tego miesiąca na innego nabywcę
+  (`cpro_invoice_buyer`, migracja 0767) z listą faktur od tego miesiąca na innego nabywcę
   i liczbą szkiców do poprawy. Dzwonek idzie też **mailem od razu** (rodzaj
   `cpro_invoice_buyer`, obowiązkowy): typ nie ma ikony na pasku, więc bez maila osoba
   offline zobaczyłaby tylko chwilowy dymek.
