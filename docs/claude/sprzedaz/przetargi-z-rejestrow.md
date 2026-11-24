@@ -126,7 +126,7 @@ G-C (przesiew przetargów). 20.11 sam wrócił do tematu z instrukcją Kingi.
 
 ## Dane, ekran, włączenie
 
-- Tabela `sales_tender_notices` (0768, DDL w `sales_schema.TENDERS_DDL`, lustro
+- Tabela `sales_tender_notices` (0770, DDL w `sales_schema.TENDERS_DDL`, lustro
   w `entrypoint.sh`, sonda w `/api/health/deep`): ogłoszenia po wejściu do bramki,
   para (źródło, numer) unikalna. Stan biegów: `app_settings` → `sales_tenders_state`
   (kursor BZP, dzień TED, ostatni bieg z liczbami; „w toku” starsze niż godzina

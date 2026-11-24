@@ -133,7 +133,7 @@ def test_migration_reads_the_shared_module() -> None:
     )
     assert "for stmt in schema.BOT_TASKS_DDL:" in bot_tasks
     assert "*_sales_schema.BOT_TASKS_DDL," in entry
-    tenders = (ROOT / "alembic/versions/0768_sales_tenders.py").read_text(
+    tenders = (ROOT / "alembic/versions/0770_sales_tenders.py").read_text(
         encoding="utf-8"
     )
     assert "for stmt in schema.TENDERS_DDL:" in tenders

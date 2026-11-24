@@ -4714,7 +4714,7 @@ async def api_health_deep_check(request: Request):
         ("sales_call_records", SalesCallRecord),
         # 0684: wyniki zadań bota do decyzji handlowca.
         ("sales_bot_results", SalesBotResult),
-        # 0768: przetargi z BZP i TED po bramce reguł.
+        # 0770: przetargi z BZP i TED po bramce reguł.
         ("sales_tender_notices", SalesTenderNotice),
         # 0640: dzienne wejścia na linki — każde wejście na stronę kariery je zapisuje.
         ("candidate_invite_link_visit_days", CandidateInviteLinkVisitDay),

@@ -1117,7 +1117,7 @@ BOT_LISTS_DOWNGRADE_DDL: tuple[str, ...] = (
 )
 
 
-# 0768: przetargi z rejestrów publicznych (decyzja Artura 24.11.2026, wariant B):
+# 0770: przetargi z rejestrów publicznych (decyzja Artura 24.11.2026, wariant B):
 # NEXUS czyta BZP i TED, bramka z regułami Kingi zakłada szansę w lejku Przetargi
 # albo odsiewa ogłoszenie z regułą (``services/sales/tenders/``). Jeden wiersz na
 # ogłoszenie, które przeszło frazy albo kody CPV usług IT; reszta rejestru nie

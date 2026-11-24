@@ -965,7 +965,7 @@ class SalesCallRecord(Base, TimestampMixin):
 
 
 class SalesTenderNotice(Base, TimestampMixin):
-    """Ogłoszenie z BZP albo TED, które przeszło frazy lub kody CPV usług IT (0768).
+    """Ogłoszenie z BZP albo TED, które przeszło frazy lub kody CPV usług IT (0770).
 
     ``created`` — bramka założyła szansę w lejku Przetargi (albo ktoś przywrócił
     odsiane), ``rejected`` — odsiane regułą z ``rule``. Reguły i stan biegów leżą

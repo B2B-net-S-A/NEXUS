@@ -1386,7 +1386,7 @@ class Settings(BaseSettings):
     # nie ma kroku i czerwień na wszystkim nic by nie znaczyła.
     SALES_STEP_RULES_SINCE: date = date(2026, 11, 10)
     SALES_ARCHIVE_SHADOW_ENABLED: bool = True
-    # Przetargi z BZP i TED (0768, ``app/services/sales/tenders``): w dni robocze
+    # Przetargi z BZP i TED (0770, ``app/services/sales/tenders``): w dni robocze
     # od 5:30 bramka z regułami Kingi zakłada szanse w lejku Przetargi i zamyka te,
     # którym minął termin (decyzja Artura 24.11.2026, wariant B). OFF: pętla stoi,
     # ekran mówi „Wyłączone”; ręczny bieg administratora działa (próba).
