@@ -580,12 +580,15 @@ async def _write_pool(
 ) -> None:
     """Dopisz wyniki CV do pul rekrutacji, które już je mają. Dodatek do
     zdarzenia: błąd zostaje w savepoincie i nie cofa propozycji."""
-    from sqlalchemy import case, cast, func
+    from sqlalchemy import and_, case, cast, func
     from sqlalchemy.dialects.postgresql import JSONB
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     from app.models.job_autofill_pool import JobAutofillPool
-    from app.services.auto_full_review import AUTOFILL_POOL_SIZE
+    from app.services.auto_full_review import (
+        AUTOFILL_POOL_SIZE,
+        POOL_EXTRA_EVIDENCE_KEYS,
+    )
 
     job_ids = sorted({row.job_id for row in scored})
     if not job_ids:
@@ -603,11 +606,17 @@ async def _write_pool(
                         )
                         .where(
                             JobAutofillPool.job_id.in_(job_ids),
-                            # Dołożeni „wysłani wcześniej” (20.11.2026) są ponad
-                            # pulą 150 i nie obniżają poprzeczki dla nowego CV.
-                            JobAutofillPool.evidence["sent_before"]
-                            .as_boolean()
-                            .is_not(True),
+                            # Dołożeni „wysłani wcześniej” (20.11.2026) i ze
+                            # „świeżym CV” (23.11.2026) są ponad pulą 150
+                            # i nie obniżają poprzeczki dla nowego CV.
+                            and_(
+                                *(
+                                    JobAutofillPool.evidence[key]
+                                    .as_boolean()
+                                    .is_not(True)
+                                    for key in POOL_EXTRA_EVIDENCE_KEYS
+                                )
+                            ),
                         )
                         .group_by(JobAutofillPool.job_id)
                     )
@@ -617,9 +626,19 @@ async def _write_pool(
             if not rows:
                 return
             insert = pg_insert(JobAutofillPool).values(rows)
-            # Nowy wynik osoby dołożonej jako „wysłana wcześniej” nie zdejmuje
-            # z niej flagi — bez niej wpadałaby do 150 i odpadała przy cięciu.
-            keep_flag = JobAutofillPool.evidence["sent_before"].as_boolean().is_(True)
+            # Nowy wynik osoby dołożonej ponad pulę nie zdejmuje z niej flagi
+            # dodatku — bez niej wpadałaby do 150 i odpadała przy cięciu.
+            evidence = insert.excluded.evidence
+            for key in POOL_EXTRA_EVIDENCE_KEYS:
+                evidence = evidence.op("||")(
+                    case(
+                        (
+                            JobAutofillPool.evidence[key].as_boolean().is_(True),
+                            cast({key: True}, JSONB),
+                        ),
+                        else_=cast({}, JSONB),
+                    )
+                )
             await db.execute(
                 insert.on_conflict_do_update(
                     index_elements=["job_id", "candidate_id"],
@@ -627,35 +646,36 @@ async def _write_pool(
                         "score": insert.excluded.score,
                         "run_id": insert.excluded.run_id,
                         "cv_revision": insert.excluded.cv_revision,
-                        "evidence": case(
-                            (
-                                keep_flag,
-                                insert.excluded.evidence.op("||")(
-                                    cast({"sent_before": True}, JSONB)
-                                ),
-                            ),
-                            else_=insert.excluded.evidence,
-                        ),
+                        "evidence": evidence,
                     },
                 )
             )
             # Cięcie do 150 tylko w zwykłej puli. 22.11.2026: bez tego warunku
             # każde nowe CV wycinało dołożonych „wysłanych wcześniej” (mają
             # niższe wyniki) i 27 z 33 pilnych pul nie miało ani jednej takiej
-            # osoby, choć przegląd znalazł ich od 79 do 3 406.
+            # osoby, choć przegląd znalazł ich od 79 do 3 406. Audyt R3
+            # (24.11.2026): to samo dotyczyło dodatków „świeże CV”.
+            extras_filter = "".join(
+                f"  AND (evidence->>:extra_{i}) IS DISTINCT FROM 'true'"
+                for i in range(len(POOL_EXTRA_EVIDENCE_KEYS))
+            )
             await db.execute(
                 text(
                     "DELETE FROM job_autofill_pool p USING ("
                     "  SELECT job_id, candidate_id, row_number() OVER ("
                     "    PARTITION BY job_id ORDER BY score DESC, candidate_id"
                     "  ) AS place FROM job_autofill_pool WHERE job_id = ANY(:jobs)"
-                    "  AND (evidence->>'sent_before') IS DISTINCT FROM 'true'"
+                    f"{extras_filter}"
                     ") r WHERE p.job_id = r.job_id AND p.candidate_id = r.candidate_id "
                     "AND r.place > :size"
                 ),
                 {
                     "jobs": sorted({r["job_id"] for r in rows}),
                     "size": AUTOFILL_POOL_SIZE,
+                    **{
+                        f"extra_{i}": key
+                        for i, key in enumerate(POOL_EXTRA_EVIDENCE_KEYS)
+                    },
                 },
             )
     except Exception as exc:  # noqa: BLE001 — pula to dodatek, propozycje zostają

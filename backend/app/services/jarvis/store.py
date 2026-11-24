@@ -446,25 +446,6 @@ async def expire_stale_actions(ttl_minutes: int) -> int:
         return int(result.rowcount or 0) + len(orphaned)
 
 
-async def release_turns_after_restart() -> int:
-    """Zdejmuje blokady tur przy starcie procesu (backend = jeden uvicorn).
-
-    Runda 8 (R8-N1-7): tura ubita deployem zostawiała ``busy_until`` do 150 s
-    w przyszłości, więc pierwsze pytanie po deployu dostawało 409 „Jarvis
-    jeszcze odpowiada”. Po starcie procesu żadna tura nie trwa. Gdyby jednak
-    stary kontener jeszcze kończył turę, jego żeton przestaje pasować i tura
-    kończy się ``turn_lost`` bez dopisania wyników (``_steps``).
-    """
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            update(JarvisConversation)
-            .where(JarvisConversation.busy_until.is_not(None))
-            .values(busy_until=None)
-        )
-        await db.commit()
-        return int(result.rowcount or 0)
-
-
 async def purge_old_conversations(retention_days: int) -> int:
     cutoff = _now() - timedelta(days=retention_days)
     async with AsyncSessionLocal() as db:

@@ -1452,14 +1452,26 @@ async def _client_job_opened(db: AsyncSession, now: datetime) -> int:
     """„Nowa rekrutacja u Twojego klienta” dla Delivery Leada (26.10.2026)."""
     from app.services.client_job_opened import emit_opened  # noqa: PLC0415
 
-    return await emit_opened(db, now)
+    # Własny savepoint jak ``departure_care``: tick commituje raz, po wszystkich
+    # triggerach, więc wyjątek tutaj cofałby dzwonki całego ticku.
+    try:
+        async with db.begin_nested():
+            return await emit_opened(db, now)
+    except Exception:  # noqa: BLE001 — dzwonek nie może zatrzymać reszty ticku
+        logger.exception("client_job_opened: tick nie wyszedł")
+        return 0
 
 
 async def _job_ad_reminders(db: AsyncSession, now: datetime) -> int:
     """Codzienne przypomnienia o brakujących ogłoszeniach (27.10.2026)."""
     from app.services.job_ad.reminders import send_daily  # noqa: PLC0415
 
-    return await send_daily(db, now)
+    try:
+        async with db.begin_nested():
+            return await send_daily(db, now)
+    except Exception:  # noqa: BLE001 — dzwonek nie może zatrzymać reszty ticku
+        logger.exception("job_ad_reminders: tick nie wyszedł")
+        return 0
 
 
 async def _departed_care(db: AsyncSession, now: datetime) -> int:
