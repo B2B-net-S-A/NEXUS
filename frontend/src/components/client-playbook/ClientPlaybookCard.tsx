@@ -292,6 +292,8 @@ function FullCard({
 }
 
 const MISSING_SPEC = "Brak — zapytaj DL-a przed prepem";
+// Pusta „Forma współpracy” to nie brak: obowiązuje fundament 1 (B2B) bez wyjątków.
+const DEFAULT_COOPERATION = "B2B jak w fundamentach — bez wyjątków";
 
 /** „Specyfika na prep”: osiem pól, puste mówią wprost, że trzeba zapytać DL-a. */
 function PrepSpecBlock({ spec }: { spec: PrepSpec }) {
@@ -321,6 +323,8 @@ function PrepSpecBlock({ spec }: { spec: PrepSpec }) {
                     <li key={i}>{line}</li>
                   ))}
                 </ul>
+              ) : field.key === "cooperation" ? (
+                <p className="text-sm text-muted-foreground">{DEFAULT_COOPERATION}</p>
               ) : (
                 <p className="text-sm text-warning-muted-foreground">{MISSING_SPEC}</p>
               )}
@@ -427,7 +431,9 @@ function DocumentsBlock({ documents }: { documents: PlaybookDocument[] }) {
 
 /** Specyfika w sekcji 6 Championa: pole w linii, puste zebrane w jedno zdanie. */
 function CompactPrepSpec({ spec }: { spec: PrepSpec }) {
-  const missing = PREP_SPEC_FIELDS.filter((f) => (spec[f.key] ?? []).length === 0);
+  const missing = PREP_SPEC_FIELDS.filter(
+    (f) => f.key !== "cooperation" && (spec[f.key] ?? []).length === 0,
+  );
   return (
     <div className="space-y-1" data-testid="client-playbook-prep-spec-compact">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">

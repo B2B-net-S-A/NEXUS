@@ -22,9 +22,12 @@ fundamenty: `integracje/fundamenty-prepa-przygotowanie-rekrutera.md`).
   i wyczyściłby zasiew. Historia w formularzu pokazuje nazwy zmienionych pól,
   nie JSON.
 - **Odczyt:** pełna karta (profil klienta, Pomoc → Klienci) ma blok z ośmioma
-  polami, a puste mówią „Brak — zapytaj DL-a przed prepem”. Sekcja 6 Championa
-  na rekrutacji (wariant compact) ma pole w linii i jedno zdanie z brakami.
-  Karta bez specyfiki nie pokazuje bloku.
+  polami, a puste mówią „Brak — zapytaj DL-a przed prepem”. Wyjątek: pusta
+  „Forma współpracy” to „B2B jak w fundamentach — bez wyjątków” (u większości
+  klientów nie ma czego dopisywać, a „brak” kazałby pytać DL-a o nic).
+  „Klient i historia” w Profilu Championa na rekrutacji (`?tab=champion&ptab=client`,
+  wariant compact) ma pole w linii i jedno zdanie z brakami. Karta bez specyfiki
+  nie pokazuje bloku.
 - **Zasiew 12 kart** (klienci z prepami w 60 dniach do 24.11.2026) to krok
   jednorazowy `client_prep_spec_seed_2026_11_24` w `entrypoint.sh`
   (`services/client_prep_spec_seed.py`, treść w `client_prep_spec_data.py`, id
