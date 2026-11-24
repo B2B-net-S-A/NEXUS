@@ -347,6 +347,7 @@ async def test_portal_ad_response_carries_recent_channels():
         "channels": ["kariera", "jjit", "pracuj"],
         "jobs": 0,
         "jjit_category": None,
+        "from_job_id": None,
     }
 
 
