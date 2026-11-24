@@ -12,8 +12,9 @@ zamiast 12 scen ról: Terminal dla ról deweloperskich, Jasny dla biznesowych
 i Grafit dla reszty. Makiety: https://claude.ai/artifact/RGquQpMFyKgRYHPognJ2kU.
 Wybory z 12 scen zostają w bazie, ale ``resolve_theme`` traktuje je jak brak
 wyboru — opublikowane linki dostają nowy wygląd bez ponownego zatwierdzania.
-Kolory stron żyją we froncie (``components/career/themes.ts``); tu tylko to,
-czego potrzebuje plakat PDF.
+Strona, grafika OG i plakat mają od 24.11.2026 jeden wygląd nowej strony
+B2B Network (front: ``components/career/site/``); tu tylko to, czego
+potrzebuje plakat PDF.
 """
 
 from __future__ import annotations

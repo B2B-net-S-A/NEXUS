@@ -264,9 +264,9 @@ Reguły, które łatwo cofnąć:
   jedno zdanie w pkt 3.
 - **Strona kandydata (etap 5, 19.10.2026):** kroki procesu widoczne na każdej
   szerokości (poniżej 1024 px zwarta lista; manifest dalej tylko od 1024 px).
-  Kolory w jednym miejscu: `components/career/palette.ts` (`OG_COLORS`) dla
-  grafik OG i `LinkedInPreviewCard`, te same wartości jako `--kr-*` w
-  `career.css` (test `palette.test.ts`). Bordo `#9A142D` ma na czarnym 2,5:1 —
+  Kolory: `--kr-*` w `career.css` (do 24.11.2026 także `palette.ts`
+  i `themes.ts`, usunięte z ramą Grafit w #3832; dziś strona, OG i plakat
+  biorą tokeny z `site/site.module.css` i `ogCard.tsx`). Bordo `#9A142D` ma na czarnym 2,5:1 —
   tylko tło pod białym tekstem i ozdobniki; czerwony w tekście tytułów to
   `title` `#F06A80` (≈7:1), drobny akcent `red` `#D14A5F` (≈4,9:1). Ekran
   zamkniętej rekrutacji dostaje z API `other_jobs` (ta sama reguła co stały
