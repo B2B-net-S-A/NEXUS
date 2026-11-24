@@ -58,15 +58,22 @@ export function NotificationsRealtime() {
       if (!shouldToastFrame(notif, useRealtimeStatus.getState().openTopic)) return;
       const { router: nav, showActionToast: action, showInfo: info } = toastRef.current;
       const text = formatNotificationText(notif.title);
+      // Ramka przychodzi w dowolnej chwili: przy otwartym oknie dymek czeka na
+      // jego zamknięcie (leżał na stopce z „Zapisz” przy 1280 × 720).
+      const defer = {
+        deferWhileModal: true,
+        isStillRelevant: () => shouldToastFrame(notif, useRealtimeStatus.getState().openTopic),
+      };
       if (notif.link) {
         const link = notif.link;
         action(text, {
           actionLabel: "Otwórz",
           durationMs: TOPIC_TOAST_MS,
           onAction: () => nav.push(link),
+          ...defer,
         });
       } else {
-        info(text);
+        info(text, defer);
       }
     },
     [queryClient],
