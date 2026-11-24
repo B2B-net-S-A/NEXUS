@@ -525,9 +525,12 @@ async def test_mail_padajacy_bieg_po_biegu_nie_zatrzymuje_znacznika_na_zawsze() 
     assert abs(await _seen() - late) < timedelta(seconds=1)
     async with AsyncSessionLocal() as db:
         docs = (await db.scalars(select(CpDocument))).all()
-    assert sorted((d.contract_id, d.file_name) for d in docs) == sorted(
-        [(None, "Raport.eml"), (person.contract_id, "raport.pdf")]
-    )
+    # Karta bez kontraktu ma contract_id None — porównanie zbiorem, nie sorted().
+    assert {(d.contract_id, d.file_name) for d in docs} == {
+        (None, "Raport.eml"),
+        (person.contract_id, "raport.pdf"),
+    }
+    assert len(docs) == 2
     # Zakładka OVERLAP podaje porzucony mail znowu: czytnik go pomija i nie staje.
     again = await _read(reader)
     assert (again["failed"], again["abandoned"], again["status"]) == (0, 0, "ok")
