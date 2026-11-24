@@ -1,5 +1,5 @@
 # Poligon NEXUSA — onboarding pierwszego dnia na rekrutacji ćwiczebnej
-<!-- indeks: `/poligon`, ścieżki per rola (rekruter 27, DL 17, TCM 13), narzędzia rekrutera z 16.11 (telefon, termin u klienta, CV z pliku, zapisane wyszukiwanie, lista, czat, asystent CV, Jarvis bez modelu — `lib/poligon/tools.ts`), terminy od klienta DL-a (wklejony mail bez modelu), wymagany od nadania roli, blokada nowej osoby zamiast Startu, poligon dla obecnych „tylko luki” (`poligon_luki`, „Kto zna NEXUS”), dzień onboardingu poza statystykami (`onboarding_day`), tryb w przeglądarce (`lib/poligon/`), zapisy nie wychodzą do API poza postępem `poligon-*`, zestaw z `build_poligon_dataset.py`, klient ćwiczebny 990501 (`poligon_client_practice.py`, kwoty wg roli w `amounts.ts`, 22.11.2026), CV z nowości: lata w punkcie 1 i gotowe CV z nową zgodą (`poligon_cv_practice.py`, odczyt osoby przed szablonem), strażnik `poligon-dataset.test.ts` -->
+<!-- indeks: `/poligon`, ścieżki per rola (rekruter 27, DL 17, TCM 13), narzędzia rekrutera z 16.11 (telefon, termin u klienta, CV z pliku, zapisane wyszukiwanie, lista, czat, asystent CV, Jarvis bez modelu — `lib/poligon/tools.ts`), terminy od klienta DL-a (wklejony mail bez modelu), wymagany od nadania roli, blokada nowej osoby zamiast Startu, poligon dla obecnych „tylko luki” (`poligon_luki`, „Kto zna NEXUS”), dzień onboardingu poza statystykami (`onboarding_day`), tryb w przeglądarce (`lib/poligon/`), zapisy nie wychodzą do API poza postępem `poligon-*`, zestaw z `build_poligon_dataset.py`, klient ćwiczebny 990501 (`poligon_client_practice.py`, kwoty wg roli w `amounts.ts`, 22.11.2026), CV z nowości: lata w punkcie 1 i gotowe CV z nową zgodą (`poligon_cv_practice.py`, odczyt osoby przed szablonem), strażnik `poligon-dataset.test.ts`, pola wstawiane w zdanie bez `null` (`poligon_person_texts.py`), podgląd pliku = komunikat Poligonu, koniec Poligonu z luk bez zdania o statystykach -->
 
 Decyzje Artura z 14.11.2026 (makiety: https://claude.ai/artifact/FQGjXqm7T4Bpoi4fYCpmsk).
 Co miesiąc dochodzi 7–14 nowych kont i każdą osobę HoR szkolił osobno. Start
@@ -517,3 +517,27 @@ nie mógł go skończyć; Artur wyłączył porcję i blokadę (`poligon_gate`,
   zamiast poprawki. Nie zamykaj w teście tego, co zasłania okno ćwiczenia.
 - Testy przechodziły wcześniej tylko ścieżkę nowej osoby od zera. Zmiana
   w Poligonie albo w kampanii luk = także bieg „rekruter z lukami”.
+
+## Drobiazgi z testu 24.11.2026 (Poligon z lukami i poranna porcja)
+
+- **Zdanie o statystykach tylko dla nowej osoby.** Koniec Poligonu pisze „dziś
+  nie liczy się do Twoich statystyk” tylko przy `poligon.required` bez
+  `poligon.luki` (dzień onboardingu z `onboarding_day`). Serwer daje `luki`
+  wyłącznie osobie bez wymogu onboardingu, a dzień ćwiczeń z luk się liczy
+  (sekcja „Poligon dla obecnych”). E2E sprawdza oba końce.
+- **Podgląd pliku na Poligonie = komunikat Poligonu.** `FilePreviewContent`
+  w trybie Poligonu nie pobiera bajtów (szłyby do API z identyfikatorem
+  990000+) i nie pisze „format nieobsługiwany, pobierz plik”, tylko to samo co
+  „CV firmowe”: „Na poligonie podgląd tego pliku nie działa…”
+  (`POLIGON_FILE_MESSAGE` w `lib/authenticated-files.ts`). Zgłoszenie Marka:
+  „CV oryginalne” osoby ćwiczebnej (kopia ze zgłoszenia bez nazwy pliku).
+- **Pole, które ekran wstawia w zdanie, nie może zostać `null`.** Filtr
+  nagrania zostawia `null` w miejscu wyciętego tekstu, a profil pisał „null ·
+  poziom nieznany” (języki), arkusz rozmowy „„null”” (wcześniejsza odpowiedź).
+  Takie pola dostają wymyśloną treść w `scripts/poligon_person_texts.py`
+  (`--practice-only`, odpowiedzi w `meta.fiction_responses`); odpowiedzi są bez
+  rodzaju gramatycznego, bo odczyt osoby-szablonu dostaje każda osoba.
+  Strażnik `poligon-dataset.test.ts` sprawdza te pola, a E2E przed każdym
+  „Dalej” szuka napisu „null” na ekranie (`noNullText`).
+- **Pokaz lekcji i okna:** start pokazu w miejscu elementu i karta, która nie
+  zamyka okna Radix — `nowosci-do-przeklikania.md`.

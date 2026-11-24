@@ -37,6 +37,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { POLIGON_FILE_MESSAGE } from "@/lib/authenticated-files";
+import { isPoligonActive } from "@/lib/poligon/mode";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import {
   activateDocumentMatch,
@@ -236,7 +238,7 @@ export function FilePreviewContent({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const docxHostRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">(
+  const [status, setStatus] = useState<"loading" | "ready" | "error" | "poligon">(
     "loading",
   );
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -297,6 +299,14 @@ export function FilePreviewContent({
     // Obraz nie ma warstwy tekstu z definicji.
     setAvailability(kind === "image" ? "no_text" : "pending");
 
+    // Poligon nie renderuje plików: zestaw ma opis pliku bez treści (często
+    // bez nazwy), a bajty szłyby do API z identyfikatorem 990000+. Ten sam
+    // komunikat co „CV firmowe” (zgłoszenie z 24.11.2026: „CV oryginalne”
+    // pisało „format nieobsługiwany, pobierz plik”).
+    if (isPoligonActive()) {
+      setStatus("poligon");
+      return;
+    }
     if (kind === "unsupported") {
       setStatus("ready");
       return;
@@ -423,7 +433,7 @@ export function FilePreviewContent({
       ref={rootRef}
       className={cn("relative flex flex-col overflow-hidden bg-muted/40", className)}
     >
-      {hasDomSearchBar && status !== "error" ? (
+      {hasDomSearchBar && status !== "error" && status !== "poligon" ? (
         <>
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-card px-3 py-1.5">
             <DocumentSearchBar
@@ -453,6 +463,13 @@ export function FilePreviewContent({
               <Loader2 className="h-4 w-4 animate-spin" />
               Ładowanie podglądu…
             </span>
+          </div>
+        )}
+
+        {status === "poligon" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
+            <FileText className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+            <p className="max-w-sm text-sm text-muted-foreground">{POLIGON_FILE_MESSAGE}</p>
           </div>
         )}
 
@@ -504,7 +521,7 @@ export function FilePreviewContent({
           <div ref={docxHostRef} className="docx-preview-host w-full" />
         )}
 
-        {kind === "unsupported" && status !== "loading" && (
+        {kind === "unsupported" && status !== "loading" && status !== "poligon" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
             <FileText className="h-8 w-8 text-muted-foreground" />
             <p className="max-w-sm text-sm text-muted-foreground">

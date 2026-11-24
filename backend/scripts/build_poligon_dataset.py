@@ -33,7 +33,9 @@ Klient ćwiczebny (karta klienta, kontrakty, zamówienia z maila, Finanse; 22.11
 jest wymyślony w `scripts/poligon_client_practice.py`, a odczyty CV z dwóch
 wpisów Nowości (lata w punkcie 1, gotowe CV z nową zgodą) w
 `scripts/poligon_cv_practice.py`, a stop do podpisu przedwstępnej (lekcje
-Nowości z 23.11.2026) w `scripts/poligon_pre_contract_practice.py`. Bez nagrania:
+Nowości z 23.11.2026) w `scripts/poligon_pre_contract_practice.py`. Języki
+i wcześniejsze odpowiedzi osoby-szablonu (ekran wstawia je w zdanie, a filtr
+zostawiał `null`) są w `scripts/poligon_person_texts.py`. Bez nagrania:
     python3 scripts/build_poligon_dataset.py --practice-only
 nakłada wymyślone odczyty (nowości z porcji i klienta ćwiczebnego) na zestaw,
 który już jest w repo.
@@ -56,12 +58,14 @@ from urllib.parse import parse_qsl, urlencode
 try:
     from scripts.poligon_client_practice import CLIENT_PEOPLE, client_practice
     from scripts.poligon_cv_practice import READY_CV_PERSON, cv_practice
+    from scripts.poligon_person_texts import person_texts
     from scripts.poligon_pre_contract_practice import pre_contract_practice
 except (
     ModuleNotFoundError
 ):  # wywołanie z `backend/`: python3 scripts/build_poligon_dataset.py
     from poligon_client_practice import CLIENT_PEOPLE, client_practice
     from poligon_cv_practice import READY_CV_PERSON, cv_practice
+    from poligon_person_texts import person_texts
     from poligon_pre_contract_practice import pre_contract_practice
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1370,6 +1374,10 @@ def with_practice(meta: dict, dataset: dict) -> tuple[dict, dict]:
     # Stop do podpisu przedwstępnej: ustawienie rekrutacji, Szymon czeka na podpis.
     pre_contract, pre_contract_fiction = pre_contract_practice(dataset)
     dataset.update(pre_contract)
+    # Języki i wcześniejsze odpowiedzi osoby-szablonu: ekran wstawia je w zdanie,
+    # a filtr nagrania zostawiał `null` (24.11.2026: „null · poziom nieznany”).
+    texts, texts_fiction = person_texts(dataset)
+    dataset.update(texts)
     meta = {
         **meta,
         # Osoby po stronie klienta ćwiczebnego (nie kandydaci).
@@ -1378,7 +1386,9 @@ def with_practice(meta: dict, dataset: dict) -> tuple[dict, dict]:
         "ready_cv_candidate_id": READY_CV_PERSON["candidate_id"],
         # Odpowiedzi w całości wymyślone w skrypcie: strażnik zestawu nie
         # wymaga dla nich kluczy ze słownika (`poligon-dataset.test.ts`).
-        "fiction_responses": sorted({*practice, *cv_fiction, *pre_contract_fiction}),
+        "fiction_responses": sorted(
+            {*practice, *cv_fiction, *pre_contract_fiction, *texts_fiction}
+        ),
     }
     return meta, dataset
 

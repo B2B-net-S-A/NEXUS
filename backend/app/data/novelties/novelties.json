@@ -2225,6 +2225,7 @@
     },
     "where": "Rekrutacja → Profil Championa → Brief → „Najważniejsze zadanie w tej roli”",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?tab=champion",
     "section": "pipeline",
     "dot_anchor": "champion.key-task",
     "steps": [
@@ -4716,6 +4717,7 @@
     },
     "where": "Rekrutacja → osoba z „Screeningu” → Rozwiń → Tryb rozmowy",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990106&panel=screening",
     "section": "pipeline",
     "dot_anchor": "person.panel.conversation-mode",
     "used_anchor": "screening.sheet.gaps",
