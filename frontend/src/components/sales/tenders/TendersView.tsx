@@ -260,7 +260,7 @@ export function TendersView() {
   const [view, setView] = useState<View>("created");
   const counts = useSalesTenders("created").data;
   return (
-    <div className="space-y-3" data-tour="sales.tenders">
+    <div className="space-y-3">
       <p className="max-w-3xl text-sm text-muted-foreground">
         Ogłoszenia, które przeszły reguły, są już szansami w lejku Przetargi na etapie „Identyfikacja”, z terminem
         składania ofert jako datą zamknięcia. Szansa, której nikt nie ruszył przed terminem, zamyka się sama z powodem

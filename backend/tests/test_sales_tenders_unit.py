@@ -180,7 +180,7 @@ BZP_ITEM: dict[str, Any] = {
     "organizationNationalId": "526-16-62-005",
     "orderType": "Services",
     "isTenderAmountBelowEU": True,
-    "objectId": "08df4926-e8cc-a6df-7343-eb000163bb96",
+    "objectId": "notice-object-1",
 }
 
 
@@ -197,7 +197,7 @@ def test_parse_bzp_keeps_what_the_gate_and_the_opportunity_need() -> None:
     assert notice.published_at.microsecond == 963749
     assert notice.url == (
         "https://ezamowienia.gov.pl/mo-client-board/bzp/notice-details/id/"
-        "08df4926-e8cc-a6df-7343-eb000163bb96"
+        "notice-object-1"
     )
 
 
@@ -248,14 +248,14 @@ def test_parse_ted_takes_the_main_nature_and_the_procedure() -> None:
 
     item = {
         **TED_ITEM,
-        "procedure-identifier": "0169b6ef-fe1b-42e4-a79d-edc8a82a2e2a",
+        "procedure-identifier": "procedure-ted-1",
         "contract-nature-main-proc": "supplies",
         "contract-nature": ["supplies", "services", "supplies", "services"],
     }
     notice = sources.parse_ted(item)
     assert notice is not None
     assert notice.order_type == "supplies"
-    assert notice.procedure_id == "0169b6ef-fe1b-42e4-a79d-edc8a82a2e2a"
+    assert notice.procedure_id == "procedure-ted-1"
     decision = rules.evaluate(notice, TenderRules(), today=TODAY, now=NOW)
     assert decision is not None and decision.rule == "order_type"
     without_main = sources.parse_ted({**item, "contract-nature-main-proc": None})
