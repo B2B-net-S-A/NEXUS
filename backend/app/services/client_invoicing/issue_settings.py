@@ -146,13 +146,50 @@ def _buyers(raw: Any, reserved: Iterable[str] = ()) -> list[dict[str, str]]:
     return out
 
 
-def _contract_buyers(raw: Any, codes: set[str]) -> dict[str, str]:
+#: Przypisanie zapisane przed „od miesiąca” (PR #3817) obowiązuje od początku.
+SINCE_ALWAYS = "2000-01"
+MONTH = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
+
+
+def _history(raw: Any) -> list[dict[str, str]]:
+    """Historia nabywcy kontraktu: ``[{"code", "from": "RRRR-MM"}]`` rosnąco po miesiącu.
+
+    Nabywca kontraktu się zmienia (Nordea: zmiana w portalu CPro od dnia, np.
+    z Abp S.A. na Abp Finland od 15.09.2026), więc przypisanie ma miesiąc
+    początku; wcześniejsze miesiące zostają przy poprzednim nabywcy.
+    """
+
+    items = [{"code": raw, "from": SINCE_ALWAYS}] if isinstance(raw, str) else raw
+    by_month: dict[str, str] = {}
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        code, since = str(item.get("code") or ""), str(item.get("from") or "")
+        if BUYER_CODE.fullmatch(code) and MONTH.fullmatch(since):
+            by_month[since] = code
+    out: list[dict[str, str]] = []
+    for month in sorted(by_month):
+        # Ten sam nabywca co miesiąc wcześniej to nie zmiana — jeden wpis.
+        if not out or out[-1]["code"] != by_month[month]:
+            out.append({"code": by_month[month], "from": month})
+    return out
+
+
+def _mapping_codes(raw: Any) -> set[str]:
     data = raw if isinstance(raw, dict) else {}
-    return {
-        str(int(key)): str(value)
-        for key, value in data.items()
-        if str(key).isdigit() and str(value) in codes
-    }
+    return {item["code"] for value in data.values() for item in _history(value)}
+
+
+def _contract_buyers(raw: Any, codes: set[str]) -> dict[str, list[dict[str, str]]]:
+    data = raw if isinstance(raw, dict) else {}
+    out = {}
+    for key, value in data.items():
+        if not str(key).isdigit():
+            continue
+        history = [item for item in _history(value) if item["code"] in codes]
+        if history:
+            out[str(int(key))] = history
+    return out
 
 
 def normalize(raw: object) -> dict[str, Any]:
@@ -199,7 +236,7 @@ def normalize(raw: object) -> dict[str, Any]:
         raw_mapping = value.get("contract_buyers")
         buyers = _buyers(
             value.get("buyers"),
-            raw_mapping.values() if isinstance(raw_mapping, dict) else (),
+            _mapping_codes(raw_mapping),
         )
         if buyers:
             entry["buyers"] = buyers
@@ -364,32 +401,57 @@ def client_buyers(
     return list((data.get("clients") or {}).get(str(client_id), {}).get("buyers") or [])
 
 
+def _code_in(history: list[dict[str, str]], period: str) -> Optional[str]:
+    code = None
+    for item in history:
+        if item["from"] <= period:
+            code = item["code"]
+    return code
+
+
 def buyer_for_contract(
-    data: dict[str, Any], client_id: Optional[int], contract_id: Optional[int]
+    data: dict[str, Any],
+    client_id: Optional[int],
+    contract_id: Optional[int],
+    period: str,
 ) -> Optional[dict[str, str]]:
-    """Nabywca przypisany do kontraktu osoby; ``None`` = nieprzypisany."""
+    """Nabywca kontraktu osoby w miesiącu usługi (``RRRR-MM``); ``None`` = nieprzypisany."""
 
     if client_id is None or contract_id is None:
         return None
     entry = (data.get("clients") or {}).get(str(client_id), {})
-    code = (entry.get("contract_buyers") or {}).get(str(contract_id))
+    history = _history((entry.get("contract_buyers") or {}).get(str(contract_id)))
+    code = _code_in(history, period)
     return next((b for b in entry.get("buyers") or [] if b["code"] == code), None)
 
 
 def remember_buyer(
-    data: dict[str, Any], client_id: int, contract_ids: Iterable[int], code: str
+    data: dict[str, Any],
+    client_id: int,
+    contract_ids: Iterable[int],
+    code: str,
+    period: str,
 ) -> bool:
-    """Przypisuje kontrakty do nabywcy (w miejscu); ``True``, gdy coś się zmieniło."""
+    """Kontrakty przy nabywcy od miesiąca ``period`` (w miejscu); ``True`` = zmiana.
+
+    Późniejsze zmiany nabywcy zostają: poprawka sierpnia nie rusza września.
+    """
 
     entry = (data.get("clients") or {}).get(str(client_id))
     if not entry or code not in {b["code"] for b in entry.get("buyers") or []}:
         return False
+    if not MONTH.fullmatch(period):
+        return False
     mapping = entry.setdefault("contract_buyers", {})
     changed = False
     for contract_id in contract_ids:
-        if mapping.get(str(contract_id)) != code:
-            mapping[str(contract_id)] = code
-            changed = True
+        history = _history(mapping.get(str(contract_id)))
+        if _code_in(history, period) == code:
+            continue
+        history = [item for item in history if item["from"] != period]
+        history.append({"code": code, "from": period})
+        mapping[str(contract_id)] = _history(history)
+        changed = True
     return changed
 
 

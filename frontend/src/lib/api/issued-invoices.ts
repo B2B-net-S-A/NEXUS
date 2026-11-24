@@ -335,8 +335,8 @@ export interface IssueSettings {
       rebate?: RebateTerms;
       /** Nabywcy klienta (nabywca zależy od kontraktu osoby). */
       buyers?: ClientBuyer[];
-      /** Kontrakt → kod nabywcy; zapisuje się przy wyborze nabywcy w szkicu. */
-      contract_buyers?: Record<string, string>;
+      /** Kontrakt → historia nabywcy od miesiąca (`from` = RRRR-MM); zapisuje się przy wyborze w szkicu. */
+      contract_buyers?: Record<string, { code: string; from: string }[]>;
     }
   >;
 }

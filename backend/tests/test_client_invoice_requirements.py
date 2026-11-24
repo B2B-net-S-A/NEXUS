@@ -318,7 +318,7 @@ def test_removed_buyer_code_is_not_reused_for_a_new_buyer() -> None:
     entry = data["clients"]["16"]
     assert [b["code"] for b in entry["buyers"]] == ["b1", "b3"]
     # Kontrakt usuniętego nabywcy nie przechodzi na nową spółkę.
-    assert entry["contract_buyers"] == {"8": "b1"}
+    assert entry["contract_buyers"] == {"8": [{"code": "b1", "from": "2000-01"}]}
 
 
 def test_template_from_invoice_drops_order_refs_of_lines() -> None:
@@ -378,3 +378,71 @@ async def test_signed_document_gate_blocks_people_without_contract() -> None:
     found = req.Requirements(signed_document="protocol")
     block = await issue._signature_block(None, row, found, {}, "2026-10")  # noqa: SLF001
     assert block is not None and "Pula zespołu" in block
+
+
+# ── Nabywca kontraktu od miesiąca (zmiana nabywcy w CPro, 24.11.2026) ───────
+
+
+def _two_buyers(mapping: dict) -> dict:
+    return issue_settings.normalize(
+        {
+            "clients": {
+                "16": {
+                    "buyers": [
+                        {"code": "b1", "name": "Spółka SA"},
+                        {"code": "b2", "name": "Spółka Finland"},
+                    ],
+                    "contract_buyers": mapping,
+                }
+            }
+        }
+    )
+
+
+def test_buyer_of_contract_changes_from_a_month_and_earlier_months_keep_the_old() -> (
+    None
+):
+    data = _two_buyers(
+        {
+            "7": [
+                {"code": "b2", "from": "2026-09"},
+                {"code": "b1", "from": "2026-01"},
+            ]
+        }
+    )
+    assert data["clients"]["16"]["contract_buyers"]["7"] == [
+        {"code": "b1", "from": "2026-01"},
+        {"code": "b2", "from": "2026-09"},
+    ]
+    pick = issue_settings.buyer_for_contract
+    assert pick(data, 16, 7, "2026-08")["code"] == "b1"
+    assert pick(data, 16, 7, "2026-09")["code"] == "b2"
+    assert pick(data, 16, 7, "2026-11")["code"] == "b2"
+    # Przed pierwszym przypisaniem kontrakt nie ma nabywcy z listy.
+    assert pick(data, 16, 7, "2025-12") is None
+
+
+def test_legacy_mapping_without_month_counts_from_the_start() -> None:
+    data = _two_buyers({"7": "b2", "8": [{"code": "b1", "from": "bad"}]})
+    assert data["clients"]["16"]["contract_buyers"] == {
+        "7": [{"code": "b2", "from": "2000-01"}]
+    }
+    assert issue_settings.buyer_for_contract(data, 16, 7, "2026-10")["code"] == "b2"
+
+
+def test_choosing_a_buyer_in_a_draft_applies_from_its_month_only() -> None:
+    data = _two_buyers({"7": [{"code": "b1", "from": "2026-01"}]})
+    assert issue_settings.remember_buyer(data, 16, [7], "b2", "2026-09") is True
+    pick = issue_settings.buyer_for_contract
+    assert pick(data, 16, 7, "2026-08")["code"] == "b1"
+    assert pick(data, 16, 7, "2026-10")["code"] == "b2"
+    # Ten sam nabywca, co już obowiązuje w miesiącu — nic do zapisania.
+    assert issue_settings.remember_buyer(data, 16, [7], "b2", "2026-10") is False
+    # Poprawka sierpnia nie rusza września.
+    assert issue_settings.remember_buyer(data, 16, [7], "b2", "2026-08") is True
+    assert pick(data, 16, 7, "2026-07")["code"] == "b1"
+    assert pick(data, 16, 7, "2026-08")["code"] == "b2"
+    assert data["clients"]["16"]["contract_buyers"]["7"] == [
+        {"code": "b1", "from": "2026-01"},
+        {"code": "b2", "from": "2026-08"},
+    ]
