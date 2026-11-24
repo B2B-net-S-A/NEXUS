@@ -8,6 +8,7 @@ da się powiedzieć, czyje sprawy pokazać. Kontrakt zakończony działa jeszcze
 
 from __future__ import annotations
 
+import calendar
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -102,6 +103,7 @@ async def resolve_sender(
     # Jeden działający kontrakt = jedno dopasowanie. Dwa (zmiana kontraktu w ostatnich
     # 60 dniach, dwóch klientów naraz) albo dwie osoby = karta do ręcznego przypisania:
     # przypisanego dokumentu Finanse nie przepną, a RCP od razu liczy rozliczenie.
+    # Raport z okresem rozstrzyga dopiero ``resolve_sender_in_month``.
     return rows[0] if len(rows) == 1 else None
 
 
@@ -128,6 +130,37 @@ async def resolve_report_owner(
     from_t4t = set(await time_reports.enabled_clients(db, f"{today:%Y-%m}"))
     rest = [row for row in rows if row.client_id not in from_t4t]
     return rest[0] if len(rest) == 1 and len(rest) < len(rows) else None
+
+
+def works_in_month(contract: Contract, year: int, month: int) -> bool:
+    """Okres kontraktu obejmuje choć jeden dzień miesiąca (brak daty = bez granicy)."""
+
+    first = date(year, month, 1)
+    last = date(year, month, calendar.monthrange(year, month)[1])
+    return (contract.start_date is None or contract.start_date <= last) and (
+        contract.end_date is None or contract.end_date >= first
+    )
+
+
+async def resolve_sender_in_month(
+    db: AsyncSession, email: str, *, year: int, month: int, today: date
+) -> Optional[Contract]:
+    """Kontrakt nadawcy dla raportu za ``year``-``month``, gdy adres wskazuje kilka.
+
+    Osoba zmienia klienta, a poprzedni kontrakt działa jeszcze ``ENDED_GRACE_DAYS``
+    po końcu, więc adres wskazuje oba i raport czekał na człowieka (próba IX–X 2026,
+    VeloBank 466 i 467: Time Sheet za IX z adresu firmy, kontrakty w Banku Pocztowym
+    zakończone 31.08). Raport za miesiąc, którego okres kontraktu nie obejmuje, nie
+    jest tego kontraktu. Tylko kontrakty jednej osoby; dwa kontrakty w tym miesiącu
+    albo żaden = ``None``. Okres musi wynikać z pliku albo tematu, nie z daty maila.
+    """
+
+    rows = await _sender_contracts(db, normalize_email(email), today=today)
+    people = {row.candidate_id for row in rows}
+    if len(rows) < 2 or len(people) != 1 or None in people:
+        return None
+    hits = [row for row in rows if works_in_month(row, year, month)]
+    return hits[0] if len(hits) == 1 else None
 
 
 async def sender_contract_ids(

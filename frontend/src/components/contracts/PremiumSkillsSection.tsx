@@ -6,6 +6,7 @@
 import { useState } from "react";
 
 import { AppModal } from "@/components/ds/AppModal";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +47,20 @@ export function PremiumSkillsSection({
   const { showError } = useToast();
   const [dialog, setDialog] = useState<Dialog>(null);
 
+  // Awaria nie udaje braku technologii: nagłówek sekcji zostaje z błędem.
+  if (query.isError) {
+    return (
+      <div className="mt-3 border-t border-border pt-3" data-testid="premium-skills">
+        <div className="mb-1 text-xs font-semibold text-foreground">Technologie premium z umowy</div>
+        <QueryStateNotice
+          state="error"
+          className="py-4"
+          description={apiErrorMessage(query.error, "Nie udało się sprawdzić technologii premium.")}
+          onRetry={() => void query.refetch()}
+        />
+      </div>
+    );
+  }
   if (!query.isSuccess) return null;
   const { evidence, claims } = query.data;
   const run = async (claim: PremiumClaim, kind: "send" | "drop") => {

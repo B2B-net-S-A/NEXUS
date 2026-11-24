@@ -1,5 +1,6 @@
 import { trackTransfer } from "@/lib/transfers-in-flight";
 import { getAuthenticatedRequestHeaders } from "./session";
+import { warsawToday } from "@/lib/warsaw-date";
 
 export interface BulkCvDownloadResult {
   includedCount: number;
@@ -60,7 +61,7 @@ export async function downloadBulkCvs(
     };
   });
   const url = URL.createObjectURL(blob);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = warsawToday();
   const a = document.createElement("a");
   a.href = url;
   a.download = `nexus-cvs-${today}.zip`;

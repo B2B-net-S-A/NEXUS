@@ -41,6 +41,33 @@ i bus są wyłączone, a pętle ma tylko lider, więc dwa procesy `all` dublowa�
 Po włączeniu `runtime_metrics` ma dwie linie na minutę z `process_role=web`, rozróżnia je `pid`.
 Obciążenie procesu web licz per `pid`, a sumę połączeń jako sumę obu.
 
+**Na produkcji od 24.11.2026, 19:13** (czas warszawski; Deploy po set env zielony o 19:23). Do 20:47
+były cztery kontenery z rzędu, bo po zmianie wdrażały jeszcze slot 20:05 i dwie inne sesje
+(„Coolify set env” z redeployem). W każdym proces miał `WEB_CONCURRENCY=2`, a `runtime_metrics`
+dawał co minutę linie z dwóch `pid`. Ostatni kontener: `pid` 279 i 280 po 37 linii bez przerwy,
+`/api/health` healthy w każdej rundzie co 5 min.
+
+| | 1 proces (18:31–19:11) | 2 procesy (19:18–20:47) |
+|---|---:|---:|
+| `rss_mb` na proces | 1211–1234 | 902–1101 |
+| `pool_in_use_max` na proces | do 28 | do 43 |
+| połączenia w `pg_stat_activity` (z 250) | 63 | 29–100, na koniec 57 (web 38, worker 18) |
+| 5xx w `http_outcome` | 0 z 2886 | 0 (poza 503 `/api/health/deep` przy starcie kontenera) |
+| żądania > 30 s | 0 | 0 |
+
+- To wieczór i świeży start. 1,5–1,9 GB RSS z 24.11 to proces po dniu pracy, więc pamięć
+  (`mem_limit` 6g) i pulę per `pid` sprawdź w dzień roboczy.
+- Set env z `redeploy=true` w oknie 18–22 wdraża cały HEAD maina, także merge'e czekające na
+  slot (24.11 z przełącznikiem poszło 8 PR-ów). Sama zmienna: zaraz po wdrożeniu slotu albo po 22:00.
+- `pid` w świeżym kontenerze się powtarza (279 i 280 po dwóch wdrożeniach z rzędu), więc ten sam
+  `pid` nie dowodzi, że kontenera nie podmieniono. Nowy kontener widać po `deployedAt`
+  w `/api/health`, padnięcie procesu po nowym `pid` w tym samym kontenerze.
+- `prod_readonly.py logs` przepuszcza tylko `runtime_metrics` i `http_outcome`, więc „Child process
+  died” tam nie widać. Dowodem jest ciągłość: co minutę linia z każdego `pid`.
+- Web i worker mają w Postgresie ten sam `application_name` `nexus-backend`. Rozróżnia je
+  `client_addr`: przy adresie weba są dwa połączenia `nexus-process-bus`, przy workerze
+  `nexus-background-leader`.
+
 ## Pomiar na stagingu (24.11.2026)
 
 Kontener z obrazu stagingu, kod z gałęzi, `WEB_CONCURRENCY=2`, baza stagingu. 16 klientów

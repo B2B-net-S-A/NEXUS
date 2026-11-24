@@ -333,19 +333,18 @@ async def test_preview_needs_open_module(app_client) -> None:
 @pytest.mark.usefixtures("internal")
 async def test_person_with_two_live_contracts_waits_for_assignment() -> None:
     """Zakończony kontrakt żyje jeszcze 60 dni (ostatni raport przychodzi po końcu).
-    Osoba z dwoma takimi kontraktami nie dostaje automatu: czytnik nie zgadnie, czyj
-    to RCP, a przypisanego dokumentu Finanse nie przepną (``assign_contract`` → 409)."""
+    Osoba z dwoma takimi kontraktami, które oba działają w miesiącu RCP, nie dostaje
+    automatu: czytnik nie zgadnie, czyj to RCP, a przypisanego dokumentu Finanse nie
+    przepną (``assign_contract`` → 409)."""
 
     old = await make_person(activated=False)
     new = await make_person(activated=False, candidate_id=old.candidate_id)
+    ended = business_today() - timedelta(days=10)
     async with AsyncSessionLocal() as db:
         await db.execute(
             update(Contract)
             .where(Contract.id == old.contract_id)
-            .values(
-                status=ContractStatus.ended,
-                end_date=business_today() - timedelta(days=10),
-            )
+            .values(status=ContractStatus.ended, end_date=ended)
         )
         await db.execute(
             update(Contract)
@@ -354,7 +353,8 @@ async def test_person_with_two_live_contracts_waits_for_assignment() -> None:
         )
         await db.commit()
     reader = FakeMailbox(
-        [_message("m1", old.email)], {"m1": [_attachment("RCP_10_2026.pdf", PDF)]}
+        [_message("m1", old.email)],
+        {"m1": [_attachment(f"RCP_{ended.month:02d}_{ended.year}.pdf", PDF)]},
     )
     assert (await _read(reader))["created"] == 1
     assert [row.contract_id for row in await _documents()] == [None]

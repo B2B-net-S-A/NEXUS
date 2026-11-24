@@ -43,6 +43,15 @@ samym ekranie.
 - **Faktura do klienta przed przyjęciem RCP to ostrzeżenie, nie blokada**
   (decyzja Artura 24.11). Licznik `client_invoice.issued_early`; w październiku
   56 osób miało fakturę sprzedaży w KSeF przy nieprzyjętym RCP.
+- **Faktura do klienta liczy się też z linii zamówienia, nie tylko z grupy**
+  (decyzja Artura 24.11). Stan „Wystawiona” (`service._issued_orders`,
+  `client_invoice._order_history`) bierze dwa rodzaje powiązań: z grupą (całe
+  zamówienie MD) i z linią. Na linii wisi faktura zamówienia bez grupy (Bank
+  Pocztowy, PKO, VeloBank, Nordea) i faktura na jedną osobę z zamówienia MD.
+  Wcześniej liczyła się tylko grupa. Faktura w KSeF nie zmieniała więc stanu
+  u tych klientów, a „Dla księgowej” liczyła ich przyjęte RCP jako bez faktury
+  sprzedaży. Pomiar na kopii v6r2: wystawione IX 63 → 114, X 64 → 134. Wszystkie
+  nowe są przy nieprzyjętym RCP, więc wchodzą do `issued_early`.
 - **Biuro (`GET /api/finance/settlements/team`, `team_month.py`):** aktywne
   osoby z potwierdzoną formą B2B (`employment_type_pending = false`), ewidencja
   czasu za miesiąc, faktura z Płac (`payroll_invoices`, czytnik KSeF Płac bierze
