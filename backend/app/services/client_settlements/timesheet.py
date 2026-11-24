@@ -443,8 +443,8 @@ def text_rows(text: str) -> Optional[list[list[Any]]]:
                 count, hours = _text_hours(tokens, width, least=width)
                 if hours is not None:
                     day, rest = waiting
-                    text = " ".join(rest + tokens[: len(tokens) - count])
-                    rows.append([day, text, *hours])
+                    description = " ".join(rest + tokens[: len(tokens) - count])
+                    rows.append([day, description, *hours])
                 waiting = None
             continue
         waiting = None
