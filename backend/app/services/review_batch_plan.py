@@ -10,6 +10,8 @@ dostało 7 kart. Teraz:
 * najpierw wszystkie jej P0, potem P1 Pilne, „Bez priorytetu”, „Przyjmujemy
   kandydatów”; w obrębie poziomu rekrutacje na zmianę (``plan_portions``);
   od 22.11.2026 ``REST_SHARE`` porcji (8 z 20) czeka na niepilne;
+* od 24.11.2026 osoba, która wybrała rekrutację na dziś (``review_batch_focus``),
+  bierze z niej najpierw, przed P0; kto wybrał pierwszy, bierze pierwszy;
 * decyzje z dziś zmniejszają to, co jeszcze przychodzi: porcja to porcja dnia.
 
 ``plan_portions`` jest czystą funkcją (testy bez bazy), ``load_plan`` zbiera dane.
@@ -59,6 +61,8 @@ def plan_portions(
     tiers: Mapping[int, int],
     owned: Mapping[int, Mapping[int, int]],
     free: Mapping[int, int],
+    focus: Sequence[tuple[int, int]] = (),
+    pinned: Optional[Mapping[int, Mapping[int, int]]] = None,
 ) -> dict[int, dict[int, int]]:
     """Ile kart porcji każda osoba ma dziś mieć w każdej rekrutacji.
 
@@ -73,6 +77,13 @@ def plan_portions(
     Pilne (``URGENT_TIERS``) idą pierwsze, ale bez ``rest_seats`` osoby, gdy ma
     też rekrutacje niepilne. Potem niepilne biorą resztę, a czego nie wezmą,
     wraca do pilnych.
+
+    ``focus`` = (osoba, rekrutacja wybrana na dziś) w kolejności wyboru
+    (``review_batch_focus``). Taka osoba przed wszystkimi poziomami bierze
+    z wybranej rekrutacji, ile się da: najpierw własne karty, potem wolne.
+    Kto wybrał pierwszy, bierze pierwszy, a cudzych kart nikt nie dostaje.
+    Wcześniej jej ``pinned`` (karty z innych rekrutacji, które ktoś już wziął
+    i których nie da się zdjąć) zajmują swoje miejsca w porcji.
     """
     jobs_of: dict[int, list[int]] = {
         user: sorted(job for job, team in teams.items() if user in team)
@@ -86,6 +97,24 @@ def plan_portions(
     }
     remaining = {user: max(0, int(cap)) for user, cap in caps.items()}
     users = sorted(caps)
+
+    def give(user: int, job: int, own: int, extra: int) -> None:
+        if own + extra <= 0:
+            return
+        own_left[user][job] = own_left[user].get(job, 0) - own
+        left[job] -= extra
+        want[user][job] = want[user].get(job, 0) + own + extra
+        remaining[user] -= own + extra
+
+    for user, chosen in focus:
+        if user not in caps or chosen not in jobs_of[user]:
+            continue
+        for job, n in sorted(((pinned or {}).get(user) or {}).items()):
+            if job == chosen or job not in jobs_of[user]:
+                continue
+            give(user, job, min(n, own_left[user].get(job, 0), remaining[user]), 0)
+        own = min(own_left[user].get(chosen, 0), remaining[user])
+        give(user, chosen, own, min(left[chosen], remaining[user] - own))
 
     def deal(levels: list[int], budget: dict[int, int]) -> None:
         for tier in levels:
@@ -105,11 +134,9 @@ def plan_portions(
                         continue
                     job = min(options, key=lambda j: (want[user].get(j, 0), j))
                     if own_left[user].get(job, 0) > 0:
-                        own_left[user][job] -= 1
+                        give(user, job, 1, 0)
                     else:
-                        left[job] -= 1
-                    want[user][job] = want[user].get(job, 0) + 1
-                    remaining[user] -= 1
+                        give(user, job, 0, 1)
                     budget[user] -= 1
                     progress = True
 
@@ -193,17 +220,62 @@ async def _pool_free(
     return {int(job_id): int(n) for job_id, n in rows.all()}
 
 
-async def load_plan(
+@dataclass(frozen=True)
+class PlanInputs:
+    """Dane planu porcji z bazy (``load_inputs``); ``portions`` liczy bez bazy."""
+
+    caps: dict[int, int]
+    teams: dict[int, list[int]]
+    tiers: dict[int, int]
+    owned: dict[int, dict[int, int]]
+    unowned: dict[int, int]
+    free: dict[int, int]
+    # Karty osoby, które ktoś już wziął: przy wyborze rekrutacji zostają w porcji.
+    pinned: dict[int, dict[int, int]] = field(default_factory=dict)
+    # Rekrutacje wybrane na dziś w kolejności wyboru (``review_batch_focus``).
+    focus: tuple[tuple[int, int], ...] = ()
+
+    def portions(
+        self, focus: Optional[Sequence[tuple[int, int]]] = None
+    ) -> dict[int, dict[int, int]]:
+        return plan_portions(
+            caps=self.caps,
+            teams=self.teams,
+            tiers=self.tiers,
+            owned=self.owned,
+            free=self.free,
+            focus=self.focus if focus is None else focus,
+            pinned=self.pinned,
+        )
+
+    def plan(self) -> Plan:
+        by_job = _invert(self.portions())
+        # Rekrutacja z przypisanymi, ale bez kart w planie, też jest w planie:
+        # przebieg zdejmuje w niej właścicieli spoza zespołu i nadwyżki.
+        for job in self.teams:
+            by_job.setdefault(job, {})
+        missing = {}
+        for job, people in by_job.items():
+            short = sum(
+                max(0, n - (self.owned.get(user) or {}).get(job, 0))
+                for user, n in people.items()
+            )
+            missing[job] = max(0, short - self.unowned.get(job, 0))
+        return Plan(by_job=by_job, tiers=self.tiers, missing=missing)
+
+
+async def load_inputs(
     db: AsyncSession,
     job_ids: Iterable[int],
     *,
     now: datetime,
     exhausted: Collection[int] = (),
-) -> Plan:
-    """Plan dla rekrutacji w pracy. ``exhausted`` = rekrutacje, w których dziś
-    dopełnianie dało mniej, niż planowano: liczą się w nich tylko karty bez
+) -> PlanInputs:
+    """Dane planu dla rekrutacji w pracy. ``exhausted`` = rekrutacje, w których
+    dziś dopełnianie dało mniej, niż planowano: liczą się w nich tylko karty bez
     właściciela, więc osoby dostają resztę z niższych poziomów."""
     from app.services import review_batch as rb
+    from app.services import review_batch_focus as focus_svc
     from app.services import review_batch_levels as levels
 
     teams = {
@@ -212,7 +284,7 @@ async def load_plan(
         if users
     }
     if not teams:
-        return Plan(by_job={}, tiers={})
+        return PlanInputs(caps={}, teams={}, tiers={}, owned={}, unowned={}, free={})
     jobs = (await db.scalars(select(Job).where(Job.id.in_(list(teams))))).all()
     tiers = {
         job.id: tier_of(job, now) for job in jobs if job.status == JobStatus.published
@@ -238,31 +310,63 @@ async def load_plan(
         fresh_only=True,
     )
     owned: dict[int, dict[int, int]] = {}
+    pinned: dict[int, dict[int, int]] = {}
     unowned: dict[int, int] = {}
     for card in cards:
         if card.owner_id is not None and card.owner_id in teams.get(card.job_id, ()):
             mine = owned.setdefault(card.owner_id, {})
             mine[card.job_id] = mine.get(card.job_id, 0) + 1
+            if card.taken:
+                held = pinned.setdefault(card.owner_id, {})
+                held[card.job_id] = held.get(card.job_id, 0) + 1
         else:
             unowned[card.job_id] = unowned.get(card.job_id, 0) + 1
     pool = await _pool_free(
         db, [job for job in teams if job not in set(exhausted)], value.min_score
     )
     free = {job: unowned.get(job, 0) + pool.get(job, 0) for job in teams}
-    want = plan_portions(caps=caps, teams=teams, tiers=tiers, owned=owned, free=free)
-    by_job = _invert(want)
-    # Rekrutacja z przypisanymi, ale bez kart w planie, też jest w planie:
-    # przebieg zdejmuje w niej właścicieli spoza zespołu i nadwyżki.
-    for job in teams:
-        by_job.setdefault(job, {})
-    missing = {}
-    for job, people in by_job.items():
-        short = sum(
-            max(0, n - (owned.get(user) or {}).get(job, 0))
-            for user, n in people.items()
-        )
-        missing[job] = max(0, short - unowned.get(job, 0))
-    return Plan(by_job=by_job, tiers=tiers, missing=missing)
+    return PlanInputs(
+        caps=caps,
+        teams=teams,
+        tiers=tiers,
+        owned=owned,
+        unowned=unowned,
+        free=free,
+        pinned=pinned,
+        focus=focus_svc.in_order(await focus_svc.read_focus(db)),
+    )
+
+
+async def load_plan(
+    db: AsyncSession,
+    job_ids: Iterable[int],
+    *,
+    now: datetime,
+    exhausted: Collection[int] = (),
+) -> Plan:
+    """Plan dla rekrutacji w pracy (``load_inputs``, ``PlanInputs.plan``)."""
+    return (await load_inputs(db, job_ids, now=now, exhausted=exhausted)).plan()
+
+
+async def jobs_worked_by(db: AsyncSession, user_ids: Iterable[int]) -> set[int]:
+    """Rekrutacje w pracy, w których pracuje któraś z osób."""
+    from app.services.job_team import jobs_worked_by_clause
+    from app.services.request_work_state import IN_WORK_STATES
+
+    people = sorted(set(user_ids))
+    if not people:
+        return set()
+    return set(
+        (
+            await db.scalars(
+                select(Job.id).where(
+                    jobs_worked_by_clause(people),
+                    Job.status == JobStatus.published,
+                    Job.work_state.in_(IN_WORK_STATES),
+                )
+            )
+        ).all()
+    )
 
 
 async def want_for_job(
@@ -271,23 +375,11 @@ async def want_for_job(
     """Plan jednej rekrutacji: liczy porcje jej przypisanych we wszystkich ich
     rekrutacjach w pracy (P0 gdzie indziej zmniejsza to, co przyjdzie tutaj)."""
     from app.services import review_batch as rb
-    from app.services.job_team import jobs_worked_by_clause
-    from app.services.request_work_state import IN_WORK_STATES
 
     team = (await rb.recruiter_ids_for_jobs(db, [job_id])).get(job_id, [])
     if not team:
         return {}
-    job_ids = set(
-        (
-            await db.scalars(
-                select(Job.id).where(
-                    jobs_worked_by_clause(list(team)),
-                    Job.status == JobStatus.published,
-                    Job.work_state.in_(IN_WORK_STATES),
-                )
-            )
-        ).all()
-    )
+    job_ids = await jobs_worked_by(db, team)
     job_ids.add(job_id)
     plan = await load_plan(db, job_ids, now=now)
     return plan.want_for(job_id)
