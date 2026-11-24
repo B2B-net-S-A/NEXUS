@@ -73,6 +73,9 @@ async def test_veto_follows_the_target_column_not_the_stage_code(
             "candidate_id": world["candidate_id"],
             "job_id": world["target_job_id"],
             "stage_def_id": prep_id,
+            # Ze „Screeningu” to przeskok ponad „CV wysłane” — wysyłka ze
+            # stawką do klienta (24.11.2026); weto ostrzega dopiero potem.
+            "client_rate_value": "170",
         },
     )
 

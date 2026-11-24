@@ -449,6 +449,8 @@ async def test_manual_hire_with_employment_contract_drafts_a_uop_contract(
             "job_id": world["job_id"],
             "stage": "hired",
             "hired_signed_via": "uop",
+            # Przeskok ponad „CV wysłane” to wysyłka — stawka do klienta (24.11.2026).
+            "client_rate_value": "170",
         },
     )
     assert resp.status_code < 300, resp.text

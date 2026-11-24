@@ -634,6 +634,8 @@ async def test_leaving_client_interview_requires_debrief(api_client):
                 "candidate_id": cand_id,
                 "job_id": job_id,
                 "stage": "client_interview",
+                # Przeskok ponad „CV wysłane” to wysyłka — DL ze stawką (24.11.2026).
+                "client_rate_value": "170",
             },
         )
         assert to_interview.status_code == 200, to_interview.text
@@ -777,7 +779,13 @@ async def test_debrief_gate_covers_bulk_move_and_detour_through_cv_sent(api_clie
             ok = await api_client.post(
                 "/api/pipeline/move",
                 headers=headers,
-                json={"candidate_id": cand_id, "job_id": job_id, "stage": stage},
+                # Przeskok ponad „CV wysłane” to wysyłka — DL ze stawką (24.11.2026).
+                json={
+                    "candidate_id": cand_id,
+                    "job_id": job_id,
+                    "stage": stage,
+                    "client_rate_value": "170",
+                },
             )
             assert ok.status_code == 200, ok.text
         start = datetime.now(timezone.utc) - timedelta(hours=2)
@@ -852,6 +860,8 @@ async def test_debrief_gate_is_not_skipped_through_the_closed_column(api_client)
                 "candidate_id": cand_id,
                 "job_id": job_id,
                 "stage": "client_interview",
+                # Przeskok ponad „CV wysłane” to wysyłka — DL ze stawką (24.11.2026).
+                "client_rate_value": "170",
             },
         )
         assert ok.status_code == 200, ok.text
