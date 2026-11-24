@@ -79,6 +79,7 @@ from app.services.client_settlements import (
     timesheet_fieldglass,
     timesheet_pko,
     timesheet_plus,
+    vendor_file,
 )
 from app.services.client_settlements import auto_accept
 from app.services.client_settlements import settings as module_settings
@@ -1590,6 +1591,17 @@ async def _read_file(
         md = result.md_regular
         return await accepted(
             result, md * timesheet.per_md(rules) if md else None, month if md else None
+        )
+    # Zestawienie dostawcy BNP Paribas CIB („Vendor's file”) z „Act MD” osoby.
+    vendor = await asyncio.to_thread(vendor_file.parse, content, mime)
+    found_vendor = (
+        vendor_file.declared_for(vendor, person_name, timesheet.per_md(rules))
+        if vendor
+        else None
+    )
+    if found_vendor is not None:
+        return await accepted(
+            declared_result(found_vendor), found_vendor.hours, found_vendor.month
         )
     # Time Sheet w godzinach (E6.2): XLSX, polski wariant albo PDF.
     sheet = await asyncio.to_thread(timesheet.parse, content, mime)
