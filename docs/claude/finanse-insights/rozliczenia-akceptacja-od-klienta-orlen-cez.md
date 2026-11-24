@@ -123,6 +123,10 @@ Teraz:
   i `extra.mail_accept` (`acceptance_mail.from_client`). Domenę i datę zgody na pracę
   dodatkową (`_check_domain`, `extra.mail_before`) bierzemy tylko z cudzych wiadomości.
 - Projekt FIX: podwykonawca ze skrzynki firmy też nie akceptuje własnych godzin.
+- Akceptacja ze zrzutu ekranu (`judge_screenshot`, PR #3875) rozpoznaje nadawcę po
+  imieniu i nazwisku. Nazwisko samego konsultanta odpada z osób klienta, nawet gdy
+  stoi w kontaktach klienta. Na kopii tak jest przy jednym kontrakcie, a jego klient
+  nie ma reguły akceptacji.
 - Samo „potwierdzam” konsultanta daje „Brak akceptacji klienta” z opisem
   „Potwierdzenie w mailu napisał sam konsultant ze swojej skrzynki”.
 - Kontrakt sprawdzamy z perspektywy rozliczanego miesiąca (wcześniejsza z dat: dziś

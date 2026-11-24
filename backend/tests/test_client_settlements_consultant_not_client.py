@@ -16,6 +16,7 @@ from app.models.consultant_portal import CpDocument
 from app.services.client_settlements import (
     acceptance_mail,
     mail_text,
+    rcp_checks,
     rules_catalog,
     service,
     timesheet,
@@ -229,3 +230,32 @@ async def test_time_sheet_z_mailem_konsultanta_ze_skrzynki_u_klienta(
     assert titles["Brak akceptacji klienta"] == "warn", titles
     assert "Mail z akceptacją godzin jest" not in titles
     assert result.md_regular == Decimal("2")
+
+
+async def test_zrzut_ekranu_nie_szuka_nazwiska_samego_konsultanta(monkeypatch):
+    """Akceptacja ze zrzutu (OCR, #3875) rozpoznaje nadawcę po imieniu i nazwisku
+    z kontaktów klienta. Nazwisko konsultanta bywa wśród nich, więc odpada."""
+
+    seen: list[frozenset[str]] = []
+
+    async def capture(reports, *, month, hours, md, people):
+        seen.append(people)
+        return None
+
+    monkeypatch.setattr(service, "_screenshot_acceptance", capture)
+    senders = mail_text.Senders(
+        client=CLIENT,
+        own=OURS,
+        people=frozenset({"Jan Testowy", "Anna Kierownik"}),
+    )
+    await service._acceptance(
+        rcp_checks.ProofResult(md_regular=Decimal("2"), md_extra=None),
+        [],
+        month=MONTH,
+        hours=Decimal("16"),
+        rules=rules_catalog.effective({"proof.accept_has_hours": {"level": "warn"}}),
+        senders=senders,
+        people=frozenset({"Testowy Jan"}),
+        person_name="Jan Testowy",
+    )
+    assert seen == [frozenset({"Anna Kierownik"})]

@@ -1035,6 +1035,7 @@ async def _acceptance(
     senders: mail_text.Senders,
     sheet_month: Optional[str] = None,
     people: frozenset[str] = frozenset(),
+    person_name: str = "",
 ) -> Optional[rcp_checks.ProofResult]:
     """``proof.accept_has_hours`` (E6.1): mail akceptacji z liczbą godzin albo MD
     za rozliczany miesiąc, potwierdzony przez klienta (``senders``). Brak =
@@ -1042,7 +1043,9 @@ async def _acceptance(
 
     Bez takiego maila: zrzut ekranu akceptacji w plikach miesiąca (OCR), gdy
     nadawca na zrzucie to osoba klienta (``senders.people`` i ``people``:
-    koordynator z Time Sheet). Id obrazu trafia do ``meta`` dla paczki."""
+    koordynator z Time Sheet). Id obrazu trafia do ``meta`` dla paczki.
+    Konsultant (``person_name``) nie akceptuje sam siebie także na zrzucie: jego
+    nazwisko bywa w kontaktach klienta (próba IX–X 2026)."""
 
     if rules["proof.accept_has_hours"]["level"] == "off":
         return result
@@ -1058,8 +1061,17 @@ async def _acceptance(
         sheet_month=sheet_month,
     )
     if not verdict.ok:
+        own = rcp_checks.name_tokens(person_name)
         shot = await _screenshot_acceptance(
-            reports, month=month, hours=hours, md=md, people=senders.people | people
+            reports,
+            month=month,
+            hours=hours,
+            md=md,
+            people=frozenset(
+                p
+                for p in senders.people | people
+                if not own or rcp_checks.name_tokens(p) != own
+            ),
         )
         if shot is not None:
             verdict, image_id = shot
@@ -1330,6 +1342,7 @@ async def _read_file(
             senders=senders,
             sheet_month=sheet_month,
             people=people,
+            person_name=person_name,
         )
 
     def declared_result(found: declared.Declared) -> rcp_checks.ProofResult:
