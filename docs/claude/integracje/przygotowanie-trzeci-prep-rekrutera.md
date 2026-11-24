@@ -1,4 +1,4 @@
-# Przygotowanie rekrutera — trzeci prep przed Prepem 1 (F3, 0772, 24.11.2026)
+# Przygotowanie rekrutera — trzeci prep przed Prepem 1 (F3, 0773, 24.11.2026)
 <!-- indeks: `prep_no` 0, krok `prep0`, opcjonalne na start (bez zadań, plakietek i dzwonków o braku), zaproszenia „(spotkanie 1–3)”, nagrywane bez oceny do F4, rekruter domyślnie na Prepie 1, `prep_labels` / `lib/prep-label.ts`, pułapki „0 to fałsz” -->
 
 Decyzje Artura z 24.11.2026 (F3 planu „Fundamenty prepa i specyfika klientów”;
@@ -13,7 +13,7 @@ rekrutacji, braki po przygotowaniu), **Prep 2** to follow-up rekrutera jak
 dotąd. Przygotowanie dochodzi obok Prepu 2, nie zastępuje go.
 
 - **Numer 0, nie przenumerowanie.** `prep_meetings.prep_no` przyjmuje 0, 1, 2
-  (migracja 0772; lustro w `entrypoint.sh` to blok DROP+ADD w
+  (migracja 0773; lustro w `entrypoint.sh` to blok DROP+ADD w
   `_CONSTRAINT_STATEMENTS`, bo `CREATE TABLE` zostaje lustrem 0370 —
   `test_prep_preparation_schema.py`). Prep 1 i 2 zachowały numery, więc stare
   prepy, oceny, notatki „Prep N” i ustawienia ocen (`prep1`/`prep2`) się nie

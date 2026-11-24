@@ -1,7 +1,7 @@
 """Prepy w Teams: spotkanie, transkrypt i ocena (migracja 0370, 23.09.2026).
 
 Przed każdą rozmową u klienta są prepy z kandydatem: Prep 1 prowadzi
-Delivery Lead, Prep 2 — rekruter. Od 24.11.2026 (F3, migracja 0772) przed
+Delivery Lead, Prep 2 — rekruter. Od 24.11.2026 (F3, migracja 0773) przed
 Prepem 1 może być Przygotowanie rekrutera (``prep_no`` 0, opcjonalne na
 start). NEXUS zakłada spotkanie w kalendarzu
 organizatora przez aplikację (app-only), po spotkaniu pobiera transkrypt
@@ -49,7 +49,7 @@ CANDIDATE_RESPONSES = ("none", "accepted", "tentative", "declined")
 class PrepMeeting(Base):
     __tablename__ = "prep_meetings"
     __table_args__ = (
-        # 0 = Przygotowanie (F3, 0772). Lustro: `entrypoint.sh`, `_CONSTRAINT_STATEMENTS`.
+        # 0 = Przygotowanie (F3, 0773). Lustro: `entrypoint.sh`, `_CONSTRAINT_STATEMENTS`.
         CheckConstraint("prep_no IN (0, 1, 2)", name="ck_prep_meetings_prep_no"),
         CheckConstraint(
             "transcription_setup IN ('pending','enabled','failed','disabled')",

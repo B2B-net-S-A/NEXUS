@@ -1,4 +1,4 @@
-"""Przygotowanie jako prep 0 (F3, 0772): więz ``prep_no`` w migracji, modelu i entrypoincie.
+"""Przygotowanie jako prep 0 (F3, 0773): więz ``prep_no`` w migracji, modelu i entrypoincie.
 
 Produkcyjny alembic bywa osierocony, a ``entrypoint.sh`` jest wtedy wdrożeniem
 schematu. ``CREATE TABLE prep_meetings`` w entrypoincie to lustro 0370

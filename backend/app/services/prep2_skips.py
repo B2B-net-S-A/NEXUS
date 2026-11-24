@@ -341,7 +341,7 @@ async def skip_stats(
 
 
 def not_preparation():
-    """Warunek SQL: wydarzenie prepu, które nie jest Przygotowaniem (F3, 0772).
+    """Warunek SQL: wydarzenie prepu, które nie jest Przygotowaniem (F3, 0773).
 
     Linie „dwa prepy” i „bez słowa” liczą prepy z kalendarza; Przygotowanie
     rekrutera nie zastępuje Prepu 1 ani 2, więc z nim para nie może mieć

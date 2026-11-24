@@ -2,7 +2,7 @@
 
 Przed każdą rozmową u klienta są dwa prepy (decyzja Artura 23.09.2026):
 Prep 1 prowadzi Delivery Lead rekrutacji, Prep 2 — rekruter kandydata. Od
-24.11.2026 (F3, 0772) przed Prepem 1 może być Przygotowanie rekrutera
+24.11.2026 (F3, 0773) przed Prepem 1 może być Przygotowanie rekrutera
 (``prep_no`` 0, opcjonalne na start) — prowadzi je rekruter, jak Prep 2.
 NEXUS podpowiada organizatora; spotkanie powstaje w JEGO kalendarzu przez
 aplikację (``teams_prep_graph``), z linkiem Teams, zaproszeniem kandydata,

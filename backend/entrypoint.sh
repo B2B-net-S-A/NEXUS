@@ -9760,7 +9760,7 @@ _CONSTRAINT_STATEMENTS = [
             CHECK (candidate_response IS NULL
                    OR candidate_response IN ('none', 'accepted', 'tentative', 'declined'));
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0772: Przygotowanie rekrutera jako prep 0 (F3, 24.11.2026). CREATE TABLE
+    # 0773: Przygotowanie rekrutera jako prep 0 (F3, 24.11.2026). CREATE TABLE
     # wyżej zostaje lustrem 0370 (1, 2); poszerzenie biegnie po nim, więc świeża
     # baza też kończy z (0, 1, 2). Lustro 1:1 z migracją — pilnuje
     # `test_prep_preparation_schema.py`.

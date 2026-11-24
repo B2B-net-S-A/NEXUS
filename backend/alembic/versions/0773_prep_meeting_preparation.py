@@ -1,7 +1,7 @@
 """Prepy: Przygotowanie rekrutera jako trzeci prep (F3, decyzje Artura z 24.11.2026).
 
-Revision ID: 0772_prep_meeting_preparation
-Revises: 0771_cv_preview_reads
+Revision ID: 0773_prep_meeting_preparation
+Revises: 0772_candidate_consent_text
 
 ``prep_meetings.prep_no`` dostaje wartość 0 — Przygotowanie, które rekruter
 prowadzi z kandydatem przed Prepem 1 z Delivery Leadem (fundamenty prepa
@@ -16,8 +16,8 @@ Pilnuje ``test_prep_preparation_schema.py``.
 
 from alembic import op
 
-revision = "0772_prep_meeting_preparation"
-down_revision = "0771_cv_preview_reads"
+revision = "0773_prep_meeting_preparation"
+down_revision = "0772_candidate_consent_text"
 branch_labels = None
 depends_on = None
 

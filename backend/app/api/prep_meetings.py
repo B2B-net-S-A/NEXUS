@@ -173,7 +173,7 @@ async def _client_name(db: AsyncSession, job: Job) -> Optional[str]:
 class PrepCreate(BaseModel):
     candidate_id: int
     job_id: int
-    # 0 = Przygotowanie rekrutera przed Prepem 1 (F3, 24.11.2026, migracja 0772).
+    # 0 = Przygotowanie rekrutera przed Prepem 1 (F3, 24.11.2026, migracja 0773).
     prep_no: Literal[0, 1, 2]
     organizer_user_id: int
     start: datetime
