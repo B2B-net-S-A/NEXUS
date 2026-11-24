@@ -56,7 +56,11 @@ logger = logging.getLogger(__name__)
 # o stawce do klienta (`note_kinds.FACTS_EXCLUDED_KINDS`), a karty rekomendacji
 # idą pierwsze. Nowa wersja = doganianie przeliczy fakty policzone ze starego
 # wsadu („Wyślijmy za 161 zł/h” bywało czytane jako stawka kandydata).
-PROMPT_VERSION = "v6-note-kinds"
+# v7 (24.11.2026, audyt r3): wsad bez notatek Delivery Leada z wysyłki
+# („Wysłany 150/100-110” — cena dla klienta / stawka osoby, decyzja C
+# z 14.10.2026). To zwykła notatka `human`, więc filtr rodzajów jej nie
+# wycinał, a jako najnowsza wzmianka o stawce wygrywała w `expected_rate`.
+PROMPT_VERSION = "v7-no-send-notes"
 EXTRACTION_MODEL = model_for(AIFeatureKey.notes_extraction)
 NOTES_LIMIT = 20
 BLOB_CHAR_LIMIT = 12000
@@ -154,9 +158,27 @@ async def load_note_rows_bulk(
     Jedyne miejsce, które wybiera notatki wejścia odczytu: nocna ekstrakcja
     (przez ``load_note_rows``) i domknięcie historii
     (``notes_profile_backfill``) liczą z nich ten sam „dzień notatki”.
+    Bez notatek z wysyłki (``recruitment_rate_hints.send_note_ids``) — trzy
+    zapytania na całą listę kandydatów.
     """
     if not candidate_ids:
         return {}
+    from app.services import recruitment_rate_hints
+
+    readable = f"candidate_id = ANY(:ids) AND {note_kinds.facts_readable_sql()}"
+    ids = list(candidate_ids)
+    # Notatka Delivery Leada z wysyłki niesie cenę dla klienta, nie stawkę
+    # kandydata (decyzja C, 14.10.2026). Wycinamy ją PRZED limitem — inaczej
+    # zajmowałaby miejsce w 20 notatkach wsadu.
+    readable_ids = [
+        row[0]
+        for row in (
+            await db.execute(
+                text(f"SELECT id FROM notes WHERE {readable}"), {"ids": ids}
+            )
+        ).all()
+    ]
+    skip = sorted(await recruitment_rate_hints.send_note_ids(db, readable_ids))
     # Wybór: tylko notatki, które wolno czytać modelowi; karty rekomendacji
     # i fakty ze screeningu mają pierwszeństwo przed limitem (u 373 kandydatów
     # karta wypadała poza 20 najnowszych). Wynik nadal od najnowszej.
@@ -171,11 +193,10 @@ async def load_note_rows_bulk(
             "SELECT candidate_id, id, updated_at, created_at, source_created_at, "
             "content, row_number() OVER (PARTITION BY candidate_id "
             f"ORDER BY (kind IN ({priority})) DESC NULLS LAST, created_at DESC) "
-            "AS rn FROM notes "
-            f"WHERE candidate_id = ANY(:ids) AND {note_kinds.facts_readable_sql()}"
+            f"AS rn FROM notes WHERE {readable} AND NOT (id = ANY(:skip))"
             ") picked WHERE rn <= :lim ORDER BY candidate_id, created_at DESC"
         ),
-        {"ids": list(candidate_ids), "lim": NOTES_LIMIT},
+        {"ids": ids, "skip": skip, "lim": NOTES_LIMIT},
     )
     out: dict[int, list[tuple]] = {}
     for row in result.all():

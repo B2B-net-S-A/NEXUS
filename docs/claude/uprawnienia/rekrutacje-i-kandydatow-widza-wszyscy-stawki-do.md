@@ -84,7 +84,24 @@ stawki, za jaką osoby są wysyłane do klienta”.
   Jeszcze bez zakrycia: samo TRAFIENIE wyszukiwania w treść takiej notatki
   (`q`/słowa kluczowe w zakresie „notatki” znajdują osobę po kwocie —
   `advanced_candidate_search`, `keyword_corpus` wycinają tylko `dl_rate`)
-  i czytniki AI notatek (QC CV, podsumowanie aktywności) — niesprawdzone.
+  i QC CV — niesprawdzone.
+- **Czytniki AI notatek też pomijają notatkę z wysyłki** (audyt r3, 24.11.2026).
+  Filtry rodzajów (`ai_readable_sql`, `facts_readable_sql`) jej nie łapią — to
+  `human` — a maski kwot nie rozpoznają „X/Y-Z”:
+  - nocny odczyt faktów (`notes_insights_extractor.load_note_rows_bulk`, ten
+    sam wybór dla `notes_profile_backfill`) wycina ją dla wszystkich PRZED
+    limitem 20 notatek — inaczej cena dla klienta wygrywała jako najnowsza
+    wzmianka w `expected_rate`; `PROMPT_VERSION` v7 przelicza stare fakty;
+  - Luna przy przepięciu screeningu (`screening_reassign._job_scoped_notes`)
+    — `hidden_send_note_ids(db, user, ids)`, przed limitem; rekruter ma prawo
+    do stawek kandydata, więc `mask_money` go nie chroni;
+  - podsumowanie aktywności (`_notes_section`, cache wspólny dla ról) i notatki
+    generatora CV bez procesu (`collect_candidate_notes_text`, dokument dla
+    klienta) — wycięcie dla wszystkich.
+  Nowy czytnik AI notatek kandydata = to samo rozpoznanie przed limitem.
+  Jeszcze niesprawdzone powierzchnie z treścią notatek: ostatnia notatka
+  w follow-upach (`api/candidate_followups.py`), lista notatek pakietu CV
+  (`GET /generated/{id}/package`), cytaty „skąd ✓” (`requirement_evidence.load_notes`).
 - **Rekruter prowadzi swoich kandydatów w cudzej rekrutacji** (decyzja Artura
   07.10.2026: ludzie przepinają swoich kandydatów poza oficjalnym przydziałem).
   Dodający zostaje właścicielem procesu (`recruitment_processes.owner_user_id`),

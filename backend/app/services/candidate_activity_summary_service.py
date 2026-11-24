@@ -41,7 +41,7 @@ from app.models.contract import Contract
 from app.models.interview_feedback import InterviewFeedback
 from app.models.job import Job
 from app.models.note import Note
-from app.services import note_kinds
+from app.services import note_kinds, recruitment_rate_hints
 from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.screening_note import ScreeningNote
@@ -871,6 +871,11 @@ async def _notes_section(
     )
     query_truncated = max(0, len(rows) - _MAX_NOTES)
     rows = rows[:_MAX_NOTES]
+    # Decyzja C (14.10.2026): notatka Delivery Leada z wysyłki („Wysłany
+    # 150/100-110”) to cena dla klienta, a DLP kwot nie łapie „X/Y-Z”.
+    # Podsumowanie czyta każda rola (cache wspólny), więc wypada dla wszystkich.
+    send_ids = await recruitment_rate_hints.send_note_ids(db, [n.id for n in rows])
+    rows = [note for note in rows if note.id not in send_ids]
     stats = _RedactionStats()
     lines: list[str] = []
     for note in rows:
