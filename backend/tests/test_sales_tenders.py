@@ -1,5 +1,5 @@
 """Przetargi z BZP i TED na bazie: bramka zakłada szanse (wariant B), odsiane, zamykanie
-po terminie, stan biegu i trasy ``/api/sales/tenders``.
+po terminie, zmiany ogłoszeń (TED i BZP), stan biegu i trasy ``/api/sales/tenders``.
 
 Numery ogłoszeń i nazwy firm niosą losowy znacznik — baza testowa jest wspólna dla
 przebiegu. → docs/claude/sprzedaz/przetargi-z-rejestrow.md
@@ -10,14 +10,15 @@ from __future__ import annotations
 import asyncio
 import uuid
 from dataclasses import replace
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
-from app.core.scheduling import business_today
+from app.core.scheduling import DEFAULT_TZ, business_date, business_today
 from app.models.app_setting import AppSetting
 from app.models.sales import (
     SalesActivity,
@@ -390,6 +391,258 @@ async def test_expired_notice_whose_change_extends_the_deadline_gets_an_opportun
     assert opportunity.expected_close_date == second.deadline_date
 
 
+# ── Zmiana ogłoszenia BZP (ogłoszenie o zmianie z nowym terminem) ───────────
+
+
+def _at(day: date, hour: int = 10) -> datetime:
+    """Termin z godziną jak w BZP: czas warszawski zapisany w UTC."""
+
+    return datetime.combine(day, time(hour, 0), ZoneInfo(DEFAULT_TZ)).astimezone(
+        timezone.utc
+    )
+
+
+def _bzp_notice(**fields: Any) -> Notice:
+    deadline_at = fields.pop("deadline_at", _at(business_today() + timedelta(days=3)))
+    return _notice(
+        procedure_id=f"ocds-148610-{uuid.uuid4()}",
+        deadline_at=deadline_at,
+        deadline_date=business_date(deadline_at),
+        **fields,
+    )
+
+
+def _bzp_change(
+    notice: Notice, deadline_at: datetime, *, hours_ago: int = 1
+) -> sources.BzpChange:
+    marker = _marker()
+    return sources.BzpChange(
+        number=f"2026/BZP C{marker}",
+        procedure_id=notice.procedure_id or "",
+        published_at=_now() - timedelta(hours=hours_ago),
+        deadline_date=business_date(deadline_at),
+        deadline_at=deadline_at,
+        url=f"https://ezamowienia.gov.pl/mo-client-board/bzp/notice-details/id/c{marker}",
+    )
+
+
+async def _process_changes(*changes: sources.BzpChange) -> flow.RunCounts:
+    await _stages()
+    counts = flow.RunCounts()
+    async with AsyncSessionLocal() as db:
+        await flow.process_bzp_changes(
+            db,
+            list(changes),
+            TenderRules(),
+            now=_now(),
+            today=business_today(),
+            counts=counts,
+        )
+        await db.commit()
+    return counts
+
+
+async def _notes(opportunity_id: int) -> list[SalesActivity]:
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.execute(
+                    select(SalesActivity)
+                    .where(SalesActivity.opportunity_id == opportunity_id)
+                    .order_by(SalesActivity.id)
+                )
+            ).scalars()
+        )
+
+
+@pytest.mark.asyncio
+async def test_bzp_change_moves_the_deadline_and_leaves_one_note() -> None:
+    notice = _bzp_notice()
+    await _process(notice)
+    new_deadline = _at(business_today() + timedelta(days=9), hour=12)
+    change = _bzp_change(notice, new_deadline)
+
+    counts = await _process_changes(change)
+    assert (counts.updated, counts.created) == (1, 0)
+    row = await _row(notice)
+    assert (row.deadline_date, row.deadline_at) == (
+        change.deadline_date,
+        new_deadline,
+    )
+    # Przetarg to dalej ogłoszenie o zamówieniu: numer i link zostają.
+    assert (row.number, row.url) == (notice.number, notice.url)
+    [opportunity] = await _opportunities(notice)
+    assert opportunity.expected_close_date == change.deadline_date
+    tender = opportunity.custom_fields["tender"]
+    assert (tender["number"], tender["url"]) == (notice.number, notice.url)
+    assert sources.parse_instant(tender["deadline_at"]) == new_deadline
+
+    created, note = await _notes(opportunity.id)
+    assert note.subject == f"Zmiana przetargu BZP {notice.number}"
+    assert f"Ogłoszenie o zmianie BZP {change.number}" in note.body
+    assert "→" in note.body and ", 12:00" in note.body
+    assert change.url in note.body and note.web_link == change.url
+    async with AsyncSessionLocal() as db:
+        fields = {
+            e.field
+            for e in (
+                await db.execute(
+                    select(SalesOpportunityEvent).where(
+                        SalesOpportunityEvent.opportunity_id == opportunity.id
+                    )
+                )
+            ).scalars()
+        }
+    assert "expected_close_date" in fields
+
+    again = await _process_changes(change)
+    assert again.updated == 0
+    assert len(await _notes(opportunity.id)) == 2
+
+
+@pytest.mark.asyncio
+async def test_bzp_change_after_the_old_deadline_reopens_the_closed_opportunity() -> (
+    None
+):
+    """Przedłużenie przyszło, gdy automat już zamknął szansę po pierwotnym terminie."""
+
+    yesterday = business_today() - timedelta(days=1)
+    notice = _bzp_notice()
+    await _process(notice)
+    [opportunity] = await _opportunities(notice)
+    async with AsyncSessionLocal() as db:
+        row = (
+            await db.execute(
+                select(SalesTenderNotice).where(
+                    SalesTenderNotice.number == notice.number
+                )
+            )
+        ).scalar_one()
+        row.deadline_at = _at(yesterday)
+        row.deadline_date = yesterday
+        (await db.get(SalesOpportunity, opportunity.id)).expected_close_date = yesterday
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await flow.close_expired(db, today=business_today(), now=_now())
+        await db.commit()
+    [closed] = await _opportunities(notice)
+    assert (closed.status, closed.lost_reason) == ("lost", flow.EXPIRED_REASON)
+
+    # Termin, który minął już dziś (z godziną), szansy nie przywraca.
+    passed = _bzp_change(notice, _now() - timedelta(hours=1), hours_ago=2)
+    assert (await _process_changes(passed)).updated == 1
+    [still] = await _opportunities(notice)
+    assert (still.status, still.lost_reason) == ("lost", flow.EXPIRED_REASON)
+
+    change = _bzp_change(notice, _at(business_today() + timedelta(days=4)))
+    counts = await _process_changes(change)
+    assert counts.updated == 1
+    stages = await _stages()
+    [reopened] = await _opportunities(notice)
+    assert reopened.status == "open"
+    assert reopened.stage_id == stages["tender-identified"]
+    assert reopened.lost_reason is None
+    assert reopened.expected_close_date == change.deadline_date
+    note = (await _notes(opportunity.id))[-1]
+    assert "Szansa wraca do „Identyfikacji”." in note.body
+
+
+@pytest.mark.asyncio
+async def test_bzp_change_keeps_a_close_date_set_by_hand() -> None:
+    notice = _bzp_notice()
+    await _process(notice)
+    [opportunity] = await _opportunities(notice)
+    by_hand = business_today() + timedelta(days=30)
+    async with AsyncSessionLocal() as db:
+        (await db.get(SalesOpportunity, opportunity.id)).expected_close_date = by_hand
+        await db.commit()
+
+    change = _bzp_change(notice, _at(business_today() + timedelta(days=6)))
+    assert (await _process_changes(change)).updated == 1
+    assert (await _row(notice)).deadline_date == change.deadline_date
+    [same] = await _opportunities(notice)
+    assert same.expected_close_date == by_hand
+    assert same.custom_fields["tender"]["deadline_date"] == (
+        change.deadline_date.isoformat()
+    )
+
+
+@pytest.mark.asyncio
+async def test_bzp_change_of_an_unknown_procedure_is_not_stored() -> None:
+    stranger = _bzp_notice()
+    change = _bzp_change(stranger, _at(business_today() + timedelta(days=5)))
+    counts = await _process_changes(change)
+    assert (counts.updated, counts.created) == (0, 0)
+    async with AsyncSessionLocal() as db:
+        rows = await db.scalar(
+            select(SalesTenderNotice.id).where(
+                SalesTenderNotice.procedure_id == change.procedure_id
+            )
+        )
+        notes = await db.scalar(
+            select(SalesActivity.id).where(
+                SalesActivity.external_ref == f"tender-note:bzp:{change.number}"
+            )
+        )
+    assert rows is None and notes is None
+
+
+@pytest.mark.asyncio
+async def test_bzp_change_already_in_the_notice_changes_nothing() -> None:
+    """BZP podaje w ogłoszeniu termin po zmianach, które były przed pobraniem."""
+
+    notice = _bzp_notice()
+    await _process(notice)
+    assert notice.deadline_at is not None
+    counts = await _process_changes(_bzp_change(notice, notice.deadline_at))
+    assert counts.updated == 0
+    [opportunity] = await _opportunities(notice)
+    assert len(await _notes(opportunity.id)) == 1
+
+
+@pytest.mark.asyncio
+async def test_only_the_latest_bzp_change_of_a_procedure_counts() -> None:
+    notice = _bzp_notice()
+    await _process(notice)
+    first = _bzp_change(notice, _at(business_today() + timedelta(days=5)), hours_ago=2)
+    latest = _bzp_change(notice, _at(business_today() + timedelta(days=8)))
+
+    counts = await _process_changes(latest, first)
+    assert counts.updated == 1
+    assert (await _row(notice)).deadline_date == latest.deadline_date
+    [opportunity] = await _opportunities(notice)
+    created, note = await _notes(opportunity.id)
+    assert note.external_ref == f"tender-note:bzp:{latest.number}"
+
+
+@pytest.mark.asyncio
+async def test_rejected_bzp_notice_whose_change_extends_the_deadline_gets_an_opportunity() -> (
+    None
+):
+    """Ogłoszenie weszło samym kodem CPV i odpadło po terminie; po przedłużeniu
+    bramka znów widzi kod CPV i zakłada szansę."""
+
+    notice = _bzp_notice(
+        title=f"Utrzymanie systemu ewidencji {_marker()}",
+        cpv_codes=("72267000",),
+        cpv_label="72267000-4 (Usługi w zakresie konserwacji oprogramowania)",
+        deadline_at=_now() - timedelta(hours=1),
+    )
+    counts = await _process(notice)
+    assert counts.rejected == 1
+    row = await _row(notice)
+    assert (row.rule, row.match_detail) == ("expired", "CPV 72267000")
+
+    change = _bzp_change(notice, _at(business_today() + timedelta(days=7)))
+    counts = await _process_changes(change)
+    assert (counts.created, counts.updated) == (1, 0)
+    row = await _row(notice)
+    assert row.status == "created" and row.opportunity_id is not None
+    [opportunity] = await _opportunities(notice)
+    assert opportunity.id == row.opportunity_id
+    assert opportunity.expected_close_date == change.deadline_date
+
+
 # ── Zamykanie po terminie ───────────────────────────────────────────────────
 
 
@@ -482,10 +735,14 @@ async def test_run_keeps_the_cursor_of_a_failed_register(monkeypatch) -> None:
     async def broken_bzp(client, *, since, until):
         raise sources.SourceError("bzp: ConnectError")
 
+    async def no_changes_without_notices(client, *, since, until):
+        raise AssertionError("bez ogłoszeń BZP bieg nie pyta o zmiany")
+
     async def fine_ted(client, *, since, until):
         return [ted_notice]
 
     monkeypatch.setattr(sources, "fetch_bzp", broken_bzp)
+    monkeypatch.setattr(sources, "fetch_bzp_changes", no_changes_without_notices)
     monkeypatch.setattr(sources, "fetch_ted", fine_ted)
     result = await flow.run(trigger="manual")
 
@@ -495,6 +752,7 @@ async def test_run_keeps_the_cursor_of_a_failed_register(monkeypatch) -> None:
     async with AsyncSessionLocal() as db:
         state = await flow.load_state(db)
     assert "bzp_cursor" not in state
+    assert "bzp_update_cursor" not in state
     assert state["ted_day"] == business_today().isoformat()
     assert state["last_run"]["status"] == "failed"
     assert state["last_run"]["error"] == "Rejestr BZP nie odpowiedział."
@@ -505,21 +763,93 @@ async def test_run_keeps_the_cursor_of_a_failed_register(monkeypatch) -> None:
 async def test_run_advances_cursor_after_success(monkeypatch) -> None:
     await _stages()
     cursor = datetime(2026, 11, 24, 12, 0, tzinfo=timezone.utc)
+    update_cursor = datetime(2026, 11, 24, 12, 30, tzinfo=timezone.utc)
 
     async def bzp(client, *, since, until):
         return sources.BzpBatch([], cursor, 1)
+
+    async def bzp_changes(client, *, since, until):
+        return sources.BzpChangeBatch([], update_cursor, 1)
 
     async def ted(client, *, since, until):
         return []
 
     monkeypatch.setattr(sources, "fetch_bzp", bzp)
+    monkeypatch.setattr(sources, "fetch_bzp_changes", bzp_changes)
     monkeypatch.setattr(sources, "fetch_ted", ted)
     result = await flow.run(trigger="schedule")
     assert result.status == "ok"
     async with AsyncSessionLocal() as db:
         state = await flow.load_state(db)
     assert sources.parse_instant(state["bzp_cursor"]) == cursor
+    assert sources.parse_instant(state["bzp_update_cursor"]) == update_cursor
     assert state["last_run"]["trigger"] == "schedule"
+
+
+@pytest.mark.asyncio
+async def test_run_follows_a_bzp_change_with_its_own_cursor(monkeypatch) -> None:
+    """Zmiana z tego samego biegu przesuwa szansę ogłoszenia założonego chwilę wcześniej;
+    bez kursora zmian okno zaczyna się przy najstarszym ogłoszeniu BZP w bazie."""
+
+    await _stages()
+    notice = _bzp_notice()
+    change = _bzp_change(notice, _at(business_today() + timedelta(days=12)))
+    cursor = datetime(2026, 11, 24, 12, 0, tzinfo=timezone.utc)
+    update_cursor = datetime(2026, 11, 24, 12, 30, tzinfo=timezone.utc)
+    asked: list[datetime] = []
+
+    async def bzp(client, *, since, until):
+        return sources.BzpBatch([notice], cursor, 1)
+
+    async def bzp_changes(client, *, since, until):
+        asked.append(since)
+        return sources.BzpChangeBatch([change], update_cursor, 1)
+
+    async def ted(client, *, since, until):
+        return []
+
+    monkeypatch.setattr(sources, "fetch_bzp", bzp)
+    monkeypatch.setattr(sources, "fetch_bzp_changes", bzp_changes)
+    monkeypatch.setattr(sources, "fetch_ted", ted)
+    result = await flow.run(trigger="manual")
+    assert result.status == "ok", result.errors
+    counts = result.counts
+    assert (counts.created, counts.updated, counts.bzp_changes) == (1, 1, 1)
+    [opportunity] = await _opportunities(notice)
+    assert opportunity.expected_close_date == change.deadline_date
+    async with AsyncSessionLocal() as db:
+        state = await flow.load_state(db)
+    assert sources.parse_instant(state["bzp_update_cursor"]) == update_cursor
+    assert state["last_run"]["counts"]["updated"] == 1
+    started = sources.parse_instant(state["last_run"]["started_at"])
+    assert started is not None
+    assert started - timedelta(days=flow.INITIAL_DAYS) <= asked[0] <= started
+
+
+@pytest.mark.asyncio
+async def test_run_keeps_the_update_cursor_when_bzp_changes_fail(monkeypatch) -> None:
+    await _stages()
+    cursor = datetime(2026, 11, 24, 12, 0, tzinfo=timezone.utc)
+
+    async def bzp(client, *, since, until):
+        return sources.BzpBatch([], cursor, 1)
+
+    async def broken_changes(client, *, since, until):
+        raise sources.SourceError("bzp: ReadTimeout")
+
+    async def ted(client, *, since, until):
+        return []
+
+    monkeypatch.setattr(sources, "fetch_bzp", bzp)
+    monkeypatch.setattr(sources, "fetch_bzp_changes", broken_changes)
+    monkeypatch.setattr(sources, "fetch_ted", ted)
+    result = await flow.run(trigger="schedule")
+    assert result.status == "failed"
+    async with AsyncSessionLocal() as db:
+        state = await flow.load_state(db)
+    assert sources.parse_instant(state["bzp_cursor"]) == cursor
+    assert "bzp_update_cursor" not in state
+    assert state["last_run"]["error"] == flow.CHANGES_FAILED
 
 
 # ── Trasy ───────────────────────────────────────────────────────────────────
