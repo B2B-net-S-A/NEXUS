@@ -56,6 +56,13 @@ się z tematu wątku. ERSTE: „Time Sheet - październik 2026 ….pdf” w wąt
 do NFC. Od 01.09 w poczcie było 9 takich plików, okres zmienił się tylko temu jednemu.
 Klasyfikacji raport/faktura to nie dotyczyło.
 
+Poprawka działa dla nowej poczty, a okresu zapisanego dokumentu nikt w aplikacji nie
+zmienia. Odczyt produkcji z 24.11.2026 znalazł w `cp_documents` jeden plik z akcentem
+rozłożonym i był to właśnie ten Time Sheet (dokument 11, zapisany na IX). Rozliczenie IX
+liczyło się z pliku za X, a rozliczenia X nie było. Jednorazowa naprawa
+(`app/services/cp_document_period_repair.py`, krok startu w `entrypoint.sh`, decyzja
+Artura z 24.11.2026) przestawia go na X i przelicza oba miesiące.
+
 ## PKO: nagłówek starszego szablonu z poprzedniego miesiąca
 
 Nagłówek „Liczba godzin realizacji usług <miesiąc> <rok>” w starszym szablonie to

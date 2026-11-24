@@ -12124,6 +12124,42 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Okres dokumentu rozliczeń z nazwą pliku w NFD (decyzja Artura 24.11.2026):
+# czytnik poczty zapisał Time Sheet za X na IX, bo `find_period` przed #3866 nie
+# łapał miesiąca w nazwie pliku z Maca i wygrał temat wątku. Dokument przypięty
+# do ID, kontraktu, skrótu pliku i starego okresu, nowy okres z nazwy po NFC;
+# potem przeliczenie rozliczeń obu miesięcy. Logika w
+# `app/services/cp_document_period_repair.py`. Marker w `app_settings` + advisory
+# lock; porażka nie zapisuje niczego — następny start ponawia. Log: ID, okresy i statusy.
+startup_phase "repair-cp-document-nfd-period-2026-11"
+echo "Settlements: document period from a decomposed (NFD) file name (one-shot)..."
+run_unless_marked "cp_document_nfd_period_repair_2026_11_24" <<'PY' || echo "cp document nfd period repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.cp_document_period_repair import (
+    run_cp_document_period_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_cp_document_period_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane osób
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"cp document nfd period repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"cp document nfd period repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 # „Specyfika na prep” w 12 kartach klientów z odpowiedzi DL-i (F2, decyzje
 # Artura 24.11.2026): tylko karty bez specyfiki; Tauron bez limitu 165 h i z
 # biurem w Warszawie — tylko, gdy zdania stoją jak w kopii z 24.11. Nowa
