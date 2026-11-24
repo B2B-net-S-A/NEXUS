@@ -203,6 +203,113 @@ def test_mail_z_jiry_z_pliku_msg_i_eml() -> None:
     )
 
 
+FORWARD_SUBJECT = (
+    "Fwd: FW: ABC-1 Rozliczenie kontraktora Ewa Kozłowska za miesiąc 10-2026"
+)
+FORWARD_BODY = """W załączniku podsyłam fakturę i KEŚU za październik.
+
+> Paweł Opiekun zmienił status na Oczekuje na serwisanta.
+> Użytkownik Automat JIRA skomentował:
+> Timesheet użytkownika Ewa Kozłowska za miesiąc 10-2026 został zaakceptowany.
+"""
+
+
+def _eml(subject: str, body: str, attachments: list[tuple[str, bytes]]) -> bytes:
+    message = email.message.EmailMessage()
+    message["From"] = "koordynator@dostawca.example"
+    message["Subject"] = subject
+    message.set_content(body)
+    for name, data in attachments:
+        message.add_attachment(
+            data, maintype="application", subtype="octet-stream", filename=name
+        )
+    return message.as_bytes()
+
+
+def _doc(doc_id: int, mime: str, message: str) -> SimpleNamespace:
+    return SimpleNamespace(id=doc_id, mime=mime, graph_message_id=message)
+
+
+def test_przekazane_powiadomienie_jiry_nie_zaslania_akceptacji_opiekuna() -> None:
+    """Próba IX–X 2026 (Alior): po mailu z Jiry konsultant przesłał to samo KEŚU
+    ze swoją fakturą i powiadomieniem Jiry o zmianie statusu, bez opiekuna. Jako
+    nowszy plik dawał „Brak maila z Jiry”, a jego faktura szła do paczki."""
+
+    from app.services.client_settlements import kesu_flow
+
+    jira = _doc(10, mail_file.EML_MIME, "jira")
+    sheet = _doc(11, kesu.KESU_MIME, "jira")
+    forward = _doc(20, mail_file.EML_MIME, "fwd")
+    files = [  # od najnowszego, jak z ``service._month_reports``
+        (
+            forward,
+            _eml(
+                FORWARD_SUBJECT,
+                FORWARD_BODY,
+                [("k.xls", NO_COSTS), ("FV 1-10-2026.pdf", blank_pdf())],
+            ),
+        ),
+        (jira, _eml(JIRA_SUBJECT, JIRA_BODY, [("k.xls", NO_COSTS)])),
+        (sheet, NO_COSTS),
+    ]
+    found = kesu_flow._collect_files(files, [])
+    assert found.jira is not None and found.jira.approver == "Paweł Opiekun"
+    assert found.kesu_document_id == jira.id
+    assert found.kesu is not None and found.kesu.hours == Decimal("160")
+    assert found.cost_pdfs == []
+
+
+def test_faktura_konsultanta_z_przekazanego_maila_z_jiry_nie_idzie_do_paczki() -> None:
+    """Próba IX–X 2026 (Alior, dwa przypadki): konsultant przekazał cały mail
+    z Jiry, z opiekunem, i dołożył swoją fakturę. Faktury kosztów są z pierwszej
+    kopii maila z Jiry, a nie z jej arkusza zapisanego osobno."""
+
+    from app.services.client_settlements import kesu_flow
+
+    ticket = _text_pdf("Bilet")
+    coordinator = _doc(10, mail_file.EML_MIME, "jira")
+    files = [  # od najnowszego: przekazanie konsultanta, potem mail koordynatora
+        (
+            _doc(20, mail_file.EML_MIME, "fwd"),
+            _eml(
+                f"Fwd: {JIRA_SUBJECT}",
+                JIRA_BODY,
+                [("k.xls", NO_COSTS), ("F_20261001.pdf", _text_pdf("Faktura"))],
+            ),
+        ),
+        (
+            coordinator,
+            _eml(JIRA_SUBJECT, JIRA_BODY, [("k.xls", NO_COSTS), ("bilet.pdf", ticket)]),
+        ),
+        (_doc(11, kesu.KESU_MIME, "jira"), NO_COSTS),
+    ]
+    found = kesu_flow._collect_files(files, [])
+    assert found.kesu_document_id == coordinator.id
+    assert found.cost_pdfs == [ticket]
+    assert found.jira is not None and found.jira.approver == "Paweł Opiekun"
+
+
+def test_poprawione_keszu_w_nowszym_mailu_wygrywa_ze_starszym() -> None:
+    """Inny arkusz w nowszym pliku to poprawka: MD z niego, nie z maila z Jiry."""
+
+    from app.services.client_settlements import kesu_flow
+
+    files = [
+        (
+            _doc(20, mail_file.EML_MIME, "fwd"),
+            _eml(FORWARD_SUBJECT, FORWARD_BODY, [("k.xls", WITH_COSTS)]),
+        ),
+        (
+            _doc(10, mail_file.EML_MIME, "jira"),
+            _eml(JIRA_SUBJECT, JIRA_BODY, [("k.xls", NO_COSTS)]),
+        ),
+    ]
+    found = kesu_flow._collect_files(files, [])
+    assert found.kesu_document_id == 20
+    assert found.kesu == kesu.parse(WITH_COSTS)
+    assert found.jira is not None and found.jira.approver == "Paweł Opiekun"
+
+
 def test_keszu_przyjmowane_jako_plik_rozliczenia() -> None:
     mime, _digest = documents.check_settlement_file(WITH_COSTS)
     assert mime == "application/vnd.ms-excel"

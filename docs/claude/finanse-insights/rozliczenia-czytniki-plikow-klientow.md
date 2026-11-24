@@ -1,6 +1,6 @@
 # Rozliczenia: czytniki MD z plików klientów spoza RCP BNP
 
-<!-- indeks: czytniki plików, Time Sheet PDF, polski Time Sheet, Imię Nazwisko, Łączna liczba godzin, Okres od, BIK PDF, Rozliczenie czasu pracy, ERGO Monthly confirmation, NN Ilość MD, rozliczeniakontraktorow, Orlen protokół, Roboczodni, Sugerowane wynagrodzenie, Ewidencja czasu pracy, SAP Fieldglass, timeSheet.worker.list, EY, rok w szablonie, declared, _other_files, inny plik miesiąca, proof.month bez MD, Sprawdzanie, kind_of_file, invoice zamiast report, DD-MM-RRRR, opis zawinięty w komórce, tabela przestawna, Suma z Godziny, osoba z numeru umowy, _sole_agreements, inne imię w protokole -->
+<!-- indeks: czytniki plików, Time Sheet PDF, polski Time Sheet, Imię Nazwisko, Łączna liczba godzin, Okres od, BIK PDF, Rozliczenie czasu pracy, ERGO Monthly confirmation, NN Ilość MD, rozliczeniakontraktorow, Orlen protokół, Roboczodni, Sugerowane wynagrodzenie, Ewidencja czasu pracy, SAP Fieldglass, timeSheet.worker.list, EY, rok w szablonie, declared, _other_files, inny plik miesiąca, proof.month bez MD, Sprawdzanie, kind_of_file, invoice zamiast report, DD-MM-RRRR, opis zawinięty w komórce, tabela przestawna, Suma z Godziny, osoba z numeru umowy, _sole_agreements, inne imię w protokole, kolejność plików, remis created_at, ten sam czas zapisu, _month_reports, graph_message_id, załączniki jednego maila, Polkomtel -B2B, KEŚU źródło, kesu_flow._source, akceptacja z Jiry bez opiekuna, przekazanie konsultanta, faktura konsultanta w paczce, faktury kosztów z maila z Jiry -->
 
 Od 23.11.2026. W próbie rozliczeń IX–X 2026 (kopia produkcji z 23.11, reguły klientów
 z produkcji) 60 przypadków poza Nordeą stało w „Sprawdzaniu” bez MD, choć plik był w poczcie.
@@ -101,6 +101,57 @@ Nowy czytnik wzoru klienta dopisz też do tej listy. Skan bez warstwy tekstu (zd
 NN „Wrzesień.pdf”) zostaje fakturą: skany w poczcie to też faktury i zaświadczenia, a nazwa
 pliku niczego nie rozstrzyga. Klasyfikacja działa na nowych mailach; pliki już zapisane
 nie zmieniają rodzaju same.
+
+## Kolejność plików miesiąca: „najnowszy” przy tym samym czasie zapisu
+
+Od 24.11.2026. Czytnik poczty zapisuje wszystkie pliki jednego przebiegu z tym samym
+`created_at` (jedno `now` w `mailbox.run_once`), a `_month_reports` sortował tylko po nim.
+Przy remisie kolejność brała się z fizycznego położenia wierszy w Postgresie i zmieniała się
+po aktualizacji wierszy, więc to samo przeliczenie na tych samych danych dawało różny wynik.
+Na kopii z próby IX–X 2026 od samej kolejności remisu zależały 33 z 354 rozliczeń, pięć w statusie
+albo MD: Alior 491 IX („ok” albo „Brak maila z Jiry z akceptacją opiekuna”), Polkomtel 476 X
+(8 albo 2,5 MD) i trzy rozliczenia BNP („ok” albo „PDF bez podpisu elektronicznego”).
+
+Reguła `_month_reports`, od najnowszego:
+
+- najpierw `created_at`;
+- przy remisie późniejsza wiadomość (`graph_message_id`) pierwsza: czytnik bierze maile od
+  najstarszego (`receivedDateTime asc`), więc jej pliki mają wyższe id. BNP i Orlen przysyłają
+  podpisaną wersję RCP albo protokołu nowszym mailem;
+- pliki jednej wiadomości w kolejności zapisu: załączniki jak w mailu, mail z Jiry (`.eml`)
+  przed nimi, treść innego maila (przekazana akceptacja, `_store_mail_body`) po nich. Samo
+  „wyższe id pierwsze” odwracało załączniki: Polkomtel 476 X ma w jednym mailu Time Sheet
+  z godzinami u klienta (8 MD) i drugi, „-B2B”, z godzinami na projekcie wewnętrznym (2,5 MD).
+
+Pliki bez wiadomości (panel, wgrane ręcznie) przy remisie idą w kolejności zapisu. Karta osoby
+(`detail`) pokazuje pliki rosnąco po `created_at` i id.
+
+### KEŚU: akceptacja z Jiry i źródło arkusza (`kesu_flow`)
+
+- Akceptacja to najnowszy mail z Jiry z opiekunem („zaakceptowane przez … w dniu …”). Mail
+  z samym tematem z Jiry jej nie zasłania. Konsultant przekazuje czasem powiadomienie
+  o zmianie statusu („Timesheet … został zaakceptowany”), w którym opiekuna nie ma.
+- Źródło KEŚU to najnowszy arkusz. Ten sam arkusz w kilku plikach bierzemy z maila z akceptacją
+  opiekuna (potem z arkusza zapisanego osobno z tej samej wiadomości), a z kilku takich
+  z najstarszego, czyli z pierwszej kopii maila z Jiry. Faktury kosztów do paczki to PDF-y
+  z maila-źródła, a konsultant przekazuje ten mail dalej z tym samym KEŚU i własną fakturą.
+  W próbie (Alior 491 IX i X, 493 IX, 496 IX i X) to jego mail był najnowszy, więc faktura
+  konsultanta szłaby do paczki dla klienta. Gdy w starszej kopii brakuje faktury kosztów,
+  pokazuje to kontrola „Brak faktury kosztów w mailu z Jiry”.
+- Inny (poprawiony) arkusz w nowszym pliku dalej wygrywa, także w przekazaniu konsultanta.
+  Wtedy PDF-y tego maila idą do paczki jako faktury kosztów: tego ta zmiana nie rozstrzyga.
+
+Pomiar: kopia `nexus_staging_klodko_v6r2`, IX–X 2026, 354 rozliczenia przeliczone w transakcji
+z rollbackiem, kod `main` i kod tej zmiany na tych samych danych. Status zmienia tylko Alior
+491 IX: z uwagi na „ok” z akceptacją opiekuna, a z paczki wypada faktura konsultanta. MD
+i kwoty bez zmian we wszystkich 354. W 11 rozliczeniach zmienia się tylko plik-dowód: mail
+z Jiry zamiast jego arkusza, nowsza podpisana kopia protokołu, pierwszy obraz z maila. W dwóch
+z nich zmienia się paczka KEŚU: 496 X bez faktury konsultanta, 620 IX z pięcioma biletami
+z maila z Jiry (KEŚU bez kosztów dodatkowych; na `main` zależało to od kolejności).
+Polkomtel 476 X (8 MD) i trzy rozliczenia BNP („ok”) zostają jak na `main`, ale już nie
+zależą od kolejności. Klon `nexus_staging_klodko_v6r2id` (przebieg poczty z kodem PR #3876)
+daje to samo: 15 z 365 zmian, status tylko 491 IX, MD i kwoty bez zmian, a faktura
+konsultanta wypada z paczki także w 496 IX.
 
 ## Skala (próba IX–X, kopia 23.11)
 

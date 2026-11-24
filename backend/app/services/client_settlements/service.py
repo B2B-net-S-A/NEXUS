@@ -316,8 +316,16 @@ def month_end(month: str) -> datetime:
 async def _month_reports(
     db: AsyncSession, contract_id: int, month: str, *, kind: str = ACTUAL
 ) -> list[CpDocument]:
-    """Pliki RCP miesiąca. Przy estymacji (E5.3) plan to pliki sprzed końca
-    miesiąca, a RCP faktyczne — pliki od pierwszego dnia następnego."""
+    """Pliki RCP miesiąca, od najnowszego. Przy estymacji (E5.3) plan to pliki
+    sprzed końca miesiąca, a RCP faktyczne — pliki od pierwszego dnia następnego.
+
+    Czytnik poczty zapisuje pliki jednego przebiegu z tym samym ``created_at``.
+    Przy remisie nowsza jest późniejsza wiadomość (maile idą od najstarszego,
+    więc jej pliki mają wyższe id), a pliki jednej wiadomości zostają w kolejności
+    zapisu: załączniki jak w mailu, mail z Jiry przed nimi, treść innego maila po
+    nich. Bez tego wybór pliku zależał od fizycznej kolejności wierszy (próba
+    IX–X 2026: Alior z uwagą albo bez, Polkomtel 8 albo 2,5 MD z dwóch arkuszy
+    jednego maila)."""
 
     year, mon = (int(x) for x in month.split("-"))
     stmt = select(CpDocument).where(
@@ -331,7 +339,16 @@ async def _month_reports(
         stmt = stmt.where(CpDocument.created_at < month_end(month))
     elif await _settlement(db, contract_id, month, kind=ESTIMATE) is not None:
         stmt = stmt.where(CpDocument.created_at >= month_end(month))
-    return list((await db.scalars(stmt.order_by(CpDocument.created_at.desc()))).all())
+    message = func.min(CpDocument.id).over(partition_by=CpDocument.graph_message_id)
+    return list(
+        (
+            await db.scalars(
+                stmt.order_by(
+                    CpDocument.created_at.desc(), message.desc(), CpDocument.id
+                )
+            )
+        ).all()
+    )
 
 
 async def _report(
@@ -782,7 +799,7 @@ async def detail(
                 CpDocument.period_month == mon,
                 CpDocument.status != "rejected",
             )
-            .order_by(CpDocument.created_at)
+            .order_by(CpDocument.created_at, CpDocument.id)
         )
     ).all()
     order = await _order_for(db, contract_id, month)
