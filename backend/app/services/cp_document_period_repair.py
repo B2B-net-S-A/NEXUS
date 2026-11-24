@@ -10,11 +10,13 @@ z pliku za X, a rozliczenia X nie było.
 
 Decyzja Artura z 24.11.2026: naprawa danych w PR-ze. Dokument jest przypięty do
 ID, kontraktu, rodzaju, początku skrótu pliku i okresu sprzed naprawy. Nowy okres
-musi wynikać z nazwy pliku po NFC. Każdy inny stan to pominięcie z kodem powodu.
-Po zmianie okresu przeliczamy rozliczenie starego miesiąca, chyba że jest
-przyjęte, a nowy miesiąc liczymy tak, jak czytnik po nowym pliku
-(``service.refresh_for_document``). Paragon pod ``REPAIR_MARKER`` niesie
-wyłącznie ID, okresy i statusy: bez nazw plików, nazwisk i kwot.
+musi wynikać z nazwy pliku po NFC, a dokumentu nikt jeszcze nie przyjął ani nie
+odrzucił. Rozliczenie starego miesiąca przyjęte albo „Do poprawy” to decyzja
+człowieka: wtedy dokument zostaje, jak jest. Każdy inny stan to pominięcie z kodem
+powodu. Po zmianie okresu MD, które stary miesiąc odczytał z tego pliku, wracają do
+pustych i stary miesiąc liczy się od nowa, a nowy tak, jak czytnik po nowym pliku
+(``service.refresh_for_document``). Paragon pod ``REPAIR_MARKER`` niesie wyłącznie
+ID, okresy i statusy: bez nazw plików, nazwisk i kwot.
 """
 
 from __future__ import annotations
@@ -36,6 +38,9 @@ from app.services.consultant_portal.mailbox import find_period
 logger = logging.getLogger(__name__)
 
 REPAIR_MARKER = "cp_document_nfd_period_repair_2026_11_24"
+
+# Decyzja Finansów o rozliczeniu miesiąca: naprawa jej nie zmienia.
+DECIDED_STATUSES = frozenset({"accepted", "needs_fix"})
 
 
 class Target(NamedTuple):
@@ -84,13 +89,16 @@ async def _month_settlements(
     )
 
 
-def _settlement_row(s: ClientSettlement, before: Optional[str]) -> dict[str, Any]:
+def _settlement_row(
+    s: ClientSettlement, before: Optional[str], *, md_cleared: bool = False
+) -> dict[str, Any]:
     return {
         "id": s.id,
         "kind": s.kind,
         "status_before": before,
         "status_after": s.status,
         "report_document_id": s.report_document_id,
+        "md_cleared": md_cleared,
     }
 
 
@@ -113,6 +121,9 @@ async def _locked_document(
         return None, "already_fixed"
     if period != target.old_period:
         return None, "period_changed"
+    if document.status != "received":
+        # Przyjęty albo odrzucony (np. „Do poprawy”) zostaje przy decyzji człowieka.
+        return None, "document_decided"
     if period_from_nfd_name(document.file_name) != target.new_period:
         return None, "name_period_mismatch"
     twin = await db.scalar(
@@ -146,17 +157,23 @@ async def _fix_document(
     if document is None:
         result["skipped"] = skipped
         return result
+    old_month = await _month_settlements(
+        db, target.contract_id, month_key(target.old_period)
+    )
+    if any(s.status in DECIDED_STATUSES for s in old_month):
+        result["skipped"] = "old_month_decided"
+        return result
     document.period_year, document.period_month = target.new_period
     document.updated_at = now
     await db.flush()
-    for s in await _month_settlements(
-        db, target.contract_id, month_key(target.old_period)
-    ):
+    for s in old_month:
         before = s.status
-        if s.status != "accepted":
-            # Przyjęte zostaje: zmienia je tylko człowiek (cofnięcie przyjęcia).
-            await settlements.recompute_and_store(db, s)
-        result["old_month"].append(_settlement_row(s, before))
+        # MD odczytane z tego pliku należą do nowego miesiąca; wpis Finansów zostaje.
+        cleared = s.report_document_id == document.id and s.md_source == "rcp"
+        if cleared:
+            s.md_regular = s.md_extra = s.md_source = None
+        await settlements.recompute_and_store(db, s)
+        result["old_month"].append(_settlement_row(s, before, md_cleared=cleared))
     await settlements.refresh_for_document(db, document)
     await db.flush()
     for s in await _month_settlements(

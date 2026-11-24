@@ -3,7 +3,8 @@
 Przed #3866 ``mailbox.find_period`` nie łapał miesiąca w nazwie z Maca
 („paz” + akcent + „dziernik”) i okres brał się z tematu wątku („wrzesień”).
 Naprawa przestawia przypięty dokument na okres z nazwy po NFC i przelicza
-rozliczenia obu miesięcy; nie rusza dokumentu, który ktoś już zmienił.
+rozliczenia obu miesięcy; nie rusza dokumentu, który ktoś już zmienił,
+ani miesiąca, o którym zdecydowały Finanse.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from __future__ import annotations
 import uuid
 import unicodedata
 from datetime import date
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
@@ -196,9 +198,54 @@ async def _period(document_id: int) -> tuple[int, int]:
         return document.period_year, document.period_month
 
 
+async def _set_september(contract_id: int, **values: object) -> None:
+    from sqlalchemy import update
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_settlement import ClientSettlement
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(ClientSettlement)
+            .where(
+                ClientSettlement.contract_id == contract_id,
+                ClientSettlement.period_month == "2026-09",
+            )
+            .values(**values)
+        )
+        await db.commit()
+
+
+async def _september_md(contract_id: int) -> tuple[Decimal | None, str | None]:
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_settlement import ClientSettlement
+
+    async with AsyncSessionLocal() as db:
+        row = (
+            await db.execute(
+                select(ClientSettlement.md_regular, ClientSettlement.md_source).where(
+                    ClientSettlement.contract_id == contract_id,
+                    ClientSettlement.period_month == "2026-09",
+                )
+            )
+        ).one()
+    return row.md_regular, row.md_source
+
+
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("september_md", "md_after", "cleared"),
+    [
+        # Plik bez odczytu MD (jak na produkcji 24.11).
+        (None, (None, None), False),
+        # MD odczytane z pliku za X należą do X, nie do IX.
+        (("21", "rcp"), (None, None), True),
+        # Wpis Finansów wygrywa z plikiem, więc zostaje.
+        (("21", "manual"), (Decimal("21.000"), "manual"), False),
+    ],
+)
 async def test_repair_moves_the_document_recomputes_both_months_and_runs_once(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, september_md, md_after, cleared
 ):
     from app.core.database import AsyncSessionLocal
     from app.models.app_setting import AppSetting
@@ -219,6 +266,9 @@ async def test_repair_moves_the_document_recomputes_both_months_and_runs_once(
         before = await _settlements(contract_id)
         assert before["2026-09"][1] == document_id
         assert "2026-10" not in before
+        if september_md is not None:
+            md, source = september_md
+            await _set_september(contract_id, md_regular=Decimal(md), md_source=source)
 
         target = Target(
             document_id, contract_id, "report", sha[:12], (2026, 9), (2026, 10)
@@ -237,6 +287,10 @@ async def test_repair_moves_the_document_recomputes_both_months_and_runs_once(
         # IX bez pliku: przeliczone, bez dokumentu; X liczy się z pliku za X.
         assert after["2026-09"][1] is None
         assert after["2026-10"][1] == document_id
+        assert await _september_md(contract_id) == md_after
+        if md_after == (None, None):
+            assert after["2026-09"][0] == "checking"
+        assert [s["md_cleared"] for s in result["old_month"]] == [cleared]
         assert [s["report_document_id"] for s in result["old_month"]] == [None]
         assert [s["report_document_id"] for s in result["new_month"]] == [document_id]
         assert [s["kind"] for s in result["new_month"]] == ["actual"]
@@ -307,11 +361,13 @@ async def test_repair_skips_documents_that_are_not_the_nfd_case(tmp_path, monkey
 
 
 @pytest.mark.asyncio
-async def test_accepted_old_month_is_left_to_people(tmp_path, monkeypatch):
-    from sqlalchemy import update
+@pytest.mark.parametrize("decided", ["accepted", "needs_fix"])
+async def test_decided_old_month_keeps_the_document_where_it_is(
+    tmp_path, monkeypatch, decided
+):
+    """Przyjęte albo „Do poprawy” to decyzja człowieka o miesiącu z tym plikiem."""
 
     from app.core.database import AsyncSessionLocal
-    from app.models.client_settlement import ClientSettlement
     from app.services import storage_service
     from app.services.cp_document_period_repair import (
         Target,
@@ -320,20 +376,62 @@ async def test_accepted_old_month_is_left_to_people(tmp_path, monkeypatch):
     from tests.test_client_audit_2026_09_24 import _candidate, _client, _contract
 
     monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
-    marker = f"test_nfd_period_accepted_{uuid.uuid4().hex[:8]}"
+    marker = f"test_nfd_period_decided_{uuid.uuid4().hex[:8]}"
+    previous = await _module_on()
+    client_id = await _client()
+    try:
+        contract_id = await _contract(client_id, await _candidate())
+        document_id, sha = await _stored(contract_id, NFD_NAME, 9)
+        await _set_september(contract_id, status=decided)
+
+        target = Target(
+            document_id, contract_id, "report", sha[:12], (2026, 9), (2026, 10)
+        )
+        async with AsyncSessionLocal() as db:
+            summary = await run_cp_document_period_repair(
+                db, targets=(target,), marker=marker
+            )
+            await db.commit()
+
+        assert summary["fixed"] == 0
+        assert summary["results"][0]["skipped"] == "old_month_decided"
+        assert await _period(document_id) == (2026, 9)
+        assert await _settlements(contract_id) == {"2026-09": (decided, document_id)}
+    finally:
+        await _restore(previous, client_id, [marker])
+
+
+@pytest.mark.asyncio
+async def test_document_sent_back_for_fixes_stays_rejected(tmp_path, monkeypatch):
+    """„Do poprawy” odrzuca RCP miesiąca: odrzuconego pliku naprawa nie przenosi."""
+
+    from types import SimpleNamespace
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import local_now
+    from app.services import storage_service
+    from app.services.client_settlements import service
+    from app.services.cp_document_period_repair import (
+        Target,
+        run_cp_document_period_repair,
+    )
+    from tests.test_client_audit_2026_09_24 import _candidate, _client, _contract
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    marker = f"test_nfd_period_rejected_{uuid.uuid4().hex[:8]}"
     previous = await _module_on()
     client_id = await _client()
     try:
         contract_id = await _contract(client_id, await _candidate())
         document_id, sha = await _stored(contract_id, NFD_NAME, 9)
         async with AsyncSessionLocal() as db:
-            await db.execute(
-                update(ClientSettlement)
-                .where(
-                    ClientSettlement.contract_id == contract_id,
-                    ClientSettlement.period_month == "2026-09",
-                )
-                .values(status="accepted")
+            await service.needs_fix(
+                db,
+                contract_id,
+                "2026-09",
+                reason="Time Sheet za inny miesiąc",
+                actor=SimpleNamespace(id=None),
+                now=local_now(),
             )
             await db.commit()
 
@@ -346,12 +444,10 @@ async def test_accepted_old_month_is_left_to_people(tmp_path, monkeypatch):
             )
             await db.commit()
 
-        old_month = summary["results"][0]["old_month"]
-        assert [(s["status_before"], s["status_after"]) for s in old_month] == [
-            ("accepted", "accepted")
-        ]
-        after = await _settlements(contract_id)
-        assert after["2026-09"] == ("accepted", document_id)
-        assert after["2026-10"][1] == document_id
+        assert summary["results"][0]["skipped"] == "document_decided"
+        assert await _period(document_id) == (2026, 9)
+        assert await _settlements(contract_id) == {
+            "2026-09": ("needs_fix", document_id)
+        }
     finally:
         await _restore(previous, client_id, [marker])
