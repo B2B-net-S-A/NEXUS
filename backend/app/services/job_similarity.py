@@ -45,7 +45,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.core.scheduling import DEFAULT_TZ
+from app.core.scheduling import DEFAULT_TZ, business_today
 from app.models.job import Job, JobStatus
 from app.models.job_similar_link import JobSimilarLink
 from app.models.pipeline_template import PipelineStageDef
@@ -121,6 +121,7 @@ REQUEST_STAGES = (
     "incomplete",
     "finished",
     "client_silent",
+    "overdue",
     "to_review",
     "searching",
 )
@@ -1456,6 +1457,15 @@ def request_stage_expr(sq):
         (Job.status == JobStatus.draft, "incomplete"),
         (Job.work_state == "finished", "finished"),
         (Job.work_state == "client_silent", "client_silent"),
+        # 24.11.2026 (decyzja Artura): „Szukamy” po terminie to nie „Szukamy”.
+        # Dzień po terminie (kalendarz firmy) do decyzji Delivery Leada: nowy
+        # termin, „Klient milczy” albo zamknięcie. Status requestu
+        # (``request_status_expr``) zostaje „Szukamy” — championi i filtr
+        # „Status” go potrzebują.
+        (
+            and_(Job.work_state == "searching", Job.deadline < business_today()),
+            "overdue",
+        ),
         (Job.work_state == "searching", "searching"),
         else_="to_review",
     )

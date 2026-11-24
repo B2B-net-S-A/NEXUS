@@ -177,6 +177,49 @@ def test_closed_notice_title_and_many_jobs_are_trimmed() -> None:
     assert "i 2 innych" in message
 
 
+def _row(job_id: int, *, work_state="searching", champion=None, deadline=None):
+    """Wiersz przebiegu: id, tytuł, tytuł roboczy, DL, klient, priorytet,
+    stan pracy, champion, termin."""
+    return (
+        job_id,
+        f"Rekrutacja {job_id}",
+        None,
+        7,
+        "Klient",
+        None,
+        work_state,
+        champion,
+        deadline,
+    )
+
+
+def test_overdue_starts_the_day_after_the_deadline() -> None:
+    """24.11.2026: „Szukamy” po terminie czeka na decyzję DL — dzwonek."""
+    today = datetime(2026, 11, 24).date()
+    info = {
+        1: _row(1, deadline=today - timedelta(days=1)),
+        2: _row(2, deadline=today),
+        3: _row(3, deadline=None),
+        4: _row(4, deadline=today - timedelta(days=5), champion=NOW),
+        5: _row(5, deadline=today - timedelta(days=5), work_state="client_silent"),
+        6: _row(6, deadline=today - timedelta(days=40)),
+    }
+    assert job_idle.overdue_jobs(info, today=today) == {
+        1: (1, today - timedelta(days=1)),
+        6: (40, today - timedelta(days=40)),
+    }
+
+
+def test_overdue_notice_names_the_three_decisions() -> None:
+    title, message, link = job_idle.overdue_notice_text([_line(2, 3), _line(3, 40)])
+    assert title == "Po terminie: 2 rekrutacje"
+    assert message.index("Rekrutacja 3") < message.index("Rekrutacja 2")
+    assert "nowy termin" in message and "Klient milczy" in message
+    assert link == "/jobs?stage=overdue"
+    _t, _m, one = job_idle.overdue_notice_text([_line(9, 1)])
+    assert one == "/jobs/9"
+
+
 def test_send_window_is_business_hours_on_working_days() -> None:
     # 12.11.2026 to czwartek; 9:00 UTC = 10:00 w Warszawie.
     assert job_idle.in_send_window(NOW)
@@ -382,3 +425,138 @@ async def test_recruiter_without_close_permission_gets_403(
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     resp = await app_client.post(f"/api/jobs/{job_id}/idle/snooze", headers=headers)
     assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_sweep_rings_the_lead_once_per_deadline_when_searching_is_overdue(
+    app_client: AsyncClient,
+) -> None:
+    """24.11.2026: „Szukamy” po terminie → jeden dzwonek do DL na termin."""
+    from sqlalchemy import delete, select, update
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.models.job import Job
+    from app.models.notification import Notification, NotificationType
+
+    job_id, lead_id, hor_id = await _seed(opened_days_ago=2, start_days_ago=0)
+
+    async def set_deadline(days_ago: int) -> None:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Job)
+                .where(Job.id == job_id)
+                .values(
+                    work_state="searching",
+                    deadline=business_today() - timedelta(days=days_ago),
+                )
+            )
+            await db.commit()
+
+    await set_deadline(3)
+    first = await _sweep(job_id)
+    assert first[job_idle.OVERDUE_STAGE] == 1
+    async with AsyncSessionLocal() as db:
+        bells = (
+            await db.scalars(
+                select(Notification.message).where(
+                    Notification.user_id == lead_id,
+                    Notification.notification_type
+                    == NotificationType.request_review_needed,
+                )
+            )
+        ).all()
+    assert any("pytest-idle" in m and "Termin minął" in m for m in bells)
+    assert (await _sweep(job_id))[job_idle.OVERDUE_STAGE] == 0
+
+    # Nowy termin, który też minął = nowy cykl. Dzwonek z poprzedniego cyklu
+    # usuwamy, bo dobowy dedup `emit` (ta sama osoba, typ i rekrutacja)
+    # zjadłby drugi wpis tego samego dnia — w pracy nowy cykl to inny dzień.
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(Notification).where(
+                Notification.user_id == lead_id,
+                Notification.notification_type
+                == NotificationType.request_review_needed,
+            )
+        )
+        await db.commit()
+    await set_deadline(1)
+    assert (await _sweep(job_id))[job_idle.OVERDUE_STAGE] == 1
+
+
+@pytest.mark.asyncio
+async def test_overdue_bell_skips_jobs_the_list_shows_as_contract(
+    app_client: AsyncClient,
+) -> None:
+    """Lista mówi „Umowa” (pierwszeństwo przed „Po terminie”) — bez dzwonka."""
+    from sqlalchemy import update
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.models.job import Job
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from tests.test_pipeline_membership_gate import _seed_candidate
+
+    job_id, _lead_id, _hor_id = await _seed(opened_days_ago=2, start_days_ago=0)
+    candidate_id = await _seed_candidate()
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Job)
+            .where(Job.id == job_id)
+            .values(
+                work_state="searching", deadline=business_today() - timedelta(days=3)
+            )
+        )
+        db.add(
+            CandidateStage(
+                candidate_id=candidate_id,
+                job_id=job_id,
+                stage=PipelineStage.negotiation,
+                moved_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+    assert (await _sweep(job_id))[job_idle.OVERDUE_STAGE] == 0
+
+
+@pytest.mark.asyncio
+async def test_overdue_bell_eaten_by_daily_dedup_is_retried(
+    app_client: AsyncClient,
+) -> None:
+    """Dzwonek „P1 bez CV” o tej samej rekrutacji tego dnia blokuje wpis
+    (dedup dobowy `emit`) — znacznik nie powstaje, więc dzwonek wraca."""
+    from sqlalchemy import delete, update
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.models.job import Job
+    from app.models.notification import Notification, NotificationType
+
+    job_id, lead_id, _hor_id = await _seed(opened_days_ago=2, start_days_ago=0)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Job)
+            .where(Job.id == job_id)
+            .values(
+                work_state="searching", deadline=business_today() - timedelta(days=3)
+            )
+        )
+        earlier = Notification(
+            user_id=lead_id,
+            title="P1 bez CV: 1 rekrutacja",
+            message="pytest",
+            notification_type=NotificationType.request_review_needed,
+            related_entity_type="job",
+            related_entity_id=job_id,
+        )
+        db.add(earlier)
+        await db.commit()
+        earlier_id = earlier.id
+
+    assert (await _sweep(job_id))[job_idle.OVERDUE_STAGE] == 0
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(Notification).where(Notification.id == earlier_id))
+        await db.commit()
+    assert (await _sweep(job_id))[job_idle.OVERDUE_STAGE] == 1

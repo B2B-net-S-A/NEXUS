@@ -298,20 +298,20 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
     expect(window.location.search).toBe("");
   });
 
-  it("„Po terminie” wysyła termin do wczoraj, a drugi klik go zdejmuje", async () => {
+  it("„Termin minął” wysyła termin do wczoraj, a drugi klik go zdejmuje", async () => {
     const user = userEvent.setup();
     renderJobs();
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
 
-    await user.click(screen.getByRole("button", { name: /Po terminie/ }));
+    await user.click(screen.getByRole("button", { name: /Termin minął/ }));
     await waitFor(() => {
       const params = latestParams();
       expect(params.deadline_to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(params.deadline_from).toBeUndefined();
     });
-    expect(screen.getByRole("button", { name: /Po terminie/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Termin minął/ })).toHaveAttribute("aria-pressed", "true");
 
-    await user.click(screen.getByRole("button", { name: /Po terminie/ }));
+    await user.click(screen.getByRole("button", { name: /Termin minął/ }));
     await waitFor(() => expect(latestParams().deadline_to).toBeUndefined());
   });
 
@@ -384,24 +384,24 @@ describe("JobsListV2 — liczniki przełączników „wymaga uwagi”", () => {
     const user = userEvent.setup();
     renderJobs();
 
-    const overdue = await screen.findByRole("button", { name: /Po terminie/ });
+    const overdue = await screen.findByRole("button", { name: /Termin minął/ });
     await waitFor(() => expect(within(overdue).getByText("1")).toBeInTheDocument());
 
     const scope = within(screen.getByRole("group", { name: "Zakres rekrutacji" }));
     await user.click(scope.getByRole("button", { name: /Otwarte/ }));
     await waitFor(() =>
-      expect(within(screen.getByRole("button", { name: /Po terminie/ })).getByText("4")).toBeInTheDocument(),
+      expect(within(screen.getByRole("button", { name: /Termin minął/ })).getByText("4")).toBeInTheDocument(),
     );
     expect(within(screen.getByRole("button", { name: /Bez rekrutera/ })).getByText("7")).toBeInTheDocument();
 
     await user.click(scope.getByRole("button", { name: /Wszystkie/ }));
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /Po terminie/ })).toHaveTextContent(/^Po terminie$/),
+      expect(screen.getByRole("button", { name: /Termin minął/ })).toHaveTextContent(/^Termin minął$/),
     );
     window.history.replaceState(null, "", "/jobs");
   });
 
-  it("wysyła datę „Po terminie” liczoną w przeglądarce", async () => {
+  it("wysyła datę „Termin minął” liczoną w przeglądarce", async () => {
     mockQuickCounts();
     renderJobs();
     await waitFor(() => expect(quickCountsMock).toHaveBeenCalled());

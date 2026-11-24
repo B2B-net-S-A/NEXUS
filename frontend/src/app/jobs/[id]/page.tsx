@@ -67,6 +67,8 @@ import { JobCloseWithReasonDialog } from "@/components/v2/jobs/JobCloseWithReaso
 import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
 import { ClientWaitStrip } from "@/components/v2/jobs/ClientWaitStrip";
 import { JobIdleBanner } from "@/components/v2/jobs/JobIdleBanner";
+import { JobOverdueBanner } from "@/components/v2/jobs/JobOverdueBanner";
+import { REQUEST_BOARD_QUERY_KEY } from "@/lib/api/requestAllocation";
 import { JobCproBanner } from "@/components/v2/jobs/JobCproBanner";
 import { fetchJobCproEvents } from "@/lib/cpro-events-api";
 import { fetchJobIdle, jobIdleKey, snoozeJobIdle } from "@/lib/job-idle-api";
@@ -958,6 +960,7 @@ export default function JobDetailPage() {
                 onOpenChange={setChampionsOpen}
                 cproEnabled={job.cpro_enabled === true}
                 onOpenPerson={openPersonPanel}
+                requestStage={job.request_stage}
               />
             ) : job.status === "closed" ? null : (
               // Zamknięta bez statusu requestu: „Zamknięta · powód” niżej
@@ -1444,6 +1447,20 @@ export default function JobDetailPage() {
               onClose={() => setShowCloseJob(true)}
               onSnooze={() => void onIdleSnooze()}
               snoozing={idleSnoozing}
+            />
+          ) : null}
+          {canCloseJob && job.status === "published" && job.request_stage === "overdue" ? (
+            <JobOverdueBanner
+              jobId={jobId}
+              deadline={job.deadline}
+              canMarkClientSilent={CHAMPION_ROLES.some((role) => hasRole(authUser, role))}
+              onClose={() => setShowCloseJob(true)}
+              onChanged={() => {
+                void refetchJob();
+                void queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
+                void queryClient.invalidateQueries({ queryKey: ["jobs-quick-counts"] });
+                void queryClient.invalidateQueries({ queryKey: REQUEST_BOARD_QUERY_KEY });
+              }}
             />
           ) : null}
           {canCloseJob && job.status === "published" ? <ClientWaitStrip jobId={jobId} /> : null}

@@ -13,12 +13,12 @@
       },
       {
         "q": "Jak znaleźć konkretną rekrutację albo zawęzić listę?",
-        "a": "Wpisz tytuł, klienta, technologię albo numer u klienta i wybierz stan requestu. Pasek pod nim ma „Delivery Lead” („DL”), „Klient”, „Rekruter”, „Kategoria”, „Priorytet”, „Termin”, „Data otwarcia” (na laptopie w „Więcej filtrów”) i „Więcej filtrów”, a obok przełączniki „Po terminie”, „Bez rekrutera” i „Nikogo nie wysłano”.",
+        "a": "Wpisz tytuł, klienta, technologię albo numer u klienta i wybierz stan requestu. Pasek pod nim ma „Delivery Lead” („DL”), „Klient”, „Rekruter”, „Kategoria”, „Priorytet”, „Termin”, „Data otwarcia” (na laptopie w „Więcej filtrów”) i „Więcej filtrów”, a obok przełączniki „Termin minął”, „Bez rekrutera” i „Nikogo nie wysłano”.",
         "anchor": "jobs.list.search"
       },
       {
         "q": "Co pokazuje status requestu?",
-        "a": "Każda rekrutacja ma jeden stan. „Do uzupełnienia” — stary szkic sprzed 04.10.2026; nowych szkiców nie ma. „Do przejrzenia” — nikt nie zdecydował, czy nad nią pracujemy. „Szukamy” trwa do wskazania championów. „Umowa” — ktoś jest na etapie umowy. „Klient milczy” — klient nie odpowiada. Kilka stanów naraz pokazuje rekrutacje w którymkolwiek z nich.",
+        "a": "Każda rekrutacja ma jeden stan. „Do uzupełnienia” — stary szkic sprzed 04.10.2026. „Do przejrzenia” — nikt nie zdecydował, czy nad nią pracujemy. „Szukamy” — do championów albo terminu. „Po terminie” — termin minął; DL wpisuje nowy, „Klient milczy” albo zamyka. „Umowa” — ktoś jest na etapie umowy. „Klient milczy” — klient nie odpowiada.",
         "anchor": "jobs.list.status"
       },
       {
@@ -45,7 +45,7 @@
     "anchors": [
       {"id": "jobs.list.scope", "label": "Moje / Moja kategoria / Otwarte / Wszystkie", "describe": "Przełącznik zakresu listy rekrutacji z licznikami."},
       {"id": "jobs.list.search", "label": "Wyszukiwanie", "describe": "Pole wyszukiwania po numerze u klienta, tytule, kliencie i technologii."},
-      {"id": "jobs.list.status", "label": "Stan requestu", "describe": "Jeden rząd stanów: Do uzupełnienia, Do przejrzenia, Szukamy, Mamy championa, Umowa, Klient milczy."},
+      {"id": "jobs.list.status", "label": "Stan requestu", "describe": "Jeden rząd stanów: Do uzupełnienia, Do przejrzenia, Szukamy, Po terminie, Mamy championa, Umowa, Klient milczy."},
       {"id": "jobs.list.filters", "label": "Filtry", "describe": "Pasek filtrów nad listą: Delivery Lead, klient, Rekruter, kategoria, priorytet, termin, data otwarcia i szybkie przełączniki."},
       {"id": "jobs.list.sort", "label": "Sortuj", "describe": "Kolejność listy: „Wymaga uwagi”, „Od najnowszej” (data otwarcia), „Od najstarszej”, „Najbliższy termin”."},
       {

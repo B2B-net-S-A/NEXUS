@@ -336,6 +336,9 @@ class JobResponse(BaseModel):
     # 0341: status requestu liczony przez `job_similarity.request_status_expr`
     # (closed · filled · contract · champion · incomplete · searching).
     request_status: Optional[str] = None
+    # Stan requestu z listy (`job_similarity.request_stage_expr`); od
+    # 24.11.2026 także „overdue” — „Szukamy” dzień po terminie.
+    request_stage: Optional[str] = None
     # 0371: stan pracy nad requestem prowadzony w NEXUSIE (to_review ·
     # searching · client_silent · finished) i stan widoczny dla ludzi —
     # `request_work_state.visible_state` (champion przy „Szukamy”).
