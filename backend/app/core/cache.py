@@ -10,6 +10,8 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Callable, Dict, Optional, Tuple
 import logging
 
+from app.core import process_bus
+
 logger = logging.getLogger(__name__)
 
 # Global cache store: key → (value, expires_at)
@@ -144,8 +146,28 @@ async def cache_single_flight(key: str, *, db: Any = None) -> AsyncIterator[None
             _inflight_refs[key] = remaining
 
 
+_BUS_TOPIC = "cache_invalidate"
+
+
 async def cache_invalidate(prefix: str):
-    """Invalidate all keys starting with prefix."""
+    """Invalidate all keys starting with prefix — też w drugim procesie web i workerze."""
+    await cache_evict_local(prefix)
+    process_bus.publish_soon(_BUS_TOPIC, {"prefix": prefix})
+
+
+async def _on_remote_invalidate(data: dict) -> None:
+    await cache_evict_local(str(data["prefix"]))
+
+
+process_bus.subscribe(_BUS_TOPIC, _on_remote_invalidate, others_only=True)
+
+
+async def cache_evict_local(prefix: str) -> None:
+    """Usuń wpisy tylko w TYM procesie — sprzątanie, nie zmiana danych.
+
+    Do wyrzucania starszych migawek tuż przed zapisem nowej: rozgłoszone
+    kasowałoby drugiemu procesowi jego świeży wpis i oba liczyłyby w kółko.
+    """
     async with _lock:
         keys_to_delete = [k for k in _cache if k.startswith(prefix)]
         for k in keys_to_delete:

@@ -1166,6 +1166,8 @@ class BatchStatus:
     # Skład porcji (10.11.2026): ile czekających osób z P0, ile z niższych
     # priorytetów, jaki poziom jutro po zrobieniu całej porcji i sufit.
     sources: Optional[dict] = None
+    # Rekrutacja wybrana na dziś (``review_batch_focus``): ``{job_id, at}``.
+    focus: Optional[dict] = None
 
     @property
     def remaining(self) -> int:
@@ -1306,7 +1308,12 @@ async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchSta
         counts[card.job_id] = counts.get(card.job_id, 0) + 1
     team_jobs = await _team_jobs(db, user.id, counts, now=now)
     jobs = [job for job in team_jobs if job.pending > 0]
+    from app.services.review_batch_focus import read_focus
     from app.services.review_batch_plan import rest_seats
+
+    focus = (await read_focus(db)).get(user.id)
+    if focus is not None and focus.job_id not in {job.job_id for job in team_jobs}:
+        focus = None  # osobę zdjęto z rekrutacji albo rekrutacja wyszła z pracy
 
     p0_cards = sum(job.pending for job in team_jobs if job.group == "p0")
     urgent_cards = sum(job.pending for job in team_jobs if job.group in _URGENT_GROUPS)
@@ -1338,6 +1345,7 @@ async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchSta
             "other_seats": rest_seats(minimum, has_other),
             "stale": sum(1 for card in cards if is_stale(card, now)),
         },
+        focus=focus.as_dict() if focus is not None else None,
     )
 
 
@@ -1490,7 +1498,9 @@ async def review_queue(
     i niżej (10.11.2026). W obrębie poziomu rekrutacja po rekrutacji, nie na
     zmianę (zgłoszenie rekrutera 17.11.2026): najpierw najbliższy termin P0,
     potem rekrutacja z większą liczbą osób. W każdej rekrutacji kolejność
-    kolumny „Nowi” na Tablicy (P7)."""
+    kolumny „Nowi” na Tablicy (P7). Rekrutacja wybrana na dziś
+    (``review_batch_focus``) idzie przed wszystkimi."""
+    from app.services.review_batch_focus import read_focus
     from app.services.review_batch_plan import TIER_P0, tier_of
 
     cards = await _own_cards(db, user.id, now=now)
@@ -1515,10 +1525,19 @@ async def review_queue(
             if card.process_id in mine
         ]
     tiers = {jid: tier_of(jobs[jid], now) if jid in jobs else 3 for jid in by_job}
+    focus = (await read_focus(db)).get(user.id)
+    chosen = focus.job_id if focus is not None else None
 
     def job_key(jid: int) -> tuple:
         until = jobs[jid].p0_until if tiers[jid] == TIER_P0 else None
-        return (tiers[jid], until is None, until or now, -len(by_job[jid]), jid)
+        return (
+            jid != chosen,
+            tiers[jid],
+            until is None,
+            until or now,
+            -len(by_job[jid]),
+            jid,
+        )
 
     queue = [card for jid in sorted(by_job, key=job_key) for card in by_job[jid]]
     # Odłożone (bez decyzji od 2 dni roboczych) na koniec, w tej samej kolejności.

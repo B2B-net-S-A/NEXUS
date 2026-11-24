@@ -303,6 +303,9 @@ export function ChatNotificationsDropdown() {
         actionLabel: "Otwórz",
         durationMs: CHAT_TOAST_MS,
         onAction: () => openThreadRef.current(detail),
+        // Z gniazda, w dowolnej chwili: przy otwartym oknie czeka na jego zamknięcie.
+        deferWhileModal: true,
+        isStillRelevant: () => detail.kind === "note" || !isChatOnScreen(detail.kind, detail.entity_id),
       });
     };
     window.addEventListener(CHAT_NOTIFY_EVENT, handler);

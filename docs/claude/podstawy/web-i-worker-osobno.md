@@ -18,9 +18,9 @@ co zostaje w procesie danej roli.
 - **Web** nie bierze blokady lidera. Stan pętli do `/api/health` i `/api/admin/snapshot`
   czyta z workera (`GET /api/health/background`, bufor 10 s). Worker nie odpowiada =
   `checks.background_tasks` zaczyna się od `unhealthy` i alarmuje `uptime-probe`.
-- **Pule:** web 40+10, worker 15+15. Przy rolling update (etap B2) żyją chwilę dwa procesy
-  tej samej roli: 2 × 50 + 30 = 130, dlatego `max_connections=150` (zapas 15 na zrzut i blokady,
-  pilnuje `tests/test_process_roles.py`).
+- **Pule:** web 40+10 na proces, worker 15+15. Web ma do 2 procesów (`kilka-procesow-web.md`),
+  a przy rolling update (etap B2) żyją chwilę dwa kontenery tej samej roli: 2 × 2 × 50 + 30 = 230,
+  dlatego `max_connections=250` (zapas 15 na zrzut i blokady, pilnuje `tests/test_process_roles.py`).
 
 ## Co musi zostać w web
 
@@ -35,6 +35,7 @@ na pamięci procesu czytanej przez trasy albo gniazda:
 | `keyword_corpus_backfill` | ustawia flagi gotowości korpusu czytane przez wyszukiwarkę |
 | `critical_stats_cache` | statystyki krytycznych dla bramki w trasach |
 | `trusted_list_prewarm` | lista zaufanych UE dla walidacji podpisu w trasie; jednorazowe, worker wczytuje ją w `b2b_esign_sweeper` |
+| `presence_sync` | „kto ogląda” między procesami web; przy jednym procesie kończy się od razu |
 
 W obu procesach biegną `runtime_metrics` (mierzy własną pętlę zdarzeń, pole `process_role`)
 i `process_bus`.
@@ -72,18 +73,10 @@ odpalił z `NoData`, choć worker co minutę logował `alarm: 0`. `http_outcome`
 - Jednorazowe uzupełnienia z początku lifespanu wykonują się w obu procesach. Są idempotentne,
   a worker startuje po web, więc nie biegną równolegle.
 
-## Kilka procesów web (etap 2, jeszcze nie włączony)
+## Kilka procesów web
 
-`WEB_CONCURRENCY` uvicorn czyta sam, ale dopiero po tych zmianach:
-
-- limiter slowapi ma pamięć procesu, więc limity (także logowania) byłyby N× luźniejsze;
-- gniazda: `pipeline_changed`, czat i presence dochodzą tylko do gniazd własnego procesu,
-  czyli `process_bus` musi nadawać także z web;
-- `ALIAS_MAP` i mapa wiedzy: wymaga zmiany z sesji `slownik-cache`, a przed jej scaleniem także
-  worker zostaje na mapie ze startu;
-- bufor replay webhooka M365, „Zatrzymaj” Jarvisa, statusy ręcznych backfilli (`_running`, `_TASKS`),
-  limit `hr/white_list`;
-- jednorazowe uzupełnienia lifespanu biegłyby równolegle w każdym procesie.
+Od 24.11.2026 web może mieć dwa procesy uvicorna (`NEXUS_WEB_CONCURRENCY`, domyślnie 1).
+Co przechodzi między nimi, co jest dzielone i co zostaje per proces: `kilka-procesow-web.md`.
 
 Staging: `worker` jest w `docker-compose.staging.yml`. Backend z gałęzi na własnej bazie
 potrzebuje `-e NEXUS_PROCESS_ROLE=all`, inaczej nie ma tam pętli.

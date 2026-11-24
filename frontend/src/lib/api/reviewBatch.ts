@@ -30,6 +30,50 @@ export interface ReviewBatchWhy {
   source: ReviewBatchSource
   via: "owner" | "assignment" | "collaborator" | null
   p0_until?: string | null
+  /** Rekrutacja wybrana przez patrzącego na dziś (`review_batch_focus`). */
+  chosen?: boolean
+}
+
+/** Rekrutacja wybrana na dziś: porcja bierze osoby najpierw stamtąd. */
+export interface ReviewBatchFocus {
+  job_id: number
+  at: string
+}
+
+/** Kto już wybrał tę rekrutację na dziś: kto pierwszy, ten bierze. */
+export interface ReviewBatchFocusPick {
+  user_id: number
+  name: string
+  at: string
+  /** Osoby z porcji, które ta osoba ma teraz w tej rekrutacji. */
+  cards: number
+}
+
+/** Rekrutacja do wyboru: Twoje osoby z porcji, przypisani i kto już ją wybrał. */
+export interface ReviewBatchFocusOption extends ReviewBatchJob {
+  team_size: number
+  picked_by: ReviewBatchFocusPick[]
+}
+
+/**
+ * Co się stanie po wyborze jednej rekrutacji — ten sam plan co wybór, z liczbą
+ * osób po regułach dopełniania (`batch_capacity`), nie szacunkiem z puli.
+ */
+export interface ReviewBatchFocusPreview {
+  job_id: number
+  /** Ile osób rekrutacja może dać teraz: karty bez właściciela i pula po regułach. */
+  available: number
+  /** Ile osób przyjdzie stąd po wyborze. */
+  take: number
+  /** Ile nieruszonych osób z innych rekrutacji wróci do puli zespołu (nadwyżka ponad porcję). */
+  release: number
+}
+
+export interface ReviewBatchFocusOptions {
+  items: ReviewBatchFocusOption[]
+  focus: ReviewBatchFocus | null
+  /** Ile osób porcja może jeszcze dziś dać: poziom minus decyzje z dziś. */
+  seats: number
 }
 
 export interface ReviewBatchOpenScreening {
@@ -71,6 +115,8 @@ export interface ReviewBatchStatus {
   more_cards?: number
   /** Skład porcji: ile osób z P0, ile z niższych priorytetów; poziom jutro (do 50). */
   sources?: ReviewBatchSources
+  /** Rekrutacja wybrana na dziś; brak = kolejność z poziomów (najpierw pilne). */
+  focus?: ReviewBatchFocus | null
 }
 
 /** Skład porcji. Od 22.11.2026 (R2): pilne (P0 + P1) i pozostałe, ile miejsc
@@ -321,6 +367,39 @@ export function useReviewBatchTeam(enabled: boolean) {
     staleTime: 30_000,
     retry: false,
   })
+}
+
+export function useReviewBatchFocusOptions(enabled: boolean) {
+  return useQuery<ReviewBatchFocusOptions>({
+    queryKey: [...REVIEW_BATCH_QUERY_KEY, "focus"],
+    queryFn: async () =>
+      (await api.get<ReviewBatchFocusOptions>("/api/review-batch/me/focus")).data,
+    enabled,
+    staleTime: 0,
+    retry: false,
+  })
+}
+
+export function useReviewBatchFocusPreview(jobId: number | null) {
+  return useQuery<ReviewBatchFocusPreview>({
+    queryKey: [...REVIEW_BATCH_QUERY_KEY, "focus", jobId],
+    queryFn: async () =>
+      (await api.get<ReviewBatchFocusPreview>(`/api/review-batch/me/focus/${jobId}`)).data,
+    enabled: jobId !== null,
+    staleTime: 0,
+    retry: false,
+  })
+}
+
+/** Wybór rekrutacji na dziś; `null` = powrót do kolejności z poziomów. */
+export async function setReviewBatchFocus(
+  jobId: number | null,
+): Promise<{ focus: ReviewBatchFocus | null; released: number; added: number }> {
+  const res = await api.put<{ focus: ReviewBatchFocus | null; released: number; added: number }>(
+    "/api/review-batch/me/focus",
+    { job_id: jobId },
+  )
+  return res.data
 }
 
 export async function addMoreFromNexus(jobId: number): Promise<number> {

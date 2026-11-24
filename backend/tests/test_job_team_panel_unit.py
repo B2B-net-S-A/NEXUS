@@ -48,6 +48,14 @@ def test_rotation_keeps_only_the_digest() -> None:
     assert service.current_token(team) == new
 
 
+def test_after_secret_key_change_the_link_is_not_rebuilt(monkeypatch) -> None:
+    team = SimpleNamespace(id=3, panel_token_nonce=None, panel_token_sha256=None)
+    issued = service.issue_token(team)
+    monkeypatch.setattr(settings, "SECRET_KEY", settings.SECRET_KEY + "-po-zmianie")
+    assert service.current_token(team) is None
+    assert team.panel_token_sha256 == panel_service.token_digest(issued)
+
+
 @pytest.mark.parametrize("token", ["", "abc", "A" * 16, "1" * 16, "a" * 17, "a/b"])
 async def test_malformed_token_is_404_without_touching_the_database(token) -> None:
     with pytest.raises(HTTPException) as refused:

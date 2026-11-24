@@ -76,9 +76,15 @@ def issue_token(team: JobTeam) -> str:
 
 
 def current_token(team: JobTeam) -> Optional[str]:
-    if not team.panel_token_nonce:
+    """Jak ``client_panel.current_token``: po zmianie sekretu bez martwego linku."""
+    if not team.panel_token_nonce or not team.panel_token_sha256:
         return None
-    return compute_token(team.id, team.panel_token_nonce)
+    token = compute_token(team.id, team.panel_token_nonce)
+    if not hmac.compare_digest(
+        panel_service.token_digest(token), team.panel_token_sha256
+    ):
+        return None
+    return token
 
 
 def team_urls(token: str) -> tuple[str, str]:

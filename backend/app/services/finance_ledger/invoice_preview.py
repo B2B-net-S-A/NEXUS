@@ -34,6 +34,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.process_role import web_process_count
 from app.core.scheduling import DEFAULT_TZ
 from app.models.client_settlement import ClientContractorInvoice
 from app.models.finance_ledger import FinanceCostEntry
@@ -97,7 +98,8 @@ def _take_slot() -> bool:
     now = time.monotonic()
     while _downloads and now - _downloads[0] > _HOUR:
         _downloads.popleft()
-    if len(_downloads) >= ON_DEMAND_PER_HOUR:
+    # Licznik w pamięci procesu: przy kilku procesach web każdy ma swoją część.
+    if len(_downloads) >= -(-ON_DEMAND_PER_HOUR // web_process_count()):
         return False
     _downloads.append(now)
     return True
