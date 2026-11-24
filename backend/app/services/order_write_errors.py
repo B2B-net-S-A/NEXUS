@@ -149,7 +149,8 @@ async def commit_order_write(
     Przed commitem kontrakty, których zamówienia ten zapis ruszył, dostają
     okres zamówienia i stawkę przychodową, a zamówienia — stawkę kosztową
     z kontraktu (``contract_order_sync``), a otwarte braki tej osoby
-    (``order_gaps``) dostają informację o uzupełnieniu. To jedyny punkt, przez który
+    (``order_gaps``) dostają informację o uzupełnieniu, a otwarte rozliczenia
+    tych kontraktów przeliczają się (``client_settlements.order_issues``). To jedyny punkt, przez który
     przechodzą wszystkie zapisy zamówień, więc nowy endpoint nie musi pamiętać
     o synchronizacji.
     """
@@ -176,6 +177,15 @@ async def commit_order_write(
             await resolve_hired_order_cases_safely(
                 db, contract_ids=sorted(touched_contracts)
             )
+            # Rozliczenia klientów tych kontraktów liczą się od nowa PO
+            # synchronizacji stawki kontraktu: ponad pulę, zamówienie
+            # zakończone i stawka linii widzą zapisane zamówienie (próba
+            # IX–X 2026). Savepoint na rozliczenie: awaria nie cofa zamówienia.
+            from app.services.client_settlements import (  # noqa: PLC0415
+                order_issues,
+            )
+
+            await order_issues.refresh_contracts(db, sorted(touched_contracts))
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()

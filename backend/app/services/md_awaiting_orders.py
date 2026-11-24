@@ -299,23 +299,7 @@ async def settle_awaiting_md_for_client(
     Kolejność blokad jak w imporcie: kontrakty i linie kolejnych zamówień,
     dopiero potem wiersze importu (import trzyma linie, gdy sięga po wiersze
     starszej paczki).
-
-    Potem rozliczenia klienta, które czekały na zamówienie (ponad pulę, na
-    zamówieniu zakończonym, bez linii), liczą się od nowa
-    (``client_settlements.order_issues.refresh_client``, próba IX–X 2026).
     """
-    from app.services.client_settlements import order_issues
-
-    settled = await _settle_awaiting_for_client(
-        db, client_id=client_id, user_id=user_id
-    )
-    await order_issues.refresh_client(db, client_id=client_id)
-    return settled
-
-
-async def _settle_awaiting_for_client(
-    db: AsyncSession, *, client_id: int, user_id: Optional[int]
-) -> list[AwaitingSettlement]:
     await db.flush()
     query = (
         select(MdConsumptionImportRow)

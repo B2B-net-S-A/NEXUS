@@ -13,12 +13,14 @@ rozliczenie zostawało „Z uwagami”, dopóki Finanse czegoś nie kliknęły.
 * **Alert** (``rule_settlement_over_order`` w ``dl_alerts_scanner``) dostaje
   Delivery Lead klienta z linkiem do zamówienia, dla rozliczeń jeszcze nie
   przyjętych i nie odesłanych do poprawy, z ostatnich ``MONTHS_BACK`` miesięcy.
-* **Przeliczenie po zmianie zamówienia** (``refresh_client``): utworzenie,
-  przedłużenie, dopisanie osoby, aktywacja szkicu (``settle_awaiting_md_for_client``),
-  edycja linii albo zamówienia. Przeliczamy tylko otwarte rozliczenia klienta,
-  które mają problem z zamówieniem albo stawką linii, każde w osobnym punkcie
-  zapisu: awaria przeliczenia nie cofa zapisu zamówienia. Wiersz zajęty przez
-  przyjęcie Finansów pomijamy (``skip_locked``), żeby nie nadpisać przyjęcia.
+* **Przeliczenie po zmianie zamówienia** (``refresh_contracts``): raz na zapis,
+  na końcu ``commit_order_write`` (jedyny punkt wszystkich zapisów zamówień),
+  PO synchronizacji stawki kontraktu z zamówieniem — inaczej świeżo poprawiona
+  stawka dawała fałszywy rozjazd, a przy dopisaniu kilku osób naraz rozliczenia
+  dalszych osób liczyły się przed ich linią (przegląd 25.11). Otwarte rozliczenia
+  ruszonych kontraktów, każde w osobnym punkcie zapisu: awaria przeliczenia nie
+  cofa zapisu zamówienia. Wiersz zajęty przez przyjęcie Finansów pomijamy
+  (``skip_locked``), żeby nie nadpisać przyjęcia.
 * **Zapas** (``refresh_stale``, raz na bieg skanera): rozliczenia z problemem,
   których kontrakt, linia albo zamówienie zmieniły się po ostatnim przeliczeniu,
   też przez ścieżkę bez haka.
@@ -40,6 +42,7 @@ from app.models.client_order_group import ClientOrderGroup
 from app.models.client_order_revenue_step import ClientOrderRevenueStep
 from app.models.client_settlement import ClientSettlement
 from app.models.contract import Contract
+from app.models.contract_client_rate import ContractClientRate
 from app.services.client_settlements import line_rate
 from app.services.client_settlements import settings as module_settings
 
@@ -141,7 +144,7 @@ async def _recompute_each(db: AsyncSession, rows: Iterable[ClientSettlement]) ->
     from app.services.client_settlements import service
 
     done = 0
-    for row in rows:
+    for settlement_id in [row.id for row in rows]:
         try:
             async with db.begin_nested():
                 # Blokada wiersza na czas przeliczenia; zajęty (przyjęcie Finansów
@@ -149,7 +152,7 @@ async def _recompute_each(db: AsyncSession, rows: Iterable[ClientSettlement]) ->
                 s = await db.scalar(
                     select(ClientSettlement)
                     .where(
-                        ClientSettlement.id == row.id,
+                        ClientSettlement.id == settlement_id,
                         ClientSettlement.status.in_(OPEN_STATUSES),
                     )
                     .with_for_update(skip_locked=True)
@@ -163,34 +166,44 @@ async def _recompute_each(db: AsyncSession, rows: Iterable[ClientSettlement]) ->
                 s.updated_at = func.now()
             done += 1
         except Exception:  # noqa: BLE001 — zapis zamówienia nie może przez to paść
+            # Po wycofanym savepoincie atrybuty wiersza są przeterminowane:
+            # w logu tylko id zapamiętane przed próbą.
             logger.exception(
-                "settlement %s: przeliczenie po zmianie zamówienia", row.id
+                "settlement %s: przeliczenie po zmianie zamówienia", settlement_id
             )
     return done
 
 
-async def refresh_client(
-    db: AsyncSession, *, client_id: int, today: Optional[date] = None
+async def refresh_contracts(
+    db: AsyncSession, contract_ids: Iterable[int], *, today: Optional[date] = None
 ) -> int:
-    """Po zmianie zamówienia klienta: przelicz jego otwarte rozliczenia z problemem.
+    """Po zapisie zamówień (``commit_order_write``): przelicz otwarte rozliczenia
+    ruszonych kontraktów, z ostatnich ``MONTHS_BACK`` miesięcy.
 
-    Zwraca liczbę przeliczonych. Wołający commituje."""
+    Woła się raz na zapis, po synchronizacji stawki kontraktu z zamówieniem,
+    więc rozliczenie widzi i nową pulę, i nową stawkę kontraktu. Zwraca liczbę
+    przeliczonych; wołający commituje. Nigdy nie wywraca zapisu zamówienia."""
 
     from app.core.scheduling import business_today
 
-    if not await module_settings.is_enabled(db):
+    ids = sorted(set(contract_ids))
+    if not ids:
         return 0
-    await db.flush()
-    rows = list(
-        await db.scalars(
-            _open(today or business_today()).where(
-                ClientSettlement.client_id == client_id,
-                # Już przeliczone w tej transakcji (drugi hak tego samego zapisu).
-                ClientSettlement.updated_at < func.now(),
+    try:
+        async with db.begin_nested():
+            if not await module_settings.is_enabled(db):
+                return 0
+            rows = list(
+                await db.scalars(
+                    _open(today or business_today()).where(
+                        ClientSettlement.contract_id.in_(ids)
+                    )
+                )
             )
-        )
-    )
-    return await _recompute_each(db, [s for s in rows if needs_refresh(s)])
+    except Exception:  # noqa: BLE001
+        logger.exception("rozliczenia po zmianie zamówienia: odczyt nie wyszedł")
+        return 0
+    return await _recompute_each(db, rows)
 
 
 async def _changed_since(db: AsyncSession, s: ClientSettlement) -> bool:
@@ -218,7 +231,17 @@ async def _changed_since(db: AsyncSession, s: ClientSettlement) -> bool:
     contract = await db.scalar(
         select(Contract.updated_at).where(Contract.id == s.contract_id)
     )
-    return contract is not None and contract > since
+    if contract is not None and contract > since:
+        return True
+    step = await db.scalar(
+        select(ContractClientRate.id)
+        .where(
+            ContractClientRate.contract_id == s.contract_id,
+            ContractClientRate.updated_at > since,
+        )
+        .limit(1)
+    )
+    return step is not None
 
 
 async def refresh_stale(db: AsyncSession, today: date) -> int:

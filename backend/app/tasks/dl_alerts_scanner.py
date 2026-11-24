@@ -1546,7 +1546,8 @@ async def rule_settlement_over_order(
     zamówienia milknie i nie mówi, ile MD i za który miesiąc czeka. Ta karta
     przychodzi, gdy rozliczenie już to policzyło, przed fakturą: Delivery Lead
     przedłuża albo uzupełnia zamówienie, a rozliczenie przelicza się samo
-    (``order_issues.refresh_client``; zapas ``refresh_stale`` na początku reguły).
+    (``order_issues.refresh_contracts`` w ``commit_order_write``; zapas
+    ``refresh_stale`` na początku reguły).
     Wysoki priorytet + mail, jedna karta na zamówienie w rozliczeniu, zamyka się,
     gdy problem znika albo Finanse przyjmą rozliczenie.
     """

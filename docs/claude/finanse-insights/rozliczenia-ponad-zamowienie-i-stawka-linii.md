@@ -20,15 +20,19 @@ dawało „Bez uwag” ze złą kwotą „Do faktury”.
   (`checking`/`ok`/`warnings`/`no_md`), bez przyjętych i „Do poprawy”, z ostatnich
   3 miesięcy (jak automat przyjęć). Zamyka się (`resolved`), gdy problem znika
   albo Finanse przyjmą rozliczenie.
-- **Rozliczenie przelicza się samo po zmianie zamówienia** (`refresh_client`):
-  hak w `settle_awaiting_md_for_client` (utworzenie, przedłużenie, dopisanie osoby,
-  aktywacja szkicu), w edycji linii (`update_line`), grupy (`update_order_group`)
-  i zamówienia (`apply_order_update`). Przeliczamy tylko otwarte rozliczenia klienta
-  z problemem zamówienia albo stawki (`needs_refresh`), każde w savepoincie
-  (awaria nie cofa zapisu zamówienia), wiersz zajęty przez przyjęcie pomijamy
-  (`skip_locked`). Nowa ścieżka zapisu zamówienia, która omija te funkcje, ma
-  **zapas w skanerze** (`refresh_stale` na początku reguły): linia, jej zamówienie,
-  krok stawki albo kontrakt zmienione po `updated_at` rozliczenia.
+- **Rozliczenie przelicza się samo po zmianie zamówienia** (`refresh_contracts`):
+  raz na zapis, na końcu `commit_order_write` (jedyny punkt wszystkich zapisów
+  zamówień), **po** `sync_pending_order_contracts`, dla kontraktów ruszonych
+  zamówień. Wcześniej (haki w trasach) rozliczenie liczyło się przed synchronizacją
+  stawki kontraktu — poprawiona stawka dawała fałszywy rozjazd — a przy dopisaniu
+  kilku osób naraz dalsze osoby liczyły się przed swoją linią (przegląd 25.11).
+  Otwarte rozliczenia z ostatnich 3 miesięcy, każde w savepoincie (awaria nie
+  cofa zapisu zamówienia; w logu tylko id zapamiętane przed próbą, bo po
+  wycofanym savepoincie atrybuty są przeterminowane), wiersz zajęty przez
+  przyjęcie pomijamy (`skip_locked`). Ścieżki z własnym commitem (import MD,
+  zamówienie z maila) łapie **zapas w skanerze** (`refresh_stale` na początku
+  reguły): linia, jej zamówienie, krok stawki linii albo kontraktu, kontrakt
+  zmienione po `updated_at` rozliczenia.
 - **Kontrola stawki linii** (`client_settlements/line_rate.py`, po `compute`
   w `_recompute`): stawka, którą liczy rozliczenie (zł/MD, wycena na 1. dzień
   miesiąca), porównana ze stawką klienta z kontraktu na ten dzień i z ceną

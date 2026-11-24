@@ -261,7 +261,6 @@ from app.services.order_line_takeover import (
     stored_rate_basis,
 )
 from app.services.md_pool_used_up import offboarding_decision_in_progress
-from app.services.client_settlements import order_issues as settlement_order_issues
 from app.services.md_awaiting_orders import (
     awaiting_md_by_origin_line,
     settle_awaiting_md_for_client,
@@ -4038,8 +4037,6 @@ async def update_order_group(
         # Aktywacja szkicu MD = nowe kolejne zamówienie: MD z importu, które
         # na nie czekały, schodzą od razu (audyt 22.10.2026, F69).
         await settle_awaiting_md_for_client(db, client_id=client_id, user_id=user.id)
-    # Data końca, status, pula: rozliczenia, które czekały na zamówienie.
-    await settlement_order_issues.refresh_client(db, client_id=client_id)
     await commit_order_write(db)
     await db.refresh(group)
     return await _group_to_read(
@@ -5903,8 +5900,6 @@ async def update_line(
             },
             user_id=user.id,
         )
-    # Pula, stawka albo status linii: rozliczenia, które czekały na zamówienie.
-    await settlement_order_issues.refresh_client(db, client_id=client_id)
     await commit_order_write(db)
     await db.refresh(line)
     return _line_to_read(

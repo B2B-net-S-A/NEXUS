@@ -8,19 +8,20 @@ uwaga na karcie rozliczenia (Finanse, z kwotą) i karta DL bez kwot.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today, local_now
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup
 from app.models.client_settlement import ClientSettlementRuleSet
-from app.models.contract import RateUnit
+from app.models.contract import Contract, RateUnit
 from app.models.dl_alert import (
     ALERT_SETTLEMENT_OVER_ORDER,
     ALERT_SETTLEMENT_RATE_MISMATCH,
@@ -31,6 +32,7 @@ from app.models.dl_alert import (
 )
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.services.client_settlements import line_rate, order_issues, service
+from app.services.order_write_errors import commit_order_write
 from app.tasks.dl_alerts_scanner import (
     rule_settlement_over_order,
     rule_settlement_rate_mismatch,
@@ -196,12 +198,12 @@ async def test_uzupelnione_zamowienie_przelicza_rozliczenie_i_zamyka_karte(
     await _set_md(w, "15")
     await _scan(rule_settlement_over_order)
 
+    # Zapis zamówienia kończy się zawsze ``commit_order_write``: tam przeliczenie.
     async with AsyncSessionLocal() as db:
         line = await db.get(ClientOrder, w.line_id)
         line.md_total = Decimal("40")
         line.md_remaining = Decimal("40")
-        assert await order_issues.refresh_client(db, client_id=w.client_id) == 1
-        await db.commit()
+        await commit_order_write(db)
     async with AsyncSessionLocal() as db:
         s = await service._settlement(db, w.contract_id, w.month)
         assert service.md_over(s) is None
@@ -212,7 +214,9 @@ async def test_uzupelnione_zamowienie_przelicza_rozliczenie_i_zamyka_karte(
     assert alert.status == DL_ALERT_STATUS_RESOLVED
 
 
-async def test_zapas_skanera_przelicza_po_zmianie_zamowienia_bez_haka(module) -> None:
+async def test_zapas_skanera_przelicza_po_zapisie_bez_commit_order_write(
+    module,
+) -> None:
     w = await _world(md_total="10")
     module.append(w.client_id)
     await _set_md(w, "15")
@@ -222,7 +226,7 @@ async def test_zapas_skanera_przelicza_po_zmianie_zamowienia_bez_haka(module) ->
         line.md_remaining = Decimal("40")
         await db.commit()
 
-    # Ścieżka bez haka: skaner widzi zmianę linii po przeliczeniu.
+    # Ścieżka z własnym commitem (import MD): skaner widzi zmianę linii.
     assert await _scan(rule_settlement_over_order) == 0
     async with AsyncSessionLocal() as db:
         s = await service._settlement(db, w.contract_id, w.month)
@@ -235,7 +239,86 @@ async def test_modul_wylaczony_nic_nie_przelicza(module) -> None:
     await _set_md(w, "15")
     await _module(False)
     async with AsyncSessionLocal() as db:
-        assert await order_issues.refresh_client(db, client_id=w.client_id) == 0
+        assert await order_issues.refresh_contracts(db, [w.contract_id]) == 0
+
+
+async def test_awaria_przeliczenia_nie_wywraca_zapisu_zamowienia(
+    module, monkeypatch
+) -> None:
+    w = await _world(md_total="10")
+    module.append(w.client_id)
+    await _set_md(w, "15")
+
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("przeliczenie padło")
+
+    # Ostatni krok przeliczenia, już po zmianie wiersza rozliczenia.
+    monkeypatch.setattr(line_rate, "check", boom)
+    async with AsyncSessionLocal() as db:
+        line = await db.get(ClientOrder, w.line_id)
+        line.md_total = Decimal("40")
+        line.md_remaining = Decimal("40")
+        await commit_order_write(db)
+    async with AsyncSessionLocal() as db:
+        line = await db.get(ClientOrder, w.line_id)
+        assert line.md_total == Decimal("40")
+        s = await service._settlement(db, w.contract_id, w.month)
+        # Rozliczenie zostało, jak było przed nieudanym przeliczeniem.
+        assert service.md_over(s) == Decimal("5")
+
+
+async def test_stawka_z_zamowienia_porownana_po_synchronizacji_kontraktu(
+    module,
+) -> None:
+    w = await _world(
+        md_total="30",
+        contract_rate={"rate_client": 1100, "rate_unit": RateUnit.daily},
+    )
+    module.append(w.client_id)
+    await _set_md(w, "15")
+    async with AsyncSessionLocal() as db:
+        s = await service._settlement(db, w.contract_id, w.month)
+        assert line_rate.mismatches_of(service.meta_of(s)) == []
+    # Nowa stawka na linii; kontrakt dostaje ją dopiero w synchronizacji
+    # (``sync_pending_order_contracts`` w ``commit_order_write``).
+    async with AsyncSessionLocal() as db:
+        line = await db.get(ClientOrder, w.line_id)
+        line.md_rate_revenue = Decimal("1200")
+        line.rate_client = Decimal("1200")
+        line.rate_unit = RateUnit.daily
+        await commit_order_write(db)
+    async with AsyncSessionLocal() as db:
+        contract = await db.scalar(
+            select(Contract)
+            .options(selectinload(Contract.client_rate_schedule))
+            .where(Contract.id == w.contract_id)
+        )
+        first = date(*(int(x) for x in w.month.split("-")), 1)
+        synced = line_rate._contract_md(contract, first)
+        s = await service._settlement(db, w.contract_id, w.month)
+        found = line_rate.mismatches_of(service.meta_of(s))
+        # Synchronizacja przepisała stawkę linii na kontrakt, a rozliczenie
+        # porównało linię z kontraktem PO niej: bez fałszywego rozjazdu.
+        assert synced == Decimal("1200")
+        assert found == []
+
+
+async def test_dwie_osoby_w_jednym_zapisie_obie_przeliczone(module) -> None:
+    first = await _world(md_total="10")
+    second = await _world(md_total="10")
+    module.extend([first.client_id, second.client_id])
+    await _set_md(first, "15")
+    await _set_md(second, "15")
+    async with AsyncSessionLocal() as db:
+        for w in (first, second):
+            line = await db.get(ClientOrder, w.line_id)
+            line.md_total = Decimal("40")
+            line.md_remaining = Decimal("40")
+        await commit_order_write(db)
+    async with AsyncSessionLocal() as db:
+        for w in (first, second):
+            s = await service._settlement(db, w.contract_id, w.month)
+            assert service.md_over(s) is None
 
 
 async def test_stawka_linii_inna_niz_kontrakt_uwaga_i_karta_bez_kwot(module) -> None:
