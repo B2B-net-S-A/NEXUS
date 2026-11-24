@@ -6,7 +6,9 @@ w NEXUSIE screeningów ani rozmów. Planuje prep i drugi prep oraz musi znać
 termin rozmowy kandydata U KLIENTA, żeby zadzwonić ≤30 min po niej. Ekran
 prowadzi teraz jeden cykl per para (kandydat, rekrutacja):
 `Terminy od klienta (DL) → Wybór terminu (rekruter) → Prep → Prep 2 →
-Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
+Rozmowa u klienta → Telefon ≤30 min → Debrief`; od 24.11.2026 przed Prepem 1
+stoi Przygotowanie rekrutera (krok `prep0`, opcjonalne —
+`przygotowanie-trzeci-prep-rekrutera.md`), więc kroków i kolumn jest 8. Raport:
 `docs/calendar-client-interview-cycle-completion-report.md`.
 
 - **Dwa widoki: Tablica (domyślna) i Tydzień** (`?view=week`; zakładki

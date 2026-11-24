@@ -36,7 +36,7 @@ from app.models.job import Job
 from app.models.notification import Notification, NotificationType
 from app.models.prep_meeting import PrepMeeting, PrepReview
 from app.models.user import User
-from app.services import prep_availability, prep_invitation
+from app.services import prep_availability, prep_invitation, prep_labels
 from app.services.job_working_title import job_display_title_expr
 
 ChangeKind = Literal["scheduled", "moved", "cancelled", "attendees", "organizer"]
@@ -66,6 +66,36 @@ async def _name(db: AsyncSession, user_id: Optional[int]) -> str:
     return (await db.scalar(select(User.name).where(User.id == user_id))) or (
         "ktoś z zespołu"
     )
+
+
+def _p(n: int) -> str:
+    return prep_labels.name(n)
+
+
+def _ag(n: int, masculine: str) -> str:
+    return prep_labels.agree(n, masculine)
+
+
+def _yours(n: int) -> str:
+    """„Twój Prep 1” / „Twoje przygotowanie” (F3: Przygotowanie jest nijakie)."""
+    if n == prep_labels.PREPARATION:
+        return "Twoje przygotowanie"
+    return f"Twój {prep_labels.name(n)}"
+
+
+def _new(n: int) -> str:
+    if n == prep_labels.PREPARATION:
+        return "Nowe przygotowanie"
+    return f"Nowy {prep_labels.name(n)}"
+
+
+def _noun(n: int) -> str:
+    """Rzeczownik w treści: „prep” albo „przygotowanie”."""
+    return "przygotowanie" if n == prep_labels.PREPARATION else "prep"
+
+
+def _this(n: int) -> str:
+    return "to przygotowanie" if n == prep_labels.PREPARATION else "ten prep"
 
 
 def _when(value: Optional[datetime]) -> str:
@@ -160,45 +190,45 @@ async def notify_prep_change(
     short = _short(event.start_time)
     yours: dict[ChangeKind, tuple[str, str]] = {
         "scheduled": (
-            f"Nowy Prep {n} w Twoim kalendarzu · {short}",
-            f"{who} — {what}: prep zaplanowany przez: {author}.",
+            f"{_new(n)} w Twoim kalendarzu · {short}",
+            f"{who} — {what}: {_noun(n)} {_ag(n, 'zaplanowany')} przez: {author}.",
         ),
         "moved": (
-            f"Twój Prep {n} przełożony na {short}",
+            f"{_yours(n)} {_ag(n, 'przełożony')} na {short}",
             f"{who} — {what}: zmiana od: {author}, było {_when(previous_start)}.",
         ),
         "cancelled": (
-            f"Twój Prep {n} odwołany",
-            f"{who} — {what}: prep odwołany przez: {author}.",
+            f"{_yours(n)} {_ag(n, 'odwołany')}",
+            f"{who} — {what}: {_noun(n)} {_ag(n, 'odwołany')} przez: {author}.",
         ),
         "attendees": (
-            f"Zmienieni zaproszeni na Twój Prep {n}",
+            f"Zmienieni zaproszeni na {_yours(n)}",
             f"{who} — {what}: zmiana od: {author}. Termin bez zmian ({when}).",
         ),
         "organizer": (
-            f"Prep {n} przekazany Tobie · {short}",
-            f"{who} — {what}: prowadzisz ten prep; zmiana od: {author}.",
+            f"{_p(n)} {_ag(n, 'przekazany')} Tobie · {short}",
+            f"{who} — {what}: prowadzisz {_this(n)}; zmiana od: {author}.",
         ),
     }
     others: dict[ChangeKind, tuple[str, str]] = {
         "scheduled": (
-            f"Prep {n} zaplanowany · {short}",
-            f"{who} — {what}: prowadzi {organizer}, zaplanowany przez: {author}.",
+            f"{_p(n)} {_ag(n, 'zaplanowany')} · {short}",
+            f"{who} — {what}: prowadzi {organizer}, {_ag(n, 'zaplanowany')} przez: {author}.",
         ),
         "moved": (
-            f"Prep {n} przełożony na {short}",
+            f"{_p(n)} {_ag(n, 'przełożony')} na {short}",
             f"{who} — {what}: zmiana od: {author}, było {_when(previous_start)}.",
         ),
         "cancelled": (
-            f"Prep {n} odwołany",
-            f"{who} — {what}: prep odwołany przez: {author}.",
+            f"{_p(n)} {_ag(n, 'odwołany')}",
+            f"{who} — {what}: {_noun(n)} {_ag(n, 'odwołany')} przez: {author}.",
         ),
         "attendees": (
-            f"Zmienieni zaproszeni na Prep {n}",
+            f"Zmienieni zaproszeni na {prep_labels.in_sentence(n)}",
             f"{who} — {what}: zmiana od: {author}.",
         ),
         "organizer": (
-            f"Prep {n}: prowadzi teraz {organizer}",
+            f"{_p(n)}: prowadzi teraz {organizer}",
             f"{who} — {what}: zmiana od: {author}. Termin {when}.",
         ),
     }
@@ -227,7 +257,7 @@ async def notify_prep_change(
             db,
             user_ids=[previous_organizer_id],
             ntype=NotificationType.prep_changed_yours,
-            title=f"Twój Prep {n} przekazany: prowadzi {organizer}",
+            title=f"{_yours(n)} {_ag(n, 'przekazany')}: prowadzi {organizer}",
             message=f"{who} — {what}: spotkanie zniknęło z Twojego kalendarza; zmiana od: {author}.",
             entity_type=entity,
             event_id=event.id,
@@ -270,13 +300,13 @@ async def notify_outlook_change(
     organizer = await _name(db, prep.organizer_user_id)
     n = prep.prep_no
     if kind == "moved":
-        title = f"Prep {n} przełożony na {_short(event.start_time)}"
+        title = f"{_p(n)} {_ag(n, 'przełożony')} na {_short(event.start_time)}"
         message = (
             f"{who} — {what}: nowy termin ustawiono w kalendarzu prowadzącego "
             f"({organizer}), było {_when(previous_start)}."
         )
     else:
-        title = f"Prep {n} odwołany"
+        title = f"{_p(n)} {_ag(n, 'odwołany')}"
         message = f"{who} — {what}: spotkanie odwołano w kalendarzu prowadzącego ({organizer})."
     return await _emit(
         db,
@@ -307,7 +337,7 @@ async def notify_candidate_response(
     if prep.proposed_start is not None:
         ntype = NotificationType.prep_candidate_declined
         entity = "prep_proposed"
-        title = f"Prep {n}: kandydat proponuje {_short(prep.proposed_start)}"
+        title = f"{_p(n)}: kandydat proponuje {_short(prep.proposed_start)}"
         message = (
             f"{who} — {what}: zamiast {when}. Przyjmij termin w panelu osoby "
             "(„Zmień” przy prepie) albo ustal inny."
@@ -315,17 +345,15 @@ async def notify_candidate_response(
     elif prep.candidate_response == "declined":
         ntype = NotificationType.prep_candidate_declined
         entity = "prep_declined"
-        title = f"Prep {n}: kandydat odrzucił zaproszenie"
-        message = (
-            f"{who} — {what}: termin {when} nie pasuje. Ustal nowy i przełóż prep."
-        )
+        title = f"{_p(n)}: kandydat odrzucił zaproszenie"
+        message = f"{who} — {what}: termin {when} nie pasuje. Ustal nowy i przełóż {_noun(n)}."
     elif prep.candidate_response in ("accepted", "tentative"):
         ntype = NotificationType.prep_candidate_response
         entity = f"prep_{prep.candidate_response}"
         title = (
-            f"Prep {n} przyjęty · {_short(event.start_time)}"
+            f"{_p(n)} {_ag(n, 'przyjęty')} · {_short(event.start_time)}"
             if prep.candidate_response == "accepted"
-            else f"Prep {n}: kandydat „może” · {_short(event.start_time)}"
+            else f"{_p(n)}: kandydat „może” · {_short(event.start_time)}"
         )
         message = f"{who} — {what}: odpowiedź na zaproszenie z Outlooka."
     else:
@@ -370,7 +398,7 @@ async def notify_no_response(
         db,
         user_ids=people,
         ntype=NotificationType.prep_no_response,
-        title=f"Brak odpowiedzi na Prep {prep.prep_no} · {_short(event.start_time)}",
+        title=f"Brak odpowiedzi na {prep_labels.in_sentence(prep.prep_no)} · {_short(event.start_time)}",
         message=f"{who} — {what}: potwierdź z kandydatem termin prepu.",
         entity_type="prep_no_response",
         event_id=event.id,
@@ -397,6 +425,9 @@ async def notify_review_ready(
     a brak oceny i tak widać w kroku prepu. Autora nie ma — ocenę robi AI.
     """
     if review.status != "ok" or not review.level:
+        return 0
+    if prep.prep_no == prep_labels.PREPARATION:
+        # Oceny przygotowania jeszcze nie ma (F4) — nie dzwonimy wynikiem Prepu 1.
         return 0
     people = await _pair_people(db, prep)
     if not people:

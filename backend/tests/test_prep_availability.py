@@ -27,8 +27,14 @@ def test_prep1_on_the_business_day_before_in_the_morning_without_calendar():
 
 def test_prep1_skips_busy_blocks_and_respects_candidate_window():
     busy = [
-        (datetime(2026, 10, 21, 8, 0, tzinfo=WAW), datetime(2026, 10, 21, 12, 0, tzinfo=WAW)),
-        (datetime(2026, 10, 21, 17, 0, tzinfo=WAW), datetime(2026, 10, 21, 17, 30, tzinfo=WAW)),
+        (
+            datetime(2026, 10, 21, 8, 0, tzinfo=WAW),
+            datetime(2026, 10, 21, 12, 0, tzinfo=WAW),
+        ),
+        (
+            datetime(2026, 10, 21, 17, 0, tzinfo=WAW),
+            datetime(2026, 10, 21, 17, 30, tzinfo=WAW),
+        ),
     ]
     out = pa.suggest(
         prep_no=1,
@@ -42,8 +48,13 @@ def test_prep1_skips_busy_blocks_and_respects_candidate_window():
 
 
 def test_prep2_close_to_two_hours_before_and_not_on_top_of_prep1():
-    prep1 = (datetime(2026, 10, 22, 12, 30, tzinfo=WAW), datetime(2026, 10, 22, 13, 15, tzinfo=WAW))
-    out = pa.suggest(prep_no=2, interview_start=INTERVIEW, now=NOW, busy=[], avoid=[prep1])
+    prep1 = (
+        datetime(2026, 10, 22, 12, 30, tzinfo=WAW),
+        datetime(2026, 10, 22, 13, 15, tzinfo=WAW),
+    )
+    out = pa.suggest(
+        prep_no=2, interview_start=INTERVIEW, now=NOW, busy=[], avoid=[prep1]
+    )
     assert _local(out) == ["Thu 22.10 11:30", "Thu 22.10 10:30", "Thu 22.10 09:30"]
     for o in out:
         assert not (o.start < prep1[1] and prep1[0] < o.end)
@@ -89,12 +100,27 @@ def test_busy_from_schedule_marks_errors_as_unknown_calendar():
             {
                 "scheduleId": "DL@example.org",
                 "scheduleItems": [
-                    {"status": "busy", "start": {"dateTime": "2026-10-21T08:00:00"}, "end": {"dateTime": "2026-10-21T09:00:00"}},
-                    {"status": "free", "start": {"dateTime": "2026-10-21T10:00:00"}, "end": {"dateTime": "2026-10-21T11:00:00"}},
-                    {"status": "tentative", "start": {"dateTime": "2026-10-21T12:00:00"}, "end": {"dateTime": "2026-10-21T12:30:00"}},
+                    {
+                        "status": "busy",
+                        "start": {"dateTime": "2026-10-21T08:00:00"},
+                        "end": {"dateTime": "2026-10-21T09:00:00"},
+                    },
+                    {
+                        "status": "free",
+                        "start": {"dateTime": "2026-10-21T10:00:00"},
+                        "end": {"dateTime": "2026-10-21T11:00:00"},
+                    },
+                    {
+                        "status": "tentative",
+                        "start": {"dateTime": "2026-10-21T12:00:00"},
+                        "end": {"dateTime": "2026-10-21T12:30:00"},
+                    },
                 ],
             },
-            {"scheduleId": "outside@example.org", "error": {"responseCode": "ErrorAccessDenied"}},
+            {
+                "scheduleId": "outside@example.org",
+                "error": {"responseCode": "ErrorAccessDenied"},
+            },
         ]
     }
     out = pa.busy_from_schedule(payload, window_start=start)
@@ -169,7 +195,11 @@ def _window_request() -> ClientInterviewSlotRequest:
                 "end": None,
                 "window_end": datetime(2026, 10, 23, 12, 0, tzinfo=WAW),
             },
-            {"start": datetime(2026, 10, 22, 10, 0, tzinfo=WAW), "end": None, "window_end": None},
+            {
+                "start": datetime(2026, 10, 22, 10, 0, tzinfo=WAW),
+                "end": None,
+                "window_end": None,
+            },
         ],
         duration_minutes=45,
         now=NOW,
@@ -240,14 +270,18 @@ def test_choose_hour_inside_window_rewrites_the_slot(frozen_now):
 
 
 @pytest.mark.parametrize(
-    "hour,minute", [(8, 30), (11, 30)]  # przed oknem; koniec po 12:00
+    "hour,minute",
+    [(8, 30), (11, 30)],  # przed oknem; koniec po 12:00
 )
 def test_choose_hour_outside_window_is_refused(frozen_now, hour, minute):
     req = _window_request()
     index = next(i for i, s in enumerate(req.slots) if "window_end" in s)
     with pytest.raises(HTTPException) as exc:
         interview_slots.choose(
-            req, index, user_id=1, start=datetime(2026, 10, 23, hour, minute, tzinfo=WAW)
+            req,
+            index,
+            user_id=1,
+            start=datetime(2026, 10, 23, hour, minute, tzinfo=WAW),
         )
     assert exc.value.status_code == 422
     assert req.status == "awaiting_recruiter"
@@ -276,8 +310,10 @@ async def test_suggestions_for_prep1_avoid_an_already_scheduled_prep2(monkeypatc
     from app.services import prep_meetings as svc
 
     now = datetime.now(timezone.utc)
-    interview = (now + timedelta(days=6)).astimezone(WAW).replace(
-        hour=14, minute=0, second=0, microsecond=0
+    interview = (
+        (now + timedelta(days=6))
+        .astimezone(WAW)
+        .replace(hour=14, minute=0, second=0, microsecond=0)
     )
     # Prep 2 stoi dokładnie na godzinie, którą Prep 1 podpowiedziałby jako pierwszą.
     first = pa.suggest(prep_no=1, interview_start=interview, now=now, busy=None)[0]
@@ -316,12 +352,11 @@ async def test_suggestions_for_prep1_avoid_an_already_scheduled_prep2(monkeypatc
         interview_start=interview,
         candidate_from=None,
         candidate_to=None,
+        prep0_minutes=45,
         prep1_minutes=45,
         prep2_minutes=45,
         db=_Db(),
     )
     prep1 = next(p for p in out.preps if p.prep_no == 1)
     assert prep1.options
-    assert all(
-        not (o.start < first.end and first.start < o.end) for o in prep1.options
-    )
+    assert all(not (o.start < first.end and first.start < o.end) for o in prep1.options)

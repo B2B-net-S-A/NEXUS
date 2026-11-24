@@ -70,6 +70,7 @@ from app.services import (
     prep2_skips,
     prep_availability,
     prep_invitation,
+    prep_labels,
     prep_meetings,
     prep_notifications,
     prep_review,
@@ -172,7 +173,8 @@ async def _client_name(db: AsyncSession, job: Job) -> Optional[str]:
 class PrepCreate(BaseModel):
     candidate_id: int
     job_id: int
-    prep_no: Literal[1, 2]
+    # 0 = Przygotowanie rekrutera przed Prepem 1 (F3, 24.11.2026, migracja 0772).
+    prep_no: Literal[0, 1, 2]
     organizer_user_id: int
     start: datetime
     end: datetime
@@ -396,6 +398,17 @@ async def prep_options(
         db, candidate_id=candidate_id, job_id=job_id
     )
     who = prep_meetings.candidate_name(candidate) if candidate else "Kandydat"
+    # Numer spotkania w podglądzie (F3): z Przygotowaniem w rundzie Prep 1 i 2
+    # dostają „(spotkanie 2/3)” — tak samo jak przy zapisie.
+    has_preparation = (
+        await prep_meetings.active_prep(
+            db,
+            candidate_id=candidate_id,
+            job_id=job_id,
+            prep_no=prep_labels.PREPARATION,
+        )
+        is not None
+    )
     role, role_source = await prep_role.title(db, job)
     role_text = prep_role.description(job)
     prep1 = await prep_review.latest_prep1_review(
@@ -428,7 +441,12 @@ async def prep_options(
         ],
         invitation={
             n: InvitationPreviewOut(
-                title=prep_invitation.title(n, who, client_name),
+                title=prep_invitation.title(
+                    n,
+                    who,
+                    client_name,
+                    number=prep_invitation.meeting_number(n, has_preparation),
+                ),
                 body=prep_invitation.text(
                     prep_no=n,
                     client_name=client_name,
@@ -437,6 +455,7 @@ async def prep_options(
                     note=prep_invitation.NOTE_FIELD,
                     organizer_name=prep_invitation.ORGANIZER_FIELD,
                     role_hint=prep_invitation.ROLE_HINT_FIELD,
+                    number=prep_invitation.meeting_number(n, has_preparation),
                 ),
                 interview_line=(
                     prep_invitation.interview_line(interview_start)
@@ -444,7 +463,7 @@ async def prep_options(
                     else None
                 ),
             )
-            for n in (1, 2)
+            for n in prep_labels.PREP_NOS
         },
     )
 
@@ -500,17 +519,20 @@ async def prep_suggestions(
     interview_start: datetime = Query(...),
     candidate_from: Optional[str] = Query(None, max_length=5),
     candidate_to: Optional[str] = Query(None, max_length=5),
+    prep0_minutes: int = Query(prep_availability.PREP_MINUTES),
     prep1_minutes: int = Query(prep_availability.PREP_MINUTES),
     prep2_minutes: int = Query(prep_availability.PREP_MINUTES),
     db: AsyncSession = Depends(get_db),
 ) -> PrepSuggestionsOut:
-    """Wolne godziny Prepu 1 i Prepu 2 przed wybieraną rozmową (20.10.2026).
+    """Wolne godziny Przygotowania, Prepu 1 i Prepu 2 przed wybieraną rozmową
+    (20.10.2026; Przygotowanie od 24.11.2026, F3).
 
     Niczego nie zapisuje. Zajętość z kalendarzy prowadzących przez aplikację
     prepów (``prep_availability``); bez niej godziny liczą się bez kalendarza.
     Godziny liczą się dla czasu wybranego osobno dla każdego prepu.
+    Przygotowanie wypada przed Prepem 1, a Prep 1 po nim.
     """
-    minutes_by_prep = {1: prep1_minutes, 2: prep2_minutes}
+    minutes_by_prep = {0: prep0_minutes, 1: prep1_minutes, 2: prep2_minutes}
     if any(m not in prep_availability.PREP_DURATIONS for m in minutes_by_prep.values()):
         raise HTTPException(
             status_code=422, detail="Czas prepu to 30, 45, 60 albo 90 minut."
@@ -559,10 +581,10 @@ async def prep_suggestions(
 
     out: list[PrepSuggestion] = []
     avoid: list[tuple[datetime, datetime]] = []
-    # Oba zaplanowane prepy omijamy od początku — zaplanowany Prep 2 nie może
+    # Zaplanowane prepy omijamy od początku — zaplanowany Prep 2 nie może
     # dostać Prepu 1 w tej samej godzinie (audyt 22.10, F34).
     scheduled: dict[int, Optional[CalendarEvent]] = {}
-    for prep_no in (1, 2):
+    for prep_no in prep_labels.PREP_NOS:
         existing = await prep_meetings.active_prep(
             db, candidate_id=candidate_id, job_id=job_id, prep_no=prep_no
         )
@@ -574,7 +596,15 @@ async def prep_suggestions(
         scheduled[prep_no] = event
         if event is not None:
             avoid.append((event.start_time, event.end_time))
-    for prep_no in (1, 2):
+    # Kolejność spotkań (F3): Przygotowanie kończy się przed zaplanowanym
+    # Prepem 1, a Prep 1 zaczyna po Przygotowaniu (zaplanowanym albo polecanym).
+    prep1_event = scheduled[1]
+    preparation_end: Optional[datetime] = (
+        scheduled[prep_labels.PREPARATION].end_time
+        if scheduled[prep_labels.PREPARATION] is not None
+        else None
+    )
+    for prep_no in prep_labels.PREP_NOS:
         uid = suggested.get(prep_no)
         user = users.get(uid) if uid else None
         event = scheduled[prep_no]
@@ -582,10 +612,17 @@ async def prep_suggestions(
         calendar: Literal["ok", "unavailable", "off"] = (
             "off" if not enabled else ("ok" if user_busy is not None else "unavailable")
         )
-        options = (
-            []
-            if event is not None
-            else prep_availability.suggest(
+        order = {
+            "end_by": (
+                _aware(prep1_event.start_time)
+                if prep_no == prep_labels.PREPARATION and prep1_event is not None
+                else None
+            ),
+            "not_before": _aware(preparation_end) if prep_no == 1 else None,
+        }
+        options: list = []
+        if event is None:
+            options = prep_availability.suggest(
                 prep_no=prep_no,
                 interview_start=interview_start,
                 now=now,
@@ -593,11 +630,26 @@ async def prep_suggestions(
                 candidate_windows=windows,
                 avoid=avoid,
                 minutes=minutes_by_prep[prep_no],
+                **order,
             )
-        )
+            if not options and any(v is not None for v in order.values()):
+                # Kolejność to podpowiedź, nie warunek: gdy przez nią nie ma żadnej
+                # godziny (np. przygotowanie po nowej, wcześniejszej rozmowie),
+                # liczymy bez niej, a okno ostrzeże o kolejności.
+                options = prep_availability.suggest(
+                    prep_no=prep_no,
+                    interview_start=interview_start,
+                    now=now,
+                    busy=user_busy,
+                    candidate_windows=windows,
+                    avoid=avoid,
+                    minutes=minutes_by_prep[prep_no],
+                )
         if options and event is None:
-            # Prep 2 nie podpowiada godziny polecanego Prepu 1.
+            # Kolejny prep nie podpowiada godziny polecanego wcześniejszego.
             avoid.append((options[0].start, options[0].end))
+            if prep_no == prep_labels.PREPARATION:
+                preparation_end = options[0].end
         out.append(
             PrepSuggestion(
                 prep_no=prep_no,
@@ -1197,6 +1249,9 @@ async def prep_quality_report(
                 CalendarEvent.start_time <= now,
                 CalendarEvent.status != EventStatus.cancelled,
                 PrepMeeting.organizer_user_id.isnot(None),
+                # Przygotowania (F3) raport policzy osobno w F5 — tu oceniamy
+                # prepy z DL-em i follow-upy.
+                PrepMeeting.prep_no != prep_labels.PREPARATION,
             )
             .group_by(PrepMeeting.organizer_user_id)
         )
@@ -1233,6 +1288,8 @@ async def prep_quality_report(
                     CalendarEvent.status != EventStatus.cancelled,
                     CalendarEvent.start_time >= since - timedelta(days=30),
                     CalendarEvent.candidate_id.in_({iv[0] for iv in interviews}),
+                    # „Dwa prepy” to Prep 1 i 2 — Przygotowanie (F3) ich nie zastępuje.
+                    prep2_skips.not_preparation(),
                 )
             )
         ).all()

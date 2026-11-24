@@ -67,7 +67,7 @@ describe("interview-pick", () => {
     interviewStart: INTERVIEW,
     busy,
     organizerName: "Ewa DL",
-    other: null,
+    others: [],
     now: NOW,
   };
 
@@ -88,9 +88,13 @@ describe("interview-pick", () => {
 
   it("blokady: po rozmowie, na drugim prepie, w przeszłości", () => {
     expect(checkManualPrep({ ...base, start: at(13, 8, 30) }).blocks[0]).toMatch(/^Prep musi skończyć się przed rozmową/);
-    const other = { start: at(12, 10), end: at(12, 10, 45), prepNo: 1 };
-    expect(checkManualPrep({ ...base, prepNo: 2, other, start: at(12, 10, 30) }).blocks[0]).toMatch(
+    const others = [{ start: at(12, 10), end: at(12, 10, 45), prepNo: 1 as const }];
+    expect(checkManualPrep({ ...base, prepNo: 2, others, start: at(12, 10, 30) }).blocks[0]).toMatch(
       /^W tym czasie jest Prep 1/,
+    );
+    const prep0 = [{ start: at(11, 14), end: at(11, 14, 45), prepNo: 0 as const }];
+    expect(checkManualPrep({ ...base, others: prep0, start: at(11, 14, 30) }).blocks[0]).toMatch(
+      /^W tym czasie jest przygotowanie/,
     );
     expect(checkManualPrep({ ...base, start: at(9, 8) }).blocks).toEqual(["Ta godzina już minęła."]);
   });
@@ -108,17 +112,41 @@ describe("interview-pick", () => {
     );
   });
 
-  it("najbliższe wolne starty tego dnia omijają zajęte i drugi prep", () => {
+  it("przygotowanie po Prepie 1 (i Prep 1 przed przygotowaniem) to ostrzeżenie, nie blokada", () => {
+    const prep1 = [{ start: at(11, 10), end: at(11, 10, 45), prepNo: 1 as const }];
+    const late = checkManualPrep({ ...base, prepNo: 0, others: prep1, start: at(11, 13, 15) });
+    expect(late.blocks).toEqual([]);
+    expect(late.warnings[0]).toMatch(/^Przygotowanie wypada po Prepie 1 \(.+\) — zwykle jest przed nim\.$/);
+    const prep0 = [{ start: at(11, 13, 15), end: at(11, 14), prepNo: 0 as const }];
+    const early = checkManualPrep({ ...base, prepNo: 1, others: prep0, start: at(11, 10) });
+    expect(early.warnings[0]).toMatch(/^Prep 1 wypada przed przygotowaniem/);
+    // Kolejność Prep 1 → Prep 2 bez ostrzeżenia (jak dotąd).
+    expect(
+      checkManualPrep({ ...base, prepNo: 2, others: prep1, start: at(11, 8) }).warnings.join(" "),
+    ).not.toMatch(/wypada/);
+  });
+
+  it("najbliższe wolne starty tego dnia omijają zajęte i inne prepy", () => {
     const near = nearestFreeStarts({
       day: "2031-06-11",
       around: at(11, 11, 45),
       minutes: 45,
       interviewStart: INTERVIEW,
       busy,
-      other: null,
+      others: [],
       now: NOW,
     });
     expect(near).toEqual([at(11, 10, 30), at(11, 13)]);
+    const withPrep = nearestFreeStarts({
+      day: "2031-06-11",
+      around: at(11, 11, 45),
+      minutes: 45,
+      interviewStart: INTERVIEW,
+      busy,
+      others: [{ start: at(11, 13), end: at(11, 13, 45) }],
+      now: NOW,
+    });
+    expect(withPrep).not.toContain(at(11, 13));
   });
 
   it("dni do wyboru: robocze od dziś do dnia rozmowy", () => {

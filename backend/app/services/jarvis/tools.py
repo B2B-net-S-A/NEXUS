@@ -683,9 +683,11 @@ _CYCLE_TODO_LABELS = {
     "slots_pick": "wybierz termin z propozycji klienta",
     "slots_confirm": "potwierdź termin u klienta",
     "slots_expired": "wszystkie terminy od klienta minęły — dodaj nowe",
-    "prep_missing": "brak przygotowania (prep) przed rozmową",
+    # „Przygotowanie” to od 24.11.2026 osobne spotkanie rekrutera przed Prepem 1
+    # (F3), więc braki prepów nazywamy numerem, nie słowem „przygotowanie”.
+    "prep_missing": "brak Prepu 1 (z Delivery Leadem) przed rozmową",
     "slots_missing": "brak terminów od klienta",
-    "prep2_missing": "brak drugiego przygotowania",
+    "prep2_missing": "brak Prepu 2 (follow-up rekrutera)",
     "prep_late": "prep zaplanowany po rozmowie u klienta — trzeba go przełożyć",
 }
 

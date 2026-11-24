@@ -42,6 +42,8 @@ import {
   type ManualPrepCheck,
   type Span,
 } from "@/lib/interview-pick";
+import { PREP_NOS, prepLead, prepName, prepGenitive, type PrepNo } from "@/lib/prep-label";
+import { defaultInviteeIds } from "@/lib/prep-people";
 import { useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 
@@ -50,6 +52,9 @@ const INPUT =
   "h-9 rounded-md border border-border bg-card px-2 text-sm focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
 
 type PrepPick = { kind: "option"; start: string; end: string } | { kind: "manual" } | { kind: "none" };
+const ALL_DEFAULT_MINUTES: Record<PrepNo, number> = Object.fromEntries(
+  PREP_NOS.map((n) => [n, DEFAULT_PREP_MINUTES]),
+) as Record<PrepNo, number>;
 /** „Inna godzina…” — dzień i godzina z pól (czas przeglądarki). */
 type ManualTime = { day: string; time: string };
 
@@ -62,8 +67,10 @@ function newRequestId(): string {
 /**
  * „Umów rozmowę i prepy” (20.10.2026, PR 2 uproszczenia cyklu): rekruter po
  * jednym telefonie do kandydata wybiera termin od klienta i od razu godziny
- * obu prepów — Prep 1 z wolnych okien w kalendarzu Delivery Leada, Prep 2
- * ze swojego. Jeden przycisk wybiera termin i wysyła oba zaproszenia Teams.
+ * prepów — Przygotowanie (od 24.11.2026, F3) i Prep 2 ze swojego kalendarza,
+ * Prep 1 z wolnych okien Delivery Leada. Jeden przycisk wybiera termin
+ * i wysyła wszystkie zaproszenia Teams. Kolejność spotkań ma pierwszeństwo:
+ * wcześniejszy prep wybiera godzinę pierwszy, późniejszy omija jego godzinę.
  * Do tej pory: „Wyślij do DL”, potem dwa razy osobne „Zaplanuj prep” z
  * godziną zgadywaną bez kalendarza i ustaleniami z DL na Teams.
  */
@@ -92,7 +99,7 @@ export function PickInterviewDialog({
   const [candTo, setCandTo] = useState("");
   const [picks, setPicks] = useState<Record<number, PrepPick | undefined>>({});
   const [manual, setManual] = useState<Record<number, ManualTime | undefined>>({});
-  const [minutes, setMinutes] = useState<Record<1 | 2, number>>({ 1: DEFAULT_PREP_MINUTES, 2: DEFAULT_PREP_MINUTES });
+  const [minutes, setMinutes] = useState<Record<PrepNo, number>>(ALL_DEFAULT_MINUTES);
   // Godzina zaznaczona w chwili zmiany czasu — gdy dłuższy prep się w niej nie
   // mieści, okno mówi, że zaznaczenie przeskoczyło.
   const [movedFrom, setMovedFrom] = useState<Record<number, string | undefined>>({});
@@ -114,10 +121,10 @@ export function PickInterviewDialog({
     setCandTo("");
     setPicks({});
     setManual({});
-    setMinutes({ 1: DEFAULT_PREP_MINUTES, 2: DEFAULT_PREP_MINUTES });
+    setMinutes(ALL_DEFAULT_MINUTES);
     setMovedFrom({});
     setError(null);
-    requestIds.current = { 1: newRequestId(), 2: newRequestId() };
+    requestIds.current = { 0: newRequestId(), 1: newRequestId(), 2: newRequestId() };
   }, [open, request, initialIndex]);
 
   const duration = request?.duration_minutes ?? 60;
@@ -133,6 +140,7 @@ export function PickInterviewDialog({
           interviewStart: start,
           candidateFrom: candFrom || null,
           candidateTo: candTo || null,
+          prep0Minutes: minutes[0],
           prep1Minutes: minutes[1],
           prep2Minutes: minutes[2],
         }
@@ -155,10 +163,11 @@ export function PickInterviewDialog({
       const next: Record<number, PrepPick | undefined> = {};
       for (const p of preps) {
         const kept = prev[p.prep_no];
-        // Polecana godzina nie może wpaść na już zaplanowany drugi prep (audyt 22.10, F34).
-        const scheduledOther = preps.find((o) => o.prep_no !== p.prep_no && o.scheduled_start);
-        const otherSpan = scheduledOther ? spanOf(scheduledOther.scheduled_start as string, scheduledOther.minutes) : null;
-        const first = p.options.find((o) => !otherSpan || !overlaps(o, otherSpan));
+        // Polecana godzina nie może wpaść na już zaplanowany inny prep (audyt 22.10, F34).
+        const scheduledOthers = preps
+          .filter((o) => o.prep_no !== p.prep_no && o.scheduled_start)
+          .map((o) => spanOf(o.scheduled_start as string, o.minutes));
+        const first = p.options.find((o) => !scheduledOthers.some((s) => overlaps(o, s)));
         if (kept?.kind === "none" || kept?.kind === "manual") next[p.prep_no] = kept;
         else {
           // Ta sama godzina dostaje koniec z nowych podpowiedzi — czas prepu mógł się zmienić.
@@ -190,14 +199,16 @@ export function PickInterviewDialog({
     return out;
   }, [suggestions.data, picks, manual]);
 
-  const otherOf = (prepNo: number): (Span & { prepNo: number }) | null => {
-    const no = prepNo === 1 ? 2 : 1;
-    const span = spans[no];
-    // Pierwszeństwo ma Prep 1: przy Prepie 1 liczy się tylko już zaplanowany Prep 2.
-    if (!span) return null;
-    if (prepNo === 1 && !suggestions.data?.preps.find((p) => p.prep_no === 2)?.scheduled_start) return null;
-    return { ...span, prepNo: no };
-  };
+  // Pozostałe prepy, na które ten nie może wpaść. Pierwszeństwo ma wcześniejszy
+  // prep (Przygotowanie → Prep 1 → Prep 2): przy nim liczą się z późniejszych
+  // tylko te już zaplanowane.
+  const othersOf = (prepNo: PrepNo): (Span & { prepNo: PrepNo })[] =>
+    (suggestions.data?.preps ?? []).flatMap((p) => {
+      const span = spans[p.prep_no];
+      if (p.prep_no === prepNo || !span) return [];
+      if (p.prep_no > prepNo && !p.scheduled_start) return [];
+      return [{ ...span, prepNo: p.prep_no }];
+    });
 
   const checks = useMemo(() => {
     const out: Record<number, ManualPrepCheck | null> = {};
@@ -212,25 +223,31 @@ export function PickInterviewDialog({
               interviewStart: start,
               busy: p.calendar === "ok" ? (p.busy ?? []) : null,
               organizerName: p.organizer?.name ?? "Prowadzący",
-              other: otherOf(p.prep_no),
+              others: othersOf(p.prep_no),
             })
           : null;
     }
     return out;
-    // otherOf czyta tylko spans i suggestions.data.
+    // othersOf czyta tylko spans i suggestions.data.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestions.data, picks, spans, start]);
 
-  // Dwa prepy nie mogą wypaść o tej samej godzinie: podpowiedź Prepu 2, która
-  // nachodzi na Prep 1, przeskakuje na pierwszą wolną godzinę (albo „później”).
-  const prep1Span = spans[1] ?? null;
+  // Dwa prepy nie mogą wypaść o tej samej godzinie: podpowiedź późniejszego
+  // prepu, która nachodzi na wcześniejszy, przeskakuje na pierwszą wolną
+  // godzinę (albo „później”).
   useEffect(() => {
-    const p2 = picks[2];
-    if (!prep1Span || p2?.kind !== "option" || !overlaps(prep1Span, p2)) return;
-    const prep2 = suggestions.data?.preps.find((p) => p.prep_no === 2);
-    const free = prep2?.options.find((o) => !overlaps(o, prep1Span));
-    setPicks((prev) => ({ ...prev, 2: free ? { kind: "option", ...free } : { kind: "none" } }));
-  }, [picks, suggestions.data, prep1Span]);
+    for (const p of suggestions.data?.preps ?? []) {
+      const pick = picks[p.prep_no];
+      if (pick?.kind !== "option") continue;
+      const earlier = othersOf(p.prep_no).filter((o) => o.prepNo < p.prep_no);
+      if (!earlier.some((o) => overlaps(o, pick))) continue;
+      const free = p.options.find((o) => !earlier.some((e) => overlaps(o, e)));
+      setPicks((prev) => ({ ...prev, [p.prep_no]: free ? { kind: "option", ...free } : { kind: "none" } }));
+      return;
+    }
+    // othersOf czyta tylko spans i suggestions.data.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picks, suggestions.data, spans]);
 
   const prepsEnabled = suggestions.data?.enabled ?? false;
   const openPrep = (p: { scheduled_start: string | null; organizer: unknown }) => !p.scheduled_start && p.organizer != null;
@@ -241,13 +258,12 @@ export function PickInterviewDialog({
         const pick = picks[p.prep_no];
         const kind = pick?.kind;
         if (pick?.kind === "option") {
-          // Podpowiedź nachodząca na drugi prep tej osoby nie idzie do zaproszeń (F34).
-          const other = otherOf(p.prep_no);
-          return !(other && overlaps(pick, other));
+          // Podpowiedź nachodząca na inny prep tej osoby nie idzie do zaproszeń (F34).
+          return !othersOf(p.prep_no).some((o) => overlaps(pick, o));
         }
         return kind === "manual" && spans[p.prep_no] != null && (checks[p.prep_no]?.blocks.length ?? 0) === 0;
       }),
-    // otherOf czyta tylko spans i suggestions.data.
+    // othersOf czyta tylko spans i suggestions.data.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [suggestions.data, picks, spans, checks],
   );
@@ -276,9 +292,16 @@ export function PickInterviewDialog({
               organizer_user_id: p.organizer.id,
               start: span.start,
               end: span.end,
-              // Planujący za kogoś jest na liście zaproszonych (D3, 17.10.2026).
-              attendee_user_ids:
-                currentUserId != null && currentUserId !== p.organizer.id ? [currentUserId] : [],
+              // Planujący za kogoś jest na liście zaproszonych (D3, 17.10.2026),
+              // a na Prep 1 także rekruter kandydata (trzy rozmowy, 11.11.2026).
+              attendee_user_ids: defaultInviteeIds({
+                organizerId: p.organizer.id,
+                currentUserId,
+                recruiterId:
+                  p.prep_no === 1
+                    ? (suggestions.data?.preps.find((x) => x.prep_no === 2)?.organizer?.id ?? null)
+                    : null,
+              }),
               client_request_id: requestIds.current[p.prep_no],
               // Ostrzeżenie „ma wtedy zajęte” było na ekranie — zapis świadomy.
               accept_busy: checks[p.prep_no]?.busy != null,
@@ -287,7 +310,9 @@ export function PickInterviewDialog({
               interview_start: start,
             });
           } catch (err) {
-            failed.push(`Prep ${p.prep_no}: ${apiErrorMessage(err, "nie powstał")}`);
+            failed.push(
+              `${prepName(p.prep_no)}: ${apiErrorMessage(err, p.prep_no === 0 ? "nie powstało" : "nie powstał")}`,
+            );
           }
         }
       }
@@ -310,7 +335,7 @@ export function PickInterviewDialog({
           `${head} Blokady nie udało się dodać do Outlooka rekrutera — rozmowa jest tylko w NEXUSIE.`,
         );
       } else if (failed.length) {
-        toast.showError(`${head} ${failed.join(" ")} Zaplanuj go z panelu osoby.`);
+        toast.showError(`${head} ${failed.join(" ")} Brakujące zaplanujesz z panelu osoby.`);
       } else {
         toast.showSuccess(invited > 0 ? `${head} Zaproszenia na prepy wysłane (${invited}).` : head);
       }
@@ -332,7 +357,7 @@ export function PickInterviewDialog({
       onOpenChange={onOpenChange}
       size="lg"
       title="Umów rozmowę i prepy"
-      description="Po telefonie do kandydata: termin u klienta i godziny obu prepów w jednym kroku."
+      description="Po telefonie do kandydata: termin u klienta i godziny prepów w jednym kroku."
       footer={
         <>
           <button
@@ -486,8 +511,8 @@ export function PickInterviewDialog({
                   key={p.prep_no}
                   prep={p}
                   interviewStart={start}
-                  // Pierwszeństwo ma Prep 1 — wyłączamy tylko godziny Prepu 2.
-                  other={otherOf(p.prep_no)}
+                  // Pierwszeństwo ma wcześniejszy prep — wyłączamy godziny późniejszego.
+                  others={othersOf(p.prep_no)}
                   pick={picks[p.prep_no]}
                   manual={manual[p.prep_no]}
                   span={spans[p.prep_no] ?? null}
@@ -536,7 +561,7 @@ export function PickInterviewDialog({
 function PrepPicker({
   prep,
   interviewStart,
-  other,
+  others,
   pick,
   manual,
   span,
@@ -550,8 +575,8 @@ function PrepPicker({
 }: {
   prep: PrepSuggestion;
   interviewStart: string;
-  /** Drugi prep tej osoby — godziny, które na niego nachodzą, są wyłączone. */
-  other: (Span & { prepNo: number }) | null;
+  /** Pozostałe prepy tej osoby — godziny, które na nie nachodzą, są wyłączone. */
+  others: (Span & { prepNo: PrepNo })[];
   pick: PrepPick | undefined;
   manual: ManualTime | undefined;
   /** Godzina tego prepu (podpowiedź albo wpisana). */
@@ -567,7 +592,7 @@ function PrepPicker({
   onManual: (next: ManualTime) => void;
 }) {
   const who = prep.organizer?.name ?? "brak prowadzącego";
-  const lead = prep.prep_no === 1 ? "prowadzi Delivery Lead" : "prowadzi rekruter";
+  const lead = prepLead(prep.prep_no);
   const isManual = pick?.kind === "manual";
   const chip = (on: boolean) =>
     cn(
@@ -578,7 +603,7 @@ function PrepPicker({
     <div className={cn("rounded-lg border p-3", isManual ? "border-primary" : "border-border")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-sm">
-          <span className="font-semibold">Prep {prep.prep_no}</span>
+          <span className="font-semibold">{prepName(prep.prep_no)}</span>
           <span className="text-muted-foreground">
             {" "}
             · {lead}: {who} · Teams
@@ -591,7 +616,7 @@ function PrepPicker({
               <select
                 value={minutes}
                 onChange={(e) => onMinutes(Number(e.target.value))}
-                aria-label={`Czas Prepu ${prep.prep_no}`}
+                aria-label={`Czas ${prepGenitive(prep.prep_no)}`}
                 className={cn(INPUT, "font-normal text-foreground")}
               >
                 {PREP_DURATIONS.map((m) => (
@@ -628,21 +653,21 @@ function PrepPicker({
           ) : null}
           <div
             role="radiogroup"
-            aria-label={`Godzina Prepu ${prep.prep_no}`}
+            aria-label={`Godzina ${prepGenitive(prep.prep_no)}`}
             aria-busy={refreshing}
             className={cn("mt-2 flex flex-wrap gap-2", refreshing && "opacity-50")}
           >
             {prep.options.map((o, i) => {
               const on = pick?.kind === "option" && pick.start === o.start;
-              const clash = other != null && overlaps(o, other);
+              const clash = others.find((x) => overlaps(o, x));
               return (
                 <button
                   key={o.start}
                   type="button"
                   role="radio"
                   aria-checked={on}
-                  disabled={clash}
-                  title={clash ? "W tym czasie jest drugi prep" : undefined}
+                  disabled={clash != null}
+                  title={clash ? `W tym czasie jest ${prepName(clash.prepNo)}` : undefined}
                   onClick={() => onPick({ kind: "option", start: o.start, end: o.end })}
                   className={chip(on)}
                 >
@@ -680,7 +705,7 @@ function PrepPicker({
             <ManualPrepTime
               prep={prep}
               interviewStart={interviewStart}
-              other={other}
+              others={others}
               manual={manual}
               span={span}
               check={check}
@@ -707,7 +732,7 @@ function PrepPicker({
 function ManualPrepTime({
   prep,
   interviewStart,
-  other,
+  others,
   manual,
   span,
   check,
@@ -715,7 +740,7 @@ function ManualPrepTime({
 }: {
   prep: PrepSuggestion;
   interviewStart: string;
-  other: (Span & { prepNo: number }) | null;
+  others: (Span & { prepNo: PrepNo })[];
   manual: ManualTime;
   span: Span | null;
   check: ManualPrepCheck | null;
@@ -732,7 +757,7 @@ function ManualPrepTime({
           minutes: prep.minutes,
           interviewStart,
           busy,
-          other,
+          others,
         })
       : [];
   const id = `prep-${prep.prep_no}-manual`;

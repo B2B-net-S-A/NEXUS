@@ -2,14 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import type { PrepPersonOption } from "@/lib/api/prepMeetings";
 import {
-  MAX_INVITEES,
-  NO_INVITEES,
   addEmail,
   addUser,
+  defaultInviteeIds,
   foldText,
-  inviteesFromAttendees,
   invitablePeople,
+  inviteesFromAttendees,
   isEmailAddress,
+  MAX_INVITEES,
+  NO_INVITEES,
   recommendedPeople,
   removeEmail,
   removeUser,
@@ -88,5 +89,14 @@ describe("prep-people", () => {
 
   it("foldText", () => {
     expect(foldText("Łódź Żółć")).toBe("lodz zolc");
+  });
+});
+
+describe("defaultInviteeIds — kto jest zaproszony od razu", () => {
+  it("planujący za kogoś i rekruter na Prepie 1, bez prowadzącego i bez powtórzeń", () => {
+    expect(defaultInviteeIds({ organizerId: 5, currentUserId: 7, recruiterId: 6 })).toEqual([7, 6]);
+    expect(defaultInviteeIds({ organizerId: 5, currentUserId: 6, recruiterId: 6 })).toEqual([6]);
+    expect(defaultInviteeIds({ organizerId: 6, currentUserId: 6, recruiterId: 6 })).toEqual([]);
+    expect(defaultInviteeIds({ organizerId: 5, currentUserId: null, recruiterId: null })).toEqual([]);
   });
 });

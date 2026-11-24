@@ -37,6 +37,14 @@ import {
   toLocalInput,
   type PrepInterview,
 } from "@/lib/prep-timing";
+import { STEP_TITLES } from "@/lib/interview-cycle";
+import {
+  prepName,
+  prepNameInSentence,
+  prepStepKey,
+  prepWith,
+  type PrepNo,
+} from "@/lib/prep-label";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
@@ -107,7 +115,7 @@ export function ReschedulePrepDialog({
   onOpenChange: (open: boolean) => void;
   eventId: number | null;
   pair: PairInfo | null;
-  prepNo: 1 | 2;
+  prepNo: PrepNo;
   interview?: PrepInterview | null;
   mode?: "late" | "edit" | "cancel";
 }) {
@@ -167,10 +175,10 @@ export function ReschedulePrepDialog({
       const when = `${formatDayLabel(updated.start)}, ${formatTime(updated.start)}`;
       toast.showSuccess(
         body.organizer_user_id != null
-          ? `Prep ${prepNo} poprowadzi ${updated.organizer?.name ?? "nowa osoba"} — kandydat dostał odwołanie starego spotkania i nowe zaproszenie.`
+          ? `${prepName(prepNo)} poprowadzi ${updated.organizer?.name ?? "nowa osoba"} — kandydat dostał odwołanie starego spotkania i nowe zaproszenie.`
           : body.start
-            ? `Prep ${prepNo} przełożony na ${when} — kandydat dostał aktualizację zaproszenia.`
-            : `Zaproszeni na Prep ${prepNo} zmienieni.`,
+            ? `${prepWith(prepNo, "przełożony")} na ${when} — kandydat dostał aktualizację zaproszenia.`
+            : `Zaproszeni na ${prepNameInSentence(prepNo)} zmienieni.`,
       );
       onOpenChange(false);
     },
@@ -181,7 +189,7 @@ export function ReschedulePrepDialog({
     mutationFn: () => prepMeetingsApi.cancel(eventId as number, comment.trim() || null),
     onSuccess: (updated) => {
       refresh(updated);
-      toast.showSuccess(`Prep ${prepNo} odwołany — kandydat dostał odwołanie spotkania.`);
+      toast.showSuccess(`${prepWith(prepNo, "odwołany")} — kandydat dostał odwołanie spotkania.`);
       onOpenChange(false);
     },
     onError: (err) => setError(apiErrorMessage(err, "Nie udało się odwołać prepu.")),
@@ -234,7 +242,11 @@ export function ReschedulePrepDialog({
   };
 
   const title =
-    view === "cancel" ? `Odwołaj Prep ${prepNo}` : mode === "late" ? `Przełóż Prep ${prepNo}` : `Zmień Prep ${prepNo}`;
+    view === "cancel"
+      ? `Odwołaj ${prepNameInSentence(prepNo)}`
+      : mode === "late"
+        ? `Przełóż ${prepNameInSentence(prepNo)}`
+        : `Zmień ${prepNameInSentence(prepNo)}`;
   const closeButton = (
     <button
       type="button"
@@ -310,7 +322,7 @@ export function ReschedulePrepDialog({
         <div className="space-y-4" data-testid="reschedule-prep-form">
           <section className="rounded-lg border border-border p-3 text-sm">
             <p className="font-semibold text-foreground">
-              Prep {prep.prep_no} · prowadzi {prep.organizer?.name ?? "—"}
+              {prepName(prep.prep_no)} · prowadzi {prep.organizer?.name ?? "—"}
               {prep.scheduled_by && prep.scheduled_by.id !== prep.organizer?.id
                 ? ` · założony przez: ${prep.scheduled_by.name}`
                 : ""}
@@ -343,7 +355,7 @@ export function ReschedulePrepDialog({
               <p className="text-sm text-foreground">
                 Kandydat i zaproszeni dostaną odwołanie z kalendarza prowadzącego
                 {prep.organizer?.name ? ` (${prep.organizer.name})` : ""}.
-                Krok „Prep{prep.prep_no === 2 ? " 2" : ""}” wróci do zaplanowania.
+                Krok „{STEP_TITLES[prepStepKey(prep.prep_no)]}” wróci do zaplanowania.
               </p>
               <div>
                 <label htmlFor="cancel-prep-comment" className="mb-1 block text-xs font-semibold text-muted-foreground">

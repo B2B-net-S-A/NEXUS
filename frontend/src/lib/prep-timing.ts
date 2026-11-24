@@ -6,6 +6,7 @@
 // rozmową: tu jest podpowiedź terminu i ostrzeżenie o kolizji albo kolejności.
 
 import type { CycleOverview } from "@/lib/interview-cycle";
+import type { PrepNo } from "@/lib/prep-label";
 
 /** Rozmowa u klienta, do której robi się prep. `end` pusty = 60 min. */
 export interface PrepInterview {
@@ -80,6 +81,9 @@ function interviewWindow(interview: PrepInterview): { start: Date; end: Date } |
 /**
  * Podpowiedź terminu prepu (wartość pola `datetime-local`).
  *
+ * - Przygotowanie (rekruter, F3 24.11.2026): dwa dni robocze przed rozmową,
+ *   10:00 — przed Prepem 1, bo DL na swoim prepie sprawdza, co zostało po
+ *   przygotowaniu; potem jak Prep 1.
  * - Prep 1 (prowadzi DL): poprzedni dzień roboczy przed rozmową, 10:00.
  * - Prep 2 (rekruter): 2 godziny przed rozmową.
  * Gdy taki termin już minął, najpóźniejszy możliwy przed rozmową; gdy rozmowy
@@ -87,7 +91,7 @@ function interviewWindow(interview: PrepInterview): { start: Date; end: Date } |
  */
 export function defaultPrepStart(
   interview: PrepInterview | null | undefined,
-  prepNo: 1 | 2,
+  prepNo: PrepNo,
   durationMinutes: number,
   now: Date = new Date(),
 ): string {
@@ -96,9 +100,17 @@ export function defaultPrepStart(
   const earliest = new Date(now.getTime() + MIN_LEAD_MINUTES * 60_000);
   const latest = new Date(win.start.getTime() - durationMinutes * 60_000);
   const candidates: Date[] = [];
-  if (prepNo === 1) candidates.push(previousWorkdayAt(win.start, 10));
-  candidates.push(floorToQuarter(new Date(win.start.getTime() - 120 * 60_000)));
-  candidates.push(floorToQuarter(latest));
+  if (prepNo === 0) {
+    // Przygotowanie idzie jak najwcześniej — jego miejsce jest przed Prepem 1,
+    // nie tuż przed rozmową.
+    candidates.push(previousWorkdayAt(previousWorkdayAt(win.start, 10), 10));
+    candidates.push(previousWorkdayAt(win.start, 10));
+    candidates.push(ceilToQuarter(earliest));
+  } else {
+    if (prepNo === 1) candidates.push(previousWorkdayAt(win.start, 10));
+    candidates.push(floorToQuarter(new Date(win.start.getTime() - 120 * 60_000)));
+    candidates.push(floorToQuarter(latest));
+  }
   for (const c of candidates) {
     if (c >= earliest && c <= latest) return toLocalInput(c);
   }
