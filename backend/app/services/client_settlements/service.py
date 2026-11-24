@@ -1034,14 +1034,17 @@ async def _other_md(
 
 
 async def _mails(
-    report: CpDocument, reports: list[CpDocument]
+    report: Optional[CpDocument], reports: list[CpDocument]
 ) -> list[acceptance_mail.MailMessage]:
-    """Wiadomości z maili miesiąca (E2.3): ``.msg``, ``.eml`` i wydruk PDF poza RCP.
-    PDF bez nagłówków maila (np. faktura kosztowa) nic nie wnosi."""
+    """Wiadomości z maili miesiąca (E2.3): ``.msg``, ``.eml`` i wydruk PDF poza RCP
+    (``report``; ``None`` = wszystkie pliki). PDF bez nagłówków maila (np.
+    faktura kosztowa) nic nie wnosi."""
 
     found: list[acceptance_mail.MailMessage] = []
     for doc in reports:
-        if doc.id == report.id or doc.mime not in acceptance_mail.MIMES:
+        if (report is not None and doc.id == report.id) or (
+            doc.mime not in acceptance_mail.MIMES
+        ):
             continue
         try:
             content = portal_documents.path_for(doc.file_path).read_bytes()
@@ -1075,6 +1078,12 @@ async def _proof(
     miesiąca. Wynik z innego pliku ma w ``meta["document_id"]`` jego id."""
 
     working_days = len(business_days(*month_bounds(month)))
+    # Mail akceptujący w kontrolach pliku liczy się tylko od klienta (#3820, 23.11).
+    client_mail = (
+        acceptance_mail.from_client(await _mails(None, reports), senders)
+        if _client_mail_rules_on(rules)
+        else None
+    )
     common = dict(
         reports=reports,
         month=month,
@@ -1084,6 +1093,7 @@ async def _proof(
         working_days=working_days,
         consultant_mails=consultant_mails,
         senders=senders,
+        client_mail=client_mail,
     )
     if report is not None and report.mime in RCP_MIMES:
         try:
@@ -1107,6 +1117,7 @@ async def _proof(
                 has_mail=any(d.mime in MAIL_MIMES for d in reports) or bool(mails),
                 rules=rules,
                 mails=mails,
+                client_mail=client_mail,
             )
             if bnp.md_regular is not None:
                 return bnp
@@ -1181,6 +1192,7 @@ async def _read_file(
     has_mail_extra: bool = False,
     consultant_mails: frozenset[int] = frozenset(),
     senders: mail_text.Senders = mail_text.Senders(),
+    client_mail: Optional[bool] = None,
 ) -> Optional[rcp_checks.ProofResult]:
     """Czytniki wzorów spoza RCP BNP dla jednego pliku; ``None`` = nie rozpoznany.
 
@@ -1339,6 +1351,7 @@ async def _read_file(
             rules=rules,
             working_days=working_days,
             other_md=other_md,
+            client_mail=client_mail,
         )
         return await accepted(
             result, sheet.total_hours if sheet.entries else None, sheet.month
@@ -1379,12 +1392,25 @@ def _on(rules: dict[str, dict[str, Any]], key: str) -> bool:
     return rules[key]["level"] != "off"
 
 
+#: Kontrole, które potrzebują domen klienta (``acceptance_senders``).
+CLIENT_MAIL_RULES = (
+    "proof.accept_has_hours",
+    "proof.excel_with_mail",
+    "extra.mail_accept",
+)
+
+
+def _client_mail_rules_on(rules: dict[str, dict[str, Any]]) -> bool:
+    return any(_on(rules, key) for key in CLIENT_MAIL_RULES)
+
+
 async def acceptance_senders(
     db: AsyncSession, client_id: int, rules: dict[str, dict[str, Any]]
 ) -> mail_text.Senders:
     """Domeny, z których klient akceptuje godziny (``proof.accept_has_hours``).
 
-    Domena z ``proof.excel_with_mail`` i adresu ``cl.client_acceptance``, domeny
+    Domena z ``proof.excel_with_mail``, ``extra.mail_accept`` i adresu
+    ``cl.client_acceptance``, domeny
     kontaktów klienta i rejestru domen klientów (``known_clients``, po NIP-ie).
     Domeny firmy, skrzynek konsultantów u klienta i poczty publicznej nie należą
     do klienta: piszą z nich nasi ludzie i konsultanci."""
@@ -1401,11 +1427,13 @@ async def acceptance_senders(
         | set(settings.sso_allowed_domains_list)
         | PUBLIC_EMAIL_DOMAINS
     )
-    found = set(
-        acceptance_mail.domains(
-            str(rules["proof.excel_with_mail"]["params"].get("domain") or "")
+    found = {
+        domain
+        for key in ("proof.excel_with_mail", "extra.mail_accept")
+        for domain in acceptance_mail.domains(
+            str(rules[key]["params"].get("domain") or "")
         )
-    )
+    }
     email = str(rules["cl.client_acceptance"]["params"].get("email") or "")
     if "@" in email:
         found.add(email.strip().lower().rpartition("@")[2])
@@ -1487,7 +1515,7 @@ async def _recompute(
             consultant_mails=await _consultant_mails(db, reports, s.contract_id, rules),
             senders=(
                 await acceptance_senders(db, s.client_id, rules)
-                if _on(rules, "proof.accept_has_hours")
+                if _client_mail_rules_on(rules)
                 else mail_text.Senders()
             ),
         )
