@@ -50,7 +50,7 @@ from app.models.activity import Activity
 from app.models.job import Job, JobCloseReason, JobStatus
 from app.models.notification import NotificationType
 from app.models.user import User, UserRole
-from app.services import champion_view
+from app.services import champion_view, job_p0
 from app.services.job_opening import start_new_opening
 from app.services.job_readiness import (
     handoff_blocker_codes,
@@ -1503,16 +1503,9 @@ async def close_job_core(
     job.is_open = False
     job.close_reason = reason
     job.close_notes = notes
-    # 0525: P0 kończy się z zamknięciem — ponowne otwarcie nie przywraca go.
-    job.p0_until = None
-    job.p0_reason = None
-    job.p0_set_at = None
-    job.p0_set_by = None
-    # 0610: oczekująca prośba DL o P0 też gaśnie.
-    job.p0_request_reason = None
-    job.p0_request_duration = None
-    job.p0_requested_at = None
-    job.p0_requested_by = None
+    # 0525/0610: P0 i oczekująca prośba DL o P0 kończą się z zamknięciem —
+    # ponowne otwarcie ich nie przywraca (ta sama reguła w PATCH).
+    job_p0.end_with_close(job)
     await set_work_state(db, job, "finished", actor_id=actor_id, reason="job_closed")
     await close_live_postings(db, job.id)
     # Audyt 06.10.2026 (R6): otwarte propozycje zamkniętej rekrutacji wygasają.
