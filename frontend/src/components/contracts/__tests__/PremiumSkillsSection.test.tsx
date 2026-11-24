@@ -81,11 +81,19 @@ describe("Technologie premium — lista", () => {
     expect(await screen.findByText(/NEXUS nie znalazł technologii z umowy/)).toBeInTheDocument();
   });
 
-  it("awaria zapytania nie udaje braku technologii", async () => {
-    route(new Error("500"));
+  it("awaria zapytania nie udaje braku technologii: błąd z ponowieniem pod nagłówkiem sekcji", async () => {
+    mocks.get
+      .mockRejectedValueOnce({ isAxiosError: true, response: { status: 500, data: { detail: "Analiza CV nie odpowiada." } } })
+      .mockResolvedValueOnce({ data: { evidence: [], claims: [] } });
+    const user = userEvent.setup();
     renderSection();
-    await waitFor(() => expect(mocks.get).toHaveBeenCalled());
+    const section = await screen.findByTestId("premium-skills");
+    expect(within(section).getByText("Technologie premium z umowy")).toBeInTheDocument();
+    const alert = within(section).getByRole("alert");
+    expect(alert).toHaveTextContent("Analiza CV nie odpowiada.");
     expect(screen.queryByText(/NEXUS nie znalazł technologii z umowy/)).not.toBeInTheDocument();
+    await user.click(within(alert).getByRole("button", { name: "Spróbuj ponownie" }));
+    expect(await screen.findByText(/NEXUS nie znalazł technologii z umowy/)).toBeInTheDocument();
   });
 
   it("propozycja NEXUSA, procent bez zer i źródła dowodu", async () => {
