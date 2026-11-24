@@ -510,11 +510,19 @@ async def _goal_pool(
 async def _eligible(
     db: AsyncSession, target, ids: Sequence[int]
 ) -> tuple[list[int], dict[int, dict]]:
-    """Bramka pełnego przeglądu (blacklista, NDA, weto HM, dealbreakery).
+    """Bramka pełnego przeglądu (blacklista, NDA, weto HM) bez dealbreakerów.
 
     Zwraca dopuszczonych w kolejności wejścia i plakietki
     (``eligibility_annotation``): konflikt klienta, obecne zatrudnienie, weto
     HM (``assignment_allowed=False`` — widoczne z powodem, bez dodania).
+
+    Dealbreakery rekrutacji (umiejętności krytyczne, budżet, „tylko zdalnie”,
+    dni i miasto biura) są wyłączone: ta funkcja szuka ludzi, których CV nazywa
+    rzecz inaczej, „żeby nikogo nie zgubić”. Do 24.11.2026 bramka szła ofertą
+    efemeryczną bez tych pól, więc nikogo nimi nie ukrywała — prawdziwa
+    rekrutacja w ``_gate_target`` (weto HM) nie może po cichu zawęzić puli.
+    Zostają filtry niezależne od rekrutacji („tylko umowa o pracę”,
+    kandydat bez żadnych danych).
     """
     from app.api.matching import _gate_and_dealbreakers
     from app.services.requirement_contract import search_dealbreaker_inputs
@@ -528,7 +536,12 @@ async def _eligible(
         job=target,
         ordered=candidates,
         now=datetime.now(timezone.utc),
-        inputs=search_dealbreaker_inputs(target),
+        inputs=search_dealbreaker_inputs(target, exclude_missing_must=False),
+        exclude_over_budget=False,
+        exclude_remote_only=False,
+        exclude_missing_must=False,
+        exclude_office_days_exceeded=False,
+        exclude_office_city_mismatch=False,
     )
     kept_ids = [c.id for c in kept]
     return kept_ids, {cid: annotations[cid] for cid in kept_ids if annotations.get(cid)}

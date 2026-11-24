@@ -24,6 +24,11 @@ a o migracji do chmury pisze wprost 1 916; opis stanowiska po odczycie CV ma
    działało i „Dodaj do Nowych” dawało 409. Plakietki bramki (konflikt
    klienta, weto HM) zapisują się w `assessment.eligibility` i stoją na
    karcie; przy wecie HM „Dodaj do Nowych” jest wyłączone.
+   Z rekrutacji bierzemy tylko bramkę, **nie jej dealbreakery**
+   (umiejętności krytyczne, budżet, „tylko zdalnie”, dni i miasto biura):
+   `_eligible` wyłącza je jawnie, bo oferta efemeryczna ich nie miała, a ta
+   funkcja szuka ludzi, których CV nazywa rzecz inaczej. Włączenie któregoś
+   to decyzja Artura z pomiarem puli przed i po.
 3. **Ocena** (klucz `duty_search_judge`, to samo zadanie „znajdź i zacytuj” co
    „Oceń z AI”): ok. 100 CV, dla każdej osoby poziom `zrobil_to` /
    `bardzo_blisko` / `ma_klocki` / `brak`, pewność, zdolności tak / częściowo /

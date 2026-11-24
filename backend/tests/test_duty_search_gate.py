@@ -205,3 +205,145 @@ async def test_job_run_falls_back_to_ephemeral_when_job_is_gone(gate_calls):
     await ds.execute_run(db, _run(JOB_ID))
 
     assert {(job_id, hm) for job_id, hm, _ in gate_calls} == {(None, None)}
+
+
+# ── Recenzja PR #3946: z rekrutacji tylko bramka, bez jej dealbreakerów ────
+# Prawdziwa rekrutacja ma umiejętności krytyczne, budżet i biuro. Na main
+# oferta efemeryczna z ``_radar_query`` nie miała żadnego z nich, więc duty
+# search nikogo nimi nie ukrywał. Funkcja szuka ludzi, których CV nazywa
+# rzecz inaczej („żeby nikogo nie zgubić”) — z rekrutacji bierze tylko weto
+# HM, blacklistę, „już w procesie” i plakietki.
+
+AZURE_ONLY = 3
+
+
+@pytest.fixture
+def real_gate(monkeypatch):
+    from app.core.config import settings
+    from app.models.candidate import Candidate
+    from app.services.candidate_job_eligibility import (
+        EligibilityDecision,
+        EligibilityReason,
+        Severity,
+        Visibility,
+    )
+
+    # Tryb „all” uzbraja też budżet i dni w biurze — najostrzejsza bramka.
+    monkeypatch.setattr(settings, "MUST_GATE_MODE", "all", raising=False)
+
+    eligible = EligibilityDecision(
+        eligible=True,
+        visibility=Visibility.visible,
+        assignment_allowed=True,
+        severity=Severity.none,
+        reason_code=EligibilityReason.eligible,
+        reason="",
+        override_allowed=False,
+    )
+
+    async def everyone_visible(_db, *, job, candidate_ids, now, **_kw):
+        return {cid: eligible for cid in candidate_ids}
+
+    async def no_verified(_db, _job, _candidates):
+        return None
+
+    async def no_evidence(*_args, **_kwargs):
+        return None
+
+    async def fake_load(_db, ids):
+        return [
+            Candidate(
+                id=cid,
+                raw_cv_text="Migracja 40 aplikacji z serwerowni do Azure.",
+                expected_rate_hourly=150,
+                expected_rate_currency="PLN",
+            )
+            for cid in ids
+        ]
+
+    async def fake_profile(_db, **_kw):
+        from app.services.scoring_service import DEFAULT_PROFILE
+
+        return DEFAULT_PROFILE
+
+    async def empty_canonical(_db, _query, *, user_id):
+        return SimpleNamespace(breakdowns=[], degraded=False)
+
+    async def fake_plan(_db, _run):
+        return ds.GoalPlan(summary="Migracja"), True
+
+    async def fake_pool(_db, _run, _plan):
+        return [AZURE_ONLY], {"goal": 1}
+
+    async def fake_judge(_db, _run, _plan, people):
+        return {
+            p.candidate_id: ds.Assessment(tier="zrobil_to", confidence=80)
+            for p in people
+        }
+
+    async def fake_cvs(_db, ids):
+        return {cid: "" for cid in ids}
+
+    async def nobody_in_job(_db, _job_id):
+        return set()
+
+    monkeypatch.setattr(
+        "app.api.matching.evaluate_candidates_for_job", everyone_visible
+    )
+    monkeypatch.setattr("app.api.matching.attach_gate_evidence", no_evidence)
+    monkeypatch.setattr(
+        "app.services.requirement_verification.load_verified_requirements",
+        no_verified,
+    )
+    monkeypatch.setattr("app.services.talent_radar_search._load_candidates", fake_load)
+    monkeypatch.setattr(
+        "app.services.talent_radar_search.canonical_search", empty_canonical
+    )
+    monkeypatch.setattr(
+        "app.services.scoring_service.resolve_active_profile", fake_profile
+    )
+    monkeypatch.setattr(ds, "_plan", fake_plan)
+    monkeypatch.setattr(ds, "_goal_pool", fake_pool)
+    monkeypatch.setattr(ds, "_judge", fake_judge)
+    monkeypatch.setattr(ds, "_load_cvs", fake_cvs)
+    monkeypatch.setattr(ds, "_already_in_job", nobody_in_job)
+
+
+@pytest.mark.asyncio
+async def test_job_run_does_not_hide_by_job_dealbreakers(real_gate):
+    job = _real_job()
+    job.must_skills = [{"name": "AWS", "level": None}]
+    job.rate_budget_hourly = 100
+    db = _FakeDb(job)
+
+    await ds.execute_run(db, _run(JOB_ID))
+
+    # Bez AWS i powyżej budżetu — a mimo to zostaje, jak na main.
+    assert AZURE_ONLY in _stored(db)
+
+
+@pytest.mark.asyncio
+async def test_real_job_dealbreakers_would_hide_this_person(real_gate):
+    """Kontrola testu: ta sama osoba odpada w pełnym przeglądzie rekrutacji."""
+    from datetime import datetime, timezone
+
+    from app.api.matching import _gate_and_dealbreakers
+    from app.services.requirement_contract import search_dealbreaker_inputs
+    from app.services.talent_radar_search import _load_candidates
+
+    job = _real_job()
+    job.must_skills = [{"name": "AWS", "level": None}]
+    job.rate_budget_hourly = 100
+    reasons: dict[int, str] = {}
+
+    kept, *_ = await _gate_and_dealbreakers(
+        _FakeDb(job),
+        job=job,
+        ordered=await _load_candidates(None, [AZURE_ONLY]),
+        now=datetime.now(timezone.utc),
+        inputs=search_dealbreaker_inputs(job),
+        exclusion_reasons=reasons,
+    )
+
+    assert kept == []
+    assert reasons[AZURE_ONLY] in {"over_budget", "missing_must", "no_data"}
