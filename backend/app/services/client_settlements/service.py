@@ -2219,14 +2219,30 @@ def _signed_checks(
     rules: dict[str, dict[str, Any]],
 ) -> Optional[rcp_checks.ProofResult]:
     """Arkusz zbiorczy osoby (E6.2, Velo): ``pay.per_person`` — zapłata po
-    podpisanym arkuszu tej osoby, bez czekania na pozostałe."""
+    podpisanym arkuszu tej osoby, bez czekania na pozostałe.
+
+    Tylko arkusz od klienta (``signoffs.client_signed``): podpisu nie sprawdzamy
+    łańcuchem zaufania, więc plik od samej osoby (panel, jej adres, jej podpis)
+    zapłaty nie otwiera (decyzja Artura z 24.11.2026)."""
 
     if rules["pay.per_person"]["level"] == "off":
         return proof
     proof = proof or rcp_checks.ProofResult(md_regular=None, md_extra=None)
     group = rcp_checks._Group(proof, rules, "Arkusz zbiorczy")
     signed = signoffs.signed_state(s.checks, signoffs.SHEET)
-    if signed and signed.get("complete"):
+    if (
+        signed
+        and signed.get("complete")
+        and not signoffs.client_signed(s.checks, signoffs.SHEET)
+    ):
+        group.fail(
+            "pay.per_person",
+            "Arkusz czeka na podpis klienta",
+            "Podpisany arkusz przyszedł od samej osoby (panel, jej adres albo jej "
+            "podpis). Zapłata po arkuszu od klienta: z jego poczty albo wgranym "
+            "przez Finanse.",
+        )
+    elif signed and signed.get("complete"):
         when = str(signed.get("signed_at") or "")[:10]
         when = f"{when[8:10]}.{when[5:7]}" if len(when) == 10 else ""
         group.ok(
