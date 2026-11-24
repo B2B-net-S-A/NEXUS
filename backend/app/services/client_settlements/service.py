@@ -273,7 +273,9 @@ def md_rates(order: Any) -> tuple[Optional[Decimal], Optional[Decimal]]:
     zamówienie trzyma stawkę w ``rate_client`` / ``rate_candidate`` według
     ``rate_unit``. Stawka godzinowa w zł (PKO: bez puli MD) daje 8 h × stawka,
     dzienna w zł (Alior, Velo, ERSTE: 64 zamówienia w próbie 23.11.2026) jest
-    stawką MD wprost. Waluta obca bez kolumn MD zostaje bez stawki."""
+    stawką MD wprost. Waluta obca bez kolumn MD zostaje bez stawki — osobno
+    dla przychodu i kosztu: kontraktor w EUR u klienta w zł nie ma kosztu
+    w zł, więc marża nie liczy 150 EUR jako 150 zł (audyt 24.11.2026)."""
 
     cost = getattr(order, "md_rate_cost", None)
     revenue = getattr(order, "md_rate_revenue", None)
@@ -286,7 +288,12 @@ def md_rates(order: Any) -> tuple[Optional[Decimal], Optional[Decimal]]:
         candidate_rate = getattr(order, "rate_candidate", None)
         if revenue is None and client_rate is not None:
             revenue = Decimal(client_rate) * per_md
-        if cost is None and candidate_rate is not None:
+        cost_currency = getattr(order, "rate_candidate_currency", None) or "PLN"
+        if (
+            cost is None
+            and candidate_rate is not None
+            and cost_currency.upper() == "PLN"
+        ):
             cost = Decimal(candidate_rate) * per_md
     return cost, revenue
 
