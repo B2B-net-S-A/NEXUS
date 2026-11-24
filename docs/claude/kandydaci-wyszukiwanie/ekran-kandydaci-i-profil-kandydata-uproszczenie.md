@@ -296,7 +296,7 @@ https://claude.ai/artifact/K45m9WCNz9ypfKBE87B9dv). Zastępuje wariant B z 04.10
   (stare dane z CV zostają zapisywalne). Pola „Kod” w oknie nie ma.
 - **„Dodaj kandydata” zaczyna się od CV (opcjonalnie):** `POST /api/candidates/cv/preview`
   czyta plik BEZ zapisu; odczyt żyje w OGRANICZONEJ tabeli `cv_preview_reads`
-  (`services/cv_preview_cache.py`, 0770; 64 wiersze, 30 min, tekst > 200 tys. znaków
+  (`services/cv_preview_cache.py`, 0771; 64 wiersze, 30 min, tekst > 200 tys. znaków
   nie jest trzymany; nie `app/core/cache.py` — ten jest per proces, bez limitu
   i sprzątania). Od 24.11.2026 tabela zamiast pamięci procesu, bo przy dwóch
   procesach web `/from-cv` w drugim czytał CV modelem jeszcze raz

@@ -1,4 +1,4 @@
-"""DDL odczytów CV z okna „Dodaj kandydata” (0770) — jedno źródło dla migracji
+"""DDL odczytów CV z okna „Dodaj kandydata” (0771) — jedno źródło dla migracji
 i entrypointu.
 
 Wiersz na plik (``sha256`` treści), najwyżej ``cv_preview_cache.MAX_ENTRIES``

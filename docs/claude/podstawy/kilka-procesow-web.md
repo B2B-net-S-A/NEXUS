@@ -124,7 +124,7 @@ na zmianę zamiast raz na minutę.
 
 ## Co dzielimy, a co robi tylko jeden proces
 
-- **Stan w bazie:** odczyt CV z podglądu „Dodaj kandydata” (`cv_preview_reads`, 0770,
+- **Stan w bazie:** odczyt CV z podglądu „Dodaj kandydata” (`cv_preview_reads`, 0771,
   `services/cv_preview_cache.py`). `/from-cv` w drugim procesie bierze odczyt z podglądu,
   zamiast czytać CV modelem drugi raz. Pierwszy zapis wygrywa (`cache_single_flight` jest
   per proces), więc podgląd pokazuje odczyt z tabeli, czyli ten, który zapisze `/from-cv`.

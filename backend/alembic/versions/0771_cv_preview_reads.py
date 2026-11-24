@@ -1,7 +1,7 @@
 """Odczyt CV z podglądu „Dodaj kandydata” w bazie zamiast w pamięci procesu.
 
-Revision ID: 0770_cv_preview_reads
-Revises: 0769_client_playbook_prep_spec
+Revision ID: 0771_cv_preview_reads
+Revises: 0770_sales_tenders
 
 Przy dwóch procesach web (``NEXUS_WEB_CONCURRENCY=2``, #3857) ``/from-cv``, który
 trafił do innego procesu niż ``/cv/preview``, nie miał odczytu: czytał CV modelem
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services.cv_preview_reads_schema import TABLE_DDL
 
-revision = "0770_cv_preview_reads"
-down_revision = "0769_client_playbook_prep_spec"
+revision = "0771_cv_preview_reads"
+down_revision = "0770_sales_tenders"
 branch_labels = None
 depends_on = None
 

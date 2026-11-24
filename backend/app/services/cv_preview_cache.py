@@ -3,7 +3,7 @@
 Do 24.11.2026 była to pamięć procesu. Przy dwóch procesach web
 (``NEXUS_WEB_CONCURRENCY=2``) `/from-cv`, który trafił do innego procesu niż podgląd,
 czytał CV modelem drugi raz (koszt) i mógł zapisać inny odczyt niż ten, który rekruter
-widział w formularzu. Teraz tabela ``cv_preview_reads`` (0770,
+widział w formularzu. Teraz tabela ``cv_preview_reads`` (0771,
 ``cv_preview_reads_schema.py``). → docs/claude/podstawy/kilka-procesow-web.md
 
 - klucz: SHA-256 treści pliku,

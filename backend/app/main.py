@@ -4786,7 +4786,7 @@ async def api_health_deep_check(request: Request):
         ("novelty_daily_state", NoveltyDailyState),
         # 0632: licznik użycia obszarów — pętla zapisuje tu co minutę.
         ("access_usage_daily", AccessUsageDaily),
-        # 0770: odczyt CV z podglądu „Dodaj kandydata”. Brak tabeli nie wywraca
+        # 0771: odczyt CV z podglądu „Dodaj kandydata”. Brak tabeli nie wywraca
         # dodania kandydata, ale cicho przywraca drugi odczyt modelem w `/from-cv`.
         ("cv_preview_reads", CvPreviewRead),
         ("insight_decisions", InsightDecision),

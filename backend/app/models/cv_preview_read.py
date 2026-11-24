@@ -1,4 +1,4 @@
-"""Odczyt CV z podglądu „Dodaj kandydata” (0770).
+"""Odczyt CV z podglądu „Dodaj kandydata” (0771).
 
 Logika: ``app/services/cv_preview_cache.py``, DDL: ``cv_preview_reads_schema.py``.
 Model jest dla metadanych (sonda i ``compare_metadata`` w ``/api/health/deep``);

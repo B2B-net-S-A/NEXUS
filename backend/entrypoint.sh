@@ -1556,7 +1556,7 @@ except Exception as _access_usage_schema_err:  # noqa: BLE001
     print(f"access usage schema unavailable: {_access_usage_schema_err!r}")
     _ACCESS_USAGE_TABLE_DDL = []
 
-# 0770: odczyt CV z podglądu „Dodaj kandydata”, wspólny dla procesów web —
+# 0771: odczyt CV z podglądu „Dodaj kandydata”, wspólny dla procesów web —
 # JEDNO źródło z migracją (`app/services/cv_preview_reads_schema.py`).
 try:
     from app.services import cv_preview_reads_schema as _cv_preview_reads_schema
@@ -7255,7 +7255,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_JOB_CHANNELS_DDL,
     # 0632: licznik użycia obszarów (`app/services/access_usage_schema.py`).
     *_ACCESS_USAGE_TABLE_DDL,
-    # 0770: odczyt CV z podglądu (`app/services/cv_preview_reads_schema.py`).
+    # 0771: odczyt CV z podglądu (`app/services/cv_preview_reads_schema.py`).
     *_CV_PREVIEW_READS_DDL,
     # 0647: decyzje z zakładki „Wnioski” (po `users`, na które wskazują).
     *_INSIGHT_DECISIONS_TABLE_DDL,
