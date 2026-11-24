@@ -47,7 +47,10 @@ się korektami za dwa miesiące i refakturą.
   (line manager, cost center, NIIDS, P2), obszar Rozliczenia, etykietę Finanse → Zmiany w zamówieniach
   (`triage.cpro_route`), opis „stare → nowe” i checklistę dla Finansów. Kontraktu nie przypina —
   podaje go w opisie z numeru CPro. Zapis nabywcy od miesiąca (`contract_buyers`) robi pętla
-  `cpro_mail` (sesja „Zmiany nabywcy kontraktu Nordei z maili CPro”, 24.11.2026), nie czytnik spraw.
+  `cpro_mail` (PR #3838: nabywca z „Kod w CPro”, od miesiąca maila), nie czytnik spraw. Sprawa
+  Rozliczeń to sprawdzenie i zapas, gdy skrzynka DL-a nie jest zsynchronizowana (tak było 15.09).
+- **Reguła przekierowania zostawia oryginał w skrzynce DL-a** (przekieruj, bez usuwania i przenoszenia):
+  pętla `cpro_mail` czyta `emails` skrzynek DL-ów — bez kopii rekrutacja i nabywca z CPro by oślepły.
 
 ## Kroki wyjścia (`services/back_office/steps.py`)
 

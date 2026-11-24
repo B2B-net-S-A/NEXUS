@@ -91,8 +91,12 @@ def case_plan(
         if party:
             checklist = (
                 {
-                    "text": f"{FINANCE_BUYER_ITEM}{since:%d.%m.%Y} w Ustawieniach "
-                    f"wystawiania → „Nabywcy per kontrakt” (od miesiąca {month})",
+                    # Zapis nabywcy od miesiąca robi pętla ``cpro_mail`` (#3838),
+                    # gdy nabywca ma „Kod w CPro”; ta pozycja to sprawdzenie i
+                    # zapas na skrzynkę DL-a bez synchronizacji (15.09.2026).
+                    "text": f"{FINANCE_BUYER_ITEM}{month} — sprawdź w „Nabywcy per "
+                    "kontrakt” (NEXUS wpisuje sam, gdy nabywca ma „Kod w CPro”; "
+                    "brak kodu = ustaw ręcznie)",
                     "done": False,
                 },
                 {

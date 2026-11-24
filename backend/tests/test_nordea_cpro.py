@@ -325,8 +325,8 @@ def test_invoice_party_change_is_a_p1_finance_task_from_the_day() -> None:
     assert "→ F206 Nordea Bank Abp Finland" in result.description
     assert "kontrakt #42" in result.description
     texts = [item["text"] for item in result.checklist]
-    assert texts[0].startswith(plan.FINANCE_BUYER_ITEM + "15.09.2026")
-    assert "(od miesiąca 09.2026)" in texts[0]
+    assert texts[0].startswith(plan.FINANCE_BUYER_ITEM + "09.2026 — sprawdź")
+    assert "brak kodu = ustaw ręcznie" in texts[0]
     assert texts[1].startswith(plan.FINANCE_INVOICES_ITEM + "09.2026")
 
 
