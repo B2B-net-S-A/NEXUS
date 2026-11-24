@@ -493,3 +493,27 @@ role dostawały stary Start z przyciskami „Rozumiem”.
   - `poligon.json` (to samo id z przedrostkiem `poligon-`);
   - test oceny w `store.test.ts`;
   - krok w `e2e/poligon-walk.spec.ts`.
+
+## Awaria 24.11.2026: osoby z lukami nie mogły skończyć Poligonu
+
+Dzień po terminie kampanii „tylko luki” Poligon zablokował rekruterów i nikt
+nie mógł go skończyć; Artur wyłączył porcję i blokadę (`poligon_gate`,
+`novelty_daily_gate`). Trzy przyczyny, każda z testem w `e2e/poligon-walk.spec.ts`
+(„rekruter z lukami…”):
+
+- **Zaliczenie gubiło ćwiczenia z serwera.** `PoligonLayer.complete` brał
+  stan z `markDone`, który zwraca tylko pamięć przeglądarki, więc po pierwszej
+  luce „Dalej” cofało do ćwiczenia 1 z 27. Stan okna rośnie teraz od
+  poprzedniego (serwer + przeglądarka).
+- **Ćwiczenie „zajrzyj” nie może wisieć na zapytaniu ekranu.** „Zajrzyj do CV
+  dla klienta” czekało na `…/cv/branded/sources`, o które karta „CV do klienta”
+  pyta tylko u części osób. Takie ćwiczenia zalicza widoczna kotwica
+  (`doneWhenVisible`). Treść ćwiczenia ma prowadzić tam, gdzie element jest:
+  panel osoby ze „Zweryfikowanego” nie ma zakładek, dopóki nie „Rozwiń”.
+- **Okno ćwiczenia jest nad oknami ekranu** (`z-[121]`, jak karta lekcji
+  nowości), a klik w nie nie zamyka okna Radix. Edytor CV (`z-[110]`) zasłaniał
+  „Zaliczone → Dalej”; ludzie klikali „Gotowe” i dostawali odmowę zapisu
+  poligonu. Test E2E zamykał wtedy edytor przed „Dalej” — obejście w teście
+  zamiast poprawki. Nie zamykaj w teście tego, co zasłania okno ćwiczenia.
+- Testy przechodziły wcześniej tylko ścieżkę nowej osoby od zera. Zmiana
+  w Poligonie albo w kampanii luk = także bieg „rekruter z lukami”.
