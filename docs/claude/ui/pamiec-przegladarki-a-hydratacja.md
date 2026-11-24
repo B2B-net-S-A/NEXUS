@@ -25,3 +25,24 @@ Jak robić:
   `components/v2/pages/__tests__/CandidatesListV2.test.tsx`.
 - `next dev` często tego nie pokazuje. Rozjazd widać na buildzie produkcyjnym
   (`next build` + `next start`).
+
+## Cache react-query wypełniony przez powłokę
+
+Ta sama bramka dotyczy ekranu, którego pierwszy render zależy od cache'u
+react-query. `app/loading.tsx` stawia granicę Suspense wokół każdej strony,
+a React hydratuje jej treść osobno, już po zatwierdzeniu powłoki. Efekty
+powłoki zdążą wtedy pobrać dane, a serwer zawsze renderuje z pustym cache'em.
+
+- Okruszek (`BreadcrumbV2`, `DynamicLabel`) czyta nazwę pod kluczem strony,
+  żeby nie pobierać jej drugi raz: `["job", id]` dla `/jobs/[id]` (#2824)
+  i `["candidate", id]` dla profilu kandydata (24.11.2026). Oba ekrany trzymają
+  stan ładowania do `useHydrated()`. Nowy wspólny klucz okruszka = taka sama
+  bramka na ekranie.
+- Na Poligonie odpowiedź przychodzi z zestawu w pamięci, bez sieci, więc
+  przy pełnym wczytaniu wyprzedza hydratację strony (React #418 na profilu
+  ćwiczebnym, 24.11.2026). Na prawdziwych danych idzie przez sieć i zwykle
+  przychodzi później, dlatego błąd widać rzadko.
+- Kolejność zależy od tego, kiedy dojdzie plik JS strony. `next dev` (wolny JS)
+  pokazuje rozjazd od razu, a z diffem drzewa w treści błędu. Lokalny build
+  produkcyjny bywa szybszy od okruszka, więc test E2E wstrzymuje plik strony,
+  aż okruszek pokaże nazwę („odświeżony profil” w `e2e/poligon-walk.spec.ts`).

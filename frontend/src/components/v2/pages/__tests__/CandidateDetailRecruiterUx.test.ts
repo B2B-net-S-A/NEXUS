@@ -238,3 +238,14 @@ describe("profil kandydata — każdy fakt w jednym miejscu", () => {
     expect(ROOT).toContain("listBackHref(urlNav.filters)");
   });
 });
+
+describe("profil kandydata — pełne wczytanie strony", () => {
+  it("szkielet stoi do końca hydratacji, bo okruszek czyta kandydata pod tym samym kluczem (24.11.2026)", () => {
+    // `BreadcrumbV2` pobiera `["candidate", id]` zaraz po zamontowaniu powłoki,
+    // a strona za granicą `app/loading.tsx` hydratuje się później. Na Poligonie
+    // odpowiedź z zestawu była w cache'u, zanim React doszedł do profilu: serwer
+    // wysłał szkielet, klient od razu profil — React #418 przy pełnym wczytaniu.
+    expect(ROOT).toContain('import { useHydrated } from "@/hooks/useHydrated";');
+    expect(ROOT).toMatch(/if \(!hydrated \|\| isLoading\) \{\s*return \(\s*<div[^>]*aria-busy="true"/);
+  });
+});
