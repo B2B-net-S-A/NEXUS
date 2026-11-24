@@ -24,6 +24,7 @@ import {
 import { monthTitlePl } from "@/lib/date-pl";
 
 import { splitPeriod } from "../invoicing-format";
+import { ClientBuyersEditor } from "./ClientBuyersEditor";
 import { ClientRebateEditor } from "./ClientRebateEditor";
 
 const CURRENCIES: IssueCurrency[] = ["PLN", "EUR", "USD"];
@@ -207,7 +208,7 @@ export function IssueSettingsPanel({ period }: { period: string }) {
 
       <section aria-labelledby="issue-clients" className="rounded-lg border border-border bg-card px-4 py-3">
         <h3 id="issue-clients" className="mb-2 text-sm font-semibold text-foreground">
-          Stawka, termin, rachunek i rabat przy kliencie
+          Stawka, termin, rachunek, rabat i nabywcy przy kliencie
         </h3>
         {Object.keys(draft.clients).length === 0 ? (
           <p className="text-sm text-muted-foreground">Wszyscy klienci mają ustawienia domyślne.</p>
@@ -272,6 +273,17 @@ export function IssueSettingsPanel({ period }: { period: string }) {
                   onChange={(rebate) => {
                     const next = { ...entry, rebate };
                     if (!rebate) delete next.rebate;
+                    set("clients", { ...draft.clients, [id]: next });
+                  }}
+                />
+                <ClientBuyersEditor
+                  label={names[id] ?? `Klient #${id}`}
+                  buyers={entry.buyers ?? []}
+                  mappedContracts={Object.keys(entry.contract_buyers ?? {}).length}
+                  onChange={(buyers) => {
+                    // Pusta lista = nabywcą jest klient z kartoteki (bez przypisań kontraktów).
+                    const { buyers: _old, contract_buyers: _mapped, ...rest } = entry;
+                    const next = buyers.length ? { ...entry, buyers } : rest;
                     set("clients", { ...draft.clients, [id]: next });
                   }}
                 />

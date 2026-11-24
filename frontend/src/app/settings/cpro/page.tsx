@@ -1,14 +1,18 @@
 "use client";
 
 import { Mail } from "lucide-react";
+import { useState } from "react";
 
 import { CproSettings } from "@/components/settings/CproSettings";
+import { Button } from "@/components/ui/button";
+import { CproQueueDialog } from "@/components/v2/dashboard/CproQueueDialog";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
 
 // Ustawienia → Rekrutacja → CPro (02.11.2026). Odczyt: admin, Head of Recruitment
 // i Delivery Lead w sekcji Pipeline; wyłączniki (HoR, admin) rozstrzyga serwer.
 export default function CproSettingsPage() {
+  const [queueOpen, setQueueOpen] = useState(false);
   const user = useAuthStore((state) => state.user);
   const hydrated = useAuthStore((state) => state.hydrated);
 
@@ -33,6 +37,12 @@ export default function CproSettingsPage() {
           nadawcą i linkiem do nordea.onevms.se.
         </p>
       </div>
+      {hasSectionAccess(user, "pipeline", "write") && (
+        <div>
+          <Button variant="outline" onClick={() => setQueueOpen(true)}>Otwórz kolejkę Cpro</Button>
+          {queueOpen && <CproQueueDialog open onClose={() => setQueueOpen(false)} />}
+        </div>
+      )}
       <CproSettings />
     </div>
   );

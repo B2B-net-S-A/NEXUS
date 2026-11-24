@@ -10,7 +10,10 @@ z 12.11): w treści wątku musi być liczba godzin albo MD i rozliczany miesiąc
 a ktoś musi ją zaakceptować. Liczba bywa tylko w cytowanej prośbie, a odpowiedź
 to „Potwierdzam godziny za miesiąc październik”, dlatego czytamy cały wątek.
 Prośby nadpisywane co miesiąc: liczy się akceptacja za rozliczany miesiąc.
-Akceptować może ktoś inny niż koordynator, więc nie sprawdzamy, kto.
+Akceptować może ktoś inny niż koordynator, ale zawsze ktoś od klienta: słowo
+akceptacji liczy się tylko w wiadomości z domeny klienta, samej albo zacytowanej
+w wątku (przegląd skrzynek Finansów z 23.11.2026: wewnętrzne zestawienie
+„Zaakceptowane godziny … 160 h” z adresu firmy wyglądało jak akceptacja).
 
 Bez bazy. ``.msg`` czyta ``olefile`` (kontener OLE, bez uruchamiania czegokolwiek).
 """
@@ -94,6 +97,11 @@ _HEADER_LINE = re.compile(
     r"^\s*(?:data|date|sent|wysłano|wysłane|od|from|do|to|dw|cc|temat|subject)\s*:",
     re.IGNORECASE,
 )
+#: Początek zacytowanej wiadomości: „From:”/„Od:” z nadawcą (Outlook, Gmail, wydruk).
+_QUOTED_FROM = re.compile(
+    r"^\s*>?\s*\*?(?:from|od|nadawca)\s*:\s*\*?\s*(.+)$", re.IGNORECASE
+)
+_ADDRESS = re.compile(r"[\w.+'-]+@([\w-]+(?:\.[\w-]+)+)")
 
 
 @dataclass
@@ -348,6 +356,49 @@ class Verdict:
     detail: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class Senders:
+    """Kto może zaakceptować: domeny klienta i domeny firmy (rozliczenia@, SSO).
+
+    Klient bez znanych domen (brak kontaktów i domeny w regułach): akceptuje
+    każdy adres spoza domen firmy. Nadawca bez adresu nie akceptuje nigdy."""
+
+    client: frozenset[str] = frozenset()
+    own: frozenset[str] = frozenset()
+
+    def accepts_from(self, address: Optional[str]) -> bool:
+        match = _ADDRESS.search(address or "")
+        if match is None:
+            return False
+        domain = match.group(1).lower()
+        if self.client:
+            return domain in self.client  # dokładnie, bez poddomen (BNP ``external.``)
+        return domain not in self.own
+
+
+def _messages(mail: Mail) -> list[tuple[Optional[str], str]]:
+    """Wiadomości wątku: nadawca i tekst. Pierwsza to sam mail (z tematem),
+    kolejne zaczynają się od „From:”/„Od:” z adresem w treści. Linia „Od: 01.10
+    do 31.10” bez adresu to zdanie tej samej wiadomości, nie nagłówek cytatu."""
+
+    found: list[tuple[Optional[str], list[str]]] = [(mail.sender, [mail.subject])]
+    for line in mail.body.splitlines():
+        head = _QUOTED_FROM.match(line)
+        if head and _ADDRESS.search(head.group(1)):
+            found.append((head.group(1), []))
+            continue
+        found[-1][1].append(line)
+    return [(sender, "\n".join(lines)) for sender, lines in found]
+
+
+def _approved_by(mail: Mail, senders: Senders) -> bool:
+    for sender, text in _messages(mail):
+        lines = [line for line in text.splitlines() if not _HEADER_LINE.match(line)]
+        if senders.accepts_from(sender) and _APPROVED.search("\n".join(lines)):
+            return True
+    return False
+
+
 def _fmt(value: Decimal) -> str:
     return f"{value.normalize():f}".replace(".", ",")
 
@@ -363,8 +414,16 @@ def judge(
     month: str,
     hours: Optional[Decimal],
     md: Optional[Decimal],
+    senders: Senders,
+    sheet_month: Optional[str] = None,
 ) -> Verdict:
-    """Najlepsza akceptacja z maili miesiąca za ``month`` (godziny i MD z dowodu)."""
+    """Najlepsza akceptacja z maili miesiąca za ``month`` (godziny i MD z dowodu).
+
+    Liczba i miesiąc mogą stać w dowolnej wiadomości wątku (zwykle w naszej
+    prośbie), słowo akceptacji tylko w wiadomości od klienta (``senders``).
+
+    Samo „Akceptuję” od klienta bez liczby wystarcza, gdy godziny są w Time Sheet
+    za rozliczany miesiąc (``sheet_month``; decyzja Artura z 23.11.2026, PKO i BIK)."""
 
     if not mails:
         return Verdict(
@@ -373,9 +432,27 @@ def judge(
             "Dołącz mail akceptującego (MSG albo EML) z liczbą godzin za miesiąc.",
         )
     verdicts: list[Verdict] = []
+    sheet_verdict: Optional[Verdict] = None
     for mail in mails:
         found = read_acceptance(mail.text, month)
         numbers = bool(found.hours or found.md)
+        from_sheet = (hours is not None or md is not None) and sheet_month == month
+        if (
+            not numbers
+            and from_sheet
+            and found.approved
+            and (not found.months or month in found.months)
+            and _approved_by(mail, senders)
+        ):
+            # Zapas: akceptacja z liczbą w innym mailu miesiąca ma pierwszeństwo.
+            proof = f"{_fmt(hours)} h" if hours is not None else f"{_fmt(md or 0)} MD"
+            sheet_verdict = sheet_verdict or Verdict(
+                True,
+                "Akceptacja bez liczby, godziny z TS",
+                f"Klient zaakceptował bez liczby godzin; w Time Sheet za "
+                f"{month_label(month)}: {proof}.",
+            )
+            continue
         if not numbers:
             verdicts.append(
                 Verdict(
@@ -406,6 +483,21 @@ def judge(
                 )
             )
             continue
+        if not _approved_by(mail, senders):
+            where = (
+                "z domeny klienta (" + ", ".join(sorted(senders.client)) + ")"
+                if senders.client
+                else "z adresu klienta"
+            )
+            verdicts.append(
+                Verdict(
+                    False,
+                    "Brak akceptacji klienta",
+                    f"Potwierdzenie w mailu nie pochodzi {where}. Nasze zestawienie "
+                    "albo przekazanie bez cytatu odpowiedzi klienta nie jest akceptacją.",
+                )
+            )
+            continue
         matches_hours = hours is not None and any(
             abs(h - hours) < Decimal("0.01") for h in found.hours
         )
@@ -431,4 +523,4 @@ def judge(
             f"{_fmt(found.hours[0])} h" if found.hours else f"{_fmt(found.md[0])} MD"
         )
         return Verdict(True, f"Akceptacja: {amount} za {month_label(month)}")
-    return verdicts[0]
+    return sheet_verdict or verdicts[0]

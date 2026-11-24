@@ -23,6 +23,7 @@ from app.services.client_invoicing import (
     issue_settings,
     rebate,
     rebate_correction,
+    requirements,
 )
 from app.services.client_invoicing.rebate_correction import MonthInvoice
 
@@ -435,6 +436,12 @@ async def _create(db):
 @pytest.mark.asyncio
 async def test_create_saves_kor_draft_with_corrected_list(monkeypatch, schema):
     _patch_create(monkeypatch)
+
+    async def no_requirements(db, invoice):
+        return requirements.Requirements()
+
+    # Bez bazy: klient bez reguł ``cl.*`` (wymagania klienta do faktury).
+    monkeypatch.setattr(issue, "invoice_requirements", no_requirements)
     db = _SaveDb(_client())
     invoice = await _create(db)
 

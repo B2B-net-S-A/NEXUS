@@ -325,12 +325,18 @@ Proszę o potwierdzenie odbioru usług zrealizowanych w 10.2026. Łączna liczba
 
 
 def _mail(body: str, subject: str = "RE: Odbiór usług") -> mail_text.Mail:
-    return mail_text.Mail(subject=subject, body=body)
+    return mail_text.Mail(
+        subject=subject, sender="akceptujacy@klient.example", body=body
+    )
+
+
+#: Klient bez znanych domen: akceptuje każdy adres spoza firmy.
+SENDERS = mail_text.Senders(own=frozenset({"firma.example"}))
 
 
 def test_akceptacja_godziny_w_cytowanej_prosbie_wystarczaja():
     verdict = mail_text.judge(
-        [_mail(THREAD)], month=MONTH, hours=Decimal("176"), md=None
+        [_mail(THREAD)], month=MONTH, hours=Decimal("176"), md=None, senders=SENDERS
     )
     assert verdict.ok, verdict
     assert verdict.title == "Akceptacja: 176 h za październik 2026"
@@ -355,7 +361,9 @@ def test_akceptacja_godziny_w_cytowanej_prosbie_wystarczaja():
     ],
 )
 def test_akceptacja_do_poprawy(body: str, title: str):
-    verdict = mail_text.judge([_mail(body)], month=MONTH, hours=Decimal("176"), md=None)
+    verdict = mail_text.judge(
+        [_mail(body)], month=MONTH, hours=Decimal("176"), md=None, senders=SENDERS
+    )
     assert not verdict.ok
     assert verdict.title == title
 
@@ -364,7 +372,9 @@ def test_data_wyslania_maila_nie_jest_miesiacem_rozliczenia():
     body = "Data: 02.11.2026 09:56\nPotwierdzam 176 h"
     found = mail_text.read_acceptance(body, MONTH)
     assert "2026-11" not in found.months
-    assert not mail_text.judge([_mail(body)], month=MONTH, hours=None, md=None).ok
+    assert not mail_text.judge(
+        [_mail(body)], month=MONTH, hours=None, md=None, senders=SENDERS
+    ).ok
 
 
 def test_md_zamiast_godzin_i_brak_maila():
@@ -373,9 +383,12 @@ def test_md_zamiast_godzin_i_brak_maila():
         month=MONTH,
         hours=None,
         md=Decimal("22"),
+        senders=SENDERS,
     )
     assert ok.ok
-    missing = mail_text.judge([], month=MONTH, hours=Decimal("176"), md=None)
+    missing = mail_text.judge(
+        [], month=MONTH, hours=Decimal("176"), md=None, senders=SENDERS
+    )
     assert missing.title == "Brak maila z akceptacją"
 
 

@@ -55,12 +55,16 @@ import {
   paymentNote,
   paymentText,
   paymentTone,
+  reminderClients,
+  reminderLevelText,
   splitPeriod,
   summaryStats,
   targetsText,
   totalsText,
   unknownPaymentsText,
+  vatUnpaidText,
 } from "./invoicing-format";
+import { PaymentReminderDialog } from "./PaymentReminderDialog";
 import {
   AssignInvoiceDialog,
   CreditDialog,
@@ -91,7 +95,8 @@ type Dialog =
   | { kind: "assign"; invoice: SalesInvoice }
   | { kind: "reason"; invoice: SalesInvoice; action: InvoiceDecision }
   | { kind: "paid"; invoice: SalesInvoice }
-  | { kind: "credit"; credit: SalesCredit };
+  | { kind: "credit"; credit: SalesCredit }
+  | { kind: "reminder"; clientId: number };
 
 const MODE_LABELS: Record<SalesKsefStatus["mode"], string> = {
   off: "wyłączone",
@@ -171,6 +176,17 @@ export function FinanceSalesInvoicesTab({
       );
     } catch (err) {
       showToast(apiErrorMessage(err, "Nie udało się pobrać pliku."), "error");
+    }
+  };
+
+  const downloadMonthClose = async (format: ExportFormat) => {
+    try {
+      await downloadInvoicingFile(
+        invoicingPaths.monthClose(period, format),
+        `naleznosci-po-terminie-${period}.${format}`,
+      );
+    } catch (err) {
+      showToast(apiErrorMessage(err, "Nie udało się pobrać listy."), "error");
     }
   };
 
@@ -274,32 +290,34 @@ export function FinanceSalesInvoicesTab({
         </div>
       )}
 
-      <TabbedNav
-        ariaLabel="Faktury do klientów"
-        value={view}
-        onValueChange={(next) => setView(next as View)}
-        dense
-        tabs={[
-          { value: "invoices", label: "Faktury z KSeF", count: invoices.length },
-          { value: "to-invoice", label: "Do faktury" },
-          { value: "issue", label: "Wystaw za miesiąc" },
-          { value: "templates", label: "Szablony" },
-          { value: "drafts", label: "Szkice" },
-          { value: "sent", label: "Wysłane" },
-          { value: "issue-settings", label: "Ustawienia wystawiania" },
-          { value: "unknown-buyers", label: "Nieznani nabywcy", count: unknownBuyers.data?.summary.buyers },
-          { value: "credits", label: "Wpłaty do sprawdzenia", count: credits.data?.credits.length },
-          // „0” przy fakturach bez danych o zapłacie znaczyłoby „nic po terminie”.
-          {
-            value: "overdue",
-            label: "Po terminie",
-            count:
-              overdue.data?.invoices.length || !overdue.data?.payment_unknown
-                ? overdue.data?.invoices.length
-                : undefined,
-          },
-        ]}
-      />
+      <div data-tour="finance.sales-invoices.tabs">
+        <TabbedNav
+          ariaLabel="Faktury do klientów"
+          value={view}
+          onValueChange={(next) => setView(next as View)}
+          dense
+          tabs={[
+            { value: "invoices", label: "Faktury z KSeF", count: invoices.length },
+            { value: "to-invoice", label: "Do faktury" },
+            { value: "issue", label: "Wystaw za miesiąc" },
+            { value: "templates", label: "Szablony" },
+            { value: "drafts", label: "Szkice" },
+            { value: "sent", label: "Wysłane" },
+            { value: "issue-settings", label: "Ustawienia wystawiania" },
+            { value: "unknown-buyers", label: "Nieznani nabywcy", count: unknownBuyers.data?.summary.buyers },
+            { value: "credits", label: "Wpłaty do sprawdzenia", count: credits.data?.credits.length },
+            // „0” przy fakturach bez danych o zapłacie znaczyłoby „nic po terminie”.
+            {
+              value: "overdue",
+              label: "Po terminie",
+              count:
+                overdue.data?.invoices.length || !overdue.data?.payment_unknown
+                  ? overdue.data?.invoices.length
+                  : undefined,
+            },
+          ]}
+        />
+      </div>
 
       {view === "invoices" ? (
         listState === "loading" ? (
@@ -417,6 +435,56 @@ export function FinanceSalesInvoicesTab({
           <QueryStateNotice state="error" onRetry={() => overdue.refetch()} />
         ) : (
           <>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                Lista dla księgowej na koniec miesiąca ({monthTitlePl(period).toLocaleLowerCase("pl")}):
+                po terminie z dowodem, potem faktury bez danych o zapłacie.
+              </p>
+              <div className="flex gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  data-tour="finance.overdue-month-close"
+                  onClick={() => downloadMonthClose("xlsx")}
+                >
+                  <Download className="mr-1 h-3.5 w-3.5" aria-hidden />
+                  Lista na koniec miesiąca (XLSX)
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => downloadMonthClose("csv")}>
+                  CSV
+                </Button>
+              </div>
+            </div>
+            {overdue.data?.vat_pln_unpaid?.count ? (
+              <p
+                data-testid="overdue-vat-pln"
+                className="rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground"
+              >
+                <span className="font-medium text-foreground">VAT w PLN nieopłacony. </span>
+                {vatUnpaidText(overdue.data.vat_pln_unpaid)}
+              </p>
+            ) : null}
+            {overdue.isSuccess && reminderClients(overdue.data.invoices).length ? (
+              <ul className="divide-y divide-border rounded-lg border border-border bg-card" data-testid="reminder-clients">
+                {reminderClients(overdue.data.invoices).map((item) => (
+                  <li key={item.clientId} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+                    <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {countPl(item.invoices, "faktura", "faktury", "faktur")} · do{" "}
+                      {countPl(item.maxDays, "dnia", "dni", "dni")} po terminie
+                      {item.level ? ` · ${reminderLevelText(item.level)}` : " · monit od 7. dnia"}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setDialog({ kind: "reminder", clientId: item.clientId })}
+                    >
+                      Przygotuj monit
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             {overdue.data?.payment_unknown ? (
               <p
                 data-testid="overdue-payment-unknown"
@@ -466,6 +534,13 @@ export function FinanceSalesInvoicesTab({
       ) : null}
       {dialog?.kind === "paid" ? (
         <MarkPaidDialog key={dialog.invoice.id} invoice={dialog.invoice} onClose={() => setDialog(null)} />
+      ) : null}
+      {dialog?.kind === "reminder" ? (
+        <PaymentReminderDialog
+          key={dialog.clientId}
+          clientId={dialog.clientId}
+          onClose={() => setDialog(null)}
+        />
       ) : null}
       {dialog?.kind === "credit" ? (
         <CreditDialog key={dialog.credit.id} credit={dialog.credit} onClose={() => setDialog(null)} />

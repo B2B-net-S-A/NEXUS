@@ -13,7 +13,8 @@
  *   obok faktur z KSeF, różnica, zaległość, brak faktury;
  * - `finance` — Finanse: faktury z KSeF z decyzjami (przypisz, pomiń, uznaj różnicę);
  * - `to-invoice` — Finanse: „Do faktury” wszystkich klientów z eksportem;
- * - `credits` — Finanse: wpłata z wyciągu do sprawdzenia.
+ * - `credits` — Finanse: wpłata z wyciągu do sprawdzenia;
+ * - `overdue` — Finanse: po terminie z monitem 7/14/30 dni i VAT w PLN faktury w EUR.
  * Zapisy i pobrania blokuje harness.
  */
 
@@ -31,11 +32,19 @@ import {
   useHrHarness,
   type HarnessUser,
 } from "../hr-harness";
-import { CLIENT_MONTH, CREDITS, DELIVERY_MONTH, KSEF_STATUS, TO_INVOICE } from "./fixtures";
+import {
+  CLIENT_MONTH,
+  CREDITS,
+  DELIVERY_MONTH,
+  KSEF_STATUS,
+  OVERDUE,
+  REMINDER,
+  TO_INVOICE,
+} from "./fixtures";
 
 const CLIENT_ID = 7;
 const PERIOD = "2026-10";
-const STATE_KEYS = ["dl", "finance", "to-invoice", "credits"] as const;
+const STATE_KEYS = ["dl", "finance", "to-invoice", "credits", "overdue"] as const;
 type State = (typeof STATE_KEYS)[number];
 
 const STATES = [
@@ -43,6 +52,7 @@ const STATES = [
   { key: "finance", label: "Finanse: faktury z KSeF" },
   { key: "to-invoice", label: "Finanse: do faktury" },
   { key: "credits", label: "Finanse: wpłaty" },
+  { key: "overdue", label: "Finanse: po terminie" },
 ] as const;
 
 const NOTES: Record<State, string> = {
@@ -50,6 +60,7 @@ const NOTES: Record<State, string> = {
   finance: "Dane fikcyjne, bez zapytań. Ogląda Finanse — decyzje przy fakturach do sprawdzenia.",
   "to-invoice": "Dane fikcyjne, bez zapytań. „Do faktury” wszystkich klientów za październik.",
   credits: "Dane fikcyjne, bez zapytań. Wpłata bez numeru faktury w tytule — kwota pasuje do jednej faktury.",
+  overdue: "Dane fikcyjne, bez zapytań. Po terminie z dowodem z wyciągów: monit do klienta i VAT w PLN faktury w EUR.",
 };
 
 const DELIVERY_LEAD: HarnessUser = {
@@ -86,9 +97,13 @@ function prepare(params: URLSearchParams) {
       buyers: [],
       summary: { invoices: 0, buyers: 0, with_suggestion: 0, totals: [] },
     });
-    client.setQueryData(invoicingKeys.overdue, {
-      invoices: CLIENT_MONTH.invoices.filter((invoice) => invoice.overdue_days > 0),
-    });
+    client.setQueryData(
+      invoicingKeys.overdue,
+      state === "overdue"
+        ? OVERDUE
+        : { invoices: CLIENT_MONTH.invoices.filter((invoice) => invoice.overdue_days > 0) },
+    );
+    client.setQueryData(invoicingKeys.reminder(CLIENT_ID, null), REMINDER);
   }
   return { user, client, value: { state } };
 }

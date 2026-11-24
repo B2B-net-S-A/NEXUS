@@ -976,7 +976,8 @@
     "id": "lekcja-najwazniejsze-zadanie",
     "title": "Najważniejsze zadanie w tej roli i pytanie, które je sprawdza",
     "novelties": [
-      "najwazniejsze-zadanie-w-roli"
+      "najwazniejsze-zadanie-w-roli",
+      "nowa-rekrutacja-mniej-decyzji"
     ],
     "task": "W rekrutacji ćwiczebnej otwórz Profil Championa, kliknij „Edytuj” przy „Najważniejsze zadanie w tej roli”, wpisz zadanie i zaznacz pytanie, które je sprawdza.",
     "solo_href": "/jobs/990001",
@@ -1014,6 +1015,16 @@
         ],
         "answer": 0,
         "explain": "Od 23.11 zadanie i pytanie są wymagane przy pierwszym przekazaniu, także przy zakładaniu przez API."
+      },
+      {
+        "q": "Po odczycie maila w „O projekcie” stoi zadanie z dopiskiem „Propozycja AI”. Co robisz?",
+        "options": [
+          "Sprawdzam zdanie i pytanie obok, potem „Zatwierdź zadanie” albo poprawiam",
+          "Nic — „Utwórz” zatwierdzi je samo jak pytania",
+          "Kasuję je, bo zadanie wpisuje tylko klient"
+        ],
+        "answer": 0,
+        "explain": "Pytania i kategorię zatwierdza „Utwórz”, ale zadanie AI tylko podpowiada: do „Zatwierdź zadanie” albo Twojej poprawki zostaje brakiem."
       }
     ]
   },
@@ -1915,6 +1926,41 @@
     ]
   },
   {
+    "id": "lekcja-monit-platnosci",
+    "title": "Monit płatności i lista należności",
+    "novelties": [
+      "finanse-monit-platnosci"
+    ],
+    "task": "W „Fakturach do klientów” przejdź na „Po terminie” i pobierz listę należności na koniec miesiąca. Na Poligonie nic się nie wyśle.",
+    "solo_href": "/finance?view=sales-invoices",
+    "check": {
+      "kind": "click",
+      "anchor": "finance.overdue-month-close"
+    },
+    "questions": [
+      {
+        "q": "Kiedy NEXUS proponuje ostateczne wezwanie do zapłaty?",
+        "options": [
+          "Gdy faktura jest co najmniej 30 dni po terminie według wyciągów",
+          "Zaraz po terminie płatności",
+          "Gdy klient nie odpisze na pierwszy monit"
+        ],
+        "answer": 0,
+        "explain": "Progi to 7, 14 i 30 dni po terminie, liczone tylko z ciągłych wyciągów. Monit wysyłasz sam, nic nie wychodzi automatycznie."
+      },
+      {
+        "q": "Klient zapłacił fakturę w euro, ale bez VAT. Co pokaże „Po terminie”?",
+        "options": [
+          "„Netto zapłacone · VAT do zapłaty” z kwotą w złotych do wpłaty na rachunek PLN",
+          "Całą fakturę jako niezapłaconą",
+          "Nic, bo faktura jest zapłacona"
+        ],
+        "answer": 0,
+        "explain": "VAT faktury walutowej klient płaci w złotych. NEXUS sprawdza go na wyciągach rachunku PLN i liczy kwotę po kursie faktury."
+      }
+    ]
+  },
+  {
     "id": "lekcja-firma-z-nip",
     "title": "Nowa firma z NIP-u",
     "novelties": [
@@ -2046,6 +2092,41 @@
         ],
         "answer": 0,
         "explain": "Okno daje tylko „musi mieć” albo „mile widziane”. Krytyczne wybierasz świadomie w edytorze wierszy, bo to bramka dla kandydatów."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-wymagania-klienta-do-faktury",
+    "title": "Wymagania klienta do faktury z NEXUSA",
+    "novelties": [
+      "wymagania-klienta-do-faktury"
+    ],
+    "task": "W rozliczeniach klientów otwórz Reguły klienta i w sekcji „Faktura do klienta” włącz numer umowy w KSeF. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/finance?view=settlements",
+    "check": {
+      "kind": "click",
+      "anchor": "clients.rules.client_invoice"
+    },
+    "questions": [
+      {
+        "q": "Klient chce w KSeF numer umowy i pole OSOBA z adresem koordynatora. Gdzie to ustawiasz?",
+        "options": [
+          "Raz w regułach klienta, w sekcji „Faktura do klienta”",
+          "W uwagach każdego szkicu faktury",
+          "W eBI24 przy kliencie"
+        ],
+        "answer": 0,
+        "explain": "Reguła klienta działa od wybranego miesiąca: każdy szkic z NEXUSA wpisuje numer umowy i pole OSOBA do KSeF sam, a karta faktury pokazuje je w ramce „Wymagania klienta”."
+      },
+      {
+        "q": "Klient ma kilku nabywców, zależnie od kontraktu osoby. Co robisz przy pierwszym szkicu?",
+        "options": [
+          "Wybierasz nabywcę z listy w szkicu — NEXUS zapamięta go dla tych kontraktów",
+          "Przepisujesz nazwę i adres nabywcy co miesiąc",
+          "Wystawiasz fakturę na klienta z kartoteki i robisz korektę"
+        ],
+        "answer": 0,
+        "explain": "Listę nabywców wpisujesz w ustawieniach wystawiania przy kliencie. Wybór w szkicu zapamiętuje kontrakty, więc kolejne szkice mają już właściwego nabywcę, a szkic bez nabywcy z listy nie pójdzie do KSeF."
       }
     ]
   },

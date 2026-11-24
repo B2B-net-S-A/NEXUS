@@ -398,6 +398,26 @@ SECTIONS: tuple[Section, ...] = (
                 "u klienta z kontraktu). „Cały miesiąc”: jeden protokół na wszystkie osoby.",
             ),
             Rule(
+                "cl.protocol_amount",
+                "Kwota do faktury taka jak w protokole klienta",
+                "off",
+                "E6",
+                hint="Protokół klienta z kwotą netto (Orlen): kwota rozliczenia, która idzie "
+                "na fakturę (MD × stawka z zamówienia), musi być równa kwocie z protokołu. "
+                "Finanse Orlenu odsyłają fakturę z inną kwotą do korekty albo do nowego PO.",
+            ),
+            Rule(
+                "cl.copyright_statement",
+                "Oświadczenie o prawach autorskich za miesiąc przed fakturą",
+                "off",
+                "E6",
+                hint="Centrum e-Zdrowia: każda osoba co miesiąc, osobno na każdą umowę "
+                "wykonawczą, oświadczenie o przeniesieniu autorskich praw majątkowych na "
+                "wzorze CeZ, z okresem od 01.MM do 30/31.MM, podpisane po końcu miesiąca. "
+                "Plik rozpoznajemy po nazwie albo treści; brak, inny okres, podpis przed "
+                "końcem miesiąca i nagłówek „Wzór” dają uwagę.",
+            ),
+            Rule(
                 "cl.cost_mail_block",
                 "Blok kosztów projektu do maila do automatu klienta",
                 "off",
@@ -415,7 +435,8 @@ SECTIONS: tuple[Section, ...] = (
                 hint="KEŚU (E6.3): „Do faktury” dopiero po drugim podpisie w odesłanym "
                 "pliku. PKO (E6.1): po podpisanym zbiorczym protokole, Velo (E6.2): po "
                 "podpisanych arkuszach wszystkich osób. Dokument na cały miesiąc czeka "
-                "na wszystkie osoby.",
+                "na wszystkie osoby. Wstrzymuje też szkic w „Wystaw za miesiąc” "
+                "(faktura z NEXUSA).",
             ),
             Rule(
                 "cl.send_to",
@@ -449,7 +470,86 @@ SECTIONS: tuple[Section, ...] = (
                 {"template": ""},
                 (ParamField("template", "wzór", "{zamowienie}, {osoba}"),),
                 "Wygrywa z nazwą z poprzedniej faktury. Pola: {zamowienie} — numer "
-                "zamówienia, {osoba} — imię i nazwisko.",
+                "zamówienia, {osoba} — imię i nazwisko, {rola} — tytuł pozycji "
+                "zamówienia (stanowisko), {usluga} — nazwa usługi z ustawień "
+                "wystawiania, {miesiac} — miesiąc usługi. Działa też w szkicu "
+                "faktury z NEXUSA.",
+            ),
+            Rule(
+                "cl.orders_together",
+                "Kilka zamówień na jednej fakturze z NEXUSA",
+                "off",
+                "F2",
+                hint="„Wystaw za miesiąc”: zaznaczone zamówienia klienta w tej samej "
+                "walucie idą jedną fakturą, każda osoba osobną pozycją z numerem "
+                "swojego zamówienia, a wszystkie numery trafiają do KSeF "
+                "(NrZamowienia). Inna waluta albo inny nabywca = osobna faktura.",
+                switch=True,
+            ),
+            Rule(
+                "cl.ksef_contract",
+                "Numer umowy w KSeF (NrUmowy)",
+                "off",
+                "F2",
+                {"number": "", "date": ""},
+                (
+                    ParamField("number", "numer umowy"),
+                    ParamField("date", "z dnia", "RRRR-MM-DD, można pominąć"),
+                ),
+                "Trafia do warunków transakcji każdej faktury z NEXUSA.",
+                switch=True,
+            ),
+            Rule(
+                "cl.ksef_fields",
+                "Pola dodatkowe w KSeF (DodatkowyOpis)",
+                "off",
+                "F2",
+                {"key": "", "value": "", "key2": "", "value2": ""},
+                (
+                    ParamField("key", "klucz", "np. OSOBA"),
+                    ParamField("value", "wartość", "tekst albo {zamowienie}"),
+                    ParamField("key2", "klucz 2"),
+                    ParamField("value2", "wartość 2"),
+                ),
+                "Para klucz–wartość w fakturze z NEXUSA, obok „Uwagi” ze szkicu. "
+                "{zamowienie} = numery zamówień faktury. Pusta wartość = pole pominięte.",
+                switch=True,
+            ),
+            Rule(
+                "cl.item_must_contain",
+                "Opis każdej pozycji faktury zawiera tekst",
+                "off",
+                "F2",
+                {"text": ""},
+                (ParamField("text", "tekst", "np. JIRA"),),
+                "Sprawdza szkic faktury z NEXUSA: „blokuje” wstrzymuje wysyłkę do "
+                "KSeF, „ostrzega” tylko pokazuje uwagę. Numery (np. zgłoszeń JIRA) "
+                "dopisuje się w opisie pozycji szkicu.",
+            ),
+            Rule(
+                "cl.invoice_mail",
+                "Faktura mailem do klienta obok KSeF",
+                "off",
+                "F2",
+                {
+                    "email": "",
+                    "subject": "",
+                    "email_eu": "",
+                    "subject_eu": "",
+                    "attach": "PDF faktury",
+                },
+                (
+                    ParamField("email", "adres"),
+                    ParamField("subject", "temat", "{numer} {ksef} {m} {mm} {rrrr}"),
+                    ParamField("email_eu", "adres dla serii UE"),
+                    ParamField("subject_eu", "temat dla serii UE"),
+                    ParamField("attach", "załącz", "np. PDF faktury, TS"),
+                ),
+                "Karta faktury z NEXUSA podaje adres i gotowy temat: {numer} — numer "
+                "faktury, {ksef} — numer KSeF, {m}/{mm}/{rrrr} — miesiąc usługi, "
+                "{zamowienie} — numery zamówień. Seria UE bierze adres i temat UE, gdy "
+                "są wpisane. Maila wysyła osoba z Finansów.",
+                switch=True,
             ),
         ),
     ),

@@ -81,6 +81,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
+from app.api.cpro_operator import router as cpro_operator_router  # noqa: E402
+
+router.include_router(cpro_operator_router, prefix="/cpro/operator")
+
 
 class BoardTaskRow(BaseModel):
     # Wiersz nieobecnego DL-a, którego oglądający zastępuje.
@@ -687,6 +691,20 @@ class CproBotSummary(BaseModel):
     can_retry: bool = False
 
 
+class CproOperatorDraft(BaseModel):
+    delivery_lead_id: int
+    request_number: str
+    state: Literal["ready", "started", "received"]
+    run_id: Optional[int] = None
+
+
+class CproOperatorStatus(BaseModel):
+    delivery_lead_id: int
+    request_number: str
+    state: Literal["working", "draft"]
+    offer_id: Optional[str] = None
+
+
 class CproQueueItem(BaseModel):
     stage_id: int
     candidate_id: int
@@ -714,6 +732,8 @@ class CproQueueItem(BaseModel):
     dl_note: Optional[str] = None
     # Bot Cpro; ``None``, gdy oba tryby automatu są wyłączone.
     bot: Optional[CproBotItem] = None
+    operator_draft: Optional[CproOperatorDraft] = None
+    operator_status: Optional[CproOperatorStatus] = None
 
 
 class CproQueueJob(BaseModel):
@@ -1684,6 +1704,16 @@ async def get_cpro_queue(
         bot_summary = await _attach_bot(
             db, jobs, to_send, now=now, today=today, user=current_user
         )
+    elif to_send:
+        await _attach_operator_drafts(
+            db,
+            jobs,
+            to_send,
+            user=current_user,
+            show_rate=show_rate,
+            now=now,
+            today=today,
+        )
     return CproQueueResponse(
         sender=CproSenderRead(
             **await cpro_sender.describe(db, sender),
@@ -1693,6 +1723,62 @@ async def get_cpro_queue(
         sent_today=sent_today,
         bot=bot_summary,
     )
+
+
+async def _attach_operator_drafts(
+    db: AsyncSession,
+    jobs: dict[int, CproQueueJob],
+    tasks: list[svc.BoardTask],
+    *,
+    user: User,
+    show_rate: bool,
+    now: datetime,
+    today: date,
+) -> None:
+    from app.services.cpro_bot import operator_browser
+
+    can_send = await cpro_sender.can_send_to_cpro(db, user, now)
+    if not operator_browser.can_use(user, can_send=can_send, show_rate=show_rate):
+        return
+    rows = {row.stage_id: row for group in jobs.values() for row in group.items}
+    reservations = await operator_browser.reservations(db, rows)
+    blocked = await cpro_bot_runs.recorded_offer_stage_ids(db, rows)
+    blocked.update(await operator_browser.unresolved_stage_ids(db, rows))
+    items = await cpro_bot_items.load_items(db, tasks=tasks, now=now, today=today)
+    for item in items:
+        if not operator_browser.can_use(
+            user,
+            can_send=can_send,
+            show_rate=show_rate,
+            has_borrowed_data=bool(item.data_from),
+        ):
+            continue
+        run = reservations.get(item.stage_id)
+        if run is not None:
+            payload = operator_browser.item_for(run)
+            if not operator_browser.owned_by(run, user.id):
+                confirmed = run.status == "received"
+                rows[item.stage_id].operator_status = CproOperatorStatus(
+                    delivery_lead_id=payload["cpro_account"]["delivery_lead_id"],
+                    request_number=payload["request_number"],
+                    state="draft" if confirmed else "working",
+                    offer_id=run.request.get("operator_offer_id")
+                    if confirmed
+                    else None,
+                )
+                continue
+            rows[item.stage_id].operator_draft = CproOperatorDraft(
+                delivery_lead_id=payload["cpro_account"]["delivery_lead_id"],
+                request_number=payload["request_number"],
+                run_id=run.id,
+                state="received" if run.status == "received" else "started",
+            )
+        elif item.payload and not item.blockers and item.stage_id not in blocked:
+            rows[item.stage_id].operator_draft = CproOperatorDraft(
+                delivery_lead_id=item.payload["cpro_account"]["delivery_lead_id"],
+                request_number=item.payload["request_number"],
+                state="ready",
+            )
 
 
 def bot_item_view(

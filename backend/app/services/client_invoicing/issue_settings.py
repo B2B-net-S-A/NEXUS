@@ -13,7 +13,8 @@ wiersza, a JSON w ``app_settings`` takiej blokady nie daje.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+import re
+from typing import Any, Iterable, Optional
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -58,6 +59,19 @@ PATTERN_MAX = 40
 TEXT_MAX = 255
 ACCOUNT_MIN, ACCOUNT_MAX = 10, 34
 PAYMENT_DAYS_MAX = 180
+#: Nabywcy klienta (Nordea: Abp, Rahoitus, oddział w Polsce — nabywca zależy od kontraktu).
+BUYERS_MAX = 10
+BUYER_CODE = re.compile(r"b\d{1,3}")
+BUYER_FIELDS = (
+    "name",
+    "number",
+    "address_l1",
+    "address_l2",
+    "country",
+    "delivery_l1",
+    "delivery_l2",
+    "delivery_country",
+)
 
 
 class IssueSettingsError(ValueError):
@@ -83,6 +97,62 @@ def _days(raw: Any, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return value if 0 <= value <= PAYMENT_DAYS_MAX else default
+
+
+def _country(raw: Any) -> str:
+    value = "".join(ch for ch in str(raw or "").upper() if ch.isalpha())[:2]
+    return "EL" if value == "GR" else value
+
+
+def _buyers(raw: Any, reserved: Iterable[str] = ()) -> list[dict[str, str]]:
+    """Lista nabywców klienta; wpis bez nazwy odpada, nowy dostaje kod ``b<n>``.
+
+    Nowy nabywca nie dostaje kodu zajętego w przypisaniach kontraktów
+    (``reserved``): usunięcie b2 i dodanie innej spółki w jednym zapisie dałoby
+    jej kontrakty b2 (przegląd 23.11.2026).
+    """
+
+    items = raw if isinstance(raw, list) else []
+    out: list[dict[str, str]] = []
+    used: set[str] = {str(code) for code in reserved}
+    for item in items[:BUYERS_MAX]:
+        if not isinstance(item, dict) or not _text(item.get("name")):
+            continue
+        entry = {
+            "name": _text(item.get("name")),
+            "number": "".join(
+                ch for ch in str(item.get("number") or "").upper() if ch.isalnum()
+            )[:32],
+            "address_l1": _text(item.get("address_l1")),
+            "address_l2": _text(item.get("address_l2")),
+            "country": _country(item.get("country")) or "PL",
+            "delivery_l1": _text(item.get("delivery_l1")),
+            "delivery_l2": _text(item.get("delivery_l2")),
+            "delivery_country": _country(item.get("delivery_country")),
+        }
+        code = str(item.get("code") or "")
+        if BUYER_CODE.fullmatch(code) and code not in {e.get("code") for e in out}:
+            entry["code"] = code
+            used.add(code)
+        out.append(entry)
+    next_no = 1
+    for entry in out:
+        if "code" in entry:
+            continue
+        while f"b{next_no}" in used:
+            next_no += 1
+        entry["code"] = f"b{next_no}"
+        used.add(entry["code"])
+    return out
+
+
+def _contract_buyers(raw: Any, codes: set[str]) -> dict[str, str]:
+    data = raw if isinstance(raw, dict) else {}
+    return {
+        str(int(key)): str(value)
+        for key, value in data.items()
+        if str(key).isdigit() and str(value) in codes
+    }
 
 
 def normalize(raw: object) -> dict[str, Any]:
@@ -126,6 +196,16 @@ def normalize(raw: object) -> dict[str, Any]:
             terms = None
         if terms is not None:
             entry["rebate"] = rebate.to_json(terms)
+        raw_mapping = value.get("contract_buyers")
+        buyers = _buyers(
+            value.get("buyers"),
+            raw_mapping.values() if isinstance(raw_mapping, dict) else (),
+        )
+        if buyers:
+            entry["buyers"] = buyers
+            mapping = _contract_buyers(raw_mapping, {b["code"] for b in buyers})
+            if mapping:
+                entry["contract_buyers"] = mapping
         if entry:
             clients[str(int(key))] = entry
     return {
@@ -274,6 +354,45 @@ def account_for(
     return account if account.get("number") else None
 
 
+def client_buyers(
+    data: dict[str, Any], client_id: Optional[int]
+) -> list[dict[str, str]]:
+    """Nabywcy klienta z ustawień (pusta lista = nabywcą jest klient z kartoteki)."""
+
+    if client_id is None:
+        return []
+    return list((data.get("clients") or {}).get(str(client_id), {}).get("buyers") or [])
+
+
+def buyer_for_contract(
+    data: dict[str, Any], client_id: Optional[int], contract_id: Optional[int]
+) -> Optional[dict[str, str]]:
+    """Nabywca przypisany do kontraktu osoby; ``None`` = nieprzypisany."""
+
+    if client_id is None or contract_id is None:
+        return None
+    entry = (data.get("clients") or {}).get(str(client_id), {})
+    code = (entry.get("contract_buyers") or {}).get(str(contract_id))
+    return next((b for b in entry.get("buyers") or [] if b["code"] == code), None)
+
+
+def remember_buyer(
+    data: dict[str, Any], client_id: int, contract_ids: Iterable[int], code: str
+) -> bool:
+    """Przypisuje kontrakty do nabywcy (w miejscu); ``True``, gdy coś się zmieniło."""
+
+    entry = (data.get("clients") or {}).get(str(client_id))
+    if not entry or code not in {b["code"] for b in entry.get("buyers") or []}:
+        return False
+    mapping = entry.setdefault("contract_buyers", {})
+    changed = False
+    for contract_id in contract_ids:
+        if mapping.get(str(contract_id)) != code:
+            mapping[str(contract_id)] = code
+            changed = True
+    return changed
+
+
 def client_payment_days(data: dict[str, Any], client_id: int) -> int:
     value: Optional[int] = data["clients"].get(str(client_id), {}).get("payment_days")
     return value if value is not None else data["payment_days"]
@@ -285,11 +404,14 @@ __all__ = [
     "SETTING_KEY",
     "IssueSettingsError",
     "account_for",
+    "buyer_for_contract",
+    "client_buyers",
     "client_payment_days",
     "client_rebate",
     "client_vat",
     "load",
     "normalize",
+    "remember_buyer",
     "save",
     "seller_missing",
     "validate",

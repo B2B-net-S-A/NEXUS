@@ -42,6 +42,7 @@ KNOWN_REGISTRY_IDS: dict[str, tuple[str, ...]] = {
     "cyfrowy_polsat": ("7961810732",),
     "ey": ("5252314195",),
     "nationale_nederlanden": ("5260305006",),
+    "orlen": ("7740001454",),
 }
 
 #: Markery dla klientów bez polskiego NIP-u w treści albo jako drugi szczebel.
@@ -87,6 +88,10 @@ KNOWN_SENDER_DOMAINS: dict[str, str] = {
     "pfron.org.pl": "pfron",
     "nn.pl": "nationale_nederlanden",
     "nn-group.com": "nationale_nederlanden",
+    "orlen.pl": "orlen",
+    # Orlen Upstream (dawne PGNiG) pisze z pgnig.pl: podpisany protokół IX 2026
+    # i pytanie finansów o kwotę faktury X przyszły z tej domeny (przegląd skrzynek 23.11.2026).
+    "pgnig.pl": "orlen",
 }
 
 #: Domena, z której piszą pracownicy kilku spółek grupy. Rozpoznaniu zamówień

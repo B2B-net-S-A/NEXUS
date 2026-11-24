@@ -13,6 +13,7 @@ import type {
   PaymentStatus,
   PaymentUnknownCount,
   PaymentUnknownReason,
+  ReminderLevel,
   RowStatus,
   SalesInvoice,
 } from "@/lib/api/client-invoicing";
@@ -254,6 +255,14 @@ export function paymentNote(invoice: SalesInvoice): string | null {
       ? `wyciągi do ${formatDayMonthPl(invoice.statements_until)}`
       : null;
   if (invoice.payment_status !== "partial") return until;
+  const vat = invoice.vat_pln_unpaid;
+  if (vat) {
+    // Klient zapłacił netto w walucie, a VAT płaci osobno w PLN.
+    const amount = vat.vat_pln
+      ? formatMoney(vat.vat_pln, "PLN")
+      : `${formatMoney(vat.vat, vat.currency)} w PLN`;
+    return ["netto zapłacone", `VAT do zapłaty ${amount}`, until].filter(Boolean).join(" · ");
+  }
   const left = `zostało ${formatMoney(invoice.to_pay, invoice.currency)}`;
   if (invoice.overdue_days <= 0) return left;
   return ["zapłacono część", left, until].filter(Boolean).join(" · ");
@@ -307,4 +316,57 @@ export function canMarkPaid(invoice: SalesInvoice): boolean {
 export function looseInvoices(rows: BillingRow[], invoices: SalesInvoice[]): SalesInvoice[] {
   const attached = new Set(rows.flatMap((row) => row.invoice_ids));
   return invoices.filter((invoice) => !attached.has(invoice.id));
+}
+
+const LEVEL_LABELS: Record<ReminderLevel, string> = {
+  first: "przypomnienie",
+  second: "ponowne wezwanie",
+  final: "ostateczne wezwanie",
+};
+
+export function reminderLevelText(level: ReminderLevel | null | undefined): string | null {
+  return level ? LEVEL_LABELS[level] : null;
+}
+
+const LEVEL_ORDER: (ReminderLevel | null)[] = [null, "first", "second", "final"];
+
+export interface ReminderClient {
+  clientId: number;
+  name: string;
+  invoices: number;
+  maxDays: number;
+  level: ReminderLevel | null;
+}
+
+/** Klienci z listy „Po terminie” do monitu (faktury bez klienta NEXUSA pomijamy). */
+export function reminderClients(invoices: SalesInvoice[]): ReminderClient[] {
+  const byClient = new Map<number, ReminderClient>();
+  for (const invoice of invoices) {
+    if (invoice.client_id === null || invoice.overdue_days <= 0) continue;
+    const entry = byClient.get(invoice.client_id) ?? {
+      clientId: invoice.client_id,
+      name: buyerText(invoice),
+      invoices: 0,
+      maxDays: 0,
+      level: null,
+    };
+    const level = invoice.escalation ?? null;
+    byClient.set(invoice.client_id, {
+      ...entry,
+      invoices: entry.invoices + 1,
+      maxDays: Math.max(entry.maxDays, invoice.overdue_days),
+      level: LEVEL_ORDER.indexOf(level) > LEVEL_ORDER.indexOf(entry.level) ? level : entry.level,
+    });
+  }
+  return [...byClient.values()].sort((a, b) => b.maxDays - a.maxDays || a.name.localeCompare(b.name, "pl"));
+}
+
+/** Zdanie o fakturach walutowych z nieopłaconym VAT w PLN. */
+export function vatUnpaidText(summary: { count: number; total_pln: string | null; without_rate: number }): string {
+  const invoices = countPl(summary.count, "faktura walutowa ma", "faktury walutowe mają", "faktur walutowych ma");
+  const total = summary.total_pln ? ` Razem ${formatMoney(summary.total_pln, "PLN")}` : "";
+  const missing = summary.without_rate
+    ? ` (bez kursu NBP: ${summary.without_rate} — kwotę w PLN weź z faktury)`
+    : "";
+  return `${invoices} zapłacone netto w walucie, a VAT w PLN nie wpłynął na rachunek PLN.${total}${missing}${total || missing ? "." : ""}`;
 }
