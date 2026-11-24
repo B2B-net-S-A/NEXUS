@@ -374,6 +374,33 @@ def _safe(text: str) -> str:
     return re.sub(r"[^\w.-]+", "_", text, flags=re.UNICODE).strip("_") or "plik"
 
 
+def package_acceptance(
+    mails: list[mail_text.Mail],
+    *,
+    month: str,
+    hours: Optional[Decimal],
+    senders: mail_text.Senders,
+) -> Optional[mail_text.Mail]:
+    """Akceptacja do paczki: najnowsza, która przechodzi kontrolę; bez takiej
+    najnowszy mail. Mail klienta załączony do maila konsultanta też jest
+    kandydatem (PKO, próba IX–X 2026), a „Akceptuję” bez liczby przechodzi
+    z godzinami z Time Sheet: rozliczenie w paczce jest już przyjęte."""
+
+    for mail in mails:
+        for candidate in mail_text.thread(mail):
+            verdict = mail_text.judge(
+                [candidate],
+                month=month,
+                hours=hours,
+                md=None,
+                senders=senders,
+                sheet_month=month,
+            )
+            if verdict.ok:
+                return candidate
+    return mails[0] if mails else None
+
+
 async def package_zip(
     db: AsyncSession, client_id: int, month: str
 ) -> tuple[bytes, str]:
@@ -413,19 +440,14 @@ async def package_zip(
                     mail = mail_text.read(content, document.mime)
                     if mail is not None:
                         mails.append(mail)
-            # Najnowsza akceptacja, która przeszła kontrolę; bez takiej — najnowszy mail.
-            passing = [
-                m
-                for m in mails
-                if mail_text.judge(
-                    [m], month=month, hours=person.hours, md=None, senders=senders
-                ).ok
-            ] or mails
-            for mail in passing[:1]:
+            chosen = package_acceptance(
+                mails, month=month, hours=person.hours, senders=senders
+            )
+            if chosen is not None:
                 files.append(
                     (
-                        mail_text.html_name(mail, f"Akceptacja_{_safe(person.name)}"),
-                        mail_text.to_html(mail).encode("utf-8"),
+                        mail_text.html_name(chosen, f"Akceptacja_{_safe(person.name)}"),
+                        mail_text.to_html(chosen).encode("utf-8"),
                     )
                 )
             for name, content in files:

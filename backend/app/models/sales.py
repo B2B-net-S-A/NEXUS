@@ -962,3 +962,67 @@ class SalesCallRecord(Base, TimestampMixin):
     created_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )
+
+
+class SalesTenderNotice(Base, TimestampMixin):
+    """Ogłoszenie z BZP albo TED, które przeszło frazy lub kody CPV usług IT (0770).
+
+    ``created`` — bramka założyła szansę w lejku Przetargi (albo ktoś przywrócił
+    odsiane), ``rejected`` — odsiane regułą z ``rule``. Reguły i stan biegów leżą
+    w ``app_settings`` (``services/sales/tenders/``).
+    """
+
+    __tablename__ = "sales_tender_notices"
+    __table_args__ = (
+        UniqueConstraint(
+            "source", "number", name="uq_sales_tender_notices_source_number"
+        ),
+        CheckConstraint(schema.CK_TENDER_SOURCE, name="ck_sales_tender_notices_source"),
+        CheckConstraint(schema.CK_TENDER_STATUS, name="ck_sales_tender_notices_status"),
+        Index("ix_sales_tender_notices_status", "status", text("published_at DESC")),
+        Index("ix_sales_tender_notices_opportunity", "opportunity_id"),
+        Index(
+            "ux_sales_tender_notices_procedure",
+            "source",
+            "procedure_id",
+            unique=True,
+            postgresql_where=text("procedure_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source: Mapped[str] = mapped_column(String(8), nullable=False)
+    #: ``2026/BZP 00543285`` albo numer publikacji TED ``789176-2026``.
+    number: Mapped[str] = mapped_column(String(60), nullable=False)
+    #: Postępowanie (TED ``procedure-identifier``, BZP ``tenderId``): nowa publikacja
+    #: tego samego postępowania aktualizuje wiersz i szansę zamiast zakładać drugą.
+    procedure_id: Mapped[Optional[str]] = mapped_column(String(80))
+    title: Mapped[str] = mapped_column(String(1000), nullable=False)
+    buyer_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    buyer_nip: Mapped[Optional[str]] = mapped_column(String(15))
+    buyer_city: Mapped[Optional[str]] = mapped_column(String(120))
+    cpv: Mapped[Optional[str]] = mapped_column(String(300))
+    #: ``services``, ``supplies`` albo ``works``.
+    order_type: Mapped[Optional[str]] = mapped_column(String(12))
+    url: Mapped[Optional[str]] = mapped_column(String(1000))
+    published_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    #: Termin składania ofert w kalendarzu firmy; godzina tylko z BZP.
+    deadline_date: Mapped[Optional[date]] = mapped_column(Date)
+    deadline_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    below_eu: Mapped[Optional[bool]] = mapped_column(Boolean)
+    status: Mapped[str] = mapped_column(String(12), nullable=False)
+    #: Reguła, która odsiała: ``order_type``, ``subject``, ``buyer``, ``expired``.
+    rule: Mapped[Optional[str]] = mapped_column(String(20))
+    rule_detail: Mapped[Optional[str]] = mapped_column(String(200))
+    #: Fraza albo kod CPV, przez które ogłoszenie weszło do bramki.
+    match_detail: Mapped[Optional[str]] = mapped_column(String(200))
+    opportunity_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("sales_opportunities.id", ondelete="SET NULL")
+    )
+    #: Kto przywrócił odsiane ogłoszenie (szansę od bramki zakłada system).
+    decided_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))

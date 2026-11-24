@@ -21,9 +21,10 @@ Sheet”, „Imię Nazwisko”, tabela „Data · Opis zadań · Liczba godzin �
 i „Łączna liczba godzin”.
 
 Plik spoza szablonu daje ``None``: wtedy MD wpisują Finanse, a plik zostaje.
-Time Sheet za inny miesiąc to kontrola ``proof.month`` bez MD; wyjątek to rok
-z zeszłorocznego szablonu (``template_year_fixed``). Odczyt nigdy
-nie blokuje przyjęcia pliku.
+Time Sheet za inny miesiąc to kontrola ``proof.month`` bez MD; wyjątki to rok
+z zeszłorocznego szablonu (``template_year_fixed``) i daty wierszy z innego
+miesiąca przy nagłówku na cały rozliczany miesiąc (``template_month_fixed``).
+Odczyt nigdy nie blokuje przyjęcia pliku.
 """
 
 from __future__ import annotations
@@ -482,6 +483,38 @@ def template_year_fixed(
     return replace(parsed, entries=entries)
 
 
+def template_month_fixed(
+    parsed: ParsedTimesheet, month: str
+) -> Optional[ParsedTimesheet]:
+    """Time Sheet z nagłówkiem „Date from/Date to” na cały rozliczany miesiąc,
+    a z datami wierszy z jednego innego miesiąca: szablon skopiowany bez zmiany
+    dat (Bosch, próba IX–X 2026: nagłówek wrzesień, 30 wierszy z czerwca, godziny
+    równe fakturze). Decyzja Artura z 24.11.2026: liczymy za miesiąc z nagłówka,
+    z informacją. Wiersze z dwóch miesięcy, bez dat albo z dniem spoza
+    rozliczanego miesiąca zostają wpisami spoza miesiąca. ``None`` = bez zmiany."""
+
+    year, number = int(month[:4]), int(month[5:7])
+    last = calendar.monthrange(year, number)[1]
+    if parsed.date_from != date(year, number, 1) or parsed.date_to != date(
+        year, number, last
+    ):
+        return None
+    days = {e.day for e in parsed.entries}
+    if not days or None in days:
+        return None
+    months = {(d.year, d.month) for d in days if d is not None}
+    if len(months) != 1 or months == {(year, number)}:
+        return None
+    if max(d.day for d in days if d is not None) > last:
+        return None
+    entries = tuple(
+        replace(e, day=e.day.replace(year=year, month=number))
+        for e in parsed.entries
+        if e.day
+    )
+    return replace(parsed, entries=entries)
+
+
 def md_from_hours(hours: Decimal, per_md: Decimal) -> Decimal:
     return (hours / per_md).quantize(MD_Q, rounding=ROUND_HALF_UP)
 
@@ -534,6 +567,16 @@ def evaluate(
             "liczymy jako rozliczany miesiąc.",
         )
         parsed = fixed
+    moved = template_month_fixed(parsed, month)
+    if moved is not None:
+        source = next(e.day for e in parsed.entries if e.day)
+        sheet.info(
+            f"Daty wierszy z innego miesiąca: {source.year}-{source.month:02d}",
+            f"Nagłówek obejmuje cały {month}, a wiersze mają daty z "
+            f"{source.year}-{source.month:02d} (szablon z innego miesiąca): "
+            "liczymy jako rozliczany miesiąc.",
+        )
+        parsed = moved
 
     # Plik za inny miesiąc (np. szablon z rokiem 2025): kontrola bez MD.
     other_month = parsed.month is not None and parsed.month != month

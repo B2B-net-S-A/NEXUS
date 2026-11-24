@@ -29,6 +29,7 @@ import struct
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+from email.message import EmailMessage
 from html import escape, unescape
 from typing import Optional
 
@@ -43,6 +44,9 @@ MAIL_MIMES = (MSG, EML)
 MAX_TEXT = 200_000
 #: Załączniki z maila do rozpoznania (arkusz od klienta w przekazanym mailu).
 MAX_ATTACHMENTS = 20
+#: Mail w mailu: ile poziomów załączonych maili czytamy (plik z zewnątrz).
+MAX_NESTED = 2
+OLE_HEADER = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 
 MONTHS_NOMINATIVE = (
     "styczeń",
@@ -134,10 +138,52 @@ class Mail:
     sent_at: Optional[datetime] = None
     body: str = ""
     attachments: list[tuple[str, bytes]] = field(default_factory=list)
+    #: Maile załączone do tego maila, już odczytane. Konsultant dołącza akceptację
+    #: klienta jako plik ``.msg`` albo ``.eml`` (PKO, próba IX–X 2026).
+    attached: list["Mail"] = field(default_factory=list)
 
     @property
     def text(self) -> str:
         return f"{self.subject}\n{self.body}"
+
+
+def thread(mail: "Mail") -> list["Mail"]:
+    """Mail i wszystkie maile do niego załączone, najpierw zewnętrzny."""
+
+    found = [mail]
+    for inner in mail.attached:
+        found.extend(thread(inner))
+    return found
+
+
+def _attached_mail(name: str, data: bytes, depth: int) -> Optional["Mail"]:
+    """Załącznik, który sam jest mailem: ``.msg`` z Outlooka albo ``.eml``."""
+
+    if depth >= MAX_NESTED:
+        return None
+    lowered = name.lower()
+    try:
+        if lowered.endswith(".msg") and data.startswith(OLE_HEADER):
+            return _read_msg(data, depth + 1)
+        if lowered.endswith(".eml"):
+            return _read_eml(data, depth + 1)
+    except Exception as exc:  # noqa: BLE001 — zły załącznik nie psuje maila
+        logger.info("mail_text: załączony mail nieczytelny (%s)", type(exc).__name__)
+    return None
+
+
+def _attached_part(part: EmailMessage, depth: int) -> Optional["Mail"]:
+    """Część ``message/rfc822``: mail w środku jako osobny mail."""
+
+    inner = part.get_payload(0) if part.is_multipart() else None
+    if inner is None:
+        return None
+    try:
+        raw = inner.as_bytes()
+    except (ValueError, TypeError, LookupError) as exc:
+        logger.info("mail_text: załączony mail nieczytelny (%s)", type(exc).__name__)
+        return None
+    return _attached_mail("zalacznik.eml", raw, depth)
 
 
 # ── Odczyt ───────────────────────────────────────────────────────────────────
@@ -156,7 +202,7 @@ def _filetime(raw: bytes) -> Optional[datetime]:
     )
 
 
-def _read_msg(content: bytes) -> Optional[Mail]:
+def _read_msg(content: bytes, depth: int = 0) -> Optional[Mail]:
     import olefile
 
     try:
@@ -203,9 +249,13 @@ def _read_msg(content: bytes) -> Optional[Mail]:
             name = prop("3707", f"{root}/") or prop("3704", f"{root}/")
             if data:
                 mail.attachments.append((name or "zalacznik", data))
-        return mail
     finally:
         ole.close()
+    for name, data in mail.attachments:
+        inner = _attached_mail(name, data, depth)
+        if inner is not None:
+            mail.attached.append(inner)
+    return mail
 
 
 def _sender(name: str, address: str) -> str:
@@ -223,7 +273,7 @@ def _html_to_text(html: str) -> str:
     return re.sub(r"[ \t]+", " ", text)
 
 
-def _read_eml(content: bytes) -> Optional[Mail]:
+def _read_eml(content: bytes, depth: int = 0) -> Optional[Mail]:
     try:
         message = email.message_from_bytes(content, policy=email.policy.default)
     except (ValueError, TypeError, LookupError):
@@ -246,11 +296,19 @@ def _read_eml(content: bytes) -> Optional[Mail]:
                 _html_to_text(body) if part.get_content_subtype() == "html" else body
             )[:MAX_TEXT]
         for attachment in attachment_parts(message)[:MAX_ATTACHMENTS]:
+            if attachment.get_content_type() == "message/rfc822":
+                # Mail dołączony jako element (Outlook „Załącz element”).
+                found = _attached_part(attachment, depth)
+                if found is not None:
+                    mail.attached.append(found)
+                continue
             data = attachment.get_payload(decode=True)
             if isinstance(data, bytes) and data:
-                mail.attachments.append(
-                    (attachment.get_filename() or "zalacznik", data)
-                )
+                name = attachment.get_filename() or "zalacznik"
+                mail.attachments.append((name, data))
+                found = _attached_mail(name, data, depth)
+                if found is not None:
+                    mail.attached.append(found)
     except (KeyError, LookupError, ValueError, TypeError) as exc:
         logger.info("mail_text: część maila nieczytelna (%s)", type(exc).__name__)
     return mail

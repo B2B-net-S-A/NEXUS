@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # Pusty = domyślne (700, 10, 10), czyli wycofanie bez zmiany kodu.
     # → app/tasks/runtime_metrics_monitor.py `apply_gc_thresholds`
     GC_THRESHOLDS: str = "50000,20,10"
+    # Zastój pętli zdarzeń dłuższy niż tyle sekund → stos wątku pętli w logu
+    # (`event_kind: loop_stall`). 0 = wyłączone. → app/tasks/loop_stall_guard.py
+    LOOP_STALL_DUMP_SECONDS: float = 5.0
     # Skąd web czyta stan pętli do `/api/health` i `/api/admin/snapshot`.
     NEXUS_WORKER_HEALTH_URL: str = "http://worker:8000/api/health/background"
     # Hosty spoza sieci lokalnej dozwolone na stagingu obok dostawców AI
@@ -1386,6 +1389,11 @@ class Settings(BaseSettings):
     # nie ma kroku i czerwień na wszystkim nic by nie znaczyła.
     SALES_STEP_RULES_SINCE: date = date(2026, 11, 10)
     SALES_ARCHIVE_SHADOW_ENABLED: bool = True
+    # Przetargi z BZP i TED (0770, ``app/services/sales/tenders``): w dni robocze
+    # od 5:30 bramka z regułami Kingi zakłada szanse w lejku Przetargi i zamyka te,
+    # którym minął termin (decyzja Artura 24.11.2026, wariant B). OFF: pętla stoi,
+    # ekran mówi „Wyłączone”; ręczny bieg administratora działa (próba).
+    SALES_TENDERS_ENABLED: bool = False
     # Kanał sygnałów z bota researchu (Grok Bot, 0676): NEXUS startuje bieg
     # webhookiem bota i przyjmuje jeden raport z jednorazowym tokenem
     # (``app/services/sales/signals.py``). OFF do udanej próby na koncie Artura.

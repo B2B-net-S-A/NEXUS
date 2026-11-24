@@ -5,7 +5,7 @@
     prod_readonly.py sql [--csv] < zapytanie.sql   # to samo ze stdin
     prod_readonly.py env NAZWA [NAZWA…]            # zmienne procesu 1 backendu z białej listy
     prod_readonly.py backup-log [N]                # ostatnie N linii logu backupu (domyślnie 100)
-    prod_readonly.py logs --since CZAS [--until CZAS]  # linie runtime_metrics i http_outcome backendu web
+    prod_readonly.py logs --since CZAS [--until CZAS]  # linie runtime_metrics, http_outcome i loop_stall backendu web
     prod_readonly.py health                        # publiczne /api/health
     prod_readonly.py secret-check                  # czy SECRET_KEY backendu nie jest wartością z wycieku (tak/nie)
 
@@ -17,7 +17,7 @@ Host i klucz SSH nie leżą w repo (jest publiczne): czyta je plik
 albo ścieżka z ``NEXUS_PROD_READONLY_CONF``.
 
 ``logs`` czyta ``docker logs`` kontenera web i przepuszcza wyłącznie linie JSON
-z ``event_kind`` równym ``runtime_metrics`` albo ``http_outcome`` (filtr ``grep``
+z ``event_kind`` równym ``runtime_metrics``, ``http_outcome`` albo ``loop_stall`` (filtr ``grep``
 na serwerze, drugi po stronie laptopa). CZAS to ``10m``/``2h``/``90s`` (najwyżej 24 h)
 albo znacznik ``2026-11-16T08:00:00+01:00`` ze strefą (``Z`` albo ``±HH:MM``).
 Logi dnia giną przy wdrożeniu, które podmienia kontener (18:00).
@@ -310,7 +310,8 @@ def secret_check_remote_command() -> str:
 
 # --- logs --------------------------------------------------------------------
 
-LOG_EVENT_KINDS = ("runtime_metrics", "http_outcome")
+# ``loop_stall`` (24.11.2026): stos wątku pętli przy zastoju — ścieżki, linie, funkcje.
+LOG_EVENT_KINDS = ("runtime_metrics", "http_outcome", "loop_stall")
 LOGS_MAX_RELATIVE_SECONDS = 24 * 3600
 LOGS_TIMEOUT_SECONDS = 900
 _RELATIVE_TIME = re.compile(r"^([1-9][0-9]{0,4})([smh])$")

@@ -241,3 +241,10 @@ def test_nowy_konsultant_to_start_w_tym_albo_poprzednim_miesiacu():
     assert not _onboarding_eligible(contract(date(2026, 8, 31)), "2026-10")
     assert not _onboarding_eligible(contract(None), "2026-10")
     assert _onboarding_eligible(contract(date(2025, 12, 1)), "2026-01")
+    # Miesiąc startu bez reguły: pulę wykorzystały Finanse na swojej fakturze.
+    assert not _onboarding_eligible(
+        contract(date(2026, 9, 20)), "2026-10", rule_in_start_month=False
+    )
+    assert _onboarding_eligible(
+        contract(date(2026, 10, 15)), "2026-10", rule_in_start_month=False
+    )

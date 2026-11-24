@@ -171,6 +171,12 @@ regexes = [
   # klucza, a reguła ``fireflies-api-key`` bierze je za klucz. Zakotwiczone,
   # dokładnie dwie wartości.
   '''^00000000-0000-4000-8000-00000000000[12]$''',
+  # Publiczne identyfikatory z rejestrów w testach przetargów (PR #3858):
+  # ``objectId`` ogłoszenia BZP i ``procedure-identifier`` postępowania TED, bez
+  # materiału klucza. Testy mają już umowne identyfikatory (ca3578655), ale
+  # wartości zostają w historii gałęzi, a skan PR-a obejmuje cały zakres
+  # commitów. Zakotwiczone, dokładnie dwie wartości.
+  '''^(08df4926-e8cc-a6df-7343-eb000163bb96|0169b6ef-fe1b-42e4-a79d-edc8a82a2e2a)$''',
   # Fikcyjne identyfikatory nieobecności w teście ekranu płac K7b (PR #3477).
   # Test ma już tekstowe identyfikatory (9e2ebaa3c), ale wartości zostają
   # w historii gałęzi, a skan PR-a obejmuje cały zakres commitów. Zakotwiczone,

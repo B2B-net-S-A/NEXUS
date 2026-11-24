@@ -124,6 +124,12 @@ na zmianę zamiast raz na minutę.
 
 ## Co dzielimy, a co robi tylko jeden proces
 
+- **Stan w bazie:** odczyt CV z podglądu „Dodaj kandydata” (`cv_preview_reads`, 0771,
+  `services/cv_preview_cache.py`). `/from-cv` w drugim procesie bierze odczyt z podglądu,
+  zamiast czytać CV modelem drugi raz. Pierwszy zapis wygrywa (`cache_single_flight` jest
+  per proces), więc podgląd pokazuje odczyt z tabeli, czyli ten, który zapisze `/from-cv`.
+  Retencja jak w pamięci procesu: 30 min, wiersz znika po zapisie kandydata, a odczyt
+  i tekst są zaszyfrowane kluczem z bajtów pliku, więc kopia bazy ich nie odczyta.
 - **Limity w pamięci procesu dzielimy przez `web_process_count()`, z zaokrągleniem w górę**
   (decyzja Artura 24.11.2026, bez Redisa): slowapi (`ProcessShareLimiter` w `rate_limit.py`),
   dzienny limit białej listy VAT, godzinowy budżet podglądu z KSeF. Suma zostaje jak przy
@@ -156,8 +162,6 @@ na zmianę zamiast raz na minutę.
 - Semafory (LibreOffice, wątki modeli): w kontenerze 2× więcej naraz.
 - „Kto jest online” dla maila z czatu (`get_connected_user_ids`): drugi proces nadrabia
   `last_seen_at` (stempel co 5 min, próg 15 min).
-- **Do poprawy osobno:** odczyt CV z podglądu (`cv_preview_cache`) — `/from-cv` w drugim
-  procesie czyta CV modelem jeszcze raz.
 
 ## Nowy kod
 
