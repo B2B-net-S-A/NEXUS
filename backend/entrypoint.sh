@@ -6447,6 +6447,9 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE candidate_consents ADD CONSTRAINT ck_candidate_consents_kind "
     "CHECK (kind IN ('recruitment_current_future', 'recruitment_current', "
     "'recruitment_future'))",
+    # 0772: dosłowna treść zgody ze strony WWW (dowód zgody, RODO art. 7 ust. 1).
+    # Lustro 1:1 z migracją — pilnuje `test_public_website_applications.py`.
+    "ALTER TABLE candidate_consents ADD COLUMN IF NOT EXISTS consent_text TEXT NULL",
     # 0340: tytuł na stronie kariery ustawiany przez rekrutera (pusty = tytuł
     # domyślny bez nazwy klienta i kodów). Lustro 1:1 z migracją.
     "ALTER TABLE job_public_profiles "

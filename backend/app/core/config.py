@@ -970,6 +970,12 @@ class Settings(BaseSettings):
     # Code. Empty = token auth disabled, JWT-admin still works as fallback.
     SNAPSHOT_TOKEN: str = ""
 
+    # Aplikacje kandydatów ze strony B2B Network (serwer strony → NEXUS,
+    # `POST /api/public/website-applications`, nagłówek `Authorization: Bearer`).
+    # Ten sam sekret co `NEXUS_APPLY_TOKEN` w Coolify strony. Pusty = trasa
+    # odpowiada 401 na wszystko. Sekret — tylko przez workflow „Coolify set env”.
+    WEBSITE_APPLICATIONS_TOKEN: str = ""
+
     # ── Konta serwisowe / klucze API (nagłówek X-API-Key) ────────────────────
     # Kill-switch całego mechanizmu. Domyślnie WŁĄCZONY, inaczej niż przy
     # integracjach zewnętrznych (Traffit sync, M365): tamte gadają z obcym
