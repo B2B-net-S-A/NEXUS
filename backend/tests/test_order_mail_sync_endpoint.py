@@ -64,12 +64,14 @@ async def test_trigger_sync_is_role_gated_and_starts_a_manual_run(
     app_client: AsyncClient, monkeypatch
 ):
     monkeypatch.setattr(queue_api.settings, "ORDER_MAIL_INGEST_ENABLED", True)
-    monkeypatch.setattr(queue_api, "ingest_is_running", lambda: False)
     started: list[tuple[str, object]] = []
+    busy = False
 
-    def fake_start(*, reason, since=None):
+    async def fake_start(*, reason, since=None):
+        if busy:
+            return False
         started.append((reason, since))
-        return None
+        return True
 
     monkeypatch.setattr(queue_api, "start_ingest_task", fake_start)
 
@@ -95,13 +97,14 @@ async def test_trigger_sync_is_role_gated_and_starts_a_manual_run(
     ).status_code == 403
     assert len(started) == 2, "odmowa nie może uruchomić biegu"
 
-    # Bieg już trwa (np. planowy) → 409; front dołącza do niego zamiast startować drugi.
-    monkeypatch.setattr(queue_api, "ingest_is_running", lambda: True)
+    # Bieg już trwa (np. planowy w workerze) → 409; front dołącza do niego
+    # zamiast startować drugi.
+    busy = True
     assert (
         await app_client.post("/api/order-mail/sync", headers=dl)
     ).status_code == 409
     # Kill-switch → 503, tak jak w wariancie admina.
-    monkeypatch.setattr(queue_api, "ingest_is_running", lambda: False)
+    busy = False
     monkeypatch.setattr(queue_api.settings, "ORDER_MAIL_INGEST_ENABLED", False)
     assert (
         await app_client.post("/api/order-mail/sync", headers=dl)
@@ -114,7 +117,11 @@ async def test_sync_status_projection_flags_and_tcm_redaction(
     app_client: AsyncClient, monkeypatch
 ):
     monkeypatch.setattr(queue_api.settings, "ORDER_MAIL_INGEST_ENABLED", True)
-    monkeypatch.setattr(queue_api, "ingest_is_running", lambda: False)
+
+    async def idle(_db=None):
+        return False
+
+    monkeypatch.setattr(queue_api, "ingest_is_running", idle)
 
     # Stan zapisany dokładnie tak, jak robi to zakończony bieg (rekord w ``stats``).
     started_at = datetime(2031, 3, 3, 9, 6, tzinfo=timezone.utc)

@@ -6,8 +6,11 @@ that pulls 40k+ candidates from the Supabase talent-radar project and upserts
 them into Nexus. A second step copies pgvector embeddings into Qdrant so we
 don't burn Voyage credits re-embedding.
 
-Progress is tracked in an in-process dict keyed by task_id. Not durable across
-restarts — that's OK for a one-shot migration + manual re-run.
+One import at a time across all processes (``manual_runs.start_exclusive``:
+a second start is 409). Progress lives in an in-process dict keyed by task_id,
+and the run also saves its task to ``app_settings`` (``_LAST_TASK_KEY``), so the
+status of the latest task answers from every web process, not only the one
+that started it. Older tasks stay in the memory of their process.
 
 RBAC: AdminUser only.
 """
@@ -26,8 +29,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
+from app.core import manual_runs
 from app.core.database import AsyncSessionLocal, get_db
-from app.core.tasks import spawn
 from app.models.activity import Activity
 from app.models.app_setting import AppSetting
 from app.models.client import Client
@@ -56,6 +59,26 @@ router = APIRouter()
 # ── In-process task registry ─────────────────────────────────────────────────
 
 _TASKS: dict[str, dict] = {}
+
+_RUN = "import_talent_radar"
+_LAST_TASK_KEY = "admin_import_talent_radar_last_task"
+_INTERRUPTED = (
+    "Bieg przerwany: proces, który go prowadził, zakończył się (restart albo "
+    "wdrożenie). Uruchom import jeszcze raz."
+)
+
+
+async def _settled(task: dict) -> dict:
+    """Zapis „trwa” bez żywej blokady biegu = proces z biegiem już nie żyje."""
+    live = task.get("status") in ("queued", "running")
+    if live and not await manual_runs.is_running(_RUN):
+        return {**task, "status": "error", "error": _INTERRUPTED}
+    return task
+
+
+async def _saved_task() -> Optional[dict]:
+    saved = await manual_runs.load_snapshot(_LAST_TASK_KEY)
+    return await _settled(saved) if saved and saved.get("task_id") else None
 
 
 def _new_task(kind: str) -> str:
@@ -130,8 +153,14 @@ def _get_source_dsn(override: Optional[str]) -> str:
 
 
 async def _run_import(tid: str, req: ImportTalentRadarRequest) -> None:
-    """Run candidate import + optional embedding copy, updating _TASKS inline."""
+    """Import pod blokadą biegu; zadanie trafia też do ``app_settings``."""
     _set(tid, status="running")
+    async with manual_runs.publishing(_LAST_TASK_KEY, _TASKS[tid]):
+        await _import_phases(tid, req)
+
+
+async def _import_phases(tid: str, req: ImportTalentRadarRequest) -> None:
+    """Run candidate import + optional embedding copy, updating _TASKS inline."""
     try:
         dsn = _get_source_dsn(req.source_dsn)
     except HTTPException as e:
@@ -202,7 +231,21 @@ async def start_import_talent_radar(
     # Resolve DSN eagerly to fail fast on misconfig
     _get_source_dsn(req.source_dsn)
     tid = _new_task("import_talent_radar")
-    spawn(_run_import(tid, req), f"import_talent_radar(task={tid})")
+    started = False
+    try:
+        started = await manual_runs.start_exclusive(
+            _RUN,
+            lambda: _run_import(tid, req),
+            label=f"import_talent_radar(task={tid})",
+        )
+    finally:
+        if not started:
+            _TASKS.pop(tid, None)
+    if not started:
+        raise HTTPException(
+            status_code=409,
+            detail="Import z talent-radar już trwa — poczekaj na jego koniec.",
+        )
     return TaskStatus(**_TASKS[tid])
 
 
@@ -210,16 +253,23 @@ async def start_import_talent_radar(
 async def get_import_talent_radar_status(task_id: str, _admin: AdminUser):
     task = _TASKS.get(task_id)
     if not task:
+        saved = await _saved_task()
+        task = saved if saved and saved["task_id"] == task_id else None
+    if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return TaskStatus(**task)
 
 
 @router.get("/admin/import-tasks", response_model=list[TaskStatus])
 async def list_import_tasks(_admin: AdminUser):
-    """List all in-process import tasks (not persisted across restarts)."""
+    """Tasks of this process plus the latest task saved by any process."""
+    tasks = dict(_TASKS)
+    saved = await _saved_task()
+    if saved and saved["task_id"] not in tasks:
+        tasks[saved["task_id"]] = saved
     return [
         TaskStatus(**t)
-        for t in sorted(_TASKS.values(), key=lambda t: t["started_at"], reverse=True)
+        for t in sorted(tasks.values(), key=lambda t: t["started_at"], reverse=True)
     ]
 
 

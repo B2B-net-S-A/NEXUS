@@ -44,6 +44,7 @@ from typing import Any, Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import manual_runs
 from app.services import note_kinds
 from app.services import screening_note_sync as sync
 
@@ -389,49 +390,38 @@ async def fresh_dry_run(db: AsyncSession) -> Optional[dict[str, Any]]:
 
 
 # ── Przebieg w tle ───────────────────────────────────────────────────────────
+# Zapis startuje trasa przez ``manual_runs.start_exclusive(RUN_NAME)``: blokada
+# stoi do końca biegu, więc drugi zapis z dowolnego procesu web dostaje 409.
+# Paczki i tak idą pod ``LOCK_KEY``, a para jest liczona ponownie, ale drugi bieg
+# przeliczał te same pary jeszcze raz, a dwa ``finish_run`` naraz gubiły sumy
+# w stanie (odczyt i zapis stanu bez blokady).
 
-_running: dict[str, bool] = {"apply": False}
-
-
-def is_running() -> bool:
-    return _running["apply"]
-
-
-def reserve() -> bool:
-    """Zajmij bieg synchronicznie w handlerze (dwa szybkie POST-y = jeden bieg)."""
-    if _running["apply"]:
-        return False
-    _running["apply"] = True
-    return True
+RUN_NAME = "screening_note_backfill"
 
 
-def release() -> None:
-    _running["apply"] = False
+async def is_running(*, db: Optional[AsyncSession] = None) -> bool:
+    """Zapis trwa — w tym albo w innym procesie."""
+    return await manual_runs.is_running(RUN_NAME, db=db)
 
 
 async def run_apply(*, actor_user_id: int, include_other_notes: bool = False) -> None:
-    """Zapis w tle (spawn z endpointu). Bieg musi być zajęty przez ``reserve``."""
+    """Zapis w tle; trasa uruchamia go przez ``manual_runs.start_exclusive``."""
     from app.core.database import AsyncSessionLocal  # noqa: PLC0415
 
     started = datetime.now(timezone.utc)
-    try:
-        async with AsyncSessionLocal() as db:
-            report = await apply(
-                db,
-                actor_user_id=actor_user_id,
-                include_other_notes=include_other_notes,
-            )
-            await finish_run(db, report, started=started)
-            logger.info(
-                "screening note backfill done: %s", json.dumps(report["counts"])
-            )
-    finally:
-        _running["apply"] = False
+    async with AsyncSessionLocal() as db:
+        report = await apply(
+            db,
+            actor_user_id=actor_user_id,
+            include_other_notes=include_other_notes,
+        )
+        await finish_run(db, report, started=started)
+        logger.info("screening note backfill done: %s", json.dumps(report["counts"]))
 
 
 async def read_status(db: AsyncSession) -> dict[str, Any]:
     return {
-        "running": is_running(),
+        "running": await is_running(db=db),
         "dry_run": await _read_setting(db, DRY_RUN_KEY),
         "state": await _read_setting(db, STATE_KEY),
     }
@@ -440,14 +430,14 @@ async def read_status(db: AsyncSession) -> dict[str, Any]:
 __all__ = [
     "DETAILS_KEY",
     "DRY_RUN_KEY",
+    "RUN_NAME",
     "STATE_KEY",
     "apply",
     "finish_run",
     "fresh_dry_run",
+    "is_running",
     "load_pairs",
     "plan",
     "read_status",
-    "release",
-    "reserve",
     "run_apply",
 ]

@@ -31,17 +31,17 @@ RBAC: admin only (``AdminUser`` dependency).
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import func, literal, select, text, union_all
+from sqlalchemy import func, literal, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
+from app.core import manual_runs
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.tasks import spawn
 from app.models.activity import Activity
@@ -61,6 +61,11 @@ router = APIRouter()
 # konwój pominiętych (kategorie). Co `_PROGRESS_EVERY_ROWS` wierszy i na końcu
 # biegu zapisujemy kursor i parametry w `app_settings`; status go pokazuje,
 # a start bez jawnego kursora wznawia od niego (jawne `after_id=0` = od nowa).
+#
+# Kilka procesów web (24.11.2026): bieg startuje przez `manual_runs.start_exclusive`
+# z blokadą `admin_backfill:<nazwa>` na cały bieg, więc drugi start z dowolnego
+# procesu dostaje 409. Status w procesie bez biegu bierze `running` z blokady,
+# a postęp z ostatniego zapisu (pierwszy zapis idzie od razu po starcie).
 _PROGRESS_KEY_PREFIX = "admin_backfill_progress:"
 _PROGRESS_EVERY_ROWS = 50
 _PROGRESS_POLL_SECONDS = 5.0
@@ -70,50 +75,26 @@ def _progress_key(name: str) -> str:
     return f"{_PROGRESS_KEY_PREFIX}{name}"
 
 
+def _run_name(name: str) -> str:
+    return f"admin_backfill:{name}"
+
+
 async def _save_progress(name: str, job: dict[str, Any], keys: tuple[str, ...]) -> None:
     payload = {k: job.get(k) for k in keys if k in job}
     payload["saved_at"] = datetime.now(timezone.utc).isoformat()
-    try:
-        async with AsyncSessionLocal() as db:
-            await db.execute(
-                text(
-                    "INSERT INTO app_settings (key, value) "
-                    "VALUES (:key, CAST(:value AS jsonb)) "
-                    "ON CONFLICT (key) DO UPDATE "
-                    "SET value = EXCLUDED.value, updated_at = now()"
-                ),
-                {"key": _progress_key(name), "value": json.dumps(payload, default=str)},
-            )
-            await db.commit()
-    except Exception as exc:  # noqa: BLE001 — zapis postępu nie może zabić biegu
-        logger.warning(
-            "[admin-backfill] zapis postępu %s nie powiódł się (%s)",
-            name,
-            type(exc).__name__,
-        )
+    await manual_runs.save_snapshot(_progress_key(name), payload)
 
 
 async def _load_progress(name: str) -> Optional[dict[str, Any]]:
-    try:
-        async with AsyncSessionLocal() as db:
-            value = await db.scalar(
-                text("SELECT value FROM app_settings WHERE key = :key"),
-                {"key": _progress_key(name)},
-            )
-    except Exception as exc:  # noqa: BLE001 — status ma działać bez zapisu
-        logger.warning(
-            "[admin-backfill] odczyt postępu %s nie powiódł się (%s)",
-            name,
-            type(exc).__name__,
-        )
-        return None
-    return value if isinstance(value, dict) else None
+    return await manual_runs.load_snapshot(_progress_key(name))
 
 
 async def _keep_progress(
     name: str, job: dict[str, Any], keys: tuple[str, ...], stop: asyncio.Event
 ) -> None:
-    saved_processed = 0
+    # Zapis od razu: status w drugim procesie pokazuje ten bieg, nie poprzedni.
+    await _save_progress(name, job, keys)
+    saved_processed = int(job.get("processed") or 0)
     while not stop.is_set():
         try:
             await asyncio.wait_for(stop.wait(), timeout=_PROGRESS_POLL_SECONDS)
@@ -182,6 +163,10 @@ async def _status_with_saved(
 ) -> dict[str, Any]:
     saved = await _load_progress(name)
     out = dict(job)
+    if not job.get("running") and await manual_runs.is_running(_run_name(name)):
+        # Bieg trwa w innym procesie: postęp z jego ostatniego zapisu.
+        out.update(saved or {})
+        out["running"] = True
     out["saved_progress"] = saved
     out["resume_after_id"] = _cursor_from(saved, cursor_key, params)
     return out
@@ -289,16 +274,17 @@ async def trigger_backfill_names(
     # Runda 10 (R10-N8-5): kursor jak w fazie `candidates_enrich_names`.
     if after_id is None:
         after_id = await _resume_cursor(_NAMES_PROGRESS, "cursor_id")
-    # Runda 10 (R10-N8-2): sprawdzenie i rezerwacja bez punktu oddania pętli
-    # między nimi — flaga stoi, zanim wróci odpowiedź, nie dopiero gdy zadanie
-    # w tle ruszy (dwa szybkie POST-y odpalały dwa płatne biegi).
-    if _JOB["running"]:
+    # Runda 10 (R10-N8-2): rezerwacja stoi, zanim wróci odpowiedź (dwa szybkie
+    # POST-y odpalały dwa płatne biegi); blokada biegu — także między procesami.
+    if not await manual_runs.start_exclusive(
+        _run_name(_NAMES_PROGRESS),
+        lambda: _run_backfill(limit, prefer_llm, after_id),
+        label="backfill_names",
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A backfill run is already in progress",
         )
-    _JOB["running"] = True
-    spawn(_run_backfill(limit, prefer_llm, after_id), "backfill_names")
     return {
         "status": "started",
         "limit": limit,
@@ -436,17 +422,18 @@ async def trigger_backfill_cc(
             "last_id",
             {"only_missing": only_missing, "only_slugs": list(only_slug)},
         )
-    # Runda 10 (R10-N8-2): sprawdzenie i rezerwacja synchronicznie, przed spawn.
-    if _CC_JOB["running"]:
+    # Runda 10 (R10-N8-2): rezerwacja przed oddaniem pętli, blokada na cały bieg.
+    if not await manual_runs.start_exclusive(
+        _run_name(_CC_PROGRESS),
+        lambda: _run_cc_backfill(
+            limit, only_missing, start_after_id, only_slug or None
+        ),
+        label="backfill_cc",
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A competence-category backfill is already in progress",
         )
-    _CC_JOB["running"] = True
-    spawn(
-        _run_cc_backfill(limit, only_missing, start_after_id, only_slug or None),
-        "backfill_cc",
-    )
     return {
         "status": "started",
         "limit": limit,
@@ -462,11 +449,7 @@ async def backfill_cc_status(_admin: AdminUser) -> dict[str, Any]:
 
     `resume_after_id` liczony dla parametrów zapisanego biegu.
     """
-    saved = await _load_progress(_CC_PROGRESS)
-    out = dict(_CC_JOB)
-    out["saved_progress"] = saved
-    out["resume_after_id"] = _cursor_from(saved, "last_id")
-    return out
+    return await _status_with_saved(_CC_PROGRESS, _CC_JOB, "last_id")
 
 
 # ── Fala 3: masowe uzupełnianie pól z CV ────────────────────────────────────
@@ -505,6 +488,8 @@ async def _run_cv_fields_backfill(
         finished_at=None,
         limit=limit,
         after_id=after_id,
+        # Kursor od startu — pierwszy zapis postępu idzie przed pierwszym wierszem.
+        last_id=after_id,
         complete=False,
         last_error=None,
     )
@@ -573,17 +558,16 @@ async def trigger_backfill_cv_fields(
             scope = await count_scope(db, after_id=after_id)
         return {"status": "dry_run", "after_id": after_id, **scope}
 
-    # Runda 10 (R10-N8-2): sprawdzenie i rezerwacja synchronicznie, przed spawn.
-    if _CV_FIELDS_JOB.get("running"):
+    # Runda 10 (R10-N8-2): rezerwacja przed oddaniem pętli, blokada na cały bieg.
+    if not await manual_runs.start_exclusive(
+        _run_name(_CV_FIELDS_PROGRESS),
+        lambda: _run_cv_fields_backfill(limit, after_id, calibration_log),
+        label="backfill_cv_fields",
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A cv-fields backfill run is already in progress",
         )
-    _CV_FIELDS_JOB["running"] = True
-    spawn(
-        _run_cv_fields_backfill(limit, after_id, calibration_log),
-        "backfill_cv_fields",
-    )
     return {"status": "started", "limit": limit, "after_id": after_id}
 
 
@@ -626,6 +610,8 @@ async def _run_experience_dates_backfill(limit: Optional[int], after_id: int) ->
         finished_at=None,
         limit=limit,
         after_id=after_id,
+        # Kursor od startu — pierwszy zapis postępu idzie przed pierwszym wierszem.
+        last_id=after_id,
         complete=False,
         last_error=None,
     )
@@ -685,17 +671,16 @@ async def trigger_backfill_experience_dates(
             scope = await count_scope(db, after_id=after_id)
         return {"status": "dry_run", "after_id": after_id, **scope}
 
-    # Runda 10 (R10-N8-2): sprawdzenie i rezerwacja synchronicznie, przed spawn.
-    if _EXP_DATES_JOB.get("running"):
+    # Runda 10 (R10-N8-2): rezerwacja przed oddaniem pętli, blokada na cały bieg.
+    if not await manual_runs.start_exclusive(
+        _run_name(_EXP_DATES_PROGRESS),
+        lambda: _run_experience_dates_backfill(limit, after_id),
+        label="backfill_experience_dates",
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An experience-dates backfill run is already in progress",
         )
-    _EXP_DATES_JOB["running"] = True
-    spawn(
-        _run_experience_dates_backfill(limit, after_id),
-        "backfill_experience_dates",
-    )
     return {"status": "started", "limit": limit, "after_id": after_id}
 
 

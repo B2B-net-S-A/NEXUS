@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -94,15 +95,25 @@ def test_dry_run_must_be_younger_than_the_process():
     assert not conversion.dry_run_is_fresh({"finished_at": "nie-data"})
 
 
-def test_reserve_blocks_a_second_apply():
-    assert conversion.reserve("delete")
+async def test_second_apply_of_the_same_mode_is_refused():
+    from app.core import manual_runs
+
+    release = asyncio.Event()
+
+    async def hold() -> None:
+        await release.wait()
+
+    name = conversion.run_name("delete")
+    assert await manual_runs.start_exclusive(name, hold, label="test")
     try:
-        assert not conversion.reserve("delete")
-        assert conversion.is_running("delete")
-        assert not conversion.is_running("convert")
+        assert not await manual_runs.start_exclusive(name, hold, label="test")
+        assert await conversion.is_running("delete")
+        assert not await conversion.is_running("convert")
     finally:
-        conversion.release("delete")
-    assert not conversion.is_running("delete")
+        release.set()
+    for _ in range(10):
+        await asyncio.sleep(0)
+    assert not await conversion.is_running("delete")
 
 
 # ── z bazą (CI) ──────────────────────────────────────────────────────────────
@@ -329,4 +340,4 @@ async def test_apply_requires_matching_expected(app_client):
                     db=db,
                 )
             assert exc.value.status_code == 409
-    assert not conversion.is_running("delete")
+    assert not await conversion.is_running("delete")

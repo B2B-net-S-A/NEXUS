@@ -1080,4 +1080,4 @@ async def test_scoped_dry_run_does_not_authorize_another_scope(app_client):
                     db=db,
                 )
             assert exc.value.status_code == 409
-    assert not conversion.is_running("convert")
+    assert not await conversion.is_running("convert")

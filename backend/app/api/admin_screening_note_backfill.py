@@ -20,8 +20,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
+from app.core import manual_runs
 from app.core.database import get_db
-from app.core.tasks import spawn
 from app.services import screening_note_backfill as backfill
 from app.services import screening_note_sync
 
@@ -37,7 +37,7 @@ async def screening_note_backfill(
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Odpowiedzi z kart rekomendacji → arkusze screeningu (``note_sync``)."""
-    if backfill.is_running():
+    if await backfill.is_running(db=db):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Uzupełnianie arkuszy z notatek już trwa.",
@@ -88,21 +88,20 @@ async def screening_note_backfill(
                 f"({to_change}). Przejrzyj raport próby i podaj tę liczbę."
             ),
         )
-    if not backfill.reserve():
+    # Blokada biegu stoi do jego końca: drugi zapis z tego albo z drugiego
+    # procesu web dostaje 409, a nie drugi bieg.
+    actor_user_id = current_user.id
+    if not await manual_runs.start_exclusive(
+        backfill.RUN_NAME,
+        lambda: backfill.run_apply(
+            actor_user_id=actor_user_id, include_other_notes=other_notes
+        ),
+        label="screening_note_backfill(apply)",
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Uzupełnianie arkuszy z notatek już trwa.",
         )
-    try:
-        spawn(
-            backfill.run_apply(
-                actor_user_id=current_user.id, include_other_notes=other_notes
-            ),
-            "screening_note_backfill(apply)",
-        )
-    except Exception:
-        backfill.release()
-        raise
     return {"status": "started", "dry_run": False, "expected": expected}
 
 
