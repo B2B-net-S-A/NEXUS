@@ -73,7 +73,10 @@ async def test_recruiter_cannot_order_negotiation_hor_can(app_client: AsyncClien
     assert ok.status_code == 200, ok.text
     assert ok.json()["status"] == "negotiating"
     notes = await _notes(p["change_id"])
-    assert notes[p["dl_id"]].notification_type == NotificationType.candidate_rate_change_task
+    assert (
+        notes[p["dl_id"]].notification_type
+        == NotificationType.candidate_rate_change_task
+    )
 
 
 async def test_negotiated_lower_rate_lands_on_stage_and_waits_for_dl(
@@ -310,7 +313,6 @@ async def test_reminder_reaches_dl_next_business_day(app_client: AsyncClient):
         ).all():
             await db.delete(note)
         await db.commit()
-    svc._REMINDERS_DONE_FOR = None
     async with AsyncSessionLocal() as db:
         await svc.send_reminders(db, now)
         await db.commit()
@@ -326,10 +328,9 @@ async def test_reminder_reaches_dl_next_business_day(app_client: AsyncClient):
             )
         ).all()
     assert len(rows) == 1
-    # Drugi bieg tego samego dnia nic nie dokłada.
+    # Drugi bieg tego samego dnia nic nie dokłada (dedup dzienny `emit`).
     async with AsyncSessionLocal() as db:
         assert await svc.send_reminders(db, now) == 0
-    svc._REMINDERS_DONE_FOR = None
 
 
 async def test_noted_entry_cannot_be_negotiated(app_client: AsyncClient):
@@ -369,12 +370,10 @@ async def test_case_of_rejected_candidate_leaves_tasks_and_closes_on_reminder(
     as_dl = (await app_client.get("/api/board-tasks", headers=p["dl_h"])).json()
     assert p["change_id"] not in {r["change_id"] for r in as_dl["rate_changes"]}
 
-    svc._REMINDERS_DONE_FOR = None
     now = datetime(2026, 10, 7, 8, 0, tzinfo=timezone.utc)
     async with AsyncSessionLocal() as db:
         await svc.send_reminders(db, now)
         await db.commit()
-    svc._REMINDERS_DONE_FOR = None
     async with AsyncSessionLocal() as db:
         change = await db.get(CandidateRateChange, p["change_id"])
         assert change.status == "closed"

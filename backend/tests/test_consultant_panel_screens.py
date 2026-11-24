@@ -190,6 +190,39 @@ async def test_foreign_protocol_is_404_for_pdf_and_confirm(app_client) -> None:
         assert (await db.get(EquipmentProtocol, protocol_id)).status == "oczekuje"
 
 
+async def test_protocol_pdf_unavailable_is_503_not_500(monkeypatch) -> None:
+    """Audyt r3 (24.11.2026): brak LibreOffice/limit czasu to 503, nie 500.
+
+    ``ProtocolPdfUnavailable`` nie jest ``EquipmentError`` — trasa portalu
+    łapała tylko ten drugi i konsultant dostawał błąd serwera. Wzór: trasa
+    protokołu z linku (``api/equipment_public.py``).
+    """
+    import inspect
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from app.api import consultant_portal as portal_api
+    from app.services.equipment import protocol_document
+
+    protocol = SimpleNamespace(id=7)
+
+    async def _own_protocol(db, context, protocol_id):
+        return protocol
+
+    async def _render_pdf(db, protocol):
+        raise protocol_document.ProtocolPdfUnavailable("libreoffice: timeout")
+
+    monkeypatch.setattr(portal_api.panel, "own_protocol", _own_protocol)
+    monkeypatch.setattr(portal_api.equipment_protocols, "render_pdf", _render_pdf)
+
+    handler = inspect.unwrap(portal_api.equipment_protocol_pdf)
+    with pytest.raises(HTTPException) as caught:
+        await handler(protocol_id=7, context=SimpleNamespace(), request=None, db=None)
+    assert caught.value.status_code == 503
+    assert caught.value.detail == "PDF jest chwilowo niedostępny. Spróbuj za chwilę."
+
+
 @pytest.mark.usefixtures("portal_all")
 async def test_consultant_confirms_receipt_once(app_client) -> None:
     person = await make_person()

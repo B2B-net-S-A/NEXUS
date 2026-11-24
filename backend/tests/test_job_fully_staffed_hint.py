@@ -78,6 +78,8 @@ async def _hire(app_client, headers, world: dict) -> None:
             "candidate_id": world["candidate_id"],
             "job_id": world["job_id"],
             "stage": "hired",
+            # Przeskok ponad „CV wysłane” to wysyłka — stawka do klienta (24.11.2026).
+            "client_rate_value": "170",
         },
     )
     assert resp.status_code == 200, resp.text
@@ -168,9 +170,7 @@ async def test_placements_are_counted_once_per_pair():
         )
         await db.commit()
 
-        counted = (await filled_by_job(db, [world["job_id"]])).get(
-            world["job_id"], 0
-        )
+        counted = (await filled_by_job(db, [world["job_id"]])).get(world["job_id"], 0)
 
     assert counted == 1, "Dwa wiersze `hired` tej samej pary to jeden placement."
     assert is_fully_staffed(2, counted) is False
@@ -223,6 +223,8 @@ async def test_the_hint_is_sent_once_not_on_every_later_hire(
             "candidate_id": second_id,
             "job_id": world["job_id"],
             "stage": "hired",
+            # Przeskok ponad „CV wysłane” to wysyłka — stawka do klienta (24.11.2026).
+            "client_rate_value": "170",
         },
     )
     assert resp.status_code == 200, resp.text

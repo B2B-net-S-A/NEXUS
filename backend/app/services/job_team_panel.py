@@ -202,15 +202,19 @@ async def sync_position_panels(
     jobs: Iterable[Job],
     user_id: Optional[int],
     *,
+    enable_positions: bool = False,
     rate_from_team: bool = False,
 ) -> list[int]:
     """Panele stanowisk idą za linkiem zespołu. Zwraca rekrutacje ze zmianą stanu.
 
-    Włączony link: każde otwarte stanowisko ma włączony panel z ważnością
-    zespołu. Stawka: nowy panel dostaje ustawienie zespołu; istniejący panel
-    z ukrytą stawką zostaje z ukrytą (DL ukrył ją świadomie), chyba że zmiana
-    przyszła z „Pokazuj stawki” na zespole (``rate_from_team``). Wyłączony
-    link: panele wszystkich stanowisk zespołu wyłączone.
+    Włączenie linku albo dodanie stanowiska do włączonego zespołu
+    (``enable_positions``): każde otwarte stanowisko ma włączony panel
+    z ważnością zespołu. Stawka: nowy panel dostaje ustawienie zespołu;
+    istniejący panel z ukrytą stawką zostaje z ukrytą (DL ukrył ją świadomie),
+    chyba że zmiana przyszła z „Pokazuj stawki” na zespole (``rate_from_team``).
+    Sama zmiana stawki na włączonym zespole nie rusza włączenia ani ważności
+    paneli: stanowisko wyłączone przez DL-a zostaje wyłączone (audyt 24.11.2026).
+    Wyłączony link: panele wszystkich stanowisk zespołu wyłączone.
     """
     changed: list[int] = []
     for job in jobs:
@@ -218,6 +222,10 @@ async def sync_position_panels(
             if is_closed(job):
                 continue
             existing = await panel_service.panel_for_job(db, job.id)
+            if not enable_positions:
+                if existing is not None and rate_from_team:
+                    existing.show_rate = team.panel_show_rate
+                continue
             panel = existing or await panel_service.get_or_create_panel(
                 db, job.id, user_id
             )
@@ -497,7 +505,9 @@ async def public_positions(db: AsyncSession, team: JobTeam) -> list[PublicPositi
     """Otwarte stanowiska z działającym panelem; kluczem jest token panelu stanowiska."""
     out: list[PublicPosition] = []
     for job in await team_jobs(db, team.id):
-        if is_closed(job):
+        # Rekrutacja przeniesiona do innego klienta nie idzie linkiem zespołu
+        # starego klienta (audyt 24.11.2026; PATCH i tak odmawia takiej zmiany).
+        if is_closed(job) or job.client_id != team.client_id:
             continue
         panel = await panel_service.panel_for_job(db, job.id)
         if panel is None or not panel.enabled or panel_service.is_expired(panel):

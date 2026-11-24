@@ -29,7 +29,7 @@ from zoneinfo import ZoneInfo
 from decimal import Decimal
 from typing import Any, Optional, Sequence
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import DEFAULT_TZ, is_business_day
@@ -752,6 +752,16 @@ async def create_drafts(
         row.key: row for row in await billing.billing_rows(db, year=year, month=month)
     }
     period = billing.month_key(year, month)
+    # Dwa równoległe „Wystaw za miesiąc” czytały istniejące faktury, zanim
+    # pierwsze wstawiło szkic, i za to samo zamówienie powstawały dwie FV VAT
+    # (audyt 24.11.2026). Indeks unikalny odpada (``split='person'`` daje kilka
+    # faktur na zamówienie), więc blokada na zamówienia miesiąca do commita;
+    # kolejność posortowana, żeby dwa wybory z częścią wspólną się nie zakleszczyły.
+    for key in sorted(wanted):
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": f"client-invoice-draft:{period}:{key}"},
+        )
     existing = await _existing_by_key(db, year, month)
     in_ksef = await _ksef_by_key(db, year, month, list(rows.values()))
     infos = await _orders_info(db, [rows[key] for key in wanted if key in rows])

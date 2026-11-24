@@ -24,6 +24,7 @@ from fastapi import (
     File,
     HTTPException,
     Query,
+    Request,
     UploadFile,
     status,
 )
@@ -124,6 +125,7 @@ def frontend_url() -> str:
     dependencies=SOURCING_SECTION_DEPENDENCIES,
 )
 async def connect_extension(
+    request: Request,
     data: ConnectRequest,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
@@ -134,6 +136,14 @@ async def connect_extension(
     inaczej dowolna inna wtyczka zainstalowana w przeglądarce mogłaby otworzyć
     tę stronę ze swoim id i odebrać klucz osoby. Pusta lista = nikt.
     """
+    # Audyt r3 (24.11.2026): token klienta OAuth (integracja w imieniu konta)
+    # nie wydaje sobie klucza — klucz omijałby zakres tras klienta i przeżył
+    # jego wyłączenie. Ta sama reguła co ``/auth/change-password`` i ``/session``.
+    if getattr(request.state, "oauth_client_id", None):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Integracja nie może łączyć wtyczki LinkedIn.",
+        )
     if not settings.LINKEDIN_EXTENSION_ENABLED:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

@@ -310,6 +310,76 @@ def test_nazwisko_i_mail_z_akceptacja():
     assert with_mail["Mail z akceptacją godzin jest"] == "ok"
 
 
+FROM_FILE_NAME = "Imię i nazwisko z nazwy pliku jak w kontrakcie"
+NO_FIELD = "Time Sheet bez pola Consultant(s)"
+
+
+def test_puste_pole_consultant_osoba_z_nazwy_pliku():
+    """Szablon VeloBanku z pustym „Consultant(s)” i „Print Name”: osoba stoi tylko
+    w nazwie pliku (próba IX–X 2026, jedyna uwaga przy MD zgodnych z arkuszem
+    podpisanym przez klienta). Decyzja Artura z 24.11.2026: osoba z nazwy pliku."""
+
+    parsed = timesheet.parse_rows([_sheet([_row(3, 8)], consultant=None)])
+    for person, name in (
+        ("Jan Testowy", "Jan Testowy - Time Sheet - listopad 2026.xlsx"),
+        ("Jan Testowy", "TS_Testowy_Jan_11.2026.xlsx"),
+        ("Łucja Testowa", "Lucja_Testowa_TS.xlsx"),
+    ):
+        result = _evaluate(parsed, person_name=person, file_name=name)
+        titles = _titles(result)
+        assert titles[FROM_FILE_NAME] == "ok", name
+        assert NO_FIELD not in titles, name
+        assert not result.warn, name
+
+
+def test_bez_osoby_z_kontraktu_w_nazwie_pliku_uwaga_zostaje():
+    parsed = timesheet.parse_rows([_sheet([_row(3, 8)], consultant=None)])
+    for name in (
+        "Anna Inna - Time Sheet - listopad 2026.xlsx",  # inna osoba
+        "Testowy - Time Sheet - listopad 2026.xlsx",  # samo nazwisko
+        "Time Sheet - listopad 2026.xlsx",  # nikt
+        None,  # plik bez nazwy
+    ):
+        result = _evaluate(parsed, file_name=name)
+        titles = _titles(result)
+        assert titles[NO_FIELD] == "warn", name
+        assert FROM_FILE_NAME not in titles, name
+        assert result.warn, name
+
+
+def test_inna_osoba_w_polu_wygrywa_z_nazwa_pliku():
+    parsed = timesheet.parse_rows([_sheet([_row(3, 8)], consultant="Anna Inna")])
+    result = _evaluate(
+        parsed, file_name="Jan Testowy - Time Sheet - listopad 2026.xlsx"
+    )
+    titles = _titles(result)
+    assert titles["Inne imię lub nazwisko niż w kontrakcie"] == "warn"
+    assert FROM_FILE_NAME not in titles
+
+
+async def test_rozliczenie_bierze_nazwe_pliku_z_dokumentu(tmp_path, monkeypatch):
+    from app.models.consultant_portal import CpDocument
+    from app.services import storage_service
+    from app.services.client_settlements import service
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    folder = tmp_path / "consultant_portal" / "1"
+    folder.mkdir(parents=True)
+    (folder / "ts.xlsx").write_bytes(_xlsx(_sheet([_row(3, 8)], consultant=None)))
+    doc = CpDocument(
+        id=1,
+        kind="report",
+        mime=XLSX,
+        file_path="consultant_portal/1/ts.xlsx",
+        file_name="Jan Testowy - Time Sheet - listopad 2026.xlsx",
+    )
+    result = await service._proof(
+        doc, [doc], month="2026-11", person_name="Jan Testowy", rules=_rules()
+    )
+    assert _titles(result)[FROM_FILE_NAME] == "ok"
+    assert not result.warn
+
+
 def test_time_sheet_bez_godzin_czeka_na_finanse():
     parsed = timesheet.parse_rows([_sheet([])])
     result = _evaluate(parsed)

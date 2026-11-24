@@ -71,6 +71,8 @@ from app.api.candidate_access import (
     CandidatePIIAccess,
     CandidateSearchAccess,
     CandidateWriteAccess,
+    hidden_send_note_ids,
+    visible_note_content,
 )
 from app.api.recruitment_access import (
     ensure_job_read_access,
@@ -4438,8 +4440,19 @@ async def get_cv_package(
                 .limit(100)
             )
         ).all()
+    # Decyzja C (14.10.2026): notatka DL-a z wysyłki („Wysłany 150/100-110”)
+    # to cena dla klienta — widz bez tej stawki dostaje zdanie zastępcze
+    # (id zostaje, wybór notatki do pakietu się nie przesuwa).
+    send_ids = await hidden_send_note_ids(db, current_user, [n.id for n in notes])
     state["notes"] = [
-        {"id": n.id, "content": n.content, "updated_at": n.updated_at} for n in notes
+        {
+            "id": n.id,
+            "content": visible_note_content(
+                current_user, n, send_note=n.id in send_ids
+            ),
+            "updated_at": n.updated_at,
+        }
+        for n in notes
     ]
     return state
 

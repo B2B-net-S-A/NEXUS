@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import random
 import uuid
+from calendar import monthrange
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -1208,7 +1209,9 @@ async def test_person_with_three_orders_at_one_client_exits_once(
     jeden wiersz, pozostałe zamówienia przy nim (numer, okres, PDF)."""
 
     first = _far_day(2081, 2084).replace(day=1)
-    ends = first + timedelta(days=29)
+    # Ostatni dzień miesiąca: „+29 dni” w lutym wypadało w marcu i zejście
+    # znikało z miesiąca (kolejka merge'ów 24.11.2026, 1 bieg na 12).
+    ends = first.replace(day=monthrange(first.year, first.month)[1])
     ids = await _seed(
         contract_rate_client=None,
         start=first - timedelta(days=300),

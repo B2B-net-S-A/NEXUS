@@ -273,3 +273,75 @@ async def test_new_cv_does_not_trim_people_sent_before_from_the_pool(monkeypatch
     assert regular == {newcomer, a, b}
     assert pool[extra] == (55.0, True)
     assert pool[again] == (71.0, True)
+
+
+async def test_new_cv_does_not_trim_fresh_cv_extras_from_the_pool(monkeypatch):
+    """Audyt R3, 24.11.2026: dodatki „świeże CV” (``fresh_cv``, #3794) też
+    są ponad pulą 150 — nie obniżają poprzeczki, nie wypadają przy cięciu,
+    a nowy wynik osoby dołożonej nie zdejmuje z niej flagi."""
+    from app.services import auto_full_review
+    from app.services import auto_match_service as ams
+
+    monkeypatch.setattr(auto_full_review, "AUTOFILL_POOL_SIZE", 3)
+    world = await _world(6)
+    a, b, c, extra, again, newcomer = world["ids"]
+    await _pool(world["job_id"], {a: 80, b: 75, c: 70})
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                JobAutofillPool(
+                    job_id=world["job_id"],
+                    candidate_id=cid,
+                    score=Decimal(str(score)),
+                    run_id="run-fresh",
+                    evidence={
+                        "matched_must": [],
+                        "missing_must": [],
+                        auto_full_review.FRESH_EVIDENCE_KEY: True,
+                    },
+                )
+                for cid, score in ((extra, 69), (again, 68))
+            ]
+        )
+        await db.commit()
+
+    scored = [
+        ams.Scored(
+            candidate_id=newcomer,
+            job_id=world["job_id"],
+            score=90.0,
+            matching_must=("Java",),
+            gap_must=(),
+            penalties=(),
+        ),
+        ams.Scored(
+            candidate_id=again,
+            job_id=world["job_id"],
+            score=71.0,
+            matching_must=("Java",),
+            gap_must=(),
+            penalties=(),
+        ),
+    ]
+    async with AsyncSessionLocal() as db:
+        await ams._write_pool(db, scored=scored, revision="r2", run_id="run-cv")
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.execute(
+                select(
+                    JobAutofillPool.candidate_id,
+                    JobAutofillPool.score,
+                    JobAutofillPool.evidence,
+                ).where(JobAutofillPool.job_id == world["job_id"])
+            )
+        ).all()
+    pool = {
+        int(cid): (float(score), auto_full_review.is_fresh_extra(evidence))
+        for cid, score, evidence in rows
+    }
+    regular = {cid for cid, (_s, flag) in pool.items() if not flag}
+    assert regular == {newcomer, a, b}
+    assert pool[extra] == (69.0, True)
+    assert pool[again] == (71.0, True)

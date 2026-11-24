@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.candidate_access import hidden_send_note_ids, note_content_hidden
 from app.api.deps import OperationalUser, RecruiterPlus
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
@@ -166,8 +167,15 @@ async def serialize_rows(
     *,
     today: date,
     with_notes: bool = False,
+    viewer: Optional[User] = None,
 ) -> list[FollowupRow]:
-    """Wiersze API — ta sama postać dla pulpitu, Tablicy i profilu."""
+    """Wiersze API — ta sama postać dla pulpitu, Tablicy i profilu.
+
+    ``viewer`` — kto czyta ostatnią notatkę procesu (``with_notes``). Notatka
+    DL-a z wysyłki („Wysłany 150/100-110”) to cena dla klienta (decyzja C,
+    14.10.2026): bez ``user_can_view_client_rate`` dostaje zdanie zastępcze.
+    Bez widza zakrywamy — nie wiadomo, kto czyta.
+    """
 
     if not followups:
         return []
@@ -186,8 +194,10 @@ async def serialize_rows(
         rows = (
             await db.execute(
                 select(
+                    Note.id,
                     Note.candidate_id,
                     Note.job_id,
+                    Note.kind,
                     Note.content,
                     Note.author_id,
                     Note.created_at,
@@ -210,7 +220,12 @@ async def serialize_rows(
         ).all()
         extra = {author for *_, author, _ in rows if author and author not in names}
         names.update(await svc.user_names(db, extra))
-        for cid, jid, content, author, at in rows:
+        send_ids = await hidden_send_note_ids(db, viewer, [row[0] for row in rows])
+        for note_id, cid, jid, kind, content, author, at in rows:
+            if note_content_hidden(
+                viewer, kind=kind, author_id=author, send_note=note_id in send_ids
+            ):
+                content = note_kinds.CLIENT_RATE_PLACEHOLDER
             last_notes[(cid, jid)] = (content, author, at)
 
     out: list[FollowupRow] = []
@@ -313,12 +328,20 @@ async def _history(
     return history
 
 
-async def _detail(db: AsyncSession, candidate_id: int) -> FollowupDetail:
+async def _detail(
+    db: AsyncSession, candidate_id: int, *, viewer: User
+) -> FollowupDetail:
     now = datetime.now(timezone.utc)
     followups = await svc.load_followups(db, now=now, candidate_ids=[candidate_id])
     followup = followups.get(candidate_id)
     rows = (
-        await serialize_rows(db, [followup], today=svc.local_date(now), with_notes=True)
+        await serialize_rows(
+            db,
+            [followup],
+            today=svc.local_date(now),
+            with_notes=True,
+            viewer=viewer,
+        )
         if followup
         else []
     )
@@ -378,9 +401,8 @@ async def get_candidate_followup(
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> FollowupDetail:
-    del current_user
     await _require_candidate(db, candidate_id)
-    return await _detail(db, candidate_id)
+    return await _detail(db, candidate_id, viewer=current_user)
 
 
 @router.post("/candidates/{candidate_id}/teams-meetings", response_model=FollowupDetail)
@@ -401,7 +423,7 @@ async def schedule_teams_followup(
         client_request_id=body.client_request_id,
     )
     await db.commit()
-    return await _detail(db, candidate_id)
+    return await _detail(db, candidate_id, viewer=current_user)
 
 
 @router.get(
@@ -656,7 +678,7 @@ async def record_followup_outcome(
     if body.outcome == "changed":
         await _signal_owners(db, followup=followup, body=body, author=current_user)
     await db.commit()
-    return await _detail(db, candidate_id)
+    return await _detail(db, candidate_id, viewer=current_user)
 
 
 @router.post("/candidates/{candidate_id}/claim", response_model=FollowupDetail)
@@ -673,4 +695,4 @@ async def claim_followup(
         )
     )
     await db.commit()
-    return await _detail(db, candidate_id)
+    return await _detail(db, candidate_id, viewer=current_user)

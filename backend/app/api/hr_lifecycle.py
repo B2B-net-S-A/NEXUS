@@ -29,7 +29,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_onboarded_user
-from app.api.hr_gates import ensure_module
+from app.api.hr_gates import ensure_module, refuse_self_edit
 from app.api.permission_access import DeliveryViewUser
 from app.api.section_access import require_section_access
 from app.core.database import get_db
@@ -592,6 +592,9 @@ async def create_onboarding(
     current_user: LifecycleAdmin,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    # „Nie sobie” (audyt 24.11.2026): Kadry nie prowadzą własnego wejścia ani
+    # odejścia — cofnięte odejście zostawiało konto włączone.
+    refuse_self_edit(current_user, [payload.user_id])
     try:
         case = await service.create_onboarding(
             db,
@@ -622,6 +625,7 @@ async def create_offboarding(
     current_user: LifecycleAdmin,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    refuse_self_edit(current_user, [payload.user_id])
     try:
         case = await service.create_offboarding(
             db,
@@ -657,6 +661,7 @@ async def update_case(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     case = await _case_or_404(db, case_id, lock=True)
+    refuse_self_edit(current_user, [case.user_id])
     values = payload.model_dump(exclude_unset=True)
     if "profile" in values:
         values["profile_values"] = (
@@ -675,6 +680,7 @@ async def update_case(
 
 async def _transition(db: AsyncSession, case_id: int, user: User, action: str) -> dict:
     case = await _case_or_404(db, case_id, lock=True)
+    refuse_self_edit(user, [case.user_id])
     try:
         if action == "start":
             await service.start_case(db, case, actor=user)
@@ -734,6 +740,7 @@ async def deactivate_now(
     """
 
     case = await _case_or_404(db, case_id, lock=True)
+    refuse_self_edit(current_user, [case.user_id])
     try:
         await service.deactivate_now(
             db, case, actor=current_user, despite_handover=despite_handover
@@ -752,6 +759,7 @@ async def set_handovers(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     case = await _case_or_404(db, case_id, lock=True)
+    refuse_self_edit(current_user, [case.user_id])
     try:
         await service.set_receivers(
             db, case, actor=current_user, receivers=payload.receivers
@@ -796,6 +804,7 @@ async def add_task(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     case = await _case_or_404(db, case_id, lock=True)
+    refuse_self_edit(current_user, [case.user_id])
     try:
         await service.add_task(
             db,

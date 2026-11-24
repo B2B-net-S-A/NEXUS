@@ -20,7 +20,7 @@ from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, or_, select
@@ -38,7 +38,7 @@ from app.models.client_settlement import (
 )
 from app.models.consultant_portal import CpDocument
 from app.models.contact import Contact
-from app.models.contract import Contract, ContractStatus, EngagementModel
+from app.models.contract import Contract, ContractStatus, EngagementModel, RateUnit
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.md_consumption import ClientOrderMdConsumption
 from app.models.user import User
@@ -51,6 +51,7 @@ from app.services.client_order_lines import (
 )
 from app.services.client_settlements import (
     acceptance_mail,
+    accepted_request,
     copyright_statement,
     confirmation_ergo,
     contractor_invoices,
@@ -67,6 +68,7 @@ from app.services.client_settlements import (
     order_split,
     protocol_collective,
     protocol_orlen,
+    rate_split,
     rcp_bnp,
     rcp_checks,
     rules_catalog,
@@ -79,6 +81,7 @@ from app.services.client_settlements import (
     timesheet_fieldglass,
     timesheet_pko,
     timesheet_plus,
+    travel_acceptance,
     vendor_file,
 )
 from app.services.client_settlements import auto_accept
@@ -94,6 +97,7 @@ from app.services.client_settlements_schema import FIX_REASON_MAX
 from app.services.consultant_portal import documents as portal_documents
 from app.services.hr.payroll_periods import add_months
 from app.services.multi_consultant_orders import EVENT_MANUAL_EDIT, format_md
+from app.services.order_rate_snapshots import convert_order_rate
 from app.services.order_revenue_steps import PricedOrder, priced_one
 from app.services.person_workdays import business_days
 
@@ -274,7 +278,9 @@ def md_rates(order: Any) -> tuple[Optional[Decimal], Optional[Decimal]]:
     zamówienie trzyma stawkę w ``rate_client`` / ``rate_candidate`` według
     ``rate_unit``. Stawka godzinowa w zł (PKO: bez puli MD) daje 8 h × stawka,
     dzienna w zł (Alior, Velo, ERSTE: 64 zamówienia w próbie 23.11.2026) jest
-    stawką MD wprost. Waluta obca bez kolumn MD zostaje bez stawki."""
+    stawką MD wprost. Waluta obca bez kolumn MD zostaje bez stawki — osobno
+    dla przychodu i kosztu: kontraktor w EUR u klienta w zł nie ma kosztu
+    w zł, więc marża nie liczy 150 EUR jako 150 zł (audyt 24.11.2026)."""
 
     cost = getattr(order, "md_rate_cost", None)
     revenue = getattr(order, "md_rate_revenue", None)
@@ -287,7 +293,12 @@ def md_rates(order: Any) -> tuple[Optional[Decimal], Optional[Decimal]]:
         candidate_rate = getattr(order, "rate_candidate", None)
         if revenue is None and client_rate is not None:
             revenue = Decimal(client_rate) * per_md
-        if cost is None and candidate_rate is not None:
+        cost_currency = getattr(order, "rate_candidate_currency", None) or "PLN"
+        if (
+            cost is None
+            and candidate_rate is not None
+            and cost_currency.upper() == "PLN"
+        ):
             cost = Decimal(candidate_rate) * per_md
     return cost, revenue
 
@@ -1284,6 +1295,13 @@ async def _mails(
 READABLE_MIMES = (*RCP_MIMES, declared.DOCX, *MAIL_MIMES, kesu.KESU_MIME)
 
 
+#: Akceptacja kosztów delegacji do odczytanego RCP (``_travel_acceptance``).
+TravelCheck = Callable[
+    [rcp_bnp.ParsedRcp, list[rcp_bnp.SignatureInfo]],
+    Awaitable[Optional[travel_acceptance.Verdict]],
+]
+
+
 async def _proof(
     report: Optional[CpDocument],
     reports: list[CpDocument],
@@ -1297,8 +1315,12 @@ async def _proof(
     fixed: bool = False,
     agreements: frozenset[str] = frozenset(),
     signed_sheet: bool = False,
+    travel: Optional[TravelCheck] = None,
 ) -> Optional[rcp_checks.ProofResult]:
     """Odczyt RCP z pliku i kontrole (E2). Brak pliku RCP = ``None``.
+
+    ``travel``: szuka akceptacji kosztów delegacji przez klienta, gdy RCP ma
+    koszty delegacji (``_travel_acceptance``).
 
     ``fixed``: projekt FIX — ``senders`` to domeny firmy, a mail akceptujący
     musi mieć słowo akceptacji (``mail_text.approved``), nie tylko nadawcę.
@@ -1346,6 +1368,13 @@ async def _proof(
         parsed, signatures = await read_rcp(content, report.mime)
         mails = await _mails(report, reports)
         if parsed is not None:
+            accepted_travel = (
+                await travel(parsed, signatures)
+                if travel is not None
+                and parsed.travel_total is not None
+                and parsed.travel_total > 0
+                else None
+            )
             bnp = rcp_checks.evaluate(
                 parsed,
                 signatures,
@@ -1359,6 +1388,7 @@ async def _proof(
                 mails=[m for m in mails if not senders.is_consultant(m.sender)],
                 client_mail=client_mail,
                 acceptor=senders.who,
+                travel=accepted_travel,
             )
             if bnp.md_regular is not None:
                 return bnp
@@ -1610,6 +1640,7 @@ async def _read_file(
             sheet,
             month=month,
             person_name=person_name,
+            file_name=doc.file_name,
             has_mail=has_mail,
             rules=rules,
             working_days=working_days,
@@ -2038,6 +2069,102 @@ async def _split_proof(
     return accepted or result
 
 
+# ── Suma z prośby o akceptację, którą klient zaakceptował ───────────────────
+
+
+def _mails_only(reports: list[CpDocument]) -> bool:
+    """W miesiącu są maile, a nie ma pliku, z którego czytnik bierze godziny."""
+
+    return any(d.mime in MAIL_MIMES for d in reports) and not any(
+        d.mime in READABLE_MIMES and d.mime not in MAIL_MIMES for d in reports
+    )
+
+
+async def _request_proof(
+    reports: list[CpDocument],
+    *,
+    month: str,
+    person_name: str,
+    rules: dict[str, dict[str, Any]],
+    senders: mail_text.Senders,
+    proof_senders: mail_text.Senders,
+    other_md: Decimal,
+) -> Optional[tuple[CpDocument, rcp_checks.ProofResult]]:
+    """MD z prośby o akceptację z jedną sumą godzin, gdy w miesiącu nie ma pliku
+    godzin, a klient prośbę zaakceptował (próba IX–X 2026, ERSTE X: konsultant
+    prosi kierownika „prośba o akcept TS za 10-2026 176h”, kierownik odpisuje
+    „akceptuję”, konsultant przekazuje wątek na rozliczenia@).
+
+    ``senders``: kto akceptuje za klienta (jak przy podziale na zamówienia: domeny
+    klienta bez samego konsultanta); bez znanych domen klienta nic nie czytamy.
+    Kontrole jak przy dokumencie z deklarowaną sumą (``declared``): miesiąc z
+    prośby, limit MD; do tego ``proof.accept_has_hours`` na mailach miesiąca.
+    Dwa maile miesiąca z różnymi sumami = brak MD."""
+
+    if not senders.client:
+        return None
+    found: list[tuple[CpDocument, accepted_request.Request]] = []
+    for doc in reports:
+        if doc.mime not in MAIL_MIMES:
+            continue
+        try:
+            content = portal_documents.path_for(doc.file_path).read_bytes()
+        except OSError:
+            continue
+        mail = await asyncio.to_thread(mail_text.read, content, doc.mime)
+        request = (
+            accepted_request.find(
+                mail, month=month, person_name=person_name, senders=senders
+            )
+            if mail is not None
+            else None
+        )
+        if request is not None:
+            found.append((doc, request))
+    if not found or len({(r.hours, r.md, r.month) for _, r in found}) != 1:
+        return None
+    doc, request = found[0]
+    result = declared.evaluate(
+        declared.Declared(
+            source=accepted_request.SOURCE,
+            consultant=person_name,
+            month=request.month or _doc_month(doc),
+            hours=request.hours,
+            md=request.md,
+        ),
+        month=month,
+        person_name=person_name,
+        rules=rules,
+        working_days=len(business_days(*month_bounds(month))),
+        other_md=other_md,
+    )
+    if result.md_regular is None:
+        return None
+    group = rcp_checks._Group(result, rules, "Akceptacja klienta w mailu")
+    amount = (
+        f"{rcp_checks._fmt(request.hours)} h"
+        if request.hours is not None
+        else f"{rcp_checks._fmt(request.md or Decimal('0'))} MD"
+    )
+    group.ok(
+        f"Klient zaakceptował prośbę: {amount}",
+        f"Odpowiedź {request.acceptor}"
+        + (f": „{request.quote}”" if request.quote else "")
+        + f". Prośbę wysłał {request.requester}. Pliku godzin za ten miesiąc nie ma.",
+    )
+    group.close()
+    accepted = await _acceptance(
+        result,
+        reports,
+        month=month,
+        hours=request.hours,
+        rules=rules,
+        senders=proof_senders,
+        sheet_month=request.month,
+    )
+    return doc, accepted or result
+
+
 async def _proof_senders(
     db: AsyncSession,
     s: ClientSettlement,
@@ -2103,6 +2230,9 @@ async def _recompute(
             fixed=fixed,
             agreements=await _sole_agreements(db, s.contract_id, s.period_month),
             signed_sheet=signoffs.client_signed(s.checks, signoffs.SHEET),
+            travel=lambda parsed, signatures: _travel_acceptance(
+                db, s, person.name, rules, parsed, signatures
+            ),
         )
         if proof is not None and fixed:
             _fix_note(proof, rules)
@@ -2142,6 +2272,29 @@ async def _recompute(
         )
         if from_split.md_regular is not None:
             proof, report = from_split, hit[0]
+    if (
+        not fixed
+        and (proof is None or proof.md_regular is None)
+        and _mails_only(reports)
+    ):
+        # Ani plik, ani podział: suma z prośby o akceptację, którą klient zaakceptował.
+        asked = await _request_proof(
+            reports,
+            month=s.period_month,
+            person_name=person.name,
+            rules=rules,
+            senders=await _without_consultant(
+                db,
+                await acceptance_senders(db, s.client_id, rules),
+                reports,
+                s.contract_id,
+                s.period_month,
+            ),
+            proof_senders=await _proof_senders(db, s, rules, fixed, reports),
+            other_md=await _other_md(db, person.contract, s.period_month),
+        )
+        if asked is not None:
+            report, proof = asked
     s.report_document_id = report.id if report else None
     # Wpis Finansów wygrywa z odczytem pliku; bez wpisu MD bierzemy z RCP.
     if proof is not None and proof.md_regular is not None and s.md_source != "manual":
@@ -2150,7 +2303,6 @@ async def _recompute(
         s.md_source = "rcp"
     proof = _signed_checks(proof, s, rules)
     proof = await _copyright_checks(proof, reports, s.period_month, rules)
-    proof = await _rate_change_checks(db, s, proof, rules)
     split: tuple[SplitPart, ...] = ()
     if hit is not None and s.md_regular is not None:
         split, problem = await _split_parts(db, s, hit[1], hit[2], rules)
@@ -2159,6 +2311,9 @@ async def _recompute(
             group = rcp_checks._Group(proof, rules, "Podział na zamówienia")
             group.warn("Podział z maila klienta nie wszedł", problem)
             group.close()
+    proof, cost_parts = await _rate_change_checks(
+        db, s, proof, rules, person.contract, state, split=bool(split)
+    )
     result = compute(
         Inputs(
             md_regular=s.md_regular,
@@ -2178,6 +2333,7 @@ async def _recompute(
             ),
             proof=proof,
             split=split,
+            cost_parts=cost_parts,
         )
     )
     return result, state, order
@@ -2188,41 +2344,203 @@ async def _rate_change_checks(
     s: ClientSettlement,
     proof: Optional[rcp_checks.ProofResult],
     rules: dict[str, dict[str, Any]],
-) -> Optional[rcp_checks.ProofResult]:
+    contract: Optional[Contract],
+    order: Optional[OrderState],
+    *,
+    split: bool,
+) -> tuple[Optional[rcp_checks.ProofResult], tuple[rate_split.CostPart, ...]]:
     """Stawka kontraktora zmienia się w trakcie miesiąca (harmonogram kontraktu).
 
-    Kwota kosztu idzie z jednej stawki linii zamówienia, a zapłacono po dwóch stawkach
-    (próba IX–X 2026: zmiana 17.09 ze 100 na 105 zł/h, NEXUS liczył całość po 100 i dawał
-    „ok”). Uwaga zamiast cichej złej kwoty: Finanse dzielą rozliczenie albo poprawiają kwotę.
+    Linia zamówienia ma jedną stawkę kosztu, a kontraktor fakturuje dni przed
+    zmianą starą stawką, a od zmiany nową (próba IX–X 2026: faktura kontraktora
+    równa podziałowi co do złotówki). Koszt dzielimy
+    według godzin z RCP dzień po dniu (``rate_split``). Uwaga zostaje tylko wtedy,
+    gdy podziału nie da się policzyć: Finanse dzielą rozliczenie albo poprawiają kwotę.
     """
 
     first, last = month_bounds(s.period_month)
-    steps = (
-        await db.execute(
-            select(ContractCandidateRate.effective_from, ContractCandidateRate.rate)
-            .where(
-                ContractCandidateRate.contract_id == s.contract_id,
-                ContractCandidateRate.effective_from <= last,
+    steps = [
+        (day, Decimal(rate))
+        for day, rate in (
+            await db.execute(
+                select(ContractCandidateRate.effective_from, ContractCandidateRate.rate)
+                .where(
+                    ContractCandidateRate.contract_id == s.contract_id,
+                    ContractCandidateRate.effective_from <= last,
+                )
+                .order_by(
+                    ContractCandidateRate.effective_from, ContractCandidateRate.id
+                )
             )
-            .order_by(ContractCandidateRate.effective_from, ContractCandidateRate.id)
-        )
-    ).all()
-    changes = [(day, rate) for day, rate in steps if first < day <= last]
-    if not changes:
-        return proof
-    before = [rate for day, rate in steps if day <= first]
+        ).all()
+    ]
+    found = rate_split.changes(steps, first, last)
+    if not found:
+        return proof, ()
     proof = proof or rcp_checks.ProofResult(md_regular=None, md_extra=None)
+    parts = _cost_parts(s, proof, rules, contract, order, steps, found, split=split)
     group = rcp_checks._Group(proof, rules, "Stawka kontraktora")
-    old = rcp_checks._fmt(Decimal(before[-1])) if before else "?"
-    for day, rate in changes:
-        group.warn(
-            f"Zmiana stawki {day:%d.%m}: {old} → {rcp_checks._fmt(Decimal(rate))}",
-            "Kwota kosztu liczy się z jednej stawki zamówienia. Podziel rozliczenie "
-            "na dni przed i po zmianie albo popraw kwotę przed zapłatą.",
+    changed = ", ".join(
+        f"{c.day:%d.%m}: {rcp_checks._fmt(c.old)} → {rcp_checks._fmt(c.new)}"
+        for c in found
+    )
+    if isinstance(parts, str):
+        for c in found:
+            group.warn(
+                f"Zmiana stawki {c.day:%d.%m}: {rcp_checks._fmt(c.old)} → "
+                f"{rcp_checks._fmt(c.new)}",
+                f"{parts} Kwota kosztu liczy się z jednej stawki zamówienia: podziel "
+                "rozliczenie na dni przed i po zmianie albo popraw kwotę przed zapłatą.",
+            )
+        group.close()
+        return proof, ()
+    group.ok(
+        f"Koszt po stawkach z harmonogramu (zmiana {changed})",
+        "; ".join(
+            f"{p.start:%d.%m}–{p.end:%d.%m}: {rcp_checks._fmt(p.md)} MD × "
+            f"{rcp_checks._fmt(p.rate)} zł"
+            for p in parts
         )
-        old = rcp_checks._fmt(Decimal(rate))
+        + f". Razem {rcp_checks._fmt(sum((p.net for p in parts), Decimal('0')))} zł.",
+    )
     group.close()
-    return proof
+    return proof, tuple(parts)
+
+
+def _cost_parts(
+    s: ClientSettlement,
+    proof: rcp_checks.ProofResult,
+    rules: dict[str, dict[str, Any]],
+    contract: Optional[Contract],
+    order: Optional[OrderState],
+    steps: list[rate_split.Step],
+    found: list[rate_split.Change],
+    *,
+    split: bool,
+) -> list[rate_split.CostPart] | str:
+    """Części kosztu albo powód, czemu podziału nie da się policzyć."""
+
+    if s.md_regular is None:
+        return "Brak MD rozliczenia."
+    if split:
+        return "Rozliczenie dzieli się na zamówienia z maila klienta."
+    if s.md_extra:
+        return "Rozliczenie ma pracę dodatkową, a RCP nie mówi, w które dni."
+    if order is None or order.rate_cost is None:
+        return "Linia zamówienia nie ma stawki kosztu."
+    if (
+        contract is None
+        or contract.rate_unit is None
+        or contract.resolved_rate_candidate_currency != "PLN"
+    ):
+        return "Stawka kontraktu nie jest w zł."
+    first, last = month_bounds(s.period_month)
+    segments: list[tuple[date, Decimal]] = []
+    for day in (first, *(c.day for c in found)):
+        rate = convert_order_rate(
+            rate_split.rate_on(steps, day), RateUnit(contract.rate_unit), RateUnit.daily
+        )
+        if rate is None:
+            return "Stawka kontraktu bez kwoty w części miesiąca."
+        segments.append((day, rate.quantize(Decimal("0.01"))))
+    line = Decimal(order.rate_cost).quantize(Decimal("0.01"))
+    if all(abs(line - rate) >= Decimal("0.01") for _day, rate in segments):
+        return (
+            f"Linia zamówienia ma {rcp_checks._fmt(line)} zł/MD, a harmonogram "
+            "kontraktu "
+            + " → ".join(f"{rcp_checks._fmt(rate)}" for _day, rate in segments)
+            + " zł/MD."
+        )
+    return rate_split.parts(
+        segments,
+        proof.day_hours,
+        last=last,
+        md=Decimal(s.md_regular),
+        per_md=rcp_checks._param_dec(rules, "fields.md_hours", "hours", "8"),
+    )
+
+
+async def _month_mail_files(
+    db: AsyncSession, contract_id: int, month: str
+) -> list[CpDocument]:
+    """Maile i PDF-y miesiąca każdego rodzaju, od najnowszego. Wydruk akceptacji
+    kosztów przychodzi z fakturami kosztowymi i bywa zapisany jako faktura."""
+
+    year, mon = (int(x) for x in month.split("-"))
+    return list(
+        (
+            await db.scalars(
+                select(CpDocument)
+                .where(
+                    CpDocument.contract_id == contract_id,
+                    CpDocument.period_year == year,
+                    CpDocument.period_month == mon,
+                    CpDocument.status != "rejected",
+                    CpDocument.mime.in_(acceptance_mail.MIMES),
+                )
+                .order_by(CpDocument.created_at.desc(), CpDocument.id)
+            )
+        ).all()
+    )
+
+
+def _travel_mails(files: list[CpDocument]) -> list[mail_text.Mail]:
+    found: list[mail_text.Mail] = []
+    for doc in files:
+        try:
+            content = portal_documents.path_for(doc.file_path).read_bytes()
+        except OSError:
+            continue
+        if doc.mime in MAIL_MIMES:
+            mail = mail_text.read(content, doc.mime)
+            if mail is not None:
+                found.extend(mail_text.thread(mail))
+            continue
+        try:
+            printout = travel_acceptance.mail_from_pdf(content)
+        except Exception as exc:  # noqa: BLE001 — zły PDF nie blokuje rozliczenia
+            logger.info("rozliczenia: PDF nieczytelny (%s)", type(exc).__name__)
+            continue
+        if printout is not None:
+            found.append(printout)
+    return found
+
+
+async def _travel_acceptance(
+    db: AsyncSession,
+    s: ClientSettlement,
+    person_name: str,
+    rules: dict[str, dict[str, Any]],
+    parsed: rcp_bnp.ParsedRcp,
+    signatures: list[rcp_bnp.SignatureInfo],
+) -> Optional[travel_acceptance.Verdict]:
+    """Akceptacja kosztów delegacji przez klienta (próba IX–X 2026, BNP):
+    RCP z kosztami podpisany przez osobę klienta albo mail klienta z kwotą lub
+    pozycjami jak w RCP. Akceptujący jak w kontrolach maili: domeny klienta,
+    bez samego konsultanta (``acceptance_senders``, ``_without_consultant``)."""
+
+    total = parsed.travel_total or Decimal("0")
+    files = await _month_mail_files(db, s.contract_id, s.period_month)
+    senders = await _without_consultant(
+        db,
+        await acceptance_senders(db, s.client_id, rules),
+        files,
+        s.contract_id,
+        s.period_month,
+    )
+    signed = travel_acceptance.by_signature(
+        signatures,
+        total=total,
+        senders=senders,
+        person_name=person_name,
+        issuer=rcp_checks._param(rules, "proof.signed_pdf", "issuer"),
+    )
+    if signed is not None:
+        return signed
+    mails = await asyncio.to_thread(_travel_mails, files)
+    return travel_acceptance.by_mail(
+        mails, total=total, items=parsed.travel_items, senders=senders
+    )
 
 
 def _signed_checks(

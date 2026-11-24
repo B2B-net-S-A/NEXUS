@@ -282,7 +282,8 @@ async def test_move_to_client_interview_warns(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     world = await _seed_vetoed_candidate()
-    await _place_in_target(world)
+    # Po wysyłce — przeskok ponad „CV wysłane” ma własną bramkę (24.11.2026).
+    await _place_in_target(world, stage="cv_sent")
 
     resp = await _move(app_client, app_auth_headers, world, "client_interview")
 

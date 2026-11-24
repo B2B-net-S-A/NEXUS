@@ -45,6 +45,9 @@ interface Props {
   /** Para ma zamówienie (`order_lock` z historii stawki, 21.10.2026): stawkę
    *  zmienia się w zamówieniu — okno nie przyjmuje kwoty, ruch idzie bez niej. */
   orderLock?: ClientRateOrderLock | null;
+  /** Kolumna docelowa — przeskok ponad „CV wysłane” (24.11.2026) to też
+   *  wysyłka do klienta, okno mówi, dokąd idzie karta. */
+  targetLabel?: string;
 }
 
 const UNIT_LABELS: Record<RateUnit, string> = {
@@ -70,6 +73,7 @@ export function ClientRateModal({
   candidateRateLabel = null,
   initialRate = null,
   orderLock = null,
+  targetLabel = "CV wysłane",
 }: Props) {
   const [rate, setRate] = useState<string>(initialRate ? String(initialRate.value) : "");
   // Wymagana stawka (przegląd DL) jest godzinowa jak w makiecie; stary
@@ -102,7 +106,7 @@ export function ClientRateModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Przesuń na „CV wysłane"</DialogTitle>
+          <DialogTitle>Przesuń na „{targetLabel}"</DialogTitle>
           <DialogDescription>
             Podaj stawkę do klienta dla kandydata{" "}
             <span className="font-semibold">{candidateName}</span> — cena, za jaką
@@ -158,7 +162,7 @@ export function ClientRateModal({
               </FormField>
               <p className="text-xs text-muted-foreground">
                 {required
-                  ? "Bez stawki nie przeniesiesz na „CV wysłane”. Stawka do klienta jest punktem odniesienia dla zamówienia klienta; do umowy idzie stawka kandydata."
+                  ? `Bez stawki nie przeniesiesz na „${targetLabel}”. Stawka do klienta jest punktem odniesienia dla zamówienia klienta; do umowy idzie stawka kandydata.`
                   : "Możesz pominąć i uzupełnić stawkę później z profilu kandydata (zakładka „Rekrutacje”)."}
               </p>
             </>

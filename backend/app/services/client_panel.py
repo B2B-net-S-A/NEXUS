@@ -890,6 +890,24 @@ async def get_or_create_panel(
     return panel
 
 
+async def close_for_client_change(db: AsyncSession, job_id: int) -> tuple[bool, bool]:
+    """Zmiana klienta rekrutacji: panel wyłączony, link wydany od nowa.
+
+    Link i ramki w CV poszły do poprzedniego klienta, więc nie mogą pokazać
+    rekrutacji nowego. Nowy sekret także na wyłączonym panelu, bo inaczej
+    ponowne włączenie ożywiłoby stare ramki. Zwraca (był włączony, nowy link).
+    """
+    panel = await panel_for_job(db, job_id)
+    if panel is None:
+        return False, False
+    was_enabled = panel.enabled
+    panel.enabled = False
+    rotated = panel.token_nonce is not None
+    if rotated:
+        issue_token(panel)
+    return was_enabled, rotated
+
+
 def _weak_items(
     found: dict[str, evidence_service.Evidence],
     requirements: list[evidence_service.Requirement],

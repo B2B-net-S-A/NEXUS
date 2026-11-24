@@ -213,12 +213,19 @@ def collect(
 
 
 async def load_notes(
-    db, candidate_id: int, labels: Sequence[str]
+    db, candidate_id: int, labels: Sequence[str], *, viewer
 ) -> list[EvidenceNote]:
     """Notatki-dowody osoby, w których stoi któraś z technologii (filtr jak
-    w bramce), najnowsze pierwsze. Data notatki z Traffita = data źródła."""
+    w bramce), najnowsze pierwsze. Data notatki z Traffita = data źródła.
+
+    ``viewer`` — kto czyta cytaty. Notatka DL-a z wysyłki („Wysłany
+    150/100-110, Java”) to cena dla klienta (decyzja C, 14.10.2026): widz bez
+    ``user_can_view_client_rate`` nie dostaje jej jako źródła — cytat ±45
+    znaków niósłby kwotę, a zdanie zastępcze w cytacie nic nie mówi.
+    """
     from sqlalchemy import text
 
+    from app.api.candidate_access import hidden_send_note_ids, note_content_hidden
     from app.core.scheduling import business_date
     from app.services import note_kinds
 
@@ -227,7 +234,7 @@ async def load_notes(
         return []
     rows = await db.execute(
         text(
-            "SELECT n.id, n.at, u.name, n.kind, n.content FROM ("
+            "SELECT n.id, n.at, u.name, n.kind, n.content, n.author_id FROM ("
             "  SELECT id, author_id, kind, content,"
             "         coalesce(source_created_at, created_at) AS at"
             "  FROM notes"
@@ -244,8 +251,14 @@ async def load_notes(
             "lim": _NOTES_LIMIT,
         },
     )
+    rows = list(rows)
+    send_ids = await hidden_send_note_ids(db, viewer, [row[0] for row in rows])
     out: list[EvidenceNote] = []
-    for note_id, at, author, kind, content in rows:
+    for note_id, at, author, kind, content, author_id in rows:
+        if note_content_hidden(
+            viewer, kind=kind, author_id=author_id, send_note=note_id in send_ids
+        ):
+            continue
         noted_on = business_date(at) if isinstance(at, datetime) else None
         out.append(
             EvidenceNote(

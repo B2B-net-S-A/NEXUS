@@ -161,6 +161,29 @@ def test_recruiter_hands_the_send_to_the_delivery_lead() -> None:
     assert "„QC CV”" in result["owner_note"]
 
 
+@pytest.mark.parametrize("target", ["client_interview", "contract", "hired"])
+def test_jump_over_cv_sent_is_a_send_too(target: str) -> None:
+    """Decyzja Artura 24.11.2026: przeskok ponad „CV wysłane” to też wysyłka —
+    rekruter przekazuje osobę Delivery Leadowi, jak przy „CV wysłane”."""
+    facts = replace(
+        VERIFIED_READY,
+        from_column="cv_qc",
+        company_cv=True,
+        qc_status="passed",
+        qc_stage_def_id=41,
+    )
+    result = build_requirements(facts, target)
+    assert result["primary"]["kind"] == "hand_to_dl"
+    assert result["primary"]["target_stage_def_id"] is None
+    assert "Delivery Lead" in result["owner_note"]
+    # Delivery Lead przesuwa sam — okno stawki pyta go w ruchu.
+    sender = build_requirements(replace(facts, is_client_sender=True), target)
+    assert sender["primary"]["kind"] == "move"
+    # Od „CV wysłane” dalej to nie wysyłka.
+    after = build_requirements(replace(facts, from_column="cv_sent"), target)
+    assert after["primary"]["kind"] != "hand_to_dl"
+
+
 def test_hand_to_dl_from_verified_targets_the_qc_stage() -> None:
     facts = replace(
         VERIFIED_READY, company_cv=True, qc_status="failed", qc_stage_def_id=41

@@ -2605,8 +2605,19 @@ async def update_job(
         "delivery_lead_id" in sent and data.delivery_lead_id != job.delivery_lead_id
     )
     recruiter_changed = "recruiter_id" in sent and data.recruiter_id != job.recruiter_id
+    previous_client_id = job.client_id
     if client_changed:
         await assert_client_assignable(db, data.client_id)
+        # Audyt 24.11.2026: zespół łączy rekrutacje jednego klienta, a jego link
+        # pokazywałby rekrutację nowego klienta staremu. Przed każdą zmianą.
+        if job.team_id is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Rekrutacja jest w zespole — zdejmij ją z zespołu "
+                    "przed zmianą klienta."
+                ),
+            )
     elif (
         "status" in sent
         and data.status is not None
@@ -2864,6 +2875,30 @@ async def update_job(
         # Runda 9 (R9-V2-7): opis publiczny zatwierdzony przy starym kliencie
         # wraca do szkicu — ogłoszenia na portalach idą do zamknięcia.
         await close_postings_if_approved_for_other_client(db, job)
+        # Audyt 24.11.2026: panel klienta i ramki w CV poszły do poprzedniego
+        # klienta — wyłączony panel i nowy link (`panel-klienta-pod-linkiem.md`).
+        from app.services.client_panel import (  # noqa: PLC0415
+            close_for_client_change,
+        )
+
+        panel_was_enabled, panel_rotated = await close_for_client_change(db, job.id)
+        if panel_was_enabled or panel_rotated:
+            db.add(
+                Activity(
+                    entity_type="job",
+                    entity_id=job.id,
+                    action=(
+                        "client_panel_disabled"
+                        if panel_was_enabled
+                        else "client_panel_link_rotated"
+                    ),
+                    user_id=current_user.id,
+                    details={
+                        "reason": "client_changed",
+                        "previous_client_id": previous_client_id,
+                    },
+                )
+            )
     if (
         working_title_reset
         or {

@@ -1083,8 +1083,11 @@ def build_requirements(facts: PairFacts, to_column: str) -> dict[str, Any]:
     primary: dict[str, Any] = {"kind": "move", "label": f"Przesuń na „{to_label}”"}
     owner_note: Optional[str] = None
     blocking = [item for item in items if item.blocks]
+    # Przeskok ponad „CV wysłane” to też wysyłka (decyzja Artura 24.11.2026,
+    # `pipeline_move_rules.jumps_over_client_send`) — ta sama główna akcja.
+    sends = to_column == "cv_sent" or "cv_sent" in result["skipped_columns"]
 
-    if to_column == "cv_sent" and facts.nordea:
+    if sends and facts.nordea:
         if facts.on_cpro_stage:
             # Osoba już czeka w kolejce Cpro — „✓ Wrzucone" to zwykły ruch,
             # ale robi go osoba od Cpro, admin, DL albo HoR.
@@ -1142,7 +1145,7 @@ def build_requirements(facts: PairFacts, to_column: str) -> dict[str, Any]:
                     else "Cpro."
                 )
             )
-    elif to_column == "cv_sent" and not facts.is_client_sender:
+    elif sends and not facts.is_client_sender:
         # Wysyłka do klienta należy do Delivery Leada: rekruter przekazuje
         # osobę do „QC CV" (tam DL ją przegląda; na pulpicie DL-a to pas „Do
         # wysłania do klienta"). Blokuje więc tylko to, co jest potrzebne do

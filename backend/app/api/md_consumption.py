@@ -3037,6 +3037,11 @@ async def assign_row(
     )
     # Audyt 22.09 r2 (FIN-MD-07): starsza paczka nie nadpisuje nowszego ani
     # ręcznego wpisu za ten miesiąc (ta sama reguła co replay Polkomtela).
+    # Blokada kontraktu i linii PRZED sprawdzeniem (audyt 24.11.2026): gdy
+    # wpisu za miesiąc jeszcze nie ma, ``FOR UPDATE`` nie ma czego zablokować,
+    # więc równoległy import nowszej paczki zapisywał MD, a ta ścieżka po jego
+    # commicie nadpisywała je starszą paczką.
+    await lock_contract_then_orders(db, order_ids=[order.id])
     conflict, _current, _write = await _newer_or_manual_conflict(
         db,
         model=ClientOrderMdConsumption,
@@ -3054,7 +3059,6 @@ async def assign_row(
 
     # Ticket 1.1: najpierw próbny zapis — zejście, po którym saldo spadłoby
     # poniżej zera, wymaga świadomego zatwierdzenia (``confirm_overflow``).
-    await lock_contract_then_orders(db, order_ids=[order.id])
     before_remaining = await _remaining_by_line(db, await _md_watch_ids(db, order))
     await db.flush()
     savepoint = await db.begin_nested()
@@ -3374,6 +3378,7 @@ async def reapply_rows_for_restored_line(
     # z samych cyfr, więc wiersz odrzucony za nieznany numer BIK trafiał na
     # przywróconą linię BNP.
     md_lines_by_month: dict[str, list[LineMatch]] = {}
+    shared_lines_by_month: dict[str, list[LineMatch]] = {}
     numbered_candidates: Optional[list[LineMatch]] = None
     for row, batch in candidates:
         if name_tokens(row.consultant_name) != wanted:
@@ -3436,6 +3441,28 @@ async def reapply_rows_for_restored_line(
             continue
         if not _period_within(line.start_date, target_end_date, batch.period_month):
             continue
+        # Audyt 24.11.2026: osoba ma w tym miesiącu linię wspólnej puli, więc
+        # wiersz bez numeru wiążącego TĘ linię mógł dotyczyć puli. Zwykły
+        # import daje mu wtedy „Wymaga przypisania” (runda 6, MD-4), a wiersz
+        # z numerem puli zostawia bez dopasowania — tu tak samo, nigdy
+        # księgowanie po samym nazwisku.
+        if batch.period_month not in shared_lines_by_month:
+            shared_lines_by_month[
+                batch.period_month
+            ] = await shared_md_lines_settling_in_month(db, batch.period_month)
+        shared_named = match_by_name(
+            shared_lines_by_month[batch.period_month], row.consultant_name
+        )
+        needs_assignment = bool(shared_named) and not authoritative
+        if needs_assignment and any(
+            finance_order_matching.finance_order_number_matches(
+                client_id=match.group.client_id,
+                order_number=match.group.order_number,
+                numeric_hints=hints,
+            )
+            for match in shared_named
+        ):
+            continue
         item = RestoredLineImportRow(
             import_id=batch.id,
             row_id=row.id,
@@ -3443,6 +3470,12 @@ async def reapply_rows_for_restored_line(
             filename=batch.filename,
             md_reported=Decimal(str(row.md_reported)),
             order_id=line.id,
+            skipped=(
+                "Wymaga przypisania w imporcie MD — osoba ma w tym miesiącu "
+                "także wspólną pulę MD."
+                if needs_assignment
+                else None
+            ),
         )
         if dry_run:
             results.append(item)
@@ -3473,6 +3506,13 @@ async def reapply_rows_for_restored_line(
                 RestoredLineImportRow(**{**item.__dict__, "skipped": "period"})
             )
             continue
+        if needs_assignment:
+            locked_row.status = IMPORT_ROW_NEEDS_ASSIGNMENT
+            locked_row.candidate_order_ids = [line.id]
+            await db.flush()
+            await _recount(db, locked_batch)
+            results.append(item)
+            continue
         already_applied = await db.scalar(
             select(
                 func.coalesce(func.sum(MdConsumptionImportRow.md_reported), 0)
@@ -3483,6 +3523,8 @@ async def reapply_rows_for_restored_line(
             )
         )
         total = quantize_md(Decimal(str(already_applied or 0)) + locked_row.md_reported)
+        # Blokada przed sprawdzeniem — jak w ``assign_row`` (audyt 24.11.2026).
+        await lock_contract_then_orders(db, order_ids=[line.id])
         conflict, _current, _write = await _newer_or_manual_conflict(
             db,
             model=ClientOrderMdConsumption,

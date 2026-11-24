@@ -285,7 +285,13 @@ async def convert_lead(
 ) -> dict[str, Any]:
     """„Utwórz szansę”: firma (istniejąca albo nowa) + szansa na pierwszym etapie."""
 
-    lead = await _get(db, lead_id)
+    # Blokada leada przed sprawdzeniem (audyt 24.11.2026), jak w „Przejmij”:
+    # dwa kliknięcia naraz przechodziły oba przez „converted” i zakładały dwie
+    # szanse, a bez firmy także dwie karty firmy. Druga konwersja czeka na
+    # pierwszą i zwraca jej szansę.
+    lead = await db.get(SalesLead, lead_id, with_for_update=True)
+    if lead is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
     if lead.status == "converted" and lead.opportunity_id:
         return {"opportunity_id": lead.opportunity_id, "company_id": lead.company_id}
     opportunity: SalesOpportunity = await service.convert(
