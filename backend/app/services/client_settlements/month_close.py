@@ -52,8 +52,10 @@ def stage_counts(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
     Raport → kontrola (odczyt MD i reguły) → przyjęcie RCP → faktura kontraktora
     z KSeF → faktura do klienta. Każda osoba jest w każdym kroku dokładnie raz,
-    więc liczby kroku sumują się do liczby osób. „Błąd” to reguła, która blokuje
-    przyjęcie (``fail``), „uwaga” — to, co Finanse mogą przyjąć na karcie osoby.
+    więc liczby kroku sumują się do liczby osób (``check.auto_clean`` to część
+    ``clean``). „Błąd” to reguła, która blokuje przyjęcie (``fail``), „uwaga” —
+    to, co Finanse mogą przyjąć na karcie osoby, „rozstrzygnięte” — przyjęte
+    mimo uwag (``accepted_issue``).
     """
 
     def n(pred: Any) -> int:
@@ -62,14 +64,28 @@ def stage_counts(rows: list[dict[str, Any]]) -> dict[str, Any]:
     def status(*names: str) -> Any:
         return lambda r: r["status"] in names
 
+    def clean(r: dict[str, Any]) -> bool:
+        # Przyjęte mimo uwag rozstrzygnął człowiek — to nie jest „bez uwag”.
+        return r["status"] == "ok" or (
+            r["status"] == "accepted" and not r.get("accepted_issue")
+        )
+
     return {
         "people": len(rows),
         "report": {
             "in": n(lambda r: r["status"] != "missing"),
             "missing": n(status("missing")),
+            # MD odczytał automat z pliku albo wpisały je Finanse.
+            "md_auto": n(lambda r: r.get("md_source") == "rcp"),
+            "md_manual": n(lambda r: r.get("md_source") == "manual"),
         },
         "check": {
-            "clean": n(status(*CLEAN_STATUSES)),
+            "clean": n(clean),
+            # Automat przeczytał plik i reguły nie miały uwag: bez człowieka.
+            "auto_clean": n(lambda r: r.get("md_source") == "rcp" and clean(r)),
+            "resolved": n(
+                lambda r: r["status"] == "accepted" and bool(r.get("accepted_issue"))
+            ),
             "warn": n(
                 lambda r: r["status"] == "warnings" and r.get("issue_level") != "fail"
             ),
@@ -94,6 +110,13 @@ def stage_counts(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "nip": n(lambda r: r["contractor_invoice"] == "nip_check"),
             "can_issue": n(lambda r: r["contractor_invoice"] == "can_issue"),
             "none": n(lambda r: r["contractor_invoice"] == "none"),
+            # RCP przyjęte, a faktury kontraktora jeszcze nie ma: ruch konsultanta.
+            "waiting": n(
+                lambda r: (
+                    r["status"] == "accepted"
+                    and r["contractor_invoice"] in ("none", "can_issue")
+                )
+            ),
         },
         "client_invoice": {
             "issued": n(lambda r: r["client_invoice"] == "issued"),

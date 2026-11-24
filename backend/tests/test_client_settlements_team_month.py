@@ -26,6 +26,7 @@ def _invoice(
     sale: date | None = None,
     kind: str = "original",
     settlement_id: int | None = None,
+    match: str = "unmatched",
 ):
     return SimpleNamespace(
         id=invoice_id,
@@ -35,6 +36,7 @@ def _invoice(
         period_month=period[1] if period else None,
         invoice_kind=kind,
         settlement_id=settlement_id,
+        match_status=match,
         net_amount="12345.00",
     )
 
@@ -102,3 +104,24 @@ def test_wiersz_osoby_bez_kwot() -> None:
         "no_nip",
         False,
     )
+
+
+def test_faktura_odrzucona_przez_place_odpada_a_dopasowana_wygrywa() -> None:
+    ignored = _invoice(1, date(2026, 11, 3), period=(2026, 10), match="ignored")
+    matched = _invoice(
+        2, date(2026, 11, 5), period=(2026, 10), match="matched", settlement_id=9
+    )
+    unmatched = _invoice(3, date(2026, 11, 4), period=(2026, 10))
+    assert team_month.pick_invoice([ignored, matched, unmatched], 2026, 10) is matched
+    assert team_month.pick_invoice([ignored], 2026, 10) is None
+    assert team_month.pick_invoice([ignored, unmatched], 2026, 10) is unmatched
+
+
+def test_kto_nalezy_do_biura_w_miesiacu() -> None:
+    # Ewidencja mówi o formie w tym miesiącu: zlecenie w październiku wyklucza.
+    assert team_month.in_team(True, "zlecenie", True) is False
+    assert team_month.in_team(False, "b2b", False) is True
+    # Konto wyłączone po odejściu: ostatnia faktura nadal w miesiącu.
+    assert team_month.in_team(False, None, True) is True
+    assert team_month.in_team(True, None, False) is True
+    assert team_month.in_team(False, None, False) is False

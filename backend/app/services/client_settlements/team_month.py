@@ -30,6 +30,7 @@ from app.models.hr_settlement import (
 )
 from app.models.hr_time import Timesheet
 from app.models.user import User
+from app.services.client_order_lines import month_bounds
 from app.services.hr.program import program_enabled
 
 TEAM_EMPLOYMENT = "b2b"
@@ -113,15 +114,32 @@ def _for_month(invoice: PayrollInvoice, year: int, month: int) -> bool:
 def pick_invoice(
     invoices: Iterable[PayrollInvoice], year: int, month: int
 ) -> Optional[PayrollInvoice]:
-    """Faktura pierwotna za miesiąc (bez korekt); najwcześniejsza, gdy jest kilka."""
+    """Faktura pierwotna za miesiąc (bez korekt i bez odrzuconych przez Płace).
+
+    Wygrywa faktura dopasowana przez Płace do rozliczenia, potem najwcześniejsza."""
 
     found = [
         i
         for i in invoices
-        if i.invoice_kind != "correction" and _for_month(i, year, month)
+        if i.invoice_kind != "correction"
+        and i.match_status != "ignored"
+        and _for_month(i, year, month)
     ]
-    found.sort(key=lambda i: (i.issue_date, i.id))
+    found.sort(key=lambda i: (i.match_status != "matched", i.issue_date, i.id))
     return found[0] if found else None
+
+
+def in_team(active_b2b: bool, sheet_type: Optional[str], has_invoice: bool) -> bool:
+    """Czy osoba należy do biura w miesiącu.
+
+    Ewidencja za miesiąc mówi o formie współpracy w tym miesiącu (zlecenie
+    w październiku, B2B od listopada). Bez niej liczy się faktura za miesiąc albo
+    dzisiejszy profil B2B — także osoby, której konto wyłączono po odejściu, bo
+    jej ostatni miesiąc Finanse zamykają już po wyłączeniu."""
+
+    if sheet_type:
+        return sheet_type == TEAM_EMPLOYMENT
+    return has_invoice or active_b2b
 
 
 async def team_month(db: AsyncSession, month: str) -> dict[str, Any]:
@@ -130,24 +148,60 @@ async def team_month(db: AsyncSession, month: str) -> dict[str, Any]:
     if not program_enabled():
         return {"month": month, "people": []}
     year, mon = (int(part) for part in month.split("-"))
+    first, last = month_bounds(month)
+    for_month = or_(
+        and_(PayrollInvoice.period_year == year, PayrollInvoice.period_month == mon),
+        and_(
+            PayrollInvoice.period_year.is_(None),
+            PayrollInvoice.sale_date.between(first, last),
+        ),
+    )
+    active_b2b = set(
+        (
+            await db.scalars(
+                select(EmployeeProfile.user_id)
+                .join(User, User.id == EmployeeProfile.user_id)
+                .where(
+                    User.is_active.is_(True),
+                    EmployeeProfile.employment_type == TEAM_EMPLOYMENT,
+                    EmployeeProfile.employment_type_pending.is_(False),
+                )
+            )
+        ).all()
+    )
+    with_sheet = set(
+        (
+            await db.scalars(
+                select(Timesheet.user_id).where(
+                    Timesheet.year == year, Timesheet.month == mon
+                )
+            )
+        ).all()
+    )
+    with_invoice = set(
+        (
+            await db.scalars(
+                select(PayrollInvoice.user_id).where(
+                    PayrollInvoice.user_id.is_not(None),
+                    PayrollInvoice.match_status != "ignored",
+                    for_month,
+                )
+            )
+        ).all()
+    )
+    ids = sorted(active_b2b | with_sheet | with_invoice)
+    if not ids:
+        return {"month": month, "people": []}
     people = (
         await db.execute(
             select(User.id, User.name, EmployeeBillingDetails.nip)
-            .join(EmployeeProfile, EmployeeProfile.user_id == User.id)
             .outerjoin(
                 EmployeeBillingDetails, EmployeeBillingDetails.user_id == User.id
             )
-            .where(
-                User.is_active.is_(True),
-                EmployeeProfile.employment_type == TEAM_EMPLOYMENT,
-                EmployeeProfile.employment_type_pending.is_(False),
-            )
+            .where(User.id.in_(ids))
             .order_by(User.name)
         )
     ).all()
-    ids = [row.id for row in people]
-    if not ids:
-        return {"month": month, "people": []}
 
     sheets = {
         s.user_id: s
@@ -166,13 +220,8 @@ async def team_month(db: AsyncSession, month: str) -> dict[str, Any]:
         await db.scalars(
             select(PayrollInvoice).where(
                 PayrollInvoice.user_id.in_(ids),
-                or_(
-                    and_(
-                        PayrollInvoice.period_year == year,
-                        PayrollInvoice.period_month == mon,
-                    ),
-                    PayrollInvoice.period_year.is_(None),
-                ),
+                PayrollInvoice.match_status != "ignored",
+                for_month,
             )
         )
     ).all():
@@ -219,6 +268,13 @@ async def team_month(db: AsyncSession, month: str) -> dict[str, Any]:
     rows = []
     for row in people:
         invoice = chosen.get(row.id)
+        sheet = sheets.get(row.id)
+        if not in_team(
+            row.id in active_b2b,
+            sheet.employment_type if sheet is not None else None,
+            invoice is not None,
+        ):
+            continue
         settlement = (
             settlements.get(invoice.settlement_id)
             if invoice is not None and invoice.settlement_id

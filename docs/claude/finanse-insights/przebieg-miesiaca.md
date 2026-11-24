@@ -35,9 +35,11 @@ samym ekranie.
   (klucz, rodzaj) — dwa wiersze w „Błędy i uwagi”, nie jedna suma.
 - **`no_md` to zamówienie bez MD** (brak linii albo puli, rozstrzyga opiekun),
   a nie nieodczytany plik. Nieodczytany plik to `checking` (Finanse wpisują MD).
-- **Uwaga zawsze ma tytuł.** Koszty delegacji w RCP to uwaga „Delegacja do
-  sprawdzenia: N zł brutto” (`rcp_checks.py`); do 24.11 silnik ustawiał uwagę
-  i zapisywał samą informację, więc osoba wisiała „z uwagami” bez powodu.
+- **Uwaga zawsze ma tytuł i stały klucz.** Koszty delegacji w RCP to uwaga
+  „Delegacja do sprawdzenia” z kwotą w opisie i kluczem `travel.rcp_costs`
+  (`rcp_checks.py`), więc w „Błędy i uwagi” jest jedna grupa, a nie jedna na
+  kwotę. Do 24.11 silnik ustawiał uwagę i zapisywał samą informację, więc osoba
+  wisiała „z uwagami” bez powodu.
 - **Faktura do klienta przed przyjęciem RCP to ostrzeżenie, nie blokada**
   (decyzja Artura 24.11). Licznik `client_invoice.issued_early`; w październiku
   56 osób miało fakturę sprzedaży w KSeF przy nieprzyjętym RCP.
@@ -50,6 +52,26 @@ samym ekranie.
   osób i Artur je odrzucił. **Bez kwot:** Finanse widzą stany i daty, kwoty
   biura zostają w Płacach. Faktury do klienta biuro nie ma („nie dotyczy —
   klientem jesteśmy my”).
+- **Świadomy wyjątek od D2.** Koszty chowają faktury osób zespołu przed
+  „Modułem Finanse” bez Płac (`finance_ledger/costs.py`, `_payroll_scope`).
+  Trasa biura pokazuje każdemu z „Modułem Finanse” same stany i daty (jest
+  ewidencja, jest faktura, zapłacona), bez kwot i bez dokumentów — decyzja
+  Artura z 24.11.2026. Kwota albo dokument biura w tej trasie to złamanie D2.
+- **Kto jest w biurze w miesiącu:** ewidencja za ten miesiąc decyduje o formie
+  (zlecenie w październiku wyklucza, nawet gdy dziś osoba jest na B2B); bez
+  ewidencji — faktura za miesiąc albo dzisiejszy aktywny profil B2B. Osoba
+  z kontem wyłączonym po odejściu zostaje w swoim ostatnim miesiącu.
+  Faktura odrzucona przez Płace (`match_status = ignored`) się nie liczy,
+  a dopasowana do rozliczenia wygrywa z pozostałymi.
+- **„Co zrobił automat” liczy tylko pracę automatu:** `check.auto_clean` = MD
+  odczytane z pliku (`md_source = rcp`) i reguły bez uwag. MD wpisane przez
+  Finanse (`md_manual`) i uwagi przyjęte ręcznie (`check.resolved`,
+  `accepted_issue`) nie są „przeszło samo”.
+- **„Kto teraz” po przyjęciu:** najpierw nasz ruch (faktura do klienta gotowa
+  → Finanse), potem konsultant bez faktury (`contractor_invoice.waiting`).
+  Wiersz klienta i wiersz osoby liczą to tak samo.
+- **Awaria zapytania to nie zero:** przypomnienia albo biuro, które się nie
+  pobrały, pokazują „—” albo „nie udało się pobrać”, nigdy 0.
 
 ## Co jest na ekranie (23.11.2026, część nadal obowiązuje)
 

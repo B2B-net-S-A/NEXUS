@@ -148,7 +148,8 @@ export function MonthCloseView() {
             data={data}
             month={month}
             team={teamData}
-            reminders={reminders.data?.clients ?? []}
+            teamError={teamError}
+            reminders={reminders.isSuccess ? reminders.data.clients : null}
             onShowIssues={() => pickTab("reasons")}
           />
           <div className="flex items-center gap-1">

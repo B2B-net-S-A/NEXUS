@@ -69,6 +69,10 @@ export interface SettlementRow {
   issues: string | null;
   /** „fail” — reguła blokuje przyjęcie; „warn” — uwaga do przyjęcia na karcie osoby. */
   issue_level?: "fail" | "warn" | null;
+  /** Przyjęte mimo uwag albo błędów — rozstrzygnął człowiek, nie automat. */
+  accepted_issue?: boolean;
+  /** `rcp` — MD odczytane z pliku, `manual` — wpisane przez Finanse. */
+  md_source?: "rcp" | "manual" | null;
   md_regular: string | null;
   md_extra: string | null;
   md_charged: string | null;
@@ -356,9 +360,14 @@ export interface PanelPreview {
 /** Pięć kroków miesiąca (`month_close.stage_counts`): każda osoba raz w każdym kroku. */
 export interface MonthCloseStages {
   people: number;
-  report: { in: number; missing: number };
+  /** `md_auto` — MD odczytał automat z pliku, `md_manual` — wpisały Finanse. */
+  report: { in: number; missing: number; md_auto: number; md_manual: number };
   check: {
     clean: number;
+    /** Część `clean`: automat odczytał plik i reguły nie miały uwag. */
+    auto_clean: number;
+    /** Przyjęte mimo uwag albo błędów (rozstrzygnął człowiek). */
+    resolved: number;
     warn: number;
     fail: number;
     returned: number;
@@ -367,7 +376,8 @@ export interface MonthCloseStages {
     missing: number;
   };
   accept: { done: number; auto: number; ready: number };
-  contractor_invoice: { match: number; differs: number; nip: number; can_issue: number; none: number };
+  /** `waiting` — RCP przyjęte, faktury kontraktora jeszcze nie ma (ruch konsultanta). */
+  contractor_invoice: { match: number; differs: number; nip: number; can_issue: number; none: number; waiting: number };
   client_invoice: {
     issued: number;
     ready: number;

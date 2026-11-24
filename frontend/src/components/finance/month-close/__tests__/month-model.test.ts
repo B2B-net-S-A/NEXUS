@@ -22,10 +22,10 @@ import {
 function stages(over: Partial<MonthCloseStages> = {}): MonthCloseStages {
   return {
     people: 10,
-    report: { in: 8, missing: 2 },
-    check: { clean: 4, warn: 1, fail: 1, returned: 0, unread: 1, no_md: 1, missing: 2 },
+    report: { in: 8, missing: 2, md_auto: 7, md_manual: 0 },
+    check: { clean: 4, auto_clean: 4, resolved: 0, warn: 1, fail: 1, returned: 0, unread: 1, no_md: 1, missing: 2 },
     accept: { done: 0, auto: 0, ready: 4 },
-    contractor_invoice: { match: 0, differs: 0, nip: 1, can_issue: 0, none: 9 },
+    contractor_invoice: { match: 0, differs: 0, nip: 1, can_issue: 0, none: 9, waiting: 0 },
     client_invoice: { issued: 0, ready: 0, waiting_client: 0, waiting: 10, issued_early: 0 },
     missing_order: 0,
     ...over,
@@ -106,6 +106,13 @@ describe("kroki osoby", () => {
     expect(personSteps(row({ status: "accepted", client_invoice: "issued", contractor_invoice: "in_ksef" })).client.tone).toBe("done");
   });
 
+  it("uwaga przyjęta przez Finanse to nie „bez uwag”", () => {
+    expect(personSteps(row({ status: "accepted", accepted_issue: true })).check).toMatchObject({
+      tone: "done",
+      label: "Przyjęte z uwagą",
+    });
+  });
+
   it("przyjęte przez automat i czekające na fakturę kontraktora", () => {
     const s = personSteps(row({ status: "accepted", accepted_auto: true }));
     expect(s.accept.label).toBe("Przyjął automat");
@@ -133,7 +140,36 @@ describe("klient w miesiącu", () => {
     expect(moves.map((m) => m.who)).toEqual(["Finanse", "Konsultanci", "Opiekun"]);
     // 1 błąd + 1 uwaga + 1 nieodczytany + 4 do przyjęcia + 1 NIP
     expect(moves[0]).toMatchObject({ count: 8, tone: "fail" });
-    expect(clientMoves(stages({ report: { in: 10, missing: 0 }, check: { clean: 10, warn: 0, fail: 0, returned: 0, unread: 0, no_md: 0, missing: 0 }, accept: { done: 10, auto: 0, ready: 0 }, contractor_invoice: { match: 10, differs: 0, nip: 0, can_issue: 0, none: 0 } }))).toEqual([]);
+    expect(
+      clientMoves(
+        stages({
+          report: { in: 10, missing: 0, md_auto: 10, md_manual: 0 },
+          check: { clean: 10, auto_clean: 10, resolved: 0, warn: 0, fail: 0, returned: 0, unread: 0, no_md: 0, missing: 0 },
+          accept: { done: 10, auto: 0, ready: 0 },
+          contractor_invoice: { match: 10, differs: 0, nip: 0, can_issue: 0, none: 0, waiting: 0 },
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("po przyjęciu: klient i osoba mówią to samo o ruchu", () => {
+    // Osoba: RCP przyjęte, faktury konsultanta brak, faktura do klienta gotowa.
+    const person = personSteps(row({ status: "accepted", contractor_invoice: "can_issue", client_invoice: "ready" }));
+    expect(person.who).toMatchObject({ label: "Finanse", note: "wystaw" });
+    const moves = clientMoves(
+      stages({
+        people: 1,
+        report: { in: 1, missing: 0, md_auto: 1, md_manual: 0 },
+        check: { clean: 1, auto_clean: 1, resolved: 0, warn: 0, fail: 0, returned: 0, unread: 0, no_md: 0, missing: 0 },
+        accept: { done: 1, auto: 0, ready: 0 },
+        contractor_invoice: { match: 0, differs: 0, nip: 0, can_issue: 1, none: 0, waiting: 1 },
+        client_invoice: { issued: 0, ready: 1, waiting_client: 0, waiting: 0, issued_early: 0 },
+      }),
+    );
+    expect(moves.map((m) => [m.who, m.count])).toEqual([
+      ["Finanse", 1],
+      ["Konsultanci", 1],
+    ]);
   });
 
   it("co jest źle nie liczy braków raportu", () => {

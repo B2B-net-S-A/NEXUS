@@ -87,18 +87,21 @@ interface MonthAnswersProps {
   data: MonthCloseOverview;
   month: string;
   team: TeamMonth | null;
-  reminders: ReminderClient[];
+  /** Błąd zapytania o biuro — karta mówi o nim zamiast chować linie biura. */
+  teamError: string | null;
+  /** `null` — przypomnienia jeszcze się ładują albo zapytanie padło (to nie zero). */
+  reminders: ReminderClient[] | null;
   onShowIssues: () => void;
 }
 
-export function MonthAnswers({ data, month, team, reminders, onShowIssues }: MonthAnswersProps) {
+export function MonthAnswers({ data, month, team, teamError, reminders, onShowIssues }: MonthAnswersProps) {
   const s = stagesOf(data);
   const automat = automatAnswer(data, team);
   const problems = problemLines(s);
   const total = problemTotal(s);
   const top = data.reasons.filter((r) => r.level === "fail" || r.level === "warn").slice(0, 2);
   const missing = missingAnswer(data, team);
-  const noRecipient = reminders.reduce((acc, r) => acc + (r.without_recipient ?? 0), 0);
+  const noRecipient = reminders ? reminders.reduce((acc, r) => acc + (r.without_recipient ?? 0), 0) : null;
   const invoices = invoiceAnswer(data);
   const issuedClients = invoices.counts.issued + invoices.counts.partial;
   const ready = data.can_see_amounts
@@ -157,7 +160,13 @@ export function MonthAnswers({ data, month, team, reminders, onShowIssues }: Mon
         <Big value={missing.reports} rest={`${pluralPl(missing.reports, "raport", "raporty", "raportów")} godzin`} />
         <ul className="-mx-1 mt-1 space-y-px">
           <Line tone="wait" label={`Raport godzin · ${countPl(missing.reportClients, "klient", "klientów", "klientów")}`} value={missing.reports} />
-          <Line tone="fail" label="Adres do przypomnienia" title="osoby bez adresu, na który automat wyśle przypomnienie" value={noRecipient} muted={noRecipient === 0} />
+          <Line
+            tone="fail"
+            label="Adres do przypomnienia"
+            title={noRecipient == null ? "nie udało się pobrać przypomnień" : "osoby bez adresu, na który automat wyśle przypomnienie"}
+            value={noRecipient ?? "—"}
+            muted={noRecipient === 0}
+          />
           <Line tone="wait" label="Numer zamówienia na osobie" value={missing.orders} muted={missing.orders === 0} />
           {missing.teamTimesheets != null ? (
             <Line tone="wait" label="Biuro: ewidencja czasu" value={missing.teamTimesheets} muted={missing.teamTimesheets === 0} />
@@ -165,6 +174,7 @@ export function MonthAnswers({ data, month, team, reminders, onShowIssues }: Mon
           {missing.teamInvoices != null ? (
             <Line tone="wait" label="Biuro: faktura od osoby" value={missing.teamInvoices} muted={missing.teamInvoices === 0} />
           ) : null}
+          {teamError ? <Line tone="fail" label="Biuro: nie udało się pobrać" title={teamError} value="—" /> : null}
           {missing.teamNip ? (
             <Line tone="fail" label="Biuro: NIP do rozliczeń" title="Płace uzupełniają NIP w profilu osoby (Ludzie); bez niego faktury z KSeF nie trafią do biura" value={missing.teamNip} />
           ) : null}

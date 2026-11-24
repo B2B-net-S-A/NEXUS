@@ -387,7 +387,7 @@ function ClientRow({ c, open, onToggle, href, reminder }: { c: MonthCloseClient;
       <td className="px-2 py-2 align-top">
         <Cell
           segments={[
-            { n: s.check.clean, tone: "done", title: "bez uwag" },
+            { n: s.check.clean + s.check.resolved, tone: "done", title: "bez uwag albo rozstrzygnięte" },
             { n: s.check.warn, tone: "warn", title: "uwagi" },
             { n: s.check.fail + s.check.no_md, tone: "fail", title: "błędy" },
             { n: s.check.unread, tone: "todo", title: "nieodczytane" },
@@ -398,6 +398,7 @@ function ClientRow({ c, open, onToggle, href, reminder }: { c: MonthCloseClient;
           note={
             <Parts
               parts={[
+                [s.check.resolved, "rozstrzygn.", "done"],
                 [s.check.fail, s.check.fail === 1 ? "błąd" : "błędy", "fail"],
                 [s.check.warn, s.check.warn === 1 ? "uwaga" : "uwagi", "warn"],
                 [s.check.unread, "nieodczyt.", "todo"],

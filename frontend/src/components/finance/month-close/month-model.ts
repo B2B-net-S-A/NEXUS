@@ -52,10 +52,10 @@ export const STEPS = [
 
 const EMPTY: MonthCloseStages = {
   people: 0,
-  report: { in: 0, missing: 0 },
-  check: { clean: 0, warn: 0, fail: 0, returned: 0, unread: 0, no_md: 0, missing: 0 },
+  report: { in: 0, missing: 0, md_auto: 0, md_manual: 0 },
+  check: { clean: 0, auto_clean: 0, resolved: 0, warn: 0, fail: 0, returned: 0, unread: 0, no_md: 0, missing: 0 },
   accept: { done: 0, auto: 0, ready: 0 },
-  contractor_invoice: { match: 0, differs: 0, nip: 0, can_issue: 0, none: 0 },
+  contractor_invoice: { match: 0, differs: 0, nip: 0, can_issue: 0, none: 0, waiting: 0 },
   client_invoice: { issued: 0, ready: 0, waiting_client: 0, waiting: 0, issued_early: 0 },
   missing_order: 0,
 };
@@ -73,20 +73,28 @@ export interface AutomatAnswer {
   steps: { label: string; value: number; of: number; note?: string }[];
 }
 
-/** „Co zrobił automat”: osoby, które przeszły raport → MD → reguły bez ręki. */
+/**
+ * „Co zrobił automat”: osoby, które przeszły raport → MD z pliku → reguły bez
+ * uwag bez człowieka. MD wpisane ręcznie i uwagi przyjęte przez Finanse się
+ * nie liczą (`check.auto_clean`).
+ */
 export function automatAnswer(data: MonthCloseOverview, team: TeamMonth | null): AutomatAnswer {
   const s = stagesOf(data);
-  const read = s.report.in - s.check.unread;
   const planned = data.clients.reduce((acc, c) => acc + (c.auto_accept?.count ?? 0), 0);
   const ksef = s.contractor_invoice.match + s.contractor_invoice.differs + s.contractor_invoice.nip;
   const steps: AutomatAnswer["steps"] = [
-    { label: "Raport z poczty", value: s.report.in, of: s.people },
-    { label: "MD odczytane z pliku", value: read, of: s.report.in },
-    { label: "Reguły bez uwag", value: s.check.clean, of: read },
+    { label: "Raport wczytany", value: s.report.in, of: s.people },
+    {
+      label: "MD odczytane z pliku",
+      value: s.report.md_auto,
+      of: s.report.in,
+      note: s.report.md_manual ? `${s.report.md_manual} wpisały Finanse` : undefined,
+    },
+    { label: "Reguły bez uwag", value: s.check.auto_clean, of: s.report.md_auto },
     {
       label: planned ? `Przyjął sam · przyjmie ${planned}` : "Przyjął sam · reguła wył.",
       value: s.accept.auto,
-      of: s.check.clean,
+      of: s.check.auto_clean,
       note: "Reguła „Przyjmuj RCP bez uwag automatycznie”",
     },
     {
@@ -102,8 +110,8 @@ export function automatAnswer(data: MonthCloseOverview, team: TeamMonth | null):
   }
   return {
     people: s.people,
-    clean: s.check.clean,
-    pct: s.people ? Math.round((s.check.clean / s.people) * 100) : 0,
+    clean: s.check.auto_clean,
+    pct: s.people ? Math.round((s.check.auto_clean / s.people) * 100) : 0,
     steps,
   };
 }
@@ -232,8 +240,8 @@ export function clientMoves(s: MonthCloseStages): Move[] {
     s.contractor_invoice.differs + s.contractor_invoice.nip;
   const moves: Move[] = [];
   if (finance) moves.push({ who: "Finanse", count: finance, tone: s.check.fail ? "fail" : "todo" });
-  if (s.report.missing + s.check.returned)
-    moves.push({ who: "Konsultanci", count: s.report.missing + s.check.returned, tone: "wait" });
+  const consultants = s.report.missing + s.check.returned + s.contractor_invoice.waiting;
+  if (consultants) moves.push({ who: "Konsultanci", count: consultants, tone: "wait" });
   if (s.check.no_md) moves.push({ who: "Opiekun", count: s.check.no_md, tone: "fail" });
   if (s.client_invoice.waiting_client) moves.push({ who: "Klient", count: s.client_invoice.waiting_client, tone: "wait" });
   return moves;
@@ -266,6 +274,7 @@ export function personSteps(r: SettlementRow): PersonSteps {
       r.issue_level === "fail"
         ? { tone: "fail", label: "Błąd", note: r.issues ?? "reguła blokuje przyjęcie" }
         : { tone: "warn", label: "Uwaga", note: r.issues ?? "bez opisu — otwórz kartę" };
+  else if (accepted && r.accepted_issue) check = { tone: "done", label: "Przyjęte z uwagą", note: "rozstrzygnęły Finanse" };
   else if (r.status === "ok" || accepted) check = { tone: "done", label: "Bez uwag" };
 
   let accept: Step = NA;
@@ -301,8 +310,10 @@ export function personSteps(r: SettlementRow): PersonSteps {
   else if (r.status === "warnings") who = { tone: r.issue_level === "fail" ? "fail" : "warn", label: "Finanse", note: "decyzja" };
   else if (r.status === "ok") who = { tone: "todo", label: "Finanse", note: "przyjmij" };
   else if (r.contractor_invoice === "differs" || r.contractor_invoice === "nip_check") who = { tone: "warn", label: "Finanse", note: "faktura" };
-  else if (r.contractor_invoice === "none" || r.contractor_invoice === "can_issue") who = { tone: "wait", label: "Konsultant", note: "faktura" };
+  // Po przyjęciu dwie drogi naraz: nasza faktura do klienta i faktura konsultanta.
+  // Najpierw nasz ruch — tak samo liczy wiersz klienta (`clientMoves`).
   else if (r.client_invoice === "ready") who = { tone: "todo", label: "Finanse", note: "wystaw" };
+  else if (r.contractor_invoice === "none" || r.contractor_invoice === "can_issue") who = { tone: "wait", label: "Konsultant", note: "faktura" };
   else if (r.client_invoice !== "issued") who = { tone: "wait", label: "Klient" };
   return { report, check, accept, contractor, client, who };
 }

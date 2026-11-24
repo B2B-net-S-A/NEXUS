@@ -633,5 +633,8 @@ def test_koszty_delegacji_to_uwaga_z_opisem():
     r = _eval(parsed)
     assert r.warn and not r.blocking
     warns = [c for g in r.groups for c in g["checks"] if c["state"] == "warn"]
-    assert [c["title"] for c in warns] == ["Delegacja do sprawdzenia: 450 zł brutto"]
-    assert "Faktury kosztów" in (warns[0]["detail"] or "")
+    assert [c["title"] for c in warns] == ["Delegacja do sprawdzenia"]
+    # Stały klucz: w „Przebiegu miesiąca” jedna grupa zamiast jednej na kwotę.
+    assert warns[0]["rule"] == "travel.rcp_costs"
+    assert "450 zł brutto" in warns[0]["detail"]
+    assert "Faktury kosztów" in warns[0]["detail"]

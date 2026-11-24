@@ -167,6 +167,8 @@ def _person_row(status: str, **kw: object) -> dict:
         "contractor_invoice": "none",
         "client_invoice": "waiting",
         "accepted_auto": False,
+        "accepted_issue": False,
+        "md_source": None if status in ("missing", "checking") else "rcp",
         "order_number": "ZAM-1",
     }
     base.update(kw)
@@ -195,9 +197,12 @@ def test_kroki_miesiaca_kazda_osoba_raz_w_kazdym_kroku() -> None:
     ]
     s = month_close.stage_counts(rows)
     assert s["people"] == 10
-    assert s["report"] == {"in": 9, "missing": 1}
-    assert s["check"] == {
+    assert s["report"] == {"in": 9, "missing": 1, "md_auto": 8, "md_manual": 0}
+    check = dict(s["check"])
+    assert check.pop("auto_clean") == 4
+    assert check == {
         "clean": 4,
+        "resolved": 0,
         "warn": 1,
         "fail": 1,
         "returned": 1,
@@ -205,7 +210,7 @@ def test_kroki_miesiaca_kazda_osoba_raz_w_kazdym_kroku() -> None:
         "no_md": 1,
         "missing": 1,
     }
-    assert sum(s["check"].values()) == 10
+    assert sum(check.values()) == 10
     assert s["accept"] == {"done": 3, "auto": 1, "ready": 1}
     assert s["contractor_invoice"] == {
         "match": 1,
@@ -213,6 +218,7 @@ def test_kroki_miesiaca_kazda_osoba_raz_w_kazdym_kroku() -> None:
         "nip": 1,
         "can_issue": 0,
         "none": 7,
+        "waiting": 1,
     }
     assert s["client_invoice"] == {
         "issued": 1,
@@ -224,6 +230,23 @@ def test_kroki_miesiaca_kazda_osoba_raz_w_kazdym_kroku() -> None:
     assert s["missing_order"] == 1
     early = month_close.stage_counts([_person_row("ok", client_invoice="issued")])
     assert early["client_invoice"]["issued_early"] == 1
+
+
+def test_przyjete_mimo_uwag_i_md_wpisane_recznie_to_nie_automat() -> None:
+    """Uwaga przyjęta przez Finanse i MD wpisane ręcznie nie liczą się jako
+    „przeszło samo” (przegląd kodu 24.11.2026)."""
+
+    rows = [
+        _person_row("accepted", accepted_issue=True),
+        _person_row("ok", md_source="manual"),
+        _person_row("ok"),
+    ]
+    s = month_close.stage_counts(rows)
+    assert s["check"]["clean"] == 2
+    assert s["check"]["resolved"] == 1
+    assert s["check"]["auto_clean"] == 1
+    assert s["report"]["md_auto"] == 2
+    assert s["report"]["md_manual"] == 1
 
 
 def test_suma_krokow_dwoch_klientow() -> None:
@@ -270,6 +293,7 @@ def test_wiersz_osoby_niesie_poziom_pierwszej_sprawy() -> None:
             amount_cost=None,
             amount_revenue=None,
             meta={},
+            md_source="rcp",
         )
 
     warn_then_fail = [
@@ -284,3 +308,8 @@ def test_wiersz_osoby_niesie_poziom_pierwszej_sprawy() -> None:
     row = service._row(person, settlement("needs_fix", [], "Brak podpisu"), True, False)
     assert (row["issues"], row["issue_level"]) == ("Brak podpisu", "fail")
     assert service._row(person, None, False, False)["issue_level"] is None
+    accepted = service._row(person, settlement("accepted", only_warn), True, False)
+    assert (accepted["issue_level"], accepted["accepted_issue"]) == (None, True)
+    assert accepted["md_source"] == "rcp"
+    clean = service._row(person, settlement("accepted", []), True, False)
+    assert clean["accepted_issue"] is False
