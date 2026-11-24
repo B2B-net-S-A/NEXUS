@@ -673,6 +673,7 @@ function BatchWorkspace({
                               people={jobPeople}
                               label={`Oddaj ${jobPeople.length} do Nowych`}
                               confirm
+                              tourAnchor="review-batch.return-group"
                             />
                           </div>
                         ) : null}

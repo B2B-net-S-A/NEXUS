@@ -2490,6 +2490,36 @@
     ]
   },
   {
+    "id": "lekcja-porcja-oddaj-do-nowych",
+    "title": "Porcja dnia: oddaj do „Nowych” zamiast odrzucać",
+    "novelties": ["porcja-oddaj-do-nowych"],
+    "task": "W Porcji dnia otwórz „Do domknięcia” i przy rekrutacji, która nie jest Twoim P0, kliknij „Oddaj … do Nowych”. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/porcja",
+    "check": { "kind": "click", "anchor": "review-batch.return-group" },
+    "questions": [
+      {
+        "q": "Masz screeningi po terminie z rekrutacji, która spadła poniżej Twojego P0, i nie zadzwonisz do tych osób. Co zrobić, żeby odblokować wyszukiwanie?",
+        "options": [
+          "Oddać je do „Nowych”",
+          "Odrzucić z powodem „Inne”",
+          "Usunąć osoby z rekrutacji"
+        ],
+        "answer": 0,
+        "explain": "Oddanie przenosi karty do „Nowych” bez odrzucenia: w historii osoby nie zostaje „Odrzucony”, a zaległość znika. Odrzucenie zostawia fałszywy powód przy kimś, z kim nikt nie rozmawiał."
+      },
+      {
+        "q": "Klikasz „Pasuje”, a potem oddajesz tę osobę do „Nowych”. Co z dzisiejszym minimum?",
+        "options": [
+          "Ta decyzja przestaje się liczyć",
+          "Liczy się podwójnie",
+          "Liczy się jak „Pasuje”"
+        ],
+        "answer": 0,
+        "explain": "Karta, która wróciła do „Nowych”, nie jest decyzją. Wróci do Twojej porcji, gdy porcja dojdzie do tej rekrutacji."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [

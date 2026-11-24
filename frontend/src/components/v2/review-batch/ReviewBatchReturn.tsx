@@ -24,12 +24,15 @@ export function ReturnToNewButton({
   people,
   label,
   confirm = false,
+  tourAnchor,
 }: {
   jobId: number;
   jobTitle: string;
   people: ReviewBatchOpenScreening[];
   label: string;
   confirm?: boolean;
+  /** Kotwica Nowości i lekcji (`data-tour`). */
+  tourAnchor?: string;
 }) {
   const move = usePipelineMoveCore({ jobId });
   const queryClient = useQueryClient();
@@ -66,7 +69,14 @@ export function ReturnToNewButton({
 
   return (
     <>
-      <Button type="button" size="sm" variant="outline" disabled={pending} onClick={() => void run()}>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={pending}
+        data-tour={tourAnchor}
+        onClick={() => void run()}
+      >
         <Undo2 className="h-3.5 w-3.5" aria-hidden />
         {pending ? "Oddaję…" : label}
       </Button>
