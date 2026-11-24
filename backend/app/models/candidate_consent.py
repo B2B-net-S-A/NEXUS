@@ -15,7 +15,7 @@ Tekst zgody nie jest kopiowany do każdego wiersza — ``text_version`` wskazuje
 wersję w ``services/career_consent.py``, a ``text_sha256`` dowodzi, którą
 dokładnie treść zobaczył kandydat. Bez adresu IP w jawnej postaci.
 
-Wyjątek (0773): zgody z formularzy strony WWW (``services/website_applications``)
+Wyjątek (0772): zgody z formularzy strony WWW (``services/website_applications``)
 mają treść na stronie, nie w NEXUSIE — wiersz niesie wtedy dosłowną treść
 w ``consent_text``.
 """
@@ -76,6 +76,6 @@ class CandidateConsent(Base):
     )
     # Nie-sekretny klucz linku (SHA-256 sekretu), przez który złożono zgodę.
     invite_link_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    # 0773: dosłowna treść zgody spoza NEXUSA (strona WWW). NULL = treść
+    # 0772: dosłowna treść zgody spoza NEXUSA (strona WWW). NULL = treść
     # wskazuje ``text_version``.
     consent_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

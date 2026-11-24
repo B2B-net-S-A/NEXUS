@@ -22,7 +22,7 @@ dostaje dzwonka. Każde zgłoszenie zostawia za to wpis w kolejce „Zgłoszenia
   bezwładnie przy wpisie, a rekruter decyduje: połącz, scal, utwórz, odrzuć.
 
 Zgody przychodzą jako dosłowne treści zaznaczonych pól. Wiersz
-``candidate_consents`` dostaje treść (``consent_text``, 0773), jej skrót
+``candidate_consents`` dostaje treść (``consent_text``, 0772), jej skrót
 i datę — to dowód zgody z RODO art. 7 ust. 1. Potwierdzenie do kandydata
 wysyła strona, więc NEXUS żadnego maila nie wysyła.
 

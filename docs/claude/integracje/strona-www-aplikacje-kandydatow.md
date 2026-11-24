@@ -60,7 +60,7 @@ Limit z `/apply` (5/min, 30/h) odrzucałby kandydatów przy zwykłym ruchu.
 ## Zgody
 
 Treść zgód żyje na stronie, nie w `services/career_consent.py`. Wiersz
-`candidate_consents` niesie więc dosłowną treść w `consent_text` (0773) obok
+`candidate_consents` niesie więc dosłowną treść w `consent_text` (0772) obok
 `text_sha256`, `given_at` i `text_version = "www"`. To jest dowód zgody
 z RODO art. 7 ust. 1. Rodzaj: `baza` ma `recruitment_current_future`, a przy
 ofercie pierwsza zgoda to `recruitment_current`, kolejne `recruitment_future`
