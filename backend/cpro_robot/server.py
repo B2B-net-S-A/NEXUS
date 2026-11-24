@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import queue
+import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Optional
@@ -34,6 +35,18 @@ def item_report(
         "message": message[:400],
         **{k: v for k, v in extra.items() if v},
     }
+
+
+def error_hint(exc: BaseException) -> str:
+    """Rodzaj błędu do raportu: klasa i pierwsza linia bez treści w cudzysłowach.
+
+    Komunikat Playwrighta potrafi cytować wpisywane wartości („Call log”), więc
+    zostaje tylko pierwsza linia, a każdy tekst w cudzysłowie jest wycinany.
+    """
+
+    first = (str(exc).splitlines() or [""])[0]
+    first = re.sub(r"(\"[^\"]*\"|'[^']*'|„[^”]*”)", "…", first)
+    return f"{type(exc).__name__}: {first}"[:160]
 
 
 def process_item(
@@ -76,7 +89,9 @@ def process_item(
             "cpro_robot ref=%s step=%s error=%s", ref, run.step, type(exc).__name__
         )
         reason = "draft_unconfirmed" if run.saved else "other"
-        out = Outcome("failed", reason, f"Błąd robota na kroku „{run.step}”.")
+        out = Outcome(
+            "failed", reason, f"Błąd robota na kroku „{run.step}”: {error_hint(exc)}."
+        )
     finally:
         context.close()
     return item_report(
