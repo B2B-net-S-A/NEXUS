@@ -17,6 +17,12 @@ czytamy: w starszym szablonie „Miesiąc realizacji usług” to wpisany na sta
 przy każdym rozliczeniu PKO i niczego nie mówiło. Tabela kończy się wierszem
 „Całkowity czas”; to, co niżej (wiersze „Przykład”), nie jest pracą konsultanta.
 
+Nagłówek starszego szablonu to tekst wpisany ręcznie i bywa z poprzedniego
+miesiąca („… wrzesień 2026” w pliku „TimeSheet 2610 - …”, zaakceptowanym przez
+bank za październik; próba IX–X 2026). Gdy nagłówek nie pasuje, a nazwa pliku
+„TimeSheet RRMM” wskazuje rozliczany miesiąc, liczymy go za ten miesiąc.
+Nie dotyczy nowszego szablonu: tam miesiąc wynika z dat dni.
+
 Plik spoza szablonu daje ``None``: dalej próbujemy innych odczytów.
 """
 
@@ -72,6 +78,8 @@ _MONTH_NAME = re.compile(
     + r")",
     re.IGNORECASE,
 )
+#: Nazwa pliku szablonu: „TimeSheet 2610 - Nazwisko Imię PZ0xxxxx.xlsm” (RRMM).
+_FILE_MONTH = re.compile(r"time\s*sheet\s*(\d{2})(0[1-9]|1[0-2])(?!\d)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -94,6 +102,8 @@ class ParsedPko:
     declared_total: Optional[Decimal]
     header_row: int
     columns_hidden: tuple[str, ...] = field(default=())
+    #: Miesiąc z dat dni w nagłówku (nowszy szablon), nie z tekstu.
+    month_from_dates: bool = False
 
     @property
     def total_hours(self) -> Decimal:
@@ -290,6 +300,7 @@ def parse_rows(
         declared_total=declared,
         header_row=header_at + 1,
         columns_hidden=tuple(sorted(hidden)),
+        month_from_dates=bool(days),
     )
 
 
@@ -347,6 +358,26 @@ def md_from_hours(hours: Decimal, per_md: Decimal) -> Decimal:
     return (hours / per_md).quantize(MD_Q, rounding=ROUND_HALF_UP)
 
 
+def file_month(file_name: Optional[str]) -> Optional[str]:
+    """Miesiąc z nazwy pliku „TimeSheet RRMM …” (``RRRR-MM``)."""
+
+    match = _FILE_MONTH.search(file_name or "")
+    return f"20{match.group(1)}-{match.group(2)}" if match else None
+
+
+def sheet_month(
+    parsed: ParsedPko, month: str, file_name: Optional[str] = None
+) -> Optional[str]:
+    """Miesiąc Time Sheet: z nagłówka, a przy nagłówku z innego miesiąca
+    rozliczany miesiąc, gdy wskazuje go nazwa pliku (starszy szablon)."""
+
+    if parsed.month == month:
+        return month
+    if not parsed.month_from_dates and file_month(file_name) == month:
+        return month
+    return parsed.month
+
+
 def evaluate(
     parsed: ParsedPko,
     *,
@@ -355,8 +386,11 @@ def evaluate(
     rules: Mapping[str, Mapping[str, Any]],
     working_days: int,
     other_md: Decimal = Decimal("0"),
+    file_name: Optional[str] = None,
 ) -> ProofResult:
-    """Kontrole Time Sheet z katalogu reguł; MD = godziny / ``fields.md_hours``."""
+    """Kontrole Time Sheet z katalogu reguł; MD = godziny / ``fields.md_hours``.
+
+    ``file_name``: nazwa pliku, „TimeSheet RRMM” rozstrzyga nieaktualny nagłówek."""
 
     result = ProofResult(md_regular=None, md_extra=None)
     sheet = _Group(result, rules, GROUP_TITLE)
@@ -378,6 +412,12 @@ def evaluate(
 
     if parsed.month == month:
         sheet.ok(f"Miesiąc z nagłówka: {month_label(month)}")
+    elif sheet_month(parsed, month, file_name) == month:
+        sheet.ok(
+            f"Miesiąc z nazwy pliku: {month_label(month)}",
+            f"W nagłówku: {month_label(parsed.month) if parsed.month else 'brak miesiąca'} "
+            "(tekst z szablonu poprzedniego miesiąca).",
+        )
     else:
         sheet.fail(
             "proof.month",

@@ -1003,7 +1003,9 @@ def _read_mails(reports: list[CpDocument]) -> list[mail_text.Mail]:
             continue
         mail = mail_text.read(content, document.mime)
         if mail is not None:
-            mails.append(mail)
+            # Akceptacja klienta bywa tylko w mailu załączonym do maila konsultanta
+            # (PKO, próba IX–X 2026): każdy załączony mail to osobna wiadomość.
+            mails.extend(mail_text.thread(mail))
     return mails
 
 
@@ -1360,9 +1362,12 @@ async def _read_file(
             rules=rules,
             working_days=working_days,
             other_md=other_md,
+            file_name=doc.file_name,
         )
         return await accepted(
-            result, pko.total_hours if pko.entries else None, pko.month
+            result,
+            pko.total_hours if pko.entries else None,
+            timesheet_pko.sheet_month(pko, month, doc.file_name),
         )
     # Tygodnie z SAP Fieldglass (EY): eksport „timeSheet.worker.list”.
     fieldglass = await asyncio.to_thread(timesheet_fieldglass.parse, content, mime)

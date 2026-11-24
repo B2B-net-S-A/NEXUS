@@ -7,7 +7,8 @@ albo XLSX (gdy podpisu nie ma; wtedy z mailem akceptującym). Czytamy:
   pole „Check” z szablonu,
 * godziny dzienne: wiersz „Godziny w tygodniu” i „SUMA” (31 dni + suma godzin + MD),
 * podsumowanie: wiersze „OPIS PRAC” z MD, ID PRODUCT i kodem CMDB; „Godziny
-  dodatkowe …” to praca dodatkowa (nadgodziny i weekend), reszta to dni zwykłe,
+  dodatkowe …” i „Godziny nadliczbowe …” to praca dodatkowa (nadgodziny
+  i weekend), reszta to dni zwykłe,
 * koszty delegacji (suma).
 
 Plik spoza szablonu daje ``None`` — wtedy MD wpisują Finanse. Odczyt nigdy nie
@@ -30,7 +31,10 @@ from typing import Any, Iterable, Optional
 logger = logging.getLogger(__name__)
 
 DAYS = 31
-EXTRA_PREFIX = "godziny dodatkowe"
+# „Godziny dodatkowe …” z szablonu; konsultanci piszą też „Godziny nadliczbowe
+# w sobotę” (próba IX–X 2026: Finanse fakturowały je jako nadgodziny, a NEXUS
+# liczył jako dni zwykłe, więc bez stawki pracy dodatkowej).
+EXTRA_PREFIXES = ("godziny dodatkowe", "godziny nadliczbowe", "nadgodziny")
 # „Wyjazd służbowy” ze starego szablonu i „Delegacja” z nowszego: kwota kosztów
 # delegacji w kolumnie MD to nie są dni pracy (próba IX–X 2026: 718 „MD”).
 TRAVEL_PREFIXES = ("wyjazd", "delegacja")
@@ -80,7 +84,7 @@ class SummaryRow:
 
     @property
     def is_extra(self) -> bool:
-        return self.label.lower().startswith(EXTRA_PREFIX)
+        return self.label.lower().startswith(EXTRA_PREFIXES)
 
     @property
     def is_travel(self) -> bool:

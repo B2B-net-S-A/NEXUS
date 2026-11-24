@@ -380,8 +380,13 @@ def find_period(
     Z ``received`` także formy bez pełnego roku („09.26”, „TS_wrzesień”): rok
     dwucyfrowy musi być bieżący albo zeszły, a okres nie późniejszy niż miesiąc
     maila, bo „10.25” w treści to częściej data niż okres.
+
+    Nazwy plików z Maca przychodzą rozłożone (NFD: „z” i osobny akcent), więc
+    „październik 2026” nie pasował do wzorca i okres brał się z tematu wątku
+    (ERSTE, próba IX–X 2026: Time Sheet za X w wątku „wrzesień” poszedł na IX).
     """
 
+    text = unicodedata.normalize("NFC", text)
     match = _PERIOD_ISO.search(text)
     if match:
         return int(match.group(1)), int(match.group(2))
