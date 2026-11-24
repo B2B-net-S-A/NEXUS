@@ -1707,10 +1707,10 @@
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/requirement_evidence.py",
-      "line": 229,
-      "fingerprint": "fd022519bdeabcbc",
+      "line": 236,
+      "fingerprint": "b77f6d0faf1af397",
       "status": "zweryfikowane",
-      "reason": "Wstawiony tylko note_kinds.ai_readable_sql() — warunek ze stałych rodzajów (AI_EXCLUDED_KINDS, SYSTEM_SOURCE); wzorzec regex z etykiet idzie przez bind (:pattern), też :cid, :types, :lim."
+      "reason": "Wstawiony tylko note_kinds.ai_readable_sql() — warunek ze stałych rodzajów (AI_EXCLUDED_KINDS, SYSTEM_SOURCE); wzorzec regex z etykiet idzie przez bind (:pattern), też :cid, :types, :lim; dopisana kolumna n.author_id bez wejścia użytkownika."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
