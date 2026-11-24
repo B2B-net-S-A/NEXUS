@@ -776,6 +776,80 @@ def test_finance_tour_opens_the_view_with_its_first_anchor() -> None:
         assert "?view=" in start, novelty.id
 
 
+# Wpisy z listy `/jobs`, których pierwszego elementu nie ma na rekrutacji
+# ćwiczebnej, bo zestaw Poligonu (`frontend/src/lib/poligon/dataset.json`) nie
+# ma danych, przy których element się pokazuje. Sprawdzone na stagingu
+# 24.11.2026 (Poligon, 1280 × 720, rekruter i Delivery Lead). Przeklikanie
+# zostaje na liście i po 2 s ma „Nie mam tego — dalej”. Gdy zestaw dostanie
+# te dane, wpis dostaje `practice_href`, a wyjątek znika.
+JOBS_LIST_START_EXCEPTIONS: dict[str, str] = {
+    "polacz-blizniaka-recznie": "rekrutacja bez prawa łączenia bliźniaków",
+    "blizniacze-rekrutacje": "brak otwartych podobnych rekrutacji (okno pokazuje błąd)",
+    "skad-ptaszek-przy-wymaganiu": "„Kandydaci do dodania” bez osób do podglądu",
+    "nowi-aplikowali-na-gorze": "w „Nowych” nikt nie aplikował z ogłoszenia",
+    "aplikacje-z-ogloszenia": "zero aplikacji z ogłoszenia",
+    "nowi-kolejka-zadzwon-najpierw": "w „Nowych” nie ma osób od systemu",
+    "nowi-w-bazie-najpierw": "w „Nowych” nie ma osób od systemu",
+    "tablica-krytyczne-zamiennik": "brak zamienników umiejętności krytycznych",
+    "tablica-czeka-na-odpowiedz-klienta": "nikt nie czeka na odpowiedź klienta",
+    "p0-ultrapilne-24h": "priorytet rekrutacji tylko do odczytu",
+    "opublikuj-ogloszenie-jeden-przycisk": "rekrutacja bez ogłoszenia",
+    "justjoin-aplikacja-do-nowych": "rekrutacja bez ogłoszenia",
+    "opublikuj-na-justjoin": "rekrutacja bez ogłoszenia",
+    "wyslij-do-pracuj": "rekrutacja bez ogłoszenia",
+    "rekruter-nie-dzwon-aktywne-zamowienie": "nikt nie ma aktywnego zamówienia",
+    "podpis-przejmij-obsluge": "umowa bez podpisu elektronicznego",
+    "podpis-umowy-z-pliku": "umowa bez „Oznacz jako podpisaną”",
+    "dokumenty-do-startu": "klient bez listy dokumentów do startu",
+    "zmien-plik-cv-oryginalne": "pliki CV bez nazw",
+    "zmiana-nazwy-pliku-cv": "CV firmowe bez nazwy pliku",
+    "prosba-o-zgode-pko": "klient ćwiczebny to nie PKO",
+    "potwierdzenie-ze-slowami-kandydata": "QC bez błędów blokujących",
+    "qc-pod-inna-nazwa": "QC bez podobnego sformułowania",
+    "qc-sprawdz-recznie-wskaz-role": "brak umiejętności krytycznych do sprawdzenia",
+    "karta-przed-cv-do-klienta": "karta do klienta wyłączona",
+    "wiersz-bez-nikogo-z-wyslanych": "brak wierszy, których nie ma nikt z wysłanych",
+}
+
+
+def test_practice_starts_where_the_first_step_is_not_on_the_jobs_list() -> None:
+    """Przeklikanie z archiwum ✦ zaczyna tam, gdzie jest element, a nie na liście.
+
+    Powtórka z archiwum (`startNoveltyPractice`) i pokaz lekcji idą na
+    `practice_href ?? href` wpisu, a pierwszy krok wpisu bez kroków to jego
+    kropka (`withSteps`). 24.11.2026 56 wpisów z 27.10–23.11 zaczynało na
+    liście `/jobs` i pisało „Nie widzę tego miejsca”, bo element stoi na
+    rekrutacji ćwiczebnej: Tablica, panel osoby, Profil Championa. Na liście
+    są tylko kotwice `jobs.list.*`; reszta potrzebuje `practice_href`
+    (`/jobs/990001`, `?candidate=<id>`, `?candidate=<id>&panel=screening`,
+    `?tab=champion&ptab=client`). Lekcje mają ostrzejszego strażnika bez
+    wyjątków (`test_novelty_lessons.py`)."""
+    novelties = load_novelties()
+
+    def first_anchor(novelty: Novelty) -> str:
+        return novelty.steps[0].anchor if novelty.steps else novelty.dot_anchor
+
+    def starts_on_the_list(novelty: Novelty) -> bool:
+        start = novelty.practice_href or novelty.href
+        on_list = start.split("?")[0] == "/jobs"
+        return on_list and not first_anchor(novelty).startswith("jobs.list.")
+
+    wrong = [
+        (novelty.id, first_anchor(novelty))
+        for novelty in novelties.values()
+        if starts_on_the_list(novelty) and novelty.id not in JOBS_LIST_START_EXCEPTIONS
+    ]
+    assert wrong == [], (
+        f"Przeklikanie na liście /jobs, element gdzie indziej (dopisz practice_href): {wrong}"
+    )
+    stale = [
+        nid
+        for nid in JOBS_LIST_START_EXCEPTIONS
+        if nid not in novelties or not starts_on_the_list(novelties[nid])
+    ]
+    assert stale == [], f"Wyjątek już niepotrzebny, usuń go: {stale}"
+
+
 def test_every_start_tour_on_a_section_screen_names_its_section() -> None:
     """Pozycja Startu blokuje pracę — nie może trafić do osoby, która jej ekranu
     nie otworzy. Ekrany z sekcją w middleware muszą ją mieć w rejestrze."""
