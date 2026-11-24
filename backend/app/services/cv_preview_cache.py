@@ -51,7 +51,9 @@ MAX_RAW_TEXT_CHARS = 200_000
 _KEY_LABEL = b"nexus:cv-preview-read:v1"
 
 _SWEEP = text("DELETE FROM cv_preview_reads WHERE expires_at <= now()")
-_NEW_ROW = """
+# Bez nadpisania: żywy wiersz tego pliku zostaje (wygasłe usunął już `_SWEEP`).
+_INSERT = text(
+    """
     INSERT INTO cv_preview_reads (sha256, payload, expires_at, used_at)
     VALUES (
         :sha256,
@@ -59,13 +61,20 @@ _NEW_ROW = """
         now() + CAST(:ttl_seconds AS integer) * INTERVAL '1 second',
         clock_timestamp()
     )
-"""
-# Bez nadpisania: żywy wiersz tego pliku zostaje (wygasłe usunął już `_SWEEP`).
-_INSERT = text(_NEW_ROW + "ON CONFLICT (sha256) DO NOTHING RETURNING sha256")
+    ON CONFLICT (sha256) DO NOTHING
+    RETURNING sha256
+    """
+)
 # Tylko gdy żywego wiersza nie da się odczytać (np. inna etykieta klucza).
 _UPSERT = text(
-    _NEW_ROW
-    + """
+    """
+    INSERT INTO cv_preview_reads (sha256, payload, expires_at, used_at)
+    VALUES (
+        :sha256,
+        :payload,
+        now() + CAST(:ttl_seconds AS integer) * INTERVAL '1 second',
+        clock_timestamp()
+    )
     ON CONFLICT (sha256) DO UPDATE
        SET payload = EXCLUDED.payload,
            expires_at = EXCLUDED.expires_at,
