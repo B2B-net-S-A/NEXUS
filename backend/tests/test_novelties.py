@@ -762,6 +762,20 @@ def test_novelty_of_a_section_without_read_access_is_not_for_the_person(
     assert api._audience_of(without_pipeline, _novelty()) is True
 
 
+def test_finance_tour_opens_the_view_with_its_first_anchor() -> None:
+    """Goły `/finance` ląduje na „Przeglądzie” (`/accounting`), gdzie kotwic
+    zakładek Przychodów i faktur nie ma — przeklikanie startowało od karty
+    „miejsca nie widać” (Tester 24.11.2026). Wycieczka Finansów otwiera
+    widok `?view=`, w którym leży jej pierwszy krok."""
+    for novelty in load_novelties().values():
+        if novelty.tier not in ("tour", "process"):
+            continue
+        start = novelty.practice_href or novelty.href
+        if start.split("?")[0] != "/finance":
+            continue
+        assert "?view=" in start, novelty.id
+
+
 def test_every_start_tour_on_a_section_screen_names_its_section() -> None:
     """Pozycja Startu blokuje pracę — nie może trafić do osoby, która jej ekranu
     nie otworzy. Ekrany z sekcją w middleware muszą ją mieć w rejestrze."""

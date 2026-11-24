@@ -4591,6 +4591,7 @@
     },
     "where": "Finanse → Przychody → Przebieg miesiąca",
     "href": "/finance",
+    "practice_href": "/finance?view=month-close",
     "section": "finance",
     "dot_anchor": "finance.month-close",
     "steps": [
@@ -4621,6 +4622,7 @@
     },
     "where": "Finanse → Przychody → Faktury do klientów → Po terminie",
     "href": "/finance",
+    "practice_href": "/finance?view=sales-invoices",
     "section": "finance",
     "dot_anchor": "finance.sales-invoices.tabs",
     "steps": [
