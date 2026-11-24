@@ -100,9 +100,13 @@ regexes = [
   # i jego szablonu — ``key="preliminary_b2b"`` w rejestrze typów,
   # ``KEY = "preliminary_b2b_pl"`` w builderze. generic-api-key liczy entropię
   # przypisania do ``key``/``KEY`` (3,5 przy progu). Nazwa, nie sekret; skan
-  # commitów PR-a widzi ją w historii gałęzi. Zakotwiczone, dokładnie dwie
-  # wartości.
+  # commitów PR-a widzi ją w historii gałęzi. Zakotwiczone, dokładne wartości.
+  # PR #3842 (24.11.2026): kolejne rewizje szablonów umów przedwstępnych
+  # (``KEY = "preliminary_b2b_v2_pl"``, ``CEZ_KEY = "preliminary_cez_v3_pl"``)
+  # — zmienne przemianowane na ``TEMPLATE_NAME``, ale skan zakresu PR-a widzi
+  # stare commity.
   '''^preliminary_b2b(_pl)?$''',
+  '''^preliminary_(b2b_v2|cez_v3)_pl$''',
   # Dosłowna atrapa z asercji ``redact_sensitive("token=abcdef123456")``.
   # Zakotwiczona, bo ten globalny blok dopasowuje regexy do SAMEGO SEKRETU
   # (``regexTarget`` domyślnie ``"secret"``, nie ``"line"`` jak w blokach
