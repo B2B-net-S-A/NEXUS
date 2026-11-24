@@ -283,7 +283,10 @@ def test_logs_filters_on_server_by_event_kind(fake_ssh):
         "docker logs --since '2026-11-16T08:00:00+01:00' "
         "--until '2026-11-16T17:50:00+01:00' \"$c\" 2>/dev/null" in remote
     )
-    assert 'grep -E \'"event_kind": ?"(runtime_metrics|http_outcome)"\'' in remote
+    assert (
+        'grep -E \'"event_kind": ?"(runtime_metrics|http_outcome|loop_stall)"\''
+        in remote
+    )
     # Kontener po roli procesu, jak w env; bez prefiksu nazwy.
     assert '"NEXUS_PROCESS_ROLE=web" "NEXUS_PROCESS_ROLE=all"' in remote
     assert "backend-ocgkw" not in remote

@@ -72,7 +72,7 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
   READ ONLY zakończona ROLLBACK), `env NAZWA…` (zmienne procesu 1 backendu
   z białej listy, filtr na serwerze, nazwy sekretów odrzucone), `backup-log [N]`,
   `logs --since CZAS [--until CZAS]` i `health`. `logs` wypuszcza z kontenera web
-  tylko linie JSON z `event_kind` `runtime_metrics` albo `http_outcome` (`grep`
+  tylko linie JSON z `event_kind` `runtime_metrics`, `http_outcome` albo `loop_stall` (`grep`
   na serwerze, stderr kontenera do `/dev/null`, druga bramka na laptopie); CZAS
   to `10m`/`2h` (najwyżej 24 h) albo znacznik ze strefą. Pole `timestamp` w liniach
   jest w UTC. Logi sięgają tylko do startu kontenera, więc pomiar dnia roboczego

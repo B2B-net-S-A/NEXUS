@@ -6,6 +6,7 @@
  * komponentów go nie zastępuje. `extractErrorMsg` z `lib/api.ts` stoi na tej
  * samej funkcji `messageFromApiResponse`.
  */
+import { isClientTimeout } from "@/lib/http-timeouts";
 import { isPermission, permissionLabel } from "@/lib/permissions";
 
 // Polskie etykiety pól kontraktu — wspólne dla formularzy i dla tłumaczenia
@@ -215,7 +216,32 @@ export function apiErrorMessage(error: unknown, fallback: string): string {
     status !== 429 &&
     (detail === undefined || detail === null || detail === "")
   ) {
-    return fallback;
+    return withServerHint(fallback, serverHint(error, status));
   }
   return messageFromApiResponse(status, response?.data) ?? fallback;
+}
+
+/**
+ * Co się stało, gdy odpowiedź nie niesie `detail` (24.11.2026: backend stał
+ * 52 s, przeglądarka zrywała żądania po 30 s, a okno pokazywało samo „Nie
+ * udało się zapisać wyboru.”). Przy timeoucie żądanie mogło dojść i zapisać
+ * się później — stąd „sprawdź, czy się zapisało”.
+ */
+function serverHint(error: unknown, status: number | undefined): string | undefined {
+  if (isClientTimeout(error)) {
+    return "Serwer nie odpowiedział na czas — sprawdź za chwilę, czy się zapisało, i spróbuj ponownie.";
+  }
+  if (status === undefined && (error as { code?: unknown } | null)?.code === "ERR_NETWORK") {
+    return "Brak połączenia z serwerem — sprawdź internet i spróbuj ponownie.";
+  }
+  if (status === 502 || status === 503 || status === 504) {
+    return "Serwer chwilowo nie odpowiada — spróbuj ponownie za chwilę.";
+  }
+  return undefined;
+}
+
+function withServerHint(fallback: string, hint: string | undefined): string {
+  if (!hint) return fallback;
+  const sentence = /[.!?…]$/.test(fallback.trim()) ? fallback.trim() : `${fallback.trim()}.`;
+  return `${sentence} ${hint}`;
 }
