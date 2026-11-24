@@ -20,8 +20,10 @@ import {
   type UserEmailTemplateInput,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { isForbiddenError } from "@/lib/view-state";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,11 +74,12 @@ export default function EmailTemplatesCard() {
   const [error, setError] = useState<string | null>(null);
   const { askConfirm, confirmDialog } = useConfirmV2();
 
-  const { data, isLoading } = useQuery({
+  const templatesQuery = useQuery({
     queryKey: ["user-email-templates"],
     queryFn: () => userEmailTemplatesApi.list().then((r) => r.data),
     staleTime: 30_000,
   });
+  const { data, isLoading } = templatesQuery;
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) =>
@@ -85,9 +88,7 @@ export default function EmailTemplatesCard() {
       queryClient.invalidateQueries({ queryKey: ["user-email-templates"] });
     },
     onError: (err: unknown) => {
-      setError(
-        err instanceof Error ? err.message : "Nie udało się usunąć szablonu.",
-      );
+      setError(apiErrorMessage(err, "Nie udało się usunąć szablonu."));
     },
   });
 
@@ -139,7 +140,21 @@ export default function EmailTemplatesCard() {
           <Loader2 className="h-4 w-4 animate-spin" />
           Ładowanie szablonów…
         </div>
-      ) : templates.length === 0 ? (
+      ) : templatesQuery.isError ? (
+        // Awaria zapytania nie może wyglądać jak pusta lista (audyt r3, 24.11.2026).
+        <QueryStateNotice
+          state={isForbiddenError(templatesQuery.error) ? "forbidden" : "error"}
+          description={
+            isForbiddenError(templatesQuery.error)
+              ? undefined
+              : apiErrorMessage(
+                  templatesQuery.error,
+                  "Nie udało się pobrać szablonów.",
+                )
+          }
+          onRetry={() => void templatesQuery.refetch()}
+        />
+      ) : !templatesQuery.isSuccess ? null : templates.length === 0 ? (
         <div className="text-center py-8 text-sm text-muted-foreground">
           Brak szablonów. Stwórz pierwszy żeby pojawił się w oknie nowej wiadomości
           obok pola Temat.

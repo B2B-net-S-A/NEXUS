@@ -116,6 +116,36 @@ async def test_connect_refuses_unknown_extension(app_client, app_auth_headers) -
 
 
 @pytest.mark.asyncio
+async def test_connect_refuses_oauth_client_token(monkeypatch) -> None:
+    """Audyt r3 (24.11.2026): integracja OAuth nie wydaje sobie klucza wtyczki.
+
+    Klucz działa w imieniu konta i przeżywa wyłączenie klienta OAuth — jak
+    ``/auth/change-password`` i ``/auth/session``, trasa odmawia tokenowi
+    klienta, zanim cokolwiek wyda.
+    """
+    from fastapi import HTTPException
+
+    from app.api import linkedin_extension as api
+    from app.schemas.linkedin_extension import ConnectRequest
+
+    async def _never(*args, **kwargs):  # noqa: ARG001
+        raise AssertionError("klucz wydany tokenowi integracji")
+
+    monkeypatch.setattr(api, "issue_connection", _never)
+    request = SimpleNamespace(state=SimpleNamespace(oauth_client_id="klient-testowy"))
+
+    with pytest.raises(HTTPException) as caught:
+        await api.connect_extension(
+            request=request,
+            data=ConnectRequest(extension_id=EXT_ID, extension_version="1.0.0"),
+            current_user=SimpleNamespace(id=1, authorization_version=1),
+            db=None,
+        )
+    assert caught.value.status_code == 403
+    assert caught.value.detail == "Integracja nie może łączyć wtyczki LinkedIn."
+
+
+@pytest.mark.asyncio
 async def test_key_works_only_on_extension_routes(app_client, app_auth_headers) -> None:
     key = await _connect(app_client, app_auth_headers)
     me = await app_client.get("/api/extension/me", headers=key)
