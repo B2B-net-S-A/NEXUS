@@ -3,7 +3,7 @@
 // wariant A). Treść liczy `lib/contract-happening.ts`; o tym, czy osoba może
 // użyć akcji i co ona otwiera, decyduje strona (`renderAction`).
 import type { ReactNode } from "react";
-import { CalendarClock, CalendarX2, CircleDollarSign, HeartPulse } from "lucide-react";
+import { CalendarClock, CalendarRange, CalendarX2, CircleDollarSign, HeartPulse } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { HappeningActionId, HappeningItem, HappeningTone } from "@/lib/contract-happening";
 
@@ -23,6 +23,7 @@ const ICON = {
   order_after_end: CalendarX2,
   care: HeartPulse,
   rate: CircleDollarSign,
+  dates: CalendarRange,
 } as const;
 
 export interface ContractHappeningStripProps {

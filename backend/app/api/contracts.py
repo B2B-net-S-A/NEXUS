@@ -106,6 +106,7 @@ from app.schemas.contract import (
     ContractUpdate,
     ContractVoidRequest,
     OrderAfterEndRead,
+    ContractDateWarningRead,
     RegisterSubcategoriesResponse,
 )
 from app.schemas.contract_amendment import (
@@ -188,6 +189,7 @@ from app.services.contract_termination_document import (
     attach_termination_documents,
     termination_documents,
 )
+from app.services.contract_date_warnings import contract_date_warnings
 from app.services.contract_order_after_end import (
     attach_order_after_end,
     order_after_end_contracts,
@@ -4097,6 +4099,10 @@ async def get_contract(
     detail.order_after_end = [
         OrderAfterEndRead.model_validate(item.as_dict())
         for item in await orders_after_end(db, contract.id)
+    ]
+    detail.date_warnings = [
+        ContractDateWarningRead.model_validate(warning.as_dict())
+        for warning in await contract_date_warnings(db, contract)
     ]
     if (
         contract.contract_type == ContractType.b2b

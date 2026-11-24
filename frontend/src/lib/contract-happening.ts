@@ -64,8 +64,19 @@ export function terminationDocWhere(doc: TerminationDocumentRef): string {
 const RECORD_FROM_DOC =
   "Zapisz rozwiązanie z ostatnim dniem umowy z dokumentu — NEXUS nie odczytuje go z pliku, bo od tej daty liczy się okres wypowiedzenia i zakaz konkurencji.";
 
+/**
+ * Ostrzeżenie dat kontraktu z `GET /api/contracts/{id}` (`date_warnings`,
+ * `services/contract_date_warnings.py`, 23.11.2026). Same daty, bez kwot.
+ */
+export interface HappeningDateWarning {
+  code: "start_before_signature" | "rate_step_before_start";
+  start_date: string;
+  /** Dzień podpisu konsultanta albo data progu stawki. */
+  day: string;
+}
+
 export interface HappeningItem {
-  id: "end" | "order_end" | "care" | "rate" | "order_after_end";
+  id: "end" | "order_end" | "care" | "rate" | "order_after_end" | "dates";
   /** Klucz wiersza: kilka zamówień po końcu to kilka pozycji tego samego rodzaju. */
   key?: string;
   tone: HappeningTone;
@@ -91,6 +102,8 @@ export interface HappeningContract {
   order_after_end?: HappeningOrderAfterEnd[] | null;
   /** Wypowiedzenie/porozumienie w Dokumentach umowy bez zapisanego rozwiązania. */
   termination_document?: TerminationDocumentRef | null;
+  /** „Start przed podpisem” i „próg stawki przed startem” — liczy serwer. */
+  date_warnings?: HappeningDateWarning[] | null;
 }
 
 export interface HappeningCare {
@@ -195,6 +208,36 @@ function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+/**
+ * Pozycje dat: informacja do sprawdzenia, nigdy blokada. Serwer porównuje
+ * dzień podpisu konsultanta ze startem umowy i szuka progu stawki, który przez
+ * datę sprzed startu nigdy nie obowiązuje.
+ */
+function dateWarningItems(c: HappeningContract): HappeningItem[] {
+  return (c.date_warnings ?? []).map((w) => {
+    const days = dayDiff(w.start_date, w.day);
+    if (w.code === "start_before_signature") {
+      return {
+        id: "dates",
+        key: `dates:${w.code}`,
+        tone: "warning",
+        lead: `Start przed podpisem — umowa podpisana ${fmtDatePl(w.day)}, praca od ${fmtDatePl(w.start_date)}`,
+        detail: `Przez ${days} ${days === 1 ? "dzień" : "dni"} konsultant pracował bez podpisanej umowy. Dzień podpisu pochodzi z podpisu konsultanta w pliku umowy.`,
+        actions: [],
+      };
+    }
+    return {
+      id: "dates",
+      key: `dates:${w.code}`,
+      tone: "warning",
+      lead: `Próg stawki od ${fmtDatePl(w.day)} jest sprzed startu umowy (${fmtDatePl(w.start_date)})`,
+      detail:
+        "Ten próg nigdy nie obowiązuje, bo od startu liczy się późniejszy. Sprawdź datę w harmonogramie stawki konsultanta, zwykle to pomyłka w roku.",
+      actions: [],
+    };
+  });
+}
+
 export interface HappeningOptions {
   /**
    * Czy osoba widzi kwoty (`canViewFinance`). Bez tego serwer zeruje stawki
@@ -278,6 +321,7 @@ export function buildContractHappening(
   }
 
   items.push(...afterEnd);
+  items.push(...dateWarningItems(c));
 
   if (care && care.level !== "ok" && care.reasons.length > 0) {
     // Koniec zamówienia stoi już wyżej — nie powtarzamy go w powodach opieki.
