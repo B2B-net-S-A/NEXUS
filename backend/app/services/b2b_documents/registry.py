@@ -717,6 +717,10 @@ def _participation_type(variant: Literal["jdg", "person"]) -> DocumentType:
         parent="none",
         uses_refs=False,
         signatories="partner_and_company",
+        # v2 (24.11.2026): § 7 ust. 1 bez podpisu zaufanego i osobistego
+        # (jak umowa przedwstępna B2B). Wydane wcześniej — wzór bez rewizji.
+        template_revision="v2",
+        legacy_template_revisions=("",),
         preliminary_scope="general",
         default_validity_days=60,
         description=(
@@ -978,9 +982,11 @@ TYPES: dict[str, DocumentType] = {
             uses_refs=False,
             signatories="partner_and_company",
             # v2 (21.10.2026): każda forma podpisu — także podpis zaufany
-            # i osobisty. Wiersze sprzed v2 pobierają się wzorem bez rewizji.
-            template_revision="v2",
-            legacy_template_revisions=("",),
+            # i osobisty. v3 (24.11.2026): dokumentowa albo kwalifikowany
+            # podpis, podpis zaufany i osobisty wyłączone (jak umowa B2B).
+            # Wiersze sprzed v3 pobierają się swoją rewizją.
+            template_revision="v3",
+            legacy_template_revisions=("", "v2"),
             preliminary_scope="cez",
             default_validity_days=60,
             b2b_term_business_days=5,
@@ -1057,6 +1063,11 @@ TYPES: dict[str, DocumentType] = {
             parent="none",
             uses_refs=False,
             signatories="partner_and_company",
+            # v2 (24.11.2026): § 6 ust. 1 z pliku działu — dokumentowa albo
+            # kwalifikowany podpis, bez podpisu zaufanego i osobistego.
+            # Umowy wydane wcześniej pobierają się wzorem bez rewizji.
+            template_revision="v2",
+            legacy_template_revisions=("",),
             preliminary_scope="general",
             default_validity_days=14,
             description=(

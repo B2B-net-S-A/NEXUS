@@ -781,7 +781,7 @@ async def test_preliminary_requires_a_cez_recruitment(
         assert doc.parent_generated_contract_id is None
         assert doc.client_id == client_id
         # Nowy dokument zapisuje bieżącą rewizję wzoru.
-        assert doc.template_key == template_key("preliminary_cez", "pl", "v2")
+        assert doc.template_key == template_key("preliminary_cez", "pl", "v3")
 
 
 @pytest.mark.parametrize("variant", ["jdg", "person"])
@@ -797,7 +797,7 @@ async def test_participation_agreement_for_any_client_but_cez(
     body = _participation_body(cand_id, job_id, variant)
     ok = await app_client.post(f"{BASE}/documents", headers=app_auth_headers, json=body)
     assert ok.status_code == 200, ok.text
-    assert ok.content == f"PK-preliminary_participation_{variant}_pl".encode()
+    assert ok.content == f"PK-preliminary_participation_{variant}_v2_pl".encode()
     async with AsyncSessionLocal() as db:
         doc = await db.get(B2BContractDocument, int(ok.headers["X-Document-Id"]))
         assert doc.client_id == client_id
@@ -970,7 +970,7 @@ async def test_redownload_and_pdf_use_the_stored_template(
     )
     assert created.status_code == 200, created.text
     doc_id = int(created.headers["X-Document-Id"])
-    assert created.content == b"PK-preliminary_cez_v2_pl"
+    assert created.content == b"PK-preliminary_cez_v3_pl"
     async with AsyncSessionLocal() as db:
         doc = await db.get(B2BContractDocument, doc_id)
         doc.template_key = template_key("preliminary_cez", "pl")  # sprzed v2
