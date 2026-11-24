@@ -26,6 +26,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { apiErrorMessage } from "@/lib/api-error";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { DeleteButton, ConfirmButton } from "@/components/ConfirmDialog";
 import { MultiSelectFilter } from "@/components/v2/filters/MultiSelectFilter";
 import { useAuthStore, hasRole } from "@/store/auth";
@@ -293,6 +296,39 @@ function CreatePoolModal({
   );
 }
 
+// ── Awaria zapytania ≠ pusta pula ─────────────────────────────────────────────
+
+/** Komunikat awarii z ponowieniem — zamiast „Brak…”, które sugerowałoby pustkę. */
+function LoadError({
+  title,
+  error,
+  retrying,
+  onRetry,
+}: {
+  title: string;
+  error: unknown;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <Alert variant="error" role="alert" title={title}>
+      <p className="mt-0.5 text-xs opacity-90">
+        {apiErrorMessage(error, "Spróbuj ponownie za chwilę.")}
+      </p>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="mt-2"
+        disabled={retrying}
+        onClick={onRetry}
+      >
+        {retrying ? "Ponawiam…" : "Spróbuj ponownie"}
+      </Button>
+    </Alert>
+  );
+}
+
 // ── Pool Detail View ──────────────────────────────────────────────────────────
 
 function PoolDetailView({
@@ -310,19 +346,29 @@ function PoolDetailView({
 }) {
   const queryClient = useQueryClient();
 
-  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    useInfiniteQuery({
-      queryKey: ["talent-pool-candidates", pool.id],
-      queryFn: ({ pageParam }) =>
-        talentPoolsApi
-          .getCandidates(pool.id, {
-            limit: POOL_MEMBERS_PAGE_SIZE,
-            offset: pageParam,
-          })
-          .then((r) => r.data as PoolCandidatesPage),
-      initialPageParam: 0,
-      getNextPageParam: nextPoolMembersOffset,
-    });
+  const {
+    data,
+    isLoading,
+    isError,
+    isSuccess,
+    error,
+    refetch,
+    isRefetching,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ["talent-pool-candidates", pool.id],
+    queryFn: ({ pageParam }) =>
+      talentPoolsApi
+        .getCandidates(pool.id, {
+          limit: POOL_MEMBERS_PAGE_SIZE,
+          offset: pageParam,
+        })
+        .then((r) => r.data as PoolCandidatesPage),
+    initialPageParam: 0,
+    getNextPageParam: nextPoolMembersOffset,
+  });
 
   const removeMutation = useMutation({
     mutationFn: (candidateId: number) =>
@@ -362,7 +408,8 @@ function PoolDetailView({
         >
           <ChevronLeft className="w-4 h-4" /> Wróć do pul
         </button>
-        {canDelete && (
+        {/* Przy awarii listy członków nie wiadomo, co by się usunęło. */}
+        {canDelete && isSuccess && (
           <ConfirmButton
             onConfirm={() => deletePoolMutation.mutate()}
             message="Usunąć całą pulę? Tej operacji nie można cofnąć."
@@ -407,10 +454,12 @@ function PoolDetailView({
               </p>
             )}
           </div>
-          <div className="bg-card/20 rounded-xl px-4 py-2 text-center">
-            <p className="text-2xl font-bold">{total}</p>
-            <p className="text-white/80 text-xs">kandydatów</p>
-          </div>
+          {isSuccess && (
+            <div className="bg-card/20 rounded-xl px-4 py-2 text-center">
+              <p className="text-2xl font-bold">{total}</p>
+              <p className="text-white/80 text-xs">kandydatów</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -418,7 +467,7 @@ function PoolDetailView({
       <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-xs">
         <div className="px-6 py-4 border-b border-border flex items-center justify-between">
           <h2 className="font-semibold text-foreground dark:text-foreground">
-            Kandydaci w puli ({total})
+            {isSuccess ? `Kandydaci w puli (${total})` : "Kandydaci w puli"}
           </h2>
           {total > candidates.length && (
             <span className="text-xs text-muted-foreground">
@@ -432,7 +481,16 @@ function PoolDetailView({
             <div className="w-4 h-4 border-2 border-primary/30 border-t-transparent rounded-full animate-spin" />
             Ładowanie...
           </div>
-        ) : candidates.length === 0 ? (
+        ) : isError ? (
+          <div className="p-4">
+            <LoadError
+              title="Nie udało się pobrać kandydatów tej puli"
+              error={error}
+              retrying={isRefetching}
+              onRetry={() => void refetch()}
+            />
+          </div>
+        ) : isSuccess && candidates.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
             <p className="text-sm">Brak kandydatów w tej puli</p>
@@ -605,10 +663,14 @@ function TalentsPageContent() {
   const [selectedCcIds, setSelectedCcIds] = useState<number[]>([]);
   const [search, setSearch] = useState("");
 
-  const { data: pools = [], isLoading } = useQuery<TalentPool[]>({
+  const poolsQuery = useQuery<TalentPool[]>({
     queryKey: ["talent-pools"],
     queryFn: () => talentPoolsApi.list().then((r) => r.data),
   });
+  const { isLoading } = poolsQuery;
+  const pools = useMemo(() => poolsQuery.data ?? [], [poolsQuery.data]);
+  // Licznik „0” i „Brak pul” tylko po udanym pobraniu — awaria to komunikat.
+  const poolsLoaded = poolsQuery.isSuccess;
 
   const ccQuery = useQuery({
     queryKey: ["competence-categories"],
@@ -791,9 +853,11 @@ function TalentsPageContent() {
           )}
         >
           <Building2 className="w-4 h-4" /> Firmowe
-          <span className="text-xs text-muted-foreground tabular-nums">
-            {companyPools.length}
-          </span>
+          {poolsLoaded && (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {companyPools.length}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setView("personal")}
@@ -805,9 +869,11 @@ function TalentsPageContent() {
           )}
         >
           <UserRound className="w-4 h-4" /> Osobiste
-          <span className="text-xs text-muted-foreground tabular-nums">
-            {personalPools.length}
-          </span>
+          {poolsLoaded && (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {personalPools.length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -816,6 +882,13 @@ function TalentsPageContent() {
           <div className="w-5 h-5 border-2 border-primary/30 border-t-transparent rounded-full animate-spin" />
           Ładowanie pul talentów...
         </div>
+      ) : poolsQuery.isError ? (
+        <LoadError
+          title="Nie udało się pobrać pul talentów"
+          error={poolsQuery.error}
+          retrying={poolsQuery.isRefetching}
+          onRetry={() => void poolsQuery.refetch()}
+        />
       ) : (
         <>
           {/* Search — shared across both views */}
