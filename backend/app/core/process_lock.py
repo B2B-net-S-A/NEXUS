@@ -4,14 +4,21 @@
 biegną teraz w dwóch. Blokada doradcza Postgresa na osobnym połączeniu znika razem
 z procesem, więc restart kontenera nie zostawia zamurowanej pracy. Przy roli
 ``all`` (jeden proces) wystarcza ``asyncio.Lock`` wołającego.
+
+Zadanie, które trzyma blokadę, może wejść w nią drugi raz (jak sesja Postgresa):
+ręczny start z trasy (``app/core/manual_runs.py``) bierze ją na cały bieg,
+a bieg, który bierze ją sam (poczta zamówień, wnioski z notatek), dostaje ``True``.
+Inne zadanie, także w tym samym procesie, dostaje ``False``.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import zlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import asyncpg
 
@@ -21,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 _CONNECT_TIMEOUT_SECONDS = 5.0
 
+# Zadanie, które w tym procesie trzyma blokadę ``(name, item)``.
+_holders: dict[tuple[str, int], asyncio.Task[Any]] = {}
+
 
 def lock_namespace(name: str) -> int:
     return zlib.crc32(name.encode()) & 0x7FFF_FFFF
@@ -28,8 +38,13 @@ def lock_namespace(name: str) -> int:
 
 @asynccontextmanager
 async def cross_process_lock(name: str, item: int = 0) -> AsyncIterator[bool]:
-    """``True`` = wyłączność na ``(name, item)``; ``False`` = trzyma ją drugi proces."""
+    """``True`` = wyłączność na ``(name, item)``; ``False`` = trzyma ją kto inny."""
     if settings.NEXUS_PROCESS_ROLE == "all":
+        yield True
+        return
+    key = (name, item)
+    task = asyncio.current_task()
+    if task is not None and _holders.get(key) is task:
         yield True
         return
     conn = await asyncpg.connect(
@@ -38,13 +53,20 @@ async def cross_process_lock(name: str, item: int = 0) -> AsyncIterator[bool]:
         server_settings={"application_name": "nexus-process-lock"},
     )
     try:
-        yield bool(
+        owned = bool(
             await conn.fetchval(
                 "SELECT pg_try_advisory_lock($1::int, $2::int)",
                 lock_namespace(name),
                 item,
             )
         )
+        if owned and task is not None:
+            _holders[key] = task
+        try:
+            yield owned
+        finally:
+            if owned and _holders.get(key) is task:
+                del _holders[key]
     finally:
         await conn.close()
 

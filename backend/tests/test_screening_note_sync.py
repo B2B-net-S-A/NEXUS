@@ -801,7 +801,7 @@ async def test_backfill_apply_requires_a_matching_expected(
 
     assert wrong.status_code == 409 and "5" in wrong.json()["detail"]
     assert missing.status_code == 409
-    assert not backfill.is_running()
+    assert not await backfill.is_running()
 
 
 async def test_backfill_apply_requires_a_fresh_dry_run(
@@ -1096,7 +1096,7 @@ async def test_backfill_counts_other_note_pairs_separately(
     )
     assert blocked.status_code == 409 and "OTHER_NOTES" in blocked.json()["detail"]
     assert mode.status_code == 409 and "tym samym trybie" in mode.json()["detail"]
-    assert not backfill.is_running()
+    assert not await backfill.is_running()
 
     async with AsyncSessionLocal() as db:
         applied = await backfill.apply(

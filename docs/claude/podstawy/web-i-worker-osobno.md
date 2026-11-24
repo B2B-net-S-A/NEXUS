@@ -61,7 +61,12 @@ odpalił z `NoData`, choć worker co minutę logował `alarm: 0`. `http_outcome`
   `integration_webhooks.request_wakeup` budzi pętlę najpóźniej po swoim 10-sekundowym timeoucie.
 - **`app/core/process_lock.py`:** blokada doradcza na czas biegu tam, gdzie trasa i pętla mogą
   ruszyć tę samą pracę (sync skrzynki M365, poczta zamówień, dokumenty kontraktów, wnioski z notatek).
-  Nowy `asyncio.Lock` dzielony przez trasę i pętlę potrzebuje też jej.
+  Nowy `asyncio.Lock` dzielony przez trasę i pętlę potrzebuje też jej. Zadanie, które trzyma
+  blokadę, wchodzi w nią drugi raz (`True`); inne zadanie, także w tym samym procesie, dostaje `False`.
+- **`app/core/manual_runs.py`:** ręczny bieg z trasy (backfille i importy admina, poczta zamówień,
+  wnioski z notatek) startuje przez `start_exclusive`: blokada stoi do końca biegu, a drugi start
+  z dowolnego procesu dostaje 409, nie cichy drugi bieg. „Trwa” w statusie czyta `is_running`
+  (`pg_locks`), postęp i wynik ostatniego biegu — zapis w `app_settings`, nie flaga w pamięci procesu.
 - **`reset_interrupted_m365_state`** to pętla `m365_interrupted_reset` w workerze (co 5 min), nie krok
   startu: przy rolling update start nie znaczy, że poprzednik nie żyje. `running` zeruje tylko bez
   żywej blokady `m365_sync`, `pending` dopiero po 15 min (dłużej niż najdłuższa wysyłka).

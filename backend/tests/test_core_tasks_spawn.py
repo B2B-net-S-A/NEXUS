@@ -52,8 +52,6 @@ _ALLOWED_OUTSIDE_API = {
     "app/services/b2b_esign/csc.py": "paczka podpisów pyHanko (E1): zadania "
     "na liście, awaitowane przez `gather` i anulowane w `finally`, bo plik, "
     "który padł przed skrótem, zostawiłby resztę czekającą na paczkę",
-    "app/services/order_mail_ingest.py": "`start_ingest_task` zwraca zadanie "
-    "(trasa czeka na jego start) i trzyma je w `_bg_tasks`",
     "app/services/cv_approval_worker.py": "worker: heartbeat i zadania w "
     "słowniku `active`, awaitowane/anulowane w pętli",
     "app/services/cv_version_map_jobs.py": "worker: heartbeat i zadania w "

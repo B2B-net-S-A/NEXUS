@@ -28,8 +28,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
+from app.core import manual_runs
 from app.core.database import get_db
-from app.core.tasks import spawn
 from app.services import job_board_cards_to_proposals as conversion
 
 router = APIRouter()
@@ -70,7 +70,7 @@ async def convert_integration_cards(
 ) -> Dict[str, Any]:
     """Karty auto-matcha z portali → propozycje ``job_board`` albo usunięcie."""
     scope = _job_ids(job_ids)
-    if conversion.is_running(mode):
+    if await conversion.is_running(mode, db=db):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_ALREADY_RUNNING[mode]
         )
@@ -103,22 +103,19 @@ async def convert_integration_cards(
                 "expected."
             ),
         )
-    # Rezerwacja synchronicznie w handlerze: `spawn` startuje zadanie dopiero
-    # w kolejnej iteracji pętli, więc dwa szybkie POST-y przeszłyby oba.
-    if not conversion.reserve(mode):
+    # Rezerwacja przed oddaniem pętli (dwa szybkie POST-y = jeden zapis), a blokada
+    # trybu trzyma bieg do końca — także przed startem z drugiego procesu web.
+    actor_user_id = current_user.id
+    if not await manual_runs.start_exclusive(
+        conversion.run_name(mode),
+        lambda: conversion.run_apply(
+            actor_user_id=actor_user_id, mode=mode, job_ids=scope
+        ),
+        label=f"job_board_cards_to_proposals({mode})",
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_ALREADY_RUNNING[mode]
         )
-    try:
-        spawn(
-            conversion.run_apply(
-                actor_user_id=current_user.id, mode=mode, job_ids=scope
-            ),
-            f"job_board_cards_to_proposals({mode})",
-        )
-    except Exception:
-        conversion.release(mode)
-        raise
     return {
         "status": "started",
         "dry_run": False,

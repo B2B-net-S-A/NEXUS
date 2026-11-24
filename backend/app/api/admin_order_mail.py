@@ -1,7 +1,8 @@
 """Admin: pobieranie zamówień z maila — ręczny bieg, stan pętli, dziennik.
 
 - ``POST /api/admin/order-mail/sync`` — bieg teraz (w tle); 503 gdy wyłączone,
-  409 gdy bieg trwa. ``since_days`` = głębszy backfill z jawnym zakresem.
+  409 gdy bieg trwa (także w workerze albo w drugim procesie web).
+  ``since_days`` = głębszy backfill z jawnym zakresem.
   Operatorski „Pobierz zamówienia z maila" (bez backfillu) jest w
   ``order_mail_queue.py`` — tu zostaje wariant z ``since_days`` dla admina.
 - ``GET  /api/admin/order-mail/status`` — watermark + statystyki ostatniego biegu.
@@ -47,14 +48,13 @@ async def trigger_order_mail_sync(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Pobieranie zamówień z maila wyłączone (ORDER_MAIL_INGEST_ENABLED=false)",
         )
-    if ingest_is_running():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Bieg już trwa"
-        )
     since = (
         datetime.now(timezone.utc) - timedelta(days=since_days) if since_days else None
     )
-    start_ingest_task(reason="manual", since=since)
+    if not await start_ingest_task(reason="manual", since=since):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Bieg już trwa"
+        )
     return {"status": "started", "since_days": since_days}
 
 
@@ -78,7 +78,7 @@ async def order_mail_status(
     return {
         # Ta sama projekcja co w kolejce (enabled / interval_minutes / running /
         # interrupted / last_completed), plus surowy wiersz stanu do diagnozy.
-        **sync_snapshot(state, running=ingest_is_running()),
+        **sync_snapshot(state, running=await ingest_is_running(db)),
         "upn_configured": bool(settings.ORDER_MAIL_UPN),
         "auth_mode": auth_mode(),
         "app_only_ready": app_only_ready() if auth_mode() == "app" else None,

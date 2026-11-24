@@ -492,7 +492,7 @@ async def sync_status(
     kolejka poniżej jest zawężona do portfela, więc DL może zobaczyć
     „2 do weryfikacji" i pustą listę.
     """
-    snapshot = sync_snapshot(await read_state(db), running=ingest_is_running())
+    snapshot = sync_snapshot(await read_state(db), running=await ingest_is_running(db))
     # To samo uprawnienie co bramka ``POST /sync`` — rozjazd dałby przycisk
     # widoczny komuś, kto po kliknięciu dostaje 403.
     snapshot["can_trigger"] = has_permission(user, ProductAction.contracts_orders_edit)
@@ -514,19 +514,19 @@ async def trigger_sync(_user: ContractsOrdersEditUser) -> Dict[str, Any]:
 
     Bieg idzie w tle (parsowanie PDF-ów modelem trwa minuty — dłużej niż
     limit proxy), a wynik czyta się z ``GET /sync/status``. 409, gdy bieg
-    już trwa: front dołącza do niego zamiast startować drugi.
+    już trwa (także planowy w workerze): front dołącza do niego zamiast
+    startować drugi.
     """
     if not settings.ORDER_MAIL_INGEST_ENABLED:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Pobieranie zamówień z maila jest wyłączone (ORDER_MAIL_INGEST_ENABLED=false)",
         )
-    if ingest_is_running():
+    if not await start_ingest_task(reason="manual"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Sprawdzanie skrzynki już trwa",
         )
-    start_ingest_task(reason="manual")
     return {"status": "started"}
 
 

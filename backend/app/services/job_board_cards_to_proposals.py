@@ -89,6 +89,8 @@ from typing import Any, Optional
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import manual_runs
+
 logger = logging.getLogger(__name__)
 
 STATE_KEY = "job_board_cards_to_proposals_2026_09"
@@ -1044,27 +1046,23 @@ async def finish_run(
 
 
 # ── Przebieg w tle ───────────────────────────────────────────────────────────
-
-_running: dict[str, bool] = {MODE_CONVERT: False, MODE_DELETE: False}
-
-
-def is_running(mode: str = MODE_CONVERT) -> bool:
-    return _running[_mode(mode)]
-
-
-def reserve(mode: str = MODE_CONVERT) -> bool:
-    """Zajmij tryb synchronicznie w handlerze (dwa szybkie POST-y nie
-    uruchomią dwóch zapisów — ``spawn`` startuje zadanie dopiero w kolejnej
-    iteracji pętli). ``False`` = zapis już trwa."""
-    mode = _mode(mode)
-    if _running[mode]:
-        return False
-    _running[mode] = True
-    return True
+# Zapis trybu startuje trasa przez ``manual_runs.start_exclusive(run_name(mode))``:
+# blokada stoi do końca biegu, więc drugi zapis tego trybu z dowolnego procesu
+# web dostaje 409. Podwójnego przeniesienia karty i bez tego nie ma (paczka pod
+# ``LOCK_KEY``, para sprawdzana ponownie pod blokadą kandydata), ale drugi bieg
+# liczył te pary jako ``changed_meanwhile``, a dwa ``finish_run`` naraz gubiły
+# sumy w stanie (odczyt i zapis stanu bez blokady).
 
 
-def release(mode: str = MODE_CONVERT) -> None:
-    _running[_mode(mode)] = False
+def run_name(mode: str = MODE_CONVERT) -> str:
+    return f"job_board_cards:{_mode(mode)}"
+
+
+async def is_running(
+    mode: str = MODE_CONVERT, *, db: Optional[AsyncSession] = None
+) -> bool:
+    """Zapis tego trybu trwa — w tym albo w innym procesie."""
+    return await manual_runs.is_running(run_name(mode), db=db)
 
 
 def dry_run_is_fresh(
@@ -1093,38 +1091,32 @@ async def fresh_dry_run_exists(
 async def run_apply(
     *, actor_user_id: int, mode: str = MODE_CONVERT, job_ids: Optional[Any] = None
 ) -> None:
-    """Zapis w tle (spawn z endpointu) — ~2 tys. par to kilka minut.
+    """Zapis w tle — ~2 tys. par to kilka minut.
 
-    Endpoint rezerwuje tryb (``reserve``) przed ``spawn``; zwalnia go ten bieg.
+    Trasa uruchamia go przez ``manual_runs.start_exclusive(run_name(mode))``.
     """
     from app.core.database import AsyncSessionLocal
     from app.models.user import User
 
     mode = _mode(mode)
-    _running[mode] = True
     started = datetime.now(timezone.utc)
-    try:
-        async with AsyncSessionLocal() as db:
-            actor = await db.get(User, actor_user_id)
-            if actor is None:
-                logger.error("job_board cards: actor %s missing", actor_user_id)
-                return
-            report = await apply(db, actor=actor, mode=mode, job_ids=job_ids)
-            await finish_run(db, report, started=started)
-            logger.info(
-                "job_board cards (%s) done: %s", mode, json.dumps(report["counts"])
-            )
-    finally:
-        _running[mode] = False
+    async with AsyncSessionLocal() as db:
+        actor = await db.get(User, actor_user_id)
+        if actor is None:
+            logger.error("job_board cards: actor %s missing", actor_user_id)
+            return
+        report = await apply(db, actor=actor, mode=mode, job_ids=job_ids)
+        await finish_run(db, report, started=started)
+        logger.info("job_board cards (%s) done: %s", mode, json.dumps(report["counts"]))
 
 
 async def read_status(db: AsyncSession) -> dict[str, Any]:
     return {
-        "running": is_running(MODE_CONVERT),
+        "running": await is_running(MODE_CONVERT, db=db),
         "dry_run": await _read_setting(db, DRY_RUN_KEY),
         "state": await _read_setting(db, STATE_KEY),
         "delete": {
-            "running": is_running(MODE_DELETE),
+            "running": await is_running(MODE_DELETE, db=db),
             "dry_run": await _read_setting(db, DELETE_DRY_RUN_KEY),
             "state": await _read_setting(db, DELETE_STATE_KEY),
         },
@@ -1143,8 +1135,8 @@ __all__ = [
     "normalize_job_ids",
     "same_scope",
     "dry_run_is_fresh",
-    "release",
-    "reserve",
+    "is_running",
+    "run_name",
     "static_disqualifiers",
     "DETAILS_KEY",
     "DRY_RUN_KEY",
