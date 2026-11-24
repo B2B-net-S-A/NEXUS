@@ -98,11 +98,14 @@ describe("nabywca per kontrakt", () => {
       "Testgatan 1",
     );
     await userEvent.type(screen.getByRole("textbox", { name: "Kraj doręczenia nabywcy 1 — Bank Testowy" }), "se");
+    // Kod adresu faktury z CPro Nordei: mail „Invoice address was updated” podaje go zamiast nazwy.
+    await userEvent.type(screen.getByRole("textbox", { name: "Kod w CPro nabywcy 1 — Bank Testowy" }), "f206 ");
     expect(latest).toEqual([
       expect.objectContaining({
         name: "Pankki Testi Oyj",
         delivery_l1: "Testgatan 1",
         delivery_country: "SE",
+        cpro_code: "F206",
       }),
     ]);
     await userEvent.click(screen.getByRole("button", { name: "Usuń nabywcę 1 — Bank Testowy" }));

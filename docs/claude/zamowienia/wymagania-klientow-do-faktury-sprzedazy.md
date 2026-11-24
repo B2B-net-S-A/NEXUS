@@ -49,9 +49,12 @@ Reguły obowiązują wg **miesiąca usługi** faktury, nie daty wysyłki.
   („Important changes made to contract”), np. kontrakt przeszedł 15.09.2026 z Abp S.A. na Abp Finland, a do rozliczeń
   nikt tego nie przekazał. Dlatego przypisanie ma miesiąc początku: wybór nabywcy w szkicu za wrzesień nie zmienia
   sierpnia (szkic, korekta), a poprawka sierpnia nie rusza września. Zmiana w trakcie miesiąca: cały miesiąc idzie do
-  jednego nabywcy (faktura jest miesięczna), rozbicie na dwóch nabywców to ręczna decyzja Finansów. Źródłem zmian ma
-  być CPro (odczyt maili „Important changes…” jeszcze nie istnieje). Przypisanie zapisane przed tą zmianą (sam kod)
-  obowiązuje od początku.
+  jednego nabywcy (faktura jest miesięczna), rozbicie na dwóch nabywców to ręczna decyzja Finansów. Przypisanie
+  zapisane przed tą zmianą (sam kod) obowiązuje od początku.
+- **Zmianę z CPro zapisuje NEXUS sam** (24.11.2026): mail „Important changes made to contract N” z „Invoice address
+  was updated … to: F206 …” dopisuje nabywcę z tym „Kodem w CPro” od miesiąca maila i dzwoni do Finansów z listą
+  faktur do sprawdzenia; faktur nie zmienia. Szczegóły: `integracje/cpro-maile-nordei.md`. Przy nabywcy Nordei
+  Finanse wpisują „Kod w CPro” (F206, F218…), dwa nabywcy klienta nie mogą mieć tego samego kodu.
 - Faktura z zamówienia klienta z listą nabywców bez nabywcy z listy **nie wychodzi** („wybierz nabywcę z listy”).
   Powód: we wrześniu dwie korekty Nordei poszły na złego nabywcę.
 - Rabat Nordei **nie jest** regułą tego etapu ani stałym mnożnikiem stawki: to istniejący rabat od obrotu rocznego

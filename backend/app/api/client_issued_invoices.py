@@ -201,8 +201,11 @@ async def put_settings(
 ) -> dict[str, Any]:
     await _module_open(db, current_user)
     with _http_errors():
+        stored = await issue_settings.load(db, lock=True)
         saved = await issue_settings.save(
-            db, body.model_dump(), actor_id=current_user.id
+            db,
+            issue_settings.keep_stored_mapping(body.model_dump(), stored),
+            actor_id=current_user.id,
         )
     await db.commit()
     return {"settings": saved}

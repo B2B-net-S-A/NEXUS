@@ -86,7 +86,8 @@ def test_other_cpro_subjects_do_nothing():
         "Jan Testowy",
         "Request: PAM Developer (43147)",
         "Contract terminated: 284527 - Change Manager",
-        "Important changes made to contract 285787",
+        "FW: Important changes made to contract 285787",
+        "Important changes made to contract",
         "You have 1 contract extensions to handle",
         'No offers on request for over a month "Tester (42929)"',
         "SKILLS MATCHING",
@@ -112,3 +113,78 @@ def test_name_comparison_ignores_case_and_spacing():
     assert parse_module.normalized_name(
         " JAN  Testowy "
     ) == parse_module.normalized_name("jan testowy")
+
+
+# Zmiana referencji faktury w CPro (24.11.2026). Budowa z maili produkcyjnych:
+# linie „<Pole> was updated from: X, to: Y” rozdzielone <br>, link do kontraktu.
+CHANGE_INTRO = (
+    "Please update your invoice reference details with the information provided below"
+)
+CHANGE_TAIL = (
+    "Anna TestA - PL - IT Developer (283051)** This is an auto-generated "
+    f"notification email, triggered from an event in CPro **--Anna Test {FOOTER}"
+)
+
+
+def test_invoice_address_change_from_graph_text():
+    event = parse(
+        "Important changes made to contract 283051",
+        f"{CHANGE_INTRO}\n\nInvoice address was updated from: F218 Nordea Bank Abp "
+        "S.A., to: F206 Nordea Bank Abp Finland\nCost center was updated from: 1, "
+        f"to: 2\n\n\n{CHANGE_TAIL}",
+    )
+    assert event.kind == parse_module.KIND_INVOICE_ADDRESS
+    assert event.request == "283051"
+    assert event.invoice_code == "F206"
+    assert event.reason == ("F218 Nordea Bank Abp S.A. → F206 Nordea Bank Abp Finland")
+    assert event.person is None
+
+
+def test_invoice_address_change_from_stored_text_without_line_breaks():
+    # ``emails.body_text`` gubi <br>: pola i link stoją jednym ciągiem.
+    event = parse(
+        "Important changes made to contract 283051",
+        f"{CHANGE_INTRO}Invoice address was updated from: F218 Nordea Bank Abp S.A., "
+        "to: F206 Nordea Bank Abp FinlandResponsible line manager was updated "
+        f"from: Jan Testowy, to: Ewa Testowa (ewa@example.com){CHANGE_TAIL}",
+    )
+    assert event.kind == parse_module.KIND_INVOICE_ADDRESS
+    assert event.invoice_code == "F206"
+    assert event.reason.startswith("F218 Nordea Bank Abp S.A. → F206 Nordea Bank Abp")
+    assert "Testow" not in event.reason
+
+
+def test_other_contract_changes_are_logged_without_values():
+    event = parse(
+        "Important changes made to contract 285775",
+        f"{CHANGE_INTRO}NIIDS No / Initiative ID / Appl.code was updated from: "
+        "2018-000046, to: 2026-001933\nResponsible line manager was updated from: "
+        "Jan Testowy, to: Ewa Testowa (ewa@example.com)\nCost center was updated "
+        f"from: 1050000273, to: 2080009273\n{CHANGE_TAIL}",
+    )
+    assert event.kind == parse_module.KIND_CONTRACT_CHANGED
+    assert event.request == "285775"
+    assert event.invoice_code is None
+    # Nazwiska i numery zostają w CPro: dziennik mówi tylko, co się zmieniło.
+    assert event.reason == "NIIDS, line manager, cost center"
+
+
+def test_contract_change_without_known_field_keeps_number():
+    event = parse("Important changes made to contract 285787", "cokolwiek")
+    assert (event.kind, event.request, event.reason, event.invoice_code) == (
+        parse_module.KIND_CONTRACT_CHANGED,
+        "285787",
+        None,
+        None,
+    )
+
+
+def test_invoice_address_without_code_is_a_plain_change():
+    # Bez kodu adresu (F206) NEXUS nie wie, którego nabywcy szukać.
+    event = parse(
+        "Important changes made to contract 283051",
+        f"{CHANGE_INTRO}Invoice address was updated from: Nordea Bank Abp S.A., "
+        "to: Nordea Bank Abp Finland",
+    )
+    assert event.kind == parse_module.KIND_CONTRACT_CHANGED
+    assert event.reason == "adres faktury bez kodu"

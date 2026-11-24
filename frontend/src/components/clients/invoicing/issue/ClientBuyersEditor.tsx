@@ -15,6 +15,7 @@ const EMPTY: ClientBuyer = {
   delivery_l1: "",
   delivery_l2: "",
   delivery_country: "",
+  cpro_code: "",
 };
 const MAX_BUYERS = 10;
 
@@ -29,8 +30,9 @@ interface ClientBuyersEditorProps {
 /**
  * Nabywcy klienta, gdy nabywca zależy od kontraktu osoby (np. kilka spółek
  * klienta, nabywca z UE z adresem doręczenia w innym kraju). Pusta lista =
- * nabywcą jest klient z kartoteki. Kontrakt przypisuje się raz — wyborem
- * nabywcy w szkicu faktury; kolejne szkice biorą go same.
+ * nabywcą jest klient z kartoteki. Kontrakt przypisuje się wyborem nabywcy
+ * w szkicu faktury albo mailem CPro o zmianie adresu (po „kodzie w CPro”);
+ * kolejne szkice biorą go same.
  */
 export function ClientBuyersEditor({
   label,
@@ -87,7 +89,15 @@ export function ClientBuyersEditor({
               value={buyer.address_l1}
               onChange={(e) => update(index, { address_l1: e.target.value })}
             />
-            <span className="hidden md:block md:col-span-2" />
+            <Input
+              className="md:col-span-2"
+              aria-label={`Kod w CPro nabywcy ${index + 1} — ${label}`}
+              title="Kod adresu faktury w CPro (np. F206). Mail CPro o zmianie adresu przypisze po nim nabywcę kontraktu."
+              placeholder="kod w CPro"
+              maxLength={8}
+              value={buyer.cpro_code ?? ""}
+              onChange={(e) => update(index, { cpro_code: e.target.value.replace(/\s/g, "").toUpperCase() })}
+            />
             <Input
               className="md:col-span-2"
               aria-label={`Adres doręczenia nabywcy ${index + 1} — ${label}`}

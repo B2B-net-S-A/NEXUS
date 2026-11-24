@@ -329,6 +329,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.care_contact_due: _C.contracts,
     _T.settlement_report_missing: _C.contracts,
     _T.contract_rate_annex: _C.contracts,
+    _T.cpro_invoice_buyer: _C.contracts,
     _T.care_client_structure: _C.contracts,
     _T.care_demand_signal: _C.contracts,
     # Konto i system
@@ -463,6 +464,12 @@ _SPLIT_GROUPS: dict[
         "Rozliczenia: zmiana stawki konsultanta z aneksu",
         _C.contracts,
         (_T.contract_rate_annex,),
+    ),
+    # 0766: CPro zmienił nabywcę kontraktu Nordei (Finanse, faktury sprzedaży).
+    "contracts_cpro_invoice_buyer": (
+        "Faktury: nowy nabywca kontraktu z CPro",
+        _C.contracts,
+        (_T.cpro_invoice_buyer,),
     ),
     # „Ludzie w NEXUSIE” (0462): przypomnienie opiekuna kontraktu — osobna
     # grupa, żeby rola mogła je wyłączyć bez końca umów i podpisów.

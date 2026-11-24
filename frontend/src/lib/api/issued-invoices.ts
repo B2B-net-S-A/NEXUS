@@ -72,6 +72,8 @@ export interface ClientBuyer {
   delivery_l1: string;
   delivery_l2: string;
   delivery_country: string;
+  /** Kod adresu faktury w CPro Nordei (np. F206) — mail CPro o zmianie adresu wskazuje nim nabywcę. */
+  cpro_code?: string;
 }
 
 /** Wymaganie klienta z reguł `cl.*` pokazane przy szkicu (co NEXUS wpisze do KSeF). */

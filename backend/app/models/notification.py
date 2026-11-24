@@ -484,6 +484,11 @@ class NotificationType(str, enum.Enum):
     # related_entity=(contract_amendment, id), bez kwot.
     # ``services/contract_rate_annex_signal.py``.
     contract_rate_annex = "contract_rate_annex"
+    # 0766: CPro Nordei zmienił adres faktury kontraktu („Invoice address was
+    # updated”) — NEXUS dopisał nabywcę od miesiąca maila albo nie umiał go
+    # znaleźć. Dzwonek Finansów, faktur nie rusza (korekta to ich decyzja).
+    # related_entity=(cpro_mail_event, id). ``services/cpro_invoice_buyer.py``.
+    cpro_invoice_buyer = "cpro_invoice_buyer"
     # 0727 (16.11.2026): nowy wpis w KRS spółki (odpis pełny co noc) — do Rady
     # nadzorczej i adminów; related_entity=(board_krs_snapshot, id). Sekcja
     # Insights (Rada ma tylko ją), kategoria „Systemowe”. ``tasks/board_krs.py``.
