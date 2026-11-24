@@ -104,6 +104,15 @@ class ParsedPko:
     columns_hidden: tuple[str, ...] = field(default=())
     #: Miesiąc z dat dni w nagłówku (nowszy szablon), nie z tekstu.
     month_from_dates: bool = False
+    #: „Akceptujący timesheet (z banku)” z nagłówka.
+    approver: Optional[str] = None
+
+    @property
+    def acceptors(self) -> frozenset[str]:
+        """Kto po stronie klienta akceptuje godziny: koordynator i akceptujący
+        z nagłówka (nadawca zrzutu akceptacji, na którym nie widać adresu)."""
+
+        return frozenset(name for name in (self.coordinator, self.approver) if name)
 
     @property
     def total_hours(self) -> Decimal:
@@ -301,6 +310,7 @@ def parse_rows(
         header_row=header_at + 1,
         columns_hidden=tuple(sorted(hidden)),
         month_from_dates=bool(days),
+        approver=header.get("approver"),
     )
 
 

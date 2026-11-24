@@ -37,6 +37,7 @@ from app.models.client_settlement import (
     ClientSettlementRuleSet,
 )
 from app.models.consultant_portal import CpDocument
+from app.models.contact import Contact
 from app.models.contract import Contract, ContractStatus, EngagementModel
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.md_consumption import ClientOrderMdConsumption
@@ -70,6 +71,7 @@ from app.services.client_settlements import (
     rules_catalog,
     redmine_timelog,
     report_ca,
+    screenshot_ocr,
     signoffs,
     timesheet,
     timesheet_bik,
@@ -986,23 +988,36 @@ async def _acceptance(
     rules: dict[str, dict[str, Any]],
     senders: mail_text.Senders,
     sheet_month: Optional[str] = None,
+    people: frozenset[str] = frozenset(),
 ) -> Optional[rcp_checks.ProofResult]:
     """``proof.accept_has_hours`` (E6.1): mail akceptacji z liczbą godzin albo MD
     za rozliczany miesiąc, potwierdzony przez klienta (``senders``). Brak =
-    zadanie „Popraw akceptację” dla konsultanta."""
+    zadanie „Popraw akceptację” dla konsultanta.
+
+    Bez takiego maila: zrzut ekranu akceptacji w plikach miesiąca (OCR), gdy
+    nadawca na zrzucie to osoba klienta (``senders.people`` i ``people``:
+    koordynator z Time Sheet). Id obrazu trafia do ``meta`` dla paczki."""
 
     if rules["proof.accept_has_hours"]["level"] == "off":
         return result
     result = result or rcp_checks.ProofResult(md_regular=None, md_extra=None)
     mails = await asyncio.to_thread(_read_mails, reports)
+    md = result.md_regular if hours is None else None
     verdict = mail_text.judge(
         mails,
         month=month,
         hours=hours,
-        md=result.md_regular if hours is None else None,
+        md=md,
         senders=senders,
         sheet_month=sheet_month,
     )
+    if not verdict.ok:
+        shot = await _screenshot_acceptance(
+            reports, month=month, hours=hours, md=md, people=senders.people | people
+        )
+        if shot is not None:
+            verdict, image_id = shot
+            result.meta[ACCEPTANCE_IMAGE] = image_id
     group = rcp_checks._Group(result, rules, "Akceptacja")
     if verdict.ok:
         group.ok(verdict.title, verdict.detail)
@@ -1012,6 +1027,44 @@ async def _acceptance(
             group.checks[-1]["todo"] = "Popraw akceptację"
     group.close()
     return result
+
+
+#: Klucz w danych przy kontrolach: obraz zrzutu, z którego przeszła akceptacja.
+ACCEPTANCE_IMAGE = "acceptance_image"
+
+
+async def _screenshot_acceptance(
+    reports: list[CpDocument],
+    *,
+    month: str,
+    hours: Optional[Decimal],
+    md: Optional[Decimal],
+    people: frozenset[str],
+) -> Optional[tuple[mail_text.Verdict, int]]:
+    """Akceptacja ze zrzutu ekranu w plikach miesiąca: najnowsze obrazy, OCR
+    tylko wtedy, gdy jest z czym porównać (liczba z dowodu i osoby klienta)."""
+
+    if not people or (hours is None and md is None):
+        return None
+    images = sorted(
+        (d for d in reports if d.mime in screenshot_ocr.IMAGE_MIMES),
+        key=lambda d: (d.created_at, d.id),
+        reverse=True,
+    )
+    for document in images[: screenshot_ocr.MAX_IMAGES]:
+        try:
+            content = portal_documents.path_for(document.file_path).read_bytes()
+        except OSError:
+            continue
+        text = await asyncio.to_thread(
+            screenshot_ocr.cached_text, document.sha256, content
+        )
+        verdict = mail_text.judge_screenshot(
+            text, month=month, hours=hours, md=md, people=people
+        )
+        if verdict is not None:
+            return verdict, document.id
+    return None
 
 
 async def _other_md(
@@ -1215,8 +1268,10 @@ async def _read_file(
         result: rcp_checks.ProofResult,
         hours: Optional[Decimal],
         sheet_month: Optional[str],
+        people: frozenset[str] = frozenset(),
     ) -> rcp_checks.ProofResult:
-        """``sheet_month``: miesiąc pliku z godzinami (akceptacja bez liczby)."""
+        """``sheet_month``: miesiąc pliku z godzinami (akceptacja bez liczby).
+        ``people``: osoby klienta z pliku (koordynator), nadawcy zrzutu akceptacji."""
 
         return await _acceptance(
             result,
@@ -1226,6 +1281,7 @@ async def _read_file(
             rules=rules,
             senders=senders,
             sheet_month=sheet_month,
+            people=people,
         )
 
     def declared_result(found: declared.Declared) -> rcp_checks.ProofResult:
@@ -1336,6 +1392,7 @@ async def _read_file(
             result,
             pko.total_hours if pko.entries else None,
             timesheet_pko.sheet_month(pko, month, doc.file_name),
+            pko.acceptors,
         )
     # Tygodnie z SAP Fieldglass (EY): eksport „timeSheet.worker.list”.
     fieldglass = await asyncio.to_thread(timesheet_fieldglass.parse, content, mime)
@@ -1493,9 +1550,14 @@ async def acceptance_senders(
     found.update(
         d for d, key in known_clients.KNOWN_SENDER_DOMAINS.items() if key in keys
     )
+    # Nadawca zrzutu ekranu akceptacji widać tylko z nazwiska (decyzja Artura z 24.11).
+    people = await db.scalars(
+        select(Contact.name).where(Contact.client_id == client_id, Contact.name != "")
+    )
     return mail_text.Senders(
         client=frozenset(d for d in found if d and d not in own),
         own=frozenset(own),
+        people=frozenset(name.strip() for name in people if name and name.strip()),
     )
 
 
