@@ -824,6 +824,19 @@ async def _ingest_message(
                 by_file[from_sheet.id] = from_sheet
         # Odczyt PDF-a to praca CPU: poza pętlą zdarzeń, jak odczyt RCP w rozliczeniu.
         kind = await asyncio.to_thread(kind_of_file, subject, name, content)
+        if owner is None and kind == "report" and not guessed:
+            # Adres wskazuje dwa kontrakty osoby po zmianie klienta: raport z okresem
+            # w nazwie albo temacie idzie do jedynego, który działa w tym miesiącu
+            # (próba IX–X 2026, VeloBank 466 i 467). Okres z daty maila nie
+            # rozstrzyga, bo plik bywa spóźnionym raportem poprzedniego kontraktu.
+            # Faktura też nie: numer niesie miesiąc wystawienia, a ostatnia faktura
+            # za poprzedni kontrakt przychodzi po jego końcu.
+            in_month = await identity.resolve_sender_in_month(
+                db, sender, year=year, month=month, today=today
+            )
+            if in_month is not None:
+                owner = in_month.id
+                by_file[in_month.id] = in_month
         if owner is None and report_owner is not None and kind == "report":
             # Drugi kontrakt jest u klienta z raportem T4T: raport godzin z poczty
             # należy do tego kontraktu, faktura czeka na człowieka (próba IX–X 2026).
