@@ -388,9 +388,12 @@ kolumny 0677 przy `sales_meeting_transcripts`.
 Generator ofert, P&L sprzedaży, skan ogłoszeń/LinkedIn/prasy, synchronizacja
 poczty i kalendarza M365 na żywo (historia z Atlasa jest), Fireflies na żywo
 (nowe nagrania będą z transkryptów Teams),
-kanał przetargów, eksport CSV (najpierw limit i dziennik odczytów), „Kogo
+eksport CSV (najpierw limit i dziennik odczytów), „Kogo
 możemy dać od ręki” (Talent Radar na rolach), metryka „nowi klienci na
 spotkaniach” z KPI Atlasa.
+
+Kanał przetargów był tu do 24.11.2026. Od tego dnia jest w zakresie: BZP i TED
+przez bramkę reguł Kingi, decyzje Artura w `przetargi-z-rejestrow.md`.
 
 ## Krok, zapis rozmowy i przeciąganie (decyzje Artura 09.11.2026)
 

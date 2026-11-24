@@ -95,6 +95,12 @@ REGISTERED_FLAGS: tuple[FeatureFlag, ...] = (
         expires=date(2027, 1, 11),
     ),
     FeatureFlag(
+        name="SALES_TENDERS_ENABLED",
+        purpose="Przetargi z BZP i TED: codzienny bieg bramki reguł Kingi zakłada szanse w lejku Przetargi i zamyka je po terminie; włącza Artur po ustawieniu opiekuna nowych szans i pierwszym biegu ręcznym.",
+        decided=date(2026, 11, 24),
+        expires=date(2027, 1, 23),
+    ),
+    FeatureFlag(
         name="SALES_SIGNALS_ENABLED",
         purpose="Sygnały i punkty do rozmowy z Grok Bota w Sprzedaży; włącza Artur po próbie bota.",
         decided=date(2026, 11, 9),

@@ -120,6 +120,7 @@
   "Ewelina Klonowska"
  ],
  "fiction_responses": [
+  "GET /api/candidates/990105/languages",
   "GET /api/care/contracts/990521",
   "GET /api/care/contracts/990521/card",
   "GET /api/care/contracts/990521/feedback",
@@ -197,7 +198,8 @@
   "GET /api/reports/clients/990501/trend?months=6",
   "GET /api/reports/clients?min_closed=0&period=year",
   "GET /api/start-documents/clients/990501",
-  "GET /api/start-documents/pair?candidate_id=990105&job_id=990001"
+  "GET /api/start-documents/pair?candidate_id=990105&job_id=990001",
+  "POST /api/pipeline/stages/990305/screening/reassign-suggestions"
  ],
  "ready_cv_candidate_id": 990106
 }

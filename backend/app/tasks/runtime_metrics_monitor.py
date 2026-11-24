@@ -44,6 +44,8 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core.config import settings
+from app.core.tasks import spawn
+from app.tasks.loop_stall_guard import loop_stall_guard
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +284,22 @@ async def runtime_metrics_monitor_loop(engine: AsyncEngine | None = None) -> Non
     cpu_window = CpuWindow()
     gc.callbacks.append(gc_window.callback)
     loop = asyncio.get_running_loop()
+    # Stos przy zastoju pętli (24.11.2026) żyje i ginie razem z pomiarem.
+    stall_guard = spawn(loop_stall_guard(), "loop_stall_guard")
+    try:
+        await _metrics_forever(engine, usage, window, gc_window, cpu_window, loop)
+    finally:
+        stall_guard.cancel()
+
+
+async def _metrics_forever(
+    engine: AsyncEngine,
+    usage: PoolUsage,
+    window: LagWindow,
+    gc_window: GcWindow,
+    cpu_window: CpuWindow,
+    loop: asyncio.AbstractEventLoop,
+) -> None:
     while True:
         try:
             await _measure_lag(window, loop.time() + INTERVAL_SECONDS)

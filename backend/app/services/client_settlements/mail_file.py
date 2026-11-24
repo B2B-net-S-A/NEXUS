@@ -219,6 +219,20 @@ def _read_eml(content: bytes) -> MailFile:
         headers=f"Date: {message.get('date')}" if message.get("date") else "",
     )
     for part in attachment_parts(message):
+        if part.get_content_type() == "message/rfc822":
+            # Mail dołączony jako element: jego bajty pod nazwą „.eml”, żeby
+            # ``acceptance_mail`` przeczytał nadawców ze środka.
+            inner = part.get_payload(0) if part.is_multipart() else None
+            try:
+                raw = inner.as_bytes() if inner is not None else None
+            except (ValueError, TypeError, LookupError):
+                raw = None
+            if raw:
+                name = part.get_filename() or "zalacznik"
+                if not name.lower().endswith(".eml"):
+                    name += ".eml"
+                mail.attachments.append(Attachment(name, raw))
+            continue
         payload = part.get_payload(decode=True)
         if isinstance(payload, bytes):
             mail.attachments.append(Attachment(part.get_filename() or "", payload))
