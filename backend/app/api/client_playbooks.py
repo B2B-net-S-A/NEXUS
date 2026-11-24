@@ -26,13 +26,18 @@ Model dostępu (decyzja 03.09.2026, świadome odstępstwo od reguł CV):
 * Off-limits (``client_contract_terms.off_limits_*``) NIE jedzie w karcie —
   funkcja usunięta 27.09.2026 decyzją Artura (runda 9, R9-N4-8); kolumny
   w bazie zostają.
+* „Specyfika na prep” (``prep_spec``, 0769, 24.11.2026) jest wyjątkiem od
+  pełnej podmiany: brak klucza w PUT zostawia zapisaną specyfikę, bo front
+  sprzed 0769 (otwarta karta przeglądarki) wysłałby kartę bez niej i ją
+  wyczyścił; jawne ``null`` usuwa.
 """
 
+import logging
 from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,12 +53,15 @@ from app.models.client_playbook import ClientPlaybook
 from app.models.client_playbook_event import ClientPlaybookEvent
 from app.models.user import User
 from app.services.action_permissions import ProductAction
+from app.services.client_prep_spec import PrepSpec, normalize_prep_spec
 from app.services.client_access import (
     assert_client_writable,
     deny,
     resolve_client_access,
 )
 from app.services.client_playbook_seed import seed_entry
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["client-playbooks"])
 
@@ -77,6 +85,7 @@ PLAYBOOK_FIELDS: tuple[str, ...] = (
     "onboarding_md",
     "documents",
     "verified_required_fields",
+    "prep_spec",
 )
 
 _CLIENT_DISPLAY_NAME = func.coalesce(
@@ -123,6 +132,8 @@ class ClientPlaybookPayload(BaseModel):
     # 0495 (D3, 21.10.2026): pola karty rekomendacji, które klient dokłada do
     # minimum przed „Zweryfikowany”. Tylko z `CLIENT_EXTRA_FIELDS`.
     verified_required_fields: list[str] = Field(default_factory=list, max_length=10)
+    # 0769 (F2): brak klucza = zostaw zapisaną specyfikę, ``null`` = usuń.
+    prep_spec: Optional[PrepSpec] = None
 
     @field_validator("verified_required_fields")
     @classmethod
@@ -180,6 +191,8 @@ class ClientPlaybookRead(BaseModel):
     onboarding_md: Optional[str] = None
     documents: list[dict[str, str]] = Field(default_factory=list)
     verified_required_fields: list[str] = Field(default_factory=list)
+    # 0769 (F2): osiem kluczy z `client_prep_spec.PREP_SPEC_KEYS`; NULL = brak.
+    prep_spec: Optional[dict[str, list[str]]] = None
     seed_key: Optional[str] = None
     updated_at: Optional[str] = None
     updated_by_name: Optional[str] = None
@@ -312,6 +325,19 @@ def _apply_payload(row: ClientPlaybook, payload: ClientPlaybookPayload) -> None:
         {"name": doc.name, "url": doc.url} for doc in payload.documents
     ] or None
     row.verified_required_fields = list(payload.verified_required_fields) or None
+    if "prep_spec" in payload.model_fields_set:
+        row.prep_spec = normalize_prep_spec(payload.prep_spec)
+
+
+def _read_prep_spec(row: ClientPlaybook) -> Optional[dict[str, list[str]]]:
+    """Zapisana specyfika z kompletem kluczy; nieczytelna nie zatrzymuje karty."""
+    try:
+        return normalize_prep_spec(row.prep_spec)
+    except ValidationError:
+        logger.warning(
+            "client_playbook: prep_spec unreadable for client %s", row.client_id
+        )
+        return None
 
 
 def _payload_from_seed(entry: dict[str, Any]) -> ClientPlaybookPayload:
@@ -362,6 +388,7 @@ def _to_read(
         onboarding_md=row.onboarding_md,
         documents=list(row.documents or []),
         verified_required_fields=list(row.verified_required_fields or []),
+        prep_spec=_read_prep_spec(row),
         seed_key=row.seed_key,
         updated_at=_iso(row.updated_at),
         updated_by_name=updated_by_name,

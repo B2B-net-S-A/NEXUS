@@ -3,7 +3,9 @@
 // Typy są lustrem `GET/PUT /api/prep-review-config`
 // (`backend/app/api/prep_review_config.py`, walidacja w
 // `services/prep_review_config.py`). Odczyt: rekruter, Delivery Lead, HoR,
-// admin; publikacja: HoR i admin (`can_edit`).
+// admin; publikacja: HoR i admin (`can_edit`). Od 24.11.2026 ustawienia
+// niosą też fundamenty przygotowania kandydata (`preparation`, startowe
+// w `services/prep_fundamentals.py`).
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -73,6 +75,28 @@ export interface FollowupRules {
   max_items: number;
 }
 
+export interface Fundamental {
+  label: string;
+  /** Co rekruter mówi albo o co pyta. */
+  says: string;
+  /** Kiedy punkt jest zaliczony. */
+  passed_when: string;
+  /** Nie zgadza się = rekruter kończy rozmowę i daje znać DL-owi. */
+  stop: boolean;
+}
+
+export interface FundamentalGroup {
+  title: string;
+  hint: string;
+  items: Fundamental[];
+}
+
+export interface Preparation {
+  groups: FundamentalGroup[];
+  /** „Po przygotowaniu kandydat umie…”. */
+  readiness: string[];
+}
+
 export interface PrepReviewConfig {
   prep1: PrepRules<Prep1Criterion>;
   prep2: PrepRules<Prep2Criterion>;
@@ -88,6 +112,7 @@ export interface PrepReviewConfig {
   weak_must_caps_ok: boolean;
   followup: FollowupRules;
   ai_hints: string;
+  preparation: Preparation;
 }
 
 export interface PrepReviewConfigHistoryEntry {
@@ -109,6 +134,9 @@ export interface PrepReviewConfigState {
 }
 
 export const MAX_TOPICS = 12;
+/** Lustro `MAX_FUNDAMENTALS` (w jednej grupie) i `MAX_READINESS` z serwera. */
+export const MAX_FUNDAMENTALS = 12;
+export const MAX_READINESS = 8;
 
 const QUERY_KEY = ["prep-review-config"] as const;
 
@@ -160,6 +188,26 @@ export function configProblems(config: PrepReviewConfig): string[] {
   }
   if (config.weak_threshold >= config.good_threshold) {
     problems.push("Próg „słaby” musi być niższy niż próg „dobry”.");
+  }
+  problems.push(...preparationProblems(config.preparation));
+  return problems;
+}
+
+function preparationProblems(preparation: Preparation): string[] {
+  const problems: string[] = [];
+  const items = preparation.groups.flatMap((g) => g.items);
+  if (
+    preparation.groups.some((g) => g.title.trim().length < 2) ||
+    items.some((i) => i.label.trim().length < 2)
+  ) {
+    problems.push("Przygotowanie: każda grupa i każdy punkt musi mieć nazwę.");
+  }
+  const labels = items.map((i) => i.label.trim().toLocaleLowerCase("pl"));
+  if (new Set(labels).size !== labels.length) {
+    problems.push("Przygotowanie: ten sam punkt jest dwa razy.");
+  }
+  if (preparation.readiness.some((r) => r.trim().length < 3)) {
+    problems.push("Przygotowanie: każdy punkt „kandydat umie” ma co najmniej 3 znaki.");
   }
   return problems;
 }

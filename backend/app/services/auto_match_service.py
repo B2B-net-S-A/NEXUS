@@ -742,6 +742,12 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
     candidate = await db.get(Candidate, event.candidate_id)
     if candidate is None:
         return {"skipped": "candidate_missing"}
+    # Mieszka poza Polską (decyzja Artura 24.11.2026): system takich osób nie
+    # proponuje — ani do skrzynki, ani do puli, ani do pipeline'u.
+    from app.services.residence import lives_outside_poland
+
+    if lives_outside_poland(candidate):
+        return {"skipped": "lives_abroad"}
     # Zdarzenie rozmowy powstaje przed odczytem notatek: wersja dopiero teraz.
     revision = (
         candidate_revision(candidate)
@@ -949,6 +955,10 @@ async def run_job_event(db: AsyncSession, event: CandidateMatchOutbox) -> dict:
         job_id=job.id,
     )
     kept = apply_dealbreakers(eligible, inputs=job_inputs).kept
+    # Mieszka poza Polską (24.11.2026): system takich osób nie proponuje.
+    from app.services.residence import lives_outside_poland
+
+    kept = [c for c in kept if not lives_outside_poland(c)]
     revisions = {c.id: candidate_revision(c) for c in candidates}
     job_changed_at = job.updated_at or job.created_at
     already = await _logged_pairs(

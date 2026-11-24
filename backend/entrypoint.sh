@@ -6450,6 +6450,9 @@ _COLUMN_STATEMENTS = [
     # `test_playbook_verified_required_mirror.py`.
     "ALTER TABLE client_playbooks "
     "ADD COLUMN IF NOT EXISTS verified_required_fields JSONB NULL",
+    # 0769: „Specyfika na prep” w karcie klienta (decyzje Artura 24.11.2026).
+    # Lustro 1:1 z migracją — pilnuje `test_client_prep_spec.py`.
+    "ALTER TABLE client_playbooks ADD COLUMN IF NOT EXISTS prep_spec JSONB NULL",
     # 0489: „O mnie” rekrutera na stałym linku (najwyżej 280 znaków).
     # Lustro 1:1 z migracją — pilnuje `test_career_migration_mirror.py`.
     "ALTER TABLE candidate_invite_links "
@@ -9688,6 +9691,25 @@ SELECT 'job', id, 'archived',
     "WHERE EXISTS (SELECT 1 FROM marker) "
     "ORDER BY t.id, k.pos "
     "ON CONFLICT (template_id, name, category) DO NOTHING",
+    # 0768 — jednorazowo: powód „Mieszka poza Polską” (decyzja Artura
+    # 24.11.2026) w każdym szablonie, tuż przed „Inne (rejected)”. Lustro
+    # migracji (pilnuje `test_close_reasons.py`).
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('outside_poland_reason_seeded', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "INSERT INTO rejection_reasons "
+    '(template_id, name, category, "order", active, disqualifies_person, '
+    "external_source, created_at, updated_at) "
+    "SELECT t.id, 'outside_poland', 'rejected'::terminaltype, "
+    "COALESCE((SELECT GREATEST(r.\"order\" - 1, 0) FROM rejection_reasons r "
+    "WHERE r.template_id = t.id AND r.category::text = 'rejected' "
+    "AND r.name = 'Inne (rejected)' LIMIT 1), 99), "
+    "TRUE, FALSE, 'manual', NOW(), NOW() "
+    "FROM pipeline_templates t "
+    "WHERE EXISTS (SELECT 1 FROM marker) "
+    "ORDER BY t.id "
+    "ON CONFLICT (template_id, name, category) DO NOTHING",
     # 0452: „Pracuje u nas” tylko z umowy (decyzja Artura 17.10.2026) —
     # ręczne wpisy `current_employment` zdjęte raz, z powodem (wiersze zostają
     # w historii). Lustro migracji.
@@ -12090,6 +12112,40 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# „Specyfika na prep” w 12 kartach klientów z odpowiedzi DL-i (F2, decyzje
+# Artura 24.11.2026): tylko karty bez specyfiki; Tauron bez limitu 165 h i z
+# biurem w Warszawie — tylko, gdy zdania stoją jak w kopii z 24.11. Nowa
+# wersja i wpis w historii karty. Marker w `app_settings` + advisory lock; porażka nie
+# zapisuje niczego — następny start ponawia. Log: tylko id klientów i kody.
+startup_phase "repair-client-prep-spec-seed-2026-11"
+echo "Client cards: prep spec from Delivery Leads (one-shot)..."
+run_unless_marked "client_prep_spec_seed_2026_11_24" <<'PY' || echo "client prep spec seed skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.client_prep_spec_seed import (
+    run_client_prep_spec_seed,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_client_prep_spec_seed(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"client prep spec seed failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"client prep spec seed: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 
 
 
@@ -12154,6 +12210,13 @@ fi
 startup_phase ""
 echo "[startup-timing] total before uvicorn: $(( $(date +%s) - STARTUP_T0 ))s"
 echo "Starting uvicorn..."
+# Kilka procesów uvicorna tylko w roli web. Rola `all` (wycofanie bez rewertu)
+# zakłada jeden proces: blokady i bus są w niej wyłączone, a pętle ma tylko lider.
+# → docs/claude/podstawy/kilka-procesow-web.md
+if [ "${NEXUS_PROCESS_ROLE:-all}" != "web" ] && [ "${WEB_CONCURRENCY:-1}" != "1" ]; then
+  echo "WEB_CONCURRENCY=${WEB_CONCURRENCY} pominięte: rola ${NEXUS_PROCESS_ROLE:-all} ma jeden proces"
+  export WEB_CONCURRENCY=1
+fi
 # Bezpiecznik tylko dla WWW, po całym starcie: DDL wyżej i skrypty przez `docker exec`
 # biegną bez limitu. Pomiar i wyłączenie: docs/claude/podstawy/statement-timeout.md
 export DB_STATEMENT_TIMEOUT_MS=120000

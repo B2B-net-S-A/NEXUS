@@ -268,6 +268,7 @@ def test_repo_guards_job_runs_the_static_marker_on_every_pr() -> None:
     assert "DATABASE_URL" not in job["env"]
     pytest_run = _step(job["steps"], "Pytest (marker static, bez bazy)")["run"]
     assert "-m static" in pytest_run and "-n 4" in pytest_run
+    assert "--dist loadgroup" in pytest_run, "Drzewa AST na jednym workerze (pamięć)."
     vitest = _step(job["steps"], "Vitest (strażnicy repo)")["run"]
     assert "src/__tests__/" in vitest and "--changed" not in vitest
     names = [s.get("name") for s in job["steps"]]
@@ -383,6 +384,9 @@ def test_queue_runs_the_repo_guards_in_the_fast_required_job() -> None:
     step = _step(job["steps"], "Strażnicy repo (bez bazy, kolejka merge'ów)")
     assert step["if"] == "${{ github.event_name == 'merge_group' }}"
     assert "-m static" in step["run"] and "-n 4" in step["run"]
+    assert "--dist loadgroup" in step["run"], (
+        "Bez grupy szczyt pamięci przekraczał 16 GB runnera (24.11.2026)."
+    )
     assert "DATABASE_URL" not in (step.get("env") or {})
     assert names.index(step["name"]) < names.index(
         "Alembic legacy-row, retry, and contact-queue rollback probe"

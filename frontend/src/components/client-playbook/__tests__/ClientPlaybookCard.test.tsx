@@ -290,6 +290,44 @@ describe("ClientPlaybookCard", () => {
     expect(screen.queryByTestId("client-playbook-edit")).not.toBeInTheDocument();
   });
 
+  it("specyfika na prep: osiem pól, puste mówią „zapytaj DL-a”, bez specyfiki nie ma bloku", async () => {
+    const spec = {
+      work_mode: ["Hybryda: 3 dni w biurze"],
+      language: ["Angielski"],
+      interview: [],
+      focus: ["Samodzielność", "Konkretne przykłady"],
+      questions: [],
+      rejections: [],
+      highlights: ["Projekty długoterminowe"],
+      cooperation: [],
+    };
+    routeGet({
+      [PLAYBOOK_URL]: () => makeClientPlaybook({ prep_spec: spec }),
+      [CV_RULE_URL]: () => makeCvRule(),
+    });
+    const { unmount } = renderCard();
+    const block = await screen.findByTestId("client-playbook-prep-spec");
+    expect(block).toHaveTextContent("4 z 8 pól");
+    expect(block).toHaveTextContent("Hybryda: 3 dni w biurze");
+    expect(screen.getAllByText("Brak — zapytaj DL-a przed prepem")).toHaveLength(3);
+    // Pusta forma współpracy to fundament 1 (B2B), a nie brak do uzupełnienia.
+    expect(block).toHaveTextContent("B2B jak w fundamentach — bez wyjątków");
+    unmount();
+
+    renderCard({ variant: "compact" });
+    const compact = await screen.findByTestId("client-playbook-prep-spec-compact");
+    expect(compact).toHaveTextContent("Na co zwracają uwagę: Samodzielność · Konkretne przykłady");
+    expect(compact).toHaveTextContent(
+      "Brak: przebieg rozmowy, typ pytań, za co klient odrzuca — zapytaj DL-a przed prepem",
+    );
+  });
+
+  it("karta bez specyfiki nie pokazuje jej bloku", async () => {
+    renderCard();
+    expect(await screen.findByText(HEADER)).toBeInTheDocument();
+    expect(screen.queryByTestId("client-playbook-prep-spec")).not.toBeInTheDocument();
+  });
+
   it("link „Edytuj kartę” w wariancie full tylko z capability", async () => {
     const editHref = "/clients/1?tab=zasady";
 

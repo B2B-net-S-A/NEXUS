@@ -53,3 +53,15 @@ def test_context_without_asgi_scope_uses_configured_rate(
 ) -> None:
     monkeypatch.setattr(main, "_TRACES_SAMPLE_RATE", 0.1)
     assert _traces_sampler({"parent_sampled": None}) == 0.1
+
+
+def test_browser_trace_headers_pass_cors() -> None:
+    # Przeglądarka dokleja `sentry-trace` i `baggage` do każdego żądania API od
+    # pierwszego, bez czekania na sondę (frontend/src/lib/telemetry-capability.ts,
+    # 24.11.2026). Bez nich w `allow_headers` preflight odrzuca żądanie i każdy
+    # ekran kończy się „Network Error”.
+    cors = next(
+        m for m in main.app.user_middleware if m.cls.__name__ == "CORSMiddleware"
+    )
+    allowed = {header.lower() for header in cors.kwargs["allow_headers"]}
+    assert {"sentry-trace", "baggage"} <= allowed

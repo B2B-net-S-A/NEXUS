@@ -864,6 +864,7 @@ async def open_counts_for_jobs(
         .having(
             _pair_status() == "proposed",
             meets_threshold(threshold),
+            not_proposed_abroad(JobProposal.candidate_id, _posting_seen_at()),
             *(
                 (func.bool_or(JobProposal.source == source),)
                 if source is not None
@@ -910,6 +911,7 @@ async def fresh_open_pairs(
             _pair_status() == "proposed",
             first_seen >= since,
             meets_threshold(threshold),
+            not_proposed_abroad(JobProposal.candidate_id, _posting_seen_at()),
         )
         .order_by(
             JobProposal.job_id,
@@ -996,8 +998,17 @@ def _pairs_for_job(job_id: int, status: str, *columns):
         grouped = grouped.where(
             ~_in_pipeline(JobProposal.job_id, JobProposal.candidate_id),
             ~_globally_blacklisted(JobProposal.candidate_id),
-        )
+        ).having(not_proposed_abroad(JobProposal.candidate_id, _posting_seen_at()))
     return grouped
+
+
+def not_proposed_abroad(candidate_id, posting_seen_at):
+    """HAVING listy propozycji: bez osób mieszkających poza Polską (decyzja
+    Artura 24.11.2026) — chyba że same zgłosiły się z ogłoszenia, bo tych
+    nie proponuje system."""
+    from app.services.residence import abroad_ids
+
+    return or_(candidate_id.not_in(abroad_ids()), posting_seen_at.is_not(None))
 
 
 async def open_split_counts(

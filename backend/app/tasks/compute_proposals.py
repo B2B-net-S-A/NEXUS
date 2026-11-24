@@ -239,6 +239,11 @@ async def compute_proposal_for_job(
                     inputs=search_dealbreaker_inputs(job),
                 )
                 snap.hidden = hidden
+                # Mieszka poza Polską (decyzja Artura 24.11.2026): system takich
+                # osób nie proponuje; w wyszukiwarce rekruter dalej je znajdzie.
+                from app.services.residence import lives_outside_poland
+
+                candidates = [c for c in candidates if not lives_outside_poland(c)]
 
                 if candidates:
                     candidate_versions = {c.id: str(c.updated_at) for c in candidates}

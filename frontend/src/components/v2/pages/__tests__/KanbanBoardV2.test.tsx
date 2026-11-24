@@ -239,6 +239,9 @@ import { KANBAN_VIEW_MODE_STORAGE_KEY } from "@/lib/kanban-view-preferences";
 import { PIPELINE_VERSION_CONFLICT_CODE } from "@/lib/pipeline-version-conflict";
 import { ADDED_BY_ALL, type AddedByFilter } from "@/lib/board-added-by";
 import { withinAnchor } from "@/lib/novelties/logic";
+import { judgeClick } from "@/lib/novelties/lessons";
+import { resolveDates, type PoligonDataset } from "@/lib/poligon/store";
+import poligonDataset from "@/lib/poligon/dataset.json";
 
 beforeAll(() => {
   // Radix Select uses pointer-capture APIs that jsdom does not implement.
@@ -608,6 +611,48 @@ describe("KanbanBoardV2 — karta w dwóch liniach przy niskim oknie (23.11.2026
     expect(short.className).toContain("hidden");
     expect(short.className).toContain("low-screen:inline");
     expect(within(days).getByText("4 dni rob.").className).toContain("low-screen:hidden");
+  });
+
+  /** Klasy Tailwinda elementu i przodków: `hidden` chowa, `low-screen:hidden` chowa w niskim oknie, `low-screen:flex` itp. pokazuje. */
+  const shownAt = (el: HTMLElement, height: "low" | "high") => {
+    for (let node: HTMLElement | null = el; node; node = node.parentElement) {
+      const classes = [...node.classList];
+      if (height === "low" && classes.includes("low-screen:hidden")) return false;
+      const revealed = height === "low" && classes.some((c) => /^low-screen:(inline-flex|flex|inline|block)$/.test(c));
+      if (classes.includes("hidden") && !revealed) return false;
+    }
+    return true;
+  };
+
+  // Lekcja porannej porcji „Karta zatrzymana do podpisu przedwstępnej” (24.11.2026):
+  // przy 1280 × 720 pełna plakietka „Stop ·” stoi w ukrytym wierszu plakietek,
+  // więc pokaz pisał „Nie widzę tego miejsca”, a klik w widoczne „S… +2” nie
+  // zaliczał kroku „teraz sam”. Karta Szymona z rekrutacji ćwiczebnej (Poligon).
+  it("kotwica lekcji „Stop ·” stoi na plakietce, którą widać w niskim i w wysokim oknie (24.11.2026)", async () => {
+    useAuthStore.setState({
+      user: { id: 264, role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    const practice = resolveDates(
+      (poligonDataset as unknown as PoligonDataset).responses["GET /api/pipeline/kanban/990001"],
+      Date.now(),
+    ) as { columns: unknown };
+    renderBoard(practice.columns as never);
+
+    const card = (await screen.findByRole("link", { name: "Szymon Grabowiec" })).closest("[data-kanban-card]") as HTMLElement;
+    const anchors = [...card.querySelectorAll<HTMLElement>('[data-tour="board.card.pre-contract-stop"]')];
+    const low = anchors.filter((el) => shownAt(el, "low"));
+    const high = anchors.filter((el) => shownAt(el, "high"));
+    expect(low).toHaveLength(1);
+    expect(high).toHaveLength(1);
+    expect(low[0]).toHaveAttribute("data-testid", "card-low-state");
+    expect(low[0]).toHaveTextContent("Stop · Przedwstępna wysłana");
+    // Klik w napis widocznej plakietki zalicza krok „teraz sam”.
+    const check = { kind: "click", anchor: "board.card.pre-contract-stop" } as const;
+    expect(judgeClick(check, within(low[0]).getByText(/^Stop ·/))).toBe(true);
+    expect(judgeClick(check, within(high[0]).getByText(/^Stop ·/))).toBe(true);
+    // Karta bez stopu (Weronika, podpisana) nie ma kotwicy w żadnym oknie.
+    const signed = screen.getByRole("link", { name: "Weronika Cisowska" }).closest("[data-kanban-card]") as HTMLElement;
+    expect(signed.querySelector('[data-tour="board.card.pre-contract-stop"]')).toBeNull();
   });
 });
 

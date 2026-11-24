@@ -481,10 +481,16 @@ async def _eligible_marketplace_candidates(
         .scalars()
         .all()
     )
+    # Mieszka poza Polską (decyzja Artura 24.11.2026): system takich osób nie
+    # proponuje.
+    from app.services.residence import lives_outside_poland
+
     fresh = [
         c
         for c in candidates
-        if c.id not in staged and not employment_only_refuses_b2b(c)
+        if c.id not in staged
+        and not employment_only_refuses_b2b(c)
+        and not lives_outside_poland(c)
     ]
     if not fresh:
         return []

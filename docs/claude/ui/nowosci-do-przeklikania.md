@@ -86,6 +86,23 @@ Artur: „trzeba zmusić, żeby każdą zmianę zrozumieli i potrafili korzysta�
   Powód: od 28.10 do 18.11 weszło 185 wpisów (ok. 9 na dzień roboczy), osoba
   miała średnio 46 nieprzeklikanych, a 700 z 939 zaliczeń to przypadkowe
   pierwsze kliknięcie kropki w pracy, nie nauka.
+- **Wpis sprzed `DAILY_FLOOR` bez postępu to stan końcowy, nie błąd
+  (24.11.2026).** Od 18.11 front nie wysyła `seen` ani `dot_clicked`, a porcja
+  i lekcje biorą tylko wpisy od 12.11. Starszy wpis mógł więc dostać wiersz
+  w `novelty_progress` tylko w czasie kropek (od wdrożenia wpisu do 18.11),
+  gdy jego `dot_anchor` stanął na ekranie osoby z odbiorców. Kopia produkcji
+  z 24.11: z 118 wpisów `dot` sprzed 12.11 dziesięć nie ma żadnego wiersza,
+  a przy reszcie ostatni zapis jest z 18.11. Wszystkie 47 wpisów `dot`
+  z 12–17.11 mają postęp z porcji. Zero tych dziesięciu ma trzy przyczyny:
+  element nie miał się z czym pokazać (żadnego ogłoszenia, wysyłki do
+  e-podpisu ani dokumentu do startu, a QC w stanie „sprawdź ręcznie” trafił
+  się osobie dopiero 20.11); odbiorcami były 2 osoby, które tam nie zajrzały
+  (automat przydziału, słownik, mapa decyzyjna w szansie, jakość podpowiedzi);
+  albo element stał niżej niż pierwszy ekran (licznik P1 na Daily pod
+  „Zmianami od wczoraj”). Dlatego odstających pozycji szukaj tylko wśród
+  wpisów od `DAILY_FLOOR`. Zero przy starszym wpisie nie jest sprawą, a nauka
+  takiej funkcji to nowa lekcja wyłącznie na decyzję Artura, bo starszych
+  nikt nie nadrabia.
 - **Przeklikanie idzie na Poligonie.** Pozycja porcji włącza tryb ćwiczebny
   na tej karcie (`enterPoligon(…, "novelty")`): prawdziwe ekrany, rekrutacja
   ćwiczebna, zapisy wyłączone, więc kroki mogą klikać naprawdę. Na serwer
@@ -102,6 +119,13 @@ Artur: „trzeba zmusić, żeby każdą zmianę zrozumieli i potrafili korzysta�
   (`/clients/990501`), kontrakty (`/contracts`, 990521 i 990522) i Finanse
   (`/finance?view=rate-divergences`) — wpis z tych ekranów prowadzi tam
   (`poligon-nexusa-onboarding.md`, sekcja „Klient ćwiczebny”).
+  Pokaz lekcji też startuje z `practice_href ?? href`: wpis z lekcji, który
+  zaczyna na liście `/jobs`, może mieć pierwszy krok tylko na kotwicy listy
+  (`jobs.list.*`), reszta potrzebuje `practice_href` (test
+  `test_lesson_show_starts_where_its_first_step_is_not_on_the_jobs_list`;
+  24.11.2026 pokaz „Arkusz rozmowy” zaczynał na liście). Panel osoby od razu
+  rozwinięty na screeningu otwiera `?candidate=<id>&panel=screening`. Starsze
+  wpisy z archiwum ✦ bez `practice_href` jeszcze zaczynają na liście.
 - **Wyłączniki na `/settings/nowosci`** (admin i HoR) są trzy i niezależne:
   porcja (`novelty_daily_gate`), Start (`start_gate`) i Poligon nowych osób
   (`poligon_gate`). Start jest wyłączony od 30.10, dlatego porcja ma własny.
@@ -131,6 +155,13 @@ Artur: „trzeba zmusić, żeby każdą zmianę zrozumieli i potrafili korzysta�
   wolno wykonać naprawdę (zapis zakończenia kontraktu), ma `ack: true`
   i przechodzi przyciskiem „Rozumiem”. Kotwica bez elementu we froncie
   oznacza czerwony test frontu.
+- **Karta nad otwartym oknem Radix.** Radix zamyka okno po kliknięciu poza
+  nim, a karta kroku leży poza oknem. „Rozumiem” w oknie zamyka je bez zapisu,
+  chyba że następny krok stoi w tym samym oknie: wtedy okno zostaje
+  (`nextStepInSameDialog` w `lib/novelties/logic.ts`; 24.11.2026 „Rozumiem”
+  przy polu treści zamykało „Co zmienił klient?” i krok „Przygotuj zmiany”
+  nie miał czego wskazać). Karta lekcji („teraz sam”, pytanie) i okno
+  ćwiczenia Poligonu nie zamykają okna nigdy (`keepDialogsOpen`).
 - **Podświetlenie to prawdziwy, widoczny element (zgłoszenie Artura, 02.11.2026).**
   Pozycję mierzymy na żywo, nigdy ze zrzutu ani ze stałych pikseli. Sam rozmiar
   elementu nie wystarcza, bo ludzie mają różne okna: przy 1280 × 650 krok bywał
@@ -138,6 +169,13 @@ Artur: „trzeba zmusić, żeby każdą zmianę zrozumieli i potrafili korzysta�
   krok raz przewija do elementu, wycięcie obejmuje tylko widoczną część, z wielu
   elementów bierze widoczny, a element pod panelem nie dostaje podświetlenia,
   tylko komunikat. Pomiar na stagingu robi nocny Tester.
+- **Kotwica na plakietce karty Tablicy stoi też na `card-low-state` (24.11.2026).**
+  Przy oknie niższym niż 800 px wiersz plakietek ma `low-screen:hidden`, a widać
+  tylko skrócony stan karty dwuliniowej. Lekcja „Karta zatrzymana do podpisu
+  przedwstępnej” na laptopie 1280 × 720 nie widziała kotwicy i kończyła się tylko
+  wyjściem po 45 s (PR #3856). Ta sama `data-tour` idzie na oba warianty, w linii
+  z `data-tour` (strażnik `novelty-anchors.test.ts`), a lekcję przeklikujesz
+  przy 1280 × 720 i przy wysokości ≥ 800 px.
 - **Odbiorcy:** `audience.roles` albo `audience.permissions` (wystarczy jedno,
   pusto = wszyscy). Przycisk widoczny dla uprawnienia opisujesz uprawnieniem.
   W archiwum ✦ nowość żyje 45 dni (`active_days`), w panelu do 90 dni,

@@ -110,10 +110,18 @@ def issue_token(panel: ClientPanel) -> str:
 
 
 def current_token(panel: ClientPanel) -> Optional[str]:
-    """Token panelu albo ``None``, gdy linku nie wydano."""
-    if not panel.token_nonce:
+    """Token panelu albo ``None``, gdy linku nie wydano albo nie da się go odtworzyć.
+
+    Po zmianie ``SECRET_KEY`` token liczony od nowa nie pasuje do skrótu w bazie
+    i nie otworzyłby panelu. Wtedy ``None``: NEXUS nie pokazuje ani nie wysyła
+    martwego linku. Link, który klient już ma, działa dalej (wejście po skrócie).
+    """
+    if not panel.token_nonce or not panel.token_sha256:
         return None
-    return compute_token(panel.id, panel.token_nonce)
+    token = compute_token(panel.id, panel.token_nonce)
+    if not hmac.compare_digest(token_digest(token), panel.token_sha256):
+        return None
+    return token
 
 
 def default_expiry(today: Optional[date] = None) -> datetime:

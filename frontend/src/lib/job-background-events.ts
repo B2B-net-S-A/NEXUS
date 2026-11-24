@@ -33,7 +33,7 @@ export interface JobBackgroundEvent {
   eligible?: number | null;
   count?: number | null;
   /** `autofill_withdrawn`: dlaczego system wycofał osoby. */
-  why?: "budget" | "client" | "not_looking" | "far" | "batch_reset" | "fresh_seat" | (string & {}) | null;
+  why?: "budget" | "client" | "not_looking" | "far" | "abroad" | "batch_reset" | "fresh_seat" | (string & {}) | null;
   /** `autofill`: cel kolumny w chwili dopełnienia (20 albo cel wg tempa). */
   target?: number | null;
   trigger?: string | null;
@@ -147,6 +147,8 @@ export function backgroundEventMessage(event: JobBackgroundEvent): string {
             ? "„Nie szuka pracy” z innej rekrutacji"
             : event.why === "far"
               ? "mieszkają dalej niż 100 km od biura"
+              : event.why === "abroad"
+                ? "mieszkają poza Polską"
               : event.why === "batch_reset"
                 ? "porządki przed porcją dnia"
                 : "stawka ponad budżetem";

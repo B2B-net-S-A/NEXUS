@@ -52,6 +52,19 @@ def test_rotation_makes_a_new_token_and_keeps_only_the_digest() -> None:
     assert service.current_token(panel) == new
 
 
+def test_after_secret_key_change_the_link_is_not_rebuilt(monkeypatch) -> None:
+    """Po zmianie SECRET_KEY link liczony od nowa nie otworzyłby panelu.
+
+    NEXUS nie może go wtedy pokazać ani wpisać do CV czy przypomnienia dla
+    klienta. Link, który klient już ma, działa dalej, bo wejście sprawdza skrót.
+    """
+    panel = SimpleNamespace(id=5, token_nonce=None, token_sha256=None)
+    issued = service.issue_token(panel)
+    monkeypatch.setattr(settings, "SECRET_KEY", settings.SECRET_KEY + "-po-zmianie")
+    assert service.current_token(panel) is None
+    assert panel.token_sha256 == service.token_digest(issued)
+
+
 @pytest.mark.parametrize("token", ["", "abc", "A" * 16, "1" * 16, "a" * 17, "a/b"])
 async def test_malformed_token_is_404_without_touching_the_database(token) -> None:
     with pytest.raises(HTTPException) as refused:

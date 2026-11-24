@@ -15,6 +15,7 @@ export type AutofillReason =
   | "overqualified"
   | "other_level_or_role"
   | "location_mode"
+  | "outside_poland"
   | "language"
   | "too_expensive"
   | "outdated_cv"
@@ -168,6 +169,7 @@ export const AUTOFILL_TEMPLATE_REASON: Record<AutofillReason, string | null> = {
   overqualified: "overqualified",
   other_level_or_role: "other_level_or_role",
   location_mode: "work_mode_mismatch",
+  outside_poland: "outside_poland",
   language: null,
   too_expensive: "Za wysokie oczekiwania finansowe",
   outdated_cv: "outdated_cv",

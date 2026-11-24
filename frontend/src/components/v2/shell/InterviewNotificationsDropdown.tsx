@@ -543,6 +543,9 @@ function InterviewNotificationsWindow() {
           if (joinUrl) window.open(joinUrl, "_blank", "noopener,noreferrer");
           else setOpen(true);
         },
+        // Z gniazda, w dowolnej chwili: przy otwartym oknie czeka na jego zamknięcie.
+        deferWhileModal: true,
+        isStillRelevant: () => !liveRef.current.open,
       });
     };
     window.addEventListener(INTERVIEW_NOTIFY_EVENT, handler);

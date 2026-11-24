@@ -68,7 +68,7 @@ async function responseError(res: Response): Promise<AuthenticatedFileError> {
  * POST-em (podgląd szkicu CV) na poligonie się nie liczy — odmowa bez
  * zapytania, jak każdy inny zapis rekrutacji ćwiczebnej.
  */
-const POLIGON_FILE_MESSAGE = "Na poligonie podgląd tego pliku nie działa. W prawdziwej rekrutacji zobaczysz tu plik.";
+export const POLIGON_FILE_MESSAGE = "Na poligonie podgląd tego pliku nie działa. W prawdziwej rekrutacji zobaczysz tu plik.";
 
 function poligonRefusal(): AuthenticatedFileError {
   // `detail` — ekrany biorą komunikat z odpowiedzi (`apiErrorMessage`), więc

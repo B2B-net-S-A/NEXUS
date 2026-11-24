@@ -426,7 +426,18 @@ def system_exclusions(job_id: int, *, fresh_seat_returns: bool = True) -> list:
     refused_polish = select(AutofillFeedback.candidate_id).where(
         AutofillFeedback.reason == NO_POLISH_REASON, ~polish_not_needed
     )
-    return [removed, hired_now, refused_client, refused_polish, not_looking_now()]
+    # Mieszka poza Polską (decyzja Artura 24.11.2026): system nie proponuje
+    # takich osób do żadnej rekrutacji; ręcznie można je dodać.
+    from app.services.residence import abroad_ids
+
+    return [
+        removed,
+        hired_now,
+        refused_client,
+        refused_polish,
+        not_looking_now(),
+        abroad_ids(),
+    ]
 
 
 async def ranked_picks(
@@ -1023,6 +1034,81 @@ async def _swaps_today(db, job_id: int, now: datetime) -> int:
     )
 
 
+async def _picks(
+    db,
+    job: Job,
+    *,
+    now: datetime,
+    missing: int,
+    fresh_room: int,
+    swap_room: int,
+    have: int,
+    min_score: Optional[float],
+) -> tuple[list[Pick], list[Pick]]:
+    """Kogo dołożyć (bez zapisu): nowi w bazie najpierw, potem pula po regułach
+    rekrutacji (``chosen``), i zapas świeżych na poranną zamianę (``spare``)."""
+    from app.services.known_queue_points import without_process
+
+    chosen: list[Pick] = []
+    spare: list[Pick] = []
+    if fresh_room + swap_room > 0:
+        fresh = await new_in_base_picks(db, job, now=now)
+        if min_score is not None:
+            # Porcja: próg panelu HoR może być niższy niż 65% porcji.
+            fresh = [pick for pick in fresh if pick.score >= min_score]
+        fresh = fresh[: (fresh_room + swap_room) * _PICK_HEADROOM + 10]
+        allowed = await _allowed(db, job, fresh, now)
+        chosen = allowed[:fresh_room]
+        spare = allowed[fresh_room : fresh_room + swap_room]
+    missing -= len(chosen)
+    if missing > 0:
+        taken = {pick.candidate_id for pick in chosen}
+        picks = await _by_rules(
+            db,
+            job,
+            await ranked_picks(db, job.id, limit=_RULES_WINDOW, min_score=min_score),
+        )
+        picks = [pick for pick in picks if pick.candidate_id not in taken]
+        picks = with_fresh_slots(
+            picks,
+            await without_process(
+                db, job_id=job.id, candidate_ids=[p.candidate_id for p in picks]
+            ),
+            start=have + len(chosen),
+        )
+        picks = picks[: missing * _PICK_HEADROOM + 10]
+        chosen += (await _allowed(db, job, picks, now))[:missing]
+    return chosen, spare
+
+
+async def batch_capacity(db, job_id: int, *, now: datetime, need: int) -> int:
+    """Ile osób porcja naprawdę dołoży teraz do rekrutacji, gdy brakuje ``need``
+    (to samo sito co ``fill_job``, bez zapisu). Pula od progu to tylko szacunek:
+    24.11.2026 na kopii produkcji z „91 wolnych” w P0 reguły przepuściły 12."""
+    from app.services import review_batch
+
+    job = await db.get(Job, job_id)
+    if (
+        need <= 0
+        or job is None
+        or job.status != JobStatus.published
+        or job.work_state not in IN_WORK_STATES
+    ):
+        return 0
+    min_score = (await review_batch.read_settings(db)).min_score
+    chosen, _ = await _picks(
+        db,
+        job,
+        now=now,
+        missing=need,
+        fresh_room=need,
+        swap_room=0,
+        have=0,
+        min_score=min_score,
+    )
+    return len(chosen)
+
+
 async def fill_job(
     db,
     job_id: int,
@@ -1056,7 +1142,6 @@ async def fill_job(
     bez porcji: tam stara karta nie zajmuje miejsca, więc zamiana przekraczałaby cel."""
     from app.api.proposals_bulk import add_candidates_to_job
     from app.services import review_batch
-    from app.services.known_queue_points import without_process
 
     job = await db.get(Job, job_id)
     if (
@@ -1102,35 +1187,16 @@ async def fill_job(
         if limit is not None:
             swap_room = min(swap_room, limit - fresh_room)
         swap_room = max(swap_room, 0)
-    chosen: list[Pick] = []
-    spare: list[Pick] = []
-    if fresh_room + swap_room > 0:
-        fresh = await new_in_base_picks(db, job, now=now)
-        if min_score is not None:
-            # Porcja: próg panelu HoR może być niższy niż 65% porcji.
-            fresh = [pick for pick in fresh if pick.score >= min_score]
-        fresh = fresh[: (fresh_room + swap_room) * _PICK_HEADROOM + 10]
-        allowed = await _allowed(db, job, fresh, now)
-        chosen = allowed[:fresh_room]
-        spare = allowed[fresh_room : fresh_room + swap_room]
-    missing -= len(chosen)
-    if missing > 0:
-        taken = {pick.candidate_id for pick in chosen}
-        picks = await _by_rules(
-            db,
-            job,
-            await ranked_picks(db, job_id, limit=_RULES_WINDOW, min_score=min_score),
-        )
-        picks = [pick for pick in picks if pick.candidate_id not in taken]
-        picks = with_fresh_slots(
-            picks,
-            await without_process(
-                db, job_id=job_id, candidate_ids=[p.candidate_id for p in picks]
-            ),
-            start=have + len(chosen),
-        )
-        picks = picks[: missing * _PICK_HEADROOM + 10]
-        chosen += (await _allowed(db, job, picks, now))[:missing]
+    chosen, spare = await _picks(
+        db,
+        job,
+        now=now,
+        missing=missing,
+        fresh_room=fresh_room,
+        swap_room=swap_room,
+        have=have,
+        min_score=min_score,
+    )
     if spare:
         # Cel jest pełny, a nowi w bazie czekają: zdejmuje się tyle kart, ile
         # osób wejdzie. Awaria zapisu jednej osoby zostawia wolne miejsce do jutra.

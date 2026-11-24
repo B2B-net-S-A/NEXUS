@@ -14,6 +14,7 @@ import { pluralPl } from "@/lib/plural-pl";
 import {
   addMoreFromNexus,
   invalidateReviewBatch,
+  setReviewBatchFocus,
   useReviewBatchQueue,
   useReviewBatchStatus,
   type ReviewBatchItem,
@@ -32,6 +33,8 @@ import { cn } from "@/lib/utils";
 import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
 
 import { ReviewBatchCard } from "./ReviewBatchCard";
+import { FocusLine, ReviewBatchFocusPicker } from "./ReviewBatchFocusPicker";
+import { ReturnToNewButton } from "./ReviewBatchReturn";
 import { RoleProfileBlock } from "./ReviewBatchRoleProfile";
 
 // pdf.js i docx-preview nie mogą wejść do chunku ekranu; ten sam podgląd co w screeningu.
@@ -272,7 +275,7 @@ function NoAnswerButton({ candidateId, jobId }: { candidateId: number; jobId: nu
 function progressHint(data: ReviewBatchStatus, open: number): string {
   const overdue = data.overdue_screenings ?? 0;
   if (overdue > 0 && data.remaining === 0) {
-    return `Wyszukiwanie wróci po domknięciu ${screeningsCount(overdue)} po terminie. Wpisz wynik, odrzuć z powodem albo, gdy dzwonisz i kandydat nie odbiera, kliknij „Nie odebrał”.`;
+    return `Wyszukiwanie wróci po domknięciu ${screeningsCount(overdue)} po terminie. Wpisz wynik, odrzuć z powodem albo, gdy dzwonisz i kandydat nie odbiera, kliknij „Nie odebrał”. Rekrutację, która nie jest już Twoim priorytetem, oddaj do „Nowych” — bez odrzucania.`;
   }
   if (!data.met) {
     return `Zdecyduj o ${data.required} osobach: „Pasuje” albo „Nie pasuje” z powodem. Potem wyszukiwanie ręczne wraca. Osobę spoza bazy dodasz zawsze.`;
@@ -283,7 +286,20 @@ function progressHint(data: ReviewBatchStatus, open: number): string {
 }
 
 /** Skąd licznik ma taką wartość i co odblokuje wyszukiwanie. */
-function BatchProgress({ data }: { data: ReviewBatchStatus }) {
+function BatchProgress({
+  data,
+  onChoose,
+  onReset,
+  resetting,
+}: {
+  data: ReviewBatchStatus;
+  onChoose: () => void;
+  onReset: () => void;
+  resetting: boolean;
+}) {
+  const focusTitle = data.focus
+    ? (data.team_jobs.find((job) => job.job_id === data.focus?.job_id)?.title ?? null)
+    : null;
   const open = data.open_screenings ?? 0;
   const done = Math.min(data.done_today, data.required);
   const cells = Array.from({ length: data.required }, (_, index) => index < done);
@@ -327,10 +343,13 @@ function BatchProgress({ data }: { data: ReviewBatchStatus }) {
             </>
           )}
           <span className="text-muted-foreground">
-            · tylko z Twoich rekrutacji, najpierw pilne (P0 i P1)
-            {data.sources.other_seats
-              ? `, ale ${data.sources.other_seats} ${pluralPl(data.sources.other_seats, "miejsce czeka", "miejsca czekają", "miejsc czeka")} na rekrutacje bez pilnego priorytetu`
-              : ""}
+            {focusTitle
+              ? "· tylko z Twoich rekrutacji"
+              : `· tylko z Twoich rekrutacji, najpierw pilne (P0 i P1)${
+                  data.sources.other_seats
+                    ? `, ale ${data.sources.other_seats} ${pluralPl(data.sources.other_seats, "miejsce czeka", "miejsca czekają", "miejsc czeka")} na rekrutacje bez pilnego priorytetu`
+                    : ""
+                }`}
             {data.sources.level_next > data.required
               ? ` · jutro ${data.sources.level_next}, jeśli dziś zdecydujesz o wszystkich (rośnie o 10 do ${data.sources.level_cap})`
               : ""}
@@ -345,6 +364,14 @@ function BatchProgress({ data }: { data: ReviewBatchStatus }) {
       >
         {data.met ? "Wyszukiwanie działa" : "Wyszukiwanie zablokowane"}
       </span>
+      {data.sources ? (
+        <FocusLine
+          focusTitle={focusTitle}
+          onChoose={onChoose}
+          onReset={onReset}
+          resetting={resetting}
+        />
+      ) : null}
     </div>
   );
 }
@@ -372,13 +399,17 @@ const SOURCE_LABEL: Record<ReviewBatchSource, string> = {
   accepting: "Przyjmujemy kandydatów",
 };
 
+const TIER_KEYS: ReviewBatchSource[] = ["p0", "p1", "p2", "accepting"];
+const TIER_RANK: Record<string, number> = { p0: 0, p1: 1, p2: 2, accepting: 3 };
+
 /** Jedno zdanie: dlaczego ta osoba jest w Twojej porcji (decyzje Artura 10.11.2026). */
 function WhyLine({ why }: { why: ReviewBatchWhy }) {
   return (
     <p className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-snug" data-testid="review-why" data-tour="review-batch.why">
       <span className="font-medium text-muted-foreground">Masz tę osobę, bo:</span>
-      <span className="text-muted-foreground">
-        Twoja rekrutacja{why.via ? ` (${VIA_LABEL[why.via]})` : ""}
+      <span className={cn(why.chosen ? "font-medium text-primary" : "text-muted-foreground")}>
+        {why.chosen ? "Twój wybór na dziś" : "Twoja rekrutacja"}
+        {why.via ? ` (${VIA_LABEL[why.via]})` : ""}
       </span>
       <span className="text-muted-foreground">·</span>
       {why.source === "p0" ? (
@@ -466,6 +497,7 @@ function JobRow({
   waitsFor: string | null;
 }) {
   const via = job.via ? VIA_LABEL[job.via] : null;
+  const chosen = data.focus?.job_id === job.job_id;
   return (
     <li className="px-3 py-2 text-sm">
       <div className="flex items-center gap-2">
@@ -485,6 +517,7 @@ function JobRow({
           <span className="font-semibold text-destructive">P0 do {p0Until(job.p0_until)}</span>
         ) : null}
         {via ? <span>{via}</span> : null}
+        {chosen ? <span className="font-medium text-primary">wybrana na dziś</span> : null}
       </div>
     </li>
   );
@@ -537,6 +570,23 @@ function BatchWorkspace({
     (data.overdue_screenings ?? 0) > 0 ? "close" : "decide",
   );
   const [picked, setPicked] = useState(0);
+  // „Wybierz rekrutację na dziś”: lista wyboru zamiast zakładek po lewej.
+  const [choosing, setChoosing] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const queryClient = useQueryClient();
+  const { showError, showSuccess } = useToast();
+  const resetFocus = async () => {
+    setResetting(true);
+    try {
+      await setReviewBatchFocus(null);
+      invalidateReviewBatch(queryClient);
+      showSuccess("Kolejka wraca do zwykłej kolejności, najpierw pilne. Osoby, które masz, zostają.");
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się wrócić do zwykłej kolejności."));
+    } finally {
+      setResetting(false);
+    }
+  };
   // Klik w „Kluczowe” na karcie: CV po prawej szuka tej frazy (jak „Wymagania”).
   const [searchRequest, setSearchRequest] = useState<{ text: string; nonce: number } | null>(null);
   const next = queue.data?.items?.[0] ?? null;
@@ -550,7 +600,15 @@ function BatchWorkspace({
   // Karty z rekrutacji, z których osobę zdjęto, idą na koniec, bez terminu.
   const allOpen = data.open_today_screenings ?? [];
   const parkedCount = allOpen.filter((item) => item.parked).length;
-  const open = [...allOpen.filter((item) => !item.parked), ...allOpen.filter((item) => item.parked)];
+  // Grupy po rekrutacji, od najwyższego priorytetu; niższe niż Twój najwyższy
+  // dostają „Oddaj N do Nowych” (makieta 24.11.2026).
+  const groupOf = new Map(data.team_jobs.map((job) => [job.job_id, job.group]));
+  const rankOf = (jobId: number) => TIER_RANK[groupOf.get(jobId) ?? "none"] ?? 4;
+  const topRank = Math.min(4, ...data.team_jobs.map((job) => rankOf(job.job_id)));
+  const working = allOpen
+    .filter((item) => !item.parked)
+    .sort((a, b) => rankOf(a.job_id) - rankOf(b.job_id) || a.job_id - b.job_id);
+  const open = [...working, ...allOpen.filter((item) => item.parked)];
   const selected = open[Math.min(picked, Math.max(open.length - 1, 0))] ?? null;
   const preview =
     tab === "decide" && next
@@ -566,10 +624,18 @@ function BatchWorkspace({
 
   return (
     <div className="flex min-h-0 flex-col gap-2 p-3 lg:h-[calc(100dvh-4rem)]">
-      <BatchProgress data={data} />
+      <BatchProgress
+        data={data}
+        onChoose={() => setChoosing(true)}
+        onReset={resetFocus}
+        resetting={resetting}
+      />
       <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
         <div className="flex w-full shrink-0 flex-col gap-2 overflow-y-auto pr-1 lg:w-[390px]">
-          <div className="flex gap-1 rounded-lg bg-muted/50 p-1" role="tablist">
+          {choosing ? (
+            <ReviewBatchFocusPicker onClose={() => setChoosing(false)} onChosen={() => setTab("decide")} />
+          ) : null}
+          <div className={cn("flex gap-1 rounded-lg bg-muted/50 p-1", choosing && "hidden")} role="tablist">
             {tabs.map((item) => (
               <button
                 key={item.value}
@@ -587,7 +653,7 @@ function BatchWorkspace({
             ))}
           </div>
 
-          {tab === "decide" ? (
+          {!choosing && tab === "decide" ? (
             next ? (
               <>
                 <QueueRunLine runs={queue.data?.runs ?? []} jobId={next.job_id} titles={jobTitles} />
@@ -623,13 +689,50 @@ function BatchWorkspace({
             )
           ) : null}
 
-          {tab === "close" ? (
+          {!choosing && tab === "close" ? (
             <ul className="divide-y divide-border rounded-lg border border-border bg-card" data-testid="review-batch-open-today">
               {open.map((item, index) => {
                 const active = selected === item;
                 const firstParked = item.parked && !open[index - 1]?.parked;
+                const firstOfJob = !item.parked && open[index - 1]?.job_id !== item.job_id;
+                const jobPeople = firstOfJob ? working.filter((other) => other.job_id === item.job_id) : [];
+                const lower = rankOf(item.job_id) > topRank;
+                const group = groupOf.get(item.job_id);
                 return (
                   <li key={`${item.job_id}-${item.candidate_id}`} className={cn(active && "bg-primary/5")}>
+                    {firstOfJob ? (
+                      <div className="border-b border-border bg-muted/50 px-3 py-2 text-xs" data-testid="review-batch-close-group">
+                        <div className="flex items-center gap-1.5">
+                          {group ? (
+                            <span className={cn("shrink-0 rounded px-1.5 py-0.5 font-semibold", group === "p0" ? "bg-destructive/15 text-destructive" : "bg-muted text-muted-foreground")}>
+                              {SOURCE_LABEL[group]}
+                            </span>
+                          ) : null}
+                          <span className="min-w-0 truncate font-medium text-foreground">{item.job_title}</span>
+                          <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
+                            {jobPeople.some((other) => other.overdue)
+                              ? `${jobPeople.filter((other) => other.overdue).length} po terminie · `
+                              : ""}
+                            {jobPeople.length}
+                          </span>
+                        </div>
+                        {lower ? (
+                          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                            <span className="text-muted-foreground">
+                              Nie jest teraz Twoim {SOURCE_LABEL[TIER_KEYS[topRank]] ?? "priorytetem"}. Nie zadzwonisz? Oddaj, nie odrzucaj.
+                            </span>
+                            <ReturnToNewButton
+                              jobId={item.job_id}
+                              jobTitle={item.job_title}
+                              people={jobPeople}
+                              label={`Oddaj ${jobPeople.length} do Nowych`}
+                              confirm
+                              group
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {firstParked ? (
                       <div className="border-b border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground" data-testid="review-batch-parked-header">
                         <span className="font-medium text-foreground">
@@ -678,6 +781,12 @@ function BatchWorkspace({
                           <Link href={`/jobs/${item.job_id}?candidate=${item.candidate_id}`}>Otwórz screening</Link>
                         </Button>
                         <NoAnswerButton candidateId={item.candidate_id} jobId={item.job_id} />
+                        <ReturnToNewButton
+                          jobId={item.job_id}
+                          jobTitle={item.job_title}
+                          people={[item]}
+                          label="Oddaj do Nowych"
+                        />
                       </div>
                     ) : null}
                     </div>
@@ -687,7 +796,7 @@ function BatchWorkspace({
             </ul>
           ) : null}
 
-          {tab === "jobs" ? (
+          {!choosing && tab === "jobs" ? (
             data.team_jobs.some((job) => job.group) ? (
               <GroupedJobs data={data} />
             ) : (

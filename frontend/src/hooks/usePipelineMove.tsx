@@ -82,6 +82,7 @@ import { placeStage } from "@/lib/board-stages";
 import {
   useRejectionProfileWorkMode,
   useRejectionProfileRate,
+  useRejectionProfileResidence,
   useRejectionWorkModeJob,
 } from "@/hooks/useRejectionWorkModeContext";
 import type { RejectFollowUp } from "@/lib/reject-follow-up";
@@ -332,6 +333,9 @@ interface MoveReason {
   // „Nie szuka pracy” z listy szablonu (19.11.2026): do kiedy — tylko przy
   // osobie bez powodu dla systemu (u niej data idzie w `autofill`).
   notLookingUntil?: string | null;
+  // „Mieszka poza Polską” (24.11.2026): kraj zamieszkania na profil — tylko
+  // przy jednej osobie.
+  residenceCountry?: string | null;
 }
 
 interface SendMoveOptions {
@@ -777,6 +781,7 @@ export function usePipelineMove({
           ...autofillMoveFields(reason?.autofill),
           ...rejectionRateMoveFields(reason?.rate),
           not_looking_until: reason?.notLookingUntil ?? undefined,
+          residence_country: reason?.residenceCountry ?? undefined,
           candidate_offer_response: reason?.candidateOfferResponse ?? undefined,
           expected_state_version:
             opts?.checkVersion === false ? undefined : expectedStateVersionOf(item),
@@ -1867,7 +1872,8 @@ export function usePipelineMove({
     autofill?: AutofillFeedbackChoice | null,
     rate?: RejectionRateChoice | null,
     meetings?: PairMeetingsChoice | null,
-    notLookingUntil?: string | null
+    notLookingUntil?: string | null,
+    residenceCountry?: string | null
   ) => {
     if (!pendingRejection) return;
     const { entries, followUp } = pendingRejection;
@@ -1904,6 +1910,7 @@ export function usePipelineMove({
             notLookingUntil: rejectionNeedsAutofill(item, srcColId)
               ? null
               : notLookingUntil ?? autofill?.notLookingUntil ?? null,
+            residenceCountry: entries.length === 1 ? residenceCountry ?? null : null,
           },
           {
             silent: entries.length > 1,
@@ -1946,6 +1953,12 @@ export function usePipelineMove({
   const rejectionOpen = pendingRejection !== null;
   const rejectionWorkModeJob = useRejectionWorkModeJob(jobId, rejectionOpen);
   const rejectionProfileWorkMode = useRejectionProfileWorkMode(
+    pendingRejection?.entries.length === 1
+      ? pendingRejection.entries[0].item.candidate_id
+      : null,
+    rejectionOpen
+  );
+  const rejectionProfileResidence = useRejectionProfileResidence(
     pendingRejection?.entries.length === 1
       ? pendingRejection.entries[0].item.candidate_id
       : null,
@@ -2069,6 +2082,7 @@ export function usePipelineMove({
         workModeJob={rejectionWorkModeJob}
         profileWorkMode={rejectionProfileWorkMode}
         profileRate={rejectionProfileRate}
+        profileResidence={rejectionProfileResidence}
         autofill={rejectionAutofill}
         decisionColumn={rejectionFromDecisionColumns}
         emailPreview={

@@ -15,14 +15,20 @@ Test jest ``static``, gdy nie używa bazy i spełnia jedno z trzech:
 
 ``pytest.mark.not_static`` wyjmuje test z zestawu: za długi na ten job albo
 sięga do bazy przez kod aplikacji, czego analiza tutaj nie zobaczy.
+
+Pamięć (24.11.2026): zestaw biegnie z ``-n 4 --dist loadgroup`` na runnerze
+z 16 GB. Drzewa AST są wspólne w procesie (``share_parsed_trees``), a strażnicy,
+którzy je budują, idą na jednego workera (``parses_the_tree``). Na koniec biegu
+kontroler wypisuje szczyt RSS każdego workera (``memory_summary``).
 """
 
 from __future__ import annotations
 
 import ast
-import functools
 import inspect
 import re
+import resource
+import sys
 from pathlib import Path
 from types import CodeType, FunctionType
 from typing import Any, Iterable, Iterator
@@ -31,6 +37,8 @@ _GUARD_FILE = re.compile(r"guard|golden|^test_.+_contracts?\.py$")
 _FILE_HINTS = ("mark.static", "rglob(", "os.walk(")
 _DB_FIXTURES = frozenset({"client", "auth_headers", "app_client", "app_auth_headers"})
 _DB_NAMES = frozenset({"AsyncSessionLocal", "engine", "get_db", "create_async_engine"})
+#: Grupa xdist strażników parsujących drzewo (``parses_the_tree``).
+STATIC_TREE_GROUP = "drzewo-ast"
 
 
 def _scans_tree(names: set[str]) -> bool:
@@ -49,8 +57,29 @@ def share_parsed_trees() -> None:
     Pomiar 08.11.2026: ``compile`` i ``ast.walk`` to ponad 80% czasu strażnika, a
     job trwał 5:15 (pytest 3:54) przy celu 3 min. Drzewa współdzielimy w obrębie
     procesu; poza tym biegiem zostają zwykłe funkcje z ``ast``.
+
+    Klucz to sam tekst źródła i tryb, bez ``filename`` i bez rozróżnienia
+    argumentu pozycyjnego od nazwanego. Do 24.11.2026 był tu
+    ``functools.lru_cache(ast.parse)``: ``ast.parse(text)``,
+    ``ast.parse(text, str(path))`` i ``ast.parse(text, filename=str(path))``
+    to dla niego trzy klucze, więc worker trzymał trzy kopie drzewa całego
+    ``app/`` (po ~1,3 GB) do końca biegu. Przy ``-n 4`` szczyt sięgał 17,6 GB
+    na runnerze z 16 GB i runner dostawał „shutdown signal” przy 91–99%.
     """
-    walk = ast.walk
+    parse, walk = ast.parse, ast.walk
+    trees: dict[tuple[Any, ...], ast.AST] = {}
+
+    def shared_parse(
+        source: Any, filename: Any = "<unknown>", mode: str = "exec", **flags: Any
+    ) -> ast.AST:
+        key = (source, mode, *sorted(flags.items()))
+        try:
+            tree = trees.get(key)
+        except TypeError:  # niehaszowalne źródło: bez pamięci podręcznej
+            return parse(source, filename, mode, **flags)
+        if tree is None:
+            tree = trees[key] = parse(source, filename, mode, **flags)
+        return tree
 
     def cached_walk(node: ast.AST) -> Iterator[ast.AST]:
         if not isinstance(node, ast.Module):
@@ -59,7 +88,7 @@ def share_parsed_trees() -> None:
             node._all_nodes = list(walk(node))
         return iter(node._all_nodes)
 
-    ast.parse = functools.lru_cache(maxsize=None)(ast.parse)
+    ast.parse = shared_parse
     ast.walk = cached_walk
 
 
@@ -113,23 +142,77 @@ def _fixture_functions(item: Any) -> list[Any]:
     ]
 
 
+def _item_names(item: Any) -> set[str]:
+    function = getattr(item, "function", None)
+    if function is None:
+        return set()
+    return _reachable_names([function, *_fixture_functions(item)], vars(item.module))
+
+
 def is_static(item: Any) -> bool:
     """Czy test należy do zestawu bez bazy (reguły w opisie modułu)."""
     if item.get_closest_marker("not_static"):
         return False
     if item.get_closest_marker("static"):
         return True
-    function = getattr(item, "function", None)
-    if function is None or _DB_FIXTURES & set(item.fixturenames):
+    if getattr(item, "function", None) is None or _DB_FIXTURES & set(item.fixturenames):
         return False
-    module_globals = vars(item.module)
-    names = _reachable_names([function, *_fixture_functions(item)], module_globals)
+    names = _item_names(item)
     if names & _DB_NAMES:
         return False
     return bool(_GUARD_FILE.search(item.path.name)) or _scans_tree(names)
 
 
-def mark_static_items(items: Iterable[Any], marker: Any) -> None:
+def parses_the_tree(item: Any) -> bool:
+    """Czy test skanuje drzewo i parsuje pliki do AST.
+
+    Taki strażnik trzyma w workerze drzewa całego katalogu: ``app/`` to
+    ~1,3 GB, ``tests/`` drugie tyle. Pomiar 24.11.2026 (``-n 4``, 1 567
+    testów): osiem takich strażników rozłożonych na cztery workery dawało
+    2,2–3,7 GB na workera nawet przy wspólnych drzewach. W jednej grupie
+    xdist (``--dist loadgroup``) drzewa są w pamięci raz.
+    """
+    names = _item_names(item)
+    return _scans_tree(names) and "parse" in names
+
+
+def mark_static_items(
+    items: Iterable[Any], marker: Any, tree_marker: Any | None = None
+) -> None:
     for item in items:
         if is_static(item):
             item.add_marker(marker)
+            if tree_marker is not None and parses_the_tree(item):
+                item.add_marker(tree_marker)
+
+
+#: Runner ``ubuntu-latest`` repo publicznego: 16 GB na system, runner i testy.
+RUNNER_MEMORY_GB = 16
+#: Próg ostrzeżenia. 23–24.11.2026 runner dostawał „shutdown signal” przy
+#: szczycie ~17,6 GB (pomiar na Macu, ``-n 4``); po poprawce szczyt to ~7,8 GB.
+MEMORY_WARNING_GB = 11
+
+
+def peak_rss_bytes() -> int:
+    """Szczyt RSS tego procesu; ``ru_maxrss`` jest w KB na Linuksie, w bajtach na macOS."""
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak if sys.platform == "darwin" else peak * 1024
+
+
+def _gb(size: int) -> str:
+    return f"{size / 1024**3:.1f}".replace(".", ",")
+
+
+def memory_summary(peaks: dict[str, int]) -> tuple[str, bool]:
+    """Linia raportu i czy suma szczytów workerów przekracza próg ostrzeżenia.
+
+    Suma szczytów zawyża jednoczesne zużycie (szczyty bywają w różnych
+    chwilach), więc próg działa z zapasem.
+    """
+    total = sum(peaks.values())
+    parts = " + ".join(f"{name} {_gb(size)}" for name, size in sorted(peaks.items()))
+    line = (
+        f"Strażnicy repo — szczyt RSS: {parts} = {_gb(total)} GB "
+        f"(runner {RUNNER_MEMORY_GB} GB, ostrzeżenie od {MEMORY_WARNING_GB} GB)"
+    )
+    return line, total > MEMORY_WARNING_GB * 1024**3

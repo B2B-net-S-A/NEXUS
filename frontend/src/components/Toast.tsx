@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useCallback, useMemo, useRef, useE
 import { X, CheckCircle, AlertCircle, Info, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useThemeStore } from "@/store/theme";
+import { isModalOpen } from "@/lib/modal-open";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -19,7 +20,7 @@ export interface ToastChips {
   onPick: (value: string) => void;
 }
 
-interface ActionToastOptions {
+type ActionToastOptions = {
   actionLabel: string;
   onAction: () => void | Promise<void>;
   // Opcjonalne pigułki pod komunikatem (CV-2): jedno kliknięcie, można pominąć.
@@ -32,7 +33,24 @@ interface ActionToastOptions {
   // sprawa otwiera się w oknie (dymek z prawego dolnego rogu leżał na stopce
   // okna debriefu przy 1280 × 720, 24.11.2026).
   key?: string;
+} & DeferOptions;
+
+/**
+ * Dymek z gniazda (czat, tematy, rozmowy) przychodzi w dowolnej chwili i przy
+ * 1280 × 720 leżał na stopce szerokiego okna, czyli na „Zapisz” (24.11.2026).
+ * Z `deferWhileModal` czeka, aż okno się zamknie, i wychodzi wtedy, jeśli
+ * `isStillRelevant` (gdy podane) nadal mówi „tak”. Pigułki i liczniki w pasku
+ * i tak mówią o nowości, więc dymek starszy niż `DEFERRED_TOAST_MAX_AGE_MS`
+ * przepada, a po zamknięciu okna wychodzą najwyżej `DEFERRED_TOAST_MAX` ostatnie.
+ * Dymki po własnej akcji użytkownika („Cofnij”) tej opcji nie używają.
+ */
+interface DeferOptions {
+  deferWhileModal?: boolean;
+  isStillRelevant?: () => boolean;
 }
+
+export const DEFERRED_TOAST_MAX_AGE_MS = 10 * 60_000;
+export const DEFERRED_TOAST_MAX = 3;
 
 interface Toast {
   id: number;
@@ -49,7 +67,7 @@ interface ToastContextValue {
   showToast: (message: string, type?: ToastType) => void;
   showSuccess: (message: string) => void;
   showError: (message: string) => void;
-  showInfo: (message: string) => void;
+  showInfo: (message: string, options?: DeferOptions) => void;
   showActionToast: (message: string, options: ActionToastOptions) => void;
   dismissToast: (key: string) => void;
 }
@@ -91,29 +109,71 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, durationMs));
   }, []);
+  // Dymki z gniazda wstrzymane przez otwarte okno (`deferWhileModal`).
+  const deferred = useRef<{ toast: Toast; durationMs: number; queuedAt: number; isStillRelevant?: () => boolean }[]>([]);
+  const [deferredCount, setDeferredCount] = useState(0);
+  const present = useCallback(
+    (toast: Toast, durationMs: number, defer?: DeferOptions) => {
+      if (defer?.deferWhileModal && isModalOpen()) {
+        deferred.current.push({ toast, durationMs, queuedAt: Date.now(), isStillRelevant: defer.isStillRelevant });
+        setDeferredCount(deferred.current.length);
+        return;
+      }
+      setToasts((prev) => [...prev, toast]);
+      scheduleDismiss(toast.id, durationMs);
+    },
+    [scheduleDismiss],
+  );
+  useEffect(() => {
+    if (deferredCount === 0) return;
+    const flush = () => {
+      if (isModalOpen()) return;
+      const now = Date.now();
+      const ready = deferred.current
+        .filter((d) => now - d.queuedAt <= DEFERRED_TOAST_MAX_AGE_MS && (d.isStillRelevant?.() ?? true))
+        .slice(-DEFERRED_TOAST_MAX);
+      deferred.current = [];
+      setDeferredCount(0);
+      if (ready.length === 0) return;
+      setToasts((prev) => [...prev, ...ready.map((d) => d.toast)]);
+      for (const d of ready) scheduleDismiss(d.toast.id, d.durationMs);
+    };
+    // Radix zdejmuje okno z DOM po animacji zamknięcia — patrzymy tylko,
+    // dopóki coś czeka, więc reszta czasu nie kosztuje nic.
+    const observer = new MutationObserver(flush);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-state", "aria-modal", "role"],
+    });
+    flush();
+    return () => observer.disconnect();
+  }, [deferredCount, scheduleDismiss]);
   // In game mode, success toasts get a cheerful emoji (wording unchanged).
   const kidsMode = useThemeStore((s) => s.kidsMode);
 
-  const showToast = useCallback((message: string, type: ToastType = "success") => {
+  const showToast = useCallback((message: string, type: ToastType = "success", defer?: DeferOptions) => {
     const id = ++counterRef.current;
-    setToasts((prev) => [...prev, { id, message, type }]);
     // Błędy muszą zdążyć być przeczytane — przy 3 s komunikat znikał zanim
     // user spojrzał (klik "Generuj CV" wyglądał wtedy jak martwy przycisk).
     // Informacja nie jest pilna jak błąd, ale bywa dłuższa niż „Zapisano”.
     const durationMs = type === "error" ? 8000 : type === "info" ? 5000 : 3000;
-    scheduleDismiss(id, durationMs);
-  }, [scheduleDismiss]);
+    present({ id, message, type }, durationMs, defer);
+  }, [present]);
 
   const showSuccess = useCallback((message: string) => showToast(message, "success"), [showToast]);
   const showError = useCallback((message: string) => showToast(message, "error"), [showToast]);
-  const showInfo = useCallback((message: string) => showToast(message, "info"), [showToast]);
+  const showInfo = useCallback(
+    (message: string, options?: DeferOptions) => showToast(message, "info", options),
+    [showToast],
+  );
 
   const showActionToast = useCallback(
     (message: string, options: ActionToastOptions) => {
       const id = ++counterRef.current;
       const durationMs = options.durationMs ?? 10_000;
-      setToasts((prev) => [
-        ...prev,
+      present(
         {
           id,
           message,
@@ -123,13 +183,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           chips: options.chips,
           key: options.key,
         },
-      ]);
-      scheduleDismiss(id, durationMs);
+        durationMs,
+        options,
+      );
     },
-    [scheduleDismiss]
+    [present]
   );
 
   const dismissToast = useCallback((key: string) => {
+    if (deferred.current.some((d) => d.toast.key === key)) {
+      deferred.current = deferred.current.filter((d) => d.toast.key !== key);
+      setDeferredCount(deferred.current.length);
+    }
     setToasts((prev) => {
       const gone = prev.filter((t) => t.key === key);
       if (gone.length === 0) return prev;
