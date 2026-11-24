@@ -4888,7 +4888,7 @@
     "id": "nowa-rekrutacja-powtorka",
     "pr": 3827,
     "title": "Nowa rekrutacja: powtórka requestu jednym kliknięciem",
-    "why": "Gdy klient przysyła ten sam request co poprzednio, po odczycie maila nad formularzem pojawia się „To wygląda na powtórkę”. „Użyj <nr>” bierze wymagania, krytyczne, pytania, budżet i kanały ogłoszenia z poprzedniej rekrutacji, a z maila tylko różnice. Hiring managera potwierdzasz sam.",
+    "why": "Ten sam request co poprzednio? Po odczycie maila baner „To wygląda na powtórkę”: „Użyj <nr>” bierze poprzednią rekrutację, z maila tylko różnice. Hiring managera potwierdzasz sam.",
     "tier": "dot",
     "shipped_on": "2026-11-24",
     "audience": {
