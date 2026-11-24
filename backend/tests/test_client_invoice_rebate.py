@@ -3,7 +3,7 @@
 Decyzje Artura 16.11.2026: rabat % na każdym wierszu (jak w eBI24) po stawce
 progu obrotu SPRZED miesiąca faktury, obrót przed rabatem, wyższa stawka tylko od nadwyżki, za
 miesiąc przekroczenia korekta różnicy od części ponad próg, próg w innej
-walucie po kursie NBP z każdej faktury. Kwoty fikcyjne.
+walucie po kursie NBP z każdej faktury. Kwoty, ceny, progi i stawki fikcyjne.
 """
 
 from __future__ import annotations
@@ -19,10 +19,10 @@ from app.services.client_invoicing import issue_settings, rebate
 TIERED = {
     "threshold_currency": "EUR",
     "periods": [
-        {"from_year": 2024, "tiers": [{"up_to": None, "rate": 2.5}]},
+        {"from_year": 2024, "tiers": [{"up_to": None, "rate": 1.5}]},
         {
             "from_year": 2026,
-            "tiers": [{"up_to": None, "rate": 3}, {"up_to": 1000, "rate": 2.5}],
+            "tiers": [{"up_to": None, "rate": 3.5}, {"up_to": 1000, "rate": 1.5}],
         },
     ],
     "exclude_words": ["Podróż", " refaktura "],
@@ -52,8 +52,8 @@ def test_terms_are_sorted_and_round_trip_to_json():
     again = rebate.parse_terms(rebate.to_json(terms))
     assert again == terms
     assert rebate.to_json(terms)["periods"][1]["tiers"] == [
-        {"up_to": 1000, "rate": 2.5},
-        {"up_to": None, "rate": 3},
+        {"up_to": 1000, "rate": 1.5},
+        {"up_to": None, "rate": 3.5},
     ]
 
 
@@ -65,7 +65,7 @@ def test_no_terms_means_no_rebate():
 def test_period_applies_from_its_year_for_the_whole_year():
     terms = _terms()
     assert rebate.tiers_for(terms, 2023) is None
-    assert [t.rate for t in rebate.tiers_for(terms, 2025)] == [Decimal("2.5")]
+    assert [t.rate for t in rebate.tiers_for(terms, 2025)] == [Decimal("1.5")]
     # Aneks z marca 2026 zmienia progi dla całego 2026 (rozliczenie roczne).
     assert len(rebate.tiers_for(terms, 2026)) == 2
     assert len(rebate.tiers_for(terms, 2030)) == 2
@@ -117,9 +117,9 @@ def test_period_applies_from_its_year_for_the_whole_year():
                     {
                         "from_year": 2026,
                         "tiers": [
-                            {"up_to": 1000, "rate": 2},
-                            {"up_to": 1000, "rate": 2.5},
-                            {"up_to": None, "rate": 3},
+                            {"up_to": 1000, "rate": 1},
+                            {"up_to": 1000, "rate": 1.5},
+                            {"up_to": None, "rate": 3.5},
                         ],
                     }
                 ],
@@ -176,7 +176,7 @@ def test_period_applies_from_its_year_for_the_whole_year():
             "rok początku",
         ),
         ({**TIERED, "exclude_words": ["x"]}, "słowo wyłączające"),
-        ("2.5%", "złe dane"),
+        ("1.5%", "złe dane"),
     ],
 )
 def test_bad_terms_are_refused(raw, message):
@@ -208,46 +208,46 @@ def _tiers():
 
 def test_threshold_is_inclusive():
     tiers = _tiers()
-    assert rebate.tier_for(Decimal("1000.00"), tiers).rate == Decimal("2.5")
-    assert rebate.tier_for(Decimal("1000.01"), tiers).rate == Decimal(3)
-    assert rebate.tier_for(Decimal("-50"), tiers).rate == Decimal("2.5")
+    assert rebate.tier_for(Decimal("1000.00"), tiers).rate == Decimal("1.5")
+    assert rebate.tier_for(Decimal("1000.01"), tiers).rate == Decimal("3.5")
+    assert rebate.tier_for(Decimal("-50"), tiers).rate == Decimal("1.5")
 
 
 def test_due_counts_higher_rate_only_on_the_excess():
     tiers = _tiers()
-    assert rebate.due(Decimal(1000), tiers) == Decimal("25.0")
-    # 1 000 × 2,5% + 200 × 3% — nie 1 200 × 3%.
-    assert rebate.due(Decimal(1200), tiers) == Decimal("31.0")
+    assert rebate.due(Decimal(1000), tiers) == Decimal("15.0")
+    # 1 000 × 1,5% + 200 × 3,5% — nie 1 200 × 3,5%.
+    assert rebate.due(Decimal(1200), tiers) == Decimal("22.0")
     assert rebate.due(Decimal(0), tiers) == Decimal(0)
 
 
-def test_month_after_crossing_gets_3_percent_and_crossing_month_a_correction():
+def test_month_after_crossing_gets_higher_rate_and_crossing_month_a_correction():
     # 4,00 PLN/EUR: wrzesień 3 200 PLN = 800 EUR, październik 1 600 PLN = 400 EUR.
     status = rebate.summarize(
         2026, _terms(), [_entry("3200.00", 9), _entry("1600.00", 10)], RATES
     )
     assert status.turnover == Decimal("1200.00")
-    assert status.rate_for(9).rate == Decimal("2.5")
+    assert status.rate_for(9).rate == Decimal("1.5")
     # Październik przekroczył próg (800 → 1 200 EUR), ale faktury za październik
-    # idą jeszcze po 2,5%; 3% dopiero od listopada.
-    assert status.rate_for(10).rate == Decimal("2.5")
-    assert status.rate_for(11).rate == Decimal(3)
-    assert status.next_tier(10).rate == Decimal(3)
+    # idą jeszcze po 1,5%; 3,5% dopiero od listopada.
+    assert status.rate_for(10).rate == Decimal("1.5")
+    assert status.rate_for(11).rate == Decimal("3.5")
+    assert status.next_tier(10).rate == Decimal("3.5")
     assert status.next_tier(11) is None
     (correction,) = status.corrections
     assert correction.month == 10
-    assert correction.rate_diff == Decimal("0.5")
+    assert correction.rate_diff == Decimal("2")
     assert correction.excess == Decimal("200.00")
-    # 0,5% od części października ponad próg: 200 EUR z 400 EUR → połowa z 1 600 PLN.
-    assert correction.amounts == (("PLN", Decimal("4.00")),)
-    assert status.due == Decimal("31.0")
+    # 2% od części października ponad próg: 200 EUR z 400 EUR → połowa z 1 600 PLN.
+    assert correction.amounts == (("PLN", Decimal("16.00")),)
+    assert status.due == Decimal("22.0")
 
 
 def test_no_correction_below_threshold_and_months_after_are_billed_right():
     below = rebate.summarize(2026, _terms(), [_entry("3996.00", 9)], RATES)
     assert below.corrections == ()
     assert below.to_next() == Decimal("1.00")
-    # Listopad w całości ponad progiem i fakturowany po 3% — bez korekty.
+    # Listopad w całości ponad progiem i fakturowany po 3,5% — bez korekty.
     after = rebate.summarize(
         2026,
         _terms(),
@@ -260,20 +260,20 @@ def test_no_correction_below_threshold_and_months_after_are_billed_right():
 
 def test_flat_rate_before_the_amendment_year():
     status = rebate.summarize(2025, _terms(), [_entry("400000.00", 3)], RATES)
-    assert status.rate_for(12).rate == Decimal("2.5")
+    assert status.rate_for(12).rate == Decimal("1.5")
     assert status.corrections == ()
 
 
 def test_turnover_is_before_discount_and_without_travel():
-    """Faktura z eBI24: cena 157,00, rabat 2,5% → 153,08, netto 80 × 153,08."""
+    """Faktura z eBI24: cena 137,00, rabat 1,5% → 134,95, netto 80 × 134,95."""
 
     words = ("podróż",)
     items = [
         {
             "name": "Usługi informatyczne",
             "quantity": "80",
-            "unit_price": "157",
-            "net": "12246.40",
+            "unit_price": "137",
+            "net": "10796.00",
         },
         {
             "name": "Refaktura: podróż służbowa",
@@ -282,21 +282,21 @@ def test_turnover_is_before_discount_and_without_travel():
             "net": "300.00",
         },
     ]
-    net, touched = rebate.service_base(Decimal("12546.40"), items, words)
-    assert net == Decimal("12560.00") and touched is True
+    net, touched = rebate.service_base(Decimal("11096.00"), items, words)
+    assert net == Decimal("10960.00") and touched is True
     # Korekta: stan po minus stan przed (przed rabatem).
     correction = [
-        {"name": "Usługi", "quantity": "70", "unit_price": "157", "net": "10715.60"},
+        {"name": "Usługi", "quantity": "70", "unit_price": "137", "net": "9446.50"},
         {
             "name": "Usługi",
             "quantity": "80",
-            "unit_price": "157",
-            "net": "12246.40",
+            "unit_price": "137",
+            "net": "10796.00",
             "before_correction": True,
         },
     ]
-    net, touched = rebate.service_base(Decimal("-1530.80"), correction, words)
-    assert net == Decimal("-1570.00") and touched is False
+    net, touched = rebate.service_base(Decimal("-1349.50"), correction, words)
+    assert net == Decimal("-1370.00") and touched is False
     # Bez pozycji — netto faktury.
     assert rebate.service_base(Decimal("99.00"), [], words) == (Decimal("99.00"), False)
 
@@ -306,7 +306,7 @@ def test_discount_goes_on_service_lines_only():
         {
             "name": "Usługi A",
             "quantity": "80",
-            "unit_price": "157",
+            "unit_price": "137",
             "vat_rate": "np II",
         },
         {
@@ -314,11 +314,11 @@ def test_discount_goes_on_service_lines_only():
             "quantity": "1",
             "unit_price": "999",
             "vat_rate": "23",
-            "discount_pct": "3",
+            "discount_pct": "3.5",
         },
     ]
-    out = rebate.with_discount(lines, rebate.Tier(None, Decimal("2.5")), ("podróż",))
-    assert out[0]["discount_pct"] == "2.5"
+    out = rebate.with_discount(lines, rebate.Tier(None, Decimal("1.5")), ("podróż",))
+    assert out[0]["discount_pct"] == "1.5"
     assert "discount_pct" not in out[1]
     assert "discount_pct" not in lines[0]  # wejście bez zmian
     zero = rebate.with_discount(out, rebate.Tier(None, Decimal(0)), ())
@@ -331,16 +331,16 @@ def test_line_with_discount_matches_ebi24_rounding():
     line = {
         "name": "Usługi",
         "quantity": "80",
-        "unit_price": "157",
+        "unit_price": "137",
         "vat_rate": "23",
-        "discount_pct": "2.5",
+        "discount_pct": "1.5",
     }
-    assert fa3_build.discounted_price(line) == Decimal("153.08")
-    assert fa3_build.line_net(line) == Decimal("12246.40")
-    assert fa3_build.line_gross_value(line) == Decimal("12560.00")
+    assert fa3_build.discounted_price(line) == Decimal("134.95")
+    assert fa3_build.line_net(line) == Decimal("10796.00")
+    assert fa3_build.line_gross_value(line) == Decimal("10960.00")
     plain = {**line}
     plain.pop("discount_pct")
-    assert fa3_build.line_net(plain) == Decimal("12560.00")
+    assert fa3_build.line_net(plain) == Decimal("10960.00")
     # Rabat spoza (0, 100) nie działa.
     assert fa3_build.line_discount_pct({**line, "discount_pct": "100"}) is None
 
@@ -351,7 +351,7 @@ def test_corrections_reduce_turnover():
     )
     assert status.turnover == Decimal("-100.00")
     assert status.due == Decimal(0)
-    assert status.rate_for(11).rate == Decimal("2.5")
+    assert status.rate_for(11).rate == Decimal("1.5")
 
 
 def test_invoice_in_threshold_currency_counts_directly_and_missing_rate_is_flagged():
@@ -378,20 +378,20 @@ def test_payload_for_invoice_month():
         2026, _terms(), [_entry("3200.00", 9), _entry("1600.00", 10)], RATES
     )
     data = rebate.payload(status, month=10, on_invoice=Decimal("40.00"), currency="PLN")
-    assert data["rate"] == "2.5" and data["next_rate"] == "3"
+    assert data["rate"] == "1.5" and data["next_rate"] == "3.5"
     assert data["turnover_before"] == "800.00"
     assert data["on_invoice"] == "40.00"
     assert data["corrections"] == [
         {
             "month": 10,
-            "rate_diff": "0.5",
+            "rate_diff": "2",
             "excess": "200.00",
-            "amounts": [{"currency": "PLN", "amount": "4.00"}],
+            "amounts": [{"currency": "PLN", "amount": "16.00"}],
         }
     ]
     assert data["tiers"] == [
-        {"up_to": "1000.00", "rate": "2.5"},
-        {"up_to": None, "rate": "3"},
+        {"up_to": "1000.00", "rate": "1.5"},
+        {"up_to": None, "rate": "3.5"},
     ]
 
 
@@ -417,7 +417,7 @@ def _ebi_line(units: str, price: int, net: int, name: str = "Usługi") -> dict:
         "amountOfUnits": units,
         "unitNettPrice": price,
         "nettAmount": net,
-        "discountRate": 250 if price * int(units) != net else 0,
+        "discountRate": 150 if price * int(units) != net else 0,
     }
 
 
@@ -426,47 +426,47 @@ def test_ebi24_invoice_counts_before_discount_and_without_travel():
 
     data = {
         "invoiceType": "INVOICE",
-        "nettAmount": 1254640,
+        "nettAmount": 1109600,
         "items": [
-            _ebi_line("80", 15700, 1224640),
+            _ebi_line("80", 13700, 1079600),
             _ebi_line("1", 30000, 30000, "Refaktura: podróż służbowa"),
             "śmieć",
         ],
     }
     invoice = rebate_archive.ebi_invoice(data)
-    assert invoice.net_amount == Decimal("12546.40")
+    assert invoice.net_amount == Decimal("11096.00")
     assert invoice.items[0] == {
         "name": "Usługi",
         "quantity": "80",
-        "unit_price": "157.00",
-        "net": "12246.40",
+        "unit_price": "137.00",
+        "net": "10796.00",
     }
     net = rebate.service_base(invoice.net_amount, invoice.items, ("podróż",))
-    assert net == (Decimal("12560.00"), True)
+    assert net == (Decimal("10960.00"), True)
 
 
 def test_ebi24_correction_is_state_after_minus_state_before():
     from app.services.client_invoicing import rebate_archive
 
-    before = {"nettAmount": 1224640, "items": [_ebi_line("80", 15700, 1224640)]}
+    before = {"nettAmount": 1079600, "items": [_ebi_line("80", 13700, 1079600)]}
     data = {
         "invoiceType": "CORRECTIVE_INVOICE",
-        "nettAmount": 1071560,
-        "items": [_ebi_line("70", 15700, 1071560)],
-        "correctedInvoiceNettAmount": 1224640,
+        "nettAmount": 944650,
+        "items": [_ebi_line("70", 13700, 944650)],
+        "correctedInvoiceNettAmount": 1079600,
         "correctedInvoiceContent": json.dumps(before),
     }
     invoice = rebate_archive.ebi_invoice(data)
-    assert invoice.net_amount == Decimal("-1530.80")
+    assert invoice.net_amount == Decimal("-1349.50")
     assert rebate.service_base(invoice.net_amount, invoice.items, ()) == (
-        Decimal("-1570.00"),
+        Decimal("-1370.00"),
         False,
     )
     # Bez treści faktury korygowanej rabatu nie odtworzymy: sama różnica netto.
     bare = rebate_archive.ebi_invoice({**data, "correctedInvoiceContent": None})
     assert bare.items == ()
     assert rebate.service_base(bare.net_amount, bare.items, ()) == (
-        Decimal("-1530.80"),
+        Decimal("-1349.50"),
         False,
     )
 
@@ -494,15 +494,15 @@ def test_order_comparison_uses_value_before_discount():
     from app.services.client_invoicing.ledger import Chain
 
     items = [
-        {"name": "Usługi", "quantity": "80", "unit_price": "157", "net": "12246.40"}
+        {"name": "Usługi", "quantity": "80", "unit_price": "137", "net": "10796.00"}
     ]
-    assert rebate.pre_discount(Decimal("12246.40"), items) == Decimal("12560.00")
+    assert rebate.pre_discount(Decimal("10796.00"), items) == Decimal("10960.00")
     head = ClientSalesInvoice(
-        net_amount=Decimal("12246.40"), gross_amount=Decimal("12246.40"), items=items
+        net_amount=Decimal("10796.00"), gross_amount=Decimal("10796.00"), items=items
     )
     chain = Chain(head=head)
-    assert chain.net == Decimal("12246.40")  # do zapłaty i sumy — po rabacie
-    assert chain.order_net == Decimal("12560.00")
+    assert chain.net == Decimal("10796.00")  # do zapłaty i sumy — po rabacie
+    assert chain.order_net == Decimal("10960.00")
     # Faktura bez rabatu: bez zmian.
     same = [{"name": "Usługi", "quantity": "3", "unit_price": "33.33", "net": "99.99"}]
     assert rebate.pre_discount(Decimal("99.99"), same) == Decimal("99.99")

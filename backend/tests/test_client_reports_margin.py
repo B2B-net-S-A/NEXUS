@@ -139,7 +139,7 @@ def test_same_currency_needs_no_rate():
 
 
 def test_turnover_counts_services_before_line_discount():
-    # eBI24: cena 157,00, rabat 1,5% na wierszu, netto 154,65 — obrót = 157,00
+    # eBI24: cena 137,00, rabat 1,5% na wierszu, netto 134,95 — obrót = 137,00
     row = InvoiceRow(
         "FV/3",
         "VAT",
@@ -147,18 +147,18 @@ def test_turnover_counts_services_before_line_discount():
         date(2026, 9, 3),
         None,
         "PLN",
-        Decimal("154.65"),
+        Decimal("134.95"),
         date(2026, 8, 31),
         (
             {
                 "name": "Usługi IT",
                 "quantity": "1",
-                "unit_price": "157.00",
-                "net": "154.65",
+                "unit_price": "137.00",
+                "net": "134.95",
             },
         ),
     )
-    assert convert_turnover([row], "PLN", {}).amount == Decimal("157.00")
+    assert convert_turnover([row], "PLN", {}).amount == Decimal("137.00")
 
 
 def test_excluded_items_leave_turnover():
@@ -169,14 +169,14 @@ def test_excluded_items_leave_turnover():
         date(2026, 9, 3),
         None,
         "PLN",
-        Decimal("1154.65"),
+        Decimal("1134.95"),
         None,
         (
             {
                 "name": "Usługi IT",
                 "quantity": "1",
-                "unit_price": "157.00",
-                "net": "154.65",
+                "unit_price": "137.00",
+                "net": "134.95",
             },
             {
                 "name": "Podróż służbowa",
@@ -187,7 +187,7 @@ def test_excluded_items_leave_turnover():
         ),
     )
     result = convert_turnover([row], "PLN", {}, exclude_words=("podróż",))
-    assert result.amount == Decimal("157.00") and result.excluded == 1
+    assert result.amount == Decimal("137.00") and result.excluded == 1
 
 
 # ---------------------------------------------------------------- wzór Cost

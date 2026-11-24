@@ -29,7 +29,7 @@
     <PrzyczynaKorekty>Zmiana daty sprzedaży</PrzyczynaKorekty>
     <TypKorekty>2</TypKorekty>
     <DaneFaKorygowanej><DataWystFaKorygowanej>2026-10-02</DataWystFaKorygowanej><NrFaKorygowanej>8/11/2026/UE</NrFaKorygowanej><NrKSeF>1</NrKSeF><NrKSeFFaKorygowanej>9876543210-20261002-0A0B0C0D0E0F-11</NrKSeFFaKorygowanej></DaneFaKorygowanej>
-    <DodatkowyOpis><NrWiersza>1</NrWiersza><Klucz>Uwagi</Klucz><Wartosc>Discount according to the Frame Agreement – 2,5%.</Wartosc></DodatkowyOpis>
+    <DodatkowyOpis><NrWiersza>1</NrWiersza><Klucz>Uwagi</Klucz><Wartosc>Discount according to the Frame Agreement – 1,5%.</Wartosc></DodatkowyOpis>
     <FaWiersz><NrWierszaFa>1</NrWierszaFa><P_7>NIDS:2024-000003, IT Retail Banking, Nordea Contact: Anna Testowa, Contractor Jan Przykładowy ID: M000001</P_7><P_8A>godz.</P_8A><P_8B>97</P_8B><P_9A>56.40</P_9A><P_11>5470.80</P_11><P_12>np II</P_12></FaWiersz>
     <FaWiersz><NrWierszaFa>1</NrWierszaFa><P_7>NIDS:2024-000003, IT Retail Banking, Nordea Contact: Anna Testowa, Contractor Jan Przykładowy ID: M000001</P_7><P_8A>godz.</P_8A><P_8B>97</P_8B><P_9A>56.40</P_9A><P_11>5470.80</P_11><P_12>np II</P_12><StanPrzed>1</StanPrzed></FaWiersz>
 
