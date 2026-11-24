@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import RateBenchmarksPage from "./page";
@@ -115,6 +116,78 @@ describe("RateBenchmarksPage — pusty stan i wzór pliku (20.10.2026)", () => {
     renderPage();
     expect(await screen.findByText("Nie ma jeszcze stawek rynkowych.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Pobierz wzór pliku" })).not.toBeInTheDocument();
+  });
+});
+
+describe("RateBenchmarksPage — nieudany zapis, usunięcie i import", () => {
+  const refusal = (detail: string) => ({ response: { status: 422, data: { detail } } });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.user = { role: "admin", roles: ["admin"] };
+    mocks.list.mockResolvedValue({
+      data: [
+        {
+          id: 1,
+          role: "Java Developer",
+          seniority: "senior",
+          currency: "PLN",
+          rate_unit: "daily",
+          market_min: 1000,
+          market_median: 1200,
+          market_max: 1400,
+          location: "Warszawa",
+          source: "Raport testowy",
+          source_date: "2026-08-01",
+          notes: null,
+        },
+      ],
+    });
+  });
+
+  it("odmowa dodania: komunikat przy formularzu, formularz z wpisanymi danymi zostaje", async () => {
+    mocks.create.mockRejectedValue(refusal("Mediana musi leżeć między min a max."));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Java Developer");
+
+    await user.click(screen.getByRole("button", { name: /^Dodaj$/ }));
+    await user.type(screen.getByPlaceholderText("Java Developer"), "Analityk testowy");
+    await user.type(screen.getByRole("spinbutton", { name: "Mediana *" }), "900");
+    await user.type(screen.getByPlaceholderText("Hays Guide 2026"), "Raport fikcyjny");
+    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Mediana musi leżeć między min a max.",
+    );
+    expect(screen.getByPlaceholderText("Java Developer")).toHaveValue("Analityk testowy");
+  });
+
+  it("odmowa usunięcia pokazuje komunikat, wiersz zostaje", async () => {
+    mocks.delete.mockRejectedValue(refusal("Wpis jest używany w kontrakcie."));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Java Developer");
+
+    await user.click(screen.getByRole("button", { name: "Usuń wpis: Java Developer" }));
+    await user.click(await screen.findByRole("button", { name: "Usuń" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Wpis jest używany w kontrakcie.",
+    );
+    expect(screen.getByText("Java Developer")).toBeInTheDocument();
+  });
+
+  it("odmowa importu CSV pokazuje komunikat zamiast ciszy", async () => {
+    mocks.importCsv.mockRejectedValue(refusal("Plik nie ma kolumny role."));
+    const user = userEvent.setup();
+    const { container } = renderPage();
+    await screen.findByText("Java Developer");
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(input, new File(["x"], "stawki.csv", { type: "text/csv" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Plik nie ma kolumny role.");
   });
 });
 

@@ -227,21 +227,30 @@ export function AdminUsersTab({
     onError: (error) => showError(apiErrorMessage(error, "Nie udało się zmienić konta.")),
   });
 
+  // Nieudany reset zostawia okno otwarte i mówi w nim, co poszło nie tak
+  // (wcześniej przycisk tylko wracał do „Resetuj hasło”).
+  const [resetError, setResetError] = useState<string | null>(null);
   const resetPasswordMutation = useMutation({
     mutationFn: ({ id, password }: { id: number; password: string }) =>
       adminApi.resetPassword(id, password),
+    onMutate: () => setResetError(null),
     onSuccess: () => {
       setModal(null);
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
     },
+    onError: (error) =>
+      setResetError(apiErrorMessage(error, "Nie udało się ustawić nowego hasła.")),
   });
 
   const sendResetLinkMutation = useMutation({
     mutationFn: (id: number) => adminApi.sendResetLink(id),
+    onMutate: () => setResetError(null),
     onSuccess: () => {
       setModal(null);
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
     },
+    onError: (error) =>
+      setResetError(apiErrorMessage(error, "Nie udało się wysłać linku do zmiany hasła.")),
   });
 
   // Filtr po statusie, roli i wyszukiwarce + domyślne sortowanie alfabetyczne
@@ -744,12 +753,16 @@ export function AdminUsersTab({
       {modal === "reset" && selectedUser && (
         <ResetPasswordModal
           user={selectedUser}
-          onClose={() => setModal(null)}
+          onClose={() => {
+            setResetError(null);
+            setModal(null);
+          }}
           onSaveManual={(pw) =>
             resetPasswordMutation.mutate({ id: selectedUser.id, password: pw })
           }
           onSendLink={() => sendResetLinkMutation.mutate(selectedUser.id)}
           loading={resetPasswordMutation.isPending || sendResetLinkMutation.isPending}
+          error={resetError}
         />
       )}
     </div>

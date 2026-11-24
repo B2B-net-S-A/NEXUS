@@ -11,6 +11,7 @@ import {
  type ScorecardQuestion,
  type ScorecardSchema,
 } from"@/lib/api";
+import { apiErrorMessage } from"@/lib/api-error";
 import {
  Sheet,
  SheetBody,
@@ -109,6 +110,11 @@ export function ScorecardV2({
  onOpenChange(false);
  },
  });
+
+ // Ponowne otwarcie zaczyna bez komunikatu z poprzedniej próby.
+ useEffect(() => {
+ if (open) submitMut.reset();
+ }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
  const renderField = (q: ScorecardQuestion) => {
  const fieldName = `answers.${q.id}` as const;
@@ -234,6 +240,18 @@ export function ScorecardV2({
  </FormField>
  </div>
  </SheetBody>
+
+ {/* Nieudany zapis zostawia okno z wpisanymi odpowiedziami i mówi dlaczego
+ (wcześniej przycisk tylko przestawał się kręcić). Komunikat jest w oknie,
+ bo modalne okno chowa przed czytnikiem ekranu wszystko poza sobą. */}
+ {submitMut.isError && (
+ <p
+ role="alert"
+ className="mx-6 mb-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+ >
+ {apiErrorMessage(submitMut.error,"Nie udało się zapisać scorecardu.")}
+ </p>
+ )}
 
  <SheetFooter>
  <Button
