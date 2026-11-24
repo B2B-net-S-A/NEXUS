@@ -10,7 +10,7 @@ Artura z 04.11.2026 (styl A).
 from __future__ import annotations
 
 import calendar
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -258,7 +258,7 @@ async def _ksef(
     ).get(s.contract_id)
     state = contractor_invoices.state(s, invoices, rules, added)
     first = invoices[0]
-    due = first.acquired_at.date() + timedelta(days=days) if first.acquired_at else None
+    due = contractor_invoices.due_date(first, days)
     net = sum((i.net_amount or 0) for i in invoices)
     label = (
         "Faktura w KSeF: inna kwota niż rozliczenie"

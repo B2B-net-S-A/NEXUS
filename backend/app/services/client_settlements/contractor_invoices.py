@@ -45,6 +45,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_date
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.candidate import Candidate
 from app.models.client_settlement import ClientContractorInvoice, ClientSettlement
@@ -552,10 +553,13 @@ def _payment_days(rules: dict[str, Any]) -> Optional[int]:
     return days if 0 < days <= 120 else None
 
 
-def _due(invoice: ClientContractorInvoice, days: Optional[int]) -> Optional[date]:
+def due_date(invoice: ClientContractorInvoice, days: Optional[int]) -> Optional[date]:
+    """Termin zapłaty: dzień firmy (Warszawa), w którym faktura weszła do KSeF,
+    plus ``days``. Dzień z UTC przesuwał termin o dzień dla faktur
+    pobranych między północą warszawską a północą UTC."""
     if days is None or invoice.acquired_at is None:
         return None
-    return invoice.acquired_at.date() + timedelta(days=days)
+    return business_date(invoice.acquired_at) + timedelta(days=days)
 
 
 def _iso(day: Optional[date]) -> Optional[str]:
@@ -646,7 +650,7 @@ def card(
                 bound, amounts=amounts, mode=white_list.current_mode()
             )
         )
-        due = _due(bound[0], days)
+        due = due_date(bound[0], days)
         if due is not None:
             checks.append(
                 {
@@ -664,7 +668,7 @@ def card(
     return {
         "state": state(settlement, invoices, rules, extras),
         "invoices": [
-            {**_invoice_item(i, amounts=amounts), "due_date": _iso(_due(i, days))}
+            {**_invoice_item(i, amounts=amounts), "due_date": _iso(due_date(i, days))}
             for i in invoices
         ],
         "checks": checks,
