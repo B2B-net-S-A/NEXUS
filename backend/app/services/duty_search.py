@@ -8,8 +8,9 @@ Przebieg (w tle, ``app/tasks/duty_search_worker.py``):
 1. rozbicie celu (F47): zdolności z wagą, sygnały pośrednie, wzorce do tekstu CV,
    trzy przykładowe akapity CV osoby, która to zrobiła;
 2. szeroka sieć: wektor celu, wektory akapitów, wzorce w ``raw_cv_text`` (RRF)
-   oraz kanoniczny ranking „Z requestu” (top 50) — ta sama bramka
-   dopuszczalności (blacklista, NDA, weto) co ``canonical_search``;
+   oraz kanoniczny ranking „Z requestu” (top 50) — obie listy przez bramkę
+   dopuszczalności (blacklista, NDA, weto HM) pełnego przeglądu, przy
+   rekrutacji z prawdziwą ofertą (``_gate_target``), z plakietkami w wyniku;
 3. ocena CV (F48) z dosłownym cytatem; cytat sprawdza kod;
 4. kolejność widoku: najpierw „Robił to” / „Bardzo blisko” z cytatem, w grupie
    RRF z obu list. Ocena celu NIE wchodzi do kanonicznego fitu.
@@ -389,20 +390,48 @@ def _radar_query(run: DutySearchRun):
     )
 
 
+async def _gate_target(db: AsyncSession, run: DutySearchRun):
+    """Oferta do bramki dopuszczalności — przy rekrutacji ta sama co pełny przegląd.
+
+    Z rekrutacji (``run.job_id``) bramkujemy PRAWDZIWĄ ofertą: ma ``id``
+    i hiring managera, więc bramka widzi weto HM i osoby już w procesie.
+    Do 24.11.2026 szła tu oferta efemeryczna z ``_radar_query``
+    (``hiring_manager_contact_id=None``): weto nie działało, a „Dodaj do
+    Nowych” kończyło się 409 z twardej bramki. Bez rekrutacji (albo gdy ją
+    usunięto) zostaje efemeryczna z klientem przebiegu.
+    """
+    from app.models.job import Job
+    from app.services.champion_intake import enforce_operation
+    from app.services.request_matching_context import build_request_context
+    from app.services.scoring_service import resolve_active_profile
+    from app.services.talent_radar_search import build_ephemeral_job
+
+    job = await db.get(Job, run.job_id) if run.job_id is not None else None
+    if job is None:
+        job = build_ephemeral_job(_radar_query(run))
+        enforce_operation(job, "search", force=True)
+    profile = await resolve_active_profile(
+        db, user_id=run.created_by, client_id=job.client_id
+    )
+    return build_request_context(job, profile).as_job()
+
+
 async def _canonical(
-    db: AsyncSession, run: DutySearchRun
-) -> tuple[list[int], dict[int, float], bool]:
+    db: AsyncSession, run: DutySearchRun, target
+) -> tuple[list[int], dict[int, float], bool, dict[int, dict]]:
+    """Kanoniczny ranking „Z requestu”, przepuszczony przez bramkę ``target``."""
     from app.services.talent_radar_search import canonical_search
 
     result = await canonical_search(db, _radar_query(run), user_id=run.created_by)
-    ids: list[int] = []
+    ranked: list[int] = []
     fits: dict[int, float] = {}
     for fit in result.breakdowns:
         cid = fit.breakdown.candidate_id
-        ids.append(cid)
+        ranked.append(cid)
         if fit.fit_score is not None:
             fits[cid] = float(fit.fit_score)
-    return ids, fits, bool(result.degraded)
+    kept, annotations = await _eligible(db, target, ranked)
+    return kept, fits, bool(result.degraded), annotations
 
 
 async def _vector_hits(vector: list[float], limit: int) -> list[int]:
@@ -479,33 +508,30 @@ async def _goal_pool(
 
 
 async def _eligible(
-    db: AsyncSession, run: DutySearchRun, ids: Sequence[int]
-) -> list[int]:
-    """Ta sama bramka co ``canonical_search`` (blacklista, NDA, weto, dealbreakery)."""
+    db: AsyncSession, target, ids: Sequence[int]
+) -> tuple[list[int], dict[int, dict]]:
+    """Bramka pełnego przeglądu (blacklista, NDA, weto HM, dealbreakery).
+
+    Zwraca dopuszczonych w kolejności wejścia i plakietki
+    (``eligibility_annotation``): konflikt klienta, obecne zatrudnienie, weto
+    HM (``assignment_allowed=False`` — widoczne z powodem, bez dodania).
+    """
     from app.api.matching import _gate_and_dealbreakers
-    from app.services.champion_intake import enforce_operation
-    from app.services.request_matching_context import build_request_context
     from app.services.requirement_contract import search_dealbreaker_inputs
-    from app.services.scoring_service import resolve_active_profile
-    from app.services.talent_radar_search import _load_candidates, build_ephemeral_job
+    from app.services.talent_radar_search import _load_candidates
 
     if not ids:
-        return []
-    job = build_ephemeral_job(_radar_query(run))
-    enforce_operation(job, "search", force=True)
-    profile = await resolve_active_profile(
-        db, user_id=run.created_by, client_id=run.client_id
-    )
-    target = build_request_context(job, profile).as_job()
+        return [], {}
     candidates = await _load_candidates(db, list(ids))
-    kept, _annotations, _hidden, _, _ = await _gate_and_dealbreakers(
+    kept, annotations, _hidden, _, _ = await _gate_and_dealbreakers(
         db,
         job=target,
         ordered=candidates,
         now=datetime.now(timezone.utc),
         inputs=search_dealbreaker_inputs(target),
     )
-    return [c.id for c in kept]
+    kept_ids = [c.id for c in kept]
+    return kept_ids, {cid: annotations[cid] for cid in kept_ids if annotations.get(cid)}
 
 
 async def _already_in_job(db: AsyncSession, job_id: Optional[int]) -> set[int]:
@@ -590,14 +616,18 @@ async def execute_run(db: AsyncSession, run: DutySearchRun) -> None:
     plan, plan_ok = await _plan(db, run)
     t_plan = time.monotonic() - started
 
+    target = await _gate_target(db, run)
     canonical: list[int] = []
     fits: dict[int, float] = {}
     canonical_degraded = False
+    annotations: dict[int, dict] = {}
     try:
         # Punkt zapisu: błąd bazy w rankingu nie może zostawić przerwanej
         # transakcji, bo dalej idzie pula celu na tej samej sesji.
         async with db.begin_nested():
-            canonical, fits, canonical_degraded = await _canonical(db, run)
+            canonical, fits, canonical_degraded, annotations = await _canonical(
+                db, run, target
+            )
     except Exception as exc:  # noqa: BLE001 — zostaje pula celu
         logger.warning(
             "[duty-search] kanoniczny ranking nieudany (%s): %s", run.id, exc
@@ -608,7 +638,9 @@ async def execute_run(db: AsyncSession, run: DutySearchRun) -> None:
         raise DutySearchFailed("retrieval_unavailable")
 
     excluded = await _already_in_job(db, run.job_id)
-    eligible = set(await _eligible(db, run, goal_pool[:POOL_SIZE]))
+    goal_kept, goal_annotations = await _eligible(db, target, goal_pool[:POOL_SIZE])
+    eligible = set(goal_kept)
+    annotations = {**annotations, **goal_annotations}
     canonical = [c for c in canonical if c not in excluded][:CANONICAL_TOP]
     goal_ids = [c for c in goal_pool if c in eligible and c not in excluded]
     judged_ids = list(dict.fromkeys([*canonical, *goal_ids[:GOAL_POOL_JUDGED]]))
@@ -629,6 +661,9 @@ async def execute_run(db: AsyncSession, run: DutySearchRun) -> None:
         a = assessments.get(cid) or Assessment(
             tier="brak", confidence=None, error="missing"
         )
+        stored = a.as_dict()
+        if annotations.get(cid):
+            stored["eligibility"] = annotations[cid]
         db.add(
             DutySearchResult(
                 run_id=run.id,
@@ -638,7 +673,7 @@ async def execute_run(db: AsyncSession, run: DutySearchRun) -> None:
                 confidence=a.confidence,
                 fit_score=fits.get(cid),
                 from_goal_only=cid not in canonical_set,
-                assessment=a.as_dict(),
+                assessment=stored,
             )
         )
     counts = {tier: sum(1 for c in order if tiers.get(c) == tier) for tier in TIERS}

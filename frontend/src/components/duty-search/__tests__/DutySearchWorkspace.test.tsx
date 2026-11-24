@@ -146,6 +146,45 @@ describe("DutySearchWorkspace (rekrutacja)", () => {
     expect(await within(cards[0]).findByRole("button", { name: /Dodano/ })).toBeTruthy();
   });
 
+  it("weto hiring managera: powód na karcie i zablokowane dodanie; konflikt klienta tylko ostrzega", async () => {
+    const base = run().results[0];
+    const vetoed = {
+      ...base,
+      eligibility: {
+        reason_code: "hiring_manager_rejected",
+        reason: "Hiring manager odrzucił tę osobę",
+        assignment_allowed: false,
+        visibility: "warn" as const,
+        severity: "hard",
+        secondary: [],
+      },
+    };
+    const conflict = {
+      ...base,
+      candidate_id: 13,
+      name: "Ewa M",
+      eligibility: {
+        reason_code: "client_nda",
+        reason: "Konflikt z klientem",
+        assignment_allowed: true,
+        visibility: "warn" as const,
+        severity: "soft",
+        secondary: [],
+      },
+    };
+    jobLatest.mockResolvedValue({ has_duties: true, duties: "x".repeat(40), title: "R", run: run({ results: [vetoed, conflict] }), usage: USAGE });
+    renderJob();
+    const cards = await screen.findAllByTestId("duty-result");
+    expect(cards).toHaveLength(2);
+    expect(within(cards[0]).getByTestId("duty-eligibility-11").textContent).toContain("Hiring manager odrzucił");
+    const blockedAdd = within(cards[0]).getByRole("button", { name: /Dodaj do Nowych/ }) as HTMLButtonElement;
+    expect(blockedAdd.disabled).toBe(true);
+    fireEvent.click(blockedAdd);
+    expect(bulkAdd).not.toHaveBeenCalled();
+    expect(within(cards[1]).getByTestId("duty-eligibility-13").textContent).toContain("Konflikt z klientem");
+    expect((within(cards[1]).getByRole("button", { name: /Dodaj do Nowych/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("„Szukaj ponownie” po przeładowaniu wysyła cel widoczny w polu, nie obowiązki z Championa", async () => {
     const edited = "Własny opis celu: wdrożenie release managementu w GCP dla banku, CAB, RFC.";
     jobLatest.mockResolvedValue({
