@@ -98,11 +98,14 @@ export function CheckIcon({ size = 16 }: { size?: number }) {
 export function SiteFrame({
   homeHref,
   rodoHref,
+  pageLabel,
   children,
 }: {
-  /** Strona główna kariery (lista rekrutacji). */
-  homeHref: string;
-  rodoHref: string;
+  /** Strona główna kariery (lista rekrutacji); `null` = ekran bez kontekstu żądania (błąd, ładowanie). */
+  homeHref: string | null;
+  rodoHref: string | null;
+  /** Adres tej strony w stopce, np. „kariera.b2bnetwork.pl/marta-n” (strona rekrutera). */
+  pageLabel?: string;
   children: ReactNode;
 }) {
   return (
@@ -114,9 +117,13 @@ export function SiteFrame({
               {l.label}
             </a>
           ))}
-          <a href={homeHref} aria-current="page" className={s.navCur}>
-            Kariera
-          </a>
+          {homeHref ? (
+            <a href={homeHref} aria-current="page" className={s.navCur}>
+              Kariera
+            </a>
+          ) : (
+            <span className={s.navCur}>Kariera</span>
+          )}
           {TOP_LINKS.slice(1).map((l) => (
             <a key={l.href} href={l.href}>
               {l.label}
@@ -144,7 +151,7 @@ export function SiteFrame({
               </svg>
             </summary>
             <div className={s.menuList}>
-              <a href={homeHref}>Kariera: wszystkie rekrutacje</a>
+              {homeHref ? <a href={homeHref}>Kariera: wszystkie rekrutacje</a> : null}
               {[...NAV_LINKS, ...TOP_LINKS].map((l) => (
                 <a key={l.href} href={l.href}>
                   {l.label}
@@ -173,11 +180,12 @@ export function SiteFrame({
           <div className={s.footerRight}>
             <nav className={s.footerNav} aria-label="Stopka">
               <a href={COMPANY_SITE}>B2Bnetwork</a>
-              <a href={homeHref}>Kariera</a>
+              {homeHref ? <a href={homeHref}>Kariera</a> : null}
               <a href={site("/kontakt")}>Kontakt</a>
               <a href={site("/grupa")}>O firmie</a>
-              <a href={rodoHref}>Klauzula RODO dla kandydatów</a>
+              {rodoHref ? <a href={rodoHref}>Klauzula RODO dla kandydatów</a> : null}
             </nav>
+            {pageLabel ? <p className={s.mono}>{pageLabel}</p> : null}
             <p>© {new Date().getFullYear()} B2B.NET S.A.</p>
           </div>
         </div>

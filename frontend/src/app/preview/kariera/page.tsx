@@ -8,22 +8,17 @@
  * etap 6) z pustą tablicą i awarią API, rekrutacja otwarta, formularz
  * z błędami, podziękowanie, rekrutacja zamknięta, stały link rekrutera.
  *
- * Od 23.11.2026 lista i oferta w jednym szablonie nowej strony B2B Network
- * (`components/career/site/`); `?szablon=<id>` zmienia już tylko stronę
- * rekrutera i formularz z błędami w starej ramie marki.
+ * Od 23.11.2026 lista i oferta, od 24.11.2026 także strona rekrutera w jednym
+ * szablonie nowej strony B2B Network (`components/career/site/`).
  */
 import type { Metadata } from "next";
-import { use } from "react";
 
-import { brandStyles } from "@/components/career/brand/BrandShell";
-import { CareerApplyForm } from "@/components/career/CareerApplyForm";
-import { CareerRecruiterView } from "@/components/career/CareerRecruiterView";
+import CareerLoading from "@/app/kariera/loading";
 import { CareerTheme } from "@/components/career/CareerTheme";
-import { CareerThemeScope } from "@/components/career/CareerThemeScope";
-import { CAREER_THEME_IDS, CAREER_THEMES, isCareerThemeId } from "@/components/career/themes";
 import { OgCard } from "@/components/career/ogCard";
 import { CareerBoard } from "@/components/career/site/CareerBoard";
 import { OfferPage } from "@/components/career/site/OfferPage";
+import { RecruiterPage } from "@/components/career/site/RecruiterPage";
 import { OfferSent } from "@/components/career/site/SentGate";
 import { SiteFrame } from "@/components/career/site/SiteFrame";
 import { processSteps } from "@/components/career/requirementItems";
@@ -97,7 +92,7 @@ const CLOSED_JOB_NO_LINK: CareerJobResponse = {
   ],
 };
 
-// Etap 6 (makieta 6d): „O mnie”, szablon i kategoria każdej rekrutacji.
+// Strona rekrutera: „O mnie” i rekrutacje osoby (szablon i kategoria zostają w kształcie API).
 const RECRUITER: CareerRecruiterResponse = {
   recruiter: {
     first_name: "Marta",
@@ -203,7 +198,6 @@ const STATES = [
   { id: "tablica-pusta", label: "tablica bez rekrutacji" },
   { id: "tablica-awaria", label: "tablica — awaria API" },
   { id: "otwarta", label: "rekrutacja otwarta" },
-  { id: "bledy", label: "formularz z błędami" },
   { id: "oferta-bledy", label: "oferta — formularz z błędami" },
   { id: "grafiki", label: "grafika posta" },
   { id: "dziekujemy", label: "podziękowanie" },
@@ -211,6 +205,7 @@ const STATES = [
   { id: "zamknieta-bez-linku", label: "zamknięta, bez tablicy" },
   { id: "rekruter", label: "stały link rekrutera" },
   { id: "rekruter-pusty", label: "rekruter bez opisu i rekrutacji" },
+  { id: "ladowanie", label: "ładowanie strony" },
 ];
 
 function State({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
@@ -235,14 +230,7 @@ function State({ id, label, children }: { id: string; label: string; children: R
   );
 }
 
-export default function CareerPreviewPage({
-  searchParams,
-}: {
-  searchParams?: Promise<{ szablon?: string }>;
-}) {
-  // `use` wolno wołać warunkowo; test renderuje stronę bez parametrów.
-  const { szablon } = searchParams ? use(searchParams) : {};
-  const theme = isCareerThemeId(szablon) ? szablon : undefined;
+export default function CareerPreviewPage() {
   return (
     <div style={{ background: "#000" }}>
       <nav
@@ -252,21 +240,6 @@ export default function CareerPreviewPage({
         {STATES.map((s) => (
           <a key={s.id} href={`#${s.id}`} style={{ color: "#D14A5F" }}>
             #{s.id}
-          </a>
-        ))}
-      </nav>
-      <nav
-        aria-label="Szablony"
-        style={{ display: "flex", flexWrap: "wrap", gap: 12, padding: "0 16px 16px", fontFamily: "monospace", fontSize: 12 }}
-      >
-        {CAREER_THEME_IDS.map((id) => (
-          <a
-            key={id}
-            href={`?szablon=${id}#rekruter`}
-            style={{ color: id === (theme ?? "grafit") ? "#F5F5F5" : "#8B8B8B" }}
-            aria-current={id === (theme ?? "grafit") ? "page" : undefined}
-          >
-            {CAREER_THEMES[id].label}
           </a>
         ))}
       </nav>
@@ -319,31 +292,6 @@ export default function CareerPreviewPage({
         />
       </State>
 
-      <State id="bledy" label="formularz z błędami">
-        <CareerThemeScope theme={theme}>
-          <div className={`${brandStyles.root} ${brandStyles.wrap}`} style={{ padding: "32px 20px", maxWidth: 720 }}>
-            <div className={`${brandStyles.apply} ${brandStyles.form}`}>
-            <CareerApplyForm
-              linkSlug="senior-java-developer-7kq2"
-              variant="job"
-              rodoHref={`${BASE}/rodo`}
-              tone="plain"
-              preview={{
-                disableSubmit: true,
-                values: { first_name: "Jan", last_name: "Kowalski", email: "jan@firma-.pl" },
-                errors: {
-                  email:
-                    "sprawdź adres — po @ nie może być myślnika na początku ani na końcu części domeny",
-                  cv: "dodaj CV — pdf, doc lub docx do 10 MB",
-                  consent: "bez zgody nie możemy przyjąć zgłoszenia",
-                },
-              }}
-            />
-            </div>
-          </div>
-        </CareerThemeScope>
-      </State>
-
       <State id="dziekujemy" label="podziękowanie">
         <SiteFrame homeHref={BASE} rodoHref={`${BASE}/rodo`}>
           <OfferSent
@@ -367,16 +315,15 @@ export default function CareerPreviewPage({
       </State>
 
       <State id="rekruter" label="stały link rekrutera">
-        <CareerRecruiterView data={RECRUITER} base={BASE} host={HOST} theme={theme} formPreview={{ disableSubmit: true }} />
+        <RecruiterPage data={RECRUITER} board={BOARD.jobs} base={BASE} host={HOST} formPreview={{ disableSubmit: true }} />
       </State>
 
       <State id="rekruter-pusty" label="rekruter bez opisu i rekrutacji">
-        <CareerRecruiterView
-          data={RECRUITER_EMPTY}
-          base={BASE}
-          host={HOST}
-          formPreview={{ disableSubmit: true }}
-        />
+        <RecruiterPage data={RECRUITER_EMPTY} board={null} base={BASE} host={HOST} formPreview={{ disableSubmit: true }} />
+      </State>
+
+      <State id="ladowanie" label="ładowanie strony">
+        <CareerLoading />
       </State>
     </div>
   );

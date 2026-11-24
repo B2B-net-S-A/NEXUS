@@ -35,7 +35,6 @@ describe("/preview/kariera", () => {
       "tablica bez rekrutacji",
       "tablica — awaria API",
       "rekrutacja otwarta",
-      "formularz z błędami",
       "podziękowanie",
       "rekrutacja zamknięta",
       "zamknięta, bez tablicy",
@@ -43,6 +42,7 @@ describe("/preview/kariera", () => {
       "grafika posta",
       "stały link rekrutera",
       "rekruter bez opisu i rekrutacji",
+      "ładowanie strony",
     ]) {
       expect(screen.getByRole("region", { name })).toBeInTheDocument();
     }
@@ -128,15 +128,6 @@ describe("/preview/kariera", () => {
     expect(optional?.required).toBe(false);
   });
 
-  it("formularz z błędami: podsumowanie role=alert i wpisane dane", () => {
-    render(<CareerPreviewPage />);
-    const errors = screen.getByRole("region", { name: "formularz z błędami" });
-    const alert = within(errors).getByRole("alert");
-    expect(alert).toHaveTextContent("popraw 3 pola:");
-    expect(alert).toHaveTextContent("cv · e-mail · zgoda");
-    expect(within(errors).getByDisplayValue("jan@firma-.pl")).toHaveAttribute("aria-invalid", "true");
-  });
-
   it("stały link rekrutera linkuje do rekrutacji", () => {
     render(<CareerPreviewPage />);
     const general = screen.getByRole("region", { name: "stały link rekrutera" });
@@ -146,36 +137,41 @@ describe("/preview/kariera", () => {
     );
   });
 
-  it("strona rekrutera (makieta 6d): imię bez nazwiska, „O mnie”, kategorie, tablica", () => {
+  it("strona rekrutera w ramie nowej strony: imię bez nazwiska, „O mnie”, karty bez kategorii", () => {
     render(<CareerPreviewPage />);
     const page = screen.getByRole("region", { name: "stały link rekrutera" });
-    expect(within(page).getByRole("heading", { level: 1 })).toHaveTextContent(
-      "Marta. Rekrutuję w IT.",
-    );
+    expect(within(page).getByRole("heading", { level: 1 })).toHaveTextContent("Marta. Rekrutuję w IT.");
     expect(within(page).getByText(/Szukam ludzi do projektów w bankowości/)).toBeInTheDocument();
-    const chips = within(page).getByRole("list", { name: "Rekrutuję w obszarach" });
-    expect(within(chips).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
-      "Development",
-      "Infra & data",
-      "Management & delivery",
-    ]);
-    const job = within(page).getByRole("link", { name: /DevOps Engineer Azure/ });
-    // Etykiety sceny przy rekrutacji nie ma od 28.10.2026 (trzy szablony zamiast 12 scen).
-    expect(job).not.toHaveTextContent("scena:");
+    // Kategorii na stronie kariery nie ma (decyzja Artura 23.11.2026) — ani plakietek, ani nazw.
+    expect(within(page).queryByRole("list", { name: "Rekrutuję w obszarach" })).toBeNull();
+    expect(page.textContent).not.toMatch(/Development|Infra & data|Management & delivery/);
+    // Karty ofert jak na liście: z tablicy podtytuł i technologie, bez „Rekruter: Marta”.
+    const jobs = within(page).getByRole("region", { name: "Moje otwarte rekrutacje" });
+    expect(within(jobs).getAllByRole("article")).toHaveLength(3);
+    expect(within(jobs).getByRole("link", { name: "Zobacz: Senior Java Developer" })).toHaveAttribute(
+      "href",
+      "/kariera/r/senior-java-developer-7kq2",
+    );
+    expect(within(jobs).getByText("Kafka")).toBeInTheDocument();
+    expect(jobs.textContent).not.toMatch(/Rekruter:/);
     expect(within(page).getByRole("heading", { level: 2, name: "Nic nie pasuje? Zostaw CV u Marty." })).toBeInTheDocument();
     expect(
       within(page).getByRole("link", { name: "Wszystkie otwarte rekrutacje B2Bnetwork →" }),
     ).toHaveAttribute("href", "/kariera");
+    expect(within(page).getByRole("link", { name: "Zostaw CV" })).toHaveAttribute("href", "#aplikuj");
     // Formularz do bazy: jedna obowiązkowa zgoda na przyszłe procesy (bez zmian reguł).
-    expect(page.querySelector('input[name="consent"]')).not.toBeNull();
-    expect(page.querySelector('input[name="consent_future"]')).toBeNull();
+    const form = within(page).getByRole("region", { name: "Zostaw CV u Marty" });
+    expect(form.querySelector('input[name="consent"]')).not.toBeNull();
+    expect(form.querySelector('input[name="consent_future"]')).toBeNull();
+    expect(page.querySelector("footer")).toHaveTextContent("nexus.b2bnetwork.pl/kariera/p/marta-n");
   });
 
-  it("strona rekrutera bez opisu i rekrutacji: zdanie zamiast pustej listy", () => {
+  it("strona rekrutera bez opisu, rekrutacji i tablicy: zdanie zamiast pustej listy", () => {
     render(<CareerPreviewPage />);
     const page = screen.getByRole("region", { name: "rekruter bez opisu i rekrutacji" });
     expect(within(page).getByText(/Teraz nie mam otwartych rekrutacji/)).toBeInTheDocument();
-    expect(within(page).queryByRole("list", { name: "Rekrutuję w obszarach" })).toBeNull();
+    expect(within(page).getByText(/Zostaw CV raz — odezwę się/)).toBeInTheDocument();
+    expect(within(page).queryByRole("article")).toBeNull();
     expect(within(page).getByRole("heading", { level: 2, name: "Zostaw CV u Oli." })).toBeInTheDocument();
   });
 
