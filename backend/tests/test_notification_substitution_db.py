@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
@@ -152,3 +153,91 @@ async def test_dl_alert_goes_to_substitute_and_stays_live(db, monkeypatch):
     )
     assert created[0].message.startswith("W zastępstwie za ")
     assert isinstance(created[0], DlAlert)
+
+
+@pytest.mark.asyncio
+async def test_dl_alert_mail_reaches_substitute_outside_client_scope(
+    monkeypatch, routine_notification_email_enabled
+):
+    """Zastępca DL-a nie jest przypisany do klienta, a mail T-14 i tak ma do
+    niego dojść (audyt r4, 24.11.2026): bramka `for_client` odrzucała wiersz
+    i mail nie szedł do nikogo."""
+    pytest.importorskip("asyncpg")
+    import app.services.email as email_mod
+    import app.services.m365.system_mail as system_mail
+    from sqlalchemy import delete
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.dl_alert import ALERT_PERIODIC_ORDER_ENDING
+    from app.models.team_structure import DeliveryLeadClientAssignment
+
+    sent: list[str] = []
+
+    async def _no_connection(_db):
+        return None
+
+    monkeypatch.setattr(system_mail, "get_system_sender_connection", _no_connection)
+    monkeypatch.setattr(email_mod, "email_channel_enabled", lambda: True)
+    monkeypatch.setattr(
+        email_mod,
+        "send_email",
+        lambda to, subject, text, html=None: sent.append(to) or True,
+    )
+    monkeypatch.setattr(settings, "DL_ALERTS_ENABLED", True)
+    monkeypatch.setattr(settings, "DL_ALERT_EMAIL_ENABLED", True)
+
+    try:
+        async with AsyncSessionLocal() as session:
+            owner, substitute = await _user(session), await _user(session)
+            owner.role = substitute.role = UserRole.delivery_lead
+            client = Client(name=f"Zast mail {uuid.uuid4().hex[:8]}")
+            session.add(client)
+            await session.flush()
+            session.add(
+                DeliveryLeadClientAssignment(
+                    client_id=client.id, delivery_lead_user_id=owner.id
+                )
+            )
+            await session.commit()
+            owner_id, substitute_id, client_id = owner.id, substitute.id, client.id
+            owner_email, substitute_email = owner.email, substitute.email
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"DB unavailable: {exc}")
+
+    monkeypatch.setattr(
+        dl_alerts,
+        "workforce_context",
+        _covering(SimpleNamespace(id=owner_id), SimpleNamespace(id=substitute_id)),
+    )
+    try:
+        async with AsyncSessionLocal() as session:
+            created = await dl_alerts.emit(
+                session,
+                alert_type=ALERT_PERIODIC_ORDER_ENDING,
+                user_ids=[owner_id],
+                client_id=client_id,
+                entity_key=f"order:{uuid.uuid4().int % 10**9}:end:2026-12-10",
+                title="Zamówienie kończy się",
+                message="m",
+                link="/clients/1?tab=zamowienia&order=1",
+                stage="t14",
+                email=True,
+            )
+            await session.commit()
+            assert [row.user_id for row in created] == [substitute_id]
+            await dl_alerts.send_pending_alert_emails(session)
+
+        assert sent.count(substitute_email) == 1
+        assert owner_email not in sent
+        async with AsyncSessionLocal() as session:
+            row = await session.get(DlAlert, created[0].id)
+            assert row.email_sent_at is not None
+    finally:
+        async with AsyncSessionLocal() as session:
+            await session.execute(delete(DlAlert).where(DlAlert.client_id == client_id))
+            await session.execute(
+                delete(DeliveryLeadClientAssignment).where(
+                    DeliveryLeadClientAssignment.client_id == client_id
+                )
+            )
+            await session.commit()

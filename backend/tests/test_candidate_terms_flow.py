@@ -434,3 +434,69 @@ async def test_daily_limit_sends_newest_applications_first(
     finally:
         await _cleanup(older)
         await _cleanup(newer)
+
+
+@pytest.fixture
+def uncertain_graph(monkeypatch, routine_notification_email_enabled):
+    """Graph odpowiada 502/504 po POST: nadawca zwraca False i zapala flagę
+    „nie wiadomo” — w swoim wątku, jak `send_via_graph_app`."""
+    from app.core.config import settings
+    from app.services import email
+    from app.services.m365 import app_mail
+
+    calls: list[str] = []
+
+    def send(to, *a, **k):
+        calls.append(to)
+        app_mail._delivery_local.uncertain = True
+        return False
+
+    monkeypatch.setattr(settings, "M365_APP_MAIL_ENABLED", True)
+    monkeypatch.setattr(settings, "CANDIDATE_MAIL_SENDER_UPN", "kandydaci@example.com")
+    monkeypatch.setattr(email, "send_email", send)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_deliver_reads_uncertain_flag_in_its_own_thread(uncertain_graph):
+    """Flaga jest per wątek: odczyt w pętli zdarzeń po `to_thread` jej nie widzi
+    (audyt r4, 24.11.2026) — `_deliver` zwraca ją razem z wynikiem."""
+    import asyncio
+
+    from app.services import candidate_terms as rules
+    from app.services.candidate_terms_queue import _deliver
+    from app.services.m365.app_mail import last_delivery_uncertain
+
+    message = rules.TermsEmail(subject="s", text_body="t", html_body="<p>t</p>")
+    result = await asyncio.to_thread(
+        _deliver,
+        message,
+        to="kandydat@example.com",
+        event_at=datetime.now(timezone.utc),
+    )
+    assert result == (False, True)
+    assert uncertain_graph == ["kandydat@example.com"]
+    assert last_delivery_uncertain() is False  # w tym wątku flagi nie ma
+
+
+@pytest.mark.asyncio
+async def test_uncertain_send_keeps_the_link_from_the_mail(
+    app_client: AsyncClient, app_auth_headers: dict, uncertain_graph
+):
+    """502/504 po POST = mail mógł dojść. Wiersz zostaje „sent” z tokenem, żeby
+    link z maila działał; wcześniej dostawał „failed” i tracił token."""
+    cid = await _seed()
+    try:
+        r = await app_client.post(
+            f"/api/candidates/{cid}/sources",
+            json={"channel": "posting", "utm_source": "pracuj", "note": NOTE},
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 201, r.text
+        await _send_queue()
+        (row,) = await _rows(cid)
+        assert row.action == "link"
+        assert row.status == "sent"
+        assert row.token_sha256 is not None and row.expires_at is not None
+    finally:
+        await _cleanup(cid)

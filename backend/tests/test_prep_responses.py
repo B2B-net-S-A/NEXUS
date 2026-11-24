@@ -379,6 +379,56 @@ async def test_prep_attention_also_reaches_the_dl(
     assert NotificationType.prep_attention in types
 
 
+async def test_missing_prep_1_and_prep_2_of_one_interview_both_reach_the_dl(
+    app_client: AsyncClient, rgraph: ResponseGraph, monkeypatch
+):
+    """Audyt r4 (24.11.2026): brak Prepu 1 i Prepu 2 tej samej rozmowy miał to
+    samo ``related_entity_id``, a ``ix_notif_dedup_daily`` nie zna rodzaju
+    encji — drugi dzwonek tego dnia ginął. Ponowny przebieg nie dzwoni drugi raz."""
+    ctx = await _prep2_by_recruiter(app_client)
+    rec_id, _ = ctx["rec"]
+    dl_id, _ = ctx["dl"]
+    async with AsyncSessionLocal() as db:
+        prep = await db.scalar(
+            select(PrepMeeting).where(PrepMeeting.calendar_event_id == ctx["event_id"])
+        )
+        items = [
+            prep_attention.PrepAttention(
+                reason="missing",
+                prep_no=n,
+                candidate_id=prep.candidate_id,
+                job_id=prep.job_id,
+                interview_event_id=ctx["event_id"],
+                interview_start=datetime.now(timezone.utc) + timedelta(hours=12),
+                prep_event_id=None,
+                owner_id=rec_id,
+                urgent=True,
+            )
+            for n in (1, 2)
+        ]
+
+    async def _items(_db, _now):
+        return items
+
+    monkeypatch.setattr(prep_attention, "load_prep_attention", _items)
+    for _ in range(2):
+        monkeypatch.setattr(notification_triggers, "_PREP_ATTENTION_LAST_RUN", None)
+        async with AsyncSessionLocal() as db:
+            await notification_triggers.check_prep_attention(
+                db, datetime.now(timezone.utc)
+            )
+            await db.commit()
+    titles = sorted(
+        n.title
+        for n in await _notes(dl_id)
+        if n.notification_type == NotificationType.prep_attention
+    )
+    assert titles == [
+        "Brak Prepu 1 przed rozmową u klienta",
+        "Brak Prepu 2 przed rozmową u klienta",
+    ]
+
+
 # ── Czyste (bez bazy) ────────────────────────────────────────────────────────
 
 

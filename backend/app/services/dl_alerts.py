@@ -141,6 +141,16 @@ def event_key_for(alert_type: str, entity_key: str, user_id: int) -> str:
     return f"{alert_type}:{entity_key}:{user_id}"
 
 
+def _nominal_user_id(alert: DlAlert) -> Optional[int]:
+    """DL, dla którego sprawa powstała: ostatni człon ``event_key``.
+
+    Przy zastępstwie ``user_id`` to zastępca, a klucz sprawy zostaje przy
+    nominalnym DL-u (``emit``) — stąd wiadomo, za kogo przyszedł wiersz.
+    """
+    tail = (alert.event_key or "").rsplit(":", 1)[-1]
+    return int(tail) if tail.isdigit() else None
+
+
 async def _episode_state(
     db: AsyncSession, *, event_key: str
 ) -> tuple[Optional[datetime], bool, int]:
@@ -1067,7 +1077,9 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
     sent = 0
     for alert, user in rows:
         alert_id = alert.id
-        if not user.email or alert.user_id not in scope.for_client(alert.client_id):
+        if not user.email or not scope.email_allowed(
+            alert.user_id, alert.client_id, _nominal_user_id(alert)
+        ):
             continue
         # Mail tylko do Delivery Leada (07.10.2026). Admin bez roli DL ma te
         # sprawy w panelu, ale nie w skrzynce — `for_client` (bramka maili, nie
