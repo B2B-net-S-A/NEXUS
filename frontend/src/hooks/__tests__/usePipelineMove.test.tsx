@@ -46,6 +46,8 @@ vi.mock("@/lib/api", () => ({
   api: { get: vi.fn(), post: (...a: unknown[]) => post(...a) },
   candidatesApi: { setRecruitmentClientRate: vi.fn() },
   pipelineApi: { move: (...a: unknown[]) => move(...a) },
+  // Gałąź `extractErrorMsg` dla błędów spoza axiosa (limit czasu, sieć).
+  extractErrorMsg: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   b2bGeneratorApi: {
     generated: (...a: unknown[]) => generatedList(...a),
     requestSignature: (...a: unknown[]) => requestSignature(...a),
@@ -97,6 +99,7 @@ vi.mock("@/components/v2/recruitment/DebriefRequiredDialog", () => ({
 
 import {
   CLIENT_SEND_DENIED_MESSAGE,
+  RATE_EDIT_DENIED_MESSAGE,
   usePipelineMove,
   type PipelineMoveControls,
   type PipelineMoveOptimisticAdapter,
@@ -1654,3 +1657,219 @@ describe("usePipelineMove — „Kiedy rozmowa u klienta?” (audyt 21.10.2026)"
 });
 
 const colIdOf = (c: KanbanColumn) => `def:${c.stage_def_id}`;
+
+describe("usePipelineMove — odmowy z okna „Zweryfikowany”", () => {
+  const verifiedCard = (id: number) =>
+    card({ id, candidate_id: id * 10, process_state_version: 1, candidate_expected_rate_hourly: 120 });
+
+  async function submitKeptRate(item: KanbanItem, b: ReturnType<typeof board>) {
+    React.act(() => controls.requestMove(item, b.fresh, b.verified));
+    fireEvent.click(await screen.findByRole("button", { name: "Zostaw zapisaną stawkę" }));
+  }
+
+  it("409 ELIGIBILITY_WARNING → „Przenieś mimo to” ponawia ruch z potwierdzeniem", async () => {
+    const item = verifiedCard(81);
+    const b = board({ fresh: [item] });
+    move
+      .mockRejectedValueOnce(
+        conflict("ELIGIBILITY_WARNING", { reason: "Kandydat ma NDA z tym klientem.", can_acknowledge: true }),
+      )
+      .mockResolvedValueOnce({ data: { id: 581, process_state_version: 2 } });
+    mount(b.all, { apply: vi.fn(), confirm: vi.fn() });
+
+    await submitKeptRate(item, b);
+    expect(await screen.findByText("Kandydat ma NDA z tym klientem.")).toBeInTheDocument();
+    expect(showError).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Przenieś mimo to" }));
+    await waitFor(() => expect(move).toHaveBeenCalledTimes(2));
+    expect(move.mock.calls[1][0]).toMatchObject({
+      candidate_id: 810,
+      stage: "verified",
+      acknowledge_eligibility: true,
+    });
+  });
+
+  it("409 PIPELINE_VERSION_CONFLICT: komunikat o cudzym ruchu i odświeżenie, bez ponowienia", async () => {
+    const item = verifiedCard(82);
+    const b = board({ fresh: [item] });
+    move.mockRejectedValueOnce(conflict("PIPELINE_VERSION_CONFLICT"));
+    const sync = vi.fn().mockResolvedValue(undefined);
+    const { invalidate } = mount(b.all, { apply: vi.fn(), sync });
+
+    await submitKeptRate(item, b);
+    await waitFor(() => expect(showError).toHaveBeenCalledTimes(1));
+    expect(showError.mock.calls[0][0]).toMatch(/przesunięty przez kogoś innego/);
+    await waitFor(() => expect(sync).toHaveBeenCalled());
+    expect(kanbanKeys(invalidate)).toEqual(expect.arrayContaining([["kanban", String(JOB_ID)], ["kanban", JOB_ID]]));
+    expect(move).toHaveBeenCalledTimes(1);
+  });
+
+  it("nieznany błąd: komunikat serwera i okno się zamyka (bez wiszącego „Przesuń”)", async () => {
+    const item = verifiedCard(83);
+    const b = board({ fresh: [item] });
+    move.mockRejectedValueOnce(new Error("Serwer chwilowo niedostępny."));
+    mount(b.all, { apply: vi.fn(), confirm: vi.fn() });
+
+    await submitKeptRate(item, b);
+    await waitFor(() => expect(showError).toHaveBeenCalledWith("Serwer chwilowo niedostępny."));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Zostaw zapisaną stawkę" })).toBeNull(),
+    );
+    expect(move).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("usePipelineMove — termin rozmowy u klienta po ruchu", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("podany termin zakłada rozmowę dopiero po potwierdzonym ruchu", async () => {
+    const createClientInterview = vi
+      .spyOn(interviewCycleApi, "createClientInterview")
+      .mockResolvedValue({} as never);
+    const item = card({ id: 74, candidate_id: 704 });
+    const b = board({ fresh: [item] });
+    post.mockResolvedValue({ data: { id: 903, process_state_version: 2 } });
+    mount(b.all);
+    React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
+    const dialog = await screen.findByRole("dialog", { name: "Kiedy rozmowa u klienta?" });
+    fireEvent.change(within(dialog).getByLabelText("Dzień"), { target: { value: "2099-02-10" } });
+    fireEvent.change(within(dialog).getByLabelText("Godzina"), { target: { value: "09:30" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Przesuń" }));
+    await waitFor(() => expect(createClientInterview).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][1]).toMatchObject({ candidate_id: 704, stage: "client_interview" });
+    expect(createClientInterview).toHaveBeenCalledWith({
+      candidate_id: 704,
+      job_id: JOB_ID,
+      start: new Date("2099-02-10T09:30").toISOString(),
+      duration_minutes: 60,
+    });
+    expect(showError).not.toHaveBeenCalled();
+  });
+
+  it("odmowa ruchu nie zakłada rozmowy w kalendarzu", async () => {
+    const createClientInterview = vi.spyOn(interviewCycleApi, "createClientInterview");
+    const item = card({ id: 75, candidate_id: 705 });
+    const b = board({ fresh: [item] });
+    post.mockRejectedValueOnce(new Error("Ruch niedozwolony."));
+    mount(b.all);
+    React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
+    const dialog = await screen.findByRole("dialog", { name: "Kiedy rozmowa u klienta?" });
+    fireEvent.change(within(dialog).getByLabelText("Dzień"), { target: { value: "2099-02-11" } });
+    fireEvent.change(within(dialog).getByLabelText("Godzina"), { target: { value: "11:00" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Przesuń" }));
+    await waitFor(() => expect(showError).toHaveBeenCalled());
+    expect(createClientInterview).not.toHaveBeenCalled();
+  });
+
+  it("ruch zapisany, termin nie: komunikat mówi, że karta jest już na „Rozmowie”", async () => {
+    vi.spyOn(interviewCycleApi, "createClientInterview").mockRejectedValue(new Error("Network Error"));
+    const item = card({ id: 76, candidate_id: 706 });
+    const b = board({ fresh: [item] });
+    post.mockResolvedValue({ data: { id: 904, process_state_version: 2 } });
+    mount(b.all);
+    React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
+    const dialog = await screen.findByRole("dialog", { name: "Kiedy rozmowa u klienta?" });
+    fireEvent.change(within(dialog).getByLabelText("Dzień"), { target: { value: "2099-02-12" } });
+    fireEvent.change(within(dialog).getByLabelText("Godzina"), { target: { value: "13:00" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Przesuń" }));
+    await waitFor(() => expect(showError).toHaveBeenCalledTimes(1));
+    expect(showError.mock.calls[0][0]).toMatch(/Rozmowa u klienta|terminu rozmowy/);
+  });
+
+  it("„Jeszcze bez terminów” przesuwa kartę i niczego nie zakłada", async () => {
+    const createClientInterview = vi.spyOn(interviewCycleApi, "createClientInterview");
+    const item = card({ id: 77, candidate_id: 707 });
+    const b = board({ fresh: [item] });
+    post.mockResolvedValue({ data: { id: 905, process_state_version: 2 } });
+    mount(b.all);
+    React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
+    const dialog = await screen.findByRole("dialog", { name: "Kiedy rozmowa u klienta?" });
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Jeszcze bez terminów" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Przesuń" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(createClientInterview).not.toHaveBeenCalled();
+  });
+
+  it("terminy od klienta: awaria wniosku do rekrutera daje komunikat, ruch zostaje", async () => {
+    vi.spyOn(interviewCycleApi, "slotRecipient").mockResolvedValue({
+      recruiter_name: "Rekruter Testowy",
+      substitute_name: null,
+      until: null,
+      is_you: false,
+    });
+    vi.spyOn(interviewCycleApi, "createSlots").mockRejectedValue(new Error("Network Error"));
+    const item = card({ id: 78, candidate_id: 708 });
+    const b = board({ fresh: [item] });
+    post.mockResolvedValue({ data: { id: 906, process_state_version: 2 } });
+    mount(b.all, undefined, { canSendClientSlots: true });
+    React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
+    const dialog = await screen.findByRole("dialog", { name: "Kiedy rozmowa u klienta?" });
+    fireEvent.change(within(dialog).getByLabelText("Termin 1"), { target: { value: "2099-01-16T10:00" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Przesuń i wyślij rekruterowi" }));
+    await waitFor(() => expect(showError).toHaveBeenCalledTimes(1));
+    expect(showError.mock.calls[0][0]).toMatch(/Rozmowa u klienta|terminów nie udało się/);
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("usePipelineMove — odmowy ruchu zbiorczego i wycofania", () => {
+  it("tablica tylko do odczytu: zbiorczo nikt nie idzie, komunikat wymienia pominiętych", async () => {
+    const items = [1, 2].map((n) => card({ id: 60 + n, candidate_id: 600 + n }));
+    const b = board({ fresh: items });
+    const onHandled = vi.fn();
+    mount(b.all, undefined, { readOnly: true });
+    await React.act(async () => {
+      await controls.requestBulkMove(items, b.screening, { onHandled });
+    });
+    expect(post).not.toHaveBeenCalled();
+    expect(showError).toHaveBeenCalledWith(
+      "Pominięto 2: Jan Kowalski601 — Tylko do odczytu — brak prawa zapisu w tym pipeline.; " +
+        "Jan Kowalski602 — Tylko do odczytu — brak prawa zapisu w tym pipeline.",
+    );
+    expect(onHandled).toHaveBeenCalledTimes(1);
+  });
+
+  it("karty już w kolumnie docelowej są pomijane bez komunikatu", async () => {
+    const items = [card({ id: 63, candidate_id: 603 })];
+    const b = board({ fresh: items });
+    const onHandled = vi.fn();
+    mount(b.all);
+    await React.act(async () => {
+      await controls.requestBulkMove(items, b.fresh, { onHandled });
+    });
+    expect(post).not.toHaveBeenCalled();
+    expect(showError).not.toHaveBeenCalled();
+    expect(onHandled).toHaveBeenCalledTimes(1);
+  });
+
+  it("„Zweryfikowany” zbiorczo bez prawa do stawek: odmowa, bez okna i bez ruchu", async () => {
+    useAuthStore.setState({ user: { id: 2, role: "user", email: "s@example.com" } } as never);
+    const items = [1, 2].map((n) => card({ id: 64 + n, candidate_id: 640 + n }));
+    const b = board({ fresh: items });
+    mount(b.all);
+    await React.act(async () => {
+      await controls.requestBulkMove(items, b.verified);
+    });
+    expect(showError).toHaveBeenCalledWith(RATE_EDIT_DENIED_MESSAGE);
+    expect(post).not.toHaveBeenCalled();
+    expect(move).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Przesuń" })).toBeNull();
+  });
+
+  it("„Wycofaj” w szablonie bez etapu „Wycofany” odsyła do „Odrzuć”", () => {
+    const item = card({ id: 67, candidate_id: 670 });
+    const b = board({ fresh: [item] });
+    mount(b.all);
+    React.act(() => controls.requestWithdraw(item));
+    expect(showError).toHaveBeenCalledWith("Ten szablon nie ma etapu „Wycofany” — użyj „Odrzuć”.");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("„Odrzuć” osoby spoza tablicy nie otwiera okna", () => {
+    const b = board({ fresh: [card({ id: 68, candidate_id: 680 })] });
+    mount(b.all);
+    React.act(() => controls.requestReject(card({ id: 69, candidate_id: 690 })));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(post).not.toHaveBeenCalled();
+  });
+});
