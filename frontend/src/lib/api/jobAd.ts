@@ -269,6 +269,8 @@ export interface AdRecentChannels {
   jobs: number;
   /** Kategoria JustJoin.IT z ostatniej publikacji w tej kategorii kompetencji. */
   jjit_category: string | null;
+  /** Powtórka: kanały z rekrutacji-szablonu tego klienta (brak = ostatnie klienta). */
+  from_job_id?: number | null;
 }
 
 /** Publikacja na JustJoin.IT przez kolejkę portali; `status` = ostatnie zlecenie. */

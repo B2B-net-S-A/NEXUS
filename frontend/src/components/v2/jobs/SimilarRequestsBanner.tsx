@@ -50,17 +50,25 @@ function statusTone(entry: RequestHistoryEntry): string {
   return "bg-muted text-muted-foreground";
 }
 
-export function SimilarRequestsBanner({
+/**
+ * Podobne requesty tego klienta (`POST /api/jobs/request-history/preview`).
+ * Wspólne dla banera w kolumnie requestu i banera Powtórki nad formularzem
+ * (wariant 2, 24.11.2026) — ten sam klucz zapytania, jedno zapytanie.
+ */
+export function useSimilarRequests({
   clientId,
   title,
   trainName,
   description,
-  templateJobId = null,
-  onUseAsTemplate,
-}: SimilarRequestsBannerProps) {
+}: {
+  clientId: number | null;
+  title: string;
+  trainName?: string | null;
+  description?: string | null;
+}) {
   const debouncedTitle = useDebouncedValue(title, 500);
 
-  const query = useQuery<RequestHistoryResponse>({
+  return useQuery<RequestHistoryResponse>({
     queryKey: ["request-history-preview", clientId, debouncedTitle, trainName ?? null],
     queryFn: async () => {
       const r = await requestHistoryApi.preview({
@@ -78,6 +86,17 @@ export function SimilarRequestsBanner({
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
+}
+
+export function SimilarRequestsBanner({
+  clientId,
+  title,
+  trainName,
+  description,
+  templateJobId = null,
+  onUseAsTemplate,
+}: SimilarRequestsBannerProps) {
+  const query = useSimilarRequests({ clientId, title, trainName, description });
 
   // Awaria zapytania o podobne requesty MUSI być widoczna — inaczej wygląda
   // jak twierdzenie „u tego klienta nie było nic podobnego" (kolejność jak

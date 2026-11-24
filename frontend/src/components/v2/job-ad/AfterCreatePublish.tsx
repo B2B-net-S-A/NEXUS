@@ -309,7 +309,9 @@ export function AfterCreatePublish({
   const toPublish = careerForced && !chosen.includes("kariera") ? [...chosen, "kariera" as const] : chosen;
   const count = toPublish.length;
   const historyNote =
-    state.recent_channels && state.recent_channels.jobs > 0
+    state.recent_channels?.from_job_id != null
+      ? `Zaznaczone jak w ${state.recent_channels.from_job_id}.`
+      : state.recent_channels && state.recent_channels.jobs > 0
       ? `Zaznaczone jak w ${state.recent_channels.jobs} ostatnich rekrutacjach tego klienta.`
       : "Ten klient nie ma jeszcze ogłoszeń — zaznaczone wszystkie kanały.";
 

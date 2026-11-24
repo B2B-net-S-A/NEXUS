@@ -4998,6 +4998,24 @@
     ]
   },
   {
+    "id": "nowa-rekrutacja-powtorka",
+    "pr": 3827,
+    "title": "Nowa rekrutacja: powtórka requestu jednym kliknięciem",
+    "why": "Ten sam request co poprzednio? Po odczycie maila baner „To wygląda na powtórkę”: „Użyj <nr>” bierze poprzednią rekrutację, z maila tylko różnice. Hiring managera potwierdzasz sam.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacje → Nowa rekrutacja → klient → „Wklej treść” → baner nad formularzem",
+    "href": "/jobs/new",
+    "section": "pipeline",
+    "dot_anchor": "new-job.fill-from"
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",

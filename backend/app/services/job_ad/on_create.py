@@ -12,6 +12,8 @@ w kroku „Ogłoszenie” (``/jobs/{id}?ogloszenie=nowa``).
   „Przygotuj” w oknie). Nigdy nie wywraca tworzenia.
 - :func:`recent_channels` — kanały, które zaznacza krok „Ogłoszenie”: te,
   których klient używał w większości ostatnich rekrutacji z ogłoszeniem.
+  Rekrutacja z szablonu tego samego klienta (wariant 2 „Powtórka”,
+  24.11.2026) bierze kanały szablonu, o ile ten miał jakiekolwiek ogłoszenie.
 
 Reguły: ``docs/claude/rekrutacja-tworzenie/ogloszenie-przy-utworzeniu.md``.
 """
@@ -66,12 +68,15 @@ class RecentChannels:
     jobs: int
     # Kategoria JustJoin.IT z ostatniej publikacji w tej samej kategorii kompetencji.
     jjit_category: Optional[str] = None
+    # Rekrutacja-szablon, z której wzięto kanały (Powtórka); None = ostatnie klienta.
+    from_job_id: Optional[int] = None
 
     def as_dict(self) -> dict:
         return {
             "channels": self.channels,
             "jobs": self.jobs,
             "jjit_category": self.jjit_category,
+            "from_job_id": self.from_job_id,
         }
 
 
@@ -122,9 +127,42 @@ async def _jjit_category(db: AsyncSession, job: Job) -> Optional[str]:
     )
 
 
+async def _template_job_id(db: AsyncSession, job: Job) -> Optional[int]:
+    """Szablon tego samego klienta, z którego powstała rekrutacja
+    (``created_from_template`` z ``source_job_id`` — zapis tworzenia)."""
+    details = await db.scalar(
+        select(Activity.details)
+        .where(
+            Activity.entity_type == "job",
+            Activity.entity_id == job.id,
+            Activity.action == "created_from_template",
+        )
+        .order_by(Activity.id.desc())
+        .limit(1)
+    )
+    source = (details or {}).get("source_job_id") if isinstance(details, dict) else None
+    if not isinstance(source, int) or source == job.id:
+        return None
+    client_id = await db.scalar(select(Job.client_id).where(Job.id == source))
+    if client_id is None or client_id != job.client_id:
+        return None
+    return source
+
+
 async def recent_channels(db: AsyncSession, job: Job) -> RecentChannels:
     """Kanały z większości ostatnich :data:`RECENT_JOBS` rekrutacji klienta,
-    które miały jakiekolwiek ogłoszenie. Klient bez historii = wszystkie."""
+    które miały jakiekolwiek ogłoszenie. Klient bez historii = wszystkie.
+    Rekrutacja z szablonu tego klienta = kanały szablonu (Powtórka)."""
+    template_id = await _template_job_id(db, job)
+    if template_id is not None:
+        used = (await _used_channels(db, [template_id]))[template_id]
+        if used:
+            return RecentChannels(
+                channels=[c for c in CHANNELS if c in used],
+                jobs=1,
+                jjit_category=await _jjit_category(db, job),
+                from_job_id=template_id,
+            )
     others = list(
         await db.scalars(
             select(Job.id)

@@ -37,6 +37,8 @@ const mocks = vi.hoisted(() => ({
   showSuccess: vi.fn(),
   showError: vi.fn(),
   searchParams: new URLSearchParams(),
+  // Podobne requesty klienta (baner Powtórki); domyślnie brak.
+  similar: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -98,6 +100,7 @@ vi.mock("@/components/clients/ClientSinglePicker", () => ({
 
 vi.mock("@/components/v2/jobs/SimilarRequestsBanner", () => ({
   SimilarRequestsBanner: () => null,
+  useSimilarRequests: () => mocks.similar(),
 }));
 
 import { NewJobPage } from "@/components/v2/jobs/new/NewJobPage";
@@ -448,6 +451,7 @@ beforeEach(() => {
   mocks.put.mockReset().mockResolvedValue({ data: {} });
   mocks.handoff.mockResolvedValue({ data: {} });
   mocks.listJobs.mockResolvedValue({ data: { items: [], total: 0 } });
+  mocks.similar.mockReturnValue({ data: undefined, isSuccess: false, isError: false });
 });
 
 describe("NewJobPage — jeden ekran: klient i „Wypełnij z…”", () => {
@@ -3088,5 +3092,150 @@ describe("NewJobPage — niedokończone formularze", () => {
         form: expect.objectContaining({ step: "review", requestRead: false }),
       }),
     );
+  });
+});
+
+describe("NewJobPage — wariant 2 „Powtórka” (24.11.2026)", () => {
+  const PREVIOUS = {
+    job_id: 43260,
+    title: "Senior Java Developer",
+    train_name: null,
+    same_train: false,
+    seniority: null,
+    status: "published",
+    is_in_progress: true,
+    outcome: null,
+    close_reason: null,
+    similarity: 0.9,
+    similarity_source: "sql_same_client",
+    closed_at: null,
+    created_at: "2026-11-13T09:00:00Z",
+    tth_days: null,
+    client_id: 7,
+    client_name: "Alior Bank",
+    champion_name: null,
+    champion_candidate_id: null,
+    champions_count: 0,
+    candidates_count: 69,
+    fee_rate: null,
+    fee_currency: null,
+    rate_unit: null,
+    tac_name: null,
+    delivery_lead_name: "Igor T.",
+  };
+  const SOURCE_JOB = {
+    id: 43260,
+    client_id: 7,
+    title: "Senior Java Developer",
+    rate_budget_hourly: 130,
+    rate_budget_hourly_min: 100,
+    remote_policy: "hybrid",
+    onsite_days_per_week: 2,
+    headcount: 1,
+    deadline_not_provided: true,
+    hiring_manager_contact_id: 501,
+    hiring_manager_name: "Anna Nowak",
+    champion_profile: {
+      stack: {
+        rows: [
+          { words: ["Java 17+"], level: "must" },
+          { words: ["Spring Boot"], level: "must" },
+          { words: ["Kafka"], level: "must" },
+        ],
+        critical: ["Java 17+"],
+      },
+      project: { about: "Stary opis.", key_task: "Upgrade Javy 8 → 17." },
+      screening_questions: [
+        { question: "Upgrade Javy?", ideal_answer: "Tak", deal_breaker: "Nie robił", key_task: true },
+        { question: "Kafka?", ideal_answer: "Tak", deal_breaker: "Nie zna" },
+      ],
+    },
+  };
+
+  function withRepeat() {
+    mocks.similar.mockReturnValue({
+      data: { in_progress: [PREVIOUS], closed: [], skill_frequency: {}, meta: {} },
+      isSuccess: true,
+      isError: false,
+    });
+    serveGets((url) =>
+      url === "/api/jobs/43260"
+        ? SOURCE_JOB
+        : url.startsWith("/api/jobs/43260/champion-profile")
+          ? { champion_profile: SOURCE_JOB.champion_profile }
+          : undefined,
+    );
+  }
+
+  it("po odczycie: baner nad formularzem, „Użyj” bierze 43260 i różnice z maila, HM do potwierdzenia", async () => {
+    withRepeat();
+    // Mail bez hiring managera — ten z 43260 czeka na „Potwierdź”.
+    await readRequest({
+      ...INTAKE,
+      hiring_manager_name: null,
+      hiring_manager_contact_id: null,
+      hiring_manager_contact_name: null,
+    });
+    const banner = await screen.findByTestId("repeat-request-banner");
+    expect(within(banner).getByText("To wygląda na powtórkę requestu u Alior Bank")).toBeInTheDocument();
+    const use = await within(banner).findByRole("button", {
+      name: "Użyj 43260 i przeczytaj z maila tylko różnice",
+    });
+    await waitFor(() => expect(use).toBeEnabled());
+    fireEvent.click(use);
+
+    await waitFor(() => expect(screen.queryByTestId("repeat-request-banner")).toBeNull());
+    expect(screen.getByTestId("repeat-fill-note")).toHaveTextContent("Wypełniono z 43260 i z maila");
+    // Wymagania z 43260 (z krytycznym), budżet z 43260, mail proponuje swój.
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("130");
+    const hm = offerChips().find((chip) => chip.dataset.unit === "hiringManager");
+    expect(hm).toHaveTextContent("Ta sama osoba co w 43260: Anna Nowak");
+    expect(screen.getAllByText("z 43260").length).toBeGreaterThan(0);
+
+    // „Cofnij wypełnienie” wraca do samego odczytu, a baner stoi znowu.
+    fireEvent.click(screen.getByRole("button", { name: /Cofnij wypełnienie/ }));
+    const again = await screen.findByTestId("repeat-request-banner");
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("170");
+
+    // Drugie „Użyj”, „Potwierdź” hiring managera — to już zmiana DL-a, więc
+    // po cofnięciu baner nie wraca (kolejne „Użyj” by ją nadpisało).
+    fireEvent.click(
+      await within(again).findByRole("button", { name: "Użyj 43260 i przeczytaj z maila tylko różnice" }),
+    );
+    const hmAgain = await waitFor(() => {
+      const chip = offerChips().find((c) => c.dataset.unit === "hiringManager");
+      expect(chip).toBeDefined();
+      return chip!;
+    });
+    fireEvent.click(within(hmAgain).getByRole("button", { name: "Potwierdź — Hiring manager" }));
+    await waitFor(() =>
+      expect(offerChips().some((chip) => chip.dataset.unit === "hiringManager")).toBe(false),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Cofnij wypełnienie/ }));
+    await waitFor(() => expect(screen.queryByTestId("repeat-fill-note")).toBeNull());
+    expect(screen.queryByTestId("repeat-request-banner")).toBeNull();
+  });
+
+  it("„Czytaj od zera” chowa baner i zostawia odczyt", async () => {
+    withRepeat();
+    await readRequest();
+    const banner = await screen.findByTestId("repeat-request-banner");
+    fireEvent.click(within(banner).getByRole("button", { name: "Czytaj od zera" }));
+    await waitFor(() => expect(screen.queryByTestId("repeat-request-banner")).toBeNull());
+    expect(screen.queryByTestId("repeat-fill-note")).toBeNull();
+  });
+
+  it("ręczna zmiana po odczycie chowa baner — „Użyj” nie nadpisze tego, co DL wpisał", async () => {
+    withRepeat();
+    await readRequest();
+    await screen.findByTestId("repeat-request-banner");
+    fireEvent.change(screen.getByLabelText("Budżet PLN/h"), { target: { value: "200" } });
+    await waitFor(() => expect(screen.queryByTestId("repeat-request-banner")).toBeNull());
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("200");
+  });
+
+  it("bez podobnych requestów baneru nie ma", async () => {
+    await readRequest();
+    expect(screen.queryByTestId("repeat-request-banner")).toBeNull();
   });
 });

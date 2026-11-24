@@ -125,6 +125,7 @@ const MISSING_RING = "border-warning ring-2 ring-warning-muted";
  * widzi, które pola sprawdzić, zanim kliknie „Utwórz”.
  */
 export function ProvenanceChip({ basis }: { basis?: FieldBasis }) {
+  const { templateLabel } = useContext(FormHintsContext);
   if (!basis) return null;
   return (
     <span
@@ -137,7 +138,7 @@ export function ProvenanceChip({ basis }: { basis?: FieldBasis }) {
       )}
       data-testid="provenance-chip"
     >
-      {FIELD_BASIS_LABEL[basis]}
+      {basis === "client_history" && templateLabel ? `z ${templateLabel}` : FIELD_BASIS_LABEL[basis]}
     </span>
   );
 }
@@ -161,6 +162,8 @@ interface FormHints {
   onAcceptOffer: (offer: IntakeOffer) => void;
   onDismissOffer: (offer: IntakeOffer) => void;
   missingText: string;
+  /** Numer rekrutacji-szablonu: plakietka „z 43260” zamiast „z podobnej rekrutacji”. */
+  templateLabel: string | null;
 }
 
 const FormHintsContext = createContext<FormHints>({
@@ -168,6 +171,7 @@ const FormHintsContext = createContext<FormHints>({
   onAcceptOffer: () => undefined,
   onDismissOffer: () => undefined,
   missingText: MISSING_NOTE_TEXT.request,
+  templateLabel: null,
 });
 
 const TEXT_ENTRY =
@@ -603,6 +607,8 @@ interface NewJobReviewFormProps {
   offers?: readonly IntakeOffer[];
   onAcceptOffer?: (offer: IntakeOffer) => void;
   onDismissOffer?: (offer: IntakeOffer) => void;
+  /** Numer rekrutacji-szablonu do plakietek przy polach („z 43260”). */
+  templateLabel?: string | null;
   /** Wybrany klient — lista kontaktów do wyboru hiring managera. */
   clientId: number | null;
   /** Harness `/preview/new-job`: bez zapytania o liczbę osób w bazie. */
@@ -629,6 +635,7 @@ export function NewJobReviewForm({
   offers = NO_OFFERS,
   onAcceptOffer = ignoreOffer,
   onDismissOffer = ignoreOffer,
+  templateLabel = null,
   ...sections
 }: NewJobReviewFormProps) {
   const hints = useMemo<FormHints>(
@@ -637,8 +644,9 @@ export function NewJobReviewForm({
       onAcceptOffer,
       onDismissOffer,
       missingText: MISSING_NOTE_TEXT[missingSource],
+      templateLabel,
     }),
-    [offers, onAcceptOffer, onDismissOffer, missingSource],
+    [offers, onAcceptOffer, onDismissOffer, missingSource, templateLabel],
   );
   return (
     <FormHintsContext.Provider value={hints}>
@@ -649,7 +657,7 @@ export function NewJobReviewForm({
 
 type ReviewSectionsProps = Omit<
   NewJobReviewFormProps,
-  "missingSource" | "offers" | "onAcceptOffer" | "onDismissOffer"
+  "missingSource" | "offers" | "onAcceptOffer" | "onDismissOffer" | "templateLabel"
 >;
 
 function ReviewSections({
