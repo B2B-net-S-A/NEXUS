@@ -906,6 +906,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.client_wait import client_wait_loop
     from app.tasks.own_hiring import own_hiring_loop
     from app.tasks.job_idle import job_idle_loop
+    from app.tasks.screening_stale import screening_stale_loop
     from app.tasks.job_p0_overdue import job_p0_overdue_loop
     from app.tasks.skill_proposals import skill_proposals_loop
     from app.tasks.kpi_email_reports import kpi_email_reports_loop
@@ -1104,6 +1105,8 @@ async def lifespan(app: FastAPI):
             "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
             # 28.10.2026: rekrutacje bez ruchu — przypomnienia DL/HoR, zamknięcie po 28 dniach.
             "job_idle": asyncio.create_task(job_idle_loop()),
+            # 23.11.2026: karty bez śladu 2 dni rob. wracają ze „Screeningu” do „Nowych”.
+            "screening_stale": asyncio.create_task(screening_stale_loop()),
             # 08.11.2026: pary bez odpowiedzi klienta — zamknięcie po 30 dniach, za wyłącznikiem.
             "client_wait": asyncio.create_task(client_wait_loop()),
             "own_hiring": asyncio.create_task(own_hiring_loop()),

@@ -399,6 +399,10 @@ export interface KanbanItem {
    rate_hourly?: number | null;
  } | null;
  contact_attempts?: number;
+ /** Dzień (RRRR-MM-DD), w którym karta ze „Screeningu” wróci do „Nowych”,
+  *  a w „Nowych” straci „Biorę”, jeśli nie będzie śladu pracy (23.11.2026,
+  *  `services/screening_stale.py`). `null`/brak = reguła karty nie dotyczy. */
+ returns_to_new_on?: string | null;
 }
 
 /** Rodzaje odznaki terminarza — lustro `compute_badge`

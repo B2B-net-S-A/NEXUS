@@ -565,6 +565,21 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     if (!opts.quiet && method === "GET") emit({ type: "view", path, query: Object.fromEntries(query) });
     if (path === kanbanKey.slice(4)) return { status: 200, data: clone(kanban) };
     if (path === "/api/pipeline/move-requirements") return moveRequirements(query);
+    // „Odrzuć:” w panelu osoby (23.11.2026): na Poligonie stałe trzy powody,
+    // bo ćwiczący nie ma tu własnej historii odrzuceń.
+    if (path === "/api/pipeline/my-quick-reject-reasons") {
+      return {
+        status: 200,
+        data: {
+          since: new Date(now - 29 * 86_400_000).toISOString().slice(0, 10),
+          reasons: [
+            { key: "missing_skill", count: 12, source: "mine" },
+            { key: "too_junior", count: 9, source: "mine" },
+            { key: "too_expensive", count: 7, source: "mine" },
+          ],
+        },
+      };
+    }
     // Trenerzy poligonu nie mają urlopów.
     if (path === "/api/hr/leave/absence") return { status: 200, data: { on: new Date(now).toISOString().slice(0, 10), items: [] } };
 

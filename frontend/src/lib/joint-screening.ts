@@ -381,20 +381,59 @@ export function projectPair(
   };
 }
 
+/** Brak przed „Zapisz i przekaż dalej” — pytania bez odpowiedzi albo pole karty. */
+export type JointGap =
+  | { kind: "answers"; questionIds: string[]; label: string }
+  | { kind: "card"; key: string; label: string };
+
 /** Czego brakuje parze przed „Zapisz i przekaż dalej” — pusta lista = można. */
-export function forwardBlockers(pair: JointPair, projected: ScreeningFullFormValues): string[] {
+export function forwardGaps(pair: JointPair, projected: ScreeningFullFormValues): JointGap[] {
   const questions = formQuestions(pair.state);
   const missing = missingAnswersForForward(questions, projected);
-  const out: string[] = [];
+  const out: JointGap[] = [];
   if (missing.length > 0) {
-    out.push(missing.length === 1 ? "1 pytanie bez odpowiedzi" : `${missing.length} pytania bez odpowiedzi`);
+    out.push({
+      kind: "answers",
+      questionIds: missing,
+      label: missing.length === 1 ? "1 pytanie bez odpowiedzi" : `${missing.length} pytania bez odpowiedzi`,
+    });
   }
-  if (assessmentMissingForForward(pair.state, questions, projected)) out.push("„Dlaczego ten kandydat”");
+  if (assessmentMissingForForward(pair.state, questions, projected)) {
+    out.push({ kind: "card", key: "recommendation", label: "Dlaczego ten kandydat" });
+  }
   // Minimum dla Delivery Leada (21.10.2026) — ta sama reguła co bramka serwera.
   for (const key of minimumMissingForForward(pair.state, questions, projected)) {
-    out.push(`„${formFieldLabel(pair.state, key)}”`);
+    out.push({ kind: "card", key, label: formFieldLabel(pair.state, key) });
   }
   return out;
+}
+
+/** Braki pary jako tekst do komunikatu nad przyciskami. */
+export function forwardBlockers(pair: JointPair, projected: ScreeningFullFormValues): string[] {
+  return forwardGaps(pair, projected).map((gap) => (gap.kind === "card" ? `„${gap.label}”` : gap.label));
+}
+
+/**
+ * Pole formularza wspólnego, w którym klik w brak na pasku arkusza stawia
+ * kursor. `tab` — pole stoi w zakładce oceny tej rekrutacji, którą trzeba
+ * najpierw otworzyć. `null` — pole nie ma swojego miejsca (np. pytanie spoza
+ * grup), chip niczego nie robi.
+ */
+export function jointGapTarget(
+  pair: JointPair,
+  groups: readonly JointGroup[],
+  gap: JointGap,
+): { path: string; tab: boolean } | null {
+  if (gap.kind === "answers") {
+    const group = groups.find((g) =>
+      g.members.some((m) => m.jobId === pair.jobId && m.questionId === gap.questionIds[0]),
+    );
+    return group ? { path: `answers.${group.key}`, tab: false } : null;
+  }
+  if (SHARED_KEYS.has(gap.key)) return { path: `shared.card.${gap.key}`, tab: false };
+  if (gap.key === CLIENT_KEY) return { path: `clients.${clientKey(pair.clientId)}`, tab: false };
+  const perJobTerm = (PER_JOB_TERMS_KEYS as readonly string[]).includes(gap.key);
+  return { path: `jobs.${jobKey(pair.jobId)}.card.${gap.key}`, tab: !perJobTerm };
 }
 
 /** Odpowiedź tej pary narusza deal-breaker — nie przekazujemy jej sami. */

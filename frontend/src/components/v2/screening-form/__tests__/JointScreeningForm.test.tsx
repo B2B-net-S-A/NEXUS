@@ -26,6 +26,8 @@ const mocks = vi.hoisted(() => ({
   phrase: vi.fn(),
   reassignContext: vi.fn(),
   reassignSuggestions: vi.fn(),
+  noAnswer: vi.fn(),
+  noAnswerJob: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => {
@@ -76,11 +78,17 @@ vi.mock("@/components/v2/screening-form/NoteFillBar", () => ({
     </>
   ),
 }));
+vi.mock("@/hooks/useNoAnswerNote", () => ({
+  useNoAnswerNote: (args: { candidateId: number; jobId: number }) => {
+    mocks.noAnswerJob(args);
+    return { mutate: () => mocks.noAnswer(), isPending: false };
+  },
+}));
 vi.mock("@/hooks/usePipelineMoveCore", () => ({
   usePipelineMoveCore: () => ({ send: (...a: unknown[]) => mocks.send(...a), dialogs: null }),
 }));
 
-import { JointScreeningForm } from "../JointScreeningForm";
+import { JointScreeningForm, type JointScreeningFormProps } from "../JointScreeningForm";
 
 const CANDIDATE = 101;
 const QA = [
@@ -108,7 +116,7 @@ const OTHER: JointContextPair = {
   verified_stage_def_id: 44,
 };
 
-function mount() {
+function mount(extra: Partial<JointScreeningFormProps> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onForwarded = vi.fn();
   render(
@@ -126,6 +134,7 @@ function mount() {
         }}
         others={[OTHER]}
         onForwarded={onForwarded}
+        {...extra}
       />
     </QueryClientProvider>,
   );
@@ -663,5 +672,100 @@ describe("JointScreeningForm — pamięć rozmowy (16.10.2026, D1 A / D2 A)", ()
     const memory = readScreeningMemory(USER, CANDIDATE);
     expect(memory?.pairs["202"]?.answers).toEqual({ q1: "Od 1.11" });
     expect(memory?.pairs["201"]).toBeUndefined();
+  });
+
+  // „Arkusz rozmowy” (23.11.2026): ten sam formularz wspólny w Trybie rozmowy —
+  // pasek braków per rekrutacja, dwie kolumny, stopka na dole arkusza.
+  describe("sheet layout", () => {
+    function requireMinimum() {
+      for (const jobId of [201, 202]) {
+        states[jobId] = { ...states[jobId], card: { ...states[jobId].card!, required: ["availability", "recommendation"] } };
+      }
+    }
+
+    it("names gaps per recruitment, a shared field once, and drops them as the fields fill", async () => {
+      requireMinimum();
+      const user = userEvent.setup();
+      mount({ layout: "sheet" });
+      const bar = await screen.findByTestId("joint-sheet-gaps");
+      expect(screen.getByTestId("joint-screening-form")).toHaveAttribute("data-layout", "sheet");
+      expect(bar).toHaveTextContent("Do „Zweryfikowany” brakuje:");
+      expect(bar).toHaveTextContent("pytania 0 z 3");
+      // Dostępność jest wspólna — jeden brak, nie po jednym w każdej rekrutacji.
+      expect(within(screen.getByTestId("joint-sheet-gaps-shared")).getByRole("button", { name: "Dostępność" })).toBeInTheDocument();
+      expect(within(bar).getAllByRole("button", { name: "Dostępność" })).toHaveLength(1);
+      const anchorRow = screen.getByTestId("joint-sheet-gaps-201");
+      expect(within(anchorRow).getByRole("button", { name: "2 pytania bez odpowiedzi" })).toBeInTheDocument();
+      expect(within(anchorRow).getByRole("button", { name: "Dlaczego ten kandydat" })).toBeInTheDocument();
+      expect(within(screen.getByTestId("joint-sheet-gaps-202")).getByRole("button", { name: "Dlaczego ten kandydat" })).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText("Dostępność"), "od 1.12");
+      expect(screen.queryByTestId("joint-sheet-gaps-shared")).toBeNull();
+      await answerAll(user, { dealBreaker: false });
+      expect(bar).toHaveTextContent("pytania 3 z 3");
+      expect(within(anchorRow).queryByRole("button", { name: /bez odpowiedzi/ })).toBeNull();
+      await user.type(screen.getByLabelText(/· dla Programista Frontend/), "Mocny w Angularze");
+      await user.click(screen.getByRole("tab", { name: /Angular Developer/ }));
+      await user.type(screen.getByLabelText(/· dla Angular Developer/), "Mocny w RxJS");
+      expect(bar).toHaveTextContent("Do „Zweryfikowany”: komplet pól w 2 rekrutacjach");
+      expect(within(bar).queryAllByTestId("joint-sheet-gap")).toHaveLength(0);
+    });
+
+    it("a gap in another recruitment's assessment opens its tab and puts the cursor in the field", async () => {
+      requireMinimum();
+      const user = userEvent.setup();
+      mount({ layout: "sheet" });
+      const otherRow = await screen.findByTestId("joint-sheet-gaps-202");
+      expect(screen.getByRole("tab", { name: /Programista Frontend/ })).toHaveAttribute("aria-selected", "true");
+      await user.click(within(otherRow).getByRole("button", { name: "Dlaczego ten kandydat" }));
+      expect(screen.getByRole("tab", { name: /Angular Developer/ })).toHaveAttribute("aria-selected", "true");
+      await waitFor(() => expect(screen.getByLabelText(/· dla Angular Developer/)).toHaveFocus());
+      // Pytania: kursor w pierwszym pytaniu tej rekrutacji bez odpowiedzi.
+      await user.click(within(otherRow).getByRole("button", { name: "2 pytania bez odpowiedzi" }));
+      await waitFor(() => expect(screen.getByLabelText("Od kiedy możesz zacząć?")).toHaveFocus());
+      await user.click(within(screen.getByTestId("joint-sheet-gaps-shared")).getByRole("button", { name: "Dostępność" }));
+      await waitFor(() => expect(screen.getByLabelText("Dostępność")).toHaveFocus());
+    });
+
+    it("the footer saves each pair and logs „Nie odebrał” for the anchor recruitment", async () => {
+      const user = userEvent.setup();
+      mount({ layout: "sheet" });
+      await user.type(await screen.findByLabelText("Tryb pracy · Angular Developer"), "2 dni z biura");
+      const footer = screen.getByTestId("joint-screening-footer");
+      await user.click(within(footer).getByRole("button", { name: "Zapisz w 2" }));
+      await waitFor(() => expect(putFor(202)).toBeDefined());
+      expect(putFor(202)?.card?.fields?.work_mode).toBe("2 dni z biura");
+      expect(putFor(201)?.card?.fields ?? {}).not.toHaveProperty("work_mode");
+      expect(await within(footer).findByRole("status", { name: "Wynik zapisu" })).toBeInTheDocument();
+      await user.click(within(footer).getByRole("button", { name: /Nie odebrał/ }));
+      expect(mocks.noAnswer).toHaveBeenCalledTimes(1);
+      expect(mocks.noAnswerJob).toHaveBeenLastCalledWith({ candidateId: CANDIDATE, jobId: 201 });
+    });
+
+    it("forwarding with gaps says what is missing next to the buttons and saves nothing", async () => {
+      const user = userEvent.setup();
+      mount({ layout: "sheet" });
+      await user.type(await screen.findByLabelText("Jak używałeś RxJS w produkcji?"), "Strumienie");
+      const footer = screen.getByTestId("joint-screening-footer");
+      await user.click(within(footer).getByRole("button", { name: /Zapisz i przekaż dalej w 2/ }));
+      expect(await within(footer).findByRole("alert")).toHaveTextContent("Programista Frontend: 1 pytanie bez odpowiedzi");
+      expect(mocks.put).not.toHaveBeenCalled();
+    });
+
+    it("keeps „Idealnie” and „Odpada, gdy” under „pokaż”, as the single sheet does", async () => {
+      const user = userEvent.setup();
+      mount({ layout: "sheet" });
+      await screen.findByLabelText("Czy 2 dni w biurze są OK?");
+      expect(screen.queryByText("Tylko zdalnie")).toBeNull();
+      await user.click(screen.getByRole("button", { name: "deal-breaker · pokaż" }));
+      expect(screen.getByText("Tylko zdalnie")).toBeInTheDocument();
+    });
+
+    it("the column layout keeps the hints open and has no gaps bar", async () => {
+      mount();
+      await screen.findByLabelText("Czy 2 dni w biurze są OK?");
+      expect(screen.getByText("Tylko zdalnie")).toBeInTheDocument();
+      expect(screen.queryByTestId("joint-sheet-gaps")).toBeNull();
+    });
   });
 });

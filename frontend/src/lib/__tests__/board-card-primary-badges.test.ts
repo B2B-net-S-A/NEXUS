@@ -6,6 +6,7 @@ import {
   cardPrimaryBadges,
   closedRejectBy,
   dlWaitingStatus,
+  twoLineStateTitle,
   waitingWorkdaysText,
   type CardBadgeContext,
   type CardBadgeTone,
@@ -160,5 +161,27 @@ describe("U1: dwie plakietki i „+N”", () => {
     );
     expect(keys(primary)).toEqual(["autofill_caution_budget", "source"]);
     expect(more.map((x) => x.key)).toEqual(expect.arrayContaining(["autofill_due", "claim"]));
+  });
+});
+
+describe("karta w dwóch liniach: podpowiedź stanu (23.11.2026)", () => {
+  it("niesie wszystkie plakietki z treścią, czyja karta i odesłanie do panelu", () => {
+    const title = twoLineStateTitle(
+      [
+        { key: "critical_gap", label: "brak: Selenium", tone: "wait", title: "Brak śladu w CV" },
+        { key: "source", label: "Z JustJoin.IT", tone: "neutral" },
+      ],
+      "Dla: Maciej (porcja dnia od Nexusa)",
+    );
+    expect(title.split("\n")).toEqual([
+      "brak: Selenium — Brak śladu w CV",
+      "Z JustJoin.IT",
+      "Dla: Maciej (porcja dnia od Nexusa)",
+      "Szczegóły i przyciski: panel osoby (klik w kartę).",
+    ]);
+  });
+
+  it("bez plakietek i właściciela zostaje samo odesłanie do panelu", () => {
+    expect(twoLineStateTitle([], null)).toBe("Szczegóły i przyciski: panel osoby (klik w kartę).");
   });
 });

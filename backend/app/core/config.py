@@ -1099,6 +1099,10 @@ class Settings(BaseSettings):
     # Rekrutacje bez ruchu (28.10.2026, `services/job_idle.py`): przypomnienia
     # po 14 i 21 dniach, zamknięcie po 28. Kill-switch całości bez redeploya.
     JOB_IDLE_ENABLED: bool = True
+    # Karty bez śladu (23.11.2026, `services/screening_stale.py`): po 2 dniach
+    # roboczych bez śladu karta ze „Screeningu” wraca do „Nowych”, a „Biorę”
+    # w „Nowych” wygasa. Kill-switch całości bez redeploya.
+    SCREENING_STALE_RETURN_ENABLED: bool = True
     # Maile CPro od Nordei (02.11.2026, `services/cpro_mail.py`): zamknięcia,
     # odrzucenia i dzwonki. Kill-switch całości bez redeploya; pojedyncze reguły
     # wyłącza się w Ustawieniach → CPro. Maile starsze niż data nie są czytane.

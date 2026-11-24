@@ -1585,3 +1585,17 @@ export function closedRejectBy(endedBy: string | null | undefined): string {
   if (endedBy === "client_silent") return "client";
   return endedBy ?? "recruiter";
 }
+
+/**
+ * Podpowiedź jedynego stanu w karcie dwuliniowej (okno < 800 px, decyzja
+ * Artura z 23.11.2026): wszystkie plakietki z pełną treścią i czyja karta
+ * („Dla: …”, „Prowadzi: …”), bo wiersz plakietek i imię właściciela znikają
+ * wtedy z ekranu. Nic nie ginie: to samo jest w panelu osoby.
+ */
+export function twoLineStateTitle(badges: readonly CardBadge[], ownerLine?: string | null): string {
+  return [
+    ...badges.map((b) => (b.title ? `${b.label} — ${b.title}` : b.label)),
+    ...(ownerLine ? [ownerLine] : []),
+    "Szczegóły i przyciski: panel osoby (klik w kartę).",
+  ].join("\n");
+}

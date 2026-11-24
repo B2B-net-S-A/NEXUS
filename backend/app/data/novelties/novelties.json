@@ -4654,6 +4654,31 @@
     "used_anchor": "palette.sales-nip"
   },
   {
+    "id": "pracuj-po-kolei-na-pulpicie",
+    "pr": 3810,
+    "title": "Pracuj po kolei — panel osoby na pulpicie",
+    "why": "„Pracuj po kolei” otwiera panel osoby na pulpicie. „Dalej” idzie przez całą listę „Czeka na Ciebie” ze wszystkich Twoich rekrutacji, najdłużej czekający pierwsi.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "talent_community_manager",
+        "delivery_lead"
+      ]
+    },
+    "where": "Pulpit → Czeka na Ciebie → Pracuj po kolei",
+    "href": "/dashboard",
+    "dot_anchor": "dashboard.person-queue.start",
+    "steps": [
+      {
+        "anchor": "dashboard.person-queue.start",
+        "text": "Kliknij „Pracuj po kolei”.",
+        "hint": "Panel osoby otworzy się z prawej, nad pulpitem. Pasek u góry mówi, z której listy jest osoba, w jakiej rekrutacji i kto dalej."
+      }
+    ]
+  },
+  {
     "id": "arkusz-rozmowy-na-lewej-polowie",
     "title": "„Arkusz rozmowy” na dużej połowie ekranu",
     "why": "W „Trybie rozmowy” formularz screeningu stoi po lewej, w dwóch kolumnach, a CV i wymagania są w zakładkach obok. Na górze widzisz, czego brakuje do „Zweryfikowany”; braki znikają, gdy je wpisujesz.",
@@ -4724,6 +4749,55 @@
         "ack": true
       }
     ]
+  },
+  {
+    "id": "odrzuc-jednym-kliknieciem",
+    "pr": 3811,
+    "title": "Odrzucenie jednym kliknięciem w panelu osoby",
+    "why": "Pod „Odrzuć z powodem” stoją Twoje 3 najczęstsze powody z 30 dni. Klik odrzuca z tym powodem i otwiera następną osobę. „Cofnij” działa przez 10 s.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → Nowi albo Screening → panel osoby → Odrzuć:",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990101",
+    "section": "pipeline",
+    "dot_anchor": "person.dock.quick-reject",
+    "steps": [
+      {
+        "anchor": "person.dock.quick-reject",
+        "text": "Pod rzędem akcji są Twoje najczęstsze powody odrzucenia.",
+        "hint": "Kliknięcie odrzuca od razu, jak „Potwierdź” w oknie przy „Odrzucamy my”. Na Poligonie nic nie zostanie zapisane.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "tablica-karty-bez-sladu-wracaja",
+    "pr": 3812,
+    "title": "Karta bez śladu przez 2 dni robocze wraca do „Nowych” dla wszystkich",
+    "why": "Karta bez notatki, „Nie odebrał”, telefonu, arkusza i ruchu przez 2 dni robocze wraca do „Nowych”, a „Biorę” wygasa. Dzień wcześniej mówi „jutro”, a Ty dostajesz dzwonek.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → kolumna „Screening”",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001",
+    "section": "pipeline",
+    "dot_anchor": "board.screening-groups"
   },
   {
     "id": "przelewy-zajecia-i-spory",

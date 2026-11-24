@@ -57,7 +57,17 @@ def waiting_days(
     rekrutacja bez rekrutera albo brak daty wejścia)."""
     if decided(meta) or entered_at is None or recruiter_since is None:
         return None
-    return business_days_since(max(entered_at, recruiter_since), now)
+    # Karta oddana do puli po 2 dniach bez śladu (``screening_stale``,
+    # 23.11.2026) czeka na decyzję od powrotu, nie od pierwszego wejścia.
+    from app.services.screening_stale import returned_at
+
+    back = returned_at(meta)
+    start = (
+        max(entered_at, recruiter_since, back)
+        if back
+        else max(entered_at, recruiter_since)
+    )
+    return business_days_since(start, now)
 
 
 def decision_due(days: Optional[int]) -> bool:
