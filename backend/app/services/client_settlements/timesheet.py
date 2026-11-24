@@ -21,7 +21,9 @@ godziny są w następnej linii (bierzemy je tylko w pełnym komplecie kolumn). T
 odczyt bierze PDF „<osoba> Okres od: · Projekt: … Okres do: · Data Dzień Opis
 Godziny Rozliczalne” zakończony „W sumie”. Polski wariant XLSX: tytuł „Time
 Sheet”, „Imię Nazwisko”, tabela „Data · Opis zadań · Liczba godzin · Uwagi”
-i „Łączna liczba godzin”.
+i „Łączna liczba godzin”. Karta ewidencji pracy VeloBanku (XLSX): „NAZWISKO
+I IMIĘ”, tytuł „Tabela miesięczna”, tabela „Dzień · Start · Koniec · Czas pracy”
+z czasem w formacie godzin („8:00”) i wiersz „Suma przepracowanych dni”.
 
 Plik spoza szablonu daje ``None``: wtedy MD wpisują Finanse, a plik zostaje.
 Time Sheet za inny miesiąc to kontrola ``proof.month`` bez MD; wyjątki to rok
@@ -38,7 +40,7 @@ import logging
 import re
 from collections import defaultdict
 from dataclasses import dataclass, replace
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Mapping, Optional
 
@@ -78,6 +80,7 @@ _HEADER_LABELS = {
     "date to": "date_to",
     "imię nazwisko": "consultant",
     "imię i nazwisko": "consultant",
+    "nazwisko i imię": "consultant",
 }
 _COLUMNS = {
     "date": "date",
@@ -97,6 +100,15 @@ _POLISH_COLUMNS = {
     "liczba godzin": "total",
 }
 _TOTAL_LABELS = ("total hours", "łączna liczba godzin", "w sumie")
+# Karta ewidencji pracy VeloBanku, tylko w arkuszu z tytułem „Tabela miesięczna”.
+# „Czas pracy” to czas w formacie godzin, a suma pod tabelą jest w dniach (MD),
+# więc jej nie porównujemy z godzinami.
+_CARD_TITLE = "tabela miesięczna"
+_CARD_COLUMNS = {
+    "dzień": "date",
+    "czas pracy": "total",
+}
+_CARD_TOTAL = "suma przepracowanych dni"
 
 
 @dataclass(frozen=True)
@@ -192,7 +204,9 @@ def _after(row: list[Any], index: int) -> Any:
     return next((v for v in row[index + 1 :] if v not in (None, "")), None)
 
 
-def _header_columns(row: list[Any], *, polish: bool) -> Optional[dict[str, int]]:
+def _header_columns(
+    row: list[Any], *, polish: bool, card: bool = False
+) -> Optional[dict[str, int]]:
     labels = [_label(c) for c in row]
     if "date" in labels and any(
         label and label.startswith("total hours") for label in labels
@@ -200,6 +214,8 @@ def _header_columns(row: list[Any], *, polish: bool) -> Optional[dict[str, int]]
         names = _COLUMNS
     elif polish and "data" in labels and "liczba godzin" in labels:
         names = _POLISH_COLUMNS
+    elif card and "dzień" in labels and "czas pracy" in labels:
+        names = _CARD_COLUMNS
     else:
         return None
     columns: dict[str, int] = {}
@@ -217,6 +233,26 @@ def _header_columns(row: list[Any], *, polish: bool) -> Optional[dict[str, int]]
 def _cell(row: list[Any], columns: Mapping[str, int], key: str) -> Any:
     index = columns.get(key)
     return row[index] if index is not None and index < len(row) else None
+
+
+_CLOCK = re.compile(r"^(\d{1,2}):([0-5]\d)(?::([0-5]\d))?$")
+
+
+def _clock_hours(cell: Any) -> Optional[Decimal]:
+    """Czas pracy z karty („8:00” jako czas Excela albo tekst) w godzinach.
+    Pusta komórka = ``None``; liczba bez formatu czasu też ``None``, bo nie
+    wiadomo, czy to godziny, czy ułamek doby."""
+
+    if isinstance(cell, timedelta):
+        seconds = Decimal(int(cell.total_seconds()))
+    elif isinstance(cell, time):
+        seconds = Decimal(cell.hour * 3600 + cell.minute * 60 + cell.second)
+    elif isinstance(cell, str) and (found := _CLOCK.match(cell.strip())):
+        hours, minutes, rest = found.groups()
+        seconds = Decimal(int(hours) * 3600 + int(minutes) * 60 + int(rest or 0))
+    else:
+        return None
+    return seconds / Decimal(3600)
 
 
 def _marker(cell: Any) -> bool:
@@ -251,21 +287,38 @@ def parse_rows(sheets: Iterable[list[list[Any]]]) -> Optional[ParsedTimesheet]:
         columns: Optional[dict[str, int]] = None
         table: list[TsEntry] = []
         titled = False
+        card = False
+        #: Tabela karty ewidencji VeloBanku (``_CARD_COLUMNS``), nie Time Sheet.
+        card_table = False
         for row in rows:
             titled = titled or any(_label(c) == "time sheet" for c in row)
+            card = card or any(_label(c) == _CARD_TITLE for c in row)
             for i, cell in enumerate(row):
                 key = _HEADER_LABELS.get(_label(cell) or "")
                 if key and key not in header:
                     value = _after(row, i)
                     if value is not None:
                         header[key] = value
-            new_columns = _header_columns(row, polish=titled)
+            new_columns = _header_columns(row, polish=titled, card=card)
             if new_columns is not None:
                 columns, found_table, table = new_columns, True, []
+                card_table = card and "czas pracy" in (_label(c) for c in row)
                 continue
             if columns is None:
                 continue
             labels = [_label(c) or "" for c in row]
+            if card_table:
+                if any(label.startswith(_CARD_TOTAL) for label in labels):
+                    columns = None
+                    continue
+                raw = _cell(row, columns, "total")
+                hours = _clock_hours(raw)
+                if hours is None and raw not in (None, ""):
+                    return None  # czas pracy nie w formacie godzin: nie zgadujemy
+                day = _day(_cell(row, columns, "date"))
+                if hours is not None and hours > 0:
+                    entries.append(TsEntry(day, None, "", hours, None))
+                continue
             total_at = next(
                 (
                     i
