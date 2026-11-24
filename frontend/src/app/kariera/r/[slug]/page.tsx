@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { CareerJobView } from "@/components/career/CareerJobView";
-import { fetchCareerJob } from "@/lib/career/server";
+import { OfferPage } from "@/components/career/site/OfferPage";
+import { fetchCareerBoard, fetchCareerJob } from "@/lib/career/server";
 import { paramsSummary } from "@/lib/career/format";
 import { primaryCareerHost } from "@/lib/career/host";
 import { jobPostingJsonLd, jsonLdString } from "@/lib/career/jobPosting";
@@ -60,8 +60,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function CareerJobPage({ params }: PageProps) {
   const { slug } = await params;
-  const data = await load(slug);
-  const { base, host } = await careerRequestContext();
+  // Tablica (cache 60 s w API) daje krótkie nazwy umiejętności i podobne oferty;
+  // jej awaria nie blokuje strony oferty.
+  const [data, board, { base }] = await Promise.all([load(slug), fetchCareerBoard(), careerRequestContext()]);
   const posting = jobPostingJsonLd(data, canonicalUrl(data.canonical_slug ?? slug));
   return (
     <>
@@ -72,7 +73,7 @@ export default async function CareerJobPage({ params }: PageProps) {
           dangerouslySetInnerHTML={{ __html: jsonLdString(posting) }}
         />
       ) : null}
-      <CareerJobView data={data} base={base} host={host} />
+      <OfferPage data={data} board={board.ok ? board.data.jobs : null} base={base} />
     </>
   );
 }

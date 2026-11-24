@@ -47,7 +47,7 @@ export function sceneItems(
 /** Cztery kroki procesu rekrutacji (sekcja „Jak wygląda proces” w układach). */
 export function processSteps(recruiterFirstName: string, contract?: string | null): ProcessStep[] {
   const contractNote = contract?.trim()
-    ? `umowa ${contract.trim().toLocaleLowerCase("pl-PL")}`
+    ? `umowa ${contract.trim()}`
     : "umowa i wdrożenie";
   return [
     { title: `rozmowa z ${instrumentalName(recruiterFirstName)}`, note: "poznajemy się" },

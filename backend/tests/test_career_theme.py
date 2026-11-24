@@ -113,9 +113,3 @@ def test_three_themes_with_polish_labels() -> None:
     assert ct.THEMES == ("grafit", "terminal", "jasny")
     assert ct.DEFAULT_THEME == "grafit"
     assert all(label and label[0].isupper() for label in ct.THEME_LABELS.values())
-
-
-def test_every_theme_has_a_poster_palette() -> None:
-    assert set(ct.POSTER_COLORS) == set(ct.THEMES)
-    for colors in ct.POSTER_COLORS.values():
-        assert {"bg", "text", "accent", "muted"} <= set(colors)

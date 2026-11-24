@@ -1103,7 +1103,7 @@ def test_poster_html_escapes_text_and_embeds_the_qr_as_data_uri():
     doc = poster_html(_poster_payload(), "https://kariera.example/r/java-ab12")
     assert "Senior &lt;Java&gt; Developer" in doc and "<Java>" not in doc
     assert 'src="data:image/svg+xml' in doc
-    assert "[warszawa · hybryda · b2b]" in doc
+    assert "Warszawa · Hybryda · B2B" in doc
     # Najwyżej trzy wymagania; opis projektu nie trafia na plakat.
     assert "Kafka" in doc and "K8s" not in doc
     assert "Opis, którego" not in doc
@@ -1112,16 +1112,16 @@ def test_poster_html_escapes_text_and_embeds_the_qr_as_data_uri():
     assert "http://" not in doc.replace("https://kariera.example", "")
 
 
-def test_poster_uses_the_recruitment_theme_colors():
-    """Plakat w kolorach szablonu; nieznany szablon (np. dawna scena) = Grafit."""
+def test_poster_has_one_look_of_the_new_career_site():
+    """Od 24.11.2026 plakat ma jeden wygląd jak nagłówek oferty (wariant G1):
+    czerwone tło, biały tytuł, jasny pas z kodem QR. Szablony go nie zmieniają."""
     pytest.importorskip("segno")
     from app.services.career_poster import poster_html
 
-    url = "https://kariera.example/r/java-ab12"
-    light = poster_html(_poster_payload(), url, "jasny")
-    assert "background: #F5F4EC" in light and "color: #C42536" in light
-    fallback = poster_html(_poster_payload(), url, "papier")
-    assert "background: #141414" in fallback and "color: #F05A69" in fallback
+    doc = poster_html(_poster_payload(), "https://kariera.example/r/java-ab12")
+    assert "background: #E73748" in doc
+    assert "Zeskanuj i wyślij CV" in doc
+    assert "~/kariera" not in doc and "›" not in doc
 
 
 def test_poster_without_optional_sections_has_no_empty_blocks():
