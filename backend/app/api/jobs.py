@@ -2473,7 +2473,9 @@ async def get_job(
 
     # 24.11.2026: także stan requestu — nagłówek i pasek „Po terminie”.
     states = await request_statuses_and_stages(db, [job.id])
-    payload["request_status"], payload["request_stage"] = states.get(job.id, (None, None))
+    payload["request_status"], payload["request_stage"] = states.get(
+        job.id, (None, None)
+    )
     # 0450 (D1–D9): championi, miejsca, zatrudnieni (okno odrzucenia) i P1
     # wstrzymany przez championa — plakietki nagłówka.
     from app.services import job_champions  # noqa: PLC0415
