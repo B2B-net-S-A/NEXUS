@@ -2,7 +2,8 @@
 
 Klient z regułą ``report.time_for_teams``: pozycja osoby z godzin zatwierdzonych
 w ostatniej wersji raportu; godziny niezatwierdzone wstrzymują pozycję; mailowa
-akceptacja managera klienta przechodzi tylko po odejściu osoby z projektu;
+akceptacja managera klienta przechodzi (osoba odeszła albo okres T4T zamknięty),
+nasza prośba bez odpowiedzi managera nie;
 ostrzeżenie o terminie faktury (15. dzień następnego miesiąca).
 
 Osoby, numery, domeny i kwoty fikcyjne.
@@ -227,23 +228,7 @@ async def test_pozycja_z_zatwierdzonych_godzin_ostatniej_wersji(
             "Akceptacja mailowa managera: 176 h za wrzesień 2026."
         ]
 
-        # Piotr pracuje dalej: ta sama akceptacja go nie odblokowuje.
-        await _store(
-            people["piotr"],
-            "2026-09",
-            _mail(
-                "Approved.",
-                "Please approve the 176 hours for September 2026.",
-                sender=f"pm@{DOMAIN}",
-            ),
-            "akceptacja.eml",
-        )
-        data = await _invoice(client_id, today=date(2026, 10, 12))
-        piotr = {r["contract_id"]: r for r in data["rows"]}[people["piotr"]]
-        assert piotr["state"] == "awaiting_t4t"
-        assert "nadal pracuje u klienta" in piotr["t4t"]["notes"][0]
-
-        # Termin 15.10: 3 dni przed nim (parametr 5) — ostrzeżenie z jedną osobą.
+        # Termin 15.10: 3 dni przed nim (parametr 5) — ostrzeżenie z Piotrem.
         assert data["deadline"] == {
             "date": "2026-10-15",
             "days_left": 3,
@@ -252,6 +237,24 @@ async def test_pozycja_z_zatwierdzonych_godzin_ostatniej_wersji(
             "people": ["Piotr Wzorcowy"],
         }
         assert (await _invoice(client_id, today=date(2026, 10, 1)))["deadline"] is None
+
+        # Piotr pracuje dalej, ale okres w T4T jest zamknięty: manager akceptuje
+        # godziny mailem i to też przechodzi (Cost Control przyjmuje).
+        await _store(
+            people["piotr"],
+            "2026-09",
+            _mail(
+                "By this mail, I approve 176 hours for September.",
+                "Hi, the last period was closed before approval.",
+                sender=f"pm@{DOMAIN}",
+            ),
+            "akceptacja.eml",
+        )
+        data = await _invoice(client_id, today=date(2026, 10, 12))
+        piotr = {r["contract_id"]: r for r in data["rows"]}[people["piotr"]]
+        assert piotr["state"] == "ready"
+        assert piotr["positions"][0]["quantity"] == "176"
+        assert data["deadline"] is None
     finally:
         await _cleanup(client_id, people)
 

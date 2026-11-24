@@ -32,22 +32,32 @@ klienta” pozycje z raportu T4T, nie z RCP (`services/client_settlements/t4t_in
 
 ## Wyjątek: mailowa akceptacja managera
 
-Cost Control przyjął 4 razy (VIII–X) mail managera z liczbą godzin, gdy osoba odeszła
-z projektu i nie poprawi T4T. `extra.mail_accept` (zgoda na nadgodziny w RCP BNP)
-i `client_acceptance` (paczka KCP Banku Pocztowego, stan przy rozliczeniu) do tego nie
-pasują: Nordea nie ma rozliczeń z RCP. Wyjątek korzysta z odczytu `proof.accept_has_hours`
-(`mail_text.read_acceptance`, z angielskimi godzinami i miesiącami `english=True`).
-Wszystkie warunki muszą być spełnione:
+Line manager klienta zatwierdza godziny mailem z liczbą godzin, gdy osoba odeszła
+z projektu i nie poprawi T4T albo gdy okres w T4T zamknął się przed akceptacją („By this
+mail, I approve 184 hours … for July”). Cost Control to przyjmuje: 4 maile w VIII–X ze
+skrzynki koordynatorki i co najmniej 2 przypadki w X–XI ze skrzynek DL-ów. Akceptacje
+w T4T Nordea egzekwuje od 01.07.2026.
+
+`extra.mail_accept` (zgoda na nadgodziny w RCP BNP) i `client_acceptance` (paczka KCP
+Banku Pocztowego, stan przy rozliczeniu) do tego nie pasują: Nordea nie ma rozliczeń
+z RCP. Wyjątek korzysta z odczytu `proof.accept_has_hours` (`mail_text.read_acceptance`,
+z angielskimi godzinami i miesiącami `english=True`). Wszystkie warunki muszą być spełnione:
 
 - mail (`.eml`/`.msg`) leży przy osobie jako dokument rozliczenia za ten miesiąc albo
   następny, nieodrzucony;
-- w wątku jest wiadomość z domeny z kontaktów klienta. Nasza prośba „please approve the 102
-  hours” sama nie wystarczy;
-- jest akceptacja, rozliczany miesiąc i dokładnie jedna liczba godzin;
-- kontrakt jest zakończony albo kończy się najpóźniej w dniu terminu faktury.
+- w wątku jest wiadomość z domeny z kontaktów klienta (Nordea: nordea.com). Nasza prośba
+  „please approve the 102 hours” sama nie wystarczy;
+- jest akceptacja, rozliczany miesiąc i dokładnie jedna liczba godzin.
 
 Wtedy pozycja idzie na godziny z maila z uwagą „Akceptacja mailowa managera: N h za …”.
-Gdy osoba dalej pracuje, akceptacja zostaje tylko uwagą, a pozycja czeka na T4T.
+Warunku „osoba odeszła” nie ma, bo zamknięty okres dotyczy też osób, które dalej pracują.
+
+Znane ograniczenia:
+- Akceptacja w CPro (`noreply@onevms.se`, „please just send the invoice, we will
+  approve”) nie ma liczby godzin ani domeny klienta, więc nie odblokowuje pozycji. Takie
+  przypadki Finanse rozstrzygają same.
+- Mail managera musi trafić do NEXUS-a jako dokument przy osobie. Dziś leży w skrzynkach
+  osobistych koordynatorki i DL-ów.
 
 ## Termin faktury (art. 106i ust. 1 VAT)
 

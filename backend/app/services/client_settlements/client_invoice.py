@@ -680,11 +680,9 @@ async def _t4t_month(
         notes: list[str] = []
         state = "ready"
         if pending > 0:
-            if (
-                mail is not None
-                and mail.ok
-                and t4t_invoice.left_project(contract, month)
-            ):
+            # Akceptacja managera mailem przechodzi, gdy osoba odeszła z projektu
+            # albo okres w T4T jest już zamknięty (Cost Control przyjmuje oba).
+            if mail is not None and mail.ok:
                 billable = mail.hours or ZERO_H
                 notes.append(mail.note)
             else:
@@ -692,12 +690,7 @@ async def _t4t_month(
                 out["hold_reason"] = (
                     f"{reason}: {t4t_invoice._fmt(pending)} h czeka na akceptację."
                 )
-                if mail is not None and mail.ok:
-                    notes.append(
-                        f"{mail.note} Osoba nadal pracuje u klienta: Cost Control "
-                        "przyjmuje akceptację mailową tylko po odejściu z projektu."
-                    )
-                elif mail is not None:
+                if mail is not None:
                     notes.append(mail.note)
         if order is None:
             history = []

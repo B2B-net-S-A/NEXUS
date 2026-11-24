@@ -10,8 +10,9 @@ z godzin zatwierdzonych w ostatniej wersji raportu, a nie z RCP:
 * godziny niezatwierdzone (status 0 albo 1) w tej wersji wstrzymują pozycję
   z powodem „Godziny niezatwierdzone w T4T (wersja z DD.MM)”;
 * wyjątek: mailowa akceptacja managera klienta z liczbą godzin za miesiąc, gdy
-  osoba odeszła z projektu i nie poprawi T4T (Cost Control przyjął ją 4 razy
-  w VIII–X). Mail leży przy osobie jak każdy dokument rozliczenia;
+  osoba odeszła z projektu albo okres w T4T jest zamknięty i manager już go nie
+  zatwierdzi („By this mail, I approve 184 hours … for July”). Cost Control ją
+  przyjmuje (VIII–XI). Mail leży przy osobie jak każdy dokument rozliczenia;
 * termin faktury (art. 106i ust. 1 VAT): 15. dzień następnego miesiąca.
   Na N dni przed nim (parametr reguły) ekran ostrzega, ile osób nie ma
   zatwierdzonych godzin.
@@ -37,7 +38,7 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_time_report import ClientTimeReportRow
 from app.models.consultant_portal import CpDocument
 from app.models.contact import Contact
-from app.models.contract import Contract, ContractStatus
+from app.models.contract import Contract
 from app.services.client_order_lines import month_bounds
 from app.services.client_settlements import acceptance_mail, mail_text, service
 from app.services.client_settlements import time_report_engine as engine
@@ -297,16 +298,6 @@ def warn_days(rules: dict[str, dict[str, Any]]) -> int:
     except ValueError:
         return DEFAULT_WARN_DAYS
     return max(0, min(days, MAX_WARN_DAYS))
-
-
-def left_project(contract: Optional[Contract], month: str) -> bool:
-    """Osoba odeszła z projektu: kontrakt zakończony najpóźniej w terminie faktury."""
-
-    if contract is None:
-        return False
-    if contract.status == ContractStatus.ended:
-        return True
-    return contract.end_date is not None and contract.end_date <= deadline(month)
 
 
 def deadline_warning(

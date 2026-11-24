@@ -93,7 +93,7 @@ describe("Do faktury dla klienta z T4T (Nordea)", () => {
       person: "Piotr Wzorcowy",
       state: "awaiting_t4t",
       hold_reason: "Godziny niezatwierdzone w T4T (wersja z 10.11): 32 h czeka na akceptację.",
-      t4t: { approved: "144.00", pending: "32.00", billed: "144.00", invoiced: null, notes: ["Akceptacja mailowa managera: 176 h za październik 2026. Osoba nadal pracuje u klienta: Cost Control przyjmuje akceptację mailową tylko po odejściu z projektu."] },
+      t4t: { approved: "144.00", pending: "32.00", billed: "144.00", invoiced: null, notes: ["Mail z akceptacją nie pochodzi od managera klienta."] },
     };
     renderView({
       client_id: 7,

@@ -7,7 +7,6 @@ from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 
-from app.models.contract import ContractStatus
 from app.services.client_settlements import client_invoice, mail_text, t4t_invoice
 from app.services.client_settlements.acceptance_mail import MailMessage
 
@@ -107,18 +106,6 @@ def test_parametr_dni_ostrzezenia() -> None:
     assert t4t_invoice.warn_days(_rules(warn_days="-3")) == 0
     assert t4t_invoice.warn_days(_rules(warn_days="90")) == t4t_invoice.MAX_WARN_DAYS
     assert t4t_invoice.warn_days(_rules(warn_days=" 10 ")) == 10
-
-
-def test_odejscie_z_projektu() -> None:
-    def contract(end, status=ContractStatus.active):
-        return SimpleNamespace(end_date=end, status=status)
-
-    assert t4t_invoice.left_project(contract(date(2026, 9, 30)), MONTH)
-    assert t4t_invoice.left_project(contract(date(2026, 10, 15)), MONTH)
-    assert not t4t_invoice.left_project(contract(date(2026, 10, 16)), MONTH)
-    assert not t4t_invoice.left_project(contract(None), MONTH)
-    assert t4t_invoice.left_project(contract(None, ContractStatus.ended), MONTH)
-    assert not t4t_invoice.left_project(None, MONTH)
 
 
 def _order(unit: str, rate: str, currency: str = "PLN", md: str | None = None):
