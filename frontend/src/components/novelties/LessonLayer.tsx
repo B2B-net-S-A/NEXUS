@@ -35,7 +35,7 @@ import {
   writeRun,
   type LessonRun,
 } from "@/lib/novelties/lessons";
-import { onEveryClick } from "@/lib/novelties/logic";
+import { keepDialogsOpen, onEveryClick } from "@/lib/novelties/logic";
 import { onPoligonAction } from "@/lib/poligon/adapter";
 
 type Outcome =
@@ -52,7 +52,9 @@ export const UNAVAILABLE_AFTER_MS = 45_000;
 
 // Nad oknami Radix (z-110, `ui/dialog.tsx`), jak karta kroku przeklikania:
 // zadanie kończy się często w otwartym oknie (wysyłka do podpisu), a pytanie
-// musi dać się kliknąć bez zamykania go.
+// musi dać się kliknąć bez zamykania go. Klik w kartę okna nie zamyka
+// (`keepDialogsOpen`, 24.11.2026): w „Klient coś zmienił” zamykał je razem
+// z wpisaną treścią.
 const CARD =
   "pointer-events-auto fixed bottom-5 left-5 z-[121] w-[360px] max-w-[calc(100vw-2.5rem)] rounded-xl border bg-card p-4 text-sm text-foreground shadow-lg";
 
@@ -181,7 +183,7 @@ export function LessonLayer() {
 
   if (outcome.kind === "done") {
     return (
-      <section className={`${CARD} border-success/30`} role="status" data-testid="lesson-done">
+      <section ref={keepDialogsOpen} className={`${CARD} border-success/30`} role="status" data-testid="lesson-done">
         <p className="flex items-start gap-2 text-success">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span className="font-semibold">
@@ -194,7 +196,7 @@ export function LessonLayer() {
 
   if (outcome.kind === "review_failed") {
     return (
-      <section className={`${CARD} border-warning/40`} role="status" data-testid="lesson-review-failed">
+      <section ref={keepDialogsOpen} className={`${CARD} border-warning/40`} role="status" data-testid="lesson-review-failed">
         {header}
         <p className="flex items-start gap-2 rounded-lg bg-warning-muted px-3 py-2 text-warning-muted-foreground">
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
@@ -211,7 +213,7 @@ export function LessonLayer() {
 
   if (run.stage === "solo") {
     return (
-      <section className={`${CARD} border-primary/30`} aria-label="Zadanie lekcji" data-testid="lesson-solo">
+      <section ref={keepDialogsOpen} className={`${CARD} border-primary/30`} aria-label="Zadanie lekcji" data-testid="lesson-solo">
         {header}
         <p className="font-semibold leading-snug">{run.lesson.task}</p>
         <p className="mt-1 text-xs text-muted-foreground">
@@ -268,7 +270,7 @@ export function LessonLayer() {
 
   const question = run.lesson.questions[run.question];
   return (
-    <section className={`${CARD} border-primary/30`} aria-label="Pytanie lekcji" data-testid="lesson-quiz">
+    <section ref={keepDialogsOpen} className={`${CARD} border-primary/30`} aria-label="Pytanie lekcji" data-testid="lesson-quiz">
       {header}
       <p className="font-semibold leading-snug">{question?.q}</p>
       {outcome.kind === "save_error" ? <SaveError /> : null}

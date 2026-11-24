@@ -105,6 +105,9 @@ async function fakeBackend(
     if (path === "/api/novelties/start") {
       const ids = [...state.done];
       const due = ids.length < total;
+      // Jak serwer: `luki` ma tylko osoba z kampanii (po terminie `required`),
+      // nowa osoba (dzień onboardingu) — `null`.
+      const luki = credited.length ? { due: "2026-11-23", credited_ids: credited.map((id) => `poligon-${id}`) } : null;
       return json(route, {
         enforced: true,
         items: [],
@@ -112,7 +115,7 @@ async function fakeBackend(
         total: 0,
         poligon_due: due,
         redirect: due ? "/poligon" : "/start",
-        poligon: { open: true, required: true, done_ids: ids, done: ids.length, total },
+        poligon: { open: true, required: true, done_ids: ids, done: ids.length, total, luki },
       });
     }
     return json(route, {}, 404);
@@ -150,7 +153,14 @@ async function onPoligon(
   const coach = page.locator(COACH);
   const done = (id: string) =>
     expect.poll(() => backend.done.has(`poligon-${id}`), { message: `ćwiczenie ${id} niezaliczone`, timeout: 15_000 }).toBe(true);
+  // Filtr nagrania zostawia `null` w miejscu wyciętego tekstu, a ekran wstawia
+  // takie pole w zdanie (24.11.2026: „null · poziom nieznany”, „„null””).
+  const noNullText = async () => {
+    const text = await page.locator("body").innerText();
+    expect(text.match(/.{0,40}\bnull\b.{0,40}/g) ?? [], "napis „null” na ekranie Poligonu — uzupełnij tekst w zestawie").toEqual([]);
+  };
   const next = async () => {
+    await noNullText();
     // Po tekście, nie po roli: otwarte okno Radix (edytor CV) oznacza resztę
     // strony `aria-hidden`, a okno ćwiczenia leży nad nim i da się je kliknąć.
     await coach.locator("button", { hasText: /^(Dalej|Zakończ onboarding)/ }).click();
@@ -192,6 +202,13 @@ async function onPoligon(
   /** Koniec: blokada zdjęta, osoba wchodzi do pracy; nic nie brakowało i nic nie wyszło. */
   const finish = async () => {
     expect(backend.done.size).toBe(total);
+    // Ze statystyk wypada tylko dzień onboardingu nowej osoby; dzień ćwiczeń
+    // z luk się liczy (24.11.2026 osoba z luk czytała „dziś nie liczy się”).
+    // Cały akapit, nie samo „Onboarding zaliczony.” w `<b>`.
+    const end = coach.locator("p", { hasText: /Onboarding zaliczony/ });
+    await expect(end).toContainText("NEXUS jest otwarty");
+    if (credited.length) await expect(end).not.toContainText("statystyk");
+    else await expect(end).toContainText("dziś nie liczy się do Twoich statystyk");
     await coach.locator("button", { hasText: /Zacznij pracę/ }).click();
     await page.waitForURL(/\/jobs$/, { timeout: 30_000 });
     await page.goto("/candidates");
@@ -202,7 +219,7 @@ async function onPoligon(
     expect(pageErrors, "błąd strony na poligonie").toEqual([]);
   };
 
-  return { coach, done, next, card, board, openCard, moveNext, finish };
+  return { coach, done, next, card, board, openCard, moveNext, finish, noNullText };
 }
 type Walk = Awaited<ReturnType<typeof onPoligon>>;
 
@@ -363,6 +380,9 @@ test.describe("Poligon NEXUSA — onboarding dnia 1", () => {
     await next();
     await openCard("Aleksandra", "Screening");
     const form = page.locator('[data-help="jobs.person.screening-form"]').first();
+    // Wcześniejsza odpowiedź z poprzedniej rozmowy ma treść (24.11.2026: „„null””).
+    await expect(form.getByTestId("earlier-answer-hint").first()).toContainText("bankowość mobilna");
+    await w.noNullText();
     await form.locator('input[name="card.location"]').fill("Gdańsk");
     await form.locator('input[name="card.work_mode"]').fill("hybrydowo, 3 dni w biurze");
     for (const q of ["q1", "q2", "q3", "q4"]) {
@@ -550,6 +570,9 @@ test.describe("Poligon NEXUSA — onboarding dnia 1", () => {
     await search.press("Enter");
     await page.getByRole("link", { name: /Laura Olszyńska/ }).first().click();
     await page.waitForURL(/\/candidates\/99\d+/, { timeout: 30_000 });
+    // Języki z nazwą (24.11.2026: „null · poziom nieznany”).
+    await expect(page.getByText(/^(polski|angielski|niemiecki|rosyjski) · /).first()).toBeVisible();
+    await w.noNullText();
     await page.getByRole("button", { name: /^Na listę|^Na listach/ }).first().click();
     await page.getByRole("textbox", { name: "Nazwa nowej listy" }).fill("PM bankowość");
     await page.getByRole("button", { name: "Utwórz listę i dodaj osobę" }).click();

@@ -9,7 +9,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { anchorSelector } from "@/lib/novelties/logic";
+import { anchorSelector, keepDialogsOpen } from "@/lib/novelties/logic";
 import { onPoligonAction } from "@/lib/poligon/adapter";
 import { useStartStatus } from "@/lib/novelties/api";
 import type { Exercise } from "@/lib/poligon/exercises";
@@ -75,18 +75,6 @@ function useAnchorRect(anchor: string | null, active: boolean): DOMRect | null {
   return rect;
 }
 
-/**
- * Klik w okno ćwiczenia nie zamyka otwartego okna ekranu (Radix zamyka dialog
- * na `pointerdown` poza nim, nasłuchem na dokumencie). Natywny nasłuch na
- * sekcji zatrzymuje zdarzenie, zanim dojdzie do dokumentu.
- */
-function keepDialogsOpen(el: HTMLElement | null): (() => void) | void {
-  if (!el) return;
-  const stop = (event: PointerEvent) => event.stopPropagation();
-  el.addEventListener("pointerdown", stop);
-  return () => el.removeEventListener("pointerdown", stop);
-}
-
 type Phase = { kind: "task"; feedback?: string } | { kind: "done" };
 
 export function PoligonLayer() {
@@ -102,6 +90,10 @@ export function PoligonLayer() {
   const status = useStartStatus(true);
   const serverIds = status?.poligon?.done_ids;
   const { path, context: CONTEXT } = usePoligonPath(status?.poligon);
+  // Ze statystyk wypada tylko dzień onboardingu nowej osoby (`onboarding_day`).
+  // Serwer daje `luki` wyłącznie osobie bez takiego wymogu, a dzień ćwiczeń
+  // z luk się liczy (24.11.2026: osoba z luk czytała „dziś nie liczy się”).
+  const onboardingDay = status?.poligon?.required === true && !status.poligon.luki;
 
   useEffect(() => {
     const initial = readDone(serverIds ?? []);
@@ -225,8 +217,8 @@ export function PoligonLayer() {
             <p className="flex items-start gap-2 rounded-lg bg-success-muted px-3 py-2 text-success-muted-foreground">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               <span>
-                <b>Onboarding zaliczony.</b> Za Tobą: {modulesText(path)}. NEXUS jest otwarty — dziś nie
-                liczy się do Twoich statystyk.
+                <b>Onboarding zaliczony.</b> Za Tobą: {modulesText(path)}. NEXUS jest otwarty
+                {onboardingDay ? " — dziś nie liczy się do Twoich statystyk" : ""}.
               </span>
             </p>
             <Button className="w-full" disabled={leaving} onClick={() => void finish()}>

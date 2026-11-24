@@ -91,6 +91,28 @@ describe("zestaw Poligonu", () => {
     expect(ids.filter(([, n]) => n < 990_000)).toEqual([]);
   });
 
+  // 24.11.2026: profil Laury pisał „null · poziom nieznany”, a arkusz rozmowy
+  // Bartosza „„null””. Filtr nagrania zostawia `null` w miejscu wyciętego
+  // tekstu, a te pola ekran wstawia w zdanie, więc dostają wymyśloną treść
+  // (`backend/scripts/poligon_person_texts.py`).
+  it("pola, które ekran wstawia w zdanie, nie są puste", () => {
+    const text = (v: unknown) => typeof v === "string" && v.trim() !== "";
+    const empty = Object.entries(responses).flatMap(([key, body]) => {
+      if (/^GET \/api\/candidates\/\d+\/languages$/.test(key)) {
+        return (body as { languages: Array<{ language_name: unknown }> }).languages
+          .filter((l) => !text(l.language_name))
+          .map(() => `${key} → language_name`);
+      }
+      if (/\/screening\/reassign-suggestions$/.test(key)) {
+        return (body as { suggestions: Array<{ text: unknown }> }).suggestions
+          .filter((s) => !text(s.text))
+          .map(() => `${key} → text`);
+      }
+      return [];
+    });
+    expect(empty).toEqual([]);
+  });
+
   it("identyfikatory rekrutacji i osób są z zakresu poligonu", () => {
     expect(meta.job_id).toBeGreaterThanOrEqual(990_000);
     meta.people.forEach((p) => {

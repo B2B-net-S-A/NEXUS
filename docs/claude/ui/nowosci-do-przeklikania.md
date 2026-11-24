@@ -102,6 +102,13 @@ Artur: „trzeba zmusić, żeby każdą zmianę zrozumieli i potrafili korzysta�
   (`/clients/990501`), kontrakty (`/contracts`, 990521 i 990522) i Finanse
   (`/finance?view=rate-divergences`) — wpis z tych ekranów prowadzi tam
   (`poligon-nexusa-onboarding.md`, sekcja „Klient ćwiczebny”).
+  Pokaz lekcji też startuje z `practice_href ?? href`: wpis z lekcji, który
+  zaczyna na liście `/jobs`, może mieć pierwszy krok tylko na kotwicy listy
+  (`jobs.list.*`), reszta potrzebuje `practice_href` (test
+  `test_lesson_show_starts_where_its_first_step_is_not_on_the_jobs_list`;
+  24.11.2026 pokaz „Arkusz rozmowy” zaczynał na liście). Panel osoby od razu
+  rozwinięty na screeningu otwiera `?candidate=<id>&panel=screening`. Starsze
+  wpisy z archiwum ✦ bez `practice_href` jeszcze zaczynają na liście.
 - **Wyłączniki na `/settings/nowosci`** (admin i HoR) są trzy i niezależne:
   porcja (`novelty_daily_gate`), Start (`start_gate`) i Poligon nowych osób
   (`poligon_gate`). Start jest wyłączony od 30.10, dlatego porcja ma własny.
@@ -131,6 +138,13 @@ Artur: „trzeba zmusić, żeby każdą zmianę zrozumieli i potrafili korzysta�
   wolno wykonać naprawdę (zapis zakończenia kontraktu), ma `ack: true`
   i przechodzi przyciskiem „Rozumiem”. Kotwica bez elementu we froncie
   oznacza czerwony test frontu.
+- **Karta nad otwartym oknem Radix.** Radix zamyka okno po kliknięciu poza
+  nim, a karta kroku leży poza oknem. „Rozumiem” w oknie zamyka je bez zapisu,
+  chyba że następny krok stoi w tym samym oknie: wtedy okno zostaje
+  (`nextStepInSameDialog` w `lib/novelties/logic.ts`; 24.11.2026 „Rozumiem”
+  przy polu treści zamykało „Co zmienił klient?” i krok „Przygotuj zmiany”
+  nie miał czego wskazać). Karta lekcji („teraz sam”, pytanie) i okno
+  ćwiczenia Poligonu nie zamykają okna nigdy (`keepDialogsOpen`).
 - **Podświetlenie to prawdziwy, widoczny element (zgłoszenie Artura, 02.11.2026).**
   Pozycję mierzymy na żywo, nigdy ze zrzutu ani ze stałych pikseli. Sam rozmiar
   elementu nie wystarcza, bo ludzie mają różne okna: przy 1280 × 650 krok bywał
