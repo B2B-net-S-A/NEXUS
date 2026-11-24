@@ -156,6 +156,37 @@ def test_registry_lessons_use_known_novelties_and_real_texts() -> None:
         assert not re.search(r"/api/|\bPR\b|#\d{3,}", lesson.task), lesson.id
 
 
+def test_lesson_show_starts_where_its_first_step_is_not_on_the_jobs_list() -> None:
+    """Pokaz lekcji zaczyna tam, gdzie jest element, a nie na liście `/jobs`.
+
+    24.11.2026 pokaz „Arkusz rozmowy” startował na liście i pisał „Nie widzę
+    tego miejsca”: wpis nowości miał tylko `href` listy, a „Tryb rozmowy” jest
+    w panelu osoby na rekrutacji ćwiczebnej. Pokaz idzie na
+    `practice_href ?? href` wpisu (`practiceHref` w `lib/novelties/lessons.ts`),
+    a pierwszy krok wpisu bez kroków to jego kropka (`withSteps`). Na liście
+    stoją tylko kotwice `jobs.list.*`; reszta potrzebuje `practice_href`
+    (np. `/jobs/990001?candidate=…&panel=screening`)."""
+    novelties = load_novelties()
+
+    def first_anchor(nid: str) -> str:
+        novelty = novelties[nid]
+        return novelty.steps[0].anchor if novelty.steps else novelty.dot_anchor
+
+    def show_start(nid: str) -> str:
+        return novelties[nid].practice_href or novelties[nid].href
+
+    wrong = [
+        (lesson.id, nid, first_anchor(nid))
+        for lesson in load_lessons().values()
+        for nid in lesson.novelties
+        if show_start(nid).split("?")[0] == "/jobs"
+        and not first_anchor(nid).startswith("jobs.list.")
+    ]
+    assert wrong == [], (
+        f"Pokaz na liście /jobs, element gdzie indziej (dopisz practice_href): {wrong}"
+    )
+
+
 # ── Porcja dnia ──────────────────────────────────────────────────────────────
 
 

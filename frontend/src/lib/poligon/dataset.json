@@ -121,6 +121,7 @@
    "Ewelina Klonowska"
   ],
   "fiction_responses": [
+   "GET /api/candidates/990105/languages",
    "GET /api/care/contracts/990521",
    "GET /api/care/contracts/990521/card",
    "GET /api/care/contracts/990521/feedback",
@@ -198,7 +199,8 @@
    "GET /api/reports/clients/990501/trend?months=6",
    "GET /api/reports/clients?min_closed=0&period=year",
    "GET /api/start-documents/clients/990501",
-   "GET /api/start-documents/pair?candidate_id=990105&job_id=990001"
+   "GET /api/start-documents/pair?candidate_id=990105&job_id=990001",
+   "POST /api/pipeline/stages/990305/screening/reassign-suggestions"
   ],
   "ready_cv_candidate_id": 990106
  },
@@ -7634,7 +7636,7 @@
    "suggestions": [
     {
      "question_id": "q2",
-     "text": null,
+     "text": "Nowa bankowość mobilna: priorytety biznesu rozpisane na plan wdrożenia w trzech etapach, z harmonogramem i zależnościami między zespołami. Odpowiedzialność za zakres i terminy dostaw.",
      "source_kind": "answer",
      "source_quote": null,
      "confidence": "medium",
@@ -7648,7 +7650,7 @@
     },
     {
      "question_id": "q4",
-     "text": null,
+     "text": "Comiesięczny raport dla komitetu sterującego (status, ryzyka, decyzje do podjęcia) i prezentacje dla zarządu po każdym etapie.",
      "source_kind": "answer",
      "source_quote": null,
      "confidence": "medium",
@@ -8598,8 +8600,8 @@
     {
      "id": 991479,
      "language_code": "en",
-     "language_name": null,
-     "cefr_level": null,
+     "language_name": "angielski",
+     "cefr_level": "C1",
      "is_native": false,
      "is_level_unknown": false,
      "provenance": "cv",
@@ -8609,8 +8611,8 @@
     {
      "id": 991480,
      "language_code": "de",
-     "language_name": null,
-     "cefr_level": null,
+     "language_name": "niemiecki",
+     "cefr_level": "B1",
      "is_native": false,
      "is_level_unknown": false,
      "provenance": "cv",
@@ -8620,7 +8622,7 @@
     {
      "id": 991481,
      "language_code": "pl",
-     "language_name": null,
+     "language_name": "polski",
      "cefr_level": null,
      "is_native": true,
      "is_level_unknown": false,
@@ -8631,8 +8633,8 @@
     {
      "id": 991482,
      "language_code": "ru",
-     "language_name": null,
-     "cefr_level": null,
+     "language_name": "rosyjski",
+     "cefr_level": "A1",
      "is_native": false,
      "is_level_unknown": false,
      "provenance": "cv",

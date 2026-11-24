@@ -48,9 +48,11 @@ const SUB_VIEWS: Partial<Record<SalesSection, { label: string; href: string }[]>
     { label: "Firmy", href: "/sales/companies" },
     { label: "Osoby", href: "/sales/contacts" },
   ],
+  // Przetargi (24.11.2026) też jako widok w Leadach: siedem zakładek zostaje.
   leads: [
     { label: "Leady", href: "/sales/leads" },
     { label: "Boty", href: "/sales/bots" },
+    { label: "Przetargi", href: "/sales/tenders" },
   ],
 };
 
@@ -98,6 +100,7 @@ export function activeSection(pathname: string): SalesSection {
   if (pathname.startsWith("/sales/tasks")) return "tasks";
   if (pathname.startsWith("/sales/leads")) return "leads";
   if (pathname.startsWith("/sales/bots")) return "leads";
+  if (pathname.startsWith("/sales/tenders")) return "leads";
   return "opportunities";
 }
 
