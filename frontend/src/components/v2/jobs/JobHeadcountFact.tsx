@@ -31,17 +31,17 @@ export function headcountFactText(headcount: number | null, closed = false): str
 
 /**
  * Przy 1280 px pełne zdanie ścinało nazwę klienta do jednej litery (zrzut
- * ze stagingu 07.11.2026), więc poniżej `2xl` sama liczba za ikoną osób —
+ * ze stagingu 07.11.2026), więc poniżej szerokości nagłówka 86rem sama liczba za ikoną osób —
  * zdanie zostaje w dymku i dla czytnika ekranu (jak forma zwarta paska).
  */
 function FactLabel({ headcount, text }: { headcount: number | null; text: string }) {
   if (headcount == null) return <span>{text}</span>;
   return (
     <>
-      <span className="2xl:hidden" aria-hidden="true">
+      <span className="@min-[86rem]/job-header:hidden" aria-hidden="true">
         {headcount}
       </span>
-      <span className="hidden 2xl:inline" aria-hidden="true">
+      <span className="hidden @min-[86rem]/job-header:inline" aria-hidden="true">
         {text}
       </span>
     </>

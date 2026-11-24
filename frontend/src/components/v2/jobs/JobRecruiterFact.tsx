@@ -145,11 +145,11 @@ export function JobRecruiterFact({
           )}
         >
           {compact ? null : (
-            // Słowo „Rekruter” dopiero od `2xl` (19.11.2026): przy 1280 px
+            // Słowo „Rekruter” dopiero od szerokości nagłówka 86rem (19.11.2026): przy 1280 px
             // linia faktów ma też „Dodana → Termin”; nazwa jest w aria-label.
             <span
               className={cn(
-                "hidden text-xs font-medium 2xl:inline",
+                "hidden text-xs font-medium @min-[86rem]/job-header:inline",
                 view.kind === "none" ? "text-warning-muted-foreground" : "text-muted-foreground",
               )}
             >

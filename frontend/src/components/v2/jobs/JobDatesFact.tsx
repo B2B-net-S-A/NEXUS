@@ -42,7 +42,7 @@ const TONE_TEXT: Record<DeadlineUrgency, string> = {
 };
 
 /**
- * „po terminie 1 dz.” poniżej `2xl` (19.11.2026): przy 1280 px pełne „po
+ * „po terminie 1 dz.” poniżej szerokości nagłówka 86rem (19.11.2026): przy 1280 px pełne „po
  * terminie 1 dzień” ścinało tryb pracy do „H…”. Pełne zdanie zostaje w dymku.
  */
 function shortRelative(daysLeft: number | null): string | null {
@@ -99,8 +99,8 @@ export function JobDatesFact({ job, now = new Date() }: JobDatesFactProps) {
             ·{" "}
             {relativeShort ? (
               <>
-                <span className="2xl:hidden">{relativeShort}</span>
-                <span className="hidden 2xl:inline">{relative}</span>
+                <span className="@min-[86rem]/job-header:hidden">{relativeShort}</span>
+                <span className="hidden @min-[86rem]/job-header:inline">{relative}</span>
               </>
             ) : (
               relative
