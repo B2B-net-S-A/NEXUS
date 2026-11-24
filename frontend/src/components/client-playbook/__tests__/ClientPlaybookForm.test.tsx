@@ -55,6 +55,7 @@ const PAYLOAD_KEYS = [
   "onboarding_md",
   "documents",
   "verified_required_fields",
+  "prep_spec",
 ];
 
 function makeQueryClient() {
@@ -123,6 +124,100 @@ describe("ClientPlaybookForm", () => {
     // Dwa podglądy markdown + historia renderują się przy każdej zmianie pola;
     // pod obciążeniem (pełny pakiet) domyślne 5 s bywa za mało.
   }, 15_000);
+
+  it("specyfika na prep: punkt w linii, puste linie odpadają, pusta specyfika to null", async () => {
+    mocks.get.mockImplementation(async (url: string) => {
+      if (url === PLAYBOOK_URL) {
+        return {
+          data: makeClientPlaybook({
+            client_id: 5,
+            prep_spec: {
+              work_mode: ["Hybryda"],
+              language: [],
+              interview: [],
+              focus: [],
+              questions: [],
+              rejections: [],
+              highlights: [],
+              cooperation: [],
+            },
+          }),
+        };
+      }
+      if (url === HISTORY_URL) return { data: [] };
+      throw new Error(`unexpected GET ${url}`);
+    });
+    renderForm();
+    const mode = await screen.findByLabelText("Tryb pracy i biuro");
+    expect(mode).toHaveValue("Hybryda");
+
+    fireEvent.change(mode, { target: { value: "Hybryda\n\n  Biuro w Warszawie  " } });
+    fireEvent.change(screen.getByLabelText("Język rozmowy"), { target: { value: "Polski" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz kartę" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
+    const [, body] = mocks.put.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body.prep_spec).toMatchObject({
+      work_mode: ["Hybryda", "Biuro w Warszawie"],
+      language: ["Polski"],
+      cooperation: [],
+    });
+
+    fireEvent.change(screen.getByLabelText("Tryb pracy i biuro"), { target: { value: " " } });
+    fireEvent.change(screen.getByLabelText("Język rozmowy"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz kartę" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(2));
+    expect((mocks.put.mock.calls[1] as [string, Record<string, unknown>])[1].prep_spec).toBeNull();
+  }, 15_000);
+
+  it("za dużo punktów albo za długi punkt blokuje zapis z komunikatem", async () => {
+    renderForm();
+    const focus = await screen.findByLabelText("Na co zwracają uwagę");
+    fireEvent.change(focus, {
+      target: { value: Array.from({ length: 13 }, (_, i) => `Punkt ${i + 1}`).join("\n") },
+    });
+    expect(screen.getByText("Na co zwracają uwagę: najwyżej 12 punktów.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zapisz kartę" })).toBeDisabled();
+
+    fireEvent.change(focus, { target: { value: "x".repeat(301) } });
+    expect(
+      screen.getByText("Na co zwracają uwagę: punkt ma najwyżej 300 znaków."),
+    ).toBeInTheDocument();
+  });
+
+  it("historia pokazuje, które pola specyfiki się zmieniły, a nie JSON", async () => {
+    mocks.get.mockImplementation(async (url: string) => {
+      if (url === PLAYBOOK_URL) return { data: makeClientPlaybook({ client_id: 5 }) };
+      if (url === HISTORY_URL) {
+        return {
+          data: [
+            makePlaybookEvent({
+              changes: {
+                prep_spec: {
+                  from: null,
+                  to: {
+                    work_mode: ["Hybryda"],
+                    language: ["Polski"],
+                    interview: [],
+                    focus: [],
+                    questions: [],
+                    rejections: [],
+                    highlights: [],
+                    cooperation: [],
+                  },
+                },
+              },
+            }),
+          ],
+        };
+      }
+      throw new Error(`unexpected GET ${url}`);
+    });
+    renderForm();
+    expect(
+      await screen.findByText("zmienione: Tryb pracy i biuro, Język rozmowy"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/"work_mode"/)).not.toBeInTheDocument();
+  });
 
   // D3 (21.10.2026): pola, które klient dokłada do minimum przed „Zweryfikowany”.
   it("zaznaczone pola wymagane przed „Zweryfikowany” idą w PUT w stałej kolejności", async () => {

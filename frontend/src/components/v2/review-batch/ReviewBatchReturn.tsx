@@ -24,15 +24,15 @@ export function ReturnToNewButton({
   people,
   label,
   confirm = false,
-  tourAnchor,
+  group = false,
 }: {
   jobId: number;
   jobTitle: string;
   people: ReviewBatchOpenScreening[];
   label: string;
   confirm?: boolean;
-  /** Kotwica Nowości i lekcji (`data-tour`). */
-  tourAnchor?: string;
+  /** Przycisk zbiorczy grupy: kotwica Nowości i lekcji. */
+  group?: boolean;
 }) {
   const move = usePipelineMoveCore({ jobId });
   const queryClient = useQueryClient();
@@ -74,7 +74,7 @@ export function ReturnToNewButton({
         size="sm"
         variant="outline"
         disabled={pending}
-        data-tour={tourAnchor}
+        data-tour={group ? "review-batch.return-group" : undefined}
         onClick={() => void run()}
       >
         <Undo2 className="h-3.5 w-3.5" aria-hidden />
