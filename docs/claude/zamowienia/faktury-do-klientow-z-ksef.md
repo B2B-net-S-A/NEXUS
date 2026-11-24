@@ -116,6 +116,26 @@
     klientów nic.
   - Faktury VeloBanku VII–X przypisano ręcznie 24.11 (`manual`, automat ich nie przepina). Zamówień osób, których kontrakty
     skończyły się 30.06, nie przypisano: tych osób nie ma w arkuszach zbiorczych.
+- **Tytuł „Zamówienie nr X” to numer X** (24.11.2026). Numer zamówienia bez grupy to jego tytuł (`order_refs`), a faktura podaje
+  sam numer („nr zamówienia: 9001/2026”). Faktura czekała wtedy jako `unknown_order_number`, choć zamówienie było w NEXUSIE.
+  - `OrderRef.variants` daje też numer bez przedrostka, gdy reszta tytułu to jeden wyraz z cyfrą, jak `number_from_title`
+    w rozliczeniach. Tytuł opisowy („Zamówienie Polkomtel — osoba”, „Zamówienie z dnia …”) numeru nie daje.
+  - To samo dotyczy numeru grupy zapisanego z przedrostkiem (BNP: „ZAMÓWIENIE 1078”).
+  - Przedrostek zdejmuje jeden wzorzec, `billing.TITLE_PREFIX`. Ten sam bierze `_number_key` faktury zbiorczej.
+  - Bez reguły `cl.collective_invoice` tytuł z przedrostkiem i bez to ten sam numer. Suma wszystkich zamówień z numerem
+    równa netto co do grosza wiąże wszystkie (reguła sumy z 08.11), inaczej faktura czeka jako `several_orders`. Wcześniej
+    numer trafiał tylko tytuły bez przedrostka, więc faktura na kilka osób wiązała część zamówień.
+  - Pomiar `decide()` na kopii produkcji z 23.11 (`nexus_staging_klodko_v6`, 2858 faktur z decyzją): zmienia wynik 44.
+    Automat (`rematch_pending`) zmieni 34 z nich:
+    - 31 faktur czekających jako `unknown_order_number` wiąże numer z jedynym zamówieniem z tym numerem w miesiącu
+      (PKO VI–IX: 28, BNP IV–VI: 3);
+    - 3 faktury PKO dalej czekają, ale jako `several_orders`: dwie osoby mają jeden numer, a kwota nie wskazuje żadnej.
+  - Pozostałych 10 automat nie rusza (`matched`, `amount_ambiguous` poza `RETRY_REASONS`):
+    - 5 związanych dziś kwotą albo osobą wskazuje to samo zamówienie albo jego jedyną linię;
+    - 3 faktury PKO za VII–IX związane numerem z jednym z czterech zamówień z tym numerem dostałyby `several_orders`.
+      To faktury na cztery osoby, a tylko tytuł jednego zamówienia nie miał przedrostka.
+  - Po zmianie w `decide()` zostaje 134 `unknown_order_number` (PKO 38, przed zmianą 72). To numery, których NEXUS nie ma
+    w miesiącu faktury.
 
 ## Nieznani nabywcy i NIP w formularzu (audyt C5, 08.11.2026)
 
