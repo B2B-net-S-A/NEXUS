@@ -16,6 +16,7 @@ Reguły: ``docs/claude/sprzedaz/sygnaly-grok-bot.md`` („Haczyk i teczka”).
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
@@ -30,6 +31,8 @@ from app.services.sales.bot_tasks.base import (
     result_fingerprint,
     save_results,
 )
+
+logger = logging.getLogger(__name__)
 
 #: Tryb firmy w biegu ``briefing`` i rodzaj wyniku w ``sales_bot_results``.
 CALL_HOOK = "call_hook"
@@ -68,24 +71,47 @@ def hook_refs(run: SalesSignalRun) -> set[int]:
     }
 
 
+#: Powód odrzucenia haczyka; wraca do bota w odpowiedzi na raport (``hooks_dropped``).
+DROP_REASONS: dict[str, str] = {
+    "not_call_hook_firm": 'Firma nie ma w tym biegu mode = "call_hook".',
+    "duplicate": "Drugi haczyk dla tej samej firmy w raporcie.",
+    "facts_outside_window": (
+        "Żaden fakt nie ma daty publikacji z ostatnich 12 miesięcy (ani jutrzejszej)."
+    ),
+}
+
+
 def plan_hooks(
     run: SalesSignalRun, hooks: list[ReportHook], *, today: date
-) -> tuple[list[dict[str, Any]], int]:
-    """Wiersze do zapisu i liczba odrzuconych (firma spoza trybu, drugi raz, bez faktu)."""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Wiersze do zapisu i odrzucone haczyki z powodem (``DROP_REASONS``)."""
 
     allowed = hook_refs(run)
     oldest = today - timedelta(days=FACT_WINDOW_DAYS)
     rows: list[dict[str, Any]] = []
     seen: set[int] = set()
-    dropped = 0
+    dropped: list[dict[str, Any]] = []
     for hook in hooks:
         facts = [
             fact
             for fact in hook.facts
             if oldest <= fact.published <= today + timedelta(days=1)
         ]
-        if hook.company_ref not in allowed or hook.company_ref in seen or not facts:
-            dropped += 1
+        reason: Optional[str] = None
+        if hook.company_ref not in allowed:
+            reason = "not_call_hook_firm"
+        elif hook.company_ref in seen:
+            reason = "duplicate"
+        elif not facts:
+            reason = "facts_outside_window"
+        if reason is not None:
+            dropped.append(
+                {
+                    "company_ref": hook.company_ref,
+                    "reason": reason,
+                    "detail": DROP_REASONS[reason],
+                }
+            )
             continue
         seen.add(hook.company_ref)
         rows.append(
@@ -118,6 +144,13 @@ async def save(
 ) -> dict[str, Any]:
     rows, dropped = plan_hooks(run, hooks, today=today)
     await save_results(db, run, rows, now, kind=CALL_HOOK)
+    if dropped:
+        # Logi są publiczne: same numery firm z biegu i kody powodów.
+        logger.info(
+            "sales_research call_hook run=%s dropped %s",
+            run.id,
+            ",".join(f"{item['company_ref']}:{item['reason']}" for item in dropped),
+        )
     return {
         "hooks": len(rows),
         "hooks_dropped": dropped,

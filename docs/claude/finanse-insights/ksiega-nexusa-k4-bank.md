@@ -109,6 +109,16 @@ dopisuj czwartej ścieżki dopasowania ani kopii logiki E3/R9/E8 w Księdze.
   ma jakikolwiek WB (też po stornie), gdy z pliku są wypłaty R9 albo gdy import
   zostawił skutek, którego nie odtworzymy (zamknięta pozycja paczki, zapłata
   eBI24 zastąpiona zapłatą z wyciągu) — to rozstrzygają Finanse.
+  **Odmowa (409) także, gdy inny plik ma operacje tego wyciągu jako duplikaty**
+  (decyzja Artura 24.11.2026, audyt): linia `duplicate` w innym wyciągu tego
+  rachunku (ta sama referencja banku, dzień i kwota) albo wiersz E3/E8
+  z `DUPLICATE_REASON` pod innym skrótem (także z pliku sprzed Księgi). Bez tego
+  usunięcie dziennego D przy wgranym miesięcznym M kasowało oryginał zapłaty,
+  duplikat z M zostawał `ignored`, faktura kosztowa wracała na „Do zapłaty”
+  (ryzyko drugiego przelewu), a ponowne wgranie D było już tylko duplikatem M.
+  Droga: najpierw usuń plik z duplikatami (M), potem oryginał (D), wgraj oba.
+  Przeniesienia decyzji na duplikat Artur nie wybrał — za dużo stanu do
+  przepisania (linia banku, E3, E8, WB drugiego pliku).
 - Pełnego rachunku kontrahenta nie trzymamy (tylko cztery ostatnie cyfry, jak
   E3 i R9), a tytuły mają zamaskowane numery rachunków z parsera.
 - Rachunki walutowe (EUR, USD) i kurs NBP operacji — K4c-1

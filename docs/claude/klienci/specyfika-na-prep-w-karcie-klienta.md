@@ -41,6 +41,7 @@ fundamenty: `integracje/fundamenty-prepa-przygotowanie-rekrutera.md`).
 - **Nordea (decyzja 24.11):** wartości z karty (Collaboration, Ownership,
   Passion, Courage) w „Co wyróżnia klienta”, a to, co DL widzi na rozmowach
   („dobrze wypada: proaktywność…”), osobno w „Na co zwracają uwagę”.
-- **Dalej:** F3 (przygotowanie jako trzeci prep) i F4 (ocena przygotowania
+- **Dalej:** F3 zbudowane 24.11.2026 (`integracje/przygotowanie-trzeci-prep-rekrutera.md`),
+  F4 (ocena przygotowania
   sprawdza też specyfikę klienta). Uwagi DL-i do specyfiki do 30.11.2026 — DL
   poprawia je sam w karcie.

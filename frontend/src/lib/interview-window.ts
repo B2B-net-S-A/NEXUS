@@ -102,7 +102,8 @@ export interface InterviewWindow {
   today: { time: string; label: string; name: string } | null;
 }
 
-const STARTING_LABELS: Record<"prep" | "prep2" | "interview", string> = {
+const STARTING_LABELS: Record<"prep0" | "prep" | "prep2" | "interview", string> = {
+  prep0: "Przygotowanie",
   prep: "Prep 1",
   prep2: "Prep 2",
   interview: "Rozmowa u klienta",
@@ -115,6 +116,7 @@ const TODO_ICONS: Partial<Record<TodoKind, WindowIcon>> = {
   slots_confirm: "confirm",
   slots_reply: "confirm",
   slots_expired: "slots",
+  prep0_missing: "video",
   prep_missing: "video",
   prep2_missing: "video",
   prep_late: "video",
@@ -128,8 +130,8 @@ const TODO_ICONS: Partial<Record<TodoKind, WindowIcon>> = {
  *  Delivery Lead nie ma ruchu — licznik na ikonie nigdy by nie gasł. */
 const SKIPPED_TODOS: ReadonlySet<TodoKind> = new Set(["call_now", "slots_missing"]);
 
-function isStartingKind(kind: AgendaKind): kind is "prep" | "prep2" | "interview" {
-  return kind === "prep" || kind === "prep2" || kind === "interview";
+function isStartingKind(kind: AgendaKind): kind is "prep0" | "prep" | "prep2" | "interview" {
+  return kind === "prep0" || kind === "prep" || kind === "prep2" || kind === "interview";
 }
 
 function dayKey(date: Date): string {
@@ -312,7 +314,7 @@ export function buildInterviewWindow({
     const start = new Date(entry.start).getTime();
     const end = entry.end ? new Date(entry.end).getTime() : start + DEFAULT_EVENT_MS;
     if (nowMs < start - STARTING_SOON_MS || nowMs >= end) continue;
-    const label = STARTING_LABELS[entry.kind as "prep" | "prep2" | "interview"];
+    const label = STARTING_LABELS[entry.kind as "prep0" | "prep" | "prep2" | "interview"];
     place(
       {
         ...baseRow("now", `event:${entry.event_id}`, entry),
@@ -563,7 +565,7 @@ export function buildInterviewWindow({
     today: next
       ? {
           time: formatTime(next.start),
-          label: STARTING_LABELS[next.kind as "prep" | "prep2" | "interview"],
+          label: STARTING_LABELS[next.kind as "prep0" | "prep" | "prep2" | "interview"],
           name: candidateLabel(next),
         }
       : null,

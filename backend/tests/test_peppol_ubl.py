@@ -2,8 +2,9 @@
 
 Próbki w ``tests/data/peppol`` są zanonimizowane: sprzedawca, osoby, numery
 NIDS, osób i rachunków są fikcyjne; nabywca to Nordea Bank Abp z jawnym numerem
-VAT UE. Kwoty i układ pozycji odwzorowują prawdziwe faktury do Nordei
-(rabat z umowy ramowej w ``P_10``, „np II”, kilka NIDS, EUR, korekty).
+VAT UE. Układ pozycji odwzorowuje faktury do Nordei (rabat z umowy ramowej
+w ``P_10``, „np II”, kilka NIDS, EUR, korekty); ceny, stawka rabatu i kwoty
+są fikcyjne.
 
 Walidacja biegnie na oficjalnych regułach EN16931 i Peppol (Schematron
 skompilowany do XSLT 2.0, ``scripts/build_peppol_rules.py``).
@@ -43,7 +44,7 @@ def test_discount_and_reverse_charge_invoice_maps_like_the_prototype():
     root = _tree(result)
 
     assert result.document_type == "invoice"
-    assert result.total == Decimal("36679.50")
+    assert result.total == Decimal("30468.02")
     assert _texts(root, "cbc:InvoiceTypeCode") == ["380"]
     assert _texts(root, "cbc:DocumentCurrencyCode") == ["PLN"]
     # Osoba kontaktowa Nordei z opisu pozycji — Peppol wymaga BuyerReference.
@@ -67,15 +68,15 @@ def test_discount_and_reverse_charge_invoice_maps_like_the_prototype():
         "1500000002",
         "1600000003",
     ]
-    # Rabat 2,5% z umowy ramowej: cena przed rabatem 180,00, po rabacie 175,50.
-    assert _texts(root, "cac:InvoiceLine/cac:Price/cbc:PriceAmount") == ["175.50"] * 3
+    # Rabat 1,5% z umowy ramowej: cena przed rabatem 148,00, po rabacie 145,78.
+    assert _texts(root, "cac:InvoiceLine/cac:Price/cbc:PriceAmount") == ["145.78"] * 3
     assert (
         _texts(root, "cac:InvoiceLine/cac:Price/cac:AllowanceCharge/cbc:BaseAmount")
-        == ["180.00"] * 3
+        == ["148.00"] * 3
     )
     assert (
         _texts(root, "cac:InvoiceLine/cac:Price/cac:AllowanceCharge/cbc:Amount")
-        == ["4.50"] * 3
+        == ["2.22"] * 3
     )
     assert _texts(root, "cac:InvoiceLine/cbc:InvoicedQuantity") == [
         "86",
@@ -86,7 +87,7 @@ def test_discount_and_reverse_charge_invoice_maps_like_the_prototype():
     assert _texts(root, "cac:TaxTotal/cac:TaxSubtotal/cac:TaxCategory/cbc:ID") == ["AE"]
     assert _texts(root, ".//cbc:TaxExemptionReasonCode") == ["VATEX-EU-AE"]
     assert _texts(root, "cac:TaxTotal/cbc:TaxAmount") == ["0.00"]
-    assert _texts(root, "cac:LegalMonetaryTotal/cbc:PayableAmount") == ["36679.50"]
+    assert _texts(root, "cac:LegalMonetaryTotal/cbc:PayableAmount") == ["30468.02"]
     assert "Frame Agreement" in _texts(root, "cbc:Note")[0]
     assert _texts(root, "cbc:DueDate") == ["2026-12-05"]
     assert _texts(root, ".//cac:PayeeFinancialAccount/cbc:ID") == [
@@ -103,8 +104,8 @@ def test_invoice_in_eur_keeps_currency_without_tax_currency_for_reverse_charge()
         node.get("currencyID") for node in root.iter() if node.get("currencyID")
     }
     assert currencies == {"EUR"}
-    assert _texts(root, "cac:InvoiceLine/cac:Price/cbc:PriceAmount") == ["58.50"]
-    assert _texts(root, "cac:LegalMonetaryTotal/cbc:PayableAmount") == ["5674.50"]
+    assert _texts(root, "cac:InvoiceLine/cac:Price/cbc:PriceAmount") == ["51.22"]
+    assert _texts(root, "cac:LegalMonetaryTotal/cbc:PayableAmount") == ["4968.34"]
 
 
 def test_correction_down_becomes_credit_note_with_positive_difference():
@@ -121,10 +122,10 @@ def test_correction_down_becomes_credit_note_with_positive_difference():
     assert _texts(
         root, "cac:BillingReference/cac:InvoiceDocumentReference/cbc:IssueDate"
     ) == ["2026-10-02"]
-    # 160 h → 152 h po 175,50: korekta o 8 h = 1 404,00.
+    # 160 h → 152 h po 145,78: korekta o 8 h = 1 166,24.
     assert _texts(root, "cac:CreditNoteLine/cbc:CreditedQuantity") == ["8"]
-    assert _texts(root, "cac:CreditNoteLine/cbc:LineExtensionAmount") == ["1404.00"]
-    assert _texts(root, "cac:LegalMonetaryTotal/cbc:PayableAmount") == ["1404.00"]
+    assert _texts(root, "cac:CreditNoteLine/cbc:LineExtensionAmount") == ["1166.24"]
+    assert _texts(root, "cac:LegalMonetaryTotal/cbc:PayableAmount") == ["1166.24"]
     assert _texts(root, "cac:CreditNoteLine/cbc:AccountingCost") == ["2023-000001"]
 
 
@@ -158,16 +159,16 @@ def test_polish_branch_with_standard_rate_has_vat_breakdown():
     assert _texts(root, "cac:TaxTotal/cac:TaxSubtotal/cac:TaxCategory/cbc:Percent") == [
         "23"
     ]
-    assert _texts(root, "cac:TaxTotal/cbc:TaxAmount") == ["5932.42"]
-    assert _texts(root, "cac:LegalMonetaryTotal/cbc:PayableAmount") == ["31725.56"]
+    assert _texts(root, "cac:TaxTotal/cbc:TaxAmount") == ["5229.79"]
+    assert _texts(root, "cac:LegalMonetaryTotal/cbc:PayableAmount") == ["27968.02"]
     assert _texts(
         root, ".//cac:AccountingCustomerParty//cac:PartyTaxScheme/cbc:CompanyID"
     ) == ["PL1111111111"]
     # Adres w jednej linii: kod i miasto wyciągnięte z AdresL1.
     assert _texts(root, ".//cac:AccountingCustomerParty//cbc:PostalZone") == ["00-002"]
     assert _texts(root, ".//cac:AccountingCustomerParty//cbc:CityName") == ["Warszawa"]
-    # 157,00 − 2,5% = 153,075 — cena z trzema miejscami, R120 nadal spełnione.
-    assert _texts(root, "cac:InvoiceLine/cac:Price/cbc:PriceAmount") == ["153.075"]
+    # 137,00 − 1,5% = 134,945 — cena z trzema miejscami, R120 nadal spełnione.
+    assert _texts(root, "cac:InvoiceLine/cac:Price/cbc:PriceAmount") == ["134.945"]
 
 
 def test_pdf_goes_to_additional_document_reference():
@@ -238,7 +239,7 @@ def test_lines_must_add_up_to_invoice_net():
     xml = (
         (DATA / "fa_nordea_eur.xml")
         .read_bytes()
-        .replace(b"<P_13_9>5674.50</P_13_9>", b"<P_13_9>5674.60</P_13_9>")
+        .replace(b"<P_13_9>4968.34</P_13_9>", b"<P_13_9>4968.44</P_13_9>")
     )
 
     with pytest.raises(ubl.ConversionError) as exc:
@@ -253,10 +254,10 @@ def test_price_that_does_not_divide_goes_as_line_allowance():
     xml = (DATA / "fa_nordea_eur.xml").read_bytes()
     xml = xml.replace(b"<P_8B>97</P_8B>", b"<P_8B>333</P_8B>")
     xml = xml.replace(
-        b"<P_9A>60.00</P_9A><P_10>145.50</P_10><P_11>5674.50</P_11>",
+        b"<P_9A>52.00</P_9A><P_10>75.66</P_10><P_11>4968.34</P_11>",
         b"<P_9A>31.00</P_9A><P_10>322.99</P_10><P_11>10000.01</P_11>",
     )
-    xml = xml.replace(b"5674.50", b"10000.01")
+    xml = xml.replace(b"4968.34", b"10000.01")
     result = ubl.build(fa_reader.read(xml), sender=SENDER, receiver=RECEIVER)
     root = _tree(result)
 
@@ -289,9 +290,9 @@ def test_vat_comes_from_ksef_not_from_rounding_the_difference():
         + b"    <FaWiersz><NrWierszaFa>1</NrWierszaFa><P_7>Usluga</P_7><P_8A>szt.</P_8A><P_8B>1</P_8B><P_9A>100.02</P_9A><P_11>100.02</P_11><P_12>23</P_12><StanPrzed>1</StanPrzed></FaWiersz>\n"
         + xml[end:]
     )
-    xml = xml.replace(b"<P_13_1>25793.14</P_13_1>", b"<P_13_1>0.02</P_13_1>")
-    xml = xml.replace(b"<P_14_1>5932.42</P_14_1>", b"<P_14_1>0.01</P_14_1>")
-    xml = xml.replace(b"<P_15>31725.56</P_15>", b"<P_15>0.03</P_15>")
+    xml = xml.replace(b"<P_13_1>22738.23</P_13_1>", b"<P_13_1>0.02</P_13_1>")
+    xml = xml.replace(b"<P_14_1>5229.79</P_14_1>", b"<P_14_1>0.01</P_14_1>")
+    xml = xml.replace(b"<P_15>27968.02</P_15>", b"<P_15>0.03</P_15>")
 
     result = ubl.build(fa_reader.read(xml), sender=SENDER, receiver=RECEIVER)
     root = _tree(result)
@@ -303,7 +304,7 @@ def test_vat_comes_from_ksef_not_from_rounding_the_difference():
 
 def test_vat_different_from_ksef_by_a_cent_is_refused():
     xml = (DATA / "fa_nordea_oddzial_23.xml").read_bytes()
-    xml = xml.replace(b"<P_14_1>5932.42</P_14_1>", b"<P_14_1>5932.43</P_14_1>")
+    xml = xml.replace(b"<P_14_1>5229.79</P_14_1>", b"<P_14_1>5229.80</P_14_1>")
 
     with pytest.raises(ubl.ConversionError) as exc:
         ubl.build(fa_reader.read(xml), sender=SENDER, receiver=RECEIVER)

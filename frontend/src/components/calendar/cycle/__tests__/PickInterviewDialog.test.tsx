@@ -491,3 +491,62 @@ describe("PickInterviewDialog", () => {
   });
 });
 
+
+describe("PickInterviewDialog — Przygotowanie rekrutera (F3, 24.11.2026)", () => {
+  const prep0 = (options: { start: string; end: string }[]) => ({
+    prep_no: 0 as const,
+    organizer: { id: 7, name: "Kasia Rekruter" },
+    calendar: "ok" as const,
+    scheduled_start: null,
+    minutes: 45,
+    options,
+  });
+
+  beforeEach(() => {
+    mocks.chooseSlot.mockReset().mockResolvedValue({});
+    mocks.createPrep.mockReset().mockResolvedValue({});
+    mocks.toast.showSuccess.mockReset();
+  });
+
+  it("trzy prepy jednym przyciskiem: Przygotowanie zaznaczone i zakładane pierwsze, rekruter na Prepie 1", async () => {
+    mocks.suggestions
+      .mockReset()
+      .mockResolvedValue({
+        ...suggestions,
+        preps: [prep0([{ start: "2031-06-10T09:00:00Z", end: "2031-06-10T09:45:00Z" }]), ...suggestions.preps],
+      });
+    const dialog = renderDialog();
+    fireEvent.click(within(dialog).getAllByRole("radio", { name: /.+/ })[0]);
+    const group = await within(dialog).findByRole("radiogroup", { name: "Godzina przygotowania" });
+    expect(within(group).getAllByRole("radio")[0]).toHaveAttribute("aria-checked", "true");
+    expect(mocks.suggestions).toHaveBeenCalledWith(expect.objectContaining({ prep0Minutes: 45 }));
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Wybierz termin i zaproś na prepy (3)" }));
+    await waitFor(() => expect(mocks.createPrep).toHaveBeenCalledTimes(3));
+    expect(mocks.createPrep.mock.calls.map((c) => c[0].prep_no)).toEqual([0, 1, 2]);
+    expect(mocks.createPrep.mock.calls[0][0]).toMatchObject({
+      organizer_user_id: 7,
+      start: "2031-06-10T09:00:00Z",
+      attendee_user_ids: [],
+    });
+    // Prep 1 prowadzi DL razem z rekruterem (trzy rozmowy, 11.11.2026).
+    expect(mocks.createPrep.mock.calls[1][0]).toMatchObject({ organizer_user_id: 2, attendee_user_ids: [7] });
+  });
+
+  it("Prep 1 ustępuje godziny Przygotowaniu, które ma pierwszeństwo", async () => {
+    mocks.suggestions
+      .mockReset()
+      .mockResolvedValue({
+        ...suggestions,
+        // Ta sama godzina co polecana dla Prepu 1.
+        preps: [prep0([{ start: "2031-06-11T14:00:00Z", end: "2031-06-11T14:45:00Z" }]), ...suggestions.preps],
+      });
+    const dialog = renderDialog();
+    fireEvent.click(within(dialog).getAllByRole("radio", { name: /.+/ })[0]);
+    const prep1 = await within(dialog).findByRole("radiogroup", { name: "Godzina Prepu 1" });
+    await waitFor(() =>
+      expect(within(prep1).getAllByRole("radio")[1]).toHaveAttribute("aria-checked", "true"),
+    );
+    expect(within(prep1).getAllByRole("radio")[0]).toBeDisabled();
+  });
+});

@@ -62,6 +62,15 @@ export function TemplateDialog({
   const [lines, setLines] = useState<DraftLine[]>(
     template?.lines.length ? template.lines : [blankLine(defaultVat)],
   );
+  // Ustawienia mogą dojść po otwarciu okna: pozycje nowego szablonu ze stawką
+  // przyjętą na start dostają wtedy default_vat z ustawień.
+  const [vatSeed, setVatSeed] = useState(defaultVat);
+  if (!template?.lines.length && vatSeed !== defaultVat) {
+    setVatSeed(defaultVat);
+    setLines((current) =>
+      current.map((line) => (line.vat_rate === vatSeed ? { ...line, vat_rate: defaultVat } : line)),
+    );
+  }
   const [validFrom, setValidFrom] = useState(template?.valid_from ?? "");
   const [validTo, setValidTo] = useState(template?.valid_to ?? "");
   const [paymentDays, setPaymentDays] = useState(

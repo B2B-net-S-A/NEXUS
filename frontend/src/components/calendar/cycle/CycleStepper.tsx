@@ -113,7 +113,7 @@ export function CycleStepper({
                     onClick={() => onPrepReview(step.event_id as number)}
                     className="mt-0.5 text-xs font-semibold text-primary hover:underline"
                   >
-                    Zobacz ocenę i transkrypt
+                    {step.key === "prep0" ? "Zobacz nagranie" : "Zobacz ocenę i transkrypt"}
                   </button>
                 ) : null)}
               </div>

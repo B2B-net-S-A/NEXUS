@@ -147,7 +147,9 @@ describe("ClientsListV2 — katalog klientów", () => {
     async () => {
       renderList();
 
-      expect(await screen.findAllByText("Nordea ABP")).toHaveLength(2);
+      // `findAllByText` kończy przy pierwszym trafieniu; drugie miejsce
+      // z nazwą bywa renderowane tick później (react-query 5.108, kolejka #3898).
+      await waitFor(() => expect(screen.getAllByText("Nordea ABP")).toHaveLength(2));
       expect(requestedParams()).toEqual({
         category: "active",
         q: undefined,

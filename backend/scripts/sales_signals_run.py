@@ -35,7 +35,9 @@ from typing import Any, Optional, Sequence
 from app.core.database import AsyncSessionLocal, engine
 from app.services.sales import bot_tasks, signal_targets, signals
 
-MAX_TRIAL_FIRMS = 20
+#: Największa paczka pętli (haczyki, teczki): próba paczki 25+ firm w webhooku v2
+#: (24.11.2026) musi dać się zlecić jednym biegiem.
+MAX_TRIAL_FIRMS = 40
 
 
 def _ids(value: str) -> list[int]:

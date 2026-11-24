@@ -35,7 +35,7 @@ TERMS_RAW = {
     "periods": [
         {
             "from_year": 2026,
-            "tiers": [{"up_to": 1000, "rate": 2.5}, {"up_to": None, "rate": 3}],
+            "tiers": [{"up_to": 1000, "rate": 1.5}, {"up_to": None, "rate": 3.5}],
         }
     ],
     "exclude_words": ["podróż"],
@@ -80,7 +80,7 @@ def _status(*months: tuple[int, str]) -> rebate.YearRebate:
 
 def _item(name: str, quantity: str, price: str, rate: str = "23") -> dict:
     net = rebate.cents(
-        Decimal(quantity) * rebate.cents(Decimal(price) * Decimal("0.975"))
+        Decimal(quantity) * rebate.cents(Decimal(price) * Decimal("0.985"))
     )
     return {
         "name": name,
@@ -114,7 +114,7 @@ def _validate(schema: etree.XMLSchema, xml: bytes) -> etree._Element:
 
 def test_amount_is_rate_difference_times_excess_over_threshold():
     # Wrzesień 900, październik 300: obrót 1200, próg 1000, nadwyżka 200,
-    # różnica 3% − 2,5% = 0,5% → 1,00.
+    # różnica 3,5% − 1,5% = 2% → 4,00.
     status = _status((9, "900"), (10, "300"))
     draft = rebate_correction.plan(
         status,
@@ -124,9 +124,9 @@ def test_amount_is_rate_difference_times_excess_over_threshold():
         words=_terms().exclude_words,
     )
     assert draft.excess == Decimal("200.00")
-    assert draft.rate_diff == Decimal("0.5")
-    assert draft.amount == draft.rate_diff * draft.excess / 100 == Decimal("1.00")
-    assert sum(fa3_build.line_net(line) for line in draft.lines) == Decimal("-1.00")
+    assert draft.rate_diff == Decimal("2")
+    assert draft.amount == draft.rate_diff * draft.excess / 100 == Decimal("4.00")
+    assert sum(fa3_build.line_net(line) for line in draft.lines) == Decimal("-4.00")
     assert not draft.problems
 
 
@@ -344,7 +344,7 @@ async def test_prepare_without_client_address_shows_amount_but_no_xml(monkeypatc
     )
     assert prepared.xml is None
     assert "adresu w kartotece" in prepared.xml_error
-    assert rebate_correction.payload(prepared, client_id=11)["amount"] == "1.00"
+    assert rebate_correction.payload(prepared, client_id=11)["amount"] == "4.00"
 
 
 @pytest.mark.asyncio
@@ -376,9 +376,9 @@ async def test_prepare_builds_payload_and_schema_valid_xml(monkeypatch, schema):
     assert prepared.xml_error is None
     _validate(schema, prepared.xml)
     data = rebate_correction.payload(prepared, client_id=11)
-    assert data["amount"] == "1.00"
-    assert data["net"] == "-1.00"
-    assert data["vat"] == "-0.23"
+    assert data["amount"] == "4.00"
+    assert data["net"] == "-4.00"
+    assert data["vat"] == "-0.92"
     assert data["invoice_count"] == 1
     assert data["invoices"][0]["number"] == "20/10/2026"
     assert data["lines"][0]["vat_label"] == "23%"
@@ -454,7 +454,7 @@ async def test_create_saves_kor_draft_with_corrected_list(monkeypatch, schema):
     assert (invoice.period_year, invoice.period_month) == (2026, 10)
     assert invoice.currency == "PLN"
     assert invoice.due_date == date(2026, 12, 22)
-    assert invoice.net_amount == Decimal("-1.00")
+    assert invoice.net_amount == Decimal("-4.00")
     collective = invoice.collective_correction
     assert collective["period"] == "01.10.2026-31.10.2026"
     assert collective["correction_type"] == "2"
@@ -513,12 +513,12 @@ def test_issued_rebate_correction_does_not_lower_turnover():
     """Obrót do progu liczy się przed rabatem: przyjęta korekta go nie zmienia."""
 
     net, touched = rebate.service_base(
-        Decimal("-1.00"), [_rebate_item("1.00")], _terms().exclude_words
+        Decimal("-4.00"), [_rebate_item("4.00")], _terms().exclude_words
     )
     assert (net, touched) == (Decimal("0.00"), False)
     invoices = [
         _invoice("20/10/2026", _item("Usługi IT", "3", "100")),
-        _invoice("KOR/1/11/2026", _rebate_item("1.00"), kind="correction"),
+        _invoice("KOR/1/11/2026", _rebate_item("4.00"), kind="correction"),
     ]
     assert rebate_correction.rate_weights(invoices, ()) == {"23": Decimal("300.00")}
 
@@ -538,7 +538,7 @@ def test_pdf_lists_corrected_invoices():
         period_to=date(2026, 10, 31),
         sale_date=None,
         due_date=None,
-        lines=[issue.clean_line(_rebate_item("1.00"))],
+        lines=[issue.clean_line(_rebate_item("4.00"))],
         lines_before=[],
         buyer=BUYER,
         fx_rate=None,

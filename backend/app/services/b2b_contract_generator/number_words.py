@@ -5,6 +5,8 @@ Obsługuje 0–999 999 (z zapasem dla stawek godzinowych). Forma mianownikowa.
 
 from __future__ import annotations
 
+from decimal import ROUND_HALF_UP, Decimal
+
 _PL_ONES = [
     "zero",
     "jeden",
@@ -216,10 +218,13 @@ def _pl_grosz(n: int) -> str:
     return "groszy"
 
 
-def _grosze_part(amount: int | float) -> int:
-    """Część groszowa kwoty (zaokrąglona do pełnych groszy), 0–99."""
-    whole = int(abs(amount))
-    return int(round((abs(amount) - whole) * 100))
+def _whole_and_cents(amount: int | float) -> tuple[int, int]:
+    """Część całkowita i setne kwoty po zaokrągleniu do setnych (Decimal,
+    ROUND_HALF_UP) — 99,999 to 100 i 0, nie 99 i „100 groszy”."""
+    cents = int(
+        (abs(Decimal(str(amount))) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    )
+    return divmod(cents, 100)
 
 
 def rate_in_words(
@@ -230,25 +235,33 @@ def rate_in_words(
     PLN → „sto dwadzieścia złotych" / „one hundred twenty zlotys". Stawka
     ułamkowa dolicza grosze: 135,50 → „sto trzydzieści pięć złotych pięćdziesiąt
     groszy" (umowa wymaga, by słownie odpowiadało kwocie liczbowej). Inna waluta
-    → słownie + kod waluty (np. „... EUR"), bez części ułamkowej.
+    → słownie + kod waluty i część setna ułamkiem jak w aneksach („czterdzieści
+    pięć EUR 50/100"; audyt 24.11.2026 — wcześniej setne znikały).
     """
     if amount is None:
         return ""
-    n = int(abs(amount))
+    n, cents = _whole_and_cents(amount)
     cur = (currency or "PLN").upper()
-    grosze = _grosze_part(amount) if cur == "PLN" else 0
     if language == "en":
-        words = number_to_words_en(amount)
+        words = number_to_words_en(n)
         unit = "zlotys" if cur == "PLN" else cur
         out = f"{words} {unit}".strip()
-        if grosze:
-            out += f" {number_to_words_en(grosze)} groszy"
+        if cents:
+            out += (
+                f" {number_to_words_en(cents)} groszy"
+                if cur == "PLN"
+                else f" {cents:02d}/100"
+            )
         return out
-    words = liczba_slownie(amount)
+    words = liczba_slownie(n)
     unit = _pl_zloty(n) if cur == "PLN" else cur
     out = f"{words} {unit}".strip()
-    if grosze:
-        out += f" {liczba_slownie(grosze)} {_pl_grosz(grosze)}"
+    if cents:
+        out += (
+            f" {liczba_slownie(cents)} {_pl_grosz(cents)}"
+            if cur == "PLN"
+            else f" {cents:02d}/100"
+        )
     return out
 
 
@@ -260,6 +273,5 @@ def pln_words_with_fraction(amount: int | float | None) -> str:
     """
     if amount is None:
         return ""
-    cents = int(round(abs(float(amount)) * 100))
-    whole, grosze = divmod(cents, 100)
+    whole, grosze = _whole_and_cents(amount)
     return f"{liczba_slownie(whole)} {_pl_zloty(whole)} {grosze:02d}/100"

@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 20.11.2026
+> **Zgodność z systemem sprawdzona:** 24.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -1943,8 +1943,11 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   „brak”) **nie odrzuca wiersza**: MD z tego wiersza schodzą normalnie, a
   faktura dostaje status **„Nieczytelna kwota faktury — rozlicz ręcznie”**
   i nie zdejmuje niczego z zamówienia kosztowego. Kwoty w formatach
-  „20 900,00 zł", „20.900,00 zł" i „1,234.56" są czytane poprawnie. Popraw plik
-  i wgraj miesiąc ponownie.
+  „20 900,00 zł", „20.900,00 zł" i „1,234.56" są czytane poprawnie. Zapis
+  z jednym separatorem i trzema cyframi po nim („12.500 zł", „1,234") jest
+  **niejednoznaczny** — to tysiące czy ułamek? — więc faktura dostaje ten sam
+  status do ręcznego rozliczenia; wpisz kwotę z groszami („12 500,00").
+  Popraw plik i wgraj miesiąc ponownie.
 * **Zejście, po którym saldo spadłoby poniżej zera, nie jest księgowane samo.**
   Dotyczy puli przy osobie (gdy nadwyżki nie przejmuje przedłużenie) i wspólnej
   puli MD. Wiersz dostaje status **„Do weryfikacji – przekroczenie puli o X MD"**,

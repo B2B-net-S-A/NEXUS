@@ -11,7 +11,9 @@ Kolejność, od najpewniejszego:
    numer z samych cyfr także bez zer wiodących, ``SAP 45…`` także bez
    prefiksu. Numer wiąże: faktura idzie do tego zamówienia, a różnica kwoty
    jest do sprawdzenia przez Finanse. Faktura na jedną osobę z zamówienia MD
-   (kwota równa pozycji tej osoby) wiąże się z tą osobą,
+   (kwota równa pozycji tej osoby) wiąże się z tą osobą. U klienta z regułą
+   ``cl.collective_invoice`` (VeloBank: jedna pozycja na całe zamówienie)
+   numer wiąże wszystkie jego zamówienia z tym numerem w miesiącu,
 4. **numer, którego NEXUS nie zna** (``named_order_numbers``) — faktura czeka na
    Finanse: kwota albo osoba przypięłyby ją do innego zamówienia i podwójne
    rozliczenie byłoby niewidoczne,
@@ -50,6 +52,8 @@ from app.services.client_invoicing.billing import BillingLine, BillingRow, Order
 
 MIN_NUMBER_LENGTH = 3
 _DIGITS = re.compile(r"\d+")
+#: „Zamówienie nr 3/07/2026/BL” i „3/07/2026/BL” to ten sam numer zamówienia.
+_TITLE_PREFIX = re.compile(r"^\s*zam[óo]wienie\s+(nr\.?\s*)?", re.IGNORECASE)
 #: Etykieta numeru zamówienia i wartość po niej. Samo „PO” tylko wielkimi literami,
 #: bo małe „po” to polski przyimek („po 30 dniach”).
 _LABELLED_ORDER_NUMBER = re.compile(
@@ -250,6 +254,29 @@ def _person_and_price(
     return Target(order_id=line.order_id)
 
 
+def _number_key(order_number: str) -> str:
+    return " ".join(_TITLE_PREFIX.sub("", order_number).casefold().split())
+
+
+def _whole_order(
+    hit: Sequence[BillingRow], rows: Sequence[BillingRow], currency: str
+) -> list[BillingRow]:
+    """Faktura zbiorcza (``cl.collective_invoice``): wszystkie zamówienia z numerem.
+
+    Klient fakturuje całe zamówienie jedną pozycją, a w NEXUSIE każda osoba ma
+    własne zamówienie z tym numerem — także z tytułem „Zamówienie nr …”, którego
+    numer z faktury nie trafia całym tytułem. Kwota niczego tu nie rozstrzyga:
+    przy ośmiu osobach brak jednej wygląda jak urlopy, więc różnicę widzą Finanse.
+    """
+
+    numbers = {_number_key(row.order_number) for row in hit}
+    return [
+        row
+        for row in rows
+        if row.currency == currency and _number_key(row.order_number) in numbers
+    ]
+
+
 def _people_with_amount(rows: Sequence[BillingRow], net: Decimal) -> list[BillingLine]:
     """Pozycje osób z zamówień MD z kwotą równą netto faktury co do grosza."""
 
@@ -270,8 +297,13 @@ def decide(
     rows: Sequence[BillingRow],
     refs: Sequence[OrderRef],
     items: Sequence[dict[str, Any]] = (),
+    collective: bool = False,
 ) -> Decision:
-    """Dopasowanie faktury do zamówień klienta w miesiącu (czysta funkcja)."""
+    """Dopasowanie faktury do zamówień klienta w miesiącu (czysta funkcja).
+
+    ``collective`` — klient z regułą ``cl.collective_invoice``: numer wiąże
+    całe zamówienie, czyli wszystkie zamówienia z tym numerem.
+    """
 
     by_key = {row.key: row for row in rows}
     texts = list(texts)
@@ -283,6 +315,9 @@ def decide(
         same = [row for row in in_period if row.currency == currency]
         if not same:
             return Decision(reason="currency_differs")
+        if collective:
+            whole = _whole_order(same, rows, currency)
+            return Decision(tuple(_row_target(row) for row in whole), "order_number")
         if len(same) == 1:
             row = same[0]
             if row.expected_net != net and row.group_id is not None:
@@ -461,12 +496,16 @@ async def auto_match(
         await db.flush()
         return Decision(reason="no_period")
 
+    # W funkcji: requirements → export → views importuje ten moduł.
+    from app.services.client_invoicing import requirements
+
     period = (int(invoice.period_year), int(invoice.period_month))
     members = await clients.family(db, [invoice.client_id])
     rows = await billing.billing_rows(
         db, year=period[0], month=period[1], client_ids=members
     )
     refs = await billing.order_refs(db, members)
+    rules = await requirements.load(db, invoice.client_id, billing.month_key(*period))
     decision = decide(
         net=rebate.pre_discount(Decimal(invoice.net_amount), invoice.items or []),
         currency=invoice.currency,
@@ -474,6 +513,7 @@ async def auto_match(
         rows=rows,
         refs=refs,
         items=invoice.items or [],
+        collective=rules.collective_invoice,
     )
     if decision.matched:
         await _replace_links(db, invoice, decision.targets, period, None)

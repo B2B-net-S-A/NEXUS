@@ -97,7 +97,11 @@ describe("CvCallQuestions", () => {
         <CvCallQuestions candidateId={8} jobId={12} size="roomy" />
       </QueryClientProvider>,
     );
-    expect(await screen.findAllByText("Dopytaj pod CV · 2 opcjonalne")).toHaveLength(2);
+    // `findAllByText` kończy przy pierwszym trafieniu; od react-query 5.108
+    // drugi obserwator tego samego klucza dostaje dane tick później.
+    await waitFor(() =>
+      expect(screen.getAllByText("Dopytaj pod CV · 2 opcjonalne")).toHaveLength(2),
+    );
     expect(apiPost).toHaveBeenCalledTimes(1);
   });
 

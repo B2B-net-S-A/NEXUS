@@ -1,5 +1,5 @@
 # Sygnały i punkty do rozmowy z bota researchu (Grok Bot) — decyzje Artura 09.11.2026
-<!-- indeks: Grok Bot, bieg i jednorazowy token, raport jako dane niezaufane, nazwy, domeny, NIP i KRS firm do bota (od 13.11), źródło leada research, klient NEXUSA do DL, punkty do rozmowy first_call/ongoing, pętla sales_signals, flaga SALES_SIGNALS_ENABLED, skrypt próbnego biegu, zadania bota, rejestr rodzajów bot_tasks, sales_bot_results, SALES_BOT_TASKS_ENABLED, polecenie v2, osoby decyzyjne od bota, punkty przy ofertach Do decyzji (bot_points, nic nowego), zapis od razu bez potwierdzania (13.11), pole człowieka zostaje, historia karty bot-history, uzupełnianie kart enrich, Uzupełnij dane, apply_now, konflikt domeny i NIP-u, noc 1–6, Zapytaj bota question, filtr danych osobowych pytania, wniosek bota, Warto wrócić winback przegrane szanse, Nowe centra IT discovery, Załóż konto w Fabrykach IT, Przejmij i zaplanuj, take-over leada, origin leada, haczyk przed telefonem call_hook, teczka przed spotkaniem meeting_prep, 16:00 na następny dzień roboczy -->
+<!-- indeks: Grok Bot, bieg i jednorazowy token, raport jako dane niezaufane, nazwy, domeny, NIP i KRS firm do bota (od 13.11), źródło leada research, klient NEXUSA do DL, punkty do rozmowy first_call/ongoing, pętla sales_signals, flaga SALES_SIGNALS_ENABLED, skrypt próbnego biegu, zadania bota, rejestr rodzajów bot_tasks, sales_bot_results, SALES_BOT_TASKS_ENABLED, polecenie v2, osoby decyzyjne od bota, punkty przy ofertach Do decyzji (bot_points, nic nowego), zapis od razu bez potwierdzania (13.11), pole człowieka zostaje, historia karty bot-history, uzupełnianie kart enrich, Uzupełnij dane, apply_now, konflikt domeny i NIP-u, noc 1–6, Zapytaj bota question, filtr danych osobowych pytania, wniosek bota, Warto wrócić winback przegrane szanse, Nowe centra IT discovery, Załóż konto w Fabrykach IT, Przejmij i zaplanuj, take-over leada, origin leada, haczyk przed telefonem call_hook, teczka przed spotkaniem meeting_prep, 16:00 na następny dzień roboczy, webhook v2 z request_url, GET zlecenia, GROK_BOT_WEBHOOK_V1, paczki Research po 10 w v1, bot_webhook bytes response, ponowne zlecenie sales_signals_rerun, pusta treść raportu 422, briefings_no_news, powód hooks_dropped, pusty raport Cognism not_processed -->
 
 Bot robi research firm (strony, prasa, komunikaty, serwis X) i odsyła wynik przez
 API. NEXUS decyduje, co z tego jest leadem, i pokazuje, kogo w firmie znamy.
@@ -44,6 +44,49 @@ https://claude.ai/artifact/2Hxqi6uLTSE4AYp1GPqtpV.
   „Bot · sprawdź źródło”, „wniosek bota (nie fakt)” zniknęły z Ofert, punktów do
   rozmowy, haczyka, panelu sygnału, „Warto wrócić” i „Zapytaj bota”. Link do
   źródła przy tekście zostaje.
+
+## Webhook v2: koperta i zlecenie GET-em (24.11.2026)
+
+Biegi Research 261–718 wygasały bez raportu: treść webhooka z całym zleceniem
+25–40 firm docierała do rutyny ucięta (bieg 693 urwany w połowie polecenia),
+a bez `report_format` bot nic nie odsyłał. Zmiana na wzór Analityka radaru.
+
+- **Webhook każdego bota** (Leady, Research, Dane firm, Kontakty, Listy, Cognism)
+  niesie tylko kopertę: `schema_version` 2, `run_id`, `request_url`, `token`,
+  `expires_at` (`signals.webhook_envelope`, `services/grok_webhook.py`).
+  Nie dokładaj do niej pól zlecenia: przy dużej paczce wraca problem cięcia.
+- **`GET /api/integrations/sales-signals/runs/{id}`** z `X-Run-Token` zwraca
+  pełne zlecenie (`signals.request_body`): `task`, `report_format`, `request`,
+  `firms`, `callback_url`, `rejected`, `seen_urls`, parametry. Liczy je ten sam
+  kod co v1 (`order_body`), w chwili pobrania. GET nie zużywa tokenu i nie
+  zmienia biegu; zły, zużyty i wygasły token to to samo 401, `no-store`.
+- **Zapas v1:** `GROK_BOT_WEBHOOK_V1` (nazwy botów i `law_collect`,
+  `law_analyze` po przecinku) daje rutynie dawną treść z całym zleceniem.
+  Bot Research dostaje wtedy paczki najwyżej po 10 firm (każda to osobny bieg,
+  `first_meeting` przycięte do paczki), a każdy bot v1 krótsze `rejected` (20)
+  i `seen_urls` (50, najświeższe). W v2 paczki zostają jak w pętli (25 punktów).
+- **Log wywołania** (`grok_webhook.post`): `bot_webhook channel=… run=… kind=…
+  routine=… schema=… bytes=<wysłane bajty> response=<kod albo timeout>`, JSON
+  z `event_kind = "bot_webhook"`. Treść serializuje NEXUS (te same bajty co
+  `httpx` z `json=`), więc rozmiar w logu to rozmiar na kablu.
+- **Pusta treść raportu** (boty czasem wysyłają pierwszy POST pusty) to 422
+  z `EMPTY_REPORT_DETAIL`; token zostaje ważny. Dotyczy też radaru i Cpro
+  (wspólne `parse_report`).
+- **Ponowne zlecenie** biegów bez wyniku: `python -m scripts.sales_signals_rerun
+  --run-ids …` (plan), potem `--start --max-runs N`. Pomija firmy, które później
+  trafiły do biegu tego samego trybu, i firmy ze świeżym haczykiem.
+- **Liczniki raportu:** `briefings` to zestawy punktów z treścią; puste wiersze
+  „nic nowego” liczy `briefings_no_news` (bieg 560 liczył 2 przy pustej liście).
+  `hooks_dropped` to lista `{company_ref, reason, detail}` (`call_hook.DROP_REASONS`),
+  nie liczba: bieg 764 odrzucił haczyk bez powodu.
+- **Cognism** przyjmuje pusty raport `not_processed`: brak `firms`, `firms: []`,
+  `status`/`blocked_reason` całego biegu, `""` i `"null"` w polach, nieznany
+  powód (→ brak powodu). Powód całego biegu trafia do `firm_issues` każdej
+  niesprawdzonej firmy. Dopasowanie bez nazwy pracodawcy dalej jest 422.
+
+Testy: `tests/test_bot_webhook_v2_unit.py`, `tests/test_sales_bot_webhook_v2_api.py`
+(paczka 30 firm przez v2), `tests/test_sales_signals_rerun_unit.py`. Polecenia
+rutyn do wklejenia: `docs/sales-grok-bot-setup.md`, sekcja „Webhook v2”.
 
 ## Przepływ
 

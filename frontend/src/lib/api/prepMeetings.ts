@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { Prep2Skip, Prep2SkipReason } from "@/lib/interview-cycle";
 import type { PrepInvitation } from "@/lib/prep-invitation";
+import type { PrepNo } from "@/lib/prep-label";
 
 export interface PrepPerson {
   id: number;
@@ -33,14 +34,17 @@ export interface PrepOptions {
   /** Integracja z Teams włączona i skonfigurowana (inaczej zwykłe zaproszenie). */
   enabled: boolean;
   auto_transcribe: boolean;
-  /** Podpowiedź organizatora dla Prepu 1 i 2 (klucze "1" i "2"). */
+  /**
+   * Podpowiedź organizatora: klucze "0" (Przygotowanie, od 24.11.2026), "1"
+   * i "2". Starszy serwer nie zna "0".
+   */
   suggested: Record<string, PrepPerson | null>;
   team: PrepPerson[];
   /** Wszyscy, których można zaprosić; starszy serwer = brak (wtedy `team`). */
   people?: PrepPersonOption[];
   /** Adnotacja o nagrywaniu pod treścią zaproszenia. */
   notice: string;
-  /** Zaproszenie dla kandydata (klucze "1" i "2"); starszy serwer = brak. */
+  /** Zaproszenie dla kandydata (klucze "0", "1" i "2"); starszy serwer = brak. */
   invitation?: Record<string, PrepInvitation>;
   /** Notatka na Prep 2 z oceny Prepu 1 pary (22.10.2026); pusta = brak oceny. */
   prep1_followup?: PrepOptionsFollowup[];
@@ -173,7 +177,7 @@ export type TranscriptStatus =
 
 export interface Prep {
   event_id: number;
-  prep_no: 1 | 2;
+  prep_no: PrepNo;
   candidate_id: number;
   job_id: number;
   organizer: PrepPerson | null;
@@ -226,7 +230,7 @@ export interface PrepTranscript {
 export interface PrepCreateInput {
   candidate_id: number;
   job_id: number;
-  prep_no: 1 | 2;
+  prep_no: PrepNo;
   organizer_user_id: number;
   start: string;
   end: string;
@@ -259,7 +263,7 @@ export interface PrepUpdateInput {
 
 /** Wolne godziny prepu z kalendarza prowadzącego (20.10.2026, PR 2). */
 export interface PrepSuggestion {
-  prep_no: 1 | 2;
+  prep_no: PrepNo;
   organizer: PrepPerson | null;
   /** ok — z kalendarza; unavailable — NEXUS go nie widzi; off — prepy w Teams wyłączone. */
   calendar: "ok" | "unavailable" | "off";
@@ -282,6 +286,8 @@ export interface PrepSuggestionsParams {
   interviewStart: string;
   candidateFrom?: string | null;
   candidateTo?: string | null;
+  /** Przygotowanie (24.11.2026); starszy serwer pomija parametr. */
+  prep0Minutes?: number;
   prep1Minutes?: number;
   prep2Minutes?: number;
 }
@@ -296,6 +302,7 @@ export const prepSuggestionsQueryKey = (p: PrepSuggestionsParams) =>
     p.interviewStart,
     p.candidateFrom ?? "",
     p.candidateTo ?? "",
+    p.prep0Minutes ?? null,
     p.prep1Minutes ?? null,
     p.prep2Minutes ?? null,
   ] as const;
@@ -347,6 +354,7 @@ export const prepMeetingsApi = {
           interview_start: p.interviewStart,
           ...(p.candidateFrom ? { candidate_from: p.candidateFrom } : {}),
           ...(p.candidateTo ? { candidate_to: p.candidateTo } : {}),
+          ...(p.prep0Minutes ? { prep0_minutes: p.prep0Minutes } : {}),
           ...(p.prep1Minutes ? { prep1_minutes: p.prep1Minutes } : {}),
           ...(p.prep2Minutes ? { prep2_minutes: p.prep2Minutes } : {}),
         },
@@ -514,6 +522,8 @@ export const PREP_ITEM_LABELS: Record<PrepItemStatus, string> = {
 
 /** Stan prepu po spotkaniu jednym zdaniem — nigdy pustka zamiast awarii. */
 export function prepStatusLine(prep: Prep): string {
+  // Przygotowanie (F3): nagrywane, ale NEXUS go jeszcze nie ocenia (F4).
+  const preparation = prep.prep_no === 0;
   switch (prep.transcript_status) {
     case "waiting":
     case "error":
@@ -521,10 +531,11 @@ export function prepStatusLine(prep: Prep): string {
     case "forbidden":
       return "NEXUS nie ma dostępu do tego spotkania w Teams — poproś administratora o sprawdzenie konfiguracji.";
     case "missing":
-      return "Z tego prepu nie ma transkryptu — spotkanie nie było nagrywane albo się nie odbyło.";
+      return `Z tego ${preparation ? "przygotowania" : "prepu"} nie ma transkryptu — spotkanie nie było nagrywane albo się nie odbyło.`;
     case "cancelled":
-      return "Prep został odwołany.";
+      return preparation ? "Przygotowanie zostało odwołane." : "Prep został odwołany.";
     case "fetched":
+      if (preparation) return "NEXUS jeszcze nie ocenia przygotowania. Przeczytaj transkrypt.";
       if (!prep.review) return "Transkrypt jest, ocena jeszcze się liczy.";
       return prep.review.status === "ok"
         ? ""

@@ -60,7 +60,7 @@ export default function InterviewActionDialogs({
           open
           onOpenChange={onOpenChange}
           pair={action.pair}
-          prepNo={action.second ? 2 : 1}
+          prepNo={action.prepNo}
           interview={prepInterviewForPair(overview, action.pair)}
         />
       );

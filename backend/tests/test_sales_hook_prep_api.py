@@ -79,7 +79,11 @@ async def test_hook_lands_in_bot_results_and_never_overwrites_points(
     )
     assert sent.status_code == 200, sent.text
     body = sent.json()
-    assert (body["briefings"], body["hooks"], body["hooks_dropped"]) == (1, 1, 1)
+    assert (body["briefings"], body["hooks"]) == (1, 1)
+    # Bot dostaje powód odrzucenia haczyka, nie samą liczbę (bieg 764).
+    assert [(d["company_ref"], d["reason"]) for d in body["hooks_dropped"]] == [
+        (prepped, "not_call_hook_firm")
+    ]
 
     async with AsyncSessionLocal() as db:
         run = await db.get(SalesSignalRun, run_id)

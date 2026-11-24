@@ -335,7 +335,32 @@ async def test_gate_stops_asking_after_the_lookup_limit() -> None:
 # ── Bieg i webhook ───────────────────────────────────────────────────────
 
 
-def test_webhook_body_carries_task_format_and_one_time_token() -> None:
+ENVELOPE_V2 = {"schema_version", "run_id", "request_url", "token", "expires_at"}
+
+
+def test_collect_webhook_v2_is_only_the_envelope_and_get_has_the_order() -> None:
+    now = datetime(2026, 11, 15, 5, 30, tzinfo=timezone.utc)
+    request = collect.build_request(date(2026, 11, 12))
+    run, token = runs.new_run("collect", request, now=now)
+    run.id = 41
+    body = runs.webhook_body(run, token)
+    assert set(body) == ENVELOPE_V2
+    assert body["schema_version"] == 2
+    assert body["request_url"].endswith("/api/integrations/law-radar/runs/41")
+    order = runs.request_body(run)
+    assert {"task", "report_format", "request", "callback_url"} <= set(order)
+    assert order["request"] == request and "token" not in order
+    assert order["callback_url"] == body["request_url"]
+    assert "reviewed_item_ids" not in order["report_format"]
+    assert runs.hash_token(token) == run.token_hash
+    assert runs.token_matches(run, token, now)
+    assert not runs.token_matches(run, token, now + runs.TOKEN_TTL)
+    assert not runs.token_matches(run, "zly", now)
+    json.dumps(body)
+
+
+def test_routine_listed_in_v1_fallback_gets_the_whole_order(monkeypatch) -> None:
+    monkeypatch.setattr(runs.settings, "GROK_BOT_WEBHOOK_V1", "law_collect")
     now = datetime(2026, 11, 15, 5, 30, tzinfo=timezone.utc)
     run, token = runs.new_run(
         "collect", collect.build_request(date(2026, 11, 12)), now=now
@@ -353,12 +378,12 @@ def test_webhook_body_carries_task_format_and_one_time_token() -> None:
         "report_format",
         "request",
     }
-    assert body["callback_url"].endswith("/api/integrations/law-radar/runs/41")
-    assert runs.hash_token(token) == run.token_hash
-    assert runs.token_matches(run, token, now)
-    assert not runs.token_matches(run, token, now + runs.TOKEN_TTL)
-    assert not runs.token_matches(run, "zly", now)
-    json.dumps(body)
+    assert body["schema_version"] == 1
+    assert "_schema_version" not in run.request
+    assert not runs.uses_request_fetch(run)
+    # Analityk dalej na v2: fallback obejmuje tylko wymienioną rutynę.
+    analyze_run, _ = runs.new_run("analyze", {"items": []}, now=now)
+    assert runs.uses_analyze_request_fetch(analyze_run)
 
 
 def test_analyze_request_has_no_probe_numbers() -> None:
@@ -385,11 +410,10 @@ def test_analyze_webhook_stays_small_as_the_request_grows() -> None:
     webhook = runs.webhook_body(run, token)
     assert len(json.dumps(webhook, ensure_ascii=False).encode()) < 1000
     assert webhook["schema_version"] == 2
-    assert webhook["request_url"] == webhook["callback_url"]
-    assert "request" not in webhook
-    assert "report_format" not in webhook
-    full = runs.analyze_request_body(run)
+    assert set(webhook) == ENVELOPE_V2
+    full = runs.request_body(run)
     assert full["request"] == request
+    assert full["callback_url"] == webhook["request_url"]
     assert "token" not in full
     analyze.AnalyzeReport.model_validate(full["report_format"])
 

@@ -16,6 +16,13 @@ tekstem zostałby nieaktualny po przełożeniu spotkania.
 Od 26.10.2026 (decyzje D1–D3) pod podpisem stoi sekcja „O roli” z opisem
 z Profilu Championa (``services/prep_role.py``), w Prepie 1 i 2, a w treści
 zdanie, że opis jest niżej.
+
+Od 24.11.2026 (F3, decyzja Artura) przed Prepem 1 może być Przygotowanie
+rekrutera (``prep_no`` 0). Kandydat dostaje wtedy spotkania numerowane po
+kolei — „(spotkanie 1)”, „(spotkanie 2)”, „(spotkanie 3)” — bo dwa zaproszenia
+o tym samym tytule wyglądałyby na pomyłkę. Bez Przygotowania tytuły są jak
+dotąd: Prep 1 bez numeru, Prep 2 „(spotkanie 2)”. Numer liczy się przy
+zakładaniu spotkania (``meeting_number``).
 """
 
 from __future__ import annotations
@@ -63,10 +70,41 @@ def _client_phrase(client_name: Optional[str]) -> str:
     return f"Klientem {name}" if name else "Klientem"
 
 
-def title(prep_no: int, candidate_name: str, client_name: Optional[str]) -> str:
-    """Tytuł zaproszenia — ten sam w Outlooku organizatora, kandydata i w NEXUSIE."""
+_ORDINALS = {1: "pierwsze", 2: "drugie", 3: "trzecie"}
+
+
+def meeting_number(prep_no: int, has_preparation: bool) -> Optional[int]:
+    """Które to spotkanie przygotowujące dla kandydata (``None`` = bez numeru).
+
+    Przygotowanie (0) jest zawsze pierwsze. Bez Przygotowania w rundzie
+    zostaje dawna numeracja: Prep 1 bez numeru, Prep 2 drugi.
+    """
+    if prep_no == 0:
+        return 1
+    if prep_no == 1:
+        return 2 if has_preparation else None
+    return 3 if has_preparation else 2
+
+
+def _default_number(prep_no: int) -> Optional[int]:
+    return meeting_number(prep_no, has_preparation=False)
+
+
+def title(
+    prep_no: int,
+    candidate_name: str,
+    client_name: Optional[str],
+    *,
+    number: Optional[int] = None,
+) -> str:
+    """Tytuł zaproszenia — ten sam w Outlooku organizatora, kandydata i w NEXUSIE.
+
+    ``number`` — numer spotkania z ``meeting_number``; brak = numeracja sprzed
+    Przygotowania (Prep 2 „(spotkanie 2)”).
+    """
     who = " ".join((candidate_name or "").split()) or "Kandydat"
-    suffix = " (spotkanie 2)" if prep_no == 2 else ""
+    no = number if number is not None else _default_number(prep_no)
+    suffix = f" (spotkanie {no})" if no else ""
     head = f"Przygotowanie do spotkania z {_client_phrase(client_name)}"
     tail = f" - {who}{suffix}"
     return head[: MAX_TITLE - len(tail)] + tail
@@ -86,15 +124,17 @@ def text(
     note: Optional[str],
     organizer_name: str,
     role_hint: Optional[str] = None,
+    number: Optional[int] = None,
 ) -> str:
     """Wiadomość do kandydata: akapity rozdzielone pustą linią, bez adnotacji.
 
     ``role_hint`` — zdanie o opisie roli pod podpisem (:data:`ROLE_HINT`), tylko
-    gdy opis idzie w zaproszeniu.
+    gdy opis idzie w zaproszeniu. ``number`` jak w :func:`title`.
     """
+    no = number if number is not None else _default_number(prep_no)
     meeting = (
-        "drugie spotkanie przygotowujące"
-        if prep_no == 2
+        f"{_ORDINALS[no]} spotkanie przygotowujące"
+        if no in _ORDINALS
         else "spotkanie przygotowujące"
     )
     lead = f"Zapraszam na {meeting} do rozmowy z {_client_phrase(client_name)}"

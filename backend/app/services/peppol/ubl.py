@@ -198,7 +198,7 @@ def _number(value: Decimal) -> str:
 
 
 def _price(value: Decimal) -> str:
-    """Cena: dwa miejsca, gdy wystarczą („175.50”), inaczej tyle, ile trzeba."""
+    """Cena: dwa miejsca, gdy wystarczą („145.78”), inaczej tyle, ile trzeba."""
 
     if value == value.quantize(_CENT):
         return _money(value)

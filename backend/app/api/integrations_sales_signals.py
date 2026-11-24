@@ -1,13 +1,17 @@
-"""Przyjęcie raportu bota researchu (Grok Bot) dla jednego biegu.
+"""Zlecenie i raport bota Sprzedaży (Grok Bot) dla jednego biegu.
 
-``POST /api/integrations/sales-signals/runs/{run_id}`` z nagłówkiem ``X-Run-Token``.
+``GET /api/integrations/sales-signals/runs/{run_id}`` (``request_url`` z webhooka
+v2) zwraca pełne zlecenie: ``task``, ``report_format``, ``request``, ``firms``,
+``callback_url`` i parametry, bez zużywania tokenu. ``POST`` na ten sam adres
+przyjmuje raport. Obie metody wymagają nagłówka ``X-Run-Token``.
 Poświadczeniem jest jednorazowy token biegu z webhooka startowego: działa tylko
-dla tego biegu, tylko raz i najwyżej 2 godziny. Brak biegu, zły, zużyty i wygasły
-token dają tę samą odpowiedź 401, żeby nie dało się zgadywać numerów biegów.
+dla tego biegu, przy jednym raporcie i najwyżej 2 godziny. Brak biegu, zły, zużyty
+i wygasły token dają tę samą odpowiedź 401, żeby nie dało się zgadywać numerów biegów.
 
 Treść raportu sprawdza model rodzaju biegu z rejestru zadań bota
-(``services/sales/bot_tasks``): za duża treść to 413, niezgodna z modelem 422,
-bieg rodzaju spoza rejestru 409 (bieg zostaje zamknięty jako ``failed``).
+(``services/sales/bot_tasks``): pusta treść i niezgodna z modelem to 422 (token
+zostaje ważny), za duża 413, bieg rodzaju spoza rejestru 409 (bieg zostaje
+zamknięty jako ``failed``).
 
 Bez ``from __future__ import annotations``: moduł ma ``@limiter.limit``, a z nim
 ciało żądania lądowałoby jako parametr query (422).
@@ -18,7 +22,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional, get_args
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ValidationError
 from pydantic_core import ErrorType
@@ -40,6 +44,12 @@ router = APIRouter()
 #: (do ok. 5,6 KB na firmę), poniżej 200 KB; więcej to obciążenie, nie raport.
 MAX_REPORT_BYTES = 512 * 1024
 TOO_LARGE_DETAIL = "Raport przekracza limit 512 KB."
+#: Boty czasem wysyłają pierwszy POST bez treści (24.11.2026).
+EMPTY_REPORT_DETAIL = (
+    "Pusta treść raportu. Wyślij raport jako JSON w treści tego samego POST "
+    "(Content-Type: application/json, nagłówek X-Run-Token). Token biegu jest "
+    "nadal ważny."
+)
 UNKNOWN_KIND_DETAIL = "Ten rodzaj biegu nie jest obsługiwany."
 INVALID_PEOPLE_REPORT_DETAIL = "Raport osób nie jest zgodny z formatem zlecenia."
 COGNISM_REPORT_FIELDS = (
@@ -95,8 +105,15 @@ async def read_limited(request: Request, limit: int = MAX_REPORT_BYTES) -> bytes
 
 
 def parse_report(raw: bytes, model: type[BaseModel]) -> BaseModel:
-    """JSON raportu sprawdzony modelem rodzaju; błąd w kształcie zwykłego 422."""
+    """JSON raportu sprawdzony modelem rodzaju; błąd w kształcie zwykłego 422.
 
+    Pusta treść (także same białe znaki) to osobne 422 z poleceniem, co wysłać.
+    """
+
+    if not raw.strip():
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, detail=EMPTY_REPORT_DETAIL
+        )
     try:
         data = json.loads(raw)
     except ValueError as exc:
@@ -150,6 +167,29 @@ def _cognism_report_detail(exc: RequestValidationError) -> str:
     return f"{INVALID_PEOPLE_REPORT_DETAIL} {details}"
 
 
+@router.get("/runs/{run_id}")
+@limiter.limit("30/minute")
+async def get_run_request(
+    request: Request,
+    response: Response,
+    run: SalesSignalRun = Depends(require_signal_run_token),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Pełne zlecenie biegu dla bota (webhook v2); token zostaje ważny do raportu."""
+
+    if bot_tasks.for_run(run) is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=UNKNOWN_KIND_DETAIL)
+    response.headers["Cache-Control"] = "no-store"
+    body = await signals.request_body(db, run)
+    logger.info(
+        "sales_bot run=%s kind=%s request fetched firms=%d",
+        run.id,
+        run.kind,
+        len(body["firms"]),
+    )
+    return body
+
+
 @router.post("/runs/{run_id}")
 @limiter.limit("30/minute")
 async def receive_report(
@@ -167,15 +207,13 @@ async def receive_report(
         )
         raise HTTPException(status.HTTP_409_CONFLICT, detail=UNKNOWN_KIND_DETAIL)
     raw = await read_limited(request)
+    if not raw.strip():
+        logger.warning("sales_bot run=%s kind=%s empty report body", run.id, run.kind)
     try:
         report = parse_report(raw, task.report_model)
     except RequestValidationError as exc:
         if task is people.COGNISM:
-            detail = (
-                _cognism_report_detail(exc)
-                if raw.strip()
-                else f"{INVALID_PEOPLE_REPORT_DETAIL} body: missing"
-            )
+            detail = _cognism_report_detail(exc)
             logger.warning(
                 "sales_bot run=%s source=cognism report rejected: %s", run.id, detail
             )

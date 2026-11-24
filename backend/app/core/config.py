@@ -1407,6 +1407,11 @@ class Settings(BaseSettings):
     # Adres webhooka rutyny bota i jego klucz (nagłówek ``Authorization: Bearer``).
     GROK_BOT_WEBHOOK_URL: str = ""
     GROK_BOT_WEBHOOK_KEY: str = ""
+    # Webhook v2 (24.11.2026, ``app/services/grok_webhook.py``): treść to sama
+    # koperta z ``request_url``, zlecenie bot pobiera GET-em. Rutyny wymienione
+    # tu po przecinku (np. ``research,law_collect``) dostają dawną treść v1 z całym
+    # zleceniem, dopóki ich polecenie nie zna v2. Puste: wszystkie na v2.
+    GROK_BOT_WEBHOOK_V1: str = ""
     # Cztery boty Sprzedaży, każdy z własną rutyną (decyzja Artura 13.11.2026,
     # ``app/services/sales/bots.py``). Bot bez własnej pary idzie na wspólny webhook.
     GROK_BOT_LEADS_WEBHOOK_URL: str = ""

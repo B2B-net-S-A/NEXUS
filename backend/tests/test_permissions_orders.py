@@ -324,13 +324,19 @@ async def test_amount_budget_of_a_line_is_an_amount(monkeypatch) -> None:
     )
     await guard(None, editor, CLIENT, amount_line, to_amount)
     await guard(None, editor, CLIENT, amount_line, {"end_date": None})
-    # Z kwoty na MD: nowa wartość to dni, nie złotówki.
+    # Z kwoty na MD zdejmuje podpisany budżet w złotówkach — to też zapis
+    # kwoty (audyt 24.11.2026), więc bez prawa do kwot odmowa.
+    with pytest.raises(HTTPException) as exc:
+        await guard(
+            None,
+            editor,
+            CLIENT,
+            amount_line,
+            {"input_mode": "md", "input_value": Decimal("20")},
+        )
+    assert exc.value.detail["fields"] == ["input_mode", "input_value"]
     await guard(
-        None,
-        editor,
-        CLIENT,
-        amount_line,
-        {"input_mode": "md", "input_value": Decimal("20")},
+        None, lead, CLIENT, amount_line, {"input_mode": "md", "input_value": Decimal("20")}
     )
 
     # Prawo do kwot klienta otwiera zapis; rola Delivery Leada — w przypisaniu.
@@ -339,6 +345,41 @@ async def test_amount_budget_of_a_line_is_an_amount(monkeypatch) -> None:
     with pytest.raises(HTTPException) as exc:
         await guard(None, lead, OTHER_CLIENT, md_line, to_amount)
     assert exc.value.detail["message"] == DL_CLIENT_OUT_OF_SCOPE_DETAIL
+
+
+async def test_budget_mode_switch_needs_amounts_and_an_explicit_value(monkeypatch) -> None:
+    """Sam ``{"input_mode": "md"}`` na linii „kwotowej” brał dawną kwotę jako
+    liczbę MD: konto bez podglądu kwot dostawało 200 i odczytywało budżet
+    w złotówkach z ``md_total`` (audyt 24.11.2026). Zmiana trybu z „kwota”
+    wymaga prawa do kwot, a każda zmiana trybu — nowej wartości."""
+
+    monkeypatch.setattr(
+        client_order_groups,
+        "resolve_delivery_lead_finance_client_ids",
+        _delivery_lead_boundary,
+    )
+    guard = client_order_groups._assert_amount_budget_write_allowed
+    editor = _order_editor_without_amounts()
+    lead = _account(UserRole.delivery_lead)
+    amount_line = SimpleNamespace(
+        md_input_mode="amount", md_input_value=Decimal("12500.000")
+    )
+    md_line = SimpleNamespace(md_input_mode="md", md_input_value=Decimal("10"))
+
+    with pytest.raises(HTTPException) as exc:
+        await guard(None, editor, CLIENT, amount_line, {"input_mode": "md"})
+    assert exc.value.status_code == 422
+    # Z prawem do kwot: dalej trzeba podać nową wartość (dni, nie złotówki).
+    for line, mode in ((amount_line, "md"), (md_line, "amount")):
+        with pytest.raises(HTTPException) as exc:
+            await guard(None, lead, CLIENT, line, {"input_mode": mode})
+        assert exc.value.status_code == 422
+        assert "nowej wartości" in exc.value.detail
+        with pytest.raises(HTTPException) as exc:
+            await guard(None, lead, CLIENT, line, {"input_mode": mode, "input_value": None})
+        assert exc.value.status_code == 422
+    # Ten sam tryb bez wartości niczego nie zmienia (formularz bez pól budżetu).
+    await guard(None, editor, CLIENT, md_line, {"input_mode": "md"})
 
 
 async def test_order_lifecycle_asks_only_for_the_client_scope(monkeypatch) -> None:

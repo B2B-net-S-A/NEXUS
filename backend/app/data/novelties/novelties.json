@@ -5134,6 +5134,28 @@
     "requires_setting": "REVIEW_BATCH_ENABLED"
   },
   {
+    "id": "przygotowanie-przed-prepem-1",
+    "pr": 3882,
+    "title": "Przygotowanie z kandydatem przed Prepem 1",
+    "why": "Przed Prepem 1 z DL-em umawiasz z kandydatem przygotowanie: fundamenty i specyfika klienta. „Umów rozmowę i prepy” ma na nie trzeci wiersz, a zaproszenia mają numery spotkań 1–3.",
+    "tier": "dot",
+    "shipped_on": "2026-11-25",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "talent_community_manager",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → panel osoby → Rozmowa u klienta",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001",
+    "section": "pipeline",
+    "dot_anchor": "dock.plan-preparation"
+  },
+  {
     "id": "po-terminie-zamiast-szukamy",
     "pr": 3878,
     "title": "Rekrutacja po terminie: „Po terminie” zamiast „Szukamy”",

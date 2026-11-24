@@ -34,7 +34,7 @@ const PAIR = {
 };
 
 function steps(overrides: Partial<Record<CycleStep["key"], CycleStep["state"]>>): CycleStep[] {
-  const keys: CycleStep["key"][] = ["slots", "choice", "prep", "prep2", "interview", "call", "debrief"];
+  const keys: CycleStep["key"][] = ["slots", "choice", "prep0", "prep", "prep2", "interview", "call", "debrief"];
   return keys.map((key) => ({
     key,
     label: key,
@@ -253,8 +253,20 @@ describe("interview-cycle — prepy w Teams (0370)", () => {
   it("brak Prepu 1 i 2 planuje właściwy numer", () => {
     const p1: TodoEntry = { ...PAIR, kind: "prep_missing", priority: 4, due: null, event_id: 5, slot_request_id: null };
     const p2: TodoEntry = { ...p1, kind: "prep2_missing" };
-    expect(actionForTodo(p1, [])).toEqual(expect.objectContaining({ type: "plan_prep", second: false }));
-    expect(actionForTodo(p2, [])).toEqual(expect.objectContaining({ type: "plan_prep", second: true }));
+    const p0: TodoEntry = { ...p1, kind: "prep0_missing" };
+    expect(actionForTodo(p1, [])).toEqual(expect.objectContaining({ type: "plan_prep", prepNo: 1 }));
+    expect(actionForTodo(p2, [])).toEqual(expect.objectContaining({ type: "plan_prep", prepNo: 2 }));
+    expect(actionForTodo(p0, [])).toEqual(expect.objectContaining({ type: "plan_prep", prepNo: 0 }));
+  });
+
+  it("Przygotowanie (F3) planuje i przekłada prep numer 0, nie Prep 1", () => {
+    const planned = actionForItem(item({ steps: steps({ prep0: "current" }) }), { canManageSlots: false });
+    expect(planned?.action).toEqual(expect.objectContaining({ type: "plan_prep", prepNo: 0 }));
+    const lateSteps = steps({ prep0: "overdue" }).map((s) => (s.key === "prep0" ? { ...s, event_id: 81 } : s));
+    const late = actionForItem(item({ steps: lateSteps }), { canManageSlots: false });
+    expect(late?.action).toEqual(
+      expect.objectContaining({ type: "reschedule_prep", prepNo: 0, eventId: 81 }),
+    );
   });
 
   it("prep po rozmowie u klienta przekłada istniejące spotkanie, nie planuje drugiego", () => {

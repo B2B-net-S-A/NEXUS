@@ -6,6 +6,7 @@ import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
 import { prepMeetingsApi, prepQueryKey, usePrep } from "@/lib/api/prepMeetings";
 import { formatDayLabel, formatTime } from "@/lib/interview-cycle";
+import { prepWith } from "@/lib/prep-label";
 import { prepResponseView, type PrepResponseTone } from "@/lib/prep-response";
 import { cn } from "@/lib/utils";
 
@@ -34,7 +35,7 @@ export function PrepResponseChip({ eventId, className }: { eventId: number; clas
       qc.invalidateQueries({ queryKey: ["calendar-events"] });
       qc.invalidateQueries({ queryKey: ["kanban"] });
       toast.showSuccess(
-        `Prep ${updated.prep_no} przełożony na ${formatDayLabel(updated.start)}, ${formatTime(updated.start)} — kandydat dostał aktualizację zaproszenia.`,
+        `${prepWith(updated.prep_no, "przełożony")} na ${formatDayLabel(updated.start)}, ${formatTime(updated.start)} — kandydat dostał aktualizację zaproszenia.`,
       );
     },
     onError: (err) => toast.showError(apiErrorMessage(err, "Nie udało się przyjąć terminu.")),

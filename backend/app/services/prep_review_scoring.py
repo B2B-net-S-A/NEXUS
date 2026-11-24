@@ -422,6 +422,27 @@ def legacy_items(parsed: dict) -> list[dict]:
     ]
 
 
+def preparation_note_content(
+    *, talk_share: Optional[float], duration_seconds: int
+) -> str:
+    """Notatka po nagranym Przygotowaniu (F3): fakty z Teams, bez oceny.
+
+    Ocena przygotowania (fundamenty, specyfika klienta) przyjdzie z F4;
+    do tego czasu notatka mówi, że rozmowa się odbyła i gdzie jest transkrypt.
+    """
+    facts = [f"Czas: {max(1, round(duration_seconds / 60))} min"]
+    if talk_share is not None:
+        facts.append(f"kandydat mówił {round(talk_share * 100)}% czasu")
+    return "\n".join(
+        [
+            "# Przygotowanie — rozmowa rekrutera z kandydatem (Teams)",
+            " · ".join(facts),
+            "NEXUS jeszcze nie ocenia przygotowania. Pełny transkrypt jest "
+            "w kalendarzu „Rozmowy u klienta”.",
+        ]
+    )
+
+
 def note_content(
     *,
     prep_no: int,

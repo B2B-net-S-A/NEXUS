@@ -6,6 +6,7 @@
  * Godziny pól liczymy w czasie przeglądarki, jak reszta okien terminów.
  */
 import type { SlotItem } from "@/lib/interview-cycle";
+import { prepLocative, prepName, prepNameInSentence, type PrepNo } from "@/lib/prep-label";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -123,7 +124,9 @@ export interface ManualPrepCheck {
 export const PREP_DURATIONS = [30, 45, 60, 90];
 export const DEFAULT_PREP_MINUTES = 45;
 
-const PREP_GAP_MINUTES: Record<1 | 2, number> = { 1: 120, 2: 30 };
+// Przygotowanie (24.11.2026) idzie przed Prepem 1, więc odstęp od rozmowy ma
+// co najmniej taki jak on.
+const PREP_GAP_MINUTES: Record<PrepNo, number> = { 0: 120, 1: 120, 2: 30 };
 const MIN_LEAD_MS = 2 * 60 * 60_000;
 const WORK_START_MIN = 8 * 60;
 const WORK_END_MIN = 18 * 60;
@@ -212,18 +215,18 @@ export function checkManualPrep({
   interviewStart,
   busy,
   organizerName,
-  other,
+  others,
   now = new Date(),
 }: {
-  prepNo: 1 | 2;
+  prepNo: PrepNo;
   start: string;
   minutes: number;
   interviewStart: string;
   /** `null` = kalendarza prowadzącego nie widać. */
   busy: Span[] | null;
   organizerName: string;
-  /** Drugi prep tej osoby (wybrany albo już zaplanowany). */
-  other: (Span & { prepNo: number }) | null;
+  /** Pozostałe prepy tej osoby (wybrane albo już zaplanowane). */
+  others: ReadonlyArray<Span & { prepNo: PrepNo }>;
   now?: Date;
 }): ManualPrepCheck {
   const span = spanOf(start, minutes);
@@ -237,10 +240,24 @@ export function checkManualPrep({
   if (e > interview) {
     blocks.push(`Prep musi skończyć się przed rozmową u klienta (${prepWhen(interviewStart)}).`);
   }
-  if (other && overlaps(span, other)) {
+  const clashing = others.find((o) => overlaps(span, o));
+  if (clashing) {
     blocks.push(
-      `W tym czasie jest Prep ${other.prepNo} (${prepWhen(other.start)}–${hhmm(other.end)}). ` +
+      `W tym czasie jest ${prepNameInSentence(clashing.prepNo)} (${prepWhen(clashing.start)}–${hhmm(clashing.end)}). ` +
         "Kandydat nie będzie na dwóch naraz.",
+    );
+  }
+  // Kolejność spotkań (24.11.2026): Przygotowanie przed Prepem 1, bo DL na
+  // swoim prepie sprawdza, co zostało po przygotowaniu. Nie blokuje.
+  const later = others.find((o) => o.prepNo < prepNo && new Date(o.start) >= s);
+  const earlier = others.find((o) => o.prepNo > prepNo && new Date(o.start) <= s);
+  if (prepNo === 0 && earlier) {
+    warnings.push(
+      `${prepName(0)} wypada po ${prepLocative(earlier.prepNo)} (${prepWhen(earlier.start)}) — zwykle jest przed nim.`,
+    );
+  } else if (later?.prepNo === 0) {
+    warnings.push(
+      `${prepName(prepNo)} wypada przed przygotowaniem (${prepWhen(later.start)}) — zwykle jest po nim.`,
     );
   }
 
@@ -254,7 +271,7 @@ export function checkManualPrep({
   const gap = Math.round((interview.getTime() - e.getTime()) / 60_000);
   if (gap >= 0 && gap < required) {
     warnings.push(
-      `Prep ${prepNo} kończy się ${minutesLabel(gap)} przed rozmową — zwykle zostawiamy ${minutesLabel(required)}.`,
+      `${prepName(prepNo)} kończy się ${minutesLabel(gap)} przed rozmową — zwykle zostawiamy ${minutesLabel(required)}.`,
     );
   }
   if (localDay(s) !== localDay(e) || minuteOfDay(s) < WORK_START_MIN || minuteOfDay(e) > WORK_END_MIN) {
@@ -276,7 +293,7 @@ export function nearestFreeStarts({
   minutes,
   interviewStart,
   busy,
-  other,
+  others,
   now = new Date(),
   limit = 2,
 }: {
@@ -285,7 +302,8 @@ export function nearestFreeStarts({
   minutes: number;
   interviewStart: string;
   busy: Span[];
-  other: Span | null;
+  /** Pozostałe prepy kandydata — godziny na nich odpadają. */
+  others: ReadonlyArray<Span>;
   now?: Date;
   limit?: number;
 }): string[] {
@@ -300,7 +318,7 @@ export function nearestFreeStarts({
     const span = spanOf(s.toISOString(), minutes);
     if (s.getTime() < now.getTime() + MIN_LEAD_MS) continue;
     if (new Date(span.end).getTime() > interview) continue;
-    if (busy.some((b) => overlaps(span, b)) || (other && overlaps(span, other))) continue;
+    if (busy.some((b) => overlaps(span, b)) || others.some((o) => overlaps(span, o))) continue;
     out.push(span.start);
   }
   return out

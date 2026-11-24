@@ -9763,6 +9763,17 @@ _CONSTRAINT_STATEMENTS = [
             CHECK (candidate_response IS NULL
                    OR candidate_response IN ('none', 'accepted', 'tentative', 'declined'));
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0773: Przygotowanie rekrutera jako prep 0 (F3, 24.11.2026). CREATE TABLE
+    # wyżej zostaje lustrem 0370 (1, 2); poszerzenie biegnie po nim, więc świeża
+    # baza też kończy z (0, 1, 2). Lustro 1:1 z migracją — pilnuje
+    # `test_prep_preparation_schema.py`.
+    """DO $$ BEGIN
+        ALTER TABLE prep_meetings
+            DROP CONSTRAINT IF EXISTS ck_prep_meetings_prep_no;
+        ALTER TABLE prep_meetings
+            ADD CONSTRAINT ck_prep_meetings_prep_no
+            CHECK (prep_no IN (0, 1, 2));
+    END $$""",
     # 0443: źródło „integration” (zapis kluczem API v1). Poszerzenie domeny =
     # jawny DROP+ADD w jednym bloku; JEDYNA definicja poza CREATE TABLE —
     # pilnuje `tests/test_entrypoint_order_change_source_mirror.py`.

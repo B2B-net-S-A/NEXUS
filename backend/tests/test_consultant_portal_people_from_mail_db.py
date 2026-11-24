@@ -460,6 +460,43 @@ async def test_tresc_maila_z_ts_zapisana_gdy_w_watku_pisze_klient() -> None:
         await _drop_rules(person.client_id)
 
 
+async def test_akceptacja_klienta_z_tym_samym_time_sheet_co_wczesniej() -> None:
+    """Konsultant wysyła Time Sheet, a po kilku dniach przekazuje akceptację kierownika
+    z tym samym plikiem (próba IX–X 2026: akceptacja z 13.10 do Time Sheet z 30.09).
+    Plik jest już zapisany, ale treść maila to dowód akceptacji. Ponowne wysłanie
+    samego pliku, bez wiadomości klienta, treści nie zapisuje."""
+
+    domain = f"klient-{tag()}.example"
+    person = await make_person(activated=False)
+    await _rules(
+        person.client_id,
+        {"proof.excel_with_mail": {"level": "warn", "params": {"domain": domain}}},
+    )
+    try:
+        sheet = "Timesheet wrzesien.pdf"
+        first = _message("m1", person.email, "Time Sheet - wrzesień 2026")
+        forward = _message("m2", person.email, "Fwd: FW: Time Sheet - wrzesień 2026")
+        resend = _message("m3", person.email, "Time Sheet - wrzesień 2026 raz jeszcze")
+        box = Box(
+            [first, forward, resend],
+            {"m1": [_file(sheet)], "m2": [_file(sheet)], "m3": [_file(sheet)]},
+            {
+                "m1": _eml(person.email, first["subject"], "W załączniku TS."),
+                "m2": _eml(
+                    person.email, forward["subject"], QUOTED.format(domain=domain)
+                ),
+                "m3": _eml(person.email, resend["subject"], "Jeszcze raz TS."),
+            },
+        )
+        await _read(box)
+        assert await _owners() == {
+            sheet: person.contract_id,
+            f"{forward['subject']}.eml": person.contract_id,
+        }
+    finally:
+        await _drop_rules(person.client_id)
+
+
 async def test_akceptacja_ze_skrzynki_konsultanta_u_klienta_bez_nazwiska() -> None:
     domain = f"klient-{tag()}.example"
     address = f"konsultant.{tag()}@{domain}"

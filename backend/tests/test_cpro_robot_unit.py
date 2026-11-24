@@ -280,3 +280,39 @@ def test_saved_values_must_match_the_order():
     assert rules.saved_values_visible(view, "196", "2026-12-04")
     assert not rules.saved_values_visible(view, "195", "2026-12-04")
     assert not rules.saved_values_visible(view, "196", "2026-12-05")
+
+
+@pytest.mark.parametrize(
+    ("citizenship", "expected"),
+    [
+        ("Amerykanin", "200"),
+        ("amerykańskie", "200"),
+        ("Ukrainka", "31"),
+        ("ukraińskie", "31"),
+        ("Białorusin", "72"),
+        ("Polak", "10"),
+        ("polskie", "10"),
+        ("Poland", "10"),
+        ("Marsjanin", None),
+    ],
+)
+def test_country_from_polish_nationality(citizenship, expected):
+    options = [
+        ("0", "--- Select a value ---"),
+        ("10", "PL - Poland"),
+        ("72", "BY - Belarus"),
+        ("31", "UA - Ukranie"),
+        ("200", "US - USA"),
+        ("201", "UY - Uruguay"),
+    ]
+    assert rules.country_option(options, citizenship) == expected
+
+
+def test_error_hint_drops_quoted_values():
+    exc = TimeoutError(
+        'Locator.fill: Timeout 30000ms exceeded.\nCall log:\n  - fill("tajne-haslo")'
+    )
+    hint = server.error_hint(exc)
+    assert hint.startswith("TimeoutError: Locator.fill: Timeout 30000ms exceeded.")
+    assert "tajne" not in hint
+    assert "tajne" not in server.error_hint(ValueError("bad value 'tajne-haslo' x"))

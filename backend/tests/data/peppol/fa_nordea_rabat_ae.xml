@@ -20,16 +20,16 @@
     <P_1>2026-11-06</P_1>
     <P_2>1/11/2026/UE</P_2>
     <P_6>2026-10-31</P_6>
-    <P_13_9>36679.50</P_13_9>
-    <P_15>36679.50</P_15>
+    <P_13_9>30468.02</P_13_9>
+    <P_15>30468.02</P_15>
     <Adnotacje><P_16>2</P_16><P_17>2</P_17><P_18>1</P_18><P_18A>2</P_18A>
       <Zwolnienie><P_19N>1</P_19N></Zwolnienie><NoweSrodkiTransportu><P_22N>1</P_22N></NoweSrodkiTransportu>
       <P_23>2</P_23><PMarzy><P_PMarzyN>1</P_PMarzyN></PMarzy></Adnotacje>
     <RodzajFaktury>VAT</RodzajFaktury>
-    <DodatkowyOpis><NrWiersza>1</NrWiersza><Klucz>Uwagi</Klucz><Wartosc>Discount according to the Frame Agreement – 2,5%.</Wartosc></DodatkowyOpis>
-    <FaWiersz><NrWierszaFa>1</NrWierszaFa><P_7>NIDS:1000000001, IT Retail Banking, Nordea Contact: Anna Testowa, Contractor Jan Przykładowy ID: M000001</P_7><P_8A>godz.</P_8A><P_8B>86</P_8B><P_9A>180.00</P_9A><P_10>387.00</P_10><P_11>15093.00</P_11><P_12>np II</P_12></FaWiersz>
-    <FaWiersz><NrWierszaFa>2</NrWierszaFa><P_7>NIDS:1500000002, IT Retail Banking, Nordea Contact: Anna Testowa, Contractor Jan Przykładowy ID: M000001</P_7><P_8A>godz.</P_8A><P_8B>103.5</P_8B><P_9A>180.00</P_9A><P_10>465.75</P_10><P_11>18164.25</P_11><P_12>np II</P_12></FaWiersz>
-    <FaWiersz><NrWierszaFa>3</NrWierszaFa><P_7>NIDS:1600000003, IT Retail Banking, Nordea Contact: Anna Testowa, Contractor Jan Przykładowy ID: M000001</P_7><P_8A>godz.</P_8A><P_8B>19.5</P_8B><P_9A>180.00</P_9A><P_10>87.75</P_10><P_11>3422.25</P_11><P_12>np II</P_12></FaWiersz>
+    <DodatkowyOpis><NrWiersza>1</NrWiersza><Klucz>Uwagi</Klucz><Wartosc>Discount according to the Frame Agreement – 1,5%.</Wartosc></DodatkowyOpis>
+    <FaWiersz><NrWierszaFa>1</NrWierszaFa><P_7>NIDS:1000000001, IT Retail Banking, Nordea Contact: Anna Testowa, Contractor Jan Przykładowy ID: M000001</P_7><P_8A>godz.</P_8A><P_8B>86</P_8B><P_9A>148.00</P_9A><P_10>190.92</P_10><P_11>12537.08</P_11><P_12>np II</P_12></FaWiersz>
+    <FaWiersz><NrWierszaFa>2</NrWierszaFa><P_7>NIDS:1500000002, IT Retail Banking, Nordea Contact: Anna Testowa, Contractor Jan Przykładowy ID: M000001</P_7><P_8A>godz.</P_8A><P_8B>103.5</P_8B><P_9A>148.00</P_9A><P_10>229.77</P_10><P_11>15088.23</P_11><P_12>np II</P_12></FaWiersz>
+    <FaWiersz><NrWierszaFa>3</NrWierszaFa><P_7>NIDS:1600000003, IT Retail Banking, Nordea Contact: Anna Testowa, Contractor Jan Przykładowy ID: M000001</P_7><P_8A>godz.</P_8A><P_8B>19.5</P_8B><P_9A>148.00</P_9A><P_10>43.29</P_10><P_11>2842.71</P_11><P_12>np II</P_12></FaWiersz>
 
     <Platnosc>
       <TerminPlatnosci><Termin>2026-12-05</Termin></TerminPlatnosci>
