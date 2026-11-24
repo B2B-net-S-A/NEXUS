@@ -766,6 +766,36 @@
   color: var(--lime);
 }
 
+/* ───────────── Strona rekrutera (/<slug>) i ekrany 404, błędu, ładowania (`.notice`) ───────────── */
+.rec1,
+.notice {
+  z-index: 2;
+  padding: 18px 0 34px;
+}
+.rec1 > .wrap {
+  container-type: inline-size;
+}
+/* Imię jak wielkie słowo oferty: `--em` z `wordEm`, więc „Małgorzata.” mieści się na 375 px. */
+.recName {
+  margin-top: 22px;
+  font-size: min(150px, calc(100cqi / var(--em, 5)));
+  line-height: 0.9;
+}
+.recLead {
+  display: block;
+  margin-top: 12px;
+}
+.recAbout {
+  max-width: 40rem;
+  margin-top: 12px;
+}
+.notice {
+  padding-bottom: 56px;
+}
+.notice .heroNum {
+  margin-top: 8px;
+}
+
 /* ───────────── Oferta (OfertaA / OfertaManager) ───────────── */
 .s1 {
   z-index: 3;
@@ -1984,6 +2014,15 @@ input:focus-visible + .box {
 
 /* ───────────── Laptop od 1024 ───────────── */
 @media (min-width: 1024px) {
+  .rec1 {
+    padding: 32px 0 64px;
+  }
+  .recName {
+    font-size: min(220px, calc(100cqi / var(--em, 5)));
+  }
+  .notice {
+    padding: 40px 0 96px;
+  }
   .sideCard {
     margin-bottom: -120px;
     rotate: -1deg;

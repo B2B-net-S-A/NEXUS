@@ -12,6 +12,14 @@ import type { SettlementRow } from "@/lib/api/client-settlements";
 interface ClientMonthStripProps {
   rows: SettlementRow[];
   month: string;
+  /** Klient ekranu — „Wystaw za miesiąc” otwiera wtedy tylko jego zamówienia. */
+  clientId?: number;
+}
+
+/** „Faktury do klientów” → „Wystaw za miesiąc”; z klientem tylko jego zamówienia, zaznaczone. */
+export function issueHref(month: string, clientId?: number): string {
+  const client = clientId ? `&siClient=${clientId}` : "";
+  return `/finance?view=sales-invoices&siPeriod=${month}&siView=issue${client}`;
 }
 
 interface Step {
@@ -69,7 +77,7 @@ export function topReasons(rows: SettlementRow[], limit = 3): [string, number][]
   return [...reasons.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
 }
 
-export function ClientMonthStrip({ rows, month }: ClientMonthStripProps) {
+export function ClientMonthStrip({ rows, month, clientId }: ClientMonthStripProps) {
   if (rows.length === 0) return null;
   const steps = monthSteps(rows);
   const reasons = topReasons(rows);
@@ -88,7 +96,7 @@ export function ClientMonthStrip({ rows, month }: ClientMonthStripProps) {
                 className="max-w-full"
                 note={
                   s.note === "Wystaw za miesiąc" ? (
-                    <Link href={`/finance?view=sales-invoices&siPeriod=${month}&siView=issue`} className="text-primary hover:underline">
+                    <Link href={issueHref(month, clientId)} className="text-primary hover:underline">
                       {s.note}
                     </Link>
                   ) : (

@@ -85,10 +85,10 @@ describe("kroki miesiąca klienta", () => {
   });
 
   it("pasek prowadzi do wystawienia faktury za miesiąc, gdy są przyjęte", () => {
-    render(<ClientMonthStrip rows={[row({ status: "accepted", client_invoice: "ready" })]} month="2026-10" />);
+    render(<ClientMonthStrip rows={[row({ status: "accepted", client_invoice: "ready" })]} month="2026-10" clientId={7} />);
     expect(screen.getByRole("link", { name: "Wystaw za miesiąc" })).toHaveAttribute(
       "href",
-      "/finance?view=sales-invoices&siPeriod=2026-10&siView=issue",
+      "/finance?view=sales-invoices&siPeriod=2026-10&siView=issue&siClient=7",
     );
   });
 
@@ -105,6 +105,7 @@ describe("przebieg miesiąca", () => {
       "/finance?view=settlements&stClient=12&stMonth=2026-10&stSub=rules",
     );
     expect(issueHref("2026-10")).toBe("/finance?view=sales-invoices&siPeriod=2026-10&siView=issue");
+    expect(issueHref("2026-10", 12)).toBe("/finance?view=sales-invoices&siPeriod=2026-10&siView=issue&siClient=12");
   });
 
   it("stan faktury do klienta", () => {

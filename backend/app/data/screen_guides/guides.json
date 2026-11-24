@@ -737,7 +737,7 @@
       },
       {
         "q": "Jak wystawić fakturę do klienta w KSeF?",
-        "a": "„Faktury do klientów” → „Wystaw za miesiąc”: zaznacz zamówienia i „Utwórz szkice”; numer serii nadaje „Wyślij do KSeF”. Szkic sprawdza „Reguły klienta”: bez zlecenia B-ZONE na dni pracy osoby (ERSTE) nie wyjdzie, brak protokołu odbioru od klienta (CeZ) tylko ostrzega. Sprzedawca i serie: „Ustawienia wystawiania”, stan klientów: „Przebieg miesiąca”.",
+        "a": "„Faktury do klientów” → „Wystaw za miesiąc”: zaznacz zamówienia i „Utwórz szkice”; numer serii nadaje „Wyślij do KSeF” (serie: „Ustawienia wystawiania”). Szkic sprawdza „Reguły klienta”: bez zlecenia B-ZONE (ERSTE) nie wyjdzie, brak protokołu od klienta (CeZ) ostrzega. „Wystaw” w „Przebiegu miesiąca” otwiera klienta z zaznaczonymi zamówieniami.",
         "anchor": "finance.modes"
       }
     ],

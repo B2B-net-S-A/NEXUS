@@ -683,7 +683,11 @@ async def test_reopened_exit_case_gets_its_steps_back(app_client, modules_on) ->
                 BoCard.case_id == case_id, BoCard.source_kind == "step"
             )
         )
-        assert {c.state for c in children.all()} == {"new"}
+        states = {c.meta["step"]: c.state for c in children.all()}
+    # „Benefity” bez swojej pozycji w checkliście (sprawa sprzed 24.11.2026)
+    # zalicza się sam — nie ma czego robić; reszta kroków wraca.
+    assert states.pop("benefits") == "done"
+    assert set(states.values()) == {"new"}
 
 
 @pytest.mark.asyncio

@@ -24,7 +24,8 @@ from app.models.client_order import ClientOrder
 from app.models.contract import Contract, ContractStatus
 from app.models.notice_mail import NoticeMailProposal
 from app.models.user import User
-from app.services.admin_cases import notice_mail
+from app.services.admin_cases import hooks as case_hooks
+from app.services.admin_cases import nordea_cpro, notice_mail
 from app.services.admin_cases import notice_rules as rules
 from app.services.admin_cases import service as cases
 from app.services.b2b_documents.contract_versions import notice_end_date
@@ -262,6 +263,7 @@ async def proposal_detail(db: AsyncSession, proposal: NoticeMailProposal) -> dic
         "agreement": bool(match.get("agreement")),
         "period_source": match.get("period_source"),
         "client_reason": match.get("reason"),
+        "cpro_event": match.get("cpro_event"),
         "evidence": match.get("evidence") or [],
         "reasons": [
             {"key": key, "label": REASON_LABELS.get(key, key)}
@@ -278,6 +280,57 @@ async def proposal_detail(db: AsyncSession, proposal: NoticeMailProposal) -> dic
         "decision": proposal.decision or None,
         "decided_at": proposal.decided_at,
     }
+
+
+def _iso_day(value: Any) -> Optional[date]:
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value[:10])
+        except ValueError:
+            return None
+    return None
+
+
+async def _open_exit_case(
+    db: AsyncSession,
+    proposal: NoticeMailProposal,
+    contract: Contract,
+    applied: dict[str, Any],
+) -> dict[str, Any]:
+    """Koniec u klienta z CPro (koniec, nieprzedłużenie, internalizacja) → sprawa wyjścia.
+
+    Data: koniec linii zamówienia wybrany na karcie, a bez niego data z maila.
+    „Will not be extended” zwykle nie ma daty — wtedy to obecny koniec zamówienia
+    („Zostaw …”). Umowa konsultanta zostaje bez zmian: porozumienie albo
+    przepięcie to kroki sprawy wyjścia (decyzja, rozwiązanie umowy).
+    """
+
+    event = (proposal.match or {}).get("cpro_event")
+    if (
+        proposal.kind != rules.CLIENT_TERMINATION
+        or event not in nordea_cpro.EXIT_EVENTS
+    ):
+        return {}
+    last_day = _iso_day(applied.get("order_end_date")) or proposal.client_end_date
+    if last_day is None:
+        return {"exit_case": "no_date"}
+    note = nordea_cpro.EVENT_LABELS[event]
+    if proposal.cpro_number:
+        note += f" (CoA {proposal.cpro_number})"
+    note += "."
+    if event == nordea_cpro.INTERNALIZATION:
+        note += (
+            " Porozumienie ze zdjęciem zakazu konkurencji; opłatę za internalizację"
+            " sprawdź w umowie ramowej."
+        )
+    case = await case_hooks.open_case_for_contract_end(
+        db, contract, last_day=last_day, note=note
+    )
+    if case is None:
+        return {"exit_case": "module_off"}
+    return {"exit_case_id": case.id, "exit_last_day": last_day.isoformat()}
 
 
 def _ended_or_ending(contract: Contract) -> bool:
@@ -371,7 +424,15 @@ async def decide(
                         actor_id=actor.id,
                     ),
                 }
+        applied = {**applied, **await _open_exit_case(db, proposal, contract, applied)}
         summary = _confirm_summary(proposal, contract, applied)
+        if applied.get("exit_case_id"):
+            summary += (
+                f" Sprawa wyjścia #{applied['exit_case_id']}: ostatni dzień "
+                f"{date.fromisoformat(applied['exit_last_day']):%d.%m.%Y}."
+            )
+        elif applied.get("exit_case") == "no_date":
+            summary += " Sprawa wyjścia nie powstała: brak daty końca zamówienia."
     else:
         summary = "Propozycja z maila odrzucona: to nie " + {
             rules.CONSULTANT_NOTICE: "wypowiedzenie.",

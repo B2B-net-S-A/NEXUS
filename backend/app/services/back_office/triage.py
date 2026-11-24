@@ -20,6 +20,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.models.admin_case import AdminCaseMessage
 from app.models.ai_feature import AIFeatureKey
+from app.services.admin_cases import nordea_cpro
 from app.models.back_office import BoCard, BoCardEvent
 from app.services.admin_cases.rules import fold
 from app.services.ai_quota import ai_feature
@@ -74,6 +75,23 @@ def rule_routes(subject: Optional[str], body: Optional[str]) -> list[Route]:
         if team not in seen and any(needle in folded for needle in needles):
             seen[team] = Route(team, lane)
     return list(seen.values())
+
+
+def cpro_route(subject: Optional[str], body: Optional[str]) -> Optional[Route]:
+    """Powiadomienie CPro Nordei ma swoją kolumnę bez pytania modelu.
+
+    Koniec, nieprzedłużenie i internalizacja → „Zakończenie” (Umowy), zmiana
+    danych do faktury → Finanse, przedłużenie do decyzji → „Przedłużenia”.
+    """
+
+    event = nordea_cpro.parse(subject, body)
+    if event is None:
+        return None
+    if event.kind == nordea_cpro.PROLONGATION:
+        return Route("orders", "extend")
+    if event.kind == nordea_cpro.CHANGES and event.invoice_reference_changes:
+        return Route("finance", "changes")
+    return Route("contracts", "ending")
 
 
 def parse_model_answer(raw: str) -> tuple[Optional[Route], float]:
@@ -186,7 +204,8 @@ async def route_new_cards(db: AsyncSession) -> dict[str, int]:
         subject, body = (
             await _first_message(db, card.case_id) if card.case_id else (None, None)
         )
-        rules = rule_routes(subject or card.title, body)
+        cpro = cpro_route(subject or card.title, body)
+        rules = [cpro] if cpro is not None else rule_routes(subject or card.title, body)
         model: Optional[Route] = None
         confidence = 0.0
         if len(rules) != 1:
