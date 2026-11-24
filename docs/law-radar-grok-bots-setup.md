@@ -9,13 +9,15 @@ Auto Review, adres i klucz webhooka) jest ten sam co w Sprzedaży:
 
 ## Jak to działa w skrócie
 
-1. Codziennie od 5:30 NEXUS wywołuje webhook rutyny **Zbieracz** z poleceniem
-   (`task`), kształtem raportu (`report_format`), zlecenia (`request`: data
-   `since`, tematy, źródła), adresem zwrotnym (`callback_url`) i jednorazowym
-   tokenem (`token`, 2 godziny, raz).
+1. Codziennie od 5:30 NEXUS wywołuje webhook rutyny **Zbieracz**. Od 24.11.2026
+   (webhook v2) treść to sama koperta: `schema_version` 2, `run_id`,
+   `request_url`, jednorazowy `token` (2 godziny, raz) i `expires_at`. Zbieracz
+   pobiera zlecenie `GET`-em na `request_url` z nagłówkiem `X-Run-Token`:
+   polecenie (`task`), kształt raportu (`report_format`), zlecenie (`request`:
+   data `since`, tematy, źródła) i adres zwrotny (`callback_url`).
 2. Zbieracz odsyła jeden `POST` z surowymi pozycjami. NEXUS sam sprawdza numery
    aktów i druków w API Sejmu (bramka).
-3. Zaraz potem NEXUS wywołuje webhook rutyny **Analityk** z adresem zlecenia.
+3. Zaraz potem NEXUS wywołuje webhook rutyny **Analityk** z tą samą kopertą.
    Analityk pobiera pełne zlecenie przez `GET` z tokenem biegu, przegląda pozycje
    po bramce i odsyła jeden `POST` ze zmianami w prawie oraz listą przejrzanych
    identyfikatorów. NEXUS przyjmuje raport po potwierdzeniu całego zlecenia.
@@ -122,14 +124,29 @@ najbliższe wdrożenie (w dzień roboczy okno 18:00–08:00).
 Odpowiedzi NEXUSA na raport: `200` przyjęty (same liczby); `401` zły, zużyty albo
 wygasły token (bieg trzeba zlecić od nowa); `413` raport ponad 512 KB; `422`
 raport niezgodny z `report_format` (token dalej ważny, można poprawić i wysłać
-raz jeszcze).
+raz jeszcze, także pusta treść).
 
-## 4. Polecenie rutyny Zbieracz (v1, treść do wklejenia)
+### Webhook v2 (24.11.2026)
+
+Treść webhooka niesie tylko kopertę biegu (`schema_version`, `run_id`,
+`request_url`, `token`, `expires_at`), bo przy dużych zleceniach treść
+z całym zleceniem docierała do rutyn ucięta. Polecenia z sekcji 4 i 5 obsługują
+obie wersje; wklej je w obu rutynach przed wdrożeniem albo zaraz po nim.
+Rutyna, której polecenia nie da się od razu zmienić, może dostawać dawną treść
+v1: zmienna `GROK_BOT_WEBHOOK_V1` (workflow „Coolify set env”) z nazwami
+`law_collect` i/lub `law_analyze` po przecinku. Bez zmiennej obie są na v2.
+W logu `worker` każde wywołanie ma linię `bot_webhook … bytes=<rozmiar>
+response=<kod HTTP albo timeout>`.
+
+## 4. Polecenie rutyny Zbieracz (treść do wklejenia)
 
 ```text
-Dostajesz w wejściu webhooka JSON z polami: run_id, kind ("collect"), task,
-report_format, request (since, topics, sources, max_items), callback_url, token,
-expires_at.
+Dostajesz w wejściu webhooka JSON: schema_version, run_id, request_url, token,
+expires_at. Dla schema_version=2 najpierw pobierz zlecenie jednym GET na
+request_url z nagłówkiem X-Run-Token: {token}. Odpowiedź 200 to JSON z polami
+kind ("collect"), task, report_format, request (since, topics, sources,
+max_items) i callback_url. Gdy GET nie da 200, zakończ bez raportu.
+W starszym schema_version=1 te pola były od razu w webhooku.
 
 Zrób dokładnie to, co mówi pole task, dla źródeł i tematów z request.
 Nie rób niczego, czego task nie mówi.
@@ -168,16 +185,15 @@ Nic więcej nie wysyłaj. Token jest jednorazowy i ważny do expires_at; nie
 zapisuj go w plikach, notatkach ani pamięci.
 ```
 
-## 5. Polecenie rutyny Analityk (v1, treść do wklejenia)
+## 5. Polecenie rutyny Analityk (treść do wklejenia)
 
 ```text
-Dostajesz w wejściu webhooka JSON z polami: schema_version, run_id,
-kind ("analyze"), task, request_url, callback_url, token, expires_at.
-
-Dla schema_version=2 pobierz zlecenie jednym GET na request_url z nagłówkiem
-X-Run-Token: {token}. W odpowiedzi 200 otrzymasz task, report_format oraz
-request (items, topics, open_changes, probes, roles, stages, urgencies,
-max_changes). W starszym schema_version=1 te trzy pola były w webhooku.
+Dostajesz w wejściu webhooka JSON: schema_version, run_id, request_url, token,
+expires_at. Dla schema_version=2 najpierw pobierz zlecenie jednym GET na
+request_url z nagłówkiem X-Run-Token: {token}. Odpowiedź 200 to JSON z polami
+kind ("analyze"), task, report_format, request (items, topics, open_changes,
+probes, roles, stages, urgencies, max_changes) i callback_url. Gdy GET nie da
+200, zakończ bez raportu. W starszym schema_version=1 te pola były w webhooku.
 
 Zrób dokładnie to, co mówi pole task, na pozycjach z request.items.
 Nie rób niczego, czego task nie mówi.

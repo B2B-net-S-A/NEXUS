@@ -121,14 +121,18 @@ więc rutyna z poleceniem v1 dalej obsługuje `signals` i `briefing`. Polecenie 
 wklejasz raz; kolejne rodzaje (karta firmy, pytania, odzyskiwanie przegranych,
 nowe centra IT, mapy osób, nowe rodzaje punktów) nie wymagają już zmiany rutyny.
 
-Polecenie rutyny v2 (treść do wklejenia w miejsce v1):
+Polecenie rutyny v2 (treść do wklejenia w miejsce v1; od 24.11.2026 z pobraniem
+zlecenia, sekcja „Webhook v2” niżej):
 
 ```text
-Dostajesz w wejściu webhooka JSON. Najważniejsze pola: run_id, kind, task,
-report_format, request, firms (ref, name, domain, opcjonalnie mode),
-callback_url, token, expires_at. Pozostałe pola (window_days, max_signals,
-max_points, signal_types, rejected, seen_urls) to parametry, do których może
-odwoływać się task.
+Dostajesz w wejściu webhooka JSON: schema_version, run_id, request_url, token,
+expires_at. Dla schema_version=2 najpierw pobierz zlecenie jednym GET na
+request_url z nagłówkiem X-Run-Token: {token}. Odpowiedź 200 to JSON z polami:
+run_id, kind, task, report_format, request, firms (ref, name, domain,
+opcjonalnie nip, krs, mode), callback_url, expires_at oraz parametry
+(window_days, max_signals, max_points, signal_types, rejected, seen_urls), do
+których może odwoływać się task. Gdy GET nie da 200, zakończ bez raportu.
+W starszym schema_version=1 te same pola były od razu w webhooku.
 
 Zrób dokładnie to, co mówi pole task, dla firm z firms i z danymi z request.
 Nie rób niczego, czego task nie mówi.
@@ -158,8 +162,42 @@ expires_at; nie zapisuj go w plikach, notatkach ani pamięci.
 
 Odpowiedzi NEXUSA na raport: `200` przyjęty; `401` zły, zużyty albo wygasły token
 (bieg trzeba zlecić od nowa); `413` raport ponad 512 KB; `422` raport niezgodny
-z `report_format` (token dalej ważny, można poprawić i wysłać raz jeszcze);
-`409` rodzaj biegu, którego NEXUS już nie obsługuje.
+z `report_format` albo pusta treść (token dalej ważny, można poprawić i wysłać
+raz jeszcze); `409` rodzaj biegu, którego NEXUS już nie obsługuje.
+
+### Webhook v2 (24.11.2026)
+
+Przy paczkach 25–40 firm treść webhooka z całym zleceniem docierała do rutyny
+ucięta (bieg 693 urwany w połowie polecenia) i bot nic nie odsyłał. Od wdrożenia
+webhook każdego bota Sprzedaży (Leady, Research, Dane firm, Kontakty, Listy,
+Cognism) niesie tylko kopertę: `schema_version` 2, `run_id`, `request_url`,
+`token`, `expires_at`. Bot pobiera zlecenie:
+
+```text
+GET {request_url}
+X-Run-Token: {token}
+```
+
+Odpowiedź (`Cache-Control: no-store`) to to samo zlecenie, które v1 wkładało
+w webhook, bez tokenu: `task`, `report_format`, `request`, `firms`,
+`callback_url`, `rejected`, `seen_urls` i parametry. GET nie zużywa tokenu
+(można ponowić), działa do raportu albo wygaśnięcia; zły token to 401.
+`request_url` i `callback_url` to ten sam adres (GET i POST).
+
+1. Wklej nowy początek polecenia v2 (wyżej) we wspólnej rutynie, w czterech
+   rutynach botów, w „NEXUS Listy” i w „NEXUS Decydenci Cognism”.
+2. Rutyna, której polecenia nie da się zmienić od razu, dostaje dawną treść:
+   `GROK_BOT_WEBHOOK_V1` z nazwami botów po przecinku (`research`, `leads`,
+   `company`, `contacts`, `lists`, `cognism`) workflowem „Coolify set env”.
+   Bot Research w v1 dostaje paczki najwyżej po 10 firm (każda to osobny bieg),
+   a każdy bot v1 krótsze `rejected` (20) i `seen_urls` (50).
+3. W logu `worker` każde wywołanie ma linię `bot_webhook channel=sales run=<id>
+   kind=<rodzaj> routine=<bot> schema=<1|2> bytes=<rozmiar> response=<kod HTTP
+   albo timeout>`; pobranie zlecenia daje w logu `web` linię
+   `sales_bot run=<id> kind=<rodzaj> request fetched firms=<liczba>`.
+4. Biegi bez wyniku zlecasz ponownie skryptem (najpierw plan, potem start):
+   `python -m scripts.sales_signals_rerun --run-ids <numery>` i to samo
+   z `--start --max-runs 3`.
 
 ### Wdrożenie v2
 

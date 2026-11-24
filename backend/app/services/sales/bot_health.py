@@ -58,8 +58,12 @@ def received_outcome(
     written = incomplete = 0
     if kind in ("signals", "briefing", "winback") and "leads" in report:
         written = sum(_count(report, key) for key in ("leads", "briefings", "hooks"))
-        incomplete = _omitted(report, "unknown_company", "outside_window") + _count(
-            report, "hooks_dropped"
+        # ``hooks_dropped`` to od 24.11.2026 lista z powodami; starsze raporty: liczba.
+        dropped_hooks = report.get("hooks_dropped")
+        incomplete = _omitted(report, "unknown_company", "outside_window") + (
+            len(dropped_hooks)
+            if isinstance(dropped_hooks, list)
+            else _count(report, "hooks_dropped")
         )
         incomplete += max(
             0, _count(report, "sent_firms") - _count(report, "checked_firms")
@@ -74,6 +78,8 @@ def received_outcome(
                 - _count(report, "hooks"),
             )
         detail = f"Zapisano leadów: {_count(report, 'leads')}, zestawów punktów: {_count(report, 'briefings')}, haczyków: {_count(report, 'hooks')}."
+        if _count(report, "briefings_no_news"):
+            detail += f" Firm bez nowych informacji: {report['briefings_no_news']}."
         if _count(report, "hook_missing"):
             detail += f" Brak wyniku haczyka dla firm: {report['hook_missing']}."
     elif kind == "enrich" and "applied_fields" in report:
