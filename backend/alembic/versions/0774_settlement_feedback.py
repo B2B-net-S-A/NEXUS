@@ -27,6 +27,9 @@ def upgrade() -> None:
             op.execute(statement)
     for statement in schema.ALL_DDL:
         op.execute(statement)
+    # Decyzja Artura z 25.11.2026: start „na sucho”, bez wysyłki poza firmę.
+    for statement in schema.DATA_DDL:
+        op.execute(statement)
 
 
 # Wartość enuma zostaje po downgrade (Postgres nie ma DROP VALUE), a kod sprzed tej

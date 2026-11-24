@@ -20,7 +20,8 @@ ją poprawić. Reguły: ``docs/claude/finanse-insights/rozliczenia-informacja-zw
   Gdy do konsultanta albo klienta nie wolno pisać, wada idzie dzwonkiem do
   opiekuna z prośbą o przekazanie; bez opiekuna — „bez adresata” w dzienniku.
 * **Wyłącznik** ``app_settings['client_settlement_feedback']``: ``mode`` =
-  ``off`` (domyślnie) / ``dry_run`` (zapisuje „wysłałbym: komu, co, kiedy”
+  ``off`` (brak wpisu; migracja 0774 zasiewa raz ``dry_run`` — decyzja Artura
+  z 25.11.2026) / ``dry_run`` (zapisuje „wysłałbym: komu, co, kiedy”
   w ``sends``, nic nie wysyła) / ``on``; ``external`` = ``off`` (domyślnie,
   do ludzi spoza firmy nic) / ``panel`` (tylko kontrakty z otwartym panelem,
   przez ``portal_mail.send``) / ``all``. ``external`` zmienia się wyłącznie po

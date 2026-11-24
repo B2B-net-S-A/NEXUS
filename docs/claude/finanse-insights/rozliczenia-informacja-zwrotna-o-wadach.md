@@ -89,6 +89,11 @@ nie jest jego raportem (powtórka 7: 15 takich rozliczeń Nordei w IX–X).
   `portal_mail.send`), `all` (ten sam nadawca bez względu na panel);
 - `every_days`: 1–20.
 
+**Start na produkcji (decyzja Artura z 25.11.2026): najpierw na sucho.** Wdrożenie 0774
+zasiewa raz `mode: dry_run`, `external: off` (`SEED_DRY_RUN`, `ON CONFLICT DO NOTHING`,
+więc późniejsza zmiana admina wygrywa). Ok. 4.12 liczby z dziennika za XI i ponowne
+pytanie o wysyłkę poza firmę.
+
 **`external` zmienia się wyłącznie po wyraźnym „tak” Artura w czacie**, bo to
 wysyłka do konsultantów i do pracowników klientów. Na stagingu pętla jest
 zatrzymana (`STAGING_BLOCKED_TASKS`).

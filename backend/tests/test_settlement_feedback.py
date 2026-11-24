@@ -45,6 +45,17 @@ def test_default_is_off_and_garbage_closes_it() -> None:
     assert feedback.normalize({"every_days": True}).every_days == 3
 
 
+def test_production_starts_dry_run_without_external_once() -> None:
+    # Decyzja Artura 25.11.2026: najpierw na sucho; wpis admina nie jest nadpisywany.
+    from app.services import client_settlement_feedback_schema as schema
+
+    (seed,) = schema.DATA_DDL
+    assert "ON CONFLICT (key) DO NOTHING" in seed
+    assert '"mode": "dry_run"' in seed and '"external": "off"' in seed
+    value = feedback.normalize({"mode": "dry_run", "external": "off", "every_days": 3})
+    assert value.dry_run and value.external == "off"
+
+
 # ── Wykrycie wad z uwag rozliczenia ────────────────────────────────────────
 
 

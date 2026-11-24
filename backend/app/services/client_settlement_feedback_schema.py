@@ -68,7 +68,17 @@ INDEX_DDL: tuple[str, ...] = (
 )
 
 CONSTRAINT_DDL: tuple[str, ...] = ()
-DATA_DDL: tuple[str, ...] = ()
+
+#: Decyzja Artura z 25.11.2026: na produkcji najpierw „na sucho” — NEXUS zapisuje,
+#: komu, co i kiedy by wysłał, ale nic nie wysyła, a do ludzi spoza firmy nic.
+#: Raz: wiersz już jest = decyzja admina z karty „Start rozliczeń” wygrywa.
+SEED_DRY_RUN = (
+    "INSERT INTO app_settings (key, value) VALUES ('client_settlement_feedback', "
+    """'{"mode": "dry_run", "external": "off", "every_days": 3}'::jsonb) """
+    "ON CONFLICT (key) DO NOTHING"
+)
+
+DATA_DDL: tuple[str, ...] = (SEED_DRY_RUN,)
 
 ENUM_DDL: tuple[str, ...] = (
     f"ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS '{NOTIFICATION_TYPE}'",
