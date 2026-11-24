@@ -59,6 +59,7 @@ from build_b2b_document_templates import (  # noqa: E402
     sub,
     verify,
 )
+from build_preliminary_participation_templates import FORM_CLAUSE  # noqa: E402
 
 KEY = "preliminary_b2b_v2_pl"
 TITLE = "Umowa przedwstępna na współpracę B2B"
@@ -81,15 +82,6 @@ COMPANY: list[tuple[str, bool]] = [
     ),
 ]
 
-FORM_CLAUSE = (
-    "Strony ustalają, że niniejsza Umowa może zostać zawarta w formie "
-    "dokumentowej lub w formie elektronicznej z wykorzystaniem kwalifikowanego "
-    "podpisu elektronicznego, zgodnie z art. 78¹ §1 Kodeksu cywilnego. Strony "
-    "wyłączają możliwość zawarcia Umowy z wykorzystaniem podpisu zaufanego lub "
-    "podpisu osobistego. Strony uznają, że kwalifikowany podpis elektroniczny "
-    "użyty przez każdą ze Stron jest równoważny z podpisem własnoręcznym dla "
-    "celów prawnych i dowodowych."
-)
 COPIES_CLAUSE = (
     "Umowa została sporządzona w dwóch jednobrzmiących egzemplarzach – po jednym "
     "dla każdej ze Stron. W przypadku zawarcia Umowy w formie elektronicznej "
