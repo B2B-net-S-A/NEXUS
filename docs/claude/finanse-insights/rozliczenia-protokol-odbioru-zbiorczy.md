@@ -18,6 +18,8 @@ kontraktu, czyli jako karty do ręcznego przypisania.
   w jednym z kilku protokołów miesiąca.
 - **CeZ, jedna osoba:** imię i nazwisko w komórce bywa rozbite na dwie linie i nie ma
   wiersza „… Suma”. Wtedy osobą jest tekst tabeli, a godzinami „Suma końcowa”.
+  Tabela przestawna („Suma z Godziny”) ma wiersz osoby z sumą w tabeli szczegółów:
+  od 24.11.2026 osoby są z niego, gdy suma osób to „Suma końcowa”.
 - **PFRON:** „Protokół odbioru na usługi outsourcingu specjalistów IT”, blok na osobę
   „Specjalisty: Imię Nazwisko Rola” i „Liczba Roboczogodzin …: 196,5”. Miesiąca
   w treści nie ma, więc bierzemy okres z nazwy pliku albo tematu maila
@@ -33,7 +35,9 @@ kontraktu, czyli jako karty do ręcznego przypisania.
   wzór, plik czeka na człowieka.
 - Okres inny niż rozliczany: kontrola `proof.month` bez MD, jak w innych czytnikach.
 - Imię z protokołu inne niż w kontrakcie (IX–X: jeden protokół CeZ/177): osoba nic
-  nie dostaje. Nie dopasowujemy po samym nazwisku.
+  nie dostaje, chyba że wskazuje ją numer umowy, na której w miesiącu pracuje tylko
+  ona (od 24.11.2026, `rozliczenia-czytniki-plikow-klientow.md`). Nie dopasowujemy po
+  samym nazwisku.
 
 ## Komu trafia protokół
 
