@@ -3,8 +3,10 @@
 Head of Recruitment i admin ustawiają w Ustawienia → Ocena prepów, z czego
 składa się ocena Prepu 1 i Prepu 2: wagi kryteriów, tematy prowadzącego,
 skalę odpowiedzi kandydata, progi poziomu, reguły, co trafia do notatki na
-Prep 2 i wskazówki dla AI. Rekruter i Delivery Lead widzą te same ustawienia
-bez edycji (link „Jak liczone” przy ocenie).
+Prep 2 i wskazówki dla AI, a od 24.11.2026 także fundamenty przygotowania
+kandydata przez rekrutera (zakładka „Przygotowanie”, ``preparation``).
+Rekruter i Delivery Lead widzą te same ustawienia bez edycji (link „Jak
+liczone” przy ocenie).
 
 Każda publikacja to nowy wiersz ``prep_review_configs`` — obowiązuje
 najnowszy, starsze są historią. Ustawienia startowe odtwarzają ocenę sprzed
@@ -15,15 +17,22 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Optional
 
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    StringConstraints,
+    ValidationError,
+    model_validator,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.prep_meeting import PrepReviewConfigVersion
 from app.models.user import User
+from app.services.prep_fundamentals import DEFAULT_PREPARATION
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +50,9 @@ PREP2_CRITERIA: tuple[str, ...] = (
 )
 ANSWER_GRADES: tuple[str, ...] = ("strong", "general", "weak", "missing")
 MAX_TOPICS = 12
+MAX_FUNDAMENTAL_GROUPS = 8
+MAX_FUNDAMENTALS = 12  # w jednej grupie
+MAX_READINESS = 8
 HISTORY_LIMIT = 20
 
 CRITERION_LABELS = {
@@ -83,6 +95,39 @@ class FollowupRules(BaseModel):
     max_items: int = Field(default=5, ge=1, le=12)
 
 
+class Fundamental(BaseModel):
+    """Punkt przygotowania kandydata — ten sam u każdego klienta."""
+
+    label: str = Field(min_length=2, max_length=80)
+    says: str = Field(default="", max_length=400)  # co mówisz albo o co pytasz
+    passed_when: str = Field(default="", max_length=240)  # zaliczone, gdy
+    # Warunek stop: nie zgadza się = rekruter kończy rozmowę i daje znać DL-owi.
+    stop: bool = False
+
+
+class FundamentalGroup(BaseModel):
+    title: str = Field(min_length=2, max_length=80)
+    hint: str = Field(default="", max_length=200)
+    items: list[Fundamental] = Field(max_length=MAX_FUNDAMENTALS)
+
+
+ReadinessItem = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=3, max_length=160)
+]
+
+
+class Preparation(BaseModel):
+    """Przygotowanie przez rekrutera przed prepem z Delivery Leadem."""
+
+    groups: list[FundamentalGroup] = Field(max_length=MAX_FUNDAMENTAL_GROUPS)
+    # „Po przygotowaniu kandydat umie…” — sprawdzian kandydata, nie tematy.
+    readiness: list[ReadinessItem] = Field(max_length=MAX_READINESS)
+
+
+def default_preparation() -> Preparation:
+    return Preparation.model_validate(DEFAULT_PREPARATION)
+
+
 class PrepReviewConfig(BaseModel):
     prep1: PrepRules
     prep2: PrepRules
@@ -98,6 +143,7 @@ class PrepReviewConfig(BaseModel):
     weak_must_caps_ok: bool = True
     followup: FollowupRules = Field(default_factory=FollowupRules)
     ai_hints: str = Field(default="", max_length=1500)
+    preparation: Preparation = Field(default_factory=default_preparation)
 
     @model_validator(mode="after")
     def _consistent(self) -> "PrepReviewConfig":
@@ -125,6 +171,16 @@ class PrepReviewConfig(BaseModel):
             )
         if self.weak_threshold >= self.good_threshold:
             raise ValueError("Próg „słaby” musi być niższy niż próg „dobry”.")
+        groups = self.preparation.groups
+        if any(len(g.title.strip()) < 2 for g in groups) or any(
+            len(i.label.strip()) < 2 for g in groups for i in g.items
+        ):
+            raise ValueError(
+                "Przygotowanie: każda grupa i każdy punkt musi mieć nazwę."
+            )
+        labels = [i.label.strip().casefold() for g in groups for i in g.items]
+        if len(labels) != len(set(labels)):
+            raise ValueError("Przygotowanie: ten sam punkt jest dwa razy.")
         return self
 
 
@@ -285,6 +341,21 @@ def describe_changes(before: Optional[dict], after: dict) -> list[str]:
         out.append("Zmieniono, co trafia do notatki na Prep 2")
     if before.get("ai_hints") != after.get("ai_hints"):
         out.append("Zmieniono wskazówki dla AI")
+    out.extend(_preparation_changes(before, after))
+    return out
+
+
+def _preparation_changes(before: dict, after: dict) -> list[str]:
+    """Wersja sprzed klucza ``preparation`` miała listę startową."""
+    start = default_preparation().model_dump()
+    b = before.get("preparation") or start
+    a = after.get("preparation") or start
+    out = []
+    if b.get("groups") != a.get("groups"):
+        count = sum(len(g.get("items") or []) for g in a.get("groups") or [])
+        out.append(f"Przygotowanie · fundamenty zmienione ({count} punktów)")
+    if b.get("readiness") != a.get("readiness"):
+        out.append("Przygotowanie · „kandydat po przygotowaniu umie” zmienione")
     return out
 
 

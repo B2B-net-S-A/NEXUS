@@ -46,6 +46,31 @@ function config(): PrepReviewConfig {
       max_items: 5,
     },
     ai_hints: "",
+    preparation: {
+      groups: [
+        {
+          title: "A. Warunki — najpierw",
+          hint: "Coś się nie zgadza: kończysz rozmowę.",
+          items: [
+            { label: "Forma współpracy", says: "Kontrakt B2B.", passed_when: "Akceptuje B2B.", stop: true },
+            { label: "Stawka", says: "Potwierdź stawkę.", passed_when: "Zna stawkę.", stop: true },
+          ],
+        },
+        {
+          title: "B. CV i przykłady",
+          hint: "",
+          items: [
+            {
+              label: "Autoprezentacja 2–3 min",
+              says: "Poproś o krótkie przedstawienie się.",
+              passed_when: "Mieści się w 3 min.",
+              stop: false,
+            },
+          ],
+        },
+      ],
+      readiness: ["Przedstawić swoje doświadczenie w 2–3 minuty"],
+    },
   };
 }
 
@@ -90,6 +115,26 @@ describe("configProblems", () => {
       "Prep 1: każdy temat prowadzącego musi mieć nazwę.",
       "Prep 2: ten sam temat prowadzącego jest dwa razy.",
     ]);
+  });
+});
+
+describe("configProblems — przygotowanie", () => {
+  it("odrzuca punkt bez nazwy, powtórzony punkt i za krótkie „kandydat umie”", () => {
+    const c = config();
+    c.preparation.groups[1].items.push({ label: " stawka", says: "", passed_when: "", stop: false });
+    c.preparation.groups[0].items[0].label = " ";
+    c.preparation.readiness.push("  ab ");
+    expect(configProblems(c)).toEqual([
+      "Przygotowanie: każda grupa i każdy punkt musi mieć nazwę.",
+      "Przygotowanie: ten sam punkt jest dwa razy.",
+      "Przygotowanie: każdy punkt „kandydat umie” ma co najmniej 3 znaki.",
+    ]);
+  });
+
+  it("pusta lista fundamentów jest poprawna", () => {
+    const c = config();
+    c.preparation = { groups: [], readiness: [] };
+    expect(configProblems(c)).toEqual([]);
   });
 });
 
@@ -148,6 +193,55 @@ describe("PrepReviewSettings", () => {
     expect(await screen.findByText(/Zmienia ją Head of Recruitment/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Opublikuj" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Najwięcej pytań klienta")).toBeDisabled();
+  });
+
+  it("rekruter widzi fundamenty z numeracją przez grupy i warunkiem stop, bez edycji", async () => {
+    mocks.get.mockResolvedValue({ data: state(false) });
+    renderSettings();
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Przygotowanie · rekruter" }));
+
+    expect(screen.getByRole("heading", { name: "1. Fundamenty · 3 punkty" })).toBeInTheDocument();
+    expect(screen.getByText("3.")).toBeInTheDocument();
+    expect(screen.getAllByText("warunek stop")).toHaveLength(2);
+    expect(screen.getByText("Przedstawić swoje doświadczenie w 2–3 minuty")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    // Podgląd wag dotyczy Prepu 1 i 2, nie przygotowania.
+    expect(screen.queryByText("Podgląd na przykładzie")).not.toBeInTheDocument();
+  });
+
+  it("HoR zmienia fundament i publikuje go w tej samej wersji ustawień", async () => {
+    mocks.get.mockResolvedValue({ data: state(true) });
+    mocks.put.mockImplementation(async (_url: string, body: { config: PrepReviewConfig }) => ({
+      data: { ...state(true), config: body.config, version: 8, saved: true },
+    }));
+    renderSettings();
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Przygotowanie · rekruter" }));
+    fireEvent.change(screen.getByLabelText("Punkt 3: nazwa"), {
+      target: { value: "Autoprezentacja do 3 min" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Usuń punkt 2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Opublikuj" }));
+
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
+    const [, body] = mocks.put.mock.calls[0];
+    expect(body.config.preparation.groups[0].items.map((i: { label: string }) => i.label)).toEqual([
+      "Forma współpracy",
+    ]);
+    expect(body.config.preparation.groups[1].items[0].label).toBe("Autoprezentacja do 3 min");
+    expect(body.config.max_client_questions).toBe(20);
+  });
+
+  it("powtórzony fundament blokuje publikację", async () => {
+    mocks.get.mockResolvedValue({ data: state(true) });
+    renderSettings();
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Przygotowanie · rekruter" }));
+    fireEvent.change(screen.getByLabelText("Punkt 3: nazwa"), { target: { value: "stawka" } });
+
+    expect(screen.getByText("Przygotowanie: ten sam punkt jest dwa razy.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Opublikuj" })).toBeDisabled();
   });
 
   it("awaria odczytu nie wygląda jak puste ustawienia", async () => {
