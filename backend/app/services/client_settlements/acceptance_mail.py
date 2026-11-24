@@ -33,10 +33,14 @@ PDF = "application/pdf"
 MSG = "application/vnd.ms-outlook"
 EML = "message/rfc822"
 MIMES = (PDF, MSG, EML)
+#: Mail w mailu: ile poziomów załączonych maili czytamy (plik z zewnątrz).
+MAX_NESTED = 2
 
-_FROM = re.compile(r"^\s*\*?(?:from|od|nadawca)\s*:\s*\*?\s*(.+)$", re.IGNORECASE)
+# Linie cytatu bywają poprzedzone „>” (przekazanie z Gmaila i Thunderbirda w treści
+# tekstowej): BNP, próba IX–X 2026, zlecenie nadgodzin klienta w „Fwd: FW: …”.
+_FROM = re.compile(r"^[\s>]*\*?(?:from|od|nadawca)\s*:\s*\*?\s*(.+)$", re.IGNORECASE)
 _SENT = re.compile(
-    r"^\s*\*?(?:sent|wysłano|wysłane|date|data)\s*:\s*\*?\s*(.+)$", re.IGNORECASE
+    r"^[\s>]*\*?(?:sent|wysłano|wysłane|date|data)\s*:\s*\*?\s*(.+)$", re.IGNORECASE
 )
 _EMAIL = re.compile(r"[\w.+'-]+@([\w-]+(?:\.[\w-]+)+)")
 _LOOKAHEAD = 5
@@ -198,7 +202,18 @@ def _html_text(markup: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", " ", markup))
 
 
-def _from_mail_file(content: bytes, mime: str) -> list[MailMessage]:
+def _attached_mime(attachment: mail_file.Attachment) -> Optional[str]:
+    """Załącznik, który sam jest mailem: ``.msg`` z Outlooka albo ``.eml``."""
+
+    name = attachment.name.lower()
+    if name.endswith(".msg") and attachment.content.startswith(mail_file.OLE_HEADER):
+        return MSG
+    if name.endswith(".eml"):
+        return EML
+    return None
+
+
+def _from_mail_file(content: bytes, mime: str, depth: int = 0) -> list[MailMessage]:
     mail = mail_file.read(content, mime)
     if mail is None:
         return []
@@ -212,7 +227,14 @@ def _from_mail_file(content: bytes, mime: str) -> list[MailMessage]:
     body = mail.body
     if "<html" in body[:500].lower() or "<body" in body[:2000].lower():
         body = _html_text(body)
-    return [outer, *quoted_messages(body)]
+    found = [outer, *quoted_messages(body)]
+    # Akceptacja klienta załączona do maila konsultanta (PKO, próba IX–X 2026):
+    # wiadomości ze środka należą do tego samego wątku.
+    for attachment in mail.attachments if depth < MAX_NESTED else []:
+        inner = _attached_mime(attachment)
+        if inner is not None:
+            found.extend(_from_mail_file(attachment.content, inner, depth + 1))
+    return found
 
 
 def _from_pdf(content: bytes) -> list[MailMessage]:

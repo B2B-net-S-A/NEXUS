@@ -27,6 +27,10 @@ from app.services.client_settlements.rcp_bnp import ParsedRcp, SignatureInfo
 PDF = "application/pdf"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 TOLERANCE = Decimal("0.01")
+#: Podsumowanie RCP pokazuje MD z jednym miejscem po przecinku (9 h nadgodzin
+#: = 1,125 MD stoi jako 1,1). Różnica z godzinami mniejsza niż 0,05 MD na wiersz
+#: to zaokrąglenie, nie błąd sum (próba IX–X 2026, BNP).
+ROUNDING = Decimal("0.05")
 
 
 @dataclass
@@ -163,6 +167,11 @@ def evaluate(
             else parsed.declared_md
         )
         result.md_extra = None
+    per_md = _param_dec(rules, "fields.md_hours", "hours", "8")
+    exact = None if md_from_total or rows_mismatch else rounded_in_file(parsed, per_md)
+    if exact is not None:
+        # Finanse fakturują MD z godzin (23,125), nie zaokrąglone z pliku (23,1).
+        result.md_regular, result.md_extra = exact
 
     if parsed.month == month:
         rcp.ok(f"Miesiąc z RCP: {month}")
@@ -277,13 +286,19 @@ def evaluate(
         else:
             sums.ok("Kod CMDB uzupełniony")
     if sums.on("fields.md_hours"):
-        per_md = _param_dec(rules, "fields.md_hours", "hours", "8")
         total = parsed.summary_total
         if parsed.total_hours is None or total is None or per_md <= 0:
             sums.fail("fields.md_hours", "Nie da się policzyć sum MD z RCP")
         else:
             from_hours = parsed.total_hours / per_md
-            if abs(from_hours - total) <= TOLERANCE and (
+            if exact is not None:
+                sums.ok(
+                    "Sumy MD policzone od nowa",
+                    f"{_fmt(parsed.total_hours)} h / {_fmt(per_md)} = "
+                    f"{_fmt(from_hours.quantize(Decimal('0.001')))} MD, w podsumowaniu "
+                    f"{_fmt(total)} MD (zaokrąglone do 0,1). MD z godzin.",
+                )
+            elif abs(from_hours - total) <= TOLERANCE and (
                 parsed.declared_md is None
                 or abs(parsed.declared_md - total) <= TOLERANCE
             ):
@@ -350,6 +365,38 @@ def evaluate(
         result.warn = True
         travel.close()
     return result
+
+
+def rounded_in_file(
+    parsed: ParsedRcp, per_md: Decimal
+) -> Optional[tuple[Decimal, Decimal]]:
+    """MD z godzin (dni zwykłe, praca dodatkowa), gdy podsumowanie różni się
+    od godzin tylko zaokrągleniem do 0,1 MD.
+
+    Różnicę dostaje ta część, której wiersze nie są pełnymi godzinami (1,1 MD
+    to 8,8 h, więc wiersz jest zaokrąglony). Takie wiersze w obu częściach albo
+    w żadnej: nie wiadomo, gdzie jest różnica, więc ``None`` (sprawdza człowiek)."""
+
+    if parsed.total_hours is None or per_md <= 0:
+        return None
+    regular, extra = parsed.md_regular, parsed.md_extra
+    exact = parsed.total_hours / per_md
+    residue = exact - (regular + extra)
+    rounded = [
+        row
+        for row in parsed.summary
+        if row.md > 0 and not row.is_travel and (row.md * per_md) % 1 != 0
+    ]
+    if residue == 0 or abs(residue) >= ROUNDING * max(len(rounded), 1):
+        return None
+    if parsed.declared_md is not None and abs(parsed.declared_md - exact) > TOLERANCE:
+        return None
+    parts = {row.is_extra for row in rounded}
+    if len(parts) != 1:
+        return None
+    if parts == {True}:
+        return regular, extra + residue
+    return regular + residue, extra
 
 
 def _day(value: date) -> str:
