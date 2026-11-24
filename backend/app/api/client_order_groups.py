@@ -866,14 +866,25 @@ async def _assert_amount_budget_write_allowed(
     Bez tej bramki osoba prowadząca zamówienia bez podglądu kwot wpisywała
     dowolną kwotę i z odpowiedzi odczytywała stawkę przychodową. Budżet w MD
     zostaje operacyjny. Formularz odsyła komplet pól, więc liczy się ZMIANA.
+
+    Zmiana trybu wymaga nowej wartości, a zmiana trybu Z „kwoty” — prawa do
+    kwot (audyt 24.11.2026): sam ``{"input_mode": "md"}`` brał dawną kwotę
+    jako liczbę MD i oddawał złotówki w ``md_total`` kontu bez podglądu kwot.
     """
     if "input_mode" not in data and "input_value" not in data:
         return
-    mode = data.get("input_mode", line.md_input_mode) or INPUT_MODE_MD
-    if mode != INPUT_MODE_AMOUNT:
+    current = line.md_input_mode or INPUT_MODE_MD
+    mode = data.get("input_mode", current) or INPUT_MODE_MD
+    if mode != current and data.get("input_value") is None:
+        raise HTTPException(
+            422,
+            detail="Zmiana trybu budżetu wymaga podania nowej wartości "
+            "(liczby MD albo kwoty).",
+        )
+    if INPUT_MODE_AMOUNT not in (mode, current):
         return
     value = data.get("input_value", line.md_input_value)
-    unchanged = mode == line.md_input_mode and (
+    unchanged = mode == current and (
         value == line.md_input_value
         or (
             value is not None
