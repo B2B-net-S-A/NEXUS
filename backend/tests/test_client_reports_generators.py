@@ -378,7 +378,8 @@ def test_invoice_type_label():
 # --------------------------------------------------------------- rabat
 
 
-TIERS = [{"up_to": 15_000_000.0, "rate": 2.5}, {"up_to": None, "rate": 3.0}]
+# Progi i stawki fikcyjne: warunki z umów klientów są tylko w ustawieniach.
+TIERS = [{"up_to": 12_000_000.0, "rate": 1.5}, {"up_to": None, "rate": 3.5}]
 
 
 def test_turnover_includes_corrections_per_currency():
@@ -402,34 +403,34 @@ def test_rebate_without_tiers_is_none():
 
 def test_rebate_whole_turnover_at_tier_rate():
     low = compute_rebate(Decimal(10_000_000), TIERS)
-    assert (low.rate, low.amount) == (Decimal("2.5"), Decimal("250000.00"))
+    assert (low.rate, low.amount) == (Decimal("1.5"), Decimal("150000.00"))
     high = compute_rebate(Decimal(20_000_000), TIERS)
     assert (high.rate, high.amount, high.above_top) == (
-        Decimal("3.0"),
-        Decimal("600000.00"),
+        Decimal("3.5"),
+        Decimal("700000.00"),
         False,
     )
 
 
 def test_rebate_boundary_belongs_to_lower_tier():
-    at_bound = compute_rebate(Decimal(15_000_000), TIERS)
-    assert at_bound.rate == Decimal("2.5")
-    assert compute_rebate(Decimal("15000000.01"), TIERS).rate == Decimal("3.0")
+    at_bound = compute_rebate(Decimal(12_000_000), TIERS)
+    assert at_bound.rate == Decimal("1.5")
+    assert compute_rebate(Decimal("12000000.01"), TIERS).rate == Decimal("3.5")
 
 
 def test_rebate_marginal_splits_turnover():
     result = compute_rebate(Decimal(20_000_000), TIERS, marginal=True)
     assert [(b.base, b.amount) for b in result.bands] == [
-        (Decimal(15_000_000), Decimal("375000.00")),
-        (Decimal(5_000_000), Decimal("150000.00")),
+        (Decimal(12_000_000), Decimal("180000.00")),
+        (Decimal(8_000_000), Decimal("280000.00")),
     ]
-    assert result.amount == Decimal("525000.00")
-    assert result.rate == Decimal("2.6250")
+    assert result.amount == Decimal("460000.00")
+    assert result.rate == Decimal("2.3000")
 
 
 def test_rebate_marginal_below_first_bound_single_band():
     result = compute_rebate(Decimal(1000), TIERS, marginal=True)
-    assert len(result.bands) == 1 and result.amount == Decimal("25.00")
+    assert len(result.bands) == 1 and result.amount == Decimal("15.00")
 
 
 def test_rebate_tiers_order_does_not_matter():
@@ -460,8 +461,8 @@ def test_rebate_negative_or_zero_turnover_gives_zero():
 
 def test_rebate_rounds_to_cents():
     assert compute_rebate(
-        Decimal("333.33"), [{"up_to": None, "rate": 2.5}]
-    ).amount == Decimal("8.33")
+        Decimal("333.33"), [{"up_to": None, "rate": 3.5}]
+    ).amount == Decimal("11.67")
 
 
 def test_workbook_keeps_numbers_numeric():
