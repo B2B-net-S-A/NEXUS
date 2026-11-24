@@ -728,3 +728,59 @@ def clear_notes_facts(candidate: Any) -> Optional[dict]:
     candidate.cv_extracted_data = extracted
     flag_modified(candidate, "cv_extracted_data")
     return rate_audit
+
+
+# ── Stawka z notatki z wysyłki (audyt r3, review PR #3942) ───────────────────
+
+
+def _amount(value: Any) -> Optional[Decimal]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def release_send_note_rate(
+    candidate: Any, amounts: frozenset[Decimal]
+) -> tuple[bool, Optional[dict]]:
+    """Zdejmij stawkę, którą starszy odczyt wziął z notatki z wysyłki.
+
+    ``amounts`` to kwoty z notatek z wysyłki, których nie ma we wsadzie
+    (``notes_insights_extractor.stale_send_note_amounts``) — cena dla klienta,
+    nie stawka kandydata (decyzja C, 14.10.2026). Znika ``expected_rate``
+    z faktów (podpowiedź stawki w screeningu), a kolumna profilu tylko wtedy,
+    gdy wpisały ją notatki (ten sam dowód co ``clear_notes_facts``) i nikt jej
+    nie przejął ręcznie. Zwraca (czy coś się zmieniło, audyt stawki albo None).
+    Mutuje obiekt ORM, bez commitu.
+    """
+    insights = notes_insights(candidate)
+    if insights is None or not amounts:
+        return False, None
+    insights = dict(insights)
+    extracted = dict(candidate.cv_extracted_data)
+    changed = False
+    rate = insights.get("expected_rate")
+    if isinstance(rate, dict) and _amount(rate.get("value")) in amounts:
+        insights.pop("expected_rate")
+        changed = True
+    rate_audit = None
+    if (
+        _amount(candidate.expected_rate_hourly) in amounts
+        and not extracted.get("_manual_override_rate")
+        and _rate_written_by_notes(candidate, insights)
+    ):
+        from app.services.candidate_profile_rate import write_profile_rate
+
+        rate_audit = write_profile_rate(
+            candidate, None, source=NOTES_REMOVED_RATE_SOURCE
+        )
+        insights.pop("_rate_written", None)
+        insights.pop("_rate_from_notes", None)
+        changed = True
+    if changed:
+        extracted["_notes_insights"] = insights
+        candidate.cv_extracted_data = extracted
+        flag_modified(candidate, "cv_extracted_data")
+    return changed, rate_audit

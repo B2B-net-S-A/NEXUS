@@ -56,7 +56,11 @@ logger = logging.getLogger(__name__)
 # o stawce do klienta (`note_kinds.FACTS_EXCLUDED_KINDS`), a karty rekomendacji
 # idą pierwsze. Nowa wersja = doganianie przeliczy fakty policzone ze starego
 # wsadu („Wyślijmy za 161 zł/h” bywało czytane jako stawka kandydata).
-PROMPT_VERSION = "v6-note-kinds"
+# v7 (24.11.2026, audyt r3): wsad bez notatek Delivery Leada z wysyłki
+# („Wysłany 150/100-110” — cena dla klienta / stawka osoby, decyzja C
+# z 14.10.2026). To zwykła notatka `human`, więc filtr rodzajów jej nie
+# wycinał, a jako najnowsza wzmianka o stawce wygrywała w `expected_rate`.
+PROMPT_VERSION = "v7-no-send-notes"
 EXTRACTION_MODEL = model_for(AIFeatureKey.notes_extraction)
 NOTES_LIMIT = 20
 BLOB_CHAR_LIMIT = 12000
@@ -154,9 +158,27 @@ async def load_note_rows_bulk(
     Jedyne miejsce, które wybiera notatki wejścia odczytu: nocna ekstrakcja
     (przez ``load_note_rows``) i domknięcie historii
     (``notes_profile_backfill``) liczą z nich ten sam „dzień notatki”.
+    Bez notatek z wysyłki (``recruitment_rate_hints.send_note_ids``) — trzy
+    zapytania na całą listę kandydatów.
     """
     if not candidate_ids:
         return {}
+    from app.services import recruitment_rate_hints
+
+    readable = f"candidate_id = ANY(:ids) AND {note_kinds.facts_readable_sql()}"
+    ids = list(candidate_ids)
+    # Notatka Delivery Leada z wysyłki niesie cenę dla klienta, nie stawkę
+    # kandydata (decyzja C, 14.10.2026). Wycinamy ją PRZED limitem — inaczej
+    # zajmowałaby miejsce w 20 notatkach wsadu.
+    readable_ids = [
+        row[0]
+        for row in (
+            await db.execute(
+                text(f"SELECT id FROM notes WHERE {readable}"), {"ids": ids}
+            )
+        ).all()
+    ]
+    skip = sorted(await recruitment_rate_hints.send_note_ids(db, readable_ids))
     # Wybór: tylko notatki, które wolno czytać modelowi; karty rekomendacji
     # i fakty ze screeningu mają pierwszeństwo przed limitem (u 373 kandydatów
     # karta wypadała poza 20 najnowszych). Wynik nadal od najnowszej.
@@ -171,16 +193,62 @@ async def load_note_rows_bulk(
             "SELECT candidate_id, id, updated_at, created_at, source_created_at, "
             "content, row_number() OVER (PARTITION BY candidate_id "
             f"ORDER BY (kind IN ({priority})) DESC NULLS LAST, created_at DESC) "
-            "AS rn FROM notes "
-            f"WHERE candidate_id = ANY(:ids) AND {note_kinds.facts_readable_sql()}"
+            f"AS rn FROM notes WHERE {readable} AND NOT (id = ANY(:skip))"
             ") picked WHERE rn <= :lim ORDER BY candidate_id, created_at DESC"
         ),
-        {"ids": list(candidate_ids), "lim": NOTES_LIMIT},
+        {"ids": ids, "skip": skip, "lim": NOTES_LIMIT},
     )
     out: dict[int, list[tuple]] = {}
     for row in result.all():
         out.setdefault(row[0], []).append(tuple(row[1:]))
     return out
+
+
+async def send_note_amounts_to_release(
+    db: AsyncSession, candidate: Any, prior: Any, notes_blob: str
+) -> frozenset[Decimal]:
+    """Kwoty z notatek z wysyłki do zdjęcia — zapytania tylko, gdy jest stawka.
+
+    Tu, a nie w pętli: stawkę z profilu czytają tylko moduły z listy strażnika
+    ``test_rate_from_readers_guard``.
+    """
+    prior_rate = prior.get("expected_rate") if isinstance(prior, dict) else None
+    if candidate.expected_rate_hourly is None and not (
+        isinstance(prior_rate, dict) and prior_rate.get("value") is not None
+    ):
+        return frozenset()
+    return await stale_send_note_amounts(db, candidate.id, notes_blob)
+
+
+async def stale_send_note_amounts(
+    db: AsyncSession, candidate_id: int, notes_blob: str
+) -> frozenset[Decimal]:
+    """Kwoty z notatek z wysyłki kandydata, których nie ma we wsadzie odczytu.
+
+    Od v7 wsad pomija notatkę z wysyłki, ale fakty policzone starszą wersją
+    zostawały: krótki wsad idzie w ``stamp_no_content`` (kopiuje stare fakty),
+    a odczyt bez stawki nie rusza kolumny (``apply_insights`` pisze tylko
+    wartość). Te kwoty zdejmuje ``candidate_notes_facts.release_send_note_rate``.
+    Kwota obecna też w notatce wsadu nie jest tu zwracana — tę ma prawo nieść.
+    """
+    from app.services import recruitment_rate_hints
+    from app.services.text_cleaning import clean_rich_text
+
+    rows = (
+        await db.execute(
+            text(
+                "SELECT id, content FROM notes WHERE candidate_id = :c "
+                f"AND {note_kinds.facts_readable_sql()}"
+            ),
+            {"c": candidate_id},
+        )
+    ).all()
+    send = await recruitment_rate_hints.send_note_ids(db, [row[0] for row in rows])
+    amounts: set[Decimal] = set()
+    for note_id, content in rows:
+        if note_id in send and content:
+            amounts |= _numbers_in(clean_rich_text(content))
+    return frozenset(amounts - _numbers_in(notes_blob))
 
 
 def notes_fingerprint(rows: Sequence[tuple]) -> str:
