@@ -39,6 +39,41 @@ export interface PlaybookDocument {
   url: string;
 }
 
+/**
+ * „Specyfika na prep” (0768, F2, decyzje Artura 24.11.2026) — lustro
+ * `PREP_SPEC_FIELDS` z `services/client_prep_spec.py`. Rekruter omawia ją
+ * z kandydatem po fundamentach (Ustawienia → Ocena prepów → „Przygotowanie”).
+ */
+export const PREP_SPEC_FIELDS = [
+  { key: "work_mode", label: "Tryb pracy i biuro" },
+  { key: "language", label: "Język rozmowy" },
+  { key: "interview", label: "Przebieg rozmowy" },
+  { key: "focus", label: "Na co zwracają uwagę" },
+  { key: "questions", label: "Typ pytań" },
+  { key: "rejections", label: "Za co klient odrzuca" },
+  { key: "highlights", label: "Co wyróżnia klienta" },
+  { key: "cooperation", label: "Forma współpracy" },
+] as const;
+
+export type PrepSpecKey = (typeof PREP_SPEC_FIELDS)[number]["key"];
+export type PrepSpec = Record<PrepSpecKey, string[]>;
+
+/** Pola z co najmniej jednym punktem. */
+export function prepSpecFilled(spec: PrepSpec | null | undefined): PrepSpecKey[] {
+  if (!spec) return [];
+  return PREP_SPEC_FIELDS.map((f) => f.key).filter((key) => (spec[key] ?? []).length > 0);
+}
+
+/** Historia karty: które pola specyfiki zmienił zapis (etykiety w kolejności pól). */
+export function prepSpecChangedLabels(from: unknown, to: unknown): string[] {
+  const asSpec = (v: unknown) => (v && typeof v === "object" ? (v as Partial<PrepSpec>) : {});
+  const a = asSpec(from);
+  const b = asSpec(to);
+  return PREP_SPEC_FIELDS.filter(
+    (f) => JSON.stringify(a[f.key] ?? []) !== JSON.stringify(b[f.key] ?? []),
+  ).map((f) => f.label);
+}
+
 /** Odpowiedź `GET /api/clients/{id}/playbook` (także dla klienta bez karty). */
 export interface ClientPlaybook {
   client_id: number;
@@ -68,6 +103,8 @@ export interface ClientPlaybook {
    * „Zweryfikowany”. Opcjonalne — starsze odpowiedzi go nie niosą.
    */
   verified_required_fields?: string[];
+  /** 0768: „Specyfika na prep”; `null` = nikt jej nie wpisał. Starsze odpowiedzi jej nie niosą. */
+  prep_spec?: PrepSpec | null;
   seed_key: string | null;
   updated_at: string | null;
   updated_by_name: string | null;
@@ -91,6 +128,8 @@ export interface ClientPlaybookPayload {
   onboarding_md: string | null;
   documents: PlaybookDocument[];
   verified_required_fields: string[];
+  /** Zawsze w PUT: `null` usuwa specyfikę (serwer bez klucza zostawia zapisaną). */
+  prep_spec: PrepSpec | null;
 }
 
 /**
@@ -121,6 +160,9 @@ export const PLAYBOOK_LIMITS = {
   text: 4000,
   markdown: 20000,
   documents: 50,
+  /** Lustro `MAX_LINES` / `MAX_LINE` z `client_prep_spec.py`. */
+  prepSpecLines: 12,
+  prepSpecLine: 300,
 } as const;
 
 /**
@@ -142,6 +184,7 @@ export const PLAYBOOK_FIELD_LABELS: Record<string, string> = {
   onboarding_md: "Onboarding po akceptacji (Markdown)",
   documents: "Dokumenty (nazwa + link)",
   verified_required_fields: "Przed „Zweryfikowany” wymagaj też",
+  prep_spec: "Specyfika na prep",
 };
 
 /** Etykiety akcji historii — backend emituje dziś wyłącznie `saved`;
@@ -221,7 +264,8 @@ export function isPlaybookEmpty(p: ClientPlaybook | null | undefined): boolean {
     ints.every((v) => v == null) &&
     texts.every((t) => !t?.trim()) &&
     (p.documents ?? []).length === 0 &&
-    (p.verified_required_fields ?? []).length === 0
+    (p.verified_required_fields ?? []).length === 0 &&
+    prepSpecFilled(p.prep_spec).length === 0
   );
 }
 
@@ -239,6 +283,8 @@ export interface PlaybookForm {
   onboarding_md: string;
   documents: PlaybookDocument[];
   verified_required_fields: string[];
+  /** Jeden punkt w linii. */
+  prep_spec: Record<PrepSpecKey, string>;
 }
 
 const str = (v: number | null) => (v != null ? String(v) : "");
@@ -257,7 +303,33 @@ export function playbookToForm(p: ClientPlaybook): PlaybookForm {
     onboarding_md: p.onboarding_md ?? "",
     documents: (p.documents ?? []).map((d) => ({ name: d.name, url: d.url })),
     verified_required_fields: [...(p.verified_required_fields ?? [])],
+    prep_spec: Object.fromEntries(
+      PREP_SPEC_FIELDS.map((f) => [f.key, (p.prep_spec?.[f.key] ?? []).join("\n")]),
+    ) as Record<PrepSpecKey, string>,
   };
+}
+
+/** Linie pola specyfiki bez pustych — tak samo liczy serwer. */
+export function prepSpecLines(text: string): string[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/** Problemy specyfiki w formularzu — przed zapisem, żeby nie czekać na 422. */
+export function prepSpecProblems(form: Pick<PlaybookForm, "prep_spec">): string[] {
+  const problems: string[] = [];
+  for (const field of PREP_SPEC_FIELDS) {
+    const lines = prepSpecLines(form.prep_spec[field.key]);
+    if (lines.length > PLAYBOOK_LIMITS.prepSpecLines) {
+      problems.push(`${field.label}: najwyżej ${PLAYBOOK_LIMITS.prepSpecLines} punktów.`);
+    }
+    if (lines.some((line) => line.length > PLAYBOOK_LIMITS.prepSpecLine)) {
+      problems.push(`${field.label}: punkt ma najwyżej ${PLAYBOOK_LIMITS.prepSpecLine} znaków.`);
+    }
+  }
+  return problems;
 }
 
 // Kopia z `cv-rules.ts` (tam nieeksportowana), z jedną różnicą: liczby
@@ -289,5 +361,13 @@ export function playbookFormToPayload(form: PlaybookForm): ClientPlaybookPayload
     verified_required_fields: VERIFIED_EXTRA_FIELD_OPTIONS.map((o) => o.key).filter((key) =>
       form.verified_required_fields.includes(key),
     ),
+    prep_spec: specFromForm(form.prep_spec),
   };
+}
+
+function specFromForm(texts: Record<PrepSpecKey, string>): PrepSpec | null {
+  const spec = Object.fromEntries(
+    PREP_SPEC_FIELDS.map((f) => [f.key, prepSpecLines(texts[f.key])]),
+  ) as PrepSpec;
+  return prepSpecFilled(spec).length > 0 ? spec : null;
 }

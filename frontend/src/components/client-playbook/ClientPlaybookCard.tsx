@@ -5,6 +5,9 @@
  * (SLA, limity, polityka stawek, „co powiedzieć
  * kandydatowi", reguły priorytetu, zasady procesu, onboarding, dokumenty).
  *
+ * „Specyfika na prep” (0768, 24.11.2026) stoi w obu wariantach: rekruter
+ * omawia ją z kandydatem po fundamentach, puste pole mówi „zapytaj DL-a”.
+ *
  * Dwa warianty:
  *  * `full` — profil klienta (zakładka „Zasady współpracy") i Pomoc → Klienci;
  *  * `compact` — sekcja 6 Profilu Championa na stronie rekrutacji: chipy
@@ -42,11 +45,14 @@ import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner
 import { useCapability } from "@/hooks/useCapability";
 import {
   isPlaybookEmpty,
+  prepSpecFilled,
   useClientPlaybook,
   PLAYBOOK_FIELD_LABELS,
+  PREP_SPEC_FIELDS,
   VERIFIED_EXTRA_FIELD_OPTIONS,
   type ClientPlaybook,
   type PlaybookDocument,
+  type PrepSpec,
 } from "@/lib/client-playbooks";
 import type { ClientCvRuleForGeneration as ClientCvRule } from "@/lib/cv-rules";
 import { safeExternalHref } from "@/lib/safe-href";
@@ -264,6 +270,8 @@ function FullCard({
 
       <KeyFacts columns={4} density="compact" facts={facts} />
 
+      {playbook.prep_spec ? <PrepSpecBlock spec={playbook.prep_spec} /> : null}
+
       {/* Bloki treści obok siebie, gdy karta ma na to miejsce (szerokość
           karty, nie okna — ta sama karta stoi w profilu klienta i w Pomocy). */}
       <div className="grid items-start gap-x-8 gap-y-4 @4xl:grid-cols-2">
@@ -280,6 +288,47 @@ function FullCard({
         <VerifiedRequiredBlock fields={playbook.verified_required_fields ?? []} />
       </div>
     </article>
+  );
+}
+
+const MISSING_SPEC = "Brak — zapytaj DL-a przed prepem";
+
+/** „Specyfika na prep”: osiem pól, puste mówią wprost, że trzeba zapytać DL-a. */
+function PrepSpecBlock({ spec }: { spec: PrepSpec }) {
+  const filled = prepSpecFilled(spec).length;
+  return (
+    <section
+      className="space-y-3 rounded-lg border border-border bg-card p-3"
+      data-testid="client-playbook-prep-spec"
+    >
+      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h4 className="text-[13px] font-semibold text-foreground">
+          {PLAYBOOK_FIELD_LABELS.prep_spec}
+        </h4>
+        <span className="text-xs text-muted-foreground">
+          {`${filled} z ${PREP_SPEC_FIELDS.length} pól · rekruter omawia ją z kandydatem po fundamentach`}
+        </span>
+      </header>
+      <div className="grid items-start gap-x-6 gap-y-3 @3xl:grid-cols-2">
+        {PREP_SPEC_FIELDS.map((field) => {
+          const lines = spec[field.key] ?? [];
+          return (
+            <div key={field.key} className="min-w-0">
+              <BlockTitle>{field.label}</BlockTitle>
+              {lines.length > 0 ? (
+                <ul className="list-disc space-y-0.5 pl-5 text-sm text-foreground">
+                  {lines.map((line, i) => (
+                    <li key={i}>{line}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-warning-muted-foreground">{MISSING_SPEC}</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -376,6 +425,31 @@ function DocumentsBlock({ documents }: { documents: PlaybookDocument[] }) {
 
 // ── Wariant compact (strona rekrutacji) ─────────────────────────────────────
 
+/** Specyfika w sekcji 6 Championa: pole w linii, puste zebrane w jedno zdanie. */
+function CompactPrepSpec({ spec }: { spec: PrepSpec }) {
+  const missing = PREP_SPEC_FIELDS.filter((f) => (spec[f.key] ?? []).length === 0);
+  return (
+    <div className="space-y-1" data-testid="client-playbook-prep-spec-compact">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {PLAYBOOK_FIELD_LABELS.prep_spec}
+      </p>
+      <dl className="space-y-0.5 text-xs">
+        {PREP_SPEC_FIELDS.filter((f) => (spec[f.key] ?? []).length > 0).map((field) => (
+          <div key={field.key}>
+            <dt className="inline font-medium text-foreground">{field.label}: </dt>
+            <dd className="inline text-muted-foreground">{spec[field.key].join(" · ")}</dd>
+          </div>
+        ))}
+      </dl>
+      {missing.length > 0 ? (
+        <p className="text-xs text-warning-muted-foreground">
+          {`Brak: ${missing.map((f) => f.label.toLocaleLowerCase("pl")).join(", ")} — zapytaj DL-a przed prepem`}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 const RATE_POLICY_CHIP_MAX = 60;
 
 function truncate(text: string, max: number): string {
@@ -464,6 +538,7 @@ function CompactCard({
           <span className="font-medium">Reguły priorytetu:</span> {playbook.priority_rules}
         </p>
       ) : null}
+      {playbook.prep_spec ? <CompactPrepSpec spec={playbook.prep_spec} /> : null}
       {playbook.about_for_candidate ? (
         <div className="space-y-1">
           <p className="whitespace-pre-wrap text-xs text-muted-foreground">

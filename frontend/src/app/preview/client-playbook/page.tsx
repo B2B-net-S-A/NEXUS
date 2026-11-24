@@ -52,7 +52,22 @@ export default function ClientPlaybookPreviewPage() {
         queries: { retry: false, retryOnMount: false, staleTime: Infinity },
       },
     });
-    qc.setQueryData(["client-playbook", 1], makeClientPlaybook());
+    qc.setQueryData(
+      ["client-playbook", 1],
+      makeClientPlaybook({
+        // Specyfika na prep (0768): część pól pusta, żeby było widać „zapytaj DL-a”.
+        prep_spec: {
+          work_mode: ["Hybryda: 2 dni w tygodniu w biurze", "Biuro: Kraków"],
+          language: ["Angielski"],
+          interview: ["Manager i osoba techniczna, jeden etap"],
+          focus: ["Samodzielność", "Konkretne przykłady z liczbami"],
+          questions: [],
+          rejections: [],
+          highlights: ["Projekty długoterminowe"],
+          cooperation: [],
+        },
+      }),
+    );
     qc.setQueryData(["client-cv-rule", 1], makeCvRule());
     qc.setQueryData(
       ["client-playbook", 2],
