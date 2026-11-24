@@ -32,9 +32,9 @@ export type DlAlertType =
   | "invoice_without_order_line"
   // Ponad limitem z umowy ramowej przed prolongatą (F3, 15.11.2026).
   | "framework_over_limit"
-  // Rozliczenie klienta ponad pulę albo na zamówieniu zakończonym (0774).
+  // Rozliczenie klienta ponad pulę albo na zamówieniu zakończonym (0775).
   | "settlement_over_order"
-  // Stawka linii zamówienia inna niż kontrakt albo ostatnia faktura (0774).
+  // Stawka linii zamówienia inna niż kontrakt albo ostatnia faktura (0775).
   | "settlement_rate_mismatch";
 
 /** Sekcja panelu „Moi klienci" — wyznacza ją SERWER z typu alertu. */

@@ -1,7 +1,7 @@
 """dl_alerts: typy ``settlement_over_order`` i ``settlement_rate_mismatch``.
 
-Revision ID: 0774_dl_alert_settlement_order
-Revises: 0773_prep_meeting_preparation
+Revision ID: 0775_dl_alert_settlement_order
+Revises: 0774_settlement_feedback
 
 Rozliczenie ponad pulę albo na zamówieniu zakończonym w NEXUS-ie oraz stawka
 linii inna niż kontrakt albo ostatnia faktura za osobę (próba IX–X 2026).
@@ -12,8 +12,8 @@ Oba lustra w ``entrypoint.sh`` robią to samo;
 
 from alembic import op
 
-revision = "0774_dl_alert_settlement_order"
-down_revision = "0773_prep_meeting_preparation"
+revision = "0775_dl_alert_settlement_order"
+down_revision = "0774_settlement_feedback"
 branch_labels = None
 depends_on = None
 

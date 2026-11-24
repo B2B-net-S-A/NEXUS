@@ -1,4 +1,4 @@
-# Rozliczenia: ponad zamówienie, zamówienie zakończone i stawka linii (0774, 24.11.2026)
+# Rozliczenia: ponad zamówienie, zamówienie zakończone i stawka linii (0775, 24.11.2026)
 
 Próba IX–X 2026: w 5 przypadkach MD były dobre, a rozliczenie czekało na Finanse,
 bo zamówienie w NEXUS-ie się nie domykało (ponad pulę albo mail klienta wskazał

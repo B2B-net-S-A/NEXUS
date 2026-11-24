@@ -69,7 +69,7 @@ ALERT_INVOICE_WITHOUT_ORDER_LINE = "invoice_without_order_line"
 # 0716 (F3): osoba ponad limitem z umowy ramowej, prolongata blisko, umowa
 # daje dźwignię (dopłata albo awans poziomu).
 ALERT_FRAMEWORK_OVER_LIMIT = "framework_over_limit"
-# 0774: rozliczenie klienta ponad pulę albo na zamówieniu zakończonym w NEXUS-ie
+# 0775: rozliczenie klienta ponad pulę albo na zamówieniu zakończonym w NEXUS-ie
 # (``client_settlements/order_issues.py``) i stawka linii inna niż kontrakt albo
 # ostatnia faktura za osobę (``client_settlements/line_rate.py``).
 ALERT_SETTLEMENT_OVER_ORDER = "settlement_over_order"
