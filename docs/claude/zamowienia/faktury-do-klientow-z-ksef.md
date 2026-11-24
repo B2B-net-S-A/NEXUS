@@ -102,16 +102,20 @@
   po imporcie zużycia MD, który wypełni pozycje. Miesiąc puli z importu bez ręcznego `breakdown` dostaje podział z wierszy importu
   (`shared_md_month_people`, ta sama reguła co panel zamówienia), o ile składają się w sumę zejścia (09.11.2026). Bez tego rozliczenie
   widziało jedną pozycję puli, choć ekran pokazywał osoby, i faktury na osoby czekały u Finansów.
-- **Faktura zbiorcza na numer wspólny dla zamówień kilku osób wiąże wszystkie** (24.11.2026, decyzja Artura). VeloBank fakturuje całe
-  zamówienie jedną pozycją („Prace programistyczne za miesiąc … w ramach zamówienia nr …”), a w NEXUSIE każda osoba ma własne
-  zamówienie okresowe z tym numerem w tytule. Grupy nie ma, a API nie założy jej nad istniejącymi zamówieniami (tworzy nowe linie).
-  Gdy numer trafia kilka zamówień i nic wyżej nie rozstrzyga, `_collective` wiąże wszystkie trafione pod czterema warunkami: numer jest
-  jeden, żadna pozycja faktury nie wymienia osoby z tych zamówień, kwota każdego zamówienia jest znana, a netto jest bliżej ich sumy niż
-  kwoty któregokolwiek z nich i najwyżej o 25% od sumy (`COLLECTIVE_TOLERANCE`). Ostatni warunek łapie częściowe trafienie: w VII–VIII
-  ten sam numer stał raz jako „3/07/…”, raz jako „Zamówienie nr 3/07/…”, więc numer trafiał 2 zamówienia z 8. Pomiar na kopii
-  produkcji z 24.11: z 24 faktur `several_orders` reguła wiąże 2, czyli VeloBank IX i X, każdą z 8 zamówieniami. Faktury na osobę
-  (Alior, ERSTE, PKO, CeZ) i Bosch z IV zostają bez zmian. Faktury VeloBanku VII–X przypisano ręcznie 24.11. Zamówień osób, których
-  kontrakty skończyły się 30.06, nie przypisano: tych osób nie ma w arkuszach zbiorczych.
+- **Faktura zbiorcza: reguła klienta `cl.collective_invoice`** (24.11.2026, decyzja Artura). VeloBank fakturuje całe zamówienie jedną
+  pozycją („Prace programistyczne za miesiąc … w ramach zamówienia nr …”), a w NEXUSIE każda osoba ma własne zamówienie okresowe
+  z tym numerem w tytule. Grupy nie ma, a API nie założy jej nad istniejącymi zamówieniami (tworzy nowe linie).
+  - Działanie: u klienta z włączoną regułą numer z faktury wiąże wszystkie jego zamówienia z tym numerem w miesiącu faktury
+    (`_whole_order`), także te z tytułem „Zamówienie nr …”, bez względu na kwotę. Różnicę kwoty widzą Finanse.
+  - Wiąże też zamówienie z tym numerem, którego osoba w miesiącu nie pracowała. O zestawie decydują daty zamówień.
+  - Bez reguły nic się nie zmienia, faktura czeka jako `several_orders`.
+  - Odrzucone: wiązanie po samej kwocie. Przegląd 24.11 pokazał, że kwota nie odróżni faktury bez jednej osoby (przy 8 osobach to
+    12,5%) od miesiąca z urlopami. Faktura jednej osoby bez nazwiska wiązała też małe zamówienie drugiej. A zaostrzony warunek nie wiązał
+    już samego VeloBanku za IX.
+  - Pomiar na kopii produkcji z 24.11 z regułą tylko u VeloBanku: z 24 faktur `several_orders` wiąże 4 (VeloBank VII–X), u innych
+    klientów nic.
+  - Faktury VeloBanku VII–X przypisano ręcznie 24.11 (`manual`, automat ich nie przepina). Zamówień osób, których kontrakty
+    skończyły się 30.06, nie przypisano: tych osób nie ma w arkuszach zbiorczych.
 
 ## Nieznani nabywcy i NIP w formularzu (audyt C5, 08.11.2026)
 

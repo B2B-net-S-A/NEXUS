@@ -13,6 +13,7 @@ Reguły obowiązują wg **miesiąca usługi** faktury, nie daty wysyłki.
 | Reguła | Co robi | Przykład z korespondencji |
 |---|---|---|
 | `cl.orders_together` | „Wystaw za miesiąc”: zaznaczone zamówienia klienta w tej samej walucie i z tym samym nabywcą idą jedną fakturą, osoba = pozycja z numerem swojego zamówienia, każdy numer w `WarunkiTransakcji/Zamowienia/NrZamowienia` (do 100) | BNP: faktura z kilku ZAM_, waluta jak w zamówieniu |
+| `cl.collective_invoice` | Dopasowanie faktury z KSeF (`matching.decide`, `collective`): numer z faktury wiąże wszystkie zamówienia klienta z tym numerem w miesiącu faktury, także z tytułem „Zamówienie nr …”, bez względu na kwotę; bez reguły faktura z numerem kilku zamówień czeka (`several_orders`). Opis: `faktury-do-klientow-z-ksef.md` | VeloBank: jedna pozycja na całe zamówienie, w NEXUSIE zamówienie na osobę (24.11.2026) |
 | `cl.ksef_contract` | `WarunkiTransakcji/Umowy` (`NrUmowy`, opcjonalnie `DataUmowy`) w każdej fakturze z NEXUSA | BNP |
 | `cl.ksef_fields` | do dwóch par `DodatkowyOpis` (klucz, wartość; `{zamowienie}` = numery zamówień faktury) po „Uwagi” ze szkicu | Credit Agricole: `OSOBA` = adres koordynatora (od XI 2026) |
 | `cl.item_name` | wzór opisu pozycji, wspólny z „Do faktury” w rozliczeniach: `{zamowienie}`, `{osoba}`, `{rola}` (tytuł pozycji zamówienia), `{usluga}`, `{miesiac}`; pole bez wartości znika z separatorem | BIK: rola z zamówienia w opisie |
