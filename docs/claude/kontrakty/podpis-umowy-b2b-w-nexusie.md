@@ -139,6 +139,10 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   8:00–18:00 (`company_reminder_due`) — dzwonek i mail. Mail idzie ze
   skrzynki nadawcy (`mail.company_signer_message`); bez niej zostaje dzwonek
   i pas „Czeka na Twój podpis za B2Bnetwork” na pulpicie.
+  Konto reprezentanta wyłączone (`service.active_company_signer` → `None`,
+  audyt 24.11.2026): bez maila na jego adres, a dzwonek „czeka na podpis
+  B2Bnetwork” po podpisie i przy każdym przypomnieniu dostają osoby wysyłki
+  (`bell_recipients`: obsługujący, nadawca, DW, zastępca z urlopu).
 - **Kontraktor dostaje swój egzemplarz** (26.10.2026; wcześniej nie dostawał
   nic, a link gasł po podpisie firmy): po podpisie obu stron mail ze
   skrzynki nadawcy z PDF-em w załączniku (`_send_contractor_copy`,

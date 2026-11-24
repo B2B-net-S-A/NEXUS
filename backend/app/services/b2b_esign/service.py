@@ -212,6 +212,30 @@ async def bell_recipients(
     return list(dict.fromkeys(ids))
 
 
+async def active_company_signer(
+    db: AsyncSession, request: B2BSigningRequest
+) -> User | None:
+    """Reprezentant firmy wskazany przy wysyłce — tylko z aktywnym kontem.
+
+    Wyłączone konto nie dostaje maila ani dzwonka (dzwonek do nieaktywnego
+    konta i tak ginie w ``emit``), więc sprawa idzie wtedy do osób wysyłki
+    (audyt r4, 24.11.2026) — ``company_signer_missing_message``.
+    """
+    if not request.company_signer_id:
+        return None
+    signer = await db.get(User, request.company_signer_id)
+    return signer if signer is not None and signer.is_active else None
+
+
+def company_signer_missing_message(contractor_name: str, number: str) -> str:
+    """Dzwonek dla osób wysyłki, gdy reprezentanta firmy nie ma (konto wyłączone)."""
+    return (
+        f"{contractor_name} podpisał(a) umowę {number}, ale konto osoby wskazanej "
+        "do podpisu za B2Bnetwork jest wyłączone. Ustal, kto podpisze umowę "
+        "za firmę."
+    )
+
+
 def _event(kind: str, at: datetime, **extra: object) -> dict:
     return {"kind": kind, "at": at.isoformat(), **extra}
 

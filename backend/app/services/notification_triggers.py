@@ -671,7 +671,7 @@ async def _hor_user_ids(db: AsyncSession) -> list[int]:
 
 
 async def _already_notified(
-    db: AsyncSession, *, user_id: int, entity_type: str, entity_id: int
+    db: AsyncSession, *, user_id: int, entity_type: str, entity_ids: tuple[int, ...]
 ) -> bool:
     """„Raz na sprawę”: ten sam prep/rozmowa nie dzwoni drugi raz w kolejnych dniach."""
     return (
@@ -681,7 +681,7 @@ async def _already_notified(
                 Notification.addressee_id == user_id,
                 Notification.notification_type == NotificationType.prep_attention,
                 Notification.related_entity_type == entity_type,
-                Notification.related_entity_id == entity_id,
+                Notification.related_entity_id.in_(entity_ids),
             )
             .limit(1)
         )
@@ -755,9 +755,20 @@ async def check_prep_attention(db: AsyncSession, now: datetime) -> int:
             "missing": f"interview_prep{item.prep_no}",
             "late": f"interview_prep{item.prep_no}_late",
         }.get(item.reason, "calendar_event")
+        # Indeks ``ix_notif_dedup_daily`` nie zna rodzaju encji, więc sam typ
+        # nie rozdzielał braku Prepu 1 i Prepu 2 tej samej rozmowy — drugi
+        # dzwonek ginął (audyt r4, 24.11.2026). Brak Prepu 2 niesie id rozmowy
+        # ze znakiem minus (prepu jeszcze nie ma, a nowy typ to migracja enumu).
+        # Front czyta z tego dzwonka tylko link; stary wiersz z dodatnim id
+        # nadal liczy się jako „już wysłano”.
+        entity_id = item.entity_event_id
+        seen_ids: tuple[int, ...] = (entity_id,)
+        if item.reason == "missing" and item.prep_no == 2:
+            entity_id = -item.interview_event_id
+            seen_ids = (entity_id, item.interview_event_id)
         for uid in sorted(recipients):
             if await _already_notified(
-                db, user_id=uid, entity_type=entity_type, entity_id=item.entity_event_id
+                db, user_id=uid, entity_type=entity_type, entity_ids=seen_ids
             ):
                 continue
             created = await emit(
@@ -767,7 +778,7 @@ async def check_prep_attention(db: AsyncSession, now: datetime) -> int:
                 message=message,
                 ntype=NotificationType.prep_attention,
                 related_entity_type=entity_type,
-                related_entity_id=item.entity_event_id,
+                related_entity_id=entity_id,
                 link=f"/calendar?cycle={item.candidate_id}-{item.job_id}",
             )
             emitted += int(created is not None)

@@ -59,6 +59,32 @@ class DeliveryAlertRecipientScope:
             )
         )
 
+    def email_allowed(
+        self, user_id: int, client_id: int | None, on_behalf_of: int | None = None
+    ) -> bool:
+        """Bramka maila alertu: odbiorca spraw klienta albo zastępca takiego DL-a.
+
+        Alert nieobecnego DL-a idzie do zastępcy (``dl_alerts.emit``, 09.11.2026),
+        a zastępca zwykle nie jest przypisany do klienta. Bez tego wyjątku mail
+        T-30/T-14/T-7 nie szedł do nikogo (audyt r4, 24.11.2026). Zastępca sam
+        musi być Delivery Leadem z dostępem do Delivery.
+        """
+
+        recipients = self.for_client(client_id)
+        if user_id in recipients:
+            return True
+        if on_behalf_of is None or on_behalf_of == user_id:
+            return False
+        if on_behalf_of not in recipients:
+            return False
+        user = self.users_by_id.get(user_id)
+        return bool(
+            user is not None
+            and user.has_role(UserRole.delivery_lead)
+            and section_access_for_user(user, ProductSection.delivery)
+            >= SectionAccess.read
+        )
+
     def bell_recipients(
         self, client_id: int | None, notification_type: NotificationType
     ) -> list[int]:

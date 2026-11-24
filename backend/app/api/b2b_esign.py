@@ -1081,9 +1081,24 @@ async def _after_contractor_signed(db: AsyncSession, request_id: int) -> None:
         return
     row = await db.get(B2BGeneratedContract, request.generated_contract_id)
     number = row.contract_number if row else ""
+    company_signer = await service.active_company_signer(db, request)
+    if company_signer is None:
+        # Konto reprezentanta wyłączone: bez maila na jego adres, dzwonek do
+        # osób wysyłki — inaczej umowa czekałaby na podpis, o którym nikt nie wie.
+        await _notify_many(
+            db,
+            user_ids=await service.bell_recipients(db, request, business_today()),
+            title=f"Umowa {number} czeka na podpis B2Bnetwork",
+            message=service.company_signer_missing_message(
+                request.contractor_name, number
+            ),
+            ntype=NotificationType.signature_sent,
+            request_id=request_id,
+        )
+        return
     await _notify(
         db,
-        user_id=request.company_signer_id,
+        user_id=company_signer.id,
         title=f"Umowa {number} czeka na Twój podpis",
         message=(
             f"{request.contractor_name} podpisał(a) umowę {number} podpisem "
@@ -1093,12 +1108,7 @@ async def _after_contractor_signed(db: AsyncSession, request_id: int) -> None:
         request_id=request_id,
     )
     # Sam dzwonek nie wystarczał (Olaf 26.10.2026) — mail ze skrzynki nadawcy.
-    company_signer = (
-        await db.get(User, request.company_signer_id)
-        if request.company_signer_id
-        else None
-    )
-    if company_signer is not None and company_signer.email:
+    if company_signer.email:
         subject, body = esign_mail.company_signer_message(
             number=number,
             contractor_name=request.contractor_name,
