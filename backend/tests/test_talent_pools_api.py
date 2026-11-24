@@ -79,3 +79,59 @@ async def test_list_pools_returns_cc_slug_when_set(
     finally:
         await _cleanup_pool_by_name(name_with_cc)
         await _cleanup_pool_by_name(name_without_cc)
+
+
+async def test_pool_candidate_pages_with_one_added_at_have_no_repeats(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    """Audyt r5: wpisy z jednej transakcji mają to samo ``added_at``;
+    przejście stron listy członków puli nie dubluje ani nie gubi osób."""
+    from datetime import datetime, timezone
+
+    from sqlalchemy import delete
+
+    from app.models.candidate import Candidate, CandidateStatus
+    from app.models.talent_pool import TalentPoolMembership
+
+    suffix = uuid.uuid4().hex[:6]
+    name = f"APITestPage-{suffix}"
+    stamp = datetime(2026, 11, 24, 3, 0, tzinfo=timezone.utc)
+    cand_ids: set[int] = set()
+    async with AsyncSessionLocal() as db:
+        pool = TalentPool(name=name, description="paging", criteria={})
+        db.add(pool)
+        await db.flush()
+        pool_id = pool.id
+        for n in range(13):
+            cand = Candidate(
+                name="Test",
+                lastname=f"page{suffix}_{n}",
+                email=f"page{suffix}_{n}@example.com",
+                status=CandidateStatus.active,
+            )
+            db.add(cand)
+            await db.flush()
+            cand_ids.add(cand.id)
+            db.add(
+                TalentPoolMembership(
+                    talent_pool_id=pool_id, candidate_id=cand.id, added_at=stamp
+                )
+            )
+        await db.commit()
+    try:
+        seen: list[int] = []
+        for offset in (0, 3, 6, 9, 12):
+            resp = await app_client.get(
+                f"/api/talent-pools/{pool_id}/candidates",
+                params={"limit": 3, "offset": offset},
+                headers=app_auth_headers,
+            )
+            assert resp.status_code == 200, resp.text
+            seen.extend(c["id"] for c in resp.json()["candidates"])
+        assert len(seen) == len(set(seen)) == 13
+        assert set(seen) == cand_ids
+    finally:
+        await _cleanup_pool_by_name(name)
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Candidate).where(Candidate.id.in_(cand_ids)))
+            await db.commit()

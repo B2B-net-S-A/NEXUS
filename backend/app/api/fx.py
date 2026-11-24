@@ -31,7 +31,8 @@ class FxRateRow(BaseModel):
 async def list_rates(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
-    limit: int = 50,
+    # Front tej trasy nie woła; granica zamyka zrzut całej tabeli kursów (audyt r5).
+    limit: int = Query(50, ge=1, le=500),
 ):
     res = await db.execute(
         select(FxRate)
