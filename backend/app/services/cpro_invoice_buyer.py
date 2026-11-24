@@ -217,6 +217,13 @@ async def apply_invoice_address(
         for client_id, contract_id in orders
         if contract_id is not None and cpro_enabled_for_client(client_id)
     }
+    if not cpro_code:
+        return await _manual(
+            db,
+            f"{what} Mail nie podaje kodu adresu CPro (bez kodu NEXUS nie wie, który to "
+            "nabywca) — przypisz nabywcę w szkicu.",
+            event_id,
+        )
     if not pairs:
         return await _manual(
             db,

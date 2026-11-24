@@ -68,14 +68,17 @@ Abp Finland przyszła tylko do PM-a i nie dotarła do rozliczeń):
   offline zobaczyłaby tylko chwilowy dymek.
 - **Faktur NEXUS nie zmienia.** Korekta albo refaktura to decyzja Finansów.
 - **Kodu nie zgadujemy po nazwie** („Abp S.A.” i „Abp Finland” mają wspólny początek).
-  Kod spoza listy, brak zamówienia z tym numerem albo kilka kontraktów pod jednym numerem =
-  „Do ręcznego” i dzwonek Finansów.
+  Kod spoza listy, adres faktury bez czytelnego kodu (kod bywa na początku wartości albo w nawiasie,
+  przecinek przed nową linią), brak zamówienia z tym numerem albo kilka kontraktów pod jednym numerem =
+  „Do ręcznego” i dzwonek Finansów. Zmiana adresu faktury nigdy nie ląduje w „Bez zmian”.
 - **Line manager, cost center, NIIDS** (wszystkie 12 maili z kopii 08–11.2026) idą tylko do
   dziennika jako „Zmiana w kontrakcie” / „Bez zmian”, bez wartości (nazwiska zostają w CPro).
 - Automat widzi tylko skrzynki zsynchronizowane z NEXUSEM: mail z 15.09 (283051) nie trafił do
   `emails`, więc ten kontrakt Finanse przypisują ręcznie w szkicu.
 - Ekran ustawień wystawiania nie nadpisuje przypisań kontraktów (`keep_stored_mapping`):
-  karta otwarta przed mailem CPro odesłałaby stare `contract_buyers`.
+  karta otwarta przed mailem CPro odesłałaby stare `contract_buyers`. Każdy zapis po odczycie
+  (automat CPro, wybór nabywcy w szkicu, ekran ustawień) czyta ustawienia z blokadą wiersza
+  (`issue_settings.load(db, lock=True)`), bo zapis podmienia cały JSON.
 
 ## Gdzie to siedzi
 

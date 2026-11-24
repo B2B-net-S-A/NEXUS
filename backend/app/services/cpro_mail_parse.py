@@ -62,13 +62,15 @@ _CHANGED_FIELDS = (
     ("cost center", re.compile(r"Cost cent(?:er|re)\s+was updated from:", re.I)),
 )
 _ADDRESS_CHANGED = re.compile(r"Invoice address\s+was updated from:", re.I)
-# „from: F218 Nordea Bank Abp S.A., to: F206 Nordea Bank Abp Finland”: kod adresu
-# faktury w CPro to litera i cyfry na początku wartości.
+# „from: F218 Nordea Bank Abp S.A., to: F206 Nordea Bank Abp Finland”; przecinek
+# bywa przed nową linią, a kod (litera i cyfry) także na końcu w nawiasie „(F206)”.
 _ADDRESS = re.compile(
-    r"Invoice address\s+was updated from:[ \t]*(?P<old>[^\n]*?),[ \t]*to:[ \t]*"
-    r"(?P<code>[A-Z]\d{2,5})\b[ \t]*(?P<name>[^\n]*)",
+    r"Invoice address\s+was updated from:[ \t]*(?P<old>[^\n]*?),\s*to:[ \t]*"
+    r"(?P<new>[^\n]*)",
     re.I,
 )
+_CODE_FIRST = re.compile(r"^([A-Z]\d{2,5})\b")
+_CODE_BRACKETS = re.compile(r"\(([A-Z]\d{2,5})\)")
 # Wartość kończy się przed następnym polem albo linkiem do kontraktu (tekst bez <br>).
 _VALUE_END = re.compile(
     r"(?:Responsible line manager|Cost cent(?:er|re)|NIIDS|Invoice address)\b"
@@ -118,17 +120,19 @@ def parse_contract_change(
     raw = (body_text or "").replace("\xa0", " ").replace("\r", "")
     number = match.group(1)
     address = _ADDRESS.search(raw)
-    if address is not None:
-        new = f"{address.group('code').upper()} {_value(address.group('name'))}".strip()
+    if address is not None or _ADDRESS_CHANGED.search(raw):
+        # Adres faktury = nabywca. Bez odczytanego kodu to nadal zmiana nabywcy:
+        # idzie do „Do ręcznego” z dzwonkiem Finansów, nie do „Bez zmian”.
+        old = _value(address.group("old")) if address else ""
+        new = _value(address.group("new")) if address else ""
+        code = _CODE_FIRST.search(new) or _CODE_BRACKETS.search(new)
         return CproEvent(
             KIND_INVOICE_ADDRESS,
             number,
-            reason=_short(f"{_value(address.group('old'))} → {new}"),
-            invoice_code=address.group("code").upper(),
+            reason=_short(f"{old} → {new}") if old or new else None,
+            invoice_code=code.group(1).upper() if code else None,
         )
     fields = [label for label, pattern in _CHANGED_FIELDS if pattern.search(raw)]
-    if _ADDRESS_CHANGED.search(raw):
-        fields.insert(0, "adres faktury bez kodu")
     return CproEvent(KIND_CONTRACT_CHANGED, number, reason=", ".join(fields) or None)
 
 

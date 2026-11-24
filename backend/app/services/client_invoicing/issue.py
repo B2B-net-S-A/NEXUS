@@ -951,7 +951,9 @@ async def _choose_buyer(
             "faktury korygowanej.",
             422,
         )
-    settings = await issue_settings.load(db)
+    # Blokada wiersza: zapis niżej podmienia całe ustawienia, a między odczytem
+    # a zapisem mail CPro mógł dopisać nabywcę innego kontraktu (przegląd 24.11.2026).
+    settings = await issue_settings.load(db, lock=True)
     buyer = next(
         (
             item

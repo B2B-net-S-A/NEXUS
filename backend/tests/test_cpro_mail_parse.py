@@ -179,12 +179,38 @@ def test_contract_change_without_known_field_keeps_number():
     )
 
 
-def test_invoice_address_without_code_is_a_plain_change():
-    # Bez kodu adresu (F206) NEXUS nie wie, którego nabywcy szukać.
+def test_invoice_address_without_code_still_goes_to_finance():
+    # Bez kodu adresu (F206) NEXUS nie wie, którego nabywcy szukać — ale to nadal
+    # zmiana nabywcy: idzie do „Do ręcznego” z dzwonkiem, nie do „Bez zmian”.
     event = parse(
         "Important changes made to contract 283051",
         f"{CHANGE_INTRO}Invoice address was updated from: Nordea Bank Abp S.A., "
         "to: Nordea Bank Abp Finland",
     )
-    assert event.kind == parse_module.KIND_CONTRACT_CHANGED
-    assert event.reason == "adres faktury bez kodu"
+    assert event.kind == parse_module.KIND_INVOICE_ADDRESS
+    assert event.invoice_code is None
+    assert event.reason == "Nordea Bank Abp S.A. → Nordea Bank Abp Finland"
+
+
+def test_invoice_address_with_line_break_after_comma():
+    event = parse(
+        "Important changes made to contract 283051",
+        f"{CHANGE_INTRO}\nInvoice address was updated from: F218 Nordea Bank Abp S.A.,"
+        "\nto: F206 Nordea Bank Abp Finland\n",
+    )
+    assert (event.kind, event.invoice_code) == (
+        parse_module.KIND_INVOICE_ADDRESS,
+        "F206",
+    )
+
+
+def test_invoice_address_with_code_in_brackets():
+    event = parse(
+        "Important changes made to contract 283051",
+        f"{CHANGE_INTRO}\nInvoice address was updated from: Nordea Bank Abp S.A. (F218), "
+        "to: Nordea Bank Abp Finland (F206)\n",
+    )
+    assert (event.kind, event.invoice_code) == (
+        parse_module.KIND_INVOICE_ADDRESS,
+        "F206",
+    )

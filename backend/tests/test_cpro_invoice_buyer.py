@@ -471,3 +471,101 @@ def test_finance_bell_goes_out_as_immediate_required_mail():
     )
     assert kind == "cpro_invoice_buyer"
     assert kind in delivery.REQUIRED_KINDS
+
+
+@pytest.mark.asyncio
+async def test_address_without_code_goes_to_manual_with_bell():
+    number = _number()
+    client_id, contract_id, finance_id, lead_id = await _seed(number)
+    key = await _mail(lead_id, f"Important changes made to contract {number}")
+
+    await _sweep(
+        f"{INTRO}\nInvoice address was updated from: Nordea Bank Abp S.A., "
+        "to: Nordea Bank Abp Finland\n"
+    )
+
+    history, event, bells = await _state(client_id, contract_id, key, finance_id)
+    assert history == [{"code": "b1", "from": "2026-01"}]
+    assert (event.kind, event.outcome) == ("invoice_address", "manual")
+    assert "bez kodu" in event.outcome_text
+    assert len(bells) == 1
+
+
+@pytest.mark.asyncio
+async def test_draft_buyer_choice_does_not_erase_cpro_write(monkeypatch):
+    """Wybór nabywcy w szkicu wczytał ustawienia, a w tym czasie mail CPro zapisał
+    inny kontrakt: zapis szkicu nie może skasować wpisu automatu (przegląd 24.11)."""
+
+    import asyncio
+
+    from app.services.client_invoicing import issue
+
+    number = _number()
+    client_id, cpro_contract, _finance, _lead = await _seed(number)
+    async with AsyncSessionLocal() as db:
+        other = Contract(
+            candidate_id=(await db.get(Contract, cpro_contract)).candidate_id,
+            client_id=client_id,
+            start_date=date(2026, 1, 5),
+            status=ContractStatus.active,
+            rate_candidate=Decimal("100"),
+        )
+        db.add(other)
+        await db.commit()
+        draft_contract = other.id
+
+    cpro_done = asyncio.Event()
+    real_load = issue_settings.load
+
+    async def slow_load(db, **kwargs):
+        data = await real_load(db, **kwargs)
+        # Okno wyścigu: automat CPro pracuje między odczytem a zapisem szkicu.
+        try:
+            await asyncio.wait_for(cpro_done.wait(), timeout=3)
+        except asyncio.TimeoutError:
+            pass  # z blokadą wiersza automat czeka na szkic
+        return data
+
+    monkeypatch.setattr(issue.issue_settings, "load", slow_load)
+
+    async def draft() -> None:
+        async with AsyncSessionLocal() as db:
+            invoice = ClientIssuedInvoice(
+                client_id=client_id,
+                invoice_type="VAT",
+                series_code="PL",
+                status="draft",
+                period_year=2026,
+                period_month=10,
+                issue_date=date(2026, 10, 31),
+                currency="PLN",
+                buyer={},
+                lines=[{"name": "Usługi", "contract_id": draft_contract}],
+            )
+            await issue._choose_buyer(db, invoice, "b2", actor_id=None)
+            await db.commit()
+
+    async def cpro() -> None:
+        await asyncio.sleep(0.3)
+        async with AsyncSessionLocal() as db:
+            change = await cpro_invoice_buyer.apply_invoice_address(
+                db,
+                number=number,
+                cpro_code="F206",
+                address="F206 Nordea Bank Abp",
+                received_at=datetime(2026, 9, 15, 8, 0, tzinfo=timezone.utc),
+                event_id=0,
+            )
+            await db.commit()
+        assert change.outcome == "done"
+        cpro_done.set()
+
+    await asyncio.gather(draft(), cpro())
+
+    monkeypatch.setattr(issue.issue_settings, "load", real_load)
+    async with AsyncSessionLocal() as db:
+        mapping = (await issue_settings.load(db))["clients"][str(client_id)][
+            "contract_buyers"
+        ]
+    assert mapping[str(cpro_contract)][-1] == {"code": "b2", "from": "2026-09"}
+    assert mapping[str(draft_contract)] == [{"code": "b2", "from": "2026-10"}]
