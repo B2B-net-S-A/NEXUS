@@ -5135,7 +5135,7 @@
   },
   {
     "id": "pytania-z-rozmow",
-    "pr": 0,
+    "pr": 3883,
     "title": "Pytania z rozmów u klienta w jednym miejscu",
     "why": "Pytania z debriefów dopisują się same, ze stanowiskiem, klientem i managerem, obok dawnego Excela. Filtrujesz i kopiujesz listę do prepu kandydata.",
     "tier": "dot",
