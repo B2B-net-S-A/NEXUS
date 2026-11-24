@@ -225,6 +225,38 @@ describe("dokumenty w panelu", () => {
     expect(screen.queryByText(/kod/i)).toBeNull();
   });
 
+  it("plik od klienta jest bez linku, własny da się pobrać", async () => {
+    const download = vi.spyOn(portalApi, "downloadDocument");
+    const row = (id: number, downloadable: boolean) => ({
+      id,
+      kind: "report" as const,
+      status: "received" as const,
+      file_name: downloadable ? "moj-raport.pdf" : null,
+      channel: "mailbox" as const,
+      created_at: "2026-10-05T12:00:00Z",
+      reject_reason: null,
+      downloadable,
+    });
+    vi.spyOn(portalApi, "financeOverview").mockResolvedValue({
+      months: [
+        {
+          year: 2026,
+          month: 9,
+          report_label: "Raport: czeka na akceptację",
+          invoice_label: "Faktura: po akceptacji raportu",
+          issue_invoice: false,
+          action: null,
+          documents: [row(1, false), row(2, true)],
+        },
+      ],
+    });
+    wrap(<DocumentsSection />);
+    expect(await screen.findByText("Raport: przysłał klient")).toBeTruthy();
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "moj-raport.pdf" })).toBeTruthy();
+    expect(download).not.toHaveBeenCalled();
+  });
+
   it("awaria nie wygląda jak pusta lista", { timeout: 12_000 }, async () => {
     vi.spyOn(portalApi, "financeOverview").mockRejectedValue(refuse(500));
     wrap(<DocumentsSection />);

@@ -129,6 +129,35 @@ def test_orlen_protocol_docx_without_keywords_is_a_report() -> None:
     )
 
 
+# Arkusz zbiorczy klienta z drugiego strumienia (próba IX–X 2026): plik „B2B_09_2026.pdf”
+# pod tematem „[BL] Rozliczenie 09.2026 …” nie ma w nazwie słowa-klucza, więc szedł
+# do faktur i nikt nie czytał podpisu klienta. Wzór klienta: „Nazwisko Imię … MD.”.
+
+CLIENT_SHEET_LINES = [
+    "Dostawca B2B",
+    "Nazwisko Imie Stanowisko Okres od: Okres do: MD.",
+    "TESTOWY JAN INZYNIER TESTOW 2026-09-01 2026-09-30 20,00",
+    "Suma koncowa 2026-09-01 2026-09-30 20,00",
+]
+
+
+def test_client_sheet_pdf_without_keywords_is_a_report() -> None:
+    pdf = pdf_with_text(CLIENT_SHEET_LINES)
+
+    assert (
+        kind_of_file("FW: [BL] Rozliczenie 09.2026 [ABC] [B2B]", "B2B_09_2026.pdf", pdf)
+        == "report"
+    )
+
+
+def test_sheet_header_without_rows_stays_an_invoice() -> None:
+    """Sam nagłówek wzoru bez wiersza osoby z MD to nie arkusz."""
+
+    pdf = pdf_with_text(CLIENT_SHEET_LINES[:2])
+
+    assert kind_of_file("FW: rozliczenie", "B2B_09_2026.pdf", pdf) == "invoice"
+
+
 def _xlsx(rows: list[list]) -> bytes:
     book = openpyxl.Workbook()
     sheet = book.active

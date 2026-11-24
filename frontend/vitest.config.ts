@@ -50,11 +50,16 @@ export default defineConfig({
       // inaczej — to zmiana MIARY, nie spadek pokrycia (te same testy, 3742
       // zielone). Zmierzone tym samym zestawem testów: linie 50,59%,
       // instrukcje 49,57%, gałęzie 49,30%, funkcje 40,30%.
+      // Podbite 24.11.2026 po testach obszaru pieniędzy (Finanse, kontrakty,
+      // księgowość, poczta zamówień, logika kwot w lib/). Pełny przebieg na
+      // gałęzi po rebase (1790 plików, 20915 testów): linie 75,54%,
+      // instrukcje 74,46%, gałęzie 71,48%, funkcje 66,25%. Progi = zmierzone
+      // minus ok. 0,5 pkt, żeby drobna wariancja nie wywracała kolejki.
       thresholds: {
-        lines: 50,
-        statements: 49,
-        branches: 49,
-        functions: 40,
+        lines: 75,
+        statements: 73.9,
+        branches: 70.9,
+        functions: 65.7,
       },
     },
   },

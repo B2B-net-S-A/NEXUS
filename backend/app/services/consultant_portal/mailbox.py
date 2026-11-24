@@ -308,7 +308,8 @@ def kind_of_file(subject: str, file_name: str, content: bytes) -> str:
     rozliczenie nie powstało). Dwa PDF-y w jednym mailu („FV i rozliczenie
     godzinowe”) dzieli dopiero treść. To samo dla wzorów innych klientów, które
     czyta rozliczenie: potwierdzenie godzin ERGO bez słowa-klucza w nazwie,
-    Time Sheet i raport BIK pod tematem „faktura”, protokół Orlenu."""
+    Time Sheet i raport BIK pod tematem „faktura”, protokół Orlenu, arkusz
+    zbiorczy klienta („B2B_09_2026.pdf”, czyta go ``signoffs``)."""
 
     kind = classify_kind(subject, file_name)
     if kind != "invoice":
@@ -327,6 +328,7 @@ def kind_of_file(subject: str, file_name: str, content: bytes) -> str:
         ewidencja_orlen,
         protocol_orlen,
         rcp_bnp,
+        signoffs,
         timesheet,
         timesheet_bik,
         timesheet_fieldglass,
@@ -341,6 +343,7 @@ def kind_of_file(subject: str, file_name: str, content: bytes) -> str:
         timesheet,
         timesheet_bik,
         timesheet_fieldglass,
+        signoffs,
     )
     if any(reader.parse(content, mime) is not None for reader in readers):
         return "report"
@@ -718,6 +721,9 @@ async def _ingest_message(
     indirect_created = 0
     contract_id = contract.id if contract else None
     created = skipped = 0
+    # Plik nadawcy, który już mamy (ten sam Time Sheet drugi raz): mail i tak może
+    # nieść akceptację klienta, więc jego treść idzie do ``_store_mail_body``.
+    known = 0
     if kesu.parse_jira(subject, "") is not None:
         made = await _store_jira_mail(
             db,
@@ -844,11 +850,20 @@ async def _ingest_message(
         created += 0 if stored.duplicate else 1
         if owner is not None and owner != contract_id and not stored.duplicate:
             indirect_created += 1
+        if stored.duplicate and owner is not None and owner == contract_id:
+            known += 1
     body_owner = contract or (indirect if indirect_created else None)
     if body_owner is None and indirect_created and len(by_file) == 1:
         body_owner = next(iter(by_file.values()))
-    if created and body_owner is not None and kesu.parse_jira(subject, "") is None:
+    if (
+        (created or known)
+        and body_owner is not None
+        and kesu.parse_jira(subject, "") is None
+    ):
         # Akceptacja klienta przekazana dalej (PKO): treść maila to dowód godzin.
+        # Także przy pliku, który już był: konsultant przekazuje akceptację
+        # kierownika z tym samym Time Sheet (próba IX–X 2026, akceptacja z 13.10
+        # do pliku z 30.09 przepadała, bo żaden plik nie był nowy).
         created += await _store_mail_body(
             db,
             mailbox,

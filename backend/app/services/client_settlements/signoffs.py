@@ -11,7 +11,8 @@ dokument po treści:
 * protokół odbioru — „Protokół odbioru” i „Okres rozliczeniowy: od … do …”.
 
 Osoby dopasowujemy po imieniu i nazwisku z kontraktów klientów, którzy mają
-regułę ``cl.client_document`` na ten rodzaj dokumentu. Liczy się tylko PDF
+regułę ``cl.client_document`` na ten rodzaj dokumentu albo (arkusz) zapłatę po
+podpisanym arkuszu osoby (``pay.per_person``). Liczy się tylko PDF
 z ważnym podpisem elektronicznym: arkusz podpisuje klient, protokół najpierw
 my, potem klient (dwa podpisy). Wydruk bez podpisu nic nie zmienia.
 
@@ -46,6 +47,8 @@ logger = logging.getLogger(__name__)
 PDF = "application/pdf"
 SHEET, PROTOCOL = "sheet", "protocol"
 SIGNED_KEY = "signed"
+#: W znaczniku ``signed``: dokument od klienta, nie z panelu ani od samej osoby.
+BY_CLIENT = "by_client"
 #: ``per`` w regule ``cl.client_document``: na kogo jest dokument.
 PER_SIGNER = {"podpisujący", "podpisujacy", "podpisującego", "signer", "arkusz"}
 PER_MONTH = {
@@ -159,6 +162,25 @@ def _pdf_text(content: bytes) -> str:
         return "\n".join((page.extract_text() or "") for page in pdf.pages[:MAX_PAGES])
 
 
+def parse(content: bytes, mime: str) -> Optional[tuple[SheetRow, ...]]:
+    """Arkusz zbiorczy w PDF jako czytnik rodzaju pliku (``mailbox.kind_of_file``):
+    wiersze osób z MD albo ``None``. Arkusz klienta z drugiego strumienia („B2B_09_2026.pdf”
+    z tematem „[BL] Rozliczenie 09.2026”) nie ma w nazwie słowa „arkusz”, więc bez
+    tego szedł jako faktura i nikt nie czytał podpisu (próba IX–X 2026)."""
+
+    if mime != PDF:
+        return None
+    try:
+        found = read_text(_pdf_text(content))
+    except Exception as exc:  # noqa: BLE001 — uszkodzony PDF to po prostu nie arkusz
+        logger.info("signoffs: PDF nieczytelny (%s)", type(exc).__name__)
+        return None
+    if found is None or found[0] != SHEET:
+        return None
+    rows = tuple(row for row in found[2] if row.tokens and row.md is not None)
+    return rows or None
+
+
 def recognize_pdf(content: bytes) -> Optional[Recognized]:
     try:
         text = _pdf_text(content)
@@ -225,6 +247,20 @@ def document_rule(rules: dict[str, dict[str, Any]], month: str) -> Optional[str]
     return None
 
 
+def expects(rules: dict[str, dict[str, Any]], kind: str, month: str) -> bool:
+    """Klient czeka w tym miesiącu na podpisany dokument tego rodzaju.
+
+    Zapłata po podpisanym arkuszu osoby (``pay.per_person``) czeka na arkusz od
+    początku reguł, także przed miesiącem „od” z ``cl.client_document``: od niego
+    NEXUS sam robi arkusz, a wcześniej robił go ktoś inny i klient i tak go podpisał
+    (próba IX–X 2026: arkusze za IX i X wróciły podpisane, a każda osoba miała
+    „Arkusz czeka na podpis klienta”)."""
+
+    if document_rule(rules, month) == kind:
+        return True
+    return kind == SHEET and rules["pay.per_person"]["level"] != "off"
+
+
 async def _clients_with(db: AsyncSession, kind: str, month: str) -> list[int]:
     from sqlalchemy import select
 
@@ -234,7 +270,7 @@ async def _clients_with(db: AsyncSession, kind: str, month: str) -> list[int]:
     out = []
     for client_id in ids:
         rules = await service.rules_for(db, client_id, month)
-        if document_rule(rules, month) == kind:
+        if expects(rules, kind, month):
             out.append(client_id)
     return out
 
@@ -257,7 +293,7 @@ async def apply(
     if found is None or not found.signers:
         return None
     month = found.month or f"{document.period_year}-{document.period_month:02d}"
-    matched: list[tuple[int, Optional[Decimal]]] = []
+    matched: list[tuple[int, Optional[Decimal], frozenset[str]]] = []
     for client_id in await _clients_with(db, found.kind, month):
         people = await service._people(db, client_id, month)
         hits = []
@@ -265,7 +301,7 @@ async def apply(
             tokens = name_tokens(person.name)
             row = next((r for r in found.rows if tokens and tokens <= r.tokens), None)
             if row is not None:
-                hits.append((person.contract.id, row.md))
+                hits.append((person.contract.id, row.md, frozenset(tokens)))
         if hits and found.kind == PROTOCOL:
             # Jeden protokół na wszystkie osoby miesiąca; nazwiska w PDF łamią się
             # na dwie linie, więc wystarczy, że rozpoznamy kogokolwiek z klienta.
@@ -273,7 +309,7 @@ async def apply(
                 db, client_id, month
             )
             hits = [
-                (p.contract.id, None)
+                (p.contract.id, None, frozenset(name_tokens(p.name)))
                 for p in people
                 if p.contract.id in with_settlement
             ]
@@ -288,10 +324,23 @@ async def apply(
         "signed_at": found.signed_at.isoformat() if found.signed_at else None,
         "complete": found.complete,
     }
-    for contract_id, md in matched:
+    for contract_id, md, person in matched:
         s = await service._get_or_create(db, contract_id, month, None)
+        by_client = await _by_client(
+            db,
+            document,
+            found.signers,
+            contract_id=contract_id,
+            person=person,
+            month=month,
+        )
         s.checks = with_marker(
-            list(s.checks or []), {**value, "md": None if md is None else str(md)}
+            list(s.checks or []),
+            {
+                **value,
+                "md": None if md is None else str(md),
+                BY_CLIENT: by_client,
+            },
         )
         if s.md_regular is None and md is not None and s.md_source != "manual":
             # Osoba bez Time Sheet (arkusz przysyła sam bank): MD z arkusza.
@@ -305,6 +354,48 @@ async def apply(
         document.decided_at = now
     document.updated_at = now
     return len(matched)
+
+
+async def _by_client(
+    db: AsyncSession,
+    document: CpDocument,
+    signers: tuple[str, ...],
+    *,
+    contract_id: int,
+    person: frozenset[str],
+    month: str,
+) -> bool:
+    """Dokument od klienta, nie od samej osoby (#3884: konsultant nie akceptuje sam).
+
+    Tylko taki podpis zastępuje mail z akceptacją godzin. Podpisu nie sprawdzamy
+    łańcuchem zaufania (``rcp_bnp.signatures``), więc odpada plik z panelu
+    konsultanta (jak KEŚU w ``kesu_flow._trusted``; Finanse wgrywają bez kontraktu),
+    mail z jego adresu i podpis z jego imieniem i nazwiskiem."""
+
+    from app.core.scheduling import business_today
+    from app.services.client_order_lines import month_bounds
+    from app.services.consultant_portal import identity
+
+    if document.channel == "portal" and document.contract_id is not None:
+        return False
+    if document.sender_email:
+        # Dzień z perspektywy miesiąca dokumentu, jak ``service._without_consultant``.
+        today = min(business_today(), month_bounds(month)[1])
+        mine = await identity.sender_contract_ids(
+            db, document.sender_email, today=today
+        )
+        if contract_id in mine:
+            return False
+    return any(
+        signer and person and not person <= name_tokens(signer) for signer in signers
+    )
+
+
+def client_signed(checks: Optional[list[Any]], kind: str) -> bool:
+    """Komplet podpisów, a dokument przyszedł od klienta (``_by_client``)."""
+
+    found = signed_state(checks, kind)
+    return bool(found and found.get("complete") and found.get(BY_CLIENT))
 
 
 def signed_state(checks: Optional[list[Any]], kind: str) -> Optional[dict[str, Any]]:
