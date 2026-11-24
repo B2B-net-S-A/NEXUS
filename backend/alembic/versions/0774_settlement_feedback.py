@@ -25,10 +25,8 @@ def upgrade() -> None:
     with op.get_context().autocommit_block():
         for statement in schema.ENUM_DDL:
             op.execute(statement)
+    # ALL_DDL kończy zasiew „na sucho” (decyzja Artura z 25.11.2026).
     for statement in schema.ALL_DDL:
-        op.execute(statement)
-    # Decyzja Artura z 25.11.2026: start „na sucho”, bez wysyłki poza firmę.
-    for statement in schema.DATA_DDL:
         op.execute(statement)
 
 

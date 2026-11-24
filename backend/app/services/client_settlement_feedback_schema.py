@@ -86,4 +86,10 @@ ENUM_DDL: tuple[str, ...] = (
 
 TABLES: tuple[str, ...] = ("client_settlement_feedback",)
 
-ALL_DDL: tuple[str, ...] = (*TABLE_DDL, *COLUMN_DDL, *INDEX_DDL)
+ALL_DDL: tuple[str, ...] = (
+    *TABLE_DDL,
+    *COLUMN_DDL,
+    *INDEX_DDL,
+    *CONSTRAINT_DDL,
+    *DATA_DDL,
+)
