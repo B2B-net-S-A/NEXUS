@@ -3,18 +3,20 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { z } from "@/lib/zod";
 
-import { messageFromApiResponse } from "@/lib/api-error";
-import { applyFieldErrors } from "@/lib/apply-form-errors";
-import { browserApiBase } from "@/lib/career/api";
 import {
   CONSENT_CURRENT_TEXT,
   CONSENT_FUTURE_TEXT,
   CV_ACCEPT,
-  copyConsents,
   captureUtm,
   cvProblem,
   type CvProblem,
 } from "@/lib/career/apply";
+import {
+  careerPayload,
+  sendCareerApplication,
+  type CareerField,
+  type CareerFieldErrors,
+} from "@/lib/career/submit";
 
 import { useCareerSubmitted } from "./CareerSubmitGate";
 
@@ -29,18 +31,7 @@ import { useCareerSubmitted } from "./CareerSubmitGate";
  * ponownie, zamiast zaczynać od zera.
  */
 
-export type CareerField =
-  | "first_name"
-  | "last_name"
-  | "email"
-  | "cv"
-  | "consent"
-  | "expected_rate_hourly"
-  | "availability_date"
-  | "city"
-  | "work_mode";
-
-export type CareerFieldErrors = Partial<Record<CareerField, string>>;
+export type { CareerField, CareerFieldErrors };
 
 /** Kolejność i etykiety pól w podsumowaniu błędów. */
 const FIELD_ORDER: { field: CareerField; label: string }[] = [
@@ -250,82 +241,24 @@ export function CareerApplyForm({
       return;
     }
 
-    const payload = new FormData();
-    payload.set("link_slug", linkSlug);
-    if (str("email").trim()) payload.set("email", str("email").trim());
-    payload.set("cv", fd.get("cv") as File);
-    copyConsents(fd, payload);
-    const rate = str("expected_rate_hourly").trim().replace(",", ".");
-    if (rate) payload.set("expected_rate_hourly", rate);
-    const availability = str("availability_date").trim();
-    if (availability) payload.set("availability_date", availability);
-    const city = str("city").trim();
-    if (city) payload.set("city", city);
-    const mode = str("work_mode");
-    if (mode && mode !== "any") payload.set("work_mode", mode);
-    // Pułapka na boty: człowiek pola nie widzi, więc zostaje puste. Wysyłamy je
-    // tylko wypełnione — backend przyjmuje wtedy zgłoszenie po cichu bez zapisu.
-    const honeypot = str("website");
-    if (honeypot) payload.set("website", honeypot);
-    for (const [key, value] of Object.entries(utmRef.current)) payload.set(key, value);
+    // 07.11.2026: imię i nazwisko czyta serwer z CV — formularz ich nie wysyła.
+    fd.delete("first_name");
+    fd.delete("last_name");
+    const payload = careerPayload(fd, linkSlug, utmRef.current);
 
     setStatus("submitting");
     setFormError(null);
-    try {
-      const res = await fetch(`${browserApiBase()}/api/public/career/apply`, {
-        method: "POST",
-        body: payload,
-      });
-      if (res.status === 201 || res.status === 200) {
-        const done = (await res.json().catch(() => ({}))) as { first_name?: string; email?: string };
-        setStatus("idle");
-        setErrors({});
-        (onSuccess ?? gateSubmit)?.({
-          firstName: (done.first_name ?? "").trim(),
-          email: (done.email ?? str("email")).trim(),
-        });
-        return;
-      }
-      if (res.status === 404) {
-        fail({}, "link wygasł albo rekrutacja jest już zamknięta");
-        return;
-      }
-      if (res.status === 413) {
-        fail({ cv: CV_MESSAGES.size }, null);
-        return;
-      }
-      if (res.status === 415) {
-        fail({ cv: CV_MESSAGES.type }, null);
-        return;
-      }
-      if (res.status === 429) {
-        fail({}, "za dużo prób z tego adresu — spróbuj ponownie za kilka minut");
-        return;
-      }
-      const body: unknown = await res.json().catch(() => ({}));
-      const fieldErrors = applyFieldErrors(body);
-      if (fieldErrors.length > 0) {
-        const mapped: CareerFieldErrors = {};
-        let linkProblem: string | null = null;
-        for (const fe of fieldErrors) {
-          if (fe.field === "link_slug") {
-            linkProblem = "link wygasł albo rekrutacja jest już zamknięta";
-          } else if (FIELD_ORDER.some((f) => f.field === fe.field)) {
-            mapped[fe.field as CareerField] = fe.message;
-          }
-        }
-        if (Object.keys(mapped).length > 0 || linkProblem) {
-          fail(mapped, linkProblem);
-          return;
-        }
-      }
-      fail(
-        {},
-        messageFromApiResponse(res.status, body) ?? "coś poszło nie tak — spróbuj ponownie",
-      );
-    } catch {
-      fail({}, "brak połączenia — sprawdź internet i spróbuj ponownie");
+    const outcome = await sendCareerApplication(payload);
+    if (outcome.ok) {
+      setStatus("idle");
+      setErrors({});
+      (onSuccess ?? gateSubmit)?.({ firstName: outcome.firstName, email: outcome.email });
+      return;
     }
+    const fields = Object.fromEntries(
+      Object.entries(outcome.fields).filter(([f]) => FIELD_ORDER.some((o) => o.field === f)),
+    ) as CareerFieldErrors;
+    fail(fields, outcome.form);
   }
 
   const busy = status === "submitting";

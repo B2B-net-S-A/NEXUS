@@ -643,10 +643,7 @@ async def get_public_profile_poster(
         about=version.about,
         sections=version.sections,
     )
-    theme = ct.resolve_theme(
-        profile.theme, version.title, await ct.job_category_slug(db, job)
-    )
-    pdf = render_poster_pdf(payload, job_link_url(slug), theme=theme)
+    pdf = render_poster_pdf(payload, job_link_url(slug))
     return Response(
         content=pdf,
         media_type="application/pdf",

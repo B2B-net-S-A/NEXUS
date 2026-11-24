@@ -297,6 +297,25 @@ zestaw razem z klientem ćwiczebnym.
   otwierać warsztat na zakładce CV, ale 22.11 na Tablicy gubił `panel`
   i otwierał zwykły dok.
 
+## Stop do podpisu przedwstępnej (lekcje Nowości, 23.11.2026)
+
+Dwie lekcje funkcji z `rekrutacja-tablica/stop-do-podpisu-przedwstepnej.md`:
+DL i HoR ustawiają przedwstępną dla rekrutacji i robią wyjątek dla osoby
+(`lekcja-stop-do-podpisu-przedwstepnej`), rekruter rozpoznaje kartę, która
+stoi do podpisu (`lekcja-stop-przedwstepnej-na-karcie`). Stan jest wymyślony
+w `backend/scripts/poligon_pre_contract_practice.py` i nakładany przez
+`--practice-only`:
+
+- rekrutacja ćwiczebna ma ustawienie „przed wysłaniem CV”, karta stoi do
+  podpisu (ustawiła Anna Poligonowa);
+- Szymon Grabowiec w „QC CV”: prośba wysłana, plakietka „Stop ·” i kłódka na
+  strzałce; Weronika Cisowska obok ma przedwstępną podpisaną, więc ćwiczenie
+  wysyłki DL-a idzie jak dotąd, a „Wróć do poprawy” na Szymonie działa;
+- `store.ts` odmawia ruchu za blokadę (409 `PRE_CONTRACT_NOT_SIGNED`), pokazuje
+  blokującą pozycję w oknie „Przesuń dalej” i ustawia `can_set_stop` w parze
+  z roli oglądającego (adapter: `canSetPreContractStop`), więc rekruter nie
+  widzi „Wyjątek dla tej osoby”. Test: `tests/test_poligon_pre_contract_practice.py`.
+
 ## Ścieżka per rola: rekruter, Delivery Lead, TCM (15.11.2026)
 
 Artur 15.11.2026 wybrał „Osobna sesja” dla ćwiczeń DL i TCM. Od tego dnia

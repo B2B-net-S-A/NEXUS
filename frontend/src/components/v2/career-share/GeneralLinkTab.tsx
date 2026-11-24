@@ -354,7 +354,7 @@ export function GeneralLinkTab({ enabled }: { enabled: boolean }) {
                   name: `${firstName} · rekrutacje IT w B2Bnetwork`,
                 }}
                 headline="Szukasz kolejnego projektu IT?"
-                foot="Zostaw CV — odezwę się →"
+                foot="Zostaw CV, odezwę się →"
                 cardTitle={`${firstName} — rekrutacje IT`}
                 host={host}
               />

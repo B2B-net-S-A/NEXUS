@@ -4726,6 +4726,19 @@
     ]
   },
   {
+    "id": "przelewy-zajecia-i-spory",
+    "pr": 3816,
+    "title": "Zajęcia wierzytelności i spór przy płatności kontraktora",
+    "why": "Zajęcie komornika albo US wpisujesz przy fakturze kontraktora, a paczka dzieli płatność na organ i kontraktora. Spór wstrzymuje płatność, a rachunek spoza wykazu VAT blokuje przelew.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": { "roles": ["finance", "admin"] },
+    "where": "Finanse → Przelewy → Do zapłaty → Zajęcie / Spór",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "finance.payments.garnishment"
+  },
+  {
     "id": "wymagania-klienta-do-faktury",
     "pr": 3817,
     "title": "Wymagania klienta do faktury z NEXUSA",
@@ -4737,6 +4750,139 @@
     "href": "/finance",
     "section": "finance",
     "dot_anchor": "clients.rules.client_invoice"
+  },
+  {
+    "id": "przedwstepna-stop-ustawienie-rekrutacji",
+    "pr": 3796,
+    "title": "Przedwstępna dla całej rekrutacji: etap i stop do podpisu",
+    "why": "W nagłówku rekrutacji ustawiasz, że każda osoba podpisuje przedwstępną przed CV, rozmową albo umową B2B. Z „Zatrzymaj kartę” bez podpisu karta nie pójdzie dalej.",
+    "tier": "tour",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → nagłówek → kłódka obok „Procesu u klienta”",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001",
+    "section": "pipeline",
+    "dot_anchor": "job.header.pre-contract",
+    "used_anchor": "job.pre-contract.save",
+    "steps": [
+      {
+        "anchor": "job.header.pre-contract",
+        "text": "Kliknij kłódkę obok „Procesu u klienta” w nagłówku rekrutacji.",
+        "hint": "Przy 1280 px widać samą ikonę. Rekrutacja ćwiczebna ma już ustawienie: przed wysłaniem CV, karta stoi do podpisu."
+      },
+      {
+        "anchor": "job.pre-contract.edit",
+        "text": "Kliknij „Zmień”.",
+        "hint": "Bez ustawienia przycisk nazywa się „Ustaw dla wszystkich”. Prośby o umowę zakładają się same od „Zweryfikowanego”."
+      },
+      {
+        "anchor": "pre-contract.rule.stop",
+        "text": "„Zatrzymaj kartę do podpisu”: bez podpisu obu stron osoba nie pójdzie dalej.",
+        "hint": "Blokada obowiązuje każdego, także Delivery Leada. Bez zaznaczenia brak umowy tylko ostrzega.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "przedwstepna-stop-wyjatek-dla-osoby",
+    "pr": 3796,
+    "title": "Wyjątek od stopu przedwstępnej dla jednej osoby",
+    "why": "Gdy kandydat musi iść dalej przed podpisem, w panelu osoby › Umowa klikasz „Wyjątek dla tej osoby”. Zapis trafia do historii prośby, a rekruter dostaje dzwonek.",
+    "tier": "tour",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → Umowa → „Ruch karty”",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990110",
+    "section": "pipeline",
+    "dot_anchor": "person.pre-contract.stop",
+    "steps": [
+      {
+        "anchor": "person.dock.contract",
+        "text": "Kliknij „Umowa” w panelu osoby.",
+        "hint": "Panel Szymona z „QC CV” jest otwarty. Zakładka „Umowa” ma sekcję umowy przedwstępnej z wierszem „Ruch karty”."
+      },
+      {
+        "anchor": "person.pre-contract.stop-row",
+        "text": "Wiersz „Ruch karty” mówi, czy osoba stoi do podpisu i skąd.",
+        "hint": "„Ustawienie rekrutacji” albo „przy tej osobie”, z nazwiskiem i datą tego, kto zatrzymał kartę.",
+        "ack": true
+      },
+      {
+        "anchor": "person.pre-contract.stop",
+        "text": "„Wyjątek dla tej osoby — bez blokady” puszcza ją dalej bez podpisu.",
+        "hint": "Robi to DL klienta, Head of Recruitment albo admin. Na Poligonie nic się nie zapisze.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "przedwstepna-przy-nowej-rekrutacji",
+    "pr": 3796,
+    "title": "Przedwstępna od każdej osoby już przy tworzeniu rekrutacji",
+    "why": "W „Warunkach”, pod „Procesem u klienta”, zaznaczasz „Każda osoba podpisuje umowę przedwstępną”, etap i stop do podpisu. Domyślnie wyłączone.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Nowa rekrutacja → Warunki → „Umowa przedwstępna z kandydatami”",
+    "href": "/jobs/new",
+    "section": "pipeline",
+    "dot_anchor": "jobs.new.pre-contract"
+  },
+  {
+    "id": "przedwstepna-stop-na-karcie",
+    "pr": 3796,
+    "title": "„Stop ·” na karcie: osoba czeka na podpis przedwstępnej",
+    "why": "Czerwona plakietka i kłódka na strzałce znaczą, że karta nie pójdzie dalej bez podpisanej przedwstępnej. Zdejmuje ją podpis obu stron albo wyjątek DL-a lub HoR.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → karta z plakietką „Stop ·”",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001",
+    "section": "pipeline",
+    "dot_anchor": "board.card.pre-contract-stop",
+    "steps": [
+      {
+        "anchor": "board.card.pre-contract-stop",
+        "text": "Kliknij czerwoną plakietkę „Stop ·” na karcie w „QC CV”.",
+        "hint": "Strzałka tej karty ma kłódkę: następny etap czeka na podpis umowy przedwstępnej."
+      },
+      {
+        "anchor": "person.dock.contract",
+        "text": "Kliknij „Umowa” w panelu osoby.",
+        "hint": "W zakładce „Umowa” jest prośba o przedwstępną i stan podpisu."
+      },
+      {
+        "anchor": "person.pre-contract.stop-row",
+        "text": "Wiersz „Ruch karty” mówi, kto i kiedy zatrzymał kartę.",
+        "hint": "Ty wysyłasz prośbę i pilnujesz podpisu. Blokadę zdejmuje tylko DL klienta albo Head of Recruitment.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "nowa-rekrutacja-powtorka",

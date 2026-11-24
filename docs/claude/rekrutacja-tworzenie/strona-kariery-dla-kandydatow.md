@@ -266,6 +266,70 @@ Reguły, które łatwo cofnąć:
   zamkniętej rekrutacji dostaje z API `other_jobs` (ta sama reguła co stały
   link: opublikowany opis + „pokazuj na mojej stronie”) — bez listy i bez
   stałego linku prosi o kontakt z osobą od linku, nie odsyła na LinkedIna.
+- **Jeden szablon nowej strony B2B Network dla listy i oferty (decyzja Artura
+  23.11.2026, makiety KarieraA, OfertaA, OfertaManager i ekrany stanów na
+  kanwie https://claude.ai/artifact/1RCpsMgFGdPxE5CyBqoRcj).** Zastępuje trzy
+  szablony z 28.10.2026 (niżej, historia) i ramę Grafit tablicy. Kod:
+  `components/career/site/`, logika `lib/career/site.ts`, wysyłka
+  `lib/career/submit.ts` (wspólna z formularzem strony rekrutera).
+  - Rozdziały w kolorach marki: czerwień `#E73748`, Snow `#F5F4EC`, Ink
+    `#141414`, limonka tylko w akcentach. Tokeny w `site.module.css` (jedno
+    miejsce); biały na `#E73748` ma 4,2:1, więc przyciski i drobny tekst biorą
+    `--red-text` `#C42536`. Kontrast par pilnuje `site/__tests__/CareerSite.test.tsx`.
+  - Nagłówek i stopka jak na nowej stronie firmy; nawigacja prowadzi na
+    `https://b2bnetwork.pl` (`COMPANY_SITE` w `SiteFrame.tsx`).
+  - **Bez kategorii (Artur 23.11.2026: „nie chcę tych kategorii”).** Talia kart
+    na liście to cztery najczęstsze miasta, reszta miast w chipach pod
+    szukajką (`facetCounts`). Pole miasta bywa opisem („Priorytet Gdańsk”),
+    więc liczymy rozpoznane nazwy miast (`jobCities`, „Trójmiasto” = Gdańsk,
+    Gdynia, Sopot). Karta oferty nie pokazuje kategorii. Kategoria zostaje
+    w API tylko do doboru podobnych ofert. Rozważone i odrzucone: talia
+    technologii (najczęstsza ma 16 rekrutacji, reszta 3–10) i sama szukajka.
+  - **Treść tylko z danych.** Wielkie słowo nad tytułem oferty = pierwsza
+    krótka (≤ 14 znaków) umiejętność z karty tablicy (`must`), bez niej nic.
+    Rozmiar liczy `wordEm` (wersaliki szersze), najwyżej 96 px na telefonie
+    i 180 px od 1024 px. Pogrubienie w „Co już masz?” = najdłuższa nazwa
+    umiejętności z tablicy, która stoi w zdaniu wymagania (całe słowa). Strona
+    `/r/` czyta tablicę obok opisu; awaria tablicy = strona bez tych dodatków
+    i bez podobnych ofert, nigdy błąd. Nie dopisuj haseł za rekrutera.
+  - **Wymagania w prawej kolumnie jako zwykła lista** (decyzja Artura
+    24.11.2026, wariant P1 z makiet https://claude.ai/artifact/CsNvpckBw8BMMy3gSxiD3o):
+    „Co już masz?” z zaznaczaniem i licznikiem odeszło („niepotrzebne”).
+    Lista wymagań i „mile widzianych” z pogrubioną technologią,
+    `site/OfferRequirements.tsx`. Ogłoszenie ma być proste, ale żywe: wielkie
+    słowo wjeżdża od dołu przy wczytaniu (bez ruchu przy „ograniczonym ruchu”).
+  - **Jedna grafika posta, podgląd i plakat w wyglądzie strony** (decyzja
+    Artura 24.11.2026, wariant G1 „Czerwona”): `OgCard` (`ogCard.tsx`) rysuje
+    czerwone tło, wielkie słowo (to samo co na ofercie, z tablicy), tytuł,
+    fakty w linii i biały przycisk „Wyślij CV →”; strona główna ma liczbę
+    otwartych rekrutacji jako wielkie słowo. Podgląd w oknie „Udostępnij”
+    bierze słowo z publicznej tablicy (`useBoardWord`), żeby pokazywał to, co
+    LinkedIn. Wybór szablonu (Grafit/Terminal/Jasny) zniknął z okna; pole
+    `theme` w bazie i `PUT …/public-profile {theme}` zostają bez skutku dla
+    strony, grafiki i plakatu. Plakat A4 (`career_poster.py`): czerwień, biały
+    tytuł, jasny pas z QR i „Zeskanuj i wyślij CV” (drobny tekst na Snow, bo
+    biały na #E73748 ma 4,2:1).
+  - **Szybka aplikacja: samo CV w 30 sekund** (prośba Artura 23.11.2026).
+    W nagłówku oferty (od 1024 px w prawej kolumnie, nad „Co już masz?”):
+    plik, zgoda, „Wyślij CV” — ta sama wysyłka co pełny formularz. Na telefonie
+    przyklejony pasek „Wyślij CV” otwiera od razu wybór pliku i chowa się, gdy
+    widać cały przycisk szybkiej aplikacji, pełny formularz albo stopkę.
+    Zgoda zostaje osobnym polem; „klik w przycisk = zgoda” tylko po decyzji IOD.
+  - **Pierwszy ekran i nachodzenie sprawdzone na wszystkich 95 ofertach**
+    stagingu (23.11.2026, Playwright, 1280 × 720 i 390 × 844 / 375 × 812):
+    tytuł, Lokalizacja, Tryb pracy, Umowa i „Wyślij CV” bez przewijania, zero
+    nachodzących tekstów i tekstu poza ekranem. Przy zmianie układu powtórz.
+  - Formularz zostaje „samym CV” z 07.11.2026 (e-mail dopiero po 422 na
+    `email`, pola opcjonalne zwinięte), choć makieta pokazuje Imię, Nazwisko
+    i E-mail jako wymagane — zmiana tylko po decyzji Artura.
+  - Zamknięta rekrutacja pokazuje do trzech otwartych z tej samej kategorii
+    z tablicy (bez tablicy: `other_jobs`) i prośbę o CV (`/#zostaw-cv`
+    otwiera formularz „Zostaw CV” na liście).
+  - Wybór szablonu w „Udostępnij” (`theme`) zmienia już tylko grafikę OG,
+    plakat i stronę rekrutera `/<slug>`, nie stronę oferty.
+  - Harness: `/preview/kariera` (stany listy, oferty, błędów, „Wysłane”,
+    zamkniętej).
+
 - **Trzy szablony ogłoszeń w barwach B2Bnetwork (decyzja Artura 28.10.2026,
   makiety https://claude.ai/artifact/RGquQpMFyKgRYHPognJ2kU, warianty A, C i B).**
   Zespół (Teams, 28.10) ocenił ogłoszenia jako nieczytelne, „nie w szacie B2B”

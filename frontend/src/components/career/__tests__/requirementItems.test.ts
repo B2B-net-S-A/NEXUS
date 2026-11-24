@@ -41,7 +41,8 @@ describe("pozycje wymagań i kroki procesu", () => {
       "spotkanie z zespołem",
       "decyzja i start",
     ]);
-    expect(processSteps("Marta", "B2B")[3].note).toBe("umowa b2b");
+    // Nazwa umowy jak w danych: „B2B”, nie „b2b” (makieta OfertaA, 23.11.2026).
+    expect(processSteps("Marta", "B2B")[3].note).toBe("umowa B2B");
     expect(processSteps("Marta", null)[3].note).toBe("umowa i wdrożenie");
   });
 });
