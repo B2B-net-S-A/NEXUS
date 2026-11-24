@@ -387,3 +387,44 @@ describe("DockInterviewCycle — zapisany debrief (04.10.2026)", () => {
     expect(debriefProps.current?.readOnly).toBe(false);
   });
 });
+
+describe("DockInterviewCycle — Przygotowanie rekrutera (F3, 24.11.2026)", () => {
+  function steps8(overrides: Partial<Record<StepKey, StepState>>) {
+    const keys: StepKey[] = ["slots", "choice", "prep0", "prep", "prep2", "interview", "call", "debrief"];
+    return keys.map((key) => ({
+      key,
+      state: overrides[key] ?? ("todo" as StepState),
+      at: key === "interview" ? "2031-10-09T12:00:00.000Z" : null,
+    }));
+  }
+
+  it("niezaplanowane Przygotowanie i Prep 1 planują różne osoby — oba przyciski naraz", () => {
+    render(
+      <DockInterviewCycle
+        badge={badge({ steps: steps8({ slots: "done", choice: "done", prep: "current", interview: "scheduled" }) })}
+        pair={PAIR}
+        readOnly={false}
+        onDebrief={() => {}}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Zaplanuj Prep 1" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Zaplanuj Prep 2" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Zaplanuj przygotowanie" }));
+    expect(planPrepProps.current).toEqual(expect.objectContaining({ prepNo: 0 }));
+  });
+
+  it("zaplanowane Przygotowanie ma wiersz z akcjami, a numer 0 nie ginie jako „fałsz”", () => {
+    const all = steps8({ slots: "done", choice: "done", prep0: "scheduled", interview: "scheduled" }).map((s) =>
+      s.key === "prep0" ? { ...s, at: "2031-10-07T08:00:00.000Z", event_id: 705 } : s,
+    );
+    render(
+      <DockInterviewCycle badge={badge({ steps: all })} pair={PAIR} readOnly={false} onDebrief={() => {}} />,
+    );
+    expect(screen.getByTestId("dock-scheduled-preps")).toHaveTextContent("Przygotowanie");
+    expect(screen.queryByRole("button", { name: "Zaplanuj przygotowanie" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Odwołaj" }));
+    expect(rescheduleProps.current).toEqual(
+      expect.objectContaining({ eventId: 705, prepNo: 0, mode: "cancel" }),
+    );
+  });
+});

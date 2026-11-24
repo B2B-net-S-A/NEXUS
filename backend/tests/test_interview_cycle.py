@@ -85,9 +85,11 @@ def _req(status: str, *, chosen: int | None = None, respond_by=None) -> SlotRef:
 
 def test_empty_pair_starts_at_slots():
     steps = compute_steps(PairSnapshot(1, 2), NOW, call_window_minutes=30)
+    # Przygotowanie rekrutera (F3, 24.11.2026) stoi przed Prepem 1.
     assert [s["key"] for s in steps] == [
         "slots",
         "choice",
+        "prep0",
         "prep",
         "prep2",
         "interview",

@@ -617,6 +617,7 @@ async def test_interview_badges_for_job_only_for_pairs_in_cycle():
     assert [s["key"] for s in badges[event_id]["steps"]] == [
         "slots",
         "choice",
+        "prep0",
         "prep",
         "prep2",
         "interview",
@@ -628,7 +629,9 @@ async def test_interview_badges_for_job_only_for_pairs_in_cycle():
     assert badges[with_slots]["interview_event_id"] is None
     # Okno „Zaplanuj prep” w doku liczy termin prepu względem rozmowy:
     # potwierdzonej (krok „interview”) albo dopiero proponowanej przez klienta.
-    interview_step = badges[event_id]["steps"][4]
+    interview_step = next(
+        s for s in badges[event_id]["steps"] if s["key"] == "interview"
+    )
     assert interview_step["state"] == "scheduled"
     assert datetime.fromisoformat(interview_step["at"]) == now + timedelta(days=5)
     assert badges[event_id]["tentative_interview_at"] is None

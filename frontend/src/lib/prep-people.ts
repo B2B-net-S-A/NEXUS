@@ -62,6 +62,24 @@ export function searchPeople(
     .slice(0, limit);
 }
 
+/**
+ * Zaproszeni od razu — planujący za kogoś i (Prep 1) rekruter
+ * kandydata. Bez prowadzącego i bez powtórzeń.
+ */
+export function defaultInviteeIds({
+  organizerId,
+  currentUserId,
+  recruiterId,
+}: {
+  organizerId: number | null;
+  currentUserId: number | null;
+  recruiterId: number | null;
+}): number[] {
+  return [...new Set([currentUserId, recruiterId])].filter(
+    (id): id is number => id != null && id !== organizerId,
+  );
+}
+
 /** Podpowiedzi pod polem: DL rekrutacji i rekruter kandydata, jeśli ich nie ma. */
 export function recommendedPeople(
   suggested: Record<string, PrepPerson | null> | undefined,

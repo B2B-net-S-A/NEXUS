@@ -38,6 +38,7 @@ na swoim prepie zajmuje się już wymaganiami rekrutacji i brakami.
   szerokości, a zakładka „Przygotowanie” ma jedną kolumnę poniżej `2xl`
   (obok kolumny 320 px zostawało ok. 380 px i pola edycji miały po ok. 150 px).
 - **Plan dalej:** F2 „Specyfika na prep” w karcie klienta (osobny PR,
-  migracja), F3 przygotowanie jako trzeci prep (`prep_no` dziś 1–2), F4 ocena
+  migracja), F3 przygotowanie jako trzeci prep (`prep_no` 0, opcjonalne na
+  start — `przygotowanie-trzeci-prep-rekrutera.md`), F4 ocena
   przygotowania (fundamenty, specyfika klienta, „kandydat umie”; warunek stop →
   dzwonek do DL-a), F5 raport „Jakość prepów”, przewodniki i stemple.

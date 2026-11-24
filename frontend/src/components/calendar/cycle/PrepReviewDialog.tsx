@@ -17,6 +17,7 @@ import {
   type PrepReviewItem,
 } from "@/lib/api/prepMeetings";
 import { candidateLabel, pairContext, type PairInfo } from "@/lib/interview-cycle";
+import { prepName } from "@/lib/prep-label";
 import { cn } from "@/lib/utils";
 
 import { ReviewScoreTab, ReviewSummaryTab, ReviewTranscriptTab } from "./PrepReviewTabs";
@@ -72,8 +73,10 @@ export function PrepReviewDialog({
   const data = prep.data;
   const v2 = isReviewV2(data?.review);
   const hasTranscript = data?.transcript_status === "fetched";
+  // Przygotowania (F3) NEXUS jeszcze nie ocenia — pierwsza zakładka mówi o nagraniu.
+  const preparation = data?.prep_no === 0;
   const tabs: Array<[PrepReviewTab, string]> = [
-    ["score", "Ocena"],
+    ["score", preparation ? "Nagranie" : "Ocena"],
     ...(v2 ? ([["summary", "Podsumowanie i follow-up"]] as Array<[PrepReviewTab, string]>) : []),
     ...(hasTranscript ? ([["transcript", "Transkrypt"]] as Array<[PrepReviewTab, string]>) : []),
   ];
@@ -95,7 +98,9 @@ export function PrepReviewDialog({
         onOpenChange(o);
       }}
       size="xl"
-      title={data ? `Prep ${data.prep_no} — ocena` : "Ocena prepu"}
+      title={
+        data ? (preparation ? `${prepName(0)} — nagranie` : `${prepName(data.prep_no)} — ocena`) : "Ocena prepu"
+      }
       description={pair ? `${candidateLabel(pair)} · ${pairContext(pair)}` : undefined}
     >
       {prep.isPending ? (

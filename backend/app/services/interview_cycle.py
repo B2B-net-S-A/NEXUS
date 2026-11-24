@@ -64,6 +64,7 @@ from app.services.debrief_gate import (
     shared_meeting_debriefs,
 )
 from app.services.hr.time_suggest import plural
+from app.services import prep_labels
 from app.services.job_working_title import job_display_title_expr
 
 Scope = Literal["mine", "jobs", "all"]
@@ -71,12 +72,25 @@ StepState = Literal[
     "done", "current", "scheduled", "waiting", "todo", "overdue", "skipped"
 ]
 
-STEP_KEYS = ("slots", "choice", "prep", "prep2", "interview", "call", "debrief")
+# „prep0” = Przygotowanie rekrutera przed Prepem 1 (F3, decyzje Artura
+# z 24.11.2026): opcjonalne na start — krok i planowanie są, ale bez zadań,
+# plakietek i dzwonków o braku; o obowiązku Artur zdecyduje po pomiarze (F5).
+STEP_KEYS = (
+    "slots",
+    "choice",
+    "prep0",
+    "prep",
+    "prep2",
+    "interview",
+    "call",
+    "debrief",
+)
 STEP_LABELS = {
     "slots": "Terminy od klienta",
     "choice": "Wybór terminu",
-    "prep": "Prep",
-    "prep2": "Prep 2",
+    "prep0": prep_labels.name(prep_labels.PREPARATION),
+    "prep": prep_labels.name(1),
+    "prep2": prep_labels.name(2),
     "interview": "Rozmowa u klienta",
     "call": "Telefon po rozmowie",
     "debrief": "Debrief",
@@ -138,19 +152,25 @@ def assign_prep_ordinals(preps: list[EventRef]) -> list[EventRef]:
     Prep z numerem (założony z NEXUSA) trzyma swój numer; pozostałe zajmują
     najniższy wolny numer w kolejności startu. Zwraca listę posortowaną po
     numerze — samotny Prep 2 nie „awansuje” na Prep 1.
+
+    Przygotowanie ma numer 0 (F3, 24.11.2026), więc numer sprawdza się przez
+    ``is not None``: przy ``if p.prep_no`` zero udawało prep spoza NEXUSA
+    i zajmowało miejsce Prepu 1 albo 2. Prep spoza NEXUSA nigdy nie dostaje 0.
     """
-    taken = {p.prep_no for p in preps if p.prep_no}
+    taken = {p.prep_no for p in preps if p.prep_no is not None}
     out: list[EventRef] = []
     next_free = 1
     for p in sorted(preps, key=lambda e: e.start):
-        if p.prep_no:
+        if p.prep_no is not None:
             out.append(replace(p, ordinal=p.prep_no))
             continue
         while next_free in taken:
             next_free += 1
         taken.add(next_free)
         out.append(replace(p, ordinal=next_free))
-    return sorted(out, key=lambda e: (e.ordinal or 99, e.start))
+    return sorted(
+        out, key=lambda e: (e.ordinal if e.ordinal is not None else 99, e.start)
+    )
 
 
 def preps_of_round(
@@ -288,10 +308,10 @@ class PairSnapshot:
         z tym, którego nie nagrano — liczy się ostatnia próba."""
         preps = (
             self.preps
-            if all(p.ordinal for p in self.preps)
+            if all(p.ordinal is not None for p in self.preps)
             else assign_prep_ordinals(self.preps)
         )
-        matching = [p for p in preps if (p.ordinal or 0) == n]
+        matching = [p for p in preps if p.ordinal == n]
         if not matching:
             return None
         return max(matching, key=lambda p: (p.transcript_status != "missing", p.start))
@@ -313,13 +333,14 @@ class PairSnapshot:
 
     def late_prep(self, n: int) -> Optional[EventRef]:
         """Zaplanowany prep numer ``n``, który wypada po rozmowie u klienta."""
-        matching = [p for p in self.late_preps if (p.ordinal or 0) == n]
+        matching = [p for p in self.late_preps if p.ordinal == n]
         return min(matching, key=lambda p: p.start) if matching else None
 
 
 LEVEL_LABELS_PL = {"weak": "słaby", "ok": "OK", "good": "dobry"}
 LATE_PREP_META = "zaplanowany po rozmowie u klienta — przełóż"
 SILENT_PREP2_META = "bez zapisanego powodu"
+PREPARATION_SKIPPED_META = "Prep 1 bez przygotowania"
 
 # Rozmowa bez Prepu 2 (0482, decyzja Artura 20.10.2026) — wyjątek, nie wybór.
 # Lustro etykiet: ``lib/interview-cycle.ts`` (``PREP2_SKIP_REASON_LABELS``).
@@ -424,6 +445,11 @@ def prep1_remaining(pair: PairSnapshot) -> list[str]:
     return list(first.remaining) if first is not None else []
 
 
+# Przygotowanie (F3) nagrywamy, ale oceny jeszcze nie ma (F4) — transkrypt
+# jest w kalendarzu, a ocena według listy Prepu 1 byłaby fałszywa.
+PREPARATION_RECORDED_META = "nagrane · oceny przygotowania jeszcze nie ma"
+
+
 def prep_quality(ev: EventRef) -> tuple[Optional[str], Optional[str]]:
     """``(meta, quality)`` odbytego prepu. Prep spoza NEXUSA → brak informacji."""
     status = ev.transcript_status
@@ -433,6 +459,8 @@ def prep_quality(ev: EventRef) -> tuple[Optional[str], Optional[str]]:
         return "bez nagrania", "unrecorded"
     if status in ("waiting", "error", "forbidden"):
         return "czeka na transkrypt", "pending"
+    if ev.prep_no == prep_labels.PREPARATION:
+        return PREPARATION_RECORDED_META, None
     if ev.review_status == "ok" and ev.review_level in LEVEL_LABELS_PL:
         return f"ocena: {LEVEL_LABELS_PL[ev.review_level]}", ev.review_level
     return "transkrypt jest, ocena niedostępna", None
@@ -491,8 +519,9 @@ def needs_new_slots(pair: PairSnapshot, now: datetime) -> bool:
 def compute_steps(
     pair: PairSnapshot, now: datetime, *, call_window_minutes: int
 ) -> list[dict]:
-    """Siedem kroków pary. Stan „current” ma najwyżej jeden krok — pierwszy
-    niezamknięty — żeby ekran wiedział, co podświetlić.
+    """Osiem kroków pary (od 24.11.2026 z Przygotowaniem). Stan „current” ma
+    najwyżej jeden krok — pierwszy niezamknięty — żeby ekran wiedział, co
+    podświetlić.
 
     Otwarty wniosek o terminy (rekruter wybiera albo DL potwierdza) po rozmowie,
     która już się odbyła, to NOWA runda (runda 10, F26): kroki opisują ją, nie
@@ -568,8 +597,9 @@ def compute_steps(
     else:
         steps.append(_step("choice", "todo"))
 
-    # 3–4. Prep i Prep 2 — oba wymagane (0370); po rozmowie już się nie wydarzą.
-    for n, key in ((1, "prep"), (2, "prep2")):
+    # 3–5. Przygotowanie (opcjonalne, F3), Prep 1 i Prep 2 (oba wymagane, 0370);
+    # po rozmowie już się nie wydarzą.
+    for n, key in ((0, "prep0"), (1, "prep"), (2, "prep2")):
         ev = pair.prep_slot(n)
         # Spóźniony prep dotyczy tylko rundy, której rozmowa jest przed nami.
         late = (
@@ -613,6 +643,10 @@ def compute_steps(
             steps.append(
                 _step(key, "skipped", meta=SILENT_PREP2_META if n == 2 else None)
             )
+        elif n == 0 and _started(pair.prep_slot(1), now):
+            # Przygotowanie ma sens przed Prepem 1 — po jego starcie krok jest
+            # pominięty, a nie „do zrobienia” (F3: nic o nim nie przypomina).
+            steps.append(_step(key, "skipped", meta=PREPARATION_SKIPPED_META))
         else:
             steps.append(_step(key, "todo"))
 
@@ -649,12 +683,16 @@ def compute_steps(
 
     # Pierwszy niezamknięty krok, który wymaga ruchu, zostaje „current”.
     # Telefon i debrief nie są „bieżące”, zanim rozmowa się zacznie — inaczej
-    # karta proponowała „Zapisz debrief” dzień przed rozmową.
+    # karta proponowała „Zapisz debrief” dzień przed rozmową. Niezaplanowane
+    # Przygotowanie nie wymaga ruchu (opcjonalne, F3) — karta stoi dalej na
+    # Prepie 1, a nie w kolumnie Przygotowania.
     interview_ahead = iv is not None and iv.start > now
     if not any(s["state"] == "current" for s in steps):
         for s in steps:
             if interview_ahead and s["key"] in ("call", "debrief"):
                 break
+            if _optional_todo(s):
+                continue
             if s["state"] in ("todo", "overdue", "waiting"):
                 if s["state"] == "todo":
                     s["state"] = "current"
@@ -662,12 +700,21 @@ def compute_steps(
     return steps
 
 
+def _optional_todo(step: dict) -> bool:
+    """Niezaplanowane Przygotowanie — krok widoczny, ale bez ruchu (F3)."""
+    return step["key"] == "prep0" and step["state"] == "todo"
+
+
+def _started(ev: Optional[EventRef], now: datetime) -> bool:
+    return ev is not None and ev.start <= now
+
+
 def current_step_key(steps: list[dict]) -> Optional[str]:
     for s in steps:
         if s["state"] in ("current", "overdue", "waiting"):
             return s["key"]
     for s in steps:
-        if s["state"] in ("todo", "scheduled"):
+        if s["state"] in ("todo", "scheduled") and not _optional_todo(s):
             return s["key"]
     return None
 
@@ -864,6 +911,10 @@ def compute_todos(
                     owner_id=skip.created_by,
                 )
         for ev in prep_round.late_preps:
+            if ev.ordinal == prep_labels.PREPARATION:
+                # Przygotowanie bez zadań (F3) — krok „po terminie” z „Przełóż”
+                # widać na karcie i w panelu osoby.
+                continue
             add(
                 "prep_late",
                 due=prep_iv.start,
@@ -1777,7 +1828,7 @@ def _prep_agenda_entry(
     meta, quality = prep_quality(prep)
     return {
         **pair_info,
-        "kind": "prep" if (prep.ordinal or 1) == 1 else "prep2",
+        "kind": prep_labels.step_key(prep.ordinal if prep.ordinal is not None else 1),
         "start": prep.start,
         "end": prep.end,
         "event_id": prep.id,
@@ -2019,11 +2070,14 @@ def compute_badge(
             None,
         )
         if refused is not None:
-            n = refused.ordinal or refused.prep_no or 1
+            n = next(
+                (x for x in (refused.ordinal, refused.prep_no) if x is not None), 1
+            )
             label = (
-                f"Prep {n}: kandydat proponuje {_day_label(_as_utc(refused.proposed_start), now)}"
+                f"{prep_labels.name(n)}: kandydat proponuje "
+                f"{_day_label(_as_utc(refused.proposed_start), now)}"
                 if refused.proposed_start is not None
-                else f"Prep {n}: kandydat odrzucił"
+                else f"{prep_labels.name(n)}: kandydat odrzucił"
             )
             return _badge("prep_refused", label, "wait", refused.start)
         if skip is not None and pair.prep_slot(2) is None and iv.start > now:
@@ -2045,7 +2099,10 @@ def compute_badge(
             return _badge(
                 "prep2", f"Prep 2 {_day_label(second.start, now)}", "info", second.start
             )
-        if any(p.start <= now for p in pair.preps):
+        # „Prep ✓” = odbył się Prep 1 albo 2; samo Przygotowanie (F3) to nie prep z DL-em.
+        if any(
+            p.start <= now and p.ordinal != prep_labels.PREPARATION for p in pair.preps
+        ):
             return _badge(
                 "prep_done", f"{_when_label(iv.start)} · Prep ✓", "ok", iv.start
             )

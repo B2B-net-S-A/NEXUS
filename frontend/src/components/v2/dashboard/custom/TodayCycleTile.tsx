@@ -30,6 +30,7 @@ const MAX_AGENDA = 6
 
 /** Etykiety rodzaju wpisu na kafelku (krótsze niż na ekranie kalendarza). */
 export const TODAY_KIND_LABELS: Record<AgendaKind, string> = {
+  prep0: "Przygotowanie",
   prep: "Prep 1",
   prep2: "Prep 2",
   interview: "Rozmowa u klienta",

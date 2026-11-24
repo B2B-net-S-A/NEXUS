@@ -59,8 +59,9 @@ class InterviewCycleOut(BaseModel):
         "debrief_due · debriefed; null = w cyklu nic się nie dzieje."
     )
     current_step: Optional[str] = Field(
-        description="Pierwszy krok wymagający ruchu: slots · choice · prep · prep2 · "
-        "interview · call · debrief."
+        description="Pierwszy krok wymagający ruchu: slots · choice · prep0 · prep · "
+        "prep2 · interview · call · debrief (prep0 = Przygotowanie rekrutera, "
+        "opcjonalne)."
     )
     slot_request_status: Optional[str] = Field(
         description="Wniosek o terminy od klienta: awaiting_recruiter · awaiting_dl · "
@@ -104,7 +105,8 @@ class InterviewOut(BaseModel):
 class InterviewPrepOut(BaseModel):
     event_id: int
     prep_no: Optional[int] = Field(
-        description="1 albo 2 (Prep 1 — DL, Prep 2 — rekruter)."
+        description="0, 1 albo 2 (Przygotowanie — rekruter, Prep 1 — DL, "
+        "Prep 2 — rekruter)."
     )
     start: datetime
     end: Optional[datetime]

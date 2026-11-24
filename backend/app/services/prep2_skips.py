@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, Sequence
 
 from fastapi import HTTPException
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,7 +34,7 @@ from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.notification import Notification, NotificationType
-from app.models.prep_meeting import Prep2Skip
+from app.models.prep_meeting import Prep2Skip, PrepMeeting
 from app.models.user import User
 from app.services import interview_cycle, interview_slots
 from app.services.job_working_title import job_display_title_expr
@@ -332,11 +332,25 @@ async def skip_stats(
                 CalendarEvent.start_time >= since - timedelta(days=30),
                 CalendarEvent.start_time <= until,
                 CalendarEvent.candidate_id.in_({iv[1] for iv in interviews}),
+                not_preparation(),
             )
         )
     ).all():
         preps.setdefault((cid, jid), []).append(_utc(start))
     return tally_skip_stats(interviews, skips, preps, now=now)
+
+
+def not_preparation():
+    """Warunek SQL: wydarzenie prepu, które nie jest Przygotowaniem (F3, 0773).
+
+    Linie „dwa prepy” i „bez słowa” liczą prepy z kalendarza; Przygotowanie
+    rekrutera nie zastępuje Prepu 1 ani 2, więc z nim para nie może mieć
+    „dwóch prepów”.
+    """
+    return ~exists().where(
+        PrepMeeting.calendar_event_id == CalendarEvent.id,
+        PrepMeeting.prep_no == 0,
+    )
 
 
 def recorded_after_the_fact(start: datetime, created_at: Optional[datetime]) -> bool:

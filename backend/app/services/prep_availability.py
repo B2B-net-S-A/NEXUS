@@ -101,11 +101,16 @@ def suggest(
     minutes: int = PREP_MINUTES,
     tz: str = DEFAULT_TZ,
     limit: int = OPTIONS,
+    not_before: Optional[datetime] = None,
+    end_by: Optional[datetime] = None,
 ) -> list[Option]:
     """Najlepsze godziny prepu przed rozmową, od najbardziej polecanej.
 
-    Prep 1 (DL): dzień roboczy przed rozmową, potem dwa dni przed, potem rano
-    w dniu rozmowy (≥ 2 h przed). Prep 2 (rekruter): w dniu rozmowy jak
+    Przygotowanie (rekruter, F3 24.11.2026): jak najwcześniej — dwa dni
+    robocze przed rozmową, potem dzień przed, potem rano w dniu rozmowy,
+    zawsze przed Prepem 1 (``end_by``). Prep 1 (DL): dzień roboczy przed
+    rozmową, potem dwa dni przed, potem rano w dniu rozmowy (≥ 2 h przed),
+    po Przygotowaniu (``not_before``). Prep 2 (rekruter): w dniu rozmowy jak
     najbliżej „2 h przed”, potem dzień roboczy przed, od najpóźniejszej
     godziny. ``busy=None`` = kalendarz nieznany (nie odrzucamy niczego).
     ``avoid`` — inne terminy pary (np. wybrany Prep 1), z którymi prep nie
@@ -115,9 +120,13 @@ def suggest(
     length = timedelta(minutes=minutes)
     interview_local = interview_start.astimezone(zone)
     day_of = interview_local.date()
-    gap = PREP1_GAP if prep_no == 1 else PREP2_GAP
+    gap = PREP2_GAP if prep_no == 2 else PREP1_GAP
     latest_end = interview_start - gap
+    if end_by is not None:
+        latest_end = min(latest_end, end_by)
     earliest_start = now + MIN_LEAD
+    if not_before is not None:
+        earliest_start = max(earliest_start, not_before)
     windows = list(candidate_windows or [])
     day_end = LATE_END if windows else WORK_END
     blocks = [*(busy or []), *avoid]
@@ -133,8 +142,11 @@ def suggest(
         return out
 
     before = _business_days_before(day_of, 2, zone)
-    if prep_no == 1:
-        ordered: list[datetime] = [*day_slots(before[0]), *day_slots(before[1])]
+    if prep_no == 0:
+        ordered: list[datetime] = [*day_slots(before[1]), *day_slots(before[0])]
+        ordered += day_slots(day_of)
+    elif prep_no == 1:
+        ordered = [*day_slots(before[0]), *day_slots(before[1])]
         ordered += day_slots(day_of)
     else:
         target = interview_start - timedelta(hours=2)

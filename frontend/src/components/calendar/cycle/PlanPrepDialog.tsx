@@ -27,6 +27,7 @@ import {
 } from "@/lib/prep-invitation";
 import {
   NO_INVITEES,
+  defaultInviteeIds,
   invitablePeople,
   recommendedPeople,
   removeUser,
@@ -38,6 +39,7 @@ import {
   prepTimingWarning,
   type PrepInterview,
 } from "@/lib/prep-timing";
+import { prepNameInSentence, prepWith, type PrepNo } from "@/lib/prep-label";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
@@ -47,14 +49,15 @@ const INPUT =
 /** Czyste: organizator podpowiadany przez serwer dla tego prepu (albo brak). */
 export function defaultOrganizerId(
   suggested: Record<string, { id: number } | null> | undefined,
-  prepNo: 1 | 2,
+  prepNo: PrepNo,
 ): number | null {
   return suggested?.[String(prepNo)]?.id ?? null;
 }
 
 /**
- * „Zaplanuj Prep 1 / Prep 2” — spotkanie Teams w kalendarzu ORGANIZATORA
- * (Prep 1 → Delivery Lead, Prep 2 → rekruter), z zaproszeniem kandydata
+ * „Zaplanuj przygotowanie / Prep 1 / Prep 2” — spotkanie Teams w kalendarzu
+ * ORGANIZATORA (Przygotowanie i Prep 2 → rekruter, Prep 1 → Delivery Lead;
+ * Przygotowanie od 24.11.2026, F3), z zaproszeniem kandydata
  * i automatyczną transkrypcją. Po spotkaniu NEXUS sam pobierze transkrypt,
  * zapisze notatkę i oceni prep.
  *
@@ -87,7 +90,7 @@ export function PlanPrepDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pair: PairInfo;
-  prepNo: 1 | 2;
+  prepNo: PrepNo;
   interview?: PrepInterview | null;
 }) {
   const toast = useToast();
@@ -143,11 +146,21 @@ export function PlanPrepDialog({
     const organizer = defaultOrganizerId(options.data.suggested, prepNo);
     setOrganizerId(organizer);
     // Planujący za kogoś jest zaproszony od razu — spotkanie ma też u siebie
-    // (D3); może się usunąć z listy.
-    setInvitees(
-      currentUserId != null && currentUserId !== organizer
-        ? { userIds: [currentUserId], emails: [] }
-        : NO_INVITEES,
+    // (D3); może się usunąć z listy. Prep 1 prowadzi DL razem z rekruterem
+    // (trzy rozmowy, Artur 11.11.2026), więc rekruter kandydata też jest na
+    // liście od razu.
+    const ids = defaultInviteeIds({
+      organizerId: organizer,
+      currentUserId,
+      recruiterId: prepNo === 1 ? (options.data.suggested?.["2"]?.id ?? null) : null,
+    });
+    // Ta sama lista = ten sam stan (bez nowego obiektu przy każdym odczycie opcji).
+    setInvitees((prev) =>
+      prev.emails.length === 0 && prev.userIds.join() === ids.join()
+        ? prev
+        : ids.length
+          ? { userIds: ids, emails: [] }
+          : NO_INVITEES,
     );
   }, [options.data, prepNo, currentUserId]);
 
@@ -233,8 +246,8 @@ export function PlanPrepDialog({
       qc.invalidateQueries({ queryKey: ["calendar-events"] });
       toast.showSuccess(
         prep.transcription_setup === "failed"
-          ? `Prep ${prepNo} zaplanowany. Transkrypcja nie włączyła się sama — organizator musi ją włączyć w Teams.`
-          : `Prep ${prepNo} zaplanowany — zaproszenie z linkiem Teams poszło do kandydata.`,
+          ? `${prepWith(prepNo, "zaplanowany")}. Transkrypcja nie włączyła się sama — organizator musi ją włączyć w Teams.`
+          : `${prepWith(prepNo, "zaplanowany")} — zaproszenie z linkiem Teams poszło do kandydata.`,
       );
       onOpenChange(false);
     },
@@ -245,6 +258,24 @@ export function PlanPrepDialog({
   });
 
   if (!open) return null;
+
+  if (options.data && !options.data.enabled && prepNo === 0) {
+    // Zwykłe zaproszenie z Outlooka nie ma numeru prepu — NEXUS policzyłby je
+    // jako Prep 1. Przygotowanie (F3) planuje się tylko przez Teams.
+    return (
+      <AppModal
+        open={open}
+        onOpenChange={onOpenChange}
+        title={`Zaplanuj ${prepNameInSentence(0)}`}
+        description={`${candidateLabel(pair)} · ${pairContext(pair)}`}
+      >
+        <p className="text-sm text-muted-foreground">
+          Przygotowanie planuje się w Teams, a planowanie prepów w Teams jest teraz wyłączone. Umów je w
+          Outlooku albo poproś administratora o włączenie prepów w Teams.
+        </p>
+      </AppModal>
+    );
+  }
 
   if (options.data && !options.data.enabled) {
     return (
@@ -284,7 +315,7 @@ export function PlanPrepDialog({
     <AppModal
       open={open}
       onOpenChange={onOpenChange}
-      title={`Zaplanuj Prep ${prepNo}`}
+      title={`Zaplanuj ${prepNameInSentence(prepNo)}`}
       description={`${candidateLabel(pair)} · ${pairContext(pair)}`}
       footer={
         <>

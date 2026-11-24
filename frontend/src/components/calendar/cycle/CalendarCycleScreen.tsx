@@ -25,6 +25,7 @@ import {
   type Prep2Skip,
   type SlotRequest,
 } from "@/lib/interview-cycle";
+import type { PrepNo } from "@/lib/prep-label";
 import { prepInterviewForPair } from "@/lib/prep-timing";
 import { resolveViewState } from "@/lib/view-state";
 import { hasSectionAccess } from "@/lib/section-access";
@@ -55,14 +56,14 @@ type Dialog =
       /** Termin zaznaczony z linku maila (`&choose=N`). */
       initialIndex?: number | null;
     }
-  | { kind: "prep"; pair: PairInfo; second: boolean }
+  | { kind: "prep"; pair: PairInfo; prepNo: PrepNo }
   | { kind: "prep_review"; pair: PairInfo; eventId: number; tab?: PrepReviewTab }
   | { kind: "slots"; pair: PairInfo | null; request?: SlotRequest | null }
   | {
       kind: "reschedule_prep";
       pair: PairInfo;
       eventId: number;
-      prepNo: 1 | 2;
+      prepNo: PrepNo;
       mode?: "late" | "edit" | "cancel";
     }
   | { kind: "reschedule_interview"; pair: PairInfo; eventId: number }
@@ -236,7 +237,7 @@ export function CalendarCycleScreen({
         setDialog({ kind: action.type, pair: action.pair, request: action.request });
         break;
       case "plan_prep":
-        setDialog({ kind: "prep", pair: action.pair, second: action.second });
+        setDialog({ kind: "prep", pair: action.pair, prepNo: action.prepNo });
         break;
       case "prep_review":
         setDialog({ kind: "prep_review", pair: action.pair, eventId: action.eventId, tab: action.tab });
@@ -438,7 +439,7 @@ export function CalendarCycleScreen({
           open
           onOpenChange={(o) => !o && setDialog(null)}
           pair={dialog.pair}
-          prepNo={dialog.second ? 2 : 1}
+          prepNo={dialog.prepNo}
           interview={prepInterviewForPair(data, dialog.pair)}
         />
       ) : null}
