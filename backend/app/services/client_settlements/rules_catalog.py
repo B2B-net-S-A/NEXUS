@@ -562,9 +562,19 @@ SECTIONS: tuple[Section, ...] = (
                 "Raport godzin od klienta (Time for Teams) porównany z fakturą kontraktora",
                 "off",
                 "N1",
+                {"warn_days": "5"},
+                (
+                    ParamField(
+                        "warn_days",
+                        "ostrzeżenie",
+                        "dni przed terminem faktury (15. dnia następnego miesiąca)",
+                    ),
+                ),
                 hint="Włączona daje podzakładkę „Raport klienta (T4T)”: wersje raportu od "
                 "klienta, kartoteka numerów osób i status każdej osoby w miesiącu. "
-                "Liczą się tylko godziny w statusie 2 (Approved).",
+                "Liczą się tylko godziny w statusie 2 (Approved). „Do faktury dla "
+                "klienta” bierze godziny zatwierdzone w ostatniej wersji raportu, "
+                "a godziny niezatwierdzone wstrzymują pozycję osoby.",
             ),
         ),
     ),

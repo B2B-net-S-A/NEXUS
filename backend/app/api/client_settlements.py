@@ -469,7 +469,11 @@ async def client_invoice_month(
     await _open(db, current_user)
     try:
         return await client_invoice.invoice_month(
-            db, client_id, month, amounts=has_financial_access(current_user)
+            db,
+            client_id,
+            month,
+            amounts=has_financial_access(current_user),
+            today=business_today(),
         )
     except SettlementError as exc:
         raise _fail(exc) from exc
@@ -979,7 +983,9 @@ async def _delivery_client(db: AsyncSession, user: User, client_id: int) -> bool
 async def _delivery_view(
     db: AsyncSession, user: User, client_id: int, month: str, amounts: bool
 ) -> dict[str, Any]:
-    invoice = await client_invoice.invoice_month(db, client_id, month, amounts=amounts)
+    invoice = await client_invoice.invoice_month(
+        db, client_id, month, amounts=amounts, today=business_today()
+    )
     return {
         **invoice,
         "integration": await integration_costs.client_month(

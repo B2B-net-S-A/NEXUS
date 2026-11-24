@@ -17,7 +17,7 @@ import {
   type ClientInvoiceRow,
 } from "@/lib/api/client-settlements";
 
-import { CLIENT_INVOICE, mdText, money, monthLabel, pctText, pln } from "./format";
+import { CLIENT_INVOICE, deadlineText, mdText, money, monthLabel, pctText, pln } from "./format";
 
 function plain(value: string | null): string {
   return value == null ? "" : value.replace(".", ",");
@@ -89,6 +89,9 @@ export function ClientInvoiceView({ clientId, month }: { clientId: number; month
   const signing = rows.filter((r) => r.state === "awaiting_signature").length;
   // Bank Pocztowy (E6.5): KCP przyjęte, czeka na akceptację klienta mailem.
   const byClient = rows.filter((r) => r.state === "awaiting_client").length;
+  // Klient z T4T (Nordea): pozycje z godzin zatwierdzonych w ostatniej wersji raportu.
+  const t4t = data.time_report ?? null;
+  const byT4t = rows.filter((r) => r.state === "awaiting_t4t").length;
 
   return (
     <div className="space-y-3">
@@ -102,7 +105,9 @@ export function ClientInvoiceView({ clientId, month }: { clientId: number; month
               {ready.length} do wystawienia, {issued} wystawione,{" "}
               {signing > 0 ? `${signing} czeka na podpis klienta, ` : ""}
               {byClient > 0 ? `${byClient} czeka na akceptację klienta, ` : ""}
-              {waiting} czeka na przyjęcie RCP. Pozycje mają
+              {t4t
+                ? `${byT4t} czeka na godziny w T4T, ${waiting} bez zatwierdzonych godzin. Pozycje liczą się tylko z godzin zatwierdzonych w raporcie T4T (${t4t.label}). Pozycje mają`
+                : `${waiting} czeka na przyjęcie RCP. Pozycje mają`}
               nazwy ze wzoru w regułach klienta albo z ostatniej faktury za to zamówienie; wklej je do programu do faktur. Wystawiona faktura wróci z KSeF sama, a jej RCP
               dostaje nazwę z numeru KSeF.
             </p>
@@ -117,6 +122,15 @@ export function ClientInvoiceView({ clientId, month }: { clientId: number; month
           </div>
         </div>
       </section>
+      {data.deadline ? (
+        <p
+          role="status"
+          className="rounded-lg border border-warning/40 bg-warning-muted px-3 py-1.5 text-xs text-warning-muted-foreground"
+        >
+          {deadlineText(data.deadline)} Bez godzin: {data.deadline.people.slice(0, 12).join(", ")}
+          {data.deadline.people.length > 12 ? ` i ${data.deadline.people.length - 12} innych` : ""}.
+        </p>
+      ) : null}
       {data.signature_hold ? (
         <p className="rounded-lg border border-warning/40 bg-warning-muted px-3 py-1.5 text-xs text-warning-muted-foreground">
           {data.signature_hold.label}. Pozycje do skopiowania pojawią się po podpisie klienta.
@@ -124,7 +138,11 @@ export function ClientInvoiceView({ clientId, month }: { clientId: number; month
       ) : null}
       {rows.length === 0 ? (
         <p className="rounded-xl border bg-card px-3 py-6 text-center text-sm text-muted-foreground">
-          W tym miesiącu nie ma jeszcze przyjętego RCP.
+          {t4t
+            ? t4t.version_id
+              ? `W raporcie T4T (${t4t.label}) nikt nie ma jeszcze zatwierdzonych godzin.`
+              : "Za ten miesiąc nie ma jeszcze raportu T4T od klienta."
+            : "W tym miesiącu nie ma jeszcze przyjętego RCP."}
         </p>
       ) : (
         <div className="overflow-x-auto rounded-xl border bg-card">
@@ -151,20 +169,24 @@ export function ClientInvoiceView({ clientId, month }: { clientId: number; month
                   <td className="px-3 py-1.5">
                     <span className="block truncate font-medium">{r.person}</span>
                     <span className="block truncate text-[11px] text-muted-foreground">
-                      {[r.order_number, r.kind === "estimate" ? "z planu" : null].filter(Boolean).join(" · ")}
+                      {[r.order_number, r.kind === "estimate" ? "z planu" : null, r.kind === "time_report" ? "z T4T" : null]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </span>
                   </td>
                   <td className="px-2 py-1.5">
                     <StatusDot tone={CLIENT_INVOICE[r.state].tone}>{CLIENT_INVOICE[r.state].label}</StatusDot>
                     {r.invoice_number ? <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{r.invoice_number}</span> : null}
-                    <button
-                      type="button"
-                      onClick={() => onZip(r)}
-                      className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
-                      aria-label={`Pobierz RCP: ${r.person}`}
-                    >
-                      <Download aria-hidden className="size-3" /> RCP
-                    </button>
+                    {r.kind !== "time_report" ? (
+                      <button
+                        type="button"
+                        onClick={() => onZip(r)}
+                        className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                        aria-label={`Pobierz RCP: ${r.person}`}
+                      >
+                        <Download aria-hidden className="size-3" /> RCP
+                      </button>
+                    ) : null}
                   </td>
                   <td className="px-2 py-1.5">
                     <ul className="grid gap-0.5">
@@ -176,6 +198,12 @@ export function ClientInvoiceView({ clientId, month }: { clientId: number; month
                       <p className="mt-0.5 text-[11px] text-warning-muted-foreground">Bez poprzedniej faktury: nazwa zastępcza, sprawdź opis.</p>
                     ) : null}
                     {r.extras_note ? <p className="mt-0.5 text-[11px] text-warning-muted-foreground">{r.extras_note}</p> : null}
+                    {r.hold_reason ? <p className="mt-0.5 text-[11px] text-warning-muted-foreground">{r.hold_reason}</p> : null}
+                    {r.t4t?.notes.map((note) => (
+                      <p key={note} className="mt-0.5 text-[11px] text-muted-foreground">
+                        {note}
+                      </p>
+                    ))}
                   </td>
                   {data.can_see_amounts ? <td className="px-2 py-1.5 text-right tabular-nums">{money(r.net, r.currency)}</td> : null}
                   {data.can_see_amounts ? (

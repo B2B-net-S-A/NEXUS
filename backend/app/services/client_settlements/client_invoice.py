@@ -35,6 +35,7 @@ import io
 import re
 import zipfile
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -46,6 +47,7 @@ from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoi
 from app.models.client_settlement import ClientSettlement
 from app.services.client_settlements import extras as settlement_extras
 from app.services.client_settlements import client_acceptance, service, signoffs
+from app.services.client_settlements import t4t_invoice, time_reports
 from app.services.client_settlements.rcp_checks import name_tokens
 from app.services.consultant_portal import documents as portal_documents
 from app.services.hr.payroll_periods import add_months
@@ -120,15 +122,21 @@ def base_name(items: list[dict[str, Any]], person: str) -> Optional[str]:
 
 
 async def _group_invoices(
-    db: AsyncSession, group_ids: set[int]
+    db: AsyncSession, group_ids: set[int], *, by_order: bool = False
 ) -> dict[int, list[tuple[str, ClientSalesInvoice]]]:
-    """Faktury do klienta per grupa zamówienia: (miesiąc usługi, faktura)."""
+    """Faktury do klienta per grupa zamówienia: (miesiąc usługi, faktura).
+    ``by_order`` — per linia zamówienia (Nordea: linie bez grup)."""
 
     if not group_ids:
         return {}
+    key = (
+        ClientSalesInvoiceLink.order_id
+        if by_order
+        else ClientSalesInvoiceLink.order_group_id
+    )
     rows = await db.execute(
         select(
-            ClientSalesInvoiceLink.order_group_id,
+            key,
             ClientSalesInvoiceLink.period_year,
             ClientSalesInvoiceLink.period_month,
             ClientSalesInvoice,
@@ -137,7 +145,7 @@ async def _group_invoices(
             ClientSalesInvoice,
             ClientSalesInvoice.id == ClientSalesInvoiceLink.invoice_id,
         )
-        .where(ClientSalesInvoiceLink.order_group_id.in_(group_ids))
+        .where(key.in_(group_ids))
         .order_by(ClientSalesInvoice.issue_date, ClientSalesInvoice.id)
     )
     out: dict[int, list[tuple[str, ClientSalesInvoice]]] = {}
@@ -303,11 +311,24 @@ def _correction(
 
 
 async def invoice_month(
-    db: AsyncSession, client_id: int, month: str, *, amounts: bool
+    db: AsyncSession,
+    client_id: int,
+    month: str,
+    *,
+    amounts: bool,
+    today: Optional[date] = None,
 ) -> dict[str, Any]:
-    """Wiersze „Do faktury dla klienta” za miesiąc klienta."""
+    """Wiersze „Do faktury dla klienta” za miesiąc klienta.
+
+    Klient z raportem T4T (``report.time_for_teams``) ma pozycje z godzin
+    zatwierdzonych w ostatniej wersji raportu (``t4t_invoice``), nie z RCP.
+    ``today`` włącza ostrzeżenie o terminie faktury."""
 
     view = await service.month_view(db, client_id, month, amounts=amounts)
+    if t4t_invoice.is_on(await service.rules_for(db, client_id, month)):
+        return await _t4t_month(
+            db, view, client_id, month, amounts=amounts, today=today
+        )
     previous = _previous(month)
     # Kontrakt zakończony w miesiącu planu nie ma już wiersza w kolejnym
     # miesiącu, a korekta planu musi trafić na fakturę (E5.3).
@@ -529,6 +550,261 @@ async def invoice_month(
         "month": month,
         "can_see_amounts": amounts,
         "signature_hold": hold,
+        "time_report": None,
+        "deadline": None,
+        "rows": rows,
+    }
+
+
+#: Wiersz „Do faktury” z raportu T4T (bez RCP): rodzaj i stan wstrzymania.
+TIME_REPORT = "time_report"
+AWAITING_T4T = "awaiting_t4t"
+
+
+def t4t_positions(
+    hours: Decimal, order: Optional[ClientOrder], *, name: str
+) -> list[Position]:
+    """Pozycja z godzin: linia godzinowa w zł — godziny × stawka klienta (jak
+    dziś faktury Nordei, „godz.”); inna linia — MD (godziny ÷ 8) × stawka MD."""
+
+    unit = getattr(order.rate_unit, "value", order.rate_unit) if order else None
+    currency = ((order.rate_client_currency if order else None) or PLN).upper()
+    if order is not None and unit == "hourly" and currency == PLN:
+        rate = None if order.rate_client is None else _money(Decimal(order.rate_client))
+        return [
+            Position(name, "godz.", hours, rate, _money(hours * (rate or 0)), "base")
+        ]
+    price = client_price(order)
+    md = (hours / service.HOURS_PER_MD).quantize(Decimal("0.001"))
+    rate = None if price.rate is None else _money(Decimal(price.rate))
+    return [
+        Position(name, "MD", md, rate, _money(md * (rate or 0)), "base", price.currency)
+    ]
+
+
+ZERO_H = Decimal("0")
+
+
+def invoiced_hours(invoices: list[ClientSalesInvoice]) -> Optional[Decimal]:
+    """Godziny z pozycji „godz.” faktur za miesiąc (z korektami); ``None``,
+    gdy żadna faktura nie ma pozycji godzinowej."""
+
+    total: Optional[Decimal] = None
+    for invoice in invoices:
+        for item in invoice.items or []:
+            if not isinstance(item, dict) or not _is_hours(item.get("unit")):
+                continue
+            try:
+                quantity = Decimal(str(item.get("quantity")).replace(",", "."))
+            except ArithmeticError:
+                continue
+            total = (total or Decimal("0")) + quantity
+    return total
+
+
+def _is_hours(unit: Any) -> bool:
+    text = str(unit or "").strip().lower()
+    return text.startswith("godz") or text in ("h", "hours", "hour")
+
+
+def hours_item_name(items: list[dict[str, Any]]) -> Optional[str]:
+    """Nazwa pozycji godzinowej z faktury („godz.”); faktura za koszty
+    podróży (PKP, hotel w „szt.”) do tej samej linii nazwy nie daje."""
+
+    for item in items:
+        if not isinstance(item, dict) or not item.get("name"):
+            continue
+        if _is_hours(item.get("unit")):
+            return str(item["name"]).strip()
+    return None
+
+
+async def _t4t_month(
+    db: AsyncSession,
+    view: dict[str, Any],
+    client_id: int,
+    month: str,
+    *,
+    amounts: bool,
+    today: Optional[date],
+) -> dict[str, Any]:
+    """„Do faktury” klienta z T4T: tylko godziny zatwierdzone w ostatniej wersji."""
+
+    rules = await service.rules_for(db, client_id, month)
+    basis = await t4t_invoice.basis(db, client_id, month)
+    ids = [r["contract_id"] for r in view["rows"]]
+    orders = await t4t_invoice.orders_for(db, ids, month)
+    pending_ids = [cid for cid in ids if (h := basis.hours.get(cid)) and h.pending > 0]
+    mails = await t4t_invoice.mail_acceptances(db, client_id, month, pending_ids)
+    groups = {o.order_group_id for o in orders.values() if o.order_group_id is not None}
+    invoices = await _group_invoices(db, groups)
+    by_line = await _group_invoices(db, {o.id for o in orders.values()}, by_order=True)
+    extra_rule = rules["cl.extra_costs_on_invoice"]
+    billed = await settlement_extras.billed_to_client(db, ids, month)
+    added = await settlement_extras.expected_by_contract(db, ids, month)
+    integration = (
+        await service.integration_by_contract(db, ids, month) if amounts else {}
+    )
+    reason = f"Godziny niezatwierdzone w T4T ({basis.version_label})"
+    rows = []
+    missing: list[str] = []
+    for row in view["rows"]:
+        contract_id = row["contract_id"]
+        hours = basis.hours.get(contract_id)
+        order = orders.get(contract_id)
+        out: dict[str, Any] = {
+            "contract_id": contract_id,
+            "person": row["person"],
+            "order_number": row["order_number"],
+            "kind": None,
+            "currency": PLN,
+            "state": "waiting",
+            "hold_reason": None,
+            "t4t": None,
+            "positions": [],
+            "net": None,
+            "cost": None,
+            "integration_cost": None,
+            "margin": None,
+            "margin_pct": None,
+            "template": False,
+            "ksef_number": None,
+            "invoice_number": None,
+            "extras_note": None,
+        }
+        approved = hours.approved if hours else Decimal("0")
+        pending = hours.pending if hours else Decimal("0")
+        mail = mails.get(contract_id)
+        contract = basis.contracts.get(contract_id)
+        billable = approved
+        notes: list[str] = []
+        state = "ready"
+        if pending > 0:
+            if (
+                mail is not None
+                and mail.ok
+                and t4t_invoice.left_project(contract, month)
+            ):
+                billable = mail.hours or ZERO_H
+                notes.append(mail.note)
+            else:
+                state = AWAITING_T4T
+                out["hold_reason"] = (
+                    f"{reason}: {t4t_invoice._fmt(pending)} h czeka na akceptację."
+                )
+                if mail is not None and mail.ok:
+                    notes.append(
+                        f"{mail.note} Osoba nadal pracuje u klienta: Cost Control "
+                        "przyjmuje akceptację mailową tylko po odejściu z projektu."
+                    )
+                elif mail is not None:
+                    notes.append(mail.note)
+        if order is None:
+            history = []
+        elif order.order_group_id:
+            history = invoices.get(order.order_group_id, [])
+        else:
+            history = by_line.get(order.id, [])
+        issued_now = [inv for period, inv in history if period == month]
+        issued = issued_now[0] if issued_now else None
+        invoiced = invoiced_hours(issued_now)
+        if invoiced is not None and invoiced - billable > time_reports.HOURS_Q:
+            # Nordea odrzuca fakturę ponad godziny zatwierdzone (IX: 18 faktur).
+            notes.append(
+                f"Wystawiona faktura ma {t4t_invoice._fmt(invoiced)} h, zatwierdzone "
+                f"w T4T {t4t_invoice._fmt(billable)} h: klient może ją odrzucić, "
+                "potrzebna korekta."
+            )
+        out["t4t"] = {
+            "approved": f"{approved:.2f}",
+            "pending": f"{pending:.2f}",
+            "billed": f"{billable:.2f}",
+            "invoiced": None if invoiced is None else f"{invoiced:.2f}",
+            "notes": notes,
+        }
+        if issued is None and (billable <= 0 or state == AWAITING_T4T):
+            missing.append(row["person"])
+        if billable <= 0:
+            out["hold_reason"] = out["hold_reason"] or (
+                f"Brak zatwierdzonych godzin w T4T ({basis.version_label})"
+            )
+            if issued is not None:
+                out.update(
+                    state="issued",
+                    ksef_number=issued.ksef_number,
+                    invoice_number=issued.invoice_number,
+                )
+            rows.append(out)
+            continue
+        template = next(
+            (
+                name
+                for period, inv in reversed(history)
+                if period < month and (name := hours_item_name(inv.items or []))
+            ),
+            None,
+        )
+        template = item_name(rules, row["order_number"], row["person"]) or template
+        name = template or (
+            f"Usługi informatyczne; {row['person']}; nr zamówienia: {row['order_number'] or '—'}"
+        )
+        items = t4t_positions(billable, order, name=name)
+        currency = items[0].currency
+        items, out["extras_note"] = with_extras(
+            items,
+            billed.get(contract_id, []),
+            rule=extra_rule,
+            currency=currency,
+            name=name,
+        )
+        net = sum((p.net for p in items), Decimal("0"))
+        cost_hours = (
+            time_reports._hours_to_amount(contract, billable, month)
+            if contract is not None
+            else None
+        )
+        cost = (
+            cost_hours + getattr(added.get(contract_id), "approved", Decimal("0"))
+            if cost_hours is not None
+            else None
+        )
+        out.update(
+            kind=TIME_REPORT,
+            currency=currency,
+            state="issued" if issued else state,
+            positions=[p.as_dict() for p in items]
+            if amounts
+            else [{**p.as_dict(), "unit_price": None, "net": None} for p in items],
+            template=template is not None,
+            ksef_number=issued.ksef_number if issued else None,
+            invoice_number=issued.invoice_number if issued else None,
+        )
+        if amounts:
+            out["net"] = f"{net:.2f}"
+            if cost is not None:
+                to_pln = client_price(order).to_pln if currency != PLN else Decimal("1")
+                extra = integration.get(contract_id, Decimal("0"))
+                net_pln = _money(net * to_pln)
+                margin = net_pln - cost - extra
+                out["cost"] = f"{cost:.2f}"
+                out["integration_cost"] = f"{extra:.2f}" if extra else None
+                out["margin"] = f"{margin:.2f}"
+                out["margin_pct"] = (
+                    None if net_pln == 0 else f"{margin / net_pln * 100:.1f}"
+                )
+        rows.append(out)
+    return {
+        "client_id": client_id,
+        "client_name": view["client_name"],
+        "month": month,
+        "can_see_amounts": amounts,
+        "signature_hold": None,
+        "time_report": {
+            "version_id": basis.version_id,
+            "received_on": basis.received_on.isoformat() if basis.received_on else None,
+            "label": basis.version_label,
+        },
+        "deadline": t4t_invoice.deadline_warning(month, today, rules, missing),
         "rows": rows,
     }
 
