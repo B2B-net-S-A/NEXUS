@@ -50,7 +50,7 @@ from app.services.notes_insights_extractor import (
     legacy_row_is_fresh,
     load_note_rows,
     notes_fingerprint,
-    stale_send_note_amounts,
+    send_note_amounts_to_release,
     stamp_no_content,
 )
 from app.services.notes_profile_fill import fill_languages_from_notes, notes_days
@@ -275,16 +275,6 @@ async def _clear_facts(db, cand: Candidate) -> None:
         await mark_stale_for_candidate(db, cand.id)
 
 
-async def _send_note_amounts(db, cand: Candidate, prior: Any, blob: str) -> frozenset:
-    """Kwoty z notatek z wysyłki do zdjęcia — zapytania tylko, gdy jest stawka."""
-    prior_rate = prior.get("expected_rate") if isinstance(prior, dict) else None
-    if cand.expected_rate_hourly is None and not (
-        isinstance(prior_rate, dict) and prior_rate.get("value") is not None
-    ):
-        return frozenset()
-    return await stale_send_note_amounts(db, cand.id, blob)
-
-
 def _release_send_note_rate(db, cand: Candidate, amounts: frozenset) -> bool:
     """Stawka z notatki z wysyłki policzona przed v7 znika (audyt r3, #3942).
 
@@ -365,7 +355,7 @@ async def _extract_candidate(
                 stats["skipped_same_fingerprint"] += 1
                 return False
             blob = build_notes_blob(rows)
-            send_amounts = await _send_note_amounts(db, cand, prior, blob)
+            send_amounts = await send_note_amounts_to_release(db, cand, prior, blob)
             if len(blob) < MIN_BLOB_CHARS:
                 # Runda 10 (R10-N6-2): usunięto notatkę, a reszta nie niesie
                 # treści — `stamp_no_content` zachowałby fakty z usuniętej.

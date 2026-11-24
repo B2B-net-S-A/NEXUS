@@ -411,7 +411,8 @@ def sync_world(monkeypatch):
 
         monkeypatch.setattr(sync, "AsyncSessionLocal", lambda: db)
         monkeypatch.setattr(sync, "load_note_rows", _rows)
-        monkeypatch.setattr(sync, "stale_send_note_amounts", _amounts, raising=False)
+        # Pętla woła send_note_amounts_to_release z ekstraktora, a ten — tę funkcję.
+        monkeypatch.setattr(extractor, "stale_send_note_amounts", _amounts)
         monkeypatch.setattr(sync, "extract_insights", _extract)
         return db
 

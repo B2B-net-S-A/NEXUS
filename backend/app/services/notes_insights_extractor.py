@@ -204,6 +204,22 @@ async def load_note_rows_bulk(
     return out
 
 
+async def send_note_amounts_to_release(
+    db: AsyncSession, candidate: Any, prior: Any, notes_blob: str
+) -> frozenset[Decimal]:
+    """Kwoty z notatek z wysyłki do zdjęcia — zapytania tylko, gdy jest stawka.
+
+    Tu, a nie w pętli: stawkę z profilu czytają tylko moduły z listy strażnika
+    ``test_rate_from_readers_guard``.
+    """
+    prior_rate = prior.get("expected_rate") if isinstance(prior, dict) else None
+    if candidate.expected_rate_hourly is None and not (
+        isinstance(prior_rate, dict) and prior_rate.get("value") is not None
+    ):
+        return frozenset()
+    return await stale_send_note_amounts(db, candidate.id, notes_blob)
+
+
 async def stale_send_note_amounts(
     db: AsyncSession, candidate_id: int, notes_blob: str
 ) -> frozenset[Decimal]:
