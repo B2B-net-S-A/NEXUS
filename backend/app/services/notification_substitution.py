@@ -119,6 +119,8 @@ CURRENT_WORK_TYPES: frozenset[T] = frozenset(
         T.request_review_needed,
         # 0763: brak raportu godzin — Finanse czekają na ruch opiekuna.
         T.settlement_report_missing,
+        # 0774: wada rozliczenia — Finanse czekają na poprawkę.
+        T.settlement_feedback,
         # 0764: zmiana stawki z aneksu — Finanse rozliczają od jej dnia.
         T.contract_rate_annex,
         # 0766: nowy nabywca kontraktu z CPro — Finanse sprawdzają faktury.
