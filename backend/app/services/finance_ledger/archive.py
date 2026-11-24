@@ -410,14 +410,20 @@ async def summary(db: AsyncSession) -> dict[str, Any]:
     }
 
 
-def read_file(doc: FinanceArchiveDocument) -> bytes:
+def read_path(relative: str) -> bytes:
+    """Plik archiwum po ``file_path`` dokumentu; ścieżka spoza katalogu archiwum — brak pliku."""
+
     root = Path(storage_service.STORAGE_ROOT).resolve()
-    path = (root / doc.file_path).resolve()
+    path = (root / relative).resolve()
     try:
         path.relative_to(root / SUBDIR)
     except ValueError:
         raise FileNotFoundError("poza katalogiem archiwum") from None
     return path.read_bytes()
+
+
+def read_file(doc: FinanceArchiveDocument) -> bytes:
+    return read_path(doc.file_path)
 
 
 # ── Podgląd faktury wystawionej w eBI24 (JSON) ──────────────────────────────
@@ -517,6 +523,7 @@ __all__ = [
     "kind_of",
     "listing",
     "read_file",
+    "read_path",
     "render_html",
     "summary",
     "trim_meta",

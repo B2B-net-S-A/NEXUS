@@ -48,6 +48,8 @@ z tego dnia („korekta roczna”, „3% od całego obrotu”) została zastąpi
     bilety i opłaty z tych faktur;
   - 5 faktur w EUR to pentesty z osobnej umowy (rabat jest tylko w głównej umowie ramowej); w eBI24
     pentesty też zawsze szły bez rabatu.
+
+  Faktury sprzed KSeF dochodzą do obrotu z archiwum eBI24 (sekcja „Obrót sprzed KSeF” niżej).
 - Słowa wyłączające muszą pasować do nazw pozycji klienta. U Nordei ogólne „podróż” niczego nie łapie.
   Finanse wpisują nazwy z faktur (Hotel, PKP, Airplane, Transaction fee, Diems, Transport, Security Test),
   inaczej podróże i pentesty wejdą do obrotu progu.
@@ -144,9 +146,45 @@ Nordei. Źródło to umowa ramowa w module umów klienta. Liczb nie ma w repo, s
   - na produkcji szkic z „Wystaw za miesiąc” dostał rabat % na wierszu i ramkę „Rabat od obrotu”.
     Szkic został potem usunięty.
 
+## Obrót sprzed KSeF z archiwum eBI24 (24.11.2026)
+
+Faktury Nordei z KSeF (`client_sales_invoices`) zaczynają się od okresu IV 2026. Styczeń–marzec jest
+tylko w archiwum eBI24 (`finance_archive_documents`, pozycje w plikach JSON). Bez tych miesięcy licznik
+do progu był zaniżony, wyższa stawka nie wchodziła sama, a karta nie pokazywała korekty za miesiąc
+przekroczenia. Od 24.11.2026 `rebate.year_rebate` dolicza je z archiwum
+(`client_invoicing/rebate_archive.py`). Finanse niczego nie wpisują i nie ma migracji.
+
+- Do obrotu idzie dokument z archiwum, który spełnia wszystkie warunki:
+  - jest fakturą sprzedaży wystawioną w eBI24 (`INCOME_INVOICE` albo `EUROPEAN_INCOME_INVOICE`, plik
+    JSON). PDF wgrany do eBI24 nie ma pozycji, a proforma, zamówienie i nota nie są obrotem;
+  - nie ma numeru KSeF, bo dokument z numerem jest już w `client_sales_invoices`. Odpada też dokument
+    bez numeru KSeF, którego numer faktury klient ma w KSeF, bo eksport archiwum bywa starszy niż
+    wysyłka. Ten sam numer w archiwum drugi raz to duplikat faktury z eBI24 (na kopii z 24.11.2026:
+    15 takich par z lat 2023–2025), więc liczy się raz;
+  - ma nabywcę, którego numer prowadzi do klienta tak samo jak przy fakturach z KSeF
+    (`clients.nip_registry`). Oddział i spółki z grupy mają inne numery, więc się nie liczą (decyzja
+    Artura 24.11.2026);
+  - jest za miesiąc roku według daty sprzedaży (`transactionDate`), a bez niej według daty wystawienia.
+- Obrót z pliku liczy ten sam `rebate.service_base` co przy KSeF. Cena jednostkowa w eBI24 jest przed
+  rabatem, a netto pozycji po nim. Korekta to stan po korekcie minus stan przed, wzięty z treści faktury
+  korygowanej; bez tej treści zostaje sama różnica netto. Kurs NBP jest ten sam co przy KSeF: z ostatniej
+  tabeli przed datą sprzedaży.
+- Pliki leżą na dysku w `UPLOADS_DIR/ebi24_archive/<rok>/`. Proces czyta je raz, w wątku, i trzyma wynik
+  w pamięci (klucz: ścieżka i SHA-256 z bazy), bo plik archiwum się nie zmienia. Pierwsza karta po
+  wdrożeniu czyta kilkaset plików, następne już nie.
+- Karta faktury pokazuje, ile faktur z archiwum weszło do obrotu. Dokument bez czytelnego pliku nie
+  wchodzi do obrotu, a karta pokazuje na czerwono, ile takich jest, bo obrót jest wtedy zaniżony.
+- Sprawdzenie na kopii produkcji 24.11.2026: obrót I–III z kodu równa się co do grosza osobnemu
+  przeliczeniu plików eBI24. Miesiąc przekroczenia progu, stawka faktur za następny miesiąc i kwota
+  korekty wychodzą tak samo jak w tym przeliczeniu.
+- Testy: `tests/test_client_invoice_rebate_archive_db.py` (z bazą) i parser pliku w
+  `tests/test_client_invoice_rebate.py`.
+
 ## Czego jeszcze nie ma
 
-- Obrotu sprzed KSeF. Faktury Nordei z KSeF (`client_sales_invoices`) zaczynają się od okresu IV 2026.
-  Styczeń–marzec 2026 jest tylko w archiwum eBI24 (`finance_archive_documents`, pozycje w plikach
-  JSON). Bez tych miesięcy licznik do progu jest zaniżony, wyższa stawka nie wchodzi sama, a karta nie
-  pokazuje korekty za miesiąc przekroczenia (24.11.2026: przekazane do osobnej sesji).
+- Korekty za miesiąc sprzed KSeF. Szkic korekty bierze faktury korygowane i stawki VAT z faktur z KSeF.
+  Gdy próg pada w miesiącu, który jest tylko w archiwum eBI24, szkic pokaże kwotę, ale bez XML-a
+  („Faktury z miesiąca nie mają pozycji usług ze stawką VAT”). U Nordei w 2026 r. próg pada później,
+  a okres od 2024 ma jedną stawkę bez progu.
+- Raport „Rabat od obrotu rocznego” (`client_reports/generators/annual_spend.py`) liczy obrót tylko
+  z KSeF i ostrzega o niepełnym okresie. Archiwum eBI24 go jeszcze nie zasila.

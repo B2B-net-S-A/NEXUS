@@ -229,6 +229,10 @@ export interface InvoiceRebate {
   invoices: number;
   excluded: number;
   missing_fx: number;
+  /** Faktury sprzed KSeF z archiwum eBI24 w obrocie. */
+  archived: number;
+  /** Dokumenty z archiwum eBI24 bez czytelnego pliku — poza obrotem. */
+  unreadable: number;
 }
 
 /**
