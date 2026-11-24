@@ -91,6 +91,29 @@ def _put(scope: Any, name: str, value: Any, *, option: Optional[str] = None) -> 
         raise _fail("other", f"Cpro nie przyjął wartości pola „{name}”.")
 
 
+def _js_click(loc: Any, what: str) -> None:
+    """Klik skryptem: działa także na przycisku ukrytym albo przykrytym oknem."""
+
+    if loc.count() == 0:
+        raise _fail("other", f"Brak przycisku „{what}” w Cpro.")
+    loc.first.evaluate("el => el.click()")
+
+
+# Przycisk „Add Consultant” na requeście woła loadPopupLarge(ConsultantAddController…).
+# Ten sam tekst ma ukryty link w menu, więc zwykły klik czekał do timeoutu (bieg 10).
+_OPEN_ADD_CONSULTANT_JS = """(req) => {
+  const a = [...document.querySelectorAll('a')].find(x =>
+    /Add Consultant/.test(x.textContent || '') &&
+    /ConsultantAddController/.test(x.getAttribute('onclick') || ''));
+  if (a) { a.click(); return 'link'; }
+  if (typeof window.loadPopupLarge === 'function') {
+    window.loadPopupLarge('ConsultantAddController?action=add&navbacktoobject=requisition&requisition_requisitionid=' + req);
+    return 'function';
+  }
+  return '';
+}"""
+
+
 class ItemRun:
     """Jedna pozycja zlecenia w świeżym kontekście przeglądarki."""
 
@@ -276,9 +299,12 @@ class ItemRun:
         self.step = "add_consultant"
         self.before_write("Add Consultant")
         page = self.page
-        page.locator("a", has_text="Add Consultant").first.click()
+        self.step = "add_consultant:open"
+        if not page.evaluate(_OPEN_ADD_CONSULTANT_JS, self.request_no):
+            raise _fail("other", "Nie da się otworzyć okna „Add Consultant” w Cpro.")
         form = page.locator("#newConsultantForm")
-        form.wait_for(timeout=STEP_TIMEOUT_MS)
+        form.wait_for(state="attached", timeout=STEP_TIMEOUT_MS)
+        self.step = "add_consultant:fields"
         _put(form, "consultant_firstname", self.candidate["first_name"])
         _put(form, "consultant_lastname", self.candidate["last_name"])
         options = form.locator("select[name=consultant_country] option").evaluate_all(
@@ -298,7 +324,11 @@ class ItemRun:
             form, "profile_description", self.candidate.get("profile_description") or ""
         )
         self.verify_account()
-        form.locator("button[value='Offer...'], input[value='Offer...']").first.click()
+        self.step = "add_consultant:offer"
+        _js_click(
+            form.locator("button[value='Offer...'], input[value='Offer...']"),
+            "Offer...",
+        )
         self.saved = True  # profil konsultanta już istnieje w Cpro
         self._wait_offer_form()
 
@@ -330,9 +360,9 @@ class ItemRun:
                 "bs => bs.map(b => b.value)"
             )
         )
-        page.locator("#cvUploadButton").click()
+        _js_click(page.locator("#cvUploadButton"), "Upload new CV")
         form = page.locator("#uploadCvForm")
-        form.wait_for(timeout=STEP_TIMEOUT_MS)
+        form.wait_for(state="attached", timeout=STEP_TIMEOUT_MS)
         form.locator("[name=cv_filename]").set_input_files(self._cv_file())
         lang = form.locator("select[name=cv_language] option").evaluate_all(
             "os => (os.find(o => /^EN\\b/.test(o.text.trim())) || {}).value || ''"
@@ -340,7 +370,7 @@ class ItemRun:
         if lang:
             _put(form, "cv_language", lang)
         self.verify_account()
-        form.locator("button[type=submit]").first.click()
+        _js_click(form.locator("button[type=submit]"), "Upload")
         self._wait_offer_form()
 
     def select_only_new_cv(self) -> None:
@@ -430,9 +460,12 @@ class ItemRun:
         before = page.url
         try:
             with page.expect_navigation(timeout=STEP_TIMEOUT_MS):
-                page.locator(
-                    "form[action=OfferController] button[name=BUT_SaveAsDraft]"
-                ).first.click()
+                _js_click(
+                    page.locator(
+                        "form[action=OfferController] button[name=BUT_SaveAsDraft]"
+                    ),
+                    "Save as draft",
+                )
         except Exception as exc:
             raise _fail(
                 "other", "Cpro nie przyjął zapisu szkicu (brak przejścia po Save)."
