@@ -150,6 +150,30 @@ export function claimCallToast(eventId: number, now: number = Date.now()): boole
   return true;
 }
 
+/** Klucz dymka telefonu po rozmowie — okno debriefu tej rozmowy go zamyka. */
+export function callToastKey(eventId: number): string {
+  return `interview-call:${eventId}`;
+}
+
+// Okna debriefu otwarte w tej karcie. Wejście z `/calendar?debrief=` otwiera
+// okno, zanim kalendarz policzy telefon, więc dymek wychodziłby już po
+// otwarciu i leżał na stopce okna (24.11.2026).
+const openDebriefs = new Map<number, number>();
+
+/** Okno debriefu rozmowy otwarte; zwraca funkcję do wywołania przy zamknięciu. */
+export function debriefOpened(eventId: number): () => void {
+  openDebriefs.set(eventId, (openDebriefs.get(eventId) ?? 0) + 1);
+  return () => {
+    const left = (openDebriefs.get(eventId) ?? 1) - 1;
+    if (left > 0) openDebriefs.set(eventId, left);
+    else openDebriefs.delete(eventId);
+  };
+}
+
+export function isDebriefOpen(eventId: number): boolean {
+  return openDebriefs.has(eventId);
+}
+
 /** Tylko do testów: zapomnij dymki pokazane w tej karcie. */
 export function resetCallToastsForTests(): void {
   callToastsThisTab.clear();

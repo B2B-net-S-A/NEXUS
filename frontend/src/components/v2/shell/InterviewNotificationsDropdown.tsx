@@ -37,7 +37,9 @@ import {
   INTERVIEW_NOTIFY_EVENT,
   QUIET_INTERVIEW_TYPES,
   OPEN_INTERVIEWS_WINDOW_EVENT,
+  callToastKey,
   claimCallToast,
+  isDebriefOpen,
   interviewToastText,
   parseInterviewLink,
   safeMeetingUrl,
@@ -556,11 +558,14 @@ function InterviewNotificationsWindow() {
   useEffect(() => {
     const row = callRowRef.current;
     if (callEventId == null || !row?.todo || !claimCallToast(callEventId)) return;
+    // Debrief tej rozmowy już otwarty: dymek z „Zapisz debrief” leżałby na stopce okna.
+    if (isDebriefOpen(callEventId)) return;
     const who = row.todo.client_name ? `${row.title} (${row.todo.client_name})` : row.title;
     const todo = row.todo;
     showActionToast(`${who}: rozmowa u klienta skończyła się. Na telefon ${row.detail}.`, {
       actionLabel: TODO_ACTIONS.call_now,
       durationMs: TOAST_MS,
+      key: callToastKey(callEventId),
       onAction: () => setAction({ type: "debrief", pair: todo, eventId: callEventId }),
     });
   }, [callEventId, showActionToast]);
