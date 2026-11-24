@@ -112,6 +112,8 @@ export interface NoticeDetail {
   agreement: boolean;
   period_source: "template" | "default" | null;
   client_reason: string | null;
+  /** Powiadomienie CPro Nordei: koniec, nieprzedłużenie i internalizacja otwierają po potwierdzeniu sprawę wyjścia. */
+  cpro_event: "terminated" | "not_extended" | "internalization" | "changes" | null;
   evidence: string[];
   reasons: { key: string; label: string }[];
   message: {

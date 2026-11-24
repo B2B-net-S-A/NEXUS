@@ -7,6 +7,9 @@ na administracja@ i rozliczenia@ (od 18.11 kopie w wsparcie@), a zespół przepi
 ręcznie albo wcale: kontrakt #29 miał wypowiedzenie z 31.10 w Dokumentach, a 23.11 dalej
 stał „Aktywny” bez daty końca i z zamówieniem do 31.01.2027.
 
+> **CPro Nordei** (koniec, nieprzedłużenie, internalizacja, przedłużenie, zmiany do faktury):
+> `cpro-nordei-na-wsparcie.md` — potwierdzony koniec z CPro otwiera sprawę wyjścia z datą.
+
 ## Zasady, których nie cofamy przy okazji
 
 - **Automat proponuje, człowiek potwierdza.** Czytnik spraw (`mail_ingest._propose_notice`)

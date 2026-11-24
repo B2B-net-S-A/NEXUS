@@ -124,7 +124,7 @@ async def _contract_by_number(db: AsyncSession, number: Optional[str]) -> list[i
     return sorted({cid for cid in rows.all() if cid is not None})
 
 
-async def _orders_by_cpro(
+async def orders_by_cpro(
     db: AsyncSession, number: Optional[str]
 ) -> list[tuple[int, int]]:
     if not number:
@@ -231,7 +231,7 @@ async def match_contract(
         if candidates_found:
             reasons.append("contract_number")
     if signal.cpro_number:
-        orders = await _orders_by_cpro(db, signal.cpro_number)
+        orders = await orders_by_cpro(db, signal.cpro_number)
         if orders:
             by_cpro = sorted({cid for cid, _ in orders})
             if not candidates_found:
@@ -390,6 +390,9 @@ async def propose_for_message(
             "period_source": period_source,
             "consultant_name": signal.consultant_name,
             "reason": signal.reason,
+            # Zdarzenie CPro Nordei: koniec, nieprzedłużenie, internalizacja
+            # (potwierdzenie otwiera sprawę wyjścia) albo nowa data końca.
+            "cpro_event": signal.cpro_event,
             # Adres zapamiętujemy tylko przy uwierzytelnionym nadawcy
             # (``can_remember_sender``) — sam ``From`` łatwo podrobić.
             "sender_authenticated": sender_authenticated,

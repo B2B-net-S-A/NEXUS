@@ -47,6 +47,10 @@ Reguły:
   (``CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX``) i ten czytnik działa, mail z załącznikiem na
   adres rozliczeń zostawiamy rozliczeniom (``support_mail_route``): wynik
   ``routed_settlements``, bez sprawy,
+* **CPro Nordei** (``noreply@onevms.se``, przekierowanie ze skrzynek DL/TCM od
+  24.11.2026): mail rekrutacyjny (zamknięcie, odrzucenie, rozmowa) nie zakłada sprawy
+  (``cpro_recruitment``) — prowadzi go pętla ``cpro_mail``; powiadomienia o kontrakcie
+  dostają propozycję końca albo zadanie Finansów (``nordea_cpro_case``),
 * **obszar „Rozliczenia”** (decyzja Artura z 19.11.2026): nowa sprawa z maila z adresem
   z ``CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES`` w „Do” albo „DW” (pytanie o fakturę czy
   godziny bez załącznika) dostaje ``settlements``, a nie obszar z tematu. Ukryta kopia nie
@@ -290,6 +294,28 @@ def _is_auto_reply(msg: dict[str, Any], sender_email: Optional[str]) -> bool:
     return subject.startswith(_AUTO_SUBJECT_PREFIXES)
 
 
+def _is_cpro_recruitment(sender_email: Optional[str], subject: Optional[str]) -> bool:
+    """Mail rekrutacyjny CPro Nordei (zamknięty request, odrzucenie, rozmowa).
+
+    Reguła przekierowania z 24.11.2026 wysyła na wsparcie@ wszystko z
+    ``noreply@onevms.se``, a rekrutację prowadzi pętla ``cpro_mail`` ze skrzynek
+    DL-i (``docs/claude/integracje/cpro-maile-nordei.md``) — tu byłaby tylko
+    sprawą-szumem (334 takie maile w trzy tygodnie u dwóch DL-i). Sprawą zostają
+    powiadomienia o kontrakcie (``nordea_cpro``) i każdy inny mail CPro.
+    """
+
+    from app.services import cpro_mail_parse  # noqa: PLC0415
+
+    if (sender_email or "").strip().lower() != cpro_mail_parse.SENDER:
+        return False
+    event = cpro_mail_parse.parse(subject, None)
+    return event is not None and event.kind in (
+        cpro_mail_parse.KIND_CLOSED,
+        cpro_mail_parse.KIND_REJECTED,
+        *cpro_mail_parse.INTERVIEW_KINDS,
+    )
+
+
 def _body(msg: dict[str, Any]) -> str:
     for key in ("uniqueBody", "body"):
         body = msg.get(key) or {}
@@ -389,6 +415,8 @@ async def _ingest_message(
     own = sender_email is not None and sender_email in _own_addresses(upn)
     received_at = _parse_dt(msg.get("receivedDateTime"))
     subject = _nul_free(msg.get("subject"), 500)
+    if _is_cpro_recruitment(sender_email, subject):
+        return "cpro_recruitment"
 
     case = await _thread_case(db, msg)
     outcome = "attached"
@@ -468,6 +496,9 @@ async def _ingest_message(
             sender_authenticated as _sender_authenticated,
         )
 
+        if outcome == "created":
+            await _apply_cpro(db, case, message_row)
+
         await _propose_notice(
             db,
             case,
@@ -477,6 +508,27 @@ async def _ingest_message(
             ),
         )
     return outcome
+
+
+async def _apply_cpro(
+    db: AsyncSession, case: AdminCase, message_row: AdminCaseMessage
+) -> None:
+    """Powiadomienie CPro Nordei: zmiana danych do faktury → zadanie Finansów,
+    przedłużenie → decyzja w CPro (``nordea_cpro_case``).
+
+    Jak propozycja wypowiedzenia — dodatek do sprawy: błąd cofa tylko tę zmianę.
+    """
+
+    from app.services.admin_cases.nordea_cpro_case import apply_to_new_case
+
+    case_id = case.id
+    try:
+        async with db.begin_nested():
+            await apply_to_new_case(db, case, message_row)
+    except Exception:  # noqa: BLE001 — sprawa z maila zostaje bez zmian
+        logger.exception("cpro case update failed for case %s", case_id)
+        # Cofnięty punkt zapisu wygasza obiekt; propozycja niżej czyta sprawę.
+        await db.refresh(case)
 
 
 async def _propose_notice(

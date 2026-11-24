@@ -5,8 +5,9 @@ Czytnik spraw pyta te reguły o każdy mail i dostaje jeden z czterech rodzajów
 
 * ``consultant_notice`` — konsultant wypowiada umowę (albo przysyła porozumienie),
 * ``client_termination`` — klient kończy albo przestawia datę końca zamówienia
-  (powiadomienie CPro Nordei „Contract terminated: <nr>”, „Important changes made
-  to contract <nr>” z nową datą końca),
+  (powiadomienie CPro Nordei „Contract terminated: <nr>”, „Contract <nr> will not
+  be extended”, internalizacja, „Important changes made to contract <nr>” z nową
+  datą końca; wzorce w ``nordea_cpro``),
 * ``date_change`` — w wątku wypowiedzenia ktoś prosi o inną datę końca,
 * ``withdrawal`` — w wątku wypowiedzenia konsultant je wycofuje.
 
@@ -24,6 +25,8 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import date
 from typing import Iterable, Optional
+
+from app.services.admin_cases import nordea_cpro
 
 CONSULTANT_NOTICE = "consultant_notice"
 CLIENT_TERMINATION = "client_termination"
@@ -51,14 +54,6 @@ _QUOTE_MARKERS = re.compile(
     r")\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
-
-_CPRO_TERMINATED = re.compile(r"contract terminated:\s*(\d{5,7})", re.IGNORECASE)
-_CPRO_CHANGED = re.compile(
-    r"important changes made to contract\s*(\d{5,7})", re.IGNORECASE
-)
-_CPRO_END = re.compile(r"new end date\s*:?\s*(\d{4}-\d{2}-\d{2})", re.IGNORECASE)
-_CPRO_CONSULTANT = re.compile(r"\bconsultant\s*:?\s*([^\n|]{3,80})", re.IGNORECASE)
-_CPRO_REASON = re.compile(r"termination reason\s*:?\s*([^\n|]{3,80})", re.IGNORECASE)
 
 # Słowa po zdjęciu ogonków (``_fold``): „wypowiedzenie”, „rozwiązanie umowy”…
 _NOTICE_WORDS = re.compile(
@@ -105,6 +100,9 @@ class NoticeSignal:
     consultant_name: Optional[str] = None
     reason: Optional[str] = None
     agreement: bool = False
+    #: Rodzaj powiadomienia CPro (``nordea_cpro``): koniec, nieprzedłużenie,
+    #: internalizacja albo zmiana daty końca w „Important changes”.
+    cpro_event: Optional[str] = None
     #: Co zadecydowało — pokazywane na karcie jako „Rozpoznane po”.
     evidence: tuple[str, ...] = ()
 
@@ -156,32 +154,38 @@ def first_date_in(text: str, *, today: date) -> Optional[date]:
 
 
 def _cpro_signal(subject: str, body: str) -> Optional[NoticeSignal]:
-    terminated = _CPRO_TERMINATED.search(subject)
-    changed = _CPRO_CHANGED.search(subject)
-    match = terminated or changed
-    if match is None:
+    """Koniec u klienta z powiadomienia CPro Nordei (``nordea_cpro``).
+
+    Propozycję końca dają: „Contract terminated”, „will not be extended”,
+    internalizacja i „Important changes” z nową datą końca. Zmiana danych do
+    faktury i przedłużenie to nie koniec — prowadzi je sprawa z maila
+    (``nordea_cpro_case``).
+    """
+
+    event = nordea_cpro.parse(subject, body)
+    if event is None:
         return None
-    end = _CPRO_END.search(body)
-    end_date: Optional[date] = None
-    if end:
-        try:
-            end_date = date.fromisoformat(end.group(1))
-        except ValueError:
-            end_date = None
-    # „Important changes” bez nowej daty końca to zmiana stawki albo opisu —
-    # nie ma czego proponować przy zakończeniu.
-    if terminated is None and end_date is None:
-        return None
-    consultant = _CPRO_CONSULTANT.search(body)
-    reason = _CPRO_REASON.search(body)
-    return NoticeSignal(
-        kind=CLIENT_TERMINATION,
-        cpro_number=match.group(1),
-        client_end_date=end_date,
-        consultant_name=consultant.group(1).strip() if consultant else None,
-        reason=reason.group(1).strip() if reason else None,
-        evidence=("powiadomienie CPro z numerem zamówienia",),
-    )
+    if event.kind in nordea_cpro.EXIT_EVENTS:
+        return NoticeSignal(
+            kind=CLIENT_TERMINATION,
+            cpro_number=event.cpro_number,
+            client_end_date=event.end_day,
+            consultant_name=event.consultant_name,
+            reason=event.reason,
+            cpro_event=event.kind,
+            evidence=event.evidence,
+        )
+    # „Important changes” bez nowej daty końca to zmiana referencji faktury
+    # albo stawki — nie ma czego proponować przy zakończeniu.
+    if event.kind == nordea_cpro.CHANGES and event.end_day is not None:
+        return NoticeSignal(
+            kind=CLIENT_TERMINATION,
+            cpro_number=event.cpro_number,
+            client_end_date=event.end_day,
+            cpro_event=nordea_cpro.CHANGES,
+            evidence=("powiadomienie CPro z nową datą końca",),
+        )
+    return None
 
 
 def classify(
