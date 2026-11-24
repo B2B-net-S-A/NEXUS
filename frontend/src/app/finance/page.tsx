@@ -61,7 +61,7 @@ const VIEW_DESCRIPTION: Record<ViewMode, string> = {
   "rate-divergences":
     "Zamówienia do korekty po zmianie stawki Partnera i nocny raport rozjazdów linii zamówień MD",
   settlements: "RCP, faktury kontraktorów i faktury do klienta za jeden miesiąc",
-  "month-close": "Wszyscy klienci w jednym miesiącu: raporty, decyzje i faktury do klientów",
+  "month-close": "Kontraktorzy, biuro i klienci w jednym miesiącu: automat, błędy, braki i faktury",
   "approved-expenses":
     "Zatwierdzone wydatki do rozliczenia, rejestr subskrypcji i faktury kosztowe bez zgody",
   costs:

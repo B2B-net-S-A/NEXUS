@@ -36,6 +36,7 @@ const PLANS: Record<string, ReasonPlan> = {
   "proof.excel_with_mail": { who: "Konsultant: mail z akceptacją", tone: "warning", action: "Poproś o akceptację", sub: "month" },
   "pay.per_person": { who: "Opiekun: podpis klienta", tone: "warning", action: "Sprawdź podpisy", sub: "month" },
   "travel.extra_costs_confirm": { who: "Finanse: koszty dodatkowe", tone: "warning", action: "Zatwierdź koszty", sub: "month" },
+  "travel.rcp_costs": { who: "Finanse: koszty delegacji", tone: "warning", action: "Sprawdź delegację", sub: "month" },
   "fields.md_month_limit": ORDER,
   needs_fix: { who: "Konsultant: odesłane do poprawy", tone: "danger", action: "Otwórz", sub: "month" },
 };

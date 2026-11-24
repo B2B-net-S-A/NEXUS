@@ -52,6 +52,7 @@
   "GET /api/finance/settlements/overview": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/rules/{client_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/start": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/finance/settlements/team": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/my-clients/{client_id}/settlements": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
   "POST /api/finance/settlements/accept-batch": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/client-acceptance/accept": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",

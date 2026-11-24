@@ -43,6 +43,121 @@ SALES_WAITING = ("ready", "awaiting_signature", "awaiting_client")
 DECIDE_STATUSES = ("warnings", "needs_fix")
 UNREAD_STATUSES = ("checking", "no_md")
 CLEAN_STATUSES = ("ok", "accepted")
+#: Faktura do klienta czeka na podpis, akceptację albo raport klienta, nie na nas.
+CLIENT_WAITS = ("awaiting_signature", "awaiting_client", "awaiting_t4t")
+
+
+def stage_counts(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Liczniki pięciu kroków miesiąca dla listy osób (wiersze ``month_view``).
+
+    Raport → kontrola (odczyt MD i reguły) → przyjęcie RCP → faktura kontraktora
+    z KSeF → faktura do klienta. Każda osoba jest w każdym kroku dokładnie raz,
+    więc liczby kroku sumują się do liczby osób (``check.auto_clean`` to część
+    ``clean``). „Błąd” to reguła, która blokuje przyjęcie (``fail``), „uwaga” —
+    to, co Finanse mogą przyjąć na karcie osoby, „rozstrzygnięte” — przyjęte
+    mimo uwag (``accepted_issue``).
+    """
+
+    def n(pred: Any) -> int:
+        return sum(1 for r in rows if pred(r))
+
+    def status(*names: str) -> Any:
+        return lambda r: r["status"] in names
+
+    def clean(r: dict[str, Any]) -> bool:
+        # Przyjęte mimo uwag rozstrzygnął człowiek — to nie jest „bez uwag”.
+        return r["status"] == "ok" or (
+            r["status"] == "accepted" and not r.get("accepted_issue")
+        )
+
+    return {
+        "people": len(rows),
+        "report": {
+            "in": n(lambda r: r["status"] != "missing"),
+            "missing": n(status("missing")),
+            # MD odczytał automat z pliku albo wpisały je Finanse.
+            "md_auto": n(lambda r: r.get("md_source") == "rcp"),
+            "md_manual": n(lambda r: r.get("md_source") == "manual"),
+        },
+        "check": {
+            "clean": n(clean),
+            # Automat przeczytał plik i reguły nie miały uwag: bez człowieka.
+            "auto_clean": n(lambda r: r.get("md_source") == "rcp" and clean(r)),
+            "resolved": n(
+                lambda r: r["status"] == "accepted" and bool(r.get("accepted_issue"))
+            ),
+            "warn": n(
+                lambda r: r["status"] == "warnings" and r.get("issue_level") != "fail"
+            ),
+            "fail": n(
+                lambda r: r["status"] == "warnings" and r.get("issue_level") == "fail"
+            ),
+            "returned": n(status("needs_fix")),
+            "unread": n(status("checking")),
+            "no_md": n(status("no_md")),
+            "missing": n(status("missing")),
+        },
+        "accept": {
+            "done": n(status("accepted")),
+            "auto": n(lambda r: bool(r.get("accepted_auto"))),
+            "ready": n(status("ok")),
+        },
+        "contractor_invoice": {
+            "match": n(lambda r: r["contractor_invoice"] == "in_ksef"),
+            "differs": n(
+                lambda r: r["contractor_invoice"] in ("differs", "extra_pending")
+            ),
+            "nip": n(lambda r: r["contractor_invoice"] == "nip_check"),
+            "can_issue": n(lambda r: r["contractor_invoice"] == "can_issue"),
+            "none": n(lambda r: r["contractor_invoice"] == "none"),
+            # RCP przyjęte, a faktury kontraktora jeszcze nie ma: ruch konsultanta.
+            "waiting": n(
+                lambda r: (
+                    r["status"] == "accepted"
+                    and r["contractor_invoice"] in ("none", "can_issue")
+                )
+            ),
+        },
+        "client_invoice": {
+            "issued": n(lambda r: r["client_invoice"] == "issued"),
+            "ready": n(lambda r: r["client_invoice"] == "ready"),
+            "waiting_client": n(lambda r: r["client_invoice"] in CLIENT_WAITS),
+            "waiting": n(lambda r: r["client_invoice"] == "waiting"),
+            # Faktura sprzedaży w KSeF, choć RCP w NEXUS-ie nieprzyjęte.
+            "issued_early": n(
+                lambda r: r["client_invoice"] == "issued" and r["status"] != "accepted"
+            ),
+        },
+        "missing_order": n(lambda r: not r.get("order_number")),
+    }
+
+
+def add_stages(total: dict[str, Any], part: dict[str, Any]) -> dict[str, Any]:
+    """Suma dwóch wyników ``stage_counts`` (liczby w zagnieżdżonych słownikach)."""
+
+    out: dict[str, Any] = {}
+    for key in total.keys() | part.keys():
+        a, b = total.get(key), part.get(key)
+        if isinstance(a, dict) or isinstance(b, dict):
+            out[key] = add_stages(a or {}, b or {})
+        else:
+            out[key] = (a or 0) + (b or 0)
+    return out
+
+
+def reason_level(row: dict[str, Any]) -> str:
+    """Rodzaj sprawy w kolejce: kto ją rozstrzyga i czy blokuje przyjęcie."""
+
+    status = row["status"]
+    if status == "missing":
+        return "missing"
+    if status == "checking":
+        return "unread"
+    if status == "no_md":
+        return "order"
+    if status == "needs_fix":
+        return "returned"
+    return "fail" if row.get("issue_level") == "fail" else "warn"
 
 
 async def _client_ids(db: AsyncSession, month: str) -> list[int]:
@@ -180,7 +295,9 @@ async def overview(db: AsyncSession, month: str, *, amounts: bool) -> dict[str, 
     }
 
     clients: list[dict[str, Any]] = []
-    reasons: dict[str, dict[str, Any]] = {}
+    # Klucz grupy to powód i rodzaj: ta sama reguła u jednego klienta blokuje,
+    # a u innego tylko ostrzega (poziom reguły jest per klient).
+    reasons: dict[tuple[str, str], dict[str, Any]] = {}
     closing: dict[str, list[dict[str, Any]]] = {
         "ksef_not_accepted": [],
         "reserve": [],
@@ -216,6 +333,7 @@ async def overview(db: AsyncSession, month: str, *, amounts: bool) -> dict[str, 
             "client_report": None,
             "top_reason": None,
             "auto_accept": view.get("auto_accept"),
+            "stages": stage_counts(rows),
         }
         for key, found in closing_rows(rows, client_id, entry["name"]).items():
             closing[key].extend(found)
@@ -238,9 +356,17 @@ async def overview(db: AsyncSession, month: str, *, amounts: bool) -> dict[str, 
             key, title = found
             if key != MISSING_REASON:
                 top[title] += 1
+            level = reason_level(row)
             group = reasons.setdefault(
-                key,
-                {"key": key, "title": title, "count": 0, "clients": {}, "people": []},
+                (key, level),
+                {
+                    "key": key,
+                    "title": title,
+                    "level": level,
+                    "count": 0,
+                    "clients": {},
+                    "people": [],
+                },
             )
             group["count"] += 1
             group["clients"][client_id] = group["clients"].get(client_id, 0) + 1
@@ -269,6 +395,9 @@ async def overview(db: AsyncSession, month: str, *, amounts: bool) -> dict[str, 
             for cid, n in sorted(group["clients"].items(), key=lambda kv: -kv[1])
         ]
     by_person = [c for c in clients if c["client_report"] is None]
+    stages: dict[str, Any] = {}
+    for c in by_person:
+        stages = add_stages(stages, c["stages"])
     return {
         "month": month,
         "can_see_amounts": amounts,
@@ -282,6 +411,7 @@ async def overview(db: AsyncSession, month: str, *, amounts: bool) -> dict[str, 
             "contractor_in_ksef": sum(c["contractor_in_ksef"] for c in by_person),
             "client_invoice_issued": sum(c["client_invoice_issued"] for c in by_person),
         },
+        "stages": stages or stage_counts([]),
         "clients": clients,
         "reasons": ordered,
         "closing": _closing_summary(closing, amounts),

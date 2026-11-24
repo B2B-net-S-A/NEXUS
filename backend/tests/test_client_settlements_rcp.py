@@ -619,3 +619,22 @@ def test_pdf_suma_z_brakujacymi_dniami_daje_sume_godzin():
     assert p.day_totals == ()
     r = _eval(p)
     assert _states(r)["Sumy MD policzone od nowa"] == "ok"
+
+
+def test_koszty_delegacji_to_uwaga_z_opisem():
+    """RCP z kosztami delegacji ma uwagę z tytułem, nie samą informację.
+
+    Do 24.11.2026 silnik ustawiał uwagę, a zapisywał sprawdzenie jako
+    informację, więc ekran pokazywał „Z uwagami” bez żadnego powodu.
+    """
+    import dataclasses
+
+    parsed = dataclasses.replace(parse_pdf_text(PDF_TEXT), travel_total=D("450.00"))
+    r = _eval(parsed)
+    assert r.warn and not r.blocking
+    warns = [c for g in r.groups for c in g["checks"] if c["state"] == "warn"]
+    assert [c["title"] for c in warns] == ["Delegacja do sprawdzenia"]
+    # Stały klucz: w „Przebiegu miesiąca” jedna grupa zamiast jednej na kwotę.
+    assert warns[0]["rule"] == "travel.rcp_costs"
+    assert "450 zł brutto" in warns[0]["detail"]
+    assert "Faktury kosztów" in warns[0]["detail"]

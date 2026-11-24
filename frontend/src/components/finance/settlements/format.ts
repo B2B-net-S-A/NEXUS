@@ -25,6 +25,17 @@ export const STATUS: Record<SettlementStatus, { label: string; tone: StatusDotTo
   accepted: { label: "Przyjęte", tone: "success" },
 };
 
+/**
+ * Stan RCP w wierszu: „Z uwagami” dzieli się na „Błąd” (reguła blokuje przyjęcie)
+ * i „Uwaga” (Finanse mogą przyjąć na karcie osoby) — makiety 24.11.2026.
+ */
+export function statusLook(status: SettlementStatus, issueLevel?: "fail" | "warn" | null): { label: string; tone: StatusDotTone } {
+  if (status === "warnings") return issueLevel === "fail" ? { label: "Błąd", tone: "danger" } : { label: "Uwaga", tone: "warning" };
+  if (status === "no_md") return { label: "Zamówienie bez MD", tone: "danger" };
+  if (status === "checking") return { label: "Nieodczytany plik", tone: "info" };
+  return STATUS[status];
+}
+
 export const CONTRACTOR_INVOICE: Record<ContractorInvoiceState, { label: string; tone: StatusDotTone }> = {
   none: { label: "Po przyjęciu RCP", tone: "neutral" },
   can_issue: { label: "Może wystawić", tone: "info" },
