@@ -1,6 +1,6 @@
 # Rozliczenia: czytniki MD z plików klientów spoza RCP BNP
 
-<!-- indeks: czytniki plików, Time Sheet PDF, polski Time Sheet, Imię Nazwisko, Łączna liczba godzin, Okres od, BIK PDF, Rozliczenie czasu pracy, ERGO Monthly confirmation, NN Ilość MD, rozliczeniakontraktorow, Orlen protokół, Roboczodni, Sugerowane wynagrodzenie, Ewidencja czasu pracy, SAP Fieldglass, timeSheet.worker.list, EY, rok w szablonie, declared, _other_files, inny plik miesiąca, proof.month bez MD, Sprawdzanie, kind_of_file, invoice zamiast report, kolejność plików, remis created_at, ten sam czas zapisu, _month_reports, graph_message_id, załączniki jednego maila, Polkomtel -B2B, KEŚU źródło, kesu_flow._source, akceptacja z Jiry bez opiekuna, przekazanie konsultanta, faktura konsultanta w paczce, faktury kosztów z maila z Jiry -->
+<!-- indeks: czytniki plików, Time Sheet PDF, polski Time Sheet, Imię Nazwisko, Łączna liczba godzin, Okres od, BIK PDF, Rozliczenie czasu pracy, ERGO Monthly confirmation, NN Ilość MD, rozliczeniakontraktorow, Orlen protokół, Roboczodni, Sugerowane wynagrodzenie, Ewidencja czasu pracy, SAP Fieldglass, timeSheet.worker.list, EY, rok w szablonie, declared, _other_files, inny plik miesiąca, proof.month bez MD, Sprawdzanie, kind_of_file, invoice zamiast report, DD-MM-RRRR, opis zawinięty w komórce, tabela przestawna, Suma z Godziny, osoba z numeru umowy, _sole_agreements, inne imię w protokole, kolejność plików, remis created_at, ten sam czas zapisu, _month_reports, graph_message_id, załączniki jednego maila, Polkomtel -B2B, KEŚU źródło, kesu_flow._source, akceptacja z Jiry bez opiekuna, przekazanie konsultanta, faktura konsultanta w paczce, faktury kosztów z maila z Jiry -->
 
 Od 23.11.2026. W próbie rozliczeń IX–X 2026 (kopia produkcji z 23.11, reguły klientów
 z produkcji) 60 przypadków poza Nordeą stało w „Sprawdzaniu” bez MD, choć plik był w poczcie.
@@ -14,6 +14,7 @@ w XLSX, raport BIK i KEŚU. Cel Artura: od grudnia NEXUS rozlicza z poczty bez p
 | Nasz „Time Sheet” w PDF (Bosch, Polkomtel, ERSTE, Cardif) | `timesheet.text_rows` | godziny z wierszy dat / `fields.md_hours`; „-” to pusta komórka |
 | PDF „<osoba> Okres od: · Projekt: … Okres do: · Data Dzień Opis Godziny Rozliczalne” (Bosch) | `timesheet.text_rows` | jak wyżej; pusta kolumna „Rozliczalne” znika z tekstu, więc wystarcza jedna liczba |
 | Polski „Time Sheet” XLSX: „Imię Nazwisko · Data · Opis zadań · Liczba godzin · Uwagi” (Bosch, ERSTE) | `timesheet.parse_rows` | tylko w arkuszu z tytułem „Time Sheet”, bo ta sama tabela jest w raporcie BIK |
+| Nasz „Time Sheet” XLSX z „Billable” (VeloBank: „Total Hours” 8 w każdym dniu kalendarza) | `timesheet.parse_rows` | „Billable”; tekst w nim („x” w weekend i dzień wolny) to 0 h, a pusta komórka albo brak kolumny to „Total Hours” minus „Non-billable” (od 24.11.2026, wcześniej „x” dawał 8 h: 30 MD zamiast 20) |
 | BIK PDF bez linii siatki: „Za miesiąc wrzesien 2026 · Zadanie Data Czas (godz.) · Suma 24 h” albo „Miesiąc 01.09.2026 · dni 1-09 · Razem 160” | `timesheet_bik.text_rows` | wiersze, a przy rozbieżności „Suma” z ostrzeżeniem |
 | ERGO „Monthly confirmation of hours worked” | `confirmation_ergo` | „Total 168,00” / `fields.md_hours` |
 | NN: mail „Rozliczenie pracownika … za okres 09-2026” z „Ilość MD” | `mail_nn` | MD wprost (akceptacja klienta), bez przeliczania |
@@ -166,3 +167,32 @@ RITS „Rejestr czasu”.
 Powtórka na `nexus_staging_klodko_v5` (23.11, odczyt bez zapisu): z 204 przypadków IX–X
 (bez KEŚU) MD zmienia się tylko w czterech: EY X, Orlen X i ERSTE X po 22 MD, równe fakturom
 Finansów, oraz ERSTE IX 22 MD (bez faktury w próbie).
+
+## Bosch i CeZ po przypisaniu plików do osób (24.11.2026)
+
+Po #3876 pliki Boscha (kontrakt 627) i CeZ (668) leżały już przy właściwych kontraktach,
+ale rozliczenia stały w „Czeka na liczbę MD”: czytniki nie znały ich układu.
+
+| Wzór | Moduł | Skąd MD |
+|---|---|---|
+| Time Sheet Boscha w PDF: wiersz „01-09-2026 <Projekt> <opis> 8 8 0” (Total Hours · Billable · Non-billable) | `timesheet.text_rows` | jak nasz Time Sheet w PDF; daty „DD-MM-RRRR” obok „RRRR-MM-DD” |
+| Ten sam plik, opis zawinięty w komórce: data stoi sama, godziny w następnej linii | `timesheet.text_rows` | godziny z następnej linii tylko w pełnym komplecie kolumn, bo liczba z opisu („wydanie 2026”) to nie godziny |
+| Protokół CeZ z tabelą przestawną: „Suma z Godziny · Imię i nazwisko · Część umowy · Rola · Nazwa Projektu · Typ prac · Suma” | `protocol_collective` | osoba z wiersza „Imię Nazwisko Suma N” tabeli szczegółów pod „Podsumowaniem”, gdy suma osób = „Suma końcowa” zestawienia, a imię i nazwisko stoją w zestawieniu; inaczej jak dotąd tekst zestawienia i „Suma końcowa” |
+
+**Osoba z numeru umowy.** CeZ zawiera umowę wykonawczą na osobę, a w protokole pisze
+zdrobnienie albo inne imię niż kartoteka (CeZ/177 za X: inne imię, to samo nazwisko).
+Protokół jednej osoby z numerem umowy daje MD osobie z kontraktu, gdy w miesiącu rozliczenia
+na tej umowie pracuje tylko ona (`service._sole_agreements`: linie zamówień z miesiąca bez
+anulowanych, numer z grupy zamówienia porównany przez `protocol_collective.contract_key`).
+Kontrola nazwiska to wtedy „Osoba z numeru umowy CEZ/…” z imieniem z protokołu w opisie.
+Druga osoba na umowie w miesiącu (CeZ/242 ma kilka osób, CeZ/2 zastępstwo od listopada),
+protokół kilku osób albo numer innej umowy = bez MD, jak dotąd. Ten sam numer przypisuje
+protokół w poczcie (`identity.resolve_by_agreement`, #3876), ale tu liczy się miesiąc
+rozliczenia, nie dzień odczytu poczty.
+
+Pomiar na klonie `nexus_staging_klodko_v6r2id` (przeliczenie 365 rozliczeń IX–X w transakcji
+z rollbackiem, `main` i gałąź na tych samych danych): zmieniają się tylko trzy przypadki.
+Bosch 627 IX 21 MD i X 17 MD („ok”), CeZ 668 X 20 MD (160 h, „uwagi” z kontroli oświadczenia
+o prawach autorskich). MD są równe fakturom Finansów. Za 668 X w KSeF są dwa oryginały po
+160 godz., bo pierwszą fakturę skorygowano do zera i wystawiono ponownie: porównanie, które
+pomija korektę, pokazuje 40 MD.

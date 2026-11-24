@@ -126,9 +126,19 @@ export function InvoiceRebateBox({
           Poza obrotem pozycje podróży i refaktur z {rebate.excluded} fakt.
         </p>
       ) : null}
+      {rebate.archived > 0 ? (
+        <p className="mt-1 text-xs text-muted-foreground">
+          W obrocie {rebate.archived} fakt. sprzed KSeF z archiwum eBI24.
+        </p>
+      ) : null}
       {rebate.missing_fx > 0 ? (
         <p className="mt-1 text-xs text-destructive">
           Bez kursu NBP do progu: {rebate.missing_fx} fakt. — obrót może być zaniżony.
+        </p>
+      ) : null}
+      {rebate.unreadable > 0 ? (
+        <p className="mt-1 text-xs text-destructive">
+          Bez czytelnego pliku w archiwum eBI24: {rebate.unreadable} fakt. — obrót może być zaniżony.
         </p>
       ) : null}
     </section>

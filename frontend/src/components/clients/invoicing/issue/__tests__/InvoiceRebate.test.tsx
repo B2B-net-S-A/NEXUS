@@ -27,6 +27,8 @@ const REBATE: InvoiceRebate = {
   invoices: 120,
   excluded: 2,
   missing_fx: 0,
+  archived: 0,
+  unreadable: 0,
 };
 
 describe("rabat od obrotu na karcie faktury", () => {
@@ -45,6 +47,15 @@ describe("rabat od obrotu na karcie faktury", () => {
     expect(box).toHaveTextContent("Poza obrotem pozycje podróży i refaktur z 2 fakt.");
     expect(within(box).queryByText(/brak rabatu/)).toBeNull();
     expect(within(box).queryByText(/Korekta za/)).toBeNull();
+    expect(within(box).queryByText(/archiwum eBI24/)).toBeNull();
+  });
+
+  it("liczy faktury sprzed KSeF z archiwum eBI24 i ostrzega o nieczytelnych plikach", () => {
+    render(<InvoiceRebateBox rebate={{ ...REBATE, archived: 300, unreadable: 2 }} />);
+    expect(screen.getByText("W obrocie 300 fakt. sprzed KSeF z archiwum eBI24.")).toBeInTheDocument();
+    expect(screen.getByText(/Bez czytelnego pliku w archiwum eBI24: 2 fakt\. — obrót może być zaniżony\./)).toHaveClass(
+      "text-destructive",
+    );
   });
 
   it("po przekroczeniu: korekta za miesiąc przekroczenia, brak pozycji ostrzega", () => {

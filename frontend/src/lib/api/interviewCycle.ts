@@ -18,6 +18,7 @@ import type {
   SupersededOutlook,
 } from "@/lib/interview-cycle";
 import type { DebriefFromText } from "@/lib/debrief-from-text";
+import type { BankQuestion } from "@/lib/question-bank";
 import type { SlotsFromMail } from "@/lib/interview-slot-mail";
 
 /** Wynik potwierdzenia albo zmiany terminu: rozmowa w kalendarzu. */
@@ -238,6 +239,16 @@ export const interviewCycleApi = {
       })
       .then((r) => r.data),
 };
+
+/** Rekrutacje → „Pytania z rozmów”: pytania klientów z debriefów i archiwum Excela. */
+export function useQuestionBank() {
+  return useQuery({
+    queryKey: ["interview-cycle", "question-bank"] as const,
+    queryFn: () =>
+      api.get<{ items: BankQuestion[] }>("/api/interview-cycle/question-bank").then((r) => r.data),
+    staleTime: 5 * 60_000,
+  });
+}
 
 export interface ClientQuestion {
   id: number;

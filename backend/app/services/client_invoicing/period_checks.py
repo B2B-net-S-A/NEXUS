@@ -15,7 +15,9 @@ ryzyka przy fakturach sprzedaży:
   wymagała korekty. Faktura bez protokołu od klienta za ten miesiąc dostaje
   ostrzeżenie, nie blokadę (decyzja Artura). Okres i numer umowy bierzemy z treści
   PDF (``protocol_collective``), nie z tematu maila: tematy bywają te same dla różnych
-  miesięcy, a w wątku jednej umowy przyszedł protokół innej.
+  miesięcy, a w wątku jednej umowy przyszedł protokół innej. Imię w protokole bywa
+  inne niż w kartotece (CeZ/177 za X 2026): osobę wskazuje wtedy numer umowy, na
+  której w miesiącu pracuje tylko ona, jak w rozliczeniu (``by_agreement``).
 """
 
 from __future__ import annotations
@@ -247,17 +249,25 @@ def protocol_matches(
     *,
     period: str,
     doc_month: Optional[str],
+    agreements: frozenset[str] = frozenset(),
 ) -> bool:
     """Protokół za ``period`` z osobą i umową z treści PDF.
 
     Okres z treści (CeZ); protokół bez okresu w treści (PFRON) — okres dokumentu
     z nazwy pliku albo tematu, nie zgadnięty z daty maila. Umowa z treści musi być
-    umową osoby, gdy NEXUS ją zna."""
+    umową osoby, gdy NEXUS ją zna. Osoby z innym imieniem w protokole szukamy jak
+    rozliczenie: ``agreements`` to umowy, na których w miesiącu pracuje tylko ona
+    (``service._sole_agreements``); protokół jednej osoby z takim numerem jest jej."""
 
     if protocol is None:
         return False
     month = protocol.month or doc_month
-    if month != period or protocol_collective.person_in(protocol, need.person) is None:
+    if month != period:
+        return False
+    if (
+        protocol_collective.person_in(protocol, need.person) is None
+        and protocol_collective.by_agreement(protocol, agreements) is None
+    ):
         return False
     wanted = protocol_collective.contract_key(need.contract_number)
     if wanted is None:
@@ -310,10 +320,13 @@ async def without_protocol(
     Protokół to PDF z raportów miesiąca osoby (``cp_documents``), którego nadawca
     jest z domeny klienta. Protokół podpisany przez PM-a i odesłany do klienta
     z DW rozliczenia@ ma nadawcę klienta z wątku (``mailbox._thread_client_address``),
-    a PDF z adresu firmy bez klienta w wątku się nie liczy."""
+    a PDF z adresu firmy bez klienta w wątku się nie liczy. Osobę z innym imieniem
+    w protokole wskazuje numer umowy tylko tej osoby w miesiącu, tą samą funkcją
+    co rozliczenie (``service._sole_agreements``), żeby oba mówiły to samo."""
 
     if not needs:
         return []
+    from app.services.client_settlements import service
     from app.services.consultant_portal import identity
 
     year, month = (int(part) for part in period.split("-"))
@@ -341,10 +354,20 @@ async def without_protocol(
             by_contract.setdefault(int(doc.contract_id), []).append(doc)
     missing = []
     for need in needs:
+        client_docs = by_contract.get(need.contract_id, [])
+        agreements = (
+            await service._sole_agreements(db, need.contract_id, period)
+            if client_docs
+            else frozenset()
+        )
         found = False
-        for doc in by_contract.get(need.contract_id, []):
+        for doc in client_docs:
             if protocol_matches(
-                await _protocol(doc), need, period=period, doc_month=_doc_month(doc)
+                await _protocol(doc),
+                need,
+                period=period,
+                doc_month=_doc_month(doc),
+                agreements=agreements,
             ):
                 found = True
                 break
