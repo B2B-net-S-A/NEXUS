@@ -332,7 +332,7 @@ jobs:
         # pliku danych musi się zgadzać po obu stronach `combine`.
         run: pip install coverage==7.15.3
       - name: Download shard coverage data
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: backend-coverage-shard-*
           path: backend
@@ -397,7 +397,7 @@ jobs:
         # Jeden upload PO scaleniu zamiast czterech ćwiartek per shard —
         # Codecov i tak scalał po fladze, ale bez tokena nie przyjmował nic.
         if: ${{ !cancelled() && env.CODECOV_TOKEN != '' }}
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           files: backend/coverage.xml
           flags: backend
@@ -986,11 +986,16 @@ jobs:
       # biegną w kolejce.
       - name: Vitest (testy dotknięte zmianą)
         if: steps.scope.outputs.run == 'true' && github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          npx vitest run --changed "$BASE_SHA" --passWithNoTests
+          # Vitest od 5.1 liczy `--changed` przez `git diff BASE...HEAD`
+          # (merge-base). Checkout ma depth=1, więc commit scalenia PR-a stoi
+          # bez rodziców i git zgłasza „no merge base” (24.11.2026, grupa
+          # zależności #3828). Depth=2 dociąga rodziców commita scalenia.
+          # Bazą jest pierwszy rodzic (main, na którym GitHub złożył PR), nie
+          # `base.sha` z eventu: ten bywa nowszym mainem, którego checkout
+          # nie ma („Invalid symmetric difference expression”, #3898).
+          git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+          npx vitest run --changed "$(git rev-parse HEAD^1)" --passWithNoTests
           # Strażnicy całego repo: czytają drzewo (okruszki, inwentarze funkcji,
           # harnessy, natywne confirm), więc `--changed` ich nie wybiera, gdy PR
           # zmienia tylko pilnowany plik. 21.10.2026 brak polskiej nazwy okruszka
@@ -1221,7 +1226,7 @@ jobs:
           retention-days: 30
       - name: Upload frontend coverage to Codecov
         if: ${{ !cancelled() && env.CODECOV_TOKEN != '' }}
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           files: frontend/coverage/lcov.info
           flags: frontend
