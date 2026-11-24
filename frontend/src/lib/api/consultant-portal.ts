@@ -366,6 +366,8 @@ export interface PortalDocument {
   channel: "portal" | "mailbox";
   created_at: string;
   reject_reason: string | null;
+  /** Tylko plik wysłany przez konsultanta; plik od klienta bywa zbiorczy (bez nazwy i linku). */
+  downloadable: boolean;
 }
 
 export interface PortalMonth {

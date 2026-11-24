@@ -56,6 +56,15 @@ przepuszcza też przy włączonym panelu.
   komentarze ani checklista. Wolny tekst „Czeka na” z karty zostaje wewnętrzny: konsultant dostaje stałą
   etykietę „Czekamy na odpowiedź” (decyzja Artura 03.11.2026).
 - Moduł publiczny ma `@limiter.limit`, więc nie ma `from __future__ import annotations`.
+- Konsultant pobiera i widzi z nazwą tylko plik, który wysłał sam: z portalu albo mailem
+  ze swojego adresu (`documents.sent_by_consultant`, decyzja Artura z 24.11.2026). Czytniki
+  rozliczenia@ zapisują ten sam plik zbiorczy klienta (arkusz CA, protokół CeZ albo PFRON,
+  `.eml` koordynatora z godzinami, tabela podziału na zamówienia) przy kontrakcie każdej
+  osoby z dokumentu, a w nim są nazwiska, godziny i kwoty pozostałych. Plik od klienta albo
+  koordynatora ma w portalu sam status („Raport: przysłał klient”), bez nazwy i linku,
+  a pobranie odpowiada 404 (`own_document`). Lista dozwolona zamiast flagi „zbiorczy”, bo
+  obejmuje pliki już zapisane i każdy nowy czytnik. Finanse pobierają wszystko jak dotąd.
+  Pilnuje tego `test_consultant_portal_collective_file_db.py`.
 
 ## Bez kodu SMS
 
