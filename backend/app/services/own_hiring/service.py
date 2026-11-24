@@ -104,9 +104,13 @@ def token_digest(token: str) -> str:
 
 
 def current_token(application: OwnHiringApplication) -> Optional[str]:
-    if not application.token_nonce:
+    """Token zaproszenia albo ``None``; po zmianie sekretu bez martwego linku."""
+    if not application.token_nonce or not application.token_sha256:
         return None
-    return compute_token(application.id, application.token_nonce)
+    token = compute_token(application.id, application.token_nonce)
+    if not hmac.compare_digest(token_digest(token), application.token_sha256):
+        return None
+    return token
 
 
 def public_link(token: str) -> str:

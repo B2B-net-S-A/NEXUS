@@ -2,8 +2,11 @@
 
 from datetime import date, datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+from app.core.config import settings
+from app.services.own_hiring import service
 from app.services.own_hiring.candidate_filter import (
     classify,
     normalize_title,
@@ -196,3 +199,17 @@ def test_public_module_keeps_slowapi_compatible_annotations():
     root = Path(__file__).resolve().parents[1]
     source = (root / "app/api/public_own_hiring.py").read_text(encoding="utf-8")
     assert "\nfrom __future__ import annotations" not in source
+
+
+def test_after_secret_key_change_the_invitation_link_is_not_rebuilt(monkeypatch):
+    """Po zmianie SECRET_KEY link liczony od nowa nie otworzyłby zaproszenia."""
+    application = SimpleNamespace(
+        id=4, token_nonce=None, token_sha256=None, token_expires_at=None
+    )
+    issued = service.issue_token(
+        application, datetime(2026, 11, 24, tzinfo=timezone.utc)
+    )
+    assert service.current_token(application) == issued
+    monkeypatch.setattr(settings, "SECRET_KEY", settings.SECRET_KEY + "-po-zmianie")
+    assert service.current_token(application) is None
+    assert application.token_sha256 == service.token_digest(issued)
