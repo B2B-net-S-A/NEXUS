@@ -292,7 +292,9 @@ async def update_team(
         db.add(_audit(job.id, current_user, "job_team_added", team_id=team.id))
     if team.panel_enabled and added:
         # Nowe stanowisko włączonego zespołu dostaje panel jak pozostałe.
-        await team_service.sync_position_panels(db, team, added, current_user.id)
+        await team_service.sync_position_panels(
+            db, team, added, current_user.id, enable_positions=True
+        )
     await db.flush()
     view = await team_service.team_detail(db, team, kept + added)
     await db.commit()
@@ -328,6 +330,9 @@ async def update_team_panel(
                 team,
                 jobs,
                 current_user.id,
+                # Panele stanowisk włącza tylko włączenie linku zespołu; sama
+                # zmiana stawki nie wskrzesza stanowiska wyłączonego przez DL-a.
+                enable_positions=team.panel_enabled and not was_enabled,
                 rate_from_team=body.show_rate is not None,
             )
         )
