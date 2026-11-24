@@ -649,6 +649,24 @@ def test_answer_that_is_not_a_plan_is_an_error_for_the_caller() -> None:
     assert cmd.verify_plan('{"operations": "brak"}', LINES, ())["operations"] == []
 
 
+def test_plan_with_a_stray_quote_or_trailing_comma_still_parses() -> None:
+    """Zgłoszenie 24.11.2026: model odpowiedział JSON-em z błędem składni,
+    ``json.loads`` padł z JSONDecodeError, a rekruter dostał „Asystent jest
+    chwilowo niedostępny”. Najczęstsze błędy modelu: cudzysłów bez ``\\``
+    w zdaniu i przecinek przed ``}``."""
+    raw = (
+        '{"operations": [{"type": "remove", "lines": [3], '
+        '"why": "Zdanie "ogólne" nic nie mówi o pracy w "Entra ID"",}], '
+        '"question": null}'
+    )
+    op = only(cmd.verify_plan(raw, LINES, ()))
+    assert op["lines"] == [3]
+    assert "ogólne" in op["why"]
+    assert cmd._question(
+        '{"operations": [], "question": "Co robił w "Entra ID"?"}'
+    ) == ('Co robił w "Entra ID"?')
+
+
 def test_why_is_plain_text_without_control_characters() -> None:
     op = only(
         plan(

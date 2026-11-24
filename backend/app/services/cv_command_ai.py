@@ -83,7 +83,7 @@ from app.services import cv_qc, cv_role_order, cv_selection_ai
 from app.services import dz_review as dz
 from app.services.ai_models import model_chain_for
 from app.services.ai_quota import ai_feature
-from app.services.cv_qc import _json_object
+from app.services.cv_qc import _json_object as _strict_json_object
 from app.services.cv_generator_b2b.legacy_v7._helpers import (
     screening_text_without_questions,
 )
@@ -449,6 +449,28 @@ class Line:
 # 14.10.2026 `new_words` mieszka w `cv_selection_ai` — liczy też plakietkę
 # „Zgodne ze źródłem” rozwinięcia.
 new_words = cv_selection_ai.new_words
+
+
+def _json_object(raw: str) -> dict:
+    """Obiekt JSON z odpowiedzi modelu; przy złej składni — ostrożna naprawa.
+
+    Model bywa, że wstawi w zdanie cudzysłów bez ``\\`` albo przecinek przed
+    ``}``. Bez naprawy rekruter dostawał „chwilowo niedostępny”, choć model
+    odpowiedział (JSONDecodeError na produkcji 24.11.2026). Naprawa z generatora CV: najpierw ścisłe
+    parsowanie, więc poprawny JSON zostaje nietknięty.
+    """
+    try:
+        return _strict_json_object(raw)
+    except json.JSONDecodeError:
+        # Moduł generatora ciągnie renderer DOCX — import dopiero przy złym JSON-ie.
+        from app.services.cv_generator_b2b.standalone_service import (  # noqa: PLC0415
+            _loads_cv_json,
+        )
+
+        data = _loads_cv_json(raw)
+        if not isinstance(data, dict):
+            raise ValueError("model output is not an object") from None
+        return data
 
 
 def _visible(text: str) -> str:
