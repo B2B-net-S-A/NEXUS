@@ -452,7 +452,11 @@ class Senders:
     każdy adres spoza domen firmy. Nadawca bez adresu nie akceptuje nigdy.
 
     Projekt FIX (``Contract.engagement_model == fixed``): ``client`` to domeny
-    firmy, a ``who`` nazywa akceptującego w uwagach („PM-a firmy”)."""
+    firmy, a ``who`` nazywa akceptującego w uwagach („PM-a firmy”).
+
+    ``consultant``: adresy samego konsultanta kontraktu
+    (``service._without_consultant``). Jego skrzynka u klienta bywa w domenie
+    klienta, tej samej co kierownika, ale on sam swoich godzin nie akceptuje."""
 
     client: frozenset[str] = frozenset()
     own: frozenset[str] = frozenset()
@@ -460,10 +464,15 @@ class Senders:
     #: Imiona i nazwiska osób klienta (kontakty klienta w NEXUS-ie): nadawca
     #: zrzutu ekranu akceptacji, na którym nie widać adresu (``judge_screenshot``).
     people: frozenset[str] = frozenset()
+    consultant: frozenset[str] = frozenset()
+
+    def is_consultant(self, address: Optional[str]) -> bool:
+        match = _ADDRESS.search(address or "")
+        return match is not None and match.group(0).lower() in self.consultant
 
     def accepts_from(self, address: Optional[str]) -> bool:
         match = _ADDRESS.search(address or "")
-        if match is None:
+        if match is None or match.group(0).lower() in self.consultant:
             return False
         domain = match.group(1).lower()
         if self.client:
@@ -486,12 +495,30 @@ def _messages(mail: Mail) -> list[tuple[Optional[str], str]]:
     return [(sender, "\n".join(lines)) for sender, lines in found]
 
 
-def _approved_by(mail: Mail, senders: Senders) -> bool:
+def _approved_by(mail: Mail, senders: Senders, *, consultant: bool = False) -> bool:
+    """Słowo akceptacji w wiadomości akceptującego; ``consultant``: samego konsultanta."""
+
     for sender, text in _messages(mail):
         lines = [line for line in text.splitlines() if not _HEADER_LINE.match(line)]
-        if senders.accepts_from(sender) and _APPROVED.search("\n".join(lines)):
+        who = (
+            senders.is_consultant(sender)
+            if consultant
+            else senders.accepts_from(sender)
+        )
+        if who and _APPROVED.search("\n".join(lines)):
             return True
     return False
+
+
+def addresses(mails: list[Mail]) -> set[str]:
+    """Adresy nadawców wszystkich wiadomości: sam mail i cytaty „From:” z adresem."""
+
+    return {
+        match.group(0).lower()
+        for mail in mails
+        for sender, _text in _messages(mail)
+        if (match := _ADDRESS.search(sender or "")) is not None
+    }
 
 
 def approved(mails: list[Mail], senders: Senders) -> bool:
@@ -648,15 +675,16 @@ def judge(
                 if senders.client
                 else f"z adresu {senders.who}"
             )
-            verdicts.append(
-                Verdict(
-                    False,
-                    f"Brak akceptacji {senders.who}",
-                    f"Potwierdzenie w mailu nie pochodzi {where}. Nasze zestawienie "
-                    f"albo przekazanie bez cytatu odpowiedzi {senders.who} nie jest "
-                    "akceptacją.",
-                )
+            detail = (
+                "Potwierdzenie w mailu napisał sam konsultant ze swojej skrzynki. "
+                "Konsultant nie akceptuje własnych godzin, potrzebna jest "
+                f"akceptacja {senders.who}."
+                if _approved_by(mail, senders, consultant=True)
+                else f"Potwierdzenie w mailu nie pochodzi {where}. Nasze zestawienie "
+                f"albo przekazanie bez cytatu odpowiedzi {senders.who} nie jest "
+                "akceptacją."
             )
+            verdicts.append(Verdict(False, f"Brak akceptacji {senders.who}", detail))
             continue
         matches_hours = hours is not None and any(
             abs(h - hours) < Decimal("0.01") for h in found.hours

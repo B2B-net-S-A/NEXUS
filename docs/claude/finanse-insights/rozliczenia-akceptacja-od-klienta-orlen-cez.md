@@ -1,6 +1,6 @@
 # Rozliczenia: akceptacja tylko od klienta, Orlen (pgnig.pl, kwota z protokołu), oświadczenie CeZ
 
-<!-- indeks: akceptacja klienta, Brak akceptacji klienta, mail_text.judge, Senders, acceptance_senders, proof.accept_has_hours, proof.excel_with_mail, extra.mail_accept, acceptance_mail.from_client, client_mail, akceptacja PM-a, zestawienie godzin koordynatora, forward bez cytatu, pgnig.pl, Orlen Upstream, KNOWN_SENDER_DOMAINS, client_ids_for_sender, zmiana nazwiska, dwa nazwiska w pliku, cl.protocol_amount, kwota z protokołu, faktura sprzedaży, korekta, PO, cl.copyright_statement, oświadczenie o prawach autorskich, autorskie prawa majątkowe, umowa wykonawcza, Centrum e-Zdrowia, CeZ -->
+<!-- indeks: akceptacja klienta, Brak akceptacji klienta, mail_text.judge, Senders, acceptance_senders, proof.accept_has_hours, proof.excel_with_mail, extra.mail_accept, acceptance_mail.from_client, client_mail, akceptacja PM-a, zestawienie godzin koordynatora, forward bez cytatu, pgnig.pl, Orlen Upstream, KNOWN_SENDER_DOMAINS, client_ids_for_sender, zmiana nazwiska, dwa nazwiska w pliku, cl.protocol_amount, kwota z protokołu, faktura sprzedaży, korekta, PO, cl.copyright_statement, oświadczenie o prawach autorskich, autorskie prawa majątkowe, umowa wykonawcza, Centrum e-Zdrowia, CeZ, Senders.consultant, _without_consultant, skrzynka konsultanta u klienta, sender_contract_ids, konsultant nie akceptuje sam -->
 
 Od 23.11.2026, po przeglądzie skrzynek Finansów (skrzynka koordynatorki rozliczeń,
 wzorce: wewnętrzne zestawienie godzin, Orlen, oświadczenia CeZ).
@@ -96,6 +96,59 @@ Status był już „uwagi”.
 
 Projekty FIX, w których godziny podwykonawcy akceptuje PM jako koszt firmy, to wyjątek
 od tej zasady: `finanse-insights/rozliczenia-projekty-fix-akceptacja-pm.md`.
+
+## Wiadomość samego konsultanta to nie akceptacja (24.11.2026)
+
+Decyzja Artura z 24.11.2026, po pomiarze niżej: wdrożyć, także w projektach FIX.
+
+U kilku klientów (w próbie IX–X 2026: PKO, Alior, ERSTE, VeloBank, Polkomtel, BIK, KIR)
+konsultant ma skrzynkę w domenie klienta, tej samej co kierownik. Kontrole patrzyły
+tylko na domenę. Dlatego jako wiadomość klienta przechodziły:
+
+- własny mail konsultanta z fakturą;
+- cytat jego wiadomości w wątku;
+- jego „potwierdzam” w odpowiedzi na pytanie naszej koordynatorki.
+
+Teraz:
+
+- `service._without_consultant` zbiera nadawców z maili miesiąca osoby: sam mail,
+  cytaty „From:”/„Od:”, maile w mailu i wydruk PDF. Sprawdza tylko adresy, które
+  i tak byłyby akceptującym.
+- Adres trafia do `Senders.consultant`, gdy czytnik poczty wskazuje nim ten kontrakt
+  (`identity.sender_contract_ids`). Pasuje adres z kontraktu, z kartoteki, alias
+  Gmaila albo forma `imie.nazwisko@` w domenie klienta z rejestru. Ta sama zasada
+  decyduje o zapisie treści maila (`mailbox._client_wrote`, PR #3876).
+- `Senders.accepts_from` nie przyjmuje adresów konsultanta. Tak działają
+  `proof.accept_has_hours` (`mail_text.judge`), `proof.excel_with_mail`
+  i `extra.mail_accept` (`acceptance_mail.from_client`). Domenę i datę zgody na pracę
+  dodatkową (`_check_domain`, `extra.mail_before`) bierzemy tylko z cudzych wiadomości.
+- Projekt FIX: podwykonawca ze skrzynki firmy też nie akceptuje własnych godzin.
+- Akceptacja ze zrzutu ekranu (`judge_screenshot`, PR #3875) rozpoznaje nadawcę po
+  imieniu i nazwisku. Nazwisko samego konsultanta odpada z osób klienta, nawet gdy
+  stoi w kontaktach klienta. Na kopii tak jest przy jednym kontrakcie, a jego klient
+  nie ma reguły akceptacji.
+- Samo „potwierdzam” konsultanta daje „Brak akceptacji klienta” z opisem
+  „Potwierdzenie w mailu napisał sam konsultant ze swojej skrzynki”.
+- Kontrakt sprawdzamy z perspektywy rozliczanego miesiąca (wcześniejsza z dat: dziś
+  albo koniec miesiąca). Dzięki temu przeliczenie po 60 dniach od końca kontraktu
+  nadal rozpoznaje konsultanta.
+
+Pomiar IX–X 2026, `_recompute` w transakcji z rollbackiem:
+
+- `nexus_staging_klodko_v6r2`, 354 rozliczenia: skrzynka konsultanta w domenie
+  akceptującego w 53. Zmian statusu 0, zmian kontroli 0.
+- `nexus_staging_klodko_v6r2id` (poczta odczytana kodem z #3876), 365 rozliczeń:
+  skrzynka konsultanta w 70. Zmian statusu 0, zmian kontroli 0.
+  - W 68 w wątku pisze też ktoś od klienta. W pozostałych 2 kontrola już pada
+    z innego powodu („Akceptacja bez liczby godzin lub MD”, „Mail bez odpowiedzi
+    akceptującego”).
+  - „Potwierdzam” samego konsultanta bez akceptacji klienta jest raz (KIR). MD nie
+    jest tam odczytane, więc dziś zmiany nie widać.
+- Każdy z 70 adresów to skrzynka konsultanta: nazwisko w adresie albo adres
+  z kontraktu. Żadnego kierownika nie wyłączyło.
+- Koszt: przeliczenie dwóch miesięcy trwa 109 s zamiast 94 s (mediana +0,03 s na
+  rozliczenie, najwięcej +0,6 s). Maile czytamy drugi raz i robimy kilka zapytań na
+  każdy adres z domeny klienta.
 
 ## Orlen
 
