@@ -197,6 +197,8 @@ async def _payload(db: AsyncSession, run: DutySearchRun, user_id: int) -> dict:
                 "gap": a.get("gap") or "",
                 "question": a.get("question") or "",
                 "error": a.get("error"),
+                # Plakietka bramki (konflikt klienta, weto HM) — jak pełny przegląd.
+                "eligibility": a.get("eligibility"),
                 "feedback": result.feedback,
             }
         )

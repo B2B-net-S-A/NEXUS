@@ -187,7 +187,10 @@ async def test_existing_talent_radar_identity_is_reviewed_before_merge(monkeypat
 async def test_quarantined_talent_radar_source_never_reaches_merge_writers(
     monkeypatch,
 ):
-    db = SimpleNamespace(execute=AsyncMock(), commit=AsyncMock())
+    # Punkt zapisu per wiersz (audyt 24.11.2026) — sesja musi go mieć.
+    db = SimpleNamespace(
+        execute=AsyncMock(), commit=AsyncMock(), begin_nested=lambda: _Savepoint()
+    )
     importer = tri.TalentRadarImporter("", db, dry_run=False)
     monkeypatch.setattr(importer, "_find_existing_id", AsyncMock(return_value=7))
     monkeypatch.setattr(
@@ -285,3 +288,161 @@ def test_no_python_constant_leaks_into_a_non_f_string_sql_body():
                     )
 
     assert not leaks, "Python name(s) embedded in SQL text: " + "; ".join(leaks)
+
+
+# ── Paczka: błąd jednego wiersza (audyt 24.11.2026) ─────────────────────────
+#
+# Do 24.11 jeden zły wiersz cofał całą paczkę (rollback w `run()`), a mapy
+# dedupu miały już id wierszy sprzed rollbacku: następne paczki „scalały”
+# osoby z nieistniejącymi rekordami. CV wysłane do magazynu przed INSERT-em
+# zostawały w nim bez właściciela.
+
+
+class _Savepoint:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _BatchDb:
+    """Sesja z punktami zapisu; INSERT wiersza ``fail_ext`` pada."""
+
+    def __init__(self, importer_sql, *, fail_ext=None, fail_commit=False):
+        self.importer_sql = importer_sql
+        self.fail_ext = fail_ext
+        self.fail_commit = fail_commit
+        self.next_id = 100
+        self.savepoints = 0
+        self.commits = 0
+        self.rollbacks = 0
+
+    def begin_nested(self):
+        self.savepoints += 1
+        return _Savepoint()
+
+    async def execute(self, sql, params=None):
+        if sql is self.importer_sql:
+            if params["external_id"] == self.fail_ext:
+                raise RuntimeError("duplicate key value violates unique constraint")
+            self.next_id += 1
+            new_id = self.next_id
+            return SimpleNamespace(fetchone=lambda: (new_id, True))
+        return SimpleNamespace(fetchone=lambda: None)
+
+    async def commit(self):
+        if self.fail_commit:
+            raise RuntimeError("connection lost")
+        self.commits += 1
+
+    async def rollback(self):
+        self.rollbacks += 1
+
+
+def _batch_payload(ext: str) -> dict:
+    return {
+        "talent_radar_source_id": int(ext),
+        "external_id": ext,
+        "external_source": tri.SOURCE_VALUE,
+        "email": f"osoba{ext}@example.test",
+        "name": "Osoba",
+        "lastname": f"Testowa{ext}",
+        "raw_cv_text": "CV",
+        "cv_file_content": b"%PDF-fikcyjne",
+        "cv_storage_key": None,
+        "cv_filename": f"cv-{ext}.pdf",
+        "cv_extracted_data": {},
+        "skills": [],
+        "years_it_experience": None,
+        "competence_category": None,
+        "availability_date": None,
+        "cv_language": None,
+        "cv_parsed_at": None,
+        "source": tri.SOURCE_VALUE,
+        "status": "active",
+    }
+
+
+@pytest.fixture
+def storage(monkeypatch):
+    uploaded: list[str] = []
+    deleted: list[str] = []
+
+    def fake_upload(*, content, filename, content_type):
+        key = f"cvs/0000000{len(uploaded)}-aaaa-bbbb-cccc-dddddddddddd-{filename}"
+        uploaded.append(key)
+        return key
+
+    async def run_inline(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    async def no_dupes(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr("app.services.object_storage.is_available", lambda: True)
+    monkeypatch.setattr("app.services.object_storage.upload_cv", fake_upload)
+    monkeypatch.setattr("app.services.object_storage.delete_cv", deleted.append)
+    monkeypatch.setattr(tri.asyncio, "to_thread", run_inline)
+    monkeypatch.setattr(tri, "find_candidate_duplicates", no_dupes)
+    return SimpleNamespace(uploaded=uploaded, deleted=deleted)
+
+
+@pytest.mark.asyncio
+async def test_one_bad_row_does_not_roll_back_the_batch(storage):
+    importer = tri.TalentRadarImporter("", None, dry_run=False)
+    db = _BatchDb(importer._INSERT_SQL, fail_ext="2")
+    importer.target_db = db
+
+    result = await importer._upsert([_batch_payload(e) for e in ("1", "2", "3")])
+
+    assert result == (2, 0)
+    assert db.savepoints == 3
+    assert db.commits == 1
+    assert importer.row_errors == 1
+    assert len(importer.row_error_samples) == 1
+    assert "osoba2@example.test" not in importer.row_error_samples[0]
+    # Mapy dedupu tylko z wierszami, które się zapisały.
+    assert set(importer._ext_id_to_id) == {"1", "3"}
+    assert set(importer._email_to_id) == {"osoba1@example.test", "osoba3@example.test"}
+    # CV wiersza, który padł po wysłaniu do magazynu, zostaje usunięte.
+    assert storage.deleted == [storage.uploaded[1]]
+
+
+@pytest.mark.asyncio
+async def test_failed_batch_commit_forgets_ids_and_removes_uploaded_cvs(storage):
+    importer = tri.TalentRadarImporter("", None, dry_run=False)
+    importer._email_to_id = {"stara@example.test": 5}
+    importer.target_db = _BatchDb(importer._INSERT_SQL, fail_commit=True)
+
+    with pytest.raises(RuntimeError):
+        await importer._upsert([_batch_payload(e) for e in ("1", "3")])
+
+    assert importer._ext_id_to_id == {}
+    assert importer._email_to_id == {"stara@example.test": 5}
+    assert sorted(storage.deleted) == sorted(storage.uploaded)
+
+
+@pytest.mark.asyncio
+async def test_run_counts_only_the_failed_row_as_error(storage, monkeypatch):
+    importer = tri.TalentRadarImporter("", None, batch_size=10, dry_run=False)
+    db = _BatchDb(importer._INSERT_SQL, fail_ext="2")
+    importer.target_db = db
+    conn = SimpleNamespace(close=AsyncMock())
+    monkeypatch.setattr(tri.asyncpg, "connect", AsyncMock(return_value=conn))
+    monkeypatch.setattr(importer, "_count_source", AsyncMock(return_value=3))
+    monkeypatch.setattr(importer, "_preload_dedup_maps", AsyncMock())
+    batches = [[{"id": e} for e in ("1", "2", "3")], []]
+    monkeypatch.setattr(
+        importer, "_fetch_batch", AsyncMock(side_effect=lambda *_: batches.pop(0))
+    )
+    monkeypatch.setattr(importer, "_to_payload", lambda row: _batch_payload(row["id"]))
+
+    progress = None
+    async for progress in importer.run():
+        pass
+
+    assert progress.inserted == 2
+    assert progress.errors == 1
+    assert len(progress.error_samples) == 1
+    assert db.rollbacks == 0

@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertCircle,
   ArrowLeft,
   Check,
   CircleDashed,
@@ -138,6 +139,9 @@ function ResultCard({ runId, r, caps, jobId }: ResultCardProps) {
     feedback.mutate(value);
   };
   const first = r.evidence[0];
+  // Weto hiring managera: osoba widoczna z powodem, ale bez dodania — tak jak
+  // w pełnym przeglądzie; „Dodaj do Nowych” i tak dostałoby 409 z bramki.
+  const blocked = r.eligibility?.assignment_allowed === false;
   return (
     <li className="rounded-lg border border-border bg-card p-3" data-testid="duty-result">
       <div className="flex items-start gap-3">
@@ -171,6 +175,19 @@ function ResultCard({ runId, r, caps, jobId }: ResultCardProps) {
             {r.position || "—"}
             {r.years_it ? ` · ${r.years_it} lat w IT` : ""}
           </div>
+          {r.eligibility ? (
+            <p
+              data-testid={`duty-eligibility-${r.candidate_id}`}
+              className={`mt-1 flex items-start gap-1.5 rounded-md border px-2 py-1 text-xs ${
+                blocked
+                  ? "border-destructive/30 bg-destructive/10 text-destructive"
+                  : "border-warning/25 bg-warning-muted text-warning-muted-foreground"
+              }`}
+            >
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span>{r.eligibility.reason}</span>
+            </p>
+          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <span
@@ -182,7 +199,8 @@ function ResultCard({ runId, r, caps, jobId }: ResultCardProps) {
           {jobId ? (
             <button
               type="button"
-              disabled={add.isPending || added}
+              disabled={add.isPending || added || blocked}
+              title={blocked ? r.eligibility?.reason : undefined}
               onClick={() => add.mutate()}
               className="inline-flex h-7 items-center gap-1 rounded-md border border-primary/30 bg-card px-2 text-xs font-semibold text-primary hover:bg-primary/5 disabled:opacity-60"
             >

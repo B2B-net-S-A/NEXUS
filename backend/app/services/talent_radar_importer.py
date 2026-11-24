@@ -315,6 +315,9 @@ class TalentRadarImporter:
         # `_is_tombstoned`. Wczytywane razem z mapami dedupu.
         self._tombstones: dict[str, set[str]] = {}
         self.tombstoned = 0
+        # Wiersze, których zapis padł (punkt zapisu cofnięty, reszta paczki dalej).
+        self.row_errors = 0
+        self.row_error_samples: list[str] = []
 
     async def _existing_source_is_quarantined(
         self,
@@ -641,6 +644,13 @@ class TalentRadarImporter:
         email / corroborated dedup) → merge CV into that row (no parallel row);
         otherwise INSERT. Newly-created rows are registered in the in-memory maps
         so later payloads in the same run dedupe against them too.
+
+        Każdy wiersz w osobnym punkcie zapisu (audyt 24.11.2026): błąd jednego
+        trafia do ``row_errors`` i nie cofa reszty paczki. Mapy dedupu dostają
+        id dopiero po udanym punkcie zapisu, a gdy padnie commit całej paczki,
+        jej wpisy z map znikają (inaczej następne paczki „scalałyby” osoby
+        z rekordem, którego nie ma). CV wysłane w tym biegu dla wiersza, który
+        się nie zapisał, usuwamy z magazynu.
         """
         if not payloads or self.dry_run:
             return (0, 0)
@@ -649,68 +659,112 @@ class TalentRadarImporter:
 
         inserted = 0
         updated = 0
+        remembered: list[tuple[dict[str, int], str]] = []
+        uploaded: list[str] = []
+
+        def remember(mapping: dict[str, int], key: Optional[str], cid: int) -> None:
+            if key and key not in mapping:
+                mapping[key] = cid
+                remembered.append((mapping, key))
 
         for p in payloads:
+            # Nagrobek sprawdzamy bez bazy, przed punktem zapisu.
             if self._is_tombstoned(p):
                 self.tombstoned += 1
                 continue
-            existing_id = await self._find_existing_id(p)
-
-            if existing_id is not None:
-                if await self._existing_source_is_quarantined(existing_id, p):
-                    self.quarantined += 1
-                    logger.warning(
-                        "talent_radar_import: identity_mismatch_quarantined "
-                        "candidate_id=%s source_id=%s",
-                        existing_id,
-                        p["talent_radar_source_id"],
-                    )
-                    continue
-                await asyncio.to_thread(self._materialize_payload_cv, p)
-                await self.target_db.execute(
-                    _MERGE_CV_INTO_EXISTING, self._merge_params(p, existing_id)
-                )
-                if p.get("languages"):
-                    from app.services.candidate_language_writer import (
-                        sync_candidate_languages_from_source,
-                    )
-
-                    await sync_candidate_languages_from_source(
-                        self.target_db,
-                        candidate_id=existing_id,
-                        raw_languages=p["languages"],
-                        provenance=SOURCE_VALUE,
-                        source_ref=f"talent-radar:{p.get('external_id') or existing_id}",
-                    )
-                if p.get("city") or p.get("country"):
-                    from app.services.candidate_location_writer import (
-                        sync_candidate_location_from_source,
-                    )
-
-                    await sync_candidate_location_from_source(
-                        self.target_db,
-                        candidate_id=existing_id,
-                        city=p.get("city"),
-                        country=p.get("country"),
-                        overwrite_existing=False,
-                    )
-                await self._upsert_candidate_document(existing_id, p)
+            key_before = p.get("cv_storage_key")
+            try:
+                async with self.target_db.begin_nested():
+                    outcome, candidate_id = await self._upsert_row(p, json)
+            except Exception as exc:  # noqa: BLE001 — jeden wiersz, nie cała paczka
+                self._record_row_error(p, exc)
+                new_key = p.get("cv_storage_key")
+                if new_key and new_key != key_before:
+                    await self._discard_uploaded_cv(new_key)
+                continue
+            new_key = p.get("cv_storage_key")
+            if new_key and new_key != key_before:
+                uploaded.append(new_key)
+            if outcome == "quarantined":
+                self.quarantined += 1
+            elif outcome == "adopted":
                 updated += 1
                 self.adopted += 1
                 # Cache so other rows in this run targeting the same person merge too.
-                if p.get("external_id"):
-                    self._ext_id_to_id.setdefault(p["external_id"], existing_id)
-                continue
+                remember(self._ext_id_to_id, p.get("external_id"), candidate_id)
+            elif outcome in ("inserted", "updated"):
+                if outcome == "inserted":
+                    inserted += 1
+                else:
+                    updated += 1
+                # Register the new/updated row so subsequent payloads see it.
+                remember(self._ext_id_to_id, p.get("external_id"), candidate_id)
+                remember(
+                    self._email_to_id,
+                    (p.get("email") or "").strip().lower(),
+                    candidate_id,
+                )
 
+        try:
+            await self.target_db.commit()
+        except Exception:
+            for mapping, key in remembered:
+                mapping.pop(key, None)
+            for key in uploaded:
+                await self._discard_uploaded_cv(key)
+            raise
+        return (inserted, updated)
+
+    def _record_row_error(self, p: dict[str, Any], exc: Exception) -> None:
+        # Bez parametrów SQL: sam komunikat sterownika, nie wiersz z mailem.
+        message = str(getattr(exc, "orig", None) or exc).splitlines()
+        sample = (
+            f"row source_id={p.get('talent_radar_source_id')}: "
+            f"{type(exc).__name__}: {(message[0] if message else '')[:200]}"
+        )
+        self.row_errors += 1
+        if len(self.row_error_samples) < 20:
+            self.row_error_samples.append(sample)
+        logger.warning(
+            "talent_radar_import: row_failed source_id=%s error=%s",
+            p.get("talent_radar_source_id"),
+            type(exc).__name__,
+        )
+
+    @staticmethod
+    async def _discard_uploaded_cv(storage_key: str) -> None:
+        """Best-effort: CV bez zapisanego wiersza nie może zostać w magazynie."""
+        from app.core.log_safety import safe_storage_key
+        from app.services.object_storage import delete_cv
+
+        try:
+            await asyncio.to_thread(delete_cv, storage_key)
+        except Exception as exc:  # noqa: BLE001 — sprzątanie, nie ścieżka importu
+            logger.warning(
+                "talent_radar_import: orphan_cv_delete_failed key=%s error=%s",
+                safe_storage_key(storage_key),
+                type(exc).__name__,
+            )
+
+    async def _upsert_row(
+        self, p: dict[str, Any], json: Any
+    ) -> tuple[str, Optional[int]]:
+        """Zapis jednego wiersza; zwraca (wynik, id kandydata). Bez commitu."""
+        existing_id = await self._find_existing_id(p)
+
+        if existing_id is not None:
+            if await self._existing_source_is_quarantined(existing_id, p):
+                logger.warning(
+                    "talent_radar_import: identity_mismatch_quarantined "
+                    "candidate_id=%s source_id=%s",
+                    existing_id,
+                    p["talent_radar_source_id"],
+                )
+                return ("quarantined", None)
             await asyncio.to_thread(self._materialize_payload_cv, p)
-            params = dict(p)
-            params["skills"] = json.dumps(p["skills"])
-            params["cv_extracted_data"] = json.dumps(p["cv_extracted_data"])
-            result = await self.target_db.execute(self._INSERT_SQL, params)
-            row = result.fetchone()
-            if row is None:
-                continue
-            new_id, was_insert = row[0], row[1]
+            await self.target_db.execute(
+                _MERGE_CV_INTO_EXISTING, self._merge_params(p, existing_id)
+            )
             if p.get("languages"):
                 from app.services.candidate_language_writer import (
                     sync_candidate_languages_from_source,
@@ -718,10 +772,10 @@ class TalentRadarImporter:
 
                 await sync_candidate_languages_from_source(
                     self.target_db,
-                    candidate_id=new_id,
+                    candidate_id=existing_id,
                     raw_languages=p["languages"],
                     provenance=SOURCE_VALUE,
-                    source_ref=f"talent-radar:{p.get('external_id') or new_id}",
+                    source_ref=f"talent-radar:{p.get('external_id') or existing_id}",
                 )
             if p.get("city") or p.get("country"):
                 from app.services.candidate_location_writer import (
@@ -730,25 +784,49 @@ class TalentRadarImporter:
 
                 await sync_candidate_location_from_source(
                     self.target_db,
-                    candidate_id=new_id,
+                    candidate_id=existing_id,
                     city=p.get("city"),
                     country=p.get("country"),
-                    overwrite_existing=True,
+                    overwrite_existing=False,
                 )
-            await self._upsert_candidate_document(new_id, p)
-            if was_insert:
-                inserted += 1
-            else:
-                updated += 1
-            # Register the new/updated row so subsequent payloads see it.
-            if p.get("external_id"):
-                self._ext_id_to_id.setdefault(p["external_id"], new_id)
-            email_lc = (p.get("email") or "").strip().lower()
-            if email_lc:
-                self._email_to_id.setdefault(email_lc, new_id)
+            await self._upsert_candidate_document(existing_id, p)
+            return ("adopted", existing_id)
 
-        await self.target_db.commit()
-        return (inserted, updated)
+        await asyncio.to_thread(self._materialize_payload_cv, p)
+        params = dict(p)
+        params["skills"] = json.dumps(p["skills"])
+        params["cv_extracted_data"] = json.dumps(p["cv_extracted_data"])
+        result = await self.target_db.execute(self._INSERT_SQL, params)
+        row = result.fetchone()
+        if row is None:
+            return ("none", None)
+        new_id, was_insert = row[0], row[1]
+        if p.get("languages"):
+            from app.services.candidate_language_writer import (
+                sync_candidate_languages_from_source,
+            )
+
+            await sync_candidate_languages_from_source(
+                self.target_db,
+                candidate_id=new_id,
+                raw_languages=p["languages"],
+                provenance=SOURCE_VALUE,
+                source_ref=f"talent-radar:{p.get('external_id') or new_id}",
+            )
+        if p.get("city") or p.get("country"):
+            from app.services.candidate_location_writer import (
+                sync_candidate_location_from_source,
+            )
+
+            await sync_candidate_location_from_source(
+                self.target_db,
+                candidate_id=new_id,
+                city=p.get("city"),
+                country=p.get("country"),
+                overwrite_existing=True,
+            )
+        await self._upsert_candidate_document(new_id, p)
+        return ("inserted" if was_insert else "updated", new_id)
 
     async def _upsert_candidate_document(
         self,
@@ -814,15 +892,23 @@ class TalentRadarImporter:
                                 f"row id={row['id']} traffit_id={row['traffit_id']}: {e!r}"
                             )
 
+                quarantined_before = self.quarantined
+                tombstoned_before = self.tombstoned
+                errors_before = self.row_errors
+                samples_before = len(self.row_error_samples)
                 try:
-                    quarantined_before = self.quarantined
-                    tombstoned_before = self.tombstoned
                     inserted, updated = await self._upsert(payloads)
                     progress.inserted += inserted
                     progress.updated += updated
                     progress.skipped += self.quarantined - quarantined_before
                     progress.skipped += self.tombstoned - tombstoned_before
+                    progress.errors += self.row_errors - errors_before
+                    for sample in self.row_error_samples[samples_before:]:
+                        if len(progress.error_samples) < 20:
+                            progress.error_samples.append(sample)
                 except Exception as e:  # noqa: BLE001
+                    # Padł commit paczki: `_upsert` już cofnął wpisy map
+                    # i usunął CV wysłane dla tej paczki.
                     progress.errors += len(payloads)
                     if len(progress.error_samples) < 20:
                         progress.error_samples.append(f"batch offset={offset}: {e!r}")

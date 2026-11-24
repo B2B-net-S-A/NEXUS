@@ -3,7 +3,7 @@
  * Backend: `backend/app/api/duty_search.py`; reguła
  * `docs/claude/kandydaci-wyszukiwanie/kto-juz-to-robil-wyszukiwanie-po-celu.md`.
  */
-import { api } from "@/lib/api";
+import { api, type MatchEligibility } from "@/lib/api";
 
 export type DutyTier = "zrobil_to" | "bardzo_blisko" | "ma_klocki" | "brak";
 export type DutyCapState = "tak" | "czesciowo" | "brak";
@@ -37,6 +37,11 @@ export interface DutyResult {
   question: string;
   /** `no_cv` / `model` / `parse` — AI nie oceniło tej osoby. */
   error: string | null;
+  /**
+   * Plakietka bramki jak w pełnym przeglądzie: konflikt klienta (ostrzeżenie)
+   * albo weto hiring managera (`assignment_allowed: false` — bez dodania).
+   */
+  eligibility?: MatchEligibility | null;
   feedback: "up" | "down" | null;
 }
 
