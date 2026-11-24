@@ -63,9 +63,9 @@ _SEEDED_BEFORE = {
 }
 
 
-def _migration():
-    path = _VERSIONS / "0745_one_close_reason_dictionary.py"
-    spec = importlib.util.spec_from_file_location("m0745", path)
+def _migration(name: str = "0745_one_close_reason_dictionary"):
+    path = _VERSIONS / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(f"m{name[:4]}", path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -80,6 +80,17 @@ def _shape(text: str) -> str:
 def test_entrypoint_mirrors_the_migration_seed_verbatim():
     seed = " ".join(_migration().SEED_CLOSE_REASON_DICTIONARY.split())
     assert seed in _shape(_ENTRYPOINT)
+
+
+def test_entrypoint_mirrors_the_outside_poland_seed_verbatim():
+    seed = _migration("0768_outside_poland_reason").SEED_OUTSIDE_POLAND_REASON
+    assert " ".join(seed.split()) in _shape(_ENTRYPOINT)
+    assert "outside_poland_reason_seeded" in seed
+    assert "WHERE EXISTS (SELECT 1 FROM marker)" in seed
+    assert "ON CONFLICT (template_id, name, category) DO NOTHING" in seed
+    # Sytuacja, nie werdykt o osobie: bez weta hiring managera.
+    assert "TRUE, FALSE, 'manual'" in seed
+    assert cr.LATER_REJECTED == (("outside_poland", False),)
 
 
 def test_seed_is_one_shot_and_never_rewires_old_rows():
@@ -111,7 +122,7 @@ def test_only_language_reasons_veto_the_hiring_manager():
 @pytest.mark.parametrize("reason", cr.CLOSE_REASONS, ids=lambda r: r.key)
 def test_every_side_that_may_pick_a_reason_has_a_template_row(reason):
     new = {
-        "rejected": {n for n, _ in cr.NEW_REJECTED},
+        "rejected": {n for n, _ in (*cr.NEW_REJECTED, *cr.LATER_REJECTED)},
         "withdrawn": set(cr.NEW_WITHDRAWN),
     }
     if cr.RECRUITER in reason.who or cr.CLIENT in reason.who:
@@ -178,6 +189,7 @@ def test_front_maps_every_reason_for_the_system_one_to_one():
         ("client_other_vendor", "Pracuje u klienta / zgłoszona przez inną firmę"),
         ("client_project_closed", "Klient zamknął projekt / przetarg przegrany"),
         ("available_too_late", "Dostępna za późno / wypowiedzenie"),
+        ("outside_poland", "Mieszka poza Polską"),
         # Stare nazwy i dopisane przez admina — ta sama etykieta co powód
         # słownika, więc raporty liczące po etykiecie sumują je razem.
         ("process_too_long", "Straciła zainteresowanie / za długi proces"),
@@ -206,6 +218,7 @@ def test_other_still_needs_a_description_and_rate_reasons_still_ask():
         ("available_too_late", "person"),
         ("accepted_other_offer", "person"),
         ("hm_already_interviewed", "data"),
+        ("outside_poland", "data"),
         ("client_project_closed", "other"),
         ("client_interview_weak", "other"),
     ],

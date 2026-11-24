@@ -1520,3 +1520,285 @@ async def test_signed_protocol_rule_blocks_the_draft(client, seed, rules):
         f"{BASE}/drafts", json={**OCTOBER, "keys": [key]}, headers=_h(seed)
     )
     assert blocked.status_code == 409
+
+
+# ── Zlecenie B-ZONE i protokół odbioru od klienta (24.11.2026) ───────────────
+
+BZONE = "K/2026/100001/AB/1001/26TEST"
+BZONE_NEXT = "K/2026/100002/CD/1002/26TEST"
+
+
+def _row(listing: dict, client_id: int, key: str) -> dict:
+    return next(
+        row
+        for entry in listing["clients"]
+        if entry["client_id"] == client_id
+        for row in entry["rows"]
+        if row["key"] == key
+    )
+
+
+async def _listing(client, seed) -> dict:
+    response = await client.get(f"{BASE}/to-issue", params=OCTOBER, headers=_h(seed))
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def _bzone_order(
+    client_id: int,
+    number: str,
+    *,
+    start: date,
+    end: date,
+    contract_id: int | None = None,
+) -> tuple[int, int]:
+    """Zamówienie okresowe ze zleceniem; ``contract_id`` = kolejne zlecenie tej osoby."""
+
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    async with AsyncSessionLocal() as db:
+        if contract_id is None:
+            order_id = await fx.periodic_order(
+                db,
+                client_id,
+                number,
+                rate="1000",
+                unit=RateUnit.daily,
+                start=start,
+                end=end,
+                person=("Ola", "Zleceniowa"),
+            )
+            contract_id = (await db.get(ClientOrder, order_id)).contract_id
+        else:
+            order = ClientOrder(
+                client_id=client_id,
+                contract_id=contract_id,
+                title=number,
+                status=ClientOrderStatus.active,
+                start_date=start,
+                end_date=end,
+                rate_client=Decimal("1000"),
+                rate_unit=RateUnit.daily,
+                rate_client_currency="PLN",
+            )
+            db.add(order)
+            await db.flush()
+            order_id = order.id
+        await db.commit()
+    return order_id, contract_id
+
+
+async def test_bzone_rule_blocks_order_without_bzone_number(client, seed, rules):
+    await rules({"cl.bzone_order": {"level": "block", "params": {}}})
+    await _settings(client, seed)
+    key = f"g{seed.groups['118']}"
+    row = _row(await _listing(client, seed), seed.client_id, key)
+    assert row["blocked"] == (
+        "Brak zlecenia B-ZONE na ten okres — poproś KAM o zlecenie: "
+        "Jan Przykładowy (01.10–30.10.2026)."
+    )
+    blocked = await client.post(
+        f"{BASE}/drafts", json={**OCTOBER, "keys": [key]}, headers=_h(seed)
+    )
+    assert blocked.status_code == 409
+    assert "Brak zlecenia B-ZONE" in blocked.json()["detail"]
+
+
+async def test_bzone_quarterly_order_lets_the_invoice_go(client, seed, rules):
+    await rules({"cl.bzone_order": {"level": "block", "params": {}}})
+    await _settings(client, seed)
+    order_id, _ = await _bzone_order(
+        seed.client_id, BZONE, start=date(2026, 10, 1), end=date(2026, 12, 31)
+    )
+    row = _row(await _listing(client, seed), seed.client_id, f"o{order_id}")
+    assert row["blocked"] is None
+    invoice_id = await _draft(client, seed, f"o{order_id}")
+    await client.put(f"{BASE}/{invoice_id}", json={"buyer": BUYER}, headers=_h(seed))
+    card = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
+    assert not any("B-ZONE" in p for p in card["problems"]), card["problems"]
+    labels = {item["label"]: item["value"] for item in card["requirements"]}
+    assert labels["Zlecenie B-ZONE"] == "na każdy dzień pracy w miesiącu"
+
+
+async def test_bzone_order_ending_mid_month_needs_the_next_one(client, seed, rules):
+    await rules({"cl.bzone_order": {"level": "block", "params": {}}})
+    await _settings(client, seed)
+    first, contract_id = await _bzone_order(
+        seed.client_id, BZONE, start=date(2026, 7, 1), end=date(2026, 10, 15)
+    )
+    row = _row(await _listing(client, seed), seed.client_id, f"o{first}")
+    assert "Ola Zleceniowa (16.10–30.10.2026)" in row["blocked"]
+
+    # Następne zlecenie tej osoby od 16.10 domyka miesiąc obu wierszy.
+    second, _ = await _bzone_order(
+        seed.client_id,
+        BZONE_NEXT,
+        start=date(2026, 10, 16),
+        end=date(2026, 12, 31),
+        contract_id=contract_id,
+    )
+    listing = await _listing(client, seed)
+    assert _row(listing, seed.client_id, f"o{first}")["blocked"] is None
+    assert _row(listing, seed.client_id, f"o{second}")["blocked"] is None
+
+
+async def test_bzone_rule_is_checked_again_before_sending(client, seed, rules):
+    await rules({})
+    await _settings(client, seed)
+    invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    await client.put(f"{BASE}/{invoice_id}", json={"buyer": BUYER}, headers=_h(seed))
+    await rules({"cl.bzone_order": {"level": "block", "params": {}}})
+    card = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
+    assert any(
+        p.startswith("Brak zlecenia B-ZONE") and "Jan Przykładowy" in p
+        for p in card["problems"]
+    ), card["problems"]
+    assert card["can_send"] is False
+    refused = await client.post(f"{BASE}/{invoice_id}/send", headers=_h(seed))
+    assert refused.status_code == 422
+    assert seed.fake.received == []
+
+
+CEZ_DOMAIN = "klient-testowy.example"
+
+
+def _protocol_text(contract: str, month: str, person: str) -> str:
+    return f"""Protokół odbioru
+Nr Umowy Wykonawczej {contract}
+Zestawienie czasu pracy i wykonanych zadań
+w okresie od 01.{month}.2026 do 28.{month}.2026
+(Data i podpis osoby uprawnionej) (Data i podpis osoby uprawnionej)
+Zestawienie
+I Analityk {person} ALFA Rozwój 168
+{person} Suma 168
+Suma końcowa 168
+Podsumowanie projektu/ów
+"""
+
+
+@pytest_asyncio.fixture
+async def protocols(seed, monkeypatch):
+    """Dokumenty miesiąca osoby z tekstem PDF-a podanym w teście (atrapa odczytu)."""
+
+    from app.models.consultant_portal import CpDocument
+    from app.models.contact import Contact
+    from app.services.client_invoicing import period_checks
+    from app.services.client_settlements import protocol_collective
+    from app.services.consultant_portal import identity
+
+    monkeypatch.setattr(
+        identity, "_company_domains", lambda: frozenset({"firma-testowa.example"})
+    )
+    texts: dict[str, str] = {}
+
+    async def fake_protocol(doc):
+        return protocol_collective.parse_text(texts[doc.sha256])
+
+    monkeypatch.setattr(period_checks, "_protocol", fake_protocol)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Contact(
+                client_id=seed.client_id,
+                name="Koordynator Klienta",
+                email=f"koordynator@{CEZ_DOMAIN}",
+            )
+        )
+        await db.commit()
+    made: list[int] = []
+
+    async def add(contract_id: int, text_: str, sender: str, month: int = 10) -> int:
+        digest = f"{len(made):064d}"
+        texts[digest] = text_
+        async with AsyncSessionLocal() as db:
+            doc = CpDocument(
+                contract_id=contract_id,
+                kind="report",
+                period_year=2026,
+                period_month=month,
+                channel="mailbox",
+                file_path=f"consultant_portal/{contract_id}/{digest}.pdf",
+                mime="application/pdf",
+                size_bytes=10,
+                sha256=digest,
+                sender_email=sender,
+            )
+            db.add(doc)
+            await db.commit()
+            made.append(doc.id)
+            return doc.id
+
+    yield add
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(CpDocument).where(CpDocument.id.in_(made)))
+        await db.execute(delete(Contact).where(Contact.client_id == seed.client_id))
+        await db.commit()
+
+
+async def _contract_of_line(line_id: int) -> int:
+    from app.models.client_order import ClientOrder
+
+    async with AsyncSessionLocal() as db:
+        return (await db.get(ClientOrder, line_id)).contract_id
+
+
+async def _warnings(client, seed, invoice_id: int) -> list[str]:
+    card = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
+    return card["warnings"]
+
+
+async def test_client_protocol_warns_but_does_not_block(client, seed, rules, protocols):
+    await rules({"cl.client_protocol": {"level": "block", "params": {}}})
+    await _settings(client, seed)
+    invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    await client.put(f"{BASE}/{invoice_id}", json={"buyer": BUYER}, headers=_h(seed))
+    card = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
+    assert card["warnings"] == [
+        "Brak protokołu odbioru od klienta za ten miesiąc — faktura może wymagać "
+        "korekty: Jan Przykładowy."
+    ]
+    assert not any("protokołu" in p for p in card["problems"])
+    assert card["can_send"] is True
+
+    contract_id = await _contract_of_line(seed.lines["118"])
+    text_ = _protocol_text("CeZ/99/2026", "10", "Jan Przykładowy")
+    # Ten sam protokół z adresu firmy bez klienta w wątku się nie liczy.
+    await protocols(contract_id, text_, "pm.testowy@firma-testowa.example")
+    assert len(await _warnings(client, seed, invoice_id)) == 1
+    # Protokół innego miesiąca od klienta (treść: wrzesień) też nie.
+    await protocols(
+        contract_id,
+        _protocol_text("CeZ/99/2026", "09", "Jan Przykładowy"),
+        f"koordynator@{CEZ_DOMAIN}",
+    )
+    assert len(await _warnings(client, seed, invoice_id)) == 1
+    await protocols(contract_id, text_, f"koordynator@{CEZ_DOMAIN}")
+    assert await _warnings(client, seed, invoice_id) == []
+    sent = await _send(client, seed, invoice_id)
+    assert sent["status"] == "accepted", sent
+
+
+async def test_client_protocol_of_another_contract_does_not_count(
+    client, seed, rules, protocols
+):
+    await rules({"cl.client_protocol": {"level": "block", "params": {}}})
+    await _settings(client, seed)
+    async with AsyncSessionLocal() as db:
+        group_id, (line_id,) = await fx.md_group(
+            db, seed.client_id, "CeZ/98/2026", people=[("Ola", "Umowna", "1000", "20")]
+        )
+        await db.commit()
+    invoice_id = await _draft(client, seed, f"g{group_id}")
+    contract_id = await _contract_of_line(line_id)
+    # W wątku umowy CeZ/98 przyszedł protokół CeZ/99 tej samej osoby.
+    await protocols(
+        contract_id,
+        _protocol_text("CeZ/99/2026", "10", "Ola Umowna"),
+        f"koordynator@{CEZ_DOMAIN}",
+    )
+    assert any("Ola Umowna" in w for w in await _warnings(client, seed, invoice_id))
+    await protocols(
+        contract_id,
+        _protocol_text("CeZ/98/2026", "10", "Ola Umowna"),
+        f"koordynator@{CEZ_DOMAIN}",
+    )
+    assert await _warnings(client, seed, invoice_id) == []

@@ -58,6 +58,45 @@ describe("CproOperatorDraft — jeden zapisany szkic, bez tokenów i ruchu etapu
     expect(screen.queryByRole("button", { name: /Wrzucone|Submit|Send/ })).not.toBeInTheDocument();
   });
 
+  it("request DL32 pokazuje konto Marcina, ale rezerwacja i wznowienie zachowują prawdziwy DL32", async () => {
+    get.mockResolvedValue({ data: savedRun({ delivery_lead_id: 32, cpro_account_name: "Marcin" }) });
+    renderPanel({ delivery_lead_id: 32, cpro_account_name: "Marcin", request_number: "12345", run_id: null, state: "ready" });
+    expect(screen.getByText(/konto Cpro: Marcin · request 12345/)).toBeInTheDocument();
+    await start();
+    expect(post).toHaveBeenCalledExactlyOnceWith("/api/board-tasks/cpro/operator/stages/1/draft", { delivery_lead_id: 32, request_number: "12345" });
+    await userEvent.click(screen.getByRole("button", { name: "Zamknij panel szkicu" }));
+    await userEvent.click(screen.getByRole("button", { name: "Wznów zapisane zlecenie" }));
+    await screen.findByText("Demo");
+    expect(screen.getByText(/Najpierw sprawdź konto Marcin i request 12345/)).toBeInTheDocument();
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { delivery_lead_id: 27, cpro_account_name: "Marcin" as const },
+    { delivery_lead_id: 32, cpro_account_name: "Igor" as const },
+    { delivery_lead_id: 32, cpro_account_name: undefined },
+  ])("wznowienie requestu DL32 odrzuca innego właściciela lub niespójne konto: %j", async (overrides) => {
+    get.mockResolvedValue({ data: savedRun(overrides) });
+    renderPanel({ delivery_lead_id: 32, cpro_account_name: "Marcin", request_number: "12345", run_id: 3, state: "started" });
+    await userEvent.click(screen.getByRole("button", { name: "Wznów zapisane zlecenie" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Zlecenie nie pasuje");
+    expect(screen.queryByRole("button", { name: "Pobierz firmowy PDF" })).not.toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { delivery_lead_id: 32 },
+    { delivery_lead_id: 27, cpro_account_name: "Nieznane" as never },
+    { delivery_lead_id: 14, cpro_account_name: null },
+  ])("brak mapowania nowego DL lub jawna błędna nazwa nie pozwalają na claim: %j", async (routing) => {
+    renderPanel({ ...routing, request_number: "12345", run_id: null, state: "ready" });
+    expect(screen.getByText(/konto Cpro: nieznane — przerwij/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Przygotuj jeden szkic" }));
+    expect(screen.getByRole("button", { name: "Potwierdzam konto i request — otwórz zlecenie" })).toBeDisabled();
+    expect(post).not.toHaveBeenCalled();
+  });
+
   it("po PDF i ponownym otwarciu oferty potwierdza tylko ID oraz DRAFT/PDF", async () => {
     renderPanel();
     await start();

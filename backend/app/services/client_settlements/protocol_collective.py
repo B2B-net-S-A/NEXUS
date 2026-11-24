@@ -55,6 +55,10 @@ _SPECIALIST = re.compile(r"^Specjalisty:[ \t]*(.+)$", re.M)
 _PFRON_HOURS = re.compile(
     rf"Roboczogodzin.*?rozliczeniowym\s*:\s*({_NUM})", re.I | re.S
 )
+# „Nr umowy (Wykonawczej) CeZ/177/2026”, w PDF-ie bywa „CeZ / 177 / 2026” albo „CeZ_177_2026”.
+_CEZ_CONTRACT = re.compile(
+    r"nr\s+umowy[\s\S]{0,40}?\b(cez)\s*[/_]\s*(\d+)\s*[/_]\s*(20\d{2})", re.I
+)
 
 
 @dataclass(frozen=True)
@@ -72,6 +76,22 @@ class Protocol:
     #: ``RRRR-MM`` z treści; ``None`` = z okresu dokumentu (PFRON).
     month: Optional[str]
     people: tuple[ProtocolPerson, ...]
+    #: Numer umowy wykonawczej z treści (CeZ: „CeZ/177/2026”); ``None`` = brak w treści.
+    contract: Optional[str] = None
+
+
+def contract_key(number: Optional[str]) -> Optional[str]:
+    """Numer umowy CeZ do porównania: „CeZ_177_2026”, „cez / 177 / 2026” → „CEZ/177/2026”."""
+
+    found = re.search(r"\b(cez)\s*[/_]\s*(\d+)\s*[/_]\s*(20\d{2})", number or "", re.I)
+    if found is None:
+        return None
+    return f"CEZ/{int(found.group(2))}/{found.group(3)}"
+
+
+def _cez_contract(text: str) -> Optional[str]:
+    found = _CEZ_CONTRACT.search(text[:3000])
+    return contract_key(found.group(0)) if found else None
 
 
 def _plain(text: str) -> str:
@@ -117,7 +137,12 @@ def _cez(text: str) -> Optional[Protocol]:
         table = head[: total_found.start()].rsplit("podpis osoby uprawnionej)", 1)[-1]
         if len(name_tokens(table)) < 2:
             return None
-        return Protocol(SOURCE_CEZ, month, (ProtocolPerson(table.strip(), total),))
+        return Protocol(
+            SOURCE_CEZ,
+            month,
+            (ProtocolPerson(table.strip(), total),),
+            _cez_contract(text),
+        )
     if abs(sum(hours for _, hours in sums.values()) - total) > _TOLERANCE:
         logger.info("protokół CeZ: suma osób ≠ „Suma końcowa”, bez MD")
         return None
@@ -125,6 +150,7 @@ def _cez(text: str) -> Optional[Protocol]:
         SOURCE_CEZ,
         month,
         tuple(ProtocolPerson(name, hours) for name, hours in sums.values()),
+        _cez_contract(text),
     )
 
 

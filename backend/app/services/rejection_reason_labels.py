@@ -23,6 +23,10 @@ from app.services.close_reasons import labels_by_template_name
 # kluczu, jak `counter_offer` w ocenie ryzyka.
 WORK_MODE_MISMATCH = "work_mode_mismatch"
 
+# „Mieszka poza Polską” (24.11.2026, migracja 0768): drugi powód, który zapisuje
+# coś na profilu — kraj zamieszkania (`residence.record_from_rejection`).
+OUTSIDE_POLAND = "outside_poland"
+
 # „Już po rozmowie u tego hiring managera” (20.10.2026, migracja 0484): osoba
 # była na rozmowie u managera tej rekrutacji w innym procesie, więc nie idzie
 # do niego drugi raz. Powód sytuacyjny, nie ocena osoby.

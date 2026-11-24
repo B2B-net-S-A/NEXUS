@@ -56,6 +56,7 @@ import {
 import {
   useRejectionProfileWorkMode,
   useRejectionProfileRate,
+  useRejectionProfileResidence,
   useRejectionWorkModeJob,
 } from "@/hooks/useRejectionWorkModeContext";
 import { PhraseAllBar } from "@/components/v2/screening/PhraseAllBar";
@@ -1530,6 +1531,7 @@ export function ScreeningFullForm({
   const rejectWorkModeJob = useRejectionWorkModeJob(jobId, rejectOpen);
   const rejectProfileWorkMode = useRejectionProfileWorkMode(candidateId, rejectOpen);
   const rejectProfileRate = useRejectionProfileRate(candidateId, rejectOpen);
+  const rejectProfileResidence = useRejectionProfileResidence(candidateId, rejectOpen);
 
   const handleSaveError = (err: unknown) => {
     const conflict = screeningFormConflictOf(err);
@@ -1759,6 +1761,7 @@ export function ScreeningFullForm({
       autofill?: AutofillFeedbackChoice | null;
       rate?: RejectionRateChoice | null;
       notLookingUntil?: string | null;
+      residenceCountry?: string | null;
     }) => {
       if (!reject || !state) throw new Error("Brak etapu docelowego.");
       return moveCore.send(
@@ -1778,6 +1781,7 @@ export function ScreeningFullForm({
           ...autofillMoveFields(vars.autofill),
           ...rejectionRateMoveFields(vars.rate),
           not_looking_until: vars.notLookingUntil ?? undefined,
+          residence_country: vars.residenceCountry ?? undefined,
           candidate_offer_response: vars.offerResponse ?? undefined,
           expected_state_version: state.process_state_version,
         },
@@ -2068,6 +2072,7 @@ export function ScreeningFullForm({
           workModeJob={rejectWorkModeJob}
           profileWorkMode={rejectProfileWorkMode}
           profileRate={rejectProfileRate}
+          profileResidence={rejectProfileResidence}
           autofill={reject.autofill ?? null}
           decisionColumn={reject.decisionColumn ?? false}
           onConfirm={(
@@ -2084,6 +2089,7 @@ export function ScreeningFullForm({
             rate,
             _meetings,
             notLookingUntil,
+            residenceCountry,
           ) =>
             rejectMut.mutate({
               reasonId,
@@ -2097,6 +2103,7 @@ export function ScreeningFullForm({
               autofill,
               rate,
               notLookingUntil,
+              residenceCountry,
             })
           }
         />

@@ -426,7 +426,18 @@ def system_exclusions(job_id: int, *, fresh_seat_returns: bool = True) -> list:
     refused_polish = select(AutofillFeedback.candidate_id).where(
         AutofillFeedback.reason == NO_POLISH_REASON, ~polish_not_needed
     )
-    return [removed, hired_now, refused_client, refused_polish, not_looking_now()]
+    # Mieszka poza Polską (decyzja Artura 24.11.2026): system nie proponuje
+    # takich osób do żadnej rekrutacji; ręcznie można je dodać.
+    from app.services.residence import abroad_ids
+
+    return [
+        removed,
+        hired_now,
+        refused_client,
+        refused_polish,
+        not_looking_now(),
+        abroad_ids(),
+    ]
 
 
 async def ranked_picks(

@@ -8,11 +8,9 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { downloadBlob, fetchAuthenticatedDownload } from "@/lib/authenticated-files";
 import {
-  CPRO_QUEUE_QUERY_KEY, closeAbsentCproOperatorDraft, confirmCproOperatorDraft, createCproOperatorDraft,
+  CPRO_QUEUE_QUERY_KEY, closeAbsentCproOperatorDraft, confirmCproOperatorDraft, createCproOperatorDraft, cproAccountName,
   getCproOperatorRun, type CproOperatorDraft as Draft, type CproOperatorRun,
 } from "@/lib/api/boardTasks";
-
-const ACCOUNTS: Record<number, string> = { 14: "Igor", 27: "Marcin" };
 
 /** Dane tylko z autoryzowanego snapshotu; żadnych tokenów ani lokalnego magazynu. */
 export function CproOperatorDraft({ stageId, draft, onActiveChange }: {
@@ -38,7 +36,7 @@ export function CproOperatorDraft({ stageId, draft, onActiveChange }: {
   const [confirmedPdf, setConfirmedPdf] = useState(false);
   const [pdfDownloaded, setPdfDownloaded] = useState(false);
   const [confirmedAbsent, setConfirmedAbsent] = useState(false);
-  const account = ACCOUNTS[draft.delivery_lead_id];
+  const account = cproAccountName(draft);
   const received = draft.state === "received" || run?.status === "received";
   const allowCreate = fresh && run?.allow_create === true && run.status === "started" && !received;
   const canConfirm = !!run && ["started", "expired", "failed"].includes(run.status) && !received;
@@ -68,7 +66,7 @@ export function CproOperatorDraft({ stageId, draft, onActiveChange }: {
     setRun(null);
     getCproOperatorRun(runId).then((data) => {
       if (!current) return;
-      if (data.run_id !== runId || data.stage_id !== stageId || data.delivery_lead_id !== draft.delivery_lead_id || data.request_number !== draft.request_number || data.offer.cv_format !== "pdf" || !data.offer.cv_file_name.toLowerCase().endsWith(".pdf")) {
+      if (data.run_id !== runId || data.stage_id !== stageId || data.delivery_lead_id !== draft.delivery_lead_id || cproAccountName(data) !== account || data.request_number !== draft.request_number || data.offer.cv_format !== "pdf" || !data.offer.cv_file_name.toLowerCase().endsWith(".pdf")) {
         setError("Zlecenie nie pasuje do tej karty, konta, requestu lub formatu PDF. Przerwij i odśwież kolejkę.");
         return;
       }

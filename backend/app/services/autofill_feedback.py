@@ -61,6 +61,9 @@ _DATA = frozenset(
         "client_employed",
         "client_other_vendor",
         "hm_already_interviewed",
+        # Kraj spoza Polski system odcina sam, więc taka osoba w „Nowych”
+        # to brak kraju w profilu (24.11.2026).
+        "outside_poland",
     }
 )
 # Jeden słownik (0745, 19.11.2026): kulturowe dopasowanie, termin dostępności
@@ -121,6 +124,7 @@ REASON_LABELS: dict[str, str] = {
     "client_project_closed": "Klient zamknął projekt / przetarg przegrany",
     "client_after_deadline": "Wysłany do klienta po terminie",
     "client_no_reason": "Klient nie podał powodu",
+    "outside_poland": "Mieszka poza Polską",
     "other": "Inne",
 }
 assert set(REASON_LABELS) == set(REASONS)

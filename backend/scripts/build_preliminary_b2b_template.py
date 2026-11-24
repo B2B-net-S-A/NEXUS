@@ -7,8 +7,12 @@ i kara umowna za rezygnację bez uzasadnionej przyczyny. Typ dokumentu
 ``preliminary_b2b`` (rodzina ``preliminary``, każdy klient poza Centrum
 e-Zdrowia). Zapisuje do ``app/templates/documents/``:
 
-    preliminary_b2b_pl.docx  — szablon docxtpl
-    preliminary_b2b_pl.html  — lustro Jinja do podglądu
+    preliminary_b2b_v2_pl.docx  — szablon docxtpl
+    preliminary_b2b_v2_pl.html  — lustro Jinja do podglądu
+
+Rewizja v2 (24.11.2026): § 6 ust. 1 w brzmieniu z aktualnego pliku działu —
+forma dokumentowa albo kwalifikowany podpis, podpis zaufany i osobisty
+wyłączone. Pliki v1 (``preliminary_b2b_pl.*``) zostają dla wydanych umów.
 
 Tekst prawny zostaje słowo w słowo; zmienione są wyłącznie:
 
@@ -17,9 +21,11 @@ Tekst prawny zostaje słowo w słowo; zmienione są wyłącznie:
 * dane B2B.net z rejestru firmy (``company.*``), jak w pozostałych wzorach;
 * kara umowna (stałe 10.000 zł we wzorze) → pole ``penalty_amount``
   (decyzja Artura 19.11.2026, domyślnie 10 000 zł);
-* § 6 ust. 1 i 3 — każda forma podpisu (pisemna, kwalifikowany, podpis
-  zaufany, podpis osobisty), jak w każdej umowie przedwstępnej NEXUSA
-  (decyzja Artura 21.10.2026; brzmienie z umowy o udziale w rekrutacji).
+* § 6 ust. 1 — brzmienie z aktualnego pliku działu (v2, 24.11.2026):
+  forma dokumentowa albo kwalifikowany podpis, bez podpisu zaufanego
+  i osobistego (v1 dopuszczała każdą formę — decyzja z 21.10.2026);
+* § 6 ust. 3 — jeden egzemplarz elektroniczny przy formie elektronicznej
+  albo dokumentowej (bez zmian od v1).
 
 PESEL, dowód i adres zamieszkania idą wyłącznie do pliku (pola ``sensitive``
 w rejestrze typów). Uruchom po zmianie wzoru; wynik jest commitowany. Wzoru
@@ -53,8 +59,9 @@ from build_b2b_document_templates import (  # noqa: E402
     sub,
     verify,
 )
+from build_preliminary_participation_templates import FORM_CLAUSE  # noqa: E402
 
-KEY = "preliminary_b2b_pl"
+TEMPLATE_NAME = "preliminary_b2b_v2_pl"
 TITLE = "Umowa przedwstępna na współpracę B2B"
 
 RX_COMPANY = (
@@ -75,15 +82,6 @@ COMPANY: list[tuple[str, bool]] = [
     ),
 ]
 
-FORM_CLAUSE = (
-    "Strony ustalają, że niniejsza Umowa może zostać zawarta w formie pisemnej, "
-    "w formie elektronicznej z wykorzystaniem kwalifikowanego podpisu "
-    "elektronicznego, zgodnie z art. 78¹ §1 Kodeksu cywilnego, albo w formie "
-    "dokumentowej, w szczególności z wykorzystaniem podpisu zaufanego lub "
-    "podpisu osobistego. Strony uznają, że kwalifikowany podpis elektroniczny "
-    "użyty przez Stronę jest równoważny z podpisem własnoręcznym dla celów "
-    "prawnych i dowodowych."
-)
 COPIES_CLAUSE = (
     "Umowa została sporządzona w dwóch jednobrzmiących egzemplarzach – po jednym "
     "dla każdej ze Stron. W przypadku zawarcia Umowy w formie elektronicznej "
@@ -145,7 +143,7 @@ def build(doc: _Doc) -> None:
         "(słownie: {{ doc.penalty_amount_words }})",
     )
 
-    # ── § 6 ust. 1 i 3 — każda forma podpisu ────────────────────────────────
+    # ── § 6 ust. 1 — forma zawarcia (v2), ust. 3 — egzemplarze ─────────────
     set_text(
         find(doc, r"^Strony ustalają, że niniejsza Umowa może zostać zawarta"),
         FORM_CLAUSE,
@@ -207,15 +205,17 @@ def main() -> None:
     doc = docx.Document(str(args.source))
     build(doc)
     drop_empty_numbered(doc)
-    verify(doc, KEY)
+    verify(doc, TEMPLATE_NAME)
     buf = io.BytesIO()
     doc.save(buf)
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    (args.out_dir / f"{KEY}.docx").write_bytes(scrub_package(buf.getvalue(), TITLE))
-    (args.out_dir / f"{KEY}.html").write_text(
+    (args.out_dir / f"{TEMPLATE_NAME}.docx").write_bytes(
+        scrub_package(buf.getvalue(), TITLE)
+    )
+    (args.out_dir / f"{TEMPLATE_NAME}.html").write_text(
         _html_fixups(doc_to_html(doc)), encoding="utf-8"
     )
-    print(f"[{KEY}] ✓ → {args.out_dir}")
+    print(f"[{TEMPLATE_NAME}] ✓ → {args.out_dir}")
 
 
 if __name__ == "__main__":

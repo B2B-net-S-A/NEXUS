@@ -16,6 +16,7 @@ W Grok Bocie (aplikacja desktopowa, konto Artura) → Hints utwórz:
 | --- | --- |
 | Igor (`14`) | **Nordea Cpro – Igor** |
 | Marcin (`27`) | **Nordea Cpro – Marcin** |
+| Dominik (`32`) | **Nordea Cpro – Marcin** |
 
 W każdym wpisie: adres `https://nordea.onevms.se/` oraz login i hasło
 odpowiedniego konta Cpro. Wpisuje je Artur (albo Sandra przy nim), nigdy
@@ -59,7 +60,9 @@ Bez userinfo, query, fragmentu ani przekierowań. Niezgodność = przerwij bez z
 
 Wykonaj instrukcję task z POBRANEGO zlecenia dla każdej pozycji items po kolei.
 Dla każdej pozycji wybierz wpis Hints z items[].cpro_account.vault_entry
-według jej delivery_lead_id. Zacznij od nowej odizolowanej sesji portalu
+według tabeli routingu: dla delivery_lead_id 14 wybierz konto Igora, a dla
+27 lub 32 konto Marcina. W requeście Dominika zachowaj delivery_lead_id 32.
+Zacznij od nowej odizolowanej sesji portalu
 i potwierdź zalogowane konto względem wybranego wpisu przed jakimkolwiek
 zapisem. Brak, nieznane albo niezgodne konto = skipped bez zmian w Cpro;
 nie korzystaj z konta poprzedniej pozycji ani ze wspólnego wpisu Hints.
@@ -155,7 +158,7 @@ niepołączony socket, kanał tylko do odczytu i alias stdin/stdout/stderr.
 Argumenty uruchamiane przez most (ID podstaw z gotowej karty):
 
 ```text
-python -m scripts.cpro_bot_run --interactive-draft --stage-ids <jeden_stage_id> --delivery-lead-id <14_albo_27> --request-number <numer_requestu> --token-fd 3
+python -m scripts.cpro_bot_run --interactive-draft --stage-ids <jeden_stage_id> --delivery-lead-id <id_DL_requestu> --request-number <numer_requestu> --token-fd 3
 ```
 
 Prywatny FD zwraca tylko świeży token ASCII z końcowym LF. Rodzic odczytuje
@@ -186,9 +189,10 @@ Do kolejnej gotowej karty użyj osobnego biegu bez opcji korekty.
 
 Przy wyłączonych obu flagach uprawniony operator może obsłużyć jedną gotową
 kartę z okna „Do wrzucenia do Cpro” w NEXUSIE. Ten tryb korzysta ze zwykłej
-sesji NEXUSA. W Cpro potrzebna jest aktywna sesja na koncie Delivery Leada
-wskazanego przy karcie. Admin, Head of Recruitment i Delivery Lead z prawem
-zapisu w Pipeline mogą też otworzyć tę samą kolejkę przez **Ustawienia →
+sesji NEXUSA. W Cpro potrzebna jest aktywna sesja na koncie wskazanym przez
+panel. Dla requestów Marcina i Dominika jest to konto Marcina. Admin, Head
+of Recruitment i Delivery Lead z prawem zapisu w Pipeline mogą też
+otworzyć tę samą kolejkę przez **Ustawienia →
 Rekrutacja → CPro → Otwórz kolejkę Cpro**.
 
 1. Otwórz przygotowanie szkicu przy wybranej osobie. Sprawdź konto i numer

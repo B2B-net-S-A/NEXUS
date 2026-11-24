@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
     showInfo: vi.fn(),
     showToast: vi.fn(),
     showActionToast: vi.fn(),
+    dismissToast: vi.fn(),
   },
 }));
 

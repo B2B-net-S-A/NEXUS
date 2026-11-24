@@ -294,8 +294,10 @@ def _expected(doc_type: DocumentType, lang: str, values: dict) -> list[str]:
             "04.12.2026",
             "0000387063",
             "160 zł netto",
-            # v2 (21.10.2026): każda forma podpisu.
-            "podpisem zaufanym lub podpisem osobistym",
+            # v3 (24.11.2026): dokumentowa albo kwalifikowany podpis, bez
+            # podpisu zaufanego i osobistego (jak plik działu umowy B2B).
+            "Strony wyłączają możliwość zawarcia Umowy z wykorzystaniem podpisu "
+            "zaufanego lub podpisu osobistego.",
         ]
     elif key == "preliminary_b2b":
         out += [
@@ -311,8 +313,12 @@ def _expected(doc_type: DocumentType, lang: str, values: dict) -> list[str]:
             "stawki godzinowej wynoszącej 160 zł netto",
             "kary umownej w wysokości 10000 zł (słownie: dziesięć tysięcy złotych)",
             "iod@b2bnetwork.pl",
-            # Każda forma podpisu (decyzja Artura 21.10.2026), § 6 ust. 1 i 3.
-            "z wykorzystaniem podpisu zaufanego lub podpisu osobistego",
+            # v2 (24.11.2026): § 6 ust. 1 z pliku działu — dokumentowa albo
+            # kwalifikowany podpis, bez podpisu zaufanego i osobistego.
+            "zawarta w formie dokumentowej lub w formie elektronicznej",
+            "Strony wyłączają możliwość zawarcia Umowy z wykorzystaniem podpisu "
+            "zaufanego lub podpisu osobistego.",
+            "użyty przez każdą ze Stron jest równoważny",
             "W przypadku zawarcia Umowy w formie elektronicznej albo dokumentowej",
         ]
     elif key.startswith("preliminary_participation_"):
@@ -326,7 +332,9 @@ def _expected(doc_type: DocumentType, lang: str, values: dict) -> list[str]:
             "wynagrodzenie w wysokości 160 zł netto za każdą godzinę",
             "kary umownej w wysokości 10000 zł (słownie: dziesięć tysięcy złotych).",
             "nie dłużej jednak niż do dnia 04.12.2026 r.",
-            "z wykorzystaniem podpisu zaufanego lub podpisu osobistego",
+            # v2 (24.11.2026): § 7 ust. 1 jak § 6 ust. 1 umowy B2B.
+            "Strony wyłączają możliwość zawarcia Umowy z wykorzystaniem podpisu "
+            "zaufanego lub podpisu osobistego.",
             "W przypadku zawarcia Umowy w formie elektronicznej albo dokumentowej",
             "dalej „Kandydatem”",
         ]
@@ -714,7 +722,7 @@ def test_document_file_carries_no_author_from_the_template(doc_type, lang):
 def test_cez_revision_key_and_legacy_file():
     doc_type = TYPES["preliminary_cez"]
     assert template_key(doc_type.key, "pl", doc_type.template_revision) == (
-        "preliminary_cez_v2_pl"
+        "preliminary_cez_v3_pl"
     )
     assert template_key(doc_type.key, "pl") == "preliminary_cez_pl"
 
@@ -738,11 +746,57 @@ def test_cez_issued_before_v2_keeps_its_clause(revision, present, absent):
         assert absent not in text and absent not in html
 
 
+@pytest.mark.parametrize(
+    ("type_key", "revision", "present", "absent"),
+    [
+        ("preliminary_b2b", "v2", "Strony wyłączają możliwość", "formie pisemnej"),
+        (
+            "preliminary_b2b",
+            "",
+            "w szczególności z wykorzystaniem podpisu",
+            "wyłączają",
+        ),
+        *[
+            (f"preliminary_participation_{v}", rev, present, absent)
+            for v in ("jdg", "person")
+            for rev, present, absent in (
+                ("v2", "Strony wyłączają możliwość", "formie pisemnej, w formie"),
+                ("", "w szczególności z wykorzystaniem podpisu", "wyłączają"),
+            )
+        ],
+        ("preliminary_cez", "v3", "Strony wyłączają możliwość", "formie pisemnej, w"),
+        (
+            "preliminary_cez",
+            "v2",
+            "podpisem zaufanym lub podpisem osobistym",
+            "wyłączają",
+        ),
+    ],
+)
+def test_preliminary_issued_before_signature_change_keeps_its_clause(
+    type_key, revision, present, absent
+):
+    # 24.11.2026: każda umowa przedwstępna wyłącza podpis zaufany i osobisty;
+    # wydane wcześniej pobierają się swoją rewizją.
+    doc_type = TYPES[type_key]
+    assert revision in (doc_type.template_revision, *doc_type.legacy_template_revisions)
+    values = _values(doc_type, "k")
+    ctx = build_document_context(doc_type, values, language="pl", base=BASE, refs=None)
+    key = template_key(doc_type.key, "pl", revision)
+    _, text = _docx_text(render_docx(key, ctx))
+    html = _html_unescape(render_html(key, ctx))
+    assert present in text and present in html
+    assert absent not in text and absent not in html
+
+
 def test_stored_key_wins_only_when_its_file_exists():
     from app.services.b2b_documents.render import stored_or_current_key
 
-    current = "preliminary_cez_v2_pl"
+    current = "preliminary_cez_v3_pl"
     assert stored_or_current_key("preliminary_cez_pl", current) == "preliminary_cez_pl"
+    assert stored_or_current_key("preliminary_cez_v2_pl", current) == (
+        "preliminary_cez_v2_pl"
+    )
     assert stored_or_current_key(None, current) == current
     assert stored_or_current_key("preliminary_cez_v9_pl", current) == current
     assert stored_or_current_key("../../etc/passwd", current) == current

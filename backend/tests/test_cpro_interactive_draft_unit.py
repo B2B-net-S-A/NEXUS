@@ -14,13 +14,13 @@ import pytest
 from scripts import cpro_bot_run as cli
 
 
-def _argv(fd: int) -> list[str]:
+def _argv(fd: int, delivery_lead_id: int = 27) -> list[str]:
     return [
         "--interactive-draft",
         "--stage-ids",
         "101",
         "--delivery-lead-id",
-        "27",
+        str(delivery_lead_id),
         "--request-number",
         "42511",
         "--token-fd",
@@ -44,14 +44,15 @@ def fake_interactive_flow(monkeypatch):
 
 
 @pytest.mark.parametrize("channel_kind", ["pipe", "unix_socket"])
+@pytest.mark.parametrize("delivery_lead_id", [27, 32])
 def test_interactive_cli_token_goes_only_to_private_channel(
-    fake_interactive_flow, capsys, channel_kind
+    fake_interactive_flow, capsys, channel_kind, delivery_lead_id
 ) -> None:
     create, token = fake_interactive_flow
     if channel_kind == "pipe":
         read_fd, write_fd = os.pipe()
         try:
-            assert cli.main(_argv(write_fd)) == 0
+            assert cli.main(_argv(write_fd, delivery_lead_id)) == 0
             delivered = os.read(read_fd, 256)
         finally:
             os.close(read_fd)
@@ -59,7 +60,7 @@ def test_interactive_cli_token_goes_only_to_private_channel(
     else:
         receiver, writer = socket.socketpair()
         with receiver, writer:
-            assert cli.main(_argv(writer.fileno())) == 0
+            assert cli.main(_argv(writer.fileno(), delivery_lead_id)) == 0
             delivered = receiver.recv(256)
     assert delivered == token.encode("ascii") + b"\n"
     captured = capsys.readouterr()
@@ -75,7 +76,10 @@ def test_interactive_cli_token_goes_only_to_private_channel(
     create.assert_awaited_once()
     args, kwargs = create.await_args
     assert args[1] == 101
-    assert kwargs["delivery_lead_id"] == 27 and kwargs["request_number"] == "42511"
+    assert (
+        kwargs["delivery_lead_id"] == delivery_lead_id
+        and kwargs["request_number"] == "42511"
+    )
 
 
 @pytest.mark.parametrize(

@@ -37,10 +37,6 @@
   --shadow-ink: rgba(20, 20, 20, 0.08);
   --line-on-red: rgba(255, 255, 255, 0.45);
 
-  /* Layout kariery (`career.css`) barwi `.kr-root a` — tu linki dziedziczą kolor. */
-  --kr-link: currentColor;
-  --kr-link-hover: currentColor;
-
   --display: "Montserrat", system-ui, sans-serif;
   --text: "Source Sans 3", system-ui, sans-serif;
   --mono: var(--font-kr-mono), ui-monospace, SFMono-Regular, Menlo, monospace;

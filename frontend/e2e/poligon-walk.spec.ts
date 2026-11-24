@@ -1,7 +1,7 @@
 import { expect, test, type BrowserContext, type Page, type Route } from "@playwright/test";
 
 import SHELL from "./fixtures/poligon-shell.json";
-import { POLIGON_CLIENT_MAIL } from "../src/lib/poligon/exercises";
+import { exercisesFor, POLIGON_CLIENT_MAIL } from "../src/lib/poligon/exercises";
 
 /**
  * Poligon NEXUSA — cała ścieżka onboardingu każdej roli bez backendu:
@@ -63,8 +63,14 @@ interface Backend {
 }
 
 /** Podstawiony backend: osoba, Start z poligonem i zapis postępu. Reszta = pusta odpowiedź. */
-async function fakeBackend(page: Page, appOrigin: string, user: Person, total: number): Promise<Backend> {
-  const state: Backend = { done: new Set(), writes: [] };
+async function fakeBackend(
+  page: Page,
+  appOrigin: string,
+  user: Person,
+  total: number,
+  credited: readonly string[] = [],
+): Promise<Backend> {
+  const state: Backend = { done: new Set(credited.map((id) => `poligon-${id}`)), writes: [] };
   // API stoi na innym originie niż front, więc podstawione odpowiedzi muszą
   // przejść CORS z ciasteczkami jak prawdziwe.
   const cors = {
@@ -117,11 +123,18 @@ async function fakeBackend(page: Page, appOrigin: string, user: Person, total: n
 const COACH = 'section[aria-label="Ćwiczenie na poligonie"]';
 
 /** Nowa osoba danej roli na poligonie: blokada, mapa i pomocnicze kroki ćwiczeń. */
-async function onPoligon(page: Page, context: BrowserContext, baseURL: string | undefined, role: Role, total: number) {
+async function onPoligon(
+  page: Page,
+  context: BrowserContext,
+  baseURL: string | undefined,
+  role: Role,
+  total: number,
+  credited: readonly string[] = [],
+) {
   await page.setViewportSize({ width: 1280, height: 720 });
   const user = person(role);
   const origin = new URL(baseURL ?? "http://localhost:3000");
-  const backend = await fakeBackend(page, origin.origin, user, total);
+  const backend = await fakeBackend(page, origin.origin, user, total, credited);
   const misses: string[] = [];
   const pageErrors: string[] = [];
   page.on("console", (m) => {
@@ -138,7 +151,9 @@ async function onPoligon(page: Page, context: BrowserContext, baseURL: string | 
   const done = (id: string) =>
     expect.poll(() => backend.done.has(`poligon-${id}`), { message: `ćwiczenie ${id} niezaliczone`, timeout: 15_000 }).toBe(true);
   const next = async () => {
-    await coach.getByRole("button", { name: /^Dalej|Zakończ onboarding/ }).click();
+    // Po tekście, nie po roli: otwarte okno Radix (edytor CV) oznacza resztę
+    // strony `aria-hidden`, a okno ćwiczenia leży nad nim i da się je kliknąć.
+    await coach.locator("button", { hasText: /^(Dalej|Zakończ onboarding)/ }).click();
   };
   const card = (text: string) => page.locator("[data-kanban-card]", { hasText: text }).first();
   // Stan poligonu (ruchy, screening) żyje w pamięci karty, więc na Tablicę
@@ -169,15 +184,15 @@ async function onPoligon(page: Page, context: BrowserContext, baseURL: string | 
   // Blokada: każdy ekran prowadzi na mapę poligonu.
   await page.goto("/jobs");
   await page.waitForURL(/\/poligon$/, { timeout: 30_000 });
-  await expect(page.getByText(`0 z ${total}`)).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: /Zacznij onboarding/ }).click();
+  await expect(page.getByText(`${credited.length} z ${total}`)).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: /Zacznij onboarding|Wróć do ćwiczenia|Zacznij od/ }).click();
   await page.waitForURL(/\/jobs/, { timeout: 30_000 });
   await expect(coach).toBeVisible({ timeout: 30_000 });
 
   /** Koniec: blokada zdjęta, osoba wchodzi do pracy; nic nie brakowało i nic nie wyszło. */
   const finish = async () => {
     expect(backend.done.size).toBe(total);
-    await coach.getByRole("button", { name: /Zacznij pracę/ }).click();
+    await coach.locator("button", { hasText: /Zacznij pracę/ }).click();
     await page.waitForURL(/\/jobs$/, { timeout: 30_000 });
     await page.goto("/candidates");
     await expect(page).not.toHaveURL(/\/poligon/);
@@ -287,6 +302,13 @@ async function teamChat(page: Page, w: Walk, mention: string) {
   await page.keyboard.press("Escape");
 }
 
+/** „Zajrzyj do CV dla klienta” jak w treści ćwiczenia: panel ze „Zweryfikowanego” bez zakładek, dopóki nie „Rozwiń”. */
+async function cvToClient(page: Page, w: Walk) {
+  await w.openCard("Jaworek");
+  await page.getByRole("button", { name: "Rozwiń" }).first().click();
+  await w.done("rekomendacja-cv");
+}
+
 async function candidateBase(page: Page, w: Walk) {
   await page.goto("/candidates");
   const search = page.locator('input[placeholder*="Nazwisko"]').first();
@@ -367,8 +389,7 @@ test.describe("Poligon NEXUSA — onboarding dnia 1", () => {
     await next();
 
     // Rekomendacja
-    await openCard("Helena", "CV");
-    await done("rekomendacja-cv");
+    await cvToClient(page, w);
     await next();
     await board();
     await moveNext("Jaworek");
@@ -424,9 +445,11 @@ test.describe("Poligon NEXUSA — onboarding dnia 1", () => {
     await command.fill("pogrub Scrum i Jira");
     await command.press("Enter");
     await done("zespol-cv-ai");
-    // Edytor CV zasłania okno ćwiczenia — zamykamy go (autozapis jest w pamięci).
-    await page.getByRole("dialog").getByRole("button", { name: "Zamknij" }).first().click();
+    // Okno ćwiczenia jest nad edytorem CV, a klik w nie edytora nie zamyka
+    // (24.11.2026: edytor zasłaniał „Dalej”, a test go zamykał zamiast to złapać).
     await next();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.getByRole("dialog").getByRole("button", { name: "Zamknij" }).first().click();
     await board();
     await page.keyboard.press("ControlOrMeta+j");
     const jarvis = page.locator("#jarvis-input");
@@ -448,8 +471,7 @@ test.describe("Poligon NEXUSA — onboarding dnia 1", () => {
     await sourcesBar(page, w);
     await personPanel(page, w, "Jak");
 
-    await openCard("Helena", "CV");
-    await done("rekomendacja-cv");
+    await cvToClient(page, w);
     await next();
 
     // Przegląd Delivery Leada: osoba z „QC CV”.
@@ -504,6 +526,48 @@ test.describe("Poligon NEXUSA — onboarding dnia 1", () => {
     await personPanel(page, w, "Jak");
     await candidateBase(page, w);
     await listsAndSavedSearch(page, w);
+    await w.finish();
+  });
+  // Poligon dla obecnych (16.11.2026): po terminie blokuje, a większość ćwiczeń
+  // jest zaliczona z pracy. 24.11.2026 rekruterzy z lukami utknęli: po
+  // pierwszym zaliczeniu „Dalej” cofało do ćwiczenia 1 z 27, „Zajrzyj do CV”
+  // nie zaliczało się u osoby z gotowym CV (Jakub Jaworek), a edytor CV
+  // zasłaniał okno ćwiczenia.
+  test("rekruter z lukami robi tylko luki, a „Dalej” prowadzi do następnej luki", async ({ page, context, baseURL }) => {
+    const gaps = ["rekomendacja-cv", "baza-lista", "zespol-cv-ai"];
+    const path = exercisesFor(["recruiter"]).map((e) => e.id);
+    const w = await onPoligon(page, context, baseURL, "recruiter", path.length, path.filter((id) => !gaps.includes(id)));
+    const { coach, done, next, openCard } = w;
+
+    await expect(coach.getByRole("heading", { name: "Zajrzyj do CV dla klienta" })).toBeVisible();
+    await cvToClient(page, w);
+    await next();
+
+    await expect(coach.getByRole("heading", { name: "Dodaj osobę do swojej listy" })).toBeVisible();
+    await page.goto("/candidates");
+    const search = page.locator('input[placeholder*="Nazwisko"]').first();
+    await search.fill("Olszyńska");
+    await search.press("Enter");
+    await page.getByRole("link", { name: /Laura Olszyńska/ }).first().click();
+    await page.waitForURL(/\/candidates\/99\d+/, { timeout: 30_000 });
+    await page.getByRole("button", { name: /^Na listę|^Na listach/ }).first().click();
+    await page.getByRole("textbox", { name: "Nazwa nowej listy" }).fill("PM bankowość");
+    await page.getByRole("button", { name: "Utwórz listę i dodaj osobę" }).click();
+    await done("baza-lista");
+    await page.keyboard.press("Escape");
+    await next();
+
+    await expect(coach.getByRole("heading", { name: "Popraw CV poleceniem AI" })).toBeVisible();
+    await openCard("Helena");
+    await page.getByRole("tablist", { name: "Narzędzia osoby" }).getByRole("tab", { name: "CV" }).click();
+    await page.getByRole("button", { name: "Otwórz i popraw" }).first().click();
+    await page.getByRole("button", { name: /Napisz, co zmienić w CV/ }).click();
+    const command = page.getByRole("textbox", { name: "Napisz, co zmienić" });
+    await command.fill("pogrub Scrum i Jira");
+    await command.press("Enter");
+    await done("zespol-cv-ai");
+    await expect(coach.getByText("Zaliczone.")).toBeVisible();
+    await next();
     await w.finish();
   });
 });

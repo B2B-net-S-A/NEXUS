@@ -71,7 +71,12 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
   `sql` (tylko SELECT/WITH, bez poleceń psql; w bazie sesja i transakcja
   READ ONLY zakończona ROLLBACK), `env NAZWA…` (zmienne procesu 1 backendu
   z białej listy, filtr na serwerze, nazwy sekretów odrzucone), `backup-log [N]`,
-  `logs --since CZAS [--until CZAS]` i `health`. `logs` wypuszcza z kontenera web
+  `logs --since CZAS [--until CZAS]`, `health` i `secret-check`. `secret-check`
+  to jedyna podkomenda, która dotyka sekretu: odcisk `SECRET_KEY` procesu 1
+  backendu liczy i porównuje z listą wycieków serwer, a na laptop wychodzi jedno
+  słowo (`fresh`, `leaked`, `missing`); kod 1 = klucz z wycieku albo brak klucza.
+  Lista odcisków musi być ta sama co `LEAKED_SECRET_KEY_SHA256_PREFIXES`
+  w `app/core/config.py` (pilnuje test). `logs` wypuszcza z kontenera web
   tylko linie JSON z `event_kind` `runtime_metrics`, `http_outcome` albo `loop_stall` (`grep`
   na serwerze, stderr kontenera do `/dev/null`, druga bramka na laptopie); CZAS
   to `10m`/`2h` (najwyżej 24 h) albo znacznik ze strefą. Pole `timestamp` w liniach

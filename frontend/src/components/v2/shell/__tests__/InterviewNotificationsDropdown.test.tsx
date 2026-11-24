@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { NotificationResponse } from "@/lib/api";
 import type { AgendaEntry, CycleOverview, PairInfo, TodoEntry } from "@/lib/interview-cycle";
 import {
+  callToastKey,
+  debriefOpened,
   INTERVIEW_NOTIFY_EVENT,
   OPEN_INTERVIEWS_WINDOW_EVENT,
   resetCallToastsForTests,
@@ -314,6 +316,29 @@ describe("InterviewNotificationsDropdown", () => {
     renderDropdown();
     await findTrigger("Rozmowy u klienta — zadzwoń: A. Przykładowa, zostało 18 min");
     expect(showActionToast).not.toHaveBeenCalled();
+  });
+
+  it("telefon po rozmowie: dymek ma klucz rozmowy i nie wychodzi, gdy jej debrief jest już otwarty", async () => {
+    serve({ cycle: overview({ agenda: [agenda(ANNA, "call", { start: at(-12), end: at(18) })] }) });
+    const close = debriefOpened(901);
+    try {
+      renderDropdown();
+      await findTrigger("Rozmowy u klienta — zadzwoń: A. Przykładowa, zostało 18 min");
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(showActionToast).not.toHaveBeenCalled();
+    } finally {
+      close();
+    }
+
+    resetCallToastsForTests();
+    window.localStorage.clear();
+    const bartek = agenda(BARTEK, "call", { start: at(-12), end: at(18) });
+    serve({ cycle: overview({ agenda: [bartek] }) });
+    renderDropdown();
+    await waitFor(() => expect(showActionToast).toHaveBeenCalledTimes(1));
+    expect(showActionToast.mock.calls[0][1].key).toBe(callToastKey(902));
   });
 
   it("powiadomienie z gniazda daje dymek, a „Pokaż” otwiera okienko", async () => {

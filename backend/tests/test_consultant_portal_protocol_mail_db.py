@@ -172,3 +172,59 @@ async def test_protokol_od_obcego_adresu_nie_wskazuje_osob(texts):
 
     assert await _of_contract(jan) == []
     assert await _of_contract(anna) == []
+
+
+async def _client_with_contact(email: str) -> int:
+    from app.core.database import AsyncSessionLocal
+    from app.models.contact import Contact
+
+    client_id = await make_client()
+    async with AsyncSessionLocal() as db:
+        db.add(Contact(client_id=client_id, name="Koordynator Klienta", email=email))
+        await db.commit()
+    return client_id
+
+
+async def test_protokol_odeslany_klientowi_z_dw_ma_nadawce_klienta(texts):
+    """PM podpisuje protokół od klienta i odsyła go klientowi z DW rozliczenia@."""
+
+    message_id = f"cez-{tag()}"
+    client_domain = f"klient-{tag()}.example"
+    client_id = await _client_with_contact(f"koordynator@{client_domain}")
+    (jan, jan_name), (anna, anna_name) = await _two_people(client_id)
+    content = f"%PDF-1.4 cez {message_id}".encode()
+    texts[content] = _cez(jan_name, anna_name)
+    message = {
+        **_message(message_id, f"pm.testowy@{DOMAIN}", "RE: Protokół odbioru"),
+        "toRecipients": [{"emailAddress": {"address": f"Ktos@{client_domain}"}}],
+        "ccRecipients": [{"emailAddress": {"address": f"rozliczenia@{DOMAIN}"}}],
+    }
+    reader = FakeMailbox(
+        [message], {message_id: [_attachment("protokol-sig.pdf", content)]}
+    )
+
+    await _read(reader)
+
+    for contract_id in (jan, anna):
+        (doc,) = await _of_contract(contract_id)
+        assert doc.sender_email == f"ktos@{client_domain}"
+
+
+async def test_protokol_z_adresu_firmy_bez_klienta_w_watku_zostaje_od_firmy(texts):
+    message_id = f"cez-{tag()}"
+    client_id = await _client_with_contact(f"koordynator@klient-{tag()}.example")
+    (jan, jan_name), (anna, anna_name) = await _two_people(client_id)
+    content = f"%PDF-1.4 cez {message_id}".encode()
+    texts[content] = _cez(jan_name, anna_name)
+    message = {
+        **_message(message_id, f"pm.testowy@{DOMAIN}", "Protokół odbioru"),
+        "toRecipients": [{"emailAddress": {"address": f"rozliczenia@{DOMAIN}"}}],
+    }
+    reader = FakeMailbox(
+        [message], {message_id: [_attachment("protokol-sig.pdf", content)]}
+    )
+
+    await _read(reader)
+
+    (doc,) = await _of_contract(jan)
+    assert doc.sender_email == f"pm.testowy@{DOMAIN}"

@@ -174,7 +174,15 @@ async def _pairs(db, job_id: int, threshold: float) -> list[Pair]:
             ~proposals._globally_blacklisted(rows.c.candidate_id),
         )
         .group_by(rows.c.candidate_id)
-        .having(proposals._pair_status(rows.c.status) == "proposed")
+        .having(
+            proposals._pair_status(rows.c.status) == "proposed",
+            proposals.not_proposed_abroad(
+                rows.c.candidate_id,
+                func.max(rows.c.first_seen_at).filter(
+                    rows.c.source.in_(POSTING_SOURCES)
+                ),
+            ),
+        )
         .order_by(
             func.max(rows.c.score).desc().nullslast(),
             func.max(rows.c.first_seen_at).desc(),

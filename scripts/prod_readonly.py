@@ -7,6 +7,7 @@
     prod_readonly.py backup-log [N]                # ostatnie N linii logu backupu (domyślnie 100)
     prod_readonly.py logs --since CZAS [--until CZAS]  # linie runtime_metrics, http_outcome i loop_stall backendu web
     prod_readonly.py health                        # publiczne /api/health
+    prod_readonly.py secret-check                  # czy SECRET_KEY backendu nie jest wartością z wycieku (tak/nie)
 
 Reguła zgody Claude Code obejmuje tylko ten plik, więc to, co tu jest, wyznacza,
 co rutyna może zrobić na produkcji. Reguła: docs/claude/podstawy/rutyny-nocne.md.
@@ -276,6 +277,37 @@ def backup_log_remote_command(lines: int) -> str:
     return f"tail -n {int(lines)} {BACKUP_LOG}"
 
 
+# --- secret-check ------------------------------------------------------------
+
+# Odciski (16 znaków SHA-256) wartości SECRET_KEY, które wyciekły. Ta sama lista
+# co LEAKED_SECRET_KEY_SHA256_PREFIXES w backend/app/core/config.py (pilnuje test).
+LEAKED_SECRET_KEY_PREFIXES = ("e76920d40b5cd73d",)
+SECRET_CHECK_RESULTS = {
+    "fresh": (0, "SECRET_KEY: wartość spoza listy wycieków."),
+    "leaked": (1, "SECRET_KEY: WARTOŚĆ Z WYCIEKU, klucz trzeba zmienić."),
+    "missing": (1, "SECRET_KEY: brak w środowisku procesu 1 backendu."),
+}
+
+
+def secret_check_remote_command() -> str:
+    """Odcisk SECRET_KEY procesu 1 backendu porównany z listą wycieków na serwerze.
+
+    Jedyna podkomenda, która dotyka sekretu: rutyna sprawdza, czy klucz sesji nie
+    wrócił do wartości z wycieku. Wartość idzie tylko do ``sha256sum``, odcisk
+    porównuje ``case`` na serwerze, a na laptop wychodzi jedno słowo z
+    ``SECRET_CHECK_RESULTS``.
+    """
+    leaked = "|".join(LEAKED_SECRET_KEY_PREFIXES)
+    return _FIND_WEB_CONTAINER + (
+        "p=$(docker inspect -f '{{.State.Pid}}' \"$c\"); "
+        '[ -r "/proc/$p/environ" ] || { echo "Brak dostępu do środowiska procesu $p." >&2; exit 4; }; '
+        "v=$(tr '\\0' '\\n' < \"/proc/$p/environ\" | sed -n 's/^SECRET_KEY=//p' | head -n 1); "
+        '[ -n "$v" ] || { echo missing; exit 0; }; '
+        "f=$(printf '%s' \"$v\" | sha256sum | cut -c1-16); v=; "
+        f'case "$f" in {leaked}) echo leaked ;; *) echo fresh ;; esac'
+    )
+
+
 # --- logs --------------------------------------------------------------------
 
 # ``loop_stall`` (24.11.2026): stos wątku pętli przy zastoju — ścieżki, linie, funkcje.
@@ -460,8 +492,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             with urllib.request.urlopen(HEALTH_URL, timeout=20) as resp:
                 print(resp.read().decode())
             return 0
+        if cmd == "secret-check":
+            if rest:
+                raise Rejected("secret-check nie przyjmuje argumentów.")
+            proc = ssh(secret_check_remote_command())
+            if proc.returncode != 0:
+                return _finish(proc, "")
+            word = proc.stdout.strip()
+            if word not in SECRET_CHECK_RESULTS:
+                # Druga bramka: nieznanej odpowiedzi nie wypisujemy.
+                print("secret-check: nieoczekiwana odpowiedź serwera.", file=sys.stderr)
+                return 5
+            code, text = SECRET_CHECK_RESULTS[word]
+            print(text)
+            return code
         raise Rejected(
-            f"Nieznana podkomenda {cmd!r}: sql, env, backup-log, logs, health."
+            f"Nieznana podkomenda {cmd!r}: sql, env, backup-log, logs, health, secret-check."
         )
     except Rejected as exc:
         print(f"Odrzucone: {exc}", file=sys.stderr)

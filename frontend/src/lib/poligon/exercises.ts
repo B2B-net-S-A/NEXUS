@@ -44,6 +44,12 @@ export interface Exercise {
   anchor: string;
   /** Klik w kotwicę zalicza ćwiczenie. */
   doneOnClick?: boolean;
+  /**
+   * Widoczna kotwica zalicza ćwiczenie („zajrzyj do…”). Nie zapytanie ekranu:
+   * 24.11.2026 karta „CV do klienta” przestała pytać o `…/cv/branded/sources`
+   * i ćwiczenie nie zaliczało się u osób z gotowym CV.
+   */
+  doneWhenVisible?: boolean;
   /** Ocena zdarzenia z poligonu: zaliczone, podpowiedź albo nic. */
   judge?: (action: PoligonAction, ctx: ExerciseContext) => Verdict;
   /** Dobra praktyka pokazywana po zaliczeniu. */
@@ -345,11 +351,11 @@ export const EXERCISES: readonly Exercise[] = [
     module: "Rekomendacja do klienta",
     title: () => "Zajrzyj do CV dla klienta",
     task: () =>
-      "Otwórz panel osoby i zakładkę „CV”. Tu jest oryginalne CV i karta „CV do klienta”, z której generator robi CV w szablonie klienta.",
-    hint: "Zakładka „CV” jest w panelu osoby.",
+      "Kliknij Jakuba Jaworka w „Zweryfikowanym”, a w jego panelu „Rozwiń” (u góry po prawej). W zakładce „CV” jest oryginalne CV i karta „CV do klienta”, z której generator robi CV w szablonie klienta.",
+    hint: "„Rozwiń” jest u góry panelu osoby, obok krzyżyka.",
     href: POLIGON_JOB_HREF,
     anchor: "person.cv.to-client-card",
-    judge: (a) => (a.type === "view" && /\/cv\/branded\/sources$/.test(a.path) ? { done: true } : null),
+    doneWhenVisible: true,
     tip: "Klient dostaje CV w swoim szablonie i bez danych kontaktowych — nigdy nie wysyłaj oryginału.",
   },
   {

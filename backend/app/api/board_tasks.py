@@ -53,6 +53,7 @@ from app.services import board_tasks as svc
 from app.services.stage_client_rate import latest_client_rates
 from app.services.cpro_bot import items as cpro_bot_items
 from app.services.cpro_bot import runs as cpro_bot_runs
+from app.services.cpro_bot.accounts import CproAccountName
 from app.core.scheduling import business_date, local_day_start_utc
 from app.services.contract_availability import load_contract_free
 from app.services.action_permissions import ProductAction, has_permission
@@ -693,6 +694,7 @@ class CproBotSummary(BaseModel):
 
 class CproOperatorDraft(BaseModel):
     delivery_lead_id: int
+    cpro_account_name: Optional[CproAccountName] = None
     request_number: str
     state: Literal["ready", "started", "received"]
     run_id: Optional[int] = None
@@ -700,6 +702,7 @@ class CproOperatorDraft(BaseModel):
 
 class CproOperatorStatus(BaseModel):
     delivery_lead_id: int
+    cpro_account_name: Optional[CproAccountName] = None
     request_number: str
     state: Literal["working", "draft"]
     offer_id: Optional[str] = None
@@ -1760,6 +1763,9 @@ async def _attach_operator_drafts(
                 confirmed = run.status == "received"
                 rows[item.stage_id].operator_status = CproOperatorStatus(
                     delivery_lead_id=payload["cpro_account"]["delivery_lead_id"],
+                    cpro_account_name=cpro_bot_items.cpro_account_name(
+                        payload["cpro_account"]
+                    ),
                     request_number=payload["request_number"],
                     state="draft" if confirmed else "working",
                     offer_id=run.request.get("operator_offer_id")
@@ -1769,6 +1775,9 @@ async def _attach_operator_drafts(
                 continue
             rows[item.stage_id].operator_draft = CproOperatorDraft(
                 delivery_lead_id=payload["cpro_account"]["delivery_lead_id"],
+                cpro_account_name=cpro_bot_items.cpro_account_name(
+                    payload["cpro_account"]
+                ),
                 request_number=payload["request_number"],
                 run_id=run.id,
                 state="received" if run.status == "received" else "started",
@@ -1776,6 +1785,9 @@ async def _attach_operator_drafts(
         elif item.payload and not item.blockers and item.stage_id not in blocked:
             rows[item.stage_id].operator_draft = CproOperatorDraft(
                 delivery_lead_id=item.payload["cpro_account"]["delivery_lead_id"],
+                cpro_account_name=cpro_bot_items.cpro_account_name(
+                    item.payload["cpro_account"]
+                ),
                 request_number=item.payload["request_number"],
                 state="ready",
             )

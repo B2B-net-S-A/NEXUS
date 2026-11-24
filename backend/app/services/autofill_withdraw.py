@@ -65,6 +65,9 @@ CLIENT_REMOVAL_REASON = "autofill_withdrawn_client"
 NOT_LOOKING_REMOVAL_REASON = "autofill_withdrawn_not_looking"
 # Miasto dalej niż ``OFFICE_FAR_KM`` od każdego biura rekrutacji (29.10.2026).
 FAR_REMOVAL_REASON = "autofill_withdrawn_far_from_office"
+# Mieszka poza Polską (24.11.2026): system takich osób nie proponuje
+# (``residence.lives_outside_poland``).
+ABROAD_REMOVAL_REASON = "autofill_withdrawn_abroad"
 # Przed włączeniem porcji dnia (decyzja Artura 08.11.2026): nietknięte karty
 # od systemu starsze niż ``review_batch.MAX_AGE_DAYS`` albo poniżej
 # ``review_batch.MIN_SCORE`` — na kopii z 06.11 ok. 850 starszych niż 7 dni
@@ -84,6 +87,7 @@ _WHY = {
     CLIENT_REMOVAL_REASON: "client",
     NOT_LOOKING_REMOVAL_REASON: "not_looking",
     FAR_REMOVAL_REASON: "far",
+    ABROAD_REMOVAL_REASON: "abroad",
     BATCH_RESET_REASON: "batch_reset",
     FRESH_SEAT_REASON: "fresh_seat",
     LEARNED_RULE_REASON: "learned_rule",
@@ -465,7 +469,11 @@ async def withdraw_at_client(
 
 
 async def withdraw_elsewhere(
-    db, *, candidate_id: int, except_job_id: int
+    db,
+    *,
+    candidate_id: int,
+    except_job_id: int,
+    reason: str = NOT_LOOKING_REMOVAL_REASON,
 ) -> list[tuple[int, int]]:
     """Nietknięte karty tej osoby od systemu we wszystkich innych rekrutacjach
     („Nie szuka pracy” z datą, 28.10.2026). Bez commitu — w transakcji ruchu."""
@@ -486,7 +494,7 @@ async def withdraw_elsewhere(
         for c, j in (await db.execute(_untouched_pairs(sorted(set(job_ids))))).all()
         if int(c) == candidate_id
     ]
-    return await apply(db, pairs, reason=NOT_LOOKING_REMOVAL_REASON, check_budget=False)
+    return await apply(db, pairs, reason=reason, check_budget=False)
 
 
 async def withdraw_failing_rules(db, *, job_id: int) -> list[tuple[int, int]]:

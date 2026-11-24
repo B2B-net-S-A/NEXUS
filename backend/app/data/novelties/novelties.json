@@ -2212,6 +2212,7 @@
   },
   {
     "id": "najwazniejsze-zadanie-w-roli",
+    "pr": 3795,
     "title": "Najważniejsze zadanie w tej roli w Profilu Championa",
     "why": "Wpisujesz zadanie, na którym klientowi najbardziej zależy, i zaznaczasz pytanie, które je sprawdza. Bez tego nie przekażesz rekrutacji do searchu. Trafi do CV jako zdanie 3.",
     "tier": "dot",
@@ -4488,6 +4489,7 @@
   },
   {
     "id": "formularz-klienta-wgraj-z-dysku",
+    "pr": 3748,
     "title": "Wypełniony formularz klienta wgrywasz do formularza, nie jako CV",
     "why": "„Wgraj wypełniony formularz” w sekcji CV osoby zapisuje plik przy rekrutacji. Idzie do QC i do klienta zamiast wypełnienia z NEXUSA, a karta przechodzi z nim na „QC CV”.",
     "tier": "dot",
@@ -4501,10 +4503,12 @@
     "where": "Rekrutacja → panel osoby → sekcja CV → Formularz CV klienta",
     "href": "/jobs",
     "section": "pipeline",
-    "dot_anchor": "client-form.upload"
+    "dot_anchor": "client-form.upload",
+    "practice_href": "/jobs/990001?candidate=990105"
   },
   {
     "id": "formularz-klienta-tylko-weryfikacja",
+    "pr": 3760,
     "title": "Formularz klienta: liczą się tylko prawdziwe braki",
     "why": "Puste zapasowe wiersze wzoru to „wolne wiersze”, nie braki. Druga tabela doświadczenia wypełnia się sama, a przy „TAK/NIE” widzisz cytat z CV do zatwierdzenia.",
     "tier": "dot",
@@ -4518,7 +4522,8 @@
     "where": "Rekrutacja → panel osoby → sekcja CV → Formularz CV klienta",
     "href": "/jobs",
     "section": "pipeline",
-    "dot_anchor": "client-form.missing"
+    "dot_anchor": "client-form.missing",
+    "practice_href": "/jobs/990001?candidate=990105"
   },
   {
     "id": "porcja-schodki-musi-miec",
@@ -4536,6 +4541,7 @@
   },
   {
     "id": "terminy-od-klienta-przy-ruchu",
+    "pr": 3786,
     "title": "Terminy od klienta wysyłasz rekruterowi przy ruchu karty",
     "why": "Przesuwając kartę na „Rozmowa u klienta”, wklejasz mail klienta raz. Rekruter od razu dostaje dzwonek i mail „Ustal termin z kandydatem”, bez drugiego okna „Terminy od klienta”.",
     "tier": "dot",
@@ -4549,7 +4555,8 @@
     "where": "Rekrutacja → Tablica → ruch na „Rozmowa u klienta”",
     "href": "/jobs",
     "section": "pipeline",
-    "dot_anchor": "move.client-interview.mode"
+    "dot_anchor": "move.client-interview.mode",
+    "practice_href": "/jobs/990001"
   },
   {
     "id": "sprzedaz-dzwonienie-zaproszenie-teams",
@@ -4641,6 +4648,7 @@
   },
   {
     "id": "sprzedaz-nowa-firma-z-nip",
+    "pr": 3789,
     "title": "Nowa firma z NIP-u w wyszukiwarce",
     "why": "Wpisz NIP u góry: gdy karty nie ma, „Załóż firmę z NIP …” otworzy okno z danymi z rejestru. Firma bez NIP-u już w kartotece? Dopiszesz NIP do jej karty.",
     "tier": "dot",
@@ -5014,6 +5022,33 @@
     "href": "/jobs/new",
     "section": "pipeline",
     "dot_anchor": "new-job.fill-from"
+  },
+  {
+    "id": "odrzucenie-mieszka-poza-polska",
+    "pr": 3846,
+    "title": "Odrzucenie: „Mieszka poza Polską”",
+    "why": "System nie podsuwa już osób mieszkających za granicą. Gdy taka trafi do Ciebie, odrzuć ją powodem „Mieszka poza Polską” i wybierz kraj — zapisze się na profilu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Rekrutacja → Odrzuć z powodem → Warunki → Mieszka poza Polską",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990101",
+    "section": "pipeline",
+    "dot_anchor": "rejection.outside-poland",
+    "steps": [
+      {
+        "anchor": "person.dock.reject",
+        "text": "W panelu osoby kliknij „Odrzuć z powodem”.",
+        "hint": "Otworzy się okno z powodami odrzucenia. Na Poligonie nic nie zostanie zapisane."
+      },
+      {
+        "anchor": "rejection.outside-poland",
+        "text": "W grupie Warunki jest „Mieszka poza Polską”.",
+        "hint": "Po wyborze okno pyta, gdzie osoba mieszka. Kraj trafia na profil, a system przestaje ją proponować.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "dodatki-do-rozliczenia-kontraktora",

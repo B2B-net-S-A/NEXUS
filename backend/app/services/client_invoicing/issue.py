@@ -51,6 +51,7 @@ from app.services.client_invoicing import (
     ksef_send,
     matching,
     numbering,
+    period_checks,
     rebate,
     requirements,
 )
@@ -460,7 +461,8 @@ async def to_issue(db: AsyncSession, *, year: int, month: int) -> dict[str, Any]
                 "expected_net": _amount(row.expected_net),
                 "people": len(row.lines),
                 "blocked": _row_block(row)
-                or await _signature_block(db, row, found, infos, period),
+                or await _signature_block(db, row, found, infos, period)
+                or await _bzone_block(db, row, found, infos, period),
                 "needs_amount": row.kind == "cost",
                 "invoiced_in_ksef": in_ksef.get(row.key, []),
                 "issued": [
@@ -560,6 +562,41 @@ async def _signature_block(
         f"Klient wymaga podpisanego obustronnie {kind} przed fakturą — brak podpisu: "
         f"{people}."
     )
+
+
+async def _bzone_block(
+    db: AsyncSession,
+    row: billing.BillingRow,
+    found: requirements.Requirements,
+    infos: dict[int, OrderInfo],
+    period: str,
+) -> Optional[str]:
+    """Klient z ``cl.bzone_order``: każda osoba wiersza ma zlecenie B-ZONE na swoje dni."""
+
+    if not found.bzone_order:
+        return None
+    people = [(line.consultant, _info(infos, line).contract_id) for line in row.lines]
+    return await _bzone_problem(db, row.client_id, people, period)
+
+
+async def _bzone_problem(
+    db: AsyncSession,
+    client_id: int,
+    people: Sequence[tuple[str, Optional[int]]],
+    period: str,
+) -> Optional[str]:
+    # Pozycja bez kontraktu (pula bez podziału na osoby): zlecenia nie da się
+    # sprawdzić, więc też czeka — jak przy podpisanym protokole.
+    gaps: dict[str, list[date]] = {
+        person or "pozycja bez osoby": [] for person, cid in people if cid is None
+    }
+    by_contract = {cid: person for person, cid in people if cid is not None}
+    missing = await period_checks.bzone_gaps(
+        db, client_id=client_id, contract_ids=by_contract, period=period
+    )
+    for cid, days in missing.items():
+        gaps[by_contract[cid] or f"kontrakt {cid}"] = days
+    return period_checks.bzone_message(gaps)
 
 
 def _lines_for(
@@ -728,7 +765,11 @@ async def create_drafts(
             )
             continue
         found = await _requirements(db, reqs, row.client_id, period)
-        block = _row_block(row) or await _signature_block(db, row, found, infos, period)
+        block = (
+            _row_block(row)
+            or await _signature_block(db, row, found, infos, period)
+            or await _bzone_block(db, row, found, infos, period)
+        )
         if block:
             problems.append(f"{row.order_number}: {block}")
         if existing.get(key):
@@ -1204,6 +1245,15 @@ async def problems(
     found = await invoice_requirements(db, invoice)
     blocking, _ = requirements.line_problems(found, invoice.lines or [])
     out.extend(blocking)
+    if found.bzone_order and invoice.invoice_type == "VAT" and invoice.client_id:
+        bzone = await _bzone_problem(
+            db,
+            invoice.client_id,
+            [(person, cid) for person, cid, _ in await _line_people(db, invoice)],
+            invoice_period(invoice),
+        )
+        if bzone:
+            out.append(bzone)
     numbers = order_numbers(invoice)
     if len(numbers) > fa3_build.MAX_TERMS:
         out.append(
@@ -1216,6 +1266,85 @@ async def problems(
             "z listy — NEXUS zapamięta go dla kontraktów tej faktury."
         )
     return out
+
+
+async def _line_people(
+    db: AsyncSession, invoice: ClientIssuedInvoice
+) -> list[tuple[str, Optional[int], Optional[int]]]:
+    """(osoba, kontrakt, zamówienie) pozycji osób faktury.
+
+    Kontrakt z pozycji („Do faktury” zapisuje ``contract_id``), a bez niego z jej
+    zamówienia. Pozycja bez osoby, kontraktu i zamówienia (np. koszty dodatkowe)
+    nie jest pozycją osoby i się nie liczy."""
+
+    lines = [
+        line
+        for line in invoice.lines or []
+        if line.get("contract_id") or line.get("order_id") or line.get("consultant")
+    ]
+    order_ids = {
+        int(line["order_id"])
+        for line in lines
+        if line.get("order_id") and not line.get("contract_id")
+    }
+    contracts: dict[int, Optional[int]] = {}
+    if order_ids:
+        contracts = dict(
+            (
+                await db.execute(
+                    select(ClientOrder.id, ClientOrder.contract_id).where(
+                        ClientOrder.id.in_(order_ids)
+                    )
+                )
+            ).all()
+        )
+    out = []
+    for line in lines:
+        order_id = int(line["order_id"]) if line.get("order_id") else None
+        contract_id = line.get("contract_id") or contracts.get(order_id or 0)
+        out.append(
+            (
+                str(line.get("consultant") or line.get("name") or ""),
+                int(contract_id) if contract_id else None,
+                order_id,
+            )
+        )
+    return out
+
+
+async def protocol_warnings(
+    db: AsyncSession, invoice: ClientIssuedInvoice, found: requirements.Requirements
+) -> list[str]:
+    """``cl.client_protocol``: osoby faktury bez protokołu odbioru od klienta."""
+
+    if not found.client_protocol or invoice.invoice_type != "VAT":
+        return []
+    if invoice.client_id is None:
+        return []
+    people = await _line_people(db, invoice)
+    executive = await period_checks.executive_numbers(
+        db, [order_id for _, _, order_id in people if order_id]
+    )
+    numbers = {
+        line.get("order_id"): line.get("order_number")
+        for line in invoice.lines or []
+        if line.get("order_id")
+    }
+    needs = [
+        period_checks.ProtocolNeed(
+            contract_id=cid,
+            person=person,
+            contract_number=executive.get(order_id or 0) or numbers.get(order_id),
+        )
+        for person, cid, order_id in people
+        if cid is not None
+    ]
+    missing = await period_checks.without_protocol(
+        db, client_id=invoice.client_id, needs=needs, period=invoice_period(invoice)
+    )
+    missing += [person for person, cid, _ in people if cid is None]
+    message = period_checks.protocol_message(missing)
+    return [message] if message else []
 
 
 async def invoice_requirements(
@@ -1666,6 +1795,8 @@ async def payload(
     found = await invoice_requirements(db, invoice)
     numbers = order_numbers(invoice)
     _, warnings = requirements.line_problems(found, invoice.lines or [])
+    if editable(invoice):
+        warnings = warnings + await protocol_warnings(db, invoice, found)
     corrects = (
         await db.get(ClientIssuedInvoice, invoice.corrects_id)
         if invoice.corrects_id

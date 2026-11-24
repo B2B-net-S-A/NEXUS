@@ -28,6 +28,10 @@ interface ActionToastOptions {
   // the "Cofnij wysyłkę emaila" use case (the full undo window server-side
   // is 15 minutes, but the toast only prompts for the first few seconds).
   durationMs?: number;
+  // Klucz sprawy, której dotyczy dymek: `dismissToast(key)` zamyka go, gdy
+  // sprawa otwiera się w oknie (dymek z prawego dolnego rogu leżał na stopce
+  // okna debriefu przy 1280 × 720, 24.11.2026).
+  key?: string;
 }
 
 interface Toast {
@@ -38,6 +42,7 @@ interface Toast {
   chips?: ToastChips;
   chipPicked?: string;
   onAction?: () => void | Promise<void>;
+  key?: string;
 }
 
 interface ToastContextValue {
@@ -46,6 +51,7 @@ interface ToastContextValue {
   showError: (message: string) => void;
   showInfo: (message: string) => void;
   showActionToast: (message: string, options: ActionToastOptions) => void;
+  dismissToast: (key: string) => void;
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -115,12 +121,25 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           actionLabel: options.actionLabel,
           onAction: options.onAction,
           chips: options.chips,
+          key: options.key,
         },
       ]);
       scheduleDismiss(id, durationMs);
     },
     [scheduleDismiss]
   );
+
+  const dismissToast = useCallback((key: string) => {
+    setToasts((prev) => {
+      const gone = prev.filter((t) => t.key === key);
+      if (gone.length === 0) return prev;
+      for (const t of gone) {
+        clearTimeout(timers.current.get(t.id));
+        timers.current.delete(t.id);
+      }
+      return prev.filter((t) => t.key !== key);
+    });
+  }, []);
 
   // Wartość kontekstu MUSI być memoizowana. Provider siedzi nad całą aplikacją
   // i re-renderuje się DWA RAZY na każdy toast (dodanie + usunięcie przez
@@ -132,11 +151,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   // zależności useEffect i woła z niego showError (InsightsView) — zmiana
   // tożsamości obiektu ponawia efekt, efekt pokazuje toast, toast zmienia
   // tożsamość obiektu: pętla, która sama się napędza.
-  // Wszystkie pięć funkcji jest już stabilnych przez useCallback, więc to memo
+  // Wszystkie sześć funkcji jest już stabilnych przez useCallback, więc to memo
   // nie unieważni się nigdy.
   const value = useMemo<ToastContextValue>(
-    () => ({ showToast, showSuccess, showError, showInfo, showActionToast }),
-    [showToast, showSuccess, showError, showInfo, showActionToast]
+    () => ({ showToast, showSuccess, showError, showInfo, showActionToast, dismissToast }),
+    [showToast, showSuccess, showError, showInfo, showActionToast, dismissToast]
   );
 
   const dismiss = (id: number) => {

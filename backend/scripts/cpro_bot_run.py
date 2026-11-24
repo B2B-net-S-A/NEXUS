@@ -236,7 +236,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--stage-ids", type=_ids, default=[])
     parser.add_argument("--submit", action="store_true")
     parser.add_argument("--interactive-draft", action="store_true")
-    parser.add_argument("--delivery-lead-id", type=_positive_int)
+    parser.add_argument(
+        "--delivery-lead-id",
+        type=_positive_int,
+        help="Rzeczywisty DL rekrutacji: 14 (Igor), 27 (Marcin), 32 (Dominik, konto Cpro Marcina).",
+    )
     parser.add_argument("--request-number", type=_request_number)
     parser.add_argument("--token-fd", type=_positive_int)
     parser.add_argument("--repair-draft-run-id", type=_positive_int)

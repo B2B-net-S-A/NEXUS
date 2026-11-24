@@ -543,10 +543,17 @@ Decyzje Artura z 21.10.2026 (migracja 0503):
   o udziale). Prefill umowy o udziale: „Klient / nazwa projektu” = „<klient> —
   <rekrutacja>”, kara umowna 10 000 zł, ważność +60 dni — wszystko do zmiany
   w formularzu.
-- **Każda forma podpisu**: pisemna, kwalifikowany podpis, podpis zaufany,
-  podpis osobisty. Wzory działu dopuszczały tylko pisemną albo kwalifikowany
-  podpis — klauzulę zmieniamy w szablonach NEXUSA, nie w plikach Worda działu
-  (CeZ: ostatni ustęp § 4; umowa o udziale: § 7 ust. 1 i drugie zdanie ust. 4).
+- **Forma zawarcia — od 24.11.2026 dokumentowa albo kwalifikowany podpis,
+  podpis zaufany i osobisty wyłączone** (decyzja Artura po zgłoszeniu działu:
+  plik umowy przedwstępnej B2B na dysku ma takie § 6 ust. 1). Jedno brzmienie
+  w każdej umowie przedwstępnej — `FORM_CLAUSE`
+  w `scripts/build_preliminary_participation_templates.py` (CeZ: ostatni
+  ustęp § 4 → `preliminary_cez_v3`; umowa o udziale: § 7 ust. 1 →
+  `preliminary_participation_*_v2`; B2B: § 6 ust. 1 → `preliminary_b2b_v2`).
+  Od 21.10 do 24.11.2026 obowiązywała każda forma podpisu (pisemna,
+  kwalifikowany, podpis zaufany, osobisty) — umowy wydane wtedy pobierają się
+  swoją rewizją. Klauzulę zmieniamy w szablonach NEXUSA, nie w plikach Worda
+  działu.
 - **Wydany dokument pobiera się swoim tekstem.** `DocumentType.template_revision`
   wchodzi do klucza pliku (`preliminary_cez_v2_pl`); wiersz zapisuje klucz
   w `b2b_contract_documents.template_key`, a ponowne pobranie (`/docx`, `/pdf`)
@@ -557,16 +564,18 @@ Decyzje Artura z 21.10.2026 (migracja 0503):
   `legacy_template_revisions` i jej pliki zostają w repo (pilnuje
   `test_every_registry_type_has_a_template_per_language`). Nie edytuj pliku
   wydanej rewizji w miejscu.
-- **Pliki:** `preliminary_cez_pl.*` (v1, stare wiersze),
-  `preliminary_cez_v2_pl.*`, `preliminary_participation_jdg_pl.*`,
-  `preliminary_participation_person_pl.*` — wszystkie z
+- **Pliki:** `preliminary_cez_pl.*` i `preliminary_cez_v2_pl.*` (stare
+  wiersze), `preliminary_cez_v3_pl.*`, `preliminary_participation_{jdg,person}_v2_pl.*`
+  (bez rewizji — stare wiersze) — bieżące z
   `backend/scripts/build_preliminary_participation_templates.py` (treść umowy
   o udziale jest w skrypcie, styl z wzoru CeZ; każdy akapit to jeden run na
   segment formatowania, żeby docxtpl widział znaczniki Jinja).
   Wyjątek: `preliminary_b2b_pl.*` z `backend/scripts/build_preliminary_b2b_template.py
   <wzór.docx>` (podstawienia na wzorze Worda działu, jak umowa zlecenia; wzoru
-  nie commitujemy). § 6 ust. 1 i 3 wzoru (tylko pisemna albo kwalifikowany)
-  skrypt zamienia na klauzulę każdej formy podpisu z umowy o udziale.
+  nie commitujemy). § 6 ust. 1 skrypt zamienia na `FORM_CLAUSE`, ust. 3 na
+  klauzulę egzemplarzy z umowy o udziale.
+- **Skrypty generują tylko bieżące rewizje** (`*_v2`, CeZ `_v3`). Pliki
+  wcześniejszych rewizji są zamrożone w repo dla wydanych umów.
 - **PDF:** `POST /documents/{id}/pdf` — te same bramki i to samo ciało z danymi
   wrażliwymi co `/docx`, PDF z LibreOffice (`cv_pdf_preview.pdf_from_docx`);
   awaria = 503 „Nie udało się przygotować PDF — pobierz DOCX.”. Zakładka

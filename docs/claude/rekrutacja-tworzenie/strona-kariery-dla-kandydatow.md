@@ -264,9 +264,10 @@ Reguły, które łatwo cofnąć:
   jedno zdanie w pkt 3.
 - **Strona kandydata (etap 5, 19.10.2026):** kroki procesu widoczne na każdej
   szerokości (poniżej 1024 px zwarta lista; manifest dalej tylko od 1024 px).
-  Kolory: `--kr-*` w `career.css` (do 24.11.2026 także `palette.ts`
-  i `themes.ts`, usunięte z ramą Grafit w #3832; dziś strona, OG i plakat
-  biorą tokeny z `site/site.module.css` i `ogCard.tsx`). Bordo `#9A142D` ma na czarnym 2,5:1 —
+  Kolory: do 24.11.2026 `--kr-*` w `career.css`, `palette.ts` i `themes.ts`
+  (usunięte z ramą Grafit w #3832, a zmienne `--kr-*` i klasy `.kr-*` poza
+  `.kr-root` zaraz po nim); dziś strona, OG i plakat biorą tokeny
+  z `site/site.module.css` i `ogCard.tsx`. Bordo `#9A142D` ma na czarnym 2,5:1 —
   tylko tło pod białym tekstem i ozdobniki; czerwony w tekście tytułów to
   `title` `#F06A80` (≈7:1), drobny akcent `red` `#D14A5F` (≈4,9:1). Ekran
   zamkniętej rekrutacji dostaje z API `other_jobs` (ta sama reguła co stały
@@ -375,7 +376,7 @@ Reguły, które łatwo cofnąć:
     jego klasy `.kr-*` z poziomu swojego modułu CSS. Logika wysyłki, zgody
     i pułapka na boty są wspólne.
   - Kolory z `components/career/themes.ts` (jedno źródło dla strony, grafiki
-    OG i podglądu posta; lista id = `THEME_LABELS` w backendzie, test).
+    OG i podglądu posta; lista id = `THEMES` w backendzie, test).
     Czerwień marki `#E73748` jest w tytułach i ozdobnikach. Przycisk ma
     `#D62E40`, bo biały tekst na `#E73748` daje 4,2:1, a test wymaga 4,5:1.
     Plakat: `career_theme.POSTER_COLORS`.
@@ -518,8 +519,8 @@ Reguły, które łatwo cofnąć:
   czytania (opisy, kroki procesu, formularz, chipy tablicy, RODO, stopka) jest
   w Geist 400/500 (`--kr-sans`), a JetBrains Mono zostaje przy komendach `$ …`,
   komentarzach `// …` i parametrach (`--kr-mono`, domyślny krój
-  `.kr-root`). Nowy element do czytania dopisz do listy `--kr-sans` na końcu
-  `career.css`, zamiast zmieniać krój korzenia. Etykiety formularza są zdaniem
+  `.kr-root`). Od 24.11.2026 kroje ustawia szablon `site/site.module.css`;
+  w `career.css` został tylko korzeń. Etykiety formularza są zdaniem
   („Imię *”, „CV *”), bez wersalików. Tytuł od 1024 px nie dzieli wyrazów
   (`hyphens: manual`; wcześniej „kolej-nego” na stronie rekrutera), na
   telefonie dzieli dalej. Pod stroną nie ma siatki. Strona rekrutacji od

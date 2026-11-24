@@ -2,19 +2,25 @@
 
 Zapisuje do ``app/templates/documents/``:
 
-* ``preliminary_participation_jdg_pl.{docx,html}`` i
-  ``preliminary_participation_person_pl.{docx,html}`` — „Umowa o udziale
+* ``preliminary_participation_jdg_v2_pl.{docx,html}`` i
+  ``preliminary_participation_person_v2_pl.{docx,html}`` — „Umowa o udziale
   w procesie rekrutacyjnym” (każdy klient poza Centrum e-Zdrowia) w dwóch
   wariantach: kandydat z jednoosobową działalnością i osoba fizyczna. Wzoru
   Word nie ma — treść jest tu, w ``_participation_blocks``, a styl (nagłówek
   z logo, stopka, marginesy, czcionka) bierze się z ``preliminary_cez_pl.docx``;
-* ``preliminary_cez_v2_pl.{docx,html}`` — wzór CeZ z nową klauzulą formy
-  zawarcia (każda forma podpisu: pisemna, kwalifikowany podpis, podpis
-  zaufany, podpis osobisty). Pliki bez rewizji zostają dla wydanych umów.
+* ``preliminary_cez_v3_pl.{docx,html}`` — wzór CeZ z klauzulą formy
+  zawarcia ``FORM_CLAUSE``.
+
+Klauzula formy zawarcia (24.11.2026, decyzja Artura): brzmienie § 6 ust. 1
+z pliku działu umowy przedwstępnej B2B — forma dokumentowa albo
+kwalifikowany podpis, podpis zaufany i osobisty wyłączone. Wcześniejsze
+rewizje (umowa o udziale bez rewizji, CeZ bez rewizji i v2 — każda forma
+podpisu, 21.10.2026) zostają w repo dla wydanych umów i nie są już
+generowane — nie nadpisuj ich.
 
 Tekst prawny jest przepisany ze wzoru działu słowo w słowo; zmienione są
-wyłącznie pola do wypełnienia (→ ``{{ }}``) i dwie klauzule formy podpisu
-(§ 7 ust. 1 i 4) z decyzji z 21.10.2026.
+wyłącznie pola do wypełnienia (→ ``{{ }}``) i klauzule formy podpisu
+(umowa o udziale: § 7 ust. 1 i 4; CeZ: ostatni ustęp § 4).
 
 Każdy akapit to jeden run na segment formatowania, więc znaczniki Jinja nie
 są cięte między runy (docxtpl ich wtedy nie widzi). Wynik jest commitowany;
@@ -42,7 +48,7 @@ CEZ_BASE = "preliminary_cez_pl"
 FONT = "Aptos"
 SIZE = Pt(10)
 
-#: Klauzula formy zawarcia we wzorze CeZ (v1) i jej brzmienie od 21.10.2026.
+#: Klauzula formy zawarcia we wzorze CeZ (v1); od v3 zastępuje ją ``FORM_CLAUSE``.
 CEZ_FORM_OLD = (
     "Niniejsza Umowa może zostać zawarta w formie pisemnej albo w formie "
     "elektronicznej poprzez opatrzenie oświadczeń Stron kwalifikowanymi "
@@ -50,15 +56,18 @@ CEZ_FORM_OLD = (
     "jest równoważne oświadczeniu złożonemu w formie pisemnej zgodnie z art. "
     "78¹ § 2 Kodeksu cywilnego."
 )
-CEZ_FORM_NEW = (
-    "Niniejsza Umowa może zostać zawarta w formie pisemnej, w formie "
-    "elektronicznej poprzez opatrzenie oświadczeń Stron kwalifikowanymi "
-    "podpisami elektronicznymi albo w formie dokumentowej, w szczególności "
-    "poprzez opatrzenie oświadczeń Stron podpisem zaufanym lub podpisem "
-    "osobistym. Oświadczenie złożone w formie elektronicznej z kwalifikowanym "
-    "podpisem elektronicznym jest równoważne oświadczeniu złożonemu w formie "
-    "pisemnej zgodnie z art. 78¹ § 2 Kodeksu cywilnego."
+#: Forma zawarcia każdej umowy przedwstępnej od 24.11.2026 — § 6 ust. 1
+#: z pliku działu umowy B2B słowo w słowo (``build_preliminary_b2b_template``).
+FORM_CLAUSE = (
+    "Strony ustalają, że niniejsza Umowa może zostać zawarta w formie "
+    "dokumentowej lub w formie elektronicznej z wykorzystaniem kwalifikowanego "
+    "podpisu elektronicznego, zgodnie z art. 78¹ §1 Kodeksu cywilnego. Strony "
+    "wyłączają możliwość zawarcia Umowy z wykorzystaniem podpisu zaufanego lub "
+    "podpisu osobistego. Strony uznają, że kwalifikowany podpis elektroniczny "
+    "użyty przez każdą ze Stron jest równoważny z podpisem własnoręcznym dla "
+    "celów prawnych i dowodowych."
 )
+CEZ_TEMPLATE_NAME = "preliminary_cez_v3_pl"
 
 
 class BuildError(RuntimeError):
@@ -450,15 +459,7 @@ def _participation_blocks(variant: str) -> list[tuple]:
         (
             "item",
             "1.",
-            # Decyzja Artura 21.10.2026: każda forma podpisu (wzór działu
-            # dopuszczał tylko pisemną albo kwalifikowany podpis).
-            "Umowa może zostać zawarta w formie pisemnej, w formie elektronicznej "
-            "z wykorzystaniem kwalifikowanego podpisu elektronicznego, zgodnie "
-            "z art. 78¹ §1 Kodeksu cywilnego, albo w formie dokumentowej, "
-            "w szczególności z wykorzystaniem podpisu zaufanego lub podpisu "
-            "osobistego. Strony uznają, że kwalifikowany podpis elektroniczny "
-            "użyty przez Stronę jest równoważny z podpisem własnoręcznym dla celów "
-            "prawnych i dowodowych.",
+            FORM_CLAUSE,
             [],
             None,
         ),
@@ -644,10 +645,10 @@ def _write_html(blocks: list[tuple], out: Path) -> None:
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-# ── CeZ v2 ───────────────────────────────────────────────────────────────────
+# ── CeZ v3 ───────────────────────────────────────────────────────────────────
 
 
-def _build_cez_v2(out_dir: Path) -> None:
+def _build_cez(out_dir: Path) -> None:
     doc = docx.Document(str(TEMPLATE_DIR / f"{CEZ_BASE}.docx"))
     hits = [p for p in doc.paragraphs if p.text.strip() == CEZ_FORM_OLD]
     if len(hits) != 1:
@@ -655,16 +656,16 @@ def _build_cez_v2(out_dir: Path) -> None:
     paragraph = hits[0]
     first, *rest = paragraph.runs
     # Pierwszy run niesie formatowanie akapitu (Aptos 10) — reszta znika.
-    first.text = CEZ_FORM_NEW
+    first.text = FORM_CLAUSE
     for run in rest:
         run._element.getparent().remove(run._element)
-    doc.save(str(out_dir / "preliminary_cez_v2_pl.docx"))
+    doc.save(str(out_dir / f"{CEZ_TEMPLATE_NAME}.docx"))
 
     source = (TEMPLATE_DIR / f"{CEZ_BASE}.html").read_text(encoding="utf-8")
     if source.count(CEZ_FORM_OLD) != 1:
         raise BuildError("klauzula formy w HTML CeZ: nie jedno trafienie")
-    (out_dir / "preliminary_cez_v2_pl.html").write_text(
-        source.replace(CEZ_FORM_OLD, CEZ_FORM_NEW), encoding="utf-8"
+    (out_dir / f"{CEZ_TEMPLATE_NAME}.html").write_text(
+        source.replace(CEZ_FORM_OLD, FORM_CLAUSE), encoding="utf-8"
     )
 
 
@@ -675,12 +676,12 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     for variant in ("jdg", "person"):
         blocks = _participation_blocks(variant)
-        key = f"preliminary_participation_{variant}_pl"
+        key = f"preliminary_participation_{variant}_v2_pl"
         _write_docx(copy.deepcopy(blocks), out_dir / f"{key}.docx")
         _write_html(blocks, out_dir / f"{key}.html")
         print(f"zapisano {key}.docx i .html")
-    _build_cez_v2(out_dir)
-    print("zapisano preliminary_cez_v2_pl.docx i .html")
+    _build_cez(out_dir)
+    print(f"zapisano {CEZ_TEMPLATE_NAME}.docx i .html")
 
 
 if __name__ == "__main__":

@@ -845,13 +845,26 @@ export interface CproQueueItem {
   operator_status?: {
     state: "working" | "draft";
     delivery_lead_id: number;
+    cpro_account_name?: CproAccountName | null;
     request_number: string;
     offer_id: string | null;
   } | null;
 }
 
+export type CproAccountName = "Igor" | "Marcin";
+
+/** Backend wybiera konto; ID pozostaje DL-em rekrutacji. Starsze API nie
+ * miało nazwy — zgodność tylko dla dwóch pierwotnych, jednoznacznych kont. */
+export function cproAccountName(source: { delivery_lead_id: number; cpro_account_name?: unknown }): CproAccountName | null {
+  if (source.cpro_account_name !== undefined) {
+    return source.cpro_account_name === "Igor" || source.cpro_account_name === "Marcin" ? source.cpro_account_name : null;
+  }
+  return source.delivery_lead_id === 14 ? "Igor" : source.delivery_lead_id === 27 ? "Marcin" : null;
+}
+
 export interface CproOperatorDraft {
   delivery_lead_id: number;
+  cpro_account_name?: CproAccountName | null;
   request_number: string;
   run_id: number | null;
   state: "ready" | "started" | "received";
@@ -861,6 +874,7 @@ export interface CproOperatorRun {
   run_id: number;
   stage_id: number;
   delivery_lead_id: number;
+  cpro_account_name?: CproAccountName | null;
   request_number: string;
   status: string;
   allow_create: boolean;

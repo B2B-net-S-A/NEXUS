@@ -27,6 +27,7 @@ import {
   BOARD_TASKS_QUERY_KEY,
   CPRO_QUEUE_QUERY_KEY,
   CPRO_SENDER_QUERY_KEY,
+  cproAccountName,
   assigneeLabel,
   setCproSender,
   useCproAssigneeOptions,
@@ -604,7 +605,7 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
                           <CproCvDraftBadge item={item} />
                           {item.operator_status ? <div className="mt-1 space-y-0.5 text-xs text-info-muted-foreground" data-testid="cpro-operator-status">
                             <p>{item.operator_status.state === "draft" ? "Szkic DRAFT czeka na ocenę Sandry." : "Inny operator przygotowuje lub sprawdza szkic w Cpro."}</p>
-                            <p>Konto Cpro: {({ 14: "Igor", 27: "Marcin" } as Record<number, string>)[item.operator_status.delivery_lead_id] ?? "nieznane — sprawdź ręcznie"} · request {item.operator_status.request_number}{item.operator_status.offer_id ? ` · ID oferty ${item.operator_status.offer_id}` : ""}</p>
+                            <p>Konto Cpro: {cproAccountName(item.operator_status) ?? "nieznane — sprawdź ręcznie"} · request {item.operator_status.request_number}{item.operator_status.offer_id ? ` · ID oferty ${item.operator_status.offer_id}` : ""}</p>
                             <p>Nie twórz kolejnej oferty.{item.operator_status.state === "draft" ? " Po ocenie i faktycznej publikacji domknij standardowy etap na Tablicy rekrutacji." : " Poczekaj na potwierdzenie istniejącego szkicu."}</p>
                           </div> : null}
                           {!operatorMode(item) ? <CproBotItemStatus

@@ -551,6 +551,28 @@ SECTIONS: tuple[Section, ...] = (
                 "są wpisane. Maila wysyła osoba z Finansów.",
                 switch=True,
             ),
+            Rule(
+                "cl.bzone_order",
+                "Faktura tylko ze zleceniem B-ZONE na okres",
+                "off",
+                "F2",
+                hint="ERSTE: każdy dzień roboczy pracy osoby w miesiącu faktury musi "
+                "być w okresie zamówienia klienta z numerem K/RRRR/nr/inicjały/nr/kod "
+                "(zlecenie miesięczne albo kwartalne, może być kilka). Bez zlecenia "
+                "„Wystaw za miesiąc” nie tworzy szkicu, a szkic nie idzie do KSeF.",
+                switch=True,
+            ),
+            Rule(
+                "cl.client_protocol",
+                "Ostrzeżenie: faktura przed protokołem odbioru od klienta",
+                "off",
+                "F2",
+                hint="Centrum e-Zdrowia: szkic faktury ostrzega, gdy wśród dokumentów "
+                "miesiąca osoby nie ma protokołu odbioru od klienta (PDF z domeny klienta "
+                "albo odesłany przez PM-a w wątku z klientem) z tym miesiącem i umową "
+                "osoby w treści. Fakturę można wysłać mimo ostrzeżenia.",
+                switch=True,
+            ),
         ),
     ),
     Section(

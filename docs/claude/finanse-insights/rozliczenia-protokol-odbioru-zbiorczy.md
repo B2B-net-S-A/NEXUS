@@ -43,6 +43,11 @@ zapisuje ten sam plik jako raport miesiąca każdej osoby z protokołu, gdy wszy
 znalezione osoby są u jednego klienta, a nadawca pisze z adresu firmy albo z domeny
 tego klienta. Rozliczenie osoby bierze z pliku tylko jej wiersz.
 
+**Nadawca protokołu (24.11.2026).** Protokół z adresu firmy dostaje w `cp_documents.sender_email` adres
+klienta z wątku (adresat albo cytat „Od:”), gdy taki jest. Z tego korzysta ostrzeżenie faktury
+`cl.client_protocol` (`zamowienia/wymagania-klientow-do-faktury-sprzedazy.md`). Protokół niesie też numer
+umowy z treści (`Protocol.contract`).
+
 ## Mail koordynatora z zaakceptowanymi godzinami (`client_settlements/hours_summary.py`)
 
 Decyzja Artura z 23.11.2026. Za CeZ/242 X podpisanego protokołu nie ma w żadnej
