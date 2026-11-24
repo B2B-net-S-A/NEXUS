@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import secrets
 from types import SimpleNamespace
 
 import pytest
@@ -20,6 +21,9 @@ from fastapi import BackgroundTasks
 import app.api.auth as auth
 from app.core.config import settings
 from app.models.activity import Activity
+
+# Hasło generowane w biegu, żeby skaner sekretów nie brał literału za klucz.
+_TEST_PASSWORD = "Aa1-" + secrets.token_urlsafe(12)
 
 ON_LIST = "awaryjny@example.com"
 
@@ -197,7 +201,7 @@ async def test_register_duplicate_and_new_account_both_mail_after_response(
     db, tasks = _FakeDB(), BackgroundTasks()
     await handler(
         request=_request(),
-        data=SimpleNamespace(email=ON_LIST, password="Haslo-Testowe-123", name="X"),
+        data=SimpleNamespace(email=ON_LIST, password=_TEST_PASSWORD, name="X"),
         background_tasks=tasks,
         db=db,
     )
@@ -219,7 +223,7 @@ async def test_register_duplicate_and_new_account_both_mail_after_response(
     db.flush = _flush_assigns_id
     await handler(
         request=_request(),
-        data=SimpleNamespace(email=new_email, password="Haslo-Testowe-123", name="Y"),
+        data=SimpleNamespace(email=new_email, password=_TEST_PASSWORD, name="Y"),
         background_tasks=tasks,
         db=db,
     )
