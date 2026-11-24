@@ -1185,6 +1185,9 @@ async def _after_both_signed(db: AsyncSession, request_id: int, signer: User) ->
     row = await db.get(B2BGeneratedContract, row_id)
     number = row.contract_number if row else ""
     reason: str | None = None
+    # Powód, dla którego podpisany PDF nie trafił do Dokumentów kontraktu
+    # (kontrakt jest, plik trzeba dołączyć ręcznie; audyt r5 24.11.2026).
+    file_reason: str | None = None
     try:
         # Paczka (0687): dzień podpisu umowy, nie ostatniego dokumentu.
         contractor_signed_at = service.contract_signed_at(request)
@@ -1217,6 +1220,8 @@ async def _after_both_signed(db: AsyncSession, request_id: int, signer: User) ->
         logger.exception("[b2b_esign] automatyka po podpisie padła row=%d", row_id)
         reason = "błąd automatyki (szczegóły w logu serwera)."
         await db.rollback()
+    if reason is None and not final_path:
+        file_reason = "brak podpisanego pliku przy wniosku."
     if reason is None and final_path:
         try:
             # Kontrakty osoby PRZED wierszem rejestru (audyt 22.10.2026, F47).
@@ -1245,8 +1250,23 @@ async def _after_both_signed(db: AsyncSession, request_id: int, signer: User) ->
             signed_file.discard(replaced)
         except Exception:  # noqa: BLE001 — kontrakt jest; plik da się dołączyć ręcznie
             logger.exception("[b2b_esign] plik nie trafił do Dokumentów row=%d", row_id)
+            file_reason = "błąd zapisu pliku (szczegóły w logu serwera)."
             await db.rollback()
-    if reason is None:
+    if reason is None and file_reason is not None:
+        await _notify_many(
+            db,
+            user_ids=watcher_ids,
+            title=f"Umowa {number} podpisana — dołącz podpisany plik",
+            message=(
+                "Kontrakt i szkic zamówienia założone, kandydat na „Zatrudniony”, "
+                "ale podpisany plik nie trafił do Dokumentów kontraktu: "
+                f"{file_reason} Pobierz podpisaną umowę z rejestru i dołącz ją "
+                "ręcznie do Dokumentów kontraktu."
+            )[:1000],
+            ntype=NotificationType.signature_signed,
+            request_id=request_id,
+        )
+    elif reason is None:
         await _notify_many(
             db,
             user_ids=watcher_ids,

@@ -380,3 +380,53 @@ async def test_remove_candidate_from_marketplace(clean_db):
     removed2 = await remove_candidate_from_marketplace(clean_db, candidate_id=cand.id)
     await clean_db.commit()
     assert removed2 is False
+
+
+async def test_marketplace_pages_with_one_added_at_have_no_repeats(clean_db):
+    """Audyt r5: sweeper dodaje setki wpisów w jednej transakcji, więc
+    ``added_at`` jest wspólne. Strony po limit/offset nie mogą dublować ani
+    gubić osób — rozstrzyga ``id``."""
+    import uuid as _uuid
+    from datetime import datetime, timezone
+
+    from sqlalchemy import delete
+
+    from app.services.marketplace_service import list_marketplace_candidates
+
+    tag = f"mppage{_uuid.uuid4().hex[:6]}"
+    pool = await ensure_marketplace_pool(clean_db)
+    stamp = datetime(2026, 11, 24, 3, 0, tzinfo=timezone.utc)
+    ids: set[int] = set()
+    for n in range(13):
+        cand = Candidate(
+            name="Test",
+            lastname=f"{tag}_{n}",
+            email=f"{tag}_{n}@example.com",
+            status=CandidateStatus.active,
+        )
+        clean_db.add(cand)
+        await clean_db.flush()
+        ids.add(cand.id)
+        clean_db.add(
+            TalentPoolMembership(
+                talent_pool_id=pool.id,
+                candidate_id=cand.id,
+                source_event="auto_availability",
+                added_at=stamp,
+            )
+        )
+    await clean_db.commit()
+    try:
+        seen: list[int] = []
+        for offset in (0, 3, 6, 9, 12):
+            rows, total = await list_marketplace_candidates(
+                clean_db, limit=3, offset=offset, q=tag
+            )
+            assert total == 13
+            seen.extend(c.id for _m, c in rows)
+        assert len(seen) == len(set(seen)) == 13
+        assert set(seen) == ids
+    finally:
+        await _cleanup_marketplace(clean_db)
+        await clean_db.execute(delete(Candidate).where(Candidate.id.in_(ids)))
+        await clean_db.commit()

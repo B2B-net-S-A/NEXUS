@@ -933,7 +933,9 @@ async def list_marketplace_candidates(
         select(TalentPoolMembership, Candidate)
         .join(Candidate, Candidate.id == TalentPoolMembership.candidate_id)
         .where(and_(*base_filters))
-        .order_by(TalentPoolMembership.added_at.desc())
+        # added_at = now() transakcji: sweeper dodaje setki wpisów naraz,
+        # bez rozstrzygnięcia po id strony dublują i gubią osoby (audyt r5).
+        .order_by(TalentPoolMembership.added_at.desc(), TalentPoolMembership.id.desc())
         .limit(limit)
         .offset(offset)
     )
