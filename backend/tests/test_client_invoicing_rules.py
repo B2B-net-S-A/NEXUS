@@ -274,6 +274,86 @@ def test_several_orders_gets_another_attempt():
     assert "several_orders" in RETRY_REASONS
 
 
+# ── Faktura zbiorcza: jeden numer klienta, w NEXUSIE zamówienie na osobę ───────
+
+COLLECTIVE = (
+    "Prace programistyczne za miesiąc wrzesień w ramach zamówienia nr 3/09/2026/XY"
+)
+
+
+def _people_orders(*nets, number="3/09/2026/XY"):
+    """Zamówienie klienta na kilka osób, a w NEXUSIE osobne zamówienie okresowe każdej."""
+
+    return [
+        BillingRow(
+            client_id=1,
+            kind="periodic",
+            group_id=None,
+            order_id=20 + index,
+            order_number=number,
+            currency="PLN",
+            lines=(_line(20 + index, net, f"Osoba{index} Przykładowa"),),
+        )
+        for index, net in enumerate(nets)
+    ]
+
+
+def _collective(net, rows, item=COLLECTIVE):
+    return decide(
+        net=Decimal(net),
+        currency="PLN",
+        texts=[item],
+        rows=rows,
+        refs=_refs(*rows),
+        items=[{"name": item, "quantity": "1", "unit_price": net}],
+    )
+
+
+def test_collective_invoice_binds_every_order_with_its_number():
+    rows = _people_orders("18900.00", "33600.00", "17640.00")
+    decision = _collective("68000.00", rows)
+    assert decision.targets == tuple(Target(order_id=row.order_id) for row in rows)
+    assert decision.method == "order_number"
+
+
+def test_collective_invoice_naming_a_person_waits():
+    rows = _people_orders("18900.00", "33600.00", "17640.00")
+    decision = _collective(
+        "68000.00", rows, item="Usługi informatyczne - Osoba1 Przykładowa, 3/09/2026/XY"
+    )
+    assert decision.reason == "several_orders"
+
+
+def test_collective_invoice_closer_to_one_order_waits():
+    rows = _people_orders("18900.00", "33600.00", "17640.00")
+    assert _collective("33000.00", rows).reason == "several_orders"
+
+
+def test_collective_invoice_far_from_the_sum_waits():
+    # Numer trafił tylko część zamówień (inne mają tytuł „Zamówienie nr …”):
+    # wiązanie samych trafionych dałoby fakturę dwóm osobom z ośmiu.
+    rows = _people_orders("28560.00", "17640.00")
+    assert _collective("179820.00", rows).reason == "several_orders"
+
+
+def test_collective_invoice_needs_every_order_amount():
+    rows = _people_orders("18900.00", "33600.00", None)
+    assert _collective("52000.00", rows).reason == "several_orders"
+
+
+def test_two_different_numbers_close_to_the_sum_still_wait():
+    a = _periodic(20, "ZAM/1", "100.00")
+    b = _periodic(21, "ZAM/2", "50.00")
+    decision = decide(
+        net=Decimal("140.00"),
+        currency="PLN",
+        texts=["ZAM/1, ZAM/2"],
+        rows=[a, b],
+        refs=_refs(a, b),
+    )
+    assert decision.reason == "several_orders"
+
+
 def test_number_outside_the_month_is_not_guessed():
     row = _group(10, "ZAM/1", _line(1, "100.00"))
     refs = _refs(row) + [OrderRef(1, 99, None, "ZAM/2025/9")]

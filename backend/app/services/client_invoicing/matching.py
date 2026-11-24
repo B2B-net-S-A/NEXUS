@@ -11,7 +11,9 @@ Kolejność, od najpewniejszego:
    numer z samych cyfr także bez zer wiodących, ``SAP 45…`` także bez
    prefiksu. Numer wiąże: faktura idzie do tego zamówienia, a różnica kwoty
    jest do sprawdzenia przez Finanse. Faktura na jedną osobę z zamówienia MD
-   (kwota równa pozycji tej osoby) wiąże się z tą osobą,
+   (kwota równa pozycji tej osoby) wiąże się z tą osobą, a faktura zbiorcza
+   bez nazwisk na numer wspólny dla zamówień kilku osób — ze wszystkimi
+   (``_collective``, VeloBank),
 4. **numer, którego NEXUS nie zna** (``named_order_numbers``) — faktura czeka na
    Finanse: kwota albo osoba przypięłyby ją do innego zamówienia i podwójne
    rozliczenie byłoby niewidoczne,
@@ -49,6 +51,9 @@ from app.services.client_invoicing import billing, clients, rebate
 from app.services.client_invoicing.billing import BillingLine, BillingRow, OrderRef
 
 MIN_NUMBER_LENGTH = 3
+#: Faktura zbiorcza może odbiegać od sumy zamówień (dni robocze miesiąca, urlopy)
+#: najwyżej o tyle. Dalej od sumy znaczy, że numer trafił tylko część zamówień.
+COLLECTIVE_TOLERANCE = Decimal("0.25")
 _DIGITS = re.compile(r"\d+")
 #: Etykieta numeru zamówienia i wartość po niej. Samo „PO” tylko wielkimi literami,
 #: bo małe „po” to polski przyimek („po 30 dniach”).
@@ -250,6 +255,40 @@ def _person_and_price(
     return Target(order_id=line.order_id)
 
 
+def _collective(
+    rows: Sequence[BillingRow], net: Decimal, items: Sequence[dict[str, Any]]
+) -> bool:
+    """Faktura na całe zamówienie klienta, które w NEXUSIE ma zamówienie na osobę.
+
+    VeloBank fakturuje zamówienie jedną pozycją („w ramach zamówienia nr …”), a
+    w NEXUSIE każda osoba ma własne zamówienie z tym numerem. Wiąże wszystkie,
+    gdy: numer jest jeden, żadna pozycja nie wymienia osoby, kwota każdego
+    zamówienia jest znana, a netto jest bliżej ich sumy niż kwoty któregokolwiek
+    z nich i nie dalej od sumy niż ``COLLECTIVE_TOLERANCE``. Faktura na jedną
+    osobę zostaje Finansom jak dotąd.
+    """
+
+    if len({" ".join(row.order_number.casefold().split()) for row in rows}) != 1:
+        return False
+    expected = [row.expected_net for row in rows]
+    if any(value is None for value in expected):
+        return False
+    names = [
+        str(item.get("name") or "")
+        for item in items
+        if isinstance(item, dict) and not item.get("before_correction")
+    ]
+    if any(
+        _named_in(line, name) for row in rows for line in row.lines for name in names
+    ):
+        return False
+    total = sum(expected, Decimal("0"))
+    gap = abs(net - total)
+    return gap <= total * COLLECTIVE_TOLERANCE and gap < min(
+        abs(net - value) for value in expected
+    )
+
+
 def _people_with_amount(rows: Sequence[BillingRow], net: Decimal) -> list[BillingLine]:
     """Pozycje osób z zamówień MD z kwotą równą netto faktury co do grosza."""
 
@@ -307,6 +346,8 @@ def decide(
             people = _people_with_amount(same, net)
             if len(people) == 1:
                 return Decision((Target(order_id=people[0].order_id),), "order_number")
+            if not people and _collective(same, net, items):
+                return Decision(tuple(_row_target(row) for row in same), "order_number")
         return Decision(reason="several_orders")
 
     if named_order_numbers(texts):

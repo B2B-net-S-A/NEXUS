@@ -652,7 +652,11 @@ async def month_view(
 async def _issued_orders(
     db: AsyncSession, order_ids: list[int], month: str
 ) -> set[int]:
-    """Linie zamówienia, których grupa ma już fakturę do klienta za ten miesiąc (E5.1)."""
+    """Linie zamówienia z fakturą do klienta za ten miesiąc (E5.1).
+
+    Faktura wisi na grupie (całe zamówienie MD) albo na linii: osoba z zamówienia
+    MD i zamówienie bez grupy (Bank Pocztowy, PKO, VeloBank, Nordea).
+    """
 
     if not order_ids:
         return set()
@@ -661,7 +665,10 @@ async def _issued_orders(
         select(ClientOrder.id)
         .join(
             ClientSalesInvoiceLink,
-            ClientSalesInvoiceLink.order_group_id == ClientOrder.order_group_id,
+            or_(
+                ClientSalesInvoiceLink.order_group_id == ClientOrder.order_group_id,
+                ClientSalesInvoiceLink.order_id == ClientOrder.id,
+            ),
         )
         .where(
             ClientOrder.id.in_(order_ids),
