@@ -486,6 +486,10 @@ role dostawały stary Start z przyciskami „Rozumiem”.
   `{"@status": 404}`, nie jako brak. Powłoka (pasek, powiadomienia) dostaje 404,
   poza szablonem etapów z `e2e/fixtures/poligon-shell.json`. Nowe ćwiczenie
   dopisujesz też do tego testu.
+  Ścieżka wchodzi na ekrany głównie linkiem (nawigacja po stronie klienta),
+  a błąd hydratacji widać tylko przy pełnym wczytaniu. Dlatego profil
+  ćwiczebny ma osobny test z `page.goto` („odświeżony profil”, 24.11.2026,
+  `pamiec-przegladarki-a-hydratacja.md`).
 - Stan poligonu żyje w pamięci karty: przeładowanie strony cofa ruchy,
   notatki i screening z ćwiczeń (postęp ćwiczeń zostaje).
 - Nowe ćwiczenie dopisujesz w czterech miejscach:
