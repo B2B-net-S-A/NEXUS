@@ -426,7 +426,9 @@ const OG_SAMPLES: { key: string; props: React.ComponentProps<typeof OgCard> }[] 
 /** Grafika posta (jeden wygląd od 24.11.2026): krótkie słowo, długi tytuł, strona rekrutera. */
 function OgVariants() {
   return (
-    <div style={{ display: "grid", gap: 24, padding: 24, background: "#e9e7df" }}>
+    // Kadr ma stałe 1200 × 630 (jak grafika OG); na wąskim ekranie przewija się
+    // w swoim pudełku, a nie cała strona (e2e „brak poziomego scrolla”).
+    <div style={{ display: "grid", gap: 24, padding: 24, background: "#e9e7df", maxWidth: "100%", overflowX: "auto" }}>
       {OG_SAMPLES.map((x) => (
         <div key={x.key} data-og={x.key} style={{ width: 1200, height: 630, display: "flex" }}>
           <OgCard {...x.props} />
