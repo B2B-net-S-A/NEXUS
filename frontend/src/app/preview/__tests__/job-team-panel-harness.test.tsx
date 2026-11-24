@@ -218,7 +218,9 @@ describe("/preview/job-team-panel", () => {
 
     await user.click(within(proposal).getByRole("button", { name: "Biorę" }));
 
-    expect(await screen.findByText("Nie udało się wziąć rekrutacji.")).toBeInTheDocument();
+    // Interceptor odrzuca jak timeout (`ECONNABORTED`), więc `apiErrorMessage`
+    // dokleja zdanie o serwerze (24.11.2026) — liczy się początek komunikatu.
+    expect(await screen.findByText(/^Nie udało się wziąć rekrutacji\./)).toBeInTheDocument();
     await waitFor(() =>
       expect(within(proposal).getByRole("button", { name: "Biorę" })).toBeEnabled(),
     );

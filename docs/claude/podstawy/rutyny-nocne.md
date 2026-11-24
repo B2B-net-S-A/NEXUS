@@ -77,7 +77,7 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
   słowo (`fresh`, `leaked`, `missing`); kod 1 = klucz z wycieku albo brak klucza.
   Lista odcisków musi być ta sama co `LEAKED_SECRET_KEY_SHA256_PREFIXES`
   w `app/core/config.py` (pilnuje test). `logs` wypuszcza z kontenera web
-  tylko linie JSON z `event_kind` `runtime_metrics` albo `http_outcome` (`grep`
+  tylko linie JSON z `event_kind` `runtime_metrics`, `http_outcome` albo `loop_stall` (`grep`
   na serwerze, stderr kontenera do `/dev/null`, druga bramka na laptopie); CZAS
   to `10m`/`2h` (najwyżej 24 h) albo znacznik ze strefą. Pole `timestamp` w liniach
   jest w UTC. Logi sięgają tylko do startu kontenera, więc pomiar dnia roboczego

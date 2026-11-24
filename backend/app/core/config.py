@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # Pusty = domyślne (700, 10, 10), czyli wycofanie bez zmiany kodu.
     # → app/tasks/runtime_metrics_monitor.py `apply_gc_thresholds`
     GC_THRESHOLDS: str = "50000,20,10"
+    # Zastój pętli zdarzeń dłuższy niż tyle sekund → stos wątku pętli w logu
+    # (`event_kind: loop_stall`). 0 = wyłączone. → app/tasks/loop_stall_guard.py
+    LOOP_STALL_DUMP_SECONDS: float = 5.0
     # Skąd web czyta stan pętli do `/api/health` i `/api/admin/snapshot`.
     NEXUS_WORKER_HEALTH_URL: str = "http://worker:8000/api/health/background"
     # Hosty spoza sieci lokalnej dozwolone na stagingu obok dostawców AI
