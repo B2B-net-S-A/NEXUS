@@ -698,6 +698,40 @@ async def _order_numbers(
     return out
 
 
+async def _sole_agreements(
+    db: AsyncSession, contract_id: int, month: str
+) -> frozenset[str]:
+    """Numery umów wykonawczych (``protocol_collective.contract_key``), na których
+    w miesiącu pracuje tylko ten kontrakt.
+
+    CeZ zawiera umowę wykonawczą na osobę, ale bywa ich kilka na umowę (CeZ/242)
+    albo zastępstwo od połowy miesiąca. Liczą się linie zamówień z miesiąca
+    (bez anulowanych); druga osoba na tej samej umowie = umowa nikogo nie wskazuje.
+    """
+
+    first, last = month_bounds(month)
+    in_month = (
+        ClientOrder.status.in_(ORDER_STATUSES),
+        ClientOrder.contract_id.is_not(None),
+        or_(ClientOrder.start_date.is_(None), ClientOrder.start_date <= last),
+        or_(ClientOrder.end_date.is_(None), ClientOrder.end_date >= first),
+    )
+    groups = select(ClientOrder.order_group_id).where(
+        ClientOrder.contract_id == contract_id, *in_month
+    )
+    rows = await db.execute(
+        select(ClientOrderGroup.order_number, ClientOrder.contract_id)
+        .join(ClientOrder, ClientOrder.order_group_id == ClientOrderGroup.id)
+        .where(ClientOrderGroup.id.in_(groups), *in_month)
+    )
+    people: dict[str, set[int]] = {}
+    for number, other in rows.all():
+        key = protocol_collective.contract_key(number)
+        if key is not None:
+            people.setdefault(key, set()).add(other)
+    return frozenset(key for key, ids in people.items() if ids == {contract_id})
+
+
 _ORDER_PREFIX = re.compile(r"^\s*zam[óo]wienie\s+(nr\.?\s*)?", re.IGNORECASE)
 
 
@@ -1119,11 +1153,14 @@ async def _proof(
     consultant_mails: frozenset[int] = frozenset(),
     senders: mail_text.Senders = mail_text.Senders(),
     fixed: bool = False,
+    agreements: frozenset[str] = frozenset(),
 ) -> Optional[rcp_checks.ProofResult]:
     """Odczyt RCP z pliku i kontrole (E2). Brak pliku RCP = ``None``.
 
     ``fixed``: projekt FIX — ``senders`` to domeny firmy, a mail akceptujący
     musi mieć słowo akceptacji (``mail_text.approved``), nie tylko nadawcę.
+    ``agreements``: umowy wykonawcze tylko tej osoby w miesiącu
+    (``_sole_agreements``) — wskazują ją w protokole z innym imieniem.
 
     Gdy wybranego pliku nie zna żaden czytnik (np. najnowszy plik miesiąca to
     faktura, a protokół przyszedł wcześniej), próbujemy pozostałych plików
@@ -1148,6 +1185,7 @@ async def _proof(
         consultant_mails=consultant_mails,
         senders=senders,
         client_mail=client_mail,
+        agreements=agreements,
     )
     if report is not None and report.mime in RCP_MIMES:
         try:
@@ -1248,6 +1286,7 @@ async def _read_file(
     consultant_mails: frozenset[int] = frozenset(),
     senders: mail_text.Senders = mail_text.Senders(),
     client_mail: Optional[bool] = None,
+    agreements: frozenset[str] = frozenset(),
 ) -> Optional[rcp_checks.ProofResult]:
     """Czytniki wzorów spoza RCP BNP dla jednego pliku; ``None`` = nie rozpoznany.
 
@@ -1341,6 +1380,7 @@ async def _read_file(
             rules=rules,
             working_days=working_days,
             other_md=other_md,
+            agreements=agreements,
         )
     # Raport zbiorczy Credit Agricole: kilka osób w jednym arkuszu, MD z „TE”.
     ca = await asyncio.to_thread(report_ca.parse, content, mime)
@@ -1618,6 +1658,7 @@ async def _recompute(
             consultant_mails=await _consultant_mails(db, reports, s.contract_id, rules),
             senders=senders,
             fixed=fixed,
+            agreements=await _sole_agreements(db, s.contract_id, s.period_month),
         )
         if proof is not None and fixed:
             _fix_note(proof, rules)

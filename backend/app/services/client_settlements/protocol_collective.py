@@ -16,7 +16,12 @@ Dwa wzory:
   „Suma końcowa” albo okres przez dwa miesiące = nie wzór (plik czeka na
   człowieka). Protokół jednej osoby bywa bez wiersza „… Suma” (imię i nazwisko
   w komórce rozbite na dwie linie): wtedy osobą jest tekst tabeli, a godzinami
-  „Suma końcowa”; osobę z kontraktu musi dać się w nim znaleźć.
+  „Suma końcowa”; osobę z kontraktu musi dać się w nim znaleźć. Tabela
+  przestawna („Suma z Godziny”, CeZ/177 za X 2026) ma wiersz osoby z sumą
+  dopiero w tabeli szczegółów: bierzemy go, gdy suma osób to „Suma końcowa”.
+* Imię w protokole inne niż w kartotece (zdrobnienie albo inne imię): osobę
+  wskazuje numer umowy z protokołu, gdy w miesiącu pracuje na niej tylko osoba
+  z kontraktu, a protokół ma jedną osobę (``by_agreement``).
 * PFRON: „Protokół odbioru na usługi outsourcingu specjalistów IT”, blok na osobę
   „Specjalisty: Imię Nazwisko Rola” i „Liczba Roboczogodzin … : 196,5”. Miesiąca
   w treści nie ma: bierzemy okres dokumentu (z nazwy pliku albo tematu maila,
@@ -133,16 +138,14 @@ def _cez(text: str) -> Optional[Protocol]:
         )
         entry[1] += hours
     if not sums:
-        # Protokół jednej osoby: osoba z tekstu tabeli, godziny z „Suma końcowa”.
         table = head[: total_found.start()].rsplit("podpis osoby uprawnionej)", 1)[-1]
         if len(name_tokens(table)) < 2:
             return None
-        return Protocol(
-            SOURCE_CEZ,
-            month,
-            (ProtocolPerson(table.strip(), total),),
-            _cez_contract(text),
-        )
+        people = _pivot_people(text[len(head) :], table, total)
+        if people is None:
+            # Protokół jednej osoby: osoba z tekstu tabeli, godziny z „Suma końcowa”.
+            people = (ProtocolPerson(table.strip(), total),)
+        return Protocol(SOURCE_CEZ, month, people, _cez_contract(text))
     if abs(sum(hours for _, hours in sums.values()) - total) > _TOLERANCE:
         logger.info("protokół CeZ: suma osób ≠ „Suma końcowa”, bez MD")
         return None
@@ -152,6 +155,31 @@ def _cez(text: str) -> Optional[Protocol]:
         tuple(ProtocolPerson(name, hours) for name, hours in sums.values()),
         _cez_contract(text),
     )
+
+
+def _pivot_people(
+    details: str, table: str, total: Decimal
+) -> Optional[tuple[ProtocolPerson, ...]]:
+    """Osoby zestawienia z tabeli przestawnej („Suma z Godziny”) z wierszy
+    „Imię Nazwisko Suma N” tabeli szczegółów pod „Podsumowaniem”.
+
+    W zestawieniu imię i nazwisko jest rozbite w komórce i nie ma wiersza osoby
+    z sumą (CeZ/177 za X 2026), a tabela szczegółów go ma. Bierzemy go tylko,
+    gdy suma osób to „Suma końcowa” zestawienia, a imię i nazwisko każdej stoją
+    w tekście zestawienia; inaczej ``None`` (wiersze spod podsumowania to nie osoby)."""
+
+    people: dict[frozenset[str], list[Any]] = {}
+    for found in _PERSON_SUM.finditer(details):
+        hours = number(found.group(2))
+        tokens = frozenset(name_tokens(found.group(1)))
+        if hours is None or not tokens <= name_tokens(table):
+            return None
+        people.setdefault(tokens, [found.group(1).strip(), Decimal("0")])[1] += hours
+    if not people:
+        return None
+    if abs(sum(hours for _, hours in people.values()) - total) > _TOLERANCE:
+        return None
+    return tuple(ProtocolPerson(name, hours) for name, hours in people.values())
 
 
 def _pfron(text: str) -> Optional[Protocol]:
@@ -199,6 +227,21 @@ def person_in(protocol: Protocol, person_name: str) -> Optional[ProtocolPerson]:
     return hits[0] if len(hits) == 1 else None
 
 
+def by_agreement(
+    protocol: Protocol, agreements: frozenset[str]
+) -> Optional[ProtocolPerson]:
+    """Jedyna osoba protokołu, gdy jego numer umowy jest w ``agreements``.
+
+    CeZ zawiera umowę wykonawczą na osobę, a w protokole bywa inne imię niż
+    w kartotece: zdrobnienie albo inne imię (próba IX–X 2026, CeZ/177).
+    ``agreements``: numery umów (``contract_key``), na których w miesiącu
+    rozliczenia pracuje tylko osoba z kontraktu. Protokół kilku osób = ``None``."""
+
+    if protocol.contract is None or len(protocol.people) != 1:
+        return None
+    return protocol.people[0] if protocol.contract in agreements else None
+
+
 def evaluate(
     protocol: Protocol,
     *,
@@ -208,21 +251,28 @@ def evaluate(
     rules: Mapping[str, Mapping[str, Any]],
     working_days: int,
     other_md: Decimal = Decimal("0"),
+    agreements: frozenset[str] = frozenset(),
 ) -> Optional[ProofResult]:
     """Kontrole i MD osoby; ``None``, gdy osoby w protokole nie ma.
 
     ``doc_month``: okres dokumentu z nazwy pliku albo tematu maila (nie zgadnięty),
-    potrzebny dla protokołu bez miesiąca w treści."""
+    potrzebny dla protokołu bez miesiąca w treści. ``agreements``: umowy tylko tej
+    osoby w miesiącu (``by_agreement``), gdy imię w protokole jest inne."""
 
+    agreement = None
     person = person_in(protocol, person_name)
     if person is None:
-        return None
+        person = by_agreement(protocol, agreements)
+        if person is None:
+            return None
+        agreement = protocol.contract
     return declared.evaluate(
         declared.Declared(
             source=protocol.source,
             consultant=person.name,
             month=protocol.month or doc_month,
             hours=person.hours,
+            agreement=agreement,
         ),
         month=month,
         person_name=person_name,

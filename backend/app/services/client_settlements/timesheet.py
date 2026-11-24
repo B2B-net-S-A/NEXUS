@@ -14,7 +14,9 @@ Task ID (odpowiedź rozliczeń z 12.11.2026: „cokolwiek z TS-a konsultanta”)
 
 Ten sam szablon bywa w PDF (tekst z ``pdfplumber``, ``text_rows``): wiersz
 „2026-09-01 …” albo „Tuesday 2026.09.01 …” kończy się kolumnami godzin
-(„-” to pusta komórka), a koniec to „Total Hours (This month) 78”. Ten sam
+(„-” to pusta komórka), a koniec to „Total Hours (This month) 78”. Bosch pisze
+daty „01-09-2026”, a opis zawinięty w komórce rozbija mu wiersz: data stoi sama,
+godziny są w następnej linii (bierzemy je tylko w pełnym komplecie kolumn). Ten sam
 odczyt bierze PDF „<osoba> Okres od: · Projekt: … Okres do: · Data Dzień Opis
 Godziny Rozliczalne” zakończony „W sumie”. Polski wariant XLSX: tytuł „Time
 Sheet”, „Imię Nazwisko”, tabela „Data · Opis zadań · Liczba godzin · Uwagi”
@@ -336,8 +338,11 @@ def _sheets(content: bytes) -> Optional[list[list[list[Any]]]]:
         workbook.close()
 
 
+# „2026-09-01”, „Tuesday 2026.09.01”, a w Time Sheet Boscha „01-09-2026”.
 _TEXT_DAY = re.compile(
-    r"^(?:[A-Za-ząćęłńóśźż]+\s+)?(\d{4})[-.](\d{1,2})[-.](\d{1,2})(?:\s+(.*))?$"
+    r"^(?:[A-Za-ząćęłńóśźż]+\s+)?"
+    r"(?:(\d{4})[-.](\d{1,2})[-.](\d{1,2})|(\d{1,2})[-.](\d{1,2})[-.](\d{4}))"
+    r"(?:\s+(.*))?$"
 )
 _TEXT_NUMBER = re.compile(r"^\d+(?:[.,]\d+)?$")
 _TEXT_FIELDS = (
@@ -370,6 +375,18 @@ def _text_hours(
     return count, values + [None] * (3 - count)
 
 
+def _text_date(found: re.Match[str]) -> Optional[date]:
+    """Data z ``_TEXT_DAY``: rok-miesiąc-dzień albo dzień-miesiąc-rok."""
+
+    year, month, day = found.group(1, 2, 3)
+    if year is None:
+        day, month, year = found.group(4, 5, 6)
+    try:
+        return date(int(year), int(month), int(day))
+    except ValueError:
+        return None
+
+
 def text_rows(text: str) -> Optional[list[list[Any]]]:
     """Tekst PDF Time Sheet → wiersze jak z arkusza (dla ``parse_rows``)."""
 
@@ -378,6 +395,8 @@ def text_rows(text: str) -> Optional[list[list[Any]]]:
     rows: list[list[Any]] = []
     width = 0
     least = 0
+    # Data wiersza bez godzin: dzień wolny albo opis zawinięty w komórce.
+    waiting: Optional[tuple[date, list[str]]] = None
     titled = any(line.lower().startswith("time sheet") for line in lines)
     for line in lines:
         low = line.lower()
@@ -404,6 +423,7 @@ def text_rows(text: str) -> Optional[list[list[Any]]]:
             # Wzór „Okres od”: pusta kolumna „Rozliczalne” znika z tekstu PDF.
             least = 1 if polish else width
             rows.append(list(_TEXT_HEADER))
+            waiting = None
             continue
         if not width:
             continue
@@ -412,17 +432,29 @@ def text_rows(text: str) -> Optional[list[list[Any]]]:
             numbers = [t for t in tokens if _TEXT_NUMBER.match(t)]
             if numbers:
                 rows.append(["Total Hours", _dec(numbers[0])])
+            waiting = None
             continue
         found = _TEXT_DAY.match(line)
         if not found:
+            if waiting is not None:
+                # Opis zawinięty w komórce (Time Sheet Boscha, próba IX–X 2026): data
+                # stoi sama, a godziny są w następnej linii. Tylko pełny komplet
+                # kolumn godzin, żeby liczba z opisu („wydanie 2026”) nie była godziną.
+                count, hours = _text_hours(tokens, width, least=width)
+                if hours is not None:
+                    day, rest = waiting
+                    text = " ".join(rest + tokens[: len(tokens) - count])
+                    rows.append([day, text, *hours])
+                waiting = None
             continue
-        try:
-            day = date(*(int(found.group(i)) for i in (1, 2, 3)))
-        except ValueError:
+        waiting = None
+        day = _text_date(found)
+        if day is None:
             continue
-        rest = (found.group(4) or "").split()
+        rest = (found.group(7) or "").split()
         count, hours = _text_hours(rest, width, least=least)
         if hours is None:
+            waiting = (day, rest)
             continue
         rows.append([day, " ".join(rest[: len(rest) - count]), *hours])
     if not rows:
