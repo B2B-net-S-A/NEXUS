@@ -4726,19 +4726,6 @@
     ]
   },
   {
-    "id": "wymagania-klienta-do-faktury",
-    "pr": 3817,
-    "title": "Wymagania klienta do faktury z NEXUSA",
-    "why": "Numer umowy, kilka zamówień na fakturze, pole OSOBA w KSeF, tekst w pozycjach i adres maila ustawiasz raz w regułach klienta. Szkic faktury wpisuje je sam.",
-    "tier": "dot",
-    "shipped_on": "2026-11-24",
-    "audience": { "roles": ["finance", "admin"] },
-    "where": "Finanse → Rozliczenia klientów → Reguły klienta → Faktura do klienta",
-    "href": "/finance",
-    "section": "finance",
-    "dot_anchor": "clients.rules.client_invoice"
-  },
-  {
     "id": "nowe-cv-przelacznik-ukladu",
     "title": "Układ CV: Nowe CV albo Klasyczne",
     "why": "W karcie „CV do klienta” wybierasz układ: Nowe CV (PDF ze stroną podsumowania) albo Klasyczne (Word). Ten sam tekst, bez generowania od nowa. Domyślny układ ustawia reguła CV klienta.",
@@ -4774,6 +4761,19 @@
         "hint": "Miniatura pokaże stronę 1 nowego układu. Treść CV się nie zmienia — wrócisz do Klasycznego tym samym przełącznikiem."
       }
     ]
+  },
+  {
+    "id": "wymagania-klienta-do-faktury",
+    "pr": 3817,
+    "title": "Wymagania klienta do faktury z NEXUSA",
+    "why": "Numer umowy, kilka zamówień na fakturze, pole OSOBA w KSeF, tekst w pozycjach i adres maila ustawiasz raz w regułach klienta. Szkic faktury wpisuje je sam.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": { "roles": ["finance", "admin"] },
+    "where": "Finanse → Rozliczenia klientów → Reguły klienta → Faktura do klienta",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "clients.rules.client_invoice"
   },
   {
     "id": "dodatki-do-rozliczenia-kontraktora",

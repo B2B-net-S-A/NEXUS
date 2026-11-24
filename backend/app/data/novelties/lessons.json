@@ -2096,41 +2096,6 @@
     ]
   },
   {
-    "id": "lekcja-wymagania-klienta-do-faktury",
-    "title": "Wymagania klienta do faktury z NEXUSA",
-    "novelties": [
-      "wymagania-klienta-do-faktury"
-    ],
-    "task": "W rozliczeniach klientów otwórz Reguły klienta i w sekcji „Faktura do klienta” włącz numer umowy w KSeF. Na Poligonie nic się nie zapisze.",
-    "solo_href": "/finance?view=settlements",
-    "check": {
-      "kind": "click",
-      "anchor": "clients.rules.client_invoice"
-    },
-    "questions": [
-      {
-        "q": "Klient chce w KSeF numer umowy i pole OSOBA z adresem koordynatora. Gdzie to ustawiasz?",
-        "options": [
-          "Raz w regułach klienta, w sekcji „Faktura do klienta”",
-          "W uwagach każdego szkicu faktury",
-          "W eBI24 przy kliencie"
-        ],
-        "answer": 0,
-        "explain": "Reguła klienta działa od wybranego miesiąca: każdy szkic z NEXUSA wpisuje numer umowy i pole OSOBA do KSeF sam, a karta faktury pokazuje je w ramce „Wymagania klienta”."
-      },
-      {
-        "q": "Klient ma kilku nabywców, zależnie od kontraktu osoby. Co robisz przy pierwszym szkicu?",
-        "options": [
-          "Wybierasz nabywcę z listy w szkicu — NEXUS zapamięta go dla tych kontraktów",
-          "Przepisujesz nazwę i adres nabywcy co miesiąc",
-          "Wystawiasz fakturę na klienta z kartoteki i robisz korektę"
-        ],
-        "answer": 0,
-        "explain": "Listę nabywców wpisujesz w ustawieniach wystawiania przy kliencie. Wybór w szkicu zapamiętuje kontrakty, więc kolejne szkice mają już właściwego nabywcę, a szkic bez nabywcy z listy nie pójdzie do KSeF."
-      }
-    ]
-  },
-  {
     "id": "lekcja-nowe-cv-uklad",
     "title": "Układ CV: Nowe CV albo Klasyczne",
     "novelties": [
@@ -2172,6 +2137,41 @@
         ],
         "answer": 0,
         "explain": "Nowe CV istnieje tylko jako PDF. Plik Word to zawsze układ klasyczny. Na start zaznaczone jest Klasyczne, a Nowe CV od razu tylko u klienta z taką regułą CV."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-wymagania-klienta-do-faktury",
+    "title": "Wymagania klienta do faktury z NEXUSA",
+    "novelties": [
+      "wymagania-klienta-do-faktury"
+    ],
+    "task": "W rozliczeniach klientów otwórz Reguły klienta i w sekcji „Faktura do klienta” włącz numer umowy w KSeF. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/finance?view=settlements",
+    "check": {
+      "kind": "click",
+      "anchor": "clients.rules.client_invoice"
+    },
+    "questions": [
+      {
+        "q": "Klient chce w KSeF numer umowy i pole OSOBA z adresem koordynatora. Gdzie to ustawiasz?",
+        "options": [
+          "Raz w regułach klienta, w sekcji „Faktura do klienta”",
+          "W uwagach każdego szkicu faktury",
+          "W eBI24 przy kliencie"
+        ],
+        "answer": 0,
+        "explain": "Reguła klienta działa od wybranego miesiąca: każdy szkic z NEXUSA wpisuje numer umowy i pole OSOBA do KSeF sam, a karta faktury pokazuje je w ramce „Wymagania klienta”."
+      },
+      {
+        "q": "Klient ma kilku nabywców, zależnie od kontraktu osoby. Co robisz przy pierwszym szkicu?",
+        "options": [
+          "Wybierasz nabywcę z listy w szkicu — NEXUS zapamięta go dla tych kontraktów",
+          "Przepisujesz nazwę i adres nabywcy co miesiąc",
+          "Wystawiasz fakturę na klienta z kartoteki i robisz korektę"
+        ],
+        "answer": 0,
+        "explain": "Listę nabywców wpisujesz w ustawieniach wystawiania przy kliencie. Wybór w szkicu zapamiętuje kontrakty, więc kolejne szkice mają już właściwego nabywcę, a szkic bez nabywcy z listy nie pójdzie do KSeF."
       }
     ]
   },
