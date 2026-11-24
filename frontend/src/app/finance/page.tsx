@@ -84,16 +84,18 @@ const VIEW_DESCRIPTION: Record<ViewMode, string> = {
  * Suspense wokół całej strony.
  */
 /** Wejście do „Faktur do klientów” z miesiącem i widokiem (link „Wystaw” z „Przebiegu miesiąca”). */
-const SALES_INVOICES_URL_KEYS = ["siPeriod", "siView"] as const;
+const SALES_INVOICES_URL_KEYS = ["siPeriod", "siView", "siClient"] as const;
 // „issue-settings”: dzwonek CPro o nieznanym kodzie adresu prowadzi do „Kod w CPro” nabywcy.
 const SALES_INVOICES_LINK_VIEWS: readonly SalesInvoicesView[] = ["issue", "to-invoice", "invoices", "issue-settings"];
 
-function salesInvoicesFromUrl(): { initialPeriod?: string; initialView?: SalesInvoicesView } {
+function salesInvoicesFromUrl(): { initialPeriod?: string; initialView?: SalesInvoicesView; initialClientId?: number } {
   if (typeof window === "undefined") return {};
   const params = new URLSearchParams(window.location.search);
   const period = params.get("siPeriod");
   const view = params.get("siView") as SalesInvoicesView | null;
+  const client = Number(params.get("siClient"));
   return {
+    initialClientId: Number.isInteger(client) && client > 0 ? client : undefined,
     initialPeriod: period && /^\d{4}-\d{2}$/.test(period) ? period : undefined,
     initialView: view && SALES_INVOICES_LINK_VIEWS.includes(view) ? view : undefined,
   };

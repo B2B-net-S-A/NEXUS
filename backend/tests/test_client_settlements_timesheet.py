@@ -248,7 +248,7 @@ def test_nazwisko_i_mail_z_akceptacja():
     titles = _titles(result)
     assert titles["Inne imię lub nazwisko niż w kontrakcie"] == "warn"
     assert titles["Brak maila z akceptacją godzin"] == "warn"
-    with_mail = _titles(_evaluate(parsed, rules=rules, has_mail=True))
+    with_mail = _titles(_evaluate(parsed, rules=rules, has_mail=True, client_mail=True))
     assert with_mail["Mail z akceptacją godzin jest"] == "ok"
 
 

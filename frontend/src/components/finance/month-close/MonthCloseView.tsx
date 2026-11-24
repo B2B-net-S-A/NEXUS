@@ -24,8 +24,11 @@ import { warsawToday } from "@/lib/warsaw-date";
 import { cn } from "@/lib/utils";
 
 import { defaultMonth, monthLabel, pln, recentMonths, shortDay } from "../settlements/format";
+import { issueHref } from "./ClientMonthStrip";
 import { ClosingPanel } from "./ClosingPanel";
 import { reasonPlan } from "./reason-plan";
+
+export { issueHref };
 
 /** Parametry adresu tego widoku (czyści je zmiana widoku /finance). */
 export const MONTH_CLOSE_URL_KEYS = ["mcMonth", "mcTab"] as const;
@@ -48,9 +51,6 @@ export function settlementsHref(clientId: number, month: string, extra: Record<s
   return `/finance?${params.toString()}`;
 }
 
-export function issueHref(month: string): string {
-  return `/finance?view=sales-invoices&siPeriod=${month}&siView=issue`;
-}
 
 export function MonthCloseView() {
   const today = warsawToday();
@@ -373,7 +373,7 @@ function ClientsTable({ data, month, reminders }: ClientsTableProps) {
                 </td>
                 <td className="whitespace-nowrap px-3 py-1.5 text-right">
                   {!report && c.client_invoice_ready > 0 ? (
-                    <Link href={issueHref(month)} className="mr-3 text-xs font-medium text-primary hover:underline">
+                    <Link href={issueHref(month, c.client_id)} className="mr-3 text-xs font-medium text-primary hover:underline">
                       Wystaw
                     </Link>
                   ) : null}

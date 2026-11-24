@@ -25,6 +25,7 @@ from email.utils import parsedate_to_datetime
 from typing import Iterable, Optional
 
 from app.services.client_settlements import mail_file
+from app.services.client_settlements.mail_text import Senders
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +255,23 @@ def from_domain(
     pisze z konta ``external.`` w domenie banku, a zgodę daje pracownik banku."""
 
     return [m for m in messages if m.domain and m.domain in allowed]
+
+
+def from_client(messages: Iterable[MailMessage], senders: Senders) -> Optional[bool]:
+    """Czy w wątku jest wiadomość klienta: sam mail albo zacytowana w treści.
+
+    ``True`` — nadawca z domeny klienta (``Senders``, jak w ``mail_text.judge``);
+    ``None`` — klienta nie ma, ale nadawcy którejś wiadomości nie odczytano
+    („From: Nowak, Anna” bez adresu), więc sprawdza człowiek; ``False`` — same
+    nasze adresy, konsultant albo poczta publiczna. Odpowiedź naszego PM-a na
+    Time Sheet podwykonawcy to nie akceptacja klienta (przegląd z 23.11.2026)."""
+
+    found = list(messages)
+    if any(m.sender and senders.accepts_from(m.sender) for m in found):
+        return True
+    if any(m.sender is None for m in found):
+        return None
+    return False
 
 
 def acceptance_date(

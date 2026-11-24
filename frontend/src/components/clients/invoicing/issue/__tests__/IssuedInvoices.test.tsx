@@ -251,6 +251,51 @@ describe("IssueMonthPanel", () => {
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith([9]));
   });
 
+  it("z linku „Wystaw” pokazuje jednego klienta z zaznaczonymi zamówieniami", async () => {
+    const user = userEvent.setup();
+    const other: ToIssueClient = {
+      ...TO_ISSUE[0],
+      client_id: 8,
+      client_name: "Inny klient",
+      rows: [{ ...TO_ISSUE[0].rows.find((r) => r.key === "g118")!, key: "g900", order_number: "ZAM-INNE" }],
+    };
+    get.mockResolvedValue({ data: { period: "2026-10", clients: [...TO_ISSUE, other] } });
+    post.mockResolvedValue({ data: { created: [9] } });
+    wrap(<IssueMonthPanel period="2026-10" clientId={7} onCreated={vi.fn()} />);
+
+    expect(await screen.findByText(/zaznaczono zamówienia do wystawienia/)).toBeInTheDocument();
+    expect(screen.queryByTestId("to-issue-g900")).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("to-issue-g118")).getByRole("checkbox")).toBeChecked();
+    expect(within(screen.getByTestId("to-issue-g140")).getByRole("checkbox")).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Utwórz szkice (1)" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/finance/issued-invoices/drafts", {
+        year: 2026,
+        month: 10,
+        keys: ["g118"],
+        split: "order",
+      }),
+    );
+  });
+
+  it("„Pokaż wszystkich klientów” zdejmuje filtr i zaznaczenie", async () => {
+    const user = userEvent.setup();
+    const other: ToIssueClient = { ...TO_ISSUE[0], client_id: 8, client_name: "Inny klient", rows: [] };
+    get.mockResolvedValue({ data: { period: "2026-10", clients: [...TO_ISSUE, other] } });
+    wrap(<IssueMonthPanel period="2026-10" clientId={7} onCreated={vi.fn()} />);
+
+    await user.click(await screen.findByRole("button", { name: "Pokaż wszystkich klientów" }));
+    expect(screen.getByText("Inny klient")).toBeInTheDocument();
+    expect(within(screen.getByTestId("to-issue-g118")).getByRole("checkbox")).not.toBeChecked();
+  });
+
+  it("klient spoza listy do wystawienia nie chowa reszty", async () => {
+    wrap(<IssueMonthPanel period="2026-10" clientId={999} onCreated={vi.fn()} />);
+    expect(await screen.findByTestId("to-issue-g118")).toBeInTheDocument();
+    expect(screen.queryByText(/zaznaczono zamówienia do wystawienia/)).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("to-issue-g118")).getByRole("checkbox")).not.toBeChecked();
+  });
+
   it("shows an empty month only after a successful load", async () => {
     get.mockResolvedValue({ data: { period: "2026-10", clients: [] } });
     wrap(<IssueMonthPanel period="2026-10" onCreated={vi.fn()} />);

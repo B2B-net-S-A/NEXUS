@@ -1,6 +1,6 @@
 # Rozliczenia: akceptacja tylko od klienta, Orlen (pgnig.pl, kwota z protokołu), oświadczenie CeZ
 
-<!-- indeks: akceptacja klienta, Brak akceptacji klienta, mail_text.judge, Senders, acceptance_senders, proof.accept_has_hours, zestawienie godzin koordynatora, forward bez cytatu, pgnig.pl, Orlen Upstream, KNOWN_SENDER_DOMAINS, client_ids_for_sender, zmiana nazwiska, dwa nazwiska w pliku, cl.protocol_amount, kwota z protokołu, faktura sprzedaży, korekta, PO, cl.copyright_statement, oświadczenie o prawach autorskich, autorskie prawa majątkowe, umowa wykonawcza, Centrum e-Zdrowia, CeZ -->
+<!-- indeks: akceptacja klienta, Brak akceptacji klienta, mail_text.judge, Senders, acceptance_senders, proof.accept_has_hours, proof.excel_with_mail, extra.mail_accept, acceptance_mail.from_client, client_mail, akceptacja PM-a, zestawienie godzin koordynatora, forward bez cytatu, pgnig.pl, Orlen Upstream, KNOWN_SENDER_DOMAINS, client_ids_for_sender, zmiana nazwiska, dwa nazwiska w pliku, cl.protocol_amount, kwota z protokołu, faktura sprzedaży, korekta, PO, cl.copyright_statement, oświadczenie o prawach autorskich, autorskie prawa majątkowe, umowa wykonawcza, Centrum e-Zdrowia, CeZ -->
 
 Od 23.11.2026, po przeglądzie skrzynek Finansów (skrzynka koordynatorki rozliczeń,
 wzorce: wewnętrzne zestawienie godzin, Orlen, oświadczenia CeZ).
@@ -61,6 +61,41 @@ Sama zasada „tylko od klienta” dziś niczego nie zmienia. Zmiana chroni prze
 koordynatorki CeZ zapisywanym jako raport każdej osoby. Ten mail jest dowodem godzin
 z decyzji Artura (`rozliczenia-protokol-odbioru-zbiorczy.md`), ale nie akceptacją
 klienta w `proof.accept_has_hours`.
+
+## Mail akceptujący w kontrolach pliku też tylko od klienta (24.11.2026)
+
+Ciąg dalszy powyższej zasady, po przeglądzie skrzynki rozliczeń z 23.11. Podwykonawca
+wysłał Time Sheet na szablonie firmy, a nasz PM odpisał „Akceptuje rozliczenie.”
+z adresu firmy. Klienta w wątku nie było. `proof.excel_with_mail` w Time Sheet
+(`timesheet.evaluate`) brał każdy mail miesiąca za akceptację. RCP w Excelu
+i `extra.mail_accept` (`rcp_checks.evaluate`) sprawdzały domenę tylko przy wpisanym
+parametrze.
+
+Teraz wszystkie trzy kontrole pytają `acceptance_mail.from_client(wiadomości, senders)`.
+Wiadomości to maile miesiąca osoby: `.msg`, `.eml`, wydruk PDF i cytaty „From:”/„Od:”.
+Domeny klienta wylicza `service.acceptance_senders`, jak wyżej. Dochodzi domena
+z `extra.mail_accept`. Wynik ma trzy stany:
+
+- `True`: w wątku jest wiadomość z domeny klienta, w samym mailu albo zacytowana.
+  Kontrola daje „ok”. Parametr domeny reguły nadal zawęża (`_check_domain`).
+- `False`: są tylko nasze adresy, konsultant albo poczta publiczna. Kontrola daje
+  „Brak akceptacji klienta” (przy nadgodzinach „… pracy dodatkowej”) z poziomem reguły,
+  a `extra.mail_before` nie liczy daty zgody z naszego maila.
+- `None`: klienta w wątku nie widać, ale któraś wiadomość ma nadawcę bez adresu
+  („From: Nowak, Anna”). Kontrola daje „sprawdza człowiek”, bez uwagi.
+
+W tych kontrolach słowo akceptacji nie jest potrzebne, wystarczy wiadomość klienta
+w wątku. Słowo i liczbę godzin sprawdza `proof.accept_has_hours`.
+Domeny klienta liczymy, gdy włączona jest którakolwiek z trzech reguł
+(`service.CLIENT_MAIL_RULES`).
+
+Pomiar na `nexus_staging_klodko_v5` (IX–X, 310 rozliczeń, `_recompute` z rollbackiem):
+0 zmian statusu i 0 błędów. Zmieniają się 2 kontrole, w IX i X u jednego klienta.
+Jedyny mail jest tam z domeny firmy i daje teraz „Brak akceptacji klienta” zamiast „ok”.
+Status był już „uwagi”.
+
+Projekty FIX, w których godziny podwykonawcy akceptuje PM jako koszt firmy, to wyjątek
+od tej zasady. Opisuje go osobna reguła.
 
 ## Orlen
 

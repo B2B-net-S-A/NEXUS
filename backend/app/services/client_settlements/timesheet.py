@@ -50,6 +50,7 @@ from app.services.client_settlements.rcp_checks import (
     _fmt,
     _Group,
     _param_dec,
+    client_acceptance_mail,
     name_tokens,
 )
 from app.services.person_workdays import business_days
@@ -499,8 +500,12 @@ def evaluate(
     rules: Mapping[str, Mapping[str, Any]],
     working_days: int,
     other_md: Decimal = Decimal("0"),
+    client_mail: Optional[bool] = None,
 ) -> ProofResult:
-    """Kontrole Time Sheet z katalogu reguł; MD z godzin, bez pracy dodatkowej."""
+    """Kontrole Time Sheet z katalogu reguł; MD z godzin, bez pracy dodatkowej.
+
+    ``client_mail``: czy w mailach miesiąca jest wiadomość klienta
+    (``acceptance_mail.from_client``); ``None`` = nadawcy nie odczytano."""
 
     result = ProofResult(md_regular=None, md_extra=None)
     sheet = _Group(result, rules, GROUP_TITLE)
@@ -558,14 +563,16 @@ def evaluate(
         sheet.fail("proof.name_match", "Time Sheet bez pola Consultant(s)")
 
     if sheet.on("proof.excel_with_mail"):
-        if has_mail:
-            sheet.ok("Mail z akceptacją godzin jest")
-        else:
+        if not has_mail:
             sheet.fail(
                 "proof.excel_with_mail",
                 "Brak maila z akceptacją godzin",
                 "Dołącz mail z akceptacją (MSG, EML albo PDF z wydrukiem).",
             )
+        else:
+            client_acceptance_mail(sheet, "proof.excel_with_mail", client_mail)
+            if client_mail:
+                sheet.ok("Mail z akceptacją godzin jest")
 
     projects = parsed.hours_by_project()
     sheet.info(
