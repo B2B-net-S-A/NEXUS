@@ -393,9 +393,16 @@ export function JobDetailCompactHeader({
   const compactChampionTab = collapsed && Boolean(collapsedExtras);
   const hasAdding = Boolean(onAddByName || onAddFromCv || onStartFullReview || onOpenMyPeople);
 
+  // `@container/job-header`: pełne etykiety faktów (budżet, proces,
+  // „Rekruter”, „Szukamy N osób”, „po terminie 1 dzień”) zależą od szerokości
+  // nagłówka, nie okna (24.11.2026). Przy oknie 1536 px (Windows 1920 px
+  // w skali 125 %) próg `2xl` włączał je, choć obok jest menu boczne:
+  // linii faktów brakowało ok. 65 px i „Zdalnie” wchodziło na daty.
+  // 86rem to zmierzona linia z pełnymi etykietami (1302 px) z zapasem
+  // na „Bez rekrutera” i dłuższą przedwstępną.
   return (
     <header
-      className="space-y-1.5 rounded-lg border border-border bg-card px-3 py-2"
+      className="@container/job-header space-y-1.5 rounded-lg border border-border bg-card px-3 py-2"
       data-testid="job-header"
       data-collapsed={collapsed ? "true" : undefined}
     >
@@ -812,8 +819,8 @@ export function JobDetailCompactHeader({
                     >
                       {fact.value && fact.short && fact.short !== fact.value ? (
                         <>
-                          <span className="2xl:hidden">{fact.short}</span>
-                          <span className="hidden 2xl:inline">{fact.value}</span>
+                          <span className="@min-[86rem]/job-header:hidden">{fact.short}</span>
+                          <span className="hidden @min-[86rem]/job-header:inline">{fact.value}</span>
                         </>
                       ) : (
                         (fact.value ?? "nie podano")

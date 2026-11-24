@@ -51,9 +51,9 @@ describe("JobDatesFact", () => {
         now={NOW}
       />,
     );
-    // Poniżej 2xl krótko, od 2xl pełne zdanie; pełne też w dymku.
-    expect(screen.getByText("po terminie 1 dz.")).toHaveClass("2xl:hidden");
-    expect(screen.getByText("po terminie 1 dzień")).toHaveClass("hidden", "2xl:inline");
+    // W wąskim nagłówku krótko, w szerokim pełne zdanie; pełne też w dymku.
+    expect(screen.getByText("po terminie 1 dz.")).toHaveClass("@min-[86rem]/job-header:hidden");
+    expect(screen.getByText("po terminie 1 dzień")).toHaveClass("hidden", "@min-[86rem]/job-header:inline");
     expect(chip().getAttribute("title")).toContain("18.11.2026, 12:00 (po terminie 1 dzień)");
     expect(chip()).toHaveAttribute("data-urgency", "overdue");
     expect(screen.getByTestId("job-header-dates-relative")).toHaveClass("text-destructive");

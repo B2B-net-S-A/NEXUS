@@ -187,7 +187,7 @@ describe("JobDetailCompactHeader", () => {
     expect(screen.queryByTestId("job-header-dates")).toBeNull();
   });
 
-  it("krótka forma faktu poniżej 2xl, pełna od 2xl i w dymku", () => {
+  it("krótka forma faktu w wąskim nagłówku, pełna w szerokim i w dymku", () => {
     renderHeader({
       facts: [
         { key: "client", label: "Klient", value: "Bank Przykładowy S.A." },
@@ -201,7 +201,10 @@ describe("JobDetailCompactHeader", () => {
       ],
     });
     const mode = screen.getByTestId("job-header-fact-work_mode");
-    expect(within(mode).getByText("Hybrydowo · 4 dni/tydz. · Warszawa")).toHaveClass("2xl:hidden");
+    expect(within(mode).getByText("Hybrydowo · 4 dni/tydz. · Warszawa")).toHaveClass("@min-[86rem]/job-header:hidden");
+    // Próg liczy szerokość nagłówka, nie okna: przy 1536 px z menu bocznym
+    // `2xl` włączał pełne etykiety i „Zdalnie” wchodziło na daty (24.11.2026).
+    expect(screen.getByTestId("job-header")).toHaveClass("@container/job-header");
     expect(within(mode).getByText("Hybrydowo · 4 dni w tygodniu · Warszawa")).toHaveClass("hidden");
     expect(mode).toHaveAttribute("title", "Tryb pracy: Hybrydowo · 4 dni w tygodniu · Warszawa");
   });
