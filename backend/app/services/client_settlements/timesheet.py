@@ -6,8 +6,9 @@ Hours · Billable · Non-billable · Nr strumienia” zakończona wierszem „To
 Hours”. Konsultant bywa kopiuje tabelę na kilka tygodni albo arkuszy, więc
 czytamy każdą tabelę z każdego widocznego arkusza.
 
-Godziny do rozliczenia to „Billable”; bez tej kolumny „Total Hours” minus
-„Non-billable”. MD = godziny / ``fields.md_hours`` (domyślnie 8 h). Jedna osoba
+Godziny do rozliczenia to „Billable”; bez tej kolumny albo przy pustej komórce
+„Total Hours” minus „Non-billable”, a tekst w „Billable” (VeloBank: „x” w weekendy
+i dni wolne) to 0 h. MD = godziny / ``fields.md_hours`` (domyślnie 8 h). Jedna osoba
 może mieć kilka projektów: projekt bierzemy z wiersza, a bez niego z nagłówka.
 „Nr strumienia” (albo „Task ID”) trafia do potwierdzenia usług klienta jako
 Task ID (odpowiedź rozliczeń z 12.11.2026: „cokolwiek z TS-a konsultanta”).
@@ -218,6 +219,12 @@ def _cell(row: list[Any], columns: Mapping[str, int], key: str) -> Any:
     return row[index] if index is not None and index < len(row) else None
 
 
+def _marker(cell: Any) -> bool:
+    """Niepusty tekst, który nie jest liczbą (znacznik „x” dnia bez pracy)."""
+
+    return isinstance(cell, str) and bool(cell.strip()) and _dec(cell) is None
+
+
 def is_sum_row(
     day: Optional[date],
     label: Optional[str],
@@ -273,8 +280,15 @@ def parse_rows(sheets: Iterable[list[list[Any]]]) -> Optional[ParsedTimesheet]:
                     declared = (declared or Decimal("0")) + value
                 columns = None
                 continue
+            raw_billable = _cell(row, columns, "billable")
+            if _marker(raw_billable):
+                # Tekst w „Billable” to dzień bez godzin, nie powód, by liczyć
+                # „Total Hours”: VeloBank ma 8 w Total w każdym dniu kalendarza,
+                # a weekendy i dni wolne oznacza „x” (próba IX–X 2026: 30 MD z
+                # wierszy zamiast 20 z sumy pliku i arkusza podpisanego przez klienta).
+                continue
             description = _text(_cell(row, columns, "description"))
-            billable = _dec(_cell(row, columns, "billable"))
+            billable = _dec(raw_billable)
             total = _dec(_cell(row, columns, "total"))
             non_billable = _dec(_cell(row, columns, "non_billable")) or Decimal("0")
             if billable is None and "billable" in columns and total is None:
