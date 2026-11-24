@@ -3,7 +3,7 @@ import "./career.css";
 import { careerDisplayFont, careerMonoFont } from "./fonts";
 
 /**
- * Korzeń motywu terminala: fonty, tło z siatką, zmienne kolorów.
+ * Korzeń strony kariery: fonty (`fonts.ts`), `lang` i tło z `career.css`.
  *
  * `page` — prawdziwa strona `/kariera` (nie harness): `career.css` barwi wtedy
  * na czarno także `html`/`body` pod stroną.
