@@ -40,7 +40,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.15"
+          # Narzędzie, nie runtime: Semgrep 1.136 na Pythonie 3.15 kończy się
+          # „Metaclasses with custom tp_new are not supported” (24.11.2026, po #3900).
+          python-version: "3.12"
       - name: Zainstaluj Semgrep
         # setuptools: Semgrep 1.136 importuje `pkg_resources` (przez opentelemetry),
         # a Python 3.12 z setup-python go nie ma — bez tego ModuleNotFoundError
