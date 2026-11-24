@@ -27,7 +27,8 @@ Dla KAŻDEJ pozycji z listy items (po kolei, każda osobno):
    vault_entry = „{MARCIN_HINT}” albo delivery_lead_id = 32
    (Dominik) z vault_entry = „{MARCIN_HINT}”. Dla Dominika używaj
    wyłącznie konta Marcina; ID 32 pozostaje prawdziwym właścicielem
-   rekrutacji w zleceniu i raporcie. Nie zamieniaj go na 27.
+   rekrutacji w zleceniu. Nie zamieniaj go na 27; raport zachowuje podany
+   report_format bez dodatkowych pól.
    Brak obiektu, inne ID, niezgodny wpis
    Vault albo brak tego wpisu → skipped, reason "account_unknown", bez
    jakichkolwiek zmian w Cpro. Nie zgaduj konta po nazwisku kandydata,
