@@ -57,7 +57,10 @@ from app.models.md_consumption import (
     CONSUMPTION_SOURCE_IMPORT,
     ClientOrderMdConsumption,
 )
-from app.services.candidate_identity_quarantine import normalize_person_name_part
+from app.services.candidate_identity_quarantine import (
+    normalize_person_name_part,
+    split_person_name,
+)
 from app.services.fx_service import rates_to_pln
 from app.services.multi_consultant_orders import (
     EVENT_CONSULTANT_ENDED,
@@ -143,12 +146,12 @@ def name_tokens(full_name: str | None) -> frozenset[str]:
     """
     if not full_name:
         return frozenset()
-    tokens = {
-        normalized
-        for part in str(full_name).split()
-        if (normalized := normalize_person_name_part(part))
-    }
-    return frozenset(tokens)
+    # Podział po każdym znaku spoza liter i cyfr, nie po samej spacji (audyt
+    # 24.11.2026): „Nowak-Kowalska” i „Nowak Kowalska” to ta sama osoba, a
+    # jeden token „nowakkowalska” rozjeżdżał wiersz importu z kandydatem.
+    return frozenset(
+        token for part in str(full_name).split() for token in split_person_name(part)
+    )
 
 
 def candidate_name_tokens(candidate: Candidate | None) -> frozenset[str]:

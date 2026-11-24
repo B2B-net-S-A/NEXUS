@@ -775,6 +775,16 @@ def normalize_person_name_part(value: Any) -> str:
     return _NON_ALNUM_RE.sub("", _fold_person_name(value))
 
 
+def split_person_name(value: Any) -> list[str]:
+    """Imię i nazwisko → tokeny, z podziałem po każdym znaku spoza liter i cyfr.
+
+    Ten sam fold co ``normalize_person_name_part``, ale „Nowak-Kowalska” daje
+    dwa tokeny, nie jeden sklejony. Bez odsiewu krótkich tokenów.
+    """
+
+    return [token for token in _NON_ALNUM_RE.split(_fold_person_name(value)) if token]
+
+
 def _person_name_tokens(*values: Any) -> set[str]:
     return {
         token
