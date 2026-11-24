@@ -136,8 +136,12 @@ describe("downloadBulkCvs — odmowy, nagłówki i plik ZIP", () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:zip");
   });
 
-  it.todo(
-    "nazwa ZIP-a bierze datę z UTC (`toISOString`, bulk-cv-download.ts:63): " +
-      "o 23:30 UTC 30.09 w Warszawie jest już 01.10, a plik nazywa się nexus-cvs-2026-09-30.zip",
-  );
+  it("nazwa ZIP-a ma dzień kalendarza firmy, nie UTC: 23:30 UTC 30.09 to w Warszawie 01.10", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-30T23:30:00Z"));
+    vi.stubGlobal("fetch", vi.fn(async () => response(true, 200)));
+
+    await downloadBulkCvs([1]);
+    expect(clicked[0].download).toBe("nexus-cvs-2026-10-01.zip");
+  });
 });
