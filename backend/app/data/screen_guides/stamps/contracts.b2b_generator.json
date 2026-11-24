@@ -1,5 +1,5 @@
 {
-  "entry": "5cfcb9f56da540184b146321c6173d135394d923f76eefcf2052c74cb3cd7ac7",
+  "entry": "351bb068eb0a17e86cf26ade1ee783268250093b4e2420db49520a70ecf216f3",
   "guide": "contracts.b2b_generator",
   "sources": {
     "frontend/src/components/v2/b2b-generator/MandateAgreementForm.tsx": "6e3694cd9fc84543afae9822b28dfdf49d8c86b310b25dd023060ad5f7a718e7",

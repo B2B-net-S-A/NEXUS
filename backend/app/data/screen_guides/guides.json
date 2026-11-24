@@ -687,7 +687,6 @@
     ],
     "pitfalls": [
       "Umowy podpisanej obustronnie nie da się anulować — kończy się ją statusem „Zakończona”.",
-      "Czerwony komunikat „Nie udało się sprawdzić, czy ta osoba ma już umowę w tej rekrutacji” wstrzymuje „Pobierz DOCX”, dopóki „Spróbuj ponownie” nie przejdzie — bez tego sprawdzenia generator nie ostrzegłby przed drugą umową.",
       "PESEL, numer dowodu i adres zamieszkania nie są zapisywane — przy ponownym pobraniu takiego dokumentu formularz poprosi o nie jeszcze raz.",
       "Zawiesić (faza „Bez projektu” w „Umowach”) można tylko umowę aktywną. Zakończenie kontraktu w module Kontrakty przestawia umowę samo: z rozwiązaniem umowy trafia do fazy „Zakończone”, bez rozwiązania — do „Bez projektu”.",
       "Notka pod „Stawka godz. (netto)” mówi, że wpisana stawka różni się od stawki kandydata z rekrutacji. To tylko sprawdzenie — umowę wygenerujesz z każdą stawką; do umowy idzie stawka kandydata, a stawka do klienta jest punktem odniesienia dla zamówienia."
