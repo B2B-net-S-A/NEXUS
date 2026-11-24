@@ -983,16 +983,16 @@ jobs:
       # biegną w kolejce.
       - name: Vitest (testy dotknięte zmianą)
         if: steps.scope.outputs.run == 'true' && github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           # Vitest od 5.1 liczy `--changed` przez `git diff BASE...HEAD`
           # (merge-base). Checkout ma depth=1, więc commit scalenia PR-a stoi
           # bez rodziców i git zgłasza „no merge base” (24.11.2026, grupa
-          # zależności #3828). Depth=2 dociąga rodziców commita scalenia,
-          # a baza PR-a jest jednym z nich.
+          # zależności #3828). Depth=2 dociąga rodziców commita scalenia.
+          # Bazą jest pierwszy rodzic (main, na którym GitHub złożył PR), nie
+          # `base.sha` z eventu: ten bywa nowszym mainem, którego checkout
+          # nie ma („Invalid symmetric difference expression”, #3898).
           git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
-          npx vitest run --changed "$BASE_SHA" --passWithNoTests
+          npx vitest run --changed "$(git rev-parse HEAD^1)" --passWithNoTests
           # Strażnicy całego repo: czytają drzewo (okruszki, inwentarze funkcji,
           # harnessy, natywne confirm), więc `--changed` ich nie wybiera, gdy PR
           # zmienia tylko pilnowany plik. 21.10.2026 brak polskiej nazwy okruszka
