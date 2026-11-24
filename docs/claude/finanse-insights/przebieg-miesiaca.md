@@ -1,11 +1,57 @@
 # Przebieg miesiąca: wszyscy klienci rozliczeń w jednym widoku
-<!-- indeks: Finanse → Przychody → „Przebieg miesiąca” (`?view=month-close`), GET /api/finance/settlements/overview, `month_close.overview`, kolejka „Do decyzji wg powodu”, pasek kroków nad tabelą klienta, link „Wystaw” do `?view=sales-invoices&siPeriod=&siView=issue` -->
+<!-- indeks: Finanse → Przychody → „Przebieg miesiąca” (`?view=month-close`), GET /api/finance/settlements/overview, `month_close.overview` i `stage_counts`, cztery odpowiedzi (automat, co źle, braki, faktury), tabela pięciu kroków z „Kto teraz”, biuro `GET …/settlements/team` (NIP, bez kwot), „Błędy i uwagi” (błąd blokuje, uwaga nie), link „Wystaw” do `?view=sales-invoices&siPeriod=&siView=issue` -->
 
 Decyzja Artura z 23.11.2026 po makietach przed/po na danych z próby IX–X
 (prywatny artefakt, link w pamięci sesji). Finanse rozliczały klienta po kliencie
 z listy rozwijanej i nie widziały, czy miesiąc da się zamknąć u wszystkich.
 
-## Co jest na ekranie
+## Cztery odpowiedzi i pięć kroków (od 24.11.2026)
+
+Decyzje Artura z 24.11.2026 po makietach przed/po na powtórce października
+(prywatny artefakt, link w pamięci sesji). Artur: „nadal nie jest przejrzyste,
+ile automat sam zrobił, ile jest błędów i jakich, czego brakuje i na jakim
+etapie jest fakturowanie klienta”, a biuro (nasi ludzie na B2B) ma być na tym
+samym ekranie.
+
+- **Na górze cztery karty, każda zaczyna się od pytania:** „Co zrobił automat”
+  (lejek: raport z poczty → MD z pliku → reguły bez uwag → samo przyjęcie →
+  faktury z KSeF), „Co jest źle” (błędy, uwagi, plik nieodczytany, zamówienie
+  bez MD, odesłane), „Czego brakuje” (raporty, adres do przypomnienia, numer
+  zamówienia, ewidencja i faktury biura, NIP-y biura) i „Faktury do klientów”
+  (klienci według stanu faktury). Liczby z `month_close.stage_counts`: każda
+  osoba jest w każdym kroku dokładnie raz. Nie dopisuj osobnych liczników na
+  froncie, bo karty i tabela zaczną się różnić (23.11 zakładka mówiła 107,
+  podsumowanie 40, „Dla księgowej” 141).
+- **Tabela „Gdzie są rozliczenia”:** wiersz na klienta i wiersz biura,
+  kolumny = kroki (raport, kontrola, przyjęcie, faktura od osoby, faktura do
+  klienta) i „Kto teraz” (Finanse, konsultanci, opiekun, klient, Płace).
+  Strzałka rozwija osoby z tymi samymi krokami (osoby klienta z istniejącego
+  `GET /api/finance/settlements?client_id=`).
+- **Błąd ≠ uwaga.** Wiersz osoby ma `issue_level`: `fail` — reguła klienta
+  blokuje przyjęcie (serwer odmawia „Reguła klienta blokuje przyjęcie”),
+  `warn` — Finanse przyjmują na karcie osoby. Ekran klienta pokazuje „Błąd”
+  i „Uwaga” zamiast jednego „Z uwagami” (`statusLook`). Ta sama reguła bywa
+  blokadą u jednego klienta i uwagą u innego, więc powody grupujemy po
+  (klucz, rodzaj) — dwa wiersze w „Błędy i uwagi”, nie jedna suma.
+- **`no_md` to zamówienie bez MD** (brak linii albo puli, rozstrzyga opiekun),
+  a nie nieodczytany plik. Nieodczytany plik to `checking` (Finanse wpisują MD).
+- **Uwaga zawsze ma tytuł.** Koszty delegacji w RCP to uwaga „Delegacja do
+  sprawdzenia: N zł brutto” (`rcp_checks.py`); do 24.11 silnik ustawiał uwagę
+  i zapisywał samą informację, więc osoba wisiała „z uwagami” bez powodu.
+- **Faktura do klienta przed przyjęciem RCP to ostrzeżenie, nie blokada**
+  (decyzja Artura 24.11). Licznik `client_invoice.issued_early`; w październiku
+  56 osób miało fakturę sprzedaży w KSeF przy nieprzyjętym RCP.
+- **Biuro (`GET /api/finance/settlements/team`, `team_month.py`):** aktywne
+  osoby z potwierdzoną formą B2B (`employment_type_pending = false`), ewidencja
+  czasu za miesiąc, faktura z Płac (`payroll_invoices`, czytnik KSeF Płac bierze
+  tylko NIP-y z „Danych do rozliczeń”) i zapłata z Płac albo z Kosztów. Faktury
+  łączymy **wyłącznie po NIP-ie** — bez NIP-u osoba ma stan `no_nip`, a „Kto
+  teraz” mówi „Płace (NIP)”. Dopasowanie po nazwie sprzedawcy łapało 18 z 30
+  osób i Artur je odrzucił. **Bez kwot:** Finanse widzą stany i daty, kwoty
+  biura zostają w Płacach. Faktury do klienta biuro nie ma („nie dotyczy —
+  klientem jesteśmy my”).
+
+## Co jest na ekranie (23.11.2026, część nadal obowiązuje)
 
 - **Pozycja w `FinanceAreaNav`** (Przychody, przed „Rozliczeniami klientów”), widoczna
   przy otwartym module rozliczeń. Nie jest osobnym paskiem zakładek
@@ -16,9 +62,10 @@ z listy rozwijanej i nie widziały, czy miesiąc da się zamknąć u wszystkich.
 - **Klienci:** wiersz na klienta, kolejność według pracy, która została. Klient
   z regułą `report.time_for_teams` (Nordea) pokazuje stan raportu klienta i różnice
   T4T, a „Otwórz” prowadzi do jego zakładki T4T.
-- **Do decyzji wg powodu:** te same sprawy pogrupowane po kluczu reguły pierwszego
-  błędu albo uwagi (kolejność jak `service._row`: najpierw błąd), plus „Brak raportu”
-  i „Plik bez MD”. `reason-plan.ts` mówi, kto rozstrzyga i dokąd prowadzi akcja
+- **Błędy i uwagi** (do 24.11 „Do decyzji wg powodu”): te same sprawy pogrupowane po
+  kluczu reguły pierwszego błędu albo uwagi i po rodzaju (kolejność jak `service._row`:
+  najpierw błąd). Braki raportu są w karcie „Czego brakuje” i w tabeli kroków, nie
+  w tej liście. `reason-plan.ts` mówi, kto rozstrzyga i dokąd prowadzi akcja
   (np. `proof.accept_has_hours` → „Reguły klienta”).
 - **Ekran jednego klienta** ma nad tabelą pasek tych samych kroków i trzy najczęstsze
   powody (`ClientMonthStrip`).

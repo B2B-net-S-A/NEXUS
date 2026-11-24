@@ -158,3 +158,129 @@ def test_bez_uprawnienia_do_kwot_same_liczby() -> None:
     assert summary["reserve_count"] == 1
     assert summary["reserve_total"] is None
     assert summary["rows"] is None
+
+
+def _person_row(status: str, **kw: object) -> dict:
+    base = {
+        "status": status,
+        "issue_level": None,
+        "contractor_invoice": "none",
+        "client_invoice": "waiting",
+        "accepted_auto": False,
+        "order_number": "ZAM-1",
+    }
+    base.update(kw)
+    return base
+
+
+def test_kroki_miesiaca_kazda_osoba_raz_w_kazdym_kroku() -> None:
+    rows = [
+        _person_row("missing", order_number=None),
+        _person_row("checking"),
+        _person_row("no_md"),
+        _person_row("warnings", issue_level="warn"),
+        _person_row("warnings", issue_level="fail"),
+        _person_row("needs_fix", issue_level="fail"),
+        _person_row("ok", contractor_invoice="differs"),
+        _person_row(
+            "accepted",
+            accepted_auto=True,
+            contractor_invoice="in_ksef",
+            client_invoice="issued",
+        ),
+        _person_row(
+            "accepted", contractor_invoice="nip_check", client_invoice="awaiting_client"
+        ),
+        _person_row("accepted", client_invoice="ready"),
+    ]
+    s = month_close.stage_counts(rows)
+    assert s["people"] == 10
+    assert s["report"] == {"in": 9, "missing": 1}
+    assert s["check"] == {
+        "clean": 4,
+        "warn": 1,
+        "fail": 1,
+        "returned": 1,
+        "unread": 1,
+        "no_md": 1,
+        "missing": 1,
+    }
+    assert sum(s["check"].values()) == 10
+    assert s["accept"] == {"done": 3, "auto": 1, "ready": 1}
+    assert s["contractor_invoice"] == {
+        "match": 1,
+        "differs": 1,
+        "nip": 1,
+        "can_issue": 0,
+        "none": 7,
+    }
+    assert s["client_invoice"] == {
+        "issued": 1,
+        "ready": 1,
+        "waiting_client": 1,
+        "waiting": 7,
+        "issued_early": 0,
+    }
+    assert s["missing_order"] == 1
+    early = month_close.stage_counts([_person_row("ok", client_invoice="issued")])
+    assert early["client_invoice"]["issued_early"] == 1
+
+
+def test_suma_krokow_dwoch_klientow() -> None:
+    a = month_close.stage_counts([_person_row("ok"), _person_row("missing")])
+    b = month_close.stage_counts([_person_row("accepted", accepted_auto=True)])
+    total = month_close.add_stages(a, b)
+    assert total["people"] == 3
+    assert total["check"]["clean"] == 2
+    assert total["accept"] == {"done": 1, "auto": 1, "ready": 1}
+    assert month_close.add_stages({}, a) == a
+
+
+def test_rodzaj_sprawy_rozdziela_blad_od_uwagi_i_brak_md_od_pliku() -> None:
+    assert month_close.reason_level(_person_row("missing")) == "missing"
+    assert month_close.reason_level(_person_row("checking")) == "unread"
+    # „no_md” to brak MD na zamówieniu, a nie nieodczytany plik.
+    assert month_close.reason_level(_person_row("no_md")) == "order"
+    assert (
+        month_close.reason_level(_person_row("needs_fix", issue_level="fail"))
+        == "returned"
+    )
+    assert (
+        month_close.reason_level(_person_row("warnings", issue_level="fail")) == "fail"
+    )
+    assert (
+        month_close.reason_level(_person_row("warnings", issue_level="warn")) == "warn"
+    )
+
+
+def test_wiersz_osoby_niesie_poziom_pierwszej_sprawy() -> None:
+    from app.services.client_settlements import service
+
+    person = SimpleNamespace(contract=SimpleNamespace(id=7), name="Osoba A")
+
+    def settlement(status: str, checks: list, fix_reason: str | None = None):
+        return SimpleNamespace(
+            id=1,
+            status=status,
+            checks=checks,
+            fix_reason=fix_reason,
+            md_regular=None,
+            md_extra=None,
+            md_charged=None,
+            amount_cost=None,
+            amount_revenue=None,
+            meta={},
+        )
+
+    warn_then_fail = [
+        {"title": "RCP", "checks": [{"state": "warn", "title": "Excel bez maila"}]},
+        {"title": "Zamówienie", "checks": [{"state": "fail", "title": "Brak MD"}]},
+    ]
+    row = service._row(person, settlement("warnings", warn_then_fail), True, False)
+    assert (row["issues"], row["issue_level"]) == ("Brak MD", "fail")
+    only_warn = warn_then_fail[:1]
+    row = service._row(person, settlement("warnings", only_warn), True, False)
+    assert row["issue_level"] == "warn"
+    row = service._row(person, settlement("needs_fix", [], "Brak podpisu"), True, False)
+    assert (row["issues"], row["issue_level"]) == ("Brak podpisu", "fail")
+    assert service._row(person, None, False, False)["issue_level"] is None

@@ -343,11 +343,11 @@ def evaluate(
 
     if parsed.travel_total and parsed.travel_total > 0:
         travel = _Group(result, rules, "Delegacje")
-        travel.info(
-            f"Koszty delegacji w RCP: {_fmt(parsed.travel_total)} zł brutto",
+        # Uwaga z tytułem: sama informacja dawała „Z uwagami” bez powodu na ekranach.
+        travel.warn(
+            f"Delegacja do sprawdzenia: {_fmt(parsed.travel_total)} zł brutto",
             "Faktury kosztów i zasadność wyjazdu sprawdza człowiek.",
         )
-        result.warn = True
         travel.close()
     return result
 

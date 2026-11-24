@@ -66,7 +66,7 @@ from app.services.consultant_portal import preview as panel_preview_service
 from app.services.consultant_portal.auth import PortalError
 from app.services.hr_documents_schema import MAX_FILE_BYTES
 from app.services.client_settlements import settings as module_settings
-from app.services.client_settlements import month_close, start_checklist
+from app.services.client_settlements import month_close, start_checklist, team_month
 from app.services.hr import audit
 from app.services.client_settlements.service import SettlementError
 
@@ -197,6 +197,18 @@ async def month_overview(
     return await month_close.overview(
         db, month, amounts=has_financial_access(current_user)
     )
+
+
+@router.get("/team")
+async def team_overview(
+    current_user: FinanceModuleUser,
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Biuro w „Przebiegu miesiąca”: ewidencja, faktura z KSeF i zapłata, bez kwot."""
+
+    await _open(db, current_user)
+    return await team_month.team_month(db, month)
 
 
 @router.get("")

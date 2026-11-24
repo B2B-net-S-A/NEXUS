@@ -1,24 +1,19 @@
 "use client";
 
-// Finanse → Przychody → „Przebieg miesiąca” (makiety Artura z 23.11.2026):
-// wszyscy klienci rozliczeń w jednym miesiącu, kolejka decyzji po powodzie
-// i przejście do wystawienia faktur. Dane: GET /api/finance/settlements/overview,
-// liczone tym samym `month_view` co ekran jednego klienta.
+// Finanse → Przychody → „Przebieg miesiąca”. Makiety 24.11.2026 (po makietach
+// z 23.11): cztery odpowiedzi na górze — co zrobił automat, co jest źle, czego
+// brakuje, faktury do klientów — a pod nimi jedna tabela „gdzie jest każdy”
+// z pięcioma krokami, ta sama dla kontraktorów u klientów i dla biura (nasi
+// ludzie na B2B: klientem jesteśmy my, więc bez faktury do klienta).
+// Dane: GET /api/finance/settlements/overview (`month_close.stage_counts`),
+// biuro: GET /api/finance/settlements/team (kontrakt makiety).
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight } from "lucide-react";
 
-import { InlineStats } from "@/components/ds/InlineStats";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
+import type { StatusDotTone } from "@/components/ds/StatusDot";
 import { apiErrorMessage } from "@/lib/api-error";
-import {
-  useMonthCloseOverview,
-  type MonthCloseClient,
-  type MonthCloseOverview,
-  type MonthCloseReason,
-} from "@/lib/api/client-settlements";
+import { useMonthCloseOverview, useTeamMonth, type MonthCloseClient } from "@/lib/api/client-settlements";
 import { useReminderOverview, type ReminderClient } from "@/lib/api/settlement-reminders";
 import { warsawToday } from "@/lib/warsaw-date";
 import { cn } from "@/lib/utils";
@@ -26,7 +21,10 @@ import { cn } from "@/lib/utils";
 import { defaultMonth, monthLabel, pln, recentMonths, shortDay } from "../settlements/format";
 import { issueHref } from "./ClientMonthStrip";
 import { ClosingPanel } from "./ClosingPanel";
-import { reasonPlan } from "./reason-plan";
+import { IssuesByLevel, levelOf } from "./IssuesByLevel";
+import { MonthAnswers } from "./MonthAnswers";
+import { problemTotal, stagesOf } from "./month-model";
+import { StageTable } from "./StageTable";
 
 export { issueHref };
 
@@ -51,7 +49,6 @@ export function settlementsHref(clientId: number, month: string, extra: Record<s
   return `/finance?${params.toString()}`;
 }
 
-
 export function MonthCloseView() {
   const today = warsawToday();
   const months = useMemo(() => recentMonths(today, 6), [today]);
@@ -66,6 +63,7 @@ export function MonthCloseView() {
   }, []);
 
   const query = useMonthCloseOverview(month);
+  const team = useTeamMonth(month);
   const reminders = useReminderOverview(month, null);
   const reminderByClient = useMemo(
     () => new Map((reminders.data?.clients ?? []).map((r) => [r.client_id, r] as const)),
@@ -80,15 +78,37 @@ export function MonthCloseView() {
     setTab(t);
     writeParam("mcTab", t === "clients" ? null : t);
   }
+  const clientHref = (clientId: number, extra: Record<string, string> = {}) => settlementsHref(clientId, month, extra);
+  const teamData = team.isSuccess && team.data.people.length > 0 ? team.data : null;
+  const teamError = team.isError ? apiErrorMessage(team.error, "Nie udało się pobrać biura.") : null;
+
+  if (query.isError) {
+    return (
+      <QueryStateNotice
+        state="error"
+        description={apiErrorMessage(query.error, "Nie udało się pobrać przebiegu miesiąca.")}
+        onRetry={() => query.refetch()}
+      />
+    );
+  }
+
+  const data = query.isSuccess ? query.data : null;
+  const s = data ? stagesOf(data) : null;
+  const byPerson = data ? data.clients.filter((c) => !c.client_report) : [];
+  const t4t = data ? data.clients.filter((c) => c.client_report) : [];
+  const issues = data ? data.reasons.filter((r) => levelOf(r) !== "missing") : [];
+  const closingCount = data?.closing
+    ? data.closing.ksef_not_accepted + data.closing.reserve_count + data.closing.sales_waiting
+    : 0;
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <select
           aria-label="Miesiąc rozliczeń"
           value={month}
           onChange={(e) => pickMonth(e.target.value)}
-          className="h-8 rounded-md border bg-card px-2 text-sm"
+          className="h-8 rounded-md border bg-card px-2 text-sm font-medium"
         >
           {(months.includes(month) ? months : [month, ...months]).map((m) => (
             <option key={m} value={m}>
@@ -96,14 +116,48 @@ export function MonthCloseView() {
             </option>
           ))}
         </select>
-        {query.isSuccess ? (
+        {data && s ? (
+          <p className="text-[12px] text-muted-foreground">
+            <span className="font-medium text-foreground tabular-nums">{s.people}</span> kontraktorów u{" "}
+            <span className="tabular-nums">{byPerson.length}</span> klientów
+            {teamData ? (
+              <>
+                {" · "}
+                <span className="font-medium text-foreground tabular-nums">{teamData.people.length}</span> os. biura
+              </>
+            ) : null}
+            {t4t.length ? (
+              <>
+                {" · "}
+                {t4t.map((c) => `${c.name} z raportu klienta (${c.client_report?.all ?? c.people} os.)`).join(", ")}
+              </>
+            ) : null}
+          </p>
+        ) : null}
+      </div>
+
+      {!data ? (
+        <div className="py-10 text-center text-sm text-muted-foreground">Ładowanie…</div>
+      ) : data.clients.length === 0 ? (
+        <p className="rounded-xl border bg-card px-3 py-6 text-center text-sm text-muted-foreground">
+          W {monthLabel(month)} żaden klient nie ma kontraktów do rozliczenia.
+        </p>
+      ) : (
+        <>
+          <MonthAnswers
+            data={data}
+            month={month}
+            team={teamData}
+            reminders={reminders.data?.clients ?? []}
+            onShowIssues={() => pickTab("reasons")}
+          />
           <div className="flex items-center gap-1">
-            {/* Kotwica lekcji nowości: data-tour="finance.month-close.reasons" (przycisk „Do decyzji wg powodu”). */}
+            {/* Kotwica lekcji nowości: data-tour="finance.month-close.reasons" (przycisk „Błędy i uwagi”). */}
             {(
               [
-                ["clients", "Klienci", query.data.clients.length],
-                ["reasons", "Do decyzji wg powodu", query.data.reasons.reduce((a, r) => a + r.count, 0)],
-                ["closing", "Dla księgowej", query.data.closing ? query.data.closing.ksef_not_accepted + query.data.closing.reserve_count + query.data.closing.sales_waiting : 0],
+                ["clients", "Gdzie są rozliczenia", null],
+                ["reasons", "Błędy i uwagi", s ? problemTotal(s) : issues.length],
+                ["closing", "Dla księgowej", closingCount],
               ] as const
             ).map(([key, label, n]) => (
               <button
@@ -117,141 +171,33 @@ export function MonthCloseView() {
                   tab === key ? "border-primary bg-primary/10 text-foreground" : "border-border bg-card text-muted-foreground",
                 )}
               >
-                {label} <span className="tabular-nums">{n}</span>
+                {label}
+                {n != null ? <span className="ml-1 tabular-nums">{n}</span> : null}
               </button>
             ))}
+            {tab === "clients" ? (
+              <span className="ml-auto hidden text-[11px] text-muted-foreground lg:inline">
+                Kliknij klienta albo biuro, żeby zobaczyć osoby
+              </span>
+            ) : null}
           </div>
-        ) : null}
-      </div>
-
-      {query.isError ? (
-        <QueryStateNotice
-          state="error"
-          description={apiErrorMessage(query.error, "Nie udało się pobrać przebiegu miesiąca.")}
-          onRetry={() => query.refetch()}
-        />
-      ) : !query.isSuccess ? (
-        <div className="py-10 text-center text-sm text-muted-foreground">Ładowanie…</div>
-      ) : query.data.clients.length === 0 ? (
-        <p className="rounded-xl border bg-card px-3 py-6 text-center text-sm text-muted-foreground">
-          W {monthLabel(month)} żaden klient nie ma kontraktów do rozliczenia.
-        </p>
-      ) : (
-        <>
-          <Summary data={query.data} month={month} />
           {tab === "clients" ? (
-            <ClientsTable data={query.data} month={month} reminders={reminderByClient} />
+            <StageTable
+              data={data}
+              month={month}
+              team={teamData}
+              teamError={teamError}
+              reminders={reminderByClient}
+              clientHref={clientHref}
+              reminderNote={reminderNote}
+            />
           ) : tab === "reasons" ? (
-            <ReasonsList reasons={query.data.reasons} month={month} />
+            <IssuesByLevel reasons={issues} month={month} clientHref={clientHref} />
           ) : (
-            <ClosingPanel closing={query.data.closing} month={month} />
+            <ClosingPanel closing={data.closing} month={month} />
           )}
         </>
       )}
-    </div>
-  );
-}
-
-function Summary({ data, month }: { data: MonthCloseOverview; month: string }) {
-  const t = data.totals;
-  const done = t.clean + t.accepted;
-  const pct = t.people ? Math.round((done / t.people) * 100) : 0;
-  const ready = data.can_see_amounts
-    ? data.clients.reduce((acc, c) => acc + (c.client_report ? 0 : Number(c.revenue_ready ?? 0)), 0)
-    : null;
-  const steps: { label: string; value: string; tone: StatusDotTone; note: string; href?: string }[] = [
-    {
-      label: "Raporty",
-      value: `${t.people - t.missing} z ${t.people}`,
-      tone: t.missing ? "warning" : "success",
-      note: t.missing ? `${t.missing} bez raportu w poczcie` : "komplet",
-    },
-    {
-      label: "RCP",
-      value: `${done} bez uwag`,
-      tone: t.decide + t.unread ? "warning" : "success",
-      note: `${t.decide} do decyzji · ${t.unread} bez MD · ${t.accepted} przyjęte`,
-    },
-    {
-      label: "Faktury kontraktorów",
-      value: `${t.contractor_in_ksef} w KSeF`,
-      tone: t.contractor_in_ksef >= done && done > 0 ? "success" : "neutral",
-      note: "po przyjęciu RCP",
-    },
-    {
-      label: "Faktury do klientów",
-      value: `${t.client_invoice_issued} osób wystawione`,
-      tone: t.client_invoice_issued ? "info" : "neutral",
-      note: "Wystaw za miesiąc",
-      href: issueHref(month),
-    },
-  ];
-  return (
-    <section className="rounded-xl border bg-card px-4 py-3">
-      <div className="flex flex-wrap items-end gap-x-6 gap-y-2">
-        <div className="min-w-[200px]">
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{monthLabel(month)} · zamknięcie miesiąca</p>
-          <p className="font-display text-lg font-semibold leading-6">
-            {done} z {t.people} bez uwag <span className="text-sm font-normal text-muted-foreground">({pct}%, osoby z RCP)</span>
-          </p>
-        </div>
-        <InlineStats
-          stats={[
-            { id: "people", label: "osób z RCP", value: t.people },
-            { id: "decide", label: "do decyzji", value: t.decide },
-            { id: "unread", label: "plik bez MD", value: t.unread },
-            { id: "missing", label: "brak raportu", value: t.missing },
-            ...(ready != null
-              ? [{ id: "ready", label: "bez uwag, do faktur klientom", value: pln(ready.toFixed(2)) }]
-              : []),
-          ]}
-        />
-      </div>
-      <ol className="mt-2.5 grid grid-cols-4 gap-2 border-t pt-2.5">
-        {steps.map((s, i) => (
-          <li key={s.label} className="flex min-w-0 items-start gap-2">
-            <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold tabular-nums">
-              {i + 1}
-            </span>
-            <span className="min-w-0">
-              <span className="block truncate text-xs font-medium">{s.label}</span>
-              <StatusDot
-                tone={s.tone}
-                className="max-w-full"
-                note={
-                  s.href ? (
-                    <Link href={s.href} className="text-primary hover:underline">
-                      {s.note}
-                    </Link>
-                  ) : (
-                    <span className="block truncate">{s.note}</span>
-                  )
-                }
-              >
-                {s.value}
-              </StatusDot>
-            </span>
-          </li>
-        ))}
-      </ol>
-    </section>
-  );
-}
-
-function ProgressBar({ c }: { c: MonthCloseClient }) {
-  const seg = (n: number, cls: string, title: string) =>
-    n > 0 ? <span title={`${title}: ${n}`} className={cls} style={{ width: `${(n / c.people) * 100}%` }} /> : null;
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex h-2 w-24 overflow-hidden rounded-full bg-muted" aria-hidden>
-        {seg(c.accepted, "bg-success", "przyjęte")}
-        {seg(c.clean, "bg-success/60", "bez uwag")}
-        {seg(c.decide, "bg-warning", "do decyzji")}
-        {seg(c.unread, "bg-info", "plik bez MD")}
-      </div>
-      <span className="text-[11px] tabular-nums text-muted-foreground">
-        {c.clean + c.accepted} z {c.people}
-      </span>
     </div>
   );
 }
@@ -277,182 +223,3 @@ export function reminderNote(r: ReminderClient | undefined): string | undefined 
   return r.automatic ? "przypomni automat" : "bez przypomnienia";
 }
 
-interface ClientsTableProps {
-  data: MonthCloseOverview;
-  month: string;
-  reminders: Map<number, ReminderClient>;
-}
-
-function ClientsTable({ data, month, reminders }: ClientsTableProps) {
-  return (
-    <div className="relative overflow-x-auto rounded-xl border bg-card">
-      <table className="w-full min-w-[880px] table-fixed text-[13px]">
-        <colgroup>
-          <col className="w-[17%]" />
-          <col className="w-[17%]" />
-          <col className="w-[24%]" />
-          <col className="w-[13%]" />
-          <col className="w-[16%]" />
-          <col className="w-[13%]" />
-        </colgroup>
-        <thead className="border-b bg-muted/40 text-left text-[11px] text-muted-foreground">
-          <tr>
-            <th className="px-3 py-1.5 font-medium">Klient</th>
-            <th className="px-2 py-1.5 font-medium">RCP bez uwag</th>
-            <th className="px-2 py-1.5 font-medium">Do decyzji</th>
-            <th className="px-2 py-1.5 font-medium">Brak raportu</th>
-            <th className="px-2 py-1.5 font-medium">Faktura do klienta</th>
-            <th className="px-3 py-1.5 font-medium">
-              <span className="sr-only">Akcje</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y">
-          {data.clients.map((c) => {
-            const report = c.client_report;
-            const inv = clientInvoiceState(c, data.can_see_amounts);
-            return (
-              <tr key={c.client_id} className="hover:bg-muted/30">
-                <td className="truncate px-3 py-1.5">
-                  <span className="block truncate font-medium">{c.name}</span>
-                  <span className="block truncate text-[11px] text-muted-foreground">
-                    {report ? "raport klienta (T4T)" : `${c.people} osób`}
-                  </span>
-                </td>
-                <td className="px-2 py-1.5">
-                  {report ? (
-                    <StatusDot tone={report.all ? "success" : "warning"} note={`${report.all - report.unmatched} z ${report.all} osób rozpoznanych`}>
-                      {report.all ? "Raport wczytany" : "Brak raportu klienta"}
-                    </StatusDot>
-                  ) : (
-                    <>
-                      <ProgressBar c={c} />
-                      {c.auto_accept && c.auto_accept.count > 0 ? (
-                        <span className="block truncate text-[11px] text-success-muted-foreground">
-                          {c.auto_accept.count} przyjmie automat od {shortDay(c.auto_accept.from)}
-                        </span>
-                      ) : null}
-                    </>
-                  )}
-                </td>
-                <td className="truncate px-2 py-1.5">
-                  {report ? (
-                    report.differs ? (
-                      <StatusDot tone="warning" note="godziny w raporcie ≠ faktura">
-                        {report.differs} różnic
-                      </StatusDot>
-                    ) : (
-                      <span className="text-[11px] text-muted-foreground">—</span>
-                    )
-                  ) : c.decide + c.unread > 0 ? (
-                    <StatusDot tone={c.decide > 0 ? "warning" : "info"} note={c.top_reason ?? undefined}>
-                      {c.decide + c.unread}
-                      {c.unread ? ` (w tym ${c.unread} bez MD)` : ""}
-                    </StatusDot>
-                  ) : (
-                    <span className="text-[11px] text-muted-foreground">—</span>
-                  )}
-                </td>
-                <td className="px-2 py-1.5 tabular-nums">
-                  {!report && c.missing > 0 ? (
-                    <StatusDot tone={reminders.get(c.client_id)?.without_recipient ? "warning" : "neutral"} note={reminderNote(reminders.get(c.client_id))}>
-                      {c.missing}
-                    </StatusDot>
-                  ) : (
-                    <span className="text-[11px] text-muted-foreground">—</span>
-                  )}
-                </td>
-                <td className="px-2 py-1.5">
-                  {report ? (
-                    <span className="text-[11px] text-muted-foreground">z raportu klienta</span>
-                  ) : (
-                    <StatusDot tone={inv.tone} note={inv.note}>
-                      {inv.label}
-                    </StatusDot>
-                  )}
-                </td>
-                <td className="whitespace-nowrap px-3 py-1.5 text-right">
-                  {!report && c.client_invoice_ready > 0 ? (
-                    <Link href={issueHref(month, c.client_id)} className="mr-3 text-xs font-medium text-primary hover:underline">
-                      Wystaw
-                    </Link>
-                  ) : null}
-                  <Link
-                    href={settlementsHref(c.client_id, month, report ? { stSub: "t4t" } : {})}
-                    className="inline-flex items-center text-xs font-medium text-primary hover:underline"
-                  >
-                    Otwórz <ChevronRight aria-hidden className="size-3.5" />
-                  </Link>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function ReasonsList({ reasons, month }: { reasons: MonthCloseReason[]; month: string }) {
-  if (reasons.length === 0) {
-    return (
-      <p className="rounded-xl border bg-card px-3 py-6 text-center text-sm text-muted-foreground">
-        W {monthLabel(month)} nic nie czeka na decyzję.
-      </p>
-    );
-  }
-  return (
-    <div className="grid gap-2 md:grid-cols-2">
-      {reasons.map((r) => {
-        const plan = reasonPlan(r.key);
-        const top = r.clients[0];
-        return (
-          <article key={r.key} className="flex min-w-0 flex-col gap-1.5 rounded-xl border bg-card px-3 py-2.5">
-            <header className="flex items-start gap-2">
-              <span className="font-display text-lg font-semibold leading-6 tabular-nums">{r.count}</span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] font-medium">{r.title}</span>
-                <StatusDot tone={plan.tone} note={plan.hint}>
-                  {plan.who}
-                </StatusDot>
-              </span>
-            </header>
-            <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
-              {r.clients.slice(0, 6).map((c) => (
-                <Link
-                  key={c.client_id}
-                  href={settlementsHref(c.client_id, month, plan.sub ? { stSub: plan.sub } : {})}
-                  className="text-muted-foreground hover:text-foreground hover:underline"
-                >
-                  {c.name} <span className="tabular-nums">{c.count}</span>
-                </Link>
-              ))}
-              {r.clients.length > 6 ? <span className="text-muted-foreground">+{r.clients.length - 6}</span> : null}
-            </p>
-            <p className="truncate text-[11px] text-muted-foreground">
-              {r.people.slice(0, 4).map((p, i) => (
-                <span key={p.contract_id}>
-                  {i ? ", " : ""}
-                  <Link href={settlementsHref(p.client_id, month, { stContract: String(p.contract_id) })} className="hover:text-foreground hover:underline">
-                    {p.person}
-                  </Link>
-                </span>
-              ))}
-              {r.count > 4 ? ` i ${r.count - 4} innych` : ""}
-            </p>
-            {top ? (
-              <div className="mt-auto pt-1">
-                <Link
-                  href={settlementsHref(top.client_id, month, plan.sub ? { stSub: plan.sub } : {})}
-                  className="inline-flex h-8 items-center rounded-md border px-3 text-xs font-medium hover:bg-muted pointer-coarse:min-h-10"
-                >
-                  {plan.action}: {top.name}
-                </Link>
-              </div>
-            ) : null}
-          </article>
-        );
-      })}
-    </div>
-  );
-}

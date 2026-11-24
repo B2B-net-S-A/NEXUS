@@ -4622,8 +4622,8 @@
       },
       {
         "anchor": "finance.month-close.reasons",
-        "text": "Przełącz na „Do decyzji wg powodu”",
-        "hint": "Karta powodu mówi, kto rozstrzyga, i prowadzi do klienta albo jego reguł."
+        "text": "Przełącz na „Błędy i uwagi”",
+        "hint": "Wiersz powodu mówi, kto rozstrzyga, i prowadzi do klienta albo jego reguł."
       }
     ]
   },
@@ -5060,6 +5060,32 @@
         "text": "W grupie Warunki jest „Mieszka poza Polską”.",
         "hint": "Po wyborze okno pyta, gdzie osoba mieszka. Kraj trafia na profil, a system przestaje ją proponować.",
         "ack": true
+      }
+    ]
+  },
+  {
+    "id": "finanse-przebieg-miesiaca-odpowiedzi",
+    "title": "Przebieg miesiąca: automat, błędy, braki i biuro",
+    "why": "Cztery odpowiedzi: ile osób przeszło samo, co blokuje przyjęcie, czego brakuje i gdzie są faktury do klientów. Niżej klienci i biuro w pięciu krokach z „Kto teraz”.",
+    "tier": "tour",
+    "shipped_on": "2026-11-24",
+    "audience": { "roles": ["finance", "admin"] },
+    "where": "Finanse → Przychody → Przebieg miesiąca",
+    "href": "/finance",
+    "practice_href": "/finance?view=month-close",
+    "section": "finance",
+    "dot_anchor": "finance.month-close.answers",
+    "steps": [
+      {
+        "anchor": "finance.month-close.answers",
+        "text": "Przeczytaj cztery odpowiedzi na górze",
+        "hint": "„Co jest źle” oddziela błędy, które blokują przyjęcie, od uwag, które przyjmujesz na karcie osoby.",
+        "ack": true
+      },
+      {
+        "anchor": "finance.month-close.expand",
+        "text": "Rozwiń klienta albo biuro strzałką",
+        "hint": "Każda osoba ma te same pięć kroków i „Kto teraz”. Biuro nie ma faktury do klienta, bo klientem jesteśmy my."
       }
     ]
   },

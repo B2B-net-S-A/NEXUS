@@ -51,12 +51,13 @@ async def test_klient_z_uwaga_i_brakiem_raportu() -> None:
         assert entry["client_report"] is None
         # Lista osób w grupie jest ucięta (PEOPLE_PER_REASON), a baza testów
         # ma też innych klientów, więc sprawdzamy licznik klienta w grupie.
-        counts = {
-            r["key"]: next(
+        # Ten sam powód może mieć dwie grupy (u jednego klienta blokuje, u innego
+        # ostrzega), więc licznik klienta sumujemy po kluczu.
+        counts: dict[str, int] = {}
+        for r in out["reasons"]:
+            counts[r["key"]] = counts.get(r["key"], 0) + next(
                 (c["count"] for c in r["clients"] if c["client_id"] == client_id), 0
             )
-            for r in out["reasons"]
-        }
         assert counts.get(month_close.MISSING_REASON) == 1
         decided = {
             k: n for k, n in counts.items() if n and k != month_close.MISSING_REASON

@@ -452,8 +452,12 @@ def _row(
             None,
         )
     issue = None
+    # „fail” — reguła klienta blokuje przyjęcie; „warn” — uwaga, którą Finanse
+    # mogą przyjąć na karcie osoby. Ekrany miesiąca liczą je osobno.
+    issue_level: Optional[str] = None
     if s and s.status == "needs_fix":
         issue = s.fix_reason
+        issue_level = "fail"
     elif s and s.status != "accepted":
         # Najpierw błąd, potem uwaga: „Brakuje MD” ważniejsze niż brak pliku.
         found = [
@@ -464,6 +468,7 @@ def _row(
         ]
         found.sort(key=lambda check: check.get("state") != "fail")
         issue = found[0]["title"] if found else None
+        issue_level = found[0].get("state") if found else None
     return {
         "contract_id": person.contract.id,
         "settlement_id": s.id if s else None,
@@ -471,6 +476,7 @@ def _row(
         "order_number": None,
         "status": status,
         "issues": issue,
+        "issue_level": issue_level,
         "md_regular": _dec(s.md_regular) if s else None,
         "md_extra": _dec(s.md_extra) if s and s.md_extra else None,
         "md_charged": _dec(s.md_charged) if s else None,

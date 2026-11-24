@@ -67,6 +67,8 @@ export interface SettlementRow {
   order_number: string | null;
   status: SettlementStatus;
   issues: string | null;
+  /** „fail” — reguła blokuje przyjęcie; „warn” — uwaga do przyjęcia na karcie osoby. */
+  issue_level?: "fail" | "warn" | null;
   md_regular: string | null;
   md_extra: string | null;
   md_charged: string | null;
@@ -351,6 +353,35 @@ export interface PanelPreview {
   finance: { months: PortalMonth[] };
 }
 
+/** Pięć kroków miesiąca (`month_close.stage_counts`): każda osoba raz w każdym kroku. */
+export interface MonthCloseStages {
+  people: number;
+  report: { in: number; missing: number };
+  check: {
+    clean: number;
+    warn: number;
+    fail: number;
+    returned: number;
+    unread: number;
+    no_md: number;
+    missing: number;
+  };
+  accept: { done: number; auto: number; ready: number };
+  contractor_invoice: { match: number; differs: number; nip: number; can_issue: number; none: number };
+  client_invoice: {
+    issued: number;
+    ready: number;
+    waiting_client: number;
+    waiting: number;
+    /** Faktura sprzedaży w KSeF, choć RCP w NEXUS-ie nieprzyjęte. */
+    issued_early: number;
+  };
+  missing_order: number;
+}
+
+/** Rodzaj sprawy w kolejce: błąd blokuje przyjęcie, uwagę Finanse mogą przyjąć. */
+export type MonthCloseReasonLevel = "fail" | "warn" | "unread" | "order" | "returned" | "missing";
+
 /** „Przebieg miesiąca”: wiersz klienta (GET /overview). */
 export interface MonthCloseClient {
   client_id: number;
@@ -370,6 +401,7 @@ export interface MonthCloseClient {
   client_report: { all: number; ok: number; differs: number; unmatched: number; no_invoice: number } | null;
   /** Reguła `order.auto_accept_clean`: ile „Bez uwag” przyjmie automat i od kiedy. */
   auto_accept?: AutoAcceptInfo | null;
+  stages?: MonthCloseStages;
 }
 
 /** Osoba na liście dla księgowej (tylko z uprawnieniem do kwot). */
@@ -396,6 +428,7 @@ export interface MonthCloseReason {
   /** Klucz reguły albo `missing` / `no_md`. */
   key: string;
   title: string;
+  level?: MonthCloseReasonLevel;
   count: number;
   clients: { client_id: number; name: string; count: number }[];
   people: { contract_id: number; person: string; client_id: number }[];
@@ -414,9 +447,34 @@ export interface MonthCloseOverview {
     contractor_in_ksef: number;
     client_invoice_issued: number;
   };
+  stages?: MonthCloseStages;
   clients: MonthCloseClient[];
   reasons: MonthCloseReason[];
   closing?: MonthCloseClosing;
+}
+
+/**
+ * Biuro — nasi ludzie na B2B (klientem jesteśmy my, faktury do klienta nie ma).
+ * `GET /api/finance/settlements/team?month=` (`team_month.py`): ewidencja czasu,
+ * faktura z KSeF z Płac (tylko po NIP-ie z „Danych do rozliczeń”) i zapłata.
+ * Bez kwot — kwoty biura zostają w Płacach (decyzja Artura z 24.11.2026).
+ */
+export interface TeamMonthPerson {
+  user_id: number;
+  person: string;
+  /** Ewidencja czasu za miesiąc. */
+  timesheet: "approved" | "submitted" | "draft" | "returned" | "missing";
+  timesheet_on: string | null;
+  /** Faktura osoby w KSeF za miesiąc; `no_nip` — brak NIP-u w „Danych do rozliczeń”. */
+  invoice: "in_ksef" | "differs" | "missing" | "no_nip";
+  invoice_on: string | null;
+  paid: boolean;
+  paid_on: string | null;
+}
+
+export interface TeamMonth {
+  month: string;
+  people: TeamMonthPerson[];
 }
 
 export const settlementKeys = {
@@ -513,6 +571,15 @@ export function useMonthCloseOverview(month: string) {
     queryKey: settlementKeys.overview(month),
     queryFn: async () =>
       (await api.get<MonthCloseOverview>(`${BASE}/overview`, { params: { month } })).data,
+  });
+}
+
+/** Biuro w miesiącu: stany bez kwot. */
+export function useTeamMonth(month: string) {
+  return useQuery({
+    queryKey: ["client-settlements", "team", month] as const,
+    queryFn: async () => (await api.get<TeamMonth>(`${BASE}/team`, { params: { month } })).data,
+    retry: false,
   });
 }
 
