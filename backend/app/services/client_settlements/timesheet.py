@@ -570,6 +570,12 @@ def per_md(rules: Mapping[str, Mapping[str, Any]]) -> Decimal:
     return value if value > 0 else Decimal("8")
 
 
+def _file_words(file_name: Optional[str]) -> set[str]:
+    """Słowa nazwy pliku; „_”, „-” i kropki je rozdzielają („TS_Jan_Testowy.xlsx”)."""
+
+    return name_tokens(re.sub(r"[\W_]+", " ", file_name or ""))
+
+
 def evaluate(
     parsed: ParsedTimesheet,
     *,
@@ -579,11 +585,13 @@ def evaluate(
     rules: Mapping[str, Mapping[str, Any]],
     working_days: int,
     other_md: Decimal = Decimal("0"),
+    file_name: Optional[str] = None,
     client_mail: Optional[bool] = None,
     acceptor: str = "klienta",
 ) -> ProofResult:
     """Kontrole Time Sheet z katalogu reguł; MD z godzin, bez pracy dodatkowej.
 
+    ``file_name``: nazwa pliku; przy pustym „Consultant(s)” imię i nazwisko z niej.
     ``client_mail``: czy w mailach miesiąca jest wiadomość klienta
     (``acceptance_mail.from_client``); ``None`` = nadawcy nie odczytano.
     ``acceptor``: kto akceptuje (``mail_text.Senders.who``, w FIX „PM-a firmy”)."""
@@ -650,8 +658,21 @@ def evaluate(
         sheet.ok("Imię i nazwisko jak w kontrakcie")
     elif consultant:
         sheet.fail("proof.name_match", "Inne imię lub nazwisko niż w kontrakcie")
+    elif len(person) > 1 and person <= _file_words(file_name):
+        # Szablon VeloBanku z pustym „Consultant(s)” i „Print Name” (próba IX–X
+        # 2026): osoba stoi tylko w nazwie pliku. Decyzja Artura z 24.11.2026.
+        sheet.ok(
+            "Imię i nazwisko z nazwy pliku jak w kontrakcie",
+            "Pole Consultant(s) w pliku jest puste.",
+        )
     else:
-        sheet.fail("proof.name_match", "Time Sheet bez pola Consultant(s)")
+        sheet.fail(
+            "proof.name_match",
+            "Time Sheet bez pola Consultant(s)",
+            "Nazwa pliku też nie ma imienia i nazwiska z kontraktu."
+            if file_name
+            else None,
+        )
 
     if sheet.on("proof.excel_with_mail"):
         if not has_mail:

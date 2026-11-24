@@ -1593,6 +1593,7 @@ async def _read_file(
             sheet,
             month=month,
             person_name=person_name,
+            file_name=doc.file_name,
             has_mail=has_mail,
             rules=rules,
             working_days=working_days,
