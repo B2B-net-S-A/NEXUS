@@ -86,6 +86,23 @@ Artur: „trzeba zmusić, żeby każdą zmianę zrozumieli i potrafili korzysta�
   Powód: od 28.10 do 18.11 weszło 185 wpisów (ok. 9 na dzień roboczy), osoba
   miała średnio 46 nieprzeklikanych, a 700 z 939 zaliczeń to przypadkowe
   pierwsze kliknięcie kropki w pracy, nie nauka.
+- **Wpis sprzed `DAILY_FLOOR` bez postępu to stan końcowy, nie błąd
+  (24.11.2026).** Od 18.11 front nie wysyła `seen` ani `dot_clicked`, a porcja
+  i lekcje biorą tylko wpisy od 12.11. Starszy wpis mógł więc dostać wiersz
+  w `novelty_progress` tylko w czasie kropek (od wdrożenia wpisu do 18.11),
+  gdy jego `dot_anchor` stanął na ekranie osoby z odbiorców. Kopia produkcji
+  z 24.11: z 118 wpisów `dot` sprzed 12.11 dziesięć nie ma żadnego wiersza,
+  a przy reszcie ostatni zapis jest z 18.11. Wszystkie 47 wpisów `dot`
+  z 12–17.11 mają postęp z porcji. Zero tych dziesięciu ma trzy przyczyny:
+  element nie miał się z czym pokazać (żadnego ogłoszenia, wysyłki do
+  e-podpisu ani dokumentu do startu, a QC w stanie „sprawdź ręcznie” trafił
+  się osobie dopiero 20.11); odbiorcami były 2 osoby, które tam nie zajrzały
+  (automat przydziału, słownik, mapa decyzyjna w szansie, jakość podpowiedzi);
+  albo element stał niżej niż pierwszy ekran (licznik P1 na Daily pod
+  „Zmianami od wczoraj”). Dlatego odstających pozycji szukaj tylko wśród
+  wpisów od `DAILY_FLOOR`. Zero przy starszym wpisie nie jest sprawą, a nauka
+  takiej funkcji to nowa lekcja wyłącznie na decyzję Artura, bo starszych
+  nikt nie nadrabia.
 - **Przeklikanie idzie na Poligonie.** Pozycja porcji włącza tryb ćwiczebny
   na tej karcie (`enterPoligon(…, "novelty")`): prawdziwe ekrany, rekrutacja
   ćwiczebna, zapisy wyłączone, więc kroki mogą klikać naprawdę. Na serwer
