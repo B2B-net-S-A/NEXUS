@@ -17,7 +17,7 @@ import asyncio
 import logging
 import re
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Optional
@@ -1223,7 +1223,9 @@ async def _proof(
                 person_name=person_name,
                 has_mail=any(d.mime in MAIL_MIMES for d in reports) or bool(mails),
                 rules=rules,
-                mails=mails,
+                # Domena i data zgody tylko z cudzych wiadomości: prośba konsultanta
+                # z jego skrzynki u klienta to nie zgoda klienta.
+                mails=[m for m in mails if not senders.is_consultant(m.sender)],
                 client_mail=client_mail,
                 acceptor=senders.who,
             )
@@ -1607,6 +1609,48 @@ async def acceptance_senders(
     )
 
 
+async def _mail_addresses(reports: list[CpDocument]) -> set[str]:
+    """Adresy nadawców z maili miesiąca: sam mail, cytaty, maile w mailu, wydruk PDF."""
+
+    found = {m.sender for m in await _mails(None, reports) if m.sender}
+    texts = await asyncio.to_thread(_read_mails, reports)
+    return found | mail_text.addresses(texts)
+
+
+async def _without_consultant(
+    db: AsyncSession,
+    senders: mail_text.Senders,
+    reports: list[CpDocument],
+    contract_id: int,
+    month: str,
+) -> mail_text.Senders:
+    """``senders`` bez samego konsultanta kontraktu (próba IX–X 2026).
+
+    U kilku klientów konsultant ma skrzynkę w domenie klienta, tej samej co
+    kierownik. Jego mail z fakturą albo cytat jego wiadomości wyglądał jak
+    wiadomość klienta, a jego „Potwierdzam” jak akceptacja. Adres należy do
+    konsultanta, gdy czytnik poczty wskazuje nim ten kontrakt
+    (``identity.sender_contract_ids``, jak ``mailbox._client_wrote``). Pytamy tylko
+    o adresy, które ``senders`` przyjąłby jako akceptującego. Dzień z perspektywy
+    rozliczanego miesiąca: przeliczenie po 60 dniach od końca kontraktu nadal
+    rozpoznaje jego konsultanta."""
+
+    from app.core.scheduling import business_today
+    from app.services.consultant_portal import identity
+
+    candidates = sorted(
+        a for a in await _mail_addresses(reports) if senders.accepts_from(a)
+    )
+    if not candidates:
+        return senders
+    today = min(business_today(), month_bounds(month)[1])
+    mine: set[str] = set()
+    for address in candidates:
+        if contract_id in await identity.sender_contract_ids(db, address, today=today):
+            mine.add(address)
+    return replace(senders, consultant=senders.consultant | mine) if mine else senders
+
+
 async def _consultant_mails(
     db: AsyncSession,
     reports: list[CpDocument],
@@ -1670,6 +1714,10 @@ async def _recompute(
             senders = await acceptance_senders(db, s.client_id, rules)
         else:
             senders = mail_text.Senders()
+        if fixed or _client_mail_rules_on(rules):
+            senders = await _without_consultant(
+                db, senders, reports, s.contract_id, s.period_month
+            )
         proof = await _proof(
             report,
             reports,
