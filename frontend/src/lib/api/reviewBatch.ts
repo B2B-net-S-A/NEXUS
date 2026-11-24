@@ -330,6 +330,15 @@ export interface ReviewBatchQueue {
   job_profiles?: Record<string, ReviewBatchRoleProfile>
   /** Ile osób z której rekrutacji idzie po kolei w całej kolejce (17.11.2026). */
   runs?: ReviewBatchQueueRun[]
+  /** Odłożone (R5) w całej kolejce, nie tylko na tej stronie (24.11.2026). */
+  stale?: ReviewBatchQueueStale | null
+}
+
+export interface ReviewBatchQueueStale {
+  count: number
+  /** Najstarszy i najnowszy dzień otwarcia karty, RRRR-MM-DD. */
+  first: string
+  last: string
 }
 
 export interface ReviewBatchQueueRun {

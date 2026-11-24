@@ -20,6 +20,7 @@ import {
   type ReviewBatchItem,
   type ReviewBatchJob,
   type ReviewBatchQueueRun,
+  type ReviewBatchQueueStale,
   type ReviewBatchSource,
   type ReviewBatchStatus,
   type ReviewBatchLearnedRule,
@@ -186,14 +187,25 @@ function shortDate(iso: string): string {
 /**
  * „Na końcu porcji: 29 kart z 18–19.11 bez decyzji od 2 dni roboczych” (R5,
  * 22.11.2026). Takie karty nie zajmują miejsca, więc system dokłada świeże.
+ * Linia pojawia się, gdy odłożone wchodzą na stronę kolejki, a liczbę i dni
+ * bierze z całej kolejki (`summary`): strona ma 20 kart (24.11.2026).
  */
-function StaleLine({ items }: { items: readonly ReviewBatchItem[] }) {
-  const stale = items.filter((item) => item.stale);
-  if (stale.length === 0) return null;
-  const days = stale
-    .map((item) => item.opened_on)
-    .filter((day): day is string => Boolean(day))
-    .sort();
+function StaleLine({
+  items,
+  summary,
+}: {
+  items: readonly ReviewBatchItem[];
+  summary?: ReviewBatchQueueStale | null;
+}) {
+  const onPage = items.filter((item) => item.stale);
+  if (onPage.length === 0) return null;
+  const count = summary?.count ?? onPage.length;
+  const days = summary
+    ? [summary.first, summary.last]
+    : onPage
+        .map((item) => item.opened_on)
+        .filter((day): day is string => Boolean(day))
+        .sort();
   const span =
     days.length === 0
       ? ""
@@ -207,7 +219,7 @@ function StaleLine({ items }: { items: readonly ReviewBatchItem[] }) {
       data-testid="review-queue-stale"
     >
       <span className="font-semibold">
-        Na końcu porcji: {stale.length} {pluralPl(stale.length, "karta", "karty", "kart")}
+        Na końcu porcji: {count} {pluralPl(count, "karta", "karty", "kart")}
         {span}
       </span>{" "}
       <span className="text-muted-foreground">bez decyzji od 2 dni roboczych</span>
@@ -330,6 +342,16 @@ function BatchProgress({
               <span className="rounded bg-muted px-1.5 py-0.5 font-medium tabular-nums text-muted-foreground">
                 {data.sources.other ?? 0} z pozostałych
               </span>
+              {data.sources.stale ? (
+                <span
+                  className="rounded bg-warning/15 px-1.5 py-0.5 font-medium tabular-nums text-warning"
+                  title="Bez decyzji od 2 dni roboczych: stoją na końcu kolejki i nie zajmują miejsca w porcji."
+                  data-testid="review-batch-stale"
+                >
+                  +{data.sources.stale}{" "}
+                  {pluralPl(data.sources.stale, "odłożona", "odłożone", "odłożonych")}
+                </span>
+              ) : null}
             </>
           ) : (
             <>
@@ -645,7 +667,7 @@ function BatchWorkspace({
             next ? (
               <>
                 <QueueRunLine runs={queue.data?.runs ?? []} jobId={next.job_id} titles={jobTitles} />
-                <StaleLine items={queue.data?.items ?? []} />
+                <StaleLine items={queue.data?.items ?? []} summary={queue.data?.stale} />
                 <JobContext
                   jobId={next.job_id}
                   title={next.job_title}
