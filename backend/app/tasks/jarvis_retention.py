@@ -34,17 +34,14 @@ async def prune_once() -> dict[str, int]:
 
 
 async def jarvis_retention_loop() -> None:
-    """Pętla tła — rejestrowana w lifespanie ``main.py``."""
-    # Start procesu = żadna tura nie trwa (jeden uvicorn) — blokady zostawione
-    # przez turę ubitą deployem zdejmujemy od razu, nie po 150 s (R8-N1-7).
-    try:
-        released = await store.release_turns_after_restart()
-        if released:
-            logger.info("jarvis_retention: zdjęto %s blokad tur po restarcie", released)
-    except asyncio.CancelledError:
-        raise
-    except Exception:  # noqa: BLE001
-        logger.exception("jarvis_retention: zdjęcie blokad po restarcie padło")
+    """Pętla tła — rejestrowana w lifespanie ``main.py``.
+
+    Blokad tur (``busy_until``) przy starcie NIE zdejmuje (audyt R3,
+    24.11.2026): pętla biegnie w procesie ``worker``, a tury w procesach
+    ``web`` (``app/core/process_role.py``), więc restart workera nie znaczy,
+    że żadna tura nie trwa. Blokada tury ubitej deployem wygasa sama po
+    ``agent._lock_seconds()``.
+    """
     await asyncio.sleep(_INITIAL_DELAY_SECONDS)
     while True:
         try:

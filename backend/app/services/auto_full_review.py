@@ -61,6 +61,7 @@ from app.models.user import User
 from app.services import candidate_search_store as store
 from app.services.auto_match_rules import is_good_match
 from app.services.request_work_state import IN_WORK_STATES
+from app.services.sent_before import EVIDENCE_KEY as SENT_BEFORE_EVIDENCE_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -1058,6 +1059,10 @@ FRESH_DAYS = 30
 FRESH_BELOW_CUT = 2.0
 FRESH_POOL_EXTRA = 30
 FRESH_EVIDENCE_KEY = "fresh_cv"
+# Klucze dowodów dodatków ponad pulą 150 („wysłani wcześniej”, „świeże CV”).
+# Dopisanie nowego CV (`auto_match_service._write_pool`) nie liczy ich do
+# miejsc puli, nie wycina przy cięciu i nie zdejmuje flagi przy nowym wyniku.
+POOL_EXTRA_EVIDENCE_KEYS = (SENT_BEFORE_EVIDENCE_KEY, FRESH_EVIDENCE_KEY)
 _FRESH_CV_ACTIONS = ("cv_uploaded", "created_from_cv")
 
 

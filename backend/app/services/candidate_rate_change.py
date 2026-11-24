@@ -1115,7 +1115,9 @@ async def decide(
 
 # ── Przypomnienia (raz dziennie, 8–17 czasu firmy) ──────────────────────────
 
-_REMINDERS_DONE_FOR: Optional[object] = None
+# Bez dziennej flagi w pamięci procesu (audyt R3, 24.11.2026): ustawiana przed
+# commitem ticku zostawała po jego rollbacku i przypomnienia ginęły na cały
+# dzień. „Raz dziennie” pilnuje dedup ``emit`` (``ix_notif_dedup_daily``).
 REMINDER_FROM_HOUR = 8
 REMINDER_UNTIL_HOUR = 17
 
@@ -1128,13 +1130,10 @@ async def send_reminders(db: AsyncSession, now: datetime) -> int:
 
     from app.core.scheduling import is_business_day  # noqa: PLC0415
 
-    global _REMINDERS_DONE_FOR
     local = now.astimezone(ZoneInfo(settings.BUSINESS_TZ))
     if not (REMINDER_FROM_HOUR <= local.hour < REMINDER_UNTIL_HOUR):
         return 0
-    if _REMINDERS_DONE_FOR == local.date() or not is_business_day(
-        now, settings.BUSINESS_TZ
-    ):
+    if not is_business_day(now, settings.BUSINESS_TZ):
         return 0
     today = local.date()
     sent = 0
@@ -1219,8 +1218,6 @@ async def send_reminders(db: AsyncSession, now: datetime) -> int:
                         sent += 1
     except Exception:  # noqa: BLE001 — przypomnienia nie zatrzymują ticku
         logger.exception("rate change reminders failed")
-        return sent
-    _REMINDERS_DONE_FOR = today
     return sent
 
 

@@ -7,7 +7,9 @@
 - R8-N1-5: akcja nigdy nie zostaje w ``confirmed`` — błąd wykonania kończy
   się ``failed``, a osierocone ``confirmed`` (deploy w trakcie) dostaje
   „nie wiadomo” i notatkę w rozmowie;
-- R8-N1-7: start procesu zdejmuje blokady tur zostawione przez ubitą turę.
+- R8-N1-7 (zdejmowanie blokad tur przy starcie procesu) wycofane w audycie R3
+  24.11.2026: pętla biegnie w workerze, tury w procesach web —
+  ``tests/test_jarvis_retention_no_restart_release.py``.
 
 Każdy test zostawia stan zakończony (żadnej wiszącej blokady ani akcji
 ``confirmed``) — baza CI jest wspólna.
@@ -231,27 +233,3 @@ async def test_orphaned_confirmed_action_gets_uncertain_and_a_note() -> None:
         for content in notes
         for block in content
     )
-
-
-async def test_restart_releases_turn_locks_left_by_a_killed_turn(
-    app_client, monkeypatch
-) -> None:
-    enable_jarvis(monkeypatch, ScriptedModel([fake_message(text_block("Jestem."))]))
-    user_id, headers = await make_user(UserRole.recruiter)
-    async with AsyncSessionLocal() as db:
-        db.add(
-            JarvisConversation(
-                id=uuid.uuid4(),
-                user_id=user_id,
-                title="ubita deployem",
-                busy_until=datetime.now(timezone.utc) + timedelta(seconds=150),
-            )
-        )
-        await db.commit()
-
-    assert await store.release_turns_after_restart() >= 1
-
-    resp = await app_client.post(
-        "/api/jarvis/chat", json={"message": "jesteś?"}, headers=headers
-    )
-    assert resp.status_code == 200, resp.text
