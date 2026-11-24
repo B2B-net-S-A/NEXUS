@@ -46,11 +46,13 @@ TED_CPV = ("72000000", "79610000", "79620000")
 TED_NOTICE_TYPES = ("cn-standard", "cn-social", "pin-cfc-standard")
 TED_FIELDS = (
     "publication-number",
+    "procedure-identifier",
     "notice-title",
     "buyer-name",
     "deadline-receipt-tender-date-lot",
     "classification-cpv",
     "publication-date",
+    "contract-nature-main-proc",
     "contract-nature",
     "links",
 )
@@ -110,6 +112,7 @@ def parse_bzp(item: dict[str, Any]) -> Optional[Notice]:
     return Notice(
         source="bzp",
         number=number[:60],
+        procedure_id=(str(item.get("tenderId") or "").strip()[:80] or None),
         title=title[:1000],
         buyer_name=buyer[:500],
         published_at=published,
@@ -227,6 +230,9 @@ def parse_ted(item: dict[str, Any]) -> Optional[Notice]:
         )
         if day is not None
     ]
+    # Rodzaj główny postępowania; ``contract-nature`` miesza główny z dodatkowymi
+    # (808107-2026: dostawa z usługą dodatkową), więc bierzemy go tylko bez głównego.
+    main = _first_text(item.get("contract-nature-main-proc"))
     natures = [str(v) for v in _as_list(item.get("contract-nature"))]
     codes = tuple(
         dict.fromkeys(str(v)[:8] for v in _as_list(item.get("classification-cpv")) if v)
@@ -237,14 +243,15 @@ def parse_ted(item: dict[str, Any]) -> Optional[Notice]:
     return Notice(
         source="ted",
         number=number[:60],
+        # Zmiana postępowania (np. nowy termin) to w TED nowa publikacja z nowym
+        # numerem i tym samym identyfikatorem postępowania.
+        procedure_id=(_first_text(item.get("procedure-identifier")) or "")[:80] or None,
         title=ted_title(title)[:1000],
         buyer_name=" ".join(buyer.split())[:500],
         published_at=published_at.astimezone(timezone.utc),
         cpv_codes=codes,
         cpv_label=", ".join(codes)[:300] or None,
-        order_type="services"
-        if "services" in natures
-        else (natures[0] if natures else None),
+        order_type=main or (natures[0] if natures else None),
         url=str(html.get("POL") or TED_NOTICE_PAGE.format(number=number)),
         deadline_date=min(deadlines) if deadlines else None,
         below_eu=False,

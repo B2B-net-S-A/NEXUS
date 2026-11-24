@@ -152,6 +152,9 @@ class Notice:
     deadline_date: Optional[date] = None
     deadline_at: Optional[datetime] = None
     below_eu: Optional[bool] = None
+    #: Identyfikator postępowania: TED ``procedure-identifier``, BZP ``tenderId``.
+    #: Kolejna publikacja tego samego postępowania to zmiana, nie nowy przetarg.
+    procedure_id: Optional[str] = None
 
 
 @dataclass(frozen=True)

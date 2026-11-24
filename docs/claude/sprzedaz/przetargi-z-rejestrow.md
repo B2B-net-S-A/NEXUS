@@ -89,6 +89,26 @@ G-C (przesiew przetargów). 20.11 sam wrócił do tematu z instrukcją Kingi.
   „Przywróć” (`POST /api/sales/tenders/{id}/restore`, „Sprzedaż: edycja”) zakłada
   szansę u osoby, która kliknęła (opiekun i autor). Po terminie 409.
 
+## Zmiana postępowania (nowa publikacja, ten sam przetarg)
+
+- **TED publikuje zmianę (zwykle późniejszy termin) jako nowe ogłoszenie `cn-standard`
+  z nowym numerem i tym samym `procedure-identifier`** (24.11: 807300-2026 →
+  815837-2026, termin 27.11 → 02.12; 801010 → 812191). Bez tego bramka zakładała
+  drugą szansę, a pierwszą automat zamykał po starym terminie, choć przetarg trwał.
+- Dlatego przetarg rozpoznajemy po postępowaniu (`procedure_id`: TED
+  `procedure-identifier`, BZP `tenderId`; indeks unikalny ze źródłem). Nowsza
+  publikacja aktualizuje wiersz (numer, link, termin) i szansę: teczkę, datę
+  zamknięcia (tylko gdy nikt jej nie zmienił ręcznie) i notatkę „Zmiana przetargu…”
+  z nowym terminem. Szansa zamknięta przez automat po starym terminie wraca do
+  „Identyfikacji”, gdy nowy termin trwa. Odsiane, które po zmianie przechodzi
+  bramkę (np. przedłużony termin), dostaje szansę. Starsza publikacja po zmianie
+  jest pomijana. W linii biegu: „zmiany ogłoszeń N”.
+- **„Tylko usługi” w TED czyta `contract-nature-main-proc`**, bo `contract-nature`
+  miesza rodzaj główny z dodatkowymi (808107-2026: dostawa z usługą dodatkową).
+- **BZP:** zmiana ogłoszenia to osobny typ ogłoszenia (nie `ContractNotice`), którego
+  etap 1 nie czyta. Przedłużony termin w BZP nie przesuwa więc daty szansy; szansę,
+  której nikt nie ruszył, automat zamknie po pierwotnym terminie.
+
 ## Pułapki rejestrów
 
 - **API BZP** (`ezamowienia.gov.pl/mo-board/api/v1/notice`) oddaje najwyżej

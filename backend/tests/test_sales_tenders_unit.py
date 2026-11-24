@@ -243,6 +243,30 @@ def test_parse_ted_strips_country_and_cpv_prefix_and_takes_earliest_deadline() -
     assert notice.url == "https://ted.europa.eu/pl/notice/-/detail/804876-2026"
 
 
+def test_parse_ted_takes_the_main_nature_and_the_procedure() -> None:
+    """808107-2026: dostawa z usługą dodatkową — „tylko usługi” ma ją odsiać."""
+
+    item = {
+        **TED_ITEM,
+        "procedure-identifier": "0169b6ef-fe1b-42e4-a79d-edc8a82a2e2a",
+        "contract-nature-main-proc": "supplies",
+        "contract-nature": ["supplies", "services", "supplies", "services"],
+    }
+    notice = sources.parse_ted(item)
+    assert notice is not None
+    assert notice.order_type == "supplies"
+    assert notice.procedure_id == "0169b6ef-fe1b-42e4-a79d-edc8a82a2e2a"
+    decision = rules.evaluate(notice, TenderRules(), today=TODAY, now=NOW)
+    assert decision is not None and decision.rule == "order_type"
+    without_main = sources.parse_ted({**item, "contract-nature-main-proc": None})
+    assert without_main is not None and without_main.order_type == "supplies"
+
+
+def test_parse_bzp_keeps_the_procedure_id() -> None:
+    notice = sources.parse_bzp({**BZP_ITEM, "tenderId": "ocds-148610-6d17e6f7"})
+    assert notice is not None and notice.procedure_id == "ocds-148610-6d17e6f7"
+
+
 def test_parse_ted_without_polish_link_builds_one() -> None:
     notice = sources.parse_ted({**TED_ITEM, "links": {}})
     assert notice is not None

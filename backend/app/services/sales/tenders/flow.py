@@ -23,7 +23,7 @@ from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 import httpx
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -77,6 +77,8 @@ class RunCounts:
     created: int = 0
     rejected: int = 0
     skipped: int = 0
+    #: Nowsza publikacja znanego postępowania (zmiana terminu), bez drugiej szansy.
+    updated: int = 0
     closed: int = 0
 
 
@@ -326,6 +328,7 @@ def notice_row(notice: Notice, decision: rules.Decision) -> SalesTenderNotice:
     return SalesTenderNotice(
         source=notice.source,
         number=notice.number,
+        procedure_id=notice.procedure_id,
         title=notice.title,
         buyer_name=notice.buyer_name,
         buyer_nip=notice.buyer_nip,
@@ -360,7 +363,128 @@ def row_notice(row: SalesTenderNotice) -> Notice:
         deadline_date=row.deadline_date,
         deadline_at=row.deadline_at,
         below_eu=row.below_eu,
+        procedure_id=row.procedure_id,
     )
+
+
+def _deadline_text(day: Optional[date]) -> str:
+    return day.strftime("%d.%m.%Y") if day else "brak"
+
+
+async def _follow_change(
+    db: AsyncSession,
+    opportunity: SalesOpportunity,
+    notice: Notice,
+    old_deadline: Optional[date],
+    *,
+    now: datetime,
+    today: date,
+) -> None:
+    """Szansa idzie za zmianą ogłoszenia: termin, teczka, notatka, a szansa zamknięta
+    przez automat po starym terminie wraca do „Identyfikacji”, gdy nowy termin trwa."""
+
+    before = history.snapshot(opportunity)
+    fields = dict(opportunity.custom_fields or {})
+    tender = dict(fields.get("tender") or {})
+    tender.update(
+        number=notice.number,
+        url=notice.url,
+        deadline_date=notice.deadline_date.isoformat()
+        if notice.deadline_date
+        else None,
+        deadline_at=_iso(notice.deadline_at),
+        published_at=_iso(notice.published_at),
+    )
+    fields["tender"] = tender
+    opportunity.custom_fields = fields
+    # Datę zamknięcia poprawioną ręcznie zostawiamy; podmieniamy tylko termin z ogłoszenia.
+    if opportunity.expected_close_date == old_deadline:
+        opportunity.expected_close_date = notice.deadline_date
+    reopen = (
+        opportunity.status == "lost"
+        and opportunity.lost_reason == EXPIRED_REASON
+        and notice.deadline_date is not None
+        and notice.deadline_date >= today
+    )
+    if reopen:
+        pipeline, stages = await tender_pipeline(db)
+        if opportunity.pipeline_id == pipeline.id:
+            apply_stage(opportunity, _entry_stage(stages), stages, now=now)
+            opportunity.lost_reason = None
+    history.record_changes(db, opportunity, before, user_id=None)
+    label = SOURCE_LABELS.get(notice.source, notice.source)
+    db.add(
+        SalesActivity(
+            kind="note",
+            company_id=opportunity.company_id,
+            opportunity_id=opportunity.id,
+            subject=f"Zmiana przetargu {label} {notice.number}"[:500],
+            body=(
+                f"Nowa publikacja {label} {notice.number}. Termin składania ofert: "
+                f"{_deadline_text(old_deadline)} → {_deadline_text(notice.deadline_date)}."
+                + ("\nSzansa wraca do „Identyfikacji”." if reopen else "")
+                + (f"\n{notice.url}" if notice.url else "")
+            ),
+            occurred_at=now,
+            created_by_user_id=None,
+            external_source="tender",
+            external_ref=f"tender-note:{notice.source}:{notice.number}"[:80],
+            web_link=(notice.url or None),
+        )
+    )
+
+
+async def apply_change(
+    db: AsyncSession,
+    row: SalesTenderNotice,
+    notice: Notice,
+    decision: rules.Decision,
+    *,
+    owner: Optional[int],
+    now: datetime,
+    today: date,
+) -> str:
+    """Nowsza publikacja znanego postępowania (TED: nowy numer, ten sam
+    ``procedure-identifier``): aktualizuje wiersz i szansę zamiast zakładać drugą.
+    Zwraca ``skipped`` (publikacja nie nowsza), ``updated`` albo ``created``."""
+
+    if notice.published_at <= row.published_at:
+        return "skipped"
+    old_deadline = row.deadline_date
+    row.number = notice.number
+    row.title = notice.title
+    row.url = notice.url
+    row.cpv = notice.cpv_label
+    row.order_type = notice.order_type
+    row.published_at = notice.published_at
+    row.deadline_date = notice.deadline_date
+    row.deadline_at = notice.deadline_at
+    if row.status == "rejected":
+        row.match_detail = decision.match[:200]
+        row.rule = decision.rule
+        row.rule_detail = decision.detail[:200] if decision.detail else None
+        if not decision.passed:
+            return "updated"
+        opportunity = await create_opportunity(
+            db,
+            notice,
+            match=decision.match,
+            owner_user_id=owner,
+            actor_user_id=None,
+            now=now,
+        )
+        row.status = "created"
+        row.opportunity_id = opportunity.id
+        return "created"
+    if row.opportunity_id is not None:
+        opportunity = await db.get(
+            SalesOpportunity, row.opportunity_id, with_for_update=True
+        )
+        if opportunity is not None:
+            await _follow_change(
+                db, opportunity, notice, old_deadline, now=now, today=today
+            )
+    return "updated"
 
 
 async def process(
@@ -382,23 +506,42 @@ async def process(
     counts.it = len(decided)
     if not decided:
         return
-    known = {
-        (source, number)
-        for source, number in (
-            await db.execute(
-                select(SalesTenderNotice.source, SalesTenderNotice.number).where(
-                    SalesTenderNotice.number.in_(sorted({n.number for n, _ in decided}))
-                )
-            )
-        ).all()
+    # Starsza publikacja najpierw: zmiana postępowania z tego samego biegu ją aktualizuje.
+    decided.sort(key=lambda pair: pair[0].published_at)
+    numbers = sorted({notice.number for notice, _ in decided})
+    procedures = sorted({n.procedure_id for n, _ in decided if n.procedure_id})
+    match_rows = SalesTenderNotice.number.in_(numbers)
+    if procedures:
+        match_rows = or_(match_rows, SalesTenderNotice.procedure_id.in_(procedures))
+    existing = list(
+        (await db.execute(select(SalesTenderNotice).where(match_rows))).scalars()
+    )
+    by_number = {(row.source, row.number): row for row in existing}
+    by_procedure = {
+        (row.source, row.procedure_id): row for row in existing if row.procedure_id
     }
     owner = await _owner(db, tender_rules.owner_user_id)
     for notice, decision in decided:
-        key = (notice.source, notice.number)
-        if key in known:
+        if (notice.source, notice.number) in by_number:
             counts.skipped += 1
             continue
-        known.add(key)
+        known = (
+            by_procedure.get((notice.source, notice.procedure_id))
+            if notice.procedure_id
+            else None
+        )
+        if known is not None:
+            outcome = await apply_change(
+                db, known, notice, decision, owner=owner, now=now, today=today
+            )
+            by_number[(notice.source, notice.number)] = known
+            if outcome == "created":
+                counts.created += 1
+            elif outcome == "updated":
+                counts.updated += 1
+            else:
+                counts.skipped += 1
+            continue
         row = notice_row(notice, decision)
         if decision.passed:
             opportunity = await create_opportunity(
@@ -414,6 +557,9 @@ async def process(
         else:
             counts.rejected += 1
         db.add(row)
+        by_number[(notice.source, notice.number)] = row
+        if notice.procedure_id:
+            by_procedure[(notice.source, notice.procedure_id)] = row
 
 
 async def close_expired(db: AsyncSession, *, today: date, now: datetime) -> int:

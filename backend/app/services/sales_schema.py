@@ -1121,8 +1121,8 @@ BOT_LISTS_DOWNGRADE_DDL: tuple[str, ...] = (
 # NEXUS czyta BZP i TED, bramka z regułami Kingi zakłada szansę w lejku Przetargi
 # albo odsiewa ogłoszenie z regułą (``services/sales/tenders/``). Jeden wiersz na
 # ogłoszenie, które przeszło frazy albo kody CPV usług IT; reszta rejestru nie
-# trafia do bazy. Para (źródło, numer) chroni przed drugą szansą z tego samego
-# ogłoszenia, także przy dwóch biegach naraz.
+# trafia do bazy. Para (źródło, numer) i (źródło, postępowanie) chronią przed drugą
+# szansą z tego samego ogłoszenia albo z jego zmiany, także przy dwóch biegach naraz.
 TENDER_SOURCES: tuple[str, ...] = ("bzp", "ted")
 TENDER_NOTICE_STATUSES: tuple[str, ...] = ("created", "rejected")
 CK_TENDER_SOURCE = f"source IN ({quoted(TENDER_SOURCES)})"
@@ -1133,6 +1133,7 @@ TENDERS_DDL: tuple[str, ...] = (
     id SERIAL PRIMARY KEY,
     source VARCHAR(8) NOT NULL,
     number VARCHAR(60) NOT NULL,
+    procedure_id VARCHAR(80) NULL,
     title VARCHAR(1000) NOT NULL,
     buyer_name VARCHAR(500) NOT NULL,
     buyer_nip VARCHAR(15) NULL,
@@ -1161,5 +1162,8 @@ TENDERS_DDL: tuple[str, ...] = (
     "ON sales_tender_notices (status, published_at DESC)",
     "CREATE INDEX IF NOT EXISTS ix_sales_tender_notices_opportunity "
     "ON sales_tender_notices (opportunity_id)",
+    # Jedno postępowanie = jeden wiersz: kolejna publikacja (zmiana terminu) go aktualizuje.
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_sales_tender_notices_procedure "
+    "ON sales_tender_notices (source, procedure_id) WHERE procedure_id IS NOT NULL",
 )
 TENDERS_DOWNGRADE_DDL: tuple[str, ...] = ("DROP TABLE IF EXISTS sales_tender_notices",)

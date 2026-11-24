@@ -981,12 +981,22 @@ class SalesTenderNotice(Base, TimestampMixin):
         CheckConstraint(schema.CK_TENDER_STATUS, name="ck_sales_tender_notices_status"),
         Index("ix_sales_tender_notices_status", "status", text("published_at DESC")),
         Index("ix_sales_tender_notices_opportunity", "opportunity_id"),
+        Index(
+            "ux_sales_tender_notices_procedure",
+            "source",
+            "procedure_id",
+            unique=True,
+            postgresql_where=text("procedure_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source: Mapped[str] = mapped_column(String(8), nullable=False)
     #: ``2026/BZP 00543285`` albo numer publikacji TED ``789176-2026``.
     number: Mapped[str] = mapped_column(String(60), nullable=False)
+    #: Postępowanie (TED ``procedure-identifier``, BZP ``tenderId``): nowa publikacja
+    #: tego samego postępowania aktualizuje wiersz i szansę zamiast zakładać drugą.
+    procedure_id: Mapped[Optional[str]] = mapped_column(String(80))
     title: Mapped[str] = mapped_column(String(1000), nullable=False)
     buyer_name: Mapped[str] = mapped_column(String(500), nullable=False)
     buyer_nip: Mapped[Optional[str]] = mapped_column(String(15))

@@ -52,6 +52,12 @@ function RunLine({ data }: { data: Tenders }) {
             <span className="tabular-nums text-foreground">{counts.created ?? 0}</span> · odsiane{" "}
             <span className="tabular-nums text-foreground">{counts.rejected ?? 0}</span> · zamknięte po terminie{" "}
             <span className="tabular-nums text-foreground">{counts.closed ?? 0}</span>
+            {(counts.updated ?? 0) > 0 && (
+              <>
+                {" "}
+                · zmiany ogłoszeń <span className="tabular-nums text-foreground">{counts.updated}</span>
+              </>
+            )}
           </span>
         )}
         {!last && <span>Bramka jeszcze nie biegła.</span>}

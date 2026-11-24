@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -276,6 +277,117 @@ async def test_owner_without_sales_edit_is_not_given_opportunities() -> None:
     await _process(notice, owner=recruiter.id)
     [opportunity] = await _opportunities(notice)
     assert opportunity.owner_user_id is None
+
+
+# ── Zmiana postępowania (TED: nowa publikacja, ten sam identyfikator) ─────────
+
+
+def _change_pair(**fields: Any) -> tuple[Notice, Notice]:
+    procedure = str(uuid.uuid4())
+    first = _notice(
+        source="ted",
+        number=f"{uuid.uuid4().int % 10**6}-2026",
+        procedure_id=procedure,
+        published_at=_now() - timedelta(days=6),
+        deadline_date=business_today() + timedelta(days=3),
+        **fields,
+    )
+    second = replace(
+        first,
+        number=f"{uuid.uuid4().int % 10**6}-2027",
+        published_at=_now() - timedelta(days=1),
+        deadline_date=business_today() + timedelta(days=8),
+    )
+    return first, second
+
+
+@pytest.mark.asyncio
+async def test_change_notice_moves_the_deadline_of_the_one_opportunity() -> None:
+    first, second = _change_pair()
+    counts = await _process(second, first)
+    assert (counts.created, counts.updated) == (1, 1)
+    [opportunity] = await _opportunities(first)
+    assert await _opportunities(second) == []
+    assert opportunity.expected_close_date == second.deadline_date
+    assert opportunity.custom_fields["tender"]["number"] == second.number
+    row = await _row(second)
+    assert (row.status, row.opportunity_id) == ("created", opportunity.id)
+    async with AsyncSessionLocal() as db:
+        notes = list(
+            (
+                await db.execute(
+                    select(SalesActivity.subject).where(
+                        SalesActivity.opportunity_id == opportunity.id
+                    )
+                )
+            ).scalars()
+        )
+        fields = {
+            e.field
+            for e in (
+                await db.execute(
+                    select(SalesOpportunityEvent).where(
+                        SalesOpportunityEvent.opportunity_id == opportunity.id
+                    )
+                )
+            ).scalars()
+        }
+    assert any(subject.startswith("Zmiana przetargu TED") for subject in notes)
+    assert "expected_close_date" in fields
+
+    again = await _process(first)
+    assert (again.created, again.updated, again.skipped) == (0, 0, 1)
+    [same] = await _opportunities(first)
+    assert same.expected_close_date == second.deadline_date
+
+
+@pytest.mark.asyncio
+async def test_change_after_the_old_deadline_reopens_the_closed_opportunity() -> None:
+    first, second = _change_pair()
+    await _process(first)
+    [opportunity] = await _opportunities(first)
+    yesterday = business_today() - timedelta(days=1)
+    async with AsyncSessionLocal() as db:
+        row = (
+            await db.execute(
+                select(SalesTenderNotice).where(
+                    SalesTenderNotice.number == first.number
+                )
+            )
+        ).scalar_one()
+        row.deadline_date = yesterday
+        (await db.get(SalesOpportunity, opportunity.id)).expected_close_date = yesterday
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await flow.close_expired(db, today=business_today(), now=_now())
+        await db.commit()
+    [closed] = await _opportunities(first)
+    assert (closed.status, closed.lost_reason) == ("lost", flow.EXPIRED_REASON)
+
+    counts = await _process(second)
+    assert counts.updated == 1
+    stages = await _stages()
+    [reopened] = await _opportunities(first)
+    assert reopened.status == "open"
+    assert reopened.stage_id == stages["tender-identified"]
+    assert reopened.lost_reason is None
+    assert reopened.expected_close_date == second.deadline_date
+
+
+@pytest.mark.asyncio
+async def test_expired_notice_whose_change_extends_the_deadline_gets_an_opportunity() -> (
+    None
+):
+    first, second = _change_pair()
+    first = replace(first, deadline_date=business_today() - timedelta(days=1))
+    counts = await _process(first)
+    assert counts.rejected == 1
+    counts = await _process(second)
+    assert counts.created == 1
+    row = await _row(second)
+    assert row.status == "created" and row.opportunity_id is not None
+    [opportunity] = await _opportunities(second)
+    assert opportunity.expected_close_date == second.deadline_date
 
 
 # ── Zamykanie po terminie ───────────────────────────────────────────────────
