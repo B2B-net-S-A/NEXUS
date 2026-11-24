@@ -122,7 +122,12 @@ import {
   type VerifiedRequirementsMissing,
 } from "@/lib/verified-gate";
 import { terminalOf } from "@/lib/kanban-terminal";
-import { moveDialogFor, movesBackTo, needsInterviewDate } from "@/lib/pipeline-move-dialog";
+import {
+  jumpsOverClientSend,
+  moveDialogFor,
+  movesBackTo,
+  needsInterviewDate,
+} from "@/lib/pipeline-move-dialog";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { assignErrorMessage } from "@/lib/assign-error";
 import {
@@ -373,6 +378,12 @@ interface SendMoveOptions {
   twinSkips?: Record<string, string>;
 }
 
+/** Nazwa kolumny w oknie stawki do klienta: „CV wysłane”, a przy przeskoku
+ *  (24.11.2026) — kolumna, na którą idzie karta. */
+function clientRateTargetLabel(col: KanbanColumn): string {
+  return col.stage === "cv_sent" ? "CV wysłane" : (col.name ?? col.stage);
+}
+
 type RatePayload = {
   rate: number;
   unit: RateUnit;
@@ -549,6 +560,8 @@ export function usePipelineMove({
     item: KanbanItem;
     destCol: KanbanColumn;
     srcColId: string;
+    /** Przeskok ponad „CV wysłane” (24.11.2026): stawka z okna wysyłki. */
+    clientRate?: RatePayload;
   } | null>(null);
   // Terminal-move modal — pojedynczy ruch LUB bulk (wspólny powód odrzucenia
   // dla wszystkich zaznaczonych kandydatów).
@@ -582,6 +595,8 @@ export function usePipelineMove({
     item: KanbanItem;
     destCol: KanbanColumn;
     srcColId: string;
+    /** Przeskok ponad „CV wysłane” (24.11.2026): okno celu po stawce. */
+    then?: "interview_date" | "hired_confirm";
   } | null>(null);
   const [clientRateQueue, setClientRateQueue] = useState<MoveEntry[]>([]);
   // Para z zamówieniem: stawkę zmienia się w zamówieniu (`order_lock`), więc
@@ -610,6 +625,8 @@ export function usePipelineMove({
     item: KanbanItem;
     destCol: KanbanColumn;
     srcColId: string;
+    /** Przeskok ponad „CV wysłane” (24.11.2026): stawka z okna wysyłki. */
+    clientRate?: RatePayload;
   } | null>(null);
   const [clientRateBulkTotal, setClientRateBulkTotal] = useState(0);
   // 409 ELIGIBILITY_WARNING (17.09.2026) — jedno okno. `retry` powtarza ruch,
@@ -1108,6 +1125,29 @@ export function usePipelineMove({
         return;
       }
 
+      // Przeskok ponad „CV wysłane” (decyzja Artura 24.11.2026) to też
+      // wysyłka do klienta: to samo okno stawki, potem okno celu (termin
+      // rozmowy, zatrudnienie) ze stawką w tym samym żądaniu.
+      const srcCol = columns.find((c) => colId(c) === srcColId);
+      if (jumpsOverClientSend(srcCol, dst) && (!cproEnabled || canWriteClientRate)) {
+        if (!cproEnabled && !canSendToClient) {
+          showError(CLIENT_SEND_DENIED_MESSAGE);
+          return;
+        }
+        const then =
+          dialog === "hired_confirm"
+            ? "hired_confirm"
+            : dialog === "interview_date" &&
+                !options?.skipInterviewDate &&
+                needsInterviewDate(item)
+              ? "interview_date"
+              : undefined;
+        setClientRateQueue([]);
+        setClientRateBulkTotal(1);
+        setClientRatePrompt({ item, destCol: dst, srcColId, then });
+        return;
+      }
+
       // „CV wysłane" bez kolejki Cpro (Pipeline v4): wysyła osoba z uprawnieniem
       // do prowadzenia rekrutacji, stawka wymagana.
       if (dialog === "client_rate" && !cproEnabled) {
@@ -1385,12 +1425,13 @@ export function usePipelineMove({
       const prompt = interviewDatePrompt;
       if (!prompt) return;
       setInterviewDatePrompt(null);
-      const { item, destCol, srcColId } = prompt;
+      const { item, destCol, srcColId, clientRate } = prompt;
       applyOptimistic(item, srcColId, destCol);
       // „Klient podał terminy” (23.11.2026): po potwierdzonym ruchu wniosek
       // o terminy — rekruter dostaje dzwonek i mail „Ustal termin z kandydatem”.
       if (value && "kind" in value) {
         void sendMove(item, destCol, undefined, {
+          clientRate,
           onMoved: () => {
             void interviewCycleApi
               .createSlots({
@@ -1417,6 +1458,7 @@ export function usePipelineMove({
         return;
       }
       void sendMove(item, destCol, undefined, {
+        clientRate,
         onMoved: value
           ? () => {
               void interviewCycleApi
@@ -1577,8 +1619,19 @@ export function usePipelineMove({
   const submitClientRateMove = useCallback(
     async (payload: RatePayload | null) => {
       if (!clientRatePrompt) return;
-      const { item, destCol, srcColId } = clientRatePrompt;
+      const { item, destCol, srcColId, then } = clientRatePrompt;
       const isBulk = clientRateBulkTotal > 1;
+      // Przeskok ponad „CV wysłane”: stawka jedzie dalej z oknem celu.
+      if (then) {
+        setClientRatePrompt(null);
+        setClientRateQueue([]);
+        setClientRateBulkTotal(0);
+        const clientRate = payload ?? undefined;
+        if (then === "hired_confirm") setHiredConfirm({ item, destCol, srcColId, clientRate });
+        else setInterviewDatePrompt({ item, destCol, srcColId, clientRate });
+        return;
+      }
+      const targetLabel = clientRateTargetLabel(destCol);
 
       applyOptimistic(item, srcColId, destCol);
       // Zapytanie strony odświeżamy PO zapisie stawki — inaczej kolejki kroków
@@ -1597,14 +1650,14 @@ export function usePipelineMove({
         },
       });
       if (ok && payload && !isBulk) {
-        showSuccess("Przeniesiono na „CV wysłane” ze stawką do klienta.");
+        showSuccess(`Przeniesiono na „${targetLabel}” ze stawką do klienta.`);
       } else if (!ok && isBulk) {
         // `sendMove` w trybie zbiorczym jest cichy — bez tego toastu karta
         // wracała na miejsce bez słowa wyjaśnienia.
         const failedName =
           `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat";
         showError(
-          `${failedName}: nie udało się przenieść na „CV wysłane”` +
+          `${failedName}: nie udało się przenieść na „${targetLabel}”` +
             (failureReason ? ` — ${failureReason}.` : "."),
         );
         await refreshAfterMove();
@@ -2197,6 +2250,7 @@ export function usePipelineMove({
           onConfirm={(payload) => submitClientRateMove(payload)}
           onSkip={() => submitClientRateMove(null)}
           required={!cproEnabled}
+          targetLabel={clientRateTargetLabel(clientRatePrompt.destCol)}
           candidateRateLabel={formatExpectedRate(clientRatePrompt.item)}
           initialRate={knownClientRate(clientRatePrompt.item)}
           orderLock={clientRateHistory.data?.order_lock ?? null}
@@ -2397,7 +2451,7 @@ export function usePipelineMove({
                       (hiredElsewhere !== null && hiredEngagement === null)))
                 }
                 onClick={() => {
-                  const { item, destCol, srcColId } = hiredConfirm;
+                  const { item, destCol, srcColId, clientRate } = hiredConfirm;
                   const agreement = hiredAgreement;
                   if (hiredFromGenerator && agreement) {
                     void confirmFromGenerator(agreement.id);
@@ -2417,6 +2471,7 @@ export function usePipelineMove({
                   void sendMove(item, destCol, undefined, {
                     hiredSignedVia: signed,
                     hiredCurrentEngagement: engagement,
+                    clientRate,
                   }).then(
                     (ok) => {
                       if (ok && cancelId !== null) void cancelAgreement(cancelId);

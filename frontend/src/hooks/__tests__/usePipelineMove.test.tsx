@@ -138,10 +138,15 @@ const column = (
     items,
   }) as KanbanColumn;
 
-function board(items: { fresh?: KanbanItem[]; client?: KanbanItem[] } = {}) {
+function board(
+  items: { fresh?: KanbanItem[]; sent?: KanbanItem[]; client?: KanbanItem[] } = {},
+) {
   const fresh = column("new", 1, "Nowy", "internal", items.fresh ?? []);
   const screening = column("screening", 2, "Screening", "internal");
   const verified = column("verified", 3, "Zweryfikowany", "internal");
+  // Karta po wysyłce do klienta — start ruchów, które sprawdzają okno celu,
+  // nie przeskok ponad „CV wysłane” (ten ma własne testy, 24.11.2026).
+  const cvSent = column("cv_sent", 10, "CV wysłane", "external", items.sent ?? []);
   const clientInterview = column(
     "client_interview",
     4,
@@ -154,9 +159,10 @@ function board(items: { fresh?: KanbanItem[]; client?: KanbanItem[] } = {}) {
     fresh,
     screening,
     verified,
+    cvSent,
     clientInterview,
     rejected,
-    all: [fresh, screening, verified, clientInterview, rejected],
+    all: [fresh, screening, verified, cvSent, clientInterview, rejected],
   };
 }
 
@@ -965,7 +971,7 @@ describe("usePipelineMove — ruch zbiorczy", () => {
     post.mockResolvedValue({ data: { id: 900, process_state_version: 2 } });
     mount([...b.all, hired], { apply: vi.fn(), confirm: vi.fn() });
 
-    React.act(() => controls.requestMove(item, b.fresh, hired));
+    React.act(() => controls.requestMove(item, b.cvSent, hired));
     const confirmButton = await screen.findByRole("button", { name: "Potwierdź zatrudnienie" });
     expect(confirmButton).toBeDisabled();
     // 20.10.2026: okno najpierw mówi „możesz sam” i że zamówienie nie jest potrzebne.
@@ -1018,7 +1024,7 @@ describe("usePipelineMove — ruch zbiorczy", () => {
       post.mockResolvedValue({ data: { id: 902, process_state_version: 2 } });
       mount([...b.all, hired], { apply: vi.fn(), confirm: vi.fn() });
 
-      React.act(() => controls.requestMove(item, b.fresh, hired));
+      React.act(() => controls.requestMove(item, b.cvSent, hired));
       const confirmButton = await screen.findByRole("button", { name: "Potwierdź zatrudnienie" });
       const notice = screen.getByRole("note");
       expect(notice).toHaveTextContent("Aktywne zamówienie · nie dzwoń · Bank Przykładowy");
@@ -1055,7 +1061,7 @@ describe("usePipelineMove — ruch zbiorczy", () => {
       post.mockResolvedValue({ data: { id: 903, process_state_version: 2 } });
       mount([...b.all, hired], { apply: vi.fn(), confirm: vi.fn() });
 
-      React.act(() => controls.requestMove(item, b.fresh, hired));
+      React.act(() => controls.requestMove(item, b.cvSent, hired));
       const confirmButton = await screen.findByRole("button", { name: "Potwierdź zatrudnienie" });
       expect(screen.queryByText("Co z obecną współpracą?")).toBeNull();
 
@@ -1083,7 +1089,7 @@ describe("usePipelineMove — ruch zbiorczy", () => {
       const b = board({ fresh: [item] });
       const hired = column("hired", 8, "Zatrudniony", "terminal", [], "hired");
       mount([...b.all, hired], { apply: vi.fn(), confirm: vi.fn() });
-      React.act(() => controls.requestMove(item, b.fresh, hired));
+      React.act(() => controls.requestMove(item, b.cvSent, hired));
     }
 
     it("bez uprawnienia „Podpis B2B” wysyła prośbę i nie przesuwa karty", async () => {
@@ -1302,6 +1308,92 @@ describe("usePipelineMove — wysyłka CV do klienta za uprawnieniem", () => {
   });
 });
 
+describe("usePipelineMove — przeskok ponad „CV wysłane” (decyzja Artura 24.11.2026)", () => {
+  const asDeliveryLead = () =>
+    useAuthStore.setState({
+      user: { id: 9, role: "delivery_lead", roles: ["delivery_lead"], email: "dl@example.com" },
+    } as never);
+  const scheduled = { steps: [{ key: "interview", state: "scheduled" }] } as never;
+
+  async function typeRate(value: string) {
+    fireEvent.change(await screen.findByPlaceholderText(/^np\. \d+$/), { target: { value } });
+    fireEvent.click(screen.getByRole("button", { name: "Przesuń i zapisz" }));
+  }
+
+  it("rekruter bez prawa wysyłki: ze „Zweryfikowanego” na „Rozmowę” — komunikat, bez ruchu", () => {
+    const item = card({ id: 80, candidate_id: 800 });
+    const b = board({ fresh: [item] });
+    mount(b.all);
+    React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
+    expect(showError).toHaveBeenCalledWith(CLIENT_SEND_DENIED_MESSAGE);
+    expect(screen.queryByRole("dialog", { name: "Kiedy rozmowa u klienta?" })).toBeNull();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("Delivery Lead: najpierw okno stawki do klienta, stawka jedzie z ruchem", async () => {
+    asDeliveryLead();
+    const item = card({ id: 81, candidate_id: 801, interview_badge: scheduled });
+    const b = board({ fresh: [item] });
+    post.mockResolvedValue({ data: { id: 910, process_state_version: 2 } });
+    mount(b.all);
+    React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
+    expect(
+      await screen.findByText("Przesuń na „Rozmowa z klientem\""),
+    ).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+    await typeRate("180");
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][1]).toMatchObject({
+      candidate_id: 801,
+      stage: "client_interview",
+      client_rate_value: 180,
+    });
+  });
+
+  it("Delivery Lead: po stawce okno „Kiedy rozmowa?”, a ruch niesie stawkę", async () => {
+    asDeliveryLead();
+    const item = card({ id: 82, candidate_id: 802 });
+    const b = board({ fresh: [item] });
+    post.mockResolvedValue({ data: { id: 911, process_state_version: 2 } });
+    mount(b.all);
+    React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
+    await typeRate("185");
+    expect(await screen.findByRole("dialog", { name: "Kiedy rozmowa u klienta?" })).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("Delivery Lead: na „Zatrudnionego” — stawka, potem potwierdzenie, jedno żądanie z oboma", async () => {
+    asDeliveryLead();
+    const item = card({ id: 83, candidate_id: 803, process_state_version: 1 });
+    const b = board({ fresh: [item] });
+    const hired = column("hired", 8, "Zatrudniony", "terminal", [], "hired");
+    post.mockResolvedValue({ data: { id: 912, process_state_version: 2 } });
+    mount([...b.all, hired], { apply: vi.fn(), confirm: vi.fn() });
+    React.act(() => controls.requestMove(item, b.verified, hired));
+    await typeRate("190");
+    fireEvent.click(await screen.findByRole("radio", { name: "Umowa o pracę" }));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź zatrudnienie" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][1]).toMatchObject({
+      candidate_id: 803,
+      stage: "hired",
+      hired_signed_via: "uop",
+      client_rate_value: 190,
+    });
+  });
+
+  it("z „CV wysłane” dalej to nie wysyłka — bez okna stawki", async () => {
+    const item = card({ id: 84, candidate_id: 804, interview_badge: scheduled });
+    const b = board({ sent: [item] });
+    post.mockResolvedValue({ data: { id: 913, process_state_version: 2 } });
+    mount(b.all);
+    React.act(() => controls.requestMove(item, b.cvSent, b.clientInterview));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(showError).not.toHaveBeenCalled();
+    expect(post.mock.calls[0][1]).not.toHaveProperty("client_rate_value", expect.anything());
+  });
+});
+
 describe("usePipelineMove — „Zweryfikowany” zbiorczo przy stawce etapu (D2)", () => {
   it("osoby ze stawką idą pętlą bez okna, okno stawki dostają tylko osoby bez niej", async () => {
     const withRate = card({ id: 41, candidate_id: 401, expected_rate_value: 150 });
@@ -1461,12 +1553,12 @@ describe("usePipelineMove — strzałka „→”: ruch odłożony z „Cofnij�
     React.act(() => controls.deferMove(item, b.fresh, b.screening, { targetLabel: "Screening" }));
     // Karta z chwili kliknięcia (stare id etapu i wersja) — jak z tablicy.
     await React.act(async () => {
-      controls.requestMove(item, colIdOf(b.screening), b.clientInterview);
+      controls.requestMove(item, colIdOf(b.screening), b.fresh);
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(moveCalls()).toHaveLength(2);
     expect(moveCalls()[0][1]).toMatchObject({ stage: "screening", expected_state_version: 1 });
-    expect(moveCalls()[1][1]).toMatchObject({ stage: "client_interview", expected_state_version: 2 });
+    expect(moveCalls()[1][1]).toMatchObject({ stage: "new", expected_state_version: 2 });
     // Drugi ruch przesuwa kartę z nowym id etapu.
     expect(apply.mock.calls[1][0]).toMatchObject({ id: 954, process_state_version: 2 });
     await React.act(async () => {
@@ -1592,24 +1684,24 @@ describe("usePipelineMove — strzałka „→”: ruch odłożony z „Cofnij�
 });
 
 describe("usePipelineMove — „Kiedy rozmowa u klienta?” (audyt 21.10.2026)", () => {
-  const accepted = () => column("client_accepted", 5, "Klient zaakceptował", "external");
+  const accepted = () => column("acceptance", 5, "Klient zaakceptował", "external");
 
   it("ruch naprzód na „Rozmowę” bez terminu pyta o datę", async () => {
     const item = card({ id: 70, candidate_id: 700 });
     const b = board({ fresh: [item] });
     mount([...b.all, accepted()]);
-    React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
+    React.act(() => controls.requestMove(item, b.cvSent, b.clientInterview));
     expect(await screen.findByRole("dialog", { name: "Kiedy rozmowa u klienta?" })).toBeInTheDocument();
     expect(post).not.toHaveBeenCalled();
     expect(move).not.toHaveBeenCalled();
   });
 
   it("powrót z kolumny za „Rozmową” (cofnięcie akceptacji) nie pyta o datę", async () => {
-    const item = card({ id: 71, candidate_id: 701, stage: "client_accepted" });
+    const item = card({ id: 71, candidate_id: 701, stage: "acceptance" });
     const b = board();
     const acc = accepted();
     post.mockResolvedValue({ data: { id: 900, process_state_version: 2 } });
-    mount([...b.all.slice(0, 4), acc, b.rejected]);
+    mount([...b.all.slice(0, 5), acc, b.rejected]);
     React.act(() => controls.requestMove(item, acc, b.clientInterview));
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     expect(post.mock.calls[0][1]).toMatchObject({ candidate_id: 701, stage: "client_interview" });
@@ -1627,7 +1719,7 @@ describe("usePipelineMove — „Kiedy rozmowa u klienta?” (audyt 21.10.2026)"
     const b = board({ fresh: [item] });
     post.mockResolvedValue({ data: { id: 902, process_state_version: 2 } });
     mount(b.all, undefined, { canSendClientSlots: true });
-    React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
+    React.act(() => controls.requestMove(item, b.cvSent, b.clientInterview));
     const dialog = await screen.findByRole("dialog", { name: "Kiedy rozmowa u klienta?" });
     expect(within(dialog).getByRole("radio", { name: "Klient podał terminy" })).toHaveAttribute("aria-checked", "true");
     fireEvent.change(within(dialog).getByLabelText("Termin 1"), { target: { value: "2099-01-15T10:00" } });
@@ -1649,7 +1741,7 @@ describe("usePipelineMove — „Kiedy rozmowa u klienta?” (audyt 21.10.2026)"
     post.mockResolvedValue({ data: { id: 901, process_state_version: 2 } });
     mount(b.all);
     React.act(() =>
-      controls.requestMove(item, b.verified, b.clientInterview, { skipInterviewDate: true }),
+      controls.requestMove(item, b.cvSent, b.clientInterview, { skipInterviewDate: true }),
     );
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole("dialog", { name: "Kiedy rozmowa u klienta?" })).toBeNull();

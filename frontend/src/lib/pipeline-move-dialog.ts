@@ -15,6 +15,7 @@
  */
 
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
+import { placeStage, type BoardColumnKey, type StageLike } from "@/lib/board-stages";
 import { terminalOf, type TerminalAwareColumn } from "@/lib/kanban-terminal";
 
 export type PipelineMoveDialog =
@@ -99,4 +100,37 @@ export function movesBackTo<C extends TerminalAwareColumn>(
   const dstIdx = columns.findIndex((c) => idOf(c) === idOf(dst));
   if (srcIdx < 0 || dstIdx < 0) return false;
   return srcIdx > dstIdx && terminalOf(columns[srcIdx]) == null;
+}
+
+const BEFORE_CLIENT_SEND: ReadonlySet<BoardColumnKey> = new Set([
+  "new",
+  "screening",
+  "verified",
+  "cv_qc",
+]);
+const PAST_CLIENT_SEND: ReadonlySet<BoardColumnKey> = new Set([
+  "client_interview",
+  "contract",
+  "hired",
+]);
+
+/**
+ * Czy ruch PRZESKAKUJE „CV wysłane” — z kolumny przed wysyłką od razu na
+ * „Rozmowę u klienta”, „Umowę” albo „Zatrudnionego” (decyzja Artura
+ * 24.11.2026). To też wysyłka do klienta: to samo okno stawki do klienta co
+ * przy „CV wysłane” i te same bramki na serwerze
+ * (`pipeline_move_rules.jumps_over_client_send`). Karta z kolejki Cpro
+ * (Nordea) przeszła akceptację DL-a — dalej idzie regułami Cpro.
+ */
+export function jumpsOverClientSend(
+  src: StageLike | null | undefined,
+  dst: StageLike,
+): boolean {
+  if (!src) return false;
+  const from = placeStage(src);
+  return (
+    BEFORE_CLIENT_SEND.has(from.column) &&
+    from.badge !== "cpro" &&
+    PAST_CLIENT_SEND.has(placeStage(dst).column)
+  );
 }

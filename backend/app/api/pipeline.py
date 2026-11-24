@@ -1470,14 +1470,25 @@ async def _assert_cv_qc_gate(
 
     Ruch pary z kolumn Nowi/Screening/Zweryfikowany/QC CV na „CV wysłane”
     albo na etap Cpro liczy QC CV firmowego; nieprzechodzące QC bez obejścia
-    Delivery Leada/admina = 409 `CV_QC_FAILED`. Wołać PRZED zapisami ruchu —
-    przy odmowie przebieg QC zostaje zapisany (okno QC pokaże ten sam wynik).
+    Delivery Leada/admina = 409 `CV_QC_FAILED`. Przeskok ponad „CV wysłane”
+    (na „Rozmowę u klienta”, „Umowę”, „Zatrudnionego”) to ta sama wysyłka
+    (24.11.2026). Wołać PRZED zapisami ruchu — przy odmowie przebieg QC
+    zostaje zapisany (okno QC pokaże ten sam wynik).
     """
 
     from app.core.config import settings
     from app.services import cv_qc
 
-    if stage_def is not None and stage_def.is_terminal:
+    # Zamknięcie (odrzucenie, rezygnacja) nie jest wysyłką; „Zatrudniony”
+    # bywa etapem terminalnym, a z kolumny przed wysyłką to przeskok.
+    if (
+        stage_def is not None
+        and stage_def.is_terminal
+        and not (
+            stage_def.terminal_type is not None
+            and stage_def.terminal_type.value == "hired"
+        )
+    ):
         return
     target_column = board_column_for(
         stage_def.name if stage_def else None,
@@ -1492,7 +1503,8 @@ async def _assert_cv_qc_gate(
         ),
     )
     target_is_cpro = stage_def is not None and is_cpro_stage(stage_def.name)
-    if target_column != "cv_sent" and not target_is_cpro:
+    sends = target_column in pipeline_move_rules.CLIENT_SEND_COLUMNS
+    if not sends and not target_is_cpro:
         return
     # Para w „Zamkniętych" liczy się kolumną sprzed zamknięcia — inaczej
     # „Nowi → Odrzucony → CV wysłane" omijało QC i osobę od Cpro.
@@ -1509,7 +1521,7 @@ async def _assert_cv_qc_gate(
     # (13.10.2026, `pipeline_move_rules.requires_dl_client_rate`).
     from app.services.board_stage_badges import cpro_enabled_for_client
 
-    if target_column == "cv_sent" and cpro_enabled_for_client(client_id):
+    if sends and cpro_enabled_for_client(client_id):
         from app.services import cpro_sender
 
         # Bez osoby na firmę wrzuca też osoba zapasowa tej rekrutacji — ta
@@ -1544,11 +1556,7 @@ async def _assert_cv_qc_gate(
     # drugi raz: CV Nordei to zwykle pliki Word spoza NEXUSA, a obejście ma
     # tylko osoba z uprawnieniem `recruitment_manage` (domyślnie DL/admin),
     # więc osoba od Cpro dostawałaby odmowę na zaakceptowanych.
-    if (
-        target_column == "cv_sent"
-        and current is not None
-        and current.stage_def_id is not None
-    ):
+    if sends and current is not None and current.stage_def_id is not None:
         current_name = await db.scalar(
             select(PipelineStageDef.name).where(
                 PipelineStageDef.id == current.stage_def_id
@@ -2063,10 +2071,14 @@ async def apply_move(
     # Akceptacja Delivery Leada do kolejki Cpro zatwierdza też CV etapu
     # (wariant A, 10.11.2026, `cv_dl_accept_finalize`).
     dl_accepts_to_cpro = False
-    if pipeline_move_rules.requires_dl_client_rate(
-        legacy_enum,
-        job.client_id,
-        stage_name=stage_def.name if stage_def else None,
+    # Przeskok ponad „CV wysłane” (24.11.2026) to też wysyłka: DL + stawka.
+    if (
+        pipeline_move_rules.requires_dl_client_rate(
+            legacy_enum,
+            job.client_id,
+            stage_name=stage_def.name if stage_def else None,
+        )
+        or pipeline_move_rules.jumps_over_client_send(target_column)
     ) and await pipeline_move_rules.arrives_from_before_client_send(
         db, candidate_id=data.candidate_id, job_id=data.job_id
     ):
@@ -6160,7 +6172,7 @@ async def bulk_move_candidates(
     bulk_stage_name = bulk_stage_def.name if bulk_stage_def else None
     if pipeline_move_rules.requires_dl_client_rate(
         data.stage, job.client_id, stage_name=bulk_stage_name
-    ):
+    ) or pipeline_move_rules.jumps_over_client_send(bulk_target_column):
         for cid in unique_ids:
             if await pipeline_move_rules.arrives_from_before_client_send(
                 db, candidate_id=cid, job_id=job.id
