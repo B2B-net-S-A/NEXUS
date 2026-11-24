@@ -8,6 +8,10 @@ ekranie i da się je przywrócić. Szansa od bramki, która stoi w „Identyfika
 po terminie, zamyka się sama z powodem „Termin minął”; szans założonych ręcznie
 (i 42 starych kart z Atlasa) automat nie rusza.
 
+Zmiana ogłoszenia w BZP (osobne ogłoszenie o zmianie z nowym terminem) idzie tą
+samą ścieżką co nowa publikacja postępowania w TED (``apply_change``), ale tylko
+dla postępowań, które już są w bazie.
+
 Stan biegów (kursory, ostatni bieg) leży w ``app_settings`` pod ``STATE_KEY``.
 Sieć idzie poza transakcją; przetwarzanie trzyma blokadę doradczą, więc bieg
 ręczny i bieg z pętli nie założą dwóch szans z jednego ogłoszenia. Logi: same
@@ -17,7 +21,8 @@ liczby (repo i logi są publiczne).
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict, dataclass, field
+import re
+from dataclasses import asdict, dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -63,6 +68,8 @@ SOURCE_LABELS = {"bzp": "BZP", "ted": "TED"}
 PIPELINE_MISSING = "Brak lejka „Przetargi” w Sprzedaży."
 RUN_FAILED = "Bieg przerwał nieoczekiwany błąd. Szczegóły są w logu serwera."
 SOURCE_FAILED = "Rejestr {name} nie odpowiedział."
+CHANGES_FAILED = "Rejestr BZP nie oddał zmian ogłoszeń."
+_CPV_CODE = re.compile(r"\b\d{8}\b")
 
 
 class TendersNotReady(RuntimeError):
@@ -80,6 +87,8 @@ class RunCounts:
     #: Nowsza publikacja znanego postępowania (zmiana terminu), bez drugiej szansy.
     updated: int = 0
     closed: int = 0
+    #: Ogłoszenia o zmianie z BZP z nowym terminem (także postępowań spoza bazy).
+    bzp_changes: int = 0
 
 
 @dataclass
@@ -356,7 +365,8 @@ def row_notice(row: SalesTenderNotice) -> Notice:
         published_at=row.published_at,
         buyer_nip=row.buyer_nip,
         buyer_city=row.buyer_city,
-        cpv_codes=(),
+        # Bramka po zmianie terminu znów patrzy na kody CPV (wejście bez frazy).
+        cpv_codes=tuple(dict.fromkeys(_CPV_CODE.findall(row.cpv or ""))),
         cpv_label=row.cpv,
         order_type=row.order_type,
         url=row.url,
@@ -367,7 +377,9 @@ def row_notice(row: SalesTenderNotice) -> Notice:
     )
 
 
-def _deadline_text(day: Optional[date]) -> str:
+def _deadline_text(day: Optional[date], at: Optional[datetime] = None) -> str:
+    if at is not None:
+        return at.astimezone(ZoneInfo(DEFAULT_TZ)).strftime("%d.%m.%Y, %H:%M")
     return day.strftime("%d.%m.%Y") if day else "brak"
 
 
@@ -379,9 +391,14 @@ async def _follow_change(
     *,
     now: datetime,
     today: date,
+    old_deadline_at: Optional[datetime] = None,
+    change: Optional[sources.BzpChange] = None,
 ) -> None:
     """Szansa idzie za zmianą ogłoszenia: termin, teczka, notatka, a szansa zamknięta
-    przez automat po starym terminie wraca do „Identyfikacji”, gdy nowy termin trwa."""
+    przez automat po starym terminie wraca do „Identyfikacji”, gdy nowy termin trwa.
+
+    ``change`` (BZP): teczka zostaje przy ogłoszeniu o zamówieniu, a notatka wskazuje
+    ogłoszenie o zmianie (własny numer i link)."""
 
     before = history.snapshot(opportunity)
     fields = dict(opportunity.custom_fields or {})
@@ -400,11 +417,12 @@ async def _follow_change(
     # Datę zamknięcia poprawioną ręcznie zostawiamy; podmieniamy tylko termin z ogłoszenia.
     if opportunity.expected_close_date == old_deadline:
         opportunity.expected_close_date = notice.deadline_date
+    # Termin trwa jak w bramce: z godziną (BZP) co do minuty, sam dzień (TED) do końca dnia.
     reopen = (
         opportunity.status == "lost"
         and opportunity.lost_reason == EXPIRED_REASON
         and notice.deadline_date is not None
-        and notice.deadline_date >= today
+        and not rules.is_expired(notice, today=today, now=now)
     )
     if reopen:
         pipeline, stages = await tender_pipeline(db)
@@ -413,6 +431,8 @@ async def _follow_change(
             opportunity.lost_reason = None
     history.record_changes(db, opportunity, before, user_id=None)
     label = SOURCE_LABELS.get(notice.source, notice.source)
+    number, url = (change.number, change.url) if change else (notice.number, notice.url)
+    lead = "Ogłoszenie o zmianie" if change else "Nowa publikacja"
     db.add(
         SalesActivity(
             kind="note",
@@ -420,16 +440,18 @@ async def _follow_change(
             opportunity_id=opportunity.id,
             subject=f"Zmiana przetargu {label} {notice.number}"[:500],
             body=(
-                f"Nowa publikacja {label} {notice.number}. Termin składania ofert: "
-                f"{_deadline_text(old_deadline)} → {_deadline_text(notice.deadline_date)}."
+                f"{lead} {label} {number}. Termin składania ofert: "
+                f"{_deadline_text(old_deadline, old_deadline_at)} → "
+                f"{_deadline_text(notice.deadline_date, notice.deadline_at)}."
                 + ("\nSzansa wraca do „Identyfikacji”." if reopen else "")
-                + (f"\n{notice.url}" if notice.url else "")
+                + (f"\n{url}" if url else "")
             ),
             occurred_at=now,
             created_by_user_id=None,
             external_source="tender",
-            external_ref=f"tender-note:{notice.source}:{notice.number}"[:80],
-            web_link=(notice.url or None),
+            # Jedna notatka na publikację: numer ogłoszenia o zmianie albo nowej publikacji.
+            external_ref=f"tender-note:{notice.source}:{number}"[:80],
+            web_link=(url or None),
         )
     )
 
@@ -443,14 +465,18 @@ async def apply_change(
     owner: Optional[int],
     now: datetime,
     today: date,
+    change: Optional[sources.BzpChange] = None,
 ) -> str:
     """Nowsza publikacja znanego postępowania (TED: nowy numer, ten sam
     ``procedure-identifier``): aktualizuje wiersz i szansę zamiast zakładać drugą.
+    Zmiana z BZP przychodzi jako ``notice`` z wiersza z nowym terminem i datą
+    publikacji zmiany oraz ``change`` (ogłoszenie o zmianie, do notatki).
     Zwraca ``skipped`` (publikacja nie nowsza), ``updated`` albo ``created``."""
 
     if notice.published_at <= row.published_at:
         return "skipped"
     old_deadline = row.deadline_date
+    old_deadline_at = row.deadline_at
     row.number = notice.number
     row.title = notice.title
     row.url = notice.url
@@ -482,7 +508,14 @@ async def apply_change(
         )
         if opportunity is not None:
             await _follow_change(
-                db, opportunity, notice, old_deadline, now=now, today=today
+                db,
+                opportunity,
+                notice,
+                old_deadline,
+                now=now,
+                today=today,
+                old_deadline_at=old_deadline_at,
+                change=change,
             )
     return "updated"
 
@@ -562,6 +595,84 @@ async def process(
             by_procedure[(notice.source, notice.procedure_id)] = row
 
 
+def _moves_deadline(row: SalesTenderNotice, change: sources.BzpChange) -> bool:
+    """Czy zmiana przesuwa termin wiersza; zmiana z samym dniem porównuje dzień."""
+
+    if change.deadline_at is None:
+        return row.deadline_date != change.deadline_date
+    return row.deadline_at != change.deadline_at
+
+
+async def process_bzp_changes(
+    db: AsyncSession,
+    changes: list[sources.BzpChange],
+    tender_rules: TenderRules,
+    *,
+    now: datetime,
+    today: date,
+    counts: RunCounts,
+) -> None:
+    """Zmiany ogłoszeń BZP z nowym terminem; wywołujący trzyma blokadę i robi commit.
+
+    Ogłoszenie o zamówieniu ma w chwili pobrania termin po wszystkich wcześniejszych
+    zmianach, więc liczy się ostatnia zmiana postępowania i tylko wtedy, gdy przesuwa
+    termin z wiersza. Zmiana postępowania spoza bazy odpada bez zapisu."""
+
+    latest: dict[str, sources.BzpChange] = {}
+    for change in sorted(changes, key=lambda item: item.published_at):
+        latest[change.procedure_id] = change
+    if not latest:
+        return
+    # Wiersze założone w tym biegu (``process``) też mają dostać zmianę.
+    await db.flush()
+    rows = (
+        await db.execute(
+            select(SalesTenderNotice)
+            .where(
+                SalesTenderNotice.source == "bzp",
+                SalesTenderNotice.procedure_id.in_(sorted(latest)),
+            )
+            .with_for_update()
+        )
+    ).scalars()
+    moved: list[tuple[SalesTenderNotice, sources.BzpChange]] = []
+    for row in rows:
+        change = latest.get(row.procedure_id or "")
+        # Ten sam termin: zmiana była już w ogłoszeniu o zamówieniu albo wróciła
+        # z kursora drugi raz.
+        if change is not None and _moves_deadline(row, change):
+            moved.append((row, change))
+    if not moved:
+        return
+    owner = await _owner(db, tender_rules.owner_user_id)
+    for row, change in moved:
+        notice = replace(
+            row_notice(row),
+            published_at=change.published_at,
+            deadline_date=change.deadline_date,
+            deadline_at=change.deadline_at,
+        )
+        # Reguły mogły się zmienić tak, że ogłoszenie nie wchodzi już do bramki:
+        # odsiane zostaje wtedy z dawną regułą.
+        decision = rules.evaluate(
+            notice, tender_rules, today=today, now=now
+        ) or rules.Decision(False, row.match_detail or "", row.rule, row.rule_detail)
+        outcome = await apply_change(
+            db,
+            row,
+            notice,
+            decision,
+            owner=owner,
+            now=now,
+            today=today,
+            change=change,
+        )
+        if outcome == "created":
+            counts.created += 1
+        elif outcome == "updated":
+            counts.updated += 1
+
+
 async def close_expired(db: AsyncSession, *, today: date, now: datetime) -> int:
     """Szanse od bramki w „Identyfikacji” po terminie → przegrana „Termin minął”."""
 
@@ -633,11 +744,14 @@ async def _finish(
     started: datetime,
     bzp_cursor: Optional[datetime],
     ted_day: Optional[date],
+    bzp_update_cursor: Optional[datetime] = None,
 ) -> None:
     async with AsyncSessionLocal() as db:
         current = await load_state(db)
         if bzp_cursor is not None:
             current["bzp_cursor"] = _iso(bzp_cursor)
+        if bzp_update_cursor is not None:
+            current["bzp_update_cursor"] = _iso(bzp_update_cursor)
         if ted_day is not None:
             current["ted_day"] = ted_day.isoformat()
         current["last_run"] = {
@@ -652,6 +766,12 @@ async def _finish(
         await db.commit()
 
 
+def _fetched_only(counts: RunCounts) -> RunCounts:
+    """Po nieudanym przetwarzaniu zostaje tylko to, co przyszło z rejestrów."""
+
+    return RunCounts(bzp=counts.bzp, ted=counts.ted, bzp_changes=counts.bzp_changes)
+
+
 async def run(*, trigger: str) -> RunResult:
     """Jeden bieg: pobranie, bramka, zamknięcie po terminie, zapis stanu."""
 
@@ -662,6 +782,16 @@ async def run(*, trigger: str) -> RunResult:
     result = RunResult(status="ok")
     async with AsyncSessionLocal() as db:
         tender_rules = await rules.load(db)
+        update_cursor = _parse_iso(state.get("bzp_update_cursor"))
+        oldest_row = (
+            None
+            if update_cursor is not None
+            else await db.scalar(
+                select(func.min(SalesTenderNotice.created_at)).where(
+                    SalesTenderNotice.source == "bzp"
+                )
+            )
+        )
 
     bzp_since = sources.bzp_since(
         _parse_iso(state.get("bzp_cursor")), now=started, initial_days=INITIAL_DAYS
@@ -669,8 +799,14 @@ async def run(*, trigger: str) -> RunResult:
     ted_since = sources.ted_since(
         _parse_day(state.get("ted_day")), today=today, initial_days=INITIAL_DAYS
     )
+    # Osobny kursor zmian BZP; bez niego od pobrania najstarszego ogłoszenia BZP.
+    update_since = sources.bzp_changes_since(
+        update_cursor, oldest_row=oldest_row, now=started, initial_days=INITIAL_DAYS
+    )
     notices: list[Notice] = []
+    changes: list[sources.BzpChange] = []
     bzp_cursor: Optional[datetime] = None
+    bzp_update_cursor: Optional[datetime] = None
     ted_day: Optional[date] = None
     async with httpx.AsyncClient() as client:
         try:
@@ -681,6 +817,18 @@ async def run(*, trigger: str) -> RunResult:
         except sources.SourceError as exc:
             logger.warning("sales_tenders bzp failed: %s", exc)
             result.errors.append(SOURCE_FAILED.format(name="BZP"))
+        else:
+            # Bez ogłoszeń nie pytamy o zmiany: kursor zmian czeka na następny bieg.
+            try:
+                update = await sources.fetch_bzp_changes(
+                    client, since=update_since, until=today
+                )
+                changes = update.changes
+                result.counts.bzp_changes = len(update.changes)
+                bzp_update_cursor = update.cursor
+            except sources.SourceError as exc:
+                logger.warning("sales_tenders bzp changes failed: %s", exc)
+                result.errors.append(CHANGES_FAILED)
         try:
             ted = await sources.fetch_ted(client, since=ted_since, until=today)
             notices.extend(ted)
@@ -703,17 +851,25 @@ async def run(*, trigger: str) -> RunResult:
                 today=today,
                 counts=result.counts,
             )
+            await process_bzp_changes(
+                db,
+                changes,
+                tender_rules,
+                now=started,
+                today=today,
+                counts=result.counts,
+            )
             result.counts.closed = await close_expired(db, today=today, now=started)
             await db.commit()
     except TendersNotReady as exc:
         result.errors.append(str(exc))
-        result.counts = RunCounts(bzp=result.counts.bzp, ted=result.counts.ted)
-        bzp_cursor, ted_day = None, None
+        result.counts = _fetched_only(result.counts)
+        bzp_cursor, bzp_update_cursor, ted_day = None, None, None
     except Exception:  # noqa: BLE001 — bieg ma zostawić ślad na ekranie
         logger.exception("sales_tenders processing failed")
         result.errors.append(RUN_FAILED)
-        result.counts = RunCounts(bzp=result.counts.bzp, ted=result.counts.ted)
-        bzp_cursor, ted_day = None, None
+        result.counts = _fetched_only(result.counts)
+        bzp_cursor, bzp_update_cursor, ted_day = None, None, None
     if result.errors:
         result.status = "failed"
     await _finish(
@@ -722,19 +878,22 @@ async def run(*, trigger: str) -> RunResult:
         started=started,
         bzp_cursor=bzp_cursor,
         ted_day=ted_day,
+        bzp_update_cursor=bzp_update_cursor,
     )
     counts = result.counts
     logger.info(
-        "sales_tenders run trigger=%s status=%s bzp=%d ted=%d it=%d created=%d "
-        "rejected=%d skipped=%d closed=%d",
+        "sales_tenders run trigger=%s status=%s bzp=%d bzp_changes=%d ted=%d it=%d "
+        "created=%d rejected=%d skipped=%d updated=%d closed=%d",
         trigger,
         result.status,
         counts.bzp,
+        counts.bzp_changes,
         counts.ted,
         counts.it,
         counts.created,
         counts.rejected,
         counts.skipped,
+        counts.updated,
         counts.closed,
     )
     return result

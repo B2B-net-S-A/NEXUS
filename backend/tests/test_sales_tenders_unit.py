@@ -1,4 +1,5 @@
-"""Przetargi z BZP i TED bez bazy: bramka reguł Kingi, parsowanie rejestrów, kursor BZP, pętla.
+"""Przetargi z BZP i TED bez bazy: bramka reguł Kingi, parsowanie rejestrów, zmiany
+ogłoszeń BZP, kursor BZP, pętla.
 
 → docs/claude/sprzedaz/przetargi-z-rejestrow.md
 """
@@ -273,10 +274,189 @@ def test_parse_ted_without_polish_link_builds_one() -> None:
     assert notice.url == "https://ted.europa.eu/pl/notice/-/detail/804876-2026"
 
 
+def test_bzp_changes_window_starts_where_stale_deadlines_can_be() -> None:
+    cursor = NOW - timedelta(hours=20)
+    oldest = NOW - timedelta(days=2)
+    assert (
+        sources.bzp_changes_since(cursor, oldest_row=oldest, now=NOW, initial_days=7)
+        == cursor
+    )
+    assert (
+        sources.bzp_changes_since(None, oldest_row=oldest, now=NOW, initial_days=7)
+        == oldest
+    )
+    month_ago = NOW - timedelta(days=30)
+    assert sources.bzp_changes_since(
+        None, oldest_row=month_ago, now=NOW, initial_days=7
+    ) == NOW - timedelta(days=7)
+    # Pusta baza: ogłoszenia z tego biegu mają już termin po zmianach.
+    assert (
+        sources.bzp_changes_since(None, oldest_row=None, now=NOW, initial_days=7) == NOW
+    )
+
+
 def test_ted_query_bounds_both_days() -> None:
     query = sources.ted_query(date(2026, 11, 17), date(2026, 11, 24))
     assert "publication-date>=20261117 AND publication-date<=20261124" in query
     assert "buyer-country=POL" in query
+
+
+# ── Zmiany ogłoszeń BZP (NoticeUpdateNotice) ────────────────────────────────
+
+
+def _change_html(*blocks: tuple[str, str, str]) -> str:
+    """Układ ogłoszenia o zmianie z BZP (wycięty, bez danych zamawiającego):
+    każdy blok to (opis zmienianego pola, „Przed zmianą”, „Po zmianie”)."""
+
+    parts = [
+        '<html><head><meta charset="UTF-8"><style>body { font-family: "Calibri"; }'
+        "</style></head><body><main>"
+        '<h2 class="bg-light p-3 mt-4">SEKCJA III ZMIANA OGŁOSZENIA</h2>'
+        '<h3 class="mb-0">3.1.) Nazwa zmienianego ogłoszenia: </h3>Ogłoszenie o zamówieniu'
+        '<h3 class="mb-0">3.2.) Numer zmienianego ogłoszenia w BZP: '
+        '<span class="normal">2026/BZP 00000001</span></h3>'
+    ]
+    for label, before, after in blocks:
+        parts.append(
+            '<h3 class="mb-0">3.4.1.) Opis zmiany, w tym tekst, który należy dodać '
+            f"lub zmienić: </h3>                    {label}                <p>"
+            f"                    Przed zmianą: <br/>                        {before}"
+            "                </p>                <p>                    Po zmianie: <br/>"
+            f"                        {after}                </p>"
+        )
+    parts.append("</main></body></html>")
+    return "".join(parts)
+
+
+OFFERS = "8.1.  Termin składania ofert"
+OPENING = ("8.3.  Termin otwarcia ofert", "2026-11-23 19:30", "2026-11-26 19:30")
+BINDING = ("8.4.  Termin związania ofertą", "2026-12-22", "2026-12-25")
+
+
+def test_changed_deadline_reads_the_offers_block_in_warsaw_time() -> None:
+    body = _change_html(
+        ("6.7.  Zamawiający przewiduje unieważnienie postępowania", "TAK", "NIE"),
+        (OFFERS, "2026-11-23 19:00", "2026-11-26 19:00"),
+        OPENING,
+        BINDING,
+    )
+    assert sources.changed_deadline(body) == (
+        date(2026, 11, 26),
+        datetime(2026, 11, 26, 18, 0, tzinfo=timezone.utc),
+    )
+
+
+@pytest.mark.parametrize(
+    ("after", "day", "moment"),
+    [
+        # Po północy w Warszawie, a jeszcze poprzedni dzień w UTC.
+        (
+            "2026-11-27 00:30",
+            date(2026, 11, 27),
+            datetime(2026, 11, 26, 23, 30, tzinfo=timezone.utc),
+        ),
+        # Czas letni: +2 h.
+        (
+            "2026-06-10 10:00",
+            date(2026, 6, 10),
+            datetime(2026, 6, 10, 8, 0, tzinfo=timezone.utc),
+        ),
+        ("2026-11-26", date(2026, 11, 26), None),
+    ],
+)
+def test_changed_deadline_day_is_the_company_calendar_day(
+    after: str, day: date, moment: datetime | None
+) -> None:
+    body = _change_html((OFFERS, "2026-11-23 10:00", after))
+    assert sources.changed_deadline(body) == (day, moment)
+
+
+def test_change_without_a_new_offers_deadline_gives_nothing() -> None:
+    """Otwarcie i związanie ofertą, warunki z „terminem składania ofert” w treści
+    i termin wniosków w konkursie nie są terminem składania ofert."""
+
+    assert sources.changed_deadline(_change_html(OPENING, BINDING)) is None
+    conditions = (
+        "7.1.  Informacje dotyczące wadium",
+        "Wadium należy wnieść przed upływem terminu składania ofert.",
+        "Wadium należy wnieść do upływu terminu składania ofert, 2026-11-30 10:00.",
+    )
+    assert sources.changed_deadline(_change_html(conditions)) is None
+    contest = (
+        "4.1.  Termin składania wniosków o dopuszczenie do udziału w konkursie",
+        "2026-11-23 10:00",
+        "2026-11-30 10:00",
+    )
+    assert sources.changed_deadline(_change_html(contest)) is None
+    assert sources.changed_deadline(None) is None
+    assert (
+        sources.changed_deadline(_change_html((OFFERS, "", "do uzgodnienia"))) is None
+    )
+
+
+def test_empty_new_deadline_does_not_borrow_the_next_block() -> None:
+    """Puste „Po zmianie” terminu składania nie bierze daty otwarcia ofert tuż niżej."""
+
+    body = (
+        "<p>8.1. Termin składania ofert</p><p>Przed zmianą: 2026-11-23 19:00</p>"
+        "<p>Po zmianie:</p><p>8.3. Termin otwarcia ofert</p>"
+        "<p>Przed zmianą: 2026-11-23 19:30</p><p>Po zmianie: 2026-11-26 19:30</p>"
+    )
+    assert sources.changed_deadline(body) is None
+
+
+def test_change_with_only_a_day_compares_the_day() -> None:
+    at = datetime(2026, 11, 26, 9, 0, tzinfo=timezone.utc)
+    row = flow.notice_row(
+        _notice(deadline_at=at, deadline_date=date(2026, 11, 26)),
+        rules.Decision(True, "fraza „body leasing”"),
+    )
+
+    def change(day: date, moment: datetime | None) -> sources.BzpChange:
+        return sources.BzpChange("2026/BZP 00000003", "p", NOW, day, moment, None)
+
+    assert not flow._moves_deadline(row, change(date(2026, 11, 26), None))
+    assert flow._moves_deadline(row, change(date(2026, 11, 27), None))
+    assert not flow._moves_deadline(row, change(date(2026, 11, 26), at))
+    later = at + timedelta(hours=2)
+    assert flow._moves_deadline(row, change(date(2026, 11, 26), later))
+
+
+BZP_CHANGE_ITEM: dict[str, Any] = {
+    "noticeType": "NoticeUpdateNotice",
+    "bzpNumber": "2026/BZP 00000002",
+    "noticeNumber": "2026/BZP 00000002/01",
+    "publicationDate": "2026-11-23T04:24:27.1905182Z",
+    "submittingOffersDate": None,
+    "cpvCode": "",
+    "orderType": None,
+    "tenderId": "ocds-148610-procedure-1",
+    "objectId": "change-object-1",
+    "htmlBody": _change_html((OFFERS, "2026-11-23 19:00", "2026-11-26 19:00")),
+}
+
+
+def test_parse_bzp_change_keeps_its_number_procedure_and_link() -> None:
+    change = sources.parse_bzp_change(BZP_CHANGE_ITEM)
+    assert change == sources.BzpChange(
+        number="2026/BZP 00000002",
+        procedure_id="ocds-148610-procedure-1",
+        published_at=datetime(2026, 11, 23, 4, 24, 27, 190518, tzinfo=timezone.utc),
+        deadline_date=date(2026, 11, 26),
+        deadline_at=datetime(2026, 11, 26, 18, 0, tzinfo=timezone.utc),
+        url=(
+            "https://ezamowienia.gov.pl/mo-client-board/bzp/notice-details/id/"
+            "change-object-1"
+        ),
+    )
+
+
+def test_parse_bzp_change_skips_changes_it_cannot_follow() -> None:
+    assert sources.parse_bzp_change({**BZP_CHANGE_ITEM, "tenderId": ""}) is None
+    assert sources.parse_bzp_change({**BZP_CHANGE_ITEM, "bzpNumber": None}) is None
+    assert sources.parse_bzp_change({**BZP_CHANGE_ITEM, "publicationDate": "x"}) is None
+    no_deadline = {**BZP_CHANGE_ITEM, "htmlBody": _change_html(OPENING)}
+    assert sources.parse_bzp_change(no_deadline) is None
 
 
 # ── Kursor BZP i strony TED na atrapie HTTP ─────────────────────────────────
@@ -303,6 +483,7 @@ async def test_fetch_bzp_walks_the_cursor_because_paging_is_ignored(
     seen_from: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["NoticeType"] == "ContractNotice"
         assert request.url.params["PageSize"] == "3"
         assert request.url.params["PublicationDateTo"] == "2026-11-24"
         since = request.url.params["PublicationDateFrom"]
@@ -320,6 +501,59 @@ async def test_fetch_bzp_walks_the_cursor_because_paging_is_ignored(
     assert [n.number for n in batch.notices] == [f"2026/BZP {i:08d}" for i in range(7)]
     assert seen_from[0] == "2026-11-23T07:00:00"
     assert seen_from[1] == "2026-11-23T07:02:00"
+    assert (
+        batch.cursor is not None
+        and batch.cursor.replace(microsecond=0) == published[-1]
+    )
+
+
+@pytest.mark.asyncio
+async def test_fetch_bzp_changes_walks_past_pages_of_changes_without_a_deadline(
+    monkeypatch,
+) -> None:
+    """Pierwsza pełna porcja to same zmiany bez terminu; kursor i tak idzie dalej."""
+
+    monkeypatch.setattr(sources, "BZP_PAGE_SIZE", 3)
+    start = datetime(2026, 11, 23, 7, 0, tzinfo=timezone.utc)
+    published = [start + timedelta(minutes=i) for i in range(5)]
+    items = [
+        {
+            **BZP_CHANGE_ITEM,
+            "bzpNumber": f"2026/BZP {i:08d}",
+            "tenderId": f"ocds-148610-{i}",
+            "publicationDate": moment.strftime("%Y-%m-%dT%H:%M:%S.1234567Z"),
+            "htmlBody": _change_html(OPENING)
+            if i < 3
+            else _change_html((OFFERS, "2026-11-23 19:00", f"2026-11-2{i} 12:00")),
+        }
+        for i, moment in enumerate(published)
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["NoticeType"] == "NoticeUpdateNotice"
+        moment = datetime.fromisoformat(
+            request.url.params["PublicationDateFrom"]
+        ).replace(tzinfo=timezone.utc)
+        page = [
+            item
+            for item, at in zip(items, published)
+            if at.replace(microsecond=0) >= moment
+        ]
+        return httpx.Response(200, json=page[:3])
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        batch = await sources.fetch_bzp_changes(
+            client, since=start, until=date(2026, 11, 24)
+        )
+    assert [change.procedure_id for change in batch.changes] == [
+        "ocds-148610-3",
+        "ocds-148610-4",
+    ]
+    assert [change.deadline_date for change in batch.changes] == [
+        date(2026, 11, 23),
+        date(2026, 11, 24),
+    ]
+    assert batch.requests == 3
     assert (
         batch.cursor is not None
         and batch.cursor.replace(microsecond=0) == published[-1]
@@ -389,6 +623,30 @@ def test_running_marker_older_than_an_hour_is_an_interrupted_run() -> None:
     view = flow.last_run_view(running, now=_local(24, 7, 0))
     assert view is not None and view["status"] == "failed"
     assert loop.should_run(running, local=_local(24, 7, 0), attempts=1)
+
+
+def test_row_notice_gives_the_gate_its_cpv_codes_back() -> None:
+    """Bramka po zmianie terminu ma przepuścić ogłoszenie, które weszło samym CPV."""
+
+    row = flow.notice_row(
+        _notice(
+            title="Utrzymanie systemu ewidencji",
+            cpv_codes=("72267000",),
+            cpv_label="72267000-4 (Usługi w zakresie konserwacji oprogramowania)",
+        ),
+        rules.Decision(False, "CPV 72267000", "expired"),
+    )
+    notice = flow.row_notice(row)
+    assert notice.cpv_codes == ("72267000",)
+    decision = rules.evaluate(notice, TenderRules(), today=TODAY, now=NOW)
+    assert decision is not None and decision.passed
+
+
+def test_change_note_deadline_has_the_hour_when_bzp_gave_one() -> None:
+    at = datetime(2026, 11, 26, 18, 0, tzinfo=timezone.utc)
+    assert flow._deadline_text(date(2026, 11, 26), at) == "26.11.2026, 19:00"
+    assert flow._deadline_text(date(2026, 11, 26)) == "26.11.2026"
+    assert flow._deadline_text(None) == "brak"
 
 
 def test_external_ref_fits_the_column() -> None:

@@ -16,7 +16,7 @@ export interface TenderRun {
   started_at?: string | null;
   finished_at?: string | null;
   error?: string | null;
-  /** bzp, ted, it, created, rejected, skipped, updated, closed */
+  /** bzp, bzp_changes, ted, it, created, rejected, skipped, updated, closed */
   counts: Record<string, number>;
 }
 
