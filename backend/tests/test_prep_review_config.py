@@ -107,3 +107,81 @@ def test_talk_share_criterion_can_be_switched_off() -> None:
     )
     off = score_review(parsed, config=config, **kwargs)
     assert off.scores["talk_share"] is None and off.level == "good"
+
+
+# --- Przygotowanie: fundamenty prepa (F1, decyzje Artura 24.11.2026) -------
+
+
+def test_default_preparation_has_18_fundamentals_with_stop_conditions_first() -> None:
+    prep = cfg.defaults().preparation
+    items = [i for g in prep.groups for i in g.items]
+    assert len(prep.groups) == 5
+    assert len(items) == 18
+    # Warunki stop to dokładnie grupa A (forma, stawka, dostępność, tryb pracy).
+    assert [i.stop for i in prep.groups[0].items] == [True] * 4
+    assert not any(i.stop for g in prep.groups[1:] for i in g.items)
+    assert all(i.says and i.passed_when for i in items)
+    assert len(prep.readiness) == 5
+
+
+def test_default_preparation_uses_brand_spelling() -> None:
+    text = str(cfg.defaults().preparation.model_dump())
+    assert "B2Bnetwork" in text
+    assert "B2B.net" not in text and "B2B Network" not in text
+
+
+def test_stored_version_without_preparation_gets_the_18_points() -> None:
+    stored = _with()
+    del stored["preparation"]
+    row = PrepReviewConfigVersion(id=2, config=stored)
+    assert cfg._from_row(row).preparation == cfg.default_preparation()
+
+
+def test_duplicate_fundamental_is_refused_across_groups() -> None:
+    data = _with()
+    data["preparation"]["groups"][4]["items"].append(
+        {"label": "stawka ", "says": "", "passed_when": "", "stop": False}
+    )
+    with pytest.raises(ValidationError, match="dwa razy"):
+        cfg.PrepReviewConfig.model_validate(data)
+
+
+def test_blank_fundamental_label_is_refused() -> None:
+    data = _with()
+    data["preparation"]["groups"][1]["items"][0]["label"] = "   "
+    with pytest.raises(ValidationError, match="musi mieć nazwę"):
+        cfg.PrepReviewConfig.model_validate(data)
+
+
+def test_preparation_limits() -> None:
+    data = _with()
+    data["preparation"]["readiness"] = ["Punkt gotowości"] * (cfg.MAX_READINESS + 1)
+    with pytest.raises(ValidationError):
+        cfg.PrepReviewConfig.model_validate(data)
+    data = _with()
+    data["preparation"]["readiness"] = ["  ok  "]  # po obcięciu spacji 2 znaki
+    with pytest.raises(ValidationError):
+        cfg.PrepReviewConfig.model_validate(data)
+
+
+def test_empty_preparation_is_allowed() -> None:
+    data = _with()
+    data["preparation"] = {"groups": [], "readiness": []}
+    assert cfg.PrepReviewConfig.model_validate(data).preparation.groups == []
+
+
+def test_describe_changes_preparation_only_when_it_changed() -> None:
+    # Wersja sprzed klucza `preparation` (np. v2 z 28.10) nie ma go w JSON-ie:
+    # publikacja samych progów nie może pokazać „fundamenty zmienione”.
+    before = _with()
+    del before["preparation"]
+    assert not any(
+        c.startswith("Przygotowanie")
+        for c in cfg.describe_changes(before, _with(good_threshold=85))
+    )
+    after = _with()
+    after["preparation"]["groups"][3]["items"].pop()
+    after["preparation"]["readiness"].append("Opowiedzieć o sobie po angielsku")
+    changes = cfg.describe_changes(before, after)
+    assert "Przygotowanie · fundamenty zmienione (17 punktów)" in changes
+    assert "Przygotowanie · „kandydat po przygotowaniu umie” zmienione" in changes

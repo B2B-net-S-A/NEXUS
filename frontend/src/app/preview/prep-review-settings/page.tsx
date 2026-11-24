@@ -56,6 +56,41 @@ const CONFIG: PrepReviewConfig = {
     max_items: 5,
   },
   ai_hints: "Przy „Co usprawnić” pisz do prowadzącego konkretnie: który temat i w którym momencie rozmowy.",
+  preparation: {
+    groups: [
+      {
+        title: "A. Warunki — najpierw",
+        hint: "Coś się nie zgadza: kończysz rozmowę i od razu dajesz znać DL-owi.",
+        items: [
+          {
+            label: "Forma współpracy",
+            says: "Kontrakt B2B; kandydat pracuje u klienta, a my opiekujemy się nim przez cały kontrakt.",
+            passed_when: "Kandydat akceptuje B2B (wyjątki: karta klienta).",
+            stop: true,
+          },
+          {
+            label: "Stawka",
+            says: "Potwierdź stawkę. Na rozmowie z klientem kandydat nie rozmawia o pieniądzach.",
+            passed_when: "Zna i akceptuje stawkę.",
+            stop: true,
+          },
+        ],
+      },
+      {
+        title: "B. CV i przykłady",
+        hint: "",
+        items: [
+          {
+            label: "Autoprezentacja 2–3 min",
+            says: "Poproś o krótkie przedstawienie się pod wymagania tej rekrutacji.",
+            passed_when: "Mieści się w 3 min i trafia w wymagania.",
+            stop: false,
+          },
+        ],
+      },
+    ],
+    readiness: ["Przedstawić swoje doświadczenie w 2–3 minuty", "Zadać 2–3 przygotowane pytania do klienta"],
+  },
 };
 
 function seededClient(canEdit: boolean): QueryClient {
