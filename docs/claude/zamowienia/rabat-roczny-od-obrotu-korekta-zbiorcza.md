@@ -119,7 +119,34 @@ jego kartę.
 - Inny błąd zapisu niż drugi szkic za ten sam miesiąc (np. stary CHECK, gdy krok lustra
   pominął `lock_timeout`) trafia do logu jako 500. Nie udaje „korekta już powstała”.
 
+## Warunki Nordei w ustawieniach (24.11.2026)
+
+Warunki są na produkcji od 24.11.2026, wpisane po „tak” Artura w Ustawieniach wystawiania przy kliencie
+Nordei. Źródło to umowa ramowa w module umów klienta. Liczb nie ma w repo, są tylko w ustawieniach.
+
+- Dwa okresy „od roku”:
+  - od 2024 według Appendix 6 z 2024 r.: jedna stawka, bez progu;
+  - od 2026 według Appendix 6 od 01.03.2026 (sekcja „Spend discount”): próg w EUR i wyższa stawka
+    od nadwyżki. Amendment 2 opisuje to jako zmianę sekcji „Spend discount”.
+- Słowa wyłączające pochodzą z nazw pozycji faktur Nordei z 2026 r. Oprócz listy wyżej są tam też:
+  - „trasaction fee”, bo literówka występuje w nazwach;
+  - „taxi”;
+  - „it services_”, bo dwa pentesty z osobnej umowy nie mają w nazwie „Security Test”.
+
+  Na fakturach z 2026 r. słowa nie łapią żadnego wiersza z rabatem i łapią wszystkie wiersze bez rabatu
+  poza trzema wierszami podróży, które nie mają w nazwie rodzaju pozycji.
+- **Do obrotu progu liczą się tylko faktury przy kliencie Nordei w NEXUS-ie, czyli dla nabywcy Nordea
+  Bank Abp** (decyzja Artura 24.11.2026). Nie liczą się faktury dla oddziału w Polsce ani dla spółek
+  Nordei (Rahoitus, Liv), choć mają rabat ramowy na wierszach. Nie przypinaj ich do obrotu bez nowej
+  decyzji.
+- Sprawdzenie 24.11.2026:
+  - na kopii produkcji szkic NEXUS-a za IX–X równa się co do grosza fakturom Finansów z eBI24;
+  - na produkcji szkic z „Wystaw za miesiąc” dostał rabat % na wierszu i ramkę „Rabat od obrotu”.
+    Szkic został potem usunięty.
+
 ## Czego jeszcze nie ma
 
-- Obrotu sprzed 4.08.2026: NEXUS czyta KSeF od tego dnia. Faktury ze stycznia–lipca 2026 trzeba
-  dograć z archiwum eBI24, inaczej licznik do progu jest zaniżony.
+- Obrotu sprzed KSeF. Faktury Nordei z KSeF (`client_sales_invoices`) zaczynają się od okresu IV 2026.
+  Styczeń–marzec 2026 jest tylko w archiwum eBI24 (`finance_archive_documents`, pozycje w plikach
+  JSON). Bez tych miesięcy licznik do progu jest zaniżony, wyższa stawka nie wchodzi sama, a karta nie
+  pokazuje korekty za miesiąc przekroczenia (24.11.2026: przekazane do osobnej sesji).
