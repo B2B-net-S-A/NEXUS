@@ -13,6 +13,8 @@ interface ResetPasswordModalProps {
   onSaveManual: (password: string) => void;
   onSendLink: () => void;
   loading: boolean;
+  /** Komunikat nieudanego resetu; okno zostaje otwarte. */
+  error?: string | null;
 }
 
 export function ResetPasswordModal({
@@ -21,6 +23,7 @@ export function ResetPasswordModal({
   onSaveManual,
   onSendLink,
   loading,
+  error,
 }: ResetPasswordModalProps) {
   const [mode, setMode] = useState<ResetMode>("manual");
   const [password, setPassword] = useState("");
@@ -89,6 +92,12 @@ export function ResetPasswordModal({
               User sam wybiera nowe hasło — Ty go nie znasz.
             </p>
           </div>
+        )}
+
+        {error && (
+          <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
         )}
 
         <div className="flex justify-end gap-3 pt-2">
