@@ -47,8 +47,12 @@ Credit Agricole (trzy kontrakty × IX i X) i „Dokumenty.zip” konsultanta PKO
   zostaje kartą `.eml` bez kontraktu do ręcznego przypisania (w pilotażu sam alarm).
 - Awaria Graph (429, 5xx, brak tokenu) albo połączenia z bazą nie liczy się do limitu.
 - Licznik stoi w `cp_mailbox_state.last_error` jako `message_failed:<skrót id>:<n>`
-  (bez migracji). Pamiętamy jeden mail: porzucony mail wracający w zakładce `OVERLAP`
-  pomijamy, dopóki inny mail nie zacznie padać albo lista z Graph nie zwróci błędu.
+  (bez migracji), a obok, po `;`, `message_abandoned:<skrót>,<skrót>` — porzucone
+  maile, które jeszcze wracają w zakładce `OVERLAP` (najwyżej `MAX_ABANDONED_KEYS`, 8).
+  Porzucone trzymamy osobno od licznika, bo przy jednym polu drugi padający mail
+  nadpisywał licznik, porzucony wracał, padał od nowa i znacznik stał w kółko
+  (przegląd PR #3953). Błąd listy z Graph zapisuje kod błędu przed tym stanem,
+  nie zamiast niego.
 
 ## Raport „Raport rozliczenia outsourcingu” (`client_settlements/report_ca.py`)
 

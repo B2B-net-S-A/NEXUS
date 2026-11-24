@@ -1953,11 +1953,18 @@ async def run_once(
             f"http_{exc.status}" if isinstance(exc, GraphRequestError) else "no_token"
         )
         logger.warning("consultant_portal_mailbox: list failed %s", code)
-        await _write_state(db, now=moment, status="error", error=code)
+        # Licznik i porzucone zostają obok kodu błędu: inaczej po awarii Graph
+        # porzucony mail wracałby w ``OVERLAP`` i dostawał drugą kartę.
+        kept = _failing_state(*_failing_message(current))
+        error = f"{code};{kept}" if kept else code
+        await _write_state(db, now=moment, status="error", error=error)
         return {"status": "error", "reason": code}
     created = skipped = failed = abandoned = 0
     newest = seen
-    failing_key, failing_count = _failing_message(current)
+    failing_key, failing_count, abandoned_keys = _failing_message(current)
+    # Porzucone, które już wyszły z zakładki ``OVERLAP``, nie wrócą: nie trzymamy ich.
+    listed = {_message_key(m) for m in messages}
+    abandoned_keys = [k for k in abandoned_keys if k in listed]
     acceptance = await support_mail_route.acceptance_clients(db)
     declaring = await support_mail_route.declaration_clients(db)
     for message in messages:
@@ -1982,9 +1989,11 @@ async def run_once(
                 newest = received
             continue
         key = _message_key(message)
-        if key == failing_key and failing_count >= MAX_MESSAGE_ATTEMPTS:
+        if key in abandoned_keys:
             # Porzucona w poprzednim biegu (alarm i karta poszły), a wraca w zakładce
             # ``OVERLAP``: nie czytamy jej znowu, bo zablokowałaby nowsze maile.
+            # Lista porzuconych jest osobno od licznika, bo inny padający mail
+            # nadpisywał licznik i porzucony wracał w kółko (przegląd PR #3953).
             received = _parse_time(message.get("receivedDateTime"))
             if received and (newest is None or received > newest):
                 newest = received
@@ -2032,6 +2041,8 @@ async def run_once(
             created += await _store_abandoned(
                 db, reader, message, state=state, now=moment
             )
+            abandoned_keys = (abandoned_keys + [key])[-MAX_ABANDONED_KEYS:]
+            failing_key, failing_count = None, 0
         received = _parse_time(message.get("receivedDateTime"))
         if received and (newest is None or received > newest):
             newest = received
@@ -2040,9 +2051,7 @@ async def run_once(
         db,
         now=moment,
         status=run_status,
-        error=(
-            f"{_FAILING_PREFIX}{failing_key}:{failing_count}" if failing_key else None
-        ),
+        error=_failing_state(failing_key, failing_count, abandoned_keys),
         seen=newest,
     )
     return {
@@ -2060,6 +2069,10 @@ async def run_once(
 MAX_MESSAGE_ATTEMPTS = 5
 #: Licznik porażek trzymamy w ``last_error`` (bez migracji): skrót id maila i liczba.
 _FAILING_PREFIX = "message_failed:"
+#: Obok, po ``;``, skróty porzuconych maili, które jeszcze wracają w ``OVERLAP``.
+_ABANDONED_PREFIX = "message_abandoned:"
+#: Tyle porzuconych naraz mieści ``last_error`` (``String(200)``) obok licznika.
+MAX_ABANDONED_KEYS = 8
 
 
 def _message_key(message: dict[str, Any]) -> str:
@@ -2068,12 +2081,34 @@ def _message_key(message: dict[str, Any]) -> str:
     return hashlib.sha256(str(message.get("id") or "").encode()).hexdigest()[:16]
 
 
-def _failing_message(state: Optional[CpMailboxState]) -> tuple[Optional[str], int]:
+def _failing_message(
+    state: Optional[CpMailboxState],
+) -> tuple[Optional[str], int, list[str]]:
+    """Mail, który teraz pada (skrót i liczba biegów), i lista porzuconych."""
+
     error = state.last_error if state else None
-    if not error or not error.startswith(_FAILING_PREFIX):
-        return None, 0
-    key, _, count = error[len(_FAILING_PREFIX) :].partition(":")
-    return (key or None), int(count) if count.isdigit() else 0
+    key: Optional[str] = None
+    count = 0
+    abandoned: list[str] = []
+    for part in (error or "").split(";"):
+        if part.startswith(_FAILING_PREFIX):
+            raw_key, _, raw_count = part[len(_FAILING_PREFIX) :].partition(":")
+            key = raw_key or None
+            count = int(raw_count) if raw_count.isdigit() else 0
+        elif part.startswith(_ABANDONED_PREFIX):
+            abandoned = [k for k in part[len(_ABANDONED_PREFIX) :].split(",") if k]
+    return key, count, abandoned
+
+
+def _failing_state(
+    key: Optional[str], count: int, abandoned: list[str]
+) -> Optional[str]:
+    parts = []
+    if key:
+        parts.append(f"{_FAILING_PREFIX}{key}:{count}")
+    if abandoned:
+        parts.append(_ABANDONED_PREFIX + ",".join(abandoned[-MAX_ABANDONED_KEYS:]))
+    return ";".join(parts) or None
 
 
 def _transient(exc: Exception) -> bool:
@@ -2131,5 +2166,16 @@ async def status(db: AsyncSession) -> dict[str, Any]:
         "configured": mailbox_upn() is not None,
         "last_run_at": row.last_run_at.isoformat() if row and row.last_run_at else None,
         "last_status": row.last_status if row else None,
-        "last_error": row.last_error if row else None,
+        "last_error": _public_error(row.last_error) if row else None,
     }
+
+
+def _public_error(error: Optional[str]) -> Optional[str]:
+    """Kod błędu dla ekranu bez wewnętrznego licznika porażek i porzuconych maili."""
+
+    parts = [
+        part
+        for part in (error or "").split(";")
+        if part and not part.startswith((_FAILING_PREFIX, _ABANDONED_PREFIX))
+    ]
+    return ";".join(parts) or None

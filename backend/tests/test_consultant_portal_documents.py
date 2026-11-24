@@ -534,6 +534,48 @@ async def test_mail_padajacy_bieg_po_biegu_nie_zatrzymuje_znacznika_na_zawsze() 
 
 
 @pytest.mark.usefixtures("portal_all")
+async def test_dwa_padajace_maile_nie_zatrzymuja_znacznika_w_kolko() -> None:
+    """Licznik trzymał jeden mail: drugi padający nadpisywał go, porzucony wracał
+    w ``OVERLAP``, padał od nowa i znacznik stał na nim na zawsze (przegląd #3953)."""
+
+    person = await make_person()
+    now = datetime.now(timezone.utc)
+    early, middle, late = (now - timedelta(minutes=m) for m in (90, 75, 60))
+
+    class Poisoned(FakeMailbox):
+        async def attachments(self, message_id):
+            if message_id in ("zly1", "zly2"):
+                raise ValueError("mail, którego czytnik nie umie przeczytać")
+            return await super().attachments(message_id)
+
+        async def mime(self, message_id):
+            return (
+                b"From: x@example.com\r\nSubject: Raport\r\nMIME-Version: 1.0\r\n"
+                b"Date: Mon, 2 Nov 2026 10:00:00 +0100\r\n\r\nfikcyjna tresc\r\n"
+            )
+
+    reader = Poisoned(
+        [
+            _message("zly1", person.email, received=early),
+            _message("zly2", person.email, received=middle),
+            _message("dobry", person.email, received=late),
+        ],
+        {"dobry": [_attachment("raport.pdf", PDF)]},
+    )
+    abandoned = 0
+    for _ in range(3 * mailbox.MAX_MESSAGE_ATTEMPTS):
+        abandoned += (await _read(reader))["abandoned"]
+
+    assert abandoned == 2  # każdy zły mail porzucony raz, nie co pięć biegów
+    assert abs(await _seen() - late) < timedelta(seconds=1)
+    async with AsyncSessionLocal() as db:
+        docs = (await db.scalars(select(CpDocument))).all()
+    assert (person.contract_id, "raport.pdf") in {
+        (d.contract_id, d.file_name) for d in docs
+    }
+
+
+@pytest.mark.usefixtures("portal_all")
 async def test_awaria_graph_nie_liczy_sie_do_limitu_prob() -> None:
     """Niedostępny Graph to nie wina maila: czytnik czeka, nie porzuca."""
 
