@@ -661,7 +661,11 @@ def _plain_pdf(lines: list[str]) -> bytes:
     return out
 
 
-def _signed_pdf(lines: list[str], signers: int) -> bytes:
+def _signed_pdf(
+    lines: list[str], signers: int, common_name: str | None = None
+) -> bytes:
+    """PDF z ``signers`` podpisami; ``common_name``: imię i nazwisko w certyfikacie."""
+
     from asn1crypto import keys as asn1_keys
     from asn1crypto import x509 as asn1_x509
     from cryptography import x509
@@ -676,7 +680,11 @@ def _signed_pdf(lines: list[str], signers: int) -> bytes:
     for index in range(signers):
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         name = x509.Name(
-            [x509.NameAttribute(NameOID.COMMON_NAME, f"Podpisujacy {index}")]
+            [
+                x509.NameAttribute(
+                    NameOID.COMMON_NAME, common_name or f"Podpisujacy {index}"
+                )
+            ]
         )
         cert = (
             x509.CertificateBuilder()

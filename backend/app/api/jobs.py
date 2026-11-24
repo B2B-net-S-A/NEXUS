@@ -166,6 +166,7 @@ from app.services.job_previous_recruiters import (
     previous_recruiters_for_jobs,
     restore_team,
 )
+from app.services import job_p0
 from app.services.job_p0 import p0_rank_expr
 from app.services.job_priority import (
     PRIORITY_LEVELS,
@@ -2458,7 +2459,6 @@ async def get_job(
         db, current_user, job
     )
     # 0525: P0 — kto ustawił (pasek w nagłówku) i czy ten użytkownik ustawia.
-    from app.services import job_p0  # noqa: PLC0415
 
     payload["p0_set_by_name"] = await job_p0.set_by_name(db, job)
     payload["can_set_p0"] = pipeline_writer and job_p0.can_set_p0(current_user)
@@ -2910,6 +2910,10 @@ async def update_job(
                 release_assignments=False,
             )
             job.closed_at = datetime.now(timezone.utc)
+            # Lustro `close_job_core` (audyt 24.11.2026): P0 i prośba o P0
+            # gasną z zamknięciem — inaczej po „Otwórz ponownie” P0 wracało
+            # jako „po terminie” i dzwoniło.
+            job_p0.end_with_close(job)
             # Lustro `close_job`. Odwrotnie NIE działa: wyjście ze stanu
             # `closed` nie wskrzesza `is_open`, bo „prowadzimy tę rekrutację"
             # jest decyzją człowieka (handoff), a nie skutkiem ubocznym
@@ -5531,14 +5535,15 @@ async def add_candidate_from_history(
     if candidate is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Candidate not found")
 
-    existing = (
-        await db.execute(
-            select(CandidateStage.id).where(
-                CandidateStage.candidate_id == payload.candidate_id,
-                CandidateStage.job_id == job_id,
-            )
+    # Para bywa z kilkoma wierszami etapu — `scalar_one_or_none` dawał 500.
+    existing = await db.scalar(
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == payload.candidate_id,
+            CandidateStage.job_id == job_id,
         )
-    ).scalar_one_or_none()
+        .limit(1)
+    )
     if existing is not None:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -5555,6 +5560,16 @@ async def add_candidate_from_history(
     verdict = verdicts.get(payload.candidate_id)
     if verdict is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=verdict.as_polish_detail())
+    # Audyt 24.11.2026: ta sama twarda bramka co inne wejścia dodające osobę
+    # (globalna czarna lista) — „z historii” ją omijało.
+    from app.services.pipeline_eligibility import assert_candidate_move_eligible
+
+    await assert_candidate_move_eligible(
+        db,
+        candidate_id=payload.candidate_id,
+        job=job,
+        now=datetime.now(timezone.utc),
+    )
 
     stage = await open_process(
         db,
@@ -6260,8 +6275,8 @@ async def add_collaborator(
 
     Dopisana osoba dostaje dzwonek „Nowy request do pracy”, tak jak przy
     dodaniu z pulpitu (zgłoszenie 12.10.2026: z panelu nie dostawała nic) —
-    bez dzwonka dla siebie, dla osoby, która już przy rekrutacji pracuje,
-    i przy rekrutacji zamkniętej.
+    bez dzwonka dla siebie i dla osoby, która już przy rekrutacji pracuje.
+    Zamknięta rekrutacja = 409, jak ``/claim`` (audyt 24.11.2026).
     """
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
@@ -6269,6 +6284,13 @@ async def add_collaborator(
     await _ensure_delivery_lead_job_visible(job, current_user, db)
 
     await ensure_job_editor(db, current_user, job)
+    # Audyt 24.11.2026: jak `/claim` — dopisanie do zamkniętej rekrutacji
+    # odsłaniało stawki umów B2B z jej rejestru w Generatorze.
+    if job.status == JobStatus.closed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Do zamkniętej rekrutacji nie można dopisać rekrutera.",
+        )
 
     target = await db.scalar(select(User).where(User.id == payload.user_id))
     if not target or not target.is_active:
@@ -6302,12 +6324,7 @@ async def add_collaborator(
             channel=payload.channel,
             actor_id=current_user.id,
         )
-    if (
-        added
-        and not already_working
-        and target.id != current_user.id
-        and job.status != JobStatus.closed
-    ):
+    if added and not already_working and target.id != current_user.id:
         await _notify_new_owner(db, job=job, user_id=target.id)
     await new_job_leads.record_team_decision(
         db, job_id=job_id, actor=current_user, via="team_change"

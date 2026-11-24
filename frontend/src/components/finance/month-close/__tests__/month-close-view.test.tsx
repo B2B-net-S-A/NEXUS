@@ -190,10 +190,13 @@ describe("MonthCloseView", () => {
     expect(screen.getByRole("button", { name: /^Dla księgowej\s*0$/ })).toBeInTheDocument();
   });
 
-  // Błąd: MonthCloseView.tsx:160 ma zapas `s ? problemTotal(s) : issues.length`, ale `stagesOf`
-  // (month-model.ts:64) zwraca EMPTY zamiast null, więc przy odpowiedzi bez `stages` (starsze API)
-  // zakładka pokazuje „Błędy i uwagi 0”, choć lista pod nią ma 2 powody (fields.md_hours, no_md).
-  it.todo("bez `stages` w odpowiedzi licznik „Błędy i uwagi” liczy powody bez braków raportu (oczekiwane 2, jest 0)");
+  // Starsze API bez `stages`: licznik zakładki liczy powody z listy pod nią
+  // (fields.md_hours, no_md), a nie zera z pustych etapów.
+  it("bez `stages` w odpowiedzi licznik „Błędy i uwagi” liczy powody bez braków raportu", async () => {
+    setup({ overview: overview({ stages: undefined }) });
+    await screen.findByTestId("stage-table");
+    expect(screen.getByRole("button", { name: /^Błędy i uwagi\s*2$/ })).toBeInTheDocument();
+  });
 
   it("zakładka błędów dostaje powody bez braków raportu i zapisuje się w adresie", async () => {
     setup();

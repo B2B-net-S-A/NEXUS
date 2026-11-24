@@ -261,6 +261,15 @@ K5b-3c: dokument rozliczenia VAT — `ledger/vat_settlement.py`; VAT-UEK(5) —
   z wyjaśnieniem (zapis spoza rejestru albo zmiana po JPK → korekta JPK),
   dokument nie powstaje. Pozycje 221/222 idą **per konto z obrotów** — analityka
   zeruje się sama.
+  **VAT należny to też konto importu usług** (audyt 24.11.2026): FVZ z kolejki
+  kosztów z typem IU księguje VAT należny na koncie z dekretu (226, zapisane
+  przez źródło w `meta.output_account`), a JPK liczy go w K_27–K_30. Lista kont
+  VAT należnego = `vat.output_accounts`: konto sprzedaży z ustawień, 226
+  (`DEFAULT_OUTPUT_VAT_ACCOUNT`) i każde `meta.output_account` z księgi. Bierze
+  ją rozliczenie (obroty i pozycja Wn 226 jak 222, „VAT do zapłaty” nie może
+  być żadnym z tych kont) oraz „Zapisy na kontach VAT spoza rejestru”. Bez
+  tego miesiąc z importem usług miał problem „księga X, JPK X + IU” i dokument
+  VAT nie powstawał (422).
 - **Dokument**: źródło `vat_settlement` / `RRRR-MM`, data = ostatni dzień
   miesiąca, w buforze (zatwierdza lista „Księgowi”, edycja tylko przez
   „Przygotuj” — dokument ze źródła). Ponowne „Przygotuj” podmienia szkic

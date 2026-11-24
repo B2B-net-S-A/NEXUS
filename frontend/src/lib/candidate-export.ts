@@ -3,6 +3,7 @@ import {
   filtersToApiCriteria,
   type CandidateFilters,
 } from "@/lib/url-filters";
+import { warsawToday } from "@/lib/warsaw-date";
 
 export type CandidateExportFormat = "csv" | "xlsx";
 export type CandidateExportScope = "filtered" | "selected";
@@ -48,7 +49,7 @@ export async function downloadCandidateExport(
   const response = await api.post<Blob>("/api/candidates/export", request, {
     responseType: "blob",
   });
-  const fallback = `kandydaci-${new Date().toISOString().slice(0, 10)}.${request.format}`;
+  const fallback = `kandydaci-${warsawToday()}.${request.format}`;
   const filename = filenameFromDisposition(
     response.headers["content-disposition"],
     fallback,

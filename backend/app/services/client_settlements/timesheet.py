@@ -588,13 +588,17 @@ def evaluate(
     file_name: Optional[str] = None,
     client_mail: Optional[bool] = None,
     acceptor: str = "klienta",
+    signed_sheet: bool = False,
 ) -> ProofResult:
     """Kontrole Time Sheet z katalogu reguł; MD z godzin, bez pracy dodatkowej.
 
     ``file_name``: nazwa pliku; przy pustym „Consultant(s)” imię i nazwisko z niej.
     ``client_mail``: czy w mailach miesiąca jest wiadomość klienta
     (``acceptance_mail.from_client``); ``None`` = nadawcy nie odczytano.
-    ``acceptor``: kto akceptuje (``mail_text.Senders.who``, w FIX „PM-a firmy”)."""
+    ``acceptor``: kto akceptuje (``mail_text.Senders.who``, w FIX „PM-a firmy”).
+    ``signed_sheet``: klient podpisał arkusz zbiorczy z MD tej osoby (``signoffs``).
+    ``proof.excel_with_mail`` żąda maila tylko wtedy, gdy podpisu brak; zgodność
+    MD z arkuszem sprawdza ``service._signed_checks``."""
 
     result = ProofResult(md_regular=None, md_extra=None)
     sheet = _Group(result, rules, GROUP_TITLE)
@@ -675,7 +679,11 @@ def evaluate(
         )
 
     if sheet.on("proof.excel_with_mail"):
-        if not has_mail:
+        if signed_sheet:
+            # Próba IX–X 2026: akceptacją klienta jest podpis na arkuszu zbiorczym,
+            # mailem akceptuje tylko część kierowników.
+            sheet.ok("Godziny zaakceptowane podpisem klienta na arkuszu zbiorczym")
+        elif not has_mail:
             sheet.fail(
                 "proof.excel_with_mail",
                 "Brak maila z akceptacją godzin",

@@ -306,3 +306,13 @@ def test_country_from_polish_nationality(citizenship, expected):
         ("201", "UY - Uruguay"),
     ]
     assert rules.country_option(options, citizenship) == expected
+
+
+def test_error_hint_drops_quoted_values():
+    exc = TimeoutError(
+        'Locator.fill: Timeout 30000ms exceeded.\nCall log:\n  - fill("tajne-haslo")'
+    )
+    hint = server.error_hint(exc)
+    assert hint.startswith("TimeoutError: Locator.fill: Timeout 30000ms exceeded.")
+    assert "tajne" not in hint
+    assert "tajne" not in server.error_hint(ValueError("bad value 'tajne-haslo' x"))

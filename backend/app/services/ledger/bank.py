@@ -126,6 +126,11 @@ UNDO_EBI24 = (
     "Zapłata z tego wyciągu zastąpiła zapłatę z eBI24 — cofnięcie wymaga decyzji "
     "Finansów, nie usunięcia wyciągu."
 )
+UNDO_DUPLICATES = (
+    "Operacje z tego wyciągu są też w {other} jako duplikaty — po usunięciu tego "
+    "pliku zapłaty faktur by zniknęły (koszt wróciłby na „Do zapłaty”). Najpierw "
+    "usuń tamten wyciąg, potem ten, i wgraj oba od nowa."
+)
 
 
 def routing(number: str) -> str:
@@ -999,6 +1004,101 @@ async def get_statement(
 # ── Cofnięcie importu ────────────────────────────────────────────────────────
 
 
+def _statement_label(statement: LedgerBankStatement) -> str:
+    return (
+        f"wyciągu {statement.first_day:%d.%m}–{statement.last_day:%d.%m.%Y}"
+        f" (nr {statement.id})"
+    )
+
+
+def _op_ref(line_ref: Optional[str]) -> str:
+    """Referencja banku z ``statement_line_ref`` E3/E8 (``pozycja:referencja``)."""
+
+    return (line_ref or "").split(":", 1)[-1]
+
+
+async def _duplicates_elsewhere(
+    db: AsyncSession,
+    statement: LedgerBankStatement,
+    costs: list[FinanceCostPaymentRecord],
+    sales: list[ClientSalesInvoicePayment],
+) -> Optional[str]:
+    """Inny plik, który ma operacje tego wyciągu jako duplikaty (audyt 24.11.2026).
+
+    Duplikat (linia ``duplicate`` w innym wyciągu tego rachunku albo E3/E8
+    ``DUPLICATE_REASON`` pod innym skrótem) wskazuje na oryginał z tego pliku;
+    po jego usunięciu operacja wypadłaby z WB, a faktura straciłaby zapłatę —
+    ponowne wgranie tego pliku dałoby już tylko duplikat. ``None`` = nikt.
+    """
+
+    original = LedgerBankLine.__table__.alias("original")
+    copy = LedgerBankLine.__table__.alias("copy")
+    other = LedgerBankStatement.__table__.alias("other")
+    found = await db.scalar(
+        select(other.c.id)
+        .select_from(original)
+        .join(
+            copy,
+            and_(
+                copy.c.bank_ref == original.c.bank_ref,
+                copy.c.booked_on == original.c.booked_on,
+                copy.c.amount == original.c.amount,
+                copy.c.statement_id != original.c.statement_id,
+                copy.c.kind == "duplicate",
+            ),
+        )
+        .join(other, other.c.id == copy.c.statement_id)
+        .where(
+            original.c.statement_id == statement.id,
+            original.c.kind != "duplicate",
+            original.c.bank_ref != "",
+            other.c.bank_account == statement.bank_account,
+        )
+        .order_by(other.c.id)
+        .limit(1)
+    )
+    if found is not None:
+        held = await db.get(LedgerBankStatement, found)
+        return _statement_label(held) if held else "innym wyciągu"
+    for model, rows, reason in (
+        (FinanceCostPaymentRecord, costs, cost_payments.DUPLICATE_REASON),
+        (ClientSalesInvoicePayment, sales, client_payments.DUPLICATE_REASON),
+    ):
+        mine = {
+            (row.booked_on, Decimal(row.amount), _op_ref(row.statement_line_ref))
+            for row in rows
+            if row.reason != reason and _op_ref(row.statement_line_ref)
+        }
+        if not mine:
+            continue
+        copies = await db.execute(
+            select(
+                model.statement_sha256,
+                model.booked_on,
+                model.amount,
+                model.statement_line_ref,
+            )
+            .where(
+                model.kind == "statement_line",
+                model.statement_sha256 != statement.sha256,
+                model.reason == reason,
+                model.booked_on.in_({day for day, _, _ in mine}),
+                model.amount.in_({amount for _, amount, _ in mine}),
+            )
+            .order_by(model.id)
+        )
+        for sha, day, amount, line_ref in copies.all():
+            if (day, Decimal(amount), _op_ref(line_ref)) in mine:
+                held = await db.scalar(
+                    select(LedgerBankStatement)
+                    .where(LedgerBankStatement.sha256 == sha)
+                    .order_by(LedgerBankStatement.id)
+                    .limit(1)
+                )
+                return _statement_label(held) if held else "innym wgranym pliku wyciągu"
+    return None
+
+
 async def delete_statement(
     db: AsyncSession, statement_id: int, *, viewer: Viewer
 ) -> dict[str, int]:
@@ -1094,6 +1194,9 @@ async def delete_statement(
             )
         ):
             raise LedgerError(UNDO_EBI24, status=409)
+    other = await _duplicates_elsewhere(db, statement, costs, sales)
+    if other is not None:
+        raise LedgerError(UNDO_DUPLICATES.format(other=other), status=409)
     lines = await db.scalar(
         select(func.count())
         .select_from(LedgerBankLine)
