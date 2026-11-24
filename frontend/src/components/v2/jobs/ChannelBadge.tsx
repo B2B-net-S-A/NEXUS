@@ -1,4 +1,4 @@
-import { Linkedin } from "lucide-react";
+import { Linkedin } from "@/components/icons/Linkedin";
 
 import { CHANNEL_LABELS, type RecruiterChannel } from "@/lib/job-channels";
 import { cn } from "@/lib/utils";

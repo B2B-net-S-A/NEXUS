@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, Linkedin, Mail, MessageSquare, Phone } from "lucide-react";
+import { Check, Copy, Mail, MessageSquare, Phone } from "lucide-react";
+import { Linkedin } from "@/components/icons/Linkedin";
 
 import { cn } from "@/lib/utils";
 
