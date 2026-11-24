@@ -34,7 +34,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_onboarded_user
-from app.api.hr_gates import ensure_module
+from app.api.hr_gates import ensure_module, refuse_self_edit
 from app.core.database import get_db
 from app.core.http_headers import content_disposition, safe_document_disposition
 from app.models.user import User
@@ -196,6 +196,9 @@ async def upload_document(
     current_user: User = Depends(_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    # „Nie sobie” (audyt 24.11.2026): oświadczenie studenta we własnej
+    # e-teczce włączało zwolnienie ze składek, choć profil daje Kadrom 403.
+    refuse_self_edit(current_user, [user_id])
     content = await file.read(MAX_FILE_BYTES + 1)
     flags = (
         _form_bool(visible_to_person),
@@ -328,6 +331,7 @@ async def patch_document(
     sent = body.model_fields_set
     with _http_errors():
         document = await documents.get_document(db, document_id)
+        refuse_self_edit(current_user, [document.user_id])
         kwargs: dict[str, Any] = {}
         if "title" in sent:
             kwargs["title"] = body.title
@@ -363,6 +367,7 @@ async def remove_document(
 ) -> dict[str, Any]:
     with _http_errors():
         document = await documents.get_document(db, document_id)
+        refuse_self_edit(current_user, [document.user_id])
         orphan = await documents.remove(
             db, document, note=body.note, actor=current_user
         )
