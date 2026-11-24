@@ -1,7 +1,7 @@
 """Dzwonek Finansów o nabywcy kontraktu Nordei z maila CPro.
 
-Revision ID: 0767_cpro_invoice_buyer_bell
-Revises: 0766_contract_engagement_fixed
+Revision ID: 0766_cpro_invoice_buyer_bell
+Revises: 0765_contractor_payment_blocks
 
 Przegląd skrzynek DL-ów Nordei (24.11.2026): zmiana adresu faktury w CPro
 („Invoice address was updated”) przychodziła tylko do DL-a. Typ
@@ -11,8 +11,8 @@ Lustro w ``entrypoint.sh`` (``_ENUM_STATEMENTS``).
 
 from alembic import op
 
-revision = "0767_cpro_invoice_buyer_bell"
-down_revision = "0766_contract_engagement_fixed"
+revision = "0766_cpro_invoice_buyer_bell"
+down_revision = "0765_contractor_payment_blocks"
 branch_labels = None
 depends_on = None
 
@@ -34,7 +34,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text = '{NOTIFICATION_TYPE}'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0767 odmawia: notifications ma wpisy {NOTIFICATION_TYPE}, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0766 odmawia: notifications ma wpisy {NOTIFICATION_TYPE}, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

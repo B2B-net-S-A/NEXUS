@@ -465,7 +465,7 @@ _SPLIT_GROUPS: dict[
         _C.contracts,
         (_T.contract_rate_annex,),
     ),
-    # 0767: CPro zmienił nabywcę kontraktu Nordei (Finanse, faktury sprzedaży).
+    # 0766: CPro zmienił nabywcę kontraktu Nordei (Finanse, faktury sprzedaży).
     "contracts_cpro_invoice_buyer": (
         "Faktury: nowy nabywca kontraktu z CPro",
         _C.contracts,
