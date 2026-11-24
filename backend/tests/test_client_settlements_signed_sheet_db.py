@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -27,7 +29,8 @@ from app.core.scheduling import local_now
 from app.models.client_settlement import ClientSettlement
 from app.models.consultant_portal import CpDocument
 from app.models.contract import Contract
-from app.services.client_settlements import signoffs
+from app.services.client_settlements import service, signoffs
+from app.services.client_settlements.service import SettlementError
 from app.services.consultant_portal import documents
 from app.services.consultant_portal.mailbox import kind_of_file
 from tests.test_client_settlements_client_invoice_db import _month, _rules
@@ -43,6 +46,8 @@ from tests.test_client_settlements_service_db import _cleanup, _world
 from tests.test_client_settlements_timesheet_db import _timesheet
 
 pytestmark = pytest.mark.asyncio
+
+ACTOR = SimpleNamespace(id=None)
 
 WAITS = "Arkusz czeka na podpis klienta"
 NO_MAIL = "Brak maila z akceptacją godzin"
@@ -228,9 +233,12 @@ async def test_arkusz_bez_podpisu_niczego_nie_zmienia() -> None:
 
 @pytest.mark.usefixtures("_storage")
 @pytest.mark.parametrize("source", ["panel", "adres osoby", "podpis osoby"])
-async def test_arkusz_od_samej_osoby_nie_zastepuje_maila(source: str) -> None:
+async def test_arkusz_od_samej_osoby_nie_zastepuje_maila_ani_nie_otwiera_zaplaty(
+    source: str,
+) -> None:
     """Podpisu nie sprawdzamy łańcuchem zaufania, więc arkusz z panelu konsultanta,
-    z jego adresu albo podpisany jego nazwiskiem nie jest akceptacją klienta (#3884)."""
+    z jego adresu albo podpisany jego nazwiskiem nie jest akceptacją klienta (#3884)
+    i nie otwiera zapłaty po arkuszu (``pay.per_person``, decyzja Artura 24.11)."""
 
     client_id, contract_id, _line = await _world(md_total="60")
     month = _month(-1)
@@ -274,11 +282,50 @@ async def test_arkusz_od_samej_osoby_nie_zastepuje_maila(source: str) -> None:
         assert not signoffs.client_signed(s.checks, signoffs.SHEET)
         titles = _titles(s)
         assert titles[NO_MAIL] == "warn" and BY_SIGNATURE not in titles
-        assert s.status == "warnings"
+        assert titles[WAITS] == "fail"
+        assert not any(t.startswith("Arkusz podpisany przez klienta") for t in titles)
+        async with AsyncSessionLocal() as db:
+            with pytest.raises(SettlementError, match=WAITS):
+                await service.accept(
+                    db, contract_id, month, actor=ACTOR, now=local_now()
+                )
     finally:
         await _restore(previous)
         await _drop_documents(stored)
         await _cleanup(client_id)
+
+
+@pytest.mark.usefixtures("_storage")
+async def test_md_z_arkusza_tylko_od_klienta() -> None:
+    """Osoba bez Time Sheet dostaje MD z podpisanego arkusza (arkusz przysyła bank),
+    ale nie z arkusza, który wgrała sama w panelu."""
+
+    client_id, contract_id, _line = await _world(md_total="60")
+    other_client, other_contract, _other = await _world(md_total="60")
+    month = _month(-1)
+    previous = await _module(True)
+    stored: list[int] = []
+    try:
+        for client in (client_id, other_client):
+            await _rules(client, _sheet_rules())
+        own = _sheet_lines(await _person(contract_id), month, "17")
+        pdf = await asyncio.to_thread(_signed_pdf, own, 1)
+        stored.append((await _store(contract_id, month, pdf, "Arkusz.pdf")).id)
+        s = await _settlement(contract_id, month)
+        assert s.md_regular is None and s.status == "checking"
+        assert not signoffs.client_signed(s.checks, signoffs.SHEET)
+
+        bank = _sheet_lines(await _person(other_contract), month, "17")
+        pdf = await asyncio.to_thread(_signed_pdf, bank, 1)
+        stored.append((await _store(None, month, pdf, "Arkusz banku.pdf")).id)
+        s = await _settlement(other_contract, month)
+        assert s.md_regular == Decimal("17.000")
+        assert signoffs.client_signed(s.checks, signoffs.SHEET)
+    finally:
+        await _restore(previous)
+        await _drop_documents(stored)
+        await _cleanup(client_id)
+        await _cleanup(other_client)
 
 
 @pytest.mark.usefixtures("_storage")

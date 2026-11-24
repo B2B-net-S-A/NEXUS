@@ -342,8 +342,14 @@ async def apply(
                 BY_CLIENT: by_client,
             },
         )
-        if s.md_regular is None and md is not None and s.md_source != "manual":
-            # Osoba bez Time Sheet (arkusz przysyła sam bank): MD z arkusza.
+        if (
+            s.md_regular is None
+            and md is not None
+            and s.md_source != "manual"
+            and by_client
+        ):
+            # Osoba bez Time Sheet (arkusz przysyła sam bank): MD z arkusza, ale
+            # tylko z arkusza od klienta, nie od samej osoby.
             s.md_regular = md
             s.md_source = "rcp"
         if s.status != "accepted":

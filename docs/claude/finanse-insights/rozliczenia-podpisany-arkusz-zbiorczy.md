@@ -62,8 +62,15 @@ gdy:
 
 Taki arkusz nie zastępuje maila: zostaje „Brak maila z akceptacją godzin” i Finanse
 sprawdzają ręcznie. Znacznik bez `by_client` (sprzed tej zmiany) też nie zastępuje
-maila. Bramka zapłaty `pay.per_person` (`_signed_checks`) dalej patrzy tylko na
-komplet podpisów (`signoffs.is_complete`), jak przed tą zmianą.
+maila.
+
+Decyzja Artura z 24.11.2026: ta sama zasada obowiązuje bramkę zapłaty. `pay.per_person`
+(`_signed_checks`) otwiera zapłatę tylko po arkuszu od klienta (`client_signed`).
+Arkusz od samej osoby daje „Arkusz czeka na podpis klienta” z opisem, skąd przyszedł.
+Osoba bez Time Sheet dostaje MD z arkusza też tylko z arkusza od klienta. Finanse
+mogą wgrać arkusz od klienta sami („Wgraj podpisany dokument”, bez kontraktu).
+Na kopii produkcji z nocy 24.11 nie było ani jednego znacznika podpisu, więc zmiana
+niczego już otwartego nie zamyka.
 
 ## Akceptacja z tym samym Time Sheet, który już był
 
