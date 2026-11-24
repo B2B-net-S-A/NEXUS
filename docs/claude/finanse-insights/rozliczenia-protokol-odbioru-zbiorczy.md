@@ -37,7 +37,8 @@ kontraktu, czyli jako karty do ręcznego przypisania.
 - Imię z protokołu inne niż w kontrakcie (IX–X: jeden protokół CeZ/177): osoba nic
   nie dostaje, chyba że wskazuje ją numer umowy, na której w miesiącu pracuje tylko
   ona (od 24.11.2026, `rozliczenia-czytniki-plikow-klientow.md`). Nie dopasowujemy po
-  samym nazwisku.
+  samym nazwisku. Tak samo szuka osoby ostrzeżenie faktury `cl.client_protocol`
+  (`zamowienia/wymagania-klientow-do-faktury-sprzedazy.md`).
 
 ## Komu trafia protokół
 

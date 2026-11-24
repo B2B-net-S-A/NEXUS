@@ -1802,3 +1802,34 @@ async def test_client_protocol_of_another_contract_does_not_count(
         f"koordynator@{CEZ_DOMAIN}",
     )
     assert await _warnings(client, seed, invoice_id) == []
+
+
+@pytest.mark.parametrize("second_person", [False, True])
+async def test_client_protocol_with_other_first_name_counts_by_contract_number(
+    client, seed, rules, protocols, second_person: bool
+):
+    # Jak CeZ/177 za X 2026: w protokole inne imię niż w kartotece, nazwisko to samo.
+    # Rozliczenie wskazuje osobę numerem umowy (``service._sole_agreements``),
+    # faktura ma powiedzieć to samo.
+    await rules({"cl.client_protocol": {"level": "block", "params": {}}})
+    await _settings(client, seed)
+    people = [("Ola", "Protokolarna", "1000", "20")]
+    if second_person:
+        people.append(("Ewa", "Zastępcza", "1000", "20"))
+    async with AsyncSessionLocal() as db:
+        group_id, (line_id, *_others) = await fx.md_group(
+            db, seed.client_id, "CeZ/97/2026", people=people
+        )
+        await db.commit()
+    invoice_id = await _draft(client, seed, f"g{group_id}")
+    await protocols(
+        await _contract_of_line(line_id),
+        _protocol_text("CeZ/97/2026", "10", "Aleksandra Protokolarna"),
+        f"koordynator@{CEZ_DOMAIN}",
+    )
+    warnings = await _warnings(client, seed, invoice_id)
+    if second_person:
+        # Na umowie pracują w miesiącu dwie osoby: numer nie wskazuje, czyj to protokół.
+        assert len(warnings) == 1 and "Ola Protokolarna" in warnings[0], warnings
+    else:
+        assert warnings == []
