@@ -67,6 +67,7 @@ export const CLOSE_REASON_GROUPS: CloseReasonGroup[] = [
     reasons: [
       { key: "too_expensive", label: "Za droga", who: ALL, rejected: "Za wysokie oczekiwania finansowe", withdrawn: "salary_mismatch" },
       { key: "location_mode", label: "Lokalizacja lub tryb pracy", who: ALL, rejected: "work_mode_mismatch", withdrawn: "work_mode_mismatch" },
+      { key: "outside_poland", label: "Mieszka poza Polską", who: US_CLIENT, rejected: "outside_poland" },
       { key: "contract_form", label: "Forma umowy (UoP / B2B)", who: ALL, rejected: "contract_form", withdrawn: "contract_form" },
       { key: "available_too_late", label: "Dostępna za późno / wypowiedzenie", who: ALL, rejected: "available_too_late", withdrawn: "available_too_late" },
     ],

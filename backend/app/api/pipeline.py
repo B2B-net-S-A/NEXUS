@@ -739,6 +739,43 @@ async def _mark_not_looking_from_move(
     )
 
 
+async def _record_residence_from_rejection(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    country: Optional[str],
+    job_id: int,
+    stage_id: int,
+    actor_id: int,
+) -> None:
+    """„Mieszka poza Polską” (24.11.2026): kraj na profilu, a gdy profil mówi
+    już, że osoba mieszka za granicą — zdjęcie jej nietkniętych kart od
+    systemu z innych rekrutacji (system jej już nie proponuje)."""
+    from app.services import autofill_withdraw, residence  # noqa: PLC0415
+
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id).with_for_update()
+    )
+    if candidate is None:
+        return
+    if country is not None:
+        residence.record_from_rejection(
+            db,
+            candidate,
+            country=country,
+            user_id=actor_id,
+            job_id=job_id,
+            stage_id=stage_id,
+        )
+    if residence.lives_outside_poland(candidate):
+        await autofill_withdraw.withdraw_elsewhere(
+            db,
+            candidate_id=candidate_id,
+            except_job_id=job_id,
+            reason=autofill_withdraw.ABROAD_REMOVAL_REASON,
+        )
+
+
 async def _record_rejection_rate(
     db: AsyncSession,
     *,
@@ -2241,6 +2278,23 @@ async def apply_move(
                 "„Nie akceptuje trybu pracy”."
             ),
         )
+    # Powód „Mieszka poza Polską” (24.11.2026): kraj zamieszkania trafia na
+    # profil; przy innym powodzie nie ma czego zapisać.
+    abroad_rejection = (
+        reason is not None
+        and reason.name.strip() == rejection_reason_labels.OUTSIDE_POLAND
+    )
+    if data.residence_country is not None:
+        if not abroad_rejection:
+            raise HTTPException(
+                status_code=422,
+                detail="Kraj zamieszkania podaje się tylko przy powodzie „Mieszka poza Polską”.",
+            )
+        if data.residence_country == "PL":
+            raise HTTPException(
+                status_code=422,
+                detail="Przy powodzie „Mieszka poza Polską” wybierz kraj inny niż Polska.",
+            )
     # Powód „za drogo” (26.10.2026): nowa stawka osoby ma sens tylko przy nim.
     rate_rejection = reason is not None and rejection_reason_labels.is_rate_too_high(
         reason.name
@@ -2605,6 +2659,15 @@ async def apply_move(
             candidate_id=data.candidate_id,
             amount=Decimal(data.rejection_rate_hourly),
             is_minimum=data.rejection_rate_is_minimum,
+            job_id=job.id,
+            stage_id=stage.id,
+            actor_id=policy.actor_id,
+        )
+    if abroad_rejection:
+        await _record_residence_from_rejection(
+            db,
+            candidate_id=data.candidate_id,
+            country=data.residence_country,
             job_id=job.id,
             stage_id=stage.id,
             actor_id=policy.actor_id,

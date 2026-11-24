@@ -73,6 +73,11 @@ class StageMove(BaseModel):
     # trybu pracy na profilu (ptaszek w oknie, domyślnie włączony).
     work_mode_max_onsite_days: Optional[int] = Field(None, ge=0, le=4)
     work_mode_save_to_profile: bool = True
+    # Powód „Mieszka poza Polską” (`outside_poland`, 24.11.2026): kraj
+    # zamieszkania (ISO 3166-1 alfa-2, nie PL) trafia na profil jak ołówek
+    # „Lokalizacja”. Opcjonalny (kilka osób naraz, profil już ma kraj); przy
+    # innym powodzie → 422.
+    residence_country: Optional[str] = Field(None, pattern=r"^[A-Z]{2}$")
     # Powód „za drogo” (`rejection_reason_labels.RATE_TOO_HIGH`, 26.10.2026):
     # ile osoba teraz chce, PLN/h. Opcjonalne (D1); przy innym powodzie → 422.
     # `is_minimum` (domyślnie, D2) = jawne minimum w profilu — starsze, niższe
@@ -114,6 +119,7 @@ class StageMove(BaseModel):
             "client_project_closed",
             "client_after_deadline",
             "client_no_reason",
+            "outside_poland",
             "other",
         ]
     ] = None

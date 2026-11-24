@@ -961,3 +961,92 @@ describe("RejectionV2 — opis przy powodzie, który sam nic nie mówi (20.10.20
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("RejectionV2 — „Mieszka poza Polską” (24.11.2026)", () => {
+  const abroadReasons = [
+    { id: "7", label: "Brak doświadczenia", name: "Brak doświadczenia", applies_to: ["rejected" as const] },
+    { id: "11", name: "outside_poland", label: "outside_poland", applies_to: ["rejected" as const] },
+  ];
+
+  function renderAbroad(props: Partial<React.ComponentProps<typeof RejectionV2>> = {}) {
+    const onConfirm = vi.fn();
+    renderUi(
+      <RejectionV2
+        open
+        onOpenChange={() => {}}
+        terminalType="rejected"
+        reasons={abroadReasons}
+        previousStageCategory="internal"
+        onConfirm={onConfirm}
+        {...props}
+      />,
+    );
+    return onConfirm;
+  }
+
+  it("pyta, gdzie mieszka, dopiero po wybraniu powodu i mówi, co zrobi system", () => {
+    renderAbroad();
+    expect(screen.queryByTestId("rejection-residence")).toBeNull();
+    fireEvent.click(screen.getByText("Mieszka poza Polską"));
+    expect(screen.getByLabelText("Kraj zamieszkania")).toBeInTheDocument();
+    expect(screen.getByTestId("rejection-residence-system")).toHaveTextContent(
+      "System nie proponuje do rekrutacji osób mieszkających poza Polską",
+    );
+  });
+
+  it("bez kraju w profilu „Potwierdź” czeka na wybór, a kraj idzie w 14. argumencie", () => {
+    const onConfirm = renderAbroad({ profileResidence: { city: "Warszawa", country: "PL" } });
+    fireEvent.click(screen.getByText("Mieszka poza Polską"));
+    const confirm = screen.getByRole("button", { name: "Potwierdź" });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Kraj zamieszkania"), { target: { value: "IN" } });
+    expect(screen.getByTestId("rejection-residence-current")).toHaveTextContent(
+      "Zapiszemy na profilu: Kraj → Indie (teraz: Warszawa, Polska).",
+    );
+    fireEvent.click(confirm);
+    expect(onConfirm.mock.calls[0][0]).toBe("11");
+    expect(onConfirm.mock.calls[0][13]).toBe("IN");
+  });
+
+  it("kraj spoza Polski z profilu jest wybrany od razu", () => {
+    const onConfirm = renderAbroad({ profileResidence: { city: "Bhubaneswar", country: "IN" } });
+    fireEvent.click(screen.getByText("Mieszka poza Polską"));
+    expect(screen.getByTestId("rejection-residence-current")).toHaveTextContent(
+      "Na profilu już jest: Bhubaneswar, Indie.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[0][13]).toBe("IN");
+  });
+
+  it("przy innym powodzie nie wysyła kraju", () => {
+    const onConfirm = renderAbroad({ profileResidence: { city: "Pune", country: "IN" } });
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[0][13]).toBeNull();
+  });
+});
+
+describe("RejectionV2 — „Mieszka poza Polską” w szablonie bez tego powodu", () => {
+  it("zapisuje „Inne” z nazwą powodu i nie pyta o kraj", () => {
+    const onConfirm = vi.fn();
+    renderUi(
+      <RejectionV2
+        open
+        onOpenChange={() => {}}
+        terminalType="rejected"
+        reasons={[
+          { id: "5", name: "Inne (rejected)", label: "Inne", applies_to: ["rejected" as const] },
+        ]}
+        previousStageCategory="internal"
+        profileResidence={{ city: "Pune", country: "IN" }}
+        onConfirm={onConfirm}
+      />,
+    );
+    fireEvent.click(screen.getByText("Mieszka poza Polską"));
+    expect(screen.queryByTestId("rejection-residence")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[0][0]).toBe("5");
+    expect(onConfirm.mock.calls[0][1]).toContain("Mieszka poza Polską");
+    expect(onConfirm.mock.calls[0][13]).toBeNull();
+  });
+});
