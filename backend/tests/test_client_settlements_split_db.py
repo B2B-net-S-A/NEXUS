@@ -436,3 +436,34 @@ async def test_linia_bez_grupy_ma_numer_z_tytulu_na_fakturze(
         assert "4500033333" in rows[1]["positions"][0]["name"]
     finally:
         await _cleanup(w.client_id)
+
+
+async def test_podzial_ze_skrzynki_konsultanta_u_klienta_nie_wchodzi(
+    tmp_path, monkeypatch
+) -> None:
+    """Konsultant ze skrzynką w domenie klienta nie wskazuje zamówień sam sobie."""
+
+    from sqlalchemy import update
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    w = await _world()
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Contract)
+                .where(Contract.id == w.contract_id)
+                .values(candidate_email=f"konsultant@{DOMAIN}")
+            )
+            await db.commit()
+        content = _acceptance(w.person, w.month, "4500011111: 40h\n4500022222: 136h")
+        content = content.replace(
+            f"kierownik@{DOMAIN}".encode(), f"konsultant@{DOMAIN}".encode()
+        )
+        await _store_mail(w, content, "akceptacja.eml")
+        async with AsyncSessionLocal() as db:
+            s = await service._settlement(db, w.contract_id, w.month)
+            assert s is not None
+            assert service.split_orders(s) == []
+            assert s.md_regular is None
+    finally:
+        await _cleanup(w.client_id)

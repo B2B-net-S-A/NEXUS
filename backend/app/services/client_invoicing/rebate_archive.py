@@ -15,7 +15,9 @@ idzie dokument, który:
   z KSeF (``clients.nip_registry``); oddział albo spółka z grupy z innym
   numerem się nie liczy (decyzja Artura 24.11.2026);
 * jest za miesiąc roku według daty sprzedaży (``transactionDate``), a bez niej
-  według daty wystawienia.
+  według daty wystawienia. Raport „Rabat od obrotu rocznego” pyta o zakres dat
+  (``pre_ksef_between``), bo okres raportu może zaczynać się w innym roku, niż
+  się kończy.
 
 Plik czytamy raz na proces, bo plik archiwum się nie zmienia (klucz: ścieżka
 i suma SHA-256 z bazy), a kilkaset plików przy każdej karcie faktury trwałoby za
@@ -54,6 +56,7 @@ class EbiInvoice:
 
     net_amount: Decimal
     items: tuple[dict[str, Any], ...]
+    correction: bool = False
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,10 @@ class ArchiveInvoice:
     net_amount: Decimal
     items: tuple[dict[str, Any], ...]
     sale_date: date
+    #: Do listy faktur w raporcie rabatu (``client_reports``).
+    invoice_number: Optional[str] = None
+    issue_date: Optional[date] = None
+    correction: bool = False
 
 
 def _items(raw: Any, *, before: bool = False) -> list[dict[str, Any]]:
@@ -113,9 +120,11 @@ def ebi_invoice(data: Any) -> Optional[EbiInvoice]:
         return None
     before = _corrected(data.get("correctedInvoiceContent"))
     if before is None:
-        return EbiInvoice(net - before_net, ())
+        return EbiInvoice(net - before_net, (), correction=True)
     return EbiInvoice(
-        net - before_net, tuple(items + _items(before.get("items"), before=True))
+        net - before_net,
+        tuple(items + _items(before.get("items"), before=True)),
+        correction=True,
     )
 
 
@@ -151,6 +160,16 @@ async def pre_ksef_invoices(
 ) -> tuple[list[ArchiveInvoice], int]:
     """Faktury klienta za rok z archiwum eBI24 spoza KSeF i liczba nieczytelnych plików."""
 
+    return await pre_ksef_between(
+        db, client_id=client_id, since=date(year, 1, 1), until=date(year + 1, 1, 1)
+    )
+
+
+async def pre_ksef_between(
+    db: AsyncSession, *, client_id: int, since: date, until: date
+) -> tuple[list[ArchiveInvoice], int]:
+    """Jak ``pre_ksef_invoices``, za daty sprzedaży od ``since`` do ``until`` (bez niego)."""
+
     registry = await clients.nip_registry(db)
     numbers = {
         number for number, owner in registry.by_nip.items() if owner == client_id
@@ -168,6 +187,7 @@ async def pre_ksef_invoices(
             select(
                 doc.partner_id,
                 doc.invoice_number,
+                doc.issue_date,
                 doc.currency,
                 doc.file_path,
                 doc.file_sha256,
@@ -179,8 +199,8 @@ async def pre_ksef_invoices(
                 doc.schema_name.in_(INVOICE_SCHEMAS),
                 doc.ksef_number.is_(None),
                 partner.in_(numbers | {f"PL{n}" for n in numbers if n.isdigit()}),
-                sale >= f"{year}-01-01",
-                sale < f"{year + 1}-01-01",
+                sale >= since.isoformat(),
+                sale < until.isoformat(),
             )
             .order_by(doc.issue_date, doc.id)
         )
@@ -221,6 +241,9 @@ async def pre_ksef_invoices(
                 invoice.net_amount,
                 invoice.items,
                 day,
+                row.invoice_number,
+                row.issue_date,
+                invoice.correction,
             )
         )
     return invoices, unreadable
@@ -230,5 +253,6 @@ __all__ = [
     "ArchiveInvoice",
     "EbiInvoice",
     "ebi_invoice",
+    "pre_ksef_between",
     "pre_ksef_invoices",
 ]

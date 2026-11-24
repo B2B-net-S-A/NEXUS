@@ -66,6 +66,47 @@ Podsumowanie projektu/ów
 III BETA 160 160
 """
 
+# Protokół CeZ z tabelą przestawną („Suma z Godziny”), jak CeZ/177 za X 2026: w
+# zestawieniu imię i nazwisko rozbite w komórce, bez wiersza „… Suma”; osoba
+# z sumą jest dopiero w tabeli szczegółów pod „Podsumowaniem”. Imię w protokole
+# to zdrobnienie („Janek”), w kontrakcie „Jan”.
+CEZ_PIVOT = """Protokół odbioru
+Nr Umowy
+CeZ/97/2026
+Wykonawczej
+Zestawienie czasu pracy i wykonanych zadań
+w okresie od 05.10.2026 do 31.10.2026
+Wytworzone utwory (m.in. kody źródłowe/wynikowe, grafiki, skrypty,
+1) Usługi Wsparcia zostały/ nie zostały wykonane w terminie umownym**
+Zamawiający Wykonawca
+(Data i podpis osoby uprawnionej) (Data i podpis osoby uprawnionej)
+Suma z Godziny2
+Imię i
+Część umowy Rola nazwisko Nazwa Projektu Typ prac Suma
+Janek
+III Tester Testowy BETA Budowa 160
+Suma końcowa 160,0
+Podsumowanie projektu/ów
+Typ prac
+Część umowy Nazwa Projektu Budowa Suma końcowa
+III BETA 160 160
+Suma końcowa 160 160
+Zestawienie czasu pracy i wykonanych zadań
+Suma z
+Godziny
+Imię i Data Nazwa
+Rola Typ prac Podsumowanie zgłoszenia
+nazwisko pracy Projektu Suma
+Janek
+Tester 5-10 BETA Budowa Czas pracy - spotkania zespołu 4
+Testowy
+[BETA-1] Plan testów sprintu S1 (28.09.2026-
+5-10 BETA Budowa 156
+12.10.2026)
+Janek Testowy Suma 160
+Łącznie 160,00
+"""
+
 PFRON = """Załącznik nr 4 do Umowy nr 2026/000099/PZP
 Protokół odbioru na usługi outsourcingu specjalistów IT
 Na podstawie Umowy nr: 2026/000099/PZP z dnia 22.04.2026 w związku ze:
@@ -99,7 +140,9 @@ def _rules(month_level: str = "block") -> dict:
     )
 
 
-def _evaluate(protocol, person="Jan Testowy", month=MONTH, doc_month=None):
+def _evaluate(
+    protocol, person="Jan Testowy", month=MONTH, doc_month=None, agreements=None
+):
     return protocol_collective.evaluate(
         protocol,
         month=month,
@@ -107,6 +150,7 @@ def _evaluate(protocol, person="Jan Testowy", month=MONTH, doc_month=None):
         person_name=person,
         rules=_rules(),
         working_days=22,
+        **({"agreements": agreements} if agreements is not None else {}),
     )
 
 
@@ -156,6 +200,98 @@ def test_cez_jedna_osoba_z_rozbitym_nazwiskiem_bierze_sume_koncowa():
     assert protocol.people[0].hours == Decimal("160.0")
     assert _evaluate(protocol).md_regular == Decimal("20.000")
     assert _evaluate(protocol, person="Anna Inna") is None
+
+
+# ── CeZ: tabela przestawna i osoba z numeru umowy ────────────────────────────
+
+
+def test_cez_tabela_przestawna_osoba_z_wiersza_suma_pod_podsumowaniem():
+    protocol = protocol_collective.parse_text(CEZ_PIVOT)
+
+    assert protocol is not None
+    assert protocol.month == "2026-10"
+    assert protocol.contract == "CEZ/97/2026"
+    assert [(p.name, p.hours) for p in protocol.people] == [
+        ("Janek Testowy", Decimal("160"))
+    ]
+
+
+def test_cez_tabela_przestawna_dwie_osoby_kazda_ze_swoimi_godzinami():
+    two = CEZ_PIVOT.replace(
+        "III Tester Testowy BETA Budowa 160\nSuma końcowa 160,0",
+        "III Tester Testowy BETA Budowa 160\nAnna\nIII Analityk Inna BETA Budowa 168\n"
+        "Suma końcowa 328,0",
+    ).replace(
+        "Janek Testowy Suma 160\nŁącznie 160,00",
+        "Janek Testowy Suma 160\nAnna Inna Suma 168\nŁącznie 328,00",
+    )
+
+    protocol = protocol_collective.parse_text(two)
+
+    assert [(p.name, p.hours) for p in protocol.people] == [
+        ("Janek Testowy", Decimal("160")),
+        ("Anna Inna", Decimal("168")),
+    ]
+    assert _evaluate(protocol, person="Anna Inna", month="2026-10").md_regular == (
+        Decimal("21.000")
+    )
+
+
+def test_cez_wiersz_szczegolow_z_inna_suma_nie_daje_osoby_spod_podsumowania():
+    other = CEZ_PIVOT.replace("Janek Testowy Suma 160", "Janek Testowy Suma 150")
+
+    protocol = protocol_collective.parse_text(other)
+
+    # Jak dotąd: osobą jest tekst zestawienia, godzinami „Suma końcowa”.
+    assert len(protocol.people) == 1
+    assert protocol.people[0].hours == Decimal("160.0")
+    assert "Część umowy" in protocol.people[0].name
+
+
+def test_cez_inne_imie_bez_numeru_umowy_osoby_nic_nie_daje():
+    protocol = protocol_collective.parse_text(CEZ_PIVOT)
+
+    assert _evaluate(protocol, month="2026-10") is None
+    assert _evaluate(protocol, month="2026-10", agreements=frozenset()) is None
+
+
+def test_cez_inne_imie_osobe_wskazuje_numer_umowy_tylko_tej_osoby():
+    protocol = protocol_collective.parse_text(CEZ_PIVOT)
+
+    result = _evaluate(protocol, month="2026-10", agreements=frozenset({"CEZ/97/2026"}))
+
+    assert result.md_regular == Decimal("20.000")
+    assert not result.blocking and not result.warn
+    titles = _titles(result)
+    assert titles["Osoba z numeru umowy CEZ/97/2026"] == "ok"
+    assert "Inne imię lub nazwisko niż w kontrakcie" not in titles
+    detail = next(
+        c["detail"]
+        for g in result.groups
+        for c in g["checks"]
+        if c["title"] == "Osoba z numeru umowy CEZ/97/2026"
+    )
+    assert "Janek Testowy" in detail
+
+
+def test_cez_numer_umowy_innej_osoby_nic_nie_daje():
+    protocol = protocol_collective.parse_text(CEZ_PIVOT)
+
+    assert (
+        _evaluate(protocol, month="2026-10", agreements=frozenset({"CEZ/96/2026"}))
+        is None
+    )
+
+
+def test_cez_numer_umowy_nie_wskazuje_osoby_w_protokole_dwoch_osob():
+    protocol = protocol_collective.parse_text(CEZ_TWO)
+
+    assert (
+        _evaluate(
+            protocol, person="Piotr Trzeci", agreements=frozenset({"CEZ/99/2026"})
+        )
+        is None
+    )
 
 
 def test_cez_za_inny_miesiac_bez_md():
@@ -246,3 +382,44 @@ async def test_rozliczenie_bierze_wiersz_osoby_z_protokolu(tmp_path, monkeypatch
     )
 
     assert result.md_regular == Decimal("11.331")
+
+
+async def test_rozliczenie_osoby_z_innym_imieniem_po_numerze_umowy(
+    tmp_path, monkeypatch
+):
+    from app.services import storage_service
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    content = b"%PDF-1.4 protokol przestawny"
+    monkeypatch.setattr(
+        protocol_collective,
+        "pdf_text",
+        lambda data: CEZ_PIVOT if data == content else None,
+    )
+    folder = tmp_path / "consultant_portal" / "1"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "protokol.pdf").write_bytes(content)
+    doc = CpDocument(
+        id=8,
+        kind="report",
+        mime="application/pdf",
+        file_path="consultant_portal/1/protokol.pdf",
+        period_year=2026,
+        period_month=10,
+        period_guessed=False,
+    )
+
+    without = await service._proof(
+        doc, [doc], month="2026-10", person_name="Jan Testowy", rules=_rules()
+    )
+    result = await service._proof(
+        doc,
+        [doc],
+        month="2026-10",
+        person_name="Jan Testowy",
+        rules=_rules(),
+        agreements=frozenset({"CEZ/97/2026"}),
+    )
+
+    assert without is None or without.md_regular is None
+    assert result.md_regular == Decimal("20.000")

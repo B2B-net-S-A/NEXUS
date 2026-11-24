@@ -5134,6 +5134,19 @@
     "requires_setting": "REVIEW_BATCH_ENABLED"
   },
   {
+    "id": "pytania-z-rozmow",
+    "pr": 3883,
+    "title": "Pytania z rozmów u klienta w jednym miejscu",
+    "why": "Pytania z debriefów dopisują się same, ze stanowiskiem, klientem i managerem, obok dawnego Excela. Filtrujesz i kopiujesz listę do prepu kandydata.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Rekrutacje → Pytania z rozmów",
+    "href": "/jobs/pytania",
+    "section": "pipeline",
+    "dot_anchor": "jobs.question-bank.manager"
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",

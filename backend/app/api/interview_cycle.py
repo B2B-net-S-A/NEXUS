@@ -78,6 +78,7 @@ from app.services import (
 from app.services.candidate_claim import is_integration_request
 from app.services.client_questions_asked import (
     client_questions_with_jobs,
+    question_bank,
     question_hash as _question_hash,
     questions_asked_in_job,
 )
@@ -416,6 +417,30 @@ class ClientQuestionOut(BaseModel):
     created_at: Optional[datetime] = None
     # Rekrutacje, w których pytanie padło; pusta przy liście jednej rekrutacji.
     jobs: list[ClientQuestionJobOut] = []
+
+
+class QuestionBankRoleOut(BaseModel):
+    job_id: int
+    title: str
+    job_number: Optional[str] = None
+    manager: Optional[str] = None
+
+
+class QuestionBankItemOut(BaseModel):
+    id: int
+    text: str
+    client_id: int
+    client_name: Optional[str] = None
+    # ``debrief`` — z telefonu po rozmowie; ``archive`` — import Excela (0383).
+    source: Literal["debrief", "archive"]
+    roles: list[QuestionBankRoleOut] = []
+    managers: list[str] = []
+    asked_count: int = 0
+    last_asked_at: Optional[datetime] = None
+
+
+class QuestionBankOut(BaseModel):
+    items: list[QuestionBankItemOut]
 
 
 class ArchiveQuestionOut(BaseModel):
@@ -1839,6 +1864,50 @@ async def save_pair_debrief(
         now=now,
     )
     return await _store_debrief(db, event, body, current_user)
+
+
+@router.get("/interview-cycle/question-bank", response_model=QuestionBankOut)
+async def get_question_bank(
+    current_user: RecruitmentReadAccess,
+    db: AsyncSession = Depends(get_db),
+) -> QuestionBankOut:
+    """Rekrutacje → „Pytania z rozmów” (prośba DL-a z 24.11.2026): pytania
+    klientów z debriefów i archiwum Excela, ze stanowiskiem i managerem
+    z rekrutacji. Zakres jak przy ``client-questions?client_id=``: klienci,
+    których choć jedną rekrutację wołający czyta."""
+    rows = await question_bank(
+        db, job_scope=job_read_scope_clause(current_user, Job.id)
+    )
+    items: list[QuestionBankItemOut] = []
+    for row in rows:
+        q = row.question
+        managers = sorted({r.manager for r in row.roles if r.manager})
+        items.append(
+            QuestionBankItemOut(
+                id=q.id,
+                text=q.text,
+                client_id=q.client_id,
+                client_name=row.client_name,
+                source=(
+                    "archive"
+                    if q.source == InterviewQuestionSource.legacy_import
+                    else "debrief"
+                ),
+                roles=[
+                    QuestionBankRoleOut(
+                        job_id=r.job_id,
+                        title=r.title,
+                        job_number=r.client_reference,
+                        manager=r.manager,
+                    )
+                    for r in row.roles
+                ],
+                managers=managers,
+                asked_count=row.asked_count,
+                last_asked_at=row.last_asked_at or q.created_at,
+            )
+        )
+    return QuestionBankOut(items=items)
 
 
 @router.get("/interview-cycle/client-questions", response_model=list[ClientQuestionOut])

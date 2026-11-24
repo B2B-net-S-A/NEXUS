@@ -174,6 +174,12 @@ przekroczenia. Od 24.11.2026 `rebate.year_rebate` dolicza je z archiwum
   wdrożeniu czyta kilkaset plików, następne już nie.
 - Karta faktury pokazuje, ile faktur z archiwum weszło do obrotu. Dokument bez czytelnego pliku nie
   wchodzi do obrotu, a karta pokazuje na czerwono, ile takich jest, bo obrót jest wtedy zaniżony.
+- Raport „Rabat od obrotu rocznego” (`client_reports/generators/annual_spend.py`) dolicza te same faktury
+  tak samo jak `year_rebate` i pokazuje je na liście faktur. Pyta archiwum o zakres dat sprzedaży
+  (`rebate_archive.pre_ksef_between`), a nie o rok: miesiąc wchodzi, gdy jego pierwszy dzień leży w okresie,
+  jak przy fakturach z KSeF. Dziś raport ma tylko rytm roczny, ale okres może kiedyś objąć dwa lata (rok
+  umowy). Ostrzeżenie o niepełnym okresie liczy od najwcześniejszej faktury z KSeF albo z archiwum.
+  Nieczytelne pliki trafiają do kontroli raportu. Test: `tests/test_client_reports_annual_spend_db.py`.
 - Sprawdzenie na kopii produkcji 24.11.2026: obrót I–III z kodu równa się co do grosza osobnemu
   przeliczeniu plików eBI24. Miesiąc przekroczenia progu, stawka faktur za następny miesiąc i kwota
   korekty wychodzą tak samo jak w tym przeliczeniu.
@@ -186,5 +192,3 @@ przekroczenia. Od 24.11.2026 `rebate.year_rebate` dolicza je z archiwum
   Gdy próg pada w miesiącu, który jest tylko w archiwum eBI24, szkic pokaże kwotę, ale bez XML-a
   („Faktury z miesiąca nie mają pozycji usług ze stawką VAT”). U Nordei w 2026 r. próg pada później,
   a okres od 2024 ma jedną stawkę bez progu.
-- Raport „Rabat od obrotu rocznego” (`client_reports/generators/annual_spend.py`) liczy obrót tylko
-  z KSeF i ostrzega o niepełnym okresie. Archiwum eBI24 go jeszcze nie zasila.

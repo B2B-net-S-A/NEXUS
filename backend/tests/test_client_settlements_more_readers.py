@@ -148,6 +148,64 @@ W sumie 17 17
     assert _sheet_result(parsed).md_regular == Decimal("2.125")
 
 
+# Time Sheet Boscha w PDF (próba IX–X 2026): daty „DD-MM-RRRR”, a opis zawinięty
+# w komórce rozbija wiersz — data stoi sama, godziny w następnej linii.
+TS_PDF_DMY = """Time Sheet
+Project Name ALFA
+Consultant(s) Jan Testowy
+Date from 01.09.2026
+Date to 30.09.2026
+Date Project Description Total Hours Billable Non-billable
+01-09-2026 ALFA Testy regresji 8 8 0
+02-09-2026 ALFA 8 8 0
+Przegląd zadań po aktualizacji
+03-09-2026
+ALFA środowiska testowego 8 8 0
+04-09-2026 ALFA Testy regresji 7,5 7,5 0
+05-09-2026
+07-09-2026 ALFA Testy regresji 8 8 0
+Total Hours (This Month) 39,5
+Print Name Print Name
+Signed on behalf of Consultant Signed for on behalf of B2Bnetwork
+Date 30.09.2026
+"""
+
+
+def test_time_sheet_pdf_z_datami_dzien_miesiac_rok():
+    parsed = timesheet.parse_rows([timesheet.text_rows(TS_PDF_DMY)])
+
+    assert parsed is not None
+    assert parsed.consultant == PERSON
+    assert parsed.month == MONTH
+    assert [e.day.day for e in parsed.entries] == [1, 2, 3, 4, 7]
+    assert parsed.total_hours == Decimal("39.5")
+    assert parsed.declared_total == Decimal("39.5")
+    result = _sheet_result(parsed)
+    assert result.md_regular == Decimal("4.938")
+    assert _titles(result)["Godziny policzone od nowa"] == "ok"
+    assert not result.blocking
+
+
+def test_time_sheet_pdf_godziny_wiersza_z_opisem_zawinietym_pod_data():
+    parsed = timesheet.parse_rows([timesheet.text_rows(TS_PDF_DMY)])
+
+    wrapped = next(e for e in parsed.entries if e.day.day == 3)
+    assert wrapped.hours == Decimal("8")
+    assert wrapped.description == "ALFA środowiska testowego"
+
+
+def test_time_sheet_pdf_data_bez_godzin_nie_bierze_godzin_innej_linii():
+    text = TS_PDF_DMY.replace(
+        "03-09-2026\nALFA środowiska testowego 8 8 0",
+        "03-09-2026\nALFA wydanie 2026",
+    )
+    parsed = timesheet.parse_rows([timesheet.text_rows(text)])
+
+    assert [e.day.day for e in parsed.entries] == [1, 2, 4, 7]
+    # Sobota 05-09 bez godzin nie bierze godzin z wiersza 07-09.
+    assert all(e.day.day != 5 for e in parsed.entries)
+
+
 def test_pdf_spoza_wzoru_time_sheet_to_none():
     assert timesheet.text_rows("Faktura nr 1/09/2026\nRazem 1000,00 PLN") is None
     # Wiersze z datami bez nagłówka szablonu to nie Time Sheet.

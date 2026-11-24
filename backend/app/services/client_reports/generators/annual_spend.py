@@ -11,9 +11,15 @@ datą wystawienia (decyzja Artura 16.11.2026, ta sama co przy nocie rabatowej
 w ``client_invoicing``; progi Nordei są w EUR, faktury w PLN). Faktura bez
 kursu w ``fx_rates`` wypada z obrotu i trafia do kontroli.
 
-Progi: ``[{"up_to": 15000000, "rate": 2.5}, {"up_to": null, "rate": 3}]`` —
-``up_to`` to górna granica włącznie, ``null`` = bez górnej granicy, ``rate``
-w procentach. Kolejność z formularza nie ma znaczenia (sortujemy po granicy).
+Faktury sprzed KSeF (u Nordei styczeń–marzec 2026) dochodzą z archiwum eBI24
+(``client_invoicing.rebate_archive``) tak samo jak w ``rebate.year_rebate``:
+miesiąc i kurs NBP z daty sprzedaży, te same słowa wyłączające (24.11.2026).
+Plik archiwum nieczytelny wypada z obrotu i trafia do kontroli.
+
+Progi (przykład z fikcyjnymi liczbami):
+``[{"up_to": 1000000, "rate": 1}, {"up_to": null, "rate": 2}]`` — ``up_to`` to
+górna granica włącznie, ``null`` = bez górnej granicy, ``rate`` w procentach.
+Kolejność z formularza nie ma znaczenia (sortujemy po granicy).
 
 * z „Progowo” (domyślnie): każda część obrotu po stawce swojego progu — obrót
   do progu po niższej stawce, nadwyżka po wyższej. Tak liczy się rabat Nordei
@@ -40,12 +46,14 @@ from app.services.client_reports.generators.client_data import (
     InvoiceRow,
     cents,
     invoice_type_label,
+    period_months,
     sales_invoices,
     sheet_amount,
     totals_by_currency,
 )
-from app.services.client_invoicing import issue_settings
+from app.services.client_invoicing import issue_settings, rebate_archive
 from app.services.client_invoicing.rebate import service_base
+from app.services.client_invoicing.rebate_archive import ArchiveInvoice
 from app.services.fx_service import rates_to_pln_by_date
 from app.services.client_reports.registry import (
     Generator,
@@ -289,6 +297,49 @@ async def first_invoice_date(db: AsyncSession, client_id: int) -> Optional[date]
     )
 
 
+def archive_window(start: date, end: date) -> Optional[tuple[date, date]]:
+    """Daty sprzedaży faktur z archiwum za miesiące okresu (od, do — bez niego).
+
+    Miesiąc wchodzi, gdy jego pierwszy dzień leży w okresie, jak miesiąc usługi
+    faktur z KSeF. Zakres dat zamiast roku, bo okres raportu może zaczynać się
+    w jednym roku kalendarzowym, a kończyć w następnym.
+    """
+    months = period_months(start, end)
+    if not months:
+        return None
+    year, month = (int(part) for part in months[-1].split("-"))
+    until = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    return date.fromisoformat(f"{months[0]}-01"), until
+
+
+def archive_row(doc: ArchiveInvoice) -> InvoiceRow:
+    """Faktura z archiwum eBI24 jak z KSeF: miesiąc i kurs NBP z daty sprzedaży."""
+    return InvoiceRow(
+        invoice_number=doc.invoice_number,
+        invoice_type="KOR" if doc.correction else "VAT",
+        invoice_kind=None,
+        issue_date=doc.issue_date,
+        service_month=doc.sale_date.replace(day=1),
+        currency=doc.currency,
+        net_amount=doc.net_amount,
+        sale_date=doc.sale_date,
+        items=doc.items,
+    )
+
+
+async def archive_invoices(
+    db: AsyncSession, client_id: int, start: date, end: date
+) -> tuple[list[InvoiceRow], int]:
+    """Faktury sprzed KSeF z archiwum eBI24 za miesiące okresu i liczba nieczytelnych plików."""
+    window = archive_window(start, end)
+    if window is None:
+        return [], 0
+    docs, unreadable = await rebate_archive.pre_ksef_between(
+        db, client_id=client_id, since=window[0], until=window[1]
+    )
+    return [archive_row(doc) for doc in docs], unreadable
+
+
 def rate_text(rate: Decimal) -> str:
     return f"{rate.normalize():f}".replace(".", ",") + "%"
 
@@ -299,9 +350,17 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
     tiers = param(ctx, GENERATOR, "tiers") or []
     marginal = bool(param(ctx, GENERATOR, "marginal"))
 
-    # Rok po okresie usługi (bez okresu — data wystawienia), jak rabat na fakturach.
-    invoices = await sales_invoices(
+    # Rok po okresie usługi (bez okresu — data wystawienia), jak rabat na fakturach;
+    # faktury sprzed KSeF z archiwum eBI24 po miesiącu daty sprzedaży.
+    ksef = await sales_invoices(
         db, ctx.client_id, period.start, period.end, by_service_month=True
+    )
+    archived, unreadable = await archive_invoices(
+        db, ctx.client_id, period.start, period.end
+    )
+    invoices = sorted(
+        [*archived, *ksef],
+        key=lambda i: (i.service_month or date.min, i.issue_date or date.min),
     )
     turnovers = turnover_by_currency(invoices)
     words = await exclude_words_for(db, ctx.client_id)
@@ -334,6 +393,17 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
         )
 
     checks: list[str] = turnover_checks(converted, words)
+    if archived:
+        checks.append(
+            f"Faktury sprzed KSeF z archiwum eBI24 w obrocie: {len(archived)} "
+            "(miesiąc i kurs NBP z daty sprzedaży)."
+        )
+    if unreadable:
+        checks.append(
+            f"Faktury sprzed KSeF bez czytelnego pliku w archiwum eBI24: {unreadable} — "
+            "nie weszły do obrotu, więc obrót jest zaniżony; sprawdź pliki archiwum "
+            "przed wysłaniem."
+        )
     if not tiers:
         checks.append(
             "Definicja nie ma progów rabatu — uzupełnij je w ustawieniach raportu."
@@ -350,11 +420,16 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
         checks.append(
             "Brak faktur sprzedaży wystawionych w okresie — sprawdź pobranie z KSeF."
         )
-    first = await first_invoice_date(db, ctx.client_id)
+    # Najwcześniejsza faktura: pierwsza z KSeF albo z archiwum eBI24 w okresie.
+    days = [await first_invoice_date(db, ctx.client_id)]
+    days += [i.sale_date for i in archived]
+    first = min((day for day in days if day is not None), default=None)
     if first is not None and incomplete_from(first, period.start):
+        source = "KSeF i archiwum eBI24" if archived else "KSeF"
+        fill = "KSeF albo archiwum eBI24" if archived else "KSeF"
         checks.append(
-            f"Faktury z KSeF są w NEXUSIE od {first:%d.%m.%Y} — obrót za wcześniejsze "
-            "miesiące okresu jest niepełny; uzupełnij pobranie z KSeF przed wysłaniem."
+            f"Faktury z {source} są w NEXUSIE od {first:%d.%m.%Y} — obrót za wcześniejsze "
+            f"miesiące okresu jest niepełny; uzupełnij pobranie z {fill} przed wysłaniem."
         )
 
     sheets = [

@@ -21,8 +21,8 @@ wiadomości wątku, która je ma, bo cytaty niżej mają nieaktualne liczby.
 Rozliczenie (`service._recompute`) bierze podział z maili miesiąca osoby, najnowszy pierwszy:
 
 - **Autor z domeny klienta** (`acceptance_senders`), także przy wyłączonych regułach
-  akceptacji. Zamówienia wskazuje klient, więc ten sam tekst napisany u nas nie dzieli
-  rozliczenia.
+  akceptacji, i nie sam konsultant ze skrzynką u klienta (`_without_consultant`, #3884).
+  Zamówienia wskazuje klient, więc ten sam tekst napisany u nas nie dzieli rozliczenia.
 - **Osoba**: przy liniach osoba dokumentu, przy tabeli wiersz z jej imieniem i nazwiskiem
   w dowolnej kolejności.
 - **Zamówienie** po numerze z maila wśród linii zamówień kontraktu (bez anulowanych), także

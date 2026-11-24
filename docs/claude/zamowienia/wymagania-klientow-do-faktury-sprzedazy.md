@@ -35,11 +35,20 @@ Obie reguły są przełącznikami w „Reguły klienta”, domyślnie wyłączon
 | Reguła | Co robi | Dlaczego |
 |---|---|---|
 | `cl.bzone_order` | Każdy dzień roboczy pracy osoby w miesiącu faktury (miesiąc ∩ okres kontraktu, do `terminated_at`) musi leżeć w okresie zamówienia klienta tej osoby z numerem `K/RRRR/<nr>/<inicjały>/<nr>/<kod>`. Liczą się wszystkie aktywne i zakończone zamówienia kontraktu (zlecenie do 15., następne od 16.), bez szkiców i anulowanych; numer samodzielnego zamówienia to tytuł, linii MD — numer grupy. Brak = „Wystaw za miesiąc” blokuje wiersz i szkic (409), a karta szkicu blokuje wysyłkę (sprawdzane też przy wysyłce, gdy reguła weszła po szkicu). Komunikat: „Brak zlecenia B-ZONE na ten okres — poproś KAM o zlecenie: osoba (dni bez zlecenia)”. Pozycja bez kontraktu też czeka. Korekty i zaliczki nie są sprawdzane | Bank przyjmuje fakturę tylko z numerem zlecenia, które obejmuje okres. Zlecenia przychodzą do KAM-a, nie zawsze na rozliczenia@, a osoba potrafi zacząć pracę przed zleceniem |
-| `cl.client_protocol` | Karta szkicu ostrzega (`warnings`), gdy wśród raportów miesiąca osoby (`cp_documents`, PDF) nie ma protokołu odbioru od klienta: nadawca z domeny klienta (`identity.client_ids_for_sender`), okres z treści PDF = miesiąc faktury, osoba w protokole i numer umowy z treści = umowa wykonawcza osoby (`client_executive_contracts` z zamówienia, inaczej numer zamówienia pozycji; nieznana umowa = każda). Fakturę można wysłać | Klient przysyła protokół ok. miesiąc po okresie; faktury wychodziły z wewnętrznego zestawienia godzin i jedna wymagała korekty |
+| `cl.client_protocol` | Karta szkicu ostrzega (`warnings`), gdy wśród raportów miesiąca osoby (`cp_documents`, PDF) nie ma protokołu odbioru od klienta: nadawca z domeny klienta (`identity.client_ids_for_sender`), okres z treści PDF = miesiąc faktury, osoba w protokole (inne imię: numer umowy tylko tej osoby, niżej) i numer umowy z treści = umowa wykonawcza osoby (`client_executive_contracts` z zamówienia, inaczej numer zamówienia pozycji; nieznana umowa = każda). Fakturę można wysłać | Klient przysyła protokół ok. miesiąc po okresie; faktury wychodziły z wewnętrznego zestawienia godzin i jedna wymagała korekty |
 
 - **Okres i umowa z treści PDF, nie z tematu maila.** Tematy protokołów jednej umowy bywają identyczne dla
   kolejnych miesięcy, a w wątku jednej umowy PM odesłał protokół innej. Numer umowy czyta
   `protocol_collective` („Nr umowy (Wykonawczej) CeZ/…” → `Protocol.contract`, porównanie `contract_key`).
+- **Inne imię w protokole niż w kartotece (24.11.2026).** CeZ pisze w protokole zdrobnienie albo inne imię
+  (CeZ/177 za X 2026: to samo nazwisko, inne imię), więc faktura dostawała fałszywe „Brak protokołu odbioru”,
+  choć protokół leżał w dokumentach osoby. Gdy imię się nie zgadza, liczy się protokół jednej osoby z numerem
+  umowy, na której w miesiącu faktury pracuje tylko osoba z pozycji (`protocol_collective.by_agreement`
+  z `client_settlements.service._sole_agreements`: linie zamówień z miesiąca, bez anulowanych). To ta sama
+  zasada i ta sama funkcja co w rozliczeniu (#3881), żeby rozliczenie i faktura mówiły to samo. Umowa kilku
+  osób w miesiącu (CeZ/242) albo protokół kilku osób = ostrzeżenie zostaje. Klon próby (v6r2id), protokół
+  CeZ/177 za X: przed zmianą nie pasował do osoby, po zmianie pasuje. Ostrzeżenie zostaje tam przez nadawcę:
+  dokument z 17.11 ma adres firmy (punkt niżej).
 - **Protokół od klienta, choć przychodzi od nas.** Na rozliczenia@ protokół CeZ nigdy nie przychodzi z domeny
   klienta: PM podpisuje protokół od CeZ i odsyła go do CeZ z DW rozliczenia@ albo przekazuje dalej
   (kopia v5: wszystkie PDF-y protokołów IX–X od adresu firmy). Decyzja Artura z 24.11.2026: liczy się protokół
@@ -93,8 +102,10 @@ Obie reguły są przełącznikami w „Reguły klienta”, domyślnie wyłączon
   `wystawianie-faktur-sprzedazy-do-ksef.md` („XSD nie ma w repo”) jest nieaktualny.
 - Zlecenie B-ZONE i protokół odbioru bez bazy: `tests/test_client_invoice_period_checks.py` (zlecenie kwartalne,
   kończące się przed końcem miesiąca, kolejne zlecenie, brak zlecenia, niepełny numer, protokół innej umowy
-  i innego miesiąca, adres klienta z wątku); z bazą: sekcja „Zlecenie B-ZONE…” w `test_client_invoice_issue_api.py`
-  i nadawca protokołu w `test_consultant_portal_protocol_mail_db.py`.
+  i innego miesiąca, inne imię z umową tylko tej osoby, umowa dwóch osób, adres klienta z wątku); z bazą:
+  sekcja „Zlecenie B-ZONE…” w `test_client_invoice_issue_api.py` (tam też inne imię w protokole: umowa tylko
+  tej osoby bez ostrzeżenia, druga osoba na umowie z ostrzeżeniem) i nadawca protokołu
+  w `test_consultant_portal_protocol_mail_db.py`.
 - Reguły bez bazy: `tests/test_client_invoice_requirements.py`; ścieżka z bazą (szkic z dwóch zamówień, `NrUmowy`,
   `OSOBA`, nabywca per kontrakt z `AdresKoresp`, tekst wymagany w pozycji, blokada bez protokołu):
   `tests/test_client_invoice_issue_api.py`.
