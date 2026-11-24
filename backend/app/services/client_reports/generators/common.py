@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
-from typing import Optional
+from typing import Iterable, Optional
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -65,3 +65,51 @@ async def contracts_in_period(
         _CONTRACTS_SQL, {"client_id": client_id, "start": start, "end": end}
     )
     return [ContractInPeriod(*row) for row in result.all()]
+
+
+_NEIGHBOURS_SQL = text(
+    """
+    SELECT DISTINCT k.candidate_id, k.end_date = :before AS before_period
+      FROM contracts k
+     WHERE k.client_id = :client_id
+       AND k.candidate_id = ANY(:candidate_ids)
+       AND k.voided_at IS NULL
+       AND k.status::text IN ('active', 'ending', 'ended')
+       AND (k.end_date = :before OR k.start_date = :after)
+    """
+)
+
+
+async def continuing_people(
+    db: AsyncSession,
+    client_id: int,
+    candidate_ids: Iterable[int],
+    start: date,
+    end: date,
+) -> tuple[frozenset[int], frozenset[int]]:
+    """Osoby, których kontrakt u klienta ciągnie się przez granicę okresu.
+
+    Kolejny kontrakt tej samej osoby (zmiana stawki, aneks) zaczyna się dzień
+    po końcu poprzedniego. Sąsiad spoza okresu nie trafia do
+    :func:`contracts_in_period`, więc bez tego odczytu zmiana od 1. dnia
+    miesiąca wyglądała jak „zakończyła” w jednym miesiącu i „weszła”
+    w następnym. Zwraca (kontrakt skończył się dzień przed okresem, kontrakt
+    zaczyna się dzień po okresie).
+    """
+    ids = sorted(set(candidate_ids))
+    if not ids:
+        return frozenset(), frozenset()
+    result = await db.execute(
+        _NEIGHBOURS_SQL,
+        {
+            "client_id": client_id,
+            "candidate_ids": ids,
+            "before": start - timedelta(days=1),
+            "after": end + timedelta(days=1),
+        },
+    )
+    before: set[int] = set()
+    after: set[int] = set()
+    for candidate_id, before_period in result.all():
+        (before if before_period else after).add(int(candidate_id))
+    return frozenset(before), frozenset(after)

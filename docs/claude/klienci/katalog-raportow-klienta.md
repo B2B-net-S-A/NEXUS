@@ -51,5 +51,17 @@ sesji, nie w repo — ma nazwy i liczby). Decyzje Artura z 15.11.2026 niżej.
   „edycja klientów”, zakres klientów DL-a w handlerze; pobranie plików z
   `NOT_READ_ONLY`. Plik spoza NEXUSA w historii pobiera tylko osoba z podglądem
   kwot (sprawozdania i protokoły bywają z kwotami, jak umowy).
+- **Kwoty raportu = portfel kwot klienta, nie zakres Delivery** (audyt
+  24.11.2026). Podgląd i pobranie generatora z `needs_amounts`, plik
+  z historii i progi w parametrach definicji idą przez
+  `can_read_client_finance` dla `client_id` definicji. Zakres Delivery hybrydy
+  DL + Talent Community Manager to wszyscy klienci, a kwoty — tylko klienci
+  z przypisania; poza nim 403 „Ten klient jest poza Twoim portfelem.”
+  (`uprawnienia/delivery-lead-widzi-kwoty-wlasnego-portfela-profil.md`).
+- **Zestawienie zaangażowania liczy osoby** (`generators/headcount.py`):
+  kilka kontraktów jednej osoby to jedna osoba, także w „Według zamówień”.
+  Kolejny kontrakt od dnia po końcu poprzedniego (zmiana stawki od 1. dnia
+  miesiąca) to ciągłość, nie „zakończyła” + „weszła”
+  (`common.continuing_people`).
 - Repo publiczne: definicji klientów nie zasiewamy z inwentarza (to treść
   umów). Katalog wypełnia DL przyciskiem albo ręcznie.

@@ -1,8 +1,9 @@
 """Zestawienie zaangażowania: ile osób świadczyło usługi dla klienta w okresie.
 
 Pierwszy klient: BNP (aneks do umowy ramowej, co miesiąc do 5. dnia). Liczba
-osób = kontrakty klienta podpisane i nie unieważnione, które choć jednego dnia
-okresu trwały. Imiona i nazwiska w pliku tylko z parametrem „Lista osób”, bo
+osób = osoby z kontraktem klienta podpisanym i nie unieważnionym, który choć
+jednego dnia okresu trwał — kilka kontraktów jednej osoby (zmiana stawki) to
+jedna osoba, także w podziale na zamówienia. Imiona i nazwiska w pliku tylko z parametrem „Lista osób”, bo
 umowa wymaga liczby.
 """
 
@@ -15,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.client_reports.generators.common import (
     ContractInPeriod,
+    continuing_people,
     contracts_in_period,
 )
 from app.services.client_reports.registry import (
@@ -31,23 +33,38 @@ from app.services.client_reports.registry import (
 NO_ORDER = "(bez numeru zamówienia)"
 
 
+def _person(row: ContractInPeriod) -> object:
+    return row.candidate_id or ("k", row.contract_id)
+
+
 def people_in_period(
-    rows: list[ContractInPeriod], start: date, end: date
+    rows: list[ContractInPeriod],
+    start: date,
+    end: date,
+    *,
+    continued_from: frozenset[int] = frozenset(),
+    continues_after: frozenset[int] = frozenset(),
 ) -> tuple[int, int, int]:
     """Osoby, nie kontrakty: zmiana stawki w połowie miesiąca to drugi kontrakt
     tej samej osoby. Weszła = jej najwcześniejszy kontrakt zaczyna się
-    w okresie; zakończyła = najpóźniejszy kończy się w okresie."""
+    w okresie; zakończyła = najpóźniejszy kończy się w okresie.
+
+    Zmiana od 1. dnia miesiąca to kontrakt spoza okresu: ``continued_from`` to
+    osoby, których kontrakt skończył się dzień przed okresem, ``continues_after``
+    — te, których kolejny kontrakt zaczyna się dzień po nim
+    (:func:`continuing_people`). Taka ciągłość nie jest ani wejściem, ani
+    zakończeniem."""
     by_person: dict[object, list[ContractInPeriod]] = {}
     for row in rows:
-        by_person.setdefault(row.candidate_id or ("k", row.contract_id), []).append(row)
+        by_person.setdefault(_person(row), []).append(row)
     started = ended = 0
-    for contracts in by_person.values():
+    for person, contracts in by_person.items():
         first = min(c.start_date for c in contracts if c.start_date)
-        if first >= start:
+        if first > start or (first == start and person not in continued_from):
             started += 1
         if all(c.end_date is not None for c in contracts):
             last = max(c.end_date for c in contracts if c.end_date)
-            if last <= end:
+            if last < end or (last == end and person not in continues_after):
                 ended += 1
     return len(by_person), started, ended
 
@@ -55,19 +72,34 @@ def people_in_period(
 async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
     period = ctx.period
     rows = await contracts_in_period(db, ctx.client_id, period.start, period.end)
-    people, started_count, ended_count = people_in_period(
-        rows, period.start, period.end
+    continued_from, continues_after = await continuing_people(
+        db,
+        ctx.client_id,
+        (r.candidate_id for r in rows if r.candidate_id),
+        period.start,
+        period.end,
     )
-    by_order = Counter(r.order_number or NO_ORDER for r in rows)
+    people, started_count, ended_count = people_in_period(
+        rows,
+        period.start,
+        period.end,
+        continued_from=continued_from,
+        continues_after=continues_after,
+    )
+    # Osoba z dwoma kontraktami pod jednym zamówieniem to jedna osoba.
+    by_order = Counter(
+        order for order, _ in {(r.order_number or NO_ORDER, _person(r)) for r in rows}
+    )
     without_order = by_order.get(NO_ORDER, 0)
+    contracts_with_order = sum(1 for r in rows if r.order_number)
 
     lines = (
         SummaryLine(
-            "Członkowie zespołu świadczący usługi w okresie", str(len(rows)), True
+            "Członkowie zespołu świadczący usługi w okresie", str(people), True
         ),
         SummaryLine(
             "kontrakty z numerem zamówienia",
-            f"{len(rows) - without_order} z {len(rows)}",
+            f"{contracts_with_order} z {len(rows)}",
         ),
         SummaryLine("weszli w okresie", str(started_count)),
         SummaryLine("zakończyli w okresie", str(ended_count)),
