@@ -109,8 +109,9 @@ od tej zasady: `finanse-insights/rozliczenia-projekty-fix-akceptacja-pm.md`.
 - **Zmiana nazwiska.** Plik „PROTOKÓŁ_ Imię Nowe (Stare)_…” pasuje do kontraktu, bo
   `identity.resolve_named_in_text` wymaga imienia i każdego członu nazwiska
   z kontraktu, a dodatkowe nazwisko w nazwie nie przeszkadza. Na v5 taki plik był
-  przypisany do właściwej osoby. Plik z samym nowym nazwiskiem nie wskazuje osoby,
-  dopóki kontrakt ma stare: kartoteka nie ma drugiego nazwiska.
+  przypisany do właściwej osoby. Od 24.11.2026 kartoteka „Nowe (Stare)” pasuje do pliku
+  z każdym z nazwisk (`finanse-insights/rozliczenia-osoba-z-pliku-skrzynki-i-umowy.md`).
+  Bez nawiasu w kartotece samo nowe nazwisko nie wskazuje osoby z kontraktem na stare.
 - **`cl.protocol_amount`** (sekcja „Faktura do klienta”, domyślnie wyłączona).
   `engine.compute` porównuje kwotę do faktury z kwotą netto z protokołu klienta
   (`declared.evaluate` → `meta.document_amount`). Kwota do faktury to MD × stawka
