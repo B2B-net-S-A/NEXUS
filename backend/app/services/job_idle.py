@@ -51,7 +51,7 @@ from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
 from app.services.autofill_decisions import business_days_since
 from app.services.job_priority import level_of
-from app.services.job_similarity import CLIENT_STAGES
+from app.services.job_similarity import CLIENT_STAGES, request_statuses_and_stages
 
 logger = logging.getLogger(__name__)
 
@@ -468,7 +468,7 @@ async def run_idle_sweep(
     due = {job_id: s for job_id, s in states.items() if s.stage is not None}
     info = {row[0]: row for row in jobs}
     p1_quiet = _p1_without_cv(facts, info, now=now)
-    overdue = overdue_jobs(info, today=_local_day(now))
+    overdue = await _overdue_on_the_list(db, overdue_jobs(info, today=_local_day(now)))
     markers = await _markers(db, set(due) | set(p1_quiet) | set(overdue))
 
     users = (
@@ -619,25 +619,9 @@ async def run_idle_sweep(
         sent += int(created is not None)
     overdue_by_lead: dict[int, list[_Line]] = {}
     for job_id, (days, deadline) in sorted(overdue.items(), key=lambda kv: -kv[1][0]):
-        since_iso = deadline.isoformat()
-        if f"{OVERDUE_STAGE}|{since_iso}" in markers.get(job_id, {}):
+        if f"{OVERDUE_STAGE}|{deadline.isoformat()}" in markers.get(job_id, {}):
             continue
         _id, title, working_title, lead_id, client, *_rest = info[job_id]
-        db.add(
-            Activity(
-                entity_type="job",
-                entity_id=job_id,
-                action=MARKER_ACTION,
-                user_id=None,
-                details={
-                    "stage": OVERDUE_STAGE,
-                    "since": since_iso,
-                    "days": days,
-                    "on": _local_day(now).isoformat(),
-                },
-            )
-        )
-        counts[OVERDUE_STAGE] += 1
         line = _Line(
             job_id=job_id,
             title=working_title or title,
@@ -648,6 +632,7 @@ async def run_idle_sweep(
         )
         for uid in leads_of(lead_id):
             overdue_by_lead.setdefault(uid, []).append(line)
+    rung: set[int] = set()
     for uid, lines in sorted(overdue_by_lead.items()):
         title, message, link = overdue_notice_text(lines)
         created = await emit(
@@ -661,15 +646,52 @@ async def run_idle_sweep(
             link=link,
         )
         sent += int(created is not None)
+        if created is not None:
+            rung.update(line.job_id for line in lines)
+    # Znacznik dopiero po wpisie: dzienny dedup `emit` (ten sam typ i pierwsza
+    # rekrutacja co dzwonek „P1 bez CV”) zjadłby dzwonek na zawsze.
+    for job_id in sorted(rung):
+        days, deadline = overdue[job_id]
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=job_id,
+                action=MARKER_ACTION,
+                user_id=None,
+                details={
+                    "stage": OVERDUE_STAGE,
+                    "since": deadline.isoformat(),
+                    "days": days,
+                    "on": _local_day(now).isoformat(),
+                },
+            )
+        )
+    counts[OVERDUE_STAGE] = len(rung)
     counts["sent"] = sent
     await db.flush()
     return counts
 
 
+async def _overdue_on_the_list(
+    db: AsyncSession, candidates: dict[int, tuple[int, date]]
+) -> dict[int, tuple[int, date]]:
+    """Zostają tylko te, które lista pokazuje jako „Po terminie” — „Umowa”
+    i „Obsadzona” mają pierwszeństwo w ``request_stage_expr`` i paska nie mają."""
+    if not candidates:
+        return {}
+    stages = await request_statuses_and_stages(db, list(candidates))
+    return {
+        job_id: value
+        for job_id, value in candidates.items()
+        if stages.get(job_id, (None, None))[1] == OVERDUE_STAGE
+    }
+
+
 def overdue_jobs(info: dict[int, Any], *, today: date) -> dict[int, tuple[int, date]]:
     """„Szukamy” bez championa z terminem przed dziś: job_id → (dni po, termin).
 
-    Ta sama reguła co pigułka „Po terminie” (``request_stage_expr``)."""
+    Wstępny odsiew; ostatnie słowo ma ``request_stage_expr``
+    (``_overdue_on_the_list``) — ta sama reguła co pigułka „Po terminie”."""
     out: dict[int, tuple[int, date]] = {}
     for job_id, row in info.items():
         work_state, champion, deadline = row[6:9]

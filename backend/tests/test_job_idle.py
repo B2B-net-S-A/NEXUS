@@ -472,3 +472,80 @@ async def test_sweep_rings_the_lead_once_per_deadline_when_searching_is_overdue(
     # Nowy termin, który też minął = nowy cykl.
     await set_deadline(1)
     assert (await _sweep(job_id))[job_idle.OVERDUE_STAGE] == 1
+
+
+@pytest.mark.asyncio
+async def test_overdue_bell_skips_jobs_the_list_shows_as_contract(
+    app_client: AsyncClient,
+) -> None:
+    """Lista mówi „Umowa” (pierwszeństwo przed „Po terminie”) — bez dzwonka."""
+    from sqlalchemy import update
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.models.job import Job
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from tests.test_pipeline_membership_gate import _seed_candidate
+
+    job_id, _lead_id, _hor_id = await _seed(opened_days_ago=2, start_days_ago=0)
+    candidate_id = await _seed_candidate()
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Job)
+            .where(Job.id == job_id)
+            .values(
+                work_state="searching", deadline=business_today() - timedelta(days=3)
+            )
+        )
+        db.add(
+            CandidateStage(
+                candidate_id=candidate_id,
+                job_id=job_id,
+                stage=PipelineStage.negotiation,
+                moved_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+    assert (await _sweep(job_id))[job_idle.OVERDUE_STAGE] == 0
+
+
+@pytest.mark.asyncio
+async def test_overdue_bell_eaten_by_daily_dedup_is_retried(
+    app_client: AsyncClient,
+) -> None:
+    """Dzwonek „P1 bez CV” o tej samej rekrutacji tego dnia blokuje wpis
+    (dedup dobowy `emit`) — znacznik nie powstaje, więc dzwonek wraca."""
+    from sqlalchemy import delete, update
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.models.job import Job
+    from app.models.notification import Notification, NotificationType
+
+    job_id, lead_id, _hor_id = await _seed(opened_days_ago=2, start_days_ago=0)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Job)
+            .where(Job.id == job_id)
+            .values(
+                work_state="searching", deadline=business_today() - timedelta(days=3)
+            )
+        )
+        earlier = Notification(
+            user_id=lead_id,
+            title="P1 bez CV: 1 rekrutacja",
+            message="pytest",
+            notification_type=NotificationType.request_review_needed,
+            related_entity_type="job",
+            related_entity_id=job_id,
+        )
+        db.add(earlier)
+        await db.commit()
+        earlier_id = earlier.id
+
+    assert (await _sweep(job_id))[job_idle.OVERDUE_STAGE] == 0
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(Notification).where(Notification.id == earlier_id))
+        await db.commit()
+    assert (await _sweep(job_id))[job_idle.OVERDUE_STAGE] == 1
