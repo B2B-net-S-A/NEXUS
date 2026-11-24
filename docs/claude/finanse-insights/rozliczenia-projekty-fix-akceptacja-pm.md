@@ -1,6 +1,6 @@
 # Rozliczenia: projekty FIX — godziny podwykonawcy akceptuje PM firmy
 
-<!-- indeks: FIX, FIX / produkt, engagement_model, EngagementModel.fixed, model rozliczeń, akceptacja PM-a, koszt firmy, protokół odbioru, numer DN, limit MD na etap, fix_senders, FIX_ACCEPTOR, Senders.who, mail_text.approved, Projekt FIX, Brak akceptacji PM-a firmy, 0766 -->
+<!-- indeks: FIX, FIX / produkt, engagement_model, EngagementModel.fixed, model rozliczeń, akceptacja PM-a, koszt firmy, protokół odbioru, numer DN, limit MD na etap, fix_senders, FIX_ACCEPTOR, Senders.who, mail_text.approved, Projekt FIX, Brak akceptacji PM-a firmy, 0767 -->
 
 Decyzja Artura z 24.11.2026, po przeglądzie skrzynek z 23.11. Dotyczy projektów
 testów bezpieczeństwa u klienta bankowego i projektu z limitem MD na fazę.
@@ -16,7 +16,7 @@ Akceptacji klienta przy godzinach nie ma i nie będzie.
 ## Gdzie to jest w NEXUSIE
 
 - **Kontrakt, nie reguła klienta.** Pole „Model rozliczeń” w oknie „Edytuj kontrakt”
-  ma wartość „FIX / produkt” (`Contract.engagement_model = fixed`, migracja 0766
+  ma wartość „FIX / produkt” (`Contract.engagement_model = fixed`, migracja 0767
   i lustro w `entrypoint.sh`). Wybór Artura: przy kontrakcie, bo u jednego klienta
   bywa i T&M, i FIX. Reguła klienta objęłaby wszystkich jego ludzi.
 - **Kto akceptuje.** Ktoś z firmy (decyzja Artura). Liczy się słowo akceptacji

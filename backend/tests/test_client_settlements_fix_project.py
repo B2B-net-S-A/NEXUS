@@ -42,7 +42,7 @@ def test_model_fix_jest_w_enumie_migracji_i_entrypoincie() -> None:
     entry = (ROOT / "entrypoint.sh").read_text(encoding="utf-8")
     block = entry[entry.index("_ENUM_STATEMENTS = [") :]
     assert f'"{statement}"' in block[: block.index("\n]")]
-    migration = ROOT / "alembic/versions/0766_contract_engagement_fixed.py"
+    migration = ROOT / "alembic/versions/0767_contract_engagement_fixed.py"
     assert statement in migration.read_text(encoding="utf-8")
 
 

@@ -1,7 +1,7 @@
 """Model rozliczeń kontraktu „FIX / produkt” (``engagementmodel`` += ``fixed``).
 
-Revision ID: 0766_contract_engagement_fixed
-Revises: 0765_contractor_payment_blocks
+Revision ID: 0767_contract_engagement_fixed
+Revises: 0766_cpro_invoice_buyer_bell
 
 Przegląd skrzynek z 23.11.2026 (projekty FIX: testy bezpieczeństwa, projekt
 z limitem MD na fazę): klient odbiera produkt protokołem, a godziny
@@ -12,8 +12,8 @@ bywa i T&M, i FIX. Lustro w ``entrypoint.sh`` (``_ENUM_STATEMENTS``).
 
 from alembic import op
 
-revision = "0766_contract_engagement_fixed"
-down_revision = "0765_contractor_payment_blocks"
+revision = "0767_contract_engagement_fixed"
+down_revision = "0766_cpro_invoice_buyer_bell"
 branch_labels = None
 depends_on = None
 
@@ -33,7 +33,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM contracts WHERE engagement_model::text = '{VALUE}'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0766 odmawia: contracts ma kontrakty {VALUE}, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0767 odmawia: contracts ma kontrakty {VALUE}, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

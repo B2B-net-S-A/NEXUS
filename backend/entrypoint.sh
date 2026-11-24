@@ -166,7 +166,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE postingstatus ADD VALUE IF NOT EXISTS 'failed'",
     # 0381: RocketJobs — drugi portal tego samego API co JustJoin.IT.
     "ALTER TYPE portal ADD VALUE IF NOT EXISTS 'rocketjobs'",
-    # 0766: model rozliczeń kontraktu „FIX / produkt” (projekty FIX, 24.11.2026).
+    # 0767: model rozliczeń kontraktu „FIX / produkt” (projekty FIX, 24.11.2026).
     "ALTER TYPE engagementmodel ADD VALUE IF NOT EXISTS 'fixed'",
     # userrole: head_of_recruitment (migration 0029_notifications_triggers)
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'head_of_recruitment'",
