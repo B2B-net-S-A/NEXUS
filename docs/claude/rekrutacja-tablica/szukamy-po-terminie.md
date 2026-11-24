@@ -23,6 +23,11 @@ z bieżącą wysyłką wypadłyby z daily).
   „Po terminie” z `request_stage` (lista, pigułka nad listą, nagłówek
   rekrutacji — `JobChampionsStatus` z propem `requestStage`, także przy części
   miejsc z championem).
+- **Nagłówek mówi to samo co lista** także przy „Klient milczy”, „Do
+  przejrzenia” i „Zakończony” (`headerStage` w `JobChampionsStatus`): status
+  requestu zna je tylko jako „Szukamy”, więc po kliknięciu „Klient milczy”
+  na pasku nagłówek dalej mówił „Szukamy” (przeklikane na stagingu 24.11).
+  Champion na komplet miejsc zostaje championem.
 - **Kolor:** czerwień `OVERDUE_TONE_CLASS` — ta sama co „po terminie N dni”
   w kolumnie terminu (`data-dodania-i-termin-w-naglowku.md`).
 - **Do decyzji nic nie znika:** rekrutacja „Po terminie” zostaje na daily

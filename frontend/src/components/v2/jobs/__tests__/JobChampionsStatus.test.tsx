@@ -274,4 +274,14 @@ describe("JobChampionsStatus", () => {
     expect(status()).toHaveTextContent("Champion: Karol W.");
     expect(status().className).not.toContain("text-destructive");
   });
+
+  it("po „Klient milczy” nagłówek mówi to samo co lista, nie „Szukamy”", () => {
+    renderStatus({
+      job: { request_status: "searching", champions: [], champion_seats: 1, hired_count: 0 },
+      canEdit: false,
+      requestStage: "client_silent",
+    });
+    expect(status()).toHaveTextContent("Klient milczy");
+    expect(status()).not.toHaveTextContent("Szukamy");
+  });
 });

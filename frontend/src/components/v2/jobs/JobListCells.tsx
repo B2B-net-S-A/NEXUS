@@ -367,7 +367,7 @@ export function RequestStatusBadge({ status }: { status: unknown }) {
   );
 }
 
-const STAGE_TONE_CLASS: Record<(typeof REQUEST_STAGE_META)[RequestStage]["tone"], string> = {
+export const STAGE_TONE_CLASS: Record<(typeof REQUEST_STAGE_META)[RequestStage]["tone"], string> = {
   ...REQUEST_TONE_CLASS,
   quiet: "bg-muted text-foreground",
   late: OVERDUE_TONE_CLASS,

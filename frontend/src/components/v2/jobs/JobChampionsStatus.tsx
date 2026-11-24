@@ -12,9 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   CHAMPION_TONE_CLASS,
-  OVERDUE_TONE_CLASS,
   REQUEST_TONE_CLASS,
   RequestStatusMark,
+  STAGE_TONE_CLASS,
 } from "@/components/v2/jobs/JobListCells";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -31,7 +31,7 @@ import {
   jobChampionsApi,
   jobChampionsQueryKey,
 } from "@/lib/job-champions-api";
-import { REQUEST_STAGE_META } from "@/lib/request-stage";
+import { REQUEST_STAGE_META, requestStageOf, type RequestStage } from "@/lib/request-stage";
 import { cn, formatDate } from "@/lib/utils";
 
 export interface JobChampionsStatusProps {
@@ -50,30 +50,44 @@ export interface JobChampionsStatusProps {
   cproEnabled?: boolean;
   /** Imię championa otwiera panel osoby na Tablicy (bez przeładowania strony). */
   onOpenPerson?: (candidateId: number) => void;
-  /** Stan requestu z serwera (`request_stage`); „overdue” = „Po terminie”. */
+  /** Stan requestu z serwera (`request_stage`) — „Po terminie”, „Klient milczy”… */
   requestStage?: unknown;
 }
 
 const BADGE_CLASS =
   "inline-flex h-6 min-w-0 max-w-[13rem] items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-xs font-semibold";
 
-function toneClass(view: ChampionStatusView, overdue: boolean): string {
-  if (overdue) return OVERDUE_TONE_CLASS;
+function toneClass(view: ChampionStatusView, stage: RequestStage | null): string {
+  if (stage) return STAGE_TONE_CLASS[REQUEST_STAGE_META[stage].tone];
   return view.tone === "champion" ? CHAMPION_TONE_CLASS : REQUEST_TONE_CLASS[view.tone];
 }
 
 /**
- * „Szukamy” po terminie (24.11.2026) mówi „Po terminie” — także przy części
- * miejsc z championem („Po terminie · 🏆 1 z 2”). Champion na komplet miejsc
- * i inne statusy zostają bez zmian (serwer nie daje im `overdue`).
+ * Stany listy, które status requestu zna tylko jako „Szukamy” (24.11.2026):
+ * „Po terminie”, „Klient milczy”, „Do przejrzenia”, „Zakończony”. Nagłówek
+ * mówi to samo co lista — po „Klient milczy” na pasku „Po terminie” nie
+ * może dalej stać „Szukamy”.
  */
-export function overdueStatusView(view: ChampionStatusView): ChampionStatusView {
-  const label = REQUEST_STAGE_META.overdue.label;
+const STAGES_OVER_SEARCHING: ReadonlySet<RequestStage> = new Set([
+  "overdue",
+  "client_silent",
+  "to_review",
+  "finished",
+]);
+
+export function headerStage(view: ChampionStatusView, requestStage: unknown): RequestStage | null {
+  const stage = requestStageOf(requestStage);
+  return stage && view.tone !== "champion" && STAGES_OVER_SEARCHING.has(stage) ? stage : null;
+}
+
+/** Napis stanu z listy; przy części miejsc z championem zostaje „· 🏆 1 z 2”. */
+export function stageStatusView(view: ChampionStatusView, stage: RequestStage): ChampionStatusView {
+  const meta = REQUEST_STAGE_META[stage];
   return {
     ...view,
-    label: view.seatsText ? `${label} · ${view.seatsText}` : label,
-    lead: label,
-    title: `${REQUEST_STAGE_META.overdue.hint} ${view.title}`,
+    label: view.seatsText ? `${meta.label} · ${view.seatsText}` : meta.label,
+    lead: meta.label,
+    title: `${meta.hint} ${view.title}`,
   };
 }
 
@@ -122,15 +136,15 @@ export function JobChampionsStatus({
 }: JobChampionsStatusProps) {
   const baseView = championStatusView(job);
   if (!baseView) return <span className="text-xs text-muted-foreground">—</span>;
-  const overdue = requestStage === "overdue" && baseView.tone !== "champion";
-  const view = overdue ? overdueStatusView(baseView) : baseView;
+  const stage = headerStage(baseView, requestStage);
+  const view = stage ? stageStatusView(baseView, stage) : baseView;
   const hasChampions = Array.isArray(job.champions) && job.champions.length > 0;
 
   if (!canEdit && !hasChampions) {
     return (
       <span
         title={view.title}
-        className={cn(BADGE_CLASS, toneClass(view, overdue))}
+        className={cn(BADGE_CLASS, toneClass(view, stage))}
         data-help="job.champion.found"
         data-testid="job-champions-status"
         data-kind={view.kind}
@@ -150,7 +164,7 @@ export function JobChampionsStatus({
           aria-label={`${view.label} — championi tej rekrutacji`}
           className={cn(
             BADGE_CLASS,
-            toneClass(view, overdue),
+            toneClass(view, stage),
             "hit-area hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           )}
           data-help="job.champion.found"
