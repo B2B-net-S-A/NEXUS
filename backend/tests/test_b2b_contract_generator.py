@@ -303,8 +303,19 @@ def test_rate_in_words_with_grosze():
         rate_in_words(135.5, "en", "PLN")
         == "one hundred thirty five zlotys fifty groszy"
     )
-    # Inna waluta → bez części groszowej (tylko kod waluty).
-    assert rate_in_words(100.5, "pl", "EUR") == "sto EUR"
+    # Inna waluta → kod waluty i część setna ułamkiem (audyt 24.11.2026:
+    # „45,50 EUR (słownie: czterdzieści pięć EUR)” nie odpowiadało kwocie).
+    assert rate_in_words(100.5, "pl", "EUR") == "sto EUR 50/100"
+    assert rate_in_words(45.5, "pl", "EUR") == "czterdzieści pięć EUR 50/100"
+    assert rate_in_words(45.5, "en", "EUR") == "forty five EUR 50/100"
+    assert rate_in_words(45.05, "en", "USD") == "forty five USD 05/100"
+    assert rate_in_words(100, "pl", "EUR") == "sto EUR"
+    # Zaokrąglenie do setnych (Decimal, ROUND_HALF_UP) przed podziałem:
+    # 99,999 to 100,00, nie „dziewięćdziesiąt dziewięć … sto groszy”.
+    assert rate_in_words(99.999, "pl", "PLN") == "sto złotych"
+    assert rate_in_words(99.999, "pl", "EUR") == "sto EUR"
+    assert rate_in_words(0.125, "pl", "EUR") == "zero EUR 13/100"
+    assert rate_in_words(10.005, "pl", "PLN") == "dziesięć złotych jeden grosz"
 
 
 def test_format_rate_polish_comma():

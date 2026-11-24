@@ -224,6 +224,29 @@ def _normalize_decimal_text(text: str) -> str:
     return text.replace(",", ".")
 
 
+#: Audyt 24.11.2026: „12.500 zł” (kropka tysięcy z polskiego Excela) i „1,234”
+#: (przecinek tysięcy z angielskiego) parser czytał jako 12,5 i 1,234 —
+#: faktura 1000 razy za mała dostawała „Rozliczono kwotowo”. Jeden separator
+#: z dokładnie trzema cyframi po nim (i najwyżej trzema przed nim) to zapis
+#: niejednoznaczny: kwota czeka na ręczne rozliczenie zamiast zgadywania.
+AMBIGUOUS_AMOUNT = "niejednoznaczny zapis kwoty"
+_AMBIGUOUS_AMOUNT_RE = re.compile(r"^[+-]?\d{1,3}[.,]\d{3}$")
+_CURRENCY_RE = re.compile(r"(?i)(pln|zl|zł)")
+
+
+def money_text_problem(raw: Any) -> Optional[str]:
+    """``AMBIGUOUS_AMOUNT`` dla tekstu kwoty, którego nie da się rozstrzygnąć
+    (``12.500``, ``1,234``); liczba z komórki liczbowej jest jednoznaczna."""
+    if raw is None or isinstance(raw, (bool, int, float, Decimal)):
+        return None
+    text = _CURRENCY_RE.sub("", str(raw))
+    for space in ("\xa0", "\u202f", " "):
+        text = text.replace(space, "")
+    if _AMBIGUOUS_AMOUNT_RE.match(text):
+        return AMBIGUOUS_AMOUNT
+    return None
+
+
 def parse_money_value(raw: Any) -> Optional[Decimal]:
     """Komórka → kwota. ``None`` gdy pusta lub nieliczbowa.
 
@@ -239,7 +262,7 @@ def parse_money_value(raw: Any) -> Optional[Decimal]:
     text = str(raw).strip()
     if not text:
         return None
-    text = re.sub(r"(?i)(pln|zl|zł)", "", text)
+    text = _CURRENCY_RE.sub("", text)
     text = _normalize_decimal_text(text)
     if not text:
         return None
@@ -349,6 +372,7 @@ def _cost_only_row(
     if (
         hint is None
         or invoice_value is None
+        or money_text_problem(cells[invoice_col]) is not None
         or invoice_value_problem(invoice_value) is not None
     ):
         return None
@@ -486,12 +510,16 @@ def parse_md_sheet(content: bytes) -> ParsedSheet:
                     if cost_only_row is not None:
                         parsed.rows.append(cost_only_row)
                         continue
+                    reason = f"nieczytelna liczba MD ({md_raw!r})"
+                    if (
+                        _blank_md_cell(md_raw)
+                        and invoice_col is not None
+                        and invoice_col < len(cells)
+                        and money_text_problem(cells[invoice_col]) is not None
+                    ):
+                        reason = f"{AMBIGUOUS_AMOUNT} ({cells[invoice_col]!r})"
                     parsed.skipped_rows.append(
-                        {
-                            "row": row_idx,
-                            "reason": f"nieczytelna liczba MD ({md_raw!r})",
-                            "consultant_name": name,
-                        }
+                        {"row": row_idx, "reason": reason, "consultant_name": name}
                     )
                     continue
                 md_problem = md_value_problem(md_value)
@@ -512,7 +540,9 @@ def parse_md_sheet(content: bytes) -> ParsedSheet:
                 invoice_problem: Optional[str] = None
                 if invoice_col is not None and invoice_col < len(cells):
                     invoice_value = parse_money_value(cells[invoice_col])
-                    invoice_problem = invoice_value_problem(invoice_value)
+                    invoice_problem = money_text_problem(
+                        cells[invoice_col]
+                    ) or invoice_value_problem(invoice_value)
                     if invoice_value is None and not _blank_md_cell(cells[invoice_col]):
                         # S6: niepusta, nieczytelna kwota faktury nie może
                         # zniknąć po cichu.
