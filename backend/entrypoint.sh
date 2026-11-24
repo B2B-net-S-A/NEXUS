@@ -1558,6 +1558,16 @@ except Exception as _access_usage_schema_err:  # noqa: BLE001
     print(f"access usage schema unavailable: {_access_usage_schema_err!r}")
     _ACCESS_USAGE_TABLE_DDL = []
 
+# 0771: odczyt CV z podglądu „Dodaj kandydata”, wspólny dla procesów web —
+# JEDNO źródło z migracją (`app/services/cv_preview_reads_schema.py`).
+try:
+    from app.services import cv_preview_reads_schema as _cv_preview_reads_schema
+
+    _CV_PREVIEW_READS_DDL = list(_cv_preview_reads_schema.TABLE_DDL)
+except Exception as _cv_preview_reads_schema_err:  # noqa: BLE001
+    print(f"cv preview reads schema unavailable: {_cv_preview_reads_schema_err!r}")
+    _CV_PREVIEW_READS_DDL = []
+
 # 0647: decyzje z zakładki „Wnioski” (`app/services/insight_decisions_schema.py`).
 try:
     from app.services import insight_decisions_schema as _insight_decisions_schema
@@ -7247,6 +7257,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_JOB_CHANNELS_DDL,
     # 0632: licznik użycia obszarów (`app/services/access_usage_schema.py`).
     *_ACCESS_USAGE_TABLE_DDL,
+    # 0771: odczyt CV z podglądu (`app/services/cv_preview_reads_schema.py`).
+    *_CV_PREVIEW_READS_DDL,
     # 0647: decyzje z zakładki „Wnioski” (po `users`, na które wskazują).
     *_INSIGHT_DECISIONS_TABLE_DDL,
     *_START_DOCUMENTS_TABLE_DDL,

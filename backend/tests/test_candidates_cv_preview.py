@@ -1,10 +1,14 @@
 """`POST /api/candidates/cv/preview` + `/from-cv` z polami formularza (29.09.2026).
 
 Okno „Dodaj kandydata” czyta wgrane CV, wypełnia formularz, a zapis bierze
-TEN SAM odczyt z pamięci procesu — model płaci raz. Pilnujemy:
+TEN SAM odczyt z tabeli `cv_preview_reads` — model płaci raz. Pilnujemy:
 
 - podgląd nie zakłada kandydata,
-- podgląd + zapis tym samym plikiem = jedno wywołanie `parse_cv`,
+- podgląd + zapis tym samym plikiem = jedno wywołanie `parse_cv`, także gdy
+  zapis trafi do innego procesu web; po zapisie wiersz znika, a wygasły
+  (30 min) znaczy ponowny odczyt modelem,
+- dwa procesy czytające ten sam plik naraz: podgląd pokazuje odczyt z tabeli,
+  czyli ten, który zapisze `/from-cv`,
 - pola formularza wygrywają z odczytem CV, a pole wyczyszczone (`""`) NIE
   wraca z CV (ani do profilu, ani do skanu duplikatów),
 - zły e-mail w formularzu = 422 przy polu `email`,
@@ -22,7 +26,7 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
@@ -52,7 +56,9 @@ def _patch_pipeline(
     *,
     real_sieve: bool = False,
     text: str = "Tester\nPython, pytest",
+    later: dict | None = None,
 ) -> dict[str, int]:
+    """`later` — odczyt od drugiego wywołania (model czyta to samo CV inaczej)."""
     from app.api import candidates as candidates_api
     from app.services import cv_text_extractor
 
@@ -63,6 +69,8 @@ def _patch_pipeline(
 
     async def _fake_parse(_text, **_kwargs):
         calls["parse"] += 1
+        if later is not None and calls["parse"] > 1:
+            return dict(later)
         return dict(parsed)
 
     async def _fake_embed(*_args, **_kwargs):
@@ -112,6 +120,46 @@ async def _cleanup(**where) -> None:
         for row in (await db.scalars(stmt)).all():
             await db.delete(row)
         await db.commit()
+
+
+def _sha(content: bytes) -> str:
+    import hashlib
+
+    return hashlib.sha256(content).hexdigest()
+
+
+async def _preview_rows(content: bytes) -> int:
+    async with AsyncSessionLocal() as db:
+        return int(
+            await db.scalar(
+                text("SELECT count(*) FROM cv_preview_reads WHERE sha256 = :sha256"),
+                {"sha256": _sha(content)},
+            )
+            or 0
+        )
+
+
+async def _expire_preview(content: bytes) -> None:
+    """Odczyt z podglądu jak po 30 minutach (czas liczy baza)."""
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text(
+                "UPDATE cv_preview_reads SET expires_at = now() - INTERVAL '1 second' "
+                "WHERE sha256 = :sha256"
+            ),
+            {"sha256": _sha(content)},
+        )
+        await db.commit()
+
+
+def _other_read(unique: str) -> dict:
+    """Ten sam plik przeczytany przez model drugi raz — inaczej."""
+    return {
+        **_parsed(unique),
+        "last_name": f"Inny{unique}",
+        "email": f"cv-preview-other-{unique}@example.com",
+        "city": "Gdańsk",
+    }
 
 
 async def test_preview_fills_the_form_without_creating_a_candidate(
@@ -173,6 +221,119 @@ async def test_preview_then_save_reads_the_cv_once_and_form_wins(
         assert documents.json()[0]["uploaded_by_name"]
     finally:
         await _cleanup(email=typed_email)
+
+
+async def test_save_in_the_other_process_takes_the_previewed_read_without_the_model(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+) -> None:
+    """Podgląd w procesie A, zapis w procesie B (`NEXUS_WEB_CONCURRENCY=2`).
+
+    Proces B nie ma pamięci procesu A — tu moduł odczytów przeładowany od zera.
+    Do 24.11.2026 `/from-cv` czytał wtedy CV modelem drugi raz i zapisywał odczyt,
+    którego rekruter w formularzu nie widział.
+    """
+    import importlib
+
+    from app.services import cv_preview_cache
+
+    unique = uuid.uuid4().hex[:8]
+    seen = _parsed(unique)
+    calls = _patch_pipeline(monkeypatch, seen, later=_other_read(unique))
+    content = f"%PDF-1.4 two-processes {unique}".encode()
+
+    preview = await app_client.post(
+        "/api/candidates/cv/preview", headers=app_auth_headers, files=_file(content)
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["lastname"] == seen["last_name"]
+
+    importlib.reload(cv_preview_cache)  # proces B: bez pamięci procesu A
+
+    try:
+        saved = await app_client.post(
+            "/api/candidates/from-cv", headers=app_auth_headers, files=_file(content)
+        )
+        assert saved.status_code == 201, saved.text
+        candidate = saved.json()["candidate"]
+        assert calls["parse"] == 1
+        assert candidate["lastname"] == seen["last_name"]
+        assert candidate["email"] == seen["email"]
+        assert candidate["city"] == "Kraków"
+        # Kandydat zapisany — tekst CV nie czeka w tabeli na wygaśnięcie.
+        assert await _preview_rows(content) == 0
+    finally:
+        await _cleanup(email=seen["email"])
+        await _cleanup(email=_other_read(unique)["email"])
+
+
+async def test_expired_preview_read_goes_to_the_model_again(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+) -> None:
+    unique = uuid.uuid4().hex[:8]
+    later = _other_read(unique)
+    calls = _patch_pipeline(monkeypatch, _parsed(unique), later=later)
+    content = f"%PDF-1.4 expired {unique}".encode()
+
+    preview = await app_client.post(
+        "/api/candidates/cv/preview", headers=app_auth_headers, files=_file(content)
+    )
+    assert preview.status_code == 200, preview.text
+    await _expire_preview(content)
+
+    try:
+        saved = await app_client.post(
+            "/api/candidates/from-cv", headers=app_auth_headers, files=_file(content)
+        )
+        assert saved.status_code == 201, saved.text
+        assert calls["parse"] == 2
+        assert saved.json()["candidate"]["lastname"] == later["last_name"]
+    finally:
+        await _cleanup(email=later["email"])
+        await _cleanup(email=_parsed(unique)["email"])
+
+
+async def test_preview_shows_the_read_another_process_saved_first(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+) -> None:
+    """Dwa procesy czytały ten sam plik naraz (`cache_single_flight` jest per proces).
+
+    Drugi proces zapisał swój odczyt w trakcie naszego wywołania modelu. Podgląd
+    pokazuje odczyt z tabeli, bo ten zapisze `/from-cv`.
+    """
+    from app.services import cv_preview_cache
+
+    unique = uuid.uuid4().hex[:8]
+    ours = _parsed(unique)
+    theirs = _other_read(unique)
+    calls = _patch_pipeline(monkeypatch, ours)
+    content = f"%PDF-1.4 race {unique}".encode()
+
+    async def _parse_while_the_other_process_saves(_text, **_kwargs):
+        calls["parse"] += 1
+        await cv_preview_cache.remember(content, parsed=theirs, raw_text="tekst")
+        return dict(ours)
+
+    monkeypatch.setattr(
+        "app.services.cv_parser.parse_cv", _parse_while_the_other_process_saves
+    )
+
+    preview = await app_client.post(
+        "/api/candidates/cv/preview", headers=app_auth_headers, files=_file(content)
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["lastname"] == theirs["last_name"]
+    assert preview.json()["city"] == "Gdańsk"
+
+    try:
+        saved = await app_client.post(
+            "/api/candidates/from-cv", headers=app_auth_headers, files=_file(content)
+        )
+        assert saved.status_code == 201, saved.text
+        assert calls["parse"] == 1
+        assert saved.json()["candidate"]["lastname"] == theirs["last_name"]
+    finally:
+        await _cleanup(email=theirs["email"])
+        await _cleanup(email=ours["email"])
 
 
 async def test_cleared_field_is_not_refilled_from_the_cv_nor_used_for_dedup(

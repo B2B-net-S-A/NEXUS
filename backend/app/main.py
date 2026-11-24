@@ -3984,6 +3984,7 @@ async def api_health_deep_check(request: Request):
     from app.models.rate_card import RateCardAdder
     from app.models.contract_premium_skill import ContractPremiumSkillClaim
     from app.models.access_usage import AccessUsageDaily
+    from app.models.cv_preview_read import CvPreviewRead
     from app.models.insight_decision import InsightDecision
     from app.models.start_document import ClientStartDocument, PlacementStartDocument
     from app.models.novelty import (
@@ -4796,6 +4797,9 @@ async def api_health_deep_check(request: Request):
         ("novelty_daily_state", NoveltyDailyState),
         # 0632: licznik użycia obszarów — pętla zapisuje tu co minutę.
         ("access_usage_daily", AccessUsageDaily),
+        # 0771: odczyt CV z podglądu „Dodaj kandydata”. Brak tabeli nie wywraca
+        # dodania kandydata, ale cicho przywraca drugi odczyt modelem w `/from-cv`.
+        ("cv_preview_reads", CvPreviewRead),
         ("insight_decisions", InsightDecision),
         ("client_start_documents", ClientStartDocument),
         ("placement_start_documents", PlacementStartDocument),
