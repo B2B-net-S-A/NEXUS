@@ -47,6 +47,16 @@ function pathOf(href: string): string {
   return href.split("?")[0];
 }
 
+/** Kotwica widoczna w oknie przeglądarki (z kilku elementów — pierwszy widoczny). */
+function visibleAnchor(anchor: string): HTMLElement | null {
+  return (
+    Array.from(document.querySelectorAll<HTMLElement>(anchorSelector(anchor))).find((e) => {
+      const r = e.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < window.innerHeight;
+    }) ?? null
+  );
+}
+
 function useAnchorRect(anchor: string | null, active: boolean): DOMRect | null {
   const [rect, setRect] = useState<DOMRect | null>(null);
   useEffect(() => {
@@ -55,10 +65,7 @@ function useAnchorRect(anchor: string | null, active: boolean): DOMRect | null {
       return;
     }
     const measure = () => {
-      const el = Array.from(document.querySelectorAll<HTMLElement>(anchorSelector(anchor))).find((e) => {
-        const r = e.getBoundingClientRect();
-        return r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < window.innerHeight;
-      });
+      const el = visibleAnchor(anchor);
       setRect(el ? el.getBoundingClientRect() : null);
     };
     measure();
@@ -66,6 +73,18 @@ function useAnchorRect(anchor: string | null, active: boolean): DOMRect | null {
     return () => window.clearInterval(id);
   }, [anchor, active]);
   return rect;
+}
+
+/**
+ * Klik w okno ćwiczenia nie zamyka otwartego okna ekranu (Radix zamyka dialog
+ * na `pointerdown` poza nim, nasłuchem na dokumencie). Natywny nasłuch na
+ * sekcji zatrzymuje zdarzenie, zanim dojdzie do dokumentu.
+ */
+function keepDialogsOpen(el: HTMLElement | null): (() => void) | void {
+  if (!el) return;
+  const stop = (event: PointerEvent) => event.stopPropagation();
+  el.addEventListener("pointerdown", stop);
+  return () => el.removeEventListener("pointerdown", stop);
 }
 
 type Phase = { kind: "task"; feedback?: string } | { kind: "done" };
@@ -98,12 +117,27 @@ export function PoligonLayer() {
 
   const complete = useCallback(
     (ex: Exercise) => {
-      setDone(markDone(ex.id));
+      markDone(ex.id);
+      // Do stanu, nie z `markDone`: ta zwraca tylko pamięć przeglądarki, bez
+      // ćwiczeń zaliczonych na serwerze (24.11.2026: osoba z lukami po pierwszym
+      // zaliczeniu wracała „Dalej” do ćwiczenia 1 z 27 i robiła wszystko od nowa).
+      setDone((prev) => new Set(prev).add(ex.id));
       setPhase({ kind: "done" });
       setShowMe(false);
     },
     [],
   );
+
+  // Widoczna kotwica („zajrzyj do…”).
+  useEffect(() => {
+    if (!exercise?.doneWhenVisible || phase.kind !== "task") return;
+    const check = () => {
+      if (visibleAnchor(exercise.anchor)) complete(exercise);
+    };
+    check();
+    const id = window.setInterval(check, 400);
+    return () => window.clearInterval(id);
+  }, [exercise, phase.kind, complete]);
 
   // Klik w kotwicę ćwiczenia.
   useEffect(() => {
@@ -148,13 +182,16 @@ export function PoligonLayer() {
       {rect && (
         <div
           aria-hidden="true"
-          className="pointer-events-none fixed z-[70] rounded-lg ring-2 ring-primary ring-offset-2 ring-offset-background transition-all"
+          className="pointer-events-none fixed z-[122] rounded-lg ring-2 ring-primary ring-offset-2 ring-offset-background transition-all"
           style={{ left: rect.left - 4, top: rect.top - 4, width: rect.width + 8, height: rect.height + 8 }}
         />
       )}
+      {/* Nad oknami (edytor CV ma z-[110]), jak karta lekcji nowości: 24.11.2026
+          edytor zasłaniał „Zaliczone → Dalej”, a osoba klikała „Gotowe” i dostawała odmowę zapisu. */}
       <section
+        ref={keepDialogsOpen}
         aria-label="Ćwiczenie na poligonie"
-        className="pointer-events-auto fixed bottom-5 left-5 z-[60] w-[340px] max-w-[calc(100vw-2.5rem)] overflow-hidden rounded-xl border border-border bg-card text-sm text-foreground shadow-lg"
+        className="pointer-events-auto fixed bottom-5 left-5 z-[121] w-[340px] max-w-[calc(100vw-2.5rem)] overflow-hidden rounded-xl border border-border bg-card text-sm text-foreground shadow-lg"
       >
         <header className="flex items-center gap-2 border-b border-border px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           <Target className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
