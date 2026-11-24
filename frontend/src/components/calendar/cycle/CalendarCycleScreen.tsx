@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarPlus } from "lucide-react";
 
@@ -327,6 +328,37 @@ export function CalendarCycleScreen({
         ) : null}
       </div>
 
+      {/* Nad Tablicą: pod nią przy 1280 × 720 komunikat był poza ekranem (24.11.2026). */}
+      {linkTargetMissing && !widerScope ? (
+        <div
+          role="status"
+          data-testid="cycle-link-out-of-scope"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-foreground"
+        >
+          <span>
+            Kandydata z tego linku nie ma w Twoim zakresie — rozmowę prowadzi ktoś spoza
+            Twoich rekrutacji albo cykl już się zakończył.
+          </span>
+          <span className="flex gap-2">
+            {/* Zamknięta para wypada z Tablicy, a jej debrief zostaje w profilu (Notatki → Rozmowy). */}
+            {wantedPair ? (
+              <Link
+                href={`/candidates/${wantedPair.candidateId}?tab=activity&activity=notes`}
+                className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+              >
+                Debrief i notatki w profilu
+              </Link>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setParams({ cycle: null, debrief: null })}
+              className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted"
+            >
+              Zamknij
+            </button>
+          </span>
+        </div>
+      ) : null}
       {view === "week" ? (
         <WeekCalendar />
       ) : state === "loading" ? (
@@ -352,25 +384,6 @@ export function CalendarCycleScreen({
           }}
         />
       )}
-      {linkTargetMissing && !widerScope ? (
-        <div
-          role="status"
-          data-testid="cycle-link-out-of-scope"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-foreground"
-        >
-          <span>
-            Kandydata z tego linku nie ma w Twoim zakresie — rozmowę prowadzi ktoś spoza
-            Twoich rekrutacji albo cykl już się zakończył.
-          </span>
-          <button
-            type="button"
-            onClick={() => setParams({ cycle: null, debrief: null })}
-            className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted"
-          >
-            Zamknij
-          </button>
-        </div>
-      ) : null}
       {view === "board" && data ? (
         <CycleCandidateSheet
           item={data.items.find((i) => pairKey(i) === selectedKey) ?? null}
