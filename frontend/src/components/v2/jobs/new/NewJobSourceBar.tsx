@@ -176,6 +176,7 @@ export function NewJobSourceBar({
         <div
           role="group"
           aria-labelledby={ids.group}
+          data-tour="new-job.fill-from"
           className="flex min-w-0 flex-wrap items-center gap-2"
         >
           <span id={ids.group} className="text-sm text-muted-foreground">

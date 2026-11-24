@@ -98,6 +98,7 @@ export function RepeatRequestBanner({
     <section
       aria-labelledby="repeat-request-title"
       data-testid="repeat-request-banner"
+      data-tour="new-job.repeat-banner"
       className="flex flex-col gap-3 rounded-xl border-2 border-primary/40 bg-card p-4"
     >
       <h2
