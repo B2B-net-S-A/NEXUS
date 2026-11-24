@@ -1,7 +1,7 @@
 """Dosłowna treść zgody przy wierszu ``candidate_consents`` (strona WWW).
 
-Revision ID: 0772_candidate_consent_text
-Revises: 0771_cv_preview_reads
+Revision ID: 0773_candidate_consent_text
+Revises: 0772_prep_meeting_preparation
 
 Zgody z formularzy strony B2B Network (``POST /api/public/website-applications``)
 mają treść zapisaną na stronie, nie w ``services/career_consent.py``, więc
@@ -15,8 +15,8 @@ Samo dodanie kolumny NULL — stary kod jej nie zna. Lustro w ``entrypoint.sh``
 
 from alembic import op
 
-revision = "0772_candidate_consent_text"
-down_revision = "0771_cv_preview_reads"
+revision = "0773_candidate_consent_text"
+down_revision = "0772_prep_meeting_preparation"
 branch_labels = None
 depends_on = None
 

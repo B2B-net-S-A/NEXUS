@@ -380,7 +380,7 @@ async def test_pdf_name_with_foreign_content_is_415(api):
 def test_consent_text_column_is_mirrored_in_entrypoint():
     entrypoint = re.sub(r"\s+", " ", (_BACKEND / "entrypoint.sh").read_text())
     migration = (
-        _BACKEND / "alembic" / "versions" / "0772_candidate_consent_text.py"
+        _BACKEND / "alembic" / "versions" / "0773_candidate_consent_text.py"
     ).read_text()
     ddl = (
         "ALTER TABLE candidate_consents ADD COLUMN IF NOT EXISTS consent_text TEXT NULL"
