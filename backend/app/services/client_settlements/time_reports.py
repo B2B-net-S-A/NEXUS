@@ -874,6 +874,32 @@ async def expected_amounts(
     return out
 
 
+def person_contracts(
+    ids: Iterable[ClientExternalId], contracts: dict[int, _Contract], month: str
+) -> tuple[dict[str, int], dict[str, str], dict[int, list[str]]]:
+    """Numer osoby → kontrakt w miesiącu (tylko potwierdzone numery), stan
+    numeru w kartotece i numery per kontrakt."""
+
+    by_number: dict[str, list[int]] = defaultdict(list)
+    states: dict[str, str] = {}
+    numbers_by_contract: dict[int, list[str]] = defaultdict(list)
+    for e in ids:
+        if e.kind != PERSON_NO or e.state == REJECTED:
+            continue
+        if e.state == CONFIRMED:
+            by_number[e.value].append(e.contract_id)
+            states[e.value] = CONFIRMED
+            numbers_by_contract[e.contract_id].append(e.value)
+        else:
+            states.setdefault(e.value, SUGGESTED)
+    person_contract = {
+        number: chosen
+        for number, found in by_number.items()
+        if (chosen := _pick_contract(found, contracts, month)) is not None
+    }
+    return person_contract, states, numbers_by_contract
+
+
 @dataclass
 class _Month:
     client: Client
@@ -895,23 +921,9 @@ async def _load(db: AsyncSession, client_id: int, month: str) -> _Month:
     first, last = month_bounds(month)
     periods = engine.month_periods((r.entry for r in rows), first, last)
     contracts = await _contracts(db, client_id)
-    by_number: dict[str, list[int]] = defaultdict(list)
-    states: dict[str, str] = {}
-    numbers_by_contract: dict[int, list[str]] = defaultdict(list)
-    for e in await _ids(db, client_id):
-        if e.kind != PERSON_NO or e.state == REJECTED:
-            continue
-        if e.state == CONFIRMED:
-            by_number[e.value].append(e.contract_id)
-            states[e.value] = CONFIRMED
-            numbers_by_contract[e.contract_id].append(e.value)
-        else:
-            states.setdefault(e.value, SUGGESTED)
-    person_contract = {
-        number: chosen
-        for number, ids in by_number.items()
-        if (chosen := _pick_contract(ids, contracts, month)) is not None
-    }
+    person_contract, states, numbers_by_contract = person_contracts(
+        await _ids(db, client_id), contracts, month
+    )
     found = await contractor_invoices.for_month(db, list(contracts), month)
     invoices = {
         cid: hours
