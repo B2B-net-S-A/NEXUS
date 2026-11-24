@@ -59,9 +59,19 @@ EXIT_STEPS: tuple[Step, ...] = (
         "exit",
         (
             case_rules.END_EQUIPMENT_ITEM,
+            case_rules.END_EQUIPMENT_REGISTER_PREFIX,
             case_rules.END_ACCESS_PREFIX,
             case_rules.END_ACCESS_GENERIC,
         ),
+    ),
+    # Rezygnacja do 19. działa od 1. następnego miesiąca; benefit po końcu
+    # współpracy potrąca się z ostatniego przelewu (``case_rules.benefits_item``).
+    Step(
+        "benefits",
+        "Benefity: rezygnacja do 19., potrącenie z ostatniego przelewu",
+        "care",
+        "exit",
+        (case_rules.END_BENEFITS_PREFIX,),
     ),
     Step(
         "settlement",
@@ -164,6 +174,10 @@ _AUTO_DONE: dict[str, Callable[[ContractFacts], bool]] = {
 def step_auto_done(step: Step, case: AdminCase, facts: Optional[ContractFacts]) -> bool:
     if step.checklist and checklist_done(case, step):
         return True
+    # Sprawa wyjścia sprzed kroku „Benefity” (24.11.2026) nie ma jego pozycji:
+    # bez tego czekałaby na kliknięcie w kroku bez checklisty i nie zamknęłaby się sama.
+    if step.slug == "benefits" and not checklist_items(case, step):
+        return True
     if step.slug == "decision" and facts is not None and not facts.open_decision:
         return True
     rule = _AUTO_DONE.get(step.slug)
@@ -223,7 +237,8 @@ async def close_extended_exit_cases(db: AsyncSession, *, today: date) -> int:
     """Koniec się oddalił: sprawa z bezpiecznika nie stoi przy osobie, która zostaje.
 
     ``terminated_at`` odróżnia ją od „Zakończ współpracę”, a decyzja „nie przepinamy”
-    na ten sam termin ją utrzymuje. Zamknięcie automatu da się odwrócić przy
+    na ten sam termin ją utrzymuje. Tak samo potwierdzony koniec u klienta z CPro
+    (``decision.exit_last_day``), dopóki zamówienie nie zostało przedłużone dalej. Zamknięcie automatu da się odwrócić przy
     prawdziwym końcu, zamknięcie człowieka już nie.
     """
 
@@ -246,6 +261,20 @@ async def close_extended_exit_cases(db: AsyncSession, *, today: date) -> int:
                         AND r.reason = 'project_end'
                         AND r.status = 'dismissed'
                         AND r.due_on = contracts.end_date
+                    )
+                    -- Koniec u klienta potwierdzony z CPro (umowa konsultanta trwa):
+                    -- sprawa zostaje, dopóki zamówienie nie sięga dalej niż ten koniec.
+                    AND NOT EXISTS (
+                      SELECT 1 FROM notice_mail_proposals np
+                      WHERE np.contract_id = contracts.id
+                        AND np.kind = 'client_termination'
+                        AND np.status = 'confirmed'
+                        AND (np.decision ->> 'exit_last_day') IS NOT NULL
+                        AND (
+                          contracts.client_order_end_date IS NULL
+                          OR contracts.client_order_end_date
+                             <= (np.decision ->> 'exit_last_day')::date
+                        )
                     )
                     """
                 ).bindparams(valve=today + timedelta(days=SAFETY_VALVE_DAYS))

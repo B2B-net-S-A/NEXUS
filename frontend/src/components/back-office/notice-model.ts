@@ -98,6 +98,19 @@ export function noticeActions(detail: NoticeDetail, lastDay: string | null): Not
   if (detail.kind === "client_termination" || detail.kind === "date_change") {
     const target = detail.kind === "client_termination" ? detail.client_end_date : lastDay;
     const actions: NoticeAction[] = [];
+    // Koniec z CPro Nordei (koniec, nieprzedłużenie, internalizacja): potwierdzenie
+    // otwiera sprawę wyjścia z wybranym dniem — benefity, sprzęt, dostępy, rozliczenie.
+    const exitEffect = (day: string | null | undefined): string[] =>
+      detail.kind === "client_termination" && detail.cpro_event && detail.cpro_event !== "changes"
+        ? [
+            day
+              ? `Sprawa wyjścia z ostatnim dniem ${dayLabel(day)}: decyzja o przepięciu, benefity (rezygnacja do 19.), sprzęt z rejestru, dostępy, ostatnie rozliczenie`
+              : "Sprawa wyjścia nie powstanie bez daty końca zamówienia",
+            ...(detail.cpro_event === "internalization"
+              ? ["Internalizacja: porozumienie ze zdjęciem zakazu konkurencji"]
+              : []),
+          ]
+        : [];
     if (order && target && target !== order.end_date) {
       actions.push({
         choice: "shorten_order",
@@ -112,6 +125,7 @@ export function noticeActions(detail: NoticeDetail, lastDay: string | null): Not
         effects: [
           `Linia zamówienia ${order.title}: ${dayLabel(order.end_date)} → ${dayLabel(target)}`,
           "Umowa konsultanta bez zmian — jej datę zmienia „Zakończ współpracę” albo „Cofnij zakończenie” na kontrakcie",
+          ...exitEffect(target),
         ],
       });
     }
@@ -121,7 +135,10 @@ export function noticeActions(detail: NoticeDetail, lastDay: string | null): Not
       primary: actions.length === 0,
       request: null,
       applied: { choice: "keep_order", order_end_date: order?.end_date ?? null },
-      effects: ["Nic się nie zmienia; w sprawie zostaje ślad, kto i na podstawie którego maila zdecydował"],
+      effects: [
+        "Nic się nie zmienia; w sprawie zostaje ślad, kto i na podstawie którego maila zdecydował",
+        ...exitEffect(order?.end_date ?? target),
+      ],
     });
     return actions;
   }
