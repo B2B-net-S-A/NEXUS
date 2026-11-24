@@ -35,6 +35,15 @@ rekrutacji”, nie ten moduł.
   stanowiska.
   Nowe stanowisko dodane do włączonego zespołu dostaje panel od razu. Zdjęte ze
   zespołu zostaje z panelem w stanie, w jakim było (to ten sam klient).
+  Panele stanowisk włącza tylko włączenie linku i dodanie stanowiska
+  (`enable_positions` w `sync_position_panels`). Sama zmiana „Pokazuj stawki”
+  na włączonym zespole zmienia tylko `show_rate` i nie rusza włączenia ani
+  ważności: stanowisko wyłączone przez DL-a zostaje wyłączone (audyt 24.11.2026).
+- **Zmiana klienta rekrutacji w zespole = 409** („zdejmij ją z zespołu przed
+  zmianą klienta”), przed każdą zmianą w `PATCH /api/jobs/{id}`. Link zespołu
+  pomija też rekrutację, której `client_id` różni się od klienta zespołu
+  (`public_positions`), na wypadek danych zapisanych z pominięciem API
+  (audyt 24.11.2026).
   „Odwołaj link” zmienia token zespołu i tokeny paneli stanowisk, więc przestają
   działać też ramki w już wysłanych CV tych rekrutacji. Audyt: `Activity` na
   każdej rekrutacji (`job_team_added`, `job_team_removed`, `job_team_panel_enabled`,
