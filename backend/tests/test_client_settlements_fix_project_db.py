@@ -46,9 +46,11 @@ async def _model(contract_id: int, model: EngagementModel) -> None:
         await db.commit()
 
 
-async def _recompute(client_id: int, month: str) -> None:
+async def _recompute(contract_id: int, month: str) -> None:
+    # ``month_view`` nie przelicza; zmiana modelu kontraktu to nie nowy plik.
     async with AsyncSessionLocal() as db:
-        await service.month_view(db, client_id, month, amounts=True)
+        s = await service._settlement(db, contract_id, month, for_update=True)
+        await service.recompute_and_store(db, s)
         await db.commit()
 
 
@@ -81,13 +83,13 @@ async def test_akceptacja_pma_liczy_sie_tylko_w_projekcie_fix(
         )
         await _store(contract_id, month, _pm_reply(month), "akceptacja.eml")
 
-        await _recompute(client_id, month)
+        await _recompute(contract_id, month)
         titles = _titles(await _settlement(contract_id, month))
         assert titles["Brak akceptacji klienta"] == "warn", titles
         assert "Godziny to koszt firmy: akceptuje PM firmy" not in titles
 
         await _model(contract_id, EngagementModel.fixed)
-        await _recompute(client_id, month)
+        await _recompute(contract_id, month)
         titles = _titles(await _settlement(contract_id, month))
         assert titles["Mail z akceptacją godzin jest"] == "ok", titles
         assert titles["Godziny to koszt firmy: akceptuje PM firmy"] == "none"
