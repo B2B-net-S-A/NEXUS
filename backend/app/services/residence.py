@@ -38,15 +38,19 @@ def city_in_poland(candidate: Candidate) -> bool:
     Lustro warunku w :func:`abroad_ids`."""
     from app.services import pl_places
 
+    # `getattr`: ścieżki systemu dostają też lekkie obiekty bez pól lokalizacji.
     return any(
         pl_places.resolve(value) is not None
-        for value in (candidate.city, candidate.location)
+        for value in (
+            getattr(candidate, "city", None),
+            getattr(candidate, "location", None),
+        )
         if value
     )
 
 
 def lives_outside_poland(candidate: Candidate) -> bool:
-    country = _country(candidate.country)
+    country = _country(getattr(candidate, "country", None))
     if country is None or country == POLAND:
         return False
     return not city_in_poland(candidate)
