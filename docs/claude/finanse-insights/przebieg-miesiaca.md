@@ -57,12 +57,17 @@ samym ekranie.
   Trasa biura pokazuje każdemu z „Modułem Finanse” same stany i daty (jest
   ewidencja, jest faktura, zapłacona), bez kwot i bez dokumentów — decyzja
   Artura z 24.11.2026. Kwota albo dokument biura w tej trasie to złamanie D2.
-- **Kto jest w biurze w miesiącu:** ewidencja za ten miesiąc decyduje o formie
-  (zlecenie w październiku wyklucza, nawet gdy dziś osoba jest na B2B); bez
-  ewidencji — faktura za miesiąc albo dzisiejszy aktywny profil B2B. Osoba
-  z kontem wyłączonym po odejściu zostaje w swoim ostatnim miesiącu.
-  Faktura odrzucona przez Płace (`match_status = ignored`) się nie liczy,
-  a dopasowana do rozliczenia wygrywa z pozostałymi.
+- **Kto jest w biurze w miesiącu (`team_month.in_team`):** zatwierdzona
+  ewidencja zapisuje formę z tego miesiąca i rozstrzyga (zlecenie w październiku
+  wyklucza, nawet gdy dziś osoba jest na B2B; szkic formy nie ma). Faktura za
+  miesiąc też wystarcza. Bez nich: profil B2B i okno zatrudnienia z profilu —
+  start `work_start_date` albo `hired_on`, koniec `last_working_day` albo dzień
+  `exited_at`. Odejście 31.10 z kontem wyłączonym 1.11 i szkicem ewidencji
+  zostaje w październiku; zatrudnienie 3.11 nie wisi w październiku jako brak.
+  Konto wyłączone bez daty końca nie trafia do żadnego miesiąca. Nie wracaj do
+  dzisiejszego `is_active` jako warunku — gubi ludzi, których ostatni miesiąc
+  Finanse zamykają po wyłączeniu konta. Faktura odrzucona przez Płace
+  (`match_status = ignored`) się nie liczy, a dopasowana do rozliczenia wygrywa.
 - **„Co zrobił automat” liczy tylko pracę automatu:** `check.auto_clean` = MD
   odczytane z pliku (`md_source = rcp`) i reguły bez uwag. MD wpisane przez
   Finanse (`md_manual`) i uwagi przyjęte ręcznie (`check.resolved`,

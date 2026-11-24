@@ -118,10 +118,32 @@ def test_faktura_odrzucona_przez_place_odpada_a_dopasowana_wygrywa() -> None:
 
 
 def test_kto_nalezy_do_biura_w_miesiacu() -> None:
-    # Ewidencja mówi o formie w tym miesiącu: zlecenie w październiku wyklucza.
-    assert team_month.in_team(True, "zlecenie", True) is False
-    assert team_month.in_team(False, "b2b", False) is True
-    # Konto wyłączone po odejściu: ostatnia faktura nadal w miesiącu.
-    assert team_month.in_team(False, None, True) is True
-    assert team_month.in_team(True, None, False) is True
-    assert team_month.in_team(False, None, False) is False
+    october = {"first": date(2026, 10, 1), "last": date(2026, 10, 31)}
+
+    def member(**kw) -> bool:
+        base = {
+            "profile_b2b": True,
+            "active": True,
+            "start": None,
+            "end": None,
+            "sheet_type": None,
+            "has_invoice": False,
+        }
+        base.update(kw)
+        return team_month.in_team(**base, **october)
+
+    # Zatwierdzona ewidencja mówi o formie w tym miesiącu: zlecenie wyklucza.
+    assert member(sheet_type="zlecenie", has_invoice=True) is False
+    assert member(profile_b2b=False, sheet_type="b2b") is True
+    # Faktura za miesiąc wystarcza.
+    assert member(profile_b2b=False, active=False, has_invoice=True) is True
+    # Odszedł 31.10, konto wyłączone 1.11, ewidencja szkic, faktury jeszcze nie ma.
+    assert member(active=False, end=date(2026, 10, 31)) is True
+    # Zatrudniony 3.11 nie wisi w październiku jako brak.
+    assert member(start=date(2026, 11, 3)) is False
+    # Odszedł w czerwcu: nie ma go w październiku.
+    assert member(active=False, end=date(2026, 6, 30)) is False
+    # Konto wyłączone bez daty końca: nie wiadomo, kiedy pracował.
+    assert member(active=False) is False
+    assert member() is True
+    assert member(profile_b2b=False) is False

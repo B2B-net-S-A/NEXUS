@@ -129,17 +129,39 @@ def pick_invoice(
     return found[0] if found else None
 
 
-def in_team(active_b2b: bool, sheet_type: Optional[str], has_invoice: bool) -> bool:
-    """Czy osoba należy do biura w miesiącu.
+def in_team(
+    *,
+    profile_b2b: bool,
+    active: bool,
+    start: Optional[date],
+    end: Optional[date],
+    first: date,
+    last: date,
+    sheet_type: Optional[str],
+    has_invoice: bool,
+) -> bool:
+    """Czy osoba należy do biura w miesiącu ``first``–``last``.
 
-    Ewidencja za miesiąc mówi o formie współpracy w tym miesiącu (zlecenie
-    w październiku, B2B od listopada). Bez niej liczy się faktura za miesiąc albo
-    dzisiejszy profil B2B — także osoby, której konto wyłączono po odejściu, bo
-    jej ostatni miesiąc Finanse zamykają już po wyłączeniu."""
+    Zatwierdzona ewidencja zapisuje formę współpracy z tego miesiąca (zlecenie
+    w październiku, B2B od listopada) i rozstrzyga. Faktura za miesiąc też.
+    Bez nich liczy się profil B2B i okno zatrudnienia z profilu: start
+    (``work_start_date`` albo ``hired_on``) i ostatni dzień pracy
+    (``last_working_day`` albo dzień ``exited_at``). Osoba, która odeszła 31.10,
+    zostaje w październiku, choć konto wyłączono 1.11 i ewidencja to szkic;
+    osoba zatrudniona 3.11 nie wisi w październiku jako brak. Konto wyłączone
+    bez daty końca nie trafia do żadnego miesiąca — nie wiemy, kiedy pracowała."""
 
     if sheet_type:
         return sheet_type == TEAM_EMPLOYMENT
-    return has_invoice or active_b2b
+    if has_invoice:
+        return True
+    if not profile_b2b:
+        return False
+    if start is not None and start > last:
+        return False
+    if end is not None:
+        return end >= first
+    return active
 
 
 async def team_month(db: AsyncSession, month: str) -> dict[str, Any]:
@@ -156,13 +178,11 @@ async def team_month(db: AsyncSession, month: str) -> dict[str, Any]:
             PayrollInvoice.sale_date.between(first, last),
         ),
     )
-    active_b2b = set(
+    # Wszystkie profile B2B (także konta wyłączone): okno zatrudnienia rozstrzyga w ``in_team``.
+    profile_b2b = set(
         (
             await db.scalars(
-                select(EmployeeProfile.user_id)
-                .join(User, User.id == EmployeeProfile.user_id)
-                .where(
-                    User.is_active.is_(True),
+                select(EmployeeProfile.user_id).where(
                     EmployeeProfile.employment_type == TEAM_EMPLOYMENT,
                     EmployeeProfile.employment_type_pending.is_(False),
                 )
@@ -189,12 +209,22 @@ async def team_month(db: AsyncSession, month: str) -> dict[str, Any]:
             )
         ).all()
     )
-    ids = sorted(active_b2b | with_sheet | with_invoice)
+    ids = sorted(profile_b2b | with_sheet | with_invoice)
     if not ids:
         return {"month": month, "people": []}
     people = (
         await db.execute(
-            select(User.id, User.name, EmployeeBillingDetails.nip)
+            select(
+                User.id,
+                User.name,
+                User.is_active,
+                EmployeeBillingDetails.nip,
+                EmployeeProfile.work_start_date,
+                EmployeeProfile.hired_on,
+                EmployeeProfile.last_working_day,
+                EmployeeProfile.exited_at,
+            )
+            .outerjoin(EmployeeProfile, EmployeeProfile.user_id == User.id)
             .outerjoin(
                 EmployeeBillingDetails, EmployeeBillingDetails.user_id == User.id
             )
@@ -269,10 +299,18 @@ async def team_month(db: AsyncSession, month: str) -> dict[str, Any]:
     for row in people:
         invoice = chosen.get(row.id)
         sheet = sheets.get(row.id)
+        end = row.last_working_day or (
+            business_date(row.exited_at) if row.exited_at is not None else None
+        )
         if not in_team(
-            row.id in active_b2b,
-            sheet.employment_type if sheet is not None else None,
-            invoice is not None,
+            profile_b2b=row.id in profile_b2b,
+            active=bool(row.is_active),
+            start=row.work_start_date or row.hired_on,
+            end=end,
+            first=first,
+            last=last,
+            sheet_type=sheet.employment_type if sheet is not None else None,
+            has_invoice=invoice is not None,
         ):
             continue
         settlement = (
