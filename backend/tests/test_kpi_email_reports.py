@@ -250,6 +250,70 @@ def test_board_report_goes_only_to_the_board_and_named_people() -> None:
 # ── Runda 7 (R7-N5-2): otwarty bezpiecznik nie gubi raportu ─────────────────
 
 
+class _UsersDB:
+    """Sesja, której jedyne zapytanie zwraca podaną listę kont."""
+
+    def __init__(self, users: list[User]) -> None:
+        self._users = users
+
+    async def execute(self, *_args, **_kwargs):
+        users = self._users
+
+        class _Result:
+            def scalars(self):
+                return self
+
+            def all(self):
+                return list(users)
+
+        return _Result()
+
+
+@pytest.mark.asyncio
+async def test_weekly_recipients_follow_the_policy_set_on_screen(monkeypatch) -> None:
+    """Audyt r3 (24.11.2026): tygodniowy mail czyta Insights z polityki z bazy.
+
+    Pętla w tle nie przechodzi przez uwierzytelnienie żądania. Bez dołączenia
+    polityki HoR, któremu admin odebrał Insights, liczył się z wartości
+    startowych z kodu i dalej dostawał liczby mailem.
+    """
+    cut_off = User(
+        id=101,
+        email="kpi-hor-bez-insights@example.com",
+        name="HoR bez Insights",
+        role=UserRole.head_of_recruitment,
+        roles=[UserRole.head_of_recruitment.value],
+        is_active=True,
+    )
+    reader = User(
+        id=102,
+        email="kpi-hor-z-insights@example.com",
+        name="HoR z Insights",
+        role=UserRole.head_of_recruitment,
+        roles=[UserRole.head_of_recruitment.value],
+        is_active=True,
+    )
+    batches: list[list[int]] = []
+
+    async def _resolve(db, users):
+        users = list(users)
+        batches.append([u.id for u in users])
+        for user in users:
+            user.effective_section_access = {
+                "insights": "none" if user.id == cut_off.id else "read"
+            }
+
+    monkeypatch.setattr(reports, "resolve_effective_access", _resolve)
+    monkeypatch.setattr(reports, "_ACCESS_BATCH", 1)
+
+    got = await reports._recipients(
+        _UsersDB([cut_off, reader]), (UserRole.head_of_recruitment,)
+    )
+
+    assert got == [reader]
+    assert batches == [[cut_off.id], [reader.id]]
+
+
 def test_deliver_reports_deferred_when_sender_refused_temporarily(monkeypatch):
     from app.core.config import settings
 
