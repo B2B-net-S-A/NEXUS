@@ -124,9 +124,11 @@ def evaluate(
     rules: Mapping[str, Mapping[str, Any]],
     mails: Sequence[MailMessage] = (),
     client_mail: Optional[bool] = None,
+    acceptor: str = "klienta",
 ) -> ProofResult:
     """``client_mail``: czy w mailach miesiąca jest wiadomość klienta
-    (``acceptance_mail.from_client``); ``None`` = nadawcy nie odczytano."""
+    (``acceptance_mail.from_client``); ``None`` = nadawcy nie odczytano.
+    ``acceptor``: kto akceptuje (``mail_text.Senders.who``)."""
 
     result = ProofResult(md_regular=None, md_extra=None)
     rcp = _Group(result, rules, "RCP")
@@ -203,10 +205,12 @@ def evaluate(
     elif mime == XLSX:
         if rcp.on("proof.excel_with_mail"):
             if has_mail:
-                client_acceptance_mail(rcp, "proof.excel_with_mail", client_mail)
-                if client_mail is not False:
-                    if client_mail:
-                        rcp.ok("Excel z mailem akceptującym usługi")
+                client_acceptance_mail(
+                    rcp, "proof.excel_with_mail", client_mail, who=acceptor
+                )
+                if client_mail:
+                    rcp.ok("Excel z mailem akceptującym usługi")
+                if client_mail is not False and acceptor == "klienta":
                     _check_domain(
                         rcp,
                         "proof.excel_with_mail",
@@ -318,11 +322,16 @@ def evaluate(
         if extra.on("extra.mail_accept"):
             if has_mail:
                 client_acceptance_mail(
-                    extra, "extra.mail_accept", client_mail, " pracy dodatkowej"
+                    extra,
+                    "extra.mail_accept",
+                    client_mail,
+                    " pracy dodatkowej",
+                    who=acceptor,
                 )
-                if client_mail is not False:
-                    if client_mail:
-                        extra.ok("Mail akceptujący pracę dodatkową jest")
+                if client_mail:
+                    extra.ok("Mail akceptujący pracę dodatkową jest")
+                if client_mail is not False and acceptor == "klienta":
+                    # Domena klienta z reguły; w projekcie FIX akceptuje PM firmy.
                     _check_domain(extra, "extra.mail_accept", domain, mails)
             else:
                 extra.fail(
@@ -348,18 +357,29 @@ def _day(value: date) -> str:
 
 
 def client_acceptance_mail(
-    group: _Group, key: str, client_mail: Optional[bool], what: str = ""
+    group: _Group,
+    key: str,
+    client_mail: Optional[bool],
+    what: str = "",
+    who: str = "klienta",
 ) -> None:
     """Mail jest, ale czy od klienta (ciąg dalszy #3820, przegląd z 23.11.2026).
 
     Odpowiedź naszego PM-a, konsultanta albo nasze przekazanie bez cytatu
     klienta to nie akceptacja klienta. Nadawcy nie odczytano = sprawdza człowiek.
-    ``True`` nic tu nie dopisuje: „ok” daje kontrola, która woła."""
+    ``True`` nic tu nie dopisuje: „ok” daje kontrola, która woła. ``who``: kto
+    akceptuje — w projekcie FIX „PM-a firmy” (godziny to koszt, nie usługa)."""
 
     if client_mail is None:
         group.info(
             "Nadawcy maila nie odczytano: akceptację sprawdza człowiek",
             "W wątku nie ma adresu klienta, a nadawca którejś wiadomości jest bez adresu.",
+        )
+    elif not client_mail and who != "klienta":
+        group.fail(
+            key,
+            f"Brak akceptacji {who}" + what,
+            f"W mailu nie ma słowa akceptacji (np. „Akceptuję”) od {who}.",
         )
     elif not client_mail:
         group.fail(

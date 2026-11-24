@@ -390,10 +390,14 @@ class Senders:
     """Kto może zaakceptować: domeny klienta i domeny firmy (rozliczenia@, SSO).
 
     Klient bez znanych domen (brak kontaktów i domeny w regułach): akceptuje
-    każdy adres spoza domen firmy. Nadawca bez adresu nie akceptuje nigdy."""
+    każdy adres spoza domen firmy. Nadawca bez adresu nie akceptuje nigdy.
+
+    Projekt FIX (``Contract.engagement_model == fixed``): ``client`` to domeny
+    firmy, a ``who`` nazywa akceptującego w uwagach („PM-a firmy”)."""
 
     client: frozenset[str] = frozenset()
     own: frozenset[str] = frozenset()
+    who: str = "klienta"
 
     def accepts_from(self, address: Optional[str]) -> bool:
         match = _ADDRESS.search(address or "")
@@ -426,6 +430,12 @@ def _approved_by(mail: Mail, senders: Senders) -> bool:
         if senders.accepts_from(sender) and _APPROVED.search("\n".join(lines)):
             return True
     return False
+
+
+def approved(mails: list[Mail], senders: Senders) -> bool:
+    """Słowo akceptacji w którejś wiadomości od akceptującego (``senders``)."""
+
+    return any(_approved_by(mail, senders) for mail in mails)
 
 
 def _fmt(value: Decimal) -> str:
@@ -514,16 +524,17 @@ def judge(
             continue
         if not _approved_by(mail, senders):
             where = (
-                "z domeny klienta (" + ", ".join(sorted(senders.client)) + ")"
+                f"z domeny {senders.who} (" + ", ".join(sorted(senders.client)) + ")"
                 if senders.client
-                else "z adresu klienta"
+                else f"z adresu {senders.who}"
             )
             verdicts.append(
                 Verdict(
                     False,
-                    "Brak akceptacji klienta",
+                    f"Brak akceptacji {senders.who}",
                     f"Potwierdzenie w mailu nie pochodzi {where}. Nasze zestawienie "
-                    "albo przekazanie bez cytatu odpowiedzi klienta nie jest akceptacją.",
+                    f"albo przekazanie bez cytatu odpowiedzi {senders.who} nie jest "
+                    "akceptacją.",
                 )
             )
             continue

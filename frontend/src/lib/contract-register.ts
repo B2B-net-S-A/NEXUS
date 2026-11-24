@@ -7,7 +7,7 @@
 import { CONTRACT_STATUS_LABELS, CONTRACT_STATUS_VARIANTS } from "@/lib/status-labels";
 
 export type ProlongationStatus = "unknown" | "yes" | "no" | "negotiate";
-export type EngagementModel = "time_based" | "hours_pool";
+export type EngagementModel = "time_based" | "hours_pool" | "fixed";
 
 /** Wiersz rejestru kontraktów per klient (podzbiór ContractResponse z API). */
 export interface RegisterContractRow {
@@ -69,6 +69,11 @@ export const ENGAGEMENT_MODEL_OPTIONS: {
     value: "hours_pool",
     label: "Pula godzin",
     hint: "Budżet godzin do wykorzystania.",
+  },
+  {
+    value: "fixed",
+    label: "FIX / produkt",
+    hint: "Klient odbiera produkt; godziny akceptuje PM jako koszt.",
   },
 ];
 

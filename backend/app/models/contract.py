@@ -74,10 +74,14 @@ class EngagementModel(str, enum.Enum):
     * ``time_based`` — klasyczny czasowy (start_date → end_date).
     * ``hours_pool`` — pula godzin do wykorzystania (np. wsparcie ad-hoc):
       ``hours_pool_total`` budżet, ``hours_pool_consumed`` zużyte.
+    * ``fixed`` — „FIX / produkt” (0766, decyzja Artura z 24.11.2026): klient
+      odbiera produkt protokołem, a godziny podwykonawcy są kosztem firmy,
+      które akceptuje PM firmy (``client_settlements.service.fix_senders``).
     """
 
     time_based = "time_based"
     hours_pool = "hours_pool"
+    fixed = "fixed"
 
 
 class OrderConsumptionUnit(str, enum.Enum):
