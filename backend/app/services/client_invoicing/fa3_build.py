@@ -18,8 +18,13 @@ Co budujemy:
   za okres, art. 106j ust. 3: wiele ``DaneFaKorygowanej``, ``TypKorekty``
   i ``OkresFaKorygowanej``), ``FaWiersz`` (korekta:
   wiersze „przed” z ``StanPrzed``), ``Platnosc`` (termin, przelew, rachunek),
-  ``WarunkiTransakcji`` (numer zamówienia klienta), dla zaliczkowej
+  ``WarunkiTransakcji`` (umowa i numery zamówień klienta), dla zaliczkowej
   ``Zamowienie`` z wierszami zamówienia.
+
+Wymagania klientów (reguły ``cl.*``, 23.11.2026): kilka numerów zamówień
+(``Zamowienia`` powtórzone, do 100), numer i data umowy (``Umowy``), pola
+``DodatkowyOpis`` z kluczem klienta (np. „OSOBA”) obok „Uwagi”, adres
+doręczenia nabywcy (``Podmiot2/AdresKoresp``).
 
 Kwoty: wartość pozycji = ilość × cena netto, zaokrąglona do grosza; VAT liczony
 od sumy wartości netto w stawce (art. 106e ust. 1 pkt 14). W korekcie sumy to
@@ -48,6 +53,8 @@ PAYMENT_TRANSFER = "6"
 MAX_LINES = 500
 #: ``DaneFaKorygowanej`` ma w schemacie FA(3) ``maxOccurs="50000"``.
 MAX_CORRECTED = 50000
+#: ``Umowy`` i ``Zamowienia`` w ``WarunkiTransakcji`` mają ``maxOccurs="100"``.
+MAX_TERMS = 100
 NAME_MAX = 512
 #: Kody krajów UE w ``KodUE`` (Grecja to ``EL``, Irlandia Płn. ``XI``).
 EU_CODES = frozenset(
@@ -283,7 +290,15 @@ class InvoiceDocument:
     #: Inna forma płatności (``PlatnoscInna`` + ``OpisPlatnosci``), np. „Kompensata”.
     payment_other: Optional[str] = None
     client_order_number: Optional[str] = None
+    #: Numery zamówień faktury z kilku zamówień; puste = ``client_order_number``.
+    order_numbers: tuple[str, ...] = ()
+    contract_number: Optional[str] = None
+    contract_date: Optional[date] = None
     notes: Optional[str] = None
+    #: Pola ``DodatkowyOpis`` z reguł klienta (klucz, wartość) — po „Uwagi”.
+    extra_fields: tuple[tuple[str, str], ...] = ()
+    #: Adres doręczenia nabywcy (``AdresKoresp``), np. Nordea: nabywca w FI, poczta w SE.
+    buyer_delivery: Optional[Party] = None
     exemption_basis: Optional[str] = None
     corrected: Optional[CorrectedInvoice] = None
     #: Korekta zbiorcza (art. 106j ust. 3): faktury z okresu zamiast ``corrected``.
@@ -312,6 +327,34 @@ def _clean(text: Optional[str], limit: int = NAME_MAX) -> Optional[str]:
         return None
     value = " ".join(str(text).split())[:limit]
     return value or None
+
+
+def order_refs(doc: InvoiceDocument) -> list[str]:
+    """Numery zamówień do ``NrZamowienia`` bez powtórzeń, w kolejności faktury."""
+
+    raw = doc.order_numbers or (
+        (doc.client_order_number,) if doc.client_order_number else ()
+    )
+    out: list[str] = []
+    for number in raw:
+        value = _clean(number, 256)
+        if value and value not in out:
+            out.append(value)
+    return out
+
+
+def extra_fields(doc: InvoiceDocument) -> list[tuple[str, str]]:
+    """``DodatkowyOpis``: „Uwagi” ze szkicu, potem pola z reguł klienta (bez pustych)."""
+
+    out: list[tuple[str, str]] = []
+    notes = _clean(doc.notes, 256)
+    if notes:
+        out.append(("Uwagi", notes))
+    for key, value in doc.extra_fields:
+        k, v = _clean(key, 256), _clean(value, 256)
+        if k and v:
+            out.append((k, v))
+    return out
 
 
 def validate(doc: InvoiceDocument) -> None:
@@ -344,6 +387,10 @@ def validate(doc: InvoiceDocument) -> None:
         raise InvoiceBuildError(
             f"Korekta wskazuje więcej niż {MAX_CORRECTED} faktur korygowanych."
         )
+    if len(order_refs(doc)) > MAX_TERMS:
+        raise InvoiceBuildError(
+            f"Faktura ma więcej niż {MAX_TERMS} numerów zamówień — podziel ją."
+        )
     if doc.correction_type not in (None, "1", "2", "3"):
         raise InvoiceBuildError("Typ korekty: 1, 2 albo 3.")
     totals(doc.lines, doc.lines_before)
@@ -357,8 +404,8 @@ def _podmiot1(root: etree._Element, doc: InvoiceDocument) -> None:
     _address(node, doc.seller)
 
 
-def _address(parent: etree._Element, party: Party) -> None:
-    address = _sub(parent, "Adres")
+def _address(parent: etree._Element, party: Party, tag: str = "Adres") -> None:
+    address = _sub(parent, tag)
     _sub(address, "KodKraju", (party.country or "PL").upper()[:2])
     _sub(address, "AdresL1", _clean(party.address_l1))
     if _clean(party.address_l2):
@@ -382,6 +429,8 @@ def _podmiot2(root: etree._Element, doc: InvoiceDocument) -> None:
         _sub(ident, "BrakID", "1")
     _sub(ident, "Nazwa", _clean(doc.buyer.name))
     _address(node, doc.buyer)
+    if doc.buyer_delivery is not None and _clean(doc.buyer_delivery.address_l1):
+        _address(node, doc.buyer_delivery, "AdresKoresp")
     _sub(node, "JST", "2")
     _sub(node, "GV", "2")
 
@@ -506,6 +555,24 @@ def _order(fa: etree._Element, doc: InvoiceDocument, result: Totals) -> None:
         _sub(row, "P_12Z", code)
 
 
+def _terms(fa: etree._Element, doc: InvoiceDocument) -> None:
+    """``WarunkiTransakcji``: ``Umowy`` przed ``Zamowienia`` (kolejność schematu)."""
+
+    contract = _clean(doc.contract_number, 256)
+    numbers = order_refs(doc)
+    if not contract and not numbers:
+        return
+    terms = _sub(fa, "WarunkiTransakcji")
+    if contract:
+        node = _sub(terms, "Umowy")
+        if doc.contract_date is not None:
+            _sub(node, "DataUmowy", doc.contract_date.isoformat())
+        _sub(node, "NrUmowy", contract)
+    for number in numbers:
+        node = _sub(terms, "Zamowienia")
+        _sub(node, "NrZamowienia", number)
+
+
 def build_xml(doc: InvoiceDocument) -> bytes:
     """XML FA(3) w UTF-8; ``InvoiceBuildError``, gdy szkic jest niekompletny."""
 
@@ -542,10 +609,10 @@ def build_xml(doc: InvoiceDocument) -> bytes:
     _sub(fa, "RodzajFaktury", doc.invoice_type)
     if doc.invoice_type == "KOR":
         _correction(fa, doc)
-    if _clean(doc.notes, 256):
+    for key, value in extra_fields(doc):
         extra = _sub(fa, "DodatkowyOpis")
-        _sub(extra, "Klucz", "Uwagi")
-        _sub(extra, "Wartosc", _clean(doc.notes, 256))
+        _sub(extra, "Klucz", key)
+        _sub(extra, "Wartosc", value)
     if doc.invoice_type != "ZAL":
         index = 0
         for line in doc.lines_before:
@@ -555,10 +622,7 @@ def build_xml(doc: InvoiceDocument) -> bytes:
             index += 1
             _line(fa, index, line, doc)
     _payment(fa, doc)
-    if _clean(doc.client_order_number, 256):
-        terms = _sub(fa, "WarunkiTransakcji")
-        orders = _sub(terms, "Zamowienia")
-        _sub(orders, "NrZamowienia", _clean(doc.client_order_number, 256))
+    _terms(fa, doc)
     if doc.invoice_type == "ZAL":
         _order(fa, doc, result)
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8")
@@ -577,6 +641,8 @@ __all__ = [
     "Totals",
     "build_xml",
     "buyer_id",
+    "extra_fields",
+    "order_refs",
     "line_net",
     "money",
     "totals",

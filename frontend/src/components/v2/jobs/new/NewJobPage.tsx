@@ -103,6 +103,7 @@ import {
   mergeIntakeOffers,
   restoreIntakeOffers,
   undoIntakeFill,
+  type ClientDefaults,
   type IntakeFillUndo,
   type IntakeOffer,
   type IntakeSource,
@@ -345,6 +346,8 @@ interface FillInput {
   templateJobId?: number;
   /** Plik Profilu Championa: pola przepisał kod, bez modelu („z dokumentu”). */
   championForm?: boolean;
+  /** Termin i liczba osób z historii klienta (wariant 1, 23.11.2026). */
+  clientDefaults?: ClientDefaults | null;
 }
 
 const EMPTY_PORTAL_PLAN: NewJobPortalPlan = {
@@ -473,6 +476,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     const result = applyIntakeRead(live.form, incoming, {
       source: input.source,
       ...(input.championForm ? { basis: "document" as const } : {}),
+      clientDefaults: input.clientDefaults ?? null,
     });
     fillUndoRef.current = {
       undo: result.undo,
@@ -856,6 +860,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         intake: RequestIntakeResponse;
         reader?: string;
         champion_extras?: unknown;
+        client_defaults?: ClientDefaults | null;
       };
       if (pickedFile) {
         const body = new FormData();
@@ -891,6 +896,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
           text: data.text,
           evidence: data.intake.evidence ?? [],
           championForm,
+          clientDefaults: data.client_defaults ?? null,
         },
       );
       // Plik requestu zostaje przy rekrutacji: zapisze go efekt niżej, gdy

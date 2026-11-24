@@ -185,7 +185,13 @@ def _multiplier(s: ClientSettlement) -> Decimal:
 def item_name(
     rules: dict[str, dict[str, Any]], order_number: Optional[str], person: str
 ) -> Optional[str]:
-    """Opis pozycji ze wzoru ``cl.item_name`` (``{zamowienie}``, ``{osoba}``)."""
+    """Opis pozycji ze wzoru ``cl.item_name`` (``{zamowienie}``, ``{osoba}``).
+
+    Pola, których tu nie znamy (``{rola}``, ``{usluga}``, ``{miesiac}`` — wzór
+    wspólny ze szkicem faktury z NEXUSA), znikają z opisu.
+    """
+
+    from app.services.client_invoicing.requirements import render_item_name
 
     rule = rules.get("cl.item_name")
     if not rule or rule["level"] == "off":
@@ -193,10 +199,7 @@ def item_name(
     pattern = str(rule["params"].get("template") or "").strip()
     if not pattern:
         return None
-    text = pattern.replace("{zamowienie}", order_number or "—").replace(
-        "{osoba}", person
-    )
-    return " ".join(text.split())
+    return render_item_name(pattern, order_number=order_number, person=person)
 
 
 def positions(
