@@ -191,3 +191,141 @@ describe("usePipelineMoveCore", () => {
     await waitFor(() => expect(showError).not.toHaveBeenCalled());
   });
 });
+
+describe("usePipelineMoveCore — pozostałe odmowy", () => {
+  it("„Anuluj” w ostrzeżeniu kończy ruch odmową bez ponowienia i odświeża tablicę", async () => {
+    move.mockRejectedValueOnce(refusal(409, { code: "ELIGIBILITY_WARNING", reason: "Kandydat ma NDA." }));
+    const { send, invalidate } = setup();
+    const pending = send();
+    fireEvent.click(await screen.findByRole("button", { name: "Anuluj" }));
+    await expect(pending).resolves.toMatchObject({ ok: false, refusal: { kind: "eligibility" } });
+    expect(move).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["kanban", 7] });
+  });
+
+  it("ostrzeżenie przy ruchu już potwierdzonym nie otwiera okna drugi raz — sam komunikat", async () => {
+    move.mockRejectedValueOnce(refusal(409, { code: "ELIGIBILITY_WARNING", reason: "Kandydat ma NDA." }));
+    const { send } = setup();
+    await expect(send({ ...PAYLOAD, acknowledge_eligibility: true })).resolves.toMatchObject({
+      ok: false,
+      refusal: { kind: "eligibility" },
+    });
+    expect(screen.queryByRole("button", { name: "Przenieś mimo to" })).toBeNull();
+    expect(showError).toHaveBeenCalledWith("Kandydat ma NDA.");
+    expect(move).toHaveBeenCalledTimes(1);
+  });
+
+  it("bramka „Zweryfikowany”: komunikat i wołający otwiera arkusz z brakami", async () => {
+    move.mockRejectedValueOnce(
+      refusal(409, { code: "VERIFIED_REQUIREMENTS_MISSING", missing: ["candidate_rate"], message: "Brak stawki" }),
+    );
+    const onVerifiedMissing = vi.fn();
+    const onCvQcFailed = vi.fn();
+    const { send } = setup();
+    await expect(send(PAYLOAD, { onVerifiedMissing, onCvQcFailed })).resolves.toMatchObject({
+      ok: false,
+      refusal: { kind: "verified_missing" },
+    });
+    expect(showError).toHaveBeenCalledWith("Brak stawki");
+    expect(onVerifiedMissing).toHaveBeenCalledTimes(1);
+    expect(onCvQcFailed).not.toHaveBeenCalled();
+  });
+
+  it("konflikt wersji: komunikat i odświeżenie tablicy, ale bez ponowienia ruchu", async () => {
+    move.mockRejectedValueOnce(refusal(409, { code: "PIPELINE_VERSION_CONFLICT" }));
+    const { send, invalidate } = setup();
+    await expect(send()).resolves.toMatchObject({ ok: false, refusal: { kind: "version_conflict" } });
+    expect(move).toHaveBeenCalledTimes(1);
+    expect(showError).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["kanban", "7"] });
+    // Konflikt odświeża tylko tablicę i historię etapów — nie follow-up ani kolejkę.
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["board-tasks"] });
+  });
+
+  it("nieznany błąd bez `rethrowOther`: komunikat wołającego, bez wyjątku", async () => {
+    move.mockRejectedValueOnce(refusal(500, null));
+    const { send } = setup();
+    await expect(send(PAYLOAD, { fallbackMessage: "Nie udało się wysłać CV." })).resolves.toEqual({
+      ok: false,
+      refusal: { kind: "other", message: "Nie udało się wysłać CV." },
+    });
+    expect(showError).toHaveBeenCalledWith("Nie udało się wysłać CV.");
+  });
+
+  it("`rethrowOther` nie dotyczy znanych odmów — bramka wraca wynikiem, nie wyjątkiem", async () => {
+    move.mockRejectedValueOnce(refusal(409, { code: "CV_QC_FAILED", stage_id: 2 }));
+    const { send } = setup();
+    await expect(send(PAYLOAD, { rethrowOther: true })).resolves.toMatchObject({
+      ok: false,
+      refusal: { kind: "cv_qc_failed", message: "CV nie przeszło QC." },
+    });
+  });
+
+  const twinDetail = {
+    code: "TWIN_SCREENING_REQUIRED",
+    message: "Osoba idzie też do bliźniaka.",
+    twins: [{ job_id: 21, reference_number: "R-21", title: "Analityk testowy" }],
+    skip_reasons: { other_profile: "Inny profil" },
+  };
+
+  it("bliźniak: pominięcie z powodem ponawia TEN SAM ruch z `twin_skips`", async () => {
+    move.mockRejectedValueOnce(refusal(409, twinDetail)).mockResolvedValueOnce({ data: { id: 14 } });
+    const { send } = setup();
+    const pending = send({ ...PAYLOAD, twin_skips: { "20": "duplicate" } });
+    const submit = await screen.findByTestId("twin-skip-submit");
+    expect(submit).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Powód pominięcia — Analityk testowy"), {
+      target: { value: "other_profile" },
+    });
+    fireEvent.click(submit);
+    await expect(pending).resolves.toMatchObject({ ok: true, data: { id: 14 } });
+    expect(move.mock.calls[1][0]).toEqual({
+      ...PAYLOAD,
+      twin_skips: { "20": "duplicate", "21": "other_profile" },
+    });
+  });
+
+  it("bliźniak: „Zamknij” kończy ruch odmową bez ponowienia", async () => {
+    move.mockRejectedValueOnce(refusal(409, twinDetail));
+    const { send, invalidate } = setup();
+    const pending = send();
+    await screen.findByTestId("twin-skip-dialog");
+    // Okno ma dwa „Zamknij” (krzyżyk i przycisk w stopce) — oba to ta sama decyzja.
+    fireEvent.click(screen.getAllByRole("button", { name: "Zamknij" }).at(-1)!);
+    await expect(pending).resolves.toMatchObject({ ok: false, refusal: { kind: "twin_required" } });
+    expect(move).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["kanban", 7] });
+    await waitFor(() => expect(screen.queryByTestId("twin-skip-dialog")).toBeNull());
+  });
+
+  it("debrief bez rozmowy w kalendarzu: okno dostaje `eventId = null` i domyślne imię", async () => {
+    move.mockRejectedValueOnce(refusal(409, { code: "DEBRIEF_REQUIRED" })).mockResolvedValueOnce({ data: {} });
+    const { send } = setup();
+    const pending = send();
+    fireEvent.click(await screen.findByRole("button", { name: /zapisz debrief/ }));
+    await expect(pending).resolves.toEqual({ ok: true, data: {} });
+  });
+});
+
+describe("usePipelineMoveCore — mail odrzucenia po ruchu", () => {
+  it("zaplanowany mail daje „Cofnij wysyłkę”, które anuluje właściwy mail", async () => {
+    move.mockResolvedValueOnce({ data: { id: 15, scheduled_rejection_email_id: 88 } });
+    post.mockResolvedValueOnce({});
+    const { send } = setup();
+    await send({ ...PAYLOAD, stage: "rejected", send_rejection_email: true });
+    expect(showActionToast).toHaveBeenCalledWith(
+      "Email odrzucenia zostanie wysłany za 15 minut.",
+      expect.objectContaining({ actionLabel: "Cofnij wysyłkę" }),
+    );
+    await showActionToast.mock.calls[0][1].onAction();
+    expect(post).toHaveBeenCalledWith("/api/rejection-emails/88/cancel");
+    expect(showSuccess).toHaveBeenCalledWith("Anulowano wysyłkę emaila.");
+  });
+
+  it("odpowiedź bez treści to nadal udany ruch z pustym wynikiem", async () => {
+    move.mockResolvedValueOnce({ data: undefined });
+    const { send } = setup();
+    await expect(send()).resolves.toEqual({ ok: true, data: {} });
+    expect(showActionToast).not.toHaveBeenCalled();
+  });
+});
