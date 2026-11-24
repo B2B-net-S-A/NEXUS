@@ -67,7 +67,7 @@ FORM_CLAUSE = (
     "użyty przez każdą ze Stron jest równoważny z podpisem własnoręcznym dla "
     "celów prawnych i dowodowych."
 )
-CEZ_KEY = "preliminary_cez_v3_pl"
+CEZ_TEMPLATE_NAME = "preliminary_cez_v3_pl"
 
 
 class BuildError(RuntimeError):
@@ -659,12 +659,12 @@ def _build_cez(out_dir: Path) -> None:
     first.text = FORM_CLAUSE
     for run in rest:
         run._element.getparent().remove(run._element)
-    doc.save(str(out_dir / f"{CEZ_KEY}.docx"))
+    doc.save(str(out_dir / f"{CEZ_TEMPLATE_NAME}.docx"))
 
     source = (TEMPLATE_DIR / f"{CEZ_BASE}.html").read_text(encoding="utf-8")
     if source.count(CEZ_FORM_OLD) != 1:
         raise BuildError("klauzula formy w HTML CeZ: nie jedno trafienie")
-    (out_dir / f"{CEZ_KEY}.html").write_text(
+    (out_dir / f"{CEZ_TEMPLATE_NAME}.html").write_text(
         source.replace(CEZ_FORM_OLD, FORM_CLAUSE), encoding="utf-8"
     )
 
@@ -681,7 +681,7 @@ def main() -> None:
         _write_html(blocks, out_dir / f"{key}.html")
         print(f"zapisano {key}.docx i .html")
     _build_cez(out_dir)
-    print(f"zapisano {CEZ_KEY}.docx i .html")
+    print(f"zapisano {CEZ_TEMPLATE_NAME}.docx i .html")
 
 
 if __name__ == "__main__":

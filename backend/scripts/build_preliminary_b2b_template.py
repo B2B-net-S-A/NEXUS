@@ -61,7 +61,7 @@ from build_b2b_document_templates import (  # noqa: E402
 )
 from build_preliminary_participation_templates import FORM_CLAUSE  # noqa: E402
 
-KEY = "preliminary_b2b_v2_pl"
+TEMPLATE_NAME = "preliminary_b2b_v2_pl"
 TITLE = "Umowa przedwstępna na współpracę B2B"
 
 RX_COMPANY = (
@@ -205,15 +205,17 @@ def main() -> None:
     doc = docx.Document(str(args.source))
     build(doc)
     drop_empty_numbered(doc)
-    verify(doc, KEY)
+    verify(doc, TEMPLATE_NAME)
     buf = io.BytesIO()
     doc.save(buf)
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    (args.out_dir / f"{KEY}.docx").write_bytes(scrub_package(buf.getvalue(), TITLE))
-    (args.out_dir / f"{KEY}.html").write_text(
+    (args.out_dir / f"{TEMPLATE_NAME}.docx").write_bytes(
+        scrub_package(buf.getvalue(), TITLE)
+    )
+    (args.out_dir / f"{TEMPLATE_NAME}.html").write_text(
         _html_fixups(doc_to_html(doc)), encoding="utf-8"
     )
-    print(f"[{KEY}] ✓ → {args.out_dir}")
+    print(f"[{TEMPLATE_NAME}] ✓ → {args.out_dir}")
 
 
 if __name__ == "__main__":
