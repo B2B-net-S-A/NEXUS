@@ -9,7 +9,8 @@ Kolejność, od najpewniejszego:
    ``WarunkiTransakcji``, opis dodatkowy, nazwy pozycji) — tylko numery
    zamówień TEGO klienta, całym słowem (``445`` nie trafia w ``4450``),
    numer z samych cyfr także bez zer wiodących, ``SAP 45…`` także bez
-   prefiksu. Numer wiąże: faktura idzie do tego zamówienia, a różnica kwoty
+   prefiksu, tytuł „Zamówienie nr 9001/2026” także jako sam numer
+   (``OrderRef.variants``). Numer wiąże: faktura idzie do tego zamówienia, a różnica kwoty
    jest do sprawdzenia przez Finanse. Faktura na jedną osobę z zamówienia MD
    (kwota równa pozycji tej osoby) wiąże się z tą osobą. U klienta z regułą
    ``cl.collective_invoice`` (VeloBank: jedna pozycja na całe zamówienie)
@@ -52,8 +53,6 @@ from app.services.client_invoicing.billing import BillingLine, BillingRow, Order
 
 MIN_NUMBER_LENGTH = 3
 _DIGITS = re.compile(r"\d+")
-#: „Zamówienie nr 3/07/2026/BL” i „3/07/2026/BL” to ten sam numer zamówienia.
-_TITLE_PREFIX = re.compile(r"^\s*zam[óo]wienie\s+(nr\.?\s*)?", re.IGNORECASE)
 #: Etykieta numeru zamówienia i wartość po niej. Samo „PO” tylko wielkimi literami,
 #: bo małe „po” to polski przyimek („po 30 dniach”).
 _LABELLED_ORDER_NUMBER = re.compile(
@@ -255,7 +254,7 @@ def _person_and_price(
 
 
 def _number_key(order_number: str) -> str:
-    return " ".join(_TITLE_PREFIX.sub("", order_number).casefold().split())
+    return " ".join(billing.TITLE_PREFIX.sub("", order_number).casefold().split())
 
 
 def _whole_order(
@@ -264,8 +263,8 @@ def _whole_order(
     """Faktura zbiorcza (``cl.collective_invoice``): wszystkie zamówienia z numerem.
 
     Klient fakturuje całe zamówienie jedną pozycją, a w NEXUSIE każda osoba ma
-    własne zamówienie z tym numerem — także z tytułem „Zamówienie nr …”, którego
-    numer z faktury nie trafia całym tytułem. Kwota niczego tu nie rozstrzyga:
+    własne zamówienie z tym numerem (tytuł z „Zamówienie nr …” albo bez, ten sam
+    ``_number_key``). Kwota niczego tu nie rozstrzyga:
     przy ośmiu osobach brak jednej wygląda jak urlopy, więc różnicę widzą Finanse.
     """
 

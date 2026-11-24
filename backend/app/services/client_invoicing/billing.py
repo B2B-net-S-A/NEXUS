@@ -85,6 +85,10 @@ _SETTLING = (ClientOrderStatus.active, ClientOrderStatus.completed)
 _NOT_BILLED_GROUPS = (GROUP_STATUS_DRAFT, GROUP_STATUS_CANCELLED)
 UNIT_LABELS = {"md": "MD", "hours": "h", "days": "dni", "month": "mies."}
 _SAP_PREFIX = re.compile(r"^SAP[\s:-]*(\d+)$", re.IGNORECASE)
+#: „Zamówienie nr 3/07/2026/BL” i „3/07/2026/BL” to ten sam numer zamówienia.
+TITLE_PREFIX = re.compile(r"^\s*zam[óo]wienie\s+(nr\.?\s*)?", re.IGNORECASE)
+#: Reszta tytułu jest numerem, gdy to jeden wyraz z cyfrą (jak ``number_from_title``).
+_TITLE_NUMBER = re.compile(r"[\w./-]{2,40}")
 
 
 def money(value: Decimal) -> Decimal:
@@ -204,10 +208,22 @@ class OrderRef:
         return f"g{self.group_id}" if self.group_id is not None else f"o{self.order_id}"
 
     def variants(self) -> tuple[str, ...]:
-        """Numer i jego postać bez prefiksu ``SAP`` (Polkomtel zapisuje „SAP 45…”)."""
+        """Numer i jego postaci bez prefiksu ``SAP`` (Polkomtel zapisuje „SAP 45…”)
+        i bez „Zamówienie nr” z tytułu: faktura podaje „nr zamówienia: 9001/2026”,
+        a tytuł to „Zamówienie nr 9001/2026”. Tytuł opisowy numeru nie daje."""
 
-        found = _SAP_PREFIX.match(self.number)
-        return (self.number, found.group(1)) if found else (self.number,)
+        found = [self.number]
+        sap = _SAP_PREFIX.match(self.number)
+        if sap:
+            found.append(sap.group(1))
+        bare = TITLE_PREFIX.sub("", self.number).strip()
+        if (
+            bare != self.number
+            and _TITLE_NUMBER.fullmatch(bare)
+            and any(ch.isdigit() for ch in bare)
+        ):
+            found.append(bare)
+        return tuple(found)
 
 
 def _consultant(order: ClientOrder) -> str:
@@ -677,6 +693,7 @@ async def order_refs(db: AsyncSession, client_ids: Iterable[int]) -> list[OrderR
 
 __all__ = [
     "COST_NOTE",
+    "TITLE_PREFIX",
     "BillingLine",
     "BillingRow",
     "CostBudget",

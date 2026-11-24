@@ -139,6 +139,31 @@ def test_short_or_digitless_titles_do_not_bind():
     assert numbers_found(["PO 12 do zamówienia"], refs) == set()
 
 
+def test_title_zamowienie_nr_is_found_by_the_number_alone():
+    # Numer zamówienia bez grupy to jego tytuł, a faktura podaje sam numer.
+    refs = [
+        OrderRef(1, None, 5, "Zamówienie nr 9001/2026"),
+        OrderRef(1, 12, None, "ZAMÓWIENIE 9002_2026"),
+    ]
+    assert numbers_found(["Jan Przykładowy, nr zamówienia: 9001/2026"], refs) == {"o5"}
+    assert numbers_found(["zamówienie: 9002_2026_onboarding"], refs) == {"g12"}
+    assert numbers_found(["nr zamówienia: 19001/2026"], refs) == set()
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Zamówienie Przykładowa Spółka — Jan Przykładowy",
+        "Zamówienie nr 9001/2026 — Jan Przykładowy",
+        "Zamówienie z dnia 01.07.2026",
+        "Zamówienie 5",
+    ],
+)
+def test_descriptive_title_gives_no_bare_number(title):
+    # Jak `number_from_title` w rozliczeniach: numerem jest jeden wyraz z cyfrą.
+    assert OrderRef(1, None, 5, title).variants() == (title,)
+
+
 # ── Dopasowanie ───────────────────────────────────────────────────────────────
 
 
@@ -153,6 +178,38 @@ def test_number_binds_even_with_a_different_amount():
     )
     assert decision.targets == (Target(group_id=10),)
     assert decision.method == "order_number"
+
+
+def test_order_titled_zamowienie_nr_binds_by_the_number_on_the_invoice():
+    # Pomiar 24.11: takie faktury czekały jako numer, którego nie ma w NEXUSIE.
+    row = _periodic(5, "Zamówienie nr 9001/2026", "16800.00")
+    decision = decide(
+        net=Decimal("18400.00"),
+        currency="PLN",
+        texts=["Konsultant Jan Przykładowy, nr zamówienia: 9001/2026, SSGW 100001-1"],
+        rows=[row],
+        refs=_refs(row),
+    )
+    assert decision.targets == (Target(order_id=5),)
+    assert decision.method == "order_number"
+
+
+def test_same_number_with_and_without_the_title_prefix_is_one_number():
+    # Wcześniej faktura na dwie osoby wiązała tylko zamówienie z tytułem bez przedrostka.
+    bare = _periodic(5, "9001/2026", "16800.00")
+    titled = _periodic(6, "Zamówienie nr 9001/2026", "16800.00")
+
+    def invoice(net):
+        return decide(
+            net=Decimal(net),
+            currency="PLN",
+            texts=["nr zamówienia: 9001/2026", "nr zamówienia: 9001/2026"],
+            rows=[bare, titled],
+            refs=_refs(bare, titled),
+        )
+
+    assert invoice("33600.00").targets == (Target(order_id=5), Target(order_id=6))
+    assert invoice("35000.00").reason == "several_orders"
 
 
 def test_number_and_one_person_amount_links_to_that_person():
@@ -341,12 +398,18 @@ def test_without_the_rule_one_number_on_several_orders_waits():
     # jednej osoby ani od faktury bez jednej osoby, więc faktura czeka na Finanse.
     eight = _people_orders(*["16800.00"] * 8)
     assert _collective("117600.00", eight, collective=False).reason == "several_orders"
+    # Tytuł „Zamówienie nr …” to ten sam numer: faktura bez jednej osoby czeka, a nie
+    # wiąże siedmiu zamówień z tytułem bez przedrostka. Suma wszystkich ośmiu co do
+    # grosza wiąże wszystkie, jak przy jednakowych tytułach.
     seven_and_typo = _people_orders(*["16800.00"] * 7) + _people_orders(
         "16800.00", number="Zamówienie nr 3/09/2026/XY", first_id=40
     )
     assert (
-        _collective("134400.00", seven_and_typo, collective=False).reason
+        _collective("117600.00", seven_and_typo, collective=False).reason
         == "several_orders"
+    )
+    assert _collective("134400.00", seven_and_typo, collective=False).targets == tuple(
+        Target(order_id=row.order_id) for row in seven_and_typo
     )
     one_and_a_bit = _people_orders("16800.00", "1460.87")
     assert (
