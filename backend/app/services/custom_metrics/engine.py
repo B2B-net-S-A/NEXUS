@@ -35,7 +35,12 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.cache import cache_get, cache_invalidate, cache_set, cache_single_flight
+from app.core.cache import (
+    cache_evict_local,
+    cache_get,
+    cache_set,
+    cache_single_flight,
+)
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
@@ -207,7 +212,7 @@ async def _credited_snapshot(db: AsyncSession, since: date) -> list[CreditedRow]
             for r in result.all()
         ]
         # Najwyżej jedna migawka naraz — wczorajsza znika przy zapisie dzisiejszej.
-        await cache_invalidate(_CREDITED_KEY_PREFIX)
+        await cache_evict_local(_CREDITED_KEY_PREFIX)
         if _CREDITED_SNAPSHOT_TTL_SECONDS > 0:
             await cache_set(
                 key,

@@ -63,6 +63,8 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
         "access_usage",
         "critical_stats_cache",
         "process_bus",
+        # Obecność między procesami web: same NOTIFY, bez wyjścia na zewnątrz.
+        "presence_sync",
         "match_history_ttl",
         "runtime_metrics",
         "keyword_corpus_backfill",

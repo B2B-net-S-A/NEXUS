@@ -12208,6 +12208,13 @@ fi
 startup_phase ""
 echo "[startup-timing] total before uvicorn: $(( $(date +%s) - STARTUP_T0 ))s"
 echo "Starting uvicorn..."
+# Kilka procesów uvicorna tylko w roli web. Rola `all` (wycofanie bez rewertu)
+# zakłada jeden proces: blokady i bus są w niej wyłączone, a pętle ma tylko lider.
+# → docs/claude/podstawy/kilka-procesow-web.md
+if [ "${NEXUS_PROCESS_ROLE:-all}" != "web" ] && [ "${WEB_CONCURRENCY:-1}" != "1" ]; then
+  echo "WEB_CONCURRENCY=${WEB_CONCURRENCY} pominięte: rola ${NEXUS_PROCESS_ROLE:-all} ma jeden proces"
+  export WEB_CONCURRENCY=1
+fi
 # Bezpiecznik tylko dla WWW, po całym starcie: DDL wyżej i skrypty przez `docker exec`
 # biegną bez limitu. Pomiar i wyłączenie: docs/claude/podstawy/statement-timeout.md
 export DB_STATEMENT_TIMEOUT_MS=120000
