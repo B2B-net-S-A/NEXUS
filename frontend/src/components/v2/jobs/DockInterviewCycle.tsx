@@ -325,6 +325,7 @@ export function DockInterviewCycle({
           eventId={badge.interview_event_id}
           title="Debrief po rozmowie u klienta"
           description={`${candidateLabel(pair)} · ${pairContext(pair)}`}
+          candidatePhone={pair.candidate_phone}
           readOnly={readOnly}
           submitLabel="Zapisz poprawkę"
         />
