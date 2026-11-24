@@ -104,6 +104,7 @@ import {
   type CandidateProfileViewInput,
 } from "@/components/v2/pages/candidate-profile-navigation";
 import { useCapability } from "@/hooks/useCapability";
+import { useHydrated } from "@/hooks/useHydrated";
 import { AddCvDialog } from "@/components/v2/candidate-profile/AddCvDialog";
 import {
   ProfilePersonBar,
@@ -531,7 +532,13 @@ export function CandidateDetailV2({
     onError: (e) => showError(extractErrorMsg(e) || "Nie udało się usunąć profilu kandydata"),
   });
 
-  if (isLoading) {
+  // Okruszek w powłoce (`BreadcrumbV2`) czyta kandydata pod tym samym kluczem
+  // i hydratuje się wcześniej niż strona (granica `app/loading.tsx`). Na
+  // Poligonie jego odpowiedź z zestawu bywała w cache'u, zanim React doszedł
+  // do profilu: serwer wysłał szkielet, klient od razu profil (React #418,
+  // 24.11.2026). Do końca hydratacji ten sam szkielet co z serwera.
+  const hydrated = useHydrated();
+  if (!hydrated || isLoading) {
     return (
       <div className="mx-auto max-w-[1440px] space-y-4 py-8" aria-busy="true">
         <div className="h-32 animate-pulse rounded-xl border border-border bg-muted/50" />

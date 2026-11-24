@@ -1,7 +1,8 @@
 """Wymagania klienta na miesiąc faktury: zlecenie B-ZONE i protokół odbioru. Bez bazy.
 
 Dane fikcyjne: numery zleceń w formacie B-ZONE wymyślone (``K/2026/100001/AB/1001/26TEST``),
-osoby „Jan Testowy”, „Anna Inna”, umowy „CeZ/99/2026” i „CeZ/98/2026”.
+osoby „Jan Testowy” (w protokole umowy „CeZ/97/2026” jako „Janek Testowy”), „Anna Inna”,
+umowy „CeZ/99/2026”, „CeZ/98/2026” i „CeZ/97/2026”.
 """
 
 from __future__ import annotations
@@ -261,6 +262,68 @@ def test_unknown_contract_of_the_person_accepts_any_contract():
     )
     assert period_checks.protocol_matches(
         OCTOBER_99, need, period="2026-10", doc_month="2026-10"
+    )
+
+
+# Imię w protokole inne niż w kartotece (zdrobnienie albo inne imię, CeZ/177 za X 2026):
+# osobę wskazuje numer umowy, na której w miesiącu pracuje tylko ona — jak w rozliczeniu.
+SOLO_97 = protocol_collective.parse_text(
+    _cez("CeZ/97/2026", "01.10.2026", "31.10.2026", ("Janek Testowy",))
+)
+ONLY_HERS_97 = frozenset({"CEZ/97/2026"})
+
+
+def test_other_first_name_counts_when_only_this_person_works_on_the_contract():
+    need = ProtocolNeed(
+        contract_id=1, person="Jan Testowy", contract_number="CeZ/97/2026"
+    )
+    assert SOLO_97 is not None and len(SOLO_97.people) == 1
+    assert not period_checks.protocol_matches(
+        SOLO_97, need, period="2026-10", doc_month="2026-10"
+    )
+    assert period_checks.protocol_matches(
+        SOLO_97, need, period="2026-10", doc_month="2026-10", agreements=ONLY_HERS_97
+    )
+    # Umowa osoby nieznana w zamówieniu: wystarcza umowa tylko tej osoby.
+    unknown = ProtocolNeed(contract_id=1, person="Jan Testowy")
+    assert period_checks.protocol_matches(
+        SOLO_97, unknown, period="2026-10", doc_month="2026-10", agreements=ONLY_HERS_97
+    )
+
+
+def test_contract_number_does_not_point_at_the_person_otherwise():
+    need = ProtocolNeed(
+        contract_id=1, person="Jan Testowy", contract_number="CeZ/97/2026"
+    )
+    # Na umowie pracuje w miesiącu druga osoba (CeZ/242): umowa nikogo nie wskazuje.
+    assert not period_checks.protocol_matches(
+        SOLO_97, need, period="2026-10", doc_month="2026-10", agreements=frozenset()
+    )
+    # Protokół innego miesiąca.
+    assert not period_checks.protocol_matches(
+        SOLO_97, need, period="2026-11", doc_month="2026-11", agreements=ONLY_HERS_97
+    )
+    # Protokół kilku osób: numer umowy nie mówi, który wiersz jest tej osoby.
+    other = ProtocolNeed(
+        contract_id=1, person="Piotr Trzeci", contract_number="CeZ/99/2026"
+    )
+    assert not period_checks.protocol_matches(
+        OCTOBER_99,
+        other,
+        period="2026-10",
+        doc_month="2026-10",
+        agreements=frozenset({"CEZ/99/2026"}),
+    )
+    # Pozycja faktury jest z innej umowy tej osoby niż protokół.
+    second = ProtocolNeed(
+        contract_id=1, person="Jan Testowy", contract_number="CeZ/98/2026"
+    )
+    assert not period_checks.protocol_matches(
+        SOLO_97,
+        second,
+        period="2026-10",
+        doc_month="2026-10",
+        agreements=frozenset({"CEZ/97/2026", "CEZ/98/2026"}),
     )
 
 

@@ -5,7 +5,7 @@
  * decyzje Artura 23.11.2026): ustawienie „każda osoba podpisuje umowę
  * przedwstępną przed <etap>” i „Zatrzymaj kartę do podpisu”. Edycja w okienku
  * jak proces; przy tworzeniu — `/jobs/new`. Przy 1280 px sama ikona (linia
- * faktów się nie mieści), napis od `2xl`.
+ * faktów się nie mieści), napis od szerokości nagłówka 86rem.
  * Reguła: `docs/claude/rekrutacja-tablica/stop-do-podpisu-przedwstepnej.md`.
  */
 
@@ -76,7 +76,7 @@ export function JobPreContractRuleFact({ jobId, rule, onSaved }: JobPreContractR
         <button
           type="button"
           className={cn(
-            "flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2 focus-visible:outline-2 focus-visible:outline-primary 2xl:px-2.5",
+            "flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2 focus-visible:outline-2 focus-visible:outline-primary @min-[86rem]/job-header:px-2.5",
             rule?.stop
               ? "border-destructive/40 bg-destructive/10 hover:bg-destructive/15"
               : rule
@@ -96,7 +96,7 @@ export function JobPreContractRuleFact({ jobId, rule, onSaved }: JobPreContractR
           <span
             aria-hidden="true"
             className={cn(
-              "hidden whitespace-nowrap text-[13px] leading-tight 2xl:inline",
+              "hidden whitespace-nowrap text-[13px] leading-tight @min-[86rem]/job-header:inline",
               rule ? "font-semibold text-foreground" : "text-muted-foreground",
             )}
           >

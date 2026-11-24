@@ -61,11 +61,11 @@ describe("JobHeadcountFact", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("poniżej 2xl sama liczba, pełne zdanie od 2xl i w nazwie przycisku", () => {
+  it("w wąskim nagłówku sama liczba, pełne zdanie w szerokim i w nazwie przycisku", () => {
     renderFact({ headcount: 4 });
     const chip = screen.getByRole("button", { name: "Szukamy 4 osób — zmień liczbę osób" });
-    expect(chip.querySelector(".\\32xl\\:hidden")).toHaveTextContent("4");
-    expect(chip.querySelector(".\\32xl\\:inline")).toHaveTextContent("Szukamy 4 osób");
+    expect(chip.querySelector('[class~="@min-[86rem]/job-header:hidden"]')).toHaveTextContent("4");
+    expect(chip.querySelector('[class~="@min-[86rem]/job-header:inline"]')).toHaveTextContent("Szukamy 4 osób");
   });
 
   it("zapisuje samą liczbę osób przez PATCH i odświeża rekrutację", async () => {

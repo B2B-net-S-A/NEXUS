@@ -7,7 +7,9 @@ ma się czytać jak zadanie, nie jak kopia dzwonka:
 - temat „[NEXUS] co zrobić · czego dotyczy”, żeby lista w Outlooku była listą
   zadań;
 - znaczek „Czeka na Ciebie” albo rodzaj sprawy;
-- 2–5 faktów z tej samej sprawy (rekrutacja, klient, Delivery Lead, termin);
+- 2–6 faktów z tej samej sprawy (rekrutacja, klient, Delivery Lead, termin);
+  mail „Klient zaakceptował” ma też „Rekruter” pod Delivery Leadem — rekruter
+  kandydata jak w odbiorcach dzwonka (prośba Olafa z 24.11.2026);
   numer zapytania klienta (`jobs.client_reference`) stoi przed rekrutacją
   i na końcu tematu — DL odpisuje klientowi jego numerem i szuka po nim
   maili (zgłoszenie DL, decyzja Artura z 23.11.2026);
@@ -46,7 +48,7 @@ from app.services.stage_handoff_recipients import (
 WAITING = "Czeka na Ciebie"
 OPEN_LABEL = "Otwórz w NEXUSIE"
 SETTINGS_PATH = "/settings?item=my-notifications"
-FACTS_MAX = 5
+FACTS_MAX = 6
 SUBJECT_PART_MAX = 70
 _WEEKDAYS_PL = ("pon", "wt", "śr", "czw", "pt", "sob", "nd")
 
@@ -87,6 +89,8 @@ class MailFacts:
     request_number: Optional[str] = None
     client: Optional[str] = None
     delivery_lead: Optional[str] = None
+    # Rekruter kandydata (`pair_recruiter_id`) — tylko mail „Klient zaakceptował”.
+    recruiter: Optional[str] = None
     deadline: Optional[date] = None
     start_date: Optional[date] = None
     # Terminy od klienta (początki slotów) i długość rozmowy w minutach.
@@ -374,6 +378,7 @@ def _facts(ntype: str, hr: bool, facts: MailFacts) -> tuple[tuple[str, str], ...
             ("Rekrutacja", facts.job),
             ("Klient", facts.client),
             ("Delivery Lead", facts.delivery_lead),
+            ("Rekruter", facts.recruiter),
         ]
     if not hr and facts.request_number and facts.job:
         at = next((i for i, (k, _) in enumerate(rows) if k == "Rekrutacja"), None)
@@ -587,6 +592,20 @@ async def load_facts(db: Any, notif: Any) -> MailFacts:
             values["delivery_lead"] = getattr(lead, "name", None)
     if "candidate" in refs:
         values["candidate"] = _person_name(await db.get(Candidate, refs["candidate"]))
+    ntype = getattr(notif, "notification_type", None)
+    if (
+        getattr(ntype, "value", ntype) == "client_accepted"
+        and "candidate" in refs
+        and "job" in refs
+    ):
+        from app.services import stage_handoff_recipients  # noqa: PLC0415
+
+        recruiter_id = await stage_handoff_recipients.pair_recruiter_id(
+            db, candidate_id=refs["candidate"], job_id=refs["job"]
+        )
+        if recruiter_id is not None:
+            recruiter = await db.get(User, recruiter_id)
+            values["recruiter"] = getattr(recruiter, "name", None)
     if "client" in refs:
         client = await db.get(Client, refs["client"])
         if client is not None:

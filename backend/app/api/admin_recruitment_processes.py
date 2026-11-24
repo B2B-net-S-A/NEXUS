@@ -8,7 +8,8 @@ Endpoints (AdminUser):
   ``limit_pairs`` (batch weryfikacyjny), ``resync_stale`` (aktualizacja
   procesów, których latest legacy się zmienił — legacy jest authority do
   PR-08).
-- ``GET  /api/admin/recruitment-processes/backfill/status`` — postęp.
+- ``GET  /api/admin/recruitment-processes/backfill/status`` — postęp, ten sam
+  z każdego procesu web (bieg zapisuje go w ``app_settings`` co 5 s).
 - ``GET  /api/admin/recruitment-processes/shadow-compare`` — komparator:
   pary bez procesu, stale pointers, kwarantanna semantyczna.
 - ``GET  /api/admin/recruitment-processes/by-pair/{candidate_id}/{job_id}``
@@ -28,8 +29,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
+from app.core import manual_runs
 from app.core.database import AsyncSessionLocal, get_db
-from app.core.tasks import spawn
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.services.process_backfill import (
@@ -40,6 +41,9 @@ from app.services.process_backfill import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_RUN = "recruitment_process_backfill"
+_PROGRESS_KEY = "admin_run_progress:recruitment_process_backfill"
 
 _JOB: dict[str, Any] = {
     "running": False,
@@ -72,20 +76,21 @@ async def _run_backfill(limit_pairs: Optional[int], resync_stale: bool) -> None:
         resync_stale=resync_stale,
         last_error=None,
     )
-    try:
-        async with AsyncSessionLocal() as db:
-            await backfill_recruitment_processes(
-                db,
-                limit_pairs=limit_pairs,
-                resync_stale=resync_stale,
-                progress=_JOB,
-            )
-    except Exception as e:  # noqa: BLE001 — background task nie może umrzeć głośno
-        _JOB["last_error"] = repr(e)
-        logger.exception("[process-backfill] job crashed")
-    finally:
-        _JOB["running"] = False
-        _JOB["finished_at"] = datetime.now(timezone.utc).isoformat()
+    async with manual_runs.publishing(_PROGRESS_KEY, _JOB):
+        try:
+            async with AsyncSessionLocal() as db:
+                await backfill_recruitment_processes(
+                    db,
+                    limit_pairs=limit_pairs,
+                    resync_stale=resync_stale,
+                    progress=_JOB,
+                )
+        except Exception as e:  # noqa: BLE001 — background task nie może umrzeć głośno
+            _JOB["last_error"] = repr(e)
+            logger.exception("[process-backfill] job crashed")
+        finally:
+            _JOB["running"] = False
+            _JOB["finished_at"] = datetime.now(timezone.utc).isoformat()
 
 
 @router.post("/recruitment-processes/backfill")
@@ -104,17 +109,18 @@ async def trigger_process_backfill(
         ),
     ),
 ) -> dict[str, Any]:
-    if _JOB["running"]:
+    # Runda 10 (R10-N8-2): rezerwacja przed oddaniem pętli — dwa szybkie POST-y
+    # startowały dwa biegi konkurujące o te same INSERT-y. Blokada biegu trzyma
+    # go do końca także przed startem z drugiego procesu web.
+    if not await manual_runs.start_exclusive(
+        _RUN,
+        lambda: _run_backfill(limit_pairs, resync_stale),
+        label="recruitment_process_backfill",
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Backfill już trwa",
         )
-    # Runda 10 (R10-N8-2): flaga PRZED `spawn`, synchronicznie — zadanie w tle
-    # ustawia ją dopiero w kolejnej iteracji pętli, więc dwa szybkie POST-y
-    # startowały dwa biegi konkurujące o te same INSERT-y.
-    _JOB["running"] = True
-    # `spawn`: trzymana referencja i log porażki (goły `create_task` — nie).
-    spawn(_run_backfill(limit_pairs, resync_stale), "recruitment_process_backfill")
     return {
         "status": "started",
         "limit_pairs": limit_pairs,
@@ -124,7 +130,15 @@ async def trigger_process_backfill(
 
 @router.get("/recruitment-processes/backfill/status")
 async def process_backfill_status(_admin: AdminUser) -> dict[str, Any]:
-    return dict(_JOB)
+    if _JOB["running"]:
+        return dict(_JOB)
+    # Bieg z innego procesu albo zakończony: ostatni zapis, `running` z blokady
+    # (zapis „trwa” po procesie, który padł, nie zostaje na zawsze). Blokada
+    # przed odczytem: bieg zapisuje stan końcowy, zanim ją zwolni.
+    running = await manual_runs.is_running(_RUN)
+    out = {**_JOB, **(await manual_runs.load_snapshot(_PROGRESS_KEY) or {})}
+    out["running"] = running
+    return out
 
 
 @router.get("/recruitment-processes/shadow-compare")

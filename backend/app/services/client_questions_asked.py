@@ -21,11 +21,14 @@ import hashlib
 import re
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.client import Client
+from app.models.contact import Contact
 from app.models.interview_feedback import FeedbackSource, InterviewFeedback
 from app.models.interview_question import (
     InterviewQuestion,
@@ -147,3 +150,138 @@ async def client_questions_with_jobs(
         )
         for q in questions
     ]
+
+
+@dataclass(frozen=True)
+class BankRole:
+    job_id: int
+    title: str
+    client_reference: str | None
+    manager: str | None
+
+
+@dataclass(frozen=True)
+class BankQuestion:
+    question: InterviewQuestion
+    client_name: str | None
+    roles: tuple[BankRole, ...]
+    asked_count: int
+    last_asked_at: datetime | None
+
+
+async def question_bank(db: AsyncSession, *, job_scope: Any) -> list[BankQuestion]:
+    """Rekrutacje → „Pytania z rozmów”: dawny Excel pytań, uzupełniany debriefami.
+
+    Prośba Delivery Leadki z 24.11.2026: stanowisko, klient, manager i pytania
+    bez duplikatów, z filtrami, bez ręcznego wpisywania. Wiersz = pytanie
+    z banku klienta (unikalne po kliencie i treści), z debriefów
+    (``client_debrief``) i z importu Excela (``legacy_import``). Rekrutacje przy
+    pytaniu liczą się jak w ``questions_asked_in_job``: linia debriefu albo
+    przypięcie z Excela. Manager = hiring manager tej rekrutacji.
+
+    ``job_scope`` to warunek SQL na rekrutacje wołającego. Klient jest widoczny,
+    gdy wołający czyta choć jedną jego rekrutację (jak ``client_id``
+    w ``GET /interview-cycle/client-questions``); rekrutacje spoza zakresu nie
+    trafiają do stanowisk ani do licznika.
+    """
+    client_ids = set(
+        (
+            await db.execute(
+                select(Job.client_id)
+                .where(Job.client_id.is_not(None), job_scope)
+                .distinct()
+            )
+        ).scalars()
+    )
+    if not client_ids:
+        return []
+    questions = list(
+        (
+            await db.execute(
+                select(InterviewQuestion)
+                .where(
+                    InterviewQuestion.client_id.in_(client_ids),
+                    InterviewQuestion.source.in_(
+                        (
+                            InterviewQuestionSource.client_debrief,
+                            InterviewQuestionSource.legacy_import,
+                        )
+                    ),
+                )
+                .order_by(InterviewQuestion.id)
+            )
+        ).scalars()
+    )
+    if not questions:
+        return []
+    title = job_display_title_expr()
+    job_cols = (Job.id, title, Job.client_reference, Contact.name)
+    roles_by_key: dict[tuple[int, str], dict[int, BankRole]] = defaultdict(dict)
+    asked: dict[tuple[int, str], set[int]] = defaultdict(set)
+    last_at: dict[tuple[int, str], datetime] = {}
+    debriefs = await db.execute(
+        select(
+            *job_cols,
+            Job.client_id,
+            InterviewFeedback.id,
+            InterviewFeedback.client_questions,
+            InterviewFeedback.created_at,
+        )
+        .join(InterviewFeedback, InterviewFeedback.job_id == Job.id)
+        .outerjoin(Contact, Contact.id == Job.hiring_manager_contact_id)
+        .where(
+            Job.client_id.in_(client_ids),
+            job_scope,
+            InterviewFeedback.feedback_source == FeedbackSource.candidate_side,
+            InterviewFeedback.client_questions.is_not(None),
+        )
+    )
+    for job_id, job_title, ref, manager, client_id, fb_id, text, created_at in debriefs:
+        role = BankRole(
+            job_id=job_id, title=job_title, client_reference=ref, manager=manager
+        )
+        for line_hash in _line_hashes(text):
+            key = (client_id, line_hash)
+            roles_by_key[key][job_id] = role
+            asked[key].add(fb_id)
+            if created_at is not None and (
+                key not in last_at or created_at > last_at[key]
+            ):
+                last_at[key] = created_at
+    roles_by_question: dict[int, dict[int, BankRole]] = defaultdict(dict)
+    excel_pins = await db.execute(
+        select(JobQuestion.question_id, *job_cols)
+        .join(Job, Job.id == JobQuestion.job_id)
+        .outerjoin(Contact, Contact.id == Job.hiring_manager_contact_id)
+        .where(
+            JobQuestion.added_by_user_id.is_(None),
+            JobQuestion.question_id.in_([q.id for q in questions]),
+            job_scope,
+        )
+    )
+    for question_id, job_id, job_title, ref, manager in excel_pins:
+        roles_by_question[question_id][job_id] = BankRole(
+            job_id=job_id, title=job_title, client_reference=ref, manager=manager
+        )
+    client_names = dict(
+        (
+            await db.execute(
+                select(Client.id, Client.name).where(Client.id.in_(client_ids))
+            )
+        ).all()
+    )
+    out: list[BankQuestion] = []
+    for q in questions:
+        key = (q.client_id, q.normalized_text_hash)
+        roles = {**roles_by_question.get(q.id, {}), **roles_by_key.get(key, {})}
+        out.append(
+            BankQuestion(
+                question=q,
+                client_name=client_names.get(q.client_id),
+                roles=tuple(roles[j] for j in sorted(roles, reverse=True)),
+                asked_count=len(asked.get(key, ())),
+                last_asked_at=last_at.get(key),
+            )
+        )
+    out.sort(key=lambda b: b.last_asked_at or b.question.created_at, reverse=True)
+    return out

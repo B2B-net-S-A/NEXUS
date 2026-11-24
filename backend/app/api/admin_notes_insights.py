@@ -30,35 +30,24 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
+from app.core import manual_runs
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
-from app.core.tasks import spawn
 from app.services import client_rate_notes, notes_profile_backfill
-from app.tasks.notes_insights_sync import run_and_persist, sync_is_running
+from app.tasks.notes_insights_sync import RUN_LOCK, run_and_persist, sync_is_running
 
 router = APIRouter()
 
-# Runda 10 (R10-N8-2): rezerwacja biegu ustawiana SYNCHRONICZNIE w handlerze.
-# `sync_is_running()` widzi dopiero zajęty lock, a zadanie z `spawn` bierze go
-# w kolejnej iteracji pętli zdarzeń — dwa szybkie POST-y przechodziły oba
-# sprawdzenia, a drugi bieg czekał na lock i wykonywał się po pierwszym
-# (drugi raz płatny odczyt notatek).
-_manual_reserved = False
-
 
 async def _run_manual() -> None:
-    global _manual_reserved
-    try:
-        # Bieg pętli dziennej mógł wystartować między POST-em a tym krokiem —
-        # wtedy nie kolejkujemy drugiego biegu za nim. Od sprawdzenia do
-        # wejścia pod lock nie ma punktu oddania pętli (wolny lock bierze się
-        # bez czekania).
-        if sync_is_running():
-            return
-        await run_and_persist()
-    finally:
-        _manual_reserved = False
+    # Bieg pętli dziennej w tym procesie (rola `all`) mógł wystartować między
+    # POST-em a tym krokiem — wtedy nie kolejkujemy drugiego biegu za nim. Od
+    # sprawdzenia do wejścia pod lock nie ma punktu oddania pętli (wolny lock
+    # bierze się bez czekania).
+    if sync_is_running():
+        return
+    await run_and_persist()
 
 
 @router.post("/sync")
@@ -73,16 +62,18 @@ async def trigger_notes_insights_sync(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Notes insights sync disabled (NOTES_INSIGHTS_SYNC_ENABLED=false)",
         )
-    global _manual_reserved
-    if _manual_reserved or sync_is_running():
+    # Runda 10 (R10-N8-2): rezerwacja stoi, zanim handler odda pętlę — dwa szybkie
+    # POST-y dawały drugi płatny odczyt notatek. Blokada `RUN_LOCK` trzyma bieg do
+    # końca, więc bieg z workera albo z drugiego procesu web daje 409, a nie
+    # „started” dla biegu, który `run_and_persist` by pominął (bierze ją drugi raz
+    # w tym samym zadaniu).
+    if sync_is_running() or not await manual_runs.start_exclusive(
+        RUN_LOCK, _run_manual, label="notes_insights_sync"
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A notes insights run is already in progress",
         )
-
-    _manual_reserved = True
-    # `spawn`: trzymana referencja i log porażki (goły `create_task` — nie).
-    spawn(_run_manual(), "notes_insights_sync")
     return {
         "status": "started",
         "batch_limit": settings.NOTES_INSIGHTS_SYNC_BATCH_LIMIT,

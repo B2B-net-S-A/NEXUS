@@ -18,6 +18,7 @@ from fastapi import HTTPException
 from app.api import admin_candidates as ac
 from app.api import admin_notes_insights as ani
 from app.api import admin_recruitment_processes as arp
+from app.core import manual_runs
 
 
 @pytest.fixture(autouse=True)
@@ -35,7 +36,7 @@ def _no_db_progress(monkeypatch):
     for job in (ac._JOB, ac._CC_JOB, ac._CV_FIELDS_JOB, ac._EXP_DATES_JOB):
         job["running"] = False
     arp._JOB["running"] = False
-    ani._manual_reserved = False
+    manual_runs._reserved.clear()
     return saved
 
 
@@ -122,7 +123,7 @@ async def test_notes_insights_second_post_is_409_not_queued(monkeypatch):
     for _ in range(5):
         await asyncio.sleep(0)
     assert runs == 1
-    assert ani._manual_reserved is False
+    assert not manual_runs.running_here(ani.RUN_LOCK)
 
 
 @pytest.mark.asyncio

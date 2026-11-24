@@ -32,13 +32,13 @@ import {
   CONTRACTOR_INVOICE,
   FILTERS,
   KESU,
-  STATUS,
   matchesFilter,
   mdText,
   monthLabel,
   pctText,
   pln,
   shortDay,
+  statusLook,
 } from "./format";
 
 interface SettlementMonthViewProps {
@@ -203,8 +203,8 @@ function MonthTable({ rows, showAmounts, onOpen }: MonthTableProps) {
                   ) : null}
                 </td>
                 <td className="px-2 py-1.5">
-                  <StatusDot tone={STATUS[r.status].tone} note={r.issues ?? undefined}>
-                    {STATUS[r.status].label}
+                  <StatusDot tone={statusLook(r.status, r.issue_level).tone} note={r.issues ?? undefined}>
+                    {statusLook(r.status, r.issue_level).label}
                   </StatusDot>
                   {r.accepted_auto ? <span className="block text-[11px] text-muted-foreground">przyjął automat</span> : null}
                   <AcceptanceDot row={r} />
@@ -249,7 +249,14 @@ function MonthTable({ rows, showAmounts, onOpen }: MonthTableProps) {
                   </td>
                 ) : null}
                 <td className="px-3 py-1.5">
-                  <StatusDot tone={CLIENT_INVOICE[r.client_invoice].tone}>{CLIENT_INVOICE[r.client_invoice].label}</StatusDot>
+                  {r.client_invoice === "issued" && r.status !== "accepted" ? (
+                    // Faktura sprzedaży w KSeF przy nieprzyjętym RCP: ostrzeżenie (decyzja Artura 24.11.2026).
+                    <StatusDot tone="warning" note="przed przyjęciem RCP">
+                      {CLIENT_INVOICE.issued.label}
+                    </StatusDot>
+                  ) : (
+                    <StatusDot tone={CLIENT_INVOICE[r.client_invoice].tone}>{CLIENT_INVOICE[r.client_invoice].label}</StatusDot>
+                  )}
                 </td>
               </tr>
             ))

@@ -55,6 +55,9 @@ logger = logging.getLogger(__name__)
 STATE_PHASE = "notes_insights"
 
 _run_lock = asyncio.Lock()
+# Blokada między procesami; ręczny start z trasy bierze ją na cały bieg
+# (``manual_runs.start_exclusive``), a ``run_and_persist`` wchodzi w nią drugi raz.
+RUN_LOCK = "notes_insights_sync"
 
 
 def sync_is_running() -> bool:
@@ -496,7 +499,7 @@ async def run_and_persist() -> dict[str, Any]:
     Jeden lock znaczy, że `sync_is_running()` widzi oba źródła uruchomień
     i pętla dzienna nie wystartuje w trakcie biegu odpalonego ręcznie.
     """
-    async with _run_lock, cross_process_lock("notes_insights_sync") as owned:
+    async with _run_lock, cross_process_lock(RUN_LOCK) as owned:
         if not owned:
             return {"skipped": "running_in_other_process"}
         stats = await run_notes_insights_sync()

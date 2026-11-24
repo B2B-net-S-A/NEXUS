@@ -56,6 +56,9 @@ class Declared:
     md: Optional[Decimal] = None
     #: Kwota netto z dokumentu, tylko do wglądu.
     amount: Optional[Decimal] = None
+    #: Numer umowy, który wskazał osobę mimo innego imienia w dokumencie
+    #: (protokół CeZ, ``protocol_collective.by_agreement``).
+    agreement: Optional[str] = None
 
 
 def pdf_text(content: bytes) -> Optional[str]:
@@ -220,6 +223,13 @@ def evaluate(
     person = name_tokens(person_name)
     if on_doc and person and (on_doc <= person or person <= on_doc):
         group.ok("Imię i nazwisko jak w kontrakcie")
+    elif parsed.agreement:
+        group.ok(
+            f"Osoba z numeru umowy {parsed.agreement}",
+            f"W dokumencie: {' '.join((parsed.consultant or '').split())}. "
+            "Na tej umowie w tym miesiącu "
+            "pracuje tylko osoba z kontraktu.",
+        )
     elif on_doc:
         group.fail("proof.name_match", "Inne imię lub nazwisko niż w kontrakcie")
     else:

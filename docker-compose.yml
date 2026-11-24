@@ -341,6 +341,34 @@ services:
         max-size: "5m"
         max-file: "2"
 
+  # Robot Cpro (24.11.2026): szkice ofert w portalu Nordei zamiast rutyny Grok
+  # Bota, której biegi w tle nie dostają hasła z Vault. Worker budzi go
+  # webhookiem biegu: GROK_BOT_CPRO_WEBHOOK_URL=http://cpro-robot:8090/wake,
+  # ten sam klucz Bearer. Profil `cpro-robot` w COMPOSE_PROFILES włącza usługę,
+  # gdy hasła są w skarbcu. → docs/claude/integracje/cpro-bot-grok.md
+  cpro-robot:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.cpro-robot
+    restart: unless-stopped
+    profiles: ["cpro-robot"]
+    mem_limit: 1536m
+    mem_reservation: 256m
+    shm_size: 256m
+    environment:
+      CPRO_ROBOT_WAKE_KEY: ${GROK_BOT_CPRO_WEBHOOK_KEY}
+      NEXUS_API_ORIGIN: ${PUBLIC_API_BASE_URL:-https://api.nexus.dynaminds.pl}
+      CPRO_ROBOT_DRY_RUN: ${CPRO_ROBOT_DRY_RUN:-true}
+      CPRO_ROBOT_IGOR_USERNAME: ${CPRO_ROBOT_IGOR_USERNAME}
+      CPRO_ROBOT_IGOR_PASSWORD: ${CPRO_ROBOT_IGOR_PASSWORD}
+      CPRO_ROBOT_IGOR_DISPLAY_NAME: ${CPRO_ROBOT_IGOR_DISPLAY_NAME}
+      CPRO_ROBOT_MARCIN_USERNAME: ${CPRO_ROBOT_MARCIN_USERNAME}
+      CPRO_ROBOT_MARCIN_PASSWORD: ${CPRO_ROBOT_MARCIN_PASSWORD}
+      CPRO_ROBOT_MARCIN_DISPLAY_NAME: ${CPRO_ROBOT_MARCIN_DISPLAY_NAME}
+    expose:
+      - "8090"
+    logging: *default-logging
+
   # Off-site backup sidecar. Ships an encrypted copy of Postgres, the uploaded
   # CV files and the Qdrant collections to S3-compatible object storage
   # (Hetzner Object Storage, Germany — same jurisdiction as the VPS, so no

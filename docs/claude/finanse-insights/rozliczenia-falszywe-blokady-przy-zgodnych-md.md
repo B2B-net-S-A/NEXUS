@@ -1,6 +1,6 @@
-# Rozliczenia: fałszywe blokady przy MD zgodnych z fakturą (mail w mailu, nazwa pliku w NFD, nagłówek PKO, daty z innego miesiąca, nadgodziny BNP)
+# Rozliczenia: fałszywe blokady przy MD zgodnych z fakturą (mail w mailu, nazwa pliku w NFD, nagłówek PKO, daty z innego miesiąca, nadgodziny BNP, zrzut ekranu OCR)
 
-<!-- indeks: fałszywa blokada, blok_zgodne, mail w mailu, załączony mail, msg w eml, message/rfc822, Załącz element, mail_text.thread, attached, acceptance_mail, from_client, NFD, Unicode, nazwa pliku z Maca, period_for, find_period, okres z tematu, TimeSheet RRMM, nagłówek PKO, sheet_month, month_from_dates, Godziny nadliczbowe, nadgodziny BNP, zaokrąglenie MD, rounded_in_file, fields.md_hours, Sumy MD nie zgadzają się z godzinami, proof.accept_has_hours, proof.month, template_month_fixed, Daty wierszy z innego miesiąca, Wpisy spoza rozliczanego miesiąca, Date from, cytat z „>”, zlecenie nadgodzin, extra.mail_accept, FIN-MD-01, podział na zamówienia -->
+<!-- indeks: fałszywa blokada, blok_zgodne, mail w mailu, załączony mail, msg w eml, message/rfc822, Załącz element, mail_text.thread, attached, acceptance_mail, from_client, NFD, Unicode, nazwa pliku z Maca, period_for, find_period, okres z tematu, TimeSheet RRMM, nagłówek PKO, sheet_month, month_from_dates, Godziny nadliczbowe, nadgodziny BNP, zaokrąglenie MD, rounded_in_file, fields.md_hours, Sumy MD nie zgadzają się z godzinami, proof.accept_has_hours, proof.month, template_month_fixed, Daty wierszy z innego miesiąca, Wpisy spoza rozliczanego miesiąca, Date from, cytat z „>”, zlecenie nadgodzin, extra.mail_accept, FIN-MD-01, podział na zamówienia, OCR, zrzut ekranu, screenshot_ocr, judge_screenshot, acceptance_image, tesseract, koordynator z Time Sheet, Senders.people -->
 
 Od 24.11.2026, po powtórce 6 próby rozliczeń IX–X 2026 (kopia produkcji z nocy 23/24.11).
 Kilka przypadków stało na blokadzie albo uwadze, choć MD z dokumentu zgadzały się
@@ -20,8 +20,32 @@ to osobna wiadomość: słowo akceptacji liczy się tylko od klienta, jak dotąd
 `acceptance_mail.read` (`from_client` w kontrolach pliku), a `mail_file` oddaje
 część `message/rfc822` jako załącznik `.eml`.
 
-Akceptacja tylko na zrzucie ekranu (obraz w treści) dalej nie jest akceptacją:
-NEXUS nie czyta obrazów, a PKO przyjmuje akceptację jako HTML z maila.
+## Akceptacja ze zrzutu ekranu (OCR)
+
+Decyzja Artura z 24.11.2026. Konsultant wkleja do maila zrzut odpowiedzi klienta
+z Outlooka zamiast maila (PKO: „potwierdzam odbiór usług za październik 2026 (176h)”).
+Gdy żaden mail miesiąca nie przechodzi `proof.accept_has_hours`, NEXUS czyta OCR-em
+(tesseract, pol+eng) do trzech najnowszych obrazów miesiąca osoby
+(`client_settlements/screenshot_ocr.py`; logo ze stopki pomija, ciemny motyw odwraca,
+mały zrzut powiększa, wynik trzyma w pamięci po skrócie pliku).
+Zrzut jest akceptacją (`mail_text.judge_screenshot`), gdy ma jednocześnie:
+
+- słowo akceptacji („potwierdzam”, „akceptuję”);
+- rozliczany miesiąc;
+- liczbę godzin albo MD równą dowodowi (samo „Akceptuję” ze zrzutu nie wystarcza);
+- nadawcę, który jest osobą klienta: koordynatorem albo akceptującym z nagłówka Time
+  Sheet PKO (`ParsedPko.acceptors`) albo kontaktem klienta w NEXUS-ie
+  (`Senders.people`). Na zrzucie nie ma adresu, więc liczy się imię i nazwisko
+  w linii nagłówka albo w podpisie. Linie adresatów („Do”, „DW”) się nie liczą,
+  jednowyrazowa nazwa nie wystarcza.
+
+Kontrola pokazuje wtedy „Akceptacja ze zrzutu ekranu: … za …”, a id obrazu trafia do
+danych przy kontrolach (`acceptance_image`). Paczka dla klienta (`package_zip`)
+bierze wtedy obraz zamiast HTML maila. Mail, który przechodzi kontrolę, ma
+pierwszeństwo przed zrzutem.
+
+Ryzyko przyjęte przez Artura: zrzut łatwo podrobić, a nazwisko koordynatora zna
+konsultant.
 
 ## Okres z nazwy pliku w NFD
 
@@ -31,6 +55,13 @@ się z tematu wątku. ERSTE: „Time Sheet - październik 2026 ….pdf” w wąt
 „Re: Timesheet wrzesień 2026” poszedł na wrzesień. `find_period` normalizuje tekst
 do NFC. Od 01.09 w poczcie było 9 takich plików, okres zmienił się tylko temu jednemu.
 Klasyfikacji raport/faktura to nie dotyczyło.
+
+Poprawka działa dla nowej poczty, a okresu zapisanego dokumentu nikt w aplikacji nie
+zmienia. Odczyt produkcji z 24.11.2026 znalazł w `cp_documents` jeden plik z akcentem
+rozłożonym i był to właśnie ten Time Sheet (dokument 11, zapisany na IX). Rozliczenie IX
+liczyło się z pliku za X, a rozliczenia X nie było. Jednorazowa naprawa
+(`app/services/cp_document_period_repair.py`, krok startu w `entrypoint.sh`, decyzja
+Artura z 24.11.2026) przestawia go na X i przelicza oba miesiące.
 
 ## PKO: nagłówek starszego szablonu z poprzedniego miesiąca
 
@@ -92,6 +123,10 @@ z nazwą w NFD dostały okres z nowego `period_for` (jak przy ponownym wczytaniu
 7 rozliczeń przechodzi z blokady albo „Sprawdzania” do „ok”: PKO 4, ERSTE 1, BNP 1,
 Bosch 1. MD we wszystkich siedmiu są równe fakturom Finansów; przy BNP i ERSTE także
 kwota co do grosza. Pozostałe 346 rozliczeń bez zmiany statusu, MD, kwot i kontroli.
+OCR zrzutu (ta sama kopia, prawdziwy tesseract z obrazu backendu): PKO IX i X jednej
+osoby przechodzą do „ok” (X z fakturą Finansów, MD równe), pozostałe 351 rozliczeń bez
+zmian. Ze dwóch zrzutów za X przeszedł poprawiony; pierwszy bank wysłał z pomylonym
+miesiącem.
 
 Powiązane: `finanse-insights/rozliczenia-akceptacja-od-klienta-orlen-cez.md`,
 `finanse-insights/rozliczenia-nadawca-i-okres-z-poczty.md`,

@@ -26,6 +26,7 @@ import io
 import logging
 import re
 import struct
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -451,15 +452,27 @@ class Senders:
     każdy adres spoza domen firmy. Nadawca bez adresu nie akceptuje nigdy.
 
     Projekt FIX (``Contract.engagement_model == fixed``): ``client`` to domeny
-    firmy, a ``who`` nazywa akceptującego w uwagach („PM-a firmy”)."""
+    firmy, a ``who`` nazywa akceptującego w uwagach („PM-a firmy”).
+
+    ``consultant``: adresy samego konsultanta kontraktu
+    (``service._without_consultant``). Jego skrzynka u klienta bywa w domenie
+    klienta, tej samej co kierownika, ale on sam swoich godzin nie akceptuje."""
 
     client: frozenset[str] = frozenset()
     own: frozenset[str] = frozenset()
     who: str = "klienta"
+    #: Imiona i nazwiska osób klienta (kontakty klienta w NEXUS-ie): nadawca
+    #: zrzutu ekranu akceptacji, na którym nie widać adresu (``judge_screenshot``).
+    people: frozenset[str] = frozenset()
+    consultant: frozenset[str] = frozenset()
+
+    def is_consultant(self, address: Optional[str]) -> bool:
+        match = _ADDRESS.search(address or "")
+        return match is not None and match.group(0).lower() in self.consultant
 
     def accepts_from(self, address: Optional[str]) -> bool:
         match = _ADDRESS.search(address or "")
-        if match is None:
+        if match is None or match.group(0).lower() in self.consultant:
             return False
         domain = match.group(1).lower()
         if self.client:
@@ -482,12 +495,30 @@ def _messages(mail: Mail) -> list[tuple[Optional[str], str]]:
     return [(sender, "\n".join(lines)) for sender, lines in found]
 
 
-def _approved_by(mail: Mail, senders: Senders) -> bool:
+def _approved_by(mail: Mail, senders: Senders, *, consultant: bool = False) -> bool:
+    """Słowo akceptacji w wiadomości akceptującego; ``consultant``: samego konsultanta."""
+
     for sender, text in _messages(mail):
         lines = [line for line in text.splitlines() if not _HEADER_LINE.match(line)]
-        if senders.accepts_from(sender) and _APPROVED.search("\n".join(lines)):
+        who = (
+            senders.is_consultant(sender)
+            if consultant
+            else senders.accepts_from(sender)
+        )
+        if who and _APPROVED.search("\n".join(lines)):
             return True
     return False
+
+
+def addresses(mails: list[Mail]) -> set[str]:
+    """Adresy nadawców wszystkich wiadomości: sam mail i cytaty „From:” z adresem."""
+
+    return {
+        match.group(0).lower()
+        for mail in mails
+        for sender, _text in _messages(mail)
+        if (match := _ADDRESS.search(sender or "")) is not None
+    }
 
 
 def approved(mails: list[Mail], senders: Senders) -> bool:
@@ -503,6 +534,64 @@ def _fmt(value: Decimal) -> str:
 def month_label(month: str) -> str:
     year, mon = (int(x) for x in month.split("-"))
     return f"{MONTHS_NOMINATIVE[mon - 1]} {year}"
+
+
+#: Pierwsze słowo linii listy adresatów na zrzucie Outlooka („Do”, „DW”).
+_RECIPIENT_LABELS = frozenset({"do", "to", "dw", "cc", "udw", "bcc"})
+
+
+def _folded_words(text: str) -> list[str]:
+    raw = unicodedata.normalize("NFKD", text.replace("ł", "l").replace("Ł", "L"))
+    return re.findall(r"[a-z]+", raw.encode("ascii", "ignore").decode().lower())
+
+
+def sender_on_screen(text: str, people: frozenset[str]) -> bool:
+    """Ktoś z ``people`` w linii zrzutu, która nie jest listą adresatów: nadawca
+    w nagłówku Outlooka albo podpis pod treścią. Śmieci OCR na początku linii
+    („4zP Nowak Anna”) nie przeszkadzają; jednowyrazowa nazwa nie wystarcza."""
+
+    names = [set(_folded_words(person)) for person in people]
+    names = [name for name in names if len(name) >= 2]
+    for line in text.splitlines():
+        words = _folded_words(line)
+        if not words or _RECIPIENT_LABELS & set(words[:3]):
+            continue
+        present = set(words)
+        if any(name <= present for name in names):
+            return True
+    return False
+
+
+def judge_screenshot(
+    text: str,
+    *,
+    month: str,
+    hours: Optional[Decimal],
+    md: Optional[Decimal],
+    people: frozenset[str],
+) -> Optional[Verdict]:
+    """Akceptacja z tekstu zrzutu ekranu (OCR), decyzja Artura z 24.11.2026:
+    słowo akceptacji, rozliczany miesiąc, liczba godzin albo MD równa dowodowi
+    i nadawca z ``people`` (koordynator z Time Sheet, kontakt klienta).
+    Bez liczby zrzut nie wystarcza. ``None`` = zrzut nie jest akceptacją."""
+
+    found = read_acceptance(text, month)
+    if not found.approved or month not in found.months:
+        return None
+    if hours is not None and any(abs(h - hours) < Decimal("0.01") for h in found.hours):
+        amount = f"{_fmt(hours)} h"
+    elif md is not None and any(abs(m - md) < Decimal("0.01") for m in found.md):
+        amount = f"{_fmt(md)} MD"
+    else:
+        return None
+    if not sender_on_screen(text, people):
+        return None
+    return Verdict(
+        True,
+        f"Akceptacja ze zrzutu ekranu: {amount} za {month_label(month)}",
+        "Odczyt OCR obrazu z maila. Nadawca: osoba klienta z Time Sheet albo "
+        "z kontaktów klienta. Do paczki dla klienta idzie obraz.",
+    )
 
 
 def judge(
@@ -586,15 +675,16 @@ def judge(
                 if senders.client
                 else f"z adresu {senders.who}"
             )
-            verdicts.append(
-                Verdict(
-                    False,
-                    f"Brak akceptacji {senders.who}",
-                    f"Potwierdzenie w mailu nie pochodzi {where}. Nasze zestawienie "
-                    f"albo przekazanie bez cytatu odpowiedzi {senders.who} nie jest "
-                    "akceptacją.",
-                )
+            detail = (
+                "Potwierdzenie w mailu napisał sam konsultant ze swojej skrzynki. "
+                "Konsultant nie akceptuje własnych godzin, potrzebna jest "
+                f"akceptacja {senders.who}."
+                if _approved_by(mail, senders, consultant=True)
+                else f"Potwierdzenie w mailu nie pochodzi {where}. Nasze zestawienie "
+                f"albo przekazanie bez cytatu odpowiedzi {senders.who} nie jest "
+                "akceptacją."
             )
+            verdicts.append(Verdict(False, f"Brak akceptacji {senders.who}", detail))
             continue
         matches_hours = hours is not None and any(
             abs(h - hours) < Decimal("0.01") for h in found.hours

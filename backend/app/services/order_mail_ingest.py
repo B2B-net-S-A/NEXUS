@@ -39,6 +39,7 @@ from sqlalchemy import and_, func, inspect as sa_inspect, or_, select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import manual_runs
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.log_safety import safe_filename
@@ -125,6 +126,10 @@ from app.services.order_policies.known_clients import (
 logger = logging.getLogger(__name__)
 
 _ingest_lock = asyncio.Lock()
+# Blokada między procesami (pętla w workerze, ręczny start w web). Ręczny start
+# bierze ją na cały bieg (``start_ingest_task``), a ``run_order_mail_ingest``
+# wchodzi w nią drugi raz w tym samym zadaniu.
+INGEST_LOCK = "order_mail_ingest"
 _MESSAGE_SELECT = (
     "id,internetMessageId,subject,from,sender,receivedDateTime,hasAttachments"
 )
@@ -141,8 +146,9 @@ _MAIL_ORDER_ACTIONS = (
 )
 
 
-def ingest_is_running() -> bool:
-    return _ingest_lock.locked()
+async def ingest_is_running(db: Optional[AsyncSession] = None) -> bool:
+    """Bieg trwa — w tym procesie, w workerze albo w drugim procesie web."""
+    return _ingest_lock.locked() or await manual_runs.is_running(INGEST_LOCK, db=db)
 
 
 # ── Wyłącznik automatu ───────────────────────────────────────────────────────
@@ -180,19 +186,20 @@ def hold_when_autoapply_disabled(row: OrderMailDocument) -> bool:
     return True
 
 
-# Referencje do biegów uruchomionych „w tle" z requestu. ``asyncio.create_task``
-# bez trzymanej referencji to zadanie, które interpreter może zebrać w połowie
-# biegu (dokumentacja asyncio mówi o tym wprost) — zebrane zadanie nie zapisuje
-# końca i w stanie zostaje ``running`` bez końca. Wzorzec z ``api/cortex.py``.
-_bg_tasks: set[asyncio.Task] = set()
+async def start_ingest_task(*, reason: str, since: Optional[datetime] = None) -> bool:
+    """Bieg w tle pod blokadą ``INGEST_LOCK`` trzymaną do jego końca.
 
-
-def start_ingest_task(*, reason: str, since: Optional[datetime] = None) -> asyncio.Task:
-    """Uruchom bieg w tle i trzymaj referencję do zadania do jego końca."""
-    task = asyncio.create_task(run_order_mail_ingest(reason=reason, since=since))
-    _bg_tasks.add(task)
-    task.add_done_callback(_bg_tasks.discard)
-    return task
+    ``False`` = bieg już trwa (tu, w workerze albo w drugim procesie web) i nic
+    nie startuje. Do 24.11.2026 trasa sprawdzała tylko blokadę w swoim procesie,
+    więc przy biegu z workera odpowiadała „started”, a bieg się pomijał.
+    """
+    if _ingest_lock.locked():
+        return False
+    return await manual_runs.start_exclusive(
+        INGEST_LOCK,
+        lambda: run_order_mail_ingest(reason=reason, since=since),
+        label=f"order_mail_ingest({reason})",
+    )
 
 
 @dataclass
@@ -2221,9 +2228,9 @@ def sync_snapshot(state: Optional[dict[str, Any]], *, running: bool) -> dict[str
     """Stan pobierania w kształcie dla API kolejki i admina.
 
     ``last_status='running'`` w bazie znaczy tylko „bieg się zaczął". Czy trwa,
-    wie wyłącznie blokada w TYM procesie: gdy jej nie ma, bieg został przerwany
-    (restart kontenera przy deployu — u nas kilka razy dziennie) i końca nie
-    zapisał. Taki bieg pokazujemy jako ``interrupted``, nie jako wieczne
+    wie blokada biegu (``ingest_is_running``: ten proces, worker albo drugi
+    proces web): gdy jej nie ma, bieg został przerwany (restart kontenera przy
+    deployu — u nas kilka razy dziennie) i końca nie zapisał. Taki bieg pokazujemy jako ``interrupted``, nie jako wieczne
     „trwa"; następny tick pętli i tak uruchomi go od nowa.
     """
     state = state or {}
@@ -2298,7 +2305,7 @@ async def run_order_mail_ingest(
     if _ingest_lock.locked():
         stats.errors.append("already running")
         return stats
-    async with _ingest_lock, cross_process_lock("order_mail_ingest") as owned:
+    async with _ingest_lock, cross_process_lock(INGEST_LOCK) as owned:
         if not owned:
             stats.errors.append("already running")
             return stats

@@ -12,8 +12,10 @@ memberships for pairs not already present. Shared by:
   * ``POST /api/admin/talent-pools/backfill`` (in-app background task — the
     autonomous prod path, no shell-into-container required).
 
-Progress / last-run stats are kept in-memory (reset on container restart),
-which is fine: the operation is on-demand and idempotent.
+One run at a time across processes: the admin route starts it through
+``manual_runs.start_exclusive`` (lock ``RUN_NAME``). Last-run stats are saved
+in ``app_settings`` (``LAST_RUN_KEY``), so the status answers the same from
+every web process.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from app.core import manual_runs
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
 from app.models.job import Job
@@ -36,17 +39,22 @@ logger = logging.getLogger(__name__)
 
 BATCH_COMMIT_SIZE = 500
 
-# ── In-memory run state (single worker; backfill is a serialized admin op) ───
+RUN_NAME = "talent_pool_backfill"
+LAST_RUN_KEY = "talent_pool_backfill_last_run"
+
+# ── Stan biegu w tym procesie (CLI i rola `all`; między procesami — blokada) ──
 _running = False
 _last_run: dict[str, Any] = {}
 
 
-def backfill_is_running() -> bool:
-    return _running
+async def backfill_is_running() -> bool:
+    """Bieg trwa w tym albo w innym procesie (blokada ``RUN_NAME``)."""
+    return _running or await manual_runs.is_running(RUN_NAME)
 
 
-def last_backfill_stats() -> dict[str, Any]:
-    return dict(_last_run)
+async def last_backfill_stats() -> dict[str, Any]:
+    """Wynik ostatniego biegu z dowolnego procesu (zapis w ``app_settings``)."""
+    return await manual_runs.load_snapshot(LAST_RUN_KEY) or dict(_last_run)
 
 
 async def run_membership_backfill(
@@ -203,6 +211,7 @@ async def run_membership_backfill(
             },
         )
         _last_run = stats
+        await manual_runs.save_snapshot(LAST_RUN_KEY, stats)
         return stats
     finally:
         _running = False

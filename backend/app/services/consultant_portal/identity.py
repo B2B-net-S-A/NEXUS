@@ -12,7 +12,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Iterable, Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -231,20 +231,26 @@ def is_company_address(address: str) -> bool:
 
 def _address_forms(first: Optional[str], last: Optional[str]) -> set[str]:
     """Lokalne części adresu firmowego osoby: ``jan.kowalski``, ``j.kowalski``,
-    ``jan_kowalski``, ``jankowalski``; nazwisko dwuczłonowe także po członie."""
+    ``jan_kowalski``, ``jankowalski``; nazwisko dwuczłonowe także po członie,
+    po zmianie nazwiska także stare (``Nowe (Stare)``)."""
 
-    given = _fold(first).split()[:1]
-    parts = _fold(last).split()
-    if not given or not parts:
+    given = _given(first)
+    if not given:
         return set()
     name = given[0]
     forms: set[str] = set()
-    for surname in {"".join(parts), "-".join(parts), *parts}:
-        for sep in (".", "_", "-", ""):
-            forms.add(name + sep + surname)
-        forms.add(name[0] + "." + surname)
-        forms.add(name[0] + surname)
+    for parts in _surnames(last):
+        for surname in {"".join(parts), "-".join(parts), *parts}:
+            for sep in (".", "_", "-", ""):
+                forms.add(name + sep + surname)
+            forms.add(name[0] + "." + surname)
+            forms.add(name[0] + surname)
     return forms
+
+
+# Skrzynka konsultanta u klienta bywa z przedrostkiem: Bosch zakłada
+# ``external.imie.nazwisko@de.bosch.com`` (próba IX–X 2026, Bosch 627).
+_EXTERNAL_PREFIX = re.compile(r"^(?:external|ext)[._-]")
 
 
 async def _by_company_address(
@@ -263,10 +269,12 @@ async def _by_company_address(
     tylko kontrakty u tego klienta: osoba pracuje naraz w Banku Pocztowym
     i VeloBanku, a KCP przychodzi z jednej domeny, timesheet z drugiej (próba
     IX–X 2026). Bez kontraktu u tego klienta to raczej jego pracownik o tym
-    samym nazwisku, więc nikt.
+    samym nazwisku, więc nikt. Poddomena klienta (``de.bosch.com``) i przedrostek
+    ``external.`` przed imieniem wskazują tak samo.
     """
 
     local, _, domain = address.partition("@")
+    local = _EXTERNAL_PREFIX.sub("", local)
     at_client = await _clients_of_domain(db, domain)
     if not local or (
         at_client is None and domain not in (_company_domains() | _personal_domains())
@@ -308,16 +316,24 @@ async def _clients_of_domain(db: AsyncSession, domain: str) -> Optional[frozense
 
     Klucz z rejestru domen zamówień, klient po numerze rejestrowym. Domena grupy
     (``plus.pl``) daje wszystkie spółki grupy, więc kontrakt wybiera dopiero człowiek.
+    Poddomena należy do klienta tylko przy domenie z ``SUBDOMAIN_SENDER_DOMAINS``:
+    Bosch pisze z ``pl.bosch.com`` i ``de.bosch.com``, a rejestr zna ``bosch.com``.
+    Inne poddomeny (``consult.nordea.com``) zostają obce.
     """
 
     from app.services.order_policies import known_clients
 
-    keys = known_clients.SHARED_SENDER_DOMAINS.get(domain) or tuple(
-        key for key in (known_clients.KNOWN_SENDER_DOMAINS.get(domain),) if key
-    )
-    if not keys:
-        return None
-    return await _clients_of_keys(db, keys)
+    labels = domain.split(".")
+    for start in range(max(len(labels) - 1, 0)):
+        candidate = ".".join(labels[start:])
+        if start and candidate not in known_clients.SUBDOMAIN_SENDER_DOMAINS:
+            continue
+        keys = known_clients.SHARED_SENDER_DOMAINS.get(candidate) or tuple(
+            key for key in (known_clients.KNOWN_SENDER_DOMAINS.get(candidate),) if key
+        )
+        if keys:
+            return await _clients_of_keys(db, keys)
+    return None
 
 
 async def _clients_of_keys(db: AsyncSession, keys: tuple[str, ...]) -> frozenset[int]:
@@ -378,7 +394,7 @@ async def resolve_from_sheet(
         for contract, first, last in await _named_rows(
             db, today=today, client_ids=scope
         )
-        if _tokens(f"{first or ''} {last or ''}") == named[0]
+        if named[0] in _name_sets(first, last)
         and eligible(contract, today)
         and (own is None or contract.candidate_id in own)
     ]
@@ -413,7 +429,8 @@ async def resolve_named_in_text(
     Ostatnia deska, gdy nadawca z adresu firmy nikogo nie wskazuje: koordynator
     przesyła cudze pliki („TimeSheet … Nazwisko Imię.xls”). Czytnik pyta tylko dla
     nadawców z domeny firmy, bo temat może napisać każdy. Kolejność słów dowolna, imię
-    i każdy człon nazwiska muszą stać w tekście. Dwie osoby w tekście albo jedna
+    i każdy człon nazwiska muszą stać w tekście. Po zmianie nazwiska (kartoteka
+    „Nowe (Stare)”) wystarcza jedno z nazwisk. Dwie osoby w tekście albo jedna
     z dwoma działającymi kontraktami = ``None`` (karta do ręcznego przypisania).
     """
 
@@ -423,8 +440,9 @@ async def resolve_named_in_text(
     rows = await _named_rows(db, today=today)
     hits = []
     for contract, first, last in rows:
-        person = _fold(first).split()[:1] + _fold(last).split()
-        if len(person) >= 2 and set(person) <= words and eligible(contract, today):
+        if eligible(contract, today) and any(
+            len(person) >= 2 and set(person) <= words for person in _people(first, last)
+        ):
             hits.append(contract)
     if len(hits) != 1:
         return None
@@ -433,6 +451,44 @@ async def resolve_named_in_text(
 
 def _words(text: str) -> set[str]:
     return set(_fold(re.sub(r"[^\w]+|_", " ", text)).split())
+
+
+# Poprzednie nazwisko w kartotece stoi w nawiasie: „Nowe (Stare)” (Orlen, zmiana
+# nazwiska wpisana na produkcji 23.11.2026).
+_PREVIOUS_SURNAME = re.compile(r"\(([^()]*)\)")
+
+
+def _given(first: Optional[str]) -> list[str]:
+    return _fold(first).split()[:1]
+
+
+def _surnames(last: Optional[str]) -> list[list[str]]:
+    """Człony nazwiska: obecnego i każdego poprzedniego z nawiasu.
+
+    Po zmianie nazwiska pliki przychodzą raz ze starym, raz z nowym nazwiskiem,
+    a raz z oboma, więc każde wskazuje osobę samo. Nawias nie jest częścią członu:
+    dotąd „(stare)” nie trafiało w żadne słowo nazwy pliku i osoba znikała
+    z rozliczeń (próba IX–X 2026, Orlen 429).
+    """
+
+    folded = _fold(last)
+    previous = [group.split() for group in _PREVIOUS_SURNAME.findall(folded)]
+    current = re.sub(r"[()]", " ", _PREVIOUS_SURNAME.sub(" ", folded)).split()
+    return [parts for parts in (current, *previous) if parts]
+
+
+def _people(first: Optional[str], last: Optional[str]) -> list[list[str]]:
+    """Imię i człony nazwiska w każdym wariancie nazwiska."""
+
+    given = _given(first)
+    return [given + parts for parts in _surnames(last)]
+
+
+def _name_sets(first: Optional[str], last: Optional[str]) -> list[set[str]]:
+    """Wszystkie słowa imion z każdym wariantem nazwiska (porównanie całych zbiorów)."""
+
+    names = _tokens(first)
+    return [names | set(parts) for parts in _surnames(last)]
 
 
 async def _named_rows(
@@ -448,6 +504,7 @@ async def _named_rows(
                 & (Contract.end_date >= today - timedelta(days=ENDED_GRACE_DAYS))
             )
         )
+        .order_by(Contract.start_date.desc().nulls_last(), Contract.id.desc())
     )
     if client_ids is not None:
         query = query.where(Contract.client_id.in_(client_ids))
@@ -519,17 +576,35 @@ async def resolve_named_at_client(
     for contract, first, last in await _named_rows(
         db, today=today, client_ids=client_ids
     ):
-        given = _fold(first).split()[:1]
-        surname = _fold(last).split()
-        if not surname or not eligible(contract, today):
+        if not eligible(contract, today):
             continue
-        glued = {"".join(given + surname), "".join(surname + given)}
-        if given and (set(given + surname) <= words or glued & words):
-            full.append((contract, tuple(surname)))
-        elif not set(surname) & _MONTH_WORDS and (
-            set(surname) <= words or "".join(surname) in words
-        ):
-            by_surname.append((contract, tuple(surname)))
+        given = _given(first)
+        surnames = _surnames(last)
+        whole = next(
+            (
+                surname
+                for surname in surnames
+                if given
+                and (
+                    set(given + surname) <= words
+                    or {"".join(given + surname), "".join(surname + given)} & words
+                )
+            ),
+            None,
+        )
+        alone = next(
+            (
+                surname
+                for surname in surnames
+                if not set(surname) & _MONTH_WORDS
+                and (set(surname) <= words or "".join(surname) in words)
+            ),
+            None,
+        )
+        if whole is not None:
+            full.append((contract, tuple(whole)))
+        elif alone is not None:
+            by_surname.append((contract, tuple(alone)))
     if len(full) == 1:
         # Imię rozstrzyga między osobami o tym samym nazwisku, ale inne nazwisko
         # osoby klienta w tej samej nazwie pliku to druga osoba.
@@ -580,17 +655,208 @@ async def resolve_named_for_clients(
     ).all()
     hits = []
     for contract, first, last in rows:
-        surname, given = _fold(last).split(), _fold(first).split()[:1]
+        given = _given(first)
         if (
-            surname
-            and given
-            and set(surname) <= words
+            given
+            and any(set(surname) <= words for surname in _surnames(last))
             and (given[0] in words or given[0][0] in words)
             and eligible(contract, today)
             and (settings.any_sender or settings.open_for(contract.id))
         ):
             hits.append(contract)
     return hits[0] if len(hits) == 1 else None
+
+
+async def staff_client_ids(
+    db: AsyncSession, addresses: Iterable[str]
+) -> frozenset[int]:
+    """Klienci z portfela Delivery Leadów piszących z tych adresów albo do nich.
+
+    Koordynator po naszej stronie (DL klienta) przesyła pliki swoich ludzi, a jego
+    odpowiedź z podpisanym plikiem idzie do niego (próba IX–X 2026, Orlen). Portfel
+    to ``delivery_lead_client_assignments``, tak jak zakres DL w modułach Delivery.
+    """
+
+    from app.models.team_structure import DeliveryLeadClientAssignment
+
+    emails = {normalize_email(address) for address in addresses} - {""}
+    if not emails:
+        return frozenset()
+    rows = await db.scalars(
+        select(DeliveryLeadClientAssignment.client_id)
+        .join(User, User.id == DeliveryLeadClientAssignment.delivery_lead_user_id)
+        .where(func.lower(func.btrim(User.email)).in_(emails), User.is_active.is_(True))
+    )
+    return frozenset(rows.all())
+
+
+def _one_typo(name: str, word: str) -> bool:
+    """Słowo różni się od imienia jedną literą (brak, nadmiar, zamiana, przestawienie),
+    a pierwsza litera się zgadza: „tomsz” i „tomasz”."""
+
+    if name == word or name[:1] != word[:1] or abs(len(name) - len(word)) > 1:
+        return False
+    if len(name) == len(word):
+        diff = [i for i, (a, b) in enumerate(zip(name, word)) if a != b]
+        return len(diff) == 1 or (
+            len(diff) == 2
+            and diff[1] == diff[0] + 1
+            and name[diff[0]] == word[diff[1]]
+            and name[diff[1]] == word[diff[0]]
+        )
+    short, long = sorted((name, word), key=len)
+    return any(long[:i] + long[i + 1 :] == short for i in range(len(long)))
+
+
+async def resolve_named_in_scope(
+    db: AsyncSession, text: str, *, client_ids: frozenset[int], today: date
+) -> Optional[Contract]:
+    """Osoba z nazwy pliku wśród kontraktów tych klientów, także z literówką w imieniu.
+
+    Koordynator wysłał „PROTOKÓŁ_ Tomsz Nazwisko_WRZESIEŃ 2026.pdf” (próba IX–X 2026,
+    Orlen 432): pełne imię nie pasuje, więc ``resolve_named_in_text`` nikogo nie
+    wskazuje. Każdy człon nazwiska stoi w tekście, imię stoi całe albo jedno słowo
+    różni się od niego jedną literą (imię od 4 liter), a nazwisko nosi u tych klientów
+    jedna osoba. Imię innej osoby z działającym kontraktem w tekście, dwie osoby albo
+    osoba z dwoma kontraktami = ``None``.
+    """
+
+    words = _words(text)
+    if len(words) < 2 or not client_ids:
+        return None
+    by_surname: list[Contract] = []
+    hits: list[Contract] = []
+    for contract, first, last in await _named_rows(
+        db, today=today, client_ids=client_ids
+    ):
+        surnames = [s for s in _surnames(last) if not set(s) & _MONTH_WORDS]
+        if not eligible(contract, today) or not any(set(s) <= words for s in surnames):
+            continue
+        by_surname.append(contract)
+        given = _given(first)
+        if given and (
+            given[0] in words
+            or (len(given[0]) >= 4 and any(_one_typo(given[0], w) for w in words))
+        ):
+            hits.append(contract)
+    if len(hits) != 1 or len({c.candidate_id for c in by_surname}) != 1:
+        return None
+    own = await db.scalar(
+        select(Candidate.name).where(Candidate.id == hits[0].candidate_id)
+    )
+    others = {
+        name
+        for _, first, _ in await _named_rows(db, today=today)
+        for name in _given(first)
+    } - set(_given(own))
+    return None if words & others else hits[0]
+
+
+async def names_someone_else(
+    db: AsyncSession, text: str, contract: Contract, *, today: date
+) -> bool:
+    """Czy tekst (nazwa pliku) nazywa inną osobę niż osoba z ``contract``.
+
+    Osoba z tematu przechodzi na pliki maila, ale nie na plik z imieniem albo
+    nazwiskiem innej osoby z działającym kontraktem: taki plik czeka na człowieka
+    (próba IX–X 2026, Orlen: plik osoby ze starym nazwiskiem trafił do kontraktu
+    innej osoby z tego samego maila). Słowa z imienia i nazwisk osoby z ``contract``
+    oraz nazwy miesięcy nie liczą się jako inna osoba.
+    """
+
+    words = _words(text) - _MONTH_WORDS
+    person = (
+        await db.execute(
+            select(Candidate.name, Candidate.lastname).where(
+                Candidate.id == contract.candidate_id
+            )
+        )
+    ).first()
+    own: set[str] = set()
+    if person is not None:
+        own = set(_given(person[0])).union(*_surnames(person[1]))
+    words -= own
+    if not words:
+        return False
+    for other, first, last in await _named_rows(db, today=today):
+        if other.candidate_id == contract.candidate_id or not eligible(other, today):
+            continue
+        given = _given(first)
+        if given and len(given[0]) >= 3 and given[0] in words:
+            return True
+        if any(set(surname) <= words for surname in _surnames(last)):
+            return True
+    return False
+
+
+# Numer umowy wykonawczej w temacie albo nazwie pliku: „Umowa nr CeZ/177/2026”,
+# „Protokół … do CeZ_177_2026-sig.pdf”. Bez spacji między członami: „za 10/2026”
+# w tym samym temacie to okres, nie numer.
+_AGREEMENT = re.compile(
+    r"(?<![^\W\d_])([^\W\d_]{2,6})[/_-](\d{1,4})[/_-](20\d{2})(?!\d)"
+)
+
+
+def agreement_numbers(text: str) -> frozenset[str]:
+    """Numery umów wykonawczych w tekście, w postaci ``cez/177/2026``."""
+
+    return frozenset(
+        f"{_fold(prefix)}/{int(number)}/{year}"
+        for prefix, number, year in _AGREEMENT.findall(text or "")
+    )
+
+
+async def resolve_by_agreement(
+    db: AsyncSession,
+    text: str,
+    *,
+    today: date,
+    client_ids: Optional[frozenset[int]] = None,
+) -> Optional[Contract]:
+    """Kontrakt z numeru umowy wykonawczej (zamówienia) w tekście.
+
+    CeZ zawiera umowę wykonawczą na osobę i pisze jej numer w temacie protokołu
+    (próba IX–X 2026, CeZ 668: w temacie inne imię niż w kartotece). Numer musi być
+    numerem zamówienia w NEXUS-ie, a zamówienie mieć jedną osobę z działającym
+    kontraktem. Dwa różne numery w tekście, zamówienie kilku osób albo osoba z dwoma
+    kontraktami w nim = ``None``. ``client_ids`` zawęża do zamówień tych klientów.
+    """
+
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.client_order_group import ClientOrderGroup
+
+    numbers = agreement_numbers(text)
+    if len(numbers) != 1:
+        return None
+    query = (
+        select(ClientOrderGroup.order_number, ClientOrder.contract_id)
+        .join(ClientOrder, ClientOrder.order_group_id == ClientOrderGroup.id)
+        .where(
+            # Wyrażenie Postgresa: wąski zbiór kandydatów, dokładnie porównuje Python.
+            ClientOrderGroup.order_number.op("~*")(
+                r"^[[:alpha:]]{2,6}[/_-][0-9]{1,4}[/_-]20[0-9]{2}$"
+            ),
+            ClientOrder.contract_id.is_not(None),
+            ClientOrder.status != ClientOrderStatus.cancelled,
+        )
+    )
+    if client_ids is not None:
+        query = query.where(ClientOrderGroup.client_id.in_(client_ids))
+    ids = {
+        contract_id
+        for number, contract_id in (await db.execute(query)).all()
+        if agreement_numbers(number) == numbers
+    }
+    if not ids:
+        return None
+    contracts = [
+        contract
+        for contract in (
+            await db.scalars(select(Contract).where(Contract.id.in_(ids)))
+        ).all()
+        if eligible(contract, today)
+    ]
+    return contracts[0] if len(contracts) == 1 else None
 
 
 def _fold(text: Optional[str]) -> str:
@@ -617,19 +883,13 @@ async def resolve_by_name(
     wanted = _tokens(full_name)
     if len(wanted) < 2:
         return None
-    lowered = [part.lower() for part in full_name.replace("-", " ").split() if part]
-    rows = (
-        await db.execute(
-            select(Contract, Candidate.name, Candidate.lastname)
-            .join(Candidate, Candidate.id == Contract.candidate_id)
-            .where(func.lower(Candidate.lastname).in_(lowered))
-            .order_by(Contract.start_date.desc().nulls_last(), Contract.id.desc())
-        )
-    ).all()
+    # Bez filtra po całym nazwisku w SQL: kartoteka po zmianie nazwiska ma
+    # „Nowe (Stare)”, a temat jedno z nazwisk.
+    rows = await _named_rows(db, today=today)
     matches = [
         contract
         for contract, first, last in rows
-        if _tokens(f"{first or ''} {last or ''}") == wanted
+        if wanted in _name_sets(first, last)
         and eligible(contract, today)
         # Osoba z KEŚU nic nie wysyła i nie musi mieć aktywnego panelu; w pilotażu
         # czytnik bierze jednak tylko osoby z pilotażu.

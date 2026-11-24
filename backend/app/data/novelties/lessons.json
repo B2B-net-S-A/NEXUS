@@ -1931,7 +1931,7 @@
     "novelties": [
       "finanse-przebieg-miesiaca"
     ],
-    "task": "W Finansach otwórz „Przebieg miesiąca” i przejdź do spraw pogrupowanych po powodzie. Na Poligonie nic się nie zapisze.",
+    "task": "W Finansach otwórz „Przebieg miesiąca” i przejdź do „Błędy i uwagi”. Na Poligonie nic się nie zapisze.",
     "solo_href": "/finance?view=month-close",
     "check": {
       "kind": "click",
@@ -1946,7 +1946,7 @@
           "Faktury kosztowe z KSeF"
         ],
         "answer": 0,
-        "explain": "Jeden wiersz na klienta: postęp RCP, sprawy do decyzji, brakujące raporty i stan faktury do klienta. Klienta otwierasz przyciskiem „Otwórz”."
+        "explain": "Jeden wiersz na klienta: postęp RCP, sprawy do decyzji, brakujące raporty i stan faktury do klienta. Osoby klienta rozwijasz strzałką przy nazwie."
       },
       {
         "q": "U kilkunastu osób powtarza się „Akceptacja bez liczby godzin”. Gdzie najszybciej to rozstrzygnąć?",
@@ -1956,7 +1956,7 @@
           "W „Fakturach do klientów”"
         ],
         "answer": 0,
-        "explain": "To decyzja o regule klienta. Zmiana poziomu reguły obejmuje wszystkie osoby tego klienta naraz."
+        "explain": "To decyzja o regule klienta: wiersz powodu prowadzi do „Reguły klienta”. Zmiana poziomu reguły obejmuje wszystkie osoby tego klienta naraz."
       }
     ]
   },
@@ -2525,6 +2525,46 @@
     ]
   },
   {
+    "id": "lekcja-przebieg-miesiaca-odpowiedzi",
+    "title": "Przebieg miesiąca: automat, błędy, braki i biuro",
+    "novelties": ["finanse-przebieg-miesiaca-odpowiedzi"],
+    "task": "W „Przebiegu miesiąca” rozwiń strzałką dowolnego klienta i zobacz, kto ma ruch przy każdej osobie. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/finance?view=month-close",
+    "check": { "kind": "click", "anchor": "finance.month-close.expand" },
+    "questions": [
+      {
+        "q": "Osoba ma w kroku „Kontrola” stan „Błąd”. Co to znaczy?",
+        "options": [
+          "Reguła klienta blokuje przyjęcie RCP: odeślij RCP do poprawy albo zmień poziom reguły",
+          "Możesz przyjąć RCP na karcie osoby jak przy uwadze",
+          "Faktura kontraktora ma inną kwotę niż RCP"
+        ],
+        "answer": 0,
+        "explain": "„Błąd” blokuje przyjęcie. „Uwagę” przyjmujesz na karcie osoby po sprawdzeniu."
+      },
+      {
+        "q": "Przy fakturze do klienta jest ostrzeżenie „przed przyjęciem RCP”. Co się stało?",
+        "options": [
+          "Faktura sprzedaży jest już w KSeF, a RCP tej osoby nie zostało przyjęte w NEXUS-ie",
+          "Klient jeszcze nie zapłacił faktury",
+          "Konsultant nie wystawił swojej faktury"
+        ],
+        "answer": 0,
+        "explain": "Sprawdź RCP tej osoby i przyjmij je, żeby kroki miesiąca się zgadzały."
+      },
+      {
+        "q": "Dlaczego biuro ma przy fakturze do klienta „Nie dotyczy”?",
+        "options": [
+          "To nasi ludzie na B2B: klientem jesteśmy my, więc faktury do klienta nie ma",
+          "Biuro rozlicza się z raportu klienta (T4T)",
+          "Faktury biura wystawia klient"
+        ],
+        "answer": 0,
+        "explain": "Biuro przechodzi ewidencję, fakturę osoby z KSeF i zapłatę. Bez NIP-u osoby w danych do rozliczeń faktury z KSeF do niej nie trafią."
+      }
+    ]
+  },
+  {
     "id": "lekcja-porcja-oddaj-do-nowych",
     "title": "Porcja dnia: oddaj do „Nowych” zamiast odrzucać",
     "novelties": ["porcja-oddaj-do-nowych"],
@@ -2586,6 +2626,41 @@
         ],
         "answer": 0,
         "explain": "„Po terminie” tylko mówi prawdę o terminie. Z daily znika dopiero po „Klient milczy” albo zamknięciu."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-pytania-z-rozmow",
+    "title": "Pytania z rozmów u klienta",
+    "novelties": [
+      "pytania-z-rozmow"
+    ],
+    "task": "W Rekrutacjach otwórz „Pytania z rozmów”, wybierz klienta, a potem jednego z jego managerów.",
+    "solo_href": "/jobs/pytania",
+    "check": {
+      "kind": "click",
+      "anchor": "jobs.question-bank.manager"
+    },
+    "questions": [
+      {
+        "q": "Skąd biorą się nowe pytania w „Pytaniach z rozmów”?",
+        "options": [
+          "Z debriefu po rozmowie u klienta, same",
+          "Ktoś musi je przepisać do tabeli",
+          "Z nocnego importu Excela"
+        ],
+        "answer": 0,
+        "explain": "Pytania wpisane w debriefie trafiają tu od razu. Stanowisko i manager przychodzą z rekrutacji, więc niczego nie przepisujesz."
+      },
+      {
+        "q": "Przy pytaniu brakuje managera. Co zrobić?",
+        "options": [
+          "Uzupełnić hiring managera w rekrutacji",
+          "Dopisać managera przy każdym pytaniu",
+          "Nic, managera nie da się dodać"
+        ],
+        "answer": 0,
+        "explain": "Manager jest brany z rekrutacji. Jedno uzupełnienie podpina go do wszystkich pytań z tej rekrutacji, także wcześniejszych."
       }
     ]
   },

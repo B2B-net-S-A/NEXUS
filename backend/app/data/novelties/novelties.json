@@ -698,6 +698,7 @@
     },
     "where": "Górny pasek → Rekrutacje → Stoją > 7 dni",
     "href": "/jobs",
+    "practice_href": "/jobs/990001",
     "section": "pipeline",
     "dot_anchor": "jobs.board.added-by"
   },
@@ -734,6 +735,7 @@
     },
     "where": "Rekrutacja → nagłówek → liczba osób",
     "href": "/jobs",
+    "practice_href": "/jobs/990001",
     "section": "pipeline",
     "dot_anchor": "job.headcount"
   },
@@ -788,6 +790,7 @@
     },
     "where": "Rekrutacja → panel osoby z formularzem → wiersz „Prowadzi”",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990106&panel=screening",
     "section": "pipeline",
     "dot_anchor": "person.owner.take"
   },
@@ -848,6 +851,7 @@
     },
     "where": "Rekrutacja → Odrzuć z powodem → Zatrudniony gdzie indziej",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990101",
     "section": "pipeline",
     "dot_anchor": "rejection.employed-elsewhere"
   },
@@ -1011,6 +1015,7 @@
     "audience": {"roles": ["recruiter", "delivery_lead", "head_of_recruitment"]},
     "where": "Rekrutacja → panel osoby → Umów telefon",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990101",
     "section": "pipeline",
     "dot_anchor": "screening-call.book"
   },
@@ -1037,6 +1042,7 @@
     "audience": {"roles": ["recruiter", "delivery_lead", "head_of_recruitment"]},
     "where": "Rekrutacja → Kandydaci do dodania",
     "href": "/jobs",
+    "practice_href": "/jobs/990001",
     "section": "pipeline",
     "dot_anchor": "jobs.sources.search",
     "used_anchor": "candidate.profile.pick",
@@ -1164,6 +1170,7 @@
     },
     "where": "Rekrutacja → panel osoby → Screening dla",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990106&panel=screening",
     "section": "pipeline",
     "dot_anchor": "screening.joint.add-other",
     "used_anchor": "person.dock.add-also",
@@ -1246,6 +1253,7 @@
     },
     "where": "Rekrutacja → panel osoby → Rozwiń",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990106&panel=screening",
     "section": "pipeline",
     "dot_anchor": "person.panel.conversation-mode",
     "used_anchor": "person.panel.conversation-mode",
@@ -1416,6 +1424,7 @@
     },
     "where": "Rekrutacja → Kandydaci do dodania",
     "href": "/jobs",
+    "practice_href": "/jobs/990001",
     "section": "pipeline",
     "dot_anchor": "jobs.add.assess-ai",
     "used_anchor": "jobs.add.assess-ai",
@@ -1475,6 +1484,7 @@
     },
     "where": "Rekrutacja → Tablica → Kto dodał",
     "href": "/jobs",
+    "practice_href": "/jobs/990001",
     "section": "pipeline",
     "dot_anchor": "jobs.board.added-by"
   },
@@ -1494,6 +1504,7 @@
     },
     "where": "Rekrutacja → Tablica → Kto dodał",
     "href": "/jobs",
+    "practice_href": "/jobs/990001",
     "section": "pipeline",
     "dot_anchor": "jobs.board.added-by",
     "used_anchor": "jobs.board.added-by-menu",
@@ -1526,6 +1537,7 @@
     },
     "where": "Rekrutacja → Kandydaci do dodania → Propozycje z bazy",
     "href": "/jobs",
+    "practice_href": "/jobs/990001",
     "section": "pipeline",
     "dot_anchor": "jobs.add.base-tab",
     "steps": [
@@ -1674,6 +1686,7 @@
     "pr": 2822,
     "where": "Rekrutacja → Historia i czat",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?win=history-chat&wintab=chat",
     "section": "pipeline",
     "dot_anchor": "chat.compose.expand"
   },
@@ -1691,6 +1704,7 @@
     },
     "where": "Rekrutacja → przegląd DL → Pasuje też do Twoich rekrutacji",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990109&review=1",
     "section": "pipeline",
     "dot_anchor": "dl-review.match.add-job"
   },
@@ -1797,6 +1811,7 @@
     "section": "pipeline",
     "where": "Rekrutacja → CV do klienta → Otwórz i popraw",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990105&panel=cv",
     "dot_anchor": "cv-editor.tailor"
   },
   {
@@ -1810,6 +1825,7 @@
     "section": "pipeline",
     "where": "Panel osoby → CV → Edytuj CV → Asystent",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990108",
     "dot_anchor": "person.cv.edit"
   },
   {
@@ -1888,6 +1904,7 @@
     "audience": {"roles": ["recruiter", "head_of_recruitment", "delivery_lead", "admin"]},
     "where": "Panel osoby → Screening",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990106&panel=screening",
     "section": "pipeline",
     "dot_anchor": "cv.consent-notice"
   },
@@ -1969,6 +1986,7 @@
     },
     "where": "Rekrutacja → panel osoby i Profil Championa",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?tab=champion&ptab=client",
     "section": "pipeline",
     "dot_anchor": "jobs.client-questions.scope"
   },
@@ -2022,6 +2040,7 @@
     "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
     "where": "Panel osoby → CV → Edytuj CV → Pokaż oryginał",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990108",
     "section": "pipeline",
     "dot_anchor": "person.cv.edit"
   },
@@ -2041,6 +2060,7 @@
     },
     "where": "Rekrutacja → Ogłoszenie i link aplikacyjny → Wygeneruj link aplikacyjny",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?tab=champion&ptab=team",
     "section": "pipeline",
     "dot_anchor": "job.team-links"
   },
@@ -2138,6 +2158,7 @@
     "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
     "where": "Panel osoby → CV → generator → Zaawansowane",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990106&panel=cv",
     "section": "pipeline",
     "dot_anchor": "cv.position"
   },
@@ -2151,6 +2172,7 @@
     "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
     "where": "Panel osoby → Notatki i historia → Wcześniej u nas",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990106&panel=notes",
     "section": "pipeline",
     "dot_anchor": "person.history.earlier"
   },
@@ -2207,6 +2229,7 @@
     "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
     "where": "Panel osoby → Nowi albo Screening → Ściąga do rozmowy",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990101",
     "section": "pipeline",
     "dot_anchor": "cheatsheet.cv-questions"
   },
@@ -2326,6 +2349,7 @@
     "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
     "where": "Rekrutacja → nagłówek → „Rekruter” → Zespół rekrutacji",
     "href": "/jobs",
+    "practice_href": "/jobs/990001",
     "section": "pipeline",
     "dot_anchor": "job.recruiter-team"
   },
@@ -2605,6 +2629,7 @@
     },
     "where": "Rekrutacja → CV do klienta → Otwórz i popraw → Do poprawy",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990105&panel=cv",
     "section": "pipeline",
     "dot_anchor": "cv-editor.quick-fixes"
   },
@@ -2625,6 +2650,7 @@
     },
     "where": "Rekrutacja → Tablica → pasek źródeł → Moi ludzie",
     "href": "/jobs",
+    "practice_href": "/jobs/990001",
     "section": "pipeline",
     "dot_anchor": "jobs.sources.my-people"
   },
@@ -2645,6 +2671,7 @@
     },
     "where": "Rekrutacja → Tablica → pasek źródeł → Szukaj",
     "href": "/jobs",
+    "practice_href": "/jobs/990001",
     "section": "pipeline",
     "dot_anchor": "jobs.sources.search"
   },
@@ -2675,6 +2702,7 @@
     "audience": { "roles": ["recruiter", "talent_community_manager", "delivery_lead", "head_of_recruitment"] },
     "where": "Rekrutacja → Tablica → kolumna QC CV",
     "href": "/jobs",
+    "practice_href": "/jobs/990001",
     "section": "pipeline",
     "dot_anchor": "jobs.board.card"
   },
@@ -4623,8 +4651,8 @@
       },
       {
         "anchor": "finance.month-close.reasons",
-        "text": "Przełącz na „Do decyzji wg powodu”",
-        "hint": "Karta powodu mówi, kto rozstrzyga, i prowadzi do klienta albo jego reguł."
+        "text": "Przełącz na „Błędy i uwagi”",
+        "hint": "Wiersz powodu mówi, kto rozstrzyga, i prowadzi do klienta albo jego reguł."
       }
     ]
   },
@@ -5066,6 +5094,32 @@
     ]
   },
   {
+    "id": "finanse-przebieg-miesiaca-odpowiedzi",
+    "title": "Przebieg miesiąca: automat, błędy, braki i biuro",
+    "why": "Cztery odpowiedzi: ile osób przeszło samo, co blokuje przyjęcie, czego brakuje i gdzie są faktury do klientów. Niżej klienci i biuro w pięciu krokach z „Kto teraz”.",
+    "tier": "tour",
+    "shipped_on": "2026-11-24",
+    "audience": { "roles": ["finance", "admin"] },
+    "where": "Finanse → Przychody → Przebieg miesiąca",
+    "href": "/finance",
+    "practice_href": "/finance?view=month-close",
+    "section": "finance",
+    "dot_anchor": "finance.month-close.answers",
+    "steps": [
+      {
+        "anchor": "finance.month-close.answers",
+        "text": "Przeczytaj cztery odpowiedzi na górze",
+        "hint": "„Co jest źle” oddziela błędy, które blokują przyjęcie, od uwag, które przyjmujesz na karcie osoby.",
+        "ack": true
+      },
+      {
+        "anchor": "finance.month-close.expand",
+        "text": "Rozwiń klienta albo biuro strzałką",
+        "hint": "Każda osoba ma te same pięć kroków i „Kto teraz”. Biuro nie ma faktury do klienta, bo klientem jesteśmy my."
+      }
+    ]
+  },
+  {
     "id": "porcja-oddaj-do-nowych",
     "pr": 3863,
     "title": "Porcja dnia: „Oddaj do Nowych” zamiast odrzucania",
@@ -5097,6 +5151,19 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "jobs.list.stage-overdue"
+  },
+  {
+    "id": "pytania-z-rozmow",
+    "pr": 3883,
+    "title": "Pytania z rozmów u klienta w jednym miejscu",
+    "why": "Pytania z debriefów dopisują się same, ze stanowiskiem, klientem i managerem, obok dawnego Excela. Filtrujesz i kopiujesz listę do prepu kandydata.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Rekrutacje → Pytania z rozmów",
+    "href": "/jobs/pytania",
+    "section": "pipeline",
+    "dot_anchor": "jobs.question-bank.manager"
   },
   {
     "id": "dodatki-do-rozliczenia-kontraktora",

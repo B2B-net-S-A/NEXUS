@@ -124,8 +124,19 @@ Artur: „trzeba zmusić, żeby każdą zmianę zrozumieli i potrafili korzysta�
   (`jobs.list.*`), reszta potrzebuje `practice_href` (test
   `test_lesson_show_starts_where_its_first_step_is_not_on_the_jobs_list`;
   24.11.2026 pokaz „Arkusz rozmowy” zaczynał na liście). Panel osoby od razu
-  rozwinięty na screeningu otwiera `?candidate=<id>&panel=screening`. Starsze
-  wpisy z archiwum ✦ bez `practice_href` jeszcze zaczynają na liście.
+  rozwinięty na screeningu otwiera `?candidate=<id>&panel=screening`.
+  Ta sama zasada obejmuje każdy wpis, bo powtórka z archiwum ✦ też startuje
+  z `practice_href ?? href` (test
+  `test_practice_starts_where_the_first_step_is_not_on_the_jobs_list`;
+  24.11.2026 56 wpisów zaczynało na liście). Wyjątek jest tylko dla wpisu,
+  którego elementu na Poligonie nie ma, bo zestaw nie ma danych, przy których
+  się pokazuje (ogłoszenie, aplikacje, QC z błędem, podpis elektroniczny):
+  `JOBS_LIST_START_EXCEPTIONS` z powodem. Ekran dobierasz pomiarem na
+  stagingu z Poligonem, nie z kodu: zakładki Profilu Championa to
+  `?tab=champion&ptab=client|team`, notatki osoby `&panel=notes`, karta
+  „CV do klienta” `&panel=cv`, przegląd Delivery Leada `&review=1`.
+  Element w oknie (odrzucenie, edytor CV) ma ekran z przyciskiem, który
+  to okno otwiera.
 - **Wyłączniki na `/settings/nowosci`** (admin i HoR) są trzy i niezależne:
   porcja (`novelty_daily_gate`), Start (`start_gate`) i Poligon nowych osób
   (`poligon_gate`). Start jest wyłączony od 30.10, dlatego porcja ma własny.

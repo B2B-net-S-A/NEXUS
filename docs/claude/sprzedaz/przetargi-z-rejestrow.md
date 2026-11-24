@@ -1,5 +1,5 @@
 # Przetargi z BZP i TED: bramka zakłada szanse (wariant B) — decyzje Artura 24.11.2026
-<!-- indeks: przetargi, BZP, TED, e-Zamówienia, mo-board API, kursor publicationDate, bramka reguł Kingi, lejek Przetargi, atlas-tenders, tender-identified, Termin minął, Odsiane, Przywróć, SALES_TENDERS_ENABLED, sales_tender_notices, sales_tender_rules, sales_tenders_state, Biznes Polska w Vault, Grok Zbieracz przetargów, Grok Analityk SWZ, Sprzedaż → Leady → Przetargi -->
+<!-- indeks: przetargi, BZP, TED, e-Zamówienia, mo-board API, kursor publicationDate, NoticeUpdateNotice, ogłoszenie o zmianie, bzp_update_cursor, bramka reguł Kingi, lejek Przetargi, atlas-tenders, tender-identified, Termin minął, Odsiane, Przywróć, SALES_TENDERS_ENABLED, sales_tender_notices, sales_tender_rules, sales_tenders_state, Biznes Polska w Vault, Grok Zbieracz przetargów, Grok Analityk SWZ, Sprzedaż → Leady → Przetargi -->
 
 Wątek „Grok bot zamiast Kingi” (20.11.2026): bot szuka przetargów, a Kinga
 przestaje ręcznie przeglądać rejestry. Makiety M1–M3 z liczbami sprawdzonymi
@@ -25,7 +25,8 @@ G-C (przesiew przetargów). 20.11 sam wrócił do tematu z instrukcją Kingi.
    robocze kalendarza firmy od 5:30: jeden udany bieg dziennie, nieudany
    ponawia się po godzinie, najwyżej trzy próby.
 2. `services/sales/tenders/sources.py` pobiera BZP od kursora z poprzedniego
-   biegu i TED od dnia ostatniego udanego biegu. Pierwszy bieg sięga 7 dni wstecz.
+   biegu, zmiany ogłoszeń BZP od własnego kursora i TED od dnia ostatniego udanego
+   biegu. Pierwszy bieg sięga 7 dni wstecz.
 3. `rules.py` (bramka) decyduje o każdym ogłoszeniu. Ogłoszenie spoza IT
    (bez frazy i bez kodu CPV usług IT) nie trafia do bazy wcale.
 4. `flow.py` zakłada szansę albo zapisuje odsiane z regułą, potem zamyka szanse
@@ -105,9 +106,41 @@ G-C (przesiew przetargów). 20.11 sam wrócił do tematu z instrukcją Kingi.
   jest pomijana. W linii biegu: „zmiany ogłoszeń N”.
 - **„Tylko usługi” w TED czyta `contract-nature-main-proc`**, bo `contract-nature`
   miesza rodzaj główny z dodatkowymi (808107-2026: dostawa z usługą dodatkową).
-- **BZP:** zmiana ogłoszenia to osobny typ ogłoszenia (nie `ContractNotice`), którego
-  etap 1 nie czyta. Przedłużony termin w BZP nie przesuwa więc daty szansy; szansę,
-  której nikt nie ruszył, automat zamknie po pierwotnym terminie.
+- **BZP: zmiana ogłoszenia to osobne ogłoszenie o zmianie** (`NoticeType=NoticeUpdateNotice`,
+  to samo `mo-board/api/v1/notice`, porcja 100, kursor po `publicationDate` jak przy
+  ogłoszeniach) z własnym numerem BZP i tym samym `tenderId` co ogłoszenie o
+  zamówieniu. `submittingOffersDate` jest w nim puste, a nowy termin stoi tylko w HTML:
+  blok „Termin składania ofert” z „Przed zmianą” i „Po zmianie” (`2026-11-26 19:00`,
+  czas warszawski → UTC i dzień w kalendarzu firmy). „Termin otwarcia ofert”, „Termin
+  związania ofertą”, treść warunków („przed upływem terminu składania ofert”) i termin
+  wniosków w konkursie się nie liczą. Pomiar 17–24.11: 2 014 ogłoszeń o zmianie
+  (21 zapytań), z tego 1 786 zmienia ogłoszenie o zamówieniu, a 1 607 przesuwa termin.
+  Reszta zmienia ogłoszenia o wyniku, o wykonaniu umowy i o zmianie umowy.
+- **Ogłoszenie o zamówieniu ma w `submittingOffersDate` termin już po zmianach
+  sprzed pobrania**, a jego HTML zostaje przy pierwotnym (24.11: 168 z 168 ogłoszeń
+  ze zmianą). Dlatego liczy się tylko ostatnia zmiana postępowania z porcji i tylko
+  wtedy, gdy jej termin różni się od terminu w wierszu. Inaczej każda wcześniejsza
+  zmiana dawałaby notatkę „X → X”, a starsza zmiana cofałaby termin.
+- Zmiana znanego postępowania (`source = 'bzp'`, `procedure_id` = `tenderId`) idzie
+  przez `apply_change` jak w TED: termin wiersza, teczka, data zamknięcia szansy (gdy
+  nikt jej nie zmienił ręcznie) i notatka „Zmiana przetargu BZP <numer ogłoszenia>”
+  z numerem i linkiem ogłoszenia o zmianie oraz terminami z godziną. Szansa zamknięta
+  przez automat wraca do „Identyfikacji”, a odsiane, które po przedłużeniu przechodzi
+  bramkę, dostaje szansę. Bramka po zmianie bierze kody CPV z wiersza, bo ogłoszenie,
+  które weszło samym kodem, inaczej by z niej wypadło. Numer i link wiersza zostają
+  przy ogłoszeniu o zamówieniu, bo ogłoszenie o zmianie pokazuje tylko zmienione pola.
+- **Zmiana postępowania spoza bazy odpada bez zapisu.** Do bazy trafia tylko to, co
+  weszło do bramki, więc to prawie wszystkie zmiany. Ogłoszenie pobrane później i tak
+  ma termin po zmianach.
+- Osobny kursor `bzp_update_cursor` w `sales_tenders_state`. Bez niego okno zmian
+  zaczyna się przy najstarszym ogłoszeniu BZP w bazie (najwyżej 7 dni wstecz), a przy
+  pustej bazie w chwili biegu, bo ogłoszenie pobrane teraz ma już termin po zmianach.
+  Tydzień zmian to ok. 20 zbędnych zapytań, a z nimi pierwszy bieg dostał 403
+  (pułapki niżej). Gdy rejestr nie oddał ogłoszeń BZP, bieg nie pyta o zmiany, a kursor
+  zmian czeka. Gdy zawiodą same zmiany, bieg kończy się błędem „Rejestr BZP nie
+  oddał zmian ogłoszeń.” i ponawia po godzinie. W liczbach biegu `bzp_changes` to
+  zmiany z nowym terminem (także spoza bazy), a `updated` to przesunięte terminy
+  (TED i BZP, na ekranie „zmiany ogłoszeń N”).
 
 ## Pułapki rejestrów
 
@@ -118,6 +151,11 @@ G-C (przesiew przetargów). 20.11 sam wrócił do tematu z instrukcją Kingi.
   odpadają po numerze. Porcja 100, bo każda pozycja niesie pełny HTML ogłoszenia
   (ok. 30 KB). Makieta z 20.11 liczyła z jednej porcji 500 na dzień i zaniżyła
   ruch (2 994 / 68 / 17 zamiast 3 697 / 94 / 24 za 12–19.11).
+- **BZP blokuje serię zapytań:** 24.11 po ok. 50 zapytaniach w pół minuty (33 porcje
+  ogłoszeń i 14 porcji zmian; kwadrans wcześniej ok. 35 zapytań z tego samego adresu)
+  API odpowiedziało 403 ze stroną „Dostęp zablokowany / Access Blocked”, a po kilku
+  minutach znów 200. Bieg kończy się wtedy błędem rejestru i ponawia po godzinie,
+  kursor części, która nie przyszła, stoi. Codzienny bieg to ok. 10 zapytań.
 - Link do ogłoszenia BZP: `mo-client-board/bzp/notice-details/id/{objectId}`
   (trasa z aplikacji BZP, sprawdzona 24.11). PDF: `mo-board/api/v1/Board/GetNoticePdfById?noticeId=`.
 - **TED** (`api.ted.europa.eu/v3/notices/search`): CPV dopasowuje hierarchicznie
@@ -129,8 +167,8 @@ G-C (przesiew przetargów). 20.11 sam wrócił do tematu z instrukcją Kingi.
 - Tabela `sales_tender_notices` (0770, DDL w `sales_schema.TENDERS_DDL`, lustro
   w `entrypoint.sh`, sonda w `/api/health/deep`): ogłoszenia po wejściu do bramki,
   para (źródło, numer) unikalna. Stan biegów: `app_settings` → `sales_tenders_state`
-  (kursor BZP, dzień TED, ostatni bieg z liczbami; „w toku” starsze niż godzina
-  to bieg przerwany).
+  (kursor BZP, kursor zmian BZP, dzień TED, ostatni bieg z liczbami; „w toku”
+  starsze niż godzina to bieg przerwany).
 - **Ekran:** Sprzedaż → Leady → Przetargi (`/sales/tenders`), widok obok
   „Leady | Boty”, bo Sprzedaż ma siedem zakładek (decyzja z 11.11.2026). Założone
   szanse, Odsiane (z „Przywróć”), Reguły. Nieudany bieg to czerwony pasek z godziną.

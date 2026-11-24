@@ -1230,6 +1230,10 @@ export function JobsListV2({
             </Button>
           )}
           <CareerQueueLink />
+          {/* Makieta 24.11.2026: baza pytań z rozmów (debriefy + archiwum Excela). */}
+          <Button size="sm" variant="outline" asChild>
+            <Link href="/jobs/pytania">Pytania z rozmów</Link>
+          </Button>
           {/* 0506: umowy przedwstępne przy osobach — bramka API przedwstępnych
               (Viewer nie; Finanse i Automatyzacje tak, decyzja 22.10.2026). */}
           {can["pre_contract.work"] && (

@@ -84,18 +84,18 @@ export function JobClientProcessFact({
         >
           <Route className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
           <span className="sr-only">Proces u klienta: </span>
-          {/* Pusty proces poniżej `2xl` to sama ikona (19.11.2026): przy
+          {/* Pusty proces poniżej szerokości nagłówka 86rem to sama ikona (19.11.2026): przy
               1280 px linia faktów nie mieściła „Dodana → Termin”, a „nie
               podano” zostaje w dymku i dla czytnika ekranu. */}
           <span
             className={cn(
               "whitespace-nowrap text-[13px] leading-tight",
-              label ? "font-semibold text-foreground" : "hidden text-muted-foreground 2xl:inline",
+              label ? "font-semibold text-foreground" : "hidden text-muted-foreground @min-[86rem]/job-header:inline",
             )}
           >
             {label ?? "proces: nie podano"}
           </span>
-          {label ? null : <span className="sr-only 2xl:hidden">nie podano</span>}
+          {label ? null : <span className="sr-only @min-[86rem]/job-header:hidden">nie podano</span>}
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[480px] p-0" data-testid="client-process-popover">

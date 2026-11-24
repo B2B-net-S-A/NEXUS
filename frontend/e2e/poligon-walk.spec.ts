@@ -24,7 +24,8 @@ import { exercisesFor, POLIGON_CLIENT_MAIL } from "../src/lib/poligon/exercises"
  * osób) i 404 na resztę, więc test nie potrzebuje bazy ani logowania.
  * Uruchomienie: `E2E_BASE_URL=http://localhost:3000 npx playwright test --project=poligon-chromium`
  * (frontend z `NEXT_PUBLIC_API_URL`, domyślnie http://localhost:8000; `next dev` też
- * działa). `POLIGON_E2E_DEBUG=1` wypisuje każde zapytanie do podstawionego API.
+ * działa). `POLIGON_E2E_DEBUG=1` wypisuje każde zapytanie do podstawionego API
+ * i pełny błąd strony.
  */
 
 const API_ORIGIN = (process.env.E2E_API_ORIGIN || "http://localhost:8000").replace(/\/$/, "");
@@ -143,7 +144,11 @@ async function onPoligon(
   page.on("console", (m) => {
     if (m.text().includes("[poligon] brak odpowiedzi w zestawie")) misses.push(m.text());
   });
-  page.on("pageerror", (e) => pageErrors.push(`${new URL(page.url()).pathname}: ${String(e).slice(0, 300)}`));
+  page.on("pageerror", (e) => {
+    // Pełny komunikat: w `next dev` React dokłada do błędu hydratacji diff drzewa.
+    if (process.env.POLIGON_E2E_DEBUG) console.log("PAGEERROR", String(e));
+    pageErrors.push(`${new URL(page.url()).pathname}: ${String(e).slice(0, 300)}`);
+  });
 
   await context.addCookies([{ name: "nexus_access", value: fakeJwt(user), domain: origin.hostname, path: "/" }]);
   await context.addInitScript((u) => {
@@ -219,7 +224,7 @@ async function onPoligon(
     expect(pageErrors, "błąd strony na poligonie").toEqual([]);
   };
 
-  return { coach, done, next, card, board, openCard, moveNext, finish, noNullText };
+  return { coach, done, next, card, board, openCard, moveNext, finish, noNullText, pageErrors };
 }
 type Walk = Awaited<ReturnType<typeof onPoligon>>;
 
@@ -592,5 +597,29 @@ test.describe("Poligon NEXUSA — onboarding dnia 1", () => {
     await expect(coach.getByText("Zaliczone.")).toBeVisible();
     await next();
     await w.finish();
+  });
+
+  // Reszta testu wchodzi na profil linkiem (nawigacja po stronie klienta),
+  // a odświeżenie albo wklejony adres to pełne wczytanie z HTML-em z serwera.
+  // 24.11.2026 profil ćwiczebny dawał wtedy „Minified React error #418”.
+  // Okruszek pobiera kandydata pod kluczem strony zaraz po zamontowaniu
+  // powłoki, a zestaw Poligonu odpowiada bez sieci. Dane były więc w cache'u,
+  // zanim React zhydratował stronę za granicą `app/loading.tsx`. Kolejność
+  // zależy od tego, kiedy dojdzie plik JS profilu — na szybkim buildzie
+  // lokalnym bywał pierwszy i test przechodził mimo błędu. Dlatego plik czeka,
+  // aż okruszek pokaże osobę, jak na wolnej sieci.
+  test("odświeżony profil ćwiczebny wczytuje się bez błędu strony", async ({ page, context, baseURL }) => {
+    const w = await onPoligon(page, context, baseURL, "recruiter", 27);
+    const profileChunks = "**/_next/static/chunks/app/candidates/**";
+    const held: Route[] = [];
+    await page.route(profileChunks, (route) => {
+      held.push(route);
+    });
+    await page.goto("/candidates/990111", { waitUntil: "commit" });
+    await expect(page.getByRole("navigation", { name: "Ścieżka" }).getByText("Laura Olszyńska")).toBeVisible({ timeout: 30_000 });
+    await page.unroute(profileChunks);
+    await Promise.all(held.map((route) => route.continue()));
+    await expect(page.locator('[data-help="candidate.profile.assign"]').first()).toBeVisible({ timeout: 30_000 });
+    expect(w.pageErrors, "błąd strony przy pełnym wczytaniu profilu na poligonie").toEqual([]);
   });
 });

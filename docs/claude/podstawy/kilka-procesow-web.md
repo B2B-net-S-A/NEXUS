@@ -139,6 +139,15 @@ na zmianę zamiast raz na minutę.
 - **Tylko jeden proces:** uzupełnianie korpusu słów (`keyword_corpus_backfill`, blokada doradcza;
   drugi czyta gotowość z bazy jak worker) i przebieg JJIT (blokada `jjit_run`, chroni też
   przed wyścigiem web ↔ worker).
+- **Ręczne przebiegi z tras, jeden naraz w całym backendzie** (`app/core/manual_runs.py`):
+  import talent-radar, backfill pul, cztery backfille kandydatów, backfill procesów rekrutacji,
+  karty z portali, arkusze z notatek, wnioski z notatek, poczta zamówień (admin i przycisk
+  operatora). `start_exclusive` bierze blokadę w zadaniu biegu i trzyma ją do końca; drugi
+  start z dowolnego procesu web albo przy biegu w workerze dostaje 409, a nie cichy drugi bieg
+  ani „started” dla biegu, który się pominie. Status: `is_running` czyta `pg_locks`, postęp
+  i wynik idą do `app_settings` (`publishing`, `admin_backfill_progress:*`). Blokadę sprawdza się
+  przed odczytem zapisu: bieg zapisuje stan końcowy, zanim ją zwolni, więc zapis „trwa” przy
+  wolnej blokadzie znaczy proces, który padł (import pokazuje wtedy błąd „Bieg przerwany”).
 - **Po kolei:** jednorazowe kroki lifespanu od `retire_candidate_saved_searches` do seedu B2B
   (`cross_process_wait_lock("startup_oneoffs")`, najwyżej 180 s czekania, potem bez blokady).
 
@@ -153,9 +162,6 @@ na zmianę zamiast raz na minutę.
 - Semafory (LibreOffice, wątki modeli): w kontenerze 2× więcej naraz.
 - „Kto jest online” dla maila z czatu (`get_connected_user_ids`): drugi proces nadrabia
   `last_seen_at` (stempel co 5 min, próg 15 min).
-- **Do poprawy osobno:** status i wyłączność ręcznych przebiegów admina
-  (`admin_import._TASKS`, `_running` w backfillach) — status z drugiego procesu mówi
-  „nie biegnie”, a drugi start może iść równolegle.
 
 ## Nowy kod
 
@@ -165,4 +171,7 @@ stan w bazie albo blokada doradcza
 (`app/core/process_lock.py`), albo świadomie per proces z wpisem w tym pliku. Nowy licznik
 limitu w pamięci dzieli się przez `web_process_count()`. Nowa pętla, która pisze do bazy
 i musi zostać w web, potrzebuje blokady, bo biegnie w każdym procesie web.
-Testy: `tests/test_multi_web_processes.py`, `tests/test_process_roles.py`.
+Ręczny bieg z trasy startuje przez `manual_runs.start_exclusive`, a status czyta
+`manual_runs.is_running` — nie flaga `running` ani słownik zadań w pamięci procesu.
+Testy: `tests/test_multi_web_processes.py`, `tests/test_process_roles.py`,
+`tests/test_manual_runs_cross_process.py`.

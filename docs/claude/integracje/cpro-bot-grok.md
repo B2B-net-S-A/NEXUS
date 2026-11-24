@@ -7,6 +7,42 @@ oferta, CV, motywacja, dostępność, lokalizacja, dopasowanie, „Submit Offer�
 Około 5 minut na osobę, a przy osobie wrzucanej na kilka requestów — kopiowanie
 danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.2026.
 
+## Robot NEXUSA zamiast Grok Bota (decyzje Artura 24.11.2026)
+
+- **Dlaczego:** biegi rutyny Grok Bota uruchamiane bez człowieka nie dostają
+  hasła z Vault i kończą się przed logowaniem (biegi 2 i 6 w `cpro_bot_runs`).
+  Szkice powstawały tylko wtedy, gdy ktoś wklejał token biegu do otwartej
+  rozmowy (biegi 3–5). Artur wybrał własnego robota zamiast półautomatu.
+- **Gdzie:** pakiet `backend/cpro_robot/` (bez importów `app`), obraz
+  `backend/Dockerfile.cpro-robot` (Playwright + Chromium), usługa `cpro-robot`
+  w `docker-compose.yml` za profilem `cpro-robot`. Worker budzi go tym samym
+  webhookiem biegu (`GROK_BOT_CPRO_WEBHOOK_URL=http://cpro-robot:8090/wake`,
+  klucz Bearer `GROK_BOT_CPRO_WEBHOOK_KEY`). Robot pobiera zlecenie, CV
+  i oddaje raport trasami z tokenem jak rutyna, z tymi samymi kontrolami
+  originu i ścieżek (`cpro_robot/nexus.py`). Reguły pól i wyników są wspólne:
+  `task_text.py` opisuje je dla człowieka i Groka, `cpro_robot/portal.py`
+  wykonuje.
+- **Konta:** samo hasło, bez MFA. `CPRO_ROBOT_{IGOR,MARCIN}_{USERNAME,PASSWORD}`
+  ustawia Artur przez workflow „Coolify set env” (`value_from_secret`).
+  Ta zmiana zastępuje regułę „hasło tylko w Hints Groka”. Skarbiec Coolify
+  trafia do `.env`, więc hasła widzi też backend; świadomie. Tożsamość konta
+  w portalu to podpis w bocznym pasku (`.vmsSideBarProfileUser`) równy
+  `CPRO_ROBOT_*_DISPLAY_NAME`. Trasa konta według DL jest bez zmian
+  (`cpro_robot/rules.py`, test równości z `cpro_bot/accounts.py`).
+- **Tylko szkice.** Bieg z `submit=true` robot kończy wynikiem `failed`/`other`.
+  `CPRO_ROBOT_DRY_RUN` (domyślnie `true` w compose) zatrzymuje pozycję przed
+  pierwszym zapisem w Cpro (Add Consultant, Upload CV, Save). Raport mówi
+  wtedy, do którego kroku robot doszedł. Po udanej próbie ustaw `false`.
+  „Former consultant/employee” bez danych z karty: brak „Nordea” w tekście
+  PDF daje oba „No”, a Nordea w CV oznacza `failed`, bo rozstrzyga człowiek.
+- **Włączenie** (kolejność): sekrety kont → `CPRO_ROBOT_*_DISPLAY_NAME` →
+  `GROK_BOT_CPRO_WEBHOOK_URL` na adres robota → `COMPOSE_PROFILES` z `cpro-robot`
+  → Deploy → `CPRO_BOT_AUTO_DRAFT_ENABLED=true` → jedna karta w próbie
+  bez zapisu → `CPRO_ROBOT_DRY_RUN=false` → szkic do oceny Sandry.
+- Rutyna Grok Bota „NEXUS Cpro” i tryb `--interactive-draft` zostają jako
+  zapas. Poniższe zasady (konto według DL, braki karty, tylko szkic,
+  bezpieczeństwo tokenu) obowiązują robota tak samo.
+
 ## Decyzje Artura (17.11.2026)
 
 - **Robi to Grok Bot z pełnymi danymi.** Rutyna „NEXUS Cpro” loguje się do
@@ -141,7 +177,8 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
   z biegu, link do oferty tylko `https://*.onevms.se`, znaki sterujące wycięte,
   `submitted` w próbie liczy się jako szkic. Licznik `draft` wymaga dodatkowo
   potwierdzenia rzeczywistego statusu DRAFT w Cpro przez Sandrę.
-- Hasło do Cpro wpisuje do Hints Grok Bota Artur, nigdy sesja Claude, Codex
+- Hasło do Cpro wpisuje Artur: do Hints Grok Bota albo (robot, od 24.11.2026)
+  jako sekret repo dla workflow „Coolify set env”. Nigdy sesja Claude, Codex
   ani kod. Wpisy kont Igora i Marcina pozostają oddzielne; hasła i loginy
   nie trafiają do webhooka ani raportu. Logi są publiczne: same liczby
   i identyfikatory; bez tokenu, pełnego zlecenia, treści CV i danych osób.

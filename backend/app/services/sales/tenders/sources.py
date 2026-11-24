@@ -8,6 +8,13 @@ Wynik jest posortowany rosnąco po dacie publikacji. Mniejsza porcja (100 zamias
 500), bo każda pozycja niesie pełny HTML ogłoszenia (ok. 30 KB).
 Makieta z 20.11.2026 liczyła z jednej porcji na dzień i zaniżyła ruch o ok. 20%.
 
+Zmiana ogłoszenia w BZP to osobny typ (``NoticeUpdateNotice``) z własnym numerem
+i tym samym ``tenderId``. ``submittingOffersDate`` jest w nim puste, a nowy termin
+stoi tylko w HTML („Termin składania ofert Przed zmianą: … Po zmianie: …”, czas
+warszawski). Ogłoszenie o zamówieniu podaje w ``submittingOffersDate`` termin
+aktualny w chwili pobrania (24.11.2026: 168 z 168 ogłoszeń ze zmianą), więc zmiana
+ma znaczenie dopiero po tym, jak ogłoszenie trafiło do bazy.
+
 **TED** (``api.ted.europa.eu/v3/notices/search``): wyszukiwanie eksperckie po
 kraju zamawiającego, kodach CPV usług IT i dniu publikacji, strony po 100.
 
@@ -16,11 +23,12 @@ Do rejestrów idą tylko daty i kody CPV; żadnych danych firmy.
 
 from __future__ import annotations
 
+import html
 import logging
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional, TypeVar
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -36,6 +44,8 @@ BZP_NOTICE_PAGE = (
 )
 BZP_PAGE_SIZE = 100
 BZP_MAX_REQUESTS = 150
+BZP_CONTRACT_NOTICE = "ContractNotice"
+BZP_CHANGE_NOTICE = "NoticeUpdateNotice"
 
 TED_URL = "https://api.ted.europa.eu/v3/notices/search"
 TED_NOTICE_PAGE = "https://ted.europa.eu/pl/notice/-/detail/{number}"
@@ -63,6 +73,20 @@ _FRACTION = re.compile(r"(\.\d{6})\d+")
 _TED_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
 #: Tytuł z TED to „Polska – <opis kodu CPV> – <przedmiot>”; zostaje przedmiot.
 _TED_TITLE_PREFIX = re.compile(r"^\s*(?:Polska|Poland)\s+[–-]\s+.+?\s+[–-]\s+")
+_HTML_HIDDEN = re.compile(r"<(style|script)\b.*?</\1\s*>", re.S | re.I)
+_HTML_TAG = re.compile(r"<[^>]+>")
+#: Blok zmiany terminu w ogłoszeniu o zmianie (po zdjęciu znaczników):
+#: „8.1. Termin składania ofert Przed zmianą: 2026-11-23 19:00 Po zmianie:
+#: 2026-11-26 19:00”. „Termin otwarcia ofert”, „Termin związania ofertą” i treść
+#: warunków („przed upływem terminu składania ofert”) tego układu nie mają.
+_CHANGED_DEADLINE = re.compile(
+    # „Przed zmianą” nie przechodzi przez następne „Po zmianie”: puste pole terminu
+    # nie może wziąć daty z bloku niżej (np. otwarcia ofert).
+    r"Termin składania ofert Przed zmianą:(?:(?!Po zmianie:).){0,120}? Po zmianie: "
+    r"(\d{4})-(\d{2})-(\d{2})(?: (\d{1,2}):(\d{2}))?(?!\d)"
+)
+
+_Parsed = TypeVar("_Parsed")
 
 
 class SourceError(RuntimeError):
@@ -73,6 +97,28 @@ class SourceError(RuntimeError):
 class BzpBatch:
     notices: list[Notice]
     #: Największa ``publicationDate`` z odpowiedzi — kursor następnego biegu.
+    cursor: Optional[datetime]
+    requests: int
+
+
+@dataclass(frozen=True)
+class BzpChange:
+    """Ogłoszenie o zmianie ogłoszenia w BZP, które przesuwa termin składania ofert."""
+
+    #: Numer ogłoszenia o zmianie (własny numer BZP, inny niż ogłoszenia o zamówieniu).
+    number: str
+    #: ``tenderId`` — ten sam co w ogłoszeniu o zamówieniu (``procedure_id`` wiersza).
+    procedure_id: str
+    published_at: datetime
+    deadline_date: date
+    deadline_at: Optional[datetime]
+    url: Optional[str]
+
+
+@dataclass(frozen=True)
+class BzpChangeBatch:
+    changes: list[BzpChange]
+    #: Największa ``publicationDate`` z odpowiedzi — kursor zmian następnego biegu.
     cursor: Optional[datetime]
     requests: int
 
@@ -128,22 +174,88 @@ def parse_bzp(item: dict[str, Any]) -> Optional[Notice]:
     )
 
 
+def _html_text(body: str) -> str:
+    """Tekst ogłoszenia bez znaczników, z pojedynczymi spacjami."""
+
+    text = _HTML_TAG.sub(" ", _HTML_HIDDEN.sub(" ", body))
+    return " ".join(html.unescape(text).split())
+
+
+def changed_deadline(body: Any) -> Optional[tuple[date, Optional[datetime]]]:
+    """Nowy termin składania ofert z HTML ogłoszenia o zmianie: dzień w kalendarzu
+    firmy i chwila w UTC (``None``, gdy BZP podało sam dzień). Ostatni blok wygrywa."""
+
+    if not isinstance(body, str) or "Po zmianie" not in body:
+        return None
+    found = None
+    for found in _CHANGED_DEADLINE.finditer(_html_text(body)):
+        pass
+    if found is None:
+        return None
+    year, month, day, hour, minute = found.groups()
+    try:
+        if hour is None:
+            return date(int(year), int(month), int(day)), None
+        local = datetime(
+            int(year),
+            int(month),
+            int(day),
+            int(hour),
+            int(minute),
+            tzinfo=ZoneInfo(DEFAULT_TZ),
+        )
+    except ValueError:
+        return None
+    moment = local.astimezone(timezone.utc)
+    return business_date(moment), moment
+
+
+def parse_bzp_change(item: dict[str, Any]) -> Optional[BzpChange]:
+    """Ogłoszenie o zmianie z nowym terminem; zmiana bez terminu (inne sekcje,
+    ogłoszenie o wyniku albo o wykonaniu umowy) daje ``None``."""
+
+    number = str(item.get("bzpNumber") or "").strip()
+    procedure = str(item.get("tenderId") or "").strip()[:80]
+    published = parse_instant(item.get("publicationDate"))
+    if not number or not procedure or published is None:
+        return None
+    deadline = changed_deadline(item.get("htmlBody"))
+    if deadline is None:
+        return None
+    object_id = str(item.get("objectId") or "").strip()
+    return BzpChange(
+        number=number[:60],
+        procedure_id=procedure,
+        published_at=published,
+        deadline_date=deadline[0],
+        deadline_at=deadline[1],
+        url=BZP_NOTICE_PAGE.format(id=object_id) if object_id else None,
+    )
+
+
 def _cursor_param(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
 
-async def fetch_bzp(
-    client: httpx.AsyncClient, *, since: datetime, until: date
-) -> BzpBatch:
-    """Ogłoszenia o zamówieniu opublikowane od ``since`` do końca dnia ``until``."""
+async def _walk_bzp(
+    client: httpx.AsyncClient,
+    *,
+    notice_type: str,
+    since: datetime,
+    until: date,
+    parse: Callable[[dict[str, Any]], Optional[_Parsed]],
+) -> tuple[list[_Parsed], Optional[datetime], int]:
+    """Porcje jednego typu ogłoszeń od ``since`` do końca dnia ``until``: pozycje
+    po ``parse`` (bez powtórek numeru BZP), największa ``publicationDate``, zapytania."""
 
-    seen: dict[str, Notice] = {}
+    seen: set[str] = set()
+    parsed: list[_Parsed] = []
     cursor = since
     newest: Optional[datetime] = None
     requests = 0
     while requests < BZP_MAX_REQUESTS:
         params = {
-            "NoticeType": "ContractNotice",
+            "NoticeType": notice_type,
             "PublicationDateFrom": _cursor_param(cursor),
             "PublicationDateTo": until.isoformat(),
             "PageSize": str(BZP_PAGE_SIZE),
@@ -156,11 +268,16 @@ async def fetch_bzp(
             published = parse_instant(item.get("publicationDate"))
             if published is not None and (last is None or published > last):
                 last = published
-            notice = parse_bzp(item)
-            if notice is None or notice.number in seen:
+            number = str(item.get("bzpNumber") or "").strip()
+            if not number or number in seen:
                 continue
-            seen[notice.number] = notice
+            seen.add(number)
             fresh += 1
+            # Porcja bez pozycji po ``parse`` (np. same zmiany bez terminu) nie kończy
+            # przejścia: liczą się nowe numery, nie wynik parsowania.
+            result = parse(item)
+            if result is not None:
+                parsed.append(result)
         if last is not None and (newest is None or last > newest):
             newest = last
         if len(items) < BZP_PAGE_SIZE or not fresh or last is None:
@@ -168,8 +285,43 @@ async def fetch_bzp(
         # Kursor w sekundach: pozycje z tej samej sekundy wracają i odpadają jako duble.
         cursor = last
     else:
-        logger.warning("sales_tenders bzp request limit reached requests=%d", requests)
-    return BzpBatch(list(seen.values()), newest, requests)
+        logger.warning(
+            "sales_tenders bzp request limit reached type=%s requests=%d",
+            notice_type,
+            requests,
+        )
+    return parsed, newest, requests
+
+
+async def fetch_bzp(
+    client: httpx.AsyncClient, *, since: datetime, until: date
+) -> BzpBatch:
+    """Ogłoszenia o zamówieniu opublikowane od ``since`` do końca dnia ``until``."""
+
+    notices, cursor, requests = await _walk_bzp(
+        client,
+        notice_type=BZP_CONTRACT_NOTICE,
+        since=since,
+        until=until,
+        parse=parse_bzp,
+    )
+    return BzpBatch(notices, cursor, requests)
+
+
+async def fetch_bzp_changes(
+    client: httpx.AsyncClient, *, since: datetime, until: date
+) -> BzpChangeBatch:
+    """Ogłoszenia o zmianie z nowym terminem składania ofert, od ``since`` do końca
+    dnia ``until``. Tych bez terminu nie zwraca, ale kursor idzie i za nimi."""
+
+    changes, cursor, requests = await _walk_bzp(
+        client,
+        notice_type=BZP_CHANGE_NOTICE,
+        since=since,
+        until=until,
+        parse=parse_bzp_change,
+    )
+    return BzpChangeBatch(changes, cursor, requests)
 
 
 async def _get_json_list(
@@ -328,6 +480,25 @@ def bzp_since(
     if cursor is not None:
         return cursor
     return now - timedelta(days=initial_days)
+
+
+def bzp_changes_since(
+    cursor: Optional[datetime],
+    *,
+    oldest_row: Optional[datetime],
+    now: datetime,
+    initial_days: int,
+) -> datetime:
+    """Początek okna zmian BZP: kursor zmian, a bez niego chwila pobrania najstarszego
+    ogłoszenia BZP w bazie (najwyżej ``initial_days`` wstecz). Przy pustej bazie od
+    teraz: ogłoszenie pobrane w tym biegu ma już termin po wcześniejszych zmianach,
+    a tydzień zmian to ok. 20 zbędnych zapytań (BZP blokuje serię zapytań 403)."""
+
+    if cursor is not None:
+        return cursor
+    if oldest_row is None:
+        return now
+    return max(oldest_row, now - timedelta(days=initial_days))
 
 
 def ted_since(last_day: Optional[date], *, today: date, initial_days: int) -> date:

@@ -72,7 +72,15 @@ def name_tokens(text: Optional[str]) -> set[str]:
         .decode()
         .lower()
     )
-    return {token for token in raw.replace("-", " ").split() if token}
+    # Po zmianie nazwiska kartoteka ma „Nowe (Stare)”: nawias nie jest częścią słowa,
+    # więc plik ze starym albo nowym nazwiskiem pasuje do kontraktu.
+    for mark in "-()":
+        raw = raw.replace(mark, " ")
+    return {token for token in raw.split() if token}
+
+
+#: Klucz uwagi o kosztach delegacji w RCP (nie reguła katalogu; grupa w „Przebiegu miesiąca”).
+TRAVEL_IN_RCP = "travel.rcp_costs"
 
 
 class _Group:
@@ -88,11 +96,18 @@ class _Group:
     def info(self, title: str, detail: Optional[str] = None) -> None:
         self.checks.append({"state": "none", "title": title, "detail": detail})
 
-    def warn(self, title: str, detail: Optional[str] = None) -> None:
-        """Uwaga niezależna od poziomu reguły (nigdy nie blokuje)."""
+    def warn(
+        self, title: str, detail: Optional[str] = None, key: Optional[str] = None
+    ) -> None:
+        """Uwaga niezależna od poziomu reguły (nigdy nie blokuje).
+
+        ``key`` grupuje uwagi w „Przebiegu miesiąca”; bez niego grupą jest tytuł."""
 
         self.result.warn = True
-        self.checks.append({"state": "warn", "title": title, "detail": detail})
+        check: dict[str, Any] = {"state": "warn", "title": title, "detail": detail}
+        if key:
+            check["rule"] = key
+        self.checks.append(check)
 
     def fail(self, key: str, title: str, detail: Optional[str] = None) -> None:
         level = self.rules[key]["level"]
@@ -358,11 +373,13 @@ def evaluate(
 
     if parsed.travel_total and parsed.travel_total > 0:
         travel = _Group(result, rules, "Delegacje")
-        travel.info(
-            f"Koszty delegacji w RCP: {_fmt(parsed.travel_total)} zł brutto",
+        # Uwaga z tytułem: sama informacja dawała „Z uwagami” bez powodu na ekranach.
+        travel.warn(
+            "Delegacja do sprawdzenia",
+            f"Koszty delegacji w RCP: {_fmt(parsed.travel_total)} zł brutto. "
             "Faktury kosztów i zasadność wyjazdu sprawdza człowiek.",
+            key=TRAVEL_IN_RCP,
         )
-        result.warn = True
         travel.close()
     return result
 
