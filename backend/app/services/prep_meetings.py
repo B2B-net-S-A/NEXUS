@@ -1,7 +1,9 @@
-"""Prep 1 / Prep 2 z kandydatem przez Teams — zakładanie z NEXUSA (0370).
+"""Prepy z kandydatem przez Teams — zakładanie z NEXUSA (0370).
 
 Przed każdą rozmową u klienta są dwa prepy (decyzja Artura 23.09.2026):
-Prep 1 prowadzi Delivery Lead rekrutacji, Prep 2 — rekruter kandydata.
+Prep 1 prowadzi Delivery Lead rekrutacji, Prep 2 — rekruter kandydata. Od
+24.11.2026 (F3, 0773) przed Prepem 1 może być Przygotowanie rekrutera
+(``prep_no`` 0, opcjonalne na start) — prowadzi je rekruter, jak Prep 2.
 NEXUS podpowiada organizatora; spotkanie powstaje w JEGO kalendarzu przez
 aplikację (``teams_prep_graph``), z linkiem Teams, zaproszeniem kandydata,
 akapitem o nagrywaniu i — gdy się da — automatyczną transkrypcją.
@@ -29,7 +31,7 @@ from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.prep_meeting import PrepMeeting
 from app.models.user import User, UserRole
-from app.services import interview_slots, prep_invitation, prep_role
+from app.services import interview_slots, prep_invitation, prep_labels, prep_role
 from app.services.m365 import teams_prep_auth, teams_prep_graph
 from app.services.m365.app_graph_client import AppOnlyTokenUnavailable
 from app.services.m365.calendar import (
@@ -104,7 +106,8 @@ async def suggest_organizer_ids(
 async def suggest_organizer_id(
     db: AsyncSession, *, job: Job, candidate_id: int, prep_no: int
 ) -> Optional[int]:
-    """Prep 1 → Delivery Lead rekrutacji, Prep 2 → rekruter kandydata.
+    """Prep 1 → Delivery Lead rekrutacji; Przygotowanie i Prep 2 → rekruter
+    kandydata.
 
     Brak DL-a przy Prepie 1 → rekruter (ktoś musi go poprowadzić); rekruter
     kandydata liczy ``interview_slots.default_recruiter_id`` (ta sama reguła
@@ -237,25 +240,24 @@ async def already_scheduled_message(db: AsyncSession, prep: PrepMeeting) -> str:
             CalendarEvent.id == prep.calendar_event_id
         )
     )
+    head = (
+        f"{prep_labels.name(prep.prep_no)} jest już "
+        f"{prep_labels.agree(prep.prep_no, 'zaplanowany')}"
+    )
+    # Zaimek w rodzaju prepu: „odwołaj go” (Prep), „odwołaj je” (Przygotowanie).
+    it = "je" if prep.prep_no == prep_labels.PREPARATION else "go"
     if start is None:
-        return (
-            f"Prep {prep.prep_no} jest już zaplanowany. Zmień jego termin "
-            "albo go odwołaj."
-        )
+        return f"{head}. Zmień jego termin albo {it} odwołaj."
     when = prep_invitation.when_label(start)
     interview = await upcoming_interview_start(
         db, candidate_id=prep.candidate_id, job_id=prep.job_id
     )
     if interview is not None and _utc(start) > interview:
         return (
-            f"Prep {prep.prep_no} jest już zaplanowany na {when}, czyli po "
-            "rozmowie u klienta. Przełóż go przed rozmowę albo odwołaj, zamiast "
-            "zakładać drugi."
+            f"{head} na {when}, czyli po rozmowie u klienta. Przełóż {it} przed "
+            "rozmowę albo odwołaj, zamiast zakładać drugie spotkanie."
         )
-    return (
-        f"Prep {prep.prep_no} jest już zaplanowany na {when}. Zmień jego termin "
-        "albo go odwołaj."
-    )
+    return f"{head} na {when}. Zmień jego termin albo {it} odwołaj."
 
 
 async def prep_for_event(db: AsyncSession, event_id: int) -> Optional[PrepMeeting]:
@@ -347,7 +349,22 @@ async def create_prep(
             detail="Kandydat nie ma adresu e-mail — nie da się wysłać zaproszenia.",
         )
 
-    title = prep_invitation.title(prep_no, candidate_name(candidate), client_name)
+    # Numer spotkania dla kandydata (F3): z Przygotowaniem w rundzie Prep 1 jest
+    # „(spotkanie 2)”, a Prep 2 „(spotkanie 3)”; bez niego jak dotąd.
+    number = prep_invitation.meeting_number(
+        prep_no,
+        has_preparation=prep_no != prep_labels.PREPARATION
+        and await active_prep(
+            db,
+            candidate_id=candidate.id,
+            job_id=job.id,
+            prep_no=prep_labels.PREPARATION,
+        )
+        is not None,
+    )
+    title = prep_invitation.title(
+        prep_no, candidate_name(candidate), client_name, number=number
+    )
     # Termin rozmowy trafia do treści tylko wtedy, gdy prep jest PRZED nią —
     # zaproszenie na prep po rozmowie nie może jej zapowiadać.
     if interview_start is not None:
@@ -374,6 +391,7 @@ async def create_prep(
         note=note,
         organizer_name=organizer.name or "",
         role_hint=prep_invitation.ROLE_HINT if role_block else None,
+        number=number,
     )
     description = prep_invitation.as_plain(invitation, role_block)
     attendees = attendee_emails(
@@ -525,11 +543,14 @@ def reschedule_fetch(prep: PrepMeeting, end: datetime) -> None:
 async def suggestion_summary(
     db: AsyncSession, *, job: Job, candidate_id: int
 ) -> dict[int, Optional[int]]:
-    """Podpowiedzi organizatora dla obu prepów (okno „Zaplanuj prep”)."""
+    """Podpowiedzi organizatora dla prepów (okno „Zaplanuj prep”).
+
+    Przygotowanie (F3) prowadzi rekruter kandydata, jak Prep 2.
+    """
     prep1, prep2 = (
         await suggest_organizer_ids(db, {job.id: job}, [(candidate_id, job.id)])
     ).get((candidate_id, job.id), (None, None))
-    return {1: prep1, 2: prep2}
+    return {prep_labels.PREPARATION: prep2, 1: prep1, 2: prep2}
 
 
 # ── Zmiana i odwołanie prepu przez ludzi pary (decyzje D1–D4, 17.10.2026) ────
@@ -729,7 +750,8 @@ async def replace_organizer(
         await teams_prep_graph.cancel_event(
             prep.organizer_upn,
             event.external_id,
-            f"Prep poprowadzi {who}. Nowe zaproszenie przyszło w osobnej wiadomości.",
+            # Kandydat nie zna słowa „Prep”, a od F3 to może być Przygotowanie.
+            f"Spotkanie poprowadzi {who}. Nowe zaproszenie przyszło w osobnej wiadomości.",
         )
     except Exception as exc:  # noqa: BLE001 — Graph, token, sieć
         logger.warning(

@@ -220,7 +220,8 @@ class CycleItem(PairInfo):
 
 
 class AgendaEntry(PairInfo):
-    kind: Literal["prep", "prep2", "interview", "call", "tentative"]
+    # „prep0” = Przygotowanie rekrutera (F3, 24.11.2026).
+    kind: Literal["prep0", "prep", "prep2", "interview", "call", "tentative"]
     start: datetime
     end: Optional[datetime] = None
     event_id: Optional[int] = None

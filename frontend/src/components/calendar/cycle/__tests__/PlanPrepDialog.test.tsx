@@ -35,9 +35,17 @@ vi.mock("@/lib/api/prepMeetings", async (importOriginal) => ({
       enabled: true,
       auto_transcribe: true,
       notice: "Spotkanie jest nagrywane.",
-      team: [{ id: 5, name: "Delivery Lead" }],
-      suggested: { "1": { id: 5 }, "2": { id: 5 } },
+      team: [
+        { id: 5, name: "Delivery Lead" },
+        { id: 6, name: "Ola Rekruter" },
+      ],
+      suggested: { "0": { id: 6 }, "1": { id: 5 }, "2": { id: 5 } },
       invitation: {
+        "0": {
+          title: "Przygotowanie do spotkania z Klientem Alior - Piotr Nowak (spotkanie 1)",
+          body: "Dzień dobry,\n\nZapraszam na pierwsze spotkanie przygotowujące do rozmowy z Klientem Alior na stanowisko Senior Java.\n\n{note}\n\nPozdrawiam\n{organizer}",
+          interview_line: null,
+        },
         "1": {
           title: "Przygotowanie do spotkania z Klientem Alior - Piotr Nowak",
           body: "Dzień dobry,\n\nZapraszam na spotkanie przygotowujące do rozmowy z Klientem Alior na stanowisko Senior Java.\n\nTermin rozmowy z Klientem: w poniedziałek\n\n{note}\n\nW razie pytań pozostaję do dyspozycji.\n\nPozdrawiam\n{organizer}",
@@ -71,7 +79,7 @@ const PAIR = {
   client_name: "Alior",
 };
 
-function renderDialog(interview: { start: string; end: string }, prepNo: 1 | 2 = 1) {
+function renderDialog(interview: { start: string; end: string }, prepNo: 0 | 1 | 2 = 1) {
   const client = new QueryClient();
   return render(
     <QueryClientProvider client={client}>
@@ -378,5 +386,62 @@ describe("PlanPrepDialog — kalendarz prowadzącego przed zapisem", () => {
     renderDialog(future());
     expect(screen.getByTestId("prep-organizer-unknown")).toHaveTextContent("Kalendarza osoby Delivery Lead nie widać");
     expect(screen.queryByTestId("prep-busy-strip")).toBeNull();
+  });
+});
+
+describe("PlanPrepDialog — Przygotowanie rekrutera (F3, 24.11.2026)", () => {
+  const interview = () => {
+    const start = new Date();
+    start.setDate(start.getDate() + 5);
+    start.setHours(10, 0, 0, 0);
+    return { start: start.toISOString(), end: new Date(start.getTime() + 3_600_000).toISOString() };
+  };
+
+  it("planuje prep numer 0 z rekruterem jako prowadzącym i zaproszeniem „(spotkanie 1)”", async () => {
+    mocks.role = {};
+    mocks.create.mockReset();
+    mocks.create.mockResolvedValue({ prep_no: 0, transcription_setup: "enabled" });
+    const iv = interview();
+    renderDialog(iv, 0);
+
+    expect(screen.getByRole("heading", { name: "Zaplanuj przygotowanie" })).toBeInTheDocument();
+    expect((screen.getByLabelText(/Prowadzi/) as HTMLSelectElement).value).toBe("6");
+    expect(screen.getByTestId("prep-invitation-preview")).toHaveTextContent(
+      "Piotr Nowak (spotkanie 1)",
+    );
+    // Przygotowanie idzie przed Prepem 1 — termin wcześniejszy niż jego podpowiedź.
+    const input = screen.getByLabelText("Termin") as HTMLInputElement;
+    expect(input.value).toBe(defaultPrepStart(iv, 0, 45));
+    expect(new Date(input.value).getTime()).toBeLessThan(
+      new Date(defaultPrepStart(iv, 1, 45)).getTime(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Zaplanuj w Teams" }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalled());
+    expect(mocks.create.mock.calls[0][0]).toMatchObject({ prep_no: 0, organizer_user_id: 6 });
+  });
+
+  it("bez Teams nie zakłada przygotowania zwykłym zaproszeniem (NEXUS policzyłby je jako Prep 1)", () => {
+    mocks.role = { enabled: false };
+    renderDialog(interview(), 0);
+    expect(screen.getByText(/Przygotowanie planuje się w Teams/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Zaplanuj w Outlook" })).toBeNull();
+    mocks.role = {};
+  });
+
+  it("Prep 1 zaprasza od razu rekrutera kandydata (DL prowadzi razem z rekruterem)", async () => {
+    mocks.role = { suggested: { "0": { id: 6 }, "1": { id: 5 }, "2": { id: 6 } } };
+    mocks.create.mockReset();
+    mocks.create.mockResolvedValue({ prep_no: 1, transcription_setup: "enabled" });
+    renderDialog(interview(), 1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Zaplanuj w Teams" }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalled());
+    expect(mocks.create.mock.calls[0][0]).toMatchObject({
+      prep_no: 1,
+      organizer_user_id: 5,
+      attendee_user_ids: [6],
+    });
+    mocks.role = {};
   });
 });

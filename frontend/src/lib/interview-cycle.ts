@@ -6,13 +6,24 @@
  * kandydata u klienta, żeby zadzwonić ≤30 min po niej. Ekran prowadzi więc
  * jeden cykl per para (kandydat, rekrutacja):
  *
- *   Terminy od klienta (DL) → Wybór terminu (rekruter) → Prep → Prep 2
- *   → Rozmowa u klienta → Telefon po rozmowie → Debrief
+ *   Terminy od klienta (DL) → Wybór terminu (rekruter) → Przygotowanie
+ *   → Prep 1 → Prep 2 → Rozmowa u klienta → Telefon po rozmowie → Debrief
+ *
+ * Przygotowanie (rekruter, `prep_no` 0) doszło 24.11.2026 (F3 planu
+ * „Fundamenty prepa”); nazwy prepów w zdaniach składa `lib/prep-label.ts`.
  *
  * Kroki i listę „Do zrobienia” liczy SERWER (`services/interview_cycle.py`).
  * Tu jest tylko prezentacja: etykiety, grupowanie agendy po dniu i odliczanie.
  * Typy są lustrem `backend/app/api/interview_cycle.py`.
  */
+
+import {
+  prepLead,
+  prepName,
+  prepNameInSentence,
+  prepNoOfStep,
+  type PrepNo,
+} from "@/lib/prep-label";
 
 export type CycleScope = "mine" | "jobs" | "all";
 /**
@@ -25,6 +36,8 @@ export type CycleView = "week" | "board";
 export type StepKey =
   | "slots"
   | "choice"
+  /** Przygotowanie rekrutera przed Prepem 1 (F3, 24.11.2026). */
+  | "prep0"
   | "prep"
   | "prep2"
   | "interview"
@@ -283,7 +296,7 @@ export interface DebriefSummary {
   no_client_questions?: boolean;
 }
 
-export type AgendaKind = "prep" | "prep2" | "interview" | "call" | "tentative";
+export type AgendaKind = "prep0" | "prep" | "prep2" | "interview" | "call" | "tentative";
 
 export interface AgendaEntry extends PairInfo {
   kind: AgendaKind;
@@ -314,6 +327,8 @@ export type TodoKind =
   | "slots_reply"
   /** Wszystkie terminy od klienta minęły — DL dodaje nowe (04.11.2026). */
   | "slots_expired"
+  /** Przygotowanie rekrutera bez terminu (F3, 24.11.2026). */
+  | "prep0_missing"
   | "prep_missing"
   | "prep2_missing"
   | "prep_late"
@@ -485,6 +500,7 @@ export function questionsCountLabel(count: number): string {
 export const STEP_ORDER: StepKey[] = [
   "slots",
   "choice",
+  "prep0",
   "prep",
   "prep2",
   "interview",
@@ -495,8 +511,9 @@ export const STEP_ORDER: StepKey[] = [
 export const STEP_TITLES: Record<StepKey, string> = {
   slots: "Terminy od klienta",
   choice: "Wybór terminu",
-  prep: "Prep",
-  prep2: "Prep 2",
+  prep0: prepName(0),
+  prep: prepName(1),
+  prep2: prepName(2),
   interview: "Rozmowa u klienta",
   call: "Telefon po rozmowie",
   debrief: "Debrief",
@@ -506,6 +523,7 @@ export const STEP_TITLES: Record<StepKey, string> = {
 export const STEP_OWNER: Record<StepKey, string> = {
   slots: "DL wpisuje terminy",
   choice: "rekruter ↔ kandydat",
+  prep0: prepLead(0),
   prep: "prowadzi DL",
   prep2: "prowadzi rekruter",
   interview: "kandydat u klienta",
@@ -514,8 +532,9 @@ export const STEP_OWNER: Record<StepKey, string> = {
 };
 
 export const AGENDA_LABELS: Record<AgendaKind, string> = {
-  prep: "Prep",
-  prep2: "Prep 2",
+  prep0: prepName(0),
+  prep: prepName(1),
+  prep2: prepName(2),
   interview: "Rozmowa u klienta",
   call: "Telefon po rozmowie",
   tentative: "Termin czeka na DL",
@@ -529,6 +548,7 @@ export const TODO_LABELS: Record<TodoKind, string> = {
   slots_confirm: "Potwierdź termin u klienta",
   slots_reply: "Odpisz klientowi",
   slots_expired: "Terminy od klienta minęły",
+  prep0_missing: `${prepName(0)} bez terminu`,
   prep_missing: "Prep 1 bez terminu",
   prep2_missing: "Prep 2 bez terminu",
   prep_late: "Prep po rozmowie u klienta — przełóż",
@@ -546,6 +566,7 @@ export const TODO_ACTIONS: Record<TodoKind, string> = {
   slots_confirm: "Potwierdź",
   slots_reply: "Odpisz",
   slots_expired: "Dodaj nowe",
+  prep0_missing: `Zaplanuj ${prepNameInSentence(0)}`,
   prep_missing: "Zaplanuj Prep 1",
   prep2_missing: "Zaplanuj Prep 2",
   prep_late: "Przełóż",
@@ -777,7 +798,9 @@ export const STEP_GROUPS: ReadonlyArray<{
   steps: StepKey[];
 }> = [
   { key: "arrange", label: "Umawianie · DL i klient", steps: ["slots", "choice"] },
-  { key: "prepare", label: "Przygotowanie", steps: ["prep", "prep2"] },
+  // „Przygotowanie” to od 24.11.2026 pierwszy z trzech prepów — grupa nazywa się
+  // „Prepy”, żeby nagłówek nie powtarzał nazwy kolumny.
+  { key: "prepare", label: "Prepy · rekruter i DL", steps: ["prep0", "prep", "prep2"] },
   { key: "interview", label: "Rozmowa i po rozmowie", steps: ["interview", "call", "debrief"] },
 ];
 
@@ -819,7 +842,7 @@ export type CycleAction =
   | { type: "confirm"; pair: PairInfo; request: SlotRequest }
   /** 0487: odpowiedź do klienta po wyborze rekrutera (rozmowa już w kalendarzu). */
   | { type: "reply"; pair: PairInfo; request: SlotRequest }
-  | { type: "plan_prep"; pair: PairInfo; second: boolean }
+  | { type: "plan_prep"; pair: PairInfo; prepNo: PrepNo }
   | { type: "prep_review"; pair: PairInfo; eventId: number; tab?: "score" | "summary" | "transcript" }
   /** `request`: „Zmień terminy” — okno wczytuje otwarty wniosek i go zastępuje. */
   | { type: "add_slots"; pair: PairInfo | null; request?: SlotRequest | null }
@@ -828,7 +851,7 @@ export type CycleAction =
       type: "reschedule_prep";
       pair: PairInfo;
       eventId: number;
-      prepNo: 1 | 2;
+      prepNo: PrepNo;
       /** Brak = „late” (prep po rozmowie u klienta); „edit”/„cancel” z wiersza prepu (17.10.2026). */
       mode?: "late" | "edit" | "cancel";
     }
@@ -901,10 +924,12 @@ export function actionForTodo(todo: TodoEntry, items: CycleItem[]): CycleAction 
       return item?.slot_request ? { type: "reply", pair, request: item.slot_request } : null;
     case "slots_expired":
       return { type: "add_slots", pair, request: item?.slot_request ?? null };
+    case "prep0_missing":
+      return { type: "plan_prep", pair, prepNo: 0 };
     case "prep_missing":
-      return { type: "plan_prep", pair, second: false };
+      return { type: "plan_prep", pair, prepNo: 1 };
     case "prep2_missing":
-      return { type: "plan_prep", pair, second: true };
+      return { type: "plan_prep", pair, prepNo: 2 };
     case "prep_late": {
       // Prep już jest w kalendarzu organizatora i kandydata — przekładamy go,
       // nie zakładamy drugiego. Do 04.10.2026 przycisk prowadził na widok
@@ -915,7 +940,7 @@ export function actionForTodo(todo: TodoEntry, items: CycleItem[]): CycleAction 
         type: "reschedule_prep",
         pair,
         eventId: todo.event_id,
-        prepNo: step?.key === "prep2" ? 2 : 1,
+        prepNo: prepNoOfStep(step?.key) ?? 1,
       };
     }
     case "prep_weak":
@@ -962,8 +987,10 @@ export function actionForItem(
         return { stepKey: "choice", label: "Potwierdź", action: { type: "confirm", pair, request: req } };
       }
       return null;
+    case "prep0":
     case "prep":
-    case "prep2":
+    case "prep2": {
+      const prepNo = prepNoOfStep(current.key) ?? 1;
       // „Po terminie” z wydarzeniem = prep zaplanowany po rozmowie u klienta.
       if (current.state === "overdue" && current.event_id != null) {
         return {
@@ -973,15 +1000,16 @@ export function actionForItem(
             type: "reschedule_prep",
             pair,
             eventId: current.event_id,
-            prepNo: current.key === "prep2" ? 2 : 1,
+            prepNo,
           },
         };
       }
       return {
         stepKey: current.key,
         label: "Zaplanuj",
-        action: { type: "plan_prep", pair, second: current.key === "prep2" },
+        action: { type: "plan_prep", pair, prepNo },
       };
+    }
     case "call":
     case "debrief":
       return item.interview_event_id != null

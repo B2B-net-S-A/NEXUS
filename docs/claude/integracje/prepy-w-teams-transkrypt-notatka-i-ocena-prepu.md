@@ -3,7 +3,9 @@
 Zastępuje martwą integrację Fireflies (klucz pusty na prodzie, 0 notatek).
 Przed każdą rozmową u klienta są DWA prepy z kandydatem przez Teams: Prep 1
 prowadzi Delivery Lead, Prep 2 — rekruter (telefon po rozmowie zostaje
-zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-setup.md`.
+zwykłym telefonem z ręcznym debriefem). Od 24.11.2026 przed Prepem 1 może być
+Przygotowanie rekrutera (`prep_no` 0, opcjonalne, nagrywane bez oceny do F4) —
+`przygotowanie-trzeci-prep-rekrutera.md`. Konfiguracja M365: `docs/teams-prep-setup.md`.
 
 - **App-only, OSOBNA rejestracja „NEXUS Teams Prep”** (`TEAMS_PREP_CLIENT_ID/SECRET`,
   `services/m365/teams_prep_auth.py`, `AppGraphClient(token_provider=…)`), nie

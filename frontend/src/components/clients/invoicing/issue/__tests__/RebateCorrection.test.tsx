@@ -22,19 +22,19 @@ const REBATE: InvoiceRebate = {
   month: 11,
   threshold_currency: "PLN",
   tiers: [
-    { up_to: "1000.00", rate: "2.5" },
-    { up_to: null, rate: "3" },
+    { up_to: "1000.00", rate: "1.5" },
+    { up_to: null, rate: "3.5" },
   ],
   turnover: "1500.00",
   turnover_before: "1200.00",
-  rate: "3",
+  rate: "3.5",
   next_rate: null,
   to_next: null,
-  due: "40.00",
-  on_invoice: "9.00",
+  due: "32.50",
+  on_invoice: "10.50",
   currency: "PLN",
   corrections: [
-    { month: 10, rate_diff: "0.5", excess: "200.00", amounts: [{ currency: "PLN", amount: "1.00" }], issued: [] },
+    { month: 10, rate_diff: "2", excess: "200.00", amounts: [{ currency: "PLN", amount: "4.00" }], issued: [] },
   ],
   invoices: 3,
   excluded: 0,
@@ -50,13 +50,13 @@ const DRAFT: RebateCorrectionDraft = {
   month: 10,
   currency: "PLN",
   threshold_currency: "PLN",
-  rate_diff: "0.5",
+  rate_diff: "2",
   excess: "200.00",
-  amount: "1.00",
-  lines: [{ name: "Opust", vat_rate: "23", vat_label: "23%", net: "-1.00" }],
-  net: "-1.00",
-  vat: "-0.23",
-  gross: "-1.23",
+  amount: "4.00",
+  lines: [{ name: "Opust", vat_rate: "23", vat_label: "23%", net: "-4.00" }],
+  net: "-4.00",
+  vat: "-0.92",
+  gross: "-4.92",
   invoices: [
     { number: "20/10/2026", issue_date: "2026-10-31", ksef_number: "9876543210-20261031-E40000000001-1A", base: "300.00" },
   ],
@@ -103,7 +103,7 @@ describe("szkic korekty rabatu za miesiąc przekroczenia", () => {
     expect(await within(dialog).findByText("Faktury korygowane: 1")).toBeInTheDocument();
     expect(within(dialog).getByText("20/10/2026")).toBeInTheDocument();
     expect(within(dialog).getByText("Netto, VAT 23%")).toBeInTheDocument();
-    expect(within(dialog).getByText("Korekta brutto").nextSibling).toHaveTextContent(/-1,23\szł/);
+    expect(within(dialog).getByText("Korekta brutto").nextSibling).toHaveTextContent(/-4,92\szł/);
     expect(within(dialog).getByText(/do KSeF idzie przyciskiem na karcie/)).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Pobierz XML (szkic)" })).toBeEnabled();
     expect(post).not.toHaveBeenCalled();

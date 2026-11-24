@@ -23,8 +23,8 @@ trybu „od całości” dla Nordei bez nowej decyzji.
   `client_invoicing.rebate.service_base` (netto + opust: ilość × cena − netto),
   a rok przypisują po okresie usługi (bez okresu — data wystawienia), jak
   `rebate.year_rebate`. Nie kopiuj tej logiki do `client_reports` — raport
-  i nota rabatowa muszą dać ten sam obrót (staging 16.11: 7 268 656,02 EUR
-  w obu; z `net_amount` raport dawał o 2,5% mniej).
+  i nota rabatowa muszą dać ten sam obrót (staging 16.11: ten sam obrót
+  w obu; z `net_amount` raport dawał obrót pomniejszony o rabat z wierszy).
 - **Z obrotu wyłączone są podróże i faktury nieusługowe** (refaktury): pozycje
   ze słowami z `exclude_words` w warunkach rabatu klienta (ustawienia
   wystawiania faktur, `issue_settings.client_rebate`). Bez warunków raport

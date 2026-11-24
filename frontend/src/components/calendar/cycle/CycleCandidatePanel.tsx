@@ -41,6 +41,7 @@ import {
   type DebriefSummary,
   type TodoEntry,
 } from "@/lib/interview-cycle";
+import { prepNoOfStep } from "@/lib/prep-label";
 import { cn } from "@/lib/utils";
 
 import { CandidateContactLine } from "./CandidateContactLine";
@@ -51,6 +52,7 @@ import { Prep2FollowupFromPrep1, PrepStepReview } from "./PrepStepReview";
 import { InterviewRescheduleButton } from "./RescheduleInterview";
 
 const CHIP: Record<AgendaEntry["kind"], string> = {
+  prep0: "bg-primary/10 text-primary",
   prep: "bg-primary/10 text-primary",
   prep2: "bg-primary/10 text-primary",
   interview: "bg-warning-muted text-warning-muted-foreground",
@@ -219,7 +221,7 @@ export function CandidateCycleCard({
         renderExtra={(step) => {
           // Odbyty prep z oceną (także „niedostępna”) — wynik wprost w kroku.
           if (
-            (step.key === "prep" || step.key === "prep2") &&
+            prepNoOfStep(step.key) != null &&
             step.event_id != null &&
             step.quality != null &&
             step.quality !== "pending" &&
@@ -358,7 +360,7 @@ function PairEventRow({
   // „Szczegóły” otwierały wydarzenie kalendarza, którego właścicielem jest
   // prowadzący — rekruter, który prep założył, dostawał 404.
   const nexusPrepAhead =
-    (entry.kind === "prep" || entry.kind === "prep2") &&
+    prepNoOfStep(entry.kind) != null &&
     Boolean(entry.from_nexus) &&
     !past &&
     entry.event_id != null;
@@ -454,10 +456,18 @@ function PairEventRow({
         {entry.from_nexus && past && entry.event_id != null ? (
           <button
             type="button"
-            onClick={() => onAction({ type: "prep_review", pair: entry, eventId: entry.event_id as number })}
+            onClick={() =>
+              onAction({
+                type: "prep_review",
+                pair: entry,
+                eventId: entry.event_id as number,
+                // Przygotowania NEXUS jeszcze nie ocenia (F3) — od razu transkrypt.
+                tab: entry.kind === "prep0" ? "transcript" : undefined,
+              })
+            }
             className="h-8 rounded-md border border-border px-2.5 text-xs font-semibold hover:bg-muted"
           >
-            Ocena prepu
+            {entry.kind === "prep0" ? "Transkrypt" : "Ocena prepu"}
           </button>
         ) : null}
         {nexusPrepAhead ? (
@@ -468,7 +478,7 @@ function PairEventRow({
                 type: "reschedule_prep",
                 pair: entry,
                 eventId: entry.event_id as number,
-                prepNo: entry.kind === "prep2" ? 2 : 1,
+                prepNo: prepNoOfStep(entry.kind) ?? 1,
                 mode,
               })
             }

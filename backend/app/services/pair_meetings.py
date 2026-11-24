@@ -23,6 +23,7 @@ from app.models.notification import NotificationType
 from app.models.prep_meeting import PrepMeeting
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
+from app.services import prep_labels
 from app.services.workforce_availability import operational_owner_ids
 
 _NEXUS_TYPES = (EventType.prep_call, EventType.client_interview)
@@ -115,7 +116,7 @@ async def upcoming(
         elif event.event_type == EventType.prep_call:
             prep = preps.get(event.id)
             kind = "prep"
-            title = f"Prep {prep.prep_no}" if prep is not None else "Prep"
+            title = prep_labels.name(prep.prep_no) if prep is not None else "Prep"
             cancellable = True
         else:
             kind, title, cancellable = "client_interview", "Rozmowa u klienta", True

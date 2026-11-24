@@ -44,6 +44,7 @@ from app.models.job import Job
 from app.models.note import Note, NoteType
 from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
 from app.services import prep_meetings
+from app.services.prep_labels import PREPARATION
 from app.services.prep_review_config import PrepReviewConfig
 from app.services.prep_review_config import current as current_config
 from app.services.prep_review_scoring import (
@@ -54,6 +55,7 @@ from app.services.prep_review_scoring import (
     mark_covered_in_prep1,
     note_content,
     parse_review,
+    preparation_note_content,
     score_review,
 )
 from app.services.prompt_fencing import fence, json_for_prompt
@@ -370,6 +372,23 @@ async def review_prep(db: AsyncSession, prep_meeting_id: int) -> Optional[PrepRe
         return None
     if not transcript.plain_text.strip():
         # Pusty transkrypt nie jest oceną — pętla oznacza go jako „bez nagrania”.
+        return None
+    if prep.prep_no == PREPARATION:
+        # F3 (decyzja Artura 24.11.2026): przygotowanie nagrywamy, ale oceny
+        # jeszcze nie ma (F4 oceni fundamenty i specyfikę klienta). Lista
+        # tematów Prepu 1 dałaby fałszywy wynik, więc zostaje sama notatka.
+        talk_share = (
+            float(transcript.talk_share) if transcript.talk_share is not None else None
+        )
+        await _upsert_note(
+            db,
+            prep,
+            transcript,
+            preparation_note_content(
+                talk_share=talk_share, duration_seconds=transcript.duration_seconds
+            ),
+        )
+        await db.commit()
         return None
 
     config, config_version = await current_config(db)

@@ -27,6 +27,14 @@ import {
   type PairInfo,
   type StepState,
 } from "@/lib/interview-cycle";
+import {
+  PREP_NOS,
+  prepName,
+  prepNameInSentence,
+  prepNoOfStep,
+  prepStepKey,
+  type PrepNo,
+} from "@/lib/prep-label";
 import { scheduledInterviewFromSteps } from "@/lib/prep-timing";
 import { cn } from "@/lib/utils";
 
@@ -43,7 +51,7 @@ const TONE: Record<NonNullable<KanbanItem["interview_badge"]>["tone"], string> =
 };
 
 /**
- * Sekcja „Rozmowa u klienta” w doku osoby: te same 7 kroków co na ekranie
+ * Sekcja „Rozmowa u klienta” w doku osoby: te same 8 kroków co na ekranie
  * „Rozmowy u klienta”, jedna rzecz do zrobienia i przejście do kalendarza.
  * Do 24.09.2026 dok nie wiedział o rozmowie nic — termin, prepy, telefon
  * i debrief były wyłącznie w kalendarzu.
@@ -61,7 +69,7 @@ export function DockInterviewCycle({
   onDebrief: (eventId: number) => void;
   onAddClientSlots?: () => void;
 }) {
-  const [prepNo, setPrepNo] = useState<1 | 2 | null>(null);
+  const [prepNo, setPrepNo] = useState<PrepNo | null>(null);
   // PR 6 (04.10.2026): wybór i potwierdzenie terminu oraz ocena prepu w panelu
   // osoby — do tej pory wyłącznie w kalendarzu „Rozmowy u klienta”.
   const [slotMode, setSlotMode] = useState<"pick" | "confirm" | null>(null);
@@ -81,19 +89,21 @@ export function DockInterviewCycle({
   const [movingInterview, setMovingInterview] = useState<number | null>(null);
   const [editing, setEditing] = useState<{
     eventId: number;
-    prepNo: 1 | 2;
+    prepNo: PrepNo;
     mode: "late" | "edit" | "cancel";
   } | null>(null);
   const steps = badge.steps ?? [];
   const state = (key: string) => steps.find((s) => s.key === key)?.state;
   const interviewDone = state("interview") === "done";
-  const nextPrep: 1 | 2 | null = interviewDone
-    ? null
-    : PREP_TO_PLAN.has(state("prep") ?? "done")
-      ? 1
-      : PREP_TO_PLAN.has(state("prep2") ?? "done")
-        ? 2
-        : null;
+  // Prepy do zaplanowania po kolei. Przygotowanie (rekruter) i Prep 1 (DL)
+  // planują różne osoby, więc oba przyciski stoją obok siebie; Prep 2 dopiero
+  // po Prepie 1, jak dotąd. Serwer bez kroku „prep0” = krok zrobiony.
+  const prepsToPlan: PrepNo[] = interviewDone
+    ? []
+    : PREP_NOS.filter((n) => {
+        if (!PREP_TO_PLAN.has(state(prepStepKey(n)) ?? "done")) return false;
+        return n !== 2 || !PREP_TO_PLAN.has(state("prep") ?? "done");
+      });
   const debriefOpen =
     badge.interview_event_id != null &&
     (badge.kind === "call_due" || OPEN_STEP.has(state("debrief") ?? "done")) &&
@@ -103,14 +113,18 @@ export function DockInterviewCycle({
   // Prep po rozmowie u klienta: krok jest „po terminie”, ale spotkanie już
   // istnieje — przekładamy TO spotkanie (nowy termin), zamiast zakładać drugie.
   const latePrepId = badge.late_prep_event_id ?? null;
-  const latePrepNo: 1 | 2 = state("prep") !== "overdue" && state("prep2") === "overdue" ? 2 : 1;
+  const latePrepNo: PrepNo =
+    prepNoOfStep(steps.find((s) => s.event_id != null && s.event_id === latePrepId)?.key) ??
+    PREP_NOS.find((n) => state(prepStepKey(n)) === "overdue") ??
+    1;
   // Zaplanowane prepy z terminem i akcjami (17.10.2026, D2) — do tej daty
   // zaplanowany prep nie miał w doku żadnej akcji.
-  const scheduledPreps = steps.flatMap((s) =>
-    (s.key === "prep" || s.key === "prep2") && s.state === "scheduled" && s.event_id != null
-      ? [{ eventId: s.event_id, prepNo: (s.key === "prep2" ? 2 : 1) as 1 | 2, at: s.at ?? null }]
-      : [],
-  );
+  const scheduledPreps = steps.flatMap((s) => {
+    const no = prepNoOfStep(s.key);
+    return no != null && s.state === "scheduled" && s.event_id != null
+      ? [{ eventId: s.event_id, prepNo: no, at: s.at ?? null }]
+      : [];
+  });
   const interviewStep = steps.find((s) => s.key === "interview");
   const scheduledInterview =
     interviewStep?.state === "scheduled" && interviewStep.event_id != null ? interviewStep : null;
@@ -165,7 +179,7 @@ export function DockInterviewCycle({
               key={p.eventId}
               className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border px-2 py-1"
             >
-              <span className="font-semibold text-foreground">Prep {p.prepNo}</span>
+              <span className="font-semibold text-foreground">{prepName(p.prepNo)}</span>
               {p.at ? (
                 <span className="tabular-nums text-muted-foreground">
                   {formatDayLabel(p.at)}, {formatTime(p.at)}
@@ -183,7 +197,7 @@ export function DockInterviewCycle({
       ) : null}
       {!readOnly &&
       (debriefOpen ||
-        nextPrep ||
+        prepsToPlan.length > 0 ||
         latePrepId ||
         canPickSlot ||
         canConfirmSlot ||
@@ -227,15 +241,17 @@ export function DockInterviewCycle({
               Przełóż prep (wypada po rozmowie)
             </button>
           ) : null}
-          {nextPrep ? (
+          {prepsToPlan.map((n) => (
             <button
+              key={n}
               type="button"
-              onClick={() => setPrepNo(nextPrep)}
+              data-tour={n === 0 ? "dock.plan-preparation" : undefined}
+              onClick={() => setPrepNo(n)}
               className="h-8 rounded-md border border-border bg-card px-3 text-xs font-semibold hover:bg-muted"
             >
-              Zaplanuj Prep {nextPrep}
+              Zaplanuj {prepNameInSentence(n)}
             </button>
-          ) : null}
+          ))}
           {slotsOpen && onAddClientSlots && (!slotRequest || slotsExpired) ? (
             <button
               type="button"
@@ -296,7 +312,7 @@ export function DockInterviewCycle({
               onClick={() => setReviewPrepId(p.id)}
               className="font-medium text-primary hover:underline"
             >
-              Ocena prepu{p.prep_no ? ` ${p.prep_no}` : ""}
+              {p.prep_no === 0 ? "Ocena przygotowania" : `Ocena prepu${p.prep_no ? ` ${p.prep_no}` : ""}`}
             </button>
           ))}
         </div>
@@ -349,7 +365,7 @@ export function DockInterviewCycle({
           pair={pair}
         />
       ) : null}
-      {prepNo ? (
+      {prepNo != null ? (
         <PlanPrepDialog
           open
           onOpenChange={(o) => !o && setPrepNo(null)}

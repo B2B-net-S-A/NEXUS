@@ -2595,6 +2595,51 @@
     ]
   },
   {
+    "id": "lekcja-przygotowanie-przed-prepem-1",
+    "title": "Przygotowanie z kandydatem przed Prepem 1",
+    "novelties": [
+      "przygotowanie-przed-prepem-1"
+    ],
+    "task": "Kandydat z rekrutacji ćwiczebnej ma już propozycje terminów od klienta. Otwórz jego panel i zaplanuj mu przygotowanie przed Prepem 1.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "click",
+      "anchor": "dock.plan-preparation"
+    },
+    "questions": [
+      {
+        "q": "Kto prowadzi przygotowanie i kiedy?",
+        "options": [
+          "Rekruter, przed Prepem 1 z Delivery Leadem",
+          "Delivery Lead, po Prepie 1",
+          "Rekruter, zamiast Prepu 2"
+        ],
+        "answer": 0,
+        "explain": "Przygotowanie to pierwsza z trzech rozmów: fundamenty i specyfika klienta. Na Prepie 1 DL zajmuje się wymaganiami rekrutacji i tym, czego zabrakło."
+      },
+      {
+        "q": "Jakie zaproszenia dostaje kandydat, gdy umówisz przygotowanie, Prep 1 i Prep 2?",
+        "options": [
+          "Trzy, numerowane po kolei: (spotkanie 1), (spotkanie 2), (spotkanie 3)",
+          "Trzy o tym samym tytule",
+          "Jedno na wszystkie spotkania"
+        ],
+        "answer": 0,
+        "explain": "Numer w tytule mówi kandydatowi, które to spotkanie przygotowujące."
+      },
+      {
+        "q": "Rozmowa u klienta jest jutro, a kandydat nie ma czasu na trzy spotkania. Co z przygotowaniem?",
+        "options": [
+          "W oknie „Umów rozmowę i prepy” wybierasz przy nim „Zaplanuję później”",
+          "Bez przygotowania NEXUS nie przesunie karty dalej",
+          "Zapisujesz powód jak przy rozmowie bez Prepu 2"
+        ],
+        "answer": 0,
+        "explain": "Na razie przygotowanie jest opcjonalne: NEXUS nie przypomina o nim i niczego nie blokuje."
+      }
+    ]
+  },
+  {
     "id": "lekcja-po-terminie",
     "title": "Rekrutacja po terminie: „Po terminie” zamiast „Szukamy”",
     "novelties": [

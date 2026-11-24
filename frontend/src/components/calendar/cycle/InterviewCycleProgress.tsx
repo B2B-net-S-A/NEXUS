@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const PHASE: Record<StepKey, { solid: string; soft: string }> = {
   slots: { solid: "bg-info", soft: "bg-info/40" },
   choice: { solid: "bg-info", soft: "bg-info/40" },
+  prep0: { solid: "bg-primary", soft: "bg-primary/40" },
   prep: { solid: "bg-primary", soft: "bg-primary/40" },
   prep2: { solid: "bg-primary", soft: "bg-primary/40" },
   interview: { solid: "bg-warning", soft: "bg-warning/40" },
@@ -42,7 +43,8 @@ function barClass(key: StepKey, state: StepState): string {
 }
 
 /**
- * Siedem kresek cyklu rozmowy u klienta (terminy → debrief) — na karcie
+ * Osiem kresek cyklu rozmowy u klienta (terminy → debrief; od 24.11.2026 z
+ * Przygotowaniem rekrutera przed Prepem 1) — na karcie
  * Tablicy rekrutacji i w doku osoby. Te same kroki co na ekranie
  * „Rozmowy u klienta”, liczone przez serwer.
  */
@@ -64,9 +66,10 @@ export function InterviewCycleProgress({
   return (
     <div
       role="img"
-      aria-label={`Rozmowa u klienta — ${done} z 7 kroków zrobione. ${summary}`}
+      aria-label={`Rozmowa u klienta — ${done} z ${STEP_ORDER.length} kroków zrobione. ${summary}`}
       title={summary}
-      className={cn("grid grid-cols-7 gap-0.5", className)}
+      // Klasa dosłownie (Tailwind nie widzi klas składanych w locie).
+      className={cn("grid grid-cols-8 gap-0.5", className)}
       data-testid="interview-cycle-progress"
     >
       {STEP_ORDER.map((key) => {
@@ -94,7 +97,8 @@ export function InterviewCycleProgress({
 const SHORT: Record<StepKey, string> = {
   slots: "Terminy",
   choice: "Wybór",
-  prep: "Prep",
+  prep0: "Przyg.",
+  prep: "Prep 1",
   prep2: "Prep 2",
   interview: "Rozmowa",
   call: "Telefon",

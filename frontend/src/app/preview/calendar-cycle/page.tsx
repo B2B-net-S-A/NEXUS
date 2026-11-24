@@ -74,9 +74,27 @@ function prepSuggestionsFor(interviewStart: string): PrepSuggestions {
     start: t(h, m),
     end: new Date(new Date(t(h, m)).getTime() + minutes * 60_000).toISOString(),
   });
+  // Przygotowanie (F3): dwa dni robocze przed rozmową, przed Prepem 1.
+  const twoBefore = new Date(dayBefore);
+  twoBefore.setDate(twoBefore.getDate() - 1);
+  while (twoBefore.getDay() === 0 || twoBefore.getDay() === 6) twoBefore.setDate(twoBefore.getDate() - 1);
+  const early = (h: number, minutes: number) => {
+    const d = new Date(twoBefore);
+    d.setHours(h, 0, 0, 0);
+    return { start: d.toISOString(), end: new Date(d.getTime() + minutes * 60_000).toISOString() };
+  };
   return {
     enabled: true,
     preps: [
+      {
+        prep_no: 0,
+        organizer: { id: 7, name: "Ola Rekruter" },
+        calendar: "ok",
+        scheduled_start: null,
+        minutes: 45,
+        options: [early(10, 45), early(11, 45), early(13, 45)],
+        busy: [span(9, 0, 120), span(13, 0, 60)],
+      },
       {
         prep_no: 1,
         organizer: { id: 8, name: "Kasia DL" },
@@ -158,7 +176,7 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
     {
       ...pairs.piotr,
       steps: [
-        st("slots", "done"), st("choice", "done", at(now, -60 * 72)), st("prep", "done", at(now, -60 * 50)),
+        st("slots", "done"), st("choice", "done", at(now, -60 * 72)), st("prep0", "skipped"), st("prep", "done", at(now, -60 * 50)),
         st("prep2", "skipped"), st("interview", "done", at(now, -72)), st("call", "current", at(now, 18), "teraz"),
         st("debrief", "todo"),
       ],
@@ -168,6 +186,7 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
       ...pairs.anna,
       steps: [
         st("slots", "done"), st("choice", "done", at(now, 60 * 23)),
+        st("prep0", "done", at(now, -60 * 94), "nagrane · oceny przygotowania jeszcze nie ma", { event_id: 610 }),
         st("prep", "done", at(now, -60 * 70), "ocena: dobry", { event_id: 603, quality: "good" }),
         st("prep2", "scheduled", at(now, 150)), st("interview", "scheduled", at(now, 60 * 23)), st("call", "todo", at(now, 60 * 24)),
         st("debrief", "todo"),
@@ -177,7 +196,7 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
     {
       ...pairs.tomasz,
       steps: [
-        st("slots", "done"), st("choice", "current", at(now, 60 * 20), "3 terminy do wyboru"), st("prep", "todo"),
+        st("slots", "done"), st("choice", "current", at(now, 60 * 20), "3 terminy do wyboru"), st("prep0", "todo"), st("prep", "todo"),
         st("prep2", "todo"), st("interview", "todo"), st("call", "todo"), st("debrief", "todo"),
       ],
       current_step: "choice", latest_stage: "client_interview",
@@ -189,6 +208,7 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
       ...pairs.michal,
       steps: [
         st("slots", "done"), st("choice", "done", at(now, 60 * 70)),
+        st("prep0", "skipped", null, "Prep 1 bez przygotowania"),
         st("prep", "done", at(now, -180), "ocena: słaby", { event_id: 601, quality: "weak" }),
         st("prep2", "current"), st("interview", "scheduled", at(now, 60 * 70)), st("call", "todo"), st("debrief", "todo"),
       ],
@@ -199,7 +219,7 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
       ...pairs.zuzanna,
       steps: [
         st("slots", "done"), st("choice", "done", at(now, 60 * 20)),
-        st("prep", "done", at(now, -120), "ocena: dobry", { event_id: 608, quality: "good" }),
+        st("prep0", "todo"), st("prep", "done", at(now, -120), "ocena: dobry", { event_id: 608, quality: "good" }),
         st("prep2", "current"), st("interview", "scheduled", at(now, 60 * 20), null, { event_id: 508 }),
         st("call", "todo"), st("debrief", "todo"),
       ],
@@ -211,7 +231,7 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
       ...pairs.filip,
       steps: [
         st("slots", "done"), st("choice", "done", at(now, 60 * 22)),
-        st("prep", "done", at(now, -60 * 5), "ocena: OK", { event_id: 609, quality: "ok" }),
+        st("prep0", "todo"), st("prep", "done", at(now, -60 * 5), "ocena: OK", { event_id: 609, quality: "ok" }),
         st("prep2", "skipped", null, "kandydat nie miał wolnego terminu · Ola Rekruter"),
         st("interview", "scheduled", at(now, 60 * 22), null, { event_id: 509 }),
         st("call", "todo"), st("debrief", "todo"),
@@ -227,7 +247,7 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
     {
       ...pairs.ewa,
       steps: [
-        st("slots", "done"), st("choice", "done"), st("prep", "done"), st("prep2", "skipped"),
+        st("slots", "done"), st("choice", "done"), st("prep0", "todo"), st("prep", "done"), st("prep2", "skipped"),
         st("interview", "done", at(now, -60 * 72)), st("call", "overdue", at(now, -60 * 70)), st("debrief", "overdue"),
       ],
       current_step: "call", latest_stage: "client_interview", slot_request: null, interview_event_id: 505, debrief: null,
@@ -236,7 +256,7 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
       ...pairs.karol,
       steps: [
         st("slots", "done"), st("choice", "done", at(now, 60 * 72)),
-        st("prep", "overdue", at(now, 60 * 120), "zaplanowany po rozmowie u klienta — przełóż", { event_id: 604 }),
+        st("prep0", "todo"), st("prep", "overdue", at(now, 60 * 120), "zaplanowany po rozmowie u klienta — przełóż", { event_id: 604 }),
         st("prep2", "todo"), st("interview", "scheduled", at(now, 60 * 72), null, { event_id: 506 }),
         st("call", "todo"), st("debrief", "todo"),
       ],
@@ -245,7 +265,7 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
     {
       ...pairs.bartek,
       steps: [
-        st("slots", "done"), st("choice", "done"), st("prep", "skipped"), st("prep2", "skipped"),
+        st("slots", "done"), st("choice", "done"), st("prep0", "todo"), st("prep", "skipped"), st("prep2", "skipped"),
         st("interview", "done", at(now, -60 * 5)), st("call", "done", at(now, -60 * 4)), st("debrief", "done"),
       ],
       current_step: null, latest_stage: "client_interview", slot_request: null, interview_event_id: 507,
@@ -260,7 +280,7 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
     items.push({
       ...pairs.oliwia,
       steps: [
-        st("slots", "current"), st("choice", "todo"), st("prep", "todo"), st("prep2", "todo"),
+        st("slots", "current"), st("choice", "todo"), st("prep0", "todo"), st("prep", "todo"), st("prep2", "todo"),
         st("interview", "todo"), st("call", "todo"), st("debrief", "todo"),
       ],
       current_step: "slots", latest_stage: "client_interview", slot_request: null, interview_event_id: null, debrief: null,
@@ -430,7 +450,7 @@ function Harness() {
     for (const p of Object.values(pairs)) {
       qc.setQueryData(prepOptionsQueryKey(p.candidate_id, p.job_id), {
         enabled: true, auto_transcribe: true,
-        suggested: { "1": { id: 8, name: "Kasia DL" }, "2": { id: 7, name: "Ola Rekruter" } },
+        suggested: { "0": { id: 7, name: "Ola Rekruter" }, "1": { id: 8, name: "Kasia DL" }, "2": { id: 7, name: "Ola Rekruter" } },
         team: [{ id: 8, name: "Kasia DL" }, { id: 7, name: "Ola Rekruter" }],
         people: [
           { id: 8, name: "Kasia DL", role: "delivery_lead", in_team: true },
@@ -440,11 +460,12 @@ function Harness() {
         ],
         notice: "Ta rozmowa jest nagrywana i transkrybowana w Microsoft Teams wyłącznie po to, żeby dobrze przygotować Cię do rozmowy z klientem. Administratorem danych jest B2B.NET S.A.",
         invitation: Object.fromEntries(
-          [1, 2].map((n) => [
+          [0, 1, 2].map((n) => [
             String(n),
             {
-              title: `Przygotowanie do spotkania z Klientem ${p.client_name} - ${p.candidate_name}${n === 2 ? " (spotkanie 2)" : ""}`,
-              body: `Dzień dobry,\n\nZapraszam na ${n === 2 ? "drugie " : ""}spotkanie przygotowujące do rozmowy z Klientem ${p.client_name} na stanowisko ${p.job_title}.\n\n{note}\n\nW razie pytań pozostaję do dyspozycji.\n\nPozdrawiam\n{organizer}`,
+              // Bez zaplanowanego Przygotowania: Prep 1 bez numeru, Prep 2 „(spotkanie 2)”.
+              title: `Przygotowanie do spotkania z Klientem ${p.client_name} - ${p.candidate_name}${n === 0 ? " (spotkanie 1)" : n === 2 ? " (spotkanie 2)" : ""}`,
+              body: `Dzień dobry,\n\nZapraszam na ${n === 0 ? "pierwsze " : n === 2 ? "drugie " : ""}spotkanie przygotowujące do rozmowy z Klientem ${p.client_name} na stanowisko ${p.job_title}.\n\n{note}\n\nW razie pytań pozostaję do dyspozycji.\n\nPozdrawiam\n{organizer}`,
               interview_line: null,
             },
           ]),

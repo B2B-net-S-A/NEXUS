@@ -1,18 +1,20 @@
 # Rabat od obrotu rocznego klienta: rabat % na każdym wierszu, wyższa stawka od nadwyżki (16.11.2026)
 
-Zgłoszenie Artura 16.11.2026: faktury Nordei nie uwzględniają rabatu 2,5%, a po przekroczeniu progu
-obrotu stawka rośnie do 3%. Umowa ramowa (Appendix 6, aneks od 01.03.2026) liczy rabat od rocznego
-obrotu za usługi (1.01–31.12) z progiem w EUR. Kwot, progów i stawek nie ma w repo, bo repo jest
-publiczne. Wpisują je Finanse w ustawieniach.
+Zgłoszenie Artura 16.11.2026: faktury Nordei nie uwzględniają rabatu z umowy ramowej, a po
+przekroczeniu progu obrotu stawka rośnie. Umowa ramowa (Appendix 6, aneks od 01.03.2026) liczy rabat
+od rocznego obrotu za usługi (1.01–31.12) z progiem w EUR. Kwot, progów i stawek nie ma w repo, bo
+repo jest publiczne. Wpisują je Finanse w ustawieniach. Przykłady w tym pliku i w testach mają ceny,
+progi i stawki fikcyjne.
 
 ## Decyzje Artura (16.11.2026)
 
 Umowa przewiduje roczną notę do 31.01. Artur ustalił inną praktykę i ona obowiązuje. Pierwsza odpowiedź
-z tego dnia („korekta roczna”, „3% od całego obrotu”) została zastąpiona drugą, opisaną niżej.
+z tego dnia („korekta roczna”, „wyższa stawka od całego obrotu”) została zastąpiona drugą, opisaną
+niżej.
 
 - **Rabat to procent na każdym wierszu usługi, tak jak Nordea dostaje go z eBI24.** Wiersz ma cenę
-  przed rabatem, rabat % i wartość po rabacie. Przykład: 157,00 − 2,5% = 153,08, a 80 × 153,08 =
-  12 246,40. W FA(3): `P_9A` to cena przed rabatem, `P_10` to kwota opustu na wierszu, `P_11` to wartość
+  przed rabatem, rabat % i wartość po rabacie. Przykład: 137,00 − 1,5% = 134,95, a 80 × 134,95 =
+  10 796,00. W FA(3): `P_9A` to cena przed rabatem, `P_10` to kwota opustu na wierszu, `P_11` to wartość
   po rabacie. PDF pokazuje rabat i cenę po rabacie w kolumnie ceny.
   Pierwsza wersja z PR #3498 dawała osobną ujemną pozycję. Zastąpiło ją ustalenie Artura z 16.11
   na przykładzie faktury z eBI24.
@@ -21,9 +23,9 @@ z tego dnia („korekta roczna”, „3% od całego obrotu”) została zastąpi
   jest narastający obrót roku do końca miesiąca M−1. Faktury za miesiąc, w którym obrót przekroczył
   próg, idą jeszcze po niższej stawce. Wyższa stawka obowiązuje od następnego miesiąca.
 - **Wyższa stawka dotyczy tylko nadwyżki ponad próg**, nie całego obrotu.
-- **Za miesiąc przekroczenia trzeba wystawić korektę.** Wynosi ona różnicę stawek (np. 0,5%) od części
-  obrotu tego miesiąca ponad próg. NEXUS pokazuje jej kwotę na karcie faktury. Do KSeF wysyłamy ją
-  tylko po „tak” Artura.
+- **Za miesiąc przekroczenia trzeba wystawić korektę.** Wynosi ona różnicę stawek (np. 3,5% − 1,5% = 2%)
+  od części obrotu tego miesiąca ponad próg. NEXUS pokazuje jej kwotę na karcie faktury. Do KSeF
+  wysyłamy ją tylko po „tak” Artura.
 - **Próg w EUR liczymy po kursie NBP z każdej faktury.** Bierzemy średni kurs z ostatniej tabeli przed
   datą sprzedaży. Gdy kursu brak, faktura wypada z obrotu progu i karta ostrzega. Kursu 1:1 nie
   stosujemy nigdy.
@@ -42,7 +44,7 @@ z tego dnia („korekta roczna”, „3% od całego obrotu”) została zastąpi
 - Obrót to faktury sprzedaży z KSeF (`client_sales_invoices`) za miesiące roku. Miesiąc wyznacza okres
   usługi, a gdy go brak, data wystawienia. Liczy się netto faktury plus opust z każdego wiersza
   (ilość × cena − netto), bez pozycji wyłączonych (`rebate.service_base`). Korekty wchodzą jako różnica
-  stanów. W KSeF od 4.08.2026 rabat 2,5% na wierszach ma 1 114 z 1 128 faktur Nordei. Pozostałe 14 jest
+  stanów. W KSeF od 4.08.2026 rabat ramowy na wierszach ma 1 114 z 1 128 faktur Nordei. Pozostałe 14 jest
   poprawnych bez rabatu (sprawdzone z archiwum eBI24, decyzja Artura 16.11.2026: bez korekt):
   - 9 to w całości refaktury podróży (hotel, samolot, PKP, diety, transport, opłaty); wiersze „szt.” to
     bilety i opłaty z tych faktur;
@@ -66,7 +68,7 @@ z tego dnia („korekta roczna”, „3% od całego obrotu”) została zastąpi
   Gdy klient ma rabat, a żaden wiersz go nie ma, karta pokazuje ostrzeżenie.
 - Porównanie faktury z zamówieniem („Do faktury”, `ledger.check`, dopasowanie po kwocie) idzie po
   `Chain.order_net`, czyli netto przed rabatem % na wierszach (`rebate.pre_discount`). Zamówienie ma cenę
-  przed rabatem, więc bez tego każdy wiersz klienta z rabatem pokazywałby różnicę 2,5%. Do zapłaty
+  przed rabatem, więc bez tego każdy wiersz klienta z rabatem pokazywałby różnicę równą rabatowi. Do zapłaty
   i sumy liczą się z rabatem. U pozostałych klientów netto wiersza równa się ilości × cenie (576 wierszy,
   22 klientów, odczyt 16.11), więc ich to nie zmienia.
 - Kod: `services/client_invoicing/rebate.py`, `issue.apply_rebate`, `issue_settings.client_rebate`.

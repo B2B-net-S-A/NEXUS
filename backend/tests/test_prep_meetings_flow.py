@@ -1429,21 +1429,32 @@ async def test_suggestions_use_the_length_chosen_for_each_prep(
     app_client: AsyncClient, graph: FakeGraph
 ):
     """Czas prepu wybrany w „Umów rozmowę i prepy” (05.11.2026): godziny
-    liczą się dla tej długości, osobno dla Prepu 1 i Prepu 2."""
+    liczą się dla tej długości, osobno dla każdego prepu (od 24.11.2026 także
+    dla Przygotowania)."""
     rec_id, rec_h = await _user(UserRole.recruiter, "Ola R")
     dl_id, _ = await _user(UserRole.delivery_lead, "Kasia L")
     job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
 
     default = await _suggestions(app_client, rec_h, job_id, cand_id)
     assert default.status_code == 200, default.text
-    assert [p["minutes"] for p in default.json()["preps"]] == [45, 45]
+    assert [(p["prep_no"], p["minutes"]) for p in default.json()["preps"]] == [
+        (0, 45),
+        (1, 45),
+        (2, 45),
+    ]
 
     chosen = await _suggestions(
-        app_client, rec_h, job_id, cand_id, prep1_minutes=90, prep2_minutes=30
+        app_client,
+        rec_h,
+        job_id,
+        cand_id,
+        prep0_minutes=60,
+        prep1_minutes=90,
+        prep2_minutes=30,
     )
     assert chosen.status_code == 200, chosen.text
-    prep1, prep2 = chosen.json()["preps"]
-    assert (prep1["minutes"], prep2["minutes"]) == (90, 30)
+    prep0, prep1, prep2 = chosen.json()["preps"]
+    assert (prep0["minutes"], prep1["minutes"], prep2["minutes"]) == (60, 90, 30)
 
     def lengths(prep: dict) -> set[int]:
         return {
@@ -1457,11 +1468,12 @@ async def test_suggestions_use_the_length_chosen_for_each_prep(
             for o in prep["options"]
         }
 
+    assert lengths(prep0) == {60}
     assert lengths(prep1) == {90}
     assert lengths(prep2) == {30}
 
 
-@pytest.mark.parametrize("field", ["prep1_minutes", "prep2_minutes"])
+@pytest.mark.parametrize("field", ["prep0_minutes", "prep1_minutes", "prep2_minutes"])
 async def test_suggestions_refuse_a_length_outside_the_list(
     app_client: AsyncClient, graph: FakeGraph, field: str
 ):
@@ -1496,7 +1508,7 @@ async def test_suggestions_report_the_real_length_of_a_scheduled_prep(
 
     response = await _suggestions(app_client, rec_h, job_id, cand_id, prep1_minutes=90)
     assert response.status_code == 200, response.text
-    prep1 = response.json()["preps"][0]
+    prep1 = next(p for p in response.json()["preps"] if p["prep_no"] == 1)
     assert prep1["scheduled_start"] is not None
     assert prep1["minutes"] == 30
     assert prep1["options"] == []
@@ -1581,3 +1593,119 @@ async def test_organizer_busy_refuses_someone_who_cannot_lead(
 
     assert response.status_code == 422, response.text
     assert response.json()["detail"] == "Prep prowadzi ktoś z zespołu tej rekrutacji."
+
+
+# ── F3 (24.11.2026): Przygotowanie rekrutera jako prep 0 ─────────────────────
+
+
+async def test_preparation_is_prep_zero_led_by_the_recruiter_and_numbers_meetings(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Przygotowanie prowadzi rekruter przed Prepem 1. Kandydat dostaje spotkania
+    numerowane po kolei, a Przygotowanie nie zajmuje miejsca Prepu 1."""
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Rekruter")
+    dl_id, _dl_h = await _user(UserRole.delivery_lead, "Kasia Lead")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    options_url = (
+        f"/api/interview-cycle/preps/options?candidate_id={cand_id}&job_id={job_id}"
+    )
+    await _interview(cand_id, job_id, dl_id, hours=72)
+
+    opts = (await app_client.get(options_url, headers=rec_h)).json()
+    assert opts["suggested"]["0"]["id"] == rec_id
+    assert opts["invitation"]["0"]["title"].endswith("(spotkanie 1)")
+    assert "pierwsze spotkanie przygotowujące" in opts["invitation"]["0"]["body"]
+    # Bez Przygotowania w rundzie tytuły jak dotąd.
+    assert not opts["invitation"]["1"]["title"].endswith(")")
+
+    resp = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=0,
+        organizer_user_id=rec_id,
+        start=_at(20),
+        end=_at(20.75),
+        attendee_user_ids=[],
+        client_request_id="req-prep0",
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["prep_no"] == 0
+    upn, payload = graph.created[-1]
+    assert upn.startswith("prep-recruiter-")
+    assert payload["subject"].endswith(" (spotkanie 1)")
+    assert "pierwsze spotkanie przygotowujące" in payload["body"]["content"]
+    # Nagrywamy jak prepy (decyzja Artura 24.11.2026).
+    assert "nagrywana i transkrybowana" in payload["body"]["content"]
+
+    again = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=0,
+        organizer_user_id=rec_id,
+        start=_at(22),
+        end=_at(22.75),
+        attendee_user_ids=[],
+        client_request_id="req-prep0-again",
+    )
+    assert again.status_code == 409, again.text
+    assert again.json()["detail"]["message"].startswith(
+        "Przygotowanie jest już zaplanowane na "
+    )
+
+    prep1 = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=_at(26),
+        end=_at(26.75),
+        attendee_user_ids=[rec_id],
+        client_request_id="req-prep1",
+    )
+    assert prep1.status_code == 201, prep1.text
+    _upn, payload1 = graph.created[-1]
+    assert payload1["subject"].endswith(" (spotkanie 2)")
+    assert "drugie spotkanie przygotowujące" in payload1["body"]["content"]
+    opts = (await app_client.get(options_url, headers=rec_h)).json()
+    assert opts["invitation"]["2"]["title"].endswith("(spotkanie 3)")
+
+    overview = await app_client.get("/api/interview-cycle?scope=jobs", headers=rec_h)
+    assert overview.status_code == 200, overview.text
+    data = overview.json()
+    item = next(i for i in data["items"] if i["candidate_id"] == cand_id)
+    steps = {s["key"]: s for s in item["steps"]}
+    assert steps["prep0"]["state"] == "scheduled"
+    assert steps["prep"]["state"] == "scheduled"
+    assert steps["prep2"]["state"] == "current"
+    kinds = {t["kind"] for t in data["todos"] if t["candidate_id"] == cand_id}
+    assert "prep2_missing" in kinds
+    assert not any(k.startswith("prep0") for k in kinds)
+    agenda = [a["kind"] for a in data["agenda"] if a["candidate_id"] == cand_id]
+    assert {"prep0", "prep"} <= set(agenda)
+
+
+async def test_unplanned_preparation_gives_no_todo_and_prep1_stays_current(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Opcjonalne na start (decyzja Artura 24.11.2026): bez zadania i bez kolumny."""
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Rekruter")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia Lead")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    await _interview(cand_id, job_id, dl_id, hours=72)
+
+    overview = await app_client.get("/api/interview-cycle?scope=jobs", headers=rec_h)
+    assert overview.status_code == 200, overview.text
+    data = overview.json()
+    item = next(i for i in data["items"] if i["candidate_id"] == cand_id)
+    steps = {s["key"]: s for s in item["steps"]}
+    assert steps["prep0"]["state"] == "todo"
+    assert item["current_step"] == "prep"
+    kinds = {t["kind"] for t in data["todos"] if t["candidate_id"] == cand_id}
+    assert "prep_missing" in kinds
+    assert not any(k.startswith("prep0") for k in kinds)

@@ -301,7 +301,7 @@ def _payload_definition(**kwargs):
         family="management",
         generator_key="annual_spend",
         params={
-            "tiers": [{"up_to": 1000.0, "rate": 2.5}],
+            "tiers": [{"up_to": 1000.0, "rate": 1.5}],
             "currency": "EUR",
             "marginal": True,
         },
@@ -333,7 +333,7 @@ def test_amount_params_hidden_without_amounts_view():
     assert "tiers" not in hidden["params"]
     assert hidden["params"] == {"currency": "EUR", "marginal": True}
     shown = catalog.definition_payload(definition, can_view_amounts=True, **common)
-    assert shown["params"]["tiers"] == [{"up_to": 1000.0, "rate": 2.5}]
+    assert shown["params"]["tiers"] == [{"up_to": 1000.0, "rate": 1.5}]
 
 
 def test_next_due_ignores_periods_after_valid_to():

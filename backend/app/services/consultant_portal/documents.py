@@ -6,7 +6,8 @@ z drugiego kanału to ten sam wiersz, także gdy czytnik źle zgadł okres. Inny
 ten sam okres dokłada się do tej samej karty.
 
 Typ pliku rozpoznaje ``documents_store.check`` po treści; nazwa od człowieka nie trafia
-na dysk. Plik czyta wyłącznie właściciel kontraktu (po kodzie SMS) i zespół Finansów.
+na dysk. Plik czyta zespół Finansów, a konsultant tylko ten, który wysłał sam
+(``sent_by_consultant``): plik od klienta bywa zbiorczy.
 Raport przyjęty przez Finanse daje konsultantowi sygnał „wystaw fakturę”.
 """
 
@@ -330,6 +331,30 @@ def _doc_row(document: CpDocument) -> dict[str, Any]:
     }
 
 
+def sent_by_consultant(document: CpDocument, email: str) -> bool:
+    """Plik, który konsultant wysłał sam: z portalu albo mailem ze swojego adresu.
+
+    Tylko taki plik konsultant pobiera i widzi z nazwą (decyzja Artura z 24.11.2026).
+    Czytniki rozliczenia@ zapisują ten sam plik zbiorczy klienta (arkusz CA, protokół
+    CeZ albo PFRON, .eml koordynatora, tabela zamówień) przy kontrakcie każdej osoby
+    z dokumentu, a w nim są godziny i nazwiska pozostałych. Lista dozwolona, a nie
+    flaga „zbiorczy”: obejmuje pliki już zapisane i każdy przyszły czytnik."""
+
+    if document.channel == "portal":
+        return True
+    address = identity.normalize_email(email)
+    return bool(address) and identity.normalize_email(document.sender_email) == address
+
+
+def _portal_doc(document: CpDocument, email: str) -> dict[str, Any]:
+    own = sent_by_consultant(document, email)
+    return {
+        **_doc_row(document),
+        "file_name": document.file_name if own else None,
+        "downloadable": own,
+    }
+
+
 def _best(documents: list[CpDocument], kind: str) -> Optional[CpDocument]:
     """Najważniejszy stan okresu: decyzja pozytywna, potem czekający, potem odrzucony."""
 
@@ -353,7 +378,7 @@ INVOICE_LABELS = {
 
 
 def _client_report_row(
-    year: int, month: int, documents: list[CpDocument]
+    year: int, month: int, documents: list[CpDocument], *, email: str
 ) -> dict[str, Any]:
     """Raport przysyła klient, więc konsultant ma tylko krok z fakturą."""
 
@@ -368,7 +393,7 @@ def _client_report_row(
         else "Faktura: czekamy",
         "issue_invoice": action == "send_invoice",
         "action": action,
-        "documents": [_doc_row(row) for row in documents],
+        "documents": [_portal_doc(row, email) for row in documents],
     }
 
 
@@ -378,14 +403,16 @@ def month_row(
     documents: list[CpDocument],
     *,
     mode: Optional[str] = None,
+    email: str = "",
 ) -> dict[str, Any]:
     """Stan miesiąca i następny krok konsultanta (czysta funkcja).
 
     ``mode`` to szablon rozliczenia klienta; bez szablonu raport wysyła konsultant.
+    ``email`` to adres konsultanta: plik z innego adresu jest bez nazwy i linku.
     """
 
     if mode == "client_report":
-        return _client_report_row(year, month, documents)
+        return _client_report_row(year, month, documents, email=email)
 
     report = _best(documents, "report")
     invoice = _best(documents, "invoice")
@@ -413,7 +440,7 @@ def month_row(
         ),
         "issue_invoice": action == "send_invoice",
         "action": action,
-        "documents": [_doc_row(row) for row in documents],
+        "documents": [_portal_doc(row, email) for row in documents],
     }
 
 
@@ -450,7 +477,11 @@ async def overview(
     )
     rows = [
         month_row(
-            year, month, by_month[(year, month)], mode=rule.mode if rule else None
+            year,
+            month,
+            by_month[(year, month)],
+            mode=rule.mode if rule else None,
+            email=context.consultant.email,
         )
         for year, month in sorted(by_month, reverse=True)
     ]
@@ -555,6 +586,8 @@ async def own_document(
         document is None
         or document.contract_id is None
         or document.contract_id not in context.consultant.contract_ids
+        # Plik od klienta albo koordynatora bywa zbiorczy: ten sam ma każda osoba.
+        or not sent_by_consultant(document, context.consultant.email)
     ):
         raise PortalError(NOT_FOUND, status=404, code="not_found")
     return document
