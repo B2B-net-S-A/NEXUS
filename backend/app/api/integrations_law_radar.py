@@ -1,8 +1,9 @@
-"""Pobranie zlecenia Analityka i przyjęcie raportu bota radaru przepisów.
+"""Pobranie zlecenia i przyjęcie raportu botów radaru przepisów.
 
-``GET /api/integrations/law-radar/runs/{run_id}`` zwraca zlecenie Analityka bez
-zużywania tokenu. ``POST`` na ten sam adres przyjmuje raport. Obie metody wymagają
-nagłówka ``X-Run-Token``.
+``GET /api/integrations/law-radar/runs/{run_id}`` (``request_url`` z webhooka v2)
+zwraca zlecenie Zbieracza albo Analityka (``task``, ``report_format``, ``request``,
+``callback_url``) bez zużywania tokenu. ``POST`` na ten sam adres przyjmuje raport.
+Obie metody wymagają nagłówka ``X-Run-Token``; bieg v1 nie ma GET (401).
 Poświadczeniem jest jednorazowy token biegu z webhooka startowego: działa tylko
 dla tego biegu, przy jednym zapisie i najwyżej 2 godziny. Brak biegu, zły, zużyty
 i wygasły token dają tę samą odpowiedź 401. Sesja użytkownika go nie zastępuje.
@@ -63,17 +64,18 @@ async def require_law_run_token(
 
 @router.get("/runs/{run_id}")
 @limiter.limit("30/minute")
-async def get_analyze_request(
+async def get_run_request(
     request: Request,
     response: Response,
     run: LawRadarRun = Depends(require_law_run_token),
 ) -> dict[str, Any]:
-    if not runs.uses_analyze_request_fetch(run):
+    if not runs.uses_request_fetch(run):
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail=runs.INVALID_TOKEN_DETAIL
         )
     response.headers["Cache-Control"] = "no-store"
-    return runs.analyze_request_body(run)
+    logger.info("law_radar run=%s kind=%s request fetched", run.id, run.kind)
+    return runs.request_body(run)
 
 
 @router.post("/runs/{run_id}")

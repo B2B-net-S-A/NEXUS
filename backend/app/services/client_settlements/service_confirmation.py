@@ -218,11 +218,49 @@ class Cost:
     ready: bool = True
 
 
+def _person_cost(
+    s: ClientSettlement, orders: dict[int, ClientOrder]
+) -> Optional[tuple[Decimal, Decimal, str]]:
+    """MD, netto i waluta osoby z pozycji faktury do klienta; ``None`` = blok
+    nie jest gotowy (RCP nieprzyjęte, linia bez stawki, podział w dwóch walutach).
+    Przy podziale z maila klienta to suma pozycji zamówień (``part_position``)."""
+
+    if s.status != "accepted":
+        return None
+    parts = service.split_orders(s)
+    if parts:
+        items = []
+        for part in parts:
+            price = client_invoice.client_price(orders.get(int(part["order_id"])))
+            if price.rate is None:
+                return None
+            items.append(client_invoice.part_position(part, price, name=""))
+        currencies = {i.currency for i in items}
+        if len(currencies) != 1:
+            return None
+        currency = currencies.pop()
+    else:
+        price = client_invoice.client_price(orders.get(s.order_id))
+        if price.rate is None:
+            return None
+        items = client_invoice.positions(
+            s, name="", rate=price.rate, overtime_suffix=None, currency=price.currency
+        )
+        currency = price.currency
+    return (
+        sum((i.quantity for i in items), Decimal("0")),
+        sum((i.net for i in items), Decimal("0")),
+        currency,
+    )
+
+
 async def _project_costs(db: AsyncSession, projects: list[Project]) -> dict[str, Cost]:
     """MD i netto do klienta per projekt, jak pozycje faktury do klienta."""
 
     settlements = {s.id: s for p in projects for s, _h, _t in p.parts}
-    order_ids = {s.order_id for s in settlements.values() if s.order_id is not None}
+    order_ids = {
+        i for s in settlements.values() for i in service.settlement_order_ids(s)
+    }
     orders = (
         {
             o.id: o
@@ -236,20 +274,7 @@ async def _project_costs(db: AsyncSession, projects: list[Project]) -> dict[str,
         else {}
     )
     # Osoba: MD i netto z pozycji faktury (bez korekty planu), waluta.
-    person: dict[int, Optional[tuple[Decimal, Decimal, str]]] = {}
-    for sid, s in settlements.items():
-        price = client_invoice.client_price(orders.get(s.order_id))
-        if s.status != "accepted" or price.rate is None:
-            person[sid] = None
-            continue
-        items = client_invoice.positions(
-            s, name="", rate=price.rate, overtime_suffix=None, currency=price.currency
-        )
-        person[sid] = (
-            sum((i.quantity for i in items), Decimal("0")),
-            sum((i.net for i in items), Decimal("0")),
-            price.currency,
-        )
+    person = {sid: _person_cost(s, orders) for sid, s in settlements.items()}
     # Podział osoby na projekty w proporcji godzin; reszta z zaokrągleń
     # idzie do ostatniego projektu osoby, żeby suma zgadzała się z fakturą.
     shares: dict[int, list[tuple[str, Decimal]]] = {}

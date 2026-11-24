@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, Iterable, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
@@ -418,6 +418,81 @@ async def resolve_from_sheet(
     if not hits and sheet.source == timesheet_plus.POLKOMTEL:
         polkomtel = await _clients_of_keys(db, ("polkomtel",))
         hits = [c for c in mine if c.client_id in polkomtel]
+    return hits[0] if len(hits) == 1 else None
+
+
+async def split_client(db: AsyncSession, order_keys: frozenset[str]) -> Optional[int]:
+    """Klient, do którego należą numery zamówień z tabeli klienta (podział na
+    zamówienia z maila, ``client_settlements/order_split``). Numery u dwóch
+    klientów albo żaden w NEXUS-ie = ``None``."""
+
+    from app.models.client_order_group import ClientOrderGroup
+    from app.services.client_settlements import order_split
+
+    if not order_keys:
+        return None
+    rows = await db.execute(
+        select(ClientOrderGroup.client_id, ClientOrderGroup.order_number).where(
+            or_(*(ClientOrderGroup.order_number.contains(key) for key in order_keys))
+        )
+    )
+    clients = {
+        client_id
+        for client_id, number in rows.all()
+        if order_split.order_key(number) in order_keys
+    }
+    return next(iter(clients)) if len(clients) == 1 else None
+
+
+async def resolve_split_row(
+    db: AsyncSession,
+    name: str,
+    *,
+    client_id: int,
+    order_keys: frozenset[str],
+    today: date,
+) -> Optional[Contract]:
+    """Kontrakt osoby z wiersza tabeli klienta „osoba × numer zamówienia”.
+
+    Tylko wśród kontraktów tego klienta (decyzja z 24.11.2026, jak przy nazwie
+    pliku od klienta): wszystkie słowa imienia i nazwiska, kolejność dowolna
+    („Nazwisko Imię” z tabeli przestawnej). Osoba z dwoma kontraktami u klienta:
+    ten z linią zamówienia o numerze z tabeli. Dwie osoby albo dwa kontrakty
+    w trafieniu = ``None``."""
+
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.client_order_group import ClientOrderGroup
+    from app.services.client_settlements import order_split
+
+    wanted = _tokens(name)
+    if len(wanted) < 2:
+        return None
+    mine = [
+        contract
+        for contract, first, last in await _named_rows(
+            db, today=today, client_ids=frozenset({client_id})
+        )
+        if _tokens(f"{first or ''} {last or ''}") == wanted
+        and eligible(contract, today)
+    ]
+    if len({c.candidate_id for c in mine}) != 1:
+        return None
+    if len(mine) == 1:
+        return mine[0]
+    lines = await db.execute(
+        select(ClientOrder.contract_id, ClientOrderGroup.order_number)
+        .join(ClientOrderGroup, ClientOrderGroup.id == ClientOrder.order_group_id)
+        .where(
+            ClientOrder.contract_id.in_([c.id for c in mine]),
+            ClientOrder.status != ClientOrderStatus.cancelled,
+        )
+    )
+    ordered = {
+        cid
+        for cid, number in lines.all()
+        if order_split.order_key(number) in order_keys
+    }
+    hits = [c for c in mine if c.id in ordered]
     return hits[0] if len(hits) == 1 else None
 
 

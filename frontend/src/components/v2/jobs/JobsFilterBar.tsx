@@ -615,8 +615,11 @@ export function JobsFilterBar({
         />
       )}
 
+      {/* „Termin minął” (24.11.2026): „Po terminie” to od tej daty stan requestu
+          w rzędzie pigułek wyżej; ten przełącznik bierze każdą otwartą
+          rekrutację z minionym terminem, także z championem i umową. */}
       <AttentionToggle
-        label="Po terminie"
+        label="Termin minął"
         tone="danger"
         layout={layout}
         active={value.deadline === "overdue"}

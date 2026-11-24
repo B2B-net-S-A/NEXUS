@@ -146,7 +146,9 @@ def clean_params(generator: Generator, raw: Mapping[str, Any] | None) -> dict[st
 
 
 def _clean_tiers(spec: ParamField, value: Any) -> list[dict[str, float | None]]:
-    """Progi rabatu: ``[{"up_to": 15000000, "rate": 2.5}, {"up_to": null, "rate": 3}]``."""
+    """Progi rabatu (przykład z fikcyjnymi liczbami):
+    ``[{"up_to": 1000000, "rate": 1}, {"up_to": null, "rate": 2}]``.
+    """
     if not isinstance(value, list) or not 1 <= len(value) <= 6:
         raise ValueError(f"„{spec.label}”: od 1 do 6 progów.")
     tiers: list[dict[str, float | None]] = []

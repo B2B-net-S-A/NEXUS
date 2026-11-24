@@ -2595,6 +2595,41 @@
     ]
   },
   {
+    "id": "lekcja-po-terminie",
+    "title": "Rekrutacja po terminie: „Po terminie” zamiast „Szukamy”",
+    "novelties": [
+      "po-terminie-zamiast-szukamy"
+    ],
+    "task": "Na liście rekrutacji kliknij w rzędzie „Stan requestu” pigułkę „Po terminie”, żeby zobaczyć rekrutacje, którym minął termin.",
+    "solo_href": "/jobs",
+    "check": {
+      "kind": "click",
+      "anchor": "jobs.list.stage-overdue"
+    },
+    "questions": [
+      {
+        "q": "Termin rekrutacji minął wczoraj, a klient dalej przyjmuje CV. Co robi Delivery Lead?",
+        "options": [
+          "Klika „Klient przedłużył…” nad Tablicą i wpisuje nowy termin",
+          "Nic — rekrutacja sama wróci do „Szukamy”",
+          "Zamyka rekrutację i otwiera ją ponownie"
+        ],
+        "answer": 0,
+        "explain": "Nowy termin od klienta przywraca „Szukamy”. Bez decyzji rekrutacja zostaje „Po terminie”, a Delivery Lead dostaje dzwonek."
+      },
+      {
+        "q": "Rekrutacja jest „Po terminie”. Czy zniknęła z daily i przydziału?",
+        "options": [
+          "Nie — zostaje, dopóki Delivery Lead nie zdecyduje",
+          "Tak — od razu znika",
+          "Znika po 7 dniach"
+        ],
+        "answer": 0,
+        "explain": "„Po terminie” tylko mówi prawdę o terminie. Z daily znika dopiero po „Klient milczy” albo zamknięciu."
+      }
+    ]
+  },
+  {
     "id": "lekcja-pytania-z-rozmow",
     "title": "Pytania z rozmów u klienta",
     "novelties": [

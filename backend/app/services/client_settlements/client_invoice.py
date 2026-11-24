@@ -27,6 +27,11 @@ trafia do pozycji, wiersz dostaje uwagę.
 
 Paczka załączników (E5.2): pliki RCP i maile miesiąca w zipie; przy regule
 ``cl.attachment_name`` plik RCP nosi numer KSeF faktury do klienta.
+
+Podział na zamówienia z maila klienta (``service.split_orders``, 24.11.2026):
+osoba ma wiersz na każde zamówienie — pozycja z MD tej części, stawką i nazwą
+z historii faktur tego zamówienia, stan „Wystawiona” po fakturze na to
+zamówienie. Dodatki i korekta planu idą na wiersz zamówienia rozliczenia.
 """
 
 from __future__ import annotations
@@ -304,6 +309,165 @@ def positions(
     return out
 
 
+def part_position(part: dict[str, Any], price: ClientPrice, *, name: str) -> Position:
+    """Pozycja jednej części podziału na zamówienia (``service.split_orders``)."""
+
+    md = Decimal(str(part["md"]))
+    unit_price = None if price.rate is None else _money(Decimal(price.rate))
+    return Position(
+        name,
+        "MD",
+        md,
+        unit_price,
+        _money(md * (unit_price or 0)),
+        "base",
+        price.currency,
+    )
+
+
+def _history_template(
+    history: list[tuple[str, ClientSalesInvoice]], month: str, person: str
+) -> Optional[str]:
+    """Nazwa pozycji z ostatniej faktury do klienta sprzed miesiąca."""
+
+    return next(
+        (
+            base_name(inv.items or [], person)
+            for period, inv in reversed(history)
+            if period < month and base_name(inv.items or [], person)
+        ),
+        None,
+    )
+
+
+def _finish_row(
+    out: dict[str, Any],
+    items: list[Position],
+    *,
+    price: ClientPrice,
+    cost: Optional[Decimal],
+    integration_cost: Decimal,
+    issued: Optional[ClientSalesInvoice],
+    template: Optional[str],
+    chosen: Optional[ClientSettlement],
+    actual: Optional[ClientSettlement],
+    rules: dict[str, dict[str, Any]],
+    amounts: bool,
+) -> dict[str, Any]:
+    """Stan, pozycje i marża wiersza „Do faktury”."""
+
+    net = sum((p.net for p in items), Decimal("0"))
+    out.update(
+        currency=price.currency,
+        state="issued"
+        if issued
+        else "awaiting_signature"
+        if service.waits_for_signature(chosen, rules)
+        else "awaiting_client"
+        if client_acceptance.waiting(actual, rules)
+        else "ready",
+        positions=[p.as_dict() for p in items]
+        if amounts
+        else [{**p.as_dict(), "unit_price": None, "net": None} for p in items],
+        template=template is not None,
+        ksef_number=issued.ksef_number if issued else None,
+        invoice_number=issued.invoice_number if issued else None,
+    )
+    if amounts:
+        out["net"] = f"{net:.2f}"
+        if cost is not None:
+            # Koszty integracji ze zgodą DL-a obniżają marżę miesiąca (E5.1).
+            net_pln = _money(net * price.to_pln)
+            margin = net_pln - cost - integration_cost
+            out["cost"] = f"{cost:.2f}"
+            out["integration_cost"] = (
+                f"{integration_cost:.2f}" if integration_cost else None
+            )
+            out["margin"] = f"{margin:.2f}"
+            out["margin_pct"] = (
+                None if net_pln == 0 else f"{margin / net_pln * 100:.1f}"
+            )
+    return out
+
+
+def _split_rows(
+    out: dict[str, Any],
+    parts: list[dict[str, Any]],
+    *,
+    chosen: ClientSettlement,
+    actual: Optional[ClientSettlement],
+    orders: dict[int, ClientOrder],
+    invoices: dict[int, list[tuple[str, ClientSalesInvoice]]],
+    by_line: dict[int, list[tuple[str, ClientSalesInvoice]]],
+    month: str,
+    rules: dict[str, dict[str, Any]],
+    amounts: bool,
+    correction: tuple[Optional[ClientSettlement], Optional[ClientSettlement]],
+    extras: list[Any],
+    extra_rule: dict[str, Any],
+    extras_cost: Decimal,
+    integration_cost: Decimal,
+) -> list[dict[str, Any]]:
+    """Wiersze osoby z podziałem na zamówienia: faktura na każde zamówienie, tak
+    jak wystawiają je Finanse (próba IX–X 2026). Dodatki, korekta planu i koszty
+    integracji idą na wiersz zamówienia rozliczenia (``main``)."""
+
+    found: list[dict[str, Any]] = []
+    for part in parts:
+        order = orders.get(int(part["order_id"]))
+        price = client_price(order)
+        # Numer tej części; numery pozostałych zamówień nie są jej numerem.
+        number = part.get("number")
+        history = _order_history(order, invoices, by_line)
+        template = item_name(rules, number, out["person"]) or _history_template(
+            history, month, out["person"]
+        )
+        name = template or (
+            f"Usługi informatyczne; {out['person']}; nr zamówienia: {number or '—'}"
+        )
+        items = [part_position(part, price, name=name)]
+        row = {**out, "order_number": number, "order_id": int(part["order_id"])}
+        main = bool(part.get("main"))
+        cost = (
+            None
+            if part.get("amount_cost") is None
+            else Decimal(str(part["amount_cost"]))
+        )
+        if main:
+            estimate, previous = correction
+            if estimate is not None and previous is not None:
+                fix = _correction(
+                    estimate,
+                    previous,
+                    name=name,
+                    rate=price.rate,
+                    month_label=_previous(month),
+                    currency=price.currency,
+                )
+                if fix is not None:
+                    items.append(fix)
+            items, row["extras_note"] = with_extras(
+                items, extras, rule=extra_rule, currency=price.currency, name=name
+            )
+            cost = None if cost is None else cost + extras_cost
+        found.append(
+            _finish_row(
+                row,
+                items,
+                price=price,
+                cost=cost,
+                integration_cost=integration_cost if main else Decimal("0"),
+                issued=next((inv for period, inv in history if period == month), None),
+                template=template,
+                chosen=chosen,
+                actual=actual,
+                rules=rules,
+                amounts=amounts,
+            )
+        )
+    return found
+
+
 def _correction(
     estimate: ClientSettlement,
     actual: ClientSettlement,
@@ -384,7 +548,7 @@ async def invoice_month(
         else []
     )
     by_key = {(s.contract_id, s.period_month, s.kind): s for s in settlements}
-    order_ids = {s.order_id for s in settlements if s.order_id is not None}
+    order_ids = {i for s in settlements for i in service.settlement_order_ids(s)}
     orders = (
         {
             o.id: o
@@ -438,6 +602,8 @@ async def invoice_month(
             "contract_id": contract_id,
             "person": row["person"],
             "order_number": row["order_number"],
+            # Linia zamówienia wiersza: przy podziale osoba ma wiersz na każdą.
+            "order_id": None,
             # Sama korekta planu (kontrakt już bez pracy) idzie jak RCP faktyczne.
             "kind": chosen.kind if chosen else None,
             "currency": PLN,
@@ -461,18 +627,36 @@ async def invoice_month(
             continue
         if chosen is None:
             out["kind"] = service.ACTUAL
+        parts = service.split_orders(chosen)
+        if parts:
+            rows.extend(
+                _split_rows(
+                    out,
+                    parts,
+                    chosen=chosen,
+                    actual=actual,
+                    orders=orders,
+                    invoices=invoices,
+                    by_line=by_line,
+                    month=month,
+                    rules=rules,
+                    amounts=amounts,
+                    correction=(prev_estimate, prev_actual),
+                    extras=billed.get(contract_id, []),
+                    extra_rule=extra_rule,
+                    extras_cost=getattr(
+                        added.get(contract_id), "approved", Decimal("0")
+                    ),
+                    integration_cost=integration.get(contract_id, Decimal("0")),
+                )
+            )
+            continue
         order = orders.get(basis.order_id) if basis.order_id else None
+        out["order_id"] = order.id if order else None
         price = client_price(order)
         rate = price.rate
         history = _order_history(order, invoices, by_line)
-        template = next(
-            (
-                base_name(inv.items or [], row["person"])
-                for period, inv in reversed(history)
-                if period < month and base_name(inv.items or [], row["person"])
-            ),
-            None,
-        )
+        template = _history_template(history, month, row["person"])
         # Wzór z reguły (E6.5) wygrywa z historią: u Banku Pocztowego linie nie
         # mają grup zamówień, a opisy w KSeF mają kilka pisowni.
         template = item_name(rules, row["order_number"], row["person"]) or template
@@ -509,7 +693,6 @@ async def invoice_month(
                 currency=price.currency,
                 name=name,
             )
-        net = sum((p.net for p in items), Decimal("0"))
         cost = (
             Decimal(chosen.amount_cost)
             + getattr(added.get(contract_id), "approved", Decimal("0"))
@@ -517,36 +700,21 @@ async def invoice_month(
             else None
         )
         issued = next((inv for period, inv in history if period == month), None)
-        out.update(
-            currency=price.currency,
-            state="issued"
-            if issued
-            else "awaiting_signature"
-            if service.waits_for_signature(chosen, rules)
-            else "awaiting_client"
-            if client_acceptance.waiting(actual, rules)
-            else "ready",
-            positions=[p.as_dict() for p in items]
-            if amounts
-            else [{**p.as_dict(), "unit_price": None, "net": None} for p in items],
-            template=template is not None,
-            ksef_number=issued.ksef_number if issued else None,
-            invoice_number=issued.invoice_number if issued else None,
+        rows.append(
+            _finish_row(
+                out,
+                items,
+                price=price,
+                cost=cost,
+                integration_cost=integration.get(contract_id, Decimal("0")),
+                issued=issued,
+                template=template,
+                chosen=chosen,
+                actual=actual,
+                rules=rules,
+                amounts=amounts,
+            )
         )
-        if amounts:
-            out["net"] = f"{net:.2f}"
-            if cost is not None:
-                # Koszty integracji ze zgodą DL-a obniżają marżę miesiąca (E5.1).
-                extra = integration.get(contract_id, Decimal("0"))
-                net_pln = _money(net * price.to_pln)
-                margin = net_pln - cost - extra
-                out["cost"] = f"{cost:.2f}"
-                out["integration_cost"] = f"{extra:.2f}" if extra else None
-                out["margin"] = f"{margin:.2f}"
-                out["margin_pct"] = (
-                    None if net_pln == 0 else f"{margin / net_pln * 100:.1f}"
-                )
-        rows.append(out)
     hold = None
     if document_kind is not None and not with_kesu:
         unsigned = sum(1 for signed in signed_by_row if not signed)
@@ -556,7 +724,7 @@ async def invoice_month(
                 "label": "Czeka na podpisany protokół odbioru"
                 if document_kind == signoffs.PROTOCOL
                 else "Czeka na podpisane arkusze zbiorcze: bez podpisu "
-                f"{unsigned} z {len(rows)} osób",
+                f"{unsigned} z {len(signed_by_row)} osób",
             }
             for row in rows:
                 if row["state"] == "ready":

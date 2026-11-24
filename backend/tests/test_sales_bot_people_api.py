@@ -15,6 +15,7 @@ import httpx
 import pytest
 from sqlalchemy import func, select
 
+from app.api.integrations_sales_signals import EMPTY_REPORT_DETAIL
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.sales import (
@@ -229,7 +230,7 @@ async def test_cognism_callback_distinguishes_empty_body_from_empty_report(
     for body in (b"", b" \r\n\t"):
         missing = await app_client.post(endpoint, content=body, headers=headers)
         assert missing.status_code == 422
-        assert missing.json()["detail"].endswith("body: missing")
+        assert missing.json()["detail"] == EMPTY_REPORT_DETAIL
 
     received = await app_client.post(endpoint, json={"firms": []}, headers=headers)
     assert received.status_code == 200, received.text

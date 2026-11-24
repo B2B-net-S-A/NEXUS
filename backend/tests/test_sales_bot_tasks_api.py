@@ -245,11 +245,20 @@ async def test_start_run_stores_request_and_requester(monkeypatch) -> None:
             requested_by_user_id=user.id,
         )
         run_id = run.id
-    assert seen[0]["request"] == {"limit": 2}
-    task, _, delivery = seen[0]["task"].partition("\n\n")
+        # Webhook v2: sama koperta, zlecenie bot pobiera GET-em (request_body).
+        assert set(seen[0]) == {
+            "schema_version",
+            "run_id",
+            "request_url",
+            "token",
+            "expires_at",
+        }
+        order = await signals.request_body(db, run)
+    assert order["request"] == {"limit": 2}
+    task, _, delivery = order["task"].partition("\n\n")
     assert task == "limit 2"
     assert "callback_url" in delivery and "X-Run-Token" in delivery
-    assert (seen[0]["rejected"], seen[0]["seen_urls"]) == ([], [])
+    assert (order["rejected"], order["seen_urls"]) == ([], [])
     async with AsyncSessionLocal() as db:
         stored = await db.get(SalesSignalRun, run_id)
         assert (stored.kind, stored.request, stored.requested_by_user_id) == (

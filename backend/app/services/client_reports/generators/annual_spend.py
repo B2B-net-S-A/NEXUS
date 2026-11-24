@@ -340,6 +340,32 @@ async def archive_invoices(
     return [archive_row(doc) for doc in docs], unreadable
 
 
+def archive_checks(archived: Sequence[InvoiceRow], unreadable: int) -> list[str]:
+    """Kontrole raportu: ile faktur sprzed KSeF z archiwum weszło do obrotu, a ile nie."""
+    checks: list[str] = []
+    if archived:
+        checks.append(
+            f"Faktury sprzed KSeF z archiwum eBI24 w obrocie: {len(archived)} "
+            "(miesiąc i kurs NBP z daty sprzedaży)."
+        )
+    if unreadable:
+        checks.append(
+            f"Faktury sprzed KSeF bez czytelnego pliku w archiwum eBI24: {unreadable} — "
+            "nie weszły do obrotu, więc obrót jest zaniżony; sprawdź pliki archiwum "
+            "przed wysłaniem."
+        )
+    return checks
+
+
+async def earliest_invoice(
+    db: AsyncSession, client_id: int, archived: Sequence[InvoiceRow]
+) -> Optional[date]:
+    """Najwcześniejsza faktura: pierwsza z KSeF albo z archiwum eBI24 w okresie."""
+    days = [await first_invoice_date(db, client_id)]
+    days += [i.sale_date for i in archived]
+    return min((day for day in days if day is not None), default=None)
+
+
 def rate_text(rate: Decimal) -> str:
     return f"{rate.normalize():f}".replace(".", ",") + "%"
 
@@ -393,17 +419,7 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
         )
 
     checks: list[str] = turnover_checks(converted, words)
-    if archived:
-        checks.append(
-            f"Faktury sprzed KSeF z archiwum eBI24 w obrocie: {len(archived)} "
-            "(miesiąc i kurs NBP z daty sprzedaży)."
-        )
-    if unreadable:
-        checks.append(
-            f"Faktury sprzed KSeF bez czytelnego pliku w archiwum eBI24: {unreadable} — "
-            "nie weszły do obrotu, więc obrót jest zaniżony; sprawdź pliki archiwum "
-            "przed wysłaniem."
-        )
+    checks += archive_checks(archived, unreadable)
     if not tiers:
         checks.append(
             "Definicja nie ma progów rabatu — uzupełnij je w ustawieniach raportu."
@@ -420,10 +436,7 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
         checks.append(
             "Brak faktur sprzedaży wystawionych w okresie — sprawdź pobranie z KSeF."
         )
-    # Najwcześniejsza faktura: pierwsza z KSeF albo z archiwum eBI24 w okresie.
-    days = [await first_invoice_date(db, ctx.client_id)]
-    days += [i.sale_date for i in archived]
-    first = min((day for day in days if day is not None), default=None)
+    first = await earliest_invoice(db, ctx.client_id, archived)
     if first is not None and incomplete_from(first, period.start):
         source = "KSeF i archiwum eBI24" if archived else "KSeF"
         fill = "KSeF albo archiwum eBI24" if archived else "KSeF"

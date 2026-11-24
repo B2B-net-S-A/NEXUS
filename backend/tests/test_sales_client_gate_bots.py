@@ -120,7 +120,9 @@ async def test_bot_run_skips_client_cards(app_client, monkeypatch, kind) -> None
         )
         assert run is not None
         assert [int(cid) for cid in run.company_ids] == [prospect]
-    assert [firm["ref"] for firm in seen[0]["firms"]] == [prospect]
+        order = await signals.request_body(db, run)
+    assert seen[0]["run_id"] == run.id
+    assert [firm["ref"] for firm in order["firms"]] == [prospect]
 
 
 @pytest.mark.asyncio

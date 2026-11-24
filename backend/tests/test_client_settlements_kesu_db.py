@@ -27,7 +27,7 @@ from app.models.candidate import Candidate
 from app.models.client_order import ClientOrder
 from app.models.consultant_portal import CpDocument
 from app.models.contract import Contract, RateUnit
-from app.services.client_settlements import client_invoice, kesu, service
+from app.services.client_settlements import client_invoice, kesu, kesu_flow, service
 from app.services.client_settlements.service import SettlementError
 from app.services.consultant_portal import mailbox
 from tests._signed_pdf import signed_by
@@ -124,6 +124,34 @@ def _jira_eml(subject: str, person: str, month: str, xls: bytes) -> bytes:
     )
     message.add_attachment(
         xls, maintype="application", subtype="octet-stream", filename="k.xls"
+    )
+    return message.as_bytes()
+
+
+def _forward_eml(
+    subject: str, person: str, month: str, xls: bytes, pdf: bytes
+) -> bytes:
+    """Konsultant przekazuje powiadomienie Jiry o zmianie statusu (temat z Jiry,
+    bez „zaakceptowane przez”) z KEŚU i swoją fakturą (próba IX–X 2026, Alior)."""
+
+    year, mon = month.split("-")
+    message = email.message.EmailMessage()
+    message["From"] = "konsultant@dostawca.example"
+    message["To"] = "rozliczenia@dostawca.example"
+    message["Subject"] = subject
+    message["Date"] = "Tue, 03 Nov 2026 15:40:00 +0100"
+    message["Message-ID"] = f"<{uuid.uuid4().hex}@dostawca.example>"
+    message.set_content(
+        "W załączniku podsyłam fakturę i KEŚU.\n\n"
+        "> Automat JIRA zmienił status na Rozwiązany.\n"
+        f"> Timesheet użytkownika {person} za miesiąc {mon}-{year} został "
+        "zaakceptowany.\n"
+    )
+    message.add_attachment(
+        xls, maintype="application", subtype="octet-stream", filename="k.xls"
+    )
+    message.add_attachment(
+        pdf, maintype="application", subtype="pdf", filename="FV.pdf"
     )
     return message.as_bytes()
 
@@ -312,6 +340,83 @@ async def test_obieg_keszu_z_jiry_do_faktury_i_zaplaty(tmp_path, monkeypatch) ->
             content, name = await service.kesu_package(db, contract_id, month)
             assert content.startswith(b"%PDF")
             assert name.startswith("KESU_Ewa_Kozlowska")
+    finally:
+        await _restore(previous)
+        await _cleanup(client_id)
+
+
+@pytest.mark.usefixtures("portal_all")
+async def test_przekazanie_konsultanta_po_mailu_z_jiry_nie_zabiera_akceptacji(
+    tmp_path, monkeypatch
+) -> None:
+    """Próba IX–X 2026 (Alior): po mailu z Jiry konsultant przesłał w kolejnym
+    przebiegu czytnika to samo KEŚU ze swoją fakturą. Nowszy mail dawał „Brak maila
+    z Jiry z akceptacją opiekuna”, a faktura konsultanta szła do paczki dla klienta."""
+
+    from app.services import storage_service
+    from tests.test_client_settlements_kesu import _text_pdf
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(mailbox, "mailbox_upn", lambda: "rozliczenia@dostawca.example")
+    client_id, contract_id, line_id = await _world(md_total="60")
+    month = _month(-1)
+    previous = await _module(True)
+    try:
+        person = await _alior_person(client_id, contract_id, line_id)
+        await _rules(client_id, ALIOR_RULES)
+        year, mon = month.split("-")
+        run = uuid.uuid4().hex[:8]
+        jira_id, forward_id = f"jira-{run}", f"fwd-{run}"
+        subject = (
+            f"FW: [ALIOR JIRA] Rozliczenie kontraktora {person} za miesiąc "
+            f"{mon}-{year} zaakceptowane przez opiekuna"
+        )
+        forward_subject = (
+            f"Fwd: FW: ABC-1 Rozliczenie kontraktora {person} za miesiąc {mon}-{year}"
+        )
+        sheet = _kesu_for(month, f"{person.split()[1]} {person.split()[0]}")
+        invoice = _text_pdf("Faktura konsultanta")
+        coordinator = (await make_user(UserRole.recruiter, name="Koordynator")).email
+        await _read(
+            FakeMailbox(
+                [_message(jira_id, coordinator.lower(), subject)],
+                {jira_id: [_attachment("10-2026-ei1.xls", sheet)]},
+                {jira_id: _jira_eml(subject, person, month, sheet)},
+            )
+        )
+        await _read(
+            FakeMailbox(
+                [_message(forward_id, coordinator.lower(), forward_subject)],
+                {
+                    forward_id: [
+                        _attachment("10-2026-ei1.xls", sheet),
+                        _attachment("FV.pdf", invoice),
+                    ]
+                },
+                {
+                    forward_id: _forward_eml(
+                        forward_subject, person, month, sheet, invoice
+                    )
+                },
+            )
+        )
+        async with AsyncSessionLocal() as db:
+            accepted_mail = await db.scalar(
+                select(CpDocument.id).where(
+                    CpDocument.graph_message_id == jira_id,
+                    CpDocument.mime == "message/rfc822",
+                )
+            )
+            reports = await service._month_reports(db, contract_id, month)
+            assert any(d.graph_message_id == forward_id for d in reports)
+            view = await service.month_view(db, client_id, month, amounts=True)
+            row = next(r for r in view["rows"] if r["contract_id"] == contract_id)
+            assert row["kesu"]["approver"] == "Paweł Opiekun"
+            assert row["status"] == "ok", row
+            settlement = await service._settlement(db, contract_id, month)
+            assert settlement.report_document_id == accepted_mail
+            found = await kesu_flow.collect(db, reports)
+            assert found.cost_pdfs == []
     finally:
         await _restore(previous)
         await _cleanup(client_id)

@@ -19,7 +19,7 @@ from app.models.client import Client
 from app.services.sales import potential
 from tests.test_sales_bot_company_api import bot_on  # noqa: F401 — fikstura
 from tests.test_sales_companies_api import _headers, _user
-from tests.test_sales_signals_api import URL, _company
+from tests.test_sales_signals_api import URL, _company, _order
 
 COMPANIES = "/api/sales/companies"
 KNOWLEDGE = "/api/sales/potential-knowledge"
@@ -95,8 +95,10 @@ async def test_potential_round_trip_from_button_to_assessment(
     assert started.status_code == 200, started.text
     assert started.json()["run"]["status"] == "started"
     [webhook] = bot_on
-    assert [firm["mode"] for firm in webhook["firms"]] == ["potential"]
-    assert "potential" in webhook["task"]
+    # Webhook v2: zlecenie (firmy z trybem, polecenie) bot pobiera GET-em.
+    order = await _order(app_client, webhook)
+    assert [firm["mode"] for firm in order["firms"]] == ["potential"]
+    assert "potential" in order["task"]
     again = await app_client.post(
         f"{COMPANIES}/{company}/potential", headers=_headers(editor)
     )

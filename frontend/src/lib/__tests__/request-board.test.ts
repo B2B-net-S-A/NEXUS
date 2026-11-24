@@ -313,12 +313,13 @@ describe("obłożenie", () => {
     expect(loadBarScale([])).toBe(1)
   })
 
-  it("„Pokaż na liście rekrutacji”: otwarte, „Szukamy”, osoba, bez P1", () => {
+  it("„Pokaż na liście rekrutacji”: otwarte, „Szukamy” i „Po terminie”, osoba, bez P1", () => {
     const href = outsideP1Href(7)
     expect(href.startsWith("/jobs?")).toBe(true)
     const params = new URLSearchParams(href.slice("/jobs?".length))
     expect(params.get("open")).toBe("1")
-    expect(params.getAll("stage")).toEqual(["searching"])
+    // „Po terminie” liczy się do „Szukamy” w liczniku (24.11.2026).
+    expect(params.getAll("stage")).toEqual(["searching", "overdue"])
     expect(params.getAll("who")).toEqual(["7"])
     expect(params.get("prio")).toBe("p2,accepting")
   })

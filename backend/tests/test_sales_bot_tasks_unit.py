@@ -192,7 +192,6 @@ def test_parse_report_validates_with_the_kind_model() -> None:
     assert report.items == ["https://e.com/a"]
     for raw in (
         b"{",
-        b"",
         b'{"items": ["javascript:alert(1)"]}',
         b'{"items": [], "people": []}',
         b'{"items": ["https://e.com/1", "https://e.com/2", "https://e.com/3", "https://e.com/4"]}',
@@ -200,6 +199,15 @@ def test_parse_report_validates_with_the_kind_model() -> None:
         with pytest.raises(RequestValidationError) as caught:
             intake.parse_report(raw, _FakeReport)
         assert caught.value.errors()[0]["loc"][0] == "body"
+
+
+@pytest.mark.parametrize("raw", [b"", b" \r\n\t"])
+def test_empty_body_is_a_422_that_says_what_to_send(raw: bytes) -> None:
+    with pytest.raises(HTTPException) as caught:
+        intake.parse_report(raw, _FakeReport)
+    assert caught.value.status_code == 422
+    assert caught.value.detail == intake.EMPTY_REPORT_DETAIL
+    assert "JSON" in caught.value.detail and "X-Run-Token" in caught.value.detail
 
 
 def _request(body: bytes, *, declared: int | None = None) -> Request:
@@ -256,6 +264,7 @@ def test_legacy_reply_keeps_the_v1_response_shape() -> None:
         "leads": 2,
         "leads_new": 1,
         "briefings": 1,
+        "briefings_no_news": 0,
         "dropped": {
             "outside_window": 1,
             "nexus_clients": 0,

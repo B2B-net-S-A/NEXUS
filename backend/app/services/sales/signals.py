@@ -1,8 +1,10 @@
 """Kanał sygnałów z bota researchu (Grok Bot): bieg, token, przyjęcie raportu.
 
-NEXUS zakłada bieg z listą firm i jednorazowym tokenem, wysyła botowi same nazwy
-i domeny firm (komputery bota stoją w USA) i czeka na jeden raport pod
-``POST /api/integrations/sales-signals/runs/{id}``. Raport to dane niezaufane:
+NEXUS zakłada bieg z listą firm i jednorazowym tokenem, wywołuje webhook bota
+z samą kopertą biegu (v2, ``grok_webhook``), bot pobiera zlecenie (same nazwy,
+domeny, NIP i KRS firm; komputery bota stoją w USA) przez
+``GET /api/integrations/sales-signals/runs/{id}`` i odsyła jeden raport
+``POST``-em na ten sam adres. Raport to dane niezaufane:
 bot czyta cudze strony, więc pola są stałe, z limitami, linki tylko http(s),
 firma tylko z listy biegu i żadnych automatycznych działań poza zapisem leada
 i punktów do rozmowy. Decyzję, czy dzwonić, podejmuje handlowiec.
@@ -35,12 +37,19 @@ from app.models.sales import (
     SalesLead,
     SalesSignalRun,
 )
+from app.services import grok_webhook
 from app.services.sales import client_gate
 from app.services.sales.companies import http_url, mail_domain
 
 logger = logging.getLogger(__name__)
 
+#: Treść webhooka z całym zleceniem; od 24.11.2026 tylko zapas
+#: (``GROK_BOT_WEBHOOK_V1``), domyślnie webhook v2 z ``request_url``.
 SCHEMA_VERSION = 1
+#: Zapas v1 dla Bota Research: przy 25–40 firmach treść docierała ucięta.
+V1_RESEARCH_MAX_FIRMS = 10
+V1_MAX_REJECTED = 20
+V1_MAX_SEEN_URLS = 50
 TOKEN_TTL = timedelta(hours=2)
 MAX_SIGNALS = 50
 MAX_POINTS = 4
@@ -471,7 +480,12 @@ async def ingest(
             )
             for strength in STRENGTH_SCORE
         },
-        "briefings": len(plan.briefings),
+        # Puste wiersze „nic nowego” to odpowiedź, ale nie zestaw punktów: bieg 560
+        # liczył 2 przy pustej liście ``briefings`` od bota.
+        "briefings": sum(1 for values in plan.briefings if values["points"]),
+        "briefings_no_news": sum(
+            1 for values in plan.briefings if not values["points"]
+        ),
         "quiet": [rows[ref].name for ref in quiet_ids if ref in rows],
         "dropped": {
             "outside_window": plan.outside_window,
@@ -493,7 +507,7 @@ async def ingest(
         len(report.signals),
         len(plan.leads),
         new,
-        len(plan.briefings),
+        summary["briefings"],
         len(plan.outside_window),
         len(plan.nexus_clients),
         plan.unknown_company,
@@ -509,8 +523,11 @@ def callback_url(run_id: int) -> str:
     return f"{base}/api/integrations/sales-signals/runs/{run_id}"
 
 
-def feedback_from_rows(rows: Any) -> dict[str, Any]:
-    """Powody odrzuceń i znane linki dla bota.
+def feedback_from_rows(
+    rows: Any, *, max_rejected: int = 50, max_seen_urls: int = 200
+) -> dict[str, Any]:
+    """Powody odrzuceń i znane linki dla bota, najświeższe pierwsze (``rows``
+    idą od ostatniej zmiany leada).
 
     Powód idzie tylko z listy ``REJECT_REASONS``: API przyjmuje dowolny tekst, a to,
     co trafia do bota, wychodzi poza UE, więc wpis z nazwiskiem albo telefonem nie
@@ -521,12 +538,14 @@ def feedback_from_rows(rows: Any) -> dict[str, Any]:
         {"ref": cid, "title": title, "reason": reason}
         for cid, title, _url, status, reason in rows
         if status == "dismissed" and reason in REJECT_REASONS
-    ][:50]
-    seen_urls = sorted({url for _cid, _t, url, _s, _r in rows if url})[:200]
-    return {"rejected": rejected, "seen_urls": seen_urls}
+    ][:max_rejected]
+    recent = list(dict.fromkeys(url for _cid, _t, url, _s, _r in rows if url))
+    return {"rejected": rejected, "seen_urls": sorted(recent[:max_seen_urls])}
 
 
-async def _feedback(db: AsyncSession, company_ids: list[int]) -> dict[str, Any]:
+async def _feedback(
+    db: AsyncSession, company_ids: list[int], **limits: int
+) -> dict[str, Any]:
     """Powody odrzuceń i znane adresy: bot nie powtarza tego, co już mamy."""
 
     rows = (
@@ -546,20 +565,50 @@ async def _feedback(db: AsyncSession, company_ids: list[int]) -> dict[str, Any]:
             .limit(300)
         )
     ).all()
-    return feedback_from_rows(rows)
+    return feedback_from_rows(rows, **limits)
 
 
-def webhook_body(
+NO_FEEDBACK: dict[str, Any] = {"rejected": [], "seen_urls": []}
+
+
+async def run_feedback(
+    db: AsyncSession, run: SalesSignalRun, *, schema: int = grok_webhook.V2
+) -> dict[str, Any]:
+    """Odrzucenia i znane linki dla zlecenia biegu; w zapasie v1 krótsze listy.
+
+    Haczyk i research do oceny potencjału nie potrzebują odrzuconych leadów.
+    """
+
+    from app.services.sales import bot_tasks
+    from app.services.sales.bot_tasks.call_hook import CALL_HOOK
+    from app.services.sales.bot_tasks.potential import POTENTIAL
+
+    task = bot_tasks.for_run(run)
+    modes = run.modes or {}
+    only_hooks = run.kind == "briefing" and all(
+        modes.get(str(cid)) in (CALL_HOOK, POTENTIAL) for cid in run.company_ids
+    )
+    if task is None or not task.lead_feedback or only_hooks:
+        return dict(NO_FEEDBACK)
+    limits = (
+        {"max_rejected": V1_MAX_REJECTED, "max_seen_urls": V1_MAX_SEEN_URLS}
+        if schema == grok_webhook.V1
+        else {}
+    )
+    return await _feedback(db, [int(cid) for cid in run.company_ids], **limits)
+
+
+def order_body(
     run: SalesSignalRun,
-    token: str,
     companies: list[SalesCompany],
     feedback: dict[str, Any],
 ) -> dict[str, Any]:
-    """Treść dla bota: nazwy, domeny, NIP i KRS firm, bez osób, CV i kontaktów.
+    """Pełne zlecenie biegu bez tokenu: odpowiedź ``GET request_url`` (v2)
+    i środek treści webhooka v1.
 
-    v2 (0684) dokłada ``task`` i ``report_format`` z rejestru zadań oraz ``request``
-    biegu, czyli pola, które rodzaj sam wysyła botowi. Pola v1 zostają, bo rutyna
-    z poleceniem v1 dalej obsługuje ``signals`` i ``briefing``.
+    Nazwy, domeny, NIP i KRS firm, bez osób, CV i kontaktów. ``task``
+    i ``report_format`` z rejestru zadań, ``request`` to pola, które rodzaj sam
+    wysyła botowi.
     """
 
     from app.services.sales import bot_tasks
@@ -593,11 +642,9 @@ def webhook_body(
         for company in companies
     ]
     return {
-        "schema_version": SCHEMA_VERSION,
         "run_id": run.id,
         "kind": run.kind,
         "callback_url": callback_url(run.id),
-        "token": token,
         "expires_at": run.token_expires_at.isoformat()
         if run.token_expires_at
         else None,
@@ -622,6 +669,48 @@ def webhook_body(
     }
 
 
+def webhook_body(
+    run: SalesSignalRun,
+    token: str,
+    companies: list[SalesCompany],
+    feedback: dict[str, Any],
+) -> dict[str, Any]:
+    """Treść webhooka v1 (zapas ``GROK_BOT_WEBHOOK_V1``): całe zlecenie i token."""
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        **order_body(run, companies, feedback),
+        "token": token,
+    }
+
+
+def webhook_envelope(run: SalesSignalRun, token: str) -> dict[str, Any]:
+    """Treść webhooka v2: bot pobiera zlecenie GET-em na ``request_url``."""
+
+    return grok_webhook.envelope(
+        run.id, callback_url(run.id), token, run.token_expires_at
+    )
+
+
+async def request_body(db: AsyncSession, run: SalesSignalRun) -> dict[str, Any]:
+    """Odpowiedź ``GET request_url``: pełne zlecenie biegu z firmami i odrzuceniami."""
+
+    rows = await _companies(db, [int(cid) for cid in run.company_ids])
+    feedback = await run_feedback(db, run)
+    return order_body(run, [rows[cid] for cid in sorted(rows)], feedback)
+
+
+def _part_request(request: dict[str, Any], part: list[int]) -> dict[str, Any]:
+    """Zlecenie paczki: ``first_meeting`` tylko z firmami tej paczki."""
+
+    if "first_meeting" not in request:
+        return request
+    return {
+        **request,
+        "first_meeting": [cid for cid in request["first_meeting"] if cid in part],
+    }
+
+
 async def start_run(
     db: AsyncSession,
     kind: str,
@@ -638,11 +727,13 @@ async def start_run(
     Rodzaj spoza rejestru zadań i rodzaj inny niż ``signals``/``briefing`` przy
     wyłączonym ``SALES_BOT_TASKS_ENABLED``: nic. ``request`` sprawdza model rodzaju
     (``BotTask.request_model``); niedozwolone pola to ``ValueError``.
+
+    Webhook v2 niesie samą kopertę z ``request_url``. Bot Research w zapasie v1
+    dostaje paczki po ``V1_RESEARCH_MAX_FIRMS`` firm (każda to osobny bieg;
+    zwracany jest pierwszy), bo dłuższa treść docierała do bota ucięta.
     """
 
     from app.services.sales import bot_tasks, bots
-    from app.services.sales.bot_tasks.call_hook import CALL_HOOK
-    from app.services.sales.bot_tasks.potential import POTENTIAL
 
     task = bot_tasks.get(kind)
     if task is None:
@@ -673,6 +764,30 @@ async def start_run(
         firm["company_ref"] not in rows for firm in checked_request.get("employers", [])
     ):
         raise ValueError("Potwierdzona firma Cognism nie należy do biegu.")
+    schema = grok_webhook.schema_for(bot)
+    if (
+        schema == grok_webhook.V1
+        and bot == bots.RESEARCH
+        and len(rows) > V1_RESEARCH_MAX_FIRMS
+    ):
+        ids = sorted(rows)
+        first: Optional[SalesSignalRun] = None
+        for start in range(0, len(ids), V1_RESEARCH_MAX_FIRMS):
+            part = ids[start : start + V1_RESEARCH_MAX_FIRMS]
+            started = await start_run(
+                db,
+                kind,
+                part,
+                now=moment,
+                modes={cid: modes[cid] for cid in part if cid in modes}
+                if modes
+                else None,
+                client=client,
+                request=_part_request(checked_request, part),
+                requested_by_user_id=requested_by_user_id,
+            )
+            first = first or started
+        return first
     run, token = new_run(
         kind,
         list(rows),
@@ -683,35 +798,28 @@ async def start_run(
     )
     db.add(run)
     await db.flush()
-    # Haczyk i research do oceny potencjału nie potrzebują odrzuconych leadów.
-    only_hooks = kind == "briefing" and all(
-        (modes or {}).get(cid) in (CALL_HOOK, POTENTIAL) for cid in rows
-    )
-    feedback = (
-        await _feedback(db, list(rows))
-        if task.lead_feedback and not only_hooks
-        else {"rejected": [], "seen_urls": []}
-    )
-    body = webhook_body(run, token, [rows[cid] for cid in sorted(rows)], feedback)
+    if schema == grok_webhook.V2:
+        body = webhook_envelope(run, token)
+    else:
+        feedback = await run_feedback(db, run, schema=schema)
+        body = webhook_body(run, token, [rows[cid] for cid in sorted(rows)], feedback)
     await db.commit()
     run_id = run.id
-    headers = {"Authorization": f"Bearer {webhook_key}"}
-    error: Optional[str] = None
-    try:
-        if client is None:
-            async with httpx.AsyncClient(timeout=20.0) as own:
-                response = await own.post(webhook_url, json=body, headers=headers)
-        else:
-            response = await client.post(webhook_url, json=body, headers=headers)
-        response.raise_for_status()
-    except httpx.TimeoutException:
+    outcome = await grok_webhook.post(
+        webhook_url,
+        webhook_key,
+        body,
+        client=client,
+        channel="sales",
+        run_id=run_id,
+        kind=kind,
+        routine=bot,
+    )
+    if outcome.timed_out:
         # Nie wiadomo, czy bot dostał zlecenie: bieg zostaje otwarty z tokenem,
         # a bez raportu zamknie go ``expire_runs`` po terminie tokenu.
         logger.warning("sales_signals run=%s kind=%s webhook timeout", run_id, kind)
-    except httpx.HTTPStatusError as exc:
-        error = f"webhook HTTP {exc.response.status_code}"
-    except httpx.HTTPError as exc:
-        error = f"webhook {type(exc).__name__}"[:255]
+    error = outcome.error
     if error is not None:
         await _close_open_run(db, run_id, status="failed", error=error)
         logger.warning("sales_signals run=%s kind=%s failed: %s", run_id, kind, error)

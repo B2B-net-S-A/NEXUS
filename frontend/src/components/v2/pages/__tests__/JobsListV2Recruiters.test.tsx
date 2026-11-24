@@ -224,7 +224,7 @@ describe("JobsListV2 — zakres „Moja kategoria”", () => {
     await user.click(scope.getByRole("button", { name: /Moja kategoria/ }));
 
     await waitFor(() => expect(chips.getByRole("button", { name: "Szukamy" })).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: /Po terminie/ })).toHaveTextContent(/^Po terminie$/);
+    expect(screen.getByRole("button", { name: /Termin minął/ })).toHaveTextContent(/^Termin minął$/);
     expect(screen.getByRole("button", { name: /^Bez rekrutera/ })).toHaveTextContent(
       /^Bez rekrutera$/,
     );

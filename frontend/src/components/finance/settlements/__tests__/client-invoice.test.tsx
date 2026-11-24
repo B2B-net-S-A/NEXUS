@@ -72,6 +72,32 @@ describe("Do faktury dla klienta (E5.1)", () => {
     expect(screen.getByRole("button", { name: /Pobierz RCP wystawionych \(0\)/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Pobierz RCP: Jan Testowy" })).toBeEnabled();
   });
+
+  it("osoba z podziałem z maila klienta ma wiersz na każde zamówienie", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const part = (orderId: number, number: string, quantity: string, state: ClientInvoiceRow["state"]): ClientInvoiceRow => ({
+      ...ready,
+      order_id: orderId,
+      order_number: number,
+      state,
+      invoice_number: state === "issued" ? "155/11/2026" : null,
+      positions: [{ name: `Usługi; ${number}`, unit: "MD", quantity, unit_price: "800.00", net: "0.00", kind: "base", currency: "PLN" }],
+    });
+    renderView({
+      client_id: 7,
+      client_name: "Klient Testowy",
+      month: "2026-10",
+      can_see_amounts: true,
+      rows: [part(11, "4500011111", "5", "ready"), part(12, "4500022222", "17", "issued")],
+    });
+    expect(await screen.findByText("4500011111")).toBeInTheDocument();
+    expect(screen.getByText("4500022222")).toBeInTheDocument();
+    expect(screen.getByText(/Usługi; 4500011111 · 5 MD/)).toBeInTheDocument();
+    expect(screen.getByText(/Usługi; 4500022222 · 17 MD/)).toBeInTheDocument();
+    expect(screen.getByText(/1 do wystawienia, 1 wystawione/)).toBeInTheDocument();
+    expect(errors.mock.calls.some((call) => String(call[0]).includes("same key"))).toBe(false);
+    errors.mockRestore();
+  });
 });
 
 describe("Do faktury dla klienta z T4T (Nordea)", () => {
