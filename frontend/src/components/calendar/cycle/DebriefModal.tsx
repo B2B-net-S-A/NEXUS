@@ -47,6 +47,7 @@ export function DebriefModal({
       title={eventId == null ? "Pytania z rozmowy u klienta" : "Debrief po rozmowie u klienta"}
       description={pair ? `${candidateLabel(pair)} · ${pairContext(pair)}` : undefined}
       interviewStart={interviewStart}
+      candidatePhone={pair?.candidate_phone}
       readOnly={readOnly}
     />
   );

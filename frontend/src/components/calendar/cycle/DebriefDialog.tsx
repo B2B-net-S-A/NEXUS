@@ -2,12 +2,14 @@
 
 import * as React from "react";
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, X } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
+import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { DebriefFromNote } from "@/components/calendar/cycle/DebriefFromNote";
 import { useToast } from "@/components/Toast";
+import { api } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { callToastKey, debriefOpened } from "@/lib/interview-notifications";
 import { interviewCycleApi, useDebrief, useInterviewEvent } from "@/lib/api/interviewCycle";
@@ -34,6 +36,7 @@ import {
   type RateNegotiable,
 } from "@/lib/rate-change";
 import { cn } from "@/lib/utils";
+import { CandidateContactLine } from "./CandidateContactLine";
 
 const OUTCOMES: DebriefOutcome[] = ["good", "medium", "bad"];
 const OFFERS: OfferAcceptance[] = ["yes", "likely", "no", "unknown"];
@@ -108,6 +111,7 @@ export function DebriefDialog({
   readOnly = false,
   pair = null,
   initialQuestions,
+  candidatePhone,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -128,6 +132,12 @@ export function DebriefDialog({
   pair?: { candidateId: number; jobId: number } | null;
   /** Pytania dołożone do listy przy otwarciu (np. z notatki). */
   initialQuestions?: string[];
+  /**
+   * Numer do telefonu po rozmowie — na górze okna (prośba zespołu 24.11.2026).
+   * `undefined` = wołający go nie zna (bramka na tablicy): okno czyta go
+   * z profilu kandydata, ze wspólnego cache z panelem osoby.
+   */
+  candidatePhone?: string | null;
 }) {
   const toast = useToast();
   const qc = useQueryClient();
@@ -157,6 +167,19 @@ export function DebriefDialog({
     (pairMode ? pair.candidateId : null);
   const pairJobId =
     existing.data?.job_id ?? eventInfo.data?.job_id ?? (pairMode ? pair.jobId : null);
+  // Bramka zna kandydata z góry — numer nie czeka na wczytanie wydarzenia.
+  const phoneCandidateId = pairCandidateId ?? pair?.candidateId ?? null;
+  const candidateLookup = useQuery({
+    queryKey: candidateQueryKeys.detail(phoneCandidateId ?? 0),
+    queryFn: () =>
+      // Ten sam adres i kształt co `candidatesApi.get` w panelu osoby — wspólny cache.
+      api
+        .get<{ phone?: string | null }>(`/api/candidates/${phoneCandidateId as number}`)
+        .then((r) => r.data),
+    enabled: open && candidatePhone === undefined && phoneCandidateId != null,
+    staleTime: 60_000,
+  });
+  const phone = candidatePhone !== undefined ? candidatePhone : (candidateLookup.data?.phone ?? null);
   const rateView = useRateChanges(
     open && !readOnly ? pairCandidateId : null,
     open && !readOnly ? pairJobId : null,
@@ -426,6 +449,11 @@ export function DebriefDialog({
         )
       }
     >
+      {phone?.trim() ? (
+        <div className="mb-4" data-testid="debrief-candidate-phone">
+          <CandidateContactLine phone={phone} email={null} />
+        </div>
+      ) : null}
       {notStarted && start && !readOnly ? (
         <div
           role="status"
