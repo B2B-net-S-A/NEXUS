@@ -219,6 +219,9 @@ _EXEMPT = {
 _EXEMPT_NAMES = {
     ("api/b2b_contract_generator.py", "key"),
     ("services/b2b_contract_generator/docx_renderer.py", "key"),
+    # `key` w `manual_runs` to klucz wiersza `app_settings` ze stałą nazwą biegu
+    # (np. `admin_backfill_progress:cc`), nie klucz magazynu ani osoba.
+    ("core/manual_runs.py", "key"),
     # `path` w tych plikach to ścieżka URL żądania HTTP (trasa API z ID),
     # a w seederze — stały plik szablonu umowy, nie dokument osoby.
     ("api/deps.py", "path"),

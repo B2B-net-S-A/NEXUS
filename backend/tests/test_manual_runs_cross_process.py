@@ -464,6 +464,61 @@ async def test_saved_running_import_without_live_lock_is_interrupted(procs):
     assert exc.value.status_code == 404
 
 
+def _saved_import(task_id: str, status: str) -> dict[str, Any]:
+    return {
+        "task_id": task_id,
+        "kind": "import_talent_radar",
+        "status": status,
+        "started_at": "2026-11-24T10:00:00+00:00",
+        "finished_at": None,
+        "progress": {},
+        "error": None,
+    }
+
+
+async def test_run_finishing_during_the_read_is_not_called_interrupted(
+    procs, monkeypatch
+):
+    """Pierwszy proces kończy bieg między odczytem zapisu a sprawdzeniem blokady.
+
+    Bieg zapisuje stan końcowy, zanim zwolni blokadę, więc kolejność „najpierw
+    blokada, potem zapis” nigdy nie da „przerwany” dla biegu, który się udał
+    (odwrotna dawała końcowy status błędu i ekran importu przestawał odpytywać).
+    """
+    key = adm._LAST_TASK_KEY
+    procs.held.add(adm._RUN)
+    procs.store[key] = _saved_import("abc123", "running")
+    load = manual_runs.load_snapshot
+
+    async def load_then_finish(k: str) -> dict[str, Any] | None:
+        value = await load(k)
+        procs.store[k] = _saved_import("abc123", "done")
+        procs.held.discard(adm._RUN)
+        return value
+
+    monkeypatch.setattr(manual_runs, "load_snapshot", load_then_finish)
+    assert (await adm.get_import_talent_radar_status("abc123", None)).status == (
+        "running"
+    )
+    assert (await adm.get_import_talent_radar_status("abc123", None)).status == ("done")
+
+
+async def test_run_starting_during_the_read_is_not_called_interrupted(
+    procs, monkeypatch
+):
+    load = manual_runs.load_snapshot
+
+    async def start_then_load(k: str) -> dict[str, Any] | None:
+        # Drugi proces startuje między sprawdzeniem blokady a odczytem zapisu.
+        procs.held.add(adm._RUN)
+        procs.store[k] = _saved_import("new123", "running")
+        return await load(k)
+
+    monkeypatch.setattr(manual_runs, "load_snapshot", start_then_load)
+    status = await adm.get_import_talent_radar_status("new123", None)
+    assert status.status == "running"
+
+
 async def test_process_backfill_status_from_other_process(procs, monkeypatch):
     release = asyncio.Event()
 
@@ -486,6 +541,28 @@ async def test_process_backfill_status_from_other_process(procs, monkeypatch):
     with other_process((arp._JOB, {"running": False})):
         status = await arp.process_backfill_status(None)
     assert status["running"] is False and status["finished_at"]
+
+
+async def test_process_status_never_shows_a_stop_without_finish(procs, monkeypatch):
+    key = arp._PROGRESS_KEY
+    procs.held.add(arp._RUN)
+    procs.store[key] = {"running": True, "pairs_seen": 12, "finished_at": None}
+    load = manual_runs.load_snapshot
+
+    async def load_then_finish(k: str) -> dict[str, Any] | None:
+        value = await load(k)
+        procs.store[k] = {
+            "running": False,
+            "pairs_seen": 20,
+            "finished_at": "2026-11-24T12:00:00+00:00",
+        }
+        procs.held.discard(arp._RUN)
+        return value
+
+    monkeypatch.setattr(manual_runs, "load_snapshot", load_then_finish)
+    with other_process((arp._JOB, {"running": False})):
+        status = await arp.process_backfill_status(None)
+    assert status["running"] is True and status["pairs_seen"] == 12
 
 
 async def test_talent_pool_status_from_other_process(procs, monkeypatch):

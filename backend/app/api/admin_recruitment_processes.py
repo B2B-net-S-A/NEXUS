@@ -133,9 +133,11 @@ async def process_backfill_status(_admin: AdminUser) -> dict[str, Any]:
     if _JOB["running"]:
         return dict(_JOB)
     # Bieg z innego procesu albo zakończony: ostatni zapis, `running` z blokady
-    # (zapis „trwa” po procesie, który padł, nie zostaje na zawsze).
+    # (zapis „trwa” po procesie, który padł, nie zostaje na zawsze). Blokada
+    # przed odczytem: bieg zapisuje stan końcowy, zanim ją zwolni.
+    running = await manual_runs.is_running(_RUN)
     out = {**_JOB, **(await manual_runs.load_snapshot(_PROGRESS_KEY) or {})}
-    out["running"] = await manual_runs.is_running(_RUN)
+    out["running"] = running
     return out
 
 

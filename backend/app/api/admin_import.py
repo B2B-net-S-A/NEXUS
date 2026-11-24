@@ -68,17 +68,21 @@ _INTERRUPTED = (
 )
 
 
-async def _settled(task: dict) -> dict:
-    """Zapis „trwa” bez żywej blokady biegu = proces z biegiem już nie żyje."""
-    live = task.get("status") in ("queued", "running")
-    if live and not await manual_runs.is_running(_RUN):
-        return {**task, "status": "error", "error": _INTERRUPTED}
-    return task
-
-
 async def _saved_task() -> Optional[dict]:
+    """Ostatnie zadanie z ``app_settings``; „trwa” bez blokady biegu = przerwane.
+
+    Blokada przed odczytem: bieg zapisuje stan końcowy, zanim ją zwolni, więc
+    wolna blokada i „trwa” w zapisie znaczą proces, który padł. Drugie
+    sprawdzenie łapie bieg, który ruszył między pierwszym a odczytem.
+    """
+    held = await manual_runs.is_running(_RUN)
     saved = await manual_runs.load_snapshot(_LAST_TASK_KEY)
-    return await _settled(saved) if saved and saved.get("task_id") else None
+    if not saved or not saved.get("task_id"):
+        return None
+    live = saved.get("status") in ("queued", "running")
+    if live and not held and not await manual_runs.is_running(_RUN):
+        return {**saved, "status": "error", "error": _INTERRUPTED}
+    return saved
 
 
 def _new_task(kind: str) -> str:

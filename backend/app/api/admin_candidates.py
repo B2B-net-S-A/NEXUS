@@ -161,9 +161,11 @@ async def _status_with_saved(
     cursor_key: str,
     params: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
+    # Blokada przed odczytem: bieg zapisuje postęp końcowy, zanim ją zwolni.
+    elsewhere = not job.get("running") and await manual_runs.is_running(_run_name(name))
     saved = await _load_progress(name)
     out = dict(job)
-    if not job.get("running") and await manual_runs.is_running(_run_name(name)):
+    if elsewhere:
         # Bieg trwa w innym procesie: postęp z jego ostatniego zapisu.
         out.update(saved or {})
         out["running"] = True
