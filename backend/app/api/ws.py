@@ -36,6 +36,7 @@ from app.core.security import (
     token_is_revoked,
 )
 from app.models.user import User
+from app.services import loop_heartbeat
 from app.services.notification_access import user_can_receive_realtime_event
 from app.services.notification_topics import enrich_realtime_event
 from app.services.section_permissions import resolve_effective_section_access
@@ -582,10 +583,16 @@ async def presence_sync_loop() -> None:
     """
     if not _fan_out():
         return
+    # Rejestracja dopiero tu: przy jednym procesie web pętla kończy się od razu.
+    beat = loop_heartbeat.register(
+        "presence_sync", max_silence_seconds=PRESENCE_HEARTBEAT_SECONDS * 6
+    )
+    beat.tick()
     # Najpierw własny LISTEN (pętla ``process_bus``), inaczej odpowiedzi przepadną.
     await asyncio.sleep(_PRESENCE_SYNC_DELAY_SECONDS)
     await process_bus.publish(_WS_PRESENCE_SYNC, {})
     while True:
+        beat.tick()
         await asyncio.sleep(PRESENCE_HEARTBEAT_SECONDS)
         try:
             await manager.publish_presence_snapshot()
