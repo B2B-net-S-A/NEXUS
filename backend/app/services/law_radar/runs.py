@@ -9,7 +9,12 @@ zlecenie), błąd HTTP zamyka go jako ``failed``.
 
 Dwa boty, dwie rutyny: Zbieracz (``collect``) i Analityk (``analyze``), każdy
 z własnym adresem i kluczem webhooka. Żaden nie ma stałego klucza do NEXUSA.
-Logi są publiczne: same liczby.
+
+Webhook v2 (Analityk od 17.11, Zbieracz od 24.11.2026, ``services/grok_webhook``)
+niesie samą kopertę z ``request_url``; zlecenie bot pobiera GET-em. Wersję
+zapisujemy w zleceniu biegu (``_schema_version``), bo raport Analityka v2 musi
+potwierdzić wszystkie pozycje. Rutyna z ``GROK_BOT_WEBHOOK_V1`` dostaje dawną
+treść z całym zleceniem. Logi są publiczne: same liczby.
 """
 
 from __future__ import annotations
@@ -25,17 +30,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.law_radar import LawRadarRun
+from app.services import grok_webhook
 from app.services.law_radar import analyze, collect, schema
 from app.services.sales.signals import hash_token, token_matches
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
-ANALYZE_FETCH_VERSION = 2
+SCHEMA_VERSION = grok_webhook.V1
+FETCH_SCHEMA_VERSION = grok_webhook.V2
 TOKEN_TTL = timedelta(hours=2)
-WEBHOOK_TIMEOUT_SECONDS = 20.0
 INVALID_TOKEN_DETAIL = "Nieważny token biegu."
 KINDS = schema.RUN_KINDS
+#: Nazwa rutyny rodzaju w ``GROK_BOT_WEBHOOK_V1``.
+ROUTINES: dict[str, str] = {
+    collect.KIND: grok_webhook.LAW_COLLECT,
+    analyze.KIND: grok_webhook.LAW_ANALYZE,
+}
 
 __all__ = [
     "INVALID_TOKEN_DETAIL",
@@ -46,6 +56,7 @@ __all__ = [
     "hash_token",
     "mark_received",
     "new_run",
+    "request_body",
     "start_run",
     "token_matches",
     "webhook",
@@ -89,8 +100,8 @@ def new_run(
         raise ValueError("Nieznany rodzaj biegu radaru.")
     token = secrets.token_urlsafe(32)
     stored_request = dict(request)
-    if kind == analyze.KIND:
-        stored_request["_schema_version"] = ANALYZE_FETCH_VERSION
+    if grok_webhook.schema_for(ROUTINES[kind]) == FETCH_SCHEMA_VERSION:
+        stored_request["_schema_version"] = FETCH_SCHEMA_VERSION
     run = LawRadarRun(
         kind=kind,
         status="started",
@@ -110,37 +121,59 @@ def callback_url(run_id: int) -> str:
     return f"{base}/api/integrations/law-radar/runs/{run_id}"
 
 
+def uses_request_fetch(run: LawRadarRun) -> bool:
+    """Bieg v2: zlecenie dostępne GET-em na ``request_url``."""
+
+    return (run.request or {}).get("_schema_version") == FETCH_SCHEMA_VERSION
+
+
 def uses_analyze_request_fetch(run: LawRadarRun) -> bool:
-    return (
-        run.kind == analyze.KIND
-        and (run.request or {}).get("_schema_version") == ANALYZE_FETCH_VERSION
-    )
+    """Analityk v2: raport musi potwierdzić wszystkie pozycje zlecenia."""
+
+    return run.kind == analyze.KIND and uses_request_fetch(run)
 
 
-def analyze_request_body(run: LawRadarRun) -> dict[str, Any]:
-    """Pełne, zapisane zlecenie, pobierane osobno po starcie Analityka."""
+def _order(run: LawRadarRun) -> dict[str, Any]:
+    """Polecenie, kształt raportu i zlecenie biegu (bez znacznika wersji)."""
 
     request = {
-        key: value for key, value in run.request.items() if key != "_schema_version"
+        key: value
+        for key, value in (run.request or {}).items()
+        if key != "_schema_version"
     }
+    module = collect if run.kind == collect.KIND else analyze
+    report_format = module.report_format()
+    if uses_analyze_request_fetch(run):
+        report_format = {**report_format, "reviewed_item_ids": [1]}
     return {
-        "task": analyze.task_text(request),
-        "report_format": {
-            **analyze.report_format(),
-            "reviewed_item_ids": [1],
-        },
+        "task": module.task_text(request),
+        "report_format": report_format,
         "request": request,
     }
 
 
+def request_body(run: LawRadarRun) -> dict[str, Any]:
+    """Odpowiedź ``GET request_url``: pełne, zapisane zlecenie biegu bez tokenu."""
+
+    return {
+        "run_id": run.id,
+        "kind": run.kind,
+        **_order(run),
+        "callback_url": callback_url(run.id),
+        "expires_at": run.token_expires_at.isoformat()
+        if run.token_expires_at
+        else None,
+    }
+
+
 def webhook_body(run: LawRadarRun, token: str) -> dict[str, Any]:
-    """Treść dla bota. Analityk pobiera duże zlecenie osobnym GET-em.
+    """Treść webhooka: w v2 sama koperta, w zapasie v1 całe zlecenie."""
 
-    Zbieracz nadal dostaje polecenie, zlecenie i kształt raportu w webhooku.
-    """
-
-    address = callback_url(run.id)
-    envelope = {
+    if uses_request_fetch(run):
+        return grok_webhook.envelope(
+            run.id, callback_url(run.id), token, run.token_expires_at
+        )
+    return {
         "schema_version": SCHEMA_VERSION,
         "run_id": run.id,
         "kind": run.kind,
@@ -148,27 +181,8 @@ def webhook_body(run: LawRadarRun, token: str) -> dict[str, Any]:
         "expires_at": run.token_expires_at.isoformat()
         if run.token_expires_at
         else None,
-        "callback_url": address,
-    }
-    if uses_analyze_request_fetch(run):
-        return {
-            **envelope,
-            "schema_version": ANALYZE_FETCH_VERSION,
-            "request_url": address,
-            "task": (
-                "GET request_url z nagłówkiem X-Run-Token: token. Użyj otrzymanego task, "
-                "report_format i request. Po przejrzeniu wszystkich request.items wyślij "
-                "jeden POST JSON na callback_url z tym samym nagłówkiem i reviewed_item_ids "
-                "zawierającym każde przejrzane id, także gdy changes jest puste."
-            ),
-        }
-    request = dict(run.request or {})
-    module = collect if run.kind == collect.KIND else analyze
-    return {
-        **envelope,
-        "task": module.task_text(request),
-        "report_format": module.report_format(),
-        "request": request,
+        "callback_url": callback_url(run.id),
+        **_order(run),
     }
 
 
@@ -207,23 +221,21 @@ async def start_run(
     body = webhook_body(run, token)
     await db.commit()
     run_id = run.id
-    headers = {"Authorization": f"Bearer {webhook_key}"}
-    error: Optional[str] = None
-    try:
-        if client is None:
-            async with httpx.AsyncClient(timeout=WEBHOOK_TIMEOUT_SECONDS) as own:
-                response = await own.post(webhook_url, json=body, headers=headers)
-        else:
-            response = await client.post(webhook_url, json=body, headers=headers)
-        response.raise_for_status()
-    except httpx.TimeoutException:
+    outcome = await grok_webhook.post(
+        webhook_url,
+        webhook_key,
+        body,
+        client=client,
+        channel="law_radar",
+        run_id=run_id,
+        kind=kind,
+        routine=ROUTINES[kind],
+    )
+    if outcome.timed_out:
         # Nie wiadomo, czy bot dostał zlecenie: bieg zostaje otwarty z tokenem,
         # a bez raportu zamknie go ``expire_runs`` po terminie tokenu.
         logger.warning("law_radar run=%s kind=%s webhook timeout", run_id, kind)
-    except httpx.HTTPStatusError as exc:
-        error = f"webhook HTTP {exc.response.status_code}"
-    except httpx.HTTPError as exc:
-        error = f"webhook {type(exc).__name__}"[:255]
+    error = outcome.error
     if error is not None:
         await _close_open_run(db, run_id, status="failed", error=error)
         logger.warning("law_radar run=%s kind=%s failed: %s", run_id, kind, error)

@@ -1,5 +1,5 @@
 # Przepisy: radar zmian w prawie, dwa Grok Boty i bramka NEXUSA
-<!-- indeks: Przepisy, /compliance, radar przepisów, law_radar, Zbieracz law collect, Analityk law analyze, bramka API Sejmu ELI, sondy u nas, strażnicy, LEX kontem księgowej, Gofin kontem księgowej, gofin_skipped, LAW_RADAR_ENABLED, GROK_BOT_LAW_COLLECT_WEBHOOK, GROK_BOT_LAW_ANALYZE_WEBHOOK, bez maili -->
+<!-- indeks: Przepisy, /compliance, radar przepisów, law_radar, Zbieracz law collect, Analityk law analyze, bramka API Sejmu ELI, sondy u nas, strażnicy, LEX kontem księgowej, Gofin kontem księgowej, gofin_skipped, LAW_RADAR_ENABLED, GROK_BOT_LAW_COLLECT_WEBHOOK, GROK_BOT_LAW_ANALYZE_WEBHOOK, bez maili, webhook v2 request_url obu rutyn -->
 
 Decyzje Artura z 15.11.2026. Propozycja i makiety ze stagingu:
 https://claude.ai/artifact/KuKN54kXDHXNVqeHdrGyL4 (wersja 5 z diagramem przepływu).
@@ -30,6 +30,15 @@ ma setki kontraktów B2B, KSeF i płace w NEXUSIE.
 Boty nie rozmawiają ze sobą bezpośrednio: bramka stoi między nimi, więc
 Analityk nie analizuje wymyślonego aktu, a żaden bot nie ma stałego klucza do
 NEXUSA ani do drugiego bota.
+
+**Webhook v2 obu rutyn (24.11.2026; Analityk od 17.11):** treść webhooka to
+sama koperta (`schema_version` 2, `run_id`, `request_url`, `token`,
+`expires_at`), a zlecenie (`task`, `report_format`, `request`, `callback_url`)
+bot pobiera `GET /api/integrations/law-radar/runs/{id}` z `X-Run-Token`. Wersja
+leży w zleceniu biegu (`_schema_version`); bieg v1 nie ma GET (401). Zapas:
+`GROK_BOT_WEBHOOK_V1=law_collect` (albo `law_analyze`) daje rutynie dawną
+treść. Wspólne zasady, log `bot_webhook … bytes=… response=…` i pusta treść
+raportu jako 422: `sprzedaz/sygnaly-grok-bot.md`, sekcja „Webhook v2”.
 
 ## Co idzie do botów
 

@@ -328,7 +328,16 @@ def test_plan_keeps_hooks_only_for_call_hook_firms_once_and_with_fresh_facts() -
     ).hooks
     rows, dropped = call_hook.plan_hooks(run, hooks, today=TODAY)
     assert [row["company_id"] for row in rows] == [1]
-    assert dropped == 4
+    # Bieg 764 odrzucił 1 z 3 haczyków bez powodu: każdy odrzucony ma kod i opis.
+    assert [(item["company_ref"], item["reason"]) for item in dropped] == [
+        (1, "duplicate"),
+        (2, "not_call_hook_firm"),
+        (3, "facts_outside_window"),
+        (9, "not_call_hook_firm"),
+    ]
+    assert all(
+        item["detail"] == call_hook.DROP_REASONS[item["reason"]] for item in dropped
+    )
     assert rows[0]["payload"]["facts"][0] == {
         "text": "Firma wdrożyła asystenta AI",
         "url": "https://example.com/ai",
@@ -365,7 +374,7 @@ async def test_briefing_ingest_keeps_points_of_hook_firms_out_of_briefings(
         None, run, report, datetime.now(timezone.utc)
     )
     assert seen == {"refs": [2], "saved": ("call_hook", [1])}
-    assert (summary["hooks"], summary["hooks_dropped"]) == (1, 0)
+    assert (summary["hooks"], summary["hooks_dropped"]) == (1, [])
     assert summary["hook_covered_company_ids"] == [1]
     assert summary["hook_missing"] == 0
 

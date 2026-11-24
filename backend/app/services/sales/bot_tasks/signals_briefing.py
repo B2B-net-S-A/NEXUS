@@ -258,6 +258,7 @@ def _reply(summary: dict[str, Any]) -> dict[str, Any]:
         "leads": summary["leads"],
         "leads_new": summary["leads_new"],
         "briefings": summary["briefings"],
+        "briefings_no_news": summary.get("briefings_no_news", 0),
         "dropped": {
             "outside_window": len(dropped["outside_window"]),
             "nexus_clients": len(dropped["nexus_clients"]),

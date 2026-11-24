@@ -17,7 +17,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.sales import SalesBotResult, SalesCompany, SalesSignalRun
 from app.services.sales.bot_tasks import enrich
 from tests.test_sales_companies_api import _headers, _user
-from tests.test_sales_signals_api import URL, _company, _run
+from tests.test_sales_signals_api import URL, _company, _order, _run
 
 COMPANIES = "/api/sales/companies"
 RESULTS = "/api/sales/bot-results"
@@ -78,9 +78,10 @@ async def test_ask_round_trip_shows_pending_then_answer(app_client, bot_on) -> N
     )
     assert body["asked_by"]["id"] == editor.id
     [webhook] = bot_on
-    assert webhook["kind"] == "question"
-    assert webhook["request"] == {"question": "Czy mają centrum IT w Polsce?"}
-    assert [firm["ref"] for firm in webhook["firms"]] == [company]
+    order = await _order(app_client, webhook)
+    assert order["kind"] == "question"
+    assert order["request"] == {"question": "Czy mają centrum IT w Polsce?"}
+    assert [firm["ref"] for firm in order["firms"]] == [company]
 
     viewer = await _user("sales_view")
     pending = (
@@ -214,7 +215,8 @@ async def test_enrich_button_starts_once_per_two_hours(app_client, bot_on) -> No
     )
     assert first.status_code == 200, first.text
     assert first.json()["run"]["status"] == "started"
-    assert bot_on[0]["kind"] == "enrich" and bot_on[0]["request"] == {}
+    order = await _order(app_client, bot_on[0])
+    assert order["kind"] == "enrich" and order["request"] == {}
     again = await app_client.post(
         f"{COMPANIES}/{company}/enrich", headers=_headers(editor)
     )

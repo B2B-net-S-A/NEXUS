@@ -240,15 +240,21 @@ async def test_gate_then_analyst_gets_only_items_that_passed(app_client, monkeyp
     assert gates == {"ok": "verified", "bad": "rejected", "none": "unverified"}
     assert result["analyze_run_id"] is not None and len(sent) == 1
     trigger = sent[0]
+    assert set(trigger) == {
+        "schema_version",
+        "run_id",
+        "request_url",
+        "token",
+        "expires_at",
+    }
     assert trigger["schema_version"] == 2
-    assert trigger["request_url"] == trigger["callback_url"]
     assert trigger["request_url"].endswith(f"/runs/{result['analyze_run_id']}")
-    assert "request" not in trigger and "report_format" not in trigger
     assert len(json.dumps(trigger, ensure_ascii=False).encode()) < 2048
     fetched = await app_client.get(
         f"{URL}/{result['analyze_run_id']}", headers={"X-Run-Token": trigger["token"]}
     )
     assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["callback_url"] == trigger["request_url"]
     request = fetched.json()["request"]
     titles = {item["title"] for item in request["items"]}
     assert f"Ustawa {tag}-ok" in titles and f"Ustawa {tag}-none" in titles
@@ -257,7 +263,6 @@ async def test_gate_then_analyst_gets_only_items_that_passed(app_client, monkeyp
         i for i in request["items"] if i["title"] == f"Ustawa {tag}-ok"
     )
     assert verified["entry_into_force"] == "2027-01-01"
-    assert sent[0]["callback_url"].endswith(f"/runs/{result['analyze_run_id']}")
     await _close_open_analyze()
 
 

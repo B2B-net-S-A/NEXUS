@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 
 import pytest
 from sqlalchemy import select
@@ -24,6 +25,15 @@ from app.services.sales.merge import merge_companies
 from tests.test_sales_companies_api import _headers, _user
 
 URL = "/api/integrations/sales-signals/runs"
+
+
+async def _order(app_client, envelope: dict) -> dict:
+    """Zlecenie z ``request_url`` webhooka v2, pobrane tak jak robi to bot."""
+
+    path = urlsplit(envelope["request_url"]).path
+    fetched = await app_client.get(path, headers={"X-Run-Token": envelope["token"]})
+    assert fetched.status_code == 200, fetched.text
+    return fetched.json()
 
 
 async def _company(name: str, **fields) -> int:

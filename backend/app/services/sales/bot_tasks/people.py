@@ -32,7 +32,7 @@ import dataclasses
 import logging
 import re
 from datetime import date, datetime, timedelta
-from typing import Any, Literal, Optional, Sequence
+from typing import Any, Literal, Optional, Sequence, get_args
 from urllib.parse import quote, unquote_to_bytes, urlsplit
 
 from pydantic import (
@@ -1049,6 +1049,27 @@ CognismBlockedReason = Literal[
 ]
 
 
+_BLANK_MARKERS = frozenset({"", "null", "none"})
+
+
+def _blank_to_none(value: Any) -> Any:
+    """``""``, ``"null"`` i ``"none"`` z szablonu formatu znaczą brak wartości."""
+
+    if isinstance(value, str) and value.strip().lower() in _BLANK_MARKERS:
+        return None
+    return value
+
+
+def _lenient_reason(value: Any) -> Any:
+    """Pusty albo nieznany powód nie odrzuca raportu: firma zostaje niesprawdzona."""
+
+    value = _blank_to_none(value)
+    if isinstance(value, str):
+        value = value.strip()
+        return value if value in get_args(CognismBlockedReason) else None
+    return value
+
+
 class CognismFirm(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -1060,6 +1081,23 @@ class CognismFirm(BaseModel):
     people: list[CognismPerson] = Field(
         default_factory=list, max_length=COGNISM_MAX_PEOPLE
     )
+
+    # Pusty raport ``not_processed`` (bot nie wszedł do Cognism) przychodzi z ``""``
+    # albo ``null`` w polach, których nie ustalił; to brak wartości, nie błąd.
+    @field_validator("company_name", "company_domain", mode="before")
+    @classmethod
+    def _blank_text(cls, value: Any) -> Any:
+        return _blank_to_none(value)
+
+    @field_validator("blocked_reason", mode="before")
+    @classmethod
+    def _reason(cls, value: Any) -> Any:
+        return _lenient_reason(value)
+
+    @field_validator("people", mode="before")
+    @classmethod
+    def _no_people(cls, value: Any) -> Any:
+        return [] if value is None else value
 
     @model_validator(mode="after")
     def _consistent_outcome(self) -> "CognismFirm":
@@ -1073,9 +1111,30 @@ class CognismFirm(BaseModel):
 
 
 class CognismReport(BaseModel):
+    """Raport biegu Cognism. Pusty raport ``not_processed`` (np. sesja wygasła
+    przed pierwszą firmą) może nie mieć firm albo mieć tylko ``status``
+    i ``blocked_reason`` całego biegu: wszystkie firmy zostają niesprawdzone."""
+
     model_config = ConfigDict(extra="forbid")
 
-    firms: list[CognismFirm] = Field(max_length=COGNISM_MAX_FIRMS)
+    status: Optional[Literal["not_processed"]] = None
+    blocked_reason: Optional[CognismBlockedReason] = None
+    firms: list[CognismFirm] = Field(default_factory=list, max_length=COGNISM_MAX_FIRMS)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _blank_status(cls, value: Any) -> Any:
+        return _blank_to_none(value)
+
+    @field_validator("blocked_reason", mode="before")
+    @classmethod
+    def _reason(cls, value: Any) -> Any:
+        return _lenient_reason(value)
+
+    @field_validator("firms", mode="before")
+    @classmethod
+    def _no_firms(cls, value: Any) -> Any:
+        return [] if value is None else value
 
 
 class CognismMapPerson(BaseModel):
@@ -1560,6 +1619,10 @@ async def _ingest_cognism(
             changes = await contact_sync.sync(db, cid, seen_people, now=now)
             await contact_sync.record(db, run, cid, contact_sync.COGNISM, changes, now)
             contact_changes += len(changes)
+    if report.blocked_reason is not None:
+        # Powód całego biegu dla firm, których bot nie opisał osobno.
+        for cid in sorted(allowed - processed - ambiguous):
+            firm_issues.setdefault(str(cid), report.blocked_reason)
     return {
         "firms": len(allowed),
         "processed": len(processed),
