@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Iterable, Optional
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 #: Kontrakt „świadczył usługi” w okresie: podpisany (bez szkiców i czekających
@@ -72,12 +72,12 @@ _NEIGHBOURS_SQL = text(
     SELECT DISTINCT k.candidate_id, k.end_date = :before AS before_period
       FROM contracts k
      WHERE k.client_id = :client_id
-       AND k.candidate_id IN :candidate_ids
+       AND k.candidate_id = ANY(:candidate_ids)
        AND k.voided_at IS NULL
        AND k.status::text IN ('active', 'ending', 'ended')
        AND (k.end_date = :before OR k.start_date = :after)
     """
-).bindparams(bindparam("candidate_ids", expanding=True))
+)
 
 
 async def continuing_people(
