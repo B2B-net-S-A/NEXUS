@@ -18,7 +18,7 @@
       },
       {
         "q": "Co pokazuje status requestu?",
-        "a": "Każda rekrutacja ma jeden stan. „Do uzupełnienia” — stary szkic sprzed 04.10.2026; nowych szkiców nie ma. „Do przejrzenia” — nikt nie zdecydował, czy nad nią pracujemy. „Szukamy” trwa do wskazania championów albo do terminu. „Po terminie” — termin minął, a nikt nie zdecydował: Delivery Lead nad Tablicą wpisuje nowy termin od klienta, ustawia „Klient milczy” albo zamyka. „Umowa” — ktoś jest na etapie umowy. „Klient milczy” — klient nie odpowiada. Kilka stanów naraz pokazuje rekrutacje w którymkolwiek z nich.",
+        "a": "Każda rekrutacja ma jeden stan. „Do uzupełnienia” — stary szkic sprzed 04.10.2026. „Do przejrzenia” — nikt nie zdecydował, czy nad nią pracujemy. „Szukamy” — do championów albo terminu. „Po terminie” — termin minął; DL wpisuje nowy, „Klient milczy” albo zamyka. „Umowa” — ktoś jest na etapie umowy. „Klient milczy” — klient nie odpowiada.",
         "anchor": "jobs.list.status"
       },
       {

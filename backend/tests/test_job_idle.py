@@ -432,7 +432,7 @@ async def test_sweep_rings_the_lead_once_per_deadline_when_searching_is_overdue(
     app_client: AsyncClient,
 ) -> None:
     """24.11.2026: „Szukamy” po terminie → jeden dzwonek do DL na termin."""
-    from sqlalchemy import select, update
+    from sqlalchemy import delete, select, update
 
     from app.core.database import AsyncSessionLocal
     from app.core.scheduling import business_today
@@ -469,7 +469,18 @@ async def test_sweep_rings_the_lead_once_per_deadline_when_searching_is_overdue(
     assert any("pytest-idle" in m and "Termin minął" in m for m in bells)
     assert (await _sweep(job_id))[job_idle.OVERDUE_STAGE] == 0
 
-    # Nowy termin, który też minął = nowy cykl.
+    # Nowy termin, który też minął = nowy cykl. Dzwonek z poprzedniego cyklu
+    # usuwamy, bo dobowy dedup `emit` (ta sama osoba, typ i rekrutacja)
+    # zjadłby drugi wpis tego samego dnia — w pracy nowy cykl to inny dzień.
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(Notification).where(
+                Notification.user_id == lead_id,
+                Notification.notification_type
+                == NotificationType.request_review_needed,
+            )
+        )
+        await db.commit()
     await set_deadline(1)
     assert (await _sweep(job_id))[job_idle.OVERDUE_STAGE] == 1
 
