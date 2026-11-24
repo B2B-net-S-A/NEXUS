@@ -986,7 +986,12 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          # Vitest od 5.1 liczy `--changed` przez `git diff BASE...HEAD`
+          # (merge-base). Checkout ma depth=1, więc commit scalenia PR-a stoi
+          # bez rodziców i git zgłasza „no merge base” (24.11.2026, grupa
+          # zależności #3828). Depth=2 dociąga rodziców commita scalenia,
+          # a baza PR-a jest jednym z nich.
+          git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
           npx vitest run --changed "$BASE_SHA" --passWithNoTests
           # Strażnicy całego repo: czytają drzewo (okruszki, inwentarze funkcji,
           # harnessy, natywne confirm), więc `--changed` ich nie wybiera, gdy PR
