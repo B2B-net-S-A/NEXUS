@@ -180,6 +180,13 @@ przekroczenia. Od 24.11.2026 `rebate.year_rebate` dolicza je z archiwum
   jak przy fakturach z KSeF. Dziś raport ma tylko rytm roczny, ale okres może kiedyś objąć dwa lata (rok
   umowy). Ostrzeżenie o niepełnym okresie liczy od najwcześniejszej faktury z KSeF albo z archiwum.
   Nieczytelne pliki trafiają do kontroli raportu. Test: `tests/test_client_reports_annual_spend_db.py`.
+- Raport „Marża per konsultant” (`client_reports/generators/margin_per_consultant.py`) bierze stawkę rabatu
+  z obrotu roku od 1 stycznia do końca okresu, a najpóźniej do dnia generowania. Od 24.11.2026 dolicza do
+  tego obrotu te same faktury z archiwum, tym samym `annual_spend.archive_invoices`. Bez nich stawka
+  w marży wychodziła za niska. Ostrzeżenie o niepełnym roku i tempo roku (`run_rate`) liczą od
+  najwcześniejszej faktury z KSeF albo z archiwum. Kontrole o archiwum (ile faktur weszło do obrotu, ile
+  plików jest nieczytelnych) mają w obu raportach ten sam tekst z `annual_spend.archive_checks`. Test:
+  `tests/test_client_reports_margin_db.py`.
 - Sprawdzenie na kopii produkcji 24.11.2026: obrót I–III z kodu równa się co do grosza osobnemu
   przeliczeniu plików eBI24. Miesiąc przekroczenia progu, stawka faktur za następny miesiąc i kwota
   korekty wychodzą tak samo jak w tym przeliczeniu.

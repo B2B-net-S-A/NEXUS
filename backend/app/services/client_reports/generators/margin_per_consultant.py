@@ -10,8 +10,9 @@ Wzór z modelu marży Nordei (raport H1 2026, sprawdzony co do złotówki na
 * ``po rabacie E = D × (1 − rabat)``, rabat = stawka efektywna roku: domyślnie
   progowo, od nadwyżki (obrót do progu po niższej stawce, część ponad progiem
   po wyższej — umowa ramowa Nordei, Appendix 6; decyzja Artura 16.11.2026);
-  obrót z faktur sprzedaży od 1 stycznia do końca okresu, inne waluty kursem
-  NBP jak w „Rabacie od obrotu”;
+  obrót z faktur sprzedaży od 1 stycznia do końca okresu razem z fakturami
+  sprzed KSeF z archiwum eBI24 (od 24.11.2026), inne waluty kursem NBP — jak
+  w „Rabacie od obrotu”;
 * marża osoby ``(E − Cost) ÷ E``, portfela ``(ΣE − ΣCost) ÷ ΣE``, każda osoba
   raz (bez ważenia godzinami, jak w H1).
 
@@ -35,9 +36,11 @@ from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.rate_card import RateCard
 from app.services.client_reports.generators.annual_spend import (
+    archive_checks,
+    archive_invoices,
     compute_rebate,
+    earliest_invoice,
     exclude_words_for,
-    first_invoice_date,
     incomplete_from,
     rate_text,
     turnover_checks,
@@ -246,11 +249,14 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
 
     year_start = date(period.end.year, 1, 1)
     until = min(period.end, ctx.today)
-    invoices = await sales_invoices(
+    # Obrót roku jak w „Rabacie od obrotu”: KSeF po miesiącu usługi, faktury
+    # sprzed KSeF z archiwum eBI24 po miesiącu daty sprzedaży.
+    ksef = await sales_invoices(
         db, ctx.client_id, year_start, until, by_service_month=True
     )
+    archived, unreadable = await archive_invoices(db, ctx.client_id, year_start, until)
     words = await exclude_words_for(db, ctx.client_id)
-    turnover = await turnover_in(db, invoices, currency, words)
+    turnover = await turnover_in(db, [*archived, *ksef], currency, words)
     marginal = bool(param(ctx, GENERATOR, "marginal"))
     rebate_percent = year_rebate_percent(turnover.amount, tiers, marginal=marginal)
 
@@ -284,11 +290,14 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
     if not tiers:
         checks.append("Definicja nie ma progów rabatu — marża liczona bez rabatu.")
     checks += turnover_checks(turnover, words)
-    first = await first_invoice_date(db, ctx.client_id)
+    checks += archive_checks(archived, unreadable)
+    first = await earliest_invoice(db, ctx.client_id, archived)
     if first is not None and incomplete_from(first, year_start):
+        source = "KSeF i archiwum eBI24" if archived else "KSeF"
+        fill = "KSeF albo archiwum eBI24" if archived else "KSeF"
         checks.append(
-            f"Faktury z KSeF są w NEXUSIE od {first:%d.%m.%Y} — obrót roku jest niepełny, "
-            "a stawka rabatu może być za niska; uzupełnij pobranie z KSeF przed wysłaniem."
+            f"Faktury z {source} są w NEXUSIE od {first:%d.%m.%Y} — obrót roku jest niepełny, "
+            f"a stawka rabatu może być za niska; uzupełnij pobranie z {fill} przed wysłaniem."
         )
         covered = max(first, year_start)
         projected = run_rate(turnover.amount, covered, until)
