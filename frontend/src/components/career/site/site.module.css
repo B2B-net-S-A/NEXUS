@@ -1998,6 +1998,9 @@ input:focus-visible + .box {
   }
   .word {
     font-size: min(180px, calc(100cqi / var(--em, 5)));
+    /* Odstęp na ogonki liter jest potrzebny tylko na telefonie; tu zepchnąłby
+       „Wyślij CV” pod pierwszy ekran 1280 × 720. */
+    margin-bottom: 0;
   }
   .wrap {
     padding-inline: 72px;
