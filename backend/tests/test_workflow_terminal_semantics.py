@@ -85,7 +85,9 @@ async def _seed_job_with_custom_terminal(term: TerminalType) -> dict:
             CandidateStage(
                 candidate_id=cand.id,
                 job_id=job.id,
-                stage=PipelineStage.new,
+                # Po wysyłce — przeskok ponad „CV wysłane” ma bramkę wysyłki
+                # (24.11.2026); test sprawdza mapowanie własnego terminala.
+                stage=PipelineStage.cv_sent,
                 moved_at=datetime.now(timezone.utc) - timedelta(minutes=5),
             )
         )

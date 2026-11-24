@@ -1813,6 +1813,7 @@ describe("usePipelineMove — odmowy z okna „Zweryfikowany”", () => {
 });
 
 describe("usePipelineMove — termin rozmowy u klienta po ruchu", () => {
+  // Start z „CV wysłane”: przeskok ponad nie ma najpierw okno stawki (24.11.2026).
   afterEach(() => vi.restoreAllMocks());
 
   it("podany termin zakłada rozmowę dopiero po potwierdzonym ruchu", async () => {
@@ -1823,7 +1824,7 @@ describe("usePipelineMove — termin rozmowy u klienta po ruchu", () => {
     const b = board({ fresh: [item] });
     post.mockResolvedValue({ data: { id: 903, process_state_version: 2 } });
     mount(b.all);
-    React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
+    React.act(() => controls.requestMove(item, b.cvSent, b.clientInterview));
     const dialog = await screen.findByRole("dialog", { name: "Kiedy rozmowa u klienta?" });
     fireEvent.change(within(dialog).getByLabelText("Dzień"), { target: { value: "2099-02-10" } });
     fireEvent.change(within(dialog).getByLabelText("Godzina"), { target: { value: "09:30" } });
@@ -1845,7 +1846,7 @@ describe("usePipelineMove — termin rozmowy u klienta po ruchu", () => {
     const b = board({ fresh: [item] });
     post.mockRejectedValueOnce(new Error("Ruch niedozwolony."));
     mount(b.all);
-    React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
+    React.act(() => controls.requestMove(item, b.cvSent, b.clientInterview));
     const dialog = await screen.findByRole("dialog", { name: "Kiedy rozmowa u klienta?" });
     fireEvent.change(within(dialog).getByLabelText("Dzień"), { target: { value: "2099-02-11" } });
     fireEvent.change(within(dialog).getByLabelText("Godzina"), { target: { value: "11:00" } });
@@ -1860,7 +1861,7 @@ describe("usePipelineMove — termin rozmowy u klienta po ruchu", () => {
     const b = board({ fresh: [item] });
     post.mockResolvedValue({ data: { id: 904, process_state_version: 2 } });
     mount(b.all);
-    React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
+    React.act(() => controls.requestMove(item, b.cvSent, b.clientInterview));
     const dialog = await screen.findByRole("dialog", { name: "Kiedy rozmowa u klienta?" });
     fireEvent.change(within(dialog).getByLabelText("Dzień"), { target: { value: "2099-02-12" } });
     fireEvent.change(within(dialog).getByLabelText("Godzina"), { target: { value: "13:00" } });
@@ -1875,7 +1876,7 @@ describe("usePipelineMove — termin rozmowy u klienta po ruchu", () => {
     const b = board({ fresh: [item] });
     post.mockResolvedValue({ data: { id: 905, process_state_version: 2 } });
     mount(b.all);
-    React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
+    React.act(() => controls.requestMove(item, b.cvSent, b.clientInterview));
     const dialog = await screen.findByRole("dialog", { name: "Kiedy rozmowa u klienta?" });
     fireEvent.click(within(dialog).getByRole("radio", { name: "Jeszcze bez terminów" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Przesuń" }));
@@ -1895,7 +1896,7 @@ describe("usePipelineMove — termin rozmowy u klienta po ruchu", () => {
     const b = board({ fresh: [item] });
     post.mockResolvedValue({ data: { id: 906, process_state_version: 2 } });
     mount(b.all, undefined, { canSendClientSlots: true });
-    React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
+    React.act(() => controls.requestMove(item, b.cvSent, b.clientInterview));
     const dialog = await screen.findByRole("dialog", { name: "Kiedy rozmowa u klienta?" });
     fireEvent.change(within(dialog).getByLabelText("Termin 1"), { target: { value: "2099-01-16T10:00" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Przesuń i wyślij rekruterowi" }));
