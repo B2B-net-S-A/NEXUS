@@ -33,7 +33,11 @@ import {
   PLAYBOOK_EVENT_LABELS,
   PLAYBOOK_FIELD_LABELS,
   PLAYBOOK_LIMITS,
+  PREP_SPEC_FIELDS,
   VERIFIED_EXTRA_FIELD_OPTIONS,
+  prepSpecChangedLabels,
+  prepSpecLines,
+  prepSpecProblems,
   type ClientPlaybook,
   type PlaybookEvent,
   type PlaybookForm,
@@ -126,6 +130,8 @@ export function ClientPlaybookForm({ clientId, onSaved }: ClientPlaybookFormProp
   if (!form) {
     return <p className="text-sm text-muted-foreground">Ładowanie karty klienta…</p>;
   }
+
+  const specProblems = prepSpecProblems(form);
 
   const updateDocument = (index: number, patch: Partial<PlaybookForm["documents"][number]>) =>
     set(
@@ -242,6 +248,50 @@ export function ClientPlaybookForm({ clientId, onSaved }: ClientPlaybookFormProp
         </div>
       </div>
 
+      <fieldset className="space-y-2" data-testid="playbook-prep-spec">
+        <legend className="text-xs font-medium">{PLAYBOOK_FIELD_LABELS.prep_spec}</legend>
+        <p className="text-xs text-muted-foreground">
+          Rekruter omawia ją z kandydatem po fundamentach (Ustawienia → Ocena prepów →
+          „Przygotowanie”). Jeden punkt w linii. Pytań, które padają u klienta, tu nie wpisuj —
+          są w banku pytań. Wyjątki od fundamentów (np. inna forma współpracy) wpisz w „Forma
+          współpracy”.
+        </p>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {PREP_SPEC_FIELDS.map((field) => {
+            const count = prepSpecLines(form.prep_spec[field.key]).length;
+            return (
+              <div key={field.key}>
+                <label
+                  htmlFor={`playbook-prep-${field.key}`}
+                  className="mb-1 block text-xs font-medium"
+                >
+                  {field.label}
+                </label>
+                <textarea
+                  id={`playbook-prep-${field.key}`}
+                  rows={3}
+                  value={form.prep_spec[field.key]}
+                  onChange={(e) =>
+                    set("prep_spec", { ...form.prep_spec, [field.key]: e.target.value })
+                  }
+                  className={FIELD_CLASS}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {count}/{PLAYBOOK_LIMITS.prepSpecLines} punktów
+                </p>
+              </div>
+            );
+          })}
+        </div>
+        {specProblems.length > 0 ? (
+          <ul role="alert" className="list-disc pl-5 text-xs text-destructive">
+            {specProblems.map((problem) => (
+              <li key={problem}>{problem}</li>
+            ))}
+          </ul>
+        ) : null}
+      </fieldset>
+
       <MarkdownField
         id="playbook-process"
         label={PLAYBOOK_FIELD_LABELS.process_rules_md}
@@ -347,7 +397,7 @@ export function ClientPlaybookForm({ clientId, onSaved }: ClientPlaybookFormProp
       <div className="flex flex-wrap items-center gap-2 border-t pt-3">
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || specProblems.length > 0}
           onClick={save}
           className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
         >
@@ -511,6 +561,16 @@ function ChangeList({ event }: { event: PlaybookEvent }) {
     <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
       {entries.map(([field, change]) => {
         const label = PLAYBOOK_FIELD_LABELS[field] ?? field;
+        if (field === "prep_spec" && change && typeof change === "object" && "to" in change) {
+          // Cała specyfika jako JSON byłaby nieczytelna — same nazwy zmienionych pól.
+          const changed = prepSpecChangedLabels(change.from, change.to);
+          return (
+            <li key={field}>
+              <span className="font-medium text-foreground">{label}:</span>{" "}
+              {changed.length > 0 ? `zmienione: ${changed.join(", ")}` : "zmieniona"}
+            </li>
+          );
+        }
         if (
           change &&
           typeof change === "object" &&

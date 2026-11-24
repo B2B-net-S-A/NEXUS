@@ -26,8 +26,8 @@ from sqlalchemy import and_, bindparam, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.cache import (
+    cache_evict_local,
     cache_get,
-    cache_invalidate,
     cache_set,
     cache_single_flight,
 )
@@ -496,7 +496,7 @@ async def _milestone_snapshot(
                     ] = count
         # Najwyżej jeden wpis migawki naraz: starsze (wczorajszy początek dnia,
         # historyczne „teraz” z przebiegu coacha) znikają przy każdym zapisie.
-        await cache_invalidate(_MILESTONE_KEY_PREFIX)
+        await cache_evict_local(_MILESTONE_KEY_PREFIX)
         await cache_set(
             key,
             (until, snapshot),

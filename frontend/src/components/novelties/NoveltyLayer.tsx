@@ -41,6 +41,8 @@ import {
   anchorSelector,
   advanceTour,
   intersectRects,
+  keepDialogsOpenIf,
+  nextStepInSameDialog,
   onEveryClick,
   placeBeside,
   readTour,
@@ -283,7 +285,10 @@ function sameBoxes(a: Map<string, Box>, b: Map<string, Box>): boolean {
 
 // Krok `ack` stoi nad otwartym oknem Radix (np. „Zakończ współpracę”), które
 // wyłącza kliknięcia poza sobą (`pointer-events: none` na body) — karta
-// przywraca je sobie. Klik w nią zamyka to okno bez zapisu, i o to chodzi.
+// przywraca je sobie. Klik w nią zamyka to okno bez zapisu, i o to chodzi,
+// chyba że następny krok stoi w tym samym oknie: wtedy okno zostaje
+// (24.11.2026, „Co zmienił klient?”: po „Rozumiem” przy polu treści krok
+// „Przygotuj zmiany” nie miał czego wskazać).
 function TourStepCard({
   novelty,
   state,
@@ -305,6 +310,11 @@ function TourStepCard({
   onReveal: () => void;
 }) {
   const step = novelty.steps[state.step];
+  const nextAnchor = novelty.steps[state.step + 1]?.anchor ?? null;
+  const keepDialogForNextStep = useMemo(
+    () => keepDialogsOpenIf(() => nextStepInSameDialog(step.anchor, nextAnchor)),
+    [step.anchor, nextAnchor],
+  );
   // Krok bez miejsca na ekranie przez 2 s (pusta tablica, brak rekrutacji,
   // przycisk tylko dla części osób) da się minąć. Start i obowiązkowe okno
   // nowości nie mogą nikogo zatrzymać na zawsze (Artur, 30.10.2026); 2 s, żeby
@@ -325,6 +335,7 @@ function TourStepCard({
     : { bottom: 24, left: "50%", transform: "translateX(-50%)" };
   return (
     <div
+      ref={keepDialogForNextStep}
       className="pointer-events-auto fixed z-[121] w-[340px] rounded-xl border border-primary/30 bg-card p-4 shadow-xl"
       style={style}
       role="status"

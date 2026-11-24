@@ -2225,6 +2225,7 @@
     },
     "where": "Rekrutacja → Profil Championa → Brief → „Najważniejsze zadanie w tej roli”",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?tab=champion",
     "section": "pipeline",
     "dot_anchor": "champion.key-task",
     "steps": [
@@ -4472,6 +4473,19 @@
     "requires_setting": "REVIEW_BATCH_ENABLED"
   },
   {
+    "id": "porcja-wybor-rekrutacji-na-dzis",
+    "title": "Porcja dnia: wybierz rekrutację, nad którą pracujesz dziś",
+    "why": "Umówiliście się, kto robi który request? „Wybierz rekrutację na dziś” bierze osoby najpierw z niej, a liczba się nie zmienia. Kto wybierze pierwszy, ma najlepszych. Jutro zwykła kolejność.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": { "roles": ["recruiter"] },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia → Wybierz rekrutację na dziś",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.focus",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
     "id": "sprzedaz-dzwonienie-po-co-oddzwaniamy",
     "pr": 3759,
     "title": "Dzwonienie: po co oddzwaniamy",
@@ -4703,6 +4717,7 @@
     },
     "where": "Rekrutacja → osoba z „Screeningu” → Rozwiń → Tryb rozmowy",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990106&panel=screening",
     "section": "pipeline",
     "dot_anchor": "person.panel.conversation-mode",
     "used_anchor": "screening.sheet.gaps",
@@ -5049,6 +5064,20 @@
         "ack": true
       }
     ]
+  },
+  {
+    "id": "porcja-oddaj-do-nowych",
+    "pr": 3863,
+    "title": "Porcja dnia: „Oddaj do Nowych” zamiast odrzucania",
+    "why": "Screeningi z rekrutacji, która nie jest już Twoim P0, oddasz do „Nowych” jednym kliknięciem. Bez odrzucenia, bez wpisu „Odrzucony” w historii osoby, a wyszukiwanie przestaje się przez nie blokować.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": { "roles": ["recruiter"] },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia → Do domknięcia → grupa rekrutacji",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.return-group",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
   },
   {
     "id": "dodatki-do-rozliczenia-kontraktora",

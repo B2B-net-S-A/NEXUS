@@ -280,11 +280,16 @@ def md_rates(order: Any) -> tuple[Optional[Decimal], Optional[Decimal]]:
 
 
 async def _onboarding_used(db: AsyncSession, contract_id: int, month: str) -> Decimal:
+    """MD wdrożeniowe z wcześniejszych miesięcy kontraktu, także nieprzyjętych.
+
+    Policzony miesiąc startu już dał MD za 0 zł do swojej faktury. Gdy pula
+    liczyła tylko przyjęte rozliczenia, kolejny miesiąc liczony przed przyjęciem
+    dawał je drugi raz (próba IX–X 2026, BNP: kwota o 2 MD za niska)."""
+
     used = await db.scalar(
         select(func.coalesce(func.sum(ClientSettlement.md_onboarding), 0)).where(
             ClientSettlement.contract_id == contract_id,
             ClientSettlement.kind == "actual",
-            ClientSettlement.status == "accepted",
             ClientSettlement.period_month < month,
         )
     )
@@ -935,14 +940,41 @@ def md_over(s: ClientSettlement) -> Optional[Decimal]:
     return None
 
 
-def _onboarding_eligible(contract: Contract, month: str) -> bool:
-    """Nowy konsultant: kontrakt od tego albo poprzedniego miesiąca."""
+def _onboarding_eligible(
+    contract: Contract, month: str, *, rule_in_start_month: bool = True
+) -> bool:
+    """Nowy konsultant: kontrakt od tego albo poprzedniego miesiąca.
+
+    Kontrakt z poprzedniego miesiąca dostaje resztę puli tylko wtedy, gdy
+    w miesiącu startu reguła już działała. Bez niej MD wdrożeniowe dały Finanse
+    na fakturze za miesiąc startu (BNP: pozycja ``_onbording``), a NEXUS dawał
+    je drugi raz w kolejnym miesiącu."""
 
     if contract.start_date is None:
         return False
     first, _last = month_bounds(month)
+    if contract.start_date >= first:
+        return True
     previous_first = (first - timedelta(days=1)).replace(day=1)
-    return contract.start_date >= previous_first
+    return contract.start_date >= previous_first and rule_in_start_month
+
+
+async def _onboarding_rule_in_start_month(
+    db: AsyncSession, client_id: int, contract: Contract, month: str
+) -> bool:
+    """``order.onboarding_md`` działało w miesiącu startu kontraktu, gdy ten
+    jest poprzednim miesiącem rozliczenia. Starszy albo bieżący start: ``True``,
+    bo o uprawnieniu decyduje wtedy sama data (``_onboarding_eligible``)."""
+
+    start = contract.start_date
+    if start is None:
+        return True
+    first, _last = month_bounds(month)
+    previous_first = (first - timedelta(days=1)).replace(day=1)
+    if not previous_first <= start < first:
+        return True
+    rules = await rules_for(db, client_id, f"{start.year}-{start.month:02d}")
+    return rules["order.onboarding_md"]["level"] != "off"
 
 
 def _read_rcp(
@@ -1659,7 +1691,13 @@ async def _recompute(
                 db, s.contract_id, s.period_month
             ),
             has_report=report is not None or signoffs.marker(s.checks) is not None,
-            onboarding_eligible=_onboarding_eligible(person.contract, s.period_month),
+            onboarding_eligible=_onboarding_eligible(
+                person.contract,
+                s.period_month,
+                rule_in_start_month=await _onboarding_rule_in_start_month(
+                    db, s.client_id, person.contract, s.period_month
+                ),
+            ),
             proof=proof,
         )
     )

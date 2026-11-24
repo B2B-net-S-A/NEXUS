@@ -297,6 +297,7 @@ from app.api import sales_bot_results as sales_bot_results_api
 from app.api import sales_bot_people as sales_bot_people_api
 from app.api import sales_bot_lists as sales_bot_lists_api
 from app.api import sales_bots as sales_bots_api
+from app.api import sales_tenders as sales_tenders_api
 from app.api import sales_company_bot as sales_company_bot_api
 from app.api import sales_potential as sales_potential_api
 from app.api import sales_calling as sales_calling_api
@@ -727,6 +728,19 @@ async def lifespan(app: FastAPI):
     async with engine.connect() as _profile_rate_schema_conn:
         await assert_candidate_profile_rate_schema(_profile_rate_schema_conn)
 
+    # Kroki jednorazowe niżej (do seedu B2B) biegną w każdym procesie: web, worker,
+    # a przy WEB_CONCURRENCY > 1 w kilku web naraz. Są idempotentne, ale seed B2B
+    # to „sprawdź, potem wstaw”, więc idą po kolei za blokadą doradczą.
+    # → docs/claude/podstawy/kilka-procesow-web.md
+    from contextlib import AsyncExitStack
+
+    from app.core.process_lock import cross_process_wait_lock
+
+    _startup_oneoffs = AsyncExitStack()
+    await _startup_oneoffs.enter_async_context(
+        cross_process_wait_lock("startup_oneoffs", timeout_seconds=180)
+    )
+
     # Migration 0207 rewrites every historic candidate saved search. Production
     # also has a legacy fail-open Alembic path, so repeat the idempotent rewrite
     # before accepting traffic and fail the startup if safety cannot be proven.
@@ -819,6 +833,7 @@ async def lifespan(app: FastAPI):
             await ensure_b2b_seed_data(_seed_db)
     except Exception as e:
         logger.warning("B2B generator seed skipped: %s", e)
+    await _startup_oneoffs.aclose()
 
     # Durable CV jobs recover queued work and expire only abandoned leases.
     from app.services.cv_generator_b2b.durable_jobs import (
@@ -874,6 +889,7 @@ async def lifespan(app: FastAPI):
     )
     from app.tasks.candidate_rate_from import candidate_rate_from_loop
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
+    from app.api.ws import presence_sync_loop
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
     from app.tasks.signature_reconciler import signature_reconciler_loop
     from app.tasks.b2b_esign_sweeper import b2b_esign_sweeper_loop, prewarm_trusted_list
@@ -889,6 +905,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
     from app.tasks.sales_archive_shadow import sales_archive_shadow_loop
+    from app.tasks.sales_tenders import sales_tenders_loop
     from app.tasks.sales_signals import sales_signals_loop
     from app.tasks.law_radar import law_radar_loop
     from app.tasks.cpro_bot import cpro_bot_loop
@@ -1077,6 +1094,8 @@ async def lifespan(app: FastAPI):
             # 0414: „Stawka od” — przeliczenia z kolejki zasilanej wyzwalaczami.
             "candidate_rate_from": asyncio.create_task(candidate_rate_from_loop()),
             "chat_email_fallback": asyncio.create_task(chat_email_fallback_loop()),
+            # Obecność („kto ogląda”) między procesami web; przy jednym kończy się od razu.
+            "presence_sync": asyncio.create_task(presence_sync_loop()),
             "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
             "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
             "b2b_esign_sweeper": asyncio.create_task(b2b_esign_sweeper_loop()),
@@ -1139,6 +1158,9 @@ async def lifespan(app: FastAPI):
             "order_gaps": asyncio.create_task(order_gaps_loop()),
             # Sprzedaż: tryb cienia automatu archiwizacji, sam odczyt i linia logu.
             "sales_archive_shadow": asyncio.create_task(sales_archive_shadow_loop()),
+            # Sprzedaż: przetargi z BZP i TED, w dni robocze od 5:30 (wariant B,
+            # 24.11.2026); wyłącznik SALES_TENDERS_ENABLED przed pętlą.
+            "sales_tenders": asyncio.create_task(sales_tenders_loop()),
             # Sprzedaż: biegi bota researchu (Grok Bot); wyłącznik SALES_SIGNALS_ENABLED.
             "sales_signals": asyncio.create_task(sales_signals_loop()),
             # Radar przepisów: Grok Zbieracz od 5:30, bramka, Analityk, sondy;
@@ -2609,6 +2631,9 @@ app.include_router(
 )
 app.include_router(sales_bots_api.router, prefix="/api/sales/bots", tags=["sales"])
 app.include_router(
+    sales_tenders_api.router, prefix="/api/sales/tenders", tags=["sales"]
+)
+app.include_router(
     sales_bot_lists_api.router, prefix="/api/sales/bot-lists", tags=["sales"]
 )
 app.include_router(sales_my_day_api.router, prefix="/api/sales/my-day", tags=["sales"])
@@ -3959,6 +3984,7 @@ async def api_health_deep_check(request: Request):
     from app.models.rate_card import RateCardAdder
     from app.models.contract_premium_skill import ContractPremiumSkillClaim
     from app.models.access_usage import AccessUsageDaily
+    from app.models.cv_preview_read import CvPreviewRead
     from app.models.insight_decision import InsightDecision
     from app.models.start_document import ClientStartDocument, PlacementStartDocument
     from app.models.novelty import (
@@ -4058,6 +4084,7 @@ async def api_health_deep_check(request: Request):
         SalesOpportunity,
         SalesPipelineStage,
         SalesTarget,
+        SalesTenderNotice,
     )
     from app.models.finance_ledger import (
         FinanceCostEntry,
@@ -4705,6 +4732,8 @@ async def api_health_deep_check(request: Request):
         ("sales_call_records", SalesCallRecord),
         # 0684: wyniki zadań bota do decyzji handlowca.
         ("sales_bot_results", SalesBotResult),
+        # 0770: przetargi z BZP i TED po bramce reguł.
+        ("sales_tender_notices", SalesTenderNotice),
         # 0640: dzienne wejścia na linki — każde wejście na stronę kariery je zapisuje.
         ("candidate_invite_link_visit_days", CandidateInviteLinkVisitDay),
         ("employee_profiles", EmployeeProfile),
@@ -4768,6 +4797,9 @@ async def api_health_deep_check(request: Request):
         ("novelty_daily_state", NoveltyDailyState),
         # 0632: licznik użycia obszarów — pętla zapisuje tu co minutę.
         ("access_usage_daily", AccessUsageDaily),
+        # 0771: odczyt CV z podglądu „Dodaj kandydata”. Brak tabeli nie wywraca
+        # dodania kandydata, ale cicho przywraca drugi odczyt modelem w `/from-cv`.
+        ("cv_preview_reads", CvPreviewRead),
         ("insight_decisions", InsightDecision),
         ("client_start_documents", ClientStartDocument),
         ("placement_start_documents", PlacementStartDocument),

@@ -41,6 +41,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.process_role import web_process_count
 from app.core.scheduling import DEFAULT_TZ, business_today, local_now
 from app.services.hr import audit
 from app.services.order_client_identity import nip_checksum_valid
@@ -245,12 +246,19 @@ def usage() -> dict[str, Any]:
     return {
         "day": memory.day.isoformat(),
         "used": dict(memory.used),
-        "limits": dict(DAILY_LIMITS),
+        "limits": {method: _limit(method) for method in DAILY_LIMITS},
     }
 
 
+def _limit(method: str) -> int:
+    """Część dziennego limitu dla tego procesu: licznik jest w pamięci procesu,
+    więc przy kilku procesach web każdy dostaje swoją część (zaokrągloną w górę).
+    → docs/claude/podstawy/kilka-procesow-web.md"""
+    return -(-DAILY_LIMITS[method] // web_process_count())
+
+
 def _consume(memory: _DayMemory, method: str) -> None:
-    if memory.used[method] >= DAILY_LIMITS[method]:
+    if memory.used[method] >= _limit(method):
         raise WhiteListError("quota_exceeded")
     memory.used[method] += 1
 

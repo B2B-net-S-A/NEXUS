@@ -131,6 +131,51 @@ export function onEveryClick(
   };
 }
 
+/**
+ * Klik w kartę nad oknem Radix (okno ćwiczenia Poligonu, karta lekcji, karta
+ * kroku) nie zamyka tego okna, gdy `when()` w chwili kliknięcia mówi „tak”.
+ * Radix zamyka dialog po `pointerdown` poza nim (nasłuch na dokumencie w fazie
+ * bąbelkowej, zamknięcie przy `click`). Natywny nasłuch na karcie zatrzymuje
+ * zdarzenie, zanim tam dojdzie; nasłuchy w fazie przechwytywania
+ * (`onEveryClick`) dostają je dalej. Ref-callback z funkcją sprzątającą.
+ */
+export function keepDialogsOpenIf(
+  when: () => boolean,
+): (el: HTMLElement | null) => (() => void) | void {
+  return (el) => {
+    if (!el) return;
+    const stop = (event: PointerEvent) => {
+      if (when()) event.stopPropagation();
+    };
+    el.addEventListener("pointerdown", stop);
+    return () => el.removeEventListener("pointerdown", stop);
+  };
+}
+
+export const keepDialogsOpen = keepDialogsOpenIf(() => true);
+
+/** Okno (dialog Radix), w którym stoi kotwica; `null`, gdy jej nie ma albo stoi poza oknem. */
+function dialogOf(anchor: string): Element | null {
+  return (
+    document
+      .querySelector(anchorSelector(anchor))
+      ?.closest('[role="dialog"], [role="alertdialog"]') ?? null
+  );
+}
+
+/**
+ * Następny krok przeklikania stoi w tym samym otwartym oknie co bieżący
+ * („Co zmienił klient?”: pole treści → „Przygotuj zmiany”).
+ */
+export function nextStepInSameDialog(
+  current: string,
+  next: string | null | undefined,
+): boolean {
+  if (!next) return false;
+  const here = dialogOf(current);
+  return here !== null && here === dialogOf(next);
+}
+
 /** Następny krok po kliknięciu; `null` = kliknięcie nie dotyczy kroku. */
 export function advanceTour(
   novelty: Novelty,

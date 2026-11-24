@@ -35,10 +35,14 @@ cloud, doszedłby hop i prawy wpis stałby się adresem edge'a Cloudflare — wt
 trzeba czytać ``CF-Connecting-IP``.
 """
 
-from typing import Optional
+import inspect
+from typing import Any, Callable, Optional, Union
 
+from limits import parse_many
 from slowapi import Limiter
 from starlette.requests import Request
+
+from app.core.process_role import web_process_count
 
 # Nagłówki, którym ufamy — w kolejności pierwszeństwa.
 _FORWARDED_HEADER = "x-forwarded-for"
@@ -122,4 +126,58 @@ def user_or_ip_key(request: Request) -> str:
 # dało zero 429. Trasa za logowaniem z ``{id}`` potrzebuje przez to klucza po
 # użytkowniku (``user_or_ip_key``), inaczej całe biuro za NAT-em dzieli jeden
 # kubełek; pilnuje tego ``tests/test_rate_limit_per_endpoint_guard.py``.
-limiter = Limiter(key_func=client_ip_key, default_limits=[], key_style="endpoint")
+LimitValue = Union[str, Callable[..., str]]
+
+
+def share_per_process(value: str, processes: int) -> str:
+    """Część limitu dla jednego z ``processes`` procesów web, zaokrąglona w górę.
+
+    Liczniki slowapi są w pamięci procesu, więc przy dwóch procesach każdy limit
+    byłby 2× luźniejszy (decyzja Artura 24.11.2026: dzielimy, bez Redisa).
+    """
+    if processes <= 1:
+        return value
+    return "; ".join(
+        f"{-(-item.amount // processes)}/{item.multiples} {item.GRANULARITY.name}"
+        for item in parse_many(value)
+    )
+
+
+def _per_process(value: LimitValue) -> LimitValue:
+    processes = web_process_count()
+    if processes <= 1:
+        return value
+    if not callable(value):
+        return share_per_process(value, processes)
+    # slowapi woła dostawcę z kluczem tylko wtedy, gdy ma parametr ``key``.
+    if "key" in inspect.signature(value).parameters:
+
+        def keyed(key: str) -> str:
+            return share_per_process(value(key), processes)
+
+        return keyed
+
+    def plain() -> str:
+        return share_per_process(value(), processes)
+
+    return plain
+
+
+class ProcessShareLimiter(Limiter):
+    """``Limiter``, który przy kilku procesach web dzieli każdy limit między nie.
+
+    → docs/claude/podstawy/kilka-procesow-web.md
+    """
+
+    def limit(self, limit_value: LimitValue, *args: Any, **kwargs: Any) -> Callable:
+        return super().limit(_per_process(limit_value), *args, **kwargs)
+
+    def shared_limit(
+        self, limit_value: LimitValue, scope: Any, *args: Any, **kwargs: Any
+    ) -> Callable:
+        return super().shared_limit(_per_process(limit_value), scope, *args, **kwargs)
+
+
+limiter = ProcessShareLimiter(
+    key_func=client_ip_key, default_limits=[], key_style="endpoint"
+)

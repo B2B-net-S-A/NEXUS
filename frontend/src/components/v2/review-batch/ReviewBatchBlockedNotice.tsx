@@ -33,6 +33,7 @@ export function ReviewBatchBlockedNotice({ error }: { error: unknown }) {
       {overdueOnly ? (
         <p className="text-muted-foreground">
           Dzwonisz, a kandydat nie odbiera? Kliknij „Nie odebrał” przy osobie: próba przesuwa termin o 2 dni robocze.
+          Rekrutacja nie jest już Twoim priorytetem? Oddaj jej osoby do „Nowych” — bez odrzucania.
         </p>
       ) : null}
       <Link

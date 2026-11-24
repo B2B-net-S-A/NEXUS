@@ -1458,6 +1458,8 @@ try:
         *_sales_schema.BOT_TASKS_DDL,
         # 0690: Bot Listy — brief kampanii dzwonienia.
         *_sales_schema.BOT_LISTS_DDL,
+        # 0770: przetargi z BZP i TED (ogłoszenia po bramce reguł Kingi).
+        *_sales_schema.TENDERS_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
 except Exception as _sales_schema_err:  # noqa: BLE001
@@ -1555,6 +1557,16 @@ try:
 except Exception as _access_usage_schema_err:  # noqa: BLE001
     print(f"access usage schema unavailable: {_access_usage_schema_err!r}")
     _ACCESS_USAGE_TABLE_DDL = []
+
+# 0771: odczyt CV z podglądu „Dodaj kandydata”, wspólny dla procesów web —
+# JEDNO źródło z migracją (`app/services/cv_preview_reads_schema.py`).
+try:
+    from app.services import cv_preview_reads_schema as _cv_preview_reads_schema
+
+    _CV_PREVIEW_READS_DDL = list(_cv_preview_reads_schema.TABLE_DDL)
+except Exception as _cv_preview_reads_schema_err:  # noqa: BLE001
+    print(f"cv preview reads schema unavailable: {_cv_preview_reads_schema_err!r}")
+    _CV_PREVIEW_READS_DDL = []
 
 # 0647: decyzje z zakładki „Wnioski” (`app/services/insight_decisions_schema.py`).
 try:
@@ -6448,6 +6460,9 @@ _COLUMN_STATEMENTS = [
     # `test_playbook_verified_required_mirror.py`.
     "ALTER TABLE client_playbooks "
     "ADD COLUMN IF NOT EXISTS verified_required_fields JSONB NULL",
+    # 0769: „Specyfika na prep” w karcie klienta (decyzje Artura 24.11.2026).
+    # Lustro 1:1 z migracją — pilnuje `test_client_prep_spec.py`.
+    "ALTER TABLE client_playbooks ADD COLUMN IF NOT EXISTS prep_spec JSONB NULL",
     # 0489: „O mnie” rekrutera na stałym linku (najwyżej 280 znaków).
     # Lustro 1:1 z migracją — pilnuje `test_career_migration_mirror.py`.
     "ALTER TABLE candidate_invite_links "
@@ -7242,6 +7257,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_JOB_CHANNELS_DDL,
     # 0632: licznik użycia obszarów (`app/services/access_usage_schema.py`).
     *_ACCESS_USAGE_TABLE_DDL,
+    # 0771: odczyt CV z podglądu (`app/services/cv_preview_reads_schema.py`).
+    *_CV_PREVIEW_READS_DDL,
     # 0647: decyzje z zakładki „Wnioski” (po `users`, na które wskazują).
     *_INSIGHT_DECISIONS_TABLE_DDL,
     *_START_DOCUMENTS_TABLE_DDL,
@@ -12107,6 +12124,40 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# „Specyfika na prep” w 12 kartach klientów z odpowiedzi DL-i (F2, decyzje
+# Artura 24.11.2026): tylko karty bez specyfiki; Tauron bez limitu 165 h i z
+# biurem w Warszawie — tylko, gdy zdania stoją jak w kopii z 24.11. Nowa
+# wersja i wpis w historii karty. Marker w `app_settings` + advisory lock; porażka nie
+# zapisuje niczego — następny start ponawia. Log: tylko id klientów i kody.
+startup_phase "repair-client-prep-spec-seed-2026-11"
+echo "Client cards: prep spec from Delivery Leads (one-shot)..."
+run_unless_marked "client_prep_spec_seed_2026_11_24" <<'PY' || echo "client prep spec seed skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.client_prep_spec_seed import (
+    run_client_prep_spec_seed,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_client_prep_spec_seed(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"client prep spec seed failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"client prep spec seed: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 
 
 
@@ -12171,6 +12222,13 @@ fi
 startup_phase ""
 echo "[startup-timing] total before uvicorn: $(( $(date +%s) - STARTUP_T0 ))s"
 echo "Starting uvicorn..."
+# Kilka procesów uvicorna tylko w roli web. Rola `all` (wycofanie bez rewertu)
+# zakłada jeden proces: blokady i bus są w niej wyłączone, a pętle ma tylko lider.
+# → docs/claude/podstawy/kilka-procesow-web.md
+if [ "${NEXUS_PROCESS_ROLE:-all}" != "web" ] && [ "${WEB_CONCURRENCY:-1}" != "1" ]; then
+  echo "WEB_CONCURRENCY=${WEB_CONCURRENCY} pominięte: rola ${NEXUS_PROCESS_ROLE:-all} ma jeden proces"
+  export WEB_CONCURRENCY=1
+fi
 # Bezpiecznik tylko dla WWW, po całym starcie: DDL wyżej i skrypty przez `docker exec`
 # biegną bez limitu. Pomiar i wyłączenie: docs/claude/podstawy/statement-timeout.md
 export DB_STATEMENT_TIMEOUT_MS=120000

@@ -37,6 +37,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.process_lock import cross_process_lock
 from app.models.integration_external_item import IntegrationExternalItem
 from app.models.integration_run import IntegrationRun, IntegrationRunEvent
 from app.services.cv_parser import parse_cv
@@ -312,78 +313,91 @@ class JjitRun:
         if _RUN_LOCK.locked():
             raise RunInProgress("run JJIT już trwa (lock)")
         async with _RUN_LOCK:
-            await self._start_run()
-            email = os.environ.get("JJIT_EMAIL", "").strip()
-            password = os.environ.get("JJIT_PASSWORD", "")
-            if not email or not password:
-                await self._finish_run(
-                    "failed", "JJIT_EMAIL / JJIT_PASSWORD nie ustawione"
-                )
-                return dict(self.stats, run_id=self.run_id, status="failed")
-
-            total = 0
-            try:
-                async with (
-                    PanelClient(email, password) as panel,
-                    httpx.AsyncClient(
-                        timeout=httpx.Timeout(60.0, connect=10.0)
-                    ) as http,
-                ):
-                    nexus = NexusLoopbackClient(http)
-                    await panel.login()
-                    offers: list[dict] = []
-                    for state in self.states:
-                        offers.extend(await panel.list_job_ads(state))
-                    self.stats["offers"] = len(offers)
-                    logger.info(
-                        "jjit run %s: %d ogłoszeń, od %s, dry_run=%s",
-                        self.run_id,
-                        len(offers),
-                        self.since,
-                        self.dry_run,
+            # `_start_run` to „sprawdź, potem wstaw”: bez blokady w bazie dwa
+            # procesy (web z ręcznego startu i worker albo dwa web) przechodzą oba.
+            async with cross_process_lock("jjit_run") as owner:
+                if not owner:
+                    raise RunInProgress("run JJIT już trwa (inny proces)")
+                await self._start_run()
+                email = os.environ.get("JJIT_EMAIL", "").strip()
+                password = os.environ.get("JJIT_PASSWORD", "")
+                if not email or not password:
+                    await self._finish_run(
+                        "failed", "JJIT_EMAIL / JJIT_PASSWORD nie ustawione"
                     )
+                    return dict(self.stats, run_id=self.run_id, status="failed")
 
-                    for offer in offers:
-                        if self.limit and total >= self.limit:
-                            break
-                        oid, title = str(offer.get("id")), str(offer.get("title") or "")
-                        try:
-                            applications = await panel.list_applications(
-                                oid, applied_from=self.since
-                            )
-                        except PanelAuthError:
-                            raise
-                        except Exception as e:  # noqa: BLE001
-                            logger.error("jjit: ogłoszenie %s: %s", oid, e)
-                            continue
-                        for app in applications:
+                total = 0
+                try:
+                    async with (
+                        PanelClient(email, password) as panel,
+                        httpx.AsyncClient(
+                            timeout=httpx.Timeout(60.0, connect=10.0)
+                        ) as http,
+                    ):
+                        nexus = NexusLoopbackClient(http)
+                        await panel.login()
+                        offers: list[dict] = []
+                        for state in self.states:
+                            offers.extend(await panel.list_job_ads(state))
+                        self.stats["offers"] = len(offers)
+                        logger.info(
+                            "jjit run %s: %d ogłoszeń, od %s, dry_run=%s",
+                            self.run_id,
+                            len(offers),
+                            self.since,
+                            self.dry_run,
+                        )
+
+                        for offer in offers:
                             if self.limit and total >= self.limit:
                                 break
+                            oid, title = (
+                                str(offer.get("id")),
+                                str(offer.get("title") or ""),
+                            )
                             try:
-                                await self._process(app, title, panel, nexus)
+                                applications = await panel.list_applications(
+                                    oid, applied_from=self.since
+                                )
                             except PanelAuthError:
                                 raise
                             except Exception as e:  # noqa: BLE001
-                                self.stats["errors"] += 1
-                                logger.exception("jjit: aplikacja %s", app.get("id"))
-                                await self._event(
-                                    action="error",
-                                    external_id=str(app.get("id")),
-                                    offer_title=title,
-                                    error=str(e)[:300],
-                                )
-                            total += 1
-                            await asyncio.sleep(PAUSE_BETWEEN_CANDIDATES_SEC)
-            except Exception as e:  # noqa: BLE001
-                logger.exception("jjit run %s failed", self.run_id)
-                await self._finish_run("failed", str(e)[:1000])
-                return dict(
-                    self.stats, run_id=self.run_id, status="failed", error=str(e)[:300]
-                )
+                                logger.error("jjit: ogłoszenie %s: %s", oid, e)
+                                continue
+                            for app in applications:
+                                if self.limit and total >= self.limit:
+                                    break
+                                try:
+                                    await self._process(app, title, panel, nexus)
+                                except PanelAuthError:
+                                    raise
+                                except Exception as e:  # noqa: BLE001
+                                    self.stats["errors"] += 1
+                                    logger.exception(
+                                        "jjit: aplikacja %s", app.get("id")
+                                    )
+                                    await self._event(
+                                        action="error",
+                                        external_id=str(app.get("id")),
+                                        offer_title=title,
+                                        error=str(e)[:300],
+                                    )
+                                total += 1
+                                await asyncio.sleep(PAUSE_BETWEEN_CANDIDATES_SEC)
+                except Exception as e:  # noqa: BLE001
+                    logger.exception("jjit run %s failed", self.run_id)
+                    await self._finish_run("failed", str(e)[:1000])
+                    return dict(
+                        self.stats,
+                        run_id=self.run_id,
+                        status="failed",
+                        error=str(e)[:300],
+                    )
 
-            status = "errors" if self.stats["errors"] else "ok"
-            await self._finish_run(status)
-            return dict(self.stats, run_id=self.run_id, status=status)
+                status = "errors" if self.stats["errors"] else "ok"
+                await self._finish_run(status)
+                return dict(self.stats, run_id=self.run_id, status=status)
 
 
 async def run_once(

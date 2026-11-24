@@ -3,7 +3,7 @@
  * być pod ręką: po 2 dniach roboczych znów blokują wyszukiwanie.
  */
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReviewBatchScreen } from "@/components/v2/review-batch/ReviewBatchScreen";
@@ -12,6 +12,7 @@ import type { ReviewBatchStatus } from "@/lib/api/reviewBatch";
 const api = vi.hoisted(() => ({
   status: {} as Record<string, unknown>,
   queue: {} as Record<string, unknown>,
+  setFocus: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", async (original) => ({
@@ -34,8 +35,19 @@ vi.mock("@/lib/api/plainKnowledge", () => ({
 vi.mock("@/lib/api/reviewBatch", () => ({
   addMoreFromNexus: vi.fn(),
   invalidateReviewBatch: vi.fn(),
+  setReviewBatchFocus: api.setFocus,
   useReviewBatchStatus: () => api.status,
   useReviewBatchQueue: () => api.queue,
+  useReviewBatchFocusOptions: () => ({
+    isSuccess: true,
+    isError: false,
+    data: {
+      seats: 10,
+      focus: null,
+      items: [{ job_id: 11, title: "Java Developer", pending: 0, p0: false, group: "p1", team_size: 2, picked_by: [] }],
+    },
+  }),
+  useReviewBatchFocusPreview: () => ({ isSuccess: false, isError: false }),
 }));
 
 const blocked: ReviewBatchStatus = {
@@ -419,5 +431,79 @@ describe("ReviewBatchScreen: 12 pilnych + 8 pozostałych (R2, 22.11.2026)", () =
     const text = screen.getByTestId("review-batch-sources").textContent;
     expect(text).toMatch(/20 z pilnych/);
     expect(text).not.toMatch(/miejsc/);
+  });
+});
+
+describe("ReviewBatchScreen: rekrutacja wybrana na dziś (zgłoszenie rekruterów 16.11.2026)", () => {
+  const sources = { p0: 0, rest: 3, level_next: 10, level_cap: 20, urgent: 3, other: 0, other_seats: 0, stale: 0 };
+
+  beforeEach(() => api.setFocus.mockReset());
+
+  it("bez wyboru pasek ma „Wybierz rekrutację na dziś”, a klik daje listę zamiast zakładek", () => {
+    given({ pending: 3, sources });
+    render(<ReviewBatchScreen />);
+    expect(screen.getByTestId("review-batch-sources").textContent).toMatch(/najpierw pilne/);
+    fireEvent.click(screen.getByTestId("review-focus-open"));
+    expect(screen.getByTestId("review-focus-picker").textContent).toMatch(/Java Developer/);
+    expect(screen.getByRole("tablist").className).toMatch(/hidden/);
+    fireEvent.click(screen.getByRole("button", { name: "Anuluj" }));
+    expect(screen.queryByTestId("review-focus-picker")).toBeNull();
+  });
+
+  it("z wyborem pasek mówi, skąd najpierw, a „Wróć do zwykłej kolejności” kasuje wybór", async () => {
+    api.setFocus.mockResolvedValue({ focus: null, released: 0, added: 0 });
+    given({ pending: 3, sources, focus: { job_id: 11, at: "2026-11-24T08:00:00Z" } });
+    render(<ReviewBatchScreen />);
+    expect(screen.getByTestId("review-focus-line").textContent).toMatch(
+      /Najpierw z wybranej na dziś:Java Developer/,
+    );
+    expect(screen.getByTestId("review-batch-sources").textContent).not.toMatch(/najpierw pilne/);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Wróć do zwykłej kolejności" }));
+    });
+    expect(api.setFocus).toHaveBeenCalledWith(null);
+  });
+
+  it("nad osobą z wybranej rekrutacji: „Twój wybór na dziś”", () => {
+    given(
+      {
+        pending: 1,
+        sources,
+        focus: { job_id: 11, at: "2026-11-24T08:00:00Z" },
+        team_jobs: [
+          { job_id: 11, title: "Java Developer", pending: 1, p0: false, group: "p1", via: "assignment" },
+        ],
+      },
+      {
+        data: {
+          items: [
+            {
+              process_id: 1,
+              stage_id: 1,
+              job_id: 11,
+              job_title: "Java Developer",
+              candidate_id: 5,
+              name: "Adam",
+              city: null,
+              years: null,
+              position: null,
+              score: 77,
+              matched_must: [],
+              missing_must: [],
+              rate_from_hourly: null,
+              rate_currency: null,
+              availability_status: null,
+              cautions: [],
+              budget_hourly: null,
+              why: { source: "p1", via: "assignment", chosen: true },
+            },
+          ],
+        },
+      },
+    );
+    render(<ReviewBatchScreen />);
+    expect(screen.getByTestId("review-why").textContent).toMatch(/Twój wybór na dziś \(przypisanie\)/);
+    fireEvent.click(screen.getByRole("tab", { name: /Rekrutacje/ }));
+    expect(screen.getByText("wybrana na dziś")).toBeTruthy();
   });
 });

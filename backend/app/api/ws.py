@@ -3,11 +3,17 @@ WebSocket notifications endpoint.
 Maintains per-user connections and broadcasts real-time events.
 
 Also hosts in-memory presence tracking ("currently viewing" for candidate/job pages).
+
+Kilka procesów web (``WEB_CONCURRENCY`` > 1): gniazda jednej osoby i widzów jednej
+karty bywają w różnych procesach. Ramki i stan obecności idą wtedy także przez
+``process_bus``; każdy proces doręcza je swoim gniazdom.
+→ docs/claude/podstawy/kilka-procesow-web.md
 """
 
 import asyncio
 import json
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
@@ -22,6 +28,7 @@ from app.api.deps import is_trainee_only
 from app.core import process_bus
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.process_role import web_process_count
 from app.core.session_cookie import SESSION_COOKIE_NAME, origin_allowed
 from app.core.security import (
     decode_token,
@@ -29,6 +36,7 @@ from app.core.security import (
     token_is_revoked,
 )
 from app.models.user import User
+from app.services import loop_heartbeat
 from app.services.notification_access import user_can_receive_realtime_event
 from app.services.notification_topics import enrich_realtime_event
 from app.services.section_permissions import resolve_effective_section_access
@@ -74,6 +82,21 @@ def _parse_key(key: ResourceKey) -> Tuple[str, int]:
 
 _WS_NOTIFY = "ws_notify"
 _WS_BROADCAST = "ws_broadcast"
+_WS_PRESENCE = "ws_presence"
+_WS_PRESENCE_SYNC = "ws_presence_sync"
+
+# Proces web odświeża swoich widzów w pozostałych co tyle sekund; wpis innego
+# procesu bez odświeżenia (proces padł, zgubione NOTIFY) wygasa po TTL.
+PRESENCE_HEARTBEAT_SECONDS = 30
+PRESENCE_REMOTE_TTL_SECONDS = 75
+# Zapas pod limit NOTIFY (``process_bus.MAX_PAYLOAD_BYTES``) na kopertę wiadomości.
+_PRESENCE_CHUNK_BYTES = 7000
+_PRESENCE_SYNC_DELAY_SECONDS = 5
+
+
+def _fan_out() -> bool:
+    """Ramki i obecność przez bus tylko wtedy, gdy jest drugi proces web."""
+    return web_process_count() > 1
 
 
 # ── Connection Manager ─────────────────────────────────────────────────────────
@@ -94,6 +117,13 @@ class ConnectionManager:
         self._since: Dict[ResourceKey, Dict[int, str]] = {}
         self._ws_subs: Dict[int, Dict[WebSocket, Set[ResourceKey]]] = {}
         self._user_info: Dict[int, ViewerInfo] = {}
+        # Widzowie z innych procesów web: klucz → proces → (czas odbioru, lista).
+        self._remote: Dict[ResourceKey, Dict[str, Tuple[float, List[dict]]]] = {}
+        # Numer ostatniej wiadomości (klucz, proces) i czas odbioru. Wiadomości
+        # z ``publish_soon`` mogą dojść w innej kolejności niż wysłane, a starsza
+        # po nowszej zostawiłaby „ducha” widza do końca TTL.
+        self._remote_seq: Dict[Tuple[ResourceKey, str], Tuple[int, float]] = {}
+        self._presence_seq = 0
 
     # ── Notifications (existing API) ──────────────────────────────────────────
 
@@ -147,6 +177,13 @@ class ConnectionManager:
             # Gniazda są w web; rekord powiadomienia jest już w bazie.
             await process_bus.publish(_WS_NOTIFY, {"user_id": user_id, "event": event})
             return
+        await self.deliver_local(user_id, event)
+        if _fan_out():
+            # Pozostałe procesy web doręczą swoim gniazdom; ten już doręczył.
+            process_bus.publish_soon(_WS_NOTIFY, {"user_id": user_id, "event": event})
+
+    async def deliver_local(self, user_id: int, event: dict) -> None:
+        """Doręcz ramkę gniazdom osoby w TYM procesie (bez busa)."""
         # Kopia: każdy ``await`` niżej oddaje pętlę, a w tym czasie inne
         # zadanie może dopisać albo usunąć gniazdo z żywej listy (R9-N2-8).
         connections = list(self._connections.get(user_id, []))
@@ -193,8 +230,13 @@ class ConnectionManager:
         if settings.NEXUS_PROCESS_ROLE == "worker":
             await process_bus.publish(_WS_BROADCAST, {"event": event})
             return
+        await self.broadcast_local(event)
+        if _fan_out():
+            process_bus.publish_soon(_WS_BROADCAST, {"event": event})
+
+    async def broadcast_local(self, event: dict) -> None:
         for user_id in list(self._connections.keys()):
-            await self.notify_user(user_id, event)
+            await self.deliver_local(user_id, event)
 
     def get_connected_user_ids(self) -> List[int]:
         return list(self._connections.keys())
@@ -269,13 +311,123 @@ class ConnectionManager:
             await self._broadcast_update(key)
 
     def viewer_ids(self, resource_type: str, resource_id: int) -> Set[int]:
-        """Who has the resource open right now (any tab) — ids only."""
-        return set(self._viewers.get(_make_key(resource_type, resource_id), {}))
+        """Who has the resource open right now (any tab, any web process) — ids only."""
+        key = _make_key(resource_type, resource_id)
+        ids = set(self._viewers.get(key, {}))
+        for viewers in self._fresh_remote(key):
+            ids.update(int(v["user_id"]) for v in viewers)
+        return ids
 
     def get_viewers(self, resource_type: str, resource_id: int) -> List[dict]:
         """Return a snapshot of viewers for a resource (for HTTP fallback)."""
         key = _make_key(resource_type, resource_id)
-        return self._build_viewers_payload(key)
+        return self._merged_viewers_payload(key)
+
+    # ── Presence across web processes ─────────────────────────────────────────
+
+    def _fresh_remote(self, key: ResourceKey) -> List[List[dict]]:
+        cutoff = time.monotonic() - PRESENCE_REMOTE_TTL_SECONDS
+        return [
+            viewers
+            for received, viewers in self._remote.get(key, {}).values()
+            if received >= cutoff
+        ]
+
+    def _merged_viewers_payload(self, key: ResourceKey) -> List[dict]:
+        """Widzowie z tego procesu i z pozostałych; jedna osoba w dwóch = jeden wpis."""
+        merged: Dict[int, dict] = {}
+        for viewer in self._build_viewers_payload(key):
+            merged[viewer["user_id"]] = viewer
+        for viewers in self._fresh_remote(key):
+            for viewer in viewers:
+                uid = int(viewer["user_id"])
+                known = merged.get(uid)
+                if known is None:
+                    merged[uid] = {
+                        "user_id": uid,
+                        "name": viewer.get("name"),
+                        "editing": sorted(set(viewer.get("editing") or [])),
+                        "since": viewer.get("since"),
+                    }
+                    continue
+                known["editing"] = sorted(
+                    set(known["editing"]) | set(viewer.get("editing") or [])
+                )
+                since = [t for t in (known.get("since"), viewer.get("since")) if t]
+                known["since"] = min(since) if since else None
+        return list(merged.values())
+
+    def _next_presence_seq(self) -> int:
+        self._presence_seq += 1
+        return self._presence_seq
+
+    async def apply_remote_presence(
+        self,
+        origin: str,
+        keys: Dict[ResourceKey, List[dict]],
+        seq: Optional[int] = None,
+    ) -> None:
+        """Stan widzów innego procesu web; lista pusta = tam już nikt nie ogląda."""
+        now = time.monotonic()
+        for key, viewers in keys.items():
+            if seq is not None:
+                last = self._remote_seq.get((key, origin))
+                if last is not None and seq < last[0]:
+                    continue  # starsza wiadomość doszła po nowszej
+                self._remote_seq[(key, origin)] = (seq, now)
+            per_origin = self._remote.setdefault(key, {})
+            before = per_origin.get(origin, (0.0, []))[1]
+            if viewers:
+                per_origin[origin] = (now, viewers)
+            else:
+                per_origin.pop(origin, None)
+                if not per_origin:
+                    self._remote.pop(key, None)
+            if viewers != before:
+                await self._send_presence_to_local(key)
+
+    async def prune_remote_presence(self) -> None:
+        """Zdejmij widzów procesu, który przestał odświeżać (padł albo zgubił NOTIFY)."""
+        cutoff = time.monotonic() - PRESENCE_REMOTE_TTL_SECONDS
+        for pair, (_seq, received) in list(self._remote_seq.items()):
+            if received < cutoff:
+                del self._remote_seq[pair]
+        for key in list(self._remote):
+            per_origin = self._remote[key]
+            stale = [o for o, (received, _) in per_origin.items() if received < cutoff]
+            for origin in stale:
+                per_origin.pop(origin, None)
+            if not per_origin:
+                self._remote.pop(key, None)
+            if stale:
+                await self._send_presence_to_local(key)
+
+    def presence_snapshot_messages(self) -> List[Dict[ResourceKey, List[dict]]]:
+        """Wszyscy widzowie tego procesu, pocięci na wiadomości mieszczące się w NOTIFY."""
+        chunks: List[Dict[ResourceKey, List[dict]]] = []
+        current: Dict[ResourceKey, List[dict]] = {}
+        size = 0
+        for key in list(self._viewers):
+            viewers = self._build_viewers_payload(key)
+            if not viewers:
+                continue
+            entry = len(json.dumps({key: viewers}, ensure_ascii=False, default=str))
+            if current and size + entry > _PRESENCE_CHUNK_BYTES:
+                chunks.append(current)
+                current, size = {}, 0
+            current[key] = viewers
+            size += entry
+        if current:
+            chunks.append(current)
+        return chunks
+
+    async def publish_presence_snapshot(self) -> None:
+        seq = self._next_presence_seq()
+        for keys in self.presence_snapshot_messages():
+            await process_bus.publish(
+                _WS_PRESENCE,
+                {"origin": process_bus.PROCESS_TOKEN, "keys": keys, "seq": seq},
+            )
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -359,12 +511,24 @@ class ConnectionManager:
         return payload
 
     async def _broadcast_update(self, key: ResourceKey) -> None:
+        await self._send_presence_to_local(key)
+        if _fan_out():
+            process_bus.publish_soon(
+                _WS_PRESENCE,
+                {
+                    "origin": process_bus.PROCESS_TOKEN,
+                    "keys": {key: self._build_viewers_payload(key)},
+                    "seq": self._next_presence_seq(),
+                },
+            )
+
+    async def _send_presence_to_local(self, key: ResourceKey) -> None:
         rt, rid = _parse_key(key)
         event = {
             "type": "presence:update",
             "resource_type": rt,
             "resource_id": rid,
-            "viewers": self._build_viewers_payload(key),
+            "viewers": self._merged_viewers_payload(key),
         }
         viewers_for_key = self._viewers.get(key, {})
         # Kopie: ``send_json`` oddaje pętlę, a rozłączenie w innym zadaniu
@@ -382,18 +546,59 @@ manager = ConnectionManager()
 
 
 async def _on_ws_notify(data: dict) -> None:
-    # Nadawca też dostaje swoje NOTIFY; w workerze wysłałby je znowu w kółko.
+    # Gniazda są tylko w web. Własne NOTIFY pomija bus (``others_only``), a tu
+    # doręczenie jest lokalne, więc ramka nie krąży między procesami web.
     if settings.NEXUS_PROCESS_ROLE != "worker":
-        await manager.notify_user(int(data["user_id"]), data["event"])
+        await manager.deliver_local(int(data["user_id"]), data["event"])
 
 
 async def _on_ws_broadcast(data: dict) -> None:
     if settings.NEXUS_PROCESS_ROLE != "worker":
-        await manager.broadcast_all(data["event"])
+        await manager.broadcast_local(data["event"])
 
 
-process_bus.subscribe(_WS_NOTIFY, _on_ws_notify)
-process_bus.subscribe(_WS_BROADCAST, _on_ws_broadcast)
+async def _on_ws_presence(data: dict) -> None:
+    if settings.NEXUS_PROCESS_ROLE == "web":
+        await manager.apply_remote_presence(
+            str(data["origin"]), data["keys"], data.get("seq")
+        )
+
+
+async def _on_ws_presence_sync(_data: dict) -> None:
+    # Nowy proces web pyta o widzów; odpowiada każdy, kto jakichś ma.
+    if settings.NEXUS_PROCESS_ROLE == "web":
+        await manager.publish_presence_snapshot()
+
+
+process_bus.subscribe(_WS_NOTIFY, _on_ws_notify, others_only=True)
+process_bus.subscribe(_WS_BROADCAST, _on_ws_broadcast, others_only=True)
+process_bus.subscribe(_WS_PRESENCE, _on_ws_presence, others_only=True)
+process_bus.subscribe(_WS_PRESENCE_SYNC, _on_ws_presence_sync, others_only=True)
+
+
+async def presence_sync_loop() -> None:
+    """Obecność między procesami web: prośba o stan przy starcie, potem odświeżanie.
+
+    Jeden proces web = nic do roboty. → docs/claude/podstawy/kilka-procesow-web.md
+    """
+    if not _fan_out():
+        return
+    # Rejestracja dopiero tu: przy jednym procesie web pętla kończy się od razu.
+    beat = loop_heartbeat.register(
+        "presence_sync", max_silence_seconds=PRESENCE_HEARTBEAT_SECONDS * 6
+    )
+    beat.tick()
+    # Najpierw własny LISTEN (pętla ``process_bus``), inaczej odpowiedzi przepadną.
+    await asyncio.sleep(_PRESENCE_SYNC_DELAY_SECONDS)
+    await process_bus.publish(_WS_PRESENCE_SYNC, {})
+    while True:
+        beat.tick()
+        await asyncio.sleep(PRESENCE_HEARTBEAT_SECONDS)
+        try:
+            await manager.publish_presence_snapshot()
+            await manager.prune_remote_presence()
+        except Exception as exc:  # noqa: BLE001 — pętla obecności nie może zgasnąć
+            logger.warning("presence sync failed: %s", type(exc).__name__)
 
 
 async def notify_user(user_id: int, event: dict) -> None:
