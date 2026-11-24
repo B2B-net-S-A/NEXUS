@@ -41,13 +41,23 @@ Reguły obowiązują wg **miesiąca usługi** faktury, nie daty wysyłki.
 - Ustawienia wystawiania → klient → „Nabywcy per kontrakt”: do 10 nabywców (nazwa, NIP albo VAT UE, adres, kraj,
   opcjonalnie adres doręczenia → FA(3) `Podmiot2/AdresKoresp`, np. nabywca w FI, poczta w SE). Kod `b1`, `b2`…
   nadaje zapis; pusta lista = nabywcą jest klient z kartoteki.
-- Kontrakt przypisuje się raz: wybór nabywcy w szkicu (`PUT … {"buyer_code"}`) zapisuje `contract_buyers`
-  dla kontraktów pozycji (`contract_id` z zamówienia osoby). Następne szkice biorą nabywcę same i dzielą
-  zamówienie na faktury nabywców. Seria (PL/UE) i stawka VAT pozycji idą za nabywcą jak przy tworzeniu szkicu.
+- Wybór nabywcy w szkicu (`PUT … {"buyer_code"}`) zapisuje dla kontraktów pozycji (`contract_id` z zamówienia
+  osoby) nabywcę **od miesiąca usługi tej faktury** (`contract_buyers`: historia `[{code, from: RRRR-MM}]`).
+  Następne szkice biorą nabywcę obowiązującego w swoim miesiącu i dzielą zamówienie na faktury nabywców.
+  Seria (PL/UE) i stawka VAT pozycji idą za nabywcą jak przy tworzeniu szkicu.
+- **Nabywca kontraktu się zmienia** (24.11.2026, przegląd skrzynek DL-ów Nordei): zmianę ogłasza portal CPro Nordei
+  („Important changes made to contract”), np. kontrakt przeszedł 15.09.2026 z Abp S.A. na Abp Finland, a do rozliczeń
+  nikt tego nie przekazał. Dlatego przypisanie ma miesiąc początku: wybór nabywcy w szkicu za wrzesień nie zmienia
+  sierpnia (szkic, korekta), a poprawka sierpnia nie rusza września. Zmiana w trakcie miesiąca: cały miesiąc idzie do
+  jednego nabywcy (faktura jest miesięczna), rozbicie na dwóch nabywców to ręczna decyzja Finansów. Źródłem zmian ma
+  być CPro (odczyt maili „Important changes…” jeszcze nie istnieje). Przypisanie zapisane przed tą zmianą (sam kod)
+  obowiązuje od początku.
 - Faktura z zamówienia klienta z listą nabywców bez nabywcy z listy **nie wychodzi** („wybierz nabywcę z listy”).
   Powód: we wrześniu dwie korekty Nordei poszły na złego nabywcę.
-- Rabat Nordei (2,5% na wierszu) to istniejący rabat od obrotu (`rabat-roczny-od-obrotu-korekta-zbiorcza.md`),
-  rachunek EUR klienta — `clients[id].accounts`.
+- Rabat Nordei **nie jest** regułą tego etapu ani stałym mnożnikiem stawki: to istniejący rabat od obrotu rocznego
+  z progami z umowy (`rabat-roczny-od-obrotu-korekta-zbiorcza.md`, decyzje Artura z 16.11.2026: procent na wierszu
+  wg obrotu sprzed miesiąca faktury, wyższa stawka od nadwyżki, korekta za miesiąc przekroczenia). Umowa przewiduje
+  notę kredytową do 31.01; sposób rozliczenia rozstrzyga Artur. Rachunek EUR klienta — `clients[id].accounts`.
 
 ## Sprawdzenie
 

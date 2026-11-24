@@ -655,6 +655,7 @@ def _units(
     settings: dict[str, Any],
     reqs: dict[int, requirements.Requirements],
     infos: dict[int, OrderInfo],
+    period: str,
 ) -> list[_Unit]:
     """Podział zaznaczonych wierszy na faktury.
 
@@ -677,7 +678,7 @@ def _units(
             buyers: dict[Optional[str], Optional[dict[str, Any]]] = {}
             for line in lines:
                 buyer = issue_settings.buyer_for_contract(
-                    settings, row.client_id, _info(infos, line).contract_id
+                    settings, row.client_id, _info(infos, line).contract_id, period
                 )
                 code = buyer["code"] if buyer else None
                 by_buyer.setdefault(code, []).append(line)
@@ -749,7 +750,13 @@ async def create_drafts(
     created: list[ClientIssuedInvoice] = []
     rebate_cache: dict[tuple[int, int], Optional[rebate.YearRebate]] = {}
     for unit in _units(
-        wanted, rows, split=split, settings=settings, reqs=reqs, infos=infos
+        wanted,
+        rows,
+        split=split,
+        settings=settings,
+        reqs=reqs,
+        infos=infos,
+        period=period,
     ):
         client = await db.get(Client, unit.client_id)
         if client is None:
@@ -972,7 +979,9 @@ async def _choose_buyer(
     if (
         invoice.client_id is not None
         and contracts
-        and issue_settings.remember_buyer(settings, invoice.client_id, contracts, code)
+        and issue_settings.remember_buyer(
+            settings, invoice.client_id, contracts, code, invoice_period(invoice)
+        )
     ):
         await issue_settings.save(db, settings, actor_id=actor_id)
     _note(invoice, "buyer", actor_id, buyer=code)
@@ -1214,12 +1223,16 @@ async def invoice_requirements(
 
     if invoice.client_id is None:
         return requirements.Requirements()
+    return await requirements.load(db, invoice.client_id, invoice_period(invoice))
+
+
+def invoice_period(invoice: ClientIssuedInvoice) -> str:
+    """Miesiąc usługi faktury (``RRRR-MM``); bez okresu — z daty sprzedaży/wystawienia."""
+
     if invoice.period_year and invoice.period_month:
-        period = billing.month_key(int(invoice.period_year), int(invoice.period_month))
-    else:
-        day = invoice.sale_date or invoice.issue_date
-        period = billing.month_key(day.year, day.month)
-    return await requirements.load(db, invoice.client_id, period)
+        return billing.month_key(int(invoice.period_year), int(invoice.period_month))
+    day = invoice.sale_date or invoice.issue_date
+    return billing.month_key(day.year, day.month)
 
 
 def buyer_choice_needed(invoice: ClientIssuedInvoice, settings: dict[str, Any]) -> bool:

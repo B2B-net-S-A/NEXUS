@@ -1452,7 +1452,9 @@ async def test_buyer_per_contract_is_chosen_once_and_remembered(client, seed, ru
         contract_id = (await db.get(ClientOrder, seed.lines["118"])).contract_id
         data = await issue_settings.load(db)
     assert (
-        issue_settings.buyer_for_contract(data, seed.client_id, contract_id)["code"]
+        issue_settings.buyer_for_contract(data, seed.client_id, contract_id, "2026-11")[
+            "code"
+        ]
         == "b1"
     )
 
