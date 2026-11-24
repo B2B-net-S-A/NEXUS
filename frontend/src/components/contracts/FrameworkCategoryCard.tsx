@@ -9,6 +9,7 @@ import { Scale } from "lucide-react";
 
 import { PremiumSkillsSection } from "@/components/contracts/PremiumSkillsSection";
 import { AppModal } from "@/components/ds/AppModal";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,15 @@ import {
 } from "@/lib/framework-category";
 import { warsawToday } from "@/lib/warsaw-date";
 
+function FrameworkCardTitle() {
+  return (
+    <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+      <Scale className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+      Umowa ramowa
+    </h2>
+  );
+}
+
 interface Props {
   contractId: number;
   canView: boolean;
@@ -43,7 +53,25 @@ interface Props {
 export function FrameworkCategoryCard({ contractId, canView, canEdit }: Props) {
   const query = useFrameworkCategory(contractId, canView);
   const [open, setOpen] = useState(false);
-  if (!canView || !query.isSuccess || !showsFrameworkCard(query.data)) return null;
+  if (!canView) return null;
+  // Awaria (poza odmową i brakiem kontraktu) nie może wyglądać jak klient bez
+  // umowy ramowej — nie wiemy, czy ją ma, więc karta mówi, że nie sprawdziła.
+  if (query.isError) {
+    const status = (query.error as { response?: { status?: number } } | null)?.response?.status;
+    if (status === 403 || status === 404) return null;
+    return (
+      <div className="rounded-xl border border-border bg-card p-4" data-testid="framework-category-card">
+        <FrameworkCardTitle />
+        <QueryStateNotice
+          state="error"
+          className="mt-3 py-4"
+          description={apiErrorMessage(query.error, "Nie udało się sprawdzić umowy ramowej klienta.")}
+          onRetry={() => void query.refetch()}
+        />
+      </div>
+    );
+  }
+  if (!query.isSuccess || !showsFrameworkCard(query.data)) return null;
   const data = query.data;
   const breakdown = limitBreakdown(data);
   const gap = data.gap === null ? null : Number(data.gap);
@@ -51,10 +79,7 @@ export function FrameworkCategoryCard({ contractId, canView, canEdit }: Props) {
   return (
     <div className="rounded-xl border border-border bg-card p-4" data-testid="framework-category-card">
       <div className="flex items-start justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Scale className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-          Umowa ramowa
-        </h2>
+        <FrameworkCardTitle />
         {canEdit && (
           <Button size="sm" variant="outline" data-tour="contracts.framework-category" onClick={() => setOpen(true)}>
             Kategoria i dopłata

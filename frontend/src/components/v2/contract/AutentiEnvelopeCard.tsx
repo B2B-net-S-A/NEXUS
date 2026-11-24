@@ -17,6 +17,7 @@ import { AxiosError } from "axios";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useToast } from "@/components/Toast";
 import {
   autentiApi,
@@ -241,7 +242,7 @@ export function AutentiEnvelopeCard({
 }: Props) {
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const { data, isLoading, error } = useQuery<DocumentSignature[]>({
+  const { data, isLoading, isSuccess, isError, error, refetch } = useQuery<DocumentSignature[]>({
     queryKey: ["autenti-signatures", contractId],
     queryFn: () => autentiApi.list(contractId).then((r) => r.data),
     // Backend returns 404 when AUTENTI_ENABLED=false (router not mounted).
@@ -266,6 +267,13 @@ export function AutentiEnvelopeCard({
   const hasActive = signatures.some((s) =>
     ["sent", "sending", "in_progress"].includes(s.status),
   );
+  // Bez historii nie wiadomo, czy umowa nie jest już w podpisie — druga
+  // koperta do tej samej osoby to realna szkoda, więc wysyłka czeka na odczyt.
+  const sendBlockedReason = hasActive
+    ? "Aktywna wysyłka — wycofaj lub poczekaj na status końcowy."
+    : isError
+      ? "Najpierw wczytaj historię podpisów — bez niej nie widać, czy umowa nie jest już w podpisie."
+      : undefined;
 
   return (
     <>
@@ -277,12 +285,8 @@ export function AutentiEnvelopeCard({
           <Button
             size="sm"
             onClick={() => setDialogOpen(true)}
-            disabled={hasActive}
-            title={
-              hasActive
-                ? "Aktywna wysyłka — wycofaj lub poczekaj na status końcowy."
-                : undefined
-            }
+            disabled={sendBlockedReason !== undefined}
+            title={sendBlockedReason}
           >
             <Send className="h-3.5 w-3.5 mr-1" />
             Wyślij do podpisu
@@ -297,7 +301,19 @@ export function AutentiEnvelopeCard({
           </Card>
         )}
 
-        {!isLoading && signatures.length === 0 && (
+        {isError && (
+          <QueryStateNotice
+            state="error"
+            className="py-4"
+            description={apiErrorMessage(
+              error,
+              "Nie udało się pobrać historii podpisów.",
+            )}
+            onRetry={() => void refetch()}
+          />
+        )}
+
+        {isSuccess && signatures.length === 0 && (
           <Card variant="default" size="sm">
             <CardContent className="py-3 text-xs text-muted-foreground">
               Brak wysyłek. Kliknij „Wyślij do podpisu", aby skierować umowę

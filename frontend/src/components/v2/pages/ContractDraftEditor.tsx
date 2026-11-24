@@ -24,10 +24,12 @@ import { AlertTriangle, CheckCircle2, Printer, RefreshCcw } from "lucide-react";
 
 import { contractsApi, type ContractDraftResponse } from "@/lib/api";
 import { openAuthenticatedFile } from "@/lib/authenticated-files";
+import { apiErrorMessage } from "@/lib/api-error";
 import { formatRelativeTime } from "@/lib/utils";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { ConfirmModal } from "./ConfirmModal";
 
 export function DraftEditor({
@@ -46,7 +48,7 @@ export function DraftEditor({
  null,
  );
 
- const { data, isLoading } = useQuery<ContractDraftResponse>({
+ const { data, isError, error, refetch } = useQuery<ContractDraftResponse>({
  queryKey: ["contract-draft", contractId],
  queryFn: () => contractsApi.draft.get(contractId).then((r) => r.data),
  });
@@ -129,20 +131,28 @@ export function DraftEditor({
  queryKey: ["contract-draft", contractId],
  });
  },
- onError: (err: unknown) => {
- const detail =
- err && typeof err === "object" &&"response" in err
- ? (err as any).response?.data?.detail
- : null;
- if (detail && typeof detail === "object" && Array.isArray(detail.missing)) {
- showError(`Uzupełnij wymagane pola: ${detail.missing.join(",")}`);
- } else {
- showError("Nie udało się sfinalizować draftu");
- }
- },
+ // 409 z listą braków tłumaczy `apiErrorMessage` na nazwy pól z formularza
+ // kontraktu (CONTRACT_FIELD_LABELS), inne odmowy pokazują zdanie z serwera.
+ onError: (err: unknown) =>
+ showError(apiErrorMessage(err, "Nie udało się sfinalizować draftu")),
  });
 
- if (isLoading || !data) {
+ // Awaria odczytu nie może wisieć jako „Ładowanie…” bez końca.
+ if (isError) {
+ return (
+ <Card variant="default" size="md">
+ <CardContent>
+ <QueryStateNotice
+ state="error"
+ description={apiErrorMessage(error, "Nie udało się wczytać draftu umowy.")}
+ onRetry={() => void refetch()}
+ />
+ </CardContent>
+ </Card>
+ );
+ }
+
+ if (!data) {
  return (
  <Card variant="default" size="md">
  <CardContent className="py-6 text-center text-sm text-muted-foreground">
