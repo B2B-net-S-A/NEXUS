@@ -2,12 +2,13 @@
 
 Warunki leżą w ustawieniach wystawiania przy kliencie
 (``app_settings['client_invoice_issue'].clients[<id>].rebate``) i wpisują je
-Finanse z umowy ramowej; w kodzie nie ma ani progów, ani stawek::
+Finanse z umowy ramowej; w kodzie nie ma ani progów, ani stawek (przykład
+z fikcyjnymi liczbami)::
 
     {"threshold_currency": "EUR",
      "periods": [{"from_year": 2026,
-                  "tiers": [{"up_to": 15000000, "rate": 2.5},
-                            {"up_to": null, "rate": 3}]}],
+                  "tiers": [{"up_to": 1000000, "rate": 1},
+                            {"up_to": null, "rate": 2}]}],
      "exclude_words": ["podróż"]}
 
 Decyzje Artura 16.11.2026 (Nordea, druga odpowiedź tego dnia — zastępuje
@@ -18,7 +19,7 @@ Decyzje Artura 16.11.2026 (Nordea, druga odpowiedź tego dnia — zastępuje
   po stawce progu, w którym jest narastający obrót roku SPRZED miesiąca faktury;
 * stawka wyższego progu dotyczy tylko NADWYŻKI ponad próg; faktury za miesiąc,
   w którym obrót przekroczył próg, idą jeszcze po niższej stawce, a różnicę od
-  części obrotu tego miesiąca ponad próg (np. 0,5%) rozlicza korekta
+  części obrotu tego miesiąca ponad próg (np. 1%) rozlicza korekta
   (``YearRebate.corrections``; do KSeF tylko po „tak” Artura);
 * obrót = usługi PRZED rabatem (ilość × cena) z faktur sprzedaży z KSeF za
   miesiące roku (okres usługi, bez okresu — data wystawienia), razem

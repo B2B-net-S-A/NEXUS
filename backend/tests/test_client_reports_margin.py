@@ -30,7 +30,8 @@ from app.services.client_reports.generators.margin_per_consultant import (
 )
 from app.services.client_reports.registry import clean_params, get_generator
 
-TIERS = [{"up_to": 15_000_000, "rate": 2.5}, {"up_to": None, "rate": 3}]
+# Progi i stawki fikcyjne: warunki z umów klientów są tylko w ustawieniach.
+TIERS = [{"up_to": 12_000_000, "rate": 1.5}, {"up_to": None, "rate": 3.5}]
 H1 = MarginAssumptions()
 
 
@@ -42,10 +43,10 @@ def invoice(amount: str, currency: str = "PLN", issued: date = date(2026, 8, 4))
 
 
 def test_turnover_just_above_threshold_higher_rate_only_on_excess():
-    rebate = compute_rebate(Decimal("15000100"), TIERS, marginal=True)
-    # 15 mln × 2,5% + 100 × 3%, nie 3% od całości
-    assert rebate.amount == Decimal("375000.00") + Decimal("3.00")
-    assert [b.base for b in rebate.bands] == [Decimal(15_000_000), Decimal(100)]
+    rebate = compute_rebate(Decimal("12000100"), TIERS, marginal=True)
+    # 12 mln × 1,5% + 100 × 3,5%, nie 3,5% od całości
+    assert rebate.amount == Decimal("180000.00") + Decimal("3.50")
+    assert [b.base for b in rebate.bands] == [Decimal(12_000_000), Decimal(100)]
 
 
 def test_rebate_reports_default_to_excess_mode():
@@ -56,13 +57,13 @@ def test_rebate_reports_default_to_excess_mode():
 
 def test_margin_uses_effective_rate_of_excess_mode():
     rate = year_rebate_percent(Decimal(20_000_000), TIERS, marginal=True)
-    assert rate == Decimal("2.6250")  # (375 000 + 150 000) / 20 mln
+    assert rate == Decimal("2.3000")  # (180 000 + 280 000) / 20 mln
     assert year_rebate_percent(Decimal(20_000_000), TIERS, marginal=False) == Decimal(
-        "3"
+        "3.5"
     )
     assert year_rebate_percent(Decimal(1000), [], marginal=True) == 0
     (row,) = margin_rows([person("A", "100", "200")], rate, H1)
-    assert row.after_rebate == Decimal("194.75")  # 200 × (1 − 2,625%)
+    assert row.after_rebate == Decimal("195.40")  # 200 × (1 − 2,3%)
 
 
 # ------------------------------------------------------- przeliczenie kursem
@@ -138,7 +139,7 @@ def test_same_currency_needs_no_rate():
 
 
 def test_turnover_counts_services_before_line_discount():
-    # eBI24: cena 157,00, rabat 2,5% na wierszu, netto 153,08 — obrót = 157,00
+    # eBI24: cena 157,00, rabat 1,5% na wierszu, netto 154,65 — obrót = 157,00
     row = InvoiceRow(
         "FV/3",
         "VAT",
@@ -146,14 +147,14 @@ def test_turnover_counts_services_before_line_discount():
         date(2026, 9, 3),
         None,
         "PLN",
-        Decimal("153.08"),
+        Decimal("154.65"),
         date(2026, 8, 31),
         (
             {
                 "name": "Usługi IT",
                 "quantity": "1",
                 "unit_price": "157.00",
-                "net": "153.08",
+                "net": "154.65",
             },
         ),
     )
@@ -168,14 +169,14 @@ def test_excluded_items_leave_turnover():
         date(2026, 9, 3),
         None,
         "PLN",
-        Decimal("1153.08"),
+        Decimal("1154.65"),
         None,
         (
             {
                 "name": "Usługi IT",
                 "quantity": "1",
                 "unit_price": "157.00",
-                "net": "153.08",
+                "net": "154.65",
             },
             {
                 "name": "Podróż służbowa",
