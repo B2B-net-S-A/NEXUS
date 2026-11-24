@@ -190,7 +190,7 @@ def test_paczka_dla_klienta_bierze_akceptacje_z_zalaczonego_maila():
     assert chosen is not None
     assert chosen.sender.endswith("anna.kierownik@klient.example>")
     assert "Akceptuję" in mail_text.to_html(chosen)
-    # Bez akceptacji klienta: najnowszy mail, jak dotąd.
+    # Bez akceptacji klienta nic nie przechodzi (paczka bierze wtedy najnowszy mail).
     other = mail_text.read(
         _with_attached_item().replace(b"klient.example", b"obcy.example"),
         mail_text.EML,
@@ -199,7 +199,7 @@ def test_paczka_dla_klienta_bierze_akceptacje_z_zalaczonego_maila():
         client_documents.package_acceptance(
             [other], month="2026-10", hours=D("176"), senders=CLIENT
         )
-        is other
+        is None
     )
 
 

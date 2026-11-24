@@ -381,10 +381,10 @@ def package_acceptance(
     hours: Optional[Decimal],
     senders: mail_text.Senders,
 ) -> Optional[mail_text.Mail]:
-    """Akceptacja do paczki: najnowsza, która przechodzi kontrolę; bez takiej
-    najnowszy mail. Mail klienta załączony do maila konsultanta też jest
-    kandydatem (PKO, próba IX–X 2026), a „Akceptuję” bez liczby przechodzi
-    z godzinami z Time Sheet: rozliczenie w paczce jest już przyjęte."""
+    """Najnowsza akceptacja, która przechodzi kontrolę (``None``: żadna). Mail
+    klienta załączony do maila konsultanta też jest kandydatem (PKO, próba IX–X
+    2026), a „Akceptuję” bez liczby przechodzi z godzinami z Time Sheet:
+    rozliczenie w paczce jest już przyjęte."""
 
     for mail in mails:
         for candidate in mail_text.thread(mail):
@@ -398,7 +398,7 @@ def package_acceptance(
             )
             if verdict.ok:
                 return candidate
-    return mails[0] if mails else None
+    return None
 
 
 async def package_zip(
@@ -428,6 +428,8 @@ async def package_zip(
             ).all()
             files: list[tuple[str, bytes]] = []
             mails: list[mail_text.Mail] = []
+            image_id = service.meta_of(person.settlement).get(service.ACCEPTANCE_IMAGE)
+            image: Optional[tuple[str, bytes]] = None
             for document in sorted(documents, key=lambda d: d.created_at, reverse=True):
                 try:
                     content = portal_documents.path_for(document.file_path).read_bytes()
@@ -440,16 +442,27 @@ async def package_zip(
                     mail = mail_text.read(content, document.mime)
                     if mail is not None:
                         mails.append(mail)
+                elif document.id == image_id:
+                    ext = "jpg" if document.mime == "image/jpeg" else "png"
+                    image = (f"Akceptacja_{_safe(person.name)}.{ext}", content)
             chosen = package_acceptance(
                 mails, month=month, hours=person.hours, senders=senders
             )
-            if chosen is not None:
-                files.append(
-                    (
-                        mail_text.html_name(chosen, f"Akceptacja_{_safe(person.name)}"),
-                        mail_text.to_html(chosen).encode("utf-8"),
+            if chosen is None and image is not None:
+                # Akceptacja przeszła ze zrzutu ekranu (OCR): do paczki idzie obraz.
+                files.append(image)
+            else:
+                # Bez akceptacji, która przechodzi kontrolę: najnowszy mail, jak dotąd.
+                chosen = chosen or (mails[0] if mails else None)
+                if chosen is not None:
+                    files.append(
+                        (
+                            mail_text.html_name(
+                                chosen, f"Akceptacja_{_safe(person.name)}"
+                            ),
+                            mail_text.to_html(chosen).encode("utf-8"),
+                        )
                     )
-                )
             for name, content in files:
                 base, dot, ext = name.rpartition(".")
                 candidate, n = name, 2
