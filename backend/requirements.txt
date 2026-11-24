@@ -65,7 +65,7 @@ anthropic==1.4.0
 # wszedł w 20251230. Wcześniejszy komentarz twierdził, że 20260107 jest
 # nieosiągalny, bo żaden pdfplumber go nie pinuje — 0.11.10 to unieważnił.
 pdfminer.six==20260107
-pdfplumber==0.11.10
+pdfplumber==0.11.11
 # Strona z linkiem panelu klienta doklejana do PDF „Nowego CV” (client_panel_stamp.py).
 # Ta sama wersja, którą ciągnie pdfplumber — jawnie, bo kod importuje ją wprost.
 pypdfium2==5.15.2
@@ -118,7 +118,7 @@ pyhanko[etsi]==0.38.0
 aiohttp==3.14.5
 
 # Hetzner Object Storage (S3-compatible) — CV blob migration (audit-2026-05-07 Faza 3).
-boto3==1.44.7
+boto3==1.44.9
 
 # Polski kalendarz świąt dla `app.core.scheduling.is_business_day`. Targety
 # Priority Work ("4 weryfikacje / dzień roboczy") i triggery notyfikacji nie mogą
