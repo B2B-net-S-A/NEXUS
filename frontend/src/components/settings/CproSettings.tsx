@@ -23,6 +23,8 @@ const KIND_LABEL: Record<CproEventKind, string> = {
   interview: "Klient chce rozmowy",
   interview_withdrawn: "Rozmowa wycofana",
   slots_changed: "Zmienione terminy",
+  invoice_address: "Nowy adres faktury",
+  contract_changed: "Zmiana w kontrakcie",
   unknown: "Nieczytelny mail",
 };
 
@@ -44,7 +46,15 @@ const RULES: { key: CproRuleKey; label: string; action: string }[] = [
   { key: "closed", label: "Request zamknięty w CPro", action: "Zamknij rekrutację i powiadom rekruterów" },
   { key: "rejected", label: "Klient odrzucił osobę", action: "Przenieś kartę do „Zamknięci” i powiadom prowadzącego" },
   { key: "interview", label: "Klient chce rozmowy", action: "Powiadom Delivery Leada i prowadzącego" },
+  {
+    key: "invoice_address",
+    label: "Nowy adres faktury kontraktu",
+    action: "Zapisz nabywcę kontraktu od miesiąca maila i powiadom Finanse (faktur nie zmienia)",
+  },
 ];
+
+/** Maile o kontrakcie (numer Call-Off) nie mają rekrutacji — w dzienniku stoi numer kontraktu. */
+const CONTRACT_KINDS: ReadonlySet<CproEventKind> = new Set(["invoice_address", "contract_changed"]);
 
 const HOUR = new Intl.DateTimeFormat("pl-PL", {
   hour: "2-digit",
@@ -57,7 +67,9 @@ function moment(iso: string): string {
 }
 
 function LogRow({ row }: { row: CproLogRow }) {
-  const title = `${row.request ? `${row.request} · ` : ""}${row.job_title ?? "brak rekrutacji w NEXUSIE"}`;
+  const title = CONTRACT_KINDS.has(row.kind)
+    ? `kontrakt ${row.request ?? "bez numeru"}`
+    : `${row.request ? `${row.request} · ` : ""}${row.job_title ?? "brak rekrutacji w NEXUSIE"}`;
   return (
     <tr className="border-t border-border align-top">
       <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{moment(row.at)}</td>
@@ -80,7 +92,9 @@ function LogRow({ row }: { row: CproLogRow }) {
             {row.detail ? ` · „${row.detail}”` : ""}
           </span>
         ) : row.detail ? (
-          <span className="block truncate text-xs text-muted-foreground">powód w CPro: {row.detail}</span>
+          <span className="block truncate text-xs text-muted-foreground" title={row.detail}>
+            {CONTRACT_KINDS.has(row.kind) ? "zmiana w CPro" : "powód w CPro"}: {row.detail}
+          </span>
         ) : null}
       </td>
       <td className="px-3 py-2">

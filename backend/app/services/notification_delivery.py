@@ -262,6 +262,14 @@ CATALOG = (
         recipient_rule="Brak zamówienia — Finanse; brak umowy — Delivery Leadzi klienta.",
     ),
     dict(
+        id="cpro_invoice_buyer",
+        label="Nowy nabywca kontraktu z CPro",
+        module="Klienci i umowy",
+        trigger="CPro Nordei zmienił adres faktury kontraktu: NEXUS zapisał nabywcę od "
+        "miesiąca maila albo nie znalazł nabywcy z tym kodem. Faktur NEXUS nie zmienia.",
+        recipient_rule="Finanse i Back office.",
+    ),
+    dict(
         id="signature_request",
         label="Prośba o potwierdzenie podpisu umowy",
         module="Klienci i umowy",
@@ -505,6 +513,9 @@ REQUIRED_KINDS = frozenset(
         "cv_returned",
         "client_accepted",
         "hire_documents",
+        # 24.11.2026: zmiana nabywcy z CPro — bez maila Finanse offline widzą
+        # tylko dymek, a faktura poszłaby na złego nabywcę.
+        "cpro_invoice_buyer",
         # 29.10.2026: nowa osoba po pierwszym logowaniu i trzy rodzaje z 22.10
         # (prep, umowa przedwstępna, zadania od zespołu) były zwykłymi rodzajami
         # i nikt ich nie włączył — 0 maili przy 40 dzwonkach na produkcji.
@@ -619,6 +630,7 @@ BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
     ),
     "team_task": ("cpro_send_assigned", "note_reply", "candidate_claim_taken"),
     "hire_documents": ("hired_order_missing", "hire_missing_contract"),
+    "cpro_invoice_buyer": ("cpro_invoice_buyer",),
     JOB_P0_KIND: ("job_p0_set", "job_p0_requested", "job_p0_overdue"),
     JOB_CLOSED_KIND: ("job_closed_people_waiting",),
     DEPARTED_CARE_KIND: ("departed_pairs_care",),
