@@ -110,7 +110,7 @@ class WebsiteApplication:
     offer_title: Optional[str]
     linkedin: Optional[str]
     consents: tuple[str, ...]
-    expected_rate_hourly: Optional[Decimal]
+    rate_hourly: Optional[Decimal]
     availability_date: Optional[date]
     city: Optional[str]
     work_mode: Optional[str]
@@ -211,7 +211,7 @@ def parse_form(form: Any) -> WebsiteApplication:
         offer_title=offer_title,
         linkedin=_text(form.get("linkedin"), "linkedin", LINKEDIN_MAX),
         consents=tuple(consents),
-        expected_rate_hourly=_rate(raw["rate"]),
+        rate_hourly=_rate(raw["rate"]),
         availability_date=_iso_date(raw["available_from"]),
         city=raw["city"],
         work_mode=_WORK_MODES.get((raw["work_mode"] or "").lower()),
@@ -299,9 +299,7 @@ def _payload(app: WebsiteApplication) -> dict[str, Any]:
         "email": app.email,
         "linkedin": app.linkedin,
         "expected_rate_hourly": (
-            str(app.expected_rate_hourly)
-            if app.expected_rate_hourly is not None
-            else None
+            str(app.rate_hourly) if app.rate_hourly is not None else None
         ),
         "availability_date": (
             app.availability_date.isoformat() if app.availability_date else None
@@ -427,9 +425,9 @@ async def _create_candidate(
     # Stawka w konstruktorze, nie przypisaniem po fakcie — patrz
     # `public_apply._create_candidate` (kontrakt writera etapów).
     rate_fields: dict[str, Any] = {}
-    if app.expected_rate_hourly is not None:
+    if app.rate_hourly is not None:
         rate_fields = {
-            "expected_rate_hourly": app.expected_rate_hourly,
+            "expected_rate_hourly": app.rate_hourly,
             "expected_rate_currency": "PLN",
             "profile_rate_updated_at": now,
         }
