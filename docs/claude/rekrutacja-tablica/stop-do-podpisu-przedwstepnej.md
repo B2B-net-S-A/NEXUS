@@ -78,3 +78,9 @@ https://claude.ai/artifact/57oWdtaKX1nwK8WtuxkVmR.
   („Zdejmij blokadę”).
 - **Schemat:** migracja 0762, DDL w `pre_contract_schema.STOP_DDL`, lustro
   w `entrypoint.sh` (test w `test_pre_contracts_rules.py`).
+- **Lekcje Nowości (Poligon):** cztery wpisy z PR #3796 w dwóch lekcjach
+  (DL/HoR: ustawienie rekrutacji, wyjątek, `/jobs/new`; rekruter: karta
+  „Stop ·”). Dane ćwiczebne: `scripts/poligon_pre_contract_practice.py`,
+  opis w `ui/poligon-nexusa-onboarding.md`. Zmiana napisów plakietki albo
+  kotwic `data-tour` (`job.header.pre-contract`, `person.pre-contract.stop`,
+  `board.card.pre-contract-stop`) = przegląd kroków w `novelties.json`.

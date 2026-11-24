@@ -64,7 +64,7 @@ export function PreContractRuleEditor({ value, onChange, idPrefix, disabled = fa
               ))}
             </RadioGroup>
           </div>
-          <label htmlFor={`${idPrefix}-stop`} className="flex items-start gap-2 text-sm">
+          <label htmlFor={`${idPrefix}-stop`} className="flex items-start gap-2 text-sm" data-tour="pre-contract.rule.stop">
             <Checkbox
               id={`${idPrefix}-stop`}
               checked={value.stop}
