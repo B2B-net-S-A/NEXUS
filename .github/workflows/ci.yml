@@ -571,9 +571,11 @@ jobs:
       - name: Vitest (strażnicy repo)
         working-directory: frontend
         run: npx vitest run src/__tests__/
+      # `--dist loadgroup`: strażnicy parsujący całe drzewo na jednym workerze,
+      # inaczej szczyt pamięci przekracza 16 GB runnera (`ci-gate.yml`, 24.11.2026).
       - name: Pytest (marker static, bez bazy)
         working-directory: backend
-        run: python -m pytest -m static -n 4 -q --tb=short -p no:cacheprovider tests
+        run: python -m pytest -m static -n 4 --dist loadgroup -q --tb=short -p no:cacheprovider tests
 
   semgrep-pr:
     # Analiza statyczna pod podatności (SQLi, XSS, SSRF, path traversal) na

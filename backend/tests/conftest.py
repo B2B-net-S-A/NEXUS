@@ -34,9 +34,12 @@ from httpx import ASGITransport, AsyncClient
 
 from app.core.config import settings
 from tests._static_marker import (
+    STATIC_TREE_GROUP,
     mark_static_items,
     may_hold_static_tests,
+    memory_summary,
     only_static_requested,
+    peak_rss_bytes,
     share_parsed_trees,
 )
 
@@ -813,6 +816,32 @@ def pytest_configure(config):
         share_parsed_trees()
 
 
+# Szczyt pamięci workerów biegu ``-m static`` (opis w ``tests/_static_marker.py``).
+_WORKER_PEAK_RSS: dict[str, int] = {}
+
+
+def pytest_sessionfinish(session):
+    output = getattr(session.config, "workeroutput", None)
+    if output is not None and only_static_requested(session.config):
+        output["peak_rss"] = peak_rss_bytes()
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_testnodedown(node, error):
+    peak = getattr(node, "workeroutput", {}).get("peak_rss")
+    if peak:
+        _WORKER_PEAK_RSS[node.gateway.id] = peak
+
+
+def pytest_terminal_summary(terminalreporter, config):
+    if not only_static_requested(config) or hasattr(config, "workeroutput"):
+        return
+    line, too_high = memory_summary(_WORKER_PEAK_RSS or {"main": peak_rss_bytes()})
+    terminalreporter.write_line(line)
+    if too_high and os.environ.get("GITHUB_ACTIONS") == "true":
+        terminalreporter.write_line(f"::warning title=Pamięć strażników repo::{line}")
+
+
 def pytest_ignore_collect(collection_path, config):
     """Shard CI nie importuje plików testowych innych shardów.
 
@@ -924,8 +953,14 @@ def _client_fixture_is_live_server(item) -> bool:
     return not str(baseid).endswith(".py")
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
-    mark_static_items(items, pytest.mark.static)
+    # ``tryfirst``: xdist dopisuje grupę do id testu we własnym haku, który
+    # bez tego biegnie przed tym (rejestruje się później) i grupy nie widzi.
+    tree_group = None
+    if only_static_requested(config):
+        tree_group = pytest.mark.xdist_group(STATIC_TREE_GROUP)
+    mark_static_items(items, pytest.mark.static, tree_group)
     run_live = os.environ.get("RUN_LIVE_TESTS", "").lower() in ("1", "true", "yes")
     if not run_live:
         skip_live = pytest.mark.skip(

@@ -296,6 +296,10 @@ jobs:
       # PR za nią. Ten sam zestaw co job „Strażnicy repo” na PR-ze (marker
       # `static`, bez bazy), tu w wymaganym kontekście: zły PR wypada po ~3 min.
       # Na pushu na maina już przeszedł.
+      # `--dist loadgroup` (24.11.2026): strażnicy parsujący całe drzewo idą
+      # na jednego workera. Rozrzuceni po czterech trzymali kopie AST `app/`
+      # i `tests/` w każdym (szczyt ~17,6 GB na runnerze z 16 GB), a runner
+      # dostawał „shutdown signal” przy 91–99%: 27 grup kolejki 23–24.11.
       - name: Strażnicy repo (bez bazy, kolejka merge'ów)
         if: ${{ github.event_name == 'merge_group' }}
         env:
@@ -307,7 +311,7 @@ jobs:
           set -eu
           # Te same wersje co w ci.yml (pytest nie stoi w requirements.txt).
           pip install pytest==9.1.1 pytest-asyncio==1.4.0 -r requirements-testing.txt
-          python -m pytest -m static -n 4 -q --tb=short -p no:cacheprovider tests
+          python -m pytest -m static -n 4 --dist loadgroup -q --tb=short -p no:cacheprovider tests
       - name: Alembic legacy-row, retry, and contact-queue rollback probe
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
