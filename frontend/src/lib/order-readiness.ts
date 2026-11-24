@@ -27,6 +27,7 @@ export type ReadinessKey =
   | "search"
   | "critical"
   | "deal_breaker"
+  | "key_task"
   | "hiring_manager"
   | "deadline"
   | "category"
@@ -64,6 +65,12 @@ const CRITICAL_KEYS: readonly ReadinessKey[] = ["critical"];
  */
 const DEAL_BREAKER_KEYS: readonly ReadinessKey[] = ["deal_breaker"];
 /**
+ * Najważniejsze zadanie i pytanie, które je sprawdza (23.11.2026) — jak
+ * odpowiedź dyskwalifikująca: tylko pierwsze przekazanie, liczy się, gdy
+ * serwer o nie pyta.
+ */
+const KEY_TASK_KEYS: readonly ReadinessKey[] = ["key_task"];
+/**
  * Decyzje o rekrutacji (04.10.2026): hiring manager i termin (albo „Klient nie
  * podał”), kategoria, liczba osób. Tych pól NIE MA w Profilu Championa —
  * ustawia się je w zakładce „Zespół i ogłoszenie” (`JobTeamTab`). Do 08.10.2026
@@ -90,6 +97,7 @@ export const READINESS_LABEL: Record<ReadinessKey, string> = {
   search: "Wymagania do wyszukiwania",
   critical: "Umiejętności krytyczne",
   deal_breaker: "Odpowiedź dyskwalifikująca przy pytaniach",
+  key_task: "Najważniejsze zadanie w tej roli",
   hiring_manager: "Hiring manager",
   deadline: "Termin",
   category: "Kategoria kompetencji",
@@ -112,6 +120,8 @@ export const READINESS_CHAMPION_ANCHOR: Record<ReadinessKey, string | null> = {
   critical: "champion-section-stack",
   // To samo miejsce co pytania: pole stoi przy każdym pytaniu screeningowym.
   deal_breaker: "champion-section-screening",
+  // Pole stoi w sekcji „O projekcie”, pytanie zaznacza się w pytaniach.
+  key_task: "champion-section-project",
   // Decyzje żyją w zakładce „Zespół i ogłoszenie”, nie w edytorze Championa.
   hiring_manager: null,
   deadline: null,
@@ -141,6 +151,7 @@ export const READINESS_ACTION: Record<ReadinessKey, ReadinessAction> = {
   search: "champion",
   critical: "champion",
   deal_breaker: "champion",
+  key_task: "champion",
   hiring_manager: "team",
   deadline: "team",
   category: "team",
@@ -184,6 +195,7 @@ export function buildReadinessChecklist(
     OFFICE_KEYS.some((k) => missingKeys.has(k));
   const criticalApplies = CRITICAL_KEYS.some((k) => missingKeys.has(k));
   const dealBreakerApplies = DEAL_BREAKER_KEYS.some((k) => missingKeys.has(k));
+  const keyTaskApplies = KEY_TASK_KEYS.some((k) => missingKeys.has(k));
   const decisionKeys = DECISION_KEYS.filter((k) => missingKeys.has(k));
   const applicable = [
     ...BASE_KEYS,
@@ -191,6 +203,7 @@ export function buildReadinessChecklist(
     ...(criticalApplies ? CRITICAL_KEYS : []),
     ...SEARCH_KEYS,
     ...(dealBreakerApplies ? DEAL_BREAKER_KEYS : []),
+    ...(keyTaskApplies ? KEY_TASK_KEYS : []),
     ...decisionKeys,
   ];
   const done = applicable.filter((k) => !missingKeys.has(k));

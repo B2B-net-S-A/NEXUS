@@ -103,6 +103,7 @@ describe("isPristineIntake", () => {
               dealBreaker: "",
               origin: "manual",
               approved: true,
+              keyTask: false,
             },
           ],
           // Podpowiedź kategorii bez potwierdzenia to nie praca człowieka.
@@ -369,6 +370,7 @@ describe("wymagania i pytania", () => {
           dealBreaker: "Brak.",
           origin: "manual",
           approved: true,
+          keyTask: false,
         },
       ],
     });
@@ -387,6 +389,7 @@ describe("wymagania i pytania", () => {
         dealBreaker: "Nie.",
         origin: "manual" as const,
         approved: true,
+        keyTask: false,
       })),
     });
     const offered = applyIntakeRead(two, read());
@@ -401,6 +404,39 @@ describe("wymagania i pytania", () => {
       "Biuro?",
     ]);
     expect(accepted.questions.slice(2).every((q) => !q.approved && q.dealBreaker)).toBe(true);
+  });
+
+  it("najważniejsze zadanie (23.11.2026): puste pole bierze odczyt, wpisane dostaje propozycję; zaznaczenie zostaje jedno", () => {
+    const withTask = () =>
+      formFromIntake({
+        ...INTAKE,
+        key_task: "Uruchomić nowy moduł płatności do marca.",
+        screening_questions: INTAKE.screening_questions.map((q) => ({ ...q, key_task: true })),
+      });
+    const filled = applyIntakeRead(form({ about: "Mój opis." }), withTask());
+    expect(filled.form.keyTask).toBe("Uruchomić nowy moduł płatności do marca.");
+    expect(filled.form.questions.map((q) => q.keyTask)).toEqual([true, false]);
+
+    const mine = form({
+      keyTask: "Moje zadanie.",
+      questions: ["Umowa B2B?", "Angielski?"].map((question, i) => ({
+        key: `m${i}`,
+        question,
+        idealAnswer: "",
+        dealBreaker: "Nie.",
+        origin: "manual" as const,
+        approved: true,
+        keyTask: i === 1,
+      })),
+    });
+    const offered = applyIntakeRead(mine, withTask());
+    expect(offered.form.keyTask).toBe("Moje zadanie.");
+    expect(offerOf(offered.offers, "keyTask")?.patch).toEqual({
+      keyTask: "Uruchomić nowy moduł płatności do marca.",
+    });
+    // Pytania z odczytu po „Dodaj” nie przejmują zaznaczenia Delivery Leada.
+    const accepted = acceptIntakeOffer(offered.form, offerOf(offered.offers, "questions")!);
+    expect(accepted.questions.map((q) => q.keyTask)).toEqual([false, true, false, false]);
   });
 
   it("listy dopisuje bez duplikatów", () => {
@@ -623,5 +659,85 @@ describe("treść requestu przy kolejnym odczycie", () => {
       "170 zł/h",
       "Kafka",
     ]);
+  });
+});
+
+// ── 23.11.2026 (wariant 1 „Porządki”): mniej decyzji po odczycie ─────────────
+
+const DEFAULTS = {
+  jobs: 47,
+  deadline_not_provided: 47,
+  suggest_deadline_not_provided: true,
+  headcount: 1,
+  headcount_jobs: 39,
+  suggest_headcount: true,
+};
+
+describe("applyIntakeRead — krytyczne z propozycji AI wstawione od razu", () => {
+  const proposal = [{ label: "Java", reason: "technologia z nazwy stanowiska" }];
+
+  it("nietknięty formularz dostaje wiersz krytyczny z propozycji", () => {
+    const incoming = { ...read(), criticalProposal: proposal };
+    const result = applyIntakeRead(EMPTY_INTAKE_FORM, incoming);
+    expect(result.form.rows.find((r) => r.words[0] === "Java")?.level).toBe("critical");
+    // Propozycja zostaje — formularz pokazuje, skąd wzięło się krytyczne.
+    expect(result.form.criticalProposal).toEqual(proposal);
+  });
+
+  it("„Brak krytycznych” DL-a nie jest nadpisywany drugim odczytem", () => {
+    const current = form({ title: "Dev", noCritical: true });
+    const incoming = { ...read(), criticalProposal: proposal };
+    const result = applyIntakeRead(current, incoming);
+    expect(result.form.rows.some((r) => r.level === "critical")).toBe(false);
+  });
+});
+
+describe("applyIntakeRead — termin i liczba osób z historii klienta", () => {
+  const noFacts = () => ({ ...read(), deadline: "", deadlineTime: "", headcount: "" });
+
+  it("klient, który nigdy nie podaje terminu, dostaje „Klient nie podał” z podpisem", () => {
+    const result = applyIntakeRead(EMPTY_INTAKE_FORM, noFacts(), { clientDefaults: DEFAULTS });
+    expect(result.form.deadlineNotProvided).toBe(true);
+    expect(result.form.headcount).toBe("1");
+    expect(result.form.provenance.deadline).toBe("client_pattern");
+    expect(result.form.provenance.headcount).toBe("client_pattern");
+  });
+
+  it("termin i liczba osób z maila wygrywają z historią", () => {
+    const result = applyIntakeRead(EMPTY_INTAKE_FORM, read(), { clientDefaults: DEFAULTS });
+    expect(result.form.deadlineNotProvided).toBe(false);
+    expect(result.form.deadline).toBe(read().deadline);
+    expect(result.form.headcount).toBe(read().headcount);
+  });
+
+  it("bez wyraźnej większości nic nie wstawia", () => {
+    const weak = { ...DEFAULTS, suggest_deadline_not_provided: false, suggest_headcount: false };
+    const result = applyIntakeRead(EMPTY_INTAKE_FORM, noFacts(), { clientDefaults: weak });
+    expect(result.form.deadlineNotProvided).toBe(false);
+    expect(result.form.headcount).toBe("");
+  });
+
+  it("wpis DL-a zostaje", () => {
+    const current = form({ title: "Dev", headcount: "3", deadline: "2026-12-01" });
+    const result = applyIntakeRead(current, noFacts(), { clientDefaults: DEFAULTS });
+    expect(result.form.headcount).toBe("3");
+    expect(result.form.deadlineNotProvided).toBe(false);
+  });
+});
+
+describe("applyIntakeRead — zadanie kluczowe od AI to propozycja", () => {
+  it("zadanie z odczytu czeka na „Zatwierdź zadanie”", () => {
+    const incoming = { ...read(), keyTask: "Migracja płatności.", keyTaskProposed: true };
+    const result = applyIntakeRead(EMPTY_INTAKE_FORM, incoming);
+    expect(result.form.keyTask).toBe("Migracja płatności.");
+    expect(result.form.keyTaskProposed).toBe(true);
+  });
+
+  it("zadanie wpisane przez DL nie staje się propozycją po drugim odczycie", () => {
+    const current = form({ title: "Dev", keyTask: "Moje zdanie.", keyTaskProposed: false });
+    const incoming = { ...read(), keyTask: "Inne zdanie.", keyTaskProposed: true };
+    const result = applyIntakeRead(current, incoming);
+    expect(result.form.keyTask).toBe("Moje zdanie.");
+    expect(result.form.keyTaskProposed).toBe(false);
   });
 });

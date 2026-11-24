@@ -115,3 +115,46 @@ def test_kwota_gotowa_tylko_z_rozliczen_bez_uwag() -> None:
     assert (
         month_close._money([{"status": "warnings", "amount_revenue": "1.00"}]) is None
     )
+
+
+def _row(
+    status: str, contractor: str, client: str = "waiting", cost: str | None = "1000.00"
+):
+    return {
+        "contract_id": 1,
+        "person": "Osoba",
+        "status": status,
+        "contractor_invoice": contractor,
+        "client_invoice": client,
+        "md_regular": "20.000",
+        "amount_cost": cost,
+    }
+
+
+def test_trzy_pytania_ksiegowej() -> None:
+    rows = [
+        _row("ok", "in_ksef"),  # faktura w KSeF, RCP nieprzyjęte
+        _row("accepted", "in_ksef", "ready"),  # przyjęte, czeka na fakturę sprzedaży
+        _row("accepted", "none", "issued"),  # brak faktury kontraktora → rezerwa
+        _row("warnings", "can_issue", cost=None),  # rezerwa bez kosztu
+        _row("missing", "none"),  # bez MD: ani rezerwa, ani nieprzyjęta
+        _row(
+            "accepted", "differs", "awaiting_client"
+        ),  # faktura z inną kwotą jest w KSeF
+    ]
+    found = month_close.closing_rows(rows, 7, "Klient")
+    assert len(found["ksef_not_accepted"]) == 1
+    assert len(found["reserve"]) == 2
+    assert len(found["sales_waiting"]) == 2
+    summary = month_close._closing_summary(found, amounts=True)
+    assert summary["reserve_total"] == "1000.00"
+    assert summary["reserve_without_cost"] == 1
+    assert summary["rows"]["reserve"][0]["client"] == "Klient"
+
+
+def test_bez_uprawnienia_do_kwot_same_liczby() -> None:
+    found = month_close.closing_rows([_row("accepted", "none")], 7, "Klient")
+    summary = month_close._closing_summary(found, amounts=False)
+    assert summary["reserve_count"] == 1
+    assert summary["reserve_total"] is None
+    assert summary["rows"] is None

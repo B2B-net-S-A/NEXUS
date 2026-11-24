@@ -1283,3 +1283,238 @@ async def test_rebate_correction_other_integrity_error_is_not_already_exists(
             for stmt in schema.CONSTRAINT_DDL:
                 await db.execute(text(stmt))
             await db.commit()
+
+
+# ── Wymagania klientów do faktury (reguły ``cl.*``, 23.11.2026) ──────────────
+
+
+async def _client_rules(client_id: int, rules: dict) -> None:
+    from app.models.client_settlement import ClientSettlementRuleSet
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(ClientSettlementRuleSet).where(
+                ClientSettlementRuleSet.client_id == client_id
+            )
+        )
+        if rules:
+            db.add(
+                ClientSettlementRuleSet(
+                    client_id=client_id, effective_from="2026-01", rules=rules
+                )
+            )
+        await db.commit()
+
+
+@pytest_asyncio.fixture
+async def rules(seed):
+    yield lambda value: _client_rules(seed.client_id, value)
+    await _client_rules(seed.client_id, {})
+
+
+async def test_several_orders_on_one_invoice_with_contract_and_client_field(
+    client, seed, rules
+):
+    await rules(
+        {
+            "cl.orders_together": {"level": "block", "params": {}},
+            "cl.ksef_contract": {
+                "level": "block",
+                "params": {"number": "UR/2020/77", "date": "2020-03-02"},
+            },
+            "cl.ksef_fields": {
+                "level": "block",
+                "params": {"key": "OSOBA", "value": "koordynator@example.com"},
+            },
+        }
+    )
+    await _settings(client, seed)
+    keys = [f"g{seed.groups['118']}", f"g{seed.groups['124']}"]
+    response = await client.post(
+        f"{BASE}/drafts", json={**OCTOBER, "keys": keys}, headers=_h(seed)
+    )
+    assert response.status_code == 201, response.text
+    (invoice_id,) = response.json()["created"]
+    await client.put(f"{BASE}/{invoice_id}", json={"buyer": BUYER}, headers=_h(seed))
+    card = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
+    assert card["order_numbers"] == ["ZAM/2026/118", "ZAM/2026/124"]
+    assert [line["order_number"] for line in card["lines"]] == [
+        "ZAM/2026/118",
+        "ZAM/2026/124",
+    ]
+    assert card["net"] == "47625.00"
+    labels = {item["label"]: item["value"] for item in card["requirements"]}
+    assert labels["Numer umowy (KSeF)"] == "UR/2020/77 z 02.03.2020"
+    assert labels["OSOBA (KSeF, pole dodatkowe)"] == "koordynator@example.com"
+
+    # Oba zamówienia są już zafakturowane za październik — drugiego szkicu nie ma.
+    listing = (
+        await client.get(f"{BASE}/to-issue", params=OCTOBER, headers=_h(seed))
+    ).json()
+    rows = {
+        row["key"]: row
+        for entry in listing["clients"]
+        if entry["client_id"] == seed.client_id
+        for row in entry["rows"]
+    }
+    assert [i["id"] for i in rows[keys[0]]["issued"]] == [invoice_id]
+    assert [i["id"] for i in rows[keys[1]]["issued"]] == [invoice_id]
+    again = await client.post(
+        f"{BASE}/drafts", json={**OCTOBER, "keys": [keys[1]]}, headers=_h(seed)
+    )
+    assert again.status_code == 409
+
+    sent = await _send(client, seed, invoice_id)
+    assert sent["status"] == "accepted", sent
+    (xml,) = seed.fake.received
+    fa_node = etree.fromstring(xml).find("{*}Fa")
+    assert [
+        n.text
+        for n in fa_node.iterfind("{*}WarunkiTransakcji/{*}Zamowienia/{*}NrZamowienia")
+    ] == ["ZAM/2026/118", "ZAM/2026/124"]
+    assert fa_node.findtext("{*}WarunkiTransakcji/{*}Umowy/{*}NrUmowy") == "UR/2020/77"
+    assert [
+        (n.findtext("{*}Klucz"), n.findtext("{*}Wartosc"))
+        for n in fa_node.iterfind("{*}DodatkowyOpis")
+    ] == [("OSOBA", "koordynator@example.com")]
+    async with AsyncSessionLocal() as db:
+        links = (
+            await db.scalars(
+                select(ClientSalesInvoiceLink.order_group_id).where(
+                    ClientSalesInvoiceLink.invoice_id == sent["sales_invoice_id"]
+                )
+            )
+        ).all()
+    assert sorted(links) == sorted([seed.groups["118"], seed.groups["124"]])
+
+
+async def test_orders_stay_separate_without_the_rule(client, seed, rules):
+    await rules({})
+    await _settings(client, seed)
+    keys = [f"g{seed.groups['118']}", f"g{seed.groups['124']}"]
+    response = await client.post(
+        f"{BASE}/drafts", json={**OCTOBER, "keys": keys}, headers=_h(seed)
+    )
+    assert response.status_code == 201, response.text
+    assert len(response.json()["created"]) == 2
+
+
+async def test_buyer_per_contract_is_chosen_once_and_remembered(client, seed, rules):
+    buyers = [
+        {
+            "name": "Pankki Testi Oyj",
+            "number": "FI12345678",
+            "address_l1": "Testikatu 1, 00100 Helsinki",
+            "country": "FI",
+            "delivery_l1": "Testgatan 1, 100 00 Stockholm",
+            "delivery_country": "SE",
+        },
+        {
+            "name": "Bank Testowy S.A. Oddział w Polsce",
+            "number": fx.CLIENT_NIP,
+            "address_l1": "ul. Przykładowa 5, 00-002 Warszawa",
+        },
+    ]
+    await _settings(client, seed, clients={str(seed.client_id): {"buyers": buyers}})
+    saved = (await client.get(f"{BASE}/settings", headers=_h(seed))).json()
+    codes = [
+        b["code"] for b in saved["settings"]["clients"][str(seed.client_id)]["buyers"]
+    ]
+    assert codes == ["b1", "b2"]
+
+    key = f"g{seed.groups['118']}"
+    invoice_id = await _draft(client, seed, key)
+    card = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
+    assert [o["code"] for o in card["buyer_options"]] == ["b1", "b2"]
+    assert any("wybierz nabywcę" in p for p in card["problems"])
+
+    chosen = await client.put(
+        f"{BASE}/{invoice_id}", json={"buyer_code": "b1"}, headers=_h(seed)
+    )
+    assert chosen.status_code == 200, chosen.text
+    card = chosen.json()
+    assert card["buyer"]["name"] == "Pankki Testi Oyj"
+    assert card["series_code"] == "UE"
+    assert {line["vat_rate"] for line in card["lines"]} == {"np II"}
+    assert not any("wybierz nabywcę" in p for p in card["problems"])
+
+    sent = await _send(client, seed, invoice_id)
+    assert sent["status"] == "accepted", sent
+    (xml,) = seed.fake.received
+    podmiot2 = etree.fromstring(xml).find("{*}Podmiot2")
+    assert podmiot2.findtext("{*}DaneIdentyfikacyjne/{*}KodUE") == "FI"
+    assert podmiot2.findtext("{*}AdresKoresp/{*}KodKraju") == "SE"
+
+    # Kontrakt zapamiętany: szkic za listopad od razu ma nabywcę z listy.
+    async with AsyncSessionLocal() as db:
+        from app.models.client_order import ClientOrder
+
+        contract_id = (await db.get(ClientOrder, seed.lines["118"])).contract_id
+        data = await issue_settings.load(db)
+    assert (
+        issue_settings.buyer_for_contract(data, seed.client_id, contract_id)["code"]
+        == "b1"
+    )
+
+
+async def test_required_text_and_role_in_line_name(client, seed, rules):
+    await rules(
+        {
+            "cl.item_name": {
+                "level": "block",
+                "params": {"template": "{usluga} — {rola} — {osoba} — {miesiac}"},
+            },
+            "cl.item_must_contain": {"level": "block", "params": {"text": "JIRA"}},
+        }
+    )
+    await _settings(client, seed)
+    invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    card = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
+    (line,) = card["lines"]
+    assert line["name"] == (
+        "Usługi informatyczne — Zamówienie ZAM/2026/118 — Jan Przykładowy — "
+        "Jan Przykładowy — październik 2026"
+    )
+    assert any("JIRA" in p for p in card["problems"])
+    assert card["can_send"] is False
+    fixed = await client.put(
+        f"{BASE}/{invoice_id}",
+        json={"lines": [{**line, "name": line["name"] + " — JIRA ABC-1"}]},
+        headers=_h(seed),
+    )
+    assert not any("JIRA" in p for p in fixed.json()["problems"])
+
+
+async def test_signed_protocol_rule_blocks_the_draft(client, seed, rules):
+    await rules(
+        {
+            "cl.after_signed_document": {"level": "block", "params": {}},
+            "cl.client_document": {
+                "level": "block",
+                "params": {
+                    "kind": "protokół",
+                    "per": "cały miesiąc",
+                    "from": "",
+                    "header": "",
+                },
+            },
+        }
+    )
+    await _settings(client, seed)
+    key = f"g{seed.groups['118']}"
+    listing = (
+        await client.get(f"{BASE}/to-issue", params=OCTOBER, headers=_h(seed))
+    ).json()
+    row = next(
+        row
+        for entry in listing["clients"]
+        if entry["client_id"] == seed.client_id
+        for row in entry["rows"]
+        if row["key"] == key
+    )
+    assert "podpisanego obustronnie protokołu" in row["blocked"]
+    assert "Jan Przykładowy" in row["blocked"]
+    blocked = await client.post(
+        f"{BASE}/drafts", json={**OCTOBER, "keys": [key]}, headers=_h(seed)
+    )
+    assert blocked.status_code == 409

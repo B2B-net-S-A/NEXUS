@@ -19,6 +19,7 @@ import { formatIsoDatePl } from "@/lib/date-pl";
 import { personNameKey } from "@/lib/hiring-manager";
 import {
   filledQuestions,
+  withOneKeyTask,
   joinCities,
   newQuestionKey,
   parseBudget,
@@ -36,6 +37,7 @@ import { countPl } from "@/lib/plural-pl";
 import {
   NICE_ROWS_MAX,
   REQUIRED_ROWS_MAX,
+  applyCriticalProposal,
   filledRows,
   newRowKey,
   rowHead,
@@ -73,6 +75,7 @@ export const INTAKE_UNITS = [
   "contractLength",
   "about",
   "responsibilities",
+  "keyTask",
   "sellingPoints",
   "questions",
   "targetCompanies",
@@ -96,6 +99,7 @@ export const INTAKE_UNIT_LABEL: Record<IntakeUnit, string> = {
   contractLength: "Długość projektu",
   about: "Co to za projekt",
   responsibilities: "Obowiązki",
+  keyTask: "Najważniejsze zadanie",
   sellingPoints: "Co przekona kandydata",
   questions: "Pytania do kandydata",
   targetCompanies: "Firmy docelowe",
@@ -217,6 +221,8 @@ const FIELD_KEYS: readonly (keyof IntakeForm)[] = [
   "startDate",
   "about",
   "responsibilities",
+  "keyTask",
+  "keyTaskProposed",
   "language",
   "contractLength",
   "targetCompanies",
@@ -289,6 +295,7 @@ export function isPristineIntake(form: IntakeForm): boolean {
     blank(form.startDate) &&
     blank(form.about) &&
     blank(form.responsibilities) &&
+    blank(form.keyTask) &&
     form.questions.every(
       (q) => blank(q.question) && blank(q.idealAnswer) && blank(q.dealBreaker),
     ) &&
@@ -362,6 +369,8 @@ function newQuestions(
       origin: item.origin,
       // Z odczytu i z szablonu pytanie czeka na zatwierdzenie Delivery Leada.
       approved: false,
+      // Które pytanie sprawdza najważniejsze zadanie, wskazuje Delivery Lead.
+      keyTask: false,
     });
   }
   return out;
@@ -430,7 +439,16 @@ function budgetText(form: Pick<IntakeForm, "rateBudget" | "rateBudgetMin">): str
 /** Pola tekstowe porównywane pojedynczo. */
 const TEXT_UNITS: {
   unit: IntakeUnit;
-  key: "title" | "language" | "startDate" | "contractLength" | "about" | "responsibilities" | "sellingPoints" | "targetCompanies";
+  key:
+    | "title"
+    | "language"
+    | "startDate"
+    | "contractLength"
+    | "about"
+    | "responsibilities"
+    | "keyTask"
+    | "sellingPoints"
+    | "targetCompanies";
   text?: (value: string) => string;
 }[] = [
   { unit: "title", key: "title" },
@@ -439,6 +457,7 @@ const TEXT_UNITS: {
   { unit: "contractLength", key: "contractLength" },
   { unit: "about", key: "about" },
   { unit: "responsibilities", key: "responsibilities" },
+  { unit: "keyTask", key: "keyTask" },
   { unit: "sellingPoints", key: "sellingPoints" },
   { unit: "targetCompanies", key: "targetCompanies" },
 ];
@@ -451,10 +470,66 @@ const TEXT_UNITS: {
  * Nigdy nie dotyka decyzji człowieka: „Brak krytycznych”, kategorii, tytułu
  * dla zespołu, numeru wpisanego ręcznie ani poziomów istniejących wierszy.
  */
+/**
+ * Termin i liczba osób z historii klienta (23.11.2026, wariant 1) — pole
+ * `client_defaults` odpowiedzi odczytu (`services/job_intake_client_defaults.py`).
+ * `suggest_*` liczy serwer: od 5 rekrutacji klienta i 80% zgodnych.
+ */
+export interface ClientDefaults {
+  jobs: number;
+  deadline_not_provided: number;
+  suggest_deadline_not_provided: boolean;
+  headcount: number | null;
+  headcount_jobs: number;
+  suggest_headcount: boolean;
+}
+
+/**
+ * Wariant 1 „Porządki” (decyzja Artura 23.11.2026) — mniej decyzji po odczycie:
+ * - propozycja krytycznych z maila (M1) wchodzi od razu, gdy wiersze przyszły
+ *   z tego odczytu, a DL nie wybrał „Brak krytycznych” ani nie oznaczył
+ *   krytycznych sam; zdejmuje ją „Brak krytycznych” albo poziom wiersza;
+ * - czego mail nie mówi, a klient prawie zawsze ma tak samo (termin, liczba
+ *   osób), wstawiamy z historii klienta z chipem „z historii klienta”.
+ */
+function withReadDefaults(
+  form: IntakeForm,
+  opts: { critical: boolean; defaults?: ClientDefaults | null },
+): { form: IntakeForm; added: number } {
+  let next = form;
+  let added = 0;
+  if (
+    opts.critical &&
+    !next.noCritical &&
+    next.criticalProposal.length > 0 &&
+    !next.rows.some((row) => row.level === "critical")
+  ) {
+    next = { ...next, rows: applyCriticalProposal(next.rows, next.criticalProposal) };
+  }
+  const defaults = opts.defaults;
+  if (defaults?.suggest_deadline_not_provided && blank(next.deadline) && !next.deadlineNotProvided) {
+    next = {
+      ...next,
+      deadlineNotProvided: true,
+      provenance: { ...next.provenance, deadline: "client_pattern" },
+    };
+    added += 1;
+  }
+  if (defaults?.suggest_headcount && defaults.headcount != null && blank(next.headcount)) {
+    next = {
+      ...next,
+      headcount: String(defaults.headcount),
+      provenance: { ...next.provenance, headcount: "client_pattern" },
+    };
+    added += 1;
+  }
+  return { form: next, added };
+}
+
 export function applyIntakeRead(
   current: IntakeForm,
   read: IntakeForm,
-  opts: { source?: IntakeSource; basis?: FieldBasis } = {},
+  opts: { source?: IntakeSource; basis?: FieldBasis; clientDefaults?: ClientDefaults | null } = {},
 ): IntakeReadResult {
   const source = opts.source ?? "request";
   const fallback: FieldBasis = opts.basis ?? (source === "template" ? "client_history" : "request");
@@ -465,6 +540,7 @@ export function applyIntakeRead(
   const next: IntakeForm = { ...base, provenance: { ...base.provenance } };
   const offers: IntakeOffer[] = [];
   let filled = 0;
+  let rowsFromRead = pristine;
 
   const basisOf = (unit: IntakeUnit): FieldBasis => {
     const key = UNIT_PROVENANCE[unit];
@@ -496,6 +572,10 @@ export function applyIntakeRead(
       offer(unit, text ? text(proposed) : proposed, { patch: { [key]: proposed } });
     }
   }
+  // Zadanie z odczytu maila jest propozycją AI do zatwierdzenia (wariant 1);
+  // zadanie wpisane wcześniej przez DL zostaje jego decyzją.
+  if (blank(base.keyTask) && !blank(read.keyTask) && next.keyTask === read.keyTask)
+    next.keyTaskProposed = read.keyTaskProposed;
 
   // Nazwa od klienta niesie numer zapytania — idą razem.
   if (!blank(read.clientTitle)) {
@@ -624,6 +704,7 @@ export function applyIntakeRead(
   if (readRows.length > 0) {
     if (filledRows(next.rows).length === 0) {
       next.rows = read.rows;
+      rowsFromRead = true;
       // Propozycje (M1, M2) dotyczą tych wierszy — idą razem z nimi.
       next.criticalProposal = read.criticalProposal;
       next.mailTechnologies = read.mailTechnologies;
@@ -651,7 +732,11 @@ export function applyIntakeRead(
         ? read.questions
         : filledQuestions(read).filter((q) => !known.has(fold(q.question)));
       if (added.length > 0) {
-        next.questions = [...next.questions, ...added.map((q) => ({ ...q, approved: false }))];
+        // Zaznaczenie „sprawdza najważniejsze zadanie” z odczytu — najwyżej jedno.
+        next.questions = withOneKeyTask([
+          ...next.questions,
+          ...added.map((q) => ({ ...q, approved: false })),
+        ]);
         mark("questions");
       }
     } else {
@@ -713,8 +798,13 @@ export function applyIntakeRead(
   if (next.championExtras == null && read.championExtras != null)
     next.championExtras = read.championExtras;
 
-  if (pristine) return { form: read, filled, offers: [], undo: fillUndo(current, read) };
-  return { form: next, filled, offers, undo: fillUndo(current, next) };
+  const done = withReadDefaults(pristine ? read : next, {
+    critical: rowsFromRead,
+    defaults: opts.clientDefaults,
+  });
+  filled += done.added;
+  if (pristine) return { form: done.form, filled, offers: [], undo: fillUndo(current, done.form) };
+  return { form: done.form, filled, offers, undo: fillUndo(current, done.form) };
 }
 
 // ── „Użyj” przy propozycji ───────────────────────────────────────────────────

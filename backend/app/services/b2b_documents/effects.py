@@ -855,6 +855,7 @@ async def apply(
                 current_user=user,
                 db=db,
                 finance_write_authorized=True,
+                rate_signal_source="generator",
             )
             amendment_ids.append(amendment.id)
         if amendment_ids:

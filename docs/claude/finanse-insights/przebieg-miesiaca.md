@@ -25,6 +25,24 @@ z listy rozwijanej i nie widziały, czy miesiąc da się zamknąć u wszystkich.
 - **„Wystaw”** prowadzi do „Faktury do klientów” → „Wystaw za miesiąc” dla tego miesiąca
   (`siPeriod`, `siView`; zmiana widoku Finansów czyści te klucze).
 
+## Dla księgowej (od 24.11.2026)
+
+Zakładka „Dla księgowej” (`mcTab=closing`, `ClosingPanel`) odpowiada na trzy pytania, z którymi
+główna księgowa co miesiąc ok. 20. dnia M+1 pisała do rozliczeń (mail „Rozliczenie lipca”, 24.08.2026):
+- faktury kontraktorów w KSeF przy nieprzyjętym RCP (`contractor_invoice` ∈ in_ksef / differs / nip_check);
+- brakujące faktury kontraktorów → **rezerwa kosztu**: rozliczenia z MD (`ok`, `accepted`, `warnings`)
+  bez faktury w KSeF, suma `amount_cost`, lista z pobieraniem CSV (średnik, przecinek dziesiętny);
+  osoby bez kosztu (brak stawki albo MD) są policzone osobno i nie wchodzą do sumy;
+- przyjęte RCP bez faktury sprzedaży (`client_invoice` ∈ ready / awaiting_signature / awaiting_client).
+Kwoty i nazwiska tylko przy `has_financial_access`; bez tego same liczby.
+
+## Przypomnienia i automat w tabeli klientów (od 24.11.2026)
+
+- Pod liczbą brakujących raportów notka z `GET /api/finance/settlements/reminders` (#3805): „bez adresata: N”
+  (ważniejsze), „przypomniano DD.MM”, „przypomni automat” albo „bez przypomnienia”. Wysyłka zostaje
+  w miesiącu klienta („Przypomnij (n)”), bo tam jest podgląd treści i adresatów.
+- Pod paskiem RCP: „N przyjmie automat od DD.MM”, gdy klient ma regułę `order.auto_accept_clean` (#3806).
+
 ## Reguły, które łatwo cofnąć
 
 - Wiersz klienta liczy się z `service.month_view`, tym samym co ekran klienta.

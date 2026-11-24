@@ -23,7 +23,7 @@ import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "@/lib/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Target } from "lucide-react";
 
 import {
   extractErrorMsg,
@@ -565,6 +565,20 @@ export function ScreeningFormFields({
                       : "bez odpowiedzi"}
               </span>
             </div>
+            {q.key_task ? (
+              // Warsztaty nowego CV (23.11.2026): odpowiedź na to pytanie jest
+              // wkładem do zdania 3 „Dlaczego nasz kandydat”.
+              <p
+                className="flex items-start gap-1.5 rounded-md bg-primary/10 px-2.5 py-1.5 text-xs text-foreground"
+                data-testid={`screening-q-${q.id}-key-task`}
+              >
+                <Target className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+                <span>
+                  <b>Najważniejsze zadanie od klienta.</b> Dopytaj o konkretny przykład — odpowiedź trafia do CV
+                  (zdanie 3 „Dlaczego nasz kandydat”).
+                </span>
+              </p>
+            ) : null}
             {compact && hintsOpen.has(q.id) ? (
               <QuestionHintList question={q} className="rounded-md bg-muted/40 p-2" />
             ) : null}

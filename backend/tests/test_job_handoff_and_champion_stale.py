@@ -25,11 +25,14 @@ _READY_CHAMPION = {
         "about": "Platforma płatności B2B",
         "responsibilities": "Rozwój usług backendowych",
     },
+    # Najważniejsze zadanie + pytanie, które je sprawdza (23.11.2026).
+    "project": {"key_task": "Przeniesienie rozliczeń na nową platformę."},
     "screening_questions": [
         {
             "id": "q1",
             "question": "Doświadczenie z Pythonem?",
             "deal_breaker": "Brak komercyjnego projektu w Pythonie.",
+            "key_task": True,
         },
         {
             "id": "q2",

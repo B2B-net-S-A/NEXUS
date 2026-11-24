@@ -491,6 +491,9 @@ async def test_pasted_text_reports_the_request_reader(
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["reader"] == "request"
+    # 23.11.2026 (wariant 1): nowy klient bez rekrutacji — nic nie podpowiadamy.
+    assert resp.json()["client_defaults"]["jobs"] == 0
+    assert resp.json()["client_defaults"]["suggest_deadline_not_provided"] is False
 
 
 # ── skrypt pomiaru: same liczby pod stałymi etykietami ───────────────────────

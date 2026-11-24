@@ -55,7 +55,9 @@ from app.models.user import User
 from app.services import support_mail_route
 from app.services.admin_cases.mailbox import m365_mailbox as cases_mailbox
 from app.services.client_settlements import (
+    hours_summary,
     kesu,
+    mail_text,
     protocol_collective,
     report_ca,
     t4t_mail,
@@ -539,9 +541,15 @@ async def _store_without_file(
     now: datetime,
     declaring: frozenset[int] = frozenset(),
 ) -> tuple[int, int]:
-    """Mail bez pliku: akceptacja w treści, deklaracja konsultanta w mailu z fakturą,
-    odpowiedź na nasz mail z Wysłanych albo akceptacja klienta z regułą akceptacji mailowej."""
+    """Mail bez pliku: zestawienie godzin koordynatora, akceptacja w treści, deklaracja
+    konsultanta w mailu z fakturą, odpowiedź na nasz mail z Wysłanych albo akceptacja
+    klienta z regułą akceptacji mailowej."""
 
+    summary = await _store_hours_summary(
+        db, mailbox, message, state=state, today=today, now=now
+    )
+    if summary is not None:
+        return summary, 0
     if declaring and is_body_only_declaration(message):
         made = await _store_declaration(
             db, mailbox, message, declaring, state=state, today=today, now=now
@@ -929,6 +937,76 @@ async def _store_client_reports(
             created += 0 if stored.duplicate else 1
         consumed.add(index)
     return created, consumed
+
+
+async def _store_hours_summary(
+    db: AsyncSession,
+    mailbox: SettlementsMailbox,
+    message: dict[str, Any],
+    *,
+    state: portal_settings.PortalSettings,
+    today: date,
+    now: datetime,
+) -> Optional[int]:
+    """Zestawienie godzin zaakceptowanych przez klienta od koordynatora (CeZ, decyzja
+    Artura z 23.11.2026) jako raport każdej osoby z liczbą godzin.
+
+    ``None`` = to nie zestawienie, mail idzie dalej zwykłą ścieżką. Tylko z adresu
+    firmy i z tematem rozliczenia; osoby jak w raporcie zbiorczym (jeden klient).
+    Osoba z „czekamy” nic nie dostaje. Okres z tematu, inaczej z poczty, ale nie
+    zgadnięty z daty maila. Ten sam ``.eml`` u każdej osoby; rozliczenie bierze
+    z niego jej wiersz (``client_settlements/hours_summary``)."""
+
+    sender = _sender(message)
+    subject = str(message.get("subject") or "")
+    fetch = getattr(mailbox, "mime", None)
+    if (
+        fetch is None
+        or not identity.is_company_address(sender)
+        or not _BODY_SUBJECT.search(subject)
+    ):
+        return None
+    try:
+        content = await fetch(str(message["id"]))
+    except (GraphRequestError, AppOnlyTokenUnavailable) as exc:
+        logger.info("rozliczenia@: MIME zestawienia pominięty (%s)", type(exc).__name__)
+        return None
+    if not content:
+        return None
+    summary = await asyncio.to_thread(hours_summary.parse, content, mail_text.EML)
+    if summary is None:
+        return None
+    received = _parse_time(message.get("receivedDateTime")) or now
+    year, month, guessed = period_for(subject, "", received.date())
+    if summary.month is not None:
+        year, month = (int(part) for part in summary.month.split("-"))
+    elif guessed:
+        return None
+    people = await _report_people(db, summary, sender=sender, state=state, today=today)
+    if not people:
+        return None
+    created = 0
+    message_id = str(message["id"])[:512]
+    for position, contract in enumerate(people):
+        try:
+            stored = await documents.store(
+                db,
+                contract_id=contract.id,
+                kind="report",
+                year=year,
+                month=month,
+                content=content,
+                file_name=(subject.strip()[:120] or "zestawienie") + ".eml",
+                channel="mailbox",
+                now=now,
+                graph_message_id=message_id if position == 0 else None,
+                sender_email=sender[:320] or None,
+            )
+        except PortalError as exc:
+            logger.info("rozliczenia@: zestawienie pominięte (%s)", type(exc).__name__)
+            return created
+        created += 0 if stored.duplicate else 1
+    return created
 
 
 async def _forwarded(

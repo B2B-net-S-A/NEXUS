@@ -381,6 +381,7 @@ async def package_zip(
 
     protocol, protocol_name = await protocol_pdf(db, client_id, month)
     _client, _rules, people = await _load(db, client_id, month, "month")
+    senders = await service.acceptance_senders(db, client_id, _rules)
     year, mon = (int(x) for x in month.split("-"))
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -416,7 +417,9 @@ async def package_zip(
             passing = [
                 m
                 for m in mails
-                if mail_text.judge([m], month=month, hours=person.hours, md=None).ok
+                if mail_text.judge(
+                    [m], month=month, hours=person.hours, md=None, senders=senders
+                ).ok
             ] or mails
             for mail in passing[:1]:
                 files.append(

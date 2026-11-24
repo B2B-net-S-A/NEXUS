@@ -33,6 +33,13 @@ UNREAD_REASON = "no_md"
 #: Ile osób na powód oddajemy do listy (reszta jest liczbą).
 PEOPLE_PER_REASON = 30
 
+#: Faktura kontraktora jest w KSeF (także z różnicą kwoty albo NIP-em do zatwierdzenia).
+INVOICE_IN_KSEF = ("in_ksef", "differs", "nip_check")
+#: Rozliczenie z MD, od którego liczy się rezerwa kosztu, gdy faktury jeszcze nie ma.
+RESERVE_STATUSES = ("ok", "accepted", "warnings")
+#: Faktura do klienta gotowa po przyjęciu RCP, ale jeszcze niewystawiona.
+SALES_WAITING = ("ready", "awaiting_signature", "awaiting_client")
+
 DECIDE_STATUSES = ("warnings", "needs_fix")
 UNREAD_STATUSES = ("checking", "no_md")
 CLEAN_STATUSES = ("ok", "accepted")
@@ -98,6 +105,43 @@ def _reason_for(
     return None
 
 
+def closing_rows(
+    rows: list[dict[str, Any]], client_id: int, client_name: str
+) -> dict[str, list[dict[str, Any]]]:
+    """Trzy pytania księgowej na zamknięcie (mail „Rozliczenie lipca”, 24.08.2026):
+    faktury z KSeF nieprzyjęte przez Finanse, brakujące faktury (rezerwa kosztu)
+    i przyjęte RCP bez faktury sprzedaży."""
+
+    def person(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "client_id": client_id,
+            "client": client_name,
+            "contract_id": row["contract_id"],
+            "person": row["person"],
+            "md": row.get("md_regular"),
+            "cost": row.get("amount_cost"),
+        }
+
+    return {
+        "ksef_not_accepted": [
+            person(r)
+            for r in rows
+            if r["contractor_invoice"] in INVOICE_IN_KSEF and r["status"] != "accepted"
+        ],
+        "reserve": [
+            person(r)
+            for r in rows
+            if r["status"] in RESERVE_STATUSES
+            and r["contractor_invoice"] not in INVOICE_IN_KSEF
+        ],
+        "sales_waiting": [
+            person(r)
+            for r in rows
+            if r["status"] == "accepted" and r["client_invoice"] in SALES_WAITING
+        ],
+    }
+
+
 def _money(rows: list[dict[str, Any]]) -> Optional[str]:
     total = Decimal("0")
     seen = False
@@ -137,6 +181,11 @@ async def overview(db: AsyncSession, month: str, *, amounts: bool) -> dict[str, 
 
     clients: list[dict[str, Any]] = []
     reasons: dict[str, dict[str, Any]] = {}
+    closing: dict[str, list[dict[str, Any]]] = {
+        "ksef_not_accepted": [],
+        "reserve": [],
+        "sales_waiting": [],
+    }
     for client_id in client_ids:
         view = await service.month_view(db, client_id, month, amounts=amounts)
         rows = view["rows"]
@@ -166,7 +215,10 @@ async def overview(db: AsyncSession, month: str, *, amounts: bool) -> dict[str, 
             "revenue_ready": _money(rows) if amounts else None,
             "client_report": None,
             "top_reason": None,
+            "auto_accept": view.get("auto_accept"),
         }
+        for key, found in closing_rows(rows, client_id, entry["name"]).items():
+            closing[key].extend(found)
         if client_report:
             report = await time_reports.month_view(db, client_id, month)
             counts = report.get("counts") or {}
@@ -232,4 +284,31 @@ async def overview(db: AsyncSession, month: str, *, amounts: bool) -> dict[str, 
         },
         "clients": clients,
         "reasons": ordered,
+        "closing": _closing_summary(closing, amounts),
     }
+
+
+def _closing_summary(
+    closing: dict[str, list[dict[str, Any]]], amounts: bool
+) -> dict[str, Any]:
+    """Liczby i listy dla księgowej; kwoty i osoby tylko z uprawnieniem do kwot."""
+
+    reserve_total = sum(
+        (Decimal(r["cost"]) for r in closing["reserve"] if r["cost"] is not None),
+        Decimal("0"),
+    )
+    reserve_unknown = sum(1 for r in closing["reserve"] if r["cost"] is None)
+    out: dict[str, Any] = {
+        "ksef_not_accepted": len(closing["ksef_not_accepted"]),
+        "reserve_count": len(closing["reserve"]),
+        "reserve_total": f"{reserve_total:.2f}" if amounts else None,
+        "reserve_without_cost": reserve_unknown,
+        "sales_waiting": len(closing["sales_waiting"]),
+        "rows": None,
+    }
+    if amounts:
+        out["rows"] = {
+            key: sorted(found, key=lambda r: (r["client"].lower(), r["person"]))
+            for key, found in closing.items()
+        }
+    return out
