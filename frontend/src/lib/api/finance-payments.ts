@@ -21,7 +21,8 @@ export type WhiteListState =
   | "no_nip"
   | "foreign"
   | "tax_office"
-  | "skipped";
+  | "skipped"
+  | "garnished";
 
 export interface PaymentSummary {
   state: PaymentState;
@@ -75,6 +76,102 @@ export interface PlanItem {
   hints: PlanNote[];
   batch_id: number | null;
   preselect: boolean;
+  /** Faktura kontraktora: kontrakt, miesiąc i rozliczenie (zajęcie, spór). */
+  contract_id: number | null;
+  period_month: string | null;
+  settlement_id: number | null;
+  hold: PaymentHold | null;
+  /** Przy zajęciu: ile dostaje kontraktor po przelewach do organów. */
+  contractor_amount: string | null;
+  garnishments: GarnishmentTransfer[];
+}
+
+/** Przelew do organu wydzielony z płatności faktury (zajęcie wierzytelności). */
+export interface GarnishmentTransfer {
+  garnishment_id: number;
+  case_number: string;
+  authority_name: string;
+  authority_kind: GarnishmentAuthority | null;
+  authority_label: string | null;
+  account: string;
+  amount: string;
+  due_before: string | null;
+  title: string;
+}
+
+export type GarnishmentAuthority = "bailiff" | "tax_office" | "other";
+export type GarnishmentInterest = "none" | "fixed" | "rate" | "unknown";
+
+export interface Garnishment {
+  id: number;
+  contract_id: number;
+  contractor_name?: string | null;
+  client_name?: string | null;
+  authority_kind: GarnishmentAuthority;
+  authority_label: string | null;
+  authority_name: string;
+  case_number: string;
+  served_on: string;
+  principal_amount: string;
+  costs_amount: string;
+  interest_mode: GarnishmentInterest;
+  interest_label: string | null;
+  interest_amount: string | null;
+  interest_rate: string | null;
+  interest_from: string | null;
+  authority_account: string | null;
+  note: string | null;
+  lifted_on: string | null;
+  lifted_note: string | null;
+  lifted_by_name: string | null;
+  active: boolean;
+  transferred: string;
+  /** Należność na dziś; `null`, gdy kwoty nie da się policzyć (`problem`). */
+  due_today: string | null;
+  problem: string | null;
+  created_by_name: string | null;
+  created_at: string | null;
+  updated_by_name: string | null;
+  updated_at: string | null;
+}
+
+export interface GarnishmentInput {
+  authority_kind: GarnishmentAuthority;
+  authority_name: string;
+  case_number: string;
+  served_on: string;
+  principal_amount: string;
+  costs_amount: string;
+  interest_mode: GarnishmentInterest;
+  interest_amount: string | null;
+  interest_rate: string | null;
+  interest_from: string | null;
+  authority_account: string | null;
+  note: string | null;
+}
+
+export interface ReleasedFromBatch {
+  batch_id: number;
+  entry_id: number;
+  file_stale: boolean;
+  /** `false` = pozycja została w paczce (plik pobrany albo część przelewów wykonana). */
+  released: boolean;
+  reason: "downloaded" | "executed" | null;
+}
+
+export interface PaymentHold {
+  id: number;
+  settlement_id: number;
+  reason: string;
+  created_by_name: string | null;
+  created_at: string | null;
+  released_by_name: string | null;
+  released_at: string | null;
+  release_note: string | null;
+  contract_id?: number;
+  contractor_name?: string | null;
+  client_name?: string | null;
+  period_month?: string;
 }
 
 export interface PaymentPlan {
@@ -120,6 +217,8 @@ export interface BatchDetail extends Omit<BatchSummary, "created_by_name"> {
     white_list: { state: WhiteListState; label: string; request_id?: string };
     acknowledged: boolean;
     status: "active" | "released" | "done";
+    contractor_amount: string | null;
+    garnishments: GarnishmentTransfer[];
   }[];
 }
 
@@ -198,7 +297,12 @@ export interface EntryPayment {
     counterparty: string | null;
   };
   can_remember?: boolean;
-  batch?: { id: number; execution_date: string; mode: TransferMode; amount: string } | null;
+  batch?: {
+    id: number;
+    execution_date: string;
+    mode: TransferMode;
+    amount: string;
+  } | null;
   records?: {
     id: number;
     kind: "statement_line" | "manual";
@@ -224,6 +328,8 @@ export const paymentKeys = {
   statements: ["finance-payments", "statements"] as const,
   settings: ["finance-payments", "settings"] as const,
   entry: (id: number) => ["finance-payments", "entry", id] as const,
+  garnishments: ["finance-payments", "garnishments"] as const,
+  holds: ["finance-payments", "holds"] as const,
 };
 
 function invalidateAll(client: ReturnType<typeof useQueryClient>) {
@@ -235,7 +341,8 @@ export function usePaymentPlan(until: string) {
   return useQuery({
     queryKey: paymentKeys.plan(until),
     // POST: serwer sprawdza rachunki w wykazie VAT (ślad i limit dzienny).
-    queryFn: async () => (await api.post<PaymentPlan>(`${PAY}/plan`, { until })).data,
+    queryFn: async () =>
+      (await api.post<PaymentPlan>(`${PAY}/plan`, { until })).data,
     staleTime: 60 * 1000,
   });
 }
@@ -243,7 +350,8 @@ export function usePaymentPlan(until: string) {
 export function useBatches() {
   return useQuery({
     queryKey: paymentKeys.batches,
-    queryFn: async () => (await api.get<{ items: BatchSummary[] }>(`${PAY}/batches`)).data,
+    queryFn: async () =>
+      (await api.get<{ items: BatchSummary[] }>(`${PAY}/batches`)).data,
   });
 }
 
@@ -263,7 +371,8 @@ export function useCreateBatch() {
 export function useBatchDetail(id: number | null) {
   return useQuery({
     queryKey: [...paymentKeys.batches, id] as const,
-    queryFn: async () => (await api.get<BatchDetail>(`${PAY}/batches/${id}`)).data,
+    queryFn: async () =>
+      (await api.get<BatchDetail>(`${PAY}/batches/${id}`)).data,
     enabled: id !== null,
   });
 }
@@ -271,11 +380,19 @@ export function useBatchDetail(id: number | null) {
 export function useReleaseItem() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async ({ batchId, entryId }: { batchId: number; entryId: number }) =>
+    mutationFn: async ({
+      batchId,
+      entryId,
+    }: {
+      batchId: number;
+      entryId: number;
+    }) =>
       (
-        await api.post<{ released: number; batch_cancelled: boolean; file_stale: boolean }>(
-          `${PAY}/batches/${batchId}/items/${entryId}/release`,
-        )
+        await api.post<{
+          released: number;
+          batch_cancelled: boolean;
+          file_stale: boolean;
+        }>(`${PAY}/batches/${batchId}/items/${entryId}/release`)
       ).data,
     onSettled: () => invalidateAll(client),
   });
@@ -285,7 +402,11 @@ export function useCancelBatch() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: async (id: number) =>
-      (await api.post<{ id: number; released: number }>(`${PAY}/batches/${id}/cancel`)).data,
+      (
+        await api.post<{ id: number; released: number }>(
+          `${PAY}/batches/${id}/cancel`,
+        )
+      ).data,
     onSettled: () => invalidateAll(client),
   });
 }
@@ -298,7 +419,8 @@ export function batchFilePath(id: number): string {
 export function useStatementOverview() {
   return useQuery({
     queryKey: paymentKeys.statements,
-    queryFn: async () => (await api.get<StatementOverview>(`${PAY}/statements`)).data,
+    queryFn: async () =>
+      (await api.get<StatementOverview>(`${PAY}/statements`)).data,
   });
 }
 
@@ -322,7 +444,8 @@ export function useAssignDebit() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, entryId }: { id: number; entryId: number }) =>
-      (await api.post(`${PAY}/records/${id}/assign`, { entry_id: entryId })).data,
+      (await api.post(`${PAY}/records/${id}/assign`, { entry_id: entryId }))
+        .data,
     onSettled: () => invalidateAll(client),
   });
 }
@@ -339,7 +462,8 @@ export function useIgnoreDebit() {
 export function usePaymentSettings() {
   return useQuery({
     queryKey: paymentKeys.settings,
-    queryFn: async () => (await api.get<PaymentSettings>(`${PAY}/settings`)).data,
+    queryFn: async () =>
+      (await api.get<PaymentSettings>(`${PAY}/settings`)).data,
   });
 }
 
@@ -355,7 +479,8 @@ export function useSavePaymentSettings() {
 export function useEntryPayment(id: number) {
   return useQuery({
     queryKey: paymentKeys.entry(id),
-    queryFn: async () => (await api.get<EntryPayment>(`${PAY}/entries/${id}`)).data,
+    queryFn: async () =>
+      (await api.get<EntryPayment>(`${PAY}/entries/${id}`)).data,
     enabled: Number.isFinite(id) && id > 0,
   });
 }
@@ -375,11 +500,101 @@ export function useEntryAccount(id: number) {
 export function useEntryPaid(id: number) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { amount?: string; paid_on: string; reason: string }) =>
+    mutationFn: async (body: {
+      amount?: string;
+      paid_on: string;
+      reason: string;
+    }) =>
       (await api.post<EntryPayment>(`${PAY}/entries/${id}/paid`, body)).data,
     onSuccess: (data) => {
       client.setQueryData(paymentKeys.entry(id), data);
       invalidateAll(client);
     },
+  });
+}
+
+// ── Zajęcia wierzytelności i spór na rozliczeniu kontraktora (0765) ──────────
+
+export function useGarnishments() {
+  return useQuery({
+    queryKey: paymentKeys.garnishments,
+    queryFn: async () =>
+      (await api.get<{ items: Garnishment[] }>(`${PAY}/garnishments`)).data,
+  });
+}
+
+export function useSaveGarnishment() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      contractId,
+      body,
+    }: {
+      id: number | null;
+      contractId: number;
+      body: GarnishmentInput;
+    }) =>
+      (id === null
+        ? await api.post<
+            Garnishment & { released_from_batches: ReleasedFromBatch[] }
+          >(`${PAY}/garnishments`, { ...body, contract_id: contractId })
+        : await api.put<
+            Garnishment & { released_from_batches: ReleasedFromBatch[] }
+          >(`${PAY}/garnishments/${id}`, body)
+      ).data,
+    onSettled: () => invalidateAll(client),
+  });
+}
+
+export function useLiftGarnishment() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      lifted_on,
+      note,
+    }: {
+      id: number;
+      lifted_on: string;
+      note: string | null;
+    }) =>
+      (
+        await api.post<
+          Garnishment & { released_from_batches: ReleasedFromBatch[] }
+        >(`${PAY}/garnishments/${id}/lift`, { lifted_on, note })
+      ).data,
+    onSettled: () => invalidateAll(client),
+  });
+}
+
+export function useHolds() {
+  return useQuery({
+    queryKey: paymentKeys.holds,
+    queryFn: async () =>
+      (await api.get<{ items: PaymentHold[] }>(`${PAY}/holds`)).data,
+  });
+}
+
+export function useSetHold() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { entry_id: number; reason: string }) =>
+      (
+        await api.post<
+          PaymentHold & { released_from_batches: ReleasedFromBatch[] }
+        >(`${PAY}/holds`, body)
+      ).data,
+    onSettled: () => invalidateAll(client),
+  });
+}
+
+export function useReleaseHold() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, note }: { id: number; note: string | null }) =>
+      (await api.post<PaymentHold>(`${PAY}/holds/${id}/release`, { note }))
+        .data,
+    onSettled: () => invalidateAll(client),
   });
 }

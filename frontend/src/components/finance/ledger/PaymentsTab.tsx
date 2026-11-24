@@ -58,6 +58,12 @@ import { cn } from "@/lib/utils";
 import { warsawToday } from "@/lib/warsaw-date";
 
 import {
+  ContractorBlocks,
+  GarnishmentDialog,
+  HoldDialog,
+  type BlockTarget,
+} from "./ContractorBlocks";
+import {
   batchFormat,
   createBlocker,
   describeStatement,
@@ -213,6 +219,7 @@ function PlanTable({
   canWrite,
   onSelect,
   onAcknowledge,
+  onBlock,
 }: {
   items: PlanItem[];
   selected: Set<number>;
@@ -220,6 +227,7 @@ function PlanTable({
   canWrite: boolean;
   onSelect: (id: number, on: boolean) => void;
   onAcknowledge: (id: number, on: boolean) => void;
+  onBlock: (target: BlockTarget) => void;
 }) {
   return (
     <div className="rounded-lg border border-border bg-card">
@@ -242,11 +250,15 @@ function PlanTable({
         </TableHeader>
         <TableBody>
           {items.map((item) => {
+            // Faktura kontraktora przypięta do kontraktu: zajęcie i spór.
+            const contractor = canWrite && item.contract_id !== null;
             const notes =
               Boolean(item.block_label) ||
               Boolean(item.account_note) ||
               item.acks.length > 0 ||
-              item.hints.length > 0;
+              item.hints.length > 0 ||
+              item.garnishments.length > 0 ||
+              contractor;
             return (
               <Fragment key={item.entry_id}>
                 <TableRow
@@ -361,6 +373,38 @@ function PlanTable({
                       {item.block_label ? (
                         <span className="block">{item.block_label}</span>
                       ) : null}
+                      {item.garnishments.length > 0 ? (
+                        <span
+                          className="block space-y-0.5"
+                          aria-label="Podział płatności"
+                        >
+                          {item.garnishments.map((part) => (
+                            <span key={part.garnishment_id} className="block">
+                              Do organu ({part.authority_name}, sygn.{" "}
+                              <span className="font-mono">
+                                {part.case_number}
+                              </span>
+                              ):{" "}
+                              <strong className="tabular-nums">
+                                {formatMoney(part.amount, item.currency)}
+                              </strong>{" "}
+                              na{" "}
+                              <span className="font-mono">
+                                {formatAccount(part.account)}
+                              </span>
+                            </span>
+                          ))}
+                          <span className="block">
+                            Do kontraktora:{" "}
+                            <strong className="tabular-nums">
+                              {formatMoney(
+                                item.contractor_amount,
+                                item.currency,
+                              )}
+                            </strong>
+                          </span>
+                        </span>
+                      ) : null}
                       {item.account_note ? (
                         <span className="block text-warning-muted-foreground">
                           {item.account_note}
@@ -393,6 +437,36 @@ function PlanTable({
                           {hint.label}
                         </span>
                       ))}
+                      {contractor && item.contract_id !== null ? (
+                        <span className="flex flex-wrap gap-1 pt-0.5">
+                          <Button
+                            data-tour="finance.payments.garnishment"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              onBlock({
+                                kind: "garnishment",
+                                contractId: item.contract_id as number,
+                                label:
+                                  item.seller_name ??
+                                  `Kontrakt #${item.contract_id}`,
+                                garnishment: null,
+                              })
+                            }
+                          >
+                            Zajęcie
+                          </Button>
+                          {item.settlement_id !== null && item.hold === null ? (
+                            <Button
+                              size="sm"
+                              variant="quiet"
+                              onClick={() => onBlock({ kind: "hold", item })}
+                            >
+                              Spór / wstrzymaj
+                            </Button>
+                          ) : null}
+                        </span>
+                      ) : null}
                     </TableCell>
                   </TableRow>
                 ) : null}
@@ -438,6 +512,20 @@ function BatchItems({
           <span className="tabular-nums">
             {formatMoney(item.amount, item.currency)}
           </span>
+          {item.garnishments.length > 0 ? (
+            <span className="basis-full pl-2 text-muted-foreground">
+              {item.garnishments.map((part) => (
+                <span key={part.garnishment_id} className="block">
+                  → {part.authority_name} (sygn. {part.case_number}):{" "}
+                  {formatMoney(part.amount, item.currency)}
+                </span>
+              ))}
+              <span className="block">
+                → kontraktor:{" "}
+                {formatMoney(item.contractor_amount, item.currency)}
+              </span>
+            </span>
+          ) : null}
           {item.account_source === "ksef_factor" ? (
             <Badge size="sm" variant="warning">
               faktor
@@ -814,6 +902,7 @@ export function PaymentsTab({ canWrite = true }: { canWrite?: boolean }) {
   const [execution, setExecution] = useState(today);
   const [format, setFormat] = useState<"elixir" | "csv">("elixir");
   const items = useMemo(() => plan.data?.items ?? [], [plan.data]);
+  const [blockTarget, setBlockTarget] = useState<BlockTarget | null>(null);
 
   useEffect(() => {
     setSelected(initialSelection(items));
@@ -870,6 +959,7 @@ export function PaymentsTab({ canWrite = true }: { canWrite?: boolean }) {
             canWrite={canWrite}
             onSelect={toggle(setSelected)}
             onAcknowledge={toggle(setAcknowledged)}
+            onBlock={setBlockTarget}
           />
         )}
         {canWrite && items.length > 0 ? (
@@ -949,8 +1039,20 @@ export function PaymentsTab({ canWrite = true }: { canWrite?: boolean }) {
           </div>
         ) : null}
       </Section>
+      <ContractorBlocks canWrite={canWrite} onEdit={setBlockTarget} />
       <Batches canWrite={canWrite} />
       <Statement canWrite={canWrite} />
+      {blockTarget?.kind === "garnishment" ? (
+        <GarnishmentDialog
+          target={blockTarget}
+          onClose={() => setBlockTarget(null)}
+        />
+      ) : blockTarget?.kind === "hold" ? (
+        <HoldDialog
+          item={blockTarget.item}
+          onClose={() => setBlockTarget(null)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -17,7 +17,13 @@ Serwis: ``services/finance_ledger/payments.py``.
   („Zdejmij z paczki”) — paczki,
 * ``POST /statements``, ``GET /statements``, ``POST /records/{id}/assign``,
   ``POST /records/{id}/ignore`` — obciążenia z wyciągu,
-* ``GET/PUT /entries/{id}``, ``POST /entries/{id}/paid`` — płatność na karcie.
+* ``GET/PUT /entries/{id}``, ``POST /entries/{id}/paid`` — płatność na karcie,
+* ``GET/POST /garnishments``, ``PUT /garnishments/{id}``,
+  ``POST /garnishments/{id}/lift`` — zajęcia wierzytelności kontraktorów,
+* ``GET/POST /holds``, ``POST /holds/{id}/release`` — „Spór / wstrzymane” na
+  rozliczeniu kontraktora (``services/finance_ledger/contractor_blocks.py``).
+  Dane zajęć tylko z „Modułem Finanse” (to samo uprawnienie co kwoty
+  Finansów), zmiany w Historii zdarzeń bez kwot i sygnatur.
 """
 
 from datetime import date, datetime, timezone
@@ -33,7 +39,7 @@ from app.api.finance_ledger import _open
 from app.api.section_access import FINANCE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.scheduling import business_today
-from app.services.finance_ledger import payments
+from app.services.finance_ledger import contractor_blocks, payments
 from app.services.hr.bank import statements
 from app.services.hr.bank.parsed import StatementError
 from app.services.hr.payroll_access import is_payroll
@@ -413,3 +419,195 @@ async def entry_paid(
         raise _fail(exc) from exc
     await db.commit()
     return await payments.entry_card(db, entry_id, payroll=payroll)
+
+
+# ── Zajęcia wierzytelności i spór na rozliczeniu kontraktora ─────────────────
+
+
+class GarnishmentIn(BaseModel):
+    authority_kind: Literal["bailiff", "tax_office", "other"]
+    authority_name: str = Field(min_length=1, max_length=255)
+    case_number: str = Field(min_length=1, max_length=120)
+    served_on: date
+    principal_amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+    costs_amount: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=14, decimal_places=2
+    )
+    interest_mode: Literal["none", "fixed", "rate", "unknown"] = "unknown"
+    interest_amount: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=14, decimal_places=2
+    )
+    interest_rate: Optional[Decimal] = Field(
+        default=None, ge=0, lt=100, max_digits=6, decimal_places=3
+    )
+    interest_from: Optional[date] = None
+    authority_account: Optional[str] = Field(default=None, max_length=64)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+    def data(self) -> contractor_blocks.GarnishmentData:
+        return contractor_blocks.GarnishmentData(
+            **self.model_dump(exclude={"contract_id"})
+        )
+
+
+class GarnishmentCreateIn(GarnishmentIn):
+    contract_id: int = Field(gt=0)
+
+
+class GarnishmentLiftIn(BaseModel):
+    lifted_on: date
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class HoldIn(BaseModel):
+    settlement_id: Optional[int] = Field(default=None, gt=0)
+    entry_id: Optional[int] = Field(default=None, gt=0)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class HoldReleaseIn(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+def _block_fail(exc: contractor_blocks.BlockError) -> HTTPException:
+    return HTTPException(exc.status, exc.message)
+
+
+@router.get("/garnishments")
+async def garnishments(
+    current_user: FinanceModuleUser,
+    contract_id: Optional[int] = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _open(db, current_user)
+    return {
+        "items": await contractor_blocks.list_garnishments(
+            db, today=business_today(), contract_id=contract_id
+        )
+    }
+
+
+@router.post("/garnishments")
+async def create_garnishment(
+    body: GarnishmentCreateIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _open(db, current_user)
+    try:
+        result = await contractor_blocks.create_garnishment(
+            db,
+            body.contract_id,
+            body.data(),
+            actor=current_user,
+            today=business_today(),
+            now=_now(),
+        )
+    except contractor_blocks.BlockError as exc:
+        await db.rollback()
+        raise _block_fail(exc) from exc
+    await db.commit()
+    return result
+
+
+@router.put("/garnishments/{garnishment_id}")
+async def update_garnishment(
+    garnishment_id: int,
+    body: GarnishmentIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _open(db, current_user)
+    try:
+        result = await contractor_blocks.update_garnishment(
+            db,
+            garnishment_id,
+            body.data(),
+            actor=current_user,
+            today=business_today(),
+            now=_now(),
+        )
+    except contractor_blocks.BlockError as exc:
+        await db.rollback()
+        raise _block_fail(exc) from exc
+    await db.commit()
+    return result
+
+
+@router.post("/garnishments/{garnishment_id}/lift")
+async def lift_garnishment(
+    garnishment_id: int,
+    body: GarnishmentLiftIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _open(db, current_user)
+    try:
+        result = await contractor_blocks.lift_garnishment(
+            db,
+            garnishment_id,
+            lifted_on=body.lifted_on,
+            note=body.note,
+            actor=current_user,
+            today=business_today(),
+            now=_now(),
+        )
+    except contractor_blocks.BlockError as exc:
+        await db.rollback()
+        raise _block_fail(exc) from exc
+    await db.commit()
+    return result
+
+
+@router.get("/holds")
+async def holds(
+    current_user: FinanceModuleUser,
+    active: bool = True,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _open(db, current_user)
+    return {"items": await contractor_blocks.list_holds(db, active_only=active)}
+
+
+@router.post("/holds")
+async def create_hold(
+    body: HoldIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _open(db, current_user)
+    if (body.settlement_id is None) == (body.entry_id is None):
+        raise HTTPException(422, "Wskaż rozliczenie albo fakturę kontraktora.")
+    try:
+        result = await contractor_blocks.set_hold(
+            db,
+            settlement_id=body.settlement_id,
+            entry_id=body.entry_id,
+            reason=body.reason,
+            actor=current_user,
+            now=_now(),
+        )
+    except contractor_blocks.BlockError as exc:
+        await db.rollback()
+        raise _block_fail(exc) from exc
+    await db.commit()
+    return result
+
+
+@router.post("/holds/{hold_id}/release")
+async def release_hold(
+    hold_id: int,
+    body: HoldReleaseIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _open(db, current_user)
+    try:
+        result = await contractor_blocks.release_hold(
+            db, hold_id, note=body.note, actor=current_user, now=_now()
+        )
+    except contractor_blocks.BlockError as exc:
+        await db.rollback()
+        raise _block_fail(exc) from exc
+    await db.commit()
+    return result

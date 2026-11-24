@@ -310,6 +310,10 @@ Serwis `services/finance_ledger/payments.py`, reguły bez bazy
   „brak w wykazie”. Faktura > 15 000 zł brutto z rachunkiem innym niż
   „w wykazie” (także niesprawdzonym) = ostrzeżenie blokujące do świadomego
   odhaczenia (kto — `acknowledged_by`).
+  Faktury z dziennika „Kontraktorzy”: rachunek spoza wykazu i błąd wykazu
+  blokują płatność w dniu paczki niezależnie od kwoty, a zajęcia
+  wierzytelności i „Spór / wstrzymane” dzielą albo wstrzymują płatność —
+  `blokady-platnosci-kontraktorow-zajecia-spor-biala-lista.md`.
 - **Paczka**: jedna waluta; w złotych Elixir-O (`hr/bank/elixir.py`, pole 15
   klasyfikacji: 51 zwykły, 53 MPP) albo CSV, w walucie obcej tylko CSV (IBAN).
   Elixir wymaga rachunku nadawcy (`app_settings['finance_payments']`, „Rachunek

@@ -4726,6 +4726,19 @@
     ]
   },
   {
+    "id": "przelewy-zajecia-i-spory",
+    "pr": 3816,
+    "title": "Zajęcia wierzytelności i spór przy płatności kontraktora",
+    "why": "Zajęcie komornika albo US wpisujesz przy fakturze kontraktora, a paczka dzieli płatność na organ i kontraktora. Spór wstrzymuje płatność, a rachunek spoza wykazu VAT blokuje przelew.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": { "roles": ["finance", "admin"] },
+    "where": "Finanse → Przelewy → Do zapłaty → Zajęcie / Spór",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "finance.payments.garnishment"
+  },
+  {
     "id": "wymagania-klienta-do-faktury",
     "pr": 3817,
     "title": "Wymagania klienta do faktury z NEXUSA",

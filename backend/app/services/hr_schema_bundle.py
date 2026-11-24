@@ -49,6 +49,7 @@ from app.services import client_reports_schema as client_reports
 from app.services import consultant_panel_schema as consultant_panel
 from app.services import consultant_portal_schema as consultant_portal
 from app.services import contract_care_schema as contract_care
+from app.services import contractor_payment_blocks_schema as contractor_payment_blocks
 from app.services import equipment_extras_schema as equipment_extras
 from app.services import equipment_protocol_cancel_schema as equipment_cancel
 from app.services import equipment_schema as equipment
@@ -205,6 +206,8 @@ MODULES = (
     contract_partner_reads,
     # 0763: przypomnienia o brakującym raporcie godzin — dziennik wysyłek (23.11.2026).
     settlement_reminders,
+    # 0765: zajęcia wierzytelności i spór przy płatnościach kontraktorów (23.11.2026).
+    contractor_payment_blocks,
 )
 
 COLUMN_DDL: tuple[str, ...] = (
