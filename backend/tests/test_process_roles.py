@@ -95,10 +95,28 @@ def test_prod_pools_fit_max_connections() -> None:
     for name in ("backend", "worker"):
         env = services[name]["environment"]
         pools[name] = int(env["DB_POOL_SIZE"]) + int(env["DB_MAX_OVERFLOW"])
-    # Rolling update (etap B2): przez chwilę dwa procesy tej samej roli naraz.
-    web, worker = pools["backend"], pools["worker"]
+    # Pula jest na proces, a backend ma do WEB_PROCESSES_MAX procesów web.
+    # Rolling update (etap B2): przez chwilę dwa kontenery tej samej roli naraz.
+    web = pools["backend"] * WEB_PROCESSES_MAX
+    worker = pools["worker"]
     worst = max(2 * web + worker, web + 2 * worker)
     assert worst <= limit - 15, "zapas na zrzut bazy, blokady i docker exec"
+
+
+# Ile procesów web obejmują budżety w compose (max_connections, mem_limit).
+WEB_PROCESSES_MAX = 2
+
+
+def test_backend_web_concurrency_is_a_switch_defaulting_to_one() -> None:
+    """Drugi proces web włącza się zmienną w Coolify, nie zmianą compose.
+
+    Decyzja Artura 24.11.2026: PR wnosi poprawki stanu, a drugi proces startuje
+    dopiero po „Coolify set env” NEXUS_WEB_CONCURRENCY=2.
+    """
+    backend = _compose("docker-compose.yml")["services"]["backend"]
+    assert backend["environment"]["WEB_CONCURRENCY"] == "${NEXUS_WEB_CONCURRENCY:-1}"
+    # Dwa procesy po ok. 1,9 GB RSS (pomiar 24.11.2026) nie mieszczą się w 4g.
+    assert backend["mem_limit"] == "6g"
 
 
 def test_worker_name_stays_outside_backend_prefix() -> None:
@@ -107,6 +125,20 @@ def test_worker_name_stays_outside_backend_prefix() -> None:
         s.startswith("backend") and s != "backend"
         for s in _compose("docker-compose.yml")["services"]
     )
+
+
+def test_entrypoint_runs_several_processes_only_in_web_role() -> None:
+    """Rola `all` (wycofanie) z NEXUS_WEB_CONCURRENCY=2 dałaby dwa procesy `all`.
+
+    W `all` blokady doradcze i bus są wyłączone, a pętle ma tylko lider, więc
+    entrypoint wraca wtedy do jednego procesu.
+    """
+    text = (BACKEND / "entrypoint.sh").read_text()
+    guard = text.index(
+        'if [ "${NEXUS_PROCESS_ROLE:-all}" != "web" ] && [ "${WEB_CONCURRENCY:-1}" != "1" ]; then'
+    )
+    assert "export WEB_CONCURRENCY=1" in text[guard : guard + 300]
+    assert guard < text.index("exec uvicorn app.main:app")
 
 
 def test_entrypoint_worker_skips_migrations() -> None:
@@ -217,7 +249,7 @@ def test_bus_message_does_not_bounce_in_worker(monkeypatch) -> None:
     async def notify(user_id: int, _event: dict) -> None:
         called.append(user_id)
 
-    monkeypatch.setattr(ws.manager, "notify_user", notify)
+    monkeypatch.setattr(ws.manager, "deliver_local", notify)
     monkeypatch.setattr(ws.settings, "NEXUS_PROCESS_ROLE", "worker")
     asyncio.run(ws._on_ws_notify({"user_id": 7, "event": {}}))
     assert called == []
@@ -229,7 +261,8 @@ def test_bus_message_does_not_bounce_in_worker(monkeypatch) -> None:
 def test_oversized_bus_payload_is_refused() -> None:
     from app.core import process_bus
 
-    data = {"x": "ą" * process_bus.MAX_PAYLOAD_BYTES}
+    # Powyżej limitu NOTIFY wiadomość idzie w kawałkach; odmowa dopiero ponad MAX_MESSAGE_BYTES.
+    data = {"x": "ą" * process_bus.MAX_MESSAGE_BYTES}
     assert asyncio.run(process_bus.publish("t", data)) is False
 
 

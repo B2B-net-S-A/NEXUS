@@ -28,6 +28,7 @@ from typing import Any, AsyncIterator, Optional
 import anthropic
 from fastapi.concurrency import run_in_threadpool
 
+from app.core import process_bus
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.ai_feature import AIFeatureKey
@@ -66,15 +67,27 @@ UNAVAILABLE_MESSAGE = (
 CANCELLED_MESSAGE = "Przerwane na Twoją prośbę."
 TRUNCATED_NOTE = "\n\n_(Odpowiedź ucięta — napisz „dalej”, dokończę.)_"
 
-# Prośby o przerwanie tury („Zatrzymaj” w panelu). Backend to jeden proces
-# uvicorn, więc zbiór w pamięci wystarcza; pętla sprawdza go przed każdym
-# wywołaniem modelu i każdym narzędziem. Samego wywołania modelu w wątku nie
-# da się przerwać — tura kończy się najpóźniej po bieżącym kroku.
+# Prośby o przerwanie tury („Zatrzymaj” w panelu). Pętla sprawdza zbiór przed
+# każdym wywołaniem modelu i każdym narzędziem. Przy kilku procesach web „Zatrzymaj”
+# może trafić do innego niż ten, który prowadzi turę, więc prośba idzie też przez
+# ``process_bus``; nowa tura rozmowy i tak czyści wpis. Samego wywołania modelu
+# w wątku nie da się przerwać — tura kończy się najpóźniej po bieżącym kroku.
 _CANCEL_REQUESTS: set[uuid.UUID] = set()
+
+
+_CANCEL_TOPIC = "jarvis_cancel"
 
 
 def request_cancel(conversation_id: uuid.UUID) -> None:
     _CANCEL_REQUESTS.add(conversation_id)
+    process_bus.publish_soon(_CANCEL_TOPIC, {"conversation_id": str(conversation_id)})
+
+
+async def _on_remote_cancel(data: dict[str, Any]) -> None:
+    _CANCEL_REQUESTS.add(uuid.UUID(str(data["conversation_id"])))
+
+
+process_bus.subscribe(_CANCEL_TOPIC, _on_remote_cancel, others_only=True)
 
 
 def _cancelled(state: "_TurnState") -> bool:

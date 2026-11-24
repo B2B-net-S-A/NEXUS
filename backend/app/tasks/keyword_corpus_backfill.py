@@ -34,6 +34,8 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.process_lock import cross_process_lock
+from app.core.process_role import web_process_count
 from app.services import keyword_corpus
 
 logger = logging.getLogger(__name__)
@@ -528,6 +530,31 @@ async def _sources_phase() -> None:
 
 
 async def keyword_corpus_backfill_loop() -> None:
+    """Uzupełnia korpus w web. Przy kilku procesach web pisze jeden.
+
+    Drugi proces dostałby te same porcje UPDATE i blokady wierszy przy zmianie
+    wersji, więc tylko czyta gotowość z bazy, jak worker.
+    → docs/claude/podstawy/kilka-procesow-web.md
+    """
+    if web_process_count() <= 1:
+        await _backfill_phases()
+        return
+    while True:
+        try:
+            async with cross_process_lock("keyword_corpus_backfill") as owner:
+                if owner:
+                    await _backfill_phases()
+                    return
+            break
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — baza wstaje po deployu
+            logger.warning("keyword corpus backfill lock failed, retrying: %r", exc)
+            await asyncio.sleep(_RETRY_SECONDS)
+    await _follow_readiness()
+
+
+async def _backfill_phases() -> None:
     phases = (
         _swap_process_version,
         _legacy_phase,
@@ -576,6 +603,10 @@ async def keyword_corpus_readiness_loop() -> None:
     """
     if settings.NEXUS_PROCESS_ROLE != "worker":
         return
+    await _follow_readiness()
+
+
+async def _follow_readiness() -> None:
     while True:
         try:
             corpus, folded = await _readiness_from_db()

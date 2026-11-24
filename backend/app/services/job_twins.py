@@ -35,6 +35,7 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import process_bus
 from app.models.job import Job, JobPriority, JobStatus
 from app.models.job_similar_link import JobSimilarLink, JobTwinDismissal
 from app.models.user import User
@@ -537,9 +538,25 @@ class Suggestion:
 _suggestion_cache: dict[str, Any] = {"at": 0.0, "items": None}
 
 
-def reset_suggestion_cache() -> None:
+_RESET_TOPIC = "job_twins_reset"
+
+
+def _reset_local_suggestions() -> None:
     _suggestion_cache["at"] = 0.0
     _suggestion_cache["items"] = None
+
+
+def reset_suggestion_cache() -> None:
+    """Też w drugim procesie web: inaczej odrzucona para wraca tam do 5 min."""
+    _reset_local_suggestions()
+    process_bus.publish_soon(_RESET_TOPIC, {})
+
+
+async def _on_remote_reset(_data: dict[str, Any]) -> None:
+    _reset_local_suggestions()
+
+
+process_bus.subscribe(_RESET_TOPIC, _on_remote_reset, others_only=True)
 
 
 async def _raw_suggestions(db: AsyncSession) -> list[Suggestion]:

@@ -28,6 +28,8 @@ from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import ORMExecuteState, Session
 
+from app.core import process_bus
+
 from app.core.cache import cache_single_flight
 from app.models.app_setting import AppSetting
 from app.models.section_permission import (
@@ -95,12 +97,31 @@ _expires_at = 0.0
 _generation = 0
 
 
-def invalidate_policy_cache() -> None:
-    """Skasuj migawkę. Wołać po commicie, bo inaczej odczyt wstawi stare wiersze."""
+_BUS_TOPIC = "policy_cache_invalidate"
 
+
+def _drop_local_snapshot() -> None:
     global _snapshot, _generation
     _snapshot = None
     _generation += 1
+
+
+def invalidate_policy_cache() -> None:
+    """Skasuj migawkę. Wołać po commicie, bo inaczej odczyt wstawi stare wiersze.
+
+    Drugi proces web i worker kasują swoją przez ``process_bus``: inaczej odebrane
+    uprawnienie działałoby tam jeszcze do 30 s.
+    """
+
+    _drop_local_snapshot()
+    process_bus.publish_soon(_BUS_TOPIC, {})
+
+
+async def _on_remote_invalidate(_data: dict[str, Any]) -> None:
+    _drop_local_snapshot()
+
+
+process_bus.subscribe(_BUS_TOPIC, _on_remote_invalidate, others_only=True)
 
 
 def _fresh_snapshot() -> PolicySnapshot | None:
