@@ -33,6 +33,12 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     mem_limit: 8g
+    # Przy braku pamięci w całej maszynie Dockera jądro zabija proces z największym
+    # RSS, a każdy proces Postgresa liczy w nim 2 GB shared_buffers, choć prywatnie
+    # ma kilka MB. 24.11.2026 dwa takie zabicia (global_oom) przerwały staging, kopie
+    # nocne i przebiegi poczty. Limit 8g dalej łapie Postgresa, który urośnie sam.
+    # → docs/claude/podstawy/staging-na-laptopie.md
+    oom_score_adj: -500
     shm_size: 1gb
     command:
       - postgres

@@ -211,8 +211,47 @@ najpierw dostać osobny handler. Instrukcja i aktualny zakres:
 Dump, selection, baseline, paczka i podgląd zawierają dane produkcyjne lub
 biznesowe: wyłącznie prywatny katalog poza repo, bez przesyłania do Actions.
 
+## Pamięć maszyny Dockera i OOM-killer
+
+24.11.2026 Postgres stagingu padł dwa razy (sygnał 9, „recovery mode”) i przerwał
+przebiegi poczty, kopie nocne i s4. Od 05.11.2026 takich zabić było osiem.
+
+- **Zabija brak pamięci w całej maszynie Dockera, nie limit 8g.** W dmesg maszyny
+  stoi `constraint=CONSTRAINT_NONE … global_oom`, a `memory.events` kontenera ma
+  `oom 0`. Maszyna ma 32 GiB i 1 GiB swapu. O 20:42 UTC miała 24 GiB pamięci
+  anonimowej i 5 GiB shmem, w tym ok. 12 GiB w Pythonie: przebiegi poczty (ok.
+  1,5 GiB każdy, we własnym kontenerze) i pytesty innych sesji. Wyższy `mem_limit`
+  ani mniejsze `work_mem` czy `max_connections` nic tu nie dają: prywatnie Postgres
+  miał 0,74 GiB w 46 procesach, a w trakcie przebiegu 0,1 GiB.
+- **Ofiarą był Postgres, bo jądro wybiera największy RSS**, a proces Postgresa,
+  który dotknął `shared_buffers`, liczy w nim całe 2 GB (zabity: anon 32 MB, shmem
+  2,06 GB). Dlatego `oom_score_adj: -500` (decyzja Artura z 24.11.2026): przy braku
+  pamięci jądro zabije inny proces, np. przebieg albo pytest jednej sesji.
+- **Wartość z compose wchodzi dopiero z nowym kontenerem** (`up -d postgres`,
+  `restore_from_backup.sh`). `docker restart` i restart Dockera wracają do 0 ze
+  starej konfiguracji. Działający kontener dostał −500 na żywo 24.11.2026. Po takim
+  restarcie ustaw ją tak samo, bez przerwy w pracy (nowe połączenia dziedziczą):
+
+  ```bash
+  CID=$(docker inspect --format '{{.Id}}' nexus-staging-postgres-1)
+  docker run --rm --privileged --pid=host --cgroupns=host --network none --entrypoint sh postgres:16-alpine \
+    -c "for p in \$(cat /sys/fs/cgroup/docker/$CID/cgroup.procs); do echo -500 > /proc/\$p/oom_score_adj; done"
+  ```
+
+- **Kto zabił:** `docker run --rm --privileged --network none --entrypoint dmesg postgres:16-alpine | grep -A1 oom-kill:`
+  sięga kilku godzin wstecz. Docker Desktop zapisuje te linie też w
+  `~/Library/Containers/com.docker.docker/Data/log/vm/init.log*`.
+- **Przed przebiegiem poczty** sprawdź `MemAvailable` maszyny
+  (`docker exec nexus-staging-postgres-1 grep MemAvailable /proc/meminfo`). Przebieg
+  zajmuje ok. 1,5 GiB, a pytesty innych sesji potrafią dołożyć 3 GiB w dwie minuty,
+  więc poniżej ok. 6 GiB poczekaj. Pamięci Docker Desktop nie zwiększamy (decyzja
+  Artura z 24.11.2026), bo macOS ma zajęte 116 z 128 GB.
+
 ## Reguły, które łatwo cofnąć
 
+- **`oom_score_adj: -500` Postgresa zostaje, a `mem_limit` nie rośnie „na zapas”**:
+  zabija brak pamięci w maszynie, nie limit kontenera (sekcja wyżej). Pilnuje
+  `tests/test_staging_postgres_oom.py`.
 - **Nowa pętla w lifespanie = wpis w `STAGING_ALLOWED_TASKS` albo
   `STAGING_BLOCKED_TASKS`.** Bez tego pada `tests/test_staging_background_tasks.py`.
   Wątpliwość = zablokowana: na stagingu leżą prawdziwe adresy kandydatów.
