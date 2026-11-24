@@ -68,6 +68,9 @@ z rekrutacji. Ta sekcja wygrywa ze starszymi punktami niżej.
   (albo przy nieaktywnym koncie trzymającego) karta wraca do porcji.
 - **Cel wg tempa** (`NEW_COLUMN_TEMPO_TARGET_ENABLED`) przy włączonej porcji nie
   ustala już jej wielkości; zostaje poza porcją i przy „Dodaj 10 kolejnych”.
+- **Rekrutacja wybrana na dziś** (decyzje Artura 24.11.2026): osoba bierze
+  najpierw z wybranej swojej rekrutacji, przed P0, do końca dnia; kto pierwszy,
+  ten bierze. `porcja-wybor-rekrutacji-na-dzis.md`.
 
 Testy: `test_review_batch_plan_unit.py`, `test_review_batch_stage0.py` (sekcja
 „Porcja na osobę”), `test_review_batch.py::test_board_shows_for_only_people_still_assigned`.

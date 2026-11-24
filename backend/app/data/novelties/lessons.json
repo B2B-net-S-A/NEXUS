@@ -2450,6 +2450,41 @@
     ]
   },
   {
+    "id": "lekcja-porcja-wybor-rekrutacji",
+    "title": "Porcja dnia: rekrutacja wybrana na dziś",
+    "novelties": [
+      "porcja-wybor-rekrutacji-na-dzis"
+    ],
+    "task": "W Porcji dnia otwórz „Wybierz rekrutację na dziś” i zaznacz jedną ze swoich rekrutacji: pod nią zobaczysz, ile osób przyjdzie. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/porcja",
+    "check": {
+      "kind": "click",
+      "anchor": "review-batch.focus"
+    },
+    "questions": [
+      {
+        "q": "Wybrana na dziś rekrutacja ma tylko dwie wolne osoby. Co z resztą porcji?",
+        "options": [
+          "Reszta przychodzi jak zwykle z Twoich pozostałych rekrutacji, najpierw pilne",
+          "Porcja jest do końca dnia mniejsza",
+          "Reszta przychodzi z rekrutacji innych osób"
+        ],
+        "answer": 0,
+        "explain": "Z wybranej przychodzi tyle osób, ile przechodzi jej reguły. Resztę porcji daje zwykła kolejność z Twoich rekrutacji, a nieruszone osoby oddajesz tylko ponad porcję."
+      },
+      {
+        "q": "Ktoś z zespołu wybrał tę samą rekrutację godzinę wcześniej. Co dostaniesz?",
+        "options": [
+          "Kolejne wolne osoby; najlepsze ma już osoba, która wybrała pierwsza",
+          "Połowę jej osób",
+          "Te same osoby co ona"
+        ],
+        "answer": 0,
+        "explain": "Kto wybrał pierwszy, bierze najlepszych, a nikt nie traci osób, które już ma. Przy rekrutacji widać, kto i o której ją wybrał."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [

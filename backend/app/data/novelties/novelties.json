@@ -5024,6 +5024,19 @@
     "dot_anchor": "new-job.fill-from"
   },
   {
+    "id": "porcja-wybor-rekrutacji-na-dzis",
+    "title": "Porcja dnia: wybierz rekrutację, nad którą pracujesz dziś",
+    "why": "Umówiliście się, kto robi który request? „Wybierz rekrutację na dziś” bierze osoby najpierw z niej, a liczba się nie zmienia. Kto wybierze pierwszy, ma najlepszych. Jutro zwykła kolejność.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": { "roles": ["recruiter"] },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia → Wybierz rekrutację na dziś",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.focus",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",

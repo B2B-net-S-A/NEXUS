@@ -28,8 +28,8 @@ i CV po prawej. W dniach 10–13.11 (kopia stagingu) 751 decyzji z porcji dało
   miałby sensu.
 - **Lista rekrutacji do przełączania nad kartą (wariant B z makiet) nie
   została wybrana 17.11.2026.** Nie dokładaj jej bez nowej decyzji. Wybór
-  rekrutacji na cały dzień to osobna propozycja z 16.11.2026, jeszcze bez
-  decyzji.
+  rekrutacji na cały dzień zdecydowany 24.11.2026: wybrana idzie w kolejce
+  pierwsza, reguła w `porcja-wybor-rekrutacji-na-dzis.md`.
 
 Testy: `test_review_batch_unit.py`
 (`test_queue_goes_job_by_job_nearest_p0_deadline_first`,
