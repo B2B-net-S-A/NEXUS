@@ -93,6 +93,7 @@ BELL_TYPE_BY_KIND: dict[str, NotificationType] = {
     "job_deadline": NotificationType.job_deadline_7d,
     HR_MAIL_KIND: NotificationType.hr_leave_decided,
     "hire_documents": NotificationType.hire_missing_contract,
+    "cpro_invoice_buyer": NotificationType.cpro_invoice_buyer,
     HR_BONUS_KIND: NotificationType.hr_bonus_assigned,
     CLIENT_JOB_KIND: NotificationType.client_job_opened,
     JOB_AD_KIND: NotificationType.job_ad_missing,
@@ -282,6 +283,13 @@ def _hire_documents(user: User, _: _Context) -> bool:
     )
 
 
+def _cpro_invoice_buyer(user: User, _: _Context) -> bool:
+    # Lustro odbiorców `cpro_invoice_buyer._ring` (`finance_recipient_ids`).
+    return user.has_any_role(
+        UserRole.finance, UserRole.back_office
+    ) and user_may_receive_type(user, NotificationType.cpro_invoice_buyer)
+
+
 def _board_monthly(user: User, _: _Context) -> bool:
     # Lustro odbiorców `kpi_email_reports._board_readers`.
     return receives_company_results(user) and _section_read(
@@ -325,6 +333,7 @@ APPLIES: dict[str, Callable[[User, _Context], bool]] = {
     "start_documents": _candidate_bell(NotificationType.start_documents_due),
     "team_task": _candidate_bell(NotificationType.note_reply),
     "hire_documents": _hire_documents,
+    "cpro_invoice_buyer": _cpro_invoice_buyer,
     HR_MAIL_KIND: _hr_people,
     HR_BONUS_KIND: _hr_bonus,
     DIGEST_KIND: _digest,

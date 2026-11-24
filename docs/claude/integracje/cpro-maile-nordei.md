@@ -63,7 +63,9 @@ Abp Finland przyszła tylko do PM-a i nie dotarła do rozliczeń):
   szuka nabywcy klienta z tym „Kodem w CPro” (ustawienia wystawiania → Nabywcy per kontrakt),
   dopisuje go w `contract_buyers` od `RRRR-MM` maila i dzwoni do Finansów
   (`cpro_invoice_buyer`, migracja 0766) z listą faktur od tego miesiąca na innego nabywcę
-  i liczbą szkiców do poprawy.
+  i liczbą szkiców do poprawy. Dzwonek idzie też **mailem od razu** (rodzaj
+  `cpro_invoice_buyer`, obowiązkowy): typ nie ma ikony na pasku, więc bez maila osoba
+  offline zobaczyłaby tylko chwilowy dymek.
 - **Faktur NEXUS nie zmienia.** Korekta albo refaktura to decyzja Finansów.
 - **Kodu nie zgadujemy po nazwie** („Abp S.A.” i „Abp Finland” mają wspólny początek).
   Kod spoza listy, brak zamówienia z tym numerem albo kilka kontraktów pod jednym numerem =

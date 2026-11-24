@@ -13,7 +13,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
@@ -144,6 +144,23 @@ def _nordea_everywhere(monkeypatch):
         cpro_mail.settings, "CPRO_MAIL_SINCE", "2020-01-01", raising=False
     )
     monkeypatch.setattr(cpro_mail, "BATCH_LIMIT", 100_000)
+
+
+@pytest.fixture(autouse=True)
+async def _drop_finance_bells():
+    """Dzwonek idzie do wszystkich kont Finansów w bazie testowej i jest mailem
+    „od razu”: bez sprzątania wiersze wypełniłyby partię outboxu innych testów."""
+
+    started = datetime.now(timezone.utc)
+    yield
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(Notification).where(
+                Notification.notification_type == NotificationType.cpro_invoice_buyer,
+                Notification.created_at >= started,
+            )
+        )
+        await db.commit()
 
 
 def _number() -> str:
@@ -441,3 +458,16 @@ def test_change_month_is_the_company_day():
         == "2026-10"
     )
     assert cpro_invoice_buyer.change_month(MAIL_AT) == "2026-09"
+
+
+def test_finance_bell_goes_out_as_immediate_required_mail():
+    # Dzwonek bez ikony to tylko dymek: Finanse offline nie zobaczyłyby zmiany.
+    from app.services import notification_delivery as delivery
+
+    kind = delivery.immediate_email_kind(
+        NotificationType.cpro_invoice_buyer,
+        title="CPro: nowy nabywca kontraktu Nordei",
+        related_entity_type="cpro_mail_event",
+    )
+    assert kind == "cpro_invoice_buyer"
+    assert kind in delivery.REQUIRED_KINDS

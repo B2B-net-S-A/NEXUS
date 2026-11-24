@@ -218,6 +218,13 @@ SPECS: dict[str, _Spec] = {
     # Link z `?contract=` otwiera panel kontraktora z „Uzupełnij zamówienie”.
     "hired_order_missing": _Spec("Dodaj zamówienie", label="Dodaj zamówienie"),
     "hire_missing_contract": _Spec("Dodaj umowę", label="Otwórz kandydata"),
+    # Nabywca kontraktu Nordei z CPro: tytuł mówi, czy zapisany, czy do przypisania.
+    "cpro_invoice_buyer": _Spec(
+        "Sprawdź nabywcę i faktury",
+        chip="Nabywca",
+        label="Otwórz faktury",
+        use_title=True,
+    ),
     "automation_failing": _Spec("Sprawdź automat", chip="Awaria", label="Otwórz"),
     "teams_prep_scope_missing": _Spec("Sprawdź automat", chip="Awaria", label="Otwórz"),
     "hr_m365_scope_missing": _Spec(
