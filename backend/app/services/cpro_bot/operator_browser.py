@@ -320,6 +320,7 @@ def view(run: CproBotRun, *, current: bool, allow_close_absent: bool = False) ->
         "run_id": run.id,
         "stage_id": item["ref"],
         "delivery_lead_id": item["cpro_account"]["delivery_lead_id"],
+        "cpro_account_name": items.cpro_account_name(item["cpro_account"]),
         "request_number": item["request_number"],
         "request_title": item.get("request_title"),
         "candidate": item["candidate"],

@@ -83,7 +83,9 @@ async def _latest(candidate_id: int, job_id: int) -> CandidateStage:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("account_id", [14, 27], ids=["igor", "marcin"])
+@pytest.mark.parametrize(
+    "account_id", [14, 27, 32], ids=["igor", "marcin", "dominik-via-marcin"]
+)
 async def test_bot_sends_queued_card_and_moves_it_like_wrzucone(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch, account_id: int
 ) -> None:

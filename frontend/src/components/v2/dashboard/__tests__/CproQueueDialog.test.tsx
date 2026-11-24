@@ -225,6 +225,16 @@ describe("CproQueueDialog — kolejka Cpro, jedna osoba na firmę", () => {
     expect(post).not.toHaveBeenCalled();
   });
 
+  it("status requestu DL32 pokazuje konto Marcina z backendu zamiast wyprowadzać je z właściciela rekrutacji", async () => {
+    queue.jobs[0].items[0].operator_status = { state: "draft", delivery_lead_id: 32, cpro_account_name: "Marcin", request_number: "12345", offer_id: "8844" };
+    renderDialog();
+    const status = await screen.findByTestId("cpro-operator-status");
+    expect(status).toHaveTextContent("Konto Cpro: Marcin · request 12345 · ID oferty 8844");
+    expect(status).not.toHaveTextContent("nieznane");
+    expect(screen.queryByRole("button", { name: /Przygotuj jeden szkic|Wznów zapisane zlecenie/ })).not.toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+  });
+
   it("„Zwróć do rekrutera” wymaga powodu i przesuwa na etap QC CV z notatką", async () => {
     renderDialog();
     const dialog = await screen.findByRole("dialog");

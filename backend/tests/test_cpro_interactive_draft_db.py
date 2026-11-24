@@ -463,3 +463,34 @@ async def test_repair_cannot_hide_an_older_submitted_offer(interactive_ready):
         async with AsyncSessionLocal() as db:
             await db.execute(delete(CproBotRun).where(CproBotRun.id.in_(ids)))
             await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_dominik_interactive_draft_keeps_owner_32_and_rejects_account_owner_27(
+    interactive_ready,
+):
+    payload = copy.deepcopy(interactive_ready.payload)
+    payload["cpro_account"] = {
+        "delivery_lead_id": 32,
+        "delivery_lead_name": "Dominik",
+        "vault_entry": "Nordea Cpro – Marcin",
+    }
+    item = replace(interactive_ready, payload=payload, extra={"delivery_lead_id": 32})
+    bot_items.load_items.return_value = [item]
+    run_id = None
+    try:
+        async with AsyncSessionLocal() as db:
+            with pytest.raises(flow.NotReady, match="Delivery Lead"):
+                await _create(db, item, delivery_lead_id=27)
+            run, token = await _create(db, item, delivery_lead_id=32)
+            run_id = run.id
+            assert run.request["items"][0]["cpro_account"] == payload["cpro_account"]
+            assert run.submit is False and runs.token_matches(
+                run, token, datetime.now(timezone.utc)
+            )
+            httpx.AsyncClient.post.assert_not_called()
+    finally:
+        if run_id is not None:
+            async with AsyncSessionLocal() as db:
+                await db.execute(delete(CproBotRun).where(CproBotRun.id == run_id))
+                await db.commit()
