@@ -72,7 +72,11 @@ def _payload(**over):
 
 @pytest.mark.parametrize(
     ("delivery_lead_id", "name", "vault_entry"),
-    [(14, "Igor", "Nordea Cpro – Igor"), (27, "Marcin", "Nordea Cpro – Marcin")],
+    [
+        (14, "Igor", "Nordea Cpro – Igor"),
+        (27, "Marcin", "Nordea Cpro – Marcin"),
+        (32, "Dominik", "Nordea Cpro – Marcin"),
+    ],
 )
 def test_account_belongs_to_the_target_jobs_delivery_lead(
     delivery_lead_id, name, vault_entry
@@ -88,7 +92,7 @@ def test_account_belongs_to_the_target_jobs_delivery_lead(
 
 @pytest.mark.parametrize(
     ("delivery_lead_id", "delivery_lead_active"),
-    [(None, True), (999999, True), (14, False), (27, False)],
+    [(None, True), (999999, True), (14, False), (27, False), (32, False)],
 )
 def test_unknown_missing_or_inactive_delivery_lead_never_has_a_payload(
     delivery_lead_id, delivery_lead_active
@@ -99,6 +103,40 @@ def test_unknown_missing_or_inactive_delivery_lead_never_has_a_payload(
     )
     assert payload is None
     assert blockers == (bot_items.BLOCK_NO_CPRO_ACCOUNT,)
+
+
+@pytest.mark.parametrize(
+    "lead_id,hint,name",
+    [
+        (14, "Nordea Cpro – Igor", "Igor"),
+        (27, "Nordea Cpro – Marcin", "Marcin"),
+        (32, "Nordea Cpro – Marcin", "Marcin"),
+        (32, "Nordea Cpro – Igor", None),
+        (999999, "Nordea Cpro – Marcin", None),
+        (None, "Nordea Cpro – Marcin", None),
+        ("32", "Nordea Cpro – Marcin", None),
+        (32, "unknown", None),
+    ],
+)
+def test_portal_account_name_validates_real_owner_and_hint(lead_id, hint, name):
+    assert (
+        bot_items.cpro_account_name({"delivery_lead_id": lead_id, "vault_entry": hint})
+        == name
+    )
+
+
+def test_dominik_task_preserves_real_owner_and_uses_only_marcins_account():
+    _, item = _payload(delivery_lead_id=32)
+    run, _ = runs.new_run([item], now=NOW, submit=False)
+    run.id = 43
+    snapshot = runs.task_body(run)["items"][0]["cpro_account"]
+    assert snapshot == {
+        "delivery_lead_id": 32,
+        "delivery_lead_name": "Dominik",
+        "vault_entry": "Nordea Cpro – Marcin",
+    }
+    assert "delivery_lead_id = 32" in task_text.TASK
+    assert "Nie zamieniaj go na 27" in task_text.TASK
 
 
 def test_location_cheat_sheet_matches_the_recording() -> None:

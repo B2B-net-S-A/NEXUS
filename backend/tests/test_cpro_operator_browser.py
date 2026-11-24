@@ -81,7 +81,7 @@ async def browser_world(monkeypatch):
     monkeypatch.setattr(
         bot_items,
         "CPRO_ACCOUNTS",
-        {users["dl"]: ("Synthetic DL", "Synthetic Cpro account")},
+        {users["dl"]: ("Synthetic DL", "Nordea Cpro – Marcin")},
     )
     webhook = AsyncMock(side_effect=AssertionError("Operator flow called webhook"))
     monkeypatch.setattr(runs, "start_run", webhook)
@@ -141,7 +141,7 @@ async def browser_world(monkeypatch):
             "cpro_account": {
                 "delivery_lead_id": users["dl"],
                 "delivery_lead_name": "Synthetic DL",
-                "vault_entry": "Synthetic Cpro account",
+                "vault_entry": "Nordea Cpro – Marcin",
             },
             "candidate": {
                 "first_name": "Synthetic",
@@ -278,6 +278,7 @@ async def test_browser_session_creates_one_draft_without_run_token(
     assert body["allow_create"] is True and body["reconcile_only"] is False
     assert body["allow_close_absent"] is False
     assert body["request_number"] == "99001"
+    assert body["cpro_account_name"] == "Marcin"
     assert not {
         "token",
         "token_hash",
@@ -727,9 +728,11 @@ async def test_queue_exposes_operator_action_only_to_authorized_owner_and_tracks
     run_id = await _created(world)
     started = (await queue_entry("operator"))["operator_draft"]
     assert started["state"] == "started" and started["run_id"] == run_id
+    assert started["cpro_account_name"] == "Marcin"
     other = await queue_entry("other_admin")
     assert other["operator_draft"] is None
     assert other["operator_status"]["state"] == "working"
+    assert other["operator_status"]["cpro_account_name"] == "Marcin"
     assert "run_id" not in other["operator_status"]
     assert (await queue_entry("other_operator"))["operator_status"] is None
     assert (await _confirm(world, run_id)).status_code == 200
@@ -737,6 +740,7 @@ async def test_queue_exposes_operator_action_only_to_authorized_owner_and_tracks
     assert received["state"] == "received" and received["run_id"] == run_id
     other = (await queue_entry("other_admin"))["operator_status"]
     assert other["state"] == "draft" and other["offer_id"] == "990001"
+    assert other["cpro_account_name"] == "Marcin"
     assert "run_id" not in other
 
 
@@ -856,3 +860,69 @@ async def test_changed_snapshot_during_pdf_render_returns_no_file(
     )
     assert response.status_code == 409, response.status_code
     assert "application/pdf" not in response.headers["content-type"]
+
+
+@pytest.mark.asyncio
+async def test_dominik_operator_uses_marcin_account_without_delegating_ownership(
+    browser_world, monkeypatch
+):
+    world = browser_world
+    real_lead = world.users["dl"]
+    other_lead = world.users["other_admin"]
+    # Syntetyczne FK użytkowników; produkcyjny allowlist 32 pokrywa unit test.
+    monkeypatch.setattr(
+        bot_items,
+        "CPRO_ACCOUNTS",
+        {
+            real_lead: ("Dominik", "Nordea Cpro – Marcin"),
+            other_lead: ("Marcin", "Nordea Cpro – Marcin"),
+        },
+    )
+    payload = copy.deepcopy(world.item.payload)
+    payload["cpro_account"] = {
+        "delivery_lead_id": real_lead,
+        "delivery_lead_name": "Dominik",
+        "vault_entry": "Nordea Cpro – Marcin",
+    }
+    world.item = replace(world.item, payload=payload)
+    response = await _create(world)
+    assert response.status_code == 200, response.text
+    run_id = response.json()["run_id"]
+    assert response.json()["created"] is True
+    assert (await _create(world)).json() == {"run_id": run_id, "created": False}
+    wrong_owner = await _create(
+        world, body={**world.create_body, "delivery_lead_id": other_lead}
+    )
+    assert wrong_owner.status_code == 409
+    view = await world.client.get(
+        f"{BASE}/runs/{run_id}", headers=world.headers["operator"]
+    )
+    assert view.status_code == 200, view.text
+    assert view.json()["delivery_lead_id"] == real_lead
+    assert view.json()["cpro_account_name"] == "Marcin"
+    assert view.json()["allow_create"] is True
+    denied = await world.client.get(
+        f"{BASE}/runs/{run_id}", headers=world.headers["other_admin"]
+    )
+    assert denied.status_code == 404
+    queue = await world.client.get(
+        "/api/board-tasks/cpro/queue", headers=world.headers["operator"]
+    )
+    row = next(
+        row
+        for group in queue.json()["jobs"]
+        for row in group["items"]
+        if row["stage_id"] == world.stage_id
+    )
+    assert row["operator_draft"]["delivery_lead_id"] == real_lead
+    assert row["operator_draft"]["cpro_account_name"] == "Marcin"
+    assert (await _confirm(world, run_id)).status_code == 200
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CproBotRun, run_id)
+        assert run.request["items"][0]["cpro_account"] == payload["cpro_account"]
+        assert run.requested_by_user_id == world.users["operator"]
+        assert run.token_hash is None and run.submit is False
+        assert run.report["counts"]["draft"] == 1
+        assert (
+            await db.get(CandidateStage, world.stage_id)
+        ).stage_def_id == world.world["defs"]["cpro"]

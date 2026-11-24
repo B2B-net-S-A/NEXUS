@@ -35,14 +35,16 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
   klienta**. Kolejka pokazuje „Dane z rekrutacji 42480”. Bez zmian dla Marcina
   i rekruterów.
 
-## Konto Cpro według rekrutacji (18.11.2026)
+## Konto Cpro według rekrutacji (24.11.2026)
 
 - Źródłem jest wyłącznie `jobs.delivery_lead_id` bieżącej rekrutacji:
   Igor (`14`) → Hints **„Nordea Cpro – Igor”**,
-  Marcin (`27`) → Hints **„Nordea Cpro – Marcin”**. Brak, nieaktywny albo
-  inny DL blokuje kartę. Nie ma wspólnego ani zapasowego konta.
+  Marcin (`27`) i Dominik (`32`) → Hints **„Nordea Cpro – Marcin”**.
+  Bot pomija kartę, jeśli DL jest nieaktywny, brakuje przypisania lub ID
+  wykracza poza tę listę.
 - Każda pozycja pełnego zlecenia zawiera `cpro_account` z `delivery_lead_id`,
-  `delivery_lead_name` i `vault_entry` (nazwa wpisu Hints). Nie zawiera loginu ani hasła.
+  `delivery_lead_name` i `vault_entry` (nazwa wpisu Hints). Dla Dominika
+  zlecenie zachowuje jego ID i imię oraz wskazuje wpis Marcina. Nie zawiera loginu ani hasła.
   Rekruter, autor przesunięcia karty oraz DL karty źródłowej z uzupełnieniami
   Warunków/CV nie wybierają konta.
 - Bot dla **każdej pozycji** zaczyna nową, odizolowaną sesję portalu,

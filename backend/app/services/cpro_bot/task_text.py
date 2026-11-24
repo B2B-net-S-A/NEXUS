@@ -8,6 +8,7 @@ procedury to zmiana tego pliku, a nie polecenia wklejonego w bota.
 from __future__ import annotations
 
 from typing import Any
+from app.services.cpro_bot.accounts import IGOR_HINT, MARCIN_HINT
 
 PORTAL_URL = "https://nordea.onevms.se/"
 SUBCONTRACTOR_COMPANY = "B2B.net S.A."
@@ -22,8 +23,13 @@ w raportach, logach, wiadomościach, notatkach ani plikach.
 Dla KAŻDEJ pozycji z listy items (po kolei, każda osobno):
 
 0. Sprawdź cpro_account: dozwolone są WYŁĄCZNIE delivery_lead_id = 14
-   z vault_entry = „Nordea Cpro – Igor” albo delivery_lead_id = 27 z
-   vault_entry = „Nordea Cpro – Marcin”. Brak obiektu, inne ID, niezgodny wpis
+   z vault_entry = „{IGOR_HINT}”, delivery_lead_id = 27 z
+   vault_entry = „{MARCIN_HINT}” albo delivery_lead_id = 32
+   (Dominik) z vault_entry = „{MARCIN_HINT}”. Dla Dominika używaj
+   wyłącznie konta Marcina; ID 32 pozostaje prawdziwym właścicielem
+   rekrutacji w zleceniu. Nie zamieniaj go na 27; raport zachowuje podany
+   report_format bez dodatkowych pól.
+   Brak obiektu, inne ID, niezgodny wpis
    Vault albo brak tego wpisu → skipped, reason "account_unknown", bez
    jakichkolwiek zmian w Cpro. Nie zgaduj konta po nazwisku kandydata,
    rekruterze, autorze ruchu ani request_number.

@@ -35,6 +35,12 @@ from app.services import board_tasks as board
 from app.services import dz_review
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.cpro_bot import offer_text
+from app.services.cpro_bot.accounts import (
+    ACCOUNT_NAMES,
+    IGOR_HINT,
+    MARCIN_HINT,
+    CproAccountName,
+)
 from app.services.cv_qc import _effective_sections
 from app.services.effective_access import resolve_effective_access
 from app.services.recommendation_card_rules import has_value, split_fields
@@ -66,9 +72,21 @@ BLOCK_NO_CPRO_ACCOUNT = "Delivery Lead rekrutacji nie ma aktywnego konta Cpro bo
 # Identyfikatory kont NEXUSA potwierdzone 18.11.2026; nazwy służą tylko
 # poleceniu dla bota i wskazaniu wpisu Vault, nie dopasowaniu użytkownika.
 CPRO_ACCOUNTS: dict[int, tuple[str, str]] = {
-    14: ("Igor", "Nordea Cpro – Igor"),
-    27: ("Marcin", "Nordea Cpro – Marcin"),
+    14: ("Igor", IGOR_HINT),
+    27: ("Marcin", MARCIN_HINT),
+    # Jawne konto portalu, nie zmiana właściciela rekrutacji (24.11.2026).
+    32: ("Dominik", MARCIN_HINT),
 }
+
+
+def cpro_account_name(account: dict) -> Optional[CproAccountName]:
+    """Nazwa konta portalu ze snapshotu; nie utożsamiaj jej z prawdziwym DL."""
+    lead_id = account.get("delivery_lead_id")
+    expected = CPRO_ACCOUNTS.get(lead_id) if type(lead_id) is int else None
+    if expected is None or account.get("vault_entry") != expected[1]:
+        return None
+    return ACCOUNT_NAMES.get(expected[1])
+
 
 _REQUEST_NUMBER = re.compile(r"\b(\d{4,7})\b")
 
