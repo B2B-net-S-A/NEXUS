@@ -23,7 +23,12 @@ z listy rozwijanej i nie widziały, czy miesiąc da się zamknąć u wszystkich.
 - **Ekran jednego klienta** ma nad tabelą pasek tych samych kroków i trzy najczęstsze
   powody (`ClientMonthStrip`).
 - **„Wystaw”** prowadzi do „Faktury do klientów” → „Wystaw za miesiąc” dla tego miesiąca
-  (`siPeriod`, `siView`; zmiana widoku Finansów czyści te klucze).
+  (`siPeriod`, `siView`; zmiana widoku Finansów czyści te klucze). Z wiersza klienta
+  i z paska na ekranie klienta link niesie też `siClient`: panel pokazuje tylko tego
+  klienta i zaznacza jego zamówienia do wystawienia (od 24.11.2026). Szkice powstają
+  dopiero po „Utwórz szkice”; „Pokaż wszystkich klientów” zdejmuje filtr i zaznaczenie.
+  Klient spoza listy do wystawienia (np. zamówienia na innym kliencie z rodziny) nie
+  chowa reszty — panel pokazuje wszystkich bez zaznaczenia.
 
 ## Dla księgowej (od 24.11.2026)
 

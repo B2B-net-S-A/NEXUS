@@ -95,7 +95,7 @@ export function SettlementMonthView({ clientId, month, canWrite, onOpen }: Settl
   return (
     <div className="space-y-2.5">
       {confirmDialog}
-      <ClientMonthStrip rows={data.rows} month={month} />
+      <ClientMonthStrip rows={data.rows} month={month} clientId={clientId} />
       <ClientAcceptancePanel clientId={clientId} month={month} canWrite={canWrite} />
       <ClientDocumentsPanel clientId={clientId} month={month} />
       <KesuSummaryBar rows={data.rows} />

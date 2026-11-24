@@ -122,9 +122,12 @@ export function ksefLine(status: SalesKsefStatus): string {
 export function FinanceSalesInvoicesTab({
   initialPeriod,
   initialView = "invoices",
+  initialClientId,
 }: {
   initialPeriod?: string;
   initialView?: SalesInvoicesView;
+  /** Klient z linku „Wystaw” w „Przebiegu miesiąca” — „Wystaw za miesiąc” pokazuje tylko jego. */
+  initialClientId?: number;
 }) {
   const { showToast } = useToast();
   const [period, setPeriod] = useState(() => initialPeriod ?? defaultPeriod());
@@ -394,7 +397,7 @@ export function FinanceSalesInvoicesTab({
         </div>
       ) : null}
 
-      {view === "issue" ? <IssueMonthPanel period={period} onCreated={() => setView("drafts")} /> : null}
+      {view === "issue" ? <IssueMonthPanel period={period} clientId={initialClientId} onCreated={() => setView("drafts")} /> : null}
       {view === "templates" ? <TemplatesPanel period={period} onCreated={() => setView("drafts")} /> : null}
       {view === "drafts" || view === "sent" ? <IssuedListPanel view={view} period={period} /> : null}
       {view === "issue-settings" ? <IssueSettingsPanel period={warsawToday().slice(0, 7)} /> : null}
