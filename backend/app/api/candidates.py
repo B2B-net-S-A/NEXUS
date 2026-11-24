@@ -4145,13 +4145,31 @@ async def export_candidates(
     )
 
 
-async def _stream_candidate_csv(query):
+async def _trgm_threshold_in_transaction(db: AsyncSession) -> Optional[str]:
+    """Próg trygramów, który ``prepare_literal_text`` ustawił w tej transakcji."""
+    return await db.scalar(
+        text("SELECT current_setting('pg_trgm.similarity_threshold', true)")
+    )
+
+
+async def _restore_trgm_threshold(db: AsyncSession, threshold: Optional[str]) -> None:
+    """``SET LOCAL`` ginie z commitem — eksport ustawia próg listy ponownie
+    w transakcji, która pobiera wiersze (audyt r4, 24.11.2026)."""
+    if threshold:
+        await db.execute(
+            text("SELECT set_config('pg_trgm.similarity_threshold', :value, true)"),
+            {"value": threshold},
+        )
+
+
+async def _stream_candidate_csv(query, *, trgm_threshold: Optional[str] = None):
     """Yield bounded CSV chunks while candidates are streamed from Postgres.
 
     Runda 9 (R9-X1-2): własna sesja. Sesja żądania (``get_db``) zamyka się
     przed wysłaniem odpowiedzi, a ten generator biegnie dopiero w trakcie jej
     wysyłania — zamknięta sesja pobrałaby nowe połączenie, którego nikt by
-    nie zwolnił.
+    nie zwolnił. Nowa sesja to nowa transakcja, więc próg trygramów tekstu
+    ``q`` (``trgm_threshold``) trzeba w niej ustawić od nowa.
     """
     import csv
     from io import StringIO
@@ -4162,6 +4180,7 @@ async def _stream_candidate_csv(query):
     writer = csv.writer(buffer, quoting=csv.QUOTE_MINIMAL)
     writer.writerow(_EXPORT_COLUMNS)
     async with AsyncSessionLocal() as stream_db:
+        await _restore_trgm_threshold(stream_db, trgm_threshold)
         stream = await stream_db.stream_scalars(query.execution_options(yield_per=500))
         async for candidate in stream:
             writer.writerow(_row_for_export(candidate))
@@ -4194,14 +4213,18 @@ def _build_xlsx_bytes(rows: list[list[Any]]) -> io.BytesIO:
     return buffer
 
 
-async def _candidate_xlsx(db: AsyncSession, query) -> io.BytesIO:
+async def _candidate_xlsx(
+    db: AsyncSession, query, *, trgm_threshold: Optional[str] = None
+) -> io.BytesIO:
     """Stream candidates from Postgres into plain rows, then build XLSX in a thread.
 
     Rows are small lists (16 scalars each), not ORM instances — the async part
     only holds what the sheet needs, and the blocking part never touches the
-    session.
+    session. Wołający commituje audyt wcześniej, więc próg trygramów tekstu
+    ``q`` wraca tu do nowej transakcji (``trgm_threshold``).
     """
     rows: list[list[Any]] = []
+    await _restore_trgm_threshold(db, trgm_threshold)
     stream = await db.stream_scalars(query.execution_options(yield_per=500))
     async for candidate in stream:
         rows.append(_row_for_export(candidate))
@@ -4225,6 +4248,10 @@ async def export_candidates_v2(
     # Liczba osób w pliku dla alarmu masowego pobierania (0508): eksport
     # z filtrem ma zawsze puste ``candidate_ids`` (audyt 22.10, F24).
     row_count = len(unique_ids)
+    # Próg trygramów tekstu `q` z transakcji, w której liczył się `row_count`
+    # (audyt r4, 24.11.2026): commit audytu go kasuje, a wiersze pobierają się
+    # po commicie — bez przeniesienia plik miał inny zbiór niż ekran.
+    trgm_threshold: Optional[str] = None
     if payload.scope == "selected":
         if not unique_ids:
             raise HTTPException(
@@ -4253,6 +4280,8 @@ async def export_candidates_v2(
                 status_code=422,
                 detail="scope='filtered' does not accept candidate_ids",
             )
+        # Te same filtry co lista — ta sama bramka „Kończy u nas” (09.11.2026).
+        _reject_ending_soon_without_delivery(payload.filters.employment, current_user)
         export_filters = payload.filters
         if export_filters.talent_pool_id:
             export_filters = export_filters.model_copy(
@@ -4321,6 +4350,8 @@ async def export_candidates_v2(
                 q_any_groups,
                 pool_order=export_pool.ids if export_pool is not None else None,
             )
+        if export_filters.q:
+            trgm_threshold = await _trgm_threshold_in_transaction(db)
 
     # Immutable audit — scope + format only, no PII / filter values.
     candidate_audit.record_candidate_audit(
@@ -4345,7 +4376,7 @@ async def export_candidates_v2(
 
     if payload.format == "xlsx":
         return StreamingResponse(
-            await _candidate_xlsx(db, query),
+            await _candidate_xlsx(db, query, trgm_threshold=trgm_threshold),
             media_type=(
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             ),
@@ -4353,7 +4384,7 @@ async def export_candidates_v2(
         )
 
     return StreamingResponse(
-        _stream_candidate_csv(query),
+        _stream_candidate_csv(query, trgm_threshold=trgm_threshold),
         media_type="text/csv; charset=utf-8",
         headers=headers,
     )

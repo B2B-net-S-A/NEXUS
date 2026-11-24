@@ -10,13 +10,15 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, text
 
 from app.core.database import AsyncSessionLocal
+from app.core.security import create_access_token, hash_password
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.user import User, UserRole
 
 
 async def _seed_candidate(
@@ -585,3 +587,134 @@ async def test_filtered_export_follows_match_order_like_the_list(
         assert _csv_ids_in_order(response) == list(match_order)
     finally:
         await _cleanup([first, second, third])
+
+
+# ── audyt r4 (24.11.2026) ───────────────────────────────────────────────────
+
+# Literówka imienia: podobieństwo trygramów do „Bronislawa Trigramowska” ≈ 0,24
+# — powyżej progu listy (0,2), poniżej domyślnego progu Postgresa (0,3).
+_TYPO_NAME = "Bronislawa"
+_TYPO_LASTNAME = "Trigramowska"
+_TYPO_QUERY = "Bronnislava"
+
+
+async def _seed_typo_candidate() -> int:
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(
+            name=_TYPO_NAME,
+            lastname=_TYPO_LASTNAME,
+            email=None,
+            status=CandidateStatus.active,
+        )
+        db.add(candidate)
+        await db.commit()
+        await db.refresh(candidate)
+        similarity = await db.scalar(
+            text(
+                "SELECT similarity(coalesce(name, '') || ' ' || coalesce(lastname, '')"
+                " || ' ' || coalesce(email, ''), :q) FROM candidates WHERE id = :id"
+            ),
+            {"q": _TYPO_QUERY, "id": candidate.id},
+        )
+        assert 0.2 <= similarity < 0.3, similarity
+        return candidate.id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("export_format", ["csv", "xlsx"])
+async def test_filtered_export_with_typo_text_matches_list(
+    app_client: AsyncClient, app_auth_headers: dict, export_format: str
+):
+    """``SET LOCAL pg_trgm.similarity_threshold`` ginął z commitem audytu:
+    wiersze pobierały się z progiem 0,3, a lista i ``row_count`` z 0,2."""
+    person = await _seed_typo_candidate()
+    try:
+        listed = await app_client.get(
+            "/api/candidates",
+            params={"q": _TYPO_QUERY, "page_size": "100"},
+            headers=app_auth_headers,
+        )
+        assert listed.status_code == 200, listed.text
+        list_ids = {item["id"] for item in listed.json()["items"]}
+        assert person in list_ids
+
+        exported = await app_client.post(
+            "/api/candidates/export",
+            json={
+                "format": export_format,
+                "scope": "filtered",
+                "filters": {"q": _TYPO_QUERY},
+                "candidate_ids": [],
+                "limit": 100_000,
+            },
+            headers=app_auth_headers,
+        )
+        assert exported.status_code == 200, exported.text
+        ids = _csv_ids(exported) if export_format == "csv" else _xlsx_ids(exported)
+        assert ids == list_ids
+    finally:
+        await _cleanup([person])
+
+
+async def _user_headers(role: UserRole) -> tuple[int, dict[str, str]]:
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=f"export-{role.value}-{tag}@example.com",
+            password_hash=hash_password(f"T3st_{tag}!Export"),
+            name=f"Export {role.value} {tag}",
+            role=role,
+            is_active=True,
+        )
+        db.add(user)
+        await db.commit()
+        return user.id, {
+            "Authorization": f"Bearer {create_access_token(user.id, role.value)}"
+        }
+
+
+def _employment_export(employment: str) -> dict:
+    return {
+        "format": "csv",
+        "scope": "filtered",
+        "filters": {"employment": [employment]},
+        "candidate_ids": [],
+        "limit": 100_000,
+    }
+
+
+@pytest.mark.asyncio
+async def test_export_ending_soon_needs_delivery_like_the_list(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Decyzja z 09.11.2026: „Kończy u nas w ciągu 60 dni” tylko z Delivery —
+    także w pliku. Head of Recruitment nie ma Delivery w zasiewie uprawnień."""
+    # Konto testowe zostaje jak w innych testach ról: wpis audytu eksportu
+    # jest niezmienny i trzyma klucz do użytkownika.
+    _, hor = await _user_headers(UserRole.head_of_recruitment)
+
+    listed = await app_client.get(
+        "/api/candidates", params={"employment": "ending_soon"}, headers=hor
+    )
+    assert listed.status_code == 403, listed.text
+
+    denied = await app_client.post(
+        "/api/candidates/export",
+        json=_employment_export("ending_soon"),
+        headers=hor,
+    )
+    assert denied.status_code == 403, denied.text
+
+    other_filter = await app_client.post(
+        "/api/candidates/export",
+        json=_employment_export("at_client"),
+        headers=hor,
+    )
+    assert other_filter.status_code == 200, other_filter.text
+
+    with_delivery = await app_client.post(
+        "/api/candidates/export",
+        json=_employment_export("ending_soon"),
+        headers=app_auth_headers,
+    )
+    assert with_delivery.status_code == 200, with_delivery.text
