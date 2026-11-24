@@ -565,8 +565,15 @@ Decyzje Artura z 21.10.2026 (migracja 0503):
   segment formatowania, żeby docxtpl widział znaczniki Jinja).
   Wyjątek: `preliminary_b2b_pl.*` z `backend/scripts/build_preliminary_b2b_template.py
   <wzór.docx>` (podstawienia na wzorze Worda działu, jak umowa zlecenia; wzoru
-  nie commitujemy). § 6 ust. 1 i 3 wzoru (tylko pisemna albo kwalifikowany)
-  skrypt zamienia na klauzulę każdej formy podpisu z umowy o udziale.
+  nie commitujemy). § 6 ust. 3 skrypt zamienia na klauzulę egzemplarzy
+  z umowy o udziale.
+- **Wyjątek od „każdej formy podpisu”: umowa przedwstępna B2B (v2, 24.11.2026).**
+  Dział (zgłoszenie z Teams 24.11.2026) zmienił § 6 ust. 1 w pliku na dysku:
+  forma dokumentowa albo kwalifikowany podpis, a podpis zaufany i osobisty
+  Strony wyłączają. NEXUS bierze to brzmienie słowo w słowo
+  (`preliminary_b2b_v2_pl.*`); umowy wydane wcześniej pobierają się v1
+  (`preliminary_b2b_pl.*`, każda forma podpisu). Umowa o udziale i CeZ
+  zostają przy każdej formie podpisu.
 - **PDF:** `POST /documents/{id}/pdf` — te same bramki i to samo ciało z danymi
   wrażliwymi co `/docx`, PDF z LibreOffice (`cv_pdf_preview.pdf_from_docx`);
   awaria = 503 „Nie udało się przygotować PDF — pobierz DOCX.”. Zakładka

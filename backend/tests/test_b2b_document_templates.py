@@ -311,8 +311,12 @@ def _expected(doc_type: DocumentType, lang: str, values: dict) -> list[str]:
             "stawki godzinowej wynoszącej 160 zł netto",
             "kary umownej w wysokości 10000 zł (słownie: dziesięć tysięcy złotych)",
             "iod@b2bnetwork.pl",
-            # Każda forma podpisu (decyzja Artura 21.10.2026), § 6 ust. 1 i 3.
-            "z wykorzystaniem podpisu zaufanego lub podpisu osobistego",
+            # v2 (24.11.2026): § 6 ust. 1 z pliku działu — dokumentowa albo
+            # kwalifikowany podpis, bez podpisu zaufanego i osobistego.
+            "zawarta w formie dokumentowej lub w formie elektronicznej",
+            "Strony wyłączają możliwość zawarcia Umowy z wykorzystaniem podpisu "
+            "zaufanego lub podpisu osobistego.",
+            "użyty przez każdą ze Stron jest równoważny",
             "W przypadku zawarcia Umowy w formie elektronicznej albo dokumentowej",
         ]
     elif key.startswith("preliminary_participation_"):
@@ -736,6 +740,25 @@ def test_cez_issued_before_v2_keeps_its_clause(revision, present, absent):
     assert present in text and present in html
     if absent:
         assert absent not in text and absent not in html
+
+
+@pytest.mark.parametrize(
+    ("revision", "present", "absent"),
+    [
+        ("v2", "Strony wyłączają możliwość zawarcia Umowy", "w formie pisemnej"),
+        ("", "w szczególności z wykorzystaniem podpisu zaufanego", "wyłączają"),
+    ],
+)
+def test_preliminary_b2b_issued_before_v2_keeps_its_clause(revision, present, absent):
+    doc_type = TYPES["preliminary_b2b"]
+    assert doc_type.template_revision == "v2"
+    values = _values(doc_type, "k")
+    ctx = build_document_context(doc_type, values, language="pl", base=BASE, refs=None)
+    key = template_key(doc_type.key, "pl", revision)
+    _, text = _docx_text(render_docx(key, ctx))
+    html = _html_unescape(render_html(key, ctx))
+    assert present in text and present in html
+    assert absent not in text and absent not in html
 
 
 def test_stored_key_wins_only_when_its_file_exists():

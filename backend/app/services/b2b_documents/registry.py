@@ -1057,6 +1057,11 @@ TYPES: dict[str, DocumentType] = {
             parent="none",
             uses_refs=False,
             signatories="partner_and_company",
+            # v2 (24.11.2026): § 6 ust. 1 z pliku działu — dokumentowa albo
+            # kwalifikowany podpis, bez podpisu zaufanego i osobistego.
+            # Umowy wydane wcześniej pobierają się wzorem bez rewizji.
+            template_revision="v2",
+            legacy_template_revisions=("",),
             preliminary_scope="general",
             default_validity_days=14,
             description=(
