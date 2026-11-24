@@ -566,7 +566,9 @@ async def candidate_requirement_evidence(
     )
     if not labels:
         return RequirementEvidenceResponse(items={})
-    notes = await requirement_evidence.load_notes(db, candidate.id, labels)
+    notes = await requirement_evidence.load_notes(
+        db, candidate.id, labels, viewer=current_user
+    )
     return RequirementEvidenceResponse(
         items=requirement_evidence.collect(candidate, labels, notes)
     )
