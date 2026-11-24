@@ -227,4 +227,21 @@ describe("MyClientsAlertsPanel", () => {
       "Przejdź do kandydata",
     )
   })
+
+  it("settlement cards: over the order and line rate", () => {
+    const over = card({
+      alert_type: "settlement_over_order",
+      priority: "high",
+      days_left: null,
+    })
+    expect(cardPill(over)).toBe("Ponad zamówienie")
+    expect(cardCta(over)).toBe("Uzupełnij zamówienie")
+    const rate = card({
+      alert_type: "settlement_rate_mismatch",
+      section: "new_contractor",
+      days_left: null,
+    })
+    expect(cardPill(rate)).toBe("Stawka")
+    expect(cardCta(rate)).toBe("Sprawdź stawkę linii")
+  })
 })

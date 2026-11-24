@@ -55,6 +55,7 @@ function daysLabel(days: number): string {
 }
 
 export function cardPill(card: DlAlertCard): string {
+  if (card.alert_type === "settlement_rate_mismatch") return "Stawka"
   if (card.section === "new_contractor") return "Uzupełnij"
   if (card.section === "order_mail") return "Weryfikacja"
   if (card.section === "decision") return "Decyzja"
@@ -66,6 +67,7 @@ export function cardPill(card: DlAlertCard): string {
   if (card.alert_type === "order_missing_successor") return "Brak zamówienia"
   if (card.alert_type === "md_base_usage_high") return "Podstawa MD"
   if (card.alert_type === "candidate_conflict_expired") return "Wygasł"
+  if (card.alert_type === "settlement_over_order") return "Ponad zamówienie"
   if (urgent) return "Pilne"
   return card.alert_type === "cost_budget_low" ? "Budżet" : "Mało MD"
 }
@@ -88,6 +90,10 @@ export function cardCta(card: DlAlertCard): string {
       return "Podejmij decyzję"
     case "candidate_conflict_expired":
       return "Przejdź do kandydata"
+    case "settlement_over_order":
+      return "Uzupełnij zamówienie"
+    case "settlement_rate_mismatch":
+      return "Sprawdź stawkę linii"
     default:
       return "Przejdź do zamówienia"
   }

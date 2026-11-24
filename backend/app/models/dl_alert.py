@@ -69,6 +69,11 @@ ALERT_INVOICE_WITHOUT_ORDER_LINE = "invoice_without_order_line"
 # 0716 (F3): osoba ponad limitem z umowy ramowej, prolongata blisko, umowa
 # daje dźwignię (dopłata albo awans poziomu).
 ALERT_FRAMEWORK_OVER_LIMIT = "framework_over_limit"
+# 0774: rozliczenie klienta ponad pulę albo na zamówieniu zakończonym w NEXUS-ie
+# (``client_settlements/order_issues.py``) i stawka linii inna niż kontrakt albo
+# ostatnia faktura za osobę (``client_settlements/line_rate.py``).
+ALERT_SETTLEMENT_OVER_ORDER = "settlement_over_order"
+ALERT_SETTLEMENT_RATE_MISMATCH = "settlement_rate_mismatch"
 
 DL_ALERT_TYPES: tuple[str, ...] = (
     ALERT_COST_ORDER_EXHAUSTED,
@@ -87,6 +92,8 @@ DL_ALERT_TYPES: tuple[str, ...] = (
     ALERT_CANDIDATE_CONFLICT_EXPIRED,
     ALERT_INVOICE_WITHOUT_ORDER_LINE,
     ALERT_FRAMEWORK_OVER_LIMIT,
+    ALERT_SETTLEMENT_OVER_ORDER,
+    ALERT_SETTLEMENT_RATE_MISMATCH,
 )
 
 DL_ALERT_TYPE_LABELS: dict[str, str] = {
@@ -108,6 +115,8 @@ DL_ALERT_TYPE_LABELS: dict[str, str] = {
     ALERT_CANDIDATE_CONFLICT_EXPIRED: "Konflikt z kandydatem wygasł",
     ALERT_INVOICE_WITHOUT_ORDER_LINE: "Faktura bez pozycji zamówienia",
     ALERT_FRAMEWORK_OVER_LIMIT: "Ponad stawką z umowy ramowej — prolongata",
+    ALERT_SETTLEMENT_OVER_ORDER: "Rozliczenie ponad zamówienie",
+    ALERT_SETTLEMENT_RATE_MISMATCH: "Stawka linii inna niż kontrakt lub faktura",
 }
 
 #: Sekcje panelu „Moi klienci". Wyznacza je SERWER z typu — front nie trzyma
@@ -138,6 +147,10 @@ DL_ALERT_SECTION_BY_TYPE: dict[str, str] = {
     ALERT_INVOICE_WITHOUT_ORDER_LINE: DL_ALERT_SECTION_NEW_CONTRACTOR,
     # Prolongata ponad limitem z umowy ramowej — sprawa kończącego się zamówienia.
     ALERT_FRAMEWORK_OVER_LIMIT: DL_ALERT_SECTION_ENDING,
+    # Pula się skończyła albo zamówienie jest zakończone, a praca trwa.
+    ALERT_SETTLEMENT_OVER_ORDER: DL_ALERT_SECTION_ENDING,
+    # Popraw stawkę linii — jak przy braku stawki przychodowej.
+    ALERT_SETTLEMENT_RATE_MISMATCH: DL_ALERT_SECTION_NEW_CONTRACTOR,
 }
 
 DL_ALERT_PRIORITY_STANDARD = "standard"
@@ -179,7 +192,8 @@ class DlAlert(Base):
             "'periodic_order_ending', 'framework_contract_expiring', "
             "'contract_ending', 'cost_budget_low', 'new_contractor_draft', "
             "'md_base_usage_high', 'candidate_conflict_expired', "
-            "'invoice_without_order_line', 'framework_over_limit')",
+            "'invoice_without_order_line', 'framework_over_limit', "
+            "'settlement_over_order', 'settlement_rate_mismatch')",
             name="ck_dl_alerts_type",
         ),
         CheckConstraint(

@@ -544,6 +544,8 @@ async def test_scanner_uses_a_single_rule_registry():
         ALERT_ORDER_MAIL_REVIEW,
         ALERT_ORDER_MISSING_SUCCESSOR,
         ALERT_PERIODIC_ORDER_ENDING,
+        ALERT_SETTLEMENT_OVER_ORDER,
+        ALERT_SETTLEMENT_RATE_MISMATCH,
     )
     from app.tasks.dl_alerts_scanner import ALERT_RULES
 
@@ -562,6 +564,8 @@ async def test_scanner_uses_a_single_rule_registry():
         ALERT_ORDER_MAIL_REVIEW,
         ALERT_CANDIDATE_CONFLICT_EXPIRED,
         ALERT_INVOICE_WITHOUT_ORDER_LINE,
+        ALERT_SETTLEMENT_OVER_ORDER,
+        ALERT_SETTLEMENT_RATE_MISMATCH,
     }
 
 

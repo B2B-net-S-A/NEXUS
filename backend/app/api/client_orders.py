@@ -129,6 +129,7 @@ from app.services.multi_consultant_orders import (
     INPUT_MODE_MD,
     quantize_md,
 )
+from app.services.client_settlements import order_issues as settlement_order_issues
 from app.services.md_awaiting_orders import settle_awaiting_md_for_client
 from app.services.order_group_materializer import (
     materialize_group_for_activated_order,
@@ -3087,6 +3088,8 @@ async def apply_order_update(
             },
         )
     )
+    # Pula, stawka, daty albo status: rozliczenia, które czekały na zamówienie.
+    await settlement_order_issues.refresh_client(db, client_id=client_id)
     await commit_order_write(db)
     await db.refresh(order)
     return order
