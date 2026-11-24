@@ -21,6 +21,7 @@ from app.models.client_order_group import (
     ClientOrderGroupMdConsumption,
 )
 from app.models.client_sales_invoice import ClientSalesInvoice
+from app.models.client_settlement import ClientSettlementRuleSet
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.md_consumption import ClientOrderInvoiceConsumption
 from app.services.client_invoicing.billing import billing_rows, order_refs
@@ -351,3 +352,51 @@ async def test_cost_invoice_bound_by_number_fits_the_remaining_budget_or_waits()
             .where(fx.ClientOrder.order_group_id == group_id)
         )
     assert sheet_rows == 2
+
+
+async def test_collective_invoice_rule_binds_every_order_with_the_number():
+    """Faktura zbiorcza: jedna pozycja na całe zamówienie, w NEXUSIE zamówienie na osobę."""
+
+    seed = await fx.seed_month()
+    number = "ZB/09/2026"
+    async with AsyncSessionLocal() as db:
+        orders = {
+            await fx.periodic_order(
+                db,
+                seed.other_client_id,
+                title,
+                rate=rate,
+                unit=RateUnit.daily,
+                person=person,
+            )
+            for title, rate, person in (
+                (number, "900", ("Ola", "Zbiorcza")),
+                (number, "1600", ("Piotr", "Zbiorczy")),
+                (f"Zamówienie nr {number}", "1450", ("Rita", "Zbiorcza")),
+            )
+        }
+        invoice = _sales_invoice(
+            "70000.00", ksef=f"{fx.COMPANY_NIP}-20261103-C0570C0FFEE1-02", refs=[]
+        )
+        invoice.items = [
+            {
+                "name": "Prace programistyczne za miesiąc październik "
+                f"w ramach zamówienia nr {number}"
+            }
+        ]
+        db.add(invoice)
+        await db.flush()
+        waiting = await auto_match(db, invoice)
+        db.add(
+            ClientSettlementRuleSet(
+                client_id=seed.other_client_id,
+                effective_from="2026-01",
+                rules={"cl.collective_invoice": {"level": "block", "params": {}}},
+            )
+        )
+        await db.flush()
+        bound = await auto_match(db, invoice)
+        await db.rollback()
+    assert waiting.reason == "several_orders"
+    assert {target.order_id for target in bound.targets} == orders
+    assert bound.method == "order_number"

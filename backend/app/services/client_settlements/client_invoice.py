@@ -130,7 +130,7 @@ async def _group_invoices(
     db: AsyncSession, group_ids: set[int], *, by_order: bool = False
 ) -> dict[int, list[tuple[str, ClientSalesInvoice]]]:
     """Faktury do klienta per grupa zamówienia: (miesiąc usługi, faktura).
-    ``by_order`` — per linia zamówienia (Nordea: linie bez grup)."""
+    ``by_order`` — per linia zamówienia (zamówienie bez grupy, osoba z zamówienia MD)."""
 
     if not group_ids:
         return {}
@@ -157,6 +157,26 @@ async def _group_invoices(
     for group_id, year, month, invoice in rows.all():
         out.setdefault(int(group_id), []).append((f"{year}-{int(month):02d}", invoice))
     return out
+
+
+def _order_history(
+    order: Optional[ClientOrder],
+    by_group: dict[int, list[tuple[str, ClientSalesInvoice]]],
+    by_line: dict[int, list[tuple[str, ClientSalesInvoice]]],
+) -> list[tuple[str, ClientSalesInvoice]]:
+    """Faktury do klienta zamówienia z grupy i wprost z linii, po dacie wystawienia.
+
+    Na linii wisi faktura zamówienia bez grupy (Bank Pocztowy, PKO, VeloBank,
+    Nordea) i faktura na jedną osobę z zamówienia MD.
+    """
+
+    if order is None:
+        return []
+    found = list(by_line.get(order.id, []))
+    if order.order_group_id:
+        found += by_group.get(order.order_group_id, [])
+    unique = {(period, invoice.id): (period, invoice) for period, invoice in found}
+    return sorted(unique.values(), key=lambda pair: (pair[1].issue_date, pair[1].id))
 
 
 @dataclass(frozen=True)
@@ -378,6 +398,7 @@ def _split_rows(
     actual: Optional[ClientSettlement],
     orders: dict[int, ClientOrder],
     invoices: dict[int, list[tuple[str, ClientSalesInvoice]]],
+    by_line: dict[int, list[tuple[str, ClientSalesInvoice]]],
     month: str,
     rules: dict[str, dict[str, Any]],
     amounts: bool,
@@ -397,11 +418,7 @@ def _split_rows(
         price = client_price(order)
         # Numer tej części; numery pozostałych zamówień nie są jej numerem.
         number = part.get("number")
-        history = (
-            invoices.get(order.order_group_id, [])
-            if order and order.order_group_id
-            else []
-        )
+        history = _order_history(order, invoices, by_line)
         template = item_name(rules, number, out["person"]) or _history_template(
             history, month, out["person"]
         )
@@ -546,6 +563,7 @@ async def invoice_month(
     )
     groups = {o.order_group_id for o in orders.values() if o.order_group_id is not None}
     invoices = await _group_invoices(db, groups)
+    by_line = await _group_invoices(db, set(orders), by_order=True)
     rules = await service.rules_for(db, client_id, month)
     # E6: faktura do klienta po podpisanym protokole albo arkuszach (wszystkich).
     document_kind = (
@@ -619,6 +637,7 @@ async def invoice_month(
                     actual=actual,
                     orders=orders,
                     invoices=invoices,
+                    by_line=by_line,
                     month=month,
                     rules=rules,
                     amounts=amounts,
@@ -636,11 +655,7 @@ async def invoice_month(
         out["order_id"] = order.id if order else None
         price = client_price(order)
         rate = price.rate
-        history = (
-            invoices.get(order.order_group_id, [])
-            if order and order.order_group_id
-            else []
-        )
+        history = _order_history(order, invoices, by_line)
         template = _history_template(history, month, row["person"])
         # Wzór z reguły (E6.5) wygrywa z historią: u Banku Pocztowego linie nie
         # mają grup zamówień, a opisy w KSeF mają kilka pisowni.
@@ -862,12 +877,7 @@ async def _t4t_month(
                 )
                 if mail is not None:
                     notes.append(mail.note)
-        if order is None:
-            history = []
-        elif order.order_group_id:
-            history = invoices.get(order.order_group_id, [])
-        else:
-            history = by_line.get(order.id, [])
+        history = _order_history(order, invoices, by_line)
         issued_now = [inv for period, inv in history if period == month]
         issued = issued_now[0] if issued_now else None
         invoiced = invoiced_hours(issued_now)

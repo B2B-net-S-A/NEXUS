@@ -58,6 +58,39 @@ def _fail(reason: str, message: str) -> Outcome:
     return Outcome("failed", reason, message)
 
 
+# Pola formularzy Cpro bywają ukryte albo przerobione skryptami portalu
+# (przełączniki, edytor opisu, kalendarz) — Playwright odmawia wtedy fill/check
+# i czeka do timeoutu (bieg 9). Wartość ustawia skrypt w stronie i wywołuje
+# zdarzenia, na które czeka portal; wynik jest sprawdzany.
+_PUT_JS = """(el, v) => {
+  if (el.type === 'checkbox' || el.type === 'radio') {
+    if (el.checked !== v) el.click();
+    return el.checked === v;
+  }
+  el.value = v;
+  el.dispatchEvent(new Event('input', {bubbles: true}));
+  el.dispatchEvent(new Event('change', {bubbles: true}));
+  const $ = window.jQuery;
+  if ($) {
+    const $el = $(el);
+    if ($el.data('summernote')) $el.summernote('code', v);
+    if ($el.data('selectpicker')) $el.selectpicker('refresh');
+  }
+  return String(el.value) === String(v);
+}"""
+
+
+def _put(scope: Any, name: str, value: Any, *, option: Optional[str] = None) -> None:
+    """Wartość pola ``name`` (dla radia: ``option`` = wartość do zaznaczenia)."""
+
+    selector = f"[name='{name}']" + (f"[value='{option}']" if option else "")
+    loc = scope.locator(selector)
+    if loc.count() == 0:
+        raise _fail("other", f"Brak pola „{name}” w formularzu Cpro.")
+    if not loc.first.evaluate(_PUT_JS, value):
+        raise _fail("other", f"Cpro nie przyjął wartości pola „{name}”.")
+
+
 class ItemRun:
     """Jedna pozycja zlecenia w świeżym kontekście przeglądarki."""
 
@@ -246,8 +279,8 @@ class ItemRun:
         page.locator("a", has_text="Add Consultant").first.click()
         form = page.locator("#newConsultantForm")
         form.wait_for(timeout=STEP_TIMEOUT_MS)
-        form.locator("[name=consultant_firstname]").fill(self.candidate["first_name"])
-        form.locator("[name=consultant_lastname]").fill(self.candidate["last_name"])
+        _put(form, "consultant_firstname", self.candidate["first_name"])
+        _put(form, "consultant_lastname", self.candidate["last_name"])
         options = form.locator("select[name=consultant_country] option").evaluate_all(
             "os => os.map(o => [o.value, o.text.trim()])"
         )
@@ -256,17 +289,13 @@ class ItemRun:
         )
         if country is None:
             raise _fail("other", "Nie da się wybrać kraju obywatelstwa z listy Cpro.")
-        form.locator("select[name=consultant_country]").select_option(country)
-        form.locator("[name=consultant_gender][value=UNKNOWN]").check()
-        form.locator(
-            "[name=consultant_consultantemployment][value=SUBCONTRACTOR]"
-        ).check()
-        form.locator("[name=consultant_subcontractorcompany]").fill(
-            rules.SUBCONTRACTOR_COMPANY
-        )
+        _put(form, "consultant_country", country)
+        _put(form, "consultant_gender", True, option="UNKNOWN")
+        _put(form, "consultant_consultantemployment", True, option="SUBCONTRACTOR")
+        _put(form, "consultant_subcontractorcompany", rules.SUBCONTRACTOR_COMPANY)
         form.locator("[name=cv_filename]").set_input_files(self._cv_file())
-        form.locator("[name=profile_description]").fill(
-            self.candidate.get("profile_description") or ""
+        _put(
+            form, "profile_description", self.candidate.get("profile_description") or ""
         )
         self.verify_account()
         form.locator("button[value='Offer...'], input[value='Offer...']").first.click()
@@ -309,7 +338,7 @@ class ItemRun:
             "os => (os.find(o => /^EN\\b/.test(o.text.trim())) || {}).value || ''"
         )
         if lang:
-            form.locator("select[name=cv_language]").select_option(lang)
+            _put(form, "cv_language", lang)
         self.verify_account()
         form.locator("button[type=submit]").first.click()
         self._wait_offer_form()
@@ -336,8 +365,7 @@ class ItemRun:
             mine, key=lambda b: int(b["value"]) if str(b["value"]).isdigit() else -1
         )["value"]
         for box in boxes:
-            loc = self.page.locator(f"input[name=offer_cvids][value='{box['value']}']")
-            loc.set_checked(box["value"] == keep)
+            _put(self.page, "offer_cvids", box["value"] == keep, option=box["value"])
 
     def fill_offer(self) -> None:
         self.step = "offer_fields"
@@ -350,38 +378,26 @@ class ItemRun:
             )
             if len(values) != 1:
                 raise _fail("other", "Nie ma jednej aktywnej umowy ramowej do wyboru.")
-            frame.select_option(values[0])
-        form.locator("[name=offer_offerinrate]").fill(
-            str(self.offer["rate"]).replace(".", ",")
-        )
+            _put(form, "offer_frameagreementid", values[0])
+        _put(form, "offer_offerinrate", str(self.offer["rate"]).replace(".", ","))
         pln = form.locator("select[name=offer_currencyid] option").evaluate_all(
             "os => (os.find(o => /^PLN\\b/.test(o.text.trim())) || {}).value || ''"
         )
         if not pln:
             raise _fail("other", "Brak waluty PLN w formularzu.")
-        form.locator("select[name=offer_currencyid]").select_option(pln)
-        form.locator("[name=offer_motivationvendor]").fill(self.offer["motivation"])
-        form.locator("[name=offer_availablefromdate]").fill(
-            self.offer["available_from"]
-        )
-        form.locator("[name=offer_availablecomments]").fill(
-            self.offer["physical_location"]
-        )
+        _put(form, "offer_currencyid", pln)
+        _put(form, "offer_motivationvendor", self.offer["motivation"])
+        _put(form, "offer_availablefromdate", self.offer["available_from"])
+        _put(form, "offer_availablecomments", self.offer["physical_location"])
         consultant, employee = self._former()
-        form.locator(
-            f"[name=offer_hasbeenconsultant][value={'YES' if consultant else 'NO'}]"
-        ).check()
-        form.locator(
-            f"[name=offer_hasbeenemployee][value={'YES' if employee else 'NO'}]"
-        ).check()
-        form.locator(
-            "[name=consultant_consultantemployment][value=SUBCONTRACTOR]"
-        ).check()
-        form.locator("[name=consultant_subcontractorcompany]").fill(
-            rules.SUBCONTRACTOR_COMPANY
+        _put(
+            form, "offer_hasbeenconsultant", True, option="YES" if consultant else "NO"
         )
-        form.locator("[name=offer_subcontractorrate]").fill("0,00")
-        form.locator("[name=orgconsultant_isuktaxresident][value=NO]").check()
+        _put(form, "offer_hasbeenemployee", True, option="YES" if employee else "NO")
+        _put(form, "consultant_consultantemployment", True, option="SUBCONTRACTOR")
+        _put(form, "consultant_subcontractorcompany", rules.SUBCONTRACTOR_COMPANY)
+        _put(form, "offer_subcontractorrate", "0,00")
+        _put(form, "orgconsultant_isuktaxresident", True, option="NO")
         page.evaluate(
             """(fields) => {
               fields.forEach(n => document.querySelectorAll('input[name="' + n + '"]').forEach(i => { i.value = '10.0'; }));

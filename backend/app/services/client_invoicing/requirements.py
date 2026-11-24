@@ -48,6 +48,9 @@ class Requirements:
     """Wymagania klienta do faktury; domyślne wartości = klient bez reguł."""
 
     orders_together: bool = False
+    #: ``cl.collective_invoice``: faktura z KSeF na całe zamówienie, którego numer
+    #: ma w NEXUSIE kilka zamówień osób (VeloBank) — numer wiąże wszystkie.
+    collective_invoice: bool = False
     contract_number: Optional[str] = None
     contract_date: Optional[date] = None
     #: Pary (klucz, wzór wartości) ``DodatkowyOpis``.
@@ -200,6 +203,7 @@ def from_rules(rules: dict[str, dict[str, Any]], period: str) -> Requirements:
     )
     return Requirements(
         orders_together=_on(rules, "cl.orders_together") is not None,
+        collective_invoice=_on(rules, "cl.collective_invoice") is not None,
         contract_number=_clean(contract.get("number")) or None,
         contract_date=_date(contract.get("date") or "") if contract else None,
         fields=fields,

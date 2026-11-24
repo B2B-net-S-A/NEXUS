@@ -9,7 +9,10 @@ ręcznego przypisania”, chyba że mail sam wskazuje klienta:
   rozstrzyga;
 - drugi kontrakt u klienta rozliczanego z raportu T4T → raport godzin z poczty idzie
   do pozostałego kontraktu. Faktura nie, bo bywa jedna na obu klientów (IX 2026:
-  252 h = Nordea + MS Enter-Prise na jednej fakturze).
+  252 h = Nordea + MS Enter-Prise na jednej fakturze);
+- zmiana klienta: poprzedni kontrakt działa jeszcze 60 dni po końcu, więc adres
+  wskazuje oba. Raport z okresem w nazwie albo temacie idzie do jedynego kontraktu,
+  który działa w tym miesiącu. Okres zgadnięty z daty maila i faktura nie rozstrzygają.
 
 Dane fikcyjne.
 """
@@ -17,7 +20,7 @@ Dane fikcyjne.
 from __future__ import annotations
 
 import secrets
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import update
@@ -26,9 +29,9 @@ from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.models.client import Client
-from app.models.contract import Contract
+from app.models.contract import Contract, ContractStatus
 from app.services.client_settlements import time_reports
-from app.services.consultant_portal import identity
+from app.services.consultant_portal import identity, mailbox
 from app.services.consultant_portal.portal_settings import PortalSettings
 from app.services.order_policies import known_clients
 from tests.care_announcements_seed import care_on, tag  # noqa: F401  (fixture)
@@ -44,6 +47,7 @@ from tests.test_consultant_portal_internal import (  # noqa: F401  (fixture'y)
     _quiet_documents,
     _read,
     _storage,
+    company_domain,
     internal,
 )
 
@@ -251,4 +255,150 @@ async def test_two_contracts_outside_t4t_still_wait(monkeypatch) -> None:
     assert third.client_id not in (t4t_side.client_id, other.client_id)
 
     assert (await _read(reader))["created"] == 1
+    assert [row.contract_id for row in await _documents()] == [None]
+
+
+# ── Zmiana klienta: okres kontraktu a miesiąc pliku ──────────────────────────
+
+COMPANY_DOMAIN = "firma.example.com"  # fixture ``company_domain``
+
+
+async def _changed_client(*, old_end: date, new_start: date | None = None):
+    """Osoba przeszła do drugiego klienta i pisze ze skrzynki firmowej.
+
+    Poprzedni kontrakt jest zakończony ``old_end``, ale działa jeszcze 60 dni, więc
+    adres firmowy wskazuje oba kontrakty (jak 418 i 467 w próbie IX–X 2026)."""
+
+    last = f"Zmienna{tag()}"
+    old, new = await _person_at_two_clients("Marta", last)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Contract)
+            .where(Contract.id == old.contract_id)
+            .values(status=ContractStatus.ended, end_date=old_end)
+        )
+        if new_start is not None:
+            await db.execute(
+                update(Contract)
+                .where(Contract.id == new.contract_id)
+                .values(start_date=new_start)
+            )
+        await db.commit()
+    return old, new, f"marta.{last.lower()}@{COMPANY_DOMAIN}"
+
+
+def _mail(sender: str, *files: dict) -> FakeMailbox:
+    return FakeMailbox([_message("m1", sender)], {"m1": list(files)})
+
+
+def _ts(day: date) -> dict:
+    return _attachment(
+        f"TS_{day.month:02d}_{day.year}.pdf", PDF + f" raport {day:%Y-%m}".encode()
+    )
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_report_after_old_contract_ended_goes_to_new_contract() -> None:
+    """VeloBank 466 i 467: Time Sheet za IX z adresu firmy czekał na człowieka, bo
+    adres wskazywał też kontrakt w Banku Pocztowym zakończony 31.08. Raport za
+    miesiąc po końcu kontraktu nie jest tego kontraktu."""
+
+    today = business_today()
+    _, new, address = await _changed_client(
+        old_end=today.replace(day=1) - timedelta(days=1)
+    )
+
+    assert (await _read(_mail(address, _ts(today))))["created"] == 1
+    assert [row.contract_id for row in await _documents()] == [new.contract_id]
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_last_report_of_old_contract_goes_to_old_contract() -> None:
+    """Ostatni raport przychodzi po końcu współpracy (po to kontrakt działa jeszcze
+    60 dni): raport za miesiąc przed startem nowego kontraktu jest poprzedniego."""
+
+    month_start = business_today().replace(day=1)
+    before = month_start - timedelta(days=1)
+    old, _, address = await _changed_client(old_end=before, new_start=month_start)
+
+    assert (await _read(_mail(address, _ts(before))))["created"] == 1
+    assert [row.contract_id for row in await _documents()] == [old.contract_id]
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_report_for_month_of_both_contracts_still_waits() -> None:
+    """Oba kontrakty działają w miesiącu pliku (Bank Pocztowy VII–VIII obok
+    VeloBanku): plik czeka na człowieka jak dotąd."""
+
+    today = business_today()
+    _, _, address = await _changed_client(old_end=today.replace(day=1))
+
+    assert (await _read(_mail(address, _ts(today))))["created"] == 1
+    assert [row.contract_id for row in await _documents()] == [None]
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_guessed_period_decides_nothing() -> None:
+    """Bez okresu w nazwie i temacie miesiąc zgaduje data maila, a plik może być
+    spóźnionym raportem poprzedniego kontraktu: czeka na człowieka."""
+
+    year, month, guessed = mailbox.period_for(
+        "Raport", "TS.pdf", datetime.now(timezone.utc).date()
+    )
+    assert guessed
+    _, _, address = await _changed_client(
+        old_end=date(year, month, 1) - timedelta(days=1)
+    )
+    reader = _mail(address, _attachment("TS.pdf", PDF + b" raport"))
+
+    assert (await _read(reader))["created"] == 1
+    assert [row.contract_id for row in await _documents()] == [None]
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_invoice_after_client_change_still_waits() -> None:
+    """Numer faktury niesie miesiąc wystawienia („FV3_10_2026” w mailu z Time Sheet
+    za IX), a ostatnia faktura za poprzedni kontrakt przychodzi po jego końcu:
+    faktura czeka, raport z tego samego maila idzie do nowego kontraktu."""
+
+    today = business_today()
+    _, new, address = await _changed_client(
+        old_end=today.replace(day=1) - timedelta(days=1)
+    )
+    reader = _mail(
+        address,
+        _attachment(f"Faktura_FV3_{today.month:02d}_{today.year}.pdf", PDF),
+        _ts(today),
+    )
+
+    assert (await _read(reader))["created"] == 2
+    by_kind = {row.kind: row.contract_id for row in await _documents()}
+    assert by_kind == {"invoice": None, "report": new.contract_id}
+
+
+@pytest.mark.usefixtures("internal")
+async def test_two_people_under_one_address_still_wait() -> None:
+    """Adres z kontraktów dwóch różnych osób (wspólna skrzynka, błąd w danych) nie
+    wskazuje nikogo, choć kontrakt jednej z nich skończył się przed miesiącem pliku."""
+
+    today = business_today()
+    gone = await make_person(activated=False)
+    other = await make_person(activated=False)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Contract)
+            .where(Contract.id == gone.contract_id)
+            .values(
+                status=ContractStatus.ended,
+                end_date=today.replace(day=1) - timedelta(days=1),
+            )
+        )
+        await db.execute(
+            update(Contract)
+            .where(Contract.id == other.contract_id)
+            .values(candidate_email=gone.email)
+        )
+        await db.commit()
+
+    assert (await _read(_mail(gone.email, _ts(today))))["created"] == 1
     assert [row.contract_id for row in await _documents()] == [None]
