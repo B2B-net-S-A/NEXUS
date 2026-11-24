@@ -155,6 +155,13 @@ Artur: „trzeba zmusić, żeby każdą zmianę zrozumieli i potrafili korzysta�
   krok raz przewija do elementu, wycięcie obejmuje tylko widoczną część, z wielu
   elementów bierze widoczny, a element pod panelem nie dostaje podświetlenia,
   tylko komunikat. Pomiar na stagingu robi nocny Tester.
+- **Kotwica na plakietce karty Tablicy stoi też na `card-low-state` (24.11.2026).**
+  Przy oknie niższym niż 800 px wiersz plakietek ma `low-screen:hidden`, a widać
+  tylko skrócony stan karty dwuliniowej. Lekcja „Karta zatrzymana do podpisu
+  przedwstępnej” na laptopie 1280 × 720 nie widziała kotwicy i kończyła się tylko
+  wyjściem po 45 s (PR #3856). Ta sama `data-tour` idzie na oba warianty, w linii
+  z `data-tour` (strażnik `novelty-anchors.test.ts`), a lekcję przeklikujesz
+  przy 1280 × 720 i przy wysokości ≥ 800 px.
 - **Odbiorcy:** `audience.roles` albo `audience.permissions` (wystarczy jedno,
   pusto = wszyscy). Przycisk widoczny dla uprawnienia opisujesz uprawnieniem.
   W archiwum ✦ nowość żyje 45 dni (`active_days`), w panelu do 90 dni,
