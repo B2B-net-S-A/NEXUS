@@ -2971,6 +2971,7 @@ _REGISTER_EXPORT_COLUMNS = [
 _ENGAGEMENT_MODEL_LABELS = {
     "time_based": "Czasowy",
     "hours_pool": "Pula godzin",
+    "fixed": "FIX / produkt",
 }
 _REGISTER_PROLONGATION_LABELS = {
     "unknown": "Nieznany",

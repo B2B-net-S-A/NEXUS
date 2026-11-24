@@ -501,11 +501,13 @@ def evaluate(
     working_days: int,
     other_md: Decimal = Decimal("0"),
     client_mail: Optional[bool] = None,
+    acceptor: str = "klienta",
 ) -> ProofResult:
     """Kontrole Time Sheet z katalogu reguł; MD z godzin, bez pracy dodatkowej.
 
     ``client_mail``: czy w mailach miesiąca jest wiadomość klienta
-    (``acceptance_mail.from_client``); ``None`` = nadawcy nie odczytano."""
+    (``acceptance_mail.from_client``); ``None`` = nadawcy nie odczytano.
+    ``acceptor``: kto akceptuje (``mail_text.Senders.who``, w FIX „PM-a firmy”)."""
 
     result = ProofResult(md_regular=None, md_extra=None)
     sheet = _Group(result, rules, GROUP_TITLE)
@@ -570,7 +572,9 @@ def evaluate(
                 "Dołącz mail z akceptacją (MSG, EML albo PDF z wydrukiem).",
             )
         else:
-            client_acceptance_mail(sheet, "proof.excel_with_mail", client_mail)
+            client_acceptance_mail(
+                sheet, "proof.excel_with_mail", client_mail, who=acceptor
+            )
             if client_mail:
                 sheet.ok("Mail z akceptacją godzin jest")
 

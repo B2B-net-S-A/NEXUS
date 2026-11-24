@@ -37,7 +37,7 @@ from app.models.client_settlement import (
     ClientSettlementRuleSet,
 )
 from app.models.consultant_portal import CpDocument
-from app.models.contract import Contract, ContractStatus
+from app.models.contract import Contract, ContractStatus, EngagementModel
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.md_consumption import ClientOrderMdConsumption
 from app.models.user import User
@@ -1070,8 +1070,12 @@ async def _proof(
     other_md: Decimal = Decimal("0"),
     consultant_mails: frozenset[int] = frozenset(),
     senders: mail_text.Senders = mail_text.Senders(),
+    fixed: bool = False,
 ) -> Optional[rcp_checks.ProofResult]:
     """Odczyt RCP z pliku i kontrole (E2). Brak pliku RCP = ``None``.
+
+    ``fixed``: projekt FIX — ``senders`` to domeny firmy, a mail akceptujący
+    musi mieć słowo akceptacji (``mail_text.approved``), nie tylko nadawcę.
 
     Gdy wybranego pliku nie zna żaden czytnik (np. najnowszy plik miesiąca to
     faktura, a protokół przyszedł wcześniej), próbujemy pozostałych plików
@@ -1079,11 +1083,13 @@ async def _proof(
 
     working_days = len(business_days(*month_bounds(month)))
     # Mail akceptujący w kontrolach pliku liczy się tylko od klienta (#3820, 23.11).
-    client_mail = (
-        acceptance_mail.from_client(await _mails(None, reports), senders)
-        if _client_mail_rules_on(rules)
-        else None
-    )
+    if not _client_mail_rules_on(rules):
+        client_mail: Optional[bool] = None
+    elif fixed:
+        mails_text = await asyncio.to_thread(_read_mails, reports)
+        client_mail = mail_text.approved(mails_text, senders)
+    else:
+        client_mail = acceptance_mail.from_client(await _mails(None, reports), senders)
     common = dict(
         reports=reports,
         month=month,
@@ -1118,6 +1124,7 @@ async def _proof(
                 rules=rules,
                 mails=mails,
                 client_mail=client_mail,
+                acceptor=senders.who,
             )
             if bnp.md_regular is not None:
                 return bnp
@@ -1352,6 +1359,7 @@ async def _read_file(
             working_days=working_days,
             other_md=other_md,
             client_mail=client_mail,
+            acceptor=senders.who,
         )
         return await accepted(
             result, sheet.total_hours if sheet.entries else None, sheet.month
@@ -1402,6 +1410,40 @@ CLIENT_MAIL_RULES = (
 
 def _client_mail_rules_on(rules: dict[str, dict[str, Any]]) -> bool:
     return any(_on(rules, key) for key in CLIENT_MAIL_RULES)
+
+
+#: Kto akceptuje godziny w projekcie FIX (decyzja Artura z 24.11.2026).
+FIX_ACCEPTOR = "PM-a firmy"
+
+
+def fix_senders() -> mail_text.Senders:
+    """Projekt FIX: klient odbiera produkt protokołem, godziny podwykonawcy to
+    koszt firmy i akceptuje je ktoś z firmy (zwykle PM). Akceptujący = domeny
+    firmy (``identity._company_domains`` i SSO), ze słowem akceptacji w mailu."""
+
+    from app.core.config import settings
+    from app.services.consultant_portal import identity
+    from app.services.m365.matcher import PUBLIC_EMAIL_DOMAINS
+
+    company = identity._company_domains() | set(settings.sso_allowed_domains_list)
+    # Bez skonfigurowanych domen firmy ``Senders`` przyjąłby każdy adres spoza
+    # ``own``; poczta publiczna (podwykonawca z gmaila) nigdy nie akceptuje.
+    return mail_text.Senders(
+        client=frozenset(d for d in company if d),
+        own=frozenset(PUBLIC_EMAIL_DOMAINS),
+        who=FIX_ACCEPTOR,
+    )
+
+
+def _fix_note(proof: rcp_checks.ProofResult, rules: dict[str, dict[str, Any]]) -> None:
+    group = rcp_checks._Group(proof, rules, "Projekt FIX")
+    group.info(
+        "Godziny to koszt firmy: akceptuje PM firmy",
+        "Kontrakt w modelu „FIX / produkt”. Klient odbiera produkt protokołem "
+        "odbioru, więc faktura do klienta idzie z protokołu, nie z godzin. "
+        "Limit MD etapu pilnuje zamówienie MD etapu.",
+    )
+    group.close()
 
 
 async def acceptance_senders(
@@ -1504,7 +1546,17 @@ async def _recompute(
             source = proof.meta["kesu"].get("document_id")
             report = next((d for d in reports if d.id == source), report)
             await _sync_kesu_extra(db, s, proof.meta["kesu"])
+    fixed = (
+        person.contract is not None
+        and person.contract.engagement_model == EngagementModel.fixed
+    )
     if proof is None:
+        if fixed:
+            senders = fix_senders()
+        elif _client_mail_rules_on(rules):
+            senders = await acceptance_senders(db, s.client_id, rules)
+        else:
+            senders = mail_text.Senders()
         proof = await _proof(
             report,
             reports,
@@ -1513,12 +1565,11 @@ async def _recompute(
             rules=rules,
             other_md=await _other_md(db, person.contract, s.period_month),
             consultant_mails=await _consultant_mails(db, reports, s.contract_id, rules),
-            senders=(
-                await acceptance_senders(db, s.client_id, rules)
-                if _client_mail_rules_on(rules)
-                else mail_text.Senders()
-            ),
+            senders=senders,
+            fixed=fixed,
         )
+        if proof is not None and fixed:
+            _fix_note(proof, rules)
         if proof is not None and (source := proof.meta.pop("document_id", None)):
             # MD z innego pliku miesiąca niż wybrany: ten plik jest dowodem.
             report = next((d for d in reports if d.id == source), report)

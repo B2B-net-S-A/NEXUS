@@ -95,7 +95,7 @@ Jedyny mail jest tam z domeny firmy i daje teraz „Brak akceptacji klienta” z
 Status był już „uwagi”.
 
 Projekty FIX, w których godziny podwykonawcy akceptuje PM jako koszt firmy, to wyjątek
-od tej zasady. Opisuje go osobna reguła.
+od tej zasady: `finanse-insights/rozliczenia-projekty-fix-akceptacja-pm.md`.
 
 ## Orlen
 
