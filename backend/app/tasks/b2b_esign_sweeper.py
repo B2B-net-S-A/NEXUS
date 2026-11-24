@@ -45,6 +45,7 @@ from app.services import loop_heartbeat
 from app.services.b2b_esign import mail as esign_mail
 from app.services.b2b_esign import remote as esign_remote
 from app.services.b2b_esign.service import (
+    COMPANY_SIGNER_MISSING_TYPE,
     EXPIRED_LINK_DAYS,
     SIGNED_COPY_DAYS,
     active_company_signer,
@@ -177,7 +178,7 @@ async def _handle(request_id: int, now: datetime) -> str | None:
                         message=company_signer_missing_message(
                             request.contractor_name, number
                         ),
-                        ntype=NotificationType.signature_sent,
+                        ntype=COMPANY_SIGNER_MISSING_TYPE,
                         request_id=request.id,
                     )
                 await db.commit()

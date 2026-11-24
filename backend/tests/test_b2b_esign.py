@@ -2463,13 +2463,22 @@ async def test_inactive_company_signer_gets_no_mail_and_the_senders_get_the_bell
     """Audyt r4 (24.11.2026): po podpisie kontraktora mail i przypomnienie szły
     na adres wyłączonego konta reprezentanta, a dzwonek do niego ginął — nikt
     nie wiedział, że umowa czeka. Teraz bez maila na jego adres, a dzwonek
-    dostają osoby wysyłki."""
+    dostają osoby wysyłki.
+
+    Przegląd PR-a: dzwonek o wyłączonym reprezentancie ma własny typ
+    (``signature_failed``), bo dzienny dedup (osoba + typ + wniosek) zjadał go,
+    gdy tego samego dnia obsługujący dostał przypomnienie „czeka na podpis
+    kontraktora” (``signature_sent``)."""
     from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import update
 
     from app.core.database import AsyncSessionLocal
     from app.models.b2b_signing_request import B2BSigningRequest
+    from app.models.notification import Notification, NotificationType
     from app.models.user import User
     from app.services.b2b_esign import mail as esign_mail
+    from app.services.notification_triggers import emit as emit_notification
     from app.tasks import b2b_esign_sweeper
 
     mails: list[dict[str, Any]] = []
@@ -2494,6 +2503,16 @@ async def test_inactive_company_signer_gets_no_mail_and_the_senders_get_the_bell
     token = _token(sent.json()["sign_url"])
 
     async with AsyncSessionLocal() as db:
+        # Rano tego dnia pętla przypomniała obsługującemu o podpisie kontraktora.
+        await emit_notification(
+            db,
+            user_id=esign_env["admin_id"],
+            title="Umowa czeka na podpis kontraktora",
+            message="Kontraktor jeszcze nie podpisał.",
+            ntype=NotificationType.signature_sent,
+            related_entity_type="b2b_signing_request",
+            related_entity_id=request_id,
+        )
         signer = await db.get(User, esign_env["signer_id"])
         signer_email = signer.email
         signer.is_active = False
@@ -2519,6 +2538,17 @@ async def test_inactive_company_signer_gets_no_mail_and_the_senders_get_the_bell
             request = await db.get(B2BSigningRequest, request_id)
             request.contractor_signed_at -= timedelta(days=2)
             request.last_reminder_at = None
+            # Przypomnienie przychodzi najwcześniej po dobie: dzwonki z dnia
+            # podpisu cofamy o tyle samo, inaczej dzienny dedup (liczony od
+            # prawdziwego ``created_at``, nie od ``now`` pętli) zjadłby kolejny.
+            await db.execute(
+                update(Notification)
+                .where(
+                    Notification.related_entity_type == "b2b_signing_request",
+                    Notification.related_entity_id == request_id,
+                )
+                .values(created_at=Notification.created_at - timedelta(days=2))
+            )
             await db.commit()
         now = _next_working_morning(datetime.now(timezone.utc))
         assert await b2b_esign_sweeper._handle(request_id, now) == "reminded"

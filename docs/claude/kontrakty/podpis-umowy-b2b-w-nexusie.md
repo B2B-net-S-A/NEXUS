@@ -143,6 +143,9 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   audyt 24.11.2026): bez maila na jego adres, a dzwonek „czeka na podpis
   B2Bnetwork” po podpisie i przy każdym przypomnieniu dostają osoby wysyłki
   (`bell_recipients`: obsługujący, nadawca, DW, zastępca z urlopu).
+  Ten dzwonek ma typ `signature_failed` (`COMPANY_SIGNER_MISSING_TYPE`), nie
+  `signature_sent`: dzienny dedup (osoba + typ + wniosek) zjadałby go razem
+  z przypomnieniem „czeka na podpis kontraktora” z tego samego dnia.
 - **Kontraktor dostaje swój egzemplarz** (26.10.2026; wcześniej nie dostawał
   nic, a link gasł po podpisie firmy): po podpisie obu stron mail ze
   skrzynki nadawcy z PDF-em w załączniku (`_send_contractor_copy`,

@@ -1092,7 +1092,9 @@ async def _after_contractor_signed(db: AsyncSession, request_id: int) -> None:
             message=service.company_signer_missing_message(
                 request.contractor_name, number
             ),
-            ntype=NotificationType.signature_sent,
+            # Własny typ: dzienny dedup (osoba + typ + wniosek) zjadałby ten
+            # dzwonek razem z „czeka na podpis kontraktora” z tego samego dnia.
+            ntype=service.COMPANY_SIGNER_MISSING_TYPE,
             request_id=request_id,
         )
         return
