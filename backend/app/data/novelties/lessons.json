@@ -2253,6 +2253,41 @@
     ]
   },
   {
+    "id": "lekcja-powtorka-requestu",
+    "title": "Powtórka requestu: poprzednia rekrutacja i różnice z maila",
+    "novelties": [
+      "nowa-rekrutacja-powtorka"
+    ],
+    "task": "Otwórz nową rekrutację, wybierz klienta i kliknij „Wklej treść” na pasku „Wypełnij z:”. Po odczycie maila powtórki nad formularzem stanie baner „To wygląda na powtórkę”.",
+    "solo_href": "/jobs/new",
+    "check": {
+      "kind": "click",
+      "anchor": "new-job.fill-from"
+    },
+    "questions": [
+      {
+        "q": "Klikasz „Użyj 43260 i przeczytaj z maila tylko różnice”. Co dzieje się z hiring managerem?",
+        "options": [
+          "Czeka jako „Ta sama osoba co w 43260” — klikasz „Potwierdź” albo „Inna osoba”",
+          "Przechodzi z 43260 sam, bez pytania",
+          "Zawsze zostaje pusty i trzeba go wpisać od nowa"
+        ],
+        "answer": 0,
+        "explain": "U Nordei w 47 rekrutacjach było 36 różnych hiring managerów, więc NEXUS nie kopiuje osoby po cichu. Hiring manager podany w mailu wygrywa."
+      },
+      {
+        "q": "W mailu jest inny budżet niż w poprzedniej rekrutacji. Co pokaże formularz po „Użyj”?",
+        "options": [
+          "Budżet z poprzedniej rekrutacji i propozycję „W mailu: …” z „Użyj” / „Zostaw”",
+          "Budżet z maila, bez śladu poprzedniego",
+          "Pusty budżet do wpisania"
+        ],
+        "answer": 0,
+        "explain": "Mail dopełnia tylko puste pola, a inną wartość pokazuje jako propozycję przy polu. Nazwa z numerem i opis projektu zawsze idą z maila."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [
