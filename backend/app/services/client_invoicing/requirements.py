@@ -58,6 +58,10 @@ class Requirements:
     mail: Optional[Mail] = None
     #: Rodzaj dokumentu (``protocol``/``sheet``), który klient musi podpisać przed fakturą.
     signed_document: Optional[str] = None
+    #: ``cl.bzone_order``: dni pracy osoby w miesiącu pod zleceniem B-ZONE (blokuje).
+    bzone_order: bool = False
+    #: ``cl.client_protocol``: protokół odbioru od klienta za miesiąc (ostrzega).
+    client_protocol: bool = False
 
     def item_name(
         self,
@@ -205,6 +209,8 @@ def from_rules(rules: dict[str, dict[str, Any]], period: str) -> Requirements:
         == "block",
         mail=mail,
         signed_document=signed,
+        bzone_order=_on(rules, "cl.bzone_order") is not None,
+        client_protocol=_on(rules, "cl.client_protocol") is not None,
     )
 
 
@@ -261,6 +267,12 @@ def summary(found: Requirements, order_numbers: Sequence[str]) -> list[dict[str,
         out.append({"label": f"{key} (KSeF, pole dodatkowe)", "value": value})
     if found.must_contain:
         out.append({"label": "Każda pozycja zawiera", "value": found.must_contain})
+    if found.bzone_order:
+        out.append(
+            {"label": "Zlecenie B-ZONE", "value": "na każdy dzień pracy w miesiącu"}
+        )
+    if found.client_protocol:
+        out.append({"label": "Protokół odbioru", "value": "od klienta za ten miesiąc"})
     return out
 
 
