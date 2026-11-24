@@ -9,8 +9,8 @@ import { OgCard, type OgFact } from "@/components/career/ogCard";
  * Podgląd posta na LinkedInie — miniatura grafiki Open Graph strony kariery.
  *
  * WYJĄTEK OD ZASADY TOKEN-FIRST: górna część karty to ZEWNĘTRZNY obraz —
- * ten sam kadr `OgCard`, który rysuje `next/og` (od 29.10.2026, barwy marki
- * B2B Network), przeskalowany do szerokości karty. Ma wyglądać tak samo
+ * ten sam kadr `OgCard`, który rysuje `next/og` (od 24.11.2026 jeden wygląd jak
+ * nagłówek oferty), przeskalowany do szerokości karty. Ma wyglądać tak samo
  * w każdym motywie NEXUSA, bo tak zobaczy go LinkedIn. Podpis pod obrazem
  * (tytuł + domena) to już NEXUS: tokeny.
  */
@@ -35,8 +35,8 @@ export interface LinkedInPreviewCardProps {
   cardTitle: string;
   /** Domena pod tytułem. */
   host: string;
-  /** Szablon graficzny rekrutacji — kolory jak w grafice OG. */
-  theme?: string | null;
+  /** Wielkie słowo grafiki (krótka umiejętność z tablicy), jak w grafice OG. */
+  word?: string | null;
 }
 
 export function LinkedInPreviewCard({
@@ -48,7 +48,7 @@ export function LinkedInPreviewCard({
   status,
   cardTitle,
   host,
-  theme,
+  word,
 }: LinkedInPreviewCardProps) {
   const frame = useRef<HTMLDivElement>(null);
   // Skala kadru 1200×630 do szerokości karty; bez ResizeObserver (jsdom) — typowa szerokość okna.
@@ -81,7 +81,7 @@ export function LinkedInPreviewCard({
           style={{ width: OG_WIDTH, height: OG_HEIGHT, transform: `scale(${scale})` }}
         >
           <OgCard
-            theme={theme}
+            word={word}
             status={status}
             kicker={kicker}
             title={headline}

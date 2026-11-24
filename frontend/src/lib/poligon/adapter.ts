@@ -11,6 +11,8 @@ import {
   type InternalAxiosRequestConfig,
 } from "axios";
 
+import { canSetPreContractStop } from "@/lib/pre-contract-stop";
+
 import { viewerFrom, withPracticeClient, type PoligonViewer } from "./amounts";
 import { createPoligonStore, type PoligonAction, type PoligonDataset, type PoligonStore } from "./store";
 
@@ -119,6 +121,8 @@ export const poligonAdapter: AxiosAdapter = async (config: InternalAxiosRequestC
     body: parseBody(config.data),
     viewerId: viewerId(),
     viewer: viewer(),
+    // Lustro `pre_contract_stop.can_set_stop`: „Wyjątek dla tej osoby” tylko DL, HoR i admin.
+    canSetPreContractStop: canSetPreContractStop(storedUser() as Parameters<typeof canSetPreContractStop>[0]),
   });
   if (result === "network") {
     const response = await getAdapter(["xhr", "fetch"])(config);

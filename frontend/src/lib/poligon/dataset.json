@@ -193,6 +193,8 @@
    "GET /api/order-mail/recheck-runs?limit=20",
    "GET /api/order-mail/sync/status",
    "GET /api/pipeline/stages/990305/qc?transient=true",
+   "GET /api/pre-contracts/pair?candidate_id=990109&job_id=990001",
+   "GET /api/pre-contracts/pair?candidate_id=990110&job_id=990001",
    "GET /api/reports/clients/990501/trend?months=6",
    "GET /api/reports/clients?min_closed=0&period=year",
    "GET /api/start-documents/clients/990501",
@@ -1120,7 +1122,14 @@
    "opened_effective_at": "@rel:-20.116",
    "has_budget_hourly": true,
    "effective_budget_hourly": 115.0,
-   "effective_budget_hourly_min": null
+   "effective_budget_hourly_min": null,
+   "pre_contract_rule": {
+    "needed_before": "cv_sent",
+    "stop": true,
+    "set_by": 990901,
+    "set_by_name": "Anna Poligonowa",
+    "set_at": "@rel:-3.2"
+   }
   },
   "GET /api/jobs/990001/chat/unread-count": {
    "job_id": 990001,
@@ -2433,7 +2442,15 @@
        "missing_contract": false,
        "agreement": null,
        "client_acceptance": null,
-       "pre_contract": null,
+       "pre_contract": {
+        "id": 990812,
+        "state": "signed",
+        "label": "Przedwstępna podpisana",
+        "tone": "ok",
+        "detail": "Podpisana obustronnie.",
+        "stop_column": null,
+        "stop_origin": null
+       },
        "start_docs": null,
        "employment_marker": null,
        "other_open_jobs": []
@@ -2570,7 +2587,15 @@
        "missing_contract": false,
        "agreement": null,
        "client_acceptance": null,
-       "pre_contract": null,
+       "pre_contract": {
+        "id": 990811,
+        "state": "sent",
+        "label": "Przedwstępna wysłana · czeka 2 dni",
+        "tone": "wait",
+        "detail": "Wysłana kandydatowi",
+        "stop_column": "cv_sent",
+        "stop_origin": "job"
+       },
        "start_docs": null,
        "employment_marker": null,
        "other_open_jobs": []
@@ -7858,7 +7883,16 @@
   "GET /api/pre-contracts/pair?candidate_id=990105&job_id=990001": {
    "current": null,
    "history": [],
-   "documents": []
+   "documents": [],
+   "job_rule": {
+    "needed_before": "cv_sent",
+    "needed_before_label": "przed wysłaniem CV",
+    "stop": true,
+    "set_by_name": "Anna Poligonowa",
+    "set_at": "@rel:-3.2"
+   },
+   "stop": null,
+   "can_set_stop": false
   },
   "GET /api/cv-generator/candidates/990105/recruitments": [
    {
@@ -22466,6 +22500,148 @@
     }
    ]
   },
-  "GET /api/cv-generator/generated?candidate_id=990106&job_id=990001&limit=10": []
+  "GET /api/cv-generator/generated?candidate_id=990106&job_id=990001&limit=10": [],
+  "GET /api/pre-contracts/pair?candidate_id=990110&job_id=990001": {
+   "current": {
+    "id": 990811,
+    "candidate_id": 990110,
+    "candidate_name": "Szymon Grabowiec",
+    "job_id": 990001,
+    "job_title": "Senior Project Manager (bankowość)",
+    "client_id": 990501,
+    "client_name": "Bank Północny",
+    "state": "sent",
+    "state_label": "Wysłana kandydatowi",
+    "badge": {
+     "state": "sent",
+     "label": "Przedwstępna wysłana · czeka 2 dni",
+     "tone": "wait",
+     "detail": "Wysłana kandydatowi"
+    },
+    "is_open": true,
+    "needed_before": "cv_sent",
+    "needed_before_label": "przed wysłaniem CV",
+    "needed_by": null,
+    "reason": null,
+    "requested_by": {
+     "id": 990901,
+     "name": "Anna Poligonowa"
+    },
+    "requested_at": "@rel:-3.1",
+    "assignee": {
+     "id": 990902,
+     "name": "Jakub Szkoleniowy"
+    },
+    "watchers": [],
+    "watching": false,
+    "document_id": null,
+    "document_type": null,
+    "sent_at": "@rel:-2.1",
+    "candidate_signed_at": null,
+    "candidate_signature_form": null,
+    "candidate_signature_form_label": null,
+    "candidate_file_name": null,
+    "company_signed_at": null,
+    "company_file_name": null,
+    "valid_until": null,
+    "b2b_deadline": null,
+    "closed_at": null,
+    "close_reason": null,
+    "withdrawal": null,
+    "column": "cv_qc",
+    "stage_name": "QC CV",
+    "can_withdraw": false,
+    "can_decide_penalty": false,
+    "events": [],
+    "blocks_move": null,
+    "blocks_set_by": null,
+    "blocks_set_at": null
+   },
+   "history": [],
+   "documents": [],
+   "job_rule": {
+    "needed_before": "cv_sent",
+    "needed_before_label": "przed wysłaniem CV",
+    "stop": true,
+    "set_by_name": "Anna Poligonowa",
+    "set_at": "@rel:-3.2"
+   },
+   "stop": {
+    "column": "cv_sent",
+    "needed_before": "cv_sent",
+    "origin": "job",
+    "set_by_name": "Anna Poligonowa",
+    "set_at": "@rel:-3.2"
+   },
+   "can_set_stop": false
+  },
+  "GET /api/pre-contracts/pair?candidate_id=990109&job_id=990001": {
+   "current": {
+    "id": 990812,
+    "candidate_id": 990109,
+    "candidate_name": "Weronika Cisowska",
+    "job_id": 990001,
+    "job_title": "Senior Project Manager (bankowość)",
+    "client_id": 990501,
+    "client_name": "Bank Północny",
+    "state": "signed",
+    "state_label": "Podpisana",
+    "badge": {
+     "state": "signed",
+     "label": "Przedwstępna podpisana",
+     "tone": "ok",
+     "detail": "Podpisana obustronnie."
+    },
+    "is_open": true,
+    "needed_before": "cv_sent",
+    "needed_before_label": "przed wysłaniem CV",
+    "needed_by": null,
+    "reason": null,
+    "requested_by": {
+     "id": 990901,
+     "name": "Anna Poligonowa"
+    },
+    "requested_at": "@rel:-3.1",
+    "assignee": {
+     "id": 990902,
+     "name": "Jakub Szkoleniowy"
+    },
+    "watchers": [],
+    "watching": false,
+    "document_id": null,
+    "document_type": null,
+    "sent_at": "@rel:-3.0",
+    "candidate_signed_at": "@rel:-2.2",
+    "candidate_signature_form": null,
+    "candidate_signature_form_label": null,
+    "candidate_file_name": null,
+    "company_signed_at": "@rel:-1.9",
+    "company_file_name": null,
+    "valid_until": null,
+    "b2b_deadline": null,
+    "closed_at": null,
+    "close_reason": null,
+    "withdrawal": null,
+    "column": "cv_qc",
+    "stage_name": "QC CV",
+    "can_withdraw": false,
+    "can_decide_penalty": false,
+    "events": [],
+    "blocks_move": null,
+    "blocks_set_by": null,
+    "blocks_set_at": null
+   },
+   "history": [],
+   "documents": [],
+   "job_rule": {
+    "needed_before": "cv_sent",
+    "needed_before_label": "przed wysłaniem CV",
+    "stop": true,
+    "set_by_name": "Anna Poligonowa",
+    "set_at": "@rel:-3.2"
+   },
+   "stop": null,
+   "can_set_stop": false
+  }
  }
 }
