@@ -29,7 +29,9 @@ Traffita nie idzie przez `/move` i zostaje bez zmian. Front:
 `jumpsOverClientSend` w `lib/pipeline-move-dialog.ts` — `usePipelineMove`
 najpierw pokazuje okno stawki do klienta („Przesuń na „Rozmowa u
 klienta””), potem okno celu („Kiedy rozmowa?”, potwierdzenie zatrudnienia),
-a stawka jedzie w tym samym żądaniu. Testy:
+a stawka jedzie w tym samym żądaniu; rekruter w oknie „Przesuń dalej” widzi
+to samo co przy „CV wysłane” („Czeka u Delivery Leada”, `build_requirements`
+w `move_requirements.py`). Testy:
 `backend/tests/test_jump_over_cv_sent.py`,
 `usePipelineMove.test.tsx` („przeskok ponad „CV wysłane””).
 

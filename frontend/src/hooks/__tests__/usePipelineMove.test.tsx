@@ -1338,7 +1338,8 @@ describe("usePipelineMove — przeskok ponad „CV wysłane” (decyzja Artura 2
     mount(b.all);
     React.act(() => controls.requestMove(item, b.verified, b.clientInterview));
     expect(
-      await screen.findByText("Przesuń na „Rozmowa z klientem\""),
+      // Nazwa kolumny Tablicy, nie etapu szablonu („Rozmowa z klientem”).
+      await screen.findByText("Przesuń na „Rozmowa u klienta\""),
     ).toBeInTheDocument();
     expect(post).not.toHaveBeenCalled();
     await typeRate("180");

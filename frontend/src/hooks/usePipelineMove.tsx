@@ -78,7 +78,7 @@ import { closeReason, closeTemplateReason, type CloseReasonKey } from "@/lib/clo
 import { QUICK_REJECT_OPENS_WINDOW, quickRejectLearnedFrom } from "@/lib/quick-reject";
 import { NOT_LOOKING_FOR_WORK_REASON } from "@/lib/rejection-reasons";
 import { choiceFrom as meetingsChoiceFrom } from "@/components/v2/modals/RejectionMeetingsField";
-import { placeStage } from "@/lib/board-stages";
+import { BOARD_COLUMN_LABEL, placeStage } from "@/lib/board-stages";
 import {
   useRejectionProfileWorkMode,
   useRejectionProfileRate,
@@ -381,7 +381,10 @@ interface SendMoveOptions {
 /** Nazwa kolumny w oknie stawki do klienta: „CV wysłane”, a przy przeskoku
  *  (24.11.2026) — kolumna, na którą idzie karta. */
 function clientRateTargetLabel(col: KanbanColumn): string {
-  return col.stage === "cv_sent" ? "CV wysłane" : (col.name ?? col.stage);
+  // Nazwa kolumny Tablicy, nie etapu szablonu („Interview Klient” to
+  // na Tablicy „Rozmowa u klienta”).
+  const column = placeStage(col).column;
+  return column === "closed" ? (col.name ?? col.stage) : BOARD_COLUMN_LABEL[column];
 }
 
 type RatePayload = {
