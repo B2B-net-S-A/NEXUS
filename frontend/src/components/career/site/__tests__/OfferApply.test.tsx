@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OfferPage } from "@/components/career/site/OfferPage";
 import type { CareerJobResponse } from "@/lib/career/api";
 
-/* jsdom nie przenosi plików z `input.files` do `new FormData(form)` — nakładka jak w CareerApplyForm.test. */
+/* jsdom nie przenosi plików z `input.files` do `new FormData(form)` — nakładka na `FormData`. */
 const NativeFormData = globalThis.FormData;
 class BrowserLikeFormData extends NativeFormData {
   constructor(form?: HTMLFormElement) {

@@ -1,6 +1,6 @@
 /**
  * Wspólne klocki publicznych formularzy aplikacyjnych: strona kariery
- * (`CareerApplyForm`) i stary link tokenowy (`/apply/[token]`).
+ * (`components/career/site/OfferApply`, `QuickApply`) i stary link tokenowy (`/apply/[token]`).
  *
  * Każdy formularz ma własny ton komunikatów (terminal vs. zwykły formularz),
  * więc wspólne są REGUŁY (co jest błędem), a nie zdania.

@@ -1,7 +1,7 @@
 /**
- * Wysyłka zgłoszenia ze strony kariery — wspólna dla formularza oferty
- * (`components/career/site/OfferApply`) i formularza strony rekrutera
- * (`CareerApplyForm`). Jedna ścieżka: `POST /api/public/career/apply`
+ * Wysyłka zgłoszenia ze strony kariery — wspólna dla formularzy oferty, listy
+ * i strony rekrutera (`components/career/site/OfferApply`, `QuickApply`).
+ * Jedna ścieżka: `POST /api/public/career/apply`
  * (multipart), gołym `fetch` — NIGDY przez klienta axios NEXUSA, który
  * dokleja token rekrutera.
  *

@@ -16,10 +16,16 @@ Publiczny landing, który rekruterzy wrzucają na LinkedIna. Raport:
 
 Reguły, które łatwo cofnąć:
 - **Strona rekrutera (etap 6, 20.10.2026, makieta 6d w
-  https://claude.ai/artifact/8aVZkzVxkVnkVVNBUDgL4h):** inicjał zamiast zdjęcia,
-  samo imię, „O mnie”, plakietki kategorii z otwartych rekrutacji, lista
-  rekrutacji (bez nazwy sceny od 28.10.2026), formularz „Zostaw CV u <imię>” (ta sama ścieżka
-  `submit_application`, jedna zgoda — niżej) i odesłanie do tablicy `/`.
+  https://claude.ai/artifact/8aVZkzVxkVnkVVNBUDgL4h; od 24.11.2026 w szablonie
+  nowej strony B2B Network, `components/career/site/RecruiterPage.tsx`):**
+  inicjał zamiast zdjęcia, samo imię, „O mnie”, rekrutacje osoby jako karty
+  ofert z listy (`OfferCard`; podtytuł i technologie z tablicy, gdy karta
+  stoi na tablicy pod tym samym slugiem), formularz „Zostaw CV u <imię>”
+  (`OfferApply variant="general"`, ta sama ścieżka `submit_application`,
+  jedna zgoda — niżej) i odesłanie do tablicy `/`. **Bez plakietek
+  kategorii** (Artur 23.11.2026, jak na liście) — `category` zostaje w API
+  tylko do doboru podobnych ofert. Adres strony w stopce (`SiteFrame
+  pageLabel`). Wybór szablonu (`theme`) strony rekrutera już nie zmienia.
   `GET /api/public/career/p/{slug}` zwraca `recruiter.about`, a każda
   rekrutacja `theme` (szablon, jak na `/r/`) i `category` — ten sam klucz co
   tablica (`career_board.public_category`: development / infra / qa /
@@ -254,7 +260,7 @@ Reguły, które łatwo cofnąć:
   wiersz `recruitment_future`; zgody „na tę rekrutację” ani pola
   `consent_future` tam nie ma. Reguła w jednym miejscu:
   `career_consent.consent_kinds(link.kind, …)` (backend) i `variant="general"`
-  w `CareerApplyForm` (front). Treść zgód bez zmian; klauzula `/rodo` ma o tym
+  w `site/OfferApply` (front). Treść zgód bez zmian; klauzula `/rodo` ma o tym
   jedno zdanie w pkt 3.
 - **Strona kandydata (etap 5, 19.10.2026):** kroki procesu widoczne na każdej
   szerokości (poniżej 1024 px zwarta lista; manifest dalej tylko od 1024 px).
@@ -325,10 +331,12 @@ Reguły, które łatwo cofnąć:
   - Zamknięta rekrutacja pokazuje do trzech otwartych z tej samej kategorii
     z tablicy (bez tablicy: `other_jobs`) i prośbę o CV (`/#zostaw-cv`
     otwiera formularz „Zostaw CV” na liście).
-  - Wybór szablonu w „Udostępnij” (`theme`) zmienia już tylko grafikę OG,
-    plakat i stronę rekrutera `/<slug>`, nie stronę oferty.
+  - Strona rekrutera `/<slug>`, 404, błąd i ładowanie stoją w tej samej
+    ramie `SiteFrame` od 24.11.2026 (wcześniej Grafit z `components/career/brand/`,
+    usunięty razem z `CareerApplyForm`). Błąd i ładowanie nie znają hosta
+    żądania, więc rama bez linków do kariery i RODO (`homeHref={null}`).
   - Harness: `/preview/kariera` (stany listy, oferty, błędów, „Wysłane”,
-    zamkniętej).
+    zamkniętej, strony rekrutera, ładowania).
 
 - **Trzy szablony ogłoszeń w barwach B2Bnetwork (decyzja Artura 28.10.2026,
   makiety https://claude.ai/artifact/RGquQpMFyKgRYHPognJ2kU, warianty A, C i B).**
