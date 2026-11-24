@@ -1295,6 +1295,7 @@ async def _proof(
     senders: mail_text.Senders = mail_text.Senders(),
     fixed: bool = False,
     agreements: frozenset[str] = frozenset(),
+    signed_sheet: bool = False,
 ) -> Optional[rcp_checks.ProofResult]:
     """Odczyt RCP z pliku i kontrole (E2). Brak pliku RCP = ``None``.
 
@@ -1302,6 +1303,8 @@ async def _proof(
     musi mieć słowo akceptacji (``mail_text.approved``), nie tylko nadawcę.
     ``agreements``: umowy wykonawcze tylko tej osoby w miesiącu
     (``_sole_agreements``) — wskazują ją w protokole z innym imieniem.
+    ``signed_sheet``: klient podpisał arkusz zbiorczy tej osoby (E6.2), więc
+    Time Sheet w Excelu nie potrzebuje maila z akceptacją.
 
     Gdy wybranego pliku nie zna żaden czytnik (np. najnowszy plik miesiąca to
     faktura, a protokół przyszedł wcześniej), próbujemy pozostałych plików
@@ -1327,6 +1330,7 @@ async def _proof(
         senders=senders,
         client_mail=client_mail,
         agreements=agreements,
+        signed_sheet=signed_sheet,
     )
     if report is not None and report.mime in RCP_MIMES:
         try:
@@ -1430,6 +1434,7 @@ async def _read_file(
     senders: mail_text.Senders = mail_text.Senders(),
     client_mail: Optional[bool] = None,
     agreements: frozenset[str] = frozenset(),
+    signed_sheet: bool = False,
 ) -> Optional[rcp_checks.ProofResult]:
     """Czytniki wzorów spoza RCP BNP dla jednego pliku; ``None`` = nie rozpoznany.
 
@@ -1599,6 +1604,7 @@ async def _read_file(
             other_md=other_md,
             client_mail=client_mail,
             acceptor=senders.who,
+            signed_sheet=signed_sheet,
         )
         return await accepted(
             result, sheet.total_hours if sheet.entries else None, sheet.month
@@ -2084,6 +2090,7 @@ async def _recompute(
             senders=senders,
             fixed=fixed,
             agreements=await _sole_agreements(db, s.contract_id, s.period_month),
+            signed_sheet=signoffs.client_signed(s.checks, signoffs.SHEET),
         )
         if proof is not None and fixed:
             _fix_note(proof, rules)
