@@ -183,6 +183,7 @@ async def books(world):
             "receivable": (f"{prefix}-200", "Odbiorcy", "settlement", "counterparty"),
             "revenue": (f"{prefix}-701", "Przychody", "revenue", None),
             "vat_out": (f"{prefix}-222", "VAT należny", "vat", None),
+            "vat_import": (f"{prefix}-226", "VAT należny import usług", "vat", None),
             "alloc_client": (f"{prefix}-501", "Koszty klientów", "other", None),
             "alloc_fo": (f"{prefix}-502", "Koszty Front office", "other", None),
             "alloc_bo": (f"{prefix}-503", "Koszty Back office", "other", None),
@@ -2183,6 +2184,126 @@ async def test_admin_deletes_statement_with_its_e3_e8_matches(client, world, boo
         f"{ACC}/bank/statements/{again.json()['id']}", headers=_headers(world["admin"])
     )
     assert blocked.status_code == 409 and "WB" in blocked.json()["detail"]
+
+
+async def test_delete_statement_refuses_when_another_file_holds_its_duplicates(
+    client, world, books
+):
+    """Ta sama operacja w wyciągu dziennym D i miesięcznym M: E3/E8 zapisują
+    zapłatę pod D, a pod M duplikat (``ignored``). Usunięcie D zostawiłoby
+    fakturę bez zapłaty (koszt wraca na „Do zapłaty” — ryzyko drugiego
+    przelewu), więc odmowa 409; najpierw M, potem D (decyzja Artura 24.11.2026)."""
+
+    from app.services.finance_ledger.payments import DUPLICATE_REASON
+
+    year = books["year"]
+    await _set_ledger(_bank_settings(world, books))
+    marker = uuid.uuid4().hex[:6].upper()
+    cost_op = ("D", "300,00", "Faktura FV 7/03", OTHER_ACCOUNT, f"U{marker}")
+    client_op = ("C", "250,00", "Wpłata za fakturę", OTHER_ACCOUNT, f"C{marker}")
+    daily = _statement(year, cost_op, client_op)
+    monthly = _statement(year, cost_op, client_op, ("D", "12,50", "Opłata", "", f"F{marker}"))
+    first = await _bank_import(client, world, daily)
+    assert first.status_code == 201, first.text
+    second = await _bank_import(client, world, monthly)
+    assert second.status_code == 201, second.text
+    assert [line["kind"] for line in second.json()["lines"]][:2] == ["duplicate", "duplicate"]
+    entry_id = books["expense"]
+    shas = {"D": hashlib.sha256(daily).hexdigest(), "M": hashlib.sha256(monthly).hexdigest()}
+    async with AsyncSessionLocal() as db:
+        # Import zapisał oba pliki w E3: pod M duplikat, pod D operację, która
+        # tu opłaca fakturę kosztową (dopasowanie jak po decyzji Finansów).
+        rows = {
+            row.statement_sha256: row
+            for row in await db.scalars(
+                select(FinanceCostPaymentRecord).where(
+                    FinanceCostPaymentRecord.statement_sha256.in_(list(shas.values())),
+                    FinanceCostPaymentRecord.statement_line_ref.like(f"%U{marker}"),
+                )
+            )
+        }
+        assert (rows[shas["M"]].match_status, rows[shas["M"]].reason) == (
+            "ignored",
+            DUPLICATE_REASON,
+        )
+        rows[shas["D"]].match_status = "matched"
+        rows[shas["D"]].entry_id = entry_id
+        # E8 (rachunek bez faktur do klientów) — wiersze tak, jak zapisuje je import.
+        for key, status, reason in (("D", "unmatched", None), ("M", "ignored", DUPLICATE_REASON)):
+            db.add(
+                ClientSalesInvoicePayment(
+                    kind="statement_line",
+                    match_status=status,
+                    reason=reason,
+                    amount=Decimal("250.00"),
+                    currency="PLN",
+                    booked_on=date(year, 3, 20),
+                    statement_sha256=shas[key],
+                    statement_format="mt940",
+                    statement_line_ref=f"2:C{marker}",
+                )
+            )
+        await db.flush()
+        await cost_payments.refresh(db, [entry_id], actor_id=None)
+        await db.commit()
+
+    admin = _headers(world["admin"])
+    refused = await client.delete(f"{ACC}/bank/statements/{first.json()['id']}", headers=admin)
+    assert refused.status_code == 409, refused.text
+    assert "duplikat" in refused.json()["detail"] and "Najpierw usuń" in refused.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        assert await db.get(LedgerBankStatement, first.json()["id"]) is not None
+        paid = await db.get(FinanceCostPayment, entry_id)
+        assert paid.state != "unpaid" and paid.paid_amount > 0
+    # Najpierw M (same duplikaty i opłata), potem D.
+    removed = await client.delete(f"{ACC}/bank/statements/{second.json()['id']}", headers=admin)
+    assert removed.status_code == 200, removed.text
+    removed = await client.delete(f"{ACC}/bank/statements/{first.json()['id']}", headers=admin)
+    assert removed.status_code == 200, removed.text
+
+
+async def test_delete_statement_refuses_when_e3_holds_a_duplicate_from_another_file(
+    client, world, books
+):
+    """Duplikat E3 z pliku spoza Księgi (stary import Płac, bez linii wyciągu):
+    usunięcie oryginału też dostaje 409."""
+
+    from app.services.finance_ledger.payments import DUPLICATE_REASON
+
+    year = books["year"]
+    await _set_ledger(_bank_settings(world, books))
+    marker = uuid.uuid4().hex[:6].upper()
+    content = _statement(year, ("D", "300,00", "Faktura FV 7/03", OTHER_ACCOUNT, f"U{marker}"))
+    imported = await _bank_import(client, world, content)
+    assert imported.status_code == 201, imported.text
+    other = hashlib.sha256(f"inny plik {marker}".encode()).hexdigest()
+    async with AsyncSessionLocal() as db:
+        db.add(
+            FinanceCostPaymentRecord(
+                kind="statement_line",
+                match_status="ignored",
+                reason=DUPLICATE_REASON,
+                amount=Decimal("300.00"),
+                currency="PLN",
+                booked_on=date(year, 3, 20),
+                statement_sha256=other,
+                statement_format="mt940",
+                statement_line_ref=f"7:U{marker}",
+            )
+        )
+        await db.commit()
+    try:
+        refused = await client.delete(
+            f"{ACC}/bank/statements/{imported.json()['id']}", headers=_headers(world["admin"])
+        )
+        assert refused.status_code == 409, refused.text
+        assert "duplikat" in refused.json()["detail"]
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(FinanceCostPaymentRecord).where(FinanceCostPaymentRecord.statement_sha256 == other)
+            )
+            await db.commit()
 
 
 async def test_bank_hides_team_payments_without_payroll(client, world, books):
@@ -5073,6 +5194,126 @@ async def test_vat_settlement_moves_month_vat_to_the_tax_account(client, world, 
         await _approve_ids(client, world, [manual.id])
         problem = (await _settlement(client, world, books))["problem"]
         assert "VAT naliczony" in problem and "spoza rejestru" in problem
+    finally:
+        await _purge_jpk(year)
+        await _restore_payer(previous)
+
+
+async def test_vat_settlement_counts_import_of_services_on_the_output_account_of_the_decree(
+    client, world, books
+):
+    """FVZ z kolejki kosztów z typem IU księguje VAT należny na koncie z dekretu
+    (226, nie konto sprzedaży), a JPK go liczy — rozliczenie bierze obroty 226
+    z księgi i zeruje to konto; PK na 226 spoza rejestru to zapis „spoza
+    rejestru” (audyt 24.11.2026)."""
+
+    from app.services.ledger.engine import LineIn
+
+    year, acc = books["year"], books["acc"]
+    previous = await _payer("0202")
+    try:
+        # Usługa bez VAT u sprzedawcy, typ IU z kolejki kosztów: VAT należny na 226.
+        imported = await _expense(
+            world, number="IU 1/03", net="1000.00", vat="0.00", gross="1000.00"
+        )
+        decree = _decree(
+            acc, net=100_000, vat=0, payable=books["supplier"].cost_account, text="Import usług"
+        )
+        decree["doc_type"] = "IU"
+        decree["self_assessed"] = True
+        decree["registers"] = [
+            {"register": "Import usług VAT naliczony", "rate": 23, "eu": False},
+            {"register": "Import usług VAT należny", "rate": 23, "eu": False, "output": True},
+        ]
+        decree["positions"] = [
+            {"kind": "cost", "account": acc["cost"], "side": "debit", "amount": 100_000},
+            {"kind": "vat", "account": acc["vat_in"], "side": "debit", "amount": 23_000},
+            {"kind": "vat_due", "account": acc["vat_import"], "side": "credit", "amount": 23_000},
+            {
+                "kind": "counterparty",
+                "account": books["supplier"].cost_account,
+                "side": "credit",
+                "amount": 100_000,
+            },
+        ]
+        await _ready(
+            imported,
+            received=datetime(year, 3, 16, 10, 0, tzinfo=timezone.utc),
+            counterparty_id=books["supplier"].id,
+            decree=decree,
+        )
+        await _jpk_ready(client, world, books)
+        expense = await _document("finance_cost_entry", imported)
+        assert (expense.meta or {}).get("output_account") == acc["vat_import"]
+        await _approve_ids(client, world, [expense.id])
+        settings = _ledger_settings(world, books, allocation=False)
+        settings["modules"]["vat"] = True
+        settings["vat"] = {
+            "input_account": acc["vat_in"],
+            "rounding_gain_account": acc["other_income"],
+            "rounding_loss_account": acc["other_cost"],
+        }
+        settings["jpk"] = {"email": "vat@example.com", "phone": ""}
+        settings["accountants"] = [world["accountant"].id]
+        await _set_ledger(settings)
+        async with AsyncSessionLocal() as db:
+            current = await ledger_settings.load(db)
+        value = ledger_settings.to_json(current)
+        value["bank"]["vat_account"] = acc["vat_due"]
+        await _set_ledger(value)
+
+        created = await _jpk(client, world, books, opening_surplus=0)
+        assert created.status_code == 201, created.text
+
+        preview = await _settlement(client, world, books)
+        # JPK: należny 207 zł ze sprzedaży + 230 zł z importu usług.
+        assert preview["amounts"]["output_tax"] == 43_700
+        assert preview["blocker"] is None and preview["problem"] is None, preview
+        assert preview["amounts"]["ledger_output"] == 43_700
+        lines = [(line["side"], line["account"], line["amount"]) for line in preview["lines"]]
+        assert ("debit", acc["vat_out"], 20_700) in lines
+        assert ("debit", acc["vat_import"], 23_000) in lines
+        prepared = await _prepare_settlement(client, world, books)
+        assert prepared.status_code == 200, prepared.text
+        await _approve_ids(client, world, [prepared.json()["document"]["id"]])
+        sign = case((LedgerLine.side == "debit", 1), else_=-1)
+        async with AsyncSessionLocal() as db:
+            balance = await db.scalar(
+                select(func.sum(sign * LedgerLine.amount))
+                .join(LedgerDocument, LedgerDocument.id == LedgerLine.document_id)
+                .where(
+                    LedgerDocument.status == "approved",
+                    LedgerLine.account == acc["vat_import"],
+                )
+            )
+        assert int(balance or 0) == 0
+
+        # PK na koncie VAT należnego importu usług poza rejestrem — „spoza rejestru”.
+        async with AsyncSessionLocal() as db:
+            from app.services.ledger import documents as ledger_documents
+            from app.services.ledger.documents import DocumentSpec
+
+            manual = await ledger_documents.create_draft(
+                db,
+                DocumentSpec(
+                    doc_type="PK",
+                    op_date=date(year, 3, 30),
+                    doc_date=date(year, 3, 30),
+                    description="Korekta VAT importu ręcznie",
+                    lines=[
+                        LineIn("debit", acc["cost"], 1_000, "korekta"),
+                        LineIn("credit", acc["vat_import"], 1_000, "korekta"),
+                    ],
+                ),
+                actor_id=world["accountant"].id,
+            )
+            await db.commit()
+        await _approve_ids(client, world, [manual.id])
+        registers = (await _vat_registers(client, world, books)).json()
+        outside = next(issue for issue in registers["issues"] if issue["kind"] == "outside")
+        assert [item["id"] for item in outside["items"]] == [manual.id]
+        problem = (await _settlement(client, world, books))["problem"]
+        assert "VAT należny" in problem and "spoza rejestru" in problem
     finally:
         await _purge_jpk(year)
         await _restore_payer(previous)
