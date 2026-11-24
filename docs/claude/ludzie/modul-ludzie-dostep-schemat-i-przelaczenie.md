@@ -78,6 +78,11 @@ mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
   „Wyrównaj wg konta” też (audyt 21.10.2026): własne id w `user_ids` = 403,
   a wyrównanie wszystkich rozjazdów (`user_ids` puste) pomija własną kartotekę
   (`account_profiles.align(skip_user_ids=…)`); admin wyrównuje także siebie.
+  Od audytu 24.11.2026 także własna e-teczka (wgranie, zmiana, usunięcie
+  dokumentu w `hr_documents.py`; oświadczenie studenta włączało zwolnienie ze
+  składek) i własna sprawa wejścia albo odejścia (`hr_lifecycle.py`: założenie,
+  zmiana, start, anulowanie, zakończenie, „Wyłącz konto teraz”, przekazania,
+  nowe zadanie). Odhaczanie zadania przez jego wykonawcę zostaje bez guardu.
 - Ślad wrażliwych zapisów: `app/services/hr/audit.record(...)` z `sensitivity`
   `health` (L4) albo `payroll` (kwoty). Kwot nie ma w `critical_events` ani logach.
 
