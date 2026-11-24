@@ -38,6 +38,8 @@ from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
 
 from app.api.contracts import (
+    _assert_no_duplicate_contract,
+    _lock_candidate_identity,
     _normalize_contract_currency,
     _raise_currency_conflict,
     _reject_b2b_end_date,
@@ -3779,7 +3781,7 @@ async def create_contract_with_order(
     db: AsyncSession = Depends(get_db),
 ):
     """Flow B — "Nowy kontraktor / zamówienie": atomic Contract + Order create."""
-    await _assert_client(db, client_id, for_write=True)
+    client = await _assert_client(db, client_id, for_write=True)
     # Ten formularz zakłada umowę B2B (typ domyślny kontraktu), a umowa B2B
     # rodzi się bezterminowa. Pole „Contract end" było tu źródłem dat
     # przepisywanych z końca ZAMÓWIENIA — tamta data ma swoje pole
@@ -3814,9 +3816,12 @@ async def create_contract_with_order(
     else:
         resolved_rate_unit = await default_rate_unit_for_client(db, client_id)
 
-    cand = await db.scalar(
-        select(Candidate).where(Candidate.id == payload.candidate_id)
-    )
+    # Audyt r5 (25.11.2026): ta sama blokada duplikatu co „Nowy kontraktor”
+    # (POST /api/contracts) i generator B2B. Bez niej drugi kontrakt tej samej
+    # osoby u klienta powstawał bez pytania, a dwa szybkie kliknięcia mijały
+    # sprawdzenie. Blokada wierszy kandydata (cała tożsamość po e-mailu)
+    # trzyma się do commita, więc równoległe żądania idą po kolei.
+    cand = await _lock_candidate_identity(db, payload.candidate_id)
     if cand is None:
         raise HTTPException(404, detail="Candidate not found")
 
@@ -3831,6 +3836,8 @@ async def create_contract_with_order(
         )
         if fc is None:
             raise HTTPException(400, detail="Invalid framework_contract_id")
+
+    await _assert_no_duplicate_contract(db, candidate=cand, client=client)
 
     contract = Contract(
         candidate_id=payload.candidate_id,

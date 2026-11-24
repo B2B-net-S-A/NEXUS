@@ -55,6 +55,24 @@ async def _seed_client(*, name: str | None = None) -> tuple[int, int, int]:
         return client.id, contract.id, candidate.id
 
 
+async def _other_candidate() -> int:
+    """Druga osoba do „Nowy kontraktor”: osoba z `_seed_client` ma już żywy
+    kontrakt u klienta, więc Flow B odpowiedziałby jej 409 (blokada duplikatu)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+
+    suffix = uuid.uuid4().hex[:6]
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(
+            name="Ewa",
+            lastname=f"Nowa-{suffix}",
+            email=f"ru-new-{suffix}@example.com",
+        )
+        db.add(candidate)
+        await db.commit()
+        return candidate.id
+
+
 async def _seed_orders(client_id: int, contract_id: int, units: list[RateUnit]) -> None:
     from app.core.database import AsyncSessionLocal
     from app.models.client_order import ClientOrder, ClientOrderStatus
@@ -191,7 +209,7 @@ async def test_operational_order_without_unit_takes_client_default(
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "DL_CLIENT_SCOPE", "all")
-    client_id, contract_id, candidate_id = await _seed_client()
+    client_id, contract_id, _ = await _seed_client()
     await _seed_orders(client_id, contract_id, [RateUnit.hourly, RateUnit.hourly])
     dl_headers = await _unassigned_dl_headers(app_client)
 
@@ -199,7 +217,7 @@ async def test_operational_order_without_unit_takes_client_default(
         f"/api/clients/{client_id}/contract-with-order",
         headers=dl_headers,
         json={
-            "candidate_id": candidate_id,
+            "candidate_id": await _other_candidate(),
             "title": "NOWE-PO-1",
             "contract_start_date": business_today().isoformat(),
             # świadomie BEZ rate_unit ani stawek → ścieżka operacyjna
@@ -221,14 +239,14 @@ async def test_finance_order_without_unit_takes_client_default(
 ) -> None:
     """Rola finansowa podaje stawki, ale NIE jednostkę → domyślna jednostka
     klienta (nie `monthly`)."""
-    client_id, contract_id, candidate_id = await _seed_client()
+    client_id, contract_id, _ = await _seed_client()
     await _seed_orders(client_id, contract_id, [RateUnit.daily, RateUnit.daily])
 
     resp = await app_client.post(
         f"/api/clients/{client_id}/contract-with-order",
         headers=app_auth_headers,
         json={
-            "candidate_id": candidate_id,
+            "candidate_id": await _other_candidate(),
             "title": "NOWE-PO-1b",
             "contract_start_date": business_today().isoformat(),
             "rate_client": "544.000",
@@ -251,14 +269,14 @@ async def test_new_contractor_order_respects_explicit_unit(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:
     """Jawnie wybrana jednostka (także `monthly`) ma pierwszeństwo nad domyślną."""
-    client_id, contract_id, candidate_id = await _seed_client()
+    client_id, contract_id, _ = await _seed_client()
     await _seed_orders(client_id, contract_id, [RateUnit.hourly, RateUnit.hourly])
 
     resp = await app_client.post(
         f"/api/clients/{client_id}/contract-with-order",
         headers=app_auth_headers,
         json={
-            "candidate_id": candidate_id,
+            "candidate_id": await _other_candidate(),
             "title": "NOWE-PO-2",
             "contract_start_date": business_today().isoformat(),
             "rate_client": "160.000",
