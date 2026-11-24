@@ -17,6 +17,7 @@ import type {
   RejectionWorkModeProfile,
 } from "@/components/v2/modals/RejectionWorkModeField";
 import type { RejectionRateProfile } from "@/components/v2/modals/RejectionRateField";
+import type { RejectionResidenceProfile } from "@/components/v2/modals/RejectionResidenceField";
 import api, { candidatesApi } from "@/lib/api";
 import { toAmount } from "@/lib/candidate-rate";
 import { profileWorkMode } from "@/lib/work-mode";
@@ -84,4 +85,20 @@ export function useRejectionProfileRate(
     rateFromHourly: toAmount(query.data.rate_from_hourly),
     rateFromAt: query.data.rate_from_at ?? null,
   };
+}
+
+/** Miasto i kraj z profilu jednej osoby — przy „Mieszka poza UE” (makieta
+ *  24.11.2026); ten sam wpis cache'u co tryb pracy. */
+export function useRejectionProfileResidence(
+  candidateId: number | null | undefined,
+  enabled = true,
+): RejectionResidenceProfile | undefined {
+  const query = useQuery<{ city?: string | null; country?: string | null; location?: string | null }>({
+    queryKey: candidateQueryKeys.detail(candidateId ?? 0),
+    queryFn: () => candidatesApi.get(candidateId as number).then((r) => r.data),
+    enabled: enabled && candidateId != null,
+    staleTime: 60_000,
+  });
+  if (!query.data) return undefined;
+  return { city: query.data.city ?? query.data.location ?? null, country: query.data.country ?? null };
 }

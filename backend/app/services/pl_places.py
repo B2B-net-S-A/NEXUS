@@ -98,6 +98,13 @@ def _load() -> tuple[tuple[Place, ...], dict[str, Place]]:
     return places, by_key
 
 
+@lru_cache(maxsize=1)
+def all_keys() -> tuple[str, ...]:
+    """Wszystkie klucze słownika (nazwy i aliasy) — do sprawdzenia w SQL,
+    czy miasto osoby leży w Polsce (``residence.abroad_ids``)."""
+    return tuple(sorted(_load()[1]))
+
+
 def resolve(name: Optional[str]) -> Optional[Place]:
     """Miejscowość po nazwie (bez polskich znaków i wielkości liter) albo ``None``."""
     key = place_key(name)

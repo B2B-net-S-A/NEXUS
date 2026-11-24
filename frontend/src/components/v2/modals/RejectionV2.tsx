@@ -41,6 +41,11 @@ import {
  type RejectionWorkModeProfile,
 } from "@/components/v2/modals/RejectionWorkModeField";
 import {
+  profileAbroadCountry,
+  RejectionResidenceField,
+  type RejectionResidenceProfile,
+} from "@/components/v2/modals/RejectionResidenceField";
+import {
  AutofillFeedbackField,
  parseRateInput,
 } from "@/components/v2/modals/AutofillFeedbackField";
@@ -139,7 +144,10 @@ interface Props {
  /** „Nie szuka pracy” z listy szablonu (19.11.2026): do kiedy — „RRRR-MM-DD”;
   *  `null` przy innym powodzie i przy osobie od systemu (tam data jest
   *  w `autofill`). */
- notLookingUntil?: string | null
+ notLookingUntil?: string | null,
+ /** „Mieszka poza Polską” (24.11.2026): kraj zamieszkania na profil (ISO
+  *  alfa-2) — tylko przy jednej osobie; `null` przy innym powodzie. */
+ residenceCountry?: string | null
  ) => void;
  /** Wstępny wybór „kto kończy" (np. upuszczenie na „Odrzucony przez klienta"). */
  initialEndedBy?: Exclude<EndedBy, "candidate"> | null;
@@ -193,6 +201,9 @@ interface Props {
  /** „Stawka od” z profilu (tylko przy jednej osobie) — przy „Za wysokie
   *  oczekiwania finansowe”. */
  profileRate?: RejectionRateProfile | null;
+ /** Miasto i kraj z profilu (tylko przy jednej osobie) — przy „Mieszka poza
+  *  Polską” pole kraju startuje od kraju z profilu. */
+ profileResidence?: RejectionResidenceProfile | null;
  /** Wśród odrzucanych jest osoba od systemu z „Nowych”/„Screeningu”
   *  (silnik „Nowi na 20”, 23.10.2026) — okno pyta o powód dla systemu.
   *  `rateKnown`: czy system znał stawkę (jedna osoba). */
@@ -243,6 +254,7 @@ export function RejectionV2({
  pending = false,
  workModeJob = null,
  profileWorkMode,
+ profileResidence,
  profileRate,
  autofill = null,
  decisionColumn = false,
@@ -289,6 +301,8 @@ export function RejectionV2({
  // na profilu — najświeższa deklaracja z rozmowy nadpisuje profil.
  const [officeDays, setOfficeDays] = useState(0);
  const [saveWorkMode, setSaveWorkMode] = useState(true);
+ // „Mieszka poza Polską” (24.11.2026): wybrany kraj; pusty = kraj z profilu.
+ const [residenceCountry, setResidenceCountry] = useState("");
  // „Za wysokie oczekiwania finansowe” (26.10.2026): ile teraz chce.
  const [newRate, setNewRate] = useState("");
  const [newRateIsMinimum, setNewRateIsMinimum] = useState(true);
@@ -318,6 +332,7 @@ export function RejectionV2({
  setCancelAgreement(true);
  setOfficeDays(0);
  setSaveWorkMode(true);
+ setResidenceCountry("");
  setNewRate("");
  setNewRateIsMinimum(true);
  setAutofillLearnedFrom(null);
@@ -352,6 +367,11 @@ export function RejectionV2({
  const chosenReason = filtered.find((r) => r.id === effectiveReasonId);
  const workModeReason = chosenReason?.name === WORK_MODE_MISMATCH_REASON;
  const rateReason = isRateTooHighReason(chosenReason);
+ // Kraj tylko przy wierszu szablonu `outside_poland` — szablon bez niego
+ // zapisze „Inne” z nazwą powodu, a serwer przyjmuje kraj tylko przy nim.
+ const abroadReason =
+ autofillReason === "outside_poland" && chosenReason?.name?.trim() === "outside_poland";
+ const chosenResidence = residenceCountry || profileAbroadCountry(profileResidence);
  // 20.10.2026: „Inne” i „Już po rozmowie u tego hiring managera” bez opisu
  // zostawiały w historii samo słowo — notatka jest wtedy opisem powodu.
  // „Inne” dla systemu też potrzebuje opisu (serwer: 422 bez `notes`).
@@ -433,7 +453,8 @@ export function RejectionV2({
  autofillChoice,
  rateChoice,
  meetingsChoice,
- notLookingReason ? notLookingUntilValue : null
+ notLookingReason ? notLookingUntilValue : null,
+ abroadReason && !several && chosenResidence ? chosenResidence : null
  );
  return;
  }
@@ -468,6 +489,7 @@ export function RejectionV2({
  (hasReasons && !effectiveReasonId) ||
  (descriptionRequired && !otherNoteHasWords(notes)) ||
  (offerResponseRequired && !offerResponse) ||
+ (abroadReason && !several && !chosenResidence) ||
  (autofillAsked && autofillChoice == null) ||
  (emailAvailable && sendEmail && emailState.invalid);
 
@@ -553,6 +575,14 @@ export function RejectionV2({
  fromSystem={autofillAsked}
  groups={closeGroups}
  >
+ {abroadReason ? (
+ <RejectionResidenceField
+ profile={several ? undefined : profileResidence}
+ several={several}
+ country={chosenResidence}
+ onCountryChange={setResidenceCountry}
+ />
+ ) : null}
  {workModeReason ? (
  <RejectionWorkModeField
  job={workModeJob}

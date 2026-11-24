@@ -152,11 +152,16 @@ async def _keep_assignable(
         .scalars()
         .all()
     )
+    # Mieszka poza Polską (decyzja Artura 24.11.2026): system takich osób nie
+    # proponuje, także w powiadomieniu o podobnej rekrutacji.
+    from app.services.residence import lives_outside_poland
+
     allowed = {
         c.id
         for c in await filter_eligible_candidates(
             db, job=job, candidates=list(rows), now=datetime.now(timezone.utc)
         )
+        if not lives_outside_poland(c)
     }
     return [c for c in ranked if c.candidate_id in allowed]
 

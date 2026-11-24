@@ -197,6 +197,11 @@ async def _fresh_top_matches(
         db, candidates, job_inputs.gate_evidence_labels, options=job_inputs.gate_options
     )
     candidates = apply_dealbreakers(candidates, inputs=job_inputs).kept
+    # Mieszka poza Polską (decyzja Artura 24.11.2026): system takich osób nie
+    # proponuje, także w podsumowaniu dopasowań.
+    from app.services.residence import lives_outside_poland
+
+    candidates = [c for c in candidates if not lives_outside_poland(c)]
     if not candidates:
         return []
 

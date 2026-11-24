@@ -56,6 +56,8 @@ REASONS: tuple[str, ...] = (
     "client_project_closed",
     "client_after_deadline",
     "client_no_reason",
+    # 0768 (24.11.2026): mieszka poza Polską — system już takich nie proponuje.
+    "outside_poland",
     "other",
 )
 # Braki przy pozycjach (0686): „Brak umiejętności” kliknięty przy pozycji.

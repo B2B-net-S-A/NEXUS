@@ -63,6 +63,8 @@ export interface PipelineMovePayload {
   /** „Nie szuka pracy” z listy szablonu przy karcie dodanej ręcznie (19.11.2026):
    *  „RRRR-MM-DD”, od jutra do dwóch lat. */
   not_looking_until?: string;
+  // „Mieszka poza Polską” (24.11.2026): kraj zamieszkania (ISO alfa-2) na profil.
+  residence_country?: string;
   candidate_offer_response?: "pending" | "accepted" | "declined";
   ended_by?: string;
   /** Bliźniaki (0614): rekrutacja → kod powodu pominięcia (`TwinSkipDialog`). */

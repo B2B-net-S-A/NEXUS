@@ -86,6 +86,7 @@ import {
 import {
   useRejectionProfileWorkMode,
   useRejectionProfileRate,
+  useRejectionProfileResidence,
   useRejectionWorkModeJob,
 } from "@/hooks/useRejectionWorkModeContext";
 import {
@@ -292,6 +293,10 @@ export function JobInterviewsTab({
     pendingTerminal?.entry.item.candidate_id ?? null,
     pendingTerminal !== null,
   );
+  const terminalProfileResidence = useRejectionProfileResidence(
+    pendingTerminal?.entry.item.candidate_id ?? null,
+    pendingTerminal !== null,
+  );
 
   // ── Ruch bez dialogu — ta sama droga co drag&drop na tablicy ─────────
   // Rdzeń ruchu (`usePipelineMoveCore`) obsługuje ostrzeżenie „Przenieś mimo
@@ -334,6 +339,7 @@ export function JobInterviewsTab({
       rate?: RejectionRateChoice | null;
       meetings?: PairMeetingsChoice | null;
       notLookingUntil?: string | null;
+      residenceCountry?: string | null;
     }) =>
       moveCore.send(
         {
@@ -353,6 +359,7 @@ export function JobInterviewsTab({
           work_mode_save_to_profile: vars.workMode?.saveToProfile,
           ...rejectionRateMoveFields(vars.rate),
           not_looking_until: vars.notLookingUntil ?? undefined,
+          residence_country: vars.residenceCountry ?? undefined,
           candidate_offer_response: vars.offerResponse ?? undefined,
           expected_state_version: expectedStateVersionOf(vars.item),
         },
@@ -530,6 +537,7 @@ export function JobInterviewsTab({
           workModeJob={terminalWorkModeJob}
           profileWorkMode={terminalProfileWorkMode}
           profileRate={terminalProfileRate}
+          profileResidence={terminalProfileResidence}
           onConfirm={(
             reasonId,
             notes,
@@ -544,6 +552,7 @@ export function JobInterviewsTab({
             rate,
             meetings,
             notLookingUntil,
+            residenceCountry,
           ) =>
             terminalMutation.mutate({
               item: pendingTerminal.entry.item,
@@ -563,6 +572,7 @@ export function JobInterviewsTab({
               rate,
               meetings,
               notLookingUntil,
+              residenceCountry,
             })
           }
         />

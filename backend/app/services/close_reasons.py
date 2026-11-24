@@ -120,6 +120,10 @@ CLOSE_REASON_GROUPS: tuple[tuple[str, tuple[CloseReason, ...]], ...] = (
                 rejected="work_mode_mismatch",
                 withdrawn="work_mode_mismatch",
             ),
+            # 0768 (24.11.2026): osoba mieszka za granicą — system już jej nie
+            # proponuje (``residence.lives_outside_poland``), a powód domyka
+            # profile bez kraju.
+            _r("outside_poland", "Mieszka poza Polską", _US_CLIENT),
             _r("contract_form", "Forma umowy (UoP / B2B)", _ALL),
             _r("available_too_late", "Dostępna za późno / wypowiedzenie", _ALL),
         ),
@@ -212,6 +216,8 @@ NEW_REJECTED: tuple[tuple[str, bool], ...] = (
     ("profile_mismatch", False),
     ("wrong_phone", False),
 )
+# Powody dołożone po 0745, każdy własną migracją (nazwa w szablonie, weto).
+LATER_REJECTED: tuple[tuple[str, bool], ...] = (("outside_poland", False),)
 NEW_WITHDRAWN: tuple[str, ...] = (
     "contract_form",
     "available_too_late",
