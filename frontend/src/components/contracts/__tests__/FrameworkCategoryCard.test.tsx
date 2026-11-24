@@ -154,9 +154,37 @@ describe("FrameworkCategoryCard — karta", () => {
     expect(row("Limit")).toHaveTextContent("—");
   });
 
-  it.todo(
-    "awaria GET /framework-category pokazuje błąd zamiast cichego ukrycia karty (dziś FrameworkCategoryCard.tsx:46 zwraca null przy !isSuccess, więc awaria wygląda jak klient bez umowy ramowej)",
-  );
+  it("awaria GET /framework-category pokazuje kartę z błędem i ponowieniem, a nie znika jak u klienta bez umowy ramowej", async () => {
+    let calls = 0;
+    mocks.get.mockImplementation(async (url: string) => {
+      if (url === "/api/contracts/11/framework-category") {
+        calls += 1;
+        if (calls === 1) throw { isAxiosError: true, response: { status: 500, data: { detail: "Cennik chwilowo niedostępny." } } };
+        return { data: category() };
+      }
+      if (url === "/api/contracts/11/premium-skills") return { data: { evidence: [], claims: [] } };
+      throw new Error(`nieoczekiwane ${url}`);
+    });
+    const user = userEvent.setup();
+    renderCard();
+    const card = await screen.findByTestId("framework-category-card");
+    expect(within(card).getByText("Umowa ramowa")).toBeInTheDocument();
+    const alert = within(card).getByRole("alert");
+    expect(alert).toHaveTextContent("Nie udało się pobrać danych");
+    expect(alert).toHaveTextContent("Cennik chwilowo niedostępny.");
+    // Bez danych nie ma czego edytować.
+    expect(screen.queryByRole("button", { name: "Kategoria i dopłata" })).not.toBeInTheDocument();
+    await user.click(within(alert).getByRole("button", { name: "Spróbuj ponownie" }));
+    expect(await screen.findByText("Ponad stawką")).toBeInTheDocument();
+    expect(calls).toBe(2);
+  });
+
+  it.each([403, 404])("odmowa albo brak kontraktu (%i) chowa kartę jak dotąd", async (status) => {
+    mocks.get.mockRejectedValue({ isAxiosError: true, response: { status, data: { detail: "nie" } } });
+    const { container } = renderCard();
+    await waitFor(() => expect(mocks.get).toHaveBeenCalled());
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
 });
 
 describe("FrameworkCategoryCard — „Kategoria i dopłata”", () => {
