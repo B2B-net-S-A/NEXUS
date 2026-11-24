@@ -2243,6 +2243,7 @@
   },
   {
     "id": "nowa-rekrutacja-mniej-decyzji",
+    "pr": 3825,
     "title": "Nowa rekrutacja: mniej klikania po odczycie maila",
     "why": "AI wstawia krytyczne i proponuje najważniejsze zadanie z pytaniem — klikasz „Zatwierdź zadanie”. Pytania i kategorię zatwierdza „Utwórz”, termin i liczbę osób podpowiada historia klienta.",
     "tier": "dot",
