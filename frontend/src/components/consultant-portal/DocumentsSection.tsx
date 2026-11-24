@@ -88,14 +88,22 @@ function MonthRow({ row }: { row: PortalMonth }) {
         <ul className="mt-2 space-y-1">
           {row.documents.map((document_) => (
             <li key={document_.id} className="text-xs">
-              <button
-                type="button"
-                className="inline-flex max-w-full items-center gap-1 text-primary underline-offset-2 hover:underline"
-                onClick={() => download(document_)}
-              >
-                <FileText aria-hidden className="size-3 shrink-0" />
-                <span className="truncate">{document_.file_name ?? "Dokument"}</span>
-              </button>
+              {document_.downloadable ? (
+                <button
+                  type="button"
+                  className="inline-flex max-w-full items-center gap-1 text-primary underline-offset-2 hover:underline"
+                  onClick={() => download(document_)}
+                >
+                  <FileText aria-hidden className="size-3 shrink-0" />
+                  <span className="truncate">{document_.file_name ?? "Dokument"}</span>
+                </button>
+              ) : (
+                // Plik od klienta bywa zbiorczy (godziny innych osób), więc bez linku.
+                <span className="inline-flex max-w-full items-center gap-1 text-muted-foreground">
+                  <FileText aria-hidden className="size-3 shrink-0" />
+                  <span className="truncate">{document_.kind === "invoice" ? "Faktura" : "Raport"}: przysłał klient</span>
+                </span>
+              )}
               {document_.reject_reason ? (
                 <span className="block text-destructive">Do poprawy: {document_.reject_reason}</span>
               ) : null}

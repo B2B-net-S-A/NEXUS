@@ -51,6 +51,17 @@ updates:
       # 16.x wróci razem z upgradem frameworka.
       - dependency-name: "eslint-config-next"
         update-types: ["version-update:semver-major"]
+      # ESLint 10 nie działa z eslint-config-next 15: jego
+      # `@rushstack/eslint-patch` kończy `next lint` błędem „Failed to patch
+      # ESLint because the calling module was not recognized” (sprawdzone
+      # 24.11.2026, #1632). Wraca razem z Next 16 i eslint-config-next 16.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      # Typy Node trzymamy w majorze runtime'u z frontend/Dockerfile
+      # (node:24-alpine). Nowszy major podpowiada API, których produkcja
+      # nie ma (#1630 proponował 26). Podnosimy razem z obrazem.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       frontend-minor-patch:
         update-types:
