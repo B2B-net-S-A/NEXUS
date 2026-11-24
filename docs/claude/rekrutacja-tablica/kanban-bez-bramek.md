@@ -12,6 +12,29 @@ Traffit) to warunek przenoszenia zespołu z Traffita falami. Nie przywracaj
 wyjście z „Rozmowy u klienta" dalej wymaga debriefu z pytaniami klienta,
 a osoba dodana ręcznie jest 12 h zarezerwowana dla dodającego.
 
+**Przeskok ponad „CV wysłane” zamknięty (decyzja Artura 24.11.2026, audyt
+24.11):** ruch z kolumny przed wysyłką (Nowi, Screening, Zweryfikowany,
+QC CV; kolumna jak przy innych bramkach, `gate_stage_row`) od razu na
+„Rozmowę u klienta”, „Umowę” albo „Zatrudnionego” to też wysyłka do klienta
+i przechodzi te same bramki co wejście na „CV wysłane”: wysyła osoba
+z `recruitment_manage` ze stawką do klienta (403 / 422), QC CV liczy się tak
+samo (409 `CV_QC_FAILED`, DL ma „Przepuść mimo QC”), u Nordei reguły Cpro
+(akceptacja DL-a, osoba od Cpro; karta z kolejki Cpro już je przeszła).
+Także `/bulk-move`. Do tej daty bramki patrzyły tylko na cel `cv_sent`,
+więc rekruter przeciągał kartę z „QC CV” na „Rozmowę” bez QC, DL-a i stawki.
+Kod: `pipeline_move_rules.CLIENT_SEND_COLUMNS` / `jumps_over_client_send`,
+`_assert_cv_qc_gate`, `cv_qc.gate_applies`; integracje mają to samo od
+dawna (`crosses_to_client` w `recruitment_move_policy`), nocny import
+Traffita nie idzie przez `/move` i zostaje bez zmian. Front:
+`jumpsOverClientSend` w `lib/pipeline-move-dialog.ts` — `usePipelineMove`
+najpierw pokazuje okno stawki do klienta („Przesuń na „Rozmowa u
+klienta””), potem okno celu („Kiedy rozmowa?”, potwierdzenie zatrudnienia),
+a stawka jedzie w tym samym żądaniu; rekruter w oknie „Przesuń dalej” widzi
+to samo co przy „CV wysłane” („Czeka u Delivery Leada”, `build_requirements`
+w `move_requirements.py`). Testy:
+`backend/tests/test_jump_over_cv_sent.py`,
+`usePipelineMove.test.tsx` („przeskok ponad „CV wysłane””).
+
 **Wyjątki z 04.10.2026 (decyzje Artura D1, D2):** wejście na „Zweryfikowany”
 z Nowych/Screeningu wymaga arkusza screeningu (albo odpowiedzi w karcie
 rekomendacji) i stawki kandydata — 409 `VERIFIED_REQUIREMENTS_MISSING`

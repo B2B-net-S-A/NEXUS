@@ -5116,10 +5116,14 @@ def gate_applies(
     """Czy ruch przechodzi przez bramkę QC (lustro kontraktu v5).
 
     Bramka stoi przed „CV wysłane” i przed etapem Cpro, dla par z kolumn
-    przed wysłaniem. Ruchy terminalne i wstecz nie są bramkowane.
+    przed wysłaniem — także przed przeskokiem ponad „CV wysłane” na
+    „Rozmowę u klienta”, „Umowę” albo „Zatrudnionego” (24.11.2026). Ruchy
+    zamykające i wstecz nie są bramkowane.
     """
 
-    if target_column != "cv_sent" and not target_is_cpro:
+    from app.services.pipeline_move_rules import CLIENT_SEND_COLUMNS
+
+    if target_column not in CLIENT_SEND_COLUMNS and not target_is_cpro:
         return False
     return current_column in ("new", "screening", "verified", "cv_qc")
 

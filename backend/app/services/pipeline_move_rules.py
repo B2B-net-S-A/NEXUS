@@ -497,6 +497,24 @@ def requires_dl_client_rate(
     return target == PipelineStage.cv_sent
 
 
+# Kolumny „u klienta”: „CV wysłane” i każda dalsza. Przeskok z kolumny przed
+# wysyłką od razu na „Rozmowę u klienta”, „Umowę” albo „Zatrudnionego” to też
+# wysyłka do klienta — te same bramki co „CV wysłane” (decyzja Artura
+# 24.11.2026, `kanban-bez-bramek.md`). Lustro `crosses_to_client`
+# w `recruitment_move_policy` i `CLIENT_SEND_COLUMNS` we froncie.
+CLIENT_SEND_COLUMNS: tuple[str, ...] = BOARD_COLUMN_ORDER[
+    BOARD_COLUMN_ORDER.index("cv_sent") :
+]
+
+
+def jumps_over_client_send(target_column: Optional[str]) -> bool:
+    """Czy kolumna docelowa leży ZA „CV wysłane” (ruch, który ją przeskakuje,
+    gdy para stoi przed wysyłką — to rozstrzyga
+    ``arrives_from_before_client_send``)."""
+
+    return target_column in CLIENT_SEND_COLUMNS and target_column != "cv_sent"
+
+
 async def arrives_from_before_client_send(
     db: AsyncSession, *, candidate_id: int, job_id: int
 ) -> bool:
@@ -579,7 +597,7 @@ def assert_client_send_allowed(
                 if cpro
                 else (
                     "Wpisz stawkę, za którą wysyłasz kandydata do klienta — bez "
-                    "niej nie przeniesiesz na „CV wysłane”."
+                    "niej nie przeniesiesz na „CV wysłane” ani dalej."
                 )
             ),
         )

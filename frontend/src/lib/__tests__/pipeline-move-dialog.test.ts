@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   dialogUnavailableReason,
+  jumpsOverClientSend,
   moveDialogFor,
   movesBackTo,
   needsInterviewDate,
@@ -126,5 +127,34 @@ describe("movesBackTo", () => {
     expect(movesBackTo(cols, "a", cols[1], idOf)).toBe(false);
     expect(movesBackTo(cols, "d", cols[1], idOf)).toBe(false);
     expect(movesBackTo(cols, "zzz", cols[1], idOf)).toBe(false);
+  });
+});
+
+describe("jumpsOverClientSend (decyzja Artura 24.11.2026)", () => {
+  const verified = { stage: "verified", name: "Zweryfikowany", category: "internal" };
+  const qc = { stage: "interview", name: "QC CV", category: "internal" };
+  const cpro = { stage: "new", name: "Wysłać do Cpro", category: "internal" };
+  const cvSent = { stage: "cv_sent", name: "CV Wysłane", category: "external" };
+  const interview = { stage: "client_interview", name: "Rozmowa u klienta", category: "external" };
+  const acceptance = { stage: "acceptance", name: "Akceptacja klienta", category: "external" };
+  const hired = { stage: "hired", name: "Zatrudniony", category: "terminal", terminal_type: "hired" };
+  const rejected = { stage: "rejected", name: "Odrzucony", category: "terminal", terminal_type: "rejected" };
+
+  it("z kolumny przed wysyłką za „CV wysłane” — przeskok", () => {
+    expect(jumpsOverClientSend(verified, interview)).toBe(true);
+    expect(jumpsOverClientSend(qc, acceptance)).toBe(true);
+    expect(jumpsOverClientSend(qc, hired)).toBe(true);
+  });
+
+  it("wejście na „CV wysłane”, ruch od niego dalej, wstecz i zamknięcie — nie", () => {
+    expect(jumpsOverClientSend(qc, cvSent)).toBe(false);
+    expect(jumpsOverClientSend(cvSent, interview)).toBe(false);
+    expect(jumpsOverClientSend(interview, verified)).toBe(false);
+    expect(jumpsOverClientSend(verified, rejected)).toBe(false);
+    expect(jumpsOverClientSend(null, interview)).toBe(false);
+  });
+
+  it("kolejka Cpro (Nordea) idzie regułami Cpro", () => {
+    expect(jumpsOverClientSend(cpro, interview)).toBe(false);
   });
 });
