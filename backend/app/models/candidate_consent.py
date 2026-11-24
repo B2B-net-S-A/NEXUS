@@ -14,6 +14,10 @@ Od 0477 jedno zgłoszenie daje jeden albo dwa wiersze: obowiązkowy
 Tekst zgody nie jest kopiowany do każdego wiersza — ``text_version`` wskazuje
 wersję w ``services/career_consent.py``, a ``text_sha256`` dowodzi, którą
 dokładnie treść zobaczył kandydat. Bez adresu IP w jawnej postaci.
+
+Wyjątek (0772): zgody z formularzy strony WWW (``services/website_applications``)
+mają treść na stronie, nie w NEXUSIE — wiersz niesie wtedy dosłowną treść
+w ``consent_text``.
 """
 
 from __future__ import annotations
@@ -21,7 +25,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, String, func
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -64,3 +76,6 @@ class CandidateConsent(Base):
     )
     # Nie-sekretny klucz linku (SHA-256 sekretu), przez który złożono zgodę.
     invite_link_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # 0772: dosłowna treść zgody spoza NEXUSA (strona WWW). NULL = treść
+    # wskazuje ``text_version``.
+    consent_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

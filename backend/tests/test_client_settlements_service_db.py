@@ -3,7 +3,9 @@ wstrzymuje, odesłanie do poprawy, reguły od miesiąca, lista miesiąca."""
 
 from __future__ import annotations
 
-from datetime import timedelta
+import hashlib
+import uuid
+from datetime import datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -15,6 +17,7 @@ from app.core.scheduling import business_today, local_now
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup
 from app.models.client_settlement import ClientSettlement, ClientSettlementRuleSet
+from app.models.consultant_portal import CpDocument
 from app.models.md_consumption import ClientOrderMdConsumption
 from app.services.client_settlements import service
 from app.services.client_settlements.service import SettlementError
@@ -383,5 +386,57 @@ async def test_wgrane_rcp_wypelnia_md_a_przyjecie_bierze_tez_mail(
                     .where(AppSetting.key == "client_settlements")
                     .values(value=previous)
                 )
+            await db.commit()
+        await _cleanup(client_id)
+
+
+async def test_pliki_jednego_przebiegu_od_nowszego_maila_a_w_nim_po_kolei() -> None:
+    """Czytnik poczty zapisuje pliki przebiegu z jednym ``created_at``. Próba IX–X
+    2026: wybór pliku zależał od fizycznej kolejności wierszy (Alior z uwagą
+    albo bez, Polkomtel 8 albo 2,5 MD z dwóch arkuszy jednego maila)."""
+
+    client_id, contract_id, _line = await _world()
+    run = local_now().replace(microsecond=0)
+    tag = uuid.uuid4().hex
+
+    def doc(name: str, message: str, at: datetime) -> CpDocument:
+        return CpDocument(
+            contract_id=contract_id,
+            kind="report",
+            period_year=2026,
+            period_month=9,
+            channel="mailbox",
+            status="received",
+            file_path=f"x/{name}",
+            file_name=name,
+            mime="application/pdf",
+            size_bytes=10,
+            sha256=hashlib.sha256(f"{tag}{name}".encode()).hexdigest(),
+            graph_message_id=f"{message}-{tag}",
+            created_at=at,
+        )
+
+    try:
+        async with AsyncSessionLocal() as db:
+            # Kolejność zapisu jak w czytniku: wcześniejszy przebieg, potem w jednym
+            # przebiegu starszy mail (RCP i drugi arkusz), a po nim nowszy.
+            earlier = doc("wczesniej.pdf", "c", run - timedelta(hours=1))
+            older = [doc("rcp.pdf", "a", run), doc("drugi-arkusz.pdf", "a", run)]
+            newer = [doc("poprawione-rcp.pdf", "b", run), doc("faktura.pdf", "b", run)]
+            for document in (earlier, *older, *newer):
+                db.add(document)
+                await db.flush()
+            await db.commit()
+            expected = [d.id for d in (*newer, *older, earlier)]
+        async with AsyncSessionLocal() as db:
+            got = await service._month_reports(db, contract_id, "2026-09")
+        assert [d.id for d in got] == expected
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                CpDocument.__table__.delete().where(
+                    CpDocument.contract_id == contract_id
+                )
+            )
             await db.commit()
         await _cleanup(client_id)

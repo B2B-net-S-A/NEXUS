@@ -14,7 +14,7 @@ function percent(rate: string): string {
   return `${rate.replace(".", ",")}%`;
 }
 
-/** „do 15 000 000,00 EUR 2,5%, nadwyżka 3%” — progi z ustawień klienta. */
+/** Np. „do 1 000 000,00 EUR 1%, nadwyżka 2%” (liczby fikcyjne) — progi z ustawień klienta. */
 export function rebateTiersText(rebate: InvoiceRebate): string {
   return rebate.tiers
     .map((tier, index) => {

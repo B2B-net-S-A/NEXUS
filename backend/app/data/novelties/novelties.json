@@ -5156,6 +5156,25 @@
     "dot_anchor": "dock.plan-preparation"
   },
   {
+    "id": "po-terminie-zamiast-szukamy",
+    "pr": 3878,
+    "title": "Rekrutacja po terminie: „Po terminie” zamiast „Szukamy”",
+    "why": "Dzień po terminie „Szukamy” zmienia się w czerwone „Po terminie”. Delivery Lead nad Tablicą wpisuje nowy termin, ustawia „Klient milczy” albo zamyka.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacje → Stan requestu → Po terminie",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.list.stage-overdue"
+  },
+  {
     "id": "pytania-z-rozmow",
     "pr": 3883,
     "title": "Pytania z rozmów u klienta w jednym miejscu",

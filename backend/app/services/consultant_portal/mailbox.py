@@ -58,6 +58,7 @@ from app.services.client_settlements import (
     hours_summary,
     kesu,
     mail_text,
+    order_split,
     protocol_collective,
     report_ca,
     t4t_mail,
@@ -1095,7 +1096,9 @@ async def _store_hours_summary(
         return None
     summary = await asyncio.to_thread(hours_summary.parse, content, mail_text.EML)
     if summary is None:
-        return None
+        return await _store_split_table(
+            db, message, content, sender=sender, state=state, today=today, now=now
+        )
     received = _parse_time(message.get("receivedDateTime")) or now
     year, month, guessed = period_for(subject, "", received.date())
     if summary.month is not None:
@@ -1124,6 +1127,87 @@ async def _store_hours_summary(
             )
         except PortalError as exc:
             logger.info("rozliczenia@: zestawienie pominięte (%s)", type(exc).__name__)
+            return created
+        created += 0 if stored.duplicate else 1
+    return created
+
+
+async def _store_split_table(
+    db: AsyncSession,
+    message: dict[str, Any],
+    content: bytes,
+    *,
+    sender: str,
+    state: portal_settings.PortalSettings,
+    today: date,
+    now: datetime,
+) -> Optional[int]:
+    """Tabela klienta „osoba × numer zamówienia” z MD w treści maila jako raport
+    każdej osoby z tabeli (Polkomtel IX 2026: koordynatorka przekazuje z adresu
+    firmy zestawienie od klienta, bez pliku; dotąd nie trafiało do nikogo).
+
+    Klient to ten, do którego należą numery zamówień z nagłówka, a tabelę musi
+    napisać ktoś z jego domeny (cytat nad tabelą). Osobę z wiersza szukamy tylko
+    wśród kontraktów tego klienta. Okres z tematu albo tabeli, nie zgadnięty
+    z daty maila. ``None`` = to nie taka tabela albo nikogo nie rozpoznaliśmy:
+    mail idzie dalej zwykłą ścieżką. Rozliczenie bierze z niej wiersz osoby
+    (``client_settlements/order_split``)."""
+
+    split = await asyncio.to_thread(order_split.parse, content, mail_text.EML)
+    if split is None or split.kind != order_split.TABLE:
+        return None
+    keys = frozenset(
+        key
+        for row in split.rows
+        for part in row.parts
+        if (key := order_split.order_key(part.order))
+    )
+    client_id = await identity.split_client(db, keys)
+    if client_id is None or client_id not in await identity.client_ids_for_sender(
+        db, order_split.author_address(split)
+    ):
+        return None
+    subject = str(message.get("subject") or "")
+    received = _parse_time(message.get("receivedDateTime")) or now
+    year, month, guessed = period_for(subject, "", received.date())
+    if split.month is not None:
+        year, month = (int(part) for part in split.month.split("-"))
+    elif guessed:
+        return None
+    people: dict[int, Contract] = {}
+    for row in split.rows:
+        mine = frozenset(
+            key for part in row.parts if (key := order_split.order_key(part.order))
+        )
+        contract = await identity.resolve_split_row(
+            db, row.person or "", client_id=client_id, order_keys=mine, today=today
+        )
+        if contract is not None and (state.any_sender or state.open_for(contract.id)):
+            people[contract.id] = contract
+    if not people:
+        return None
+    created = 0
+    message_id = str(message["id"])[:512]
+    for position, contract_id in enumerate(sorted(people)):
+        try:
+            stored = await documents.store(
+                db,
+                contract_id=contract_id,
+                kind="report",
+                year=year,
+                month=month,
+                content=content,
+                file_name=(subject.strip()[:120] or "zestawienie") + ".eml",
+                channel="mailbox",
+                now=now,
+                # Para (mail, plik) jest unikalna: identyfikator maila ma pierwsza kopia.
+                graph_message_id=message_id if position == 0 else None,
+                sender_email=sender[:320] or None,
+            )
+        except PortalError as exc:
+            logger.info(
+                "rozliczenia@: tabela zamówień pominięta (%s)", type(exc).__name__
+            )
             return created
         created += 0 if stored.duplicate else 1
     return created

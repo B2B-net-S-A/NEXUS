@@ -65,47 +65,99 @@ def _is_pdf(name: str, content: bytes) -> bool:
     return content.startswith(b"%PDF") or name.lower().endswith(".pdf")
 
 
+@dataclass(frozen=True)
+class _Sheet:
+    """Plik z KEŚU: sam arkusz albo mail z arkuszem w załączniku."""
+
+    document: CpDocument
+    kesu: kesu.ParsedKesu
+    mail: Optional[mail_file.MailFile] = None
+    jira: Optional[kesu.JiraAcceptance] = None
+
+
+def _source(sheets: list[_Sheet], accepted: set[str]) -> _Sheet:
+    """KEŚU z najnowszego pliku. Ten sam arkusz w kilku plikach bierzemy z maila
+    z akceptacją opiekuna (potem z pliku z tej samej wiadomości), a z kilku takich
+    z najstarszego: to pierwsza kopia maila z Jiry.
+
+    Faktury kosztów to PDF-y z maila z Jiry. Konsultant przekazuje go dalej
+    z tym samym KEŚU i własną fakturą, czasem jako samo powiadomienie o zmianie
+    statusu (temat z Jiry, bez opiekuna). Nowszy mail był źródłem, a faktura
+    konsultanta szła do paczki dla klienta jako faktura kosztów (próba IX–X 2026,
+    Alior). Brak faktury kosztów w starszej kopii pokazuje kontrola."""
+
+    newest = sheets[0].kesu
+
+    def rank(sheet: _Sheet) -> int:
+        if sheet.jira is not None and sheet.jira.approver:
+            return 0
+        return 1 if sheet.document.graph_message_id in accepted else 2
+
+    # ``sheets`` od najnowszego; ``min`` bierze pierwszy z najlepszych, więc od końca.
+    return min(reversed([s for s in sheets if s.kesu == newest]), key=rank)
+
+
 def _collect_files(
     files: list[tuple[CpDocument, bytes]], extra_costs: list[tuple[CpDocument, bytes]]
 ) -> Collected:
-    """Praca CPU (parsery, pyHanko) poza pętlą zdarzeń. ``files`` od najnowszego."""
+    """Praca CPU (parsery, pyHanko) poza pętlą zdarzeń. ``files`` od najnowszego.
+
+    Akceptacja to najnowszy mail z Jiry z opiekunem: nowszy mail z samym tematem
+    z Jiry (przekazane powiadomienie o zmianie statusu) jej nie zasłania."""
 
     found = Collected()
-    source_message: Optional[str] = None
-    mail_costs: Optional[list[bytes]] = None
+    sheets: list[_Sheet] = []
+    replies: list[mail_file.MailFile] = []
+    accepted: set[str] = set()
     for document, content in files:
         if document.mime == kesu.KESU_MIME:
             parsed = kesu.parse(content)
-            if parsed is not None and found.kesu is None:
-                found.kesu, found.kesu_document_id = parsed, document.id
-                source_message = document.graph_message_id
+            if parsed is not None:
+                sheets.append(_Sheet(document, parsed))
             continue
         if document.mime in MAIL_MIMES:
             mail = mail_file.read(content, document.mime)
             if mail is None:
                 continue
             jira = kesu.parse_jira(mail.subject, mail.body)
-            if jira is not None and found.jira is None:
+            if jira is not None and (
+                found.jira is None or (jira.approver and not found.jira.approver)
+            ):
                 found.jira = jira
-            sheets = [kesu.parse(a.content) for a in mail.attachments]
-            sheet = next((s for s in sheets if s is not None), None)
-            if sheet is not None and found.kesu is None:
-                found.kesu, found.kesu_document_id = sheet, document.id
-                source_message = document.graph_message_id
-                mail_costs = [
-                    a.content
-                    for a in mail.attachments
-                    if _is_pdf(a.name, a.content)
-                    and not kesu.is_transport_statement(a.name)
-                ]
+            if jira is not None and jira.approver and document.graph_message_id:
+                accepted.add(document.graph_message_id)
+            parsed_sheets = (kesu.parse(a.content) for a in mail.attachments)
+            sheet = next((s for s in parsed_sheets if s is not None), None)
+            if sheet is not None:
+                sheets.append(_Sheet(document, sheet, mail, jira))
             elif jira is None:
-                # Odpowiedź klienta jako plik maila: podpisany PDF w załączniku.
-                for attachment in mail.attachments:
-                    if _is_pdf(attachment.name, attachment.content):
-                        found.signatures.append(rcp_bnp.signatures(attachment.content))
+                replies.append(mail)
             continue
         if document.mime == PDF:
             found.signatures.append(rcp_bnp.signatures(content))
+    source = _source(sheets, accepted) if sheets else None
+    source_message: Optional[str] = None
+    mail_costs: Optional[list[bytes]] = None
+    if source is not None:
+        found.kesu, found.kesu_document_id = source.kesu, source.document.id
+        source_message = source.document.graph_message_id
+        if source.mail is not None:
+            mail_costs = [
+                a.content
+                for a in source.mail.attachments
+                if _is_pdf(a.name, a.content)
+                and not kesu.is_transport_statement(a.name)
+            ]
+    replies += [
+        s.mail
+        for s in sheets
+        if s is not source and s.mail is not None and s.jira is None
+    ]
+    for mail in replies:
+        # Odpowiedź klienta jako plik maila: podpisany PDF w załączniku.
+        for attachment in mail.attachments:
+            if _is_pdf(attachment.name, attachment.content):
+                found.signatures.append(rcp_bnp.signatures(attachment.content))
     # KEŚU z pliku maila: faktury kosztów to jego załączniki. KEŚU jako osobny
     # plik: faktury z tego samego maila (``graph_message_id``) zapisane obok.
     found.cost_pdfs = (

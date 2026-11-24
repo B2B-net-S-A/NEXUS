@@ -67,6 +67,8 @@ _RATE_LIMITED_MODULES = (
     "api/dashboard_metrics.py",
     # Strona kariery (0339): publiczne GET-y i formularz multipart.
     "api/public_career.py",
+    # Strona B2B Network: aplikacje kandydatów z serwera strony (token Bearer).
+    "api/public_website_applications.py",
     # Panel klienta (0639): dane kandydatów pod samym linkiem, bez logowania.
     "api/public_client_panel.py",
     # Zespół dla klienta (0711): skład kilku rekrutacji pod samym linkiem.

@@ -342,6 +342,7 @@ from app.api import role_profiles as role_profiles_api
 from app.api import invite_links as invite_links_api
 from app.api import career_links as career_links_api
 from app.api import public_career as public_career_api
+from app.api import public_website_applications as public_website_applications_api
 from app.api import public_client_panel as public_client_panel_api
 from app.api import own_hiring as own_hiring_api
 from app.api import public_own_hiring as public_own_hiring_api
@@ -2230,6 +2231,12 @@ app.include_router(
     public_career_api.router,
     prefix="/api/public/career",
     tags=["public-career"],
+)
+# Aplikacje kandydatów ze strony B2B Network (serwer strony → NEXUS, Bearer).
+app.include_router(
+    public_website_applications_api.router,
+    prefix="/api/public",
+    tags=["public-website"],
 )
 app.include_router(
     public_client_panel_api.router,

@@ -652,7 +652,8 @@ export function outsideP1Href(userId: number): string {
     keepScope: true,
     deadline: "any",
     sort: defaultSortForScope("open"),
-    stages: ["searching"],
+    // „Po terminie” (24.11.2026) to też „Szukamy” w liczniku tablicy.
+    stages: ["searching", "overdue"],
     workedBy: [userId],
     priorityLevels: ["p2", "accepting"],
   })
