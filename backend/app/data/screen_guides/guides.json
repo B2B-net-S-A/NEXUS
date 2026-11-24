@@ -13,7 +13,7 @@
       },
       {
         "q": "Jak znaleźć konkretną rekrutację albo zawęzić listę?",
-        "a": "Wpisz tytuł, klienta, technologię albo numer u klienta i wybierz stan requestu. Pasek pod nim ma „Delivery Lead” („DL”), „Klient”, „Rekruter”, „Kategoria”, „Priorytet”, „Termin”, „Data otwarcia” (na laptopie w „Więcej filtrów”) i „Więcej filtrów”, a obok przełączniki „Po terminie”, „Bez rekrutera” i „Nikogo nie wysłano”.",
+        "a": "Wpisz tytuł, klienta, technologię albo numer u klienta i wybierz stan requestu. Pasek pod nim ma „Delivery Lead” („DL”), „Klient”, „Rekruter”, „Kategoria”, „Priorytet”, „Termin”, „Data otwarcia” (na laptopie w „Więcej filtrów”) i „Więcej filtrów”, a obok przełączniki „Termin minął”, „Bez rekrutera” i „Nikogo nie wysłano”.",
         "anchor": "jobs.list.search"
       },
       {

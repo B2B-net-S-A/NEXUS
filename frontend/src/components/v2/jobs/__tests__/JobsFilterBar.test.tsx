@@ -146,7 +146,7 @@ describe("JobsFilterBar — kolejność i nazwy", () => {
       "Priorytet",
       "Termin",
       "Więcej filtrówWięcej",
-      "Po terminie",
+      "Termin minął",
       "Bez rekrutera",
       "Nikogo nie wysłano",
     ]);

@@ -127,7 +127,7 @@
   {
    "id": "list.quick-filters",
    "area": "lista",
-   "opis": "Pasek filtrów nad tabelą z licznikami (Po terminie, Nikt nie pracuje, Nikogo nie wysłano) — zastąpił „Szybkie” 25.09.2026",
+   "opis": "Pasek filtrów nad tabelą z licznikami (Termin minął — do 24.11.2026 „Po terminie”, Nikt nie pracuje, Nikogo nie wysłano) — zastąpił „Szybkie” 25.09.2026",
    "file": "components/v2/pages/JobsListV2.tsx",
    "marker": "quick-counts",
    "v3_home": "pasek filtrów nad tabelą"
