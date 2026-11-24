@@ -955,5 +955,8 @@ from app.models import law_radar as _law_radar_models  # noqa: F401,E402
 # 0732: bot Cpro (Grok Bot wrzuca kandydatów Nordei do Cpro).
 from app.models import cpro_bot as _cpro_bot_models  # noqa: F401,E402
 
+# 0770: odczyt CV z podglądu „Dodaj kandydata”, wspólny dla procesów web.
+from app.models import cv_preview_read as _cv_preview_read_models  # noqa: F401,E402
+
 # 0750: kolejka odczytów CV wsadem (Message Batches API, scrapery).
 from app.models import cv_parse_batch as _cv_parse_batch_models  # noqa: F401,E402

@@ -8000,9 +8000,10 @@ def _raise_from_cv_duplicate_conflict(rows: list[dict]) -> None:
 
 # Odczyt CV przed zapisem kandydata (29.09.2026): okno „Dodaj kandydata”
 # czyta wgrane CV, wypełnia formularz, a zapis (`/from-cv`) bierze TEN SAM
-# odczyt z OGRANICZONEJ pamięci procesu (`services/cv_preview_cache.py`, klucz
-# = SHA-256 treści pliku) — model płaci raz. Nie `app/core/cache.py`: tamten
-# nie ma limitu ani sprzątania, a tekst CV to dziesiątki KB.
+# odczyt z OGRANICZONEJ tabeli `cv_preview_reads` (`services/cv_preview_cache.py`,
+# klucz = SHA-256 treści pliku, wspólna dla procesów web od 24.11.2026) — model
+# płaci raz. Nie `app/core/cache.py`: tamten jest per proces, bez limitu
+# i sprzątania, a tekst CV to dziesiątki KB.
 _TAKEN_EMAIL_MESSAGE = "Kandydat z tym adresem e-mail już istnieje."
 
 # Pola formularza „Dodaj kandydata” spoza kontaktu, które `/from-cv` przyjmuje
@@ -8164,14 +8165,14 @@ def _apply_from_cv_overrides(
 ) -> dict[str, Any]:
     """Wartości wpisane przez rekrutera w formularzu wygrywają z odczytem CV.
 
-    Kopia — odczyt w pamięci procesu zostaje nietknięty. Tożsamość kandydata
+    Kopia — odczyt z modelu albo z podglądu zostaje nietknięty. Tożsamość kandydata
     i sprawdzenie źródła CV idą po scalonych wartościach: rekruter potwierdził
     osobę, więc poprawione nazwisko nie może odesłać CV do kwarantanny.
     """
     import copy
 
     # Głęboka kopia: dalsze kroki zapisu dopisują do list odczytu, a odczyt
-    # w pamięci procesu musi zostać taki, jaki oddał model.
+    # musi zostać taki, jaki oddał model.
     merged = copy.deepcopy(parsed)
     for key, value in overrides.items():
         if value is None:
@@ -8236,7 +8237,7 @@ async def _read_cv_for_new_candidate(
     remember: bool,
     form_email: Optional[str] = None,
 ) -> tuple[str, dict[str, Any]]:
-    """Tekst i odczyt CV — z pamięci procesu albo jednym płatnym wywołaniem.
+    """Tekst i odczyt CV — z podglądu (`cv_preview_reads`) albo płatnym odczytem.
 
     Darmowe sito duplikatów idzie PRZED płatnym odczytem (18.09.2026): każdy
     duplikat płacił wcześniej za odczyt modelem, a dopiero potem dostawał 409
@@ -8245,15 +8246,16 @@ async def _read_cv_for_new_candidate(
     odczycie w `/from-cv` ZOSTAJE.
 
     `remember=True` (tylko `/cv/preview`) trzyma wynik 30 min pod skrótem
-    SHA-256 treści pliku. `/from-cv` wyłącznie z niego CZYTA — masowy import
-    CV (tysiące plików) nie może zapełnić pamięci jedynego procesu.
+    SHA-256 treści pliku, widoczny dla każdego procesu web. `/from-cv`
+    wyłącznie z niego CZYTA — masowy import CV (tysiące plików) nie zapełni
+    tabeli i nie wypchnie podglądów rekruterów.
     """
     from app.core.cache import cache_single_flight
+    from app.services import cv_preview_cache
     from app.services.cv_parser import parse_cv
-    from app.services.cv_preview_cache import preview_cache
     from app.services.cv_upload_dedup import find_duplicates_without_llm
 
-    sha256 = hashlib.sha256(content).hexdigest()
+    sha256 = cv_preview_cache.content_sha256(content)
 
     async def _free_sieve(raw_text: str) -> None:
         if not force and settings.FROM_CV_SIEVE_ENABLED:
@@ -8263,12 +8265,12 @@ async def _read_cv_for_new_candidate(
             if cheap_rows:
                 _raise_from_cv_duplicate_conflict(cheap_rows)
 
-    cached = preview_cache.get(sha256)
+    cached = await cv_preview_cache.recall(content)
     if cached is None:
-        # Blokada per plik (bez wartości w `core.cache`) — dwa równoległe
-        # podglądy tego samego CV płacą raz.
+        # Blokada per plik i per proces (bez wartości w `core.cache`) — dwa
+        # równoległe podglądy tego samego CV w jednym procesie płacą raz.
         async with cache_single_flight(f"cv_preview_parse:{sha256}", db=db):
-            cached = preview_cache.get(sha256)
+            cached = await cv_preview_cache.recall(content)
             if cached is None:
                 raw_text = await _extract_uploaded_cv_text(
                     content, safe_name=safe_name, client_filename=client_filename
@@ -8278,9 +8280,15 @@ async def _read_cv_for_new_candidate(
                     raw_text, db=db, user_id=user_id, release_db_during_model=True
                 )
                 if remember:
-                    preview_cache.set(sha256, parsed=parsed, raw_text=raw_text)
+                    # Drugi proces mógł zapisać ten plik pierwszy: podgląd pokazuje
+                    # odczyt z tabeli, bo ten weźmie `/from-cv`.
+                    stored = await cv_preview_cache.remember(
+                        content, parsed=parsed, raw_text=raw_text
+                    )
+                    if stored is not None:
+                        parsed = stored.parsed
                 return raw_text, parsed
-    # Odczyt z pamięci: sito biegnie i tak (bez `force`) — podgląd „Wczytaj
+    # Odczyt z podglądu: sito biegnie i tak (bez `force`) — podgląd „Wczytaj
     # mimo to” nie może zwolnić zapisu z wykrycia duplikatu.
     raw_text = cached.raw_text
     if raw_text is None:
@@ -8312,8 +8320,9 @@ async def preview_candidate_cv(
     """Przeczytaj CV i oddaj pola formularza „Dodaj kandydata” — BEZ zapisu.
 
     Ta sama bramka, odczyt i kwota AI co `/from-cv`. Odczyt zostaje 30 min
-    w pamięci procesu pod skrótem treści pliku, więc zapis przez `/from-cv`
-    z tym samym plikiem nie woła modelu drugi raz.
+    w tabeli `cv_preview_reads` pod skrótem treści pliku, więc zapis przez
+    `/from-cv` z tym samym plikiem nie woła modelu drugi raz, także w innym
+    procesie web.
     """
     safe_name = _sanitize_upload_filename(file.filename, fallback="upload.pdf")
     content = await _read_upload_bounded(file, label="CV file")
@@ -8604,10 +8613,11 @@ async def create_candidate_from_cv(
     )
 
     await db.commit()
-    # Odczyt z podglądu zrobił swoje — kandydat zapisany, zwalniamy pamięć.
-    from app.services.cv_preview_cache import preview_cache
+    # Odczyt z podglądu zrobił swoje — kandydat zapisany, tekst CV nie leży
+    # w `cv_preview_reads` ani chwili dłużej (dane osobowe).
+    from app.services import cv_preview_cache
 
-    preview_cache.pop(hashlib.sha256(content).hexdigest())
+    await cv_preview_cache.forget(content)
 
     reloaded = await db.execute(
         select(Candidate)

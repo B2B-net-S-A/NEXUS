@@ -295,9 +295,16 @@ https://claude.ai/artifact/K45m9WCNz9ypfKBE87B9dv). Zastępuje wariant B z 04.10
   spoza listy bez `other: true` — chyba że kandydat już ma taki język zapisany
   (stare dane z CV zostają zapisywalne). Pola „Kod” w oknie nie ma.
 - **„Dodaj kandydata” zaczyna się od CV (opcjonalnie):** `POST /api/candidates/cv/preview`
-  czyta plik BEZ zapisu; odczyt żyje w OGRANICZONEJ pamięci
-  `services/cv_preview_cache.py` (64 wpisy, 30 min, tekst > 200 tys. znaków nie jest
-  trzymany; nie `app/core/cache.py` — ten nie ma limitu ani sprzątania). `/from-cv`
+  czyta plik BEZ zapisu; odczyt żyje w OGRANICZONEJ tabeli `cv_preview_reads`
+  (`services/cv_preview_cache.py`, 0770; 64 wiersze, 30 min, tekst > 200 tys. znaków
+  nie jest trzymany; nie `app/core/cache.py` — ten jest per proces, bez limitu
+  i sprzątania). Od 24.11.2026 tabela zamiast pamięci procesu, bo przy dwóch
+  procesach web `/from-cv` w drugim czytał CV modelem jeszcze raz
+  (`podstawy/kilka-procesow-web.md`). Odczyt i tekst są zaszyfrowane kluczem
+  z bajtów pliku: wiersza nie odczyta nikt bez tego pliku, także w kopii bazy
+  i na stagingu. Wiersz znika po zapisie kandydata, wygasłe kasuje każdy odczyt
+  i zapis. Póki wiersz żyje, drugi odczyt tego pliku go nie nadpisuje, a podgląd
+  pokazuje odczyt z tabeli, czyli ten, który zapisze `/from-cv`. `/from-cv`
   z tym samym plikiem bierze odczyt (jeden płatny), a przy trafieniu bez `force`
   i tak puszcza darmowe sito. Pola formularza (`name`, `lastname`, `email`,
   `phone`, `city`, `linkedin`) wygrywają z odczytem, `""` = pole wyczyszczone
@@ -306,7 +313,7 @@ https://claude.ai/artifact/K45m9WCNz9ypfKBE87B9dv). Zastępuje wariant B z 04.10
   odczytem) — jedna transakcja, bez PATCH-a. E-mail innego kandydata = 409
   „Kandydat z tym adresem e-mail już istnieje.” także przy `force` (jak
   `POST /api/candidates`); front pokazuje go przy polu (`emailFieldError`).
-  `/from-cv` tylko CZYTA z pamięci — masowy import jej nie zapełni. Osobne
+  `/from-cv` tylko CZYTA z tabeli — masowy import jej nie zapełni. Osobne
   „Dodaj z CV” zdjęte z listy kandydatów (`AddCandidateFromCVModal` zostaje
   w rekrutacji).
 - **Od 12.10.2026 okno sprawdza tylko e-mail** i zamiast listy „podobnych”
