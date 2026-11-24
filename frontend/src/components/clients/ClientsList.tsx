@@ -717,7 +717,10 @@ export function ClientsList() {
                         <FrameworkCell item={item} />
                       </TableCell>
                       <TableCell className="min-w-[200px]">
-                        <AttentionCell items={rowAttention(item, attention.get(item.client_id) ?? [])} />
+                        <AttentionCell
+                          items={rowAttention(item, attention.byClient.get(item.client_id) ?? [])}
+                          failed={attention.failed}
+                        />
                       </TableCell>
                     </TableRow>
                   );

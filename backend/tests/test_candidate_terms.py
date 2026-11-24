@@ -263,3 +263,38 @@ def test_one_click_unsubscribe_points_at_the_api_opt_out():
     )
     # Samo podziękowanie nie ma tokenu, więc nie ma też wypisu jednym kliknięciem.
     assert t.one_click_unsubscribe_url("https://api.example.com", None) is None
+
+
+@pytest.mark.asyncio
+async def test_start_now_is_today_in_the_company_calendar(monkeypatch):
+    """Odpowiedź „od zaraz” o 00:30 w Warszawie (23:30 UTC) to już 25.11,
+    a nie dzień UTC (audyt 24.11.2026)."""
+    from types import SimpleNamespace
+
+    from app.services import candidate_terms_apply as apply
+    from app.services import match_score_cache
+
+    async def _no_edits(*_a, **_kw):
+        return set()
+
+    async def _noop(*_a, **_kw):
+        return None
+
+    monkeypatch.setattr(apply, "_recent_human_edits", _no_edits)
+    monkeypatch.setattr(
+        apply.candidate_audit, "record_candidate_audit", lambda *a, **kw: None
+    )
+    monkeypatch.setattr(match_score_cache, "mark_stale_for_candidate", _noop)
+    candidate = SimpleNamespace(
+        id=1, availability_date=None, notice_period=2, notice_period_unit="months"
+    )
+    result = await apply.apply_answer(
+        None,
+        candidate,
+        apply.TermsAnswer(start_kind="now"),
+        now=datetime(2026, 11, 24, 23, 30, tzinfo=timezone.utc),
+        request_id=1,
+    )
+    assert result["saved"] == ["start"]
+    assert candidate.availability_date == date(2026, 11, 25)
+    assert (candidate.notice_period, candidate.notice_period_unit) == (0, "days")

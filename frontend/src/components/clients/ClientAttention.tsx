@@ -158,8 +158,14 @@ export function consultantAttention(row: {
   return items;
 }
 
+export interface ClientAttentionState {
+  byClient: Map<number, AttentionItem[]>;
+  /** Któreś z dwóch zapytań padło: pusta komórka nie znaczy wtedy „nic nie czeka”. */
+  failed: boolean;
+}
+
 /** Znaczniki raportów miesiąca i relacji, po `client_id` (dane z dwóch zapytań). */
-export function useClientAttention(): Map<number, AttentionItem[]> {
+export function useClientAttention(): ClientAttentionState {
   const month = warsawToday().slice(0, 7);
   const calendar = useQuery({
     queryKey: ["client-reports-calendar", month, false],
@@ -173,14 +179,23 @@ export function useClientAttention(): Map<number, AttentionItem[]> {
     staleTime: 60_000,
     retry: false,
   });
-  return buildClientAttention(calendar.data?.items ?? [], relationships.data ?? []);
+  return {
+    byClient: buildClientAttention(calendar.data?.items ?? [], relationships.data ?? []),
+    failed: calendar.isError || relationships.isError,
+  };
 }
 
-export function AttentionCell({ items }: { items: AttentionItem[] }) {
-  if (items.length === 0) return <span className="text-muted-foreground/60">—</span>;
+export function AttentionCell({ items, failed = false }: { items: AttentionItem[]; failed?: boolean }) {
+  if (items.length === 0 && !failed) return <span className="text-muted-foreground/60">—</span>;
   const shown = items.slice(0, 2);
   return (
     <span className="flex flex-col gap-1">
+      {failed ? (
+        // Awaria zapytania nie może wyglądać jak „nic nie czeka” (audyt 24.11.2026).
+        <StatusDot tone="danger" title="Raporty miesiąca albo relacje nie wczytały się — odśwież stronę.">
+          Nie udało się wczytać
+        </StatusDot>
+      ) : null}
       {shown.map((item) => (
         <Link key={item.key} href={item.href} className="rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <StatusDot tone={item.tone} note={item.note}>

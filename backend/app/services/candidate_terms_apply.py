@@ -23,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.scheduling import business_date
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.services import candidate_audit
@@ -161,7 +162,9 @@ async def apply_answer(
         saved.append("cities")
 
     if answer.start_kind == "now":
-        candidate.availability_date = now.date()
+        # „Od zaraz” to dziś w kalendarzu firmy — `now` jest w UTC, a o 00:30
+        # w Warszawie `now.date()` to jeszcze wczoraj.
+        candidate.availability_date = business_date(now)
         candidate.notice_period, candidate.notice_period_unit = 0, "days"
         saved.append("start")
     elif answer.start_kind == "date" and answer.start_date is not None:

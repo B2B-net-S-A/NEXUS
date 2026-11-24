@@ -40,7 +40,7 @@ from typing import Any, Iterable, Mapping, Optional, Sequence
 from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.scheduling import business_today
+from app.core.scheduling import business_date, business_today
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.competence_category import CompetenceCategory
@@ -1049,7 +1049,9 @@ async def build_context(
     from app.services.move_requirements import qc_statuses  # noqa: PLC0415
 
     now = now or datetime.now(timezone.utc)
-    today = now.date()
+    # Dzień kalendarza firmy: o 00:30 w Warszawie `now.date()` w UTC to wczoraj,
+    # a od tego dnia zależy krok harmonogramu stawek i agregaty u klienta.
+    today = business_date(now)
     access = await access_for(db, user, job)
     batch = await _load_batch(db, job, [candidate_id], now=now)
     if candidate_id not in batch.facts or batch.facts[candidate_id].stage_id is None:
