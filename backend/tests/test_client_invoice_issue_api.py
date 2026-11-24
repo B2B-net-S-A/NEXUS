@@ -493,6 +493,63 @@ async def test_parallel_numbering_waits_on_series_lock(client, seed):
         await db.rollback()
 
 
+async def test_parallel_drafts_for_the_same_order_make_one_invoice(seed, monkeypatch):
+    # Dwa równoległe „Wystaw za miesiąc” za to samo zamówienie (audyt 24.11.2026):
+    # oba czytały istniejące faktury, zanim drugie wstawiło szkic, i do KSeF szły
+    # dwie FV VAT za ten sam miesiąc. Bariera trzyma pierwszy odczyt, aż drugi
+    # bieg dojdzie do swojego (bez blokady) albo minie sekunda (z blokadą drugi
+    # czeka na nią przed odczytem).
+    key = f"g{seed.groups['118']}"
+    original = issue._existing_by_key
+    arrived: list[int] = []
+    both = asyncio.Event()
+
+    async def held(db, year, month):
+        found = await original(db, year, month)
+        arrived.append(1)
+        if len(arrived) == 2:
+            both.set()
+        try:
+            await asyncio.wait_for(both.wait(), timeout=1)
+        except asyncio.TimeoutError:
+            pass
+        return found
+
+    monkeypatch.setattr(issue, "_existing_by_key", held)
+
+    async def draft() -> object:
+        async with AsyncSessionLocal() as db:
+            try:
+                created = await issue.create_drafts(
+                    db,
+                    **OCTOBER,
+                    keys=[key],
+                    split="order",
+                    actor_id=seed.users["finance"].id,
+                    today=TODAY,
+                )
+            except issue.IssueError as exc:
+                await db.rollback()
+                return exc
+            await db.commit()
+            return [invoice.id for invoice in created]
+
+    results = await asyncio.gather(draft(), draft())
+    refused = [r for r in results if isinstance(r, issue.IssueError)]
+    assert len(refused) == 1, results
+    assert "ma już fakturę" in str(refused[0])
+    async with AsyncSessionLocal() as db:
+        drafts = await db.scalar(
+            select(func.count()).where(
+                ClientIssuedInvoice.client_id == seed.client_id,
+                ClientIssuedInvoice.period_year == 2026,
+                ClientIssuedInvoice.period_month == 10,
+                ClientIssuedInvoice.invoice_type == "VAT",
+            )
+        )
+    assert drafts == 1
+
+
 async def test_correction_of_accepted_invoice(client, seed):
     await _settings(client, seed)
     original_id = await _draft(client, seed, f"g{seed.groups['118']}")

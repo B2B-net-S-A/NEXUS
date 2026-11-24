@@ -494,6 +494,32 @@ def test_stawka_dzienna_zwyklego_zamowienia_bez_stawek_md():
     assert service.md_rates(monthly) == (None, None)
 
 
+def test_koszt_w_obcej_walucie_przy_kliencie_w_zlotych_bez_stawki_kosztu():
+    # Kontraktor w EUR u klienta w PLN (audyt 24.11.2026): 150 EUR/dzień
+    # liczone jako 150 zł zawyżało marżę (20 MD: 85% zamiast ok. 36%).
+    # Koszt bez kursu zostaje pusty, przychód w zł liczy się dalej.
+    daily = SimpleNamespace(
+        rate_unit="daily",
+        rate_client=Decimal("1000"),
+        rate_candidate=Decimal("150"),
+        rate_client_currency="PLN",
+        rate_candidate_currency="EUR",
+        md_rate_cost=None,
+        md_rate_revenue=None,
+    )
+    assert service.md_rates(daily) == (None, Decimal("1000"))
+    hourly = SimpleNamespace(**{**vars(daily), "rate_unit": "hourly"})
+    assert service.md_rates(hourly) == (None, Decimal("8000"))
+    # Koszt w zł (także małymi literami albo bez waluty) liczy się jak dotąd.
+    pln = SimpleNamespace(**{**vars(daily), "rate_candidate_currency": "pln"})
+    assert service.md_rates(pln) == (Decimal("150"), Decimal("1000"))
+    blank = SimpleNamespace(**{**vars(daily), "rate_candidate_currency": None})
+    assert service.md_rates(blank) == (Decimal("150"), Decimal("1000"))
+    # Stawka kosztu MD z linii wielo-konsultantowej nie zależy od tego pola.
+    md_line = SimpleNamespace(**{**vars(daily), "md_rate_cost": Decimal("600")})
+    assert service.md_rates(md_line) == (Decimal("600"), Decimal("1000"))
+
+
 def test_numer_zamowienia_z_tytulu_linii_i_rola_z_rekrutacji():
     line = SimpleNamespace(title="Zamówienie nr 9001/2026")
     assert client_documents.order_number(line, "GRUPA") == "9001/2026"

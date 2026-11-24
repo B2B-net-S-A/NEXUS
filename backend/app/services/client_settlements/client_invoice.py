@@ -41,7 +41,7 @@ import re
 import zipfile
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Optional
 
 from sqlalchemy import and_, or_, select
@@ -95,7 +95,9 @@ class Position:
 
 
 def _money(value: Decimal) -> Decimal:
-    return value.quantize(MONEY)
+    # Połówka w górę jak silnik i FA(3): bankowe zaokrąglenie dawało grosz
+    # różnicy między „Do faktury” a XML do KSeF (audyt 24.11.2026).
+    return value.quantize(MONEY, rounding=ROUND_HALF_UP)
 
 
 def _previous(month: str) -> str:
