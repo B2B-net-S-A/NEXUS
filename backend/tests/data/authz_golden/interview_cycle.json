@@ -37,6 +37,7 @@
   "GET /api/interview-cycle/events/{event_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/interview-cycle/events/{event_id}/debrief": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/interview-cycle/pairs/{job_id}/{candidate_id}/meetings": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/interview-cycle/question-bank": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/interview-cycle/slots/{request_id}/replaceable": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/interview-cycle/client-interviews": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/interview-cycle/debrief/from-text": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
