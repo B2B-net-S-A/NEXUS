@@ -34,7 +34,7 @@ function row(id: number, patch: Partial<EinvoiceRow>): EinvoiceRow {
     buyer_name: "Nordea Bank Abp",
     receiver_name: "Nordea Bank Abp",
     currency: "PLN",
-    gross_amount: "36679.50",
+    gross_amount: "30468.02",
     status: "ready",
     status_label: "Do wysłania",
     document_type: "invoice",
@@ -59,7 +59,7 @@ const base: EinvoiceList = {
   counts: { ready: 2, invalid: 1, delivered: 1 },
   rows: [
     row(1, {}),
-    row(2, { currency: "EUR", gross_amount: "5674.50" }),
+    row(2, { currency: "EUR", gross_amount: "4968.34" }),
     row(3, {
       status: "invalid",
       status_label: "Błąd walidacji",

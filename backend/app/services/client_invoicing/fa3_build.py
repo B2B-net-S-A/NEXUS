@@ -128,7 +128,10 @@ def line_discount_pct(line: dict[str, Any]) -> Optional[Decimal]:
 
 
 def discounted_price(line: dict[str, Any]) -> Optional[Decimal]:
-    """Cena po rabacie zaokrąglona do grosza — jak w eBI24 (157,00 − 2,5% = 153,08)."""
+    """Cena po rabacie zaokrąglona do grosza — jak w eBI24.
+
+    Przykład na liczbach fikcyjnych: 137,00 − 1,5% = 134,945 → 134,95.
+    """
 
     price = decimal_or_none(line.get("unit_price"))
     if price is None:

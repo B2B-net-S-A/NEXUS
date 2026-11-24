@@ -969,10 +969,10 @@ def _sales(client_id: int, number: str, issued: date, net: str, *names: str):
 async def test_draft_gets_line_discount_at_rate_from_turnover_before_its_month(
     client, seed
 ):
-    """Szkic za październik ma rabat 3% na każdym wierszu usługi (jak w eBI24),
+    """Szkic za październik ma rabat 3,5% na każdym wierszu usługi (jak w eBI24),
     bo obrót przed rabatem do końca września przekroczył próg; wrzesień ma
-    korektę 0,5% od nadwyżki. Faktura z 2025 i refaktura podróży poza obrotem.
-    Złe warunki = 422; edycja pozycji zachowuje rabat.
+    korektę 2% od nadwyżki. Faktura z 2025 i refaktura podróży poza obrotem.
+    Złe warunki = 422; edycja pozycji zachowuje rabat. Progi i stawki fikcyjne.
     """
 
     terms = {
@@ -980,7 +980,7 @@ async def test_draft_gets_line_discount_at_rate_from_turnover_before_its_month(
         "periods": [
             {
                 "from_year": 2026,
-                "tiers": [{"up_to": 100000, "rate": 2.5}, {"up_to": None, "rate": 3}],
+                "tiers": [{"up_to": 100000, "rate": 1.5}, {"up_to": None, "rate": 3.5}],
             }
         ],
         "exclude_words": ["podróż"],
@@ -1001,10 +1001,10 @@ async def test_draft_gets_line_discount_at_rate_from_turnover_before_its_month(
     assert "progów" in bad.json()["detail"]
 
     await _settings(client, seed, clients={str(seed.client_id): {"rebate": terms}})
-    september = _sales(seed.client_id, "1", date(2026, 9, 30), "107250.00", "Usługi")
-    # eBI24: cena przed rabatem na wierszu, netto po rabacie 2,5%.
+    september = _sales(seed.client_id, "1", date(2026, 9, 30), "110320.00", "Usługi")
+    # eBI24: cena przed rabatem na wierszu, netto po rabacie 1,5%.
     september.items = [
-        {"name": "Usługi", "quantity": "1000", "unit_price": "110", "net": "107250.00"}
+        {"name": "Usługi", "quantity": "1000", "unit_price": "112", "net": "110320.00"}
     ]
     async with AsyncSessionLocal() as db:
         db.add_all(
@@ -1024,7 +1024,7 @@ async def test_draft_gets_line_discount_at_rate_from_turnover_before_its_month(
 
     invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
     card = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
-    assert card["lines"] and all(row["discount_pct"] == "3" for row in card["lines"])
+    assert card["lines"] and all(row["discount_pct"] == "3.5" for row in card["lines"])
     gross = sum(
         (Decimal(row["quantity"]) * Decimal(row["unit_price"])).quantize(
             Decimal("0.01")
@@ -1034,25 +1034,25 @@ async def test_draft_gets_line_discount_at_rate_from_turnover_before_its_month(
     net = sum(
         (
             Decimal(row["quantity"])
-            * (Decimal(row["unit_price"]) * Decimal("0.97")).quantize(Decimal("0.01"))
+            * (Decimal(row["unit_price"]) * Decimal("0.965")).quantize(Decimal("0.01"))
         ).quantize(Decimal("0.01"))
         for row in card["lines"]
     )
     assert Decimal(card["net"]) == net < gross
 
     data = card["rebate"]
-    assert (data["year"], data["month"], data["rate"]) == (2026, 10, "3")
-    # Obrót przed rabatem (1000 × 110), bez podróży i bez 2025.
-    assert data["turnover_before"] == "110000.00"
-    assert Decimal(data["turnover"]) == Decimal("110000.00") + gross
+    assert (data["year"], data["month"], data["rate"]) == (2026, 10, "3.5")
+    # Obrót przed rabatem (1000 × 112), bez podróży i bez 2025.
+    assert data["turnover_before"] == "112000.00"
+    assert Decimal(data["turnover"]) == Decimal("112000.00") + gross
     assert data["on_invoice"] == str(gross - net)
     assert data["excluded"] == 1
     assert data["corrections"] == [
         {
             "month": 9,
-            "rate_diff": "0.5",
-            "excess": "10000.00",
-            "amounts": [{"currency": "PLN", "amount": "50.00"}],
+            "rate_diff": "2",
+            "excess": "12000.00",
+            "amounts": [{"currency": "PLN", "amount": "240.00"}],
             "issued": [],
         }
     ]
@@ -1065,7 +1065,7 @@ async def test_draft_gets_line_discount_at_rate_from_turnover_before_its_month(
     )
     assert saved.status_code == 200, saved.text
     again = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
-    assert all(row["discount_pct"] == "3" for row in again["lines"])
+    assert all(row["discount_pct"] == "3.5" for row in again["lines"])
     assert Decimal(again["net"]) > Decimal(card["net"])
 
     # Klient bez warunków: karta bez rabatu.
@@ -1082,7 +1082,7 @@ REBATE_TERMS = {
     "periods": [
         {
             "from_year": 2026,
-            "tiers": [{"up_to": 1000, "rate": 2.5}, {"up_to": None, "rate": 3}],
+            "tiers": [{"up_to": 1000, "rate": 1.5}, {"up_to": None, "rate": 3.5}],
         }
     ],
     "exclude_words": ["podróż"],
@@ -1095,9 +1095,9 @@ def _ksef_number(day: date, serial: int) -> str:
 
 
 def _discounted_sales(client_id: int, serial: int, day: date, price: str):
-    """Faktura z KSeF z rabatem 2,5% na wierszu (cena przed rabatem, netto po)."""
+    """Faktura z KSeF z rabatem 1,5% na wierszu (cena przed rabatem, netto po)."""
 
-    net = (Decimal(price) * Decimal("0.975")).quantize(Decimal("0.01"))
+    net = (Decimal(price) * Decimal("0.985")).quantize(Decimal("0.01"))
     invoice = _sales(client_id, str(serial), day, str(net), "Usługi IT")
     invoice.ksef_number = _ksef_number(day, 0xEB0000 + serial)
     invoice.items = [
@@ -1114,7 +1114,7 @@ def _discounted_sales(client_id: int, serial: int, day: date, price: str):
 
 async def test_rebate_collective_correction_issue_refuse_second_and_send(client, seed):
     """Wrzesień 900 + październik 2 × 150 przed rabatem: próg 1000 przekroczony
-    w październiku, nadwyżka 200, korekta 0,5% = 1,00 zł na obie faktury
+    w październiku, nadwyżka 200, korekta 2% = 4,00 zł na obie faktury
     października. „Wystaw korektę” zapisuje szkic KOR bez numeru, druga = 409,
     wysyłka nadaje numer z serii KOR, XML przechodzi XSD, a przyjęta korekta nie
     przypina się do jednej faktury i nie zaniża obrotu do progu.
@@ -1140,7 +1140,7 @@ async def test_rebate_collective_correction_issue_refuse_second_and_send(client,
         f"{BASE}/rebate-correction", params=query, headers=_h(seed)
     )
     assert preview.status_code == 200, preview.text
-    assert preview.json()["amount"] == "1.00"
+    assert preview.json()["amount"] == "4.00"
     assert preview.json()["issued"] is None
 
     for role in ("recruiter", "dl"):
@@ -1157,7 +1157,7 @@ async def test_rebate_collective_correction_issue_refuse_second_and_send(client,
     assert card["invoice_type"] == "KOR" and card["series_code"] == "KOR"
     assert card["status"] == "draft" and card["invoice_number"] is None
     assert card["corrects"] is None and card["rebate"] is None
-    assert card["net"] == "-1.00"
+    assert card["net"] == "-4.00"
     assert card["collective"]["period"] == "01.10.2026-31.10.2026"
     assert card["collective"]["invoice_count"] == 2
     assert card["problems"] == [], card["problems"]
@@ -1192,7 +1192,7 @@ async def test_rebate_collective_correction_issue_refuse_second_and_send(client,
     preview = await client.get(
         f"{BASE}/rebate-correction", params=query, headers=_h(seed)
     )
-    assert preview.json()["amount"] == "1.00"
+    assert preview.json()["amount"] == "4.00"
     assert preview.json()["issued"]["invoice_number"] == "KOR/1/11/2026"
     again = await client.post(f"{BASE}/rebate-correction", json=query, headers=_h(seed))
     assert again.status_code == 409

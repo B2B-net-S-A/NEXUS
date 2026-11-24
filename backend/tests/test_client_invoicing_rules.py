@@ -832,7 +832,7 @@ def test_known_number_wins_over_a_second_unknown_one():
         "jan.przykladowy2026@example.com",
         "Nr umowy 12/2026 osoba wystawiająca zamówienie: Anna Przykładowa",
         "Zamówienie z dnia 12.10.2026 do umowy ramowej z dnia 3 lipca 2024",
-        "Discount, according to the frame agreement - 2,5%",
+        "Discount, according to the frame agreement - 1,5%",
         "lipiec 2026",
         "2026",
         "PO Box 12345",

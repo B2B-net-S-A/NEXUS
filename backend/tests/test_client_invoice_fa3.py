@@ -414,11 +414,11 @@ def test_pdf_of_accepted_invoice_has_ksef_number_and_qr() -> None:
 
 def test_line_discount_goes_to_p10_and_round_trips() -> None:
     """Rabat % na wierszu (rabat od obrotu, jak w eBI24): P_9A przed rabatem,
-    P_10 = kwota opustu na wierszu, P_11 po rabacie (80 × 153,08)."""
+    P_10 = kwota opustu na wierszu, P_11 po rabacie (80 × 134,95). Liczby fikcyjne."""
 
     line = {
-        **_line("Usługi informatyczne — październik 2026", "80", "157"),
-        "discount_pct": "2.5",
+        **_line("Usługi informatyczne — październik 2026", "80", "137"),
+        "discount_pct": "1.5",
     }
     xml = fa3_build.build_xml(_doc(lines=[line]))
     row = _fa(xml).find("{*}FaWiersz")
@@ -429,13 +429,13 @@ def test_line_discount_goes_to_p10_and_round_trips() -> None:
         < tags.index("P_11")
         < tags.index("P_12")
     )
-    assert row.findtext("{*}P_9A") == "157"
-    assert row.findtext("{*}P_10") == "313.60"
-    assert row.findtext("{*}P_11") == "12246.40"
+    assert row.findtext("{*}P_9A") == "137"
+    assert row.findtext("{*}P_10") == "164.00"
+    assert row.findtext("{*}P_11") == "10796.00"
     parsed = fa.parse_invoice(xml)
-    assert parsed.net_amount == Decimal("12246.40")
+    assert parsed.net_amount == Decimal("10796.00")
     # Bez rabatu nie ma P_10.
-    plain = fa3_build.build_xml(_doc(lines=[_line("Usługi", "80", "157")]))
+    plain = fa3_build.build_xml(_doc(lines=[_line("Usługi", "80", "137")]))
     assert _fa(plain).find("{*}FaWiersz").find("{*}P_10") is None
 
 

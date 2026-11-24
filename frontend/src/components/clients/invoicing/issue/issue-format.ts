@@ -109,7 +109,8 @@ function toNumber(raw: string | null | undefined): number | null {
 
 /**
  * Podgląd wartości netto pozycji przy edycji (serwer liczy ostatecznie). Z rabatem %:
- * cena po rabacie zaokrąglona do grosza × ilość — jak serwer i eBI24 (157 − 2,5% = 153,08).
+ * cena po rabacie zaokrąglona do grosza × ilość — jak serwer i eBI24
+ * (liczby fikcyjne: 137 − 1,5% = 134,945 → 134,95).
  */
 export function previewNet(
   line: Pick<IssueLine, "quantity" | "unit_price"> & { discount_pct?: string | null },
