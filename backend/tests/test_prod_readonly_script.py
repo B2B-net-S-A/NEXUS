@@ -359,3 +359,52 @@ def test_no_host_or_key_in_repo_script():
     )
     assert "BEGIN OPENSSH" not in text
     assert "_ed25519" not in text
+
+
+# --- secret-check ------------------------------------------------------------
+
+
+def test_secret_check_compares_on_server_and_prints_one_word(fake_ssh, capsys):
+    calls, stdout = fake_ssh
+    stdout.append("fresh\n")
+    assert pr.main(["secret-check"]) == 0
+    remote = calls[0]["argv"][-1]
+    assert "/proc/$p/environ" in remote and "sha256sum" in remote
+    assert '"NEXUS_PROCESS_ROLE=web" "NEXUS_PROCESS_ROLE=all"' in remote
+    # Wartość idzie tylko do sha256sum, a z serwera wychodzi samo słowo:
+    # żadne echo/printf nie wypisuje wartości ani odcisku.
+    assert not re.search(r"echo[^;|&]*\$\{?[vf]\b", remote)
+    assert re.findall(r"printf '%s' \"\$v\" \| sha256sum", remote)
+    assert "wartość spoza listy wycieków" in capsys.readouterr().out
+
+
+def test_secret_check_known_leak_is_a_failure(fake_ssh, capsys):
+    _, stdout = fake_ssh
+    stdout.append("leaked\n")
+    assert pr.main(["secret-check"]) == 1
+    assert "WYCIEKU" in capsys.readouterr().out
+
+
+def test_secret_check_missing_key_is_a_failure(fake_ssh, capsys):
+    _, stdout = fake_ssh
+    stdout.append("missing\n")
+    assert pr.main(["secret-check"]) == 1
+    assert "brak" in capsys.readouterr().out
+
+
+def test_secret_check_unexpected_server_output_is_not_printed(fake_ssh, capsys):
+    _, stdout = fake_ssh
+    stdout.append("SECRET_KEY=nie-powinno-wyjsc\n")
+    assert pr.main(["secret-check"]) == 5
+    out = capsys.readouterr()
+    assert "nie-powinno-wyjsc" not in out.out + out.err
+
+
+def test_secret_check_takes_no_arguments(no_ssh):
+    assert pr.main(["secret-check", "SECRET_KEY"]) == 2
+
+
+def test_secret_check_list_matches_backend_startup_guard():
+    from app.core.config import LEAKED_SECRET_KEY_SHA256_PREFIXES
+
+    assert set(pr.LEAKED_SECRET_KEY_PREFIXES) == set(LEAKED_SECRET_KEY_SHA256_PREFIXES)
