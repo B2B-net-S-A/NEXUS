@@ -82,7 +82,7 @@ class ClientPlaybook(Base, TimestampMixin):
     verified_required_fields: Mapped[Optional[list]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql")
     )
-    # 0768 (24.11.2026, F2): „Specyfika na prep” — osiem list punktów
+    # 0769 (24.11.2026, F2): „Specyfika na prep” — osiem list punktów
     # (``services/client_prep_spec.py``); NULL = nikt jej jeszcze nie wpisał.
     prep_spec: Mapped[Optional[dict]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql")

@@ -1,6 +1,6 @@
 """„Specyfika na prep” w karcie klienta (F2, decyzje Artura z 24.11.2026).
 
-Kontrakty: lustro migracji 0768 w ``entrypoint.sh``, normalizacja pól, treść
+Kontrakty: lustro migracji 0769 w ``entrypoint.sh``, normalizacja pól, treść
 zasiewu zgodna z rozstrzygnięciami (Nordea, Tauron, Bank Pocztowy), PUT bez
 klucza nie czyści zapisanej specyfiki (stary front) i jednorazowy zasiew na bazie.
 """
@@ -53,7 +53,7 @@ TAURON_ABOUT_2026_11_24 = (
 
 
 def _migration():
-    path = BACKEND / "alembic/versions/0768_client_playbook_prep_spec.py"
+    path = BACKEND / "alembic/versions/0769_client_playbook_prep_spec.py"
     spec = importlib.util.spec_from_file_location("m0768", path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -63,7 +63,7 @@ def _migration():
 
 def test_entrypoint_mirrors_the_migration() -> None:
     module = _migration()
-    assert module.revision == "0768_client_playbook_prep_spec"
+    assert module.revision == "0769_client_playbook_prep_spec"
     entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
     assert f'"{module.UPGRADE_SQL}",' in entrypoint
     assert 'run_unless_marked "client_prep_spec_seed_2026_11_24"' in entrypoint
@@ -256,7 +256,7 @@ async def test_put_without_prep_spec_keeps_it_and_null_clears_it(
     cid = await _client_with_card(about_for_candidate="Bank.", prep_spec=spec)
     try:
         headers = await _headers_for(app_client, "delivery_lead")
-        # Front sprzed 0768 wysyła kartę bez klucza — specyfika zostaje.
+        # Front sprzed 0769 wysyła kartę bez klucza — specyfika zostaje.
         old_front = await app_client.put(
             URL.format(cid=cid),
             json={"about_for_candidate": "Bank z oddziałami."},

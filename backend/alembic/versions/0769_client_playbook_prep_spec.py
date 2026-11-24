@@ -1,7 +1,7 @@
 """Karta klienta: „Specyfika na prep” (F2, decyzje Artura z 24.11.2026).
 
-Revision ID: 0768_client_playbook_prep_spec
-Revises: 0767_contract_engagement_fixed
+Revision ID: 0769_client_playbook_prep_spec
+Revises: 0768_outside_poland_reason
 
 ``client_playbooks.prep_spec`` — osiem pól z punktami, które rekruter omawia
 z kandydatem po fundamentach prepa (``services/client_prep_spec.py``). Lustro
@@ -11,8 +11,8 @@ idzie jednorazowym krokiem w ``entrypoint.sh``, nie tutaj.
 
 from alembic import op
 
-revision = "0768_client_playbook_prep_spec"
-down_revision = "0767_contract_engagement_fixed"
+revision = "0769_client_playbook_prep_spec"
+down_revision = "0768_outside_poland_reason"
 branch_labels = None
 depends_on = None
 

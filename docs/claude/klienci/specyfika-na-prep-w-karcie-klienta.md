@@ -1,10 +1,10 @@
 # „Specyfika na prep” w karcie klienta — osiem pól, które rekruter omawia z kandydatem po fundamentach
-<!-- indeks: `client_playbooks.prep_spec` (0768), `services/client_prep_spec.py`, osiem pól jako listy punktów, PUT bez klucza nie czyści, zasiew 12 kart krokiem jednorazowym, Tauron 165 h → zlecenie, uwagi tylko dla zespołu poza repo, odczyt w sekcji 6 Championa i w Pomocy -->
+<!-- indeks: `client_playbooks.prep_spec` (0769), `services/client_prep_spec.py`, osiem pól jako listy punktów, PUT bez klucza nie czyści, zasiew 12 kart krokiem jednorazowym, Tauron 165 h → zlecenie, uwagi tylko dla zespołu poza repo, odczyt w sekcji 6 Championa i w Pomocy -->
 
 Decyzje Artura z 24.11.2026 (F2 planu „Fundamenty prepa i specyfika klientów”,
 fundamenty: `integracje/fundamenty-prepa-przygotowanie-rekrutera.md`).
 
-- **Pole karty, nie osobna tabela:** `client_playbooks.prep_spec` (JSONB, 0768,
+- **Pole karty, nie osobna tabela:** `client_playbooks.prep_spec` (JSONB, 0769,
   lustro w `entrypoint.sh`). Osiem stałych pól (`PREP_SPEC_FIELDS`): tryb pracy
   i biuro, język rozmowy, przebieg rozmowy, na co zwracają uwagę, typ pytań,
   za co klient odrzuca, co wyróżnia klienta, forma współpracy. Każde to lista
@@ -18,7 +18,7 @@ fundamenty: `integracje/fundamenty-prepa-przygotowanie-rekrutera.md`).
 - **Zapis jak reszta karty** (DL i admin, „Klienci: dodawanie i edycja”,
   wersja i historia z diffem), z jednym wyjątkiem od pełnej podmiany: **PUT bez
   klucza `prep_spec` zostawia zapisaną specyfikę**, jawne `null` ją usuwa.
-  Front sprzed 0768 (otwarta karta przeglądarki) wysłałby kartę bez pola
+  Front sprzed 0769 (otwarta karta przeglądarki) wysłałby kartę bez pola
   i wyczyściłby zasiew. Historia w formularzu pokazuje nazwy zmienionych pól,
   nie JSON.
 - **Odczyt:** pełna karta (profil klienta, Pomoc → Klienci) ma blok z ośmioma

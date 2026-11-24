@@ -5,7 +5,7 @@
  * (SLA, limity, polityka stawek, „co powiedzieć
  * kandydatowi", reguły priorytetu, zasady procesu, onboarding, dokumenty).
  *
- * „Specyfika na prep” (0768, 24.11.2026) stoi w obu wariantach: rekruter
+ * „Specyfika na prep” (0769, 24.11.2026) stoi w obu wariantach: rekruter
  * omawia ją z kandydatem po fundamentach, puste pole mówi „zapytaj DL-a”.
  *
  * Dwa warianty:

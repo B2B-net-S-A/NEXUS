@@ -40,7 +40,7 @@ export interface PlaybookDocument {
 }
 
 /**
- * „Specyfika na prep” (0768, F2, decyzje Artura 24.11.2026) — lustro
+ * „Specyfika na prep” (0769, F2, decyzje Artura 24.11.2026) — lustro
  * `PREP_SPEC_FIELDS` z `services/client_prep_spec.py`. Rekruter omawia ją
  * z kandydatem po fundamentach (Ustawienia → Ocena prepów → „Przygotowanie”).
  */
@@ -103,7 +103,7 @@ export interface ClientPlaybook {
    * „Zweryfikowany”. Opcjonalne — starsze odpowiedzi go nie niosą.
    */
   verified_required_fields?: string[];
-  /** 0768: „Specyfika na prep”; `null` = nikt jej nie wpisał. Starsze odpowiedzi jej nie niosą. */
+  /** 0769: „Specyfika na prep”; `null` = nikt jej nie wpisał. Starsze odpowiedzi jej nie niosą. */
   prep_spec?: PrepSpec | null;
   seed_key: string | null;
   updated_at: string | null;

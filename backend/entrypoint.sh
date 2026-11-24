@@ -6448,7 +6448,7 @@ _COLUMN_STATEMENTS = [
     # `test_playbook_verified_required_mirror.py`.
     "ALTER TABLE client_playbooks "
     "ADD COLUMN IF NOT EXISTS verified_required_fields JSONB NULL",
-    # 0768: „Specyfika na prep” w karcie klienta (decyzje Artura 24.11.2026).
+    # 0769: „Specyfika na prep” w karcie klienta (decyzje Artura 24.11.2026).
     # Lustro 1:1 z migracją — pilnuje `test_client_prep_spec.py`.
     "ALTER TABLE client_playbooks ADD COLUMN IF NOT EXISTS prep_spec JSONB NULL",
     # 0489: „O mnie” rekrutera na stałym linku (najwyżej 280 znaków).

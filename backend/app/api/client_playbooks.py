@@ -26,9 +26,9 @@ Model dostępu (decyzja 03.09.2026, świadome odstępstwo od reguł CV):
 * Off-limits (``client_contract_terms.off_limits_*``) NIE jedzie w karcie —
   funkcja usunięta 27.09.2026 decyzją Artura (runda 9, R9-N4-8); kolumny
   w bazie zostają.
-* „Specyfika na prep” (``prep_spec``, 0768, 24.11.2026) jest wyjątkiem od
+* „Specyfika na prep” (``prep_spec``, 0769, 24.11.2026) jest wyjątkiem od
   pełnej podmiany: brak klucza w PUT zostawia zapisaną specyfikę, bo front
-  sprzed 0768 (otwarta karta przeglądarki) wysłałby kartę bez niej i ją
+  sprzed 0769 (otwarta karta przeglądarki) wysłałby kartę bez niej i ją
   wyczyścił; jawne ``null`` usuwa.
 """
 
@@ -132,7 +132,7 @@ class ClientPlaybookPayload(BaseModel):
     # 0495 (D3, 21.10.2026): pola karty rekomendacji, które klient dokłada do
     # minimum przed „Zweryfikowany”. Tylko z `CLIENT_EXTRA_FIELDS`.
     verified_required_fields: list[str] = Field(default_factory=list, max_length=10)
-    # 0768 (F2): brak klucza = zostaw zapisaną specyfikę, ``null`` = usuń.
+    # 0769 (F2): brak klucza = zostaw zapisaną specyfikę, ``null`` = usuń.
     prep_spec: Optional[PrepSpec] = None
 
     @field_validator("verified_required_fields")
@@ -191,7 +191,7 @@ class ClientPlaybookRead(BaseModel):
     onboarding_md: Optional[str] = None
     documents: list[dict[str, str]] = Field(default_factory=list)
     verified_required_fields: list[str] = Field(default_factory=list)
-    # 0768 (F2): osiem kluczy z `client_prep_spec.PREP_SPEC_KEYS`; NULL = brak.
+    # 0769 (F2): osiem kluczy z `client_prep_spec.PREP_SPEC_KEYS`; NULL = brak.
     prep_spec: Optional[dict[str, list[str]]] = None
     seed_key: Optional[str] = None
     updated_at: Optional[str] = None
