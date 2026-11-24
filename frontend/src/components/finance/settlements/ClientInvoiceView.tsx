@@ -165,7 +165,7 @@ export function ClientInvoiceView({ clientId, month }: { clientId: number; month
             </thead>
             <tbody className="divide-y">
               {rows.map((r) => (
-                <tr key={r.contract_id} className="align-top">
+                <tr key={`${r.contract_id}-${r.order_id ?? ""}`} className="align-top">
                   <td className="px-3 py-1.5">
                     <span className="block truncate font-medium">{r.person}</span>
                     <span className="block truncate text-[11px] text-muted-foreground">

@@ -651,6 +651,8 @@ export interface ClientInvoiceRow {
   contract_id: number;
   person: string;
   order_number: string | null;
+  /** Linia zamówienia wiersza; przy podziale z maila klienta osoba ma wiersz na każde zamówienie. */
+  order_id?: number | null;
   /** `time_report` — pozycja z raportu T4T, nie z RCP. */
   kind: SettlementKind | "time_report" | null;
   /** Dlaczego pozycja czeka (T4T: godziny niezatwierdzone w wersji z DD.MM). */
