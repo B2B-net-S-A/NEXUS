@@ -91,9 +91,24 @@ describe("AutentiEnvelopeCard — stan koperty", () => {
     expect(screen.getByTestId("send-dialog")).toHaveTextContent("Wysyłka do: Anna Przykładowa");
   });
 
-  it.todo(
-    "awaria listy podpisów (np. 500) pokazuje błąd zamiast „Brak wysyłek” i nie odblokowuje nowej wysyłki — dziś AutentiEnvelopeCard.tsx:300 pokazuje pusty stan przy każdym błędzie innym niż 404/503",
-  );
+  it("awaria listy podpisów (500) pokazuje błąd z ponowieniem zamiast „Brak wysyłek” i blokuje nową wysyłkę", async () => {
+    mocks.list
+      .mockRejectedValueOnce(httpError(500, "Autenti nie odpowiada."))
+      .mockResolvedValueOnce({ data: [] });
+    const user = userEvent.setup();
+    renderCard();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Nie udało się pobrać danych");
+    expect(alert).toHaveTextContent("Autenti nie odpowiada.");
+    expect(screen.queryByText(/Brak wysyłek/)).not.toBeInTheDocument();
+    const send = screen.getByRole("button", { name: /Wyślij do podpisu/ });
+    expect(send).toBeDisabled();
+    expect(send).toHaveAttribute("title", "Najpierw wczytaj historię podpisów — bez niej nie widać, czy umowa nie jest już w podpisie.");
+    await user.click(screen.getByRole("button", { name: "Spróbuj ponownie" }));
+    expect(await screen.findByText(/Brak wysyłek/)).toBeInTheDocument();
+    expect(mocks.list).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: /Wyślij do podpisu/ })).toBeEnabled();
+  });
 
   it("aktywna koperta blokuje drugą wysyłkę i ma „Przypomnij” oraz „Wycofaj”", async () => {
     mocks.list.mockResolvedValue({ data: [signature({ id: 7, status: "in_progress" })] });

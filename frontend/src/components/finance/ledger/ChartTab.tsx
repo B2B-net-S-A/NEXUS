@@ -274,7 +274,9 @@ function RuleForm({ row, onDone }: { row?: PostingRule; onDone: () => void }) {
   );
   const [form, setForm] = useState({
     cost_account: row?.cost_account ?? "",
-    vat_account: row?.vat_account ?? "221",
+    // Reguła „bez odliczenia” może nie mieć konta VAT; domyślne 221 dostaje
+    // dopiero przy zmianie odliczenia (niżej), inaczej ukryte pole zapisałoby je po cichu.
+    vat_account: row ? (row.vat_account ?? "") : "221",
     deduction: (row?.deduction ?? "full") as Deduction,
     register: (row?.register ?? "purchase") as Register,
     doc_type: row?.doc_type ?? "FVZ",
@@ -338,7 +340,15 @@ function RuleForm({ row, onDone }: { row?: PostingRule; onDone: () => void }) {
         <select
           aria-label="Odliczenie VAT"
           value={form.deduction}
-          onChange={(e) => set("deduction", e.target.value as Deduction)}
+          onChange={(e) => {
+            const deduction = e.target.value as Deduction;
+            // Odliczenie pełne i 50% wymaga konta VAT (CHECK w bazie).
+            setForm((current) => ({
+              ...current,
+              deduction,
+              vat_account: deduction !== "none" && !current.vat_account ? "221" : current.vat_account,
+            }));
+          }}
           className={CONTROL}
         >
           {(Object.keys(DEDUCTION_LABELS) as Deduction[]).map((item) => (

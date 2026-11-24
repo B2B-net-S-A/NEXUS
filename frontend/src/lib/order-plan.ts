@@ -415,7 +415,9 @@ export function lineIssues(
       );
     }
   }
-  if (parseDecimalInput(draft.rateCost) === null) {
+  // Zero dozwolone, ujemny koszt serwer odrzuca (rate_cost ge=0).
+  const rateCost = parseDecimalInput(draft.rateCost);
+  if (rateCost === null || rateCost < 0) {
     issues.push("stawka kosztowa");
   }
   if ((parseDecimalInput(draft.rateRevenue) ?? 0) <= 0) {

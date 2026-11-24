@@ -157,7 +157,9 @@ export function MonthCloseView() {
             {(
               [
                 ["clients", "Gdzie są rozliczenia", null],
-                ["reasons", "Błędy i uwagi", s ? problemTotal(s) : issues.length],
+                // `stagesOf` daje zera, gdy API nie przysłało etapów (starsza odpowiedź) —
+                // wtedy licznik bierze powody z listy pod zakładką.
+                ["reasons", "Błędy i uwagi", s && data.stages ? problemTotal(s) : issues.length],
                 ["closing", "Dla księgowej", closingCount],
               ] as const
             ).map(([key, label, n]) => (

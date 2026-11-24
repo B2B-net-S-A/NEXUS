@@ -125,9 +125,20 @@ describe("DraftEditor — wczytanie", () => {
     await waitFor(() => expect(editor.setContent).toHaveBeenCalledWith("<p></p>", { emitUpdate: false }));
   });
 
-  it.todo(
-    "awaria GET /api/contracts/{id}/draft pokazuje błąd z ponowieniem — dziś ContractDraftEditor.tsx:145 (`isLoading || !data`) zostawia „Ładowanie draftu…” na zawsze",
-  );
+  it("awaria GET /api/contracts/{id}/draft pokazuje błąd z ponowieniem, a nie wieczne „Ładowanie draftu…”", async () => {
+    mocks.get
+      .mockRejectedValueOnce({ isAxiosError: true, response: { status: 500, data: { detail: "Baza nie odpowiada." } } })
+      .mockResolvedValueOnce({ data: draft() });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderEditor();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Nie udało się pobrać danych");
+    expect(alert).toHaveTextContent("Baza nie odpowiada.");
+    expect(screen.queryByText("Ładowanie draftu…")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Spróbuj ponownie" }));
+    expect(await screen.findByText(/kontrakt #\s*11/)).toBeInTheDocument();
+    expect(mocks.get).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("DraftEditor — autozapis i szablon", () => {
@@ -232,12 +243,12 @@ describe("DraftEditor — druk i finalizacja", () => {
     mocks.get.mockResolvedValue({ data: draft() });
     mocks.finalize
       .mockRejectedValueOnce({ response: { status: 409, data: { detail: { message: "Missing required fields", missing: ["start_date", "rate_client"] } } } })
-      .mockRejectedValueOnce({ response: { status: 500, data: { detail: "boom" } } });
+      .mockRejectedValueOnce({ response: { status: 500, data: {} } });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderEditor();
     await user.click(await screen.findByRole("button", { name: /Sfinalizuj umowę/ }));
     await user.click(screen.getByRole("button", { name: "Tak, finalizuj" }));
-    await waitFor(() => expect(mocks.error).toHaveBeenCalledWith(expect.stringMatching(/^Uzupełnij wymagane pola: /)));
+    await waitFor(() => expect(mocks.error).toHaveBeenCalledWith(expect.stringMatching(/^Uzupełnij brakujące pola: /)));
     // Okno zostaje — można spróbować ponownie albo anulować.
     await user.click(screen.getByRole("button", { name: "Tak, finalizuj" }));
     await waitFor(() => expect(mocks.error).toHaveBeenLastCalledWith("Nie udało się sfinalizować draftu"));
@@ -245,7 +256,21 @@ describe("DraftEditor — druk i finalizacja", () => {
     expect(screen.queryByText(/status kontraktu zmieni się/)).not.toBeInTheDocument();
   });
 
-  it.todo(
-    "odmowa finalizacji z `missing` pokazuje polskie nazwy pól (CONTRACT_FIELD_LABELS z lib/api-error) — dziś ContractDraftEditor.tsx:138 skleja surowe klucze bez spacji: „Uzupełnij wymagane pola: start_date,rate_client”",
-  );
+  it("odmowa finalizacji z `missing` pokazuje polskie nazwy pól, a odmowa z samym zdaniem — to zdanie", async () => {
+    mocks.get.mockResolvedValue({ data: draft() });
+    mocks.finalize
+      .mockRejectedValueOnce({ response: { status: 409, data: { detail: { message: "Missing required fields", missing: ["start_date", "rate_client"] } } } })
+      .mockRejectedValueOnce({ response: { status: 409, data: { detail: "Draft is empty — generate or paste content before finalizing." } } });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderEditor();
+    await user.click(await screen.findByRole("button", { name: /Sfinalizuj umowę/ }));
+    await user.click(screen.getByRole("button", { name: "Tak, finalizuj" }));
+    await waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith("Uzupełnij brakujące pola: Data rozpoczęcia, Stawka przychodowa (klienta)"),
+    );
+    await user.click(screen.getByRole("button", { name: "Tak, finalizuj" }));
+    await waitFor(() =>
+      expect(mocks.error).toHaveBeenLastCalledWith("Draft is empty — generate or paste content before finalizing."),
+    );
+  });
 });

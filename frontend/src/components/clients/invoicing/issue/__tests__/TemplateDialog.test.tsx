@@ -152,9 +152,41 @@ describe("TemplateDialog — nowy szablon", () => {
     expect(mocks.toast).not.toHaveBeenCalled();
   });
 
-  it.todo(
-    "pierwsza pozycja nowego szablonu bierze domyślną stawkę VAT z ustawień także wtedy, gdy ustawienia doszły po otwarciu okna — dziś TemplateDialog.tsx:65 liczy `blankLine(defaultVat)` raz, przy „23” zanim przyjdzie `default_vat`",
-  );
+  it("pierwsza pozycja nowego szablonu bierze domyślną stawkę VAT z ustawień także wtedy, gdy ustawienia doszły po otwarciu okna", async () => {
+    let resolveSettings: (value: { data: typeof SETTINGS }) => void = () => {};
+    mocks.get.mockReturnValue(new Promise((resolve) => (resolveSettings = resolve)));
+    mocks.post.mockResolvedValue({ data: template() });
+    const user = userEvent.setup();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <TemplateDialog template={null} defaultKind="service" onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Nowy szablon faktury");
+    resolveSettings({ data: SETTINGS });
+    await waitFor(() => expect(screen.getByLabelText("Pozycja 1: stawka VAT")).toHaveValue("8"));
+    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalled());
+    expect(mocks.post.mock.calls[0][1].lines[0].vat_rate).toBe("8");
+  });
+
+  it("ustawienia, które doszły w trakcie wpisywania, zmieniają tylko stawkę VAT, nie wpisaną nazwę", async () => {
+    let resolveSettings: (value: { data: typeof SETTINGS }) => void = () => {};
+    mocks.get.mockReturnValue(new Promise((resolve) => (resolveSettings = resolve)));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <TemplateDialog template={null} defaultKind="service" onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Nowy szablon faktury");
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Pozycja 1: nazwa"), "Najem");
+    resolveSettings({ data: { ...SETTINGS, settings: { default_vat: "np" } } });
+    await waitFor(() => expect(screen.getByLabelText("Pozycja 1: stawka VAT")).toHaveValue("np"));
+    expect(screen.getByLabelText("Pozycja 1: nazwa")).toHaveValue("Najem");
+  });
 });
 
 describe("TemplateDialog — istniejący szablon", () => {

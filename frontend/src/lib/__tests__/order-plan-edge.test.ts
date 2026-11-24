@@ -226,10 +226,12 @@ describe("lineIssues — ścieżki odmowy", () => {
     ]);
   });
 
-  // Błąd (24.11.2026): `lineIssues` sprawdza przy koszcie tylko „czy liczba”
-  // (order-plan.ts:418), więc karta z kosztem „-5” jest „gotowa”, a serwer
-  // odmawia 422 (`rate_cost: Field(..., ge=0)` w schemas/client_order_group.py:100).
-  it.todo("ujemna stawka kosztowa to problem karty („stawka kosztowa”), jak u serwera (ge=0)");
+  // Serwer odmawia ujemnego kosztu 422 (`rate_cost: Field(..., ge=0)`
+  // w schemas/client_order_group.py), więc karta nie może wyglądać na gotową.
+  it("ujemna stawka kosztowa to problem karty („stawka kosztowa”), jak u serwera (ge=0)", () => {
+    expect(lineIssues(ready({ rateCost: "-5" }), md)).toEqual(["stawka kosztowa"]);
+    expect(lineIssues(ready({ rateCost: "-0,01" }), md)).toEqual(["stawka kosztowa"]);
+  });
 
   it("zerowa stawka kosztowa jest dozwolona (serwer też: ge=0)", () => {
     expect(lineIssues(ready({ rateCost: "0" }), md)).toEqual([]);

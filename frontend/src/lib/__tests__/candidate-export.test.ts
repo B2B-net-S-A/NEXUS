@@ -143,8 +143,10 @@ describe("downloadCandidateExport — pobranie pliku eksportu", () => {
     expect(URL.createObjectURL).not.toHaveBeenCalled();
   });
 
-  it.todo(
-    "nazwa zapasowa bierze datę z UTC (`toISOString`, candidate-export.ts:51): " +
-      "o 23:30 UTC 30.09 w Warszawie jest już 01.10, a plik nazywa się kandydaci-2026-09-30",
-  );
+  it("nazwa zapasowa ma dzień kalendarza firmy, nie UTC: 23:30 UTC 30.09 to w Warszawie 01.10", async () => {
+    vi.setSystemTime(new Date("2026-09-30T23:30:00Z"));
+    respond({});
+    await downloadCandidateExport(request);
+    expect(clicked[0].download).toBe("kandydaci-2026-10-01.csv");
+  });
 });
