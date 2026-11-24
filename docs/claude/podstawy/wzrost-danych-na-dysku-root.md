@@ -72,12 +72,23 @@ na dysku. Postgres (`postgres-data`, 24 GB) i backupy nie leżą na `/`.
 
 ## Cofnięcie
 
-Stop tych samych kontenerów → `umount <_data>` → usuń linię z `/etc/fstab` →
-`rmdir <_data> && mv _data.old _data` → start kontenerów. Pliki dopisane po przełączeniu
-leżą wtedy tylko na `sdc`, więc przed cofnięciem: `rsync -a` z `sdc` do `_data.old`.
+Od 24.11.2026 nie ma już kopii do szybkiego cofnięcia: `_data.old` jest skasowana (niżej),
+więc uploads leżą tylko na `sdc` i w kopii zapasowej. Powrót na `/` to ten sam ruch
+w drugą stronę: kopia na żywo z `sdc` do nowego katalogu na `/`, stop tych samych
+kontenerów, drugi rsync, `umount <_data>`, usunięcie linii z `/etc/fstab`, podmiana
+katalogu i start kontenerów. Najpierw sprawdź, czy `/` ma miejsce na całe uploads.
 
-Stara kopia `_data.old` (14 GB na `/`) zostaje 7 dni. Skasowanie jej to osobne „tak”
-Artura. Dopiero po nim `/` spada do ok. 29%.
+## Stara kopia `_data.old` — skasowana 24.11.2026
+
+Skasowana na „tak” Artura. Przed kasowaniem (rutyna 23.11) mount i fstab były zgodne,
+a health zdrowy. 20 plików było tylko w starej kopii (dokumenty umów i zamówień
+z 27.08–13.11), ale żaden nie miał odwołania w bazie. Po kasowaniu `/` = 26 GB z 75 GB
+(36%, `diskPercent` w `/api/health` 34).
+
+Kasowanie z zabezpieczeniem, które nie rusza kopii, gdy `sdc` nie jest zamontowany:
+`findmnt -n -o SOURCE <_data> | grep -q sdc && rm -rf <_data.old>`. Komenda SSH
+podawana do uruchomienia na laptopie musi mieć `-i` z kluczem produkcji, bo
+`~/.ssh/config` nie ma wpisu dla hosta. Pierwsza próba 24.11 bez `-i` niczego nie skasowała.
 
 ## Odczyt
 
