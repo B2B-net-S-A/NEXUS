@@ -354,15 +354,53 @@ describe("ChartTab — reguły dekretu", () => {
     await waitFor(() => expect(showToast).toHaveBeenCalledWith("Reguła zapisana.", "success"));
   });
 
-  // Błąd: ChartTab.tsx:277 wstawia domyślne „221”, gdy reguła ma vat_account null,
-  // więc warunek `form.vat_account || null` z :290 nigdy nie daje null. Edycja
-  // dowolnego pola reguły „bez odliczenia” zapisuje po cichu konto VAT 221
-  // (pole jest ukryte, użytkownik go nie widzi). Wejście: reguła id 11
-  // z deduction "none", vat_account null; oczekiwane vat_account: null,
-  // faktycznie "221".
-  it.todo(
-    "edycja reguły bez odliczenia z vat_account null nie dopisuje ukrytego konta VAT 221 (ChartTab.tsx:277, :290)",
-  );
+  // Pole konta VAT jest przy odliczeniu innym niż pełne ukryte, więc edycja
+  // innego pola nie może po cichu dopisać domyślnego „221” do reguły z null.
+  it("edycja reguły bez odliczenia z vat_account null nie dopisuje ukrytego konta VAT 221", async () => {
+    const user = userEvent.setup();
+    routes();
+    patch.mockResolvedValue({ data: RULES[1] });
+    renderTab();
+    const section = await screen.findByRole("region", { name: "Reguły dekretu" });
+    await within(section).findByText("Biuro · Firma Testowa sp. z o.o.");
+    await user.click(within(section).getAllByRole("button", { name: "Edytuj" })[1]);
+    const form = within(section).getByLabelText("Reguła dekretu");
+    await user.selectOptions(within(form).getByLabelText("Rejestr"), "sale");
+    await user.click(within(form).getByRole("button", { name: "Zapisz regułę" }));
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    expect(patch.mock.calls[0][1]).toMatchObject({ deduction: "none", vat_account: null });
+  });
+
+  it("reguła bez konta VAT po przełączeniu na pełne odliczenie dostaje domyślne 221", async () => {
+    const user = userEvent.setup();
+    routes();
+    patch.mockResolvedValue({ data: RULES[1] });
+    renderTab();
+    const section = await screen.findByRole("region", { name: "Reguły dekretu" });
+    await within(section).findByText("Biuro · Firma Testowa sp. z o.o.");
+    await user.click(within(section).getAllByRole("button", { name: "Edytuj" })[1]);
+    const form = within(section).getByLabelText("Reguła dekretu");
+    await user.selectOptions(within(form).getByLabelText("Odliczenie VAT"), "full");
+    expect(within(form).getByLabelText("Konto VAT")).toHaveValue("221");
+    await user.click(within(form).getByRole("button", { name: "Zapisz regułę" }));
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    expect(patch.mock.calls[0][1]).toMatchObject({ deduction: "full", vat_account: "221" });
+  });
+
+  it("reguła bez konta VAT przełączona na odliczenie 50% wysyła 221 (baza wymaga konta poza „brak”)", async () => {
+    const user = userEvent.setup();
+    routes();
+    patch.mockResolvedValue({ data: RULES[1] });
+    renderTab();
+    const section = await screen.findByRole("region", { name: "Reguły dekretu" });
+    await within(section).findByText("Biuro · Firma Testowa sp. z o.o.");
+    await user.click(within(section).getAllByRole("button", { name: "Edytuj" })[1]);
+    const form = within(section).getByLabelText("Reguła dekretu");
+    await user.selectOptions(within(form).getByLabelText("Odliczenie VAT"), "partial");
+    await user.click(within(form).getByRole("button", { name: "Zapisz regułę" }));
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    expect(patch.mock.calls[0][1]).toMatchObject({ deduction: "partial", vat_account: "221" });
+  });
 
   it("błąd zapisu reguły idzie toastem; „Anuluj” zamyka formularz", async () => {
     const user = userEvent.setup();
