@@ -107,6 +107,8 @@ class ParsedRcp:
     summary: tuple[SummaryRow, ...]
     summary_total: Optional[Decimal]
     travel_total: Optional[Decimal]
+    #: Wiersze tabeli „Koszty Delegacji” (pociąg, hotel, …) z sumą wiersza.
+    travel_items: tuple[tuple[str, Decimal], ...] = ()
 
     @property
     def md_regular(self) -> Decimal:
@@ -225,6 +227,7 @@ def parse_pdf_text(text: str) -> Optional[ParsedRcp]:
     totals: tuple[Decimal, ...] = ()
     total_hours = declared_md = summary_total = travel_total = None
     summary: list[SummaryRow] = []
+    travel_items: list[tuple[str, Decimal]] = []
     in_summary = in_travel = False
     total_line = re.compile(r"^(?:%s)\s" % "|".join(_TOTAL_LABELS))
 
@@ -258,6 +261,9 @@ def parse_pdf_text(text: str) -> Optional[ParsedRcp]:
             numbers = re.findall(_NUM, line)
             travel_total = _dec(numbers[-1]) if numbers else None
             in_travel = False
+            continue
+        if in_travel and (item := _travel_item(line)) is not None:
+            travel_items.append(item)
             continue
         if total_hours is None and total_line.match(line) and not in_summary:
             values = [_dec(v) for v in re.findall(_NUM, line.split(None, 1)[1])]
@@ -293,7 +299,18 @@ def parse_pdf_text(text: str) -> Optional[ParsedRcp]:
         summary=tuple(summary),
         summary_total=summary_total,
         travel_total=travel_total,
+        travel_items=tuple(travel_items),
     )
+
+
+def _travel_item(line: str) -> Optional[tuple[str, Decimal]]:
+    """Wiersz „Koszty Delegacji” z PDF: nazwa i suma wiersza (ostatnia liczba)."""
+
+    match = re.match(r"^([^\d-][^\d]*?)\s+(%s(?:\s+%s)*)\s*$" % (_NUM, _NUM), line)
+    if match is None:
+        return None
+    value = _dec(re.findall(_NUM, match.group(2))[-1])
+    return (match.group(1).strip(), value) if value is not None else None
 
 
 def _summary_row(line: str) -> Optional[SummaryRow]:
@@ -384,6 +401,7 @@ def parse_xlsx_rows(rows: Iterable[list[Any]]) -> Optional[ParsedRcp]:
     totals: tuple[Decimal, ...] = ()
     total_hours = declared_md = summary_total = travel_total = None
     summary: list[SummaryRow] = []
+    travel_items: list[tuple[str, Decimal]] = []
     columns: Optional[dict[str, int]] = None
     in_travel = False
 
@@ -438,6 +456,10 @@ def parse_xlsx_rows(rows: Iterable[list[Any]]) -> Optional[ParsedRcp]:
             numbers = [_dec(v) for v in r if _dec(v) is not None]
             travel_total = numbers[-1] if numbers else None
             in_travel = False
+        elif in_travel and label:
+            numbers = [_dec(v) for v in r if _dec(v) is not None]
+            if numbers:
+                travel_items.append((label, numbers[-1]))
         elif label.rstrip("*").strip() in _SUMMARY_HEADS:
             columns = {}
             for i, c in enumerate(r):
@@ -499,6 +521,7 @@ def parse_xlsx_rows(rows: Iterable[list[Any]]) -> Optional[ParsedRcp]:
         summary=tuple(summary),
         summary_total=summary_total,
         travel_total=travel_total,
+        travel_items=tuple(travel_items),
     )
 
 

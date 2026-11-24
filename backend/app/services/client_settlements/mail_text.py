@@ -527,6 +527,28 @@ def approved(mails: list[Mail], senders: Senders) -> bool:
     return any(_approved_by(mail, senders) for mail in mails)
 
 
+def approver(mail: Mail, senders: Senders) -> Optional[str]:
+    """Adres akceptującego (``senders``), który w wątku napisał słowo akceptacji."""
+
+    for sender, text in _messages(mail):
+        lines = [line for line in text.splitlines() if not _HEADER_LINE.match(line)]
+        if senders.accepts_from(sender) and _APPROVED.search("\n".join(lines)):
+            match = _ADDRESS.search(sender or "")
+            return match.group(0).lower() if match else None
+    return None
+
+
+def from_printout(text: str) -> Optional[Mail]:
+    """Tekst wydruku maila (PDF) jako wątek; bez nagłówka „From:” z adresem
+    (faktura, RCP) to nie wydruk maila."""
+
+    for line in text.splitlines():
+        head = _QUOTED_FROM.match(line)
+        if head and _ADDRESS.search(head.group(1)):
+            return Mail(body=text)
+    return None
+
+
 def _fmt(value: Decimal) -> str:
     return f"{value.normalize():f}".replace(".", ",")
 
