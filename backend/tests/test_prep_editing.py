@@ -325,7 +325,8 @@ async def test_new_organizer_gets_a_new_meeting_and_the_old_one_is_cancelled(
     assert new_upn.startswith("prep-recruiter-")
     old_upn, _gid, comment = graph.cancelled[-1]
     assert old_upn.startswith("prep-delivery_lead-")
-    assert "Prep poprowadzi Ola Rekruter" in comment
+    # Kandydat nie zna słowa „Prep”, a od 24.11.2026 może to być Przygotowanie (F3).
+    assert "Spotkanie poprowadzi Ola Rekruter" in comment
 
     async with AsyncSessionLocal() as db:
         old = await db.get(CalendarEvent, event_id)
