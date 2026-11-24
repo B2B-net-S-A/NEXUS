@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
 
 import { ReviewBatchCard } from "./ReviewBatchCard";
+import { ReturnToNewButton } from "./ReviewBatchReturn";
 import { RoleProfileBlock } from "./ReviewBatchRoleProfile";
 
 // pdf.js i docx-preview nie mogą wejść do chunku ekranu; ten sam podgląd co w screeningu.
@@ -272,7 +273,7 @@ function NoAnswerButton({ candidateId, jobId }: { candidateId: number; jobId: nu
 function progressHint(data: ReviewBatchStatus, open: number): string {
   const overdue = data.overdue_screenings ?? 0;
   if (overdue > 0 && data.remaining === 0) {
-    return `Wyszukiwanie wróci po domknięciu ${screeningsCount(overdue)} po terminie. Wpisz wynik, odrzuć z powodem albo, gdy dzwonisz i kandydat nie odbiera, kliknij „Nie odebrał”.`;
+    return `Wyszukiwanie wróci po domknięciu ${screeningsCount(overdue)} po terminie. Wpisz wynik, odrzuć z powodem albo, gdy dzwonisz i kandydat nie odbiera, kliknij „Nie odebrał”. Rekrutację, która nie jest już Twoim priorytetem, oddaj do „Nowych” — bez odrzucania.`;
   }
   if (!data.met) {
     return `Zdecyduj o ${data.required} osobach: „Pasuje” albo „Nie pasuje” z powodem. Potem wyszukiwanie ręczne wraca. Osobę spoza bazy dodasz zawsze.`;
@@ -371,6 +372,9 @@ const SOURCE_LABEL: Record<ReviewBatchSource, string> = {
   p2: "Bez priorytetu",
   accepting: "Przyjmujemy kandydatów",
 };
+
+const TIER_KEYS: ReviewBatchSource[] = ["p0", "p1", "p2", "accepting"];
+const TIER_RANK: Record<string, number> = { p0: 0, p1: 1, p2: 2, accepting: 3 };
 
 /** Jedno zdanie: dlaczego ta osoba jest w Twojej porcji (decyzje Artura 10.11.2026). */
 function WhyLine({ why }: { why: ReviewBatchWhy }) {
@@ -550,7 +554,15 @@ function BatchWorkspace({
   // Karty z rekrutacji, z których osobę zdjęto, idą na koniec, bez terminu.
   const allOpen = data.open_today_screenings ?? [];
   const parkedCount = allOpen.filter((item) => item.parked).length;
-  const open = [...allOpen.filter((item) => !item.parked), ...allOpen.filter((item) => item.parked)];
+  // Grupy po rekrutacji, od najwyższego priorytetu; niższe niż Twój najwyższy
+  // dostają „Oddaj N do Nowych” (makieta 24.11.2026).
+  const groupOf = new Map(data.team_jobs.map((job) => [job.job_id, job.group]));
+  const rankOf = (jobId: number) => TIER_RANK[groupOf.get(jobId) ?? "none"] ?? 4;
+  const topRank = Math.min(4, ...data.team_jobs.map((job) => rankOf(job.job_id)));
+  const working = allOpen
+    .filter((item) => !item.parked)
+    .sort((a, b) => rankOf(a.job_id) - rankOf(b.job_id) || a.job_id - b.job_id);
+  const open = [...working, ...allOpen.filter((item) => item.parked)];
   const selected = open[Math.min(picked, Math.max(open.length - 1, 0))] ?? null;
   const preview =
     tab === "decide" && next
@@ -628,8 +640,44 @@ function BatchWorkspace({
               {open.map((item, index) => {
                 const active = selected === item;
                 const firstParked = item.parked && !open[index - 1]?.parked;
+                const firstOfJob = !item.parked && open[index - 1]?.job_id !== item.job_id;
+                const jobPeople = firstOfJob ? working.filter((other) => other.job_id === item.job_id) : [];
+                const lower = rankOf(item.job_id) > topRank;
+                const group = groupOf.get(item.job_id);
                 return (
                   <li key={`${item.job_id}-${item.candidate_id}`} className={cn(active && "bg-primary/5")}>
+                    {firstOfJob ? (
+                      <div className="border-b border-border bg-muted/50 px-3 py-2 text-xs" data-testid="review-batch-close-group">
+                        <div className="flex items-center gap-1.5">
+                          {group ? (
+                            <span className={cn("shrink-0 rounded px-1.5 py-0.5 font-semibold", group === "p0" ? "bg-destructive/15 text-destructive" : "bg-muted text-muted-foreground")}>
+                              {SOURCE_LABEL[group]}
+                            </span>
+                          ) : null}
+                          <span className="min-w-0 truncate font-medium text-foreground">{item.job_title}</span>
+                          <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
+                            {jobPeople.some((other) => other.overdue)
+                              ? `${jobPeople.filter((other) => other.overdue).length} po terminie · `
+                              : ""}
+                            {jobPeople.length}
+                          </span>
+                        </div>
+                        {lower ? (
+                          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                            <span className="text-muted-foreground">
+                              Nie jest teraz Twoim {SOURCE_LABEL[TIER_KEYS[topRank]] ?? "priorytetem"}. Nie zadzwonisz? Oddaj, nie odrzucaj.
+                            </span>
+                            <ReturnToNewButton
+                              jobId={item.job_id}
+                              jobTitle={item.job_title}
+                              people={jobPeople}
+                              label={`Oddaj ${jobPeople.length} do Nowych`}
+                              confirm
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {firstParked ? (
                       <div className="border-b border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground" data-testid="review-batch-parked-header">
                         <span className="font-medium text-foreground">
@@ -678,6 +726,12 @@ function BatchWorkspace({
                           <Link href={`/jobs/${item.job_id}?candidate=${item.candidate_id}`}>Otwórz screening</Link>
                         </Button>
                         <NoAnswerButton candidateId={item.candidate_id} jobId={item.job_id} />
+                        <ReturnToNewButton
+                          jobId={item.job_id}
+                          jobTitle={item.job_title}
+                          people={[item]}
+                          label="Oddaj do Nowych"
+                        />
                       </div>
                     ) : null}
                     </div>
