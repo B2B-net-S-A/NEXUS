@@ -312,6 +312,36 @@ async def _lock_latest_stage(
     return stage
 
 
+async def _clear_pair_rate(
+    db: AsyncSession, stage: CandidateStage, prefix: str
+) -> None:
+    """Wyczyść stawkę (``client_rate`` / ``expected_rate``) z CAŁEJ pary.
+
+    Odczyt (``/history``, ``latest_client_rates``, karta) bierze najnowszą
+    NIEPUSTĄ wartość z historii pary, więc wyczyszczenie samego najnowszego
+    wiersza przywracało starszą stawkę, choć odpowiedź i audyt mówiły, że jej
+    nie ma (audyt 24.11.2026).
+    """
+
+    cleared = {
+        f"{prefix}_value": None,
+        f"{prefix}_unit": None,
+        f"{prefix}_currency": None,
+    }
+    await db.execute(
+        update(CandidateStage)
+        .where(
+            CandidateStage.candidate_id == stage.candidate_id,
+            CandidateStage.job_id == stage.job_id,
+            getattr(CandidateStage, f"{prefix}_value").is_not(None),
+        )
+        .values(**cleared)
+        .execution_options(synchronize_session="fetch")
+    )
+    for column, value in cleared.items():
+        setattr(stage, column, value)
+
+
 async def update_latest_client_rate(
     db: AsyncSession,
     *,
@@ -334,9 +364,7 @@ async def update_latest_client_rate(
         stage.client_rate_currency,
     )
     if rate_value is None:
-        stage.client_rate_value = None
-        stage.client_rate_unit = None
-        stage.client_rate_currency = None
+        await _clear_pair_rate(db, stage, "client_rate")
     else:
         stage.client_rate_value = rate_value
         stage.client_rate_unit = rate_unit
@@ -633,9 +661,7 @@ async def update_latest_expected_rate(
         job_id=job_id,
     )
     if rate_value is None:
-        stage.expected_rate_value = None
-        stage.expected_rate_unit = None
-        stage.expected_rate_currency = None
+        await _clear_pair_rate(db, stage, "expected_rate")
     else:
         stage.expected_rate_value = rate_value
         stage.expected_rate_unit = rate_unit

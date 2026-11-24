@@ -283,6 +283,20 @@ def _clear_request(job: Job) -> None:
     job.p0_requested_by = None
 
 
+def end_with_close(job: Job) -> None:
+    """Zamknięcie rekrutacji gasi P0 i oczekującą prośbę o P0 (0525, 0610).
+
+    Jedna reguła dla ``close_job_core`` i ``PATCH status=closed`` — ponowne
+    otwarcie nie przywraca P0 (audyt 24.11.2026: przez PATCH wracało jako
+    „po terminie” i dzwoniło). Bez śladu „P0 zdjęte”: kończy je zamknięcie.
+    """
+    job.p0_until = None
+    job.p0_reason = None
+    job.p0_set_at = None
+    job.p0_set_by = None
+    _clear_request(job)
+
+
 async def request_p0(
     db: AsyncSession,
     job: Job,
