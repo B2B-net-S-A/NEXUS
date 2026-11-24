@@ -1,7 +1,7 @@
 /**
  * Odczyty strony kariery wykonywane WYŁĄCZNIE po stronie serwera (RSC, grafiki
  * OG). Osobny moduł, bo `forwardedClientHeaders` czyta `next/headers`, a
- * `lib/career/api.ts` importuje też komponent klienta (`CareerApplyForm`) —
+ * `lib/career/api.ts` importują też komponenty klienta (`site/OfferApply`) —
  * wspólny moduł wywracał build frontendu (audyt 22.09 r2, FE-N01).
  */
 

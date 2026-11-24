@@ -13,7 +13,8 @@ wiersza, a JSON w ``app_settings`` takiej blokady nie daje.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+import re
+from typing import Any, Iterable, Optional
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -58,6 +59,23 @@ PATTERN_MAX = 40
 TEXT_MAX = 255
 ACCOUNT_MIN, ACCOUNT_MAX = 10, 34
 PAYMENT_DAYS_MAX = 180
+#: Nabywcy klienta (Nordea: Abp, Rahoitus, oddział w Polsce — nabywca zależy od kontraktu).
+BUYERS_MAX = 10
+BUYER_CODE = re.compile(r"b\d{1,3}")
+#: Kod adresu faktury w portalu CPro Nordei (``F206`` = Abp Finland). Mail CPro
+#: „Invoice address was updated” podaje ten kod — tak NEXUS znajduje nabywcę z listy.
+CPRO_CODE = re.compile(r"[A-Z]\d{2,5}")
+BUYER_FIELDS = (
+    "name",
+    "number",
+    "address_l1",
+    "address_l2",
+    "country",
+    "delivery_l1",
+    "delivery_l2",
+    "delivery_country",
+    "cpro_code",
+)
 
 
 class IssueSettingsError(ValueError):
@@ -83,6 +101,105 @@ def _days(raw: Any, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return value if 0 <= value <= PAYMENT_DAYS_MAX else default
+
+
+def _country(raw: Any) -> str:
+    value = "".join(ch for ch in str(raw or "").upper() if ch.isalpha())[:2]
+    return "EL" if value == "GR" else value
+
+
+def _cpro_code(raw: Any) -> str:
+    value = "".join(str(raw or "").split()).upper()
+    return value if CPRO_CODE.fullmatch(value) else ""
+
+
+def _buyers(raw: Any, reserved: Iterable[str] = ()) -> list[dict[str, str]]:
+    """Lista nabywców klienta; wpis bez nazwy odpada, nowy dostaje kod ``b<n>``.
+
+    Nowy nabywca nie dostaje kodu zajętego w przypisaniach kontraktów
+    (``reserved``): usunięcie b2 i dodanie innej spółki w jednym zapisie dałoby
+    jej kontrakty b2 (przegląd 23.11.2026).
+    """
+
+    items = raw if isinstance(raw, list) else []
+    out: list[dict[str, str]] = []
+    used: set[str] = {str(code) for code in reserved}
+    for item in items[:BUYERS_MAX]:
+        if not isinstance(item, dict) or not _text(item.get("name")):
+            continue
+        entry = {
+            "name": _text(item.get("name")),
+            "number": "".join(
+                ch for ch in str(item.get("number") or "").upper() if ch.isalnum()
+            )[:32],
+            "address_l1": _text(item.get("address_l1")),
+            "address_l2": _text(item.get("address_l2")),
+            "country": _country(item.get("country")) or "PL",
+            "delivery_l1": _text(item.get("delivery_l1")),
+            "delivery_l2": _text(item.get("delivery_l2")),
+            "delivery_country": _country(item.get("delivery_country")),
+            "cpro_code": _cpro_code(item.get("cpro_code")),
+        }
+        code = str(item.get("code") or "")
+        if BUYER_CODE.fullmatch(code) and code not in {e.get("code") for e in out}:
+            entry["code"] = code
+            used.add(code)
+        out.append(entry)
+    next_no = 1
+    for entry in out:
+        if "code" in entry:
+            continue
+        while f"b{next_no}" in used:
+            next_no += 1
+        entry["code"] = f"b{next_no}"
+        used.add(entry["code"])
+    return out
+
+
+#: Przypisanie zapisane przed „od miesiąca” (PR #3817) obowiązuje od początku.
+SINCE_ALWAYS = "2000-01"
+MONTH = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
+
+
+def _history(raw: Any) -> list[dict[str, str]]:
+    """Historia nabywcy kontraktu: ``[{"code", "from": "RRRR-MM"}]`` rosnąco po miesiącu.
+
+    Nabywca kontraktu się zmienia (Nordea: zmiana w portalu CPro od dnia, np.
+    z Abp S.A. na Abp Finland od 15.09.2026), więc przypisanie ma miesiąc
+    początku; wcześniejsze miesiące zostają przy poprzednim nabywcy.
+    """
+
+    items = [{"code": raw, "from": SINCE_ALWAYS}] if isinstance(raw, str) else raw
+    by_month: dict[str, str] = {}
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        code, since = str(item.get("code") or ""), str(item.get("from") or "")
+        if BUYER_CODE.fullmatch(code) and MONTH.fullmatch(since):
+            by_month[since] = code
+    out: list[dict[str, str]] = []
+    for month in sorted(by_month):
+        # Ten sam nabywca co miesiąc wcześniej to nie zmiana — jeden wpis.
+        if not out or out[-1]["code"] != by_month[month]:
+            out.append({"code": by_month[month], "from": month})
+    return out
+
+
+def _mapping_codes(raw: Any) -> set[str]:
+    data = raw if isinstance(raw, dict) else {}
+    return {item["code"] for value in data.values() for item in _history(value)}
+
+
+def _contract_buyers(raw: Any, codes: set[str]) -> dict[str, list[dict[str, str]]]:
+    data = raw if isinstance(raw, dict) else {}
+    out = {}
+    for key, value in data.items():
+        if not str(key).isdigit():
+            continue
+        history = [item for item in _history(value) if item["code"] in codes]
+        if history:
+            out[str(int(key))] = history
+    return out
 
 
 def normalize(raw: object) -> dict[str, Any]:
@@ -126,6 +243,16 @@ def normalize(raw: object) -> dict[str, Any]:
             terms = None
         if terms is not None:
             entry["rebate"] = rebate.to_json(terms)
+        raw_mapping = value.get("contract_buyers")
+        buyers = _buyers(
+            value.get("buyers"),
+            _mapping_codes(raw_mapping),
+        )
+        if buyers:
+            entry["buyers"] = buyers
+            mapping = _contract_buyers(raw_mapping, {b["code"] for b in buyers})
+            if mapping:
+                entry["contract_buyers"] = mapping
         if entry:
             clients[str(int(key))] = entry
     return {
@@ -179,6 +306,15 @@ def validate(data: dict[str, Any]) -> None:
                 f"Wzór serii „{SERIES_LABELS[code]}” musi zawierać {{n}}, miesiąc "
                 "({m} albo {mm}) i {yyyy}."
             )
+    for client_id, entry in data["clients"].items():
+        seen: set[str] = set()
+        for buyer in entry.get("buyers") or []:
+            code = buyer.get("cpro_code") or ""
+            if code and code in seen:
+                raise IssueSettingsError(
+                    f"Kod CPro {code} ma dwóch nabywców klienta {client_id}."
+                )
+            seen.add(code)
     patterns = list(data["series"].values())
     if len(set(patterns)) != len(patterns):
         raise IssueSettingsError("Każda seria musi mieć inny wzór numeru.")
@@ -223,15 +359,21 @@ def client_rebate(
         return None
 
 
-async def load(db: AsyncSession) -> dict[str, Any]:
-    raw = await db.scalar(select(AppSetting.value).where(AppSetting.key == SETTING_KEY))
+async def load(db: AsyncSession, *, lock: bool = False) -> dict[str, Any]:
+    """Ustawienia; ``lock=True`` blokuje wiersz do końca transakcji (zapis po odczycie)."""
+
+    query = select(AppSetting.value).where(AppSetting.key == SETTING_KEY)
+    raw = await db.scalar(query.with_for_update() if lock else query)
     return normalize(raw)
 
 
 async def save(
-    db: AsyncSession, raw: dict[str, Any], *, actor_id: int
+    db: AsyncSession, raw: dict[str, Any], *, actor_id: Optional[int]
 ) -> dict[str, Any]:
-    """Zapis (bez commita); ``IssueSettingsError`` przy złych danych."""
+    """Zapis (bez commita); ``IssueSettingsError`` przy złych danych.
+
+    ``actor_id=None`` = automat (nabywca z maila CPro, ``cpro_invoice_buyer``).
+    """
 
     _check_rebates(raw)
     value = normalize(raw)
@@ -274,6 +416,107 @@ def account_for(
     return account if account.get("number") else None
 
 
+def client_buyers(
+    data: dict[str, Any], client_id: Optional[int]
+) -> list[dict[str, str]]:
+    """Nabywcy klienta z ustawień (pusta lista = nabywcą jest klient z kartoteki)."""
+
+    if client_id is None:
+        return []
+    return list((data.get("clients") or {}).get(str(client_id), {}).get("buyers") or [])
+
+
+def _code_in(history: list[dict[str, str]], period: str) -> Optional[str]:
+    code = None
+    for item in history:
+        if item["from"] <= period:
+            code = item["code"]
+    return code
+
+
+def buyer_by_cpro_code(
+    data: dict[str, Any], client_id: Optional[int], cpro_code: Optional[str]
+) -> Optional[dict[str, str]]:
+    """Nabywca klienta z kodem adresu CPro (``F206``); ``None`` = żaden go nie ma."""
+
+    code = _cpro_code(cpro_code)
+    if not code:
+        return None
+    return next(
+        (b for b in client_buyers(data, client_id) if b.get("cpro_code") == code),
+        None,
+    )
+
+
+def buyer_for_contract(
+    data: dict[str, Any],
+    client_id: Optional[int],
+    contract_id: Optional[int],
+    period: str,
+) -> Optional[dict[str, str]]:
+    """Nabywca kontraktu osoby w miesiącu usługi (``RRRR-MM``); ``None`` = nieprzypisany."""
+
+    if client_id is None or contract_id is None:
+        return None
+    entry = (data.get("clients") or {}).get(str(client_id), {})
+    history = _history((entry.get("contract_buyers") or {}).get(str(contract_id)))
+    code = _code_in(history, period)
+    return next((b for b in entry.get("buyers") or [] if b["code"] == code), None)
+
+
+def remember_buyer(
+    data: dict[str, Any],
+    client_id: int,
+    contract_ids: Iterable[int],
+    code: str,
+    period: str,
+) -> bool:
+    """Kontrakty przy nabywcy od miesiąca ``period`` (w miejscu); ``True`` = zmiana.
+
+    Późniejsze zmiany nabywcy zostają: poprawka sierpnia nie rusza września.
+    """
+
+    entry = (data.get("clients") or {}).get(str(client_id))
+    if not entry or code not in {b["code"] for b in entry.get("buyers") or []}:
+        return False
+    if not MONTH.fullmatch(period):
+        return False
+    mapping = entry.setdefault("contract_buyers", {})
+    changed = False
+    for contract_id in contract_ids:
+        history = _history(mapping.get(str(contract_id)))
+        if _code_in(history, period) == code:
+            continue
+        history = [item for item in history if item["from"] != period]
+        history.append({"code": code, "from": period})
+        mapping[str(contract_id)] = _history(history)
+        changed = True
+    return changed
+
+
+def keep_stored_mapping(raw: dict[str, Any], stored: dict[str, Any]) -> dict[str, Any]:
+    """Zapis z ekranu ustawień z przypisaniami kontraktów z bazy, nie z formularza.
+
+    Ekran nie edytuje ``contract_buyers`` (zapisuje je wybór nabywcy w szkicu i mail
+    CPro), a odsyła stan z chwili otwarcia. Bez tego karta otwarta przed mailem CPro
+    skasowałaby przy zapisie wpis „od miesiąca” dopisany przez automat. Klient bez
+    nabywców traci przypisania jak dotąd (``normalize``).
+    """
+
+    clients = raw.get("clients") if isinstance(raw.get("clients"), dict) else {}
+    merged: dict[str, Any] = {}
+    for key, value in clients.items():
+        if not isinstance(value, dict):
+            merged[key] = value
+            continue
+        entry = {k: v for k, v in value.items() if k != "contract_buyers"}
+        mapping = (stored.get("clients") or {}).get(str(key), {}).get("contract_buyers")
+        if mapping:
+            entry["contract_buyers"] = mapping
+        merged[key] = entry
+    return {**raw, "clients": merged}
+
+
 def client_payment_days(data: dict[str, Any], client_id: int) -> int:
     value: Optional[int] = data["clients"].get(str(client_id), {}).get("payment_days")
     return value if value is not None else data["payment_days"]
@@ -285,11 +528,16 @@ __all__ = [
     "SETTING_KEY",
     "IssueSettingsError",
     "account_for",
+    "buyer_by_cpro_code",
+    "buyer_for_contract",
+    "client_buyers",
     "client_payment_days",
     "client_rebate",
     "client_vat",
+    "keep_stored_mapping",
     "load",
     "normalize",
+    "remember_buyer",
     "save",
     "seller_missing",
     "validate",

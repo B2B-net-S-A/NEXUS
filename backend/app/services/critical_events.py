@@ -58,6 +58,7 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "client.delete": "Usunięcie klienta",
     "client.merge": "Scalenie klientów",
     "client.registry_number_added": "Dopisanie numeru klienta z faktury KSeF",
+    "client.payment_reminder_sent": "Monit płatności do klienta",
     "candidate.delete": "Usunięcie kandydata / kontraktora",
     "order_line.delete": "Usunięcie konsultanta z zamówienia",
     "contract.delete": "Usunięcie kontraktu",
@@ -81,6 +82,13 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "invoice.cancel": "Anulowanie faktury (integracja)",
     # 0486: zatwierdzona zgoda na prezent dla klienta (Zgody, etap 3).
     "client.gift": "Prezent dla klienta (zgoda)",
+    # 0765: zajęcia wierzytelności i spór na rozliczeniu kontraktora (bez kwot
+    # i sygnatur w szczegółach — tylko identyfikatory i nazwy zmienionych pól).
+    "contract.garnishment_add": "Zajęcie wierzytelności kontraktora — wpis",
+    "contract.garnishment_update": "Zajęcie wierzytelności kontraktora — zmiana",
+    "contract.garnishment_lift": "Zajęcie wierzytelności kontraktora — uchylenie",
+    "settlement.payment_hold": "Spór / wstrzymanie płatności kontraktora",
+    "settlement.payment_release": "Zwolnienie wstrzymanej płatności kontraktora",
 }
 
 OUTCOME_LABELS: dict[str, str] = {

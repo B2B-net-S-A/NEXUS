@@ -5,9 +5,17 @@
  */
 import { api } from "@/lib/api";
 
-export type CproEventKind = "closed" | "rejected" | "interview" | "interview_withdrawn" | "slots_changed" | "unknown";
+export type CproEventKind =
+  | "closed"
+  | "rejected"
+  | "interview"
+  | "interview_withdrawn"
+  | "slots_changed"
+  | "invoice_address"
+  | "contract_changed"
+  | "unknown";
 export type CproOutcome = "done" | "already" | "manual" | "notified";
-export type CproRuleKey = "closed" | "rejected" | "interview";
+export type CproRuleKey = "closed" | "rejected" | "interview" | "invoice_address";
 
 export interface CproJobClosed {
   at: string;

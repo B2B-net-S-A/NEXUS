@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
@@ -49,13 +49,17 @@ export function selectable(row: ToIssueRow): boolean {
  * „Wystaw za miesiąc” (M4): zamówienia z „Do faktury” za wybrany miesiąc,
  * zaznaczenie → szkice (jedna faktura na zamówienie albo na osobę). Wiersz
  * bez kwoty (brak zużycia MD) i zamówienie z fakturą za ten miesiąc nie dają
- * się zaznaczyć — powód stoi w wierszu.
+ * się zaznaczyć — powód stoi w wierszu. Z `clientId` (link „Wystaw” z „Przebiegu
+ * miesiąca”) panel pokazuje tylko tego klienta i zaznacza jego zamówienia do
+ * wystawienia; szkice powstają dopiero po kliknięciu „Utwórz szkice”.
  */
 export function IssueMonthPanel({
   period,
+  clientId,
   onCreated,
 }: {
   period: string;
+  clientId?: number;
   onCreated: (ids: number[]) => void;
 }) {
   const { showToast } = useToast();
@@ -64,7 +68,21 @@ export function IssueMonthPanel({
   const create = useCreateDrafts();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [split, setSplit] = useState<"order" | "person">("order");
-  const clients = useMemo(() => query.data?.clients ?? [], [query.data]);
+  const [onlyClient, setOnlyClient] = useState(clientId);
+  const allClients = useMemo(() => query.data?.clients ?? [], [query.data]);
+  const focused = onlyClient
+    ? allClients.find((entry) => entry.client_id === onlyClient)
+    : undefined;
+  const clients = focused ? [focused] : allClients;
+  const preselected = useRef(false);
+
+  useEffect(() => {
+    if (preselected.current || !focused) return;
+    preselected.current = true;
+    setSelected(
+      new Set(focused.rows.filter(selectable).map((row) => row.key)),
+    );
+  }, [focused]);
 
   const toggle = (key: string, on: boolean) =>
     setSelected((current) => {
@@ -103,7 +121,7 @@ export function IssueMonthPanel({
   }
   if (query.isError)
     return <QueryStateNotice state="error" onRetry={() => query.refetch()} />;
-  if (query.isSuccess && clients.length === 0) {
+  if (query.isSuccess && allClients.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
         Za {monthTitlePl(period).toLowerCase()} nie ma zamówień do
@@ -114,6 +132,24 @@ export function IssueMonthPanel({
 
   return (
     <div className="space-y-2">
+      {focused ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
+          <span className="text-foreground">
+            Tylko {focused.client_name ?? `klient #${focused.client_id}`} —
+            zaznaczono zamówienia do wystawienia.
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setOnlyClient(undefined);
+              setSelected(new Set());
+            }}
+          >
+            Pokaż wszystkich klientów
+          </Button>
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
         <p className="text-sm text-muted-foreground">
           Zaznacz zamówienia — powstaną szkice. Numer z serii faktura dostaje

@@ -52,6 +52,12 @@ function item(id: number, patch: Partial<PlanItem> = {}): PlanItem {
     hints: [],
     batch_id: null,
     preselect: true,
+    contract_id: null,
+    period_month: null,
+    settlement_id: null,
+    hold: null,
+    contractor_amount: null,
+    garnishments: [],
     ...patch,
   };
 }
@@ -100,6 +106,8 @@ beforeEach(() => {
     }
     if (url.endsWith("/batches")) return { data: { items: [] } };
     if (url.endsWith("/statements")) return { data: { unmatched: [], recent: [] } };
+    if (url.endsWith("/garnishments")) return { data: { items: [] } };
+    if (url.endsWith("/holds")) return { data: { items: [] } };
     throw new Error(`nieoczekiwany GET ${url}`);
   });
   post.mockImplementation(async (url: string) => {
@@ -218,6 +226,8 @@ describe("PaymentsTab — paczka czekająca na bank", () => {
                 white_list: { state: "listed", label: "W wykazie VAT" },
                 acknowledged: false,
                 status: "active",
+                contractor_amount: null,
+                garnishments: [],
               },
             ],
           },
@@ -241,6 +251,85 @@ describe("PaymentsTab — paczka czekająca na bank", () => {
     await user.click(within(dialog).getByRole("button", { name: "Zdejmij z paczki" }));
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith("/api/finance/payments/batches/5/items/1/release"),
+    );
+  });
+
+  it("zajęcie: podział płatności w wierszu i spór z wiersza kontraktora", async () => {
+    const user = userEvent.setup();
+    post.mockImplementation(async (url: string) => {
+      if (url.endsWith("/plan")) {
+        return {
+          data: {
+            ...PLAN,
+            items: [
+              item(5, {
+                contract_id: 42,
+                period_month: "2026-10",
+                settlement_id: 9,
+                to_pay: "1230.00",
+                contractor_amount: "180.00",
+                acks: [{ code: "garnishment", label: "Część płatności idzie do organu" }],
+                preselect: false,
+                garnishments: [
+                  {
+                    garnishment_id: 1,
+                    case_number: "KM 1/26",
+                    authority_name: "Komornik Testowy",
+                    authority_kind: "bailiff",
+                    authority_label: "Komornik",
+                    account: "11111111111111111111111111",
+                    amount: "1050.00",
+                    due_before: "1050.00",
+                    title: "Sygn. KM 1/26",
+                  },
+                ],
+              }),
+            ],
+          },
+        };
+      }
+      if (url.endsWith("/holds")) {
+        return { data: { id: 3, released_from_batches: [] } };
+      }
+      throw new Error(`nieoczekiwany POST ${url}`);
+    });
+    renderTab();
+    const split = await screen.findByLabelText("Podział płatności");
+    expect(within(split).getByText(/Komornik Testowy/)).toBeInTheDocument();
+    expect(within(split).getByText(/1\s?050,00/)).toBeInTheDocument();
+    expect(within(split).getByText(/180,00/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Spór / wstrzymaj" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Powód wstrzymania" }),
+      "Praca bez zamówienia klienta",
+    );
+    await user.click(screen.getByRole("button", { name: "Wstrzymaj płatność" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/finance/payments/holds", {
+        entry_id: 5,
+        reason: "Praca bez zamówienia klienta",
+      }),
+    );
+  });
+
+  it("zajęcie z wiersza: formularz nie wysyła bez sygnatury", async () => {
+    const user = userEvent.setup();
+    post.mockImplementation(async (url: string) => {
+      if (url.endsWith("/plan")) {
+        return { data: { ...PLAN, items: [item(6, { contract_id: 42 })] } };
+      }
+      throw new Error(`nieoczekiwany POST ${url}`);
+    });
+    renderTab();
+    await user.click(await screen.findByRole("button", { name: "Zajęcie" }));
+    await user.click(screen.getByRole("button", { name: "Zapisz zajęcie" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Podaj organ i sygnaturę sprawy.",
+    );
+    expect(post).not.toHaveBeenCalledWith(
+      "/api/finance/payments/garnishments",
+      expect.anything(),
     );
   });
 });

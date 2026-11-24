@@ -84,6 +84,7 @@ export function JobPreContractRuleFact({ jobId, rule, onSaved }: JobPreContractR
                 : "border-dashed border-border hover:bg-muted",
           )}
           data-testid="job-header-fact-pre-contract"
+          data-tour="job.header.pre-contract"
           title={title}
         >
           {rule?.stop ? (
@@ -143,7 +144,7 @@ export function JobPreContractRuleFact({ jobId, rule, onSaved }: JobPreContractR
                   <Button size="sm" variant="ghost" onClick={() => setDraft(undefined)} disabled={saving}>
                     Anuluj
                   </Button>
-                  <Button size="sm" onClick={() => void save()} disabled={saving} data-testid="pre-contract-rule-save">
+                  <Button size="sm" onClick={() => void save()} disabled={saving} data-testid="pre-contract-rule-save" data-tour="job.pre-contract.save">
                     {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : null}
                     Zapisz
                   </Button>
@@ -153,6 +154,7 @@ export function JobPreContractRuleFact({ jobId, rule, onSaved }: JobPreContractR
                   size="sm"
                   variant="outline"
                   data-testid="pre-contract-rule-edit"
+                  data-tour="job.pre-contract.edit"
                   onClick={() =>
                     setDraft(rule ? { needed_before: rule.needed_before, stop: rule.stop } : { needed_before: "cv_sent", stop: true })
                   }

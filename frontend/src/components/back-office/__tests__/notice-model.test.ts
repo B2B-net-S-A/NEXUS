@@ -20,6 +20,7 @@ function detail(overrides: Partial<NoticeDetail> = {}): NoticeDetail {
     agreement: false,
     period_source: "default",
     client_reason: null,
+    cpro_event: null,
     evidence: ["załącznik z wypowiedzeniem"],
     reasons: [{ key: "contract_number", label: "numer umowy z maila" }],
     message: null,
@@ -89,6 +90,23 @@ describe("noticeActions", () => {
       body: { end_date: "2026-12-18" },
     });
     expect(actions[1].request).toBeNull();
+  });
+
+  it("CPro end tells that confirming opens the exit case on the chosen day", () => {
+    const actions = noticeActions(
+      detail({ kind: "client_termination", cpro_event: "not_extended", client_end_date: null }),
+      null,
+    );
+    // „Will not be extended” bez daty: koniec to obecny koniec linii zamówienia.
+    expect(actions.map((a) => a.choice)).toEqual(["keep_order"]);
+    expect(actions[0].effects.join(" ")).toContain("Sprawa wyjścia z ostatnim dniem 31.01.2027");
+    const shorten = noticeActions(
+      detail({ kind: "client_termination", cpro_event: "terminated", client_end_date: "2026-12-18" }),
+      null,
+    )[0];
+    expect(shorten.effects.join(" ")).toContain("Sprawa wyjścia z ostatnim dniem 18.12.2026");
+    const plain = noticeActions(detail({ kind: "client_termination", client_end_date: "2026-12-18" }), null);
+    expect(plain[0].effects.join(" ")).not.toContain("Sprawa wyjścia");
   });
 
   it("date change equal to the order end only offers keep", () => {

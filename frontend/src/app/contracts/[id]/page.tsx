@@ -37,6 +37,7 @@ import { useConsultantCard } from "@/lib/api/care";
 import {
   buildContractHappening,
   type HappeningActionId,
+  type HappeningDateWarning,
   type HappeningItem,
   type HappeningOrderAfterEnd,
   type TerminationDocumentRef,
@@ -267,6 +268,8 @@ interface ContractDetail {
   order_after_end?: HappeningOrderAfterEnd[];
   /** Wypowiedzenie/porozumienie w Dokumentach przy niezapisanym rozwiązaniu (22.11.2026). */
   termination_document?: TerminationDocumentRef | null;
+  /** „Start przed podpisem” i „próg stawki przed startem” (23.11.2026) — liczy serwer. */
+  date_warnings?: HappeningDateWarning[];
 }
 
 interface ActivityEntry {
@@ -1055,6 +1058,7 @@ export default function ContractDetailPage() {
       can_reverse_termination: contract.can_reverse_termination ?? false,
       order_after_end: contract.order_after_end ?? [],
       termination_document: contract.termination_document ?? null,
+      date_warnings: contract.date_warnings ?? [],
     },
     careOpen && careCard?.health
       ? { level: careCard.health.level, reasons: careCard.health.reasons, ownerName: careCard.owner?.name ?? null }

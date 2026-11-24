@@ -40,6 +40,7 @@ from app.services.cv_approved_docx import without_empty_underline
 from app.services.cv_download_log import log_cv_download
 from app.models.cpro_bot import CproBotRun
 from app.services.cpro_bot import ingest, offer_text, runs
+from app.services.cpro_bot.cv_file import render_approved_pdf
 from app.services.cv_pdf_preview import (
     MSG_UNAVAILABLE,
     PdfPreviewUnavailable,
@@ -159,23 +160,18 @@ async def download_cv(
         # do osobnego panelu klienta nie jest częścią załącznika oferty w Cpro.
         # Konwersja może potrwać kilkadziesiąt sekund: nie trzymamy w tym
         # czasie połączenia i blokady biegu. Żadnego wpisu pobrania jeszcze.
-        if layout == "new":
-            # „Nowe CV” z treści wersji; render sam kończy transakcję.
-            try:
-                content = (await new_cv_pdf.approved_version_pdf(db, version)).pdf
-            except new_cv_pdf.NewCvPdfError as error:
-                raise HTTPException(
-                    status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
-                ) from error
-        else:
-            docx = version.docx_content
-            await db.commit()
-            try:
-                content = await pdf_from_docx(docx)
-            except PdfPreviewUnavailable as error:
-                raise HTTPException(
-                    status.HTTP_503_SERVICE_UNAVAILABLE, detail=MSG_UNAVAILABLE
-                ) from error
+        try:
+            content, layout = await render_approved_pdf(
+                db, version, classic_renderer=pdf_from_docx
+            )
+        except new_cv_pdf.NewCvPdfError as error:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
+            ) from error
+        except PdfPreviewUnavailable as error:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, detail=MSG_UNAVAILABLE
+            ) from error
         # Raport lub wygaśnięcie tokenu w czasie konwersji odbiera dostęp;
         # ponownie blokujemy bieg przed wydaniem CV i wpisem audytu.
         await require_cpro_run_token(run_id, request.headers.get("X-Run-Token"), db)

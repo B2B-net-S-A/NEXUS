@@ -52,12 +52,20 @@ export type RemotePolicyValue = "remote" | "hybrid" | "onsite";
  * „z dokumentu” (10.10.2026): pole przepisane z wypełnionego wzoru Profilu
  * Championa — czyta je kod, bez modelu.
  */
-export type FieldBasis = "request" | "document" | "client_history" | "ai" | "manual";
+export type FieldBasis =
+  | "request"
+  | "document"
+  | "client_history"
+  | "client_pattern"
+  | "ai"
+  | "manual";
 
 export const FIELD_BASIS_LABEL: Record<FieldBasis, string> = {
   request: "z maila",
   document: "z dokumentu",
   client_history: "z podobnej rekrutacji",
+  // 23.11.2026 (wariant 1): termin / liczba osób, które klient prawie zawsze ma tak samo.
+  client_pattern: "z historii klienta",
   ai: "propozycja AI",
   manual: "wpisane",
 };
@@ -206,6 +214,12 @@ export interface IntakeForm {
    * z pytaniem `keyTask` wymagane przy przekazaniu do searchu.
    */
   keyTask: string;
+  /**
+   * 23.11.2026 (wariant 1): `keyTask` to propozycja z odczytu maila, której DL
+   * jeszcze nie zatwierdził („Zatwierdź zadanie”) ani nie poprawił. Do tego
+   * czasu zadanie jest brakiem — AI je podpowiada, decyduje Delivery Lead.
+   */
+  keyTaskProposed: boolean;
   questions: IntakeQuestionForm[];
   // ── od v2: reszta profilu Championa ──
   language: string;
@@ -389,6 +403,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   about: "",
   responsibilities: "",
   keyTask: "",
+  keyTaskProposed: false,
   questions: [],
   language: "",
   contractLength: "",
@@ -600,6 +615,7 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
     about: intake.project_about ?? "",
     responsibilities: intake.responsibilities ?? "",
     keyTask: intake.key_task ?? "",
+    keyTaskProposed: Boolean(intake.key_task?.trim()),
     questions: withOneKeyTask(
       (intake.screening_questions ?? []).map((q) => ({
         key: newQuestionKey(),
@@ -888,6 +904,11 @@ export function markKeyTaskQuestion(form: IntakeForm, key: string): IntakeForm {
   };
 }
 
+/** „Zatwierdź zadanie”: propozycja AI staje się decyzją Delivery Leada. */
+export function confirmKeyTask(form: IntakeForm): IntakeForm {
+  return form.keyTaskProposed ? { ...form, keyTaskProposed: false } : form;
+}
+
 /** Pytanie wypełnione i zaznaczone jako sprawdzające najważniejsze zadanie. */
 export function keyTaskQuestion(form: IntakeForm): IntakeQuestionForm | null {
   return filledQuestions(form).find((q) => q.keyTask) ?? null;
@@ -957,13 +978,15 @@ export function missingFor(
   if (!form.about.trim() && !form.responsibilities.trim())
     missing.push("context");
   // 23.11.2026: zadanie od klienta i pytanie, które je sprawdza (lustro `job_key_task_blockers`).
-  if (!form.keyTask.trim() || keyTaskQuestion(form) == null) missing.push("key_task");
+  // Propozycja AI (wariant 1) czeka na „Zatwierdź zadanie”.
+  if (!form.keyTask.trim() || keyTaskQuestion(form) == null || form.keyTaskProposed)
+    missing.push("key_task");
   const questions = filledQuestions(form);
   if (questions.length < 2) missing.push("questions");
+  // 23.11.2026 (wariant 1): pytania z odpowiedzią, która odpada, i podpowiedź
+  // kategorii zatwierdza „Utwórz” — bez osobnego „Zatwierdź” i „Potwierdzam”.
   if (questions.some((q) => !q.dealBreaker.trim())) missing.push("deal_breaker");
-  else if (questions.some((q) => !q.approved)) missing.push("questions_review");
-  if (form.competenceCategoryId == null || !form.categoryConfirmed)
-    missing.push("category");
+  if (form.competenceCategoryId == null) missing.push("category");
   return missing;
 }
 
@@ -1526,6 +1549,7 @@ export function applyTemplate(
   form: IntakeForm,
   src: TemplateSourceJob,
   converted: TemplateRows | null = null,
+  opts: { keepCritical?: boolean } = {},
 ): IntakeForm {
   const next: IntakeForm = { ...form };
   const project = championSection(src.champion_profile, "project");
@@ -1543,9 +1567,17 @@ export function applyTemplate(
               ...legacy.nice.map((name) => ({ words: [name], level: "nice" })),
             ];
     // Krytyczne wybiera Delivery Lead od nowa — kopia ich nie przenosi.
-    next.rows = rowsFromStored(stored).map((row) =>
-      row.level === "critical" ? { ...row, level: "must" as const } : row,
+    // Wyjątek: Powtórka (wariant 2, 24.11.2026) — ten sam request co w szablonie,
+    // więc i te same krytyczne (`stack.critical`, `[]` = „Brak krytycznych”);
+    // DL zmienia je przy wierszach jak zawsze.
+    const critical =
+      opts.keepCritical && Array.isArray(stack.critical)
+        ? stack.critical.filter((label): label is string => typeof label === "string")
+        : null;
+    next.rows = rowsFromStored(stored, critical).map((row) =>
+      row.level === "critical" && !opts.keepCritical ? { ...row, level: "must" as const } : row,
     );
+    if (critical != null && critical.length === 0 && next.rows.length > 0) next.noCritical = true;
     if (next.descriptive.length === 0 && converted) next.descriptive = converted.descriptive;
   }
   if (!next.rateBudget && src.rate_budget_hourly != null) {

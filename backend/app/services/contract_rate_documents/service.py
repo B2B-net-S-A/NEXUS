@@ -302,6 +302,7 @@ async def apply_read(
             # `effects.can_confirm_rate_annex` (zmiana kwot albo Delivery Lead
             # u klienta z portfela — ta sama reguła co aneks stawki z Generatora).
             finance_write_authorized=user is None or finance_authorized,
+            rate_signal_source="document",
         )
         amendment_ids.append(amendment.id)
     contract = await _load_contract(db, row.contract_id)

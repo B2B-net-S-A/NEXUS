@@ -40,6 +40,7 @@ import {
  Unlock,
  UserPlus,
  UserX,
+ X,
  XCircle,
  PhoneCall,
  UserRound,
@@ -142,6 +143,7 @@ import {
 } from "@/lib/board-stages";
 import { boardColumnPurpose } from "@/lib/board-column-purpose";
 import { CALL_FIRST_COUNT, knownFactLabels, newColumnSection, orderNewColumn, type NewColumnSection } from "@/lib/new-column-queue";
+import { attemptLabel, orderScreeningColumn, returnNotice, screeningGroupLabel, type ScreeningGroup } from "@/lib/screening-column-groups";
 import { checkApplicantCv } from "@/lib/api/applicationScreenings";
 import { HiredColumnHelp } from "@/components/v2/jobs/HiredColumnHelp";
 import { hasPermission } from "@/lib/permissions";
@@ -177,6 +179,7 @@ import {
  shortStepLabel,
  closedRejectBy,
  type ClosedRejectBy,
+ twoLineStateTitle,
 } from "@/lib/board-card-badges";
 import { apiErrorMessage } from "@/lib/api-error";
 import { NewColumnTempo } from "@/components/v2/recruitment/NewColumnTempo";
@@ -243,6 +246,13 @@ import { useClientPlaybook } from "@/lib/client-playbooks";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { useJobPipelineTemplate } from "@/hooks/useJobPipelineTemplate";
 import { useReviewSequence } from "@/hooks/useReviewSequence";
+import {
+ quickRejectAllowed,
+ quickRejectChips,
+ quickRejectMessage,
+ useQuickRejectReasons,
+ type QuickRejectChip,
+} from "@/lib/quick-reject";
 import {
  kanbanViewToggleVisible,
  resolveKanbanViewMode,
@@ -339,6 +349,46 @@ interface KanbanBoardV2Props {
  /** Zmiana filtra z Tablicy („Pokaż wszystkich” w pustej kolumnie, pasek końca
   *  kolejki) i z menu etykiety kolejki w panelu. Bez niego tych miejsc nie ma. */
  onAddedByChange?: (filter: AddedByFilter) => void;
+ /** „Pracuj po kolei” na pulpicie (23.11.2026): sam panel osoby bez planszy,
+  *  osobę i kolejkę „‹ ›” podaje pulpit (przez wszystkie rekrutacje).
+  *  `docs/claude/ui/pracuj-po-kolei-na-pulpicie.md`. */
+ panelOnly?: PanelOnlyQueue | null;
+}
+
+/** Kolejka panelu prowadzona z zewnątrz Tablicy (pulpit „Czeka na Ciebie”). */
+export interface PanelOnlyQueue {
+ /** Kogo panel pokazuje — zmiana otwiera tę osobę jak klik w kartę. */
+ candidateId: number;
+ /** Nazwa kolejki obok „N z M”. */
+ label: string;
+ /** Pozycja osoby w kolejce (1-based); `null` — osoba poza kolejką. */
+ position: number | null;
+ total: number;
+ onPrevious: () => void;
+ onNext: () => void;
+ /** Zapowiedź w oknie odrzucenia: kto zastąpi zamykaną osobę. */
+ next: { name: string; stageLabel: string } | null;
+ /** Odrzucenie albo rezygnacja z panelu potwierdzona przez serwer. */
+ onClosedFromPanel: (closed: {
+  candidateId: number;
+  name: string;
+  verb: "Odrzucono" | "Rezygnacja";
+  reasonLabel: string | null;
+ }) => void;
+ closedNotice: {
+  verb: "Odrzucono" | "Rezygnacja";
+  name: string;
+  reason: string | null;
+  onShow: () => void;
+ } | null;
+ /** Osoba poza kolejką — „Wróć do kolejki”. */
+ onReturnToQueue?: () => void;
+ /** Pasek kolejki nad treścią panelu (lista, rekrutacja, „Dalej”). */
+ banner: React.ReactNode;
+ /** W panelu jest inna osoba tej rekrutacji (np. „Pokaż”, „Następna w Screeningu”). */
+ onPersonChange: (candidateId: number) => void;
+ /** Panel zamknięty (X, Esc, klik w tło). */
+ onClose: () => void;
 }
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -656,6 +706,8 @@ function NextActionRow({
  stageSince,
  button,
  stackDays = false,
+ lowState,
+ twoLines = false,
 }: {
  action: NextAction;
  /** „Kto ma ruch" + co zrobić (Rekrutacja v5) — `null` = sama etykieta akcji. */
@@ -671,9 +723,15 @@ function NextActionRow({
  button?: React.ReactNode;
  /** Szeroki przycisk: liczba dni pod nim, jak przy nazwie kroku. */
  stackDays?: boolean;
+ /** Jeden stan karty przed strzałką — widać go tylko w niskim oknie. */
+ lowState?: React.ReactNode;
+ /** Karta w dwóch liniach przy oknie < 800 px (`low-screen:`, 23.11.2026). */
+ twoLines?: boolean;
 }) {
- if (action.kind === "none" && !step && !advance && !button && !(waitingDays != null && waitingDays >= 1)) return null;
  const showDays = waitingDays != null && waitingDays >= 1;
+ // Bez ruchu, dni i przycisku wiersz niesie tylko stan z niskiego okna.
+ const onlyLowState = action.kind === "none" && !step && !advance && !button && !showDays;
+ if (onlyLowState && !(twoLines && lowState)) return null;
  const daysTone = !showDays ? null : waitingDays >= 5 ? "danger" : waitingDays >= 3 ? "warning" : "neutral";
  const Icon = action.tone === "normal" ? NEXT_ACTION_ICON[action.kind] : AlertTriangle;
  const label = step?.label ?? action.label;
@@ -689,7 +747,11 @@ function NextActionRow({
    title={[`Dni robocze czekania: ${waitingDays}`, stageSince].filter(Boolean).join(" · ")}
   >
    {/* Obok przycisku nie ma miejsca na „czeka”, przy nazwie kroku jest. */}
-   {button && !stackDays ? waitingWorkdaysText(waitingDays).replace("czeka ", "") : waitingWorkdaysText(waitingDays)}
+   <span className={cn(twoLines && "low-screen:hidden")}>
+    {button && !stackDays ? waitingWorkdaysText(waitingDays).replace("czeka ", "") : waitingWorkdaysText(waitingDays)}
+   </span>
+   {/* Dwie linie: przycisk, dni, stan i strzałka w ok. 140 px — sama liczba. */}
+   {twoLines ? <span className="hidden low-screen:inline">{waitingDays} d</span> : null}
   </span>
  ) : null;
  return (
@@ -697,13 +759,20 @@ function NextActionRow({
  data-next-action={action.tone}
  className={cn(
  "mt-1.5 flex items-center gap-1.5 border-t border-dashed border-border pt-1 text-[10.5px] leading-tight",
+ twoLines && "low-screen:mt-0.5 low-screen:gap-1 low-screen:border-t-0 low-screen:pt-0",
+ onlyLowState && "hidden low-screen:flex",
  action.tone === "normal" ? "text-foreground/80" : "text-warning font-medium",
  hidden && "xl:pointer-fine:hidden"
  )}
  >
  {button ? (
   <div
-   className={cn("flex min-w-0 flex-1 gap-1.5", stackDays ? "flex-col items-start gap-0.5" : "items-center")}
+   className={cn(
+    "flex min-w-0 flex-1 gap-1.5",
+    stackDays ? "flex-col items-start gap-0.5" : "items-center",
+    // Przycisk i dni w całości; miejsce oddaje stan obok (ucina się pierwszy).
+    twoLines && "low-screen:flex-none low-screen:gap-1"
+   )}
    title={step ? `${step.who}: ${label}` : label}
   >
    {button}
@@ -712,7 +781,7 @@ function NextActionRow({
  ) : step ? (
   // Kto ma ruch i krok w jednej linii, liczba dni pod nimi: obok „Twój ruch”
   // i strzałki nie mieści się cały napis „czeka 26 dni rob.”.
-  <div className="min-w-0 flex-1">
+  <div className={cn("min-w-0 flex-1", twoLines && "low-screen:flex low-screen:basis-auto low-screen:items-center low-screen:gap-1")}>
    <div className="flex min-w-0 items-center gap-1.5">
     <span
      data-testid="card-next-who"
@@ -725,15 +794,16 @@ function NextActionRow({
     </span>
     <span className="min-w-0 truncate" title={label}>{shortStepLabel(label)}</span>
    </div>
-   {days ? <div className="mt-0.5">{days}</div> : null}
+   {days ? <div className={cn("mt-0.5", twoLines && "low-screen:mt-0 low-screen:shrink-0")}>{days}</div> : null}
   </div>
  ) : (
   <>
    {label ? <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" /> : null}
-   <span className="min-w-0 flex-1 truncate" title={label}>{shortStepLabel(label)}</span>
+   <span className={cn("min-w-0 flex-1 truncate", twoLines && "low-screen:basis-auto")} title={label}>{shortStepLabel(label)}</span>
    {days}
   </>
  )}
+ {twoLines ? lowState : null}
  {advance}
  </div>
  );
@@ -1168,6 +1238,48 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  }
  const { primary: primaryBadges, more: moreBadges } = cardPrimaryBadges(item, badgeCtx, signals);
  const chipBase = "inline-flex min-w-0 items-center gap-0.5 rounded px-1 text-[10px] font-semibold";
+ // Niskie okno (< 800 px, decyzja Artura 23.11.2026): karta w dwóch liniach.
+ // Wiersz plakietek znika z ekranu, w linii ruchu zostaje najważniejsza z nich
+ // („+N” = ile jeszcze), a wszystkie są w jej podpowiedzi i w panelu osoby.
+ const twoLines = !desktopOverview;
+ // Stan bierzemy tylko z wiersza plakietek: to, co ma stać wyłącznie w „+N”,
+ // zostaje w liczniku i podpowiedzi także tutaj.
+ const lowBadges = [...primaryBadges, ...moreBadges];
+ const lowBadge = primaryBadges[0] ?? null;
+ const lowRest = lowBadge ? lowBadges.slice(1) : lowBadges;
+ const LowIcon = lowBadge ? (COMPACT_BADGE_ICON[lowBadge.key] ?? signalIcon(lowBadge.key)) : null;
+ // Źródło, blokada i karta rekomendacji: ikona i krótki dopisek, jak w wierszu plakietek.
+ const lowCompact = lowBadge ? compactCardBadge(lowBadge) : null;
+ const lowState = lowBadges.length > 0 ? (
+ <span
+ data-testid="card-low-state"
+ // Kotwica nowości „X? zna Y” musi mieć widoczny element także w dwóch liniach.
+ data-tour={lowBadge?.key === "critical_gap" && !criticalGaps?.length && criticalAlternatives ? "board.critical-alternative" : undefined}
+ title={twoLineStateTitle(lowBadges, addedAttribution)}
+ className={cn(
+ chipBase,
+ // Min. 40 px: obok długiej nazwy kroku zostawał zielony pasek bez treści.
+ "hidden min-w-10 shrink-[4] overflow-hidden low-screen:inline-flex",
+ lowBadge ? CARD_BADGE_TONE_CLASS[lowBadge.tone] : "bg-muted text-muted-foreground"
+ )}
+ >
+ {LowIcon ? <LowIcon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" /> : null}
+ {lowBadge && lowCompact ? (
+ <>
+ {lowCompact.short ? <span aria-hidden="true" className="truncate">{lowCompact.short}</span> : null}
+ <span className="sr-only">{lowBadge.label}</span>
+ </>
+ ) : lowBadge ? (
+ <span className="truncate">{lowBadge.label}</span>
+ ) : null}
+ {lowRest.length > 0 ? (
+ <>
+ <span aria-hidden="true" className={cn("shrink-0", lowBadge && "font-normal opacity-80")}>+{lowRest.length}</span>
+ <span className="sr-only">{lowBadge ? ", " : ""}{lowRest.map((b) => b.label).join(", ")}</span>
+ </>
+ ) : null}
+ </span>
+ ) : null;
  const stopThen = (fn: () => void) => (e: React.MouseEvent) => {
  e.stopPropagation();
  e.preventDefault();
@@ -1271,7 +1383,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <span
  key={b.key}
  data-testid={testId}
- data-tour={b.key === "critical_gap" && !criticalGaps?.length && criticalAlternatives ? "board.critical-alternative" : undefined}
+ data-tour={b.key === "critical_gap" && !criticalGaps?.length && criticalAlternatives ? "board.critical-alternative" : b.key === "pre_contract" && b.label.startsWith("Stop ·") ? "board.card.pre-contract-stop" : undefined}
  className={cn(chipBase, CARD_BADGE_TONE_CLASS[b.tone])}
  title={b.title}
  >
@@ -1348,6 +1460,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  // Makieta kroku 04 daje karcie ~9 px oddechu; stare `p-5` (20 px) zjadało
  // przy 176 px kolumny ćwierć jej szerokości na sam padding.
  "p-3",
+ twoLines && "low-screen:py-1",
  desktopOverview &&"xl:pointer-fine:min-h-[68px] xl:pointer-fine:rounded-md xl:pointer-fine:p-1 xl:pointer-fine:pb-6 xl:pointer-fine:pt-6",
  // Świadomie bez grayscale/opacity — czytałoby się jako „nieaktywny". Ten
  // kandydat jest aktywny; weto to ostrzeżenie (17.09.2026), nie blokada.
@@ -1433,7 +1546,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  kończy się 20 px od lewej krawędzi karty, a padding karty to 12 px.
  Stare `pl-5` zostawiało nazwisku 64 z 158 px
  karty — stąd „Wojcie/ch" łamane w środku wyrazu. */}
- <div className={cn("flex items-start gap-2", "pl-2", desktopOverview &&"xl:pointer-fine:items-center xl:pointer-fine:gap-1 xl:pointer-fine:pl-0")}>
+ <div className={cn("flex items-start gap-2", "pl-2", twoLines && "low-screen:items-center", desktopOverview &&"xl:pointer-fine:items-center xl:pointer-fine:gap-1 xl:pointer-fine:pl-0")}>
  <div className="min-w-0 flex-1">
  <Link
  href={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
@@ -1471,6 +1584,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  className={cn(
  "mt-px flex min-w-0 items-center gap-0.5 text-[11px] font-medium leading-3.5",
  hasOwnerName ? "text-foreground/80" : "text-warning",
+ twoLines && "low-screen:hidden",
  desktopOverview && "xl:pointer-fine:hidden"
  )}
  title={addedAttribution}
@@ -1481,9 +1595,10 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  </span>
  </div>
  {scoreState !== "none" && (
- <div className={cn(desktopOverview &&"xl:pointer-fine:hidden")}>
+ <div data-testid="card-score" className={cn(twoLines && "low-screen:*:size-5", desktopOverview &&"xl:pointer-fine:hidden")}>
  {/* Zawsze `compact`: kolumna kanbana ma ~176 px, a pierścień „cozy"
- (40 px) zabierał ćwierć tej szerokości nazwisku obok. */}
+ (40 px) zabierał ćwierć tej szerokości nazwisku obok. W niskim oknie
+ 20 px zamiast 28: pierścień wyznacza wysokość linii 1. */}
  {scoreState === "unscored" ? (
  <UnscoredRing />
  ) : (
@@ -1502,7 +1617,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {primaryBadges.length > 0 || moreBadges.length > 0 ? (
  <div
  data-testid="card-badges-row"
- className={cn("mt-1 flex min-w-0 items-center gap-1", desktopOverview && "xl:pointer-fine:hidden")}
+ className={cn("mt-1 flex min-w-0 items-center gap-1", twoLines && "low-screen:hidden", desktopOverview && "xl:pointer-fine:hidden")}
  >
  {primaryBadges.map((b) => renderBadge(b))}
  {moreBadges.length > 0 ? (
@@ -1568,6 +1683,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  stageSince={stageSince}
  hidden={desktopOverview}
  stackDays={clientSilentDays != null}
+ twoLines={twoLines}
+ lowState={lowState}
  button={
  reviewSend && v5 ? (
  <button
@@ -1727,6 +1844,12 @@ interface ColProps {
  sections: Map<number, NewColumnSection>;
  appliedGapIds: Set<number>;
  } | null;
+ /** Grupy kolumny „Screening” (23.11.2026, `lib/screening-column-groups.ts`);
+  *  `null` w innych kolumnach. */
+ screeningGroups?: Map<number, ScreeningGroup> | null;
+ /** Napis „wraca do Nowych jutro” / „„Biorę” wygasa jutro” pod kartą:
+  *  kolumna, której dotyczy reguła kart bez śladu; `null` = żadna. */
+ staleColumn?: "screening" | "new" | null;
  /** Zwinięta grupa „Aplikowali, brak »musi mieć«” (06.11.2026). */
  appliedGap?: {
  count: number;
@@ -1891,6 +2014,8 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  criticalGapMap,
  criticalAltMap,
  newQueue = null,
+ screeningGroups = null,
+ staleColumn = null,
  appliedGap = null,
  scoresLoading,
  stagesWithScorecard,
@@ -1947,6 +2072,16 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  () => columnSlaHint(col, { slaDays, group, oldestDays: oldestDaysInColumn(col) }),
  [col, slaDays, group]
  );
+ // Liczba widocznych kart w każdej grupie „Screeningu” (po filtrze „Kto dodał”).
+ const screeningCounts = useMemo(() => {
+ const counts = new Map<ScreeningGroup, number>();
+ if (!screeningGroups) return counts;
+ for (const it of col.items) {
+ const g = screeningGroups.get(it.id);
+ if (g) counts.set(g, (counts.get(g) ?? 0) + 1);
+ }
+ return counts;
+ }, [col.items, screeningGroups]);
  return (
  <div
  data-colid={dropId}
@@ -2076,6 +2211,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  // scroll-kontenera (biblioteka go nie wspiera → wcześniej kursor mapował
  // się na złą kolumnę po poziomym auto-scrollu).
  "flex-1 p-2 space-y-2 rounded-b-v2-m transition-colors",
+ !desktopOverview && "low-screen:space-y-1.5",
  desktopOverview &&"xl:pointer-fine:space-y-1 xl:pointer-fine:p-1",
  snapshot.isDraggingOver &&"bg-primary/10"
  )}
@@ -2087,10 +2223,27 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  const previous = index > 0 ? col.items[index - 1] : null;
  const startsSection = section != null && (previous == null || sectionOf(previous) !== section);
  const rank = newQueue?.ranks.get(item.id);
+ const screeningGroup = screeningGroups?.get(item.id) ?? null;
+ const startsScreeningGroup =
+ screeningGroup != null && (previous == null || screeningGroups?.get(previous.id) !== screeningGroup);
+ const staleNotice = staleColumn ? returnNotice(item.returns_to_new_on, staleColumn) : null;
+ const attempts = screeningGroup === "no_answer" ? attemptLabel(item.contact_attempts) : null;
  return (
  <Fragment key={String(item.id)}>
  {startsSection && newQueue ? (
  <NewColumnSectionHeader section={section} total={newQueue.total} freshFirst={newQueue.freshFirst} />
+ ) : null}
+ {startsScreeningGroup ? (
+ <div
+ data-testid={`screening-group-${screeningGroup}`}
+ data-tour={index === 0 ? "board.screening-groups" : undefined}
+ className={cn(
+ "px-0.5 pt-1 text-[11px] font-semibold leading-tight",
+ screeningGroup === "to_call" ? "text-primary" : "text-muted-foreground"
+ )}
+ >
+ {screeningGroupLabel(screeningGroup, screeningCounts.get(screeningGroup) ?? 0)}
+ </div>
  ) : null}
  {startsSection && section === "applied_gap" && appliedGap ? (
  <>
@@ -2148,6 +2301,20 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  nextAction={nextActions[index]}
  stageBadge={badgeByItemId?.get(item.id) ?? null}
  />
+ {attempts || staleNotice ? (
+ // Pod kartą, nie w niej: wygląd karty zostaje jeden dla wszystkich kolumn.
+ <div
+ data-testid="card-stale-line"
+ className="flex flex-wrap gap-x-2 px-1 pt-0.5 text-[10px] leading-tight"
+ >
+ {attempts ? <span className="text-muted-foreground">{attempts}</span> : null}
+ {staleNotice ? (
+ <span className="font-semibold text-warning" title="2 dni robocze bez notatki, próby kontaktu, telefonu, arkusza i ruchu karty — wtedy karta jest dostępna dla wszystkich">
+ {staleNotice}
+ </span>
+ ) : null}
+ </div>
+ ) : null}
  </div>
  )}
  </Draggable>
@@ -2220,7 +2387,7 @@ const MIN_COLUMN_HEIGHT = 280;
 // `p-4` obszaru treści powłoki (góra + dół) — patrz pomiar planszy na telefonie.
 const MOBILE_MAIN_PADDING_Y = 32;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapMap, criticalAltMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, openingStartedAt = null, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange, closedJob = null }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapMap, criticalAltMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, openingStartedAt = null, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange, closedJob = null, panelOnly = null }: KanbanBoardV2Props) {
  // Widok tablicy: kafelki ↔ kolumny. Reguła automatyczna (szeroki szablon
  // otwiera się kafelkowo) jest WARTOŚCIĄ DOMYŚLNĄ, wybór użytkownika ją
  // nadpisuje i jest pamiętany — patrz `lib/kanban-view-preferences.ts`.
@@ -2264,16 +2431,23 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  .map((item) => item.candidate_id),
  [newColumnQueue]
  );
+ // „Screening” w grupach (23.11.2026): do telefonu, nie odebrał, po rozmowie.
+ // Kolejność liczona przed filtrem „Kto dodał”, jak w „Nowych”.
+ const screeningColumnOrder = useMemo(
+ () => orderScreeningColumn(boardFold.columns.find((f) => f.key === "screening")?.items ?? []),
+ [boardFold]
+ );
  const allDisplayCols = useMemo(
  () =>
  boardFold.columns.map((f) => {
+ if (f.key === "screening") return { ...f.host, items: screeningColumnOrder.items, count: f.count };
  if (f.key !== "new") return { ...f.host, items: f.items, count: f.count };
  const items = appliedGapOpen
  ? newColumnQueue.items
  : newColumnQueue.items.filter((item) => !newColumnQueue.appliedGapIds.has(item.id));
  return { ...f.host, items, count: f.count };
  }),
- [boardFold, newColumnQueue, appliedGapOpen]
+ [boardFold, newColumnQueue, appliedGapOpen, screeningColumnOrder]
  );
  // Filtr „Kto dodał” (14.10.2026) chowa karty w kolumnach w toku. Liczony
  // PRZED przeciąganiem: indeksy kart w kolumnie to indeksy widocznej listy.
@@ -3411,6 +3585,46 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  onInitialDockHandled?.();
  }, [initialDockCandidateId, initialDockOpensReview, cols, onInitialDockHandled]);
 
+ // „Pracuj po kolei” na pulpicie: osobę wskazuje pulpit. Otwieramy ją jak
+ // klik w kartę (Nowi/Screening — panel dzielony z formularzem), raz na każdą
+ // nową wartość, żeby przebudowa `cols` po ruchu nie cofała panelu.
+ const panelOnlyCandidateId = panelOnly?.candidateId ?? null;
+ const appliedPanelOnlyRef = useRef<number | null>(null);
+ useEffect(() => {
+  if (panelOnlyCandidateId == null || appliedPanelOnlyRef.current === panelOnlyCandidateId) return;
+  if (dockCandidateId === panelOnlyCandidateId) {
+   appliedPanelOnlyRef.current = panelOnlyCandidateId;
+   return;
+  }
+  const place = locateCandidate(panelOnlyCandidateId);
+  if (!place) return;
+  appliedPanelOnlyRef.current = panelOnlyCandidateId;
+  openDock(place.item);
+ }, [panelOnlyCandidateId, dockCandidateId, locateCandidate, openDock]);
+ // Osoba z kolejki pulpitu wypadła z tej rekrutacji (np. usunięta z Tablicy) —
+ // panel mówi to wprost zamiast pokazywać poprzednią osobę.
+ const panelOnlyMissing = panelOnlyCandidateId != null && locateCandidate(panelOnlyCandidateId) == null;
+ const panelOnlyRef = useRef(panelOnly);
+ useEffect(() => {
+  panelOnlyRef.current = panelOnly;
+ }, [panelOnly]);
+ // Zmiany osoby w panelu wracają do pulpitu: zamknięcie i inna osoba tej
+ // rekrutacji (zanim panel się otworzy, `null` niczego nie zamyka).
+ const panelOnlyOpenedRef = useRef(false);
+ useEffect(() => {
+  const host = panelOnlyRef.current;
+  if (!host) return;
+  if (dockCandidateId == null) {
+   if (panelOnlyOpenedRef.current) host.onClose();
+   return;
+  }
+  panelOnlyOpenedRef.current = true;
+  if (dockCandidateId !== host.candidateId) {
+   appliedPanelOnlyRef.current = dockCandidateId;
+   host.onPersonChange(dockCandidateId);
+  }
+ }, [dockCandidateId]);
+
  // Kolumna terminala „Odrzucony" tego szablonu — potrzebna zarówno „Odrzuć
  // z powodem" w doku, jak i sprawdzeniu, czy dana karta w ogóle DA się
  // jeszcze odrzucić (kandydat już `hired`/`rejected`/`withdrawn` — nie ma
@@ -3816,10 +4030,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  // (przegląd DL, potem rozwinięte narzędzia, potem dok), chyba że otwarty jest dialog (modal powodu
  // odrzucenia, stawki itp.): wtedy Escape należy do niego.
  useEffect(() => {
- if (!dockItem && !dlReviewTask) return;
+ if (!dockItem && !dlReviewTask && !panelOnlyMissing) return;
  const onKey = (e: KeyboardEvent) => {
  if (e.key !== "Escape" || e.defaultPrevented) return;
  if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return;
+ // Pulpit: osoby nie ma już na Tablicy — Escape zamyka panel jak „X”.
+ if (panelOnlyMissing) {
+  panelOnlyRef.current?.onClose();
+  return;
+ }
  // Duże okno notatki w doku jest warstwą nad panelem — zmniejsza je sam
  // dok (`DockNoteComposer`), a panel zostaje otwarty. Okno w doku ukrytym
  // pod przeglądem DL warstwą nie jest.
@@ -3831,7 +4050,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  };
  window.addEventListener("keydown", onKey);
  return () => window.removeEventListener("keydown", onKey);
- }, [dockItem, dlReviewTask, workbenchOpen, closeDlReview, collapseWorkbench, closeDock]);
+ }, [dockItem, dlReviewTask, panelOnlyMissing, workbenchOpen, closeDlReview, collapseWorkbench, closeDock]);
 
  // „Przesuń dalej" z okna QC: okno otwarte z listy braków wraca do swojego
  // „Przesuń dalej", otwarte z karty — otwiera je dla następnej kolumny. Ruch
@@ -4201,7 +4420,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  verb: ClosedVerb,
  after: readonly number[],
  reason: string | null,
- queueName: string | null
+ queueName: string | null,
+ // Odrzucenie jednym kliknięciem ma własny komunikat z „Cofnij”.
+ quiet = false
  ) => {
  // Rekruter zdążył otworzyć kogoś innego albo zamknąć panel — nie skaczemy.
  if (dockCandidateId !== closed.candidate_id) return;
@@ -4211,6 +4432,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  const name = itemFullName(closed);
  if (nextId == null || !next) {
  closeDock();
+ if (quiet) return;
  showActionToast(
  queueName
  ? `${verb}: ${name}. To była ostatnia osoba w kolejce „${queueName}”.`
@@ -4241,6 +4463,20 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  // (od 14.10.2026 w tej samej kolumnie i z tym samym filtrem — D1).
  const dockFollowUp = useCallback(
  (closed: KanbanItem, verb: ClosedVerb): RejectFollowUp | undefined => {
+ // Na pulpicie kolejka idzie przez wszystkie rekrutacje — kto dalej, wie pulpit.
+ if (panelOnly) {
+  return {
+   stageLabel: dockItemColLabel,
+   next: panelOnly.next,
+   onMoved: ({ reasonLabel }) =>
+    panelOnlyRef.current?.onClosedFromPanel({
+     candidateId: closed.candidate_id,
+     name: itemFullName(closed),
+     verb,
+     reasonLabel,
+    }),
+  };
+ }
  if (dockIndex < 0) return undefined;
  const after = dockOrder.slice(dockIndex + 1);
  const preview = after.length > 0 ? locateCandidate(after[0]) : null;
@@ -4251,7 +4487,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  advanceAfterCloseRef.current(closed, verb, after, reasonLabel, queueLabel),
  };
  },
- [dockIndex, dockOrder, locateCandidate, dockItemColLabel, queueLabel]
+ [dockIndex, dockOrder, locateCandidate, dockItemColLabel, queueLabel, panelOnly]
  );
  const handleDockReject = useCallback(
  (options?: { notes?: string | null }) => {
@@ -4263,6 +4499,59 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  },
  [dockItem, dockItemColId, rejectedTemplateCol, requestReject, dockFollowUp]
  );
+ // ── „Odrzuć:” — trzy najczęstsze powody jednym kliknięciem (23.11.2026) ──
+ // Tylko „Nowi”/„Screening”. Panel przechodzi do następnej osoby od razu
+ // (ruch czeka 10 s na „Cofnij”, jak strzałka „→”); „Cofnij” wraca do osoby.
+ // Zasady: docs/claude/rekrutacja-tablica/odrzucenie-jednym-kliknieciem.md.
+ const quickRejectReasonsQuery = useQuickRejectReasons(!readOnly && Boolean(rejectedTemplateCol));
+ const quickRejectChipList = useMemo(
+ () => (quickRejectReasonsQuery.isSuccess ? quickRejectChips(quickRejectReasonsQuery.data.reasons) : []),
+ [quickRejectReasonsQuery.isSuccess, quickRejectReasonsQuery.data]
+ );
+ const handleDockQuickReject = useCallback(
+ (chip: QuickRejectChip) => {
+ if (!dockItem || !dockItemColId || !rejectedTemplateCol) return;
+ const closed = dockItem;
+ const openWindow = () =>
+ requestReject(closed, rejectedTemplateCol, {
+ followUp: dockFollowUp(closed, "Odrzucono"),
+ reasonKey: chip.key,
+ });
+ if (chip.opensWindow) {
+ openWindow();
+ return;
+ }
+ const after = dockIndex >= 0 ? dockOrder.slice(dockIndex + 1) : [];
+ const preview = after.length > 0 ? locateCandidate(after[0]) : null;
+ const wasSplit = screeningSplit;
+ const outcome = move.deferReject(closed, dockItemColId, chip.key, {
+ toColumn: rejectedTemplateCol,
+ message: quickRejectMessage({
+ name: itemFullName(closed),
+ reasonLabel: chip.label,
+ next: preview ? itemFullName(preview.item) : null,
+ queueName: queueLabel,
+ }),
+ // „Cofnij” wraca do osoby w tym samym widoku: karta stoi jeszcze
+ // w „Zamkniętych” (cofnięcie stanu wejdzie w następnym renderze), więc
+ // `showInDock` nie rozpozna „Nowych” — widok bierzemy z chwili kliknięcia.
+ onUndo: () => {
+ setAfterClose(null);
+ if (wasSplit) openWorkbench(closed.candidate_id, "screening");
+ else setDockCandidateId(closed.candidate_id);
+ },
+ });
+ if (outcome === "needs_window") openWindow();
+ else if (outcome === "deferred") {
+ advanceAfterCloseRef.current(closed, "Odrzucono", after, chip.label, queueLabel, true);
+ }
+ },
+ [dockItem, dockItemColId, rejectedTemplateCol, requestReject, dockFollowUp, dockIndex, dockOrder, locateCandidate, move, queueLabel, screeningSplit, openWorkbench]
+ );
+ const dockQuickReject =
+ dockItem && quickRejectAllowed(columnByItemId.get(dockItem.id)) && quickRejectChipList.length > 0
+ ? { chips: quickRejectChipList, onPick: handleDockQuickReject }
+ : null;
  const handleDockWithdraw = useCallback(() => {
  if (!dockItem) return;
  move.requestWithdraw(dockItem, { followUp: dockFollowUp(dockItem, "Rezygnacja") });
@@ -4472,7 +4761,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  {/* Dok „Karta kandydata" NIE zajmuje kolumny siatki — wysuwa się z prawej
  dopiero po kliknięciu karty (przegląd UX 17.09.2026: stała trzecia kolumna
  zjadała tablicy 360 px nawet wtedy, gdy nic nie było wybrane). */}
- <div className="space-y-3">
+ {/* Na pulpicie („Pracuj po kolei”) plansza jest ukryta — sam panel. */}
+ <div className="space-y-3" hidden={panelOnly != null || undefined}>
  {renderAbove ? (
  renderAbove(viewControls)
  ) : viewControls ? (
@@ -4677,6 +4967,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  criticalGapMap={criticalGapMap}
  criticalAltMap={criticalAltMap}
  newQueue={boardKeyByColId.get(entry.key) === "new" ? newColumnQueue : null}
+ screeningGroups={boardKeyByColId.get(entry.key) === "screening" ? screeningColumnOrder.groups : null}
+ staleColumn={
+ boardKeyByColId.get(entry.key) === "screening"
+ ? "screening"
+ : boardKeyByColId.get(entry.key) === "new"
+ ? "new"
+ : null
+ }
  appliedGap={
  boardKeyByColId.get(entry.key) === "new" && appliedGapCount > 0
  ? {
@@ -4777,14 +5075,32 @@ headerAction={
  </div>
  </DragDropContext>
 
- {((dockItem && dockItemColLabel !== null) || dlReviewTask) && (
+ {((dockItem && dockItemColLabel !== null) || dlReviewTask || panelOnlyMissing) && (
  <PersonPanelShell
  size={panelSize}
  chromeTop={chromeTop}
  // Klik w tło zamyka najwyższą warstwę: przegląd, rozwinięcie, kartę.
- onBackdropClick={reviewOpen ? closeDlReview : workbenchOpen ? collapseWorkbench : closeDock}
+ onBackdropClick={
+ panelOnlyMissing ? () => panelOnly?.onClose() : reviewOpen ? closeDlReview : workbenchOpen ? collapseWorkbench : closeDock
+ }
  >
- {dockItem && dockItemColLabel !== null && (
+ {panelOnly ? panelOnly.banner : null}
+ {panelOnlyMissing ? (
+  <div className="flex items-start gap-2 px-4 py-4 text-sm text-muted-foreground" role="status">
+   <p className="min-w-0 flex-1">
+    Tej osoby nie ma już na Tablicy tej rekrutacji — przejdź do następnej albo otwórz Tablicę.
+   </p>
+   <button
+    type="button"
+    onClick={() => panelOnly?.onClose()}
+    className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent pointer-coarse:p-2.5"
+    aria-label="Zamknij dok"
+   >
+    <X className="h-4 w-4" />
+   </button>
+  </div>
+ ) : null}
+ {dockItem && dockItemColLabel !== null && !panelOnlyMissing && (
  // Pod przeglądem dok jest UKRYTY, nie odmontowany: niewysłana
  // notatka, otwarte sekcje i miejsce powrotu fokusu muszą przeżyć.
  <div
@@ -4814,20 +5130,33 @@ headerAction={
  canReject={canRejectDockItem}
  rejectBlockedReason={dockRejectBlockedReason}
  budgetHourly={jobBudgetHourlyValue}
- position={dockIndex >= 0 ? dockIndex + 1 : null}
- total={dockOrder.length}
- onSelectPrevious={() => selectAdjacentDockCard(-1)}
- onSelectNext={() => selectAdjacentDockCard(1)}
- closedNotice={dockClosedNotice}
- onReturnToQueue={returnToQueueItem ? () => openDock(returnToQueueItem) : undefined}
- queueLabel={queueLabel}
- stageOutsideQueue={dockItemColLabel !== queueColumnName ? dockItemColLabel : null}
- addedByMenu={
- onAddedByChange
- ? { options: addedByMenuOptions, value: addedBy, onChange: onAddedByChange }
- : undefined
+ {...(panelOnly
+ ? {
+  // Kolejka pulpitu: przez wszystkie rekrutacje, bez filtra „Kto dodał”.
+  position: panelOnly.position,
+  total: panelOnly.total,
+  onSelectPrevious: panelOnly.onPrevious,
+  onSelectNext: panelOnly.onNext,
+  closedNotice: panelOnly.closedNotice,
+  onReturnToQueue: panelOnly.onReturnToQueue,
+  queueLabel: panelOnly.label,
+  stageOutsideQueue: panelOnly.position == null ? dockItemColLabel : null,
+  queueEnd: null,
  }
- queueEnd={queueEnd}
+ : {
+  position: dockIndex >= 0 ? dockIndex + 1 : null,
+  total: dockOrder.length,
+  onSelectPrevious: () => selectAdjacentDockCard(-1),
+  onSelectNext: () => selectAdjacentDockCard(1),
+  closedNotice: dockClosedNotice,
+  onReturnToQueue: returnToQueueItem ? () => openDock(returnToQueueItem) : undefined,
+  queueLabel,
+  stageOutsideQueue: dockItemColLabel !== queueColumnName ? dockItemColLabel : null,
+  addedByMenu: onAddedByChange
+   ? { options: addedByMenuOptions, value: addedBy, onChange: onAddedByChange }
+   : undefined,
+  queueEnd,
+ })}
  nextAction={dockNextAction}
  primaryTarget={dockPrimaryMove?.target ?? null}
  primaryBlocked={dockPrimaryMove?.blocked ?? null}
@@ -4838,6 +5167,7 @@ headerAction={
  onOpenScreening={handleOpenScreening}
  onReject={handleDockReject}
  onWithdraw={handleDockWithdraw}
+ quickReject={dockQuickReject}
  onAddClientSlots={
  canAddClientSlots &&
  (dockHostKey === "cv_sent" || dockHostKey === "client_interview")

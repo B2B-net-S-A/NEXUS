@@ -376,6 +376,11 @@ class CandidateStageResponse(BaseModel):
     card: Optional[dict] = None
     # Notatki „nie odebrał” tej osoby (w tej rekrutacji i bez rekrutacji).
     contact_attempts: int = 0
+    # Karty bez śladu (23.11.2026, `services/screening_stale.py`): dzień
+    # roboczy, w którym karta ze „Screeningu” wróci do „Nowych” (a w „Nowych”
+    # straci „Biorę”), jeśli do tego czasu nie będzie śladu pracy. `None` =
+    # reguła karty nie dotyczy. Wypełnia tylko tablica.
+    returns_to_new_on: Optional[date] = None
     # Stawka z PROFILU kandydata (`Candidate.expected_rate_hourly`, PLN/h) —
     # podpowiedź w oknie „Zweryfikowany". Wypełnia tylko tablica.
     candidate_expected_rate_hourly: Optional[Decimal] = None
@@ -644,6 +649,22 @@ class MyNextStepsResponse(BaseModel):
     jobs: List[MyNextStepsJob]
     # The list is capped (nearest deadline first); True = more exist.
     truncated: bool = False
+
+
+class QuickRejectReasonOut(BaseModel):
+    """Powód skrótu „Odrzuć:” w panelu osoby (23.11.2026) — klucz słownika
+    powodów zamknięcia (``close_reasons``), etykietę daje front."""
+
+    key: str
+    count: int
+    # ``mine`` — z odrzuceń zalogowanej osoby; ``team`` — dopełnienie z zespołu.
+    source: Literal["mine", "team"]
+
+
+class QuickRejectReasonsResponse(BaseModel):
+    reasons: List[QuickRejectReasonOut]
+    # Pierwszy dzień okna (kalendarz firmy) — do podpowiedzi w panelu.
+    since: date
 
 
 class StageInfo(BaseModel):

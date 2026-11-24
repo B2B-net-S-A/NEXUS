@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import type { MonthCloseClient, SettlementRow } from "@/lib/api/client-settlements";
 
 import { ClientMonthStrip, monthSteps, topReasons } from "../ClientMonthStrip";
-import { clientInvoiceState, issueHref, settlementsHref } from "../MonthCloseView";
+import { reserveCsv } from "../ClosingPanel";
+import { clientInvoiceState, issueHref, reminderNote, settlementsHref } from "../MonthCloseView";
 import { reasonPlan } from "../reason-plan";
 
 function row(over: Partial<SettlementRow>): SettlementRow {
@@ -84,10 +85,10 @@ describe("kroki miesiąca klienta", () => {
   });
 
   it("pasek prowadzi do wystawienia faktury za miesiąc, gdy są przyjęte", () => {
-    render(<ClientMonthStrip rows={[row({ status: "accepted", client_invoice: "ready" })]} month="2026-10" />);
+    render(<ClientMonthStrip rows={[row({ status: "accepted", client_invoice: "ready" })]} month="2026-10" clientId={7} />);
     expect(screen.getByRole("link", { name: "Wystaw za miesiąc" })).toHaveAttribute(
       "href",
-      "/finance?view=sales-invoices&siPeriod=2026-10&siView=issue",
+      "/finance?view=sales-invoices&siPeriod=2026-10&siView=issue&siClient=7",
     );
   });
 
@@ -104,6 +105,7 @@ describe("przebieg miesiąca", () => {
       "/finance?view=settlements&stClient=12&stMonth=2026-10&stSub=rules",
     );
     expect(issueHref("2026-10")).toBe("/finance?view=sales-invoices&siPeriod=2026-10&siView=issue");
+    expect(issueHref("2026-10", 12)).toBe("/finance?view=sales-invoices&siPeriod=2026-10&siView=issue&siClient=12");
   });
 
   it("stan faktury do klienta", () => {
@@ -120,5 +122,28 @@ describe("przebieg miesiąca", () => {
     expect(reasonPlan("missing").who).toBe("Konsultant albo opiekun");
     expect(reasonPlan("Ponad zamówienie o 2 MD").action).toBe("Sprawdź zamówienie");
     expect(reasonPlan("fields.md_hours").action).toBe("Odeślij do poprawy");
+  });
+});
+
+describe("dla księgowej i przypomnienia", () => {
+  it("CSV rezerwy ma średniki i przecinek dziesiętny", () => {
+    const csv = reserveCsv([
+      { client_id: 1, client: "Klient; A", contract_id: 5, person: "Osoba", md: "20.500", cost: "1000.00" },
+      { client_id: 1, client: "Klient B", contract_id: 6, person: "Inna", md: null, cost: null },
+    ]);
+    expect(csv.split("\n")).toEqual([
+      "Klient;Osoba;Kontrakt;MD;Koszt netto",
+      '"Klient; A";Osoba;5;20,500;1000,00',
+      "Klient B;Inna;6;;",
+    ]);
+  });
+
+  it("notka przypomnienia: brak adresata ważniejszy niż data", () => {
+    const base = { client_id: 1, client_name: "K", missing: 3, automatic: true, to_consultant: 0, to_owner: 3, without_recipient: 0, last_reminder_on: null, mail: { subject: "", text: "" }, rows: [] };
+    expect(reminderNote(undefined)).toBeUndefined();
+    expect(reminderNote({ ...base, without_recipient: 2, last_reminder_on: "2026-11-05" })).toBe("bez adresata: 2");
+    expect(reminderNote({ ...base, last_reminder_on: "2026-11-05" })).toBe("przypomniano 05.11");
+    expect(reminderNote(base)).toBe("przypomni automat");
+    expect(reminderNote({ ...base, automatic: false })).toBe("bez przypomnienia");
   });
 });

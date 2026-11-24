@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { CareerRecruiterView } from "@/components/career/CareerRecruiterView";
-import { fetchCareerRecruiter } from "@/lib/career/server";
+import { RecruiterPage } from "@/components/career/site/RecruiterPage";
+import { fetchCareerBoard, fetchCareerRecruiter } from "@/lib/career/server";
 
 import { careerRequestContext } from "../../_context";
 
@@ -31,11 +31,15 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function CareerRecruiterPage({ params }: PageProps) {
   const { slug } = await params;
-  const result = await fetchCareerRecruiter(slug.toLowerCase());
+  // Tablica (cache 60 s w API) daje kartom podtytuł i technologie; jej awaria nie blokuje strony.
+  const [result, board, { base, host }] = await Promise.all([
+    fetchCareerRecruiter(slug.toLowerCase()),
+    fetchCareerBoard(),
+    careerRequestContext(),
+  ]);
   if (!result.ok) {
     if (result.notFound) notFound();
     throw new Error("Nie udało się wczytać strony rekrutera.");
   }
-  const { base, host } = await careerRequestContext();
-  return <CareerRecruiterView data={result.data} base={base} host={host} />;
+  return <RecruiterPage data={result.data} board={board.ok ? board.data.jobs : null} base={base} host={host} />;
 }

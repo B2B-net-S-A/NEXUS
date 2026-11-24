@@ -36,6 +36,7 @@
   "GET /api/pipeline/job/{job_id}/moves": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/pipeline/kanban/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/pipeline/my-next-steps": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/pipeline/my-quick-reject-reasons": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "GET /api/pipeline/overview": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/pipeline/stages": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",

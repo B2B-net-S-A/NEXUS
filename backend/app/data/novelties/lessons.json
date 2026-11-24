@@ -976,7 +976,8 @@
     "id": "lekcja-najwazniejsze-zadanie",
     "title": "Najważniejsze zadanie w tej roli i pytanie, które je sprawdza",
     "novelties": [
-      "najwazniejsze-zadanie-w-roli"
+      "najwazniejsze-zadanie-w-roli",
+      "nowa-rekrutacja-mniej-decyzji"
     ],
     "task": "W rekrutacji ćwiczebnej otwórz Profil Championa, kliknij „Edytuj” przy „Najważniejsze zadanie w tej roli”, wpisz zadanie i zaznacz pytanie, które je sprawdza.",
     "solo_href": "/jobs/990001",
@@ -1014,6 +1015,16 @@
         ],
         "answer": 0,
         "explain": "Od 23.11 zadanie i pytanie są wymagane przy pierwszym przekazaniu, także przy zakładaniu przez API."
+      },
+      {
+        "q": "Po odczycie maila w „O projekcie” stoi zadanie z dopiskiem „Propozycja AI”. Co robisz?",
+        "options": [
+          "Sprawdzam zdanie i pytanie obok, potem „Zatwierdź zadanie” albo poprawiam",
+          "Nic — „Utwórz” zatwierdzi je samo jak pytania",
+          "Kasuję je, bo zadanie wpisuje tylko klient"
+        ],
+        "answer": 0,
+        "explain": "Pytania i kategorię zatwierdza „Utwórz”, ale zadanie AI tylko podpowiada: do „Zatwierdź zadanie” albo Twojej poprawki zostaje brakiem."
       }
     ]
   },
@@ -1915,6 +1926,41 @@
     ]
   },
   {
+    "id": "lekcja-monit-platnosci",
+    "title": "Monit płatności i lista należności",
+    "novelties": [
+      "finanse-monit-platnosci"
+    ],
+    "task": "W „Fakturach do klientów” przejdź na „Po terminie” i pobierz listę należności na koniec miesiąca. Na Poligonie nic się nie wyśle.",
+    "solo_href": "/finance?view=sales-invoices",
+    "check": {
+      "kind": "click",
+      "anchor": "finance.overdue-month-close"
+    },
+    "questions": [
+      {
+        "q": "Kiedy NEXUS proponuje ostateczne wezwanie do zapłaty?",
+        "options": [
+          "Gdy faktura jest co najmniej 30 dni po terminie według wyciągów",
+          "Zaraz po terminie płatności",
+          "Gdy klient nie odpisze na pierwszy monit"
+        ],
+        "answer": 0,
+        "explain": "Progi to 7, 14 i 30 dni po terminie, liczone tylko z ciągłych wyciągów. Monit wysyłasz sam, nic nie wychodzi automatycznie."
+      },
+      {
+        "q": "Klient zapłacił fakturę w euro, ale bez VAT. Co pokaże „Po terminie”?",
+        "options": [
+          "„Netto zapłacone · VAT do zapłaty” z kwotą w złotych do wpłaty na rachunek PLN",
+          "Całą fakturę jako niezapłaconą",
+          "Nic, bo faktura jest zapłacona"
+        ],
+        "answer": 0,
+        "explain": "VAT faktury walutowej klient płaci w złotych. NEXUS sprawdza go na wyciągach rachunku PLN i liczy kwotę po kursie faktury."
+      }
+    ]
+  },
+  {
     "id": "lekcja-firma-z-nip",
     "title": "Nowa firma z NIP-u",
     "novelties": [
@@ -1946,6 +1992,41 @@
         ],
         "answer": 0,
         "explain": "Jarvis tylko otwiera okno „Nowa firma” z NIP-em. Dane z rejestru i sprawdzenie kartoteki robi okno, a kartę zapisuje człowiek."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-pracuj-po-kolei",
+    "title": "Pracuj po kolei: panel osoby na pulpicie",
+    "novelties": [
+      "pracuj-po-kolei-na-pulpicie"
+    ],
+    "task": "Na pulpicie, w „Czeka na Ciebie”, otwórz kolejkę osób, które czekają na Twój ruch, bez wchodzenia na Tablicę.",
+    "solo_href": "/dashboard",
+    "check": {
+      "kind": "click",
+      "anchor": "dashboard.person-queue.start"
+    },
+    "questions": [
+      {
+        "q": "Odrzucasz osobę w panelu „Pracuj po kolei”. Co pokaże panel?",
+        "options": [
+          "Następną osobę z kolejki, także z innej rekrutacji",
+          "Tablicę rekrutacji odrzuconej osoby",
+          "Pusty panel do zamknięcia"
+        ],
+        "answer": 0,
+        "explain": "Po odrzuceniu panel sam przechodzi do następnej osoby z kolejki „Czeka na Ciebie”, nawet gdy jest w innej rekrutacji. Pasek „Odrzucono” ma „Pokaż”, gdyby trzeba było wrócić."
+      },
+      {
+        "q": "W jakiej kolejności idą osoby w „Pracuj po kolei”?",
+        "options": [
+          "Screening bez arkusza, Zweryfikowani, osoby od systemu; najdłużej czekający pierwsi",
+          "Rekrutacja po rekrutacji, alfabetycznie",
+          "Najnowsze osoby pierwsze"
+        ],
+        "answer": 0,
+        "explain": "Kolejka idzie listami „Czeka na Ciebie” od góry, a w każdej liście od osoby, która czeka najdłużej."
       }
     ]
   },
@@ -1991,6 +2072,36 @@
         ],
         "answer": 0,
         "explain": "Tryb zmienia tylko układ. Odpowiedzi zostają w formularzu do zapisu, a zapis działa tak samo jak dotąd."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-zajecia-i-spory",
+    "title": "Zajęcia wierzytelności i spór w Przelewach",
+    "novelties": ["przelewy-zajecia-i-spory"],
+    "task": "W Przelewach przy fakturze kontraktora zacznij wpisywać zajęcie wierzytelności. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/finance?view=payments",
+    "check": { "kind": "click", "anchor": "finance.payments.garnishment" },
+    "questions": [
+      {
+        "q": "Komornik zajął wierzytelność kontraktora na 1 050 zł, a faktura ma 1 230 zł. Co zrobi paczka przelewów?",
+        "options": [
+          "Wyśle 1 050 zł na rachunek organu i 180 zł kontraktorowi",
+          "Zapłaci kontraktorowi całość, a komornika trzeba opłacić ręcznie",
+          "Zablokuje fakturę do końca zajęcia"
+        ],
+        "answer": 0,
+        "explain": "Należność z odsetkami do dnia przelewu idzie do organu, reszta do kontraktora. Gdy odsetek albo rachunku organu brakuje, płatność czeka na decyzję księgowej."
+      },
+      {
+        "q": "Wykaz VAT nie odpowiedział w dniu paczki. Co dzieje się z płatnością kontraktora?",
+        "options": [
+          "Jest zablokowana z powodem, aż wykaz potwierdzi rachunek",
+          "Przechodzi, bo błąd wykazu to nie nasza wina",
+          "Przechodzi po odhaczeniu ostrzeżenia"
+        ],
+        "answer": 0,
+        "explain": "Błąd wykazu to nie zgoda. Rachunek spoza wykazu też blokuje przelew, a powrót rachunku do wykazu zwalnia płatność sam."
       }
     ]
   },
@@ -2046,6 +2157,295 @@
         ],
         "answer": 0,
         "explain": "Okno daje tylko „musi mieć” albo „mile widziane”. Krytyczne wybierasz świadomie w edytorze wierszy, bo to bramka dla kandydatów."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-odrzuc-jednym-kliknieciem",
+    "title": "Odrzucenie jednym kliknięciem",
+    "novelties": [
+      "odrzuc-jednym-kliknieciem"
+    ],
+    "task": "Osoba z „Nowych” w rekrutacji ćwiczebnej ma za mało doświadczenia. Odrzuć ją jednym kliknięciem w panelu osoby i nie cofaj.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "move",
+      "to": "rejected",
+      "reason_includes": "doświadczenia",
+      "feedback": "Osoba nie trafiła do odrzuconych z powodem „Za mało doświadczenia”. Kliknij ten powód w wierszu „Odrzuć:” i poczekaj 10 s bez „Cofnij”."
+    },
+    "questions": [
+      {
+        "q": "„Za mało doświadczenia” kliknięte przy złej osobie. Co robisz?",
+        "options": [
+          "Klikam „Cofnij” w komunikacie na dole w ciągu 10 s",
+          "Otwieram „Odrzuć z powodem” i wybieram inny powód",
+          "Nic, osoba wróci sama"
+        ],
+        "answer": 0,
+        "explain": "Przez 10 s ruch czeka. „Cofnij” zwraca osobę na miejsce i do serwera nic nie idzie, więc nie zostaje mail ani dzwonek."
+      },
+      {
+        "q": "Dlaczego „Za droga…” otwiera okno zamiast odrzucać od razu?",
+        "options": [
+          "Okno pyta, ile osoba teraz chce, i zapisuje to w profilu",
+          "Bo przy tym powodzie wychodzi mail do kandydata",
+          "Bo tylko Delivery Lead może wybrać ten powód"
+        ],
+        "answer": 0,
+        "explain": "Nowa stawka trafia do „Stawki od”, więc następnym razem nie zadzwonimy z ofertą poniżej jej minimum."
+      },
+      {
+        "q": "Skąd biorą się powody w wierszu „Odrzuć:”?",
+        "options": [
+          "To Twoje trzy najczęstsze powody z ostatnich 30 dni",
+          "To lista ustawiona przez admina dla rekrutacji",
+          "To trzy pierwsze powody z okna"
+        ],
+        "answer": 0,
+        "explain": "Liczymy Twoje odrzucenia z 30 dni. Gdy masz ich mało, wiersz uzupełniają najczęstsze powody zespołu."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-karty-bez-sladu",
+    "title": "Karta bez śladu wraca do „Nowych”",
+    "novelties": [
+      "tablica-karty-bez-sladu-wracaja"
+    ],
+    "task": "Na Tablicy ćwiczebnej przewiń do kolumny „Screening” i kliknij nagłówek pierwszej grupy, np. „Do telefonu”.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "click",
+      "anchor": "board.screening-groups"
+    },
+    "questions": [
+      {
+        "q": "Co się stanie z kartą w „Screeningu”, przy której przez 2 dni robocze nikt nic nie zrobił?",
+        "options": [
+          "Wraca do „Nowych” i może ją wziąć każdy",
+          "Zostaje odrzucona z powodem „Brak kontaktu”",
+          "Nic, czeka dalej u Ciebie"
+        ],
+        "answer": 0,
+        "explain": "Po 2 pełnych dniach roboczych bez śladu NEXUS oddaje kartę do „Nowych” bez „Biorę”, a Ty dostajesz dzwonek."
+      },
+      {
+        "q": "Co zatrzymuje kartę u Ciebie, gdy kandydat nie odbiera?",
+        "options": [
+          "Zapisanie „Nie odebrał” albo umówienie telefonu",
+          "Samo otwarcie karty",
+          "Przypięcie karty na górze kolumny"
+        ],
+        "answer": 0,
+        "explain": "Śladem jest notatka (także „Nie odebrał”), umówiony telefon, arkusz i ruch karty. Samo otwarcie śladem nie jest."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-wymagania-klienta-do-faktury",
+    "title": "Wymagania klienta do faktury z NEXUSA",
+    "novelties": [
+      "wymagania-klienta-do-faktury"
+    ],
+    "task": "W rozliczeniach klientów otwórz Reguły klienta i w sekcji „Faktura do klienta” włącz numer umowy w KSeF. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/finance?view=settlements",
+    "check": {
+      "kind": "click",
+      "anchor": "clients.rules.client_invoice"
+    },
+    "questions": [
+      {
+        "q": "Klient chce w KSeF numer umowy i pole OSOBA z adresem koordynatora. Gdzie to ustawiasz?",
+        "options": [
+          "Raz w regułach klienta, w sekcji „Faktura do klienta”",
+          "W uwagach każdego szkicu faktury",
+          "W eBI24 przy kliencie"
+        ],
+        "answer": 0,
+        "explain": "Reguła klienta działa od wybranego miesiąca: każdy szkic z NEXUSA wpisuje numer umowy i pole OSOBA do KSeF sam, a karta faktury pokazuje je w ramce „Wymagania klienta”."
+      },
+      {
+        "q": "Klient ma kilku nabywców, zależnie od kontraktu osoby. Co robisz przy pierwszym szkicu?",
+        "options": [
+          "Wybierasz nabywcę z listy w szkicu — NEXUS zapamięta go dla tych kontraktów",
+          "Przepisujesz nazwę i adres nabywcy co miesiąc",
+          "Wystawiasz fakturę na klienta z kartoteki i robisz korektę"
+        ],
+        "answer": 0,
+        "explain": "Listę nabywców wpisujesz w ustawieniach wystawiania przy kliencie. Wybór w szkicu zapamiętuje kontrakty, więc kolejne szkice mają już właściwego nabywcę, a szkic bez nabywcy z listy nie pójdzie do KSeF."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-stop-do-podpisu-przedwstepnej",
+    "title": "Stop do podpisu przedwstępnej: rekrutacja i wyjątek dla osoby",
+    "novelties": [
+      "przedwstepna-stop-ustawienie-rekrutacji",
+      "przedwstepna-stop-wyjatek-dla-osoby",
+      "przedwstepna-przy-nowej-rekrutacji"
+    ],
+    "task": "Klient chce podpisanej przedwstępnej dopiero przed rozmową u siebie. Zmień ustawienie rekrutacji ćwiczebnej na ten etap i kliknij „Zapisz”. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "click",
+      "anchor": "job.pre-contract.save"
+    },
+    "questions": [
+      {
+        "q": "Szymon stoi do podpisu przedwstępnej, a klient chce jego CV jeszcze dziś. Co możesz zrobić jako DL?",
+        "options": [
+          "Dopilnować podpisu albo dać „Wyjątek dla tej osoby”",
+          "Wysłać CV, bo Delivery Lead omija każdą bramkę",
+          "Poprosić rekrutera, żeby anulował prośbę"
+        ],
+        "answer": 0,
+        "explain": "Stop obowiązuje każdego, także Delivery Leada. Puszcza go podpis obu stron albo wyjątek DL-a lub HoR, zapisany w historii prośby."
+      },
+      {
+        "q": "Kiedy blokada zniknie sama?",
+        "options": [
+          "Gdy umowę podpiszą kandydat i firma",
+          "Gdy prośba trafi do kandydata",
+          "Po 3 dniach roboczych od prośby"
+        ],
+        "answer": 0,
+        "explain": "Liczy się podpis obu stron. Wystawienie i wysłanie prośby niczego nie zwalnia."
+      },
+      {
+        "q": "Rekruter anulował prośbę u osoby w rekrutacji z ustawieniem „każda osoba podpisuje”. Co z kartą?",
+        "options": [
+          "Dalej stoi: potrzebna nowa prośba albo wyjątek",
+          "Może iść dalej, bo prośby już nie ma",
+          "Wraca na „Zweryfikowany”"
+        ],
+        "answer": 0,
+        "explain": "Anulowanie nie jest furtką. Przy ustawieniu rekrutacji karta czeka na nową prośbę z podpisem albo na wyjątek DL-a lub HoR."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-nowe-cv-uklad",
+    "title": "Układ CV: Nowe CV albo Klasyczne",
+    "novelties": [
+      "nowe-cv-przelacznik-ukladu"
+    ],
+    "task": "Otwórz CV do klienta innej osoby z rekrutacji ćwiczebnej i przełącz jej CV na układ „Nowe CV”.",
+    "solo_href": "/jobs/990001?candidate=990107",
+    "check": {
+      "kind": "click",
+      "anchor": "cv.layout-choice"
+    },
+    "questions": [
+      {
+        "q": "Przełączasz gotowe CV z Klasycznego na Nowe CV. Co się dzieje z treścią?",
+        "options": [
+          "Zostaje ta sama, z Twoimi poprawkami — zmienia się tylko wygląd",
+          "NEXUS generuje CV od nowa w nowym układzie",
+          "Poprawki z edytora trzeba nanieść jeszcze raz"
+        ],
+        "answer": 0,
+        "explain": "Oba układy czytają ten sam tekst z edytora. Przełączenie nie generuje CV od nowa i nie kasuje poprawek."
+      },
+      {
+        "q": "CV jest już wysłane do klienta. Czy zmienisz jeszcze układ?",
+        "options": [
+          "Nie — po wysyłce układ jest zablokowany, tak jak podmiana CV",
+          "Tak, klient sam dostanie nową wersję",
+          "Tak, ale tylko na Nowe CV"
+        ],
+        "answer": 0,
+        "explain": "Klient ma już plik w jednym układzie. Po „CV wysłane” przełącznik pokazuje kłódkę „po wysyłce do klienta”."
+      },
+      {
+        "q": "Klient prosi o CV w Wordzie. Który układ wybierasz?",
+        "options": [
+          "Klasyczne — Word jest zawsze w układzie klasycznym",
+          "Nowe CV — Word też będzie w nowym układzie",
+          "Obojętnie, Word bierze układ z reguły klienta"
+        ],
+        "answer": 0,
+        "explain": "Nowe CV istnieje tylko jako PDF. Plik Word to zawsze układ klasyczny. Na start zaznaczone jest Klasyczne, a Nowe CV od razu tylko u klienta z taką regułą CV."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-stop-przedwstepnej-na-karcie",
+    "title": "Karta zatrzymana do podpisu przedwstępnej",
+    "novelties": [
+      "przedwstepna-stop-na-karcie"
+    ],
+    "task": "Na Tablicy rekrutacji ćwiczebnej znajdź osobę, która czeka na podpis umowy przedwstępnej, i kliknij jej czerwoną plakietkę.",
+    "solo_href": "/jobs/990001",
+    "check": {
+      "kind": "click",
+      "anchor": "board.card.pre-contract-stop"
+    },
+    "questions": [
+      {
+        "q": "Na karcie widzisz „Stop · Przedwstępna wysłana” i kłódkę na strzałce. Co to znaczy?",
+        "options": [
+          "Osoba nie pójdzie dalej bez podpisanej przedwstępnej",
+          "Brakuje arkusza screeningu",
+          "Klient wstrzymał rekrutację"
+        ],
+        "answer": 0,
+        "explain": "Kłódka stoi przed etapem z ustawienia, np. „CV wysłane”. Ruch na wcześniejsze kolumny i odrzucenie są wolne."
+      },
+      {
+        "q": "Kandydat podpisze dopiero za tydzień, a DL chce go wysłać do klienta już dziś. Kto może zrobić wyjątek?",
+        "options": [
+          "Delivery Lead klienta albo Head of Recruitment",
+          "Rekruter prowadzący tę osobę",
+          "Nikt, karta musi czekać na podpis"
+        ],
+        "answer": 0,
+        "explain": "Rekruter widzi stan, ale blokady nie zdejmuje. Wyjątek robi DL albo HoR w panelu osoby › Umowa."
+      },
+      {
+        "q": "Jak w zwykłej sytuacji zdejmiesz stop z karty?",
+        "options": [
+          "Wysyłam przedwstępną i pilnuję podpisu obu stron",
+          "Anuluję prośbę o przedwstępną",
+          "Przesuwam kartę mimo kłódki"
+        ],
+        "answer": 0,
+        "explain": "Blokada znika sama, gdy umowę podpiszą kandydat i firma. Anulowanie prośby jej nie zdejmuje."
+      }
+    ]
+  },
+  {
+    "id": "lekcja-powtorka-requestu",
+    "title": "Powtórka requestu: poprzednia rekrutacja i różnice z maila",
+    "novelties": [
+      "nowa-rekrutacja-powtorka"
+    ],
+    "task": "Otwórz nową rekrutację, wybierz klienta i kliknij „Wklej treść” na pasku „Wypełnij z:”. Po odczycie maila powtórki nad formularzem stanie baner „To wygląda na powtórkę”.",
+    "solo_href": "/jobs/new",
+    "check": {
+      "kind": "click",
+      "anchor": "new-job.fill-from"
+    },
+    "questions": [
+      {
+        "q": "Klikasz „Użyj 43260 i przeczytaj z maila tylko różnice”. Co dzieje się z hiring managerem?",
+        "options": [
+          "Czeka jako „Ta sama osoba co w 43260” — klikasz „Potwierdź” albo „Inna osoba”",
+          "Przechodzi z 43260 sam, bez pytania",
+          "Zawsze zostaje pusty i trzeba go wpisać od nowa"
+        ],
+        "answer": 0,
+        "explain": "U Nordei w 47 rekrutacjach było 36 różnych hiring managerów, więc NEXUS nie kopiuje osoby po cichu. Hiring manager podany w mailu wygrywa."
+      },
+      {
+        "q": "W mailu jest inny budżet niż w poprzedniej rekrutacji. Co pokaże formularz po „Użyj”?",
+        "options": [
+          "Budżet z poprzedniej rekrutacji i propozycję „W mailu: …” z „Użyj” / „Zostaw”",
+          "Budżet z maila, bez śladu poprzedniego",
+          "Pusty budżet do wpisania"
+        ],
+        "answer": 0,
+        "explain": "Mail dopełnia tylko puste pola, a inną wartość pokazuje jako propozycję przy polu. Nazwa z numerem i opis projektu zawsze idą z maila."
       }
     ]
   },

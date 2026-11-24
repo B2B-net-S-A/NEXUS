@@ -45,6 +45,7 @@ class CproRulesIn(BaseModel):
     closed: Optional[bool] = None
     rejected: Optional[bool] = None
     interview: Optional[bool] = None
+    invoice_address: Optional[bool] = None
 
 
 def _can_edit_rules(user: User) -> bool:

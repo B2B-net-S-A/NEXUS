@@ -230,7 +230,7 @@ vi.mock("@/components/v2/person/PersonWorkbenchTabs", async (importOriginal) => 
   };
 });
 
-import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
+import { KanbanBoardV2, type PanelOnlyQueue } from "@/components/v2/pages/KanbanBoardV2";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/store/auth";
 import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
@@ -528,6 +528,89 @@ describe("KanbanBoardV2 — kolejka w „Nowych” (02.11.2026)", () => {
   });
 });
 
+// Okno < 800 px (decyzja Artura 23.11.2026): karta w dwóch liniach przez
+// wariant `low-screen:` (media query). jsdom nie liczy CSS, więc oba układy
+// są w DOM naraz, a test rozróżnia je po klasach.
+describe("KanbanBoardV2 — karta w dwóch liniach przy niskim oknie (23.11.2026)", () => {
+  const cardOf = (name: string) =>
+    screen.getByRole("link", { name }).closest("[data-kanban-card]") as HTMLElement;
+
+  it("wiersz plakietek i imię właściciela chowają się tylko w niskim oknie", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    renderBoard(newColumnWithQueue(), new Map([[8, 76]]), false, false, false, new Map([[8, ["Selenium"]]]));
+
+    await screen.findByTestId("new-column-section-call_first");
+    const card = cardOf("Osoba8 Test");
+    expect(card.className).toContain("p-3");
+    expect(card.className).toContain("low-screen:py-1");
+    const badgesRow = within(card).getByTestId("card-badges-row");
+    expect(badgesRow.className).toContain("low-screen:hidden");
+    expect(badgesRow.className).not.toMatch(/(^|\s)hidden(\s|$)/);
+    expect(within(card).getByTestId("card-owner").className).toContain("low-screen:hidden");
+    // Pierścień mniejszy, numer „Zadzwoń najpierw” zostaje na karcie (Osoba8
+    // z brakiem krytycznej spada na koniec kolejki, pierwsza jest Osoba7).
+    expect(within(card).getByTestId("card-score").className).toContain("low-screen:*:size-5");
+    const rank = within(cardOf("Osoba7 Test")).getByTestId("card-call-first-rank");
+    expect(rank).toHaveTextContent("1");
+    expect(rank.className).not.toContain("low-screen:hidden");
+  });
+
+  it("w linii ruchu jeden stan (najważniejsza plakietka), reszta w podpowiedzi", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    renderBoard(newColumnWithQueue(), undefined, false, false, false, new Map([[8, ["Selenium"]]]));
+
+    await screen.findByTestId("new-column-section-call_first");
+    const card = cardOf("Osoba8 Test");
+    const state = within(card).getByTestId("card-low-state");
+    // Na dużym ekranie go nie ma: stan widać tylko w niskim oknie.
+    expect(state.className).toMatch(/(^|\s)hidden(\s|$)/);
+    expect(state.className).toContain("low-screen:inline-flex");
+    // Ten sam pierwszy wybór co wiersz plakietek (`cardPrimaryBadges`).
+    const firstPrimary = within(card).getByTestId("card-badges-row").firstElementChild as HTMLElement;
+    expect(firstPrimary.getAttribute("data-testid")).toBe("card-critical-gap");
+    expect(state).toHaveTextContent(firstPrimary.textContent ?? "");
+    // Podpowiedź: każda plakietka z wiersza i z „+N”, czyja karta, odesłanie do panelu.
+    const title = state.getAttribute("title") ?? "";
+    const rowLabels = [...within(card).getByTestId("card-badges-row").querySelectorAll('[data-testid^="card-"]')]
+      .filter((el) => el.getAttribute("data-testid") !== "card-badges-more")
+      .map((el) => el.textContent?.trim())
+      .filter(Boolean) as string[];
+    for (const label of rowLabels) expect(title).toContain(label);
+    const more = within(card).queryByTestId("card-badges-more");
+    if (more) {
+      for (const label of (more.getAttribute("title") ?? "").split(" · ")) expect(title).toContain(label);
+    }
+    expect(title).toContain("Dodał system");
+    expect(title).toContain("panel osoby");
+  });
+
+  it("„Dzwonię”, dni i strzałka zostają w tej samej linii; dni krótko tylko w niskim oknie", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    const columns = newColumnWithQueue() as unknown as Array<{ items: Array<Record<string, unknown>> }>;
+    columns[0].items = columns[0].items.map((it) => (it.id === 8 ? { ...it, waiting_workdays: 4, can_take: true } : it));
+    renderBoard(columns as never);
+
+    await screen.findByTestId("new-column-section-call_first");
+    const card = cardOf("Osoba8 Test");
+    const take = within(card).getByRole("button", { name: "Dzwonię Osoba8 Test — na 12 h" });
+    const row = take.closest("[data-next-action]") as HTMLElement;
+    expect(row.className).toContain("low-screen:border-t-0");
+    const days = within(row).getByTestId("card-days");
+    expect(days).toHaveTextContent("4 dni rob.");
+    expect(days.className).toContain("text-warning");
+    const short = within(days).getByText("4 d");
+    expect(short.className).toContain("hidden");
+    expect(short.className).toContain("low-screen:inline");
+    expect(within(days).getByText("4 dni rob.").className).toContain("low-screen:hidden");
+  });
+});
+
 describe("KanbanBoardV2 — zgłoszenia w „Nowych” (06.11.2026)", () => {
   const applicants = () =>
     [
@@ -629,9 +712,12 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
     const expensive = (
       await screen.findByRole("link", { name: "Adam Drogi" })
     ).closest("[data-kanban-card]") as HTMLElement;
+    // Wiersz plakietek (trzy wiersze); ten sam stan stoi też w linii ruchu
+    // karty dwuliniowej (`card-low-state`), więc napis jest w DOM dwa razy.
     await waitFor(() =>
-      expect(within(expensive).getByText("ponad budżet")).toBeInTheDocument(),
+      expect(within(within(expensive).getByTestId("card-badges-row")).getByText("ponad budżet")).toBeInTheDocument(),
     );
+    expect(within(expensive).getByTestId("card-low-state")).toHaveTextContent("ponad budżet");
     const cheap = screen
       .getByRole("link", { name: "Beata Tania" })
       .closest("[data-kanban-card]") as HTMLElement;
@@ -4515,5 +4601,155 @@ describe("KanbanBoardV2 — filtr „Kto dodał” i kolejka w kolumnie (D1–D5
     expect(await screen.findByText(/Zaznaczono/)).toBeInTheDocument();
     rerender(boardColumns(), { kind: "user", userId: 7 });
     await waitFor(() => expect(screen.queryByText(/Zaznaczono/)).toBeNull());
+  });
+});
+
+describe("KanbanBoardV2 — „Pracuj po kolei” na pulpicie: sam panel (23.11.2026)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    kanban.mockResolvedValue({ data: { columns: [], off_template: null } });
+    post.mockResolvedValue({ data: {} });
+    useAuthStore.setState({ user: { id: 1, role: "admin" } } as never);
+  });
+
+  const person = (id: number, stage: string, name: string, lastname: string) => ({
+    id: 900 + id,
+    candidate_id: id,
+    stage,
+    name,
+    lastname,
+    days_in_stage: 2,
+  });
+
+  function columns() {
+    return [
+      {
+        stage: "screening",
+        name: "Screening",
+        category: "internal",
+        stage_def_id: 502,
+        count: 2,
+        terminal_type: null,
+        items: [person(63, "screening", "Tomasz", "Wójcik"), person(64, "screening", "Ewa", "Lis")],
+      },
+      {
+        stage: "verified",
+        name: "Zweryfikowany",
+        category: "internal",
+        stage_def_id: 503,
+        count: 1,
+        terminal_type: null,
+        items: [person(65, "verified", "Ola", "Nowak")],
+      },
+      {
+        stage: "rejected",
+        name: "Odrzucony",
+        category: "terminal",
+        stage_def_id: 508,
+        count: 0,
+        terminal_type: "rejected",
+        items: [],
+      },
+    ] as never;
+  }
+
+  function panelOnly(over: Partial<PanelOnlyQueue> = {}): PanelOnlyQueue {
+    return {
+      candidateId: 65,
+      label: "Czeka na Ciebie",
+      position: 4,
+      total: 31,
+      onPrevious: vi.fn(),
+      onNext: vi.fn(),
+      next: { name: "Jan Dalej", stageLabel: "Java w innej rekrutacji" },
+      onClosedFromPanel: vi.fn(),
+      closedNotice: null,
+      banner: <div data-testid="queue-banner">Pasek kolejki</div>,
+      onPersonChange: vi.fn(),
+      onClose: vi.fn(),
+      ...over,
+    };
+  }
+
+  function renderPanelOnly(queue: PanelOnlyQueue) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const ui = (q: PanelOnlyQueue) => (
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2 columns={columns()} jobId={10} panelOnly={q} />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+    const view = render(ui(queue));
+    return { ...view, rerenderWith: (q: PanelOnlyQueue) => view.rerender(ui(q)) };
+  }
+
+  it("plansza ukryta, panel od razu na osobie z pulpitu z licznikiem kolejki pulpitu i paskiem", async () => {
+    renderPanelOnly(panelOnly());
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    expect(within(panel).getAllByText("Ola Nowak").length).toBeGreaterThan(0);
+    expect(within(panel).getByText("4 z 31")).toBeInTheDocument();
+    expect(within(panel).getByTestId("dock-queue-label")).toHaveTextContent("Czeka na Ciebie");
+    expect(within(panel).getByTestId("queue-banner")).toBeInTheDocument();
+    // Karty Tablicy nie są widoczne — pulpit zostaje pod panelem.
+    const card = document.querySelector("[data-kanban-card]");
+    expect(card?.closest("[hidden]")).not.toBeNull();
+  });
+
+  it("„›” w panelu woła kolejkę pulpitu, nie kolumnę Tablicy", async () => {
+    const queue = panelOnly();
+    renderPanelOnly(queue);
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Następna karta" }));
+    expect(queue.onNext).toHaveBeenCalled();
+  });
+
+  it("zmiana osoby z pulpitu w tej samej rekrutacji przestawia panel; zamknięcie woła pulpit", async () => {
+    const queue = panelOnly();
+    const { rerenderWith } = renderPanelOnly(queue);
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    expect(within(panel).getAllByText("Ola Nowak").length).toBeGreaterThan(0);
+    rerenderWith({ ...queue, candidateId: 64, position: 5 });
+    await waitFor(() => expect(screen.getAllByText("Ewa Lis").length).toBeGreaterThan(0));
+    expect(queue.onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij dok" }));
+    await waitFor(() => expect(queue.onClose).toHaveBeenCalled());
+  });
+
+  it("odrzucenie z panelu: okno zapowiada osobę z pulpitu, po ruchu serwera pulpit dostaje zamkniętą osobę", async () => {
+    const queue = panelOnly();
+    renderPanelOnly(queue);
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    fireEvent.click(within(panel).getByRole("button", { name: /Odrzuć z powodem/ }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Dalej: Jan Dalej · Java w innej rekrutacji")).toBeInTheDocument();
+    const free = within(dialog).queryByPlaceholderText(/brak wymaganych kompetencji/);
+    if (free) fireEvent.change(free, { target: { value: "Brak kluczowej umiejętności" } });
+    else fireEvent.click(within(dialog).getByText("Brak kluczowej umiejętności"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Potwierdź" }));
+    await waitFor(() =>
+      expect(queue.onClosedFromPanel).toHaveBeenCalledWith(
+        expect.objectContaining({ candidateId: 65, name: "Ola Nowak", verb: "Odrzucono" }),
+      ),
+    );
+    expect(post.mock.calls.find((c) => c[0] === "/api/pipeline/move")?.[1]).toMatchObject({
+      candidate_id: 65,
+      stage_def_id: 508,
+    });
+  });
+
+  it("osoby nie ma już na Tablicy → panel mówi to wprost, z paskiem kolejki", async () => {
+    renderPanelOnly(panelOnly({ candidateId: 999 }));
+    const panel = await screen.findByRole("complementary", { name: "Panel osoby" });
+    expect(within(panel).getByText(/Tej osoby nie ma już na Tablicy tej rekrutacji/)).toBeInTheDocument();
+    expect(within(panel).getByTestId("queue-banner")).toBeInTheDocument();
+  });
+
+  it("komunikat „Tej osoby nie ma…” zamyka też Escape", async () => {
+    const queue = panelOnly({ candidateId: 999 });
+    renderPanelOnly(queue);
+    await screen.findByRole("complementary", { name: "Panel osoby" });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(queue.onClose).toHaveBeenCalled();
   });
 });

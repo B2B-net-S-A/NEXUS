@@ -157,6 +157,10 @@ interface Props {
  /** Notatka wstawiona przy otwarciu (np. „Odpada, gdy…” z wymagań ruchu).
   *  Czytana tylko w chwili otwarcia — nie nadpisuje tego, co ktoś już pisze. */
  initialNotes?: string | null;
+ /** Powód zaznaczony przy otwarciu (23.11.2026): chip „Odrzuć:” w panelu
+  * osoby z dodatkowym pytaniem („Za droga”, tryb pracy). Czytany tylko
+  * w chwili otwarcia. */
+ initialReasonKey?: CloseReasonKey | null;
  /** Umowa z Generatora tej pary (tylko przy jednej osobie). Niepodpisaną
   *  domyślnie anulujemy, przy podpisanej z kontraktem prowadzimy do
   *  „Zakończ współpracę” (decyzja Artura 04.10.2026). */
@@ -229,6 +233,7 @@ export function RejectionV2({
  canWithdraw = false,
  emailAvailable: emailAvailableProp,
  initialNotes = null,
+ initialReasonKey = null,
  agreement = null,
  subject = null,
  meetingsPair = null,
@@ -245,6 +250,8 @@ export function RejectionV2({
  // Notatkę startową czytamy tylko przy otwarciu (efekt resetu niżej) —
  // zmiana propa przy otwartym oknie nie kasuje tego, co ktoś już wpisał.
  const initialNotesRef = React.useRef(initialNotes);
+ const initialReasonKeyRef = React.useRef(initialReasonKey);
+ initialReasonKeyRef.current = initialReasonKey;
  const [meetingsChoice, setMeetingsChoice] = useState<PairMeetingsChoice | null>(null);
  useEffect(() => {
  initialNotesRef.current = initialNotes;
@@ -314,7 +321,7 @@ export function RejectionV2({
  setNewRate("");
  setNewRateIsMinimum(true);
  setAutofillLearnedFrom(null);
- setAutofillReason(null);
+ setAutofillReason(initialReasonKeyRef.current ?? null);
  setAutofillRate("");
  setAutofillWholeClient(true);
  setNotLookingUntilValue(notLookingUntil(NOT_LOOKING_DEFAULT_MONTHS));

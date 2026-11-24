@@ -106,6 +106,7 @@ from app.schemas.contract import (
     ContractUpdate,
     ContractVoidRequest,
     OrderAfterEndRead,
+    ContractDateWarningRead,
     RegisterSubcategoriesResponse,
 )
 from app.schemas.contract_amendment import (
@@ -188,6 +189,7 @@ from app.services.contract_termination_document import (
     attach_termination_documents,
     termination_documents,
 )
+from app.services.contract_date_warnings import contract_date_warnings
 from app.services.contract_order_after_end import (
     attach_order_after_end,
     order_after_end_contracts,
@@ -4098,6 +4100,10 @@ async def get_contract(
         OrderAfterEndRead.model_validate(item.as_dict())
         for item in await orders_after_end(db, contract.id)
     ]
+    detail.date_warnings = [
+        ContractDateWarningRead.model_validate(warning.as_dict())
+        for warning in await contract_date_warnings(db, contract)
+    ]
     if (
         contract.contract_type == ContractType.b2b
         and not contract.agreement_termination_mode
@@ -6605,6 +6611,7 @@ async def apply_contract_amendment(
     db: AsyncSession,
     finance_write_authorized: bool = False,
     reject_redundant: bool = False,
+    rate_signal_source: str = "manual",
 ):
     """Aneks kontraktu — ciało trasy ``POST /{id}/amendments``.
 
@@ -6615,7 +6622,11 @@ async def apply_contract_amendment(
 
     ``reject_redundant=True`` tylko dla ręcznego zapisu z okna „Dodaj aneks”:
     duplikat = 409, aneks bez zmiany i „przedłużenie” skracające umowę = 422.
-    Podpis w Generatorze i wpis stawki z dokumentu idą bez tej reguły."""
+    Podpis w Generatorze i wpis stawki z dokumentu idą bez tej reguły.
+
+    ``rate_signal_source`` (``manual`` | ``generator`` | ``document``) mówi
+    w dzwonku Finansów, skąd przyszedł krok stawki konsultanta
+    (``services/contract_rate_annex_signal.py``)."""
     # ``current_user=None`` = automat: wpis stawki odczytanej z umowy albo
     # aneksu w Dokumentach kontraktu (`services/contract_rate_documents`).
     # Tylko aneks stawki i tylko ze zdjętą bramką kwot — bez osoby nie ma
@@ -6628,6 +6639,7 @@ async def apply_contract_amendment(
             "Automat zapisuje wyłącznie aneks stawki z bramką kwot zdjętą przez wołającego."
         )
     actor_id = current_user.id if current_user is not None else None
+    candidate_step_from: Optional[date] = None
     supplied_fields = set(data.model_fields_set)
     if data.amendment_type == ContractAmendmentType.rate_change:
         supplied_fields.add("rate_change")
@@ -6819,14 +6831,15 @@ async def apply_contract_amendment(
                         created_by=actor_id,
                     )
                 )
+            candidate_step_from = _amendment_step_from(
+                contract.candidate_rate_schedule,
+                contract.start_date,
+                data.effective_date,
+            )
             contract.candidate_rate_schedule.append(
                 ContractCandidateRate(
                     rate=data.new_rate_candidate,
-                    effective_from=_amendment_step_from(
-                        contract.candidate_rate_schedule,
-                        contract.start_date,
-                        data.effective_date,
-                    ),
+                    effective_from=candidate_step_from,
                     note=data.reason,
                     created_by=actor_id,
                 )
@@ -6956,6 +6969,19 @@ async def apply_contract_amendment(
     )
     await db.flush()
     await db.refresh(amendment)
+    if candidate_step_from is not None:
+        # Krok „stawka od dnia” konsultanta — Finanse płacą po nim od jego
+        # dnia (przegląd skrzynki umowy@ 23.11.2026). Fail-soft.
+        from app.services.contract_rate_annex_signal import notify_finance_rate_annex
+
+        await notify_finance_rate_annex(
+            db,
+            contract=contract,
+            amendment_id=amendment.id,
+            effective_from=candidate_step_from,
+            source=rate_signal_source,
+            actor_id=actor_id,
+        )
     if (
         data.amendment_type == ContractAmendmentType.rate_change
         and data.new_rate_client is not None

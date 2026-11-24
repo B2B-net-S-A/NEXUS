@@ -30,7 +30,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
         }
         kicker={firstName ? null : "Kariera w B2Bnetwork"}
         title="Szukasz kolejnego projektu IT?"
-        foot="Zostaw CV — odezwę się →"
+        foot="Zostaw CV, odezwę się →"
         host={host}
       />
     ),

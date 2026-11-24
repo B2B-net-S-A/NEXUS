@@ -12,8 +12,9 @@ zamiast 12 scen ról: Terminal dla ról deweloperskich, Jasny dla biznesowych
 i Grafit dla reszty. Makiety: https://claude.ai/artifact/RGquQpMFyKgRYHPognJ2kU.
 Wybory z 12 scen zostają w bazie, ale ``resolve_theme`` traktuje je jak brak
 wyboru — opublikowane linki dostają nowy wygląd bez ponownego zatwierdzania.
-Kolory stron żyją we froncie (``components/career/themes.ts``); tu tylko to,
-czego potrzebuje plakat PDF.
+Strona, grafika OG i plakat mają od 24.11.2026 jeden wygląd nowej strony
+B2B Network (front: ``components/career/site/``); tu tylko to, czego
+potrzebuje plakat PDF.
 """
 
 from __future__ import annotations
@@ -72,28 +73,6 @@ _CATEGORY_THEME: dict[str, str] = {
     "software_development": "terminal",
     "security_quality": "terminal",
     "management_delivery": "jasny",
-}
-
-# Plakat A4 (WeasyPrint) — ten sam kolor co strona; kontrast tekstu ≥ 4,5:1.
-POSTER_COLORS: dict[str, dict[str, str]] = {
-    "grafit": {
-        "bg": "#141414",
-        "text": "#F5F4EC",
-        "accent": "#F05A69",
-        "muted": "#D9D6CC",
-    },
-    "terminal": {
-        "bg": "#161514",
-        "text": "#F1EEE6",
-        "accent": "#F05A69",
-        "muted": "#CFCAC0",
-    },
-    "jasny": {
-        "bg": "#F5F4EC",
-        "text": "#141414",
-        "accent": "#C42536",
-        "muted": "#2E3236",
-    },
 }
 
 

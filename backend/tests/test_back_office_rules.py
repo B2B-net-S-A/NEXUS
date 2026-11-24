@@ -116,8 +116,9 @@ def _step(definition: tuple[steps.Step, ...], slug: str) -> steps.Step:
     return next(step for step in definition if step.slug == slug)
 
 
-def test_exit_has_five_steps_across_four_teams() -> None:
-    assert len(steps.EXIT_STEPS) == 5
+def test_exit_has_six_steps_across_four_teams() -> None:
+    assert len(steps.EXIT_STEPS) == 6
+    assert [step.slug for step in steps.EXIT_STEPS][-2:] == ["benefits", "settlement"]
     assert {step.team for step in steps.EXIT_STEPS} == set(TEAM_LANES)
     for step in (*steps.EXIT_STEPS, *steps.ENTRY_STEPS):
         assert step.lane in TEAM_LANES[step.team]
@@ -159,6 +160,23 @@ def test_checklist_step_needs_every_matching_item() -> None:
     assert steps.step_auto_done(step, _case(items), _facts())
     # Pusta checklista nie zalicza kroku sama.
     assert not steps.step_auto_done(step, _case(), _facts())
+
+
+def test_benefits_and_register_equipment_are_ticked_on_the_checklist() -> None:
+    benefits = _step(steps.EXIT_STEPS, "benefits")
+    equipment = _step(steps.EXIT_STEPS, "equipment")
+    items = [
+        {"text": f"{case_rules.END_EQUIPMENT_REGISTER_PREFIX}Monitor", "done": False},
+        {"text": f"{case_rules.END_BENEFITS_PREFIX}rezygnacja do 19.12", "done": True},
+    ]
+    assert steps.step_auto_done(benefits, _case(items), _facts())
+    assert not steps.step_auto_done(equipment, _case(items), _facts())
+    items[0]["done"] = True
+    assert steps.step_auto_done(equipment, _case(items), _facts())
+    items[1]["done"] = False
+    assert not steps.step_auto_done(benefits, _case(items), _facts())
+    # Stara sprawa bez pozycji „Benefity” nie utknie na tym kroku.
+    assert steps.step_auto_done(benefits, _case(), _facts())
 
 
 def test_decision_step_done_when_no_open_decision() -> None:

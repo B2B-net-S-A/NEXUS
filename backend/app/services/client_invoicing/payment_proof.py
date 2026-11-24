@@ -146,20 +146,32 @@ def chain_created_at(chain: Chain) -> Optional[datetime]:
     return max(stamps) if stamps else None
 
 
-def pending_for(chain: Chain, pending: Iterable[PendingCredit]) -> bool:
-    """Wpłata do sprawdzenia, która może być zapłatą tej faktury."""
+def pending_for(
+    chain: Chain,
+    pending: Iterable[PendingCredit],
+    *,
+    currency: Optional[str] = None,
+    amount: Optional[Decimal] = None,
+) -> bool:
+    """Wpłata do sprawdzenia, która może być zapłatą tej faktury.
+
+    ``currency`` i ``amount`` — zapłata w innej walucie niż faktura (VAT faktury
+    walutowej płacony w PLN); bez kwoty porównujemy tylko numery z tytułu.
+    """
 
     head = chain.head
     ksef = {i.ksef_number for i in chain.invoices if i.ksef_number}
     numbers = [i.invoice_number for i in chain.invoices if i.invoice_number]
-    to_pay = chain.own_to_pay
+    wanted = currency or head.currency
+    to_pay = chain.own_to_pay if currency is None else amount
     for credit in pending:
         if ksef & credit.ksef_numbers:
             return True
         if any(number_in_title(number, credit.title) for number in numbers):
             return True
         if (
-            credit.currency == head.currency
+            to_pay is not None
+            and credit.currency == wanted
             and money(credit.amount) == to_pay
             and (credit.booked_on is None or credit.booked_on >= head.issue_date)
         ):
@@ -205,27 +217,46 @@ class Proof:
             self._reach[key] = reach([statement.span for statement in eligible])
         return last_day_from(self._reach[key], issued)
 
-    def _unassigned_for(self, chain: Chain, until: date) -> bool:
+    def _unassigned_for(
+        self, chain: Chain, until: date, currency: str, amount: Optional[Decimal]
+    ) -> bool:
         """Operacja Księgi, której E8 nie przypisało, w kwocie tego, co zostało."""
 
+        if amount is None:
+            return False
         head = chain.head
-        key = (head.currency, int(chain.own_to_pay * 100))
+        key = (currency, int(money(amount) * 100))
         return any(
             head.issue_date <= day <= until for day in self.unassigned.get(key, ())
         )
 
-    def verdict(self, chain: Chain, today: date) -> Verdict:
+    def verdict(
+        self,
+        chain: Chain,
+        today: date,
+        *,
+        currency: Optional[str] = None,
+        amount: Optional[Decimal] = None,
+    ) -> Verdict:
+        """Werdykt łańcucha; ``currency``/``amount`` — reszta płacona w innej walucie.
+
+        VAT faktury w EUR klient płaci w PLN (``receivables.vat_gap``): wtedy liczą
+        się wyciągi rachunku PLN i wpłaty w PLN, a ``amount`` to VAT w PLN
+        (``None`` = kursu nie ma, porównujemy tylko numery z tytułów).
+        """
+
         if chain.overdue_days(today) <= 0:
             return Verdict()
         head = chain.head
+        wanted = currency or head.currency
         if is_compensation(head.invoice_number, self.compensation):
             return Verdict(unknown=True, reason="compensation")
-        raw = receiving_account(self.issue, head.client_id, head.currency)
+        raw = receiving_account(self.issue, head.client_id, wanted)
         if raw is None:
             return Verdict(unknown=True, reason="no_account")
         number = ledger_settings.nrb(raw)
         last4 = "".join(ch for ch in raw if ch.isdigit())[-4:] or None
-        if not number or self.ledger_accounts.get(number) != head.currency:
+        if not number or self.ledger_accounts.get(number) != wanted:
             return Verdict(unknown=True, reason="account_outside_ledger", account=last4)
         until = self.until(number, chain_created_at(chain), head.issue_date)
         due = head.due_date
@@ -233,7 +264,10 @@ class Proof:
             return Verdict(
                 unknown=True, reason="statements", account=last4, until=until
             )
-        if pending_for(chain, self.pending) or self._unassigned_for(chain, until):
+        rest = chain.own_to_pay if currency is None else amount
+        if pending_for(
+            chain, self.pending, currency=currency, amount=amount
+        ) or self._unassigned_for(chain, until, wanted, rest):
             return Verdict(
                 unknown=True, reason="credit_pending", account=last4, until=until
             )

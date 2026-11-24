@@ -127,14 +127,19 @@ def test_end_checklist_from_pack_and_care_state() -> None:
         equipment_ours=True,
         accesses=["Konto VPN", " Konto  VPN ", "Jira"],
         feedback_done=True,
+        equipment_names=["Monitor 24 (EW-1)", "Słuchawki"],
+        last_day=date(2026, 12, 18),
+        today=date(2026, 11, 24),
     )
     texts = [item["text"] for item in ours]
     assert texts == [
         rules.END_EQUIPMENT_ITEM,
+        f"{rules.END_EQUIPMENT_REGISTER_PREFIX}Monitor 24 (EW-1), Słuchawki",
         f"{rules.END_ACCESS_PREFIX}Konto VPN",
         f"{rules.END_ACCESS_PREFIX}Jira",
         rules.END_FEEDBACK_ITEM,
         rules.END_DECISION_ITEM,
+        rules.benefits_item(date(2026, 12, 18), date(2026, 11, 24)),
         rules.END_SETTLEMENT_ITEM,
     ]
     done = {item["text"]: item["done"] for item in ours}
@@ -146,6 +151,8 @@ def test_end_checklist_from_pack_and_care_state() -> None:
     )
     texts = [item["text"] for item in theirs]
     assert rules.END_EQUIPMENT_ITEM not in texts
+    # Nic wydanego z rejestru = bez pozycji o zwrocie z rejestru.
+    assert not any(t.startswith(rules.END_EQUIPMENT_REGISTER_PREFIX) for t in texts)
     assert rules.END_ACCESS_GENERIC in texts
     assert {i["text"]: i["done"] for i in theirs}[rules.END_DECISION_ITEM] is True
 
@@ -154,6 +161,7 @@ def test_end_checklist_stays_within_limits() -> None:
     items = rules.end_of_cooperation_checklist(
         equipment_ours=True,
         accesses=[f"Dostęp {n} " + "x" * 400 for n in range(80)],
+        equipment_names=[f"Monitor {n} " + "y" * 40 for n in range(30)],
     )
     assert len(items) <= rules.CHECKLIST_MAX_ITEMS
     assert all(len(item["text"]) <= rules.CHECKLIST_TEXT_MAX for item in items)
@@ -389,3 +397,39 @@ def test_case_title_replaced_without_may_read(monkeypatch) -> None:
     assert queries.redact_case_title(plain, object()) == "Sprawa: Administracja"
     monkeypatch.setattr(queries, "may_read", lambda viewer, case: True)
     assert queries.redact_case_title(talk, object()) is None
+
+
+def test_benefits_deadline_is_the_19th_of_the_last_month() -> None:
+    text = rules.benefits_item(date(2026, 12, 18), date(2026, 11, 24))
+    assert text.startswith(rules.END_BENEFITS_PREFIX)
+    assert "rezygnacja do 19.12.2026, działa od 01.01.2027" in text
+    assert "PZU do 31.12.2026" in text
+    assert "potrąć" not in text
+
+
+def test_late_benefits_resignation_charges_the_months_after_the_end() -> None:
+    # Koniec 12.11, zgłoszenie dopiero 24.11: najbliższy termin 19.12, działa od
+    # 01.01 — grudzień potrąca się z ostatniego przelewu.
+    text = rules.benefits_item(date(2026, 11, 12), date(2026, 11, 24))
+    assert "rezygnacja do 19.12.2026, działa od 01.01.2027" in text
+    assert text.endswith("potrąć z ostatniego przelewu: grudzień 2026")
+
+
+def test_benefits_from_2027_are_only_the_sports_card() -> None:
+    text = rules.benefits_item(date(2027, 1, 31), date(2027, 1, 5))
+    assert "PZU" not in text
+    assert "(karta sportowa)" in text
+    assert "rezygnacja do 19.01.2027, działa od 01.02.2027" in text
+
+
+def test_benefits_without_end_day_explain_the_rule() -> None:
+    text = rules.benefits_item(None, date(2026, 11, 24))
+    assert "do 19. dnia miesiąca" in text
+    assert len(text) <= rules.CHECKLIST_TEXT_MAX
+
+
+def test_register_item_is_cut_to_the_checklist_limit() -> None:
+    assert rules.equipment_register_item([]) is None
+    assert rules.equipment_register_item(["  ", ""]) is None
+    long = rules.equipment_register_item(["Laptop " + "z" * 400])
+    assert long is not None and len(long) <= rules.CHECKLIST_TEXT_MAX

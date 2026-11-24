@@ -44,12 +44,46 @@ Makiety: https://claude.ai/artifact/NDLBxLTB1GZZpWMQst5Hnk.
 - **Stary mail nie zamyka rekrutacji otwartej ponownie** po jego dacie.
 - **Jeden mail = jeden wiersz** `cpro_mail_events` (klucz `internetMessageId`),
   więc kopia w drugiej skrzynce i restart niczego nie powtarzają.
-- Automat nie obsługuje: `Offer:`, `Re:`, zmian w umowach, nowych zapytań
-  `Request:`. Temat spoza `SUBJECT_FILTER` nic nie zmienia.
+- Automat nie obsługuje: `Offer:`, `Re:`, nowych zapytań `Request:`. Temat spoza
+  `SUBJECT_FILTER` nic nie zmienia.
+
+## Zmiany w kontrakcie: nowy adres faktury (24.11.2026)
+
+„Important changes made to contract N — Please update your invoice reference details”
+CPro wysyła DL-owi przypisanemu do kontraktu. **N to numer Call-Off, czyli tytuł zamówienia
+Nordei** (`client_orders.title`; na kopii produkcji 12 z 12 numerów), a nie numer requestu.
+Treść to linie `<Pole> was updated from: X, to: Y` (w `emails.body_text` sklejone bez `<br>`),
+daty zmiany w mailu nie ma — liczy się data maila w kalendarzu firmy.
+
+Decyzje Artura z 24.11.2026 (przegląd skrzynek DL-ów: zmiana z 15.09 F218 Abp S.A. → F206
+Abp Finland przyszła tylko do PM-a i nie dotarła do rozliczeń):
+
+- **„Invoice address was updated … to: F206 …” → nabywca kontraktu od miesiąca maila**
+  (`services/cpro_invoice_buyer.py`, reguła `invoice_address` w `/settings/cpro`). NEXUS
+  szuka nabywcy klienta z tym „Kodem w CPro” (ustawienia wystawiania → Nabywcy per kontrakt),
+  dopisuje go w `contract_buyers` od `RRRR-MM` maila i dzwoni do Finansów
+  (`cpro_invoice_buyer`, migracja 0766) z listą faktur od tego miesiąca na innego nabywcę
+  i liczbą szkiców do poprawy. Dzwonek idzie też **mailem od razu** (rodzaj
+  `cpro_invoice_buyer`, obowiązkowy): typ nie ma ikony na pasku, więc bez maila osoba
+  offline zobaczyłaby tylko chwilowy dymek.
+- **Faktur NEXUS nie zmienia.** Korekta albo refaktura to decyzja Finansów.
+- **Kodu nie zgadujemy po nazwie** („Abp S.A.” i „Abp Finland” mają wspólny początek).
+  Kod spoza listy, adres faktury bez czytelnego kodu (kod bywa na początku wartości albo w nawiasie,
+  przecinek przed nową linią), brak zamówienia z tym numerem albo kilka kontraktów pod jednym numerem =
+  „Do ręcznego” i dzwonek Finansów. Zmiana adresu faktury nigdy nie ląduje w „Bez zmian”.
+- **Line manager, cost center, NIIDS** (wszystkie 12 maili z kopii 08–11.2026) idą tylko do
+  dziennika jako „Zmiana w kontrakcie” / „Bez zmian”, bez wartości (nazwiska zostają w CPro).
+- Automat widzi tylko skrzynki zsynchronizowane z NEXUSEM: mail z 15.09 (283051) nie trafił do
+  `emails`, więc ten kontrakt Finanse przypisują ręcznie w szkicu.
+- Ekran ustawień wystawiania nie nadpisuje przypisań kontraktów (`keep_stored_mapping`):
+  karta otwarta przed mailem CPro odesłałaby stare `contract_buyers`. Każdy zapis po odczycie
+  (automat CPro, wybór nabywcy w szkicu, ekran ustawień) czyta ustawienia z blokadą wiersza
+  (`issue_settings.load(db, lock=True)`), bo zapis podmienia cały JSON.
 
 ## Gdzie to siedzi
 
-- Odczyt bez bazy: `services/cpro_mail_parse.py`. Przebieg: `services/cpro_mail.py`.
+- Odczyt bez bazy: `services/cpro_mail_parse.py`. Przebieg: `services/cpro_mail.py`,
+  nabywca z adresu faktury: `services/cpro_invoice_buyer.py`.
 - Pętla `cpro_mail` co 3 minuty (`tasks/cpro_mail.py`), na stagingu zablokowana.
   Kill-switch `CPRO_MAIL_ENABLED`, wyłączniki reguł w `app_settings['cpro_mail:rules']`.
 - Trasy `api/cpro_mail.py`: `GET /api/cpro/log`, `PUT /api/cpro/rules` (HoR, admin),

@@ -33,7 +33,7 @@ export type ContractorInvoiceState =
   "none" | "can_issue" | "in_ksef" | "differs" | "nip_check" | "extra_pending";
 /** `awaiting_signature` — czeka na podpis klienta: KEŚU (E6.3), protokół albo arkusze (E6.1, E6.2); reguła `cl.after_signed_document`. */
 export type ClientInvoiceState =
-  "waiting" | "ready" | "issued" | "awaiting_signature" | "awaiting_client";
+  "waiting" | "ready" | "issued" | "awaiting_signature" | "awaiting_client" | "awaiting_t4t";
 /** Akceptacja dowodu pracy przez klienta po zbiorczej wysyłce (E6.5, Bank Pocztowy). */
 export type ClientAcceptanceState = "none" | "to_send" | "sent" | "accepted";
 
@@ -368,6 +368,28 @@ export interface MonthCloseClient {
   top_reason: string | null;
   /** Klient rozliczany z raportu klienta (T4T) — bez kolejki osób. */
   client_report: { all: number; ok: number; differs: number; unmatched: number; no_invoice: number } | null;
+  /** Reguła `order.auto_accept_clean`: ile „Bez uwag” przyjmie automat i od kiedy. */
+  auto_accept?: AutoAcceptInfo | null;
+}
+
+/** Osoba na liście dla księgowej (tylko z uprawnieniem do kwot). */
+export interface MonthCloseClosingRow {
+  client_id: number;
+  client: string;
+  contract_id: number;
+  person: string;
+  md: string | null;
+  cost: string | null;
+}
+
+/** Trzy pytania księgowej na zamknięcie miesiąca. */
+export interface MonthCloseClosing {
+  ksef_not_accepted: number;
+  reserve_count: number;
+  reserve_total: string | null;
+  reserve_without_cost: number;
+  sales_waiting: number;
+  rows: Record<"ksef_not_accepted" | "reserve" | "sales_waiting", MonthCloseClosingRow[]> | null;
 }
 
 export interface MonthCloseReason {
@@ -394,6 +416,7 @@ export interface MonthCloseOverview {
   };
   clients: MonthCloseClient[];
   reasons: MonthCloseReason[];
+  closing?: MonthCloseClosing;
 }
 
 export const settlementKeys = {
@@ -535,11 +558,27 @@ export interface ClientInvoicePosition {
   currency: string;
 }
 
+/** Godziny osoby z ostatniej wersji raportu T4T (klient z `report.time_for_teams`). */
+export interface ClientInvoiceT4t {
+  approved: string;
+  /** Status 0 i 1: czekają na akceptację managera. */
+  pending: string;
+  /** Godziny na pozycji: zatwierdzone albo z mailowej akceptacji managera. */
+  billed: string;
+  /** Godziny na wystawionej fakturze za miesiąc; `null` bez faktury. */
+  invoiced: string | null;
+  notes: string[];
+}
+
 export interface ClientInvoiceRow {
   contract_id: number;
   person: string;
   order_number: string | null;
-  kind: SettlementKind | null;
+  /** `time_report` — pozycja z raportu T4T, nie z RCP. */
+  kind: SettlementKind | "time_report" | null;
+  /** Dlaczego pozycja czeka (T4T: godziny niezatwierdzone w wersji z DD.MM). */
+  hold_reason?: string | null;
+  t4t?: ClientInvoiceT4t | null;
   state: ClientInvoiceState;
   positions: ClientInvoicePosition[];
   /** Waluta `net`; koszt i marża są zawsze w zł. */
@@ -565,7 +604,19 @@ export interface ClientInvoiceMonth {
   can_see_amounts: boolean;
   /** Faktura do klienta po podpisanym dokumencie (E6); `null` — nic nie wstrzymuje. */
   signature_hold?: { kind: "protocol" | "sheet"; label: string } | null;
+  /** Ostatnia wersja raportu T4T, z której liczą się pozycje; `null` bez reguły T4T. */
+  time_report?: { version_id: number | null; received_on: string | null; label: string } | null;
+  /** Termin faktury (15. dnia następnego miesiąca) blisko albo minął, a osoby nie mają zatwierdzonych godzin. */
+  deadline?: ClientInvoiceDeadline | null;
   rows: ClientInvoiceRow[];
+}
+
+export interface ClientInvoiceDeadline {
+  date: string;
+  days_left: number;
+  overdue: boolean;
+  missing: number;
+  people: string[];
 }
 
 export interface EstimateRow {

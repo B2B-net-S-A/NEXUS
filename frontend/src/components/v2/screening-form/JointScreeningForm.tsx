@@ -25,13 +25,18 @@
  * starcie bierze z niej wpisy swoich rekrutacji. Zmiana zaznaczenia
  * „Screening dla” (nowy zestaw = nowy formularz) nie kasuje już niezapisanych
  * odpowiedzi; zapis czyści pamięć, para z nieudanym zapisem zachowuje wpisy.
+ *
+ * Od 23.11.2026 układ „Arkusz rozmowy” (`layout="sheet"`, Tryb rozmowy panelu
+ * osoby): pasek braków per rekrutacja nad arkuszem (`forwardGaps` — ta sama
+ * reguła co „Zapisz i przekaż dalej w N”), dwie kolumny od ok. 700 px strefy
+ * i stopka na dole arkusza. Te same pola i ten sam zapis co układ kolumny.
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { FormProvider, useForm, type UseFormReturn } from "react-hook-form";
-import { AlertTriangle, Check, X } from "lucide-react";
+import { FormProvider, useForm, useWatch, type UseFormReturn } from "react-hook-form";
+import { AlertTriangle, Check, PhoneOff, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +57,7 @@ import {
 } from "@/components/v2/screening-form/joint-screening-tools";
 import { PhraseButton, PhraseLanguageToggle, PhraseProposal } from "@/components/v2/screening/PhraseSuggestion";
 import { answerOriginBadge, CARD_PHRASABLE_FIELDS } from "@/lib/recommendation-card";
+import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useAuthStore } from "@/store/auth";
@@ -76,9 +82,11 @@ import {
   completeGroups,
   dealBreakerHit,
   forwardBlockers,
+  forwardGaps,
   hitKey,
   jobKey,
   jointDefaults,
+  jointGapTarget,
   noteFillPatches,
   originHolds,
   projectPair,
@@ -86,6 +94,7 @@ import {
   twinRateBlockers,
   workModeGroups,
   type JointDirty,
+  type JointGap,
   type JointOrigin,
   type JointGroup,
   type JointPair,
@@ -141,6 +150,11 @@ export interface JointScreeningFormProps {
   onReselect?: (jobId: number) => void;
   /** Bliźniaki pominięte w tej rozmowie (rekrutacja → kod powodu) — do `/move`. */
   twinSkips?: Record<string, string>;
+  /**
+   * `sheet` — „Arkusz rozmowy” w lewej połowie panelu (Tryb rozmowy): pasek
+   * braków per rekrutacja, dwie kolumny, stopka na dole. Te same pola i zapis.
+   */
+  layout?: "column" | "sheet";
 }
 
 type ResultKind = "saved" | "unchanged" | "moved" | "save_failed" | "move_refused" | "deal_breaker" | "no_stage";
@@ -187,6 +201,8 @@ interface JointTools {
   skipHint: (group: JointGroup) => void;
   /** `null` = „Ułóż w zdanie” wyłączone (funkcja karty z notatki). */
   phrase: JointPhrase | null;
+  /** Arkusz rozmowy: „Idealnie” i „Odpada, gdy” pod „pokaż”, jak w arkuszu pojedynczym. */
+  compact: boolean;
 }
 
 const JointToolsContext = createContext<JointTools | null>(null);
@@ -263,7 +279,9 @@ function JointFormBody({
   pendingMemory = [],
   onReselect,
   twinSkips,
+  layout = "column",
 }: JointScreeningFormProps & { pairs: JointPair[]; groups: JointGroup[] }) {
+  const sheet = layout === "sheet";
   const queryClient = useQueryClient();
   // 22.10.2026: Delivery Lead przekazuje dalej bez kompletu pól (serwer też;
   // flaga z `/api/auth/me` zna wyłącznik `DL_SKIPS_FILL_GATES` — F109).
@@ -290,6 +308,21 @@ function JointFormBody({
   const [blockers, setBlockers] = useState<Array<{ title: string; items: string[] }>>([]);
   const [results, setResults] = useState<PairResult[] | null>(null);
   const [tab, setTab] = useState(anchor.jobId);
+  // Klik w brak na pasku arkusza: kursor stawiamy po przerysowaniu, bo pole
+  // oceny innej rekrutacji montuje się dopiero po przełączeniu zakładki.
+  const [focusPath, setFocusPath] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focusPath) return;
+    methods.setFocus(focusPath as "answers");
+    setFocusPath(null);
+  }, [focusPath, methods]);
+  const pickGap = (pair: JointPair, gap: JointGap) => {
+    const target = jointGapTarget(pair, groups, gap);
+    if (!target) return;
+    if (target.tab) setTab(pair.jobId);
+    setFocusPath(target.path);
+  };
+  const noAnswer = useNoAnswerNote({ candidateId, jobId: anchor.jobId });
   const [note, setNote] = useState<NoteImport | null>(null);
   const [noteSummary, setNoteSummary] = useState<NoteFillSummary | null>(null);
   // Co wpisała notatka — „Cofnij wypełnienie” zdejmuje tylko to.
@@ -435,6 +468,7 @@ function JointFormBody({
     applyHint,
     skipHint,
     phrase: anchor.state.assist_enabled ? phrase : null,
+    compact: sheet,
   };
 
   const shared = groups.filter((g) => g.members.length > 1);
@@ -595,6 +629,121 @@ function JointFormBody({
     if (anchorMoved) onForwarded?.();
   };
 
+  const noteBar = anchor.state.assist_enabled ? (
+    <NoteFillBar
+      candidateId={candidateId}
+      jobId={anchor.jobId}
+      applied={noteSummary}
+      onProposal={(proposal, source) => void onNoteProposal(proposal, source)}
+      onUndo={undoNote}
+      disabled={busy != null}
+    />
+  ) : null;
+  const terms = <TermsSection methods={methods} pairs={pairs} />;
+  const questions = (
+    <QuestionsSection
+      methods={methods}
+      pairs={pairs}
+      shared={shared}
+      ownByJob={ownByJob}
+      asked={groups.length}
+      total={totalQuestions}
+      openHints={openHints.length}
+      onUseAllHints={() => openHints.forEach(({ group, hint }) => applyHint(group, hint))}
+    />
+  );
+  const assessment = <AssessmentSection methods={methods} pairs={pairs} tab={tab} onTab={setTab} />;
+  const blockersAlert =
+    blockers.length > 0 ? (
+      <div role="alert" className="rounded-lg border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground">
+        <p className="font-semibold">Zanim przekażesz dalej, uzupełnij:</p>
+        <ul className="mt-1 list-disc pl-4">
+          {blockers.map((b) => (
+            <li key={b.title}>
+              {b.title}: {b.items.join(", ")}
+            </li>
+          ))}
+        </ul>
+      </div>
+    ) : null;
+  const resultCard = results ? (
+    <ResultCard results={results} candidateId={candidateId} anchorJobId={anchor.jobId} onForwardAnyway={forwardAnyway} onClose={closeResults} />
+  ) : null;
+
+  if (sheet) {
+    return (
+      <FormProvider {...methods}>
+        <JointToolsContext.Provider value={tools}>
+          <form
+            data-testid="joint-screening-form"
+            data-help="jobs.person.screening-form"
+            data-layout="sheet"
+            className="@container flex min-h-full flex-col"
+            onSubmit={(e) => e.preventDefault()}
+          >
+            <JointSheetGapsBar
+              methods={methods}
+              pairs={pairs}
+              groups={groups}
+              origins={origins}
+              latest={latest}
+              onPick={pickGap}
+            />
+            <div className="flex-1 space-y-3 p-3">
+              {noteBar}
+              {/* Dwie kolumny od ok. 700 px strefy, jak arkusz pojedynczy: lewa —
+                  warunki wspólne i per rekrutacja; prawa — pytania wspólne i „Tylko
+                  …”, potem zakładki oceny. Każda kolumna jest swoim kontenerem, więc
+                  pola warunków układają się według szerokości kolumny, nie strefy. */}
+              <div className="grid grid-cols-1 gap-3 @[44rem]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+                <div className="@container min-w-0 space-y-4 rounded-lg border border-border bg-card p-3">{terms}</div>
+                <div className="@container min-w-0 space-y-5 rounded-lg border border-border bg-card p-3">
+                  {questions}
+                  {assessment}
+                </div>
+              </div>
+            </div>
+            {/* Stopka na dole arkusza: komunikat po kliknięciu i karta wyniku stoją
+                przy przyciskach, żeby było je widać bez przewijania arkusza. */}
+            <div
+              className="sticky bottom-0 z-10 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-background/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80"
+              data-testid="joint-screening-footer"
+            >
+              {blockersAlert || resultCard || pendingMemory.length > 0 ? (
+                <div className="max-h-[40dvh] basis-full space-y-2 overflow-y-auto">
+                  {blockersAlert}
+                  {resultCard}
+                  <MemoryPendingNote scope={`${pairs.length} zaznaczone rekrutacje`} items={pendingMemory} onReselect={onReselect} />
+                </div>
+              ) : null}
+              <div className="mr-auto flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={noAnswer.isPending || busy != null}
+                  onClick={() => noAnswer.mutate()}
+                >
+                  <PhoneOff className="h-3.5 w-3.5" aria-hidden /> Nie odebrał
+                </Button>
+                <span className="text-[11px] text-muted-foreground">
+                  {pairs.length} rekrutacje · {pluralQuestions(groups.length)} w rozmowie
+                </span>
+              </div>
+              <Button type="button" variant="outline" size="sm" disabled={busy != null} onClick={() => void run(false)}>
+                {busy === "save" ? "Zapisuję…" : `Zapisz w ${pairs.length}`}
+              </Button>
+              <Button type="button" size="sm" disabled={busy != null} onClick={() => void run(true)}>
+                {busy === "forward" ? "Przekazuję…" : `Zapisz i przekaż dalej w ${pairs.length} → Zweryfikowany`}
+              </Button>
+            </div>
+            {moveCore.dialogs}
+          </form>
+        </JointToolsContext.Provider>
+      </FormProvider>
+    );
+  }
+
   return (
     <FormProvider {...methods}>
       <JointToolsContext.Provider value={tools}>
@@ -604,45 +753,14 @@ function JointFormBody({
         className="space-y-5"
         onSubmit={(e) => e.preventDefault()}
       >
-        {anchor.state.assist_enabled ? (
-          <NoteFillBar
-            candidateId={candidateId}
-            jobId={anchor.jobId}
-            applied={noteSummary}
-            onProposal={(proposal, source) => void onNoteProposal(proposal, source)}
-            onUndo={undoNote}
-            disabled={busy != null}
-          />
-        ) : null}
-        <TermsSection methods={methods} pairs={pairs} />
-        <QuestionsSection
-          methods={methods}
-          pairs={pairs}
-          shared={shared}
-          ownByJob={ownByJob}
-          asked={groups.length}
-          total={totalQuestions}
-          openHints={openHints.length}
-          onUseAllHints={() => openHints.forEach(({ group, hint }) => applyHint(group, hint))}
-        />
-        <AssessmentSection methods={methods} pairs={pairs} tab={tab} onTab={setTab} />
+        {noteBar}
+        {terms}
+        {questions}
+        {assessment}
 
-        {blockers.length > 0 ? (
-          <div role="alert" className="rounded-lg border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground">
-            <p className="font-semibold">Zanim przekażesz dalej, uzupełnij:</p>
-            <ul className="mt-1 list-disc pl-4">
-              {blockers.map((b) => (
-                <li key={b.title}>
-                  {b.title}: {b.items.join(", ")}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
+        {blockersAlert}
 
-        {results ? (
-          <ResultCard results={results} candidateId={candidateId} anchorJobId={anchor.jobId} onForwardAnyway={forwardAnyway} onClose={closeResults} />
-        ) : null}
+        {resultCard}
 
         <div className="sticky bottom-0 -mx-1 space-y-2 border-t border-border bg-background px-1 pt-3 pb-1">
           <MemoryPendingNote scope={`${pairs.length} zaznaczone rekrutacje`} items={pendingMemory} onReselect={onReselect} />
@@ -664,6 +782,116 @@ function JointFormBody({
       </form>
       </JointToolsContext.Provider>
     </FormProvider>
+  );
+}
+
+// ── Pasek arkusza ───────────────────────────────────────────────────────────
+
+/**
+ * Pasek nad arkuszem rozmowy formularza wspólnego: braki do „Zweryfikowany”
+ * w każdej rekrutacji osobno — ta sama reguła i ten sam rzut stanu co
+ * „Zapisz i przekaż dalej w N” (`forwardGaps` z `projectPair`). Klik w brak
+ * stawia kursor w polu. Obok „pytania X z Y” — grupy pytań w tej rozmowie.
+ */
+function JointSheetGapsBar({
+  methods,
+  pairs,
+  groups,
+  origins,
+  latest,
+  onPick,
+}: {
+  methods: UseFormReturn<JointValues>;
+  pairs: JointPair[];
+  groups: JointGroup[];
+  origins: Readonly<Record<string, JointOrigin>>;
+  latest: (pair: JointPair) => ScreeningFormState;
+  onPick: (pair: JointPair, gap: JointGap) => void;
+}) {
+  // Własna subskrypcja — wpis przerysowuje pasek, nie cały arkusz.
+  const values = useWatch({ control: methods.control }) as JointValues;
+  const dirty = methods.control._formState.dirtyFields as JointDirty;
+  // Pole wspólne (jedno miejsce w formularzu dla kilku rekrutacji) pokazujemy
+  // raz, w wierszu „Wspólne” — w wierszu rekrutacji zostają jej własne braki.
+  const common = new Map<string, { pair: JointPair; gap: JointGap }>();
+  const rows = [...pairs]
+    .sort((a, b) => Number(b.anchor) - Number(a.anchor))
+    .map((pair) => {
+      const fresh = { ...pair, state: latest(pair) };
+      const gaps = forwardGaps(fresh, projectPair(values, fresh, groups, dirty, origins));
+      const own = gaps.filter((gap) => {
+        const path = jointGapTarget(pair, groups, gap)?.path ?? "";
+        if (!path.startsWith("shared.") && !path.startsWith("clients.")) return true;
+        if (!common.has(path)) common.set(path, { pair, gap });
+        return false;
+      });
+      return { pair, own, total: gaps.length };
+    });
+  const missing = rows.reduce((n, row) => n + row.total, 0);
+  const answered = groups.filter((g) => (values.answers?.[g.key] ?? "").trim() !== "").length;
+  const chip = (pair: JointPair, gap: JointGap, key: string) => (
+    <button
+      key={key}
+      type="button"
+      onClick={() => onPick(pair, gap)}
+      className="rounded-full border border-current/30 bg-background px-2 py-px font-medium text-foreground hover:bg-muted"
+      data-testid="joint-sheet-gap"
+    >
+      {gap.label}
+    </button>
+  );
+  return (
+    <div
+      className={cn(
+        "sticky top-0 z-10 space-y-1 border-b px-3 py-2 text-xs backdrop-blur",
+        missing > 0
+          ? "border-warning/30 bg-warning-muted/95 text-warning-muted-foreground"
+          : "border-border bg-background/95 text-muted-foreground",
+      )}
+      data-testid="joint-sheet-gaps"
+      role="status"
+    >
+      <div className="flex flex-wrap items-center gap-x-2">
+        <span className="font-semibold">
+          {missing > 0
+            ? "Do „Zweryfikowany” brakuje:"
+            : `Do „Zweryfikowany”: komplet pól w ${pairs.length} rekrutacjach`}
+        </span>
+        {groups.length > 0 ? (
+          <span className="ml-auto whitespace-nowrap">
+            pytania {answered} z {groups.length}
+          </span>
+        ) : null}
+      </div>
+      {common.size > 0 ? (
+        <div className="flex flex-wrap items-center gap-1" data-testid="joint-sheet-gaps-shared">
+          <span className="font-medium">Wspólne</span>
+          {[...common.entries()].map(([path, { pair, gap }]) => chip(pair, gap, path))}
+        </div>
+      ) : null}
+      {missing > 0
+        ? rows.map(({ pair, own, total }) => (
+            <div key={pair.jobId} className="flex flex-wrap items-center gap-1" data-testid={`joint-sheet-gaps-${pair.jobId}`}>
+              <span className="max-w-[14rem] truncate font-medium" title={pair.title}>
+                {pair.title}
+              </span>
+              {own.length > 0 ? (
+                own.map((gap) => chip(pair, gap, gap.kind === "card" ? gap.key : "answers"))
+              ) : (
+                <span className="inline-flex items-center gap-1">
+                  {total > 0 ? (
+                    "tylko wspólne"
+                  ) : (
+                    <>
+                      <Check className="h-3 w-3" aria-hidden="true" /> komplet
+                    </>
+                  )}
+                </span>
+              )}
+            </div>
+          ))
+        : null}
+    </div>
   );
 }
 
@@ -879,7 +1107,8 @@ function GroupRateInput({ methods, group }: { methods: UseFormReturn<JointValues
 
 function RateInputs({ methods, prefix }: { methods: UseFormReturn<JointValues>; prefix: "shared" | `jobs.${string}` }) {
   return (
-    <div className="grid grid-cols-2 gap-2">
+    // Jednostka na swoją szerokość — w wąskiej kolumnie arkusza „PLN / godzinę” się nie ucina.
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
       <Input
         aria-label={prefix === "shared" ? "Stawka — kwota" : `Stawka — kwota (${prefix})`}
         inputMode="decimal"
@@ -1085,6 +1314,7 @@ function SkipMissingSection({ methods, pairs }: { methods: UseFormReturn<JointVa
 
 function QuestionCard({ methods, pairs, group }: { methods: UseFormReturn<JointValues>; pairs: JointPair[]; group: JointGroup }) {
   const tools = useJointTools();
+  const [hintsOpen, setHintsOpen] = useState(false);
   const members = group.members
     .map((m) => {
       const pair = pairs.find((p) => p.jobId === m.jobId);
@@ -1094,6 +1324,7 @@ function QuestionCard({ methods, pairs, group }: { methods: UseFormReturn<JointV
     .filter((x): x is NonNullable<typeof x> => x != null);
   if (members.length === 0) return null;
   const [first, ...rest] = members;
+  const hasHints = members.some(({ question }) => question.ideal_answer || question.deal_breaker);
   const id = `joint-answer-${group.key}`;
   const anyHit = members.some(({ member }) => methods.watch(`hits.${hitKey(member.jobId, member.questionId)}`));
   const value = (methods.watch(`answers.${group.key}`) as string | undefined) ?? "";
@@ -1137,8 +1368,8 @@ function QuestionCard({ methods, pairs, group }: { methods: UseFormReturn<JointV
             {pair.title} pyta: „{question.question}”
           </p>
         ))}
-      {members.some(({ question }) => question.ideal_answer || question.deal_breaker) ? (
-        <dl className="grid grid-cols-[92px_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs">
+      {hasHints && (!tools.compact || hintsOpen) ? (
+        <dl className={cn("grid grid-cols-[92px_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs", tools.compact && "rounded-md bg-muted/40 p-2")}>
           {members.map(({ pair, question }) => (
             <MemberHints key={pair.jobId} title={members.length > 1 ? pair.title : null} ideal={question.ideal_answer} dealBreaker={question.deal_breaker} />
           ))}
@@ -1155,6 +1386,7 @@ function QuestionCard({ methods, pairs, group }: { methods: UseFormReturn<JointV
       <Textarea
         id={id}
         rows={2}
+        className={tools.compact ? "min-h-0" : undefined}
         placeholder={
           phrase ? "Jak odpowiedział kandydat? Możesz wpisać hasła i ułożyć z nich zdanie." : "Jak odpowiedział kandydat?"
         }
@@ -1185,6 +1417,24 @@ function QuestionCard({ methods, pairs, group }: { methods: UseFormReturn<JointV
           W {pair.title}: {saved}
         </p>
       ))}
+      {tools.compact && hasHints ? (
+        // Arkusz rozmowy: podpowiedzi na żądanie, nie stale nad polem.
+        <button
+          type="button"
+          aria-expanded={hintsOpen}
+          onClick={() => setHintsOpen((open) => !open)}
+          className="text-[11px] font-medium text-primary hover:underline"
+          data-testid="joint-question-hint"
+        >
+          {[
+            members.some(({ question }) => question.ideal_answer) ? "idealnie" : null,
+            members.some(({ question }) => question.deal_breaker) ? "deal-breaker" : null,
+          ]
+            .filter(Boolean)
+            .join(" / ")}
+          {hintsOpen ? " · schowaj" : " · pokaż"}
+        </button>
+      ) : null}
       {members
         .filter(({ question }) => question.deal_breaker)
         .map(({ pair, member }) => (
@@ -1238,6 +1488,7 @@ function AssessmentSection({
   const perJobTerms: ReadonlySet<string> = new Set(PER_JOB_TERMS_KEYS);
   const ownKeys = Object.keys(methods.getValues(`jobs.${key}.card`) ?? {}).filter((k) => !perJobTerms.has(k));
   const sharedAssessment = SHARED_ASSESSMENT_KEYS.filter((k) => methods.getValues(`shared.card.${k}`) !== undefined);
+  const { compact } = useJointTools();
   return (
     <section aria-labelledby="joint-assessment" className="space-y-3">
       <h3 id="joint-assessment" className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
@@ -1292,7 +1543,12 @@ function AssessmentSection({
           <label htmlFor={`joint-shared-${cardKey}`} className="mb-1 block text-xs font-medium text-foreground">
             {formFieldLabel(active.state, cardKey)} <span className="font-normal text-muted-foreground">· wspólne, tylko dla zespołu</span>
           </label>
-          <Textarea id={`joint-shared-${cardKey}`} rows={2} {...methods.register(`shared.card.${cardKey}`)} />
+          <Textarea
+            id={`joint-shared-${cardKey}`}
+            rows={2}
+            className={compact ? "min-h-0" : undefined}
+            {...methods.register(`shared.card.${cardKey}`)}
+          />
           <OriginLine path={`shared.card.${cardKey}`} methods={methods} />
         </div>
       ))}
@@ -1326,7 +1582,7 @@ function OwnCardField({ methods, pair, cardKey }: { methods: UseFormReturn<Joint
         {formFieldLabel(pair.state, cardKey)}
         <span className="font-normal text-muted-foreground"> · dla {pair.title}</span>
       </label>
-      <Textarea id={id} rows={2} {...methods.register(path as "answers")} />
+      <Textarea id={id} rows={2} className={tools.compact ? "min-h-0" : undefined} {...methods.register(path as "answers")} />
       <OriginLine path={path} methods={methods} />
       {phrase && !suggestion ? (
         <PhraseButton

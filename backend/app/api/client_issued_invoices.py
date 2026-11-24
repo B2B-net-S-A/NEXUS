@@ -56,6 +56,7 @@ from app.services.client_invoicing import (
     ksef_send,
     numbering,
     rebate_correction,
+    requirements,
     templates,
 )
 from app.services.client_invoicing import settings as module_settings
@@ -200,8 +201,11 @@ async def put_settings(
 ) -> dict[str, Any]:
     await _module_open(db, current_user)
     with _http_errors():
+        stored = await issue_settings.load(db, lock=True)
         saved = await issue_settings.save(
-            db, body.model_dump(), actor_id=current_user.id
+            db,
+            issue_settings.keep_stored_mapping(body.model_dump(), stored),
+            actor_id=current_user.id,
         )
     await db.commit()
     return {"settings": saved}
@@ -276,6 +280,8 @@ class InvoiceIn(BaseModel):
     currency: Optional[Literal["PLN", "EUR", "USD"]] = None
     series_code: Optional[Literal["PL", "UE", "BEN"]] = None
     buyer: Optional[dict[str, Any]] = None
+    #: Nabywca z listy klienta (ustawienia wystawiania), np. Nordea per kontrakt.
+    buyer_code: Optional[str] = Field(None, pattern=r"^b\d{1,3}$")
     lines: Optional[list[dict[str, Any]]] = Field(None, max_length=200)
 
 
@@ -858,10 +864,14 @@ async def pdf(
         if invoice.corrects_id
         else None
     )
+    found = await issue.invoice_requirements(db, invoice)
+    numbers = issue.order_numbers(invoice)
     html = invoice_pdf.render_html(
         invoice,
         await issue_settings.load(db),
         corrected_number=corrected.invoice_number if corrected else None,
+        order_numbers=numbers,
+        client_notes=requirements.pdf_notes(found, numbers),
     )
     content = await asyncio.to_thread(invoice_pdf.render_pdf, html)
     return _file(content, invoice_pdf.filename(invoice), "application/pdf")

@@ -37,6 +37,8 @@ const mocks = vi.hoisted(() => ({
   showSuccess: vi.fn(),
   showError: vi.fn(),
   searchParams: new URLSearchParams(),
+  // Podobne requesty klienta (baner Powtórki); domyślnie brak.
+  similar: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -98,6 +100,7 @@ vi.mock("@/components/clients/ClientSinglePicker", () => ({
 
 vi.mock("@/components/v2/jobs/SimilarRequestsBanner", () => ({
   SimilarRequestsBanner: () => null,
+  useSimilarRequests: () => mocks.similar(),
 }));
 
 import { NewJobPage } from "@/components/v2/jobs/new/NewJobPage";
@@ -181,6 +184,8 @@ interface ServerSetup {
   /** Podpowiedź krytycznych z historii. */
   suggested?: string[];
   category?: { suggested_id: number | null; categories: typeof CATEGORIES };
+  /** 23.11.2026 (wariant 1): termin i liczba osób z historii klienta w odpowiedzi odczytu. */
+  clientDefaults?: Record<string, unknown> | null;
 }
 
 /** Odpowiedzi serwera na POST-y strony; reszta tras oddaje pusty obiekt. */
@@ -190,12 +195,15 @@ function serve({
   eligible = [],
   suggested = [],
   category = { suggested_id: 2, categories: CATEGORIES },
+  clientDefaults = null,
 }: ServerSetup = {}) {
   mocks.post.mockImplementation((url: string, body?: unknown) => {
     switch (url) {
       case "/api/job-intake/read":
       case "/api/job-intake/read-file":
-        return Promise.resolve({ data: { text: REQUEST, intake } });
+        return Promise.resolve({
+          data: { text: REQUEST, intake, client_defaults: clientDefaults },
+        });
       case "/api/job-intake/category-suggestion":
         return Promise.resolve({ data: category });
       case "/api/job-intake/critical-suggestion":
@@ -355,20 +363,12 @@ async function categorySettled(role: string | null = INTAKE.role_name) {
 const handoffButton = () => screen.getByRole("button", { name: "Utwórz i opublikuj" });
 
 /**
- * Potwierdza kategorię i czeka na skutek. Klik idzie w TEJ SAMEJ próbie,
- * w której przycisk jest widoczny: po zmianie roli podpowiedź wczytuje się
- * ponownie (600 ms ciszy) i przycisk na chwilę znika, a `findBy` / `waitFor`
- * oddają sterowanie dopiero po przerwie — na wolnym runnerze klik trafiał
- * wtedy w pustkę i formularz zostawał z „potwierdzeniem kategorii” w brakach
- * (kolejka merge'ów, 11.10.2026).
+ * Czeka, aż podpowiedź kategorii wypełni pole. Od 23.11.2026 (wariant 1)
+ * podpowiedź potwierdza „Utwórz” — nie ma już przycisku „Potwierdzam”, a brak
+ * kategorii znika z chwilą, gdy serwer ją podpowie.
  */
-async function confirmCategory(name: string | RegExp = "Development") {
-  const button = typeof name === "string" ? `Potwierdzam: ${name}` : name;
-  await waitFor(() => {
-    if (screen.queryByText(/Kategoria potwierdzona/)) return;
-    fireEvent.click(screen.getByRole("button", { name: button }));
-    expect(screen.getByText(/Kategoria potwierdzona/)).toBeInTheDocument();
-  });
+async function confirmCategory() {
+  await waitFor(() => expect(footerLink("potwierdzenie kategorii")).toBeNull());
 }
 
 async function pickRecruiter() {
@@ -390,9 +390,8 @@ function fillKeyTask(questionIndex = 0) {
   if (!anyChecked) fireEvent.click(screen.getByTestId(`new-job-q-${questionIndex}-key-task`));
 }
 
-/** To, co po odczycie zostaje Delivery Leadowi: zatwierdzić pytania, wpisać zadanie, potwierdzić kategorię. */
+/** To, co po odczycie zostaje Delivery Leadowi: wpisać zadanie; kategoria przychodzi z podpowiedzi. */
 async function closeGaps() {
-  fireEvent.click(screen.getByRole("button", { name: "Zatwierdź wszystkie" }));
   fillKeyTask();
   await confirmCategory();
 }
@@ -423,10 +422,8 @@ async function createJob() {
       }),
     );
   }
-  const approve = screen.queryByRole("button", { name: "Zatwierdź wszystkie" });
-  if (approve && !(approve as HTMLButtonElement).disabled) fireEvent.click(approve);
   if (screen.queryByTestId("new-job-q-0-key-task")) fillKeyTask();
-  await confirmCategory(/^Potwierdzam:/);
+  await confirmCategory();
   if (screen.queryByLabelText("Wybierz rekrutera prowadzącego")) await pickRecruiter();
   // Przycisk jest aktywny także przy brakach — czekamy, aż formularz jest gotowy.
   await waitFor(() => {
@@ -454,6 +451,7 @@ beforeEach(() => {
   mocks.put.mockReset().mockResolvedValue({ data: {} });
   mocks.handoff.mockResolvedValue({ data: {} });
   mocks.listJobs.mockResolvedValue({ data: { items: [], total: 0 } });
+  mocks.similar.mockReturnValue({ data: undefined, isSuccess: false, isError: false });
 });
 
 describe("NewJobPage — jeden ekran: klient i „Wypełnij z…”", () => {
@@ -1351,9 +1349,8 @@ describe("NewJobPage", () => {
       within(editor).getAllByRole("radiogroup").map((group) => group.getAttribute("aria-label")),
     ).toEqual(["Poziom wymagania: Java 17+", "Poziom wymagania: Spring Boot"]);
 
-    // Pytania bez odpowiedzi, która odpada: nie da się ich zatwierdzić hurtem.
+    // Pytania bez odpowiedzi, która odpada: brak przy każdym z nich.
     expect(screen.getAllByText(DEAL_BREAKER_REQUIRED_TEXT)).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Zatwierdź wszystkie" })).toBeDisabled();
     expect(
       screen.getByRole("link", { name: "odpowiedź, która odpada, przy każdym pytaniu" }),
     ).toBeInTheDocument();
@@ -1366,7 +1363,7 @@ describe("NewJobPage", () => {
       target: { value: "Tylko zdalnie." },
     });
     expect(screen.queryByText(DEAL_BREAKER_REQUIRED_TEXT)).toBeNull();
-    expect(screen.getByText("2 pytania — wszystkie zatwierdzone")).toBeInTheDocument();
+    expect(screen.getByText("2 pytania — zatwierdzisz je przyciskiem „Utwórz”")).toBeInTheDocument();
 
     fillKeyTask();
     await confirmCategory();
@@ -1584,21 +1581,14 @@ describe("NewJobPage", () => {
   });
 
   describe("pytania do kandydata: odpowiedź, która odpada, i zatwierdzenie", () => {
-    it("propozycje AI czekają na zatwierdzenie — bez niego nie ma przekazania", async () => {
+    it("propozycje AI zatwierdza „Utwórz” — bez klikania przy każdym pytaniu (wariant 1)", async () => {
       await readRequest();
       await confirmCategory();
       await pickRecruiter();
-      expect(screen.getByText("Zatwierdzone 0 z 2")).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "zatwierdzenie pytań" })).toBeInTheDocument();
-      expectNotReady();
-
-      fireEvent.click(screen.getByRole("button", { name: "Zatwierdź pytanie 1" }));
-      expect(screen.getByText("Zatwierdzone 1 z 2")).toBeInTheDocument();
-      expectNotReady();
-
-      fireEvent.click(screen.getByRole("button", { name: "Zatwierdź wszystkie" }));
-      expect(screen.getByText("2 pytania — wszystkie zatwierdzone")).toBeInTheDocument();
-      expectNotReady();
+      expect(screen.getByText("2 pytania — zatwierdzisz je przyciskiem „Utwórz”")).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "zatwierdzenie pytań" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Zatwierdź wszystkie" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Zatwierdź pytanie 1" })).toBeNull();
       fillKeyTask();
       expect(screen.getByText("Gotowa do publikacji")).toBeInTheDocument();
       expect(handoffButton()).toBeEnabled();
@@ -1623,7 +1613,6 @@ describe("NewJobPage", () => {
 
     it("najważniejsze zadanie: tekst i jedno zaznaczone pytanie, bez nich brak w stopce", async () => {
       await readRequest();
-      fireEvent.click(screen.getByRole("button", { name: "Zatwierdź wszystkie" }));
       await confirmCategory();
       await pickRecruiter();
       expectNotReady();
@@ -1670,6 +1659,68 @@ describe("NewJobPage", () => {
     });
   });
 
+  describe("wariant 1 (23.11.2026): mniej decyzji po odczycie", () => {
+    const NORDEA = {
+      jobs: 47,
+      deadline_not_provided: 47,
+      suggest_deadline_not_provided: true,
+      headcount: 1,
+      headcount_jobs: 39,
+      suggest_headcount: true,
+    };
+
+    it("zadanie od AI czeka na „Zatwierdź zadanie”, termin i liczba osób przychodzą z historii klienta", async () => {
+      await readRequest(
+        {
+          ...INTAKE,
+          deadline: null,
+          deadline_time: null,
+          headcount: null,
+          key_task: KEY_TASK,
+          screening_questions: INTAKE.screening_questions.map((q, i) => ({ ...q, key_task: i === 0 })),
+        },
+        { clientDefaults: NORDEA },
+      );
+      await confirmCategory();
+      await pickRecruiter();
+
+      const deadline = within(screen.getByTestId("new-job-deadline")).getByRole("checkbox", {
+        name: "Klient nie podał",
+      });
+      expect(deadline).toBeChecked();
+      expect(screen.getByLabelText("Liczba osób")).toHaveValue(1);
+      expect(screen.getAllByText("z historii klienta").length).toBeGreaterThanOrEqual(2);
+
+      expect(screen.getByTestId("new-job-key-task")).toHaveValue(KEY_TASK);
+      expect(screen.getByTestId("new-job-key-task-proposal")).toHaveTextContent(
+        "Sprawdza je pytanie 1: Kafka?",
+      );
+      expectNotReady();
+      fireEvent.click(screen.getByTestId("new-job-key-task-confirm"));
+      expect(screen.queryByTestId("new-job-key-task-proposal")).toBeNull();
+      expect(screen.getByText("Gotowa do publikacji")).toBeInTheDocument();
+
+      await handoffTo();
+      expect(championBody()?.project.key_task).toBe(KEY_TASK);
+      expect(jobPostBody()).toMatchObject({ deadline_not_provided: true, headcount: 1 });
+    });
+
+    it("poprawka zdania kończy propozycję, „Napiszę sam” czyści pole", async () => {
+      await readRequest({
+        ...INTAKE,
+        key_task: KEY_TASK,
+        screening_questions: INTAKE.screening_questions.map((q, i) => ({ ...q, key_task: i === 0 })),
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Napiszę sam" }));
+      expect(screen.getByTestId("new-job-key-task")).toHaveValue("");
+      fireEvent.change(screen.getByTestId("new-job-key-task"), { target: { value: "Moje zdanie." } });
+      expect(screen.queryByTestId("new-job-key-task-proposal")).toBeNull();
+      expect(
+        screen.queryByRole("link", { name: "najważniejsze zadanie i pytanie, które je sprawdza" }),
+      ).toBeNull();
+    });
+  });
+
   describe("kategoria kompetencji", () => {
     const categoryOption = (name: RegExp) =>
       within(screen.getByRole("radiogroup", { name: "Kategoria kompetencji" })).getByRole(
@@ -1687,7 +1738,7 @@ describe("NewJobPage", () => {
         description: REQUEST,
         must_skills: ["Java", "Spring Boot"],
       });
-      await screen.findByRole("button", { name: "Potwierdzam: Development" });
+      await screen.findByText(/Propozycja systemu z nazwy roli: Development\./);
       expect(categoryOption(/^Development/)).toBeChecked();
       expect(categoryOption(/^Development/)).toHaveTextContent("propozycja");
     });
@@ -1697,26 +1748,22 @@ describe("NewJobPage", () => {
       // „Potwierdzam” kliknięty w tym oknie nie potwierdzał niczego.
       await readRequest();
       await categorySettled();
-      await screen.findByRole("button", { name: "Potwierdzam: Development" });
+      await screen.findByText(/Propozycja systemu z nazwy roli: Development\./);
       expect(
         bodiesOf("/api/job-intake/category-suggestion").map((body) => body.role),
       ).toEqual(["Senior Java Developer"]);
     });
 
-    it("podpowiedź trzeba potwierdzić — dopiero wtedy da się przekazać", async () => {
+    it("podpowiedź potwierdza „Utwórz” — bez osobnego „Potwierdzam” (wariant 1)", async () => {
       await readRequest();
       await categorySettled();
-      fireEvent.click(screen.getByRole("button", { name: "Zatwierdź wszystkie" }));
       fillKeyTask();
       await pickRecruiter();
-      await screen.findByRole("button", { name: "Potwierdzam: Development" });
-      expect(screen.getByRole("link", { name: "potwierdzenie kategorii" })).toBeInTheDocument();
-      expectNotReady();
-
-      await confirmCategory();
-      expect(
-        screen.getByText(/Kategoria potwierdzona: Development\. Uczestnikami zostaną wszyscy z tej\s+kategorii \(7 osób\)/),
-      ).toBeInTheDocument();
+      await screen.findByText(/Propozycja systemu z nazwy roli: Development\./);
+      expect(screen.getByText(/z tej kategorii \(7 osób\)\. „Utwórz”\s+ją potwierdzi/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^Potwierdzam/ })).toBeNull();
+      expect(screen.queryByRole("link", { name: "potwierdzenie kategorii" })).toBeNull();
+      expect(screen.getByText("Gotowa do publikacji")).toBeInTheDocument();
       expect(handoffButton()).toBeEnabled();
 
       await handoffTo();
@@ -1728,10 +1775,9 @@ describe("NewJobPage", () => {
     it("inna kategoria niż podpowiedź: wybór ją potwierdza i zgłasza różnicę w tym samym żądaniu", async () => {
       await readRequest();
       await categorySettled();
-      fireEvent.click(screen.getByRole("button", { name: "Zatwierdź wszystkie" }));
       fillKeyTask();
       await pickRecruiter();
-      await screen.findByRole("button", { name: "Potwierdzam: Development" });
+      await screen.findByText(/Propozycja systemu z nazwy roli: Development\./);
 
       fireEvent.click(categoryOption(/^QA/));
       expect(categoryOption(/^QA/)).toBeChecked();
@@ -1749,7 +1795,6 @@ describe("NewJobPage", () => {
       expect(
         await screen.findByText(/System nie rozpoznał kategorii z nazwy roli — wybierz ją\./),
       ).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "Zatwierdź wszystkie" }));
       fillKeyTask();
       await pickRecruiter();
       expectNotReady();
@@ -1762,7 +1807,7 @@ describe("NewJobPage", () => {
 
     it("niedokończony formularz pamięta podpowiedzianą kategorię bez potwierdzenia", async () => {
       await readRequest();
-      await screen.findByRole("button", { name: "Potwierdzam: Development" });
+      await screen.findByText(/Propozycja systemu z nazwy roli: Development\./);
       fireEvent.click(screen.getByRole("button", { name: "Dokończę później" }));
       await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs"));
       const saved = bodiesOf("/api/job-intake/forms").at(-1) as unknown as {
@@ -1792,7 +1837,7 @@ describe("NewJobPage", () => {
       failing = false;
       fireEvent.click(within(alert).getByRole("button", { name: "Ponów" }));
       expect(
-        await screen.findByRole("button", { name: "Potwierdzam: Development" }),
+        await screen.findByText(/Propozycja systemu z nazwy roli: Development\./),
       ).toBeInTheDocument();
       expect(screen.queryByText(/Nie udało się wczytać kategorii/)).toBeNull();
     });
@@ -2218,9 +2263,9 @@ describe("NewJobPage", () => {
       rate_budget_hourly: null,
       rate_quote: null,
     });
-    // Po odczycie: budżet + najważniejsze zadanie + zatwierdzenie pytań + potwierdzenie kategorii.
+    // Po odczycie: budżet + najważniejsze zadanie (pytania i kategorię zatwierdza „Utwórz”).
     expect(
-      await screen.findByText("Brakuje 4 rzeczy do publikacji"),
+      await screen.findByText("Brakuje 2 rzeczy do publikacji"),
     ).toBeInTheDocument();
     await closeGaps();
     await pickRecruiter();
@@ -2560,12 +2605,12 @@ describe("NewJobPage — szablon z podobnej rekrutacji (`?from=`)", () => {
       ["Poziom wymagania: Kafka", "Musi mieć"],
       ["Poziom wymagania: Docker", "Mile widziane"],
     ]);
-    // Pytania z szablonu przychodzą z deal breakerem, ale czekają na zatwierdzenie.
+    // Pytania z szablonu przychodzą z deal breakerem; zatwierdzi je „Utwórz”.
     expect(screen.getByLabelText("Treść pytania 1")).toHaveValue("Kafka w produkcji?");
     expect(screen.getByLabelText("Odpowiedź, która odpada, na pytanie 1")).toHaveValue(
       "Brak Kafki.",
     );
-    expect(screen.getByText("Zatwierdzone 0 z 2")).toBeInTheDocument();
+    expect(screen.getByText("2 pytania — zatwierdzisz je przyciskiem „Utwórz”")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Rola"), { target: { value: "Java Developer" } });
     // P9 (06.10.2026): tytuł rekrutacji to nazwa od klienta — szablon jej nie podaje.
@@ -3047,5 +3092,150 @@ describe("NewJobPage — niedokończone formularze", () => {
         form: expect.objectContaining({ step: "review", requestRead: false }),
       }),
     );
+  });
+});
+
+describe("NewJobPage — wariant 2 „Powtórka” (24.11.2026)", () => {
+  const PREVIOUS = {
+    job_id: 43260,
+    title: "Senior Java Developer",
+    train_name: null,
+    same_train: false,
+    seniority: null,
+    status: "published",
+    is_in_progress: true,
+    outcome: null,
+    close_reason: null,
+    similarity: 0.9,
+    similarity_source: "sql_same_client",
+    closed_at: null,
+    created_at: "2026-11-13T09:00:00Z",
+    tth_days: null,
+    client_id: 7,
+    client_name: "Alior Bank",
+    champion_name: null,
+    champion_candidate_id: null,
+    champions_count: 0,
+    candidates_count: 69,
+    fee_rate: null,
+    fee_currency: null,
+    rate_unit: null,
+    tac_name: null,
+    delivery_lead_name: "Igor T.",
+  };
+  const SOURCE_JOB = {
+    id: 43260,
+    client_id: 7,
+    title: "Senior Java Developer",
+    rate_budget_hourly: 130,
+    rate_budget_hourly_min: 100,
+    remote_policy: "hybrid",
+    onsite_days_per_week: 2,
+    headcount: 1,
+    deadline_not_provided: true,
+    hiring_manager_contact_id: 501,
+    hiring_manager_name: "Anna Nowak",
+    champion_profile: {
+      stack: {
+        rows: [
+          { words: ["Java 17+"], level: "must" },
+          { words: ["Spring Boot"], level: "must" },
+          { words: ["Kafka"], level: "must" },
+        ],
+        critical: ["Java 17+"],
+      },
+      project: { about: "Stary opis.", key_task: "Upgrade Javy 8 → 17." },
+      screening_questions: [
+        { question: "Upgrade Javy?", ideal_answer: "Tak", deal_breaker: "Nie robił", key_task: true },
+        { question: "Kafka?", ideal_answer: "Tak", deal_breaker: "Nie zna" },
+      ],
+    },
+  };
+
+  function withRepeat() {
+    mocks.similar.mockReturnValue({
+      data: { in_progress: [PREVIOUS], closed: [], skill_frequency: {}, meta: {} },
+      isSuccess: true,
+      isError: false,
+    });
+    serveGets((url) =>
+      url === "/api/jobs/43260"
+        ? SOURCE_JOB
+        : url.startsWith("/api/jobs/43260/champion-profile")
+          ? { champion_profile: SOURCE_JOB.champion_profile }
+          : undefined,
+    );
+  }
+
+  it("po odczycie: baner nad formularzem, „Użyj” bierze 43260 i różnice z maila, HM do potwierdzenia", async () => {
+    withRepeat();
+    // Mail bez hiring managera — ten z 43260 czeka na „Potwierdź”.
+    await readRequest({
+      ...INTAKE,
+      hiring_manager_name: null,
+      hiring_manager_contact_id: null,
+      hiring_manager_contact_name: null,
+    });
+    const banner = await screen.findByTestId("repeat-request-banner");
+    expect(within(banner).getByText("To wygląda na powtórkę requestu u Alior Bank")).toBeInTheDocument();
+    const use = await within(banner).findByRole("button", {
+      name: "Użyj 43260 i przeczytaj z maila tylko różnice",
+    });
+    await waitFor(() => expect(use).toBeEnabled());
+    fireEvent.click(use);
+
+    await waitFor(() => expect(screen.queryByTestId("repeat-request-banner")).toBeNull());
+    expect(screen.getByTestId("repeat-fill-note")).toHaveTextContent("Wypełniono z 43260 i z maila");
+    // Wymagania z 43260 (z krytycznym), budżet z 43260, mail proponuje swój.
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("130");
+    const hm = offerChips().find((chip) => chip.dataset.unit === "hiringManager");
+    expect(hm).toHaveTextContent("Ta sama osoba co w 43260: Anna Nowak");
+    expect(screen.getAllByText("z 43260").length).toBeGreaterThan(0);
+
+    // „Cofnij wypełnienie” wraca do samego odczytu, a baner stoi znowu.
+    fireEvent.click(screen.getByRole("button", { name: /Cofnij wypełnienie/ }));
+    const again = await screen.findByTestId("repeat-request-banner");
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("170");
+
+    // Drugie „Użyj”, „Potwierdź” hiring managera — to już zmiana DL-a, więc
+    // po cofnięciu baner nie wraca (kolejne „Użyj” by ją nadpisało).
+    fireEvent.click(
+      await within(again).findByRole("button", { name: "Użyj 43260 i przeczytaj z maila tylko różnice" }),
+    );
+    const hmAgain = await waitFor(() => {
+      const chip = offerChips().find((c) => c.dataset.unit === "hiringManager");
+      expect(chip).toBeDefined();
+      return chip!;
+    });
+    fireEvent.click(within(hmAgain).getByRole("button", { name: "Potwierdź — Hiring manager" }));
+    await waitFor(() =>
+      expect(offerChips().some((chip) => chip.dataset.unit === "hiringManager")).toBe(false),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Cofnij wypełnienie/ }));
+    await waitFor(() => expect(screen.queryByTestId("repeat-fill-note")).toBeNull());
+    expect(screen.queryByTestId("repeat-request-banner")).toBeNull();
+  });
+
+  it("„Czytaj od zera” chowa baner i zostawia odczyt", async () => {
+    withRepeat();
+    await readRequest();
+    const banner = await screen.findByTestId("repeat-request-banner");
+    fireEvent.click(within(banner).getByRole("button", { name: "Czytaj od zera" }));
+    await waitFor(() => expect(screen.queryByTestId("repeat-request-banner")).toBeNull());
+    expect(screen.queryByTestId("repeat-fill-note")).toBeNull();
+  });
+
+  it("ręczna zmiana po odczycie chowa baner — „Użyj” nie nadpisze tego, co DL wpisał", async () => {
+    withRepeat();
+    await readRequest();
+    await screen.findByTestId("repeat-request-banner");
+    fireEvent.change(screen.getByLabelText("Budżet PLN/h"), { target: { value: "200" } });
+    await waitFor(() => expect(screen.queryByTestId("repeat-request-banner")).toBeNull());
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue("200");
+  });
+
+  it("bez podobnych requestów baneru nie ma", async () => {
+    await readRequest();
+    expect(screen.queryByTestId("repeat-request-banner")).toBeNull();
   });
 });

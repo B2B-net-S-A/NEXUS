@@ -1109,6 +1109,13 @@
    "b_home": "Pigułka „Kończące się”"
   },
   {
+   "id": "k.date-warnings",
+   "opis": "Pas „Co się dzieje”: „Start przed podpisem” (dzień podpisu konsultanta po starcie umowy) i „Próg stawki sprzed startu” (krok harmonogramu, który nigdy nie obowiązuje), same daty, bez blokady (23.11.2026)",
+   "file": "lib/contract-happening.ts",
+   "marker": "Start przed podpisem",
+   "b_home": "Strona kontraktu: pas „Co się dzieje”"
+  },
+  {
    "id": "k.p.warning",
    "opis": "Panel: jedno ostrzeżenie z akcją zamiast kilku o tym samym (sprawy z paska strony kontraktu, szkic, przywrócenie, brak zamówienia), pieniądze w jednej linii, okres z „ile zostało”, trzy ostatnie zmiany ludzi (20.11.2026)",
    "file": "components/contracts/ContractSidePanel.tsx",

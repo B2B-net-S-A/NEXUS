@@ -230,6 +230,7 @@ export function PreContractSection({
               variant="outline"
               disabled={busy === "stop"}
               data-testid="pre-contract-stop-toggle"
+              data-tour="person.pre-contract.stop"
               onClick={() =>
                 void act(
                   "stop",
@@ -316,7 +317,7 @@ export function PreContractSection({
               </button>
             </dd>
             <dt className="text-muted-foreground">Ruch karty</dt>
-            <dd className="flex flex-col gap-0.5" data-testid="pre-contract-stop-row">
+            <dd className="flex flex-col gap-0.5" data-testid="pre-contract-stop-row" data-tour="person.pre-contract.stop-row">
               {stop ? (
                 <span className="font-medium text-destructive">
                   Zatrzymana do podpisu · {stopOriginText(stop)}
@@ -335,6 +336,7 @@ export function PreContractSection({
                   className="self-start font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50"
                   disabled={busy === "stop"}
                   data-testid="pre-contract-stop-toggle"
+                  data-tour="person.pre-contract.stop"
                   onClick={() =>
                     void act(
                       "stop",

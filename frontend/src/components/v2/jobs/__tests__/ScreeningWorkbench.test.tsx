@@ -153,10 +153,12 @@ vi.mock("@/components/v2/screening-form/JointScreeningForm", () => ({
     others: Array<{ job_id: number }>;
     onSessionChange?: (active: boolean) => void;
     memory?: { write: (update: (prev: unknown) => unknown) => void };
+    layout?: string;
   }) => (
     <div data-testid="joint-form">
       wspólny z: {props.others.map((p) => p.job_id).join(",")}
       {props.memory ? " · z pamięcią rozmowy" : ""}
+      {` · układ: ${props.layout ?? "column"}`}
       <button type="button" onClick={() => props.onSessionChange?.(true)}>
         zapis ruszył
       </button>
@@ -774,6 +776,53 @@ describe("ScreeningWorkbench — „Arkusz rozmowy” w Trybie rozmowy (23.11.20
       expect(screen.queryByTestId("sheet-tabs")).toBeNull();
     } finally {
       restore();
+    }
+  });
+
+  it("formularz wspólny („Screening dla”) też przechodzi do arkusza, w układzie arkusza", async () => {
+    const user = userEvent.setup();
+    const previous = mocks.get.getMockImplementation();
+    mocks.get.mockImplementation((url: string, config: { params: { candidate_id: number } }) => {
+      if (url === "/api/screening-form/joint-context") {
+        return Promise.resolve({
+          data: {
+            candidate_id: 111,
+            job_id: 7,
+            anchor: { job_id: 7, title: "Kotwica", client_id: 1, client_name: null, budget_hourly: null },
+            pairs: [
+              {
+                job_id: 201,
+                title: "Rekrutacja 201",
+                client_id: 1,
+                client_name: null,
+                board_column: "new",
+                process_state_version: 1,
+                claim: null,
+                selectable: true,
+                reason: null,
+                reason_message: null,
+                budget_hourly: null,
+                verified_stage_def_id: 5,
+              },
+            ],
+          },
+        });
+      }
+      if (url.includes("/also-fits")) return Promise.resolve({ data: { status: "ok", jobs: [] } });
+      return Promise.resolve({ data: states.get(config.params.candidate_id) });
+    });
+    useJointScreeningIntent.getState().setIntent(111, [201]);
+    const restore = mountWide(111);
+    try {
+      expect(await screen.findByTestId("joint-form")).toHaveTextContent("układ: column");
+      await user.click(screen.getByRole("button", { name: "Tryb rozmowy" }));
+      const panel = await within(screen.getByTestId("person-panel-side")).findByTestId("sheet-panel");
+      await waitFor(() => expect(within(panel).getByTestId("joint-form")).toHaveTextContent("wspólny z: 201 · z pamięcią rozmowy · układ: sheet"));
+      expect(within(screen.getByTestId("dock-column")).queryByTestId("joint-form")).toBeNull();
+    } finally {
+      restore();
+      mocks.get.mockImplementation(previous!);
+      useJointScreeningIntent.setState({ intent: null });
     }
   });
 

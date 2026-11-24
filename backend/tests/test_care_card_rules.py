@@ -225,6 +225,9 @@ def test_end_of_cooperation_checklist_has_mockup_subtitles() -> None:
         "Odebranie dostępów u klienta — lista z pakietu „Wejście u klienta”",
         "Ostatnia opinia menedżera — prośba o opinię przed końcem",
         "Decyzja: przekaż do front office albo „nie przepinamy”",
+        "Benefity: sprawdź, czy ma (karta sportowa, PZU do 31.12.2026); rezygnacja"
+        " do 19. dnia miesiąca działa od 1. dnia następnego, a benefit po końcu"
+        " współpracy potrąć z ostatniego przelewu",
         "Rozliczenie ostatniego miesiąca — Finanse, bez kwot",
     ]
     assert all(len(text) <= rules.CHECKLIST_TEXT_MAX for text in texts)

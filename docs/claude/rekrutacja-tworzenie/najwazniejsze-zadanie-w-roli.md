@@ -31,7 +31,9 @@ są wkładem do zdania 3 „Dlaczego nasz kandydat” w nowym CV (`generator-cv/
 - Obowiązuje wszędzie, także w API v1 (`POST /api/v1/recruitments`). Decyzja
   Artura 23.11.2026: „Wszędzie, API też”. Ciało ma `key_task`
   i `screening_questions[].key_task`. Odczyt requestu zawsze zgłasza
-  `key_task` w `missing`, bo zadania od klienta AI nie zgaduje.
+  `key_task` w `missing`. Od 23.11.2026 (wariant 1) odczyt proponuje zadanie
+  i pytanie, ale to propozycja do zatwierdzenia na formularzu
+  (`jobs-new-mniej-decyzji-wariant-1.md`).
 
 ## Gdzie to widać
 

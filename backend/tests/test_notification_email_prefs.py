@@ -222,7 +222,9 @@ def test_delivery_lead_admin_head_and_finance_get_their_own_emails():
     assert "board_monthly_report" not in head
 
     finance = _applies(_user(UserRole.finance))
-    assert {"daily_digest", "hire_documents"} <= finance
+    assert {"daily_digest", "hire_documents", "cpro_invoice_buyer"} <= finance
+    # Nabywca kontraktu z CPro (24.11.2026): Finanse (dzwonek w sekcji Finanse), nie DL.
+    assert "cpro_invoice_buyer" not in lead
     # Mail „Nowy placement” jest tylko dla Rady (22.10.2026).
     assert "board_placement_alert" not in finance
 
@@ -298,6 +300,7 @@ def test_bell_types_behind_emails_sit_in_mutable_categories():
         "job_deadline": NotificationCategory.deadlines,
         "hr_people": NotificationCategory.people,
         "hire_documents": NotificationCategory.contracts,
+        "cpro_invoice_buyer": NotificationCategory.contracts,
         "hr_bonus": NotificationCategory.people,
         "client_job_opened": NotificationCategory.reminders,
         "job_ad_reminders": NotificationCategory.reminders,

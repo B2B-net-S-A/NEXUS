@@ -1723,7 +1723,7 @@
   {
    "id": "new.questions-deal-breaker",
    "area": "zlecenie",
-   "opis": "Pytania do kandydata: pytanie, dobra odpowiedź i odpowiedź, która odpada (wymagana); propozycje AI zatwierdza Delivery Lead („Zatwierdź”, „Zatwierdź wszystkie”)",
+   "opis": "Pytania do kandydata: pytanie, dobra odpowiedź i odpowiedź, która odpada (wymagana); propozycje AI zatwierdza „Utwórz” (wariant 1, 23.11.2026); DL poprawia tylko to, co chce",
    "file": "components/v2/jobs/new/NewJobReviewForm.tsx",
    "marker": "QuestionsSection",
    "v3_home": "nowa rekrutacja → 5 · Pytania do kandydata"
@@ -1888,6 +1888,14 @@
    "file": "components/v2/dashboard/BoardTasksPanel.tsx",
    "marker": "NewJobLeadsSection",
    "v3_home": "Pulpit → Czeka na Ciebie"
+  },
+  {
+   "id": "dashboard.person-queue",
+   "area": "pulpit",
+   "opis": "„Pracuj po kolei · N” w nagłówku „Czeka na Ciebie” (23.11.2026): panel osoby z Tablicy nad pulpitem, „‹ N z M ›” i „Dalej: <osoba> ›” przez listy Screening bez arkusza → Zweryfikowani czekają na CV → od systemu i przez wszystkie rekrutacje; pasek kolejki (lista, rekrutacja, od kiedy czeka, „Otwórz Tablicę”); po odrzuceniu z panelu następna osoba z paskiem „Odrzucono”; zwykły klik w osobę z tych list też otwiera panel na pulpicie (⌘-klik — Tablica)",
+   "file": "components/v2/dashboard/BoardTasksPanel.tsx",
+   "marker": "person-queue-start",
+   "v3_home": "Pulpit → Czeka na Ciebie → Pracuj po kolei"
   },
   {
    "id": "new.collaborators",
@@ -3162,6 +3170,14 @@
    "v3_home": "Tablica → karta → „→”"
   },
   {
+   "id": "dock.quick-reject",
+   "area": "ruch",
+   "opis": "Panel osoby w „Nowych”/„Screeningu”: wiersz „Odrzuć:” z trzema najczęstszymi powodami osoby z 30 dni — jedno kliknięcie odrzuca („Odrzucamy my”), 10 s na „Cofnij”, panel przechodzi do następnej osoby (23.11.2026)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "dock-quick-reject",
+   "v3_home": "Tablica → panel osoby → pod „Odrzuć z powodem”"
+  },
+  {
    "id": "card.cv-state",
    "area": "pipeline",
    "opis": "Plakietka CV na karcie w „Zweryfikowany”: „CV w przygotowaniu…”, „CV gotowe · QC: N do poprawy”, „CV gotowe · QC bez uwag”",
@@ -3642,6 +3658,14 @@
    "v3_home": "panel osoby → powód od systemu; Tablica → karta → dymek „+N”"
   },
   {
+   "id": "card.two-lines-low-screen",
+   "area": "tablica",
+   "opis": "Karta Tablicy w dwóch liniach przy oknie niższym niż 800 px z myszą (decyzja Artura 23.11.2026, wariant `low-screen:`): imię i nazwisko z mniejszym pierścieniem, potem „Biorę”/„Dzwonię”, dni robocze („4 d”), jeden stan i strzałka. Wiersz plakietek i imię właściciela nie znikają: wszystkie plakietki z treścią i „Dla:/Prowadzi:” są w podpowiedzi stanu (`twoLineStateTitle`), w dymku karty i w panelu osoby; numer „Zadzwoń najpierw” zostaje na karcie. Na dużym monitorze karta w trzech wierszach bez zmian",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "card-low-state",
+   "v3_home": "Tablica → karta (okno < 800 px) → stan w linii ruchu, podpowiedź po najechaniu"
+  },
+ {
    "id": "board.cpro-banner-collapsed",
    "area": "tablica",
    "opis": "Baner CPro nad Tablicą zwinięty do jednej linii z „Pokaż”; ukryty po otwarciu i 7 dni po zdarzeniu (U3, 08.11.2026, pamięć w przeglądarce per rekrutacja); nowe zdarzenie pokazuje go znowu",

@@ -36,7 +36,7 @@ zostaje, jak jest.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -391,8 +391,32 @@ END_FEEDBACK_RECENT_DAYS = 30
 END_DECISION_RECENT_DAYS = 90
 
 
-async def _end_checklist(db: AsyncSession, contract: Contract) -> list[dict[str, Any]]:
-    """Checklista z pakietu klienta (sprzęt, dostępy) i stanu opieki."""
+async def _register_equipment(db: AsyncSession, contract_id: int) -> list[str]:
+    """Egzemplarze z rejestru ``/equipment`` wydane na kontrakt i niezwrócone."""
+
+    from app.models.equipment import (
+        EquipmentAssignment,
+        EquipmentItem,
+        EquipmentModel,
+    )
+
+    rows = await db.execute(
+        select(EquipmentModel.name, EquipmentItem.inventory_number)
+        .join(EquipmentItem, EquipmentItem.model_id == EquipmentModel.id)
+        .join(EquipmentAssignment, EquipmentAssignment.item_id == EquipmentItem.id)
+        .where(
+            EquipmentAssignment.contract_id == contract_id,
+            EquipmentAssignment.returned_at.is_(None),
+        )
+        .order_by(EquipmentAssignment.issued_at, EquipmentAssignment.id)
+    )
+    return [f"{name} ({number})" if number else name for name, number in rows.all()]
+
+
+async def _end_checklist(
+    db: AsyncSession, contract: Contract, last_day: Optional[date] = None
+) -> list[dict[str, Any]]:
+    """Checklista z pakietu klienta (sprzęt, dostępy), rejestru sprzętu i stanu opieki."""
 
     from datetime import timedelta
 
@@ -444,6 +468,9 @@ async def _end_checklist(db: AsyncSession, contract: Contract) -> list[dict[str,
         accesses=[item.name for item in pack.accesses] if pack is not None else [],
         feedback_done=feedback_done,
         decision_done=decision_done,
+        equipment_names=await _register_equipment(db, contract.id),
+        last_day=last_day,
+        today=today,
     )
 
 
@@ -512,7 +539,11 @@ async def _closed_by_automation(db: AsyncSession, case_id: int) -> bool:
 
 
 async def open_case_for_contract_end(
-    db: AsyncSession, contract: Contract
+    db: AsyncSession,
+    contract: Contract,
+    *,
+    last_day: Optional[date] = None,
+    note: Optional[str] = None,
 ) -> Optional[AdminCase]:
     """Sprawa „Koniec współpracy” po zapisaniu zakończenia kontraktu.
 
@@ -520,6 +551,10 @@ async def open_case_for_contract_end(
     sprawę i przesuwa termin otwartej sprawy na nowy ostatni dzień. Sprawa
     zamknięta przez automat (cofnięte zakończenie) wraca jako „Nowa”; zrobiona
     albo zamknięta przez człowieka zostaje, jak jest.
+
+    ``last_day`` podaje potwierdzony koniec u klienta (CPro Nordei: koniec,
+    nieprzedłużenie, internalizacja), gdy umowa konsultanta jeszcze trwa;
+    ``note`` dopisuje do opisu, skąd jest ta data.
     """
 
     if not await module_enabled(db):
@@ -539,13 +574,15 @@ async def open_case_for_contract_end(
     title = f"Koniec współpracy: {who}"
     if client_name:
         title = f"{title} · {client_name}"
-    last_day = contract.end_date or contract.terminated_at
+    last_day = last_day or contract.end_date or contract.terminated_at
     due_on = last_day if last_day is not None and last_day >= business_today() else None
     description = (
         f"Ostatni dzień współpracy {last_day.strftime('%d.%m.%Y')}."
         if last_day
         else None
     )
+    if note:
+        description = f"{description} {note}" if description else note
     owner_id = await automatic_assignee(db, contract.id)
     case, created = await open_automatic_case(
         db,
@@ -559,7 +596,7 @@ async def open_case_for_contract_end(
             description=description,
             contract_id=contract.id,
             assignee_user_id=owner_id,
-            checklist=tuple(await _end_checklist(db, contract)),
+            checklist=tuple(await _end_checklist(db, contract, last_day)),
         ),
     )
     if created:

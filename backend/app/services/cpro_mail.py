@@ -62,7 +62,14 @@ RULES_KEY = "cpro_mail:rules"
 RULE_CLOSED = "closed"
 RULE_REJECTED = "rejected"
 RULE_INTERVIEW = "interview"
-DEFAULT_RULES = {RULE_CLOSED: True, RULE_REJECTED: True, RULE_INTERVIEW: True}
+# 24.11.2026: zmiana adresu faktury → nabywca kontraktu od miesiąca maila.
+RULE_INVOICE_ADDRESS = "invoice_address"
+DEFAULT_RULES = {
+    RULE_CLOSED: True,
+    RULE_REJECTED: True,
+    RULE_INTERVIEW: True,
+    RULE_INVOICE_ADDRESS: True,
+}
 
 OUTCOME_DONE = "done"
 OUTCOME_ALREADY = "already"
@@ -72,6 +79,7 @@ OUTCOME_MANUAL = "manual"
 SUBJECT_FILTER = (
     r"was closed|^Rejected:|^I would like to interview"
     r"|^Interview has been withdrawn|^Interview slots have changed"
+    r"|^Important changes made to contract"
 )
 BATCH_LIMIT = 300
 INTERVIEW_MAX_AGE = timedelta(days=2)
@@ -762,6 +770,28 @@ async def _apply_interview(
     )
 
 
+async def _apply_invoice_address(
+    db: AsyncSession,
+    event: CproEvent,
+    received_at: datetime,
+    rules: dict[str, bool],
+    event_id: int,
+) -> Outcome:
+    from app.services import cpro_invoice_buyer  # noqa: PLC0415
+
+    if not rules[RULE_INVOICE_ADDRESS]:
+        return Outcome(OUTCOME_MANUAL, "Reguła jest wyłączona.")
+    change = await cpro_invoice_buyer.apply_invoice_address(
+        db,
+        number=event.request or "",
+        cpro_code=event.invoice_code or "",
+        address=event.reason.split(" → ")[-1] if event.reason else None,
+        received_at=received_at,
+        event_id=event_id,
+    )
+    return Outcome(change.outcome, change.text, notified=change.notified)
+
+
 def _store(row: CproMailEvent, result: Outcome) -> None:
     row.outcome = result.outcome
     row.outcome_text = result.text[:OUTCOME_TEXT_MAX]
@@ -804,6 +834,16 @@ async def _process_one(
         logger.warning("cpro_mail: nie potwierdzono nadawcy, zdarzenie %s", row.id)
         result = Outcome(
             OUTCOME_MANUAL, "Nie potwierdzono nadawcy: NEXUS nic nie zmienił."
+        )
+    elif event.kind == parsing.KIND_CONTRACT_CHANGED:
+        # Line manager, cost center, NIIDS: decyzja Artura 24.11 — na razie tylko
+        # dziennik, bez zapisu w NEXUSIE.
+        result = Outcome(
+            OUTCOME_ALREADY, "Zmiana referencji faktury w CPro: NEXUS jej nie zapisuje."
+        )
+    elif event.kind == parsing.KIND_INVOICE_ADDRESS:
+        result = await _apply_invoice_address(
+            db, event, email.received_at, rules, row.id
         )
     elif event.kind == parsing.KIND_CLOSED:
         result = await _apply_closed(db, event, email.received_at, rules, effects)

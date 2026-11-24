@@ -22,16 +22,14 @@
   --kr-dim: #5c5c5c;
   --kr-bordo: #9a142d;
   --kr-bar: #7e222d;
-  /* Kolory dzielone z `palette.ts` (OG_COLORS) — test pilnuje zgodności.
-     `--kr-red` 19.10.2026: #c8384f (4,1:1) → #d14a5f (4,9:1) dla drobnego tekstu. */
+  /* `--kr-red` 19.10.2026: #c8384f (4,1:1) → #d14a5f (4,9:1) dla drobnego tekstu. */
   --kr-red: #d14a5f;
   /* Czerwony tytułów: bordo dawało 2,5:1 na czarnym (etap 5). */
   --kr-title: #f06a80;
   --kr-link: #d14a5f;
   --kr-link-hover: #f07a8c;
   --kr-err: #e0677a;
-  /* Powierzchnie i przycisk — osobne tokeny od 0478 (szablony graficzne,
-     `themes.ts`), żeby jasny szablon nie dziedziczył czerni ani bieli. */
+  /* Powierzchnie i przycisk — osobne tokeny od 0478 (szablony graficzne). */
   --kr-form-bg: #030303;
   --kr-input-bg: #050505;
   --kr-tint: #0e0406;

@@ -1488,7 +1488,7 @@ describe("BoardTasksPanel — przepływ rekrutacji i Finanse (04.10.2026)", () =
     expect(first).toHaveTextContent("Ewa Lis");
     expect(within(first).getByText("81%")).toBeTruthy();
     expect(within(first).getByText("3 dni")).toBeTruthy();
-    expect(within(section).getByRole("link", { name: "Otwórz Ewa Lis na Tablicy" })).toHaveAttribute(
+    expect(within(section).getByRole("link", { name: "Otwórz Ewa Lis w panelu osoby" })).toHaveAttribute(
       "href",
       "/jobs/41?candidate=61",
     );

@@ -86,6 +86,27 @@ _HOURS = (
     re.compile(r"godzin\w*[^\d\n]{0,60}?" + _NUMBER + r"(?![\d.,:]*\d)", re.IGNORECASE),
 )
 _MD = re.compile(_NUMBER + r"\s*(?:md\b|man[- ]?days?|osobodni)", re.IGNORECASE)
+#: Akceptacja managera po angielsku (Nordea, T4T): „please approve the 102 hours”,
+#: „October 2026”. Tylko na żądanie, żeby nie zmieniać kontroli PKO i BIK.
+_HOURS_EN = re.compile(_NUMBER + r"\s*(?:hours?|hrs?)\b", re.IGNORECASE)
+MONTHS_EN = (
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+)
+_MONTH_EN = re.compile(
+    r"(?<![\w])(" + "|".join(MONTHS_EN) + r")(?![\w])(?:\s+(20\d{2}))?",
+    re.IGNORECASE,
+)
 #: Pierwsza osoba: „Proszę o potwierdzenie” to prośba, „Potwierdzam” to akceptacja.
 _APPROVED = re.compile(
     r"\b(potwierdzam|akceptuj[eę]|zatwierdzam|zaakceptowa(?:łem|łam|no|ne)|"
@@ -316,7 +337,7 @@ class Acceptance:
     approved: bool
 
 
-def read_acceptance(text: str, month: str) -> Acceptance:
+def read_acceptance(text: str, month: str, *, english: bool = False) -> Acceptance:
     year = int(month.split("-")[0])
     lines = [line for line in text.splitlines() if not _HEADER_LINE.match(line)]
     body = "\n".join(lines)
@@ -330,9 +351,17 @@ def read_acceptance(text: str, month: str) -> Acceptance:
         if index is None or match.group(1).lower() == "mar" and not match.group(2):
             continue  # „mar” bez roku to zwykle inne słowo
         months.add(f"{match.group(2) or year}-{index:02d}")
+    if english:
+        for match in _MONTH_EN.finditer(body):
+            # „may” bez roku to zwykle czasownik.
+            if match.group(1).lower() == "may" and not match.group(2):
+                continue
+            index = MONTHS_EN.index(match.group(1).lower()) + 1
+            months.add(f"{match.group(2) or year}-{index:02d}")
+    patterns = (*_HOURS, _HOURS_EN) if english else _HOURS
     hours = tuple(
         value
-        for pattern in _HOURS
+        for pattern in patterns
         for found in pattern.finditer(body)
         if (value := _dec(found.group(1))) is not None and 0 < value <= 400
     )

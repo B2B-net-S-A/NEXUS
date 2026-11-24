@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -34,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.scheduling import DEFAULT_TZ, is_business_day
 from app.models.client import Client
 from app.models.client_issued_invoice import ClientIssuedInvoice
+from app.models.client_order import ClientOrder
 from app.models.client_sales_invoice import (
     ClientSalesInvoice,
     ClientSalesInvoiceLink,
@@ -50,6 +52,7 @@ from app.services.client_invoicing import (
     matching,
     numbering,
     rebate,
+    requirements,
 )
 from app.services.client_invoicing import sync as sales_sync
 from app.services.client_invoicing.export import month_label
@@ -74,6 +77,7 @@ CHECKABLE = frozenset({"sending", "sent"})
 #: wysłać ponownie albo wycofać.
 STALE_UNSENT_AFTER = timedelta(minutes=5)
 LINE_NAME_MAX = 512
+ORDER_KEY = re.compile(r"[go]\d{1,12}")
 MAX_LINES = 200
 HISTORY_MAX = 50
 STATUS_LABELS = {
@@ -155,6 +159,16 @@ def clean_line(raw: dict[str, Any]) -> dict[str, Any]:
         if str(raw.get("order_id") or "").isdigit()
         else None,
     }
+    # Zamówienie pozycji (faktura z kilku zamówień, ``cl.orders_together``) i kontrakt
+    # osoby (nabywca per kontrakt) — z „Do faktury”, front odsyła je bez zmian.
+    key = str(raw.get("order_key") or "")
+    if ORDER_KEY.fullmatch(key):
+        line["order_key"] = key
+        number = " ".join(str(raw.get("order_number") or "").split())
+        if number:
+            line["order_number"] = number[:ORDER_NUMBER_MAX]
+    if str(raw.get("contract_id") or "").isdigit():
+        line["contract_id"] = int(raw["contract_id"])
     discount = fa3_build.line_discount_pct(
         {"discount_pct": decimal_or_none(raw.get("discount_pct"))}
     )
@@ -262,20 +276,40 @@ def _buyer_kind(buyer: dict[str, Any]) -> str:
     return fa3_build.buyer_id(buyer.get("number")).kind
 
 
+def _country(raw: Any, default: str = "PL") -> str:
+    return "".join(ch for ch in str(raw or default).upper() if ch.isalpha())[:2]
+
+
 def clean_buyer(raw: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    """Nabywca szkicu; ``code`` = nabywca z listy klienta, ``delivery_*`` = adres doręczenia."""
+
     merged = {**current, **{k: v for k, v in raw.items() if v is not None}}
-    country = "".join(
-        ch for ch in str(merged.get("country") or "PL").upper() if ch.isalpha()
-    )[:2]
-    return {
+    out = {
         "name": " ".join(str(merged.get("name") or "").split())[:255],
         "number": "".join(
             ch for ch in str(merged.get("number") or "").upper() if ch.isalnum()
         )[:32],
         "address_l1": " ".join(str(merged.get("address_l1") or "").split())[:255],
         "address_l2": " ".join(str(merged.get("address_l2") or "").split())[:255],
-        "country": country or "PL",
+        "country": _country(merged.get("country")) or "PL",
     }
+    code = str(merged.get("code") or "")
+    if issue_settings.BUYER_CODE.fullmatch(code):
+        out["code"] = code
+    delivery = " ".join(str(merged.get("delivery_l1") or "").split())[:255]
+    if delivery:
+        out["delivery_l1"] = delivery
+        out["delivery_l2"] = " ".join(str(merged.get("delivery_l2") or "").split())[
+            :255
+        ]
+        out["delivery_country"] = _country(merged.get("delivery_country")) or "PL"
+    return out
+
+
+def configured_buyer(entry: dict[str, Any]) -> dict[str, Any]:
+    """Migawka nabywcy z listy klienta w ustawieniach (Nordea: nabywca per kontrakt)."""
+
+    return clean_buyer(dict(entry), {})
 
 
 # ── „Wystaw za miesiąc” ─────────────────────────────────────────────────────
@@ -294,13 +328,42 @@ async def _existing_by_key(
     )
     out: dict[str, list[ClientIssuedInvoice]] = {}
     for invoice in rows:
-        key = (
-            f"g{invoice.order_group_id}"
-            if invoice.order_group_id is not None
-            else f"o{invoice.order_id}"
-        )
-        out.setdefault(key, []).append(invoice)
+        for key in order_keys(invoice):
+            out.setdefault(key, []).append(invoice)
     return out
+
+
+def order_keys(invoice: ClientIssuedInvoice) -> list[str]:
+    """Wiersze „Do faktury” faktury: jej zamówienie albo zamówienia pozycji.
+
+    Faktura z kilku zamówień (``cl.orders_together``) nie ma własnego zamówienia —
+    każda pozycja niesie ``order_key`` swojego.
+    """
+
+    if invoice.order_group_id is not None:
+        return [f"g{invoice.order_group_id}"]
+    if invoice.order_id is not None:
+        return [f"o{invoice.order_id}"]
+    keys: list[str] = []
+    for line in invoice.lines or []:
+        key = line.get("order_key")
+        if key and key not in keys:
+            keys.append(key)
+    return keys
+
+
+def order_numbers(invoice: ClientIssuedInvoice) -> list[str]:
+    """Numery zamówień do KSeF (``NrZamowienia``): z pozycji, gdy faktura ma kilka."""
+
+    if invoice.order_group_id is None and invoice.order_id is None:
+        numbers: list[str] = []
+        for line in invoice.lines or []:
+            number = line.get("order_number")
+            if line.get("order_key") and number and number not in numbers:
+                numbers.append(number)
+        if len(numbers) > 1:
+            return numbers
+    return [invoice.client_order_number] if invoice.client_order_number else []
 
 
 async def _ksef_by_key(
@@ -370,15 +433,20 @@ async def to_issue(db: AsyncSession, *, year: int, month: int) -> dict[str, Any]
     existing = await _existing_by_key(db, year, month)
     in_ksef = await _ksef_by_key(db, year, month, rows)
     names = await clients.names(db, {row.client_id for row in rows})
+    period = billing.month_key(year, month)
+    infos = await _orders_info(db, rows)
+    reqs: dict[int, requirements.Requirements] = {}
     by_client: dict[int, dict[str, Any]] = {}
     for row in sorted(
         rows, key=lambda r: (names.get(r.client_id) or "", r.order_number)
     ):
+        found = await _requirements(db, reqs, row.client_id, period)
         entry = by_client.setdefault(
             row.client_id,
             {
                 "client_id": row.client_id,
                 "client_name": names.get(row.client_id),
+                "orders_together": found.orders_together,
                 "rows": [],
             },
         )
@@ -391,7 +459,8 @@ async def to_issue(db: AsyncSession, *, year: int, month: int) -> dict[str, Any]
                 "currency": row.currency,
                 "expected_net": _amount(row.expected_net),
                 "people": len(row.lines),
-                "blocked": _row_block(row),
+                "blocked": _row_block(row)
+                or await _signature_block(db, row, found, infos, period),
                 "needs_amount": row.kind == "cost",
                 "invoiced_in_ksef": in_ksef.get(row.key, []),
                 "issued": [
@@ -417,6 +486,82 @@ def _line_name(service: str, order_number: str, consultant: str, period: str) ->
     )
 
 
+@dataclass(frozen=True)
+class OrderInfo:
+    """Kontrakt osoby i tytuł pozycji zamówienia (rola) — do nabywcy i opisu pozycji."""
+
+    contract_id: Optional[int]
+    role: Optional[str]
+
+
+async def _orders_info(
+    db: AsyncSession, rows: Sequence[billing.BillingRow]
+) -> dict[int, OrderInfo]:
+    ids = {
+        line.order_id for row in rows for line in row.lines if line.order_id is not None
+    }
+    if not ids:
+        return {}
+    result = await db.execute(
+        select(ClientOrder.id, ClientOrder.contract_id, ClientOrder.title).where(
+            ClientOrder.id.in_(ids)
+        )
+    )
+    return {
+        order_id: OrderInfo(contract_id, " ".join((title or "").split()) or None)
+        for order_id, contract_id, title in result.all()
+    }
+
+
+def _info(infos: dict[int, OrderInfo], line: billing.BillingLine) -> OrderInfo:
+    return infos.get(line.order_id or 0) or OrderInfo(None, None)
+
+
+async def _requirements(
+    db: AsyncSession,
+    cache: dict[int, requirements.Requirements],
+    client_id: int,
+    period: str,
+) -> requirements.Requirements:
+    if client_id not in cache:
+        cache[client_id] = await requirements.load(db, client_id, period)
+    return cache[client_id]
+
+
+async def _signature_block(
+    db: AsyncSession,
+    row: billing.BillingRow,
+    found: requirements.Requirements,
+    infos: dict[int, OrderInfo],
+    period: str,
+) -> Optional[str]:
+    """Klient z ``cl.after_signed_document``: faktura dopiero po podpisanym dokumencie."""
+
+    if found.signed_document is None:
+        return None
+    by_contract = {
+        _info(infos, line).contract_id: line.consultant
+        for line in row.lines
+        if _info(infos, line).contract_id is not None
+    }
+    # Pozycja bez kontraktu (np. pula zamówienia bez podziału na osoby): podpisu
+    # nie da się sprawdzić, więc też czeka — inaczej faktura wyszłaby bez protokołu.
+    unknown = [
+        line.consultant for line in row.lines if _info(infos, line).contract_id is None
+    ]
+    missing = await requirements.unsigned_people(
+        db, found, contract_ids=by_contract, period=period
+    )
+    if not missing and not unknown:
+        return None
+    kind = "protokołu" if found.signed_document == "protocol" else "arkusza"
+    people = ", ".join(sorted([*(by_contract[cid] for cid in missing), *unknown]))
+    return (
+        f"Klient wymaga podpisanego obustronnie {kind} przed fakturą — brak podpisu: "
+        f"{people}."
+    )
+
+
 def _lines_for(
     row: billing.BillingRow,
     lines: Sequence[billing.BillingLine],
@@ -424,22 +569,33 @@ def _lines_for(
     service: str,
     period: str,
     vat_rate: str,
+    found: requirements.Requirements = requirements.Requirements(),
+    infos: Optional[dict[int, OrderInfo]] = None,
 ) -> list[dict[str, Any]]:
     out = []
     for line in lines:
         cost = line.basis == "cost"
+        info = _info(infos or {}, line)
+        name = found.item_name(
+            service=service,
+            order_number=row.order_number,
+            person=line.consultant,
+            role=info.role,
+            period=period,
+        ) or _line_name(service, row.order_number, line.consultant, period)
         out.append(
             clean_line(
                 {
-                    "name": _line_name(
-                        service, row.order_number, line.consultant, period
-                    ),
+                    "name": name,
                     "consultant": line.consultant,
                     "quantity": "1" if cost else line.quantity,
                     "unit": UNIT_FOR_BASIS.get(line.basis, line.unit),
                     "unit_price": None if cost else line.unit_price,
                     "vat_rate": vat_rate,
                     "order_id": line.order_id,
+                    "order_key": row.key,
+                    "order_number": row.order_number,
+                    "contract_id": info.contract_id,
                 }
             )
         )
@@ -455,17 +611,89 @@ class DraftDefaults:
     buyer: dict[str, Any]
 
 
-def _defaults(client: Client, settings: dict[str, Any], today: date) -> DraftDefaults:
-    buyer = _buyer_snapshot(client)
-    eu = _buyer_kind(buyer) == "eu"
+def _defaults(
+    client: Client,
+    settings: dict[str, Any],
+    today: date,
+    buyer: Optional[dict[str, Any]] = None,
+) -> DraftDefaults:
+    snapshot = configured_buyer(buyer) if buyer else _buyer_snapshot(client)
+    eu = _buyer_kind(snapshot) == "eu"
     return DraftDefaults(
         issue_date=today,
         due_date=today
         + timedelta(days=issue_settings.client_payment_days(settings, client.id)),
         vat_rate=issue_settings.client_vat(settings, client.id, eu_buyer=eu),
         series="UE" if eu else "PL",
-        buyer=buyer,
+        buyer=snapshot,
     )
+
+
+@dataclass
+class _Unit:
+    """Jedna przyszła faktura: części wierszy „Do faktury” z tym samym nabywcą."""
+
+    client_id: int
+    currency: str
+    buyer: Optional[dict[str, Any]]
+    parts: list[tuple[billing.BillingRow, list[billing.BillingLine]]]
+
+    @property
+    def rows(self) -> list[billing.BillingRow]:
+        out: list[billing.BillingRow] = []
+        for row, _ in self.parts:
+            if row not in out:
+                out.append(row)
+        return out
+
+
+def _units(
+    wanted: Sequence[str],
+    rows: dict[str, billing.BillingRow],
+    *,
+    split: str,
+    settings: dict[str, Any],
+    reqs: dict[int, requirements.Requirements],
+    infos: dict[int, OrderInfo],
+    period: str,
+) -> list[_Unit]:
+    """Podział zaznaczonych wierszy na faktury.
+
+    Domyślnie faktura na zamówienie (albo na osobę). Nabywca per kontrakt
+    (lista nabywców klienta w ustawieniach) dzieli zamówienie na faktury
+    nabywców; ``cl.orders_together`` łączy zamówienia klienta w tej samej
+    walucie i z tym samym nabywcą w jedną fakturę.
+    """
+
+    units: list[_Unit] = []
+    together: dict[tuple[int, str, Optional[str]], _Unit] = {}
+    for key in wanted:
+        row = rows[key]
+        currency = row.currency if row.currency in CURRENCIES else "PLN"
+        groups = (
+            [[line] for line in row.lines] if split == "person" else [list(row.lines)]
+        )
+        for lines in groups:
+            by_buyer: dict[Optional[str], list[billing.BillingLine]] = {}
+            buyers: dict[Optional[str], Optional[dict[str, Any]]] = {}
+            for line in lines:
+                buyer = issue_settings.buyer_for_contract(
+                    settings, row.client_id, _info(infos, line).contract_id, period
+                )
+                code = buyer["code"] if buyer else None
+                by_buyer.setdefault(code, []).append(line)
+                buyers[code] = buyer
+            for code, part in by_buyer.items():
+                merge = split != "person" and reqs[row.client_id].orders_together
+                slot = (row.client_id, currency, code)
+                if merge and slot in together:
+                    together[slot].parts.append((row, part))
+                    continue
+                unit = _Unit(row.client_id, currency, buyers[code], [(row, part)])
+                units.append(unit)
+                if merge:
+                    together[slot] = unit
+    return units
 
 
 async def create_drafts(
@@ -486,8 +714,11 @@ async def create_drafts(
     rows = {
         row.key: row for row in await billing.billing_rows(db, year=year, month=month)
     }
+    period = billing.month_key(year, month)
     existing = await _existing_by_key(db, year, month)
     in_ksef = await _ksef_by_key(db, year, month, list(rows.values()))
+    infos = await _orders_info(db, [rows[key] for key in wanted if key in rows])
+    reqs: dict[int, requirements.Requirements] = {}
     problems = []
     for key in wanted:
         row = rows.get(key)
@@ -496,7 +727,8 @@ async def create_drafts(
                 f"Zamówienie {key} nie ma pozycji do faktury w tym miesiącu."
             )
             continue
-        block = _row_block(row)
+        found = await _requirements(db, reqs, row.client_id, period)
+        block = _row_block(row) or await _signature_block(db, row, found, infos, period)
         if block:
             problems.append(f"{row.order_number}: {block}")
         if existing.get(key):
@@ -514,56 +746,82 @@ async def create_drafts(
         raise IssueError(" ".join(problems))
 
     settings = await issue_settings.load(db)
-    period = billing.month_key(year, month)
     first, last = month_range(year, month)
     created: list[ClientIssuedInvoice] = []
     rebate_cache: dict[tuple[int, int], Optional[rebate.YearRebate]] = {}
-    for key in wanted:
-        row = rows[key]
-        client = await db.get(Client, row.client_id)
+    for unit in _units(
+        wanted,
+        rows,
+        split=split,
+        settings=settings,
+        reqs=reqs,
+        infos=infos,
+        period=period,
+    ):
+        client = await db.get(Client, unit.client_id)
         if client is None:
             raise IssueError("Nie ma klienta zamówienia.", 404)
-        defaults = _defaults(client, settings, today)
-        groups = (
-            [[line] for line in row.lines] if split == "person" else [list(row.lines)]
-        )
-        for lines in groups:
-            invoice = ClientIssuedInvoice(
-                client_id=row.client_id,
-                invoice_type="VAT",
-                series_code=defaults.series,
-                status="draft",
-                order_group_id=row.group_id,
-                order_id=row.order_id
-                if row.group_id is None
-                else (lines[0].order_id if split == "person" else None),
-                period_year=year,
-                period_month=month,
-                currency=row.currency if row.currency in CURRENCIES else "PLN",
-                issue_date=defaults.issue_date,
-                sale_date=last,
-                period_from=first,
-                period_to=last,
-                due_date=defaults.due_date,
-                client_order_number=row.order_number[:ORDER_NUMBER_MAX],
-                buyer=defaults.buyer,
-                lines=_lines_for(
+        defaults = _defaults(client, settings, today, unit.buyer)
+        unit_rows = unit.rows
+        single = unit_rows[0] if len(unit_rows) == 1 else None
+        if single is not None:
+            group_id = single.group_id
+            order_id = (
+                single.order_id
+                if single.group_id is None
+                else (unit.parts[0][1][0].order_id if split == "person" else None)
+            )
+            order_number = single.order_number
+        else:
+            # Faktura z kilku zamówień: zamówienia niesie każda pozycja (``order_key``).
+            group_id = order_id = None
+            order_number = ", ".join(row.order_number for row in unit_rows)
+        lines: list[dict[str, Any]] = []
+        for row, part in unit.parts:
+            lines.extend(
+                _lines_for(
                     row,
-                    lines,
+                    part,
                     service=settings["service_name"],
                     period=period,
                     vat_rate=defaults.vat_rate,
-                ),
-                lines_before=[],
-                history=[],
-                created_by=actor_id,
+                    found=reqs[unit.client_id],
+                    infos=infos,
+                )
             )
-            await apply_rebate(db, invoice, settings, cache=rebate_cache)
-            recompute(invoice)
-            await _refresh_fx(db, invoice)
-            _note(invoice, "created", actor_id, source=key)
-            db.add(invoice)
-            created.append(invoice)
+        invoice = ClientIssuedInvoice(
+            client_id=unit.client_id,
+            invoice_type="VAT",
+            series_code=defaults.series,
+            status="draft",
+            order_group_id=group_id,
+            order_id=order_id,
+            period_year=year,
+            period_month=month,
+            currency=unit.currency,
+            issue_date=defaults.issue_date,
+            sale_date=last,
+            period_from=first,
+            period_to=last,
+            due_date=defaults.due_date,
+            client_order_number=order_number[:ORDER_NUMBER_MAX],
+            buyer=defaults.buyer,
+            lines=lines,
+            lines_before=[],
+            history=[],
+            created_by=actor_id,
+        )
+        await apply_rebate(db, invoice, settings, cache=rebate_cache)
+        recompute(invoice)
+        await _refresh_fx(db, invoice)
+        _note(
+            invoice,
+            "created",
+            actor_id,
+            source=",".join(row.key for row in unit_rows),
+        )
+        db.add(invoice)
+        created.append(invoice)
     await db.flush()
     return created
 
@@ -653,6 +911,8 @@ async def update(
         invoice.series_code = code
     if isinstance(payload.get("buyer"), dict):
         invoice.buyer = clean_buyer(payload["buyer"], invoice.buyer or {})
+    if payload.get("buyer_code"):
+        await _choose_buyer(db, invoice, str(payload["buyer_code"]), actor_id=actor_id)
     if "lines" in payload:
         lines = payload["lines"]
         if not isinstance(lines, list) or len(lines) > MAX_LINES:
@@ -674,6 +934,59 @@ async def update(
     _note(invoice, "edited", actor_id)
     await db.flush()
     return invoice
+
+
+async def _choose_buyer(
+    db: AsyncSession, invoice: ClientIssuedInvoice, code: str, *, actor_id: int
+) -> None:
+    """Nabywca z listy klienta; zapamiętany dla kontraktów pozycji (następne szkice).
+
+    Seria i stawka VAT idą za nabywcą (VAT UE = seria UE i odwrotne obciążenie),
+    jak przy tworzeniu szkicu. Faktura z numerem zostaje w swojej serii.
+    """
+
+    if invoice.invoice_type != "VAT":
+        raise IssueError(
+            "Nabywcę z listy wybiera się w fakturze VAT; korekta ma nabywcę "
+            "faktury korygowanej.",
+            422,
+        )
+    # Blokada wiersza: zapis niżej podmienia całe ustawienia, a między odczytem
+    # a zapisem mail CPro mógł dopisać nabywcę innego kontraktu (przegląd 24.11.2026).
+    settings = await issue_settings.load(db, lock=True)
+    buyer = next(
+        (
+            item
+            for item in issue_settings.client_buyers(settings, invoice.client_id)
+            if item["code"] == code
+        ),
+        None,
+    )
+    if buyer is None:
+        raise IssueError("Nie ma takiego nabywcy na liście klienta.", 422)
+    invoice.buyer = configured_buyer(buyer)
+    if invoice.invoice_type == "VAT" and invoice.number_seq is None:
+        eu = _buyer_kind(invoice.buyer) == "eu"
+        invoice.series_code = "UE" if eu else "PL"
+        if invoice.client_id is not None:
+            rate = issue_settings.client_vat(settings, invoice.client_id, eu_buyer=eu)
+            invoice.lines = [
+                clean_line({**line, "vat_rate": rate}) for line in invoice.lines or []
+            ]
+    contracts = {
+        int(line["contract_id"])
+        for line in invoice.lines or []
+        if str(line.get("contract_id") or "").isdigit()
+    }
+    if (
+        invoice.client_id is not None
+        and contracts
+        and issue_settings.remember_buyer(
+            settings, invoice.client_id, contracts, code, invoice_period(invoice)
+        )
+    ):
+        await issue_settings.save(db, settings, actor_id=actor_id)
+    _note(invoice, "buyer", actor_id, buyer=code)
 
 
 async def delete(
@@ -888,7 +1201,53 @@ async def problems(
         is None
     ):
         out.append(f"Brak rachunku {invoice.currency} w ustawieniach wystawiania.")
+    found = await invoice_requirements(db, invoice)
+    blocking, _ = requirements.line_problems(found, invoice.lines or [])
+    out.extend(blocking)
+    numbers = order_numbers(invoice)
+    if len(numbers) > fa3_build.MAX_TERMS:
+        out.append(
+            f"Faktura ma {len(numbers)} numerów zamówień, KSeF przyjmuje najwyżej "
+            f"{fa3_build.MAX_TERMS} — podziel ją."
+        )
+    if buyer_choice_needed(invoice, settings):
+        out.append(
+            "Klient ma kilku nabywców (nabywca zależy od kontraktu): wybierz nabywcę "
+            "z listy — NEXUS zapamięta go dla kontraktów tej faktury."
+        )
     return out
+
+
+async def invoice_requirements(
+    db: AsyncSession, invoice: ClientIssuedInvoice
+) -> requirements.Requirements:
+    """Wymagania klienta na miesiąc usługi faktury (reguły ``cl.*``)."""
+
+    if invoice.client_id is None:
+        return requirements.Requirements()
+    return await requirements.load(db, invoice.client_id, invoice_period(invoice))
+
+
+def invoice_period(invoice: ClientIssuedInvoice) -> str:
+    """Miesiąc usługi faktury (``RRRR-MM``); bez okresu — z daty sprzedaży/wystawienia."""
+
+    if invoice.period_year and invoice.period_month:
+        return billing.month_key(int(invoice.period_year), int(invoice.period_month))
+    day = invoice.sale_date or invoice.issue_date
+    return billing.month_key(day.year, day.month)
+
+
+def buyer_choice_needed(invoice: ClientIssuedInvoice, settings: dict[str, Any]) -> bool:
+    """Faktura z zamówienia klienta z listą nabywców, bez nabywcy z tej listy."""
+
+    if invoice.invoice_type != "VAT":
+        # Korekta ma nabywcę faktury korygowanej — wybór z listy zmieniłby podmiot.
+        return False
+    buyers = issue_settings.client_buyers(settings, invoice.client_id)
+    if not buyers or not order_keys(invoice):
+        return False
+    code = (invoice.buyer or {}).get("code")
+    return code not in {buyer["code"] for buyer in buyers}
 
 
 async def document(
@@ -917,6 +1276,8 @@ async def document(
         invoice.collective_correction if invoice.invoice_type == "KOR" else None
     )
     buyer = invoice.buyer or {}
+    found = await invoice_requirements(db, invoice)
+    numbers = order_numbers(invoice)
     return fa3_build.InvoiceDocument(
         invoice_type=invoice.invoice_type,
         number=invoice.invoice_number or "SZKIC",
@@ -935,6 +1296,14 @@ async def document(
             country=buyer.get("country") or "PL",
         ),
         buyer_ident=fa3_build.buyer_id(buyer.get("number")),
+        buyer_delivery=fa3_build.Party(
+            name="",
+            address_l1=buyer["delivery_l1"],
+            address_l2=buyer.get("delivery_l2") or None,
+            country=buyer.get("delivery_country") or "PL",
+        )
+        if buyer.get("delivery_l1")
+        else None,
         lines=list(invoice.lines or []),
         lines_before=list(invoice.lines_before or []),
         sale_date=invoice.sale_date,
@@ -952,7 +1321,11 @@ async def document(
         else None,
         payment_other=issue_settings.COMPENSATION_LABEL if compensation else None,
         client_order_number=invoice.client_order_number,
+        order_numbers=tuple(numbers),
+        contract_number=found.contract_number,
+        contract_date=found.contract_date,
         notes=invoice.notes,
+        extra_fields=requirements.ksef_fields(found, numbers),
         exemption_basis=settings["exemption_basis"] or None,
         corrected=corrected,
         corrected_list=collective_refs(collective),
@@ -1166,11 +1539,12 @@ async def link_sales_invoice(
         # Korekta zbiorcza dotyczy całego miesiąca: odczyt XML-a przypiąłby ją do
         # pierwszej faktury z listy, a „Do faktury” pokazałby tam różnicę.
         sales.corrects_invoice_id = None
-    targets: list[matching.Target] = []
-    if invoice.order_id is not None:
-        targets.append(matching.Target(order_id=invoice.order_id))
-    elif invoice.order_group_id is not None:
-        targets.append(matching.Target(group_id=invoice.order_group_id))
+    targets: list[matching.Target] = [
+        matching.Target(group_id=int(key[1:]))
+        if key.startswith("g")
+        else matching.Target(order_id=int(key[1:]))
+        for key in order_keys(invoice)
+    ]
     if (
         targets
         and invoice.invoice_type != "KOR"
@@ -1230,6 +1604,9 @@ def _line_payload(line: dict[str, Any]) -> dict[str, Any]:
         "vat_rate": line.get("vat_rate"),
         "net": line.get("net"),
         "order_id": line.get("order_id"),
+        "order_key": line.get("order_key"),
+        "order_number": line.get("order_number"),
+        "contract_id": line.get("contract_id"),
         "discount_pct": line.get("discount_pct"),
     }
 
@@ -1286,6 +1663,9 @@ async def payload(
     blocking = (
         await problems(db, invoice, settings, config) if editable(invoice) else []
     )
+    found = await invoice_requirements(db, invoice)
+    numbers = order_numbers(invoice)
+    _, warnings = requirements.line_problems(found, invoice.lines or [])
     corrects = (
         await db.get(ClientIssuedInvoice, invoice.corrects_id)
         if invoice.corrects_id
@@ -1324,6 +1704,20 @@ async def payload(
             "has_xml": bool(invoice.xml),
             "sales_invoice_id": invoice.sales_invoice_id,
             "problems": blocking,
+            "warnings": warnings if editable(invoice) else [],
+            "order_numbers": numbers,
+            "requirements": requirements.summary(found, numbers),
+            "mail": found.mail_for(
+                series=invoice.series_code,
+                number=invoice.invoice_number,
+                ksef_number=invoice.ksef_number,
+                period=data["period"],
+                order_numbers=numbers,
+            ),
+            "buyer_options": [
+                {"code": item["code"], "name": item["name"], "number": item["number"]}
+                for item in issue_settings.client_buyers(settings, invoice.client_id)
+            ],
             "editable": editable(invoice),
             "can_send": editable(invoice) and not blocking and config.enabled,
             "can_check": invoice.status in CHECKABLE

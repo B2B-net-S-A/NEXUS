@@ -73,3 +73,44 @@ describe("Do faktury dla klienta (E5.1)", () => {
     expect(screen.getByRole("button", { name: "Pobierz RCP: Jan Testowy" })).toBeEnabled();
   });
 });
+
+describe("Do faktury dla klienta z T4T (Nordea)", () => {
+  beforeEach(() => mocks.get.mockReset());
+
+  const t4tRow: ClientInvoiceRow = {
+    ...ready,
+    kind: "time_report",
+    positions: [
+      { name: "NIDS:2020-000001, IT", unit: "godz.", quantity: "176", unit_price: "150.00", net: "26400.00", kind: "base", currency: "PLN" },
+    ],
+    t4t: { approved: "176.00", pending: "0.00", billed: "176.00", invoiced: null, notes: [] },
+  };
+
+  it("wstrzymuje osobę z godzinami niezatwierdzonymi i pokazuje termin faktury", async () => {
+    const held: ClientInvoiceRow = {
+      ...t4tRow,
+      contract_id: 5,
+      person: "Piotr Wzorcowy",
+      state: "awaiting_t4t",
+      hold_reason: "Godziny niezatwierdzone w T4T (wersja z 10.11): 32 h czeka na akceptację.",
+      t4t: { approved: "144.00", pending: "32.00", billed: "144.00", invoiced: null, notes: ["Mail z akceptacją nie pochodzi od managera klienta."] },
+    };
+    renderView({
+      client_id: 7,
+      client_name: "Klient T4T",
+      month: "2026-10",
+      can_see_amounts: true,
+      time_report: { version_id: 3, received_on: "2026-11-10", label: "wersja z 10.11" },
+      deadline: { date: "2026-11-15", days_left: 3, overdue: false, missing: 1, people: ["Piotr Wzorcowy"] },
+      rows: [t4tRow, held],
+    });
+    expect(await screen.findByText(/1 czeka na godziny w T4T, 0 bez zatwierdzonych godzin/)).toBeInTheDocument();
+    expect(screen.getByText(/Godziny niezatwierdzone w T4T \(wersja z 10\.11\)/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Do terminu faktury 15.11 zostały 3 dni: 1 osoba bez zatwierdzonych godzin w T4T. Bez godzin: Piotr Wzorcowy.",
+    );
+    expect(screen.getAllByText("Czeka na T4T").length).toBeGreaterThan(0);
+    // Do skopiowania idzie tylko osoba z zatwierdzonymi godzinami.
+    expect(positionsText([t4tRow, held])).toBe("NIDS:2020-000001, IT\t176\tgodz.\t150,00\t26400,00");
+  });
+});

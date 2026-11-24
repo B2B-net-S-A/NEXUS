@@ -270,6 +270,66 @@ async def test_pracuj_mail_counts_and_client_without_history_gets_all():
 
 
 @pytest.mark.asyncio
+async def test_template_of_the_same_client_gives_its_channels():
+    """Powtórka (24.11.2026): rekrutacja z szablonu tego klienta bierze kanały
+    szablonu; szablon bez ogłoszenia albo od innego klienta = ostatnie klienta."""
+    target = await _job()
+    template = await _job(target.client_id)
+    recent = await _job(target.client_id)
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            JobAdPublication(
+                job_id=recent.id, portal="jjit", content_hash="x", published_at=now
+            )
+        )
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=target.id,
+                action="created_from_template",
+                details={"source_job_id": template.id},
+            )
+        )
+        await db.commit()
+        # Szablon bez ogłoszenia: zostają ostatnie rekrutacje klienta.
+        found = await on_create.recent_channels(db, await db.get(Job, target.id))
+        assert found.from_job_id is None
+        assert found.channels == ["jjit"]
+
+        db.add(JobPublicProfile(job_id=template.id, approved_at=now))
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=template.id,
+                action=pracuj_mail.ACTION,
+                details={"to": "opiekun@example.com"},
+            )
+        )
+        await db.commit()
+        found = await on_create.recent_channels(db, await db.get(Job, target.id))
+    assert found.from_job_id == template.id
+    assert found.jobs == 1
+    assert found.channels == ["kariera", "pracuj"]
+    assert found.as_dict()["from_job_id"] == template.id
+
+    stranger = await _job()  # inny klient
+    async with AsyncSessionLocal() as db:
+        db.add(JobPublicProfile(job_id=stranger.id, approved_at=now))
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=recent.id,
+                action="created_from_template",
+                details={"source_job_id": stranger.id},
+            )
+        )
+        await db.commit()
+        found = await on_create.recent_channels(db, await db.get(Job, recent.id))
+    assert found.from_job_id is None
+
+
+@pytest.mark.asyncio
 async def test_portal_ad_response_carries_recent_channels():
     from httpx import ASGITransport, AsyncClient
 
@@ -287,6 +347,7 @@ async def test_portal_ad_response_carries_recent_channels():
         "channels": ["kariera", "jjit", "pracuj"],
         "jobs": 0,
         "jjit_category": None,
+        "from_job_id": None,
     }
 
 

@@ -2242,6 +2242,23 @@
     ]
   },
   {
+    "id": "nowa-rekrutacja-mniej-decyzji",
+    "title": "Nowa rekrutacja: mniej klikania po odczycie maila",
+    "why": "AI wstawia krytyczne i proponuje najważniejsze zadanie z pytaniem — klikasz „Zatwierdź zadanie”. Pytania i kategorię zatwierdza „Utwórz”, termin i liczbę osób podpowiada historia klienta.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacje → Nowa rekrutacja → po „Wklej treść” → „O projekcie”",
+    "href": "/jobs/new",
+    "section": "pipeline",
+    "dot_anchor": "new-job.key-task-proposal"
+  },
+  {
     "id": "premia-200-listopad-grudzien",
     "pr": 3085,
     "title": "Do 200%: postęp w miesiącu podpisu",
@@ -4581,6 +4598,7 @@
     },
     "where": "Finanse → Przychody → Przebieg miesiąca",
     "href": "/finance",
+    "practice_href": "/finance?view=month-close",
     "section": "finance",
     "dot_anchor": "finance.month-close",
     "steps": [
@@ -4593,6 +4611,38 @@
         "anchor": "finance.month-close.reasons",
         "text": "Przełącz na „Do decyzji wg powodu”",
         "hint": "Karta powodu mówi, kto rozstrzyga, i prowadzi do klienta albo jego reguł."
+      }
+    ]
+  },
+  {
+    "id": "finanse-monit-platnosci",
+    "pr": 3819,
+    "title": "Monit płatności i lista należności dla księgowej",
+    "why": "Monit do klienta po 7, 14 i 30 dniach po terminie, lista należności dla księgowej na koniec miesiąca i faktury w euro, w których VAT w złotych nie wpłynął.",
+    "tier": "tour",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "finance",
+        "admin"
+      ]
+    },
+    "where": "Finanse → Przychody → Faktury do klientów → Po terminie",
+    "href": "/finance",
+    "practice_href": "/finance?view=sales-invoices",
+    "section": "finance",
+    "dot_anchor": "finance.sales-invoices.tabs",
+    "steps": [
+      {
+        "anchor": "finance.sales-invoices.tabs",
+        "text": "Przejdź na zakładkę „Po terminie”.",
+        "hint": "Przy kliencie jest „Przygotuj monit”: szkic maila, który wysyłasz sam po sprawdzeniu adresatów i treści.",
+        "ack": true
+      },
+      {
+        "anchor": "finance.overdue-month-close",
+        "text": "„Lista na koniec miesiąca” to plik dla księgowej.",
+        "hint": "Stan na ostatni dzień miesiąca: najpierw zaległości z dniami i ostatnim monitem, potem faktury bez danych o zapłacie."
       }
     ]
   },
@@ -4612,6 +4662,31 @@
     "href": "/sales/companies",
     "dot_anchor": "topbar.search",
     "used_anchor": "palette.sales-nip"
+  },
+  {
+    "id": "pracuj-po-kolei-na-pulpicie",
+    "pr": 3810,
+    "title": "Pracuj po kolei — panel osoby na pulpicie",
+    "why": "„Pracuj po kolei” otwiera panel osoby na pulpicie. „Dalej” idzie przez całą listę „Czeka na Ciebie” ze wszystkich Twoich rekrutacji, najdłużej czekający pierwsi.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "talent_community_manager",
+        "delivery_lead"
+      ]
+    },
+    "where": "Pulpit → Czeka na Ciebie → Pracuj po kolei",
+    "href": "/dashboard",
+    "dot_anchor": "dashboard.person-queue.start",
+    "steps": [
+      {
+        "anchor": "dashboard.person-queue.start",
+        "text": "Kliknij „Pracuj po kolei”.",
+        "hint": "Panel osoby otworzy się z prawej, nad pulpitem. Pasek u góry mówi, z której listy jest osoba, w jakiej rekrutacji i kto dalej."
+      }
+    ]
   },
   {
     "id": "arkusz-rozmowy-na-lewej-polowie",
@@ -4684,6 +4759,269 @@
         "ack": true
       }
     ]
+  },
+  {
+    "id": "odrzuc-jednym-kliknieciem",
+    "pr": 3811,
+    "title": "Odrzucenie jednym kliknięciem w panelu osoby",
+    "why": "Pod „Odrzuć z powodem” stoją Twoje 3 najczęstsze powody z 30 dni. Klik odrzuca z tym powodem i otwiera następną osobę. „Cofnij” działa przez 10 s.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → Nowi albo Screening → panel osoby → Odrzuć:",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990101",
+    "section": "pipeline",
+    "dot_anchor": "person.dock.quick-reject",
+    "steps": [
+      {
+        "anchor": "person.dock.quick-reject",
+        "text": "Pod rzędem akcji są Twoje najczęstsze powody odrzucenia.",
+        "hint": "Kliknięcie odrzuca od razu, jak „Potwierdź” w oknie przy „Odrzucamy my”. Na Poligonie nic nie zostanie zapisane.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "tablica-karty-bez-sladu-wracaja",
+    "pr": 3812,
+    "title": "Karta bez śladu przez 2 dni robocze wraca do „Nowych” dla wszystkich",
+    "why": "Karta bez notatki, „Nie odebrał”, telefonu, arkusza i ruchu przez 2 dni robocze wraca do „Nowych”, a „Biorę” wygasa. Dzień wcześniej mówi „jutro”, a Ty dostajesz dzwonek.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → kolumna „Screening”",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001",
+    "section": "pipeline",
+    "dot_anchor": "board.screening-groups"
+  },
+  {
+    "id": "przelewy-zajecia-i-spory",
+    "pr": 3816,
+    "title": "Zajęcia wierzytelności i spór przy płatności kontraktora",
+    "why": "Zajęcie komornika albo US wpisujesz przy fakturze kontraktora, a paczka dzieli płatność na organ i kontraktora. Spór wstrzymuje płatność, a rachunek spoza wykazu VAT blokuje przelew.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": { "roles": ["finance", "admin"] },
+    "where": "Finanse → Przelewy → Do zapłaty → Zajęcie / Spór",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "finance.payments.garnishment"
+  },
+  {
+    "id": "wymagania-klienta-do-faktury",
+    "pr": 3817,
+    "title": "Wymagania klienta do faktury z NEXUSA",
+    "why": "Numer umowy, kilka zamówień na fakturze, pole OSOBA w KSeF, tekst w pozycjach i adres maila ustawiasz raz w regułach klienta. Szkic faktury wpisuje je sam.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": { "roles": ["finance", "admin"] },
+    "where": "Finanse → Rozliczenia klientów → Reguły klienta → Faktura do klienta",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "clients.rules.client_invoice"
+  },
+  {
+    "id": "przedwstepna-stop-ustawienie-rekrutacji",
+    "pr": 3796,
+    "title": "Przedwstępna dla całej rekrutacji: etap i stop do podpisu",
+    "why": "W nagłówku rekrutacji ustawiasz, że każda osoba podpisuje przedwstępną przed CV, rozmową albo umową B2B. Z „Zatrzymaj kartę” bez podpisu karta nie pójdzie dalej.",
+    "tier": "tour",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → nagłówek → kłódka obok „Procesu u klienta”",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001",
+    "section": "pipeline",
+    "dot_anchor": "job.header.pre-contract",
+    "used_anchor": "job.pre-contract.save",
+    "steps": [
+      {
+        "anchor": "job.header.pre-contract",
+        "text": "Kliknij kłódkę obok „Procesu u klienta” w nagłówku rekrutacji.",
+        "hint": "Przy 1280 px widać samą ikonę. Rekrutacja ćwiczebna ma już ustawienie: przed wysłaniem CV, karta stoi do podpisu."
+      },
+      {
+        "anchor": "job.pre-contract.edit",
+        "text": "Kliknij „Zmień”.",
+        "hint": "Bez ustawienia przycisk nazywa się „Ustaw dla wszystkich”. Prośby o umowę zakładają się same od „Zweryfikowanego”."
+      },
+      {
+        "anchor": "pre-contract.rule.stop",
+        "text": "„Zatrzymaj kartę do podpisu”: bez podpisu obu stron osoba nie pójdzie dalej.",
+        "hint": "Blokada obowiązuje każdego, także Delivery Leada. Bez zaznaczenia brak umowy tylko ostrzega.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "przedwstepna-stop-wyjatek-dla-osoby",
+    "pr": 3796,
+    "title": "Wyjątek od stopu przedwstępnej dla jednej osoby",
+    "why": "Gdy kandydat musi iść dalej przed podpisem, w panelu osoby › Umowa klikasz „Wyjątek dla tej osoby”. Zapis trafia do historii prośby, a rekruter dostaje dzwonek.",
+    "tier": "tour",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → Umowa → „Ruch karty”",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990110",
+    "section": "pipeline",
+    "dot_anchor": "person.pre-contract.stop",
+    "steps": [
+      {
+        "anchor": "person.dock.contract",
+        "text": "Kliknij „Umowa” w panelu osoby.",
+        "hint": "Panel Szymona z „QC CV” jest otwarty. Zakładka „Umowa” ma sekcję umowy przedwstępnej z wierszem „Ruch karty”."
+      },
+      {
+        "anchor": "person.pre-contract.stop-row",
+        "text": "Wiersz „Ruch karty” mówi, czy osoba stoi do podpisu i skąd.",
+        "hint": "„Ustawienie rekrutacji” albo „przy tej osobie”, z nazwiskiem i datą tego, kto zatrzymał kartę.",
+        "ack": true
+      },
+      {
+        "anchor": "person.pre-contract.stop",
+        "text": "„Wyjątek dla tej osoby — bez blokady” puszcza ją dalej bez podpisu.",
+        "hint": "Robi to DL klienta, Head of Recruitment albo admin. Na Poligonie nic się nie zapisze.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "przedwstepna-przy-nowej-rekrutacji",
+    "pr": 3796,
+    "title": "Przedwstępna od każdej osoby już przy tworzeniu rekrutacji",
+    "why": "W „Warunkach”, pod „Procesem u klienta”, zaznaczasz „Każda osoba podpisuje umowę przedwstępną”, etap i stop do podpisu. Domyślnie wyłączone.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Nowa rekrutacja → Warunki → „Umowa przedwstępna z kandydatami”",
+    "href": "/jobs/new",
+    "section": "pipeline",
+    "dot_anchor": "jobs.new.pre-contract"
+  },
+  {
+    "id": "nowe-cv-przelacznik-ukladu",
+    "title": "Układ CV: Nowe CV albo Klasyczne",
+    "why": "W karcie „CV do klienta” wybierasz układ: Nowe CV (PDF ze stroną podsumowania) albo Klasyczne (Word). Ten sam tekst, bez generowania od nowa. Domyślny układ ustawia reguła CV klienta.",
+    "tier": "tour",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → osoba → CV do klienta → Układ CV",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990105",
+    "section": "pipeline",
+    "dot_anchor": "cv.layout-choice",
+    "steps": [
+      {
+        "anchor": "person.dock.cv",
+        "text": "W panelu osoby rozwiń sekcję „CV”.",
+        "hint": "Tu są oryginał i CV do klienta."
+      },
+      {
+        "anchor": "person.dock.cv-to-client",
+        "text": "Kliknij „CV do klienta: strony i wersje”.",
+        "hint": "Otworzy się karta „CV do klienta”."
+      },
+      {
+        "anchor": "cv.layout-choice",
+        "text": "Przełącz „Układ CV” na „Nowe CV”.",
+        "hint": "Miniatura pokaże stronę 1 nowego układu. Treść CV się nie zmienia — wrócisz do Klasycznego tym samym przełącznikiem."
+      }
+    ]
+  },
+  {
+    "id": "przedwstepna-stop-na-karcie",
+    "pr": 3796,
+    "title": "„Stop ·” na karcie: osoba czeka na podpis przedwstępnej",
+    "why": "Czerwona plakietka i kłódka na strzałce znaczą, że karta nie pójdzie dalej bez podpisanej przedwstępnej. Zdejmuje ją podpis obu stron albo wyjątek DL-a lub HoR.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → karta z plakietką „Stop ·”",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001",
+    "section": "pipeline",
+    "dot_anchor": "board.card.pre-contract-stop",
+    "steps": [
+      {
+        "anchor": "board.card.pre-contract-stop",
+        "text": "Kliknij czerwoną plakietkę „Stop ·” na karcie w „QC CV”.",
+        "hint": "Strzałka tej karty ma kłódkę: następny etap czeka na podpis umowy przedwstępnej."
+      },
+      {
+        "anchor": "person.dock.contract",
+        "text": "Kliknij „Umowa” w panelu osoby.",
+        "hint": "W zakładce „Umowa” jest prośba o przedwstępną i stan podpisu."
+      },
+      {
+        "anchor": "person.pre-contract.stop-row",
+        "text": "Wiersz „Ruch karty” mówi, kto i kiedy zatrzymał kartę.",
+        "hint": "Ty wysyłasz prośbę i pilnujesz podpisu. Blokadę zdejmuje tylko DL klienta albo Head of Recruitment.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "nowa-rekrutacja-powtorka",
+    "pr": 3827,
+    "title": "Nowa rekrutacja: powtórka requestu jednym kliknięciem",
+    "why": "Ten sam request co poprzednio? Po odczycie maila baner „To wygląda na powtórkę”: „Użyj <nr>” bierze poprzednią rekrutację, z maila tylko różnice. Hiring managera potwierdzasz sam.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacje → Nowa rekrutacja → klient → „Wklej treść” → baner nad formularzem",
+    "href": "/jobs/new",
+    "section": "pipeline",
+    "dot_anchor": "new-job.fill-from"
   },
   {
     "id": "dodatki-do-rozliczenia-kontraktora",

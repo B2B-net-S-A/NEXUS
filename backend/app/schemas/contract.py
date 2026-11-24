@@ -680,6 +680,18 @@ class OrderAfterEndRead(BaseModel):
     held_by_termination: bool = False
 
 
+class ContractDateWarningRead(BaseModel):
+    """Ostrzeżenie dat kontraktu (bez kwot) — `services/contract_date_warnings.py`.
+
+    ``start_before_signature``: ``day`` = dzień podpisu konsultanta;
+    ``rate_step_before_start``: ``day`` = data progu stawki, który nie obowiązuje.
+    """
+
+    code: Literal["start_before_signature", "rate_step_before_start"]
+    start_date: date
+    day: date
+
+
 class ContractDetailResponse(ContractResponse):
     """Extended response for the contract detail page — includes denormalized names."""
 
@@ -726,6 +738,9 @@ class ContractDetailResponse(ContractResponse):
     # zamówienia inne niż anulowane i zakończone, których koniec jest pusty
     # albo późniejszy od końca projektu. Karta w pasie „Co się dzieje”.
     order_after_end: list[OrderAfterEndRead] = []
+    # „Start przed podpisem” i „próg stawki przed startem” (23.11.2026) —
+    # informacja w pasie „Co się dzieje”, nigdy blokada.
+    date_warnings: list[ContractDateWarningRead] = []
 
     model_config = {"from_attributes": True}
 

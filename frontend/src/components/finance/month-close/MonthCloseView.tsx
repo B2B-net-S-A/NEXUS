@@ -19,16 +19,21 @@ import {
   type MonthCloseOverview,
   type MonthCloseReason,
 } from "@/lib/api/client-settlements";
+import { useReminderOverview, type ReminderClient } from "@/lib/api/settlement-reminders";
 import { warsawToday } from "@/lib/warsaw-date";
 import { cn } from "@/lib/utils";
 
-import { defaultMonth, monthLabel, pln, recentMonths } from "../settlements/format";
+import { defaultMonth, monthLabel, pln, recentMonths, shortDay } from "../settlements/format";
+import { issueHref } from "./ClientMonthStrip";
+import { ClosingPanel } from "./ClosingPanel";
 import { reasonPlan } from "./reason-plan";
+
+export { issueHref };
 
 /** Parametry adresu tego widoku (czyści je zmiana widoku /finance). */
 export const MONTH_CLOSE_URL_KEYS = ["mcMonth", "mcTab"] as const;
 
-type Tab = "clients" | "reasons";
+type Tab = "clients" | "reasons" | "closing";
 
 function readParam(key: (typeof MONTH_CLOSE_URL_KEYS)[number]): string | null {
   return new URLSearchParams(window.location.search).get(key);
@@ -46,9 +51,6 @@ export function settlementsHref(clientId: number, month: string, extra: Record<s
   return `/finance?${params.toString()}`;
 }
 
-export function issueHref(month: string): string {
-  return `/finance?view=sales-invoices&siPeriod=${month}&siView=issue`;
-}
 
 export function MonthCloseView() {
   const today = warsawToday();
@@ -59,10 +61,16 @@ export function MonthCloseView() {
   useEffect(() => {
     const m = readParam("mcMonth");
     if (m && /^\d{4}-\d{2}$/.test(m)) setMonth(m);
-    if (readParam("mcTab") === "reasons") setTab("reasons");
+    const t = readParam("mcTab");
+    if (t === "reasons" || t === "closing") setTab(t);
   }, []);
 
   const query = useMonthCloseOverview(month);
+  const reminders = useReminderOverview(month, null);
+  const reminderByClient = useMemo(
+    () => new Map((reminders.data?.clients ?? []).map((r) => [r.client_id, r] as const)),
+    [reminders.data],
+  );
 
   function pickMonth(m: string) {
     setMonth(m);
@@ -95,6 +103,7 @@ export function MonthCloseView() {
               [
                 ["clients", "Klienci", query.data.clients.length],
                 ["reasons", "Do decyzji wg powodu", query.data.reasons.reduce((a, r) => a + r.count, 0)],
+                ["closing", "Dla księgowej", query.data.closing ? query.data.closing.ksef_not_accepted + query.data.closing.reserve_count + query.data.closing.sales_waiting : 0],
               ] as const
             ).map(([key, label, n]) => (
               <button
@@ -131,9 +140,11 @@ export function MonthCloseView() {
         <>
           <Summary data={query.data} month={month} />
           {tab === "clients" ? (
-            <ClientsTable data={query.data} month={month} />
-          ) : (
+            <ClientsTable data={query.data} month={month} reminders={reminderByClient} />
+          ) : tab === "reasons" ? (
             <ReasonsList reasons={query.data.reasons} month={month} />
+          ) : (
+            <ClosingPanel closing={query.data.closing} month={month} />
           )}
         </>
       )}
@@ -258,15 +269,29 @@ export function clientInvoiceState(c: MonthCloseClient, amounts: boolean): { ton
   return { tone: "neutral", label: "Czeka", note: `na ${open} os.` };
 }
 
-function ClientsTable({ data, month }: { data: MonthCloseOverview; month: string }) {
+/** Notka pod liczbą brakujących raportów: adresat i ostatnie przypomnienie (#3805). */
+export function reminderNote(r: ReminderClient | undefined): string | undefined {
+  if (!r) return undefined;
+  if (r.without_recipient) return `bez adresata: ${r.without_recipient}`;
+  if (r.last_reminder_on) return `przypomniano ${shortDay(r.last_reminder_on)}`;
+  return r.automatic ? "przypomni automat" : "bez przypomnienia";
+}
+
+interface ClientsTableProps {
+  data: MonthCloseOverview;
+  month: string;
+  reminders: Map<number, ReminderClient>;
+}
+
+function ClientsTable({ data, month, reminders }: ClientsTableProps) {
   return (
     <div className="relative overflow-x-auto rounded-xl border bg-card">
       <table className="w-full min-w-[880px] table-fixed text-[13px]">
         <colgroup>
-          <col className="w-[18%]" />
           <col className="w-[17%]" />
-          <col className="w-[27%]" />
-          <col className="w-[9%]" />
+          <col className="w-[17%]" />
+          <col className="w-[24%]" />
+          <col className="w-[13%]" />
           <col className="w-[16%]" />
           <col className="w-[13%]" />
         </colgroup>
@@ -300,7 +325,14 @@ function ClientsTable({ data, month }: { data: MonthCloseOverview; month: string
                       {report.all ? "Raport wczytany" : "Brak raportu klienta"}
                     </StatusDot>
                   ) : (
-                    <ProgressBar c={c} />
+                    <>
+                      <ProgressBar c={c} />
+                      {c.auto_accept && c.auto_accept.count > 0 ? (
+                        <span className="block truncate text-[11px] text-success-muted-foreground">
+                          {c.auto_accept.count} przyjmie automat od {shortDay(c.auto_accept.from)}
+                        </span>
+                      ) : null}
+                    </>
                   )}
                 </td>
                 <td className="truncate px-2 py-1.5">
@@ -323,7 +355,9 @@ function ClientsTable({ data, month }: { data: MonthCloseOverview; month: string
                 </td>
                 <td className="px-2 py-1.5 tabular-nums">
                   {!report && c.missing > 0 ? (
-                    <StatusDot tone="neutral">{c.missing}</StatusDot>
+                    <StatusDot tone={reminders.get(c.client_id)?.without_recipient ? "warning" : "neutral"} note={reminderNote(reminders.get(c.client_id))}>
+                      {c.missing}
+                    </StatusDot>
                   ) : (
                     <span className="text-[11px] text-muted-foreground">—</span>
                   )}
@@ -339,7 +373,7 @@ function ClientsTable({ data, month }: { data: MonthCloseOverview; month: string
                 </td>
                 <td className="whitespace-nowrap px-3 py-1.5 text-right">
                   {!report && c.client_invoice_ready > 0 ? (
-                    <Link href={issueHref(month)} className="mr-3 text-xs font-medium text-primary hover:underline">
+                    <Link href={issueHref(month, c.client_id)} className="mr-3 text-xs font-medium text-primary hover:underline">
                       Wystaw
                     </Link>
                   ) : null}

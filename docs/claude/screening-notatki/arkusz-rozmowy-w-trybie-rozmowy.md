@@ -54,8 +54,34 @@ wymagało 2+ zapisów arkusza, mediana od „Biorę” do „Zweryfikowany” 4,
   1 088 px w oknie 625 px (jedno przewinięcie), 1440 × 900 — 1 052 px
   w 805 px, 1024 × 700 — jedna kolumna, 390 px — panel jak dotąd, bez
   poziomego przewijania.
-- **Formularz wspólny** („Screening dla” z drugą rekrutacją) w trybie
-  rozmowy też stoi w arkuszu, ale w swoim dotychczasowym układzie jednej
-  kolumny — dwóch kolumn i paska braków jeszcze nie ma.
+- **Formularz wspólny** („Screening dla” z drugą rekrutacją, 23.11.2026)
+  w trybie rozmowy ma ten sam układ: `JointScreeningForm` z `layout="sheet"`
+  (przekazuje `ScreeningWorkbench`), te same pola, zapis per para, pamięć
+  rozmowy i karta wyniku co w kolumnie.
+  - Pasek: „Do „Zweryfikowany” brakuje:”, wiersz „Wspólne” (pole wspólne,
+    np. dostępność, raz — nie w każdej rekrutacji) i wiersz na rekrutację
+    z jej własnymi brakami („N pytania bez odpowiedzi”, tryb pracy, „Dlaczego
+    ten kandydat”); obok „pytania X z Y” (grupy pytań tej rozmowy). Liczy
+    `forwardGaps` z `lib/joint-screening.ts` na tym samym rzucie stanu co
+    „Zapisz i przekaż dalej w N” — `forwardBlockers` to ten sam wynik jako
+    tekst, nie druga reguła. Klik w brak stawia kursor w polu
+    (`jointGapTarget`), a pole oceny innej rekrutacji najpierw otwiera jej
+    zakładkę.
+  - Dwie kolumny od `@[44rem]` (2 : 3): lewa — „Warunki” wspólne i per
+    rekrutacja (kolumna jest swoim kontenerem, więc pola warunków stoją jedno
+    pod drugim); prawa — pytania wspólne, „Tylko <rekrutacja>”, zakładki oceny.
+    „Idealnie” i „Odpada, gdy” pod „idealnie / deal-breaker · pokaż”, jak
+    w arkuszu pojedynczym. Formularz wspólny nie ma „Sprawdź w rozmowie”
+    (sekcja 4 Championa), więc lewa kolumna jest krótsza; przeniesienie oceny
+    na lewo skracało arkusz tylko o ok. 80 px, dlatego ocena stoi po prawej
+    jak w arkuszu pojedynczym.
+  - Stopka na dole arkusza: „Nie odebrał” (próba w rekrutacji kotwicy),
+    „N rekrutacje · M pytań w rozmowie”, „Zapisz w N”, „Zapisz i przekaż dalej
+    w N → Zweryfikowany”. Komunikat „Zanim przekażesz dalej…”, karta wyniku
+    i ostrzeżenie pamięci stoją w stopce nad przyciskami, żeby było je widać
+    bez przewijania arkusza.
+  - Pomiar (staging, rekruter, osoba 665612 w rekrutacjach 789230 i 789216,
+    5 grup pytań): 1280 × 720 — arkusz 2 899 → 2 056 px w oknie 625 px,
+    pasek trzy linie; 1024 × 700 — jedna kolumna; bez poziomego przewijania.
 - Jak zmierzymy: odsetek weryfikacji z 2+ zapisami arkusza (przed: 38%)
   i mediana od „Biorę” do „Zweryfikowany” (przed: 4,2 h), pomiar ok. 07.12.2026.

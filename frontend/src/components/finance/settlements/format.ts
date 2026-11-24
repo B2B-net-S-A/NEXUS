@@ -3,6 +3,7 @@ import type { StatusDotTone } from "@/components/ds/StatusDot";
 import type {
   AutoAcceptInfo,
   ClientAcceptanceState,
+  ClientInvoiceDeadline,
   ClientInvoiceState,
   ContractorInvoiceState,
   IntegrationCostStatus,
@@ -12,6 +13,7 @@ import type {
   SettlementStatus,
 } from "@/lib/api/client-settlements";
 import { formatPlnDocument } from "@/lib/money";
+import { countPl, pluralPl } from "@/lib/plural-pl";
 
 export const STATUS: Record<SettlementStatus, { label: string; tone: StatusDotTone }> = {
   missing: { label: "Brak RCP", tone: "neutral" },
@@ -38,6 +40,7 @@ export const CLIENT_INVOICE: Record<ClientInvoiceState, { label: string; tone: S
   issued: { label: "Wystawiona", tone: "success" },
   awaiting_signature: { label: "Czeka na podpis", tone: "warning" },
   awaiting_client: { label: "Czeka na klienta", tone: "warning" },
+  awaiting_t4t: { label: "Czeka na T4T", tone: "warning" },
 };
 
 /** Akceptacja klienta po wysyłce KCP (E6.5): drugi stan w kolumnie RCP. */
@@ -181,4 +184,15 @@ export function integrationUsageText(usage: IntegrationUsage): string {
   if (Number(usage.pending) > 0) parts.push(`czeka ${pln(usage.pending)}`);
   if (usage.remaining !== null) parts.push(`zostało ${pln(usage.remaining)}`);
   return parts.join(" · ");
+}
+
+/** Ostrzeżenie o terminie faktury do klienta z T4T (art. 106i: 15. dnia następnego miesiąca). */
+export function deadlineText(d: ClientInvoiceDeadline): string {
+  const who = `${countPl(d.missing, "osoba", "osoby", "osób")} bez zatwierdzonych godzin w T4T`;
+  const day = shortDay(d.date);
+  if (d.overdue) {
+    return `Termin faktury minął ${day} (${countPl(-d.days_left, "dzień", "dni", "dni")} temu): ${who}.`;
+  }
+  if (d.days_left === 0) return `Dziś termin faktury (${day}): ${who}.`;
+  return `Do terminu faktury ${day} ${pluralPl(d.days_left, "został", "zostały", "zostało")} ${countPl(d.days_left, "dzień", "dni", "dni")}: ${who}.`;
 }

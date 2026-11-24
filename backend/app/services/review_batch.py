@@ -53,7 +53,7 @@ from app.models.job import Job, JobPriority
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User, UserRole
-from app.services import candidate_claim, review_batch_levels
+from app.services import candidate_claim, review_batch_levels, screening_stale
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +209,9 @@ class PendingCard:
     # Wysłana wcześniej do klienta (``entry_meta.sent_before``, 20.11.2026);
     # od 22.11 w porcji od tego samego progu co inni (R3), punkty w kolejności.
     sent_before: bool = False
+    # Wróciła do puli po 2 dniach roboczych bez śladu (``screening_stale``,
+    # 23.11.2026): była już oceniona, więc porcja nie daje jej jako nowej.
+    returned: bool = False
 
 
 async def _other_column_def_ids(db: AsyncSession) -> list[int]:
@@ -279,6 +282,8 @@ def in_batch(
     0 CV z 40 decyzji; od 65%: 4 CV z 9). W puli zostają od 50%."""
 
     threshold = MIN_SCORE if min_score is None else min_score
+    if card.returned:
+        return False
     if card.score < threshold:
         return False
     if card.opened_at is None:
@@ -434,6 +439,7 @@ async def pending_cards(
             claimed_by=claimed_by,
             claimed_until=claimed_until,
             sent_before=bool((meta or {}).get("sent_before")),
+            returned=bool((meta or {}).get(screening_stale.META_RETURNED_AT)),
         )
         key = (card.job_id, card.candidate_id)
         prev = by_pair.get(key)
@@ -976,6 +982,8 @@ async def _decisions(
         pair = by_pair.get((job_id, candidate_id), [])
         if pair and pair[-1][1] in _NEW_STAGES:
             continue  # karta wróciła do „Nowych” — decyzji nie ma
+        if screening_stale.returned_after(meta, moved_at):
+            continue  # NEXUS oddał ją do puli po 2 dniach bez śladu (23.11.2026)
         later = [
             (name, at) for sid, name, at in pair if (at, sid) > (moved_at, stage_id)
         ]

@@ -52,7 +52,10 @@ import { newJobAdHref } from "@/lib/job-ad-mail-intent";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ds/PageHeader";
 import type { ClientRef } from "@/components/clients/ClientSinglePicker";
-import { SimilarRequestsBanner } from "@/components/v2/jobs/SimilarRequestsBanner";
+import {
+  SimilarRequestsBanner,
+  useSimilarRequests,
+} from "@/components/v2/jobs/SimilarRequestsBanner";
 import {
   EMPTY_INTAKE_FORM,
   FORM_SECTIONS,
@@ -94,6 +97,7 @@ import { fetchRowsFromLegacy, useRowCriticalInfo } from "@/lib/requirement-rows-
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
 import {
+  INTAKE_UNITS,
   acceptIntakeOffer,
   appendRequestText,
   applyIntakeRead,
@@ -102,7 +106,9 @@ import {
   mergeEvidence,
   mergeIntakeOffers,
   restoreIntakeOffers,
+  intakeFillUndo,
   undoIntakeFill,
+  type ClientDefaults,
   type IntakeFillUndo,
   type IntakeOffer,
   type IntakeSource,
@@ -116,6 +122,14 @@ import {
   type NewJobSourcePanel,
 } from "./NewJobSourceBar";
 import { NewJobFillSummary, type NewJobFillInfo } from "./NewJobFillSummary";
+import { RepeatRequestBanner } from "./RepeatRequestBanner";
+import {
+  repeatTemplate,
+  type RepeatMerge,
+  type RepeatSourceJob,
+  type RepeatTemplate,
+} from "@/lib/job-intake-repeat";
+import type { RequestHistoryEntry } from "@/lib/api";
 import { TemplateJobPicker, type TemplateJobOption } from "./TemplateJobPicker";
 import {
   NewJobReviewForm,
@@ -345,6 +359,8 @@ interface FillInput {
   templateJobId?: number;
   /** Plik Profilu Championa: pola przepisał kod, bez modelu („z dokumentu”). */
   championForm?: boolean;
+  /** Termin i liczba osób z historii klienta (wariant 1, 23.11.2026). */
+  clientDefaults?: ClientDefaults | null;
 }
 
 const EMPTY_PORTAL_PLAN: NewJobPortalPlan = {
@@ -401,6 +417,18 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   // Ostatnie wypełnienie: skrót dla paska i łatka do „Cofnij wypełnienie”.
   const [fillInfo, setFillInfo] = useState<NewJobFillInfo | null>(preview?.fill ?? null);
   const fillUndoRef = useRef<FillUndo | null>(null);
+  // Wariant 2 „Powtórka”: odczyt maila, który wszedł do pustego formularza —
+  // z nim baner składa formularz z poprzedniej rekrutacji i różnic z maila.
+  const [lastRead, setLastRead] = useState<{
+    form: IntakeForm;
+    clientDefaults: ClientDefaults | null;
+  } | null>(null);
+  const [repeatDismissed, setRepeatDismissed] = useState(false);
+  // Czy DL zmienił coś ręcznie od ostatniego „Użyj <nr>” — wtedy cofnięcie
+  // Powtórki nie przywraca banera (drugie „Użyj” nadpisałoby te zmiany).
+  const editedRef = useRef(false);
+  // „43260” — plakietki „z 43260” przy polach, dopóki formularz stoi na tym szablonie.
+  const [repeatLabel, setRepeatLabel] = useState<string | null>(null);
   // „Utwórz i opublikuj” kliknięte przy brakach — pola są odtąd podświetlone.
   const [createAttempted, setCreateAttempted] = useState(preview?.createAttempted ?? false);
   // Próba użycia źródła albo utworzenia bez klienta — komunikat przy polu klienta.
@@ -473,6 +501,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     const result = applyIntakeRead(live.form, incoming, {
       source: input.source,
       ...(input.championForm ? { basis: "document" as const } : {}),
+      clientDefaults: input.clientDefaults ?? null,
     });
     fillUndoRef.current = {
       undo: result.undo,
@@ -524,6 +553,10 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     // Pasek z przyciskiem znika — fokus zostaje na pasku źródeł nad nim.
     sourceBarRef.current?.focus();
     setFillInfo(null);
+    // Cofnięty odczyt nie może zostać bazą dla Powtórki; cofnięta Powtórka
+    // wraca do odczytu, więc baner stoi znowu.
+    if (!fillInfo?.repeat && fillInfo?.source !== "template") setLastRead(null);
+    if (fillInfo?.repeat && !editedRef.current) setRepeatDismissed(false);
     if (!saved) return;
     setForm((f) => {
       const next = undoIntakeFill(f, saved.undo);
@@ -545,7 +578,18 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     setSource(saved.previous.source);
   };
 
+  // Zmiana z rąk DL-a: Powtórka składa formularz z migawki odczytu, więc po
+  // pierwszej ręcznej zmianie baner znika (jak po „Czytaj od zera”) — „Użyj”
+  // nie może nadpisać tego, co DL wpisał.
+  const editForm = useCallback((update: IntakeForm | ((f: IntakeForm) => IntakeForm)) => {
+    editedRef.current = true;
+    setRepeatDismissed(true);
+    setForm(update);
+  }, []);
+
   const acceptOffer = useCallback((offer: IntakeOffer) => {
+    editedRef.current = true;
+    setRepeatDismissed(true);
     setForm((f) => acceptIntakeOffer(f, offer));
     setOffers((list) => list.filter((item) => item.unit !== offer.unit));
   }, []);
@@ -856,6 +900,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         intake: RequestIntakeResponse;
         reader?: string;
         champion_extras?: unknown;
+        client_defaults?: ClientDefaults | null;
       };
       if (pickedFile) {
         const body = new FormData();
@@ -880,17 +925,29 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         ).data;
       }
       const championForm = data.reader === "champion_form";
+      const incoming: IntakeForm = {
+        ...formFromIntake(data.intake),
+        championExtras: championForm ? championExtrasFrom(data.champion_extras) : null,
+      };
+      // Powtórka tylko dla odczytu do pustego formularza: „Użyj” składa go od
+      // nowa, więc nie może przykryć tego, co DL wpisał przed odczytem.
+      const live = liveRef.current;
+      const intoEmpty = isPristineIntake(live.form) && live.templateJobId == null;
+      setLastRead(
+        intoEmpty && !championForm
+          ? { form: incoming, clientDefaults: data.client_defaults ?? null }
+          : null,
+      );
+      setRepeatDismissed(false);
       applyFill(
-        {
-          ...formFromIntake(data.intake),
-          championExtras: championForm ? championExtrasFrom(data.champion_extras) : null,
-        },
+        incoming,
         {
           source: pickedFile ? "file" : "request",
           sourceName: pickedFile?.name ?? null,
           text: data.text,
           evidence: data.intake.evidence ?? [],
           championForm,
+          clientDefaults: data.client_defaults ?? null,
         },
       );
       // Plik requestu zostaje przy rekrutacji: zapisze go efekt niżej, gdy
@@ -940,6 +997,54 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     const applied = await applyTemplateFromJob(job.id, jobDisplayTitle(job));
     setTemplateBusyId(null);
     if (applied) setPanel(null);
+  };
+
+  /** Poprzednia rekrutacja w kształcie formularza — dla banera Powtórki. */
+  const loadRepeatTemplate = useCallback(async (jobId: number): Promise<RepeatTemplate> => {
+    const data = await loadTemplateSource<RepeatSourceJob>(api.get, jobId);
+    return repeatTemplate(data, await templateRows(data));
+  }, []);
+
+  /**
+   * „Użyj <nr> i przeczytaj z maila tylko różnice”: formularz z poprzedniej
+   * rekrutacji, z maila puste pola, a różnice jako propozycje (D3). Cofnięcie
+   * wraca do formularza z samego odczytu.
+   */
+  const applyRepeat = ({
+    entry,
+    template,
+    merge,
+  }: {
+    entry: RequestHistoryEntry;
+    template: RepeatTemplate;
+    merge: RepeatMerge;
+  }) => {
+    const live = liveRef.current;
+    const label = template.label;
+    setRepeatLabel(label);
+    editedRef.current = false;
+    fillUndoRef.current = {
+      undo: intakeFillUndo(live.form, merge.form),
+      // Powtórka wymienia wszystkie propozycje — cofnięcie przywraca poprzednie.
+      offerUnits: [...INTAKE_UNITS],
+      previous: {
+        requestText: live.requestText,
+        evidence: live.evidence,
+        offers: live.offers,
+        readByAi: live.readByAi,
+        templateJobId: live.templateJobId,
+        source: live.source,
+      },
+    };
+    setForm(merge.form);
+    setOffers(merge.offers);
+    setTemplateJobId(entry.job_id);
+    setFillInfo({
+      source: "template",
+      sourceName: entry.title,
+      filled: merge.filled,
+      repeat: { label, fromMail: merge.fromMail, differences: merge.differences },
+    });
   };
 
   // Nowa rekrutacja, jej priorytet i obsada zmieniają też liczniki listy,
@@ -1143,6 +1248,8 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     setOffers(restoreIntakeOffers(state.offers));
     // Cofnięcie dotyczy wypełnienia z tej sesji — zapisany formularz go nie niesie.
     fillUndoRef.current = null;
+    setLastRead(null);
+    setRepeatLabel(null);
     setFillInfo(null);
     setCreateAttempted(false);
     setClientAsked(false);
@@ -1438,7 +1545,40 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         disabled={saving != null}
       />
     ) : null;
-  const similarRequests = !preview ? (
+  // Powtórka: baner nad formularzem po odczycie maila do pustego formularza,
+  // gdy klient miał już podobny request (ta sama karta co „Użyj jako szablon”).
+  const similarQuery = useSimilarRequests({
+    clientId: preview ? null : (client?.id ?? null),
+    title: form.title,
+    description: requestText,
+  });
+  const similarEntries = useMemo(
+    () =>
+      similarQuery.data ? [...similarQuery.data.in_progress, ...similarQuery.data.closed] : [],
+    [similarQuery.data],
+  );
+  const showRepeat =
+    !preview &&
+    client != null &&
+    lastRead != null &&
+    templateJobId == null &&
+    !repeatDismissed &&
+    !reading &&
+    similarEntries.length > 0;
+  const repeatBanner =
+    showRepeat && client && lastRead ? (
+      <RepeatRequestBanner
+        clientName={client.name}
+        entries={similarEntries}
+        read={lastRead.form}
+        clientDefaults={lastRead.clientDefaults}
+        loadTemplate={loadRepeatTemplate}
+        onUse={applyRepeat}
+        onFromScratch={() => setRepeatDismissed(true)}
+        disabled={saving != null}
+      />
+    ) : null;
+  const similarRequests = !preview && !showRepeat ? (
     <SimilarRequestsBanner
       clientId={client?.id ?? null}
       title={form.title}
@@ -1477,6 +1617,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
           // Hiring manager to osoba z firmy klienta — inny klient, inna osoba.
           if (next?.id !== client?.id) {
             setForm((f) => ({ ...f, hiringManager: null, hiringManagerNotProvided: false }));
+            setLastRead(null);
           }
           setClient(next);
         }}
@@ -1526,6 +1667,8 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         onUndo={undoFill}
         disabled={saving != null || reading}
       />
+
+      {repeatBanner}
 
       {!hasSourcePane ? similarRequests : null}
 
@@ -1578,18 +1721,19 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
             onChange={setTeamChoice}
             requestText={requestText || pasteDraft}
             onUsePosition={(position) =>
-              setForm((f) => ({ ...f, title: position.title, headcount: String(position.headcount) }))
+              editForm((f) => ({ ...f, title: position.title, headcount: String(position.headcount) }))
             }
           />
           <NewJobReviewForm
             form={form}
-            onChange={setForm}
+            onChange={editForm}
             missing={missing}
             highlightMissing={highlightMissing}
             missingSource={missingSource}
             offers={liveOffers}
             onAcceptOffer={acceptOffer}
             onDismissOffer={dismissOffer}
+            templateLabel={templateJobId != null ? repeatLabel : null}
             clientId={client?.id ?? null}
             countEnabled={!preview}
             criticalInfo={criticalInfo}
@@ -1609,7 +1753,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                   suggestedCategoryId={form.suggestedCategoryId}
                   categoryConfirmed={form.categoryConfirmed}
                   onCategoryChange={(id, confirmed) =>
-                    setForm((f) => ({
+                    editForm((f) => ({
                       ...f,
                       competenceCategoryId: id,
                       categoryConfirmed: confirmed,

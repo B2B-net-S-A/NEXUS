@@ -81,6 +81,14 @@ BLOCK_LABELS: dict[str, str] = {
     "correction_orphan": "Korekta (albo kwota ujemna) bez znanej faktury pierwotnej — "
     "sprawdź ręcznie, którą fakturę pomniejsza.",
     "corrected_out": "Faktura skorygowana do zera albo poniżej — nie ma czego płacić.",
+    "dispute": "Spór / wstrzymane na rozliczeniu kontraktora — płatność czeka na "
+    "zwolnienie.",
+    "garnishment": "Zajęcie wierzytelności: kwoty dla organu nie da się policzyć — "
+    "płatność czeka na decyzję księgowej.",
+    "white_list_not_listed": "Rachunek kontraktora nie jest w wykazie VAT na dziś — "
+    "płatność wstrzymana do powrotu rachunku do wykazu albo zmiany rachunku.",
+    "white_list_unchecked": "Wykaz VAT nie odpowiedział — płatność kontraktora czeka "
+    "na sprawdzenie rachunku (błąd wykazu to nie zgoda).",
 }
 #: Ostrzeżenia do świadomego odhaczenia przy tworzeniu paczki.
 ACK_LABELS: dict[str, str] = {
@@ -93,6 +101,8 @@ ACK_LABELS: dict[str, str] = {
     "sprawdź go u dostawcy przed zapłatą (niezależnie od kwoty).",
     "mpp_suggested": "Faktura od 15 000 zł brutto bez flagi MPP / NIE MPP — sprawdź, "
     "czy podzielona płatność jest obowiązkowa (zał. 15).",
+    "garnishment": "Zajęcie wierzytelności: część płatności idzie na rachunek organu "
+    "— sprawdź podział przed paczką.",
 }
 HINT_LABELS: dict[str, str] = {
     "art_105a": "Od tego dostawcy w miesiącu ponad 50 000 zł netto — przy usługach "
@@ -108,6 +118,7 @@ WHITE_LIST_LABELS: dict[str, str] = {
     "foreign": "Nie dotyczy (rachunek zagraniczny)",
     "tax_office": "Nie dotyczy (rachunek urzędu)",
     "skipped": "Nie sprawdzano (wiersz zablokowany)",
+    "garnished": "Nie dotyczy (całość płatności idzie do organu)",
 }
 MODE_LABELS: dict[str, str] = {
     "standard": "Zwykły",
@@ -267,6 +278,19 @@ def needs_white_list_ack(
     return gross > WHITE_LIST_THRESHOLD and white_list_state != "listed"
 
 
+def contractor_white_list_block(white_list_state: str) -> Optional[str]:
+    """Faktura z dziennika „Kontraktorzy”: rachunek spoza wykazu VAT albo
+    niesprawdzony (wykaz nie odpowiedział) blokuje płatność w dniu paczki,
+    niezależnie od kwoty (decyzja Artura 23.11.2026). Tryb ``off``, brak
+    NIP-u i rachunek zagraniczny zostają przy dotychczasowych ostrzeżeniach."""
+
+    if white_list_state == "not_listed":
+        return "white_list_not_listed"
+    if white_list_state == "unchecked":
+        return "white_list_unchecked"
+    return None
+
+
 def art_105a_hint(
     *, mode: str, gross: Decimal, currency: str, month_net: Optional[Decimal]
 ) -> bool:
@@ -293,6 +317,8 @@ class CostCandidate:
     #: Kwota aktywnej pozycji paczki (``None`` = poza paczką).
     batch_amount: Optional[Decimal] = None
     batch_account: Optional[str] = None
+    #: Przelewy do organów z aktywnej pozycji paczki (zajęcie): (rachunek, kwota).
+    batch_transfers: tuple[tuple[str, Decimal], ...] = ()
     #: NIP i nazwa sprzedawcy — rozstrzygają numer faktury wspólny dla wielu
     #: dostawców, gdy rachunku odbiorcy nie znamy (faktury z KSeF go nie mają).
     seller_nip: Optional[str] = None
@@ -451,23 +477,30 @@ def decide_debit(
         )
 
     if account:
-        in_batch = [
-            c
-            for c in candidates
-            if c.batch_account == account
-            and c.currency == line.currency
-            and c.batch_amount is not None
-        ]
+        vat = mpp_vat(title)
         fitting = []
-        for c in in_batch:
-            vat = mpp_vat(title)
-            if c.batch_amount == amount or (
-                vat is not None and money(amount + vat) == c.batch_amount
+        for c in candidates:
+            if c.currency != line.currency:
+                continue
+            pairs = list(c.batch_transfers)
+            if c.batch_amount is not None and c.batch_account:
+                pairs.append((c.batch_account, c.batch_amount))
+            if any(
+                pair_account == account
+                and (
+                    pair_amount == amount
+                    or (vat is not None and money(amount + vat) == pair_amount)
+                )
+                for pair_account, pair_amount in pairs
             ):
                 fitting.append(c)
         if len(fitting) == 1:
             found = fitting[0]
-            return _settle(found, amount, title, "batch", partial_ok=False)
+            # Kwota i rachunek to dokładnie nasz przelew z paczki — przy
+            # podziale (zajęcie) to część płatności, więc częściowa jest w porządku.
+            return _settle(
+                found, amount, title, "batch", partial_ok=bool(found.batch_transfers)
+            )
         if len(fitting) > 1:
             return DebitDecision(
                 None, True, "ambiguous", candidates=tuple(c.entry_id for c in fitting)
@@ -490,6 +523,7 @@ __all__ = [
     "WHITE_LIST_LABELS",
     "WHITE_LIST_THRESHOLD",
     "art_105a_hint",
+    "contractor_white_list_block",
     "decide_debit",
     "is_domestic",
     "masked",

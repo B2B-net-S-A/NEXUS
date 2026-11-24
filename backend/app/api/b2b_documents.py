@@ -91,6 +91,10 @@ from app.services.b2b_documents import (
 )
 from app.services.b2b_documents.annex_summary import annex_change
 from app.services.b2b_documents.mandate_forms import FORMS_BY_KEY, MANDATE_FORMS
+from app.services.b2b_documents.non_compete_clients import (
+    recent_clients,
+    recent_clients_note,
+)
 from app.services.b2b_documents.context import (
     BaseContractInfo,
     build_document_context,
@@ -1808,6 +1812,15 @@ async def document_prefill(
         values["delivery_date"] = today.isoformat()
     if "non_compete_client_name" in field_keys and base.client_legal_name:
         values["non_compete_client_name"] = base.client_legal_name
+    if "non_compete_client_name" in field_keys and candidate_id is not None:
+        # Klienci tej osoby z 12 miesięcy przed rozwiązaniem (23.11.2026) —
+        # tylko zdanie pod polem, wyboru klienta nie zmieniamy.
+        until = _date(values.get("termination_date")) or today
+        note = recent_clients_note(
+            await recent_clients(db, candidate_id, until=until), until=until
+        )
+        if note:
+            notes["non_compete_client_name"] = note
     if "new_start_date_mode" in field_keys:
         values["new_start_date_mode"] = base.start_date_mode or "exact"
     if "valid_until" in field_keys:
