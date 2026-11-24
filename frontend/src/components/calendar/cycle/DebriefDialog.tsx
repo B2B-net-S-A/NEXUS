@@ -9,6 +9,7 @@ import { AppModal } from "@/components/ds/AppModal";
 import { DebriefFromNote } from "@/components/calendar/cycle/DebriefFromNote";
 import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
+import { callToastKey, debriefOpened } from "@/lib/interview-notifications";
 import { interviewCycleApi, useDebrief, useInterviewEvent } from "@/lib/api/interviewCycle";
 import {
   debriefAvailable,
@@ -138,6 +139,14 @@ export function DebriefDialog({
   } | null>(null);
   const eventId = eventIdProp ?? existsFor?.eventId ?? null;
   const existing = useDebrief(open ? eventId : null);
+  // Dymek „Na telefon zostało N min” tej rozmowy znika z ekranu, gdy okno jest
+  // otwarte — inaczej przy 1280 × 720 leży na „Zapisz debrief” w stopce.
+  const { dismissToast } = toast;
+  useEffect(() => {
+    if (!open || eventId == null) return;
+    dismissToast(callToastKey(eventId));
+    return debriefOpened(eventId);
+  }, [open, eventId, dismissToast]);
   // Wydarzenie zawsze — debrief potrzebuje pary (kandydat, rekrutacja), żeby
   // pokazać bieżącą stawkę i kto dostanie informację o jej zmianie (0418).
   const eventInfo = useInterviewEvent(open ? eventId : null);
