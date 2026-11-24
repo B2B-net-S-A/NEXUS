@@ -5066,6 +5066,20 @@
     ]
   },
   {
+    "id": "porcja-oddaj-do-nowych",
+    "pr": 3863,
+    "title": "Porcja dnia: „Oddaj do Nowych” zamiast odrzucania",
+    "why": "Screeningi z rekrutacji, która nie jest już Twoim P0, oddasz do „Nowych” jednym kliknięciem. Bez odrzucenia, bez wpisu „Odrzucony” w historii osoby, a wyszukiwanie przestaje się przez nie blokować.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": { "roles": ["recruiter"] },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia → Do domknięcia → grupa rekrutacji",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.return-group",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",
