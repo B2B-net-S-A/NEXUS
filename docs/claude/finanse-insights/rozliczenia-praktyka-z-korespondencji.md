@@ -18,7 +18,7 @@ rozliczeń, reguły klientów). „NEXUS” w kolumnie znaczy, że kontrola już
 | Nordea płaci tylko godziny zaakceptowane w T4T (status 2); faktura kontraktora ma się równać tej sumie, inaczej pytanie, a potem korekta (ok. 60 wątków) | `report.time_for_teams`, `time_reports` (stan „inne godziny”) |
 | Stawka obowiązująca w danym miesiącu to stawka z aneksu (`contract_candidate_rates.effective_from`), nie bieżąca | harmonogram stawek kontraktu |
 | Zmiana stawki w trakcie miesiąca: płatność po dwóch stawkach, rozliczenie dzielone („podziel TS”) | uwaga „Zmiana stawki DD.MM” na rozliczeniu (`service._rate_change_checks`, od 23.11.2026); kwota z jednej stawki zamówienia wymaga poprawy przez Finanse |
-| Akceptacja mailowa klienta podaje liczbę godzin i miesiąc (PKO, BIK) | `proof.accept_has_hours` |
+| Akceptacja mailowa klienta podaje liczbę godzin i miesiąc (PKO, BIK). Akceptuje tylko adres z domeny klienta, sam albo w cytacie; nasze zestawienie godzin nie jest akceptacją. Samo „Akceptuję” od klienta bez liczby wystarcza, gdy godziny są w TS za rozliczany miesiąc (decyzja Artura z 23.11.2026, „Akceptacja bez liczby, godziny z TS”); bez TS albo z TS za inny miesiąc zostaje uwaga | `proof.accept_has_hours` (`mail_text.judge`), `rozliczenia-akceptacja-od-klienta-orlen-cez.md` |
 | Zamówienie w MD ogranicza fakturę sprzedaży (BIK, BNP) | `order.no_md_holds_invoice` |
 | Faktura kontraktora na B2B.net S.A. w KSeF, termin 14 dni od nadania numeru KSeF | `ci.ksef`, `ci.buyer_nip`, `ci.payment_days` |
 | Biała lista VAT dla faktur powyżej 15 tys. zł brutto | `contractor_details` (status z wykazu MF) |

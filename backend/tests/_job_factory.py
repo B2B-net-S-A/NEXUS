@@ -21,12 +21,16 @@ from sqlalchemy import delete, select
 from app.core.database import AsyncSessionLocal
 
 READY_CHAMPION: dict[str, Any] = {
-    "project": {"about": "Platforma płatności B2B dla banku — rozwój usług."},
+    "project": {
+        "about": "Platforma płatności B2B dla banku — rozwój usług.",
+        "key_task": "Przeniesienie rozliczeń na nową platformę płatności.",
+    },
     "screening_questions": [
         {
             "id": "q1",
             "question": "Doświadczenie z Pythonem?",
             "deal_breaker": "Brak komercyjnego projektu w Pythonie.",
+            "key_task": True,
         },
         {
             "id": "q2",
@@ -154,7 +158,7 @@ async def purge_job(job_id: int) -> None:
 # zakładanych wprost w bazie, które test potem otwiera ponownie albo
 # przekazuje do searchu.
 READY_STORED_CHAMPION: dict[str, Any] = {
-    "project": {"about": "Platforma płatności B2B dla banku — rozwój usług."},
+    "project": copy.deepcopy(READY_CHAMPION["project"]),
     "screening_questions": copy.deepcopy(READY_CHAMPION["screening_questions"]),
     "stack": {"must": [{"name": "Python"}], "critical": []},
     "basics": {"rate_value": 150, "work_mode": "zdalnie"},

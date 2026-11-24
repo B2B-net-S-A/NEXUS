@@ -25,7 +25,7 @@ JSONB — odwracalnym tylko z kopii, której off-site nie mamy.
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 __all__ = [
     "as_dict",
@@ -164,6 +164,26 @@ def client(source: Any) -> dict:
 def screening_questions(source: Any) -> list:
     value = as_dict(source).get("screening_questions")
     return list(value) if isinstance(value, list) else []
+
+
+def key_task(source: Any) -> tuple[str, Optional[dict]]:
+    """„Najważniejsze zadanie w tej roli” i pytanie, które je sprawdza.
+
+    Zwraca (zadanie, pytanie). Puste zadanie = DL go nie wpisał (profile
+    sprzed 23.11.2026); ``None`` = żadne pytanie nie jest oznaczone.
+    """
+    task = str(project(source).get("key_task") or "").strip()
+    question = next(
+        (
+            q
+            for q in screening_questions(source)
+            if isinstance(q, dict)
+            and q.get("key_task")
+            and str(q.get("question") or "").strip()
+        ),
+        None,
+    )
+    return task, question
 
 
 def documents(source: Any) -> list:

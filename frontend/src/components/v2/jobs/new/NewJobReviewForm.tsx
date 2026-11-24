@@ -48,7 +48,6 @@ import {
   FIELD_BASIS_LABEL,
   FORM_SECTIONS,
   MISSING_LABEL,
-  approveQuestions,
   budgetRangeError,
   clientReferenceFor,
   droppedRequirementsText,
@@ -56,12 +55,14 @@ import {
   effectiveWorkingTitle,
   filledQuestions,
   joinCities,
+  confirmKeyTask,
+  keyTaskQuestion,
   markEdited,
+  markKeyTaskQuestion,
   missingBySection,
   newManualQuestion,
   newQuestionKey,
   sectionAnchor,
-  unapprovedQuestions,
   type FieldBasis,
   type FormSection,
   type IntakeForm,
@@ -99,6 +100,12 @@ export const BUDGET_HELP_TEXT =
 
 export const DEAL_BREAKER_REQUIRED_TEXT =
   "Wpisz odpowiedź, która dyskwalifikuje kandydata — bez niej rekrutacja nie trafi do searchu.";
+
+export const KEY_TASK_HINT =
+  "Trafia do CV kandydata jako zdanie 3 „Dlaczego nasz kandydat”. Zaznacz w „Pytaniach” pytanie, które je sprawdza.";
+
+export const KEY_TASK_QUESTION_REQUIRED_TEXT =
+  "Zaznacz pytanie, które sprawdza najważniejsze zadanie w tej roli.";
 
 /** „2 pytania”, „5 pytań”, „22 pytania” — polska odmiana liczebnika. */
 export function questionsLabel(n: number): string {
@@ -674,6 +681,7 @@ function ReviewSections({
     start: useId(),
     contract: useId(),
     about: useId(),
+    keyTask: useId(),
     resp: useId(),
     selling: useId(),
   };
@@ -824,7 +832,15 @@ function ReviewSections({
                 ),
               )
             }
-            onNoCritical={() => onChange((f) => ({ ...f, noCritical: true, criticalProposal: [] }))}
+            // Krytyczne wstawione z propozycji (wariant 1) schodzą do „musi mieć”.
+            onNoCritical={() =>
+              onChange((f) => ({
+                ...f,
+                noCritical: true,
+                criticalProposal: [],
+                rows: f.rows.map((row) => (row.level === "critical" ? { ...row, level: "must" } : row)),
+              }))
+            }
             onDismissCritical={() => onChange((f) => ({ ...f, criticalProposal: [] }))}
             onAddTechnologies={(names) =>
               onChange((f) => markEdited({ ...f, rows: addNiceRows(f.rows, names) }, "requirements"))
@@ -1220,7 +1236,12 @@ function ReviewSections({
         />
       </SectionCard>
 
-      <SectionCard section="project" number={4} title="O projekcie" warn={isMissing("context")}>
+      <SectionCard
+        section="project"
+        number={4}
+        title="O projekcie"
+        warn={isMissing("context") || (isMissing("key_task") && !form.keyTask.trim())}
+      >
         <div className="flex flex-col gap-2">
           <FieldLabel
             htmlFor={ids.about}
@@ -1240,6 +1261,36 @@ function ReviewSections({
             className={cn(isMissing("context") && MISSING_RING)}
           />
           <MissingNote show={isMissing("context")} />
+        </div>
+        <div className="flex flex-col gap-2">
+          <FieldLabel
+            htmlFor={ids.keyTask}
+            missing={isMissing("key_task") && !form.keyTask.trim()}
+            hint="wymagane"
+            offerUnit="keyTask"
+          >
+            Najważniejsze zadanie w tej roli
+          </FieldLabel>
+          <Textarea
+            id={ids.keyTask}
+            data-testid="new-job-key-task"
+            rows={2}
+            value={form.keyTask}
+            // Poprawka DL-a kończy propozycję AI (wariant 1, 23.11.2026).
+            onChange={(e) =>
+              onChange((f) => ({ ...f, keyTask: e.target.value, keyTaskProposed: false }))
+            }
+            placeholder="Jedno zdanie słowami klienta: co ta osoba musi dowieźć w pierwszej kolejności?"
+            aria-describedby={`${ids.keyTask}-hint`}
+            className={cn(isMissing("key_task") && !form.keyTask.trim() && MISSING_RING)}
+          />
+          <MissingNote show={isMissing("key_task") && !form.keyTask.trim()} />
+          {form.keyTaskProposed && form.keyTask.trim() ? (
+            <KeyTaskProposal form={form} onChange={onChange} />
+          ) : null}
+          <span id={`${ids.keyTask}-hint`} className="text-xs text-muted-foreground">
+            {KEY_TASK_HINT}
+          </span>
         </div>
         <div className="flex flex-col gap-2">
           <FieldLabel
@@ -1290,6 +1341,56 @@ function ReviewSections({
  * AI proponuje komplet; Delivery Lead poprawia albo zatwierdza — bez tego
  * i bez deal breakera przy każdym pytaniu rekrutacja nie idzie do searchu.
  */
+/**
+ * Propozycja „Najważniejszego zadania” z odczytu maila (wariant 1, 23.11.2026):
+ * AI podpowiada zdanie i pytanie, które je sprawdza; Delivery Lead zatwierdza
+ * jednym kliknięciem albo pisze sam. Do zatwierdzenia zadanie jest brakiem.
+ */
+function KeyTaskProposal({
+  form,
+  onChange,
+}: {
+  form: IntakeForm;
+  onChange: (update: (f: IntakeForm) => IntakeForm) => void;
+}) {
+  const question = keyTaskQuestion(form);
+  const index = question ? filledQuestions(form).indexOf(question) + 1 : 0;
+  return (
+    <div
+      className="flex flex-col gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm"
+      data-testid="new-job-key-task-proposal"
+      data-tour="new-job.key-task-proposal"
+    >
+      <span className="text-foreground">
+        Propozycja AI z maila — zatwierdź albo popraw zdanie powyżej.
+      </span>
+      <span className="text-xs text-muted-foreground">
+        {question
+          ? `Sprawdza je pytanie ${index}: ${question.question}`
+          : "Zaznacz w „Pytaniach” pytanie, które je sprawdza."}
+      </span>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          size="sm"
+          data-testid="new-job-key-task-confirm"
+          onClick={() => onChange(confirmKeyTask)}
+        >
+          Zatwierdź zadanie
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={() => onChange((f) => ({ ...f, keyTask: "", keyTaskProposed: false }))}
+        >
+          Napiszę sam
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function QuestionsSection({
   form,
   onChange,
@@ -1300,10 +1401,11 @@ function QuestionsSection({
   isMissing: (code: MissingCode) => boolean;
 }) {
   const filled = filledQuestions(form);
-  const pending = unapprovedQuestions(form);
-  const approvable = pending.filter((q) => q.dealBreaker.trim());
-  const warn =
-    isMissing("questions") || isMissing("deal_breaker") || isMissing("questions_review");
+  // Brak zaznaczonego pytania — tekst zadania podświetla sekcja „O projekcie”.
+  const noKeyTaskQuestion =
+    isMissing("key_task") && filled.length > 0 && keyTaskQuestion(form) == null;
+  const keyTaskName = useId();
+  const warn = isMissing("questions") || isMissing("deal_breaker") || noKeyTaskQuestion;
   const edit = (
     key: string,
     patch: Partial<Pick<IntakeQuestionForm, "question" | "idealAnswer" | "dealBreaker">>,
@@ -1314,76 +1416,40 @@ function QuestionsSection({
       section="questions"
       number={5}
       title="Pytania do kandydata"
-      hint="AI proponuje pytanie, dobrą odpowiedź i odpowiedź, która dyskwalifikuje. Popraw albo zatwierdź."
+      hint="AI proponuje pytanie, dobrą odpowiedź i odpowiedź, która dyskwalifikuje. Popraw, co chcesz — „Utwórz” je zatwierdzi."
       warn={warn}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span
-          className={cn(
-            "text-xs",
-            filled.length < 2 || pending.length > 0
-              ? "font-medium text-warning-muted-foreground"
-              : "text-muted-foreground",
-          )}
-          aria-live="polite"
-        >
-          {filled.length < 2
-            ? `${filled.length} z 2 wymaganych`
-            : pending.length > 0
-              ? `Zatwierdzone ${filled.length - pending.length} z ${filled.length}`
-              : `${questionsLabel(filled.length)} — wszystkie zatwierdzone`}
-        </span>
-        {pending.length > 0 ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={approvable.length === 0}
-            title={
-              approvable.length === 0
-                ? "Najpierw wpisz przy pytaniach odpowiedź, która odpada"
-                : undefined
-            }
-            onClick={() => onChange((f) => approveQuestions(f))}
-          >
-            Zatwierdź wszystkie
-          </Button>
-        ) : null}
-      </div>
+      {/* Wariant 1 (23.11.2026): bez „Zatwierdź” przy pytaniach — zatwierdza „Utwórz”. */}
+      <span
+        className={cn(
+          "text-xs",
+          filled.length < 2 ? "font-medium text-warning-muted-foreground" : "text-muted-foreground",
+        )}
+        aria-live="polite"
+      >
+        {filled.length < 2
+          ? `${filled.length} z 2 wymaganych`
+          : `${questionsLabel(filled.length)} — zatwierdzisz je przyciskiem „Utwórz”`}
+      </span>
       <FieldOffer unit="questions" />
+      {noKeyTaskQuestion ? (
+        <span className="text-xs font-medium text-warning-muted-foreground">
+          {KEY_TASK_QUESTION_REQUIRED_TEXT}
+        </span>
+      ) : null}
       {form.questions.map((q, i) => {
         const n = i + 1;
         const noBreaker = q.question.trim().length > 0 && !q.dealBreaker.trim();
         return (
           <div
             key={q.key}
-            className={cn(
-              "flex flex-col gap-2 rounded-lg border p-3",
-              q.approved ? "border-border" : "border-dashed border-primary/40 bg-primary/5",
-            )}
+            className="flex flex-col gap-2 rounded-lg border border-border p-3"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs text-muted-foreground">
                 Pytanie {n} · {ORIGIN_LABEL[q.origin]}
               </span>
               <span className="flex items-center gap-1">
-                {q.approved ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-success-muted px-2 py-0.5 text-[11px] font-medium text-success-muted-foreground">
-                    <Check className="h-3 w-3" aria-hidden /> Zatwierdzone
-                  </span>
-                ) : (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={!q.question.trim() || noBreaker}
-                    title={noBreaker ? "Najpierw wpisz odpowiedź, która odpada" : undefined}
-                    aria-label={`Zatwierdź pytanie ${n}`}
-                    onClick={() => onChange((f) => approveQuestions(f, q.key))}
-                  >
-                    Zatwierdź
-                  </Button>
-                )}
                 <button
                   type="button"
                   aria-label={`Usuń pytanie ${n}`}
@@ -1442,6 +1508,17 @@ function QuestionsSection({
                 {DEAL_BREAKER_REQUIRED_TEXT}
               </span>
             ) : null}
+            <label className="inline-flex items-center gap-2 self-start text-xs font-medium text-foreground">
+              <input
+                type="radio"
+                name={keyTaskName}
+                data-testid={`new-job-q-${i}-key-task`}
+                checked={q.keyTask}
+                onChange={() => onChange((f) => markKeyTaskQuestion(f, q.key))}
+                className="h-4 w-4 accent-primary"
+              />
+              To pytanie sprawdza najważniejsze zadanie
+            </label>
           </div>
         );
       })}

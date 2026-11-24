@@ -19,7 +19,7 @@ import hashlib
 from datetime import date
 from decimal import Decimal
 from html import escape
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from app.models.client_issued_invoice import ClientIssuedInvoice
 from app.services.client_invoicing import fa3_build, issue_settings
@@ -143,7 +143,11 @@ def render_html(
     settings: dict[str, Any],
     *,
     corrected_number: Optional[str] = None,
+    order_numbers: Sequence[str] = (),
+    client_notes: Sequence[str] = (),
 ) -> str:
+    """HTML faktury; ``order_numbers`` i ``client_notes`` — z wymagań klienta (``cl.*``)."""
+
     seller = settings["seller"]
     currency = invoice.currency
     accepted = invoice.status == "accepted" and invoice.ksef_number and invoice.xml
@@ -235,8 +239,25 @@ def render_html(
             f"Korekta faktury {escape(corrected_number or '')}. "
             f"Przyczyna: {escape(invoice.correction_reason or '')}."
         )
-    if invoice.client_order_number:
-        notes.append(f"Zamówienie klienta: {escape(invoice.client_order_number)}.")
+    numbers = list(order_numbers) or (
+        [invoice.client_order_number] if invoice.client_order_number else []
+    )
+    if numbers:
+        label = "Zamówienia klienta" if len(numbers) > 1 else "Zamówienie klienta"
+        notes.append(f"{label}: {escape(', '.join(numbers))}.")
+    notes.extend(escape(note) for note in client_notes)
+    buyer = invoice.buyer or {}
+    if buyer.get("delivery_l1"):
+        place = ", ".join(
+            part
+            for part in (
+                buyer.get("delivery_l1"),
+                buyer.get("delivery_l2"),
+                buyer.get("delivery_country"),
+            )
+            if part
+        )
+        notes.append(f"Adres do doręczenia: {escape(place)}.")
     if invoice.notes:
         notes.append(escape(invoice.notes))
     account = (

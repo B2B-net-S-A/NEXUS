@@ -134,6 +134,23 @@ export interface SalesInvoice {
   payment_account?: string | null;
   /** Ostatni dzień ciągłych wyciągów rachunku odbioru od wystawienia faktury. */
   statements_until?: string | null;
+  /** Faktura walutowa: netto zapłacone, VAT (płatny w PLN) nie (lista „Po terminie”). */
+  vat_pln_unpaid?: VatPlnUnpaid | null;
+  /** Poziom monitu z dni po terminie (7 / 14 / 30); tylko lista „Po terminie”. */
+  escalation?: ReminderLevel | null;
+}
+
+export type ReminderLevel = "first" | "second" | "final";
+
+export interface VatPlnUnpaid {
+  /** Nieopłacony VAT w walucie faktury. */
+  vat: string;
+  currency: string;
+  /** VAT w PLN po kursie faktury; `null` — brak kursu. */
+  vat_pln: string | null;
+  rate: string | null;
+  rate_date: string | null;
+  rate_source: "issued" | "nbp" | null;
 }
 
 /** Dlaczego NEXUS nie liczy zaległości faktury (`payment_proof.REASONS` w API). */
@@ -156,6 +173,43 @@ export interface OverdueInvoices {
   /** Faktury po dacie terminu bez danych o zapłacie — poza listą. */
   payment_unknown?: number;
   payment_unknown_reasons?: PaymentUnknownCount[];
+  /** Faktury walutowe z dowodem, że VAT w PLN nie wpłynął. */
+  vat_pln_unpaid?: { count: number; total_pln: string | null; without_rate: number };
+}
+
+export interface ReminderRecipient {
+  email: string;
+  name: string | null;
+  source: "contact" | "send_to" | "acceptance";
+  source_label: string;
+}
+
+export interface ReminderDraft {
+  client_id: number;
+  client_name: string | null;
+  /** `null` — żadna faktura nie jest jeszcze 7 dni po terminie. */
+  level: ReminderLevel | null;
+  level_label: string | null;
+  first_day: number;
+  language: "pl" | "en";
+  subject: string;
+  text: string;
+  invoices: {
+    invoice_id: number;
+    invoice_number: string;
+    ksef_number: string | null;
+    due_date: string | null;
+    currency: string;
+    to_pay: string;
+    overdue_days: number;
+    escalation: ReminderLevel | null;
+    vat: string | null;
+    vat_pln: string | null;
+  }[];
+  totals: MoneyTotal[];
+  recipients: ReminderRecipient[];
+  last_sent_at: string | null;
+  last_level: ReminderLevel | null;
 }
 
 export interface MoneyTotal {
@@ -337,6 +391,8 @@ export const invoicingKeys = {
   toInvoice: (year: number, month: number) =>
     ["client-invoicing", "to-invoice", year, month] as const,
   overdue: ["client-invoicing", "overdue"] as const,
+  reminder: (clientId: number, language: string | null) =>
+    ["client-invoicing", "reminder", clientId, language] as const,
   scopeOverdue: ["client-invoicing", "scope-overdue"] as const,
   credits: ["client-invoicing", "credits"] as const,
   status: ["client-invoicing", "status"] as const,
@@ -353,6 +409,9 @@ export const invoicingPaths = {
     `${CLIENTS}/${clientId}/invoicing/export?year=${year}&month=${month}&format=${format}`,
   financeExport: (year: number, month: number, format: ExportFormat) =>
     `${FINANCE}/to-invoice/export?year=${year}&month=${month}&format=${format}`,
+  /** Należności po terminie na ostatni dzień miesiąca („RRRR-MM”) — dla księgowej. */
+  monthClose: (period: string, format: ExportFormat) =>
+    `${FINANCE}/overdue/month-close?month=${period}&format=${format}`,
 };
 
 export async function downloadInvoicingFile(path: string, fallbackName: string): Promise<void> {
@@ -414,6 +473,36 @@ export function useFinanceOverdue(enabled = true) {
     queryFn: async () =>
       (await api.get<OverdueInvoices>(`${FINANCE}/overdue`)).data,
     enabled,
+  });
+}
+
+/** Szkic monitu do klienta (nic nie wysyła). */
+export function useReminderDraft(clientId: number | null, language: "pl" | "en" | null) {
+  return useQuery({
+    queryKey: invoicingKeys.reminder(clientId ?? 0, language),
+    queryFn: async () =>
+      (
+        await api.get<ReminderDraft>(`${FINANCE}/overdue/reminder`, {
+          params: { client_id: clientId, ...(language ? { language } : {}) },
+        })
+      ).data,
+    enabled: clientId !== null,
+  });
+}
+
+/** Wysyłka monitu po kliknięciu — adresaci tylko z listy szkicu. */
+export function useSendReminder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { client_id: number; to: string[]; subject: string; text: string }) =>
+      (
+        await api.post<{ sent: number; failed: number; level: ReminderLevel }>(
+          `${FINANCE}/overdue/reminder`,
+          payload,
+        )
+      ).data,
+    onSuccess: (_data, payload) =>
+      queryClient.invalidateQueries({ queryKey: ["client-invoicing", "reminder", payload.client_id] }),
   });
 }
 

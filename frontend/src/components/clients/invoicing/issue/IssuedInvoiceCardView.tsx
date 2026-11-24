@@ -44,6 +44,7 @@ import { cn } from "@/lib/utils";
 
 import { CollectiveCorrectionBox } from "./CollectiveCorrectionBox";
 import { InvoiceRebateBox } from "./InvoiceRebateBox";
+import { InvoiceRequirementsBox } from "./InvoiceRequirementsBox";
 import {
   STATUS_TONE,
   apiDecimal,
@@ -492,14 +493,22 @@ function CardBody({
           </div>
           <div className="grid gap-3 md:grid-cols-4">
             <FormField
-              label="Numer zamówienia klienta"
+              label={
+                card.order_numbers.length > 1
+                  ? "Numery zamówień klienta (z pozycji)"
+                  : "Numer zamówienia klienta"
+              }
               htmlFor="inv-order"
               className="md:col-span-2"
             >
               <Input
                 id="inv-order"
-                disabled={!editable}
-                value={form.client_order_number}
+                disabled={!editable || card.order_numbers.length > 1}
+                value={
+                  card.order_numbers.length > 1
+                    ? card.order_numbers.join(", ")
+                    : form.client_order_number
+                }
                 onChange={(e) =>
                   change({ client_order_number: e.target.value })
                 }
@@ -634,6 +643,28 @@ function CardBody({
             <h3 className="mb-2 text-sm font-semibold text-foreground">
               Nabywca
             </h3>
+            {card.buyer_options.length ? (
+              <BuyerPicker
+                options={card.buyer_options}
+                value={card.buyer.code ?? ""}
+                disabled={!editable || dirty || update.isPending}
+                dirty={dirty}
+                onChoose={(code) =>
+                  update.mutate(
+                    { buyer_code: code },
+                    {
+                      onSuccess: () =>
+                        showToast("Nabywca zapisany dla kontraktów tej faktury", "success"),
+                      onError: (error) =>
+                        showToast(
+                          apiErrorMessage(error, "Nie udało się zmienić nabywcy."),
+                          "error",
+                        ),
+                    },
+                  )
+                }
+              />
+            ) : null}
             <div className="space-y-2">
               <Input
                 aria-label="Nazwa nabywcy"
@@ -678,8 +709,20 @@ function CardBody({
                 }
                 placeholder="PL"
               />
+              {card.buyer.delivery_l1 ? (
+                <p className="text-xs text-muted-foreground">
+                  Adres doręczenia: {card.buyer.delivery_l1}
+                  {card.buyer.delivery_l2 ? `, ${card.buyer.delivery_l2}` : ""}
+                  {card.buyer.delivery_country ? `, ${card.buyer.delivery_country}` : ""}
+                </p>
+              ) : null}
             </div>
           </section>
+          <InvoiceRequirementsBox
+            requirements={card.requirements}
+            mail={card.mail}
+            warnings={card.warnings}
+          />
           <section
             className="rounded-lg border border-border bg-card px-4 py-3"
             aria-label="Kwoty"
@@ -745,6 +788,44 @@ function CardBody({
         <CorrectionDialog card={card} onClose={() => setCorrection(false)} />
       ) : null}
       {confirmDialog}
+    </div>
+  );
+}
+
+interface BuyerPickerProps {
+  options: IssuedInvoiceCard["buyer_options"];
+  value: string;
+  disabled: boolean;
+  dirty: boolean;
+  onChoose: (code: string) => void;
+}
+
+/** Nabywca z listy klienta (nabywca per kontrakt, np. kilka spółek klienta). */
+export function BuyerPicker({ options, value, disabled, dirty, onChoose }: BuyerPickerProps) {
+  return (
+    <div className="mb-2 space-y-1">
+      <select
+        aria-label="Nabywca z listy klienta"
+        className={SELECT}
+        disabled={disabled}
+        value={value}
+        onChange={(e) => {
+          if (e.target.value) onChoose(e.target.value);
+        }}
+      >
+        <option value="">— wybierz nabywcę z listy klienta —</option>
+        {options.map((option) => (
+          <option key={option.code} value={option.code}>
+            {option.name}
+            {option.number ? ` (${option.number})` : ""}
+          </option>
+        ))}
+      </select>
+      <p className="text-xs text-muted-foreground">
+        {dirty
+          ? "Zapisz szkic przed zmianą nabywcy."
+          : "Seria i stawka VAT idą za nabywcą; NEXUS zapamięta go dla kontraktów tej faktury."}
+      </p>
     </div>
   );
 }

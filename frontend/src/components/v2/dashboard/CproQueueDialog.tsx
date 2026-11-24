@@ -45,6 +45,7 @@ import { countPl } from "@/lib/plural-pl";
 import { QC_STATUS_LABEL, qcStateText } from "@/lib/cv-qc";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { CproBotItemStatus, CproBotLine } from "@/components/v2/dashboard/CproBotStatus";
+import { CproOperatorDraft } from "@/components/v2/dashboard/CproOperatorDraft";
 import { resolveViewState } from "@/lib/view-state";
 import { cn, formatDate } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
@@ -306,6 +307,12 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
   // mają zostać, dopóki okno jest otwarte.
   const [known, setKnown] = useState<CproQueueJob[]>([]);
   const [busy, setBusy] = useState<number | null>(null);
+  const [activeDraftStages, setActiveDraftStages] = useState<Record<number, boolean>>({});
+  // Cached "ready" may predate a run created in another tab/session. Do not
+  // expose the manual stage move while reconciling that state (or offline).
+  const operatorMode = (item: CproQueueItem) => !!item.operator_status || (!!item.operator_draft && (
+    item.operator_draft.state !== "ready" || activeDraftStages[item.stage_id] || queue.isFetching || queue.isError
+  ));
   const [returning, setReturning] = useState<number | null>(null);
   const [returnReason, setReturnReason] = useState("");
 
@@ -313,6 +320,7 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
     if (open) setJobId(initialJobId);
     else {
       setDone({});
+      setActiveDraftStages({});
       setKnown([]);
       setReturning(null);
       setReturnReason("");
@@ -369,7 +377,7 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
     setDone((prev) => ({ ...prev, [forJob]: [...(prev[forJob] ?? []), row] }));
 
   const move = async (item: CproQueueItem, kind: "sent" | "returned") => {
-    if (!job) return;
+    if (!job || operatorMode(item)) return;
     const stageDefId = kind === "sent" ? item.target_stage_def_id : item.return_stage_def_id;
     if (stageDefId == null) return;
     setBusy(item.stage_id);
@@ -594,13 +602,18 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
                           </p>
                           <CproAcceptance item={item} />
                           <CproCvDraftBadge item={item} />
-                          <CproBotItemStatus
+                          {item.operator_status ? <div className="mt-1 space-y-0.5 text-xs text-info-muted-foreground" data-testid="cpro-operator-status">
+                            <p>{item.operator_status.state === "draft" ? "Szkic DRAFT czeka na ocenę Sandry." : "Inny operator przygotowuje lub sprawdza szkic w Cpro."}</p>
+                            <p>Konto Cpro: {({ 14: "Igor", 27: "Marcin" } as Record<number, string>)[item.operator_status.delivery_lead_id] ?? "nieznane — sprawdź ręcznie"} · request {item.operator_status.request_number}{item.operator_status.offer_id ? ` · ID oferty ${item.operator_status.offer_id}` : ""}</p>
+                            <p>Nie twórz kolejnej oferty.{item.operator_status.state === "draft" ? " Po ocenie i faktycznej publikacji domknij standardowy etap na Tablicy rekrutacji." : " Poczekaj na potwierdzenie istniejącego szkicu."}</p>
+                          </div> : null}
+                          {!operatorMode(item) ? <CproBotItemStatus
                             stageId={item.stage_id}
                             bot={item.bot}
                             canRetry={queue.data?.bot?.can_retry ?? false}
-                          />
+                          /> : null}
                         </div>
-                        <div className="col-span-2 flex flex-wrap gap-1.5 sm:col-span-1 sm:justify-end">
+                        {!operatorMode(item) ? <div className="col-span-2 flex flex-wrap gap-1.5 sm:col-span-1 sm:justify-end">
                           <Button
                             size="sm"
                             variant="outline"
@@ -635,8 +648,14 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
                             )}
                             Wrzucone
                           </Button>
-                        </div>
-                        {returning === item.stage_id ? (
+                        </div> : null}
+                        {item.operator_draft && !item.operator_status ? <CproOperatorDraft
+                          key={`${item.stage_id}:${item.operator_draft.delivery_lead_id}:${item.operator_draft.request_number}`}
+                          stageId={item.stage_id}
+                          draft={item.operator_draft}
+                          onActiveChange={(active) => setActiveDraftStages((previous) => ({ ...previous, [item.stage_id]: active }))}
+                        /> : null}
+                        {returning === item.stage_id && !operatorMode(item) ? (
                           <div className="col-span-full space-y-2 rounded-md border border-border bg-muted/30 p-2.5" role="group" aria-label="Zwrot do rekrutera">
                             <label className="block text-xs font-medium">
                               Dlaczego nie da się wrzucić? *
@@ -672,7 +691,7 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
                 ) : null}
 
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                  {current ? (
+                  {current && !operatorMode(current) ? (
                     <Button
                       size="sm"
                       variant="ghost"

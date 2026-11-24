@@ -23,7 +23,8 @@ udostępniania dla klienta nie robimy. Raport: `docs/job-no-drafts-completion-re
 - **Nowe wymagania bramki** (tylko `job_handoff_blockers`, nie bramka briefu
   automatu przydziału): hiring manager albo `jobs.hiring_manager_not_provided`,
   termin albo `jobs.deadline_not_provided` („Klient nie podał” — decyzja, nie
-  zgadywanie), kategoria, liczba osób ≥ 1. Ustawienie kontaktu HM albo daty
+  zgadywanie; od 23.11.2026 formularz podpowiada ją z historii klienta —
+  `jobs-new-mniej-decyzji-wariant-1.md`), kategoria, liczba osób ≥ 1. Ustawienie kontaktu HM albo daty
   zeruje flagę. Kody braków: `job_readiness.BLOCKER_CODES` (lustro
   `lib/__fixtures__/job-readiness-blockers.json`), problemy Championa jako
   `champion:<kod>`.

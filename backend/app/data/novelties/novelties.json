@@ -2211,6 +2211,53 @@
     "dot_anchor": "cheatsheet.cv-questions"
   },
   {
+    "id": "najwazniejsze-zadanie-w-roli",
+    "title": "Najważniejsze zadanie w tej roli w Profilu Championa",
+    "why": "Wpisujesz zadanie, na którym klientowi najbardziej zależy, i zaznaczasz pytanie, które je sprawdza. Bez tego nie przekażesz rekrutacji do searchu. Trafi do CV jako zdanie 3.",
+    "tier": "dot",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Profil Championa → Brief → „Najważniejsze zadanie w tej roli”",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "champion.key-task",
+    "steps": [
+      {
+        "anchor": "champion.key-task",
+        "text": "Kliknij „Edytuj” przy „Najważniejsze zadanie w tej roli”",
+        "hint": "Wpisz jedno zdanie słowami klienta: co ta osoba musi dowieźć w pierwszej kolejności."
+      },
+      {
+        "anchor": "champion.key-task.question",
+        "text": "Zaznacz pytanie, które sprawdza to zadanie",
+        "hint": "Rekruter zobaczy przy nim znacznik, a odpowiedź kandydata trafi do CV jako zdanie 3.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "nowa-rekrutacja-mniej-decyzji",
+    "title": "Nowa rekrutacja: mniej klikania po odczycie maila",
+    "why": "AI wstawia krytyczne i proponuje najważniejsze zadanie z pytaniem — klikasz „Zatwierdź zadanie”. Pytania i kategorię zatwierdza „Utwórz”, termin i liczbę osób podpowiada historia klienta.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacje → Nowa rekrutacja → po „Wklej treść” → „O projekcie”",
+    "href": "/jobs/new",
+    "section": "pipeline",
+    "dot_anchor": "new-job.key-task-proposal"
+  },
+  {
     "id": "premia-200-listopad-grudzien",
     "pr": 3085,
     "title": "Do 200%: postęp w miesiącu podpisu",
@@ -4560,6 +4607,37 @@
     ]
   },
   {
+    "id": "finanse-monit-platnosci",
+    "pr": 3819,
+    "title": "Monit płatności i lista należności dla księgowej",
+    "why": "Monit do klienta po 7, 14 i 30 dniach po terminie, lista należności dla księgowej na koniec miesiąca i faktury w euro, w których VAT w złotych nie wpłynął.",
+    "tier": "tour",
+    "shipped_on": "2026-11-23",
+    "audience": {
+      "roles": [
+        "finance",
+        "admin"
+      ]
+    },
+    "where": "Finanse → Przychody → Faktury do klientów → Po terminie",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "finance.sales-invoices.tabs",
+    "steps": [
+      {
+        "anchor": "finance.sales-invoices.tabs",
+        "text": "Przejdź na zakładkę „Po terminie”.",
+        "hint": "Przy kliencie jest „Przygotuj monit”: szkic maila, który wysyłasz sam po sprawdzeniu adresatów i treści.",
+        "ack": true
+      },
+      {
+        "anchor": "finance.overdue-month-close",
+        "text": "„Lista na koniec miesiąca” to plik dla księgowej.",
+        "hint": "Stan na ostatni dzień miesiąca: najpierw zaległości z dniami i ostatnim monitem, potem faktury bez danych o zapłacie."
+      }
+    ]
+  },
+  {
     "id": "sprzedaz-nowa-firma-z-nip",
     "title": "Nowa firma z NIP-u w wyszukiwarce",
     "why": "Wpisz NIP u góry: gdy karty nie ma, „Załóż firmę z NIP …” otworzy okno z danymi z rejestru. Firma bez NIP-u już w kartotece? Dopiszesz NIP do jej karty.",
@@ -4720,6 +4798,19 @@
     "practice_href": "/jobs/990001",
     "section": "pipeline",
     "dot_anchor": "board.screening-groups"
+  },
+  {
+    "id": "wymagania-klienta-do-faktury",
+    "pr": 3817,
+    "title": "Wymagania klienta do faktury z NEXUSA",
+    "why": "Numer umowy, kilka zamówień na fakturze, pole OSOBA w KSeF, tekst w pozycjach i adres maila ustawiasz raz w regułach klienta. Szkic faktury wpisuje je sam.",
+    "tier": "dot",
+    "shipped_on": "2026-11-24",
+    "audience": { "roles": ["finance", "admin"] },
+    "where": "Finanse → Rozliczenia klientów → Reguły klienta → Faktura do klienta",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "clients.rules.client_invoice"
   },
   {
     "id": "dodatki-do-rozliczenia-kontraktora",

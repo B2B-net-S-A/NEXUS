@@ -239,6 +239,7 @@ async def test_overdue_without_payment_data_is_a_count_not_arrears(client, seed)
         "invoices": [],
         "payment_unknown": 0,
         "payment_unknown_reasons": [],
+        "vat_pln_unpaid": {"count": 0, "total_pln": None, "without_rate": 0},
     }
     finance = await client.get(
         f"{FINANCE}/overdue", headers=fx.headers(seed.users["finance"])

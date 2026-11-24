@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Collection, Iterable
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
@@ -43,6 +44,7 @@ from app.services.client_invoicing import (
     matching,
     payment_proof,
     payments,
+    receivables,
 )
 from app.services.client_invoicing.billing import BillingRow, money, plain
 from app.services.client_invoicing.ledger import ZERO, Chain, ChainCheck
@@ -404,6 +406,94 @@ async def month_view(
     }
 
 
+@dataclass(frozen=True)
+class Late:
+    """Łańcuch z terminem za sobą i jego werdykt (``payment_proof``)."""
+
+    chain: Chain
+    verdict: Verdict
+    #: Nieopłacony VAT faktury walutowej (w walucie faktury), ``receivables.vat_gap``.
+    vat: Optional[Decimal] = None
+    vat_pln: Optional[Decimal] = None
+    rate: Optional[receivables.Rate] = None
+
+    @property
+    def proven(self) -> bool:
+        return self.verdict.overdue_days > 0
+
+
+async def late_chains(
+    db: AsyncSession,
+    chains: Iterable[Chain],
+    *,
+    day: date,
+    proof: Proof,
+) -> list[Late]:
+    """Werdykty łańcuchów z terminem przed ``day``; VAT w PLN z dowodem z rachunku PLN."""
+
+    late = [chain for chain in chains if chain.overdue_days(day) > 0]
+    gaps = {chain.head.id: receivables.vat_gap(chain) for chain in late}
+    rates = await receivables.rates(
+        db, [chain for chain in late if gaps[chain.head.id] is not None]
+    )
+    out = []
+    for chain in late:
+        vat = gaps[chain.head.id]
+        if vat is None:
+            out.append(Late(chain, proof.verdict(chain, day)))
+            continue
+        rate = rates.get(chain.head.id)
+        vat_pln = receivables.to_pln(vat, rate)
+        verdict = proof.verdict(chain, day, currency="PLN", amount=vat_pln)
+        out.append(Late(chain, verdict, vat, vat_pln, rate))
+    return out
+
+
+def vat_payload(item: Late) -> Optional[dict[str, Any]]:
+    if item.vat is None:
+        return None
+    return {
+        "vat": _amount(item.vat),
+        "currency": item.chain.head.currency,
+        "vat_pln": _amount(item.vat_pln),
+        "rate": str(item.rate.rate) if item.rate else None,
+        "rate_date": _iso(item.rate.day) if item.rate else None,
+        "rate_source": item.rate.source if item.rate else None,
+    }
+
+
+def late_payload(
+    item: Late,
+    today: date,
+    *,
+    names: dict[int, str],
+    rows: dict[tuple[int, int], dict[str, BillingRow]],
+) -> dict[str, Any]:
+    chain = item.chain
+    payload = chain_payload(
+        chain,
+        ledger.check(chain, rows.get(chain.period or (0, 0), {})),
+        today,
+        names=names,
+        verdict=item.verdict,
+    )
+    payload["vat_pln_unpaid"] = vat_payload(item)
+    payload["escalation"] = receivables.escalation(item.verdict.overdue_days)
+    return payload
+
+
+def vat_summary(items: Iterable[Late]) -> dict[str, Any]:
+    """Faktury walutowe z dowodem, że VAT w PLN nie wpłynął."""
+
+    proven = [item for item in items if item.vat is not None and item.proven]
+    known = [item.vat_pln for item in proven if item.vat_pln is not None]
+    return {
+        "count": len(proven),
+        "total_pln": _amount(money(sum(known, ZERO))) if known else None,
+        "without_rate": len(proven) - len(known),
+    }
+
+
 async def overdue(
     db: AsyncSession,
     *,
@@ -419,39 +509,31 @@ async def overdue(
     tylko wtedy, gdy ``payment_proof`` to udowodni (rachunek odbioru w Księdze,
     ciągłe wyciągi od wystawienia do dnia po terminie, bez kompensaty i bez
     wpłaty do sprawdzenia); reszta jest w ``payment_unknown`` z powodami
-    (``docs/claude/zamowienia/faktury-do-klientow-z-ksef.md``).
+    (``docs/claude/zamowienia/faktury-do-klientow-z-ksef.md``). Faktura walutowa
+    z wpłaconym netto i bez VAT idzie z wyciągów rachunku PLN i ma
+    ``vat_pln_unpaid`` (``docs/claude/zamowienia/monity-i-naleznosci-po-terminie.md``).
     """
 
     proof = proof or await payment_proof.load(db)
-    late = [
-        chain
-        for chain in await ledger.open_chains(db, client_ids=client_ids)
-        if chain.overdue_days(today) > 0
-    ]
-    verdicts = {chain.head.id: proof.verdict(chain, today) for chain in late}
+    items = await late_chains(
+        db, await ledger.open_chains(db, client_ids=client_ids), day=today, proof=proof
+    )
     proven = sorted(
-        (chain for chain in late if verdicts[chain.head.id].overdue_days > 0),
-        key=lambda c: (-verdicts[c.head.id].overdue_days, c.head.id),
+        (item for item in items if item.proven),
+        key=lambda i: (-i.verdict.overdue_days, i.chain.head.id),
     )
     names = await clients.names(
-        db, {c.head.client_id for c in proven if c.head.client_id}
+        db, {i.chain.head.client_id for i in proven if i.chain.head.client_id}
     )
-    rows = await ledger.rows_by_period(db, proven)
-    invoices = [
-        chain_payload(
-            chain,
-            ledger.check(chain, rows.get(chain.period or (0, 0), {})),
-            today,
-            names=names,
-            verdict=verdicts[chain.head.id],
-        )
-        for chain in proven
-    ]
-    unknown = [verdict for verdict in verdicts.values() if verdict.unknown]
+    rows = await ledger.rows_by_period(db, [item.chain for item in proven])
+    unknown = [item.verdict for item in items if item.verdict.unknown]
     return {
-        "invoices": invoices,
+        "invoices": [
+            late_payload(item, today, names=names, rows=rows) for item in proven
+        ],
         "payment_unknown": len(unknown),
         "payment_unknown_reasons": payment_proof.reasons_summary(unknown),
+        "vat_pln_unpaid": vat_summary(items),
     }
 
 
