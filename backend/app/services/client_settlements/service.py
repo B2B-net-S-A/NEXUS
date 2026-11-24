@@ -17,7 +17,7 @@ import asyncio
 import logging
 import re
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Optional
@@ -64,6 +64,7 @@ from app.services.client_settlements import (
     mail_declaration,
     mail_nn,
     mail_text,
+    order_split,
     protocol_collective,
     protocol_orlen,
     rcp_bnp,
@@ -81,12 +82,18 @@ from app.services.client_settlements import (
 )
 from app.services.client_settlements import auto_accept
 from app.services.client_settlements import settings as module_settings
-from app.services.client_settlements.engine import Inputs, OrderState, Result, compute
+from app.services.client_settlements.engine import (
+    Inputs,
+    OrderState,
+    Result,
+    SplitPart,
+    compute,
+)
 from app.services.client_settlements_schema import FIX_REASON_MAX
 from app.services.consultant_portal import documents as portal_documents
 from app.services.hr.payroll_periods import add_months
 from app.services.multi_consultant_orders import EVENT_MANUAL_EDIT, format_md
-from app.services.order_revenue_steps import priced_one
+from app.services.order_revenue_steps import PricedOrder, priced_one
 from app.services.person_workdays import business_days
 
 logger = logging.getLogger(__name__)
@@ -114,6 +121,11 @@ CLIENT_ACCEPTANCE = "client_acceptance"
 AUTO_ACCEPTED = "auto_accepted"
 #: Finanse odesłały „Do poprawy”: automat już tego rozliczenia nie bierze.
 AUTO_ACCEPT_OFF = "auto_accept_off"
+#: Podział miesiąca na zamówienia z maila klienta (``engine.Result.orders``).
+ORDERS = "orders"
+#: Zamówienia, z których przyjęcie zdjęło MD za miesiąc: tylko ich wpisy
+#: ``settlement`` kolejne przyjęcie może wyzerować (własny podział, FIN-MD-01).
+CHARGED_ORDERS = "charged_orders"
 #: „Imię Nazwisko” jak na liście kontraktów; puste części pomija.
 _FULL_NAME = func.nullif(func.concat_ws(" ", Candidate.name, Candidate.lastname), "")
 
@@ -574,7 +586,7 @@ async def month_view(
     extra_items = await settlement_extras.for_contracts(db, ids, month)
     added = {cid: settlement_extras.totals(items) for cid, items in extra_items.items()}
     issued = await _issued_orders(
-        db, [s.order_id for s in settlements.values() if s.order_id], month
+        db, [i for s in settlements.values() for i in settlement_order_ids(s)], month
     )
     integration = await integration_by_contract(db, ids, month) if amounts else {}
     rows = []
@@ -601,7 +613,9 @@ async def month_view(
                 else settlement.amount_revenue + revenue_add,
                 integration.get(person.contract.id, Decimal("0")),
             )
-        row["order_number"] = numbers.get(person.contract.id)
+        row["order_number"] = split_numbers(settlement) or numbers.get(
+            person.contract.id
+        )
         row["contractor_invoice"] = contractor_invoices.state(
             settlement,
             invoices.get(person.contract.id, []),
@@ -612,7 +626,9 @@ async def month_view(
         row["extras_pending"] = len(
             getattr(added.get(person.contract.id), "pending", ())
         )
-        if settlement is not None and settlement.order_id in issued:
+        ordered = settlement_order_ids(settlement)
+        if ordered and all(order_id in issued for order_id in ordered):
+            # Przy podziale: faktura na każde zamówienie z maila klienta.
             row["client_invoice"] = "issued"
         elif row["client_invoice"] == "ready" and waits_for_signature(
             settlement, rules
@@ -801,7 +817,7 @@ async def detail(
         "person": person.name,
         "client_name": client.name if client else "",
         "month": month,
-        "order_number": state.number if state else None,
+        "order_number": split_numbers(s) or (state.number if state else None),
         "contract_number": None,
         "status": s.status
         if s
@@ -845,8 +861,9 @@ async def detail(
         "kcp_pdf": bool(
             acceptance is not None and s is not None and s.report_document_id
         ),
+        # Przy podziale pula i zejście każdego zamówienia stoją w kontrolach.
         "order": None
-        if state is None
+        if state is None or split_orders(s)
         else {
             "md_total": _dec(state.md_total),
             "md_charged": _dec(s.md_charged) if s else None,
@@ -900,10 +917,38 @@ def meta_of(s: Optional[ClientSettlement]) -> dict[str, Any]:
     return {}
 
 
+def split_orders(s: Optional[ClientSettlement]) -> list[dict[str, Any]]:
+    """Podział rozliczenia na zamówienia z maila klienta, zapisany przy ostatnim
+    przeliczeniu (``engine.Result.orders``); pusty = całość na ``order_id``."""
+
+    return [
+        o
+        for o in meta_of(s).get(ORDERS) or []
+        if isinstance(o, dict) and o.get("order_id")
+    ]
+
+
+def settlement_order_ids(s: Optional[ClientSettlement]) -> list[int]:
+    """Linie zamówień rozliczenia: wszystkie z podziału albo ``order_id``."""
+
+    parts = split_orders(s)
+    if parts:
+        return [int(o["order_id"]) for o in parts]
+    return [s.order_id] if s is not None and s.order_id else []
+
+
+def split_numbers(s: Optional[ClientSettlement]) -> Optional[str]:
+    """Numery zamówień z podziału („A, B”); bez podziału ``None``."""
+
+    numbers = [str(o["number"]) for o in split_orders(s) if o.get("number")]
+    return ", ".join(numbers) or None
+
+
 def _store(s: ClientSettlement, result: Result, order: Optional[OrderState]) -> None:
     kept = meta_of(s).get(PAY_ON_MAIL)
     accepted_by_client = meta_of(s).get(CLIENT_ACCEPTANCE)
     auto_off = meta_of(s).get(AUTO_ACCEPT_OFF)
+    charged = meta_of(s).get(CHARGED_ORDERS)
     signed = signoffs.marker(s.checks)
     s.status = result.status
     s.md_onboarding = result.md_onboarding
@@ -918,6 +963,11 @@ def _store(s: ClientSettlement, result: Result, order: Optional[OrderState]) -> 
         "md_over": _dec(result.md_over),
         **(result.meta or {}),
     }
+    if result.orders:
+        meta[ORDERS] = [dict(o) for o in result.orders]
+    if charged:
+        # Linie zdjęte przy przyjęciu: kolejne przyjęcie wyzeruje tylko je.
+        meta[CHARGED_ORDERS] = charged
     if kept:
         # Decyzja Finansów o zapłacie po mailu przeżywa przeliczenie (E6.3).
         meta[PAY_ON_MAIL] = kept
@@ -930,7 +980,9 @@ def _store(s: ClientSettlement, result: Result, order: Optional[OrderState]) -> 
     s.checks = [*result.checks, meta]
     # Podpisany arkusz albo protokół (E6) zostaje przy przeliczeniu.
     s.checks = signoffs.with_marker(s.checks, signed)
-    s.order_id = order.order_id if order else None
+    # Przy podziale zamówieniem rozliczenia jest to z największą częścią MD.
+    main = next((o for o in result.orders if o.get("main")), None)
+    s.order_id = main["order_id"] if main else (order.order_id if order else None)
 
 
 def _set_meta(s: ClientSettlement, key: str, value: Any) -> None:
@@ -1634,6 +1686,229 @@ async def _consultant_mails(
     return frozenset(found)
 
 
+# ── Podział na zamówienia z maila klienta ────────────────────────────────────
+
+#: Nazwa dowodu na karcie, gdy MD daje sam podział (BIK X 2026).
+SPLIT_SOURCE = "Podział na zamówienia z maila klienta"
+
+
+async def _mail_splits(
+    reports: list[CpDocument],
+) -> list[tuple[CpDocument, order_split.Split]]:
+    """Podziały na zamówienia z maili miesiąca, najnowsze pierwsze (jak ``reports``)."""
+
+    found: list[tuple[CpDocument, order_split.Split]] = []
+    for doc in reports:
+        if doc.mime not in MAIL_MIMES:
+            continue
+        try:
+            content = portal_documents.path_for(doc.file_path).read_bytes()
+        except OSError:
+            continue
+        split = await asyncio.to_thread(order_split.parse, content, doc.mime)
+        if split is not None:
+            found.append((doc, split))
+    return found
+
+
+def _split_row(
+    splits: list[tuple[CpDocument, order_split.Split]],
+    *,
+    person_name: str,
+    month: str,
+    senders: mail_text.Senders,
+) -> Optional[tuple[CpDocument, order_split.Split, order_split.Row]]:
+    """Najnowszy podział osoby za miesiąc od klienta (``senders``). Zamówienia
+    wskazuje klient, więc podział napisany u nas, bez cytatu klienta, nie wchodzi."""
+
+    for doc, split in splits:
+        row = order_split.row_for(split, person_name)
+        if row is None or not senders.accepts_from(split.author):
+            continue
+        if split.month is not None and split.month != month:
+            continue
+        return doc, split, row
+    return None
+
+
+def _row_unit(
+    split: order_split.Split,
+    row: order_split.Row,
+    md: Optional[Decimal],
+    per_md: Decimal,
+) -> str:
+    """Jednostka liczb z tabeli bez jednostki. Przy MD rozliczenia: godziny, gdy
+    dopiero suma wiersza / godziny w MD daje te MD, inaczej MD. Bez MD rozliczenia
+    raz dla całej tabeli: MD, gdy każdy wiersz mieści się w miesiącu (``MD_MAX``),
+    bo w tabeli w godzinach osoba z 16 h nie może dostać 16 MD."""
+
+    if md is not None:
+        total = order_split.total(row)
+        as_hours = abs(total / per_md - Decimal(md)) < Decimal("0.001")
+        as_md = abs(total - Decimal(md)) < Decimal("0.001")
+        return order_split.HOURS if as_hours and not as_md else order_split.MD
+    if all(order_split.total(r) <= MD_MAX for r in split.rows):
+        return order_split.MD
+    return order_split.HOURS
+
+
+def _part_md(part: order_split.Part, unit: str, per_md: Decimal) -> Decimal:
+    return (
+        part.value / per_md if (part.unit or unit) == order_split.HOURS else part.value
+    )
+
+
+def _order_rank(
+    order: ClientOrder, first: date, last: date
+) -> tuple[bool, bool, int, int]:
+    """Kolejność linii o tym samym numerze: trwająca w miesiącu, aktywna, najnowsza."""
+
+    overlaps = (order.start_date is None or order.start_date <= last) and (
+        order.end_date is None or order.end_date >= first
+    )
+    start = order.start_date.toordinal() if order.start_date else 0
+    return (not overlaps, order.status != ClientOrderStatus.active, -start, -order.id)
+
+
+async def _split_parts(
+    db: AsyncSession,
+    s: ClientSettlement,
+    split: order_split.Split,
+    row: order_split.Row,
+    rules: dict[str, dict[str, Any]],
+) -> tuple[tuple[SplitPart, ...], Optional[str]]:
+    """Części podziału na liniach zamówień osoby: ``(części, powód odmowy)``.
+
+    Numer z maila (z grupy zamówienia albo z tytułu linii bez grupy) szukamy
+    wśród linii kontraktu w statusach jak ``_order_for``, także zakończonych
+    i spoza miesiąca: klient wie, na które zamówienie fakturuje (decyzja Artura
+    z 24.11.2026, też przy jednym numerze w mailu). Numer, którego osoba nie ma
+    w NEXUS-ie, albo dwa numery na jednej linii = bez podziału, MD idą na jedno
+    zamówienie."""
+
+    first, last = month_bounds(s.period_month)
+    found = (
+        await db.execute(
+            select(ClientOrder, ClientOrderGroup.order_number)
+            .outerjoin(
+                ClientOrderGroup, ClientOrderGroup.id == ClientOrder.order_group_id
+            )
+            .where(
+                ClientOrder.contract_id == s.contract_id,
+                ClientOrder.status.in_(ORDER_STATUSES),
+            )
+        )
+    ).all()
+    by_key: dict[str, list[ClientOrder]] = defaultdict(list)
+    numbers: dict[int, str] = {}
+    for line, number in found:
+        shown = number or number_from_title(line.title)
+        key = order_split.order_key(shown)
+        if key is not None and shown:
+            by_key[key].append(line)
+            numbers[line.id] = shown
+    per_md = timesheet.per_md(rules)
+    unit = _row_unit(split, row, s.md_regular, per_md)
+    parts: list[SplitPart] = []
+    missing: list[str] = []
+    for part in row.parts:
+        lines = by_key.get(order_split.order_key(part.order) or "")
+        if not lines:
+            missing.append(part.order)
+            continue
+        line = min(lines, key=lambda o: _order_rank(o, first, last))
+        state = await _order_state(
+            db, await priced_one(db, line, first), s.period_month
+        )
+        if state is not None and state.number is None:
+            # Linia bez grupy (PKO, Velo): numer z tytułu, jak na liście miesiąca.
+            state = replace(state, number=numbers[line.id])
+        closed = line.status == ClientOrderStatus.completed or (
+            line.end_date is not None and line.end_date < first
+        )
+        if state is not None:
+            parts.append(SplitPart(state, _part_md(part, unit, per_md), closed=closed))
+    if missing:
+        return (), (
+            f"Mail klienta wskazuje zamówienie {', '.join(missing)}, którego ta osoba "
+            "nie ma w NEXUS-ie: dodaj linię zamówienia albo popraw numer. Do tego "
+            "czasu MD idą na jedno zamówienie."
+        )
+    if len({p.order.order_id for p in parts}) != len(parts):
+        return (), (
+            "Dwa numery z maila klienta wskazują tę samą linię zamówienia w NEXUS-ie: "
+            "MD idą na jedno zamówienie, podziel je ręcznie."
+        )
+    return tuple(parts), None
+
+
+async def _split_proof(
+    doc: CpDocument,
+    split: order_split.Split,
+    row: order_split.Row,
+    reports: list[CpDocument],
+    *,
+    month: str,
+    person_name: str,
+    rules: dict[str, dict[str, Any]],
+    senders: mail_text.Senders,
+    other_md: Decimal,
+) -> rcp_checks.ProofResult:
+    """MD z podziału, gdy żaden plik miesiąca nie dał liczby (BIK X 2026: jedyny
+    dokument to odpowiedź klienta „Akceptuję” z godzinami na zamówienia).
+
+    Kontrole jak przy dokumencie z deklarowaną sumą (``declared``): miesiąc,
+    osoba (wiersz tabeli albo imię i nazwisko w temacie wątku), limit MD; do tego
+    ``proof.accept_has_hours`` na mailach miesiąca."""
+
+    per_md = timesheet.per_md(rules)
+    unit = _row_unit(split, row, None, per_md)
+    units = {part.unit or unit for part in row.parts}
+    hours = order_split.total(row) if units == {order_split.HOURS} else None
+    named = row.person
+    if named is None and rcp_checks.name_tokens(person_name) <= rcp_checks.name_tokens(
+        split.subject
+    ):
+        named = person_name
+    found = declared.Declared(
+        source=SPLIT_SOURCE,
+        consultant=named,
+        month=split.month or _doc_month(doc),
+        hours=hours,
+        md=None
+        if hours is not None
+        else sum((_part_md(p, unit, per_md) for p in row.parts), Decimal("0")),
+    )
+    result = declared.evaluate(
+        found,
+        month=month,
+        person_name=person_name,
+        rules=rules,
+        working_days=len(business_days(*month_bounds(month))),
+        other_md=other_md,
+    )
+    accepted = await _acceptance(
+        result,
+        reports,
+        month=month,
+        hours=hours,
+        rules=rules,
+        senders=senders,
+        sheet_month=found.month,
+    )
+    return accepted or result
+
+
+async def _proof_senders(
+    db: AsyncSession, client_id: int, rules: dict[str, dict[str, Any]], fixed: bool
+) -> mail_text.Senders:
+    if fixed:
+        return fix_senders()
+    if _client_mail_rules_on(rules):
+        return await acceptance_senders(db, client_id, rules)
+    return mail_text.Senders()
+
+
 async def _recompute(
     db: AsyncSession, s: ClientSettlement
 ) -> tuple[Result, Optional[OrderState], Optional[ClientOrder]]:
@@ -1663,13 +1938,9 @@ async def _recompute(
         person.contract is not None
         and person.contract.engagement_model == EngagementModel.fixed
     )
+    senders = mail_text.Senders()
     if proof is None:
-        if fixed:
-            senders = fix_senders()
-        elif _client_mail_rules_on(rules):
-            senders = await acceptance_senders(db, s.client_id, rules)
-        else:
-            senders = mail_text.Senders()
+        senders = await _proof_senders(db, s.client_id, rules, fixed)
         proof = await _proof(
             report,
             reports,
@@ -1686,6 +1957,32 @@ async def _recompute(
         if proof is not None and (source := proof.meta.pop("document_id", None)):
             # MD z innego pliku miesiąca niż wybrany: ten plik jest dowodem.
             report = next((d for d in reports if d.id == source), report)
+    # Podział na zamówienia z maila klienta (próba IX–X 2026: BIK, Polkomtel).
+    splits = await _mail_splits(reports)
+    hit = (
+        _split_row(
+            splits,
+            person_name=person.name,
+            month=s.period_month,
+            senders=await acceptance_senders(db, s.client_id, rules),
+        )
+        if splits
+        else None
+    )
+    if hit is not None and not fixed and (proof is None or proof.md_regular is None):
+        # Żaden plik nie dał MD: liczba z podziału od klienta (akceptację liczb
+        # sprawdza jak przy innych dokumentach ``proof.accept_has_hours``).
+        from_split = await _split_proof(
+            *hit,
+            reports,
+            month=s.period_month,
+            person_name=person.name,
+            rules=rules,
+            senders=await _proof_senders(db, s.client_id, rules, fixed),
+            other_md=await _other_md(db, person.contract, s.period_month),
+        )
+        if from_split.md_regular is not None:
+            proof, report = from_split, hit[0]
     s.report_document_id = report.id if report else None
     # Wpis Finansów wygrywa z odczytem pliku; bez wpisu MD bierzemy z RCP.
     if proof is not None and proof.md_regular is not None and s.md_source != "manual":
@@ -1695,6 +1992,14 @@ async def _recompute(
     proof = _signed_checks(proof, s, rules)
     proof = await _copyright_checks(proof, reports, s.period_month, rules)
     proof = await _rate_change_checks(db, s, proof, rules)
+    split: tuple[SplitPart, ...] = ()
+    if hit is not None and s.md_regular is not None:
+        split, problem = await _split_parts(db, s, hit[1], hit[2], rules)
+        if problem is not None:
+            proof = proof or rcp_checks.ProofResult(md_regular=None, md_extra=None)
+            group = rcp_checks._Group(proof, rules, "Podział na zamówienia")
+            group.warn("Podział z maila klienta nie wszedł", problem)
+            group.close()
     result = compute(
         Inputs(
             md_regular=s.md_regular,
@@ -1713,6 +2018,7 @@ async def _recompute(
                 ),
             ),
             proof=proof,
+            split=split,
         )
     )
     return result, state, order
@@ -1976,29 +2282,114 @@ async def _estimate_guard(
 
 
 async def _refuse_split_month(
-    db: AsyncSession, contract_id: int, order_id: int, month: str
-) -> None:
-    """Miesiąc podzielony między dwa zamówienia osoby (import przy zmianie
-    zamówienia, ``apply_md_consumption``): przyjęcie nadpisałoby jedną linię,
-    a wpis drugiej zostałby — MD liczone dwa razy. Odmawiamy (FIN-MD-01)."""
+    db: AsyncSession,
+    contract_id: int,
+    order_ids: set[int],
+    month: str,
+    *,
+    own: frozenset[int] = frozenset(),
+) -> list[ClientOrder]:
+    """Miesiąc podzielony między zamówienia osoby poza tym przyjęciem (import przy
+    zmianie zamówienia, ``apply_md_consumption``): przyjęcie nadpisałoby swoje
+    linie, a wpis innej zostałby — MD liczone dwa razy. Odmawiamy (FIN-MD-01).
 
-    other = await db.scalar(
-        select(func.count())
-        .select_from(ClientOrderMdConsumption)
-        .join(ClientOrder, ClientOrder.id == ClientOrderMdConsumption.order_id)
-        .where(
-            ClientOrder.contract_id == contract_id,
-            ClientOrder.id != order_id,
-            ClientOrderMdConsumption.period_month == month,
-            ClientOrderMdConsumption.md_reported != 0,
+    Wyjątek to własny podział: wpis ``settlement`` na linii, z której zdjęło MD
+    wcześniejsze przyjęcie tego rozliczenia (``own``, np. podział z maila klienta
+    zmienił zamówienia). Takie linie zwracamy do wyzerowania."""
+
+    rows = (
+        await db.execute(
+            select(ClientOrderMdConsumption.source, ClientOrder)
+            .join(ClientOrder, ClientOrder.id == ClientOrderMdConsumption.order_id)
+            .where(
+                ClientOrder.contract_id == contract_id,
+                ClientOrder.id.not_in(order_ids),
+                ClientOrderMdConsumption.period_month == month,
+                ClientOrderMdConsumption.md_reported != 0,
+            )
         )
+    ).all()
+    stale: list[ClientOrder] = []
+    for source, line in rows:
+        if source != SOURCE_SETTLEMENT or line.id not in own:
+            raise SettlementError(
+                "Ten miesiąc ma już zejście MD na innym zamówieniu tej osoby "
+                "(podział przy zmianie zamówienia). Popraw zejście w zamówieniach; "
+                "przyjęcie nadpisałoby jedną linię i MD policzyłyby się dwa razy."
+            )
+        stale.append(line)
+    return stale
+
+
+def _session_order(order: Any) -> ClientOrder:
+    """Linia zamówienia z sesji. ``PricedOrder`` (stawka z dnia miesiąca) jest
+    tylko do odczytu, a zejście zapisuje na linii ``md_remaining``."""
+
+    return order._order if isinstance(order, PricedOrder) else order
+
+
+async def _charge(
+    db: AsyncSession,
+    s: ClientSettlement,
+    order: ClientOrder,
+    md: Decimal,
+    *,
+    month: str,
+    actor_id: Optional[int],
+    auto: bool,
+    split: bool,
+) -> None:
+    """Zejście MD miesiąca z linii zamówienia (nadpisanie miesiąca) i wpis w historii grupy."""
+
+    _row_, previous, remaining = await upsert_consumption(
+        db,
+        order=order,
+        period_month=month,
+        md_reported=md,
+        source=SOURCE_SETTLEMENT,
+        user_id=actor_id,
+        status="accepted",
+        note="Przyjęte RCP (Rozliczenia, automat)"
+        if auto
+        else "Przyjęte RCP (Rozliczenia)",
     )
-    if other:
-        raise SettlementError(
-            "Ten miesiąc ma już zejście MD na innym zamówieniu tej osoby "
-            "(podział przy zmianie zamówienia). Popraw zejście w zamówieniach; "
-            "przyjęcie nadpisałoby jedną linię i MD policzyłyby się dwa razy."
-        )
+    if order.order_group_id is None:
+        return
+    overwritten = (
+        f", nadpisano wcześniejsze {format_md(previous)} MD"
+        if previous and previous != md
+        else ""
+    )
+    record_event(
+        db,
+        group_id=order.order_group_id,
+        order_id=order.id,
+        event_type=EVENT_MANUAL_EDIT,
+        description=(
+            f"Rozliczenia — zejście MD za {format_period_month(month)}: "
+            f"{format_md(md)} MD z przyjętego RCP"
+            + (" (podział według maila klienta)" if split else "")
+            + f"{overwritten}. Pozostało {format_md(remaining)} MD."
+            + (
+                " Przyjął automat (reguła klienta „Przyjmuj RCP bez uwag "
+                "automatycznie”)."
+                if auto
+                else ""
+            )
+        ),
+        payload={
+            "changed": ["zejście MD"],
+            "period_month": month,
+            "md_reported": str(md),
+            "previous": str(previous),
+            "source": SOURCE_SETTLEMENT,
+            "settlement_id": s.id,
+            "md_remaining": str(remaining),
+            **({"auto": True} if auto else {}),
+            **({"split": True} if split else {}),
+        },
+        user_id=actor_id,
+    )
 
 
 async def accept(
@@ -2048,58 +2439,58 @@ async def accept(
             "Odeślij RCP do poprawy albo zmień poziom reguły."
         )
     rules = await rules_for(db, s.client_id, month)
+    # Podział z maila klienta: zejście z każdej linii osobno; bez niego jedna linia.
+    parts = [(int(o["order_id"]), Decimal(str(o["md"]))) for o in result.orders]
+    if not parts and order is not None and result.md_charged is not None:
+        parts = [(order.id, result.md_charged)]
     if (
-        order is not None
+        parts
         and result.md_charged is not None
         and rules["order.charge_on_accept"]["level"] != "off"
     ):
-        await _refuse_split_month(db, contract_id, order.id, month)
-        _row_, previous, remaining = await upsert_consumption(
+        stale = await _refuse_split_month(
             db,
-            order=order,
-            period_month=month,
-            md_reported=result.md_charged,
-            source=SOURCE_SETTLEMENT,
-            user_id=actor_id,
-            status="accepted",
-            note="Przyjęte RCP (Rozliczenia, automat)"
-            if auto
-            else "Przyjęte RCP (Rozliczenia)",
+            contract_id,
+            {order_id for order_id, _md in parts},
+            month,
+            own=frozenset(int(i) for i in meta_of(s).get(CHARGED_ORDERS) or []),
         )
-        if order.order_group_id is not None:
-            overwritten = (
-                f", nadpisano wcześniejsze {format_md(previous)} MD"
-                if previous and previous != result.md_charged
-                else ""
-            )
-            record_event(
+        split = bool(result.orders)
+        for line in stale:
+            await _charge(
                 db,
-                group_id=order.order_group_id,
-                order_id=order.id,
-                event_type=EVENT_MANUAL_EDIT,
-                description=(
-                    f"Rozliczenia — zejście MD za {format_period_month(month)}: "
-                    f"{format_md(result.md_charged)} MD z przyjętego RCP{overwritten}. "
-                    f"Pozostało {format_md(remaining)} MD."
-                    + (
-                        " Przyjął automat (reguła klienta „Przyjmuj RCP bez uwag "
-                        "automatycznie”)."
-                        if auto
-                        else ""
-                    )
-                ),
-                payload={
-                    "changed": ["zejście MD"],
-                    "period_month": month,
-                    "md_reported": str(result.md_charged),
-                    "previous": str(previous),
-                    "source": SOURCE_SETTLEMENT,
-                    "settlement_id": s.id,
-                    "md_remaining": str(remaining),
-                    **({"auto": True} if auto else {}),
-                },
-                user_id=actor_id,
+                s,
+                line,
+                Decimal("0"),
+                month=month,
+                actor_id=actor_id,
+                auto=auto,
+                split=True,
             )
+        for order_id, md in parts:
+            line = (
+                _session_order(order)
+                if order is not None and order.id == order_id
+                else await db.get(ClientOrder, order_id)
+            )
+            if line is not None:
+                await _charge(
+                    db,
+                    s,
+                    line,
+                    md,
+                    month=month,
+                    actor_id=actor_id,
+                    auto=auto,
+                    split=split,
+                )
+        # Wyjątek od FIN-MD-01 dotyczy tylko własnego podziału: linie zapamiętujemy
+        # przy podziale, przy jednym zamówieniu zostaje dzisiejsza odmowa.
+        _set_meta(
+            s,
+            CHARGED_ORDERS,
+            sorted(order_id for order_id, _md in parts) if split else None,
+        )
     s.status = "accepted"
     s.accepted_by = actor_id
     s.accepted_at = now

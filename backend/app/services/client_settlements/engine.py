@@ -16,6 +16,12 @@ kwoty, pozycje wyliczenia, wynik kontroli i stan.
 * Za mało MD na linii (decyzja rozliczeń i Artura z 10.11.2026): zejdzie tyle,
   ile zostało, koszt i przychód za tę część, nadwyżka ``md_over`` czeka na
   decyzję Finansów — konsultant fakturuje tylko pulę, bez obietnicy zamówienia.
+* Podział na zamówienia z maila klienta (``Inputs.split``, ``order_split``):
+  każde zamówienie ma własną linię, stawkę, pulę i zejście. Zamówienie
+  zakończone albo bez puli w NEXUS-ie idzie jak w mailu, z uwagą „uzupełnij
+  zamówienie” i bez blokady (decyzja Artura z 24.11.2026: klient sam wskazał
+  zamówienie, a pule w NEXUS-ie bywają nieaktualne). Podział wchodzi tylko na
+  same dni zwykłe i tylko, gdy suma z maila równa się MD rozliczenia.
 """
 
 from __future__ import annotations
@@ -45,6 +51,17 @@ class OrderState:
 
 
 @dataclass(frozen=True)
+class SplitPart:
+    """Część miesiąca osoby na jednym zamówieniu według maila klienta."""
+
+    order: OrderState
+    #: Dni zwykłe na tym zamówieniu.
+    md: Decimal
+    #: Zamówienie zakończone w NEXUS-ie (status albo koniec przed miesiącem).
+    closed: bool = False
+
+
+@dataclass(frozen=True)
 class Inputs:
     md_regular: Optional[Decimal]
     md_extra: Optional[Decimal]
@@ -57,6 +74,8 @@ class Inputs:
     onboarding_eligible: bool = True
     #: Wynik kontroli dowodu pracy (E2); ``None`` = MD bez odczytu pliku.
     proof: Optional["ProofResult"] = None
+    #: Podział miesiąca na zamówienia z maila klienta; pusty = jedno ``order``.
+    split: tuple[SplitPart, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -75,6 +94,10 @@ class Result:
     md_over: Optional[Decimal] = None
     #: Dane odczytu dowodu poza kontrolami (np. ``kesu`` w E6.3).
     meta: Optional[dict[str, Any]] = None
+    #: Podział na zamówienia, gdy wszedł: na każde zamówienie ``order_id``,
+    #: ``number``, ``md``, ``remaining_after``, ``closed``, kwoty i ``main``
+    #: (zamówienie rozliczenia, ``ClientSettlement.order_id``).
+    orders: tuple[dict[str, Any], ...] = ()
 
 
 def _md(value: Decimal) -> Decimal:
@@ -146,6 +169,164 @@ def _protocol_amount(
         )
     groups.append({"title": "Kwota z protokołu", "checks": [check]})
     return True
+
+
+def _split_problem(
+    split: tuple[SplitPart, ...], regular: Decimal, extra: Decimal, onboarding: Decimal
+) -> Optional[str]:
+    """Powód, dla którego podział z maila nie wchodzi; ``None`` = wchodzi."""
+
+    if extra > 0 or onboarding > 0:
+        return (
+            "Mail dzieli same dni, a rozliczenie ma pracę dodatkową albo MD "
+            "wdrożeniowe: MD idą na jedno zamówienie, podziel je ręcznie."
+        )
+    total = _md(sum((part.md for part in split), ZERO))
+    if total != regular:
+        return (
+            f"W mailu {_fmt(total)} MD, w rozliczeniu {_fmt(regular)} MD: MD idą na "
+            "jedno zamówienie. Sprawdź mail klienta albo MD z dokumentu."
+        )
+    return None
+
+
+def _with_split(
+    inp: Inputs,
+    regular: Decimal,
+    groups: list[dict[str, Any]],
+    *,
+    warn: bool,
+    proof_blocking: bool,
+) -> Result:
+    """Rozliczenie podzielone na zamówienia z maila klienta: linia, stawka, pula
+    i zejście każdego zamówienia. Ponad pulę i zamówienie zakończone idą jak
+    w mailu, z uwagą (decyzja Artura z 24.11.2026)."""
+
+    parts = [(part, _md(part.md)) for part in inp.split]
+    # Zamówienie rozliczenia: z największą liczbą MD, przy remisie pierwsze z maila.
+    main = max(range(len(parts)), key=lambda i: (parts[i][1], -i))
+    # Reszta z zaokrąglenia części (12,5 h / 8 = 1,5625) idzie na zamówienie
+    # rozliczenia: suma części = MD rozliczenia, zejście i koszt jak na jednym.
+    rest = sum((md for i, (_part, md) in enumerate(parts) if i != main), ZERO)
+    parts[main] = (parts[main][0], _md(regular - rest))
+    groups.append(
+        {
+            "title": "Podział na zamówienia",
+            "checks": [
+                _check(
+                    "ok",
+                    "Podział według maila klienta",
+                    "; ".join(
+                        f"{part.order.number or 'zamówienie bez numeru'}: {_fmt(md)} MD"
+                        for part, md in parts
+                    ),
+                )
+            ],
+        }
+    )
+    lines: list[dict[str, Any]] = []
+    orders: list[dict[str, Any]] = []
+    cost_total: Optional[Decimal] = ZERO
+    revenue_total: Optional[Decimal] = ZERO
+    for index, (part, md) in enumerate(parts):
+        order = part.order
+        available = order.md_available
+        remaining = None if available is None else _md(available - md)
+        if part.closed or (remaining is not None and remaining < 0):
+            left = (
+                ""
+                if available is None
+                else f" W puli zostało {_fmt(_md(max(available, ZERO)))} MD."
+            )
+            check = _check(
+                "warn",
+                "Zamówienie zakończone w NEXUS-ie"
+                if part.closed
+                else f"Ponad pulę zamówienia o {_fmt(-(remaining or ZERO))} MD",
+                f"Mail klienta każe rozliczyć na nim {_fmt(md)} MD.{left} Zejdzie "
+                "całość i tyle idzie do faktury: uzupełnij zamówienie w NEXUS-ie.",
+            )
+            warn = True
+        elif remaining is not None:
+            check = _check(
+                "ok",
+                f"Zejdzie {_fmt(md)} MD, zostanie {_fmt(remaining)} MD",
+                "Zejście przy przyjęciu RCP; ponowne przyjęcie nadpisuje miesiąc.",
+            )
+        else:
+            check = _check("none", f"{_fmt(md)} MD, zamówienie bez puli MD na osobie")
+        groups.append(
+            {
+                "title": f"Zamówienie {order.number}" if order.number else "Zamówienie",
+                "checks": [check],
+            }
+        )
+        cost = None if order.rate_cost is None else _money(md * order.rate_cost)
+        revenue = (
+            None if order.rate_revenue is None else _money(md * order.rate_revenue)
+        )
+        cost_total = None if cost is None or cost_total is None else cost_total + cost
+        revenue_total = (
+            None
+            if revenue is None or revenue_total is None
+            else revenue_total + revenue
+        )
+        lines.append(
+            {
+                "label": f"Dni zwykłe, zamówienie {order.number}"
+                if order.number
+                else "Dni zwykłe",
+                "md": str(md),
+                "multiplier": "1.00",
+                "rate": None
+                if order.rate_cost is None
+                else str(_money(order.rate_cost)),
+                "net": None if cost is None else str(cost),
+                "order_id": order.order_id,
+            }
+        )
+        orders.append(
+            {
+                "order_id": order.order_id,
+                "number": order.number,
+                "md": str(md),
+                "remaining_after": None if remaining is None else str(remaining),
+                "closed": part.closed,
+                "amount_cost": None if cost is None else str(cost),
+                "amount_revenue": None if revenue is None else str(revenue),
+                "main": index == main,
+            }
+        )
+    if any(p.order.rate_cost is None or p.order.rate_revenue is None for p, _ in parts):
+        groups.append(
+            {
+                "title": "Stawki",
+                "checks": [
+                    _check(
+                        "warn",
+                        "Linia zamówienia bez stawki MD",
+                        "Kwoty i marża pojawią się po uzupełnieniu stawki.",
+                    )
+                ],
+            }
+        )
+        warn = True
+    if _protocol_amount(inp, revenue_total, groups):
+        warn = True
+    main_remaining = orders[main]["remaining_after"]
+    return Result(
+        "warnings" if warn or proof_blocking else "ok",
+        ZERO,
+        regular,
+        None if main_remaining is None else Decimal(main_remaining),
+        cost_total,
+        revenue_total,
+        lines,
+        groups,
+        blocking=proof_blocking,
+        meta=dict(inp.proof.meta) if inp.proof is not None and inp.proof.meta else None,
+        orders=tuple(orders),
+    )
 
 
 def compute(inp: Inputs) -> Result:
@@ -243,6 +424,21 @@ def compute(inp: Inputs) -> Result:
             )
 
     charged = _md(regular - onboarding + extra_weighted)
+    if inp.split:
+        problem = _split_problem(inp.split, regular, extra, onboarding)
+        if problem is None:
+            return _with_split(
+                inp, regular, groups, warn=warn, proof_blocking=proof_blocking
+            )
+        groups.append(
+            {
+                "title": "Podział na zamówienia",
+                "checks": [
+                    _check("warn", "Podział z maila klienta nie wszedł", problem)
+                ],
+            }
+        )
+        warn = True
     order = inp.order
     order_checks: list[dict[str, Any]] = []
     remaining_after: Optional[Decimal] = None
