@@ -30,7 +30,12 @@ from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.services import review_batch as svc
-from app.services import job_role_profile, review_batch_streams, review_batch_team
+from app.services import (
+    job_role_profile,
+    review_batch_focus,
+    review_batch_streams,
+    review_batch_team,
+)
 from app.services.request_work_state import IN_WORK_STATES
 from app.services.review_batch_order import OrderFacts, polish_penalty
 
@@ -48,6 +53,11 @@ class RoleProfileIn(BaseModel):
     level: str = job_role_profile.DEFAULT_LEVEL
     # Cała lista „Nie proponujemy”, jaka ma zostać (ręczne i z odrzuceń).
     excluded: list[str] = Field(default_factory=list, max_length=50)
+
+
+class FocusIn(BaseModel):
+    # ``None`` = powrót do kolejności z poziomów (najpierw pilne).
+    job_id: Optional[int] = Field(default=None, ge=1)
 
 
 class SettingsIn(BaseModel):
@@ -73,6 +83,46 @@ async def my_batch(
         **status.as_dict(),
         "more_cards": MORE_CARDS if tempo_enabled() else svc.BATCH_SIZE,
     }
+
+
+@router.get("/me/focus")
+async def my_focus_options(
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Nad którą rekrutacją pracujesz dziś?”: rekrutacje osoby, ile w każdej
+    masz osób z porcji i kto już ją dziś wybrał (``review_batch_focus``)."""
+    return await review_batch_focus.options_for(
+        db, current_user, now=datetime.now(timezone.utc)
+    )
+
+
+@router.get("/me/focus/{job_id}")
+async def my_focus_preview(
+    job_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Podgląd wyboru jednej rekrutacji: ile osób przyjdzie z niej naprawdę (po
+    regułach dopełniania), ile z pozostałych i ile wróci do zespołu."""
+    return await review_batch_focus.preview_for(
+        db, current_user, job_id, now=datetime.now(timezone.utc)
+    )
+
+
+@router.put("/me/focus")
+async def choose_focus(
+    payload: FocusIn,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Wybór rekrutacji na dziś: porcja bierze osoby najpierw stamtąd, a
+    nieruszone osoby z innych rekrutacji wracają do puli zespołu."""
+    result = await review_batch_focus.choose(
+        db, current_user, payload.job_id, now=datetime.now(timezone.utc)
+    )
+    await db.commit()
+    return result
 
 
 def _position(candidate: Candidate) -> Optional[str]:
@@ -175,6 +225,7 @@ async def my_queue(
         for person in working(people)
         if person.user_id == current_user.id
     }
+    focus = (await review_batch_focus.read_focus(db)).get(current_user.id)
     # „Kluczowe w tej rekrutacji”: krytyczne z dowodem i polski (12.11.2026).
     from app.services.review_batch_facts import key_facts_for
 
@@ -268,6 +319,8 @@ async def my_queue(
                         if job_p0.is_active(job, now) and job.p0_until is not None
                         else None
                     ),
+                    # Rekrutacja wybrana na dziś (``review_batch_focus``).
+                    "chosen": focus is not None and focus.job_id == job.id,
                 },
             }
         )

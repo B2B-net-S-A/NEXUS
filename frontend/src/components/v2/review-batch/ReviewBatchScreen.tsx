@@ -14,6 +14,7 @@ import { pluralPl } from "@/lib/plural-pl";
 import {
   addMoreFromNexus,
   invalidateReviewBatch,
+  setReviewBatchFocus,
   useReviewBatchQueue,
   useReviewBatchStatus,
   type ReviewBatchItem,
@@ -32,6 +33,7 @@ import { cn } from "@/lib/utils";
 import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
 
 import { ReviewBatchCard } from "./ReviewBatchCard";
+import { FocusLine, ReviewBatchFocusPicker } from "./ReviewBatchFocusPicker";
 import { RoleProfileBlock } from "./ReviewBatchRoleProfile";
 
 // pdf.js i docx-preview nie mogą wejść do chunku ekranu; ten sam podgląd co w screeningu.
@@ -283,7 +285,20 @@ function progressHint(data: ReviewBatchStatus, open: number): string {
 }
 
 /** Skąd licznik ma taką wartość i co odblokuje wyszukiwanie. */
-function BatchProgress({ data }: { data: ReviewBatchStatus }) {
+function BatchProgress({
+  data,
+  onChoose,
+  onReset,
+  resetting,
+}: {
+  data: ReviewBatchStatus;
+  onChoose: () => void;
+  onReset: () => void;
+  resetting: boolean;
+}) {
+  const focusTitle = data.focus
+    ? (data.team_jobs.find((job) => job.job_id === data.focus?.job_id)?.title ?? null)
+    : null;
   const open = data.open_screenings ?? 0;
   const done = Math.min(data.done_today, data.required);
   const cells = Array.from({ length: data.required }, (_, index) => index < done);
@@ -327,10 +342,13 @@ function BatchProgress({ data }: { data: ReviewBatchStatus }) {
             </>
           )}
           <span className="text-muted-foreground">
-            · tylko z Twoich rekrutacji, najpierw pilne (P0 i P1)
-            {data.sources.other_seats
-              ? `, ale ${data.sources.other_seats} ${pluralPl(data.sources.other_seats, "miejsce czeka", "miejsca czekają", "miejsc czeka")} na rekrutacje bez pilnego priorytetu`
-              : ""}
+            {focusTitle
+              ? "· tylko z Twoich rekrutacji"
+              : `· tylko z Twoich rekrutacji, najpierw pilne (P0 i P1)${
+                  data.sources.other_seats
+                    ? `, ale ${data.sources.other_seats} ${pluralPl(data.sources.other_seats, "miejsce czeka", "miejsca czekają", "miejsc czeka")} na rekrutacje bez pilnego priorytetu`
+                    : ""
+                }`}
             {data.sources.level_next > data.required
               ? ` · jutro ${data.sources.level_next}, jeśli dziś zdecydujesz o wszystkich (rośnie o 10 do ${data.sources.level_cap})`
               : ""}
@@ -345,6 +363,14 @@ function BatchProgress({ data }: { data: ReviewBatchStatus }) {
       >
         {data.met ? "Wyszukiwanie działa" : "Wyszukiwanie zablokowane"}
       </span>
+      {data.sources ? (
+        <FocusLine
+          focusTitle={focusTitle}
+          onChoose={onChoose}
+          onReset={onReset}
+          resetting={resetting}
+        />
+      ) : null}
     </div>
   );
 }
@@ -377,8 +403,9 @@ function WhyLine({ why }: { why: ReviewBatchWhy }) {
   return (
     <p className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-snug" data-testid="review-why" data-tour="review-batch.why">
       <span className="font-medium text-muted-foreground">Masz tę osobę, bo:</span>
-      <span className="text-muted-foreground">
-        Twoja rekrutacja{why.via ? ` (${VIA_LABEL[why.via]})` : ""}
+      <span className={cn(why.chosen ? "font-medium text-primary" : "text-muted-foreground")}>
+        {why.chosen ? "Twój wybór na dziś" : "Twoja rekrutacja"}
+        {why.via ? ` (${VIA_LABEL[why.via]})` : ""}
       </span>
       <span className="text-muted-foreground">·</span>
       {why.source === "p0" ? (
@@ -466,6 +493,7 @@ function JobRow({
   waitsFor: string | null;
 }) {
   const via = job.via ? VIA_LABEL[job.via] : null;
+  const chosen = data.focus?.job_id === job.job_id;
   return (
     <li className="px-3 py-2 text-sm">
       <div className="flex items-center gap-2">
@@ -485,6 +513,7 @@ function JobRow({
           <span className="font-semibold text-destructive">P0 do {p0Until(job.p0_until)}</span>
         ) : null}
         {via ? <span>{via}</span> : null}
+        {chosen ? <span className="font-medium text-primary">wybrana na dziś</span> : null}
       </div>
     </li>
   );
@@ -537,6 +566,23 @@ function BatchWorkspace({
     (data.overdue_screenings ?? 0) > 0 ? "close" : "decide",
   );
   const [picked, setPicked] = useState(0);
+  // „Wybierz rekrutację na dziś”: lista wyboru zamiast zakładek po lewej.
+  const [choosing, setChoosing] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const queryClient = useQueryClient();
+  const { showError, showSuccess } = useToast();
+  const resetFocus = async () => {
+    setResetting(true);
+    try {
+      await setReviewBatchFocus(null);
+      invalidateReviewBatch(queryClient);
+      showSuccess("Kolejka wraca do zwykłej kolejności, najpierw pilne. Osoby, które masz, zostają.");
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się wrócić do zwykłej kolejności."));
+    } finally {
+      setResetting(false);
+    }
+  };
   // Klik w „Kluczowe” na karcie: CV po prawej szuka tej frazy (jak „Wymagania”).
   const [searchRequest, setSearchRequest] = useState<{ text: string; nonce: number } | null>(null);
   const next = queue.data?.items?.[0] ?? null;
@@ -566,10 +612,18 @@ function BatchWorkspace({
 
   return (
     <div className="flex min-h-0 flex-col gap-2 p-3 lg:h-[calc(100dvh-4rem)]">
-      <BatchProgress data={data} />
+      <BatchProgress
+        data={data}
+        onChoose={() => setChoosing(true)}
+        onReset={resetFocus}
+        resetting={resetting}
+      />
       <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
         <div className="flex w-full shrink-0 flex-col gap-2 overflow-y-auto pr-1 lg:w-[390px]">
-          <div className="flex gap-1 rounded-lg bg-muted/50 p-1" role="tablist">
+          {choosing ? (
+            <ReviewBatchFocusPicker onClose={() => setChoosing(false)} onChosen={() => setTab("decide")} />
+          ) : null}
+          <div className={cn("flex gap-1 rounded-lg bg-muted/50 p-1", choosing && "hidden")} role="tablist">
             {tabs.map((item) => (
               <button
                 key={item.value}
@@ -587,7 +641,7 @@ function BatchWorkspace({
             ))}
           </div>
 
-          {tab === "decide" ? (
+          {!choosing && tab === "decide" ? (
             next ? (
               <>
                 <QueueRunLine runs={queue.data?.runs ?? []} jobId={next.job_id} titles={jobTitles} />
@@ -623,7 +677,7 @@ function BatchWorkspace({
             )
           ) : null}
 
-          {tab === "close" ? (
+          {!choosing && tab === "close" ? (
             <ul className="divide-y divide-border rounded-lg border border-border bg-card" data-testid="review-batch-open-today">
               {open.map((item, index) => {
                 const active = selected === item;
@@ -687,7 +741,7 @@ function BatchWorkspace({
             </ul>
           ) : null}
 
-          {tab === "jobs" ? (
+          {!choosing && tab === "jobs" ? (
             data.team_jobs.some((job) => job.group) ? (
               <GroupedJobs data={data} />
             ) : (

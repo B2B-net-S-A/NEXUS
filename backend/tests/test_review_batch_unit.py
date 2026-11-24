@@ -24,7 +24,7 @@ from starlette.datastructures import QueryParams
 
 from app.models.job import JobPriority, JobStatus
 from app.models.user import UserRole
-from app.services import job_team
+from app.services import job_team, review_batch_focus
 from app.services import review_batch as rb
 
 NOW = datetime(2026, 11, 9, 9, 0, tzinfo=timezone.utc)
@@ -124,11 +124,21 @@ def batch_on(monkeypatch):
 
     monkeypatch.setattr(rb, "read_settings", _settings)
     monkeypatch.setattr(rb.review_batch_levels, "read_levels", _no_levels)
+    _no_focus(monkeypatch)
     # „Rekrutacje” na ekranie porcji pokazują, jak osoba jest przypisana (10.11.2026).
     monkeypatch.setattr(job_team, "recruiters_for_jobs", _no_teams)
     # Poniedziałek 09.11, 10:00 w Warszawie — dzień roboczy po 7:00.
     monkeypatch.setattr(rb, "_now", lambda: NOW)
     return monkeypatch
+
+
+def _no_focus(monkeypatch, focus: dict | None = None) -> None:
+    """Rekrutacja wybrana na dziś (``review_batch_focus``) bez bazy."""
+
+    async def _read(_db):
+        return dict(focus or {})
+
+    monkeypatch.setattr(review_batch_focus, "read_focus", _read)
 
 
 def _fake_state(monkeypatch, *, pending: int, done: int):
@@ -187,6 +197,17 @@ async def test_empty_batch_never_blocks(batch_on):
     _fake_state(batch_on, pending=0, done=0)
     status = await rb.status_for(_Db(), _user(), now=NOW)
     assert status.met and status.required == 0
+
+
+async def test_status_shows_the_choice_only_for_own_job(batch_on):
+    _fake_state(batch_on, pending=3, done=0)
+    _no_focus(batch_on, {7: review_batch_focus.Focus(user_id=7, job_id=1, at=NOW)})
+    status = await rb.status_for(_Db(), _user(), now=NOW)
+    assert status.focus == {"job_id": 1, "at": NOW.isoformat()}
+    # Osobę zdjęto z wybranej rekrutacji albo ta wyszła z pracy: wyboru nie ma.
+    _no_focus(batch_on, {7: review_batch_focus.Focus(user_id=7, job_id=99, at=NOW)})
+    status = await rb.status_for(_Db(), _user(), now=NOW)
+    assert status.focus is None
 
 
 @pytest.mark.parametrize(
@@ -302,6 +323,7 @@ async def test_queue_takes_whole_levels_p0_first(monkeypatch):
     monkeypatch.setattr(rb, "_own_cards", _own)
     monkeypatch.setattr(rb, "pending_cards", _column)
     monkeypatch.setattr(rb, "_board_order", _order)
+    _no_focus(monkeypatch)
     jobs = [
         SimpleNamespace(
             id=10,
@@ -366,6 +388,7 @@ async def test_queue_goes_job_by_job_nearest_p0_deadline_first(monkeypatch):
     monkeypatch.setattr(rb, "_own_cards", _own)
     monkeypatch.setattr(rb, "pending_cards", _column)
     monkeypatch.setattr(rb, "_board_order", _order)
+    _no_focus(monkeypatch)
 
     def _job(jid, priority, p0_hours=None):
         return SimpleNamespace(
@@ -392,6 +415,11 @@ async def test_queue_goes_job_by_job_nearest_p0_deadline_first(monkeypatch):
     assert rb.queue_runs(queue) == [(20, 2), (10, 3), (40, 2), (30, 1)]
     limited = await rb.review_queue(_JobsDb(), _user(), now=NOW, limit=3)
     assert [c.process_id for c in limited] == [4, 5, 1]
+
+    # Rekrutacja wybrana na dziś (zgłoszenie rekruterów 16.11.2026) idzie przed P0.
+    _no_focus(monkeypatch, {7: review_batch_focus.Focus(user_id=7, job_id=30, at=NOW)})
+    chosen = await rb.review_queue(_JobsDb(), _user(), now=NOW, limit=None)
+    assert [c.process_id for c in chosen] == [6, 4, 5, 1, 2, 3, 7, 8]
 
 
 def _multi(role: UserRole, extra: list[str]):

@@ -727,6 +727,19 @@ async def lifespan(app: FastAPI):
     async with engine.connect() as _profile_rate_schema_conn:
         await assert_candidate_profile_rate_schema(_profile_rate_schema_conn)
 
+    # Kroki jednorazowe niżej (do seedu B2B) biegną w każdym procesie: web, worker,
+    # a przy WEB_CONCURRENCY > 1 w kilku web naraz. Są idempotentne, ale seed B2B
+    # to „sprawdź, potem wstaw”, więc idą po kolei za blokadą doradczą.
+    # → docs/claude/podstawy/kilka-procesow-web.md
+    from contextlib import AsyncExitStack
+
+    from app.core.process_lock import cross_process_wait_lock
+
+    _startup_oneoffs = AsyncExitStack()
+    await _startup_oneoffs.enter_async_context(
+        cross_process_wait_lock("startup_oneoffs", timeout_seconds=180)
+    )
+
     # Migration 0207 rewrites every historic candidate saved search. Production
     # also has a legacy fail-open Alembic path, so repeat the idempotent rewrite
     # before accepting traffic and fail the startup if safety cannot be proven.
@@ -819,6 +832,7 @@ async def lifespan(app: FastAPI):
             await ensure_b2b_seed_data(_seed_db)
     except Exception as e:
         logger.warning("B2B generator seed skipped: %s", e)
+    await _startup_oneoffs.aclose()
 
     # Durable CV jobs recover queued work and expire only abandoned leases.
     from app.services.cv_generator_b2b.durable_jobs import (
@@ -874,6 +888,7 @@ async def lifespan(app: FastAPI):
     )
     from app.tasks.candidate_rate_from import candidate_rate_from_loop
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
+    from app.api.ws import presence_sync_loop
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
     from app.tasks.signature_reconciler import signature_reconciler_loop
     from app.tasks.b2b_esign_sweeper import b2b_esign_sweeper_loop, prewarm_trusted_list
@@ -1077,6 +1092,8 @@ async def lifespan(app: FastAPI):
             # 0414: „Stawka od” — przeliczenia z kolejki zasilanej wyzwalaczami.
             "candidate_rate_from": asyncio.create_task(candidate_rate_from_loop()),
             "chat_email_fallback": asyncio.create_task(chat_email_fallback_loop()),
+            # Obecność („kto ogląda”) między procesami web; przy jednym kończy się od razu.
+            "presence_sync": asyncio.create_task(presence_sync_loop()),
             "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
             "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
             "b2b_esign_sweeper": asyncio.create_task(b2b_esign_sweeper_loop()),

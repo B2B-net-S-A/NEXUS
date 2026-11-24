@@ -291,6 +291,8 @@ async def runtime_metrics_monitor_loop(engine: AsyncEngine | None = None) -> Non
                 extra={
                     "event_kind": "runtime_metrics",
                     "process_role": settings.NEXUS_PROCESS_ROLE,
+                    # Przy WEB_CONCURRENCY > 1 dwa procesy web logują co minutę.
+                    "pid": os.getpid(),
                     "window_seconds": INTERVAL_SECONDS,
                     **window.take(),
                     **gc_window.take(),
