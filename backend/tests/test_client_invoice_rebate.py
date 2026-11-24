@@ -8,6 +8,7 @@ walucie po kursie NBP z każdej faktury. Kwoty fikcyjne.
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from decimal import Decimal
 
@@ -392,6 +393,98 @@ def test_payload_for_invoice_month():
         {"up_to": "1000.00", "rate": "2.5"},
         {"up_to": None, "rate": "3"},
     ]
+
+
+def test_payload_counts_pre_ksef_invoices_from_the_archive():
+    entries = [
+        rebate.Entry("PLN", Decimal("3200.00"), DAY, 3, archived=True),
+        _entry("1600.00", 10),
+    ]
+    status = rebate.summarize(2026, _terms(), entries, RATES)
+    data = rebate.payload(status, month=10, on_invoice=None, currency="PLN")
+    assert data["archived"] == 1 and data["unreadable"] == 0
+    assert data["turnover_before"] == "800.00"
+
+
+# ── Obrót sprzed KSeF: faktura z pliku archiwum eBI24 (24.11.2026) ──────────
+
+
+def _ebi_line(units: str, price: int, net: int, name: str = "Usługi") -> dict:
+    """Pozycja z pliku eBI24: kwoty w groszach, cena przed rabatem, netto po rabacie."""
+
+    return {
+        "name": name,
+        "amountOfUnits": units,
+        "unitNettPrice": price,
+        "nettAmount": net,
+        "discountRate": 250 if price * int(units) != net else 0,
+    }
+
+
+def test_ebi24_invoice_counts_before_discount_and_without_travel():
+    from app.services.client_invoicing import rebate_archive
+
+    data = {
+        "invoiceType": "INVOICE",
+        "nettAmount": 1254640,
+        "items": [
+            _ebi_line("80", 15700, 1224640),
+            _ebi_line("1", 30000, 30000, "Refaktura: podróż służbowa"),
+            "śmieć",
+        ],
+    }
+    invoice = rebate_archive.ebi_invoice(data)
+    assert invoice.net_amount == Decimal("12546.40")
+    assert invoice.items[0] == {
+        "name": "Usługi",
+        "quantity": "80",
+        "unit_price": "157.00",
+        "net": "12246.40",
+    }
+    net = rebate.service_base(invoice.net_amount, invoice.items, ("podróż",))
+    assert net == (Decimal("12560.00"), True)
+
+
+def test_ebi24_correction_is_state_after_minus_state_before():
+    from app.services.client_invoicing import rebate_archive
+
+    before = {"nettAmount": 1224640, "items": [_ebi_line("80", 15700, 1224640)]}
+    data = {
+        "invoiceType": "CORRECTIVE_INVOICE",
+        "nettAmount": 1071560,
+        "items": [_ebi_line("70", 15700, 1071560)],
+        "correctedInvoiceNettAmount": 1224640,
+        "correctedInvoiceContent": json.dumps(before),
+    }
+    invoice = rebate_archive.ebi_invoice(data)
+    assert invoice.net_amount == Decimal("-1530.80")
+    assert rebate.service_base(invoice.net_amount, invoice.items, ()) == (
+        Decimal("-1570.00"),
+        False,
+    )
+    # Bez treści faktury korygowanej rabatu nie odtworzymy: sama różnica netto.
+    bare = rebate_archive.ebi_invoice({**data, "correctedInvoiceContent": None})
+    assert bare.items == ()
+    assert rebate.service_base(bare.net_amount, bare.items, ()) == (
+        Decimal("-1530.80"),
+        False,
+    )
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        [],
+        {"items": []},
+        {"nettAmount": "abc"},
+        {"nettAmount": True},
+        {"invoiceType": "CORRECTIVE_INVOICE", "nettAmount": 0},
+    ],
+)
+def test_ebi24_file_without_amounts_is_not_turnover(data):
+    from app.services.client_invoicing import rebate_archive
+
+    assert rebate_archive.ebi_invoice(data) is None
 
 
 def test_order_comparison_uses_value_before_discount():
