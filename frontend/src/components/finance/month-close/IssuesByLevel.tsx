@@ -81,8 +81,19 @@ export function IssuesByLevel({ reasons, month, clientHref }: IssuesByLevelProps
                 const first = r.clients[0];
                 return (
                   <tr key={`${r.key}-${level}`} className="hover:bg-muted/30">
-                    <td className="truncate px-3 py-1.5 pl-7" title={r.title}>
-                      {r.title}
+                    <td className="px-3 py-1.5 pl-7" title={r.title}>
+                      <span className="block truncate">{r.title}</span>
+                      <span className="block truncate text-[11px] text-muted-foreground">
+                        {r.people.slice(0, 3).map((p, i) => (
+                          <span key={p.contract_id}>
+                            {i ? ", " : ""}
+                            <Link href={clientHref(p.client_id, { stContract: String(p.contract_id) })} className="hover:text-foreground hover:underline">
+                              {p.person}
+                            </Link>
+                          </span>
+                        ))}
+                        {r.count > 3 ? ` i ${r.count - 3} innych` : ""}
+                      </span>
                     </td>
                     <td className="px-2 py-1.5 text-right font-medium tabular-nums">{r.count}</td>
                     <td className="truncate px-2 py-1.5 text-[12px] text-muted-foreground">

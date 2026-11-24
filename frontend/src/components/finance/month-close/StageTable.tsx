@@ -20,6 +20,9 @@ import type { ReminderClient } from "@/lib/api/settlement-reminders";
 import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 
+import { shortDay } from "../settlements/format";
+import { issueHref } from "./ClientMonthStrip";
+
 import {
   STEPS,
   STEP_DOT,
@@ -303,6 +306,7 @@ export function StageTable({ data, month, team, teamError, reminders, clientHref
               <Fragment key={key}>
                 <ClientRow
                   c={c}
+                  month={month}
                   open={open.has(key)}
                   onToggle={() => toggle(key)}
                   href={clientHref(c.client_id, c.client_report ? { stSub: "t4t" } : {})}
@@ -320,7 +324,16 @@ export function StageTable({ data, month, team, teamError, reminders, clientHref
   );
 }
 
-function ClientRow({ c, open, onToggle, href, reminder }: { c: MonthCloseClient; open: boolean; onToggle: () => void; href: string; reminder?: string }) {
+interface ClientRowProps {
+  c: MonthCloseClient;
+  month: string;
+  open: boolean;
+  onToggle: () => void;
+  href: string;
+  reminder?: string;
+}
+
+function ClientRow({ c, month, open, onToggle, href, reminder }: ClientRowProps) {
   const report = c.client_report;
   if (report) {
     return (
@@ -384,7 +397,7 @@ function ClientRow({ c, open, onToggle, href, reminder }: { c: MonthCloseClient;
           }
         />
       </td>
-      <td className="px-2 py-2 align-top">
+      <td className="px-2 py-2 align-top" title={c.top_reason ? `Najczęściej: ${c.top_reason}` : undefined}>
         <Cell
           segments={[
             { n: s.check.clean + s.check.resolved, tone: "done", title: "bez uwag albo rozstrzygnięte" },
@@ -418,11 +431,16 @@ function ClientRow({ c, open, onToggle, href, reminder }: { c: MonthCloseClient;
           total={s.people}
           main={`${s.accept.done}/${s.people}`}
           note={
-            s.accept.ready ? (
-              <span className={TEXT.todo}>{s.accept.ready} do przyjęcia</span>
-            ) : s.accept.auto ? (
-              `automat ${s.accept.auto}`
-            ) : undefined
+            <>
+              {s.accept.ready ? <span className={cn("block", TEXT.todo)}>{s.accept.ready} do przyjęcia</span> : null}
+              {c.auto_accept && c.auto_accept.count > 0 ? (
+                <span className="block truncate text-success-muted-foreground">
+                  {c.auto_accept.count} przyjmie automat od {shortDay(c.auto_accept.from)}
+                </span>
+              ) : s.accept.auto ? (
+                <span className="block">przyjął automat: {s.accept.auto}</span>
+              ) : null}
+            </>
           }
         />
       </td>
@@ -453,6 +471,12 @@ function ClientRow({ c, open, onToggle, href, reminder }: { c: MonthCloseClient;
         <StatusDot tone={STEP_DOT[inv.tone]} note={inv.note} className="max-w-full">
           <span className="truncate">{inv.label}</span>
         </StatusDot>
+        {s.client_invoice.ready > 0 ? (
+          // „Wystaw” otwiera fakturowanie tylko tego klienta z zaznaczonymi zamówieniami (#3839).
+          <Link href={issueHref(month, c.client_id)} className="mt-0.5 block pl-3 text-[11px] font-medium text-primary hover:underline">
+            Wystaw
+          </Link>
+        ) : null}
       </td>
       <td className="px-2 py-2 align-top">
         <Moves moves={clientMoves(s)} />
