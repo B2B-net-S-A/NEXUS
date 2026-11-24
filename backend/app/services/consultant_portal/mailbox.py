@@ -640,6 +640,7 @@ async def _ingest_message(
         db,
         files,
         message,
+        mailbox=mailbox,
         sender=sender,
         received=received,
         state=state,
@@ -861,11 +862,43 @@ async def _report_people(
     )
 
 
+async def _thread_client_address(
+    db: AsyncSession,
+    mailbox: Optional[SettlementsMailbox],
+    message: dict[str, Any],
+    *,
+    client_id: int,
+) -> Optional[str]:
+    """Adres klienta z wątku maila wysłanego z adresu firmy: adresat albo nadawca
+    cytatu „Od:”/„From:” z domeny klienta (``identity.client_ids_for_sender``).
+
+    Protokół odbioru CeZ przychodzi na rozliczenia@ zawsze od nas: PM podpisuje
+    protokół od CeZ i odsyła go do CeZ z DW rozliczenia@ albo przekazuje dalej
+    (przegląd skrzynek 24.11.2026). Decyzja Artura z 24.11.2026: taki protokół jest
+    od klienta, gdy CeZ jest w wątku; PDF z adresu firmy bez klienta w wątku nie."""
+
+    addresses = [
+        identity.normalize_email((item.get("emailAddress") or {}).get("address"))
+        for field in ("toRecipients", "ccRecipients")
+        for item in message.get(field) or []
+        if isinstance(item, dict)
+    ]
+    for address in addresses:
+        if address and client_id in await identity.client_ids_for_sender(db, address):
+            return address
+    inner = await _forwarded(mailbox, message) if mailbox is not None else None
+    for address in inner.senders if inner else ():
+        if address and client_id in await identity.client_ids_for_sender(db, address):
+            return address
+    return None
+
+
 async def _store_client_reports(
     db: AsyncSession,
     files: list[dict[str, Any]],
     message: dict[str, Any],
     *,
+    mailbox: Optional[SettlementsMailbox] = None,
     sender: str,
     received: datetime,
     state: portal_settings.PortalSettings,
@@ -919,6 +952,18 @@ async def _store_client_reports(
         if not people:
             continue
         year, month = (int(part) for part in period.split("-"))
+        # Nadawca dokumentu: przy protokole wysłanym z adresu firmy — klient z wątku
+        # (faktura CeZ sprawdza protokół od klienta, ``client_invoicing/period_checks``).
+        author = sender
+        if isinstance(report, protocol_collective.Protocol) and (
+            identity.is_company_address(sender)
+        ):
+            author = (
+                await _thread_client_address(
+                    db, mailbox, message, client_id=people[0].client_id
+                )
+                or sender
+            )
         for position, contract in enumerate(people):
             stored = await documents.store(
                 db,
@@ -932,8 +977,15 @@ async def _store_client_reports(
                 now=now,
                 # Para (mail, plik) jest unikalna: identyfikator maila ma pierwsza kopia.
                 graph_message_id=message_id if position == 0 else None,
-                sender_email=sender[:320] or None,
+                sender_email=author[:320] or None,
             )
+            if (
+                stored.duplicate
+                and author != sender
+                and identity.is_company_address(stored.document.sender_email or "")
+            ):
+                # Ten sam podpisany protokół przyszedł wcześniej bez CeZ w wątku.
+                stored.document.sender_email = author[:320]
             created += 0 if stored.duplicate else 1
         consumed.add(index)
     return created, consumed

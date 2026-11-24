@@ -25,6 +25,30 @@ Reguły obowiązują wg **miesiąca usługi** faktury, nie daty wysyłki.
 - **Blok ESP-MANAGER (Bosch)** już jest: `cl.cost_mail_block` przy dokumencie na projekt w rozliczeniach.
 - Identyfikatory RFP/PR/ORD (Pekao) to numery zamówienia — idą `NrZamowienia` i `{zamowienie}` w temacie maila.
 
+## Zlecenie na okres i protokół odbioru (24.11.2026)
+
+Przegląd skrzynek Finansów i kopii dokumentów klientów z 24.11.2026. Decyzje Artura z 24.11: ERSTE — blokada
+bez zlecenia, Centrum e-Zdrowia — ostrzeżenie, nie blokada. Kod: `services/client_invoicing/period_checks.py`.
+Obie reguły są przełącznikami w „Reguły klienta”, domyślnie wyłączone; włączają je Finanse u klienta
+(ERSTE: `cl.bzone_order`, CeZ: `cl.client_protocol`) od miesiąca usługi.
+
+| Reguła | Co robi | Dlaczego |
+|---|---|---|
+| `cl.bzone_order` | Każdy dzień roboczy pracy osoby w miesiącu faktury (miesiąc ∩ okres kontraktu, do `terminated_at`) musi leżeć w okresie zamówienia klienta tej osoby z numerem `K/RRRR/<nr>/<inicjały>/<nr>/<kod>`. Liczą się wszystkie aktywne i zakończone zamówienia kontraktu (zlecenie do 15., następne od 16.), bez szkiców i anulowanych; numer samodzielnego zamówienia to tytuł, linii MD — numer grupy. Brak = „Wystaw za miesiąc” blokuje wiersz i szkic (409), a karta szkicu blokuje wysyłkę (sprawdzane też przy wysyłce, gdy reguła weszła po szkicu). Komunikat: „Brak zlecenia B-ZONE na ten okres — poproś KAM o zlecenie: osoba (dni bez zlecenia)”. Pozycja bez kontraktu też czeka. Korekty i zaliczki nie są sprawdzane | Bank przyjmuje fakturę tylko z numerem zlecenia, które obejmuje okres. Zlecenia przychodzą do KAM-a, nie zawsze na rozliczenia@, a osoba potrafi zacząć pracę przed zleceniem |
+| `cl.client_protocol` | Karta szkicu ostrzega (`warnings`), gdy wśród raportów miesiąca osoby (`cp_documents`, PDF) nie ma protokołu odbioru od klienta: nadawca z domeny klienta (`identity.client_ids_for_sender`), okres z treści PDF = miesiąc faktury, osoba w protokole i numer umowy z treści = umowa wykonawcza osoby (`client_executive_contracts` z zamówienia, inaczej numer zamówienia pozycji; nieznana umowa = każda). Fakturę można wysłać | Klient przysyła protokół ok. miesiąc po okresie; faktury wychodziły z wewnętrznego zestawienia godzin i jedna wymagała korekty |
+
+- **Okres i umowa z treści PDF, nie z tematu maila.** Tematy protokołów jednej umowy bywają identyczne dla
+  kolejnych miesięcy, a w wątku jednej umowy PM odesłał protokół innej. Numer umowy czyta
+  `protocol_collective` („Nr umowy (Wykonawczej) CeZ/…” → `Protocol.contract`, porównanie `contract_key`).
+- **Protokół od klienta, choć przychodzi od nas.** Na rozliczenia@ protokół CeZ nigdy nie przychodzi z domeny
+  klienta: PM podpisuje protokół od CeZ i odsyła go do CeZ z DW rozliczenia@ albo przekazuje dalej
+  (kopia v5: wszystkie PDF-y protokołów IX–X od adresu firmy). Decyzja Artura z 24.11.2026: liczy się protokół
+  z domeny klienta albo z adresu firmy w wątku z klientem. Czytnik poczty (`mailbox._store_client_reports`)
+  zapisuje wtedy jako `cp_documents.sender_email` adres klienta z adresatów albo z cytatu „Od:”/„From:”
+  przekazanego maila (`_thread_client_address`); ten sam plik przysłany ponownie w wątku z klientem uzupełnia
+  nadawcę. PDF z adresu firmy bez klienta w wątku i mail koordynatorki z godzinami się nie liczą.
+  Dokumenty zapisane przed tą zmianą mają nadawcę firmy, więc miesiące do X 2026 dostaną ostrzeżenie.
+
 ## Faktura z kilku zamówień
 
 - Nie ma własnego `order_group_id`/`order_id`; zamówienia niesie każda pozycja (`order_key` `g12`/`o34`,
@@ -67,6 +91,10 @@ Reguły obowiązują wg **miesiąca usługi** faktury, nie daty wysyłki.
 - XSD FA(3) **jest w repo**: `backend/tests/data/fa3_schema/schemat.xsd` (z typami MF). Nowe pola przechodzą go
   w `tests/test_client_invoice_fa3.py::test_client_requirement_fields_pass_the_fa3_schema`; zapis w opisie
   `wystawianie-faktur-sprzedazy-do-ksef.md` („XSD nie ma w repo”) jest nieaktualny.
+- Zlecenie B-ZONE i protokół odbioru bez bazy: `tests/test_client_invoice_period_checks.py` (zlecenie kwartalne,
+  kończące się przed końcem miesiąca, kolejne zlecenie, brak zlecenia, niepełny numer, protokół innej umowy
+  i innego miesiąca, adres klienta z wątku); z bazą: sekcja „Zlecenie B-ZONE…” w `test_client_invoice_issue_api.py`
+  i nadawca protokołu w `test_consultant_portal_protocol_mail_db.py`.
 - Reguły bez bazy: `tests/test_client_invoice_requirements.py`; ścieżka z bazą (szkic z dwóch zamówień, `NrUmowy`,
   `OSOBA`, nabywca per kontrakt z `AdresKoresp`, tekst wymagany w pozycji, blokada bez protokołu):
   `tests/test_client_invoice_issue_api.py`.

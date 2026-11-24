@@ -737,7 +737,7 @@
       },
       {
         "q": "Jak wystawić fakturę do klienta w KSeF?",
-        "a": "„Faktury do klientów” → „Wystaw za miesiąc”: zaznacz zamówienia i „Utwórz szkice”. Szkic poprawisz na karcie faktury, numer z serii dostaje dopiero przy „Wyślij do KSeF”. Dane sprzedawcy, rachunki i „następny numer” serii są w „Ustawienia wystawiania”. „Wystaw” w Przychody → „Przebieg miesiąca” otwiera jednego klienta z zaznaczonymi zamówieniami.",
+        "a": "„Faktury do klientów” → „Wystaw za miesiąc”: zaznacz zamówienia i „Utwórz szkice”; numer serii nadaje „Wyślij do KSeF” (serie: „Ustawienia wystawiania”). Szkic sprawdza „Reguły klienta”: bez zlecenia B-ZONE (ERSTE) nie wyjdzie, brak protokołu od klienta (CeZ) ostrzega. „Wystaw” w „Przebiegu miesiąca” otwiera klienta z zaznaczonymi zamówieniami.",
         "anchor": "finance.modes"
       }
     ],
