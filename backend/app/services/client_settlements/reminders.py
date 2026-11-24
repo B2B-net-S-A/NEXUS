@@ -60,6 +60,7 @@ from app.services.client_settlements.service import (
     SettlementError,
     estimate_allowed,
     month_end,
+    rules_for,
 )
 from app.services.care.announcement_mail import MailOutcome
 from app.services.consultant_portal import portal_mail, portal_settings
@@ -177,10 +178,52 @@ def settlements_address() -> Optional[str]:
     return None
 
 
-def compose(month: str, client_name: str, address: str) -> tuple[str, str]:
-    """Temat i treść maila do konsultanta (bez nazwisk i kwot)."""
+#: Reguła klienta, przy której raportem jest zdanie konsultanta w mailu (mLeasing).
+DECLARATION_RULE = "report.consultant_declaration"
+#: Godziny z raportu klienta (Nordea, T4T): brak RCP konsultanta nie jest brakiem
+#: (jak w „Przebiegu miesiąca”, ``month_close.T4T_RULE``).
+CLIENT_HOURS_RULE = "report.time_for_teams"
+#: Miesiąc w miejscowniku do przykładu deklaracji („We wrześniu nie miałam…”).
+IN_MONTH = (
+    "W styczniu",
+    "W lutym",
+    "W marcu",
+    "W kwietniu",
+    "W maju",
+    "W czerwcu",
+    "W lipcu",
+    "W sierpniu",
+    "We wrześniu",
+    "W październiku",
+    "W listopadzie",
+    "W grudniu",
+)
+
+
+def compose(
+    month: str, client_name: str, address: str, *, declaration: bool = False
+) -> tuple[str, str]:
+    """Temat i treść maila do konsultanta (bez nazwisk i kwot).
+
+    ``declaration``: klient z regułą deklaracji (powtórka 7 próby IX–X: mLeasing
+    438 X dostałby prośbę o plik RCP z akceptacją klienta, którego tam nie ma)."""
 
     label = format_period_month(month)
+    if declaration:
+        name = IN_MONTH[int(month[5:7]) - 1]
+        return (
+            f"Deklaracja dni pracy za {label}: prosimy o przesłanie",
+            "Dzień dobry,\n\n"
+            f"nie mamy jeszcze Twojej deklaracji dni pracy za {label} u klienta "
+            f"{client_name}. Bez niej nie rozliczymy miesiąca ani Twojej faktury.\n\n"
+            f"Napisz, proszę, z adresu firmowego na {address} (najlepiej w mailu "
+            "z fakturą) jedno zdanie z nazwą miesiąca, np.:\n"
+            f"- „{name} nie miałam/em dni wolnych”,\n"
+            f"- „{name} miałam/em 2 dni wolnego”.\n\n"
+            "Jeśli deklarację już wysłałeś(-aś), zignoruj tę wiadomość.\n\n"
+            "Pozdrawiamy\n"
+            "Zespół rozliczeń B2Bnetwork",
+        )
     subject = f"Raport godzin za {label}: prosimy o przesłanie"
     text = (
         "Dzień dobry,\n\n"
@@ -198,7 +241,9 @@ def compose(month: str, client_name: str, address: str) -> tuple[str, str]:
     return subject, text
 
 
-def bell_text(month: str, client_name: str, people: list[str]) -> tuple[str, str]:
+def bell_text(
+    month: str, client_name: str, people: list[str], *, declaration: bool = False
+) -> tuple[str, str]:
     """Tytuł i opis dzwonka opiekuna."""
 
     label = format_period_month(month)
@@ -207,6 +252,12 @@ def bell_text(month: str, client_name: str, people: list[str]) -> tuple[str, str
     if more > 0:
         shown += f" i {more} {'inna osoba' if more == 1 else 'innych'}"
     title = f"Brak raportu godzin za {label}: {client_name} ({len(people)})"
+    if declaration:
+        message = (
+            f"Nie mamy deklaracji dni pracy za {label} od: {shown}. Poproś o zdanie "
+            "z nazwą miesiąca i liczbą dni wolnych w mailu na adres rozliczeń."
+        )
+        return title, message
     message = (
         f"Nie mamy RCP za {label} od: {shown}. Poproś o raport z akceptacją "
         f"klienta, jako plik, na adres rozliczeń."
@@ -235,6 +286,8 @@ class Missing:
     consultant_email: Optional[str]
     consultant_reason: str
     owner: Optional[Owner]
+    #: Klient z regułą deklaracji: raportem jest zdanie w mailu, nie plik RCP.
+    declaration: bool = False
 
     @property
     def mail_allowed(self) -> bool:
@@ -298,6 +351,23 @@ async def _client_leads(db: AsyncSession, client_ids: set[int]) -> dict[int, int
     for client_id, user_id in rows.all():
         leads.setdefault(client_id, user_id)
     return leads
+
+
+async def client_hours_clients(
+    db: AsyncSession, client_ids: set[int], month: str
+) -> set[int]:
+    """Klienci rozliczani z raportu klienta (reguła T4T, Nordea): konsultant nie
+    przysyła RCP, więc jego brak nie jest brakiem (jak w „Przebiegu miesiąca”).
+
+    Powtórka 7 próby IX–X (24.11.2026): bez tego Nordea dawała 282–286
+    „braków RCP” na miesiąc i dzwonek DL-a o każdej z tych osób."""
+
+    out = set()
+    for cid in client_ids:
+        rules = await rules_for(db, cid, month)
+        if rules[CLIENT_HOURS_RULE]["level"] != "off":
+            out.add(cid)
+    return out
 
 
 async def _active_users(db: AsyncSession, ids: set[int]) -> dict[int, User]:
@@ -405,6 +475,11 @@ async def missing_reports(
         ).all()
     )
     leads = await _client_leads(db, client_ids)
+    declaring = {
+        cid
+        for cid in client_ids
+        if (await rules_for(db, cid, month))[DECLARATION_RULE]["level"] != "off"
+    }
     users = await _active_users(
         db,
         {uid for row in rows for uid in (row[5], row[6]) if uid is not None}
@@ -412,8 +487,11 @@ async def missing_reports(
     )
     state = await portal_settings.load(db)
     address = settlements_address()
+    from_client = await client_hours_clients(db, client_ids, month)
     out: list[Missing] = []
     for contract_id, cid, email, name, client_name, own, default_own in rows:
+        if cid in from_client:
+            continue
         files = reports.get(contract_id, [])
         if cid in estimating:
             files = [at for at in files if at >= end]
@@ -442,6 +520,7 @@ async def missing_reports(
                     client_lead=leads.get(cid),
                     users=users,
                 ),
+                declaration=cid in declaring,
             )
         )
     return out
@@ -549,7 +628,9 @@ async def _mail_consultant(
     if address is None or item.consultant_email is None:
         await _finish(db, row_id, "blocked")
         return "blocked"
-    subject, text = compose(month, item.client_name, address)
+    subject, text = compose(
+        month, item.client_name, address, declaration=item.declaration
+    )
     cc = item.owner.email if step in CC_STEPS and item.owner else None
     try:
         result = await portal_mail.send(
@@ -599,7 +680,10 @@ async def _bell_owners(
         if not reserved:
             continue
         title, message = bell_text(
-            month, group[0].client_name, [item.person for _, item in reserved]
+            month,
+            group[0].client_name,
+            [item.person for _, item in reserved],
+            declaration=group[0].declaration,
         )
         row = await emit(
             db,
@@ -768,7 +852,12 @@ async def overview(
     for cid, group in by_client.items():
         rows = [_row(item, last.get(item.contract_id)) for item in group]
         dates = [r["last_reminder"]["sent_on"] for r in rows if r["last_reminder"]]
-        subject, text = compose(month, group[0].client_name, address or "—")
+        subject, text = compose(
+            month,
+            group[0].client_name,
+            address or "—",
+            declaration=group[0].declaration,
+        )
         clients.append(
             {
                 "client_id": cid,

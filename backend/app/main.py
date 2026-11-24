@@ -900,6 +900,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.client_report_reminders import client_report_reminders_loop
     from app.tasks.settlement_reminders import settlement_reminders_loop
+    from app.tasks.settlement_feedback import settlement_feedback_loop
     from app.tasks.client_settlements_auto_accept import (
         client_settlements_auto_accept_loop,
     )
@@ -1118,6 +1119,8 @@ async def lifespan(app: FastAPI):
             ),
             # 23.11.2026: brakujący raport godzin — 3., 5. i 7. dzień roboczy.
             "settlement_reminders": asyncio.create_task(settlement_reminders_loop()),
+            # 24.11.2026: informacja zwrotna o wadach rozliczenia — do poprawki.
+            "settlement_feedback": asyncio.create_task(settlement_feedback_loop()),
             # 23.11.2026: rano przyjęcie RCP „Bez uwag” (reguła klienta).
             "client_settlements_auto_accept": asyncio.create_task(
                 client_settlements_auto_accept_loop()
@@ -4254,6 +4257,7 @@ async def api_health_deep_check(request: Request):
     )
     from app.models.client_settlement_extra import ClientSettlementExtraDocument
     from app.models.client_settlement_reminder import ClientSettlementReminder
+    from app.models.client_settlement_feedback import ClientSettlementFeedback
     from app.models.client_time_report import (
         ClientExternalId,
         ClientTimeReport,
@@ -4969,6 +4973,8 @@ async def api_health_deep_check(request: Request):
         ("client_settlement_extra_documents", ClientSettlementExtraDocument),
         # 0763: dziennik przypomnień o brakującym raporcie godzin.
         ("client_settlement_reminders", ClientSettlementReminder),
+        # 0774: informacja zwrotna o wadach rozliczenia.
+        ("client_settlement_feedback", ClientSettlementFeedback),
         # 0689: rozliczenia Nordei N1 — kartoteka i wersje raportu T4T.
         ("client_external_ids", ClientExternalId),
         ("client_time_reports", ClientTimeReport),

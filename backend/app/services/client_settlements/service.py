@@ -1200,6 +1200,9 @@ async def _acceptance(
         group.fail("proof.accept_has_hours", verdict.title, verdict.detail)
         if group.checks:
             group.checks[-1]["todo"] = "Popraw akceptację"
+            if verdict.acceptors:
+                # Do kogo przypomnieć o odpowiedzi (informacja zwrotna o wadach).
+                group.checks[-1]["acceptors"] = list(verdict.acceptors)
     group.close()
     return result
 

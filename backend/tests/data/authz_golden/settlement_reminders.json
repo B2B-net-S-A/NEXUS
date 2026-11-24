@@ -32,6 +32,7 @@
  ],
  "routes": {
   "GET /api/finance/settlements/reminders": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/settlements/reminders/feedback": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/reminders/settings": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/reminders/send": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PUT /api/finance/settlements/reminders/settings": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
