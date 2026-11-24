@@ -1253,8 +1253,10 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  const lowState = lowBadges.length > 0 ? (
  <span
  data-testid="card-low-state"
- // Kotwica nowości „X? zna Y” musi mieć widoczny element także w dwóch liniach.
- data-tour={lowBadge?.key === "critical_gap" && !criticalGaps?.length && criticalAlternatives ? "board.critical-alternative" : undefined}
+ // Kotwice nowości z plakietek („X? zna Y”, lekcja „Stop ·”) muszą mieć widoczny
+ // element także w dwóch liniach: przy oknie < 800 px wiersz plakietek jest ukryty,
+ // a pokaz i lekcja biorą tylko element, który widać (24.11.2026, laptop 1280 × 720).
+ data-tour={lowBadge?.key === "critical_gap" && !criticalGaps?.length && criticalAlternatives ? "board.critical-alternative" : lowBadge?.key === "pre_contract" && lowBadge.label.startsWith("Stop ·") ? "board.card.pre-contract-stop" : undefined}
  title={twoLineStateTitle(lowBadges, addedAttribution)}
  className={cn(
  chipBase,
