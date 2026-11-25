@@ -282,8 +282,10 @@ def test_pko_nazwa_pliku_rozstrzyga_naglowek_z_poprzedniego_miesiaca():
     name = "TimeSheet 2610 - Testowa Ola PZ000001.xlsm"
     result = _pko_eval(parsed, name)
     checks = {c["title"]: c for g in result.groups for c in g["checks"]}
-    assert not result.blocking
-    assert checks["Miesiąc z nazwy pliku: październik 2026"]["state"] == "ok"
+    assert not result.blocking and not result.warn
+    # Od 25.11.2026 informacja z komunikatem dla konsultanta (nagłówek z szablonu).
+    note = checks["Miesiąc z nazwy pliku: październik 2026"]
+    assert (note["state"], note["notice"]) == ("none", "note.template_month")
     assert result.md_regular == D("22.000")
     assert timesheet_pko.sheet_month(parsed, "2026-10", name) == "2026-10"
     # Bank odpisał samym „Akceptuję”: godziny z TS za ten miesiąc wystarczą.

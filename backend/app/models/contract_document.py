@@ -105,7 +105,7 @@ class ContractDocument(Base, TimestampMixin):
         index=True,
     )
 
-    # 0788: stan odczytu treści dla asystenta prawnego i Jarvisa
+    # 0789: stan odczytu treści dla asystenta prawnego i Jarvisa
     # (``services/contract_document_text``). Zapis stanu nie rusza
     # ``updated_at`` — to nie jest edycja dokumentu.
     text_status: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)

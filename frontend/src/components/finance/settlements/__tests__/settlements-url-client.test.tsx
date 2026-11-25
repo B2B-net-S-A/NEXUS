@@ -33,6 +33,11 @@ vi.mock("@/lib/api/client-time-reports", () => ({
 vi.mock("@/lib/api/client-einvoices", () => ({
   useEinvoiceClients: () => ({ data: { client_ids: [] } }),
 }));
+// Licznik zakładki „Sprawy” (25.11.2026) — tu bez znaczenia.
+vi.mock("@/lib/api/settlement-cases", () => ({
+  useSettlementCases: () => ({ data: undefined, isSuccess: false, isError: false }),
+}));
+vi.mock("../CasesView", () => ({ CasesView: () => null }));
 
 const cardProps = vi.hoisted(() => ({ last: null as Record<string, unknown> | null }));
 

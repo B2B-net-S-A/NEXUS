@@ -266,6 +266,12 @@ class CorrectionIn(BaseModel):
     reason: str = Field(..., min_length=3, max_length=256)
 
 
+class SendIn(BaseModel):
+    """Powód wysyłki mimo uwag kontroli formalnej (``issue.prepare_send``)."""
+
+    checks_reason: Optional[str] = Field(None, max_length=256)
+
+
 class InvoiceIn(BaseModel):
     """Pola szkicu; brak pola = bez zmian."""
 
@@ -765,6 +771,7 @@ async def correction(
 async def send(
     invoice_id: int,
     current_user: FinanceModuleUser,
+    body: Optional[SendIn] = None,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _module_open(db, current_user)
@@ -772,7 +779,11 @@ async def send(
     invoice = await _invoice(db, invoice_id, lock=True)
     with _http_errors():
         xml = await issue.prepare_send(
-            db, invoice, config=config, actor_id=current_user.id
+            db,
+            invoice,
+            config=config,
+            actor_id=current_user.id,
+            checks_reason=body.checks_reason if body else None,
         )
     # Numer i XML zapisane przed rozmową z KSeF; blokada serii puszcza tutaj.
     await db.commit()

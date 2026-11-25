@@ -586,6 +586,19 @@ SECTIONS: tuple[Section, ...] = (
                 "osoby w treści. Fakturę można wysłać mimo ostrzeżenia.",
                 switch=True,
             ),
+            Rule(
+                "cl.contractor_person_id",
+                "Ostrzeżenie: „Contractor <osoba> ID: <kod>” z numerem osoby z NEXUSA",
+                "off",
+                "F2",
+                hint="Nordea: każda pozycja z „Contractor” ma po „ID:” kod osoby "
+                "(litera i 5–7 cyfr), który w NEXUSIE należy do tej osoby (numery osób "
+                "klienta). Ostrzega, gdy w polu ID jest imię, kod innej osoby albo "
+                "nieznany, a jako „Contractor” wpisano osobę klienta („Contact”). "
+                "Szkic idzie do KSeF dopiero z powodem; faktury spoza NEXUSA są w "
+                "„Kontroli faktur z KSeF”.",
+                switch=True,
+            ),
         ),
     ),
     Section(

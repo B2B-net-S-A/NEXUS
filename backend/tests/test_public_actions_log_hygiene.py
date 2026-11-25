@@ -294,6 +294,20 @@ def test_set_env_refuses_to_change_the_encryption_key_without_keeping_it():
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
+def test_set_env_refuses_the_encryption_key_when_the_api_hides_its_value():
+    """Token API bez odczytu wartości: workflow nie wie, czy stary klucz zostaje."""
+    for keep in ("", "M365_TOKEN_ENCRYPTION_KEY_PREVIOUS"):
+        result, writes = _run_set_env_against(
+            [_env_row("M365_TOKEN_ENCRYPTION_KEY", "")],
+            "M365_TOKEN_ENCRYPTION_KEY",
+            secret_value=_fernet_key(),
+            keep_old_in=keep,
+        )
+        assert result.returncode == 1, (keep, result.stderr)
+        assert writes == []
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
 def test_set_env_refuses_encryption_keys_that_are_not_fernet_keys():
     good = _fernet_key()
     for key, secret in (

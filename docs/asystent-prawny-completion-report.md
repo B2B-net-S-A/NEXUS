@@ -9,16 +9,16 @@ osobnego modułu.
 
 | Część | Gdzie w NEXUSIE | Migracja | Funkcja AI |
 |---|---|---|---|
-| A. Korpus prawa, weryfikator cytatów, terminy, ukrywanie danych osób | `services/legal/`, `/api/legal/*` | `0784_legal_corpus` | F57 `legal_assistant` |
-| B. Wzory własne | Generator → Dokumenty → „Nowy wzór z asystentem”, „Wzory własne” w „Nowy dokument” | `0785_custom_document_templates` | F58 `legal_template_draft` |
-| C. Orzecznictwo (SAOS) | źródło asystenta, `/api/legal/cases/search` | `0786_legal_case_law` | — |
-| D. Popraw dokument (DOCX ze śledzeniem zmian) | rejestr umów Generatora, Dokumenty kontraktu | `0787_legal_redline_ai` | F59 `legal_redline` |
-| E. Treść podpisanych dokumentów kontraktu | odczyt umowy/aneksu/wypowiedzenia, narzędzia Jarvisa | `0788_contract_document_chunks` | — |
-| F. Pismo na kontrakcie, zadania asystenta, Jarvis | „Napisz pismo”, wiersz pod „Co się dzieje”, pasek na liście kontraktów, `draft_legal_letter` | `0789_legal_assistant_tasks` | (F57) |
-| G. Zgodność z umową ramową klienta w tle | zadanie na liście kontraktów, panel w kreatorze aneksu i „Nowej umowie”, okno ustaleń | `0790_legal_client_fit` | F60 `legal_client_fit` |
+| A. Korpus prawa, weryfikator cytatów, terminy, ukrywanie danych osób | `services/legal/`, `/api/legal/*` | `0785_legal_corpus` | F57 `legal_assistant` |
+| B. Wzory własne | Generator → Dokumenty → „Nowy wzór z asystentem”, „Wzory własne” w „Nowy dokument” | `0786_custom_document_templates` | F58 `legal_template_draft` |
+| C. Orzecznictwo (SAOS) | źródło asystenta, `/api/legal/cases/search` | `0787_legal_case_law` | — |
+| D. Popraw dokument (DOCX ze śledzeniem zmian) | rejestr umów Generatora, Dokumenty kontraktu | `0788_legal_redline_ai` | F59 `legal_redline` |
+| E. Treść podpisanych dokumentów kontraktu | odczyt umowy/aneksu/wypowiedzenia, narzędzia Jarvisa | `0789_contract_document_chunks` | — |
+| F. Pismo na kontrakcie, zadania asystenta, Jarvis | „Napisz pismo”, wiersz pod „Co się dzieje”, pasek na liście kontraktów, `draft_legal_letter` | `0790_legal_assistant_tasks` | (F57) |
+| G. Zgodność z umową ramową klienta w tle | zadanie na liście kontraktów, panel w kreatorze aneksu i „Nowej umowie”, okno ustaleń | `0791_legal_client_fit` | F60 `legal_client_fit` |
 | H. Przepisy: źródła asystenta i „Przejrzyj wzór” | Przepisy → Źródła i boty | — | — |
 
-Migracje idą po `0783_lost_review` z `main`, jeden head (`0790_legal_client_fit`).
+Migracje idą po `0783_lost_review` z `main`, jeden head (`0791_legal_client_fit`).
 Każda nowa tabela ma lustro w `entrypoint.sh` i sondę w `/api/health/deep`.
 
 ## Jak sprawdzone
@@ -34,7 +34,7 @@ Każda nowa tabela ma lustro w `entrypoint.sh` i sondę w `/api/health/deep`.
   bez kontroli dat z modelu) — poprawione testami, które najpierw padały.
 - **Staging (kopia produkcji z 25.11.2026, własna baza i własne pliki):**
   backend z gałęzi na 8101, front na 3101, ekran 1280 × 720, prawdziwy model.
-  - Migracje 0784–0790 na kopii, `/api/health/deep` — 9 nowych tabel `healthy`.
+  - Migracje 0785–0791 na kopii, `/api/health/deep` — 9 nowych tabel `healthy`.
   - Korpus: 16 aktów, 27 191 jednostek; orzecznictwo: 40 orzeczeń SAOS;
     treść dokumentów kontraktów klienta testowego: 585 odczytanych
     (34 bez pliku na stagingu, 2 nieczytelne).

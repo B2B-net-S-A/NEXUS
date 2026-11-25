@@ -94,6 +94,7 @@ from app.services.cpro_bot import schema as cpro_bot
 from app.services.contract_rate_documents import schema_sql as contract_rate_documents
 from app.services.contract_partner_reads import schema_sql as contract_partner_reads
 from app.services.contract_rate_history import schema_sql as contract_rate_history
+from app.services.month_check import schema_sql as month_check
 from app.services.contract_document_text import schema as contract_document_text
 from app.services.legal import tasks_schema as legal_assistant_tasks
 from app.services.legal_client_fit import schema as legal_client_fit
@@ -220,17 +221,19 @@ MODULES = (
     settlement_feedback,
     # 0782: historia stawek kontraktu z faktur KSeF (25.11.2026).
     contract_rate_history,
-    # 0784: korpus prawa asystenta prawnego — akty, wersje, jednostki redakcyjne (25.11.2026).
+    # 0784: kontrola miesiąca — rozbieżności faktur klient ↔ konsultant (25.11.2026).
+    month_check,
+    # 0785: korpus prawa asystenta prawnego — akty, wersje, jednostki redakcyjne (25.11.2026).
     legal_corpus,
-    # 0786: orzecznictwo dla asystenta prawnego — SAOS (25.11.2026).
+    # 0787: orzecznictwo dla asystenta prawnego — SAOS (25.11.2026).
     legal_case_law,
-    # 0785: wzory własne Generatora Umów B2B — wzór i wersje (25.11.2026).
+    # 0786: wzory własne Generatora Umów B2B — wzór i wersje (25.11.2026).
     custom_templates,
-    # 0788: treść podpisanych dokumentów kontraktu dla asystenta prawnego (25.11.2026).
+    # 0789: treść podpisanych dokumentów kontraktu dla asystenta prawnego (25.11.2026).
     contract_document_text,
-    # 0789: zadania asystenta prawnego — stan „załatwione / odrzucone” (25.11.2026).
+    # 0790: zadania asystenta prawnego — stan „załatwione / odrzucone” (25.11.2026).
     legal_assistant_tasks,
-    # 0790: zgodność umów B2B z umową ramową klienta (asystent prawny G, 25.11.2026).
+    # 0791: zgodność umów B2B z umową ramową klienta (asystent prawny G, 25.11.2026).
     legal_client_fit,
 )
 

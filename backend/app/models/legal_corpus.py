@@ -1,4 +1,4 @@
-"""Korpus prawa asystenta prawnego: akty, wersje, jednostki redakcyjne (0784).
+"""Korpus prawa asystenta prawnego: akty, wersje, jednostki redakcyjne (0785).
 
 CHECK-i i indeksy jak w ``app/services/legal/schema.py`` (strażnik dryfu
 schematu porównuje model z bazą po migracji).

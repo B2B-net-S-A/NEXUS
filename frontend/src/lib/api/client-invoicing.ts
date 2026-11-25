@@ -404,6 +404,8 @@ export const invoicingKeys = {
   finance: (year: number, month: number) => ["client-invoicing", "finance", year, month] as const,
   toInvoice: (year: number, month: number) =>
     ["client-invoicing", "to-invoice", year, month] as const,
+  formChecks: (year: number, month: number) =>
+    ["client-invoicing", "form-checks", year, month] as const,
   overdue: ["client-invoicing", "overdue"] as const,
   reminder: (clientId: number, language: string | null) =>
     ["client-invoicing", "reminder", clientId, language] as const,
@@ -466,6 +468,34 @@ export function useFinanceSalesInvoices(year: number, month: number) {
     queryKey: invoicingKeys.finance(year, month),
     queryFn: async () =>
       (await api.get<FinanceSalesInvoices>(FINANCE, { params: { year, month } })).data,
+  });
+}
+
+/** Faktura z KSeF spoza NEXUSA (eBI24) z uwagami kontroli formalnej. */
+export interface FormCheckInvoice {
+  invoice_id: number;
+  invoice_number: string;
+  ksef_number: string;
+  client_id: number | null;
+  client_name: string | null;
+  issue_date: string;
+  sale_date: string;
+  problems: string[];
+}
+
+export interface FormChecksReport {
+  period: string;
+  /** Ile faktur VAT z KSeF spoza NEXUSA sprawdzono za miesiąc. */
+  checked: number;
+  invoices: FormCheckInvoice[];
+}
+
+export function useSalesFormChecks(year: number, month: number, enabled = true) {
+  return useQuery({
+    queryKey: invoicingKeys.formChecks(year, month),
+    queryFn: async () =>
+      (await api.get<FormChecksReport>(`${FINANCE}/form-checks`, { params: { year, month } })).data,
+    enabled,
   });
 }
 

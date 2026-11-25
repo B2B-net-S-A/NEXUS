@@ -65,7 +65,7 @@ from app.models.hr_settlement import PayrollInvoice, PayrollPayment, PayrollSett
 from app.models.user import User
 from app.services.client_settlements import invoice_chain
 from app.services.client_settlements import service as settlement_service
-from app.services.finance_ledger import contractor_blocks, costs, journals
+from app.services.finance_ledger import contractor_blocks, costs, double_pay, journals
 from app.services.finance_ledger import garnishment_rules as grules
 from app.services.finance_ledger import payment_rules as rules
 from app.services.finance_ledger import payment_state
@@ -990,6 +990,13 @@ async def plan(
     gates = await _client_gates(db, rows)
     payables = await _payables(db, rows)
     blocks = await contractor_blocks.for_rows(db, rows)
+    # Korekta = cała wcześniejsza faktura, druga faktura za miesiąc, ten sam
+    # numer (audyt 25.11.2026) — ostrzeżenie do odhaczenia, nie blokada.
+    double = await double_pay.for_entries(
+        db,
+        [row.entry for row in rows if not row.payroll],
+        chains={entry_id: payable.chain for entry_id, payable in payables.items()},
+    )
     # Kolejne faktury tego samego kontraktora liczą zajęcie po przelewach
     # poprzednich z tego planu (jakby szły jedną paczką) — organ nie dostanie
     # dwa razy tej samej należności.
@@ -1160,6 +1167,9 @@ async def plan(
             item.acks.append("garnishment")
         if item.gate_title is not None:
             item.acks.append("client_signature")
+        if entry.id in double:
+            item.acks.append(double_pay.ACK)
+            item.labels[double_pay.ACK] = double[entry.id]
         month_key = (
             (entry.seller_nip, row.issue_date.year, row.issue_date.month)
             if entry.seller_nip and row.issue_date
@@ -1264,7 +1274,8 @@ async def create_batch(
     unconfirmed = [item for item in items if item.acks and item.entry_id not in agreed]
     if unconfirmed:
         raise PaymentError(
-            "Odhacz ostrzeżenia przy zaznaczonych fakturach (biała lista, MPP).",
+            "Odhacz ostrzeżenia przy zaznaczonych fakturach (biała lista, MPP, "
+            "podwójna zapłata).",
             code="needs_ack",
             data={"items": [item_payload(item) for item in unconfirmed]},
         )

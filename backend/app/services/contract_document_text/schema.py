@@ -1,6 +1,6 @@
-"""Treść podpisanych dokumentów kontraktu (0788): SQL migracji i lustra entrypointu.
+"""Treść podpisanych dokumentów kontraktu (0789): SQL migracji i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0788_contract_document_chunks.py``
+Jedno źródło instrukcji dla ``alembic/versions/0789_contract_document_chunks.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Każda
 instrukcja idempotentna.
 

@@ -6000,7 +6000,7 @@ async def upload_contract_document(
         storage_service.delete_contract_document(relative_path)
         raise
     await db.refresh(doc)
-    # 0788: treść umowy, aneksu i wypowiedzenia dla asystenta prawnego
+    # 0789: treść umowy, aneksu i wypowiedzenia dla asystenta prawnego
     # i Jarvisa — odczyt w tle dopiero po commicie (zadanie czyta wiersz
     # z własnej sesji).
     await db.commit()

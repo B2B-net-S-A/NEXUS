@@ -449,12 +449,12 @@ def test_schema_is_mirrored_in_entrypoint_bundle_and_model() -> None:
 def test_migration_reads_the_same_ddl() -> None:
     import importlib.util
 
-    path = Path(__file__).parents[1] / "alembic" / "versions" / "0786_legal_case_law.py"
+    path = Path(__file__).parents[1] / "alembic" / "versions" / "0787_legal_case_law.py"
     spec = importlib.util.spec_from_file_location("m0781", path)
     module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     spec.loader.exec_module(module)  # type: ignore[union-attr]
-    assert module.revision == "0786_legal_case_law"
-    assert module.down_revision == "0785_custom_document_templates"
+    assert module.revision == "0787_legal_case_law"
+    assert module.down_revision == "0786_custom_document_templates"
     assert module.schema.ALL_DDL is schema.ALL_DDL
 
 

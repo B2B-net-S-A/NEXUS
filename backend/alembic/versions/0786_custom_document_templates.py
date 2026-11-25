@@ -1,7 +1,7 @@
 """Wzory własne Generatora Umów B2B (asystent prawny, część B, 25.11.2026).
 
-Revision ID: 0785_custom_document_templates
-Revises: 0784_legal_corpus
+Revision ID: 0786_custom_document_templates
+Revises: 0785_legal_corpus
 
 Tabele ``custom_document_templates`` i ``custom_document_template_versions``
 (wzór, wersje z DOCX i listą pól, zatwierdzanie przez administratora), typ
@@ -12,7 +12,7 @@ funkcja AI ``legal_template_draft``. DDL ma jedno źródło z lustrem w
 dodania: stary kod działa na nowym schemacie.
 
 ``down_revision`` wskazuje 0778 jak każda część asystenta prawnego — sesja
-główna łańcuchuje 0784–0790 przy scalaniu (``docs/asystent-prawny-plan.md``).
+główna łańcuchuje 0785–0791 przy scalaniu (``docs/asystent-prawny-plan.md``).
 """
 
 from alembic import op
@@ -23,8 +23,8 @@ from app.services.b2b_documents.schema_sql import (
 )
 from app.services.custom_templates import schema
 
-revision = "0785_custom_document_templates"
-down_revision = "0784_legal_corpus"
+revision = "0786_custom_document_templates"
+down_revision = "0785_legal_corpus"
 branch_labels = None
 depends_on = None
 

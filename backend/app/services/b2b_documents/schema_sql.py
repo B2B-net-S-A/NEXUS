@@ -118,7 +118,7 @@ def type_check_ddl(types: tuple[str, ...] = B2B_DOCUMENT_TYPES) -> str:
     END $$"""
 
 
-#: Typy dokumentów sprzed 0785 (wzory własne) — downgrade 0785 wraca do tej listy.
+#: Typy dokumentów sprzed 0786 (wzory własne) — downgrade 0786 wraca do tej listy.
 TYPES_BEFORE_CUSTOM_TEMPLATES: tuple[str, ...] = tuple(
     t for t in B2B_DOCUMENT_TYPES if t != "custom_template"
 )

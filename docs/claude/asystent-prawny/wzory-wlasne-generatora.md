@@ -17,7 +17,7 @@ dokumentów Generatora.
 - Backend: `app/services/custom_templates/` (pola, sandbox, wykrywanie pól,
   szkic AI, sprawdzenia, cykl życia), trasy `app/api/custom_document_templates.py`
   pod `/api/b2b-generator/custom-templates`, tabele z migracji
-  `0785_custom_document_templates` (DDL w `custom_templates/schema.py`, lustro
+  `0786_custom_document_templates` (DDL w `custom_templates/schema.py`, lustro
   w `entrypoint.sh` przez `hr_schema_bundle`, sondy w `/api/health/deep`).
 - Front: `components/v2/b2b-generator/documents/custom-templates/`, logika
   w `lib/custom-templates.ts`, API w `lib/api/customTemplates.ts`, harness

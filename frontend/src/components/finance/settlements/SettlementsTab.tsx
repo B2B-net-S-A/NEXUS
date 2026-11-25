@@ -5,7 +5,8 @@
 // (estymacja) i „Reguły klienta”, karta osoby w miejscu listy. Klient z regułą
 // „Raport godzin od klienta (T4T)” ma też „Raport klienta (T4T)” i „Kartotekę”
 // (plan Nordei N1.5), a klient z fakturami do odbiorcy w sieci Peppol —
-// „E-faktury (Peppol)” (plan Nordei N2).
+// „E-faktury (Peppol)” (plan Nordei N2). „Sprawy” (25.11.2026) to lista
+// rozliczeń bez automatu ze wszystkich klientów: kto działa i co jest zaległe.
 // Stan w adresie przez History API, jak reszta /finance.
 import { useEffect, useMemo, useState } from "react";
 
@@ -13,10 +14,12 @@ import { QueryStateNotice, StatusDot } from "@/components/ds";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useEinvoiceClients } from "@/lib/api/client-einvoices";
 import { useSettlementClients } from "@/lib/api/client-settlements";
+import { useSettlementCases, type SettlementCaseRow } from "@/lib/api/settlement-cases";
 import { useTimeReportClients } from "@/lib/api/client-time-reports";
 import { cn } from "@/lib/utils";
 import { warsawToday } from "@/lib/warsaw-date";
 
+import { CasesView } from "./CasesView";
 import { ClientInvoiceView } from "./ClientInvoiceView";
 import { ClientRulesEditor } from "./ClientRulesEditor";
 import { ContractNipReviewCard } from "./ContractNipReviewCard";
@@ -33,8 +36,8 @@ import { defaultMonth, monthLabel, nextMonths, recentMonths } from "./format";
 /** Parametry adresu należące do tej zakładki (czyści je zmiana zakładki /finance). */
 export const SETTLEMENTS_URL_KEYS = ["stClient", "stMonth", "stSub", "stContract", "stVersion", "stPerson"] as const;
 
-type Sub = "month" | "t4t" | "ids" | "invoice" | "einvoices" | "plan" | "rules";
-const SUBS: readonly Sub[] = ["month", "t4t", "ids", "invoice", "einvoices", "plan", "rules"];
+type Sub = "month" | "cases" | "t4t" | "ids" | "invoice" | "einvoices" | "plan" | "rules";
+const SUBS: readonly Sub[] = ["month", "cases", "t4t", "ids", "invoice", "einvoices", "plan", "rules"];
 const T4T_SUBS: readonly Sub[] = ["t4t", "ids"];
 
 function readParam(key: (typeof SETTLEMENTS_URL_KEYS)[number]): string | null {
@@ -62,6 +65,7 @@ export function SettlementsTab({ canWrite }: { canWrite: boolean }) {
   const [personKey, setPersonKey] = useState<string | null>(null);
   const timeReportClients = useTimeReportClients(month);
   const einvoiceClients = useEinvoiceClients();
+  const cases = useSettlementCases(month, null);
 
   useEffect(() => {
     const c = Number(readParam("stClient"));
@@ -139,24 +143,43 @@ export function SettlementsTab({ canWrite }: { canWrite: boolean }) {
     setContractId(id);
     writeParams({ stContract: id == null ? null : String(id) });
   }
+  /** Wiersz listy spraw → karta osoby u jej klienta, z sekcją „Co dalej”. */
+  function openCase(row: SettlementCaseRow) {
+    setClientId(row.client_id);
+    setMonth(row.month);
+    setSub("month");
+    setContractId(row.contract_id);
+    setVersionId(null);
+    setPersonKey(null);
+    writeParams({
+      stClient: String(row.client_id),
+      stMonth: row.month,
+      stSub: null,
+      stContract: String(row.contract_id),
+      stVersion: null,
+      stPerson: null,
+    });
+  }
 
   return (
     <div className="space-y-3">
       <SettlementsStartCard />
       <ContractNipReviewCard />
       <div className="flex flex-wrap items-center gap-2">
-        <select
-          aria-label="Klient"
-          value={clientId}
-          onChange={(e) => pickClient(Number(e.target.value))}
-          className="h-8 max-w-80 rounded-md border border-border bg-background px-2 text-sm font-medium pointer-coarse:h-10"
-        >
-          {clients.data.map((c) => (
-            <option key={c.client_id} value={c.client_id}>
-              {c.name}{c.todo ? ` · ${c.todo} do zrobienia` : ""}
-            </option>
-          ))}
-        </select>
+        {visibleSub !== "cases" ? (
+          <select
+            aria-label="Klient"
+            value={clientId}
+            onChange={(e) => pickClient(Number(e.target.value))}
+            className="h-8 max-w-80 rounded-md border border-border bg-background px-2 text-sm font-medium pointer-coarse:h-10"
+          >
+            {clients.data.map((c) => (
+              <option key={c.client_id} value={c.client_id}>
+                {c.name}{c.todo ? ` · ${c.todo} do zrobienia` : ""}
+              </option>
+            ))}
+          </select>
+        ) : null}
         {visibleSub !== "rules" ? (
           <select
             aria-label="Miesiąc rozliczenia"
@@ -175,6 +198,7 @@ export function SettlementsTab({ canWrite }: { canWrite: boolean }) {
           {(
             [
               ["month", "RCP i faktury kontraktorów"],
+              ["cases", cases.data ? `Sprawy ${cases.data.counts.all}` : "Sprawy"],
               ["t4t", "Raport klienta (T4T)"],
               ["ids", "Kartoteka"],
               ["invoice", "Do faktury dla klienta"],
@@ -201,13 +225,15 @@ export function SettlementsTab({ canWrite }: { canWrite: boolean }) {
             </button>
           ))}
         </div>
-        {current && !current.rules_set ? (
+        {current && !current.rules_set && visibleSub !== "cases" ? (
           <StatusDot tone="warning" className="ml-auto">
             Bez reguł: pliki wchodzą bez kontroli
           </StatusDot>
         ) : null}
       </div>
-      {visibleSub === "t4t" ? (
+      {visibleSub === "cases" ? (
+        <CasesView month={month} onOpen={openCase} />
+      ) : visibleSub === "t4t" ? (
         personKey ? (
           <TimeReportPersonCard clientId={clientId} month={month} personKey={personKey} versionId={versionId} onBack={() => openPerson(null)} />
         ) : (

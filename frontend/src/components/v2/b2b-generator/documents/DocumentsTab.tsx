@@ -196,7 +196,7 @@ export function DocumentsTabContent({
     staleTime: 10_000,
   });
   const rows = useMemo(() => list.data?.pages.flat() ?? [], [list.data]);
-  // „Nowy wzór z asystentem” (asystent prawny, 0785): `id` null = nowy wzór.
+  // „Nowy wzór z asystentem” (asystent prawny, 0786): `id` null = nowy wzór.
   const [studio, setStudio] = useState<{ key: number; id: number | null } | null>(null);
   const openStudio = (id: number | null) => {
     onCloseWizard();

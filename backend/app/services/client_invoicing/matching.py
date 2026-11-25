@@ -23,7 +23,10 @@ Kolejność, od najpewniejszego:
 5. **kwota** bez numeru — wyłącznie jednoznaczna: dokładnie jedno zamówienie
    (albo jedna osoba z zamówienia MD) z kwotą „do faktury” równą netto
    faktury co do grosza. Zamówienie kosztowe nie ma kwoty „do faktury”
-   (ustalają ją Finanse) — wiąże je wyłącznie numer.
+   (ustalają ją Finanse) — wiąże je wyłącznie numer. Faktura, której pozycja
+   nazywa osobę znacznikiem („Contractor …”), wiąże się po kwocie tylko
+   z zamówieniem tej osoby (``_fits``); kwota u innej osoby to
+   ``amount_other_person``.
 
 Wszystko inne zostaje Finansom z powodem (``REASON_LABELS``) — system nie
 zgaduje. Korekta idzie za fakturą pierwotną (te same zamówienia). Ręczne
@@ -82,6 +85,10 @@ REASON_LABELS: dict[str, str] = {
     "unknown_order_number": "Faktura podaje numer zamówienia, którego nie ma w NEXUSIE.",
     "amount_ambiguous": "Kwota pasuje do kilku zamówień — wybierz właściwe.",
     "amount_differs": "Bez numeru zamówienia, a kwota nie pasuje do żadnego zamówienia.",
+    "amount_other_person": (
+        "Kwota pasuje do zamówienia innej osoby niż ta z faktury — "
+        "wskaż zamówienie osoby z faktury."
+    ),
     "expected_unknown": "Bez numeru zamówienia, a kwoty „do faktury” nie da się jeszcze policzyć.",
     "original_unmatched": "Korekta faktury, która czeka na przypisanie.",
     "original_missing": "Korekta faktury, której nie ma w NEXUSIE.",
@@ -97,6 +104,9 @@ RETRY_REASONS: frozenset[str] = frozenset(
         "order_outside_period",
         "currency_differs",
         "amount_differs",
+        # Osoba z pozycji faktury rozstrzyga kwotę równą u kilku osób (25.11.2026).
+        "amount_ambiguous",
+        "amount_other_person",
         "expected_unknown",
         "unknown_order_number",
         "several_orders",
@@ -329,6 +339,36 @@ def _named_people(
     return tuple(sorted(targets, key=lambda target: target.order_id or 0))
 
 
+def _marked_people(items: Sequence[dict[str, Any]]) -> list[str]:
+    """Osoby ze znacznika „Contractor” / „Konsultant” w bieżących pozycjach faktury."""
+
+    # W funkcji: unknown_refs importuje ten moduł.
+    from app.services.client_invoicing.unknown_refs import marked_people
+
+    return [
+        name
+        for item in items
+        if isinstance(item, dict) and not item.get("before_correction")
+        for name in marked_people(str(item.get("name") or ""))
+    ]
+
+
+def _fits(lines: Sequence[BillingLine], marked: Sequence[str]) -> bool:
+    """Kwota wiąże tylko zamówienie osoby, którą faktura nazywa (audyt luk 25.11.2026).
+
+    U Nordei wiele osób ma tę samą stawkę i godziny, więc kwota trafiała w
+    zamówienie innej osoby niż ta z pozycji „Contractor …”: przychód szedł na złą
+    osobę, a alert „faktura bez pozycji” milczał. Faktura bez znacznika osoby
+    wiąże się po kwocie jak dotąd.
+    """
+
+    from app.services.client_invoicing.unknown_refs import same_person
+
+    if not marked:
+        return True
+    return any(same_person(line.consultant, name) for line in lines for name in marked)
+
+
 def decide(
     *,
     net: Decimal,
@@ -393,19 +433,24 @@ def decide(
     candidates = [row for row in rows if row.currency == currency]
     if not candidates:
         return Decision(reason="no_orders" if not rows else "currency_differs")
+    marked = _marked_people(items)
     equal_rows = [row for row in candidates if row.expected_net == net]
-    if len(equal_rows) == 1:
-        return Decision((_row_target(equal_rows[0]),), "amount")
-    if len(equal_rows) > 1:
+    fitting_rows = [row for row in equal_rows if _fits(row.lines, marked)]
+    if len(fitting_rows) == 1:
+        return Decision((_row_target(fitting_rows[0]),), "amount")
+    if len(fitting_rows) > 1:
         return Decision(reason="amount_ambiguous")
     equal_people = _people_with_amount(candidates, net)
-    if len(equal_people) == 1:
-        return Decision((Target(order_id=equal_people[0].order_id),), "amount")
-    if len(equal_people) > 1:
+    fitting_people = [line for line in equal_people if _fits((line,), marked)]
+    if len(fitting_people) == 1:
+        return Decision((Target(order_id=fitting_people[0].order_id),), "amount")
+    if len(fitting_people) > 1:
         return Decision(reason="amount_ambiguous")
     person = _person_and_price(candidates, items)
     if person is not None:
         return Decision((person,), "person")
+    if equal_rows or equal_people:
+        return Decision(reason="amount_other_person")
     # Kosztowe nie czeka na zużycie MD — jego kwoty NEXUS nie liczy wcale.
     if any(row.expected_net is None and row.budget is None for row in candidates):
         return Decision(reason="expected_unknown")

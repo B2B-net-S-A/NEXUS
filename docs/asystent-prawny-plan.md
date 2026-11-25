@@ -40,13 +40,13 @@ wyłącznie dane fikcyjne.**
 
 | Część | Gałąź | Migracja | Funkcja AI | Porty (backend/front) |
 |---|---|---|---|---|
-| A. Fundament: korpus prawa, weryfikator, usługa, API | `-fundament` | `0784_legal_corpus` | `legal_assistant` (F57) | 8111 / 3111 |
-| B. Wzory własne | `-wzory` | `0785_custom_document_templates` | `legal_template_draft` (F58) | 8112 / 3112 |
-| C. Orzecznictwo i interpretacje | `-orzecznictwo` | `0786_legal_case_law` | — | 8113 / 3113 |
+| A. Fundament: korpus prawa, weryfikator, usługa, API | `-fundament` | `0785_legal_corpus` | `legal_assistant` (F57) | 8111 / 3111 |
+| B. Wzory własne | `-wzory` | `0786_custom_document_templates` | `legal_template_draft` (F58) | 8112 / 3112 |
+| C. Orzecznictwo i interpretacje | `-orzecznictwo` | `0787_legal_case_law` | — | 8113 / 3113 |
 | D. Popraw dokument (DOCX ze śledzeniem zmian) | `-redline` | — | `legal_redline` (F59) | 8114 / 3114 |
-| E. Podpisane umowy kontraktów do odczytu | `-umowy-kontraktow` | `0788_contract_document_chunks` | — | 8115 / 3115 |
-| F. Pismo na kontrakcie, zadania po wypowiedzeniu, Jarvis | `-pisma` | `0789_legal_letters` | (F57) | 8116 / 3116 |
-| G. Zgodność z umową klienta w tle | `-zgodnosc` | `0790_legal_client_fit` | `legal_client_fit` (F60) | 8117 / 3117 |
+| E. Podpisane umowy kontraktów do odczytu | `-umowy-kontraktow` | `0789_contract_document_chunks` | — | 8115 / 3115 |
+| F. Pismo na kontrakcie, zadania po wypowiedzeniu, Jarvis | `-pisma` | `0790_legal_letters` | (F57) | 8116 / 3116 |
+| G. Zgodność z umową klienta w tle | `-zgodnosc` | `0791_legal_client_fit` | `legal_client_fit` (F60) | 8117 / 3117 |
 | H. Przepisy: źródła i „przejrzyj wzór” | `-przepisy` | — | — | 8118 / 3118 |
 
 A–E startują od razu; F–H po scaleniu A i E do `claude/asystent-prawny`.
@@ -128,8 +128,8 @@ Pakiet `backend/app/services/legal/`:
 
 ## Podział F / G (sesja główna, 25.11.2026 po scaleniu A–E)
 
-Migracje: F `0789_legal_assistant_tasks` (`down_revision = "0788_contract_document_chunks"`),
-G `0790_legal_client_fit` (`down_revision = "0788_contract_document_chunks"`; łańcuch
+Migracje: F `0790_legal_assistant_tasks` (`down_revision = "0789_contract_document_chunks"`),
+G `0791_legal_client_fit` (`down_revision = "0789_contract_document_chunks"`; łańcuch
 poprawia sesja główna). Funkcja AI części G: `legal_client_fit` = F60.
 
 **Zadania asystenta na liście kontraktów — właściciel F.** F tworzy w

@@ -20,12 +20,18 @@ Finansów (`finance.needs_fix`, treść = powód Finansów).
 | `proof.excel_with_mail` | konsultant | BNP 377 IX |
 | `proof.signed_pdf` | konsultant | BNP 367 IX i X |
 | `fields.rows_sum`, `fields.total_hours` | konsultant | BNP 355 X, 654 X, Bosch 624 X |
-| `proof.image_file` | konsultant | CA 603 IX (zdjęcie z prywatnej poczty) |
+| `proof.image_file` | konsultant | zdjęcie raportu z adresu firmowego |
+| `proof.private_screenshot` | konsultant | CA 603 IX (zdjęcie z prywatnej poczty) |
 | `accept.no_reply` | akceptujący u klienta, konsultant w kopii | PKO 717 X |
 | `accept.reply_without_ok` | klient, który odpisał bez „akceptuję”, konsultant w kopii | BIK 569 IX (decyzja Artura 25.11.2026) |
 | `accept.fix` | konsultant | inne uwagi akceptacji godzin |
 | `amount.protocol` | opiekun (KAM/DL), przed fakturą | Orlen 429 X, 716 X |
 | `finance.needs_fix` | konsultant | „Do poprawy” Finansów |
+
+Od 25.11.2026 katalog ma też wady `proof.month`, `proof.row_dates`,
+`proof.name_match`, `kesu.jira_accept` i informacje bez poprawki (`note.*`,
+kosmetyka przy dobrym MD, jeden komunikat bez przypomnień, także przy „Bez uwag”):
+`rozliczenia-kosmetyka-raportu.md`.
 
 Uwagi spoza katalogu (nadgodziny, zmiana stawki w miesiącu, ta sama osoba
 u dwóch klientów, nieznany szablon RCP) rozstrzygają Finanse i nikt nie dostaje

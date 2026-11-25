@@ -74,6 +74,9 @@ ALERT_FRAMEWORK_OVER_LIMIT = "framework_over_limit"
 # ostatnia faktura za osobę (``client_settlements/line_rate.py``).
 ALERT_SETTLEMENT_OVER_ORDER = "settlement_over_order"
 ALERT_SETTLEMENT_RATE_MISMATCH = "settlement_rate_mismatch"
+# 0784: kontrola miesiąca — faktura konsultanta albo klienta, a w NEXUSIE brak
+# trwającego kontraktu albo pozycji zamówienia (``services/month_check``).
+ALERT_MONTH_CHECK_DATA = "month_check_data"
 
 DL_ALERT_TYPES: tuple[str, ...] = (
     ALERT_COST_ORDER_EXHAUSTED,
@@ -94,6 +97,7 @@ DL_ALERT_TYPES: tuple[str, ...] = (
     ALERT_FRAMEWORK_OVER_LIMIT,
     ALERT_SETTLEMENT_OVER_ORDER,
     ALERT_SETTLEMENT_RATE_MISMATCH,
+    ALERT_MONTH_CHECK_DATA,
 )
 
 DL_ALERT_TYPE_LABELS: dict[str, str] = {
@@ -117,6 +121,7 @@ DL_ALERT_TYPE_LABELS: dict[str, str] = {
     ALERT_FRAMEWORK_OVER_LIMIT: "Ponad stawką z umowy ramowej — prolongata",
     ALERT_SETTLEMENT_OVER_ORDER: "Rozliczenie ponad zamówienie",
     ALERT_SETTLEMENT_RATE_MISMATCH: "Stawka linii inna niż kontrakt lub faktura",
+    ALERT_MONTH_CHECK_DATA: "Faktura bez kontraktu lub zamówienia",
 }
 
 #: Sekcje panelu „Moi klienci". Wyznacza je SERWER z typu — front nie trzyma
@@ -151,6 +156,8 @@ DL_ALERT_SECTION_BY_TYPE: dict[str, str] = {
     ALERT_SETTLEMENT_OVER_ORDER: DL_ALERT_SECTION_ENDING,
     # Popraw stawkę linii — jak przy braku stawki przychodowej.
     ALERT_SETTLEMENT_RATE_MISMATCH: DL_ALERT_SECTION_NEW_CONTRACTOR,
+    # Uzupełnij kontrakt albo obsadę zamówienia — jak faktura bez pozycji.
+    ALERT_MONTH_CHECK_DATA: DL_ALERT_SECTION_NEW_CONTRACTOR,
 }
 
 DL_ALERT_PRIORITY_STANDARD = "standard"
@@ -193,7 +200,8 @@ class DlAlert(Base):
             "'contract_ending', 'cost_budget_low', 'new_contractor_draft', "
             "'md_base_usage_high', 'candidate_conflict_expired', "
             "'invoice_without_order_line', 'framework_over_limit', "
-            "'settlement_over_order', 'settlement_rate_mismatch')",
+            "'settlement_over_order', 'settlement_rate_mismatch', "
+            "'month_check_data')",
             name="ck_dl_alerts_type",
         ),
         CheckConstraint(

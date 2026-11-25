@@ -71,6 +71,7 @@ import {
   InvoiceReasonDialog,
   MarkPaidDialog,
 } from "./SalesInvoiceDialogs";
+import { FormChecksPanel } from "./FormChecksPanel";
 import { UnknownBuyersPanel } from "./UnknownBuyersPanel";
 import { IssueMonthPanel } from "./issue/IssueMonthPanel";
 import { IssueSettingsPanel } from "./issue/IssueSettingsPanel";
@@ -334,13 +335,16 @@ export function FinanceSalesInvoicesTab({
             Za {monthTitlePl(period).toLowerCase()} nie ma faktur sprzedażowych w KSeF.
           </div>
         ) : (
-          <InvoiceTable
-            invoices={invoices}
-            onAssign={(invoice) => setDialog({ kind: "assign", invoice })}
-            onReason={(invoice, action) => setDialog({ kind: "reason", invoice, action })}
-            onPaid={(invoice) => setDialog({ kind: "paid", invoice })}
-            onUndo={undo}
-          />
+          <div className="space-y-2">
+            <FormChecksPanel year={year} month={month} period={period} />
+            <InvoiceTable
+              invoices={invoices}
+              onAssign={(invoice) => setDialog({ kind: "assign", invoice })}
+              onReason={(invoice, action) => setDialog({ kind: "reason", invoice, action })}
+              onPaid={(invoice) => setDialog({ kind: "paid", invoice })}
+              onUndo={undo}
+            />
+          </div>
         )
       ) : null}
 

@@ -257,6 +257,7 @@ from app.api import client_issued_invoices as client_issued_invoices_api
 from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
 from app.api import settlement_reminders as settlement_reminders_api
+from app.api import settlement_cases as settlement_cases_api
 from app.api import client_reports as client_reports_api
 from app.api import law_radar as law_radar_api
 from app.api import legal as legal_api
@@ -950,6 +951,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.contract_docs_sharepoint import contract_docs_sharepoint_loop
     from app.tasks.contract_rate_documents import contract_rate_documents_loop
     from app.tasks.contract_rate_history import contract_rate_history_loop
+    from app.tasks.month_check import month_check_loop
     from app.tasks.contract_partner_reads import contract_partner_reads_loop
     from app.tasks.notes_insights_sync import notes_insights_sync_loop
     from app.tasks.weekly_eval import weekly_eval_loop
@@ -1229,6 +1231,7 @@ async def lifespan(app: FastAPI):
             # 0782: historia stawek kontraktu z faktur KSeF — podpowiedzi na
             # karcie, wpis automatyczny historii za flagą.
             "contract_rate_history": asyncio.create_task(contract_rate_history_loop()),
+            "month_check": asyncio.create_task(month_check_loop()),
             # 0755: dane firmy Partnera z podpisanej umowy do potwierdzenia
             # (E5a). Kończy się przed pętlą przy CONTRACT_PARTNER_READ_ENABLED=false.
             "contract_partner_reads": asyncio.create_task(
@@ -1917,10 +1920,10 @@ app.include_router(
     tags=["rejection-emails"],
 )
 app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
-# Treść podpisanych dokumentów kontraktu (asystent prawny E, 0788) — przed
+# Treść podpisanych dokumentów kontraktu (asystent prawny E, 0789) — przed
 # routerem kontraktów, choć ścieżki się nie gryzą (`documents/search`).
 app.include_router(contract_document_text_api.router, prefix="/api", tags=["contracts"])
-# Pismo na stronie kontraktu i zadania asystenta prawnego (część F, 0789).
+# Pismo na stronie kontraktu i zadania asystenta prawnego (część F, 0790).
 app.include_router(legal_letters_api.router, prefix="/api", tags=["contracts"])
 app.include_router(legal_tasks_api.router, prefix="/api/legal", tags=["legal"])
 app.include_router(contracts.router, prefix="/api/contracts", tags=["contracts"])
@@ -1975,7 +1978,7 @@ app.include_router(
     prefix="/api/b2b-generator",
     tags=["b2b-generator"],
 )
-# Wzory własne Generatora (0785, asystent prawny część B).
+# Wzory własne Generatora (0786, asystent prawny część B).
 app.include_router(
     custom_document_templates.router,
     prefix="/api/b2b-generator",
@@ -2590,6 +2593,13 @@ app.include_router(
 app.include_router(
     settlement_reminders_api.router,
     prefix="/api/finance/settlements/reminders",
+    tags=["client-settlements"],
+    dependencies=_HR_PROGRAM,
+)
+# Karta sprawy „Co dalej” i lista spraw rozliczeń (25.11.2026).
+app.include_router(
+    settlement_cases_api.router,
+    prefix="/api/finance/settlements/cases",
     tags=["client-settlements"],
     dependencies=_HR_PROGRAM,
 )
@@ -4346,6 +4356,7 @@ async def api_health_deep_check(request: Request):
     from app.models.client_order_revenue_step import ClientOrderRevenueStep
     from app.models.contract_document_rate_read import ContractDocumentRateRead
     from app.models.contract_rate_history_finding import ContractRateHistoryFinding
+    from app.models.month_check_case import MonthCheckCase
     from app.models.contract_partner_read import ContractPartnerRead
     from app.models.contract_document_chunk import ContractDocumentChunk
     from app.models.legal_assistant_task import LegalAssistantTask
@@ -5056,13 +5067,13 @@ async def api_health_deep_check(request: Request):
         ("law_change_tasks", LawChangeTask),
         ("law_change_events", LawChangeEvent),
         ("law_change_probes", LawChangeProbe),
-        # 0784: korpus prawa asystenta prawnego.
+        # 0785: korpus prawa asystenta prawnego.
         ("legal_acts", LegalAct),
         ("legal_act_versions", LegalActVersion),
         ("legal_provisions", LegalProvision),
-        # 0786: orzecznictwo asystenta prawnego.
+        # 0787: orzecznictwo asystenta prawnego.
         ("legal_cases", LegalCase),
-        # 0785: wzory własne Generatora Umów B2B — wzór i wersje.
+        # 0786: wzory własne Generatora Umów B2B — wzór i wersje.
         ("custom_document_templates", CustomDocumentTemplate),
         ("custom_document_template_versions", CustomDocumentTemplateVersion),
         # 0732: bot Cpro — biegi rutyny Grok Bota.
@@ -5093,14 +5104,16 @@ async def api_health_deep_check(request: Request):
         # 0739: odczyty stawki Partnera z umów i aneksów kontraktu.
         ("contract_document_rate_reads", ContractDocumentRateRead),
         ("contract_rate_history_findings", ContractRateHistoryFinding),
+        # 0784: kontrola miesiąca — rozbieżności faktur klient ↔ konsultant.
+        ("month_check_cases", MonthCheckCase),
         # 0755: dane firmy Partnera z podpisanych umów do potwierdzenia.
         ("contract_partner_reads", ContractPartnerRead),
-        # 0788: treść podpisanych dokumentów kontraktu (asystent prawny,
+        # 0789: treść podpisanych dokumentów kontraktu (asystent prawny,
         # Jarvis); sonda ``contract_documents`` sprawdza kolumny ``text_*``.
         ("contract_document_chunks", ContractDocumentChunk),
-        # 0789: zamknięte zadania asystenta prawnego (pasek na liście kontraktów).
+        # 0790: zamknięte zadania asystenta prawnego (pasek na liście kontraktów).
         ("legal_assistant_tasks", LegalAssistantTask),
-        # 0790: zgodność umów B2B z umową ramową klienta (asystent prawny G).
+        # 0791: zgodność umów B2B z umową ramową klienta (asystent prawny G).
         ("legal_client_fit_checks", LegalClientFitCheck),
         ("legal_client_fit_findings", LegalClientFitFinding),
         # 0741: koszt zamówienia od dnia zmiany stawki Partnera.

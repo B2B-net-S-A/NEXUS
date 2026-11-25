@@ -147,6 +147,11 @@ export interface IssuedInvoiceCard extends IssuedInvoiceRow {
   problems: string[];
   /** Uwagi z reguł klienta, które nie wstrzymują wysyłki. */
   warnings: string[];
+  /**
+   * Uwagi kontroli formalnej (data sprzedaży, kod osoby, MD ponad dni robocze,
+   * osoba bez kontraktu) — wysyłka tylko z powodem (`checksReason`).
+   */
+  checks: string[];
   /** Numery zamówień do KSeF (`NrZamowienia`) — kilka przy fakturze z kilku zamówień. */
   order_numbers: string[];
   requirements: InvoiceRequirement[];
@@ -614,11 +619,20 @@ export function useInvalidateIssued() {
   return useInvalidate();
 }
 
+export interface SendIssuedInput {
+  id: number;
+  /** Powód wysyłki mimo uwag kontroli formalnej. */
+  checksReason?: string;
+}
+
 export function useSendIssued() {
   const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: async (id: number) =>
-      (await api.post<IssuedInvoiceCard>(`${BASE}/${id}/send`)).data,
+    mutationFn: async ({ id, checksReason }: SendIssuedInput) =>
+      (checksReason
+        ? await api.post<IssuedInvoiceCard>(`${BASE}/${id}/send`, { checks_reason: checksReason })
+        : await api.post<IssuedInvoiceCard>(`${BASE}/${id}/send`)
+      ).data,
     onSuccess: invalidate,
   });
 }

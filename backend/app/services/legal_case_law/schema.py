@@ -1,7 +1,7 @@
 """Orzecznictwo dla asystenta prawnego (część C, 25.11.2026): SQL migracji
-``0786_legal_case_law`` i lustra entrypointu.
+``0787_legal_case_law`` i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0786_legal_case_law.py``
+Jedno źródło instrukcji dla ``alembic/versions/0787_legal_case_law.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``).
 
 Tabela ``legal_cases`` — orzeczenie pobrane ze źródła z API (dziś SAOS):

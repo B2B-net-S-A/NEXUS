@@ -1,7 +1,7 @@
 """Treść podpisanych dokumentów kontraktu do odczytu (asystent prawny E, 25.11.2026).
 
-Revision ID: 0788_contract_document_chunks
-Revises: 0787_legal_redline_ai
+Revision ID: 0789_contract_document_chunks
+Revises: 0788_legal_redline_ai
 
 Tabela ``contract_document_chunks`` (fragmenty tekstu umowy, aneksu,
 wypowiedzenia i porozumienia z Dokumentów kontraktu) i kolumny stanu odczytu
@@ -14,8 +14,8 @@ from alembic import op
 
 from app.services.contract_document_text.schema import ALL_DDL, DOWNGRADE_DDL
 
-revision = "0788_contract_document_chunks"
-down_revision = "0787_legal_redline_ai"
+revision = "0789_contract_document_chunks"
+down_revision = "0788_legal_redline_ai"
 branch_labels = None
 depends_on = None
 

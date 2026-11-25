@@ -1,4 +1,4 @@
-"""Treść podpisanych dokumentów kontraktu do odczytu przez asystenta prawnego i Jarvisa (0788).
+"""Treść podpisanych dokumentów kontraktu do odczytu przez asystenta prawnego i Jarvisa (0789).
 
 Umowa, aneks, wypowiedzenie i porozumienie z Dokumentów kontraktu: tekst
 z pliku (z OCR skanu), fragmenty w ``contract_document_chunks``, wektory

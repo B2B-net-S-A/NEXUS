@@ -89,6 +89,7 @@ from app.models.dl_alert import (
     ALERT_ORDER_MAIL_REVIEW,
     ALERT_PERIODIC_ORDER_ENDING,
     ALERT_SETTLEMENT_OVER_ORDER,
+    ALERT_MONTH_CHECK_DATA,
     ALERT_SETTLEMENT_RATE_MISMATCH,
     DL_ALERT_PRIORITY_HIGH,
     DL_ALERT_PRIORITY_STANDARD,
@@ -1457,6 +1458,53 @@ async def rule_invoice_without_order_line(
     return created
 
 
+async def rule_month_check_data(
+    db: AsyncSession,
+    recipient_scope: DeliveryAlertRecipientScope | None = None,
+) -> int:
+    """Kontrola miesiąca (0784): faktura osoby bez kontraktu albo zamówienia w NEXUSIE.
+
+    Karta tylko dla spraw danych, bez kwot (decyzja Artura 25.11.2026): kwoty
+    i pozostałe rozbieżności widzą Finanse w „Przebiegu miesiąca”. Karta
+    zamyka się sama, gdy sprawa zniknie albo Finanse ją wyjaśnią.
+    """
+    from app.services.month_check import cards
+
+    if recipient_scope is None:
+        recipient_scope = await load_delivery_alert_recipient_scope(db)
+    found = await cards.open_data_cases(db)
+    names = await _client_names(db, {c.client_id for c in found})
+    created = 0
+    live: set[str] = set()
+    for card in found:
+        user_ids = await dl_user_ids_for_client(
+            db, card.client_id, scope=recipient_scope
+        )
+        if not user_ids:
+            continue
+        live |= _live_keys(ALERT_MONTH_CHECK_DATA, card.entity_key, user_ids)
+        title, message = cards.describe(card, names.get(card.client_id, "Klient"))
+        alerts = await emit(
+            db,
+            alert_type=ALERT_MONTH_CHECK_DATA,
+            user_ids=user_ids,
+            client_id=card.client_id,
+            entity_key=card.entity_key,
+            title=title,
+            message=message,
+            link=_client_link(card.client_id),
+            payload={
+                "consultant": card.person,
+                "candidate_name": card.person,
+                "period": card.period_label,
+            },
+            repeat_every_days=settings.DL_ALERT_REPEAT_DAYS,
+        )
+        created += len(alerts)
+    await resolve_stale(db, alert_type=ALERT_MONTH_CHECK_DATA, live_event_keys=live)
+    return created
+
+
 async def rule_order_missing_successor(
     db: AsyncSession, recipient_scope: DeliveryAlertRecipientScope | None = None
 ) -> int:
@@ -1764,6 +1812,7 @@ ALERT_RULES: dict[str, Rule] = {
     # Kolejność ma znaczenie: zapas przeliczenia rozliczeń biegnie w pierwszej.
     ALERT_SETTLEMENT_OVER_ORDER: rule_settlement_over_order,
     ALERT_SETTLEMENT_RATE_MISMATCH: rule_settlement_rate_mismatch,
+    ALERT_MONTH_CHECK_DATA: rule_month_check_data,
 }
 
 

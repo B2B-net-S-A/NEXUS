@@ -410,13 +410,13 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'interview_answer_proposal'",
     # 0783: Przegrane — wnioski AI ze spotkania z DL (F56).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'lost_review_summary'",
-    # 0784: asystent prawny — szkic pisma ze sprawdzonymi cytatami (F57).
+    # 0785: asystent prawny — szkic pisma ze sprawdzonymi cytatami (F57).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'legal_assistant'",
-    # 0785: wzory własne Generatora — szkic wzoru z asystentem prawnym.
+    # 0786: wzory własne Generatora — szkic wzoru z asystentem prawnym.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'legal_template_draft'",
-    # 0787: asystent prawny — propozycje zmian w umowie DOCX („Popraw dokument”).
+    # 0788: asystent prawny — propozycje zmian w umowie DOCX („Popraw dokument”).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'legal_redline'",
-    # 0790: asystent prawny — zgodność umów B2B z umową ramową klienta (F60).
+    # 0791: asystent prawny — zgodność umów B2B z umową ramową klienta (F60).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'legal_client_fit'",
     # 0735: Rada — pakiet na posiedzenie gotowy (dzwonek).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_meeting_pack'",
@@ -5308,7 +5308,8 @@ _COLUMN_STATEMENTS = [
             'contract_ending', 'cost_budget_low', 'new_contractor_draft',
             'md_base_usage_high', 'candidate_conflict_expired',
             'invoice_without_order_line', 'framework_over_limit',
-            'settlement_over_order', 'settlement_rate_mismatch')),
+            'settlement_over_order', 'settlement_rate_mismatch',
+            'month_check_data')),
         CONSTRAINT ck_dl_alerts_status
             CHECK (status IN ('new', 'handled', 'resolved')),
         CONSTRAINT ck_dl_alerts_handled_coherence
@@ -8248,22 +8249,22 @@ _DATA_STATEMENTS = [
     "WHEN source = 'legacy_import' THEN 'excel' ELSE 'manual' END "
     "WHERE ideal_answer_source IS NULL "
     "AND NULLIF(btrim(ideal_answer), '') IS NOT NULL",
-    # 0784: seed klucza AI asystenta prawnego.
+    # 0785: seed klucza AI asystenta prawnego.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'legal_assistant', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'legal_assistant')",
-    # 0785: seed klucza AI szkicu wzoru własnego (asystent prawny).
+    # 0786: seed klucza AI szkicu wzoru własnego (asystent prawny).
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'legal_template_draft', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'legal_template_draft')",
-    # 0785: seed klucza AI propozycji zmian w umowie DOCX.
+    # 0788: seed klucza AI propozycji zmian w umowie DOCX.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'legal_redline', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'legal_redline')",
-    # 0790: seed klucza AI zgodności umów B2B z umową ramową klienta.
+    # 0791: seed klucza AI zgodności umów B2B z umową ramową klienta.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'legal_client_fit', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
@@ -10020,7 +10021,8 @@ _CONSTRAINT_STATEMENTS = [
                 'contract_ending', 'cost_budget_low', 'new_contractor_draft',
                 'md_base_usage_high', 'candidate_conflict_expired',
                 'invoice_without_order_line', 'framework_over_limit',
-                'settlement_over_order', 'settlement_rate_mismatch'
+                'settlement_over_order', 'settlement_rate_mismatch',
+                'month_check_data'
             ));
     END $$""",
     # 0310: status `resolved` (przyczyna ustąpiła bez odhaczenia DL) i

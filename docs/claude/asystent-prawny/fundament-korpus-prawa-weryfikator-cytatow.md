@@ -4,7 +4,7 @@
 Decyzje Artura z 25.11.2026: asystent prawny do umów B2B działa **w tle
 istniejących ekranów** (kontrakty, Generator, Jarvis, Przepisy), bez trasy
 `/legal` we froncie. Plan, części A–H i kontrakt: `docs/asystent-prawny-plan.md`.
-Ten plik opisuje część A (pakiet `backend/app/services/legal/`, migracja 0784).
+Ten plik opisuje część A (pakiet `backend/app/services/legal/`, migracja 0785).
 
 ## Decyzje, które łatwo cofnąć „przy okazji”
 

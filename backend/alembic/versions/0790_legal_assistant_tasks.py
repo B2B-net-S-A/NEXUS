@@ -1,7 +1,7 @@
 """Zadania asystenta prawnego — stan „załatwione / odrzucone” (część F, 25.11.2026).
 
-Revision ID: 0789_legal_assistant_tasks
-Revises: 0788_contract_document_chunks
+Revision ID: 0790_legal_assistant_tasks
+Revises: 0789_contract_document_chunks
 
 Tabela ``legal_assistant_tasks``: zadania z paska asystenta (lista kontraktów,
 strona kontraktu), które ktoś zamknął — zatwierdzonym pismem albo „Pomiń”.
@@ -14,8 +14,8 @@ from alembic import op
 
 from app.services.legal.tasks_schema import ALL_DDL, DOWNGRADE_DDL
 
-revision = "0789_legal_assistant_tasks"
-down_revision = "0788_contract_document_chunks"
+revision = "0790_legal_assistant_tasks"
+down_revision = "0789_contract_document_chunks"
 branch_labels = None
 depends_on = None
 

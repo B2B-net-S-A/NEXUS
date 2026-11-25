@@ -58,6 +58,9 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
         # Historia stawek z faktur KSeF (0782): sama baza, bez wołań na zewnątrz;
         # na stagingu pokazuje karty i wpisy automatyczne do przeklikania.
         "contract_rate_history",
+        # Kontrola miesiąca (0784): przebieg na bazie; maile idą przez SMTP
+        # stagingu do Mailpitu, więc nic nie wychodzi na zewnątrz.
+        "month_check",
         "candidate_search_retention",
         "jarvis_retention",
         "queue_retention",

@@ -910,6 +910,7 @@ from app.models import board_document as _board_document_models  # noqa: F401,E4
 from app.models import contract_document_rate_read as _rate_read_models  # noqa: F401,E402
 from app.models import contract_partner_read as _partner_read_models  # noqa: F401,E402
 from app.models import contract_rate_history_finding as _rate_history_models  # noqa: F401,E402
+from app.models import month_check_case as _month_check_models  # noqa: F401,E402
 from app.models import contract_document_chunk as _contract_document_chunk_models  # noqa: F401,E402
 from app.models import legal_assistant_task as _legal_assistant_task_models  # noqa: F401,E402
 from app.models import legal_client_fit as _legal_client_fit_models  # noqa: F401,E402
@@ -958,13 +959,13 @@ from app.models import job_team_panel as _job_team_panel_models  # noqa: F401,E4
 # 0713: radar przepisów (dwa Grok Boty, bramka NEXUSA, zmiany w prawie).
 from app.models import law_radar as _law_radar_models  # noqa: F401,E402
 
-# 0784: korpus prawa asystenta prawnego (akty, wersje, jednostki redakcyjne).
+# 0785: korpus prawa asystenta prawnego (akty, wersje, jednostki redakcyjne).
 from app.models import legal_corpus as _legal_corpus_models  # noqa: F401,E402
 
-# 0786: orzecznictwo dla asystenta prawnego (część C).
+# 0787: orzecznictwo dla asystenta prawnego (część C).
 from app.models import legal_case_law as _legal_case_law_models  # noqa: F401,E402
 
-# 0785: wzory własne Generatora Umów B2B (asystent prawny, część B).
+# 0786: wzory własne Generatora Umów B2B (asystent prawny, część B).
 from app.models import custom_document_template as _custom_template_models  # noqa: F401,E402
 
 # 0732: bot Cpro (Grok Bot wrzuca kandydatów Nordei do Cpro).

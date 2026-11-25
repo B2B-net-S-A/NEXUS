@@ -1,4 +1,4 @@
-# Zgodność umów B2B z umową ramową klienta w tle (część G, 0790, 25.11.2026)
+# Zgodność umów B2B z umową ramową klienta w tle (część G, 0791, 25.11.2026)
 <!-- indeks: back-to-back, wymogi klienta wobec podwykonawcy, DORA, szkolenia ICT, zgłaszanie incydentów, praca spoza EOG, NDA na wzorze klienta, wymiana konsultanta, prawa autorskie, dalsze powierzenie, legal_client_fit F60, legal_client_fit_checks, legal_client_fit_findings, /api/legal/client-fit, client_fit_tasks, „Sprawdzone z umową ramową”, „Dodaj do treści aneksu”, szkic klauzuli klienta, zgodnosc= -->
 
 Plan: `docs/asystent-prawny-plan.md` (część G, „Podział F / G”). Decyzje Artura

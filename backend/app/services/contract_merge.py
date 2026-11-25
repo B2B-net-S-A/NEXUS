@@ -192,11 +192,11 @@ _KNOWN_CONTRACT_FKS = {
     ("contract_care_plan_items", "contract_id"),
     ("contract_client_rates", "contract_id"),
     ("contract_documents", "contract_id"),
-    # Fragmenty treści dokumentów dla asystenta prawnego (0788) idą za
+    # Fragmenty treści dokumentów dla asystenta prawnego (0789) idą za
     # kontraktem razem z plikami; unikat (dokument, nr fragmentu) nie zależy
     # od kontraktu, a wektory w Qdrancie mają id fragmentu, nie kontraktu.
     ("contract_document_chunks", "contract_id"),
-    # Zamknięte zadania asystenta prawnego (0789: „Zatwierdzam”/„Pomiń”) —
+    # Zamknięte zadania asystenta prawnego (0790: „Zatwierdzam”/„Pomiń”) —
     # ślad decyzji, idą za kontraktem zachowanym; unikat `task_key` nie
     # zależy od kontraktu.
     ("legal_assistant_tasks", "contract_id"),
@@ -213,6 +213,9 @@ _KNOWN_CONTRACT_FKS = {
     # a pętla `contract_rate_history` przelicza zachowany. Wpisane kroki
     # harmonogramu idą za kontraktem jak każde `contract_*_rates`.
     ("contract_rate_history_findings", "contract_id"),
+    # Sprawy kontroli miesiąca (0784): kontrakt to tylko odnośnik do rozliczenia,
+    # klucz sprawy to osoba i miesiąc — idą za kontraktem zachowanym.
+    ("month_check_cases", "contract_id"),
     # Dane firmy z umowy (0755) idą za kontraktem razem z plikiem; decyzja
     # i potwierdzone dane należą do tej samej współpracy.
     ("contract_partner_reads", "contract_id"),

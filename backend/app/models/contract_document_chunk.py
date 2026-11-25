@@ -1,4 +1,4 @@
-"""Fragment tekstu dokumentu kontraktu — 0788.
+"""Fragment tekstu dokumentu kontraktu — 0789.
 
 Opis: ``app/services/contract_document_text/schema.py``. Zapis i odczyt:
 ``app/services/contract_document_text/index.py``.

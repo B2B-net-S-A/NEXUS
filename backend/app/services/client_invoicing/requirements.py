@@ -65,6 +65,8 @@ class Requirements:
     bzone_order: bool = False
     #: ``cl.client_protocol``: protokół odbioru od klienta za miesiąc (ostrzega).
     client_protocol: bool = False
+    #: ``cl.contractor_person_id``: kod osoby po „Contractor … ID:” (ostrzega).
+    contractor_person_id: bool = False
 
     def item_name(
         self,
@@ -215,6 +217,7 @@ def from_rules(rules: dict[str, dict[str, Any]], period: str) -> Requirements:
         signed_document=signed,
         bzone_order=_on(rules, "cl.bzone_order") is not None,
         client_protocol=_on(rules, "cl.client_protocol") is not None,
+        contractor_person_id=_on(rules, "cl.contractor_person_id") is not None,
     )
 
 
@@ -277,6 +280,13 @@ def summary(found: Requirements, order_numbers: Sequence[str]) -> list[dict[str,
         )
     if found.client_protocol:
         out.append({"label": "Protokół odbioru", "value": "od klienta za ten miesiąc"})
+    if found.contractor_person_id:
+        out.append(
+            {
+                "label": "Contractor … ID:",
+                "value": "kod osoby z NEXUSA w każdej pozycji",
+            }
+        )
     return out
 
 

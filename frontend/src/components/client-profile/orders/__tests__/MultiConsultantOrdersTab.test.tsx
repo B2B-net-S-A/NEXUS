@@ -2776,6 +2776,64 @@ describe("MultiConsultantOrdersTab — tabela z panelem szczegółów (wersja B)
     );
   });
 
+  it("zakończone okresowe sprzed linii MD tej samej umowy ma wiersz i otwiera się z ?order=", async () => {
+    // KIR 25.11.2026: okresowe 01.06–31.10 zakończone, od 02.11 ta sama
+    // umowa jest linią MD. Karta była chowana jak duplikat, więc link
+    // kończył się komunikatem „niewidoczne”, a okresu nie dało się poprawić.
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group({
+            lines: [
+              line({
+                id: 899,
+                contract_id: 100,
+                consultant_name: "Robert Łuszczyński",
+                start_date: "2026-11-02",
+                end_date: "2027-03-31",
+              }),
+            ],
+          }),
+        ],
+        total_groups: 1,
+        total_consultants: 1,
+      },
+    } as never);
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [
+          contractor({
+            orders: [
+              {
+                id: 5,
+                title: "PER-5",
+                status: "completed",
+                order_type: "periodic",
+                start_date: "2026-06-01",
+                end_date: "2026-10-31",
+                created_at: "2026-06-01T08:00:00Z",
+                rate_client: 1500,
+              },
+            ],
+          }),
+        ],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+    const onFocusHandled = vi.fn();
+    renderTab({ focusOrderId: 5, onFocusHandled });
+
+    expect(await screen.findByTestId("contractor-order-panel")).toHaveAttribute(
+      "data-focus-order",
+      "5:false",
+    );
+    expect(await row("contractor-row-100")).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.queryByText("Zamówienie nie jest już widoczne na liście tego klienta."),
+    ).not.toBeInTheDocument();
+  });
+
   it("cel spoza listy: komunikat i zdjęcie parametrów, bez pustego panelu", async () => {
     const onFocusHandled = vi.fn();
     renderTab({ focusGroupId: 999, onFocusHandled });

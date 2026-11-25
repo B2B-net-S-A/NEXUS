@@ -1,4 +1,4 @@
-# Podpisane umowy kontraktów do odczytu (część E, 0788, 25.11.2026)
+# Podpisane umowy kontraktów do odczytu (część E, 0789, 25.11.2026)
 <!-- indeks: treść umowy, aneksu, wypowiedzenia i porozumienia z Dokumentów kontraktu, `contract_document_chunks`, Qdrant `nexus_contract_documents`, `termination_terms`, narzędzia Jarvisa `search_contract_documents` / `read_contract_document`, źródła z NEXUSA w ramce Jarvisa -->
 
 Plan: `docs/asystent-prawny-plan.md` (część E). W obiegu są umowy z różnych

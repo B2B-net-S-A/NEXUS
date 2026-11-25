@@ -68,6 +68,7 @@ from app.services.consultant_portal.auth import PortalError
 from app.services.hr_documents_schema import MAX_FILE_BYTES
 from app.services.client_settlements import settings as module_settings
 from app.services.client_settlements import month_close, start_checklist, team_month
+from app.services.month_check import service as month_check_service
 from app.services.hr import audit
 from app.services.client_settlements.service import SettlementError
 
@@ -81,6 +82,13 @@ KIND_PATTERN = r"^(actual|estimate)$"
 
 class ModuleIn(BaseModel):
     enabled: bool
+
+
+class MonthCheckDecisionIn(BaseModel):
+    #: ``explained`` — „Wyjaśnione” (powód obowiązkowy), ``to_correct`` —
+    #: „Do korekty”, ``new`` — cofnięcie decyzji.
+    action: str = Field(pattern=r"^(explained|to_correct|new)$")
+    reason: Optional[str] = Field(default=None, max_length=1000)
 
 
 class MdIn(BaseModel):
@@ -198,6 +206,44 @@ async def month_overview(
     return await month_close.overview(
         db, month, amounts=has_financial_access(current_user)
     )
+
+
+@router.get("/month-check")
+async def month_check_view(
+    current_user: FinanceModuleUser,
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """„Przebieg miesiąca” → „Rozbieżności”: sprawy kontroli miesiąca (0784)."""
+
+    await _open(db, current_user)
+    return await month_check_service.month_view(
+        db, month, amounts=has_financial_access(current_user), today=business_today()
+    )
+
+
+@router.post("/month-check/{case_id}/decision")
+async def month_check_decision(
+    case_id: int,
+    body: MonthCheckDecisionIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """„Wyjaśnione” (z powodem), „Do korekty” albo cofnięcie decyzji Finansów."""
+
+    await _open(db, current_user)
+    try:
+        row = await month_check_service.decide(
+            db, case_id, body.action, current_user, reason=body.reason
+        )
+    except month_check_service.MonthCheckError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
+    person, client = await month_check_service.names(db, [row])
+    out = month_check_service.case_dict(
+        row, person, client, amounts=has_financial_access(current_user)
+    )
+    await db.commit()
+    return out
 
 
 @router.get("/team")

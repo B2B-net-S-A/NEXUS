@@ -1,7 +1,7 @@
 """Asystent prawny, część A: korpus prawa i klucz AI ``legal_assistant`` (F56).
 
-Revision ID: 0784_legal_corpus
-Revises: 0783_lost_review
+Revision ID: 0785_legal_corpus
+Revises: 0784_month_check_cases
 
 Decyzja Artura z 25.11.2026 (asystent prawny w tle istniejących ekranów,
 ``docs/asystent-prawny-plan.md``). Tabele ``legal_acts``,
@@ -18,8 +18,8 @@ from alembic import op
 
 from app.services.legal import schema
 
-revision = "0784_legal_corpus"
-down_revision = "0783_lost_review"
+revision = "0785_legal_corpus"
+down_revision = "0784_month_check_cases"
 branch_labels = None
 depends_on = None
 
@@ -44,7 +44,7 @@ def upgrade() -> None:
 REFUSE_WITH_LIVE_ROWS = f"""DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM ai_usage_log WHERE feature::text = '{_KEY}') THEN
-        RAISE EXCEPTION 'Downgrade 0784 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0785 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

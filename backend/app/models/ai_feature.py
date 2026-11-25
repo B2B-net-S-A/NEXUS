@@ -234,18 +234,18 @@ class AIFeatureKey(str, enum.Enum):
     # 0783 (25.11.2026): Insights → „Przegrane” — wnioski i rady z przegranych
     # rekrutacji okresu na spotkanie z Delivery Leadami (F56).
     lost_review_summary = "lost_review_summary"
-    # 0784 (25.11.2026): asystent prawny w tle ekranów kontraktów i Generatora —
+    # 0785 (25.11.2026): asystent prawny w tle ekranów kontraktów i Generatora —
     # szkic pisma (wypowiedzenie, aneks, odpowiedź), w którym każdy cytat
     # sprawdza kod z tekstem źródła, a terminy liczy kod (F57). Dane osób idą do
     # modelu wyłącznie jako znaczniki ([PARTNER], [NIP]).
     legal_assistant = "legal_assistant"
-    # 0785 (25.11.2026): asystent prawny — szkic wzoru własnego Generatora Umów
+    # 0786 (25.11.2026): asystent prawny — szkic wzoru własnego Generatora Umów
     # z opisu albo zmiany istniejącego wzoru (wzór bez danych osób).
     legal_template_draft = "legal_template_draft"
-    # 0787 (25.11.2026): asystent prawny — propozycje zmian w umowie DOCX
+    # 0788 (25.11.2026): asystent prawny — propozycje zmian w umowie DOCX
     # („Popraw dokument”, część D planu); człowiek przyjmuje każdą zmianę.
     legal_redline = "legal_redline"
-    # 0790 (25.11.2026): asystent prawny — zgodność umów B2B z umową ramową
+    # 0791 (25.11.2026): asystent prawny — zgodność umów B2B z umową ramową
     # klienta w tle (część G); każdy cytat sprawdza kod.
     legal_client_fit = "legal_client_fit"
 

@@ -84,7 +84,7 @@ import { saveDocx } from "./DocumentDialogs";
 /** Etykieta braku numerów paragrafów w `missing[]` serwera. */
 const REFS_MISSING_LABEL = "Numery paragrafów umowy bazowej";
 
-/** `custom` = dokument ze wzoru własnego (asystent prawny, 0785). */
+/** `custom` = dokument ze wzoru własnego (asystent prawny, 0786). */
 type Step = "type" | "subject" | "form" | "custom";
 
 /** Podmiot dokumentu: umowa z rejestru, kontrakt aneksu albo kandydat. */

@@ -1510,6 +1510,14 @@ class Settings(BaseSettings):
     # dzisiejszej stawki — włączony od razu (decyzja Artura 25.11.2026).
     CONTRACT_RATE_HISTORY_ENABLED: bool = True
     CONTRACT_RATE_HISTORY_AUTO_APPLY: bool = True
+    # Kontrola miesiąca (0784, decyzja Artura 25.11.2026): co noc rozbieżności
+    # faktur do klientów i faktur konsultantów z KSeF za trzy zamknięte miesiące,
+    # w poniedziałek mail do Finansów (``services/month_check``).
+    MONTH_CHECK_ENABLED: bool = True
+    # Mail tygodniowy kontroli przed „wysyłaj” Artura idzie tylko na te adresy
+    # (próba, decyzja 25.11.2026; lista po przecinku). Adres służbowy prezesa,
+    # publiczny jak w dokumentach repo. Finanse włącza `app_settings['month_check_mail']`.
+    MONTH_CHECK_TEST_RECIPIENTS: str = "artur.twardowski@b2bnetwork.pl"
     # Dane firm z umów (E5a, 0755): pętla czyta podpisaną umowę aktywnych
     # kontraktów B2B bez danych firmy w Generatorze (paczka 25 co 10 min),
     # a człowiek potwierdza każdą propozycję. Domyślnie OFF — koszt modelu

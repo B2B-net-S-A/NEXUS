@@ -8,6 +8,11 @@ ją poprawić. Reguły: ``docs/claude/finanse-insights/rozliczenia-informacja-zw
   ``CATALOG`` (klucz ``rule`` albo początek tytułu), raport-zdjęcie bez MD albo
   „Do poprawy” od Finansów. Uwag spoza katalogu (nadgodziny, dwie stawki, ta sama
   osoba u dwóch klientów) rozstrzygają Finanse i nikt nie dostaje komunikatu.
+* **Informacja bez poprawki** (``Defect.notice``, decyzja Artura z 25.11.2026):
+  kosmetyka raportu przy dobrym MD (wiersze ≠ SUMA, daty z szablonu, nagłówek
+  z innego miesiąca). Rozliczenie zostaje „Bez uwag”, na karcie stoi informacja
+  z kluczem ``notice``, a konsultant dostaje jeden komunikat „na przyszłość”, bez
+  przypomnień, także przy rozliczeniu przyjętym.
 * **Jeden komunikat na wadę i miesiąc**: wiersz ``client_settlement_feedback``
   (kontrakt, miesiąc, kod). Wady tego samego kontraktu i miesiąca dla jednej
   osoby idą w jednym mailu albo dzwonku.
@@ -54,6 +59,11 @@ from app.services.care.announcement_mail import MailOutcome
 from app.services.client_order_lines import format_period_month
 from app.services.client_settlements import reminders
 from app.services.client_settlements import settings as module_settings
+from app.services.client_settlements.rcp_checks import (
+    NOTE_ROW_DATES,
+    NOTE_ROWS_SUM,
+    NOTE_TEMPLATE_MONTH,
+)
 from app.services.consultant_portal import identity, portal_mail, portal_settings
 from app.services.hr.payroll_periods import add_months
 from app.services.person_workdays import business_days
@@ -69,6 +79,9 @@ MAX_EVERY_DAYS = 20
 MONTHS_BACK = 2
 #: Rozliczenia, w których wada czeka na kogoś; ``ok`` i ``accepted`` nie mają wad.
 OPEN_STATUSES = ("warnings", "checking", "no_md", "needs_fix")
+#: Informacja bez poprawki idzie też przy „Bez uwag” i po przyjęciu (automat
+#: przyjmuje takie RCP z dopiskiem).
+NOTICE_STATUSES = (*OPEN_STATUSES, "ok", "accepted")
 #: Rozliczenie bez MD: raport-zdjęcie jest wtedy wadą (z MD — nie).
 NO_MD_STATUSES = ("checking", "no_md")
 #: Wynik zapisu w dzienniku ``sends``.
@@ -189,10 +202,15 @@ class Defect:
     #: Instrukcja dla konsultanta, gdy akceptującego u klienta nie ma jak
     #: zapytać (brak adresu albo wysyłka do klientów wyłączona).
     consultant_instruction: Optional[str] = None
+    #: Informacja bez poprawki: miesiąc rozlicza się bez zmian, a komunikat mówi,
+    #: co poprawić w kolejnym raporcie. Dopasowanie po kluczu ``notice`` uwagi
+    #: (``rcp_checks.NOTE_*``), jeden komunikat, bez przypomnień.
+    notice: bool = False
 
 
 ACCEPT_NO_REPLY = "accept.no_reply"
 IMAGE_REPORT = "proof.image_file"
+PRIVATE_SCREENSHOT = "proof.private_screenshot"
 NEEDS_FIX = "finance.needs_fix"
 
 CATALOG: tuple[Defect, ...] = (
@@ -324,19 +342,138 @@ CATALOG: tuple[Defect, ...] = (
         ),
         detail=True,
     ),
+    # Wady do poprawy dopisane 25.11.2026 (próba VI–X 2026: dotąd bez komunikatu).
+    # Daty wierszy przed miesiącem pliku: „Wpisy spoza rozliczanego miesiąca” mają
+    # też regułę ``proof.month``, a pierwszy pasujący wpis wygrywa.
+    Defect(
+        code="proof.row_dates",
+        audience=CONSULTANT,
+        title="Daty wierszy spoza rozliczanego miesiąca",
+        instruction=(
+            "Popraw daty w raporcie za {month}: każdy wiersz z godzinami ma mieć "
+            "dzień z tego miesiąca. Wyślij poprawiony raport z akceptacją klienta "
+            "na {address}."
+        ),
+        titles=(
+            "Wpisy spoza rozliczanego miesiąca",
+            "Wiersze z datą spoza miesiąca",
+            "Godziny w dniu spoza miesiąca",
+        ),
+    ),
+    Defect(
+        code="proof.month",
+        audience=CONSULTANT,
+        title="Raport za inny miesiąc",
+        instruction=(
+            "Raport, który przyszedł za {month}, jest za inny miesiąc albo nie ma "
+            "miesiąca (szablon z innego okresu). Wyślij raport za {month}: miesiąc "
+            "w nagłówku i daty dni z tego miesiąca, z akceptacją klienta, na "
+            "{address}."
+        ),
+        rules=("proof.month",),
+    ),
+    Defect(
+        code="proof.name_match",
+        audience=CONSULTANT,
+        title="Inne imię i nazwisko w raporcie",
+        instruction=(
+            "W raporcie za {month} nie ma Twojego imienia i nazwiska z umowy: pole "
+            "jest puste albo stoi w nim ktoś inny (np. cudzy szablon). Wpisz swoje "
+            "imię i nazwisko i wyślij poprawiony plik z akceptacją klienta na "
+            "{address}."
+        ),
+        rules=("proof.name_match",),
+        # Bez eksportów klienta, w których konsultant niczego nie wpisuje
+        # (Fieldglass, Redmine), i bez szczegółu: bywa w nim cudze nazwisko.
+        titles=(
+            "Inne imię lub nazwisko niż w kontrakcie",
+            "Time Sheet bez pola Consultant(s)",
+            "Time Sheet bez imienia i nazwiska kontraktora",
+            "Raport godzin bez imienia i nazwiska",
+            "KCP bez imienia i nazwiska",
+        ),
+    ),
+    Defect(
+        code="kesu.jira_accept",
+        audience=CONSULTANT,
+        title="Brak maila z Jiry z akceptacją opiekuna",
+        instruction=(
+            "Do KEŚU za {month} brakuje maila z Jiry z akceptacją opiekuna "
+            "(powiadomienie „zaakceptowane przez … w dniu …”). Poproś opiekuna "
+            "o akceptację KEŚU w Jirze albo przekaż nam ten mail z Jiry na {address}."
+        ),
+        titles=("Brak maila z Jiry z akceptacją opiekuna",),
+    ),
+    Defect(
+        code=PRIVATE_SCREENSHOT,
+        audience=CONSULTANT,
+        title="Raport jako zrzut z prywatnej skrzynki",
+        instruction=(
+            "Raport godzin za {month} przyszedł jako zrzut ekranu z prywatnej "
+            "skrzynki. Wyślij plik raportu (PDF albo Excel, nie zrzut ekranu) "
+            "z akceptacją klienta, z adresu firmowego, na {address}: z tej "
+            "skrzynki rozliczamy miesiąc."
+        ),
+    ),
+    # Informacje bez poprawki (kosmetyka przy dobrym MD, decyzja Artura z 25.11.2026).
+    Defect(
+        code=NOTE_ROWS_SUM,
+        audience=CONSULTANT,
+        title="Wiersze opisu prac nie sumowały się do SUMA",
+        instruction=(
+            "W RCP za {month} wiersze opisu prac nie sumowały się do wiersza SUMA "
+            "({detail}). Miesiąc rozliczyliśmy z SUMA, bo zgadza się z godzinami "
+            "dni. W kolejnym RCP popraw wiersze opisu prac tak, żeby ich suma była "
+            "równa SUMA."
+        ),
+        detail=True,
+        notice=True,
+    ),
+    Defect(
+        code=NOTE_ROW_DATES,
+        audience=CONSULTANT,
+        title="Daty wierszy z szablonu innego miesiąca",
+        instruction=(
+            "W raporcie za {month} wiersze miały daty z innego miesiąca albo roku "
+            "(zostały z szablonu). Raport rozliczyliśmy za {month}, bo nagłówek "
+            "i dni z godzinami wskazują ten miesiąc. W kolejnym raporcie wpisz "
+            "w wierszach daty dni pracy z rozliczanego miesiąca."
+        ),
+        notice=True,
+    ),
+    Defect(
+        code=NOTE_TEMPLATE_MONTH,
+        audience=CONSULTANT,
+        title="Szablon z innym miesiącem w nagłówku",
+        instruction=(
+            "W raporcie za {month} nagłówek miał miesiąc z szablonu ({detail}). "
+            "Raport rozliczyliśmy za {month}, bo nazwa pliku albo temat maila "
+            "i godziny wskazują ten miesiąc. W kolejnym raporcie zmień miesiąc "
+            "w nagłówku na rozliczany."
+        ),
+        detail=True,
+        notice=True,
+    ),
 )
 BY_CODE: dict[str, Defect] = {d.code: d for d in CATALOG}
 
 
 def match(check: Mapping[str, Any]) -> Optional[Defect]:
-    """Wpis katalogu dla uwagi z ``checks``; ``None`` = sprawa Finansów."""
+    """Wpis katalogu dla uwagi z ``checks``; ``None`` = sprawa Finansów.
 
+    Informacja z kluczem ``notice`` (kosmetyka przy dobrym MD) daje swój wpis bez
+    względu na stan; uwagi ``warn``/``fail`` po regule albo początku tytułu."""
+
+    notice = check.get("notice")
+    if notice:
+        defect = BY_CODE.get(str(notice))
+        return defect if defect is not None and defect.notice else None
     if check.get("state") not in ("warn", "fail"):
         return None
     rule = check.get("rule")
     title = str(check.get("title") or "")
     for defect in CATALOG:
-        if defect.code in (IMAGE_REPORT, NEEDS_FIX):
+        if defect.notice or defect.code in (IMAGE_REPORT, NEEDS_FIX):
             continue
         by_rule = not defect.rules or rule in defect.rules
         by_title = not defect.titles or title.startswith(defect.titles)
@@ -385,10 +522,13 @@ def defects_in(
 
     ``consultant_reports=False``: godziny przysyła klient (Nordea, T4T), więc
     zdjęcie od konsultanta nie jest jego raportem i nie jest wadą (powtórka 7:
-    15 takich rozliczeń Nordei w IX–X)."""
+    15 takich rozliczeń Nordei w IX–X). Zdjęcie z prywatnej skrzynki to osobna
+    wada (``PRIVATE_SCREENSHOT``). Informacje bez poprawki są też przy „Bez uwag”
+    i po przyjęciu (``NOTICE_STATUSES``)."""
 
-    if status not in OPEN_STATUSES:
+    if status not in NOTICE_STATUSES:
         return []
+    open_status = status in OPEN_STATUSES
     found: dict[str, Found] = {}
     if status == "needs_fix":
         found[NEEDS_FIX] = Found(NEEDS_FIX, detail=first_sentence(fix_reason))
@@ -400,6 +540,8 @@ def defects_in(
                 continue
             defect = match(check)
             if defect is None or defect.code in found:
+                continue
+            if not defect.notice and not open_status:
                 continue
             acceptors = check.get("acceptors") or []
             found[defect.code] = Found(
@@ -413,9 +555,10 @@ def defects_in(
         consultant_reports
         and status in NO_MD_STATUSES
         and (report_mime or "").startswith("image/")
-        and IMAGE_REPORT not in found
     ):
-        found[IMAGE_REPORT] = Found(IMAGE_REPORT, private=is_private(report_sender))
+        private = is_private(report_sender)
+        code = PRIVATE_SCREENSHOT if private else IMAGE_REPORT
+        found.setdefault(code, Found(code, private=private))
     return list(found.values())
 
 
@@ -569,8 +712,12 @@ def compose_mail(
         subject = f"{lead}Akceptacja czasu pracy za {label}: {ctx.person}"
         body = "\n\n".join(_fill(i.instruction, ctx, i.found, address) for i in items)
         return subject, f"Dzień dobry,\n\n{body}\n\nDziękujemy.\n\n{SIGNATURE}"
+    # Same informacje bez poprawki: raport przechodzi, komunikat jest na przyszłość.
+    notes_only = all(item.defect.notice for item in items)
     if len(items) == 1:
         subject = f"{lead}Rozliczenie za {label}: {items[0].defect.title.lower()}"
+    elif notes_only:
+        subject = f"{lead}Rozliczenie za {label}: {len(items)} uwagi do raportu"
     else:
         subject = f"{lead}Rozliczenie za {label}: {len(items)} rzeczy do poprawy"
     lines = []
@@ -578,18 +725,30 @@ def compose_mail(
         what = item.defect.title
         if item.found.detail and "{detail}" not in item.defect.instruction:
             what += f" ({item.found.detail})"
+        todo = "Na przyszłość" if item.defect.notice else "Co zrobić"
         lines.append(
-            f"{number}. {what}.\n   Co zrobić: {_fill(item.instruction, ctx, item.found, address)}"
+            f"{number}. {what}.\n   {todo}: {_fill(item.instruction, ctx, item.found, address)}"
         )
-    text = (
-        "Dzień dobry,\n\n"
-        f"w rozliczeniu za {label} u klienta {ctx.client_name} "
-        f"{'jest jedna rzecz' if len(items) == 1 else 'są rzeczy'} do poprawy:\n\n"
-        + "\n\n".join(lines)
-        + "\n\nGdy poprawka do nas dotrze, przypomnienia ustaną. Bez niej nie "
-        "rozliczymy miesiąca ani Twojej faktury.\n\n"
-        f"{SIGNATURE}"
-    )
+    if notes_only:
+        lead_in = (
+            f"w raporcie za {label} u klienta {ctx.client_name} "
+            f"{'jest jedna rzecz' if len(items) == 1 else 'są rzeczy'} "
+            "do poprawienia w kolejnych raportach:\n\n"
+        )
+        closing = (
+            "\n\nTego raportu nie trzeba poprawiać. Prosimy tylko, żeby kolejny "
+            "był już bez tej usterki.\n\n"
+        )
+    else:
+        lead_in = (
+            f"w rozliczeniu za {label} u klienta {ctx.client_name} "
+            f"{'jest jedna rzecz' if len(items) == 1 else 'są rzeczy'} do poprawy:\n\n"
+        )
+        closing = (
+            "\n\nGdy poprawka do nas dotrze, przypomnienia ustaną. Bez niej nie "
+            "rozliczymy miesiąca ani Twojej faktury.\n\n"
+        )
+    text = "Dzień dobry,\n\n" + lead_in + "\n\n".join(lines) + closing + SIGNATURE
     return subject, text
 
 
@@ -756,14 +915,18 @@ async def sync_month(
             )
             counts["new"] += 1
             continue
+        row.last_seen_on = max(row.last_seen_on, today)
+        row.detail = found.detail
+        row.audience = defect.audience
+        if defect.notice and row.last_sent_on is not None:
+            # Informacja bez poprawki poszła: wiersz zostaje zamknięty.
+            row.resolved_on = row.resolved_on or row.last_sent_on
+            continue
         if row.resolved_on is not None:
             row.resolved_on = None
             counts["reopened"] += 1
         else:
             counts["open"] += 1
-        row.last_seen_on = max(row.last_seen_on, today)
-        row.detail = found.detail
-        row.audience = defect.audience
     for key, row in existing.items():
         if key not in seen and row.resolved_on is None:
             row.resolved_on = today
@@ -835,6 +998,22 @@ async def _log(db: AsyncSession, row_ids: list[int], entry: dict[str, Any]) -> N
         row = await db.get(ClientSettlementFeedback, row_id)
         if row is not None:
             row.sends = [*(row.sends or []), entry]
+    await db.commit()
+
+
+async def _close(db: AsyncSession, row_ids: list[int], today: date) -> None:
+    """Informacja bez poprawki po komunikacie: nic więcej nie czeka (``resolved_on``)."""
+
+    if not row_ids:
+        return
+    await db.execute(
+        update(ClientSettlementFeedback)
+        .where(
+            ClientSettlementFeedback.id.in_(row_ids),
+            ClientSettlementFeedback.resolved_on.is_(None),
+        )
+        .values(resolved_on=today)
+    )
     await db.commit()
 
 
@@ -940,13 +1119,17 @@ async def deliver_month(
     address = reminders.settlements_address() or "adres rozliczeń"
     groups: dict[tuple[int, tuple[Any, ...]], tuple[Target, list[Item]]] = {}
     for row in rows:
-        if not due(row.last_sent_on, today, settings.every_days):
+        defect = BY_CODE[row.code]
+        if defect.notice:
+            # Informacja bez poprawki: jeden komunikat, bez przypomnień.
+            if row.last_sent_on is not None:
+                continue
+        elif not due(row.last_sent_on, today, settings.every_days):
             continue
         s = by_contract[row.contract_id]
         found = next((f for f in s.found if f.code == row.code), None)
         if found is None:
             continue
-        defect = BY_CODE[row.code]
         target, instruction = target_for(defect, found, whos[s.contract_id], settings)
         item = Item(row.id, defect, found, instruction)
         key = (s.contract_id, target.key)
@@ -998,6 +1181,7 @@ async def deliver_month(
                 "outcome": outcome,
             },
         )
+        await _close(db, [i.row_id for i in items if i.defect.notice], today)
         counts["messages"] += 1
         counts["items"] += len(items)
         if outcome == NO_RECIPIENT:
@@ -1085,6 +1269,8 @@ async def report(
                 "month": row.period_month,
                 "code": row.code,
                 "title": defect.title if defect else row.code,
+                # Informacja bez poprawki (kosmetyka przy dobrym MD), nie wada do poprawy.
+                "notice": bool(defect and defect.notice),
                 "audience": row.audience,
                 "detail": row.detail,
                 "first_seen_on": row.first_seen_on.isoformat(),

@@ -2401,7 +2401,7 @@ ALL_TEMPLATES: dict[str, PromptTemplate] = {
 }
 
 
-# ── Asystent prawny: szkic pisma (F57, 0784, 25.11.2026) ─────────────────────
+# ── Asystent prawny: szkic pisma (F57, 0785, 25.11.2026) ─────────────────────
 # Model pisze tylko zdania. Daty, terminy i kwoty liczy kod i podaje jako
 # znaczniki; dane osób przychodzą jako znaczniki ([PARTNER], [NIP]); każdy cytat
 # sprawdza kod z fragmentem źródła (`services/legal/citations.py`).

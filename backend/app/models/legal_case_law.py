@@ -1,4 +1,4 @@
-"""Orzecznictwo dla asystenta prawnego (0786).
+"""Orzecznictwo dla asystenta prawnego (0787).
 
 CHECK-i i indeksy jak w ``app/services/legal_case_law/schema.py`` (strażnik
 dryfu schematu porównuje model z bazą po migracji).

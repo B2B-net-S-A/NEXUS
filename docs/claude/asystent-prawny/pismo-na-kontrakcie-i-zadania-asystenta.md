@@ -1,4 +1,4 @@
-# Pismo na kontrakcie, zadania asystenta i `draft_legal_letter` (część F, 0789, 25.11.2026)
+# Pismo na kontrakcie, zadania asystenta i `draft_legal_letter` (część F, 0790, 25.11.2026)
 <!-- indeks: „Napisz pismo”, panel pisma `?pismo=`, odpowiedź na wypowiedzenie Partnera, wypowiedzenie przez nas, porozumienie, cofnięcie wypowiedzenia, nota z karą umowną, pismo do klienta, ostrzeżenie o formie, „Zatwierdzam”, folder „Pisma asystenta”, `LegalTaskRow`, `TASK_PROVIDERS`, `legal_assistant_tasks`, `/api/legal/tasks`, pasek zadań na liście kontraktów, narzędzie Jarvisa `draft_legal_letter` -->
 
 Plan: `docs/asystent-prawny-plan.md` (część F i „Podział F / G”). Decyzje Artura
@@ -88,7 +88,7 @@ kod, dane osób do modelu tylko jako znaczniki.
   dokładnie jak w planie; `collect` sumuje dostawców, usuwa powtórki klucza
   i zadania zamknięte. Zadań się nie zapisuje — liczą się przy odczycie, bez
   pętli w tle.
-- Tabela `legal_assistant_tasks` (0789, DDL `services/legal/tasks_schema.py`,
+- Tabela `legal_assistant_tasks` (0790, DDL `services/legal/tasks_schema.py`,
   lustro w `entrypoint.sh` przez `hr_schema_bundle`, sonda w `/api/health/deep`)
   trzyma tylko zamknięcia: `done` po „Zatwierdzam” (odpowiedź, porozumienie,
   cofnięcie), `dismissed` po „Pomiń”. Klucz niesie dzień wypowiedzenia —
