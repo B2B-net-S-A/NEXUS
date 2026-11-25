@@ -566,7 +566,7 @@ async def _store_contractor(run: _Run, item: dict[str, Any], ksef_number: str) -
     try:
         async with run.db.begin_nested():
             stored = await contractor_invoices.consider(
-                run.db, run.contractors, item, ksef_number
+                run.db, run.contractors, item, ksef_number, now=run.now
             )
     except Exception:  # noqa: BLE001 — pobieranie idzie dalej
         logger.exception("ksef: zapis faktury kontraktora nieudany")
@@ -579,6 +579,9 @@ async def _store_contractor(run: _Run, item: dict[str, Any], ksef_number: str) -
     await _ledger_entry(run, ksef_number)
     if stored == contractor_invoices.SUGGESTED:
         run.counts["contractors_suggested"] += 1
+    elif stored == contractor_invoices.CONFIRMED:
+        # NIP zapisany sam z historii faktur (``contractor_nip``).
+        run.counts["contractors_confirmed"] += 1
     return True
 
 

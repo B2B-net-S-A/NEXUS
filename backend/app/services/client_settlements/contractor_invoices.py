@@ -11,6 +11,9 @@ policzy ją jako „pominiętą” albo kosztową:
   → ``suggested``: podpowiedź „NIP kontraktora” dla Finansów (E4.0, decyzja
   Artura z 09.11.2026). Zatwierdzenie zapisuje NIP osobie i od tej chwili
   faktury wiążą się same; odrzucenie zostawia fakturę bez osoby,
+* podpowiedź, której NIP-u dowodzi historia faktur w KSeF (``contractor_nip``,
+  decyzja Artura z 25.11.2026), NEXUS zatwierdza sam: NIP trafia do osoby,
+  a faktura jest od razu ``confirmed`` bez ``decided_by``,
 * reszta wraca do pobierania bez zmian.
 
 Zapis z samych metadanych (sprzedawca, numer, daty, kwoty — jak faktury
@@ -37,9 +40,9 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Any, Iterable, Optional
+from typing import TYPE_CHECKING, Any, Iterable, Optional
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.postgresql import insert
@@ -57,6 +60,9 @@ from app.services.client_settlements.rcp_checks import name_tokens
 from app.services.hr import white_list
 from app.services.hr.approvals.cost_invoices import fields_from_metadata
 from app.services.hr.payroll_periods import add_months
+
+if TYPE_CHECKING:
+    from app.services.client_settlements.contractor_nip import Registry
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +109,9 @@ class ContractorIndex:
     without_nip: list[Contractor] = field(default_factory=list)
     #: (NIP, kontrakt) odrzucone przez Finanse — bez ponownej podpowiedzi.
     rejected: set[tuple[str, int]] = field(default_factory=set)
+    #: Osoby i zajęte NIP-y dla ``contractor_nip``, wczytane przy pierwszej
+    #: podpowiedzi przebiegu.
+    registry: Optional[Registry] = None
 
 
 async def load_index(db: AsyncSession, today: date) -> ContractorIndex:
@@ -303,7 +312,12 @@ def _acquired(item: dict[str, Any]) -> Optional[datetime]:
 
 
 async def consider(
-    db: AsyncSession, index: ContractorIndex, item: dict[str, Any], ksef_number: str
+    db: AsyncSession,
+    index: ContractorIndex,
+    item: dict[str, Any],
+    ksef_number: str,
+    *,
+    now: Optional[datetime] = None,
 ) -> Optional[str]:
     """Zapis faktury kontraktora z rekordu metadanych; ``None`` = nie kontraktor.
 
@@ -326,6 +340,11 @@ async def consider(
     if person is None and state == SUGGESTED:
         # Dwóch imienników, kwota nie rozstrzyga — bez podpowiedzi.
         return None
+    decided_at: Optional[datetime] = None
+    if state == SUGGESTED:
+        moment = now or datetime.now(timezone.utc)
+        if await _confirm_alone(db, index, person, fields, ksef_number, moment):
+            state, decided_at = CONFIRMED, moment
     statement = insert(ClientContractorInvoice).values(
         ksef_number=ksef_number,
         seller_nip=nip,
@@ -342,6 +361,7 @@ async def consider(
         contract_id=person.contract_id if person else None,
         period_month=period,
         nip_state=state,
+        decided_at=decided_at,
     )
     await db.execute(
         statement.on_conflict_do_nothing(
@@ -349,6 +369,32 @@ async def consider(
         )
     )
     return state
+
+
+async def _confirm_alone(
+    db: AsyncSession,
+    index: ContractorIndex,
+    person: Contractor,
+    fields: dict[str, Any],
+    ksef_number: str,
+    now: datetime,
+) -> bool:
+    """Reguła „NIP zapisuje się sam” (``contractor_nip``). Dodatek do podpowiedzi:
+    awaria zostawia fakturę ``suggested`` dla Finansów, jak przed regułą."""
+
+    from app.services.client_settlements import contractor_nip  # noqa: PLC0415 (cykl)
+
+    try:
+        async with db.begin_nested():
+            return await contractor_nip.confirm_on_arrival(
+                db, index, person, fields, ksef_number, now
+            )
+    except Exception:  # noqa: BLE001 — podpowiedź zostaje
+        logger.exception(
+            "client_settlements: NIP z KSeF bez zapisu (kontrakt %s)",
+            person.contract_id,
+        )
+        return False
 
 
 # ── Decyzje Finansów (E4.0) ──────────────────────────────────────────────────

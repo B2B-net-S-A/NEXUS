@@ -418,9 +418,19 @@ KSEF_FETCH_INTERVAL_SECONDS = (
 
 
 async def ksef_fetch_job(db: AsyncSession) -> dict[str, Any] | None:
-    """Faktury od osób z KSeF (etap 4); wyłączona integracja = nic."""
+    """Faktury od osób z KSeF (etap 4); wyłączona integracja = nic.
+
+    Pierwszy przebieg po wdrożeniu najpierw zapisuje NIP-y kontraktorów
+    z historii faktur (``contractor_nip.backfill_once``, raz, znacznik
+    w ``app_settings``), więc pobranie od razu wiąże ich faktury."""
+    from app.services.client_settlements import contractor_nip
     from app.services.hr.ksef import sync
 
+    try:
+        await contractor_nip.backfill_once(db)
+    except Exception:  # noqa: BLE001 — pobieranie faktur idzie dalej
+        await db.rollback()
+        logger.exception("ksef_fetch: NIP-y kontraktorów z historii nieudane")
     result = await sync.run_once(db)
     return None if result.get("status") in {"disabled", "skipped"} else result
 
