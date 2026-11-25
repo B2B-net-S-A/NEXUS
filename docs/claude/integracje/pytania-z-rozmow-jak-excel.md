@@ -36,11 +36,11 @@ stanowisk, a pytania czyta się na stronie stanowiska, bo rekruter przygotowuje
 kandydata pod jedną rolę, nie pod cały bank klienta. Pod każdym pytaniem stoi
 proponowana odpowiedź.
 
-- **Źródło odpowiedzi** to `interview_questions.ideal_answer_source` (0777),
+- **Źródło odpowiedzi** to `interview_questions.ideal_answer_source` (0778),
   w API `answer` i `answer_source` przy `QuestionBankItemOut`:
   `excel` — odpowiedź z archiwum Excela (67 pytań), `manual` — wpisana
   w Bazie pytań, `ai` — nocny bieg F55, `none` — nagłówek działu, `null` —
-  jeszcze nie przeliczone. Wiersz z odpowiedzią bez źródła (sprzed 0777)
+  jeszcze nie przeliczone. Wiersz z odpowiedzią bez źródła (sprzed 0778)
   dostaje je jak w backfillu: `excel` przy archiwum, `manual` przy reszcie.
 - **Odpowiedź AI jest zawsze oznaczona „do sprawdzenia”**, bo model pisze ją
   bez wiedzy o projekcie klienta, a rekruter przekazuje ją kandydatowi dalej.
