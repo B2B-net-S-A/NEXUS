@@ -111,24 +111,16 @@ async def default_for_job(db, job_id: Optional[int]) -> Layout:
 
 
 def page1_why(extras: Optional[dict]) -> Optional[list[str]]:
-    """Trzy zdania strony 1 poprawione przez rekrutera (dodatki strony 1)."""
-    if not isinstance(extras, dict):
-        return None
-    why = extras.get("why")
-    if not isinstance(why, list):
-        return None
-    texts = [str(item).strip() for item in why if str(item or "").strip()]
-    return texts[:3] or None
+    """Zdania strony 1 z dodatków (`why`): trzy sloty, ``""`` = slot bez zdania
+    (bierze punkt generatora). ``None`` = żaden slot nie ma zdania.
 
+    Slot to sprawdzone zdanie modelu (`cv_page1_why`) albo zdanie poprawione
+    przez rekrutera w edytorze „Strona 1”.
+    """
+    from app.services.cv_page1_why_checks import why_slots
 
-WREATH_CHOICES = ("auto", "cert", "school")
-
-
-def page1_wreath(extras: Optional[dict]) -> str:
-    """Co idzie do wieńca na stronie 1 (Artur 23.11.2026): „auto” = certyfikat,
-    gdy klient go wymaga (MUST), inaczej dyplom; „cert” albo „school” wybiera rekruter."""
-    value = extras.get("wreath") if isinstance(extras, dict) else None
-    return value if value in WREATH_CHOICES else "auto"
+    slots = why_slots(extras)
+    return slots if any(slots) else None
 
 
 def chosen_result(extras: Optional[dict]) -> Optional[str]:
@@ -153,14 +145,24 @@ def chosen_result(extras: Optional[dict]) -> Optional[str]:
     return text or None
 
 
-_RESULT_KEYS = ("result_text", "result_index", "results", "results_source_sha")
+# Zdania 1–3 (`why`, 25.11.2026) też opisują poprzednie CV — znikają razem z wynikiem.
+_RESULT_KEYS = (
+    "result_text",
+    "result_index",
+    "results",
+    "results_source_sha",
+    "why",
+    "why_generated",
+    "why_source_sha",
+)
 
 
 def forget_page1_result(extras: Optional[dict]) -> Optional[dict]:
     """Dodatki strony 1 po wczytaniu innej generacji (przegląd 25.11.2026):
-    bez najmocniejszego wyniku (listy, wyboru, zdania rekrutera) i bez własnego
-    wyróżnika (`highlight.mode == "custom"`) — opisują poprzednie CV. Wieniec
-    i wyłączony wyróżnik zostają. ``None`` = nic nie zostało."""
+    bez najmocniejszego wyniku (listy, wyboru, zdania rekrutera), bez zdań 1–3
+    (`why`, `why_generated`) i bez własnego wyróżnika (`highlight.mode ==
+    "custom"`) — opisują poprzednie CV. Wyłączony wyróżnik i stary wpis `wreath`
+    zostają. ``None`` = nic nie zostało."""
     if not isinstance(extras, dict):
         return extras
     kept = {k: v for k, v in extras.items() if k not in _RESULT_KEYS}
@@ -173,18 +175,20 @@ def forget_page1_result(extras: Optional[dict]) -> Optional[dict]:
 def compose_page1_why(
     why_points: list[str], extras: Optional[dict]
 ) -> Optional[list[str]]:
-    """Trzy zdania „Dlaczego nasz kandydat” na stronie 1 (wariant E2, 22.11.2026).
+    """Trzy zdania „Dlaczego nasz kandydat” na stronie 1 (25.11.2026).
 
-    Zdania poprawione w edytorze wygrywają. Inaczej: lata (punkt 1 generatora),
-    technologie (punkt 2) i najmocniejszy wynik z całego CV; bez sprawdzonego
-    wyniku — trzeci punkt generatora (najważniejsze wymaganie). ``None`` =
-    render bierze pierwsze trzy punkty sam.
+    Każdy slot osobno: zdanie z dodatków (`why`: sprawdzone zdanie modelu albo
+    poprawione przez rekrutera), a bez niego to, co strona 1 brała dotąd —
+    punkt 1 i 2 generatora, w slocie 3 najmocniejszy wynik z CV, a bez niego
+    trzeci punkt generatora. ``None`` = render bierze pierwsze trzy punkty sam.
     """
-    edited = page1_why(extras)
-    if edited:
-        return edited
+    slots = page1_why(extras)
     result = chosen_result(extras)
-    if result is None:
+    if slots is None and result is None:
         return None
+    slots = slots or ["", "", ""]
     points = [str(p).strip() for p in why_points if str(p or "").strip()]
-    return points[:2] + [result]
+    points += [""] * (3 - len(points))
+    defaults = [points[0], points[1], result or points[2]]
+    out = [slots[i] or defaults[i] for i in range(3)]
+    return [text for text in out if text] or None

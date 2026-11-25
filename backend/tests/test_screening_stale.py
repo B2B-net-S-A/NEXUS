@@ -461,6 +461,50 @@ async def test_claim_in_new_without_trace_is_released() -> None:
         await _cleanup(world)
 
 
+async def test_handed_over_card_in_new_without_trace_is_released() -> None:
+    """Oddanie (25.11.2026) to „Biorę” osoby, która dostała kartę: bez śladu
+    przez 2 dni robocze karta wraca dla wszystkich, jak po zwykłym „Biorę”."""
+    adder = await _user("Dodał")
+    taker = await _user("Bierze")
+    receiver = await _user("Dostała")
+    world = await _world()
+    try:
+        stage_id = await _move(
+            world,
+            "new",
+            actor=adder,
+            at=MONDAY - timedelta(hours=2),
+            entry_source=candidate_claim.ENTRY_ADDED_MANUAL,
+            claim_for=adder,
+        )
+        await _claim(world, taker, stage_id, MONDAY - timedelta(hours=1))
+        async with AsyncSessionLocal() as db:
+            process = await _process(db, world)
+            candidate_claim.set_claim(process, receiver, MONDAY)
+            db.add(
+                Activity(
+                    entity_type="pipeline",
+                    entity_id=stage_id,
+                    action="candidate_claim_handed_over",
+                    user_id=taker,
+                    details={
+                        "candidate_id": world["candidate_id"],
+                        "job_id": world["job_id"],
+                        "from_user_id": taker,
+                        "to_user_id": receiver,
+                    },
+                    created_at=MONDAY,
+                )
+            )
+            await db.commit()
+        result = await _sweep(world, THURSDAY_MORNING)
+        assert result.released == 1
+        assert len(await _bells(receiver, world["job_id"])) == 1
+        assert await _bells(taker, world["job_id"]) == []
+    finally:
+        await _cleanup(world)
+
+
 async def test_manual_add_in_new_stays_with_the_adder() -> None:
     adder = await _user("Dodał")
     world = await _world()

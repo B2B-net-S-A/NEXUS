@@ -308,6 +308,16 @@ export interface KanbanItem {
  claim_user_id?: number | null;
  claim_user_name?: string | null;
  claim_until?: string | null;
+ // Prośba o oddanie osoby z blokadą (0777, 25.11.2026) — tylko przy aktywnej
+ // blokadzie kogoś innego niż prosząca osoba.
+ claim_request_user_id?: number | null;
+ claim_request_user_name?: string | null;
+ claim_request_reason?: string | null;
+ claim_request_at?: string | null;
+ // Serwer mówi, czy patrzący może „Oddaj…”/„Zwolnij” albo „Poproś o oddanie”
+ // (otwarta rekrutacja, karta w „Nowych”/„Screeningu”, rola rekrutera).
+ can_hand_over?: boolean;
+ can_ask?: boolean;
  can_take?: boolean;
  // Umówiony telefon na screening (03.11.2026): plakietka i panel osoby.
  booked_call?: BookedCallSummary | null;

@@ -53,10 +53,11 @@ services:
     # Coolify buduje wyłącznie z /docker-compose.yml (docker_compose_location),
     # więc limity z overlaya NIGDY nie obowiązywały na prodzie (zweryfikowane
     # 2026-08-12: `docker inspect` → Memory=0 na wszystkich serwisach).
-    # Wymiarowanie pod hosta CCX33 32 GB i pod strojenie niżej: limit MUSI
-    # przewyższać shared_buffers=8GB + work_mem×węzły + maintenance_work_mem —
-    # historyczne 1G z overlaya zabiłoby Postgresa, gdy tylko bufor się zapełni
-    # (zmierzone RSS 2026-08-12: 1,26 GiB i rośnie wraz z zapełnianiem SB).
+    # W limicie liczy się cały shared_buffers (shmem), każde trzymane połączenie
+    # (ok. 35 MB) i autovacuum, a kontener nie ma swapu. 25.11.2026 przy 8GB
+    # i 110 połączeniach zostało ok. 0,2 GiB i jądro zabiło proces bazy (OOM
+    # cgroupa, 38 × 500). Budżet pilnuje `tests/test_process_roles.py`.
+    # → docs/claude/podstawy/pamiec-postgresa.md
     mem_limit: 12g
     mem_reservation: 2g
     # Strojenie pod hosta prod (CCX33: 8 vCPU / 32 GB RAM, NVMe). Zmierzone 2026-07-20:
@@ -81,7 +82,10 @@ services:
     command:
       - postgres
       - -c
-      - shared_buffers=8GB              # było 128MB — cała baza mieści się z zapasem
+      # Było 128MB, potem 8GB. 25.11.2026 zeszło do 6GB, bo 8GB razem z ponad
+      # setką połączeń nie mieściło się w 12g. Odzyskane 2 GiB zostaje w limicie
+      # jako page cache plików bazy (24 GB). → docs/claude/podstawy/pamiec-postgresa.md
+      - shared_buffers=6GB
       - -c
       - effective_cache_size=24GB       # było 4GB — podpowiedź dla planisty, nie alokacja
       - -c
@@ -92,6 +96,9 @@ services:
       - work_mem=16MB
       - -c
       - maintenance_work_mem=1GB        # było 64MB — szybszy VACUUM i budowa indeksów
+      - -c
+      # Bez tego każdy z 3 workerów autovacuum może wziąć maintenance_work_mem (1GB).
+      - autovacuum_work_mem=256MB
       - -c
       # Bez tego strojenie jest zgadywaniem: pg_stat_statements pokazuje, KTÓRE zapytania
       # zrzucają na dysk. Rozszerzenie jest dostępne w obrazie, ale nie było ładowane.
@@ -106,9 +113,10 @@ services:
       # update (etap B2) trzyma przez chwilę dwa kontenery tej samej roli:
       # 2 × 2 × 50 + worker (15+15) = 230, do tego zapas 15 na zrzut bazy,
       # blokady i docker exec. Pilnuje `tests/test_process_roles.py`. Pamięć:
-      # bezczynne połączenie to kilka MB, work_mem zajmuje tylko trwające
-      # zapytanie, więc 12g wystarcza. Zmiana wchodzi z restartem bazy, czyli
-      # z wieczornym wdrożeniem compose. → docs/claude/podstawy/kilka-procesow-web.md
+      # trzymane połączenie to ok. 35 MB (pomiar 25.11.2026), więc pule są też
+      # budżetem `mem_limit` → docs/claude/podstawy/pamiec-postgresa.md. Zmiana
+      # wchodzi z restartem bazy, czyli z wieczornym wdrożeniem compose.
+      # → docs/claude/podstawy/kilka-procesow-web.md
       - max_connections=250
     # Domyślne /dev/shm w Dockerze to 64MB; przy równoległych zapytaniach Postgres
     # potrafi się o to rozbić ("could not resize shared memory segment").
@@ -192,9 +200,12 @@ services:
       # + deploy, w oknie wdrożeń. Więcej niż 2 wymaga przeliczenia
       # max_connections i mem_limit. → docs/claude/podstawy/kilka-procesow-web.md
       WEB_CONCURRENCY: ${NEXUS_WEB_CONCURRENCY:-1}
-      # Pula jest na proces: przy 2 procesach web to 2 × (40+10).
-      DB_POOL_SIZE: "40"
-      DB_MAX_OVERFLOW: "10"
+      # Pula jest na proces: przy 2 procesach web to 2 × (20+30). Szczyt 50 jak
+      # przy 40+10, ale bez pracy pula trzyma 20 połączeń, nie 40. 25.11.2026
+      # proces używał w minucie mediany 11 połączeń, a ponad 20 w 6–8% minut.
+      # → docs/claude/podstawy/pamiec-postgresa.md
+      DB_POOL_SIZE: "20"
+      DB_MAX_OVERFLOW: "30"
     # 8 s na żądania + zamknięcie lifespanu (anulowanie pętli w tle, dispose
     # puli). Domyślne 10 s ucinało tę drugą część.
     stop_grace_period: 15s

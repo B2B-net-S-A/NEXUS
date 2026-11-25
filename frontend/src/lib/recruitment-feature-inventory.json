@@ -2406,6 +2406,22 @@
    "v3_home": "Tablica → klik w osobę z „Nowych” / „Screeningu” → nagłówek panelu"
   },
   {
+   "id": "board.claim-handover",
+   "area": "tablica",
+   "opis": "Oddanie osoby z blokadą „Biorę” przy wierszu „Prowadzi” (25.11.2026): osoba z blokadą ma „Oddaj…” (wybór rekrutera, 12 h od teraz) i „Zwolnij”, a reszta zespołu „Poproś o oddanie” z powodem",
+   "file": "components/v2/jobs/ClaimHandover.tsx",
+   "marker": "export function ClaimHandoverActions",
+   "v3_home": "Tablica → klik w osobę z „Nowych” / „Screeningu” z blokadą → nagłówek panelu"
+  },
+  {
+   "id": "board.claim-request-banner",
+   "area": "tablica",
+   "opis": "Prośba o oddanie u osoby z blokadą (25.11.2026): pasek „X prosi o tę osobę” z „Oddaj — X” i „Zostaw” pod „Prowadzi”, plakietka „Prośba · X” na karcie i dzwonek",
+   "file": "components/v2/jobs/ClaimHandover.tsx",
+   "marker": "export function ClaimRequestBanner",
+   "v3_home": "Tablica → karta z „Prośba · X” → nagłówek panelu"
+  },
+  {
    "id": "screening-form.after-cv-sent",
    "area": "formularz screeningu",
    "opis": "Po „CV wysłane” formularz da się poprawić z banerem, że zmiana idzie do DL i do następnego CV firmowego (D8)",

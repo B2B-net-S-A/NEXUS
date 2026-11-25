@@ -148,6 +148,9 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.candidate_rate_change_task: _C.mentions,
     # Ktoś przejął Twoją osobę w „Nowych" — imienne, jak wzmianka.
     _T.candidate_claim_taken: _C.mentions,
+    _T.candidate_claim_handover: _C.mentions,
+    _T.candidate_claim_request: _C.mentions,
+    _T.candidate_claim_request_answer: _C.mentions,
     # Odpowiedź na Twoją notatkę — imienne, jak wzmianka (0399).
     _T.note_reply: _C.mentions,
     # Ktoś przydzielił Ci request (akceptacja propozycji automatu, poranne

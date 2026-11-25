@@ -7133,10 +7133,30 @@ export interface CvPage1Extras {
   result_text?: string | null;
   result_index?: number | null;
   results?: CvPage1Result[] | null;
-  /** Wieniec w „Edukacji” (23.11.2026); brak = „auto”. */
-  wreath?: CvWreath | null;
   /** Wyróżnik pod nazwiskiem w wieńcu laurowym (25.11.2026); brak = „auto”. */
   highlight?: CvPage1Highlight | null;
+  /**
+   * Zdania 1–3 „Dlaczego nasz kandydat” (25.11.2026): trzy sloty, każdy to
+   * sprawdzone zdanie generatora albo poprawka rekrutera; `""` = punkt z CV.
+   */
+  why?: string[] | null;
+  /** Ostatni wynik generatora zdań 1–3 po sprawdzeniu kodem (do „Przywróć z generatora”). */
+  why_generated?: CvPage1WhyGenerated[] | null;
+}
+
+/** Jedno zdanie generatora strony 1; na stronę trafia tylko sprawdzone (`verified`). */
+export interface CvPage1WhyGenerated {
+  slot: "experience" | "requirements" | "key_task";
+  text: string;
+  verified: boolean;
+  /** Powód odrzucenia, np. `number_not_in_cv`, `no_input` (brak MUST / zadania). */
+  issue?: string | null;
+  /** Zdanie 2: wymaganie MUST, cytat i firma roli, w której stoi. */
+  evidence?: { must: string; quote: string; company: string }[] | null;
+  /** Zdanie 3: dowód z CV albo z odpowiedzi ze screeningu. */
+  quote?: string | null;
+  source?: "cv" | "screening" | null;
+  company?: string | null;
 }
 
 /**
@@ -7153,16 +7173,14 @@ export interface CvPage1Highlight {
   text?: string | null;
 }
 
-/** Wieniec: „auto” = certyfikat z wymagań MUST klienta, inaczej szkoła. */
-export type CvWreath = "auto" | "cert" | "school";
-
-/** Strona 1: wynik z listy (`result_index`), zdanie rekrutera, wybór wieńca albo wyróżnik. */
+/** Strona 1: wynik z listy (`result_index`), zdanie rekrutera albo wyróżnik. */
 export interface CvPage1Update {
   result_index?: number | null;
   result_text?: string | null;
-  wreath?: CvWreath;
   /** `mode: "custom"` wymaga etykiety i zdania (inaczej 422). */
   highlight?: CvPage1Highlight;
+  /** Zdania 1–3: `null` = slot bez zmiany, `""` = „Przywróć z generatora”. */
+  why?: (string | null)[];
 }
 
 /**
@@ -7381,12 +7399,12 @@ export const candidateStageCvApi = {
     /** Przełącz układ CV bez generowania od nowa (po „CV wysłane” 409). */
     setLayout: (stageId: number, cv_layout: CvLayout) =>
       api.patch<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/layout`, { cv_layout }),
-    /** Strona 1 nowego CV: najmocniejszy wynik albo wieniec (tylko szkic; po „CV wysłane” 409). */
+    /** Strona 1 nowego CV: najmocniejszy wynik albo wyróżnik (tylko szkic; po „CV wysłane” 409). */
     setPage1: (stageId: number, payload: CvPage1Update) =>
       api.patch<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/page1`, payload),
     /**
-     * „Policz wyniki od nowa”: najmocniejsze wyniki z zapisanego szkicu (model, kilka sekund).
-     * Oddaje nowe dodatki strony 1; awaria modelu 503, limit żądań 429.
+     * Najmocniejsze wyniki i zdania 1–3 strony 1 z zapisanego szkicu (model, kilka sekund;
+     * „Ułóż zdania od nowa”). Oddaje nowe dodatki strony 1; awaria modelu 503, limit żądań 429.
      */
     refreshPage1Results: (stageId: number) =>
       api.post<CvPage1Extras>(`/api/candidates/stages/${stageId}/cv/page1/results`, undefined, {

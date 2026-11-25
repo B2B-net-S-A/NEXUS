@@ -1,7 +1,7 @@
 """Układ „Nowe CV” (makieta Artura z 20–22.11.2026) jako HTML i PDF (WeasyPrint).
 
 Strona 1 = podsumowanie (tytuł z językami, 3 zdania „Dlaczego nasz kandydat”,
-oś kariery, indeks umiejętności, dyplom w wieńcu i 3 certyfikaty), zawsze na
+oś kariery, indeks umiejętności, szkoła i 3 certyfikaty z ikonami), zawsze na
 jednej kartce; od strony 2 stanowiska jako formularze, pełne listy, zrzut zgody
 i klauzula RODO na samym końcu. Bez bazy i sieci: wszystko przychodzi
 w `NewCvDocument`.

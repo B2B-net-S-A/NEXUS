@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import app.models  # noqa: F401  (register every mapper)
 import pytest
-from jose import jwt
+import jwt
 from sqlalchemy.dialects import postgresql
 
 

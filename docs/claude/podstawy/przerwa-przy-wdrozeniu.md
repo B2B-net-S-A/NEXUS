@@ -30,7 +30,7 @@ to 42 kroki naprawcze, zwykle po 3–4 s: osobny proces Pythona na każdy, ze zn
 praca jest dawno zrobiona. Sama przerwa rosła z każdą taką naprawą: 62 s (15.09),
 116 s (28.09), 165 s (14.10), 245 s (11.2026).
 
-Skutki uboczne restartu bazy: pusty `shared_buffers` (8 GB) po każdym wdrożeniu,
+Skutki uboczne restartu bazy: pusty `shared_buffers` (6 GB) po każdym wdrożeniu,
 czyli wolne pierwsze zapytania, i zerwane połączenia wszystkich zadań w tle.
 
 ## Etapy

@@ -12,7 +12,6 @@ T4T (``TimePeriodStart`` – ``TimePeriodFinish``), dzień, godziny i status
 
 from __future__ import annotations
 
-import io
 import logging
 import zipfile
 from collections import Counter
@@ -20,6 +19,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
+
+from app.services.client_settlements import xlsx
 
 logger = logging.getLogger(__name__)
 
@@ -191,13 +192,10 @@ def _read_sheet(worksheet: Any) -> Optional[T4tSheet]:
 def read(content: bytes) -> list[T4tSheet]:
     """Wszystkie arkusze raportu T4T w pliku, w kolejności arkuszy."""
 
-    import openpyxl
     from openpyxl.utils.exceptions import InvalidFileException
 
     try:
-        workbook = openpyxl.load_workbook(
-            io.BytesIO(content), read_only=True, data_only=True
-        )
+        workbook = xlsx.load_workbook(content, read_only=True, data_only=True)
     except (
         InvalidFileException,
         zipfile.BadZipFile,

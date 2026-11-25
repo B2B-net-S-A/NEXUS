@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import dataset from "../dataset.json";
 import { createPoligonStore, type PoligonDataset } from "../store";
+import { POLIGON_NEW_CV_CANDIDATES } from "../tools";
 
 const DATA = dataset as unknown as PoligonDataset;
 const NOW = Date.UTC(2026, 10, 20, 12, 0, 0);
@@ -37,10 +38,63 @@ describe("poligon: układ CV (lekcja „Nowe CV”, 23.11.2026)", () => {
     expect(store.handle({ method: "patch", url: `/api/candidates/stages/${ready.entry_id}/cv/layout`, body: { cv_layout: "new" } })).toMatchObject({ status: 409 });
   });
 
-  it("wieniec nowego CV zapisuje się w pamięci, inne zmiany strony 1 — odmowa", () => {
+  it("wieńca w Edukacji nie ma od 25.11.2026; zmiana bez pól strony 1 — odmowa", () => {
     const { store } = setup();
-    expect(branded(store, tpl).data.page1_extras).toMatchObject({ wreath: "auto" });
-    expect(store.handle({ method: "patch", url: `/api/candidates/stages/${tpl}/cv/page1`, body: { wreath: "school" } })).toMatchObject({ status: 200, data: { page1_extras: { wreath: "school" } } });
-    expect(store.handle({ method: "patch", url: `/api/candidates/stages/${tpl}/cv/page1`, body: { result_text: "Zdanie" } })).toMatchObject({ status: 409 });
+    expect(branded(store, tpl).data.page1_extras).not.toHaveProperty("wreath");
+    expect(store.handle({ method: "patch", url: `/api/candidates/stages/${tpl}/cv/page1`, body: {} })).toMatchObject({ status: 422 });
+    expect(store.handle({ method: "patch", url: `/api/candidates/stages/${tpl}/cv/page1`, body: { wreath: "school" } })).toMatchObject({ status: 422 });
+  });
+});
+
+describe("poligon: edytor „Strona 1” Nowego CV (lekcja „Nowe CV: strona 1”, 25.11.2026)", () => {
+  const [showId, soloId] = POLIGON_NEW_CV_CANDIDATES;
+  const entryOf = (candidateId: number) => DATA.meta.people.find((p) => p.candidate_id === candidateId)!.entry_id;
+  const branded = (store: ReturnType<typeof createPoligonStore>, entry: number) =>
+    store.handle({ method: "get", url: `/api/candidates/stages/${entry}/cv/branded` }) as { status: number; data: Record<string, unknown> };
+  const page1 = (store: ReturnType<typeof createPoligonStore>, entry: number, body: Record<string, unknown>) =>
+    store.handle({ method: "patch", url: `/api/candidates/stages/${entry}/cv/page1`, body }) as {
+      status: number;
+      data: { page1_extras?: Record<string, unknown> };
+    };
+
+  it("osoby z lekcji mają od startu Nowe CV i zdania z generatora", () => {
+    const { store } = setup();
+    for (const candidateId of [showId, soloId]) {
+      const data = branded(store, entryOf(candidateId)).data;
+      expect(data.cv_layout).toBe("new");
+      expect(store.cvLayoutOf(entryOf(candidateId))).toBe("new");
+      expect((data.page1_extras as { why: string[] }).why).toHaveLength(3);
+    }
+    expect(branded(store, DATA.meta.template_entry_id).data.page1_extras).not.toHaveProperty("why");
+  });
+
+  it("poprawka zdania i „Przywróć z generatora” w pamięci, jak na serwerze", () => {
+    const { store } = setup();
+    const entry = entryOf(soloId);
+    const generated = (branded(store, entry).data.page1_extras as { why: string[] }).why;
+    const edited = page1(store, entry, { why: [null, null, "Moje zdanie."] });
+    expect(edited.status).toBe(200);
+    expect(edited.data.page1_extras?.why).toEqual([generated[0], generated[1], "Moje zdanie."]);
+    const restored = page1(store, entry, { why: [null, null, ""] });
+    expect(restored.data.page1_extras?.why).toEqual(generated);
+    expect(page1(store, entry, { why: ["x".repeat(401)] }).status).toBe(422);
+    // Inna osoba bez zmian.
+    expect((branded(store, entryOf(showId)).data.page1_extras as { why: string[] }).why).toEqual(generated);
+  });
+
+  it("„Ułóż zdania od nowa” zostawia poprawione zdanie, wyróżnik zapisuje się w pamięci", () => {
+    const { store } = setup();
+    const entry = entryOf(showId);
+    page1(store, entry, { why: ["Moje 1.", "", null] });
+    const res = store.handle({ method: "post", url: `/api/candidates/stages/${entry}/cv/page1/results` }) as {
+      status: number;
+      data: { why: string[] };
+    };
+    expect(res.status).toBe(200);
+    expect(res.data.why[0]).toBe("Moje 1.");
+    expect(res.data.why[1]).toContain("Scrum i Jira");
+    const custom = page1(store, entry, { highlight: { mode: "custom", label: "Atut", text: "Zdanie." } });
+    expect(custom.data.page1_extras?.highlight).toMatchObject({ mode: "custom", label: "Atut" });
+    expect(page1(store, entry, { highlight: { mode: "custom", label: "", text: "" } }).status).toBe(422);
   });
 });

@@ -35,16 +35,15 @@ Odczyt nigdy nie blokuje przyjęcia pliku.
 from __future__ import annotations
 
 import calendar
-import io
 import logging
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Mapping, Optional
 
-from app.services.client_settlements import timesheet_pko
+from app.services.client_settlements import timesheet_pko, xlsx
 from app.services.client_settlements.declared import (
     month_mismatch,
     pdf_text,
@@ -381,12 +380,8 @@ def parse_rows(sheets: Iterable[list[list[Any]]]) -> Optional[ParsedTimesheet]:
 
 
 def _sheets(content: bytes) -> Optional[list[list[list[Any]]]]:
-    import openpyxl
-
     try:
-        workbook = openpyxl.load_workbook(
-            io.BytesIO(content), data_only=True, read_only=True
-        )
+        workbook = xlsx.load_workbook(content, data_only=True, read_only=True)
     except Exception as exc:  # noqa: BLE001
         logger.info("timesheet: XLSX nieczytelny (%s)", type(exc).__name__)
         return None
@@ -614,6 +609,74 @@ def template_month_fixed(
     return replace(parsed, entries=entries)
 
 
+def _work(entry: TsEntry, parsed: ParsedTimesheet) -> str:
+    project = parsed.project_of(entry)
+    if project != NO_PROJECT:
+        return project
+    return " ".join(entry.description.split()).casefold()
+
+
+def _work_labels(parsed: ParsedTimesheet) -> frozenset[str]:
+    """Czego dotyczy plik: projekt wiersza albo nagłówka, bez nich opis prac."""
+
+    return frozenset(label for e in parsed.entries if (label := _work(e, parsed)))
+
+
+def _file_project(parsed: ParsedTimesheet) -> Optional[str]:
+    """Projekt pliku bez kolumny projektu: najczęstszy opis prac."""
+
+    if parsed.project_name:
+        return parsed.project_name
+    counts = Counter(" ".join(e.description.split()) for e in parsed.entries)
+    counts.pop("", None)
+    return counts.most_common(1)[0][0] if counts else None
+
+
+def merge_projects(
+    main: ParsedTimesheet, others: Iterable[ParsedTimesheet]
+) -> tuple[ParsedTimesheet, int]:
+    """Time Sheety tej samej osoby z jednego miesiąca na różne prace: jeden arkusz.
+
+    Próba VI–VIII 2026 (Polkomtel): konsultant pracuje na dwóch zamówieniach
+    i co miesiąc przysyła dwa PDF-y, każdy z innym opisem prac (VI: 152 h i 128 h,
+    Finanse fakturowały 35 MD), a NEXUS liczył jeden plik. Plik z pracą, która
+    już jest w arkuszu (poprawiona wersja, kopia), nie dochodzi: wtedy liczy się
+    tylko ``main``, czyli najnowszy. Wiersze bez projektu dostają projekt pliku
+    (``_file_project``), żeby godziny stały osobno na każdą pracę.
+
+    Zwraca arkusz i liczbę plików, z których powstał."""
+
+    sheets = [main]
+    seen = _work_labels(main)
+    person = name_tokens(main.consultant)
+    for other in others:
+        labels = _work_labels(other)
+        if not seen or not labels or labels & seen or other.month != main.month:
+            continue
+        theirs = name_tokens(other.consultant)
+        if person and theirs and not (person <= theirs or theirs <= person):
+            continue
+        sheets.append(other)
+        seen |= labels
+    if len(sheets) == 1:
+        return main, 1
+    entries = tuple(
+        replace(entry, project=entry.project or _file_project(sheet) or NO_PROJECT)
+        for sheet in sheets
+        for entry in sheet.entries
+    )
+    totals = [sheet.declared_total for sheet in sheets]
+    return (
+        replace(
+            main,
+            project_name=None,
+            entries=entries,
+            declared_total=None if None in totals else sum(totals, Decimal("0")),
+        ),
+        len(sheets),
+    )
+
+
 def md_from_hours(hours: Decimal, per_md: Decimal) -> Decimal:
     return (hours / per_md).quantize(MD_Q, rounding=ROUND_HALF_UP)
 
@@ -642,6 +705,7 @@ def evaluate(
     client_mail: Optional[bool] = None,
     acceptor: str = "klienta",
     signed_sheet: bool = False,
+    files: int = 1,
 ) -> ProofResult:
     """Kontrole Time Sheet z katalogu reguł; MD z godzin, bez pracy dodatkowej.
 
@@ -650,6 +714,7 @@ def evaluate(
     (``acceptance_mail.from_client``); ``None`` = nadawcy nie odczytano.
     ``acceptor``: kto akceptuje (``mail_text.Senders.who``, w FIX „PM-a firmy”).
     ``signed_sheet``: klient podpisał arkusz zbiorczy z MD tej osoby (``signoffs``).
+    ``files``: z ilu plików miesiąca powstał arkusz (``merge_projects``).
     ``proof.excel_with_mail`` żąda maila tylko wtedy, gdy podpisu brak; zgodność
     MD z arkuszem sprawdza ``service._signed_checks``."""
 
@@ -691,6 +756,11 @@ def evaluate(
 
     # Plik za inny miesiąc (np. szablon z rokiem 2025): kontrola bez MD.
     other_month = parsed.month is not None and parsed.month != month
+    if files > 1:
+        sheet.info(
+            f"Time Sheet z {files} plików",
+            "Każdy plik opisuje inną pracę w tym miesiącu: godziny zsumowane.",
+        )
     if parsed.month == month:
         sheet.ok(f"Miesiąc z Time Sheet: {month}")
     elif other_month:

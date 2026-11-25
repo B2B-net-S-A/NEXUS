@@ -41,7 +41,13 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Iterable, Mapping, Optional
 
-from app.services.client_settlements.declared import MAX_LINE, month_mismatch
+from app.services.client_settlements import xlsx
+from app.services.client_settlements.declared import (
+    DOCX,
+    MAX_LINE,
+    docx_text,
+    month_mismatch,
+)
 from app.services.client_settlements.mail_text import month_label
 from app.services.client_settlements.rcp_checks import (
     ProofResult,
@@ -50,7 +56,7 @@ from app.services.client_settlements.rcp_checks import (
     _param_dec,
     name_tokens,
 )
-from app.services.client_settlements.timesheet import _day, is_sum_row
+from app.services.client_settlements.timesheet import _day, _file_words, is_sum_row
 from app.services.client_settlements.timesheet_pko import (
     _month_of,
     duration_hours,
@@ -69,6 +75,8 @@ MAX_COLS = 30
 
 _TITLE = re.compile(r"\bro(?:z)?liczenie\s+czasu\s+pracy\b", re.IGNORECASE)
 _HOURS_LABELS = ("liczba godzin", "ilość godzin")
+#: „Czas (godz.)” i „Czas- (godz.)”: wariant szablonu z próby VI–VIII 2026.
+_TIME_HOURS = re.compile(r"^czas\W*\(?\s*godz")
 _TOTAL_LABELS = ("suma godzin", "liczba godzin", "suma", "razem", "łącznie")
 # Pod tabelą szablonu: narastające MD i podsumowanie, nie praca w miesiącu.
 _END_PREFIXES = ("mds narastająco", "zużycie md", "podsumowanie")
@@ -173,20 +181,25 @@ def _after(row: list[Any], index: int) -> Any:
     return next((v for v in row[index + 1 :] if v not in (None, "")), None)
 
 
+def _hours_label(label: str) -> bool:
+    return label in _HOURS_LABELS or bool(_TIME_HOURS.match(label))
+
+
 def _header(row: list[Any]) -> Optional[dict[str, int]]:
-    """Wiersz nagłówka tabeli: „Data” i „Liczba godzin” (albo „Ilość godzin”)."""
+    """Wiersz nagłówka tabeli: „Data” i „Liczba godzin” (albo „Ilość godzin”,
+    „Czas (godz.)”)."""
 
     labels = [_label(c) for c in row]
     if "data" not in labels:
         return None
-    hours = next((i for i, lb in enumerate(labels) if lb in _HOURS_LABELS), None)
+    hours = next((i for i, lb in enumerate(labels) if _hours_label(lb)), None)
     if hours is None:
         return None
     columns = {"date": labels.index("data"), "hours": hours}
     for i, label in enumerate(labels):
         if label.startswith("numer jir"):
             columns.setdefault("task", i)
-        elif label.startswith("nazwa zadania"):
+        elif label.startswith("nazwa zadania") or label == "zadanie":
             columns.setdefault("description", i)
         elif label == "dzień":
             columns.setdefault("weekday", i)
@@ -385,12 +398,10 @@ def text_rows(text: str) -> list[list[Any]]:
 
 
 def _xlsx(content: bytes) -> Optional[ParsedBik]:
-    import openpyxl
-
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            workbook = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+            workbook = xlsx.load_workbook(content, data_only=True)
     except Exception as exc:  # noqa: BLE001
         logger.info("timesheet_bik: arkusz nieczytelny (%s)", type(exc).__name__)
         return None
@@ -459,11 +470,24 @@ def _pdf(content: bytes) -> Optional[ParsedBik]:
     return parsed
 
 
+def _docx(content: bytes) -> Optional[ParsedBik]:
+    """Ten sam szablon w Wordzie (próba VI–VIII 2026): akapity z polami nad tabelą
+    „Zadanie · Data · Czas (godz.)” i wiersz „Suma”. Czytamy go jak tekst PDF."""
+
+    text = docx_text(content)
+    if not text or not _TITLE.search(text):
+        return None
+    lines = (" ".join(part for part in line.split(" | ")) for line in text.splitlines())
+    return parse_rows(text_rows("\n".join(lines)), source="docx", title=True)
+
+
 def parse(content: bytes, mime: str) -> Optional[ParsedBik]:
     if mime == XLSX:
         return _xlsx(content)
     if mime == PDF:
         return _pdf(content)
+    if mime == DOCX:
+        return _docx(content)
     return None
 
 
@@ -486,8 +510,12 @@ def evaluate(
     rules: Mapping[str, Mapping[str, Any]],
     working_days: int,
     other_md: Decimal = Decimal("0"),
+    file_name: Optional[str] = None,
 ) -> ProofResult:
-    """Kontrole raportu z katalogu reguł; MD = godziny / ``fields.md_hours``."""
+    """Kontrole raportu z katalogu reguł; MD = godziny / ``fields.md_hours``.
+
+    ``file_name``: nazwa pliku; raport bez pola „Imię i nazwisko” bierze osobę
+    z niej (jak Time Sheet, ``timesheet.evaluate``)."""
 
     result = ProofResult(md_regular=None, md_extra=None)
     sheet = _Group(result, rules, GROUP_TITLE)
@@ -538,6 +566,12 @@ def evaluate(
         sheet.ok("Imię i nazwisko jak w kontrakcie")
     elif consultant:
         sheet.fail("proof.name_match", "Inne imię lub nazwisko niż w kontrakcie")
+    elif len(person) > 1 and person <= _file_words(file_name):
+        # Próba VI–VIII 2026: arkusz BIK bez pola z osobą, osoba w nazwie pliku.
+        sheet.ok(
+            "Imię i nazwisko z nazwy pliku jak w kontrakcie",
+            "W raporcie nie ma pola „Imię i nazwisko”.",
+        )
     else:
         sheet.fail("proof.name_match", "Raport godzin bez imienia i nazwiska")
     if parsed.order_number:

@@ -4,7 +4,7 @@ from typing import Annotated, Optional
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError
+from jwt import PyJWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -327,7 +327,7 @@ async def get_authenticated_user(
 
     try:
         payload = decode_token(raw_token)
-    except JWTError:
+    except PyJWTError:
         raise credentials_exception
 
     is_client_token = payload.get("type") == "client"

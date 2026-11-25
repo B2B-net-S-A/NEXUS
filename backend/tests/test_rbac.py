@@ -257,7 +257,7 @@ ROLE_SETS = {
 @pytest.mark.asyncio
 async def test_login_returns_role_in_token(rbac_client: AsyncClient):
     """JWT powinien zawierać claim `role` o wartości nowego enuma."""
-    from jose import jwt
+    import jwt
 
     from app.core.config import settings
     from app.core.security import ALGORITHM

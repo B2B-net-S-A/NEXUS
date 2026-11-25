@@ -1591,11 +1591,28 @@ async def _read_file(
             working_days=working_days,
             other_md=other_md,
         )
+
+    async def bik_result(bik: timesheet_bik.ParsedBik) -> rcp_checks.ProofResult:
+        result = timesheet_bik.evaluate(
+            bik,
+            month=month,
+            person_name=person_name,
+            rules=rules,
+            working_days=working_days,
+            other_md=other_md,
+            file_name=doc.file_name,
+        )
+        return await accepted(
+            result, bik.total_hours if bik.total_hours > 0 else None, bik.month
+        )
+
     if mime == declared.DOCX:
         orlen = await asyncio.to_thread(protocol_orlen.parse, content, mime)
-        if orlen is None:
-            return None
-        return await accepted(declared_result(orlen), orlen.hours, orlen.month)
+        if orlen is not None:
+            return await accepted(declared_result(orlen), orlen.hours, orlen.month)
+        # Raport godzin BIK w Wordzie (próba VI–VIII 2026).
+        bik = await asyncio.to_thread(timesheet_bik.parse, content, mime)
+        return await bik_result(bik) if bik is not None else None
     # Protokół odbioru zbiorczy (CeZ, PFRON): godziny kilku osób w jednym PDF-ie.
     protocol = await asyncio.to_thread(protocol_collective.parse, content, mime)
     if protocol is not None:
@@ -1680,8 +1697,10 @@ async def _read_file(
     # Time Sheet w godzinach (E6.2): XLSX, polski wariant albo PDF.
     sheet = await asyncio.to_thread(timesheet.parse, content, mime)
     if sheet is not None:
+        sheet, files = await _project_sheets(doc, sheet, reports)
         result = timesheet.evaluate(
             sheet,
+            files=files,
             month=month,
             person_name=person_name,
             file_name=doc.file_name,
@@ -1699,17 +1718,7 @@ async def _read_file(
     # Raport godzin BIK: szablon klienta, jego PDF albo tabela dni.
     bik = await asyncio.to_thread(timesheet_bik.parse, content, mime)
     if bik is not None:
-        result = timesheet_bik.evaluate(
-            bik,
-            month=month,
-            person_name=person_name,
-            rules=rules,
-            working_days=working_days,
-            other_md=other_md,
-        )
-        return await accepted(
-            result, bik.total_hours if bik.total_hours > 0 else None, bik.month
-        )
+        return await bik_result(bik)
     # Potwierdzenie godzin ERGO, protokół Orlenu i ewidencja czasu Orlenu w PDF.
     for reader in (confirmation_ergo, protocol_orlen, ewidencja_orlen):
         found_doc = await asyncio.to_thread(reader.parse, content, mime)
@@ -1718,6 +1727,26 @@ async def _read_file(
                 declared_result(found_doc), found_doc.hours, found_doc.month
             )
     return None
+
+
+async def _project_sheets(
+    doc: CpDocument, sheet: timesheet.ParsedTimesheet, reports: list[CpDocument]
+) -> tuple[timesheet.ParsedTimesheet, int]:
+    """Time Sheet z ``doc`` razem z Time Sheetami tej osoby na inne prace z innych
+    plików miesiąca (``timesheet.merge_projects``)."""
+
+    others: list[timesheet.ParsedTimesheet] = []
+    for other in reports:
+        if other.id == doc.id or other.mime not in (timesheet.PDF, timesheet.XLSX):
+            continue
+        try:
+            content = portal_documents.path_for(other.file_path).read_bytes()
+        except OSError:
+            continue
+        parsed = await asyncio.to_thread(timesheet.parse, content, other.mime)
+        if parsed is not None and parsed.entries:
+            others.append(parsed)
+    return timesheet.merge_projects(sheet, others) if others else (sheet, 1)
 
 
 def _doc_month(doc: CpDocument) -> Optional[str]:

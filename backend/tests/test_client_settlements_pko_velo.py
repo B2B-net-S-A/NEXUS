@@ -377,6 +377,16 @@ def test_data_wyslania_maila_nie_jest_miesiacem_rozliczenia():
     ).ok
 
 
+def test_stopka_rodo_z_data_z_2016_nie_jest_miesiacem_akceptacji():
+    body = (
+        "Potwierdzam 168 h za sierpień\n"
+        "Dane przetwarzane na podstawie rozporządzenia (UE) 2016/679 "
+        "z dnia 27 kwietnia 2016 roku (RODO)."
+    )
+    found = mail_text.read_acceptance(body, "2026-08")
+    assert found.months == frozenset({"2026-08"})
+
+
 def test_md_zamiast_godzin_i_brak_maila():
     ok = mail_text.judge(
         [_mail("Akceptuję 22 MD za październik 2026")],

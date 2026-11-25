@@ -6,7 +6,7 @@ import base64
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from jose import JWTError, jwt
+import jwt
 
 from app.core.config import settings
 from app.services.m365 import oauth as m365_oauth
@@ -37,7 +37,7 @@ def test_tampered_token_rejected() -> None:
     header, payload, sig = token.split(".")
     flipped_sig = ("A" if sig[0] != "A" else "B") + sig[1:]
     tampered = ".".join([header, payload, flipped_sig])
-    with pytest.raises(JWTError):
+    with pytest.raises(jwt.InvalidTokenError):
         m365_oauth.verify_state(tampered)
 
 
@@ -56,7 +56,7 @@ def test_signature_byte_flip_rejected() -> None:
     flipped = bytes([raw_sig[0] ^ 0xFF]) + raw_sig[1:]
     new_sig = base64.urlsafe_b64encode(flipped).rstrip(b"=").decode("ascii")
     tampered = ".".join([header, payload, new_sig])
-    with pytest.raises(JWTError):
+    with pytest.raises(jwt.InvalidTokenError):
         m365_oauth.verify_state(tampered)
 
 
@@ -70,7 +70,7 @@ def test_expired_state_rejected() -> None:
         "purpose": "m365_oauth_state",
     }
     token = jwt.encode(payload, _signing_key(), algorithm="HS256")
-    with pytest.raises(JWTError):
+    with pytest.raises(jwt.InvalidTokenError):
         m365_oauth.verify_state(token)
 
 
@@ -83,7 +83,7 @@ def test_wrong_purpose_rejected() -> None:
         "purpose": "something_else",
     }
     token = jwt.encode(payload, _signing_key(), algorithm="HS256")
-    with pytest.raises(JWTError):
+    with pytest.raises(jwt.InvalidTokenError):
         m365_oauth.verify_state(token)
 
 
@@ -113,7 +113,7 @@ def test_authorize_url_does_not_carry_the_pkce_verifier(monkeypatch) -> None:
     parsed = m365_oauth.verify_state(state)
     # Weryfikator nie stoi ani w adresie, ani w treści `state`.
     assert parsed.verifier not in url
-    claims = jwt.get_unverified_claims(state)
+    claims = jwt.decode(state, options={"verify_signature": False})
     assert "pkce" not in claims
     assert parsed.verifier not in str(claims)
     # Challenge w adresie pasuje do weryfikatora wyliczanego przez serwer.
@@ -130,7 +130,7 @@ def test_state_from_before_round_11_is_rejected() -> None:
         "purpose": "m365_oauth_state",
     }
     token = jwt.encode(payload, _signing_key(), algorithm="HS256")
-    with pytest.raises(JWTError):
+    with pytest.raises(jwt.InvalidTokenError):
         m365_oauth.verify_state(token)
 
 

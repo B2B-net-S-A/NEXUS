@@ -16,7 +16,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from jose import jwt
+import jwt
 
 from app.core.config import settings
 from app.services.m365.actionable_messages import (

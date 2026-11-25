@@ -20,7 +20,7 @@ from typing import AsyncIterator
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from jose import jwt
+import jwt
 from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
@@ -463,7 +463,7 @@ async def test_fpc_token_is_refused_by_business_api_but_reaches_recovery(
     # Runda 12 (BACK-2): odpowiedź niesie nowy token BEZ ``fpc`` — ta sama
     # sesja od razu pracuje, bez ponownego logowania.
     new_token = changed.json()["access_token"]
-    assert "fpc" not in jwt.get_unverified_claims(new_token)
+    assert "fpc" not in jwt.decode(new_token, options={"verify_signature": False})
     assert (
         await app_client.get(
             "/api/notifications",

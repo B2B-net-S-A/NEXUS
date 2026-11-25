@@ -6,7 +6,7 @@ The JWT can then be presented as ``Authorization: Bearer <token>`` to any
 NEXUS endpoint guarded by ``@require_scope(...)``.
 
 Design notes:
-- Same `jose` JWT machinery as user tokens, but with ``type="client"`` and
+- Same PyJWT machinery as user tokens, but with ``type="client"`` and
   scope claim — so ``get_current_user`` cleanly rejects them (it requires
   ``type=="access"``).
 - Default TTL = 1 hour (configurable via env later); shorter than user
@@ -37,7 +37,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+import jwt
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -229,7 +229,7 @@ def require_scope(*required: OAuthScope):
             payload = jwt.decode(
                 creds.credentials, settings.SECRET_KEY, algorithms=[ALGORITHM]
             )
-        except JWTError as exc:
+        except jwt.PyJWTError as exc:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="invalid_token",

@@ -106,6 +106,55 @@ def test_prod_pools_fit_max_connections() -> None:
 # Ile procesów web obejmują budżety w compose (max_connections, mem_limit).
 WEB_PROCESSES_MAX = 2
 
+# Budżet pamięci Postgresa po OOM cgroupa 25.11.2026 o 10:19 (pomiar memory.stat
+# tego dnia o 14:01). Trzymane połączenie kosztuje ok. 35 MiB: RssAnon (mediana
+# 28 MB) i ok. 7 MB tablic stron, bo shmem jest mapowany stronami 4 kB. Poza
+# pulami jest 16 połączeń: trzy małe silniki bez nazwy na proces, bus, lider
+# i kopia. Pamięć współdzielona to 8409 MB przy shared_buffers 8 GB.
+# → docs/claude/podstawy/pamiec-postgresa.md
+MIB = 1024**2
+GIB = 1024**3
+PG_CONNECTION_MIB = 35
+PG_OTHER_CONNECTIONS = 16
+PG_SHMEM_PER_BUFFER_BYTE = 8409 / 8192
+PG_KERNEL_REST_GIB = 0.1
+PG_AUTOVACUUM_WORKERS = 3  # domyślne autovacuum_max_workers
+PG_HEADROOM_GIB = 2
+
+
+def _bytes(size: str) -> int:
+    value, unit = re.fullmatch(r"(\d+)([kmg])b?", size.strip().lower()).groups()
+    return int(value) * {"k": 1024, "m": MIB, "g": GIB}[unit]
+
+
+def test_prod_postgres_memory_leaves_headroom() -> None:
+    """Bufor, trzymane połączenia i autovacuum muszą zostawić 2 GiB na zapytania.
+
+    Zapas jest na `work_mem` (16 MB na węzeł planu, hash × 2) i pamięć
+    współdzieloną zapytań równoległych. Kontener nie ma swapu, a page cache
+    w tym samym limicie da się odzyskać, więc go tu nie liczymy.
+    """
+    services = _compose("docker-compose.yml")["services"]
+    postgres = services["postgres"]
+    pg = dict(str(arg).split("=", 1) for arg in postgres["command"] if "=" in str(arg))
+    # autovacuum_work_mem=-1 (domyślne) znaczy maintenance_work_mem na każdy worker.
+    autovacuum = pg.get("autovacuum_work_mem", pg["maintenance_work_mem"])
+    held = (
+        WEB_PROCESSES_MAX * int(services["backend"]["environment"]["DB_POOL_SIZE"])
+        + int(services["worker"]["environment"]["DB_POOL_SIZE"])
+        + PG_OTHER_CONNECTIONS
+    )
+    used = (
+        _bytes(pg["shared_buffers"]) * PG_SHMEM_PER_BUFFER_BYTE
+        + held * PG_CONNECTION_MIB * MIB
+        + PG_AUTOVACUUM_WORKERS * _bytes(autovacuum)
+        + PG_KERNEL_REST_GIB * GIB
+    )
+    headroom = _bytes(postgres["mem_limit"]) - used
+    assert headroom >= PG_HEADROOM_GIB * GIB, (
+        f"zapas {headroom / GIB:.2f} GiB przy {held} trzymanych połączeniach"
+    )
+
 
 def test_backend_web_concurrency_is_a_switch_defaulting_to_one() -> None:
     """Drugi proces web włącza się zmienną w Coolify, nie zmianą compose.

@@ -10,7 +10,7 @@ from typing import Optional
 
 from app.services.cv_new_layout.axis import career_axis
 from app.services.cv_new_layout.context import Ctx
-from app.services.cv_new_layout.education import education_page1, education_plain
+from app.services.cv_new_layout.education import education_plain
 from app.services.cv_new_layout.facts import lang_code, lang_level, lang_parts
 from app.services.cv_new_layout.highlight import Highlight, resolve
 from app.services.cv_new_layout.labels import more_on_page2
@@ -173,7 +173,7 @@ def page1(
     t = ctx.t
     skills, truncated = skills_index(ctx, cap, groups_limit)
     hl = resolve(ctx)
-    education, certs_hidden = education_plain(ctx) if hl else education_page1(ctx)
+    education, certs_hidden = education_plain(ctx)
     blocks = [
         (t["why_blind"] if ctx.doc.blind else t["why"], why_block(ctx)),
         (t["career"], career_axis(ctx)),

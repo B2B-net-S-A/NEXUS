@@ -96,6 +96,7 @@ traversal ani audytu znanych podatności zależności na PR-ze.
   Baseline: 229 wpisów, 0 `do-przegladu`; nowy wpis od teraz tylko jako
   `zweryfikowane` z konkretnym powodem.
 - Zależności: python-jose 3.5.0 (PYSEC-2026-4298) i ecdsa 0.19.2
-  (PYSEC-2026-1325) bez wydania z poprawką; każde `jwt.decode` ma jawne
-  `algorithms=`. Termin 15.02.2027. npm: brak high/critical w zależnościach
+  (PYSEC-2026-1325) bez wydania z poprawką były wyjątkami do 25.11.2026.
+  Tego dnia backend przeszedł na PyJWT, oba wpisy zdjęte i baseline Pythona
+  jest pusty. npm (13.11): brak high/critical w zależnościach
   produkcyjnych (6 moderate w `@sentry/*` → `glob`/`minimatch`).

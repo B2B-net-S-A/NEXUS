@@ -7,7 +7,9 @@
 // i zgłaszają zdarzenie dla ćwiczeń. Nic nie idzie do serwera, a „odpowiedź
 // AI” (plan asystenta CV, Jarvis) to stałe reguły — bez wywołania modelu.
 
-import { CV_FICTION_TERMS, cvFictionHtml } from "./cv-fiction";
+import { autoTexts, whySlots } from "@/lib/cv-page1-why";
+
+import { CV_FICTION_TERMS, CV_FICTION_WHY, cvFictionHtml } from "./cv-fiction";
 import { POLIGON_CLIENT_MAIL_SLOTS } from "./exercises";
 import type { PoligonAction, PoligonDataset, PoligonPerson, PoligonResponse } from "./store";
 
@@ -27,8 +29,15 @@ const SLOT_STAGES = new Set(["cv_sent", "client_interview"]);
 const OPEN_SLOT_STATUSES = new Set(["awaiting_recruiter", "awaiting_dl"]);
 export const SLOTS_MAIL_OTHER =
   "Na poligonie NEXUS odczytuje tylko maila klienta z ćwiczenia (terminy o 10:00 i 13:00). Wklej go z okna ćwiczenia albo wpisz terminy ręcznie.";
-const BLOCKED_PAGE1 =
-  "Na poligonie zmienisz tu tylko wieniec. Zdania strony 1 poprawisz w prawdziwym CV.";
+/**
+ * Osoby, których CV do klienta jest od startu w układzie „Nowe CV” — edytor
+ * otwiera się na zakładce „Strona 1” (lekcja „Nowe CV: strona 1”, 25.11.2026).
+ * Pokaz idzie na pierwszej, „sam” na drugiej.
+ */
+export const POLIGON_NEW_CV_CANDIDATES = [990108, 990109] as const;
+const PAGE1_TEXT_MAX = 400;
+const MSG_PAGE1_EMPTY = "Podaj wynik do strony 1.";
+const MSG_PAGE1_TOO_LONG = `Zdanie na stronie 1 może mieć najwyżej ${PAGE1_TEXT_MAX} znaków.`;
 const CV_COMMAND_EMPTY =
   "Nic nie zmieniłem — na poligonie asystent zna kilka poleceń. Wpisz na przykład „pogrub Scrum i Jira”.";
 
@@ -94,8 +103,13 @@ export function createTools(ctx: ToolsContext) {
   const branded = new Map<number, { html: string; revision: number; status: string }>();
   /** Układ CV per etap (Nowe CV / Klasyczne, 23.11.2026); brak wpisu = klasyczny jak u klienta bez reguły. */
   const layouts = new Map<number, "classic" | "new">();
-  /** Wieniec strony 1 nowego CV per etap (`page1_extras.wreath`). */
-  const wreaths = new Map<number, string>();
+  /** Dodatki strony 1 nowego CV per etap po zmianach w edytorze (wyróżnik, zdania). */
+  const page1 = new Map<number, Row>();
+  const newByDefault = new Set(
+    meta.people.filter((p) => (POLIGON_NEW_CV_CANDIDATES as readonly number[]).includes(p.candidate_id)).map((p) => p.entry_id),
+  );
+  const layoutFor = (entryId: number): "classic" | "new" =>
+    layouts.get(entryId) ?? (newByDefault.has(entryId) ? "new" : "classic");
 
   /** Odznaka „Wybierz termin” z zestawu (osoba na „Rozmowie u klienta”) — wzór dla nowych wniosków DL-a. */
   const badgeTemplate = JSON.parse(JSON.stringify(ctx.findItem(meta.slot_candidate_id)?.item.interview_badge ?? null)) as
@@ -458,13 +472,73 @@ export function createTools(ctx: ToolsContext) {
       edit_revision: saved?.revision ?? recorded.edit_revision,
       // Przełącznik „Układ CV” w karcie „CV do klienta” i w edytorze (lekcja „Nowe CV”).
       new_layout_enabled: true,
-      cv_layout: layouts.get(entryId) ?? "classic",
+      cv_layout: layoutFor(entryId),
       default_layout: "classic",
-      page1_extras: { ...extras, wreath: wreaths.get(entryId) ?? extras.wreath ?? "auto" },
+      page1_extras: page1Of(entryId, extras),
     };
   }
 
-  /** Odczyt CV etapu do zapisu układu albo wieńca; etap bez CV do klienta → 409 jak na serwerze. */
+  /** Zdania z generatora jak po biegu w tle przy „Nowym CV”; zmiany z edytora wygrywają. */
+  function page1Of(entryId: number, recorded: Row): Row {
+    const generated =
+      layoutFor(entryId) === "new"
+        ? { why: CV_FICTION_WHY.map((item) => item.text), why_generated: JSON.parse(JSON.stringify(CV_FICTION_WHY)) }
+        : {};
+    return { ...recorded, ...generated, ...(page1.get(entryId) ?? {}) };
+  }
+
+  /** Lustro `PATCH …/cv/page1` w pamięci: `why` per slot (`null` = bez zmiany, "" = z generatora). */
+  function setPage1(entryId: number, body: Row): PoligonResponse {
+    const current = brandedFor(entryId);
+    if (current.status !== 200) return current;
+    const extras = { ...((current.data as Row).page1_extras as Row) };
+    const next: Row = { ...(page1.get(entryId) ?? {}) };
+    let touched = false;
+    if ("highlight" in body && body.highlight && typeof body.highlight === "object") {
+      const highlight = body.highlight as Row;
+      if (highlight.mode === "custom" && !(textOf(highlight.label).trim() && textOf(highlight.text).trim())) {
+        return { status: 422, data: { detail: "Wyróżnik potrzebuje etykiety i zdania." } };
+      }
+      next.highlight = highlight.mode === "auto" ? null : highlight;
+      touched = true;
+    }
+    if ("result_text" in body) {
+      const text = textOf(body.result_text).trim();
+      if (text.length > PAGE1_TEXT_MAX) return { status: 422, data: { detail: MSG_PAGE1_TOO_LONG } };
+      next.result_text = text || null;
+      touched = true;
+    }
+    if (Array.isArray(body.why)) {
+      const slots = whySlots(extras);
+      const auto = autoTexts(extras);
+      for (const [index, value] of body.why.slice(0, 3).entries()) {
+        if (value === null || value === undefined) continue;
+        const text = textOf(value).split(/\s+/).filter(Boolean).join(" ");
+        if (text.length > PAGE1_TEXT_MAX) return { status: 422, data: { detail: MSG_PAGE1_TOO_LONG } };
+        slots[index] = text || auto[index];
+      }
+      next.why = slots;
+      touched = true;
+    }
+    if (!touched) return { status: 422, data: { detail: MSG_PAGE1_EMPTY } };
+    page1.set(entryId, next);
+    return brandedFor(entryId);
+  }
+
+  /** „Ułóż zdania od nowa”: zdania z generatora wracają tam, gdzie nikt ich nie poprawiał. */
+  function refreshPage1(entryId: number): PoligonResponse {
+    const current = brandedFor(entryId);
+    if (current.status !== 200) return current;
+    const extras = (current.data as Row).page1_extras as Row;
+    const auto = CV_FICTION_WHY.map((item) => item.text as string);
+    const before = autoTexts(extras);
+    const slots = whySlots(extras).map((slot, index) => (slot === "" || slot === before[index] ? auto[index] : slot));
+    page1.set(entryId, { ...(page1.get(entryId) ?? {}), why: slots });
+    const after = brandedFor(entryId);
+    return after.status === 200 ? { status: 200, data: (after.data as Row).page1_extras } : after;
+  }
+
+  /** Odczyt CV etapu do zapisu układu albo strony 1; etap bez CV do klienta → 409 jak na serwerze. */
   function brandedFor(entryId: number): PoligonResponse {
     const recorded = ctx.recorded("GET", `/api/candidates/stages/${entryId}/cv/branded`);
     if (recorded.status !== 200) return recorded;
@@ -482,18 +556,9 @@ export function createTools(ctx: ToolsContext) {
     return brandedFor(entryId);
   }
 
-  function setWreath(entryId: number, body: Row): PoligonResponse {
-    const wreath = body.wreath;
-    if (wreath !== "auto" && wreath !== "cert" && wreath !== "school") return { status: 409, data: { detail: BLOCKED_PAGE1 } };
-    const current = brandedFor(entryId);
-    if (current.status !== 200) return current;
-    wreaths.set(entryId, wreath);
-    return brandedFor(entryId);
-  }
-
   /** Układ CV etapu — podgląd PDF „Nowego CV” na poligonie (`adapter.ts`). */
   function layoutOf(entryId: number): "classic" | "new" | null {
-    return personByEntry(entryId) ? (layouts.get(entryId) ?? "classic") : null;
+    return personByEntry(entryId) ? layoutFor(entryId) : null;
   }
 
   function saveBranded(entryId: number, body: Row | null): PoligonResponse {
@@ -663,7 +728,11 @@ export function createTools(ctx: ToolsContext) {
     }
     const cvSetting = path.match(/^\/api\/candidates\/stages\/(\d+)\/cv\/(layout|page1)$/);
     if (cvSetting && method === "PATCH" && personByEntry(Number(cvSetting[1]))) {
-      return cvSetting[2] === "layout" ? setLayout(Number(cvSetting[1]), body) : setWreath(Number(cvSetting[1]), body);
+      return cvSetting[2] === "layout" ? setLayout(Number(cvSetting[1]), body) : setPage1(Number(cvSetting[1]), body);
+    }
+    const page1Results = path.match(/^\/api\/candidates\/stages\/(\d+)\/cv\/page1\/results$/);
+    if (page1Results && method === "POST" && personByEntry(Number(page1Results[1]))) {
+      return refreshPage1(Number(page1Results[1]));
     }
     const transform = path.match(/^\/api\/pipeline\/stages\/(\d+)\/qc\/transform$/);
     if (transform && method === "POST") return qcTransform(Number(transform[1]), body);
