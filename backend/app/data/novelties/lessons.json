@@ -1349,6 +1349,7 @@
       "kontrakty-jedna-lista",
       "kontrakty-lista-co-dalej",
       "stawka-z-dokumentu",
+      "stawka-z-faktur-ksef",
       "kontrakt-zamowienie-po-koncu-wspolpracy"
     ],
     "task": "Klient zamówił jeszcze okres u osoby z kontraktu ćwiczebnego, choć współpraca już się skończyła. Znajdź na liście kontraktów, kogo to dotyczy.",

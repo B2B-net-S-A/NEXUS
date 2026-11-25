@@ -909,6 +909,7 @@ from app.models import client_order_revenue_step as _client_order_revenue_step_m
 from app.models import board_document as _board_document_models  # noqa: F401,E402
 from app.models import contract_document_rate_read as _rate_read_models  # noqa: F401,E402
 from app.models import contract_partner_read as _partner_read_models  # noqa: F401,E402
+from app.models import contract_rate_history_finding as _rate_history_models  # noqa: F401,E402
 from app.models import client_order_cost_step as _order_cost_step_models  # noqa: F401,E402
 from app.models import admin_case as _admin_case_models  # noqa: F401,E402
 from app.models import equipment as _equipment_models  # noqa: F401,E402

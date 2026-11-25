@@ -200,6 +200,11 @@ _KNOWN_CONTRACT_FKS = {
     # Unikat (plik, wersja czytnika) nie zależy od kontraktu, a różnicę
     # z harmonogramem zachowanego przelicza pętla `contract_rate_documents`.
     ("contract_document_rate_reads", "contract_id"),
+    # Podpowiedź historii stawek z faktur KSeF (0782): dane wyliczane, jeden
+    # wiersz na kontrakt — wiersze przegranych kasuje ``_resolve_child_duplicates``,
+    # a pętla `contract_rate_history` przelicza zachowany. Wpisane kroki
+    # harmonogramu idą za kontraktem jak każde `contract_*_rates`.
+    ("contract_rate_history_findings", "contract_id"),
     # Dane firmy z umowy (0755) idą za kontraktem razem z plikiem; decyzja
     # i potwierdzone dane należą do tej samej współpracy.
     ("contract_partner_reads", "contract_id"),
@@ -3280,11 +3285,24 @@ async def _resolve_child_duplicates(
       (zatwierdzona lista trzyma brutto w swoich pozycjach),
     * ``payroll_list_lines`` — jedna pozycja na (lista, kontrakt): zostaje pozycja
       zachowanego, a bez niej najstarsza; pozostałe tracą tylko odnośnik do
-      kontraktu (osoba i kwoty zostają na liście).
+      kontraktu (osoba i kwoty zostają na liście),
+    * ``contract_rate_history_findings`` — podpowiedź stawek z faktur KSeF,
+      jedna na kontrakt i wyliczana co przebieg pętli: wiersze przegranych są
+      kasowane (pętla przeliczy zachowany).
     """
     present = {(str(fk["table_name"]), str(fk["column_name"])) for fk in catalog}
     every = [survivor_id, *loser_ids]
     out: dict[str, int] = {}
+
+    if ("contract_rate_history_findings", "contract_id") in present:
+        removed = await db.execute(
+            text(
+                "DELETE FROM contract_rate_history_findings "
+                "WHERE contract_id = ANY(:ids) RETURNING id"
+            ),
+            {"ids": [int(i) for i in loser_ids]},
+        )
+        out["contract_rate_history_findings_removed"] = len(removed.all())
 
     if ("client_structure_skips", "contract_id") in present:
         removed = await db.execute(

@@ -5316,6 +5316,20 @@
     "used_anchor": "jobs.question-bank.position"
   },
   {
+    "id": "stawka-z-faktur-ksef",
+    "pr": 4007,
+    "title": "Historia stawek kontraktu z faktur KSeF",
+    "why": "Stawki z faktur KSeF porównane z kontraktem. Jednoznaczną historię NEXUS wpisuje sam (z „Cofnij” przez 7 dni), resztę pokazuje na karcie kontraktu i pod pigułką „Stawka z faktur”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-25",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Kontrakty → pigułka „Stawka z faktur”",
+    "href": "/contracts",
+    "practice_href": "/contracts?status=all&rate_hist=1",
+    "section": "delivery",
+    "dot_anchor": "contracts.rate-history"
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",
