@@ -91,7 +91,7 @@ def bank_answer(question: Any) -> tuple[Optional[str], Optional[str]]:
 
     ``(None, "none")`` = nocny bieg uznał wiersz za nagłówek działu (ekran
     rysuje go jako nagłówek); ``(None, None)`` = jeszcze nie przeliczone.
-    Wiersz z odpowiedzią bez źródła (zapisany przed 0778 albo starym kodem)
+    Wiersz z odpowiedzią bez źródła (zapisany przed 0779 albo starym kodem)
     dostaje źródło jak w backfillu: ``excel`` przy archiwum, ``manual`` przy
     reszcie.
     """

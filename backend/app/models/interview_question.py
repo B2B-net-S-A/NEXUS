@@ -107,7 +107,7 @@ class InterviewQuestion(Base, TimestampMixin):
 
     text: Mapped[str] = mapped_column(Text, nullable=False)
     ideal_answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    # 0778: skąd jest ``ideal_answer`` — ``excel`` (archiwum), ``manual``
+    # 0779: skąd jest ``ideal_answer`` — ``excel`` (archiwum), ``manual``
     # (człowiek), ``ai`` (nocny bieg F55, do sprawdzenia) albo ``none`` (nagłówek
     # sekcji, nie pytanie: bez odpowiedzi i bez ponownej wysyłki do modelu).
     # NULL = jeszcze nie rozstrzygnięte. Wartości w ``interview_answer_proposals``.
