@@ -77,7 +77,8 @@
   (także tekst w tym polu), ani gdy numer ma inny klient: dopisanie zrobiłoby `ambiguous_buyer` i zatrzymało faktury
   obu klientów. Faktura przypisuje się wtedy normalnie. Zapis trafia do Historii zdarzeń
   (`client.registry_number_added`). Dopisanie jest z potwierdzeniem (decyzja Artura z 02.11.2026): obok głównego
-  przycisku jest „Tylko przypisz”, bo faktura spółki zależnej bywa rozliczana z zamówienia spółki matki. Klient bez
+  przycisku jest „Tylko przypisz”, bo faktura spółki zależnej bywa rozliczana z zamówienia spółki matki (od 25.11.2026
+  numer z dowodem dopisuje automat, sekcja „Nieznani nabywcy” niżej). Klient bez
   zamówień w miesiącu faktury dostaje „Dopisz NIP bez przypisywania” (`POST /{id}/buyer-number`); odmowa zapisu to tam 409.
   Klucz obcy ma co najmniej 5 cyfr: faktury zapisane przed pełnym numerem (niżej) mają VAT z literą ucięty do jednej
   cyfry (`FR1`, `IE9`), a taki klucz mają różne firmy, więc ani go nie zapisujemy, ani nie wiążemy nim faktur.
@@ -168,6 +169,35 @@
 - **Podpowiedź klienta jest tylko jednoznaczna**: nazwa z faktury równa `legal_name`, `display_name` albo `name` dokładnie jednego
   klienta (bez nieaktywnych), bez wielkości liter. Dwóch klientów o tej samej nazwie to brak podpowiedzi, a klient z innym numerem nie
   dostaje „Przypisz” jednym kliknięciem. Pomiar z 06.11: 13 nabywców z podpowiedzią.
+- **Numer nabywcy z dowodem dopisuje automat** (`client_invoicing/buyer_proof.py`, decyzja Artura z 25.11.2026: „uzupełniaj sam
+  i zapisz jako regułę”). To rozszerza regułę z 02.11 „Dopisanie jest z potwierdzeniem”: potwierdzenie Finansów zostaje dla wszystkiego
+  bez dowodu z osób albo z nazwy prawnej. Przebieg idzie co godzinę w pętli faktur sprzedaży tuż przed `rematch_pending`, więc kolejkę
+  sprzed wdrożenia bierze pierwszy przebieg.
+  - **Osoby z pozycji** (`auto_persons`, pierwsze źródło). Czekające faktury grupujemy po numerze nabywcy (klucz `save_buyer_number`).
+    Bieżąca pozycja (bez „przed korektą”), która nazywa pełnym imieniem i nazwiskiem (`person_named_in`) osobę z kontraktem innym niż
+    unieważniony, wskazuje klienta kanonicznego tego kontraktu. Pierwszeństwo ma kontrakt trwający w miesiącu usługi, a gdy takiego nie
+    ma, liczą się wszystkie kontrakty osoby. Pozycja z osobami u kilku klientów (np. dwa kontrakty w tym miesiącu) nie głosuje. Numer
+    idzie do klienta, gdy wskazują go co najmniej 2 pozycje, a żadna nie wskazuje innego klienta.
+  - **Nazwa prawna** (`auto_legal_name`). Najnowsza nazwa nabywcy to `legal_name` dokładnie jednego klienta (bez nieaktywnych, bez
+    wielkości liter i zbędnych spacji), a żaden inny klient nie ma jej w żadnym polu nazwy. Czyli podpowiedź jest jednoznaczna i trafia
+    nazwą prawną. Sama nazwa wyświetlana albo źródłowa niczego nie dowodzi.
+  - **Sprzeczne dowody = nic.** Osoby wskazują innego klienta niż nazwa prawna, nazwa nabywcy jest nazwą prawną innego klienta albo klient
+    wskazany przez osoby ma nazwę prawną inną niż nazwa nabywcy. Ostatni przypadek to spółka z grupy z własnym numerem, fakturowana za
+    osoby z kontraktem u klienta siostry: pomiar z 25.11 znalazł dwa numery z osobami jednego klienta, z czego jeden należał do spółki siostry.
+  - **Zapis tylko w stanie `add`**: klient bez numeru, a numeru nie ma nikt inny. Stany `differs` (spółka zależna z własnym VAT przy
+    kliencie matce z numerem), `taken` i `same` zostają Finansom. Tak samo dwa numery z dowodem dla jednego klienta w jednym przebiegu,
+    bo inaczej o numerze klienta decydowałaby kolejność.
+  - **Dlaczego 2 pozycje.** Jedna wzmianka bywa przypadkiem (imiennik albo osoba na fakturze innego nabywcy), a numer przypina klientowi
+    wszystkie faktury nabywcy, także przyszłe. Osoba bez kontraktu nie głosuje, bo nie wiadomo, u kogo pracuje.
+  - **Zapis jak ręczne „Przypisz”.** Numer przechodzi przez `save_buyer_number`, więc pozostałe faktury nabywcy wiążą się od razu. Wpis
+    `client.registry_number_added` nie ma autora (w Historii zdarzeń widać „System”), a w szczegółach są `source` i `named_positions`.
+    Każdy nabywca idzie w osobnym SAVEPOINT. Log INFO na każdy numer zawiera same identyfikatory i liczby.
+  - **Pomiar na sucho** na kopii produkcji z 25.11 (226 nabywców w kolejce). 8 numerów do dopisania: 3 z osób, 5 z nazwy prawnej. Klienta
+    dostaje 137 faktur, a 36 od razu wiąże się z zamówieniem. 4 numery z osobami zostają Finansom, bo nazwa prawna klienta jest inna.
+    Odsiew przed `person_named_in` (`matching.name_key`) dał ten sam wynik co pełne porównanie (1 756 pozycji, 574 osoby). Cały przebieg
+    trwał 0,5 s.
+  - Testy: `tests/test_client_invoicing_buyer_proof.py` (bez bazy), z bazą w `test_client_invoicing_buyer_number.py`
+    i `test_client_invoicing_sync.py`.
 - Suma kolejki znika bez uprawnienia „Wyniki firmy”, tak jak suma miesiąca (decyzja z 02.11).
 - **Formularz klienta ma NIP i „Nazwa prawna”** tam, gdzie konto widzi dane prawne. NIP przechodzi sumę kontrolną
   (`client_registry_number`); zagraniczny numer idzie z prefiksem kraju. Zapisujemy postać rejestru (bez kresek i `PL`). Numer innego

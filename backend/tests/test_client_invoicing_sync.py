@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -237,6 +238,42 @@ async def test_unknown_buyer_matches_once_the_client_has_the_nip(env):
     stored = await fx.invoice(fx.KSEF_UNKNOWN)
     assert stored.client_id == env.seed.other_client_id
     assert (stored.match_status, stored.match_method) == ("matched", "amount")
+
+
+async def test_hourly_run_saves_a_buyer_number_proven_by_people(env):
+    """Osoby z pozycji dowodzą nabywcy: numer dopisuje przebieg, bez Finansów."""
+
+    await env.run()
+    marker = uuid.uuid4().hex[:8]
+    people = [("Anna", f"Dowodowa{marker}"), ("Piotr", f"Dowodowy{marker}")]
+    async with AsyncSessionLocal() as db:
+        client_id = await fx.client(db, "Nabywca Z Osobami", None)
+        for first, last in people:
+            await fx.periodic_order(
+                db,
+                client_id,
+                f"PO-{marker}-{first}",
+                rate="1000",
+                unit=RateUnit.monthly,
+                person=(first, last),
+            )
+        stored = await db.scalar(
+            select(ClientSalesInvoice).where(
+                ClientSalesInvoice.ksef_number == fx.KSEF_UNKNOWN
+            )
+        )
+        stored.items = [
+            {"name": f"Usługi IT — {first} {last}"} for first, last in people
+        ]
+        await db.commit()
+    env.clock.advance(hours=1)
+
+    result = await env.run()
+
+    assert result["buyer_numbers"] >= 1
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Client, client_id)).nip == fx.UNKNOWN_NIP
+    assert (await fx.invoice(fx.KSEF_UNKNOWN)).client_id == client_id
 
 
 async def test_waiting_for_download_budget_does_not_expire_the_queue(env, monkeypatch):
