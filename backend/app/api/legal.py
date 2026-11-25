@@ -3,6 +3,8 @@
 Trasy (``/api/legal``):
 
 * ``GET /sources`` — stan korpusu prawa (akty, wersje, liczby przepisów),
+  liczniki pozostałych źródeł (orzeczenia, wzory, wzory własne, umowy ramowe
+  i aneksy) i zadań „Przejrzyj wzór” (część H; karta w Przepisach),
 * ``GET /provisions/search?q=&acts=&on_date=&limit=`` — przepisy pasujące do
   pytania (po słowach i po znaczeniu),
 * ``POST /verify`` — sprawdzenie cytatów w tekście z korpusem i podanymi
@@ -43,7 +45,7 @@ from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.user import User
 from app.services.action_permissions import ActionAccess
-from app.services.legal import assistant, citations, corpus
+from app.services.legal import assistant, citations, corpus, sources, template_review
 from app.services.legal.acts import ACT_KEYS
 from app.services.legal.pseudonymize import Entity
 
@@ -165,8 +167,13 @@ def _check_out(check: citations.CitationCheck) -> dict[str, Any]:
 async def legal_sources(
     _user: B2BGeneratorAccess, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    """Stan korpusu: akty z rejestru, bieżąca wersja, liczba przepisów."""
-    return await corpus.sources_status(db)
+    """Stan korpusu i liczniki pozostałych źródeł (same liczby, bez nazw)."""
+    status = await corpus.sources_status(db)
+    return {
+        **status,
+        "documents": await sources.documents_status(db),
+        "template_review": await template_review.review_status(db),
+    }
 
 
 @router.get("/provisions/search")
