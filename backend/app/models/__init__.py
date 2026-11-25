@@ -952,6 +952,9 @@ from app.models import job_team_panel as _job_team_panel_models  # noqa: F401,E4
 # 0713: radar przepisów (dwa Grok Boty, bramka NEXUSA, zmiany w prawie).
 from app.models import law_radar as _law_radar_models  # noqa: F401,E402
 
+# 0780: wzory własne Generatora Umów B2B (asystent prawny, część B).
+from app.models import custom_document_template as _custom_template_models  # noqa: F401,E402
+
 # 0732: bot Cpro (Grok Bot wrzuca kandydatów Nordei do Cpro).
 from app.models import cpro_bot as _cpro_bot_models  # noqa: F401,E402
 

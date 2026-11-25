@@ -141,6 +141,8 @@ class TestFeatureKeyEnum:
             "contract_partner_read",
             # 0761: Sprzedaż — ocena potencjału firmy przed spotkaniem.
             "sales_potential_assessment",
+            # 0780: szkic wzoru własnego Generatora Umów (asystent prawny).
+            "legal_template_draft",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

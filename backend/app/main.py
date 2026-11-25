@@ -190,6 +190,7 @@ from app.api import public_candidate_terms
 from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
 from app.api import b2b_documents
+from app.api import custom_document_templates
 from app.api import b2b_esign
 from app.api import b2b_mass_send as b2b_mass_send_api
 from app.api import pre_contracts as pre_contracts_api
@@ -1936,6 +1937,12 @@ app.include_router(
 )
 app.include_router(
     b2b_documents.router,
+    prefix="/api/b2b-generator",
+    tags=["b2b-generator"],
+)
+# Wzory własne Generatora (0780, asystent prawny część B).
+app.include_router(
+    custom_document_templates.router,
     prefix="/api/b2b-generator",
     tags=["b2b-generator"],
 )
@@ -4267,6 +4274,10 @@ async def api_health_deep_check(request: Request):
     from app.models.cpro_bot import CproBotRun
     from app.models.cv_parse_batch import CvParseBatchItem
     from app.models.client_report import ClientReportDefinition, ClientReportRun
+    from app.models.custom_document_template import (
+        CustomDocumentTemplate,
+        CustomDocumentTemplateVersion,
+    )
     from app.models.law_radar import (
         LawChange,
         LawChangeEvent,
@@ -4989,6 +5000,9 @@ async def api_health_deep_check(request: Request):
         ("law_change_tasks", LawChangeTask),
         ("law_change_events", LawChangeEvent),
         ("law_change_probes", LawChangeProbe),
+        # 0780: wzory własne Generatora Umów B2B — wzór i wersje.
+        ("custom_document_templates", CustomDocumentTemplate),
+        ("custom_document_template_versions", CustomDocumentTemplateVersion),
         # 0732: bot Cpro — biegi rutyny Grok Bota.
         ("cpro_bot_runs", CproBotRun),
         # 0750: kolejka odczytów CV wsadem.

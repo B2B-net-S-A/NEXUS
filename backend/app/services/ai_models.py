@@ -76,6 +76,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F52 | contract_document_rate_read      | claude-sonnet-5 (z Haiku)|
 | F53 | contract_partner_read            | claude-sonnet-5 (z Haiku)|
 | F54 | sales_potential_assessment       | claude-sonnet-5-5 (z 5)  |
+| F57 | legal_template_draft             | claude-sonnet-5-5 (z 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -661,6 +662,17 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "handlowca i wiadomość do klienta, więc model tekstu do klienta z F46. Próba na "
         "dwóch firmach ze stagingu 23.11. Dodatek: bez modelu research i fakty zostają "
         "na ekranie, referencje wybiera model tylko numerem z bazy.",
+    ),
+    AIFeatureKey.legal_template_draft: ModelChoice(
+        default=SONNET_55,
+        env_vars=("LEGAL_TEMPLATE_DRAFT_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F57 (plan asystenta prawnego 25.11.2026 nazywa ją F20 — ten numer "
+        "zajmuje job_public_description; F55 = pytania z rozmów, F56 = legal_assistant). Szkic zmian wzoru umowy z polecenia: tekst prawny "
+        "do podpisu, więc model tekstu umownego z F50 (uzasadnienie dopłaty do umowy "
+        "ramowej), bez osobnego pomiaru. Kod nakłada zmiany na DOCX, sprawdza pola "
+        "i szablon; zatwierdza administrator. Dodatek: bez modelu działa ścieżka "
+        "„wgraj Word → pola → zapis”.",
     ),
 }
 

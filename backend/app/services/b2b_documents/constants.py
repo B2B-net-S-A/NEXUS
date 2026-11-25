@@ -27,6 +27,9 @@ B2B_DOCUMENT_TYPES: tuple[str, ...] = (
     # Warianty z kandydatem prowadzącym działalność (0778, 25.11.2026).
     "preliminary_cez_jdg",
     "preliminary_b2b_jdg",
+    # Dokument ze wzoru własnego (0780, 25.11.2026) — który wzór i wersja:
+    # ``template_key`` = ``custom_v<id wersji>``.
+    "custom_template",
 )
 
 B2B_DOCUMENT_STATUSES: tuple[str, ...] = ("issued", "signed", "cancelled")

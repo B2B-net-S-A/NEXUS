@@ -228,6 +228,9 @@ class AIFeatureKey(str, enum.Enum):
     # 0761 (23.11.2026): Sprzedaż — ocena potencjału firmy przed spotkaniem
     # z researchu Bota Research, faktów z NEXUSA i bazy wiedzy (F54).
     sales_potential_assessment = "sales_potential_assessment"
+    # 0780 (25.11.2026): asystent prawny — szkic wzoru własnego Generatora Umów
+    # z opisu albo zmiany istniejącego wzoru (wzór bez danych osób).
+    legal_template_draft = "legal_template_draft"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -287,6 +290,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.contract_document_rate_read: "Kontrakty — stawka Partnera z umowy i aneksu",
     AIFeatureKey.contract_partner_read: "Kontrakty — dane firmy Partnera z podpisanej umowy",
     AIFeatureKey.sales_potential_assessment: "Sprzedaż — ocena potencjału firmy przed spotkaniem",
+    AIFeatureKey.legal_template_draft: "Generator Umów — szkic wzoru własnego z asystentem prawnym",
 }
 
 
@@ -546,6 +550,13 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Baza wiedzy oceny: opis oferty i referencje (bez podpisów listów i notatek)",
         "(bez kontaktów, decydentów, kandydatów, konsultantów i stawek; tytuł szansy to "
         "tekst handlowca)",
+    ],
+    AIFeatureKey.legal_template_draft: [
+        "Treść wzoru bazowego umowy (akapity z polami w nawiasach, bez danych osób) "
+        "albo sam opis nowego wzoru",
+        "Polecenie osoby tworzącej wzór (co zmienić)",
+        "(bez kandydatów, kontraktorów, klientów i stawek; kwoty słownie, daty i formy "
+        "Pan/Pani liczy kod)",
     ],
 }
 
