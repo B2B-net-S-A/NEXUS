@@ -255,6 +255,9 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   // lustro `HeadOfRecruitmentPlus`.
   { prefix: "/settings/nowosci", roles: ["admin", "head_of_recruitment"], enforceRoles: true },
   { prefix: "/settings/jakosc-generatora", roles: ["admin", "head_of_recruitment"], enforceRoles: true },
+  // Opiekunowie raportów ze strony (25.11.2026): lista ustawiana przez admina,
+  // lustro `AdminUser` w `api/competence_reports.py`.
+  { prefix: "/settings/opiekunowie-raportow", roles: ["admin"], enforceRoles: true },
   {
     prefix: "/settings/kpi-targets",
     roles: ["admin", "head_of_recruitment"],
@@ -466,6 +469,8 @@ const PUBLIC_PATHS = [
   "/engagement/",
   // Warunki od kandydata (17.11.2026): link z maila po aplikacji, token w adresie.
   "/warunki/",
+  // Raport kompetencji (25.11.2026): zmiana warunków i wypis z linku w mailu, token w adresie.
+  "/raport/",
   // Publiczny podpis protokołu sprzętu: token w adresie, bez logowania.
   "/protocol/",
   // Strefa konsultanta: konsultant nie ma konta, API ma własny wyłącznik i sesję.

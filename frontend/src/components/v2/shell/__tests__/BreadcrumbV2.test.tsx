@@ -103,6 +103,8 @@ describe("BreadcrumbV2 — polskie nazwy segmentów (UAT M01-B09, M03-B09, M11-B
       "login", "register", "microsoft365", "__tests__", "fonts", "engagement", "wtyczka",
       // Formularz warunków kandydata z maila (17.11.2026) — publiczny, bez okruszków.
       "warunki",
+      // Warunki i wypis z maila z raportem kompetencji (25.11.2026) — publiczne.
+      "raport",
     ]);
     const skipSeg = new Set(["callback", "forgot-password", "reset", "verify", "microsoft"]);
     const missing = new Set<string>();

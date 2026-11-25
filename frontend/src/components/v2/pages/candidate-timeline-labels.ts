@@ -52,6 +52,12 @@ const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   hired: "Zatrudniono",
   engagement_updated: "Zaktualizowano zaangażowanie",
   application_submission_resolved: "Rozpatrzono zgłoszenie kandydata",
+  // 25.11.2026: kolejka „Raporty ze strony” (raport kompetencji w 24 h).
+  competence_report_sent_now: "Wysłano raport kompetencji",
+  competence_report_held: "Wstrzymano raport kompetencji",
+  competence_report_released: "Zwolniono wstrzymany raport kompetencji",
+  competence_report_conditions_changed: "Poprawiono warunki w raporcie kompetencji",
+  competence_report_owner_changed: "Zmieniono opiekuna raportu kompetencji",
   // 0404: przegląd AI zgłoszenia z linku rekrutacji i „Dodaj mimo to”.
   application_screened: "AI przejrzało zgłoszenie z ogłoszenia",
   application_screening_overridden: "Dodano do rekrutacji mimo odrzucenia przez AI",

@@ -14,6 +14,7 @@ import {
   Calendar,
   CalendarClock,
   FileSignature,
+  FileBarChart,
   FileText,
   GitBranch,
   GraduationCap,
@@ -319,6 +320,23 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "more",
     moreGroup: "documents",
     paletteKeywords: ["cv", "wygenerowane", "moje cv", "generator"],
+    inPalette: true,
+  },
+  // „Raporty ze strony” (25.11.2026, raport kompetencji w 24 h): kolejka
+  // raportów dla osób, które wysłały CV z warunkami na nowej stronie. Te same
+  // role co „Kandydaci” (odczyt `CandidatePIIAccess`, akcje `CandidateWriteAccess`).
+  {
+    id: "website-reports",
+    moreHint: "Raporty kompetencji do wysłania w 24 h",
+    href: "/candidates/website-reports",
+    label: "Raporty ze strony",
+    icon: FileBarChart,
+    section: "sourcing",
+    roles: CANDIDATES_NAV_ROLES,
+    capability: "nav.candidates",
+    placement: "more",
+    moreGroup: "daily",
+    paletteKeywords: ["raport", "raport kompetencji", "strona", "24 h", "opiekun"],
     inPalette: true,
   },
   // Dostęp do Generatora Umów B2B jest konfigurowany osobno od sekcji

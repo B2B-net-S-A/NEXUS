@@ -188,6 +188,7 @@ from app.api import prep_kit
 from app.api import talent_pools
 from app.api import public_engagement
 from app.api import public_candidate_terms
+from app.api import public_competence_report
 from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
 from app.api import b2b_documents
@@ -355,6 +356,7 @@ from app.api import client_panel as client_panel_api
 from app.api import job_team_panel as job_team_panel_api
 from app.api import public_job_team_panel as public_job_team_panel_api
 from app.api import application_submissions as application_submissions_api
+from app.api import competence_reports as competence_reports_api
 from app.api import users as users_api
 from app.api import user_dashboard as user_dashboard_api
 from app.api import dashboard_metrics as dashboard_metrics_api
@@ -944,6 +946,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.daily_digest_email import daily_digest_email_loop
     from app.tasks.notification_email_outbox import notification_email_outbox_loop
     from app.tasks.candidate_terms_sender import candidate_terms_sender_loop
+    from app.tasks.competence_report_sender import competence_report_sender_loop
     from app.tasks.m365_account_sweep import m365_account_sweep_loop
     from app.tasks.job_portal_worker import job_portal_worker_loop
     from app.tasks.order_mail_ingest import order_mail_ingest_loop
@@ -1170,6 +1173,11 @@ async def lifespan(app: FastAPI):
             # aplikacji z ogłoszenia; rodzaj `candidate_terms` włącza admin.
             "candidate_terms_sender": asyncio.create_task(
                 candidate_terms_sender_loop()
+            ),
+            # 25.11.2026: raport kompetencji w 24 h dla CV z warunkami ze strony;
+            # rodzaj `competence_report` włącza admin.
+            "competence_report_sender": asyncio.create_task(
+                competence_report_sender_loop()
             ),
             # Powiadomienia Delivery Leada (0233). Kill-switch sprawdzany PRZED
             # pętlą — wyłączona funkcja kończy zadanie, a nie budzi procesu co
@@ -1663,6 +1671,9 @@ app.include_router(
 app.include_router(public_engagement.router, prefix="/api", tags=["public-engagement"])
 app.include_router(
     public_candidate_terms.router, prefix="/api", tags=["public-candidate-terms"]
+)
+app.include_router(
+    public_competence_report.router, prefix="/api", tags=["public-competence-report"]
 )
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 # Static `/directory` must be registered before `clients`' catch-all
@@ -2854,6 +2865,12 @@ app.include_router(
     application_submissions_api.router,
     prefix="/api/application-submissions",
     tags=["application-submissions"],
+)
+# N6 (25.11.2026): kolejka rekrutera dla raportów kompetencji ze strony.
+app.include_router(
+    competence_reports_api.router,
+    prefix="/api/competence-reports",
+    tags=["competence-reports"],
 )
 app.include_router(app_settings_api.router, prefix="/api/settings", tags=["settings"])
 app.include_router(

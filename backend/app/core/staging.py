@@ -173,6 +173,8 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "daily_digest_email",
         "notification_email_outbox",
         "candidate_terms_sender",
+        # Raporty do prawdziwych kandydatów z kopii i ponowny odczyt CV (koszt).
+        "competence_report_sender",
         "dl_alerts",
         "integration_stale_alerts",
         "integration_webhooks",

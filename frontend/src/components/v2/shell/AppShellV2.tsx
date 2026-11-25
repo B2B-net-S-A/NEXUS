@@ -69,6 +69,8 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   const isEngagementPage = pathname?.startsWith("/engagement/") ?? false;
   // `/warunki/{token}` — formularz warunków kandydata z maila (17.11.2026), bez shellu.
   const isCandidateTermsPage = pathname?.startsWith("/warunki/") ?? false;
+  // `/raport/{token}` — warunki i wypis z maila z raportem kompetencji (25.11.2026), bez shellu.
+  const isCompetenceReportPage = pathname?.startsWith("/raport/") ?? false;
   // `/protocol/{token}` — publiczny podpis protokołu sprzętu („Ludzie w NEXUSIE”).
   const isProtocolPage = pathname?.startsWith("/protocol/") ?? false;
   // `/konsultant` — strefa konsultanta: osobna sesja, bez konta pracownika.
@@ -189,6 +191,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   if (isOwnHiringBookingPage) return <>{children}</>;
   if (isEngagementPage) return <>{children}</>;
   if (isCandidateTermsPage) return <>{children}</>;
+  if (isCompetenceReportPage) return <>{children}</>;
   if (isProtocolPage) return <>{children}</>;
   if (isConsultantPortal) return <>{children}</>;
   if (isExtensionPrivacyPage) return <>{children}</>;

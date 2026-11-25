@@ -43,6 +43,7 @@ export type SettingsItemId =
   | "hr-import"
   | "assign"
   | "competence-team"
+  | "report-owners"
   | "stages"
   | "cv"
   | "ranking"
@@ -218,6 +219,15 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
       "dl delivery portfel kompetencje przypisania odpowiedzialnosci kategorie kompetencji przydzial requesty obłożenie oblozenie priorytet poza przydzialem sourcer rekruter klienci",
     route: "/settings/team-structure",
     gate: { roles: ["admin", "head_of_recruitment", "finance"], finance: true },
+  },
+  {
+    // Raport kompetencji ze strony (25.11.2026): raporty idą po kolei do osób
+    // z tej listy. Lustro `AdminUser` w `api/competence_reports.py`.
+    id: "report-owners", area: "team", title: "Opiekunowie raportów", group: "Zespół rekrutacji",
+    description: "Kto po kolei dostaje raporty kompetencji ze strony i kto jest na urlopie.",
+    keywords: "raport raporty kompetencji strona www opiekun opiekunowie po kolei urlop 24h",
+    route: "/settings/opiekunowie-raportow",
+    gate: { roles: ["admin"] },
   },
   {
     id: "stages", area: "rec", title: "Procesy rekrutacyjne", group: "Proces",
