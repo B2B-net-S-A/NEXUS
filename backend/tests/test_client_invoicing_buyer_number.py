@@ -19,7 +19,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.client import Client
 from app.models.client_sales_invoice import ClientSalesInvoice
 from app.models.critical_event import CriticalEvent
-from app.services.client_invoicing import matching, sync
+from app.services.client_invoicing import buyer_proof, matching, sync
 from app.services.order_client_identity import normalize_registry_id
 from tests.client_invoicing import helpers as fx
 
@@ -573,3 +573,109 @@ async def test_number_without_assigning_is_only_for_finance(client, seed, role):
 
     assert response.status_code == 403
     assert await _nip(client_id) is None
+
+
+# ── Numer z dowodu bez Finansów (``buyer_proof``, decyzja Artura z 25.11.2026) ──
+
+
+async def _client_with_people(*people: tuple[str, str]) -> int:
+    async with AsyncSessionLocal() as db:
+        client_id = await fx.client(db, "Nabywca Z Osobami", None)
+        for person in people:
+            await fx.periodic_order(
+                db,
+                client_id,
+                f"PO-{uuid.uuid4().hex[:6]}",
+                rate="100",
+                unit=fx.RateUnit.monthly,
+                person=person,
+            )
+        await db.commit()
+    return client_id
+
+
+async def _change_unknown(**values) -> int:
+    async with AsyncSessionLocal() as db:
+        invoice = await db.scalar(
+            select(ClientSalesInvoice).where(
+                ClientSalesInvoice.ksef_number == fx.KSEF_UNKNOWN
+            )
+        )
+        for key, value in values.items():
+            setattr(invoice, key, value)
+        await db.commit()
+        return invoice.id
+
+
+async def _attach_proven() -> None:
+    async with AsyncSessionLocal() as db:
+        await buyer_proof.attach(db)
+        await db.commit()
+
+
+async def _event(client_id: int) -> Optional[CriticalEvent]:
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(
+            select(CriticalEvent).where(
+                CriticalEvent.event_type == EVENT, CriticalEvent.client_id == client_id
+            )
+        )
+
+
+async def test_people_on_the_invoices_save_the_number_without_finance(seed):
+    # Nazwiska jedyne w bazie: imiennik z wcześniejszych biegów nie głosuje za innego.
+    marker = uuid.uuid4().hex[:8]
+    people = [("Anna", f"Dowodowa{marker}"), ("Piotr", f"Dowodowy{marker}")]
+    client_id = await _client_with_people(*people)
+    invoice_id = await _change_unknown(
+        items=[{"name": f"Usługi IT — {first} {last}"} for first, last in people]
+    )
+    sibling_id = await _sibling_of_unknown()
+
+    await _attach_proven()
+
+    assert await _nip(client_id) == fx.UNKNOWN_NIP
+    event = await _event(client_id)
+    assert event is not None
+    assert event.actor_user_id is None
+    assert event.details["source"] == "auto_persons"
+    assert event.details["named_positions"] == 4
+    async with AsyncSessionLocal() as db:
+        for waiting_id in (invoice_id, sibling_id):
+            invoice = await db.get(ClientSalesInvoice, waiting_id)
+            assert invoice.client_id == client_id
+            assert invoice.match_reason != "unknown_buyer"
+
+
+async def test_buyer_name_equal_to_the_legal_name_saves_the_number(seed):
+    name = f"Nabywca {uuid.uuid4().hex[:10]} S.A."
+    await _change_unknown(buyer_name=name)
+    async with AsyncSessionLocal() as db:
+        client_id = await fx.client(db, "Nabywca Z Nazwą Prawną", None)
+        (await db.get(Client, client_id)).legal_name = f" {name.upper()}  "
+        await db.commit()
+
+    await _attach_proven()
+
+    assert await _nip(client_id) == fx.UNKNOWN_NIP
+    event = await _event(client_id)
+    assert event is not None
+    assert event.details["source"] == "auto_legal_name"
+
+
+async def test_proof_for_a_client_with_another_number_stays_with_finance(seed):
+    marker = uuid.uuid4().hex[:8]
+    people = [("Anna", f"Dowodowa{marker}"), ("Piotr", f"Dowodowy{marker}")]
+    client_id = await _client_with_people(*people)
+    async with AsyncSessionLocal() as db:
+        (await db.get(Client, client_id)).nip = fx.OTHER_CLIENT_NIP
+        await db.commit()
+    await _change_unknown(
+        items=[{"name": f"Usługi IT — {first} {last}"} for first, last in people]
+    )
+
+    await _attach_proven()
+
+    assert await _nip(client_id) == fx.OTHER_CLIENT_NIP
+    assert await _events(client_id) == 0
+    assert (await fx.invoice(fx.KSEF_UNKNOWN)).match_reason == "unknown_buyer"
