@@ -49,6 +49,7 @@ LABELS: dict[str, dict[str, str]] = {
         "education_full": "Edukacja — pełna lista",
         "skills_more_note": "+N to kolejne pozycje tej kategorii — pełna lista na str. 2.",
         "more_at_end": "pełna lista na końcu CV",
+        "more_on_page2": "pełna lista na str. 2",
         "about": "ok.",
         "months_short": "mies.",
         "footer": "B2B.net S.A. · Al. Jerozolimskie 180, 02-486 Warszawa · KRS 0000387063 · NIP 5711707392",
@@ -58,7 +59,7 @@ LABELS: dict[str, dict[str, str]] = {
         "why": "Why our candidate",
         "education": "Education",
         "certs_training": "Certifications and training",
-        "schooling_head": "Education",
+        "schooling_head": "Degree",
         "other_certs": "Other certifications and training",
         "skills": "Skills",
         "experience": "Experience",
@@ -91,6 +92,7 @@ LABELS: dict[str, dict[str, str]] = {
         "education_full": "Education — full list",
         "skills_more_note": "+N are further items of the category — full list on page 2.",
         "more_at_end": "full list at the end of the CV",
+        "more_on_page2": "full list on page 2",
         "about": "approx.",
         "months_short": "mo.",
         "footer": "B2B.net S.A. · Al. Jerozolimskie 180, 02-486 Warsaw · KRS 0000387063 · NIP 5711707392",
@@ -106,6 +108,7 @@ _NOUNS: dict[str, dict[str, tuple[str, str, str]]] = {
         "school": ("szkoła", "szkoły", "szkół"),
         "certificate": ("certyfikat", "certyfikaty", "certyfikatów"),
         "short_project": ("krótki projekt", "krótkie projekty", "krótkich projektów"),
+        "category": ("kategoria", "kategorie", "kategorii"),
     },
     "en": {
         "year": ("year", "years", "years"),
@@ -113,6 +116,7 @@ _NOUNS: dict[str, dict[str, tuple[str, str, str]]] = {
         "school": ("school", "schools", "schools"),
         "certificate": ("certification", "certifications", "certifications"),
         "short_project": ("short project", "short projects", "short projects"),
+        "category": ("category", "categories", "categories"),
     },
 }
 
@@ -147,6 +151,11 @@ def counted(code: str, key: str, n: int) -> str:
 def more_at_end(code: str, key: str, n: int) -> str:
     """„+ 2 szkoły — pełna lista na końcu CV”."""
     return f"+ {counted(code, key, n)} — {labels_for(code)['more_at_end']}"
+
+
+def more_on_page2(code: str, key: str, n: int) -> str:
+    """„+ 5 kategorii — pełna lista na str. 2”."""
+    return f"+ {counted(code, key, n)} — {labels_for(code)['more_on_page2']}"
 
 
 def _translations() -> dict[str, dict[str, str]]:
