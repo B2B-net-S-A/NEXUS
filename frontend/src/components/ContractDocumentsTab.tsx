@@ -1,8 +1,8 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, ChevronDown, CloudDownload, FolderPlus, Loader2, Plus, Search } from "lucide-react";
+import { AlertCircle, ChevronDown, CloudDownload, FileDiff, FolderPlus, Loader2, Plus, Search } from "lucide-react";
 
 import { DocumentGroupHeader } from "@/components/contracts/documents/DocumentGroupHeader";
 import { DocumentItemRow } from "@/components/contracts/documents/DocumentItemRow";
@@ -32,6 +32,7 @@ import {
   useOrderFilesQuery,
 } from "@/components/contracts/documents/useDocumentFolders";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { RedlineDialog } from "@/components/legal-assistant/redline/RedlineDialog";
 import { useOptionalToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +48,7 @@ import {
   type ContractDocument,
 } from "@/lib/contract-document-folders";
 import { formatIsoDatePl } from "@/lib/date-pl";
+import { isDocxName, type RedlineTarget } from "@/lib/legal-redline";
 import { cn } from "@/lib/utils";
 import { warsawDateOf } from "@/lib/warsaw-date";
 
@@ -164,6 +166,9 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [dismissed, setDismissed] = useState<Set<string>>(() => readDismissed(contractId));
+  // „Popraw dokument” (asystent prawny): plik z listy albo z dysku.
+  const [redline, setRedline] = useState<{ target: RedlineTarget; title: string } | null>(null);
+  const redlineInput = useRef<HTMLInputElement>(null);
 
   const docsQuery = useQuery<ContractDocument[]>({
     queryKey: ["contract-documents", contractId],
@@ -252,6 +257,25 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
       // Odmowa usunięcia nie może kończyć się ciszą (audyt 24.09, N10).
       setError(apiErrorMessage(err, "Nie udało się usunąć pliku."));
     }
+  };
+
+  const openRedline = (item: DocItem) => {
+    if (item.row.kind !== "doc") return;
+    const doc = item.row.doc;
+    setRedline({
+      target: { kind: "contract-document", contractId, documentId: doc.id, name: doc.filename, docType: doc.doc_type },
+      title: doc.filename,
+    });
+  };
+
+  const openRedlineFromDisk = (file: File | undefined) => {
+    if (!file) return;
+    if (!isDocxName(file.name)) {
+      setError("„Popraw dokument” działa na plikach Worda (DOCX). Zapisz plik jako .docx i spróbuj ponownie.");
+      return;
+    }
+    setError("");
+    setRedline({ target: { kind: "file", file, contractId, generatedId: null }, title: file.name });
   };
 
   const handleUpload = (request: UploadRequest) => {
@@ -522,6 +546,28 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
               )}
               {!readOnly && (
                 <div className="ml-auto flex items-center gap-1.5">
+                  <input
+                    ref={redlineInput}
+                    type="file"
+                    accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    className="sr-only"
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    onChange={(e) => {
+                      openRedlineFromDisk(e.target.files?.[0]);
+                      e.target.value = "";
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => redlineInput.current?.click()}
+                    title="Umowa od klienta albo nasza umowa jako DOCX ze śledzeniem zmian"
+                  >
+                    <FileDiff className="size-4" aria-hidden="true" />
+                    Popraw plik z dysku
+                  </Button>
                   <Button type="button" variant="ghost" size="sm" onClick={() => openNewFolder([])}>
                     <FolderPlus className="size-4" aria-hidden="true" />
                     Nowy folder
@@ -707,6 +753,7 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
                                 onMove={moveFiles}
                                 onNewFolder={openNewFolder}
                                 onDelete={(row) => void deleteFile(row)}
+                                onRedline={openRedline}
                                 onError={setError}
                               />
                             );
@@ -759,6 +806,19 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
         pending={uploadMutation.isPending}
         error={uploadError}
         onSubmit={handleUpload}
+      />
+      <RedlineDialog
+        open={redline !== null}
+        onOpenChange={(open) => {
+          if (!open) setRedline(null);
+        }}
+        target={redline?.target ?? null}
+        title={redline?.title ?? ""}
+        canSave={!readOnly}
+        onSaved={(filename) => {
+          refreshDocs();
+          notify(`Zapisano „${filename}” w Dokumentach`);
+        }}
       />
       {confirmDialog}
     </div>
