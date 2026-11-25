@@ -1,5 +1,5 @@
 # Rozliczenia: akceptacja kosztów delegacji i koszt z dwóch stawek w miesiącu
-<!-- indeks: travel.rcp_costs zdejmuje akceptacja klienta (RCP podpisany certyfikatem z domeny klienta albo mail z kwotą lub pozycjami jak w RCP), travel_acceptance.py, rate_split.py, Stawka kontraktora: podział kosztu według godzin z RCP dzień po dniu, pierwszy krok i ta sama stawka to nie zmiana, przychód bez podziału -->
+<!-- indeks: travel.rcp_costs zdejmuje akceptacja klienta (RCP podpisany certyfikatem z domeny klienta albo mail z kwotą lub pozycjami jak w RCP), travel_acceptance.py, rate_split.py, Stawka kontraktora: podział kosztu według godzin z RCP dzień po dniu, pierwszy krok i ta sama stawka to nie zmiana, przychód bez podziału, linia zamówienia zbiorczego z inną stawką niż kontrakt na cały miesiąc: koszt z kontraktu (_contract_cost) -->
 
 Próba rozliczeń IX–X 2026 (powtórka 7). Dwie luki trzymały u człowieka
 rozliczenia z MD zgodnymi z fakturą Finansów.
@@ -72,6 +72,54 @@ w próbie była równa podziałowi co do złotówki.
 - **Przychód się nie dzieli.** Stawka klienta liczy się stawką z pierwszego dnia
   miesiąca (`order_revenue_steps`, decyzja Artura z 16.11.2026). W IX–X 2026 żadna
   faktura sprzedaży nie miała dwóch stawek w miesiącu.
+
+## Linia zbiorcza ze stawką inną niż kontrakt przez cały miesiąc
+
+Stawkę linii zamówienia zbiorczego prowadzi Delivery Lead, a synchronizacja
+kontrakt → zamówienie jej nie zmienia (`contract_order_sync`, `order_cost_steps`).
+W próbie IX–X dwie linie rozjechały się z harmonogramem kontraktu:
+- jedna została przy stawce sprzed aneksu, więc cały miesiąc po zmianie miał za
+  niski koszt; faktura kontraktora była równa stawce z kontraktu;
+- druga dostała stawkę aneksu od 01.11 już 19.11, a przeliczenie IX i X liczyło
+  ją wstecz.
+
+Wszystkie trzy rozliczenia miały stan „ok” bez uwagi.
+
+- **Koszt idzie z kontraktu** (decyzja Artura z 25.11.2026, `service._contract_cost`).
+  Warunki:
+  - linia ma `order_group_id` i stawkę kosztu;
+  - przez cały miesiąc obowiązuje jedna stawka z harmonogramu kontraktu
+    (`contract_candidate_rates`, krok jak w `Contract.effective_candidate_rate`).
+    Zmiana od 1. dnia miesiąca też jest jedną stawką;
+  - kontrakt jest w zł, ze stawką godzinową albo dzienną (1 MD = 8 h,
+    `convert_order_rate`);
+  - stawki różnią się o co najmniej grosz.
+- Kontraktor fakturuje według kontraktu, więc z tej stawki liczą się dni zwykłe,
+  praca dodatkowa i MD ponad pulę. Przychód, stawka linii i stan rozliczenia
+  zostają bez zmian. Karta ma w grupie „Stawka kontraktora” wpis „Koszt ze stawki
+  kontraktu” z obiema stawkami. Linię poprawia Delivery Lead z raportu „Rozjazdy
+  stawek” (`rozjazdy-stawek-kontrakt-zamowienie.md`).
+- Kontrola faktury kontraktora z KSeF porównuje kwotę z tym kosztem, więc zły
+  harmonogram wyjdzie przy fakturze.
+- **Poza tą regułą:**
+  - zmiana w trakcie miesiąca (podział kosztu wyżej);
+  - zwykłe zamówienie, które ma części kosztu z harmonogramu;
+  - podział na zamówienia z maila, bo każda część ma stawkę swojej linii;
+  - kontrakt miesięczny, bo stawka nie mówi, ile kosztuje dzień w miesiącu
+    innym niż 21 dni;
+  - waluta obca, bo linia trzyma koszt w zł po kursie, a bez kursu stawek się
+    nie porówna;
+  - linia bez stawki kosztu;
+  - kontrakt bez harmonogramu. Sama kolumna `rate_candidate` bywa stawką z innej
+    jednostki: test KEŚU miał kontrakt przestawiony na godzinowy z kwotą miesięczną
+    i dostawał 96 000 zł/MD. Linia jest wtedy pewniejsza.
+- Pomiar na klonie kopii produkcji (369 rozliczeń IX–X, `main` kontra gałąź,
+  w transakcji z ROLLBACK): zmieniły się dokładnie 3 rozliczenia, wyłącznie koszt
+  i linia „Dni zwykłe”. Stan i przychód zostały. Jedno ma teraz koszt równy fakturze
+  kontraktora (wcześniej był za niski). Dwa mają koszt niższy, bo linię ustawiono
+  na stawkę z późniejszego aneksu; ich faktur kontraktora nie ma w NEXUS-ie.
+- Test: `test_client_settlements_contract_cost.py` (bez bazy) i dwa przypadki
+  w `test_client_settlements_rate_change_db.py`.
 
 ## Pomiar (klon kopii produkcji z nocy 23/24.11, przeliczenie IX–X w transakcji z ROLLBACK)
 

@@ -15,5 +15,8 @@ linii prowadzi Delivery Lead. Marża i MRR liczą się jednak z kontraktu, więc
   Finanse szukają po osobie, kliencie, kwocie i miesiącu. Link do karty klienta jest tylko w adresie.
 - Różnica do 4 zł/MD przy kontrakcie godzinowym to zaokrąglenie (945 zł/MD to 118,125 zł/h, a kontrakt ma 118). Idzie na koniec
   listy, z etykietą, ale nie znika.
+- Rozliczenie klienta (Finanse → Rozliczenia) od 25.11.2026 liczy koszt takiej linii ze stawki
+  kontraktu, gdy jedna stawka obowiązuje przez cały miesiąc
+  (`rozliczenia-delegacje-i-zmiana-stawki-w-miesiacu.md`). Linia i przychód zostają, więc raport dalej jest potrzebny.
 - Raport **nic nie poprawia**. Zmiana źródła stawki (linia zamówienia jako jedyne źródło dla marży i MRR) to osobne, wielotygodniowe
   zadanie: dotyka `_compute_monthly_margin`, MRR, widoków jednoosobowych i eksportów.
