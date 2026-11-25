@@ -2653,14 +2653,18 @@ async def list_candidate_cv_sources(db: AsyncSession, candidate_id: int) -> list
         raise StandaloneGenerationError(
             code="candidate_not_found", message="Konsultant nie istnieje."
         )
-    from app.services.cv_source import current_cv_ordering
+    from app.services.cv_source import chosen_cv_filters_for, current_cv_ordering
 
+    # 25.11.2026 (decyzja Artura): bez plików nieaktualnych i z kwarantanny
+    # tożsamości. Automat bierze pierwszy plik listy, a front zaznacza go domyślnie;
+    # bez tego plik innej osoby wygrywał jako najnowszy.
     rows = (
         await db.scalars(
             select(CandidateDocument)
             .where(
                 CandidateDocument.candidate_id == candidate_id,
                 _supported_cv_doc_filter(),
+                *await chosen_cv_filters_for(db, candidate_id),
             )
             .order_by(*current_cv_ordering())
         )
@@ -2732,7 +2736,11 @@ async def load_candidate_generation_source(
 
     client = await db.get(Client, client_id) if client_id else None
     # ── 1. CV file ────────────────────────────────────────────────────────
-    from app.services.cv_source import current_cv_filters_for, current_cv_ordering
+    from app.services.cv_source import (
+        chosen_cv_filters_for,
+        current_cv_filters_for,
+        current_cv_ordering,
+    )
 
     cv_doc_q = (
         select(CandidateDocument)
@@ -2748,7 +2756,12 @@ async def load_candidate_generation_source(
         .limit(1)
     )
     if cv_document_id is not None:
-        cv_doc_q = cv_doc_q.where(CandidateDocument.id == cv_document_id)
+        # 25.11.2026: plik wskazany przez rekrutera nieaktualny albo z kwarantanny
+        # daje „Wybrane CV nie jest dostępne”, a nie CV innej osoby.
+        cv_doc_q = cv_doc_q.where(
+            CandidateDocument.id == cv_document_id,
+            *await chosen_cv_filters_for(db, candidate_id),
+        )
     else:
         # Wybór domyślny (bez pliku wskazanego przez rekrutera) tą samą regułą
         # co migawka oryginału CV (R9-N7-11).

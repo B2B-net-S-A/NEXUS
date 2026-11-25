@@ -66,6 +66,13 @@ def current_cv_filters() -> tuple:
     """
     return (
         CandidateDocument.document_kind.notin_(_NOT_CV_KINDS),
+        *_live_own_file_filters(),
+    )
+
+
+def _live_own_file_filters() -> tuple:
+    """Plik jest w profilu, aktualny i nie jest w kwarantannie tożsamości."""
+    return (
         CandidateDocument.source_deleted_at.is_(None),
         CandidateDocument.outdated_at.is_(None),
         source_is_eligible_clause(
@@ -156,7 +163,7 @@ async def quarantined_copy_sources(
             select(*columns).where(
                 CandidateDocument.candidate_id == candidate_id,
                 CandidateDocument.id.notin_(own_verdict),
-                *current_cv_filters(),
+                *_live_own_file_filters(),
             )
         )
     ).all()
@@ -184,10 +191,24 @@ async def quarantined_copy_document_ids(
 
 async def current_cv_filters_for(db: AsyncSession, candidate_id: int) -> tuple:
     """`current_cv_filters` jednej osoby, bez kopii jej plików z kwarantanny."""
+    return (
+        CandidateDocument.document_kind.notin_(_NOT_CV_KINDS),
+        *await chosen_cv_filters_for(db, candidate_id),
+    )
+
+
+async def chosen_cv_filters_for(db: AsyncSession, candidate_id: int) -> tuple:
+    """Plik, który rekruter może wskazać generatorowi CV (25.11.2026).
+
+    Lista plików generatora i jawnie wybrany plik: bez nieaktualnych, bez plików
+    z kwarantanny tożsamości i ich kopii (`plik-zrodlowy-generatora-przez-bramke-
+    biezacego-cv.md`). Rodzaju pliku nie sprawdza: wskazanie jest świadome, a import
+    Traffita i wgrania bywają źle sklasyfikowane (R9-N7-11).
+    """
     copies = await quarantined_copy_document_ids(db, candidate_id)
     if not copies:
-        return current_cv_filters()
-    return (*current_cv_filters(), CandidateDocument.id.notin_(copies))
+        return _live_own_file_filters()
+    return (*_live_own_file_filters(), CandidateDocument.id.notin_(copies))
 
 
 async def _legacy_cv_quarantined(db: AsyncSession, candidate_id: int) -> bool:
