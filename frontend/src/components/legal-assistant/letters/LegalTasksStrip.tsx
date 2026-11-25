@@ -60,11 +60,11 @@ export function LegalTasksList({ tasks, onDismiss, dismissing, onAction }: Legal
               <span className="text-[11px] text-muted-foreground">Asystent prawny</span>
               <div className="flex shrink-0 items-center gap-1.5">
                 {onAction ? (
-                  <Button size="sm" variant="outline" className="h-7 text-[12px]" onClick={() => onAction(task)}>
+                  <Button size="sm" variant="outline" className="h-7 text-[12px]" onClick={() => onAction(task)} data-tour="legal-tasks.action">
                     {task.action_label}
                   </Button>
                 ) : (
-                  <Button asChild size="sm" variant="outline" className="h-7 text-[12px]">
+                  <Button asChild size="sm" variant="outline" className="h-7 text-[12px]" data-tour="legal-tasks.action">
                     <Link href={task.href}>{task.action_label}</Link>
                   </Button>
                 )}

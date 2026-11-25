@@ -172,7 +172,7 @@ export function LetterPanelView(props: LetterPanelViewProps) {
             {warning.message}
             {showQuestion && (
               <div className="mt-2 flex flex-wrap gap-1.5">
-                <Button size="sm" variant="outline" className="h-7 bg-background" onClick={props.onConfirmOriginal}>
+                <Button size="sm" variant="outline" className="h-7 bg-background" onClick={props.onConfirmOriginal} data-tour="legal-letter.confirm-original">
                   To oryginał / podpis kwalifikowany
                 </Button>
                 <Button size="sm" variant="ghost" className="h-7" onClick={props.onSwitchToAgreement}>
@@ -259,7 +259,7 @@ export function LetterPanelView(props: LetterPanelViewProps) {
         )}
 
         {checks.length > 0 && (
-          <section aria-label="Cytaty" className="space-y-1">
+          <section aria-label="Cytaty" className="space-y-1" data-tour="legal-letter.citations">
             <h3 className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Cytaty</h3>
             <ul className="space-y-1">
               {checks.map((check, i) => (
@@ -296,6 +296,7 @@ export function LetterPanelView(props: LetterPanelViewProps) {
           onClick={props.onApprove}
           disabled={!draft || approved || !approval?.canApprove || busy !== null}
           loading={busy === "approve"}
+          data-tour="legal-letter.approve"
           title={approval?.reason ?? undefined}
         >
           <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> {approved ? "Zatwierdzone" : "Zatwierdzam"}
