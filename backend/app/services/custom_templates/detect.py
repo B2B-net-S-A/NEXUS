@@ -37,7 +37,7 @@ from app.services.custom_templates.docx_ops import (
     sub_para,
 )
 from app.services.custom_templates.fields import CustomField
-from app.services.custom_templates.sandbox import discover
+from app.services.custom_templates.sandbox import check_package, discover
 
 #: Luka do wypełnienia. Pojedynczy „…” w prozie („(…)”) to wielokropek, nie pole.
 BLANK = re.compile(r"_{3,}|(?:…\s?){2,}|\.{4,}|\[(?!\s)[^\[\]{}]{2,40}\]")
@@ -234,6 +234,7 @@ def _fill_gender(p: Paragraph, state: _State) -> None:
 
 def detect(data: bytes, *, title: str = "Wzór własny") -> Detection:
     """Wgrany Word → szablon i lista pól. ``ValueError`` = plik nie do otwarcia."""
+    check_package(data)  # zip bomb przed python-docx (``DocxTooLarge`` to ValueError)
     try:
         document = docx.Document(io.BytesIO(data))
     except Exception as exc:  # noqa: BLE001 — plik od człowieka

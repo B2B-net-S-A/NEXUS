@@ -29,7 +29,6 @@ from app.services.ai_models import fallbacks_for, model_for
 from app.services.legal_redline.foundation import (
     Entity,
     SourcePassage,
-    detect_entities,
     mask,
     search_law,
     unmask,
@@ -50,7 +49,10 @@ ProposalStatus = Literal["ok", "failed", "off", "no_instruction", "too_long"]
 DOCUMENT_REF = "dokument"
 MAX_DOCUMENT_CHARS = 120_000
 MAX_CHANGES = 40
-_MARKER = re.compile(r"\[[A-Z_]+(?:_\d+)?\]")
+_MARKER = re.compile(r"\[[A-ZĄĆĘŁŃÓŚŹŻ_]+(?:_\d+)?\]")
+#: Separator części jednej maski (znak spoza XML 1.0 — nie stoi w tekście DOCX).
+_JOINER_CHAR = "\x1e"
+_JOINER = f"\n{_JOINER_CHAR}\n"
 
 PROMPT = """Jesteś prawnikiem polskiej firmy IT, która zawiera umowy B2B z kontraktorami \
 i umowy z klientami. Poprawiasz dokument według polecenia użytkownika.
@@ -242,8 +244,6 @@ async def propose(
     document = _document_block(paragraphs)
     if len(document) > MAX_DOCUMENT_CHARS:
         return Proposal(status="too_long")
-    all_entities = [*entities, *detect_entities(document)]
-    masked_document, mapping = mask(document, all_entities)
     law = await search_law(db, instruction)
     passages = [
         SourcePassage(
@@ -252,17 +252,19 @@ async def propose(
         *law,
         *(extra_passages or []),
     ]
-    masked_passages = [
-        SourcePassage(
-            kind=p.kind,
-            ref=p.ref,
-            text=mask(p.text, all_entities)[0],
-            url=p.url,
-            label=p.label,
-        )
-        for p in passages
+    # Jedna maska dla polecenia, dokumentu i źródeł: ta sama osoba ma wszędzie
+    # ten sam znacznik, a polecenie (często z nazwiskiem) też nie idzie jawnie.
+    parts = [
+        part.replace(_JOINER_CHAR, " ")
+        for part in (instruction, document, *(p.text for p in passages[1:]))
     ]
-    messages = build_messages(instruction, masked_document, masked_passages)
+    masked_all, mapping = mask(_JOINER.join(parts), entities)
+    pieces = masked_all.split(_JOINER)
+    masked_instruction, masked_document = pieces[0], pieces[1]
+    masked_passages = [
+        replace(p, text=text) for p, text in zip(passages[1:], pieces[2:])
+    ]
+    messages = build_messages(masked_instruction, masked_document, masked_passages)
     try:
         async with ai_feature(db, AIFeatureKey.legal_redline, user_id=user_id):
             await db.commit()  # połączenie wraca do puli na czas modelu

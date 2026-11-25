@@ -19,9 +19,10 @@ Reguła: ``docs/claude/asystent-prawny/popraw-dokument-docx-ze-sledzeniem-zmian.
 
 import hashlib
 import json
+import re
 from dataclasses import replace
 from pathlib import PurePath
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -38,15 +39,15 @@ from app.api.permission_access import AmountsViewUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.scheduling import local_now
-from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract
 from app.models.contract_document import ContractDocument
 from app.models.user import User
 from app.services import storage_service
 from app.services.legal_redline import proposals
-from app.services.legal_redline.diff import diff_texts
+from app.services.legal_redline.diff import DiffTooLarge, diff_texts
 from app.services.legal_redline.docx_io import load_package, read_paragraphs
+from app.services.legal.pseudonymize import partner_entities
 from app.services.legal_redline.foundation import Entity, SourcePassage, verify_sources
 from app.services.legal_redline.model import (
     ChangeSource,
@@ -194,25 +195,29 @@ class _Source:
         )
 
 
-def _entity(tag: str, value: Optional[str]) -> list[Entity]:
-    return [Entity(tag, value.strip())] if value and value.strip() else []
+def _client_entities(name: Optional[str]) -> list[Entity]:
+    return [Entity("KLIENT", name.strip())] if name and name.strip() else []
 
 
 async def _contract_entities(db: AsyncSession, contract: Contract) -> list[Entity]:
-    out: list[Entity] = []
-    if contract.candidate_id:
-        person = await db.get(Candidate, contract.candidate_id)
-        if person is not None:
-            full = " ".join(p for p in (person.name, person.lastname) if p)
-            out += _entity("PARTNER", full)
-            out += _entity("PARTNER_NAZWISKO", person.lastname)
-            out += _entity("EMAIL", person.email)
-            out += _entity("TELEFON", person.phone)
+    """Partner kontraktu (umowa z Generatora, a bez niej karta osoby) i klient."""
+    from app.services.trainings.agreement import partner_from_contract  # noqa: PLC0415
+
+    out = partner_entities(await partner_from_contract(db, contract.id))
     if contract.client_id:
         client = await db.get(Client, contract.client_id)
         if client is not None:
-            out += _entity("KLIENT", client.name)
+            out += _client_entities(client.legal_name)
+            out += _client_entities(client.name)
     return out
+
+
+def generated_entities(row: Any) -> list[Entity]:
+    """Dane z wiersza rejestru Generatora (``render_payload``, potem kolumny)."""
+    from app.services.trainings.agreement import partner_from_sources  # noqa: PLC0415
+
+    partner = partner_from_sources(contract=None, generated=row)
+    return partner_entities(partner) + _client_entities(row.client_name)
 
 
 def _docx_name(name: Optional[str]) -> str:
@@ -242,10 +247,7 @@ async def _load_source(
         entities += await _contract_entities(db, contract)
     if generated_id is not None:
         row = await _load_generated_for_download(db, current_user, generated_id)
-        entities += _entity("PARTNER", row.partner_name)
-        entities += _entity("FIRMA_PARTNERA", row.partner_legal_name)
-        entities += _entity("NIP", row.partner_nip)
-        entities += _entity("KLIENT", row.client_name)
+        entities += generated_entities(row)
     if contract is None and generated_id is None:
         raise HTTPException(
             status_code=422,
@@ -338,7 +340,13 @@ async def propose_redline(
     paragraphs_out = [ParagraphOut(**p.__dict__) for p in paragraphs]
 
     if new_text is not None:
-        changes = diff_texts([p.text for p in paragraphs], new_text)
+        try:
+            # Porównanie to czysty CPU — w wątku, żeby nie stawało pętli zdarzeń.
+            changes = await run_in_threadpool(
+                diff_texts, [p.text for p in paragraphs], new_text
+            )
+        except DiffTooLarge as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
         return RedlineOut(
             source=source_out,
             paragraphs=paragraphs_out,
@@ -371,6 +379,10 @@ async def propose_redline(
     )
 
 
+#: Znaki spoza XML 1.0 (``\x00``, ``\x0b`` …): lxml nie zapisze ich w DOCX.
+_XML_FORBIDDEN = re.compile("[^\t\n\r\x20-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
+
+
 def _parse_changes(raw: str) -> list[ChangeIO]:
     try:
         items = json.loads(raw)
@@ -383,9 +395,18 @@ def _parse_changes(raw: str) -> list[ChangeIO]:
             status_code=422, detail=f"Lista zmian: najwyżej {MAX_CHANGES} pozycji."
         )
     try:
-        return [ChangeIO.model_validate(item) for item in items]
+        parsed = [ChangeIO.model_validate(item) for item in items]
     except ValidationError:
         raise HTTPException(status_code=422, detail="Lista zmian ma złe pola.")
+    for change in parsed:
+        texts = [change.new_text, change.find, change.reason]
+        texts += [t for s in change.sources for t in (s.quote, s.label, s.ref)]
+        if any(_XML_FORBIDDEN.search(t) for t in texts):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Zmiana {change.id} ma niedozwolone znaki sterujące — usuń je z tekstu.",
+            )
+    return parsed
 
 
 OUTPUT_SUFFIX = " — poprawki asystenta"

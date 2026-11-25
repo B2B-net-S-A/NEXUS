@@ -94,3 +94,12 @@ def test_value_ending_with_a_dot_does_not_double_the_full_stop() -> None:
     assert unmask(text, mapping) == (
         "Umowa rozwiązuje się z dniem 31 stycznia 2027 r. Adresat: Jan Testowy."
     )
+
+
+def test_email_with_the_surname_is_masked_whole():
+    # Przegląd 25.11: maska nazwiska rozcinała adres („jan.[PARTNER]@example.com”).
+    masked, mapping = mask(
+        "Kontakt: jan.testowy@example.com.", [Entity("PARTNER", "Jan Testowy", inflect=True)]
+    )
+    assert "example.com" not in masked and "testowy" not in masked.lower()
+    assert unmask(masked, mapping) == "Kontakt: jan.testowy@example.com."

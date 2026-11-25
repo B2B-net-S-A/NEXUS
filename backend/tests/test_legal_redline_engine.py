@@ -387,3 +387,41 @@ def test_diff_keeps_line_breaks_inside_a_paragraph():
     sent = "\n".join(p.replace("\n", " ") for p in old).replace("14 dni", "21 dni")
     changes = diff_texts(old, sent)
     assert [(c.kind, c.paragraph, c.find, c.new_text) for c in changes] == [("replace", 1, "14", "21")]
+
+
+# ── koszt porównania (przegląd bezpieczeństwa 25.11) ────────────────────────
+
+
+def test_repetitive_8000_token_paragraph_diffs_fast():
+    import time
+
+    old = ["a " * 4000]
+    new = "a b " * 2000
+    started = time.monotonic()
+    changes = diff_texts(old, new)
+    assert time.monotonic() - started < 1.0
+    assert changes and all(c.kind == "replace" for c in changes)
+
+
+def test_many_identical_paragraphs_diff_fast():
+    import time
+
+    started = time.monotonic()
+    diff_texts(["a"] * 3000, "\n".join(["a", "b"] * 1500))
+    assert time.monotonic() - started < 1.0
+
+
+def test_too_many_paragraphs_is_a_clear_error():
+    import pytest
+
+    from app.services.legal_redline.diff import MAX_PARAGRAPHS, DiffTooLarge
+
+    with pytest.raises(DiffTooLarge, match="akapitów"):
+        diff_texts(["a"], "x\n" * (MAX_PARAGRAPHS + 1))
+
+
+def test_long_paragraph_edit_stays_a_small_change():
+    """Ponad limit słów nadal widać małą zmianę (wspólny początek i koniec)."""
+    base = " ".join(f"słowo{i}" for i in range(800))
+    changes = diff_texts([base], base.replace("słowo400", "zmiana"))
+    assert [(c.find, c.new_text) for c in changes] == [("słowo400", "zmiana")]

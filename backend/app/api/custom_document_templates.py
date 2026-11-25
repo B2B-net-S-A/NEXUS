@@ -129,6 +129,10 @@ async def _read_docx(file: UploadFile) -> bytes:
     data = await file.read(sandbox.MAX_DOCX_BYTES + 1)
     if len(data) > sandbox.MAX_DOCX_BYTES:
         raise HTTPException(status_code=413, detail="Plik Word jest większy niż 5 MB.")
+    try:
+        sandbox.check_package(data)
+    except sandbox.DocxTooLarge as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return data
 
 
@@ -797,12 +801,19 @@ async def _subject(
             raise HTTPException(status_code=422, detail="Klienta nie ma w NEXUSIE.")
         await _assert_generator_client_access(db, user, client.id, write=True)
         links["client_id"] = client.id
-    if not svc.offered_to(version, links["client_id"]):
+    _assert_offered(version, links["client_id"])
+    return links
+
+
+def _assert_offered(
+    version: CustomDocumentTemplateVersion, client_id: Optional[int]
+) -> None:
+    """Wzór „dla wybranych klientów” tylko dla nich — także podgląd i prefill."""
+    if not svc.offered_to(version, client_id):
         raise HTTPException(
             status_code=422,
             detail="Ten wzór jest tylko dla wybranych klientów — wskaż jednego z nich.",
         )
-    return links
 
 
 @router.get("/custom-templates/{template_id}/prefill")
@@ -831,6 +842,7 @@ async def custom_document_prefill(
             )
         job = await _load_legal_scoped_job(db, current_user, job_id, write=True)
         await _validate_candidate_job_link(db, candidate_id=candidate_id, job_id=job.id)
+        _assert_offered(version, job.client_id)
         candidate = await db.get(Candidate, candidate_id)
         if candidate is not None:
             full = f"{candidate.name or ''} {candidate.lastname or ''}".strip()
@@ -857,8 +869,10 @@ async def custom_document_preview(
     current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Podgląd HTML wypełnionego dokumentu — niczego nie zapisuje."""
+    """Podgląd HTML wypełnionego dokumentu — niczego nie zapisuje. Te same
+    bramki osoby i klienta co wystawienie (wzór dla wybranych klientów)."""
     _, version = await _issuable(db, current_user, template_id)
+    await _subject(db, current_user, version, request)
     fields = svc.fields_of(version)
 
     def _html() -> str:

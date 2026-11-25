@@ -18,6 +18,7 @@ kodem zaufanym jak wzory z repo. Dwie warstwy:
 from __future__ import annotations
 
 import io
+import zipfile
 from dataclasses import dataclass, field
 
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
@@ -34,7 +35,15 @@ from app.services.custom_templates.fields import (
 )
 
 MAX_DOCX_BYTES = 5 * 1024 * 1024
+#: Limity po rozpakowaniu (wzór: ``legal_redline.docx_io.load_package``):
+#: 5 MB ZIP-a z zerami rozpakowuje się do gigabajtów (zip bomb).
+MAX_UNZIPPED_BYTES = 80 * 1024 * 1024
+MAX_PART_BYTES = 40 * 1024 * 1024
+MAX_ZIP_ENTRIES = 1000
 MAX_SOURCE_CHARS = 3_000_000
+#: Łączny wynik renderu wszystkich części (XML Worda). Jedna pętla po liście
+#: (najwyżej ``fields.MAX_LIST_ITEMS`` pozycji) w zwykłym wzorze daje ułamek tego.
+MAX_RENDER_CHARS = 8_000_000
 
 ALLOWED_FILTERS: frozenset[str] = frozenset(
     {"upper", "lower", "capitalize", "title", "trim", "default", "join", "length"}
@@ -76,6 +85,57 @@ class Validation:
         return [f.label for f in fields if f.key not in used]
 
 
+class RenderTooLarge(TemplateInvalid):
+    """Wynik renderu przekroczył ``MAX_RENDER_CHARS`` — render przerwany."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            [
+                "Wynik wzoru jest za duży (ponad "
+                f"{MAX_RENDER_CHARS // 1_000_000} mln znaków) — skróć listy albo treść wzoru."
+            ]
+        )
+
+
+class DocxTooLarge(ValueError):
+    """Plik Word nie mieści się w limitach (spakowany albo po rozpakowaniu)."""
+
+
+def check_package(docx_bytes: bytes) -> None:
+    """Rozmiar pliku, liczba części i rozmiar każdej części po rozpakowaniu —
+    przed ``DocxTemplate``/``docx.Document``. Rozmiar z nagłówka ZIP-a jest
+    wiążący: ``zipfile`` nie odda więcej bajtów, niż deklaruje część."""
+    if len(docx_bytes) > MAX_DOCX_BYTES:
+        raise DocxTooLarge("Plik Word jest większy niż 5 MB.")
+    try:
+        with zipfile.ZipFile(io.BytesIO(docx_bytes)) as archive:
+            infos = archive.infolist()
+    except (zipfile.BadZipFile, ValueError) as exc:
+        raise DocxTooLarge("Nie udało się otworzyć pliku Word (.docx).") from exc
+    if len(infos) > MAX_ZIP_ENTRIES:
+        raise DocxTooLarge("Plik Word ma za dużo części.")
+    if any(info.file_size > MAX_PART_BYTES for info in infos):
+        raise DocxTooLarge("Część pliku Word jest za duża po rozpakowaniu.")
+    if sum(info.file_size for info in infos) > MAX_UNZIPPED_BYTES:
+        raise DocxTooLarge("Plik Word jest za duży po rozpakowaniu.")
+
+
+class _BoundedTemplate(SandboxedEnvironment.template_class):  # type: ignore[misc,valid-type]
+    """Render kawałkami z licznikiem wspólnym dla wszystkich części pliku:
+    po przekroczeniu limitu przerywa, zanim wynik zajmie pamięć procesu."""
+
+    def render(self, *args: object, **kwargs: object) -> str:
+        budget = getattr(self.environment, "render_budget", None)
+        out: list[str] = []
+        for chunk in self.generate(*args, **kwargs):
+            if budget is not None:
+                budget[0] -= len(chunk)
+                if budget[0] < 0:
+                    raise RenderTooLarge()
+            out.append(chunk)
+        return "".join(out)
+
+
 def _env() -> SandboxedEnvironment:
     env = SandboxedEnvironment(
         autoescape=True,
@@ -87,11 +147,14 @@ def _env() -> SandboxedEnvironment:
     env.filters = {k: v for k, v in env.filters.items() if k in ALLOWED_FILTERS}
     env.tests = {k: v for k, v in env.tests.items() if k in ALLOWED_TESTS}
     env.globals = {}
+    env.template_class = _BoundedTemplate
+    env.render_budget = [MAX_RENDER_CHARS]  # type: ignore[attr-defined]
     return env
 
 
 def template_sources(docx_bytes: bytes) -> list[tuple[str, str]]:
     """Źródło Jinja każdej części, którą docxtpl renderuje: ``(część, źródło)``."""
+    check_package(docx_bytes)
     tpl = DocxTemplate(io.BytesIO(docx_bytes))
     tpl.init_docx()
     out: list[tuple[str, str]] = [("treść", tpl.patch_xml(tpl.get_xml()))]
@@ -277,6 +340,14 @@ class _Checker:
             self.stmts(node.else_, scope)
             return
         if isinstance(node, nodes.For):
+            if "loop" in scope:
+                # Pętla w pętli mnoży wynik (30 pozycji do potęgi głębokości):
+                # cztery poziomy to setki tysięcy akapitów z jednego wzoru.
+                self.problem(
+                    node,
+                    "Pętla w pętli jest niedozwolona — wzór może mieć tylko jeden poziom „for”",
+                )
+                return
             if node.recursive or node.test is not None:
                 self.problem(node, "Pętla rekurencyjna albo z warunkiem niedozwolona")
             if not isinstance(node.target, nodes.Name):
@@ -335,10 +406,10 @@ def discover(docx_bytes: bytes) -> Validation:
 def validate(docx_bytes: bytes, fields: list[CustomField]) -> Validation:
     """Walidacja całego pliku. Plik, którego nie da się otworzyć, też jest
     problemem (a nie wyjątkiem) — człowiek widzi komunikat przy wzorze."""
-    if len(docx_bytes) > MAX_DOCX_BYTES:
-        return Validation(problems=["Plik Word jest większy niż 5 MB."])
     try:
         sources = template_sources(docx_bytes)
+    except DocxTooLarge as exc:
+        return Validation(problems=[str(exc)])
     except Exception:  # noqa: BLE001 — uszkodzony plik od człowieka
         return Validation(problems=["Nie udało się otworzyć pliku Word (.docx)."])
     return validate_sources(sources, fields)
@@ -357,6 +428,7 @@ def render(
     if check.problems:
         raise TemplateInvalid(check.problems)
     context = build_context(fields, values, language=language)
+    check_package(docx_bytes)
     tpl = DocxTemplate(io.BytesIO(docx_bytes))
     tpl.render(context, jinja_env=_env(), autoescape=True)
     # Plik idzie do Partnera: bez autora z wgranego Worda.

@@ -9,6 +9,7 @@ przy zapisie (walidacja) i przy renderze (sandbox), a to, co liczy kod
 from __future__ import annotations
 
 import io
+import zipfile
 from pathlib import Path
 
 import docx
@@ -224,3 +225,108 @@ def test_training_base_yields_valid_field_list_and_renders_sample() -> None:
     text = _text(out)
     assert "Jan Przykładowy" in text or "Janem Przykładowym" in text
     assert "{{" not in text and "{%" not in text
+
+
+# ── Pętle i rozmiar wyniku (przegląd bezpieczeństwa 25.11) ─────────────────
+
+LISTS = [
+    CustomField(
+        key=f"l{n}",
+        label=f"Lista {n}",
+        kind="list",
+        item_keys=(ItemKey("text", "Treść"),),
+    )
+    for n in range(1, 5)
+]
+
+
+@pytest.mark.parametrize("depth", [2, 4])
+def test_nested_loops_are_rejected(depth: int) -> None:
+    opening = "".join(f"{{% for x{n} in l{n} %}}" for n in range(1, depth + 1))
+    closing = "{% endfor %}" * depth
+    check = sandbox.validate(_docx(f"{opening}{{{{ x1.text }}}}{closing}"), LISTS)
+    assert any("Pętla w pętli" in p for p in check.problems)
+
+
+def test_loop_nested_under_if_is_rejected_too() -> None:
+    source = "{% for a in l1 %}{% if a.text %}{% for b in l2 %}x{% endfor %}{% endif %}{% endfor %}"
+    assert sandbox.validate(_docx(source), LISTS).problems
+
+
+def test_single_loop_and_sibling_loops_pass() -> None:
+    source = (
+        "{% for a in l1 %}{{ a.text }}{% endfor %} "
+        "{% for b in l2 %}{{ b.text }}{% endfor %}"
+    )
+    assert sandbox.validate(_docx(source), LISTS).problems == []
+
+
+def test_render_stops_when_output_is_too_large(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sandbox, "MAX_RENDER_CHARS", 200_000)
+    body = "Treść " * 2000
+    data = _docx("{%p for a in l1 %}", body + "{{ a.text }}", "{%p endfor %}")
+    items = [{"text": str(n)} for n in range(30)]
+    with pytest.raises(sandbox.RenderTooLarge) as exc:
+        sandbox.render(data, LISTS, {"l1": items})
+    assert "za duży" in exc.value.problems[0]
+    # Ten sam wzór z dwiema pozycjami mieści się w limicie.
+    assert "Treść" in _text(sandbox.render(data, LISTS, {"l1": items[:2]}))
+
+
+# ── Zip bomb (przegląd bezpieczeństwa 25.11) ────────────────────────────────
+
+
+def _zip_bomb(part_mb: int = 400) -> bytes:
+    """Prawdziwy DOCX z dodatkową częścią ``part_mb`` MB zer (spakowaną do ~0,4 MB)."""
+    base = _docx("{{ partner.name }}")
+    out = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(base)) as src, zipfile.ZipFile(
+        out, "w", zipfile.ZIP_DEFLATED, compresslevel=1
+    ) as dst:
+        for info in src.infolist():
+            dst.writestr(info, src.read(info.filename))
+        chunk = b"\0" * (1024 * 1024)
+        with dst.open("word/media/zera.bin", "w", force_zip64=True) as part:
+            for _ in range(part_mb):
+                part.write(chunk)
+    return out.getvalue()
+
+
+def test_zip_bomb_is_rejected_before_python_docx() -> None:
+    bomb = _zip_bomb()
+    assert len(bomb) < sandbox.MAX_DOCX_BYTES
+    with pytest.raises(sandbox.DocxTooLarge) as exc:
+        sandbox.check_package(bomb)
+    assert "rozpakowaniu" in str(exc.value)
+    assert any("rozpakowaniu" in p for p in sandbox.validate(bomb, FIELDS).problems)
+    with pytest.raises(sandbox.TemplateInvalid):
+        sandbox.render(bomb, FIELDS, {"partner.name": "Anna Przykładowa", "fee": "1"})
+
+
+def test_zip_bomb_upload_is_refused_with_a_message() -> None:
+    import asyncio
+
+    from fastapi import HTTPException
+    from starlette.datastructures import Headers, UploadFile
+
+    from app.api.custom_document_templates import _read_docx
+
+    upload = UploadFile(
+        io.BytesIO(_zip_bomb()),
+        filename="wzor.docx",
+        headers=Headers(
+            {
+                "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            }
+        ),
+    )
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(_read_docx(upload))
+    assert exc.value.status_code == 422 and "rozpakowaniu" in exc.value.detail
+
+
+def test_detect_refuses_zip_bomb() -> None:
+    from app.services.custom_templates.detect import detect
+
+    with pytest.raises(ValueError, match="rozpakowaniu"):
+        detect(_zip_bomb())

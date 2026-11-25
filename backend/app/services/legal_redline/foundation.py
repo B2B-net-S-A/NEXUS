@@ -1,119 +1,76 @@
 """Cienka warstwa do fundamentu asystenta prawnego (część A planu).
 
-Kontrakt z ``docs/asystent-prawny-plan.md``: pakiet ``app.services.legal``
-z ``SourcePassage``, ``pseudonymize.mask/unmask`` i ``search_provisions``.
-Część A powstaje równolegle, więc do scalenia działają tu ZAŚLEPKI o tym samym
-interfejsie (oznaczone ``ZAŚLEPKA``). Po scaleniu części A sesja główna
-podmienia je na import z ``app.services.legal`` i usuwa ten komentarz —
-reszta pakietu ``legal_redline`` korzysta wyłącznie z tego modułu.
+Cały kontakt pakietu ``legal_redline`` z fundamentem jest w tym module:
+``SourcePassage`` z ``legal.citations``, maska z ``legal.pseudonymize``
+(odmiana nazwisk, numery z cyfrą kontrolną) i przepisy z korpusu
+(``corpus.search_provisions``).
 
-Sprawdzanie cytatów zmian (``verify_sources``) jest własne i zostaje: cytat
-zmiany to dosłowny fragment źródła o danym ``ref``, a nie odwołanie w tekście,
-które rozbiera ``citations.verify`` fundamentu.
+Sprawdzanie cytatów zmian (``verify_sources``) jest własne: cytat zmiany to
+dosłowny fragment źródła o danym ``ref``, a nie odwołanie w tekście, które
+rozbiera ``citations.verify`` fundamentu.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
-from dataclasses import dataclass, replace
-from typing import Any, Literal
+from dataclasses import replace
+from typing import Any
 
+from app.services.legal.citations import SourcePassage
+from app.services.legal.pseudonymize import Entity, mask, unknown_tokens, unmask
 from app.services.legal_redline.model import ChangeSource
 
-PassageKind = Literal["law", "contract", "client", "template", "case"]
+__all__ = [
+    "Entity",
+    "SourcePassage",
+    "mask",
+    "search_law",
+    "unknown_tokens",
+    "unmask",
+    "verify_sources",
+]
 
+logger = logging.getLogger(__name__)
 
-@dataclass(frozen=True)
-class SourcePassage:
-    """ZAŚLEPKA (część A): ten sam kształt co ``app.services.legal.SourcePassage``."""
-
-    kind: PassageKind
-    ref: str
-    text: str
-    url: str | None = None
-    label: str | None = None
-
-
-@dataclass(frozen=True)
-class Entity:
-    """Dana osoby/firmy do zamaskowania: ``tag`` to znacznik bez nawiasów (``PARTNER``)."""
-
-    tag: str
-    value: str
-
-
-# ── pseudonimizacja ─────────────────────────────────────────────────────────
-
-_DETECTORS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("EMAIL", re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")),
-    ("IBAN", re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?\d{4}){4,7}\b")),
-    ("KONTO", re.compile(r"\b\d{2}(?:[ ]?\d{4}){6}\b")),
-    ("PESEL", re.compile(r"\b\d{11}\b")),
-    ("NIP", re.compile(r"\b\d{3}-?\d{3}-?\d{2}-?\d{2}\b")),
-    ("TELEFON", re.compile(r"(?<!\d)(?:\+48[ ]?)?\d{3}[ -]\d{3}[ -]\d{3}(?!\d)")),
-)
-
-
-def detect_entities(text: str) -> list[Entity]:
-    """Dane, które rozpoznaje sam kod (e-mail, konto, PESEL, NIP, telefon).
-
-    Nazwiska i nazwy firm podaje wołający (z kontraktu) — z gołego tekstu
-    umowy przysłanej przez klienta kod ich nie zgadnie.
-    """
-
-    found: list[Entity] = []
-    taken: list[tuple[int, int]] = []
-    for tag, pattern in _DETECTORS:
-        for m in pattern.finditer(text):
-            if any(s < m.end() and m.start() < e for s, e in taken):
-                continue
-            taken.append((m.start(), m.end()))
-            found.append(Entity(tag, m.group()))
-    return found
-
-
-def mask(text: str, entities: list[Entity]) -> tuple[str, dict[str, str]]:
-    """ZAŚLEPKA (część A): ``pseudonymize.mask`` — wartości → ``[TAG]``, ``[TAG_2]``…"""
-
-    mapping: dict[str, str] = {}
-    by_value: dict[str, str] = {}
-    counters: dict[str, int] = {}
-    for entity in sorted(entities, key=lambda e: len(e.value), reverse=True):
-        value = entity.value.strip()
-        if len(value) < 3 or value in by_value:
-            continue
-        counters[entity.tag] = counters.get(entity.tag, 0) + 1
-        n = counters[entity.tag]
-        marker = f"[{entity.tag}]" if n == 1 else f"[{entity.tag}_{n}]"
-        by_value[value] = marker
-        mapping[marker] = value
-    for value, marker in sorted(
-        by_value.items(), key=lambda kv: len(kv[0]), reverse=True
-    ):
-        text = text.replace(value, marker)
-    return text, mapping
-
-
-def unmask(text: str, mapping: dict[str, str]) -> str:
-    """ZAŚLEPKA (część A): ``pseudonymize.unmask``."""
-
-    for marker in sorted(mapping, key=len, reverse=True):
-        text = text.replace(marker, mapping[marker])
-    return text
-
-
-# ── źródła ──────────────────────────────────────────────────────────────────
+#: Tyle znaków przepisu idzie do modelu (art. 21 ustawy o PIT ma 120 tys.).
+LAW_PASSAGE_CHARS = 6000
 
 
 async def search_law(db: Any, query: str, *, limit: int = 8) -> list[SourcePassage]:
-    """ZAŚLEPKA (część A): ``corpus.search_provisions`` — do scalenia bez przepisów.
+    """Przepisy z korpusu do polecenia; ``ref`` niesie klucz aktu („kc art. 77 § 1”).
 
-    Bez korpusu model cytuje tylko sam dokument (i to sprawdza kod); zmiana
-    bez podstawy w przepisie ma wtedy sam powód, bez cytatu.
+    Źródła są dodatkiem: awaria wyszukiwania daje pustą listę, a model cytuje
+    wtedy tylko sam dokument (i to sprawdza kod).
     """
 
-    return []
+    from sqlalchemy.exc import SQLAlchemyError  # noqa: PLC0415
+
+    from app.services.legal import corpus  # noqa: PLC0415
+
+    try:
+        hits = await corpus.search_provisions(db, query, limit=limit)
+    except Exception as exc:  # noqa: BLE001 — źródła to dodatek
+        logger.warning(
+            "legal_redline: wyszukiwanie przepisów nieudane (%s)", type(exc).__name__
+        )
+        if isinstance(exc, SQLAlchemyError):
+            await db.rollback()
+        return []
+    from app.services.legal.assistant import allowed_passages  # noqa: PLC0415
+
+    return allowed_passages(
+        SourcePassage(
+            kind="law",
+            ref=f"{hit.act_key} {hit.ref}",
+            text=hit.text[:LAW_PASSAGE_CHARS],
+            url=hit.url,
+            label=f"{hit.ref} {hit.act_short_name} (tekst od {hit.valid_from.isoformat()})",
+            act_key=hit.act_key,
+        )
+        for hit in hits
+    )
 
 
 def _normalize(text: str) -> str:

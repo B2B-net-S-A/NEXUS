@@ -50,7 +50,10 @@ SEARCH_HITS = 6
 MAX_TOKENS = 2500
 TIMEOUT_SECONDS = 90.0
 #: Licencje LEX i Gofina: treść nigdy nie idzie do modelu (decyzja 5 planu).
-_LICENSED_HOSTS = re.compile(r"(^|//|\.)(lex\.pl|sip\.lex\.pl|gofin\.pl)(/|$)", re.I)
+#: Host z portem, zapytaniem albo fragmentem też („sip.lex.pl:443/x”, „gofin.pl#x”).
+_LICENSED_HOSTS = re.compile(
+    r"(?:^|//|\.|@)(?:lex\.pl|sip\.lex\.pl|gofin\.pl)\.?(?:[/:?#]|$)", re.I
+)
 
 _DATE_IN_TEXT = re.compile(
     r"\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b|"

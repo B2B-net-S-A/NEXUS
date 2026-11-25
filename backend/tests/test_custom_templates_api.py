@@ -354,6 +354,13 @@ async def test_withdrawn_template_is_not_offered_and_selected_clients_are_enforc
             json={"values": values, "client_id": client_id},
         )
         assert resp.status_code == status, (client_id, resp.text)
+        # Podgląd ma tę samą bramkę klienta co wystawienie (przegląd 25.11).
+        resp = await app_client.post(
+            f"{BASE}/custom-templates/{tid}/preview",
+            headers=author,
+            json={"values": values, "client_id": client_id},
+        )
+        assert resp.status_code == status, ("preview", client_id, resp.text)
 
     resp = await app_client.post(
         f"{BASE}/custom-templates/{tid}/withdraw",

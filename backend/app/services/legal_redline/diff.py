@@ -10,6 +10,7 @@ a nie przepisanym akapitem.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from difflib import SequenceMatcher
 
 from app.services.legal_redline.model import RedlineChange
@@ -19,23 +20,115 @@ _TOKEN = re.compile(r"\s+|\w+|[^\w\s]", re.UNICODE)
 # Akapity podobne co najmniej w tym stopniu traktujemy jako „ten sam, zmieniony”.
 _SAME_PARAGRAPH_RATIO = 0.5
 
+# Limity kosztu. ``SequenceMatcher`` na powtarzalnym tekście („a a a …”) jest
+# w praktyce sześcienny: 1000 tokenów to ok. 2 s, 8000 — minuty w wątku
+# serwera. Ponad limit porównanie słowami obejmuje tylko środek akapitu (bez
+# wspólnego początku i końca), a gdy i on jest za długi — środek idzie jako
+# jedna zamiana; podobieństwo akapitów liczymy wtedy szacunkiem liniowym.
+#: Najwięcej akapitów z każdej strony; ponad to ``DiffTooLarge`` (422).
+MAX_PARAGRAPHS = 3000
+#: Tokeny (słowa, odstępy, znaki) jednego akapitu porównywane ``SequenceMatcher``.
+WORD_DIFF_MAX_TOKENS = 600
+#: Łącznie w jednym porównaniu; po wyczerpaniu — zmiany całymi środkami akapitów.
+WORD_DIFF_BUDGET = 8_000
+#: Znaki pary akapitów, dla której podobieństwo liczy dokładny ``ratio``.
+EXACT_RATIO_MAX_CHARS = 300
+#: Łącznie znaków w dokładnych ``ratio``; potem już tylko szacunek.
+EXACT_RATIO_BUDGET = 60_000
+#: Par jednakowych akapitów (stary × nowy) dla dokładnego dopasowania całości;
+#: ponad to powtarzalne akapity są dla ``SequenceMatcher`` „popularne” (autojunk).
+MAX_EQUAL_PAIRS = 50_000
+#: Par akapitów sprawdzanych na „ten sam, zmieniony”; potem reszta bloku to
+#: skreślenia i wstawki całych akapitów.
+PAIR_CHECKS_BUDGET = 20_000
+
+
+class DiffTooLarge(ValueError):
+    """Tekst za duży do porównania — komunikat dla człowieka."""
+
+
+class _Budget:
+    def __init__(self) -> None:
+        self.words = WORD_DIFF_BUDGET
+        self.ratio = EXACT_RATIO_BUDGET
+        self.pairs = PAIR_CHECKS_BUDGET
+
 
 def _tokens(text: str) -> list[tuple[str, int]]:
     return [(m.group(), m.start()) for m in _TOKEN.finditer(text)]
 
 
+def _common_ends(a: list, b: list) -> tuple[int, int]:
+    """Długość wspólnego początku i końca (końca bez nakładania na początek)."""
+    limit = min(len(a), len(b))
+    head = 0
+    while head < limit and a[head] == b[head]:
+        head += 1
+    tail = 0
+    while tail < limit - head and a[-1 - tail] == b[-1 - tail]:
+        tail += 1
+    return head, tail
+
+
+def _opcodes(a: list[str], b: list[str], budget: _Budget | None) -> list[tuple]:
+    if len(a) + len(b) <= WORD_DIFF_MAX_TOKENS and (
+        budget is None or budget.words >= len(a) + len(b)
+    ):
+        if budget is not None:
+            budget.words -= len(a) + len(b)
+        return SequenceMatcher(None, a, b, autojunk=False).get_opcodes()
+    head, tail = _common_ends(a, b)
+    a_mid, b_mid = a[head : len(a) - tail], b[head : len(b) - tail]
+    size = len(a_mid) + len(b_mid)
+    if size == 0:
+        return []
+    if size <= WORD_DIFF_MAX_TOKENS and (budget is None or budget.words >= size):
+        if budget is not None:
+            budget.words -= size
+        return [
+            (tag, i1 + head, i2 + head, j1 + head, j2 + head)
+            for tag, i1, i2, j1, j2 in SequenceMatcher(
+                None, a_mid, b_mid, autojunk=False
+            ).get_opcodes()
+        ]
+    return [("replace", head, len(a) - tail, head, len(b) - tail)]
+
+
+def _paragraph_matcher(old: list[str], new: list[str]) -> SequenceMatcher:
+    """Dopasowanie akapitów; setki jednakowych akapitów (puste wiersze, „x”)
+    po obu stronach to przypadek sześcienny — wtedy ``autojunk``."""
+    counts = Counter(new)
+    equal_pairs = sum(counts.get(text, 0) for text in old)
+    return SequenceMatcher(None, old, new, autojunk=equal_pairs > MAX_EQUAL_PAIRS)
+
+
+def _similarity(a: str, b: str, budget: _Budget) -> float:
+    """``SequenceMatcher.ratio`` dla krótkich par, dla długich — szacunek liniowy
+    (wspólny początek i koniec + ``quick_ratio`` środka)."""
+    budget.pairs -= 1
+    if not a and not b:
+        return 1.0
+    size = len(a) + len(b)
+    if size <= EXACT_RATIO_MAX_CHARS and budget.ratio >= size:
+        budget.ratio -= size
+        return SequenceMatcher(None, a, b, autojunk=False).ratio()
+    head, tail = _common_ends(list(a), list(b))
+    a_mid, b_mid = a[head : len(a) - tail], b[head : len(b) - tail]
+    middle = SequenceMatcher(None, a_mid, b_mid, autojunk=False)
+    matches = middle.quick_ratio() * (len(a_mid) + len(b_mid)) / 2
+    return 2 * (head + tail + matches) / size
+
+
 def word_changes(
-    old: str, new: str, paragraph: int, prefix: str
+    old: str, new: str, paragraph: int, prefix: str, budget: _Budget | None = None
 ) -> list[RedlineChange]:
     """Zmiany w jednym akapicie, słowami; sąsiednie zmiany przedzielone samą spacją łączymy."""
 
     old_tokens = _tokens(old)
     new_tokens = _tokens(new)
-    matcher = SequenceMatcher(
-        None, [t for t, _ in old_tokens], [t for t, _ in new_tokens], autojunk=False
-    )
+    opcodes = _opcodes([t for t, _ in old_tokens], [t for t, _ in new_tokens], budget)
     spans: list[list[int]] = []  # [old_start, old_end, new_start, new_end]
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+    for tag, i1, i2, j1, j2 in opcodes:
         if tag == "equal":
             continue
         o_start = old_tokens[i1][1] if i1 < len(old_tokens) else len(old)
@@ -77,7 +170,12 @@ def diff_texts(old_paragraphs: list[str], new_text: str) -> list[RedlineChange]:
         line.replace(LINE_BREAK, "\n")
         for line in new_text.replace("\r\n", "\n").split("\n")
     ]
-    matcher = SequenceMatcher(None, old_paragraphs, new_paragraphs, autojunk=False)
+    if max(len(old_paragraphs), len(new_paragraphs)) > MAX_PARAGRAPHS:
+        raise DiffTooLarge(
+            f"Tekst ma ponad {MAX_PARAGRAPHS} akapitów — porównaj dokument częściami."
+        )
+    budget = _Budget()
+    matcher = _paragraph_matcher(old_paragraphs, new_paragraphs)
     changes: list[RedlineChange] = []
     counter = 0
 
@@ -134,17 +232,19 @@ def diff_texts(old_paragraphs: list[str], new_text: str) -> list[RedlineChange]:
         last_old = i1 - 1
         pending_new: list[str] = []
         for j in news:
-            match = next(
-                (
-                    i
-                    for i in olds
-                    if i > last_old
-                    and SequenceMatcher(
-                        None, old_paragraphs[i], new_paragraphs[j], autojunk=False
-                    ).ratio()
-                    >= _SAME_PARAGRAPH_RATIO
-                ),
-                None,
+            match = (
+                None
+                if budget.pairs <= 0
+                else next(
+                    (
+                        i
+                        for i in olds
+                        if i > last_old
+                        and _similarity(old_paragraphs[i], new_paragraphs[j], budget)
+                        >= _SAME_PARAGRAPH_RATIO
+                    ),
+                    None,
+                )
             )
             if match is None:
                 pending_new.append(new_paragraphs[j])
@@ -166,6 +266,7 @@ def diff_texts(old_paragraphs: list[str], new_text: str) -> list[RedlineChange]:
                 new_paragraphs[j],
                 match,
                 prefix=f"d{counter + 1}.",
+                budget=budget,
             ):
                 changes.append(change)
             counter += 1

@@ -38,6 +38,20 @@ kalendarzowego” i dopuszcza mail. **Asystent, Jarvis i pismo na kontrakcie
 - Usunięcie dokumentu kasuje fragmenty kaskadą, a punkty w Qdrancie zadanie
   po commicie.
 
+## Wektory bez danych osoby (przegląd bezpieczeństwa 25.11.2026)
+
+Fragment umowy idzie do Voyage (embedding) z danymi Partnera kontraktu jako
+znacznikami: `index.masked_for_embedding` → `pseudonymize.mask` z
+`pseudonymize.partner_entities(partner_from_contract(...))` (imię i nazwisko
+z odmianą, firma, NIP, REGON, adres, e-mail, telefon; PESEL i rachunek
+wyłapuje maska sama). Tekst w Postgresie (`contract_document_chunks`) zostaje
+pełny — czytanie, cytaty i Jarvis działają jak dotąd. Powód: dostawca wektorów
+to strona trzecia, a do wyszukiwania po znaczeniu nazwisko nic nie wnosi.
+Wariant ostrożny i odwracalny: dokumenty zindeksowane przed zmianą mają wektory
+z jawnego tekstu do ponownego biegu `scripts.backfill_contract_document_text`;
+cofnięcie = wywołanie `_embed(chunks)` bez maski. Test:
+`tests/test_contract_document_text_mask.py`.
+
 ## Usługa (`services/contract_document_text/service.py`)
 
 - `search_contract_documents(db, contract_id, query)`, `read_contract_document(db,
@@ -91,6 +105,7 @@ kalendarzowego” i dopuszcza mail. **Asystent, Jarvis i pismo na kontrakcie
 
 ## Testy
 
+`tests/test_contract_document_text_mask.py` (maska przed Voyage),
 `tests/test_contract_document_termination.py` (obie generacje wzoru,
 niepewności, odnośniki), `tests/test_contract_document_text_api.py` (bramki,
 odmowy, źródła Jarvisa, narzędzia), `src/components/jarvis/__tests__/JarvisSources.test.tsx`.

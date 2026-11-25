@@ -163,6 +163,30 @@ def test_licensed_sources_never_go_to_the_model() -> None:
     assert [p.ref for p in assistant.allowed_passages(passages)] == ["art. 3"]
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://sip.lex.pl:443/x",
+        "https://sip.lex.pl?a=1",
+        "https://gofin.pl#x",
+        "https://SIP.LEX.PL/x",
+        "https://www.lex.pl.:8080",
+        "https://user@gofin.pl/x",
+    ],
+)
+def test_licensed_host_with_port_query_or_fragment_is_dropped(url: str) -> None:
+    # Przegląd 25.11: „(/|$)” przepuszczał host z portem, zapytaniem i fragmentem.
+    assert assistant.allowed_passages([SourcePassage("law", "art. 1", "tekst", url=url)]) == []
+
+
+def test_similar_hosts_are_not_licensed() -> None:
+    passages = [
+        SourcePassage("law", "art. 1", "tekst", url="https://lex.pl.example.org/x"),
+        SourcePassage("law", "art. 2", "tekst", url="https://flex.pl/x"),
+    ]
+    assert len(assistant.allowed_passages(passages)) == 2
+
+
 @pytest.mark.asyncio
 async def test_draft_without_provider_key_returns_sources_and_no_text(
     monkeypatch,

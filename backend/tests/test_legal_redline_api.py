@@ -154,7 +154,7 @@ async def test_model_proposals_are_passed_through_with_entities(app_client: Asyn
     seen = {}
 
     async def fake_propose(_db, *, paragraphs, instruction, entities, user_id, extra_passages=None):
-        seen["entities"] = {e.tag: e.value for e in entities}
+        seen["entities"] = {e.label: e.value for e in entities}
         seen["instruction"] = instruction
         return proposals_module.Proposal(
             status="ok",

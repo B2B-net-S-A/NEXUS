@@ -54,9 +54,23 @@ zmian (autor „Asystent NEXUS”) i komentarzami z powodem i podstawą.
 - **Porównanie wierszami:** akapit w wierszu, złamanie wiersza w akapicie
   (`w:br`) jako U+2028 (`documentText` → `diff.py`). Bez tego nasze umowy
   („§ 2 ⏎ Definicje”) dawały 20 zmian zamiast 2.
-- **Fundament (część A):** do scalenia zaślepki w
-  `services/legal_redline/foundation.py` (`SourcePassage`, maska, wyszukiwanie
-  przepisów zwraca pustą listę). Cały kontakt z fundamentem jest w tym pliku.
+- **Fundament (część A):** `services/legal_redline/foundation.py` to cały
+  kontakt z fundamentem: `SourcePassage` z `legal.citations`, maska
+  `legal.pseudonymize` (odmiana nazwisk, numery z cyfrą kontrolną) i przepisy
+  z `corpus.search_provisions` (`ref` = „klucz aktu + jednostka”, bez LEX-u
+  i Gofina; awaria wyszukiwania = brak przepisów, nie błąd).
+- **Maska przed modelem (przegląd bezpieczeństwa 25.11):** polecenie,
+  dokument i źródła maskuje jeden przebieg (ta sama osoba = ten sam znacznik).
+  Encje: `pseudonymize.partner_entities` z `partner_from_contract` (kontrakt
+  także bez wiersza Generatora) albo z wiersza rejestru — imię i nazwisko,
+  firma, NIP, REGON, adres (cały, ulica, kod z miejscowością), e-mail, telefon
+  — i klient. Do 25.11 zaślepka `str.replace` puszczała „Janem Kowalskim”.
+- **Koszt porównania:** `diff_texts` biegnie w wątku; ponad
+  `WORD_DIFF_MAX_TOKENS` porównuje słowami tylko środek akapitu, a za długi
+  środek idzie jako jedna zamiana; ponad `MAX_PARAGRAPHS` — 422. Na
+  powtarzalnym tekście `SequenceMatcher` jest sześcienny (8000 tokenów =
+  minuty). Znaki spoza XML 1.0 w zmianach (`\x0b`, `\x00`) — 422 przy
+  `/render`.
 - Testy: `tests/test_legal_redline_engine.py` (wstawka w środku akapitu,
   skreślenie przez trzy przebiegi, komentarz, tabela, pola, nasze wzory,
   otwarcie w `python-docx` i konwersja LibreOffice, gdy jest),

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 _TOKEN = re.compile(r"\[([A-ZĄĆĘŁŃÓŚŹŻ]+(?:_[A-ZĄĆĘŁŃÓŚŹŻ]+)*(?:_\d+)?)\]")
 _UNMASK = re.compile(r"(\[[A-ZĄĆĘŁŃÓŚŹŻ]+(?:_[A-ZĄĆĘŁŃÓŚŹŻ]+)*(?:_\d+)?\])(\.?)")
@@ -143,11 +143,9 @@ def mask(
             )
     # Dłuższe wartości najpierw: „Jan Kowalski” przed samym „Kowalski”.
     rules.sort(key=lambda rule: -len(rule[0]))
-    masked = text or ""
-    for pattern, token in rules:
-        masked = re.sub(pattern, token, masked, flags=re.IGNORECASE)
-    if detect:
-        for label, pattern in _AUTO:
+
+    def _auto(text: str, detectors: Iterable[tuple[str, re.Pattern[str]]]) -> str:
+        for label, pattern in detectors:
 
             def _replace(match: re.Match[str], label: str = label) -> str:
                 surface = match.group(0)
@@ -155,7 +153,18 @@ def mask(
                     return surface
                 return tokens.token(label, surface)
 
-            masked = pattern.sub(_replace, masked)
+            text = pattern.sub(_replace, text)
+        return text
+
+    masked = text or ""
+    if detect:
+        # E-mail przed nazwiskami: „jan.kowalski@…” po masce nazwiska byłby
+        # „jan.[PARTNER]@…” i reszta adresu szłaby do modelu jawnie.
+        masked = _auto(masked, _AUTO[:1])
+    for pattern, token in rules:
+        masked = re.sub(pattern, token, masked, flags=re.IGNORECASE)
+    if detect:
+        masked = _auto(masked, _AUTO[1:])
     return masked, dict(tokens.mapping)
 
 
@@ -198,3 +207,29 @@ def entities_from(
     return [
         Entity(label, value, inflect=label.upper() in names) for label, value in pairs
     ]
+
+
+def partner_entities(partner: Mapping[str, str]) -> list[Entity]:
+    """Dane Partnera (``trainings.agreement.partner_from_contract``) do maski.
+
+    Wzór: ``letter_service._model_entities``.
+
+    Imię i nazwisko z odmianą (samo nazwisko też), adres w całości i osobno
+    ulica oraz kod z miejscowością — w umowie często stoją w dwóch wierszach;
+    ulica z odmianą („przy ul. Długiej 5”).
+    """
+    address = ", ".join(
+        p for p in (partner.get("address"), partner.get("postal_city")) if p
+    )
+    pairs = [
+        Entity("PARTNER", partner.get("full_name") or "", inflect=True),
+        Entity("FIRMA_PARTNERA", partner.get("company") or ""),
+        Entity("NIP", partner.get("nip") or ""),
+        Entity("REGON", partner.get("regon") or ""),
+        Entity("ADRES_PARTNERA", address, inflect=True),
+        Entity("ADRES_PARTNERA", partner.get("address") or "", inflect=True),
+        Entity("ADRES_PARTNERA", partner.get("postal_city") or ""),
+        Entity("EMAIL_PARTNERA", partner.get("email") or ""),
+        Entity("TELEFON_PARTNERA", partner.get("phone") or ""),
+    ]
+    return [e for e in pairs if e.value.strip()]

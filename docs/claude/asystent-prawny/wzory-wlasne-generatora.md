@@ -59,6 +59,14 @@ Szkic widzi autor i administrator; zatwierdzony wzór — każdy z Generatora.
   globalami i filtrami, z kontekstem zbudowanym wyłącznie z pól
   (`fields.build_context`), i waliduje jeszcze raz przed renderem. Testy:
   `test_custom_templates_sandbox.py` (m.in. `{{ ''.__class__ }}`).
+- **Limity zasobów (przegląd bezpieczeństwa 25.11).** Pętla w pętli jest
+  błędem przy zapisie (30 pozycji do potęgi głębokości = setki tysięcy
+  akapitów). Render liczy wynik kawałkami i przerywa ponad
+  `MAX_RENDER_CHARS` (`RenderTooLarge`, czyli `TemplateInvalid` → 422).
+  Każdy Word — upload (`_read_docx`, `detect`), render i walidacja zapisanego
+  oryginału — przechodzi najpierw `sandbox.check_package`: liczba części,
+  rozmiar części i suma po rozpakowaniu (zip bomb). Podgląd i prefill
+  pilnują `offered_to` jak wystawienie (wzór dla wybranych klientów).
 - **Model nie pisze kwot słownie, dat ani form Pan/Pani** — robi to kod:
   pole `money` `X` daje `{{ X }}` i `{{ X_words }}`, `date` — „DD.MM.RRRR”,
   pole `gender` — `{{ g.* }}`. Zmiana od modelu z `{% %}` albo polem spoza
