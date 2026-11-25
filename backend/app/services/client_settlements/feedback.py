@@ -19,7 +19,9 @@ ją poprawić. Reguły: ``docs/claude/finanse-insights/rozliczenia-informacja-zw
 * **Przypomnienia** co ``every_days`` dni roboczych od ostatniego komunikatu;
   **koniec**, gdy wady już nie ma (nowy plik bez uwagi) albo rozliczenie
   przyjęto (``resolved_on``).
-* **Adresat**: konsultant (``contracts.candidate_email``), akceptujący u klienta
+* **Adresat**: konsultant (adres, z którego sam pisze do rozliczeń —
+  ``reminders.consultant_addresses``, decyzja Artura z 26.11.2026; bez niego
+  ``contracts.candidate_email``, potem kartoteka), akceptujący u klienta
   (adres z prośby o akceptację w uwadze, konsultant w kopii) albo opiekun
   (``reminders.pick_owner``: opiekun kontraktu, opiekun klienta, DL klienta).
   Gdy do konsultanta albo klienta nie wolno pisać, wada idzie dzwonkiem do
@@ -45,6 +47,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_today
 from app.models.app_setting import AppSetting
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -869,6 +872,12 @@ async def _settlements(
             consultant_reports=s.client_id not in from_client,
         )
         out.append(s)
+    written = await reminders.consultant_addresses(
+        db, {s.contract_id for s in out}, today=business_today()
+    )
+    for s in out:
+        # Decyzja Artura z 26.11.2026: adres, z którego konsultant sam pisze.
+        s.consultant_email = written.get(s.contract_id) or s.consultant_email
     return out
 
 

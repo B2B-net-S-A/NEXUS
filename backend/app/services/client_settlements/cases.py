@@ -41,7 +41,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.scheduling import DEFAULT_TZ
+from app.core.scheduling import DEFAULT_TZ, business_today
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder
@@ -924,7 +924,12 @@ async def _rows(
     if settlement_id is not None:
         stmt = stmt.where(ClientSettlement.id == settlement_id)
     out = []
-    for row in (await db.execute(stmt)).all():
+    found = (await db.execute(stmt)).all()
+    # Decyzja Artura z 26.11.2026: adres, z którego konsultant sam pisze do rozliczeń.
+    written = await reminders.consultant_addresses(
+        db, {row[0].contract_id for row in found}, today=business_today()
+    )
+    for row in found:
         (s, client_name, person, c_email, c_phone, pm_id, k_email, k_phone) = row[:8]
         contact = resolve_contact(
             contract_email=c_email,
@@ -936,8 +941,10 @@ async def _rows(
                 s=s,
                 client_name=client_name,
                 person=person or f"Kontrakt {s.contract_id}",
-                # Adres jak w ``feedback``: kontrakt, potem kartoteka.
-                consultant_email=identity.normalize_email(contact.email) or None,
+                # Adres jak w ``feedback``: z poczty, potem kontrakt, potem kartoteka.
+                consultant_email=written.get(s.contract_id)
+                or identity.normalize_email(contact.email)
+                or None,
                 consultant_phone=contact.phone,
                 consultant_phone_source={
                     "contract": "z kontraktu",
