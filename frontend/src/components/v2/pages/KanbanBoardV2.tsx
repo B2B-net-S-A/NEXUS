@@ -38,6 +38,7 @@ import {
  Star,
  Trash2,
  Unlock,
+ HandHelping,
  UserPlus,
  UserX,
  X,
@@ -996,6 +997,15 @@ const COMPACT_BADGE_ICON: Record<string, typeof Lock> = {
  booked_call: PhoneCall,
 };
 
+/** Ikona plakietki w skrócie: wolna blokada to otwarta kłódka, a prośba
+ *  o oddanie (25.11.2026) — ręka, bo słowo „Prośba” nie mieści się na karcie
+ *  w dwóch liniach (1280 × 720) i zostawało z niego „P”. */
+function compactIcon(b: { key: string; tone: string }): typeof Lock | null {
+ if (b.key === "claim" && b.tone === "free") return Unlock;
+ if (b.key === "claim" && b.tone === "wait") return HandHelping;
+ return COMPACT_BADGE_ICON[b.key] ?? null;
+}
+
 /** Ikona plakietki, która ma mówić „uwaga” także bez czytania napisu. */
 function signalIcon(key: string): typeof Lock | null {
  if (key === "hm_veto" || key === "care") return UserX;
@@ -1247,7 +1257,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  const lowBadges = [...primaryBadges, ...moreBadges];
  const lowBadge = primaryBadges[0] ?? null;
  const lowRest = lowBadge ? lowBadges.slice(1) : lowBadges;
- const LowIcon = lowBadge ? (COMPACT_BADGE_ICON[lowBadge.key] ?? signalIcon(lowBadge.key)) : null;
+ const LowIcon = lowBadge ? (compactIcon(lowBadge) ?? signalIcon(lowBadge.key)) : null;
  // Źródło, blokada i karta rekomendacji: ikona i krótki dopisek, jak w wierszu plakietek.
  const lowCompact = lowBadge ? compactCardBadge(lowBadge) : null;
  const lowState = lowBadges.length > 0 ? (
@@ -1371,7 +1381,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  if (compact) {
  // Źródło, blokada 12 h i karta rekomendacji: ikona + krótki dopisek,
  // pełna treść w podpowiedzi i dla czytnika ekranu (PR 4, 04.10.2026).
- const Icon = b.key === "claim" && b.tone === "free" ? Unlock : (COMPACT_BADGE_ICON[b.key] ?? HelpCircle);
+ const Icon = compactIcon(b) ?? HelpCircle;
  return (
  <span key={b.key} data-testid={testId} className={cn(chipBase, "truncate", CARD_BADGE_TONE_CLASS[b.tone])} title={compact.full}>
  <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />

@@ -1138,8 +1138,9 @@ export function compactCardBadge(badge: CardBadge): CompactCardBadge | null {
     // z imieniem („Anna · 3 h”); „Wolny” → sama ikona.
     if (badge.tone === "lock") return { short: badge.label, full };
     if (badge.tone === "own") return { short: badge.label.split(" · ")[1] ?? null, full };
-    // Prośba o oddanie (25.11.2026): słowo zostaje, bo samo imię myliłoby z cudzą blokadą.
-    if (badge.tone === "wait") return { short: "Prośba", full };
+    // Prośba o oddanie (25.11.2026): sama ikona ręki (`compactIcon` na karcie),
+    // bo „Prośba” nie mieściła się w dwóch liniach i zostawało „P”.
+    if (badge.tone === "wait") return { short: null, full };
     return { short: null, full };
   }
   if (badge.key === "recommendation_card") {

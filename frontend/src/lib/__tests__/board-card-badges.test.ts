@@ -647,7 +647,7 @@ describe("compactCardBadge — ikony zamiast napisów (PR 4, 04.10.2026)", () =>
     expect(compactCardBadge({ key: "claim", label: "Twój · 11 h", tone: "own" })?.short).toBe("11 h");
     expect(compactCardBadge({ key: "claim", label: "Anna · 3 h", tone: "lock" })?.short).toBe("Anna · 3 h");
     expect(compactCardBadge({ key: "claim", label: "Wolny", tone: "free" })?.short).toBeNull();
-    expect(compactCardBadge({ key: "claim", label: "Prośba · Wiktoria", tone: "wait" })?.short).toBe("Prośba");
+    expect(compactCardBadge({ key: "claim", label: "Prośba · Wiktoria", tone: "wait" })?.short).toBeNull();
   });
 
   it("karta rekomendacji: liczba braków albo ✓; próby kontaktu zostają napisem", () => {
