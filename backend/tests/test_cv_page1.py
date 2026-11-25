@@ -202,14 +202,20 @@ async def test_why_slots_are_saved_and_restored_from_the_generator(
     async with AsyncSessionLocal() as db:
         logged = (
             await db.scalars(
-                select(Activity).where(
+                select(Activity)
+                .where(
                     Activity.entity_type == "candidate_stage_cv",
                     Activity.entity_id == after.id,
                     Activity.action == "cv_page1_changed",
                 )
+                # Bez kolejności Postgres oddaje wiersze w dowolnej (kolejka 25.11.2026).
+                .order_by(Activity.id)
             )
         ).all()
-    assert [entry.details["why"] for entry in logged][-1] == [True, False, True]
+    assert [entry.details["why"] for entry in logged] == [
+        [True, True, True],
+        [True, False, True],
+    ]
     assert "Moje" not in str([entry.details for entry in logged])
 
 
