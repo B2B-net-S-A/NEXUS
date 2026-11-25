@@ -19,6 +19,16 @@ export const CARD_FIELD_ORDER = [
   "motivation",
 ] as const;
 
+/**
+ * Kolejność pól na ekranie: wzór działu i „Manager u Klienta” zaraz po
+ * „Czy pracował u Klienta”. Uwaga rekruterki 25.11.2026: w „Arkuszu rozmowy”
+ * manager schował się pod „pokaż”, więc dopisywano go w „Czy pracował
+ * u Klienta” (179 kart na kopii produkcji). Wzoru działu nie zmieniamy.
+ */
+export const CARD_TERMS_ORDER: readonly string[] = CARD_FIELD_ORDER.flatMap((key) =>
+  key === "worked_at_client" ? [key, "client_manager"] : [key],
+);
+
 /** Pola wielowierszowe — pole tekstowe zamiast jednej linii. */
 export const CARD_MULTILINE_FIELDS: ReadonlySet<string> = new Set([
   "red_flags",
@@ -31,6 +41,7 @@ export const CARD_FIELD_HINT: Partial<Record<string, string>> = {
   availability: "np. 1 miesiąc albo od 01.11",
   work_mode: "np. hybrydowo, 2 dni w tygodniu, Łódź",
   worked_at_client: "nie / tak, na B2B / tak, na umowie o pracę",
+  client_manager: "imię i nazwisko managera",
   english: "najlepiej w skali A1–C2",
   red_flags: "brak albo opis — tylko dla zespołu",
   recommendation: "dlaczego ten kandydat",

@@ -8,7 +8,7 @@
 
 import type { ScreeningQuestion } from "@/lib/api";
 import type { ScreeningFormState } from "@/lib/api/screeningForm";
-import { CARD_FIELD_ORDER } from "@/lib/recommendation-card";
+import { CARD_TERMS_ORDER } from "@/lib/recommendation-card";
 import {
   assessmentMissingForForward,
   formFieldLabel,
@@ -56,7 +56,7 @@ export function conversationSheetProgress(
 
 /** Pola „Warunków” rzadko wypełniane w rozmowie — w arkuszu pod „pokaż”. */
 const RARE_TERMS: ReadonlySet<string> = new Set(["nationality"]);
-const KNOWN_TERMS: ReadonlySet<string> = new Set(CARD_FIELD_ORDER);
+const KNOWN_TERMS: ReadonlySet<string> = new Set(CARD_TERMS_ORDER);
 
 /**
  * Dzieli pola „Warunków” na widoczne i schowane pod „pokaż”. Rzadkie to

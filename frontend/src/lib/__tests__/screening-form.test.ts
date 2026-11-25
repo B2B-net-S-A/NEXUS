@@ -58,6 +58,17 @@ describe("klucze pól karty", () => {
     expect(cardAssessmentKeys(state)).toEqual(["recommendation", "red_flags"]);
   });
 
+  it("„Manager u Klienta” stoi zaraz po „Czy pracował u Klienta”", () => {
+    const base = formState().card!;
+    const state = formState({
+      card: {
+        ...base,
+        editable_fields: ["availability", "worked_at_client", "english", "client_manager", "client_extra"],
+      },
+    });
+    expect(cardTermsKeys(state)).toEqual(["availability", "worked_at_client", "client_manager", "english", "client_extra"]);
+  });
+
   it("etykieta „recommendation” to „Dlaczego ten kandydat”, nie „Notatka”", () => {
     expect(formFieldLabel(formState(), "recommendation")).toBe("Dlaczego ten kandydat");
     expect(formFieldLabel(formState(), "availability")).toBe("Dostępność");

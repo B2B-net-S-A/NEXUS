@@ -45,6 +45,10 @@ wymagało 2+ zapisów arkusza, mediana od „Biorę” do „Zweryfikowany” 4,
   albo przeniesioną wartością i z prośbą DL o poprawkę. Podział liczy się ze
   stanu serwera, nie z wpisu — inaczej pole przeskakiwało w trakcie pisania
   i gubiło kursor.
+  „Manager u Klienta” nie jest rzadki (uwaga rekruterki 25.11.2026): stoi
+  zawsze zaraz pod „Czy pracował u Klienta”, w arkuszu i w zwykłym
+  formularzu (`CARD_TERMS_ORDER`). Schowany pod „pokaż” był dopisywany
+  w „Czy pracował u Klienta” — na kopii produkcji 179 kart.
 - **Stopka na dole arkusza:** „Nie odebrał” (ta sama notatka-próba co
   w „Co już wiemy”, `useNoAnswerNote`), „Odrzuć”, stan zapisu, „Historia
   zmian”, „Zapisz”, „Zapisz i przekaż dalej → Zweryfikowany”. Rząd akcji
