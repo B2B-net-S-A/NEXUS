@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { cvDownloadPlan, cvFileFormat, withClassicLayout, wordLabel } from "@/lib/cv-file-format";
+import {
+  cvDownloadPlan,
+  cvDownloadsWithoutMenu,
+  cvFileFormat,
+  withClassicLayout,
+  wordLabel,
+} from "@/lib/cv-file-format";
 
 describe("cvDownloadPlan — co pobiera rekruter przy układzie i formacie klienta", () => {
   it("bez wymagań: klasyczne → Word, PDF w menu; Nowe CV → PDF i Word, klasyczny Word w menu", () => {
@@ -28,6 +34,20 @@ describe("cvDownloadPlan — co pobiera rekruter przy układzie i formacie klien
       const plan = cvDownloadPlan(format, "classic");
       expect([...plan.primary, ...plan.inMenu]).not.toContain("docx_classic");
     }
+  });
+});
+
+describe("cvDownloadsWithoutMenu — dok i pasek podglądu bez menu „Więcej”", () => {
+  it("bez wymagań: Word, potem PDF — także przy Nowym CV, jak dotąd", () => {
+    expect(cvDownloadsWithoutMenu(null, "classic")).toEqual(["docx", "pdf"]);
+    expect(cvDownloadsWithoutMenu(undefined, "new")).toEqual(["docx", "pdf"]);
+  });
+
+  it("plik klienta pierwszy, klasycznego Worda nie ma", () => {
+    expect(cvDownloadsWithoutMenu("pdf", "classic")).toEqual(["pdf", "docx"]);
+    expect(cvDownloadsWithoutMenu("pdf", "new")).toEqual(["pdf", "docx"]);
+    expect(cvDownloadsWithoutMenu("docx", "new")).toEqual(["docx", "pdf"]);
+    expect(cvDownloadsWithoutMenu("both", "new")).toEqual(["docx", "pdf"]);
   });
 });
 
