@@ -150,8 +150,13 @@ def certs_by_year(entries: Sequence[str]) -> list[Cert]:
 
 
 # ---------- daty ról ----------
+# Słowa „do dziś” z CV i generatora; ta sama lista co `PRESENT` w edytorze
+# (`frontend/src/lib/cv-new-layout-form.ts`) plus odmiany — nierozpoznany koniec
+# zakresu daje 1 miesiąc (zgłoszenie 25.11.2026: „03.2023 – currently”).
 CURRENT_WORD = re.compile(
-    r"\b(?:obecnie|present|current|now|today|nadal|dziś|dzis)\b", re.I
+    r"\b(?:obecnie|aktualnie|teraz|nadal|dziś|dzis|dzisiaj|present|current(?:ly)?|now"
+    r"|today|ongoing|to date|till date|until now)\b",
+    re.I,
 )
 
 
