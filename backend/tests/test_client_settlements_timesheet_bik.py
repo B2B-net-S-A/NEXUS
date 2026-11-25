@@ -392,3 +392,79 @@ async def test_pick_report_keeps_only_file_even_if_blank(tmp_path, monkeypatch) 
     )
 
     assert picked.id == 2
+
+
+# ── Wariant z próby VI–VIII 2026: „Czas (godz.)”, Word, osoba w nazwie pliku ──
+
+
+def test_naglowek_czas_godz_i_osoba_z_nazwy_pliku() -> None:
+    rows: list[list[object]] = [
+        ["Rozliczenie czasu pracy"],
+        ["NR", "Zadanie", "Data", "Czas- (godz.)"],
+        [1, "ABC-1, ABC-2", datetime(2026, 10, 1), 8],
+        [2, None, datetime(2026, 10, 3), None],
+        [3, "ABC-3", datetime(2026, 10, 2), 6],
+        [None, None, "Suma", 14],
+    ]
+    parsed = timesheet_bik.parse_rows(rows)
+    assert parsed is not None and parsed.rows_hours == Decimal("14")
+    named = timesheet_bik.evaluate(
+        parsed,
+        month=MONTH,
+        person_name="Jan Testowy",
+        rules=_rules(),
+        working_days=22,
+        file_name="Rozliczenie_Jan_Testowy_pazdziernik_2026.xlsx",
+    )
+    assert named.md_regular == Decimal("1.750")
+    assert "Imię i nazwisko z nazwy pliku jak w kontrakcie" in _titles(named)
+    assert "Raport godzin bez imienia i nazwiska" not in _titles(named)
+    other = timesheet_bik.evaluate(
+        parsed,
+        month=MONTH,
+        person_name="Jan Testowy",
+        rules=_rules(),
+        working_days=22,
+        file_name="Rozliczenie_Anna_Inna.xlsx",
+    )
+    assert "Raport godzin bez imienia i nazwiska" in _titles(other)
+
+
+def test_szablon_w_wordzie() -> None:
+    import docx
+
+    document = docx.Document()
+    document.add_paragraph("Rozliczenie czasu pracy zamówienia numer 1/2026")
+    document.add_paragraph("Za miesiąc październik 2026")
+    document.add_paragraph("Imię i nazwisko: Jan Testowy")
+    table = document.add_table(rows=0, cols=3)
+    for cells in (
+        ("Zadanie", "Data", "Czas (godz.)"),
+        ("ABC-1, ABC-2", "2026-10-01", "8"),
+        ("Planowanie", "2026-10-02", "6"),
+        ("", "Suma", "14 h"),
+    ):
+        row = table.add_row().cells
+        for cell, text in zip(row, cells):
+            cell.text = text
+    document.add_paragraph("Liczba MDs narastająco w 2026: 10,5 MDs")
+    buf = io.BytesIO()
+    document.save(buf)
+
+    parsed = timesheet_bik.parse(buf.getvalue(), timesheet_bik.DOCX)
+    assert parsed is not None
+    assert parsed.month == MONTH
+    assert parsed.declared_total == Decimal("14")
+    result = _evaluate(parsed)
+    assert result.md_regular == Decimal("1.750")
+    assert "Imię i nazwisko jak w kontrakcie" in _titles(result)
+
+
+def test_word_bez_tytulu_bik_nie_jest_raportem() -> None:
+    import docx
+
+    document = docx.Document()
+    document.add_paragraph("Protokół odbioru")
+    buf = io.BytesIO()
+    document.save(buf)
+    assert timesheet_bik.parse(buf.getvalue(), timesheet_bik.DOCX) is None

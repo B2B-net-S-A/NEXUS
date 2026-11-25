@@ -82,7 +82,6 @@ import {
   candidateStageCvApi,
   type CVBrandedRewrite,
   type CvLayout,
-  type CvWreath,
   type CVOriginalSnapshot,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -141,7 +140,6 @@ import {
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import { LayoutChoice, cvLayoutFact } from "@/components/v2/cv-generator/LayoutChoice";
 import { NewCvRoleGapsNote } from "@/components/v2/cv-editor/NewCvRoleGapsNote";
-import { WreathChoice } from "@/components/v2/cv-generator/WreathChoice";
 import { ConsentRequestButton } from "@/components/v2/recruitment/ConsentRequestButton";
 import {
   ConsentRequestNotice,
@@ -730,25 +728,6 @@ export function CvToClientCard({
       showError(apiErrorMessage(error, "Nie udało się zmienić układu CV. Odśwież i spróbuj ponownie.")),
   });
 
-  // Wieniec w „Edukacji” nowego CV (23.11.2026): certyfikat z MUST albo szkoła; rekruter może zmienić.
-  const wreath: CvWreath = branded?.page1_extras?.wreath ?? "auto";
-  const wreathMut = useMutation({
-    mutationFn: (target: { stageId: number; wreath: CvWreath }) =>
-      candidateStageCvApi.branded.setPage1(target.stageId, { wreath: target.wreath }),
-    onSuccess: (response, target) => {
-      queryClient.setQueryData(stageBrandedQueryKey(target.stageId), response.data);
-      showSuccess(
-        target.wreath === "cert"
-          ? "W wieńcu: certyfikat."
-          : target.wreath === "school"
-            ? "W wieńcu: szkoła."
-            : "W wieńcu: automatycznie.",
-      );
-    },
-    onError: (error) =>
-      showError(apiErrorMessage(error, "Nie udało się zmienić wieńca. Odśwież i spróbuj ponownie.")),
-  });
-
   // „Odrzuć to CV i zacznij od nowa” (21.10.2026): karta wraca do potwierdzeń,
   // treść idzie do historii wersji — nic nie jest kasowane.
   const { askConfirm, confirmDialog } = useConfirmV2();
@@ -1083,13 +1062,6 @@ export function CvToClientCard({
               />
             ) : null}
             {layoutEnabled && layout === "new" ? <NewCvRoleGapsNote gaps={branded?.new_layout_role_gaps} /> : null}
-            {layoutEnabled && layout === "new" && !lockedAfterSend ? (
-              <WreathChoice
-                value={wreath}
-                onChange={(next) => wreathMut.mutate({ stageId: cvStageId, wreath: next })}
-                disabled={readOnly || wreathMut.isPending}
-              />
-            ) : null}
             <div className="flex flex-wrap gap-1.5">
               {!readOnly ? (
                 <Button size="sm" variant="outline" onClick={() => openEditor()}>

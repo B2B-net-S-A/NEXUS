@@ -1,5 +1,5 @@
-"""Wieniec laurowy przy najwyższym dyplomie (W8: liście na przemian czerwone
-i ciemnoczerwone, w środku rok ukończenia; bez roku — słowo „Dyplom”)."""
+"""Wieniec laurowy wyróżnika pod nazwiskiem (W8: liście na przemian czerwone
+i ciemnoczerwone, w środku krótki znak). Od 25.11.2026 tylko tu — Edukacja bez wieńca."""
 
 from __future__ import annotations
 
@@ -46,46 +46,6 @@ def _branch(side: int, n: int = 30, step: float = 4.4, start: float = 95) -> str
                 f'opacity="{0.95 if io > 0 else 0.78}"/>'
             )
     return "".join(parts)
-
-
-def wreath_svg(year: str, label: str) -> str:
-    """32 × 32 mm. Rok krojem Poppins (makieta miała szeryf spoza krojów marki)."""
-    if year:
-        center = (
-            f'<text x="{CX}" y="{CY + 1.5}" text-anchor="middle" font-family="Poppins" font-weight="600" '
-            f'font-size="4.2" fill="{INK}">{esc(year)}</text>'
-        )
-    else:
-        center = (
-            f'<text x="{CX}" y="{CY + 0.7}" text-anchor="middle" font-family="Poppins" font-weight="600" '
-            f'font-size="1.9" letter-spacing=".45" fill="#6B655D">{esc(label.upper())}</text>'
-        )
-    return (
-        f'<svg viewBox="0 0 {BOX} {BOX}" width="{BOX}mm" height="{BOX}mm" xmlns="http://www.w3.org/2000/svg">'
-        f"{_branch(-1)}{_branch(1)}{center}</svg>"
-    )
-
-
-def _center_name(short: str, year: str) -> str:
-    size = 4.2 if len(short) <= 4 else 3.4 if len(short) <= 6 else 2.7
-    out = (
-        f'<text x="{CX}" y="{CY + (0.6 if year else 1.4)}" text-anchor="middle" font-family="Poppins" '
-        f'font-weight="700" font-size="{size}" fill="{INK}">{esc(short)}</text>'
-    )
-    if year:
-        out += (
-            f'<text x="{CX}" y="{CY + 4.0}" text-anchor="middle" font-family="Poppins" font-weight="600" '
-            f'font-size="2.1" fill="#6B655D">{esc(year)}</text>'
-        )
-    return out
-
-
-def wreath_cert_svg(short: str, year: str) -> str:
-    """Wieniec dla certyfikatu (Artur 23.11.2026): w środku skrót (PMP, ISTQB, PL-900), pod nim rok."""
-    return (
-        f'<svg viewBox="0 0 {BOX} {BOX}" width="{BOX}mm" height="{BOX}mm" xmlns="http://www.w3.org/2000/svg">'
-        f"{_branch(-1)}{_branch(1)}{_center_name(short, year)}</svg>"
-    )
 
 
 def wreath_badge_svg(token: str, size_mm: float = 22.0) -> str:

@@ -1,5 +1,6 @@
-"""„Edukacja”: najwyższy dyplom w wieńcu, 3 najważniejsze certyfikaty (rok + nazwa),
-reszta w pełnych listach na końcu CV (Artur 20.11.2026: EH1, CE1, MC2)."""
+"""„Edukacja”: najwyższa szkoła i 3 najważniejsze certyfikaty z ikonami (bez wieńca —
+wieniec stoi tylko przy wyróżniku pod nazwiskiem, Artur 25.11.2026), reszta w pełnych
+listach na końcu CV (Artur 20.11.2026: CE1, MC2)."""
 
 from __future__ import annotations
 
@@ -17,7 +18,6 @@ from app.services.cv_new_layout.facts import (
 )
 from app.services.cv_new_layout.labels import more_at_end
 from app.services.cv_new_layout.text import esc
-from app.services.cv_new_layout.wreath import wreath_cert_svg, wreath_svg
 
 CERTS_ON_PAGE_1 = 3
 
@@ -129,62 +129,21 @@ def cert_table(ctx: Ctx, rows: Sequence[Cert]) -> str:
     return f"<div class='ce{'' if has_year else ' noy'}'><div class='ceh'>{head}</div>{body}</div>"
 
 
-def diploma_block(ctx: Ctx) -> str:
-    schools = ctx.doc.education
-    top = highest_school(schools)
-    if top is None:
-        return ""
-    title = top.degree or top.institution
-    sub = top.institution if top.degree else ""
-    label = (
-        ctx.t["diploma"]
-        if edu_rank(top.degree, top.institution)
-        else ctx.t["schooling"]
-    )
-    field_, degree = split_degree(title)
-    text = (
-        "<div class='wt'>"
-        + (f"<div class='wdl'>{esc(degree)}</div>" if degree else "")
-        + f"<div class='wtt'>{esc(field_)}</div>"
-        + (f"<div class='wts2'>{esc(sub)}</div>" if sub else "")
-        + "</div>"
-    )
-    more = (
-        f"<div class='cap'>{esc(more_at_end(ctx.lang, 'school', len(schools) - 1))}</div>"
-        if len(schools) > 1
-        else ""
-    )
-    return (
-        f"<div class='wb'>{wreath_svg(last_year(top.dates), label)}{text}</div>{more}"
-    )
-
-
 def _certs_page1(ctx: Ctx, certs: Sequence[Cert]) -> tuple[list[Cert], int]:
-    """(certyfikaty na stronę 1, ile przeniesionych na koniec CV)."""
+    """(certyfikaty na stronę 1, ile przeniesionych na koniec CV). Certyfikat z MUST
+    klienta stoi pierwszy (dawniej w wieńcu, Artur 25.11.2026)."""
     certs = list(certs)
+    required = [c for c in certs if not is_course(c) and required_by_client(ctx, c)]
+    rest = [c for c in certs if c not in required]
     if len(certs) <= CERTS_ON_PAGE_1:
-        return certs, 0
-    return top_certs(ctx, certs, CERTS_ON_PAGE_1), len(certs) - CERTS_ON_PAGE_1
+        return required + rest, 0
+    room = max(CERTS_ON_PAGE_1 - len(required), 0)
+    picked = required[:CERTS_ON_PAGE_1] + (top_certs(ctx, rest, room) if room else [])
+    return picked, len(certs) - len(picked)
 
 
-def cert_list(rows: Sequence[Cert]) -> str:
-    """Certyfikaty bez nagłówka tabeli: rok w kolorze marki, nazwa pogrubiona."""
-    if not rows:
-        return ""
-    body = "".join(
-        f"<div class='cli'>{f'<span class=cly>{esc(r.year)}</span>' if r.year else ''}"
-        f"<span class='cln'>{esc(r.name)}</span></div>"
-        for r in rows
-    )
-    return f"<div class='cl{'' if any(r.year for r in rows) else ' noy'}'>{body}</div>"
-
-
-def sub_label(text: str) -> str:
-    return f"<div class='sublab'>{esc(text)}</div>"
-
-
-# ---------- wieniec: certyfikat czy dyplom (Artur 23.11.2026, wariant E4) ----------
-# Kurs, szkolenie czy webinar nie trafia do wieńca (np. „Wprowadzenie do dostępności cyfrowej”).
+# ---------- certyfikat z wymagań klienta (Artur 23.11.2026) ----------
+# Kurs, szkolenie czy webinar nie jest certyfikatem z wymagań (np. „Wprowadzenie do dostępności cyfrowej”).
 _COURSE = (
     "kurs",
     "szkoleni",
@@ -198,29 +157,6 @@ _COURSE = (
     "podstawy",
     "bootcamp",
 )
-_PRO = (
-    "certified",
-    "certyfikowan",
-    "istqb",
-    "pmp",
-    "prince2",
-    "ipma",
-    "psm",
-    "pspo",
-    "safe",
-    "itil",
-    "cbap",
-    "ccba",
-    "ireb",
-    "aws",
-    "azure",
-    "pl-",
-    "az-",
-    "oracle",
-    "blue prism",
-    "cisco",
-)
-_SHORT_CODE = re.compile(r"\(([A-Z]{2,4}-\d{2,4})\)")
 _SHORT_TOKEN = re.compile(
     r"\b(PMP|ISTQB|IPMA|PRINCE2|PSM(?: I{1,3})?|PSPO|ITIL|CBAP|CCBA|IREB|SAFe|CSM|AWS|OCA|OCP|CCNA)\b"
 )
@@ -230,16 +166,6 @@ _WORD = re.compile(r"[\w+#.-]+", re.U)
 def is_course(c: Cert) -> bool:
     low = f" {c.name} ".lower()
     return any(w in low for w in _COURSE)
-
-
-def is_professional(c: Cert) -> bool:
-    low = f" {c.name} ".lower()
-    return any(w in low for w in _PRO) and not is_course(c)
-
-
-def short_name(c: Cert) -> str:
-    m = _SHORT_CODE.search(c.name) or _SHORT_TOKEN.search(c.name)
-    return m.group(1) if m else ""
 
 
 def _words(text: str) -> set[str]:
@@ -273,7 +199,7 @@ def required_by_client(ctx: Ctx, c: Cert) -> bool:
     """Certyfikat z wymagań MUST klienta: wymaganie jest certyfikatem i wszystkie jego
     słowa (bez „lub”) stoją w nazwie certyfikatu, np. MUST „PRINCE2 Practitioner” ↔
     „PRINCE2 Practitioner – Axelos”, MUST „ISTQB” ↔ „ISTQB Foundation Level”.
-    Umiejętność („UX Design”) nie wciąga kursu do wieńca (staging 23.11.2026)."""
+    Umiejętność („UX Design”) nie wciąga kursu na początek listy (staging 23.11.2026)."""
     name = _words(c.name)
     for must in ctx.doc.must_have:
         for option in re.split(r"\s+(?:lub|or)\s+|/", must, flags=re.I):
@@ -283,105 +209,10 @@ def required_by_client(ctx: Ctx, c: Cert) -> bool:
     return False
 
 
-def wreath_cert(ctx: Ctx) -> Optional[Cert]:
-    """Certyfikat do wieńca albo None (wtedy dyplom). Domyślnie certyfikat tylko,
-    gdy klient go wymaga (MUST); rekruter może wybrać „certyfikat” albo „szkołę”."""
-    choice = ctx.doc.wreath
-    if choice == "school":
-        return None
-    certs = certs_by_year(ctx.doc.certifications)
-    required = [c for c in certs if not is_course(c) and required_by_client(ctx, c)]
-    if required:
-        return required[0]
-    if choice != "cert" or not certs:
-        return None
-    pro = [c for c in certs if is_professional(c)] or certs
-    return top_certs(ctx, pro, 1)[0]
-
-
-def _cert_text(ctx: Ctx, c: Cert) -> str:
-    meta = " · ".join(x for x in (c.issuer, c.year) if x)
-    return (
-        "<div class='wt'>"
-        f"<div class='wdl'>{esc(ctx.t['certificate'])}</div>"
-        f"<div class='wtt'>{esc(c.name)}</div>"
-        + (f"<div class='wts2'>{esc(meta)}</div>" if meta else "")
-        + "</div>"
-    )
-
-
-def _school_line(ctx: Ctx) -> str:
-    top = highest_school(ctx.doc.education)
-    if top is None:
-        return ""
-    field_, degree = split_degree(top.degree or top.institution)
-    bits = [f"<b>{esc(field_)}</b>"] + ([esc(degree)] if degree else [])
-    sub = " · ".join(
-        x for x in (top.institution if top.degree else "", last_year(top.dates)) if x
-    )
-    return (
-        f"<div class='sch'>{', '.join(bits)}"
-        + (f"<div class='wts2'>{esc(sub)}</div>" if sub else "")
-        + "</div>"
-    )
-
-
 def _more(ctx: Ctx, key: str, n: int) -> str:
     return (
         f"<div class='cap'>{esc(more_at_end(ctx.lang, key, n))}</div>" if n > 0 else ""
     )
-
-
-def education_page1(ctx: Ctx) -> tuple[str, int]:
-    """(HTML sekcji, ile certyfikatów przeniesionych na koniec CV).
-
-    Lewa kolumna: wieniec — certyfikat (skrót w środku) albo dyplom (rok w środku).
-    Prawa: „Wykształcenie” (gdy w wieńcu jest certyfikat) i podpisane
-    „Certyfikaty i szkolenia · N”, żeby certyfikatów nie przeoczyć (warsztaty 23.11)."""
-    schools = ctx.doc.education
-    all_certs = certs_by_year(ctx.doc.certifications)
-    kc = wreath_cert(ctx)
-    if kc is not None:
-        short = short_name(kc)
-        emblem = (
-            wreath_cert_svg(short, kc.year)
-            if short
-            else wreath_svg(kc.year, ctx.t["certificate"])
-        )
-        left = f"<div class='wb'>{emblem}{_cert_text(ctx, kc)}</div>"
-        others = [c for c in all_certs if c.name != kc.name]
-        shown, hidden = _certs_page1(ctx, others)
-        right = ""
-        school = _school_line(ctx)
-        if school:
-            right += (
-                sub_label(ctx.t["schooling_head"])
-                + school
-                + _more(ctx, "school", len(schools) - 1)
-            )
-        if shown:
-            right += (
-                ("<div class='gap'></div>" if school else "")
-                + sub_label(f"{ctx.t['other_certs']} · {len(others)}")
-                + cert_list(shown)
-                + _more(ctx, "certificate", hidden)
-            )
-        if not right:
-            return f"<div>{left}</div>", hidden
-        return f"<div class='ed'><div>{left}</div><div>{right}</div></div>", hidden
-    diploma = diploma_block(ctx)
-    shown, hidden = _certs_page1(ctx, all_certs)
-    certs = (
-        sub_label(f"{ctx.t['certs_training']} · {len(all_certs)}")
-        + cert_list(shown)
-        + _more(ctx, "certificate", hidden)
-        if shown
-        else ""
-    )
-    if diploma and certs:
-        left = sub_label(ctx.t["schooling_head"]) + diploma
-        return f"<div class='ed'><div>{left}</div><div>{certs}</div></div>", hidden
-    return (f"<div>{diploma or certs}</div>" if diploma or certs else ""), hidden
 
 
 def education_full(ctx: Ctx, certs_hidden: int) -> str:
@@ -405,7 +236,7 @@ def education_full(ctx: Ctx, certs_hidden: int) -> str:
     return out
 
 
-# ---------- bez wieńca, gdy wieniec stoi przy wyróżniku (Artur 25.11.2026, wariant ED) ----------
+# ---------- Edukacja z ikonami, bez wieńca (Artur 25.11.2026, wariant ED; wieniec tylko u góry) ----------
 # Ikony: biret przy „Wykształceniu”, odznaka przy „Certyfikatach”; kolor wprost w atrybutach,
 # bo WeasyPrint nie stosuje CSS do wnętrza SVG.
 ICON_SCHOOL = (

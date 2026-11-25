@@ -28,7 +28,7 @@ const OPEN_SLOT_STATUSES = new Set(["awaiting_recruiter", "awaiting_dl"]);
 export const SLOTS_MAIL_OTHER =
   "Na poligonie NEXUS odczytuje tylko maila klienta z ćwiczenia (terminy o 10:00 i 13:00). Wklej go z okna ćwiczenia albo wpisz terminy ręcznie.";
 const BLOCKED_PAGE1 =
-  "Na poligonie zmienisz tu tylko wieniec. Zdania strony 1 poprawisz w prawdziwym CV.";
+  "Na poligonie strony 1 nie zmienisz. Zdania i wyróżnik poprawisz w prawdziwym CV.";
 const CV_COMMAND_EMPTY =
   "Nic nie zmieniłem — na poligonie asystent zna kilka poleceń. Wpisz na przykład „pogrub Scrum i Jira”.";
 
@@ -94,8 +94,6 @@ export function createTools(ctx: ToolsContext) {
   const branded = new Map<number, { html: string; revision: number; status: string }>();
   /** Układ CV per etap (Nowe CV / Klasyczne, 23.11.2026); brak wpisu = klasyczny jak u klienta bez reguły. */
   const layouts = new Map<number, "classic" | "new">();
-  /** Wieniec strony 1 nowego CV per etap (`page1_extras.wreath`). */
-  const wreaths = new Map<number, string>();
 
   /** Odznaka „Wybierz termin” z zestawu (osoba na „Rozmowie u klienta”) — wzór dla nowych wniosków DL-a. */
   const badgeTemplate = JSON.parse(JSON.stringify(ctx.findItem(meta.slot_candidate_id)?.item.interview_badge ?? null)) as
@@ -460,11 +458,11 @@ export function createTools(ctx: ToolsContext) {
       new_layout_enabled: true,
       cv_layout: layouts.get(entryId) ?? "classic",
       default_layout: "classic",
-      page1_extras: { ...extras, wreath: wreaths.get(entryId) ?? extras.wreath ?? "auto" },
+      page1_extras: extras,
     };
   }
 
-  /** Odczyt CV etapu do zapisu układu albo wieńca; etap bez CV do klienta → 409 jak na serwerze. */
+  /** Odczyt CV etapu do zapisu układu; etap bez CV do klienta → 409 jak na serwerze. */
   function brandedFor(entryId: number): PoligonResponse {
     const recorded = ctx.recorded("GET", `/api/candidates/stages/${entryId}/cv/branded`);
     if (recorded.status !== 200) return recorded;
@@ -479,15 +477,6 @@ export function createTools(ctx: ToolsContext) {
     const current = brandedFor(entryId);
     if (current.status !== 200) return current;
     layouts.set(entryId, layout);
-    return brandedFor(entryId);
-  }
-
-  function setWreath(entryId: number, body: Row): PoligonResponse {
-    const wreath = body.wreath;
-    if (wreath !== "auto" && wreath !== "cert" && wreath !== "school") return { status: 409, data: { detail: BLOCKED_PAGE1 } };
-    const current = brandedFor(entryId);
-    if (current.status !== 200) return current;
-    wreaths.set(entryId, wreath);
     return brandedFor(entryId);
   }
 
@@ -663,7 +652,7 @@ export function createTools(ctx: ToolsContext) {
     }
     const cvSetting = path.match(/^\/api\/candidates\/stages\/(\d+)\/cv\/(layout|page1)$/);
     if (cvSetting && method === "PATCH" && personByEntry(Number(cvSetting[1]))) {
-      return cvSetting[2] === "layout" ? setLayout(Number(cvSetting[1]), body) : setWreath(Number(cvSetting[1]), body);
+      return cvSetting[2] === "layout" ? setLayout(Number(cvSetting[1]), body) : { status: 409, data: { detail: BLOCKED_PAGE1 } };
     }
     const transform = path.match(/^\/api\/pipeline\/stages\/(\d+)\/qc\/transform$/);
     if (transform && method === "POST") return qcTransform(Number(transform[1]), body);
