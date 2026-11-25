@@ -356,3 +356,26 @@ def test_diff_two_versions_to_changes(tmp_path):
 def test_diff_without_changes_is_empty():
     old = ["A b c.", "D e."]
     assert diff_texts(old, "A b c.\nD e.") == []
+
+
+def test_new_paragraph_keeps_paragraph_mark_format_for_numbering():
+    """Numer listy Word bierze z formatu znaku akapitu — nowy ustęp nie może go zgubić."""
+    data = (TEMPLATES / "umowa_b2b_pl.docx").read_bytes()
+    elements = paragraph_elements(load_package(data).body)
+    anchor_index = next(
+        i
+        for i, p in enumerate(elements)
+        if p.find(f"{W}pPr/{W}numPr") is not None and p.find(f"{W}pPr/{W}rPr") is not None
+    )
+    anchor_rpr = elements[anchor_index].find(f"{W}pPr/{W}rPr")
+    out = apply_changes(
+        data,
+        [RedlineChange(id="n", kind="insert_paragraph", paragraph=anchor_index, new_text="Nowy ustęp.")],
+        when=WHEN,
+    )
+    root = _document_xml(out)
+    new_p = [p for p in root.iter(f"{W}p") if "".join(t.text or "" for t in p.iter(f"{W}t")) == "Nowy ustęp."][0]
+    rpr = new_p.find(f"{W}pPr/{W}rPr")
+    assert rpr[0].tag == f"{W}ins"
+    kept = {c.tag for c in rpr[1:]}
+    assert kept == {c.tag for c in anchor_rpr if c.tag not in (f"{W}ins", f"{W}del", f"{W}rPrChange")}

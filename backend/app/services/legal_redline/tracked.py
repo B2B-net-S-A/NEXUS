@@ -563,8 +563,21 @@ def _new_paragraph(
     if ppr is not None:
         ppr = copy.deepcopy(ppr)
         for child in list(ppr):
-            if child.tag in (w("sectPr"), w("pPrChange"), w("rPr")):
+            if child.tag in (w("sectPr"), w("pPrChange")):
                 ppr.remove(child)
+        # Format znaku akapitu zostaje (z niego Word bierze krój numeru listy),
+        # bez cudzych znaczników zmian.
+        mark = ppr.find(w("rPr"))
+        if mark is not None:
+            for child in list(mark):
+                if child.tag in (
+                    w("ins"),
+                    w("del"),
+                    w("rPrChange"),
+                    w("moveFrom"),
+                    w("moveTo"),
+                ):
+                    mark.remove(child)
         p.append(ppr)
     _set_mark(p, "ins", ids, date)
     model_run = next(
