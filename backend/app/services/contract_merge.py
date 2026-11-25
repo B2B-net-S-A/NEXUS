@@ -192,6 +192,14 @@ _KNOWN_CONTRACT_FKS = {
     ("contract_care_plan_items", "contract_id"),
     ("contract_client_rates", "contract_id"),
     ("contract_documents", "contract_id"),
+    # Fragmenty treści dokumentów dla asystenta prawnego (0789) idą za
+    # kontraktem razem z plikami; unikat (dokument, nr fragmentu) nie zależy
+    # od kontraktu, a wektory w Qdrancie mają id fragmentu, nie kontraktu.
+    ("contract_document_chunks", "contract_id"),
+    # Zamknięte zadania asystenta prawnego (0790: „Zatwierdzam”/„Pomiń”) —
+    # ślad decyzji, idą za kontraktem zachowanym; unikat `task_key` nie
+    # zależy od kontraktu.
+    ("legal_assistant_tasks", "contract_id"),
     # Foldery zakładki Dokumenty (0494) idą za kontraktem zachowanym razem
     # z plikami. Dwa foldery o tej samej nazwie (UNIQUE kontrakt + nazwa)
     # i nazwę „Zamówień” rozstrzyga ``_resolve_child_duplicates``.

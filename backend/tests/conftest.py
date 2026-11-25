@@ -368,6 +368,13 @@ def _no_background_contract_reading(monkeypatch):
         framework_contract_index, "forget_after_delete", lambda _id: None
     )
 
+    # Po odczycie umowy rusza sprawdzenie zgodności umów B2B (asystent prawny,
+    # część G) — własna sesja i model w tle; testy zgodności wołają je wprost.
+    async def _no_client_fit(_kind, _document_id):
+        return None
+
+    monkeypatch.setattr(framework_contract_index, "_after_indexed", _no_client_fit)
+
 
 @pytest.fixture(autouse=True)
 def _cv_qc_gate_off_by_default(monkeypatch):

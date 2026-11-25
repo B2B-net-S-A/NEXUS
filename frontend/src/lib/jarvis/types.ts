@@ -53,6 +53,10 @@ export interface JarvisStatus {
 export interface JarvisSource {
   url: string;
   title: string;
+  /** `nexus` = dokument w NEXUSIE (ścieżka aplikacji), brak = wynik z internetu. */
+  origin?: "nexus";
+  /** Rodzaj dokumentu NEXUSA: podpisany dokument kontraktu albo umowa ramowa klienta. */
+  kind?: "contract_document" | "framework_contract";
 }
 
 export type JarvisActionStatus = "proposed" | "confirmed" | "rejected" | "executed" | "failed" | "expired";
@@ -89,6 +93,21 @@ export interface JarvisMailDraft {
   email?: string;
   subject: string;
   body: string;
+}
+
+/** Szkic pisma na kontrakcie (`draft_legal_letter`, asystent prawny F) — nic nie
+ *  wysłano; karta prowadzi do panelu pisma. Treść i cytaty tylko ze strumienia. */
+export interface JarvisLegalLetter {
+  contract_id: number;
+  kind: string;
+  label?: string;
+  subject?: string;
+  text?: string;
+  blocked?: boolean;
+  block_reasons?: string[];
+  lawyer_review?: string[];
+  counts?: { ok?: number; missing?: number; mismatch?: number };
+  error?: string | null;
 }
 
 /** „Klient coś zmienił” (`propose_client_change`) — Jarvis nic nie zapisuje,
@@ -141,6 +160,7 @@ export type JarvisItem =
   /** Element podświetlony na ekranie (show_on_screen albo „Pokaż na ekranie”). */
   | { kind: "highlight"; anchor: string; label: string; reason: string }
   | { kind: "mail_draft"; draft: JarvisMailDraft }
+  | { kind: "legal_letter"; letter: JarvisLegalLetter }
   | { kind: "client_change"; proposal: JarvisClientChange }
   /** Karta „Tego nie zrobię” (report_gap) z przyciskiem zgłoszenia potrzeby. */
   | { kind: "gap"; gap: JarvisGap };
@@ -208,6 +228,7 @@ export type JarvisStreamEvent =
   | { type: "delta_reset" }
   | { type: "highlight"; anchor: string; label: string; reason: string }
   | { type: "mail_draft"; draft: JarvisMailDraft }
+  | { type: "legal_letter"; letter: JarvisLegalLetter }
   | { type: "client_change"; proposal: JarvisClientChange }
   | { type: "gap"; gap: JarvisGap }
   /** Przy zapisie wykonanym od razu niesie też komunikat i klucze do odświeżenia. */

@@ -105,6 +105,19 @@ class ContractDocument(Base, TimestampMixin):
         index=True,
     )
 
+    # 0789: stan odczytu treści dla asystenta prawnego i Jarvisa
+    # (``services/contract_document_text``). Zapis stanu nie rusza
+    # ``updated_at`` — to nie jest edycja dokumentu.
+    text_status: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    text_file_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    text_chars: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    text_pages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    text_ocr_pages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    text_model: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    text_attempted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     contract = relationship("Contract", back_populates="documents_rel")
 
     def __repr__(self) -> str:

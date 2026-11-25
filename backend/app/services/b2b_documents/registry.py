@@ -87,7 +87,9 @@ class AnnexClause:
 class DocumentType:
     key: str
     label: str
-    family: Literal["annex", "termination", "preliminary"]
+    #: ``custom`` = dokument ze wzoru własnego (``services/custom_templates``):
+    #: typ budowany z zapisu dokumentu, bez skutków w kontraktach.
+    family: Literal["annex", "termination", "preliminary", "custom"]
     languages: tuple[str, ...]
     #: ``b2b`` = umowa z rejestru; ``mandate`` = umowa zlecenie (wiersz rejestru
     #: z importu albo brak); ``none`` = dokument poprzedza umowę.

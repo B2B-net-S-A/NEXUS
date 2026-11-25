@@ -145,6 +145,14 @@ class TestFeatureKeyEnum:
             "interview_answer_proposal",
             # 0782: Przegrane — wnioski AI na spotkanie z DL (F56).
             "lost_review_summary",
+            # 0785: asystent prawny — szkic pisma ze sprawdzonymi cytatami.
+            "legal_assistant",
+            # 0786: szkic wzoru własnego Generatora Umów (asystent prawny).
+            "legal_template_draft",
+            # 0788: asystent prawny — propozycje zmian w umowie DOCX.
+            "legal_redline",
+            # 0791: asystent prawny — zgodność umów B2B z umową ramową klienta.
+            "legal_client_fit",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

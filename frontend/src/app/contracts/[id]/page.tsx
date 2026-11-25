@@ -46,6 +46,9 @@ import {
 import { CancelOrderDraftButton } from "@/components/contracts/detail/CancelOrderDraftButton";
 import { warsawToday } from "@/lib/warsaw-date";
 import { ContractHappeningStrip } from "@/components/contracts/detail/ContractHappeningStrip";
+import { LegalLetterPanel } from "@/components/legal-assistant/letters/LegalLetterPanel";
+import { LegalTasksStrip } from "@/components/legal-assistant/letters/LegalTasksStrip";
+import { LETTER_PARAM, availableKinds, letterHref, letterKindFromHref } from "@/lib/legal-letters";
 import { ContractPeriodBar } from "@/components/contracts/detail/ContractPeriodBar";
 import { ContractOverviewMoney } from "@/components/contracts/detail/ContractOverviewMoney";
 import {
@@ -153,6 +156,7 @@ import {
   Building2,
   FileText,
   MoreHorizontal,
+  Scale,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -656,6 +660,14 @@ export default function ContractDetailPage() {
     canEditContractDocuments,
     canUploadContractDocuments,
   } = contractAccess(user, { impersonating, clientId: contract?.client_id });
+  // Pismo na kontrakcie (asystent prawny, część F): panel boczny z adresu
+  // `?pismo=<rodzaj>` — link z zadania na liście kontraktów i z Jarvisa.
+  // Bramka jak pobranie dokumentu kontraktu (treść podpisanej umowy niesie stawki).
+  const letterParam = searchParams?.get(LETTER_PARAM) ?? null;
+  const canWriteLetter =
+    contract != null && canViewContractDocuments && availableKinds(contract).length > 0;
+  const setLetterKind = (kind: string | null) =>
+    replaceUrl(letterHref(window.location.pathname, window.location.search, kind));
 
   // Stawka do klienta z rekrutacji kontraktu, dopóki kontrakt nie ma własnej
   // (podpowiedź w „Stawkach finansowych”; przychód nadal z zamówienia). Tylko
@@ -1477,6 +1489,11 @@ export default function ContractDetailPage() {
             {/* To samo menu i te same bramki co w zakładce „Aneksy”: wybór
                 otwiera zakładkę od razu z oknem (`?aneks=`), zakończenie —
                 okno „Zakończ współpracę”, dokument — Generator aneksów. */}
+            {!editing && canWriteLetter && (
+              <Button size="sm" variant="outline" onClick={() => setLetterKind("1")}>
+                <Scale className="w-3.5 h-3.5" aria-hidden /> Napisz pismo
+              </Button>
+            )}
             {!editing && (
               <AddAnnexMenu
                 canAmendRates={canAmendContractRates(user, contract.client_id)}
@@ -1677,6 +1694,21 @@ export default function ContractDetailPage() {
           i brak stawki w jednym pasie z przyciskami (przebudowa 19.11.2026).
           Fakty o umowie są w „Przeglądzie”, premie w „Pieniądzach”. */}
       {!editing && <ContractHappeningStrip items={happening} renderAction={renderHappeningAction} />}
+      {/* Zadania asystenta prawnego tego kontraktu (np. szkic odpowiedzi na
+          wypowiedzenie Partnera) — wiersz pod „Co się dzieje”, akcja otwiera panel. */}
+      {!editing && canWriteLetter && (
+        <LegalTasksStrip contractId={id} onAction={(task) => setLetterKind(letterKindFromHref(task.href) ?? "1")} />
+      )}
+      {contract && canWriteLetter && (
+        <LegalLetterPanel
+          contractId={contract.id}
+          contract={contract}
+          open={letterParam !== null}
+          onOpenChange={(next) => setLetterKind(next ? (letterParam ?? "1") : null)}
+          initialKind={letterParam}
+          canSave={canUploadContractDocuments}
+        />
+      )}
       {/* Stawka z dokumentu do potwierdzenia — karta znika, gdy nie ma czego
           potwierdzić, więc stoi przy sprawach do zrobienia. */}
       {!editing && (

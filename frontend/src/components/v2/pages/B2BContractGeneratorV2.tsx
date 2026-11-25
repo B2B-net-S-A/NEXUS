@@ -23,6 +23,7 @@ import {
   Download,
   Eye,
   ExternalLink,
+  FileDiff,
   FilePen,
   FileCheck2,
   FileSignature,
@@ -150,6 +151,9 @@ import {
   RegisterStartDate,
 } from "@/components/v2/b2b-generator/RegisterAnnexLabel";
 import { RegistryCheckDialog } from "@/components/v2/b2b-generator/RegistryCheckDialog";
+import { RedlineDialog } from "@/components/legal-assistant/redline/RedlineDialog";
+import { contractAccess } from "@/lib/contract-access";
+import type { RedlineTarget } from "@/lib/legal-redline";
 import { MandateAgreementForm } from "@/components/v2/b2b-generator/MandateAgreementForm";
 import { AgreementAdminDetailsCard } from "@/components/v2/b2b-generator/AgreementAdminDetailsCard";
 import {
@@ -211,6 +215,7 @@ import {
   type WizardStepItem,
 } from "@/components/v2/b2b-generator/wizard/AgreementWizard";
 import { agreementPaper, paperGapCount } from "@/lib/b2b-agreement-paper";
+import { ClientFitPanel } from "@/components/legal-assistant/client-fit/ClientFitPanel";
 import {
   GENERATOR_STEPS,
   b2bFormMissing,
@@ -2784,6 +2789,35 @@ export function GeneratedContractsTab({
     },
     onError: (e) => toast.showError(extractErrorMsg(e)),
   });
+  // „Popraw dokument” (asystent prawny): DOCX z rejestru tą samą trasą co
+  // „Pobierz DOCX ponownie”, potem okno ze zmianami i komentarzami.
+  const redlineUser = useAuthStore((s) => s.user);
+  const [redline, setRedline] = useState<{
+    target: RedlineTarget;
+    title: string;
+    canSave: boolean;
+  } | null>(null);
+  const redlineMut = useMutation({
+    mutationFn: async (r: B2BGeneratedContractRow) => {
+      const res = await b2bGeneratorApi.downloadGenerated(r.id);
+      const filename = parseDispositionFilename(
+        res.headers["content-disposition"] || "",
+        `Umowa B2B ${r.contract_number.replaceAll("/", "-")}.docx`,
+      );
+      const file = new File([res.data as Blob], filename, {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
+      setRedline({
+        target: { kind: "file", file, contractId: r.contract_id, generatedId: r.id },
+        title: filename,
+        canSave:
+          r.contract_id != null &&
+          contractAccess(redlineUser, { impersonating: false, clientId: r.client_id })
+            .canUploadContractDocuments,
+      });
+    },
+    onError: (e) => toast.showError(extractErrorMsg(e)),
+  });
   // Edycja nazwy Klienta „w miejscu" — poprawa literówki bez ponownej generacji.
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editClientName, setEditClientName] = useState("");
@@ -3434,6 +3468,23 @@ export function GeneratedContractsTab({
                                   )}
                                 </Button>
                               ) : null}
+                              {r.can_download ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 pointer-coarse:h-10 pointer-coarse:w-10"
+                                  disabled={redlineMut.isPending && redlineMut.variables?.id === r.id}
+                                  onClick={() => redlineMut.mutate(r)}
+                                  title="Popraw dokument (DOCX ze śledzeniem zmian)"
+                                  aria-label={`Popraw dokument ${r.contract_number}`}
+                                >
+                                  {redlineMut.isPending && redlineMut.variables?.id === r.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <FileDiff className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              ) : null}
                               {!signed && r.can_delete ? (
                                 <Button
                                   variant="ghost"
@@ -3550,6 +3601,16 @@ export function GeneratedContractsTab({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <RedlineDialog
+        open={redline !== null}
+        onOpenChange={(open) => {
+          if (!open) setRedline(null);
+        }}
+        target={redline?.target ?? null}
+        title={redline?.title ?? ""}
+        canSave={redline?.canSave ?? false}
+        onSaved={(filename) => toast.showSuccess(`Zapisano „${filename}” w Dokumentach kontraktu.`)}
+      />
     </Card>
     </>
   );
@@ -4616,6 +4677,12 @@ export function GeneratorForm({
     }
     return Array.from(map.values());
   }, [roles, language]);
+
+  // Klient umowy do sprawdzenia zgodności: wybrany z listy po nazwie, a gdy
+  // nazwa jest z rekrutacji — klient tej rekrutacji.
+  const fitClientId =
+    clientsQuery.data?.find((c) => c.name === clientName)?.id ??
+    (jobQuery.data?.client_name === clientName ? (jobQuery.data?.client_id ?? null) : null);
 
   const filteredClients = useMemo(() => {
     const all = clientsQuery.data ?? [];
@@ -6139,6 +6206,11 @@ export function GeneratorForm({
             wstawione do umowy (PL i EN).
           </p>
         ) : null}
+        {/* Asystent prawny (część G): wymogi umowy ramowej klienta wobec
+            naszego wzoru B2B; bez podglądu kwot u klienta panelu nie ma. */}
+        <div className="mt-2">
+          <ClientFitPanel clientId={fitClientId} defaultOpen={false} />
+        </div>
       </Field>
       <Field label="Miasto Klienta" required fieldKey="city">
         <Input

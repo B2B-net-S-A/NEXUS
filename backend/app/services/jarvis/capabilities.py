@@ -21,6 +21,7 @@ READ: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("„Moi ludzie” do przepięcia", ("my_people_for_job", "my_people")),
     ("klienci, kontrakty i zamówienia", ("get_client_profile", "list_contracts")),
     ("zapisy w umowach ramowych", ("search_framework_contracts",)),
+    ("zapisy w podpisanej umowie konsultanta", ("search_contract_documents",)),
     ("liczby: placementy, CV, kontrakty", ("evaluate_metric",)),
     ("urlopy i sprzęt", ("my_leave_balance", "my_equipment")),
     ("raport godzin osoby za miesiąc", ("person_month",)),
@@ -37,6 +38,7 @@ WRITE: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("spotkanie w kalendarzu", ("create_calendar_event",)),
     ("werdykt klienta", ("record_hm_feedback",)),
     ("zmiana od klienta w Profilu Championa", ("propose_client_change",)),
+    ("szkic pisma w sprawie umowy konsultanta", ("draft_legal_letter",)),
     ("nowa firma w Sprzedaży z NIP-u", ("new_sales_company",)),
 )
 # Operacje, których Jarvis nie wykonuje nigdy (``link``) — stałe dla każdej roli.

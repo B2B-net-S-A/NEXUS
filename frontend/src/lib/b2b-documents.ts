@@ -32,6 +32,7 @@ export const FAMILY_LABELS: Record<DocumentFamily, string> = {
   annex: "Aneksy",
   termination: "Rozwiązanie umowy",
   preliminary: "Umowa przedwstępna",
+  custom: "Wzory własne",
 };
 
 export const GROUP_LABELS: Record<DocumentFieldGroup, string> = {
@@ -589,10 +590,12 @@ export function sensitiveFieldsOf(
 
 // ── Rejestr aneksów ─────────────────────────────────────────────────────────
 
-/** Rodziny dokumentów zakładki „Dokumenty” — aneksy mają własny rejestr. */
+/** Rodziny dokumentów zakładki „Dokumenty” — aneksy mają własny rejestr.
+ *  `custom` = dokumenty ze wzorów własnych (0786). */
 export const NON_ANNEX_FAMILIES: readonly DocumentFamily[] = [
   "termination",
   "preliminary",
+  "custom",
 ];
 export const ANNEX_FAMILIES: readonly DocumentFamily[] = ["annex"];
 

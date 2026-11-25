@@ -45,6 +45,16 @@ READ_ONLY_POST_ROUTE_TEMPLATES: tuple[str, ...] = (
     "/api/job-intake/category-suggestion",
     # Insights → Przegrane (25.11.2026): wnioski AI z liczb okresu, bez zapisu danych.
     "/api/insights/lost-review/ai-summary",
+    # Asystent prawny: sprawdzenie cytatów z tekstem źródła, bez zapisu (0785).
+    "/api/legal/verify",
+    # Asystent prawny „Popraw dokument”: plik w ciele, nic się nie zapisuje —
+    # odczyt jak pobranie dokumentu kontraktu (zapis idzie przez „Dodaj plik”).
+    "/api/legal/redline",
+    "/api/legal/redline/render",
+    # Asystent prawny, pismo na kontrakcie (część F): szkic i DOCX niczego nie
+    # zapisują — odczyt jak pobranie dokumentu kontraktu; „Zatwierdzam” to zapis.
+    "/api/contracts/{contract_id}/legal-letter/draft",
+    "/api/contracts/{contract_id}/legal-letter/docx",
 )
 
 _READ_ONLY_POST_ROUTE_PATTERNS = tuple(

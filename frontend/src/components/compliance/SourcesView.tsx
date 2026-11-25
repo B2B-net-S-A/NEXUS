@@ -17,6 +17,7 @@ import {
   runSummaryLine,
   type Tone,
 } from "./compliance-model";
+import { LegalSourcesCard } from "./LegalSourcesCard";
 
 /**
  * Źródła Zbieracza (`docs/claude/przepisy/radar-przepisow-dwa-boty.md`).
@@ -80,6 +81,7 @@ interface SourcesViewProps {
 export function SourcesView({ isAdmin }: SourcesViewProps) {
   return (
     <div className="grid min-w-0 gap-3.5 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+      <LegalSourcesCard />
       <BotsToday isAdmin={isAdmin} />
       <section className="min-w-0 self-start rounded-lg border border-border bg-card">
         <h2 className="border-b border-border/70 px-3.5 py-2 text-[13px] font-semibold">Źródła (czyta Zbieracz)</h2>

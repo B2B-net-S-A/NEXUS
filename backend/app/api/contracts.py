@@ -131,6 +131,7 @@ from app.schemas.contract_onboarding import (
     OnboardingItemUpdate,
 )
 from app.services import contract_document_folders, storage_service
+from app.services.contract_document_text import index as contract_document_text_index
 from app.services.contract_folder_docs import store as contract_doc_store
 from app.services.b2b_contract_generator.notices import (
     LEGACY_NOTICES_EMAIL,
@@ -5999,6 +6000,11 @@ async def upload_contract_document(
         storage_service.delete_contract_document(relative_path)
         raise
     await db.refresh(doc)
+    # 0789: treść umowy, aneksu i wypowiedzenia dla asystenta prawnego
+    # i Jarvisa — odczyt w tle dopiero po commicie (zadanie czyta wiersz
+    # z własnej sesji).
+    await db.commit()
+    contract_document_text_index.index_after_upload(doc)
     return await _document_to_response(db, doc)
 
 
@@ -6119,6 +6125,7 @@ async def delete_contract_document(
             detail="Tego dokumentu nie można usunąć — wskazują na niego inne zapisy.",
         ) from exc
     await db.commit()
+    contract_document_text_index.forget_after_delete(document_id)
     if file_path:
         storage_service.delete_contract_document(file_path)
 

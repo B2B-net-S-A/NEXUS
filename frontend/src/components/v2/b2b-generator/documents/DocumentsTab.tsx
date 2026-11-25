@@ -22,6 +22,7 @@ import {
   Loader2,
   MoreHorizontal,
   Search,
+  Sparkles,
 } from "lucide-react";
 
 import { EmptyState } from "@/components/ds/EmptyState";
@@ -80,6 +81,8 @@ import {
   type DocumentFileFormat,
 } from "./DocumentDialogs";
 import { DocumentWizard } from "./DocumentWizard";
+import { CustomTemplatesPanel } from "./custom-templates/CustomTemplatesPanel";
+import { TemplateStudio } from "./custom-templates/TemplateStudio";
 
 const SELECT_CLASS =
   "flex h-9 w-full rounded-md border border-border bg-card px-3 text-sm text-foreground";
@@ -193,6 +196,12 @@ export function DocumentsTabContent({
     staleTime: 10_000,
   });
   const rows = useMemo(() => list.data?.pages.flat() ?? [], [list.data]);
+  // „Nowy wzór z asystentem” (asystent prawny, 0786): `id` null = nowy wzór.
+  const [studio, setStudio] = useState<{ key: number; id: number | null } | null>(null);
+  const openStudio = (id: number | null) => {
+    onCloseWizard();
+    setStudio({ key: Date.now(), id });
+  };
   const typesByKey = useMemo(
     () => new Map((types.data?.types ?? []).map((t) => [t.key, t])),
     [types.data],
@@ -200,6 +209,14 @@ export function DocumentsTabContent({
 
   return (
     <div className="space-y-4">
+      {studio ? (
+        <TemplateStudio
+          key={studio.key}
+          templateId={studio.id}
+          onTemplate={(id) => setStudio((prev) => (prev ? { ...prev, id } : prev))}
+          onClose={() => setStudio(null)}
+        />
+      ) : null}
       {wizard && !canGenerate ? (
         <Alert
           variant="info"
@@ -216,6 +233,7 @@ export function DocumentsTabContent({
           initialValues={wizard.values}
           editDocumentId={wizard.editId}
           onClose={onCloseWizard}
+          onNewTemplate={canGenerate ? () => openStudio(null) : undefined}
         />
       ) : wizard && types.isError ? (
         <Alert
@@ -235,8 +253,10 @@ export function DocumentsTabContent({
       ) : null}
 
       <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
-          <div>
+        {/* Zawijanie: na telefonie dwa przyciski schodzą pod opis (bez poziomego
+            przewijania strony przy 360 px). */}
+        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
+          <div className="min-w-0 flex-1 basis-64">
             <CardTitle className="text-base">Dokumenty do umów</CardTitle>
             <CardDescription>
               Porozumienia i wypowiedzenia do umów z rejestru oraz umowy
@@ -253,14 +273,21 @@ export function DocumentsTabContent({
             </CardDescription>
           </div>
           {canGenerate ? (
-            <Button
-              onClick={() =>
-                onOpenWizard({ type: null, parentId: null, contractId: null, editId: null })
-              }
-            >
-              <FilePlus2 className="mr-1 h-4 w-4" aria-hidden="true" />
-              Nowy dokument
-            </Button>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="outline" onClick={() => openStudio(null)}>
+                <Sparkles className="mr-1 h-4 w-4" aria-hidden="true" />
+                Nowy wzór z asystentem
+              </Button>
+              <Button
+                onClick={() => {
+                  setStudio(null);
+                  onOpenWizard({ type: null, parentId: null, contractId: null, editId: null });
+                }}
+              >
+                <FilePlus2 className="mr-1 h-4 w-4" aria-hidden="true" />
+                Nowy dokument
+              </Button>
+            </div>
           ) : null}
         </CardHeader>
         <CardContent className="space-y-4">
@@ -335,6 +362,16 @@ export function DocumentsTabContent({
             onEdit={(item) =>
               onOpenWizard({ type: item.document_type, parentId: null, contractId: null, editId: item.id })
             }
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="py-4">
+          <CustomTemplatesPanel
+            canGenerate={canGenerate}
+            onOpen={(id) => openStudio(id)}
+            onNew={() => openStudio(null)}
           />
         </CardContent>
       </Card>

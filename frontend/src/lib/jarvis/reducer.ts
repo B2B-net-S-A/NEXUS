@@ -77,6 +77,8 @@ export function applyStreamEvent(state: JarvisTurnState, event: JarvisStreamEven
         : { ...state, items: [...state.items, { kind: "sources", items: event.items }] };
     case "mail_draft":
       return { ...state, items: [...state.items, { kind: "mail_draft", draft: event.draft }] };
+    case "legal_letter":
+      return { ...state, items: [...state.items, { kind: "legal_letter", letter: event.letter }] };
     case "client_change":
       return { ...state, items: [...state.items, { kind: "client_change", proposal: event.proposal }] };
     case "deep_link":

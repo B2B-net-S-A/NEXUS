@@ -264,7 +264,8 @@ export function probeLine(probe: { key: string; value: number | null; text: stri
 export function eventLine(event: ChangeEvent): string {
   switch (event.kind) {
     case "created":
-      return "Zmiana założona przez Analityka";
+      // Zmianę „Przejrzyj wzory” zakłada NEXUS po nowym tekście aktu w korpusie.
+      return event.bot ? "Zmiana założona przez Analityka" : "Zmiana założona przez NEXUS";
     case "updated":
       return "Analityk zaktualizował treść";
     case "stage":
