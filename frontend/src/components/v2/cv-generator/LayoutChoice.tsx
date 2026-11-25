@@ -3,7 +3,6 @@
 import { Check, Lock } from "lucide-react";
 
 import type { CvLayout } from "@/lib/api";
-import { cvDownloadPlan, wordClassicWarning, type CvFileFormat } from "@/lib/cv-file-format";
 
 import { cn } from "@/lib/utils";
 
@@ -179,21 +178,11 @@ export interface LayoutCardsProps {
   onChange: (value: CvLayout) => void;
   clientName?: string | null;
   clientDefault?: CvLayout;
-  /** Plik, którego chce klient (reguła CV, 25.11.2026); Word przy Nowym CV = ostrzeżenie. */
-  clientFileFormat?: CvFileFormat | null;
   disabled?: boolean;
 }
 
 /** Wybór układu w generatorze jako dwie karty z podglądem strony 1 (makieta rundy 36). */
-export function LayoutCards({
-  value,
-  onChange,
-  clientName = null,
-  clientDefault = "classic",
-  clientFileFormat = null,
-  disabled = false,
-}: LayoutCardsProps) {
-  const warnWord = cvDownloadPlan(clientFileFormat, value).warnWordClassic;
+export function LayoutCards({ value, onChange, clientName = null, clientDefault = "classic", disabled = false }: LayoutCardsProps) {
   return (
     <div className="space-y-2" data-testid="cv-layout-cards">
       <div role="radiogroup" aria-label="Układ CV" className="grid gap-3 md:grid-cols-2">
@@ -237,15 +226,6 @@ export function LayoutCards({
         {clientDefault === "new" && clientName ? `${clientName}: domyślnie Nowe CV. ` : null}
         Ten sam tekst w obu układach. Układ zmienisz też po wygenerowaniu, bez generowania od nowa.
       </p>
-      {warnWord ? (
-        <p
-          role="note"
-          data-testid="cv-layout-word-classic-warning"
-          className="rounded-md border border-warning/30 bg-warning-muted px-2.5 py-2 text-xs text-warning-muted-foreground"
-        >
-          {wordClassicWarning(clientFileFormat)}
-        </p>
-      ) : null}
     </div>
   );
 }
