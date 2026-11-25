@@ -144,6 +144,16 @@ def _docx_text(data: bytes) -> tuple[str, str]:
     return xml, text
 
 
+#: Dane działalności w komparycji umów przedwstępnych z kandydatem z JDG.
+_JDG_PARTY = (
+    "jednoosobową działalność gospodarczą pod firmą Próbna Firma IT",
+    "ul. Testowa 1, 00-001 Warszawa",
+    "1234563218",
+    "123456785",
+    "do Centralnej Ewidencji i Informacji o Działalności Gospodarczej (CEIDG)",
+)
+
+
 def _variants(doc_type: DocumentType) -> list[dict]:
     if doc_type.key == "annex_party_data":
         # `entity_type` = dokument sprzed generatora aneksów (29.09.2026), gdy
@@ -286,11 +296,10 @@ def _expected(doc_type: DocumentType, lang: str, values: dict) -> list[str]:
         out += ["§ 12 ust. 2 pkt 2", "1 (jednego) miesiąca", "15.09.2026", "31.10.2026"]
     elif key == "notice_withdrawal":
         out.append("10.09.2026")
-    elif key == "preliminary_cez":
+    elif key.startswith("preliminary_cez"):
         out += [
             "CEZ/77/2026",
-            "90010112345",
-            "ABC123456",
+            *(_JDG_PARTY if key.endswith("_jdg") else ("90010112345", "ABC123456")),
             "04.12.2026",
             "0000387063",
             "160 zł netto",
@@ -299,16 +308,18 @@ def _expected(doc_type: DocumentType, lang: str, values: dict) -> list[str]:
             "Strony wyłączają możliwość zawarcia Umowy z wykorzystaniem podpisu "
             "zaufanego lub podpisu osobistego.",
         ]
-    elif key == "preliminary_b2b":
+    elif key.startswith("preliminary_b2b"):
         out += [
             "Umowa przedwstępna na współpracę B2B",
             "Podpisana w dniu 05.10.2026 r. w Warszawie",
             "0000387063",
             "następcą prawnym B2B.net S.A. w tej części działalności",
             f"reprezentowaną przez {COMPANY_PL['representative']}",
-            "90010112345",
-            "ABC123456",
-            "ul. Domowa 2, 00-002 Kraków",
+            *(
+                _JDG_PARTY
+                if key.endswith("_jdg")
+                else ("90010112345", "ABC123456", "ul. Domowa 2, 00-002 Kraków")
+            ),
             "nie później niż do dnia 04.12.2026 r.",
             "stawki godzinowej wynoszącej 160 zł netto",
             "kary umownej w wysokości 10000 zł (słownie: dziesięć tysięcy złotych)",
@@ -815,6 +826,43 @@ def test_participation_jdg_and_person_differ_only_where_the_source_does():
     assert "legitymującym się dowodem osobistym" in person_text
     # Bez cyfr kary wpisanych na sztywno — kwota z formularza.
     assert "10.000" not in jdg_text and "10.000" not in person_text
+
+
+@pytest.mark.parametrize(
+    ("person_key", "after_party"),
+    [
+        ("preliminary_cez", "Zlecający i Partner zwani są"),
+        ("preliminary_b2b", "Zlecający i Przyszły Wykonawca zwani są"),
+    ],
+)
+def test_preliminary_jdg_differs_from_person_only_in_the_party(person_key, after_party):
+    """Decyzja Artura 25.11.2026: wariant z działalnością to ta sama umowa,
+    inna tylko komparycja kandydata (bez PESEL-u, dowodu i adresu domowego)."""
+    person = TYPES[person_key]
+    jdg = TYPES[f"{person_key}_jdg"]
+    sensitive = {"partner_home_address", "id_document", "id_document_issuer", "pesel"}
+    assert not sensitive & {f.key for f in jdg.fields}
+    assert {f.key for f in jdg.fields} - {f.key for f in person.fields} == {
+        "partner_nip",
+        "partner_legal_name",
+        "partner_business_address",
+        "partner_regon",
+    }
+    assert jdg.preliminary_scope == person.preliminary_scope
+    assert jdg.default_validity_days == person.default_validity_days
+    assert jdg.b2b_term_business_days == person.b2b_term_business_days
+
+    _, jdg_docx, jdg_html = _render(jdg, "pl", "k", {})
+    _, person_docx, _ = _render(person, "pl", "k", {})
+    _, jdg_text = _docx_text(jdg_docx)
+    _, person_text = _docx_text(person_docx)
+    for absent in ("PESEL", "90010112345", "ABC123456", "zamieszkałą", "dowodem"):
+        assert absent not in jdg_text, absent
+        assert absent not in _html_unescape(jdg_html), absent
+    assert "prowadzącą jednoosobową działalność" in jdg_text
+    assert "wpisaną do Centralnej Ewidencji" in jdg_text
+    # Od „Zlecający i … zwani są” do końca — słowo w słowo jak osoba fizyczna.
+    assert jdg_text.split(after_party, 1)[1] == person_text.split(after_party, 1)[1]
 
 
 def test_preliminary_b2b_takes_amounts_and_dates_from_the_form():
