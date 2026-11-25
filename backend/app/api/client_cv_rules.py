@@ -91,6 +91,7 @@ from app.services.section_permissions import (
     SectionAccess,
     section_access_for_user,
 )
+from app.services import cv_file_format as file_format_service
 from app.services import cv_layout as layout_service
 
 logger = logging.getLogger(__name__)
@@ -158,6 +159,9 @@ RULE_FIELDS: tuple[str, ...] = (
     "cv_title_with_reference",
     # Domyślny układ CV klienta (22.11.2026): „new” = Nowe CV w PDF.
     "cv_layout",
+    # Plik, którego chce klient (25.11.2026): „docx” | „pdf” | „both”;
+    # NULL = bez wymagań (plik idzie za układem).
+    "cv_file_format",
 )
 CLIENT_FLAG_FIELDS: tuple[str, ...] = (
     "cv_content_mode_cap",
@@ -204,6 +208,8 @@ class ClientCvRulePayload(BaseModel):
     cv_title_with_reference: bool = False
     # Pominięte pole = klasyczny, jak każde inne pole recepty (pełny zapis).
     cv_layout: Literal["classic", "new"] = "classic"
+    # Pominięte pole = bez wymagań (jak dotąd: plik idzie za układem CV).
+    cv_file_format: Optional[Literal["docx", "pdf", "both"]] = None
 
     @model_validator(mode="after")
     def _explicit_highlights_for_publication(self) -> "ClientCvRulePayload":
@@ -390,6 +396,8 @@ class ClientCvRuleRead(BaseModel):
     # — wyłączona: ekran reguł nie pokazuje wiersza „Układ CV”.
     cv_layout: Literal["classic", "new"] = "classic"
     new_layout_enabled: bool = False
+    # Plik, którego chce klient (25.11.2026); `null` = bez wymagań.
+    cv_file_format: Optional[Literal["docx", "pdf", "both"]] = None
     edit_revision: int = 0
     draft_payload: Optional[dict[str, Any]] = None
     client_id: int
@@ -465,6 +473,13 @@ class ClientCvLayoutPayload(BaseModel):
     """Sam układ CV klienta — zapis przy zasadach centralnych."""
 
     cv_layout: Literal["classic", "new"]
+    expected_revision: Optional[int] = None
+
+
+class ClientCvFileFormatPayload(BaseModel):
+    """Sam format pliku CV klienta — zapis przy zasadach centralnych."""
+
+    cv_file_format: Optional[Literal["docx", "pdf", "both"]] = None
     expected_revision: Optional[int] = None
 
 
@@ -621,6 +636,9 @@ def _to_read(
         cv_title_with_reference=bool(getattr(rule, "cv_title_with_reference", False)),
         cv_layout=layout_service.normalized(getattr(rule, "cv_layout", None)),
         new_layout_enabled=layout_service.enabled(),
+        cv_file_format=file_format_service.normalized(
+            getattr(rule, "cv_file_format", None)
+        ),
         edit_revision=int(rule.edit_revision or 1),
         draft_payload=rule.draft_payload,
         seed_key=rule.seed_key,
@@ -734,6 +752,8 @@ def _rule_state(rule: Optional[ClientCvRule], client: Client) -> dict[str, Any]:
             value = bool(value)
         if field == "cv_layout":
             value = layout_service.normalized(value)
+        if field == "cv_file_format":
+            value = file_format_service.normalized(value)
         state[field] = value
     for field in CLIENT_FLAG_FIELDS:
         state[field] = getattr(client, field, None)
@@ -796,6 +816,7 @@ def _apply_payload(rule: ClientCvRule, payload: ClientCvRulePayload) -> None:
     rule.cv_title_with_reference = payload.cv_title_with_reference
     # NULL = klasyczny (kolumna z 0752); zapisujemy tylko „new”.
     rule.cv_layout = "new" if payload.cv_layout == "new" else None
+    rule.cv_file_format = payload.cv_file_format
     rule.filename_pattern = payload.filename_pattern
     rule.spaces_to_underscores = payload.spaces_to_underscores
     rule.cv_language = payload.cv_language
@@ -1047,6 +1068,13 @@ MSG_LAYOUT_WITH_RULE = (
 MSG_LAYOUT_PROPOSAL = (
     "Reguła tego klienta czeka na zatwierdzenie — układ ustawisz po jej zatwierdzeniu."
 )
+MSG_FILE_FORMAT_WITH_RULE = (
+    "Format pliku zapisuje się razem z regułą — użyj „Zapisz i włącz regułę”."
+)
+MSG_FILE_FORMAT_PROPOSAL = (
+    "Reguła tego klienta czeka na zatwierdzenie — format pliku ustawisz po jej "
+    "zatwierdzeniu."
+)
 
 
 async def _publication_version(
@@ -1068,45 +1096,39 @@ async def _publication_version(
     return last + 1
 
 
-@router.put(
-    "/clients/{client_id}/cv-rule/layout",
-    response_model=ClientCvRuleRead,
-    dependencies=CLIENTS_EDIT_DEPENDENCIES,
-)
-async def set_client_cv_layout(
+async def _publish_central_field(
+    db: AsyncSession,
+    current_user: User,
     client_id: int,
-    payload: ClientCvLayoutPayload,
-    current_user: DeliverySectionUser,
-    db: AsyncSession = Depends(get_db),
+    expected_revision: Optional[int],
+    *,
+    field: str,
+    stored: Optional[str],
+    shown: Any,
+    proposal_message: str,
 ) -> ClientCvRuleRead:
-    """Układ CV klienta przy zasadach centralnych (22.11.2026).
+    """Jedno pole recepty spoza katalogu zasad centralnych, od razu w mocy.
 
-    Katalog zasad (`cv_policies.json`) nie prowadzi układu, a zasady centralne
-    blokują zapis reguły (403) — tak jak wzór „Karty przed CV”, układ ma
-    własny zapis z ``central_lock=False``: graf klienta i „Klienci: dodawanie
-    i edycja” dalej obowiązują. Zmiana obowiązuje od razu (jak publikacja
-    katalogu): nowa wersja reguły, publikacja i wpis historii z diffem.
-    Bez zasad centralnych układ jest polem recepty i idzie z „Zapisz i włącz
-    regułę” — tutaj 409.
+    Katalog (`cv_policies.json`) nie prowadzi układu ani formatu pliku, a zasady
+    centralne blokują zapis reguły (403) — tak jak wzór „Karty przed CV”, pole
+    ma własny zapis z ``central_lock=False``: graf klienta i „Klienci:
+    dodawanie i edycja” dalej obowiązują. Zmiana obowiązuje od razu (jak
+    publikacja katalogu): nowa wersja reguły, publikacja i wpis historii
+    z diffem. ``stored`` idzie do kolumny, ``shown`` do diffu (jak w
+    ``_rule_state``).
     """
-    from app.services.cv_generator_b2b import central_policies
-
-    if not layout_service.enabled():
-        raise HTTPException(status_code=409, detail=layout_service.MSG_DISABLED)
-    if not central_policies.enabled():
-        raise HTTPException(status_code=409, detail=MSG_LAYOUT_WITH_RULE)
     client = await _writable_client_or_404(db, client_id)
     await _require_client_rule_access(
         db, current_user, client.id, write=True, central_lock=False
     )
-    rule = await _lock_rule_edit(db, client, payload.expected_revision)
+    rule = await _lock_rule_edit(db, client, expected_revision)
     if rule is not None and rule.confirmed_at is None:
-        raise HTTPException(status_code=409, detail=MSG_LAYOUT_PROPOSAL)
-    previous = layout_service.normalized(rule.cv_layout if rule is not None else None)
-    if previous != payload.cv_layout:
+        raise HTTPException(status_code=409, detail=proposal_message)
+    previous = _rule_state(rule, client)[field]
+    if previous != shown:
         now = datetime.now(timezone.utc)
         if rule is None:
-            # Klient spoza katalogu: wiersz niesie sam układ, reszta recepty
+            # Klient spoza katalogu: wiersz niesie samo to pole, reszta recepty
             # domyślna (resolver zasad centralnych i tak buduje ją z katalogu).
             rule = ClientCvRule(
                 client_id=client.id,
@@ -1118,7 +1140,7 @@ async def set_client_cv_layout(
             db.add(rule)
         else:
             rule.version = await _publication_version(db, client.id, rule)
-        rule.cv_layout = "new" if payload.cv_layout == "new" else None
+        setattr(rule, field, stored)
         rule.edit_revision = (
             max(
                 int(rule.edit_revision or 0),
@@ -1145,7 +1167,7 @@ async def set_client_cv_layout(
             client_id=client.id,
             version=int(rule.version),
             action="saved_and_confirmed",
-            changes={"cv_layout": {"from": previous, "to": payload.cv_layout}},
+            changes={field: {"from": previous, "to": shown}},
             actor=current_user,
         )
         await db.commit()
@@ -1155,6 +1177,72 @@ async def set_client_cv_layout(
         client=client,
         client_id=client.id,
         client_name=_client_label(client),
+    )
+
+
+@router.put(
+    "/clients/{client_id}/cv-rule/layout",
+    response_model=ClientCvRuleRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
+async def set_client_cv_layout(
+    client_id: int,
+    payload: ClientCvLayoutPayload,
+    current_user: DeliverySectionUser,
+    db: AsyncSession = Depends(get_db),
+) -> ClientCvRuleRead:
+    """Układ CV klienta przy zasadach centralnych (22.11.2026).
+
+    Bez zasad centralnych układ jest polem recepty i idzie z „Zapisz i włącz
+    regułę” — tutaj 409. Zapis: ``_publish_central_field``.
+    """
+    from app.services.cv_generator_b2b import central_policies
+
+    if not layout_service.enabled():
+        raise HTTPException(status_code=409, detail=layout_service.MSG_DISABLED)
+    if not central_policies.enabled():
+        raise HTTPException(status_code=409, detail=MSG_LAYOUT_WITH_RULE)
+    return await _publish_central_field(
+        db,
+        current_user,
+        client_id,
+        payload.expected_revision,
+        field="cv_layout",
+        stored="new" if payload.cv_layout == "new" else None,
+        shown=payload.cv_layout,
+        proposal_message=MSG_LAYOUT_PROPOSAL,
+    )
+
+
+@router.put(
+    "/clients/{client_id}/cv-rule/file-format",
+    response_model=ClientCvRuleRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
+async def set_client_cv_file_format(
+    client_id: int,
+    payload: ClientCvFileFormatPayload,
+    current_user: DeliverySectionUser,
+    db: AsyncSession = Depends(get_db),
+) -> ClientCvRuleRead:
+    """Format pliku CV klienta przy zasadach centralnych (25.11.2026).
+
+    Jak układ: bez zasad centralnych format idzie z „Zapisz i włącz regułę”
+    (409 tutaj). Nie zależy od flagi „Nowego CV” — klasyczne CV też ma PDF.
+    """
+    from app.services.cv_generator_b2b import central_policies
+
+    if not central_policies.enabled():
+        raise HTTPException(status_code=409, detail=MSG_FILE_FORMAT_WITH_RULE)
+    return await _publish_central_field(
+        db,
+        current_user,
+        client_id,
+        payload.expected_revision,
+        field="cv_file_format",
+        stored=payload.cv_file_format,
+        shown=payload.cv_file_format,
+        proposal_message=MSG_FILE_FORMAT_PROPOSAL,
     )
 
 

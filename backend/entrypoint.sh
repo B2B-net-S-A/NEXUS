@@ -406,6 +406,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'contract_partner_read'",
     # 0761: Sprzedaż — ocena potencjału firmy przed spotkaniem (F54).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_potential_assessment'",
+    # 0779: Pytania z rozmów — nocne propozycje odpowiedzi (F55).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'interview_answer_proposal'",
     # 0735: Rada — pakiet na posiedzenie gotowy (dzwonek).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_meeting_pack'",
     # 0736: Rada — uchwała w trybie pisemnym do głosowania i jej wynik (dzwonek).
@@ -1247,7 +1249,10 @@ except Exception as _prep_review_config_err:  # noqa: BLE001
 try:
     from app.services import cv_layout_schema as _cv_layout_schema
 
-    _CV_LAYOUT_DDL = list(_cv_layout_schema.ALL_DDL)
+    # + format pliku klienta (migracja 0780, `FILE_FORMAT_DDL`).
+    _CV_LAYOUT_DDL = list(_cv_layout_schema.ALL_DDL) + list(
+        _cv_layout_schema.FILE_FORMAT_DDL
+    )
 except Exception as _cv_layout_err:  # noqa: BLE001
     print(f"cv layout DDL unavailable: {_cv_layout_err!r}")
     _CV_LAYOUT_DDL = []
@@ -6458,6 +6463,10 @@ _COLUMN_STATEMENTS = [
     # 0772: dosłowna treść zgody ze strony WWW (dowód zgody, RODO art. 7 ust. 1).
     # Lustro 1:1 z migracją — pilnuje `test_public_website_applications.py`.
     "ALTER TABLE candidate_consents ADD COLUMN IF NOT EXISTS consent_text TEXT NULL",
+    # 0779: skąd jest odpowiedź pod pytaniem z rozmów (excel | manual | ai | none).
+    # Lustro 1:1 z migracją — pilnuje `test_interview_answer_proposals.py`.
+    "ALTER TABLE interview_questions "
+    "ADD COLUMN IF NOT EXISTS ideal_answer_source VARCHAR(16) NULL",
     # 0340: tytuł na stronie kariery ustawiany przez rekrutera (pusty = tytuł
     # domyślny bez nazwy klienta i kodów). Lustro 1:1 z migracją.
     "ALTER TABLE job_public_profiles "
@@ -8189,6 +8198,17 @@ _DATA_STATEMENTS = [
     "SELECT 'sales_potential_assessment', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'sales_potential_assessment')",
+    # 0779: seed klucza AI nocnych propozycji odpowiedzi do pytań z rozmów.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'interview_answer_proposal', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'interview_answer_proposal')",
+    # 0779: źródło odpowiedzi sprzed nocnego biegu — Excel przy archiwum,
+    # człowiek przy reszcie. Idempotentne (tylko wiersze bez źródła).
+    "UPDATE interview_questions SET ideal_answer_source = CASE "
+    "WHEN source = 'legacy_import' THEN 'excel' ELSE 'manual' END "
+    "WHERE ideal_answer_source IS NULL "
+    "AND NULLIF(btrim(ideal_answer), '') IS NOT NULL",
     # 0727: seed klucza AI odczytu dokumentów Rady.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'board_document_read', TRUE, 0, now(), now() "

@@ -82,6 +82,7 @@ from app.services.client_questions_asked import (
     question_hash as _question_hash,
     questions_asked_in_job,
 )
+from app.services.interview_answer_proposals import bank_answer
 from app.services.interview_cycle import load_overview
 from app.services import pair_meetings as pair_meetings_service
 from app.services.interview_slot_requests import (
@@ -438,6 +439,12 @@ class QuestionBankItemOut(BaseModel):
     managers: list[str] = []
     asked_count: int = 0
     last_asked_at: Optional[datetime] = None
+    # 0779 (decyzja Artura 25.11.2026): proponowana odpowiedź pod pytaniem.
+    # ``excel`` — archiwum, ``manual`` — człowiek, ``ai`` — nocny bieg F55
+    # (do sprawdzenia), ``none`` — nocny bieg uznał wiersz za nagłówek działu
+    # (``answer`` = None); None — jeszcze nie przeliczone.
+    answer: Optional[str] = None
+    answer_source: Optional[Literal["excel", "ai", "manual", "none"]] = None
 
 
 class QuestionBankOut(BaseModel):
@@ -1883,6 +1890,7 @@ async def get_question_bank(
     for row in rows:
         q = row.question
         managers = sorted({r.manager for r in row.roles if r.manager})
+        answer, answer_source = bank_answer(q)
         items.append(
             QuestionBankItemOut(
                 id=q.id,
@@ -1906,6 +1914,8 @@ async def get_question_bank(
                 managers=managers,
                 asked_count=row.asked_count,
                 last_asked_at=row.last_asked_at or q.created_at,
+                answer=answer,
+                answer_source=answer_source,
             )
         )
     return QuestionBankOut(items=items)

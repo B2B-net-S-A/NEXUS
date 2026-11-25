@@ -1146,6 +1146,10 @@ class Settings(BaseSettings):
     # completed (sygnał, że event się odbył, nawet jeśli nikt go ręcznie nie
     # oznaczył). 10 min grace period absorbuje opóźnienia.
     INTERVIEW_AUTO_COMPLETE_GRACE_MINUTES: int = 10
+    # „Pytania z rozmów”: ile pytań bez odpowiedzi nocny bieg F55 wysyła do
+    # modelu w jednej nocy (decyzja Artura 25.11.2026). 1000 = zaległe ~3 400
+    # pytań w cztery noce, potem tylko nowe. 0 = nocny bieg nic nie wysyła.
+    INTERVIEW_ANSWER_PROPOSALS_PER_NIGHT: int = 1000
 
     # ── Email (SMTP) ─────────────────────────────────────────────────────────
     # Default: OFF. Włącza się envem SMTP_ENABLED=true. Bez credsów mailer jest
@@ -1249,6 +1253,12 @@ class Settings(BaseSettings):
     # Empty → TokenCipher raises at first use, not at startup (so dev/tests can run
     # without the secret as long as nothing actually calls M365 paths).
     M365_TOKEN_ENCRYPTION_KEY: str = ""
+    # Klucze tylko do odczytu, po przecinku: przy rotacji trafia tu poprzedni
+    # klucz, `python -m app.cli.token_cipher_rotate --apply` przeszyfrowuje
+    # dane, a potem zmienna wraca do pustej. Tekst, nie lista — pydantic
+    # czytałby listę ze zmiennej jako JSON.
+    # → docs/claude/podstawy/rotacja-klucza-szyfrowania-tokenow.md
+    M365_TOKEN_ENCRYPTION_KEY_PREVIOUS: str = ""
     # Separate signing key for the short-lived OAuth state JWT so it does not share
     # the main SECRET_KEY. Defaults to SECRET_KEY when empty — acceptable for dev,
     # override in prod.

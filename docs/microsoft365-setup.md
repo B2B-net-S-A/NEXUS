@@ -147,13 +147,14 @@ To change the category name globally, set `M365_IGNORE_CATEGORY=Some:Other:Label
 
 ### 5.3 Rotate `M365_TOKEN_ENCRYPTION_KEY`
 
-This invalidates **every** stored OAuth token — all users must click Disconnect → Connect again. Plan for off-hours and broadcast in advance.
-
-```bash
-NEW_KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
-# Update Coolify env, redeploy, then in DB:
-docker exec nexus-db-1 psql -U nexus -d nexus -c "DELETE FROM m365_connections;"
-```
+Since 25.11.2026 the key rotates without disconnecting mailboxes: the old key
+moves to `M365_TOKEN_ENCRYPTION_KEY_PREVIOUS` (decrypt-only) through the
+„Coolify set env” workflow (`keep_old_value_in`), and
+`python -m app.cli.token_cipher_rotate --apply` re-encrypts every row with the
+new key. Never delete `m365_connections` and never change the key without
+keeping the old one: the sync loop deactivates every mailbox whose token does
+not decrypt. Procedure and order of steps:
+`docs/claude/podstawy/rotacja-klucza-szyfrowania-tokenow.md`.
 
 ### 5.4 Add another whitelisted domain
 

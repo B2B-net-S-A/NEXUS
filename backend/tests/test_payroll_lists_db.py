@@ -330,6 +330,47 @@ async def test_pesel_is_encrypted_masked_and_unique(client, world) -> None:
 
 
 @pytest.mark.asyncio
+async def test_pesel_stays_unique_across_a_key_rotation(
+    client, world, monkeypatch
+) -> None:
+    """Rotacja klucza (25.11.2026): PESEL zapisany przed nią ma skrót poprzednim
+    kluczem, więc drugi taki sam numer po zmianie klucza dalej dostaje 409,
+    a dane sprzed rotacji dalej się czytają."""
+    from cryptography.fernet import Fernet
+
+    from app.core.encryption import TokenCipher
+    from app.services.hr import billing_details
+    from app.services.hr.payroll_lists import pesel as pesel_rules
+    from app.services.hr.payroll_lists import person_data
+
+    def use(cipher: TokenCipher) -> None:
+        for module in (person_data, pesel_rules, billing_details):
+            monkeypatch.setattr(module, "get_token_cipher", lambda: cipher)
+
+    w = world
+    old, new = (Fernet.generate_key().decode() for _ in range(2))
+    number = _pesel(date(1985, 6, 7), 2310)
+    use(TokenCipher(old))
+    saved = await client.put(
+        f"{BASE}/people/users/{w.uop.id}", json={"pesel": number}, headers=headers(w.hr)
+    )
+    assert saved.status_code == 200, saved.text
+
+    use(TokenCipher(new, [old]))
+    duplicate = await client.put(
+        f"{BASE}/people/users/{w.mandate.id}",
+        json={"pesel": number},
+        headers=headers(w.hr),
+    )
+    assert duplicate.status_code == 409, duplicate.text
+    assert duplicate.json()["detail"]["code"] == "pesel_taken"
+    assert number not in duplicate.text
+    read = await client.get(f"{BASE}/people/users/{w.uop.id}", headers=headers(w.hr))
+    assert read.status_code == 200, read.text
+    assert read.json()["pesel_masked"].endswith(number[-4:])
+
+
+@pytest.mark.asyncio
 async def test_own_data_refused_and_stale_version(client, world) -> None:
     w = world
     own = await client.put(

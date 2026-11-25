@@ -162,6 +162,7 @@ import {
 } from "@/lib/cv-editor-handoff";
 import { hasPermission } from "@/lib/permissions";
 import { useElementWidth } from "@/lib/use-element-width";
+import { cvDownloadPlan, cvFileFormat, wordClassicWarning, type CvDownloadPlan } from "@/lib/cv-file-format";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
@@ -392,6 +393,12 @@ function CVBrandedEditContent({
   const setLayoutApi = isGenerated ? undefined : editorApi.setLayout;
   const layoutEnabled = !!setLayoutApi && data?.new_layout_enabled === true;
   const layout: CvLayout = data?.cv_layout ?? "classic";
+  // Format pliku z reguły klienta (25.11.2026). Bez wymagań — edytor jak dotąd:
+  // Word na wierzchu, PDF w „Więcej”.
+  const fileFormat = isGenerated ? null : cvFileFormat(data?.client_file_format);
+  const downloadPlan: CvDownloadPlan = fileFormat
+    ? cvDownloadPlan(fileFormat, layoutEnabled && layout === "new" ? "new" : "classic")
+    : { primary: ["docx"], inMenu: ["pdf"], warnWordClassic: false };
   const [layoutSaving, setLayoutSaving] = useState(false);
   const changeLayout = async (next: CvLayout) => {
     if (next === layout || layoutSaving || !setLayoutApi) return;
@@ -941,6 +948,7 @@ function CVBrandedEditContent({
         : "Do poprawy";
   const bold = boldRequirements(issueCount.state === "ready" ? (issueCount.qc?.checks ?? null) : null);
   const canPdf = isFinalized && data?.docx_available ? !!(files.approvedPdf ?? files.draftPdf) : data?.status === "draft" && !!files.draftPdf;
+  const canWord = (!isFinalized && data?.status === "draft") || (isFinalized && !!data?.docx_available);
   const moreGroups: CvEditorMoreItem[][] = [
     isGenerated
       ? []
@@ -955,12 +963,26 @@ function CVBrandedEditContent({
           },
         ],
     [
-      {
-        label: "Pobierz PDF",
-        icon: <Download aria-hidden className="h-4 w-4" />,
-        disabled: !canPdf || downloadingDocx || submitting,
-        onSelect: () => void downloadPdf(),
-      },
+      ...(downloadPlan.inMenu.includes("pdf")
+        ? [
+            {
+              label: "Pobierz PDF",
+              icon: <Download aria-hidden className="h-4 w-4" />,
+              disabled: !canPdf || downloadingDocx || submitting,
+              onSelect: () => void downloadPdf(),
+            },
+          ]
+        : []),
+      ...(downloadPlan.inMenu.includes("docx") && canWord
+        ? [
+            {
+              label: "Pobierz Word",
+              icon: <Download aria-hidden className="h-4 w-4" />,
+              disabled: downloadingDocx || submitting,
+              onSelect: () => void (isFinalized ? downloadApproved() : previewDocx()),
+            },
+          ]
+        : []),
       {
         label: "Drukuj",
         icon: <Printer aria-hidden className="h-4 w-4" />,
@@ -1165,29 +1187,55 @@ function CVBrandedEditContent({
                   {showSources ? "Schowaj oryginał" : "Pokaż oryginał"}
                 </Button>
               ) : null}
-              {!isFinalized && data?.status === "draft" ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={downloadingDocx || submitting}
-                  title="Plik Word szkicu z treści widocznej w edytorze"
-                  onClick={() => void previewDocx()}
-                >
-                  <Download className="h-3.5 w-3.5 mr-1.5" aria-hidden /> Pobierz Word
-                </Button>
-              ) : null}
-              {isFinalized && data?.docx_available ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={downloadingDocx}
-                  title={`Zatwierdzona wersja ${data.version}`}
-                  onClick={() => void downloadApproved()}
-                >
-                  <Download className="h-3.5 w-3.5 mr-1.5" aria-hidden /> Pobierz Word
-                </Button>
-              ) : null}
+              {downloadPlan.primary.map((kind) =>
+                kind === "pdf" ? (
+                  canPdf ? (
+                    <Button
+                      key="pdf"
+                      size="sm"
+                      variant="outline"
+                      data-testid="cv-editor-download-pdf"
+                      disabled={downloadingDocx || submitting}
+                      title="PDF tego CV — ten sam plik, który dostanie klient"
+                      onClick={() => void downloadPdf()}
+                    >
+                      <Download className="h-3.5 w-3.5 mr-1.5" aria-hidden /> Pobierz PDF
+                    </Button>
+                  ) : null
+                ) : !isFinalized && data?.status === "draft" ? (
+                  <Button
+                    key="docx"
+                    size="sm"
+                    variant="outline"
+                    disabled={downloadingDocx || submitting}
+                    title="Plik Word szkicu z treści widocznej w edytorze"
+                    onClick={() => void previewDocx()}
+                  >
+                    <Download className="h-3.5 w-3.5 mr-1.5" aria-hidden /> Pobierz Word
+                  </Button>
+                ) : isFinalized && data?.docx_available ? (
+                  <Button
+                    key="docx"
+                    size="sm"
+                    variant="outline"
+                    disabled={downloadingDocx}
+                    title={`Zatwierdzona wersja ${data.version}`}
+                    onClick={() => void downloadApproved()}
+                  >
+                    <Download className="h-3.5 w-3.5 mr-1.5" aria-hidden /> Pobierz Word
+                  </Button>
+                ) : null,
+              )}
             </div>
+            {downloadPlan.warnWordClassic && hasCv ? (
+              <p
+                role="note"
+                data-testid="cv-editor-word-classic-warning"
+                className="basis-full rounded-md border border-warning/30 bg-warning-muted px-2.5 py-1.5 text-xs text-warning-muted-foreground [overflow-wrap:anywhere]"
+              >
+                {wordClassicWarning(fileFormat)}
+              </p>
+            ) : null}
             {hasCv && !sideBySide ? (
               // Wąski ekran: kartka, oryginał i kolumna na zmianę, w osobnym wierszu.
               <div className="flex basis-full flex-wrap items-center gap-1" role="group" aria-label="Kolumna">

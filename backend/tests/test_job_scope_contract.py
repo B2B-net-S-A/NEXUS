@@ -102,6 +102,9 @@ _SCOPE_MARKERS = (
     # Wynik generatora: autor albo `ensure_job_read_access` rekrutacji dokumentu
     # (`cv_generator_b2b._load_generated_document`).
     "_load_generated_editor",
+    # PDF wyniku generatora (`cv_pdf_preview.generated_cv_pdf`, 25.11.2026): ta sama
+    # bramka co „Pobierz DOCX” — autor albo `ensure_job_read_access` rekrutacji.
+    "_load_generated_document",
     "ensure_delivery_lead_job_visible",
     "_load_scoped_suggestion",
 )

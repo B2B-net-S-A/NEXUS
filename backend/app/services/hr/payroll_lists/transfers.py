@@ -226,12 +226,15 @@ async def build_file(
     for line_id, account in accounts.items():
         line = lines[line_id]
         try:
-            fingerprint = billing_details.account_fingerprint(account)
+            # Bieżący klucz pierwszy; skrót sprzed rotacji klucza pasuje do
+            # poprzedniego, a zapis niżej przepisuje go na bieżący.
+            candidates = billing_details.account_fingerprints(account)
         except TokenCipherNotConfigured:
             raise PayrollConflict(
                 "Szyfrowanie rachunków nie jest skonfigurowane.", code="no_cipher"
             ) from None
-        if line.payee_hmac and line.payee_hmac != fingerprint:
+        fingerprint = candidates[0]
+        if line.payee_hmac and line.payee_hmac not in candidates:
             raise PayrollConflict(
                 f"Rachunek osoby „{line.person_name}” zmienił się po pierwszym pobraniu "
                 "pliku — sprawdź zmianę i przygotuj przelew ręcznie albo anuluj listę.",

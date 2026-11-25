@@ -1284,6 +1284,21 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     expect(stageCvFile).not.toHaveBeenCalled();
   });
 
+  it("25.11.2026: klient chce PDF — w sekcji CV „PDF” stoi przed Wordem", async () => {
+    brandedGet.mockResolvedValue({
+      data: { status: "draft", from_generator: true, edit_revision: 1, version: 1, client_file_format: "pdf" },
+    });
+    const user = userEvent.setup();
+    renderDock();
+    await user.click(screen.getByRole("button", { name: /^CV/ }));
+    const section = await screen.findByTestId("dock-company-cv");
+    await within(section).findByRole("button", { name: "Pobierz PDF" });
+    const labels = within(section)
+      .getAllByRole("button", { name: /Pobierz (Word|PDF)/ })
+      .map((b) => b.getAttribute("aria-label") ?? b.textContent?.trim());
+    expect(labels).toEqual(["Pobierz PDF", "Pobierz Word"]);
+  });
+
   it("nieudane pobranie: komunikat serwera w toaście", async () => {
     brandedGet.mockResolvedValue({ data: { status: "draft", from_generator: true, edit_revision: 1, version: 1 } });
     stageCvFile.mockRejectedValue(

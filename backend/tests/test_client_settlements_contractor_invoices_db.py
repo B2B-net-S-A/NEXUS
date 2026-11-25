@@ -382,6 +382,7 @@ async def test_pobieranie_zapisuje_kontraktora_zamiast_kosztu() -> None:
                 db=db,
                 contractors=await ci.load_index(db, business_today()),
                 counts=Counter(),
+                now=local_now(),
             )
             assert await sync._store_contractor(run, item, item["ksefNumber"]) is True
             assert run.counts["contractors"] == 1
