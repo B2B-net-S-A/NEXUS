@@ -250,6 +250,10 @@ class CVBrandedResponse(BaseModel):
     # Dodatki strony 1 nowego CV (`result_text`, `result_index`, `results`) —
     # edytor pokazuje „Najmocniejszy wynik” i „Inny wynik (N)”.
     page1_extras: Optional[dict] = None
+    # Stanowiska, w których Nowe CV nie odczytało dat albo firmy (pętla jakości
+    # 25.11.2026, decyzja Artura: ostrzeżenie, nie blokada). Tylko przy „Nowym CV”;
+    # takie stanowiska nie trafiają na oś kariery strony 1.
+    new_layout_role_gaps: Optional[dict[str, int]] = None
 
 
 class CVLayoutUpdate(BaseModel):

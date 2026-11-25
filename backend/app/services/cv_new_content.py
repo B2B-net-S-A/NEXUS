@@ -419,3 +419,30 @@ def cv_json_from_editor_html(
     return EditorCvContent(
         cv_json=cv_json, rodo_clause=rodo, unmapped_sections=tuple(unmapped)
     )
+
+
+def role_gaps(
+    html: Optional[str], *, language: Optional[str], blind: bool
+) -> Optional[dict[str, int]]:
+    """Ile stanowisk Nowe CV czyta bez dat, a ile bez firmy (``None`` = wszystko jest).
+
+    CV wgrane z pliku w obcym formacie (np. daty i „Nazwa firmy:” nad stanowiskiem)
+    traci te pola — karta i edytor ostrzegają (decyzja Artura 25.11.2026)."""
+    if not html or not html.strip():
+        return None
+    roles = (
+        cv_json_from_editor_html(
+            html,
+            language="en" if language == "en" else "pl",
+            blind=blind,
+            fallback=None,
+        ).cv_json.get("experience")
+        or []
+    )
+    gaps = {
+        "without_dates": sum(1 for r in roles if not str(r.get("dates") or "").strip()),
+        "without_company": 0
+        if blind
+        else sum(1 for r in roles if not str(r.get("company") or "").strip()),
+    }
+    return gaps if any(gaps.values()) else None
