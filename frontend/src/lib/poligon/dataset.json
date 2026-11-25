@@ -115,12 +115,19 @@
     "entry_id": 990316,
     "name": "Ewa",
     "lastname": "Jesionowska"
+   },
+   {
+    "candidate_id": 990117,
+    "entry_id": 990317,
+    "name": "Marta",
+    "lastname": "Jarzębska"
    }
   ],
   "client_people": [
    "Ewelina Klonowska"
   ],
   "fiction_responses": [
+   "GET /api/board-tasks",
    "GET /api/candidates/990105/languages",
    "GET /api/care/contracts/990521",
    "GET /api/care/contracts/990521/card",
@@ -200,9 +207,11 @@
    "GET /api/reports/clients?min_closed=0&period=year",
    "GET /api/start-documents/clients/990501",
    "GET /api/start-documents/pair?candidate_id=990105&job_id=990001",
+   "POST /api/finance/payments/plan",
    "POST /api/pipeline/stages/990305/screening/reassign-suggestions"
   ],
-  "ready_cv_candidate_id": 990106
+  "ready_cv_candidate_id": 990106,
+  "terms_candidate_id": 990117
  },
  "responses": {
   "GET /api/jobs/quick-counts": {
@@ -444,12 +453,13 @@
      "has_budget_hourly": true,
      "effective_budget_hourly": null,
      "effective_budget_hourly_min": null,
-     "candidate_count": 11,
+     "candidate_count": 12,
      "stage_breakdown": {
       "new": 4,
       "screening": 3,
       "verified": 1,
       "interview": 2,
+      "cv_sent": 1,
       "client_interview": 1
      },
      "stage_columns": [
@@ -514,7 +524,7 @@
        "name": "CV Wysłane",
        "order": 6,
        "terminal_type": null,
-       "count": 0
+       "count": 1
       },
       {
        "stage": "new",
@@ -877,11 +887,11 @@
      "target_companies": null
     },
     "project": {
-     "about": null,
-     "responsibilities": null
+     "about": "",
+     "responsibilities": ""
     },
     "briefing": {
-     "title": null,
+     "title": "",
      "status": "pending",
      "note_id": null,
      "attached_at": null,
@@ -1025,7 +1035,7 @@
      {
       "id": "q2",
       "question": "W jakim projekcie przekładałeś/aś wymagania, strategię i priorytety biznesowe na konkretny plan wdrożenia — zakres, harmonogram, zależności, dostawy? Za co dokładnie odpowiadałeś/aś?",
-      "deal_breaker": null,
+      "deal_breaker": "",
       "ideal_answer": "Konkretny program z liczbami: wielkość zespołu, budżet, czas trwania i własna rola."
      },
      {
@@ -2621,8 +2631,146 @@
     {
      "stage": "cv_sent",
      "category": null,
-     "count": 0,
-     "items": [],
+     "count": 1,
+     "items": [
+      {
+       "id": 990317,
+       "candidate_id": 990117,
+       "job_id": 990001,
+       "stage": "cv_sent",
+       "stage_def_id": 5,
+       "rejection_reason_id": null,
+       "moved_at": "@rel:-1.89",
+       "moved_by": 90,
+       "notes": null,
+       "rating": null,
+       "created_at": "@rel:-1.89",
+       "days_in_stage": 1,
+       "name": "Marta",
+       "lastname": "Jarzębska",
+       "added_to_job_by_name": "Anna Poligonowa",
+       "added_to_job_by_id": 101,
+       "added_to_job_at": "@rel:-16.848",
+       "verified_by_name": "Anna Poligonowa",
+       "verified_by_id": 101,
+       "verified_at": "@rel:-2.001",
+       "rejection_reason_name": null,
+       "closed_by_name": null,
+       "scheduled_rejection_email_id": null,
+       "rejection_email_status": null,
+       "hm_veto": null,
+       "contact_case": null,
+       "process_state_version": 6,
+       "screening_done": true,
+       "screening_requirement": null,
+       "dl_send_counts": true,
+       "waiting_workdays": 0,
+       "client_silent_workdays": null,
+       "scorecard_done": false,
+       "auto_cv_ready": false,
+       "auto_cv_state": null,
+       "company_cv": true,
+       "client_form": null,
+       "qc": {
+        "status": "passed",
+        "blocking_failed": 0,
+        "ok_at": "@rel:-1.997",
+        "dismissed_blocking": 0,
+        "warnings_count": 0,
+        "manual_items": [],
+        "manual_checks": [],
+        "candidate_gaps": [],
+        "qc_state": {
+         "kind": "checked",
+         "n": 0,
+         "items": [],
+         "text": "QC: sprawdzone",
+         "tone": "ok",
+         "who": null,
+         "hint": "CV przeszło kontrolę przed wysłaniem."
+        }
+       },
+       "card": {
+        "status": "partial",
+        "missing": 2,
+        "answers": 0,
+        "rate_hourly": 105.0
+       },
+       "contact_attempts": 0,
+       "candidate_expected_rate_hourly": "105.00",
+       "candidate_rate_from_hourly": "100.00",
+       "recruiter_id": 101,
+       "recruiter_name": "Anna Poligonowa",
+       "owner_user_id": null,
+       "owner_name": null,
+       "owner_assigned_by_name": null,
+       "owner_assigned_at": null,
+       "owner_previous_name": null,
+       "care_user_id": null,
+       "care_user_name": null,
+       "care_departed_name": null,
+       "care_since": null,
+       "task_assignee_id": null,
+       "task_assignee_name": null,
+       "availability_status": "unknown",
+       "availability_date": "@reld:-194",
+       "minimum_missing": [],
+       "requirements_skipped": null,
+       "requirements_skipped_by_name": null,
+       "candidate_added_at": "@rel:-339.049",
+       "candidate_added_exact": true,
+       "candidate_added_by_name": null,
+       "warnings": [],
+       "next_action_owner": "recruiter",
+       "verification_status": "active",
+       "expected_rate_value": "105.00",
+       "expected_rate_unit": "hourly",
+       "expected_rate_currency": "PLN",
+       "budget_max_at_move": null,
+       "budget_exceeded": false,
+       "approved_by": null,
+       "approved_at": null,
+       "rejected_by": null,
+       "rejected_at": null,
+       "rejection_note": null,
+       "candidate_offer_response": null,
+       "ended_by": null,
+       "client_rate_value": null,
+       "client_rate_unit": null,
+       "client_rate_currency": null,
+       "entry_source": "proposal",
+       "entry_auto_match": null,
+       "entry_autofill": null,
+       "entry_ai_screening": null,
+       "entry_off_limits": null,
+       "entry_link_owner_id": null,
+       "entry_link_owner_name": null,
+       "entry_portal": null,
+       "reapplied_via_links": [],
+       "reassign_from_job_id": null,
+       "reassign_from_title": null,
+       "reassign_from_reference": null,
+       "is_champion": false,
+       "claim_user_id": null,
+       "claim_user_name": null,
+       "claim_until": null,
+       "booked_call": null,
+       "taken_by_user_id": null,
+       "taken_by_name": null,
+       "can_take": true,
+       "interview_badge": null,
+       "followup": null,
+       "rate_change": null,
+       "order_status": null,
+       "missing_contract": false,
+       "agreement": null,
+       "client_acceptance": null,
+       "pre_contract": null,
+       "start_docs": null,
+       "employment_marker": null,
+       "other_open_jobs": []
+      }
+     ],
      "stage_def_id": 5,
      "name": "CV Wysłane",
      "order": 6,
@@ -3285,8 +3433,8 @@
      "notes": ""
     },
     "project": {
-     "about": null,
-     "responsibilities": null
+     "about": "",
+     "responsibilities": ""
     },
     "screening_questions": [
      {
@@ -3299,7 +3447,7 @@
       "id": "q2",
       "question": "W jakim projekcie przekładałeś/aś wymagania, strategię i priorytety biznesowe na konkretny plan wdrożenia — zakres, harmonogram, zależności, dostawy? Za co dokładnie odpowiadałeś/aś?",
       "ideal_answer": "Konkretny program z liczbami: wielkość zespołu, budżet, czas trwania i własna rola.",
-      "deal_breaker": null
+      "deal_breaker": ""
      },
      {
       "id": "q3",
@@ -3417,7 +3565,7 @@
     "briefing": {
      "status": "pending",
      "note_id": null,
-     "title": null,
+     "title": "",
      "audio_storage_key": null,
      "attached_by_id": null,
      "attached_by_name": null,
@@ -4866,7 +5014,7 @@
      "good": "Kandydat podaje przykład, w którym przełożył cele biznesowe lub regulacyjne na plan obejmujący etapy i konkretne dostawy, a także odpowiadał za realizację.",
      "reject": "Kandydat pełnił wyłącznie rolę doradczą lub audytową albo zajmował się ryzykiem i kontrolą bez odpowiedzialności za realizację.",
      "original": {
-      "deal_breaker": null,
+      "deal_breaker": "",
       "ideal_answer": "Konkretny program z liczbami: wielkość zespołu, budżet, czas trwania i własna rola."
      },
      "question": "W jakim projekcie przekładałeś/aś wymagania, strategię i priorytety biznesowe na konkretny plan wdrożenia — zakres, harmonogram, zależności, dostawy? Za co dokładnie odpowiadałeś/aś?",
@@ -4960,7 +5108,7 @@
    "client": {
     "id": 11,
     "name": "Jakub Szkoleniowy",
-    "about": null,
+    "about": "",
     "origin": "manual",
     "sources": []
    }
@@ -6582,8 +6730,8 @@
      "notes": ""
     },
     "project": {
-     "about": null,
-     "responsibilities": null
+     "about": "",
+     "responsibilities": ""
     },
     "screening_questions": [
      {
@@ -6596,7 +6744,7 @@
       "id": "q2",
       "question": "W jakim projekcie przekładałeś/aś wymagania, strategię i priorytety biznesowe na konkretny plan wdrożenia — zakres, harmonogram, zależności, dostawy? Za co dokładnie odpowiadałeś/aś?",
       "ideal_answer": "Konkretny program z liczbami: wielkość zespołu, budżet, czas trwania i własna rola.",
-      "deal_breaker": null
+      "deal_breaker": ""
      },
      {
       "id": "q3",
@@ -6714,7 +6862,7 @@
     "briefing": {
      "status": "pending",
      "note_id": null,
-     "title": null,
+     "title": "",
      "audio_storage_key": null,
      "attached_by_id": null,
      "attached_by_name": null,
@@ -6774,7 +6922,7 @@
      "answer": "",
      "source": null,
      "question_id": "q2",
-     "deal_breaker": null,
+     "deal_breaker": "",
      "deal_breaker_hit": false
     },
     {
@@ -8936,7 +9084,7 @@
      "has_budget_hourly": true,
      "effective_budget_hourly": null,
      "effective_budget_hourly_min": null,
-     "candidate_count": 11,
+     "candidate_count": 12,
      "request_stage": "searching",
      "priority_assignment": null,
      "priority_carry_over_count": 0,
@@ -8946,6 +9094,7 @@
       "screening": 3,
       "verified": 1,
       "interview": 2,
+      "cv_sent": 1,
       "client_interview": 1
      },
      "review_count": 4
@@ -9136,7 +9285,7 @@
      "has_budget_hourly": true,
      "effective_budget_hourly": null,
      "effective_budget_hourly_min": null,
-     "candidate_count": 11,
+     "candidate_count": 12,
      "request_stage": "searching",
      "priority_assignment": null,
      "priority_carry_over_count": 0,
@@ -9146,6 +9295,7 @@
       "screening": 3,
       "verified": 1,
       "interview": 2,
+      "cv_sent": 1,
       "client_interview": 1
      },
      "review_count": 4
@@ -9362,7 +9512,7 @@
      "has_budget_hourly": true,
      "effective_budget_hourly": null,
      "effective_budget_hourly_min": null,
-     "candidate_count": 11,
+     "candidate_count": 12,
      "request_stage": "searching",
      "priority_assignment": null,
      "priority_carry_over_count": 0,
@@ -9372,6 +9522,7 @@
       "screening": 3,
       "verified": 1,
       "interview": 2,
+      "cv_sent": 1,
       "client_interview": 1
      },
      "review_count": 4
@@ -10335,12 +10486,13 @@
      "has_budget_hourly": true,
      "effective_budget_hourly": null,
      "effective_budget_hourly_min": null,
-     "candidate_count": 11,
+     "candidate_count": 12,
      "stage_breakdown": {
       "new": 4,
       "screening": 3,
       "verified": 1,
       "interview": 2,
+      "cv_sent": 1,
       "client_interview": 1
      },
      "stage_columns": [
@@ -10405,7 +10557,7 @@
        "name": "CV Wysłane",
        "order": 6,
        "terminal_type": null,
-       "count": 0
+       "count": 1
       },
       {
        "stage": "new",
@@ -22650,6 +22802,166 @@
    },
    "stop": null,
    "can_set_stop": false
+  },
+  "GET /api/board-tasks": {
+   "cpro_to_send": [],
+   "cpro_sent": [],
+   "dl_review": [],
+   "window_days": 30,
+   "dl_review_window_days": 30,
+   "can_send_to_client": false,
+   "prep_attention": [],
+   "booked_calls": [],
+   "followups": [],
+   "followups_by_others": [],
+   "can_set_cpro_sender": false,
+   "allocation_proposals": [],
+   "can_decide_proposals": false,
+   "allocation_leave_known": false,
+   "new_job_leads": [],
+   "new_people": [],
+   "cv_in_transit": null,
+   "pending_jobs": null,
+   "unfinished_forms": [],
+   "requirement_fixes": [],
+   "agreements": {
+    "to_confirm": [],
+    "to_close": [],
+    "waiting_on_others": []
+   },
+   "flow": {
+    "applies": true,
+    "new_requests": [],
+    "new_request_days": 3,
+    "postings": [],
+    "postings_total": 0,
+    "claimed": [],
+    "screening": [
+     {
+      "candidate_id": 990105,
+      "candidate_name": "Helena Wrzosek",
+      "job_id": 990001,
+      "job_title": "Senior Project Manager (bankowość)",
+      "job_working_title": null,
+      "client_name": "Bank Północny",
+      "since": "@rel:-3.0",
+      "claimed_until": null,
+      "missing": [
+       "sheet"
+      ],
+      "call_at": null,
+      "qc_status": null
+     },
+     {
+      "candidate_id": 990106,
+      "candidate_name": "Bartosz Brzozowski",
+      "job_id": 990001,
+      "job_title": "Senior Project Manager (bankowość)",
+      "job_working_title": null,
+      "client_name": "Bank Północny",
+      "since": "@rel:-2.5",
+      "claimed_until": null,
+      "missing": [
+       "sheet"
+      ],
+      "call_at": null,
+      "qc_status": null
+     },
+     {
+      "candidate_id": 990107,
+      "candidate_name": "Aleksandra Kalinowska",
+      "job_id": 990001,
+      "job_title": "Senior Project Manager (bankowość)",
+      "job_working_title": null,
+      "client_name": "Bank Północny",
+      "since": "@rel:-2.0",
+      "claimed_until": null,
+      "missing": [
+       "sheet"
+      ],
+      "call_at": null,
+      "qc_status": null
+     }
+    ],
+    "verified": [
+     {
+      "candidate_id": 990108,
+      "candidate_name": "Jakub Jaworek",
+      "job_id": 990001,
+      "job_title": "Senior Project Manager (bankowość)",
+      "job_working_title": null,
+      "client_name": "Bank Północny",
+      "since": "@rel:-3.0",
+      "claimed_until": null,
+      "missing": [
+       "rate"
+      ],
+      "call_at": null,
+      "qc_status": null
+     }
+    ],
+    "waiting_client": [],
+    "waiting_client_days": 7,
+    "unsigned_contracts": [],
+    "order_mail_review": 0,
+    "top_proposals": [],
+    "top_proposals_per_job": 3,
+    "autofill_decisions": [],
+    "autofill_decisions_total": 0
+   },
+   "finance": null,
+   "rate_changes": [],
+   "rate_changes_by_others": []
+  },
+  "POST /api/finance/payments/plan": {
+   "until": "@reld:7",
+   "items": [
+    {
+     "entry_id": 990611,
+     "invoice_number": "FV/ĆW/2026/10",
+     "ksef_number": null,
+     "seller_name": "Filip Bukowiec",
+     "seller_nip": null,
+     "category": "contractor",
+     "due_date": "@reld:2",
+     "currency": "PLN",
+     "gross_amount": "21697.20",
+     "vat_amount": "4057.20",
+     "to_pay": "21697.20",
+     "amount_note": null,
+     "account_note": null,
+     "mode": null,
+     "mode_label": null,
+     "mode_suggested": false,
+     "account": null,
+     "account_source": null,
+     "account_source_label": null,
+     "title": "FV/ĆW/2026/10",
+     "white_list": {
+      "state": "off",
+      "label": "Na Poligonie wykazu VAT nie sprawdzamy"
+     },
+     "selectable": false,
+     "block": "poligon",
+     "block_label": "Na Poligonie przelewów się nie wysyła.",
+     "acks": [],
+     "hints": [],
+     "batch_id": null,
+     "preselect": false,
+     "contract_id": 990521,
+     "period_month": "@relm:-1",
+     "settlement_id": 990612,
+     "hold": null,
+     "contractor_amount": null,
+     "garnishments": []
+    }
+   ],
+   "count": 1,
+   "selectable": 0,
+   "blocked": 1,
+   "totals": {
+    "PLN": "21697.20"
+   }
   }
  }
 }

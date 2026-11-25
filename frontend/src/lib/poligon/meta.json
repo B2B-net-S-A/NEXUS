@@ -114,12 +114,19 @@
    "entry_id": 990316,
    "name": "Ewa",
    "lastname": "Jesionowska"
+  },
+  {
+   "candidate_id": 990117,
+   "entry_id": 990317,
+   "name": "Marta",
+   "lastname": "Jarzębska"
   }
  ],
  "client_people": [
   "Ewelina Klonowska"
  ],
  "fiction_responses": [
+  "GET /api/board-tasks",
   "GET /api/candidates/990105/languages",
   "GET /api/care/contracts/990521",
   "GET /api/care/contracts/990521/card",
@@ -199,7 +206,9 @@
   "GET /api/reports/clients?min_closed=0&period=year",
   "GET /api/start-documents/clients/990501",
   "GET /api/start-documents/pair?candidate_id=990105&job_id=990001",
+  "POST /api/finance/payments/plan",
   "POST /api/pipeline/stages/990305/screening/reassign-suggestions"
  ],
- "ready_cv_candidate_id": 990106
+ "ready_cv_candidate_id": 990106,
+ "terms_candidate_id": 990117
 }

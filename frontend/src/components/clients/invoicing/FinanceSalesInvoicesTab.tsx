@@ -313,6 +313,8 @@ export function FinanceSalesInvoicesTab({
             {
               value: "overdue",
               label: "Po terminie",
+              // Krok 1 pokazu „Monit płatności”: klik w inną zakładkę nie przesuwa kroku.
+              "data-tour": "finance.sales-invoices.overdue-tab",
               count:
                 overdue.data?.invoices.length || !overdue.data?.payment_unknown
                   ? overdue.data?.invoices.length

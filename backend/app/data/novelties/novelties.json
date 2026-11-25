@@ -4677,10 +4677,9 @@
     "dot_anchor": "finance.sales-invoices.tabs",
     "steps": [
       {
-        "anchor": "finance.sales-invoices.tabs",
+        "anchor": "finance.sales-invoices.overdue-tab",
         "text": "Przejdź na zakładkę „Po terminie”.",
-        "hint": "Przy kliencie jest „Przygotuj monit”: szkic maila, który wysyłasz sam po sprawdzeniu adresatów i treści.",
-        "ack": true
+        "hint": "Przy kliencie jest „Przygotuj monit”: szkic maila, który wysyłasz sam po sprawdzeniu adresatów i treści."
       },
       {
         "anchor": "finance.overdue-month-close",
@@ -4877,6 +4876,7 @@
     "audience": { "roles": ["finance", "admin"] },
     "where": "Finanse → Rozliczenia klientów → Reguły klienta → Faktura do klienta",
     "href": "/finance",
+    "practice_href": "/finance?view=settlements&stSub=rules",
     "section": "finance",
     "dot_anchor": "clients.rules.client_invoice"
   },
@@ -5154,7 +5154,7 @@
     },
     "where": "Rekrutacja → Tablica → panel osoby → Rozmowa u klienta",
     "href": "/jobs",
-    "practice_href": "/jobs/990001",
+    "practice_href": "/jobs/990001?candidate=990115",
     "section": "pipeline",
     "dot_anchor": "dock.plan-preparation"
   },
@@ -5284,6 +5284,7 @@
     "audience": { "roles": ["finance", "admin"] },
     "where": "Finanse → Rozliczenia klientów → osoba → Dodatki do faktury",
     "href": "/finance",
+    "practice_href": "/finance?view=settlements",
     "section": "finance",
     "dot_anchor": "clients.settlement-extras.add"
   }

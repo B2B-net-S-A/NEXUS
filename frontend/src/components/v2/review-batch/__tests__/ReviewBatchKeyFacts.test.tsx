@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ReviewBatchCard } from "@/components/v2/review-batch/ReviewBatchCard";
 import type { ReviewBatchItem } from "@/lib/api/reviewBatch";
+import { withinAnchor } from "@/lib/novelties/logic";
 
 vi.mock("@/hooks/usePipelineMoveCore", () => ({
   usePipelineMoveCore: () => ({ send: vi.fn(), dialogs: null }),
@@ -74,6 +75,12 @@ describe("Kluczowe w tej rekrutacji", () => {
     render(<ReviewBatchCard item={base} onDecided={() => {}} onPickRequirement={onPick} />);
     await userEvent.setup().click(screen.getByRole("button", { name: /BigQuery/ }));
     expect(onPick).toHaveBeenCalledWith("BigQuery");
+  });
+
+  it("klik w pozycję zalicza lekcję „Musi mieć” — blok niesie jej kotwicę (25.11.2026)", async () => {
+    render(<ReviewBatchCard item={base} onDecided={() => {}} onPickRequirement={vi.fn()} />);
+    const row = screen.getByRole("button", { name: /ETL/ });
+    expect(withinAnchor(row, "review-batch.requirements")).toBe(true);
   });
 
   it("rekrutacja bez krytycznych zostaje przy dzisiejszych chipach", () => {

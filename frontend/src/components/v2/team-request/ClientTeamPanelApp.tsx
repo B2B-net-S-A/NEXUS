@@ -88,6 +88,26 @@ import {
   type SeatGroup,
 } from "./team-logic";
 
+/**
+ * Klient pisze adres sam, a FastAPI odrzuca zły e-mail walidacją Pydantica:
+ * `apiErrorMessage` oddałby wtedy „author_email: value is not a valid email
+ * address…” po angielsku. Panel jest publiczny, więc klient dostaje zdanie
+ * po polsku (rejestr testera 8032315d2a, 16.11.2026).
+ */
+function panelErrorMessage(error: unknown, fallback: string): string {
+  const response = (error as { response?: { status?: number; data?: { detail?: unknown } } } | null)
+    ?.response;
+  const detail = response?.data?.detail;
+  if (response?.status === 422 && Array.isArray(detail)) {
+    const badEmail = detail.some((item) => {
+      const loc = (item as { loc?: unknown } | null)?.loc;
+      return Array.isArray(loc) && loc.includes("author_email");
+    });
+    return badEmail ? "Sprawdź adres e-mail — nie wygląda na poprawny." : fallback;
+  }
+  return apiErrorMessage(error, fallback);
+}
+
 type Tab = "team" | "variants" | "request";
 
 function tabsFor(view: TeamPanelView): { id: Tab; label: string }[] {
@@ -691,10 +711,7 @@ function SendSelectionDialog({
       setProblem(
         response?.status === 429 && typeof response.data?.detail === "string"
           ? response.data.detail
-          : apiErrorMessage(
-              error,
-              "Nie udało się wysłać składu. Spróbuj ponownie.",
-            ),
+          : panelErrorMessage(error, "Nie udało się wysłać składu. Spróbuj ponownie."),
       );
     },
   });
@@ -940,10 +957,7 @@ function InterviewsDialog({
       setProblem(
         response?.status === 429 && typeof response.data?.detail === "string"
           ? response.data.detail
-          : apiErrorMessage(
-              error,
-              "Nie udało się wysłać próśb o rozmowy. Spróbuj ponownie.",
-            ),
+          : panelErrorMessage(error, "Nie udało się wysłać próśb o rozmowy. Spróbuj ponownie."),
       );
     },
   });

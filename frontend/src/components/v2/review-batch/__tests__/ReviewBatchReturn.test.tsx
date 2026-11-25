@@ -26,6 +26,12 @@ vi.mock("@/hooks/usePipelineMoveCore", () => ({
   usePipelineMoveCore: () => ({ send }),
 }));
 vi.mock("@/components/Toast", () => ({ useToast: () => toast }));
+// Podgląd CV ładuje się przez `dynamic()`: przy obciążonym CI chunk zdążał się
+// wczytać w trakcie testu i panel wołał prawdziwe `useQuery` („No QueryClient
+// set”, 25.11.2026). Ekran Porcji testujemy bez niego.
+vi.mock("@/components/v2/screening-form/CandidatePreviewPane", () => ({
+  CandidatePreviewPane: () => <div data-testid="candidate-preview" />,
+}));
 vi.mock("@/components/v2/review-batch/ReviewBatchCard", () => ({
   ReviewBatchCard: () => <div data-testid="review-batch-card" />,
 }));

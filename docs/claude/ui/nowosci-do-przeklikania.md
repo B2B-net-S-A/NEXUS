@@ -39,6 +39,25 @@ Artur: „trzeba zmusić, żeby każdą zmianę zrozumieli i potrafili korzysta�
   pytania”; pytanie trzeba zaliczyć. Ta sama zasada co „Nie mam tego — dalej”:
   nikt nie może utknąć na zawsze (30.10.2026). Lepiej dobrać warunek, który
   zrobi cała grupa odbiorców.
+- **Element z zadania nie może zależeć od prawdziwych danych osoby (25.11.2026).**
+  Test wszystkich lekcji na stagingu (kopia produkcji, 6 ról, 1280 × 720)
+  znalazł lekcje do zaliczenia tylko furtką: „Pracuj po kolei” (DL i TCM bez
+  własnych kart), „Terminy przy ruchu” (pusta kolumna „CV wysłane”), „Zajęcia
+  i spory” (plan przelewów to POST, Poligon odpowiadał 409), „Najważniejsze
+  zadanie” (`null` w tekście wywracał „Edytuj”), „Musi mieć” (żadna karta nie
+  miała listy ze schodkami). Dlatego: ekran, z którego zadanie korzysta, czyta
+  na Poligonie odpowiedź z zestawu (`OWNED_PATHS` / `READ_POSTS` w
+  `lib/poligon/store.ts`, moduł `backend/scripts/poligon_*_practice.py`), a nie
+  dane osoby; kolumna, z której zadanie każe ruszyć kartę, ma osobę ćwiczebną.
+  Porcja zostaje na prawdziwej kolejce, ale w lekcji startuje od „Do decyzji”.
+- **Pokaz prowadzi tą drogą, której wymaga zadanie.** Krok, który każe coś
+  kliknąć albo przejść, nie jest `ack` (strażnik
+  `test_step_that_says_click_is_not_passed_with_understood`); wpis bez kroków
+  ma `practice_href` na ekranie z elementem (panel osoby `?candidate=`,
+  `stSub=rules` w Rozliczeniach). Warunek `page` sprawdza adres także po
+  zmianie samego query (zakładki robią `replaceState`) i dopiero na
+  `solo_href` po przeładowaniu — pokaz kończący się na ekranie z warunku nie
+  zalicza „sam”.
 - **Najwyżej 5 lekcji dziennie** (Olaf: „nie chcę mieć z rana 40 funkcji, kiedy
   muszę wejść na daily”); reszta przechodzi na kolejne dni, nic nie przepada.
   Zaliczenie lekcji nie wciąga następnej tego samego dnia. To zastępuje „porcja
