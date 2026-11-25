@@ -203,7 +203,8 @@ def _row(case_id: int, **extra: Any) -> SimpleNamespace:
         "kind": "judgment",
         "url": f"https://www.saos.org.pl/judgments/{case_id}",
         "summary": None,
-        "text": "Krótki tekst o miarkowaniu kary umownej.",
+        "text": f"Krótki tekst nr {case_id} o miarkowaniu kary umownej.",
+        "content_sha256": f"hash-{case_id}",
     }
     return SimpleNamespace(**{**base, **extra})
 
@@ -291,6 +292,42 @@ def test_excerpt_centres_on_first_query_word() -> None:
     assert "miarkowanie kary umownej" in piece
     assert piece.startswith("… ") and piece.endswith(" …")
     assert len(piece) <= 300 + 4
+
+
+def test_excerpt_prefers_window_with_most_query_words() -> None:
+    header = "Sąd w składzie: przewodniczący, protokolant Kara. " + ("Tekst wstępny. " * 80)
+    body = "Sąd uznał, że miarkowanie kary umownej rażąco wygórowanej jest zasadne. "
+    text = header + body + ("Dalszy tekst. " * 80)
+    piece = search.excerpt(text, ["kar", "umown", "miark"], size=300)
+    assert "miarkowanie kary umownej" in piece
+    assert "protokolant" not in piece
+
+
+async def test_same_text_under_two_signatures_is_shown_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def keywords(*_args: Any) -> list[int]:
+        return [1, 4, 2, 3]
+
+    async def no_vectors(_query: str) -> None:
+        return None
+
+    monkeypatch.setattr(search, "keyword_ranking", keywords)
+    monkeypatch.setattr(index, "vector_ranking", no_vectors)
+    db = _FakeDb([_row(1), _row(2, content_sha256="hash-1"), _row(3)])
+    # Ten sam tekst pod inną sygnaturą też odpada (skrót treści bywa inny o spację).
+    long_text = "Uzasadnienie o miarkowaniu kary umownej. " * 40
+    db.rows[0] = _row(1, text=long_text)
+    db.rows.append(_row(4, text=long_text + "\n\nDopisek  sądu I instancji."))
+    passages = await search.search_case_law(db, "kara umowna", limit=2)  # type: ignore[arg-type]
+    assert [p.ref for p in passages] == ["I ABC 1/24", "I ABC 3/24"]
+
+
+def test_excerpt_survives_characters_that_fold_longer() -> None:
+    text = ("Wstęp… " * 200) + "miarkowanie kary umownej " + ("koniec… " * 200)
+    piece = search.excerpt(text, ["miark", "kar"], size=200)
+    assert "miarkowanie kary umownej" in piece
+    assert len(search.fold_same_length(text)) == len(text)
 
 
 def test_excerpt_without_hit_starts_at_beginning() -> None:

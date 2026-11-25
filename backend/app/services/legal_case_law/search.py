@@ -10,6 +10,7 @@ Wyszukiwanie czyta tylko bazę — źródła zewnętrzne odpytuje zasilenie
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date
 from typing import Iterable, Optional, Sequence
@@ -30,6 +31,8 @@ KEYWORD_HITS = 20
 MAX_LIMIT = 20
 EXCERPT_CHARS = 1200
 SUMMARY_CHARS = 1500
+MAX_HITS = 2000
+DUPLICATE_PREFIX = 300
 
 RETRIEVAL_HYBRID = "hybrid"
 RETRIEVAL_KEYWORDS = "keywords"
@@ -67,15 +70,50 @@ def label_for(row: LegalCase) -> str:
     return f"{court}, {kind}{when}, {row.signature}"
 
 
+def fold_same_length(text: str) -> str:
+    """``fold`` znak w znak: pozycje trafień zgadzają się z oryginałem.
+
+    Zwykłe ``fold`` rozkłada np. „…” na trzy kropki i przesuwa pozycje.
+    """
+    out = []
+    for ch in text:
+        folded = fold(ch)
+        out.append(folded[0] if folded else " ")
+    return "".join(out)
+
+
+def best_hit(folded: str, stems: Sequence[str], span: int) -> int:
+    """Początek okna ``span`` znaków z największą liczbą różnych słów pytania.
+
+    Nagłówek wyroku („Sąd … w składzie”) zawiera zwykle jedno słowo pytania;
+    okno z kilkoma różnymi słowami to fragment o sprawie. ``-1`` = brak trafień.
+    """
+    hits: list[tuple[int, str]] = []
+    for stem in stems:
+        for match in re.finditer(rf"\b{re.escape(stem)}", folded):
+            hits.append((match.start(), stem))
+            if len(hits) >= MAX_HITS:
+                break
+    if not hits:
+        return -1
+    hits.sort()
+    best, best_score, right = -1, (0, 0), 0
+    for left, (position, _stem) in enumerate(hits):
+        right = max(right, left)
+        while right + 1 < len(hits) and hits[right + 1][0] < position + span:
+            right += 1
+        window = hits[left : right + 1]
+        score = (len({stem for _p, stem in window}), len(window))
+        if score > best_score:
+            best, best_score = position, score
+    return best
+
+
 def excerpt(text: str, stems: Sequence[str], size: int = EXCERPT_CHARS) -> str:
-    """Fragment wokół pierwszego słowa pytania; bez trafienia — początek tekstu."""
+    """Fragment z największą liczbą słów pytania; bez trafienia — początek tekstu."""
     if len(text) <= size:
         return text
-    folded = fold(text)
-    hit = -1
-    if len(folded) == len(text):
-        positions = [p for p in (folded.find(stem) for stem in stems) if p >= 0]
-        hit = min(positions) if positions else -1
+    hit = best_hit(fold_same_length(text), stems, size * 2 // 3)
     if hit < 0:
         start = 0
     else:
@@ -172,7 +210,8 @@ async def search_case_law_outcome(
         )
         ranked = [case_id for case_id, _score in fused]
         retrieval = RETRIEVAL_HYBRID
-    top = ranked[:limit]
+    # Zapas na pominięte powtórki tekstu.
+    top = ranked[: limit * 2]
     if not top:
         return CaseLawOutcome([], RETRIEVAL_NONE)
     rows = {
@@ -181,7 +220,22 @@ async def search_case_law_outcome(
             await db.execute(select(LegalCase).where(LegalCase.id.in_(top)))
         ).scalars()
     }
-    passages = [to_passage(rows[i], stems) for i in top if i in rows]
+    passages: list[SourcePassage] = []
+    seen: set[str] = set()
+    # SAOS ma czasem ten sam wyrok pod sygnaturą sądu I i II instancji (tekst różni
+    # się o kilka akapitów) — ten sam początek fragmentu = jedna pozycja.
+    for case_id in top:
+        if len(passages) >= limit:
+            break
+        row = rows.get(case_id)
+        if row is None:
+            continue
+        passage = to_passage(row, stems)
+        opening = " ".join(passage.text.split())[:DUPLICATE_PREFIX]
+        if row.content_sha256 in seen or opening in seen:
+            continue
+        seen.update((row.content_sha256, opening))
+        passages.append(passage)
     return CaseLawOutcome(passages, retrieval)
 
 
