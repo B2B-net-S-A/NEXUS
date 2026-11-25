@@ -37,7 +37,7 @@ from app.api.legal import _check_out, _passage_out
 from app.api.permission_access import AmountsViewUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.core.scheduling import business_today
 from app.models.contract import Contract
 from app.models.user import User
@@ -190,7 +190,7 @@ def _blocked(review: letter_service.TextReview) -> HTTPException:
 
 
 @router.post("/contracts/{contract_id}/legal-letter/draft")
-@limiter.limit("20/minute")
+@limiter.limit("20/minute", key_func=user_or_ip_key)
 async def draft_contract_letter(
     request: Request,
     contract_id: int,

@@ -155,8 +155,9 @@ async def test_without_model_the_run_is_unavailable_and_shows_no_findings(
 async def test_tasks_for_delivery_lead_only_at_assigned_clients(monkeypatch) -> None:
     mine, other = await _client(), await _client()
 
-    async def _portfolio(_user, _db):
-        return frozenset({mine})
+    async def _portfolio(user, _db):
+        # Jak prawdziwy resolver: portfel tylko dla Delivery Leada, reszta = wszyscy.
+        return frozenset({mine}) if user.role == UserRole.delivery_lead else None
 
     monkeypatch.setattr(task_provider, "resolve_delivery_lead_client_ids", _portfolio)
     try:
