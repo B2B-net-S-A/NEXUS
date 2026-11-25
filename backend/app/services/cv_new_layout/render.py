@@ -27,12 +27,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class LayoutSettings:
-    """Ustawienia strony 1: stopień pisma, najwięcej pozycji w kategorii umiejętności
-    i odstęp między sekcjami (wolne miejsce strony podzielone równo)."""
+    """Ustawienia strony 1: stopień pisma, najwięcej pozycji w kategorii umiejętności,
+    odstęp między sekcjami i luz w środku sekcji (wolne miejsce strony podzielone)."""
 
     font_pt: float = 10.0
     skill_cap: Optional[int] = None
     block_gap_mm: float = 0.0
+    inner_mm: float = 0.0  # luz w środku sekcji (odstępy zdań, wierszy, osi)
 
 
 _IMAGE_SIGNATURES = (
@@ -89,6 +90,7 @@ def build_html(ctx: Ctx, settings: LayoutSettings, *, page1_only: bool = False) 
         font_pt=settings.font_pt,
         footer=ctx.t["footer"],
         block_gap_mm=settings.block_gap_mm,
+        inner_mm=settings.inner_mm,
     )
     return (
         f"<!doctype html><html lang='{doc.language}'><head><meta charset='utf-8'><title>{esc(title)}</title>"

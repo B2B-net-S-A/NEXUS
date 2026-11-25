@@ -110,6 +110,48 @@ async def test_typed_result_is_saved_without_touching_the_draft(
 
 
 @pytest.mark.asyncio
+async def test_highlight_is_saved_and_logged_without_its_text(
+    app_client: AsyncClient, app_auth_headers: dict, flag_on
+):
+    """Wyróżnik pod nazwiskiem (25.11.2026): wpis rekrutera w dodatkach strony 1."""
+    sid = await _draft({"results": RESULTS, "why": ["zostaje"]})
+    res = await app_client.patch(
+        _url(sid),
+        json={
+            "highlight": {
+                "mode": "custom",
+                "label": "Wyróżnienie",
+                "token": "2015",
+                "text": "Best IT Project Manager w klastrze bałtyckim.",
+            }
+        },
+        headers=app_auth_headers,
+    )
+    assert res.status_code == 200, res.text
+    extras = (await _csv(sid)).page1_extras
+    assert extras["highlight"]["mode"] == "custom"
+    assert extras["highlight"]["token"] == "2015"
+    assert extras["why"] == ["zostaje"]
+    async with AsyncSessionLocal() as db:
+        logged = await db.scalar(
+            select(Activity)
+            .where(
+                Activity.entity_type == "candidate_stage_cv",
+                Activity.action == "cv_page1_changed",
+            )
+            .order_by(Activity.id.desc())
+        )
+    assert logged.details["highlight"] == "custom"
+    assert "Best IT" not in str(logged.details)
+    empty = await app_client.patch(
+        _url(sid),
+        json={"highlight": {"mode": "custom", "label": "Wyróżnienie"}},
+        headers=app_auth_headers,
+    )
+    assert empty.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_picking_a_verified_result_clears_the_typed_one(
     app_client: AsyncClient, app_auth_headers: dict, flag_on
 ):

@@ -10,14 +10,18 @@
  *   zdanie rekrutera (`result_text`) albo wybrany sprawdzony wynik
  *   (`result_index`); bez nich strona 1 bierze punkt 3 z treści CV
  *   (`services/cv_layout.compose_page1_why`).
+ * - „Wyróżnik” (25.11.2026) to dodatek `page1_extras.highlight`: jedna rzecz
+ *   dająca kandydatowi przewagę, na stronie 1 pod nazwiskiem w wieńcu
+ *   laurowym. „Automatycznie” = wcześniejsza praca u klienta rekrutacji.
  * - Pozostałe części strony 1 to zwinięte wiersze z podsumowaniem; klik
  *   prowadzi do „Stanowisk” albo do „Cały tekst” na tej sekcji.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import type { Editor } from "@tiptap/core";
 import { Check, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 
+import { Input, SegmentedRadio, Textarea } from "@/components/ui";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -25,7 +29,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { CvPage1Extras, CvPage1Result, CvPage1Update } from "@/lib/api";
+import type {
+  CvHighlightMode,
+  CvPage1Extras,
+  CvPage1Highlight,
+  CvPage1Result,
+  CvPage1Update,
+} from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { CvSectionKey } from "@/lib/cv-editor-blocks";
 import { page1Summaries, setWhyPoint, tenureHint, whyPoints } from "@/lib/cv-new-layout-form";
@@ -34,7 +44,7 @@ import { cn } from "@/lib/utils";
 import { DocTextarea, dispatchCv, useEditorDoc } from "./cv-new-layout-fields";
 import { WreathChoice } from "@/components/v2/cv-generator/WreathChoice";
 
-/** Ile czeka zapis zdania „Najmocniejszy wynik” po ostatnim znaku. */
+/** Ile czeka zapis zdania „Najmocniejszy wynik” (i pól wyróżnika) po ostatnim znaku. */
 export const RESULT_SAVE_DELAY_MS = 1200;
 
 /**
@@ -72,7 +82,7 @@ export interface CvNewLayoutPage1Props {
   editor: Editor;
   extras: CvPage1Extras | null | undefined;
   disabled: boolean;
-  /** Zapis dodatku strony 1; brak = bez pola wyniku (np. CV bez etapu). */
+  /** Zapis dodatków strony 1 (wynik, wyróżnik, wieniec); brak = bez tych pól (np. CV bez etapu). */
   onSaveResult?: (patch: CvPage1Update) => Promise<void>;
   onOpenPositions: () => void;
   onOpenText: (section: CvSectionKey) => void;
@@ -101,6 +111,7 @@ export function CvNewLayoutPage1({
         <h2 className="text-base font-semibold text-foreground">Strona 1</h2>
         <p className="text-xs text-muted-foreground">podgląd odświeża się kilka sekund po zmianie</p>
       </div>
+      {onSaveResult ? <HighlightChoice extras={extras} disabled={disabled} onSave={onSaveResult} /> : null}
       <section aria-labelledby="cv-new-why" className="space-y-3">
         <h3 id="cv-new-why" className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
           <ChevronDown aria-hidden className="h-4 w-4 text-muted-foreground" />
@@ -322,6 +333,257 @@ function StrongestResult({
           {error}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/** Limity jak w `PATCH …/cv/page1`. */
+export const HIGHLIGHT_LIMITS = { label: 60, token: 8, text: 160 } as const;
+
+const HIGHLIGHT_OPTIONS: { value: CvHighlightMode; label: string }[] = [
+  { value: "auto", label: "Automatycznie" },
+  { value: "custom", label: "Własny" },
+  { value: "off", label: "Bez wyróżnika" },
+];
+
+interface HighlightDraft {
+  label: string;
+  token: string;
+  text: string;
+}
+
+function highlightDraft(highlight: CvPage1Highlight | null | undefined): HighlightDraft {
+  return { label: highlight?.label ?? "", token: highlight?.token ?? "", text: highlight?.text ?? "" };
+}
+
+/** Komplet „Własnego” do zapisu; bez etykiety albo zdania serwer odda 422, więc nie wysyłamy. */
+function customHighlight(draft: HighlightDraft): CvPage1Highlight | null {
+  const label = draft.label.trim();
+  const text = draft.text.trim();
+  if (!label || !text) return null;
+  return { mode: "custom", label, token: draft.token.trim() || null, text };
+}
+
+function HighlightChoice({
+  extras,
+  disabled,
+  onSave,
+}: {
+  extras: CvPage1Extras | null | undefined;
+  disabled: boolean;
+  onSave: (patch: CvPage1Update) => Promise<void>;
+}) {
+  const saved = extras?.highlight ?? null;
+  const savedMode: CvHighlightMode = saved?.mode ?? "auto";
+  const savedLabel = saved?.label ?? "";
+  const savedToken = saved?.token ?? "";
+  const savedText = saved?.text ?? "";
+  const [mode, setMode] = useState<CvHighlightMode>(savedMode);
+  const [draft, setDraft] = useState<HighlightDraft>(() => highlightDraft(saved));
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftRef = useRef(draft);
+  const savedRef = useRef({ mode: savedMode, label: savedLabel, token: savedToken, text: savedText });
+  savedRef.current = { mode: savedMode, label: savedLabel, token: savedToken, text: savedText };
+  const ids = useId();
+
+  useEffect(() => {
+    setMode(savedMode);
+  }, [savedMode]);
+  useEffect(() => {
+    if (dirty) return;
+    const next = { label: savedLabel, token: savedToken, text: savedText };
+    draftRef.current = next;
+    setDraft(next);
+  }, [savedLabel, savedToken, savedText, dirty]);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  /** `sent` = szkic „Własnego”, który poszedł; `null` = sam wybór trybu. */
+  const save = async (highlight: CvPage1Highlight, sent: HighlightDraft | null) => {
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave({ highlight });
+      // Rekruter mógł pisać dalej w trakcie zapisu — wtedy pola zostają „brudne”.
+      if (sent === null || draftRef.current === sent) setDirty(false);
+    } catch (reason) {
+      setError(apiErrorMessage(reason, "Nie udało się zapisać wyróżnika na stronie 1."));
+      if (sent === null) setMode(savedRef.current.mode);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const saveCustom = () => {
+    const current = draftRef.current;
+    const highlight = customHighlight(current);
+    if (!highlight) return;
+    const last = savedRef.current;
+    if (
+      last.mode === "custom" &&
+      highlight.label === last.label.trim() &&
+      (highlight.token ?? "") === last.token.trim() &&
+      highlight.text === last.text.trim()
+    ) {
+      setDirty(false);
+      return;
+    }
+    void save(highlight, current);
+  };
+  const stopTimer = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+  };
+  const pick = (next: CvHighlightMode) => {
+    if (next === mode) return;
+    stopTimer();
+    setMode(next);
+    setError(null);
+    if (next === "custom") {
+      saveCustom();
+      return;
+    }
+    if (next === savedRef.current.mode) return;
+    void save({ mode: next }, null);
+  };
+  const change = (field: keyof HighlightDraft) => (value: string) => {
+    const clean = field === "text" ? value.replace(/\s*[\r\n]+\s*/g, " ") : value;
+    const next = { ...draftRef.current, [field]: clean };
+    draftRef.current = next;
+    setDraft(next);
+    setDirty(true);
+    stopTimer();
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      saveCustom();
+    }, RESULT_SAVE_DELAY_MS);
+  };
+  const flush = () => {
+    stopTimer();
+    if (dirty) saveCustom();
+  };
+
+  const incomplete = mode === "custom" && !customHighlight(draft);
+
+  return (
+    <section aria-labelledby={`${ids}-title`} className="space-y-2" data-testid="cv-new-highlight">
+      <h3 id={`${ids}-title`} className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+        <ChevronDown aria-hidden className="h-4 w-4 text-muted-foreground" />
+        Wyróżnik
+      </h3>
+      <p className="text-xs text-muted-foreground">Jedna rzecz, która daje przewagę — pod nazwiskiem, w wieńcu.</p>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <SegmentedRadio<CvHighlightMode>
+          label="Wyróżnik"
+          size="sm"
+          value={mode}
+          onChange={pick}
+          options={HIGHLIGHT_OPTIONS}
+          disabled={disabled}
+        />
+        {saving ? (
+          <span role="status" className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Loader2 aria-hidden className="h-3 w-3 animate-spin" /> Zapisuję…
+          </span>
+        ) : null}
+      </div>
+      {mode === "auto" ? (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Gdy kandydat pracował wcześniej u klienta tej rekrutacji, strona 1 pokaże to pod nazwiskiem, np.
+          „Doświadczenie w PKO BP · 2018–2023”. Bez takiej pracy wyróżnika nie ma.
+        </p>
+      ) : null}
+      {mode === "off" ? (
+        <p className="text-xs text-muted-foreground">Strona 1 nie pokaże wyróżnika pod nazwiskiem.</p>
+      ) : null}
+      {mode === "custom" ? (
+        <div className="space-y-2">
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_9rem]">
+            <HighlightField id={`${ids}-label`} label="Etykieta" value={draft.label} max={HIGHLIGHT_LIMITS.label}>
+              <Input
+                id={`${ids}-label`}
+                value={draft.label}
+                maxLength={HIGHLIGHT_LIMITS.label}
+                placeholder="np. Wyróżnienie"
+                disabled={disabled}
+                onChange={(event) => change("label")(event.target.value)}
+                onBlur={flush}
+                className="h-9"
+              />
+            </HighlightField>
+            <HighlightField id={`${ids}-token`} label="Znak w wieńcu" value={draft.token} max={HIGHLIGHT_LIMITS.token}>
+              <Input
+                id={`${ids}-token`}
+                value={draft.token}
+                maxLength={HIGHLIGHT_LIMITS.token}
+                placeholder="np. 2015 albo PMP"
+                disabled={disabled}
+                onChange={(event) => change("token")(event.target.value)}
+                onBlur={flush}
+                className="h-9"
+              />
+            </HighlightField>
+          </div>
+          <HighlightField id={`${ids}-text`} label="Zdanie" value={draft.text} max={HIGHLIGHT_LIMITS.text}>
+            <Textarea
+              id={`${ids}-text`}
+              rows={2}
+              value={draft.text}
+              maxLength={HIGHLIGHT_LIMITS.text}
+              placeholder="np. Best IT Project Manager klastra bałtyckiego Nordea za inicjatywę KYC."
+              disabled={disabled}
+              onChange={(event) => change("text")(event.target.value)}
+              onBlur={flush}
+              className="min-h-0 resize-none"
+            />
+          </HighlightField>
+          {incomplete ? (
+            <p className="text-xs text-muted-foreground">Uzupełnij etykietę i zdanie — wtedy wyróżnik się zapisze.</p>
+          ) : null}
+        </div>
+      ) : null}
+      {error ? (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function HighlightField({
+  id,
+  label,
+  value,
+  max,
+  children,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  max: number;
+  children: ReactNode;
+}) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <div className="flex items-baseline justify-between gap-2">
+        <label htmlFor={id} className="text-xs font-medium text-foreground">
+          {label}
+        </label>
+        <span
+          aria-hidden
+          className={cn("text-xs tabular-nums", value.length >= max ? "text-foreground" : "text-muted-foreground")}
+        >
+          {value.length}/{max}
+        </span>
+      </div>
+      {children}
     </div>
   );
 }

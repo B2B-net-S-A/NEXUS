@@ -86,3 +86,19 @@ def wreath_cert_svg(short: str, year: str) -> str:
         f'<svg viewBox="0 0 {BOX} {BOX}" width="{BOX}mm" height="{BOX}mm" xmlns="http://www.w3.org/2000/svg">'
         f"{_branch(-1)}{_branch(1)}{_center_name(short, year)}</svg>"
     )
+
+
+def wreath_badge_svg(token: str, size_mm: float = 22.0) -> str:
+    """Wieniec wyróżnika (Artur 25.11.2026): w środku krótki znak („PKO BP”, „2015”),
+    bez znaku — sam wieniec."""
+    center = ""
+    if token:
+        size = 4.4 if len(token) <= 4 else 3.1 if len(token) <= 6 else 2.6
+        center = (
+            f'<text x="{CX}" y="{CY + 1.5}" text-anchor="middle" font-family="Poppins" font-weight="700" '
+            f'font-size="{size}" fill="{INK}">{esc(token)}</text>'
+        )
+    return (
+        f'<svg class="hlw" viewBox="0 0 {BOX} {BOX}" width="{size_mm}mm" height="{size_mm}mm" '
+        f'xmlns="http://www.w3.org/2000/svg">{_branch(-1)}{_branch(1)}{center}</svg>'
+    )
