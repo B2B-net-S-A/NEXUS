@@ -289,3 +289,55 @@ describe("JobCloseWithReasonDialog — trzy grupy powodów (21.10.2026)", () => 
     expect(mocks.close).not.toHaveBeenCalled();
   });
 });
+
+describe("JobCloseWithReasonDialog — „Co zdecydowało?” przy przegranej (25.11.2026)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.close.mockResolvedValue({ data: {} });
+    mocks.changeCloseReason.mockResolvedValue({ data: {} });
+  });
+
+  it("pyta tylko przy przegranej, najwyżej dwa powody, i wysyła wybór", async () => {
+    const { onOpenChange } = renderDialog({ defaultReason: "filled_by_us" });
+    expect(screen.queryByTestId("close-lost-why")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("close-group-lost"));
+    expect(screen.getByTestId("close-lost-why")).toBeInTheDocument();
+    for (const name of ["Konkurent był szybszy", "Konkurent tańszy", "Za mało CV / brak ludzi"]) {
+      fireEvent.click(screen.getByRole("button", { name }));
+    }
+    // Trzeci zastępuje najstarszy.
+    expect(screen.getByRole("button", { name: "Konkurent był szybszy" })).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByRole("button", { name: "Nie wiemy — zapytam klienta" }));
+    expect(screen.getByText(/Za 3 dni robocze NEXUS przypomni/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij rekrutację" }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(mocks.close).toHaveBeenCalledWith(7, "competitor", "", false, null, false, {
+      why: ["competitor_cheaper", "too_few_cvs"],
+      source: "unknown",
+    });
+  });
+
+  it("bez wyboru wysyła zamknięcie jak dotąd", async () => {
+    const { onOpenChange } = renderDialog();
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij rekrutację" }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(mocks.close).toHaveBeenCalledWith(7, "competitor", "", false, null, false);
+  });
+
+  it("„Zmień powód” wysyła wybór w PATCH", async () => {
+    const { onOpenChange } = renderDialog({
+      mode: "change",
+      initial: { reason: "competitor", notes: null, duplicateOfJobId: null },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Słabszy profil od wybranego" }));
+    fireEvent.click(screen.getByRole("button", { name: "Klient powiedział" }));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz powód" }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(mocks.changeCloseReason).toHaveBeenCalledWith(7, {
+      reason: "competitor",
+      notes: "",
+      duplicateOfJobId: null,
+      lostWhy: { why: ["weaker_profile"], source: "client" },
+    });
+  });
+});

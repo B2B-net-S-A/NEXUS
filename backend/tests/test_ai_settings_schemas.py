@@ -143,6 +143,8 @@ class TestFeatureKeyEnum:
             "sales_potential_assessment",
             # 0779: Pytania z rozmów — nocne propozycje odpowiedzi (F55).
             "interview_answer_proposal",
+            # 0782: Przegrane — wnioski AI na spotkanie z DL (F56).
+            "lost_review_summary",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):
