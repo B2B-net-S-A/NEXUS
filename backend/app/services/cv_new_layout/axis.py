@@ -111,12 +111,9 @@ def _merge(ctx: Ctx, roles: list[DatedRole]) -> list[Stop]:
     out: list[Stop] = []
     for r in sorted(roles, key=lambda r: r.start):
         name = company_name(r.role.company)
-        if (
-            out
-            and name
-            and out[-1].company.lower() == name.lower()
-            and r.start - out[-1].end < 0.5
-        ):
+        # ta sama firma kolejno = jeden odcinek, także po przerwie: oś nie pokazuje
+        # przerw (Artur 25.11.2026), a dwie te same nazwy obok siebie wyglądają jak błąd (#39461)
+        if out and name and out[-1].company.lower() == name.lower():
             last = out[-1]
             last.role = r.role.position or last.role
             last.end = max(last.end, r.end)
@@ -202,7 +199,19 @@ def stops(ctx: Ctx) -> list[Stop]:
             # pusta firma to nie „własna działalność” (#42900, pętla jakości 25.11.2026):
             # odcinek podpisuje stanowisko, pod paskiem zostaje sam rok
             s.company, s.role = s.role or "—", ""
-    return grouped
+            s.kind = "untitled"
+    merged: list[Stop] = []
+    for s in grouped:  # kolejne role bez firmy z tym samym stanowiskiem = jeden odcinek
+        prev = merged[-1] if merged else None
+        if prev and s.kind == prev.kind == "untitled" and prev.company == s.company:
+            prev.end, prev.current, prev.count = (
+                s.end,
+                prev.current or s.current,
+                prev.count + s.count,
+            )
+            continue
+        merged.append(s)
+    return merged
 
 
 def collapse(ctx: Ctx, st: list[Stop], keep: int) -> list[Stop]:

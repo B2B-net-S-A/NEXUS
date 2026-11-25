@@ -180,7 +180,8 @@ def parse_dates(text: str, now: float) -> Span:
     wcześniej „09.2018 - 2019” wychodziło 4 mies. (pętla jakości 25.11.2026)."""
     sides = [
         x.strip()
-        for x in re.split(r"\s+[-–—]\s+", (text or "").strip().lower())
+        # myślnik także bez spacji („05.2025-obecnie”, #39655) — daty mają kropki, nie myślniki
+        for x in re.split(r"\s*[-–—]\s*", (text or "").strip().lower())
         if x.strip()
     ]
 

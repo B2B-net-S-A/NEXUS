@@ -107,3 +107,43 @@ def test_hand_edited_education_row_keeps_dates_out_of_the_field():
             "location": "",
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "text", ["05.2025-obecnie", "05.2025–obecnie", "2019-2021", "05.2025 -obecnie"]
+)
+def test_dash_without_spaces_still_splits_the_range(text):
+    """#39655, #39612: „05.2025-obecnie” bez spacji — stanowisko traciło datę początku."""
+    span = parse_dates(text, NOW)
+    assert span.start is not None and span.end is not None and span.end > span.start
+
+
+def test_same_company_after_a_break_is_one_segment():
+    """#39461: dwie prace w tej samej firmie z przerwą stały obok siebie na osi
+    (oś nie pokazuje przerw — Artur 25.11.2026)."""
+    data = english(long_cv())
+    data["experience"] = [
+        {
+            "dates": d,
+            "company": c,
+            "position": p,
+            "industry": "",
+            "technologies": [],
+            "responsibilities": [],
+        }
+        for d, c, p in (
+            ("09.2024 - currently", "PEGASYSTEMS SOFTWARE LIMITED", "IT Specialist"),
+            (
+                "05.2022 - 10.2023",
+                "PEGASYSTEMS SOFTWARE LIMITED",
+                "Associate System Architect",
+            ),
+            ("03.2020 - 04.2022", "UBS BUSINESS SOLUTIONS POLAND", "Analyst"),
+        )
+    ]
+    st = stops(build_context(NewCvDocument.from_cv_json(data), TODAY))
+    assert [s.company for s in st] == [
+        "Ubs Business Solutions",
+        "Pegasystems Software Limited",
+    ]
+    assert st[-1].current and st[-1].role == "IT Specialist"
