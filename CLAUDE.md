@@ -87,14 +87,13 @@ Każda ma pełny opis w pliku w `docs/claude/`; tu tylko to, o co najłatwiej si
   `ui/responsywnosc-reguly-po-audycie-23-09-2026.md`
 - **Ekran docelowy to laptop 1280 × 720**: po zmianie UI przeklikaj też w tym
   rozmiarze, nie tylko na dużym monitorze.
-- **Makiety i „jak to teraz wygląda”** pokazujesz na stagingu z laptopa:
-  „przed” to zrzut z `localhost:3100`, „po” to kod z gałęzi na porcie 3101
-  na tych samych danych; rysunek od zera tylko na wyraźną prośbę.
-  → `ui/makiety-na-stagingu.md`
-- **Zmiana na styku ról** (rekruter → DL → HoR, kwota tylko dla części ról)
-  przechodzi na stagingu całą ścieżkę każdą rolą, zanim powstanie PR;
-  logowanie jako dowolna osoba: `python -m scripts.staging_login_as`.
-  → `podstawy/test-calej-sciezki-na-stagingu.md`
+- **Ścieżka na stagingu przed każdym PR-em z ekranem, PDF-em, Wordem albo
+  mailem:** `/sciezka <obszar>` — każda rola, która z tego korzysta, od
+  początku do końca (edytuj, pobierz, zatwierdź, przekaż), na kopii produkcji
+  z kodem gałęzi i flagami jak na produkcji. Bo rano zgłasza to rekruter, a
+  nie CI. Bez paragonu hook nie otworzy PR-a (draft tak). Makiety „przed/po”
+  też ze stagingu. → `podstawy/test-calej-sciezki-na-stagingu.md`,
+  `ui/makiety-na-stagingu.md`
 - **Nic nie znika z ekranów bez śladu:** inwentarze funkcji
   (`recruitment-feature-inventory.json`, `orders-contracts-feature-inventory.json`,
   `candidate-profile-feature-inventory.json`) i ich testy.

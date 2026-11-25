@@ -1,0 +1,76 @@
+{
+  "_opis": "Obszar → ścieżki plików i role, które muszą przejść ścieżkę na stagingu (bramka sciezka-stagingu-gate.js, skill /sciezka). Nazwa roli = tekst w kolumnie „Rola” paragonu. Plik bez dopasowania → domyslne_role.",
+  "domyslne_role": [
+    "Rekruter"
+  ],
+  "obszary": {
+    "cv-do-klienta": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/cv-do-klienta.md",
+      "sciezki": [
+        "frontend/src/app/cv/**",
+        "frontend/src/app/cv-generator/**",
+        "frontend/src/components/v2/cv/**",
+        "frontend/src/components/v2/cv-editor/**",
+        "frontend/src/components/v2/cv-generator/**",
+        "frontend/src/components/cv-rules/**",
+        "frontend/src/components/**Cv*",
+        "backend/app/services/**cv**",
+        "backend/app/services/**docx**",
+        "backend/app/services/**pdf**"
+      ],
+      "role": [
+        "Rekruter",
+        "Delivery Lead"
+      ]
+    },
+    "ruch-karty-przeglad-dl": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/ruch-karty-przeglad-dl.md",
+      "sciezki": [
+        "frontend/src/app/jobs/**",
+        "frontend/src/components/jobs/**",
+        "frontend/src/components/v2/jobs/**",
+        "frontend/src/components/v2/recruitment/**",
+        "frontend/src/components/v2/request-review/**",
+        "frontend/src/components/v2/review-batch/**",
+        "frontend/src/components/**Pipeline*"
+      ],
+      "role": [
+        "Rekruter",
+        "Delivery Lead",
+        "Head of Recruitment"
+      ]
+    },
+    "zamowienia": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/zamowienia.md",
+      "sciezki": [
+        "frontend/src/app/order-mail/**",
+        "frontend/src/components/orders/**",
+        "frontend/src/components/order-mail/**",
+        "frontend/src/components/**Order*",
+        "backend/app/services/**order**"
+      ],
+      "role": [
+        "Delivery Lead",
+        "Finanse",
+        "Rekruter"
+      ]
+    },
+    "finanse": {
+      "scenariusz": ".claude/skills/sciezka/scenariusze/finanse.md",
+      "sciezki": [
+        "frontend/src/app/finance/**",
+        "frontend/src/app/accounting/**",
+        "frontend/src/components/finance/**",
+        "frontend/src/components/accounting/**",
+        "backend/app/services/**invoice**",
+        "backend/app/services/**email**",
+        "backend/app/services/**mail**"
+      ],
+      "role": [
+        "Finanse",
+        "Admin",
+        "Delivery Lead"
+      ]
+    }
+  }
+}

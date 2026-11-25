@@ -19,7 +19,8 @@ czy coś się zmieści przy 1280 × 720 z prawdziwymi nazwami i liczbami.
   niż ekran rekrutera. Logujesz się przez „Zaloguj jako”
   (`python -m scripts.staging_login_as`, opis w
   `podstawy/test-calej-sciezki-na-stagingu.md`); nie zgadujesz i nie
-  zmieniasz haseł.
+  zmieniasz haseł. Makieta nie zastępuje ścieżki: PR z ekranem i tak
+  przechodzi `/sciezka` każdą rolą z mapy.
 - Zrzut każdego stanu, o który chodzi: pusty, pełny, błąd, otwarte okno, wąski
   ekran. Wybierz prawdziwy rekord, na którym problem widać (długa nazwa, dużo
   kart), i napisz, który to (id, nie nazwisko).
@@ -35,19 +36,12 @@ Kolejność, od najlepszego:
    (CORS stagingu przyjmuje 3101; token jest w `localStorage` per port, więc
    na 3101 logujesz się osobno). Zrzuty „przed” (3100) i „po” (3101) na tym
    samym rekordzie, w tym samym rozmiarze, obok siebie. Gałąź z samą
-   makietą może zostać szkicem PR-a (draft) albo zniknąć po decyzji.
-   Zmiana wymagająca nowego API: zaślep odpowiedź na froncie wartościami
-   wyliczonymi z prawdziwych danych stagingu (zapytanie read-only) i powiedz,
-   które pola są zaślepione.
-2. **Rysunek na zrzucie ze stagingu.** Gdy wariantów jest kilka albo kod
-   byłby duży jak cała funkcja: plansza zbudowana na zrzucie prawdziwego
-   ekranu, z prawdziwymi liczbami z bazy stagingu i komponentami z
-   `components/ds/` (te same tokeny, czcionki, gęstość). Zaznacz, co jest
-   nowe, a co jest dzisiejszym ekranem.
-3. **Czysty szkic** (plansza w kanwie Design, artefakt bez zrzutu) tylko na
-   wyraźną prośbę o szybki szkic albo dla ekranu, którego jeszcze nie ma;
-   wtedy obok zrzut najbliższego istniejącego ekranu ze stagingu jako punkt
-   odniesienia.
+   makietą może zostać draftem albo zniknąć po decyzji. Nowe API: zaślep
+   odpowiedź wartościami z danych stagingu i powiedz, które pola.
+2. **Rysunek na zrzucie ze stagingu** (kilka wariantów, duży kod):
+   prawdziwe liczby, komponenty z `components/ds/`; zaznacz, co nowe.
+3. **Czysty szkic** tylko na wyraźną prośbę albo dla ekranu, którego nie ma;
+   obok zrzut najbliższego istniejącego ekranu.
 
 Wymyślone dane („Jan Kowalski”, „Acme”, okrągłe 100 %) w makiecie ekranu,
 który już istnieje, to błąd, nie uproszczenie.
