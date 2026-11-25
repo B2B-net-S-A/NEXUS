@@ -226,6 +226,10 @@ def test_parse_dates_reads_each_side():
         and span.months_known
     )
     assert parse_dates("obecnie", NOW) == Span(None, NOW, False)
+    # Generator EN pisze „currently” (`prompts.py`) — do 25.11.2026 trwająca rola
+    # w angielskim CV liczyła się jako 1 miesiąc (oś kariery, lata strony 1).
+    assert parse_dates("07.2020 - currently", NOW).end == NOW
+    assert parse_dates("2022 – ongoing", NOW).end == NOW
     assert parse_dates("2019", NOW) == Span(2019, 2020, False)
     assert (
         parse_dates("2015 - 2015", NOW).end == 2016

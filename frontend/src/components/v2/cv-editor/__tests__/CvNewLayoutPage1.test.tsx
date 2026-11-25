@@ -133,6 +133,19 @@ describe("Strona 1", () => {
     await waitFor(() => expect(props.onSaveResult).toHaveBeenCalledWith({ why: ["", null, null] }));
   });
 
+  it("„Przywróć” prosto z pisania w polu: wygrywa zdanie z generatora, bez zapisu poprawki", async () => {
+    const edited: CvPage1Extras = { ...GENERATED, why: ["Moje zdanie.", "", GENERATED.why?.[2] ?? ""] };
+    const { props } = renderPage1({ extras: edited });
+    const field = screen.getByLabelText("1 · Doświadczenie");
+    fireEvent.change(field, { target: { value: "Jeszcze inaczej." } });
+    const restoreButton = screen.getByRole("button", { name: /Przywróć z generatora/ });
+    // Klik nie zabiera fokusu z pola, więc wyjście z pola nie wysyła poprawki.
+    expect(fireEvent.mouseDown(restoreButton)).toBe(false);
+    fireEvent.click(restoreButton);
+    await waitFor(() => expect(props.onSaveResult).toHaveBeenCalledWith({ why: ["", null, null] }));
+    expect(props.onSaveResult).toHaveBeenCalledTimes(1);
+  });
+
   it("wyczyszczone pole = z generatora (pusty slot)", async () => {
     const { props } = renderPage1({ extras: GENERATED });
     const field = screen.getByLabelText("3 · Najważniejsze zadanie");

@@ -151,7 +151,8 @@ def certs_by_year(entries: Sequence[str]) -> list[Cert]:
 
 # ---------- daty ról ----------
 CURRENT_WORD = re.compile(
-    r"\b(?:obecnie|present|current|now|today|nadal|dziś|dzis)\b", re.I
+    r"\b(?:obecnie|present|currently|current|ongoing|now|today|nadal|dziś|dzis)\b",
+    re.I,
 )
 
 

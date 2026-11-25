@@ -551,3 +551,73 @@ async def test_both_calls_failing_leaves_extras_untouched(models, monkeypatch):
     outcome = await service.refresh_stage_cv(_FakeSession(csv), csv.id, force=True)
     assert outcome.status == service.FAILED
     assert csv.page1_extras == before
+
+
+# ── Dopasowanie MUST: odmiana, alternatywy, frazy (pomiar 25.11.2026) ───────
+
+
+@pytest.mark.parametrize(
+    ("must", "text", "hit"),
+    [
+        # Pomiar na kopii produkcji: 17 z 25 zdań 2 odpadło na dosłownej frazie.
+        ("Kredyty hipoteczne", "sprzedaży kredytów hipotecznych oraz obsługi", True),
+        (
+            "regression testing",
+            "functional, regression, integration and e2e testing",
+            True,
+        ),
+        ("Postman lub Swagger", "documented REST APIs with Postman", True),
+        ("Python Flask", "business logic using Python and Flask", True),
+        ("Web Testing (UI)", "exploratory, UI and API testing", True),
+        ("Project Management", "Managed FinTech programs across CEE", False),
+        ("Java", "JavaScript and TypeScript front-end", False),
+        ("SQL", "PostgreSQL i MySQL", False),
+        ("SQL", "zapytania SQL do hurtowni", True),
+        ("API testing", "manual testing of mobile apps", False),
+    ],
+)
+def test_must_matches_inflection_and_alternatives(must, text, hit):
+    from app.services.cv_page1_why_checks import must_matches
+
+    assert must_matches(must, text) is hit
+
+
+def test_inflected_must_with_quote_is_verified():
+    ctx = _ctx(inputs=WhyInputs(must=("Migracja systemu płatności",)))
+    item = {
+        "text": "**Migracje systemów płatności** w Acme Bank",
+        "evidence": [
+            {
+                "must": "Migracja systemu płatności",
+                "quote": "w programie migracji systemu płatności do chmury",
+                "company": "Acme Bank",
+            }
+        ],
+    }
+    assert check_requirements(item, ctx)["verified"] is True
+
+
+def test_number_glued_to_a_cv_name_is_not_a_figure():
+    """Pomiar 25.11.2026: „PRINCE2” odrzucało zdanie 1 jako liczbę spoza CV."""
+    ctx = _ctx()
+    ctx = WhyContext(**{**ctx.__dict__, "cv_text": ctx.cv_text + " PRINCE2 Agile"})
+    item = {
+        **EXPERIENCE,
+        "text": "{LATA_IT} w IT, w zespołach pracujących w Scrum i PRINCE2",
+    }
+    assert check_experience(item, ctx)["verified"] is True
+    outside = {
+        **EXPERIENCE,
+        "text": "{LATA_IT} w IT, w zespołach pracujących w Scrum i ITIL4",
+    }
+    assert check_experience(outside, ctx)["issue"] == ISSUE_NUMBER_NOT_IN_CV
+
+
+def test_token_inside_model_bold_keeps_one_bold_span():
+    item = {
+        **EXPERIENCE,
+        "text": "**{LATA_IT} w IT**, w tym {LATA_ROLA} jako Test Manager",
+    }
+    out = check_experience(item, _ctx())
+    assert out["verified"] is True, out
+    assert out["text"].startswith("**9 lat w IT**, w tym **5 lat** jako Test Manager")

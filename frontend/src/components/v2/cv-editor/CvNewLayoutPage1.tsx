@@ -314,6 +314,7 @@ function WhySentence({
   };
   const restore = () => {
     stopTimer();
+    setDirty(false);
     void save("", null);
   };
   const pick = (choice: VerifiedResult) => {
@@ -339,7 +340,7 @@ function WhySentence({
         placeholder="Wpisz zdanie na stronę 1"
       />
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <p className="min-w-0 flex-1 text-xs text-muted-foreground" title={quote}>
+        <p className="min-w-0 basis-full text-xs text-muted-foreground" title={quote}>
           {whySource(extras, index, fallback)}
         </p>
         {saving ? (
@@ -352,7 +353,9 @@ function WhySentence({
             type="button"
             size="sm"
             variant="ghost"
-            disabled={disabled || saving}
+            disabled={disabled}
+            // Bez zabrania fokusu: wyjście z pola zapisałoby poprawkę i zablokowało przycisk.
+            onMouseDown={(event) => event.preventDefault()}
             onClick={restore}
             className="h-7 rounded-full px-2.5 text-xs"
             data-tour="cv-editor.page1.restore"

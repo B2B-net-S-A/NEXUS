@@ -213,6 +213,31 @@ def _result(slot: str, text: str, issue: Optional[str], **extra: Any) -> dict:
     return out
 
 
+def _put_years(text: str, token: str, words: str) -> str:
+    """Lata w miejsce znacznika: pogrubione, a w pogrubieniu modelu bez drugiej pary."""
+    out, rest = "", text
+    while token in rest:
+        before, rest = rest.split(token, 1)
+        out += before
+        inside = (out.count("**") % 2) == 1
+        out += words if inside else f"**{words}**"
+    return out + rest
+
+
+_GLUED = re.compile(r"[^\W\d_]+[-]?\d+[^\W_]*")
+
+
+def _glued_numbers(text: str, cv_text: str) -> set[str]:
+    """Liczby w nazwach sklejonych z literami („PRINCE2”, „S4HANA”), które stoją
+    w CV — to nazwa, nie wielkość (pomiar 25.11.2026)."""
+    cv_words = set(_words(cv_text))
+    out: set[str] = set()
+    for token in _GLUED.findall(strip_bold(text)):
+        if token.casefold() in cv_words:
+            out |= _numbers(token)
+    return out
+
+
 def check_experience(item: Any, ctx: WhyContext) -> dict:
     """Zdanie 1: lata ze znaczników wstawia kod, reszta liczb z dat i punktu 1."""
     item = item if isinstance(item, dict) else {}
@@ -233,10 +258,7 @@ def check_experience(item: Any, ctx: WhyContext) -> dict:
         if months is None:
             return _result("experience", strip_bold(raw), ISSUE_BAD_ROLES)
         words = tenure_words(months, ctx.language)
-        # Znacznik bywa już w pogrubieniu modelu — wtedy bez drugiej pary `**`.
-        text = text.replace(f"**{token}**", f"**{words}**").replace(
-            token, f"**{words}**"
-        )
+        text = _put_years(text, token, words)
     text = clean_text(text)
     if "{" in text or "}" in text:
         return _result("experience", strip_bold(text), ISSUE_BAD_ROLES)
@@ -252,6 +274,7 @@ def check_experience(item: Any, ctx: WhyContext) -> dict:
                 allowed |= {n for n in _numbers(role.dates) if len(n) == 4}
         # Lata wstawione przez kod nie są do sprawdzania — reszta liczb tak.
         own = raw.replace(TOKEN_IT, " ").replace(TOKEN_ROLE, " ")
+        allowed |= _glued_numbers(own, ctx.cv_text)
         if not _numbers(own) <= allowed:
             issue = ISSUE_NUMBER_NOT_IN_CV
     if issue is None:
@@ -265,6 +288,63 @@ def check_experience(item: Any, ctx: WhyContext) -> dict:
         issue,
         roles=sorted({*it_roles, *role_roles}),
     )
+
+
+# Wymaganie MUST w profilu to fraza („Kredyty hipoteczne”, „Postman lub Swagger”,
+# „Web Testing (UI)”), a CV ma ją w innej formie. Pomiar 25.11.2026 na kopii
+# produkcji: przy dosłownej frazie 17 z 25 zdań 2 odpadło, choć cytat był z CV.
+_MUST_ALTERNATIVES = re.compile(r"\s+(?:lub|albo|or)\s+|\s*[/,;]\s*", re.IGNORECASE)
+_MUST_NOISE = frozenset(
+    {
+        "i",
+        "oraz",
+        "w",
+        "z",
+        "na",
+        "do",
+        "and",
+        "in",
+        "of",
+        "the",
+        "with",
+        "min",
+        "lat",
+        "lata",
+        "rok",
+        "year",
+        "years",
+        "doświadczenie",
+        "experience",
+        "znajomość",
+        "knowledge",
+    }
+)
+STEM_CHARS = 5
+
+
+def _word_hit(word: str, words: set[str]) -> bool:
+    """Słowo do 4 znaków dosłownie („Java” ≠ „JavaScript”, „SQL” ≠ „PostgreSQL”),
+    dłuższe po rdzeniu („kredyty” = „kredytów”, „testing” = „testing”)."""
+    if len(word) < STEM_CHARS:
+        return word in words
+    stem = word[:STEM_CHARS]
+    return any(w.startswith(stem) for w in words)
+
+
+def must_matches(name: str, text: str) -> bool:
+    """Czy tekst potwierdza wymaganie: jedna z alternatyw ma co najmniej 2/3
+    swoich słów w tekście (po rdzeniu, bez liczb i słów-wypełniaczy)."""
+    words = set(_words(text))
+    for alternative in _MUST_ALTERNATIVES.split(name or ""):
+        wanted = [
+            w for w in _words(alternative) if not w.isdigit() and w not in _MUST_NOISE
+        ]
+        if not wanted:
+            continue
+        hits = sum(1 for w in wanted if _word_hit(w, words))
+        if hits * 3 >= len(wanted) * 2:
+            return True
+    return False
 
 
 def _must_name(value: Any, must: Sequence[str]) -> Optional[str]:
@@ -304,10 +384,7 @@ def check_requirements(item: Any, ctx: WhyContext) -> dict:
                 issue = ISSUE_QUOTE_MISSING
             elif role is None:
                 issue = ISSUE_QUOTE_NOT_IN_CV
-            elif not (
-                _has_term(quote, name)
-                or any(_has_term(t, name) for t in role.technologies)
-            ):
+            elif not must_matches(name, f"{quote} {' '.join(role.technologies)}"):
                 issue = ISSUE_MUST_NOT_IN_QUOTE
         if name is not None and role is not None:
             proven.add(name)
@@ -317,7 +394,7 @@ def check_requirements(item: Any, ctx: WhyContext) -> dict:
         issue = ISSUE_QUOTE_MISSING
     if issue is None:
         for name in must:
-            if _has_term(text, name) and name not in proven:
+            if name not in proven and must_matches(name, text):
                 issue = ISSUE_MUST_WITHOUT_PROOF
                 break
     if issue is None:
