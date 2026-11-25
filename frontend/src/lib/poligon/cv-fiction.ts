@@ -12,6 +12,13 @@ export function cvFictionHtml(fullName: string): string {
     '<h2 data-cv-section="why_points">DLACZEGO NASZ KANDYDAT?</h2>' +
     "<ul><li><p>9 lat jako Project Manager w bankowości: migracja systemu płatności i bankowość mobilna.</p></li>" +
     "<li><p>Prowadziła cztery zespoły i raportowała do komitetu sterującego.</p></li></ul>" +
+    // Edukacja i certyfikaty: strona 1 „Nowego CV” pokazuje je z ikonami
+    // (podgląd `public/poligon/nowe-cv.pdf`, `backend/scripts/poligon_new_cv_pdf.py`).
+    '<h2 data-cv-section="education">EDUKACJA</h2>' +
+    "<p>2008 – 2013 <strong>Politechnika Przykładowa</strong> — Zarządzanie i inżynieria produkcji, mgr inż.</p>" +
+    '<h2 data-cv-section="certifications">CERTYFIKATY</h2>' +
+    "<ul><li><p>PRINCE2 Practitioner - PeopleCert (2019)</p></li>" +
+    "<li><p>Professional Scrum Master I - Scrum.org (2018)</p></li></ul>" +
     '<h2 data-cv-section="skills">UMIEJĘTNOŚCI</h2>' +
     "<p><strong>Metodyki: </strong>Scrum, SAFe, PRINCE2</p>" +
     "<p><strong>Narzędzia: </strong>Jira, Confluence, MS Project</p>" +

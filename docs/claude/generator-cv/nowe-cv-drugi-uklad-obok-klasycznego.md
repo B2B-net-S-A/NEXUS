@@ -236,6 +236,13 @@ z wynikami w `cv_page1_results.refresh_stage_cv`.
   „Nowe CV”, więc „Edytuj CV” otwiera „Stronę 1” ze zdaniami z
   `lib/poligon/cv-fiction.ts`; zmiany strony 1 i „Ułóż od nowa” idą w pamięci
   (`lib/poligon/tools.ts`). Lekcja `lekcja-nowe-cv-strona-1` (wyróżnik + zdania).
+- **Podgląd PDF na Poligonie** (`frontend/public/poligon/nowe-cv.pdf`) to
+  statyczny render fikcyjnego CV z `cv-fiction.ts` i nie nadąża sam za
+  wyglądem. Po zmianie w `services/cv_new_layout` albo w `cv-fiction.ts`
+  przegeneruj go: `python -m scripts.poligon_new_cv_pdf` w obrazie backendu
+  (komenda w docstringu skryptu) i, gdy zmieni się pismo, popraw
+  `X-CV-Page1-Font` w `lib/poligon/adapter.ts` (pilnuje
+  `tests/test_poligon_new_cv_pdf.py`).
 
 ## Zdanie „najmocniejszy wynik”
 
