@@ -7364,6 +7364,14 @@ export const candidateStageCvApi = {
     /** Strona 1 nowego CV: najmocniejszy wynik albo wieniec (tylko szkic; po „CV wysłane” 409). */
     setPage1: (stageId: number, payload: CvPage1Update) =>
       api.patch<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/page1`, payload),
+    /**
+     * „Policz wyniki od nowa”: najmocniejsze wyniki z zapisanego szkicu (model, kilka sekund).
+     * Oddaje nowe dodatki strony 1; awaria modelu 503, limit żądań 429.
+     */
+    refreshPage1Results: (stageId: number) =>
+      api.post<CvPage1Extras>(`/api/candidates/stages/${stageId}/cv/page1/results`, undefined, {
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      }),
     rename: (stageId: number, filename: string) =>
       api.patch<{ filename: string; pattern_filename?: string | null }>(
         `/api/candidates/stages/${stageId}/cv/branded/filename`,

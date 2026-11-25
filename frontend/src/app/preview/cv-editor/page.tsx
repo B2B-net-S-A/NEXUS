@@ -226,6 +226,21 @@ function memoryApi(initial: CVBrandedState): {
       current = { ...current, page1_extras: extras };
       return respond(current);
     },
+    // „Policz wyniki od nowa” bez modelu: po chwili sprawdzone wyniki w odwrotnej kolejności.
+    refreshPage1Results: () =>
+      new Promise((resolve) => {
+        setTimeout(() => {
+          const results = current.page1_extras?.results ?? [];
+          const verified = results.filter((r) => r.verified === true).reverse();
+          const extras: CvPage1Extras = {
+            ...(current.page1_extras ?? {}),
+            results: [...verified, ...results.filter((r) => r.verified !== true)],
+            result_index: 0,
+          };
+          current = { ...current, page1_extras: extras };
+          resolve({ data: extras } as AxiosResponse<CvPage1Extras>);
+        }, 800);
+      }),
     update: (_id, payload) => {
       if ("content_html" in payload) {
         current = { ...current, content_html: payload.content_html, edit_revision: current.edit_revision + 1 };

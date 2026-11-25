@@ -153,6 +153,23 @@ def chosen_result(extras: Optional[dict]) -> Optional[str]:
     return text or None
 
 
+_RESULT_KEYS = ("result_text", "result_index", "results", "results_source_sha")
+
+
+def forget_page1_result(extras: Optional[dict]) -> Optional[dict]:
+    """Dodatki strony 1 po wczytaniu innej generacji (przegląd 25.11.2026):
+    bez najmocniejszego wyniku (listy, wyboru, zdania rekrutera) i bez własnego
+    wyróżnika (`highlight.mode == "custom"`) — opisują poprzednie CV. Wieniec
+    i wyłączony wyróżnik zostają. ``None`` = nic nie zostało."""
+    if not isinstance(extras, dict):
+        return extras
+    kept = {k: v for k, v in extras.items() if k not in _RESULT_KEYS}
+    highlight = kept.get("highlight")
+    if isinstance(highlight, dict) and highlight.get("mode") == "custom":
+        kept.pop("highlight")
+    return kept or None
+
+
 def compose_page1_why(
     why_points: list[str], extras: Optional[dict]
 ) -> Optional[list[str]]:

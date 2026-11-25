@@ -1763,6 +1763,9 @@ async def apply_generated_to_stage_cv(
         previous = await _generated_document_html(db, csv.generated_document_id)
         merge = merge_rewrite(previous, csv.branded_draft_html, html)
         html = sanitize_cv_html(merge.html)
+    if not keep_edits and generated.id != csv.generated_document_id:
+        # Wynik, zdanie rekrutera i własny wyróżnik opisują poprzednie CV.
+        csv.page1_extras = layout_service.forget_page1_result(csv.page1_extras)
     if layout_service.enabled():
         # Układ wybrany przy „Generuj”; automaty i stare generacje — reguła klienta.
         csv.cv_layout = generated.cv_layout or await layout_service.default_for_client(
@@ -2391,6 +2394,8 @@ async def _write_imported_draft(
         .execution_options(populate_existing=True)
     )
     check_revision(csv, expected_revision)
+    # Inny plik: wynik, zdanie rekrutera i własny wyróżnik strony 1 są o poprzednim CV.
+    csv.page1_extras = layout_service.forget_page1_result(csv.page1_extras)
     template = await run_in_threadpool(default_template)
     await _write_stage_draft(
         db,

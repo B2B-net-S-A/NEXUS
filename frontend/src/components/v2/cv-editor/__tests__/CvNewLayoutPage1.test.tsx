@@ -167,3 +167,53 @@ describe("Strona 1", () => {
     expect(screen.getByLabelText("3 · Najmocniejszy wynik")).toBeDisabled();
   });
 });
+
+describe("Policz wyniki od nowa", () => {
+  const apiError = (status: number, data: unknown) =>
+    Object.assign(new Error(`Request failed with status code ${status}`), {
+      isAxiosError: true,
+      response: { status, data },
+    });
+
+  it("bez wołania serwera nie ma przycisku", () => {
+    renderPage1();
+    expect(screen.queryByRole("button", { name: /Policz wyniki od nowa/ })).toBeNull();
+  });
+
+  it("przycisk woła liczenie i blokuje się do końca", async () => {
+    let finish: () => void = () => undefined;
+    const onRecalcResults = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    renderPage1({ onRecalcResults });
+    const button = screen.getByRole("button", { name: /Policz wyniki od nowa/ });
+    await userEvent.click(button);
+    expect(onRecalcResults).toHaveBeenCalledTimes(1);
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent("Szukam wyników w CV");
+    expect(screen.getByRole("button", { name: /Inny wynik/ })).toBeDisabled();
+    await act(async () => finish());
+    expect(button).toBeEnabled();
+    expect(button).toHaveTextContent("Policz wyniki od nowa");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("awaria modelu (503) to zdanie serwera, nie surowy błąd", async () => {
+    const detail = "Nie udało się teraz znaleźć wyniku w CV. Spróbuj ponownie za chwilę.";
+    renderPage1({ onRecalcResults: vi.fn(async () => Promise.reject(apiError(503, { detail }))) });
+    await userEvent.click(screen.getByRole("button", { name: /Policz wyniki od nowa/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(detail);
+  });
+
+  it("limit żądań (429) to prośba o odczekanie", async () => {
+    const error = apiError(429, { error: "Rate limit exceeded: 20 per 1 minute" });
+    renderPage1({ onRecalcResults: vi.fn(async () => Promise.reject(error)) });
+    await userEvent.click(screen.getByRole("button", { name: /Policz wyniki od nowa/ }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("odczekaj minutę");
+    expect(alert).not.toHaveTextContent("429");
+  });
+});

@@ -18,6 +18,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.services.cv_layout import compose_page1_why, page1_wreath
 from app.services.cv_new_content import cv_json_from_editor_html
+from app.services.cv_page1_result_checks import rechecked_extras
 
 MSG_RENDER_FAILED = (
     "Nie udało się przygotować PDF w układzie „Nowe CV”. "
@@ -146,6 +147,8 @@ def _render(
     )
     consent, mime = _consent_image(consent)
     facts = facts or CvFacts()
+    # Wynik sprawdzony na innej treści CV — kontrola jeszcze raz na bieżących rolach.
+    extras = rechecked_extras(extras, content_html, content.cv_json, blind=blind)
     document = NewCvDocument.from_cv_json(
         {
             **content.cv_json,

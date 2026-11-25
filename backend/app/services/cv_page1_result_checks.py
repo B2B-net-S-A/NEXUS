@@ -371,3 +371,49 @@ def merged_extras(
     if changed or "result_index" not in merged:
         merged["result_index"] = 0
     return merged
+
+
+ISSUE_STALE = "stale"
+
+
+def rechecked_extras(
+    extras: Optional[dict],
+    html: Optional[str],
+    cv_json: dict[str, Any],
+    *,
+    blind: bool = False,
+) -> Optional[dict]:
+    """Dodatki strony 1 z wynikami sprawdzonymi na bieżącej treści CV (render).
+
+    `verified` dotyczy HTML-a, z którego policzono wyniki (`results_source_sha`).
+    Gdy treść jest inna (rekruter usunął rolę, zmienił liczbę), każdy wynik
+    oznaczony jako sprawdzony przechodzi kontrolę jeszcze raz na bieżących rolach
+    — sam kod, bez sieci. Niesprawdzony dostaje ``verified: False``, więc strona 1
+    bierze trzeci punkt generatora. Zwraca nowy słownik; zapisanych dodatków
+    nie zmienia (wyniki od nowa liczy przycisk albo bieg w tle).
+    """
+    if not isinstance(extras, dict):
+        return extras
+    results = extras.get("results")
+    if not isinstance(results, list) or extras.get("results_source_sha") == source_sha(
+        html
+    ):
+        return extras
+    roles = roles_from_cv_json(cv_json)
+    why = [str(p) for p in cv_json.get("why_points") or []]
+    return {
+        **extras,
+        "results": [_still_verified(item, roles, why, blind) for item in results],
+    }
+
+
+def _still_verified(
+    item: Any, roles: list[RoleSource], why: list[str], blind: bool
+) -> Any:
+    if not isinstance(item, dict) or item.get("verified") is not True:
+        return item
+    again = verify_results([item], roles, why, blind=blind)
+    if again and again[0]["verified"]:
+        return item
+    issue = again[0].get("issue") if again else ISSUE_STALE
+    return {**item, "verified": False, "issue": issue}

@@ -1276,3 +1276,32 @@ async def test_repair_plan_follows_current_cv_order_and_skips_pdfs() -> None:
     )
     assert successor.filename == "ewa-cv.pdf"
     assert before_upload == []
+
+
+async def test_uploaded_client_cv_forgets_page_1_result_of_the_previous_cv(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], no_profile_reading
+) -> None:
+    """Wgrany plik to inne CV: wynik i własny wyróżnik strony 1 znikają, wieniec zostaje."""
+    world = await _client_world()
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(
+                CandidateStageCV.candidate_stage_id == world["stage_id"]
+            )
+        )
+        csv.page1_extras = {
+            "results": [{"text": "Wynik", "quote": "cytat", "verified": True}],
+            "result_index": 0,
+            "results_source_sha": "stare",
+            "result_text": "Zdanie rekrutera o poprzednim CV",
+            "wreath": "cert",
+            "highlight": {"mode": "custom", "label": "B", "text": "Zdanie"},
+        }
+        await db.commit()
+
+    res = await _upload_docx(
+        app_client, app_auth_headers, world["stage_id"], _client_docx()
+    )
+
+    assert res.status_code == 200, res.text
+    assert (await _stage_cv(world["stage_id"])).page1_extras == {"wreath": "cert"}
