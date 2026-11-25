@@ -13,7 +13,7 @@ osierocony, entrypoint jest wtedy wdrożeniem):
   CV etapu, gdy wynik generacji staje się szkicem,
 - `client_cv_rules.cv_layout` — domyślny układ klienta (NULL = klasyczny).
 
-Migracja 0778 (25.11.2026): `client_cv_rules.cv_file_format` — w jakim pliku
+Migracja 0779 (25.11.2026): `client_cv_rules.cv_file_format` — w jakim pliku
 klient chce CV (`docx` | `pdf` | `both`; NULL = bez wymagań, plik idzie za
 układem: klasyczne → Word, Nowe CV → PDF). Osobna krotka, bo 0753 wykonuje
 `ALL_DDL` — dopisanie tam zmieniłoby starą migrację.
