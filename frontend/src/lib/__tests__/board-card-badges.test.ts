@@ -55,6 +55,20 @@ describe("odznaki karty — Pipeline v4", () => {
     expect(claimAction(own, ctx())).toBeNull();
   });
 
+  it("prośba o oddanie: osoba z blokadą widzi „Prośba · imię”, inni dalej imię i czas", () => {
+    const asked = item({
+      entry_source: "added_manual",
+      claim_user_id: 7,
+      claim_user_name: "Marta Nowak",
+      claim_until: "2026-09-23T19:30:00Z",
+      added_to_job_by_name: "Marta Nowak",
+      claim_request_user_id: 8,
+      claim_request_user_name: "Wiktoria Las",
+    });
+    expect(labels(asked, ctx())).toEqual(["Dodałeś sam", "Prośba · Wiktoria"]);
+    expect(labels(asked, ctx({ viewerId: 8 }))).toEqual(["Dodał(a): Marta", "Marta · 9 h"]);
+  });
+
   it("cudza blokada: imię i czas; „Przejmij” tylko gdy serwer pozwala (DL)", () => {
     const other = item({
       entry_source: "added_manual",
@@ -633,6 +647,7 @@ describe("compactCardBadge — ikony zamiast napisów (PR 4, 04.10.2026)", () =>
     expect(compactCardBadge({ key: "claim", label: "Twój · 11 h", tone: "own" })?.short).toBe("11 h");
     expect(compactCardBadge({ key: "claim", label: "Anna · 3 h", tone: "lock" })?.short).toBe("Anna · 3 h");
     expect(compactCardBadge({ key: "claim", label: "Wolny", tone: "free" })?.short).toBeNull();
+    expect(compactCardBadge({ key: "claim", label: "Prośba · Wiktoria", tone: "wait" })?.short).toBeNull();
   });
 
   it("karta rekomendacji: liczba braków albo ✓; próby kontaktu zostają napisem", () => {
