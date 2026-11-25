@@ -33,6 +33,13 @@
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
 }
 
+/* Adnotacje (w tym podpis elektroniczny) są narysowane na płótnie strony.
+ * Warstwy HTML adnotacji (linki, dymki komentarzy) nie pokazujemy — nie ma tu
+ * jej stylów, a link z pliku kandydata nie powinien przenosić z NEXUSA. */
+.pdfViewer .annotationLayer {
+  display: none;
+}
+
 .pdfViewer .dummyPage {
   position: relative;
   width: 0;
