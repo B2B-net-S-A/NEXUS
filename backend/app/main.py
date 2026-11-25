@@ -126,6 +126,7 @@ from app.api import insights_team
 from app.api import insights_team_signals
 from app.api import insights_work_rhythm
 from app.api import insights_wnioski
+from app.api import insights_lost_review
 from app.api import insights_proposals
 from app.api import client_knowledge
 from app.api import client_materials
@@ -2043,6 +2044,16 @@ app.include_router(
 )
 app.include_router(
     insights_wnioski.router,
+    prefix="/api/insights",
+    tags=["insights"],
+)
+app.include_router(
+    insights_lost_review.router,
+    prefix="/api/insights",
+    tags=["insights"],
+)
+app.include_router(
+    insights_lost_review.write_router,
     prefix="/api/insights",
     tags=["insights"],
 )
@@ -4005,6 +4016,7 @@ async def api_health_deep_check(request: Request):
     from app.models.access_usage import AccessUsageDaily
     from app.models.cv_preview_read import CvPreviewRead
     from app.models.insight_decision import InsightDecision
+    from app.models.lost_review import JobLossReview, LostReviewLesson
     from app.models.start_document import ClientStartDocument, PlacementStartDocument
     from app.models.novelty import (
         NoveltyDailyState,
@@ -4823,6 +4835,9 @@ async def api_health_deep_check(request: Request):
         # dodania kandydata, ale cicho przywraca drugi odczyt modelem w `/from-cv`.
         ("cv_preview_reads", CvPreviewRead),
         ("insight_decisions", InsightDecision),
+        # 0783: moduł „Przegrane” — okno zamknięcia i spotkanie z DL.
+        ("job_loss_reviews", JobLossReview),
+        ("lost_review_lessons", LostReviewLesson),
         ("client_start_documents", ClientStartDocument),
         ("placement_start_documents", PlacementStartDocument),
         # 0695: księgowość w Finansach — kontrahenci i kolejka kosztów; hook

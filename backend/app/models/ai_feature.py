@@ -231,6 +231,9 @@ class AIFeatureKey(str, enum.Enum):
     # 0779 (25.11.2026): Pytania z rozmów — nocne propozycje odpowiedzi pod
     # pytaniami z banku klienta (F55), oznaczone w interfejsie „do sprawdzenia”.
     interview_answer_proposal = "interview_answer_proposal"
+    # 0783 (25.11.2026): Insights → „Przegrane” — wnioski i rady z przegranych
+    # rekrutacji okresu na spotkanie z Delivery Leadami (F56).
+    lost_review_summary = "lost_review_summary"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -291,6 +294,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.contract_partner_read: "Kontrakty — dane firmy Partnera z podpisanej umowy",
     AIFeatureKey.sales_potential_assessment: "Sprzedaż — ocena potencjału firmy przed spotkaniem",
     AIFeatureKey.interview_answer_proposal: "Pytania z rozmów — nocne propozycje odpowiedzi do prepu kandydata",
+    AIFeatureKey.lost_review_summary: "Insights → Przegrane — wnioski i rady na spotkanie z Delivery Leadami",
 }
 
 
@@ -555,6 +559,12 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Treść pytań z banku klienta (z debriefów i archiwum Excela), do 20 na wywołanie",
         "Nazwa stanowiska z rekrutacji, w której pytanie padło, i do 5 jej umiejętności must-have",
         "(bez nazwy klienta, danych kandydatów, nazwisk managerów i stawek)",
+    ],
+    AIFeatureKey.lost_review_summary: [
+        "Liczby okresu: wygrane, przegrane, etap przegranej, mediany pierwszego CV i liczby CV",
+        "Per klient: nazwa klienta, wygrane i przegrane, etapy, powody odrzuceń klienta "
+        "i „Co zdecydowało?” ze stałych list, zasady klienta z poprzednich spotkań",
+        "(bez nazwisk kandydatów i Delivery Leadów, bez notatek, maili i stawek)",
     ],
 }
 

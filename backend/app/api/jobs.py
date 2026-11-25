@@ -54,7 +54,7 @@ from app.services.job_opening import start_new_opening
 from app.services.pipeline_latest import latest_stage_ids
 from app.services.access_scope import DL_CLIENT_OUT_OF_SCOPE_DETAIL
 from app.models.competence_category import UserCompetenceCategory
-from app.models.job import Job, JobStatus
+from app.models.job import Job, JobCloseReason, JobStatus
 from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.job_work_assignment import WORK_ROLE, JobWorkAssignment
 from app.models.activity import Activity
@@ -3297,6 +3297,55 @@ async def delete_job(
     job_files_service.delete_stored(stored_files)
 
 
+def _lost_why_choice(
+    why: Optional[list[str]], source: Optional[str], reason: JobCloseReason
+) -> Optional[tuple[list[str], Optional[str]]]:
+    """„Co zdecydowało?” z okna zamknięcia (Insights → Przegrane, 25.11.2026).
+
+    `None` = okno nie wysłało pól. 422 przed zamknięciem, gdy klucz jest nieznany
+    albo rekrutacja nie zamyka się jako przegrana.
+    """
+    from app.services import lost_review  # noqa: PLC0415
+
+    if why is None and source is None:
+        return None
+    try:
+        keys, src = lost_review.clean_why(why, source)
+    except lost_review.LostReviewError as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": exc.code, "message": exc.message}
+        ) from exc
+    if (keys or src) and reason is not JobCloseReason.competitor:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "lost_why_not_lost",
+                "message": "„Co zdecydowało?” zapisuje się tylko przy przegranej.",
+            },
+        )
+    return keys, src
+
+
+async def _save_lost_why(
+    db: AsyncSession, job: Job, choice: tuple[list[str], Optional[str]], user_id: int
+) -> None:
+    from app.services import lost_review  # noqa: PLC0415
+
+    keys, src = choice
+    if not keys and src is None and not lost_review.is_lost(job):
+        return
+    # Zatrudnienie od nas = wygrana w hit ratio. Pola okna są opcjonalne, więc
+    # nie blokują zamknięcia — pomijamy je (422 zostaje tylko na trasie spotkania).
+    if await lost_review.has_hire(db, job.id):
+        return
+    try:
+        await lost_review.save_why(db, job, why=keys, source=src, user_id=user_id)
+    except lost_review.LostReviewError as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": exc.code, "message": exc.message}
+        ) from exc
+
+
 @router.post("/{job_id}/close", response_model=JobResponse)
 async def close_job(
     job_id: int,
@@ -3333,6 +3382,7 @@ async def close_job(
         notes=data.notes,
         duplicate_of_job_id=data.duplicate_of_job_id,
     )
+    lost_why = _lost_why_choice(data.lost_why, data.lost_why_source, choice.reason)
     if not data.acknowledge_active_cards:
         # Zamknięcie nie rusza kart: osoby w toku zostają w zamkniętej
         # rekrutacji. Ostrzeżenie do potwierdzenia, nie blokada — z listą
@@ -3355,6 +3405,8 @@ async def close_job(
         effects=effects,
     )
     job.duplicate_of_job_id = choice.duplicate_of_job_id
+    if lost_why is not None:
+        await _save_lost_why(db, job, lost_why, current_user.id)
     # Rekruterzy osób od „CV wysłane” w górę dostają dzwonek i mail (28.10.2026).
     from app.services.job_close_client_cards import (
         client_side_cards,
@@ -3422,9 +3474,12 @@ async def change_close_reason(
         "notes": job.close_notes,
         "duplicate_of_job_id": job.duplicate_of_job_id,
     }
+    lost_why = _lost_why_choice(data.lost_why, data.lost_why_source, choice.reason)
     job.close_reason = choice.reason
     job.close_notes = choice.notes
     job.duplicate_of_job_id = choice.duplicate_of_job_id
+    if lost_why is not None:
+        await _save_lost_why(db, job, lost_why, current_user.id)
     db.add(
         Activity(
             entity_type="job",

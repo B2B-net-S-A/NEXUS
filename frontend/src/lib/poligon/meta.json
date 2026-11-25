@@ -188,6 +188,8 @@
   "GET /api/finance/rate-divergences",
   "GET /api/hr/lifecycle/contracts/990521/entry",
   "GET /api/hr/payroll/contracts/990521/admin-details",
+  "GET /api/insights/lost-review/client-rules/990501",
+  "GET /api/insights/lost-review?period=month&offset=0",
   "GET /api/my-clients/990501/settlements",
   "GET /api/my-relationships",
   "GET /api/order-mail/queue/990561",

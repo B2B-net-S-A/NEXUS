@@ -193,6 +193,7 @@ DECISION_2026_09_16 = {
     AIFeatureKey.sales_potential_assessment: ("F54", "claude-sonnet-5-5"),
     # F55 — 25.11.2026: nocne propozycje odpowiedzi w „Pytaniach z rozmów” (model F44).
     AIFeatureKey.interview_answer_proposal: ("F55", "claude-sonnet-5-5"),
+    AIFeatureKey.lost_review_summary: ("F56", "claude-sonnet-5-5"),
 }
 
 

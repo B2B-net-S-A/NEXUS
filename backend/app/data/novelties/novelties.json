@@ -5316,6 +5316,26 @@
     "used_anchor": "jobs.question-bank.position"
   },
   {
+    "id": "przegrane-przeglad-z-dl",
+    "title": "Przegrane: przegląd z Delivery Leadami",
+    "why": "Zakładka na spotkanie o przegranych: etap przegranej, co klient mówi o naszych, wykresy i rady AI. Zaznaczasz „Dlaczego?”, a wniosek „ten klient” staje się zasadą klienta.",
+    "tier": "dot",
+    "shipped_on": "2026-11-25",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Insights → Przegrane",
+    "href": "/insights",
+    "practice_href": "/insights?tab=przegrane",
+    "section": "insights",
+    "dot_anchor": "insights.tabs.lost",
+    "used_anchor": "insights.lost.only-open"
+  },
+  {
     "id": "stawka-z-faktur-ksef",
     "pr": 4007,
     "title": "Historia stawek kontraktu z faktur KSeF",

@@ -67,6 +67,7 @@ import { JobCloseWithReasonDialog } from "@/components/v2/jobs/JobCloseWithReaso
 import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
 import { ClientWaitStrip } from "@/components/v2/jobs/ClientWaitStrip";
 import { JobIdleBanner } from "@/components/v2/jobs/JobIdleBanner";
+import { ClientLessonsStrip } from "@/components/v2/jobs/ClientLessonsStrip";
 import { JobOverdueBanner } from "@/components/v2/jobs/JobOverdueBanner";
 import { REQUEST_BOARD_QUERY_KEY } from "@/lib/api/requestAllocation";
 import { JobCproBanner } from "@/components/v2/jobs/JobCproBanner";
@@ -1449,6 +1450,7 @@ export default function JobDetailPage() {
               snoozing={idleSnoozing}
             />
           ) : null}
+          {job.status === "published" ? <ClientLessonsStrip clientId={job.client_id ?? null} /> : null}
           {canCloseJob && job.status === "published" && job.request_stage === "overdue" ? (
             <JobOverdueBanner
               jobId={jobId}

@@ -2803,6 +2803,51 @@
     ]
   },
   {
+    "id": "lekcja-przegrane-przeglad-z-dl",
+    "title": "Przegrane: przegląd z Delivery Leadami",
+    "novelties": [
+      "przegrane-przeglad-z-dl"
+    ],
+    "task": "W Insights → Przegrane zostaw na liście „Do omówienia” tylko rekrutacje bez odpowiedzi. Na Poligonie nic się nie zapisze.",
+    "solo_href": "/insights?tab=przegrane",
+    "check": {
+      "kind": "click",
+      "anchor": "insights.lost.only-open"
+    },
+    "questions": [
+      {
+        "q": "Co dzieje się z wnioskiem zapisanym jako „ten klient”?",
+        "options": [
+          "Staje się zasadą klienta widoczną na jego rekrutacjach",
+          "Trafia tylko do notatki tej rekrutacji",
+          "Wysyła się mailem do klienta"
+        ],
+        "answer": 0,
+        "explain": "Zasada klienta pokazuje się na stronie każdej jego otwartej rekrutacji, a tabela klientów porównuje wygrane i przegrane przed zasadą i po niej."
+      },
+      {
+        "q": "Kiedy zaznaczyć „Nie wiemy — zapytam klienta”?",
+        "options": [
+          "Gdy klient nie powiedział, dlaczego wybrał kogoś innego",
+          "Zawsze, gdy rekrutację zamknął NEXUS",
+          "Nigdy — trzeba wybrać powód z listy"
+        ],
+        "answer": 0,
+        "explain": "NEXUS przygotuje pytanie do hiring managera i przypomni za 3 dni robocze. Pytanie wysyłasz ze swojej skrzynki; gdy klient odpowie, zmień źródło na „Klient powiedział”."
+      },
+      {
+        "q": "Co dostaje model AI, który pisze rady na spotkanie?",
+        "options": [
+          "Same liczby i powody z list, bez nazwisk, notatek i stawek",
+          "Notatki z zamknięć i nazwiska kandydatów",
+          "Maile od klientów"
+        ],
+        "answer": 0,
+        "explain": "Rady AI to dodatek do liczb policzonych przez NEXUS — sprawdź liczby przed decyzją."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [

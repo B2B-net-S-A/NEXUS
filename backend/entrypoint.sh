@@ -408,6 +408,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_potential_assessment'",
     # 0779: Pytania z rozmów — nocne propozycje odpowiedzi (F55).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'interview_answer_proposal'",
+    # 0783: Przegrane — wnioski AI ze spotkania z DL (F56).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'lost_review_summary'",
     # 0735: Rada — pakiet na posiedzenie gotowy (dzwonek).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_meeting_pack'",
     # 0736: Rada — uchwała w trybie pisemnym do głosowania i jej wynik (dzwonek).
@@ -1588,6 +1590,17 @@ try:
 except Exception as _insight_decisions_schema_err:  # noqa: BLE001
     print(f"insight decisions schema unavailable: {_insight_decisions_schema_err!r}")
     _INSIGHT_DECISIONS_TABLE_DDL = []
+
+# 0783: moduł „Przegrane” w Insights (`app/services/lost_review_schema.py`).
+try:
+    from app.services import lost_review_schema as _lost_review_schema
+
+    _LOST_REVIEW_TABLE_DDL = list(_lost_review_schema.TABLE_DDL)
+    _LOST_REVIEW_AI_DDL = list(_lost_review_schema.AI_FEATURE_DDL)
+except Exception as _lost_review_schema_err:  # noqa: BLE001
+    print(f"lost review schema unavailable: {_lost_review_schema_err!r}")
+    _LOST_REVIEW_TABLE_DDL = []
+    _LOST_REVIEW_AI_DDL = []
 
 # 0710: limit z umowy ramowej — dopłaty i kategoria na kontrakcie
 # (`app/services/framework_rate_schema.py`).
@@ -7303,6 +7316,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_CV_PREVIEW_READS_DDL,
     # 0647: decyzje z zakładki „Wnioski” (po `users`, na które wskazują).
     *_INSIGHT_DECISIONS_TABLE_DDL,
+    *_LOST_REVIEW_TABLE_DDL,
     *_START_DOCUMENTS_TABLE_DDL,
     *_START_DOCUMENTS_NOT_REQUIRED_DDL,
     # 0687: po `b2b_signing_requests` i `client_start_documents`.
@@ -8213,6 +8227,8 @@ _DATA_STATEMENTS = [
     "SELECT 'sales_potential_assessment', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'sales_potential_assessment')",
+    # 0783: seed klucza AI wniosków z przegranych (F56).
+    *_LOST_REVIEW_AI_DDL,
     # 0779: seed klucza AI nocnych propozycji odpowiedzi do pytań z rozmów.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'interview_answer_proposal', TRUE, 0, now(), now() "

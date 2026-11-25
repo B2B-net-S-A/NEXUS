@@ -834,6 +834,11 @@ async def run_once_safely(now: Optional[datetime] = None) -> Optional[dict[str, 
         logger.exception("job_idle: przebieg nie powiódł się")
         return None
     await run_post_commit(effects)
+    # „Nie wiemy — zapytam klienta” przy przegranej: dzwonek po 3 dniach roboczych
+    # (moduł „Przegrane”, 25.11.2026). Osobna sesja — błąd nie rusza przebiegu.
+    from app.services.lost_review import run_ask_reminders_safely  # noqa: PLC0415
+
+    await run_ask_reminders_safely(moment)
     if any(counts.get(k) for k in ("remind", "hor", "closed", OVERDUE_STAGE)):
         logger.info("job_idle: %s", counts)
     return counts

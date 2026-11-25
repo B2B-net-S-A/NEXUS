@@ -77,6 +77,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F53 | contract_partner_read            | claude-sonnet-5 (z Haiku)|
 | F54 | sales_potential_assessment       | claude-sonnet-5-5 (z 5)  |
 | F55 | interview_answer_proposal        | claude-sonnet-5-5 (z Haiku)|
+| F56 | lost_review_summary              | claude-sonnet-5-5 (z 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -670,6 +671,15 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         rationale="F55 (decyzja Artura 25.11.2026: odpowiedzi AI hurtem w nocy), model F44 "
         "cv_call_questions (ta sama dziedzina: pytania do rozmowy), BEZ osobnego pomiaru — do "
         "zmierzenia po pierwszych nocach. Dodatek: bez modelu pytanie zostaje bez propozycji.",
+    ),
+    AIFeatureKey.lost_review_summary: ModelChoice(
+        default=SONNET_55,
+        env_vars=("LOST_REVIEW_SUMMARY_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F56 (decyzja Artura 25.11.2026: „rady i konkluzje od AI” w module Przegrane), "
+        "model tekstu do ludzi z F46/F54, BEZ osobnego pomiaru — wejście to same liczby "
+        "i etykiety z list policzone przez kod. Dodatek: bez modelu ekran ma wszystkie liczby, "
+        "wykresy i wnioski z reguł kodu.",
     ),
 }
 

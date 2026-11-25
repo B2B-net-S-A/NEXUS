@@ -58,7 +58,7 @@ const user = (
   } as NonNullable<AuthUser>;
 };
 
-const ALL_TABS: TabId[] = ["rywalizacja", "moj-miesiac", "zespol", "rytm", "firma", "zrodla", "zasady", "wnioski", "raporty"];
+const ALL_TABS: TabId[] = ["rywalizacja", "moj-miesiac", "zespol", "rytm", "firma", "zrodla", "zasady", "przegrane", "wnioski", "raporty"];
 
 describe("widoki Insights per rola", () => {
   it.each(ALL_ROLES)("rola %s widzi Rywalizację, Zespół i Raporty", (role) => {
@@ -82,6 +82,17 @@ describe("widoki Insights per rola", () => {
     }
     const adminTabs = getVisibleInsightTabIds(user("admin"));
     expect(adminTabs.indexOf("wnioski")).toBe(adminTabs.indexOf("raporty") - 1);
+  });
+
+  it("Przegrane widzą admin, Head of Recruitment i Delivery Lead, przed Wnioskami (25.11.2026)", () => {
+    for (const role of ALL_ROLES) {
+      const tabs = getVisibleInsightTabIds(user(role));
+      expect(tabs.includes("przegrane"), role).toBe(
+        role === "admin" || role === "head_of_recruitment" || role === "delivery_lead",
+      );
+    }
+    const adminTabs = getVisibleInsightTabIds(user("admin"));
+    expect(adminTabs.indexOf("przegrane")).toBe(adminTabs.indexOf("wnioski") - 1);
   });
 
   it("Rada nadzorcza bez widoku w adresie ląduje na Firmie", () => {

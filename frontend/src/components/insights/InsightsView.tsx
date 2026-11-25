@@ -13,6 +13,7 @@ import {
   Lock,
   SlidersHorizontal,
   Target,
+  TrendingDown,
   Trophy,
   UserRound,
   Users,
@@ -36,12 +37,13 @@ import { RywalizacjaView } from "@/components/insights/views/RywalizacjaView";
 import { ZespolView } from "@/components/insights/views/ZespolView";
 import { RytmDniaView } from "@/components/insights/views/RytmDniaView";
 import { WnioskiView } from "@/components/insights/views/WnioskiView";
+import { PrzegraneView } from "@/components/insights/views/PrzegraneView";
 import { ZrodlaView } from "@/components/insights/views/ZrodlaView";
 import { ZasadyView } from "@/components/insights/views/ZasadyView";
 import { holdsCapabilityGrant } from "@/lib/capabilities";
 import { insightsApi, insightsQueryKeys } from "@/lib/insights-api";
 import { hasSectionAccess } from "@/lib/section-access";
-import { RHYTHM_ROLES, RULES_ROLES } from "@/lib/insights-roles";
+import { LOST_REVIEW_ROLES, RHYTHM_ROLES, RULES_ROLES } from "@/lib/insights-roles";
 
 export type TabId =
   | "zrodla"
@@ -51,6 +53,7 @@ export type TabId =
   | "rytm"
   | "firma"
   | "wnioski"
+  | "przegrane"
   | "zasady"
   | "raporty";
 
@@ -123,6 +126,9 @@ const TABS: TabDef[] = [
   // „Zasady” (decyzja Artura 05.11.2026): ustawienia, o których się zapomina,
   // obok liczb, które od nich zależą.
   { id: "zasady", label: "Zasady", icon: SlidersHorizontal, roles: RULES_ROLES },
+  // „Przegrane” (decyzje Artura 25.11.2026): spotkanie z Delivery Leadami
+  // o przegranych rekrutacjach — lustro `VIEWER_ROLES` w `services/lost_review.py`.
+  { id: "przegrane", label: "Przegrane", icon: TrendingDown, roles: LOST_REVIEW_ROLES },
   // „Wnioski” (decyzja Artura 04.11.2026): lustro `VIEWER_ROLES` z
   // `backend/app/services/insights_wnioski.py`.
   { id: "wnioski", label: "Wnioski", icon: ClipboardCheck, roles: RHYTHM_ROLES },
@@ -402,7 +408,7 @@ export function InsightsView() {
                       : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
                   )}
                   aria-current={active ? "page" : undefined}
-                  data-tour={tab.id === "rytm" ? "insights.tabs.rhythm" : tab.id === "zrodla" ? "insights.tabs.sources" : tab.id === "wnioski" ? "insights.tabs.wnioski" : tab.id === "zasady" ? "insights.tabs.rules" : undefined}
+                  data-tour={tab.id === "rytm" ? "insights.tabs.rhythm" : tab.id === "zrodla" ? "insights.tabs.sources" : tab.id === "wnioski" ? "insights.tabs.wnioski" : tab.id === "zasady" ? "insights.tabs.rules" : tab.id === "przegrane" ? "insights.tabs.lost" : undefined}
                 >
                   <Icon className="h-4 w-4" />
                   {tab.label}
@@ -449,6 +455,7 @@ export function InsightsView() {
         {location.tab === "firma" && <FirmaView />}
         {/* Przed hydracją lista zakładek jest pełna, a trasa odmawia wszystkim poza dwiema rolami. */}
         {location.tab === "wnioski" && wnioskiVisible && <WnioskiView />}
+        {location.tab === "przegrane" && visibleTabIds.includes("przegrane") && <PrzegraneView />}
         {location.tab === "zasady" && <ZasadyView />}
         {location.tab === "raporty" && <RaportyView reportId={location.report} />}
       </div>
