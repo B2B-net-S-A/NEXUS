@@ -23,6 +23,15 @@ wyłączony od 14.10.2026 (`services/traffit_retired.py`). Zostają dane.
   (`original_snapshot_source = contract_repair`).
 - Wskaźnik CV na kandydacie odpina reguła z `usun-plik-z-profilu-kandydata.md`.
 
+## Stan 25.11.2026
+
+Kopia produkcji z 25.11 nie ma paragonu `contract_as_cv_repair_2026_10`, więc
+`--apply` nie przeszło. Wzorzec nazwy jest od 25.11 wspólny z generatorem CV
+(`generator-cv/umowa-i-nda-nie-sa-zrodlem-cv.md`): łapie też NDA, a nazwisk
+z „umow” w środku i „contractor” już nie. Próba na sucho na tej kopii:
+138 osób, 58 z następcą, 80 bez, 50 kopii w etapach (36 u osób z następcą).
+`--apply` na produkcji tylko na polecenie Artura.
+
 ## Czego to nie robi
 
 - Nie czyści umiejętności ani wektora odczytanych z umowy u osób bez następcy.

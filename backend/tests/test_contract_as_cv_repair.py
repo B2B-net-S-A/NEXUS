@@ -45,6 +45,12 @@ _CONTRACT = "Umowa B2B nr 1_Fikcyjna Ewa_sign.pdf"
         ("Umowa_CV_Fikcyjna.pdf", False),
         ("Ewa_Fikcyjna_Contract_Manager.pdf", False),
         ("Ewa Fikcyjna.pdf", False),
+        # 25.11.2026: „umow” w środku nazwiska albo słowa i „contractor” to nie umowa.
+        ("Jan Fikumowski.pdf", False),
+        ("Ewa Fikumowska.docx", False),
+        ("podsumowanie_kariery.pdf", False),
+        ("Cloud_contractor_Fikcyjny.pdf", False),
+        ("NDA_Ewa Fikcyjna.pdf", True),
     ],
 )
 async def test_contract_name_recognition(filename: str, expected: bool) -> None:
