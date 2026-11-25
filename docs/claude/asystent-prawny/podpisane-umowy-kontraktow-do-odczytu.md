@@ -45,19 +45,13 @@ kalendarzowego” i dopuszcza mail. **Asystent, Jarvis i pismo na kontrakcie
 25.11 takie zapisy dawały brak okresu albo pierwszą cyfrę („czternastu” → 4).
 Liczba w nawiasie („trzydziestu (30) dni”) nie przerywa dopasowania.
 
-## Wektory bez danych osoby (przegląd bezpieczeństwa 25.11.2026)
+## Wektory z pełnego tekstu (decyzja Artura 25.11.2026)
 
-Fragment umowy idzie do Voyage (embedding) z danymi Partnera kontraktu jako
-znacznikami: `index.masked_for_embedding` → `pseudonymize.mask` z
-`pseudonymize.partner_entities(partner_from_contract(...))` (imię i nazwisko
-z odmianą, firma, NIP, REGON, adres, e-mail, telefon; PESEL i rachunek
-wyłapuje maska sama). Tekst w Postgresie (`contract_document_chunks`) zostaje
-pełny — czytanie, cytaty i Jarvis działają jak dotąd. Powód: dostawca wektorów
-to strona trzecia, a do wyszukiwania po znaczeniu nazwisko nic nie wnosi.
-Wariant ostrożny i odwracalny: dokumenty zindeksowane przed zmianą mają wektory
-z jawnego tekstu do ponownego biegu `scripts.backfill_contract_document_text`;
-cofnięcie = wywołanie `_embed(chunks)` bez maski. Test:
-`tests/test_contract_document_text_mask.py`.
+Fragment umowy idzie do Voyage (embedding) w pełnym brzmieniu, tak jak umowy
+klientów — Artur rozszerzył zgodę z 09.10 na umowy z Partnerami (wybrał to
+zamiast wariantu ze znacznikami). Ten sam tekst zostaje w Postgresie
+(`contract_document_chunks`). Nie dokładaj maski „przy okazji” — to zmiana
+decyzji, nie poprawka. Test: `tests/test_contract_document_text_embed.py`.
 
 ## Usługa (`services/contract_document_text/service.py`)
 
@@ -112,7 +106,7 @@ cofnięcie = wywołanie `_embed(chunks)` bez maski. Test:
 
 ## Testy
 
-`tests/test_contract_document_text_mask.py` (maska przed Voyage),
+`tests/test_contract_document_text_embed.py` (pełny tekst do Voyage),
 `tests/test_contract_document_termination.py` (obie generacje wzoru,
 niepewności, odnośniki), `tests/test_contract_document_text_api.py` (bramki,
 odmowy, źródła Jarvisa, narzędzia), `src/components/jarvis/__tests__/JarvisSources.test.tsx`.

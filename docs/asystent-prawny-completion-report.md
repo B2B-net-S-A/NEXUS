@@ -68,15 +68,17 @@ Każda nowa tabela ma lustro w `entrypoint.sh` i sondę w `/api/health/deep`.
 - **Wydajność:** zasilenie korpusu ok. 11 min; pętla odświeżania w workerze,
   na stagingu zablokowana.
 
-## Do decyzji Artura
+## Decyzje Artura (25.11.2026)
 
 1. Zadania „Przejrzyj wzór” zapisują się także przy wyłączonym
-   `LAW_RADAR_ENABLED` (widać je na ekranie zmian dopiero po włączeniu radaru).
-2. Treść podpisanych umów konsultantów idzie do Voyage (wyszukiwanie po
-   znaczeniu) z danymi osoby zamienionymi na znaczniki; pełny tekst zostaje
-   w bazie. Wybrane jako wariant ostrożny.
-3. Klucze AI F57–F60 na Sonnecie 5.5 bez osobnego pomiaru — zmiana modelu
-   po pomiarze na modelu z produkcji.
+   `LAW_RADAR_ENABLED` — zostaje tak.
+2. Treść podpisanych umów konsultantów idzie do Voyage w pełnym brzmieniu,
+   jak umowy klientów (maska przed embeddingiem usunięta).
+3. Znaleziska spoza PR-a (§ 13 wzoru B2B a art. 53 pr. aut., wymogi DORA
+   w umowach Nordei, forma wypowiedzenia na kontrakcie 339) — zostawione.
+
+Klucze AI F57–F60 na Sonnecie 5.5 bez osobnego pomiaru — zmiana modelu
+po pomiarze na modelu z produkcji.
 
 ## Po wdrożeniu
 

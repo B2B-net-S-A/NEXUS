@@ -13,9 +13,8 @@ Ten sam układ co umowy ramowe klientów (``framework_contract_index``):
 - **Wektory są dodatkiem.** Bez Voyage albo Qdranta dokument ma stan
   ``text_only`` i odpowiada wyszukiwaniem po słowach.
 - Odczyt pliku i embedding nigdy nie biegną w otwartej transakcji.
-- **Do Voyage bez danych osoby.** Fragment przed embeddingiem przechodzi przez
-  ``pseudonymize.mask`` z danymi Partnera kontraktu (imię i nazwisko z odmianą,
-  firma, NIP, adres, e-mail, telefon); w bazie zostaje pełny tekst.
+- **Do Voyage pełny tekst** — jak umowy klientów (decyzja Artura 25.11.2026,
+  rozszerza zgodę z 09.10 na umowy z Partnerami).
 
 Czytamy tylko dokumenty, które niosą postanowienia umowy (``READ_TYPES``):
 umowę, aneks, wypowiedzenie i porozumienie rozwiązujące. Zaświadczenia,
@@ -52,7 +51,6 @@ from app.services.framework_contract_index import (
     embeddings_enabled,
 )
 from app.services.framework_contract_text import ChunkRef, split_into_chunks
-from app.services.legal.pseudonymize import Entity, mask, partner_entities
 
 logger = logging.getLogger(__name__)
 
@@ -265,30 +263,6 @@ async def _store_chunks(
         return contract_id, chunk_ids
 
 
-def masked_for_embedding(
-    chunks: Sequence[str], entities: Sequence[Entity]
-) -> list[str]:
-    """Fragmenty do wektorów: dane osoby z kontraktu i numery (PESEL, NIP,
-    rachunek, e-mail, telefon) jako znaczniki ``pseudonymize``."""
-    return [mask(chunk, entities)[0] for chunk in chunks]
-
-
-async def _embedding_entities(document_id: int) -> list[Entity]:
-    """Partner kontraktu dokumentu (umowa z Generatora, a bez niej karta osoby)."""
-    from app.services.trainings.agreement import partner_from_contract  # noqa: PLC0415
-
-    async with AsyncSessionLocal() as db:
-        contract_id = await db.scalar(
-            select(ContractDocument.contract_id).where(
-                ContractDocument.id == document_id
-            )
-        )
-        if contract_id is None:
-            return []
-        partner = await partner_from_contract(db, contract_id)
-    return partner_entities(partner)
-
-
 async def index_document(document_id: int) -> None:
     """Czyta plik dokumentu i odbudowuje jego fragmenty oraz wektory."""
     async with AsyncSessionLocal() as db:
@@ -323,10 +297,7 @@ async def index_document(document_id: int) -> None:
     chunks = split_into_chunks(text)[:MAX_CHUNKS]
     vectors = None
     if chunks and embeddings_enabled():
-        # Do Voyage idą fragmenty z danymi osoby jako znacznikami; w Postgresie
-        # (czytanie, cytaty) zostaje pełny tekst.
-        entities = await _embedding_entities(document_id)
-        vectors = await _embed(masked_for_embedding(chunks, entities))
+        vectors = await _embed(chunks)
 
     stored = await _store_chunks(document_id, file_path, chunks, pages, ocr_pages)
     if stored is None:
