@@ -97,6 +97,38 @@ describe("panel klienta dla zespołu", () => {
       note: undefined,
     });
   });
+
+  it("odrzucony e-mail (422 z walidacji) to zdanie po polsku, nie surowy komunikat API", async () => {
+    const user = userEvent.setup();
+    const sendSelection = vi.fn(() =>
+      Promise.reject({
+        response: {
+          status: 422,
+          data: {
+            detail: [
+              {
+                type: "value_error",
+                loc: ["body", "author_email"],
+                msg: "value is not a valid email address: An email address must have an @-sign.",
+              },
+            ],
+          },
+        },
+      }),
+    );
+    renderTeam(transport({ sendSelection }));
+    await screen.findByText("Zespół testowy, 3 osoby");
+    await user.click(screen.getByRole("button", { name: "Wyślij skład opiekunowi" }));
+    await user.clear(screen.getByLabelText("Twoje imię"));
+    await user.type(screen.getByLabelText("Twoje imię"), "Anna");
+    await user.clear(screen.getByLabelText("Twój e-mail"));
+    await user.type(screen.getByLabelText("Twój e-mail"), "anna@firma.example");
+    await user.click(screen.getByRole("button", { name: "Wyślij skład" }));
+    expect(
+      await screen.findByText("Sprawdź adres e-mail — nie wygląda na poprawny."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/value is not a valid email/)).not.toBeInTheDocument();
+  });
 });
 
 describe("panel zespołu: granica publiczna", () => {
