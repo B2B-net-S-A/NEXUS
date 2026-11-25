@@ -460,6 +460,22 @@ class ItemRun:
         self.verify_account()
         _js_click(form.locator("button[type=submit], input[type=submit]"), "Upload")
         self._wait_offer_form()
+        # Bieg 39: Cpro dopisuje nowe CV do listy oferty w tle, chwilę po Upload.
+        for _ in range(STEP_TIMEOUT_MS // 1000):
+            if self._new_cv_boxes():
+                return
+            page.wait_for_timeout(1000)
+        problem = page.evaluate(
+            """() => [...document.querySelectorAll('#uploadCvForm .alert, #uploadCvForm .error, #uploadCvForm .invalid-feedback, .modal .alert-danger')]
+              .map(e => (e.innerText || '').trim()).filter(Boolean).join(' / ')"""
+        )
+        raise _fail(
+            "cv_not_opening",
+            "Wgrany PDF nie pojawił się na liście CV oferty po 30 s "
+            f"(CV przed: {len(self.cv_before)}, po: {len(self._cv_boxes())}"
+            + (f"; Cpro: {problem[:200]}" if problem else "")
+            + ").",
+        )
 
     def upload_cv_unless_present(self) -> None:
         """Szkic albo profil z poprzedniego biegu ma już ten PDF — bez drugiego uploadu."""
@@ -475,20 +491,26 @@ class ItemRun:
             return
         self.upload_cv()
 
-    def select_only_new_cv(self) -> None:
-        self.step = "cv_select"
-        boxes = self.page.evaluate(
+    def _cv_boxes(self) -> list[dict[str, str]]:
+        return self.page.evaluate(
             """() => [...document.querySelectorAll('input[name=offer_cvids]')].map(b => {
               const l = b.id && document.querySelector('label[for="' + b.id + '"]');
               return {value: b.value, label: (l ? l.innerText : (b.parentElement || {}).innerText || '').trim()};
             })"""
         )
-        mine = [
+
+    def _new_cv_boxes(self) -> list[dict[str, str]]:
+        return [
             b
-            for b in boxes
+            for b in self._cv_boxes()
             if rules.cv_label_matches(b["label"], self.offer["cv_file_name"])
             and b["value"] not in self.cv_before
         ]
+
+    def select_only_new_cv(self) -> None:
+        self.step = "cv_select"
+        boxes = self._cv_boxes()
+        mine = self._new_cv_boxes()
         if not mine:
             raise _fail(
                 "cv_not_opening", "Wgrany PDF nie pojawił się na liście CV oferty."
