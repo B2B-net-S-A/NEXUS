@@ -1,7 +1,7 @@
-"""Klucz AI AP21: asystent prawny — propozycje zmian w umowie DOCX.
+"""Klucz AI F58: asystent prawny — propozycje zmian w umowie DOCX.
 
 Revision ID: 0785_legal_redline_ai
-Revises: 0778_b2b_document_preliminary_jdg
+Revises: 0781_legal_case_law
 
 Część D planu asystenta prawnego (``docs/asystent-prawny-plan.md``, „Popraw
 dokument”): model proponuje zmiany w umowie z powodem i cytatami, kod
@@ -16,7 +16,7 @@ Lustro w ``entrypoint.sh``.
 from alembic import op
 
 revision = "0785_legal_redline_ai"
-down_revision = "0778_b2b_document_preliminary_jdg"
+down_revision = "0781_legal_case_law"
 branch_labels = None
 depends_on = None
 

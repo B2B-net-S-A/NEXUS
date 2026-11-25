@@ -1,7 +1,7 @@
 """Wzory własne Generatora Umów B2B (asystent prawny, część B, 25.11.2026).
 
 Revision ID: 0780_custom_document_templates
-Revises: 0778_b2b_document_preliminary_jdg
+Revises: 0779_legal_corpus
 
 Tabele ``custom_document_templates`` i ``custom_document_template_versions``
 (wzór, wersje z DOCX i listą pól, zatwierdzanie przez administratora), typ
@@ -24,7 +24,7 @@ from app.services.b2b_documents.schema_sql import (
 from app.services.custom_templates import schema
 
 revision = "0780_custom_document_templates"
-down_revision = "0778_b2b_document_preliminary_jdg"
+down_revision = "0779_legal_corpus"
 branch_labels = None
 depends_on = None
 
