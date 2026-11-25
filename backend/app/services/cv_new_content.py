@@ -295,6 +295,8 @@ def cv_json_from_editor_html(
     in_duties = False
 
     for node in blocks:
+        if not isinstance(node.tag, str):
+            continue  # komentarz albo instrukcja w szkicu zapisanym jako cały dokument (#68)
         tag = _tag(node)
         if is_rodo_node(node):
             if not rodo:

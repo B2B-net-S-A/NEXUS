@@ -160,3 +160,20 @@ def test_month_with_hyphen_is_a_date_not_a_range(text, months):
     assert span.start is not None and span.end is not None
     if months is not None:
         assert round((span.end - span.start) * 12) == months
+
+
+def test_full_html_document_draft_does_not_crash_the_reader():
+    """Szkic #68 zapisany jako cały dokument (DOCTYPE, head, komentarz): odczyt treści
+    wywracał się na `cv_rodo_clause.is_rodo_node` — podgląd Nowego CV dawał 503."""
+    from app.services.cv_new_content import cv_json_from_editor_html
+
+    html = (
+        "<!DOCTYPE html>\n<html lang='pl'><head><meta charset='UTF-8'><title>CV</title>"
+        "<style>p{color:red}</style></head><body><!-- generator -->"
+        "<h1>Analityk – Jan Test</h1><h2 data-cv-section='skills'>UMIEJĘTNOŚCI</h2>"
+        "<p><strong>Narzędzia: </strong>Jira</p></body></html>"
+    )
+    cj = cv_json_from_editor_html(
+        html, language="pl", blind=False, fallback=None
+    ).cv_json
+    assert cj["name"] == "Jan Test" and cj["skills"]
