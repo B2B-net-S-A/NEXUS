@@ -199,7 +199,9 @@ def stops(ctx: Ctx) -> list[Stop]:
             s.kind = "job"
     for s in grouped:
         if not s.company:
-            s.company = ctx.t["own_business"]
+            # pusta firma to nie „własna działalność” (#42900, pętla jakości 25.11.2026):
+            # odcinek podpisuje stanowisko, pod paskiem zostaje sam rok
+            s.company, s.role = s.role or "—", ""
     return grouped
 
 

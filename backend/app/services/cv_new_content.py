@@ -219,12 +219,23 @@ def _skill(segments: list) -> dict[str, str]:
     return {"label": label, "content": _text(rest)}
 
 
+# Wiersz edukacji poprawiony ręcznie, bez pogrubionej uczelni: „2019 - 2022 — Ekonomia”.
+_LEADING_DATES = re.compile(
+    r"^\s*((?:\d{1,2}[./])?(?:19|20)\d{2}(?:\s*[-–]\s*(?:(?:\d{1,2}[./])?(?:19|20)\d{2}"
+    r"|obecnie|present|currently))?)\s+[—–-]\s+(\S.*)$",
+    re.I,
+)
+
+
 def _education(segments: list) -> dict[str, str]:
     dates, bold, rest = _education_row(segments)
     rest_text = _text(rest)
+    lead = "" if dates or bold else _LEADING_DATES.match(rest_text)
+    if lead:  # bez dat i uczelni na początku — daty nie idą do kierunku (#40571)
+        rest_text = lead.group(2)
     degree, _, location = rest_text.partition(" · ")
     return {
-        "dates": _text(dates),
+        "dates": lead.group(1) if lead else _text(dates),
         "institution": _text(bold),
         "degree": degree.strip(),
         "location": location.strip(),
