@@ -394,6 +394,7 @@ from app.api import contract_client_reassign as contract_client_reassign_api
 from app.api import contract_contractor_invoices as contract_contractor_invoices_api
 from app.api import contract_document_folders as contract_document_folders_api
 from app.api import legal_redline as legal_redline_api
+from app.api import legal_client_fit as legal_client_fit_api
 from app.api import contract_partner_reads as contract_partner_reads_api
 from app.api import contract_document_text as contract_document_text_api
 from app.api import job_board_connection as job_board_connection_api
@@ -1921,6 +1922,7 @@ app.include_router(
 )
 # Asystent prawny — „Popraw dokument” (DOCX ze śledzeniem zmian, część D planu).
 app.include_router(legal_redline_api.router, prefix="/api/legal", tags=["legal"])
+app.include_router(legal_client_fit_api.router, prefix="/api/legal", tags=["legal"])
 # Zakładka „Faktury” kontraktu: faktury konsultanta z KSeF (19.11.2026).
 app.include_router(
     contract_contractor_invoices_api.router, prefix="/api/contracts", tags=["contracts"]
@@ -4319,6 +4321,7 @@ async def api_health_deep_check(request: Request):
     from app.models.contract_document_rate_read import ContractDocumentRateRead
     from app.models.contract_partner_read import ContractPartnerRead
     from app.models.contract_document_chunk import ContractDocumentChunk
+    from app.models.legal_client_fit import LegalClientFitCheck, LegalClientFitFinding
     from app.models.client_order_cost_step import (
         ClientOrderCostReview,
         ClientOrderCostStep,
@@ -5060,6 +5063,9 @@ async def api_health_deep_check(request: Request):
         # 0782: treść podpisanych dokumentów kontraktu (asystent prawny,
         # Jarvis); sonda ``contract_documents`` sprawdza kolumny ``text_*``.
         ("contract_document_chunks", ContractDocumentChunk),
+        # 0784: zgodność umów B2B z umową ramową klienta (asystent prawny G).
+        ("legal_client_fit_checks", LegalClientFitCheck),
+        ("legal_client_fit_findings", LegalClientFitFinding),
         # 0741: koszt zamówienia od dnia zmiany stawki Partnera.
         ("client_order_cost_steps", ClientOrderCostStep),
         ("client_order_cost_reviews", ClientOrderCostReview),

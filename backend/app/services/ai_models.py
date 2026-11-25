@@ -79,6 +79,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F56 | legal_assistant                  | claude-sonnet-5-5 (z 5)  |
 | F57 | legal_template_draft             | claude-sonnet-5-5 (z 5)  |
 | F58 | legal_redline                    | claude-sonnet-5-5 (z 5)  |
+| F59 | legal_client_fit                 | claude-sonnet-5-5 (z 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -698,6 +699,19 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "z cytatami F22/F24 (Sonnet 5.5), więc ten sam model bez osobnego pomiaru. Kod sprawdza "
         "każdy cytat ze źródłem i kotwicę w dokumencie; zmianę przyjmuje człowiek. Dodatek: bez "
         "modelu działa ręczna lista zmian i porównanie dwóch wersji.",
+    ),
+    AIFeatureKey.legal_client_fit: ModelChoice(
+        default=SONNET_55,
+        env_vars=("LEGAL_CLIENT_FIT_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F59 (asystent prawny, część G, 25.11.2026, POZA badaniem 16.09; numer "
+        "z planu `docs/asystent-prawny-plan.md`). Porównanie dwóch tekstów prawnych "
+        "z cytatami ze źródeł — ten sam rodzaj pracy co F58 (propozycje zmian w umowie "
+        "z cytatami) i recenzje z cytatami F22/F24, więc Sonnet 5.5 bez osobnego "
+        "pomiaru; zmiana po pomiarze na modelu z produkcji. Kod sprawdza każdy cytat "
+        "z tekstem fragmentu (ustalenie bez pokrycia odpada), paragrafy liczy z układu "
+        "dokumentu. Dodatek: bez modelu ekran mówi „sprawdzenie niedostępne”, nic nie "
+        "udaje zgodności.",
     ),
 }
 

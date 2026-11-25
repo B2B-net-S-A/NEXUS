@@ -449,11 +449,23 @@ async def _index_document(source: _Source, document_id: int) -> None:
 async def index_contract(contract_id: int) -> None:
     """Czyta plik umowy i odbudowuje jej fragmenty oraz wektory."""
     await _index_document(_CONTRACT, contract_id)
+    await _after_indexed("framework_contract", contract_id)
 
 
 async def index_amendment(amendment_id: int) -> None:
     """Czyta plik aneksu i odbudowuje jego fragmenty oraz wektory."""
     await _index_document(_AMENDMENT, amendment_id)
+    await _after_indexed("amendment", amendment_id)
+
+
+async def _after_indexed(kind: str, document_id: int) -> None:
+    """Zgodność umów B2B z nową treścią umowy klienta (asystent prawny, część G).
+
+    Bieg w tle sam pomija klienta, gdy pliki i wzór się nie zmieniły.
+    """
+    from app.services.legal_client_fit.service import after_document_indexed
+
+    await after_document_indexed(kind, document_id)
 
 
 async def delete_contract_points(contract_id: int) -> None:

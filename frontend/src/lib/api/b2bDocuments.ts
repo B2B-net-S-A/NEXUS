@@ -168,6 +168,8 @@ export interface DocumentPrefill {
   ref_defaults: Record<string, string>;
   languages: string[];
   default_language: string;
+  /** Klient umowy bazowej, kontraktu albo rekrutacji (zgodność z umową ramową). */
+  client_id?: number | null;
 }
 
 export interface DocumentRequestBody {

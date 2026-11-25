@@ -196,6 +196,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.legal_template_draft: ("F57", "claude-sonnet-5-5"),
     # F58 — 25.11.2026: asystent prawny, „Popraw dokument” (model F22/F24).
     AIFeatureKey.legal_redline: ("F58", "claude-sonnet-5-5"),
+    # F59 — 25.11.2026: asystent prawny, zgodność z umową ramową klienta (model F58).
+    AIFeatureKey.legal_client_fit: ("F59", "claude-sonnet-5-5"),
 }
 
 

@@ -215,6 +215,7 @@ import {
   type WizardStepItem,
 } from "@/components/v2/b2b-generator/wizard/AgreementWizard";
 import { agreementPaper, paperGapCount } from "@/lib/b2b-agreement-paper";
+import { ClientFitPanel } from "@/components/legal-assistant/client-fit/ClientFitPanel";
 import {
   GENERATOR_STEPS,
   b2bFormMissing,
@@ -4677,6 +4678,12 @@ export function GeneratorForm({
     return Array.from(map.values());
   }, [roles, language]);
 
+  // Klient umowy do sprawdzenia zgodności: wybrany z listy po nazwie, a gdy
+  // nazwa jest z rekrutacji — klient tej rekrutacji.
+  const fitClientId =
+    clientsQuery.data?.find((c) => c.name === clientName)?.id ??
+    (jobQuery.data?.client_name === clientName ? (jobQuery.data?.client_id ?? null) : null);
+
   const filteredClients = useMemo(() => {
     const all = clientsQuery.data ?? [];
     const q = clientQuery.trim().toLowerCase();
@@ -6199,6 +6206,11 @@ export function GeneratorForm({
             wstawione do umowy (PL i EN).
           </p>
         ) : null}
+        {/* Asystent prawny (część G): wymogi umowy ramowej klienta wobec
+            naszego wzoru B2B; bez podglądu kwot u klienta panelu nie ma. */}
+        <div className="mt-2">
+          <ClientFitPanel clientId={fitClientId} defaultOpen={false} />
+        </div>
       </Field>
       <Field label="Miasto Klienta" required fieldKey="city">
         <Input

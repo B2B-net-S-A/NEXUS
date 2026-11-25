@@ -8,12 +8,17 @@
  * ZERO zapytań: sam widok `RedlineReview` z lokalnym stanem; przyciski pliku
  * pokazują tylko listę zmian, która poszłaby do `/api/legal/redline/render`.
  * Dane są fikcyjne.
+ *
+ * Pod spodem sekcja części G: panel zgodności z umową ramową klienta
+ * w każdym stanie (`ClientFitHarness`, zasiany cache, bez zapytań).
  */
 
 import { useState } from "react";
 import { FileDiff, FileText, Scale } from "lucide-react";
 
 import { RedlineReview } from "@/components/legal-assistant/redline/RedlineReview";
+
+import { ClientFitHarness } from "./ClientFitHarness";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -184,6 +189,8 @@ export default function LegalRedlinePreview() {
           Harness: do pliku poszłyby zmiany {sent.map((c) => c.id).join(", ")}.
         </p>
       )}
+
+      <ClientFitHarness />
     </main>
   );
 }

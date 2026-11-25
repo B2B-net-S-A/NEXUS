@@ -1906,9 +1906,19 @@ async def document_prefill(
             values.setdefault("current_start_date", contract.start_date.isoformat())
     # Pola wrażliwe nigdy nie wracają z serwera — nawet gdyby były w payloadzie.
     values = strip_sensitive(doc_type, values)
+    # Klient dokumentu dla sprawdzenia zgodności z umową ramową (asystent
+    # prawny, część G) — panel kreatora pyta o niego własną trasą z bramką
+    # treści umów ramowych; sama liczba nie ujawnia niczego ponad wybór.
+    if parent is not None:
+        client_id = parent.client_id
+    elif contract is not None:
+        client_id = contract.client_id
+    else:
+        client_id = job.client_id if job is not None else None
     return {
         "values": values,
         "base": _base_snapshot(base),
+        "client_id": client_id,
         "paragraph_defaults": paragraph_defaults,
         "notes": notes,
         "needs_refs": _needs_refs(doc_type, base),

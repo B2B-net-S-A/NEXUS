@@ -63,6 +63,8 @@ import {
   type PartnerVariant,
 } from "@/lib/b2b-documents";
 import type { CustomDocumentType } from "@/lib/api/customTemplates";
+import { ClientFitPanel } from "@/components/legal-assistant/client-fit/ClientFitPanel";
+import { annexHasText, appendAnnexText } from "@/lib/legal-client-fit";
 import { isCustomTypeKey } from "@/lib/custom-templates";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
@@ -320,6 +322,9 @@ export function DocumentWizard({
   }, [prefill.data, prefillEnabled, initKey, initializedFor, editDocumentId, savedForm.data, initialValues, subject.parentId, subject.parentLabel]);
 
   const needsRefs = prefill.data?.needs_refs ?? false;
+  // Pole listy zmian aneksu „inna zmiana” — tam „Dodaj do treści aneksu”.
+  const annexChangesKey =
+    type?.fields.find((f) => f.kind === "annex_changes")?.key ?? null;
 
   const requestBody = () =>
     buildDocumentRequest({
@@ -666,6 +671,22 @@ export function DocumentWizard({
                       ))}
                     </select>
                   </div>
+                ) : null}
+
+                {type.family === "annex" ? (
+                  // Asystent prawny (część G): wymogi umowy ramowej klienta
+                  // porównane w tle z naszym wzorem B2B. Zdanie z luki
+                  // dopisuje się tylko do aneksu z listą zmian („inna zmiana”).
+                  <ClientFitPanel
+                    clientId={prefill.data?.client_id ?? subject.clientId}
+                    onAddToAnnex={
+                      annexChangesKey
+                        ? (text) => setValue(annexChangesKey, appendAnnexText(values[annexChangesKey], text))
+                        : undefined
+                    }
+                    isAdded={(text) => (annexChangesKey ? annexHasText(values[annexChangesKey], text) : false)}
+                    addHint="Treść z luki dopiszesz w aneksie „inna zmiana” (Aneks — inna zmiana)."
+                  />
                 ) : null}
 
                 <DocumentFieldsForm
