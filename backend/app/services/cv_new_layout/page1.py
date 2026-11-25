@@ -35,9 +35,13 @@ PIN = (
 )
 
 
+_UNSPECIFIED = ("not specified", "unspecified", "nieokreślon", "nie określ")
+
+
 def shown_language(level: str, lang: str) -> Optional[str]:
-    """Etykieta poziomu albo None, gdy poziom jest poniżej B1 (słownie: „podstawowy”)."""
-    if not level:
+    """Etykieta poziomu albo None, gdy poziom jest poniżej B1 (słownie: „podstawowy”);
+    „level not specified” = sam kod języka (przegląd 25.11.2026)."""
+    if not level or any(w in level.lower() for w in _UNSPECIFIED):
         return ""
     degree, label = lang_level(level, lang)
     if degree is not None:

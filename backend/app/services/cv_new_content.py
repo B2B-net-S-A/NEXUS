@@ -305,6 +305,11 @@ def cv_json_from_editor_html(
                 if title:
                     unmapped.append(title)
             continue
+        if node.get("data-cv-section") in _ROLE_MARKERS and section != "experience":
+            # znacznik stanowiska bez nagłówka „Doświadczenie” (usunięty w edytorze, #22485):
+            # stanowiska nie lądują w poprzedniej sekcji (np. w językach)
+            section = "experience"
+            in_duties = False
         if section is None:
             continue
         try:
