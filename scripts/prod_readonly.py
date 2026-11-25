@@ -8,6 +8,7 @@
     prod_readonly.py logs --since CZAS [--until CZAS]  # linie runtime_metrics, http_outcome i loop_stall backendu web
     prod_readonly.py health                        # publiczne /api/health
     prod_readonly.py secret-check                  # czy SECRET_KEY backendu nie jest wartością z wycieku (tak/nie)
+    prod_readonly.py pg-memory                     # liczby z cgroupa kontenera Postgresa i zapas pamięci
 
 Reguła zgody Claude Code obejmuje tylko ten plik, więc to, co tu jest, wyznacza,
 co rutyna może zrobić na produkcji. Reguła: docs/claude/podstawy/rutyny-nocne.md.
@@ -401,6 +402,61 @@ def filter_log_output(output: str) -> tuple[str, int]:
     return "\n".join(kept), dropped
 
 
+# --- pg-memory ---------------------------------------------------------------
+
+# Pliki cgroupa v2 kontenera Postgresa. W kontenerze /sys/fs/cgroup to jego własny
+# cgroup, więc limit (memory.max) jest liczbą; cgroup hosta go nie ma. Z serwera
+# wychodzą same liczby. Jak liczyć zapas: docs/claude/podstawy/pamiec-postgresa.md.
+PG_MEMORY_FILES = (
+    "memory.current",
+    "memory.max",
+    "memory.peak",
+    "memory.stat",
+    "memory.events",
+)
+_PG_MEMORY_LINE = re.compile(
+    r"/sys/fs/cgroup/(memory\.(?:current|max|peak|stat|events)):(?:([a-z_]+) )?(\d+|max)"
+)
+
+
+def pg_memory_remote_command() -> str:
+    paths = " ".join(f"/sys/fs/cgroup/{name}" for name in PG_MEMORY_FILES)
+    return _FIND_CONTAINER.format(prefix=POSTGRES_PREFIX) + (
+        f'docker exec "$c" grep -H . {paths}'
+    )
+
+
+def filter_pg_memory_output(output: str) -> tuple[list[str], dict[str, int]]:
+    """Druga bramka po stronie laptopa: zostają linie „plik [klucz] liczba”."""
+    kept: list[str] = []
+    values: dict[str, int] = {}
+    for line in output.splitlines():
+        match = _PG_MEMORY_LINE.fullmatch(line.strip())
+        if not match:
+            continue
+        name, key, value = match.groups()
+        label = f"{name} {key}" if key else name
+        kept.append(f"{label} {value}")
+        if value.isdigit():
+            values[label] = int(value)
+    return kept, values
+
+
+def pg_memory_summary(values: dict[str, int]) -> str | None:
+    """Zapas = memory.max − (anon + shmem + kernel); page cache da się odzyskać."""
+    parts = [values.get(f"memory.stat {key}") for key in ("anon", "shmem", "kernel")]
+    limit = values.get("memory.max")
+    if limit is None or any(part is None for part in parts):
+        return None
+    gib = 1024**3
+    anon, shmem, kernel = parts
+    return (
+        f"zapas niezwalnialnej pamięci: {(limit - anon - shmem - kernel) / gib:.2f} GiB"
+        f" z {limit / gib:.2f} GiB (anon {anon / gib:.2f}, shmem {shmem / gib:.2f},"
+        f" kernel {kernel / gib:.2f})"
+    )
+
+
 # --- połączenie --------------------------------------------------------------
 
 
@@ -506,8 +562,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             code, text = SECRET_CHECK_RESULTS[word]
             print(text)
             return code
+        if cmd == "pg-memory":
+            if rest:
+                raise Rejected("pg-memory nie przyjmuje argumentów.")
+            proc = ssh(pg_memory_remote_command())
+            if proc.returncode != 0:
+                return _finish(proc, "")
+            kept, values = filter_pg_memory_output(proc.stdout)
+            if "memory.max" not in values:
+                # Bez liczbowego limitu to nie cgroup kontenera albo odczyt się nie udał.
+                print(
+                    "pg-memory: brak liczbowego memory.max w odpowiedzi serwera.",
+                    file=sys.stderr,
+                )
+                return 5
+            summary = pg_memory_summary(values)
+            return _finish(proc, "\n".join(kept + ([summary] if summary else [])))
         raise Rejected(
-            f"Nieznana podkomenda {cmd!r}: sql, env, backup-log, logs, health, secret-check."
+            f"Nieznana podkomenda {cmd!r}: sql, env, backup-log, logs, health, secret-check, pg-memory."
         )
     except Rejected as exc:
         print(f"Odrzucone: {exc}", file=sys.stderr)
