@@ -1,0 +1,13 @@
+{
+  "links": [{"rel": "self", "href": "https://www.saos.org.pl/api/judgments/900002"}],
+  "data": {
+    "id": 900002,
+    "courtType": "COMMON",
+    "courtCases": [{"caseNumber": "I AGa 999/23"}],
+    "judgmentType": "SENTENCE",
+    "judgmentDate": "2024-05-24",
+    "summary": "<p>Teza: kara umowna za zwłokę podlega miarkowaniu.</p>",
+    "textContent": "<p>Sygn. akt I AGa 999/23</p>\n<div><h2>WYROK</h2><h5>W IMIENIU RZECZYPOSPOLITEJ POLSKIEJ</h5><p>Sąd Apelacyjny w Mieście X &amp; Y</p><p>po rozpoznaniu sprawy o&nbsp;zapłatę</p><br/>oddala apelację.</div>",
+    "division": {"id": 1324, "name": "I Wydział Cywilny", "court": {"id": 212, "name": "Sąd Apelacyjny w Mieście X", "type": "APPEAL"}}
+  }
+}
