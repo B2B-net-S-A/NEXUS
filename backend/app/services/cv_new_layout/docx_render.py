@@ -266,11 +266,14 @@ def page1_png(pdf: bytes, dpi: int = 300) -> tuple[bytes, float, float]:
     """Pole treści strony 1 PDF (bez nagłówka i stopki) jako PNG: (bajty, mm, mm)."""
     import pypdfium2
 
-    document = pypdfium2.PdfDocument(pdf)
-    try:
-        image = document[0].render(scale=dpi / 72).to_pil().convert("RGB")
-    finally:
-        document.close()
+    from app.services.pdfium import PDFIUM_LOCK
+
+    with PDFIUM_LOCK:
+        document = pypdfium2.PdfDocument(pdf)
+        try:
+            image = document[0].render(scale=dpi / 72).to_pil().convert("RGB")
+        finally:
+            document.close()
     px = dpi / 25.4
     image = image.crop(
         (
@@ -297,11 +300,15 @@ def svg_png(svg: str, width_mm: float, height_mm: float, dpi: int = 300) -> byte
         f"svg{{display:block;width:{width_mm}mm;height:{height_mm}mm}}</style></head>"
         f"<body>{svg}</body></html>"
     )
-    document = pypdfium2.PdfDocument(html_to_document(page).write_pdf())
-    try:
-        image = document[0].render(scale=dpi / 72).to_pil()
-    finally:
-        document.close()
+    from app.services.pdfium import PDFIUM_LOCK
+
+    pdf = html_to_document(page).write_pdf()
+    with PDFIUM_LOCK:
+        document = pypdfium2.PdfDocument(pdf)
+        try:
+            image = document[0].render(scale=dpi / 72).to_pil()
+        finally:
+            document.close()
     out = io.BytesIO()
     image.save(out, format="PNG")
     return out.getvalue()

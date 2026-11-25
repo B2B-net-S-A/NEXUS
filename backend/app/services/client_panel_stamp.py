@@ -223,16 +223,19 @@ def _panel_page_pdf(
 def _merged(pdf_bytes: bytes, extra: bytes) -> bytes:
     import pypdfium2 as pdfium
 
-    document = pdfium.PdfDocument(pdf_bytes)
-    page = pdfium.PdfDocument(extra)
-    try:
-        document.import_pages(page)
-        out = io.BytesIO()
-        document.save(out)
-        return out.getvalue()
-    finally:
-        page.close()
-        document.close()
+    from app.services.pdfium import PDFIUM_LOCK
+
+    with PDFIUM_LOCK:
+        document = pdfium.PdfDocument(pdf_bytes)
+        page = pdfium.PdfDocument(extra)
+        try:
+            document.import_pages(page)
+            out = io.BytesIO()
+            document.save(out)
+            return out.getvalue()
+        finally:
+            page.close()
+            document.close()
 
 
 def append_panel_page(
