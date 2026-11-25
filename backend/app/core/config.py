@@ -1433,6 +1433,13 @@ class Settings(BaseSettings):
     # prawa, bramka NEXUSA sprawdza numery w API Sejmu, Grok Analityk opisuje zmiany.
     # OFF: pętla stoi, ekran mówi „Radar wyłączony”; trasa raportu działa zawsze.
     LAW_RADAR_ENABLED: bool = False
+    # Asystent prawny (część A, 25.11.2026): pętla odświeżania korpusu prawa
+    # (teksty jednolite z API ELI Sejmu i wersje skonsolidowane z CELLAR UE).
+    # OFF: korpus zostaje, jak jest; skrypt `scripts/legal_corpus_seed.py` działa.
+    LEGAL_CORPUS_REFRESH_ENABLED: bool = True
+    # Wektory przepisów w Qdrancie `nexus_legal_corpus` (Voyage). OFF: wyszukiwanie
+    # przepisów idzie samym rankingiem po słowach (teksty aktów są publiczne).
+    LEGAL_CORPUS_EMBEDDINGS_ENABLED: bool = True
     # Adresy webhooków dwóch rutyn i ich klucze (nagłówek ``Authorization: Bearer``).
     GROK_BOT_LAW_COLLECT_WEBHOOK_URL: str = ""
     GROK_BOT_LAW_COLLECT_WEBHOOK_KEY: str = ""

@@ -257,6 +257,7 @@ from app.api import client_time_reports as client_time_reports_api
 from app.api import settlement_reminders as settlement_reminders_api
 from app.api import client_reports as client_reports_api
 from app.api import law_radar as law_radar_api
+from app.api import legal as legal_api
 from app.api import supervisory_board as supervisory_board_api
 from app.api import client_einvoices as client_einvoices_api
 from app.api import finance_ledger as finance_ledger_api
@@ -910,6 +911,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.sales_tenders import sales_tenders_loop
     from app.tasks.sales_signals import sales_signals_loop
     from app.tasks.law_radar import law_radar_loop
+    from app.tasks.legal_corpus import legal_corpus_loop
     from app.tasks.cpro_bot import cpro_bot_loop
     from app.tasks.board_krs import board_krs_loop
     from app.tasks.jjit_import import jjit_import_loop
@@ -1170,6 +1172,10 @@ async def lifespan(app: FastAPI):
             # Radar przepisów: Grok Zbieracz od 5:30, bramka, Analityk, sondy;
             # wyłącznik LAW_RADAR_ENABLED przed pętlą.
             "law_radar": asyncio.create_task(law_radar_loop()),
+            # Asystent prawny: teksty jednolite ELI i wersje skonsolidowane UE,
+            # co godzinę akty sprawdzone ponad 20 h temu; wyłącznik
+            # LEGAL_CORPUS_REFRESH_ENABLED przed pętlą.
+            "legal_corpus": asyncio.create_task(legal_corpus_loop()),
             # Bot Cpro: karty z kolejki Cpro do Grok Bota (Nordea, nordea.onevms.se);
             # wyłącznik CPRO_BOT_ENABLED przed pętlą.
             "cpro_bot": asyncio.create_task(cpro_bot_loop()),
@@ -1679,6 +1685,8 @@ app.include_router(
 )
 # Radar przepisów (0713, decyzje Artura 15.11.2026): ekran „Przepisy”.
 app.include_router(law_radar_api.router, prefix="/api/compliance", tags=["compliance"])
+# Asystent prawny (część A, 25.11.2026): korpus prawa, weryfikator cytatów, szkic pisma.
+app.include_router(legal_api.router, prefix="/api/legal", tags=["legal"])
 # Rada nadzorcza (R1, decyzje Artura 16.11.2026): dokumenty korporacyjne i odpis KRS.
 app.include_router(
     supervisory_board_api.router,
@@ -4267,6 +4275,7 @@ async def api_health_deep_check(request: Request):
     from app.models.cpro_bot import CproBotRun
     from app.models.cv_parse_batch import CvParseBatchItem
     from app.models.client_report import ClientReportDefinition, ClientReportRun
+    from app.models.legal_corpus import LegalAct, LegalActVersion, LegalProvision
     from app.models.law_radar import (
         LawChange,
         LawChangeEvent,
@@ -4989,6 +4998,10 @@ async def api_health_deep_check(request: Request):
         ("law_change_tasks", LawChangeTask),
         ("law_change_events", LawChangeEvent),
         ("law_change_probes", LawChangeProbe),
+        # 0779: korpus prawa asystenta prawnego.
+        ("legal_acts", LegalAct),
+        ("legal_act_versions", LegalActVersion),
+        ("legal_provisions", LegalProvision),
         # 0732: bot Cpro — biegi rutyny Grok Bota.
         ("cpro_bot_runs", CproBotRun),
         # 0750: kolejka odczytów CV wsadem.

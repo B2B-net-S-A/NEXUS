@@ -76,6 +76,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F52 | contract_document_rate_read      | claude-sonnet-5 (z Haiku)|
 | F53 | contract_partner_read            | claude-sonnet-5 (z Haiku)|
 | F54 | sales_potential_assessment       | claude-sonnet-5-5 (z 5)  |
+| F56 | legal_assistant                  | claude-sonnet-5-5 (z 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -661,6 +662,18 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "handlowca i wiadomość do klienta, więc model tekstu do klienta z F46. Próba na "
         "dwóch firmach ze stagingu 23.11. Dodatek: bez modelu research i fakty zostają "
         "na ekranie, referencje wybiera model tylko numerem z bazy.",
+    ),
+    AIFeatureKey.legal_assistant: ModelChoice(
+        default=SONNET_55,
+        env_vars=("LEGAL_ASSISTANT_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F56 (decyzja Artura 25.11.2026, asystent prawny, POZA badaniem 16.09). Szkic "
+        "pisma do kontraktora albo klienta z podanych fragmentów przepisów i umowy — tekst dla "
+        "osoby spoza firmy oparty na źródłach, więc model z F46/F54, a w pomiarze F50 (16.11) "
+        "Sonnet 5.5 dał najmniej zdań bez pokrycia (1 na 8 szkiców wobec 4 Sonneta 5). Bez "
+        "osobnego pomiaru; zmiana po pomiarze na modelu z produkcji. Dodatek: cytaty sprawdza "
+        "kod (cytat bez pokrycia blokuje zatwierdzenie), terminy liczy kod, bez modelu ekran "
+        "pokazuje fragmenty i policzone terminy.",
     ),
 }
 

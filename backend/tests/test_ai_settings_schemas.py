@@ -141,6 +141,8 @@ class TestFeatureKeyEnum:
             "contract_partner_read",
             # 0761: Sprzedaż — ocena potencjału firmy przed spotkaniem.
             "sales_potential_assessment",
+            # 0779: asystent prawny — szkic pisma ze sprawdzonymi cytatami.
+            "legal_assistant",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):
