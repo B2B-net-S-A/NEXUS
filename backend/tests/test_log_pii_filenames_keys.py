@@ -222,6 +222,10 @@ _EXEMPT_NAMES = {
     # `key` w `manual_runs` to klucz wiersza `app_settings` ze stałą nazwą biegu
     # (np. `admin_backfill_progress:cc`), nie klucz magazynu ani osoba.
     ("core/manual_runs.py", "key"),
+    # Asystent prawny (25.11.2026): `key` to stały kod aktu prawnego z katalogu
+    # (`kc`, `kp`, `rodo`) i tematu zasilenia orzecznictwa — nie plik ani osoba.
+    ("services/legal/corpus.py", "key"),
+    ("services/legal_case_law/ingest.py", "key"),
     # `path` w tych plikach to ścieżka URL żądania HTTP (trasa API z ID),
     # a w seederze — stały plik szablonu umowy, nie dokument osoby.
     ("api/deps.py", "path"),

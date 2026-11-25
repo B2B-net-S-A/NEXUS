@@ -88,10 +88,8 @@ function targetForm(target: RedlineTarget): FormData {
 // `api` ma domyślnie `Content-Type: application/json` — bez nadpisania
 // FormData wychodzi bez granicy multipart i serwer nie widzi pól. Model
 // i budowa pliku trwają dłużej niż domyślne 30 s.
-const FORM_REQUEST = {
-  headers: { "Content-Type": "multipart/form-data" },
-  timeout: SLOW_ENDPOINT_TIMEOUT_MS,
-} as const;
+// Nagłówek multipart stoi w każdym wywołaniu wprost — strażnik
+// `formdata-multipart.test.ts` czyta źródło wywołania, nie stałą.
 
 export type ProposeMode =
   | { mode: "ai"; instruction: string }
@@ -103,7 +101,10 @@ export async function proposeRedline(target: RedlineTarget, request: ProposeMode
   if (request.mode === "ai") fd.append("instruction", request.instruction);
   if (request.mode === "diff") fd.append("new_text", request.newText);
   if (request.mode === "manual") fd.append("use_ai", "false");
-  const res = await api.post<RedlineResponse>("/api/legal/redline", fd, FORM_REQUEST);
+  const res = await api.post<RedlineResponse>("/api/legal/redline", fd, {
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+  });
   return res.data;
 }
 
@@ -129,7 +130,11 @@ export async function renderRedline(
   fd.append("sha256", sha256);
   fd.append("changes", JSON.stringify(changes));
   try {
-    const res = await api.post<Blob>("/api/legal/redline/render", fd, { ...FORM_REQUEST, responseType: "blob" });
+    const res = await api.post<Blob>("/api/legal/redline/render", fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      responseType: "blob",
+    });
     const disposition = String(res.headers["content-disposition"] ?? "");
     return { blob: res.data, filename: dispositionFilename(disposition, "Dokument — poprawki asystenta.docx") };
   } catch (err) {
