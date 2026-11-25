@@ -1,6 +1,6 @@
 # „Nowe CV” — drugi układ obok klasycznego Worda (22.11.2026)
 
-<!-- indeks: `cv_layout` przy CV etapu / wersji / generacji / regule klienta, `CV_NEW_LAYOUT_ENABLED`, PDF WeasyPrint z HTML-a edytora (`cv_new_content`, `cv_new_layout`, `cv_new_pdf`), przełącznik wszędzie, blokada po wysyłce, Word zawsze klasyczny; strona 1 po warsztatach 23.11: nazwisko pod stanowiskiem, języki od B1, miasto, zdania z liniami, oś A1, wieniec certyfikat/dyplom (`page1_extras.wreath`) -->
+<!-- indeks: `cv_layout` przy CV etapu / wersji / generacji / regule klienta, `CV_NEW_LAYOUT_ENABLED`, PDF WeasyPrint z HTML-a edytora (`cv_new_content`, `cv_new_layout`, `cv_new_pdf`), przełącznik wszędzie, blokada po wysyłce, Word zawsze klasyczny; strona 1 po warsztatach 23.11: nazwisko pod stanowiskiem, języki od B1, miasto, zdania z liniami, oś A1, wieniec certyfikat/dyplom (`page1_extras.wreath`); runda 37 (25.11): nagłówek T2, wyróżnik pod nazwiskiem (`page1_extras.highlight`, auto = praca u klienta), oś po kolei S1, Edukacja bez wieńca z ikonami, pismo do 11 pt, stały odstęp sekcji -->
 
 Decyzje Artura z 22.11.2026 (makiety i plan: https://claude.ai/artifact/BNgS14uStdSdnbFMWC5T4E,
 prywatne; projekt strony 1: https://claude.ai/artifact/5iLRazHADMeQZHhes3BTNS, runda 34).
@@ -73,7 +73,7 @@ https://claude.ai/artifact/KQVGVPioPeiDDUQnQDmKcq, prywatne).
   liniami poziomymi (wariant W1). Treść zdań na razie bez zmian (punkty
   generatora + najmocniejszy wynik); nowe zasady zdań 1–3 i pole Delivery Leada
   „Najważniejsze zadanie” to osobny PR.
-- **Oś kariery:** gdy przed 12-letnim oknem są więcej niż 2 stanowiska, starsze
+- **Oś kariery (zastąpiona 25.11.2026, niżej):** gdy przed 12-letnim oknem są więcej niż 2 stanowiska, starsze
   lata to jasny odcinek tego samego paska z przerwą „//”, nad nim lata
   („1997–2014”), pod nim zwykłym pismem „13 stanowisk, m.in. …” z dwiema
   najdłuższymi firmami (wariant A1). Drobny blok „Wcześniej” z boku zniknął.
@@ -94,6 +94,49 @@ https://claude.ai/artifact/KQVGVPioPeiDDUQnQDmKcq, prywatne).
   Wieńca nie wybiera się w oknie generatora: zapamiętanie wyboru do podpięcia CV
   wymagałoby kolumny w `cv_generated_documents`; wybór jest od razu po generacji
   w karcie i w edytorze.
+
+## Strona 1, runda 37 (25.11.2026)
+
+Decyzje Artura z 25.11.2026 po makietach (prywatny artefakt:
+https://claude.ai/artifact/USSM8YEU8BSmS49CUZ5fFi, wersje 1–4).
+
+- **Nagłówek (T2):** stanowisko 19 pt czerwone, pod nim cienka linia i imię
+  z nazwiskiem 12 pt. Bez napisu „Kandydat na stanowisko”.
+- **Wyróżnik pod nazwiskiem** (`highlight.py`, `page1_extras.highlight`):
+  wieniec ze znakiem, etykieta i jedno zdanie, bez ramki i tła. `mode`:
+  „auto” (domyślne) = kandydat pracował u klienta rekrutacji — firma ze
+  stanowiska ma te same słowa po kolei co nazwa, nazwa wyświetlana albo pełna
+  nazwa klienta (`matches_client`; „ING” nie trafia w „Ingenium”, samo „Bank”
+  w nic). Etykieta „Doświadczenie w PKO BP · 2018–2023”, zdanie z dat
+  i stanowiska („**4 lata 6 mies. jako Tester, Analityk** w PKO BP.”), bez
+  dopowiadania. W wieńcu nazwa klienta do 8 znaków, inaczej staż („5 lat”).
+  CV anonimowe = bez automatu. „custom” = etykieta (≤ 60), znak (≤ 8) i zdanie
+  (≤ 160) rekrutera — bez etykiety albo zdania 422; „off” = bez wyróżnika.
+  Nie pisz „Zna klienta od środka” (Artur: brzmi źle). Edytor: sekcja
+  „Wyróżnik” w zakładce „Strona 1”, ten sam `PATCH …/cv/page1`; Historia
+  zdarzeń zapisuje tylko tryb, bez treści.
+- **Wieniec raz na stronie:** z wyróżnikiem Edukacja idzie bez wieńca —
+  dwie kolumny z ikonami (biret, odznaka): kierunek, stopień · rok, uczelnia;
+  certyfikat, wystawca · rok (`education_plain`). Bez wyróżnika jak dotąd.
+- **Oś kariery po kolei (S1, `axis.py`):** odcinki NIE w skali czasu — każdy
+  ma miejsce na pełną nazwę firmy w 2 liniach (przy ciasnocie 3), resztę
+  dzielą prace według pierwiastka ze stażu. Nad odcinkiem firma, pod nim rok
+  rozpoczęcia i stanowisko, bez przerw. Kolejne krótkie zlecenia (< 9 mies.)
+  jednym odcinkiem „A · B · C — 3 krótkie projekty”; najwyżej 7 odcinków,
+  najstarsi w „Wcześniej · N stanowisk, m.in. …”. Nazwy bez branży
+  dopisanej w edytorze („Firma · Bankowość”). Okno 10/12 lat i oś w skali
+  lat odrzucone.
+- **Wypełnienie kartki (R2):** pismo strony 1 od 11 pt w dół (10–11 pt to nie
+  „skrócenie” w komunikacie), stały odstęp 5,5 mm nad każdą sekcją, wolne
+  miejsce: połowa w środek sekcji (`inner_mm`: odstępy zdań, wierszy, osi),
+  reszta równo między sekcje. Zdania „Dlaczego” rosną z pismem strony.
+- **Zdania „Dlaczego” (do PR z treścią zdań 1–3):** zdanie 2 bez „Z wymagań
+  klienta:”, zdanie 3 bez „Najważniejsze zadanie w tej roli to…” — od razu
+  zadanie z dowodem w formie rzeczownikowej; w zdaniu 1 metodyka bez rodzaju
+  („przez ten czas w zespołach pracujących w Agile i Scrum”), nie „praca
+  w Agile” ani „pracował”.
+- **Harness:** `public/preview/cv-editor/nowe-cv-przyklad.pdf` z fikstury
+  z klientem „Bank Przykładowy” (pokazuje wyróżnik), nagłówek pisma 11 pt.
 
 ## Zdanie „najmocniejszy wynik”
 

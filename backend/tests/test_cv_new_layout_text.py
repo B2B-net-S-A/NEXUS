@@ -18,13 +18,14 @@ from app.services.cv_new_layout.assets import (
     text_width,
 )
 from app.services.cv_new_layout.axis import (
+    MIN_SEGMENT,
     OLDER_FILL,
-    OLDER_LEFT,
+    W,
     career_axis,
     company_name,
+    layout,
     main_career,
-    timeline,
-    wraps,
+    stops,
 )
 from app.services.cv_new_layout.context import build_context
 from app.services.cv_new_layout.education import highest_school, top_certs
@@ -211,6 +212,27 @@ def test_language_parts_levels_and_codes():
     )
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "03.2023 - currently",
+        "03.2023 – Currently",
+        "03.2023 - ongoing",
+        "03.2023 - teraz",
+        "03.2023 - aktualnie",
+        "03.2023 - do dziś",
+        "03.2023 - to date",
+        "03.2023 - present",
+    ],
+)
+def test_parse_dates_knows_every_word_for_present(text):
+    """Zgłoszenie z 25.11.2026: „03.2023 – currently” dawało 1 miesiąc zamiast 3 lat 9 mies.
+    (edytor liczył dobrze, `cv-new-layout-form.ts` zna te słowa)."""
+    span = parse_dates(text, NOW)
+    assert span == Span(2023 + 2 / 12, NOW, True)
+    assert duration_text(span) == "3 lata 9 mies."
+
+
 def test_parse_dates_reads_each_side():
     span = parse_dates("2013 - 12.2017", NOW)
     assert (
@@ -296,13 +318,7 @@ def test_company_name_strips_legal_form():
     assert company_name("Bank Przykładowy S.A.") == "Bank Przykładowy"
     assert company_name("Ubezpieczenia Beta sp. z o.o.") == "Ubezpieczenia Beta"
     assert company_name("FIRMA TESTOWA POLSKA") == "Firma Testowa"
-
-
-def test_wraps_never_truncates_names():
-    name = "Omega Telecom/Sigma Mobile - Rho Technology Solutions"
-    for lines in wraps(name):
-        assert " ".join(lines) == name
-    assert len(wraps(name)) == 3
+    assert company_name("Bank Przykładowy S.A. · Bankowość") == "Bank Przykładowy"
 
 
 def test_main_career_moves_contained_roles_to_parallel_and_trims_overlaps():
@@ -319,30 +335,110 @@ def test_main_career_moves_contained_roles_to_parallel_and_trims_overlaps():
     )  # zakładka: poprzednie kończy się w dniu startu nowego
 
 
-def test_timeline_groups_older_roles():
-    tl = timeline(build_context(NewCvDocument.from_cv_json(long_cv()), TODAY))
-    assert tl.y0 == 2015
-    assert len(tl.older) == 3
-    assert tl.segments[-1].current
+def _ctx(data: dict):
+    return build_context(NewCvDocument.from_cv_json(data), TODAY)
 
 
-def test_axis_older_years_are_a_light_bar_segment_with_readable_summary():
-    """Artur 23.11.2026 (A1): starsze lata na tym samym pasku, z „//”, latami nad
-    i liczbą stanowisk pod spodem zwykłym pismem — nie drobnym „Wcześniej”."""
-    ctx = build_context(NewCvDocument.from_cv_json(blind(english(long_cv()))), TODAY)
-    svg = career_axis(ctx)
-    assert "Earlier" not in svg and "…" not in svg
-    assert f'fill="{OLDER_FILL}"' in svg
-    assert re.search(r'font-weight="700"[^>]*>\d{4}–\d{4}</text>', svg)
-    below = re.findall(
-        r'<text x="3\.00"[^>]*font-weight="600" font-size="2\.75"[^>]*>([^<]+)</text>', svg
-    )
-    assert below and below[0].startswith("3 positions")
+def test_axis_is_in_order_not_in_time_scale():
+    """Artur 25.11.2026 (S1): odcinek ma miejsce na pełną nazwę firmy, a nie szerokość
+    z liczby lat; razem zawsze cała szerokość strony."""
+    segs = layout(_ctx(long_cv()))
+    assert sum(w for _, _, w in segs) == pytest.approx(W)
+    assert all(w >= MIN_SEGMENT for _, _, w in segs)
     assert all(
-        text_width(line, 2.75, "SourceSans3-600.ttf") <= OLDER_LEFT - 7
-        for line in below
+        x2 == pytest.approx(x1 + w1) for (_, x1, w1), (_, x2, _) in zip(segs, segs[1:])
     )
-    assert "Company from edukacja industry" in " ".join(below)
+    # najkrótsza praca nie jest kreską: najwyżej kilka razy węższa od najdłuższej
+    widths = [w for _, _, w in segs]
+    assert max(widths) / min(widths) < 4
+
+
+def test_axis_collapses_oldest_and_never_truncates_names():
+    data = long_cv()
+    ctx = _ctx(data)
+    segs = layout(ctx)
+    assert segs[0][0].kind == "older" and segs[0][0].company.startswith("Wcześniej · ")
+    assert segs[-1][0].current
+    svg = career_axis(ctx)
+    assert "…" not in svg and f'fill="{OLDER_FILL}"' in svg
+    for s, _, _ in segs[1:]:
+        for word in s.company.split():
+            assert word in svg
+    assert ">2023</text>" in svg and ">dziś</text>" in svg  # rok startu + koniec
+
+
+def test_axis_groups_consecutive_short_jobs():
+    data = short_cv()
+    data["experience"] = [
+        {
+            "dates": d,
+            "company": c,
+            "position": "Tester",
+            "industry": "",
+            "technologies": [],
+            "responsibilities": [],
+        }
+        for d, c in (
+            ("05.2024 – obecnie", "Firma Kappa"),
+            ("11.2023 – 04.2024", "Firma Lambda"),
+            ("06.2023 – 10.2023", "Firma Mi"),
+            ("01.2023 – 05.2023", "Firma Ni"),
+            ("2019 - 2022", "Firma Ksi"),
+        )
+    ]
+    st = stops(_ctx(data))
+    short = [s for s in st if s.kind == "short"]
+    assert len(short) == 1
+    assert short[0].company == "Firma Ni · Firma Mi · Firma Lambda"
+    assert short[0].role == "3 krótkie projekty"
+    assert [s.company for s in st] == ["Firma Ksi", short[0].company, "Firma Kappa"]
+
+
+def _roles(*dates: str) -> dict:
+    data = long_cv()
+    data["experience"] = [
+        {
+            "dates": d,
+            "company": f"Firma {i}",
+            "position": "Analityk",
+            "industry": "",
+            "technologies": [],
+            "responsibilities": [],
+        }
+        for i, d in enumerate(dates)
+    ]
+    return data
+
+
+@pytest.mark.parametrize(
+    "dates",
+    [
+        (),  # CV bez stanowisk (absolwent)
+        ("", ""),  # role bez dat
+        ("obecnie",),  # jedyna rola bez początku
+        (
+            "01.2020 - obecnie",
+            "01.2020 - obecnie",
+            "01.2020 - obecnie",
+        ),  # same równoległe kontrakty
+    ],
+)
+def test_axis_without_segments_does_not_break_the_cv(dates):
+    """Bez odcinków oś znika albo pokazuje to, co się da — CV się renderuje (przegląd 25.11.2026)."""
+    data = _roles(*dates)
+    career_axis(_ctx(data))
+    assert "DLACZEGO NASZ KANDYDAT" in _html(data).upper()
+
+
+def test_current_role_without_start_stays_on_the_axis():
+    data = _roles("obecnie", "2015 - 2019")
+    svg = career_axis(_ctx(data))
+    assert "Firma 0" in svg and ">dziś</text>" in svg
+
+
+def test_axis_english_and_blind():
+    svg = career_axis(_ctx(blind(english(long_cv()))))
+    assert "Earlier · " in svg and ">today</text>" in svg and "Wcześniej" not in svg
 
 
 def test_role_period_follows_cv_language():
@@ -427,7 +523,10 @@ def test_html_polish_headings_and_title():
     ):
         assert heading in html, heading
     # stanowisko, a pod nim imię i nazwisko — bez myślnika (Artur 23.11.2026)
-    assert "<h1 class='title'>Starszy analityk danych</h1><div class='nm'>Łucja Przykładowa</div>" in html
+    assert (
+        "<h1 class='title'>Starszy analityk danych</h1><div class='nm'>Łucja Przykładowa</div>"
+        in html
+    )
     assert "danych – " not in html
     assert "<b>PL</b> ojczysty" in html and "<b>EN</b> C1/C2" in html
     assert "<b>Ponad 15 lat</b>" in html and "Czwarty punkt" not in html
@@ -524,7 +623,6 @@ def test_html_short_cv_skips_empty_sections():
     assert "Umiejętności — pełna lista" not in html
 
 
-
 # ---------- strona 1 po warsztatach 23.11.2026 ----------
 
 
@@ -545,7 +643,9 @@ def test_languages_below_b1_and_basic_are_left_out():
 def test_city_pill_next_to_languages_without_country_code():
     data = dict(long_cv(), candidate_location="Kraków, PL")
     html = _html(data)
-    assert re.search(r"<span class='pill loc'><svg[^>]*>.*?</svg>Kraków</span>", html, re.S)
+    assert re.search(
+        r"<span class='pill loc'><svg[^>]*>.*?</svg>Kraków</span>", html, re.S
+    )
     assert "Kraków, PL" not in html
     foreign = _html(dict(long_cv(), candidate_location="Berlin, DE"))
     assert "</svg>Berlin, DE</span>" in foreign
@@ -553,7 +653,9 @@ def test_city_pill_next_to_languages_without_country_code():
 
 def test_no_city_pill_without_location_or_in_blind_cv():
     assert "pill loc" not in _html(long_cv())
-    assert "pill loc" not in _html(blind(dict(long_cv(), candidate_location="Kraków, PL")))
+    assert "pill loc" not in _html(
+        blind(dict(long_cv(), candidate_location="Kraków, PL"))
+    )
 
 
 def test_why_sentences_have_no_bullets_and_are_separated_by_rules():
@@ -565,7 +667,7 @@ def test_why_sentences_have_no_bullets_and_are_separated_by_rules():
 
 def _edu(data: dict, **kw) -> str:
     html = _html(data, **kw)
-    return html[html.index("<span>Edukacja</span>"):html.index("class='rest'")]
+    return html[html.index("<span>Edukacja</span>") : html.index("class='rest'")]
 
 
 def test_wreath_shows_degree_when_no_certificate_is_required():
@@ -576,7 +678,9 @@ def test_wreath_shows_degree_when_no_certificate_is_required():
 
 def test_wreath_shows_certificate_required_by_client():
     data = dict(long_cv(), must_have=["Python", "PRINCE2 Practitioner"])
-    data["certifications"] = data["certifications"] + ["PRINCE2 Practitioner - Axelos (2021)"]
+    data["certifications"] = data["certifications"] + [
+        "PRINCE2 Practitioner - Axelos (2021)"
+    ]
     edu = _edu(data)
     assert ">PRINCE2</text>" in edu and ">2021</text>" in edu
     assert "Certyfikat" in edu and "Inne certyfikaty i szkolenia · 10" in edu
@@ -585,7 +689,9 @@ def test_wreath_shows_certificate_required_by_client():
 
 def test_recruiter_can_force_certificate_or_school_in_the_wreath():
     with_cert = dict(long_cv(), must_have=["PRINCE2 Practitioner"])
-    with_cert["certifications"] = with_cert["certifications"] + ["PRINCE2 Practitioner - Axelos (2021)"]
+    with_cert["certifications"] = with_cert["certifications"] + [
+        "PRINCE2 Practitioner - Axelos (2021)"
+    ]
     assert ">2008</text>" in _edu(with_cert, wreath="school")
     forced = _edu(long_cv(), wreath="cert")
     assert "Inne certyfikaty i szkolenia" in forced and ">2008</text>" not in forced
@@ -595,7 +701,6 @@ def test_course_is_not_treated_as_required_certificate():
     data = dict(long_cv(), must_have=["Python"])
     data["certifications"] = ["Kurs Python dla analityków - Akademia (2023)"]
     assert ">2008</text>" in _edu(data)
-
 
 
 def test_skill_requirement_does_not_pull_a_course_certificate_into_the_wreath():

@@ -1,5 +1,7 @@
-"""Strona 1: stanowisko, imię i nazwisko, języki od B1 i miasto → Dlaczego nasz kandydat → Przebieg kariery →
-Umiejętności → Edukacja. Mieści się zawsze na jednej stronie (`fit.py`)."""
+"""Strona 1: stanowisko, imię i nazwisko, języki od B1 i miasto → wyróżnik (gdy jest) →
+Dlaczego nasz kandydat → Przebieg kariery → Umiejętności → Edukacja. Mieści się zawsze
+na jednej stronie (`fit.py`). Wieniec jest na stronie raz: z wyróżnikiem Edukacja idzie
+bez wieńca (Artur 25.11.2026)."""
 
 from __future__ import annotations
 
@@ -8,8 +10,9 @@ from typing import Optional
 
 from app.services.cv_new_layout.axis import career_axis
 from app.services.cv_new_layout.context import Ctx
-from app.services.cv_new_layout.education import education_page1
+from app.services.cv_new_layout.education import education_page1, education_plain
 from app.services.cv_new_layout.facts import lang_code, lang_level, lang_parts
+from app.services.cv_new_layout.highlight import Highlight, resolve
 from app.services.cv_new_layout.text import (
     esc,
     key_first,
@@ -17,6 +20,7 @@ from app.services.cv_new_layout.text import (
     merge_fragments,
     split_items,
 )
+from app.services.cv_new_layout.wreath import wreath_badge_svg
 
 
 # Poziomy poniżej B1 nie trafiają na stronę 1 (Artur 23.11: „tylko B1 w górę”).
@@ -72,6 +76,18 @@ def title_row(ctx: Ctx) -> str:
     )
 
 
+def highlight_block(hl: Optional[Highlight]) -> str:
+    """Wyróżnik pod nazwiskiem: wieniec ze znakiem, etykieta (z latami) i jedno zdanie;
+    bez ramki i tła (Artur 25.11.2026)."""
+    if hl is None:
+        return ""
+    label = esc(hl.label) + (f" · {esc(hl.sub)}" if hl.sub else "")
+    return (
+        f"<div class='hl'>{wreath_badge_svg(hl.token)}"
+        f"<div><div class='hlk'>{label}</div><div class='hlt'>{md_bold(hl.text)}</div></div></div>"
+    )
+
+
 def why_block(ctx: Ctx) -> str:
     """Trzy zdania bez kropek, oddzielone cienkimi paskami; `**…**` to pogrubienie."""
     items = "".join(f"<li>{md_bold(w)}</li>" for w in ctx.doc.why)
@@ -123,16 +139,21 @@ def page1(ctx: Ctx, cap: Optional[int]) -> tuple[str, bool, int]:
     """(HTML strony 1, czy umiejętności skrócono, ile certyfikatów na koniec CV)."""
     t = ctx.t
     skills, truncated = skills_index(ctx, cap)
-    education, certs_hidden = education_page1(ctx)
+    hl = resolve(ctx)
+    education, certs_hidden = education_plain(ctx) if hl else education_page1(ctx)
     blocks = [
         (t["why_blind"] if ctx.doc.blind else t["why"], why_block(ctx)),
         (t["career"], career_axis(ctx)),
         (t["skills"], skills),
         (t["education"], education),
     ]
-    body = title_row(ctx) + "".join(
-        f"<div class='blk'>{heading(title)}{content}</div>"
-        for title, content in blocks
-        if content
+    body = (
+        title_row(ctx)
+        + highlight_block(hl)
+        + "".join(
+            f"<div class='blk'>{heading(title)}{content}</div>"
+            for title, content in blocks
+            if content
+        )
     )
     return f"<div class='p1'>{body}</div>", truncated, certs_hidden

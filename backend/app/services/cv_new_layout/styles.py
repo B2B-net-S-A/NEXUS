@@ -4,6 +4,11 @@ Wersja końcowa makiety Artura z 20–22.11.2026: nagłówek = samo logo, stopka
 wyśrodkowane dane spółki, etykiety sekcji czerwone z linią do prawej krawędzi,
 umiejętności z pionowymi kreskami, Poppins + Source Sans 3, wieniec przy dyplomie.
 Wolne miejsce strony 1 rozkłada się równo między sekcje.
+
+Runda 37 (Artur 25.11.2026): nagłówek T2 (stanowisko duże czerwone, cienka linia,
+imię i nazwisko), wyróżnik z wieńcem bez ramki, stały odstęp między sekcjami
+(`SECTION_GAP`), część luzu strony w środek sekcji (`inner_mm`), zdania
+„Dlaczego” rosną z pismem strony.
 """
 
 from __future__ import annotations
@@ -31,6 +36,8 @@ TOP_N = HEAD_N + 4.0
 BOTTOM = FOOT_N + 4.0
 # pole treści strony 1; pół milimetra zapasu, bo treść równa polu co do ułamka bywa łamana
 PAGE1_HEIGHT = PAGE_H - TOP_1 - BOTTOM - 0.5
+# stały odstęp nad każdą sekcją strony 1 — „nie może się zlewać” (Artur 25.11.2026)
+SECTION_GAP = 5.5
 
 
 def _logo_box(head: float, logo_h: float) -> str:
@@ -48,7 +55,23 @@ def _footer_box(footer: str, foot: float) -> str:
     )
 
 
-def stylesheet(*, font_pt: float, footer: str, block_gap_mm: float = 0.0) -> str:
+def _inner(inner_mm: float) -> str:
+    """Luz strony w środku sekcji: odstępy zdań, wierszy umiejętności, osi i Edukacji."""
+    if inner_mm <= 0:
+        return ""
+    return (
+        f"ul.why li{{padding:{2.1 + inner_mm * 0.9:.2f}mm 0}}"
+        f".s1r{{padding:{0.9 + inner_mm * 0.45:.2f}mm 0}}"
+        f".p1 h2{{margin-bottom:{2.6 + inner_mm * 0.5:.2f}mm}}"
+        f".axis{{margin:{inner_mm * 0.9:.2f}mm 0}}"
+        f".cl .cli{{padding:{0.9 + inner_mm * 0.45:.2f}mm 0}}"
+        f".edi{{margin-bottom:{1.6 + inner_mm * 0.45:.2f}mm}}"
+    )
+
+
+def stylesheet(
+    *, font_pt: float, footer: str, block_gap_mm: float = 0.0, inner_mm: float = 0.0
+) -> str:
     """CSS całego dokumentu. `block_gap_mm` = wolne miejsce strony 1 podzielone
     równo między sekcje (Artur 20.11: pusty dół wygląda brzydko). Liczone z pomiaru,
     nie flexem: `justify-content: space-between` w kolumnie WeasyPrint 70 rozciąga
@@ -72,7 +95,7 @@ h1,h2{{break-after:avoid}}
 
 /* ---------- strona 1 ---------- */
 .p1{{font-family:'Source Sans 3',Poppins,sans-serif;font-size:{font_pt}pt}}
-.p1>.blk{{display:flow-root;margin-top:{block_gap_mm:.2f}mm}}
+.p1>.blk{{display:flow-root;margin-top:{block_gap_mm:.2f}mm;padding-top:{SECTION_GAP}mm}}
 .p1 h2{{display:flex;align-items:center;margin:0 0 2.6mm;padding:0;border:0;color:{BRAND};
  text-transform:uppercase;letter-spacing:.1em;font:600 8.4pt Poppins,sans-serif}}
 .p1 h2 span{{background:{BRAND};color:#fff;padding:.9mm 2.8mm;border-radius:1.2mm}}
@@ -87,7 +110,7 @@ h1.title .nm{{white-space:nowrap}}
 .pill b{{font-weight:800}}
 /* Trzy zdania bez punktorów, oddzielone cienkimi liniami (Artur 23.11.2026, W1) */
 ul.why{{list-style:none;margin:0;padding:0}}
-ul.why li{{position:relative;margin:0;padding:2.1mm 0;font-size:10.4pt;line-height:1.38;color:#2b2926;
+ul.why li{{position:relative;margin:0;padding:2.1mm 0;font-size:{font_pt * 1.04:.2f}pt;line-height:1.38;color:#2b2926;
  border-top:.3mm solid {RULE}}}
 ul.why li:last-child{{border-bottom:.3mm solid {RULE}}}
 ul.why li::before{{display:none}}
@@ -117,7 +140,25 @@ ul.why li b{{color:{INK};font-weight:700}}
 
 /* ---------- tytuł, miasto, edukacja (Artur 23.11.2026) ---------- */
 .trow{{align-items:flex-start}}
-.trow .nm{{font:600 12.5pt/1.2 Poppins,sans-serif;color:{INK};margin-top:1mm;letter-spacing:-.005em}}
+/* Nagłówek T2 (Artur 25.11.2026): stanowisko duże czerwone, cienka linia, pod nią imię i nazwisko */
+h1.title{{font:700 19pt/1.12 Poppins,sans-serif;color:{BRAND};letter-spacing:-.015em}}
+.trow .nm{{display:inline-block;white-space:nowrap;font:500 12pt/1.2 Poppins,sans-serif;color:{INK};
+ margin-top:1.6mm;padding-top:1.6mm;border-top:.3mm solid {RULE}}}
+/* Wyróżnik: wieniec, etykieta, zdanie — bez ramki i tła */
+.hl{{display:flex;align-items:center;margin-top:4mm}}
+.hl .hlw{{flex:none;margin-right:2.4mm}}
+.hlk{{font:700 .74em Poppins,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:{BRAND_TEXT};margin-bottom:.6mm}}
+.hlt{{font-size:1.1em;line-height:1.35;color:#2b2926}}.hlt b{{color:{INK};font-weight:700}}
+/* Edukacja bez wieńca (wariant ED): dwie kolumny z ikonami */
+.edp{{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:8mm}}
+.edh{{display:flex;align-items:center;font:700 .78em Poppins,sans-serif;letter-spacing:.12em;text-transform:uppercase;
+ color:{BRAND_TEXT};margin-bottom:1.6mm}}
+.edh .ic{{width:5mm;height:5mm;margin-right:1.8mm}}
+.edi{{border-left:.6mm solid {BRAND};padding:.2mm 0 .2mm 2.6mm;margin:0 0 1.6mm .8mm;break-inside:avoid}}
+.edi.c{{border-left-color:#D9D1C7}}
+.edf{{font:700 1em/1.25 Poppins,sans-serif;color:{INK}}}
+.edd{{font-size:.9em;color:{BRAND_TEXT};font-weight:600}}.edi.c .edd{{color:{SOFT}}}
+.edu{{font-size:.9em;color:{SOFT}}}
 .pills{{padding-top:1.2mm}}
 .pill.loc{{display:inline-flex;align-items:center}}
 .pill .pin{{width:1.05em;height:1.05em;margin:0 .8mm 0 -.6mm}}
@@ -148,4 +189,5 @@ table.edu td.n{{white-space:nowrap;font-variant-numeric:tabular-nums}}
 .consent img{{max-width:95mm;max-height:130mm;border:.25mm solid {LINE}}}
 .rodo{{margin-top:6mm;font-size:6.6pt;color:{SOFT2};border-top:.25mm solid {LINE};padding-top:2mm;break-inside:avoid}}
 .rodo p{{margin:0 0 1mm}}
+{_inner(inner_mm)}
 """

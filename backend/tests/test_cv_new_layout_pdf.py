@@ -101,9 +101,11 @@ def test_huge_skill_list_is_capped_on_page1_and_listed_in_full_later():
 
 def test_short_cv_fits_without_steps(short_result):
     pdf, report = short_result
-    assert report.fits and report.steps == () and report.font_pt == 10.0
-    assert report.summary == "strona 1 mieści się · pismo 10 pt"
-    assert report.free_mm and report.free_mm > 50
+    # mało treści = większe pismo i luz w środku sekcji, nie dziury (Artur 25.11.2026)
+    assert report.fits and report.steps == () and report.font_pt == 11.0
+    assert report.summary == "strona 1 mieści się · pismo 11 pt"
+    assert report.free_mm and report.free_mm > 30
+    assert report.inner_mm > 0
     assert len(_pages(pdf)) == 2
 
 

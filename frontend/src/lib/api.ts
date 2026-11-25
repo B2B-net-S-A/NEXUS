@@ -7133,16 +7133,34 @@ export interface CvPage1Extras {
   results?: CvPage1Result[] | null;
   /** Wieniec w „Edukacji” (23.11.2026); brak = „auto”. */
   wreath?: CvWreath | null;
+  /** Wyróżnik pod nazwiskiem w wieńcu laurowym (25.11.2026); brak = „auto”. */
+  highlight?: CvPage1Highlight | null;
+}
+
+/**
+ * Wyróżnik strony 1: „auto” = wcześniejsza praca u klienta rekrutacji (gdy była),
+ * „custom” = etykieta, znak w wieńcu i zdanie rekrutera, „off” = bez wyróżnika.
+ */
+export type CvHighlightMode = "auto" | "custom" | "off";
+
+/** Limity jak w `PATCH …/cv/page1`: etykieta ≤ 60, znak ≤ 8, zdanie ≤ 160 znaków. */
+export interface CvPage1Highlight {
+  mode: CvHighlightMode;
+  label?: string | null;
+  token?: string | null;
+  text?: string | null;
 }
 
 /** Wieniec: „auto” = certyfikat z wymagań MUST klienta, inaczej szkoła. */
 export type CvWreath = "auto" | "cert" | "school";
 
-/** Strona 1: wynik z listy (`result_index`), zdanie rekrutera albo wybór wieńca. */
+/** Strona 1: wynik z listy (`result_index`), zdanie rekrutera, wybór wieńca albo wyróżnik. */
 export interface CvPage1Update {
   result_index?: number | null;
   result_text?: string | null;
   wreath?: CvWreath;
+  /** `mode: "custom"` wymaga etykiety i zdania (inaczej 422). */
+  highlight?: CvPage1Highlight;
 }
 
 /**

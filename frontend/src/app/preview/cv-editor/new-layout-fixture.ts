@@ -84,6 +84,6 @@ export const NEW_LAYOUT_PDF = "/preview/cv-editor/nowe-cv-przyklad.pdf";
 export const NEW_LAYOUT_HEADERS: Record<string, string> = {
   "X-CV-Layout": "new",
   "X-CV-Page1-Fits": "1",
-  "X-CV-Page1-Font": "10",
+  "X-CV-Page1-Font": "11",
   "X-CV-Unmapped-Sections": "0",
 };

@@ -39,6 +39,17 @@ class SkillGroup:
 
 
 @dataclass(frozen=True)
+class HighlightChoice:
+    """Wyróżnik ze strony 1 (`page1_extras.highlight`, Artur 25.11.2026):
+    „auto” = praca u klienta rekrutacji, „custom” = wpis rekrutera, „off” = bez."""
+
+    mode: str = "auto"
+    label: str = ""
+    token: str = ""
+    text: str = ""
+
+
+@dataclass(frozen=True)
 class NewCvDocument:
     name: str
     position: str
@@ -57,6 +68,9 @@ class NewCvDocument:
     must_have: tuple[str, ...] = ()
     # Wieniec: „auto” (certyfikat z MUST, inaczej dyplom), „cert” albo „school”.
     wreath: str = "auto"
+    # Wyróżnik i nazwy klienta rekrutacji (nazwa, wyświetlana, pełna) do automatu „praca u klienta”.
+    highlight: HighlightChoice = HighlightChoice()
+    client_names: tuple[str, ...] = ()
     rodo_clause_html: Optional[str] = None
     consent_image: Optional[bytes] = None
     consent_image_mime: Optional[str] = None
@@ -68,6 +82,7 @@ class NewCvDocument:
         *,
         why: Optional[list[str]] = None,
         wreath: str = "auto",
+        highlight: Optional[HighlightChoice] = None,
         rodo_clause_html: Optional[str] = None,
         consent_image: Optional[bytes] = None,
         consent_image_mime: Optional[str] = None,
@@ -135,6 +150,8 @@ class NewCvDocument:
             location=_str(data.get("candidate_location")),
             must_have=_strings(data.get("must_have")),
             wreath=wreath if wreath in ("auto", "cert", "school") else "auto",
+            highlight=highlight or HighlightChoice(),
+            client_names=_strings(data.get("client_names")),
             rodo_clause_html=rodo_clause_html,
             consent_image=consent_image or None,
             consent_image_mime=consent_image_mime,
