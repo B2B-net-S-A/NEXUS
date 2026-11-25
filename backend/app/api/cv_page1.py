@@ -62,8 +62,6 @@ class Page1Update(BaseModel):
 
     result_index: Optional[int] = Field(default=None, ge=0)
     result_text: Optional[str] = Field(default=None, max_length=RESULT_TEXT_MAX * 2)
-    # Wieniec na stronie 1 (23.11.2026): „auto” = certyfikat z MUST klienta, inaczej dyplom.
-    wreath: Optional[Literal["auto", "cert", "school"]] = None
     highlight: Optional[HighlightUpdate] = None
 
 
@@ -113,11 +111,6 @@ def _merged(extras: Optional[dict], payload: Page1Update) -> dict:
             if not (fields["label"] and fields["text"]):
                 raise HTTPException(422, MSG_HIGHLIGHT_EMPTY)
             merged["highlight"] = {"mode": "custom", **fields}
-    if "wreath" in sent:
-        if payload.wreath in (None, "auto"):
-            merged.pop("wreath", None)
-        else:
-            merged["wreath"] = payload.wreath
     return merged
 
 
@@ -131,7 +124,7 @@ async def update_stage_cv_page1(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CVBrandedResponse:
-    """Strona 1 „Nowego CV”: najmocniejszy wynik (wpisany albo z listy), wieniec i wyróżnik."""
+    """Strona 1 „Nowego CV”: najmocniejszy wynik (wpisany albo z listy) i wyróżnik."""
     from app.services.new_cv_company_cv import locked_after_send
 
     if not layout_service.enabled():
@@ -139,7 +132,6 @@ async def update_stage_cv_page1(
     if not payload.model_fields_set & {
         "result_index",
         "result_text",
-        "wreath",
         "highlight",
     }:
         raise HTTPException(422, MSG_EMPTY)
@@ -165,7 +157,6 @@ async def update_stage_cv_page1(
                     "fields": sorted(payload.model_fields_set),
                     "result_index": merged.get("result_index"),
                     "result_text": bool(merged.get("result_text")),
-                    "wreath": merged.get("wreath", "auto"),
                     "highlight": (merged.get("highlight") or {}).get("mode", "auto"),
                     "version": csv.branded_version,
                 },
