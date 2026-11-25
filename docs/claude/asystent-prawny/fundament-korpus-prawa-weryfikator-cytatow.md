@@ -32,7 +32,8 @@ Ten plik opisuje część A (pakiet `backend/app/services/legal/`, migracja 0779
   `kpc`, `sus`, `odo`, `znk`, `prawo_przedsiebiorcow` (ELI) oraz `rodo`,
   `dora`, `ai_act` (EUR-Lex). Identyfikatory sprawdzone w API 25.11.2026.
 - **ELI:** najnowszy tekst jednolity z `references["Inf. o tekście
-  jednolitym"]` aktu (po roku i pozycji). **Tekst HTML samego aktu to brzmienie
+  jednolitym"]` aktu, **po roku i pozycji, nie po kolejności listy** (25.11.2026
+  pierwszy na liście PIP był `DU/2024/97`, a najnowszy `DU/2024/1712`). **Tekst HTML samego aktu to brzmienie
   pierwotne** (KC z 1964 r.: art. 61 bez § 2) — nie używać. Tekst jednolity ma
   HTML (5 z 13 aktów) albo tylko PDF typu `T` (8 z 13: KC, KP, PIT, KPC…).
   `valid_from` = `legalStatusDate`. Zmiany ogłoszone po tej dacie (`Akty
@@ -58,7 +59,9 @@ Ten plik opisuje część A (pakiet `backend/app/services/legal/`, migracja 0779
 - **Wyszukiwanie:** `search_vector` (FTS `simple` na tekście bez polskich
   znaków, kolumna generowana) + wektory Voyage w Qdrancie `nexus_legal_corpus`
   (id punktu = id przepisu, w payloadzie tylko `act_id` i `version_id`),
-  łączone RRF jak umowy ramowe. Wektor mają artykuły, § i ustępy; pkt i lit.
+  łączone RRF jak umowy ramowe. Ranking po słowach pomija jednostki dłuższe
+  niż 20 tys. znaków (`KEYWORD_MAX_CHARS`; art. 21 ustawy o PIT ma 120 tys.
+  i pasował do każdego pytania) — ich ustępy i punkty są w korpusie osobno. Wektor mają artykuły, § i ustępy; pkt i lit.
   znajduje FTS albo jednostka nadrzędna. Odwołanie w pytaniu („art. 61 § 1
   KC”) trafia na pierwsze miejsce. Wyłącznik wektorów:
   `LEGAL_CORPUS_EMBEDDINGS_ENABLED` (teksty są publiczne).
@@ -112,3 +115,11 @@ Dokumenty kontraktu). `/draft` wymaga poziomu „generowanie” Generatora
 odczytem (`READ_ONLY_POST_ROUTE_TEMPLATES`). Wzorzec:
 `tests/data/authz_golden/legal.json` (odmowa: Pracownik, Rada, Automatyzacje,
 `user`, praktykant).
+
+## Staging 25.11.2026 (port 8111, kopia `nexus_branch_ap_fundament`, usunięta)
+
+Zasilenie z ELI i CELLAR: 16 z 16 aktów, 27 191 jednostek, 19 267 wektorów,
+11 min. Wyszukiwanie „wypowiedzenie umowy forma” → KC art. 77 § 1–3, KP
+art. 30 (`hybrid`); „art. 61 § 1 KC” w `/verify`: cytat dosłowny `ok`,
+zmieniony `mismatch`. `/draft` na Sonnecie 5.5: trzy odwołania `ok`, dane
+osoby i daty tylko jako znaczniki. Rada: 403, bez tokenu: 401.

@@ -86,3 +86,11 @@ def test_unknown_tokens_from_the_model_are_reported_and_left() -> None:
 def test_label_must_be_letters() -> None:
     with pytest.raises(ValueError):
         mask("x", [Entity("partner name", "Jan")])
+
+
+def test_value_ending_with_a_dot_does_not_double_the_full_stop() -> None:
+    mapping = {"[DATA_ROZWIAZANIA]": "31 stycznia 2027 r.", "[PARTNER]": "Jan Testowy"}
+    text = "Umowa rozwiązuje się z dniem [DATA_ROZWIAZANIA]. Adresat: [PARTNER]."
+    assert unmask(text, mapping) == (
+        "Umowa rozwiązuje się z dniem 31 stycznia 2027 r. Adresat: Jan Testowy."
+    )

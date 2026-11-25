@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Iterable, Sequence
 
 _TOKEN = re.compile(r"\[([A-ZĄĆĘŁŃÓŚŹŻ]+(?:_[A-ZĄĆĘŁŃÓŚŹŻ]+)*(?:_\d+)?)\]")
+_UNMASK = re.compile(r"(\[[A-ZĄĆĘŁŃÓŚŹŻ]+(?:_[A-ZĄĆĘŁŃÓŚŹŻ]+)*(?:_\d+)?\])(\.?)")
 _LABEL = re.compile(r"^[A-ZĄĆĘŁŃÓŚŹŻ]+(?:_[A-ZĄĆĘŁŃÓŚŹŻ]+)*$")
 
 
@@ -159,12 +160,22 @@ def mask(
 
 
 def unmask(text: str, mapping: dict[str, str]) -> str:
-    """Znaczniki z mapy → prawdziwe wartości; nieznane zostają bez zmian."""
+    """Znaczniki z mapy → prawdziwe wartości; nieznane zostają bez zmian.
+
+    Wartość kończąca się kropką („31 stycznia 2027 r.”) przed kropką zdania
+    nie daje „r..”.
+    """
 
     def _replace(match: re.Match[str]) -> str:
-        return mapping.get(match.group(0), match.group(0))
+        token, dot = match.group(1), match.group(2)
+        value = mapping.get(token)
+        if value is None:
+            return match.group(0)
+        if dot and value.endswith("."):
+            return value
+        return value + dot
 
-    return _TOKEN.sub(_replace, text or "")
+    return _UNMASK.sub(_replace, text or "")
 
 
 def unknown_tokens(text: str, mapping: dict[str, str]) -> list[str]:

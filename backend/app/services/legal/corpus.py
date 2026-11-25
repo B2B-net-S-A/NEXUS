@@ -57,6 +57,11 @@ __all__ = [
 ]
 
 KEYWORD_HITS = 60
+#: Jednostka dłuższa niż tyle znaków (art. 21 ustawy o PIT: 120 tys.) pasuje do
+#: każdego pytania po słowach i wypycha trafne przepisy; jej ustępy i punkty są
+#: w korpusie osobno, więc ranking po słowach ją pomija (pomiar 25.11.2026: 14
+#: z 27 191 jednostek).
+KEYWORD_MAX_CHARS = 20_000
 INSERT_BATCH = 500
 CHANGES_LIST_MAX = 300
 RETRIEVAL_HYBRID = "hybrid"
@@ -335,6 +340,7 @@ async def search(
                 LegalProvision.version_id.in_(version_ids),
                 LegalProvision.search_vector.op("@@")(tsq_any),
                 LegalProvision.repealed.is_(False),
+                func.length(LegalProvision.text) <= KEYWORD_MAX_CHARS,
             )
             .order_by(desc(rank), LegalProvision.id)
             .limit(KEYWORD_HITS)
