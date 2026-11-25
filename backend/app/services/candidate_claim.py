@@ -7,6 +7,8 @@ rekrutacji. Od 19.10.2026 także osoba, która zgłosiła się z jego linku do
 rekrutacji (``link_claim_kwargs``). Chodzi o chaos: dwóch rekruterów dzwoniących do tej samej osoby
 w sprawie tej samej rekrutacji. Po upływie blokady każdy z zespołu może osobę
 przejąć; wcześniej — wyłącznie admin, Delivery Lead albo Head of Recruitment.
+Od 25.11.2026 osoba z blokadą może ją oddać, zwolnić albo odpowiedzieć na
+prośbę o oddanie (``claim_handover.py``).
 
 Blokada dotyczy tylko kolumn „Nowi" i „Screening" (rozmowa i pytania
 z Championa — od 24.09.2026 Screening jest osobną kolumną, a rozmowa trwa
@@ -122,12 +124,15 @@ def claim_state(
 async def inactive_holders(
     db: AsyncSession, processes: Iterable[Optional[RecruitmentProcess]]
 ) -> set[int]:
-    """Id nieaktywnych kont trzymających blokady tych procesów — jedno zapytanie."""
+    """Id nieaktywnych kont trzymających blokady tych procesów (i proszących
+    o ich oddanie, 0777) — jedno zapytanie."""
 
     ids = {
-        p.claimed_by_user_id
+        uid
         for p in processes
-        if p is not None and p.claimed_by_user_id is not None
+        if p is not None
+        for uid in (p.claimed_by_user_id, p.claim_request_user_id)
+        if uid is not None
     }
     if not ids:
         return set()
@@ -171,11 +176,67 @@ def set_claim(
 ) -> None:
     process.claimed_by_user_id = user_id
     process.claimed_until = (now or utcnow()) + timedelta(hours=CLAIM_HOURS)
+    clear_request(process)
 
 
 def clear_claim(process: RecruitmentProcess) -> None:
     process.claimed_by_user_id = None
     process.claimed_until = None
+    clear_request(process)
+
+
+def release_claim(process: RecruitmentProcess, now: datetime) -> None:
+    """„Zwolnij” (25.11.2026): blokada kończy się teraz, osoba karty zostaje.
+
+    Jak po upływie 12 h: karta dalej pokazuje tę samą osobę (``taken_by_*``),
+    a „Biorę” może kliknąć każdy z zespołu.
+    """
+
+    process.claimed_until = now
+    clear_request(process)
+
+
+# ── Prośba o oddanie (0777, 25.11.2026) ─────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ClaimRequest:
+    user_id: int
+    reason: Optional[str]
+    at: datetime
+
+
+def clear_request(process: RecruitmentProcess) -> None:
+    process.claim_request_user_id = None
+    process.claim_request_reason = None
+    process.claim_request_at = None
+
+
+def pending_request(
+    process: Optional[RecruitmentProcess],
+    now: datetime,
+    inactive_user_ids: frozenset[int] | set[int] = frozenset(),
+) -> Optional[ClaimRequest]:
+    """Prośba obowiązuje tylko przy aktywnej blokadzie kogoś innego.
+
+    Po upływie blokady (albo gdy prosząca osoba sama ją dostała) prośba nic
+    nie znaczy i nie wraca — nowa blokada i tak ją kasuje (`set_claim`).
+    """
+
+    if process is None or process.claim_request_user_id is None:
+        return None
+    if process.claim_request_at is None:
+        return None
+    if process.claim_request_user_id in inactive_user_ids:
+        return None
+    state = claim_state(process, inactive_user_ids)
+    if not state.active(now) or state.user_id == process.claim_request_user_id:
+        return None
+    return ClaimRequest(
+        process.claim_request_user_id,
+        process.claim_request_reason,
+        process.claim_request_at,
+    )
 
 
 async def stage_column(db: AsyncSession, stage: CandidateStage) -> str:

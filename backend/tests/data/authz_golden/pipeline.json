@@ -42,6 +42,10 @@
   "GET /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "POST /api/pipeline/bulk-move": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/pipeline/claim": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/pipeline/claim/handover": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/pipeline/claim/release": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/pipeline/claim/request": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/pipeline/claim/request/answer": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/pipeline/move": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/pipeline/stages/{stage_id}/share-token": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"

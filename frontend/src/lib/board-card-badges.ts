@@ -686,6 +686,16 @@ function claimBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge {
   if (item.claim_user_id != null && item.claim_until) {
     const left = hoursLeft(item.claim_until, ctx.now);
     if (item.claim_user_id === ctx.viewerId) {
+      // Prośba o oddanie (25.11.2026): osoba z blokadą widzi ją na karcie,
+      // bo przy 15 kartach w „Nowych” sam dzwonek łatwo przeoczyć.
+      if (item.claim_request_user_id != null) {
+        return {
+          key: "claim",
+          label: `Prośba · ${firstName(item.claim_request_user_name)}`,
+          tone: "wait",
+          title: `${item.claim_request_user_name ?? "Ktoś z zespołu"} prosi o tę osobę — odpowiedz w panelu osoby („Oddaj” albo „Zostaw”).`,
+        };
+      }
       return {
         key: "claim",
         label: `Twój · ${left}`,
@@ -1049,7 +1059,7 @@ function badgeGroup(b: CardBadge): 0 | 1 | 2 | 3 {
   if (b.key === "hm_veto" || b.key === "off_limits") return 0;
   if (b.key.startsWith("warning_")) return b.tone === "urgent" ? 0 : 2;
   if (b.key === "champion" || b.key === "booked_call" || b.key === "followup" || b.key === "scorecard") return 1;
-  if (b.key === "claim") return b.tone === "own" || b.tone === "lock" ? 1 : 3;
+  if (b.key === "claim") return b.tone === "own" || b.tone === "lock" || b.tone === "wait" ? 1 : 3;
   if (b.key === "qc") return b.tone === "urgent" ? 1 : b.tone === "wait" ? 2 : 3;
   if (b.key === "interview" || b.key === "start_docs" || b.key === "rate_change" || b.key === "pre_contract" || b.key === "agreement") {
     return ACTIVE_TONES.has(b.tone) ? 1 : 3;
@@ -1128,6 +1138,9 @@ export function compactCardBadge(badge: CardBadge): CompactCardBadge | null {
     // z imieniem („Anna · 3 h”); „Wolny” → sama ikona.
     if (badge.tone === "lock") return { short: badge.label, full };
     if (badge.tone === "own") return { short: badge.label.split(" · ")[1] ?? null, full };
+    // Prośba o oddanie (25.11.2026): sama ikona ręki (`compactIcon` na karcie),
+    // bo „Prośba” nie mieściła się w dwóch liniach i zostawało „P”.
+    if (badge.tone === "wait") return { short: null, full };
     return { short: null, full };
   }
   if (badge.key === "recommendation_card") {

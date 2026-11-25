@@ -1962,7 +1962,7 @@ export function PipelineCandidateDock({
             {/* 09.10.2026: telefon i e-mail bez wchodzenia w profil. */}
             <PersonContactLine phone={candidate?.phone} email={candidate?.email} personName={fullName} />
             {/* „Prowadzi” (25.10.2026): czyja to osoba w tej rekrutacji. */}
-            <PairOwnerLine item={item} jobId={jobId} onTake={headerTake} taking={taking} />
+            <PairOwnerLine item={item} jobId={jobId} onTake={headerTake} taking={taking} readOnly={readOnly} />
           </div>
         </div>
 

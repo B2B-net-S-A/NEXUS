@@ -143,6 +143,7 @@ from app.services.recruitment_move_policy import (
 from app.services.delivery_alert_recipients import load_delivery_alert_recipient_scope
 from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services import screening_calls
+from app.services import claim_handover, pair_owner
 from app.services.stage_verifier import first_verifier
 from app.core.scheduling import DEFAULT_TZ, business_today
 from app.services.consultant_elsewhere_notifications import (
@@ -4164,6 +4165,12 @@ async def _load_kanban_boards(
             for p in board.v4_processes.values()
             if p.claimed_by_user_id is not None
         }
+        # Prośba o oddanie (0777): imię proszącej osoby na karcie i w panelu.
+        board.owner_ids |= {
+            p.claim_request_user_id
+            for p in board.v4_processes.values()
+            if p.claim_request_user_id is not None
+        }
         # Etap 2 linków (19.10.2026): plakietka „Z Twojego linku” / „Z linku …”.
         board.link_owner_by_candidate = {
             cid: owner
@@ -4984,6 +4991,16 @@ async def _render_kanban_board(
                 payload["claim_user_id"] = claim.user_id
                 payload["claim_user_name"] = user_name_by_id.get(claim.user_id)
                 payload["claim_until"] = claim.until
+                request = candidate_claim.pending_request(
+                    v4, board_now, inactive_claimers
+                )
+                if request is not None:
+                    payload["claim_request_user_id"] = request.user_id
+                    payload["claim_request_user_name"] = user_name_by_id.get(
+                        request.user_id
+                    )
+                    payload["claim_request_reason"] = request.reason
+                    payload["claim_request_at"] = request.at
             # „Biorę” zmienia osobę karty (prośba rekruterki, decyzja Artura
             # 27.10.2026): ostatnia osoba, która wzięła, zostaje na karcie
             # i w filtrze „Kto dodał” także po 12 h — do pierwszej weryfikacji.
@@ -4996,6 +5013,22 @@ async def _render_kanban_board(
                     and candidate_claim.can_take(
                         v4, viewer, board_now, inactive_claimers
                     )
+                )
+                # Oddanie i prośba (25.11.2026): tylko tam, gdzie serwer je
+                # przyjmie (`_lock_claim_target`) — otwarta rekrutacja, karta
+                # w „Nowych”/„Screeningu”, aktywna blokada.
+                handover_open = (
+                    job.status != JobStatus.closed
+                    and board_column in candidate_claim.CLAIM_COLUMNS
+                    and claim.active(board_now)
+                )
+                holds = handover_open and claim.user_id == viewer.id
+                payload["can_hand_over"] = holds
+                payload["can_ask"] = (
+                    handover_open
+                    and not holds
+                    and pair_owner.can_own(viewer)
+                    and payload.get("claim_request_user_id") in (None, viewer.id)
                 )
         elif viewer is not None:
             payload["can_take"] = job.status != JobStatus.closed
@@ -5885,6 +5918,67 @@ async def pipeline_overview(
     }
 
 
+async def _lock_claim_target(
+    db: AsyncSession, user: User, candidate_id: int, job_id: int
+) -> tuple[Job, RecruitmentProcess, CandidateStage]:
+    """Wspólne sprawdzenie „Biorę”, „Oddaj”, „Zwolnij” i prośby o oddanie:
+    otwarta rekrutacja z patrzącym w zespole, otwarty proces pary w „Nowych”
+    albo „Screeningu”. Kandydat i proces zostają zablokowane do commita."""
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if job is None:
+        raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
+    await ensure_job_membership(db, user, job.id)
+    # Tester 05.11.2026: blokada 12 h w zamkniętej rekrutacji nikomu nie służy,
+    # a „Biorę” przepisywało kartę i dzwoniło do poprzedniego rekrutera.
+    if job.status == JobStatus.closed:
+        raise HTTPException(
+            status_code=409,
+            detail="Rekrutacja jest zamknięta — nie można wziąć tej osoby.",
+        )
+
+    # Ta sama kolejność blokad co `/move`: kandydat, potem proces.
+    locked = await db.scalar(
+        select(Candidate.id).where(Candidate.id == candidate_id).with_for_update()
+    )
+    if locked is None:
+        raise HTTPException(status_code=404, detail="Kandydat nie istnieje.")
+    process = await db.scalar(
+        select(RecruitmentProcess)
+        .where(
+            RecruitmentProcess.candidate_id == candidate_id,
+            RecruitmentProcess.job_id == job_id,
+        )
+        .order_by(RecruitmentProcess.attempt_no.desc(), RecruitmentProcess.id.desc())
+        .limit(1)
+        .with_for_update()
+    )
+    latest = await db.scalar(
+        select(CandidateStage)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job_id,
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        .limit(1)
+    )
+    if (
+        process is None
+        or latest is None
+        or process.status.value != "open"
+        or await candidate_claim.stage_column(db, latest)
+        not in candidate_claim.CLAIM_COLUMNS
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Brać można tylko osobę z kolumny „Nowi” albo „Screening” "
+                "w otwartym procesie."
+            ),
+        )
+
+    return job, process, latest
+
+
 class ClaimRequest(BaseModel):
     candidate_id: int
     job_id: int
@@ -5905,57 +5999,9 @@ async def claim_candidate(
     aktywną blokadę przejmuje wyłącznie admin, Delivery Lead albo Head of
     Recruitment — poprzedni rekruter dostaje dzwonek.
     """
-    job = await db.scalar(select(Job).where(Job.id == data.job_id))
-    if job is None:
-        raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
-    await ensure_job_membership(db, current_user, job.id)
-    # Tester 05.11.2026: blokada 12 h w zamkniętej rekrutacji nikomu nie służy,
-    # a „Biorę” przepisywało kartę i dzwoniło do poprzedniego rekrutera.
-    if job.status == JobStatus.closed:
-        raise HTTPException(
-            status_code=409,
-            detail="Rekrutacja jest zamknięta — nie można wziąć tej osoby.",
-        )
-
-    # Ta sama kolejność blokad co `/move`: kandydat, potem proces.
-    locked = await db.scalar(
-        select(Candidate.id).where(Candidate.id == data.candidate_id).with_for_update()
+    job, process, latest = await _lock_claim_target(
+        db, current_user, data.candidate_id, data.job_id
     )
-    if locked is None:
-        raise HTTPException(status_code=404, detail="Kandydat nie istnieje.")
-    process = await db.scalar(
-        select(RecruitmentProcess)
-        .where(
-            RecruitmentProcess.candidate_id == data.candidate_id,
-            RecruitmentProcess.job_id == data.job_id,
-        )
-        .order_by(RecruitmentProcess.attempt_no.desc(), RecruitmentProcess.id.desc())
-        .limit(1)
-        .with_for_update()
-    )
-    latest = await db.scalar(
-        select(CandidateStage)
-        .where(
-            CandidateStage.candidate_id == data.candidate_id,
-            CandidateStage.job_id == data.job_id,
-        )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-        .limit(1)
-    )
-    if (
-        process is None
-        or latest is None
-        or process.status.value != "open"
-        or await candidate_claim.stage_column(db, latest)
-        not in candidate_claim.CLAIM_COLUMNS
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Brać można tylko osobę z kolumny „Nowi” albo „Screening” "
-                "w otwartym procesie."
-            ),
-        )
 
     now = datetime.now(timezone.utc)
     await candidate_claim.assert_can_act(
@@ -6028,6 +6074,246 @@ async def claim_candidate(
         "claim_until": claimed_until,
         "taken_over_from": previous_holder,
     }
+
+
+# ── Oddanie osoby z blokadą (0777, 25.11.2026) ──────────────────────────────
+# „Oddaj”, „Zwolnij” i prośba o oddanie: `services/claim_handover.py`.
+
+
+class ClaimHandoverRequest(BaseModel):
+    candidate_id: int
+    job_id: int
+    to_user_id: int
+
+
+class ClaimAskRequest(BaseModel):
+    candidate_id: int
+    job_id: int
+    reason: str = Field(min_length=3, max_length=300)
+
+
+class ClaimAnswerRequest(BaseModel):
+    candidate_id: int
+    job_id: int
+    accept: bool
+
+
+def _claim_response(process: RecruitmentProcess) -> dict:
+    return {
+        "candidate_id": process.candidate_id,
+        "job_id": process.job_id,
+        "claim_user_id": process.claimed_by_user_id,
+        "claim_until": process.claimed_until,
+    }
+
+
+@router.post("/claim/handover")
+async def hand_over_claim(
+    data: ClaimHandoverRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Oddaj…” — osoba z aktywną blokadą oddaje ją komuś z zespołu na 12 h."""
+    job, process, latest = await _lock_claim_target(
+        db, current_user, data.candidate_id, data.job_id
+    )
+    now = datetime.now(timezone.utc)
+    await claim_handover.assert_holder(db, process=process, actor=current_user, now=now)
+    target = await claim_handover.resolve_target(
+        db, actor=current_user, user_id=data.to_user_id
+    )
+    await claim_handover.hand_over(
+        db,
+        job=job,
+        process=process,
+        latest=latest,
+        actor=current_user,
+        target=target,
+        now=now,
+        via_request=False,
+    )
+    response = _claim_response(process)
+    actor_id, job_id = current_user.id, job.id
+    await db.commit()
+    await broadcast_pipeline_changed(db, job_id, actor_id)
+    return response
+
+
+@router.post("/claim/release")
+async def release_claim(
+    data: ClaimRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Zwolnij” — blokada kończy się teraz, „Biorę” może kliknąć każdy."""
+    job, process, latest = await _lock_claim_target(
+        db, current_user, data.candidate_id, data.job_id
+    )
+    now = datetime.now(timezone.utc)
+    await claim_handover.assert_holder(db, process=process, actor=current_user, now=now)
+    request = candidate_claim.pending_request(
+        process, now, await candidate_claim.inactive_holders(db, [process])
+    )
+    candidate_claim.release_claim(process, now)
+    event = await claim_handover.record(
+        db,
+        latest=latest,
+        actor=current_user,
+        action="candidate_claim_released",
+        details={"candidate_id": data.candidate_id, "job_id": job.id},
+    )
+    if request is not None:
+        # Ktoś prosił o tę osobę — dowiaduje się, że może kliknąć „Biorę”.
+        person = await claim_handover.person_label(db, data.candidate_id)
+        await claim_handover.notify(
+            db,
+            user_id=request.user_id,
+            title=f"{claim_handover.holder_label(current_user)} zwolnił(a) osobę",
+            message=f"{person} · {job.title} · kliknij „Biorę”",
+            event=event,
+            job=job,
+            candidate_id=data.candidate_id,
+            ntype=NotificationType.candidate_claim_request_answer,
+        )
+    response = _claim_response(process)
+    actor_id, job_id = current_user.id, job.id
+    await db.commit()
+    await broadcast_pipeline_changed(db, job_id, actor_id)
+    return response
+
+
+@router.post("/claim/request")
+async def ask_for_claim(
+    data: ClaimAskRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Poproś o oddanie” — osoba z blokadą dostaje prośbę w panelu i dzwonku."""
+    job, process, latest = await _lock_claim_target(
+        db, current_user, data.candidate_id, data.job_id
+    )
+    # Oddać można tylko rekruterowi (`claim_handover.resolve_target`), więc
+    # prośba kogoś innego zablokowałaby kartę bez wyjścia.
+    if not pair_owner.can_own(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="O osobę może prosić tylko ktoś z rolą rekrutera.",
+        )
+    now = datetime.now(timezone.utc)
+    inactive = await candidate_claim.inactive_holders(db, [process])
+    state = candidate_claim.claim_state(process, inactive)
+    if not state.active(now):
+        raise HTTPException(
+            status_code=409,
+            detail="Ta osoba jest wolna — kliknij „Biorę”.",
+        )
+    if state.user_id == current_user.id:
+        raise HTTPException(status_code=409, detail="Już prowadzisz tę osobę.")
+    pending = candidate_claim.pending_request(process, now, inactive)
+    if pending is not None and pending.user_id != current_user.id:
+        other = await db.get(User, pending.user_id)
+        raise HTTPException(
+            status_code=409,
+            detail=f"O tę osobę prosi już {claim_handover.holder_label(other)}.",
+        )
+    reason = data.reason.strip()
+    process.claim_request_user_id = current_user.id
+    process.claim_request_reason = reason
+    process.claim_request_at = now
+    event = await claim_handover.record(
+        db,
+        latest=latest,
+        actor=current_user,
+        action="candidate_claim_requested",
+        details={
+            "candidate_id": data.candidate_id,
+            "job_id": job.id,
+            "holder_user_id": state.user_id,
+        },
+    )
+    person = await claim_handover.person_label(db, data.candidate_id)
+    await claim_handover.notify(
+        db,
+        user_id=state.user_id,
+        title=f"{claim_handover.holder_label(current_user)} prosi o Twoją osobę",
+        message=f"{person} · {job.title} · „{reason}”",
+        event=event,
+        job=job,
+        candidate_id=data.candidate_id,
+        ntype=NotificationType.candidate_claim_request,
+    )
+    response = {
+        **_claim_response(process),
+        "claim_request_user_id": current_user.id,
+        "claim_request_reason": reason,
+        "claim_request_at": now,
+    }
+    actor_id, job_id = current_user.id, job.id
+    await db.commit()
+    await broadcast_pipeline_changed(db, job_id, actor_id)
+    return response
+
+
+@router.post("/claim/request/answer")
+async def answer_claim_request(
+    data: ClaimAnswerRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Odpowiedź osoby z blokadą na prośbę: „Oddaj” albo „Zostaw”."""
+    job, process, latest = await _lock_claim_target(
+        db, current_user, data.candidate_id, data.job_id
+    )
+    now = datetime.now(timezone.utc)
+    await claim_handover.assert_holder(db, process=process, actor=current_user, now=now)
+    request = candidate_claim.pending_request(
+        process, now, await candidate_claim.inactive_holders(db, [process])
+    )
+    if request is None:
+        raise HTTPException(status_code=409, detail="Nikt już nie prosi o tę osobę.")
+    if data.accept:
+        target = await claim_handover.resolve_target(
+            db, actor=current_user, user_id=request.user_id
+        )
+        await claim_handover.hand_over(
+            db,
+            job=job,
+            process=process,
+            latest=latest,
+            actor=current_user,
+            target=target,
+            now=now,
+            via_request=True,
+        )
+    else:
+        candidate_claim.clear_request(process)
+        event = await claim_handover.record(
+            db,
+            latest=latest,
+            actor=current_user,
+            action="candidate_claim_request_declined",
+            details={
+                "candidate_id": data.candidate_id,
+                "job_id": job.id,
+                "requested_by": request.user_id,
+            },
+        )
+        person = await claim_handover.person_label(db, data.candidate_id)
+        await claim_handover.notify(
+            db,
+            user_id=request.user_id,
+            title=f"{claim_handover.holder_label(current_user)} zostawia osobę u siebie",
+            message=f"{person} · {job.title}",
+            event=event,
+            job=job,
+            candidate_id=data.candidate_id,
+            ntype=NotificationType.candidate_claim_request_answer,
+        )
+    response = _claim_response(process)
+    actor_id, job_id = current_user.id, job.id
+    await db.commit()
+    await broadcast_pipeline_changed(db, job_id, actor_id)
+    return response
 
 
 class BulkMoveRequest(BaseModel):
