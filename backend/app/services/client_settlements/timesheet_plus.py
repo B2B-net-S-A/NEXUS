@@ -9,6 +9,11 @@ Bez bazy. Oba pliki mają rozszerzenie ``.xls``, ale żaden nie jest starym Exce
 * Cyfrowy Polsat: „B2B_RRRR_MM.xls”, XML Spreadsheet 2003. Wiersz = konsultant
   („Nazwisko Imię”) × zamówienie (``Z250725003``); kolumna miesiąca w godzinach,
   obok godziny dni 1–31. Kierowniczka u klienta przysyła go z ``plus.pl``.
+  Ten sam układ przychodzi też jako prawdziwy ``.xlsx`` („B2B czerwiec 2026.xlsx”,
+  „B2B_2026_07.xlsx”, próba VI–VIII 2026), czasem bez kolumn „R(h)”/„P(h)”, i niesie
+  wiersze kilku osób albo jednej osoby na zamówieniach Polsatu i Polkomtelu — wtedy
+  plik należy do kilku kontraktów (``identity.resolve_sheet_contracts``), a godziny
+  kontraktu to wiersze jego zamówień (``declared_for(orders=…)``).
 
 Konsultanci grupy mają kontrakt w każdej spółce (ta sama data startu, zamówienia
 osobno), więc nadawca nie wskazuje kontraktu, a plik tak: numer zamówienia z wiersza,
@@ -28,7 +33,7 @@ from decimal import Decimal, InvalidOperation
 from html.parser import HTMLParser
 from typing import Optional
 
-from app.services.client_settlements import kesu
+from app.services.client_settlements import kesu, xlsx
 from app.services.client_settlements.declared import Declared, month_in
 from app.services.client_settlements.mail_text import _month_index
 from app.services.client_settlements.rcp_checks import name_tokens
@@ -159,7 +164,49 @@ def _parse_polsat(content: bytes) -> Optional[Sheet]:
     grid = kesu._grid(content, max_cols=_POLSAT_COLS)
     if not grid:
         return None
-    texts = [{c: v[0].strip() for c, v in row.items()} for row in grid]
+    return _polsat_rows([{c: v[0].strip() for c, v in row.items()} for row in grid])
+
+
+def _cell_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return str(value).strip()
+
+
+def _parse_polsat_xlsx(content: bytes) -> Optional[Sheet]:
+    """Ten sam układ w ``.xlsx`` (próba VI–VIII 2026)."""
+
+    try:
+        workbook = xlsx.load_workbook(content, read_only=True, data_only=True)
+    except Exception:  # noqa: BLE001 — obcy plik nie jest arkuszem Polsatu
+        return None
+    try:
+        for sheet in workbook.worksheets:
+            texts = [
+                {
+                    column: text
+                    for column, value in enumerate(row)
+                    if (text := _cell_text(value))
+                }
+                for row in sheet.iter_rows(
+                    max_row=_MAX_HTML_ROWS, max_col=_POLSAT_COLS, values_only=True
+                )
+            ]
+            found = _polsat_rows(texts)
+            if found is not None:
+                return found
+        return None
+    except (TypeError, ValueError, KeyError, AttributeError):
+        return None
+    finally:
+        workbook.close()
+
+
+def _polsat_rows(texts: list[dict[int, str]]) -> Optional[Sheet]:
+    """Wiersze osób × zamówień z siatki tekstów komórek (XML 2003 albo XLSX)."""
+
     header_at = next(
         (
             i
@@ -208,6 +255,8 @@ def parse(content: bytes) -> Optional[Sheet]:
         return _parse_polkomtel(content)
     if kesu.is_kesu_file(content):
         return _parse_polsat(content)
+    if content.startswith(b"PK\x03\x04"):
+        return _parse_polsat_xlsx(content)
     return None
 
 
@@ -222,9 +271,15 @@ def people(sheet: Sheet) -> list[set[str]]:
     return found
 
 
-def declared_for(sheet: Sheet, person_name: str) -> Optional[Declared]:
+def declared_for(
+    sheet: Sheet, person_name: str, *, orders: frozenset[str] = frozenset()
+) -> Optional[Declared]:
     """Godziny osoby z kontraktu; plik jednej innej osoby idzie w całości, żeby
-    kontrola nazwiska pokazała różnicę zamiast cichego „bez MD”."""
+    kontrola nazwiska pokazała różnicę zamiast cichego „bez MD”.
+
+    ``orders``: klucze numerów zamówień kontraktu (``order_key``). Gdy któryś wiersz
+    osoby ma numer z tego zbioru, liczą się tylko takie wiersze: ta sama osoba ma
+    w pliku zamówienia drugiego kontraktu (Polsat i Polkomtel, próba VI–VIII 2026)."""
 
     wanted = name_tokens(person_name)
     mine = [r for r in sheet.rows if name_tokens(r.person) == wanted]
@@ -232,6 +287,9 @@ def declared_for(sheet: Sheet, person_name: str) -> Optional[Declared]:
         if len(people(sheet)) != 1:
             return None
         mine = list(sheet.rows)
+    own = [r for r in mine if order_key(r.order) in orders]
+    if own:
+        mine = own
     hours: Optional[Decimal] = None
     if all(r.hours is not None for r in mine):
         hours = sum((r.hours for r in mine if r.hours is not None), Decimal("0"))

@@ -1342,8 +1342,12 @@ async def _proof(
     agreements: frozenset[str] = frozenset(),
     signed_sheet: bool = False,
     travel: Optional[TravelCheck] = None,
+    order_keys: frozenset[str] = frozenset(),
 ) -> Optional[rcp_checks.ProofResult]:
     """Odczyt RCP z pliku i kontrole (E2). Brak pliku RCP = ``None``.
+
+    ``order_keys``: numery zamówień kontraktu (``timesheet_plus.order_key``);
+    wykaz grupy Polkomtel / Cyfrowy Polsat liczy tylko wiersze tych zamówień.
 
     ``travel``: szuka akceptacji kosztów delegacji przez klienta, gdy RCP ma
     koszty delegacji (``_travel_acceptance``).
@@ -1380,6 +1384,7 @@ async def _proof(
         client_mail=client_mail,
         agreements=agreements,
         signed_sheet=signed_sheet,
+        order_keys=order_keys,
     )
     if report is not None and report.mime in RCP_MIMES:
         try:
@@ -1511,6 +1516,7 @@ async def _read_file(
     client_mail: Optional[bool] = None,
     agreements: frozenset[str] = frozenset(),
     signed_sheet: bool = False,
+    order_keys: frozenset[str] = frozenset(),
 ) -> Optional[rcp_checks.ProofResult]:
     """Czytniki wzorów spoza RCP BNP dla jednego pliku; ``None`` = nie rozpoznany.
 
@@ -1551,15 +1557,21 @@ async def _read_file(
             other_md=other_md,
         )
 
-    if mime == kesu.KESU_MIME:
-        # Raport Polkomtelu (HTML) albo rozliczenie Cyfrowego Polsatu (XML), oba „.xls”.
+    if mime in (kesu.KESU_MIME, timesheet.XLSX):
+        # Raport Polkomtelu (HTML) albo rozliczenie Cyfrowego Polsatu (XML), oba „.xls”;
+        # rozliczenie Polsatu bywa też prawdziwym „.xlsx” (próba VI–VIII 2026).
         sheet = await asyncio.to_thread(timesheet_plus.parse, content)
-        found_plus = timesheet_plus.declared_for(sheet, person_name) if sheet else None
-        if found_plus is None:
-            return None
-        return await accepted(
-            declared_result(found_plus), found_plus.hours, found_plus.month
+        found_plus = (
+            timesheet_plus.declared_for(sheet, person_name, orders=order_keys)
+            if sheet
+            else None
         )
+        if found_plus is not None:
+            return await accepted(
+                declared_result(found_plus), found_plus.hours, found_plus.month
+            )
+        if mime == kesu.KESU_MIME:
+            return None
     if mime in MAIL_MIMES:
         # Mail koordynatora z godzinami zaakceptowanymi przez klienta (CeZ).
         summary = await asyncio.to_thread(hours_summary.parse, content, mime)
@@ -2028,6 +2040,24 @@ def _order_rank(
     return (not overlaps, order.status != ClientOrderStatus.active, -start, -order.id)
 
 
+async def _order_keys(db: AsyncSession, contract_id: int) -> frozenset[str]:
+    """Numery zamówień kontraktu (grupa albo tytuł linii) jako ``order_key``."""
+
+    rows = await db.execute(
+        select(ClientOrder.title, ClientOrderGroup.order_number)
+        .outerjoin(ClientOrderGroup, ClientOrderGroup.id == ClientOrder.order_group_id)
+        .where(
+            ClientOrder.contract_id == contract_id,
+            ClientOrder.status != ClientOrderStatus.cancelled,
+        )
+    )
+    keys = {
+        timesheet_plus.order_key(number or number_from_title(title))
+        for title, number in rows
+    }
+    return frozenset(k for k in keys if k)
+
+
 def _closed_for(order: ClientOrder, first: date) -> bool:
     """Zamówienie zakończone przed rozliczanym miesiącem.
 
@@ -2433,6 +2463,7 @@ async def _recompute(
             travel=lambda parsed, signatures: _travel_acceptance(
                 db, s, person.name, rules, parsed, signatures
             ),
+            order_keys=await _order_keys(db, s.contract_id),
         )
         if proof is not None and fixed:
             _fix_note(proof, rules)

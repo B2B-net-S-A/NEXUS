@@ -31,7 +31,11 @@ from tests.consultant_portal_seed import (  # noqa: F401  (fixture'y)
     make_person,
     portal_restored,
 )
-from tests.test_client_settlements_timesheet_plus import polkomtel_html, polsat_xml
+from tests.test_client_settlements_timesheet_plus import (
+    polkomtel_html,
+    polsat_xlsx,
+    polsat_xml,
+)
 from tests.test_consultant_portal_internal import (  # noqa: F401  (fixture'y)
     FakeMailbox,
     _attachment,
@@ -226,3 +230,61 @@ async def test_cancelled_order_line_does_not_count(monkeypatch) -> None:
     await _read(reader)
 
     assert [d.contract_id for d in await _documents() if d.kind == "report"] == [None]
+
+
+async def test_jeden_arkusz_xlsx_dla_kontraktu_w_polsacie_i_w_polkomtelu(
+    monkeypatch,
+) -> None:
+    """VII 2026: wykaz od kierownika klienta (``.xlsx``) z wierszem zamówienia Polsatu
+    i wierszem zamówienia Polkomtelu tej samej osoby: plik idzie do obu kontraktów."""
+
+    last = f"Testowy{tag()}"
+    plk, cp, number = await _group_person(monkeypatch, last)
+    sap = f"45{tag()}"
+    await _order(plk.contract_id, plk.client_id, f"SAP {sap}")
+    sheet = polsat_xlsx(
+        [
+            (f"{last} Jan", number, "88", {d: "8" for d in range(1, 12)}),
+            (f"{last} Jan", sap, "8", {14: "8"}),
+        ]
+    )
+    reader = _mail(
+        f"kierowniczka@{GROUP_DOMAIN}",
+        [_attachment("B2B_2026_07.xlsx", sheet)],
+        "Rozliczenie za 07.2026",
+    )
+
+    await _read(reader)
+
+    owners = sorted(
+        d.contract_id for d in await _documents() if d.file_name == "B2B_2026_07.xlsx"
+    )
+    assert owners == sorted([cp.contract_id, plk.contract_id])
+
+
+async def test_arkusz_kilku_kontraktow_od_obcego_nic_nie_przypisuje(
+    monkeypatch,
+) -> None:
+    last = f"Testowy{tag()}"
+    plk, _cp, number = await _group_person(monkeypatch, last)
+    sap = f"45{tag()}"
+    await _order(plk.contract_id, plk.client_id, f"SAP {sap}")
+    sheet = polsat_xlsx(
+        [
+            (f"{last} Jan", number, "88", {d: "8" for d in range(1, 12)}),
+            (f"{last} Jan", sap, "8", {14: "8"}),
+        ]
+    )
+    reader = _mail(
+        "ktos@obca-domena.example",
+        [_attachment("B2B_2026_07.xlsx", sheet)],
+        "Rozliczenie za 07.2026",
+    )
+
+    await _read(reader)
+
+    assert all(
+        d.contract_id is None
+        for d in await _documents()
+        if d.file_name == "B2B_2026_07.xlsx"
+    )

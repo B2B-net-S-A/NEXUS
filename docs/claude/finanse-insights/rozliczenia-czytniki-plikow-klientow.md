@@ -196,3 +196,14 @@ Bosch 627 IX 21 MD i X 17 MD („ok”), CeZ 668 X 20 MD (160 h, „uwagi” z k
 o prawach autorskich). MD są równe fakturom Finansów. Za 668 X w KSeF są dwa oryginały po
 160 godz., bo pierwszą fakturę skorygowano do zera i wystawiono ponownie: porównanie, które
 pomija korektę, pokazuje 40 MD.
+
+## Wykaz Polsatu w `.xlsx` i plik kilku kontraktów (od 25.11.2026, próba VI–VIII)
+
+Ten sam układ co „B2B_RRRR_MM.xls” przychodzi jako prawdziwy `.xlsx` („B2B czerwiec 2026.xlsx”,
+„B2B_2026_07.xlsx”), czasem bez kolumn „R(h)”/„P(h)”. Czyta go `timesheet_plus._parse_polsat_xlsx`
+(ten sam `_polsat_rows`). Wykaz bywa plikiem kilku kontraktów: dwie osoby albo jedna osoba
+z zamówieniem Polsatu i Polkomtelu. `identity.resolve_sheet_contracts` daje kontrakt każdej pary
+(osoba, numer zamówienia) przez `resolve_from_sheet`, z tymi samymi zasadami nadawcy, a poczta
+(`_store_client_reports`) zapisuje plik u każdego z nich. Godziny kontraktu to tylko wiersze jego
+zamówień (`declared_for(orders=…)`, klucze z `service._order_keys`). Jeden kontrakt idzie zwykłą
+ścieżką.

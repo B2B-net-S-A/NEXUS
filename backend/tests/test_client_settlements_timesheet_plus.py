@@ -13,7 +13,7 @@ from decimal import Decimal
 
 from app.models.consultant_portal import CpDocument
 from app.services.client_settlements import kesu, rules_catalog, service
-from app.services.client_settlements import timesheet_plus
+from app.services.client_settlements import timesheet, timesheet_plus
 from app.services.consultant_portal import documents
 
 PERSON = "Jan Testowy"
@@ -250,3 +250,131 @@ async def test_md_z_arkusza_polsatu(tmp_path, monkeypatch) -> None:
     )
 
     assert result is not None and result.md_regular == Decimal("27.500")
+
+
+# ── Ten sam układ w „.xlsx” (próba VI–VIII 2026) ─────────────────────────────
+
+
+def polsat_xlsx(
+    rows: list[tuple[str, str, str, dict[int, str]]],
+    *,
+    month: str = "lipiec",
+    hours_columns: bool = False,
+) -> bytes:
+    """Wiersze jak w ``polsat_xml``; ``hours_columns`` = kolumny R(h)/P(h) i wiersz SUMA."""
+
+    import io
+
+    import openpyxl
+
+    lead = ["Opis", "Dostawca", "Konsultant", "Zamówienie"]
+    lead += ["R(h)", "P(h)"] if hours_columns else []
+    width = len(lead)
+    book = openpyxl.Workbook()
+    sheet = book.active
+    sheet.title = "Harmonogram"
+    sheet.append([*lead, 2026, 2026])
+    sheet.append([None] * width + [month, month])
+    sheet.append([None] * (width + 1) + list(range(1, 32)))
+    for person, order, month_hours, per_day in rows:
+        extra = [240, 0] if hours_columns else []
+        days = [int(per_day[d]) if d in per_day else None for d in range(1, 32)]
+        sheet.append(
+            ["PROJEKT ALFA", "B2B", person, order, *extra, int(month_hours), *days]
+        )
+    if hours_columns:
+        sheet.append(["SUMA", None, None, None, 480, 0, 999])
+    out = io.BytesIO()
+    book.save(out)
+    return out.getvalue()
+
+
+def test_polsat_xlsx_jedna_osoba_na_dwoch_zamowieniach() -> None:
+    content = polsat_xlsx(
+        [
+            ("Testowy Jan", "Z990101001", "88", {d: "8" for d in range(1, 12)}),
+            ("Testowy Jan", "4500000001", "8", {14: "8"}),
+        ]
+    )
+    sheet = timesheet_plus.parse(content)
+
+    assert sheet is not None and sheet.source == timesheet_plus.POLSAT
+    assert sheet.month == "2026-07"
+    assert [(r.order, r.hours) for r in sheet.rows] == [
+        ("Z990101001", Decimal("88")),
+        ("4500000001", Decimal("8")),
+    ]
+    polsat = timesheet_plus.declared_for(
+        sheet, PERSON, orders=frozenset({timesheet_plus.order_key("CP Z990101001")})
+    )
+    polkomtel = timesheet_plus.declared_for(
+        sheet, PERSON, orders=frozenset({timesheet_plus.order_key("SAP 4500000001")})
+    )
+    assert polsat.hours == Decimal("88") and polkomtel.hours == Decimal("8")
+    # Bez numerów kontraktu: cała osoba, jak dotąd.
+    assert timesheet_plus.declared_for(sheet, PERSON).hours == Decimal("96")
+
+
+def test_polsat_xlsx_z_kolumnami_godzin_i_wierszem_suma() -> None:
+    content = polsat_xlsx(
+        [
+            ("Testowy Jan", "Z990101001", "40", {d: "8" for d in range(1, 6)}),
+            ("Inna Anna", "Z990202002", "16", {1: "8", 2: "8"}),
+        ],
+        month="czerwiec",
+        hours_columns=True,
+    )
+    sheet = timesheet_plus.parse(content)
+
+    assert sheet is not None and sheet.month == "2026-06"
+    assert [(r.person, r.hours) for r in sheet.rows] == [
+        ("Testowy Jan", Decimal("40")),
+        ("Inna Anna", Decimal("16")),
+    ]
+    assert len(timesheet_plus.people(sheet)) == 2
+
+
+def test_inny_arkusz_xlsx_to_nie_polsat() -> None:
+    import io
+
+    import openpyxl
+
+    book = openpyxl.Workbook()
+    book.active.append(["Data", "Godziny"])
+    out = io.BytesIO()
+    book.save(out)
+    assert timesheet_plus.parse(out.getvalue()) is None
+
+
+async def test_md_tylko_z_wierszy_zamowien_kontraktu(tmp_path, monkeypatch) -> None:
+    """Lipiec 2026: Polsat 111 h (13,875 MD), Polkomtel 8 h (1 MD) w jednym pliku."""
+
+    from app.services import storage_service
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    content = polsat_xlsx(
+        [
+            ("Testowy Jan", "Z990101001", "88", {d: "8" for d in range(1, 12)}),
+            ("Testowy Jan", "4500000001", "8", {14: "8"}),
+        ]
+    )
+    folder = tmp_path / "consultant_portal" / "1"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "B2B_2026_07.xlsx").write_bytes(content)
+    doc = CpDocument(
+        id=1,
+        kind="report",
+        mime=timesheet.XLSX,
+        file_path="consultant_portal/1/B2B_2026_07.xlsx",
+    )
+
+    polkomtel = await service._proof(
+        doc,
+        [doc],
+        month="2026-07",
+        person_name=PERSON,
+        rules=_rules(),
+        order_keys=frozenset({timesheet_plus.order_key("SAP 4500000001")}),
+    )
+
+    assert polkomtel is not None and polkomtel.md_regular == Decimal("1.000")
