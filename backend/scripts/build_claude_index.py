@@ -130,6 +130,12 @@ GROUPS: tuple[tuple[str, str, str], ...] = (
         "sondy „u nas”, LEX, flaga `LAW_RADAR_ENABLED`.",
     ),
     (
+        "asystent-prawny",
+        "Asystent prawny (w tle ekranów umów)",
+        "Asystent do umów B2B bez osobnego modułu: „Popraw dokument” (DOCX ze śledzeniem "
+        "zmian), cytaty sprawdzane kodem, dane osób jako znaczniki, próg do prawnika.",
+    ),
+    (
         "rada",
         "Rada nadzorcza (sekcja „Rada”)",
         "Ekran `/rada` dla Rady nadzorczej: dokumenty korporacyjne, odpis KRS co noc, "
