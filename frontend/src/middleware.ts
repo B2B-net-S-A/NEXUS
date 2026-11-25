@@ -427,7 +427,8 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/cpro-queue`, `/preview/candidate-followup`,
 //   `/preview/kpi-targets`, `/preview/kpi-topbar`, `/preview/kpi-who-counts`,
 //   `/preview/plain-brief`, `/preview/permissions`,
-//   `/preview/b2b-documents`, `/preview/b2b-generator`, `/preview/similar-reassign`,
+//   `/preview/b2b-documents`, `/preview/b2b-generator`, `/preview/custom-templates`,
+//   `/preview/similar-reassign`,
 //   `/preview/job-team-panel`, `/preview/champion-workspace`, `/preview/job-ad`,
 //   `/preview/career-queue`, `/preview/pre-contracts`,
 //   `/preview/candidates-list` (publiczny przez prefiks `/preview/candidates`)
@@ -550,6 +551,8 @@ const PUBLIC_PATHS = [
   "/preview/permissions",
   "/preview/b2b-documents",
   "/preview/b2b-generator",
+  // Wzory własne Generatora (asystent prawny, 0780): studio, lista, „Nowy dokument”.
+  "/preview/custom-templates",
   "/preview/similar-reassign",
   "/preview/kariera",
   "/preview/career-share",

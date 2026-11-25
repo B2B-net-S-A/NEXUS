@@ -21,6 +21,7 @@ import {
   FileText,
   Loader2,
   Search,
+  Sparkles,
 } from "lucide-react";
 
 import { Alert } from "@/components/ui/alert";
@@ -61,6 +62,8 @@ import {
   typesByFamily,
   type PartnerVariant,
 } from "@/lib/b2b-documents";
+import type { CustomDocumentType } from "@/lib/api/customTemplates";
+import { isCustomTypeKey } from "@/lib/custom-templates";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
 
@@ -73,12 +76,14 @@ import {
 } from "./AnnexSubjectPicker";
 import { DocumentFieldsForm, DocumentRefsFields } from "./DocumentFieldsForm";
 import { MandateFormsSection } from "./MandateFormsSection";
+import { CustomDocumentForm } from "./custom-templates/CustomDocumentForm";
 import { saveDocx } from "./DocumentDialogs";
 
 /** Etykieta braku numerów paragrafów w `missing[]` serwera. */
 const REFS_MISSING_LABEL = "Numery paragrafów umowy bazowej";
 
-type Step = "type" | "subject" | "form";
+/** `custom` = dokument ze wzoru własnego (asystent prawny, 0780). */
+type Step = "type" | "subject" | "form" | "custom";
 
 /** Podmiot dokumentu: umowa z rejestru, kontrakt aneksu albo kandydat. */
 interface Subject extends AnnexSubjectChoice {
@@ -137,6 +142,8 @@ export interface DocumentWizardProps {
   /** `annexes` = zakładka „Generator aneksów” (tylko aneksy). */
   mode?: "documents" | "annexes";
   onClose: () => void;
+  /** „+ Nowy wzór z asystentem” w sekcji „Wzory własne”. */
+  onNewTemplate?: () => void;
 }
 
 export function DocumentWizard({
@@ -148,6 +155,7 @@ export function DocumentWizard({
   initialValues,
   mode = "documents",
   onClose,
+  onNewTemplate,
 }: DocumentWizardProps) {
   const annexMode = mode === "annexes";
   const toast = useToast();
@@ -157,6 +165,11 @@ export function DocumentWizard({
     [typesData],
   );
   const startType = initialType ? (typesByKey.get(initialType) ?? null) : null;
+  const [customKey, setCustomKey] = useState<string | null>(
+    isCustomTypeKey(initialType) ? initialType : null,
+  );
+  const customType =
+    (typesData.custom_types ?? []).find((t) => t.key === customKey) ?? null;
   const [typeKey, setTypeKey] = useState<string | null>(startType?.key ?? null);
   const [subject, setSubject] = useState<Subject>({
     ...EMPTY_SUBJECT,
@@ -169,6 +182,7 @@ export function DocumentWizard({
   }, [typeKey, typesByKey, hasParent]);
   const [step, setStep] = useState<Step>(() => {
     if (editDocumentId) return "form";
+    if (isCustomTypeKey(initialType)) return "custom";
     if (!startType) return "type";
     return initialParentId && startType.parent !== "none" ? "form" : "subject";
   });
@@ -486,7 +500,13 @@ export function DocumentWizard({
                 : "Nowy dokument"}
           </CardTitle>
           <CardDescription>
-            {type ? type.label : annexMode ? "Wybierz typ aneksu." : "Wybierz rodzaj dokumentu."}
+            {step === "custom" && customType
+              ? customType.label
+              : type
+                ? type.label
+                : annexMode
+                  ? "Wybierz typ aneksu."
+                  : "Wybierz rodzaj dokumentu."}
             {subject.parentLabel ? ` · umowa ${subject.parentLabel}` : ""}
             {!subject.parentId && subject.contractLabel
               ? ` · ${subject.contractLabel}`
@@ -509,6 +529,31 @@ export function DocumentWizard({
             contractResolving={byContract.isFetching}
             contractMissing={byContract.isSuccess && !byContract.data}
             contractError={byContract.isError ? byContract.error : null}
+            customTypes={annexMode || presetParent ? [] : (typesData.custom_types ?? [])}
+            selectedCustom={customKey}
+            onChooseCustom={(key) => {
+              setCustomKey(key);
+              setStep("custom");
+            }}
+            onNewTemplate={annexMode || presetParent ? undefined : onNewTemplate}
+          />
+        ) : null}
+        {step === "custom" && customType ? (
+          <CustomDocumentForm
+            key={customType.key}
+            type={customType}
+            onBack={() => {
+              setCustomKey(null);
+              setStep("type");
+            }}
+            onClose={onClose}
+          />
+        ) : null}
+        {step === "custom" && !customType ? (
+          <Alert
+            variant="warning"
+            title="Tego wzoru nie ma już w „Nowy dokument”"
+            description="Mógł zostać wycofany. Wybierz inny rodzaj dokumentu."
           />
         ) : null}
         {step === "type" && !annexMode ? (
@@ -709,6 +754,10 @@ function TypeStep({
   contractResolving,
   contractMissing,
   contractError,
+  customTypes = [],
+  selectedCustom = null,
+  onChooseCustom,
+  onNewTemplate,
 }: {
   types: DocumentTypeDef[];
   selected: string | null;
@@ -716,6 +765,10 @@ function TypeStep({
   contractResolving: boolean;
   contractMissing: boolean;
   contractError: unknown;
+  customTypes?: CustomDocumentType[];
+  selectedCustom?: string | null;
+  onChooseCustom?: (key: string) => void;
+  onNewTemplate?: () => void;
 }) {
   return (
     <div className="space-y-5">
@@ -768,6 +821,61 @@ function TypeStep({
           </div>
         </section>
       ))}
+      {customTypes.length || onNewTemplate ? (
+        <section className="space-y-2" aria-label="Wzory własne">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="text-sm font-semibold text-foreground">Wzory własne</h3>
+            {onNewTemplate ? (
+              <button
+                type="button"
+                onClick={onNewTemplate}
+                className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+              >
+                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                Nowy wzór z asystentem
+              </button>
+            ) : null}
+          </div>
+          {customTypes.length ? (
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {customTypes.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  aria-pressed={selectedCustom === t.key}
+                  onClick={() => onChooseCustom?.(t.key)}
+                  className={cn(
+                    "flex h-full flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors hover:bg-muted",
+                    selectedCustom === t.key ? "border-primary bg-primary/5" : "border-border bg-card",
+                  )}
+                >
+                  <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <FileText className="h-4 w-4 text-primary" aria-hidden="true" />
+                    {t.label}
+                  </span>
+                  {t.description ? (
+                    <span className="text-xs text-muted-foreground">{t.description}</span>
+                  ) : null}
+                  <span className="mt-1 flex flex-wrap gap-1">
+                    <Badge variant="soft" size="sm">
+                      Wzór własny v{t.version_no}
+                    </Badge>
+                    {t.client_scope === "selected" ? (
+                      <Badge variant="outline" size="sm">
+                        tylko wybrani klienci
+                      </Badge>
+                    ) : null}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Zatwierdzone wzory własne pojawią się tutaj.
+            </p>
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }

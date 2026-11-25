@@ -13,8 +13,10 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import type { CustomDocumentType } from "@/lib/api/customTemplates";
 
-export type DocumentFamily = "annex" | "termination" | "preliminary";
+/** `custom` = dokument ze wzoru własnego (asystent prawny, 0780) — tylko w liście. */
+export type DocumentFamily = "annex" | "termination" | "preliminary" | "custom";
 export type DocumentParentKind = "b2b" | "mandate" | "none";
 export type DocumentFieldKind =
   | "text"
@@ -140,6 +142,8 @@ export interface DocumentTypesResponse {
   ref_labels: Record<string, string>;
   ref_defaults: Record<string, string>;
   mandate_forms: MandateFormDef[];
+  /** Zatwierdzone wzory własne — „Nowy dokument” → „Wzory własne”. */
+  custom_types?: CustomDocumentType[];
 }
 
 export interface DocumentBaseInfo {
