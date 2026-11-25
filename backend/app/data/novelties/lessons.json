@@ -2710,6 +2710,62 @@
     ]
   },
   {
+    "id": "lekcja-nowe-cv-strona-1",
+    "title": "Nowe CV: wyróżnik i trzy zdania strony 1",
+    "novelties": [
+      "nowe-cv-wyroznik",
+      "nowe-cv-zdania-strony-1"
+    ],
+    "task": "Otwórz edytor CV innej osoby z rekrutacji ćwiczebnej, popraw na stronie 1 zdanie 3 i przywróć je z generatora.",
+    "solo_href": "/jobs/990001?candidate=990109",
+    "check": {
+      "kind": "click",
+      "anchor": "cv-editor.page1.restore"
+    },
+    "questions": [
+      {
+        "q": "Zdanie 2 strony 1 wymienia wymagania klienta. Które wymagania NEXUS w nim stawia?",
+        "options": [
+          "Wymagania MUST z Profilu Championa, które CV potwierdza cytatem",
+          "Wszystkie wymagania z ogłoszenia, także bez śladu w CV",
+          "Odpowiedzi kandydata na wszystkie pytania screeningu"
+        ],
+        "answer": 0,
+        "explain": "Zdanie 2 bierze wymagania MUST z Profilu Championa i stawia tylko te, które potwierdza punkt stanowiska w CV. Wymaganie bez dowodu w CV nie trafia na stronę 1."
+      },
+      {
+        "q": "Poprawiłeś zdanie 1, a potem kliknąłeś „Ułóż zdania od nowa”. Co z Twoją poprawką?",
+        "options": [
+          "Zostaje — od nowa układają się tylko zdania z generatora",
+          "Znika, wraca zdanie z generatora",
+          "NEXUS pyta, którą wersję zostawić"
+        ],
+        "answer": 0,
+        "explain": "Poprawione zdanie zostaje. Do zdania z generatora wracasz przyciskiem „Przywróć z generatora” pod polem."
+      },
+      {
+        "q": "Zdanie z generatora nie przeszło sprawdzenia z CV, bo ma liczbę spoza CV. Co stoi na stronie 1?",
+        "options": [
+          "Punkt z treści CV, tak jak dotąd",
+          "Zdanie z generatora z ostrzeżeniem dla klienta",
+          "Puste miejsce do uzupełnienia"
+        ],
+        "answer": 0,
+        "explain": "Niesprawdzone zdanie nie idzie do klienta. Strona 1 bierze wtedy punkt „Dlaczego nasz kandydat” z treści CV, a pod polem stoi, dlaczego."
+      },
+      {
+        "q": "Kiedy wyróżnik „Automatycznie” pokaże coś pod nazwiskiem kandydata?",
+        "options": [
+          "Gdy kandydat pracował wcześniej u klienta tej rekrutacji",
+          "Zawsze, bierze najdłuższą pracę z CV",
+          "Tylko w CV anonimowym"
+        ],
+        "answer": 0,
+        "explain": "Automat pokazuje wcześniejszą pracę u klienta rekrutacji, np. „Doświadczenie w PKO BP · 2018–2023”. Bez takiej pracy wyróżnika nie ma, chyba że wpiszesz własny."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [

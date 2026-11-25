@@ -65,6 +65,7 @@ import {
   type CvPage1Extras,
 } from "@/lib/api";
 import { plainBriefQueryKey, type PlainBrief } from "@/lib/api/plainKnowledge";
+import { autoTexts, whySlots } from "@/lib/cv-page1-why";
 import { stageBrandedQueryKey } from "@/lib/cv-to-client";
 import { useAuthStore } from "@/store/auth";
 
@@ -224,8 +225,26 @@ function memoryApi(initial: CVBrandedState): {
       if ("result_index" in payload) extras.result_index = payload.result_index ?? null;
       if ("result_text" in payload) extras.result_text = payload.result_text?.trim() || null;
       if (payload.highlight) extras.highlight = payload.highlight;
+      if (payload.why) {
+        // `null` = slot bez zmiany, "" = sprawdzone zdanie generatora (albo punkt z CV).
+        const slots = whySlots(extras);
+        const auto = autoTexts(extras);
+        payload.why.forEach((text, index) => {
+          if (text !== null && index < slots.length) slots[index] = text.trim() || auto[index];
+        });
+        extras.why = slots;
+      }
       current = { ...current, page1_extras: extras };
       return respond(current);
+    },
+    // Harness bez modelu: „Ułóż zdania od nowa” wraca do zdań z fikstury.
+    refreshPage1: () => {
+      const extras: CvPage1Extras = {
+        ...(current.page1_extras ?? {}),
+        why: autoTexts(current.page1_extras),
+      };
+      current = { ...current, page1_extras: extras };
+      return respond(extras);
     },
     update: (_id, payload) => {
       if ("content_html" in payload) {

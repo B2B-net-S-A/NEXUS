@@ -34,6 +34,7 @@ from starlette.concurrency import run_in_threadpool
 from app.models.ai_feature import AIFeatureKey
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.services import cv_layout as layout_service
+from app.services import cv_page1_why as why_service
 from app.services.ai_models import fallbacks_for, model_for
 from app.services.ai_quota import ai_feature
 from app.services.cv_new_content import cv_json_from_editor_html
@@ -45,6 +46,7 @@ from app.services.cv_page1_result_checks import (
     strip_bold,
     verify_results,
 )
+from app.services.cv_page1_why_checks import WhyInputs, merged_why, verify_why
 from app.services.llm_providers import api_key_configured
 from app.services.prompt_fencing import fence, json_for_prompt
 
@@ -237,6 +239,28 @@ def _call_model(system: str, content: str, request_id: str) -> str:
     )
 
 
+def _call_why_model(system: str, content: str, request_id: str) -> str:
+    """Wywołanie modelu zdań 1–3 (w wątku). Osobna funkcja: testy ją podmieniają."""
+    from app.services.cv_generator_b2b.provider import analyze_with_ai
+
+    return analyze_with_ai(
+        content,
+        f"{request_id}_why",
+        system=system,
+        model_override=model_for(FEATURE),
+        fallback_models=list(fallbacks_for(FEATURE)),
+        response_schema=why_service.RESPONSE_SCHEMA,
+        total_timeout=MODEL_TIMEOUT_SECONDS,
+    )
+
+
+async def load_why_inputs(
+    db: AsyncSession, csv: Any
+) -> tuple[WhyInputs, Optional[dict]]:
+    """MUST, zadanie, odpowiedź i zapis generatora; osobna funkcja: testy ją podmieniają."""
+    return await why_service.load_inputs(db, csv)
+
+
 async def compute_results(
     db: AsyncSession,
     html: str,
@@ -252,21 +276,89 @@ async def compute_results(
     Przed wywołaniem kończy transakcję ``db`` (połączenie wraca do puli).
     """
     cv_json = cv_json_from_editor_html(html, language=language, blind=blind).cv_json
-    roles = roles_from_cv_json(cv_json)
-    why = [str(p) for p in cv_json.get("why_points") or []]
-    payload = prompt_payload(roles, why)
-    if not payload["roles"]:
+    plan = _Plan(cv_json, language, blind, WhyInputs())
+    if not plan.results_payload["roles"]:
         return []
+    (raw,) = await _run_models(db, [plan.results_call()], user_id, request_id)
+    if isinstance(raw, BaseException):
+        raise raw
+    return plan.verify_results(raw)
+
+
+class _Plan:
+    """Jedno CV: wejście obu wywołań modelu i ich sprawdzenie."""
+
+    def __init__(
+        self, cv_json: dict[str, Any], language: str, blind: bool, inputs: WhyInputs
+    ) -> None:
+        self.language = language
+        self.blind = blind
+        self.roles = roles_from_cv_json(cv_json)
+        self.why_points = [str(p) for p in cv_json.get("why_points") or []]
+        self.results_payload = prompt_payload(self.roles, self.why_points)
+        self.ctx = why_service.build_context(
+            cv_json, inputs, language=language, blind=blind
+        )
+        self.why_payload = why_service.prompt_payload(cv_json, self.ctx)
+
+    def results_call(self) -> tuple[str, Any, str, str]:
+        return (
+            "results",
+            _call_model,
+            system_prompt(self.language, blind=self.blind),
+            fence("dane", json_for_prompt(self.results_payload)),
+        )
+
+    def why_call(self) -> tuple[str, Any, str, str]:
+        return (
+            "why",
+            _call_why_model,
+            why_service.system_prompt(self.language, blind=self.blind),
+            fence("dane", json_for_prompt(self.why_payload)),
+        )
+
+    def verify_results(self, raw: str) -> list[dict[str, Any]]:
+        return verify_results(
+            parse_response(raw), self.roles, self.why_points, blind=self.blind
+        )
+
+    def verify_why(self, raw: Optional[str]) -> list[dict[str, Any]]:
+        data = why_service.parse_response(raw) if raw is not None else {}
+        return verify_why(data, self.ctx)
+
+
+async def _run_models(
+    db: AsyncSession,
+    calls: list[tuple[str, Any, str, str]],
+    user_id: Optional[int],
+    request_id: str,
+) -> list[Any]:
+    """Wywołania modelu naraz, jedna jednostka limitu; wynik albo wyjątek per wywołanie.
+
+    Przed wywołaniem kończy transakcję ``db`` (połączenie wraca do puli).
+    """
     model = model_for(FEATURE)
     if not api_key_configured(model):
         raise RuntimeError(f"no API key for {model}")
-    content = fence("dane", json_for_prompt(payload))
     async with ai_feature(db, FEATURE, user_id=user_id):
         await db.commit()
-        raw = await run_in_threadpool(
-            _call_model, system_prompt(language, blind=blind), content, request_id
+        return list(
+            await asyncio.gather(
+                *(
+                    run_in_threadpool(call, system, content, request_id)
+                    for _, call, system, content in calls
+                ),
+                return_exceptions=True,
+            )
         )
-    return verify_results(parse_response(raw), roles, why, blind=blind)
+
+
+def _fresh(extras: Optional[dict], sha_key: str, sha: str, list_key: str) -> bool:
+    return (
+        extras is not None
+        and extras.get(sha_key) == sha
+        and isinstance(extras.get(list_key), list)
+    )
 
 
 async def refresh_stage_cv(
@@ -277,12 +369,15 @@ async def refresh_stage_cv(
     force: bool = False,
     only_new_layout: bool = False,
 ) -> Page1ResultsOutcome:
-    """Policz wyniki dla CV etapu i dopisz je do `page1_extras`. Nigdy nie rzuca.
+    """Policz wyniki i zdania 1–3 dla CV etapu i dopisz je do `page1_extras`.
+    Nigdy nie rzuca.
 
-    ``force`` (przycisk rekrutera) liczy od nowa także przy aktualnym
-    `results_source_sha`; wyzwalacze w tle go nie podają. Zapis idzie pod
+    ``force`` (przycisk rekrutera) liczy od nowa także przy aktualnych
+    odciskach; wyzwalacze w tle go nie podają. Oba wywołania modelu idą naraz;
+    awaria jednego zostawia jego część dodatków bez zmian, a drugie się
+    zapisuje (``failed`` dopiero, gdy nic się nie udało). Zapis idzie pod
     blokadą wiersza na świeżych dodatkach, więc to, co inny zapis dołożył
-    w czasie wywołania modelu (zdania `why`, `result_text`), zostaje.
+    w czasie wywołania modelu (zdania `why` rekrutera, `result_text`), zostaje.
     """
     request_id = f"cvp1_{uuid.uuid4().hex[:12]}"
     try:
@@ -298,22 +393,59 @@ async def refresh_stage_cv(
         html = csv.branded_draft_html or ""
         if csv.branded_status == "none" or not html.strip():
             return Page1ResultsOutcome(SKIPPED, extras, reason="no_cv")
+        language = "en" if csv.branded_language == "en" else "pl"
+        blind = csv.branded_template == "blind"
+        inputs, fallback = await load_why_inputs(db, csv)
         sha = source_sha(html)
-        if (
-            not force
-            and extras is not None
-            and extras.get("results_source_sha") == sha
-            and isinstance(extras.get("results"), list)
-        ):
-            return Page1ResultsOutcome(UNCHANGED, extras, reason="fresh")
-        results = await compute_results(
-            db,
-            html,
-            language="en" if csv.branded_language == "en" else "pl",
-            blind=csv.branded_template == "blind",
-            user_id=user_id,
-            request_id=request_id,
+        why_sha = why_service.inputs_sha(html, inputs)
+        need_results = force or not _fresh(extras, "results_source_sha", sha, "results")
+        need_why = force or not _fresh(
+            extras, "why_source_sha", why_sha, "why_generated"
         )
+        if not (need_results or need_why):
+            return Page1ResultsOutcome(UNCHANGED, extras, reason="fresh")
+
+        cv_json = cv_json_from_editor_html(
+            html, language=language, blind=blind, fallback=fallback
+        ).cv_json
+        plan = _Plan(cv_json, language, blind, inputs)
+        results: Optional[list[dict[str, Any]]] = [] if need_results else None
+        why: Optional[list[dict[str, Any]]] = (
+            plan.verify_why(None) if need_why else None
+        )
+        calls: list[tuple[str, Any, str, str]] = []
+        if need_results and plan.results_payload["roles"]:
+            calls.append(plan.results_call())
+        if need_why and plan.ctx.roles:
+            calls.append(plan.why_call())
+        failures: list[str] = []
+        if calls:
+            raws = await _run_models(db, calls, user_id, request_id)
+            for (kind, _, _, _), raw in zip(calls, raws):
+                is_why = kind == "why"
+                try:
+                    if isinstance(raw, BaseException):
+                        raise raw
+                    if is_why:
+                        why = plan.verify_why(raw)
+                    else:
+                        results = plan.verify_results(raw)
+                except Exception as exc:  # noqa: BLE001 — jedna część może paść
+                    failures.append(kind)
+                    if is_why:
+                        why = None
+                    else:
+                        results = None
+                    logger.warning(
+                        "[cv_page1_result][%s] %s failed csv=%s (%s)",
+                        request_id,
+                        kind,
+                        csv_id,
+                        type(exc).__name__,
+                    )
+        if results is None and why is None:
+            raise RuntimeError("all page 1 model calls failed")
+
         locked = await db.scalar(
             select(CandidateStageCV)
             .where(CandidateStageCV.id == csv_id)
@@ -323,21 +455,29 @@ async def refresh_stage_cv(
         if locked is None:
             await db.rollback()
             return Page1ResultsOutcome(SKIPPED, reason="no_cv")
-        merged = merged_extras(locked.page1_extras, results, sha)
+        merged: dict[str, Any] = (
+            dict(locked.page1_extras) if isinstance(locked.page1_extras, dict) else {}
+        )
+        if results is not None:
+            merged = merged_extras(merged, results, sha)
+        if why is not None:
+            merged = merged_why(merged, why, why_sha)
+        reason = ",".join(failures)
         if merged == locked.page1_extras:
             await db.commit()
-            return Page1ResultsOutcome(UNCHANGED, merged)
+            return Page1ResultsOutcome(UNCHANGED, merged, reason=reason)
         # Nowy słownik — kolumna JSON bez śledzenia mutacji.
         locked.page1_extras = merged
         await db.commit()
         logger.info(
-            "[cv_page1_result][%s] csv=%s results=%d verified=%d",
+            "[cv_page1_result][%s] csv=%s results=%s why_verified=%s failed=%s",
             request_id,
             csv_id,
-            len(results),
-            sum(1 for r in results if r.get("verified")),
+            "-" if results is None else sum(1 for r in results if r.get("verified")),
+            "-" if why is None else sum(1 for w in why if w.get("verified")),
+            reason or "-",
         )
-        return Page1ResultsOutcome(UPDATED, merged)
+        return Page1ResultsOutcome(UPDATED, merged, reason=reason)
     except Exception as exc:  # noqa: BLE001 — AI to dodatek, nigdy bramka
         try:
             await db.rollback()

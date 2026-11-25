@@ -7135,6 +7135,28 @@ export interface CvPage1Extras {
   wreath?: CvWreath | null;
   /** Wyróżnik pod nazwiskiem w wieńcu laurowym (25.11.2026); brak = „auto”. */
   highlight?: CvPage1Highlight | null;
+  /**
+   * Zdania 1–3 „Dlaczego nasz kandydat” (25.11.2026): trzy sloty, każdy to
+   * sprawdzone zdanie generatora albo poprawka rekrutera; `""` = punkt z CV.
+   */
+  why?: string[] | null;
+  /** Ostatni wynik generatora zdań 1–3 po sprawdzeniu kodem (do „Przywróć z generatora”). */
+  why_generated?: CvPage1WhyGenerated[] | null;
+}
+
+/** Jedno zdanie generatora strony 1; na stronę trafia tylko sprawdzone (`verified`). */
+export interface CvPage1WhyGenerated {
+  slot: "experience" | "requirements" | "key_task";
+  text: string;
+  verified: boolean;
+  /** Powód odrzucenia, np. `number_not_in_cv`, `no_input` (brak MUST / zadania). */
+  issue?: string | null;
+  /** Zdanie 2: wymaganie MUST, cytat i firma roli, w której stoi. */
+  evidence?: { must: string; quote: string; company: string }[] | null;
+  /** Zdanie 3: dowód z CV albo z odpowiedzi ze screeningu. */
+  quote?: string | null;
+  source?: "cv" | "screening" | null;
+  company?: string | null;
 }
 
 /**
@@ -7161,6 +7183,8 @@ export interface CvPage1Update {
   wreath?: CvWreath;
   /** `mode: "custom"` wymaga etykiety i zdania (inaczej 422). */
   highlight?: CvPage1Highlight;
+  /** Zdania 1–3: `null` = slot bez zmiany, `""` = „Przywróć z generatora”. */
+  why?: (string | null)[];
 }
 
 /**
@@ -7382,6 +7406,14 @@ export const candidateStageCvApi = {
     /** Strona 1 nowego CV: najmocniejszy wynik albo wieniec (tylko szkic; po „CV wysłane” 409). */
     setPage1: (stageId: number, payload: CvPage1Update) =>
       api.patch<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/page1`, payload),
+    /**
+     * Zdania 1–3 i najmocniejsze wyniki strony 1 od nowa z bieżącej treści
+     * (model + kontrola kodem; limit 20/min, awaria = 503). Oddaje dodatki strony 1.
+     */
+    refreshPage1: (stageId: number) =>
+      api.post<CvPage1Extras>(`/api/candidates/stages/${stageId}/cv/page1/results`, undefined, {
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      }),
     rename: (stageId: number, filename: string) =>
       api.patch<{ filename: string; pattern_filename?: string | null }>(
         `/api/candidates/stages/${stageId}/cv/branded/filename`,

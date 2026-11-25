@@ -168,6 +168,52 @@ async def test_picking_a_verified_result_clears_the_typed_one(
 
 
 @pytest.mark.asyncio
+async def test_why_slots_are_saved_and_restored_from_the_generator(
+    app_client: AsyncClient, app_auth_headers: dict, flag_on
+):
+    """Zdania 1–3 (25.11.2026): `null` = slot bez zmiany, "" = z generatora."""
+    generated = [
+        {"slot": "experience", "text": "Z modelu 1.", "verified": True},
+        {"slot": "requirements", "text": "Z modelu 2.", "verified": False},
+        {"slot": "key_task", "text": "Z modelu 3.", "verified": True},
+    ]
+    sid = await _draft(
+        {"why": ["Z modelu 1.", "", "Z modelu 3."], "why_generated": generated}
+    )
+    res = await app_client.patch(
+        _url(sid),
+        json={"why": [None, "  Moje   zdanie 2. ", None]},
+        headers=app_auth_headers,
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["page1_extras"]["why"] == [
+        "Z modelu 1.",
+        "Moje zdanie 2.",
+        "Z modelu 3.",
+    ]
+    res = await app_client.patch(
+        _url(sid), json={"why": ["Moje 1.", "", ""]}, headers=app_auth_headers
+    )
+    assert res.status_code == 200, res.text
+    after = await _csv(sid)
+    # Niesprawdzone zdanie modelu nie wraca — slot bierze punkt generatora.
+    assert after.page1_extras["why"] == ["Moje 1.", "", "Z modelu 3."]
+    assert after.page1_extras["why_generated"] == generated
+    async with AsyncSessionLocal() as db:
+        logged = (
+            await db.scalars(
+                select(Activity).where(
+                    Activity.entity_type == "candidate_stage_cv",
+                    Activity.entity_id == after.id,
+                    Activity.action == "cv_page1_changed",
+                )
+            )
+        ).all()
+    assert [entry.details["why"] for entry in logged][-1] == [True, False, True]
+    assert "Moje" not in str([entry.details for entry in logged])
+
+
+@pytest.mark.asyncio
 async def test_empty_text_removes_the_typed_result(
     app_client: AsyncClient, app_auth_headers: dict, flag_on
 ):
@@ -188,6 +234,8 @@ async def test_empty_text_removes_the_typed_result(
         {"result_index": 7},
         {"result_index": -1},
         {"result_text": "x" * 401},
+        {"why": ["x" * 401]},
+        {"why": ["a", "b", "c", "d"]},
     ],
 )
 async def test_bad_requests_are_refused(
@@ -283,3 +331,24 @@ def test_merge_rules_without_database():
     assert refused.value.status_code == 422
     with pytest.raises(HTTPException):
         _merged({"results": "nie lista"}, Page1Update(result_index=0))
+
+
+def test_why_merge_without_database():
+    from fastapi import HTTPException
+
+    from app.api.cv_page1 import Page1Update, _merged
+
+    generated = [
+        {"slot": "experience", "text": "Model 1.", "verified": True},
+        {"slot": "requirements", "text": "Model 2.", "verified": False},
+    ]
+    extras = {"why": ["Ręcznie 1.", "Ręcznie 2."], "why_generated": generated}
+    restored = _merged(extras, Page1Update(why=["", ""]))
+    assert restored["why"] == ["Model 1.", "", ""]
+    kept = _merged(extras, Page1Update(why=[None, None, "Trzecie."]))
+    assert kept["why"] == ["Ręcznie 1.", "Ręcznie 2.", "Trzecie."]
+    # Stare dodatki bez `why` i bez wyników modelu.
+    assert _merged(None, Page1Update(why=["a\n b"]))["why"] == ["a b", "", ""]
+    with pytest.raises(HTTPException) as refused:
+        _merged(None, Page1Update(why=["x " * 210]))
+    assert refused.value.status_code == 422

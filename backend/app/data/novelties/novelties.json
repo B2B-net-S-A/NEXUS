@@ -5191,6 +5191,90 @@
     "dot_anchor": "jobs.question-bank.manager"
   },
   {
+    "id": "nowe-cv-wyroznik",
+    "pr": 3965,
+    "title": "Nowe CV: wyróżnik kandydata pod nazwiskiem",
+    "why": "Pod nazwiskiem na stronie 1 stoi jedna rzecz, która daje przewagę, np. „Doświadczenie w PKO BP · 2018–2023”. Pojawia się sama przy pracy u klienta; możesz wpisać własny albo go wyłączyć.",
+    "tier": "tour",
+    "shipped_on": "2026-11-25",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → osoba → Edytuj CV → Strona 1 → Wyróżnik",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990108",
+    "section": "pipeline",
+    "dot_anchor": "cv-editor.page1.highlight",
+    "steps": [
+      {
+        "anchor": "person.dock.cv",
+        "text": "W panelu osoby rozwiń sekcję „CV”.",
+        "hint": "CV do klienta tej osoby jest już w układzie „Nowe CV”."
+      },
+      {
+        "anchor": "person.cv.edit",
+        "text": "Kliknij „Edytuj CV”.",
+        "hint": "Edytor Nowego CV otwiera się na zakładce „Strona 1”: formularz po lewej, strona PDF po prawej. Na Poligonie nic się nie zapisze."
+      },
+      {
+        "anchor": "cv-editor.page1.highlight",
+        "text": "Sekcja „Wyróżnik”: Automatycznie, Własny albo Bez wyróżnika.",
+        "hint": "Automatycznie pokazuje wcześniejszą pracę u klienta tej rekrutacji. Własny to etykieta, znak w wieńcu i jedno zdanie.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "nowe-cv-zdania-strony-1",
+    "title": "Nowe CV: trzy zdania strony 1 sprawdzone z CV",
+    "why": "Strona 1 ma trzy zdania: doświadczenie, wymagania klienta potwierdzone w CV i najważniejsze zadanie z dowodem. Każde NEXUS sprawdza z CV; Twoja poprawka zostaje przy układaniu od nowa.",
+    "tier": "tour",
+    "shipped_on": "2026-11-25",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → osoba → Edytuj CV → Strona 1 → Dlaczego nasz kandydat",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990108",
+    "section": "pipeline",
+    "dot_anchor": "cv-editor.page1.why",
+    "used_anchor": "cv-editor.page1.restore",
+    "steps": [
+      {
+        "anchor": "person.dock.cv",
+        "text": "W panelu osoby rozwiń sekcję „CV”.",
+        "hint": "CV do klienta tej osoby jest już w układzie „Nowe CV”."
+      },
+      {
+        "anchor": "person.cv.edit",
+        "text": "Kliknij „Edytuj CV”.",
+        "hint": "Edytor Nowego CV otwiera się na zakładce „Strona 1”: formularz po lewej, strona PDF po prawej. Na Poligonie nic się nie zapisze."
+      },
+      {
+        "anchor": "cv-editor.page1.why",
+        "text": "Trzy zdania: doświadczenie, wymagania klienta, najważniejsze zadanie.",
+        "hint": "Pod każdym polem stoi, skąd jest zdanie: z generatora z dowodem z CV, punkt z CV albo Twoja poprawka z „Przywróć z generatora”.",
+        "ack": true
+      },
+      {
+        "anchor": "cv-editor.page1.refresh",
+        "text": "„Ułóż zdania od nowa” liczy zdania z bieżącej treści CV.",
+        "hint": "Zdania, które poprawiłeś, zostają. Zdanie, którego NEXUS nie potwierdzi w CV, nie trafia na stronę 1.",
+        "ack": true
+      }
+    ]
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",

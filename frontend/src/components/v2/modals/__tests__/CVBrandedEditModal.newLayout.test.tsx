@@ -40,16 +40,21 @@ vi.mock("@/components/v2/cv-editor/CvNewLayoutWorkspace", () => ({
     active,
     extras,
     onSaveResult,
+    onRefreshWhy,
   }: {
     tab: string;
     active: boolean;
     extras: unknown;
     onSaveResult?: (patch: { result_text: string }) => Promise<void>;
+    onRefreshWhy?: () => Promise<void>;
   }) => (
     <div data-testid="workspace" data-tab={tab} data-active={active ? "tak" : "nie"}>
       {JSON.stringify(extras)}
       <button type="button" onClick={() => void onSaveResult?.({ result_text: "Nowy wynik." })}>
         zapisz wynik
+      </button>
+      <button type="button" onClick={() => void onRefreshWhy?.()}>
+        ułóż zdania
       </button>
     </div>
   ),
@@ -86,6 +91,11 @@ function api(initial: CVBrandedState) {
     current = { ...current, page1_extras: { ...current.page1_extras, result_text: patch.result_text ?? null } };
     return respond(current);
   });
+  const refreshPage1 = vi.fn(() => {
+    const extras = { ...current.page1_extras, why: ["Zdanie z generatora.", "", ""] };
+    current = { ...current, page1_extras: extras };
+    return respond(extras);
+  });
   const editorApi: CvEditorApi = {
     get: () => respond(current),
     update: () => respond(current),
@@ -96,8 +106,9 @@ function api(initial: CVBrandedState) {
       return respond(current);
     },
     setPage1,
+    refreshPage1,
   };
-  return { editorApi, setPage1 };
+  return { editorApi, setPage1, refreshPage1 };
 }
 
 function renderModal(initial: CVBrandedState) {
@@ -157,4 +168,12 @@ it("„Najmocniejszy wynik” idzie do dodatków strony 1, a odpowiedź trafia d
   fireEvent.click(screen.getByRole("button", { name: "zapisz wynik" }));
   await waitFor(() => expect(setPage1).toHaveBeenCalledWith(11, { result_text: "Nowy wynik." }));
   await waitFor(() => expect(screen.getByTestId("workspace")).toHaveTextContent("Nowy wynik."));
+});
+
+it("„Ułóż zdania od nowa” liczy zdania strony 1 i wkłada je do formularza", async () => {
+  const { refreshPage1 } = renderModal(state());
+  await screen.findByTestId("workspace");
+  fireEvent.click(screen.getByRole("button", { name: "ułóż zdania" }));
+  await waitFor(() => expect(refreshPage1).toHaveBeenCalledWith(11));
+  await waitFor(() => expect(screen.getByTestId("workspace")).toHaveTextContent("Zdanie z generatora."));
 });
