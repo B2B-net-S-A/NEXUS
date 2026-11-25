@@ -93,6 +93,7 @@ from app.services.custom_templates import schema as custom_templates
 from app.services.cpro_bot import schema as cpro_bot
 from app.services.contract_rate_documents import schema_sql as contract_rate_documents
 from app.services.contract_partner_reads import schema_sql as contract_partner_reads
+from app.services.contract_document_text import schema as contract_document_text
 
 #: Moduły po fundamencie, w kolejności migracji 0458–0476 (0467 i 0472 to statystyki z maina) (kontrakt każdego:
 #: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
@@ -220,6 +221,8 @@ MODULES = (
     legal_case_law,
     # 0780: wzory własne Generatora Umów B2B — wzór i wersje (25.11.2026).
     custom_templates,
+    # 0782: treść podpisanych dokumentów kontraktu dla asystenta prawnego (25.11.2026).
+    contract_document_text,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

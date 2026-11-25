@@ -136,7 +136,7 @@ export function JarvisMessageList({
               />
             );
           case "sources":
-            return <JarvisSources key={index} items={item.items} />;
+            return <JarvisSources key={index} items={item.items} onNavigate={onNavigate} />;
           case "link":
             return <JarvisDeepLinkCard key={index} link={item} onNavigate={onNavigate} />;
           case "error":

@@ -53,6 +53,10 @@ export interface JarvisStatus {
 export interface JarvisSource {
   url: string;
   title: string;
+  /** `nexus` = dokument w NEXUSIE (ścieżka aplikacji), brak = wynik z internetu. */
+  origin?: "nexus";
+  /** Rodzaj dokumentu NEXUSA: podpisany dokument kontraktu albo umowa ramowa klienta. */
+  kind?: "contract_document" | "framework_contract";
 }
 
 export type JarvisActionStatus = "proposed" | "confirmed" | "rejected" | "executed" | "failed" | "expired";
