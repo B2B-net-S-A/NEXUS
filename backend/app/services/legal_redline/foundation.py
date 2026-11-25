@@ -88,7 +88,9 @@ def mask(text: str, entities: list[Entity]) -> tuple[str, dict[str, str]]:
         marker = f"[{entity.tag}]" if n == 1 else f"[{entity.tag}_{n}]"
         by_value[value] = marker
         mapping[marker] = value
-    for value, marker in sorted(by_value.items(), key=lambda kv: len(kv[0]), reverse=True):
+    for value, marker in sorted(
+        by_value.items(), key=lambda kv: len(kv[0]), reverse=True
+    ):
         text = text.replace(value, marker)
     return text, mapping
 
@@ -134,7 +136,9 @@ def verify_sources(
         passage = by_ref.get(source.ref)
         if passage is None:
             state = "missing"
-        elif source.quote.strip() and _normalize(source.quote) in _normalize(passage.text):
+        elif source.quote.strip() and _normalize(source.quote) in _normalize(
+            passage.text
+        ):
             state = "ok"
         else:
             state = "mismatch"
@@ -144,7 +148,8 @@ def verify_sources(
                 state=state,
                 kind=passage.kind if passage else source.kind,
                 url=passage.url if passage else source.url,
-                label=source.label or (passage.label if passage and passage.label else source.ref),
+                label=source.label
+                or (passage.label if passage and passage.label else source.ref),
             )
         )
     return checked

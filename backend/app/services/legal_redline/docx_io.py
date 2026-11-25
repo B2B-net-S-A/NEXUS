@@ -67,9 +67,7 @@ def parse_xml(data: bytes) -> etree._Element:
 
 
 def serialize_xml(root: etree._Element) -> bytes:
-    return etree.tostring(
-        root, xml_declaration=True, encoding="UTF-8", standalone=True
-    )
+    return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
 def load_package(data: bytes) -> DocxPackage:
@@ -84,7 +82,9 @@ def load_package(data: bytes) -> DocxPackage:
     with archive:
         infos = archive.infolist()
         if DOCUMENT_PART not in {i.filename for i in infos}:
-            raise NotADocxError("To nie jest plik Worda (DOCX): brak word/document.xml.")
+            raise NotADocxError(
+                "To nie jest plik Worda (DOCX): brak word/document.xml."
+            )
         if sum(i.file_size for i in infos) > MAX_PART_BYTES * 3:
             raise NotADocxError("Plik po rozpakowaniu jest za duży.")
         parts: dict[str, bytes] = {}

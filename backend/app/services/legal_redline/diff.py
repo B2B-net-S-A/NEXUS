@@ -23,7 +23,9 @@ def _tokens(text: str) -> list[tuple[str, int]]:
     return [(m.group(), m.start()) for m in _TOKEN.finditer(text)]
 
 
-def word_changes(old: str, new: str, paragraph: int, prefix: str) -> list[RedlineChange]:
+def word_changes(
+    old: str, new: str, paragraph: int, prefix: str
+) -> list[RedlineChange]:
     """Zmiany w jednym akapicie, słowami; sąsiednie zmiany przedzielone samą spacją łączymy."""
 
     old_tokens = _tokens(old)
@@ -36,9 +38,13 @@ def word_changes(old: str, new: str, paragraph: int, prefix: str) -> list[Redlin
         if tag == "equal":
             continue
         o_start = old_tokens[i1][1] if i1 < len(old_tokens) else len(old)
-        o_end = old_tokens[i2 - 1][1] + len(old_tokens[i2 - 1][0]) if i2 > i1 else o_start
+        o_end = (
+            old_tokens[i2 - 1][1] + len(old_tokens[i2 - 1][0]) if i2 > i1 else o_start
+        )
         n_start = new_tokens[j1][1] if j1 < len(new_tokens) else len(new)
-        n_end = new_tokens[j2 - 1][1] + len(new_tokens[j2 - 1][0]) if j2 > j1 else n_start
+        n_end = (
+            new_tokens[j2 - 1][1] + len(new_tokens[j2 - 1][0]) if j2 > j1 else n_start
+        )
         if spans:
             prev = spans[-1]
             gap_old = old[prev[1] : o_start]
@@ -80,11 +86,22 @@ def diff_texts(old_paragraphs: list[str], new_text: str) -> list[RedlineChange]:
                 continue
             if anchor < 0:
                 changes.append(
-                    RedlineChange(id=next_id(), kind="insert_paragraph", paragraph=0, before=True, new_text=text)
+                    RedlineChange(
+                        id=next_id(),
+                        kind="insert_paragraph",
+                        paragraph=0,
+                        before=True,
+                        new_text=text,
+                    )
                 )
             else:
                 changes.append(
-                    RedlineChange(id=next_id(), kind="insert_paragraph", paragraph=anchor, new_text=text)
+                    RedlineChange(
+                        id=next_id(),
+                        kind="insert_paragraph",
+                        paragraph=anchor,
+                        new_text=text,
+                    )
                 )
 
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
@@ -93,7 +110,14 @@ def diff_texts(old_paragraphs: list[str], new_text: str) -> list[RedlineChange]:
         if tag == "delete":
             for i in range(i1, i2):
                 if old_paragraphs[i].strip():
-                    changes.append(RedlineChange(id=next_id(), kind="delete_paragraph", paragraph=i, find=old_paragraphs[i]))
+                    changes.append(
+                        RedlineChange(
+                            id=next_id(),
+                            kind="delete_paragraph",
+                            paragraph=i,
+                            find=old_paragraphs[i],
+                        )
+                    )
             continue
         if tag == "insert":
             insert_after(i1 - 1, new_paragraphs[j1:j2])
@@ -109,7 +133,9 @@ def diff_texts(old_paragraphs: list[str], new_text: str) -> list[RedlineChange]:
                     i
                     for i in olds
                     if i > last_old
-                    and SequenceMatcher(None, old_paragraphs[i], new_paragraphs[j], autojunk=False).ratio()
+                    and SequenceMatcher(
+                        None, old_paragraphs[i], new_paragraphs[j], autojunk=False
+                    ).ratio()
                     >= _SAME_PARAGRAPH_RATIO
                 ),
                 None,
@@ -119,15 +145,34 @@ def diff_texts(old_paragraphs: list[str], new_text: str) -> list[RedlineChange]:
                 continue
             for i in range(last_old + 1, match):
                 if old_paragraphs[i].strip():
-                    changes.append(RedlineChange(id=next_id(), kind="delete_paragraph", paragraph=i, find=old_paragraphs[i]))
+                    changes.append(
+                        RedlineChange(
+                            id=next_id(),
+                            kind="delete_paragraph",
+                            paragraph=i,
+                            find=old_paragraphs[i],
+                        )
+                    )
             insert_after(match - 1, pending_new)
             pending_new = []
-            for change in word_changes(old_paragraphs[match], new_paragraphs[j], match, prefix=f"d{counter + 1}."):
+            for change in word_changes(
+                old_paragraphs[match],
+                new_paragraphs[j],
+                match,
+                prefix=f"d{counter + 1}.",
+            ):
                 changes.append(change)
             counter += 1
             last_old = match
         for i in range(last_old + 1, i2):
             if old_paragraphs[i].strip():
-                changes.append(RedlineChange(id=next_id(), kind="delete_paragraph", paragraph=i, find=old_paragraphs[i]))
+                changes.append(
+                    RedlineChange(
+                        id=next_id(),
+                        kind="delete_paragraph",
+                        paragraph=i,
+                        find=old_paragraphs[i],
+                    )
+                )
         insert_after(i2 - 1 if last_old < i2 - 1 else last_old, pending_new)
     return changes

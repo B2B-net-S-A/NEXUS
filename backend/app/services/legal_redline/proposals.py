@@ -105,7 +105,9 @@ def _document_block(paragraphs: list[Paragraph]) -> str:
 
 def _sources_block(passages: list[SourcePassage]) -> str:
     return "\n\n".join(
-        f"<<{p.ref}>> {p.label or p.ref}: {p.text}" for p in passages if p.ref != DOCUMENT_REF
+        f"<<{p.ref}>> {p.label or p.ref}: {p.text}"
+        for p in passages
+        if p.ref != DOCUMENT_REF
     )
 
 
@@ -167,14 +169,25 @@ def parse_reply(
             continue
         para = item.get("paragraph")
         kind = item.get("kind") or "replace"
-        if not isinstance(para, int) or kind not in ("replace", "insert_paragraph", "delete_paragraph"):
-            proposal.dropped.append(DroppedChange(para if isinstance(para, int) else None, "Zła kotwica zmiany."))
+        if not isinstance(para, int) or kind not in (
+            "replace",
+            "insert_paragraph",
+            "delete_paragraph",
+        ):
+            proposal.dropped.append(
+                DroppedChange(
+                    para if isinstance(para, int) else None, "Zła kotwica zmiany."
+                )
+            )
             continue
         masked_new = str(item.get("new_text") or "")
         unknown = [m for m in _MARKER.findall(masked_new) if m not in mapping]
         if unknown:
             proposal.dropped.append(
-                DroppedChange(para, f"Zmiana wpisuje dane, których nie ma w dokumencie ({', '.join(unknown)}).")
+                DroppedChange(
+                    para,
+                    f"Zmiana wpisuje dane, których nie ma w dokumencie ({', '.join(unknown)}).",
+                )
             )
             continue
         sources = tuple(
@@ -233,12 +246,20 @@ async def propose(
     masked_document, mapping = mask(document, all_entities)
     law = await search_law(db, instruction)
     passages = [
-        SourcePassage(kind="contract", ref=DOCUMENT_REF, text=document, label="Dokument"),
+        SourcePassage(
+            kind="contract", ref=DOCUMENT_REF, text=document, label="Dokument"
+        ),
         *law,
         *(extra_passages or []),
     ]
     masked_passages = [
-        SourcePassage(kind=p.kind, ref=p.ref, text=mask(p.text, all_entities)[0], url=p.url, label=p.label)
+        SourcePassage(
+            kind=p.kind,
+            ref=p.ref,
+            text=mask(p.text, all_entities)[0],
+            url=p.url,
+            label=p.label,
+        )
         for p in passages
     ]
     messages = build_messages(instruction, masked_document, masked_passages)
@@ -251,6 +272,8 @@ async def propose(
     except Exception as exc:  # noqa: BLE001 — propozycje to dodatek, ręczna ścieżka działa
         logger.warning("legal_redline: propozycje nieudane (%s)", type(exc).__name__)
         return Proposal(status="failed")
-    proposal = parse_reply(reply, paragraphs=paragraphs, mapping=mapping, passages=passages)
+    proposal = parse_reply(
+        reply, paragraphs=paragraphs, mapping=mapping, passages=passages
+    )
     proposal.model = model_for(AIFeatureKey.legal_redline)
     return proposal

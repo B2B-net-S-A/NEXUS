@@ -185,12 +185,18 @@ def _split_at(p: etree._Element, offset: int, depth: int) -> None:
             return
 
 
-def _runs_in_range(segments: list[Segment], start: int, end: int) -> list[etree._Element]:
+def _runs_in_range(
+    segments: list[Segment], start: int, end: int
+) -> list[etree._Element]:
     runs: list[etree._Element] = []
     for seg in segments:
         if seg.end <= seg.start:
             continue
-        if seg.start >= start and seg.end <= end and (not runs or runs[-1] is not seg.run):
+        if (
+            seg.start >= start
+            and seg.end <= end
+            and (not runs or runs[-1] is not seg.run)
+        ):
             runs.append(seg.run)
     return runs
 
@@ -213,7 +219,9 @@ def _to_deleted(run: etree._Element) -> None:
         el.set(f"{{{XML_NS}}}space", "preserve")
 
 
-def _wrap_deleted(runs: list[etree._Element], ids: _Ids, date: str) -> list[etree._Element]:
+def _wrap_deleted(
+    runs: list[etree._Element], ids: _Ids, date: str
+) -> list[etree._Element]:
     wrappers = []
     for group in _groups(runs):
         wrapper = _tracked("del", ids, date)
@@ -237,7 +245,9 @@ def _outside_ins(el: etree._Element) -> etree._Element:
     return current
 
 
-def _insert_point(p: etree._Element, offset: int, depth: int) -> tuple[etree._Element | None, str, etree._Element | None]:
+def _insert_point(
+    p: etree._Element, offset: int, depth: int
+) -> tuple[etree._Element | None, str, etree._Element | None]:
     """(sąsiad, ``after``/``before``/``append``, przebieg wzoru formatowania)."""
 
     segments, _, _ = paragraph_segments(p, depth)
@@ -261,7 +271,9 @@ def _insert_point(p: etree._Element, offset: int, depth: int) -> tuple[etree._El
     raise RedlineError("Wstawka przylega do pola Worda — wstaw ją ręcznie w Wordzie.")
 
 
-def _place(new: etree._Element, anchor: etree._Element | None, where: str, p: etree._Element) -> None:
+def _place(
+    new: etree._Element, anchor: etree._Element | None, where: str, p: etree._Element
+) -> None:
     if where == "after" and anchor is not None:
         anchor.addnext(new)
     elif where == "before" and anchor is not None:
@@ -277,9 +289,7 @@ class _Comments:
     def __init__(self, pkg: DocxPackage, date: str) -> None:
         raw = pkg.parts.get(COMMENTS_PART)
         self.root = (
-            parse_xml(raw)
-            if raw
-            else etree.Element(w("comments"), nsmap={"w": W_NS})
+            parse_xml(raw) if raw else etree.Element(w("comments"), nsmap={"w": W_NS})
         )
         self.existed = raw is not None
         self.date = date
@@ -287,7 +297,11 @@ class _Comments:
 
     def add(self, comment_id: str, text: str) -> None:
         comment = _el(
-            "comment", id=comment_id, author=AUTHOR, date=self.date, initials=AUTHOR_INITIALS
+            "comment",
+            id=comment_id,
+            author=AUTHOR,
+            date=self.date,
+            initials=AUTHOR_INITIALS,
         )
         for i, line in enumerate(text.split("\n")):
             para = _el("p")
@@ -338,7 +352,10 @@ def _resolve_range(text: str, change: RedlineChange) -> RedlineChange:
 
     if change.start is not None:
         end = change.end if change.end is not None else change.start + len(change.find)
-        if 0 <= change.start <= end <= len(text) and text[change.start : end] == change.find:
+        if (
+            0 <= change.start <= end <= len(text)
+            and text[change.start : end] == change.find
+        ):
             return dc_replace(change, end=end)
     if change.find:
         hits = [m.start() for m in re.finditer(re.escape(change.find), text)]
@@ -371,12 +388,16 @@ def resolve_changes(
     for change in changes:
         if not 0 <= change.paragraph < len(paragraph_texts):
             raise RedlineError(
-                "Zmiana wskazuje akapit, którego w dokumencie nie ma.", change_id=change.id
+                "Zmiana wskazuje akapit, którego w dokumencie nie ma.",
+                change_id=change.id,
             )
         if change.kind == "replace":
             change = _resolve_range(paragraph_texts[change.paragraph], change)
             if change.start == change.end and not change.new_text:
-                raise RedlineError("Pusta zmiana — nic do wstawienia ani skreślenia.", change_id=change.id)
+                raise RedlineError(
+                    "Pusta zmiana — nic do wstawienia ani skreślenia.",
+                    change_id=change.id,
+                )
         elif change.kind == "insert_paragraph" and not change.new_text.strip():
             raise RedlineError("Nowy akapit nie ma treści.", change_id=change.id)
         resolved.append(change)
@@ -396,7 +417,9 @@ def resolve_changes(
         )
         for prev, nxt in zip(ordered, ordered[1:]):
             if nxt.start < prev.end or nxt.start == prev.start:
-                raise RedlineError("Dwie zmiany nachodzą na ten sam fragment.", change_id=nxt.id)
+                raise RedlineError(
+                    "Dwie zmiany nachodzą na ten sam fragment.", change_id=nxt.id
+                )
     return resolved
 
 
@@ -421,7 +444,12 @@ def _set_mark(p: etree._Element, tag: str, ids: _Ids, date: str) -> None:
 
 
 def _apply_replace(
-    p: etree._Element, depth: int, change: RedlineChange, ids: _Ids, date: str, comments: _Comments
+    p: etree._Element,
+    depth: int,
+    change: RedlineChange,
+    ids: _Ids,
+    date: str,
+    comments: _Comments,
 ) -> None:
     assert change.start is not None and change.end is not None
     touched: list[etree._Element] = []
@@ -429,7 +457,10 @@ def _apply_replace(
     try:
         if change.start < change.end:
             segments, _, _ = paragraph_segments(p, depth)
-            if any(s.locked and s.start < change.end and s.end > change.start for s in segments):
+            if any(
+                s.locked and s.start < change.end and s.end > change.start
+                for s in segments
+            ):
                 raise RedlineError("Zmiana przecina pole Worda (np. numer strony).")
             _split_at(p, change.end, depth)
             _split_at(p, change.start, depth)
@@ -445,7 +476,11 @@ def _apply_replace(
             else:
                 _split_at(p, change.start, depth)
                 anchor, where, model_run = _insert_point(p, change.start, depth)
-                rpr = model_run.find(w("rPr")) if model_run is not None else _paragraph_mark_rpr(p)
+                rpr = (
+                    model_run.find(w("rPr"))
+                    if model_run is not None
+                    else _paragraph_mark_rpr(p)
+                )
                 ins.append(_new_run(change.new_text, rpr))
                 _place(ins, anchor, where, p)
             touched.append(ins)
@@ -464,7 +499,13 @@ def _paragraph_mark_rpr(p: etree._Element) -> etree._Element | None:
     return run_rpr
 
 
-def _comment(change: RedlineChange, first: etree._Element, last: etree._Element, ids: _Ids, comments: _Comments) -> None:
+def _comment(
+    change: RedlineChange,
+    first: etree._Element,
+    last: etree._Element,
+    ids: _Ids,
+    comments: _Comments,
+) -> None:
     text = comment_text(change)
     if not text:
         return
@@ -474,12 +515,18 @@ def _comment(change: RedlineChange, first: etree._Element, last: etree._Element,
 
 
 def _apply_delete_paragraph(
-    p: etree._Element, depth: int, change: RedlineChange, ids: _Ids, date: str, comments: _Comments
+    p: etree._Element,
+    depth: int,
+    change: RedlineChange,
+    ids: _Ids,
+    date: str,
+    comments: _Comments,
 ) -> None:
     segments, text, _ = paragraph_segments(p, depth)
     if any(s.locked for s in segments):
         raise RedlineError(
-            "Akapit zawiera pole Worda — skreśl go ręcznie w Wordzie.", change_id=change.id
+            "Akapit zawiera pole Worda — skreśl go ręcznie w Wordzie.",
+            change_id=change.id,
         )
     runs = _runs_in_range(segments, 0, len(text))
     wrappers = _wrap_deleted(runs, ids, date) if runs else []
@@ -504,7 +551,13 @@ def _template_paragraph(elements: list[etree._Element], index: int) -> etree._El
     return anchor
 
 
-def _new_paragraph(template: etree._Element, change: RedlineChange, ids: _Ids, date: str, comments: _Comments) -> etree._Element:
+def _new_paragraph(
+    template: etree._Element,
+    change: RedlineChange,
+    ids: _Ids,
+    date: str,
+    comments: _Comments,
+) -> etree._Element:
     p = _el("p")
     ppr = template.find(w("pPr"))
     if ppr is not None:
@@ -517,7 +570,11 @@ def _new_paragraph(template: etree._Element, change: RedlineChange, ids: _Ids, d
     model_run = next(
         (r for r in template.iter(w("r")) if r.find(w("t")) is not None), None
     )
-    rpr = model_run.find(w("rPr")) if model_run is not None else _paragraph_mark_rpr(template)
+    rpr = (
+        model_run.find(w("rPr"))
+        if model_run is not None
+        else _paragraph_mark_rpr(template)
+    )
     ins = _tracked("ins", ids, date)
     ins.append(_new_run(change.new_text, rpr))
     p.append(ins)
@@ -552,11 +609,23 @@ def apply_changes(
         reverse=True,
     )
     for change in inline:
-        _apply_replace(elements[change.paragraph], depths[change.paragraph], change, ids, date, comments)
+        _apply_replace(
+            elements[change.paragraph],
+            depths[change.paragraph],
+            change,
+            ids,
+            date,
+            comments,
+        )
     for change in resolved:
         if change.kind == "delete_paragraph":
             _apply_delete_paragraph(
-                elements[change.paragraph], depths[change.paragraph], change, ids, date, comments
+                elements[change.paragraph],
+                depths[change.paragraph],
+                change,
+                ids,
+                date,
+                comments,
             )
     last_after: dict[int, etree._Element] = {}
     for change in resolved:
@@ -584,7 +653,8 @@ def _register_comments_part(pkg: DocxPackage) -> dict[str, bytes]:
     out: dict[str, bytes] = {}
     types = parse_xml(pkg.parts[CONTENT_TYPES_PART])
     if not any(
-        o.get("PartName") == "/" + COMMENTS_PART for o in types.iter(f"{{{CT_NS}}}Override")
+        o.get("PartName") == "/" + COMMENTS_PART
+        for o in types.iter(f"{{{CT_NS}}}Override")
     ):
         override = etree.SubElement(types, f"{{{CT_NS}}}Override")
         override.set("PartName", "/" + COMMENTS_PART)
