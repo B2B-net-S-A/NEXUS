@@ -78,6 +78,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { downloadBlob } from "@/lib/authenticated-files";
 import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
 import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
+import { cvDownloadPlan, cvFileFormat } from "@/lib/cv-file-format";
 import { useToast } from "@/components/Toast";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { Badge } from "@/components/ui/badge";
@@ -1295,6 +1296,15 @@ export function PipelineCandidateDock({
   const canDownloadCompanyCv = companyBrandedQuery.isSuccess && stageCv === "ready";
   const companyConsentMissing = canDownloadCompanyCv && companyBranded?.consent_missing === true;
   const [downloadingCv, setDownloadingCv] = useState<"docx" | "pdf" | null>(null);
+  // Format pliku z reguły klienta (25.11.2026): plik, którego chce klient, stoi
+  // pierwszy. Bez wymagań — jak dotąd: Word, potem PDF.
+  const companyFileFormat = cvFileFormat(companyBranded?.client_file_format);
+  const dockDownloadOrder: ("docx" | "pdf")[] = companyFileFormat
+    ? (() => {
+        const plan = cvDownloadPlan(companyFileFormat, companyBranded?.cv_layout === "new" ? "new" : "classic");
+        return [...plan.primary, ...plan.inMenu];
+      })()
+    : ["docx", "pdf"];
   const downloadCompanyCv = async (format: "docx" | "pdf") => {
     setDownloadingCv(format);
     try {
@@ -2532,29 +2542,34 @@ export function PipelineCandidateDock({
                 {/* Awaria odczytu nie udaje braku CV: bez pobierania i bez „Generuj CV”. */}
                 {!brandedFailed && (canDownloadCompanyCv || !readOnly) ? (
                   <div className="flex flex-wrap gap-1.5 pl-3.5">
-                    {canDownloadCompanyCv ? (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void downloadCompanyCv("docx")}
-                          disabled={downloadingCv != null || companyConsentMissing}
-                          loading={downloadingCv === "docx"}
-                        >
-                          <Download className="h-3.5 w-3.5" aria-hidden /> Pobierz Word
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          aria-label="Pobierz PDF"
-                          onClick={() => void downloadCompanyCv("pdf")}
-                          disabled={downloadingCv != null || companyConsentMissing}
-                          loading={downloadingCv === "pdf"}
-                        >
-                          <FileDown className="h-3.5 w-3.5" aria-hidden /> PDF
-                        </Button>
-                      </>
-                    ) : null}
+                    {canDownloadCompanyCv
+                      ? dockDownloadOrder.map((kind) =>
+                          kind === "docx" ? (
+                            <Button
+                              key="docx"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => void downloadCompanyCv("docx")}
+                              disabled={downloadingCv != null || companyConsentMissing}
+                              loading={downloadingCv === "docx"}
+                            >
+                              <Download className="h-3.5 w-3.5" aria-hidden /> Pobierz Word
+                            </Button>
+                          ) : (
+                            <Button
+                              key="pdf"
+                              size="sm"
+                              variant="outline"
+                              aria-label="Pobierz PDF"
+                              onClick={() => void downloadCompanyCv("pdf")}
+                              disabled={downloadingCv != null || companyConsentMissing}
+                              loading={downloadingCv === "pdf"}
+                            >
+                              <FileDown className="h-3.5 w-3.5" aria-hidden /> PDF
+                            </Button>
+                          ),
+                        )
+                      : null}
                     {!readOnly ? (
                       stageCv === "ready" ? (
                         <Button size="sm" variant="outline" data-tour="person.cv.edit" onClick={() => setOpenBranded(true)}>

@@ -233,3 +233,28 @@ async def test_rule_for_generation_reports_the_format(app_client: AsyncClient):
         assert after.json()["cv_file_format"] == "pdf"
     finally:
         await _cleanup([cid])
+
+
+@pytest.mark.asyncio
+async def test_generated_pdf_refuses_a_new_layout_generation(monkeypatch):
+    """PDF wyniku generatora powstaje z pliku Word (klasyczny) — dla generacji
+    w „Nowym CV” byłby innym plikiem niż wybrany, więc 409 z drogą do karty."""
+    from fastapi import HTTPException
+
+    from app.api import cv_pdf_preview
+
+    monkeypatch.setattr(settings, "CV_NEW_LAYOUT_ENABLED", True)
+
+    class _Row:
+        cv_layout = "new"
+
+    async def _load(db, generated_id, user):
+        return _Row()
+
+    monkeypatch.setattr(cv_pdf_preview, "_load_generated_document", _load)
+    with pytest.raises(HTTPException) as refused:
+        await cv_pdf_preview.generated_cv_pdf.__wrapped__(
+            request=None, generated_id=1, current_user=object(), db=object()
+        )
+    assert refused.value.status_code == 409
+    assert "CV do klienta" in refused.value.detail

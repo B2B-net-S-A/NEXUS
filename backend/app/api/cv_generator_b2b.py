@@ -328,6 +328,9 @@ class GeneratedCvItem(BaseModel):
     # Auto-CV, którego nikt jeszcze nie zatwierdził istniejącą ścieżką — takie
     # wiersze stoją NA POCZĄTKU listy osadzonej w warsztacie wysyłki CV.
     needs_review: bool = False
+    # Układ generacji (przy wyłączonej fladze zawsze klasyczny). Wynik generatora
+    # nie daje PDF „Nowego CV” — ten jest w karcie „CV do klienta” (25.11.2026).
+    cv_layout: Literal["classic", "new"] = "classic"
     filename: str
     # Async generation lifecycle — the UI polls this list and renders a spinner
     # for "processing", the CV for "ready" and the reason for "failed".
@@ -3413,6 +3416,7 @@ async def list_generated_cvs(
     stage_cvs = await _stage_cvs_for_documents(db, document_ids)
     return [
         GeneratedCvItem(
+            cv_layout=layout_service.effective(r.cv_layout),
             central_policy=r.central_policy,
             package_id=package_ids.get(r.id),
             id=r.id,

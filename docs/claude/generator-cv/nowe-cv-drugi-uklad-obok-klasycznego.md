@@ -170,10 +170,15 @@ etapu 2 plik Word jest dalej zawsze klasyczny.
   | Word i PDF | oba na wierzchu | oba na wierzchu + ostrzeżenie |
 
   Edytor przy „Bez wymagań” zostaje jak dotąd (Word w pasku, PDF w „Więcej”).
+  Dok panelu osoby (sekcja „CV”) pokazuje oba przyciski; plik klienta stoi
+  pierwszy, bez wymagań — Word, potem PDF.
   Wynik generatora: „Bez wymagań” i Word = sam „Pobierz DOCX”; PDF = „Pobierz
   PDF” pierwszy (`GET /cv-generator/generated/{id}/pdf[?version_id=]`, PDF
   tego samego pliku Word, bramki i zgoda RODO jak DOCX, limit 20/min); oba =
-  DOCX i PDF. Plik wyniku generatora jest zawsze klasyczny.
+  DOCX i PDF. Plik wyniku generatora jest zawsze klasyczny, więc dla generacji
+  w „Nowym CV” (`GeneratedCvItem.cv_layout`) trasa daje 409, a wynik nie ma
+  przycisku PDF, tylko wskazanie karty „CV do klienta” — PDF z Worda byłby
+  innym plikiem niż wybrany.
 - **Ostrzeżenie** „Klient chce Worda, a wybrane jest Nowe CV…” w karcie
   (do wysyłki), w edytorze i w kroku „Jak CV zobaczy klient” generatora, dopóki
   etap 2 nie da Worda w nowym wyglądzie. Po etapie 2 usuń je razem

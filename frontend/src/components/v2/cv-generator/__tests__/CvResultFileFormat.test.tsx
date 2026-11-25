@@ -17,12 +17,12 @@ function item(partial: Partial<GeneratedCvItem> & Pick<GeneratedCvItem, "id">): 
   };
 }
 
-function view(fileFormat: CvFileFormat | null) {
+function view(fileFormat: CvFileFormat | null, partial: Partial<GeneratedCvItem> = {}) {
   const onDownload = vi.fn();
   const onDownloadPdf = vi.fn();
   render(
     <CvResultView
-      mainId={1} documents={[item({ id: 1 })]} canWrite onPreview={() => undefined} onEdit={() => undefined}
+      mainId={1} documents={[item({ id: 1, ...partial })]} canWrite onPreview={() => undefined} onEdit={() => undefined}
       onDownload={onDownload} onDownloadPdf={onDownloadPdf} fileFormat={fileFormat}
     />,
   );
@@ -47,6 +47,11 @@ describe("CvResultView — format pliku klienta", () => {
     fireEvent.click(screen.getByTestId("cv-result-download-pdf"));
     expect(onDownloadPdf).toHaveBeenCalledTimes(1);
     expect(onDownload).not.toHaveBeenCalled();
+  });
+
+  it("generacja w Nowym CV: bez PDF z pliku Word, wskazanie karty", () => {
+    expect(view("pdf", { cv_layout: "new" }).buttons).toEqual(["Pobierz DOCX"]);
+    expect(screen.getByTestId("cv-result-client-format")).toHaveTextContent("z karty „CV do klienta”");
   });
 
   it("klient chce obu: DOCX i PDF", () => {

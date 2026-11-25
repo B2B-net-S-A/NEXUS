@@ -7486,6 +7486,8 @@ export interface CvFactualReviewSummary {
 /** Wiersz `GET /api/cv-generator/generated` — pliki kandydata i widok wyniku. */
 export interface GeneratedCvItem {
   id: number;
+  /** Układ generacji; „new” = PDF Nowego CV jest w karcie „CV do klienta”, nie tutaj. */
+  cv_layout?: CvLayout;
   approved_version_id?: number | null;
   central_policy?: Record<string, unknown> | null;
   /** Główny dokument pakietu językowego (PL + EN); `null` = sam jest główny. */

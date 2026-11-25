@@ -68,6 +68,10 @@ from app.services.html_sanitizer import sanitize_cv_html
 router = APIRouter()
 
 LIMIT = "20/minute"
+MSG_GENERATED_NEW_LAYOUT = (
+    "To CV jest w układzie „Nowe CV”. PDF pobierzesz z karty „CV do klienta” "
+    "w rekrutacji."
+)
 
 
 async def _pdf(db: AsyncSession, docx: bytes) -> bytes:
@@ -388,6 +392,10 @@ async def generated_cv_pdf(
     from app.services.cv_generated_approval import approved_version_for_generation
 
     row = await _load_generated_document(db, generated_id, current_user)
+    if layout_service.is_new(row.cv_layout):
+        # Plik Word wyniku jest klasyczny — PDF z niego nie byłby tym „Nowym
+        # CV”, które rekruter wybrał. Ten jest w karcie CV etapu.
+        raise HTTPException(409, MSG_GENERATED_NEW_LAYOUT)
     if version_id is not None:
         version = await approved_version_for_generation(db, row, version_id)
         consent_gate.ensure_downloadable(row, version)

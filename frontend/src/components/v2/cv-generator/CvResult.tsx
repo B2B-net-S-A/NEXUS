@@ -69,7 +69,10 @@ export function CvResultView(props: CvResultViewProps) {
   const consentRequired = props.documents.some((doc) => doc.consent_required);
   const warnings = [...new Set(props.documents.flatMap((doc) => doc.warnings ?? []))];
   // Format z reguły klienta: PDF na pierwszym miejscu albo obok DOCX; bez wymagań — sam DOCX.
-  const pdfAllowed = !!props.onDownloadPdf && (props.fileFormat === "pdf" || props.fileFormat === "both");
+  // Generacja w „Nowym CV”: plik wyniku jest klasyczny, a PDF nowego układu jest w karcie.
+  const wantsPdf = props.fileFormat === "pdf" || props.fileFormat === "both";
+  const newLayoutResult = main?.cv_layout === "new";
+  const pdfAllowed = !!props.onDownloadPdf && wantsPdf && !newLayoutResult;
   const downloadKinds: ("docx" | "pdf")[] = !pdfAllowed
     ? ["docx"]
     : props.fileFormat === "pdf"
@@ -188,9 +191,12 @@ export function CvResultView(props: CvResultViewProps) {
                 </li>
               ))}
             </ul>
-            {pdfAllowed && props.fileFormat ? (
+            {wantsPdf && props.fileFormat ? (
               <p className="mt-2 text-xs text-muted-foreground" data-testid="cv-result-client-format">
                 Klient chce: {CV_FILE_FORMAT_LABEL[props.fileFormat]}
+                {newLayoutResult
+                  ? ". PDF w układzie „Nowe CV” pobierzesz z karty „CV do klienta” w rekrutacji — plik DOCX stąd jest klasyczny."
+                  : null}
               </p>
             ) : null}
             {((failed.length > 0 && ready.length > 0) || interrupted) && props.onRetryPackage && props.canWrite ? (
