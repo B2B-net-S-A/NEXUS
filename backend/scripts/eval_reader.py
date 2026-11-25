@@ -193,16 +193,17 @@ def run_revision(
 
 
 def env_errors(units: list[dict]) -> list[str]:
-    """Brak modułu w venv to błąd środowiska, nie czytnika: rewizje różnią się
-    zależnościami (#3998 zamienił python-jose na PyJWT), więc wynik nie jest ważny."""
+    """Brak pakietu w venv to błąd środowiska, nie czytnika: rewizje różnią się
+    zależnościami (#3998 zamienił python-jose na PyJWT), więc wynik nie jest ważny.
+    Brak modułu ``app.*`` w starej rewizji to zwykłe nietrafienie (funkcji jeszcze
+    nie było)."""
 
-    return sorted(
-        {
-            u["blad"]
-            for u in units
-            if (u.get("blad") or "").startswith(("ModuleNotFoundError", "ImportError"))
-        }
-    )
+    def broken(error: str) -> bool:
+        return error.startswith(("ModuleNotFoundError", "ImportError")) and (
+            "No module named 'app" not in error and "from 'app." not in error
+        )
+
+    return sorted({u["blad"] for u in units if broken(u.get("blad") or "")})
 
 
 def totals(units: list[dict], fields: list[str]) -> dict[str, list[int]]:

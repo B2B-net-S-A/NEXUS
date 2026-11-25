@@ -144,10 +144,10 @@ def _parsed_fields(case: dict) -> dict[str, list[dict]]:
 
 
 def _cv_fields(case: dict) -> dict[str, list[dict]]:
-    from app.services.cv_new_layout import facts
-
     if (case.get("wejscie") or {}).get("odczyt") is not None:
         return _parsed_fields(case)
+    from app.services.cv_new_layout import facts
+
     doc, today = _cv_document(case)
     now = facts.year_fraction(today)
     language = doc.language
