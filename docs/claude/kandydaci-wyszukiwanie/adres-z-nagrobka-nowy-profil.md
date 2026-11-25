@@ -14,7 +14,7 @@ wrócić z poczty, okna albo importu bez żadnego sygnału dla rekrutera. Decyzj
 | „Utwórz kandydata” w Zgłoszeniach | `api/application_submissions.py` | Jak okno, zgoda w polu `confirm_erased` |
 | Link, strona kariery | `services/public_apply.py` | Przechodzi, wpis w historii i zdanie w dzwonku |
 | Scraper portali | `/from-cv` z `is_integration_request` | Przechodzi, wpis w historii |
-| API v1, Traffit, Talent Radar | jak dotąd | 409 albo pominięty wiersz |
+| API v1, Traffit | jak dotąd | 409 albo pominięty wiersz |
 
 - **Ślad:** `Activity.action = recreated_after_erasure`, `details.via` = `screen` albo
   `self_application`. Bez danych osoby.

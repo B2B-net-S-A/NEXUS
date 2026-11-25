@@ -1835,7 +1835,6 @@
 "tests/test_talent_pool_cc.py": 0.5,
 "tests/test_talent_pools_api.py": 0.7,
 "tests/test_talent_radar_budget_suggestion.py": 0.0,
-"tests/test_talent_radar_importer.py": 12.9,
 "tests/test_talent_radar_search.py": 0.4,
 "tests/test_talent_radar_source_rename.py": 1.3,
 "tests/test_team_email_notifications.py": 0.6,

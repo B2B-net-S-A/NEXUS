@@ -13,6 +13,8 @@ Widok wynika wyłącznie z adresu (`?area=`, `?item=`); stare `?tab=` mapuje
   System/Log/Import CV/Narzędzia w Administracji), Konflikty, Coaching, Pomoc
   i Teams zniknęły z menu. Pozycje `hidden: true` dalej otwierają się pod
   adresem (`?item=conflicts`, `?item=advanced` = dawna siatka „Zaawansowane").
+  Podkarty „Import CV” (import z TalentRadaru) już nie ma: usunięta 25.11.2026,
+  stary `?sub=import` otwiera Użytkowników.
 - **„Słownik umiejętności" (`?item=skills`, obszar Rekrutacja, 23.09.2026)** to
   jedyna część Cortexa, która przeżyła jego usunięcie: dodanie umiejętności,
   aliasy i mapowanie nieznanych terminów (`api/skills_admin.py`,
