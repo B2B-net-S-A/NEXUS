@@ -24,6 +24,9 @@ B2B_DOCUMENT_TYPES: tuple[str, ...] = (
     "preliminary_participation_person",
     # Umowa przedwstępna na współpracę B2B (0744, 19.11.2026).
     "preliminary_b2b",
+    # Warianty z kandydatem prowadzącym działalność (0778, 25.11.2026).
+    "preliminary_cez_jdg",
+    "preliminary_b2b_jdg",
 )
 
 B2B_DOCUMENT_STATUSES: tuple[str, ...] = ("issued", "signed", "cancelled")

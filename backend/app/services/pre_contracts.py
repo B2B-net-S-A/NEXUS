@@ -565,7 +565,7 @@ async def kanban_badges_for_jobs(
 
 #: Dni robocze na umowę B2B po akceptacji klienta, gdy wzór ich nie podaje
 #: (wzór CeZ, § 2 ust. 3: 5 dni roboczych od poinformowania kandydata).
-_B2B_TERM_FALLBACK = {"preliminary_cez": 5}
+_B2B_TERM_FALLBACK = {"preliminary_cez": 5, "preliminary_cez_jdg": 5}
 
 
 def b2b_term_days(document_type: Optional[str]) -> Optional[int]:

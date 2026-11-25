@@ -12,7 +12,7 @@ wydanego pliku — ``strip_sensitive`` usuwa je przed zapisem ``render_payload``
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import date
 from typing import Literal
 
@@ -663,32 +663,37 @@ _PARTICIPATION_LABELS = {
 }
 
 
+#: Kandydat z jednoosobową działalnością w umowie przedwstępnej — zamiast
+#: adresu zamieszkania, dowodu i PESEL-u.
+_JDG_PARTY_FIELDS: tuple[FieldDef, ...] = (
+    FieldDef(
+        "partner_nip",
+        "NIP działalności",
+        required=True,
+        help="„Pobierz z rejestru” uzupełni firmę, adres i REGON.",
+        group="partner",
+        lookup="registry",
+        lookup_fills=_REGISTRY_FILLS_JDG,
+    ),
+    FieldDef(
+        "partner_legal_name",
+        "Firma (nazwa działalności)",
+        required=True,
+        group="partner",
+    ),
+    FieldDef(
+        "partner_business_address",
+        "Adres działalności (z CEIDG)",
+        required=True,
+        group="partner",
+    ),
+    FieldDef("partner_regon", "REGON", required=True, group="partner"),
+)
+
+
 def _participation_type(variant: Literal["jdg", "person"]) -> DocumentType:
     if variant == "jdg":
-        party: tuple[FieldDef, ...] = (
-            FieldDef(
-                "partner_nip",
-                "NIP działalności",
-                required=True,
-                help="„Pobierz z rejestru” uzupełni firmę, adres i REGON.",
-                group="partner",
-                lookup="registry",
-                lookup_fills=_REGISTRY_FILLS_JDG,
-            ),
-            FieldDef(
-                "partner_legal_name",
-                "Firma (nazwa działalności)",
-                required=True,
-                group="partner",
-            ),
-            FieldDef(
-                "partner_business_address",
-                "Adres działalności (z CEIDG)",
-                required=True,
-                group="partner",
-            ),
-            FieldDef("partner_regon", "REGON", required=True, group="partner"),
-        )
+        party: tuple[FieldDef, ...] = _JDG_PARTY_FIELDS
         who = "kandydatem prowadzącym jednoosobową działalność gospodarczą"
     else:
         party = (
@@ -769,7 +774,7 @@ def _participation_type(variant: Literal["jdg", "person"]) -> DocumentType:
     )
 
 
-TYPES: dict[str, DocumentType] = {
+_BASE_TYPES: dict[str, DocumentType] = {
     t.key: t
     for t in (
         *ANNEX_GENERATOR_TYPES,
@@ -975,7 +980,7 @@ TYPES: dict[str, DocumentType] = {
         ),
         DocumentType(
             key="preliminary_cez",
-            label="Umowa przedwstępna — Centrum e-Zdrowia",
+            label="Umowa przedwstępna Centrum e-Zdrowia — osoba fizyczna",
             family="preliminary",
             languages=("pl",),
             parent="none",
@@ -1057,7 +1062,7 @@ TYPES: dict[str, DocumentType] = {
         # kara do zmiany, domyślnie 10 000 zł; stawka tylko godzinowa).
         DocumentType(
             key="preliminary_b2b",
-            label="Umowa przedwstępna na współpracę B2B",
+            label="Umowa przedwstępna na współpracę B2B — osoba fizyczna",
             family="preliminary",
             languages=("pl",),
             parent="none",
@@ -1134,6 +1139,73 @@ TYPES: dict[str, DocumentType] = {
         ),
     )
 }
+
+# ── Umowy przedwstępne z kandydatem z działalnością (25.11.2026) ─────────────
+
+#: Dane osoby fizycznej, które w wariancie z działalnością zastępuje
+#: ``_JDG_PARTY_FIELDS`` (decyzja Artura 25.11.2026: CeZ i B2B jak umowa
+#: o udziale — osoba fizyczna albo kandydat z działalnością).
+_PERSON_PARTY_KEYS = frozenset(
+    {"partner_home_address", "id_document", "id_document_issuer", "pesel"}
+)
+
+#: Typ osoby fizycznej → (klucz, etykieta, opis) wariantu z działalnością.
+#: Wzory: ``scripts/build_preliminary_jdg_templates.py`` (ta sama treść,
+#: inna komparycja kandydata).
+_JDG_VARIANTS: dict[str, tuple[str, str, str]] = {
+    "preliminary_cez": (
+        "preliminary_cez_jdg",
+        "Umowa przedwstępna Centrum e-Zdrowia — kandydat z działalnością",
+        "Umowa przedwstępna z kandydatem prowadzącym jednoosobową działalność "
+        "przed rozstrzygnięciem rekrutacji w Centrum e-Zdrowia (wyłączność na "
+        "kandydaturę, warunki umowy przyrzeczonej).",
+    ),
+    "preliminary_b2b": (
+        "preliminary_b2b_jdg",
+        "Umowa przedwstępna na współpracę B2B — kandydat z działalnością",
+        "Umowa z kandydatem prowadzącym jednoosobową działalność: zawarcie "
+        "umowy B2B do wskazanego dnia, stawka godzinowa netto, kara umowna za "
+        "rezygnację bez uzasadnionej przyczyny.",
+    ),
+}
+
+
+def _jdg_variant(
+    person: DocumentType, key: str, label: str, description: str
+) -> DocumentType:
+    """Wariant z działalnością: pola osoby fizycznej → dane z CEIDG w tym
+    samym miejscu formularza; reszta pól, terminy i efekty bez zmian.
+    Nowy wzór, więc bez rewizji i bez wzorów sprzed niej."""
+    fields: list[FieldDef] = []
+    for field_def in person.fields:
+        if field_def.key not in _PERSON_PARTY_KEYS:
+            fields.append(field_def)
+        elif not any(f.key == "partner_nip" for f in fields):
+            fields.extend(_JDG_PARTY_FIELDS)
+    return replace(
+        person,
+        key=key,
+        label=label,
+        description=description,
+        template_revision="",
+        legacy_template_revisions=(),
+        fields=tuple(fields),
+    )
+
+
+def _with_jdg_variants(types: dict[str, DocumentType]) -> dict[str, DocumentType]:
+    """Wariant z działalnością zaraz po swoim typie osoby fizycznej —
+    kolejność wyboru wzoru w oknie umowy przedwstępnej."""
+    out: dict[str, DocumentType] = {}
+    for key, doc_type in types.items():
+        out[key] = doc_type
+        if key in _JDG_VARIANTS:
+            variant = _jdg_variant(doc_type, *_JDG_VARIANTS[key])
+            out[variant.key] = variant
+    return out
+
+
+TYPES: dict[str, DocumentType] = _with_jdg_variants(_BASE_TYPES)
 
 #: Grupa pól numerów paragrafów — formularz pokazuje ją tylko, gdy wersja wzoru
 #: umowy bazowej jest nieznana (``needs_refs`` w prefillu).
