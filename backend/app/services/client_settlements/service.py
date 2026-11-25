@@ -62,6 +62,7 @@ from app.services.client_settlements import (
     kesu,
     kcp,
     kesu_flow,
+    line_rate,
     mail_declaration,
     mail_nn,
     mail_text,
@@ -2380,6 +2381,27 @@ async def _recompute(
             split=split,
             cost_parts=cost_parts,
         )
+    )
+    # Stawka linii ≠ kontrakt albo ostatnia faktura za osobę: uwaga przed fakturą.
+    priced_lines = (
+        [part.order for part in split]
+        if result.orders
+        else ([state] if state is not None else [])
+    )
+    if state is not None and state.number is None and order is not None:
+        # Linia bez grupy (PKO, ERSTE): numer z tytułu, jak na liście miesiąca.
+        titled = number_from_title(getattr(order, "title", None))
+        priced_lines = [
+            replace(line, number=titled) if line is state else line
+            for line in priced_lines
+        ]
+    result = await line_rate.check(
+        db,
+        contract_id=s.contract_id,
+        client_id=s.client_id,
+        month=s.period_month,
+        lines=priced_lines,
+        result=result,
     )
     return result, state, order
 

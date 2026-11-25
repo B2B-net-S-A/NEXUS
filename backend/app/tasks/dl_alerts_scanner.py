@@ -88,6 +88,8 @@ from app.models.dl_alert import (
     ALERT_NEW_CONTRACTOR_DRAFT,
     ALERT_ORDER_MAIL_REVIEW,
     ALERT_PERIODIC_ORDER_ENDING,
+    ALERT_SETTLEMENT_OVER_ORDER,
+    ALERT_SETTLEMENT_RATE_MISMATCH,
     DL_ALERT_PRIORITY_HIGH,
     DL_ALERT_PRIORITY_STANDARD,
 )
@@ -1500,6 +1502,207 @@ async def rule_framework_over_limit(
     return created
 
 
+def _period(month: str) -> str:
+    return f"{month[5:7]}.{month[:4]}"
+
+
+async def _settlement_people(
+    db: AsyncSession, contract_ids: set[int]
+) -> dict[int, str]:
+    if not contract_ids:
+        return {}
+    rows = await db.execute(
+        select(Contract.id, Candidate)
+        .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
+        .where(Contract.id.in_(contract_ids))
+    )
+    return {cid: _person(candidate, "osoby") for cid, candidate in rows}
+
+
+async def _order_numbers(db: AsyncSession, order_ids: set[int]) -> dict[int, str]:
+    if not order_ids:
+        return {}
+    rows = await db.execute(
+        select(ClientOrder.id, ClientOrderGroup.order_number, ClientOrder.title)
+        .outerjoin(ClientOrderGroup, ClientOrderGroup.id == ClientOrder.order_group_id)
+        .where(ClientOrder.id.in_(order_ids))
+    )
+    from app.services.client_settlements.service import number_from_title
+
+    return {
+        oid: number or number_from_title(title) or "bez numeru"
+        for oid, number, title in rows
+    }
+
+
+async def rule_settlement_over_order(
+    db: AsyncSession,
+    recipient_scope: DeliveryAlertRecipientScope | None = None,
+) -> int:
+    """Rozliczenie ponad pulę albo na zamówieniu zakończonym w NEXUS-ie.
+
+    Próba IX–X 2026: MD dobre, a faktura czeka, bo zamówienie się nie domyka.
+    „Mało MD” (21 MD) ostrzega wcześniej, ale po odhaczeniu albo zakończeniu
+    zamówienia milknie i nie mówi, ile MD i za który miesiąc czeka. Ta karta
+    przychodzi, gdy rozliczenie już to policzyło, przed fakturą: Delivery Lead
+    przedłuża albo uzupełnia zamówienie, a rozliczenie przelicza się samo
+    (``order_issues.refresh_contracts`` w ``commit_order_write``; zapas
+    ``refresh_stale`` na początku reguły).
+    Wysoki priorytet + mail, jedna karta na zamówienie w rozliczeniu, zamyka się,
+    gdy problem znika albo Finanse przyjmą rozliczenie.
+    """
+    from app.services.client_settlements import order_issues
+
+    if recipient_scope is None:
+        recipient_scope = await load_delivery_alert_recipient_scope(db)
+    today = business_today()
+    await order_issues.refresh_stale(db, today)
+    cases = [
+        (s, issue)
+        for s in await order_issues.open_settlements(db, today)
+        for issue in order_issues.issues_of(s)
+    ]
+    names = await _client_names(db, {s.client_id for s, _ in cases})
+    people = await _settlement_people(db, {s.contract_id for s, _ in cases})
+    numbers = await _order_numbers(db, {i.order_id for _, i in cases})
+    live: set[str] = set()
+    created = 0
+    for s, issue in cases:
+        user_ids = await dl_user_ids_for_client(db, s.client_id, scope=recipient_scope)
+        if not user_ids:
+            continue
+        entity_key = f"settlement:{s.id}:order:{issue.order_id}"
+        live |= _live_keys(ALERT_SETTLEMENT_OVER_ORDER, entity_key, user_ids)
+        number = issue.number or numbers.get(issue.order_id, "bez numeru")
+        who = people.get(s.contract_id, "osoby")
+        period = _period(s.period_month)
+        md = _fmt_md(issue.md)
+        if issue.kind == order_issues.CLOSED:
+            title = f"{names.get(s.client_id, 'Klient')} — rozliczenie {period} na zakończonym zamówieniu {number}"
+            message = (
+                f"Rozliczenie {who} za {period}: mail klienta każe rozliczyć {md} MD "
+                f"na zamówieniu {number}, które w NEXUS-ie jest zakończone. "
+                "Przywróć albo przedłuż zamówienie przed fakturą — rozliczenie "
+                "przeliczy się samo."
+            )
+        else:
+            title = f"{names.get(s.client_id, 'Klient')} — rozliczenie {period} ponad zamówienie {number}"
+            message = (
+                f"Rozliczenie {who} za {period}: {md} MD ponad pulę zamówienia "
+                f"{number}. Do faktury idzie tylko pula, nadwyżka czeka na decyzję "
+                "Finansów. Przedłuż albo uzupełnij zamówienie przed fakturą — "
+                "rozliczenie przeliczy się samo."
+            )
+        created += len(
+            await emit(
+                db,
+                alert_type=ALERT_SETTLEMENT_OVER_ORDER,
+                user_ids=user_ids,
+                client_id=s.client_id,
+                entity_key=entity_key,
+                title=title,
+                message=message,
+                link=_order_link(s.client_id, issue.order_id),
+                payload={
+                    "candidate_name": who,
+                    "order_number": number,
+                    "period": period,
+                    "kind": issue.kind,
+                    "md": str(issue.md),
+                },
+                order_id=issue.order_id,
+                stage="high",
+                priority=DL_ALERT_PRIORITY_HIGH,
+                email=True,
+            )
+        )
+    await resolve_stale(
+        db, alert_type=ALERT_SETTLEMENT_OVER_ORDER, live_event_keys=live
+    )
+    return created
+
+
+async def rule_settlement_rate_mismatch(
+    db: AsyncSession,
+    recipient_scope: DeliveryAlertRecipientScope | None = None,
+) -> int:
+    """Stawka linii zamówienia inna niż kontrakt albo ostatnia faktura za osobę.
+
+    Rozliczenie zapisuje rozjazd przy przeliczeniu (``client_settlements/line_rate``),
+    Finanse widzą kwoty na karcie rozliczenia. Karta DL mówi, którą linię
+    sprawdzić, bez kwot (panel widzą też konta bez dostępu do finansów).
+    Mail przy pierwszej karcie, powtórka co ``DL_ALERT_REPEAT_DAYS`` dni.
+    """
+    from app.services.client_settlements import line_rate, order_issues
+
+    if recipient_scope is None:
+        recipient_scope = await load_delivery_alert_recipient_scope(db)
+    today = business_today()
+    cases = [
+        (s, item)
+        for s in await order_issues.open_settlements(db, today)
+        for item in line_rate.mismatches_of(order_issues._meta(s))
+    ]
+    names = await _client_names(db, {s.client_id for s, _ in cases})
+    people = await _settlement_people(db, {s.contract_id for s, _ in cases})
+    numbers = await _order_numbers(db, {int(item["order_id"]) for _, item in cases})
+    live: set[str] = set()
+    created = 0
+    for s, item in cases:
+        user_ids = await dl_user_ids_for_client(db, s.client_id, scope=recipient_scope)
+        if not user_ids:
+            continue
+        order_id = int(item["order_id"])
+        entity_key = f"settlement:{s.id}:order:{order_id}:rate"
+        live |= _live_keys(ALERT_SETTLEMENT_RATE_MISMATCH, entity_key, user_ids)
+        number = item.get("number") or numbers.get(order_id, "bez numeru")
+        who = people.get(s.contract_id, "osoby")
+        period = _period(s.period_month)
+        against = " i ".join(
+            label
+            for label, present in (
+                ("kontraktu", item.get("contract")),
+                (
+                    f"ostatniej faktury ({item.get('invoice_number')})",
+                    item.get("invoice"),
+                ),
+            )
+            if present
+        )
+        created += len(
+            await emit(
+                db,
+                alert_type=ALERT_SETTLEMENT_RATE_MISMATCH,
+                user_ids=user_ids,
+                client_id=s.client_id,
+                entity_key=entity_key,
+                title=f"{names.get(s.client_id, 'Klient')} — stawka linii zamówienia {number}",
+                message=(
+                    f"Rozliczenie {who} za {period}: stawka przychodowa linii "
+                    f"zamówienia {number} jest inna niż stawka z {against}. "
+                    "„Do faktury” liczy się ze stawki linii. Sprawdź stawkę i popraw "
+                    "linię przed fakturą — rozliczenie przeliczy się samo."
+                ),
+                link=_order_link(s.client_id, order_id),
+                payload={
+                    "candidate_name": who,
+                    "order_number": number,
+                    "period": period,
+                    "against": [
+                        key for key in ("contract", "invoice") if item.get(key)
+                    ],
+                },
+                order_id=order_id,
+                repeat_every_days=settings.DL_ALERT_REPEAT_DAYS,
+                email_on_first=True,
+            )
+        )
+    await resolve_stale(
+        db, alert_type=ALERT_SETTLEMENT_RATE_MISMATCH, live_event_keys=live
+    )
+    return created
+
+
 #: Rejestr reguł. Dołożenie typu alertu = dopisanie funkcji i wpisu.
 ALERT_RULES: dict[str, Rule] = {
     ALERT_DRAFT_CONSULTANT_UNASSIGNED: rule_draft_consultant_unassigned,
@@ -1516,6 +1719,9 @@ ALERT_RULES: dict[str, Rule] = {
     ALERT_CANDIDATE_CONFLICT_EXPIRED: rule_candidate_conflict_expired,
     ALERT_INVOICE_WITHOUT_ORDER_LINE: rule_invoice_without_order_line,
     ALERT_FRAMEWORK_OVER_LIMIT: rule_framework_over_limit,
+    # Kolejność ma znaczenie: zapas przeliczenia rozliczeń biegnie w pierwszej.
+    ALERT_SETTLEMENT_OVER_ORDER: rule_settlement_over_order,
+    ALERT_SETTLEMENT_RATE_MISMATCH: rule_settlement_rate_mismatch,
 }
 
 

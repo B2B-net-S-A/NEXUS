@@ -137,8 +137,20 @@ def _fmt(value: Decimal) -> str:
     return f"{value.normalize():f}".replace(".", ",")
 
 
-def _check(state: str, title: str, detail: Optional[str] = None) -> dict[str, Any]:
-    return {"state": state, "title": title, "detail": detail}
+#: Stałe klucze uwag o zamówieniu (``rule``): grupują je „Przebieg miesiąca”
+#: i katalog informacji zwrotnej (``client_settlements/feedback``), a karty DL
+#: dają ``order_issues`` i ``line_rate`` (próba IX–X 2026).
+RULE_MD_OVER = "order.md_over"
+RULE_ORDER_CLOSED = "order.closed"
+
+
+def _check(
+    state: str, title: str, detail: Optional[str] = None, rule: Optional[str] = None
+) -> dict[str, Any]:
+    check: dict[str, Any] = {"state": state, "title": title, "detail": detail}
+    if rule:
+        check["rule"] = rule
+    return check
 
 
 def _protocol_amount(
@@ -255,6 +267,7 @@ def _with_split(
                 else f"Ponad pulę zamówienia o {_fmt(-(remaining or ZERO))} MD",
                 f"Mail klienta każe rozliczyć na nim {_fmt(md)} MD.{left} Zejdzie "
                 "całość i tyle idzie do faktury: uzupełnij zamówienie w NEXUS-ie.",
+                RULE_ORDER_CLOSED if part.closed else RULE_MD_OVER,
             )
             warn = True
         elif remaining is not None:
@@ -499,6 +512,7 @@ def compute(inp: Inputs) -> Result:
                     "fail" if hold == "block" else "warn",
                     "Na zamówieniu nie zostało MD",
                     f"Zejść ma {_fmt(charged)} MD. Do faktury nic; decyzja Finansów.",
+                    RULE_MD_OVER,
                 )
             )
             blocked = blocked or hold == "block"
@@ -512,6 +526,7 @@ def compute(inp: Inputs) -> Result:
                     f"Ponad zamówienie o {_fmt(over)} MD",
                     f"Zejdzie {_fmt(available)} MD (tyle zostało) i tyle idzie do faktury; "
                     "nadwyżka czeka na decyzję Finansów.",
+                    RULE_MD_OVER,
                 )
             )
             warn = True
