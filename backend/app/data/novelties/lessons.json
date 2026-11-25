@@ -2848,6 +2848,41 @@
     ]
   },
   {
+    "id": "lekcja-sprawy-rozliczen",
+    "title": "Sprawy rozliczeń: co dalej z RCP bez automatu",
+    "novelties": [
+      "sprawy-rozliczen-co-dalej"
+    ],
+    "task": "W rozliczeniach klientów otwórz zakładkę „Sprawy” i zaznacz „Tylko zaległe”. Na Poligonie nic się nie zapisze ani nie wyśle.",
+    "solo_href": "/finance?view=settlements",
+    "check": {
+      "kind": "click",
+      "anchor": "settlements.cases.overdue"
+    },
+    "questions": [
+      {
+        "q": "Kto wysyła mail z karty sprawy do konsultanta albo akceptującego u klienta?",
+        "options": [
+          "Ty, po kliknięciu „Wyślij” i potwierdzeniu w oknie",
+          "NEXUS sam, gdy minie termin",
+          "Delivery Lead z karty w „Moi klienci”"
+        ],
+        "answer": 0,
+        "explain": "NEXUS przygotowuje mail, telefon i skrypt. Nic nie wychodzi samo: mail idzie dopiero po „Wyślij” i potwierdzeniu adresata."
+      },
+      {
+        "q": "Kiedy sprawa znika z listy?",
+        "options": [
+          "Gdy nowy plik przeliczy rozliczenie bez wady albo Finanse je przyjmą",
+          "Zaraz po wysłaniu maila",
+          "Po siedmiu dniach roboczych"
+        ],
+        "answer": 0,
+        "explain": "Mail, telefon i eskalacja to kroki. Sprawa zamyka się sama dopiero, gdy wady już nie ma albo rozliczenie jest przyjęte."
+      }
+    ]
+  },
+  {
     "id": "lekcja-dodatki-do-faktury",
     "title": "Dodatki do faktury kontraktora",
     "novelties": [

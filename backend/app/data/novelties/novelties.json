@@ -5350,6 +5350,24 @@
     "dot_anchor": "contracts.rate-history"
   },
   {
+    "id": "sprawy-rozliczen-co-dalej",
+    "title": "Sprawy rozliczeń i „Co dalej” na karcie osoby",
+    "why": "RCP, którego automat nie przyjmie, ma gotowy mail, telefon ze skryptem i terminy: mail, +3 przypomnienie, +5 telefon, +7 eskalacja. Wysyłasz i dzwonisz Ty.",
+    "tier": "dot",
+    "shipped_on": "2026-11-26",
+    "audience": {
+      "roles": [
+        "finance",
+        "admin"
+      ]
+    },
+    "where": "Finanse → Rozliczenia klientów → Sprawy",
+    "href": "/finance",
+    "practice_href": "/finance?view=settlements",
+    "section": "finance",
+    "dot_anchor": "settlements.cases.overdue"
+  },
+  {
     "id": "dodatki-do-rozliczenia-kontraktora",
     "pr": 3371,
     "title": "Dodatki do faktury kontraktora",
