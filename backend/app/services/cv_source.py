@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from dataclasses import dataclass
 
 from fastapi.concurrency import run_in_threadpool
@@ -221,6 +222,41 @@ def client_cv_file_clause() -> ColumnElement[bool]:
     return and_(
         CandidateDocument.filename.op("~*")(CLIENT_CV_NAME.pattern),
         func.lower(CandidateDocument.filename).like("%.docx"),
+    )
+
+
+# 25.11.2026: umowa albo NDA w nazwie pliku, bez CV w nazwie
+# (`generator-cv/umowa-i-nda-nie-sa-zrodlem-cv.md`). „umow” tylko na początku
+# słowa (nie Gumowski, podsumowanie), „contractor” to opis kandydata,
+# „Contract Manager” to stanowisko. Wzorce działają tak samo w Pythonie
+# i w Postgresie (`~*`).
+_CONTRACT_WORDS = (
+    r"(^|[^a-ząćęłńóśźż])um[oó]w|contract(?!or)|agreement"
+    r"|(^|[^a-z])nda([^a-z]|$)|non.?disclosure"
+)
+_CV_WORDS = r"(^|[^a-z])(cv|resume|curriculum)([^a-z]|$)"
+_JOB_TITLE = r"contract.?manager"
+_CONTRACT_RE = re.compile(_CONTRACT_WORDS, re.IGNORECASE)
+_CV_RE = re.compile(_CV_WORDS, re.IGNORECASE)
+_JOB_TITLE_RE = re.compile(_JOB_TITLE, re.IGNORECASE)
+
+
+def looks_like_contract_file(filename: str) -> bool:
+    """Czy plik to po nazwie umowa albo NDA, a nie CV (lustro `contract_file_clause`)."""
+    return bool(
+        _CONTRACT_RE.search(filename)
+        and not _CV_RE.search(filename)
+        and not _JOB_TITLE_RE.search(filename)
+    )
+
+
+def contract_file_clause() -> ColumnElement[bool]:
+    """Umowa albo NDA po nazwie pliku (lustro `looks_like_contract_file`)."""
+    name = CandidateDocument.filename
+    return and_(
+        name.op("~*")(_CONTRACT_WORDS),
+        not_(name.op("~*")(_CV_WORDS)),
+        not_(name.op("~*")(_JOB_TITLE)),
     )
 
 

@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, undefer
 
@@ -642,8 +642,13 @@ _SUPPORTED_CV_DOC_PATTERNS = ("%.pdf", "%.docx")
 
 def _supported_cv_doc_filter() -> Any:
     # Plik usunięty z profilu (`source_deleted_at`, 0435) nie jest źródłem CV.
+    # Umowa ani NDA też nie (25.11.2026, `umowa-i-nda-nie-sa-zrodlem-cv.md`):
+    # import Traffita oznaczał je jako CV, a generator robił z nich CV z notatek.
+    from app.services.cv_source import contract_file_clause
+
     return and_(
         CandidateDocument.source_deleted_at.is_(None),
+        not_(contract_file_clause()),
         or_(
             *(
                 func.lower(CandidateDocument.filename).like(pat)
@@ -2648,6 +2653,33 @@ class CandidateGenerationSource:
         return ChampionProfileForPrompt(**data)
 
 
+async def _refuse_contract_source(
+    db: AsyncSession, candidate_id: int, cv_document_id: int | None
+) -> None:
+    """Komunikat, gdy zamiast CV zostaje umowa albo NDA (wskazana albo jedyna)."""
+    from app.services.cv_source import contract_file_clause
+
+    query = select(CandidateDocument.id).where(
+        CandidateDocument.candidate_id == candidate_id,
+        CandidateDocument.source_deleted_at.is_(None),
+        contract_file_clause(),
+    )
+    if cv_document_id is not None:
+        query = query.where(CandidateDocument.id == cv_document_id)
+    if await db.scalar(query.limit(1)) is None:
+        return
+    if cv_document_id is None and await _candidate_has_supported_cv(db, candidate_id):
+        return
+    raise StandaloneGenerationError(
+        code="no_cv_file",
+        message=(
+            "Ten plik to umowa albo NDA, nie CV. Wybierz CV kandydata."
+            if cv_document_id is not None
+            else "W profilu jest umowa albo NDA, a nie CV kandydata. Wgraj CV."
+        ),
+    )
+
+
 async def list_candidate_cv_sources(db: AsyncSession, candidate_id: int) -> list[dict]:
     if await db.get(Candidate, candidate_id) is None:
         raise StandaloneGenerationError(
@@ -2754,6 +2786,8 @@ async def load_candidate_generation_source(
         # co migawka oryginału CV (R9-N7-11).
         cv_doc_q = cv_doc_q.where(*await current_cv_filters_for(db, candidate_id))
     cv_doc = (await db.scalars(cv_doc_q)).first()
+    if cv_doc is None:
+        await _refuse_contract_source(db, candidate_id, cv_document_id)
     if cv_doc is None and cv_document_id is not None:
         raise StandaloneGenerationError(
             code="no_cv_file",

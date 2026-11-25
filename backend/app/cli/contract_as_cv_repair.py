@@ -46,23 +46,24 @@ from typing import Any, Callable, Optional
 
 from sqlalchemy import case, select, text
 
+from app.services import cv_source as _cv_source
+
 logger = logging.getLogger(__name__)
 
 RECEIPT_KEY = "contract_as_cv_repair_2026_10"
 _CV_EXT = (".pdf", ".doc", ".docx")
-_CONTRACT_PATTERN = "umow|umów|contract|agreement"
+# 25.11.2026: wzorzec wspólny z generatorem CV (`cv_source.looks_like_contract_file`).
+# Poprzedni („umow|umów|contract|agreement”) łapał nazwiska (Gumowski,
+# Szumowska), „podsumowanie” i „contractor”, a pomijał NDA.
+_CONTRACT_PATTERN = _cv_source._CONTRACT_WORDS
 _CONTRACT_NAME = re.compile(_CONTRACT_PATTERN, re.IGNORECASE)
-_CV_NAME = re.compile(r"(^|[^a-z])(cv|resume|curriculum)([^a-z]|$)", re.IGNORECASE)
-_JOB_TITLE = re.compile(r"contract.?manager", re.IGNORECASE)
+_CV_NAME = re.compile(_cv_source._CV_WORDS, re.IGNORECASE)
+_JOB_TITLE = re.compile(_cv_source._JOB_TITLE, re.IGNORECASE)
 
 
 def looks_like_contract(filename: str) -> bool:
-    """Umowa w nazwie, bez CV w nazwie; „Contract Manager” to stanowisko."""
-    return bool(
-        _CONTRACT_NAME.search(filename)
-        and not _CV_NAME.search(filename)
-        and not _JOB_TITLE.search(filename)
-    )
+    """Umowa albo NDA w nazwie, bez CV w nazwie; „Contract Manager” to stanowisko."""
+    return _cv_source.looks_like_contract_file(filename)
 
 
 @dataclass(frozen=True)
