@@ -451,3 +451,121 @@ async def test_api_ustawienia_tylko_admin_i_podglad_finansow(
                 {"a": admin.id, "f": finance.id},
             )
             await db.commit()
+
+
+# ── Kosmetyka przy dobrym MD: informacja raz, bez przypomnień (25.11.2026) ──
+
+ROWS_NOTE = [
+    {
+        "title": "Pola i sumy",
+        "checks": [
+            {
+                "state": "none",
+                "title": "Wiersze opisu prac nie sumują się do SUMA",
+                "detail": "Wiersze: 44 MD, SUMA: 22 MD. SUMA zgadza się z godzinami dni.",
+                "notice": "note.rows_sum",
+            }
+        ],
+    }
+]
+
+
+async def _set(world: World, status: str, checks: list) -> None:
+    async with AsyncSessionLocal() as db:
+        s = await db.scalar(
+            select(ClientSettlement).where(ClientSettlement.contract_id == world.faulty)
+        )
+        s.status, s.checks = status, checks
+        await db.commit()
+
+
+@pytest.mark.parametrize("status", ["ok", "accepted"])
+async def test_informacja_bez_poprawki_raz_przy_bez_uwag_bez_przypomnien(
+    mailer, module_on, status
+) -> None:
+    world = await _world()
+    await _set(world, status, ROWS_NOTE)
+    start = business_today()
+    try:
+        first = await _run(start, DRY, world)
+        assert (first["months"][MONTH]["new"], first["months"][MONTH]["messages"]) == (
+            1,
+            1,
+        )
+        (row,) = await _rows(world.faulty)
+        assert (row.code, row.audience, row.send_count) == (
+            "note.rows_sum",
+            "consultant",
+            1,
+        )
+        # Nic więcej nie czeka: wiersz zamknięty w dniu komunikatu.
+        assert row.resolved_on == start
+        (entry,) = row.sends
+        assert entry["outcome"] == "dry_run" and entry["codes"] == ["note.rows_sum"]
+        assert "Na przyszłość:" in entry["text"]
+        assert "Tego raportu nie trzeba poprawiać" in entry["text"]
+
+        await _run(start, DRY, world)
+        later = await _run(_workday(start, 3), DRY, world)
+        assert later["months"][MONTH]["messages"] == 0
+        assert later["months"][MONTH]["reopened"] == 0
+        (row,) = await _rows(world.faulty)
+        assert row.send_count == 1 and row.resolved_on == start
+        assert await _rows(world.clean) == []
+        assert mailer.sent == [] and await _bells(world) == []
+    finally:
+        await _cleanup(world)
+
+
+async def test_wada_i_informacja_w_jednym_mailu_przypomnienie_tylko_o_wadzie(
+    mailer, module_on
+) -> None:
+    world = await _world()
+    await _set(world, "warnings", [*SIGNED_PDF, *ROWS_NOTE])
+    start = business_today()
+    on = Settings(mode="on", external="all")
+    try:
+        await _run(start, on, world)
+        (mail,) = mailer.sent
+        assert "Co zrobić:" in mail["text"] and "Na przyszłość:" in mail["text"]
+        third = _workday(start, 3)
+        await _run(third, on, world)
+        reminder = mailer.sent[-1]
+        assert reminder["subject"].startswith("Przypomnienie: ")
+        assert "Na przyszłość:" not in reminder["text"]
+        rows = {row.code: row for row in await _rows(world.faulty)}
+        assert rows["proof.signed_pdf"].send_count == 2
+        assert rows["note.rows_sum"].send_count == 1
+        assert rows["note.rows_sum"].resolved_on == start
+    finally:
+        await _cleanup(world)
+
+
+async def test_brak_raportu_zostaje_przypomnieniom_a_wada_rozliczeniu(
+    mailer, module_on
+) -> None:
+    """Przypomnienie „Brak RCP” dotyczy kontraktu bez rozliczenia, a informacja
+    zwrotna tylko rozliczeń: o tym samym nie piszą obie."""
+
+    from app.services.client_settlements import reminders
+
+    world = await _world()
+    await _set(world, "ok", ROWS_NOTE)
+    since = (business_today() - date(2026, 10, 1)).days + 30
+    missing_id, _ = await make_consultant(
+        world.client_id,
+        contract_email=f"konsultant-brak-{world.client_id}@example.com",
+        owner_id=world.owner_id,
+        started_days_ago=since,
+    )
+    try:
+        await _run(business_today(), DRY, world)
+        async with AsyncSessionLocal() as db:
+            missing = await reminders.missing_reports(
+                db, MONTH, client_id=world.client_id
+            )
+        assert [m.contract_id for m in missing] == [missing_id]
+        assert await _rows(missing_id) == []
+        assert [row.code for row in await _rows(world.faulty)] == ["note.rows_sum"]
+    finally:
+        await _cleanup(world)

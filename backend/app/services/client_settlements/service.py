@@ -1416,6 +1416,7 @@ async def _proof(
                 acceptor=senders.who,
                 travel=accepted_travel,
                 client_signature=_rcp_signer(signatures, senders, person_name, rules),
+                named_month=_named_month(report),
             )
             if bnp.md_regular is not None:
                 return bnp
@@ -1653,6 +1654,7 @@ async def _read_file(
     # Szablon klienta w godzinach z makrami (E6.1, PKO).
     pko = await asyncio.to_thread(timesheet_pko.parse, content, mime)
     if pko is not None:
+        named = _named_month(doc)
         result = timesheet_pko.evaluate(
             pko,
             month=month,
@@ -1661,11 +1663,14 @@ async def _read_file(
             working_days=working_days,
             other_md=other_md,
             file_name=doc.file_name,
+            named_month=named,
         )
         return await accepted(
             result,
             pko.total_hours if pko.entries else None,
-            timesheet_pko.sheet_month(pko, month, doc.file_name),
+            timesheet_pko.sheet_month(
+                pko, month, doc.file_name, named, timesheet.per_md(rules)
+            ),
             pko.acceptors,
         )
     # Tygodnie z SAP Fieldglass (EY): eksport „timeSheet.worker.list”.
@@ -1755,6 +1760,16 @@ def _doc_month(doc: CpDocument) -> Optional[str]:
     if doc.period_guessed or doc.period_year is None or doc.period_month is None:
         return None
     return f"{doc.period_year}-{doc.period_month:02d}"
+
+
+def _named_month(doc: Optional[CpDocument]) -> Optional[str]:
+    """Miesiąc z nazwy pliku albo tematu maila (szablon z innym miesiącem w nagłówku,
+    decyzja Artura z 25.11.2026): okres pliku z poczty, nie zgadnięty z daty maila.
+    Plik z panelu ma okres wybrany ręcznie, więc niczego tu nie dowodzi."""
+
+    if doc is None or doc.channel != "mailbox":
+        return None
+    return _doc_month(doc)
 
 
 def _on(rules: dict[str, dict[str, Any]], key: str) -> bool:

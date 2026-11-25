@@ -20,9 +20,9 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
 
-from app.services.client_settlements import acceptance_mail
+from app.services.client_settlements import acceptance_mail, template_month
 from app.services.client_settlements.acceptance_mail import MailMessage
-from app.services.client_settlements.rcp_bnp import ParsedRcp, SignatureInfo
+from app.services.client_settlements.rcp_bnp import DAYS, ParsedRcp, SignatureInfo
 
 if TYPE_CHECKING:
     from app.services.client_settlements.travel_acceptance import Verdict
@@ -98,6 +98,13 @@ TRAVEL_IN_RCP = "travel.rcp_costs"
 #: Jedyna uwaga, która zostaje w rozliczeniu bez MD (``engine.compute``): mówi,
 #: dlaczego MD nie ma i kto ma to poprawić.
 REQUEST_REPLY = "proof.request_reply"
+#: Kosmetyka raportu przy dobrym MD (decyzja Artura z 25.11.2026): informacja na
+#: karcie (``state: none``) z kluczem ``notice``. Nie zatrzymuje automatu „Bez
+#: uwag”, a informacja zwrotna (``feedback.CATALOG``) daje z niej jeden komunikat
+#: dla konsultanta, bez przypomnień.
+NOTE_ROWS_SUM = "note.rows_sum"
+NOTE_ROW_DATES = "note.row_dates"
+NOTE_TEMPLATE_MONTH = "note.template_month"
 
 
 class _Group:
@@ -125,6 +132,14 @@ class _Group:
         if key:
             check["rule"] = key
         self.checks.append(check)
+
+    def note(self, title: str, detail: Optional[str], *, code: str) -> None:
+        """Kosmetyka przy dobrym MD: informacja na karcie i wada dla konsultanta
+        (``code`` z ``NOTE_*``), bez uwagi i bez blokady."""
+
+        self.checks.append(
+            {"state": "none", "title": title, "detail": detail, "notice": code}
+        )
 
     def fail(self, key: str, title: str, detail: Optional[str] = None) -> None:
         level = self.rules[key]["level"]
@@ -163,6 +178,7 @@ def evaluate(
     acceptor: str = "klienta",
     travel: Optional["Verdict"] = None,
     client_signature: Optional[str] = None,
+    named_month: Optional[str] = None,
 ) -> ProofResult:
     """``client_mail``: czy w mailach miesiąca jest wiadomość klienta
     (``acceptance_mail.from_client``); ``None`` = nadawcy nie odczytano.
@@ -170,7 +186,9 @@ def evaluate(
     ``travel``: akceptacja kosztów delegacji przez klienta
     (``travel_acceptance``); ``None`` = nie znaleziono.
     ``client_signature``: kto po stronie klienta podpisał RCP ważnym podpisem
-    (``travel_acceptance.client_signature``); ``None`` = brak takiego podpisu."""
+    (``travel_acceptance.client_signature``); ``None`` = brak takiego podpisu.
+    ``named_month``: miesiąc pliku z nazwy pliku albo tematu maila (okres
+    dokumentu, nie zgadnięty z daty); ``None`` = nieznany."""
 
     result = ProofResult(md_regular=None, md_extra=None)
     rcp = _Group(result, rules, "RCP")
@@ -211,9 +229,20 @@ def evaluate(
     if exact is not None:
         # Finanse fakturują MD z godzin (23,125), nie zaokrąglone z pliku (23,1).
         result.md_regular, result.md_extra = exact
+    # Wiersze ≠ SUMA, ale SUMA = godziny dni: MD z SUMA są pewne, więc bez uwagi,
+    # z informacją dla konsultanta (decyzja Artura z 25.11.2026; BNP, próba VI–X
+    # 2026: 4 przypadki, MD równe fakturze Finansów).
+    rows_cosmetic = rows_mismatch and sum_from_days(parsed, per_md, month)
 
     if parsed.month == month:
         rcp.ok(f"Miesiąc z RCP: {month}")
+    elif rcp.on("proof.month") and template_month_fixed(parsed, month, named_month):
+        rcp.note(
+            "Szablon z innym miesiącem w nagłówku",
+            f"W polu Rozliczenie: {parsed.month}. Nazwa pliku albo temat maila "
+            f"i dni z godzinami wskazują {month}: liczymy jako rozliczany miesiąc.",
+            code=NOTE_TEMPLATE_MONTH,
+        )
     else:
         rcp.fail(
             "proof.month",
@@ -288,7 +317,15 @@ def evaluate(
     rcp.close()
 
     sums = _Group(result, rules, "Pola i sumy")
-    if rows_mismatch:
+    if rows_cosmetic:
+        sums.note(
+            "Wiersze opisu prac nie sumują się do SUMA",
+            f"Wiersze: {_fmt(rows_total)} MD, SUMA: {_fmt(parsed.summary_total)} MD. "
+            f"SUMA zgadza się z godzinami dni ({_fmt(parsed.total_hours)} h / "
+            f"{_fmt(per_md)}), bez pracy dodatkowej: MD z SUMA.",
+            code=NOTE_ROWS_SUM,
+        )
+    elif rows_mismatch:
         sums.warn(
             "Wiersze opisu prac nie sumują się do SUMA",
             f"Wiersze: {_fmt(rows_total)} MD, SUMA: {_fmt(parsed.summary_total)} MD. "
@@ -458,6 +495,48 @@ def rounded_in_file(
     if parts == {True}:
         return regular, extra + residue
     return regular + residue, extra
+
+
+def _worked_days(parsed: ParsedRcp) -> set[int]:
+    return {i + 1 for i, hours in enumerate(parsed.day_totals) if hours > 0}
+
+
+def sum_from_days(parsed: ParsedRcp, per_md: Decimal, month: str) -> bool:
+    """„SUMA” podsumowania to godziny dni / godziny MD, bez pracy dodatkowej: przy
+    wierszach opisu, które nie sumują się do SUMA, MD z SUMA są pewne.
+
+    Pełna siatka 31 dni, suma dni = godziny z wiersza SUMA, „Total MD's” = SUMA,
+    bez wierszy „Godziny dodatkowe …” i bez godzin ponad „Godziny w tygodniu”,
+    a dni z godzinami to dni robocze rozliczanego miesiąca. Inna rozbieżność
+    (godziny ≠ SUMA, nadgodziny, dni wolne) zostaje uwagą dla człowieka."""
+
+    total, hours = parsed.summary_total, parsed.total_hours
+    if total is None or hours is None or per_md <= 0:
+        return False
+    if len(parsed.day_totals) != DAYS or parsed.md_extra > 0 or parsed.weekend_days:
+        return False
+    if abs(sum(parsed.day_totals, Decimal("0")) - hours) > TOLERANCE:
+        return False
+    if abs(hours / per_md - total) > TOLERANCE:
+        return False
+    if parsed.declared_md is not None and abs(parsed.declared_md - total) > TOLERANCE:
+        return False
+    return template_month.days_fit(_worked_days(parsed), month)
+
+
+def template_month_fixed(
+    parsed: ParsedRcp, month: str, named_month: Optional[str]
+) -> bool:
+    """Pole „Rozliczenie” z szablonu innego miesiąca (BNP, próba VI 2026: styczeń
+    w RCP za czerwiec, MD równe fakturze), a nazwa pliku albo temat maila wskazują
+    rozliczany miesiąc i dni z godzinami to jego dni robocze, a nie miesiąca
+    z pola. Bez pracy dodatkowej, bo jej dni liczą się od miesiąca z szablonu."""
+
+    if parsed.month is None or parsed.month == month or named_month != month:
+        return False
+    if len(parsed.day_totals) != DAYS or parsed.md_extra > 0:
+        return False
+    return template_month.days_fit(_worked_days(parsed), month, parsed.month)
 
 
 def _day(value: date) -> str:

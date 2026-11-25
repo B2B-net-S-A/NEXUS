@@ -51,6 +51,7 @@ from app.services.client_settlements.declared import (
 )
 from app.services.client_settlements.rcp_bnp import _dec
 from app.services.client_settlements.rcp_checks import (
+    NOTE_ROW_DATES,
     ProofResult,
     _fmt,
     _Group,
@@ -735,22 +736,26 @@ def evaluate(
     result.md_regular = md_from_hours(hours, hours_md)
     result.md_extra = Decimal("0")
 
+    # Daty z szablonu przy dobrych dniach: informacja i komunikat dla konsultanta
+    # (decyzja Artura z 25.11.2026), bez uwagi.
     fixed = template_year_fixed(parsed, month)
     if fixed is not None:
-        sheet.info(
+        sheet.note(
             f"Rok w szablonie: {(parsed.month or '')[:4]}",
             f"Dni z godzinami to dni robocze {month}, a nie {parsed.month}: "
             "liczymy jako rozliczany miesiąc.",
+            code=NOTE_ROW_DATES,
         )
         parsed = fixed
     moved = template_month_fixed(parsed, month)
     if moved is not None:
         source = next(e.day for e in parsed.entries if e.day)
-        sheet.info(
+        sheet.note(
             f"Daty wierszy z innego miesiąca: {source.year}-{source.month:02d}",
             f"Nagłówek obejmuje cały {month}, a wiersze mają daty z "
             f"{source.year}-{source.month:02d} (szablon z innego miesiąca): "
             "liczymy jako rozliczany miesiąc.",
+            code=NOTE_ROW_DATES,
         )
         parsed = moved
 
