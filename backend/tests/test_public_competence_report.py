@@ -21,6 +21,11 @@ from app.models.activity import Activity
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.competence_report import CompetenceReport
 from app.models.user import User, UserRole
+from app.services.competence_report_schema import (
+    ReportConditions,
+    ReportProfile,
+    ReportSnapshot,
+)
 from app.services.competence_report_tokens import new_token
 
 _BASE = "/api/public/competence-report"
@@ -60,6 +65,7 @@ async def _seed_report(
     status: str = "sent",
     expires_in: timedelta = timedelta(days=30),
     sent: bool = True,
+    snapshot: bool = False,
 ) -> tuple[str, int]:
     raw, hashed = new_token()
     now = datetime.now(timezone.utc)
@@ -75,10 +81,19 @@ async def _seed_report(
             sent_at=now - timedelta(hours=1) if sent else None,
             token_hash=hashed,
             token_expires_at=now + expires_in,
+            snapshot=_old_snapshot() if snapshot else None,
         )
         db.add(row)
         await db.commit()
         return raw, row.id
+
+
+def _old_snapshot() -> dict:
+    return ReportSnapshot(
+        variant="limited",
+        conditions=ReportConditions.model_validate(_CONDITIONS),
+        profile=ReportProfile(role_label="Stary raport"),
+    ).model_dump(mode="json")
 
 
 async def _reports(candidate_id: int) -> list[CompetenceReport]:
@@ -260,6 +275,51 @@ async def test_conditions_reach_profile_and_report(
     assert entry.details["via"] == "competence_report"
     assert entry.details["report_id"] == report_id
     assert entry.details["kept"] == []
+
+
+@pytest.mark.parametrize("status", ["ready", "failed"])
+async def test_unsent_report_is_rebuilt_from_new_conditions(
+    app_client: AsyncClient, person: int, status: str
+):
+    raw, _ = await _seed_report(person, status=status, sent=False, snapshot=True)
+
+    r = await app_client.post(f"{_BASE}/{raw}/conditions", json=_body(rate=230))
+
+    assert r.status_code == 200, r.text
+    [report] = await _reports(person)
+    assert report.snapshot["conditions"]["rate"] == 230
+    assert report.snapshot["profile"]["role_label"] != "Stary raport"
+
+
+async def test_sent_report_keeps_the_snapshot_that_went_out(
+    app_client: AsyncClient, person: int
+):
+    raw, _ = await _seed_report(person, snapshot=True)
+
+    r = await app_client.post(f"{_BASE}/{raw}/conditions", json=_body(rate=230))
+
+    assert r.status_code == 200, r.text
+    [report] = await _reports(person)
+    assert report.conditions["rate"] == 230
+    assert report.snapshot == _old_snapshot()
+
+
+async def test_failed_rebuild_still_saves_and_falls_back(
+    app_client: AsyncClient, person: int, monkeypatch
+):
+    async def broken(db, report):
+        raise RuntimeError("silnik padł")
+
+    monkeypatch.setattr("app.api.public_competence_report.rebuild_snapshot", broken)
+    raw, _ = await _seed_report(person, status="ready", sent=False, snapshot=True)
+
+    r = await app_client.post(f"{_BASE}/{raw}/conditions", json=_body(rate=230))
+
+    assert r.status_code == 200, r.text
+    [report] = await _reports(person)
+    assert report.conditions["rate"] == 230
+    assert report.snapshot["variant"] == "limited"
+    assert report.snapshot["conditions"]["rate"] == 230
 
 
 async def test_recent_recruiter_edit_is_kept(app_client: AsyncClient):

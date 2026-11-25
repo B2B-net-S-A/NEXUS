@@ -73,6 +73,8 @@ export function useReportAction(id: number) {
       queryClient.setQueryData(reportKey(id), detail);
       await queryClient.invalidateQueries({ queryKey: [...reportsKey, "list"] });
     },
+    // 409 „nie może wyjść” (np. wypis) zmienia stan raportu — widok go dociąga.
+    onError: () => queryClient.invalidateQueries({ queryKey: reportsKey }),
   });
 }
 

@@ -37,8 +37,18 @@ from app.services.competence_report_schema import (
 )
 
 RoleKey = Literal[
-    "java", "python", "dotnet", "frontend", "kotlin", "go", "php",
-    "tester", "devops", "business_analyst", "project_manager", "data_engineer",
+    "java",
+    "python",
+    "dotnet",
+    "frontend",
+    "kotlin",
+    "go",
+    "php",
+    "tester",
+    "devops",
+    "business_analyst",
+    "project_manager",
+    "data_engineer",
 ]
 
 RATE_MIN, RATE_MAX = 60, 400
@@ -140,18 +150,31 @@ def _py_pattern(pattern: str) -> re.Pattern[str]:
     return re.compile(pattern.replace(r"\m", r"\b").replace(r"\M", r"\b"))
 
 
-_PY = {key: (_py_pattern(r.pattern), r.exclude and _py_pattern(r.exclude)) for key, r in ROLES.items()}
+_PY = {
+    key: (_py_pattern(r.pattern), r.exclude and _py_pattern(r.exclude))
+    for key, r in ROLES.items()
+}
 
 
 def _field(row: Any, name: str) -> Any:
     return row.get(name) if isinstance(row, Mapping) else getattr(row, name, None)
 
 
-def _position_role(position: str) -> str | None:
+def tech_pattern(role: str) -> re.Pattern[str] | None:
+    """Wzorzec umiejętności roli technologicznej; rola stanowiskowa → ``None``."""
+    return _PY[role][0] if ROLES[role].kind == "tech" else None
+
+
+def position_role(position: str) -> str | None:
+    """Rola stanowiskowa (tester, analityk…) z nazwy stanowiska albo kategorii."""
     pos = position.lower()
     for key, role in ROLES.items():
         pattern, exclude = _PY[key]
-        if role.kind == "position" and pattern.search(pos) and not (exclude and exclude.search(pos)):
+        if (
+            role.kind == "position"
+            and pattern.search(pos)
+            and not (exclude and exclude.search(pos))
+        ):
             return key
     return None
 
@@ -169,17 +192,23 @@ def _tech_months(skill_usage_rows: Iterable[Any]) -> dict[str, int | None]:
     return out
 
 
-def resolve_role(cv_extracted_data: Mapping[str, Any] | None, skill_usage_rows: Iterable[Any]) -> RoleKey | None:
+def resolve_role(
+    cv_extracted_data: Mapping[str, Any] | None, skill_usage_rows: Iterable[Any]
+) -> RoleKey | None:
     """Rola kandydata: stanowisko spoza programowania albo technologia z największą liczbą miesięcy."""
-    position = str((cv_extracted_data or {}).get("current_position") or "")
-    by_position = _position_role(position)
+    data = cv_extracted_data if isinstance(cv_extracted_data, Mapping) else {}
+    position = str(data.get("current_position") or "")
+    by_position = position_role(position)
     if by_position:
         return by_position  # type: ignore[return-value]
     months = _tech_months(skill_usage_rows)
     if not months:
         return None
     order = list(ROLES)
-    return max(months, key=lambda key: (months[key] is not None, months[key] or 0, -order.index(key)))  # type: ignore[return-value]
+    return max(
+        months,
+        key=lambda key: (months[key] is not None, months[key] or 0, -order.index(key)),
+    )  # type: ignore[return-value]
 
 
 def role_years(role: str, skill_usage_rows: Iterable[Any]) -> int | None:
@@ -217,7 +246,11 @@ def _city_key(label: str) -> str:
 def _steps(bucket: str | None, city: str | None) -> list[tuple[str | None, str | None]]:
     """Kolejne grupy od najwęższej: bez miasta → szersze lata → sama rola."""
     steps: list[tuple[str | None, str | None]] = [(bucket, city)]
-    for step in ((bucket, None), (_WIDER.get(bucket) if bucket else None, None), (None, None)):
+    for step in (
+        (bucket, None),
+        (_WIDER.get(bucket) if bucket else None, None),
+        (None, None),
+    ):
         if step not in steps:
             steps.append(step)
     return steps
@@ -238,7 +271,11 @@ def _people_cte(params: dict[str, Any]) -> str:
     """CTE ``people(id, rate, city, role, months)``: cała populacja ze stawką i przypisaną rolą."""
     tech_rows, pos_rows = [], []
     for prio, (key, role) in enumerate(ROLES.items()):
-        params[f"rk{prio}"], params[f"rp{prio}"], params[f"rx{prio}"] = key, role.pattern, role.exclude
+        params[f"rk{prio}"], params[f"rp{prio}"], params[f"rx{prio}"] = (
+            key,
+            role.pattern,
+            role.exclude,
+        )
         row = f"(:rk{prio}, {prio}, :rp{prio}, cast(:rx{prio} as text))"
         (tech_rows if role.kind == "tech" else pos_rows).append(row)
     params["since"] = local_now() - timedelta(days=WINDOW_DAYS)
@@ -257,7 +294,7 @@ def _people_cte(params: dict[str, Any]) -> str:
     pos_roles as (
       select distinct on (p.pos) p.pos, r.key
       from (select distinct pos from base) p
-      join (values {', '.join(pos_rows)}) r(key, prio, pattern, exclude)
+      join (values {", ".join(pos_rows)}) r(key, prio, pattern, exclude)
         on p.pos ~ r.pattern and (r.exclude is null or p.pos !~ r.exclude)
       order by p.pos, r.prio
     ),
@@ -268,7 +305,7 @@ def _people_cte(params: dict[str, Any]) -> str:
     tech_names as (
       select n.skill_canonical, t.key, t.prio
       from (select distinct skill_canonical from usage) n
-      join (values {', '.join(tech_rows)}) t(key, prio, pattern, exclude)
+      join (values {", ".join(tech_rows)}) t(key, prio, pattern, exclude)
         on lower(n.skill_canonical) ~ t.pattern
     ),
     main_tech as (
@@ -292,7 +329,9 @@ def _people_cte(params: dict[str, Any]) -> str:
     )"""
 
 
-def _group_filter(bucket: str | None, city: str | None, params: dict[str, Any], tag: str) -> str:
+def _group_filter(
+    bucket: str | None, city: str | None, params: dict[str, Any], tag: str
+) -> str:
     """Warunek SQL na ``people`` dla jednej grupy (rola sprawdzana osobno)."""
     parts = ["true"]
     if bucket is not None:
@@ -372,7 +411,11 @@ async def tech_premiums(
             names[key] = skill.strip()
     if not names:
         return []
-    params: dict[str, Any] = {"role": role, "skills": list(names), "min_group": MIN_GROUP}
+    params: dict[str, Any] = {
+        "role": role,
+        "skills": list(names),
+        "min_group": MIN_GROUP,
+    }
     cte = _people_cte(params)
     where = _group_filter(group.years_bucket, group.city, params, "g")
     sql = f"""

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { apiErrorMessage } from "@/lib/api-error";
+
 import {
   canEdit,
   canHold,
@@ -122,5 +124,22 @@ describe("conditionsFromDraft — te same granice co backend", () => {
     const result = conditionsFromDraft({ ...base, modes: ["onsite", "remote"], start: "" });
     expect(result.ok && result.body.modes).toEqual(["remote", "onsite"]);
     expect(result.ok && result.body.start).toBeNull();
+  });
+});
+
+describe("„Wyślij teraz” — powód z 409", () => {
+  it("pokazuje zdanie z backendu zamiast ogólnego błędu", () => {
+    const error = {
+      response: {
+        status: 409,
+        data: {
+          detail: "Mail „Raport kompetencji” jest wyłączony w Ustawieniach powiadomień.",
+          reason: "mail_disabled",
+        },
+      },
+    };
+    expect(apiErrorMessage(error, "Nie udało się wysłać raportu.")).toBe(
+      "Mail „Raport kompetencji” jest wyłączony w Ustawieniach powiadomień.",
+    );
   });
 });

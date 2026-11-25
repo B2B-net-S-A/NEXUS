@@ -1,4 +1,4 @@
-"""Silnik raportu kompetencji: snapshot z warunków kandydata i wysyłka (N3, N4).
+"""Silnik raportu kompetencji: snapshot z warunków kandydata (N3).
 
 Plan: b2bnetwork-www ``docs/raport-24h-wdrozenie.md``, makieta „3 · Mail z raportem”.
 Raport liczymy z warunków, które kandydat podał w formularzu
@@ -16,30 +16,24 @@ rekrutera z 14 dni, raport ma odpowiadać na to, o co osoba pytała.
   miejsce i technologie, w których mimo to stoi nazwa klienta, odpadają.
 - Wariant ``limited``: brak roli, brak stawek rynku albo CV nieodczytane po 20 h.
 
-``send_report`` rezerwuje wiersz (``sent``) i commituje przed wysyłką, jak
-``candidate_terms_queue.send_one``: restart w trakcie nie wyśle drugiego maila.
-Nazwy ``build_snapshot``, ``rebuild_snapshot``, ``send_report`` i
-``send_report_now`` to kontrakt z kolejką rekrutera.
+Wysyłka gotowego snapshotu: ``competence_report_send``. Nazwy
+``build_snapshot`` i ``rebuild_snapshot`` to kontrakt z kolejką rekrutera.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import math
 import re
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Optional
 
-from sqlalchemy import exists, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
-from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.candidate_skill_usage import CandidateSkillUsage
 from app.models.competence_category import CompetenceCategory
@@ -47,14 +41,7 @@ from app.models.competence_report import CompetenceReport
 from app.models.job import Job
 from app.models.user import User
 from app.services import market_rates
-from app.services.competence_report_email import (
-    KIND,
-    RenderedMail,
-    ReportLinks,
-    fmt_num,
-    recipient_allowed,
-    render_report_email,
-)
+from app.services.competence_report_email import fmt_num
 from app.services.competence_report_schema import (
     FunnelStep,
     Lever,
@@ -69,16 +56,12 @@ from app.services.competence_report_schema import (
     TechPremium,
     round_budget,
 )
-from app.services.competence_report_tokens import new_token, report_urls, token_expiry
 
 logger = logging.getLogger(__name__)
 
-#: Po tylu nieudanych wysyłkach raport przechodzi w ``failed``.
-MAX_ATTEMPTS = 5
 MAX_JOBS = 3
 MAX_LEVERS = 3
 JOB_SKILLS_SHOWN = 4
-ACTIVITY_ACTION = "competence_report_sent"
 
 # „Otwarte projekty {…}”, „najwięcej projektów {…}”.
 ROLE_PHRASE: dict[str, str] = {
@@ -96,14 +79,6 @@ ROLE_PHRASE: dict[str, str] = {
     "data_engineer": "dla inżynierów danych",
 }
 FALLBACK_ROLE_LABEL = "Twój profil"
-
-
-class ReportNotSendable(Exception):
-    """Raport nie może teraz wyjść; ``reason`` to krótki kod bez danych osobowych."""
-
-    def __init__(self, reason: str) -> None:
-        super().__init__(reason)
-        self.reason = reason
 
 
 # ── Fakty rekrutacji i warunki (bez bazy) ───────────────────────────────────
@@ -340,9 +315,7 @@ def missing_tech(
 
     if not jobs:
         return None
-    role_pattern = (
-        market_rates._PY[role][0] if market_rates.ROLES[role].kind == "tech" else None
-    )
+    role_pattern = market_rates.tech_pattern(role)
     counts: Counter[str] = Counter()
     shown: dict[str, str] = {}
     for job in jobs:
@@ -430,13 +403,12 @@ def _canonical_raw(raw: Any) -> list[str]:
 def _matches_role(
     role: str, facts: JobFacts, title: str, category: Optional[str]
 ) -> bool:
-    definition = market_rates.ROLES[role]
-    if definition.kind == "tech":
-        pattern = market_rates._PY[role][0]
+    pattern = market_rates.tech_pattern(role)
+    if pattern is not None:
         return any(pattern.search(name) for name in facts.must)
     return role in {
-        market_rates._position_role(title or ""),
-        market_rates._position_role(category or ""),
+        market_rates.position_role(title or ""),
+        market_rates.position_role(category or ""),
     }
 
 
@@ -460,9 +432,11 @@ async def _open_role_jobs(db: AsyncSession, role: str) -> list[tuple[Job, JobFac
 
 
 async def _client_names(db: AsyncSession, job: Job) -> list[str]:
-    from app.services.job_public_profile import _client_names as names_of
+    from app.services.job_public_profile import client_names
 
-    return [n for n in await names_of(db, job.client_id) if n and len(n.strip()) >= 3]
+    return [
+        n for n in await client_names(db, job.client_id) if n and len(n.strip()) >= 3
+    ]
 
 
 def _mentions(text: Optional[str], names: Sequence[str]) -> bool:
@@ -543,9 +517,7 @@ async def _owner(db: AsyncSession, report: CompetenceReport) -> Optional[ReportO
 async def _strongest(
     db: AsyncSession, role: str, market: MarketRate, rows: Sequence[Any]
 ) -> Optional[TechPremium]:
-    pattern = (
-        market_rates._PY[role][0] if market_rates.ROLES[role].kind == "tech" else None
-    )
+    pattern = market_rates.tech_pattern(role)
     months: dict[str, int] = {}
     raw_of: dict[str, str] = {}
     for row in rows:
@@ -683,181 +655,3 @@ async def rebuild_snapshot(
     snapshot = await build_snapshot(db, report)
     report.snapshot = snapshot.model_dump(mode="json")
     return snapshot
-
-
-# ── Wysyłka ─────────────────────────────────────────────────────────────────
-
-
-def _first_name(candidate: Optional[Candidate]) -> Optional[str]:
-    from app.services.public_apply import PLACEHOLDER_NAME
-
-    name = (candidate.name if candidate is not None else "") or ""
-    return None if not name.strip() or name.strip() == PLACEHOLDER_NAME else name
-
-
-def _deliver(
-    mail: RenderedMail, *, to: str, event_at: datetime, reply_to: Optional[str]
-) -> tuple[bool, bool]:
-    """Wątek wysyłki; polityka sprawdzana jeszcze raz tuż przed nadawcą. ``(ok, niepewne)``."""
-    from app.services.email import send_email
-    from app.services.m365.app_mail import last_delivery_uncertain
-    from app.services.notification_delivery import (
-        guarded_send,
-        last_send_policy_blocked,
-    )
-
-    ok = guarded_send(
-        KIND,
-        event_at,
-        send_email,
-        to,
-        mail.subject,
-        mail.text,
-        mail.html,
-        reply_to,
-        settings.CANDIDATE_MAIL_SENDER_UPN or None,
-        list_unsubscribe=mail.list_unsubscribe,
-    )
-    uncertain = bool(
-        not ok
-        and settings.M365_APP_MAIL_ENABLED
-        and not last_send_policy_blocked()
-        and last_delivery_uncertain()
-    )
-    return bool(ok), uncertain
-
-
-async def _candidate_opted_out(db: AsyncSession, candidate_id: int) -> bool:
-    return bool(
-        await db.scalar(
-            select(
-                exists().where(
-                    CompetenceReport.candidate_id == candidate_id,
-                    CompetenceReport.opted_out_at.is_not(None),
-                )
-            )
-        )
-    )
-
-
-async def _blocker(
-    db: AsyncSession, row: CompetenceReport, *, manual: bool
-) -> Optional[tuple[str, Optional[str]]]:
-    """``(powód, nowy status albo None)`` gdy raport nie może wyjść."""
-    from app.services.candidate_terms_queue import candidate_sender_ready
-    from app.services.notification_delivery import load_policy
-
-    if row.status != "ready" and not (manual and row.status == "failed"):
-        return "not_ready", None
-    if row.opted_out_at is not None or await _candidate_opted_out(db, row.candidate_id):
-        return "opted_out", "opted_out"
-    if row.held_at is not None and not manual:
-        return "held", None
-    if not row.snapshot:
-        return "no_snapshot", None
-    if not recipient_allowed(row.email):
-        return "recipient_not_allowed", None if manual else "skipped"
-    if not candidate_sender_ready():
-        return "sender_not_ready", None
-    policy = await load_policy(db)
-    if not policy.allows(KIND, row.created_at):
-        before = policy.kind_enabled(KIND) and not manual
-        return ("before_enabled", "skipped") if before else ("mail_disabled", None)
-    return None
-
-
-async def send_report(
-    db: AsyncSession,
-    report: CompetenceReport,
-    *,
-    by_user_id: Optional[int],
-    now: Optional[datetime] = None,
-) -> None:
-    """Wyślij raport. Commituje (rezerwacja przed wysyłką i wynik po niej).
-
-    Rzuca ``ReportNotSendable`` z kodem, gdy raport nie może wyjść (wypis,
-    wstrzymanie przy wysyłce automatycznej, adres spoza próby, mail wyłączony
-    w Ustawieniach). Wysyłka rekrutera (``by_user_id``) przechodzi mimo
-    „Wstrzymaj” i ponawia raport ``failed``. Nieudana wysyłka: ``attempts`` + 1,
-    ``last_error``, po ``MAX_ATTEMPTS`` status ``failed``.
-    """
-    now = now or datetime.now(timezone.utc)
-    row = await db.scalar(
-        select(CompetenceReport)
-        .where(CompetenceReport.id == report.id)
-        .with_for_update(skip_locked=True)
-        .execution_options(populate_existing=True)
-    )
-    if row is None:
-        raise ReportNotSendable("busy")
-    blocked = await _blocker(db, row, manual=by_user_id is not None)
-    if blocked is not None:
-        reason, status = blocked
-        if status is not None:
-            row.status, row.last_error = status, reason
-        # Commit, nie rollback: zwalnia blokadę, a nie wygasza obiektów wołającego.
-        await db.commit()
-        raise ReportNotSendable(reason)
-
-    candidate = await db.get(Candidate, row.candidate_id)
-    owner = await db.get(User, row.owner_user_id) if row.owner_user_id else None
-    raw, digest = new_token()
-    urls = report_urls(raw)
-    mail = render_report_email(
-        ReportSnapshot.model_validate(row.snapshot),
-        first_name=_first_name(candidate),
-        links=ReportLinks(
-            edit_conditions_url=urls.edit_conditions_url,
-            unsubscribe_url=urls.unsubscribe_url,
-            one_click_unsubscribe_url=urls.one_click_unsubscribe_url,
-        ),
-    )
-    to, event_at = row.email, row.created_at
-    reply_to = owner.email if owner is not None and owner.is_active else None
-    # Rezerwacja przed wysyłką: drugi worker go nie weźmie, a restart w trakcie
-    # nie wyśle drugiego maila (niepewny wynik zostaje „sent”).
-    row.token_hash, row.token_expires_at = digest, token_expiry(now)
-    row.status, row.sent_at, row.sent_by_user_id = "sent", now, by_user_id
-    row.last_error = None
-    await db.commit()
-
-    uncertain = False
-    try:
-        ok, uncertain = await asyncio.to_thread(
-            _deliver, mail, to=to, event_at=event_at, reply_to=reply_to
-        )
-        error = None if ok else "policy_blocked_or_send_failed"
-    except Exception as exc:  # noqa: BLE001 — wynik zapisujemy na wierszu
-        logger.warning("[competence-report] send failed: %s", type(exc).__name__)
-        ok, error = False, f"send_error:{type(exc).__name__}"[:120]
-    if ok or uncertain:
-        db.add(
-            Activity(
-                entity_type="candidate",
-                entity_id=row.candidate_id,
-                action=ACTIVITY_ACTION,
-                user_id=by_user_id,
-                external_source="system" if by_user_id is None else "manual",
-                details={
-                    "summary": "raport kompetencji wysłany",
-                    "report_id": row.id,
-                    "manual": by_user_id is not None,
-                    **({"uncertain": True} if uncertain else {}),
-                },
-            )
-        )
-        await db.commit()
-        return
-    row.attempts = (row.attempts or 0) + 1
-    row.status = "failed" if row.attempts >= MAX_ATTEMPTS else "ready"
-    row.sent_at = row.sent_by_user_id = None
-    row.token_hash = row.token_expires_at = None
-    row.last_error = error
-    await db.commit()
-
-
-async def send_report_now(
-    db: AsyncSession, report: CompetenceReport, user: User
-) -> None:
-    """„Wyślij teraz” z kolejki rekrutera: przed terminem, jako ``user``."""
-    await send_report(db, report, by_user_id=user.id)

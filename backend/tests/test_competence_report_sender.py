@@ -1,4 +1,4 @@
-"""Pętla raportów kompetencji (``tasks/competence_report_sender.py``) i ``send_report``.
+"""Pętla raportów kompetencji (``tasks/competence_report_sender.py``) i ``competence_report_send``.
 
 Pętla commituje (rezerwacja przed wysyłką), więc testy zapisują fikcyjne osoby
 naprawdę i sprzątają je na końcu. Wszystkie raporty mają daty z 2000 roku,
@@ -24,6 +24,7 @@ from app.models.candidate import Candidate
 from app.models.competence_report import CompetenceReport
 from app.models.user import User, UserRole
 from app.services import competence_report_engine as engine
+from app.services import competence_report_send as send
 from app.services import market_rates
 from app.services.competence_report_schema import ReportConditions
 from app.tasks import competence_report_sender as sender
@@ -204,7 +205,7 @@ async def test_po_terminie_wysyla_z_tokenem_i_wpisem(mail, people):
         entry = await db.scalar(
             select(Activity).where(
                 Activity.entity_id == row.candidate_id,
-                Activity.action == engine.ACTIVITY_ACTION,
+                Activity.action == send.ACTIVITY_ACTION,
             )
         )
     assert entry.details["summary"] == "raport kompetencji wysłany"
@@ -347,12 +348,12 @@ async def test_wyslij_teraz_przed_terminem(mail, people):
         await db.commit()
         try:
             report = await db.get(CompetenceReport, report_id)
-            await engine.send_report_now(db, report, user)
+            await send.send_report_now(db, report, user)
             row = await _row(report_id)
             assert row.status == "sent" and row.sent_by_user_id == user.id
             assert len(mail.sent) == 1
-            with pytest.raises(engine.ReportNotSendable) as err:
-                await engine.send_report_now(db, report, user)
+            with pytest.raises(send.ReportNotSendable) as err:
+                await send.send_report_now(db, report, user)
             assert err.value.reason == "not_ready"
         finally:
             await db.execute(

@@ -3,16 +3,17 @@
 Bramki (rekruter tak, rola ``user`` nie, lista opiekunów tylko admin), zakres
 „moje / wszystkie”, „Wstrzymaj” zatrzymujące automat, walidacja warunków,
 zmiana opiekuna tylko na aktywną osobę z listy i podgląd maila bez nazwy klienta
-i bez prawdziwego tokenu. Silnik raportu (``competence_report_engine``) jest
-podstawiony — testy nie wysyłają maili. Dane wyłącznie syntetyczne.
+i bez prawdziwego tokenu. Silnik i wysyłka są prawdziwe; podmieniony jest
+tylko nadawca maila (``send_email``) i polityka z Ustawień, więc testy nie
+wysyłają maili. Dane wyłącznie syntetyczne.
 """
 
 from __future__ import annotations
 
-import sys
-import types
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
@@ -35,7 +36,6 @@ from app.services.competence_report_schema import (
 )
 
 _URL = "/api/competence-reports"
-_ENGINE = "app.services.competence_report_engine"
 
 
 # ── Pomocniki ───────────────────────────────────────────────────────────────
@@ -54,27 +54,46 @@ async def api() -> AsyncClient:
         yield client
 
 
+class _Policy:
+    def __init__(self, enabled: bool = True) -> None:
+        self.enabled = enabled
+
+    def kind_enabled(self, kind):
+        return self.enabled
+
+    def allows(self, kind, event_at):
+        return self.enabled
+
+
 @pytest.fixture
-def engine(monkeypatch):
-    """Podstawiony silnik: zapisuje wywołania, wysyłka tylko zmienia stan."""
-    calls: dict[str, list] = {"send": [], "rebuild": []}
-    fake = types.ModuleType(_ENGINE)
+def mail(monkeypatch):
+    """Prawdziwa wysyłka z podmienionym nadawcą; ``mail.sent`` = wysłane maile."""
+    from app.core.config import settings
 
-    async def send_report_now(db, report, user):
-        calls["send"].append(report.id)
-        report.status = "sent"
-        report.sent_at = datetime.now(timezone.utc)
-        report.sent_by_user_id = user.id
+    state = SimpleNamespace(ok=True, policy=_Policy(), sent=[])
 
-    async def rebuild_snapshot(db, report):
-        calls["rebuild"].append(report.id)
-        conditions = ReportConditions.model_validate(report.conditions)
-        return _snapshot(conditions=conditions, role_label="Java przeliczona")
+    def fake_send(to, subject, text_body, html_body=None, *args, **kwargs):
+        state.sent.append(SimpleNamespace(to=to, subject=subject))
+        return state.ok
 
-    fake.send_report_now = send_report_now
-    fake.rebuild_snapshot = rebuild_snapshot
-    monkeypatch.setitem(sys.modules, _ENGINE, fake)
-    return calls
+    async def fake_policy(db):
+        return state.policy
+
+    monkeypatch.setattr("app.services.email.send_email", fake_send)
+    monkeypatch.setattr(
+        "app.services.notification_delivery.is_delivery_allowed_sync",
+        lambda kind, at: state.policy.allows(kind, at),
+    )
+    monkeypatch.setattr("app.services.notification_delivery.load_policy", fake_policy)
+    monkeypatch.setattr(
+        "app.services.candidate_terms_queue.candidate_sender_ready", lambda: True
+    )
+    monkeypatch.setattr(
+        settings, "CANDIDATE_MAIL_SENDER_UPN", "kariera-test@example.com"
+    )
+    monkeypatch.setattr(settings, "M365_APP_MAIL_ENABLED", False)
+    monkeypatch.delenv("COMPETENCE_REPORT_TEST_RECIPIENTS", raising=False)
+    return state
 
 
 def _snapshot(
@@ -135,6 +154,7 @@ async def _report(
     status: str = "ready",
     snapshot: ReportSnapshot | None = None,
     due_in: timedelta = timedelta(hours=20),
+    held: bool = False,
 ) -> int:
     unique = uuid.uuid4().hex[:8]
     now = datetime.now(timezone.utc)
@@ -163,6 +183,7 @@ async def _report(
             created_at=now - timedelta(hours=3),
             send_due_at=now + due_in,
             token_hash=uuid.uuid4().hex * 2 if status == "sent" else None,
+            held_at=now - timedelta(hours=1) if held else None,
         )
         db.add(report)
         await db.commit()
@@ -172,6 +193,18 @@ async def _report(
 async def _row(report_id: int) -> CompetenceReport:
     async with AsyncSessionLocal() as db:
         return await db.get(CompetenceReport, report_id)
+
+
+async def _actions(candidate_id: int) -> list[Activity]:
+    async with AsyncSessionLocal() as db:
+        return list(
+            await db.scalars(
+                select(Activity).where(
+                    Activity.entity_type == "candidate",
+                    Activity.entity_id == candidate_id,
+                )
+            )
+        )
 
 
 async def _set_pool(*members: tuple[int, bool]) -> None:
@@ -425,7 +458,7 @@ async def test_hold_stops_auto_send_and_warns_about_the_promise(api) -> None:
 
 
 @pytest.mark.asyncio
-async def test_sent_report_cannot_be_held_or_sent_again(api, engine) -> None:
+async def test_sent_report_cannot_be_held_or_sent_again(api, mail) -> None:
     _, headers = await _as(api, UserRole.recruiter)
     report_id = await _report(status="sent")
     assert (
@@ -438,32 +471,84 @@ async def test_sent_report_cannot_be_held_or_sent_again(api, engine) -> None:
     assert (
         await api.post(f"{_URL}/{waiting}/send-now", headers=headers)
     ).status_code == 409
-    assert engine["send"] == []
+    assert mail.sent == []
 
 
 @pytest.mark.asyncio
-async def test_send_now_goes_through_the_engine_and_is_audited(api, engine) -> None:
+async def test_send_now_sends_and_leaves_one_timeline_entry(api, mail) -> None:
     me, headers = await _as(api, UserRole.recruiter)
     report_id = await _report(owner_id=me)
     resp = await api.post(f"{_URL}/{report_id}/send-now", headers=headers)
     assert resp.status_code == 200, resp.text
-    assert engine["send"] == [report_id]
     assert resp.json()["status"] == "sent" and resp.json()["sent_by"]["id"] == me
-    async with AsyncSessionLocal() as db:
-        activity = await db.scalar(
-            select(Activity).where(
-                Activity.action == "competence_report_sent_now",
-                Activity.details["competence_report_id"].as_integer() == report_id,
-            )
-        )
-    assert activity is not None and activity.user_id == me
-    assert set(activity.details) == {"competence_report_id"}
+    row = await _row(report_id)
+    [message] = mail.sent
+    assert message.to == row.email
+    assert row.token_hash and row.sent_by_user_id == me
+    # Jeden wpis wysyłki (silnik), z rekruterem jako autorem — bez drugiego z API.
+    entries = [a for a in await _actions(row.candidate_id) if "sent" in a.action]
+    assert [(a.action, a.user_id) for a in entries] == [("competence_report_sent", me)]
+    assert entries[0].details["manual"] is True
 
 
 @pytest.mark.asyncio
-async def test_conditions_are_validated_saved_and_rebuilt(api, engine) -> None:
+async def test_send_now_goes_out_despite_hold(api, mail) -> None:
+    """„Wstrzymaj” zatrzymuje tylko automat; rekruter wysyła mimo wstrzymania."""
+    me, headers = await _as(api, UserRole.recruiter)
+    report_id = await _report(owner_id=me, held=True)
+    resp = await api.post(f"{_URL}/{report_id}/send-now", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "sent"
+    assert len(mail.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_send_now_with_mail_kind_disabled_is_409_with_reason(api, mail) -> None:
+    mail.policy = _Policy(enabled=False)
     _, headers = await _as(api, UserRole.recruiter)
     report_id = await _report()
+    resp = await api.post(f"{_URL}/{report_id}/send-now", headers=headers)
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["reason"] == "mail_disabled"
+    assert "wyłączony w Ustawieniach" in resp.json()["detail"]
+    row = await _row(report_id)
+    assert (row.status, row.sent_at, row.token_hash) == ("ready", None, None)
+    assert mail.sent == []
+
+
+@pytest.mark.asyncio
+async def test_send_now_to_opted_out_person_is_409_and_stops_report(api, mail) -> None:
+    _, headers = await _as(api, UserRole.recruiter)
+    report_id = await _report()
+    async with AsyncSessionLocal() as db:
+        row = await db.get(CompetenceReport, report_id)
+        row.opted_out_at = datetime.now(timezone.utc)
+        await db.commit()
+    resp = await api.post(f"{_URL}/{report_id}/send-now", headers=headers)
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["reason"] == "opted_out"
+    assert "wypisał" in resp.json()["detail"]
+    assert (await _row(report_id)).status == "opted_out"
+    assert mail.sent == []
+
+
+@pytest.mark.asyncio
+async def test_send_now_transport_failure_is_502_and_counts_attempt(api, mail) -> None:
+    mail.ok = False
+    _, headers = await _as(api, UserRole.recruiter)
+    report_id = await _report()
+    resp = await api.post(f"{_URL}/{report_id}/send-now", headers=headers)
+    assert resp.status_code == 502, resp.text
+    row = await _row(report_id)
+    assert (row.status, row.attempts, row.token_hash) == ("ready", 1, None)
+    assert not [a for a in await _actions(row.candidate_id) if "sent" in a.action]
+
+
+@pytest.mark.asyncio
+async def test_conditions_are_validated_saved_and_rebuilt(api) -> None:
+    me, headers = await _as(api, UserRole.recruiter)
+    report_id = await _report()
+    before = (await _row(report_id)).snapshot
 
     for bad in (
         {"rate": 150, "office_days_max": 6},
@@ -476,7 +561,7 @@ async def test_conditions_are_validated_saved_and_rebuilt(api, engine) -> None:
             f"{_URL}/{report_id}/conditions", json=bad, headers=headers
         )
         assert resp.status_code == 422, bad
-    assert engine["rebuild"] == []
+    assert (await _row(report_id)).snapshot == before
 
     body = {
         "rate": 170,
@@ -486,11 +571,12 @@ async def test_conditions_are_validated_saved_and_rebuilt(api, engine) -> None:
     }
     resp = await api.patch(f"{_URL}/{report_id}/conditions", json=body, headers=headers)
     assert resp.status_code == 200, resp.text
-    assert engine["rebuild"] == [report_id]
     assert resp.json()["conditions"]["rate"] == 170
-    assert resp.json()["role_label"] == "Java przeliczona"
     row = await _row(report_id)
+    # Prawdziwy silnik: osoba bez odczytanego CV → wariant ``limited`` z nowymi warunkami.
     assert row.snapshot["conditions"]["office_cities"] == ["Gdańsk"]
+    assert row.snapshot["conditions"]["rate"] == 170
+    assert row.snapshot["profile"]["role_label"] != "Java"
 
     async with AsyncSessionLocal() as db:
         activity = await db.scalar(
@@ -510,15 +596,76 @@ async def test_conditions_are_validated_saved_and_rebuilt(api, engine) -> None:
 
 
 @pytest.mark.asyncio
-async def test_waiting_report_saves_conditions_without_rebuild(api, engine) -> None:
+async def test_waiting_report_saves_conditions_without_rebuild(api) -> None:
     _, headers = await _as(api, UserRole.recruiter)
     report_id = await _report(status="waiting_cv")
     resp = await api.patch(
         f"{_URL}/{report_id}/conditions", json={"rate": 140}, headers=headers
     )
     assert resp.status_code == 200, resp.text
-    assert engine["rebuild"] == []
-    assert (await _row(report_id)).conditions["rate"] == 140
+    row = await _row(report_id)
+    assert row.conditions["rate"] == 140 and row.snapshot is None
+
+
+@pytest.mark.asyncio
+async def test_recruiter_conditions_reach_the_profile_as_his_edit(api) -> None:
+    """Poprawa rekrutera idzie do profilu bez ochrony 14 dni i tylko w zmienionych polach."""
+    me, headers = await _as(api, UserRole.recruiter)
+    other, *_ = await _user(UserRole.recruiter)
+    report_id = await _report()
+    candidate_id = (await _row(report_id)).candidate_id
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        candidate = await db.get(Candidate, candidate_id)
+        candidate.expected_rate_hourly = Decimal("120.00")
+        candidate.expected_rate_currency = "PLN"
+        candidate.preferences = {"office_cities": ["Łódź"]}
+        # Miasta zmienione w profilu wczoraj — strona by je zostawiła, rekruter nie.
+        db.add(
+            Activity(
+                entity_type="candidate",
+                entity_id=candidate_id,
+                action="updated",
+                user_id=other,
+                details={"preferences": {"office_cities": ["Łódź"]}},
+                created_at=now - timedelta(days=1),
+            )
+        )
+        await db.commit()
+
+    body = {
+        "rate": 150,
+        "modes": ["hybrid"],
+        "office_days_max": 2,
+        "office_cities": ["Gdańsk"],
+    }
+    resp = await api.patch(f"{_URL}/{report_id}/conditions", json=body, headers=headers)
+    assert resp.status_code == 200, resp.text
+
+    async with AsyncSessionLocal() as db:
+        candidate = await db.get(Candidate, candidate_id)
+    assert candidate.preferences["office_cities"] == ["Gdańsk"]
+    assert candidate.max_onsite_days_per_week == 2
+    # Stawka bez zmiany w raporcie (150 → 150) nie nadpisuje profilu.
+    assert candidate.expected_rate_hourly == Decimal("120.00")
+    work_mode = [
+        a
+        for a in await _actions(candidate_id)
+        if a.action == "candidate_work_mode_changed"
+    ]
+    assert [a.user_id for a in work_mode] == [me]
+
+    resp = await api.patch(
+        f"{_URL}/{report_id}/conditions", json={**body, "rate": 175}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    async with AsyncSessionLocal() as db:
+        candidate = await db.get(Candidate, candidate_id)
+    assert candidate.expected_rate_hourly == Decimal("175.00")
+    [rate_entry] = [
+        a for a in await _actions(candidate_id) if a.action == "profile_rate_changed"
+    ]
+    assert rate_entry.user_id == me
 
 
 @pytest.mark.asyncio

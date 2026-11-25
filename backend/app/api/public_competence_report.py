@@ -16,6 +16,7 @@ Ten moduł NIE MOŻE dostać ``from __future__ import annotations`` — PEP 563 
 slowapi #579 zamieniają ciało żądania w parametry query (422).
 """
 
+import logging
 from datetime import date as Date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional
@@ -31,9 +32,12 @@ from app.core.scheduling import business_date
 from app.models.candidate import Candidate
 from app.models.competence_report import CompetenceReport
 from app.services import candidate_audit
+from app.services.competence_report_engine import fallback_snapshot, rebuild_snapshot
 from app.services.competence_report_schema import ReportConditions
 from app.services.competence_report_tokens import token_hash
 from app.services.website_application_terms import WebsiteTerms, apply_terms
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -134,6 +138,24 @@ def _view(row: CompetenceReport) -> ReportPageView:
     )
 
 
+async def _rebuild(db: AsyncSession, row: CompetenceReport) -> None:
+    """Raport jeszcze nie wyszedł: mail ma pokazać nowe warunki.
+
+    Błąd silnika nie odbiera kandydatowi zapisu — jak w pętli wysyłki raport
+    dostaje wtedy najkrótszy wariant z nowymi warunkami.
+    """
+    try:
+        async with db.begin_nested():
+            await rebuild_snapshot(db, row)
+    except Exception as exc:  # noqa: BLE001 — zapis warunków ważniejszy niż pełny raport
+        logger.warning(
+            "[competence-report] rebuild after conditions failed report=%s: %s",
+            row.id,
+            type(exc).__name__,
+        )
+        row.snapshot = fallback_snapshot(row).model_dump(mode="json")
+
+
 @router.get("/public/competence-report/{token}", response_model=ReportPageView)
 @limiter.limit("30/minute")
 async def get_report_page(
@@ -176,6 +198,8 @@ async def save_report_conditions(
         protect=True,
     )
     row.conditions = conditions.model_dump(mode="json")
+    if row.status in _UNSENT and row.snapshot:
+        await _rebuild(db, row)
     candidate_audit.record_candidate_audit(
         db,
         action=candidate_audit.TERMS_ANSWERED,

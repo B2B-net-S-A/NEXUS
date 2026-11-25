@@ -52,8 +52,15 @@ const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   hired: "Zatrudniono",
   engagement_updated: "Zaktualizowano zaangażowanie",
   application_submission_resolved: "Rozpatrzono zgłoszenie kandydata",
-  // 25.11.2026: kolejka „Raporty ze strony” (raport kompetencji w 24 h).
-  competence_report_sent_now: "Wysłano raport kompetencji",
+  // 24.11.2026: zgłoszenie z formularza nowej strony (`website_applications`).
+  applied_via_website: "Zgłoszenie ze strony WWW",
+  // Warunki od kandydata (formularz z maila, strona raportu) i tryb pracy.
+  candidate_terms_answered: "Kandydat podał warunki współpracy",
+  candidate_work_mode_changed: "Zmieniono tryb pracy",
+  // 25.11.2026: raport kompetencji w 24 h. Wysyłkę (automat albo „Wyślij
+  // teraz”) zapisuje jeden wpis; kto wysłał, widać po autorze wpisu.
+  competence_report_sent: "Wysłano raport kompetencji",
+  competence_report_opted_out: "Kandydat wypisał się z raportów kompetencji",
   competence_report_held: "Wstrzymano raport kompetencji",
   competence_report_released: "Zwolniono wstrzymany raport kompetencji",
   competence_report_conditions_changed: "Poprawiono warunki w raporcie kompetencji",

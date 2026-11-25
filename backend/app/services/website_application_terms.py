@@ -119,11 +119,14 @@ async def apply_terms(
     now: datetime,
     protect: bool,
     write_rate: bool = True,
+    actor_id: Optional[int] = None,
 ) -> dict:
     """Zapisz warunki. Zwraca ``{"saved": [...], "kept": [...]}``. Bez commitu.
 
     ``write_rate=False``: nowy kandydat ma stawkę już w konstruktorze
     (kontrakt writera etapów, patrz ``public_apply._create_candidate``).
+    ``actor_id``: poprawa rekrutera w kolejce raportów — wpisy idą na niego
+    (stawka jako wpis ręczny), więc same chronią pole przez 14 dni.
     """
     saved: list[str] = []
     kept: list[str] = []
@@ -140,6 +143,7 @@ async def apply_terms(
         saved.append(field)
         return True
 
+    source = SOURCE if actor_id is None else "competence_report_recruiter"
     if write_rate and terms.rate_hourly is not None and _guard("rate"):
         from app.services.candidate_profile_facts import update_candidate_profile_rate
 
@@ -148,9 +152,10 @@ async def apply_terms(
             candidate_id=candidate.id,
             amount=terms.rate_hourly,
             expected_version=candidate.profile_rate_version,
-            actor_id=None,
+            actor_id=actor_id,
             meaning="expectation",
-            source=SOURCE,
+            # Wpis rekrutera to zwykła zmiana ręczna w historii stawek.
+            source=SOURCE if actor_id is None else None,
         )
 
     modes = _modes(terms)
@@ -163,9 +168,9 @@ async def apply_terms(
         candidate_audit.record_candidate_audit(
             db,
             action=candidate_audit.WORK_MODE_CHANGED,
-            user_id=None,
+            user_id=actor_id,
             entity_id=candidate.id,
-            details={**change, "source": SOURCE},
+            details={**change, "source": source},
         )
 
     if terms.cities and _guard("cities"):

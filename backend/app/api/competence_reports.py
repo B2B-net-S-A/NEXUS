@@ -7,9 +7,11 @@ gotowy w godzinę i bez reakcji rekrutera wychodzi sam o ``send_due_at``
 * ``GET  /api/competence-reports?scope=mine|all&status=`` — kolejka po terminie;
 * ``GET  /api/competence-reports/{id}`` — szczegóły z podglądem maila
   (kotwice zamiast linków z tokenem — token powstaje dopiero przy wysyłce);
-* ``POST /{id}/send-now`` — wysyłka od razu (silnik ``competence_report_engine``);
+* ``POST /{id}/send-now`` — wysyłka od razu (``competence_report_send``); raport,
+  który nie może wyjść, dostaje 409 z ``reason`` i zdaniem dla rekrutera;
 * ``POST /{id}/hold`` / ``/{id}/release`` — wstrzymanie automatu i zwolnienie;
-* ``PATCH /{id}/conditions`` — poprawa warunków i przeliczenie snapshotu;
+* ``PATCH /{id}/conditions`` — poprawa warunków, przeliczenie snapshotu i zapis
+  zmienionych pól w profilu kandydata (``website_application_terms``);
 * ``POST /{id}/owner`` — zmiana opiekuna na osobę z listy;
 * ``GET|PUT /api/competence-reports/owners`` — lista opiekunów (tylko admin),
   po której raporty idą po kolei (``competence_report_store.assign_owner``).
@@ -18,17 +20,19 @@ Bramki: sekcja Sourcing na routerze (zapis wymaga zapisu w sekcji), odczyt jak
 dane kandydata (``CandidatePIIAccess`` — lista ma imię i nazwisko), akcje jak
 zapis kandydata (``CandidateWriteAccess`` — bez roli tylko do odczytu), lista
 opiekunów ``AdminUser``. Akcje zostawiają ``Activity`` na kandydacie bez danych
-osobowych i bez wartości warunków (same nazwy zmienionych pól).
+osobowych i bez wartości warunków (same nazwy zmienionych pól). Wysyłkę zapisuje
+silnik jednym wpisem ``competence_report_sent`` (``user_id`` = rekruter).
 """
 
 from __future__ import annotations
 
-import importlib
 import logging
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +46,7 @@ from app.models.candidate import Candidate
 from app.models.competence_report import CompetenceReport, CompetenceReportOwner
 from app.models.user import User
 from app.services.competence_report_ddl import STATUSES
+from app.services.competence_report_engine import rebuild_snapshot
 from app.services.competence_report_queue import (
     HOLD_WARNING,
     OPEN_STATUSES,
@@ -54,18 +59,48 @@ from app.services.competence_report_queue import (
     snapshot_or_none,
 )
 from app.services.competence_report_schema import ReportConditions, ReportOwner
+from app.services.competence_report_send import ReportNotSendable, send_report_now
+from app.services.website_application_terms import WebsiteTerms, apply_terms
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
-_ENGINE = "app.services.competence_report_engine"
 _LIST_LIMIT = 300
 
+#: Kod ``ReportNotSendable`` → zdanie dla rekrutera (409 z ``reason``).
+NOT_SENDABLE_MESSAGES: dict[str, str] = {
+    "busy": "Raport właśnie wysyła się w tle. Odśwież widok za chwilę.",
+    "not_ready": "Ten raport nie czeka już na wysyłkę.",
+    "no_snapshot": "Raport nie jest jeszcze gotowy.",
+    "held": "Raport jest wstrzymany.",
+    "opted_out": "Kandydat wypisał się z raportów kompetencji — raport nie wyjdzie.",
+    "recipient_not_allowed": (
+        "Trwa próba: raport może wyjść tylko na adres z listy testowej."
+    ),
+    "sender_not_ready": (
+        "Skrzynka do maili dla kandydatów nie jest gotowa. Zgłoś to administratorowi."
+    ),
+    "mail_disabled": (
+        "Mail „Raport kompetencji” jest wyłączony w Ustawieniach powiadomień. "
+        "Włączyć go może administrator."
+    ),
+    "before_enabled": (
+        "Raport powstał przed włączeniem maila „Raport kompetencji”, więc nie wyjdzie."
+    ),
+}
+_NOT_SENDABLE_FALLBACK = "Tego raportu nie można teraz wysłać."
+_SEND_FAILED = "Nie udało się wysłać raportu. Spróbuj ponownie."
 
-def _engine():
-    """Silnik raportu ładowany przy użyciu (budowany równolegle, N3/N4)."""
-    return importlib.import_module(_ENGINE)
+#: Pole warunków raportu → pole ``WebsiteTerms`` (zapis w profilu kandydata).
+_PROFILE_FIELDS: dict[str, tuple[str, ...]] = {
+    "rate": ("rate",),
+    "contract": ("contract",),
+    "modes": ("modes", "office_days_max"),
+    "office_days_max": ("modes", "office_days_max"),
+    "office_cities": ("office_cities",),
+    "start": ("start",),
+}
 
 
 # ── Schematy ────────────────────────────────────────────────────────────────
@@ -380,17 +415,29 @@ async def send_now(
     if report.snapshot is None:
         raise HTTPException(status_code=409, detail="Raport nie jest jeszcze gotowy.")
     try:
-        await _engine().send_report_now(db, report, current_user)
-        _audit(db, report, current_user, "competence_report_sent_now")
-        await db.commit()
-    except HTTPException:
-        raise
+        # Silnik commituje sam i zapisuje wpis ``competence_report_sent``.
+        await send_report_now(db, report, current_user)
+    except ReportNotSendable as exc:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": NOT_SENDABLE_MESSAGES.get(exc.reason, _NOT_SENDABLE_FALLBACK),
+                "reason": exc.reason,
+            },
+        )
     except Exception:
         await db.rollback()
         logger.exception("competence report send-now failed report_id=%s", report_id)
-        raise HTTPException(
-            status_code=502, detail="Nie udało się wysłać raportu. Spróbuj ponownie."
+        raise HTTPException(status_code=502, detail=_SEND_FAILED)
+    await db.refresh(report)
+    if report.status != "sent":
+        # Nadawca odmówił albo padł: silnik policzył próbę, raport czeka dalej.
+        logger.warning(
+            "competence report send-now not delivered report_id=%s error=%s",
+            report_id,
+            report.last_error,
         )
+        raise HTTPException(status_code=502, detail=_SEND_FAILED)
     return await _detail(db, report_id)
 
 
@@ -432,7 +479,7 @@ async def update_conditions(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> ReportDetail:
-    report, _ = await _load(db, report_id)
+    report, candidate = await _load(db, report_id)
     _require_status(report, OPEN_STATUSES, "poprawić")
     changed = changed_condition_keys(report.conditions, body)
     if not changed:
@@ -441,8 +488,8 @@ async def update_conditions(
     try:
         # Raport ``waiting_cv`` nie ma jeszcze snapshotu — pętla złoży go z nowych warunków.
         if report.snapshot is not None:
-            snapshot = await _engine().rebuild_snapshot(db, report)
-            report.snapshot = snapshot.model_dump(mode="json")
+            await rebuild_snapshot(db, report)
+        await _write_profile_terms(db, candidate, body, changed, current_user)
         _audit(
             db,
             report,
@@ -459,6 +506,40 @@ async def update_conditions(
             detail="Nie udało się przeliczyć raportu. Warunki nie zostały zapisane.",
         )
     return await _detail(db, report_id)
+
+
+async def _write_profile_terms(
+    db: AsyncSession,
+    candidate: Candidate,
+    conditions: ReportConditions,
+    changed: list[str],
+    user: User,
+) -> None:
+    """Zmienione pola także w profilu, jako zmiana rekrutera (bez ochrony 14 dni).
+
+    Tylko pola, które rekruter poprawił: stawka z profilu, którą strona
+    zostawiła (ochrona 14 dni), nie wraca przy poprawie samego miasta.
+    """
+    fields = {f for key in changed for f in _PROFILE_FIELDS.get(key, ())}
+    if not fields:
+        return
+    await apply_terms(
+        db,
+        candidate,
+        WebsiteTerms(
+            rate_hourly=Decimal(conditions.rate) if "rate" in fields else None,
+            contract=conditions.contract if "contract" in fields else None,
+            modes=conditions.modes if "modes" in fields else (),
+            office_days_max=(
+                conditions.office_days_max if "office_days_max" in fields else None
+            ),
+            cities=conditions.office_cities if "office_cities" in fields else (),
+            start=conditions.start if "start" in fields else None,
+        ),
+        now=datetime.now(timezone.utc),
+        protect=False,
+        actor_id=user.id,
+    )
 
 
 @router.post("/{report_id}/owner", response_model=ReportDetail)

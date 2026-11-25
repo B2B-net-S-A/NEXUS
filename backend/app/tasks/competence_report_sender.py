@@ -32,12 +32,8 @@ from app.models.candidate import Candidate
 from app.models.competence_report import CompetenceReport
 from app.services import loop_heartbeat
 from app.services.competence_report_email import KIND
-from app.services.competence_report_engine import (
-    ReportNotSendable,
-    build_snapshot,
-    fallback_snapshot,
-    send_report,
-)
+from app.services.competence_report_engine import build_snapshot, fallback_snapshot
+from app.services.competence_report_send import ReportNotSendable, send_report
 
 logger = logging.getLogger(__name__)
 
