@@ -6,7 +6,7 @@
  * i `display: flex` (wymóg satori), bez zależności od Node.
  *
  * Od 24.11.2026 jeden wygląd jak nagłówek oferty na nowej stronie kariery
- * (wariant G1 „Czerwona”, decyzja Artura): czerwone tło, wielkie słowo,
+ * (wariant G1 „Czerwona”, decyzja Artura; od 25.11.2026 w gradiencie wariantu 5): czerwone tło, wielkie słowo,
  * tytuł, fakty w jednej linii i biały przycisk. Trzy dawne szablony (Grafit,
  * Terminal, Jasny) nie zmieniają już grafiki.
  */
@@ -47,13 +47,17 @@ export function ogJobTiles(params: OgJobParams | null | undefined): OgFact[] {
   return tiles;
 }
 
+// Wariant 5 „Czerwień w gradientach tech” (decyzja Artura 25.11.2026): czerwień
+// #C42329 w gradiencie bordo › czerwień › ciepły blask jak nagłówek strony,
+// morelowa plakietka zamiast limonki (limonka zostaje tylko w DYNAMINDS Labs).
 const C = {
-  red: "#E73748",
-  redText: "#C42536",
-  ink: "#141414",
+  red: "#C42329",
+  redText: "#B0222A",
+  ink: "#1F1115",
   white: "#FFFFFF",
-  lime: "#D4F04A",
+  accent: "#FFD6C9",
 };
+const RED_TECH = "linear-gradient(90deg, #961621 0%, #C42329 52%, #D43424 100%)";
 
 const TEXT = "Source Sans 3, system-ui, sans-serif";
 
@@ -87,7 +91,7 @@ export function OgCard({
   foot,
   host,
 }: {
-  /** Plakietka w prawym górnym rogu; `closed` = obrys zamiast limonki. */
+  /** Plakietka w prawym górnym rogu; `closed` = obrys zamiast morelowego tła. */
   status?: { label: string; closed?: boolean } | null;
   /** Mały napis nad tytułem, gdy nie ma wielkiego słowa ani osoby. */
   kicker?: string | null;
@@ -115,6 +119,7 @@ export function OgCard({
         display: "flex",
         flexDirection: "column",
         backgroundColor: C.red,
+        backgroundImage: RED_TECH,
         color: C.white,
         padding: "48px 64px 44px",
         fontFamily: TEXT,
@@ -130,7 +135,7 @@ export function OgCard({
               height: 44,
               padding: "0 20px",
               borderRadius: 999,
-              backgroundColor: status.closed ? "transparent" : C.lime,
+              backgroundColor: status.closed ? "transparent" : C.accent,
               border: status.closed ? `2px solid ${C.white}` : "none",
               color: status.closed ? C.white : C.ink,
               fontFamily: "Montserrat",

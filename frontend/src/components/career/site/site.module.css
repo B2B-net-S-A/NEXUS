@@ -1,40 +1,49 @@
 /*
  * Strona kariery w układzie nowej strony B2B Network (makiety KarieraA,
- * OfertaA, OfertaManager i stany, 23.11.2026). Rozdziały w kolorach marki:
- * czerwień, Snow, Ink; limonka tylko w akcentach (karta talii, zaznaczenie).
- * Montserrat 800 na nagłówki, Source Sans 3 na tekst (lokalne pliki,
- * `layouts/brandFonts.css`). Telefon do 767 px, tablet od 768, laptop od 1024,
- * talia rozłożona jak na planszy od 1280.
+ * OfertaA, OfertaManager i stany, 23.11.2026), od 25.11.2026 w kolorystyce
+ * wariantu 5 „Czerwień w gradientach tech” (decyzja Artura, źródło:
+ * DESIGN.md i globals.css repo b2bnetwork-www): czerwień #C42329, gradient
+ * bordo › czerwień › ciepły blask poziomo w nagłówku i na pierwszym ekranie,
+ * ciemne rozdziały w burgund-obsydianie, morelowa iskra #FFD6C9 zamiast
+ * limonki (limonka zostaje tylko w DYNAMINDS Labs). Typografia A jak na
+ * stronie głównej: Montserrat 700 na nagłówki, największe słowo 136 px,
+ * Source Sans 3 na tekst, JetBrains Mono na etykiety, nic poniżej 13 px.
+ * Telefon do 767 px, tablet od 768, laptop od 1024, talia rozłożona od 1280.
  *
  * Kolory tylko z tokenów niżej (jedno miejsce). Biały tekst na `--red`
- * (#E73748) ma 4,2:1 — dlatego przyciski i drobny tekst na bieli biorą
- * `--red-text`, a czerwone tło niesie tylko duży i pogrubiony tekst.
+ * (#C42329) ma 5,8:1, na `--red-glow` 4,87:1; drobny tekst na bieli bierze
+ * `--red-text` (#B0222A, 6,3:1).
  */
 
 .site {
-  --snow: #f5f4ec;
-  --snow-deep: #ebe9df;
-  --ink: #141414;
-  --ink-soft: #5c5a55;
-  --ink-mid: #47453f;
-  --ink-body: #33322e;
-  --rule: #d9d6ca;
-  --red: #e73748;
-  --red-deep: #b8212f;
-  --red-text: #c42536;
-  --red-wash: #fbe6e8;
-  --graphite-raised: #222222;
-  --warm-white: #f1ece4;
-  --warm-soft: #b9b3a8;
-  --warm-rule: #3a3a3a;
-  --on-ink-soft: #d8d6cc;
-  --lime: #d4f04a;
+  --snow: #faf6f4;
+  --snow-deep: #f4eae8;
+  --ink: #1f1115;
+  --ink-soft: #5e4a4e;
+  --ink-mid: #4a3539;
+  --ink-body: #35252a;
+  --rule: #e6d6d3;
+  --red: #c42329;
+  --red-deep: #961621;
+  --red-glow: #d43424;
+  --red-field: #8b141f;
+  --red-text: #b0222a;
+  --red-wash: #f9e3e1;
+  --red-tech: linear-gradient(90deg, var(--red-deep) 0%, var(--red) 52%, var(--red-glow) 100%);
+  --graphite-raised: #2e1a1f;
+  --warm-white: #f7efec;
+  --warm-soft: #c4b2b4;
+  --warm-rule: #3d2a2e;
+  --on-ink-soft: #e0d0cf;
+  /* Nazwa jak w globals.css strony głównej: na stronach B2B `--lime` to
+     morelowa iskra, limonka #D4F04A żyje tylko w DYNAMINDS Labs. */
+  --lime: #ffd6c9;
   --white: #ffffff;
-  --placeholder: #6c6a61;
-  --tag: #f2f1e9;
-  --shadow-red: rgba(90, 0, 14, 0.42);
-  --shadow-red-soft: rgba(90, 0, 14, 0.34);
-  --shadow-ink: rgba(20, 20, 20, 0.08);
+  --placeholder: #76626a;
+  --tag: #f4eae8;
+  --shadow-red: rgba(70, 8, 14, 0.42);
+  --shadow-red-soft: rgba(70, 8, 14, 0.34);
+  --shadow-ink: rgba(31, 17, 21, 0.08);
   --line-on-red: rgba(255, 255, 255, 0.45);
 
   --display: "Montserrat", system-ui, sans-serif;
@@ -116,6 +125,12 @@
   background: var(--red);
   color: var(--white);
 }
+/* Pierwszy ekran w gradiencie wariantu 5, poziomo jak nagłówek, więc oba
+   łączą się w jeden pas (strona główna: `bg-red-tech`). Dalsze rozdziały
+   czerwone zostają w jednolitej czerwieni. */
+.chRed:is(.hero, .s1, .sent1, .rec1, .notice) {
+  background-image: var(--red-tech);
+}
 .chSnow {
   background: var(--snow);
   color: var(--ink);
@@ -136,8 +151,8 @@
 .display {
   display: block;
   font-family: var(--display);
-  font-weight: 800;
-  letter-spacing: -0.055em;
+  font-weight: 700;
+  letter-spacing: -0.04em;
   line-height: 0.86;
   margin-left: -0.03em;
   white-space: nowrap;
@@ -155,7 +170,7 @@
 }
 .h2 {
   font-family: var(--display);
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.035em;
   line-height: 1.05;
   font-size: 30px;
@@ -170,7 +185,7 @@
   padding: 0 26px;
   border-radius: 7px;
   font-family: var(--display);
-  font-weight: 800;
+  font-weight: 700;
   font-size: 18px;
   letter-spacing: -0.015em;
   text-decoration: none;
@@ -224,7 +239,7 @@
   background: var(--red-text);
   color: var(--white);
   font-family: var(--display);
-  font-weight: 800;
+  font-weight: 700;
   font-size: 21px;
 }
 .avWhite {
@@ -252,7 +267,7 @@
 .header {
   position: relative;
   z-index: 20;
-  background: var(--red);
+  background: var(--red) var(--red-tech);
   color: var(--white);
 }
 .headerInner {
@@ -276,11 +291,41 @@
   box-shadow: 0 2px 0 currentColor;
   padding-bottom: 2px;
 }
+/* CTA nagłówka jak na stronie głównej: biały na czerwieni, morelowy pod
+   kursorem; poniżej 400 px krótka etykieta „Porozmawiajmy”. */
 .site .headerCta {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 10px 14px;
+  border-radius: 7px;
+  background: var(--white);
+  color: var(--red-text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+.site .headerCta:hover {
+  background: var(--lime);
+  color: var(--ink);
+}
+.ctaLong {
   display: none;
 }
+@media (min-width: 400px) {
+  .ctaShort {
+    display: none;
+  }
+  .ctaLong {
+    display: inline;
+  }
+}
 .menu {
-  margin-left: auto;
   position: relative;
 }
 .menu summary {
@@ -318,42 +363,102 @@
   background: var(--snow);
 }
 
+/* Stopka jak na stronie głównej (plansza StopkaA): dane spółki, telefon
+   i LinkedIn po lewej, główne linki dużym krojem w dwóch kolumnach po prawej,
+   dokumenty prawne w dolnej linii obok praw autorskich. */
 .footer {
-  border-top: 1px solid var(--warm-rule);
   background: var(--ink);
   color: var(--warm-white);
-  padding: 28px 0;
-  font-size: 14.5px;
-  line-height: 1.5;
+  padding: 56px 0 32px;
+  font-size: 17px;
+  line-height: 1.55;
 }
 .footerGrid {
   display: grid;
-  gap: 14px;
+  gap: 40px;
+}
+.footerInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 .footerBrand {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 8px;
+  gap: 20px;
 }
 .footerBrand b {
   font-family: var(--display);
-  font-size: 18px;
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: -0.02em;
 }
 .footer p {
+  max-width: 520px;
   color: var(--warm-soft);
+}
+.footer .footerContact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  color: var(--warm-white);
+  font-weight: 600;
+}
+.footerContact a,
+.footerLegal a {
+  color: var(--warm-white);
+  text-decoration: none;
+}
+.footerContact a {
+  display: inline-flex;
+  align-items: center;
+}
+.footerContact a:hover,
+.footerLegal a:hover,
+.footerNav a:hover {
+  color: var(--lime);
 }
 .footerNav {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px 12px;
-  font-weight: 600;
+  align-content: start;
+  gap: 6px 40px;
 }
 .footerNav a {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 8px 0;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 20px;
+  line-height: 1.1;
+  letter-spacing: -0.022em;
   text-decoration: none;
+  box-shadow: inset 0 -1px 0 var(--warm-rule);
+  transition: color 0.2s ease;
 }
-.footerNav a:hover {
-  text-decoration: underline;
+.out {
+  flex: none;
+  margin-left: 6px;
+}
+.footerBottom {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 44px;
+  padding-top: 18px;
+  border-top: 1px solid var(--warm-rule);
+  font-size: 15px;
+  color: var(--warm-soft);
+}
+.footer .footerBottom p {
+  max-width: none;
+}
+.footerLegal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  font-weight: 600;
 }
 
 /* ───────────── Lista rekrutacji (KarieraA) ───────────── */
@@ -362,7 +467,7 @@
   padding: 18px 0 30px;
 }
 .heroNum {
-  font-size: min(176px, 47vw);
+  font-size: min(136px, 19.5vw);
   line-height: 0.82;
 }
 .heroLead {
@@ -391,7 +496,7 @@
 }
 .card b {
   font-family: var(--display);
-  font-weight: 800;
+  font-weight: 700;
   font-size: 54px;
   letter-spacing: -0.06em;
   line-height: 0.9;
@@ -609,7 +714,7 @@
   flex-wrap: wrap;
   gap: 5px;
   margin-top: 10px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
 }
 .tags li {
@@ -683,7 +788,7 @@
 }
 .empty h2 {
   font-family: var(--display);
-  font-weight: 800;
+  font-weight: 700;
   font-size: 26px;
   letter-spacing: -0.035em;
   line-height: 1.08;
@@ -713,7 +818,7 @@
 }
 .end h2 {
   font-family: var(--display);
-  font-weight: 800;
+  font-weight: 700;
   font-size: 32px;
   letter-spacing: -0.04em;
   line-height: 1.02;
@@ -734,7 +839,7 @@
   scroll-margin-top: 16px;
 }
 .cvBig {
-  font-size: min(176px, 47vw);
+  font-size: min(136px, 19.5vw);
   line-height: 0.82;
 }
 .cvSection .lead {
@@ -774,7 +879,7 @@
 /* Imię jak wielkie słowo oferty: `--em` z `wordEm`, więc „Małgorzata.” mieści się na 375 px. */
 .recName {
   margin-top: 22px;
-  font-size: min(150px, calc(100cqi / var(--em, 5)));
+  font-size: min(96px, calc(100cqi / var(--em, 5)));
   line-height: 0.9;
 }
 .recLead {
@@ -909,14 +1014,14 @@
   gap: 10px;
   margin-bottom: 10px;
   font-family: var(--display);
-  font-weight: 800;
+  font-weight: 700;
   font-size: 19px;
   letter-spacing: -0.02em;
 }
 .quickTitle span {
   font-family: var(--mono);
   font-weight: 500;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--ink-mid);
 }
 .quickRow {
@@ -997,7 +1102,7 @@
 }
 .sideTitle {
   font-family: var(--display);
-  font-weight: 800;
+  font-weight: 700;
   font-size: 26px;
   letter-spacing: -0.035em;
   line-height: 1.05;
@@ -1037,6 +1142,7 @@
   font-weight: 700;
 }
 .sideList small {
+  font-size: max(13px, 0.85em);
   color: var(--ink-soft);
 }
 .sideNote {
@@ -1086,7 +1192,7 @@
 }
 .projectWord {
   color: var(--red-text);
-  font-size: min(230px, calc(100cqi / var(--em, 5)));
+  font-size: min(112px, calc(100cqi / var(--em, 5)));
   line-height: 0.9;
 }
 .about {
@@ -1113,7 +1219,7 @@
 }
 .tasks li span {
   padding-top: 2px;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--red-text);
 }
@@ -1129,7 +1235,7 @@
   gap: 14px 22px;
 }
 .s3Big {
-  font-size: 120px;
+  font-size: 76px;
   line-height: 0.78;
 }
 .s3Top .lead {
@@ -1155,7 +1261,7 @@
 }
 .st .n {
   font-family: var(--display);
-  font-weight: 800;
+  font-weight: 700;
   font-size: 34px;
   letter-spacing: -0.06em;
   line-height: 0.9;
@@ -1200,7 +1306,7 @@
   align-items: start;
 }
 .s4Big {
-  font-size: min(300px, 50cqi);
+  font-size: min(120px, 30cqi);
   line-height: 0.82;
 }
 .s4 .lead {
@@ -1246,7 +1352,7 @@
 }
 .mini h3 {
   font-family: var(--display);
-  font-weight: 800;
+  font-weight: 700;
   font-size: 22px;
   letter-spacing: -0.03em;
   line-height: 1.1;
@@ -1342,7 +1448,7 @@
   color: var(--placeholder);
 }
 .caret {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--ink);
 }
 .msg {
@@ -1491,7 +1597,7 @@ input:focus-visible + .box {
   background: var(--red-text);
   color: var(--white);
   font-family: var(--display);
-  font-weight: 800;
+  font-weight: 700;
   font-size: 19px;
   letter-spacing: -0.015em;
   transition: background-color 0.2s ease;
@@ -1523,7 +1629,7 @@ input:focus-visible + .box {
   container-type: inline-size;
 }
 .sentWord {
-  font-size: min(250px, calc(100cqi / 4.6));
+  font-size: min(136px, calc(100cqi / 4.6));
   letter-spacing: -0.03em;
   line-height: 0.9;
 }
@@ -1562,7 +1668,7 @@ input:focus-visible + .box {
 .rc h2 {
   margin-bottom: 12px;
   font-family: var(--display);
-  font-weight: 800;
+  font-weight: 700;
   font-size: 26px;
   letter-spacing: -0.03em;
   line-height: 1.05;
@@ -1597,7 +1703,7 @@ input:focus-visible + .box {
 
 /* ───────────── Zamknięta rekrutacja (OfertaZakonczona) ───────────── */
 .closedWord {
-  font-size: min(216px, calc(100cqi / 6.4));
+  font-size: min(136px, calc(100cqi / 6.4));
   line-height: 0.9;
 }
 .ticket {
@@ -1611,7 +1717,7 @@ input:focus-visible + .box {
 }
 .ticket h2 {
   font-family: var(--display);
-  font-weight: 800;
+  font-weight: 700;
   font-size: 26px;
   letter-spacing: -0.03em;
   line-height: 1.08;
@@ -1629,14 +1735,14 @@ input:focus-visible + .box {
   box-shadow: inset 0 0 0 2.5px var(--red-text);
   color: var(--red-text);
   font-family: var(--display);
-  font-weight: 800;
+  font-weight: 700;
   font-size: 20px;
   letter-spacing: -0.02em;
   text-transform: uppercase;
   rotate: -6deg;
 }
 .bigN {
-  font-size: 120px;
+  font-size: 76px;
   line-height: 0.78;
 }
 .band {
@@ -1648,7 +1754,7 @@ input:focus-visible + .box {
 }
 .band h2 {
   font-family: var(--display);
-  font-weight: 800;
+  font-weight: 700;
   font-size: 30px;
   letter-spacing: -0.04em;
   line-height: 1.02;
@@ -1683,7 +1789,7 @@ input:focus-visible + .box {
 .itNo {
   grid-row: span 2;
   font-family: var(--display);
-  font-weight: 800;
+  font-weight: 700;
   font-size: 40px;
   letter-spacing: -0.05em;
   line-height: 0.9;
@@ -1756,7 +1862,7 @@ input:focus-visible + .box {
     font-size: 17px;
   }
   .heroNum {
-    font-size: 220px;
+    font-size: 136px;
   }
   .heroLead {
     margin-top: 22px;
@@ -1900,7 +2006,7 @@ input:focus-visible + .box {
     padding: 56px 0 64px;
   }
   .s3Big {
-    font-size: 220px;
+    font-size: 120px;
   }
   .s3Top .lead {
     font-size: 36px;
@@ -1955,7 +2061,7 @@ input:focus-visible + .box {
     font-size: 28px;
   }
   .bigN {
-    font-size: 220px;
+    font-size: 120px;
   }
   .bandInner {
     display: flex;
@@ -1986,25 +2092,13 @@ input:focus-visible + .box {
   .tx {
     font-size: 18px;
   }
-  .footer {
-    padding: 48px 0 40px;
-    font-size: 15.5px;
-  }
-  .footerGrid {
-    grid-template-columns: 1fr 1fr;
-    gap: 32px;
-  }
   .footerNav {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 8px 24px;
+    grid-template-columns: 1fr 1fr;
   }
-  .footerRight {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 20px;
+  .footerBottom {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
   }
 }
 
@@ -2014,7 +2108,7 @@ input:focus-visible + .box {
     padding: 32px 0 64px;
   }
   .recName {
-    font-size: min(220px, calc(100cqi / var(--em, 5)));
+    font-size: min(136px, calc(100cqi / var(--em, 5)));
   }
   .notice {
     padding: 40px 0 96px;
@@ -2032,7 +2126,7 @@ input:focus-visible + .box {
     font-size: 28px;
   }
   .word {
-    font-size: min(180px, calc(100cqi / var(--em, 5)));
+    font-size: min(136px, calc(100cqi / var(--em, 5)));
     /* Odstęp na ogonki liter jest potrzebny tylko na telefonie; tu zepchnąłby
        „Wyślij CV” pod pierwszy ekran 1280 × 720. */
     margin-bottom: 0;
@@ -2058,13 +2152,12 @@ input:focus-visible + .box {
     height: 68px;
     gap: 24px;
   }
-  .nav {
-    display: flex;
-    align-items: center;
-    gap: 22px;
-    margin-left: 8px;
-    font-size: 16px;
-    font-weight: 600;
+  .footerGrid {
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+  }
+  .footerNav a {
+    font-size: 32px;
   }
   .nav a {
     text-decoration: none;
@@ -2074,19 +2167,7 @@ input:focus-visible + .box {
     box-shadow: 0 2px 0 currentColor;
   }
   .site .headerCta {
-    display: inline-flex;
-    margin-left: auto;
     padding: 10px 18px;
-    border-radius: 7px;
-    background: var(--white);
-    color: var(--red-text);
-    font-size: 15.5px;
-    font-weight: 600;
-    text-decoration: none;
-    white-space: nowrap;
-  }
-  .menu {
-    display: none;
   }
   .row1 {
     grid-template-columns: minmax(0, 1fr) minmax(0, 560px);
@@ -2149,6 +2230,17 @@ input:focus-visible + .box {
 
 /* ───────────── Od 1280: talia rozłożona jak na planszy ───────────── */
 @media (min-width: 1280px) {
+  .nav {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    margin-left: 8px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .menu {
+    display: none;
+  }
   .mark {
     display: flex;
     position: absolute;
@@ -2175,7 +2267,7 @@ input:focus-visible + .box {
     margin-top: 10px;
     rotate: 180deg;
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1;
     white-space: nowrap;
     writing-mode: vertical-rl;
@@ -2188,7 +2280,7 @@ input:focus-visible + .box {
     width: 450px;
   }
   .heroNum {
-    font-size: 256px;
+    font-size: 136px;
     margin-left: -8px;
   }
   .heroLead,

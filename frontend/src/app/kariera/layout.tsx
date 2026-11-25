@@ -25,10 +25,14 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-/** Pasek przeglądarki i przewijanie poza stronę w kolorze strony (czerń). */
+/**
+ * Pasek przeglądarki w kolorze początku gradientu nagłówka (bordo #961621,
+ * wariant 5 od 25.11.2026). Strona jest jasna, więc pola formularzy
+ * w jasnym schemacie.
+ */
 export const viewport: Viewport = {
-  themeColor: "#000000",
-  colorScheme: "dark",
+  themeColor: "#961621",
+  colorScheme: "light",
 };
 
 export default function CareerLayout({ children }: { children: React.ReactNode }) {

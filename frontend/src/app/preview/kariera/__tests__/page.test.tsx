@@ -108,7 +108,12 @@ describe("/preview/kariera", () => {
       "href",
       "/kariera/r/analityk-biznesowy-q8m1",
     );
-    expect(closed.textContent).not.toMatch(/LinkedIn/);
+    // Bez zachęty do udostępnienia na LinkedInie; stopka strony (od 25.11.2026
+    // jak na stronie głównej) ma link do profilu firmy, więc liczy się treść nad nią.
+    const content = closed.cloneNode(true) as HTMLElement;
+    content.querySelector("footer")?.remove();
+    expect(content.textContent).not.toMatch(/LinkedIn/);
+    expect(within(closed).getByRole("contentinfo")).toHaveTextContent("LinkedIn");
   });
 
   it("kroki procesu są w treści na każdej szerokości (bez .kr-desktop-only)", () => {
