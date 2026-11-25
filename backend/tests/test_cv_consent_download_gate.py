@@ -154,6 +154,9 @@ def _routes(world: dict) -> list[tuple[str, str, dict]]:
         ("POST", f"/api/cv-generator/generated/{g}/editor/preview-pdf", editor),
         ("GET", f"/api/candidates/stages/{s}/cv/branded/versions/1/pdf", {}),
         ("POST", f"/api/candidates/stages/{s}/cv/branded/preview-pdf", editor),
+        # Format pliku klienta (25.11.2026): PDF wyniku generatora z pliku Word.
+        ("GET", f"/api/cv-generator/generated/{g}/pdf", {}),
+        ("GET", f"/api/cv-generator/generated/{g}/pdf?version_id={v}", {}),
     ]
 
 
@@ -171,6 +174,8 @@ ROUTE_NAMES = [
     "editor-preview-pdf",
     "stage-version-pdf",
     "stage-preview-pdf",
+    "generated-pdf",
+    "generated-approved-pdf",
 ]
 
 

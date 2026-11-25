@@ -7112,6 +7112,12 @@ export interface CVBrandedState {
   cv_layout?: CvLayout;
   new_layout_enabled?: boolean;
   default_layout?: CvLayout;
+  /**
+   * Plik, którego chce klient rekrutacji (reguła CV klienta, 25.11.2026):
+   * `docx` | `pdf` | `both`; `null` = bez wymagań (plik idzie za układem).
+   * Główny przycisk pobrania w karcie i edytorze idzie za tym polem.
+   */
+  client_file_format?: "docx" | "pdf" | "both" | null;
   /** Dodatki strony 1 nowego CV: najmocniejszy wynik (wpisany albo wybrany z listy). */
   page1_extras?: CvPage1Extras | null;
   /** Stanowiska, w których Nowe CV nie odczytało dat albo firmy (25.11.2026); tylko przy „Nowym CV”. */
@@ -7498,6 +7504,8 @@ export interface CvFactualReviewSummary {
 /** Wiersz `GET /api/cv-generator/generated` — pliki kandydata i widok wyniku. */
 export interface GeneratedCvItem {
   id: number;
+  /** Układ generacji; „new” = PDF Nowego CV jest w karcie „CV do klienta”, nie tutaj. */
+  cv_layout?: CvLayout;
   approved_version_id?: number | null;
   central_policy?: Record<string, unknown> | null;
   /** Główny dokument pakietu językowego (PL + EN); `null` = sam jest główny. */

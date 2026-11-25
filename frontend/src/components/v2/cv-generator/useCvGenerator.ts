@@ -496,6 +496,8 @@ export function useCvGenerator({
     layoutChoice,
     setLayoutChoice,
     layoutDefault,
+    // Plik, którego chce klient (reguła, 25.11.2026) — ostrzeżenie przy „Nowym CV”.
+    clientFileFormat: activeRule?.cv_file_format ?? null,
     languagePolicy,
     blind,
     setBlind,

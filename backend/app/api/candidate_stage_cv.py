@@ -59,7 +59,7 @@ import os
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import (
     APIRouter,
@@ -177,6 +177,7 @@ from app.services.candidate_stage_cv_service import (
     snapshot_exists,
 )
 from app.services import cv_consent_gate as consent_gate
+from app.services import cv_file_format as file_format_service
 from app.services import cv_layout as layout_service
 from app.services.hiring_manager_verdicts import veto_for_candidate_stage
 from app.services.stage_cv_copy import (
@@ -1218,7 +1219,7 @@ async def _upload_client_cv(
         **_build_original_response(csv_row).model_dump(),
         outcome="client_cv",
         uploaded_filename=filename,
-        client_cv=_build_branded_response(target),
+        client_cv=await _branded_response(db, target),
         client_cv_stage_id=target.candidate_stage_id,
         replaced=replaced,
         undo_available=replaced in ("none", "auto_cv"),
@@ -1430,6 +1431,22 @@ def _role_gaps(csv: CandidateStageCV) -> Optional[dict[str, int]]:
         return None
 
 
+async def _branded_response(
+    db: AsyncSession, csv: CandidateStageCV, **kwargs: Any
+) -> CVBrandedResponse:
+    """Odpowiedź CV etapu z formatem pliku klienta (jedno zapytanie).
+
+    Każda trasa oddająca CV etapu idzie tędy: karta i edytor podmieniają
+    pamięć podręczną odpowiedzią zapisu, więc bez pola w każdej odpowiedzi
+    główny przycisk pobrania wracałby do „bez wymagań” po pierwszej zmianie.
+    """
+    response = _build_branded_response(csv, **kwargs)
+    response.client_file_format = await file_format_service.for_stage(
+        db, csv.candidate_stage_id
+    )
+    return response
+
+
 def with_pair_source(
     response: CVBrandedResponse, pair: RecruitmentBrandedCvSummary
 ) -> CVBrandedResponse:
@@ -1512,13 +1529,16 @@ async def get_branded_cv(
         "new_layout_enabled": layout_service.enabled(),
         "default_layout": await layout_service.default_for_job(db, job_id),
     }
+    client_file_format = await file_format_service.for_stage(db, stage_id)
     if csv is None or csv.branded_status == "none":
         return with_pair_source(
             (
                 _build_empty_branded_response(csv)
                 if csv is not None
                 else CVBrandedResponse(candidate_stage_id=stage_id, status="none")
-            ).model_copy(update=layout_flags),
+            ).model_copy(
+                update={**layout_flags, "client_file_format": client_file_format}
+            ),
             await _branded_cv_summary_for_pair(db, candidate_id, job_id),
         )
 
@@ -1537,7 +1557,12 @@ async def get_branded_cv(
         csv,
         updated_by_name=updated_by_name,
         finalized_by_name=finalized_by_name,
-    ).model_copy(update={"default_layout": layout_flags["default_layout"]})
+    ).model_copy(
+        update={
+            "default_layout": layout_flags["default_layout"],
+            "client_file_format": client_file_format,
+        }
+    )
 
 
 @router.patch(
@@ -1598,7 +1623,7 @@ async def update_stage_cv_layout(
 
             refresh_after_commit(db, csv.id)
         await db.commit()
-    return _build_branded_response(csv)
+    return await _branded_response(db, csv)
 
 
 @router.get(
@@ -2053,7 +2078,7 @@ async def select_generated_cv(
     # CV w procesie (13.10.2026): QC nowej wersji liczy się w tle, jak po
     # podpięciu z generatora — plakietka na Tablicy nie czeka na okno QC.
     _schedule_qc_after_attach(background_tasks, stage_id, current_user.id)
-    response = _build_branded_response(csv)
+    response = await _branded_response(db, csv)
     if payload.keep_edits:
         response.rewrite = CVBrandedRewrite(
             kept=list(merge.kept) if merge else [],
@@ -2178,7 +2203,7 @@ async def restore_previous_branded_draft(
     await db.commit()
     await db.refresh(csv)
     _schedule_qc_after_attach(background_tasks, stage_id, current_user.id)
-    return _build_branded_response(csv)
+    return await _branded_response(db, csv)
 
 
 DISCARD_ACTION = "branded_cv_discarded"
@@ -2241,7 +2266,7 @@ async def discard_branded_cv(
     _clear_stage_draft(db, csv, user_id=current_user.id, action=DISCARD_ACTION)
     await db.commit()
     await db.refresh(csv)
-    return _build_branded_response(csv)
+    return await _branded_response(db, csv)
 
 
 async def _mark_pair_generations_discarded(
@@ -2380,7 +2405,7 @@ async def _import_docx_as_draft(
     )
     await db.commit()
     await db.refresh(csv)
-    return _build_branded_response(csv)
+    return await _branded_response(db, csv)
 
 
 async def _write_imported_draft(
@@ -2643,7 +2668,7 @@ async def select_stage_cv(
     await db.commit()
     await db.refresh(csv)
     _schedule_qc_after_attach(background_tasks, stage_id, current_user.id)
-    return _build_branded_response(csv)
+    return await _branded_response(db, csv)
 
 
 @router.post(
@@ -2675,7 +2700,7 @@ async def attach_stage_cv_consent(
     )
     await db.commit()
     await db.refresh(csv)
-    return _build_branded_response(csv)
+    return await _branded_response(db, csv)
 
 
 @router.patch(
@@ -2743,7 +2768,7 @@ async def update_branded_cv(
     updated_by_name = await db.scalar(
         select(User.email).where(User.id == current_user.id)
     )
-    return _build_branded_response(csv, updated_by_name=updated_by_name)
+    return await _branded_response(db, csv, updated_by_name=updated_by_name)
 
 
 @router.get(
@@ -3216,7 +3241,7 @@ async def new_branded_cv_draft(
         )
     )
     await db.commit()
-    return _build_branded_response(csv)
+    return await _branded_response(db, csv)
 
 
 # ── Public share token (Faza 4 — auth side) ────────────────────────────────

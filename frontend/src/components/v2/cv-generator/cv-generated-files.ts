@@ -44,3 +44,24 @@ export async function downloadGeneratedCv(
     );
   }
 }
+
+/**
+ * PDF tego samego pliku Word co „Pobierz DOCX” (zatwierdzona wersja, gdy jest).
+ * Dla klienta z formatem PDF w regule CV (25.11.2026). Zwraca komunikat
+ * błędu albo `null` po sukcesie.
+ */
+export async function downloadGeneratedCvPdf(
+  item: DownloadTarget,
+  surface: CvDownloadSurface = "result",
+): Promise<string | null> {
+  const path = item.approved_version_id
+    ? `/api/cv-generator/generated/${item.id}/pdf?version_id=${item.approved_version_id}`
+    : `/api/cv-generator/generated/${item.id}/pdf`;
+  try {
+    const res = await api.get(withDownloadIntent(path, surface), { responseType: "blob" });
+    downloadBlob(res.data as Blob, item.filename.replace(/\.docx$/i, "") + ".pdf");
+    return null;
+  } catch (err) {
+    return (await extractErrorDetail(err)) || "Nie udało się pobrać PDF. Spróbuj za chwilę albo pobierz DOCX.";
+  }
+}
