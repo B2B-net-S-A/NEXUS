@@ -259,3 +259,66 @@ def test_regula_domyslnie_wylaczona_nawet_przy_zapisanym_zestawie():
     assert catalog.effective({})[mail_declaration.RULE]["level"] == "off"
     saved = catalog.clean_for_save([{"key": mail_declaration.RULE, "level": "warn"}])
     assert saved == {mail_declaration.RULE: {"level": "warn", "params": {}}}
+
+
+# ── Lista dni „w dniach … byłam / będę niedostępna” (mLeasing, VI–VIII 2026) ──
+
+
+def _listed(text: str, month: str):
+    parsed = mail_declaration.parse_text(text, month)
+    assert parsed is not None
+    return parsed, mail_declaration.evaluate(
+        parsed, month=month, rules=_rules(), working_days=0
+    )
+
+
+def test_lista_dni_w_czasie_przeszlym_odejmuje_dni_robocze():
+    # VI 2026: 21 dni roboczych (Boże Ciało 4.06); 3.06 i 8.06 to dni robocze.
+    parsed, result = _listed(
+        "Fakturę przesłałam przez KSeF.\nW czerwcu w dniach 3.06 i 08.06 byłam niedostępna.",
+        "2026-06",
+    )
+    assert parsed.days == (3, 8) and not parsed.planned
+    assert result.md_regular == Decimal("19")
+    assert not result.warn
+
+
+def test_zakres_i_dzien_oraz_weekend_nie_liczy_sie():
+    # VIII 2026: 21 dni roboczych; 17–21 to pn–pt, 31 to poniedziałek → 6 dni.
+    _, result = _listed(
+        "W sierpniu w dniach 17-21 oraz 31 byłam niedostępna.", "2026-08"
+    )
+    assert result.md_regular == Decimal("15")
+    # 1–2.08 to sobota i niedziela: nic nie odejmują.
+    _, weekend = _listed("W sierpniu w dniach 1-2 byłam niedostępna.", "2026-08")
+    assert weekend.md_regular == Decimal("21")
+
+
+def test_zapowiedz_daje_md_z_uwaga():
+    parsed, result = _listed(
+        "Fakturę przesłałam za pośrednictwem ksef\nW lipcu w dniach 27-31 będę niedostępna.",
+        "2026-07",
+    )
+    assert parsed.planned
+    assert result.md_regular == Decimal("18")
+    assert result.warn
+    titles = _titles(result)
+    assert (
+        titles["Zapowiedź w treści maila: 5 dni roboczych niedostępności (lipiec 2026)"]
+        == "warn"
+    )
+
+
+def test_lista_dni_z_innego_miesiaca_albo_z_innym_slowem_to_czlowiek():
+    other_month = mail_declaration.parse_text(
+        "W lipcu w dniach 3.06 i 8.06 byłam niedostępna.", "2026-07"
+    )
+    assert other_month is not None and other_month.days_off is None
+    extra = mail_declaration.parse_text(
+        "W lipcu w dniach 27-31 byłam niedostępna przez chorobę.", "2026-07"
+    )
+    assert extra is not None and extra.days_off is None
+    no_month = mail_declaration.parse_text(
+        "W dniach 27-31 byłam niedostępna.", "2026-07"
+    )
+    assert no_month is not None and no_month.days_off is None
