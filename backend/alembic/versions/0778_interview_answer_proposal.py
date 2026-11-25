@@ -1,7 +1,7 @@
 """Propozycje odpowiedzi w „Pytaniach z rozmów”: źródło odpowiedzi i klucz AI F55.
 
-Revision ID: 0779_interview_answer_proposal
-Revises: 0778_client_cv_file_format
+Revision ID: 0778_interview_answer_proposal
+Revises: 0777_claim_handover
 
 Decyzja Artura z 25.11.2026: pod każdym pytaniem z banku klienta stoi
 proponowana odpowiedź. Odpowiedź leży jak dotąd w ``interview_questions.
@@ -18,8 +18,8 @@ Lustro w ``entrypoint.sh``.
 
 from alembic import op
 
-revision = "0779_interview_answer_proposal"
-down_revision = "0778_client_cv_file_format"
+revision = "0778_interview_answer_proposal"
+down_revision = "0777_claim_handover"
 branch_labels = None
 depends_on = None
 
@@ -52,7 +52,7 @@ def upgrade() -> None:
 REFUSE_WITH_LIVE_ROWS = f"""DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM ai_usage_log WHERE feature::text = '{_KEY}') THEN
-        RAISE EXCEPTION 'Downgrade 0779 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0778 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 
