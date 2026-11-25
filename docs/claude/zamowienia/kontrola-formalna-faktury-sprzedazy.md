@@ -16,7 +16,7 @@ ta sama bramka co lista faktur z KSeF). Bez migracji.
 | Data sprzedaży a okres | szkic: data sprzedaży (`P_6`, bez niej data wystawienia) w innym miesiącu niż okres usługi z „Do faktury”; faktura z KSeF: nazwa pozycji wskazuje inny miesiąc (albo rok) niż data sprzedaży (`invoice_fields.months_in`) | wszyscy |
 | Kod osoby | pozycja z „Contractor <osoba>” ma po „ID” (z dwukropkiem albo bez) kod `[A-Z]\d{5,7}`, który w NEXUSIE należy do tej osoby (`client_external_ids`, `client_person_no`, potwierdzony albo podpowiedź — odrzucony przez Finanse się nie liczy; szkic: do kontraktu pozycji). Ostrzega też, gdy jako „Contractor” wpisano osobę z „Contact:” | reguła `cl.contractor_person_id` (Nordea), domyślnie wyłączona |
 | MD ponad dni robocze | jednostka MD/dni powyżej dni roboczych miesiąca usługi, godziny powyżej dni roboczych × 8 (`core.scheduling.is_business_day`, święta PL) | wszyscy |
-| Osoba bez kontraktu | osoba w polu osoby pozycji albo po „Contractor”/„Konsultant” bez kontraktu u klienta (ze scalonymi duplikatami; skrót i literówka nazwiska jak w `unknown_refs.same_person`); pozycja z kontraktem przechodzi | wszyscy z klientem |
+| Osoba bez kontraktu | osoba w polu osoby pozycji albo po „Contractor”/„Konsultant” bez kontraktu u klienta (ze scalonymi duplikatami; skrót i literówka nazwiska jak w `unknown_refs.same_person`); pozycja z kontraktem przechodzi, z kodem osoby z kartoteki też — chyba że Finanse ten kod odrzuciły | wszyscy z klientem |
 
 - Kod osoby to reguła klienta w „Reguły klienta” → „Faktura do klienta”, nie
   warunek na nazwę klienta w kodzie (jak reszta `cl.*`,

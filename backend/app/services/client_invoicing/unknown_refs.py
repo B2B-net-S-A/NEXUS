@@ -189,6 +189,8 @@ async def _known(db: AsyncSession, members: set[int]) -> _Known:
         select(ClientExternalId.value).where(
             ClientExternalId.client_id.in_(members),
             ClientExternalId.kind == PERSON_NO_KIND,
+            # Kod odrzucony przez Finanse w kartotece nie jest śladem osoby.
+            ClientExternalId.state != "rejected",
         )
     )
     return _Known(
