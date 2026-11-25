@@ -131,6 +131,13 @@ export function LessonLayer() {
   }, []);
 
   const solo = run?.stage === "solo" ? run : null;
+  // Karta zadania stoi w lewym dolnym rogu i przy 1280 × 720 zasłania elementy
+  // z zadań („Zajęcie” w Przelewach, nazwiska w Rozliczeniach, pasek braków
+  // generatora umów — test lekcji 25.11.2026). Osoba może ją zwinąć do paska.
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    setCollapsed(false);
+  }, [run?.lesson.id, run?.stage, outcome.kind]);
   const [unavailable, setUnavailable] = useState(false);
   const soloKey = solo ? solo.lesson.id : null;
   const soloKind = solo?.lesson.check.kind ?? null;
@@ -230,6 +237,26 @@ export function LessonLayer() {
     );
   }
 
+  if (run.stage === "solo" && collapsed) {
+    return (
+      <section
+        ref={keepDialogsOpen}
+        className="pointer-events-auto fixed bottom-5 left-5 z-[121] rounded-full border border-primary/30 bg-card shadow-lg"
+        aria-label="Zadanie lekcji (zwinięte)"
+        data-testid="lesson-solo-collapsed"
+      >
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-primary"
+        >
+          <Target className="h-3.5 w-3.5" aria-hidden="true" />
+          {run.review ? "Powtórka" : "Lekcja"} · pokaż zadanie
+        </button>
+      </section>
+    );
+  }
+
   if (run.stage === "solo") {
     return (
       <section ref={keepDialogsOpen} className={`${CARD} border-primary/30`} aria-label="Zadanie lekcji" data-testid="lesson-solo">
@@ -258,8 +285,15 @@ export function LessonLayer() {
           )}
           <button
             type="button"
-            onClick={() => leaveLesson(run)}
+            onClick={() => setCollapsed(true)}
             className="ml-auto text-xs font-semibold text-muted-foreground hover:text-foreground"
+          >
+            Zwiń
+          </button>
+          <button
+            type="button"
+            onClick={() => leaveLesson(run)}
+            className="text-xs font-semibold text-muted-foreground hover:text-foreground"
           >
             Przerwij
           </button>

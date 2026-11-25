@@ -52,10 +52,11 @@ function sourceFiles(dir: string): string[] {
 function anchorsInSource(attribute = "data-tour"): Set<string> {
   const found = new Set<string>();
   for (const file of sourceFiles(SRC)) {
-    // Kotwica stoi dosłownie w linii z `data-tour` (także w `cond ? "id" : undefined`);
-    // id zawsze ma kropkę („ekran.element”), więc inne napisy w linii się nie liczą.
+    // Kotwica stoi dosłownie w linii z `data-tour` (także w `cond ? "id" : undefined`
+    // i jako klucz pozycji `TabbedNav`: `"data-tour": "id"`); id zawsze ma kropkę
+    // („ekran.element”), więc inne napisy w linii się nie liczą.
     for (const line of readFileSync(file, "utf8").split("\n")) {
-      if (!line.includes(`${attribute}=`)) continue;
+      if (!line.includes(`${attribute}=`) && !line.includes(`"${attribute}":`)) continue;
       for (const m of line.matchAll(
         /"([a-z0-9][a-z0-9_-]*(?:\.[a-z0-9_-]+)+)"/g,
       ))

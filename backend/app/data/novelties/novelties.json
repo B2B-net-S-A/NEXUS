@@ -4677,7 +4677,7 @@
     "dot_anchor": "finance.sales-invoices.tabs",
     "steps": [
       {
-        "anchor": "finance.sales-invoices.tabs",
+        "anchor": "finance.sales-invoices.overdue-tab",
         "text": "Przejdź na zakładkę „Po terminie”.",
         "hint": "Przy kliencie jest „Przygotuj monit”: szkic maila, który wysyłasz sam po sprawdzeniu adresatów i treści."
       },

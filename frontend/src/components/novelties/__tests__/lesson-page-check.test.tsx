@@ -1,4 +1,4 @@
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { writeRun, type LessonRun } from "@/lib/novelties/lessons";
@@ -77,5 +77,19 @@ describe("LessonLayer — warunek „page”", () => {
       await vi.advanceTimersByTimeAsync(1500);
     });
     expect(sendLessonEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("LessonLayer — karta zadania", () => {
+  it("„Zwiń” odsłania ekran pod kartą, a pasek przywraca zadanie", async () => {
+    writeRun(run("solo"));
+    render(<LessonLayer />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Zwiń" }));
+    expect(screen.queryByTestId("lesson-solo")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /pokaż zadanie/ }));
+    expect(screen.getByTestId("lesson-solo").textContent).toContain("Otwórz „Opieka i rozmowy”.");
   });
 });
