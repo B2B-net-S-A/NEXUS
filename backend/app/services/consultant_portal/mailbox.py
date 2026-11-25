@@ -1036,7 +1036,7 @@ async def _store_client_reports(
         lower = name.lower()
         if (
             not _is_document(attachment)
-            or not lower.endswith((".xlsx", ".pdf"))
+            or not lower.endswith((".xlsx", ".xls", ".pdf"))
             or not isinstance(raw, str)
         ):
             continue
@@ -1044,6 +1044,40 @@ async def _store_client_reports(
             content = base64.b64decode(raw, validate=True)
         except ValueError:
             continue
+        if lower.endswith((".xlsx", ".xls")):
+            # Wykaz grupy Polkomtel / Cyfrowy Polsat z wierszami kilku kontraktów
+            # (dwie osoby albo jedna osoba w obu spółkach, próba VI–VIII 2026): plik
+            # u każdego kontraktu. Jeden kontrakt idzie zwykłą ścieżką.
+            sheet = await asyncio.to_thread(timesheet_plus.parse, content)
+            if sheet is not None and sheet.month is not None:
+                owners = [
+                    c
+                    for c in await identity.resolve_sheet_contracts(
+                        db, sheet, sender=sender, today=today
+                    )
+                    if state.any_sender or state.open_for(c.id)
+                ]
+                if len(owners) > 1:
+                    year, month = (int(part) for part in sheet.month.split("-"))
+                    for position, contract in enumerate(owners):
+                        stored = await documents.store(
+                            db,
+                            contract_id=contract.id,
+                            kind="report",
+                            year=year,
+                            month=month,
+                            content=content,
+                            file_name=name or None,
+                            channel="mailbox",
+                            now=now,
+                            graph_message_id=message_id if position == 0 else None,
+                            sender_email=sender[:320] or None,
+                        )
+                        created += 0 if stored.duplicate else 1
+                    consumed.add(index)
+                    continue
+            if lower.endswith(".xls"):
+                continue
         report: report_ca.CaReport | protocol_collective.Protocol | None
         if lower.endswith(".xlsx"):
             report = await asyncio.to_thread(report_ca.parse, content, report_ca.XLSX)
