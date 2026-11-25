@@ -1,0 +1,3404 @@
+{
+ "graphql": {
+  "GdzieJestPR|{\"n0\": 4035, \"n1\": 4036, \"n2\": 4037, \"n3\": 4040, \"n4\": 4017, \"n5\": 4032, \"n6\": 4016, \"n7\": 4025, \"n8\": 4031, \"n9\": 99999}": {
+   "data": {
+    "repository": {
+     "p0": {
+      "number": 4035,
+      "title": "fix(staging): nocna kopia bierze z produkcji wszystkie flagi *_ENABLED poza zakazanymi",
+      "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4035",
+      "state": "MERGED",
+      "isDraft": false,
+      "mergedAt": "2026-11-25T23:22:31Z",
+      "mergeable": "UNKNOWN",
+      "changedFiles": 4,
+      "mergeCommit": {
+       "oid": "467995771f4e8015063ccc6cabb0d0a7092f4813"
+      },
+      "autoMergeRequest": null,
+      "mergeQueueEntry": null,
+      "labels": {
+       "nodes": []
+      },
+      "files": {
+       "nodes": [
+        {
+         "path": "backend/tests/test_staging_nightly_sync.py"
+        },
+        {
+         "path": "docker-compose.staging.yml"
+        },
+        {
+         "path": "docs/claude/podstawy/staging-na-laptopie.md"
+        },
+        {
+         "path": "scripts/staging/nightly_sync.py"
+        }
+       ]
+      },
+      "commits": {
+       "nodes": [
+        {
+         "commit": {
+          "statusCheckRollup": {
+           "state": "SUCCESS"
+          }
+         }
+        }
+       ]
+      },
+      "timelineItems": {
+       "nodes": [
+        {
+         "__typename": "AddedToMergeQueueEvent",
+         "createdAt": "2026-11-25T22:23:18Z"
+        },
+        {
+         "__typename": "RemovedFromMergeQueueEvent",
+         "createdAt": "2026-11-25T22:52:33Z",
+         "reason": "manual"
+        },
+        {
+         "__typename": "AddedToMergeQueueEvent",
+         "createdAt": "2026-11-25T22:57:41Z"
+        },
+        {
+         "__typename": "RemovedFromMergeQueueEvent",
+         "createdAt": "2026-11-25T23:22:31Z",
+         "reason": "merged"
+        }
+       ]
+      }
+     },
+     "p1": {
+      "number": 4036,
+      "title": "fix(cpro): po Upload robot czeka, aż nowe CV pojawi się na liście oferty",
+      "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4036",
+      "state": "MERGED",
+      "isDraft": false,
+      "mergedAt": "2026-11-25T23:36:50Z",
+      "mergeable": "UNKNOWN",
+      "changedFiles": 1,
+      "mergeCommit": {
+       "oid": "5f4c23ff1cd520ac5f38b8f7f0639df1c77c016f"
+      },
+      "autoMergeRequest": null,
+      "mergeQueueEntry": null,
+      "labels": {
+       "nodes": []
+      },
+      "files": {
+       "nodes": [
+        {
+         "path": "backend/cpro_robot/portal.py"
+        }
+       ]
+      },
+      "commits": {
+       "nodes": [
+        {
+         "commit": {
+          "statusCheckRollup": {
+           "state": "SUCCESS"
+          }
+         }
+        }
+       ]
+      },
+      "timelineItems": {
+       "nodes": [
+        {
+         "__typename": "AddedToMergeQueueEvent",
+         "createdAt": "2026-11-25T22:57:49Z"
+        },
+        {
+         "__typename": "RemovedFromMergeQueueEvent",
+         "createdAt": "2026-11-25T23:36:50Z",
+         "reason": "merged"
+        }
+       ]
+      }
+     },
+     "p2": {
+      "number": 4037,
+      "title": "feat(sciezka): mapa wpływu — inne miejsca z tą samą informacją przed ścieżką",
+      "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4037",
+      "state": "OPEN",
+      "isDraft": false,
+      "mergedAt": null,
+      "mergeable": "UNKNOWN",
+      "changedFiles": 3,
+      "mergeCommit": null,
+      "autoMergeRequest": null,
+      "mergeQueueEntry": {
+       "state": "AWAITING_CHECKS",
+       "position": 1,
+       "enqueuedAt": "2026-11-25T23:14:27Z"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "files": {
+       "nodes": [
+        {
+         "path": "backend/tests/test_impact_map.py"
+        },
+        {
+         "path": "docs/claude/podstawy/test-calej-sciezki-na-stagingu.md"
+        },
+        {
+         "path": "scripts/impact_map.py"
+        }
+       ]
+      },
+      "commits": {
+       "nodes": [
+        {
+         "commit": {
+          "statusCheckRollup": {
+           "state": "SUCCESS"
+          }
+         }
+        }
+       ]
+      },
+      "timelineItems": {
+       "nodes": [
+        {
+         "__typename": "AddedToMergeQueueEvent",
+         "createdAt": "2026-11-25T23:14:28Z"
+        }
+       ]
+      }
+     },
+     "p3": {
+      "number": 4040,
+      "title": "feat: raport kompetencji w 24 godziny dla kandydatów ze strony",
+      "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4040",
+      "state": "OPEN",
+      "isDraft": false,
+      "mergedAt": null,
+      "mergeable": "MERGEABLE",
+      "changedFiles": 62,
+      "mergeCommit": null,
+      "autoMergeRequest": {
+       "enabledAt": "2026-11-25T23:24:24Z"
+      },
+      "mergeQueueEntry": null,
+      "labels": {
+       "nodes": []
+      },
+      "files": {
+       "nodes": [
+        {
+         "path": "backend/alembic/versions/0792_competence_reports.py"
+        },
+        {
+         "path": "backend/app/api/competence_reports.py"
+        },
+        {
+         "path": "backend/app/api/public_competence_report.py"
+        },
+        {
+         "path": "backend/app/core/config.py"
+        },
+        {
+         "path": "backend/app/core/staging.py"
+        },
+        {
+         "path": "backend/app/main.py"
+        },
+        {
+         "path": "backend/app/models/__init__.py"
+        },
+        {
+         "path": "backend/app/models/competence_report.py"
+        },
+        {
+         "path": "backend/app/services/competence_report_ddl.py"
+        },
+        {
+         "path": "backend/app/services/competence_report_email.py"
+        },
+        {
+         "path": "backend/app/services/competence_report_engine.py"
+        },
+        {
+         "path": "backend/app/services/competence_report_queue.py"
+        },
+        {
+         "path": "backend/app/services/competence_report_schema.py"
+        },
+        {
+         "path": "backend/app/services/competence_report_send.py"
+        },
+        {
+         "path": "backend/app/services/competence_report_store.py"
+        },
+        {
+         "path": "backend/app/services/competence_report_tokens.py"
+        },
+        {
+         "path": "backend/app/services/job_public_profile.py"
+        },
+        {
+         "path": "backend/app/services/market_rates.py"
+        },
+        {
+         "path": "backend/app/services/notification_delivery.py"
+        },
+        {
+         "path": "backend/app/services/notification_email_prefs.py"
+        },
+        {
+         "path": "backend/app/services/website_application_terms.py"
+        },
+        {
+         "path": "backend/app/services/website_applications.py"
+        },
+        {
+         "path": "backend/app/tasks/competence_report_sender.py"
+        },
+        {
+         "path": "backend/entrypoint.sh"
+        },
+        {
+         "path": "backend/tests/data/authz_golden/competence_reports.json"
+        },
+        {
+         "path": "backend/tests/data/authz_golden/public_competence_report.json"
+        },
+        {
+         "path": "backend/tests/test_competence_report_email.py"
+        },
+        {
+         "path": "backend/tests/test_competence_report_engine.py"
+        },
+        {
+         "path": "backend/tests/test_competence_report_intake.py"
+        },
+        {
+         "path": "backend/tests/test_competence_report_sender.py"
+        },
+        {
+         "path": "backend/tests/test_competence_reports_api.py"
+        },
+        {
+         "path": "backend/tests/test_market_rates.py"
+        },
+        {
+         "path": "backend/tests/test_notification_email_prefs.py"
+        },
+        {
+         "path": "backend/tests/test_public_competence_report.py"
+        },
+        {
+         "path": "backend/tests/test_public_surface_hardening.py"
+        },
+        {
+         "path": "backend/tests/test_route_authz_contract.py"
+        },
+        {
+         "path": "docs/claude/integracje/strona-www-aplikacje-kandydatow.md"
+        },
+        {
+         "path": "frontend/src/__tests__/competence-report.test.ts"
+        },
+        {
+         "path": "frontend/src/__tests__/middleware.test.ts"
+        },
+        {
+         "path": "frontend/src/app/candidates/website-reports/page.tsx"
+        },
+        {
+         "path": "frontend/src/app/raport/[token]/page.tsx"
+        },
+        {
+         "path": "frontend/src/app/settings/opiekunowie-raportow/page.tsx"
+        },
+        {
+         "path": "frontend/src/components/competence-report/ReportConditionsPage.tsx"
+        },
+        {
+         "path": "frontend/src/components/competence-report/raport.css"
+        },
+        {
+         "path": "frontend/src/components/competence-reports/ConditionsForm.tsx"
+        },
+        {
+         "path": "frontend/src/components/competence-reports/ReportDetailSheet.tsx"
+        },
+        {
+         "path": "frontend/src/components/competence-reports/ReportOwnersSettings.tsx"
+        },
+        {
+         "path": "frontend/src/components/competence-reports/ReportQueue.tsx"
+        },
+        {
+         "path": "frontend/src/components/competence-reports/tones.ts"
+        },
+        {
+         "path": "frontend/src/components/v2/pages/__tests__/candidate-timeline-labels.test.ts"
+        },
+        {
+         "path": "frontend/src/components/v2/pages/candidate-timeline-labels.ts"
+        },
+        {
+         "path": "frontend/src/components/v2/shell/AppShellV2.tsx"
+        },
+        {
+         "path": "frontend/src/components/v2/shell/BreadcrumbV2.tsx"
+        },
+        {
+         "path": "frontend/src/components/v2/shell/__tests__/BreadcrumbV2.test.tsx"
+        },
+        {
+         "path": "frontend/src/lib/__tests__/nav-registry.test.ts"
+        },
+        {
+         "path": "frontend/src/lib/competence-report.ts"
+        },
+        {
+         "path": "frontend/src/lib/competence-reports/__tests__/logic.test.ts"
+        },
+        {
+         "path": "frontend/src/lib/competence-reports/api.ts"
+        },
+        {
+         "path": "frontend/src/lib/competence-reports/logic.ts"
+        },
+        {
+         "path": "frontend/src/lib/nav-registry.ts"
+        },
+        {
+         "path": "frontend/src/lib/settings-registry.ts"
+        },
+        {
+         "path": "frontend/src/middleware.ts"
+        }
+       ]
+      },
+      "commits": {
+       "nodes": [
+        {
+         "commit": {
+          "statusCheckRollup": {
+           "state": "FAILURE"
+          }
+         }
+        }
+       ]
+      },
+      "timelineItems": {
+       "nodes": []
+      }
+     },
+     "p4": {
+      "number": 4017,
+      "title": "docs(kandydaci): pilot maili „Twoje warunki” po 2 dniach, limit 100 od 26.11",
+      "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4017",
+      "state": "MERGED",
+      "isDraft": false,
+      "mergedAt": "2026-11-25T19:39:47Z",
+      "mergeable": "UNKNOWN",
+      "changedFiles": 1,
+      "mergeCommit": {
+       "oid": "02e62b4631e645859fd9291f473d9fb25c31b9c9"
+      },
+      "autoMergeRequest": null,
+      "mergeQueueEntry": null,
+      "labels": {
+       "nodes": []
+      },
+      "files": {
+       "nodes": [
+        {
+         "path": "docs/claude/kandydaci-wyszukiwanie/warunki-od-kandydata-formularz-po-aplikacji.md"
+        }
+       ]
+      },
+      "commits": {
+       "nodes": [
+        {
+         "commit": {
+          "statusCheckRollup": {
+           "state": "SUCCESS"
+          }
+         }
+        }
+       ]
+      },
+      "timelineItems": {
+       "nodes": [
+        {
+         "__typename": "AddedToMergeQueueEvent",
+         "createdAt": "2026-11-25T19:06:58Z"
+        },
+        {
+         "__typename": "RemovedFromMergeQueueEvent",
+         "createdAt": "2026-11-25T19:39:47Z",
+         "reason": "merged"
+        }
+       ]
+      }
+     },
+     "p5": {
+      "number": 4032,
+      "title": "feat(asystent-prawny): asystent prawny do umów B2B w tle ekranów (A–H, 0785–0791)",
+      "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4032",
+      "state": "MERGED",
+      "isDraft": false,
+      "mergedAt": "2026-11-25T22:36:40Z",
+      "mergeable": "UNKNOWN",
+      "changedFiles": 225,
+      "mergeCommit": {
+       "oid": "0340594b5b6e924f6130ee47168d1ff531db02d6"
+      },
+      "autoMergeRequest": null,
+      "mergeQueueEntry": null,
+      "labels": {
+       "nodes": []
+      },
+      "files": {
+       "nodes": [
+        {
+         "path": "CLAUDE.md"
+        },
+        {
+         "path": "backend/alembic/versions/0785_legal_corpus.py"
+        },
+        {
+         "path": "backend/alembic/versions/0786_custom_document_templates.py"
+        },
+        {
+         "path": "backend/alembic/versions/0787_legal_case_law.py"
+        },
+        {
+         "path": "backend/alembic/versions/0788_legal_redline_ai.py"
+        },
+        {
+         "path": "backend/alembic/versions/0789_contract_document_chunks.py"
+        },
+        {
+         "path": "backend/alembic/versions/0790_legal_assistant_tasks.py"
+        },
+        {
+         "path": "backend/alembic/versions/0791_legal_client_fit.py"
+        },
+        {
+         "path": "backend/app/api/b2b_documents.py"
+        },
+        {
+         "path": "backend/app/api/contract_document_text.py"
+        },
+        {
+         "path": "backend/app/api/contracts.py"
+        },
+        {
+         "path": "backend/app/api/custom_document_templates.py"
+        },
+        {
+         "path": "backend/app/api/jarvis.py"
+        },
+        {
+         "path": "backend/app/api/legal.py"
+        },
+        {
+         "path": "backend/app/api/legal_case_law.py"
+        },
+        {
+         "path": "backend/app/api/legal_client_fit.py"
+        },
+        {
+         "path": "backend/app/api/legal_letters.py"
+        },
+        {
+         "path": "backend/app/api/legal_redline.py"
+        },
+        {
+         "path": "backend/app/api/legal_tasks.py"
+        },
+        {
+         "path": "backend/app/core/config.py"
+        },
+        {
+         "path": "backend/app/core/staging.py"
+        },
+        {
+         "path": "backend/app/data/screen_guides/guides.json"
+        },
+        {
+         "path": "backend/app/data/screen_guides/stamps/contracts.b2b_generator.json"
+        },
+        {
+         "path": "backend/app/main.py"
+        },
+        {
+         "path": "backend/app/models/__init__.py"
+        },
+        {
+         "path": "backend/app/models/ai_feature.py"
+        },
+        {
+         "path": "backend/app/models/contract_document.py"
+        },
+        {
+         "path": "backend/app/models/contract_document_chunk.py"
+        },
+        {
+         "path": "backend/app/models/custom_document_template.py"
+        },
+        {
+         "path": "backend/app/models/legal_assistant_task.py"
+        },
+        {
+         "path": "backend/app/models/legal_case_law.py"
+        },
+        {
+         "path": "backend/app/models/legal_client_fit.py"
+        },
+        {
+         "path": "backend/app/models/legal_corpus.py"
+        },
+        {
+         "path": "backend/app/services/ai_models.py"
+        },
+        {
+         "path": "backend/app/services/b2b_documents/constants.py"
+        },
+        {
+         "path": "backend/app/services/b2b_documents/effects.py"
+        },
+        {
+         "path": "backend/app/services/b2b_documents/registry.py"
+        },
+        {
+         "path": "backend/app/services/b2b_documents/schema_sql.py"
+        },
+        {
+         "path": "backend/app/services/contract_document_text/__init__.py"
+        },
+        {
+         "path": "backend/app/services/contract_document_text/index.py"
+        },
+        {
+         "path": "backend/app/services/contract_document_text/schema.py"
+        },
+        {
+         "path": "backend/app/services/contract_document_text/service.py"
+        },
+        {
+         "path": "backend/app/services/contract_document_text/structure.py"
+        },
+        {
+         "path": "backend/app/services/contract_document_text/termination.py"
+        },
+        {
+         "path": "backend/app/services/contract_merge.py"
+        },
+        {
+         "path": "backend/app/services/custom_templates/base.py"
+        },
+        {
+         "path": "backend/app/services/custom_templates/checks.py"
+        },
+        {
+         "path": "backend/app/services/custom_templates/detect.py"
+        },
+        {
+         "path": "backend/app/services/custom_templates/docx_ops.py"
+        },
+        {
+         "path": "backend/app/services/custom_templates/draft.py"
+        },
+        {
+         "path": "backend/app/services/custom_templates/fields.py"
+        },
+        {
+         "path": "backend/app/services/custom_templates/legal_bridge.py"
+        },
+        {
+         "path": "backend/app/services/custom_templates/sandbox.py"
+        },
+        {
+         "path": "backend/app/services/custom_templates/schema.py"
+        },
+        {
+         "path": "backend/app/services/custom_templates/service.py"
+        },
+        {
+         "path": "backend/app/services/framework_contract_index.py"
+        },
+        {
+         "path": "backend/app/services/hr_schema_bundle.py"
+        },
+        {
+         "path": "backend/app/services/jarvis/agent.py"
+        },
+        {
+         "path": "backend/app/services/jarvis/capabilities.py"
+        },
+        {
+         "path": "backend/app/services/jarvis/nexus_sources.py"
+        },
+        {
+         "path": "backend/app/services/jarvis/prompt.py"
+        },
+        {
+         "path": "backend/app/services/jarvis/tools.py"
+        },
+        {
+         "path": "backend/app/services/legal/__init__.py"
+        },
+        {
+         "path": "backend/app/services/legal/acts.py"
+        },
+        {
+         "path": "backend/app/services/legal/assistant.py"
+        },
+        {
+         "path": "backend/app/services/legal/citations.py"
+        },
+        {
+         "path": "backend/app/services/legal/corpus.py"
+        },
+        {
+         "path": "backend/app/services/legal/deadlines.py"
+        },
+        {
+         "path": "backend/app/services/legal/fetch.py"
+        },
+        {
+         "path": "backend/app/services/legal/index.py"
+        },
+        {
+         "path": "backend/app/services/legal/letter_service.py"
+        },
+        {
+         "path": "backend/app/services/legal/letters.py"
+        },
+        {
+         "path": "backend/app/services/legal/parse.py"
+        },
+        {
+         "path": "backend/app/services/legal/pdf_worker.py"
+        },
+        {
+         "path": "backend/app/services/legal/pseudonymize.py"
+        },
+        {
+         "path": "backend/app/services/legal/schema.py"
+        },
+        {
+         "path": "backend/app/services/legal/sources.py"
+        },
+        {
+         "path": "backend/app/services/legal/tasks.py"
+        },
+        {
+         "path": "backend/app/services/legal/tasks_schema.py"
+        },
+        {
+         "path": "backend/app/services/legal/template_review.py"
+        },
+        {
+         "path": "backend/app/services/legal_case_law/__init__.py"
+        },
+        {
+         "path": "backend/app/services/legal_case_law/http.py"
+        },
+        {
+         "path": "backend/app/services/legal_case_law/index.py"
+        },
+        {
+         "path": "backend/app/services/legal_case_law/ingest.py"
+        },
+        {
+         "path": "backend/app/services/legal_case_law/links.py"
+        },
+        {
+         "path": "backend/app/services/legal_case_law/passage.py"
+        },
+        {
+         "path": "backend/app/services/legal_case_law/saos.py"
+        },
+        {
+         "path": "backend/app/services/legal_case_law/schema.py"
+        },
+        {
+         "path": "backend/app/services/legal_case_law/search.py"
+        },
+        {
+         "path": "backend/app/services/legal_case_law/store.py"
+        },
+        {
+         "path": "backend/app/services/legal_client_fit/__init__.py"
+        },
+        {
+         "path": "backend/app/services/legal_client_fit/engine.py"
+        },
+        {
+         "path": "backend/app/services/legal_client_fit/schema.py"
+        },
+        {
+         "path": "backend/app/services/legal_client_fit/service.py"
+        },
+        {
+         "path": "backend/app/services/legal_client_fit/sources.py"
+        },
+        {
+         "path": "backend/app/services/legal_client_fit/task_provider.py"
+        },
+        {
+         "path": "backend/app/services/legal_client_fit/topics.py"
+        },
+        {
+         "path": "backend/app/services/legal_redline/__init__.py"
+        },
+        {
+         "path": "backend/app/services/legal_redline/diff.py"
+        },
+        {
+         "path": "backend/app/services/legal_redline/docx_io.py"
+        }
+       ]
+      },
+      "commits": {
+       "nodes": [
+        {
+         "commit": {
+          "statusCheckRollup": {
+           "state": "SUCCESS"
+          }
+         }
+        }
+       ]
+      },
+      "timelineItems": {
+       "nodes": [
+        {
+         "__typename": "AddedToMergeQueueEvent",
+         "createdAt": "2026-11-25T22:02:52Z"
+        },
+        {
+         "__typename": "RemovedFromMergeQueueEvent",
+         "createdAt": "2026-11-25T22:36:39Z",
+         "reason": "merged"
+        }
+       ]
+      }
+     },
+     "p6": {
+      "number": 4016,
+      "title": "feat(faktury-sprzedazy): kontrola formalna przed wysyłką do KSeF i raport faktur spoza NEXUSA",
+      "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4016",
+      "state": "MERGED",
+      "isDraft": false,
+      "mergedAt": "2026-11-25T20:28:40Z",
+      "mergeable": "UNKNOWN",
+      "changedFiles": 21,
+      "mergeCommit": {
+       "oid": "94146e797b9fb51aa87f45309df33ec019448194"
+      },
+      "autoMergeRequest": null,
+      "mergeQueueEntry": null,
+      "labels": {
+       "nodes": []
+      },
+      "files": {
+       "nodes": [
+        {
+         "path": "backend/app/api/client_issued_invoices.py"
+        },
+        {
+         "path": "backend/app/api/client_sales_invoices.py"
+        },
+        {
+         "path": "backend/app/services/client_invoicing/issue.py"
+        },
+        {
+         "path": "backend/app/services/client_invoicing/requirements.py"
+        },
+        {
+         "path": "backend/app/services/client_invoicing/sale_checks.py"
+        },
+        {
+         "path": "backend/app/services/client_invoicing/unknown_refs.py"
+        },
+        {
+         "path": "backend/app/services/client_settlements/rules_catalog.py"
+        },
+        {
+         "path": "backend/tests/data/authz_golden/client_sales_invoices.json"
+        },
+        {
+         "path": "backend/tests/test_client_invoice_sale_checks.py"
+        },
+        {
+         "path": "backend/tests/test_client_invoice_sale_checks_db.py"
+        },
+        {
+         "path": "docs/claude/zamowienia/kontrola-formalna-faktury-sprzedazy.md"
+        },
+        {
+         "path": "frontend/src/app/preview/client-invoicing/page.tsx"
+        },
+        {
+         "path": "frontend/src/components/clients/invoicing/FinanceSalesInvoicesTab.tsx"
+        },
+        {
+         "path": "frontend/src/components/clients/invoicing/FormChecksPanel.tsx"
+        },
+        {
+         "path": "frontend/src/components/clients/invoicing/__tests__/FormChecksPanel.test.tsx"
+        },
+        {
+         "path": "frontend/src/components/clients/invoicing/issue/IssuedInvoiceCardView.tsx"
+        },
+        {
+         "path": "frontend/src/components/clients/invoicing/issue/__tests__/IssuedInvoiceCardActions.test.tsx"
+        },
+        {
+         "path": "frontend/src/components/clients/invoicing/issue/__tests__/IssuedInvoices.test.tsx"
+        },
+        {
+         "path": "frontend/src/lib/api/__tests__/issued-invoices.test.tsx"
+        },
+        {
+         "path": "frontend/src/lib/api/client-invoicing.ts"
+        },
+        {
+         "path": "frontend/src/lib/api/issued-invoices.ts"
+        }
+       ]
+      },
+      "commits": {
+       "nodes": [
+        {
+         "commit": {
+          "statusCheckRollup": {
+           "state": "SUCCESS"
+          }
+         }
+        }
+       ]
+      },
+      "timelineItems": {
+       "nodes": [
+        {
+         "__typename": "AddedToMergeQueueEvent",
+         "createdAt": "2026-11-25T19:13:30Z"
+        },
+        {
+         "__typename": "RemovedFromMergeQueueEvent",
+         "createdAt": "2026-11-25T19:47:07Z",
+         "reason": "failed_checks"
+        },
+        {
+         "__typename": "AddedToMergeQueueEvent",
+         "createdAt": "2026-11-25T19:55:53Z"
+        },
+        {
+         "__typename": "RemovedFromMergeQueueEvent",
+         "createdAt": "2026-11-25T20:28:39Z",
+         "reason": "merged"
+        }
+       ]
+      }
+     },
+     "p7": {
+      "number": 4025,
+      "title": "feat(rozliczenia): karta sprawy „Co dalej” i lista spraw — mail, telefon, skrypt, terminy",
+      "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4025",
+      "state": "MERGED",
+      "isDraft": false,
+      "mergedAt": "2026-11-25T20:56:46Z",
+      "mergeable": "UNKNOWN",
+      "changedFiles": 17,
+      "mergeCommit": {
+       "oid": "ba9d4e83654e1a1d56320bb114a43e7d63060dd2"
+      },
+      "autoMergeRequest": null,
+      "mergeQueueEntry": null,
+      "labels": {
+       "nodes": []
+      },
+      "files": {
+       "nodes": [
+        {
+         "path": "backend/app/api/settlement_cases.py"
+        },
+        {
+         "path": "backend/app/data/novelties/lessons.json"
+        },
+        {
+         "path": "backend/app/data/novelties/novelties.json"
+        },
+        {
+         "path": "backend/app/main.py"
+        },
+        {
+         "path": "backend/app/services/client_settlements/cases.py"
+        },
+        {
+         "path": "backend/tests/data/authz_golden/settlement_cases.json"
+        },
+        {
+         "path": "backend/tests/test_settlement_cases.py"
+        },
+        {
+         "path": "backend/tests/test_settlement_cases_db.py"
+        },
+        {
+         "path": "docs/claude/finanse-insights/rozliczenia-karta-sprawy-co-dalej.md"
+        },
+        {
+         "path": "frontend/src/components/finance/settlements/CaseNextSteps.tsx"
+        },
+        {
+         "path": "frontend/src/components/finance/settlements/CasesView.tsx"
+        },
+        {
+         "path": "frontend/src/components/finance/settlements/SettlementCard.tsx"
+        },
+        {
+         "path": "frontend/src/components/finance/settlements/SettlementsTab.tsx"
+        },
+        {
+         "path": "frontend/src/components/finance/settlements/__tests__/case-next-steps.test.tsx"
+        },
+        {
+         "path": "frontend/src/components/finance/settlements/__tests__/settlements-url-client.test.tsx"
+        },
+        {
+         "path": "frontend/src/components/finance/settlements/case-format.ts"
+        },
+        {
+         "path": "frontend/src/lib/api/settlement-cases.ts"
+        }
+       ]
+      },
+      "commits": {
+       "nodes": [
+        {
+         "commit": {
+          "statusCheckRollup": {
+           "state": "SUCCESS"
+          }
+         }
+        }
+       ]
+      },
+      "timelineItems": {
+       "nodes": [
+        {
+         "__typename": "AddedToMergeQueueEvent",
+         "createdAt": "2026-11-25T19:42:35Z"
+        },
+        {
+         "__typename": "RemovedFromMergeQueueEvent",
+         "createdAt": "2026-11-25T20:21:04Z",
+         "reason": "merge_conflict"
+        },
+        {
+         "__typename": "AddedToMergeQueueEvent",
+         "createdAt": "2026-11-25T20:28:28Z"
+        },
+        {
+         "__typename": "RemovedFromMergeQueueEvent",
+         "createdAt": "2026-11-25T20:56:45Z",
+         "reason": "merged"
+        }
+       ]
+      }
+     },
+     "p8": {
+      "number": 4031,
+      "title": "fix(poligon): podgląd „Nowego CV” w obecnym wyglądzie + skrypt do przegenerowania",
+      "url": "https://github.com/B2B-net-S-A/NEXUS/pull/4031",
+      "state": "MERGED",
+      "isDraft": false,
+      "mergedAt": "2026-11-25T22:13:37Z",
+      "mergeable": "UNKNOWN",
+      "changedFiles": 6,
+      "mergeCommit": {
+       "oid": "9eb3e2622f4de983494fc8515f3745c2604bea6f"
+      },
+      "autoMergeRequest": null,
+      "mergeQueueEntry": null,
+      "labels": {
+       "nodes": []
+      },
+      "files": {
+       "nodes": [
+        {
+         "path": "backend/scripts/poligon_new_cv_pdf.py"
+        },
+        {
+         "path": "backend/tests/test_poligon_new_cv_pdf.py"
+        },
+        {
+         "path": "docs/claude/generator-cv/nowe-cv-drugi-uklad-obok-klasycznego.md"
+        },
+        {
+         "path": "frontend/public/poligon/nowe-cv.pdf"
+        },
+        {
+         "path": "frontend/src/lib/poligon/adapter.ts"
+        },
+        {
+         "path": "frontend/src/lib/poligon/cv-fiction.ts"
+        }
+       ]
+      },
+      "commits": {
+       "nodes": [
+        {
+         "commit": {
+          "statusCheckRollup": {
+           "state": "SUCCESS"
+          }
+         }
+        }
+       ]
+      },
+      "timelineItems": {
+       "nodes": [
+        {
+         "__typename": "AddedToMergeQueueEvent",
+         "createdAt": "2026-11-25T21:51:21Z"
+        },
+        {
+         "__typename": "RemovedFromMergeQueueEvent",
+         "createdAt": "2026-11-25T22:13:36Z",
+         "reason": "merged"
+        }
+       ]
+      }
+     },
+     "p9": null
+    }
+   },
+   "errors": [
+    {
+     "type": "NOT_FOUND",
+     "path": [
+      "repository",
+      "p9"
+     ],
+     "locations": [
+      {
+       "line": 1,
+       "column": 547
+      }
+     ],
+     "message": "Could not resolve to a PullRequest with the number of 99999."
+    }
+   ]
+  }
+ },
+ "rest": {
+  "repos/B2B-net-S-A/NEXUS/actions/workflows/deploy.yml/runs?branch=main&per_page=20": {
+   "workflow_runs": [
+    {
+     "id": 45723125048,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "in_progress",
+     "conclusion": null,
+     "head_sha": "5f4c23ff1cd520ac5f38b8f7f0639df1c77c016f",
+     "created_at": "2026-11-25T23:40:12Z",
+     "updated_at": "2026-11-25T23:40:29Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45723125048"
+    },
+    {
+     "id": 45721357215,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "467995771f4e8015063ccc6cabb0d0a7092f4813",
+     "created_at": "2026-11-25T23:26:21Z",
+     "updated_at": "2026-11-25T23:36:27Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45721357215"
+    },
+    {
+     "id": 45717775663,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "5d9a855a649836e7dcbe6e78443822485c9e3578",
+     "created_at": "2026-11-25T22:59:32Z",
+     "updated_at": "2026-11-25T23:11:12Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45717775663"
+    },
+    {
+     "id": 45716656038,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "2ba610c19065e7cfddfdcd03ef4269555a094897",
+     "created_at": "2026-11-25T22:50:55Z",
+     "updated_at": "2026-11-25T23:01:07Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45716656038"
+    },
+    {
+     "id": 45715258515,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "0340594b5b6e924f6130ee47168d1ff531db02d6",
+     "created_at": "2026-11-25T22:40:41Z",
+     "updated_at": "2026-11-25T22:50:50Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45715258515"
+    },
+    {
+     "id": 45711869387,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "9eb3e2622f4de983494fc8515f3745c2604bea6f",
+     "created_at": "2026-11-25T22:16:56Z",
+     "updated_at": "2026-11-25T22:32:56Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45711869387"
+    },
+    {
+     "id": 45710403077,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "251daec592e6106811ba55624799841140874624",
+     "created_at": "2026-11-25T22:06:52Z",
+     "updated_at": "2026-11-25T22:22:39Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45710403077"
+    },
+    {
+     "id": 45709624746,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "cca6baab2f7112d76bf0918ea6e7ff144604a097",
+     "created_at": "2026-11-25T22:01:36Z",
+     "updated_at": "2026-11-25T22:12:37Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45709624746"
+    },
+    {
+     "id": 45707785004,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "52467af1f950dce84b4d5a7766e56f1d261d0770",
+     "created_at": "2026-11-25T21:49:07Z",
+     "updated_at": "2026-11-25T22:00:21Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45707785004"
+    },
+    {
+     "id": 45701068354,
+     "name": "Deploy — slot budzika okna wdrożeń",
+     "event": "workflow_dispatch",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "ba9d4e83654e1a1d56320bb114a43e7d63060dd2",
+     "created_at": "2026-11-25T21:05:21Z",
+     "updated_at": "2026-11-25T21:12:07Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45701068354"
+    },
+    {
+     "id": 45700331875,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "ba9d4e83654e1a1d56320bb114a43e7d63060dd2",
+     "created_at": "2026-11-25T21:00:42Z",
+     "updated_at": "2026-11-25T21:11:40Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45700331875"
+    },
+    {
+     "id": 45695939929,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "94146e797b9fb51aa87f45309df33ec019448194",
+     "created_at": "2026-11-25T20:32:29Z",
+     "updated_at": "2026-11-25T20:32:37Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45695939929"
+    },
+    {
+     "id": 45694690215,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "4d81fe9621568669f318e80942d8bbd365822751",
+     "created_at": "2026-11-25T20:24:38Z",
+     "updated_at": "2026-11-25T20:24:48Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45694690215"
+    },
+    {
+     "id": 45687896159,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "02e62b4631e645859fd9291f473d9fb25c31b9c9",
+     "created_at": "2026-11-25T19:42:50Z",
+     "updated_at": "2026-11-25T19:42:59Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45687896159"
+    },
+    {
+     "id": 45686218707,
+     "name": "Deploy",
+     "event": "workflow_dispatch",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "1ed9ce0431ce6070c29eb3d4e5e40c2eff729c17",
+     "created_at": "2026-11-25T19:32:34Z",
+     "updated_at": "2026-11-25T19:42:40Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45686218707"
+    },
+    {
+     "id": 45685917294,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "1ed9ce0431ce6070c29eb3d4e5e40c2eff729c17",
+     "created_at": "2026-11-25T19:30:46Z",
+     "updated_at": "2026-11-25T19:30:54Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45685917294"
+    },
+    {
+     "id": 45683885891,
+     "name": "Deploy",
+     "event": "workflow_dispatch",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "f1f8643d8a04481ec6fa7319a8732a35ae0eb479",
+     "created_at": "2026-11-25T19:18:30Z",
+     "updated_at": "2026-11-25T19:28:34Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45683885891"
+    },
+    {
+     "id": 45683701209,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "f1f8643d8a04481ec6fa7319a8732a35ae0eb479",
+     "created_at": "2026-11-25T19:17:23Z",
+     "updated_at": "2026-11-25T19:17:34Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45683701209"
+    },
+    {
+     "id": 45681648795,
+     "name": "Deploy — slot budzika okna wdrożeń",
+     "event": "workflow_dispatch",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "da04f7094d70c0608697e9b10b127d5772715736",
+     "created_at": "2026-11-25T19:05:12Z",
+     "updated_at": "2026-11-25T19:16:17Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45681648795"
+    },
+    {
+     "id": 45678318018,
+     "name": "Deploy",
+     "event": "workflow_run",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "da04f7094d70c0608697e9b10b127d5772715736",
+     "created_at": "2026-11-25T18:45:08Z",
+     "updated_at": "2026-11-25T18:45:18Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45678318018"
+    }
+   ]
+  },
+  "repos/B2B-net-S-A/NEXUS/actions/runs?event=merge_group&created=2026-11-25T17:47:07Z..2026-11-25T19:52:07Z&per_page=100": {
+   "workflow_runs": [
+    {
+     "id": 45688630756,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "4d81fe9621568669f318e80942d8bbd365822751",
+     "created_at": "2026-11-25T19:47:19Z",
+     "updated_at": "2026-11-25T19:47:51Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688630756",
+     "head_branch": "gh-readonly-queue/main/pr-4024-77819e7116a9584fc0a8b2f134f362fe3d287680"
+    },
+    {
+     "id": 45688630878,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "4d81fe9621568669f318e80942d8bbd365822751",
+     "created_at": "2026-11-25T19:47:19Z",
+     "updated_at": "2026-11-25T19:51:36Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688630878",
+     "head_branch": "gh-readonly-queue/main/pr-4024-77819e7116a9584fc0a8b2f134f362fe3d287680"
+    },
+    {
+     "id": 45688630773,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "4d81fe9621568669f318e80942d8bbd365822751",
+     "created_at": "2026-11-25T19:47:19Z",
+     "updated_at": "2026-11-25T19:59:33Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688630773",
+     "head_branch": "gh-readonly-queue/main/pr-4024-77819e7116a9584fc0a8b2f134f362fe3d287680"
+    },
+    {
+     "id": 45688630767,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "4d81fe9621568669f318e80942d8bbd365822751",
+     "created_at": "2026-11-25T19:47:19Z",
+     "updated_at": "2026-11-25T20:10:02Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688630767",
+     "head_branch": "gh-readonly-queue/main/pr-4024-77819e7116a9584fc0a8b2f134f362fe3d287680"
+    },
+    {
+     "id": 45688628088,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "77819e7116a9584fc0a8b2f134f362fe3d287680",
+     "created_at": "2026-11-25T19:47:18Z",
+     "updated_at": "2026-11-25T19:47:55Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688628088",
+     "head_branch": "gh-readonly-queue/main/pr-4023-5055e675398b1f4d9e69d5c98f841b13ec01e53a"
+    },
+    {
+     "id": 45688628483,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "77819e7116a9584fc0a8b2f134f362fe3d287680",
+     "created_at": "2026-11-25T19:47:18Z",
+     "updated_at": "2026-11-25T19:53:06Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688628483",
+     "head_branch": "gh-readonly-queue/main/pr-4023-5055e675398b1f4d9e69d5c98f841b13ec01e53a"
+    },
+    {
+     "id": 45688628243,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "77819e7116a9584fc0a8b2f134f362fe3d287680",
+     "created_at": "2026-11-25T19:47:18Z",
+     "updated_at": "2026-11-25T20:00:11Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688628243",
+     "head_branch": "gh-readonly-queue/main/pr-4023-5055e675398b1f4d9e69d5c98f841b13ec01e53a"
+    },
+    {
+     "id": 45688628377,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "77819e7116a9584fc0a8b2f134f362fe3d287680",
+     "created_at": "2026-11-25T19:47:18Z",
+     "updated_at": "2026-11-25T20:08:48Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688628377",
+     "head_branch": "gh-readonly-queue/main/pr-4023-5055e675398b1f4d9e69d5c98f841b13ec01e53a"
+    },
+    {
+     "id": 45688625683,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "5055e675398b1f4d9e69d5c98f841b13ec01e53a",
+     "created_at": "2026-11-25T19:47:17Z",
+     "updated_at": "2026-11-25T19:47:50Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688625683",
+     "head_branch": "gh-readonly-queue/main/pr-4022-3ed6c9d0bedf107fda0d33d2b04ffdfe2b5f5db0"
+    },
+    {
+     "id": 45688625664,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "5055e675398b1f4d9e69d5c98f841b13ec01e53a",
+     "created_at": "2026-11-25T19:47:17Z",
+     "updated_at": "2026-11-25T19:52:59Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688625664",
+     "head_branch": "gh-readonly-queue/main/pr-4022-3ed6c9d0bedf107fda0d33d2b04ffdfe2b5f5db0"
+    },
+    {
+     "id": 45688625684,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "5055e675398b1f4d9e69d5c98f841b13ec01e53a",
+     "created_at": "2026-11-25T19:47:17Z",
+     "updated_at": "2026-11-25T19:57:55Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688625684",
+     "head_branch": "gh-readonly-queue/main/pr-4022-3ed6c9d0bedf107fda0d33d2b04ffdfe2b5f5db0"
+    },
+    {
+     "id": 45688625771,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "5055e675398b1f4d9e69d5c98f841b13ec01e53a",
+     "created_at": "2026-11-25T19:47:17Z",
+     "updated_at": "2026-11-25T20:11:41Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688625771",
+     "head_branch": "gh-readonly-queue/main/pr-4022-3ed6c9d0bedf107fda0d33d2b04ffdfe2b5f5db0"
+    },
+    {
+     "id": 45688623551,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "3ed6c9d0bedf107fda0d33d2b04ffdfe2b5f5db0",
+     "created_at": "2026-11-25T19:47:16Z",
+     "updated_at": "2026-11-25T19:47:51Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688623551",
+     "head_branch": "gh-readonly-queue/main/pr-4018-6ad6faa4c2519d402f73b0e312576758a7b45907"
+    },
+    {
+     "id": 45688623526,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "3ed6c9d0bedf107fda0d33d2b04ffdfe2b5f5db0",
+     "created_at": "2026-11-25T19:47:16Z",
+     "updated_at": "2026-11-25T19:53:02Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688623526",
+     "head_branch": "gh-readonly-queue/main/pr-4018-6ad6faa4c2519d402f73b0e312576758a7b45907"
+    },
+    {
+     "id": 45688623563,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "3ed6c9d0bedf107fda0d33d2b04ffdfe2b5f5db0",
+     "created_at": "2026-11-25T19:47:16Z",
+     "updated_at": "2026-11-25T20:01:19Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688623563",
+     "head_branch": "gh-readonly-queue/main/pr-4018-6ad6faa4c2519d402f73b0e312576758a7b45907"
+    },
+    {
+     "id": 45688623452,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "3ed6c9d0bedf107fda0d33d2b04ffdfe2b5f5db0",
+     "created_at": "2026-11-25T19:47:16Z",
+     "updated_at": "2026-11-25T20:10:59Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688623452",
+     "head_branch": "gh-readonly-queue/main/pr-4018-6ad6faa4c2519d402f73b0e312576758a7b45907"
+    },
+    {
+     "id": 45688620661,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "6ad6faa4c2519d402f73b0e312576758a7b45907",
+     "created_at": "2026-11-25T19:47:15Z",
+     "updated_at": "2026-11-25T19:47:49Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688620661",
+     "head_branch": "gh-readonly-queue/main/pr-4021-1b9cf99e02f22d749835f30e8191193911c539d3"
+    },
+    {
+     "id": 45688620726,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "6ad6faa4c2519d402f73b0e312576758a7b45907",
+     "created_at": "2026-11-25T19:47:15Z",
+     "updated_at": "2026-11-25T19:52:19Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688620726",
+     "head_branch": "gh-readonly-queue/main/pr-4021-1b9cf99e02f22d749835f30e8191193911c539d3"
+    },
+    {
+     "id": 45688620715,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "6ad6faa4c2519d402f73b0e312576758a7b45907",
+     "created_at": "2026-11-25T19:47:15Z",
+     "updated_at": "2026-11-25T20:01:07Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688620715",
+     "head_branch": "gh-readonly-queue/main/pr-4021-1b9cf99e02f22d749835f30e8191193911c539d3"
+    },
+    {
+     "id": 45688620707,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "6ad6faa4c2519d402f73b0e312576758a7b45907",
+     "created_at": "2026-11-25T19:47:15Z",
+     "updated_at": "2026-11-25T20:14:23Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688620707",
+     "head_branch": "gh-readonly-queue/main/pr-4021-1b9cf99e02f22d749835f30e8191193911c539d3"
+    },
+    {
+     "id": 45688617993,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "1b9cf99e02f22d749835f30e8191193911c539d3",
+     "created_at": "2026-11-25T19:47:14Z",
+     "updated_at": "2026-11-25T19:47:51Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688617993",
+     "head_branch": "gh-readonly-queue/main/pr-4019-89bb88adf555ba90e039ae629a1e8fc5685fa309"
+    },
+    {
+     "id": 45688617876,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "1b9cf99e02f22d749835f30e8191193911c539d3",
+     "created_at": "2026-11-25T19:47:14Z",
+     "updated_at": "2026-11-25T19:51:42Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688617876",
+     "head_branch": "gh-readonly-queue/main/pr-4019-89bb88adf555ba90e039ae629a1e8fc5685fa309"
+    },
+    {
+     "id": 45688617805,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "1b9cf99e02f22d749835f30e8191193911c539d3",
+     "created_at": "2026-11-25T19:47:14Z",
+     "updated_at": "2026-11-25T19:59:52Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688617805",
+     "head_branch": "gh-readonly-queue/main/pr-4019-89bb88adf555ba90e039ae629a1e8fc5685fa309"
+    },
+    {
+     "id": 45688617854,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "1b9cf99e02f22d749835f30e8191193911c539d3",
+     "created_at": "2026-11-25T19:47:14Z",
+     "updated_at": "2026-11-25T20:15:38Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688617854",
+     "head_branch": "gh-readonly-queue/main/pr-4019-89bb88adf555ba90e039ae629a1e8fc5685fa309"
+    },
+    {
+     "id": 45688614316,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "89bb88adf555ba90e039ae629a1e8fc5685fa309",
+     "created_at": "2026-11-25T19:47:13Z",
+     "updated_at": "2026-11-25T19:47:51Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688614316",
+     "head_branch": "gh-readonly-queue/main/pr-4020-02e62b4631e645859fd9291f473d9fb25c31b9c9"
+    },
+    {
+     "id": 45688614321,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "89bb88adf555ba90e039ae629a1e8fc5685fa309",
+     "created_at": "2026-11-25T19:47:13Z",
+     "updated_at": "2026-11-25T19:58:00Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688614321",
+     "head_branch": "gh-readonly-queue/main/pr-4020-02e62b4631e645859fd9291f473d9fb25c31b9c9"
+    },
+    {
+     "id": 45688614388,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "89bb88adf555ba90e039ae629a1e8fc5685fa309",
+     "created_at": "2026-11-25T19:47:13Z",
+     "updated_at": "2026-11-25T19:52:53Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688614388",
+     "head_branch": "gh-readonly-queue/main/pr-4020-02e62b4631e645859fd9291f473d9fb25c31b9c9"
+    },
+    {
+     "id": 45688614253,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "89bb88adf555ba90e039ae629a1e8fc5685fa309",
+     "created_at": "2026-11-25T19:47:13Z",
+     "updated_at": "2026-11-25T20:20:32Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45688614253",
+     "head_branch": "gh-readonly-queue/main/pr-4020-02e62b4631e645859fd9291f473d9fb25c31b9c9"
+    },
+    {
+     "id": 45686750390,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "e8219516c283c236c523d6c78e92f75324d61b16",
+     "created_at": "2026-11-25T19:35:46Z",
+     "updated_at": "2026-11-25T19:36:22Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45686750390",
+     "head_branch": "gh-readonly-queue/main/pr-4024-cfb011f274cd1eafef4801576b81c8a984941e68"
+    },
+    {
+     "id": 45686750430,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "e8219516c283c236c523d6c78e92f75324d61b16",
+     "created_at": "2026-11-25T19:35:46Z",
+     "updated_at": "2026-11-25T19:40:01Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45686750430",
+     "head_branch": "gh-readonly-queue/main/pr-4024-cfb011f274cd1eafef4801576b81c8a984941e68"
+    },
+    {
+     "id": 45686750573,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "e8219516c283c236c523d6c78e92f75324d61b16",
+     "created_at": "2026-11-25T19:35:46Z",
+     "updated_at": "2026-11-25T19:49:23Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45686750573",
+     "head_branch": "gh-readonly-queue/main/pr-4024-cfb011f274cd1eafef4801576b81c8a984941e68"
+    },
+    {
+     "id": 45686750472,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "e8219516c283c236c523d6c78e92f75324d61b16",
+     "created_at": "2026-11-25T19:35:46Z",
+     "updated_at": "2026-11-25T20:00:26Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45686750472",
+     "head_branch": "gh-readonly-queue/main/pr-4024-cfb011f274cd1eafef4801576b81c8a984941e68"
+    },
+    {
+     "id": 45686697380,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "cfb011f274cd1eafef4801576b81c8a984941e68",
+     "created_at": "2026-11-25T19:35:26Z",
+     "updated_at": "2026-11-25T19:35:56Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45686697380",
+     "head_branch": "gh-readonly-queue/main/pr-4023-08ebf1a939b163ad3af97559eae733ba07751e3c"
+    },
+    {
+     "id": 45686697210,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "cfb011f274cd1eafef4801576b81c8a984941e68",
+     "created_at": "2026-11-25T19:35:26Z",
+     "updated_at": "2026-11-25T19:49:08Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45686697210",
+     "head_branch": "gh-readonly-queue/main/pr-4023-08ebf1a939b163ad3af97559eae733ba07751e3c"
+    },
+    {
+     "id": 45686697184,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "failure",
+     "head_sha": "cfb011f274cd1eafef4801576b81c8a984941e68",
+     "created_at": "2026-11-25T19:35:26Z",
+     "updated_at": "2026-11-25T20:20:30Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45686697184",
+     "head_branch": "gh-readonly-queue/main/pr-4023-08ebf1a939b163ad3af97559eae733ba07751e3c"
+    },
+    {
+     "id": 45686697382,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "cfb011f274cd1eafef4801576b81c8a984941e68",
+     "created_at": "2026-11-25T19:35:26Z",
+     "updated_at": "2026-11-25T20:03:20Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45686697382",
+     "head_branch": "gh-readonly-queue/main/pr-4023-08ebf1a939b163ad3af97559eae733ba07751e3c"
+    },
+    {
+     "id": 45685937075,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "08ebf1a939b163ad3af97559eae733ba07751e3c",
+     "created_at": "2026-11-25T19:30:53Z",
+     "updated_at": "2026-11-25T19:31:29Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45685937075",
+     "head_branch": "gh-readonly-queue/main/pr-4022-88c4106cefe792f078a2e58d7c8d654a71ef7c05"
+    },
+    {
+     "id": 45685937002,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "08ebf1a939b163ad3af97559eae733ba07751e3c",
+     "created_at": "2026-11-25T19:30:53Z",
+     "updated_at": "2026-11-25T19:36:05Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45685937002",
+     "head_branch": "gh-readonly-queue/main/pr-4022-88c4106cefe792f078a2e58d7c8d654a71ef7c05"
+    },
+    {
+     "id": 45685937517,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "08ebf1a939b163ad3af97559eae733ba07751e3c",
+     "created_at": "2026-11-25T19:30:53Z",
+     "updated_at": "2026-11-25T19:44:49Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45685937517",
+     "head_branch": "gh-readonly-queue/main/pr-4022-88c4106cefe792f078a2e58d7c8d654a71ef7c05"
+    },
+    {
+     "id": 45685937430,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "failure",
+     "head_sha": "08ebf1a939b163ad3af97559eae733ba07751e3c",
+     "created_at": "2026-11-25T19:30:53Z",
+     "updated_at": "2026-11-25T19:58:04Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45685937430",
+     "head_branch": "gh-readonly-queue/main/pr-4022-88c4106cefe792f078a2e58d7c8d654a71ef7c05"
+    },
+    {
+     "id": 45685224560,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "88c4106cefe792f078a2e58d7c8d654a71ef7c05",
+     "created_at": "2026-11-25T19:26:30Z",
+     "updated_at": "2026-11-25T19:27:04Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45685224560",
+     "head_branch": "gh-readonly-queue/main/pr-4018-ad5e1d78222a6d1905afd45c31d3f806bfa2fddb"
+    },
+    {
+     "id": 45685224947,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "88c4106cefe792f078a2e58d7c8d654a71ef7c05",
+     "created_at": "2026-11-25T19:26:30Z",
+     "updated_at": "2026-11-25T19:32:17Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45685224947",
+     "head_branch": "gh-readonly-queue/main/pr-4018-ad5e1d78222a6d1905afd45c31d3f806bfa2fddb"
+    },
+    {
+     "id": 45685224786,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "88c4106cefe792f078a2e58d7c8d654a71ef7c05",
+     "created_at": "2026-11-25T19:26:30Z",
+     "updated_at": "2026-11-25T19:40:01Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45685224786",
+     "head_branch": "gh-readonly-queue/main/pr-4018-ad5e1d78222a6d1905afd45c31d3f806bfa2fddb"
+    },
+    {
+     "id": 45685224707,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "failure",
+     "head_sha": "88c4106cefe792f078a2e58d7c8d654a71ef7c05",
+     "created_at": "2026-11-25T19:26:30Z",
+     "updated_at": "2026-11-25T19:59:23Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45685224707",
+     "head_branch": "gh-readonly-queue/main/pr-4018-ad5e1d78222a6d1905afd45c31d3f806bfa2fddb"
+    },
+    {
+     "id": 45684665071,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "ad5e1d78222a6d1905afd45c31d3f806bfa2fddb",
+     "created_at": "2026-11-25T19:23:09Z",
+     "updated_at": "2026-11-25T19:23:41Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45684665071",
+     "head_branch": "gh-readonly-queue/main/pr-4021-f094895a9a97b2bf8c70558bcb025a3d3653e569"
+    },
+    {
+     "id": 45684665010,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "ad5e1d78222a6d1905afd45c31d3f806bfa2fddb",
+     "created_at": "2026-11-25T19:23:09Z",
+     "updated_at": "2026-11-25T19:28:35Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45684665010",
+     "head_branch": "gh-readonly-queue/main/pr-4021-f094895a9a97b2bf8c70558bcb025a3d3653e569"
+    },
+    {
+     "id": 45684664959,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "ad5e1d78222a6d1905afd45c31d3f806bfa2fddb",
+     "created_at": "2026-11-25T19:23:09Z",
+     "updated_at": "2026-11-25T19:35:25Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45684664959",
+     "head_branch": "gh-readonly-queue/main/pr-4021-f094895a9a97b2bf8c70558bcb025a3d3653e569"
+    },
+    {
+     "id": 45684665038,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "ad5e1d78222a6d1905afd45c31d3f806bfa2fddb",
+     "created_at": "2026-11-25T19:23:09Z",
+     "updated_at": "2026-11-25T19:54:52Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45684665038",
+     "head_branch": "gh-readonly-queue/main/pr-4021-f094895a9a97b2bf8c70558bcb025a3d3653e569"
+    },
+    {
+     "id": 45684335676,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "f094895a9a97b2bf8c70558bcb025a3d3653e569",
+     "created_at": "2026-11-25T19:21:10Z",
+     "updated_at": "2026-11-25T19:26:08Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45684335676",
+     "head_branch": "gh-readonly-queue/main/pr-4019-279b798bd8ddc83c3d89cd02c07a4fe76e86f4ad"
+    },
+    {
+     "id": 45684335677,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "f094895a9a97b2bf8c70558bcb025a3d3653e569",
+     "created_at": "2026-11-25T19:21:10Z",
+     "updated_at": "2026-11-25T19:31:24Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45684335677",
+     "head_branch": "gh-readonly-queue/main/pr-4019-279b798bd8ddc83c3d89cd02c07a4fe76e86f4ad"
+    },
+    {
+     "id": 45684335647,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "f094895a9a97b2bf8c70558bcb025a3d3653e569",
+     "created_at": "2026-11-25T19:21:10Z",
+     "updated_at": "2026-11-25T19:21:56Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45684335647",
+     "head_branch": "gh-readonly-queue/main/pr-4019-279b798bd8ddc83c3d89cd02c07a4fe76e86f4ad"
+    },
+    {
+     "id": 45684335701,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "f094895a9a97b2bf8c70558bcb025a3d3653e569",
+     "created_at": "2026-11-25T19:21:10Z",
+     "updated_at": "2026-11-25T19:44:58Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45684335701",
+     "head_branch": "gh-readonly-queue/main/pr-4019-279b798bd8ddc83c3d89cd02c07a4fe76e86f4ad"
+    },
+    {
+     "id": 45684287288,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "279b798bd8ddc83c3d89cd02c07a4fe76e86f4ad",
+     "created_at": "2026-11-25T19:20:53Z",
+     "updated_at": "2026-11-25T19:21:29Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45684287288",
+     "head_branch": "gh-readonly-queue/main/pr-4020-d3ff48fc1628c0141802b174f65389c09ae180e5"
+    },
+    {
+     "id": 45684287182,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "279b798bd8ddc83c3d89cd02c07a4fe76e86f4ad",
+     "created_at": "2026-11-25T19:20:53Z",
+     "updated_at": "2026-11-25T19:26:38Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45684287182",
+     "head_branch": "gh-readonly-queue/main/pr-4020-d3ff48fc1628c0141802b174f65389c09ae180e5"
+    },
+    {
+     "id": 45684287134,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "279b798bd8ddc83c3d89cd02c07a4fe76e86f4ad",
+     "created_at": "2026-11-25T19:20:53Z",
+     "updated_at": "2026-11-25T19:32:42Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45684287134",
+     "head_branch": "gh-readonly-queue/main/pr-4020-d3ff48fc1628c0141802b174f65389c09ae180e5"
+    },
+    {
+     "id": 45684287114,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "279b798bd8ddc83c3d89cd02c07a4fe76e86f4ad",
+     "created_at": "2026-11-25T19:20:53Z",
+     "updated_at": "2026-11-25T19:52:48Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45684287114",
+     "head_branch": "gh-readonly-queue/main/pr-4020-d3ff48fc1628c0141802b174f65389c09ae180e5"
+    },
+    {
+     "id": 45683206731,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "d3ff48fc1628c0141802b174f65389c09ae180e5",
+     "created_at": "2026-11-25T19:14:25Z",
+     "updated_at": "2026-11-25T19:15:02Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45683206731",
+     "head_branch": "gh-readonly-queue/main/pr-4016-02e62b4631e645859fd9291f473d9fb25c31b9c9"
+    },
+    {
+     "id": 45683206921,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "d3ff48fc1628c0141802b174f65389c09ae180e5",
+     "created_at": "2026-11-25T19:14:25Z",
+     "updated_at": "2026-11-25T19:26:10Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45683206921",
+     "head_branch": "gh-readonly-queue/main/pr-4016-02e62b4631e645859fd9291f473d9fb25c31b9c9"
+    },
+    {
+     "id": 45683206769,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "d3ff48fc1628c0141802b174f65389c09ae180e5",
+     "created_at": "2026-11-25T19:14:25Z",
+     "updated_at": "2026-11-25T19:19:29Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45683206769",
+     "head_branch": "gh-readonly-queue/main/pr-4016-02e62b4631e645859fd9291f473d9fb25c31b9c9"
+    },
+    {
+     "id": 45683206716,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "failure",
+     "head_sha": "d3ff48fc1628c0141802b174f65389c09ae180e5",
+     "created_at": "2026-11-25T19:14:25Z",
+     "updated_at": "2026-11-25T19:46:52Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45683206716",
+     "head_branch": "gh-readonly-queue/main/pr-4016-02e62b4631e645859fd9291f473d9fb25c31b9c9"
+    },
+    {
+     "id": 45681975478,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "02e62b4631e645859fd9291f473d9fb25c31b9c9",
+     "created_at": "2026-11-25T19:07:10Z",
+     "updated_at": "2026-11-25T19:07:43Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45681975478",
+     "head_branch": "gh-readonly-queue/main/pr-4017-1ed9ce0431ce6070c29eb3d4e5e40c2eff729c17"
+    },
+    {
+     "id": 45681975658,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "02e62b4631e645859fd9291f473d9fb25c31b9c9",
+     "created_at": "2026-11-25T19:07:10Z",
+     "updated_at": "2026-11-25T19:11:50Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45681975658",
+     "head_branch": "gh-readonly-queue/main/pr-4017-1ed9ce0431ce6070c29eb3d4e5e40c2eff729c17"
+    },
+    {
+     "id": 45681975493,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "02e62b4631e645859fd9291f473d9fb25c31b9c9",
+     "created_at": "2026-11-25T19:07:10Z",
+     "updated_at": "2026-11-25T19:39:22Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45681975493",
+     "head_branch": "gh-readonly-queue/main/pr-4017-1ed9ce0431ce6070c29eb3d4e5e40c2eff729c17"
+    },
+    {
+     "id": 45681975571,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "02e62b4631e645859fd9291f473d9fb25c31b9c9",
+     "created_at": "2026-11-25T19:07:10Z",
+     "updated_at": "2026-11-25T19:19:16Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45681975571",
+     "head_branch": "gh-readonly-queue/main/pr-4017-1ed9ce0431ce6070c29eb3d4e5e40c2eff729c17"
+    },
+    {
+     "id": 45681332658,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "1ed9ce0431ce6070c29eb3d4e5e40c2eff729c17",
+     "created_at": "2026-11-25T19:03:18Z",
+     "updated_at": "2026-11-25T19:08:07Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45681332658",
+     "head_branch": "gh-readonly-queue/main/pr-4015-f1f8643d8a04481ec6fa7319a8732a35ae0eb479"
+    },
+    {
+     "id": 45681332481,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "1ed9ce0431ce6070c29eb3d4e5e40c2eff729c17",
+     "created_at": "2026-11-25T19:03:18Z",
+     "updated_at": "2026-11-25T19:03:52Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45681332481",
+     "head_branch": "gh-readonly-queue/main/pr-4015-f1f8643d8a04481ec6fa7319a8732a35ae0eb479"
+    },
+    {
+     "id": 45681332798,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "1ed9ce0431ce6070c29eb3d4e5e40c2eff729c17",
+     "created_at": "2026-11-25T19:03:18Z",
+     "updated_at": "2026-11-25T19:16:58Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45681332798",
+     "head_branch": "gh-readonly-queue/main/pr-4015-f1f8643d8a04481ec6fa7319a8732a35ae0eb479"
+    },
+    {
+     "id": 45681332551,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "1ed9ce0431ce6070c29eb3d4e5e40c2eff729c17",
+     "created_at": "2026-11-25T19:03:18Z",
+     "updated_at": "2026-11-25T19:27:28Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45681332551",
+     "head_branch": "gh-readonly-queue/main/pr-4015-f1f8643d8a04481ec6fa7319a8732a35ae0eb479"
+    },
+    {
+     "id": 45679042518,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "f1f8643d8a04481ec6fa7319a8732a35ae0eb479",
+     "created_at": "2026-11-25T18:49:28Z",
+     "updated_at": "2026-11-25T18:50:03Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45679042518",
+     "head_branch": "gh-readonly-queue/main/pr-4014-da04f7094d70c0608697e9b10b127d5772715736"
+    },
+    {
+     "id": 45679042600,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "f1f8643d8a04481ec6fa7319a8732a35ae0eb479",
+     "created_at": "2026-11-25T18:49:28Z",
+     "updated_at": "2026-11-25T18:54:26Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45679042600",
+     "head_branch": "gh-readonly-queue/main/pr-4014-da04f7094d70c0608697e9b10b127d5772715736"
+    },
+    {
+     "id": 45679042650,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "f1f8643d8a04481ec6fa7319a8732a35ae0eb479",
+     "created_at": "2026-11-25T18:49:28Z",
+     "updated_at": "2026-11-25T19:03:17Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45679042650",
+     "head_branch": "gh-readonly-queue/main/pr-4014-da04f7094d70c0608697e9b10b127d5772715736"
+    },
+    {
+     "id": 45679042509,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "f1f8643d8a04481ec6fa7319a8732a35ae0eb479",
+     "created_at": "2026-11-25T18:49:28Z",
+     "updated_at": "2026-11-25T19:13:01Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45679042509",
+     "head_branch": "gh-readonly-queue/main/pr-4014-da04f7094d70c0608697e9b10b127d5772715736"
+    },
+    {
+     "id": 45673611380,
+     "name": "CI Gate",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "da04f7094d70c0608697e9b10b127d5772715736",
+     "created_at": "2026-11-25T18:17:26Z",
+     "updated_at": "2026-11-25T18:22:57Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45673611380",
+     "head_branch": "gh-readonly-queue/main/pr-4013-dae06ecbf16b1a9f38419f4a39a0587c8e81afe5"
+    },
+    {
+     "id": 45673611368,
+     "name": "Staging data promotion checks",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "da04f7094d70c0608697e9b10b127d5772715736",
+     "created_at": "2026-11-25T18:17:26Z",
+     "updated_at": "2026-11-25T18:17:55Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45673611368",
+     "head_branch": "gh-readonly-queue/main/pr-4013-dae06ecbf16b1a9f38419f4a39a0587c8e81afe5"
+    },
+    {
+     "id": 45673611370,
+     "name": "E2E (Playwright)",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "da04f7094d70c0608697e9b10b127d5772715736",
+     "created_at": "2026-11-25T18:17:26Z",
+     "updated_at": "2026-11-25T18:31:28Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45673611370",
+     "head_branch": "gh-readonly-queue/main/pr-4013-dae06ecbf16b1a9f38419f4a39a0587c8e81afe5"
+    },
+    {
+     "id": 45673611304,
+     "name": "CI",
+     "event": "merge_group",
+     "status": "completed",
+     "conclusion": "success",
+     "head_sha": "da04f7094d70c0608697e9b10b127d5772715736",
+     "created_at": "2026-11-25T18:17:26Z",
+     "updated_at": "2026-11-25T18:41:33Z",
+     "html_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/45673611304",
+     "head_branch": "gh-readonly-queue/main/pr-4013-dae06ecbf16b1a9f38419f4a39a0587c8e81afe5"
+    }
+   ]
+  },
+  "repos/B2B-net-S-A/NEXUS/actions/runs/45683206716/jobs?filter=latest&per_page=100": {
+   "jobs": [
+    {
+     "id": 139448859615,
+     "name": "Trivy + hadolint",
+     "conclusion": "success",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Build hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387",
+       "conclusion": "success"
+      },
+      {
+       "name": "Czy zmieniły się zależności albo Dockerfile?",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Hadolint (backend)",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Hadolint (frontend)",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Install Trivy",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Trivy filesystem scan (deps + Dockerfile misconfig)",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Publish Trivy findings",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Upload Trivy report",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    },
+    {
+     "id": 139448859773,
+     "name": "Frontend (lint + typecheck + build)",
+     "conclusion": "failure",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Wtyczka LinkedIn — testy (node --test)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Czy zmiana dotyka wtyczki?",
+       "conclusion": "success"
+      },
+      {
+       "name": "Wtyczka LinkedIn — E2E w Chromium",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Czy ten PR dotyka frontendu?",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+       "conclusion": "success"
+      },
+      {
+       "name": "Cache Next.js build",
+       "conclusion": "success"
+      },
+      {
+       "name": "npm ci",
+       "conclusion": "success"
+      },
+      {
+       "name": "Nieosiągalne moduły (dead-code gate)",
+       "conclusion": "success"
+      },
+      {
+       "name": "ESLint",
+       "conclusion": "success"
+      },
+      {
+       "name": "Type check",
+       "conclusion": "success"
+      },
+      {
+       "name": "Vitest (testy dotknięte zmianą)",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Build",
+       "conclusion": "success"
+      },
+      {
+       "name": "Chromium dla Playwrighta (z ponowieniami)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Poligon NEXUSA — cała ścieżka onboardingu (Playwright)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Poligon NEXUSA — zrzuty i trace porażki",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Czy wpis kolejki dotyka frontendu? (harnessy)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Build z harnessami /preview/* (NEXT_PUBLIC_PREVIEW_PUBLIC=1)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Harnessy /preview/* — preview-chromium (Playwright)",
+       "conclusion": "failure"
+      },
+      {
+       "name": "Harnessy /preview/* — zrzuty i trace porażki",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Cache Next.js build",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Post Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    },
+    {
+     "id": 139448859843,
+     "name": "Backend (pytest, shard 2)",
+     "conclusion": "success",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Initialize containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Install dependencies",
+       "conclusion": "success"
+      },
+      {
+       "name": "Szybszy Postgres (bez fsync — tylko CI)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Apply migrations",
+       "conclusion": "success"
+      },
+      {
+       "name": "Native CV OCR acceptance",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Pytest (unit + in-process integration)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Testy powtórzone (kapryśne)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Upload coverage data (shard artifact)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Stop containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    },
+    {
+     "id": 139448859865,
+     "name": "Backend (pytest, shard 10)",
+     "conclusion": "success",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Initialize containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Install dependencies",
+       "conclusion": "success"
+      },
+      {
+       "name": "Szybszy Postgres (bez fsync — tylko CI)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Apply migrations",
+       "conclusion": "success"
+      },
+      {
+       "name": "Native CV OCR acceptance",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Pytest (unit + in-process integration)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Testy powtórzone (kapryśne)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Upload coverage data (shard artifact)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Stop containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    },
+    {
+     "id": 139448860050,
+     "name": "Backend (pytest, shard 5)",
+     "conclusion": "success",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Initialize containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Install dependencies",
+       "conclusion": "success"
+      },
+      {
+       "name": "Szybszy Postgres (bez fsync — tylko CI)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Apply migrations",
+       "conclusion": "success"
+      },
+      {
+       "name": "Native CV OCR acceptance",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Pytest (unit + in-process integration)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Testy powtórzone (kapryśne)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Upload coverage data (shard artifact)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Stop containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    },
+    {
+     "id": 139448860056,
+     "name": "Backend (pytest, shard 1)",
+     "conclusion": "success",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Initialize containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Install dependencies",
+       "conclusion": "success"
+      },
+      {
+       "name": "Szybszy Postgres (bez fsync — tylko CI)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Apply migrations",
+       "conclusion": "success"
+      },
+      {
+       "name": "Native CV OCR acceptance",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Pytest (unit + in-process integration)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Testy powtórzone (kapryśne)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Upload coverage data (shard artifact)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Stop containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    },
+    {
+     "id": 139448860067,
+     "name": "Backend (pytest, shard 0)",
+     "conclusion": "success",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Initialize containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Install dependencies",
+       "conclusion": "success"
+      },
+      {
+       "name": "Szybszy Postgres (bez fsync — tylko CI)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Apply migrations",
+       "conclusion": "success"
+      },
+      {
+       "name": "Native CV OCR acceptance",
+       "conclusion": "success"
+      },
+      {
+       "name": "Pytest (unit + in-process integration)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Testy powtórzone (kapryśne)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Upload coverage data (shard artifact)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Stop containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    },
+    {
+     "id": 139448860083,
+     "name": "Backend (pytest, shard 9)",
+     "conclusion": "success",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Initialize containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Install dependencies",
+       "conclusion": "success"
+      },
+      {
+       "name": "Szybszy Postgres (bez fsync — tylko CI)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Apply migrations",
+       "conclusion": "success"
+      },
+      {
+       "name": "Native CV OCR acceptance",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Pytest (unit + in-process integration)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Testy powtórzone (kapryśne)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Upload coverage data (shard artifact)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Stop containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    },
+    {
+     "id": 139448860106,
+     "name": "Frontend (vitest + pokrycie)",
+     "conclusion": "success",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+       "conclusion": "success"
+      },
+      {
+       "name": "npm ci",
+       "conclusion": "success"
+      },
+      {
+       "name": "Vitest with coverage",
+       "conclusion": "success"
+      },
+      {
+       "name": "Upload frontend coverage (artifact)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Upload frontend coverage to Codecov",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Post Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    },
+    {
+     "id": 139448860128,
+     "name": "Backend (pytest, shard 11)",
+     "conclusion": "success",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Initialize containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Install dependencies",
+       "conclusion": "success"
+      },
+      {
+       "name": "Szybszy Postgres (bez fsync — tylko CI)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Apply migrations",
+       "conclusion": "success"
+      },
+      {
+       "name": "Native CV OCR acceptance",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Pytest (unit + in-process integration)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Testy powtórzone (kapryśne)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Upload coverage data (shard artifact)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Stop containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    },
+    {
+     "id": 139448860170,
+     "name": "Backend (pytest, shard 8)",
+     "conclusion": "success",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Initialize containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Install dependencies",
+       "conclusion": "success"
+      },
+      {
+       "name": "Szybszy Postgres (bez fsync — tylko CI)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Apply migrations",
+       "conclusion": "success"
+      },
+      {
+       "name": "Native CV OCR acceptance",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Pytest (unit + in-process integration)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Testy powtórzone (kapryśne)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Upload coverage data (shard artifact)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Stop containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    },
+    {
+     "id": 139448860285,
+     "name": "Backend (pytest, shard 6)",
+     "conclusion": "success",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Initialize containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Install dependencies",
+       "conclusion": "success"
+      },
+      {
+       "name": "Szybszy Postgres (bez fsync — tylko CI)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Apply migrations",
+       "conclusion": "success"
+      },
+      {
+       "name": "Native CV OCR acceptance",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Pytest (unit + in-process integration)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Testy powtórzone (kapryśne)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Upload coverage data (shard artifact)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Stop containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    },
+    {
+     "id": 139448860325,
+     "name": "Backend (pytest, shard 4)",
+     "conclusion": "success",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Initialize containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Install dependencies",
+       "conclusion": "success"
+      },
+      {
+       "name": "Szybszy Postgres (bez fsync — tylko CI)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Apply migrations",
+       "conclusion": "success"
+      },
+      {
+       "name": "Native CV OCR acceptance",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Pytest (unit + in-process integration)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Testy powtórzone (kapryśne)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Upload coverage data (shard artifact)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Stop containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    },
+    {
+     "id": 139448860377,
+     "name": "Backend (pytest, shard 3)",
+     "conclusion": "success",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Initialize containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Install dependencies",
+       "conclusion": "success"
+      },
+      {
+       "name": "Szybszy Postgres (bez fsync — tylko CI)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Apply migrations",
+       "conclusion": "success"
+      },
+      {
+       "name": "Native CV OCR acceptance",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Pytest (unit + in-process integration)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Testy powtórzone (kapryśne)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Upload coverage data (shard artifact)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Stop containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    },
+    {
+     "id": 139448860658,
+     "name": "Backend (pytest, shard 7)",
+     "conclusion": "success",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Initialize containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Install dependencies",
+       "conclusion": "success"
+      },
+      {
+       "name": "Szybszy Postgres (bez fsync — tylko CI)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Apply migrations",
+       "conclusion": "success"
+      },
+      {
+       "name": "Native CV OCR acceptance",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Pytest (unit + in-process integration)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Testy powtórzone (kapryśne)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Upload coverage data (shard artifact)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Stop containers",
+       "conclusion": "success"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    },
+    {
+     "id": 139448862229,
+     "name": "Strażnicy repo",
+     "conclusion": "skipped",
+     "steps": []
+    },
+    {
+     "id": 139448862513,
+     "name": "Semgrep (zmienione pliki)",
+     "conclusion": "skipped",
+     "steps": []
+    },
+    {
+     "id": 139448862531,
+     "name": "Backend (pytest, zmienione pliki ${{ matrix.part }}/3)",
+     "conclusion": "skipped",
+     "steps": []
+    },
+    {
+     "id": 139448955829,
+     "name": "Audyt zależności (pip-audit + npm audit)",
+     "conclusion": "skipped",
+     "steps": []
+    },
+    {
+     "id": 139460908574,
+     "name": "Backend (coverage combine)",
+     "conclusion": "success",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Install coverage",
+       "conclusion": "success"
+      },
+      {
+       "name": "Download shard coverage data",
+       "conclusion": "success"
+      },
+      {
+       "name": "Combine shards + report",
+       "conclusion": "success"
+      },
+      {
+       "name": "Upload combined coverage.xml",
+       "conclusion": "success"
+      },
+      {
+       "name": "Upload backend coverage to Codecov",
+       "conclusion": "skipped"
+      },
+      {
+       "name": "Codecov skipped (no token)",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+       "conclusion": "success"
+      },
+      {
+       "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+       "conclusion": "success"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    },
+    {
+     "id": 139462277759,
+     "name": "Backend (pytest)",
+     "conclusion": "success",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Zbierz wyniki shardów i bramki pokrycia",
+       "conclusion": "success"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    },
+    {
+     "id": 139467521118,
+     "name": "Frontend (typecheck + build)",
+     "conclusion": "failure",
+     "steps": [
+      {
+       "name": "Set up job",
+       "conclusion": "success"
+      },
+      {
+       "name": "Zbierz wyniki frontendu",
+       "conclusion": "failure"
+      },
+      {
+       "name": "Complete job",
+       "conclusion": "success"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "raw": {
+  "repos/B2B-net-S-A/NEXUS/actions/jobs/139448859773/logs": "2026-11-25T19:36:52.0560485Z \n2026-11-25T19:36:52.0561069Z     ────────────────────────────────────────────────────────────────────────────────────────────────\n2026-11-25T19:36:52.0561532Z \n2026-11-25T19:36:52.0561665Z   1 failed\n2026-11-25T19:36:52.0563328Z     [preview-chromium] › e2e/responsive-preview.spec.ts:256:5 › responsywność harnessów — brak poziomego scrolla strony › /preview/client-invoicing?state=finance mieści się w 360/390/768/1024/1280 px \n2026-11-25T19:36:52.0564897Z   267 passed (7.2m)\n2026-11-25T19:36:52.0823736Z ##[error]Harnessy /preview/* nie przechodzą (preview-chromium). Zrzut, wideo i trace w artefakcie preview-harness-failure.\n2026-11-25T19:36:52.0835921Z    ▲ Next.js 15.5.29\n2026-11-25T19:36:52.0836288Z    - Local:        http://127.0.0.1:3001\n2026-11-25T19:36:52.0836651Z    - Network:      http://127.0.0.1:3001\n2026-11-25T19:36:52.0836850Z \n2026-11-25T19:36:52.0837015Z  ✓ Starting...\n2026-11-25T19:36:52.0837260Z  ✓ Ready in 427ms\n2026-11-25T19:36:57.0851326Z ##[error]Process completed with exit code 1.\n"
+ },
+ "http": {
+  "https://api.nexus.b2bnetwork.pl/api/health": "{\"status\": \"healthy\", \"version\": \"467995771f4e8015063ccc6cabb0d0a7092f4813\", \"deployedAt\": \"2026-11-25T23:27:04Z\"}",
+  "https://nexus.b2bnetwork.pl/login": "<!DOCTYPE html><html lang=\"pl\"><head><meta charSet=\"utf-8\"/><meta name=\"baggage\" content=\"sentry-environment=production,sentry-release=467995771f4e8015063ccc6cabb0d0a7092f4813,sentry-sampled=false\"/><title>NEXUS</title></head><body></body></html>"
+ },
+ "ancestor": {
+  "467995771f4e8015063ccc6cabb0d0a7092f4813..467995771f4e8015063ccc6cabb0d0a7092f4813": true,
+  "5f4c23ff1cd520ac5f38b8f7f0639df1c77c016f..467995771f4e8015063ccc6cabb0d0a7092f4813": false,
+  "02e62b4631e645859fd9291f473d9fb25c31b9c9..467995771f4e8015063ccc6cabb0d0a7092f4813": true,
+  "0340594b5b6e924f6130ee47168d1ff531db02d6..467995771f4e8015063ccc6cabb0d0a7092f4813": true,
+  "94146e797b9fb51aa87f45309df33ec019448194..467995771f4e8015063ccc6cabb0d0a7092f4813": true,
+  "ba9d4e83654e1a1d56320bb114a43e7d63060dd2..467995771f4e8015063ccc6cabb0d0a7092f4813": true,
+  "9eb3e2622f4de983494fc8515f3745c2604bea6f..467995771f4e8015063ccc6cabb0d0a7092f4813": true,
+  "467995771f4e8015063ccc6cabb0d0a7092f4813..5d9a855a649836e7dcbe6e78443822485c9e3578": false,
+  "02e62b4631e645859fd9291f473d9fb25c31b9c9..1ed9ce0431ce6070c29eb3d4e5e40c2eff729c17": false,
+  "9eb3e2622f4de983494fc8515f3745c2604bea6f..251daec592e6106811ba55624799841140874624": false
+ },
+ "now": "2026-11-25T23:42:22Z",
+ "lines": [
+  "#4035 ✓ na produkcji — backend 467995771 · fix(staging): nocna kopia bierze z produkcji wszystkie flag…",
+  "#4036 ⏳ scalony 00:36, wdrożenie w toku — https://github.com/B2B-net-S-A/NEXUS/actions/runs/45723125048 · fix(cpro): po Upload robot czeka, aż nowe CV pojawi się na …",
+  "#4037 ⏳ w kolejce, pozycja 1, testy grupy w toku, od 00:14 · feat(sciezka): mapa wpływu — inne miejsca z tą samą informa…",
+  "#4040 ⏳ otwarty, auto-merge włączony — checki PR-a: czerwone; z migracją — do kolejki wprowadzi go pas migracji · feat: raport kompetencji w 24 godziny dla kandydatów ze str…",
+  "#4017 ✓ na produkcji — backend 467995771 · docs(kandydaci): pilot maili „Twoje warunki” po 2 dniach, l…",
+  "#4032 ✓ na produkcji — backend 467995771, front 467995771 · feat(asystent-prawny): asystent prawny do umów B2B w tle ek…",
+  "#4016 ✓ na produkcji — backend 467995771, front 467995771 · feat(faktury-sprzedazy): kontrola formalna przed wysyłką do…",
+  "#4025 ✓ na produkcji — backend 467995771, front 467995771 · feat(rozliczenia): karta sprawy „Co dalej” i lista spraw — …",
+  "#4031 ✓ na produkcji — backend 467995771, front 467995771 · fix(poligon): podgląd „Nowego CV” w obecnym wyglądzie + skr…",
+  "#99999 ? nie ma takiego PR-a w B2B-net-S-A/NEXUS"
+ ]
+}

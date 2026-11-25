@@ -145,7 +145,23 @@ przed `gh pr create`.
 ## 6. Kontrola po wdrożeniu
 
 Kroki, których staging nie pokaże (poczta, Teams, KSeF, Traffit, Cpro, pętle w
-tle, dzisiejsze dane), paragon i opis PR-a wpisują jako „Nie sprawdzone na
-stagingu”. Sesja wieczorna po `/api/health` z SHA zawierającym PR sprawdza je
-na produkcji (odczyt, `prod_readonly`, bez wysyłek na zewnątrz) i dopisuje
-wynik komentarzem w PR-ze; ✗ = karta sesji do rana.
+tle, dzisiejsze dane), paragon i opis PR-a wpisują w sekcji
+`## Nie sprawdzone na stagingu`, jeden punkt na linię, z tym, co ma być widać
+na produkcji.
+
+Sprawdza je rutyna „Kontrola po wdrożeniu” (zadanie w aplikacji Claude,
+8:15 oraz 19:15, 21:15 i 23:15, po slotach okna wdrożeń; od 26.11.2026).
+„Sesja wieczorna”, na którą liczyła ta reguła, w praktyce się nie odbywała.
+Gdy `/api/health` pokazuje nowy SHA, rutyna bierze PR-y z tego wdrożenia,
+sprawdza punkty odczytem (`prod_readonly`, bez wysyłek na zewnątrz) i dopisuje
+wynik komentarzem w PR-ze (znacznik `<!-- kontrola-po-wdrozeniu -->`, tylko
+id i liczby). ✗ = karta sesji do rana. Rano wysyła do sesji Raporty
+zestawienie `scripts/gdzie_jest.py` z PR-ów z wczoraj.
+
+`python3 scripts/gdzie_jest.py <nr…>` mówi jednym wierszem, gdzie jest PR:
+w kolejce, wypadł z kolejki (z powodem i czerwonym testem z biegu
+`merge_group`), pas migracji, scalony i czeka na okno 18:00, wdrożenie w toku
+albo na produkcji (backend z `/api/health`, front z `sentry-release` strony
+`/login`). Bez numerów: PR-y otwarte i scalone w ostatnich 24 h. Bramka Stop
+`~/.claude/hooks/gdzie-jest-gate.js` wymaga tego wiersza w ostatniej
+wiadomości sesji z PR-em otwartym albo scalonym w tej sesji.
