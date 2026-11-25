@@ -94,6 +94,28 @@ def by_signature(
     certyfikat z domeny klienta (i od wystawcy z reguły ``proof.signed_pdf``),
     podpisujący to nie konsultant."""
 
+    sign = client_signature(
+        signatures, senders=senders, person_name=person_name, issuer=issuer
+    )
+    if sign is None:
+        return None
+    return Verdict(
+        True,
+        "Koszty delegacji w RCP podpisanym przez klienta",
+        f"{_fmt(total)} zł brutto w pliku podpisanym przez {signed_by(sign)}.",
+    )
+
+
+def client_signature(
+    signatures: Sequence[SignatureInfo],
+    *,
+    senders: mail_text.Senders,
+    person_name: str,
+    issuer: str = "",
+) -> Optional[SignatureInfo]:
+    """Ważny podpis całego pliku osobą klienta: certyfikat z domeny klienta
+    (i od wystawcy z reguły ``proof.signed_pdf``), podpisujący to nie konsultant."""
+
     need = issuer.strip().lower()
     for sign in signatures:
         if not (sign.intact and sign.entire_file and sign.signer_email_domain):
@@ -104,14 +126,13 @@ def by_signature(
             continue
         if _same_person(sign.signer, person_name):
             continue
-        when = sign.signed_at.strftime("%d.%m.%Y") if sign.signed_at else "bez daty"
-        return Verdict(
-            True,
-            "Koszty delegacji w RCP podpisanym przez klienta",
-            f"{_fmt(total)} zł brutto w pliku podpisanym przez "
-            f"{sign.signer or 'osobę klienta'} ({sign.signer_email_domain}), {when}.",
-        )
+        return sign
     return None
+
+
+def signed_by(sign: SignatureInfo) -> str:
+    when = sign.signed_at.strftime("%d.%m.%Y") if sign.signed_at else "bez daty"
+    return f"{sign.signer or 'osobę klienta'} ({sign.signer_email_domain}), {when}"
 
 
 def by_mail(
