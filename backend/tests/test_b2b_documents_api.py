@@ -103,8 +103,9 @@ async def _create(app_client, headers, doc_type: str, parent_id: int | None, **v
 
 def test_every_type_declares_fields_and_languages():
     # 13 od 16.11.2026: aneks z własną nazwą (annex_custom); 14 od 19.11.2026:
-    # umowa przedwstępna na współpracę B2B (preliminary_b2b).
-    assert len(TYPES) == 14
+    # umowa przedwstępna na współpracę B2B (preliminary_b2b); 16 od 25.11.2026:
+    # warianty z działalnością (preliminary_cez_jdg, preliminary_b2b_jdg).
+    assert len(TYPES) == 16
     for doc_type in TYPES.values():
         assert doc_type.languages
         assert any(f.key == "document_date" for f in doc_type.fields)
