@@ -38,6 +38,8 @@ if TYPE_CHECKING:
     from app.services.client_settlements.rate_split import CostPart
     from app.services.client_settlements.rcp_checks import ProofResult
 
+#: Jak ``rcp_checks.REQUEST_REPLY`` (silnik nie importuje czytników; równość pilnuje test).
+REQUEST_REPLY = "proof.request_reply"
 MD_Q = Decimal("0.001")
 MONEY_Q = Decimal("0.01")
 ZERO = Decimal("0")
@@ -337,6 +339,23 @@ def _with_split(
     )
 
 
+def _kept_without_md(proof: Optional[ProofResult]) -> list[dict[str, Any]]:
+    """Grupy odczytu, które zostają w rozliczeniu bez MD: tylko te z uwagą
+    ``REQUEST_REPLY`` (klient odpisał bez „akceptuję”), bo z niej informacja
+    zwrotna wie, kogo poprosić o akceptację. Reszta jak dotąd: „Czeka na liczbę MD”."""
+
+    if proof is None:
+        return []
+    return [
+        group
+        for group in proof.groups
+        if any(
+            isinstance(check, dict) and check.get("rule") == REQUEST_REPLY
+            for check in group.get("checks") or []
+        )
+    ]
+
+
 def compute(inp: Inputs) -> Result:
     if inp.md_regular is None:
         return Result(
@@ -358,6 +377,7 @@ def compute(inp: Inputs) -> Result:
                         )
                     ],
                 },
+                *_kept_without_md(inp.proof),
             ],
         )
 

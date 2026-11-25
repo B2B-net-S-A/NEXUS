@@ -56,6 +56,17 @@ cytatem odpowiedzi i nadawcą prośby.
 - nowsza wiadomość w wątku z inną liczbą (korekta po akceptacji);
 - dwa maile miesiąca z różnymi sumami.
 
+## Odpowiedź klienta bez akceptacji (decyzja Artura z 25.11.2026)
+
+Odpowiedź klienta bez sprzeciwu **nie jest** akceptacją (BIK, IX 2026: na prośbę „- 176h”
+klient odpisał tylko „Prosimy o przesyłanie również faktury w formie PDF do nas.”).
+MD dalej nie ma, ale rozliczenie nie stoi już bez drogi: gdy najnowsza wiadomość klienta
+w wątku nie jest ani akceptacją, ani odmową, a wiadomość, na którą odpisał, to prośba
+z jedną sumą dla tej osoby za rozliczany miesiąc (`accepted_request.find_unaccepted`),
+rozliczenie dostaje uwagę `proof.request_reply` „Odpowiedź klienta bez akceptacji godzin”
+z adresem odpowiadającego w `acceptors`. Informacja zwrotna o wadach (`client_settlements/feedback`,
+wada `accept.reply_without_ok`) prosi go o wyraźne „Akceptuję”.
+
 ## Czego to nie zmienia
 
 - Gdy w miesiącu jest Time Sheet, RCP albo inny plik godzin, MD idą z pliku jak dotąd.

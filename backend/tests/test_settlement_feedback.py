@@ -120,6 +120,16 @@ def test_production_starts_dry_run_without_external_once() -> None:
             },
             "accept.fix",
         ),
+        # BIK 569 IX: klient odpisał na prośbę bez „akceptuję” (decyzja 25.11)
+        (
+            {
+                "rule": "proof.request_reply",
+                "state": "warn",
+                "title": "Odpowiedź klienta bez akceptacji godzin",
+                "detail": "Prośba o 176 h za wrzesień 2026 ma odpowiedź x@bik.example.",
+            },
+            "accept.reply_without_ok",
+        ),
         # Orlen 429 X i 716 X
         (
             {
@@ -270,6 +280,19 @@ def test_acceptor_gets_reminder_with_consultant_in_copy() -> None:
         "kierownik@bank.example",
         "anna@example.com",
     )
+
+
+def test_reply_without_ok_goes_to_the_client_who_replied() -> None:
+    found = Found("accept.reply_without_ok", acceptor="kierownik@bank.example")
+    target = _target("accept.reply_without_ok", found, WHO, ON_ALL)
+    assert (target.kind, target.address, target.cc) == (
+        "client",
+        "kierownik@bank.example",
+        "anna@example.com",
+    )
+    defect = feedback.BY_CODE["accept.reply_without_ok"]
+    _, instruction = feedback.target_for(defect, found, WHO, ON_INTERNAL)
+    assert instruction == defect.consultant_instruction
 
 
 def test_acceptor_unknown_falls_back_to_consultant_instruction() -> None:

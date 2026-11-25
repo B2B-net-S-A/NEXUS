@@ -193,3 +193,81 @@ def find(
         if found is not None:
             return found
     return None
+
+
+@dataclass(frozen=True)
+class Unaccepted:
+    """Prośba z jedną sumą, na którą klient odpisał bez akceptacji i bez odmowy."""
+
+    hours: Optional[Decimal]
+    md: Optional[Decimal]
+    month: str
+    #: Adres osoby klienta, która odpisała (do niej idzie prośba o „akceptuję”).
+    replier: str
+    requester: str
+    quote: str
+
+
+def _unaccepted_in_thread(
+    mail: mail_text.Mail,
+    *,
+    month: str,
+    person_name: str,
+    senders: mail_text.Senders,
+) -> Optional[Unaccepted]:
+    messages = [
+        (sender or "", text, _own(text)) for sender, text in mail_text._messages(mail)
+    ]
+    for at, (sender, _raw, own) in enumerate(messages):
+        if not senders.accepts_from(sender):
+            continue
+        # Rozstrzyga najnowsza wiadomość klienta: akceptację czyta ``find``,
+        # odmowa to nie brak odpowiedzi.
+        if _rejected(own) or mail_text._APPROVED.search(own):
+            return None
+        if at + 1 >= len(messages):
+            return None
+        requester, raw, body = messages[at + 1]
+        found = mail_text.read_acceptance(body, month)
+        amount = _amount(found) if (found.hours or found.md) else None
+        subjects = _subjects(mail.subject, raw)
+        if amount is None or not _for_person(
+            requester, body, subjects, person_name=person_name, senders=senders
+        ):
+            return None
+        if _period(found, subjects, month) != month:
+            return None
+        unit, value = amount
+        return Unaccepted(
+            hours=value if unit == "h" else None,
+            md=value if unit == "md" else None,
+            month=month,
+            replier=_address(sender),
+            requester=_address(requester),
+            quote=_quote(own, skip_subject=at == 0),
+        )
+    return None
+
+
+def find_unaccepted(
+    mail: mail_text.Mail,
+    *,
+    month: str,
+    person_name: str,
+    senders: mail_text.Senders,
+) -> Optional[Unaccepted]:
+    """Prośba o akceptację za ``month`` z jedną sumą dla tej osoby, na którą
+    najnowsza odpowiedź klienta nie jest ani akceptacją, ani odmową.
+
+    Decyzja Artura z 25.11.2026 (BIK, IX 2026: „Prosimy o przesyłanie również
+    faktury w formie PDF”): odpowiedź bez sprzeciwu NIE jest akceptacją, ale
+    rozliczenie nie może stać bez drogi — akceptujący dostaje prośbę o wyraźne
+    „akceptuję” (``client_settlements/feedback``)."""
+
+    for one in mail_text.thread(mail):
+        found = _unaccepted_in_thread(
+            one, month=month, person_name=person_name, senders=senders
+        )
+        if found is not None:
+            return found
+    return None

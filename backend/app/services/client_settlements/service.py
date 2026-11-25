@@ -2107,6 +2107,7 @@ async def _request_proof(
     if not senders.client:
         return None
     found: list[tuple[CpDocument, accepted_request.Request]] = []
+    unanswered: list[tuple[CpDocument, accepted_request.Unaccepted]] = []
     for doc in reports:
         if doc.mime not in MAIL_MIMES:
             continue
@@ -2115,16 +2116,22 @@ async def _request_proof(
         except OSError:
             continue
         mail = await asyncio.to_thread(mail_text.read, content, doc.mime)
-        request = (
-            accepted_request.find(
-                mail, month=month, person_name=person_name, senders=senders
-            )
-            if mail is not None
-            else None
+        if mail is None:
+            continue
+        request = accepted_request.find(
+            mail, month=month, person_name=person_name, senders=senders
         )
         if request is not None:
             found.append((doc, request))
-    if not found or len({(r.hours, r.md, r.month) for _, r in found}) != 1:
+            continue
+        reply = accepted_request.find_unaccepted(
+            mail, month=month, person_name=person_name, senders=senders
+        )
+        if reply is not None:
+            unanswered.append((doc, reply))
+    if not found:
+        return _unaccepted_proof(unanswered, rules)
+    if len({(r.hours, r.md, r.month) for _, r in found}) != 1:
         return None
     doc, request = found[0]
     result = declared.evaluate(
@@ -2166,6 +2173,41 @@ async def _request_proof(
         sheet_month=request.month,
     )
     return doc, accepted or result
+
+
+#: Klucz uwagi: klient odpisał na prośbę o akceptację, ale bez akceptacji.
+REQUEST_REPLY = rcp_checks.REQUEST_REPLY
+
+
+def _unaccepted_proof(
+    unanswered: list[tuple[CpDocument, accepted_request.Unaccepted]],
+    rules: dict[str, dict[str, Any]],
+) -> Optional[tuple[CpDocument, rcp_checks.ProofResult]]:
+    """Uwaga bez MD: prośba z jedną sumą, a klient odpisał bez „akceptuję”
+    (decyzja Artura z 25.11.2026, BIK IX 2026). Adres odpowiadającego trafia do
+    ``acceptors`` — informacja zwrotna prosi go o wyraźną akceptację."""
+
+    if not unanswered or len({(r.hours, r.md) for _, r in unanswered}) != 1:
+        return None
+    doc, reply = unanswered[0]
+    result = rcp_checks.ProofResult(md_regular=None, md_extra=None)
+    group = rcp_checks._Group(result, rules, "Akceptacja klienta w mailu")
+    amount = (
+        f"{rcp_checks._fmt(reply.hours)} h"
+        if reply.hours is not None
+        else f"{rcp_checks._fmt(reply.md or Decimal('0'))} MD"
+    )
+    group.warn(
+        "Odpowiedź klienta bez akceptacji godzin",
+        f"Prośba o {amount} za {mail_text.month_label(reply.month)} ma odpowiedź "
+        f"{reply.replier}"
+        + (f": „{reply.quote}”" if reply.quote else "")
+        + ". Odpowiedź bez sprzeciwu to nie akceptacja: potrzebne wyraźne „akceptuję”.",
+        key=REQUEST_REPLY,
+    )
+    group.checks[-1]["acceptors"] = sorted({r.replier for _, r in unanswered})
+    group.close()
+    return doc, result
 
 
 async def _proof_senders(
