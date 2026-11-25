@@ -46,11 +46,6 @@ export function ReviewBatchKeyFactsBlock({
       className="space-y-1.5"
       data-testid="review-key-facts"
       data-tour="review-batch.key-facts"
-      // Lekcja „Porcja: kolejność po spełnionych »musi mieć«” każe kliknąć wymaganie
-      // na karcie. W kolejkach z 25.11.2026 żadna karta nie miała listy ze
-      // schodkami (`review-batch.requirements`), wszystkie — ten blok z tym samym
-      // klikiem do CV, więc zadanie zalicza się także tutaj.
-      data-help="review-batch.requirements"
     >
       <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         Kluczowe w tej rekrutacji

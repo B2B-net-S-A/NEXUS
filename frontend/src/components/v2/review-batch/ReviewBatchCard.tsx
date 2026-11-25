@@ -537,14 +537,19 @@ export function ReviewBatchCard({
         {item.sent_before ? <SentBeforeLine sent={item.sent_before} /> : null}
         {order ? <p className="text-xs text-muted-foreground">{order}</p> : null}
         {hasKeyFacts(item.key_facts) ? (
-          <ReviewBatchKeyFactsBlock
-            facts={item.key_facts}
-            restMatched={hasRequirementSteps(item.requirements) ? 0 : item.matched_must.length}
-            restTotal={
-              hasRequirementSteps(item.requirements) ? 0 : item.matched_must.length + item.missing_must.length
-            }
-            onPick={onPickRequirement}
-          />
+          // Lekcja „Porcja: kolejność po spełnionych »musi mieć«” każe kliknąć wymaganie
+          // na karcie. W kolejkach z 25.11.2026 żadna karta (0 z 53) nie miała listy
+          // ze schodkami, wszystkie — „Kluczowe” z tym samym klikiem do CV.
+          <div data-tour={hasRequirementSteps(item.requirements) ? undefined : "review-batch.requirements"}>
+            <ReviewBatchKeyFactsBlock
+              facts={item.key_facts}
+              restMatched={hasRequirementSteps(item.requirements) ? 0 : item.matched_must.length}
+              restTotal={
+                hasRequirementSteps(item.requirements) ? 0 : item.matched_must.length + item.missing_must.length
+              }
+              onPick={onPickRequirement}
+            />
+          </div>
         ) : null}
         {hasRequirementSteps(item.requirements) ? (
           <ReviewBatchRequirementsBlock requirements={item.requirements} onPick={onPickRequirement} />
