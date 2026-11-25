@@ -103,11 +103,16 @@ def _stamped(
     short_url: str,
     expires_at: Optional[datetime],
     language: str,
+    at_end: bool = False,
 ) -> bytes:
     document = Document(io.BytesIO(docx_bytes))
-    title = _title_paragraph(document)
-    if title is None:
+    title = None if at_end else _title_paragraph(document)
+    if title is None and not at_end:
         raise ValueError("Plik Word nie ma akapitu z tekstem.")
+    if at_end:
+        # Word „Nowego CV” (25.11.2026): strona 1 to obraz z PDF, więc ramka idzie
+        # na koniec — jak ostatnia strona panelu w PDF.
+        document.add_paragraph()
     text = _TEXT.get(language, _TEXT["pl"])
     table = document.add_table(rows=1, cols=2)
     _borders(table)
@@ -125,7 +130,8 @@ def _stamped(
     if expires_at is not None:
         day = business_date(expires_at).strftime("%d.%m.%Y")
         _line(text_cell, text["valid"].format(date=day))
-    title._p.addnext(table._tbl)
+    if title is not None:
+        title._p.addnext(table._tbl)
     # Tabela tuż przed następnym akapitem nie może się z nim skleić w Wordzie.
     spacer = OxmlElement("w:p")
     table._tbl.addnext(spacer)
@@ -141,10 +147,11 @@ def stamp_panel_link(
     expires_at: Optional[datetime],
     *,
     language: str = "pl",
+    at_end: bool = False,
 ) -> bytes:
-    """Plik z ramką panelu; przy jakiejkolwiek awarii oryginalne bajty."""
+    """Plik z ramką panelu (pod tytułem albo na końcu); przy awarii oryginalne bajty."""
     try:
-        return _stamped(docx_bytes, url, short_url, expires_at, language)
+        return _stamped(docx_bytes, url, short_url, expires_at, language, at_end)
     except Exception:  # noqa: BLE001 — python-docx rzuca różnymi typami, plik ma wyjść
         logger.exception("client panel: stamping the DOCX failed")
         return docx_bytes

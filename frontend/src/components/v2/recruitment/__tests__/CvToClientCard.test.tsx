@@ -733,7 +733,8 @@ describe("CvToClientCard — CV gotowe", () => {
     await userEvent.click(within(choice).getByRole("button", { name: "Nowe CV" }));
     await waitFor(() => expect(mocks.setLayout).toHaveBeenCalledWith(21, "new"));
     expect(await screen.findByTestId("cv-card-download-pdf")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Word \(klasyczne\)/ })).toBeInTheDocument();
+    // Etap 2 (25.11.2026): Word Nowego CV ma nowy wygląd; klasyczny jest w „⋯”.
+    expect(screen.getByTestId("cv-card-download-docx")).toHaveTextContent("Pobierz Word");
     expect(screen.getByTestId("cv-ready-facts")).toHaveTextContent("Nowe CV · PDF");
   });
 
@@ -762,7 +763,7 @@ describe("CvToClientCard — CV gotowe", () => {
     expect(screen.queryByRole("menuitem", { name: /Pobierz PDF/ })).not.toBeInTheDocument();
   });
 
-  it("25.11.2026: klient chce Worda, a CV jest w Nowym CV — Word na wierzchu i ostrzeżenie", async () => {
+  it("25.11.2026: klient chce Worda, CV w Nowym CV — Word nowego wyglądu, klasyczny w „⋯”", async () => {
     mocks.brandedGet.mockResolvedValue({
       data: {
         status: "draft",
@@ -776,39 +777,50 @@ describe("CvToClientCard — CV gotowe", () => {
         client_file_format: "docx",
       },
     });
+    mocks.postAuthenticatedDownload.mockResolvedValue({ blob: new Blob(["PK"]), filename: "SZKIC_CV.docx" });
     rows = [{ id: 5, status: "ready" }];
     renderCard();
-    expect(await screen.findByTestId("cv-card-word-classic-warning")).toHaveTextContent(
-      "Klient chce Worda, a wybrane jest Nowe CV",
-    );
-    expect(screen.getByTestId("cv-card-download-docx")).toHaveTextContent("Word (klasyczne)");
+    const word = await screen.findByTestId("cv-card-download-docx");
+    expect(word).toHaveTextContent("Pobierz Word");
     expect(screen.queryByTestId("cv-card-download-pdf")).not.toBeInTheDocument();
+    expect(screen.queryByText(/a wybrane jest Nowe CV/)).not.toBeInTheDocument();
+    await userEvent.click(word);
+    await waitFor(() =>
+      expect(mocks.postAuthenticatedDownload).toHaveBeenLastCalledWith(
+        "/api/candidates/stages/21/cv/branded/preview-docx?intent=download&surface=card",
+        { content_html: "<p>CV</p>", expected_revision: 3 },
+      ),
+    );
+    await chooseFromMore(/Word \(klasyczne\)/);
+    await waitFor(() =>
+      expect(mocks.postAuthenticatedDownload).toHaveBeenLastCalledWith(
+        "/api/candidates/stages/21/cv/branded/preview-docx?layout=classic&intent=download&surface=card",
+        { content_html: "<p>CV</p>", expected_revision: 3 },
+      ),
+    );
   });
 
-  it("25.11.2026: Word i klasyczne CV — bez ostrzeżenia; po wysyłce ostrzeżenie znika", async () => {
-    const draft = {
-      status: "draft",
-      from_generator: true,
-      generated_document_id: 5,
-      edit_revision: 3,
-      version: 1,
-      content_html: "<p>CV</p>",
-      new_layout_enabled: true,
-      cv_layout: "classic",
-      client_file_format: "both",
-    };
-    mocks.brandedGet.mockResolvedValue({ data: draft });
+  it("25.11.2026: klasyczne CV nie ma „Word (klasyczne)” w „⋯”", async () => {
+    mocks.brandedGet.mockResolvedValue({
+      data: {
+        status: "draft",
+        from_generator: true,
+        generated_document_id: 5,
+        edit_revision: 3,
+        version: 1,
+        content_html: "<p>CV</p>",
+        new_layout_enabled: true,
+        cv_layout: "classic",
+        client_file_format: "both",
+      },
+    });
     rows = [{ id: 5, status: "ready" }];
-    const { unmount } = renderCard();
+    renderCard();
     await screen.findByTestId("cv-card-download-docx");
     expect(screen.getByTestId("cv-card-download-pdf")).toBeInTheDocument();
-    expect(screen.queryByTestId("cv-card-word-classic-warning")).not.toBeInTheDocument();
-    unmount();
-
-    mocks.brandedGet.mockResolvedValue({ data: { ...draft, cv_layout: "new" } });
-    renderCard({ lockedAfterSend: true });
-    await screen.findByTestId("cv-card-download-docx");
-    expect(screen.queryByTestId("cv-card-word-classic-warning")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji CV" }));
+    await screen.findAllByRole("menuitem");
+    expect(screen.queryByRole("menuitem", { name: /Word \(klasyczne\)/ })).not.toBeInTheDocument();
   });
 
   it("23.11.2026: przy Nowym CV karta pozwala wybrać, co stoi w wieńcu", async () => {

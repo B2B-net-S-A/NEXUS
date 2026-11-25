@@ -143,11 +143,7 @@ def _wanted_layout(requested: Optional[str], stored: Optional[str]) -> str:
 
     Przy wyłączonej fladze zawsze klasyczny — PDF z pliku Word jak dotąd.
     """
-    if not layout_service.enabled():
-        return layout_service.LAYOUT_CLASSIC
-    if requested in ("classic", "new"):
-        return requested
-    return layout_service.normalized(stored)
+    return layout_service.wanted(requested, stored)
 
 
 async def _new_cv_pdf(

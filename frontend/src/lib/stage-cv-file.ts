@@ -87,7 +87,7 @@ export async function fetchStageCvPdf(
 
 /**
  * Plik, który idzie do klienta (kolejka Cpro, 22.11.2026): w układzie
- * „Nowe CV” — PDF tego układu (Word jest zawsze klasyczny), inaczej plik Word
+ * „Nowe CV” — PDF tego układu (Word nowego wyglądu ma stronę 1 jako obraz), inaczej plik Word
  * jak dotąd. Jedno żądanie o stan CV etapu, potem jedno o plik.
  */
 export async function fetchStageCvForClient(

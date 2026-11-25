@@ -3,7 +3,8 @@
 /**
  * „Układ CV” w regule klienta (22.11.2026): domyślny układ nowych CV klienta —
  * Klasyczne (Word) albo Nowe CV (PDF). Rekruter może go zmienić przy CV, dopóki
- * CV nie poszło do klienta; plik Word jest zawsze klasyczny.
+ * CV nie poszło do klienta. Od 25.11.2026 Word Nowego CV też ma nowy wygląd
+ * (strona 1 jak w PDF); klasyczny Word zostaje w „Więcej”.
  *
  * Dwa miejsca: pole formularza reguły (zapis z „Zapisz i włącz regułę”) i —
  * przy zasadach centralnych, gdy reguła jest tylko do odczytu — sekcja z własnym
@@ -23,7 +24,7 @@ const OPTIONS: ReadonlyArray<readonly [CvLayout, string, string]> = [
   [
     "new",
     "Nowe CV (PDF)",
-    "Do klienta idzie PDF w nowym układzie, z tej samej treści. Plik Word zostaje klasyczny.",
+    "PDF i Word w nowym układzie, z tej samej treści. Klasyczny Word zostaje w „Więcej” przy CV.",
   ],
 ];
 
