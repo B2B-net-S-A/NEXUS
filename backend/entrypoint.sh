@@ -1247,7 +1247,7 @@ except Exception as _prep_review_config_err:  # noqa: BLE001
 try:
     from app.services import cv_layout_schema as _cv_layout_schema
 
-    # + format pliku klienta (migracja 0778, `FILE_FORMAT_DDL`).
+    # + format pliku klienta (migracja 0779, `FILE_FORMAT_DDL`).
     _CV_LAYOUT_DDL = list(_cv_layout_schema.ALL_DDL) + list(
         _cv_layout_schema.FILE_FORMAT_DDL
     )
