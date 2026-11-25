@@ -193,7 +193,8 @@ def _check_tree() -> None:
     loose = sorted(p.name for p in RULES_DIR.glob("*.md"))
     if loose:
         raise RuleIndexError(
-            "Pliki reguł leżą w docs/claude/<obszar>/, nie bezpośrednio w docs/claude/: " + ", ".join(loose)
+            "Pliki reguł leżą w docs/claude/<obszar>/, nie bezpośrednio w docs/claude/: "
+            + ", ".join(loose)
         )
 
 
@@ -283,7 +284,9 @@ def main(argv: list[str]) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     size = CLAUDE_MD.stat().st_size
-    print(f"CLAUDE.md: {'zaktualizowany' if changed else 'bez zmian'}, {size} B (limit {MAX_CLAUDE_MD_BYTES} B)")
+    print(
+        f"CLAUDE.md: {'zaktualizowany' if changed else 'bez zmian'}, {size} B (limit {MAX_CLAUDE_MD_BYTES} B)"
+    )
     return 0
 
 

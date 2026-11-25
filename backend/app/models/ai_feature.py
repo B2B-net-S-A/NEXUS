@@ -233,6 +233,9 @@ class AIFeatureKey(str, enum.Enum):
     # sprawdza kod z tekstem źródła, a terminy liczy kod (F56). Dane osób idą do
     # modelu wyłącznie jako znaczniki ([PARTNER], [NIP]).
     legal_assistant = "legal_assistant"
+    # 0780 (25.11.2026): asystent prawny — szkic wzoru własnego Generatora Umów
+    # z opisu albo zmiany istniejącego wzoru (wzór bez danych osób).
+    legal_template_draft = "legal_template_draft"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -293,6 +296,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.contract_partner_read: "Kontrakty — dane firmy Partnera z podpisanej umowy",
     AIFeatureKey.sales_potential_assessment: "Sprzedaż — ocena potencjału firmy przed spotkaniem",
     AIFeatureKey.legal_assistant: "Asystent prawny — szkic pisma z cytatami sprawdzonymi z tekstem przepisu i umowy",
+    AIFeatureKey.legal_template_draft: "Generator Umów — szkic wzoru własnego z asystentem prawnym",
 }
 
 
@@ -560,6 +564,13 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Dane osób i firm tylko jako znaczniki ([PARTNER], [NIP], [ADRES]); "
         "podmiana na prawdziwe wartości po stronie NEXUSA",
         "(bez LEX-u i Gofina, bez stawek spoza fragmentów i bez danych z profilu)",
+    ],
+    AIFeatureKey.legal_template_draft: [
+        "Treść wzoru bazowego umowy (akapity z polami w nawiasach, bez danych osób) "
+        "albo sam opis nowego wzoru",
+        "Polecenie osoby tworzącej wzór (co zmienić)",
+        "(bez kandydatów, kontraktorów, klientów i stawek; kwoty słownie, daty i formy "
+        "Pan/Pani liczy kod)",
     ],
 }
 

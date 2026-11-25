@@ -118,10 +118,15 @@ def type_check_ddl(types: tuple[str, ...] = B2B_DOCUMENT_TYPES) -> str:
     END $$"""
 
 
+#: Typy dokumentów sprzed 0780 (wzory własne) — downgrade 0780 wraca do tej listy.
+TYPES_BEFORE_CUSTOM_TEMPLATES: tuple[str, ...] = tuple(
+    t for t in B2B_DOCUMENT_TYPES if t != "custom_template"
+)
+
 #: Typy dokumentów sprzed 0778 — downgrade 0778 wraca do tej listy.
 TYPES_BEFORE_PRELIMINARY_JDG: tuple[str, ...] = tuple(
     t
-    for t in B2B_DOCUMENT_TYPES
+    for t in TYPES_BEFORE_CUSTOM_TEMPLATES
     if t not in ("preliminary_cez_jdg", "preliminary_b2b_jdg")
 )
 

@@ -143,6 +143,8 @@ class TestFeatureKeyEnum:
             "sales_potential_assessment",
             # 0779: asystent prawny — szkic pisma ze sprawdzonymi cytatami.
             "legal_assistant",
+            # 0780: szkic wzoru własnego Generatora Umów (asystent prawny).
+            "legal_template_draft",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

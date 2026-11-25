@@ -109,6 +109,7 @@ from app.services.b2b_documents.contract_versions import (
     refs_for,
 )
 from app.services.client_access import assert_client_assignable
+from app.services.custom_templates import service as custom_templates
 from app.services.permission_denial import ensure_permission
 from app.services.polish_ilike import polish_folded_ilike
 from app.services.b2b_documents.registry import (
@@ -267,6 +268,38 @@ def _type_or_422(key: str) -> DocumentType:
     if doc_type is None:
         raise HTTPException(status_code=422, detail="Nieznany typ dokumentu.")
     return doc_type
+
+
+def _issued_type(doc: B2BContractDocument) -> DocumentType | None:
+    """Typ WYDANEGO dokumentu: z rejestru albo — dla wzoru własnego —
+    z migawki w ``render_payload`` (``custom_templates.document_type_for``)."""
+    if doc.document_type == custom_templates.DOCUMENT_TYPE:
+        return custom_templates.document_type_for(doc.render_payload)
+    return TYPES.get(doc.document_type)
+
+
+def _issued_type_or_422(doc: B2BContractDocument) -> DocumentType:
+    doc_type = _issued_type(doc)
+    if doc_type is None:
+        raise HTTPException(status_code=422, detail="Nieznany typ dokumentu.")
+    return doc_type
+
+
+async def _issued_bytes(
+    db: AsyncSession,
+    doc: B2BContractDocument,
+    doc_type: DocumentType,
+    values: dict[str, Any],
+) -> bytes:
+    """DOCX wydanego dokumentu jego własnym wzorem (zapisany ``template_key``)."""
+    if doc_type.family == "custom":
+        return await custom_templates.render_issued(db, doc, values)
+    payload = doc.render_payload or {}
+    base = _base_from_snapshot(payload.get("base"))
+    context = _context(doc_type, values, doc.language, base, payload.get("refs"))
+    return await _render_bytes(
+        doc_type, doc.language, context, stored_key=doc.template_key
+    )
 
 
 def _language(doc_type: DocumentType, language: str) -> str:
@@ -1114,7 +1147,7 @@ async def _serialize(
     today = business_today()
     items: list[DocumentItem] = []
     for row in rows:
-        doc_type = TYPES.get(row.document_type)
+        doc_type = _issued_type(row)
         if doc_type is None:
             continue
         payload = row.render_payload or {}
@@ -1218,7 +1251,12 @@ async def _serialize(
                 created_at=row.created_at.isoformat() if row.created_at else None,
                 requires_sensitive_input=bool(doc_type.sensitive_keys),
                 sensitive_fields=sorted(doc_type.sensitive_keys),
-                can_edit=can_manage and open_unsigned and own,
+                # Dokument ze wzoru własnego poprawia się nowym dokumentem —
+                # kreator „Popraw” zna tylko typy z rejestru.
+                can_edit=can_manage
+                and open_unsigned
+                and own
+                and doc_type.family != "custom",
                 can_delete=can_manage and open_unsigned and own,
                 # Aneks „Bez kontraktu” czeka na powiązanie — przycisk prowadziłby
                 # prosto do odmowy.
@@ -1265,7 +1303,7 @@ async def _load_document(
     doc = await db.scalar(stmt)
     if doc is None:
         raise HTTPException(status_code=404, detail="Dokument nie istnieje.")
-    doc_type = _type_or_422(doc.document_type)
+    doc_type = _issued_type_or_422(doc)
     parent = None
     if doc.parent_generated_contract_id is not None:
         parent = await _load_parent(db, doc.parent_generated_contract_id, lock=lock)
@@ -1355,13 +1393,18 @@ def _assert_editable(doc: B2BContractDocument, user: User) -> None:
 
 
 @router.get("/document-types")
-async def document_types(current_user: B2BGeneratorAccess) -> dict:
-    """Definicje typów i pól — front buduje z nich jeden formularz."""
+async def document_types(
+    current_user: B2BGeneratorAccess, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Definicje typów i pól — front buduje z nich jeden formularz.
+    ``custom_types`` = zatwierdzone wzory własne („Nowy dokument” → „Wzory
+    własne”, 0780); wystawia się je trasami ``/custom-templates/{id}``."""
     return {
         "types": [t.to_public() for t in TYPES.values()],
         "ref_labels": REF_LABELS,
         "ref_defaults": default_refs().as_context(),
         "mandate_forms": [f.to_public() for f in MANDATE_FORMS],
+        "custom_types": await custom_templates.offered_types(db),
     }
 
 
@@ -2153,13 +2196,14 @@ async def list_documents(
             == parent_generated_contract_id
         )
     if document_type:
-        _type_or_422(document_type)
+        if document_type != custom_templates.DOCUMENT_TYPE:
+            _type_or_422(document_type)
         query = query.where(B2BContractDocument.document_type == document_type)
     if family:
         # Rejestr aneksów pyta o `annex`, zakładka „Dokumenty” o pozostałe
         # rodziny. Nieznana rodzina = 422 z nazwą pomyłki: ciche pominięcie
         # filtra oddałoby pełną listę pod nagłówkiem, który obiecuje podzbiór.
-        known = {t.family for t in TYPES.values()}
+        known = {t.family for t in TYPES.values()} | {"custom"}
         unknown = sorted(set(family) - known)
         if unknown:
             raise HTTPException(
@@ -2169,6 +2213,7 @@ async def list_documents(
         query = query.where(
             B2BContractDocument.document_type.in_(
                 [key for key, t in TYPES.items() if t.family in family]
+                + ([custom_templates.DOCUMENT_TYPE] if "custom" in family else [])
             )
         )
     if status_filter:
@@ -2334,11 +2379,7 @@ async def _issued_document_bytes(
                 "missing": missing,
             },
         )
-    base = _base_from_snapshot(payload.get("base"))
-    context = _context(doc_type, values, doc.language, base, payload.get("refs"))
-    data = await _render_bytes(
-        doc_type, doc.language, context, stored_key=doc.template_key
-    )
+    data = await _issued_bytes(db, doc, doc_type, values)
     return doc, doc_type, values, data
 
 
@@ -2399,6 +2440,11 @@ async def rerender_document(
     _require_contract_generation(current_user)
     doc, doc_type, parent = await _load_document(db, current_user, doc_id, lock=True)
     _assert_editable(doc, current_user)
+    if doc_type.family == "custom":
+        raise HTTPException(
+            status_code=409,
+            detail="Dokument ze wzoru własnego poprawia się nowym dokumentem.",
+        )
     if request.document_type != doc.document_type:
         raise HTTPException(
             status_code=422, detail="Zmiana typu dokumentu to nowy dokument."
@@ -2600,12 +2646,9 @@ async def confirm_document_signed(
         values.get(f.key) for f in doc_type.fields if f.sensitive and f.required
     )
     data: bytes | None = None
-    if complete:
-        base = _base_from_snapshot(payload.get("base"))
-        context = _context(doc_type, values, doc.language, base, payload.get("refs"))
-        data = await _render_bytes(
-            doc_type, doc.language, context, stored_key=doc.template_key
-        )
+    if complete and doc_type.family != "custom":
+        # Wzór własny nie trafia do Dokumentów kontraktu — bez renderu.
+        data = await _issued_bytes(db, doc, doc_type, values)
     await effects.apply(db, doc, doc_type, parent, user=current_user, docx=data)
     doc.signature_status = "signed_both"
     doc.status = "signed"

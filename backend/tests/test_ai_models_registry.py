@@ -192,6 +192,8 @@ DECISION_2026_09_16 = {
     # F54 — 23.11.2026: ocena potencjału firmy w Sprzedaży (model F46).
     AIFeatureKey.sales_potential_assessment: ("F54", "claude-sonnet-5-5"),
     AIFeatureKey.legal_assistant: ("F56", "claude-sonnet-5-5"),
+    # F57 — 25.11.2026: szkic wzoru własnego Generatora (model F50).
+    AIFeatureKey.legal_template_draft: ("F57", "claude-sonnet-5-5"),
 }
 
 

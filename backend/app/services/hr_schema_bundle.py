@@ -89,6 +89,7 @@ from app.services import trainings_schema as trainings
 from app.services.law_radar import schema as law_radar
 from app.services.legal import schema as legal_corpus
 from app.services.legal_case_law import schema as legal_case_law
+from app.services.custom_templates import schema as custom_templates
 from app.services.cpro_bot import schema as cpro_bot
 from app.services.contract_rate_documents import schema_sql as contract_rate_documents
 from app.services.contract_partner_reads import schema_sql as contract_partner_reads
@@ -217,6 +218,8 @@ MODULES = (
     legal_corpus,
     # 0781: orzecznictwo dla asystenta prawnego — SAOS (25.11.2026).
     legal_case_law,
+    # 0780: wzory własne Generatora Umów B2B — wzór i wersje (25.11.2026).
+    custom_templates,
 )
 
 COLUMN_DDL: tuple[str, ...] = (
