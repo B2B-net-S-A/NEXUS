@@ -37,10 +37,9 @@ describe("poligon: układ CV (lekcja „Nowe CV”, 23.11.2026)", () => {
     expect(store.handle({ method: "patch", url: `/api/candidates/stages/${ready.entry_id}/cv/layout`, body: { cv_layout: "new" } })).toMatchObject({ status: 409 });
   });
 
-  it("wieniec nowego CV zapisuje się w pamięci, inne zmiany strony 1 — odmowa", () => {
+  it("zmiany strony 1 nowego CV na poligonie — odmowa (wieńca w Edukacji nie ma od 25.11.2026)", () => {
     const { store } = setup();
-    expect(branded(store, tpl).data.page1_extras).toMatchObject({ wreath: "auto" });
-    expect(store.handle({ method: "patch", url: `/api/candidates/stages/${tpl}/cv/page1`, body: { wreath: "school" } })).toMatchObject({ status: 200, data: { page1_extras: { wreath: "school" } } });
+    expect(branded(store, tpl).data.page1_extras).not.toHaveProperty("wreath");
     expect(store.handle({ method: "patch", url: `/api/candidates/stages/${tpl}/cv/page1`, body: { result_text: "Zdanie" } })).toMatchObject({ status: 409 });
   });
 });
