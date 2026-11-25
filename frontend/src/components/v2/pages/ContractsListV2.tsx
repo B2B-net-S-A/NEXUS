@@ -2016,7 +2016,7 @@ export function ContractsListV2({
  key={filter.key}
  type="button"
  // Strażnik kotwic nowości czyta kotwicę z linii `data-tour` — jedna linia.
- data-tour={filter.key === "rate_document" ? "contracts.rate-document" : filter.key === "order_after_end" ? "contracts.order-after-end" : filter.key === "ending" ? "contracts.ending-pill" : undefined}
+ data-tour={filter.key === "rate_document" ? "contracts.rate-document" : filter.key === "rate_history" ? "contracts.rate-history" : filter.key === "order_after_end" ? "contracts.order-after-end" : filter.key === "ending" ? "contracts.ending-pill" : undefined}
  aria-pressed={selected}
  title={filter.hint}
  onClick={() => selectQuickFilter(filter.key)}
