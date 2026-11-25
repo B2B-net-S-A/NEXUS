@@ -1,18 +1,28 @@
-# Test całej ścieżki na stagingu — zmiana na styku ról przechodzi każdą rolę przed PR-em
-<!-- indeks: mapa „kto → co robi → co widzi następny”, „Zaloguj jako” (`scripts.staging_login_as`), backend z gałęzi na 8101, rola, która nie powinna widzieć, raport w artefakcie -->
+# Ścieżka na stagingu — każdy PR z ekranem, PDF-em, Wordem albo mailem, każdą rolą, która z tego korzysta
+<!-- indeks: skill /sciezka, bramka sciezka-stagingu-gate.js, paragon ~/.nexus-staging/e2e, mapa ról sciezki/mapa-rol.json, compare_flags, „Zaloguj jako” (`scripts.staging_login_as`), backend z gałęzi na 8101, rola, która nie powinna widzieć, kontrola po wdrożeniu -->
 
-Decyzja Artura z 25.10.2026. Zmiana, która dotyka co najmniej dwóch ról
-(przekazanie, akceptacja, powiadomienie albo kafelek dla innej osoby, kwota
-widoczna tylko dla części ról), przechodzi na stagingu
-(`staging-na-laptopie.md`) całą ścieżkę: każdą rolą po kolei, na
-prawdziwych danych, **zanim powstanie PR**. Bo testy i zrzut z jednego konta
-pokazują, że ekran się renderuje, a nie to, że Delivery Lead dostał to, co
-rekruter właśnie wysłał. PR od razu dostaje auto-merge, więc test po jego
+Decyzja Artura z 25.10.2026, rozszerzona 25.11.2026: także zmiana jednej roli
+(edytor CV wymknął się regule „styku ról”). Każdy PR, który zmienia to, co ktoś
+zobaczy albo pobierze (ekran, PDF, Word, CV, mail), przechodzi na stagingu
+(`staging-na-laptopie.md`) całą ścieżkę każdą rolą z mapy obszaru
+(`sciezki/mapa-rol.json`): od początku do końca (edytuj, pobierz, zatwierdź,
+przekaż), na kopii produkcji, z kodem gałęzi i flagami jak na produkcji,
+**zanim powstanie PR**. Bo testy i zrzut z jednego konta pokazują, że ekran się
+renderuje, a nie to, że Delivery Lead dostał to, co rekruter wysłał — a rano
+zgłasza to rekruter, nie CI. PR od razu dostaje auto-merge, więc test po jego
 otwarciu przychodzi za późno.
 
-Zmiana w obrębie jednej roli (jeden ekran, jedna osoba) nie wymaga tego
-testu; wystarcza zrzut ze stagingu jak przy makiecie (`ui/makiety-na-stagingu.md`).
-Refaktory, testy i dokumentacja — tylko CI.
+Wykonanie: skill `/sciezka <obszar>` (`.claude/skills/sciezka/`). Bramka: hook
+`sciezka-stagingu-gate.js` na `gh pr create` / `gh pr ready` blokuje PR bez
+paragonu `~/.nexus-staging/e2e/<gałąź>.md`, paragonu starszego niż ostatni commit
+z ekranem, bez wiersza ze zrzutem dla roli z mapy albo z różnicą flagi, której
+dotyka diff. Draft przechodzi (bramka wraca przy `gh pr ready`). Wyjście
+awaryjne: `SCIEZKA_POMIN="<powód>"` i PR jako draft z etykietą
+`czeka-na-sciezke`, powód w opisie PR-a. Same testy, `docs/`, `.github/`,
+`scripts/` — tylko CI.
+
+Nowy obszar: pierwsza sesja przechodzi go ręcznie i dopisuje scenariusz
+(`.claude/skills/sciezka/scenariusze/`) oraz wpis w mapie ról.
 
 ## 1. Mapa ścieżki, zanim cokolwiek klikniesz
 
@@ -114,9 +124,19 @@ dane są z dnia kopii. Krok zależny od pętli uruchom raz ręcznie (funkcja
 pętli w `docker exec … python -c`) albo oznacz jako **niepotwierdzone** z
 powodem. To samo dla integracji zewnętrznych (M365, KSeF).
 
-## 5. Raport
+## 5. Paragon i opis PR-a
 
-Tabela: krok · rola (id konta) · czego się spodziewałem · co wyszło · zrzut.
-Zrzuty z prawdziwymi danymi idą do prywatnego artefaktu na claude.ai, jak
-makiety. W opisie PR-a słowny skrót tabeli bez danych osobowych. Krok na
-czerwono = poprawka i powtórka całej ścieżki przed `gh pr create`.
+Format paragonu jest w skillu (krok 6): tabela flag i tabela kroków
+(rola · krok · wynik · zrzut), id osób i rekordów, nie nazwiska. Paragon i
+zrzuty zostają w `~/.nexus-staging/e2e/` (prawdziwe dane); do pokazania
+Arturowi — prywatny artefakt, jak makiety. W opisie PR-a sekcja „Ścieżka na
+stagingu” bez danych osobowych. Krok na czerwono = test, poprawka i powtórka
+przed `gh pr create`.
+
+## 6. Kontrola po wdrożeniu
+
+Kroki, których staging nie pokaże (poczta, Teams, KSeF, Traffit, Cpro, pętle w
+tle, dzisiejsze dane), paragon i opis PR-a wpisują jako „Nie sprawdzone na
+stagingu”. Sesja wieczorna po `/api/health` z SHA zawierającym PR sprawdza je
+na produkcji (odczyt, `prod_readonly`, bez wysyłek na zewnątrz) i dopisuje
+wynik komentarzem w PR-ze; ✗ = karta sesji do rana.
