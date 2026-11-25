@@ -493,6 +493,7 @@ export const settlementKeys = {
   preview: (contractId: number) =>
     ["client-settlements", "preview", contractId] as const,
   clients: ["client-settlements", "clients"] as const,
+  contractNipReview: ["client-settlements", "contract-nip-review"] as const,
   overview: (month: string) => ["client-settlements", "overview", month] as const,
   month: (clientId: number, month: string) =>
     ["client-settlements", "month", clientId, month] as const,
@@ -565,6 +566,29 @@ export function usePanelPreview(contractId: number | null) {
       ).data,
     enabled: contractId != null,
     retry: false,
+  });
+}
+
+/** Umowa B2B, której `partner_nip` wskazuje inną firmę (audyt 25.11.2026). */
+export interface ContractNipReviewItem {
+  contract_id: number;
+  client_id: number | null;
+  client_name: string | null;
+  person: string | null;
+  partner_nip: string;
+  partner_name: string | null;
+  partner_legal_name: string | null;
+  generated_contract_id: number;
+  sellers: { name: string; invoices: number }[];
+  invoices: number;
+  reasons: { key: "partner_other_person" | "seller_without_person"; label: string }[];
+}
+
+export function useContractNipReview() {
+  return useQuery({
+    queryKey: settlementKeys.contractNipReview,
+    queryFn: async () =>
+      (await api.get<{ items: ContractNipReviewItem[] }>(`${BASE}/contract-nip-review`)).data,
   });
 }
 
