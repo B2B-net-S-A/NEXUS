@@ -64,63 +64,116 @@ describe("wybór wyniku", () => {
   });
 });
 
+const GENERATED: CvPage1Extras = {
+  ...EXTRAS,
+  why: ["**9 lat** w IT, w tym **5 lat** jako Java Developer.", "", "Migracja płatności do chmury w Firmie A."],
+  why_generated: [
+    { slot: "experience", text: "**9 lat** w IT, w tym **5 lat** jako Java Developer.", verified: true },
+    { slot: "requirements", text: "Z wymagań klienta: Java.", verified: false, issue: "label" },
+    {
+      slot: "key_task",
+      text: "Migracja płatności do chmury w Firmie A.",
+      verified: true,
+      source: "screening",
+      quote: "przenieśliśmy płatności do chmury",
+    },
+  ],
+};
+
 describe("Strona 1", () => {
-  it("punkty 1–2 to punkty „Dlaczego” w dokumencie edytora — pogrubienie zostaje", () => {
-    const { editor } = renderPage1();
-    const first = screen.getByLabelText("1 · Lata doświadczenia");
-    expect(first).toHaveValue("Ponad 7 lat w Javie.");
-    expect(screen.getByLabelText("2 · Technologie")).toHaveValue("Mikroserwisy w Spring Boot.");
-    fireEvent.change(first, { target: { value: "Ponad 7 lat w Javie i Kotlinie." } });
-    expect(editor.getHTML()).toContain("<li><p>Ponad <strong>7 lat</strong> w Javie i Kotlinie.</p></li>");
-    expect(screen.getByLabelText("1 · Lata doświadczenia")).toHaveValue("Ponad 7 lat w Javie i Kotlinie.");
+  it("pola 1–3 pokazują zdania strony 1: sprawdzone z generatora, pusty slot = punkt z CV", () => {
+    renderPage1({ extras: GENERATED });
+    expect(screen.getByLabelText("1 · Doświadczenie")).toHaveValue("9 lat w IT, w tym 5 lat jako Java Developer.");
+    expect(screen.getByText("Z generatora · lata policzone z dat stanowisk")).toBeInTheDocument();
+    expect(screen.getByLabelText("2 · Wymagania klienta")).toHaveValue("Mikroserwisy w Spring Boot.");
+    expect(
+      screen.getByText("Zdanie z generatora nie przeszło sprawdzenia z CV — strona 1 bierze punkt 2 z CV."),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("3 · Najważniejsze zadanie")).toHaveValue("Migracja płatności do chmury w Firmie A.");
+    expect(screen.getByText("Z generatora · dowód z odpowiedzi kandydata na screeningu")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Przywróć z generatora/ })).not.toBeInTheDocument();
   });
 
-  it("zmiana kartki (np. cofnięcie) od razu widać w polu", () => {
-    const { editor } = renderPage1();
-    fireEvent.change(screen.getByLabelText("2 · Technologie"), { target: { value: "Inny punkt." } });
+  it("pole nie zmienia treści CV — zdanie idzie do dodatków strony 1, jeden slot naraz", async () => {
+    const { editor, props } = renderPage1({ extras: GENERATED });
+    const before = editor.getHTML();
+    const first = screen.getByLabelText("1 · Doświadczenie");
+    fireEvent.change(first, { target: { value: "Ponad 9 lat w IT." } });
+    fireEvent.blur(first);
+    await waitFor(() => expect(props.onSaveResult).toHaveBeenCalledWith({ why: ["Ponad 9 lat w IT.", null, null] }));
+    expect(editor.getHTML()).toBe(before);
+  });
+
+  it("pusty slot pokazuje punkt z kartki i jego zmianę (np. cofnięcie)", () => {
+    const { editor } = renderPage1({ extras: null });
+    expect(screen.getByLabelText("2 · Wymagania klienta")).toHaveValue("Mikroserwisy w Spring Boot.");
     act(() => {
+      editor.commands.insertContentAt(editor.state.doc.content.size, "<p>koniec</p>");
       editor.commands.undo();
     });
-    expect(screen.getByLabelText("2 · Technologie")).toHaveValue("Mikroserwisy w Spring Boot.");
+    expect(screen.getByLabelText("2 · Wymagania klienta")).toHaveValue("Mikroserwisy w Spring Boot.");
   });
 
-  it("podpowiedź lat z dat stanowisk pod punktem 1", () => {
+  it("podpowiedź lat z dat stanowisk pod polem 1", () => {
     renderPage1();
     expect(screen.getByText("Z dat stanowisk: 4 lata 2 mies.")).toBeInTheDocument();
   });
 
-  it("najmocniejszy wynik: wybrany z listy, źródło to firma", () => {
+  it("slot 3 bez zdania bierze najmocniejszy wynik z CV", () => {
     renderPage1();
-    expect(screen.getByLabelText("3 · Najmocniejszy wynik")).toHaveValue("Skrócił testy o 40%.");
-    expect(screen.getByText("Źródło: Firma Przykładowa A, zakres zadań")).toBeInTheDocument();
+    expect(screen.getByLabelText("3 · Najważniejsze zadanie")).toHaveValue("Skrócił testy o 40%.");
+    expect(screen.getByText("Najmocniejszy wynik z CV")).toBeInTheDocument();
   });
 
-  it("wpisany wynik zapisuje się jako zdanie rekrutera po wyjściu z pola", async () => {
-    const { props } = renderPage1();
-    const field = screen.getByLabelText("3 · Najmocniejszy wynik");
-    fireEvent.change(field, { target: { value: "Obniżył liczbę defektów o 30%." } });
-    fireEvent.blur(field);
-    await waitFor(() => expect(props.onSaveResult).toHaveBeenCalledWith({ result_text: "Obniżył liczbę defektów o 30%." }));
-    // Treść CV się nie zmienia — wynik to dodatek nowego CV.
-    expect(props.editor.getHTML()).not.toContain("defektów");
+  it("poprawione zdanie ma „Przywróć z generatora”, które czyści slot", async () => {
+    const edited: CvPage1Extras = { ...GENERATED, why: ["Moje zdanie.", "", GENERATED.why?.[2] ?? ""] };
+    const { props } = renderPage1({ extras: edited });
+    expect(screen.getByText("Wpisane ręcznie · tylko w nowym CV")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Przywróć z generatora/ }));
+    await waitFor(() => expect(props.onSaveResult).toHaveBeenCalledWith({ why: ["", null, null] }));
   });
 
-  it("wyczyszczone pole = brak zdania rekrutera", async () => {
-    const { props } = renderPage1({ extras: { ...EXTRAS, result_text: "Wpisane." } });
-    expect(screen.getByText("Źródło: wpisane ręcznie · tylko w nowym CV")).toBeInTheDocument();
-    const field = screen.getByLabelText("3 · Najmocniejszy wynik");
+  it("„Przywróć” prosto z pisania w polu: wygrywa zdanie z generatora, bez zapisu poprawki", async () => {
+    const edited: CvPage1Extras = { ...GENERATED, why: ["Moje zdanie.", "", GENERATED.why?.[2] ?? ""] };
+    const { props } = renderPage1({ extras: edited });
+    const field = screen.getByLabelText("1 · Doświadczenie");
+    fireEvent.change(field, { target: { value: "Jeszcze inaczej." } });
+    const restoreButton = screen.getByRole("button", { name: /Przywróć z generatora/ });
+    // Klik nie zabiera fokusu z pola, więc wyjście z pola nie wysyła poprawki.
+    expect(fireEvent.mouseDown(restoreButton)).toBe(false);
+    fireEvent.click(restoreButton);
+    await waitFor(() => expect(props.onSaveResult).toHaveBeenCalledWith({ why: ["", null, null] }));
+    expect(props.onSaveResult).toHaveBeenCalledTimes(1);
+  });
+
+  it("wyczyszczone pole = z generatora (pusty slot)", async () => {
+    const { props } = renderPage1({ extras: GENERATED });
+    const field = screen.getByLabelText("3 · Najważniejsze zadanie");
     fireEvent.change(field, { target: { value: "  " } });
     fireEvent.blur(field);
-    await waitFor(() => expect(props.onSaveResult).toHaveBeenCalledWith({ result_text: null }));
+    await waitFor(() => expect(props.onSaveResult).toHaveBeenCalledWith({ why: [null, null, ""] }));
   });
 
-  it("„Inny wynik (2)” wybiera sprawdzony wynik i czyści wpisane zdanie", async () => {
+  it("zapis po przerwie w pisaniu, bez wyjścia z pola", async () => {
+    vi.useFakeTimers();
+    const { props } = renderPage1();
+    fireEvent.change(screen.getByLabelText("2 · Wymagania klienta"), { target: { value: "Java w Firmie A." } });
+    expect(props.onSaveResult).not.toHaveBeenCalled();
+    await act(async () => {
+      vi.advanceTimersByTime(RESULT_SAVE_DELAY_MS);
+    });
+    expect(props.onSaveResult).toHaveBeenCalledWith({ why: [null, "Java w Firmie A.", null] });
+  });
+
+  it("„Wynik z CV (2)” wstawia sprawdzony wynik do slotu 3", async () => {
     const user = userEvent.setup();
     const { props } = renderPage1();
-    await user.click(screen.getByRole("button", { name: "Inny wynik (2)" }));
+    await user.click(screen.getByRole("button", { name: "Wynik z CV (2)" }));
     expect(screen.queryByText("Wymyślony wynik.")).not.toBeInTheDocument();
     await user.click(await screen.findByRole("menuitem", { name: /Wdrożył 120 testów API/ }));
-    await waitFor(() => expect(props.onSaveResult).toHaveBeenCalledWith({ result_index: 2, result_text: null }));
+    await waitFor(() =>
+      expect(props.onSaveResult).toHaveBeenCalledWith({ why: [null, null, "Wdrożył 120 testów API."] }),
+    );
   });
 
   it("bez wyboru wieńca — wieniec stoi tylko przy wyróżniku (25.11.2026)", () => {
@@ -129,25 +182,44 @@ describe("Strona 1", () => {
     expect(screen.queryByRole("button", { name: "Szkoła" })).not.toBeInTheDocument();
   });
 
-  it("błąd zapisu wyniku mówi po polsku, co się stało", async () => {
+  it("błąd zapisu zdania mówi po polsku, co się stało", async () => {
     const onSaveResult = vi.fn(async () => {
       throw { response: { status: 409, data: { detail: "CV jest już u klienta — układu nie zmienisz." } } };
     });
     renderPage1({ onSaveResult });
-    const field = screen.getByLabelText("3 · Najmocniejszy wynik");
-    fireEvent.change(field, { target: { value: "Nowy wynik." } });
+    const field = screen.getByLabelText("3 · Najważniejsze zadanie");
+    fireEvent.change(field, { target: { value: "Nowe zdanie." } });
     fireEvent.blur(field);
     expect(await screen.findByRole("alert")).toHaveTextContent("CV jest już u klienta");
   });
 
-  it("bez wyników i zdania pole pokazuje punkt 3 z CV jako podpowiedź", () => {
-    renderPage1({ extras: null });
-    expect(screen.getByLabelText("3 · Najmocniejszy wynik")).toHaveValue("");
-    expect(screen.getByLabelText("3 · Najmocniejszy wynik")).toHaveAttribute(
-      "placeholder",
-      "Punkt 3 z CV: Trzeci punkt z CV.",
-    );
-    expect(screen.queryByRole("button", { name: /Inny wynik/ })).not.toBeInTheDocument();
+  it("bez dodatków pola pokazują punkty z CV, a rekrutacja bez zadania mówi o tym", () => {
+    renderPage1({
+      extras: {
+        why_generated: [
+          { slot: "experience", text: "", verified: false, issue: "empty" },
+          { slot: "requirements", text: "", verified: false, issue: "no_input" },
+          { slot: "key_task", text: "", verified: false, issue: "no_input" },
+        ],
+      },
+    });
+    expect(screen.getByLabelText("3 · Najważniejsze zadanie")).toHaveValue("Trzeci punkt z CV.");
+    expect(screen.getByText("Punkt 1 z treści CV (wspólny z Wordem)")).toBeInTheDocument();
+    expect(screen.getByText(/Profil Championa nie ma wymagań MUST/)).toBeInTheDocument();
+    expect(screen.getByText(/Rekrutacja nie ma „Najważniejszego zadania”/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Wynik z CV/ })).not.toBeInTheDocument();
+  });
+
+  it("„Ułóż zdania od nowa” woła generator strony 1, błąd po polsku", async () => {
+    const onRecalcResults = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce({ response: { status: 503, data: { detail: "Nie udało się teraz znaleźć wyniku." } } });
+    renderPage1({ onRecalcResults });
+    fireEvent.click(screen.getByRole("button", { name: "Ułóż zdania od nowa" }));
+    await waitFor(() => expect(onRecalcResults).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole("button", { name: "Ułóż zdania od nowa" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Nie udało się teraz znaleźć wyniku.");
   });
 
   it("zwinięte wiersze prowadzą do stanowisk i do sekcji w „Cały tekst”", () => {
@@ -161,12 +233,18 @@ describe("Strona 1", () => {
 
   it("zablokowany formularz (zapis, asystent) nie zmienia CV", () => {
     renderPage1({ disabled: true });
-    expect(screen.getByLabelText("1 · Lata doświadczenia")).toBeDisabled();
-    expect(screen.getByLabelText("3 · Najmocniejszy wynik")).toBeDisabled();
+    expect(screen.getByLabelText("1 · Doświadczenie")).toBeDisabled();
+    expect(screen.getByLabelText("3 · Najważniejsze zadanie")).toBeDisabled();
+  });
+
+  it("CV bez dodatków strony 1 (bez etapu) edytuje punkty w treści CV, jak w Wordzie", () => {
+    const { editor } = renderPage1({ onSaveResult: undefined });
+    fireEvent.change(screen.getByLabelText("1 · Doświadczenie"), { target: { value: "Ponad 7 lat w Javie i Kotlinie." } });
+    expect(editor.getHTML()).toContain("<li><p>Ponad <strong>7 lat</strong> w Javie i Kotlinie.</p></li>");
   });
 });
 
-describe("Policz wyniki od nowa", () => {
+describe("Ułóż zdania od nowa (zdania 1–3 i wyniki, dawne „Policz wyniki od nowa”)", () => {
   const apiError = (status: number, data: unknown) =>
     Object.assign(new Error(`Request failed with status code ${status}`), {
       isAxiosError: true,
@@ -175,10 +253,10 @@ describe("Policz wyniki od nowa", () => {
 
   it("bez wołania serwera nie ma przycisku", () => {
     renderPage1();
-    expect(screen.queryByRole("button", { name: /Policz wyniki od nowa/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Ułóż zdania od nowa/ })).toBeNull();
   });
 
-  it("przycisk woła liczenie i blokuje się do końca", async () => {
+  it("przycisk woła liczenie i blokuje się, a z nim pola zdań, do końca", async () => {
     let finish: () => void = () => undefined;
     const onRecalcResults = vi.fn(
       () =>
@@ -187,29 +265,31 @@ describe("Policz wyniki od nowa", () => {
         }),
     );
     renderPage1({ onRecalcResults });
-    const button = screen.getByRole("button", { name: /Policz wyniki od nowa/ });
+    const button = screen.getByRole("button", { name: /Ułóż zdania od nowa/ });
     await userEvent.click(button);
     expect(onRecalcResults).toHaveBeenCalledTimes(1);
     expect(button).toBeDisabled();
-    expect(button).toHaveTextContent("Szukam wyników w CV");
-    expect(screen.getByRole("button", { name: /Inny wynik/ })).toBeDisabled();
+    expect(button).toHaveTextContent("Układam zdania");
+    expect(screen.getByRole("button", { name: /Wynik z CV/ })).toBeDisabled();
+    expect(screen.getByLabelText("3 · Najważniejsze zadanie")).toBeDisabled();
     await act(async () => finish());
     expect(button).toBeEnabled();
-    expect(button).toHaveTextContent("Policz wyniki od nowa");
+    expect(button).toHaveTextContent("Ułóż zdania od nowa");
+    expect(screen.getByLabelText("3 · Najważniejsze zadanie")).toBeEnabled();
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("awaria modelu (503) to zdanie serwera, nie surowy błąd", async () => {
     const detail = "Nie udało się teraz znaleźć wyniku w CV. Spróbuj ponownie za chwilę.";
     renderPage1({ onRecalcResults: vi.fn(async () => Promise.reject(apiError(503, { detail }))) });
-    await userEvent.click(screen.getByRole("button", { name: /Policz wyniki od nowa/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Ułóż zdania od nowa/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent(detail);
   });
 
   it("limit żądań (429) to prośba o odczekanie", async () => {
     const error = apiError(429, { error: "Rate limit exceeded: 20 per 1 minute" });
     renderPage1({ onRecalcResults: vi.fn(async () => Promise.reject(error)) });
-    await userEvent.click(screen.getByRole("button", { name: /Policz wyniki od nowa/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Ułóż zdania od nowa/ }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("odczekaj minutę");
     expect(alert).not.toHaveTextContent("429");

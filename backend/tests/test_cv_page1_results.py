@@ -19,6 +19,8 @@ from app.core.config import settings
 from app.services import cv_page1_results as service
 from app.services.cv_generator_b2b.html_export import render_interactive_html
 from app.services.cv_layout import chosen_result
+from app.services.cv_page1_why import inputs_sha
+from app.services.cv_page1_why_checks import WhyInputs
 from app.services.cv_page1_result_checks import (
     ISSUE_COMPANY_NAMED,
     ISSUE_NOT_ONE_SENTENCE,
@@ -352,6 +354,17 @@ PAYLOAD = {
 HTML = render_interactive_html(PAYLOAD, None, document_only=True)
 
 
+WHY_ANSWER = {
+    "experience": {
+        "text": "{LATA_IT} w IT jako tester, w bankowości",
+        "it_roles": [0, 1],
+        "role_roles": [],
+    },
+    "requirements": {"text": "", "evidence": []},
+    "key_task": {"text": "", "quote": "", "source": "cv", "company": ""},
+}
+
+
 class _FakeSession:
     """Tyle sesji, ile potrzebuje `refresh_stage_cv`: get, scalar, commit, rollback."""
 
@@ -397,9 +410,19 @@ def model(monkeypatch):
         calls.append({"system": system, "content": content})
         return json.dumps({"results": calls_answer[0]}, ensure_ascii=False)
 
+    def fake_why_model(system, content, request_id):
+        why_calls.append({"system": system, "content": content})
+        return json.dumps(WHY_ANSWER, ensure_ascii=False)
+
+    async def no_inputs(db, csv):
+        return WhyInputs(), None
+
     calls_answer = [[GOOD]]
+    why_calls: list[dict] = []
     monkeypatch.setattr(service, "ai_feature", no_quota)
     monkeypatch.setattr(service, "_call_model", fake_model)
+    monkeypatch.setattr(service, "_call_why_model", fake_why_model)
+    monkeypatch.setattr(service, "load_why_inputs", no_inputs)
     monkeypatch.setattr(service, "api_key_configured", lambda model: True)
     monkeypatch.setattr(settings, "CV_NEW_LAYOUT_ENABLED", True)
     return calls, calls_answer
@@ -429,7 +452,13 @@ async def test_refresh_writes_results_and_keeps_other_extras(model):
 @pytest.mark.asyncio
 async def test_background_run_skips_when_sha_matches(model):
     calls, _ = model
-    extras = {"results": [], "results_source_sha": source_sha(HTML), "result_index": 0}
+    extras = {
+        "results": [],
+        "results_source_sha": source_sha(HTML),
+        "result_index": 0,
+        "why_generated": [],
+        "why_source_sha": inputs_sha(HTML, WhyInputs()),
+    }
     csv = _Csv(page1_extras=dict(extras))
     outcome = await service.refresh_stage_cv(_FakeSession(csv), csv.id)
     assert outcome.status == service.UNCHANGED
@@ -456,6 +485,7 @@ async def test_model_failure_leaves_extras_untouched(model, monkeypatch):
         raise TimeoutError("model nie odpowiedział")
 
     monkeypatch.setattr(service, "_call_model", broken)
+    monkeypatch.setattr(service, "_call_why_model", broken)
     before = {"why": ["x"], "results_source_sha": "stary"}
     csv = _Csv(page1_extras=dict(before))
     db = _FakeSession(csv)
@@ -471,8 +501,25 @@ async def test_broken_model_answer_is_a_failure_not_an_empty_list(model):
     answer[0] = "nie lista"
     csv = _Csv()
     outcome = await service.refresh_stage_cv(_FakeSession(csv), csv.id)
-    assert outcome.status == service.FAILED
-    assert csv.page1_extras is None
+    # Zepsuta lista wyników nie zapisuje się jako pusta (bieg w tle spróbuje
+    # znowu); zdania 1–3 z drugiego wywołania zapisują się normalnie.
+    assert outcome.status == service.UPDATED
+    assert outcome.reason == "results"
+    assert "results" not in csv.page1_extras
+    assert csv.page1_extras["why_generated"][0]["verified"] is True
+
+
+@pytest.mark.asyncio
+async def test_broken_why_answer_keeps_previous_sentences(model, monkeypatch):
+    monkeypatch.setattr(service, "_call_why_model", lambda *a: "nie JSON")
+    before = {"why": ["Moje zdanie.", "", ""], "why_source_sha": "stary"}
+    csv = _Csv(page1_extras=dict(before))
+    outcome = await service.refresh_stage_cv(_FakeSession(csv), csv.id)
+    assert outcome.status == service.UPDATED
+    assert outcome.reason == "why"
+    assert csv.page1_extras["why"] == ["Moje zdanie.", "", ""]
+    assert csv.page1_extras["why_source_sha"] == "stary"
+    assert csv.page1_extras["results"][0]["verified"] is True
 
 
 @pytest.mark.asyncio

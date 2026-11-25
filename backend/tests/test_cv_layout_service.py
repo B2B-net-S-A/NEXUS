@@ -45,11 +45,13 @@ def test_rule_layout_defaults_to_classic():
     assert cv_layout.rule_layout(object()) == "classic"
 
 
-def test_page1_why_takes_three_non_empty_sentences():
+def test_page1_why_is_three_slots():
     assert cv_layout.page1_why(None) is None
     assert cv_layout.page1_why({"why": "tekst"}) is None
     assert cv_layout.page1_why({"why": ["", "  "]}) is None
-    assert cv_layout.page1_why({"why": ["a", "", "b", "c", "d"]}) == ["a", "b", "c"]
+    # Pusty slot zostaje na swoim miejscu — bierze punkt generatora.
+    assert cv_layout.page1_why({"why": ["a", "", "b", "c", "d"]}) == ["a", "", "b"]
+    assert cv_layout.page1_why({"why": [None, "b"]}) == ["", "b", ""]
 
 
 def test_page1_composition_e2_result_replaces_third_point():
@@ -82,6 +84,32 @@ def test_page1_composition_e2_result_replaces_third_point():
         "Moje 2.",
         "Moje 3.",
     ]
+
+
+def test_page1_composition_fills_each_empty_slot_with_todays_point():
+    points = ["Lata.", "Technologie.", "Wymaganie."]
+    only_task = {"why": ["", "", "Zadanie z dowodem."]}
+    assert cv_layout.compose_page1_why(points, only_task) == [
+        "Lata.",
+        "Technologie.",
+        "Zadanie z dowodem.",
+    ]
+    # Slot 3 bez zdania: najmocniejszy wynik, a bez niego punkt 3 generatora.
+    result = {
+        "why": ["Zdanie 1.", "", ""],
+        "results": [{"text": "Wynik.", "verified": True}],
+    }
+    assert cv_layout.compose_page1_why(points, result) == [
+        "Zdanie 1.",
+        "Technologie.",
+        "Wynik.",
+    ]
+    assert cv_layout.compose_page1_why(points, {"why": ["Zdanie 1."]}) == [
+        "Zdanie 1.",
+        "Technologie.",
+        "Wymaganie.",
+    ]
+    assert cv_layout.compose_page1_why([], {"why": ["", "Tylko 2."]}) == ["Tylko 2."]
 
 
 def test_pdf_route_layout_choice(flag_on, monkeypatch):
