@@ -202,9 +202,9 @@ CATALOG: tuple[Defect, ...] = (
         title="Prośba o akceptację godzin bez odpowiedzi",
         instruction=(
             "Prosimy o odpowiedź „Akceptuję” na prośbę o akceptację czasu pracy "
-            "za {month} od konsultanta B2Bnetwork: {person}. Liczba godzin jest "
-            "w treści prośby. Odpowiedź prosimy wysłać do konsultanta z kopią "
-            "na {address}."
+            "za {month} dotyczącą konsultanta B2Bnetwork: {person}. Liczba godzin "
+            "jest w treści prośby. Odpowiedź prosimy wysłać do nadawcy prośby "
+            "z kopią na {address}."
         ),
         consultant_instruction=(
             "Akceptujący u klienta nie odpowiedział na Twoją prośbę o akceptację "
@@ -213,6 +213,24 @@ CATALOG: tuple[Defect, ...] = (
         ),
         rules=("proof.accept_has_hours",),
         titles=("Mail bez odpowiedzi akceptującego",),
+    ),
+    Defect(
+        code="accept.reply_without_ok",
+        audience=CLIENT,
+        title="Odpowiedź klienta bez akceptacji godzin",
+        instruction=(
+            "Dziękujemy za odpowiedź na prośbę o akceptację czasu pracy za {month} "
+            "dotyczącą konsultanta B2Bnetwork: {person}. Do rozliczenia potrzebujemy "
+            "jednak wyraźnej akceptacji godzin: prosimy o odpowiedź „Akceptuję” na "
+            "tę prośbę, z kopią na {address}."
+        ),
+        consultant_instruction=(
+            "Akceptujący u klienta odpisał na prośbę o akceptację godzin za {month}, "
+            "ale godzin nie zaakceptował. Poproś go o wyraźne „Akceptuję” "
+            "w odpowiedzi na prośbę i prześlij nam cały wątek (MSG albo EML) "
+            "na {address}."
+        ),
+        rules=("proof.request_reply",),
     ),
     Defect(
         code="accept.fix",

@@ -165,5 +165,14 @@ async def test_odpowiedz_bez_akceptacji_nie_daje_md(tmp_path, monkeypatch) -> No
         assert accepted_request.SOURCE not in [
             g.get("title") for g in s.checks or [] if isinstance(g, dict)
         ]
+        # Decyzja Artura 25.11.2026: bez MD, ale z uwagą i adresem odpowiadającego.
+        (check,) = [
+            c
+            for g in s.checks or []
+            if isinstance(g, dict)
+            for c in g.get("checks") or []
+            if c.get("rule") == service.REQUEST_REPLY
+        ]
+        assert check["acceptors"] == [f"kierownik@{DOMAIN}"]
     finally:
         await _cleanup(w.client_id)

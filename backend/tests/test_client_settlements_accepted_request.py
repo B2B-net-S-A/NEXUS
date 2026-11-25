@@ -305,3 +305,87 @@ def test_bez_znanych_domen_klienta_bez_md(tmp_path, monkeypatch):
 def test_tylko_maile_bez_pliku_godzin(mimes, expected):
     docs = [CpDocument(id=i, mime=m) for i, m in enumerate(mimes)]
     assert service._mails_only(docs) is expected
+
+
+# ── Odpowiedź klienta bez akceptacji (decyzja Artura 25.11.2026) ───────────
+
+
+def _unaccepted(content: bytes, month: str = SEPTEMBER, *, person: str = PERSON):
+    mail = mail_text.read(content, EML)
+    assert mail is not None
+    return accepted_request.find_unaccepted(
+        mail, month=month, person_name=person, senders=SENDERS
+    )
+
+
+def test_odpowiedz_bez_akceptacji_to_prosba_bez_odpowiedzi():
+    # BIK, IX 2026: na prośbę „- 176h” klient odpisał tylko o fakturze w PDF.
+    reply = _unaccepted(
+        _coordinator_thread(reply="Prosimy o przesyłanie również faktury w PDF.")
+    )
+    assert reply is not None
+    assert (reply.hours, reply.md, reply.month) == (Decimal("176"), None, SEPTEMBER)
+    assert reply.replier == "kierownik@klient.example"
+    assert reply.quote.startswith("Prosimy o przesyłanie")
+
+
+@pytest.mark.parametrize(
+    "reply",
+    ["Akceptuję", "Nie akceptuję, w tym miesiącu był urlop."],
+)
+def test_akceptacja_albo_odmowa_to_nie_brak_odpowiedzi(reply: str):
+    assert _unaccepted(_coordinator_thread(reply=reply)) is None
+
+
+def test_bez_akceptacji_za_inny_miesiac_albo_inna_osobe_nic():
+    content = _coordinator_thread(reply="Prosimy o fakturę w PDF.")
+    assert _unaccepted(content, OCTOBER) is None
+    assert _unaccepted(content, person="Anna Inna") is None
+
+
+def test_odpowiedz_naszego_adresu_to_nie_odpowiedz_klienta():
+    content = _coordinator_thread(
+        sender="Koordynatorka <rozliczenia@firma.example>", reply="Przypominam."
+    )
+    assert _unaccepted(content) is None
+
+
+def test_rozliczenie_bez_md_z_uwaga_i_adresem_odpowiadajacego(tmp_path, monkeypatch):
+    content = _coordinator_thread(reply="Prosimy o przesyłanie również faktury w PDF.")
+    found = _proof(tmp_path, monkeypatch, [content], month=SEPTEMBER)
+    assert found is not None
+    doc, result = found
+    assert doc.id == 1 and result.md_regular is None
+    (check,) = [c for g in result.groups for c in g["checks"]]
+    assert check["rule"] == service.REQUEST_REPLY
+    assert check["state"] == "warn"
+    assert check["title"] == "Odpowiedź klienta bez akceptacji godzin"
+    assert check["acceptors"] == ["kierownik@klient.example"]
+    assert "176 h" in check["detail"]
+
+
+def test_uwaga_zostaje_w_rozliczeniu_bez_md():
+    # BIK 569 IX: bez MD rozliczenie miało tylko „Czeka na liczbę MD” i uwaga ginęła.
+    from app.services.client_settlements import engine, rcp_checks
+
+    assert engine.REQUEST_REPLY == rcp_checks.REQUEST_REPLY
+    proof = rcp_checks.ProofResult(md_regular=None, md_extra=None)
+    proof.groups = [
+        {"title": "Inne", "checks": [{"state": "fail", "title": "x", "rule": "a.b"}]},
+        {
+            "title": "Akceptacja klienta w mailu",
+            "checks": [
+                {
+                    "state": "warn",
+                    "title": "Odpowiedź klienta bez akceptacji godzin",
+                    "rule": rcp_checks.REQUEST_REPLY,
+                    "acceptors": ["kierownik@klient.example"],
+                }
+            ],
+        },
+    ]
+    result = engine.compute(
+        engine.Inputs(md_regular=None, md_extra=None, rules={}, order=None, proof=proof)
+    )
+    assert result.status == "checking"
+    assert [g["title"] for g in result.checks] == ["RCP", "Akceptacja klienta w mailu"]

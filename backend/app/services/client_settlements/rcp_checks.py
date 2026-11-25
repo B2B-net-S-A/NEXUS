@@ -87,6 +87,10 @@ def name_tokens(text: Optional[str]) -> set[str]:
 
 #: Klucz uwagi o kosztach delegacji w RCP (nie reguła katalogu; grupa w „Przebiegu miesiąca”).
 TRAVEL_IN_RCP = "travel.rcp_costs"
+#: Klient odpisał na prośbę o akceptację bez „akceptuję” (decyzja Artura z 25.11.2026).
+#: Jedyna uwaga, która zostaje w rozliczeniu bez MD (``engine.compute``): mówi,
+#: dlaczego MD nie ma i kto ma to poprawić.
+REQUEST_REPLY = "proof.request_reply"
 
 
 class _Group:
