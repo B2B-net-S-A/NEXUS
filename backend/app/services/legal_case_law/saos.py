@@ -192,7 +192,9 @@ async def search_ids(
     return parse_search_ids(data)[:limit]
 
 
-async def fetch_judgment(client: PoliteClient, judgment_id: int) -> Optional[CaseRecord]:
+async def fetch_judgment(
+    client: PoliteClient, judgment_id: int
+) -> Optional[CaseRecord]:
     """Pełna treść orzeczenia; awaria albo brak treści = ``None``."""
     data = await client.get_json(f"{API}/judgments/{int(judgment_id)}")
     payload = (data or {}).get("data")

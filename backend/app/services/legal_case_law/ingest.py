@@ -44,17 +44,32 @@ TOPICS: tuple[Topic, ...] = (
         "Umowa B2B a stosunek pracy (art. 22 KP)",
         (
             TopicQuery('"stosunek pracy" "umowa cywilnoprawna" art. 22', "supreme"),
-            TopicQuery('"działalność gospodarcza" "stosunek pracy" samozatrudnienie', "supreme"),
-            TopicQuery('"ustalenie istnienia stosunku pracy" "działalności gospodarczej"', "common", date(2020, 1, 1)),
+            TopicQuery(
+                '"działalność gospodarcza" "stosunek pracy" samozatrudnienie', "supreme"
+            ),
+            TopicQuery(
+                '"ustalenie istnienia stosunku pracy" "działalności gospodarczej"',
+                "common",
+                date(2020, 1, 1),
+            ),
         ),
     ),
     Topic(
         "copyright_transfer",
         "Przeniesienie autorskich praw majątkowych (forma, pola eksploatacji)",
         (
-            TopicQuery('"przeniesienie autorskich praw majątkowych" "formy pisemnej"', "supreme"),
-            TopicQuery('"pola eksploatacji" "autorskich praw majątkowych" umowa', "supreme"),
-            TopicQuery('"przeniesienie autorskich praw majątkowych" "pola eksploatacji"', "common", date(2020, 1, 1)),
+            TopicQuery(
+                '"przeniesienie autorskich praw majątkowych" "formy pisemnej"',
+                "supreme",
+            ),
+            TopicQuery(
+                '"pola eksploatacji" "autorskich praw majątkowych" umowa', "supreme"
+            ),
+            TopicQuery(
+                '"przeniesienie autorskich praw majątkowych" "pola eksploatacji"',
+                "common",
+                date(2020, 1, 1),
+            ),
         ),
     ),
     Topic(
@@ -63,16 +78,26 @@ TOPICS: tuple[Topic, ...] = (
         (
             TopicQuery('"miarkowanie kary umownej"', "supreme"),
             TopicQuery('"kara umowna" "rażąco wygórowana"', "supreme"),
-            TopicQuery('"miarkowanie kary umownej" "484 § 2"', "common", date(2022, 1, 1)),
+            TopicQuery(
+                '"miarkowanie kary umownej" "484 § 2"', "common", date(2022, 1, 1)
+            ),
         ),
     ),
     Topic(
         "service_termination",
         "Wypowiedzenie umowy o świadczenie usług (art. 746 i 750 KC)",
         (
-            TopicQuery('"art. 746" "ważnych powodów" wypowiedzenie zlecenia', "supreme"),
-            TopicQuery('"umowa o świadczenie usług" "art. 750" wypowiedzenie', "supreme"),
-            TopicQuery('"art. 746" "ważnych powodów" "świadczenie usług"', "common", date(2020, 1, 1)),
+            TopicQuery(
+                '"art. 746" "ważnych powodów" wypowiedzenie zlecenia', "supreme"
+            ),
+            TopicQuery(
+                '"umowa o świadczenie usług" "art. 750" wypowiedzenie', "supreme"
+            ),
+            TopicQuery(
+                '"art. 746" "ważnych powodów" "świadczenie usług"',
+                "common",
+                date(2020, 1, 1),
+            ),
         ),
     ),
     Topic(
@@ -81,7 +106,11 @@ TOPICS: tuple[Topic, ...] = (
         (
             TopicQuery('"zakaz konkurencji" "umowy cywilnoprawnej"', "supreme"),
             TopicQuery('"zakazu konkurencji" "odszkodowanie" "po ustaniu"', "supreme"),
-            TopicQuery('"zakaz konkurencji" "umowa o współpracy" "kara umowna"', "common", date(2020, 1, 1)),
+            TopicQuery(
+                '"zakaz konkurencji" "umowa o współpracy" "kara umowna"',
+                "common",
+                date(2020, 1, 1),
+            ),
         ),
     ),
 )
@@ -133,5 +162,10 @@ async def ingest_topic(
         result.inserted,
     )
     return TopicReport(
-        topic.key, found, len(records), result.inserted, result.updated, result.unchanged
+        topic.key,
+        found,
+        len(records),
+        result.inserted,
+        result.updated,
+        result.unchanged,
     )

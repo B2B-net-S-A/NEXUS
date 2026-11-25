@@ -44,12 +44,8 @@ class LegalCase(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source: Mapped[str] = mapped_column(String(8), nullable=False)
-    source_id: Mapped[str] = mapped_column(
-        String(schema.SOURCE_ID_MAX), nullable=False
-    )
-    signature: Mapped[str] = mapped_column(
-        String(schema.SIGNATURE_MAX), nullable=False
-    )
+    source_id: Mapped[str] = mapped_column(String(schema.SOURCE_ID_MAX), nullable=False)
+    signature: Mapped[str] = mapped_column(String(schema.SIGNATURE_MAX), nullable=False)
     court: Mapped[str] = mapped_column(String(schema.COURT_MAX), nullable=False)
     court_type: Mapped[str] = mapped_column(String(16), nullable=False)
     judgment_date: Mapped[Optional[date]] = mapped_column(Date)

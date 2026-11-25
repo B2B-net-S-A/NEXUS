@@ -93,18 +93,22 @@ async def index_pending(db: AsyncSession, *, max_rows: int = 500) -> int:
     if client is None:
         return 0
     rows = (
-        await db.execute(
-            select(LegalCase)
-            .where(
-                or_(
-                    LegalCase.embedded_sha256.is_(None),
-                    LegalCase.embedded_sha256 != LegalCase.content_sha256,
+        (
+            await db.execute(
+                select(LegalCase)
+                .where(
+                    or_(
+                        LegalCase.embedded_sha256.is_(None),
+                        LegalCase.embedded_sha256 != LegalCase.content_sha256,
+                    )
                 )
+                .order_by(LegalCase.id)
+                .limit(max_rows)
             )
-            .order_by(LegalCase.id)
-            .limit(max_rows)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     done = 0
     for start in range(0, len(rows), EMBED_BATCH):
         batch = rows[start : start + EMBED_BATCH]
@@ -112,12 +116,16 @@ async def index_pending(db: AsyncSession, *, max_rows: int = 500) -> int:
             [embed_text(row) for row in batch], input_type="document"
         )
         if not vectors or any(vector is None for vector in vectors):
-            logger.warning("[orzecznictwo] embeddingi niedostępne — zostaje wyszukiwanie po słowach")
+            logger.warning(
+                "[orzecznictwo] embeddingi niedostępne — zostaje wyszukiwanie po słowach"
+            )
             return done
         try:
             await embedding_service._run_qdrant(
                 lambda: upsert_points(
-                    client, [(row.id, row.court_type) for row in batch], vectors  # type: ignore[arg-type]
+                    client,
+                    [(row.id, row.court_type) for row in batch],
+                    vectors,  # type: ignore[arg-type]
                 )
             )
         except Exception as exc:  # noqa: BLE001 — wektory są dodatkiem
@@ -148,5 +156,7 @@ async def vector_ranking(query: str) -> Optional[list[int]]:
             lambda: search_points(client, vector, VECTOR_HITS)
         )
     except Exception as exc:  # noqa: BLE001 — zostaje wyszukiwanie po słowach
-        logger.warning("[orzecznictwo] wyszukiwanie wektorowe nieudane: %s", type(exc).__name__)
+        logger.warning(
+            "[orzecznictwo] wyszukiwanie wektorowe nieudane: %s", type(exc).__name__
+        )
         return None

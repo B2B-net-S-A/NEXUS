@@ -954,8 +954,10 @@ from app.models import law_radar as _law_radar_models  # noqa: F401,E402
 
 # 0779: korpus prawa asystenta prawnego (akty, wersje, jednostki redakcyjne).
 from app.models import legal_corpus as _legal_corpus_models  # noqa: F401,E402
+
 # 0781: orzecznictwo dla asystenta prawnego (część C).
 from app.models import legal_case_law as _legal_case_law_models  # noqa: F401,E402
+
 # 0780: wzory własne Generatora Umów B2B (asystent prawny, część B).
 from app.models import custom_document_template as _custom_template_models  # noqa: F401,E402
 

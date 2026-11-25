@@ -51,7 +51,12 @@ async def search_cases(
         "retrieval": outcome.retrieval,
         # Źródła bez API: sam link do wyszukiwarki (reguła, ``links.py``).
         "links": [
-            {"source": link.source, "label": link.label, "url": link.url, "note": link.note}
+            {
+                "source": link.source,
+                "label": link.label,
+                "url": link.url,
+                "note": link.note,
+            }
             for link in links.search_links(search.normalize_courts(courts))
         ],
     }

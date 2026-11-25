@@ -33,9 +33,7 @@ class StoreResult:
     unchanged: int
 
 
-async def store_records(
-    db: AsyncSession, records: Sequence[CaseRecord]
-) -> StoreResult:
+async def store_records(db: AsyncSession, records: Sequence[CaseRecord]) -> StoreResult:
     """Dopisuje albo odświeża orzeczenia; commit robi wołający."""
     unique: dict[tuple[str, str], CaseRecord] = {}
     for record in records:

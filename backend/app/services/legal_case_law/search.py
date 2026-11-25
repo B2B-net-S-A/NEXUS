@@ -162,7 +162,10 @@ async def keyword_ranking(
         return []
     any_query = func.to_tsquery("simple", literal(" | ".join(f"{s}:*" for s in stems)))
     coverage = sum(
-        cast(LegalCase.search_tsv.op("@@")(func.to_tsquery("simple", literal(f"{s}:*"))), Integer)
+        cast(
+            LegalCase.search_tsv.op("@@")(func.to_tsquery("simple", literal(f"{s}:*"))),
+            Integer,
+        )
         for s in stems
     )
     rows = await db.execute(
