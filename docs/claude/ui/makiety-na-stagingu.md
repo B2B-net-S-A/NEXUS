@@ -34,7 +34,8 @@ Kolejność, od najlepszego:
 1. **Kod na gałęzi, front na danych stagingu.** Zmiana UI w worktree, potem
    `cd frontend && NEXT_PUBLIC_API_URL=http://localhost:8100 npm run dev -- -p 3101`
    (CORS stagingu przyjmuje 3101; token jest w `localStorage` per port, więc
-   na 3101 logujesz się osobno). Zrzuty „przed” (3100) i „po” (3101) na tym
+   na 3101 logujesz się osobno; 3101 zajęty → para portów i backend gałęzi
+   jak w `/sciezka`, bo CORS stagingu przyjmuje tylko 3100 i 3101). Zrzuty „przed” (3100) i „po” (3101) na tym
    samym rekordzie, w tym samym rozmiarze, obok siebie. Gałąź z samą
    makietą może zostać draftem albo zniknąć po decyzji. Nowe API: zaślep
    odpowiedź wartościami z danych stagingu i powiedz, które pola.
