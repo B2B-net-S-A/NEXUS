@@ -66,6 +66,7 @@ WARSAW = ZoneInfo("Europe/Warsaw") if ZoneInfo else timezone(timedelta(hours=1))
 WINDOW_CLOSE_HOUR = 8
 WINDOW_OPEN_HOUR = 18
 FILES_PAGE = 100
+MAX_FILE_PAGES = 30
 TITLE_LIMIT = 60
 MAX_LOGS_PER_PR = 2
 HOLD_LABEL = "wstrzymaj"
@@ -373,10 +374,30 @@ def removal_detail(pr: dict, removed: dict, ctx: Context) -> str:
     return f"{run.get('name')} {run.get('conclusion')}; bieg {url}"
 
 
+def all_files(pr: dict, ctx: Context) -> Optional[List[str]]:
+    """Ścieżki PR-a. GraphQL daje pierwsze ``FILES_PAGE``, resztę dociąga REST
+    (``pulls/N/files``, GitHub oddaje najwyżej 3000). None = nie wiadomo."""
+    files = pr_files(pr)
+    if files is not None:
+        return files
+    pages = min(MAX_FILE_PAGES, -(-int(pr.get("changedFiles") or 0) // FILES_PAGE))
+    paths: List[str] = []
+    try:
+        for page in range(1, pages + 1):
+            chunk = ctx.api.rest(
+                f"repos/{REPO}/pulls/{pr['number']}/files?per_page={FILES_PAGE}&page={page}"
+            )
+            paths += [str(f.get("filename")) for f in chunk or [] if f.get("filename")]  # type: ignore[union-attr]
+    except Exception:  # noqa: BLE001
+        return None
+    return paths
+
+
 def open_line(pr: dict, ctx: Context) -> str:
     labels = set(_names(pr, "labels", "name"))
-    files = pr_files(pr)
-    migration = files is None or any(
+    files = all_files(pr, ctx)
+    # Nie wiadomo (błąd API) = bez twierdzenia o pasie; etykieta pasa i tak wygrywa niżej.
+    migration = files is not None and any(
         path.startswith(MIGRATIONS_PREFIX) for path in files
     )
     removed = removals(pr)
@@ -458,8 +479,6 @@ def _without_health(merge: str, merged_at: datetime, ctx: Context) -> str:
 def merged_line(pr: dict, ctx: Context) -> str:
     merge = ((pr.get("mergeCommit") or {}).get("oid")) or ""
     merged_at = parse_time(pr.get("mergedAt")) or ctx.now
-    files = pr_files(pr)
-    touches_front = files is None or any(path.startswith("frontend/") for path in files)
     backend = ctx.prod.backend
     if merge and not backend:
         return _without_health(merge, merged_at, ctx)
@@ -470,6 +489,9 @@ def merged_line(pr: dict, ctx: Context) -> str:
     on_backend = _ancestor(merge, backend, ctx)
     if on_backend is None:
         return f"? scalony {when(merged_at, ctx.now)}, git nie zna {merge[:9]} albo {backend[:9]} (git fetch?)"
+    files = all_files(pr, ctx)
+    # Nie wiadomo, co zmienia = sprawdzamy też front i nie uznajemy za same dokumenty.
+    touches_front = files is None or any(path.startswith("frontend/") for path in files)
     if on_backend:
         if not touches_front:
             return f"✓ na produkcji — backend {backend[:9]}"

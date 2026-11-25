@@ -163,7 +163,7 @@ def test_nagranie_nocne_daje_te_same_wiersze():
     )
     assert "w kolejce, pozycja 1, testy grupy w toku, od 00:14" in by_pr["#4037"]
     assert "pas migracji" in by_pr["#4040"]
-    # 225 plików, GraphQL dał 100: nie wiemy, czy zmienia front, więc sprawdza oba
+    # 225 plików, GraphQL dał 100 bez frontu; 60 plików frontend/ jest na stronach 2–3 REST
     assert "backend 467995771, front 467995771" in by_pr["#4032"]
     assert by_pr["#99999"] == "#99999 ? nie ma takiego PR-a w B2B-net-S-A/NEXUS"
 
@@ -194,7 +194,8 @@ def test_bez_numerow_szuka_otwartych_i_scalonych_z_okna_godzin():
 
 def test_health_503_w_trakcie_wdrozenia_wersja_z_frontu():
     """00:44: /api/health 503 przy restarcie, front już z 467995771."""
-    by_pr = {line.split()[0]: line for line in RECENT["lines"]}
+    lines = _run(Replay(RECENT), [], RECENT["now"], extra=["--godziny", "1"])
+    by_pr = {line.split()[0]: line for line in lines}
     assert by_pr["#4035"].startswith(
         "#4035 ✓ na produkcji wg frontu 467995771 (/api/health: HTTP Error 503: Service Unavailable)"
     )
@@ -307,6 +308,37 @@ def test_kolejka_z_migracja_to_pas_migracji():
         "⏳ w kolejce (pas migracji), pozycja 1, testy grupy w toku, od 00:30"
         in _line(api, pr)
     )
+
+
+FILES_4032 = "repos/B2B-net-S-A/NEXUS/pulls/4032/files?per_page=100&page={}"
+QUEUED = {"state": "QUEUED", "position": 2, "enqueuedAt": "2026-11-25T23:30:00Z"}
+
+
+def test_ponad_100_plikow_reszta_z_rest():
+    """#4032: 225 plików, GraphQL dał pierwsze 100, REST strony 1–3."""
+    api = Replay(NIGHT)
+    _run(api, NIGHT_NUMBERS)
+    assert [("rest", FILES_4032.format(p)) for p in (1, 2, 3)] == [
+        c for c in api.calls if "/pulls/4032/files" in c[1]
+    ]
+    pr = _reopened(api.pr(4032), "merged")
+    pr["mergeQueueEntry"] = QUEUED
+    assert "⏳ w kolejce (pas migracji), pozycja 2" in _line(api, pr)
+
+
+def test_ponad_100_plikow_bez_listy_nie_twierdzi_o_migracji():
+    """Przegląd 26.11: brak pełnej listy plików dawał „pas migracji” PR-owi bez migracji."""
+    api = Replay(NIGHT)
+    pr = copy.deepcopy(api.pr(4037))  # 3 pliki, bez migracji
+    pr["changedFiles"] = (
+        225  # GraphQL dał tylko część, a REST nie odpowiada (brak w nagraniu)
+    )
+    pr["mergeQueueEntry"] = QUEUED
+    line = _line(api, pr)
+    assert "⏳ w kolejce, pozycja 2, czeka na grupę" in line
+    assert "migracj" not in line
+    pr.update(mergeQueueEntry=None, autoMergeRequest=None, timelineItems={"nodes": []})
+    assert "migracj" not in _line(api, pr)
 
 
 @pytest.mark.parametrize(

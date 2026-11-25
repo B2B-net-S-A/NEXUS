@@ -3367,7 +3367,688 @@
      ]
     }
    ]
-  }
+  },
+  "repos/B2B-net-S-A/NEXUS/pulls/4032/files?per_page=100&page=1": [
+   {
+    "filename": "CLAUDE.md"
+   },
+   {
+    "filename": "backend/alembic/versions/0785_legal_corpus.py"
+   },
+   {
+    "filename": "backend/alembic/versions/0786_custom_document_templates.py"
+   },
+   {
+    "filename": "backend/alembic/versions/0787_legal_case_law.py"
+   },
+   {
+    "filename": "backend/alembic/versions/0788_legal_redline_ai.py"
+   },
+   {
+    "filename": "backend/alembic/versions/0789_contract_document_chunks.py"
+   },
+   {
+    "filename": "backend/alembic/versions/0790_legal_assistant_tasks.py"
+   },
+   {
+    "filename": "backend/alembic/versions/0791_legal_client_fit.py"
+   },
+   {
+    "filename": "backend/app/api/b2b_documents.py"
+   },
+   {
+    "filename": "backend/app/api/contract_document_text.py"
+   },
+   {
+    "filename": "backend/app/api/contracts.py"
+   },
+   {
+    "filename": "backend/app/api/custom_document_templates.py"
+   },
+   {
+    "filename": "backend/app/api/jarvis.py"
+   },
+   {
+    "filename": "backend/app/api/legal.py"
+   },
+   {
+    "filename": "backend/app/api/legal_case_law.py"
+   },
+   {
+    "filename": "backend/app/api/legal_client_fit.py"
+   },
+   {
+    "filename": "backend/app/api/legal_letters.py"
+   },
+   {
+    "filename": "backend/app/api/legal_redline.py"
+   },
+   {
+    "filename": "backend/app/api/legal_tasks.py"
+   },
+   {
+    "filename": "backend/app/core/config.py"
+   },
+   {
+    "filename": "backend/app/core/staging.py"
+   },
+   {
+    "filename": "backend/app/data/screen_guides/guides.json"
+   },
+   {
+    "filename": "backend/app/data/screen_guides/stamps/contracts.b2b_generator.json"
+   },
+   {
+    "filename": "backend/app/main.py"
+   },
+   {
+    "filename": "backend/app/models/__init__.py"
+   },
+   {
+    "filename": "backend/app/models/ai_feature.py"
+   },
+   {
+    "filename": "backend/app/models/contract_document.py"
+   },
+   {
+    "filename": "backend/app/models/contract_document_chunk.py"
+   },
+   {
+    "filename": "backend/app/models/custom_document_template.py"
+   },
+   {
+    "filename": "backend/app/models/legal_assistant_task.py"
+   },
+   {
+    "filename": "backend/app/models/legal_case_law.py"
+   },
+   {
+    "filename": "backend/app/models/legal_client_fit.py"
+   },
+   {
+    "filename": "backend/app/models/legal_corpus.py"
+   },
+   {
+    "filename": "backend/app/services/ai_models.py"
+   },
+   {
+    "filename": "backend/app/services/b2b_documents/constants.py"
+   },
+   {
+    "filename": "backend/app/services/b2b_documents/effects.py"
+   },
+   {
+    "filename": "backend/app/services/b2b_documents/registry.py"
+   },
+   {
+    "filename": "backend/app/services/b2b_documents/schema_sql.py"
+   },
+   {
+    "filename": "backend/app/services/contract_document_text/__init__.py"
+   },
+   {
+    "filename": "backend/app/services/contract_document_text/index.py"
+   },
+   {
+    "filename": "backend/app/services/contract_document_text/schema.py"
+   },
+   {
+    "filename": "backend/app/services/contract_document_text/service.py"
+   },
+   {
+    "filename": "backend/app/services/contract_document_text/structure.py"
+   },
+   {
+    "filename": "backend/app/services/contract_document_text/termination.py"
+   },
+   {
+    "filename": "backend/app/services/contract_merge.py"
+   },
+   {
+    "filename": "backend/app/services/custom_templates/base.py"
+   },
+   {
+    "filename": "backend/app/services/custom_templates/checks.py"
+   },
+   {
+    "filename": "backend/app/services/custom_templates/detect.py"
+   },
+   {
+    "filename": "backend/app/services/custom_templates/docx_ops.py"
+   },
+   {
+    "filename": "backend/app/services/custom_templates/draft.py"
+   },
+   {
+    "filename": "backend/app/services/custom_templates/fields.py"
+   },
+   {
+    "filename": "backend/app/services/custom_templates/legal_bridge.py"
+   },
+   {
+    "filename": "backend/app/services/custom_templates/sandbox.py"
+   },
+   {
+    "filename": "backend/app/services/custom_templates/schema.py"
+   },
+   {
+    "filename": "backend/app/services/custom_templates/service.py"
+   },
+   {
+    "filename": "backend/app/services/framework_contract_index.py"
+   },
+   {
+    "filename": "backend/app/services/hr_schema_bundle.py"
+   },
+   {
+    "filename": "backend/app/services/jarvis/agent.py"
+   },
+   {
+    "filename": "backend/app/services/jarvis/capabilities.py"
+   },
+   {
+    "filename": "backend/app/services/jarvis/nexus_sources.py"
+   },
+   {
+    "filename": "backend/app/services/jarvis/prompt.py"
+   },
+   {
+    "filename": "backend/app/services/jarvis/tools.py"
+   },
+   {
+    "filename": "backend/app/services/legal/__init__.py"
+   },
+   {
+    "filename": "backend/app/services/legal/acts.py"
+   },
+   {
+    "filename": "backend/app/services/legal/assistant.py"
+   },
+   {
+    "filename": "backend/app/services/legal/citations.py"
+   },
+   {
+    "filename": "backend/app/services/legal/corpus.py"
+   },
+   {
+    "filename": "backend/app/services/legal/deadlines.py"
+   },
+   {
+    "filename": "backend/app/services/legal/fetch.py"
+   },
+   {
+    "filename": "backend/app/services/legal/index.py"
+   },
+   {
+    "filename": "backend/app/services/legal/letter_service.py"
+   },
+   {
+    "filename": "backend/app/services/legal/letters.py"
+   },
+   {
+    "filename": "backend/app/services/legal/parse.py"
+   },
+   {
+    "filename": "backend/app/services/legal/pdf_worker.py"
+   },
+   {
+    "filename": "backend/app/services/legal/pseudonymize.py"
+   },
+   {
+    "filename": "backend/app/services/legal/schema.py"
+   },
+   {
+    "filename": "backend/app/services/legal/sources.py"
+   },
+   {
+    "filename": "backend/app/services/legal/tasks.py"
+   },
+   {
+    "filename": "backend/app/services/legal/tasks_schema.py"
+   },
+   {
+    "filename": "backend/app/services/legal/template_review.py"
+   },
+   {
+    "filename": "backend/app/services/legal_case_law/__init__.py"
+   },
+   {
+    "filename": "backend/app/services/legal_case_law/http.py"
+   },
+   {
+    "filename": "backend/app/services/legal_case_law/index.py"
+   },
+   {
+    "filename": "backend/app/services/legal_case_law/ingest.py"
+   },
+   {
+    "filename": "backend/app/services/legal_case_law/links.py"
+   },
+   {
+    "filename": "backend/app/services/legal_case_law/passage.py"
+   },
+   {
+    "filename": "backend/app/services/legal_case_law/saos.py"
+   },
+   {
+    "filename": "backend/app/services/legal_case_law/schema.py"
+   },
+   {
+    "filename": "backend/app/services/legal_case_law/search.py"
+   },
+   {
+    "filename": "backend/app/services/legal_case_law/store.py"
+   },
+   {
+    "filename": "backend/app/services/legal_client_fit/__init__.py"
+   },
+   {
+    "filename": "backend/app/services/legal_client_fit/engine.py"
+   },
+   {
+    "filename": "backend/app/services/legal_client_fit/schema.py"
+   },
+   {
+    "filename": "backend/app/services/legal_client_fit/service.py"
+   },
+   {
+    "filename": "backend/app/services/legal_client_fit/sources.py"
+   },
+   {
+    "filename": "backend/app/services/legal_client_fit/task_provider.py"
+   },
+   {
+    "filename": "backend/app/services/legal_client_fit/topics.py"
+   },
+   {
+    "filename": "backend/app/services/legal_redline/__init__.py"
+   },
+   {
+    "filename": "backend/app/services/legal_redline/diff.py"
+   },
+   {
+    "filename": "backend/app/services/legal_redline/docx_io.py"
+   }
+  ],
+  "repos/B2B-net-S-A/NEXUS/pulls/4032/files?per_page=100&page=2": [
+   {
+    "filename": "backend/app/services/legal_redline/foundation.py"
+   },
+   {
+    "filename": "backend/app/services/legal_redline/model.py"
+   },
+   {
+    "filename": "backend/app/services/legal_redline/proposals.py"
+   },
+   {
+    "filename": "backend/app/services/legal_redline/tracked.py"
+   },
+   {
+    "filename": "backend/app/services/llm_prompts.py"
+   },
+   {
+    "filename": "backend/app/services/request_semantics.py"
+   },
+   {
+    "filename": "backend/app/tasks/legal_corpus.py"
+   },
+   {
+    "filename": "backend/entrypoint.sh"
+   },
+   {
+    "filename": "backend/scripts/backfill_contract_document_text.py"
+   },
+   {
+    "filename": "backend/scripts/build_b2b_document_templates.py"
+   },
+   {
+    "filename": "backend/scripts/build_claude_index.py"
+   },
+   {
+    "filename": "backend/scripts/legal_corpus_seed.py"
+   },
+   {
+    "filename": "backend/scripts/legal_template_review.py"
+   },
+   {
+    "filename": "backend/scripts/seed_legal_case_law.py"
+   },
+   {
+    "filename": "backend/tests/conftest.py"
+   },
+   {
+    "filename": "backend/tests/data/authz_golden/contract_document_text.json"
+   },
+   {
+    "filename": "backend/tests/data/authz_golden/custom_document_templates.json"
+   },
+   {
+    "filename": "backend/tests/data/authz_golden/legal.json"
+   },
+   {
+    "filename": "backend/tests/data/authz_golden/legal_case_law.json"
+   },
+   {
+    "filename": "backend/tests/data/authz_golden/legal_client_fit.json"
+   },
+   {
+    "filename": "backend/tests/data/authz_golden/legal_letters.json"
+   },
+   {
+    "filename": "backend/tests/data/authz_golden/legal_redline.json"
+   },
+   {
+    "filename": "backend/tests/data/authz_golden/legal_tasks.json"
+   },
+   {
+    "filename": "backend/tests/fixtures/legal_case_law/README.md"
+   },
+   {
+    "filename": "backend/tests/fixtures/legal_case_law/saos_judgment_cc.json"
+   },
+   {
+    "filename": "backend/tests/fixtures/legal_case_law/saos_judgment_sn.json"
+   },
+   {
+    "filename": "backend/tests/fixtures/legal_case_law/saos_search.json"
+   },
+   {
+    "filename": "backend/tests/test_ai_models_registry.py"
+   },
+   {
+    "filename": "backend/tests/test_ai_settings_schemas.py"
+   },
+   {
+    "filename": "backend/tests/test_contract_document_termination.py"
+   },
+   {
+    "filename": "backend/tests/test_contract_document_text_api.py"
+   },
+   {
+    "filename": "backend/tests/test_contract_document_text_embed.py"
+   },
+   {
+    "filename": "backend/tests/test_custom_templates_api.py"
+   },
+   {
+    "filename": "backend/tests/test_custom_templates_detect_draft.py"
+   },
+   {
+    "filename": "backend/tests/test_custom_templates_offered_to.py"
+   },
+   {
+    "filename": "backend/tests/test_custom_templates_sandbox.py"
+   },
+   {
+    "filename": "backend/tests/test_jarvis_tool_registry_contract.py"
+   },
+   {
+    "filename": "backend/tests/test_legal_api.py"
+   },
+   {
+    "filename": "backend/tests/test_legal_case_law_unit.py"
+   },
+   {
+    "filename": "backend/tests/test_legal_citations.py"
+   },
+   {
+    "filename": "backend/tests/test_legal_client_fit.py"
+   },
+   {
+    "filename": "backend/tests/test_legal_client_fit_db.py"
+   },
+   {
+    "filename": "backend/tests/test_legal_corpus_unit.py"
+   },
+   {
+    "filename": "backend/tests/test_legal_deadlines.py"
+   },
+   {
+    "filename": "backend/tests/test_legal_letter_model_reply.py"
+   },
+   {
+    "filename": "backend/tests/test_legal_letters.py"
+   },
+   {
+    "filename": "backend/tests/test_legal_letters_api.py"
+   },
+   {
+    "filename": "backend/tests/test_legal_parse.py"
+   },
+   {
+    "filename": "backend/tests/test_legal_pseudonymize.py"
+   },
+   {
+    "filename": "backend/tests/test_legal_redline_api.py"
+   },
+   {
+    "filename": "backend/tests/test_legal_redline_engine.py"
+   },
+   {
+    "filename": "backend/tests/test_legal_redline_proposals.py"
+   },
+   {
+    "filename": "backend/tests/test_legal_review_code_fixes.py"
+   },
+   {
+    "filename": "backend/tests/test_legal_template_review.py"
+   },
+   {
+    "filename": "backend/tests/test_log_pii_filenames_keys.py"
+   },
+   {
+    "filename": "docs/asystent-prawny-completion-report.md"
+   },
+   {
+    "filename": "docs/asystent-prawny-plan.md"
+   },
+   {
+    "filename": "docs/claude/asystent-prawny/fundament-korpus-prawa-weryfikator-cytatow.md"
+   },
+   {
+    "filename": "docs/claude/asystent-prawny/orzecznictwo-i-interpretacje.md"
+   },
+   {
+    "filename": "docs/claude/asystent-prawny/pismo-na-kontrakcie-i-zadania-asystenta.md"
+   },
+   {
+    "filename": "docs/claude/asystent-prawny/podpisane-umowy-kontraktow-do-odczytu.md"
+   },
+   {
+    "filename": "docs/claude/asystent-prawny/popraw-dokument-docx-ze-sledzeniem-zmian.md"
+   },
+   {
+    "filename": "docs/claude/asystent-prawny/przejrzyj-wzor-po-zmianie-przepisu.md"
+   },
+   {
+    "filename": "docs/claude/asystent-prawny/wzory-wlasne-generatora.md"
+   },
+   {
+    "filename": "docs/claude/asystent-prawny/zgodnosc-umow-b2b-z-umowa-ramowa-klienta.md"
+   },
+   {
+    "filename": "frontend/src/app/contracts/[id]/__tests__/signed-delete-flow.test.tsx"
+   },
+   {
+    "filename": "frontend/src/app/contracts/[id]/page.tsx"
+   },
+   {
+    "filename": "frontend/src/app/preview/custom-templates/page.tsx"
+   },
+   {
+    "filename": "frontend/src/app/preview/legal-redline/ClientFitHarness.tsx"
+   },
+   {
+    "filename": "frontend/src/app/preview/legal-redline/LetterHarness.tsx"
+   },
+   {
+    "filename": "frontend/src/app/preview/legal-redline/client-fit-fixtures.ts"
+   },
+   {
+    "filename": "frontend/src/app/preview/legal-redline/page.tsx"
+   },
+   {
+    "filename": "frontend/src/components/ContractDocumentsTab.tsx"
+   },
+   {
+    "filename": "frontend/src/components/FrameworkContractsTab.tsx"
+   },
+   {
+    "filename": "frontend/src/components/compliance/LegalSourcesCard.tsx"
+   },
+   {
+    "filename": "frontend/src/components/compliance/SourcesView.tsx"
+   },
+   {
+    "filename": "frontend/src/components/compliance/__tests__/LegalSourcesCard.test.tsx"
+   },
+   {
+    "filename": "frontend/src/components/compliance/__tests__/compliance-model.test.ts"
+   },
+   {
+    "filename": "frontend/src/components/compliance/compliance-model.ts"
+   },
+   {
+    "filename": "frontend/src/components/compliance/legal-sources-model.ts"
+   },
+   {
+    "filename": "frontend/src/components/contracts/documents/DocumentItemRow.tsx"
+   },
+   {
+    "filename": "frontend/src/components/jarvis/JarvisLegalLetterCard.tsx"
+   },
+   {
+    "filename": "frontend/src/components/jarvis/JarvisMessageList.tsx"
+   },
+   {
+    "filename": "frontend/src/components/jarvis/JarvisSources.tsx"
+   },
+   {
+    "filename": "frontend/src/components/jarvis/__tests__/JarvisSources.test.tsx"
+   },
+   {
+    "filename": "frontend/src/components/jarvis/__tests__/jarvis-legal-letter.test.tsx"
+   },
+   {
+    "filename": "frontend/src/components/legal-assistant/client-fit/ClientFitDialog.tsx"
+   },
+   {
+    "filename": "frontend/src/components/legal-assistant/client-fit/ClientFitPanel.tsx"
+   },
+   {
+    "filename": "frontend/src/components/legal-assistant/client-fit/ClientFitStatus.tsx"
+   },
+   {
+    "filename": "frontend/src/components/legal-assistant/client-fit/__tests__/ClientFitPanel.test.tsx"
+   },
+   {
+    "filename": "frontend/src/components/legal-assistant/client-fit/parts.tsx"
+   },
+   {
+    "filename": "frontend/src/components/legal-assistant/letters/LegalLetterPanel.tsx"
+   },
+   {
+    "filename": "frontend/src/components/legal-assistant/letters/LegalTasksStrip.tsx"
+   },
+   {
+    "filename": "frontend/src/components/legal-assistant/letters/LetterPanelView.tsx"
+   },
+   {
+    "filename": "frontend/src/components/legal-assistant/letters/__tests__/LegalTasksStrip.test.tsx"
+   },
+   {
+    "filename": "frontend/src/components/legal-assistant/letters/__tests__/LetterPanelView.test.tsx"
+   },
+   {
+    "filename": "frontend/src/components/legal-assistant/redline/RedlineDialog.tsx"
+   },
+   {
+    "filename": "frontend/src/components/legal-assistant/redline/RedlineReview.tsx"
+   },
+   {
+    "filename": "frontend/src/components/legal-assistant/redline/__tests__/RedlineReview.test.tsx"
+   },
+   {
+    "filename": "frontend/src/components/v2/b2b-generator/documents/AnnexGeneratorTab.tsx"
+   }
+  ],
+  "repos/B2B-net-S-A/NEXUS/pulls/4032/files?per_page=100&page=3": [
+   {
+    "filename": "frontend/src/components/v2/b2b-generator/documents/DocumentWizard.tsx"
+   },
+   {
+    "filename": "frontend/src/components/v2/b2b-generator/documents/DocumentsTab.tsx"
+   },
+   {
+    "filename": "frontend/src/components/v2/b2b-generator/documents/custom-templates/CustomDocumentForm.tsx"
+   },
+   {
+    "filename": "frontend/src/components/v2/b2b-generator/documents/custom-templates/CustomTemplatesPanel.tsx"
+   },
+   {
+    "filename": "frontend/src/components/v2/b2b-generator/documents/custom-templates/TemplateStudio.tsx"
+   },
+   {
+    "filename": "frontend/src/components/v2/b2b-generator/documents/custom-templates/__tests__/CustomTemplates.test.tsx"
+   },
+   {
+    "filename": "frontend/src/components/v2/pages/B2BContractGeneratorV2.tsx"
+   },
+   {
+    "filename": "frontend/src/components/v2/pages/ContractsListV2.tsx"
+   },
+   {
+    "filename": "frontend/src/lib/__tests__/custom-templates.test.ts"
+   },
+   {
+    "filename": "frontend/src/lib/__tests__/legal-client-fit.test.ts"
+   },
+   {
+    "filename": "frontend/src/lib/__tests__/legal-letters.test.ts"
+   },
+   {
+    "filename": "frontend/src/lib/__tests__/legal-redline.test.ts"
+   },
+   {
+    "filename": "frontend/src/lib/api/__tests__/customTemplates.test.ts"
+   },
+   {
+    "filename": "frontend/src/lib/api/b2bDocuments.ts"
+   },
+   {
+    "filename": "frontend/src/lib/api/customTemplates.ts"
+   },
+   {
+    "filename": "frontend/src/lib/api/legalClientFit.ts"
+   },
+   {
+    "filename": "frontend/src/lib/api/legalSources.ts"
+   },
+   {
+    "filename": "frontend/src/lib/b2b-documents.ts"
+   },
+   {
+    "filename": "frontend/src/lib/custom-templates.ts"
+   },
+   {
+    "filename": "frontend/src/lib/jarvis/reducer.ts"
+   },
+   {
+    "filename": "frontend/src/lib/jarvis/types.ts"
+   },
+   {
+    "filename": "frontend/src/lib/legal-client-fit.ts"
+   },
+   {
+    "filename": "frontend/src/lib/legal-letters.ts"
+   },
+   {
+    "filename": "frontend/src/lib/legal-redline.ts"
+   },
+   {
+    "filename": "frontend/src/middleware.ts"
+   }
+  ]
  },
  "raw": {
   "repos/B2B-net-S-A/NEXUS/actions/jobs/139448859773/logs": "2026-11-25T19:36:52.0560485Z \n2026-11-25T19:36:52.0561069Z     ────────────────────────────────────────────────────────────────────────────────────────────────\n2026-11-25T19:36:52.0561532Z \n2026-11-25T19:36:52.0561665Z   1 failed\n2026-11-25T19:36:52.0563328Z     [preview-chromium] › e2e/responsive-preview.spec.ts:256:5 › responsywność harnessów — brak poziomego scrolla strony › /preview/client-invoicing?state=finance mieści się w 360/390/768/1024/1280 px \n2026-11-25T19:36:52.0564897Z   267 passed (7.2m)\n2026-11-25T19:36:52.0823736Z ##[error]Harnessy /preview/* nie przechodzą (preview-chromium). Zrzut, wideo i trace w artefakcie preview-harness-failure.\n2026-11-25T19:36:52.0835921Z    ▲ Next.js 15.5.29\n2026-11-25T19:36:52.0836288Z    - Local:        http://127.0.0.1:3001\n2026-11-25T19:36:52.0836651Z    - Network:      http://127.0.0.1:3001\n2026-11-25T19:36:52.0836850Z \n2026-11-25T19:36:52.0837015Z  ✓ Starting...\n2026-11-25T19:36:52.0837260Z  ✓ Ready in 427ms\n2026-11-25T19:36:57.0851326Z ##[error]Process completed with exit code 1.\n"
