@@ -116,6 +116,12 @@ async def _blocker(
         return "held", None
     if not row.snapshot:
         return "no_snapshot", None
+    try:
+        ReportSnapshot.model_validate(row.snapshot)
+    except ValueError:
+        # Snapshot sprzed zmiany schematu: ponowienie nic nie da — automat
+        # oznacza ``failed``, rekruter przelicza raport poprawą warunków.
+        return "snapshot_invalid", None if manual else "failed"
     if not recipient_allowed(row.email):
         return "recipient_not_allowed", None if manual else "skipped"
     if not candidate_sender_ready():

@@ -338,7 +338,9 @@ async def test_report_on_offer_form_is_refused(api):
 # ── Osoba już w bazie ────────────────────────────────────────────────────
 
 
-async def test_duplicate_gets_report_and_keeps_recent_recruiter_edit(api):
+async def test_duplicate_gets_report_but_profile_waits_for_confirmation(api):
+    """Decyzja 26.11.2026: osoba w bazie — warunki w raporcie, profil bez zmian,
+    dopóki nie potwierdzi ich z linku raportu (wtedy ochrona 14 dni)."""
     email = _email("dup")
     recruiter = await _new_user("dup")
     now = datetime.now(timezone.utc)
@@ -408,12 +410,11 @@ async def test_duplicate_gets_report_and_keeps_recent_recruiter_edit(api):
     person = await _candidate(email)
     assert person.id == existing_id
     assert (person.name, person.source) == ("Osoba", "manual")
+    # Profil bez zmian: stawka, forma, tryb, dni i miasta jak przed zgłoszeniem.
     assert person.expected_rate_hourly == Decimal("100.00")
     assert person.b2b_willingness is None
-    assert "contract_types" not in person.preferences
-    assert person.preferences["remote_modes"] == ["hybrid"]
-    assert person.max_onsite_days_per_week == 1
-    assert person.preferences["office_cities"] == ["Wrocław"]
+    assert person.preferences == {"remote_modes": ["onsite"]}
+    assert person.max_onsite_days_per_week == 5
 
     entry = await _submission(email)
     assert entry.matched_candidate_id == existing_id
@@ -434,15 +435,42 @@ async def test_duplicate_gets_report_and_keeps_recent_recruiter_edit(api):
             )
         )
     assert docs == [], "CV duplikatu nie wchodzi do profilu"
-    assert sorted(activity.details["terms"]["kept"]) == ["contract", "rate"]
-    assert sorted(activity.details["terms"]["saved"]) == ["cities", "work_mode"]
+    assert "terms" not in activity.details
+    assert Decimal(entry.raw_payload["expected_rate_hourly"]) == Decimal("220")
+    assert entry.raw_payload["office_cities"] == ["Wrocław"]
 
     [report] = await _reports(existing_id)
     assert (report.status, report.submission_id) == ("waiting_cv", entry.id)
     assert report.conditions["rate"] == 220
+    assert report.conditions["contract"] == "uop"
+    assert report.conditions["modes"] == ["hybrid"]
+    assert report.conditions["office_days_max"] == 1
+    assert report.conditions["office_cities"] == ["Wrocław"]
+
+    # Potwierdzenie z linku raportu: zapis do profilu, ale zmiany rekrutera
+    # z 14 dni (stawka 3 dni temu, forma współpracy wczoraj) zostają.
+    from app.services.competence_report_tokens import new_token
+
+    raw, hashed = new_token()
+    async with AsyncSessionLocal() as db:
+        row = await db.get(CompetenceReport, report.id)
+        row.status, row.sent_at = "sent", now
+        row.token_hash, row.token_expires_at = hashed, now + timedelta(days=30)
+        await db.commit()
+    confirm = await api.post(
+        f"/api/public/competence-report/{raw}/conditions",
+        json={**report.conditions, "start": "1m"},
+    )
+    assert confirm.status_code == 200, confirm.text
+    person = await _candidate(email)
+    assert person.expected_rate_hourly == Decimal("100.00")
+    assert person.b2b_willingness is None
+    assert person.preferences["remote_modes"] == ["hybrid"]
+    assert person.max_onsite_days_per_week == 1
+    assert person.preferences["office_cities"] == ["Wrocław"]
 
 
-async def test_duplicate_rate_goes_through_profile_writer(api):
+async def test_duplicate_rate_is_not_written_at_intake(api):
     email = _email("dup-stawka")
     async with AsyncSessionLocal() as db:
         existing = Candidate(
@@ -461,19 +489,22 @@ async def test_duplicate_rate_goes_through_profile_writer(api):
 
     assert resp.status_code == 201, resp.text
     person = await _candidate(email)
-    assert person.expected_rate_hourly == Decimal("195.00")
-    assert person.profile_rate_version == version_before + 1
+    assert person.expected_rate_hourly is None
+    assert person.profile_rate_version == version_before
     async with AsyncSessionLocal() as db:
-        [audit] = list(
+        audits = list(
             await db.scalars(
                 select(Activity).where(
                     Activity.entity_id == existing_id,
-                    Activity.action == "profile_rate_changed",
+                    Activity.action.in_(
+                        ("profile_rate_changed", "candidate_work_mode_changed")
+                    ),
                 )
             )
         )
-    assert audit.user_id is None
-    assert audit.details["source"] == "website"
+    assert audits == []
+    [report] = await _reports(existing_id)
+    assert report.conditions["rate"] == 195
 
 
 # ── Opiekun po kolei ─────────────────────────────────────────────────────

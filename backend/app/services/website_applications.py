@@ -603,18 +603,12 @@ async def _record_duplicate(
     db.add(submission)
     await db.flush()
     db.add_all(_consent_rows(app, application_submission_id=submission.id))
-    terms: Optional[dict] = None
     if app.conditions is not None:
-        # Decyzja Artura 25.11.2026: osoba w bazie też dostaje raport, a jej
-        # warunki idą do profilu przez writery (zmiany rekrutera z 14 dni
-        # zostają). CV dalej czeka w zgłoszeniu i profilu nie zmienia.
-        terms = await apply_terms(
-            db,
-            existing,
-            app.terms(),
-            now=datetime.now(timezone.utc),
-            protect=True,
-        )
+        # Decyzja Artura 26.11.2026 (zastępuje regułę z 25.11): osoba w bazie
+        # dostaje raport liczony z nowych warunków, ale profil ich nie dostaje.
+        # Warunki leżą w zgłoszeniu (``raw_payload``) i w raporcie; do profilu
+        # trafiają dopiero, gdy osoba zapisze je przez link z raportu
+        # (``public_competence_report``). CV też czeka w zgłoszeniu.
         await create_report_for_application(
             db, existing, submission, app.conditions, app.email
         )
@@ -631,7 +625,6 @@ async def _record_duplicate(
                 "was_duplicate": True,
                 "submission_id": submission.id,
                 "report": app.report,
-                **({"terms": terms} if terms is not None else {}),
             },
         )
     )

@@ -10,6 +10,7 @@ wysyłają maili. Dane wyłącznie syntetyczne.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -711,3 +712,76 @@ async def test_reassign_only_to_an_active_pool_member(api, clean_pool) -> None:
         activity.details["from_user_id"] == me
         and activity.details["to_user_id"] == member
     )
+
+
+# ── Wyścigi z pętlą (przegląd 26.11.2026) ─────────────────────────────────
+
+
+async def _while_loop_holds(report_id: int, change, request):
+    """Druga sesja („pętla”) trzyma blokadę wiersza i zmienia go; akcja czeka.
+
+    Zwraca odpowiedź akcji, która ruszyła w trakcie i skończyła po commicie pętli.
+    """
+    async with AsyncSessionLocal() as loop_db:
+        row = await loop_db.scalar(
+            select(CompetenceReport)
+            .where(CompetenceReport.id == report_id)
+            .with_for_update()
+        )
+        change(row)
+        await loop_db.flush()
+        task = asyncio.create_task(request())
+        await asyncio.sleep(0.5)
+        assert not task.done(), "akcja rekrutera nie czekała na blokadę pętli"
+        await loop_db.commit()
+    return await task
+
+
+def _sent(row: CompetenceReport) -> None:
+    row.status, row.sent_at = "sent", datetime.now(timezone.utc)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["hold", "conditions"])
+async def test_action_racing_the_send_sees_the_sent_report(api, action) -> None:
+    _, headers = await _as(api, UserRole.recruiter)
+    report_id = await _report()
+
+    async def request():
+        if action == "hold":
+            return await api.post(f"{_URL}/{report_id}/hold", headers=headers)
+        return await api.patch(
+            f"{_URL}/{report_id}/conditions", json={"rate": 199}, headers=headers
+        )
+
+    resp = await _while_loop_holds(report_id, _sent, request)
+
+    assert resp.status_code == 409, resp.text
+    row = await _row(report_id)
+    assert row.status == "sent" and row.held_at is None
+    assert row.conditions["rate"] == 150
+
+
+@pytest.mark.asyncio
+async def test_conditions_racing_the_build_rebuild_from_new_conditions(api) -> None:
+    _, headers = await _as(api, UserRole.recruiter)
+    report_id = await _report(status="waiting_cv")
+
+    def built(row: CompetenceReport) -> None:
+        # Pętla składa raport ze starych warunków.
+        conditions = ReportConditions.model_validate(row.conditions)
+        row.snapshot = _snapshot(conditions=conditions).model_dump(mode="json")
+        row.status = "ready"
+
+    async def request():
+        return await api.patch(
+            f"{_URL}/{report_id}/conditions", json={"rate": 199}, headers=headers
+        )
+
+    resp = await _while_loop_holds(report_id, built, request)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "ready"
+    row = await _row(report_id)
+    assert row.conditions["rate"] == 199
+    assert row.snapshot["conditions"]["rate"] == 199, "snapshot z nowych warunków"

@@ -132,13 +132,13 @@ async def people():
                 owner_id = user.id
                 users.append(user.id)
             await db.flush()
+            fields.setdefault("send_due_at", DUE)
+            fields.setdefault("conditions", CONDITIONS)
             report = CompetenceReport(
                 candidate_id=candidate.id,
                 email=candidate.email,
                 status=status,
-                conditions=CONDITIONS,
                 created_at=T0,
-                send_due_at=DUE,
                 owner_user_id=owner_id,
                 **fields,
             )
@@ -364,3 +364,122 @@ async def test_wyslij_teraz_przed_terminem(mail, people):
             )
             await db.execute(delete(User).where(User.id == user.id))
             await db.commit()
+
+
+# ── Odporność pętli (przegląd 26.11.2026) ─────────────────────────────────
+
+
+async def test_zepsuty_snapshot_nie_blokuje_kolejnych_raportow(mail, people):
+    """Snapshot spoza schematu: raport ``failed``, następny w kolejce wychodzi."""
+    broken = await people(status="ready", snapshot=True)
+    good = await people(
+        status="ready", snapshot=True, send_due_at=DUE + timedelta(minutes=5)
+    )
+    async with AsyncSessionLocal() as db:
+        row = await db.get(CompetenceReport, broken)
+        row.snapshot = {"variant": "full"}
+        await db.commit()
+
+    await _tick(DUE + timedelta(minutes=10))
+    await _tick(DUE + timedelta(minutes=15))
+
+    bad, ok = await _row(broken), await _row(good)
+    assert (bad.status, bad.last_error) == ("failed", "snapshot_invalid")
+    assert ok.status == "sent"
+    assert [m.to for m in mail.sent] == [ok.email]
+
+
+async def test_nieoczekiwany_blad_wysylki_liczy_probe_i_idzie_dalej(
+    mail, people, monkeypatch
+):
+    first = await people(status="ready", snapshot=True)
+    second = await people(
+        status="ready", snapshot=True, send_due_at=DUE + timedelta(minutes=5)
+    )
+    real_render = send.render_report_email
+    calls = {"n": 0}
+
+    def flaky_render(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("render padł")
+        return real_render(*args, **kwargs)
+
+    monkeypatch.setattr(send, "render_report_email", flaky_render)
+
+    stats = await _tick(DUE + timedelta(minutes=10))
+
+    one, two = await _row(first), await _row(second)
+    assert (one.status, one.attempts) == ("ready", 1)
+    assert one.last_error == "send_error:RuntimeError"
+    assert two.status == "sent" and stats["sent"] == 1
+
+
+async def test_blad_skladania_nie_zatrzymuje_wysylki(mail, people):
+    """Warunki spoza schematu: nawet najkrótszy raport się nie składa → ``failed``."""
+    broken = await people(conditions={"rate": -5})
+    good = await people(status="ready", snapshot=True)
+
+    stats = await _tick(DUE)
+
+    bad = await _row(broken)
+    assert bad.status == "failed" and bad.last_error.startswith("build_error:")
+    assert (await _row(good)).status == "sent"
+    assert stats["failed"] == 1 and stats["sent"] == 1
+
+
+# ── Ponowne zgłoszenie (przegląd 26.11.2026) ──────────────────────────────
+
+
+async def test_dwa_zgloszenia_daja_jeden_mail(mail, people):
+    from app.services.competence_report_store import create_report_for_application
+
+    seed = await people(status="skipped")
+    async with AsyncSessionLocal() as db:
+        candidate = await db.get(Candidate, (await _row(seed)).candidate_id)
+        conditions = ReportConditions.model_validate(CONDITIONS)
+        first = await create_report_for_application(
+            db, candidate, None, conditions, candidate.email, now=T0
+        )
+        await db.commit()
+        second = await create_report_for_application(
+            db,
+            candidate,
+            None,
+            conditions.model_copy(update={"rate": 170}),
+            candidate.email,
+            now=T0 + timedelta(minutes=1),
+        )
+        await db.commit()
+        first_id, second_id = first.id, second.id
+
+    await _tick(T0 + timedelta(hours=1))
+    await _tick(T0 + timedelta(hours=23, minutes=5))
+
+    old, new = await _row(first_id), await _row(second_id)
+    assert (old.status, old.last_error) == ("skipped", "superseded")
+    assert old.conditions == CONDITIONS, "dane zastąpionego raportu zostają"
+    assert new.status == "sent" and new.snapshot["conditions"]["rate"] == 170
+    assert len(mail.sent) == 1
+
+    # Trzecie zgłoszenie tego samego dnia: bez drugiego maila w ciągu doby.
+    async with AsyncSessionLocal() as db:
+        candidate = await db.get(Candidate, new.candidate_id)
+        third = await create_report_for_application(
+            db,
+            candidate,
+            None,
+            conditions,
+            candidate.email,
+            now=T0 + timedelta(hours=24),
+        )
+        await db.commit()
+        third_id = third.id
+    await _tick(T0 + timedelta(hours=48))
+    row = await _row(third_id)
+    assert (row.status, row.last_error, row.owner_user_id) == (
+        "skipped",
+        "sent_recently",
+        None,
+    )
+    assert len(mail.sent) == 1

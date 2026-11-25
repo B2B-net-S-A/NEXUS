@@ -23,7 +23,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import or_, select, true
+from sqlalchemy import case, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -33,7 +33,11 @@ from app.models.competence_report import CompetenceReport
 from app.services import loop_heartbeat
 from app.services.competence_report_email import KIND
 from app.services.competence_report_engine import build_snapshot, fallback_snapshot
-from app.services.competence_report_send import ReportNotSendable, send_report
+from app.services.competence_report_send import (
+    MAX_ATTEMPTS,
+    ReportNotSendable,
+    send_report,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +58,33 @@ def _retrigger_parse(candidate_id: int) -> None:
         public_share._invite_post_apply_task(candidate_id),
         "competence_report_cv_reparse",
     )
+
+
+async def _row_failed(
+    db: AsyncSession, report_id: int, error: str, *, from_status: str
+) -> None:
+    """Wyjątek przy jednym raporcie: próba + 1, po ``MAX_ATTEMPTS`` ``failed``.
+
+    Najpierw rollback (zdejmuje blokadę i zepsutą transakcję), potem zapis
+    bez obiektu ORM — po rollbacku jest wygaszony. ``last_error`` bez danych osobowych.
+    """
+    await db.rollback()
+    attempts = CompetenceReport.attempts + 1
+    await db.execute(
+        update(CompetenceReport)
+        .where(
+            CompetenceReport.id == report_id,
+            CompetenceReport.status == from_status,
+        )
+        .values(
+            attempts=attempts,
+            last_error=error[:120],
+            status=case(
+                (attempts >= MAX_ATTEMPTS, "failed"), else_=CompetenceReport.status
+            ),
+        )
+    )
+    await db.commit()
 
 
 async def _build_ready(db: AsyncSession, now: datetime, stats: dict) -> None:
@@ -78,27 +109,57 @@ async def _build_ready(db: AsyncSession, now: datetime, stats: dict) -> None:
         )
         if row is None:
             return
-        seen.add(row.id)
-        parsed = await db.scalar(
-            select(Candidate.cv_parsed_at).where(Candidate.id == row.candidate_id)
-        )
-        limited = parsed is None
+        report_id = row.id
+        seen.add(report_id)
         try:
-            # Punkt zapisu: błąd zapytania w silniku nie zdejmuje blokady wiersza.
-            async with db.begin_nested():
-                snapshot = await build_snapshot(db, row, limited=limited)
-        except Exception as exc:  # noqa: BLE001 — termin 24 h ważniejszy niż pełny raport
+            variant = await _build_one(db, row, now)
+        except Exception as exc:  # noqa: BLE001 — jeden raport nie zatrzymuje pętli
             logger.warning(
-                "[competence-report] build failed report=%s: %s",
-                row.id,
+                "[competence-report] build aborted report=%s: %s",
+                report_id,
                 type(exc).__name__,
             )
-            snapshot = fallback_snapshot(row)
-            row.last_error = f"build_error:{type(exc).__name__}"[:120]
-        row.snapshot = snapshot.model_dump(mode="json")
-        row.status, row.ready_at, row.attempts = "ready", now, 0
-        await db.commit()
-        stats["limited" if snapshot.variant == "limited" else "built"] += 1
+            # Nawet najkrótszy raport się nie składa (np. warunki spoza schematu):
+            # ponowienie nic nie da, raport trafia do kolejki jako ``failed``.
+            await db.rollback()
+            await db.execute(
+                update(CompetenceReport)
+                .where(
+                    CompetenceReport.id == report_id,
+                    CompetenceReport.status == "waiting_cv",
+                )
+                .values(
+                    status="failed",
+                    last_error=f"build_error:{type(exc).__name__}"[:120],
+                )
+            )
+            await db.commit()
+            stats["failed"] += 1
+            continue
+        stats["limited" if variant == "limited" else "built"] += 1
+
+
+async def _build_one(db: AsyncSession, row: CompetenceReport, now: datetime) -> str:
+    parsed = await db.scalar(
+        select(Candidate.cv_parsed_at).where(Candidate.id == row.candidate_id)
+    )
+    limited = parsed is None
+    try:
+        # Punkt zapisu: błąd zapytania w silniku nie zdejmuje blokady wiersza.
+        async with db.begin_nested():
+            snapshot = await build_snapshot(db, row, limited=limited)
+    except Exception as exc:  # noqa: BLE001 — termin 24 h ważniejszy niż pełny raport
+        logger.warning(
+            "[competence-report] build failed report=%s: %s",
+            row.id,
+            type(exc).__name__,
+        )
+        snapshot = fallback_snapshot(row)
+        row.last_error = f"build_error:{type(exc).__name__}"[:120]
+    row.snapshot = snapshot.model_dump(mode="json")
+    row.status, row.ready_at, row.attempts = "ready", now, 0
+    await db.commit()
+    return snapshot.variant
 
 
 async def _retrigger(db: AsyncSession, now: datetime, stats: dict) -> None:
@@ -155,14 +216,26 @@ async def _send_due(db: AsyncSession, now: datetime, stats: dict) -> None:
         )
         if row is None:
             return
-        seen.add(row.id)
+        report_id = row.id
+        seen.add(report_id)
         try:
             await send_report(db, row, by_user_id=None, now=now)
         except ReportNotSendable as exc:
             stats["skipped"] += 1
             logger.info(
-                "[competence-report] not sent report=%s: %s", row.id, exc.reason
+                "[competence-report] not sent report=%s: %s", report_id, exc.reason
             )
+            continue
+        except Exception as exc:  # noqa: BLE001 — jeden raport nie zatrzymuje pętli
+            logger.warning(
+                "[competence-report] send aborted report=%s: %s",
+                report_id,
+                type(exc).__name__,
+            )
+            await _row_failed(
+                db, report_id, f"send_error:{type(exc).__name__}", from_status="ready"
+            )
+            stats["retry"] += 1
             continue
         stats[
             "sent"
@@ -185,9 +258,13 @@ async def process_due(db: AsyncSession, *, now: Optional[datetime] = None) -> di
         "failed": 0,
         "skipped": 0,
     }
-    await _build_ready(db, now, stats)
-    await _retrigger(db, now, stats)
-    await _send_due(db, now, stats)
+    # Każdy etap osobno: awaria składania nie zatrzymuje wysyłki gotowych raportów.
+    for phase in (_build_ready, _retrigger, _send_due):
+        try:
+            await phase(db, now, stats)
+        except Exception:  # noqa: BLE001
+            logger.exception("competence_report_sender %s failed", phase.__name__)
+            await db.rollback()
     return stats
 
 

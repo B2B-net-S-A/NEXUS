@@ -604,3 +604,83 @@ async def test_przeliczenie_po_zmianie_warunkow_zapisuje_snapshot(db, market):
 
     assert report.snapshot == snap.model_dump(mode="json")
     assert [s.key for s in snap.funnel] == ["tech", "location", "budget"]
+
+
+# ── Przegląd 26.11.2026 ─────────────────────────────────────────────────────
+
+
+async def test_technologia_z_nazwa_klienta_nie_trafia_do_raportu(db, market):
+    """Brakująca technologia „Allegro Pay” niesie nazwę klienta — nie pokazujemy jej."""
+    from app.models.client import Client
+    from app.models.job import RemotePolicy
+    from app.services.competence_report_email import ReportLinks, render_report_email
+
+    client = Client(name="Allegro")
+    db.add(client)
+    await db.flush()
+    for budget in (160, 170, 180):
+        await _open_job(
+            db,
+            client,
+            "Programista Java",
+            must_skills=["Java", "Allegro Pay"],
+            remote_policy=RemotePolicy.remote,
+            rate_budget_hourly=Decimal(budget),
+        )
+    candidate = await _candidate(db)
+    report = await _report(db, candidate)
+
+    snap = await engine.build_snapshot(db, report)
+
+    assert len(snap.jobs) == 3 and snap.missing_tech is None
+    mail = render_report_email(
+        snap,
+        first_name="Testowa",
+        links=ReportLinks(
+            edit_conditions_url="https://example.com/r",
+            unsubscribe_url="https://example.com/u",
+            one_click_unsubscribe_url=None,
+        ),
+    )
+    dumped = json.dumps(snap.model_dump(mode="json"), ensure_ascii=False)
+    assert "allegro" not in dumped.lower()
+    assert "allegro" not in mail.html.lower() and "allegro" not in mail.text.lower()
+
+
+async def test_rola_java_bez_rekrutacji_na_testera_analityka_pm_devops(db, market):
+    """Java w wymaganiach rekrutacji na testera nie robi z niej projektu dla Javy."""
+    from app.models.job import RemotePolicy
+
+    await _jobs(db)
+    client = await _client(db)
+    for title in (
+        "Test Automation Engineer",
+        "Analityk biznesowy",
+        "Project Manager",
+        "DevOps Engineer",
+    ):
+        await _open_job(
+            db,
+            client,
+            title,
+            must_skills=["Java", "Selenium"],
+            remote_policy=RemotePolicy.remote,
+            rate_budget_hourly=Decimal("200"),
+        )
+    await _open_job(
+        db,
+        client,
+        "Inżynier jakości",
+        working_title="QA Engineer (Java)",
+        must_skills=["Java"],
+        remote_policy=RemotePolicy.remote,
+        rate_budget_hourly=Decimal("200"),
+    )
+    candidate = await _candidate(db)
+    report = await _report(db, candidate)
+
+    snap = await engine.build_snapshot(db, report)
+
+    assert snap.funnel[0].count == 4, "tylko cztery rekrutacje programistyczne z _jobs"
+    assert all("Tester" not in j.title for j in snap.jobs)
+    assert snap.missing_tech.name != "Selenium"

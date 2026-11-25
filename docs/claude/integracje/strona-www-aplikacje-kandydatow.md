@@ -33,7 +33,7 @@ przy `oferta` dostaje 422.
 | Pole | Wartość | W NEXUSIE |
 |---|---|---|
 | `report` | `1` | wiersz `competence_reports` (`waiting_cv`, termin `send_due_at` = zgłoszenie + 23 h, opiekun) |
-| `rate` | zł/h netto, 1–2000 | `expected_rate_hourly`: nowa osoba w konstruktorze, osoba w bazie przez `update_candidate_profile_rate` (`source = website`) |
+| `rate` | zł/h netto, 1–2000 | `expected_rate_hourly`: nowa osoba w konstruktorze; osoba w bazie dopiero po zapisie z linku raportu (`update_candidate_profile_rate`, `source = website`) |
 | `current_rate` | zł/h, 1–2000 | tylko `conditions` raportu i `raw_payload.current_rate_hourly`; writera obserwacji stawki „obecnej” nie ma, a `expected_rate_hourly` w zgłoszeniu czyta historia stawek |
 | `contract` | `b2b` \| `uop` \| `any` | `b2b_willingness` (`b2b` → `b2b`, `uop` → `employment_only`, `any` bez zmiany) i `preferences.contract_types` |
 | `work_mode` (powtarzane) | `remote` \| `hybrid` \| `onsite` | `set_profile_work_mode`; samo `remote` = 0 dni w biurze |
@@ -42,13 +42,22 @@ przy `oferta` dostaje 422.
 | `start` | `now` \| `1m` \| `2-3m` \| `browsing` | `now` = dziś (kalendarz firmy) i 0 dni wypowiedzenia; `1m`/`2-3m` = 1/2 miesiące wypowiedzenia; `browsing` = `availability_status = open_to_offers`, gdy było `unknown` |
 
 Zapis idzie przez `services/website_application_terms.py` (te same writery co
-`candidate_terms_apply`). Nowa osoba: wszystkie pola od razu. **E-mail już
-w bazie**: osoba też dostaje raport, a warunki idą do profilu, ale pole, które
-człowiek zmienił w ostatnich 14 dniach (`profile_rate_changed`,
-`candidate_work_mode_changed` albo zwykła edycja profilu `updated`), zostaje.
-CV dalej czeka w zgłoszeniu i profilu nie zmienia. Co zapisano, a co zostało:
-`details.terms` wpisu `applied_via_website`. Bez `report=1` osoba w bazie
-zostaje bez zmian jak dotąd.
+`candidate_terms_apply`). Nowa osoba: wszystkie pola od razu (`details.terms`
+wpisu `applied_via_website`). **E-mail już w bazie** (decyzja Artura
+26.11.2026, zastępuje regułę z 25.11): osoba dostaje raport liczony z nowych
+warunków, ale profil przy zgłoszeniu się **nie zmienia**. Warunki leżą
+w zgłoszeniu (`raw_payload`) i w `competence_reports.conditions`. Do profilu
+trafiają dopiero, gdy osoba potwierdzi je na `/raport/<token>` („Zapisz
+w moim profilu”, `POST /api/public/competence-report/{token}/conditions`);
+wtedy pole, które człowiek zmienił w ostatnich 14 dniach
+(`profile_rate_changed`, `candidate_work_mode_changed` albo zwykła edycja
+profilu `updated`), zostaje. CV dalej czeka w zgłoszeniu. Bez `report=1` osoba
+w bazie zostaje bez zmian jak dotąd.
+
+Ponowne zgłoszenie tej samej osoby: wcześniejsze niewysłane raporty przechodzą
+w `skipped` (`last_error = superseded`), więc wychodzi tylko najnowszy. Raport
+wysłany tej osobie w ostatnich 24 h: nowy powstaje od razu jako `skipped`
+(`sent_recently`) — najwyżej jeden mail z raportem na dobę.
 
 Opiekun raportu: po kolei z `competence_report_owners` (lista admina; najdawniej
 przypisany, remis po `position`; konto wyłączone pomijane). Pusta lista = raport
@@ -82,8 +91,9 @@ Limit z `/apply` (5/min, 30/h) odrzucałby kandydatów przy zwykłym ruchu.
 - Nowy e-mail: kandydat ze źródłem `strona WWW`, `created_by` puste, CV jako główny
   dokument (`external_source = website`), odczyt CV w tle. Proces nie powstaje,
   bo oferty żyją na stronie, nie w `/jobs`.
-- E-mail już w bazie: kandydat **bez zmian** (P0-CAND-01), poza warunkami przy
-  `report=1` (sekcja wyżej). CV leży bezwładnie przy `application_submissions`.
+- E-mail już w bazie: kandydat **bez zmian** (P0-CAND-01), także przy
+  `report=1` — warunki do profilu dopiero po potwierdzeniu z linku raportu
+  (sekcja wyżej). CV leży bezwładnie przy `application_submissions`.
 - W obu gałęziach powstaje wpis `pending_review` w „Zgłoszeniach” (`/applications`)
   z `matched_candidate_id` (decyzja Artura 24.11.2026). Zgłoszenie nie ma linku
   ani rekrutera, więc dzwonek nie ma adresata, a kolejka jest jedynym miejscem,

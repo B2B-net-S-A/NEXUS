@@ -125,6 +125,9 @@ _TEST_AUTOMATION = re.compile(
 SKILL_MAX_CHARS = 30
 SKILL_MAX_WORDS = 3
 UNKNOWN_BUDGET_REASON = "budżet do ustalenia z rekruterem"
+#: Rola technologiczna (Java…) nie dostaje rekrutacji na te stanowiska, choć
+#: mają jej technologię w wymaganiach („Test Automation Engineer” z Javą).
+NON_DEV_ROLES = frozenset({"tester", "business_analyst", "project_manager", "devops"})
 
 
 # ── Fakty rekrutacji i warunki (bez bazy) ───────────────────────────────────
@@ -392,9 +395,17 @@ def generic_title(role: str, seniority: Optional[str], skills: Sequence[str]) ->
 
 
 def missing_tech(
-    jobs: Sequence[JobFacts], *, have: set[str], role: str
+    jobs: Sequence[JobFacts],
+    *,
+    have: set[str],
+    role: str,
+    hide: Sequence[str] = (),
 ) -> Optional[tuple[str, int, int]]:
-    """``(nazwa, w ilu, z ilu)``: najczęstsza wymagana technologia, której nie ma w CV."""
+    """``(nazwa, w ilu, z ilu)``: najczęstsza wymagana technologia, której nie ma w CV.
+
+    ``hide``: nazwy klientów tych rekrutacji — technologia z nazwą klienta
+    („Allegro Pay”) nie trafia do raportu.
+    """
     from app.services.dealbreaker_filters import gate_eligible_must_skills
 
     if not jobs:
@@ -407,7 +418,7 @@ def missing_tech(
             if (
                 name in have
                 or (role_pattern and role_pattern.search(name))
-                or not skill_shown(name)
+                or not skill_shown(name, hide)
             ):
                 continue
             counts[name] += 1
@@ -486,16 +497,15 @@ def _canonical_raw(raw: Any) -> list[str]:
     return canonical_skill_names(raw)
 
 
-def _matches_role(
-    role: str, facts: JobFacts, title: str, category: Optional[str]
-) -> bool:
+def _matches_role(role: str, facts: JobFacts, titles: Sequence[Optional[str]]) -> bool:
+    """``titles``: tytuł, tytuł roboczy i kategoria kompetencji rekrutacji."""
+    positions = {market_rates.position_role(t or "") for t in titles}
     pattern = market_rates.tech_pattern(role)
     if pattern is not None:
-        return any(pattern.search(name) for name in facts.must)
-    return role in {
-        market_rates.position_role(title or ""),
-        market_rates.position_role(category or ""),
-    }
+        return not positions & NON_DEV_ROLES and any(
+            pattern.search(name) for name in facts.must
+        )
+    return role in positions
 
 
 async def _open_role_jobs(db: AsyncSession, role: str) -> list[tuple[Job, JobFacts]]:
@@ -512,17 +522,26 @@ async def _open_role_jobs(db: AsyncSession, role: str) -> list[tuple[Job, JobFac
     out = []
     for job, category in rows:
         facts = job_facts(job)
-        if _matches_role(role, facts, job.title, category):
+        titles = (job.title, getattr(job, "working_title", None), category)
+        if _matches_role(role, facts, titles):
             out.append((job, facts))
     return out
 
 
-async def _client_names(db: AsyncSession, job: Job) -> list[str]:
+async def _client_names(
+    db: AsyncSession, client_ids: Iterable[Optional[int]]
+) -> list[str]:
+    """Nazwy i aliasy klientów wszystkich rozważanych rekrutacji (do ukrycia)."""
     from app.services.job_public_profile import client_names
 
-    return [
-        n for n in await client_names(db, job.client_id) if n and len(n.strip()) >= 3
-    ]
+    out: list[str] = []
+    for client_id in sorted({c for c in client_ids if c is not None}):
+        out += [
+            n
+            for n in await client_names(db, client_id)
+            if n and len(n.strip()) >= 3 and n not in out
+        ]
+    return out
 
 
 def _mentions(text: Optional[str], names: Sequence[str]) -> bool:
@@ -539,11 +558,14 @@ async def _report_job(
     facts: JobFacts,
     miss_reason: Optional[str],
     role: str,
+    names: Sequence[str],
 ) -> ReportJob:
-    """Projekt w raporcie: nic z wolnego tekstu rekrutacji (tytuł, lokalizacja)."""
+    """Projekt w raporcie: nic z wolnego tekstu rekrutacji (tytuł, lokalizacja).
+
+    ``names``: nazwy klientów wszystkich rozważanych rekrutacji.
+    """
     from app.services.application_confirmation_email import public_job_title
 
-    names = await _client_names(db, job)
     skills = tuple(s for s in facts.skills if skill_shown(s, names))[:JOB_SKILLS_SHOWN]
     approved = await public_job_title(db, job.id)
     if not approved or _mentions(approved, names):
@@ -631,8 +653,9 @@ async def _missing(
     market: Optional[MarketRate],
     jobs: Sequence[JobFacts],
     have: set[str],
+    hide: Sequence[str],
 ) -> Optional[MissingTech]:
-    found = missing_tech(jobs, have=have, role=role)
+    found = missing_tech(jobs, have=have, role=role, hide=hide)
     if found is None:
         return None
     name, count, of = found
@@ -681,9 +704,10 @@ async def build_snapshot(
     open_jobs = await _open_role_jobs(db, role)
     facts = [f for _, f in open_jobs]
     by_id = {job.id: job for job, _ in open_jobs}
+    hide = await _client_names(db, (job.client_id for job, _ in open_jobs))
     jobs = tuple(
         [
-            await _report_job(db, by_id[f.job_id], f, reason, role)
+            await _report_job(db, by_id[f.job_id], f, reason, role, hide)
             for f, reason in pick_jobs(facts, t)
         ]
     )
@@ -717,7 +741,7 @@ async def build_snapshot(
         market=market,
         rate_position=rate_position,
         strongest_tech=await _strongest(db, role, market, rows),
-        missing_tech=await _missing(db, role, market, facts, have),
+        missing_tech=await _missing(db, role, market, facts, have, hide),
         **common,
     )
 

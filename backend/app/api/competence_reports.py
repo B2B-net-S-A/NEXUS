@@ -209,14 +209,24 @@ def _list_item(
     }
 
 
-async def _load(db: AsyncSession, report_id: int) -> tuple[CompetenceReport, Candidate]:
-    row = (
-        await db.execute(
-            select(CompetenceReport, Candidate)
-            .join(Candidate, Candidate.id == CompetenceReport.candidate_id)
-            .where(CompetenceReport.id == report_id)
-        )
-    ).first()
+async def _load(
+    db: AsyncSession, report_id: int, *, lock: bool = False
+) -> tuple[CompetenceReport, Candidate]:
+    """Raport ze świeżym stanem z bazy.
+
+    ``lock=True`` (akcje): ``FOR UPDATE`` na wierszu raportu — tę samą blokadę
+    bierze pętla przy składaniu i rezerwacji wysyłki, więc akcja rekrutera
+    i pętla idą po kolei, a stan sprawdzamy dopiero po blokadzie.
+    """
+    query = (
+        select(CompetenceReport, Candidate)
+        .join(Candidate, Candidate.id == CompetenceReport.candidate_id)
+        .where(CompetenceReport.id == report_id)
+        .execution_options(populate_existing=True)
+    )
+    if lock:
+        query = query.with_for_update(of=CompetenceReport)
+    row = (await db.execute(query)).first()
     if row is None:
         raise HTTPException(status_code=404, detail="Nie ma takiego raportu.")
     return row[0], row[1]
@@ -410,7 +420,7 @@ async def send_now(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> ReportDetail:
-    report, _ = await _load(db, report_id)
+    report, _ = await _load(db, report_id, lock=True)
     _require_status(report, SENDABLE_STATUSES, "wysłać")
     if report.snapshot is None:
         raise HTTPException(status_code=409, detail="Raport nie jest jeszcze gotowy.")
@@ -447,7 +457,7 @@ async def hold_report(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> ReportDetail:
-    report, _ = await _load(db, report_id)
+    report, _ = await _load(db, report_id, lock=True)
     _require_status(report, OPEN_STATUSES, "wstrzymać")
     if report.held_at is None:
         report.held_at = datetime.now(timezone.utc)
@@ -463,7 +473,7 @@ async def release_report(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> ReportDetail:
-    report, _ = await _load(db, report_id)
+    report, _ = await _load(db, report_id, lock=True)
     if report.held_at is not None:
         report.held_at = None
         report.held_by_user_id = None
@@ -479,7 +489,7 @@ async def update_conditions(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> ReportDetail:
-    report, candidate = await _load(db, report_id)
+    report, candidate = await _load(db, report_id, lock=True)
     _require_status(report, OPEN_STATUSES, "poprawić")
     changed = changed_condition_keys(report.conditions, body)
     if not changed:
@@ -549,7 +559,7 @@ async def change_owner(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> ReportDetail:
-    report, _ = await _load(db, report_id)
+    report, _ = await _load(db, report_id, lock=True)
     _require_status(report, OPEN_STATUSES, "przekazać")
     member = await db.get(CompetenceReportOwner, body.user_id)
     user = await db.get(User, body.user_id)

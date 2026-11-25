@@ -65,7 +65,8 @@ export const EMPTY_STATE: ConditionsState = {
 
 export const TEXT = {
   title: "Twoje warunki",
-  lead: "To warunki, z którymi jesteś w naszej bazie. Zmień je, jeśli coś się zmieniło.",
+  lead:
+    "To warunki z Twojego zgłoszenia — według nich policzyliśmy raport. Sprawdź je i zapisz: zaktualizujemy nimi Twój profil w naszej bazie.",
   sentOn: "Raport wysłaliśmy",
   loading: "Wczytujemy Twoje warunki…",
   rate: "Ile chcesz zarabiać",
@@ -90,11 +91,11 @@ export const TEXT = {
     "2-3m": "Za 2–3 miesiące",
     browsing: "Tylko sprawdzam",
   } satisfies Record<Start, string>,
-  submit: "Zapisz warunki",
+  submit: "Zapisz w moim profilu",
   saving: "Zapisujemy…",
   savedTitle: "Zapisaliśmy",
   savedLead:
-    "Rekruter weźmie nowe warunki pod uwagę, a następny raport policzymy już według nich.",
+    "Twój profil ma teraz te warunki. Rekruter weźmie je pod uwagę, a następny raport policzymy już według nich.",
   edit: "Zmień jeszcze raz",
   loadErrorTitle: "Coś poszło nie tak",
   loadErrorLead: "Nie udało się wczytać Twoich warunków. Odśwież stronę za chwilę.",

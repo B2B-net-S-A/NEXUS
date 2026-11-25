@@ -24,6 +24,12 @@ from app.services.competence_report_schema import ReportConditions
 
 #: Termin wysyłki liczony od zgłoszenia (strona obiecuje 24 h).
 SEND_DUE_AFTER = timedelta(hours=23)
+#: Najwyżej jeden raport na dobę dla tej samej osoby.
+RESEND_AFTER = timedelta(hours=24)
+#: Niewysłane raporty tej osoby, które nowe zgłoszenie zastępuje.
+UNSENT_STATUSES: tuple[str, ...] = ("waiting_cv", "ready", "failed")
+SUPERSEDED = "superseded"
+SENT_RECENTLY = "sent_recently"
 
 
 async def assign_owner(
@@ -61,15 +67,39 @@ async def create_report_for_application(
     *,
     now: Optional[datetime] = None,
 ) -> CompetenceReport:
-    """Raport ``waiting_cv`` z terminem i opiekunem. Bez commitu."""
+    """Raport ``waiting_cv`` z terminem i opiekunem. Bez commitu.
+
+    Ponowne zgłoszenie tej samej osoby: wcześniejsze niewysłane raporty
+    przechodzą w ``skipped`` (``last_error = superseded``, dane zostają), więc
+    wychodzi tylko najnowszy. Raport wysłany tej osobie w ostatnich 24 h:
+    nowy powstaje od razu jako ``skipped`` (``sent_recently``) — drugi mail
+    tego samego dnia nie wychodzi.
+    """
     created = now or datetime.now(timezone.utc)
+    previous = list(
+        await db.scalars(
+            select(CompetenceReport)
+            .where(CompetenceReport.candidate_id == candidate.id)
+            .order_by(CompetenceReport.id)
+            .with_for_update()
+        )
+    )
+    for old in previous:
+        if old.status in UNSENT_STATUSES:
+            old.status, old.last_error = "skipped", SUPERSEDED
+    sent_recently = any(
+        old.sent_at is not None and old.sent_at > created - RESEND_AFTER
+        for old in previous
+    )
     report = CompetenceReport(
         candidate_id=candidate.id,
         submission_id=submission.id if submission is not None else None,
         email=email,
-        status="waiting_cv",
+        status="skipped" if sent_recently else "waiting_cv",
+        last_error=SENT_RECENTLY if sent_recently else None,
         conditions=conditions.model_dump(mode="json"),
-        owner_user_id=await assign_owner(db, now=created),
+        # Raport, który nie wyjdzie, nie zabiera kolejki opiekunów.
+        owner_user_id=None if sent_recently else await assign_owner(db, now=created),
         created_at=created,
         send_due_at=created + SEND_DUE_AFTER,
     )
