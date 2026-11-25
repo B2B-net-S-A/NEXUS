@@ -19,13 +19,13 @@ from app.services.client_settlements import rules_catalog, service
 from app.services.client_settlements.engine import Inputs, OrderState, compute
 
 OCT = "2026-10"
-#: Kontrakt od 17.03 po 100 zł/h, aneks od 17.09 na 105 zł/h.
-STEPS = [(date(2026, 3, 17), D("100")), (date(2026, 9, 17), D("105"))]
+#: Kontrakt od 09.02 po 90 zł/h, aneks od 14.09 na 95 zł/h.
+STEPS = [(date(2026, 2, 9), D("90")), (date(2026, 9, 14), D("95"))]
 GROUP_LINE = SimpleNamespace(order_group_id=7)
 
 
 def _contract(
-    unit: RateUnit = RateUnit.hourly, currency: str = "PLN", legacy: str = "105"
+    unit: RateUnit = RateUnit.hourly, currency: str = "PLN", legacy: str = "95"
 ) -> Contract:
     return Contract(
         rate_unit=unit,
@@ -35,7 +35,7 @@ def _contract(
     )
 
 
-def _state(rate_cost: str | None = "800") -> OrderState:
+def _state(rate_cost: str | None = "720") -> OrderState:
     return OrderState(
         order_id=1,
         number="ZAM-1",
@@ -58,18 +58,18 @@ def _cost(contract=None, order=GROUP_LINE, state=None, steps=STEPS, month=OCT):
 
 def test_linia_zbiorcza_po_aneksie_liczy_koszt_z_kontraktu():
     state, note = _cost()
-    assert state.rate_cost == D("840.00")
+    assert state.rate_cost == D("760.00")
     assert state.rate_revenue == D("1200")
     assert note["title"] == "Stawka kontraktora"
     [check] = note["checks"]
     assert check["state"] == "ok"
-    assert check["title"] == "Koszt ze stawki kontraktu: 840 zł/MD"
-    assert "ZAM-1: 800 zł/MD" in check["detail"]
-    assert "840 zł/MD (105 zł/h)" in check["detail"]
+    assert check["title"] == "Koszt ze stawki kontraktu: 760 zł/MD"
+    assert "ZAM-1: 720 zł/MD" in check["detail"]
+    assert "760 zł/MD (95 zł/h)" in check["detail"]
 
 
 def test_koszt_i_status_w_silniku():
-    """22 MD × 840 zł = 18 480 zł, a nie 22 × 800; stan bez zmian."""
+    """22 MD × 760 zł = 16 720 zł, a nie 22 × 720; stan bez zmian."""
 
     state, _note = _cost()
     rules = rules_catalog.effective({})
@@ -87,8 +87,8 @@ def test_koszt_i_status_w_silniku():
             md_regular=D("22"), md_extra=None, rules=rules, order=state, has_report=True
         )
     )
-    assert before.amount_cost == D("17600.00")
-    assert after.amount_cost == D("18480.00")
+    assert before.amount_cost == D("15840.00")
+    assert after.amount_cost == D("16720.00")
     assert after.amount_revenue == before.amount_revenue
     assert after.status == before.status
 
@@ -108,22 +108,22 @@ def test_praca_dodatkowa_tez_ze_stawki_kontraktu():
         )
     )
     assert {line["label"]: line["rate"] for line in result.lines} == {
-        "Dni zwykłe": "840.00",
-        "Praca dodatkowa": "840.00",
+        "Dni zwykłe": "760.00",
+        "Praca dodatkowa": "760.00",
     }
-    assert result.amount_cost == D("19320.00")
+    assert result.amount_cost == D("17480.00")
 
 
 def test_zmiana_od_pierwszego_dnia_to_stawka_calego_miesiaca():
-    steps = [(date(2026, 3, 17), D("100")), (date(2026, 10, 1), D("105"))]
+    steps = [(date(2026, 2, 9), D("90")), (date(2026, 10, 1), D("95"))]
     state, note = _cost(steps=steps)
-    assert state.rate_cost == D("840.00")
+    assert state.rate_cost == D("760.00")
     assert note is not None
 
 
 def test_zmiana_od_pierwszego_dnia_z_linia_juz_po_nowej_stawce():
-    steps = [(date(2026, 3, 17), D("100")), (date(2026, 10, 1), D("105"))]
-    line = _state("840")
+    steps = [(date(2026, 2, 9), D("90")), (date(2026, 10, 1), D("95"))]
+    line = _state("760")
     state, note = _cost(state=line, steps=steps)
     assert state is line
     assert note is None
@@ -132,20 +132,20 @@ def test_zmiana_od_pierwszego_dnia_z_linia_juz_po_nowej_stawce():
 def test_linia_ustawiona_na_stawke_z_przyszlego_aneksu():
     """Linia dostała stawkę aneksu od 01.11, a w X kontrakt płaci jeszcze starą."""
 
-    steps = [(date(2026, 4, 27), D("120")), (date(2026, 11, 1), D("125"))]
-    state, _note = _cost(state=_state("1000"), steps=steps)
-    assert state.rate_cost == D("960.00")
+    steps = [(date(2026, 5, 4), D("110")), (date(2026, 11, 1), D("115"))]
+    state, _note = _cost(state=_state("920"), steps=steps)
+    assert state.rate_cost == D("880.00")
 
 
 def test_linia_zgodna_z_kontraktem_bez_zmian():
-    line = _state("840")
+    line = _state("760")
     state, note = _cost(state=line)
     assert state is line
     assert note is None
 
 
 def test_grosz_roznicy_to_ta_sama_stawka():
-    line = _state("840.004")
+    line = _state("760.004")
     state, note = _cost(state=line)
     assert state is line
     assert note is None
@@ -154,18 +154,18 @@ def test_grosz_roznicy_to_ta_sama_stawka():
 def test_waluta_obca_bez_zmian():
     """Linia trzyma koszt w zł po kursie, a kontrakt w EUR: bez kursu nie porównamy."""
 
-    line = _state("747.33")
+    line = _state("1012.45")
     state, note = _cost(
-        contract=_contract(currency="EUR", legacy="22"),
+        contract=_contract(currency="EUR", legacy="30"),
         state=line,
-        steps=[(date(2026, 1, 15), D("22"))],
+        steps=[(date(2026, 1, 12), D("30"))],
     )
     assert state is line
     assert note is None
 
 
 def test_zmiana_w_trakcie_miesiaca_zostaje_dla_podzialu_kosztu():
-    """Wrzesień z aneksem od 17.09 dzieli ``_rate_change_checks`` (godziny z RCP)."""
+    """Wrzesień z aneksem od 14.09 dzieli ``_rate_change_checks`` (godziny z RCP)."""
 
     line = _state()
     state, note = _cost(state=line, month="2026-09")
@@ -185,9 +185,9 @@ def test_linia_bez_zamowienia_zbiorczego_bez_zmian():
 def test_kontrakt_miesieczny_bez_zmian():
     line = _state()
     state, note = _cost(
-        contract=_contract(unit=RateUnit.monthly, legacy="17000"),
+        contract=_contract(unit=RateUnit.monthly, legacy="15500"),
         state=line,
-        steps=[(date(2026, 1, 1), D("17000"))],
+        steps=[(date(2026, 1, 1), D("15500"))],
     )
     assert state is line
     assert note is None
@@ -204,15 +204,15 @@ def test_kontrakt_bez_harmonogramu_bierze_stawke_z_kontraktu():
     """Jak ``Contract.effective_candidate_rate``: bez kroków stawka z kolumny."""
 
     state, _note = _cost(
-        contract=_contract(legacy="120"), state=_state("1000"), steps=[]
+        contract=_contract(legacy="110"), state=_state("920"), steps=[]
     )
-    assert state.rate_cost == D("960.00")
+    assert state.rate_cost == D("880.00")
 
 
 def test_kontrakt_dzienny():
     state, note = _cost(
-        contract=_contract(unit=RateUnit.daily, legacy="900"),
-        steps=[(date(2026, 1, 1), D("900"))],
+        contract=_contract(unit=RateUnit.daily, legacy="850"),
+        steps=[(date(2026, 1, 1), D("850"))],
     )
-    assert state.rate_cost == D("900.00")
+    assert state.rate_cost == D("850.00")
     assert "zł/h" not in note["checks"][0]["detail"]
