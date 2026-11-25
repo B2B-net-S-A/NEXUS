@@ -312,7 +312,9 @@ def kind_of_file(subject: str, file_name: str, content: bytes) -> str:
     godzinowe”) dzieli dopiero treść. To samo dla wzorów innych klientów, które
     czyta rozliczenie: potwierdzenie godzin ERGO bez słowa-klucza w nazwie,
     Time Sheet i raport BIK pod tematem „faktura”, protokół Orlenu, arkusz
-    zbiorczy klienta („B2B_09_2026.pdf”, czyta go ``signoffs``)."""
+    zbiorczy klienta („B2B_09_2026.pdf”, czyta go ``signoffs``). Od próby VI–VIII
+    2026 także karta KCP Banku Pocztowego („timelogLip.pdf” w mailu „Faktura”),
+    karta PKO, czas pracy z Redmine, zestawienie dostawcy BNP CIB i raport CA."""
 
     kind = classify_kind(subject, file_name)
     if kind != "invoice":
@@ -329,12 +331,17 @@ def kind_of_file(subject: str, file_name: str, content: bytes) -> str:
     from app.services.client_settlements import (
         confirmation_ergo,
         ewidencja_orlen,
+        kcp,
         protocol_orlen,
         rcp_bnp,
+        redmine_timelog,
+        report_ca,
         signoffs,
         timesheet,
         timesheet_bik,
         timesheet_fieldglass,
+        timesheet_pko,
+        vendor_file,
     )
 
     # Każdy czytnik sam odrzuca typ pliku, którego nie zna.
@@ -347,6 +354,11 @@ def kind_of_file(subject: str, file_name: str, content: bytes) -> str:
         timesheet_bik,
         timesheet_fieldglass,
         signoffs,
+        kcp,
+        timesheet_pko,
+        redmine_timelog,
+        vendor_file,
+        report_ca,
     )
     if any(reader.parse(content, mime) is not None for reader in readers):
         return "report"
