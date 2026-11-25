@@ -140,6 +140,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import { LayoutChoice, cvLayoutFact } from "@/components/v2/cv-generator/LayoutChoice";
+import { NewCvRoleGapsNote } from "@/components/v2/cv-editor/NewCvRoleGapsNote";
 import { WreathChoice } from "@/components/v2/cv-generator/WreathChoice";
 import { ConsentRequestButton } from "@/components/v2/recruitment/ConsentRequestButton";
 import {
@@ -1060,6 +1061,7 @@ export function CvToClientCard({
                 lockedAfterSend={lockedAfterSend}
               />
             ) : null}
+            {layoutEnabled && layout === "new" ? <NewCvRoleGapsNote gaps={branded?.new_layout_role_gaps} /> : null}
             {layoutEnabled && layout === "new" && !lockedAfterSend ? (
               <WreathChoice
                 value={wreath}

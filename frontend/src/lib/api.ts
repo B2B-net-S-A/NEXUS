@@ -7114,6 +7114,8 @@ export interface CVBrandedState {
   default_layout?: CvLayout;
   /** Dodatki strony 1 nowego CV: najmocniejszy wynik (wpisany albo wybrany z listy). */
   page1_extras?: CvPage1Extras | null;
+  /** Stanowiska, w których Nowe CV nie odczytało dat albo firmy (25.11.2026); tylko przy „Nowym CV”. */
+  new_layout_role_gaps?: { without_dates: number; without_company: number } | null;
 }
 
 export type CvLayout = "classic" | "new";

@@ -1408,7 +1408,26 @@ def _build_branded_response(
         cv_layout=layout_service.effective(csv.cv_layout),
         new_layout_enabled=layout_service.enabled(),
         page1_extras=csv.page1_extras if isinstance(csv.page1_extras, dict) else None,
+        new_layout_role_gaps=_role_gaps(csv),
     )
+
+
+def _role_gaps(csv: CandidateStageCV) -> Optional[dict[str, int]]:
+    """Ostrzeżenie „Nowe CV nie odczytało dat albo firmy” — tylko przy Nowym CV;
+    awaria odczytu nie psuje odpowiedzi (ślad w logu)."""
+    if layout_service.effective(csv.cv_layout) != "new":
+        return None
+    from app.services.cv_new_content import role_gaps
+
+    try:
+        return role_gaps(
+            csv.branded_draft_html,
+            language=csv.branded_language,
+            blind=csv.branded_template == "blind",
+        )
+    except Exception:  # noqa: BLE001 — dodatek, nie warunek odpowiedzi
+        logger.warning("role gaps for stage CV %s failed", csv.id, exc_info=True)
+        return None
 
 
 def with_pair_source(

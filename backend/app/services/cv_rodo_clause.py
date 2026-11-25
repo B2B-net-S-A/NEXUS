@@ -73,7 +73,8 @@ def is_rodo_node(node, seen: Optional[dict] = None) -> bool:
         return seen[node]
     result = (
         node.get("data-cv-section") == "rodo"
-        or "rodo" in node.get("class", "").split()
+        or "rodo"
+        in (node.get("class") or "").split()  # komentarz HTML: .get() daje None
         or is_rodo_text(_leading_text(node))
     )
     if seen is not None:

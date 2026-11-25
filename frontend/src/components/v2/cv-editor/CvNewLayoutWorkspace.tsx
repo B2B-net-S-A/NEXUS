@@ -22,12 +22,14 @@ import type { CvPage1Extras, CvPage1Update } from "@/lib/api";
 import type { AuthenticatedDownload } from "@/lib/authenticated-files";
 import type { CvLang, CvSectionKey } from "@/lib/cv-editor-blocks";
 import { allRoleFields, companyName, whyPoints } from "@/lib/cv-new-layout-form";
+import { roleGaps } from "@/lib/cv-new-layout-gaps";
 import { pageChip } from "@/lib/cv-new-preview";
 import { cn } from "@/lib/utils";
 
 import { CvNewLayoutPage1, chosenResult } from "./CvNewLayoutPage1";
 import { CvNewLayoutPositions } from "./CvNewLayoutPositions";
 import { CvPdfPageView, type CvPdfPlacement } from "./CvPdfPageView";
+import { NewCvRoleGapsNote } from "./NewCvRoleGapsNote";
 import { useEditorDoc } from "./cv-new-layout-fields";
 import { useNewCvPreview } from "./useNewCvPreview";
 
@@ -74,6 +76,7 @@ export function CvNewLayoutWorkspace({
   });
 
   const roles = allRoleFields(doc);
+  const gaps = roleGaps(roles);
   const role = roles[Math.min(selected, roles.length - 1)] ?? null;
   const points = whyPoints(doc).map((point) => point.text);
   const third = extras?.result_text?.trim() || chosenResult(extras)?.result.text || points[2] || "";
@@ -102,6 +105,7 @@ export function CvNewLayoutWorkspace({
               : "flex @3xl:w-[70%] @3xl:max-w-[52rem] @3xl:overflow-hidden",
           )}
         >
+          {tab === "page1" ? <NewCvRoleGapsNote gaps={gaps} onFix={() => onTab("positions")} className="mx-4 mt-3" /> : null}
           {tab === "page1" ? (
             <CvNewLayoutPage1
               editor={editor}
