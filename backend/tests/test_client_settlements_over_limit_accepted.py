@@ -8,6 +8,9 @@ rozliczenie czekało na człowieka.
   roboczych”. Akceptacja klienta tej liczby (podpis klienta albo mail z domeny
   klienta z liczbą równą dowodowi) zdejmuje uwagę. Mniejsza liczba, podpis samej
   osoby, inna domena i MD u innych klientów zostawiają ją.
+* Nadgodziny BNP: przełożony potwierdza je po fakcie, podpisem RCP i mailem
+  z domeny banku. Decyzja Artura z 25.11.2026: podpis osoby klienta na RCP i mail
+  klienta zdejmują uwagę „po pracy dodatkowej”; bez jednego z nich zostaje.
 * Konsultant wysłał fakturę z KSeF w wątku „TS …” („Wystawione”), więc plik miał
   rodzaj „raport”. Był najnowszy, ``_pick_report`` brał go za RCP i rozliczenie
   stało na „Nie rozpoznano szablonu RCP”, choć podpisany RCP leżał obok.
@@ -15,12 +18,20 @@ rozliczenie czekało na człowieka.
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
 
-from app.services.client_settlements import mail_text, rcp_checks, service
+from app.services.client_settlements import (
+    mail_text,
+    rcp_checks,
+    service,
+    travel_acceptance,
+)
+from app.services.client_settlements.acceptance_mail import MailMessage
+from app.services.client_settlements.rcp_bnp import SignatureInfo
 from app.services.client_settlements.timesheet_pko import month_limit
 from tests.test_client_settlements_pko_velo import _plain_pdf
 
@@ -58,10 +69,7 @@ def _signed(md: str = "22.75", *, by_client: bool = True) -> SimpleNamespace:
 
 def _limit_check(proof: rcp_checks.ProofResult) -> dict:
     return next(
-        c
-        for g in proof.groups
-        for c in g["checks"]
-        if "dniach roboczych" in c["title"]
+        c for g in proof.groups for c in g["checks"] if "dniach roboczych" in c["title"]
     )
 
 
@@ -73,7 +81,10 @@ def test_podpis_klienta_z_ta_liczba_zdejmuje_uwage() -> None:
 
     check = _limit_check(after)
     assert check["state"] == "ok"
-    assert check["title"] == "22,75 MD przy 22 dniach roboczych, zaakceptowane przez klienta"
+    assert (
+        check["title"]
+        == "22,75 MD przy 22 dniach roboczych, zaakceptowane przez klienta"
+    )
     assert check["detail"] == "Podpis klienta obejmuje 22,75 MD."
     assert "rule" not in check
     assert not after.warn and not after.blocking
@@ -81,9 +92,13 @@ def test_podpis_klienta_z_ta_liczba_zdejmuje_uwage() -> None:
 
 def test_mail_klienta_z_ta_liczba_zdejmuje_uwage() -> None:
     proof = _proof()
-    proof.client_count = "Mail klienta z tą liczbą (Akceptacja: 182 h za październik 2026)."
+    proof.client_count = (
+        "Mail klienta z tą liczbą (Akceptacja: 182 h za październik 2026)."
+    )
 
-    after = service._over_limit_accepted(proof, SimpleNamespace(checks=[]), Decimal("0"))
+    after = service._over_limit_accepted(
+        proof, SimpleNamespace(checks=[]), Decimal("0")
+    )
 
     assert _limit_check(after)["state"] == "ok"
     assert not after.warn
@@ -147,7 +162,9 @@ def test_poziom_blokuje_tez_zdjety_akceptacja_klienta() -> None:
 
 
 def _mail(sender: str, body: str) -> mail_text.Mail:
-    return mail_text.Mail(subject="Time Sheet październik 2026", sender=sender, body=body)
+    return mail_text.Mail(
+        subject="Time Sheet październik 2026", sender=sender, body=body
+    )
 
 
 def _judge(mail: mail_text.Mail, **kw) -> mail_text.Verdict:
@@ -158,7 +175,10 @@ def _judge(mail: mail_text.Mail, **kw) -> mail_text.Verdict:
 
 def test_mail_z_domeny_klienta_z_liczba_obejmuje_liczbe() -> None:
     verdict = _judge(
-        _mail("Kierownik <kierownik@klient.example>", "Akceptuję 182 h za październik 2026.")
+        _mail(
+            "Kierownik <kierownik@klient.example>",
+            "Akceptuję 182 h za październik 2026.",
+        )
     )
 
     assert verdict.ok and verdict.counted
@@ -166,7 +186,9 @@ def test_mail_z_domeny_klienta_z_liczba_obejmuje_liczbe() -> None:
 
 def test_mail_z_innej_domeny_nie_jest_akceptacja_liczby() -> None:
     verdict = _judge(
-        _mail("Kierownik <kierownik@inna.example>", "Akceptuję 182 h za październik 2026.")
+        _mail(
+            "Kierownik <kierownik@inna.example>", "Akceptuję 182 h za październik 2026."
+        )
     )
 
     assert not verdict.ok and not verdict.counted
@@ -182,7 +204,10 @@ def test_akceptuje_bez_liczby_nie_obejmuje_liczby() -> None:
 
 def test_akceptacja_innej_liczby_nie_przechodzi() -> None:
     verdict = _judge(
-        _mail("Kierownik <kierownik@klient.example>", "Akceptuję 176 h za październik 2026.")
+        _mail(
+            "Kierownik <kierownik@klient.example>",
+            "Akceptuję 176 h za październik 2026.",
+        )
     )
 
     assert not verdict.ok and not verdict.counted
@@ -225,3 +250,76 @@ def test_faktura_ksef_w_watku_time_sheet_to_nie_rcp(_storage) -> None:
 
     assert service._not_report(invoice)
     assert not service._not_report(rcp)
+
+
+BEFORE = "extra.mail_before"
+AFTER_WORK = [MailMessage("kierownik@klient.example", date(2026, 11, 2))]
+
+
+def _before(signed_by=None) -> dict:
+    proof = rcp_checks.ProofResult(md_regular=Decimal("17"), md_extra=Decimal("4.75"))
+    group = rcp_checks._Group(
+        proof, {BEFORE: {"level": "warn", "params": {}}}, "Nadgodziny"
+    )
+    rcp_checks._check_before(
+        group,
+        SimpleNamespace(weekend_days=[10, 11]),
+        MONTH,
+        "klient.example",
+        AFTER_WORK,
+        signed_by=signed_by,
+    )
+    group.close()
+    return {"proof": proof, "check": proof.groups[0]["checks"][0]}
+
+
+def test_akceptacja_po_pracy_z_podpisem_klienta_na_rcp_bez_uwagi() -> None:
+    got = _before("Kierownik Testowy (klient.example), 02.11.2026")
+
+    assert got["check"]["state"] == "ok"
+    assert got["check"]["title"] == (
+        "Akceptacja z 02.11.2026, po pracy dodatkowej, z podpisem klienta"
+    )
+    assert "Kierownik Testowy" in got["check"]["detail"]
+    assert not got["proof"].warn
+
+
+def test_akceptacja_po_pracy_bez_podpisu_klienta_zostaje_uwaga() -> None:
+    got = _before()
+
+    assert got["check"]["state"] == "warn" and got["check"]["rule"] == BEFORE
+    assert got["proof"].warn
+
+
+def _sign(signer: str, domain: str, *, intact: bool = True) -> SignatureInfo:
+    return SignatureInfo(
+        intact, True, "Bank Testowy CA", signer, domain, datetime(2026, 11, 2, 16, 0)
+    )
+
+
+def test_podpis_rcp_osoba_klienta_z_jego_domeny() -> None:
+    signers = [_sign("Kierownik Testowy", "klient.example")]
+
+    sign = travel_acceptance.client_signature(
+        signers, senders=SENDERS, person_name="Jan Konsultant"
+    )
+
+    assert sign is not None
+    assert (
+        travel_acceptance.signed_by(sign)
+        == "Kierownik Testowy (klient.example), 02.11.2026"
+    )
+
+
+def test_podpis_samego_konsultanta_ani_spoza_domeny_nie_jest_podpisem_klienta() -> None:
+    for signers in (
+        [_sign("Jan Konsultant", "klient.example")],
+        [_sign("Kierownik Testowy", "inna.example")],
+        [_sign("Kierownik Testowy", "klient.example", intact=False)],
+    ):
+        assert (
+            travel_acceptance.client_signature(
+                signers, senders=SENDERS, person_name="Jan Konsultant"
+            )
+            is None
+        )

@@ -154,12 +154,15 @@ def evaluate(
     client_mail: Optional[bool] = None,
     acceptor: str = "klienta",
     travel: Optional["Verdict"] = None,
+    client_signature: Optional[str] = None,
 ) -> ProofResult:
     """``client_mail``: czy w mailach miesiąca jest wiadomość klienta
     (``acceptance_mail.from_client``); ``None`` = nadawcy nie odczytano.
     ``acceptor``: kto akceptuje (``mail_text.Senders.who``).
     ``travel``: akceptacja kosztów delegacji przez klienta
-    (``travel_acceptance``); ``None`` = nie znaleziono."""
+    (``travel_acceptance``); ``None`` = nie znaleziono.
+    ``client_signature``: kto po stronie klienta podpisał RCP ważnym podpisem
+    (``travel_acceptance.client_signature``); ``None`` = brak takiego podpisu."""
 
     result = ProofResult(md_regular=None, md_extra=None)
     rcp = _Group(result, rules, "RCP")
@@ -381,7 +384,14 @@ def evaluate(
                     "extra.mail_accept", "Brak maila z akceptacją pracy dodatkowej"
                 )
         if extra.on("extra.mail_before") and has_mail and client_mail is not False:
-            _check_before(extra, parsed, month, domain, mails)
+            _check_before(
+                extra,
+                parsed,
+                month,
+                domain,
+                mails,
+                signed_by=client_signature if client_mail else None,
+            )
     extra.close()
 
     if parsed.travel_total and parsed.travel_total > 0:
@@ -506,8 +516,15 @@ def _check_before(
     month: str,
     domain: str,
     mails: Sequence[MailMessage],
+    *,
+    signed_by: Optional[str] = None,
 ) -> None:
-    """Zgoda nie później niż pierwszy dzień pracy dodatkowej (ten sam dzień = przed)."""
+    """Zgoda nie później niż pierwszy dzień pracy dodatkowej (ten sam dzień = przed).
+
+    ``signed_by``: RCP z pracą dodatkową podpisała osoba klienta, a w wątku jest
+    mail klienta. Zgoda po pracy wystarcza wtedy bez uwagi (decyzja Artura
+    z 25.11.2026: przełożony w BNP potwierdza nadgodziny po fakcie, podpisem RCP
+    i mailem; bez podpisu albo bez maila klienta uwaga zostaje)."""
 
     days = parsed.weekend_days
     accepted = acceptance_mail.acceptance_date(mails, acceptance_mail.domains(domain))
@@ -523,6 +540,12 @@ def _check_before(
         group.ok(
             f"Akceptacja z {_day(accepted)}, przed pracą dodatkową",
             f"Pierwszy dzień pracy dodatkowej: {_day(first)}.",
+        )
+    elif signed_by:
+        group.ok(
+            f"Akceptacja z {_day(accepted)}, po pracy dodatkowej, z podpisem klienta",
+            f"Pierwszy dzień pracy dodatkowej: {_day(first)}. RCP z pracą dodatkową "
+            f"podpisał {signed_by}.",
         )
     else:
         group.fail(

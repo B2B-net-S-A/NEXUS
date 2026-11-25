@@ -1410,6 +1410,7 @@ async def _proof(
                 client_mail=client_mail,
                 acceptor=senders.who,
                 travel=accepted_travel,
+                client_signature=_rcp_signer(signatures, senders, person_name, rules),
             )
             if bnp.md_regular is not None:
                 return bnp
@@ -1438,6 +1439,23 @@ async def _proof(
         has_mail=False,
         rules=rules,
     )
+
+
+def _rcp_signer(
+    signatures: list[rcp_bnp.SignatureInfo],
+    senders: mail_text.Senders,
+    person_name: str,
+    rules: dict[str, dict[str, Any]],
+) -> Optional[str]:
+    """Kto po stronie klienta podpisał RCP (``extra.mail_before``)."""
+
+    sign = travel_acceptance.client_signature(
+        signatures,
+        senders=senders,
+        person_name=person_name,
+        issuer=rcp_checks._param(rules, "proof.signed_pdf", "issuer"),
+    )
+    return travel_acceptance.signed_by(sign) if sign is not None else None
 
 
 async def _other_files(
@@ -2628,9 +2646,7 @@ def _over_month_limit(proof: Optional[rcp_checks.ProofResult]) -> list[dict[str,
     ]
 
 
-def _client_count(
-    proof: rcp_checks.ProofResult, s: ClientSettlement
-) -> Optional[str]:
+def _client_count(proof: rcp_checks.ProofResult, s: ClientSettlement) -> Optional[str]:
     """Czym klient zaakceptował dokładnie MD z dowodu: podpisem na arkuszu albo
     protokole od klienta (``signoffs.client_signed``) z tą liczbą MD albo mailem
     z domeny klienta z liczbą równą dowodowi (``ProofResult.client_count``).

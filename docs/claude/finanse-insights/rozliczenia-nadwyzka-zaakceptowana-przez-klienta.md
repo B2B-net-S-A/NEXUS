@@ -1,6 +1,6 @@
-# Rozliczenia: MD ponad dni robocze zaakceptowane przez klienta i faktura KSeF w wątku Time Sheet
+# Rozliczenia: MD ponad dni robocze i nadgodziny zaakceptowane przez klienta, faktura KSeF w wątku Time Sheet
 
-<!-- indeks: ponad dni robocze, fields.md_month_limit, MD przy dniach roboczych, zaakceptowane przez klienta, _over_limit_accepted, _client_count, client_count, Verdict.counted, podpis klienta obejmuje, arkusz zbiorczy, signoffs.client_signed, mail z liczbą, akceptacja mniejszej liczby, dwóch klientów, other_md, nadgodziny BNP, extra.mail_before, akceptacja po pracy dodatkowej, faktura KSeF, Krajowy System e-Faktur, Numer KSeF, _is_ksef_invoice, _not_report, _pick_report, Nie rozpoznano szablonu RCP, Wystawione, VeloBank, BNP -->
+<!-- indeks: ponad dni robocze, fields.md_month_limit, MD przy dniach roboczych, zaakceptowane przez klienta, _over_limit_accepted, _client_count, client_count, Verdict.counted, podpis klienta obejmuje, arkusz zbiorczy, signoffs.client_signed, mail z liczbą, client_signature, z podpisem klienta, travel_acceptance, akceptacja mniejszej liczby, dwóch klientów, other_md, nadgodziny BNP, extra.mail_before, akceptacja po pracy dodatkowej, faktura KSeF, Krajowy System e-Faktur, Numer KSeF, _is_ksef_invoice, _not_report, _pick_report, Nie rozpoznano szablonu RCP, Wystawione, VeloBank, BNP -->
 
 Od 25.11.2026, po powtórce 8 próby rozliczeń IX–X 2026 (kopia produkcji z nocy
 23/24.11). Trzy rozliczenia miały MD zgodne z fakturą Finansów, a czekały na
@@ -49,13 +49,25 @@ Teraz `_not_report` odrzuca PDF z nagłówkiem „Krajowy System e-Faktur” i �
 KSeF:” (`_is_ksef_invoice`), gdy w miesiącu jest inny plik. Rodzaju pliku przy
 wczytaniu poczty to nie zmienia.
 
-## Nadgodziny BNP: akceptacja po pracy zostaje uwagą
+## Nadgodziny BNP: akceptacja po pracy z podpisem klienta na RCP
 
-Na BNP po tej zmianie kontrole RCP przechodzą: podpis przełożonego z banku ważny,
-mail akceptujący pracę dodatkową z domeny banku („wyraziłem zgodę na przepracowane
-nadgodziny”). Zostaje `extra.mail_before` „Akceptacja z …, po pracy dodatkowej”.
-Decyzja Artura z 13.11.2026: ta reguła zostaje u BNP na „Ostrzega”, bo przełożony
-potwierdza nadgodziny po fakcie, razem z RCP. Tej zmiany ta poprawka nie dotyka.
+Na BNP po poprawce wyboru pliku kontrole RCP przechodzą: podpis przełożonego z banku
+jest ważny, a mail z domeny banku akceptuje pracę dodatkową („wyraziłem zgodę na
+przepracowane nadgodziny”). Zostawała `extra.mail_before` „Akceptacja z …, po pracy
+dodatkowej”, bo przełożony potwierdza nadgodziny po fakcie, razem z RCP.
+
+Decyzja Artura z 13.11.2026 zostawiła tę regułę u BNP na „Ostrzega”. Decyzja z
+25.11.2026, po próbie: w IX–X oba rozliczenia z nadgodzinami miały akceptację po
+pracy i Finanse przyjęły oba. Reguła zostaje na „Ostrzega”, ale akceptacja po pracy
+nie daje uwagi, gdy:
+
+- RCP ma ważny podpis całego pliku osobą klienta: certyfikat z domeny klienta, od
+  wystawcy z `proof.signed_pdf`, podpisujący to nie konsultant
+  (`travel_acceptance.client_signature`, ten sam test co przy kosztach delegacji);
+- w wątku jest mail klienta (`client_mail`), a data zgody pochodzi z jego domeny.
+
+Kontrola pisze wtedy „Akceptacja z …, po pracy dodatkowej, z podpisem klienta”
+i kto podpisał. Bez podpisu klienta albo bez maila klienta uwaga zostaje.
 
 ## Pomiar (25.11.2026)
 
@@ -65,8 +77,8 @@ z rollbackiem, kod `main` 5d7578404 i kod tej zmiany na tych samych danych.
 | Przypadek | `main` | Ta zmiana |
 |---|---|---|
 | VeloBank X, 22,75 MD przy 22 dniach | uwagi (`fields.md_month_limit`) | ok, 22,75 MD |
-| BNP IX, 14 + 9,375 MD | uwagi: „Nie rozpoznano szablonu RCP” (faktura KSeF jako RCP) | uwagi: tylko `extra.mail_before`; RCP odczytany, 14 + 9,375 MD |
-| BNP X, 17 + 4,75 MD | uwagi: „Nie rozpoznano szablonu RCP” | uwagi: tylko `extra.mail_before`; 17 + 4,75 MD |
+| BNP IX, 14 + 9,375 MD | uwagi: „Nie rozpoznano szablonu RCP” (faktura KSeF jako RCP) | ok; RCP odczytany, 14 + 9,375 MD, akceptacja po pracy z podpisem klienta |
+| BNP X, 17 + 4,75 MD | uwagi: „Nie rozpoznano szablonu RCP” | ok; 17 + 4,75 MD |
 
 Pozostałe 368 rozliczeń bez zmiany statusu, MD, dokumentu dowodu i kontroli.
 W IX–X tylko te dwa rozliczenia BNP mają nadgodziny z akceptacją i w obu akceptacja
