@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.models.client_order_group import ClientOrderGroup
 from app.models.client_sales_invoice import ClientSalesInvoice
+from app.models.client_time_report import ClientExternalId
 from app.models.dl_alert import (
     ALERT_INVOICE_WITHOUT_ORDER_LINE as ALERT,
     DL_ALERT_SECTION_BY_TYPE,
@@ -247,6 +248,96 @@ async def test_module_off_emits_nothing_and_closes_open_cards() -> None:
     await _scan()
     await fx.set_module(False)
 
+    await _scan()
+
+    [alert] = await _alerts(dl_id)
+    assert alert.status == DL_ALERT_STATUS_RESOLVED
+
+
+# ── Osoba bez kontraktu i nieznany numer zamówienia (audyt 25.11.2026) ────────
+
+
+async def test_marked_person_without_any_contract_alerts_dl() -> None:
+    client_id, dl_id = await _client_with_dl()
+    invoice_id = await _invoice(
+        client_id,
+        "NIDS:2026-000001, IT, Nordea Contact: Ola Kontaktowa, "
+        "Contractor Bez Kontraktowy ID: M000901",
+    )
+
+    assert await _scan() == 1
+
+    [alert] = await _alerts(dl_id)
+    assert "Bez Kontraktowy (ID M000901)" in alert.message
+    assert "nie ma kontraktu" in alert.message
+    assert f"invoice:{invoice_id}:person:" in alert.dedupe_key
+    assert alert.payload["consultant"] == "Bez Kontraktowy (ID M000901)"
+
+
+async def test_marked_person_with_shortened_surname_has_a_contract() -> None:
+    client_id, dl_id = await _client_with_dl()
+    async with AsyncSessionLocal() as db:
+        contract = await fx._person(db, client_id, "Tomasz", "Krotki-Dlugi")
+        await db.flush()
+        db.add(
+            ClientExternalId(
+                client_id=client_id,
+                contract_id=contract.id,
+                kind="client_person_no",
+                value="M000902",
+                source="ksef_item",
+                state="confirmed",
+            )
+        )
+        await db.commit()
+    # Skrót nazwiska i znany numer osoby — żadna karta „bez kontraktu”.
+    await _invoice(client_id, "Contractor Tomasz Krotki ID: M000999")
+    await _invoice(client_id, "Contractor Ktos Inny ID: M000902")
+
+    await _scan()
+
+    assert [a for a in await _alerts(dl_id) if ":person:" in a.dedupe_key] == []
+
+
+async def test_unknown_order_number_alerts_when_no_person_gap() -> None:
+    client_id, dl_id = await _client_with_dl()
+    invoice_id = await _invoice(
+        client_id,
+        "Usługa informatyczna, zamówienie nr ORD000123",
+        reason="unknown_order_number",
+    )
+
+    assert await _scan() == 1
+
+    [alert] = await _alerts(dl_id)
+    assert "ORD000123" in alert.message
+    assert f"invoice:{invoice_id}:order:" in alert.dedupe_key
+
+
+async def test_unknown_order_number_with_person_gap_gives_one_card() -> None:
+    client_id, dl_id = await _client_with_dl()
+    await _person(client_id, "Ida", "Bezlinii")
+    await _invoice(
+        client_id, "Ida Bezlinii, zamówienie nr ORD000124", reason="unknown_order_number"
+    )
+
+    assert await _scan() == 1
+
+    [alert] = await _alerts(dl_id)
+    assert ":candidate:" in alert.dedupe_key
+
+
+async def test_unknown_order_card_closes_when_finance_assigns() -> None:
+    client_id, dl_id = await _client_with_dl()
+    invoice_id = await _invoice(
+        client_id, "zamówienie nr ORD000125", reason="unknown_order_number"
+    )
+    await _scan()
+
+    async with AsyncSessionLocal() as db:
+        invoice = await db.get(ClientSalesInvoice, invoice_id)
+        invoice.match_reason = "currency_differs"
+        await db.commit()
     await _scan()
 
     [alert] = await _alerts(dl_id)
