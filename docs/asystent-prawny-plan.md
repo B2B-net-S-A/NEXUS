@@ -40,16 +40,22 @@ wyłącznie dane fikcyjne.**
 
 | Część | Gałąź | Migracja | Funkcja AI | Porty (backend/front) |
 |---|---|---|---|---|
-| A. Fundament: korpus prawa, weryfikator, usługa, API | `-fundament` | `0779_legal_corpus` | `legal_assistant` (F19) | 8111 / 3111 |
-| B. Wzory własne | `-wzory` | `0780_custom_document_templates` | `legal_template_draft` (F20) | 8112 / 3112 |
+| A. Fundament: korpus prawa, weryfikator, usługa, API | `-fundament` | `0779_legal_corpus` | `legal_assistant` (F56) | 8111 / 3111 |
+| B. Wzory własne | `-wzory` | `0780_custom_document_templates` | `legal_template_draft` (F57) | 8112 / 3112 |
 | C. Orzecznictwo i interpretacje | `-orzecznictwo` | `0781_legal_case_law` | — | 8113 / 3113 |
-| D. Popraw dokument (DOCX ze śledzeniem zmian) | `-redline` | — | `legal_redline` (F21) | 8114 / 3114 |
+| D. Popraw dokument (DOCX ze śledzeniem zmian) | `-redline` | — | `legal_redline` (F58) | 8114 / 3114 |
 | E. Podpisane umowy kontraktów do odczytu | `-umowy-kontraktow` | `0782_contract_document_chunks` | — | 8115 / 3115 |
-| F. Pismo na kontrakcie, zadania po wypowiedzeniu, Jarvis | `-pisma` | `0783_legal_letters` | (F19) | 8116 / 3116 |
-| G. Zgodność z umową klienta w tle | `-zgodnosc` | `0784_legal_client_fit` | `legal_client_fit` (F22) | 8117 / 3117 |
+| F. Pismo na kontrakcie, zadania po wypowiedzeniu, Jarvis | `-pisma` | `0783_legal_letters` | (F56) | 8116 / 3116 |
+| G. Zgodność z umową klienta w tle | `-zgodnosc` | `0784_legal_client_fit` | `legal_client_fit` (F59) | 8117 / 3117 |
 | H. Przepisy: źródła i „przejrzyj wzór” | `-przepisy` | — | — | 8118 / 3118 |
 
 A–E startują od razu; F–H po scaleniu A i E do `claude/asystent-prawny`.
+
+**Numery funkcji AI (zmiana części A, 25.11.2026):** F19–F22 były już zajęte
+w `services/ai_models.py` (F19 = `jarvis`, F20 = `job_public_description`,
+F21 = `screening_reassign_suggest`, F22 = `dz_review`), a F55 bierze otwarty
+PR #3990. Stąd F56 (`legal_assistant`), F57, F58, F59. Klucze `AIFeatureKey`
+bez zmian; ostateczny numer sprawdza sesja główna przy scalaniu.
 
 **Migracje:** każda część ma `down_revision = "0778_b2b_document_preliminary_jdg"`;
 sesja główna łańcuchuje je przy scalaniu. DDL z jednego modułu `schema.py`
@@ -85,15 +91,23 @@ Pakiet `backend/app/services/legal/`:
   `nexus_legal_corpus` (id punktu = id przepisu, bez tekstu w payloadzie).
 - `search_provisions(db, query, *, acts=None, on_date=None, limit=8)`,
   `get_provision(db, act_key, ref, *, on_date=None)`.
-- `SourcePassage(kind: law|contract|client|template|case, ref, text, url, label)`.
+- `SourcePassage(kind: law|contract|client|template|case, ref, text, url, label, act_key)`
+  (`citations.SourcePassage`; `act_key` przy `law`, bo „art. 61 § 1” jest
+  i w KC, i w KP). `corpus.as_passage(hit)` robi go z trafienia korpusu.
 - `citations.extract(text) -> list[Citation]`,
   `citations.verify(text, passages) -> list[CitationCheck]` (`ok` / `missing`
-  / `mismatch`), bez modelu.
+  / `mismatch`), bez modelu; `corpus.verify_text(db, text, passages, *,
+  on_date=None)` dobiera przepisy z korpusu sam; `citations.blocking(checks)`.
 - `pseudonymize.mask(text, entities) -> (masked, mapping)`, `unmask(text, mapping)`.
 - `deadlines`: liczenie terminów (art. 111–116 KC, „na koniec miesiąca”,
   „od kolejnego miesiąca”) — czyste funkcje.
-- `assistant.draft(db, *, kind, instruction, passages, entities) -> Draft`
-  (`text`, `citations`, `checks`, `blocked`), funkcja AI `legal_assistant`.
+- `assistant.draft(db, *, kind, instruction, passages, entities, user_id=None,
+  on_date=None) -> Draft` (`text`, `citations`, `checks`, `blocked`, a także
+  `passages`, `issues`, `lawyer_review`, `model`, `error`), funkcja AI
+  `legal_assistant`; `kind`: `termination`, `annex`, `reply`, `letter`.
+  Wartości liczone kodem (daty z `deadlines`) podaje się jako `Entity`
+  (`DATA_ROZWIAZANIA`), model widzi tylko znacznik.
+- Reguły i szczegóły części A: `docs/claude/asystent-prawny/fundament-korpus-prawa-weryfikator-cytatow.md`.
 - API (`/api/legal`): `GET /sources` (stan korpusu), `GET /provisions/search`,
   `POST /verify`, `POST /draft`.
 - Pobieranie: ELI Sejmu (`api.sejm.gov.pl/eli`) i EUR-Lex, z wersjami;

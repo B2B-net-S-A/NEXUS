@@ -93,6 +93,8 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "sales_signals",
         # Webhooki Grok Zbieracza i Analityka (radar przepisów) i API Sejmu.
         "law_radar",
+        # Asystent prawny: API ELI Sejmu i CELLAR UE; korpus zasila skrypt seed.
+        "legal_corpus",
         # API BZP i TED; szanse z przetargów zakłada produkcja (ręczny bieg działa).
         "sales_tenders",
         # Bot Cpro: dane kandydatów do bota w USA i wysyłka ofert do Nordei.

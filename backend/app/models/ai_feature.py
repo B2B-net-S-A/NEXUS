@@ -228,6 +228,11 @@ class AIFeatureKey(str, enum.Enum):
     # 0761 (23.11.2026): Sprzedaż — ocena potencjału firmy przed spotkaniem
     # z researchu Bota Research, faktów z NEXUSA i bazy wiedzy (F54).
     sales_potential_assessment = "sales_potential_assessment"
+    # 0779 (25.11.2026): asystent prawny w tle ekranów kontraktów i Generatora —
+    # szkic pisma (wypowiedzenie, aneks, odpowiedź), w którym każdy cytat
+    # sprawdza kod z tekstem źródła, a terminy liczy kod (F56). Dane osób idą do
+    # modelu wyłącznie jako znaczniki ([PARTNER], [NIP]).
+    legal_assistant = "legal_assistant"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -287,6 +292,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.contract_document_rate_read: "Kontrakty — stawka Partnera z umowy i aneksu",
     AIFeatureKey.contract_partner_read: "Kontrakty — dane firmy Partnera z podpisanej umowy",
     AIFeatureKey.sales_potential_assessment: "Sprzedaż — ocena potencjału firmy przed spotkaniem",
+    AIFeatureKey.legal_assistant: "Asystent prawny — szkic pisma z cytatami sprawdzonymi z tekstem przepisu i umowy",
 }
 
 
@@ -546,6 +552,14 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Baza wiedzy oceny: opis oferty i referencje (bez podpisów listów i notatek)",
         "(bez kontaktów, decydentów, kandydatów, konsultantów i stawek; tytuł szansy to "
         "tekst handlowca)",
+    ],
+    AIFeatureKey.legal_assistant: [
+        "Polecenie osoby (rodzaj pisma i co ma w nim być)",
+        "Fragmenty przepisów z korpusu NEXUSA (teksty jednolite ELI i EUR-Lex) "
+        "oraz fragmenty umowy, wzoru albo umowy ramowej wybrane przez ekran",
+        "Dane osób i firm tylko jako znaczniki ([PARTNER], [NIP], [ADRES]); "
+        "podmiana na prawdziwe wartości po stronie NEXUSA",
+        "(bez LEX-u i Gofina, bez stawek spoza fragmentów i bez danych z profilu)",
     ],
 }
 

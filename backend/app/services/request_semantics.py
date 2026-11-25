@@ -43,6 +43,8 @@ READ_ONLY_POST_ROUTE_TEMPLATES: tuple[str, ...] = (
     "/api/job-intake/critical-suggestion",
     "/api/job-intake/requirement-rows",
     "/api/job-intake/category-suggestion",
+    # Asystent prawny: sprawdzenie cytatów z tekstem źródła, bez zapisu (0779).
+    "/api/legal/verify",
 )
 
 _READ_ONLY_POST_ROUTE_PATTERNS = tuple(

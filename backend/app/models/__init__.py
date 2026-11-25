@@ -952,6 +952,8 @@ from app.models import job_team_panel as _job_team_panel_models  # noqa: F401,E4
 # 0713: radar przepisów (dwa Grok Boty, bramka NEXUSA, zmiany w prawie).
 from app.models import law_radar as _law_radar_models  # noqa: F401,E402
 
+# 0779: korpus prawa asystenta prawnego (akty, wersje, jednostki redakcyjne).
+from app.models import legal_corpus as _legal_corpus_models  # noqa: F401,E402
 # 0781: orzecznictwo dla asystenta prawnego (część C).
 from app.models import legal_case_law as _legal_case_law_models  # noqa: F401,E402
 
