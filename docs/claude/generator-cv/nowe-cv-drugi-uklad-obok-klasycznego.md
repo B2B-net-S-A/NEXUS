@@ -146,7 +146,7 @@ Decyzja Artura z 25.11.2026 (AskUserQuestion): najpierw pole „Format pliku”
 w regule CV klienta (etap 1), potem Word w nowym wyglądzie (etap 2, sekcja
 „Word Nowego CV” niżej).
 
-- **Pole reguły** `client_cv_rules.cv_file_format` (migracja 0779, SQL
+- **Pole reguły** `client_cv_rules.cv_file_format` (migracja 0780, SQL
   w `cv_layout_schema.FILE_FORMAT_DDL`, lustro w `entrypoint.sh`): `docx` |
   `pdf` | `both`; NULL = „Bez wymagań”, czyli jak przed 25.11 (plik idzie za
   układem). Pole recepty w `RULE_FIELDS` — wersja, diff w historii, publikacja,
