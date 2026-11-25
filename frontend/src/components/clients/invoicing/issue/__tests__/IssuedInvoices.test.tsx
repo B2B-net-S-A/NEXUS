@@ -138,6 +138,7 @@ const CARD: IssuedInvoiceCard = {
   ],
   lines_before: [],
   warnings: [],
+  checks: [],
   order_numbers: ["ZAM/2026/118"],
   requirements: [],
   mail: null,
@@ -332,6 +333,29 @@ describe("IssuedInvoiceCardView", () => {
     await user.click(within(dialog).getByRole("button", { name: "Wyślij do KSeF" }));
     await waitFor(() => expect(post).toHaveBeenCalledWith("/api/finance/issued-invoices/5/send"));
     await waitFor(() => expect(showToast).toHaveBeenCalledWith("Przyjęta w KSeF: 1/11/2026", "success"));
+  });
+
+  it("asks for a reason when the pre-send check has remarks", async () => {
+    const user = userEvent.setup();
+    const remark = "Data sprzedaży 14.11.2026 poza okresem usługi (październik 2026).";
+    mockCard({ ...CARD, checks: [remark] });
+    post.mockResolvedValue({
+      data: { ...CARD, status: "accepted", status_label: "Przyjęta w KSeF", invoice_number: "1/11/2026" },
+    });
+    wrap(<IssuedInvoiceCardView invoiceId={5} />);
+    const box = await screen.findByRole("region", { name: "Kontrola przed wysyłką" });
+    expect(box).toHaveTextContent(remark);
+    await user.click(screen.getByRole("button", { name: "Wyślij do KSeF" }));
+    const dialog = await screen.findByRole("alertdialog").catch(() => screen.findByRole("dialog"));
+    const confirm = within(dialog).getByRole("button", { name: "Wyślij mimo uwag" });
+    expect(confirm).toBeDisabled();
+    await user.type(within(dialog).getByRole("textbox"), "Klient chce datę z protokołu");
+    await user.click(confirm);
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/finance/issued-invoices/5/send", {
+        checks_reason: "Klient chce datę z protokołu",
+      }),
+    );
   });
 
   it("keeps send disabled with the reason when issuing is off", async () => {
