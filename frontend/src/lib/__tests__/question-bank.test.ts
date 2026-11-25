@@ -54,7 +54,7 @@ describe("groupByPosition", () => {
   it("nazwa stanowiska bez dopisku z technologiami", () => {
     const analityk = positions.find((p) => p.key === "10")!;
     expect(analityk.name).toBe("Analityk danych");
-    expect(analityk.detail).toBe("SQL · 3+ lata");
+    expect(analityk.techLine).toBe("SQL · 3+ lata");
     expect(analityk.jobNumber).toBe("100");
   });
 

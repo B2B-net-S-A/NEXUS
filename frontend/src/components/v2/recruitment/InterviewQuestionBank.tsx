@@ -221,7 +221,7 @@ export function InterviewQuestionBank() {
                         {p.name}
                       </span>
                       <span className="block truncate text-xs text-muted-foreground">
-                        {[p.jobNumber, p.detail ?? (p.jobId == null ? "pytania bez przypisanej rekrutacji" : null)].filter(Boolean).join(" · ")}
+                        {[p.jobNumber, p.techLine ?? (p.jobId == null ? "pytania bez przypisanej rekrutacji" : null)].filter(Boolean).join(" · ")}
                       </span>
                     </Link>
                   </td>
@@ -316,7 +316,7 @@ function PositionDetail({ position: p, onBack, prev, next, onOpen }: PositionDet
           {" · "}
           {p.clientName}
           {p.managers.length ? ` · manager: ${p.managers.join(", ")}` : ""}
-          {p.detail ? ` · ${p.detail}` : ""}
+          {p.techLine ? ` · ${p.techLine}` : ""}
         </p>
       </div>
 

@@ -48,7 +48,7 @@ export interface Position {
   /** Nazwa stanowiska bez dopisku z technologiami. */
   name: string;
   /** Dopisek z technologiami i stażem („Java, Spring · 5+ lat”). */
-  detail: string | null;
+  techLine: string | null;
   clientId: number;
   clientName: string;
   managers: string[];
@@ -78,10 +78,10 @@ export function roleLabel(role: QuestionRole): string {
   return [role.job_number, role.title].filter(Boolean).join(" · ") || `Rekrutacja #${role.job_id}`;
 }
 
-function splitTitle(title: string | null): { name: string; detail: string | null } {
-  if (!title) return { name: "Stanowisko bez nazwy", detail: null };
+function splitTitle(title: string | null): { name: string; techLine: string | null } {
+  if (!title) return { name: "Stanowisko bez nazwy", techLine: null };
   const [name, ...rest] = title.split(" · ");
-  return { name: name.trim(), detail: rest.length ? rest.join(" · ") : null };
+  return { name: name.trim(), techLine: rest.length ? rest.join(" · ") : null };
 }
 
 /**
@@ -120,12 +120,12 @@ export function groupByPosition(items: readonly BankQuestion[]): Position[] {
     const clientName = q.client_name ?? `Klient #${q.client_id}`;
     if (q.roles.length === 0) {
       const key = `excel-${q.client_id}`;
-      add({ key, jobId: null, jobNumber: null, name: "Archiwum z Excela", detail: null, clientId: q.client_id, clientName }, q);
+      add({ key, jobId: null, jobNumber: null, name: "Archiwum z Excela", techLine: null, clientId: q.client_id, clientName }, q);
       continue;
     }
     for (const r of q.roles) {
-      const { name, detail } = splitTitle(r.title);
-      add({ key: String(r.job_id), jobId: r.job_id, jobNumber: r.job_number, name, detail, clientId: q.client_id, clientName }, q);
+      const { name, techLine } = splitTitle(r.title);
+      add({ key: String(r.job_id), jobId: r.job_id, jobNumber: r.job_number, name, techLine, clientId: q.client_id, clientName }, q);
     }
   }
   return [...map.values()].sort((a, b) => {
@@ -144,7 +144,7 @@ export function filterPositions(positions: readonly Position[], f: PositionFilte
   return positions.filter((p) => {
     if (f.clientId != null && p.clientId !== f.clientId) return false;
     if (f.manager != null && !p.managers.includes(f.manager)) return false;
-    if (search && !norm(`${p.jobNumber ?? ""} ${p.name} ${p.detail ?? ""}`).includes(search)) return false;
+    if (search && !norm(`${p.jobNumber ?? ""} ${p.name} ${p.techLine ?? ""}`).includes(search)) return false;
     if (text && !p.questions.some((q) => norm(q.text).includes(text))) return false;
     return true;
   });
