@@ -85,7 +85,8 @@ function viewer(): PoligonViewer {
  * Podgląd „Nowego CV” na poligonie (lekcja „Nowe CV”, 23.11.2026). Poligon nie
  * renderuje plików, więc PDF nowego układu to statyczny render serwera
  * fikcyjnego CV z `cv-fiction.ts` (bez nazwiska w tytule — pasuje do każdej
- * osoby ćwiczebnej), z nagłówkami jak z trasy. Pobranie (`intent=download`)
+ * osoby ćwiczebnej), z nagłówkami jak z trasy. Plik przegenerowuje
+ * `backend/scripts/poligon_new_cv_pdf.py`. Pobranie (`intent=download`)
  * i podgląd klasycznego Worda zostają odmową (`null`).
  */
 export const POLIGON_NEW_CV_PDF = "/poligon/nowe-cv.pdf";
@@ -93,7 +94,7 @@ const POLIGON_NEW_CV_HEADERS: Record<string, string> = {
   "Content-Disposition": "inline; filename=\"SZKIC_CV.pdf\"",
   "X-CV-Layout": "new",
   "X-CV-Page1-Fits": "1",
-  "X-CV-Page1-Font": "10",
+  "X-CV-Page1-Font": "11",
   "X-CV-Unmapped-Sections": "0",
 };
 const PREVIEW_PDF = /\/api\/candidates\/stages\/(\d+)\/cv\/branded\/preview-pdf(\?.*)?$/;
