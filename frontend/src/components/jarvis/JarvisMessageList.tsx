@@ -8,6 +8,7 @@ import type { JarvisAction, JarvisItem, ScreenGuideTask } from "@/lib/jarvis/typ
 import { JarvisGapCard } from "./JarvisGapCard";
 import { JarvisGuideCard } from "./JarvisGuideCard";
 import { JarvisClientChangeCard } from "./JarvisClientChangeCard";
+import { JarvisLegalLetterCard } from "./JarvisLegalLetterCard";
 import { JarvisMailDraftCard } from "./JarvisMailDraftCard";
 import { JarvisActionCard } from "./JarvisActionCard";
 import { JarvisDeepLinkCard } from "./JarvisDeepLinkCard";
@@ -107,6 +108,8 @@ export function JarvisMessageList({
             );
           case "mail_draft":
             return <JarvisMailDraftCard key={`mail-${index}`} draft={item.draft} />;
+          case "legal_letter":
+            return <JarvisLegalLetterCard key={`letter-${index}`} letter={item.letter} onNavigate={onNavigate} />;
           case "client_change":
             return (
               <JarvisClientChangeCard

@@ -8,12 +8,15 @@
  * ZERO zapytań: sam widok `RedlineReview` z lokalnym stanem; przyciski pliku
  * pokazują tylko listę zmian, która poszłaby do `/api/legal/redline/render`.
  * Dane są fikcyjne.
+ *
+ * `?widok=pismo` — panel pisma na kontrakcie (część F, `LetterHarness.tsx`).
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FileDiff, FileText, Scale } from "lucide-react";
 
 import { RedlineReview } from "@/components/legal-assistant/redline/RedlineReview";
+import { LetterHarness } from "./LetterHarness";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -133,7 +136,33 @@ const CHANGES: RedlineChange[] = [
   },
 ];
 
-export default function LegalRedlinePreview() {
+export default function LegalAssistantPreview() {
+  const [view, setView] = useState<"redline" | "letter">("redline");
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("widok") === "pismo") setView("letter");
+  }, []);
+  return (
+    <div className="bg-background text-foreground">
+      <nav aria-label="Widok harnessu" className="mx-auto flex max-w-[1240px] gap-1.5 px-4 pt-4">
+        <Button size="sm" variant={view === "redline" ? "primary" : "outline"} onClick={() => setView("redline")}>
+          Popraw dokument
+        </Button>
+        <Button size="sm" variant={view === "letter" ? "primary" : "outline"} onClick={() => setView("letter")}>
+          Pismo na kontrakcie
+        </Button>
+      </nav>
+      {view === "letter" ? (
+        <main className="mx-auto max-w-[1240px] p-4">
+          <LetterHarness />
+        </main>
+      ) : (
+        <LegalRedlinePreview />
+      )}
+    </div>
+  );
+}
+
+function LegalRedlinePreview() {
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
   const [edits, setEdits] = useState<Record<string, ChangeEdit>>({});
   const [sent, setSent] = useState<RedlineChange[] | null>(null);
