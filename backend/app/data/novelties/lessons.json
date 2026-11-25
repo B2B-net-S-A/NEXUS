@@ -1843,7 +1843,7 @@
     "id": "lekcja-porcja-schodki",
     "title": "Porcja dnia: kolejność po spełnionych „musi mieć”",
     "novelties": ["porcja-schodki-musi-miec"],
-    "task": "W Porcji dnia kliknij na karcie pierwszej osoby wymaganie z listy „Musi mieć” i zobacz, gdzie jest w CV. Na Poligonie nic się nie zapisze.",
+    "task": "W Porcji dnia kliknij na karcie pierwszej osoby wymaganie z listy „Musi mieć” (albo „Kluczowe w tej rekrutacji”) i zobacz, gdzie jest w CV. Na Poligonie nic się nie zapisze.",
     "solo_href": "/porcja",
     "check": { "kind": "click", "anchor": "review-batch.requirements" },
     "questions": [
