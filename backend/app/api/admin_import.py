@@ -1,36 +1,26 @@
 """
-Admin-only endpoints for importing data from external sources.
+Admin-only endpoints for importing data from external sources: Nordea orders
+(CSV), Centrum e-Zdrowia MD orders (manifest) and the read-only receipt of the
+live order-contract repair (migration 0250).
 
-Phase 7a.5 — POST /api/admin/import-talent-radar starts a background coroutine
-that pulls 40k+ candidates from the Supabase talent-radar project and upserts
-them into Nexus. A second step copies pgvector embeddings into Qdrant so we
-don't burn Voyage credits re-embedding.
-
-One import at a time across all processes (``manual_runs.start_exclusive``:
-a second start is 409). Progress lives in an in-process dict keyed by task_id,
-and the run also saves its task to ``app_settings`` (``_LAST_TASK_KEY``), so the
-status of the latest task answers from every web process, not only the one
-that started it. Older tasks stay in the memory of their process.
+Import z TalentRadaru (``/api/admin/import-talent-radar``, ``/api/admin/import-tasks``)
+usunięty 25.11.2026: źródło (projekt Supabase) wyeksportowano poza repo, a zmienna
+``TALENT_RADAR_DSN`` zniknęła z Coolify.
 
 RBAC: AdminUser only.
 """
 
 from __future__ import annotations
 
-import logging
-import os
-import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
-from app.core import manual_runs
-from app.core.database import AsyncSessionLocal, get_db
+from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.app_setting import AppSetting
 from app.models.client import Client
@@ -46,84 +36,11 @@ from app.services.nordea_order_import import (
     parse_nordea_csv,
     payload_sha256,
 )
-from app.services.talent_radar_embedding_copier import (
-    CopyProgress,
-    TalentRadarEmbeddingCopier,
-)
-from app.services.talent_radar_importer import ImportProgress, TalentRadarImporter
 
-logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# ── In-process task registry ─────────────────────────────────────────────────
-
-_TASKS: dict[str, dict] = {}
-
-_RUN = "import_talent_radar"
-_LAST_TASK_KEY = "admin_import_talent_radar_last_task"
-_INTERRUPTED = (
-    "Bieg przerwany: proces, który go prowadził, zakończył się (restart albo "
-    "wdrożenie). Uruchom import jeszcze raz."
-)
-
-
-async def _saved_task() -> Optional[dict]:
-    """Ostatnie zadanie z ``app_settings``; „trwa” bez blokady biegu = przerwane.
-
-    Blokada przed odczytem: bieg zapisuje stan końcowy, zanim ją zwolni, więc
-    wolna blokada i „trwa” w zapisie znaczą proces, który padł. Drugie
-    sprawdzenie łapie bieg, który ruszył między pierwszym a odczytem.
-    """
-    held = await manual_runs.is_running(_RUN)
-    saved = await manual_runs.load_snapshot(_LAST_TASK_KEY)
-    if not saved or not saved.get("task_id"):
-        return None
-    live = saved.get("status") in ("queued", "running")
-    if live and not held and not await manual_runs.is_running(_RUN):
-        return {**saved, "status": "error", "error": _INTERRUPTED}
-    return saved
-
-
-def _new_task(kind: str) -> str:
-    tid = uuid.uuid4().hex[:12]
-    _TASKS[tid] = {
-        "task_id": tid,
-        "kind": kind,
-        "status": "queued",
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "finished_at": None,
-        "progress": {},
-        "error": None,
-    }
-    return tid
-
-
-def _set(tid: str, **kwargs) -> None:
-    if tid in _TASKS:
-        _TASKS[tid].update(kwargs)
-
-
 # ── Schemas ──────────────────────────────────────────────────────────────────
-
-
-class ImportTalentRadarRequest(BaseModel):
-    dry_run: bool = False
-    batch_size: int = 500
-    # Optional override — by default we read from env
-    source_dsn: Optional[str] = None
-    # If True, after candidate import, run pgvector → Qdrant copy
-    copy_embeddings: bool = True
-
-
-class TaskStatus(BaseModel):
-    task_id: str
-    kind: str
-    status: str  # queued | running | done | error
-    started_at: str
-    finished_at: Optional[str] = None
-    progress: dict
-    error: Optional[str] = None
 
 
 class LiveOrderContractRepairAudit(BaseModel):
@@ -134,147 +51,7 @@ class LiveOrderContractRepairAudit(BaseModel):
     updated_at: datetime
 
 
-# ── Background runner ───────────────────────────────────────────────────────
-
-
-def _get_source_dsn(override: Optional[str]) -> str:
-    """
-    Resolve the talent-radar source DSN.
-    Priority: explicit override > TALENT_RADAR_DSN env > build from Supabase envs.
-    """
-    if override:
-        return override
-    dsn = os.environ.get("TALENT_RADAR_DSN")
-    if dsn:
-        return dsn
-    raise HTTPException(
-        status_code=422,
-        detail=(
-            "TALENT_RADAR_DSN not set. Configure a Postgres DSN for the "
-            "Supabase talent-radar project in Coolify env variables."
-        ),
-    )
-
-
-async def _run_import(tid: str, req: ImportTalentRadarRequest) -> None:
-    """Import pod blokadą biegu; zadanie trafia też do ``app_settings``."""
-    _set(tid, status="running")
-    async with manual_runs.publishing(_LAST_TASK_KEY, _TASKS[tid]):
-        await _import_phases(tid, req)
-
-
-async def _import_phases(tid: str, req: ImportTalentRadarRequest) -> None:
-    """Run candidate import + optional embedding copy, updating _TASKS inline."""
-    try:
-        dsn = _get_source_dsn(req.source_dsn)
-    except HTTPException as e:
-        _set(
-            tid,
-            status="error",
-            error=e.detail,
-            finished_at=datetime.now(timezone.utc).isoformat(),
-        )
-        return
-
-    # Phase A: candidates
-    try:
-        async with AsyncSessionLocal() as db:  # type: AsyncSession
-            importer = TalentRadarImporter(
-                source_dsn=dsn,
-                target_db=db,
-                batch_size=req.batch_size,
-                dry_run=req.dry_run,
-            )
-            progress: ImportProgress = ImportProgress()
-            async for progress in importer.run():
-                _set(tid, progress={"candidates": progress.as_dict()})
-    except Exception as e:  # noqa: BLE001
-        logger.exception("talent-radar import failed")
-        _set(
-            tid,
-            status="error",
-            error=f"candidate import: {e!r}",
-            finished_at=datetime.now(timezone.utc).isoformat(),
-        )
-        return
-
-    # Phase B: embeddings copy (optional, skipped in dry-run)
-    if req.copy_embeddings and not req.dry_run:
-        try:
-            async with AsyncSessionLocal() as db:
-                copier = TalentRadarEmbeddingCopier(
-                    source_dsn=dsn, target_db=db, batch_size=200, dry_run=False
-                )
-                cp: CopyProgress = CopyProgress()
-                async for cp in copier.run():
-                    existing = _TASKS[tid]["progress"]
-                    existing["embeddings"] = cp.as_dict()
-                    _set(tid, progress=existing)
-        except Exception as e:  # noqa: BLE001
-            logger.exception("talent-radar embedding copy failed")
-            _set(
-                tid,
-                status="error",
-                error=f"embedding copy: {e!r}",
-                finished_at=datetime.now(timezone.utc).isoformat(),
-            )
-            return
-
-    _set(tid, status="done", finished_at=datetime.now(timezone.utc).isoformat())
-
-
 # ── Endpoints ────────────────────────────────────────────────────────────────
-
-
-@router.post("/admin/import-talent-radar", response_model=TaskStatus)
-async def start_import_talent_radar(
-    _admin: AdminUser,
-    req: ImportTalentRadarRequest = Body(default_factory=ImportTalentRadarRequest),
-):
-    """Kick off talent-radar candidate import + embedding copy in the background."""
-    # Resolve DSN eagerly to fail fast on misconfig
-    _get_source_dsn(req.source_dsn)
-    tid = _new_task("import_talent_radar")
-    started = False
-    try:
-        started = await manual_runs.start_exclusive(
-            _RUN,
-            lambda: _run_import(tid, req),
-            label=f"import_talent_radar(task={tid})",
-        )
-    finally:
-        if not started:
-            _TASKS.pop(tid, None)
-    if not started:
-        raise HTTPException(
-            status_code=409,
-            detail="Import z talent-radar już trwa — poczekaj na jego koniec.",
-        )
-    return TaskStatus(**_TASKS[tid])
-
-
-@router.get("/admin/import-talent-radar/{task_id}", response_model=TaskStatus)
-async def get_import_talent_radar_status(task_id: str, _admin: AdminUser):
-    task = _TASKS.get(task_id)
-    if not task:
-        saved = await _saved_task()
-        task = saved if saved and saved["task_id"] == task_id else None
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return TaskStatus(**task)
-
-
-@router.get("/admin/import-tasks", response_model=list[TaskStatus])
-async def list_import_tasks(_admin: AdminUser):
-    """Tasks of this process plus the latest task saved by any process."""
-    tasks = dict(_TASKS)
-    saved = await _saved_task()
-    if saved and saved["task_id"] not in tasks:
-        tasks[saved["task_id"]] = saved
-    return [
-        TaskStatus(**t)
-        for t in sorted(tasks.values(), key=lambda t: t["started_at"], reverse=True)
-    ]
 
 
 @router.get(

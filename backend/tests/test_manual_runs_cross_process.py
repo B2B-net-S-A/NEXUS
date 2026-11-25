@@ -26,7 +26,6 @@ import pytest
 from fastapi import HTTPException
 
 from app.api import admin_candidates as ac
-from app.api import admin_import as adm
 from app.api import admin_job_board_cards as ajb
 from app.api import admin_notes_insights as ani
 from app.api import admin_order_mail as aom
@@ -41,7 +40,6 @@ from app.services import screening_note_backfill as backfill
 from app.services import talent_pool_backfill as tpb
 from app.tasks import notes_insights_sync as nis
 
-_DSN = "postgresql://example.invalid/talent_radar"
 _ADMIN = SimpleNamespace(id=1)
 
 
@@ -93,11 +91,9 @@ def procs(monkeypatch):
     monkeypatch.setattr(svc.settings, "ORDER_MAIL_INGEST_ENABLED", True)
     for job in (ac._JOB, ac._CC_JOB, ac._CV_FIELDS_JOB, ac._EXP_DATES_JOB, arp._JOB):
         job["running"] = False
-    adm._TASKS.clear()
     manual_runs._reserved.clear()
     yield SimpleNamespace(held=held, store=store)
     manual_runs._reserved.clear()
-    adm._TASKS.clear()
 
 
 @contextmanager
@@ -239,7 +235,6 @@ def _starts(monkeypatch, calls: list[str]) -> dict[str, tuple[str, Callable]]:
 
         return run
 
-    monkeypatch.setattr(adm, "_run_import", fake("import"))
     monkeypatch.setattr(atp, "run_membership_backfill", fake("talent_pools"))
     monkeypatch.setattr(ac, "_run_backfill", fake("names"))
     monkeypatch.setattr(ac, "_run_cc_backfill", fake("cc"))
@@ -262,12 +257,7 @@ def _starts(monkeypatch, calls: list[str]) -> dict[str, tuple[str, Callable]]:
     monkeypatch.setattr(conversion, "count_targets", five)
     monkeypatch.setattr(backfill, "fresh_dry_run", fresh_dry_run)
     monkeypatch.setattr(asb.screening_note_sync, "other_notes_enabled", lambda: False)
-    request = adm.ImportTalentRadarRequest(source_dsn=_DSN)
     return {
-        "import": (
-            adm._RUN,
-            lambda: adm.start_import_talent_radar(None, req=request),
-        ),
         "talent_pools": (
             tpb.RUN_NAME,
             lambda: atp.trigger_talent_pool_backfill(None, since=None, limit=None),
@@ -327,7 +317,6 @@ def _starts(monkeypatch, calls: list[str]) -> dict[str, tuple[str, Callable]]:
 
 
 _ROUTES = [
-    "import",
     "talent_pools",
     "names",
     "cc",
@@ -355,7 +344,6 @@ async def test_second_start_while_other_process_runs_is_409(procs, monkeypatch, 
         await asyncio.sleep(0)
     assert calls == [], "odmowa nie może uruchomić drugiego biegu"
     assert not manual_runs.running_here(lock)
-    assert adm._TASKS == {}, "odrzucony import nie zostawia zadania"
 
 
 @pytest.mark.parametrize("route", _ROUTES)
@@ -364,10 +352,7 @@ async def test_free_lock_starts_exactly_one_run(procs, monkeypatch, route):
     lock, start = _starts(monkeypatch, calls)[route]
 
     response = await start()
-    if isinstance(response, adm.TaskStatus):
-        assert response.status in {"queued", "running"}
-    else:
-        assert response["status"] == "started"
+    assert response["status"] == "started"
     await _until(lambda: calls and not procs.held)
     assert len(calls) == 1 and not manual_runs.running_here(lock)
 
@@ -410,113 +395,6 @@ async def test_cc_status_in_other_process_shows_the_running_backfill(
         status = await ac.backfill_cc_status(None)
     assert status["running"] is False
     assert status["saved_progress"]["processed"] == 60
-
-
-async def test_import_status_answers_from_other_process(procs, monkeypatch):
-    release = asyncio.Event()
-
-    async def phases(tid: str, _req: Any) -> None:
-        adm._set(tid, progress={"candidates": {"processed": 7}})
-        await release.wait()
-        adm._set(tid, status="done", finished_at="2026-11-24T12:00:00+00:00")
-
-    monkeypatch.setattr(adm, "_import_phases", phases)
-    task = await adm.start_import_talent_radar(
-        None, req=adm.ImportTalentRadarRequest(source_dsn=_DSN)
-    )
-    key = adm._LAST_TASK_KEY
-    await _until(lambda: (procs.store.get(key) or {}).get("progress"))
-
-    with other_process((adm._TASKS, {})):
-        status = await adm.get_import_talent_radar_status(task.task_id, None)
-        assert status.status == "running"
-        assert status.progress == {"candidates": {"processed": 7}}
-        listed = await adm.list_import_tasks(None)
-        assert [t.task_id for t in listed] == [task.task_id]
-        with pytest.raises(HTTPException) as exc:
-            await adm.start_import_talent_radar(
-                None, req=adm.ImportTalentRadarRequest(source_dsn=_DSN)
-            )
-        assert exc.value.status_code == 409
-        assert adm._TASKS == {}
-
-    release.set()
-    await _until(lambda: not procs.held)
-    with other_process((adm._TASKS, {})):
-        status = await adm.get_import_talent_radar_status(task.task_id, None)
-    assert status.status == "done"
-
-
-async def test_saved_running_import_without_live_lock_is_interrupted(procs):
-    procs.store[adm._LAST_TASK_KEY] = {
-        "task_id": "abc123",
-        "kind": "import_talent_radar",
-        "status": "running",
-        "started_at": "2026-11-24T10:00:00+00:00",
-        "finished_at": None,
-        "progress": {},
-        "error": None,
-    }
-    status = await adm.get_import_talent_radar_status("abc123", None)
-    assert status.status == "error" and "przerwany" in status.error
-    with pytest.raises(HTTPException) as exc:
-        await adm.get_import_talent_radar_status("other", None)
-    assert exc.value.status_code == 404
-
-
-def _saved_import(task_id: str, status: str) -> dict[str, Any]:
-    return {
-        "task_id": task_id,
-        "kind": "import_talent_radar",
-        "status": status,
-        "started_at": "2026-11-24T10:00:00+00:00",
-        "finished_at": None,
-        "progress": {},
-        "error": None,
-    }
-
-
-async def test_run_finishing_during_the_read_is_not_called_interrupted(
-    procs, monkeypatch
-):
-    """Pierwszy proces kończy bieg między odczytem zapisu a sprawdzeniem blokady.
-
-    Bieg zapisuje stan końcowy, zanim zwolni blokadę, więc kolejność „najpierw
-    blokada, potem zapis” nigdy nie da „przerwany” dla biegu, który się udał
-    (odwrotna dawała końcowy status błędu i ekran importu przestawał odpytywać).
-    """
-    key = adm._LAST_TASK_KEY
-    procs.held.add(adm._RUN)
-    procs.store[key] = _saved_import("abc123", "running")
-    load = manual_runs.load_snapshot
-
-    async def load_then_finish(k: str) -> dict[str, Any] | None:
-        value = await load(k)
-        procs.store[k] = _saved_import("abc123", "done")
-        procs.held.discard(adm._RUN)
-        return value
-
-    monkeypatch.setattr(manual_runs, "load_snapshot", load_then_finish)
-    assert (await adm.get_import_talent_radar_status("abc123", None)).status == (
-        "running"
-    )
-    assert (await adm.get_import_talent_radar_status("abc123", None)).status == ("done")
-
-
-async def test_run_starting_during_the_read_is_not_called_interrupted(
-    procs, monkeypatch
-):
-    load = manual_runs.load_snapshot
-
-    async def start_then_load(k: str) -> dict[str, Any] | None:
-        # Drugi proces startuje między sprawdzeniem blokady a odczytem zapisu.
-        procs.held.add(adm._RUN)
-        procs.store[k] = _saved_import("new123", "running")
-        return await load(k)
-
-    monkeypatch.setattr(manual_runs, "load_snapshot", start_then_load)
-    status = await adm.get_import_talent_radar_status("new123", None)
-    assert status.status == "running"
 
 
 async def test_process_backfill_status_from_other_process(procs, monkeypatch):

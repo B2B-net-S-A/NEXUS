@@ -10,8 +10,10 @@ oferty** — to przeszukanie bazy, nie krok pipeline'u. PR-y: #1115 (silnik),
   Migracja `0222` przepisała je na `tr_legacy` (15 wierszy — nie 40 745, ta
   liczba z docstringu importera opisuje rekordy POBIERANE, a importer scala).
   Ograniczenia `CHECK` **nadal akceptują starą wartość** (widen-then-migrate),
-  a typ we froncie ma obie — dlatego zmiana niczego nie zerwała. Trasy techniczne
-  zostają: `/api/admin/import-talent-radar` to wciąż tamten import.
+  a typ we froncie ma obie — dlatego zmiana niczego nie zerwała. Sam import
+  (`/api/admin/import-talent-radar`, karta „Import CV” w Administracji) usunięto
+  25.11.2026, a projekt Supabase `talentradar-prod` wyeksportowano poza repo;
+  wiersze `tr_legacy` w bazie zostają.
 - **`client_id` jest WYMAGANY, nie opcjonalny.** Filtr dopuszczalności sprawdza
   względem niego blacklistę klienta, NDA, konflikty konkurencyjne i weto hiring
   managera. Opcjonalny klient dałby listę, w której te kontrole cicho nie

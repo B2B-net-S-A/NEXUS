@@ -161,18 +161,6 @@ async def test_embed_diagnostics(app_client: AsyncClient, app_auth_headers: dict
     assert "qdrant" in body
 
 
-# ── Admin (RBAC check) ──────────────────────────────────────────────────────
-
-
-async def test_admin_import_tasks_requires_admin(
-    app_client: AsyncClient, app_auth_headers: dict
-):
-    # The test user IS admin (seeded by admin_user fixture) so this succeeds
-    r = await app_client.get("/api/admin/import-tasks", headers=app_auth_headers)
-    assert r.status_code == 200
-    assert isinstance(r.json(), list)
-
-
 # ── Calendar iCal import (Phase 7b.6) validation ────────────────────────────
 
 

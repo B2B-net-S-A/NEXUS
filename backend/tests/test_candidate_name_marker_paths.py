@@ -28,7 +28,6 @@ from app.services.candidate_name_rules import (
     without_name_markers,
 )
 from app.services.cv_enrichment import _apply_cv_contact_fields
-from app.services.talent_radar_importer import TalentRadarImporter
 
 BACKEND = Path(__file__).resolve().parents[1]
 
@@ -109,31 +108,6 @@ def test_cv_backfill_writes_name_without_marker() -> None:
         candidate, {"first_name": "[ACTIVE] Jan", "last_name": "Testowy (CIPP/E)"}, {}
     )
     assert (candidate.name, candidate.lastname) == ("Jan", "Testowy")
-
-
-def test_talent_radar_reimport_does_not_restore_marker() -> None:
-    importer = TalentRadarImporter.__new__(TalentRadarImporter)
-    row = {
-        "id": 1,
-        "traffit_id": 2,
-        "email": None,
-        "name": "[ACTIVE] Jan",
-        "lastname": "Testowy",
-        "raw_cv_text": None,
-        "cv_content": None,
-        "cv_filename": None,
-        "extracted_data": None,
-        "skills": None,
-        "experience_years": None,
-        "seniority": None,
-        "languages": None,
-        "location": None,
-        "availability": None,
-        "cv_language": None,
-        "cv_date": None,
-    }
-    payload = importer._to_payload(row)
-    assert (payload["name"], payload["lastname"]) == ("Jan", "Testowy")
 
 
 # Ścieżki, które zakładają kandydata w środku dłuższej transakcji z bazą —
