@@ -34,6 +34,7 @@ class LayoutSettings:
     skill_cap: Optional[int] = None
     block_gap_mm: float = 0.0
     inner_mm: float = 0.0  # luz w środku sekcji (odstępy zdań, wierszy, osi)
+    skill_groups: Optional[int] = None  # najwięcej kategorii umiejętności na str. 1
 
 
 _IMAGE_SIGNATURES = (
@@ -79,7 +80,7 @@ def rodo_block(doc: NewCvDocument) -> str:
 
 def build_html(ctx: Ctx, settings: LayoutSettings, *, page1_only: bool = False) -> str:
     doc = ctx.doc
-    p1, truncated, certs_hidden = page1(ctx, settings.skill_cap)
+    p1, truncated, certs_hidden = page1(ctx, settings.skill_cap, settings.skill_groups)
     body = p1
     if not page1_only:
         body += f"<div class='rest'>{rest_pages(ctx, truncated, certs_hidden)}{consent_block(doc)}{rodo_block(doc)}</div>"

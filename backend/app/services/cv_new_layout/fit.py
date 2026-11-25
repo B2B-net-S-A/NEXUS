@@ -29,28 +29,33 @@ PX_TO_MM = 25.4 / 96
 BASE_FONT_PT = 10.0
 
 STEPS: tuple[LayoutSettings, ...] = tuple(
-    LayoutSettings(font_pt=fs, skill_cap=cap)
-    for fs, cap in (
-        (11.0, None),
-        (10.8, None),
-        (10.6, None),
-        (10.4, None),
-        (10.2, None),
-        (10.0, None),
-        (9.8, None),
-        (9.6, None),
-        (9.4, None),
-        (9.2, None),
-        (9.0, None),
-        (9.0, 10),
-        (9.0, 8),
-        (9.0, 7),
-        (9.0, 6),
-        (8.8, 6),
-        (8.6, 6),
-        (8.6, 5),
-        (8.2, 5),
-        (8.0, 4),
+    LayoutSettings(font_pt=fs, skill_cap=cap, skill_groups=groups)
+    for fs, cap, groups in (
+        (11.0, None, None),
+        (10.8, None, None),
+        (10.6, None, None),
+        (10.4, None, None),
+        (10.2, None, None),
+        (10.0, None, None),
+        (9.8, None, None),
+        (9.6, None, None),
+        (9.4, None, None),
+        (9.2, None, None),
+        (9.0, None, None),
+        (9.0, 10, None),
+        (9.0, 8, None),
+        (9.0, 7, None),
+        (9.0, 6, None),
+        (8.8, 6, None),
+        (8.6, 6, None),
+        (8.6, 5, None),
+        # bardzo wiele kategorii (#43050: 15) — nadmiar kategorii na str. 2 (pętla jakości 25.11.2026)
+        (8.6, 5, 10),
+        (8.6, 5, 8),
+        (8.2, 5, 8),
+        (8.2, 4, 7),
+        (8.0, 4, 6),
+        (8.0, 4, 5),
     )
 )
 
@@ -71,6 +76,7 @@ class FitReport:
     free_mm: Optional[float] = None  # wolne miejsce na str. 1 przed rozsunięciem sekcji
     block_gap_mm: float = 0.0
     inner_mm: float = 0.0
+    skill_groups: Optional[int] = None
 
     @property
     def settings(self) -> LayoutSettings:
@@ -79,6 +85,7 @@ class FitReport:
             skill_cap=self.skill_cap,
             block_gap_mm=self.block_gap_mm,
             inner_mm=self.inner_mm,
+            skill_groups=self.skill_groups,
         )
 
     @property
@@ -95,6 +102,10 @@ def describe(settings: LayoutSettings) -> tuple[str, ...]:
     if settings.skill_cap:
         steps.append(
             f"umiejętności: najwyżej {settings.skill_cap} pozycji w kategorii, pełna lista na str. 2"
+        )
+    if settings.skill_groups:
+        steps.append(
+            f"umiejętności: najwyżej {settings.skill_groups} kategorii, reszta na str. 2"
         )
     return tuple(steps)
 
@@ -161,6 +172,14 @@ def fit_page1(ctx: Ctx) -> FitReport:
             free_mm=round(free, 1) if free is not None else None,
             block_gap_mm=gap,
             inner_mm=round(inner, 2),
+            skill_groups=settings.skill_groups,
         )
     last = STEPS[-1]
-    return FitReport(False, last.font_pt, last.skill_cap, describe(last), len(STEPS))
+    return FitReport(
+        False,
+        last.font_pt,
+        last.skill_cap,
+        describe(last),
+        len(STEPS),
+        skill_groups=last.skill_groups,
+    )
