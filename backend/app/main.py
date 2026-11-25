@@ -4475,6 +4475,10 @@ async def api_health_deep_check(request: Request):
     from app.models.autofill_feedback import AutofillFeedback
     from app.models.job_role_profile import JobRoleProfile
     from app.models.candidate_terms_request import CandidateTermsRequest
+    from app.models.competence_report import (
+        CompetenceReport,
+        CompetenceReportOwner,
+    )
     from app.models.champion_profile_revision import (
         ChampionProfileChangeRead,
         ChampionProfileRevision,
@@ -5265,6 +5269,9 @@ async def api_health_deep_check(request: Request):
         ("job_role_profiles", JobRoleProfile),
         # 0729: prośby o warunki kandydata po aplikacji.
         ("candidate_terms_requests", CandidateTermsRequest),
+        # 0785: raporty kompetencji w 24 godziny i lista opiekunów.
+        ("competence_reports", CompetenceReport),
+        ("competence_report_owners", CompetenceReportOwner),
         # 0731: wersje Profilu Championa i „Przeczytane”.
         ("champion_profile_revisions", ChampionProfileRevision),
         ("champion_profile_change_reads", ChampionProfileChangeRead),

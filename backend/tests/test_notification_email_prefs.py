@@ -65,6 +65,7 @@ def test_every_account_email_kind_has_an_applies_rule():
     assert set(prefs.OPTABLE_KINDS) == catalog - {
         "application_confirmation",
         "candidate_terms",
+        "competence_report",
     }
     # Nowy rodzaj w katalogu bez reguły „kogo dotyczy” nie może przejść po cichu.
     assert set(prefs.APPLIES) == set(prefs.OPTABLE_KINDS)

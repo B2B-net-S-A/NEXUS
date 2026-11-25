@@ -1317,6 +1317,16 @@ except Exception as _candidate_terms_err:  # noqa: BLE001
     print(f"candidate terms DDL unavailable: {_candidate_terms_err!r}")
     _CANDIDATE_TERMS_DDL = []
 
+# Raporty kompetencji w 24 godziny (migracja 0785) — JEDNO źródło z migracją
+# (`app/services/competence_report_ddl.py`).
+try:
+    from app.services import competence_report_ddl as _competence_report_ddl
+
+    _COMPETENCE_REPORT_DDL = list(_competence_report_ddl.TABLE_DDL)
+except Exception as _competence_report_err:  # noqa: BLE001
+    print(f"competence report DDL unavailable: {_competence_report_err!r}")
+    _COMPETENCE_REPORT_DDL = []
+
 # Wersje Profilu Championa i „Przeczytane” (migracja 0731) — JEDNO źródło
 # z migracją (`app/services/champion_profile_revisions_schema.py`).
 try:
@@ -1741,6 +1751,7 @@ _COLUMN_STATEMENTS = [
     *_AUTOFILL_FEEDBACK_DDL,
     *_JOB_ROLE_PROFILE_DDL,
     *_CANDIDATE_TERMS_DDL,
+    *_COMPETENCE_REPORT_DDL,
     *_CHAMPION_REVISIONS_DDL,
     *_AUTOFILL_QUALITY_DDL,
     *_PAIR_OWNER_DDL,
