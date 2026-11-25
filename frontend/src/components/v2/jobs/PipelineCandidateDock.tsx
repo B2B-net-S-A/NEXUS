@@ -1818,7 +1818,6 @@ export function PipelineCandidateDock({
               role="group"
               aria-label="Gdzie stoi arkusz rozmowy"
               data-testid="person-sheet-side"
-              data-tour="person.panel.sheet-side"
               className="inline-flex h-7 shrink-0 items-center rounded-md border border-border p-0.5 text-xs"
             >
               {(
