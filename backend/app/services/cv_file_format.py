@@ -1,6 +1,6 @@
 """W jakim pliku klient chce CV: Word, PDF albo oba (decyzja Artura z 25.11.2026).
 
-Pole reguły CV klienta `client_cv_rules.cv_file_format` (migracja 0779).
+Pole reguły CV klienta `client_cv_rules.cv_file_format` (migracja 0778).
 NULL = bez wymagań: plik idzie za układem CV jak dotąd (klasyczne → Word,
 Nowe CV → PDF). Główny przycisk pobrania w karcie „CV do klienta”, edytorze
 i wyniku generatora idzie za tym polem.
