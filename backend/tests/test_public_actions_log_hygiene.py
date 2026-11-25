@@ -153,6 +153,232 @@ def test_set_env_refuses_a_url_with_password_and_allows_non_secret_key_names():
         assert result.returncode == 0, (key, result.stderr)
 
 
+# ── Rotacja klucza szyfrowania danych (25.11.2026) ───────────────────────────
+
+# Atrapa curl: GET zwraca zmienne z $STUB_ENVS, zapis dopisuje metodę i ciało
+# do $STUB_LOG (po jednej linii JSON).
+_CURL_RECORDING_STUB = """#!/bin/bash
+out=""; fmt=""; method="GET"; data=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2;;
+    -w) fmt="$2"; shift 2;;
+    -X) method="$2"; shift 2;;
+    -d) data="$2"; shift 2;;
+    *) shift;;
+  esac
+done
+if [ "$method" = "GET" ]; then
+  cp "$STUB_ENVS" "$out"
+else
+  jq -cn --arg m "$method" --argjson b "$data" '{method: $m, body: $b}' >> "$STUB_LOG"
+  [ -n "$out" ] && echo '{}' > "$out"
+fi
+[ -n "$fmt" ] && printf 200
+exit 0
+"""
+
+
+def _fernet_key() -> str:
+    from cryptography.fernet import Fernet
+
+    return Fernet.generate_key().decode("utf-8")
+
+
+def _run_set_env_against(
+    envs: list[dict],
+    key: str,
+    *,
+    value: str = "",
+    secret_value: str = "",
+    keep_old_in: str = "",
+) -> tuple[subprocess.CompletedProcess, list[dict]]:
+    step = _step(_load("coolify-set-env.yml")["jobs"]["set-env"], _SET_ENV_STEP)
+    with tempfile.TemporaryDirectory() as tmp:
+        curl = Path(tmp) / "curl"
+        curl.write_text(_CURL_RECORDING_STUB, encoding="utf-8")
+        curl.chmod(0o755)
+        event = Path(tmp) / "event.json"
+        event.write_text(json.dumps({"inputs": {"value": value}}), encoding="utf-8")
+        stub_envs = Path(tmp) / "envs.json"
+        stub_envs.write_text(json.dumps(envs), encoding="utf-8")
+        log = Path(tmp) / "writes.jsonl"
+        env = {
+            "PATH": f"{tmp}:{os.environ['PATH']}",
+            "GITHUB_EVENT_PATH": str(event),
+            "COOLIFY_URL": "https://coolify.example",
+            "COOLIFY_TOKEN": "t",
+            "COOLIFY_APP_UUID": "app",
+            "KEY": key,
+            "VALUE_FROM_SECRET": "SOME_SECRET" if secret_value else "",
+            "VALUE_SECRET": secret_value,
+            "KEEP_OLD_IN": keep_old_in,
+            "IS_BUILDTIME": "false",
+            "STUB_ENVS": str(stub_envs),
+            "STUB_LOG": str(log),
+        }
+        for name, raw in (step.get("env") or {}).items():
+            env.setdefault(name, "" if "${{" in str(raw) else str(raw))
+        result = subprocess.run(
+            ["bash", "-c", step["run"]],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        writes = (
+            [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+            if log.exists()
+            else []
+        )
+    return result, writes
+
+
+def _visible(result: subprocess.CompletedProcess) -> str:
+    lines = [
+        ln for ln in result.stdout.splitlines() if not ln.startswith("::add-mask::")
+    ]
+    return "\n".join(lines + result.stderr.splitlines())
+
+
+def _env_row(key: str, value: str, *, preview: bool = False) -> dict:
+    return {"key": key, "value": value, "is_preview": preview, "uuid": key.lower()}
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
+def test_set_env_keeps_the_old_encryption_key_for_reading():
+    """Rotacja: obecny klucz trafia na początek listy kluczy do odczytu, zanim
+    zmieni się klucz bieżący. Żadna wartość nie trafia do publicznego logu."""
+    old, older, new, preview = (_fernet_key() for _ in range(4))
+    result, writes = _run_set_env_against(
+        [
+            _env_row("M365_TOKEN_ENCRYPTION_KEY", preview, preview=True),
+            _env_row("M365_TOKEN_ENCRYPTION_KEY", old),
+            _env_row("M365_TOKEN_ENCRYPTION_KEY_PREVIOUS", older),
+        ],
+        "M365_TOKEN_ENCRYPTION_KEY",
+        secret_value=new,
+        keep_old_in="M365_TOKEN_ENCRYPTION_KEY_PREVIOUS",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert [(w["method"], w["body"]["key"]) for w in writes] == [
+        ("PATCH", "M365_TOKEN_ENCRYPTION_KEY_PREVIOUS"),
+        ("PATCH", "M365_TOKEN_ENCRYPTION_KEY"),
+    ]
+    assert writes[0]["body"]["value"] == f"{old},{older}"
+    assert writes[1]["body"]["value"] == new
+    assert all(w["body"]["is_preview"] is False for w in writes)
+    masks = {ln for ln in result.stdout.splitlines() if ln.startswith("::add-mask::")}
+    assert {f"::add-mask::{old}", f"::add-mask::{older}"} <= masks
+    visible = _visible(result)
+    assert not any(secret in visible for secret in (old, older, new, preview))
+    assert "pozycji na liście: 2" in visible
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
+def test_set_env_refuses_to_change_the_encryption_key_without_keeping_it():
+    """Bez starego klucza do odczytu sync M365 wyłącza każdą skrzynkę, a dane
+    płacowe przestają się czytać — zmiana jest odrzucana przed zapisem."""
+    old, new = _fernet_key(), _fernet_key()
+    result, writes = _run_set_env_against(
+        [_env_row("M365_TOKEN_ENCRYPTION_KEY", old)],
+        "M365_TOKEN_ENCRYPTION_KEY",
+        secret_value=new,
+    )
+
+    assert result.returncode == 1
+    assert "keep_old_value_in=M365_TOKEN_ENCRYPTION_KEY_PREVIOUS" in result.stderr
+    assert writes == []
+    assert old not in _visible(result) and new not in _visible(result)
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
+def test_set_env_refuses_encryption_keys_that_are_not_fernet_keys():
+    good = _fernet_key()
+    for key, secret in (
+        ("M365_TOKEN_ENCRYPTION_KEY", "za-krotki-klucz"),
+        ("M365_TOKEN_ENCRYPTION_KEY", f"{good},{_fernet_key()}"),
+        ("M365_TOKEN_ENCRYPTION_KEY_PREVIOUS", f"{good},nie-klucz"),
+    ):
+        result, writes = _run_set_env_against([], key, secret_value=secret)
+        assert result.returncode == 1, (key, result.stderr)
+        assert "Fernet" in result.stderr
+        assert writes == []
+    # Pusty klucz bieżący wyłączyłby szyfrowanie w całej aplikacji.
+    empty, writes = _run_set_env_against(
+        [_env_row("M365_TOKEN_ENCRYPTION_KEY", good)], "M365_TOKEN_ENCRYPTION_KEY"
+    )
+    assert empty.returncode == 1 and writes == []
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
+def test_set_env_clears_the_previous_keys_and_sets_a_first_key():
+    """Koniec rotacji: pusta lista poprzednich kluczy. Pierwszy klucz na pustej
+    zmiennej nie potrzebuje keep_old_value_in (nie ma czego zachować)."""
+    old = _fernet_key()
+    cleared, writes = _run_set_env_against(
+        [_env_row("M365_TOKEN_ENCRYPTION_KEY_PREVIOUS", old)],
+        "M365_TOKEN_ENCRYPTION_KEY_PREVIOUS",
+    )
+    assert cleared.returncode == 0, cleared.stderr
+    assert [(w["method"], w["body"]["value"]) for w in writes] == [("PATCH", "")]
+    assert old not in _visible(cleared)
+
+    first = _fernet_key()
+    created, writes = _run_set_env_against(
+        [], "M365_TOKEN_ENCRYPTION_KEY", secret_value=first
+    )
+    assert created.returncode == 0, created.stderr
+    assert [(w["method"], w["body"]["key"]) for w in writes] == [
+        ("POST", "M365_TOKEN_ENCRYPTION_KEY")
+    ]
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
+def test_set_env_keep_old_value_needs_a_current_value_and_a_change():
+    value = _fernet_key()
+    for envs, secret in (
+        ([], value),  # nie ma czego zachować
+        ([_env_row("M365_TOKEN_ENCRYPTION_KEY", value)], value),  # bez zmiany
+    ):
+        result, writes = _run_set_env_against(
+            envs,
+            "M365_TOKEN_ENCRYPTION_KEY",
+            secret_value=secret,
+            keep_old_in="M365_TOKEN_ENCRYPTION_KEY_PREVIOUS",
+        )
+        assert result.returncode == 1, result.stderr
+        assert writes == []
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
+def test_set_env_keep_old_value_cannot_copy_a_secret_into_another_variable():
+    """``keep_old_value_in`` działa tylko przy rotacji klucza szyfrowania danych —
+    inaczej input przepisałby np. hasło SMTP do zmiennej widocznej we froncie."""
+    password = "stare-haslo-smtp-123"
+    for target in ("PUBLIC_BASE_URL", "SMTP_PASSWORD_PREVIOUS"):
+        result, writes = _run_set_env_against(
+            [_env_row("SMTP_PASSWORD", password)],
+            "SMTP_PASSWORD",
+            secret_value="nowe-haslo-smtp-456",
+            keep_old_in=target,
+        )
+        assert result.returncode == 1, target
+        assert "tylko dla key=M365_TOKEN_ENCRYPTION_KEY" in result.stderr
+        assert writes == []
+        assert password not in _visible(result)
+    key = _fernet_key()
+    other, writes = _run_set_env_against(
+        [_env_row("M365_TOKEN_ENCRYPTION_KEY", key)],
+        "M365_TOKEN_ENCRYPTION_KEY",
+        secret_value=_fernet_key(),
+        keep_old_in="LOG_LEVEL",
+    )
+    assert other.returncode == 1 and writes == []
+    assert key not in _visible(other)
+
+
 def test_set_env_does_not_put_the_plain_value_in_step_env():
     """GitHub wypisuje blok `env:` w nagłówku kroku, zanim zadziała maska."""
     raw = (_WORKFLOWS / "coolify-set-env.yml").read_text(encoding="utf-8")

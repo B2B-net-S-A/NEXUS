@@ -1249,6 +1249,12 @@ class Settings(BaseSettings):
     # Empty → TokenCipher raises at first use, not at startup (so dev/tests can run
     # without the secret as long as nothing actually calls M365 paths).
     M365_TOKEN_ENCRYPTION_KEY: str = ""
+    # Klucze tylko do odczytu, po przecinku: przy rotacji trafia tu poprzedni
+    # klucz, `python -m app.cli.token_cipher_rotate --apply` przeszyfrowuje
+    # dane, a potem zmienna wraca do pustej. Tekst, nie lista — pydantic
+    # czytałby listę ze zmiennej jako JSON.
+    # → docs/claude/podstawy/rotacja-klucza-szyfrowania-tokenow.md
+    M365_TOKEN_ENCRYPTION_KEY_PREVIOUS: str = ""
     # Separate signing key for the short-lived OAuth state JWT so it does not share
     # the main SECRET_KEY. Defaults to SECRET_KEY when empty — acceptable for dev,
     # override in prod.
