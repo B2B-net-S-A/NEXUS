@@ -208,7 +208,9 @@ def test_language_parts_levels_and_codes():
     assert (
         lang_code("Angielski") == "EN"
         and lang_code("German") == "DE"
-        and lang_code("Esperanto") == "ES"
+        and lang_code("Esperanto")
+        == "EO"  # nie „ES” (hiszpański) — kod z listy, 25.11.2026
+        and lang_code("Klingoński") == "KL"  # nieznany język: dwie pierwsze litery
     )
 
 

@@ -23,8 +23,8 @@ import type {
   ScreeningFormVersionAction,
 } from "@/lib/api/screeningForm";
 import {
-  CARD_FIELD_ORDER,
   CARD_PHRASABLE_FIELDS,
+  CARD_TERMS_ORDER,
   cardChanges,
   cardFieldLabel,
 } from "@/lib/recommendation-card";
@@ -128,7 +128,7 @@ export function editableCardKeys(state: Pick<ScreeningFormState, "card">): strin
 /** Sekcja „Warunki”: pola karty spoza oceny, w kolejności wzoru działu. */
 export function cardTermsKeys(state: Pick<ScreeningFormState, "card">): string[] {
   const keys = editableCardKeys(state).filter((key) => !ASSESSMENT.has(key));
-  const ordered = (CARD_FIELD_ORDER as readonly string[]).filter((key) => keys.includes(key));
+  const ordered = CARD_TERMS_ORDER.filter((key) => keys.includes(key));
   return [...ordered, ...keys.filter((key) => !ordered.includes(key))];
 }
 

@@ -178,6 +178,19 @@ def test_step_that_says_click_is_not_passed_with_understood() -> None:
     )
 
 
+def test_finance_novelty_starts_on_its_own_view_not_the_overview() -> None:
+    """`/finance` otwiera Przegląd, a podmenu („Faktury kosztowe”, „Rozjazdy
+    stawek”) stoi tylko w swojej zakładce. 25.11.2026 pokaz „Koszty: Symfonia”
+    kończył się „Nie widzę tego miejsca”. Wpis Finansów ma `practice_href`
+    z `?view=` swojego widoku."""
+    wrong = [
+        n.id
+        for n in load_novelties().values()
+        if n.href == "/finance" and not n.practice_href
+    ]
+    assert wrong == [], f"Dopisz practice_href z ?view= widoku: {wrong}"
+
+
 def test_lesson_show_starts_where_its_first_step_is_not_on_the_jobs_list() -> None:
     """Pokaz lekcji zaczyna tam, gdzie jest element, a nie na liście `/jobs`.
 

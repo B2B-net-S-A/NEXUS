@@ -1324,6 +1324,48 @@ describe("„Szybkie poprawki” (E1, 07.11.2026)", () => {
   });
 });
 
+describe("stanowisko bez nazwy (role_title, 25.11.2026)", () => {
+  it("pusta linia stanowiska: zdanie uwagi, etykieta i „Pokaż w CV” wskazuje to stanowisko", async () => {
+    const editor = openEditor();
+    // Serwer liczy pusty akapit `role` jako stanowisko (`dz._kept`), tak jak `cvOutline`.
+    loadCvHtml(
+      editor,
+      CV.replace(
+        '<p data-cv-section="rodo">',
+        '<p data-cv-section="role"></p><p data-cv-section="employer">Hurtownia Przykładowa</p>' +
+          '<ul><li><p>Obsługa magazynu.</p></li></ul><p data-cv-section="rodo">',
+      ),
+    );
+    const checks = [
+      check({
+        key: "role_title",
+        label: "Każde stanowisko ma nazwę",
+        items: [
+          {
+            key: "role_title|stanowisko w hurtownia przykładowa nie ma nazwy ani dat.|hurtownia przykładowa",
+            role: "Hurtownia Przykładowa",
+            role_index: 1,
+            detail: "Stanowisko w Hurtownia Przykładowa nie ma nazwy ani dat.",
+          },
+        ],
+      }),
+    ];
+    const api = memoryApi({ qc: vi.fn(async () => qcResult({ checks })) });
+    setup({ api, editor });
+
+    await screen.findByText("Stanowisko w Hurtownia Przykładowa nie ma nazwy ani dat.");
+    const row = itemOf("Stanowisko w Hurtownia Przykładowa nie ma nazwy ani dat.");
+    expect(row).toHaveTextContent("Każde stanowisko ma nazwę");
+    expand(row);
+    // Wskazanie roli to linia jej tytułu — tu pusta, nad firmą tego stanowiska.
+    await waitFor(() => expect(editor.view.dom.querySelector(".cv-issue-focus")).not.toBeNull());
+    const focus = editor.view.dom.querySelector(".cv-issue-focus") as HTMLElement;
+    expect(focus.textContent).toBe("");
+    expect(focus.nextElementSibling?.textContent).toBe("Hurtownia Przykładowa");
+    expect(within(row).getByRole("button", { name: "Pokaż w CV" })).toBeInTheDocument();
+  });
+});
+
 describe("lata w punkcie 1 i daty stanowisk (R2–R3, 17.11.2026)", () => {
   const TENURE_CHECKS: QcCheck[] = [
     check({

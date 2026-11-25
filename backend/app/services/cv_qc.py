@@ -161,6 +161,8 @@ WARNING_KEYS = (
     "consent_matches",
     "must_only_summary",
     "role_employer",
+    # 25.11.2026: stanowisko bez nazwy albo z pustą linią (`generator-cv/stanowisko-bez-dat-firmy-nazwy.md`).
+    "role_title",
     # R2–R3 (17.11.2026): lata w punkcie 1 i daty stanowisk (`cv_tenure_checks`).
     "years_breakdown",
     "role_dates_reversed",
@@ -200,6 +202,7 @@ LABELS = {
     "years_breakdown": "Lata w punkcie 1 z dat stanowisk",
     "role_dates_reversed": "Data końca stanowiska po dacie startu",
     "role_year_only": "Miesiące w datach stanowisk jak w oryginale",
+    "role_title": "Każde stanowisko ma nazwę",
 }
 
 # Powody obejścia QC do wyboru (02.10.2026). Minimum 10 znaków wolnego tekstu
@@ -2041,6 +2044,48 @@ def _role_employer_check(
     )
 
 
+# Daty i słowa trwania w linii stanowiska — reszta linii to nazwa stanowiska.
+_ROLE_LINE_DATES = re.compile(
+    rf"{_DATE_IN_ROLE.pattern}|\b(?:currently|current|aktualnie|do\s+dziś)\b",
+    re.IGNORECASE,
+)
+
+
+def _role_name(block: Block) -> str:
+    """Nazwa stanowiska z linii roli: pogrubiona część, a bez pogrubienia cała
+    linia; bez dat. Same daty (także pogrubione) to brak nazwy."""
+
+    bold = "".join(r["t"] for r in block.runs if r["b"]).strip()
+    rest = _ROLE_LINE_DATES.sub(" ", bold or block.text)
+    return rest.strip() if len(re.sub(r"[\W\d_]", "", rest)) >= 2 else ""
+
+
+def _role_title_check(blocks: list[Block], roles: list[CvRole]) -> dict:
+    """Stanowisko bez nazwy (25.11.2026). Generator zostawia puste `position`,
+    gdy oryginał wymienia samą firmę z datami („Wcześniej: PKO Bank Polski,
+    2018”), a rekruter kasuje czasem całą linię i zostaje sama firma. Daty
+    i firmę sprawdzają `dates` i `role_employer`. Uwaga, nie blokada
+    (decyzja Artura 25.11.2026)."""
+
+    key = "role_title"
+    if not roles or not any(b.section == "role" for b in blocks):
+        return _check(key, "skip", "CV bez znaczników stanowisk")
+    items = []
+    for n, role in enumerate(roles):
+        head = blocks[role.blocks[0]]
+        if head.section != "role" or _role_name(head):
+            continue
+        where = f" w {role.role.company}" if role.role.company else ""
+        if head.text:
+            detail = f"Stanowisko{where} ({head.text}) nie ma nazwy."
+        else:
+            detail = f"Stanowisko{where} nie ma nazwy ani dat."
+        items.append(_item(role=role.role.label, detail=detail, role_index=n))
+    return _check(
+        key, _status(items), f"{len(items)} bez nazwy" if items else "OK", items
+    )
+
+
 _NO_EMPLOYER_WORDS = re.compile(
     r"\b(?:leave|urlop\w*|przerw\w*|sabbatical|career break|freelanc\w*|"
     r"self[- ]employed|private|prywatn\w*|działalność|wolny strzelec)\b",
@@ -2759,6 +2804,7 @@ def compute_checks(data: QcInput) -> list[dict]:
         )
     )
     checks.append(_role_employer_check(blocks, orig_roles, roles))
+    checks.append(_role_title_check(blocks, roles))
     today = data.today or business_today()
     checks.append(_years_breakdown_check(blocks, roles, today))
     checks.append(_role_dates_reversed_check(blocks, roles))
@@ -6021,7 +6067,7 @@ class _EditableParser(dz._BlockParser):
         super()._append(data)
 
     def _flush(self):
-        if self._current is not None and self._current.text:
+        if self._current is not None and dz._kept(self._current):
             self.spans.append((self._cur_start, self._end))
         known = len(self.blocks)
         super()._flush()

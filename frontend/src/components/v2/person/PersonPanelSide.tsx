@@ -192,6 +192,9 @@ const RESIZE_STEP = 40;
 export interface PersonPanelConversationMode {
   on: boolean;
   toggle: () => void;
+  /** Strona „Arkusza rozmowy” — wybór osoby, pamiętany z układem panelu. */
+  sheetSide: "left" | "right";
+  setSheetSide: (side: "left" | "right") => void;
 }
 
 const ConversationModeContext = createContext<PersonPanelConversationMode | null>(null);
@@ -234,14 +237,22 @@ export function PersonPanelColumn({ split, testId = "person-panel-column", child
   const conversation = useMemo<PersonPanelConversationMode | null>(
     () =>
       adjustable && setLayout
-        ? { on: layout.compact, toggle: () => setLayout({ compact: !layout.compact }) }
+        ? {
+            on: layout.compact,
+            toggle: () => setLayout({ compact: !layout.compact }),
+            sheetSide: layout.sheetSide,
+            setSheetSide: (sheetSide: "left" | "right") => setLayout({ sheetSide }),
+          }
         : null,
-    [adjustable, setLayout, layout.compact],
+    [adjustable, setLayout, layout.compact, layout.sheetSide],
   );
 
+  // Arkusz po prawej: kolumna na pół panelu, CV obok w drugiej połowie.
+  const sheetRight = conversation?.on === true && layout.sheetSide === "right";
   let width: string | false = false;
   if (split) {
     if (columnWidth != null) width = "lg:flex-none";
+    else if (sheetRight && !layout.cvCollapsed) width = "lg:w-1/2 lg:flex-none";
     else if (bothCollapsed(layout)) width = "lg:flex-1";
     else if (layout.cvCollapsed) width = "lg:w-[calc((100%-2.75rem)/2)] lg:flex-none";
     else width = "lg:w-[460px] lg:flex-none 2xl:w-[520px]";

@@ -382,3 +382,8 @@ def test_poczta_zapisuje_eksport_fieldglass_jako_raport():
 
     content = _fg_xlsx(_fg_october())
     assert kind_of_file("Faktura 10/2026", "2026-10.xlsx", content) == "report"
+
+
+def test_fieldglass_komorka_wielowierszowa_z_przecinkiem_nie_wywraca_odczytu():
+    cells = timesheet_fieldglass._cells(("Uwagi: dzień 1,\npoprawione",))
+    assert cells == ["Uwagi: dzień 1,\npoprawione"]

@@ -208,6 +208,10 @@ def read(content: bytes) -> list[T4tSheet]:
         raise T4tError("To nie jest plik Excel (XLSX).") from exc
     try:
         sheets = [s for s in map(_read_sheet, workbook.worksheets) if s is not None]
+    except (TypeError, ValueError, KeyError, AttributeError) as exc:
+        # openpyxl nie zna części atrybutów z innych programów (np. ``showZeroes``
+        # w widoku arkusza z LibreOffice): to nie raport T4T, a mail ma iść dalej.
+        raise T4tError("Nie da się odczytać arkusza Excela.") from exc
     finally:
         workbook.close()
     if not sheets:

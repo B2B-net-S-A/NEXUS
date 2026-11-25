@@ -202,3 +202,30 @@ def test_dodatki_i_czesc_innego_klienta_odjete_od_netto():
     assert hours.net == Decimal("20100.00")
     assert "innego klienta" in (hours.note or "")
     assert "dodatki" in (hours.note or "")
+
+
+def _with_sheet_view_attr(content: bytes, attr: str) -> bytes:
+    """Skoroszyt z atrybutem widoku arkusza, którego openpyxl nie zna (z LibreOffice)."""
+
+    import zipfile
+
+    src = zipfile.ZipFile(io.BytesIO(content))
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as dst:
+        for item in src.infolist():
+            data = src.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                data = data.replace(b"<sheetView ", f"<sheetView {attr} ".encode(), 1)
+            dst.writestr(item, data)
+    return out.getvalue()
+
+
+def test_read_arkusz_z_nieznanym_atrybutem_widoku_to_nie_t4t_a_nie_wyjatek():
+    book = openpyxl.Workbook()
+    book.active.append(["Time sheet konsultanta", "8"])
+    buf = io.BytesIO()
+    book.save(buf)
+    content = _with_sheet_view_attr(buf.getvalue(), 'showZeroes="0"')
+
+    with pytest.raises(t4t.T4tError):
+        t4t.read(content)

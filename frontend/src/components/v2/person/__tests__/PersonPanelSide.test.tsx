@@ -252,6 +252,7 @@ describe("układ podglądu (zwijanie CV i wymagań, 13.10.2026)", () => {
       infoCollapsed: false,
       columnWidth: null,
       compact: false,
+      sheetSide: "right",
     });
     unmount();
 
@@ -419,6 +420,20 @@ describe("szerokość kolumny i tryb rozmowy (29.10.2026)", () => {
 
     render(<AdjustablePanel />);
     expect(screen.getByTestId("person-panel-column")).toHaveAttribute("data-compact", "");
+  });
+
+  it("tryb rozmowy z arkuszem po prawej dzieli panel po połowie; arkusz po lewej zostawia szerokość domyślną (25.11.2026)", () => {
+    mockViewport(true);
+    window.localStorage.setItem("nexus:person-preview-layout:7", JSON.stringify({ compact: true }));
+    const { unmount } = render(<AdjustablePanel />);
+    expect(screen.getByTestId("person-panel-column").className).toContain("lg:w-1/2");
+    unmount();
+
+    window.localStorage.setItem("nexus:person-preview-layout:7", JSON.stringify({ compact: true, sheetSide: "left" }));
+    render(<AdjustablePanel />);
+    const column = screen.getByTestId("person-panel-column");
+    expect(column.className).not.toContain("lg:w-1/2");
+    expect(column.className).toContain("lg:w-[460px]");
   });
 
   it("dok (panel nie jest dzielony) nie ma trybu rozmowy, nawet zapamiętanego", () => {

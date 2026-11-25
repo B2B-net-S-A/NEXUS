@@ -284,7 +284,8 @@ export function ScreeningWorkbench({
   const previewInSide = usePersonPanelSideActive();
   // „Tryb rozmowy” → arkusz w lewej strefie; zakładka „Arkusz rozmowy” na start.
   const conversation = usePersonPanelConversationMode();
-  const [sheetOnTop, setSheetOnTop] = useState(true);
+  // Kolejny kandydat otwiera się na CV, nie na arkuszu (zgłoszenie rekrutera 25.11.2026).
+  const [sheetOnTop, setSheetOnTop] = useState(false);
   const formHost = useMovableHost("flex min-h-full flex-col");
 
   const viewState = resolveViewState({ isLoading, isError, error, isSuccess });
@@ -320,10 +321,15 @@ export function ScreeningWorkbench({
   const ended =
     state != null && !state.editable && state.read_only_reason != null && ENDED_REASONS.has(state.read_only_reason);
   // Przed telefonem („Nowi”) rekruter czyta CV, w trakcie rozmowy — wymagania.
-  const tab: PreviewTab = previewTab ?? (inNew ? "cv" : "requirements");
+  // W Trybie rozmowy zawsze najpierw CV.
+  const tab: PreviewTab = previewTab ?? (inNew || conversation?.on === true ? "cv" : "requirements");
   // Arkusz rozmowy tylko z formularzem do pisania — zakończony proces zostaje widokiem po prawej.
-  const sheetMode =
+  const sheetAllowed =
     conversation?.on === true && previewInSide && formHost.node != null && !ended && !readOnly && state?.editable === true;
+  // Arkusz po lewej (zakładka obok CV) albo po prawej (kolumna na pół panelu, CV widoczne obok).
+  const sheetRight = sheetAllowed && conversation?.sheetSide === "right";
+  const sheetMode = sheetAllowed && !sheetRight;
+  const formLayout = sheetAllowed ? "sheet" : "column";
 
   const forward =
     entry && verifiedCol && !readOnly
@@ -526,7 +532,7 @@ export function ScreeningWorkbench({
     activeJoint ? (
       <JointScreeningForm
         key={`${memoryEpoch}:${item.candidate_id}:${activeJoint.others.map((p) => p.job_id).join(",")}`}
-        layout={sheetMode ? "sheet" : "column"}
+        layout={formLayout}
         candidateId={item.candidate_id}
         candidateName={name}
         anchor={{
@@ -553,7 +559,7 @@ export function ScreeningWorkbench({
     ) : (
     <ScreeningFullForm
       key={memoryEpoch}
-      layout={sheetMode ? "sheet" : "column"}
+      layout={formLayout}
       candidateId={item.candidate_id}
       jobId={jobId}
       candidateName={name}
@@ -613,6 +619,8 @@ export function ScreeningWorkbench({
   } else {
     left = (
       <div className="space-y-3">
+        {/* Arkusz po prawej (25.11.2026): arkusz na górze kolumny, obok CV, bez przewijania. */}
+        {sheetRight ? <MovableSlot host={formHost} /> : null}
         {/* P2 (14.10.2026): to, co już wiemy, nad formularzem — bez kroku „Zacznij screening”. */}
         {entry ? (
           <BeforeCallProfile
@@ -669,7 +677,7 @@ export function ScreeningWorkbench({
             }}
           />
         ) : null}
-        {sheetMode ? null : <MovableSlot host={formHost} />}
+        {sheetMode || sheetRight ? null : <MovableSlot host={formHost} />}
       </div>
     );
   }
