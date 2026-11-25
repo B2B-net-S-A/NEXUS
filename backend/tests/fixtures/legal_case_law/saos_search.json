@@ -1,0 +1,13 @@
+{
+  "links": [{"rel": "self", "href": "https://www.saos.org.pl/api/search/judgments?pageSize=3"}],
+  "items": [
+    {"id": 900001, "href": "https://www.saos.org.pl/api/judgments/900001", "courtType": "SUPREME",
+     "courtCases": [{"caseNumber": "IV CSK 999/09"}], "judgmentType": "SENTENCE",
+     "textContent": " <em>miarkowanie</em> <em>kary</em> <em>umownej</em> ...", "judgmentDate": "2010-04-16"},
+    {"id": 900002, "href": "https://www.saos.org.pl/api/judgments/900002", "courtType": "COMMON",
+     "courtCases": [{"caseNumber": "I AGa 999/23"}], "judgmentType": "SENTENCE",
+     "textContent": " ... ", "judgmentDate": "2024-05-24"},
+    {"href": "https://www.saos.org.pl/api/judgments/bez-id"}
+  ],
+  "info": {"totalResults": 3}
+}

@@ -1,0 +1,15 @@
+{
+  "links": [{"rel": "self", "href": "https://www.saos.org.pl/api/judgments/900001"}],
+  "data": {
+    "id": 900001,
+    "courtType": "SUPREME",
+    "courtCases": [{"caseNumber": "IV CSK 999/09"}],
+    "judgmentType": "SENTENCE",
+    "judgmentDate": "2010-04-16",
+    "judges": [{"name": "Sędzia Przykładowy", "function": "SSN", "specialRoles": ["PRESIDING_JUDGE"]}],
+    "source": {"code": "SUPREME_COURT", "judgmentUrl": "http://www.sn.pl/orzecznictwo/SitePages/Baza_orzeczen"},
+    "summary": null,
+    "textContent": "Sygn. akt IV CSK 999/09\nWYROK\nW IMIENIU RZECZYPOSPOLITEJ POLSKIEJ\nDnia 16 kwietnia 2010 r.\nSąd Najwyższy w składzie:\nw sprawie z powództwa Spółki A. przeciwko Gminie B. o zapłatę,\noddala skargę kasacyjną.\nUZASADNIENIE\nSąd Apelacyjny uznał, że tylko wyraźne i umotywowane żądanie dłużnika może być podstawą miarkowania kary umownej na podstawie art. 484 § 2 k.c. Kara umowna rażąco wygórowana podlega zmniejszeniu.",
+    "division": {"id": 9, "name": "Wydział IV", "chambers": [{"id": 2, "name": "Izba Cywilna"}]}
+  }
+}

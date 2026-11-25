@@ -257,6 +257,7 @@ from app.api import client_time_reports as client_time_reports_api
 from app.api import settlement_reminders as settlement_reminders_api
 from app.api import client_reports as client_reports_api
 from app.api import law_radar as law_radar_api
+from app.api import legal_case_law as legal_case_law_api
 from app.api import supervisory_board as supervisory_board_api
 from app.api import client_einvoices as client_einvoices_api
 from app.api import finance_ledger as finance_ledger_api
@@ -1679,6 +1680,8 @@ app.include_router(
 )
 # Radar przepisów (0713, decyzje Artura 15.11.2026): ekran „Przepisy”.
 app.include_router(law_radar_api.router, prefix="/api/compliance", tags=["compliance"])
+# Asystent prawny, część C (25.11.2026): orzecznictwo z SAOS jako źródło.
+app.include_router(legal_case_law_api.router, prefix="/api/legal", tags=["legal"])
 # Rada nadzorcza (R1, decyzje Artura 16.11.2026): dokumenty korporacyjne i odpis KRS.
 app.include_router(
     supervisory_board_api.router,
@@ -4284,6 +4287,7 @@ async def api_health_deep_check(request: Request):
         TrainingTranscript,
     )
     from app.models.finance_archive import FinanceArchiveDocument
+    from app.models.legal_case_law import LegalCase
     from app.models.client_order_revenue_step import ClientOrderRevenueStep
     from app.models.contract_document_rate_read import ContractDocumentRateRead
     from app.models.contract_partner_read import ContractPartnerRead
@@ -4989,6 +4993,8 @@ async def api_health_deep_check(request: Request):
         ("law_change_tasks", LawChangeTask),
         ("law_change_events", LawChangeEvent),
         ("law_change_probes", LawChangeProbe),
+        # 0781: orzecznictwo asystenta prawnego.
+        ("legal_cases", LegalCase),
         # 0732: bot Cpro — biegi rutyny Grok Bota.
         ("cpro_bot_runs", CproBotRun),
         # 0750: kolejka odczytów CV wsadem.
