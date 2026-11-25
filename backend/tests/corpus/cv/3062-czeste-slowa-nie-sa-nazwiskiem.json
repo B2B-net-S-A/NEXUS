@@ -1,0 +1,7 @@
+{
+  "id": "cv-3062-czeste-slowa-nie-sa-nazwiskiem",
+  "poprawka": "f82a565d9 #3062",
+  "opis": "Nagłówek „Doświadczenie Zawodowe” to nie imię i nazwisko; nazwa z nagłówka bierze się z linii z osobą",
+  "wejscie": {"odczyt": {"tekst": "Doświadczenie Zawodowe\nAnna Korpusowa\nJava Developer\n2020 - 2024 Firma Przykładowa", "model": null}},
+  "oczekiwane": {"nazwa": [{"imie": "Anna", "nazwisko": "Korpusowa"}]}
+}

@@ -103,9 +103,51 @@ def _cv_document(case: dict):
     return NewCvDocument.from_cv_json(data), today
 
 
+def _parsed_fields(case: dict) -> dict[str, list[dict]]:
+    """Etap odczytu pliku CV (``cv_parser``): wynik modelu z przypadku (zapisany
+    przy odczycie) przechodzi tę samą obróbkę co u rekrutera; bez wyniku modelu
+    działa sama heurystyka (nazwa z nagłówka, kontakt z regexu)."""
+
+    from app.services import cv_parser
+
+    spec = case["wejscie"]["odczyt"]
+    text = spec.get("tekst") or ""
+    model = spec.get("model")
+    if model is None:
+        out = cv_parser.normalize_cv_output(cv_parser._regex_fallback(text))
+    else:
+        out = cv_parser.finalize_claude_cv_output(copy.deepcopy(model), text)
+    roles = [
+        {
+            "od": job.get("start"),
+            "do": job.get("end"),
+            "firma": job.get("company"),
+            "stanowisko": job.get("role"),
+        }
+        for job in out.get("experience") or []
+    ]
+    schools = [
+        {
+            "uczelnia": school.get("school"),
+            "kierunek": school.get("field"),
+            "stopien": school.get("degree"),
+            "rok": school.get("year"),
+        }
+        for school in out.get("education") or []
+    ]
+    return {
+        "daty": roles,
+        "edukacja": schools,
+        "nazwa": [{"imie": out.get("first_name"), "nazwisko": out.get("last_name")}],
+        "jezyki": [{"jezyk": x} if isinstance(x, str) else x for x in out.get("languages") or []],
+    }
+
+
 def _cv_fields(case: dict) -> dict[str, list[dict]]:
     from app.services.cv_new_layout import facts
 
+    if (case.get("wejscie") or {}).get("odczyt") is not None:
+        return _parsed_fields(case)
     doc, today = _cv_document(case)
     now = facts.year_fraction(today)
     language = doc.language
