@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 
 from fastapi import FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient
-from jose import jwt
+import jwt
 import pytest
 
 from app.api import cv_generator_b2b as api
@@ -52,11 +52,11 @@ def test_receipt_cannot_move_to_another_operator_or_cv_file():
 def test_expired_forged_or_other_purpose_receipts_are_rejected(kind):
     token = binding.issue("cv/synthetic-consent.png", 7, CONTEXT)
     if kind == "expired":
-        payload = jwt.get_unverified_claims(token)
+        payload = jwt.decode(token, options={"verify_signature": False})
         payload["exp"] = 1
         token = jwt.encode(payload, binding._key(), algorithm="HS256")
     elif kind == "tampered":
-        payload = jwt.get_unverified_claims(token)
+        payload = jwt.decode(token, options={"verify_signature": False})
         payload["owner"] = 8
         token = jwt.encode(payload, "wrong-key", algorithm="HS256")
     elif kind == "access_token":
@@ -65,6 +65,18 @@ def test_expired_forged_or_other_purpose_receipts_are_rejected(kind):
         token = create_access_token(7, "recruiter")
     else:
         token = "cv/synthetic-consent.png"
+    with pytest.raises(ValueError):
+        binding.verify(token, 7, CONTEXT)
+
+
+@pytest.mark.parametrize("claim", ["exp", "iat", "aud"])
+def test_receipt_without_a_required_claim_is_rejected(claim):
+    """PyJWT pomija nieznane klucze opcji: jose-owe ``require_exp`` przepuściłoby
+    pokwitowanie bez ``exp``, ważne wtedy bezterminowo."""
+    token = binding.issue("cv/synthetic-consent.png", 7, CONTEXT)
+    payload = jwt.decode(token, options={"verify_signature": False})
+    del payload[claim]
+    token = jwt.encode(payload, binding._key(), algorithm="HS256")
     with pytest.raises(ValueError):
         binding.verify(token, 7, CONTEXT)
 

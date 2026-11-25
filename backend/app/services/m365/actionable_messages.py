@@ -31,7 +31,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlencode
 
-from jose import JWTError, jwt
+import jwt
 
 from app.core.config import settings
 
@@ -88,7 +88,7 @@ def verify_confirmation_token(token: str) -> dict[str, Any]:
     """
     try:
         payload = jwt.decode(token, _signing_key(), algorithms=[_JWT_ALGORITHM])
-    except JWTError as exc:
+    except jwt.PyJWTError as exc:
         raise ActionableMessageError(f"token decode failed: {exc}") from exc
 
     if payload.get("purpose") != _JWT_PURPOSE:

@@ -18,8 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
-from jose import JWTError
-from jose import jwt as jose_jwt
+import jwt
 
 from app.core.security import secrets_equal
 
@@ -199,7 +198,7 @@ def test_login_state_carries_no_pkce_verifier_and_binds_browser():
 
     binding = ms._browser_binding("sekret-karty")
     state = ms._sign_login_state(binding)
-    claims = jose_jwt.get_unverified_claims(state)
+    claims = jwt.decode(state, options={"verify_signature": False})
     assert "pkce" not in claims
     parsed = ms._verify_login_state(state)
     assert parsed.browser_binding == binding
@@ -213,7 +212,7 @@ def test_legacy_state_with_plain_pkce_is_rejected():
     from app.api import auth_microsoft as ms
 
     now = datetime.now(timezone.utc)
-    legacy = jose_jwt.encode(
+    legacy = jwt.encode(
         {
             "pkce": "v" * 64,
             "iat": now,
@@ -223,7 +222,7 @@ def test_legacy_state_with_plain_pkce_is_rejected():
         ms._state_signing_key(),
         algorithm="HS256",
     )
-    with pytest.raises(JWTError):
+    with pytest.raises(jwt.InvalidTokenError):
         ms._verify_login_state(legacy)
 
 

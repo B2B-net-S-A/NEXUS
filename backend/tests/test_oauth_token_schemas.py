@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
-from jose import jwt
+import jwt
 from pydantic import ValidationError
 
 from app.api.oauth_token import (
